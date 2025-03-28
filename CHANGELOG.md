@@ -39,6 +39,9 @@ and this project adheres to
   the `SendCtrlAltDel` command not working for ACPI-enabled guest kernels, by
   dropping the i8042.nopnp argument from the default kernel command line
   Firecracker constructs.
+- #[???](???): Fix failure during diff snapshot creation corrupting internal
+  state about which pages were dirtied since the last snapshot, meaning no
+  further diff snapshots could ever be taken, even if the error is transient.
 
 ## [1.11.0]
 

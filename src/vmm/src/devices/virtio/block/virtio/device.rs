@@ -27,7 +27,9 @@ use crate::devices::virtio::device::{DeviceState, IrqTrigger, IrqType, VirtioDev
 use crate::devices::virtio::generated::virtio_blk::{
     VIRTIO_BLK_F_FLUSH, VIRTIO_BLK_F_RO, VIRTIO_BLK_ID_BYTES,
 };
-use crate::devices::virtio::generated::virtio_config::VIRTIO_F_VERSION_1;
+use crate::devices::virtio::generated::virtio_config::{
+    VIRTIO_F_ACCESS_PLATFORM, VIRTIO_F_VERSION_1,
+};
 use crate::devices::virtio::generated::virtio_ring::VIRTIO_RING_F_EVENT_IDX;
 use crate::devices::virtio::queue::Queue;
 use crate::devices::virtio::{ActivateError, TYPE_BLOCK};
@@ -576,6 +578,10 @@ impl VirtioDevice for VirtioBlock {
 
     fn set_acked_features(&mut self, acked_features: u64) {
         self.acked_features = acked_features;
+    }
+
+    fn force_swiotlb(&mut self) {
+        self.avail_features |= 1 << VIRTIO_F_ACCESS_PLATFORM;
     }
 
     fn device_type(&self) -> u32 {

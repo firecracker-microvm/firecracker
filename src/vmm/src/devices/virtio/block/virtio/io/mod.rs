@@ -188,13 +188,15 @@ pub mod tests {
     #![allow(clippy::undocumented_unsafe_blocks)]
     use std::os::unix::ffi::OsStrExt;
 
+    use vm_memory::GuestMemoryRegion;
     use vmm_sys_util::tempfile::TempFile;
 
     use super::*;
     use crate::devices::virtio::block::virtio::device::FileEngineType;
     use crate::utils::u64_to_usize;
     use crate::vmm_config::machine_config::HugePageConfig;
-    use crate::vstate::memory::{Bitmap, Bytes, GuestMemory, GuestMemoryExtension};
+    use crate::vstate::memory;
+    use crate::vstate::memory::{Bitmap, Bytes, GuestMemory, KvmRegion};
 
     const FILE_LEN: u32 = 1024;
     // 2 pages of memory should be enough to test read/write ops and also dirty tracking.
@@ -230,10 +232,16 @@ pub mod tests {
     }
 
     fn create_mem() -> GuestMemoryMmap {
-        GuestMemoryMmap::anonymous(
-            [(GuestAddress(0), MEM_LEN)].into_iter(),
-            true,
-            HugePageConfig::None,
+        GuestMemoryMmap::from_regions(
+            memory::anonymous(
+                [(GuestAddress(0), MEM_LEN)].into_iter(),
+                true,
+                HugePageConfig::None,
+            )
+            .unwrap()
+            .into_iter()
+            .map(|region| KvmRegion::from_mmap_region(region, 0))
+            .collect(),
         )
         .unwrap()
     }

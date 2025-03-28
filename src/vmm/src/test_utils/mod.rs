@@ -5,7 +5,7 @@
 
 use std::sync::{Arc, Mutex};
 
-use vm_memory::GuestAddress;
+use vm_memory::{GuestAddress, GuestRegionCollection};
 use vmm_sys_util::tempdir::TempDir;
 
 use crate::builder::build_microvm_for_boot;
@@ -15,7 +15,8 @@ use crate::test_utils::mock_resources::{MockBootSourceConfig, MockVmConfig, Mock
 use crate::vmm_config::boot_source::BootSourceConfig;
 use crate::vmm_config::instance_info::InstanceInfo;
 use crate::vmm_config::machine_config::HugePageConfig;
-use crate::vstate::memory::{GuestMemoryExtension, GuestMemoryMmap};
+use crate::vstate::memory;
+use crate::vstate::memory::{GuestMemoryMmap, GuestRegionMmap, KvmRegion};
 use crate::{EventManager, Vmm};
 
 pub mod mock_resources;
@@ -26,22 +27,45 @@ pub fn single_region_mem(region_size: usize) -> GuestMemoryMmap {
     single_region_mem_at(0, region_size)
 }
 
+pub fn single_region_mem_raw(region_size: usize) -> Vec<GuestRegionMmap> {
+    single_region_mem_at_raw(0, region_size)
+}
+
 /// Creates a [`GuestMemoryMmap`] with a single region of the given size starting at the given
 /// guest physical address `at` and without dirty tracking.
 pub fn single_region_mem_at(at: u64, size: usize) -> GuestMemoryMmap {
     multi_region_mem(&[(GuestAddress(at), size)])
 }
 
+pub fn single_region_mem_at_raw(at: u64, size: usize) -> Vec<GuestRegionMmap> {
+    multi_region_mem_raw(&[(GuestAddress(at), size)])
+}
+
 /// Creates a [`GuestMemoryMmap`] with multiple regions and without dirty page tracking.
 pub fn multi_region_mem(regions: &[(GuestAddress, usize)]) -> GuestMemoryMmap {
-    GuestMemoryMmap::anonymous(regions.iter().copied(), false, HugePageConfig::None)
+    GuestRegionCollection::from_regions(
+        memory::anonymous(regions.iter().copied(), false, HugePageConfig::None)
+            .expect("Cannot initialize memory")
+            .into_iter()
+            .map(|region| KvmRegion::from_mmap_region(region, 0))
+            .collect(),
+    )
+    .unwrap()
+}
+
+pub fn multi_region_mem_raw(regions: &[(GuestAddress, usize)]) -> Vec<GuestRegionMmap> {
+    memory::anonymous(regions.iter().copied(), false, HugePageConfig::None)
         .expect("Cannot initialize memory")
 }
 
 /// Creates a [`GuestMemoryMmap`] of the given size with the contained regions laid out in
 /// accordance with the requirements of the architecture on which the tests are being run.
 pub fn arch_mem(mem_size_bytes: usize) -> GuestMemoryMmap {
-    multi_region_mem(&crate::arch::arch_memory_regions(mem_size_bytes))
+    multi_region_mem(&crate::arch::arch_memory_regions(0, mem_size_bytes))
+}
+
+pub fn arch_mem_raw(mem_size_bytes: usize) -> Vec<GuestRegionMmap> {
+    multi_region_mem_raw(&crate::arch::arch_memory_regions(0, mem_size_bytes))
 }
 
 pub fn create_vmm(

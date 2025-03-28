@@ -376,6 +376,16 @@ def io_engine(request):
     return request.param
 
 
+@pytest.fixture(
+    params=[None, 16, 32, 64] if platform.machine() == "aarch64" else [None]
+)
+def memory_config(request):
+    """Differently configured swiotlb regions. Only supported on aarch64"""
+    if request.param is None:
+        return None
+    return {"initial_swiotlb_size": request.param}
+
+
 @pytest.fixture
 def results_dir(request):
     """

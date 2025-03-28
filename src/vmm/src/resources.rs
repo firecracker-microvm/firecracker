@@ -29,7 +29,8 @@ use crate::vmm_config::metrics::{MetricsConfig, MetricsConfigError, init_metrics
 use crate::vmm_config::mmds::{MmdsConfig, MmdsConfigError};
 use crate::vmm_config::net::*;
 use crate::vmm_config::vsock::*;
-use crate::vstate::memory::{GuestMemoryExtension, GuestMemoryMmap, MemoryError};
+use crate::vstate::memory;
+use crate::vstate::memory::{GuestRegionMmap, MemoryError};
 
 /// Errors encountered when configuring microVM resources.
 #[derive(Debug, thiserror::Error, displaydoc::Display)]
@@ -436,41 +437,92 @@ impl VmResources {
         Ok(())
     }
 
-    /// Allocates guest memory in a configuration most appropriate for these [`VmResources`].
-    ///
-    /// If vhost-user-blk devices are in use, allocates memfd-backed shared memory, otherwise
-    /// prefers anonymous memory for performance reasons.
-    pub fn allocate_guest_memory(&self) -> Result<GuestMemoryMmap, MemoryError> {
-        let vhost_user_device_used = self
-            .block
+    /// Returns true if any vhost user devices are configured int his [`VmResources`] object
+    pub fn vhost_user_devices_used(&self) -> bool {
+        self.block
             .devices
             .iter()
-            .any(|b| b.lock().expect("Poisoned lock").is_vhost_user());
+            .any(|b| b.lock().expect("Poisoned lock").is_vhost_user())
+    }
 
-        // Page faults are more expensive for shared memory mapping, including  memfd.
-        // For this reason, we only back guest memory with a memfd
-        // if a vhost-user-blk device is configured in the VM, otherwise we fall back to
-        // an anonymous private memory.
-        //
-        // The vhost-user-blk branch is not currently covered by integration tests in Rust,
-        // because that would require running a backend process. If in the future we converge to
-        // a single way of backing guest memory for vhost-user and non-vhost-user cases,
-        // that would not be worth the effort.
-        if vhost_user_device_used {
-            GuestMemoryMmap::memfd_backed(
-                self.machine_config.mem_size_mib,
+    /// The size of the swiotlb region requested, in MiB
+    #[cfg(target_arch = "aarch64")]
+    pub fn swiotlb_size_mib(&self) -> usize {
+        self.machine_config.mem_config.initial_swiotlb_size
+    }
+
+    /// The size of the swiotlb region requested, in MiB
+    #[cfg(target_arch = "x86_64")]
+    pub fn swiotlb_size_mib(&self) -> usize {
+        0
+    }
+
+    /// Whether the use of swiotlb was requested
+    pub fn swiotlb_used(&self) -> bool {
+        self.swiotlb_size_mib() > 0
+    }
+
+    fn allocate_memory(
+        &self,
+        offset: usize,
+        size: usize,
+        vhost_accessible: bool,
+    ) -> Result<Vec<GuestRegionMmap>, MemoryError> {
+        let regions = crate::arch::arch_memory_regions(offset, size);
+        if vhost_accessible {
+            memory::memfd_backed(
+                regions.as_ref(),
                 self.machine_config.track_dirty_pages,
                 self.machine_config.huge_pages,
             )
         } else {
-            let regions =
-                crate::arch::arch_memory_regions(mib_to_bytes(self.machine_config.mem_size_mib));
-            GuestMemoryMmap::anonymous(
+            memory::anonymous(
                 regions.into_iter(),
                 self.machine_config.track_dirty_pages,
                 self.machine_config.huge_pages,
             )
         }
+    }
+
+    /// Allocates guest memory in a configuration most appropriate for these [`VmResources`].
+    ///
+    /// If vhost-user-blk devices are in use, allocates memfd-backed shared memory, otherwise
+    /// prefers anonymous memory for performance reasons.
+    pub fn allocate_guest_memory(&self) -> Result<Vec<GuestRegionMmap>, MemoryError> {
+        // Page faults are more expensive for shared memory mapping, including  memfd.
+        // For this reason, we only back guest memory with a memfd
+        // if a vhost-user-blk device is configured in the VM, otherwise we fall back to
+        // an anonymous private memory.
+        //
+        // Note that if a swiotlb region is used, no I/O will go through the "regular"
+        // memory regions, and we can back them with anon memory regardless.
+        //
+        // The vhost-user-blk branch is not currently covered by integration tests in Rust,
+        // because that would require running a backend process. If in the future we converge to
+        // a single way of backing guest memory for vhost-user and non-vhost-user cases,
+        // that would not be worth the effort.
+        self.allocate_memory(
+            0,
+            mib_to_bytes(self.machine_config.mem_size_mib - self.swiotlb_size_mib()),
+            self.vhost_user_devices_used() && !self.swiotlb_used(),
+        )
+    }
+
+    /// Allocates the dedicated I/O region for swiotlb use, if one was requested.
+    pub fn allocate_swiotlb_region(&self) -> Result<Option<GuestRegionMmap>, MemoryError> {
+        if !self.swiotlb_used() {
+            return Ok(None);
+        }
+
+        let swiotlb_size = mib_to_bytes(self.swiotlb_size_mib());
+        let start = mib_to_bytes(self.machine_config.mem_size_mib) - swiotlb_size;
+        let start = start.max(crate::arch::bytes_before_last_gap());
+
+        let mut mem = self.allocate_memory(start, swiotlb_size, self.vhost_user_devices_used())?;
+
+        assert_eq!(mem.len(), 1);
+
+        Ok(Some(mem.remove(0)))
     }
 }
 
@@ -1301,6 +1353,7 @@ mod tests {
         let mut aux_vm_config = MachineConfigUpdate {
             vcpu_count: Some(32),
             mem_size_mib: Some(512),
+            mem_config: Some(Default::default()),
             smt: Some(false),
             #[cfg(target_arch = "x86_64")]
             cpu_template: Some(StaticCpuTemplate::T2),

@@ -7,15 +7,15 @@ use std::time::Duration;
 
 use vmm::builder::build_and_boot_microvm;
 use vmm::devices::virtio::block::CacheType;
-use vmm::persist::{MicrovmState, MicrovmStateError, VmInfo, snapshot_state_sanity_check};
+use vmm::persist::{
+    MicrovmState, MicrovmStateError, RestoreMemoryError, VmInfo, snapshot_state_sanity_check,
+};
 use vmm::resources::VmResources;
 use vmm::rpc_interface::{
     LoadSnapshotError, PrebootApiController, RuntimeApiController, VmmAction, VmmActionError,
 };
 use vmm::seccomp::get_empty_filters;
 use vmm::snapshot::Snapshot;
-#[cfg(target_arch = "x86_64")]
-use vmm::test_utils::dirty_tracking_vmm;
 use vmm::test_utils::mock_resources::{MockVmResources, NOISY_KERNEL_IMAGE};
 use vmm::test_utils::{create_vmm, default_vmm, default_vmm_no_boot};
 use vmm::vmm_config::balloon::BalloonDeviceConfig;
@@ -112,8 +112,13 @@ fn test_dirty_bitmap_error() {
     // with errno 2 (ENOENT) because KVM can't find any guest memory regions with dirty
     // page tracking enabled.
     assert_eq!(
-        format!("{:?}", vmm.lock().unwrap().get_dirty_bitmap().err()),
-        "Some(DirtyBitmap(Error(2)))"
+        vmm.lock()
+            .unwrap()
+            .vm
+            .get_dirty_bitmap()
+            .unwrap_err()
+            .errno(),
+        2
     );
     vmm.lock().unwrap().stop(FcExitCode::Ok);
 }
@@ -122,11 +127,11 @@ fn test_dirty_bitmap_error() {
 #[cfg(target_arch = "x86_64")]
 fn test_dirty_bitmap_success() {
     // The vmm will start with dirty page tracking = ON.
-    let (vmm, _) = dirty_tracking_vmm(Some(NOISY_KERNEL_IMAGE));
+    let (vmm, _) = vmm::test_utils::dirty_tracking_vmm(Some(NOISY_KERNEL_IMAGE));
 
     // Let it churn for a while and dirty some pages...
     thread::sleep(Duration::from_millis(100));
-    let bitmap = vmm.lock().unwrap().get_dirty_bitmap().unwrap();
+    let bitmap = vmm.lock().unwrap().vm.get_dirty_bitmap().unwrap();
     let num_dirty_pages: u32 = bitmap
         .values()
         .map(|bitmap_per_region| {
@@ -292,20 +297,18 @@ fn test_create_and_load_snapshot() {
 
 #[test]
 fn test_snapshot_load_sanity_checks() {
-    use vmm::persist::SnapShotStateSanityCheckError;
-
     let mut microvm_state = get_microvm_state_from_snapshot();
 
     snapshot_state_sanity_check(&microvm_state).unwrap();
 
     // Remove memory regions.
-    microvm_state.memory_state.regions.clear();
+    microvm_state.vm_state.memory.regions.clear();
 
     // Validate sanity checks fail because there is no mem region in state.
-    assert_eq!(
+    assert!(matches!(
         snapshot_state_sanity_check(&microvm_state),
-        Err(SnapShotStateSanityCheckError::NoMemory)
-    );
+        Err(RestoreMemoryError::NoMemory)
+    ));
 }
 
 fn get_microvm_state_from_snapshot() -> MicrovmState {

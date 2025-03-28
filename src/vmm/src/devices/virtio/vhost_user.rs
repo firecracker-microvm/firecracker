@@ -380,7 +380,7 @@ impl<T: VhostUserHandleBackend> VhostUserHandleImpl<T> {
             let vhost_user_net_reg = VhostUserMemoryRegionInfo {
                 guest_phys_addr: region.start_addr().raw_value(),
                 memory_size: region.len(),
-                userspace_addr: region.as_ptr() as u64,
+                userspace_addr: region.inner().userspace_addr,
                 mmap_offset,
                 mmap_handle,
             };
@@ -459,14 +459,34 @@ impl<T: VhostUserHandleBackend> VhostUserHandleImpl<T> {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     #![allow(clippy::undocumented_unsafe_blocks)]
+
+    use std::fs::File;
 
     use vmm_sys_util::tempfile::TempFile;
 
     use super::*;
     use crate::test_utils::create_tmp_socket;
-    use crate::vstate::memory::{GuestAddress, GuestMemoryExtension};
+    use crate::vstate::memory;
+    use crate::vstate::memory::{GuestAddress, KvmRegion};
+
+    pub(crate) fn create_mem(file: File, regions: &[(GuestAddress, usize)]) -> GuestMemoryMmap {
+        GuestMemoryMmap::from_regions(
+            memory::create(
+                regions.iter().copied(),
+                libc::MAP_PRIVATE,
+                Some(file),
+                false,
+                0,
+            )
+            .unwrap()
+            .into_iter()
+            .map(|region| KvmRegion::from_mmap_region(region, 0))
+            .collect(),
+        )
+        .unwrap()
+    }
 
     #[test]
     fn test_new() {
@@ -763,9 +783,7 @@ mod tests {
             (GuestAddress(0x10000), region_size),
         ];
 
-        let guest_memory =
-            GuestMemoryMmap::create(regions.into_iter(), libc::MAP_PRIVATE, Some(file), false)
-                .unwrap();
+        let guest_memory = create_mem(file, &regions);
 
         vuh.update_mem_table(&guest_memory).unwrap();
 
@@ -775,7 +793,7 @@ mod tests {
             .map(|region| VhostUserMemoryRegionInfo {
                 guest_phys_addr: region.start_addr().raw_value(),
                 memory_size: region.len(),
-                userspace_addr: region.as_ptr() as u64,
+                userspace_addr: region.inner().userspace_addr,
                 mmap_offset: region.file_offset().unwrap().start(),
                 mmap_handle: region.file_offset().unwrap().file().as_raw_fd(),
             })
@@ -879,9 +897,7 @@ mod tests {
         file.set_len(region_size as u64).unwrap();
         let regions = vec![(GuestAddress(0x0), region_size)];
 
-        let guest_memory =
-            GuestMemoryMmap::create(regions.into_iter(), libc::MAP_PRIVATE, Some(file), false)
-                .unwrap();
+        let guest_memory = create_mem(file, &regions);
 
         let mut queue = Queue::new(69);
         queue.initialize(&guest_memory).unwrap();

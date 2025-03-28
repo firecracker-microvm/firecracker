@@ -188,7 +188,9 @@ mod tests {
     use crate::acpi::{AcpiError, AcpiTableWriter};
     use crate::arch::x86_64::layout::{SYSTEM_MEM_SIZE, SYSTEM_MEM_START};
     use crate::builder::tests::default_vmm;
-    use crate::test_utils::arch_mem;
+    use crate::device_manager::resources::ResourceAllocator;
+    use crate::utils::u64_to_usize;
+    use crate::vstate::vm::tests::setup_vm_with_memory;
 
     struct MockSdt(Vec<u8>);
 
@@ -215,7 +217,7 @@ mod tests {
         // A mocke Vmm object with 128MBs of memory
         let mut vmm = default_vmm();
         let mut writer = AcpiTableWriter {
-            mem: &vmm.guest_memory,
+            mem: vmm.vm.guest_memory(),
             resource_allocator: &mut vmm.resource_allocator,
         };
 
@@ -263,15 +265,10 @@ mod tests {
     // change in the future.
     #[test]
     fn test_write_acpi_table_small_memory() {
-        let mut vmm = default_vmm();
-        vmm.guest_memory = arch_mem(
-            (SYSTEM_MEM_START + SYSTEM_MEM_SIZE - 4096)
-                .try_into()
-                .unwrap(),
-        );
+        let (_, vm) = setup_vm_with_memory(u64_to_usize(SYSTEM_MEM_START + SYSTEM_MEM_SIZE - 4096));
         let mut writer = AcpiTableWriter {
-            mem: &vmm.guest_memory,
-            resource_allocator: &mut vmm.resource_allocator,
+            mem: vm.guest_memory(),
+            resource_allocator: &mut ResourceAllocator::new().unwrap(),
         };
 
         let mut sdt = MockSdt(vec![0; usize::try_from(SYSTEM_MEM_SIZE).unwrap()]);

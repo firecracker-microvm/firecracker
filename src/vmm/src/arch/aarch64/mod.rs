@@ -58,9 +58,20 @@ pub const MMIO_MEM_SIZE: u64 = layout::DRAM_MEM_START - layout::MAPPED_IO_START;
 
 /// Returns a Vec of the valid memory addresses for aarch64.
 /// See [`layout`](layout) module for a drawing of the specific memory model for this platform.
-pub fn arch_memory_regions(size: usize) -> Vec<(GuestAddress, usize)> {
-    let dram_size = min(size, layout::DRAM_MEM_MAX_SIZE);
-    vec![(GuestAddress(layout::DRAM_MEM_START), dram_size)]
+pub fn arch_memory_regions(offset: usize, size: usize) -> Vec<(GuestAddress, usize)> {
+    let dram_size = min(size, layout::DRAM_MEM_MAX_SIZE - offset);
+    vec![(
+        GuestAddress(layout::DRAM_MEM_START + offset as u64),
+        dram_size,
+    )]
+}
+
+/// How many bytes of physical guest memory are addressible before the final gap in
+/// the address space on this architecture.
+///
+/// There are no architectural gaps in the physical address space on aarch64, so this is 0
+pub fn bytes_before_last_gap() -> usize {
+    0
 }
 
 /// Configures the system for booting Linux.
@@ -89,7 +100,7 @@ pub fn configure_system_for_boot(
     // Configure vCPUs with normalizing and setting the generated CPU configuration.
     for vcpu in vcpus.iter_mut() {
         vcpu.kvm_vcpu.configure(
-            &vmm.guest_memory,
+            vmm.vm.guest_memory(),
             entry_point,
             &vcpu_config,
             &optional_capabilities,
@@ -103,8 +114,16 @@ pub fn configure_system_for_boot(
         .as_cstring()
         .expect("Cannot create cstring from cmdline string");
 
+    let swiotlb_region = match vmm.vm.swiotlb_regions().num_regions() {
+        0 | 1 => vmm.vm.swiotlb_regions().iter().next(),
+        _ => panic!(
+            "Firecracker tried to configure more than one swiotlb region. This is a logic bug."
+        ),
+    };
+
     let fdt = fdt::create_fdt(
-        &vmm.guest_memory,
+        vmm.vm.guest_memory(),
+        swiotlb_region,
         vcpu_mpidr,
         cmdline,
         vmm.mmio_device_manager.get_device_info(),
@@ -113,8 +132,10 @@ pub fn configure_system_for_boot(
         initrd,
     )?;
 
-    let fdt_address = GuestAddress(get_fdt_addr(&vmm.guest_memory));
-    vmm.guest_memory.write_slice(fdt.as_slice(), fdt_address)?;
+    let fdt_address = GuestAddress(get_fdt_addr(vmm.vm.guest_memory()));
+    vmm.vm
+        .guest_memory()
+        .write_slice(fdt.as_slice(), fdt_address)?;
 
     Ok(())
 }
@@ -188,7 +209,7 @@ mod tests {
 
     #[test]
     fn test_regions_lt_1024gb() {
-        let regions = arch_memory_regions(1usize << 29);
+        let regions = arch_memory_regions(0, 1usize << 29);
         assert_eq!(1, regions.len());
         assert_eq!(GuestAddress(super::layout::DRAM_MEM_START), regions[0].0);
         assert_eq!(1usize << 29, regions[0].1);
@@ -196,7 +217,7 @@ mod tests {
 
     #[test]
     fn test_regions_gt_1024gb() {
-        let regions = arch_memory_regions(1usize << 41);
+        let regions = arch_memory_regions(0, 1usize << 41);
         assert_eq!(1, regions.len());
         assert_eq!(GuestAddress(super::layout::DRAM_MEM_START), regions[0].0);
         assert_eq!(super::layout::DRAM_MEM_MAX_SIZE, regions[0].1);

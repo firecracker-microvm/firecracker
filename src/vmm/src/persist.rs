@@ -8,12 +8,11 @@ use std::fs::{File, OpenOptions};
 use std::io::{self, Write};
 use std::os::unix::io::AsRawFd;
 use std::os::unix::net::UnixStream;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
 use semver::Version;
 use serde::{Deserialize, Serialize};
-use userfaultfd::{FeatureFlags, Uffd, UffdBuilder};
 use vmm_sys_util::sock_ctrl_msg::ScmSocket;
 
 #[cfg(target_arch = "aarch64")]
@@ -32,23 +31,24 @@ use crate::snapshot::Snapshot;
 use crate::utils::u64_to_usize;
 use crate::vmm_config::boot_source::BootSourceConfig;
 use crate::vmm_config::instance_info::InstanceInfo;
-use crate::vmm_config::machine_config::{HugePageConfig, MachineConfigError, MachineConfigUpdate};
-use crate::vmm_config::snapshot::{
-    CreateSnapshotParams, LoadSnapshotParams, MemBackendType, SnapshotType,
+use crate::vmm_config::machine_config::{
+    HugePageConfig, MachineConfigError, MachineConfigUpdate, MemoryConfig,
 };
+use crate::vmm_config::snapshot::{CreateSnapshotParams, LoadSnapshotParams};
 use crate::vstate::kvm::KvmState;
-use crate::vstate::memory::{
-    GuestMemory, GuestMemoryExtension, GuestMemoryMmap, GuestMemoryState, MemoryError,
-};
+use crate::vstate::memory;
+use crate::vstate::memory::{GuestMemoryState, GuestRegionMmap, MemoryError};
 use crate::vstate::vcpu::{VcpuSendEventError, VcpuState};
 use crate::vstate::vm::VmState;
-use crate::{EventManager, Vmm, VmmError, mem_size_mib, vstate};
+use crate::{EventManager, Vmm, vstate};
 
 /// Holds information related to the VM that is not part of VmState.
 #[derive(Clone, Debug, Default, Deserialize, PartialEq, Eq, Serialize)]
 pub struct VmInfo {
     /// Guest memory size.
     pub mem_size_mib: u64,
+    /// Memory config
+    pub mem_config: MemoryConfig,
     /// smt information
     pub smt: bool,
     /// CPU template type
@@ -63,6 +63,7 @@ impl From<&VmResources> for VmInfo {
     fn from(value: &VmResources) -> Self {
         Self {
             mem_size_mib: value.machine_config.mem_size_mib as u64,
+            mem_config: value.machine_config.mem_config,
             smt: value.machine_config.smt,
             cpu_template: StaticCpuTemplate::from(&value.machine_config.cpu_template),
             boot_source: value.boot_source.config.clone(),
@@ -76,8 +77,6 @@ impl From<&VmResources> for VmInfo {
 pub struct MicrovmState {
     /// Miscellaneous VM info.
     pub vm_info: VmInfo,
-    /// Memory state.
-    pub memory_state: GuestMemoryState,
     /// KVM KVM state.
     pub kvm_state: KvmState,
     /// VM KVM state.
@@ -98,7 +97,7 @@ pub struct MicrovmState {
 /// E.g. Guest memory contents for a region of `size` bytes can be found in the
 /// backend at `offset` bytes from the beginning, and should be copied/populated
 /// into `base_host_address`.
-#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
 pub struct GuestRegionUffdMapping {
     /// Base host virtual address where the guest memory contents for this
     /// region should be copied/populated.
@@ -138,15 +137,15 @@ pub enum MicrovmStateError {
 #[derive(Debug, thiserror::Error, displaydoc::Display)]
 pub enum CreateSnapshotError {
     /// Cannot get dirty bitmap: {0}
-    DirtyBitmap(VmmError),
+    DirtyBitmap(kvm_ioctls::Error),
     /// Cannot write memory file: {0}
-    Memory(MemoryError),
+    Memory(#[from] MemoryError),
     /// Cannot perform {0} on the memory backing file: {1}
     MemoryBackingFile(&'static str, io::Error),
     /// Cannot save the microVM state: {0}
     MicrovmState(MicrovmStateError),
     /// Cannot serialize the microVM state: {0}
-    SerializeMicrovmState(crate::snapshot::SnapshotError),
+    SerializeMicrovmState(#[from] crate::snapshot::SnapshotError),
     /// Cannot perform {0} on the snapshot backing file: {1}
     SnapshotBackingFile(&'static str, io::Error),
 }
@@ -166,7 +165,25 @@ pub fn create_snapshot(
 
     snapshot_state_to_file(&microvm_state, &params.snapshot_path)?;
 
-    snapshot_memory_to_file(vmm, &params.mem_file_path, params.snapshot_type)?;
+    vmm.vm
+        .snapshot_memory_to_file(&params.mem_file_path, params.snapshot_type)?;
+
+    // We need to mark queues as dirty again for all activated devices. The reason we
+    // do it here is because we don't mark pages as dirty during runtime
+    // for queue objects.
+    // SAFETY:
+    // This should never fail as we only mark pages only if device has already been activated,
+    // and the address validation was already performed on device activation.
+    vmm.mmio_device_manager
+        .for_each_virtio_device(|_, _, _, dev| {
+            let d = dev.lock().unwrap();
+            if d.is_activated() {
+                d.mark_queue_memory_dirty(vmm.vm.io_memory())
+            } else {
+                Ok(())
+            }
+        })
+        .unwrap();
 
     Ok(())
 }
@@ -184,105 +201,13 @@ fn snapshot_state_to_file(
         .map_err(|err| SnapshotBackingFile("open", err))?;
 
     let snapshot = Snapshot::new(SNAPSHOT_VERSION);
-    snapshot
-        .save(&mut snapshot_file, microvm_state)
-        .map_err(SerializeMicrovmState)?;
+    snapshot.save(&mut snapshot_file, microvm_state)?;
     snapshot_file
         .flush()
         .map_err(|err| SnapshotBackingFile("flush", err))?;
     snapshot_file
         .sync_all()
         .map_err(|err| SnapshotBackingFile("sync_all", err))
-}
-
-/// Takes a snapshot of the virtual machine running inside the given [`Vmm`] and saves it to
-/// `mem_file_path`.
-///
-/// If `snapshot_type` is [`SnapshotType::Diff`], and `mem_file_path` exists and is a snapshot file
-/// of matching size, then the diff snapshot will be directly merged into the existing snapshot.
-/// Otherwise, existing files are simply overwritten.
-fn snapshot_memory_to_file(
-    vmm: &Vmm,
-    mem_file_path: &Path,
-    snapshot_type: SnapshotType,
-) -> Result<(), CreateSnapshotError> {
-    use self::CreateSnapshotError::*;
-
-    // Need to check this here, as we create the file in the line below
-    let file_existed = mem_file_path.exists();
-
-    let mut file = OpenOptions::new()
-        .write(true)
-        .create(true)
-        .truncate(false)
-        .open(mem_file_path)
-        .map_err(|err| MemoryBackingFile("open", err))?;
-
-    // Determine what size our total memory area is.
-    let mem_size_mib = mem_size_mib(&vmm.guest_memory);
-    let expected_size = mem_size_mib * 1024 * 1024;
-
-    if file_existed {
-        let file_size = file
-            .metadata()
-            .map_err(|e| MemoryBackingFile("get_metadata", e))?
-            .len();
-
-        // Here we only truncate the file if the size mismatches.
-        // - For full snapshots, the entire file's contents will be overwritten anyway. We have to
-        //   avoid truncating here to deal with the edge case where it represents the snapshot file
-        //   from which this very microVM was loaded (as modifying the memory file would be
-        //   reflected in the mmap of the file, meaning a truncate operation would zero out guest
-        //   memory, and thus corrupt the VM).
-        // - For diff snapshots, we want to merge the diff layer directly into the file.
-        if file_size != expected_size {
-            file.set_len(0)
-                .map_err(|err| MemoryBackingFile("truncate", err))?;
-        }
-    }
-
-    // Set the length of the file to the full size of the memory area.
-    file.set_len(expected_size)
-        .map_err(|e| MemoryBackingFile("set_length", e))?;
-
-    match snapshot_type {
-        SnapshotType::Diff => {
-            let dirty_bitmap = vmm.get_dirty_bitmap().map_err(DirtyBitmap)?;
-            vmm.guest_memory
-                .dump_dirty(&mut file, &dirty_bitmap)
-                .map_err(Memory)
-        }
-        SnapshotType::Full => {
-            let dump_res = vmm.guest_memory.dump(&mut file).map_err(Memory);
-            if dump_res.is_ok() {
-                vmm.reset_dirty_bitmap();
-                vmm.guest_memory.reset_dirty();
-            }
-
-            dump_res
-        }
-    }?;
-    // We need to mark queues as dirty again for all activated devices. The reason we
-    // do it here is because we don't mark pages as dirty during runtime
-    // for queue objects.
-    // SAFETY:
-    // This should never fail as we only mark pages only if device has already been activated,
-    // and the address validation was already performed on device activation.
-    vmm.mmio_device_manager
-        .for_each_virtio_device(|_, _, _, dev| {
-            let d = dev.lock().unwrap();
-            if d.is_activated() {
-                d.mark_queue_memory_dirty(&vmm.guest_memory)
-            } else {
-                Ok(())
-            }
-        })
-        .unwrap();
-
-    file.flush()
-        .map_err(|err| MemoryBackingFile("flush", err))?;
-    file.sync_all()
-        .map_err(|err| MemoryBackingFile("sync_all", err))
 }
 
 /// Validates that snapshot CPU vendor matches the host CPU vendor.
@@ -354,22 +279,14 @@ pub fn validate_cpu_manufacturer_id(microvm_state: &MicrovmState) {
         }
     }
 }
-/// Error type for [`snapshot_state_sanity_check`].
-#[derive(Debug, thiserror::Error, displaydoc::Display, PartialEq, Eq)]
-pub enum SnapShotStateSanityCheckError {
-    /// No memory region defined.
-    NoMemory,
-}
 
 /// Performs sanity checks against the state file and returns specific errors.
-pub fn snapshot_state_sanity_check(
-    microvm_state: &MicrovmState,
-) -> Result<(), SnapShotStateSanityCheckError> {
+pub fn snapshot_state_sanity_check(microvm_state: &MicrovmState) -> Result<(), RestoreMemoryError> {
     // Check if the snapshot contains at least 1 mem region.
     // Upper bound check will be done when creating guest memory by comparing against
     // KVM max supported value kvm_context.max_memslots().
-    if microvm_state.memory_state.regions.is_empty() {
-        return Err(SnapShotStateSanityCheckError::NoMemory);
+    if microvm_state.vm_state.memory.regions.is_empty() {
+        return Err(RestoreMemoryError::NoMemory);
     }
 
     #[cfg(target_arch = "x86_64")]
@@ -380,26 +297,44 @@ pub fn snapshot_state_sanity_check(
     Ok(())
 }
 
-/// Error type for [`restore_from_snapshot`].
+/// Errors that can happen during restoration of snapshot memory.
 #[derive(Debug, thiserror::Error, displaydoc::Display)]
-pub enum RestoreFromSnapshotError {
-    /// Failed to get snapshot state from file: {0}
-    File(#[from] SnapshotStateFromFileError),
-    /// Invalid snapshot state: {0}
-    Invalid(#[from] SnapShotStateSanityCheckError),
-    /// Failed to load guest memory: {0}
-    GuestMemory(#[from] RestoreFromSnapshotGuestMemoryError),
-    /// Failed to build microVM from snapshot: {0}
-    Build(#[from] BuildMicrovmFromSnapshotError),
+pub enum RestoreMemoryError {
+    /// Failed to open memory backend file: {0}
+    Open(#[from] std::io::Error),
+    /// Attempt to restore a hugetlbfs snapshot by mmaping the memory file. Please
+    MapHugetlbfs,
+    /// Failure allocating/mapping memory during snapshot restore: {0}
+    Memory(#[from] MemoryError),
+    /// Failure to create UFFD: {0}
+    UffdCreate(#[from] userfaultfd::Error),
+    /// Failure to send UFFD handshake to handler process: {0}
+    UffdHandshake(vmm_sys_util::errno::Error),
+    /// No memory region defined.
+    NoMemory,
 }
-/// Sub-Error type for [`restore_from_snapshot`] to contain either [`GuestMemoryFromFileError`] or
-/// [`GuestMemoryFromUffdError`] within [`RestoreFromSnapshotError`].
-#[derive(Debug, thiserror::Error, displaydoc::Display)]
-pub enum RestoreFromSnapshotGuestMemoryError {
-    /// Error creating guest memory from file: {0}
-    File(#[from] GuestMemoryFromFileError),
-    /// Error creating guest memory from uffd: {0}
-    Uffd(#[from] GuestMemoryFromUffdError),
+
+/// Restore the guest memory regions from the given state
+pub fn restore_memory(
+    state: &GuestMemoryState,
+    path: Option<&PathBuf>,
+    huge_pages: HugePageConfig,
+    track_dirty: bool,
+    offset: u64,
+) -> Result<Vec<GuestRegionMmap>, RestoreMemoryError> {
+    let mem_regions = match path {
+        Some(path) => {
+            if huge_pages.is_hugetlbfs() {
+                return Err(RestoreMemoryError::MapHugetlbfs);
+            }
+
+            let mem_file = File::open(path)?;
+            memory::snapshot_file(mem_file, state.regions(), track_dirty, offset)?
+        }
+        None => memory::anonymous(state.regions(), track_dirty, huge_pages)?,
+    };
+
+    Ok(mem_regions)
 }
 
 /// Loads a Microvm snapshot producing a 'paused' Microvm.
@@ -409,7 +344,7 @@ pub fn restore_from_snapshot(
     seccomp_filters: &BpfThreadMap,
     params: &LoadSnapshotParams,
     vm_resources: &mut VmResources,
-) -> Result<Arc<Mutex<Vmm>>, RestoreFromSnapshotError> {
+) -> Result<Arc<Mutex<Vmm>>, BuildMicrovmFromSnapshotError> {
     let mut microvm_state = snapshot_state_from_file(&params.snapshot_path)?;
     for entry in &params.network_overrides {
         let net_devices = &mut microvm_state.device_states.net_devices;
@@ -425,7 +360,6 @@ pub fn restore_from_snapshot(
             return Err(SnapshotStateFromFileError::UnknownNetworkDevice.into());
         }
     }
-    let track_dirty_pages = params.enable_diff_snapshots;
 
     let vcpu_count = microvm_state
         .vcpu_states
@@ -438,9 +372,10 @@ pub fn restore_from_snapshot(
         .update_machine_config(&MachineConfigUpdate {
             vcpu_count: Some(vcpu_count),
             mem_size_mib: Some(u64_to_usize(microvm_state.vm_info.mem_size_mib)),
+            mem_config: Some(microvm_state.vm_info.mem_config),
             smt: Some(microvm_state.vm_info.smt),
             cpu_template: Some(microvm_state.vm_info.cpu_template),
-            track_dirty_pages: Some(track_dirty_pages),
+            track_dirty_pages: Some(params.enable_diff_snapshots),
             huge_pages: Some(microvm_state.vm_info.huge_pages),
             #[cfg(feature = "gdb")]
             gdb_socket_path: None,
@@ -450,44 +385,14 @@ pub fn restore_from_snapshot(
     // Some sanity checks before building the microvm.
     snapshot_state_sanity_check(&microvm_state)?;
 
-    let mem_backend_path = &params.mem_backend.backend_path;
-    let mem_state = &microvm_state.memory_state;
-
-    let (guest_memory, uffd) = match params.mem_backend.backend_type {
-        MemBackendType::File => {
-            if vm_resources.machine_config.huge_pages.is_hugetlbfs() {
-                return Err(RestoreFromSnapshotGuestMemoryError::File(
-                    GuestMemoryFromFileError::HugetlbfsSnapshot,
-                )
-                .into());
-            }
-            (
-                guest_memory_from_file(mem_backend_path, mem_state, track_dirty_pages)
-                    .map_err(RestoreFromSnapshotGuestMemoryError::File)?,
-                None,
-            )
-        }
-        MemBackendType::Uffd => guest_memory_from_uffd(
-            mem_backend_path,
-            mem_state,
-            track_dirty_pages,
-            // We enable the UFFD_FEATURE_EVENT_REMOVE feature only if a balloon device
-            // is present in the microVM state.
-            microvm_state.device_states.balloon_device.is_some(),
-            vm_resources.machine_config.huge_pages,
-        )
-        .map_err(RestoreFromSnapshotGuestMemoryError::Uffd)?,
-    };
     builder::build_microvm_from_snapshot(
         instance_info,
         event_manager,
         microvm_state,
-        guest_memory,
-        uffd,
+        &params.mem_backend,
         seccomp_filters,
         vm_resources,
     )
-    .map_err(RestoreFromSnapshotError::Build)
 }
 
 /// Error type for [`snapshot_state_from_file`]
@@ -528,95 +433,11 @@ pub enum GuestMemoryFromFileError {
     HugetlbfsSnapshot,
 }
 
-fn guest_memory_from_file(
-    mem_file_path: &Path,
-    mem_state: &GuestMemoryState,
-    track_dirty_pages: bool,
-) -> Result<GuestMemoryMmap, GuestMemoryFromFileError> {
-    let mem_file = File::open(mem_file_path)?;
-    let guest_mem = GuestMemoryMmap::snapshot_file(mem_file, mem_state, track_dirty_pages)?;
-    Ok(guest_mem)
-}
-
-/// Error type for [`guest_memory_from_uffd`]
-#[derive(Debug, thiserror::Error, displaydoc::Display)]
-pub enum GuestMemoryFromUffdError {
-    /// Failed to restore guest memory: {0}
-    Restore(#[from] MemoryError),
-    /// Failed to UFFD object: {0}
-    Create(userfaultfd::Error),
-    /// Failed to register memory address range with the userfaultfd object: {0}
-    Register(userfaultfd::Error),
-    /// Failed to connect to UDS Unix stream: {0}
-    Connect(#[from] std::io::Error),
-    /// Failed to sends file descriptor: {0}
-    Send(#[from] vmm_sys_util::errno::Error),
-}
-
-fn guest_memory_from_uffd(
-    mem_uds_path: &Path,
-    mem_state: &GuestMemoryState,
-    track_dirty_pages: bool,
-    enable_balloon: bool,
-    huge_pages: HugePageConfig,
-) -> Result<(GuestMemoryMmap, Option<Uffd>), GuestMemoryFromUffdError> {
-    let (guest_memory, backend_mappings) =
-        create_guest_memory(mem_state, track_dirty_pages, huge_pages)?;
-
-    let mut uffd_builder = UffdBuilder::new();
-
-    if enable_balloon {
-        // We enable this so that the page fault handler can add logic
-        // for treating madvise(MADV_DONTNEED) events triggerd by balloon inflation.
-        uffd_builder.require_features(FeatureFlags::EVENT_REMOVE);
-    }
-
-    let uffd = uffd_builder
-        .close_on_exec(true)
-        .non_blocking(true)
-        .user_mode_only(false)
-        .create()
-        .map_err(GuestMemoryFromUffdError::Create)?;
-
-    for mem_region in guest_memory.iter() {
-        uffd.register(mem_region.as_ptr().cast(), mem_region.size() as _)
-            .map_err(GuestMemoryFromUffdError::Register)?;
-    }
-
-    send_uffd_handshake(mem_uds_path, &backend_mappings, &uffd)?;
-
-    Ok((guest_memory, Some(uffd)))
-}
-
-fn create_guest_memory(
-    mem_state: &GuestMemoryState,
-    track_dirty_pages: bool,
-    huge_pages: HugePageConfig,
-) -> Result<(GuestMemoryMmap, Vec<GuestRegionUffdMapping>), GuestMemoryFromUffdError> {
-    let guest_memory =
-        GuestMemoryMmap::anonymous(mem_state.regions(), track_dirty_pages, huge_pages)?;
-    let mut backend_mappings = Vec::with_capacity(guest_memory.num_regions());
-    let mut offset = 0;
-    for mem_region in guest_memory.iter() {
-        #[allow(deprecated)]
-        backend_mappings.push(GuestRegionUffdMapping {
-            base_host_virt_addr: mem_region.as_ptr() as u64,
-            size: mem_region.size(),
-            offset,
-            page_size: huge_pages.page_size(),
-            page_size_kib: huge_pages.page_size(),
-        });
-        offset += mem_region.size() as u64;
-    }
-
-    Ok((guest_memory, backend_mappings))
-}
-
-fn send_uffd_handshake(
+pub(crate) fn send_uffd_handshake(
     mem_uds_path: &Path,
     backend_mappings: &[GuestRegionUffdMapping],
     uffd: &impl AsRawFd,
-) -> Result<(), GuestMemoryFromUffdError> {
+) -> Result<(), vmm_sys_util::errno::Error> {
     // This is safe to unwrap() because we control the contents of the vector
     // (i.e GuestRegionUffdMapping entries).
     let backend_mappings = serde_json::to_string(backend_mappings).unwrap();
@@ -681,7 +502,6 @@ mod tests {
     use crate::vmm_config::balloon::BalloonDeviceConfig;
     use crate::vmm_config::net::NetworkInterfaceConfig;
     use crate::vmm_config::vsock::tests::default_config;
-    use crate::vstate::memory::GuestMemoryRegionState;
 
     fn default_vmm_with_devices() -> Vmm {
         let mut event_manager = EventManager::new().expect("Cannot create EventManager");
@@ -747,13 +567,11 @@ mod tests {
         assert!(states.vsock_device.is_some());
         assert!(states.balloon_device.is_some());
 
-        let memory_state = vmm.guest_memory.describe();
         let vcpu_states = vec![VcpuState::default()];
         #[cfg(target_arch = "aarch64")]
         let mpidrs = construct_kvm_mpidrs(&vcpu_states);
         let microvm_state = MicrovmState {
             device_states: states,
-            memory_state,
             vcpu_states,
             kvm_state: Default::default(),
             vm_info: VmInfo {
@@ -778,24 +596,6 @@ mod tests {
             restored_microvm_state.device_states,
             microvm_state.device_states
         )
-    }
-
-    #[test]
-    fn test_create_guest_memory() {
-        let mem_state = GuestMemoryState {
-            regions: vec![GuestMemoryRegionState {
-                base_address: 0,
-                size: 0x20000,
-            }],
-        };
-
-        let (_, uffd_regions) =
-            create_guest_memory(&mem_state, false, HugePageConfig::None).unwrap();
-
-        assert_eq!(uffd_regions.len(), 1);
-        assert_eq!(uffd_regions[0].size, 0x20000);
-        assert_eq!(uffd_regions[0].offset, 0);
-        assert_eq!(uffd_regions[0].page_size, HugePageConfig::None.page_size());
     }
 
     #[test]
