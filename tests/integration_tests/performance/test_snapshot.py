@@ -1,6 +1,7 @@
 # Copyright 2023 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 # SPDX-License-Identifier: Apache-2.0
 """Performance benchmark for snapshot restore."""
+
 import re
 import signal
 import tempfile
@@ -106,6 +107,15 @@ def test_restore_latency(
 
     We only test a single guest kernel, as the guest kernel does not "participate" in snapshot restore.
     """
+    if (
+        test_setup.huge_pages != HugePagesConfig.NONE
+        and global_props.host_linux_version_tpl > (6, 1)
+        and global_props.cpu_architecture == "aarch64"
+    ):
+        pytest.skip(
+            "huge pages with secret hiding kernels on ARM are currently failing"
+        )
+
     vm = test_setup.boot_vm(microvm_factory, guest_kernel_linux_5_10, rootfs)
 
     metrics.set_dimensions(
@@ -220,6 +230,15 @@ def test_population_latency(
     mem,
 ):
     """Collects population latency metrics (e.g. how long it takes UFFD handler to fault in all memory)"""
+    if (
+        huge_pages != HugePagesConfig.NONE
+        and global_props.host_linux_version_tpl > (6, 1)
+        and global_props.cpu_architecture == "aarch64"
+    ):
+        pytest.skip(
+            "huge pages with secret hiding kernels on ARM are currently failing"
+        )
+
     test_setup = SnapshotRestoreTest(mem=mem, vcpus=vcpus, huge_pages=huge_pages)
     vm = test_setup.boot_vm(microvm_factory, guest_kernel_linux_5_10, rootfs)
 
