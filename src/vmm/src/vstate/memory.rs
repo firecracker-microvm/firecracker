@@ -273,8 +273,6 @@ impl GuestMemoryExtension for GuestMemoryMmap {
 
         if write_result.is_err() {
             self.store_dirty_bitmap(dirty_bitmap, page_size);
-        } else {
-            self.reset_dirty();
         }
 
         write_result.map_err(MemoryError::WriteMemory)
@@ -622,6 +620,7 @@ mod tests {
 
         let mut file = TempFile::new().unwrap().into_file();
         guest_memory.dump_dirty(&mut file, &dirty_bitmap).unwrap();
+        guest_memory.reset_dirty();
 
         // We can restore from this because this is the first dirty dump.
         let restored_guest_memory = GuestMemoryMmap::from_regions(
@@ -656,6 +655,7 @@ mod tests {
             .unwrap();
 
         guest_memory.dump_dirty(&mut reader, &dirty_bitmap).unwrap();
+        guest_memory.reset_dirty();
 
         // Check that only the dirty regions are dumped.
         let mut diff_file_content = Vec::new();
