@@ -22,7 +22,7 @@ use crate::vstate::memory::{GuestAddress, GuestMemoryMmap};
 pub enum PersistError {
     /// Snapshot state contains invalid queue info.
     InvalidInput,
-    /// Could not restore queue.
+    /// Could not restore queue: {0}
     QueueConstruction(QueueError),
 }
 
