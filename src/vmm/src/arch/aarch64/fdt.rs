@@ -258,6 +258,12 @@ fn create_memory_node(
         fdt.property_array_u64("reg", &[region.start_addr().0, region.len()])?;
         fdt.end_node(dma)?;
         fdt.end_node(rmem)?;
+
+        log::info!(
+            "Placed swiotlb region at [{}, {})",
+            region.start_addr().0,
+            region.start_addr().0 + region.len()
+        );
     }
 
     Ok(())
