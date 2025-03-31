@@ -636,6 +636,14 @@ impl VirtioDevice for VirtioMem {
         self.acked_features = acked_features;
     }
 
+    fn force_userspace_bounce_buffers(&mut self) {
+        // virito-mem device doesn't have a need for bounce buffers
+    }
+
+    fn userspace_bounce_buffers(&self) -> bool {
+        false
+    }
+
     fn read_config(&self, offset: u64, data: &mut [u8]) {
         let offset = u64_to_usize(offset);
         self.config
