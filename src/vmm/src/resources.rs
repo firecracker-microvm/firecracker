@@ -110,6 +110,14 @@ pub struct VmResources {
 }
 
 impl VmResources {
+    /// Whether this [`VmResources`] object contains any devices that require host kernel access
+    /// into guest memory.
+    pub fn has_any_io_devices(&self) -> bool {
+        !self.block.devices.is_empty()
+            || self.vsock.get().is_some()
+            || self.net_builder.iter().next().is_some()
+    }
+
     /// Configures Vmm resources as described by the `config_json` param.
     pub fn from_json(
         config_json: &str,
@@ -217,6 +225,11 @@ impl VmResources {
                         BalloonConfigError::IncompatibleWith("huge pages"),
                     ));
                 }
+                if self.machine_config.mem_config.secret_free {
+                    return Err(ResourcesError::BalloonDevice(
+                        BalloonConfigError::IncompatibleWith("secret freedom"),
+                    ));
+                }
             }
 
             SharedDeviceType::Vsock(vsock) => {
@@ -256,10 +269,26 @@ impl VmResources {
             return Err(MachineConfigError::IncompatibleBalloonSize);
         }
 
+        if self.has_any_io_devices()
+            && self.machine_config.mem_config.secret_free
+            && !self.swiotlb_used()
+        {
+            return Err(MachineConfigError::Incompatible(
+                "secret freedom",
+                "I/O without swiotlb",
+            ));
+        }
+
         if self.balloon.get().is_some() && updated.huge_pages != HugePageConfig::None {
             return Err(MachineConfigError::Incompatible(
                 "balloon device",
                 "huge pages",
+            ));
+        }
+        if self.balloon.get().is_some() && updated.mem_config.secret_free {
+            return Err(MachineConfigError::Incompatible(
+                "balloon device",
+                "secret freedom",
             ));
         }
         self.machine_config = updated;
@@ -320,6 +349,10 @@ impl VmResources {
             return Err(BalloonConfigError::IncompatibleWith("huge pages"));
         }
 
+        if self.machine_config.mem_config.secret_free {
+            return Err(BalloonConfigError::IncompatibleWith("secret freedom"));
+        }
+
         self.balloon.set(config)
     }
 
@@ -343,6 +376,13 @@ impl VmResources {
         &mut self,
         block_device_config: BlockDeviceConfig,
     ) -> Result<(), DriveError> {
+        if self.has_any_io_devices()
+            && self.machine_config.mem_config.secret_free
+            && !self.swiotlb_used()
+        {
+            return Err(DriveError::SecretFreeWithoutSwiotlb);
+        }
+
         self.block.insert(block_device_config)
     }
 
@@ -351,12 +391,26 @@ impl VmResources {
         &mut self,
         body: NetworkInterfaceConfig,
     ) -> Result<(), NetworkInterfaceError> {
+        if self.has_any_io_devices()
+            && self.machine_config.mem_config.secret_free
+            && !self.swiotlb_used()
+        {
+            return Err(NetworkInterfaceError::SecretFreeWithoutSwiotlb);
+        }
+
         let _ = self.net_builder.build(body)?;
         Ok(())
     }
 
     /// Sets a vsock device to be attached when the VM starts.
     pub fn set_vsock_device(&mut self, config: VsockDeviceConfig) -> Result<(), VsockConfigError> {
+        if self.has_any_io_devices()
+            && self.machine_config.mem_config.secret_free
+            && !self.swiotlb_used()
+        {
+            return Err(VsockConfigError::SecretFreeWithoutSwiotlb);
+        }
+
         self.vsock.insert(config)
     }
 

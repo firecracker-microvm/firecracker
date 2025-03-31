@@ -71,6 +71,8 @@ pub enum NetworkInterfaceError {
     GuestMacAddressInUse(String),
     /// Cannot open/create the tap device: {0}
     OpenTap(#[from] TapError),
+    /// A net device was added to a secret free VM that doesnt have a swiotlb region.
+    SecretFreeWithoutSwiotlb,
 }
 
 /// Builder for a list of network devices.
