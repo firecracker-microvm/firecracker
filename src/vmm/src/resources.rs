@@ -217,6 +217,11 @@ impl VmResources {
                         BalloonConfigError::IncompatibleWith("huge pages"),
                     ));
                 }
+                if self.machine_config.mem_config.secret_free {
+                    return Err(ResourcesError::BalloonDevice(
+                        BalloonConfigError::IncompatibleWith("secret freedom"),
+                    ));
+                }
             }
 
             SharedDeviceType::Vsock(vsock) => {
@@ -260,6 +265,12 @@ impl VmResources {
             return Err(MachineConfigError::Incompatible(
                 "balloon device",
                 "huge pages",
+            ));
+        }
+        if self.balloon.get().is_some() && updated.mem_config.secret_free {
+            return Err(MachineConfigError::Incompatible(
+                "balloon device",
+                "secret freedom",
             ));
         }
         self.machine_config = updated;
@@ -318,6 +329,9 @@ impl VmResources {
 
         if self.machine_config.huge_pages != HugePageConfig::None {
             return Err(BalloonConfigError::IncompatibleWith("huge pages"));
+        }
+        if self.machine_config.mem_config.secret_free {
+            return Err(BalloonConfigError::IncompatibleWith("secret freedom"));
         }
 
         self.balloon.set(config)

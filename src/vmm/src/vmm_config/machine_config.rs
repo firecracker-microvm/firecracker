@@ -99,6 +99,11 @@ pub struct MemoryConfig {
     #[cfg(target_arch = "aarch64")]
     #[serde(default)]
     pub initial_swiotlb_size: usize,
+    /// Whether guest_memfd should be used to back normal guest memory. If this is enabled
+    /// and any devices are attached to the VM, then initial_swiotlb_size must be non-zero,
+    /// as I/O into secret free memory is not possible.
+    #[serde(default)]
+    pub secret_free: bool,
 }
 
 /// Struct used in PUT `/machine-config` API call.
@@ -299,6 +304,13 @@ impl MachineConfig {
             || !page_config.is_valid_mem_size(mem_config.initial_swiotlb_size)
         {
             return Err(MachineConfigError::InvalidSwiotlbRegionSize);
+        }
+
+        if mem_config.secret_free && page_config != HugePageConfig::None {
+            return Err(MachineConfigError::Incompatible(
+                "secret freedom",
+                "huge pages",
+            ));
         }
 
         let cpu_template = match update.cpu_template {
