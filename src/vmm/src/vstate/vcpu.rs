@@ -958,7 +958,7 @@ pub(crate) mod tests {
         entry_addr.kernel_load
     }
 
-    fn vcpu_configured_for_boot() -> (VcpuHandle, EventFd) {
+    fn vcpu_configured_for_boot() -> (Vm, VcpuHandle, EventFd) {
         Vcpu::register_kick_signal_handler();
         // Need enough mem to boot linux.
         let mem_size = mib_to_bytes(64);
@@ -1013,7 +1013,7 @@ pub(crate) mod tests {
         // Wait for vCPUs to initialize their TLS before moving forward.
         barrier.wait();
 
-        (vcpu_handle, vcpu_exit_evt)
+        (vm, vcpu_handle, vcpu_exit_evt)
     }
 
     #[test]
@@ -1147,7 +1147,7 @@ pub(crate) mod tests {
 
     #[test]
     fn test_vcpu_pause_resume() {
-        let (vcpu_handle, vcpu_exit_evt) = vcpu_configured_for_boot();
+        let (_vm, vcpu_handle, vcpu_exit_evt) = vcpu_configured_for_boot();
 
         // Queue a Resume event, expect a response.
         queue_event_expect_response(&vcpu_handle, VcpuEvent::Resume, VcpuResponse::Resumed);
@@ -1179,7 +1179,7 @@ pub(crate) mod tests {
 
     #[test]
     fn test_vcpu_save_state_events() {
-        let (vcpu_handle, _vcpu_exit_evt) = vcpu_configured_for_boot();
+        let (_vm, vcpu_handle, _vcpu_exit_evt) = vcpu_configured_for_boot();
 
         // Queue a Resume event, expect a response.
         queue_event_expect_response(&vcpu_handle, VcpuEvent::Resume, VcpuResponse::Resumed);
@@ -1212,7 +1212,7 @@ pub(crate) mod tests {
 
     #[test]
     fn test_vcpu_dump_cpu_config() {
-        let (vcpu_handle, _) = vcpu_configured_for_boot();
+        let (_vm, vcpu_handle, _) = vcpu_configured_for_boot();
 
         // Queue a DumpCpuConfig event, expect a DumpedCpuConfig response.
         vcpu_handle
