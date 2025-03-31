@@ -262,18 +262,14 @@ impl Vm {
         match snapshot_type {
             SnapshotType::Diff => {
                 let dirty_bitmap = self.get_dirty_bitmap()?;
-                self.guest_memory().dump_dirty(&mut file, &dirty_bitmap)
+                self.guest_memory().dump_dirty(&mut file, &dirty_bitmap)?;
             }
             SnapshotType::Full => {
-                let dump_res = self.guest_memory().dump(&mut file);
-                if dump_res.is_ok() {
-                    self.reset_dirty_bitmap();
-                    self.guest_memory().reset_dirty();
-                }
-
-                dump_res
+                self.guest_memory().dump(&mut file)?;
+                self.reset_dirty_bitmap();
+                self.guest_memory().reset_dirty();
             }
-        }?;
+        };
 
         file.flush()
             .map_err(|err| MemoryBackingFile("flush", err))?;
