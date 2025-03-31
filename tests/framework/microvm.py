@@ -1158,7 +1158,7 @@ class MicroVMFactory:
 
     def build_n_from_snapshot(
         self,
-        snapshot,
+        current_snapshot,
         nr_vms,
         *,
         uffd_handler_name=None,
@@ -1168,6 +1168,7 @@ class MicroVMFactory:
         """A generator of `n` microvms restored, either all restored from the same given snapshot
         (incremental=False), or created by taking successive snapshots of restored VMs
         """
+        last_snapshot = None
         for _ in range(nr_vms):
             microvm = self.build()
             microvm.spawn()
@@ -1176,27 +1177,35 @@ class MicroVMFactory:
                 spawn_pf_handler(
                     microvm,
                     uffd_handler(uffd_handler_name, binary_dir=self.binary_path),
-                    snapshot,
+                    current_snapshot,
                 )
 
-            snapshot_copy = microvm.restore_from_snapshot(snapshot, resume=True)
+            snapshot_copy = microvm.restore_from_snapshot(current_snapshot, resume=True)
 
             yield microvm
 
             if incremental:
-                new_snapshot = microvm.make_snapshot(snapshot.snapshot_type)
+                # When doing diff snapshots, we continuously overwrite the same base snapshot file from the first
+                # iteration in-place with successive snapshots, so don't delete it!
+                if last_snapshot is not None and not last_snapshot.is_diff:
+                    last_snapshot.delete()
 
-                if snapshot.is_diff:
-                    new_snapshot = new_snapshot.rebase_snapshot(
-                        snapshot, use_snapshot_editor
+                next_snapshot = microvm.make_snapshot(current_snapshot.snapshot_type)
+
+                if current_snapshot.is_diff:
+                    next_snapshot = next_snapshot.rebase_snapshot(
+                        current_snapshot, use_snapshot_editor
                     )
 
-                snapshot = new_snapshot
+                last_snapshot = current_snapshot
+                current_snapshot = next_snapshot
 
             microvm.kill()
             snapshot_copy.delete()
 
-        snapshot.delete()
+        if last_snapshot is not None and not last_snapshot.is_diff:
+            last_snapshot.delete()
+        current_snapshot.delete()
 
     def kill(self):
         """Clean up all built VMs"""
