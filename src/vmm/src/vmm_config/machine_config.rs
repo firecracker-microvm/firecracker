@@ -30,10 +30,8 @@ pub enum MachineConfigError {
     /// Enabling simultaneous multithreading is not supported on aarch64.
     #[cfg(target_arch = "aarch64")]
     SmtNotSupported,
-    /// Could not determine host kernel version when checking hugetlbfs compatibility
-    KernelVersion,
-    /// Firecracker's huge pages support is incompatible with memory ballooning.
-    BalloonAndHugePages,
+    /// '{0}' and '{1}' are mutually exclusive and cannot be used together.
+    Incompatible(&'static str, &'static str)
 }
 
 /// Describes the possible (huge)page configurations for a microVM's memory.
