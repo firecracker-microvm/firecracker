@@ -99,6 +99,11 @@ pub struct MemoryConfig {
     #[cfg(target_arch = "aarch64")]
     #[serde(default)]
     pub initial_swiotlb_size: usize,
+    /// Whether guest_memfd should be used to back normal guest memory. If this is enabled
+    /// and any devices are attached to the VM, then initial_swiotlb_size must be non-zero,
+    /// as I/O into secret free memory is not possible.
+    #[serde(default)]
+    pub secret_free: bool,
 }
 
 /// Struct used in PUT `/machine-config` API call.
@@ -289,6 +294,7 @@ impl MachineConfig {
         let mem_size_mib = update.mem_size_mib.unwrap_or(self.mem_size_mib);
         let page_config = update.huge_pages.unwrap_or(self.huge_pages);
         let mem_config = update.mem_config.unwrap_or(self.mem_config);
+        let track_dirty_pages = update.track_dirty_pages.unwrap_or(self.track_dirty_pages);
 
         if mem_size_mib == 0 || !page_config.is_valid_mem_size(mem_size_mib) {
             return Err(MachineConfigError::InvalidMemorySize);
@@ -299,6 +305,20 @@ impl MachineConfig {
             || !page_config.is_valid_mem_size(mem_config.initial_swiotlb_size)
         {
             return Err(MachineConfigError::InvalidSwiotlbRegionSize);
+        }
+
+        if mem_config.secret_free && page_config != HugePageConfig::None {
+            return Err(MachineConfigError::Incompatible(
+                "secret freedom",
+                "huge pages",
+            ));
+        }
+
+        if mem_config.secret_free && track_dirty_pages {
+            return Err(MachineConfigError::Incompatible(
+                "secret freedom",
+                "diff snapshots",
+            ));
         }
 
         let cpu_template = match update.cpu_template {
@@ -313,7 +333,7 @@ impl MachineConfig {
             mem_config,
             smt,
             cpu_template,
-            track_dirty_pages: update.track_dirty_pages.unwrap_or(self.track_dirty_pages),
+            track_dirty_pages,
             huge_pages: page_config,
             #[cfg(feature = "gdb")]
             gdb_socket_path: update.gdb_socket_path.clone(),
@@ -325,7 +345,7 @@ impl MachineConfig {
 mod tests {
     use crate::cpu_config::templates::{CpuTemplateType, CustomCpuTemplate, StaticCpuTemplate};
     use crate::vmm_config::machine_config::{
-        HugePageConfig, MachineConfig, MachineConfigError, MachineConfigUpdate,
+        HugePageConfig, MachineConfig, MachineConfigError, MachineConfigUpdate, MemoryConfig,
     };
 
     #[test]
@@ -379,6 +399,38 @@ mod tests {
             .unwrap();
         assert_eq!(updated.huge_pages, HugePageConfig::Hugetlbfs2M);
         assert_eq!(updated.mem_size_mib, 32);
+
+        let res = mconf.update(&MachineConfigUpdate {
+            huge_pages: Some(HugePageConfig::Hugetlbfs2M),
+            mem_config: Some(MemoryConfig {
+                secret_free: true,
+                ..Default::default()
+            }),
+            ..Default::default()
+        });
+        assert_eq!(
+            res,
+            Err(MachineConfigError::Incompatible(
+                "secret freedom",
+                "huge pages"
+            ))
+        );
+
+        let res = mconf.update(&MachineConfigUpdate {
+            track_dirty_pages: Some(true),
+            mem_config: Some(MemoryConfig {
+                secret_free: true,
+                ..Default::default()
+            }),
+            ..Default::default()
+        });
+        assert_eq!(
+            res,
+            Err(MachineConfigError::Incompatible(
+                "secret freedom",
+                "diff snapshots"
+            ))
+        );
     }
 
     #[test]

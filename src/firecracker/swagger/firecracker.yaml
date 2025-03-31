@@ -1076,6 +1076,11 @@ definitions:
         description:
           Aarch64 only. If non-zero, causes Firecracker to allocate a specific memory area of this size (in MiB)
           which the guest will use as swiotlb region for all I/O.
+      secret_free:
+        type: boolean
+        description:
+          If enabled, guest memory will be unmapped from the host kernel's address space, providing additional
+          protection against transitive execution issues. All I/O must then go through a swiotlb region.
 
   MemoryBackend:
     type: object
