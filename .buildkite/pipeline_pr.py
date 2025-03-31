@@ -85,7 +85,7 @@ if not pipeline.args.no_kani and (
         depends_on_build=False,
     )
 
-if any(x.parent.name == "hiding_ci" for x in changed_files):
+if not changed_files or (any(x.parent.name == "hiding_ci" for x in changed_files)):
     pipeline.build_group_per_arch(
         "🕵️ Build Secret Hiding Kernel",
         pipeline.devtool_test(
