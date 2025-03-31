@@ -245,7 +245,7 @@ def test_negative_huge_pages_plus_balloon(uvm_plain):
     uvm_plain.basic_config(huge_pages=HugePagesConfig.HUGETLBFS_2MB)
     with pytest.raises(
         RuntimeError,
-        match="Firecracker's huge pages support is incompatible with memory ballooning.",
+        match="Memory ballooning is incompatible with huge pages.",
     ):
         uvm_plain.api.balloon.put(amount_mib=0, deflate_on_oom=False)
 
@@ -254,6 +254,6 @@ def test_negative_huge_pages_plus_balloon(uvm_plain):
     uvm_plain.api.balloon.put(amount_mib=0, deflate_on_oom=False)
     with pytest.raises(
         RuntimeError,
-        match="Machine config error: Firecracker's huge pages support is incompatible with memory ballooning.",
+        match="Machine config error: 'balloon device' and 'huge pages' are mutually exclusive and cannot be used together.",
     ):
         uvm_plain.basic_config(huge_pages=HugePagesConfig.HUGETLBFS_2MB)
