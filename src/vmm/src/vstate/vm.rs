@@ -6,15 +6,17 @@
 // found in the THIRD-PARTY file.
 
 use std::collections::HashMap;
-use std::fs::OpenOptions;
+use std::fs::{File, OpenOptions};
 use std::io::Write;
+use std::os::fd::FromRawFd;
 use std::path::Path;
 use std::sync::Arc;
 
-use kvm_bindings::{KVM_MEM_LOG_DIRTY_PAGES, kvm_userspace_memory_region};
-use kvm_ioctls::VmFd;
+use kvm_bindings::{KVM_MEM_LOG_DIRTY_PAGES, kvm_create_guest_memfd, kvm_userspace_memory_region};
+use kvm_ioctls::{Cap, VmFd};
 use vmm_sys_util::eventfd::EventFd;
 
+use crate::arch::host_page_size;
 pub use crate::arch::{ArchVm as Vm, ArchVmError, VmState};
 use crate::logger::info;
 use crate::persist::CreateSnapshotError;
@@ -55,6 +57,10 @@ pub enum VmError {
     NotEnoughMemorySlots,
     /// Memory Error: {0}
     VmMemory(#[from] vm_memory::Error),
+    /// Failure to create guest_memfd: {0}
+    GuestMemfd(kvm_ioctls::Error),
+    /// guest_memfd is not supported on this host kernel.
+    GuestMemfdNotSupported,
 }
 
 /// Contains Vm functions that are usable across CPU architectures
@@ -122,6 +128,32 @@ impl Vm {
         self.arch_post_create_vcpus(vcpu_count)?;
 
         Ok((vcpus, exit_evt))
+    }
+
+    /// Create a guest_memfd of the specified size
+    pub fn create_guest_memfd(&self, size: usize, flags: u64) -> Result<File, VmError> {
+        assert_eq!(
+            size & (host_page_size() - 1),
+            0,
+            "guest_memfd size must be page aligned"
+        );
+
+        if !self.fd().check_extension(Cap::GuestMemfd) {
+            return Err(VmError::GuestMemfdNotSupported);
+        }
+
+        let kvm_gmem = kvm_create_guest_memfd {
+            size: size as u64,
+            flags,
+            ..Default::default()
+        };
+
+        self.fd()
+            .create_guest_memfd(kvm_gmem)
+            .map_err(VmError::GuestMemfd)
+            // SAFETY: We know rawfd is a valid fd because create_guest_memfd didn't return an
+            // error.
+            .map(|rawfd| unsafe { File::from_raw_fd(rawfd) })
     }
 
     /// Register a list of new memory regions to this [`Vm`].
