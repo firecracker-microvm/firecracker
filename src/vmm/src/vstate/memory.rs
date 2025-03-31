@@ -6,7 +6,7 @@
 // found in the THIRD-PARTY file.
 
 use std::fs::File;
-use std::io::SeekFrom;
+use std::io::{Read, Seek, SeekFrom};
 use std::mem::ManuallyDrop;
 use std::sync::Arc;
 
@@ -21,7 +21,10 @@ pub use vm_memory::{
     Address, ByteValued, Bytes, FileOffset, GuestAddress, GuestMemory, GuestMemoryRegion,
     GuestUsize, MemoryRegionAddress, MmapRegion, address,
 };
-use vm_memory::{Error as VmMemoryError, GuestMemoryError, VolatileSlice, WriteVolatile};
+use vm_memory::{
+    Error as VmMemoryError, GuestMemoryError, ReadVolatile, VolatileMemoryError, VolatileSlice,
+    WriteVolatile,
+};
 use vmm_sys_util::errno;
 
 use crate::DirtyBitmap;
@@ -52,6 +55,53 @@ pub enum MemoryError {
     MemfdSetLen(std::io::Error),
     /// Total sum of memory regions exceeds largest possible file offset
     OffsetTooLarge,
+}
+
+/// Newtype that implements [`ReadVolatile`] and [`WriteVolatile`] if `T` implements `Read` or
+/// `Write` respectively, by reading/writing using a bounce buffer, and memcpy-ing into the
+/// [`VolatileSlice`].
+#[derive(Debug)]
+pub struct Bounce<T>(pub T, pub bool);
+
+impl Bounce<File> {
+    /// Create a new [`Bounce`] by cloning the given file.
+    ///
+    /// Needed because `ReadVolatile` is not implemented for &File, so we need to either
+    /// dup the file, or get a mutable reference from somewhere.
+    pub fn new(file: &File, do_bounce: bool) -> Self {
+        Self(file.try_clone().expect("dup to succeed"), do_bounce)
+    }
+}
+
+impl<T: Read + ReadVolatile> ReadVolatile for Bounce<T> {
+    fn read_volatile<B: BitmapSlice>(
+        &mut self,
+        buf: &mut VolatileSlice<B>,
+    ) -> Result<usize, VolatileMemoryError> {
+        if self.1 {
+            let mut bbuf = vec![0; buf.len()];
+            let n = self
+                .0
+                .read(bbuf.as_mut_slice())
+                .map_err(VolatileMemoryError::IOError)?;
+            buf.copy_from(&bbuf[..n]);
+            Ok(n)
+        } else {
+            self.0.read_volatile(buf)
+        }
+    }
+}
+
+impl<R: Read> Read for Bounce<R> {
+    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+        self.0.read(buf)
+    }
+}
+
+impl<S: Seek> Seek for Bounce<S> {
+    fn seek(&mut self, pos: SeekFrom) -> std::io::Result<u64> {
+        self.0.seek(pos)
+    }
 }
 
 /// A memory region, described in terms of `kvm_userspace_memory_region`
