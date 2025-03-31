@@ -227,7 +227,9 @@ impl VmResources {
                 self.balloon.set_device(balloon);
 
                 if self.machine_config.huge_pages != HugePageConfig::None {
-                    return Err(ResourcesError::BalloonDevice(BalloonConfigError::HugePages));
+                    return Err(ResourcesError::BalloonDevice(
+                        BalloonConfigError::IncompatibleWith("huge pages"),
+                    ));
                 }
             }
 
@@ -269,7 +271,10 @@ impl VmResources {
         }
 
         if self.balloon.get().is_some() && updated.huge_pages != HugePageConfig::None {
-            return Err(MachineConfigError::BalloonAndHugePages);
+            return Err(MachineConfigError::Incompatible(
+                "balloon device",
+                "huge pages",
+            ));
         }
         self.machine_config = updated;
 
@@ -326,7 +331,7 @@ impl VmResources {
         }
 
         if self.machine_config.huge_pages != HugePageConfig::None {
-            return Err(BalloonConfigError::HugePages);
+            return Err(BalloonConfigError::IncompatibleWith("huge pages"));
         }
 
         self.balloon.set(config)
@@ -1446,7 +1451,7 @@ mod tests {
         assert!(
             matches!(
                 err,
-                ResourcesError::BalloonDevice(BalloonConfigError::HugePages)
+                ResourcesError::BalloonDevice(BalloonConfigError::IncompatibleWith("huge pages"))
             ),
             "{:?}",
             err
