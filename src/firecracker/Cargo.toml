@@ -29,7 +29,7 @@ thiserror = "2.0.12"
 timerfd = "1.6.0"
 utils = { path = "../utils" }
 vmm = { path = "../vmm" }
-vmm-sys-util = { version = "0.12.1", features = ["with-serde"] }
+vmm-sys-util = { version = "0.13.0", features = ["with-serde"] }
 
 [dev-dependencies]
 cargo_toml = "0.22.1"
