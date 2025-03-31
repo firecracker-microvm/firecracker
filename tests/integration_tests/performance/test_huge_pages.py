@@ -93,9 +93,9 @@ def test_hugetlbfs_snapshot(microvm_factory, guest_kernel_linux_5_10, rootfs):
     vm.spawn()
 
     # Spawn page fault handler process.
-    pf_handler = spawn_pf_handler(vm, uffd_handler("on_demand"), snapshot.mem)
+    spawn_pf_handler(vm, uffd_handler("on_demand"), snapshot)
 
-    vm.restore_from_snapshot(snapshot, resume=True, uffd_path=pf_handler.socket_path)
+    vm.restore_from_snapshot(resume=True)
 
     check_hugetlbfs_in_use(vm.firecracker_pid, "/anon_hugepage")
 
@@ -135,11 +135,9 @@ def test_hugetlbfs_diff_snapshot(microvm_factory, uvm_plain):
     vm.spawn()
 
     # Spawn page fault handler process.
-    pf_handler = spawn_pf_handler(vm, uffd_handler("on_demand"), snapshot_merged.mem)
+    spawn_pf_handler(vm, uffd_handler("on_demand"), snapshot_merged)
 
-    vm.restore_from_snapshot(
-        snapshot_merged, resume=True, uffd_path=pf_handler.socket_path
-    )
+    vm.restore_from_snapshot(resume=True)
 
     # Verify if the restored microvm works.
 
@@ -195,12 +193,10 @@ def test_ept_violation_count(
     vm.spawn()
 
     # Spawn page fault handler process.
-    pf_handler = spawn_pf_handler(vm, uffd_handler("fault_all"), snapshot.mem)
+    spawn_pf_handler(vm, uffd_handler("fault_all"), snapshot)
 
     with ftrace_events("kvm:*"):
-        vm.restore_from_snapshot(
-            snapshot, resume=True, uffd_path=pf_handler.socket_path
-        )
+        vm.restore_from_snapshot(resume=True)
 
         # Verify if guest can run commands, and also wake up the fast page fault helper to trigger page faults.
         vm.ssh.check_output(f"kill -s {signal.SIGUSR1} {pid}")

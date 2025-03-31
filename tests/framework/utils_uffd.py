@@ -17,12 +17,14 @@ SOCKET_PATH = "/firecracker-uffd.sock"
 class UffdHandler:
     """Describe the UFFD page fault handler process."""
 
-    def __init__(self, name, socket_path, mem_file, chroot_path, log_file_name):
+    def __init__(
+        self, name, socket_path, snapshot: "Snapshot", chroot_path, log_file_name
+    ):
         """Instantiate the handler process with arguments."""
         self._proc = None
         self._handler_name = name
         self.socket_path = socket_path
-        self._mem_file = mem_file
+        self.snapshot = snapshot
         self._chroot = chroot_path
         self._log_file = log_file_name
 
@@ -35,7 +37,11 @@ class UffdHandler:
 
             chroot_log_file = Path("/") / self._log_file
             with open(chroot_log_file, "w", encoding="utf-8") as logfile:
-                args = [f"/{self._handler_name}", self.socket_path, self._mem_file]
+                args = [
+                    f"/{self._handler_name}",
+                    self.socket_path,
+                    self.snapshot.mem.name,
+                ]
                 self._proc = subprocess.Popen(
                     args, stdout=logfile, stderr=subprocess.STDOUT
                 )
@@ -77,16 +83,16 @@ class UffdHandler:
             self.proc.kill()
 
 
-def spawn_pf_handler(vm, handler_path, mem_path):
+def spawn_pf_handler(vm, handler_path, snapshot):
     """Spawn page fault handler process."""
     # Copy snapshot memory file into chroot of microVM.
-    jailed_mem = vm.create_jailed_resource(mem_path)
+    jailed_snapshot = snapshot.copy_to_chroot(Path(vm.chroot()))
     # Copy the valid page fault binary into chroot of microVM.
     jailed_handler = vm.create_jailed_resource(handler_path)
     handler_name = os.path.basename(jailed_handler)
 
     uffd_handler = UffdHandler(
-        handler_name, SOCKET_PATH, jailed_mem, vm.chroot(), "uffd.log"
+        handler_name, SOCKET_PATH, jailed_snapshot, vm.chroot(), "uffd.log"
     )
     uffd_handler.spawn(vm.jailer.uid, vm.jailer.gid)
     vm.uffd_handler = uffd_handler
