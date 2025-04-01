@@ -11,7 +11,10 @@ use std::os::fd::FromRawFd;
 use std::path::Path;
 use std::sync::Arc;
 
-use kvm_bindings::{KVM_MEM_LOG_DIRTY_PAGES, kvm_create_guest_memfd, kvm_userspace_memory_region};
+use kvm_bindings::{
+    KVM_MEM_LOG_DIRTY_PAGES, kvm_create_guest_memfd, kvm_userspace_memory_region,
+    kvm_userspace_memory_region2,
+};
 use kvm_ioctls::{Cap, VmFd};
 use vmm_sys_util::eventfd::EventFd;
 
@@ -188,21 +191,37 @@ impl Vm {
             0
         };
 
-        let memory_region = kvm_userspace_memory_region {
+        let memory_region = kvm_userspace_memory_region2 {
             slot: next_slot,
             guest_phys_addr: region.start_addr().raw_value(),
             memory_size: region.len(),
             userspace_addr: region.as_ptr() as u64,
             flags,
+            ..Default::default()
         };
 
         let new_guest_memory = self.common.guest_memory.insert_region(Arc::new(region))?;
 
-        // SAFETY: Safe because the fd is a valid KVM file descriptor.
-        unsafe {
-            self.fd()
-                .set_user_memory_region(memory_region)
-                .map_err(VmError::SetUserMemoryRegion)?;
+        if self.fd().check_extension(Cap::UserMemory2) {
+            // SAFETY: We are passing a valid memory region and operate on a valid KVM FD.
+            unsafe {
+                self.fd()
+                    .set_user_memory_region2(memory_region)
+                    .map_err(VmError::SetUserMemoryRegion)?;
+            }
+        } else {
+            // SAFETY: We are passing a valid memory region and operate on a valid KVM FD.
+            unsafe {
+                self.fd()
+                    .set_user_memory_region(kvm_userspace_memory_region {
+                        slot: memory_region.slot,
+                        flags: memory_region.flags,
+                        guest_phys_addr: memory_region.guest_phys_addr,
+                        memory_size: memory_region.memory_size,
+                        userspace_addr: memory_region.userspace_addr,
+                    })
+                    .map_err(VmError::SetUserMemoryRegion)?;
+            }
         }
 
         self.common.guest_memory = new_guest_memory;
