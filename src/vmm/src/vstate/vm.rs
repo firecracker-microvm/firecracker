@@ -18,6 +18,7 @@ use kvm_bindings::KVM_IRQCHIP_IOAPIC;
 use kvm_bindings::{
     KVM_IRQ_ROUTING_IRQCHIP, KVM_IRQ_ROUTING_MSI, KVM_MSI_VALID_DEVID, KvmIrqRouting,
     kvm_create_guest_memfd, kvm_irq_routing_entry, kvm_userspace_memory_region,
+    kvm_userspace_memory_region2,
 };
 use kvm_ioctls::{Cap, VmFd};
 use log::debug;
@@ -34,8 +35,8 @@ use crate::vmm_config::snapshot::SnapshotType;
 use crate::vstate::bus::Bus;
 use crate::vstate::interrupts::{InterruptError, MsixVector, MsixVectorConfig, MsixVectorGroup};
 use crate::vstate::memory::{
-    GuestMemory, GuestMemoryExtension, GuestMemoryMmap, GuestMemoryRegion, GuestMemoryState,
-    GuestRegionMmap, GuestRegionMmapExt, MemoryError,
+    GuestMemory, GuestMemoryExtension, GuestMemoryMmap, GuestMemoryRegion, GuestMemorySlot,
+    GuestMemoryState, GuestRegionMmap, GuestRegionMmapExt, MemoryError,
 };
 use crate::vstate::resources::ResourceAllocator;
 use crate::vstate::vcpu::VcpuError;
@@ -220,6 +221,31 @@ impl Vm {
         }
     }
 
+    pub(crate) fn set_slot(&self, slot: &GuestMemorySlot, removed: bool) -> Result<(), VmError> {
+        // TODO: query this once and cache (will be done in a later commit)
+        // TODO FIXME
+        if false {
+            let mut region = kvm_userspace_memory_region2::from(slot);
+            // to remove it we need to pass a size of zero
+            if removed {
+                region.memory_size = 0;
+            }
+            // SAFETY: We are passing a valid memory region and operate on a valid KVM FD.
+            unsafe {
+                self.fd()
+                    .set_user_memory_region2(region)
+                    .map_err(VmError::SetUserMemoryRegion)
+            }
+        } else {
+            let mut region = kvm_userspace_memory_region::from(slot);
+            // to remove it we need to pass a size of zero
+            if removed {
+                region.memory_size = 0;
+            }
+            self.set_user_memory_region(region)
+        }
+    }
+
     fn register_memory_region(&mut self, region: Arc<GuestRegionMmapExt>) -> Result<(), VmError> {
         let new_guest_memory = self
             .common
@@ -230,7 +256,7 @@ impl Vm {
             .slots()
             .try_for_each(|(ref slot, plugged)| match plugged {
                 // if the slot is plugged, add it to kvm user memory regions
-                true => self.set_user_memory_region(slot.into()),
+                true => self.set_slot(slot, false),
                 // if the slot is not plugged, protect accesses to it
                 false => slot.protect(true).map_err(VmError::MemoryError),
             })?;

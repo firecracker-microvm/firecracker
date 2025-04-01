@@ -11,7 +11,9 @@ use std::ops::Deref;
 use std::sync::{Arc, Mutex};
 
 use bitvec::vec::BitVec;
-use kvm_bindings::{KVM_MEM_LOG_DIRTY_PAGES, kvm_userspace_memory_region};
+use kvm_bindings::{
+    KVM_MEM_LOG_DIRTY_PAGES, kvm_userspace_memory_region, kvm_userspace_memory_region2,
+};
 use log::error;
 use serde::{Deserialize, Serialize};
 pub use vm_memory::bitmap::{AtomicBitmap, BS, Bitmap, BitmapSlice};
@@ -113,6 +115,24 @@ impl From<&GuestMemorySlot<'_>> for kvm_userspace_memory_region {
             guest_phys_addr: mem_slot.guest_addr.raw_value(),
             memory_size: mem_slot.slice.len() as u64,
             userspace_addr: mem_slot.slice.ptr_guard().as_ptr() as u64,
+        }
+    }
+}
+
+impl From<&GuestMemorySlot<'_>> for kvm_userspace_memory_region2 {
+    fn from(mem_slot: &GuestMemorySlot) -> Self {
+        let flags = if mem_slot.slice.bitmap().is_some() {
+            KVM_MEM_LOG_DIRTY_PAGES
+        } else {
+            0
+        };
+        kvm_userspace_memory_region2 {
+            flags,
+            slot: mem_slot.slot,
+            guest_phys_addr: mem_slot.guest_addr.raw_value(),
+            memory_size: mem_slot.slice.len() as u64,
+            userspace_addr: mem_slot.slice.ptr_guard().as_ptr() as u64,
+            ..Default::default()
         }
     }
 }
@@ -325,15 +345,12 @@ impl GuestRegionMmapExt {
             return Ok(());
         }
 
-        let mut kvm_region = kvm_userspace_memory_region::from(mem_slot);
         if plug {
             // make it accessible _before_ adding it to KVM
             mem_slot.protect(false)?;
-            vm.set_user_memory_region(kvm_region)?;
+            vm.set_slot(mem_slot, false)?;
         } else {
-            // to remove it we need to pass a size of zero
-            kvm_region.memory_size = 0;
-            vm.set_user_memory_region(kvm_region)?;
+            vm.set_slot(mem_slot, true)?;
             // make it protected _after_ removing it from KVM
             mem_slot.protect(true)?;
         }
