@@ -12,7 +12,7 @@ use std::os::fd::FromRawFd;
 use std::path::Path;
 use std::sync::Arc;
 
-use kvm_bindings::kvm_create_guest_memfd;
+use kvm_bindings::{kvm_create_guest_memfd, kvm_userspace_memory_region};
 use kvm_ioctls::{Cap, VmFd};
 use userfaultfd::{FeatureFlags, Uffd, UffdBuilder};
 use vmm_sys_util::eventfd::EventFd;
@@ -186,15 +186,35 @@ impl Vm {
             return Err(VmError::NotEnoughMemorySlots);
         }
 
-        Ok(KvmRegion::from_mmap_region(region, next_slot))
+        Ok(KvmRegion::from_mmap_region(region, next_slot, None))
     }
 
     fn register_kvm_region(&mut self, region: &KvmRegion) -> Result<(), VmError> {
-        // SAFETY: Safe because the fd is a valid KVM file descriptor.
-        unsafe {
-            self.fd()
-                .set_user_memory_region(*region.inner())
-                .map_err(VmError::SetUserMemoryRegion)?;
+        if self.fd().check_extension(Cap::UserMemory2) {
+            // SAFETY: Safe because the fd is a valid KVM file descriptor.
+            unsafe {
+                self.fd()
+                    .set_user_memory_region2(*region.inner())
+                    .map_err(VmError::SetUserMemoryRegion)?;
+            }
+        } else {
+            // Something is seriously wrong if we manage to set these fields on a host that doesn't
+            // even allow creation of guest_memfds!
+            assert_eq!(region.inner().guest_memfd, 0);
+            assert_eq!(region.inner().guest_memfd_offset, 0);
+
+            // SAFETY: We are passing a valid memory region and operate on a valid KVM FD.
+            unsafe {
+                self.fd()
+                    .set_user_memory_region(kvm_userspace_memory_region {
+                        slot: region.inner().slot,
+                        flags: region.inner().flags,
+                        guest_phys_addr: region.inner().guest_phys_addr,
+                        memory_size: region.inner().memory_size,
+                        userspace_addr: region.inner().userspace_addr,
+                    })
+                    .map_err(VmError::SetUserMemoryRegion)?;
+            }
         }
 
         Ok(())

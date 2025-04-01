@@ -48,7 +48,7 @@ pub fn multi_region_mem(regions: &[(GuestAddress, usize)]) -> GuestMemoryMmap {
         memory::anonymous(regions.iter().copied(), false, HugePageConfig::None)
             .expect("Cannot initialize memory")
             .into_iter()
-            .map(|region| KvmRegion::from_mmap_region(region, 0))
+            .map(|region| KvmRegion::from_mmap_region(region, 0, None))
             .collect(),
     )
     .unwrap()

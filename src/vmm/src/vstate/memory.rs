@@ -8,10 +8,10 @@
 use std::fs::File;
 use std::io::{Read, Seek, SeekFrom, Write};
 use std::mem::ManuallyDrop;
-use std::os::fd::AsFd;
+use std::os::fd::{AsFd, AsRawFd};
 use std::sync::Arc;
 
-use kvm_bindings::{KVM_MEM_LOG_DIRTY_PAGES, kvm_userspace_memory_region};
+use kvm_bindings::{KVM_MEM_LOG_DIRTY_PAGES, kvm_userspace_memory_region2};
 use serde::{Deserialize, Serialize};
 pub use vm_memory::bitmap::{AtomicBitmap, BS, Bitmap, BitmapSlice};
 pub use vm_memory::mmap::MmapRegionBuilder;
@@ -115,7 +115,7 @@ impl<S: Seek> Seek for Bounce<S> {
 /// A memory region, described in terms of `kvm_userspace_memory_region`
 #[derive(Debug)]
 pub struct KvmRegion {
-    region: kvm_userspace_memory_region,
+    region: kvm_userspace_memory_region2,
     bitmap: Option<AtomicBitmap>,
     file_offset: Option<FileOffset>,
 }
@@ -129,7 +129,7 @@ impl KvmRegion {
     /// `kvm_region.userspace_addr as *mut u8` is valid for reads and writes of length
     /// `kvm_region.memory_size`.
     pub unsafe fn new(
-        region: kvm_userspace_memory_region,
+        region: kvm_userspace_memory_region2,
         bitmap: Option<AtomicBitmap>,
         file_offset: Option<FileOffset>,
     ) -> Self {
@@ -140,7 +140,11 @@ impl KvmRegion {
         }
     }
 
-    pub(crate) fn from_mmap_region(region: GuestRegionMmap, slot: u32) -> Self {
+    pub(crate) fn from_mmap_region(
+        region: GuestRegionMmap,
+        slot: u32,
+        guest_memfd: Option<&FileOffset>,
+    ) -> Self {
         let region = ManuallyDrop::new(region);
         let flags = if region.bitmap().is_some() {
             KVM_MEM_LOG_DIRTY_PAGES
@@ -148,18 +152,26 @@ impl KvmRegion {
             0
         };
 
+        #[allow(clippy::cast_sign_loss)]
+        let (guest_memfd, guest_memfd_offset) = guest_memfd
+            .map(|fo| (fo.file().as_raw_fd() as u32, fo.start()))
+            .unwrap_or((0, 0));
+
         // SAFETY: `GuestRegionMmap` is essentially a fat pointer, and ensures that
         // region.as_ptr() is valid for reads and writes of length region.len(),
         // and by placing our region into a `ManuallyDrop` we ensure that its `Drop`
         // impl won't run and free the memory away from underneath us.
         unsafe {
             Self::new(
-                kvm_userspace_memory_region {
+                kvm_userspace_memory_region2 {
                     slot,
                     flags,
                     guest_phys_addr: region.start_addr().0,
                     memory_size: region.len(),
                     userspace_addr: region.as_ptr() as u64,
+                    guest_memfd,
+                    guest_memfd_offset,
+                    ..Default::default()
                 },
                 region.bitmap().clone(),
                 region.file_offset().cloned(),
@@ -167,7 +179,7 @@ impl KvmRegion {
         }
     }
 
-    pub(crate) fn inner(&self) -> &kvm_userspace_memory_region {
+    pub(crate) fn inner(&self) -> &kvm_userspace_memory_region2 {
         &self.region
     }
 }
@@ -546,7 +558,7 @@ mod tests {
             regions
                 .into_iter()
                 .zip(0u32..) // assign dummy slots
-                .map(|(region, slot)| KvmRegion::from_mmap_region(region, slot))
+                .map(|(region, slot)| KvmRegion::from_mmap_region(region, slot, None))
                 .collect(),
         )
         .unwrap()
