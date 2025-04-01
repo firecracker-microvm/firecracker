@@ -14,7 +14,9 @@ use std::os::fd::AsRawFd;
 use std::sync::{Arc, Mutex};
 
 use bitvec::vec::BitVec;
-use kvm_bindings::{KVM_MEM_LOG_DIRTY_PAGES, kvm_userspace_memory_region};
+use kvm_bindings::{
+    KVM_MEM_LOG_DIRTY_PAGES, kvm_userspace_memory_region, kvm_userspace_memory_region2,
+};
 use serde::{Deserialize, Serialize};
 pub use vm_memory::bitmap::{AtomicBitmap, BS, Bitmap, BitmapSlice};
 pub use vm_memory::mmap::MmapRegionBuilder;
@@ -544,6 +546,24 @@ impl From<&GuestMemorySlot<'_>> for kvm_userspace_memory_region {
     }
 }
 
+impl From<&GuestMemorySlot<'_>> for kvm_userspace_memory_region2 {
+    fn from(mem_slot: &GuestMemorySlot) -> Self {
+        let flags = if mem_slot.slice.bitmap().is_some() {
+            KVM_MEM_LOG_DIRTY_PAGES
+        } else {
+            0
+        };
+        kvm_userspace_memory_region2 {
+            flags,
+            slot: mem_slot.slot,
+            guest_phys_addr: mem_slot.guest_addr.raw_value(),
+            memory_size: mem_slot.slice.len() as u64,
+            userspace_addr: mem_slot.slice.ptr_guard().as_ptr() as u64,
+            ..Default::default()
+        }
+    }
+}
+
 impl<'a> GuestMemorySlot<'a> {
     /// Dumps the dirty pages in this slot onto the writer
     pub(crate) fn dump_dirty<T: WriteVolatile + std::io::Seek>(
@@ -809,11 +829,10 @@ impl GuestRegionMmapExt {
 
         // Commit the bitmap only once the protection and the KVM slot have both changed, rolling
         // back the first step if the second fails. A failed rollback has no way back, so it panics.
-        let kvm_region = kvm_userspace_memory_region::from(mem_slot);
         if plug {
             // make it accessible _before_ adding it to KVM
             mem_slot.protect(false)?;
-            if let Err(err) = vm.set_user_memory_region(kvm_region) {
+            if let Err(err) = vm.set_slot(mem_slot, false) {
                 mem_slot
                     .protect(true)
                     .expect("cannot roll back the virtio-mem slot protection");
@@ -821,13 +840,10 @@ impl GuestRegionMmapExt {
             }
             bitmap_guard.set(idx, true);
         } else {
-            // to remove it we need to pass a size of zero
-            let mut removed_region = kvm_region;
-            removed_region.memory_size = 0;
-            vm.set_user_memory_region(removed_region)?;
+            vm.set_slot(mem_slot, true)?;
             // make it protected _after_ removing it from KVM
             if let Err(err) = mem_slot.protect(true) {
-                vm.set_user_memory_region(kvm_region)
+                vm.set_slot(mem_slot, false)
                     .expect("cannot roll back the virtio-mem slot in KVM");
                 return Err(err.into());
             }
