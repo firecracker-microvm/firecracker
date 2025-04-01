@@ -13,12 +13,20 @@ check_root() {
   fi
 }
 
-check_ubuntu() {
-  # Currently this script only works on Ubuntu instances
-  if ! grep -qi 'ubuntu' /etc/os-release; then
-    echo "This script currently only works on Ubuntu."
-    exit 1
+check_userspace() {
+  # Currently this script only works on Ubuntu and AL2023
+  if grep -qi 'ubuntu' /etc/os-release; then
+    USERSPACE="UBUNTU"
+    return 0
   fi
+
+  if grep -qi 'al2023' /etc/os-release; then
+    USERSPACE="AL2023"
+    return 0
+  fi
+
+  echo "This script currently only works on Ubuntu and Amazon Linux 2023."
+  exit 1
 }
 
 tidy_up() {
@@ -96,6 +104,41 @@ check_override_presence() {
   echo "All overrides correctly applied.."
 }
 
+ubuntu_update_boot() {
+  echo "Update initramfs"
+  update-initramfs -c -k $KERNEL_VERSION
+  echo "Updating GRUB..."
+  update-grub
+}
+
+al2023_update_boot() {
+  echo "Installing ENA driver for AL2023"
+  $START_DIR/install_ena.sh $KERNEL_VERSION $START_DIR/dkms.conf
+
+  # Just ensure we are back in the build dir
+  cd $TMP_BUILD_DIR
+
+  echo "Creating the new ram disk"
+  dracut --kver $KERNEL_VERSION -f -v
+
+  echo "Updating GRUB..."
+  grubby --grub2 --add-kernel /boot/vmlinux-$KERNEL_VERSION \
+    --title="Secret Hiding" \
+    --initrd=/boot/initramfs-$KERNEL_VERSION.img --copy-default
+  grubby --set-default /boot/vmlinux-$KERNEL_VERSION
+}
+
+update_boot_config() {
+  case "$USERSPACE" in
+  UBUNTU) ubuntu_update_boot ;;
+  AL2023) al2023_update_boot ;;
+  *)
+    echo "Unknown userspace"
+    exit 1
+    ;;
+  esac
+}
+
 KERNEL_URL=$(cat kernel_url)
 KERNEL_COMMIT_HASH=$(cat kernel_commit_hash)
 KERNEL_PATCHES_DIR=$(pwd)/patches
@@ -155,16 +198,14 @@ echo "New kernel version:" $KERNEL_VERSION
 confirm "$@"
 
 check_root
-check_ubuntu
+check_userspace
 
 echo "Installing kernel modules..."
 make INSTALL_MOD_STRIP=1 modules_install
 echo "Installing kernel..."
 make INSTALL_MOD_STRIP=1 install
-echo "Update initramfs"
-update-initramfs -c -k $KERNEL_VERSION
-echo "Updating GRUB..."
-update-grub
+
+update_boot_config
 
 echo "Kernel built and installed successfully!"
 
