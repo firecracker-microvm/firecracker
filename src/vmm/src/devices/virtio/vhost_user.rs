@@ -482,7 +482,7 @@ pub(crate) mod tests {
             )
             .unwrap()
             .into_iter()
-            .map(|region| KvmRegion::from_mmap_region(region, 0))
+            .map(|region| KvmRegion::from_mmap_region(region, 0, None))
             .collect(),
         )
         .unwrap()

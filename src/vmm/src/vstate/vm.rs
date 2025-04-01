@@ -8,6 +8,7 @@
 use std::collections::HashMap;
 use std::fs::{File, OpenOptions};
 use std::io::Write;
+use std::mem;
 use std::os::fd::FromRawFd;
 use std::path::Path;
 use std::sync::Arc;
@@ -186,15 +187,32 @@ impl Vm {
             return Err(VmError::NotEnoughMemorySlots);
         }
 
-        Ok(KvmRegion::from_mmap_region(region, next_slot))
+        Ok(KvmRegion::from_mmap_region(region, next_slot, None))
     }
 
     fn register_kvm_region(&mut self, region: &KvmRegion) -> Result<(), VmError> {
-        // SAFETY: Safe because the fd is a valid KVM file descriptor.
-        unsafe {
-            self.fd()
-                .set_user_memory_region(*region.inner())
-                .map_err(VmError::SetUserMemoryRegion)?;
+        if self.fd().check_extension(Cap::UserMemory2) {
+            // SAFETY: Safe because the fd is a valid KVM file descriptor.
+            unsafe {
+                self.fd()
+                    .set_user_memory_region2(*region.inner())
+                    .map_err(VmError::SetUserMemoryRegion)?;
+            }
+        } else {
+            // Something is seriously wrong if we manage to set these fields on a host that doesn't
+            // even allow creation of guest_memfds!
+            assert_eq!(region.inner().guest_memfd, 0);
+            assert_eq!(region.inner().guest_memfd_offset, 0);
+
+            // SAFETY: We are passing a valid memory region and operate on a valid KVM FD.
+            // transmute_copy is safe because kvm_user_memory_region is binary compatible with
+            // the first sizeof::<kvm_user_memory_region>() fields of kvm_user_memory_region2
+            // TODO: no transmute_copy here lol
+            unsafe {
+                self.fd()
+                    .set_user_memory_region(mem::transmute_copy(region.inner()))
+                    .map_err(VmError::SetUserMemoryRegion)?;
+            }
         }
 
         Ok(())
