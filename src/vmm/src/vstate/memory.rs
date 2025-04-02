@@ -12,7 +12,7 @@ use std::os::fd::{AsFd, AsRawFd};
 use std::ptr::null_mut;
 use std::sync::Arc;
 
-use kvm_bindings::{KVM_MEM_LOG_DIRTY_PAGES, kvm_userspace_memory_region2};
+use kvm_bindings::{KVM_MEM_GUEST_MEMFD, KVM_MEM_LOG_DIRTY_PAGES, kvm_userspace_memory_region2};
 use serde::{Deserialize, Serialize};
 pub use vm_memory::bitmap::{AtomicBitmap, BS, Bitmap, BitmapSlice};
 pub use vm_memory::mmap::MmapRegionBuilder;
@@ -146,14 +146,16 @@ impl KvmRegion {
     pub(crate) fn from_mmap_region(
         region: GuestRegionMmap,
         slot: u32,
-        guest_memfd: Option<&FileOffset>,
+        guest_memfd: Option<FileOffset>,
     ) -> Self {
         let region = ManuallyDrop::new(region);
-        let flags = if region.bitmap().is_some() {
-            KVM_MEM_LOG_DIRTY_PAGES
-        } else {
-            0
-        };
+        let mut flags = 0;
+        if region.bitmap().is_some() {
+            flags |= KVM_MEM_LOG_DIRTY_PAGES;
+        }
+        if guest_memfd.is_some() {
+            flags |= KVM_MEM_GUEST_MEMFD;
+        }
 
         #[allow(clippy::cast_sign_loss)]
         let (guest_memfd, guest_memfd_offset) = guest_memfd
@@ -309,18 +311,16 @@ pub fn create(
 }
 
 /// Creates a GuestMemoryMmap with `size` in MiB backed by a memfd.
-pub fn memfd_backed(
-    regions: &[(GuestAddress, usize)],
+pub fn file_shared(
+    file: File,
+    regions: impl Iterator<Item = (GuestAddress, usize)>,
     track_dirty_pages: bool,
     huge_pages: HugePageConfig,
 ) -> Result<Vec<GuestRegionMmap>, MemoryError> {
-    let size = regions.iter().map(|&(_, size)| size as u64).sum();
-    let memfd_file = create_memfd(size, huge_pages.into())?.into_file();
-
     create(
-        regions.iter().copied(),
+        regions,
         libc::MAP_SHARED | huge_pages.mmap_flags(),
-        Some(memfd_file),
+        Some(file),
         track_dirty_pages,
         0,
     )
@@ -343,7 +343,7 @@ pub fn anonymous(
 
 /// Creates a GuestMemoryMmap given a `file` containing the data
 /// and a `state` containing mapping information.
-pub fn snapshot_file(
+pub fn file_private(
     file: File,
     regions: impl Iterator<Item = (GuestAddress, usize)>,
     track_dirty_pages: bool,
@@ -536,7 +536,8 @@ impl GuestMemoryExtension for GuestMemoryMmap {
     }
 }
 
-fn create_memfd(
+/// Creates a memfd of the given size and huge pages configuration
+pub fn create_memfd(
     mem_size: u64,
     hugetlb_size: Option<memfd::HugetlbSize>,
 ) -> Result<memfd::Memfd, MemoryError> {
@@ -790,7 +791,7 @@ mod tests {
         guest_memory.dump(&mut memory_file).unwrap();
 
         let restored_guest_memory =
-            kvmify(snapshot_file(memory_file, memory_state.regions(), false, 0).unwrap());
+            kvmify(file_private(memory_file, memory_state.regions(), false, 0).unwrap());
 
         // Check that the region contents are the same.
         let mut restored_region = vec![0u8; page_size * 2];
@@ -848,7 +849,7 @@ mod tests {
 
         // We can restore from this because this is the first dirty dump.
         let restored_guest_memory =
-            kvmify(snapshot_file(file, memory_state.regions(), false, 0).unwrap());
+            kvmify(file_private(file, memory_state.regions(), false, 0).unwrap());
 
         // Check that the region contents are the same.
         let mut restored_region = vec![0u8; region_size];
