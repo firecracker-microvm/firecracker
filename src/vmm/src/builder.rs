@@ -20,7 +20,9 @@ use vm_superio::Rtc;
 use vm_superio::Serial;
 use vmm_sys_util::eventfd::EventFd;
 
-use crate::arch::{ConfigurationError, configure_system_for_boot, load_kernel};
+use crate::arch::{
+    ConfigurationError, VM_TYPE_FOR_SECRET_FREEDOM, configure_system_for_boot, load_kernel,
+};
 #[cfg(target_arch = "aarch64")]
 use crate::construct_kvm_mpidrs;
 use crate::cpu_config::templates::{
@@ -142,11 +144,12 @@ fn create_vmm_and_vcpus(
     event_manager: &mut EventManager,
     vcpu_count: u8,
     kvm_capabilities: Vec<KvmCapability>,
+    vm_type: Option<u64>,
 ) -> Result<(Vmm, Vec<Vcpu>), VmmError> {
     let kvm = Kvm::new(kvm_capabilities)?;
     // Set up Kvm Vm and register memory regions.
     // Build custom CPU config if a custom template is provided.
-    let mut vm = Vm::new(&kvm)?;
+    let mut vm = Vm::new(&kvm, vm_type)?;
 
     let resource_allocator = ResourceAllocator::new()?;
 
@@ -227,12 +230,17 @@ pub fn build_microvm_for_boot(
         .get_cpu_template()?;
 
     let secret_free = vm_resources.machine_config.mem_config.secret_free;
+    let vm_type = match secret_free {
+        true => VM_TYPE_FOR_SECRET_FREEDOM,
+        false => None,
+    };
 
     let (mut vmm, mut vcpus) = create_vmm_and_vcpus(
         instance_info,
         event_manager,
         vm_resources.machine_config.vcpu_count,
         cpu_template.kvm_capabilities.clone(),
+        vm_type,
     )?;
 
     let guest_memfd = match secret_free {
@@ -470,6 +478,11 @@ pub fn build_microvm_from_snapshot(
         event_manager,
         vm_resources.machine_config.vcpu_count,
         microvm_state.kvm_state.kvm_cap_modifiers.clone(),
+        if vm_resources.machine_config.mem_config.secret_free {
+            VM_TYPE_FOR_SECRET_FREEDOM
+        } else {
+            None
+        },
     )
     .map_err(StartMicrovmError::Internal)?;
 
