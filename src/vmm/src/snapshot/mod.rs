@@ -28,19 +28,27 @@ mod persist;
 use std::fmt::Debug;
 use std::io::{Read, Write};
 
-use bincode::Options;
+use bincode::config;
+use bincode::config::{Configuration, Fixint, Limit, LittleEndian};
 use semver::Version;
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 
 use crate::snapshot::crc::{CRC64Reader, CRC64Writer};
 pub use crate::snapshot::persist::Persist;
+use crate::utils::mib_to_bytes;
 
 #[cfg(target_arch = "x86_64")]
 const SNAPSHOT_MAGIC_ID: u64 = 0x0710_1984_8664_0000u64;
 
 /// Constant bounding how much memory bincode may allocate during vmstate file deserialization
-const VM_STATE_DESERIALIZE_LIMIT: u64 = 10_485_760; // 10MiB
+const DESERIALIZATION_BYTES_LIMIT: usize = mib_to_bytes(10);
+
+const BINCODE_CONFIG: Configuration<LittleEndian, Fixint, Limit<DESERIALIZATION_BYTES_LIMIT>> =
+    config::standard()
+        .with_fixed_int_encoding()
+        .with_limit::<DESERIALIZATION_BYTES_LIMIT>()
+        .with_little_endian();
 
 #[cfg(target_arch = "aarch64")]
 const SNAPSHOT_MAGIC_ID: u64 = 0x0710_1984_AAAA_0000u64;
@@ -110,13 +118,7 @@ impl Snapshot {
         T: Read,
         O: DeserializeOwned + Debug,
     {
-        // flags below are those used by default by bincode::deserialize_from, plus `with_limit`.
-        bincode::DefaultOptions::new()
-            .with_limit(VM_STATE_DESERIALIZE_LIMIT)
-            .with_fixint_encoding()
-            .allow_trailing_bytes() // need this because we deserialize header and snapshot from the same file, so after
-            // reading the header, there will be trailing bytes.
-            .deserialize_from(reader)
+        bincode::serde::decode_from_std_read(reader, BINCODE_CONFIG)
             .map_err(|err| SnapshotError::Serde(err.to_string()))
     }
 
@@ -126,7 +128,10 @@ impl Snapshot {
         T: Write,
         O: Serialize + Debug,
     {
-        bincode::serialize_into(writer, data).map_err(|err| SnapshotError::Serde(err.to_string()))
+        bincode::serde::encode_into_std_write(data, writer, BINCODE_CONFIG)
+            .map_err(|err| SnapshotError::Serde(err.to_string()))?;
+
+        Ok(())
     }
 
     /// Attempts to load an existing snapshot without performing CRC or version validation.

@@ -16,7 +16,7 @@ path = "src/bin.rs"
 bench = false
 
 [dependencies]
-bincode = "1.2.1"
+bincode = { version = "2.0.1", features = ["serde"] }
 clap = { version = "4.5.32", features = ["derive", "string"] }
 displaydoc = "0.2.5"
 libc = "0.2.171"
