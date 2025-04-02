@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use std::convert::From;
+use std::fs::File;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex, MutexGuard};
 
@@ -30,7 +31,7 @@ use crate::vmm_config::mmds::{MmdsConfig, MmdsConfigError};
 use crate::vmm_config::net::*;
 use crate::vmm_config::vsock::*;
 use crate::vstate::memory;
-use crate::vstate::memory::{GuestRegionMmap, MemoryError};
+use crate::vstate::memory::{GuestRegionMmap, MemoryError, create_memfd};
 
 /// Errors encountered when configuring microVM resources.
 #[derive(Debug, thiserror::Error, displaydoc::Display)]
@@ -476,6 +477,12 @@ impl VmResources {
         0
     }
 
+    /// Gets the size of the "traditional" memory region, e.g. total memory excluding the swiotlb
+    /// region.
+    pub fn memory_size(&self) -> usize {
+        self.machine_config.mem_size_mib - self.swiotlb_size_mib()
+    }
+
     /// Whether the use of swiotlb was requested
     pub fn swiotlb_used(&self) -> bool {
         self.swiotlb_size_mib() > 0
@@ -486,20 +493,34 @@ impl VmResources {
         offset: usize,
         size: usize,
         vhost_accessible: bool,
+        file: Option<File>,
     ) -> Result<Vec<GuestRegionMmap>, MemoryError> {
-        let regions = crate::arch::arch_memory_regions(offset, size);
-        if vhost_accessible {
-            memory::memfd_backed(
-                regions.as_ref(),
+        let regions = crate::arch::arch_memory_regions(offset, size).into_iter();
+        match file {
+            Some(file) => memory::file_shared(
+                file,
+                regions,
                 self.machine_config.track_dirty_pages,
                 self.machine_config.huge_pages,
-            )
-        } else {
-            memory::anonymous(
-                regions.into_iter(),
-                self.machine_config.track_dirty_pages,
-                self.machine_config.huge_pages,
-            )
+            ),
+            None => {
+                if vhost_accessible {
+                    let memfd = create_memfd(size as u64, self.machine_config.huge_pages.into())?
+                        .into_file();
+                    memory::file_shared(
+                        memfd,
+                        regions,
+                        self.machine_config.track_dirty_pages,
+                        self.machine_config.huge_pages,
+                    )
+                } else {
+                    memory::anonymous(
+                        regions.into_iter(),
+                        self.machine_config.track_dirty_pages,
+                        self.machine_config.huge_pages,
+                    )
+                }
+            }
         }
     }
 
@@ -507,7 +528,10 @@ impl VmResources {
     ///
     /// If vhost-user-blk devices are in use, allocates memfd-backed shared memory, otherwise
     /// prefers anonymous memory for performance reasons.
-    pub fn allocate_guest_memory(&self) -> Result<Vec<GuestRegionMmap>, MemoryError> {
+    pub fn allocate_guest_memory(
+        &self,
+        guest_memfd: Option<File>,
+    ) -> Result<Vec<GuestRegionMmap>, MemoryError> {
         // Page faults are more expensive for shared memory mapping, including  memfd.
         // For this reason, we only back guest memory with a memfd
         // if a vhost-user-blk device is configured in the VM, otherwise we fall back to
@@ -522,8 +546,9 @@ impl VmResources {
         // that would not be worth the effort.
         self.allocate_memory(
             0,
-            mib_to_bytes(self.machine_config.mem_size_mib - self.swiotlb_size_mib()),
+            mib_to_bytes(self.memory_size()),
             self.vhost_user_devices_used() && !self.swiotlb_used(),
+            guest_memfd,
         )
     }
 
@@ -537,7 +562,8 @@ impl VmResources {
         let start = mib_to_bytes(self.machine_config.mem_size_mib) - swiotlb_size;
         let start = start.max(crate::arch::bytes_before_last_gap());
 
-        let mut mem = self.allocate_memory(start, swiotlb_size, self.vhost_user_devices_used())?;
+        let mut mem =
+            self.allocate_memory(start, swiotlb_size, self.vhost_user_devices_used(), None)?;
 
         assert_eq!(mem.len(), 1);
 

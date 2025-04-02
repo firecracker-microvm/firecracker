@@ -330,7 +330,7 @@ pub fn restore_memory(
             }
 
             let mem_file = File::open(path)?;
-            memory::snapshot_file(mem_file, state.regions(), track_dirty, offset)?
+            memory::file_private(mem_file, state.regions(), track_dirty, offset)?
         }
         None => memory::anonymous(state.regions(), track_dirty, huge_pages)?,
     };

@@ -31,6 +31,8 @@ use crate::vstate::memory::{
 use crate::vstate::vcpu::VcpuError;
 use crate::{DirtyBitmap, Vcpu, mem_size_mib};
 
+pub(crate) const KVM_GMEM_NO_DIRECT_MAP: u64 = 1;
+
 /// Architecture independent parts of a VM.
 #[derive(Debug)]
 pub struct VmCommon {
@@ -166,15 +168,20 @@ impl Vm {
     pub fn register_memory_regions(
         &mut self,
         regions: Vec<GuestRegionMmap>,
+        fo_is_gmem: bool,
     ) -> Result<(), VmError> {
         for region in regions {
-            self.register_memory_region(region)?
+            self.register_memory_region(region, fo_is_gmem)?
         }
 
         Ok(())
     }
 
-    fn kvmify_region(&self, region: GuestRegionMmap) -> Result<KvmRegion, VmError> {
+    fn kvmify_region(
+        &self,
+        region: GuestRegionMmap,
+        fo_is_gmem: bool,
+    ) -> Result<KvmRegion, VmError> {
         let next_slot = self
             .guest_memory()
             .num_regions()
@@ -187,7 +194,19 @@ impl Vm {
             return Err(VmError::NotEnoughMemorySlots);
         }
 
-        Ok(KvmRegion::from_mmap_region(region, next_slot, None))
+        let gmem_fo = if fo_is_gmem {
+            assert!(
+                region.file_offset().is_some(),
+                "Requested to register guest_memfd to region that isn't mapping a guest_memfd in \
+                 the first place!"
+            );
+
+            region.file_offset().cloned()
+        } else {
+            None
+        };
+
+        Ok(KvmRegion::from_mmap_region(region, next_slot, gmem_fo))
     }
 
     fn register_kvm_region(&mut self, region: &KvmRegion) -> Result<(), VmError> {
@@ -219,8 +238,12 @@ impl Vm {
     }
 
     /// Register a new memory region to this [`Vm`].
-    pub fn register_memory_region(&mut self, region: GuestRegionMmap) -> Result<(), VmError> {
-        let arcd_region = Arc::new(self.kvmify_region(region)?);
+    pub fn register_memory_region(
+        &mut self,
+        region: GuestRegionMmap,
+        fo_is_gmem: bool,
+    ) -> Result<(), VmError> {
+        let arcd_region = Arc::new(self.kvmify_region(region, fo_is_gmem)?);
         let new_guest_memory = self
             .common
             .guest_memory
@@ -234,7 +257,9 @@ impl Vm {
 
     /// Registers a new io memory region to this [`Vm`].
     pub fn register_swiotlb_region(&mut self, region: GuestRegionMmap) -> Result<(), VmError> {
-        let arcd_region = Arc::new(self.kvmify_region(region)?);
+        // swiotlb regions are never gmem backed - by definition they need to be accessible to the
+        // host!
+        let arcd_region = Arc::new(self.kvmify_region(region, false)?);
         let new_collection = self
             .common
             .swiotlb_regions
@@ -441,7 +466,7 @@ pub(crate) mod tests {
     pub(crate) fn setup_vm_with_memory(mem_size: usize) -> (Kvm, Vm) {
         let (kvm, mut vm) = setup_vm();
         let gm = single_region_mem_raw(mem_size);
-        vm.register_memory_regions(gm).unwrap();
+        vm.register_memory_regions(gm, false).unwrap();
         (kvm, vm)
     }
 
@@ -459,14 +484,14 @@ pub(crate) mod tests {
         // Trying to set a memory region with a size that is not a multiple of GUEST_PAGE_SIZE
         // will result in error.
         let gm = single_region_mem_raw(0x10);
-        let res = vm.register_memory_regions(gm);
+        let res = vm.register_memory_regions(gm, false);
         assert_eq!(
             res.unwrap_err().to_string(),
             "Cannot set the memory regions: Invalid argument (os error 22)"
         );
 
         let gm = single_region_mem_raw(0x1000);
-        let res = vm.register_memory_regions(gm);
+        let res = vm.register_memory_regions(gm, false);
         res.unwrap();
     }
 
@@ -501,7 +526,7 @@ pub(crate) mod tests {
 
             let region = GuestRegionMmap::new(region, GuestAddress(i as u64 * 0x1000)).unwrap();
 
-            let res = vm.register_memory_region(region);
+            let res = vm.register_memory_region(region, false);
 
             if i >= max_nr_regions {
                 assert!(
