@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use std::convert::From;
+use std::fs::File;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex, MutexGuard};
 
@@ -561,16 +562,36 @@ impl VmResources {
             .ok_or(MemoryError::OffsetTooLarge)
     }
 
+    /// Size in bytes of the guest_memfd that backs all guest memory with secret freedom: DRAM
+    /// plus the virtio-mem hotpluggable region, the same as a memfd backing.
+    pub fn guest_memfd_size(&self) -> Result<u64, MemoryError> {
+        let regions =
+            crate::arch::arch_memory_regions(mib_to_bytes(self.machine_config.mem_size_mib));
+        self.guest_memory_size(&regions)
+    }
+
     /// Allocates guest DRAM in a configuration most appropriate for these [`VmResources`].
     ///
     /// When memory is memfd-backed, a single memfd is created for DRAM *and* the hotpluggable
     /// region, laid out like a guest memory snapshot file. The returned [`MemfdBacking`] must
     /// then be passed to [`Self::allocate_memory_region`] so that the hotpluggable region is
     /// mapped from the same memfd, right after DRAM.
+    ///
+    /// With secret freedom, the caller passes the `guest_memfd` that KVM created for all of
+    /// guest memory, and DRAM and the hotpluggable region are mapped from it in the same layout.
     pub fn allocate_guest_memory(
         &self,
+        guest_memfd: Option<File>,
     ) -> Result<(Vec<GuestRegionMmap>, Option<MemfdBacking>), MemoryError> {
-        self.allocate_guest_memory_backed(self.memfd_required())
+        match guest_memfd {
+            Some(file) => {
+                let regions = crate::arch::arch_memory_regions(mib_to_bytes(
+                    self.machine_config.mem_size_mib,
+                ));
+                self.allocate_guest_memory_from(&regions, Some(MemfdBacking::from_file(file)))
+            }
+            None => self.allocate_guest_memory_backed(self.memfd_required()),
+        }
     }
 
     /// [`Self::allocate_guest_memory`] with the memfd decision made by the caller.
@@ -580,25 +601,40 @@ impl VmResources {
     ) -> Result<(Vec<GuestRegionMmap>, Option<MemfdBacking>), MemoryError> {
         let regions =
             crate::arch::arch_memory_regions(mib_to_bytes(self.machine_config.mem_size_mib));
-
-        if memfd {
-            let mut backing = MemfdBacking::new(
+        let backing = if memfd {
+            Some(MemfdBacking::new(
                 self.guest_memory_size(&regions)?,
                 self.machine_config.huge_pages,
-            )?;
-            let guest_memory = backing.allocate(
-                &regions,
-                self.machine_config.track_dirty_pages,
-                self.machine_config.huge_pages,
-            )?;
-            Ok((guest_memory, Some(backing)))
+            )?)
         } else {
-            let guest_memory = memory::anonymous(
-                &regions,
-                self.machine_config.track_dirty_pages,
-                self.machine_config.huge_pages,
-            )?;
-            Ok((guest_memory, None))
+            None
+        };
+        self.allocate_guest_memory_from(&regions, backing)
+    }
+
+    /// Maps the DRAM `regions` from `backing` if there is one, anonymously otherwise.
+    fn allocate_guest_memory_from(
+        &self,
+        regions: &[(GuestAddress, usize)],
+        backing: Option<MemfdBacking>,
+    ) -> Result<(Vec<GuestRegionMmap>, Option<MemfdBacking>), MemoryError> {
+        match backing {
+            Some(mut backing) => {
+                let guest_memory = backing.allocate(
+                    regions,
+                    self.machine_config.track_dirty_pages,
+                    self.machine_config.huge_pages,
+                )?;
+                Ok((guest_memory, Some(backing)))
+            }
+            None => {
+                let guest_memory = memory::anonymous(
+                    regions,
+                    self.machine_config.track_dirty_pages,
+                    self.machine_config.huge_pages,
+                )?;
+                Ok((guest_memory, None))
+            }
         }
     }
 
@@ -808,7 +844,7 @@ mod tests {
 
         // No vhost-user device: anonymous memory, for DRAM and the hotplug region alike.
         assert!(!resources.memfd_required());
-        let (regions, mut backing) = resources.allocate_guest_memory().unwrap();
+        let (regions, mut backing) = resources.allocate_guest_memory(None).unwrap();
         assert!(backing.is_none());
         assert!(regions.iter().all(|r| r.file_offset().is_none()));
         let region = resources

@@ -15,7 +15,8 @@ use std::sync::{Arc, Mutex};
 
 use bitvec::vec::BitVec;
 use kvm_bindings::{
-    KVM_MEM_LOG_DIRTY_PAGES, kvm_userspace_memory_region, kvm_userspace_memory_region2,
+    KVM_MEM_GUEST_MEMFD, KVM_MEM_LOG_DIRTY_PAGES, kvm_userspace_memory_region,
+    kvm_userspace_memory_region2,
 };
 use serde::{Deserialize, Serialize};
 pub use vm_memory::bitmap::{AtomicBitmap, BS, Bitmap, BitmapSlice};
@@ -531,6 +532,8 @@ pub struct GuestMemorySlot<'a> {
     pub(crate) guest_addr: GuestAddress,
     /// Corresponding slice in host memory
     pub(crate) slice: VolatileSlice<'a, BS<'a, Option<AtomicBitmap>>>,
+    /// guest_memfd file offset
+    pub(crate) guest_memfd_file_offset: Option<FileOffset>,
 }
 
 impl From<&GuestMemorySlot<'_>> for kvm_userspace_memory_region {
@@ -552,17 +555,30 @@ impl From<&GuestMemorySlot<'_>> for kvm_userspace_memory_region {
 
 impl From<&GuestMemorySlot<'_>> for kvm_userspace_memory_region2 {
     fn from(mem_slot: &GuestMemorySlot) -> Self {
-        let flags = if mem_slot.slice.bitmap().is_some() {
+        let mut flags = if mem_slot.slice.bitmap().is_some() {
             KVM_MEM_LOG_DIRTY_PAGES
         } else {
             0
         };
+
+        #[allow(clippy::cast_sign_loss)]
+        let (guest_memfd, guest_memfd_offset) =
+            if let Some(ref fo) = mem_slot.guest_memfd_file_offset {
+                flags |= KVM_MEM_GUEST_MEMFD;
+
+                (fo.file().as_raw_fd() as u32, fo.start())
+            } else {
+                (0, 0)
+            };
+
         kvm_userspace_memory_region2 {
             flags,
             slot: mem_slot.slot,
             guest_phys_addr: mem_slot.guest_addr.raw_value(),
             memory_size: mem_slot.slice.len() as u64,
             userspace_addr: mem_slot.slice.ptr_guard().as_ptr() as u64,
+            guest_memfd,
+            guest_memfd_offset,
             ..Default::default()
         }
     }
@@ -770,6 +786,11 @@ impl GuestRegionMmapExt {
                 .inner
                 .get_slice(MemoryRegionAddress(offset), self.slot_size)
                 .expect("slot range should be valid"),
+            guest_memfd_file_offset: self
+                .inner
+                .file_offset()
+                .cloned()
+                .map(|fo| FileOffset::from_arc(Arc::clone(fo.arc()), fo.start() + offset)),
         }
     }
 
@@ -1325,11 +1346,17 @@ impl MemfdBacking {
     /// Creates a sealed memfd of `total_size` bytes.
     pub fn new(total_size: u64, huge_pages: HugePageConfig) -> Result<Self, MemoryError> {
         let memfd_file = create_memfd(total_size, huge_pages.into())?.into_file();
-        Ok(Self {
-            file: Arc::new(memfd_file),
+        Ok(Self::from_file(memfd_file))
+    }
+
+    /// Wraps an existing `file` that is already sized for all regions, such as a `guest_memfd`
+    /// created by KVM. Nothing has been allocated from it yet.
+    pub fn from_file(file: File) -> Self {
+        Self {
+            file: Arc::new(file),
             allocated_size: 0,
             next_guest_addr: GuestAddress(0),
-        })
+        }
     }
 
     /// Maps `regions` `MAP_SHARED` from the memfd, one after the other, right after the regions
@@ -1648,7 +1675,8 @@ impl GuestMemoryExtension for GuestMemoryMmap {
     }
 }
 
-fn create_memfd(
+/// Creates a memfd of the given size and huge pages configuration
+pub fn create_memfd(
     mem_size: u64,
     hugetlb_size: Option<memfd::HugetlbSize>,
 ) -> Result<memfd::Memfd, MemoryError> {
