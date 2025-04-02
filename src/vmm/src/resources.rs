@@ -467,25 +467,25 @@ impl VmResources {
 
     /// The size of the swiotlb region requested, in MiB
     #[cfg(target_arch = "aarch64")]
-    pub fn swiotlb_size_mib(&self) -> usize {
-        self.machine_config.mem_config.initial_swiotlb_size
+    pub fn swiotlb_size(&self) -> usize {
+        mib_to_bytes(self.machine_config.mem_config.initial_swiotlb_size)
     }
 
     /// The size of the swiotlb region requested, in MiB
     #[cfg(target_arch = "x86_64")]
-    pub fn swiotlb_size_mib(&self) -> usize {
+    pub fn swiotlb_size(&self) -> usize {
         0
     }
 
     /// Gets the size of the "traditional" memory region, e.g. total memory excluding the swiotlb
     /// region.
     pub fn memory_size(&self) -> usize {
-        self.machine_config.mem_size_mib - self.swiotlb_size_mib()
+        mib_to_bytes(self.machine_config.mem_size_mib) - self.swiotlb_size()
     }
 
     /// Whether the use of swiotlb was requested
     pub fn swiotlb_used(&self) -> bool {
-        self.swiotlb_size_mib() > 0
+        self.swiotlb_size() > 0
     }
 
     fn allocate_memory(
@@ -546,7 +546,7 @@ impl VmResources {
         // that would not be worth the effort.
         self.allocate_memory(
             0,
-            mib_to_bytes(self.memory_size()),
+            self.memory_size(),
             self.vhost_user_devices_used() && !self.swiotlb_used(),
             guest_memfd,
         )
@@ -558,12 +558,18 @@ impl VmResources {
             return Ok(None);
         }
 
-        let swiotlb_size = mib_to_bytes(self.swiotlb_size_mib());
-        let start = mib_to_bytes(self.machine_config.mem_size_mib) - swiotlb_size;
+        // We already allocated at least self.memory_size() bytes of non swiotlb memory
+        let start = self.memory_size();
+        // Ensure that swiotlb region gets placed after the mmio gap, to avoid the possibility
+        // of its getting split (which we cannot handle).
         let start = start.max(crate::arch::bytes_before_last_gap());
 
-        let mut mem =
-            self.allocate_memory(start, swiotlb_size, self.vhost_user_devices_used(), None)?;
+        let mut mem = self.allocate_memory(
+            start,
+            self.swiotlb_size(),
+            self.vhost_user_devices_used(),
+            None,
+        )?;
 
         assert_eq!(mem.len(), 1);
 
