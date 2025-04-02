@@ -65,7 +65,7 @@ use crate::vmm_config::snapshot::{MemBackendConfig, MemBackendType};
 use crate::vstate::kvm::Kvm;
 use crate::vstate::memory::Bounce;
 use crate::vstate::vcpu::{Vcpu, VcpuError};
-use crate::vstate::vm::Vm;
+use crate::vstate::vm::{KVM_GMEM_NO_DIRECT_MAP, Vm};
 use crate::{EventManager, Vmm, VmmError, device_manager};
 
 /// Errors associated with starting the instance.
@@ -217,14 +217,6 @@ pub fn build_microvm_for_boot(
         .as_ref()
         .ok_or(MissingKernelConfig)?;
 
-    let guest_memory = vm_resources
-        .allocate_guest_memory()
-        .map_err(StartMicrovmError::GuestMemory)?;
-
-    let swiotlb = vm_resources
-        .allocate_swiotlb_region()
-        .map_err(StartMicrovmError::GuestMemory)?;
-
     // Clone the command-line so that a failed boot doesn't pollute the original.
     #[allow(unused_mut)]
     let mut boot_cmdline = boot_config.cmdline.clone();
@@ -234,6 +226,8 @@ pub fn build_microvm_for_boot(
         .cpu_template
         .get_cpu_template()?;
 
+    let secret_free = vm_resources.machine_config.mem_config.secret_free;
+
     let (mut vmm, mut vcpus) = create_vmm_and_vcpus(
         instance_info,
         event_manager,
@@ -241,8 +235,25 @@ pub fn build_microvm_for_boot(
         cpu_template.kvm_capabilities.clone(),
     )?;
 
+    let guest_memfd = match secret_free {
+        true => Some(
+            vmm.vm
+                .create_guest_memfd(vm_resources.memory_size(), KVM_GMEM_NO_DIRECT_MAP)
+                .map_err(VmmError::Vm)?,
+        ),
+        false => None,
+    };
+
+    let guest_memory = vm_resources
+        .allocate_guest_memory(guest_memfd)
+        .map_err(StartMicrovmError::GuestMemory)?;
+
+    let swiotlb = vm_resources
+        .allocate_swiotlb_region()
+        .map_err(StartMicrovmError::GuestMemory)?;
+
     vmm.vm
-        .register_memory_regions(guest_memory)
+        .register_memory_regions(guest_memory, secret_free)
         .map_err(VmmError::Vm)?;
 
     if let Some(swiotlb) = swiotlb {
@@ -252,10 +263,7 @@ pub fn build_microvm_for_boot(
     }
 
     let entry_point = load_kernel(
-        Bounce(
-            &boot_config.kernel_file,
-            vm_resources.machine_config.mem_config.secret_free,
-        ),
+        Bounce(&boot_config.kernel_file, secret_free),
         vmm.vm.guest_memory(),
     )?;
     let initrd = match &boot_config.initrd_file {
@@ -267,10 +275,7 @@ pub fn build_microvm_for_boot(
 
             Some(InitrdConfig::from_reader(
                 vmm.vm.guest_memory(),
-                Bounce(
-                    initrd_file,
-                    vm_resources.machine_config.mem_config.secret_free,
-                ),
+                Bounce(initrd_file, secret_free),
                 u64_to_usize(size),
             )?)
         }
@@ -493,8 +498,9 @@ pub fn build_microvm_from_snapshot(
         guest_memory.iter().map(|r| r.len()).sum(),
     )?;
 
+    // TODO: sort out gmem support for snapshot restore
     vmm.vm
-        .register_memory_regions(guest_memory)
+        .register_memory_regions(guest_memory, false)
         .map_err(VmmError::Vm)
         .map_err(StartMicrovmError::Internal)?;
 
