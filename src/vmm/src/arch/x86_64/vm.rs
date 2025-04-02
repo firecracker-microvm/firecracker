@@ -5,15 +5,20 @@ use std::fmt;
 
 use kvm_bindings::{
     KVM_CLOCK_TSC_STABLE, KVM_IRQCHIP_IOAPIC, KVM_IRQCHIP_PIC_MASTER, KVM_IRQCHIP_PIC_SLAVE,
-    KVM_PIT_SPEAKER_DUMMY, MsrList, kvm_clock_data, kvm_irqchip, kvm_pit_config, kvm_pit_state2,
+    KVM_PIT_SPEAKER_DUMMY, KVM_X86_SW_PROTECTED_VM, MsrList, kvm_clock_data, kvm_irqchip,
+    kvm_pit_config, kvm_pit_state2,
 };
 use kvm_ioctls::Cap;
 use serde::{Deserialize, Serialize};
 
+use crate::arch::Kvm;
 use crate::arch::x86_64::msr::MsrError;
 use crate::utils::u64_to_usize;
 use crate::vstate::memory::{GuestMemoryExtension, GuestMemoryState};
 use crate::vstate::vm::{VmCommon, VmError};
+
+/// The VM type for this architecture that allows us to use guest_memfd.
+pub const VM_TYPE_FOR_SECRET_FREEDOM: Option<u64> = Some(KVM_X86_SW_PROTECTED_VM as u64);
 
 /// Error type for [`Vm::restore_state`]
 #[allow(missing_docs)]
@@ -60,8 +65,8 @@ pub struct ArchVm {
 
 impl ArchVm {
     /// Create a new `Vm` struct.
-    pub fn new(kvm: &crate::vstate::kvm::Kvm) -> Result<ArchVm, VmError> {
-        let common = Self::create_common(kvm)?;
+    pub fn new(kvm: &Kvm, vm_type: Option<u64>) -> Result<ArchVm, VmError> {
+        let common = Self::create_common(kvm, vm_type)?;
 
         let msrs_to_save = kvm.msrs_to_save().map_err(ArchVmError::GetMsrsToSave)?;
 
