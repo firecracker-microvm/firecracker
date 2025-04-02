@@ -8,7 +8,7 @@
 use std::collections::HashMap;
 use std::fs::{File, OpenOptions};
 use std::io::Write;
-use std::os::fd::FromRawFd;
+use std::os::fd::{AsRawFd, FromRawFd};
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
@@ -16,9 +16,9 @@ use std::sync::{Arc, Mutex, MutexGuard};
 #[cfg(target_arch = "x86_64")]
 use kvm_bindings::KVM_IRQCHIP_IOAPIC;
 use kvm_bindings::{
-    KVM_IRQ_ROUTING_IRQCHIP, KVM_IRQ_ROUTING_MSI, KVM_MEM_LOG_DIRTY_PAGES, KVM_MSI_VALID_DEVID,
-    KvmIrqRouting, kvm_create_guest_memfd, kvm_irq_routing_entry, kvm_userspace_memory_region,
-    kvm_userspace_memory_region2,
+    KVM_IRQ_ROUTING_IRQCHIP, KVM_IRQ_ROUTING_MSI, KVM_MEM_GUEST_MEMFD, KVM_MEM_LOG_DIRTY_PAGES,
+    KVM_MSI_VALID_DEVID, KvmIrqRouting, kvm_create_guest_memfd, kvm_irq_routing_entry,
+    kvm_userspace_memory_region, kvm_userspace_memory_region2,
 };
 use kvm_ioctls::{Cap, VmFd};
 use log::{debug, error};
@@ -43,6 +43,9 @@ use crate::vstate::memory::{
 use crate::vstate::resources::ResourceAllocator;
 use crate::vstate::vcpu::VcpuError;
 use crate::{DirtyBitmap, Vcpu, mem_size_mib};
+
+pub(crate) const GUEST_MEMFD_FLAG_MMAP: u64 = 1;
+pub(crate) const GUEST_MEMFD_FLAG_NO_DIRECT_MAP: u64 = 2;
 
 #[derive(Debug, thiserror::Error, displaydoc::Display)]
 /// Errors related with Firecracker interrupts
@@ -373,10 +376,6 @@ impl Vm {
             "guest_memfd size must be page aligned"
         );
 
-        if !self.fd().check_extension(Cap::GuestMemfd) {
-            return Err(VmError::GuestMemfdNotSupported);
-        }
-
         let kvm_gmem = kvm_create_guest_memfd {
             size: size as u64,
             flags,
@@ -414,10 +413,22 @@ impl Vm {
             return Err(VmError::NotEnoughMemorySlots(self.common.max_memslots));
         }
 
-        let flags = if region.bitmap().is_some() {
-            KVM_MEM_LOG_DIRTY_PAGES
+        let mut flags = 0;
+        if region.bitmap().is_some() {
+            flags |= KVM_MEM_LOG_DIRTY_PAGES;
+        }
+
+        #[allow(clippy::cast_sign_loss)]
+        let (guest_memfd, guest_memfd_offset) = if self.secret_free() {
+            flags |= KVM_MEM_GUEST_MEMFD;
+
+            let fo = region
+                .file_offset()
+                .expect("secret hidden VMs must mmap guest_memfd for memslots");
+
+            (fo.file().as_raw_fd() as u32, fo.start())
         } else {
-            0
+            (0, 0)
         };
 
         let memory_region = kvm_userspace_memory_region2 {
@@ -426,6 +437,8 @@ impl Vm {
             memory_size: region.len(),
             userspace_addr: region.as_ptr() as u64,
             flags,
+            guest_memfd,
+            guest_memfd_offset,
             ..Default::default()
         };
 
@@ -439,6 +452,12 @@ impl Vm {
                     .map_err(VmError::SetUserMemoryRegion)?;
             }
         } else {
+            // Something is seriously wrong if we manage to set these fields on a host that doesn't
+            // even allow creation of guest_memfds!
+            assert_eq!(memory_region.guest_memfd, 0);
+            assert_eq!(memory_region.guest_memfd_offset, 0);
+            assert_eq!(memory_region.flags & KVM_MEM_GUEST_MEMFD, 0);
+
             // SAFETY: We are passing a valid memory region and operate on a valid KVM FD.
             unsafe {
                 self.fd()

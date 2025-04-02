@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use std::convert::From;
+use std::fs::File;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex, MutexGuard};
 
@@ -31,7 +32,7 @@ use crate::vmm_config::mmds::{MmdsConfig, MmdsConfigError};
 use crate::vmm_config::net::*;
 use crate::vmm_config::vsock::*;
 use crate::vstate::memory;
-use crate::vstate::memory::{GuestRegionMmap, MemoryError};
+use crate::vstate::memory::{GuestRegionMmap, MemoryError, create_memfd};
 
 /// Errors encountered when configuring microVM resources.
 #[derive(Debug, thiserror::Error, displaydoc::Display)]
@@ -519,12 +520,19 @@ impl VmResources {
             })
     }
 
+    /// Gets the size of the guest memory, in bytes
+    pub fn memory_size(&self) -> usize {
+        mib_to_bytes(self.machine_config.mem_size_mib)
+    }
+
     /// Allocates guest memory in a configuration most appropriate for these [`VmResources`].
     ///
     /// If vhost-user-blk devices are in use, allocates memfd-backed shared memory, otherwise
     /// prefers anonymous memory for performance reasons.
-    pub fn allocate_guest_memory(&self) -> Result<Vec<GuestRegionMmap>, MemoryError> {
-        // Page faults are more expensive for shared memory mapping, including  memfd.
+    pub fn allocate_guest_memory(
+        &self,
+        guest_memfd: Option<File>,
+    ) -> Result<Vec<GuestRegionMmap>, MemoryError> {
         // For this reason, we only back guest memory with a memfd
         // if a vhost-user-blk device is configured in the VM, otherwise we fall back to
         // an anonymous private memory.
@@ -533,20 +541,35 @@ impl VmResources {
         // because that would require running a backend process. If in the future we converge to
         // a single way of backing guest memory for vhost-user and non-vhost-user cases,
         // that would not be worth the effort.
-        let regions =
-            crate::arch::arch_memory_regions(mib_to_bytes(self.machine_config.mem_size_mib));
-        if self.vhost_user_devices_used() {
-            memory::memfd_backed(
-                regions.as_ref(),
+        let regions = crate::arch::arch_memory_regions(self.memory_size()).into_iter();
+        match guest_memfd {
+            Some(file) => memory::file_shared(
+                file,
+                regions,
                 self.machine_config.track_dirty_pages,
                 self.machine_config.huge_pages,
-            )
-        } else {
-            memory::anonymous(
-                regions.into_iter(),
-                self.machine_config.track_dirty_pages,
-                self.machine_config.huge_pages,
-            )
+            ),
+            None => {
+                if self.vhost_user_devices_used() {
+                    let memfd = create_memfd(
+                        self.memory_size() as u64,
+                        self.machine_config.huge_pages.into(),
+                    )?
+                    .into_file();
+                    memory::file_shared(
+                        memfd,
+                        regions,
+                        self.machine_config.track_dirty_pages,
+                        self.machine_config.huge_pages,
+                    )
+                } else {
+                    memory::anonymous(
+                        regions.into_iter(),
+                        self.machine_config.track_dirty_pages,
+                        self.machine_config.huge_pages,
+                    )
+                }
+            }
         }
     }
 }
