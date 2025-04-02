@@ -7,6 +7,8 @@
 
 use std::fs::File;
 use std::io::{Read, Seek, SeekFrom, Write};
+use std::os::fd::AsRawFd;
+use std::ptr::null_mut;
 use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
@@ -51,6 +53,8 @@ pub enum MemoryError {
     MemfdSetLen(std::io::Error),
     /// Total sum of memory regions exceeds largest possible file offset
     OffsetTooLarge,
+    /// Error calling mmap: {0}
+    Mmap(std::io::Error),
 }
 
 /// Newtype that implements [`ReadVolatile`] and [`WriteVolatile`] if `T` implements `Read` or
@@ -203,15 +207,39 @@ pub fn create(
             let mut builder = MmapRegionBuilder::new_with_bitmap(
                 size,
                 track_dirty_pages.then(|| AtomicBitmap::with_len(size)),
-            )
-            .with_mmap_prot(libc::PROT_READ | libc::PROT_WRITE)
-            .with_mmap_flags(libc::MAP_NORESERVE | mmap_flags);
+            );
 
-            if let Some(ref file) = file {
+            // when computing offset below we ensure it fits into i64
+            #[allow(clippy::cast_possible_wrap)]
+            let (fd, fd_off) = if let Some(ref file) = file {
                 let file_offset = FileOffset::from_arc(Arc::clone(file), offset);
 
                 builder = builder.with_file_offset(file_offset);
+
+                (file.as_raw_fd(), offset as libc::off_t)
+            } else {
+                (-1, 0)
+            };
+
+            // SAFETY: the arguments to mmap cannot cause any memory unsafety in the rust sense
+            let ptr = unsafe {
+                libc::mmap(
+                    null_mut(),
+                    size,
+                    libc::PROT_READ | libc::PROT_WRITE,
+                    libc::MAP_NORESERVE | mmap_flags,
+                    fd,
+                    fd_off,
+                )
+            };
+
+            if ptr == libc::MAP_FAILED {
+                return Err(MemoryError::Mmap(std::io::Error::last_os_error()));
             }
+
+            // SAFETY: we check above that mmap succeeded, and the size we passed to builder is the
+            // same as the size of the mmap area.
+            let builder = unsafe { builder.with_raw_mmap_pointer(ptr.cast()) };
 
             offset = match offset.checked_add(size as u64) {
                 None => return Err(MemoryError::OffsetTooLarge),
