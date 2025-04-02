@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use std::convert::From;
+use std::fs::File;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex, MutexGuard};
 
@@ -32,7 +33,7 @@ use crate::vmm_config::pmem::{PmemBuilder, PmemConfig, PmemConfigError};
 use crate::vmm_config::serial::SerialConfig;
 use crate::vmm_config::vsock::*;
 use crate::vstate::memory;
-use crate::vstate::memory::{GuestRegionMmap, MemoryError};
+use crate::vstate::memory::{GuestRegionMmap, MemoryError, create_memfd};
 
 /// Errors encountered when configuring microVM resources.
 #[derive(Debug, thiserror::Error, displaydoc::Display)]
@@ -513,6 +514,18 @@ impl VmResources {
             })
     }
 
+    /// Gets the size of the DRAM guest memory, in bytes
+    pub fn dram_memory_size(&self) -> usize {
+        mib_to_bytes(self.machine_config.mem_size_mib)
+    }
+
+    /// Gets the size of the hotpluggable guest memory, in bytes
+    pub fn hotplug_memory_size(&self) -> usize {
+        mib_to_bytes(self.memory_hotplug.as_ref().map_or(0, |memory_hotplug| {
+            mib_to_bytes(memory_hotplug.total_size_mib)
+        }))
+    }
+
     /// Allocates the given guest memory regions.
     ///
     /// If vhost-user-blk devices are in use, allocates memfd-backed shared memory, otherwise
@@ -520,6 +533,8 @@ impl VmResources {
     fn allocate_memory_regions(
         &self,
         regions: &[(GuestAddress, usize)],
+        guest_memfd: Option<Arc<File>>,
+        guest_memfd_offset: Option<u64>,
     ) -> Result<Vec<GuestRegionMmap>, MemoryError> {
         // Page faults are more expensive for shared memory mapping, including  memfd.
         // For this reason, we only back guest memory with a memfd
@@ -530,26 +545,49 @@ impl VmResources {
         // because that would require running a backend process. If in the future we converge to
         // a single way of backing guest memory for vhost-user and non-vhost-user cases,
         // that would not be worth the effort.
-        if self.vhost_user_devices_used() {
-            memory::memfd_backed(
-                regions,
-                self.machine_config.track_dirty_pages,
-                self.machine_config.huge_pages,
-            )
-        } else {
-            memory::anonymous(
+        match guest_memfd {
+            Some(file) => memory::file_shared(
+                file,
+                guest_memfd_offset.expect("guest_memfd_offset is not set"),
                 regions.iter().copied(),
                 self.machine_config.track_dirty_pages,
                 self.machine_config.huge_pages,
-            )
+            ),
+            None => {
+                if self.vhost_user_devices_used() {
+                    let memfd = Arc::new(
+                        create_memfd(
+                            regions.iter().map(|&(_, size)| size as u64).sum(),
+                            self.machine_config.huge_pages.into(),
+                        )?
+                        .into_file(),
+                    );
+                    memory::file_shared(
+                        memfd,
+                        0,
+                        regions.iter().copied(),
+                        self.machine_config.track_dirty_pages,
+                        self.machine_config.huge_pages,
+                    )
+                } else {
+                    memory::anonymous(
+                        regions.iter().copied(),
+                        self.machine_config.track_dirty_pages,
+                        self.machine_config.huge_pages,
+                    )
+                }
+            }
         }
     }
 
     /// Allocates guest memory in a configuration most appropriate for these [`VmResources`].
-    pub fn allocate_guest_memory(&self) -> Result<Vec<GuestRegionMmap>, MemoryError> {
-        let regions =
-            crate::arch::arch_memory_regions(mib_to_bytes(self.machine_config.mem_size_mib));
-        self.allocate_memory_regions(&regions)
+    pub fn allocate_guest_memory(
+        &self,
+        guest_memfd: Option<Arc<File>>,
+    ) -> Result<Vec<GuestRegionMmap>, MemoryError> {
+        let regions = crate::arch::arch_memory_regions(self.dram_memory_size());
+        let guest_memfd_offset = guest_memfd.as_ref().and(Some(0));
+        self.allocate_memory_regions(&regions, guest_memfd, guest_memfd_offset)
     }
 
     /// Allocates a single guest memory region.
@@ -557,9 +595,11 @@ impl VmResources {
         &self,
         start: GuestAddress,
         size: usize,
+        guest_memfd: Option<Arc<File>>,
+        guest_memfd_offset: Option<u64>,
     ) -> Result<GuestRegionMmap, MemoryError> {
         Ok(self
-            .allocate_memory_regions(&[(start, size)])?
+            .allocate_memory_regions(&[(start, size)], guest_memfd, guest_memfd_offset)?
             .pop()
             .unwrap())
     }

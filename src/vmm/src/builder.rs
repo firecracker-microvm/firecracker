@@ -12,6 +12,7 @@ use std::sync::mpsc;
 use std::sync::{Arc, Mutex};
 
 use event_manager::SubscriberOps;
+use kvm_ioctls::Cap;
 use linux_loader::cmdline::Cmdline as LoaderKernelCmdline;
 use userfaultfd::Uffd;
 use utils::time::TimestampUs;
@@ -23,7 +24,9 @@ use crate::Vcpu;
 use crate::arch::{ConfigurationError, configure_system_for_boot, load_kernel};
 #[cfg(target_arch = "aarch64")]
 use crate::construct_kvm_mpidrs;
-use crate::cpu_config::templates::{GetCpuTemplate, GetCpuTemplateError, GuestConfigError};
+use crate::cpu_config::templates::{
+    GetCpuTemplate, GetCpuTemplateError, GuestConfigError, KvmCapability,
+};
 #[cfg(target_arch = "x86_64")]
 use crate::device_manager;
 use crate::device_manager::pci_mngr::PciManagerError;
@@ -55,7 +58,7 @@ use crate::vstate::memory::{GuestRegionMmap, MaybeBounce};
 #[cfg(target_arch = "aarch64")]
 use crate::vstate::resources::ResourceAllocator;
 use crate::vstate::vcpu::VcpuError;
-use crate::vstate::vm::{Vm, VmError};
+use crate::vstate::vm::{GUEST_MEMFD_FLAG_MMAP, GUEST_MEMFD_FLAG_NO_DIRECT_MAP, Vm, VmError};
 use crate::{EventManager, Vmm, VmmError};
 
 /// Errors associated with starting the instance.
@@ -135,6 +138,9 @@ impl std::convert::From<linux_loader::cmdline::Error> for StartMicrovmError {
     }
 }
 
+const KVM_CAP_GUEST_MEMFD_MMAP: u32 = 244;
+const KVM_CAP_GUEST_MEMFD_NO_DIRECT_MAP: u32 = 245;
+
 /// Builds and starts a microVM based on the current Firecracker VmResources configuration.
 ///
 /// The built microVM and all the created vCPUs start off in the paused state.
@@ -155,10 +161,6 @@ pub fn build_microvm_for_boot(
         .as_ref()
         .ok_or(StartMicrovmError::MissingKernelConfig)?;
 
-    let guest_memory = vm_resources
-        .allocate_guest_memory()
-        .map_err(StartMicrovmError::GuestMemory)?;
-
     // Clone the command-line so that a failed boot doesn't pollute the original.
     #[allow(unused_mut)]
     let mut boot_cmdline = boot_config.cmdline.clone();
@@ -168,19 +170,55 @@ pub fn build_microvm_for_boot(
         .cpu_template
         .get_cpu_template()?;
 
-    let kvm = Kvm::new(cpu_template.kvm_capabilities.clone())?;
+    let secret_free = vm_resources.machine_config.secret_free;
+
+    let mut kvm_capabilities = cpu_template.kvm_capabilities.clone();
+
+    if secret_free {
+        kvm_capabilities.push(KvmCapability::Add(Cap::GuestMemfd as u32));
+        kvm_capabilities.push(KvmCapability::Add(KVM_CAP_GUEST_MEMFD_MMAP));
+        kvm_capabilities.push(KvmCapability::Add(KVM_CAP_GUEST_MEMFD_NO_DIRECT_MAP));
+    }
+
+    let kvm = Kvm::new(kvm_capabilities)?;
     // Set up Kvm Vm and register memory regions.
     // Build custom CPU config if a custom template is provided.
-    let mut vm = Vm::new(&kvm, vm_resources.machine_config.secret_free)?;
+    let mut vm = Vm::new(&kvm, secret_free)?;
     let (mut vcpus, vcpus_exit_evt) = vm.create_vcpus(vm_resources.machine_config.vcpu_count)?;
-    vm.register_dram_memory_regions(guest_memory)?;
+
+    let guest_memfd = match secret_free {
+        true => Some(Arc::new(
+            vm.create_guest_memfd(
+                vm_resources.dram_memory_size() + vm_resources.hotplug_memory_size(),
+                GUEST_MEMFD_FLAG_MMAP | GUEST_MEMFD_FLAG_NO_DIRECT_MAP,
+            )
+            .map_err(VmmError::Vm)?,
+        )),
+        false => None,
+    };
+
+    let guest_memory = vm_resources
+        .allocate_guest_memory(guest_memfd.clone())
+        .map_err(StartMicrovmError::GuestMemory)?;
+
+    vm.register_dram_memory_regions(guest_memory)
+        .map_err(VmmError::Vm)?;
 
     // Allocate memory as soon as possible to make hotpluggable memory available to all consumers,
     // before they clone the GuestMemoryMmap object
     let virtio_mem_addr = if let Some(memory_hotplug) = &vm_resources.memory_hotplug {
         let addr = allocate_virtio_mem_address(&vm, memory_hotplug.total_size_mib)?;
+        let guest_memfd_offset = guest_memfd
+            .is_some()
+            .then(|| vm_resources.dram_memory_size() as u64);
+
         let hotplug_memory_region = vm_resources
-            .allocate_memory_region(addr, mib_to_bytes(memory_hotplug.total_size_mib))
+            .allocate_memory_region(
+                addr,
+                mib_to_bytes(memory_hotplug.total_size_mib),
+                guest_memfd,
+                guest_memfd_offset,
+            )
             .map_err(StartMicrovmError::GuestMemory)?;
         vm.register_hotpluggable_memory_region(
             hotplug_memory_region,
@@ -203,7 +241,7 @@ pub fn build_microvm_for_boot(
     let entry_point = load_kernel(
         MaybeBounce::<_, 4096>::new_persistent(
             boot_config.kernel_file.try_clone().unwrap(),
-            vm.secret_free(),
+            secret_free,
         ),
         vm.guest_memory(),
     )?;
@@ -216,7 +254,7 @@ pub fn build_microvm_for_boot(
 
             Some(InitrdConfig::from_reader(
                 vm.guest_memory(),
-                MaybeBounce::<_, 4096>::new_persistent(initrd_file.as_fd(), vm.secret_free()),
+                MaybeBounce::<_, 4096>::new_persistent(initrd_file.as_fd(), secret_free),
                 u64_to_usize(size),
             )?)
         }

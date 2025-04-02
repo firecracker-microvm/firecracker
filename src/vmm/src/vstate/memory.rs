@@ -8,11 +8,13 @@
 use std::fs::File;
 use std::io::{Read, Seek, SeekFrom, Write};
 use std::ops::Deref;
+use std::os::fd::AsRawFd;
 use std::sync::{Arc, Mutex};
 
 use bitvec::vec::BitVec;
 use kvm_bindings::{
-    KVM_MEM_LOG_DIRTY_PAGES, kvm_userspace_memory_region, kvm_userspace_memory_region2,
+    KVM_MEM_GUEST_MEMFD, KVM_MEM_LOG_DIRTY_PAGES, kvm_userspace_memory_region,
+    kvm_userspace_memory_region2,
 };
 use log::error;
 use serde::{Deserialize, Serialize};
@@ -100,6 +102,8 @@ pub struct GuestMemorySlot<'a> {
     pub(crate) guest_addr: GuestAddress,
     /// Corresponding slice in host memory
     pub(crate) slice: VolatileSlice<'a, BS<'a, Option<AtomicBitmap>>>,
+    /// guest_memfd file offset
+    pub(crate) guest_memfd_file_offset: Option<FileOffset>,
 }
 
 impl From<&GuestMemorySlot<'_>> for kvm_userspace_memory_region {
@@ -121,17 +125,30 @@ impl From<&GuestMemorySlot<'_>> for kvm_userspace_memory_region {
 
 impl From<&GuestMemorySlot<'_>> for kvm_userspace_memory_region2 {
     fn from(mem_slot: &GuestMemorySlot) -> Self {
-        let flags = if mem_slot.slice.bitmap().is_some() {
+        let mut flags = if mem_slot.slice.bitmap().is_some() {
             KVM_MEM_LOG_DIRTY_PAGES
         } else {
             0
         };
+
+        #[allow(clippy::cast_sign_loss)]
+        let (guest_memfd, guest_memfd_offset) =
+            if let Some(ref fo) = mem_slot.guest_memfd_file_offset {
+                flags |= KVM_MEM_GUEST_MEMFD;
+
+                (fo.file().as_raw_fd() as u32, fo.start())
+            } else {
+                (0, 0)
+            };
+
         kvm_userspace_memory_region2 {
             flags,
             slot: mem_slot.slot,
             guest_phys_addr: mem_slot.guest_addr.raw_value(),
             memory_size: mem_slot.slice.len() as u64,
             userspace_addr: mem_slot.slice.ptr_guard().as_ptr() as u64,
+            guest_memfd,
+            guest_memfd_offset,
             ..Default::default()
         }
     }
@@ -283,6 +300,11 @@ impl GuestRegionMmapExt {
                 .inner
                 .get_slice(MemoryRegionAddress(offset), self.slot_size)
                 .expect("slot range should be valid"),
+            guest_memfd_file_offset: self
+                .inner
+                .file_offset()
+                .cloned()
+                .map(|fo| FileOffset::from_arc(Arc::clone(fo.arc()), fo.start() + offset)),
         }
     }
 
@@ -603,11 +625,11 @@ impl<S: Seek, const N: usize> Seek for MaybeBounce<S, N> {
 pub fn create(
     regions: impl Iterator<Item = (GuestAddress, usize)>,
     mmap_flags: libc::c_int,
-    file: Option<File>,
+    file: Option<Arc<File>>,
+    file_offset: u64,
     track_dirty_pages: bool,
 ) -> Result<Vec<GuestRegionMmap>, MemoryError> {
-    let mut offset = 0;
-    let file = file.map(Arc::new);
+    let mut offset = file_offset;
     regions
         .map(|(start, size)| {
             let mut builder = MmapRegionBuilder::new_with_bitmap(
@@ -641,18 +663,18 @@ pub fn create(
 }
 
 /// Creates a GuestMemoryMmap with `size` in MiB backed by a memfd.
-pub fn memfd_backed(
-    regions: &[(GuestAddress, usize)],
+pub fn file_shared(
+    file: Arc<File>,
+    file_offset: u64,
+    regions: impl Iterator<Item = (GuestAddress, usize)>,
     track_dirty_pages: bool,
     huge_pages: HugePageConfig,
 ) -> Result<Vec<GuestRegionMmap>, MemoryError> {
-    let size = regions.iter().map(|&(_, size)| size as u64).sum();
-    let memfd_file = create_memfd(size, huge_pages.into())?.into_file();
-
     create(
-        regions.iter().copied(),
+        regions,
         libc::MAP_SHARED | huge_pages.mmap_flags(),
-        Some(memfd_file),
+        Some(file),
+        file_offset,
         track_dirty_pages,
     )
 }
@@ -667,14 +689,15 @@ pub fn anonymous(
         regions,
         libc::MAP_PRIVATE | libc::MAP_ANONYMOUS | huge_pages.mmap_flags(),
         None,
+        0,
         track_dirty_pages,
     )
 }
 
 /// Creates a GuestMemoryMmap given a `file` containing the data
 /// and a `state` containing mapping information.
-pub fn snapshot_file(
-    file: File,
+pub fn file_private(
+    file: Arc<File>,
     regions: impl Iterator<Item = (GuestAddress, usize)>,
     track_dirty_pages: bool,
 ) -> Result<Vec<GuestRegionMmap>, MemoryError> {
@@ -695,6 +718,7 @@ pub fn snapshot_file(
         regions.into_iter(),
         libc::MAP_PRIVATE,
         Some(file),
+        0,
         track_dirty_pages,
     )
 }
@@ -917,7 +941,8 @@ impl GuestMemoryExtension for GuestMemoryMmap {
     }
 }
 
-fn create_memfd(
+/// Creates a memfd of the given size and huge pages configuration
+pub fn create_memfd(
     mem_size: u64,
     hugetlb_size: Option<memfd::HugetlbSize>,
 ) -> Result<memfd::Memfd, MemoryError> {
@@ -1013,7 +1038,7 @@ mod tests {
 
             let regions = vec![(GuestAddress(0), page_size)];
             let guest_regions =
-                snapshot_file(file, regions.into_iter(), dirty_page_tracking).unwrap();
+                file_private(Arc::new(file), regions.into_iter(), dirty_page_tracking).unwrap();
             assert_eq!(guest_regions.len(), 1);
             guest_regions.iter().for_each(|region| {
                 assert_eq!(region.bitmap().is_some(), dirty_page_tracking);
@@ -1034,7 +1059,7 @@ mod tests {
             (GuestAddress(0x10000), page_size),
             (GuestAddress(0x20000), page_size),
         ];
-        let guest_regions = snapshot_file(file, regions.into_iter(), false).unwrap();
+        let guest_regions = file_private(Arc::new(file), regions.into_iter(), false).unwrap();
         assert_eq!(guest_regions.len(), 3);
     }
 
@@ -1046,7 +1071,7 @@ mod tests {
         file.write_all(&vec![0x42u8; page_size]).unwrap();
 
         let regions = vec![(GuestAddress(0), 2 * page_size)];
-        let result = snapshot_file(file, regions.into_iter(), false);
+        let result = file_private(Arc::new(file), regions.into_iter(), false);
         assert!(matches!(result.unwrap_err(), MemoryError::OffsetTooLarge));
     }
 
@@ -1234,8 +1259,9 @@ mod tests {
         let mut memory_file = TempFile::new().unwrap().into_file();
         guest_memory.dump(&mut memory_file).unwrap();
 
-        let restored_guest_memory =
-            into_region_ext(snapshot_file(memory_file, memory_state.regions(), false).unwrap());
+        let restored_guest_memory = into_region_ext(
+            file_private(Arc::new(memory_file), memory_state.regions(), false).unwrap(),
+        );
 
         // Check that the region contents are the same.
         let mut restored_region = vec![0u8; page_size * 2];
@@ -1294,7 +1320,7 @@ mod tests {
 
         // We can restore from this because this is the first dirty dump.
         let restored_guest_memory =
-            into_region_ext(snapshot_file(file, memory_state.regions(), false).unwrap());
+            into_region_ext(file_private(Arc::new(file), memory_state.regions(), false).unwrap());
 
         // Check that the region contents are the same.
         let mut restored_region = vec![0u8; region_size];
@@ -1443,8 +1469,8 @@ mod tests {
         memory_file.set_len(2 * page_size as u64).unwrap();
         memory_file.write_all(&vec![2u8; 2 * page_size]).unwrap();
         let mem = into_region_ext(
-            snapshot_file(
-                memory_file,
+            file_private(
+                Arc::new(memory_file),
                 std::iter::once((GuestAddress(0), 2 * page_size)),
                 false,
             )

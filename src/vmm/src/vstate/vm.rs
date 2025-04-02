@@ -42,6 +42,9 @@ use crate::vstate::resources::ResourceAllocator;
 use crate::vstate::vcpu::VcpuError;
 use crate::{DirtyBitmap, Vcpu, mem_size_mib};
 
+pub(crate) const GUEST_MEMFD_FLAG_MMAP: u64 = 1;
+pub(crate) const GUEST_MEMFD_FLAG_NO_DIRECT_MAP: u64 = 2;
+
 #[derive(Debug, Serialize, Deserialize)]
 /// A struct representing an interrupt line used by some device of the microVM
 pub struct RoutingEntry {
@@ -191,10 +194,6 @@ impl Vm {
             "guest_memfd size must be page aligned"
         );
 
-        if !self.fd().check_extension(Cap::GuestMemfd) {
-            return Err(VmError::GuestMemfdNotSupported);
-        }
-
         let kvm_gmem = kvm_create_guest_memfd {
             size: size as u64,
             flags,
@@ -234,6 +233,18 @@ impl Vm {
         }
     }
 
+    pub(crate) fn set_user_memory_region2(
+        &self,
+        region: kvm_userspace_memory_region2,
+    ) -> Result<(), VmError> {
+        // SAFETY: Safe because the fd is a valid KVM file descriptor.
+        unsafe {
+            self.fd()
+                .set_user_memory_region2(region)
+                .map_err(VmError::SetUserMemoryRegion)
+        }
+    }
+
     pub(crate) fn set_slot(&self, slot: &GuestMemorySlot, removed: bool) -> Result<(), VmError> {
         if self.secret_free() {
             let mut region = kvm_userspace_memory_region2::from(slot);
@@ -241,12 +252,8 @@ impl Vm {
             if removed {
                 region.memory_size = 0;
             }
-            // SAFETY: We are passing a valid memory region and operate on a valid KVM FD.
-            unsafe {
-                self.fd()
-                    .set_user_memory_region2(region)
-                    .map_err(VmError::SetUserMemoryRegion)
-            }
+
+            self.set_user_memory_region2(region)
         } else {
             let mut region = kvm_userspace_memory_region::from(slot);
             // to remove it we need to pass a size of zero
