@@ -971,33 +971,43 @@ class Microvm:
 
     def restore_from_snapshot(
         self,
-        snapshot: Snapshot,
+        snapshot: Snapshot = None,
         resume: bool = False,
-        uffd_path: Path = None,
         rename_interfaces: dict = None,
     ):
         """Restore a snapshot"""
-        jailed_snapshot = snapshot.copy_to_chroot(Path(self.chroot()))
+        if self.uffd_handler is None:
+            assert (
+                snapshot is not None
+            ), "snapshot file must be provided if no uffd handler is attached!"
+
+            jailed_snapshot = snapshot.copy_to_chroot(Path(self.chroot()))
+        else:
+            jailed_snapshot = self.uffd_handler.snapshot
+
         jailed_mem = Path("/") / jailed_snapshot.mem.name
         jailed_vmstate = Path("/") / jailed_snapshot.vmstate.name
 
-        snapshot_disks = [v for k, v in snapshot.disks.items()]
+        snapshot_disks = [v for k, v in jailed_snapshot.disks.items()]
         assert len(snapshot_disks) > 0, "Snapshot requires at least one disk."
         jailed_disks = []
         for disk in snapshot_disks:
             jailed_disks.append(self.create_jailed_resource(disk))
-        self.disks = snapshot.disks
-        self.ssh_key = snapshot.ssh_key
+        self.disks = jailed_snapshot.disks
+        self.ssh_key = jailed_snapshot.ssh_key
 
         # Create network interfaces.
-        for iface in snapshot.net_ifaces:
+        for iface in jailed_snapshot.net_ifaces:
             self.add_net_iface(iface, api=False)
 
         mem_backend = {"backend_type": "File", "backend_path": str(jailed_mem)}
-        if uffd_path is not None:
-            mem_backend = {"backend_type": "Uffd", "backend_path": str(uffd_path)}
+        if self.uffd_handler is not None:
+            mem_backend = {
+                "backend_type": "Uffd",
+                "backend_path": str(self.uffd_handler.socket_path),
+            }
 
-        for key, value in snapshot.meta.items():
+        for key, value in jailed_snapshot.meta.items():
             setattr(self, key, value)
         # Adjust things just in case
         self.kernel_file = Path(self.kernel_file)
@@ -1020,12 +1030,12 @@ class Microvm:
         self.api.snapshot_load.put(
             mem_backend=mem_backend,
             snapshot_path=str(jailed_vmstate),
-            enable_diff_snapshots=snapshot.is_diff,
+            enable_diff_snapshots=jailed_snapshot.is_diff,
             resume_vm=resume,
             **optional_kwargs,
         )
         # This is not a "wait for boot", but rather a "VM still works after restoration"
-        if snapshot.net_ifaces and resume:
+        if jailed_snapshot.net_ifaces and resume:
             self.wait_for_ssh_up()
         return jailed_snapshot
 
@@ -1148,7 +1158,7 @@ class MicroVMFactory:
 
     def build_n_from_snapshot(
         self,
-        snapshot,
+        current_snapshot,
         nr_vms,
         *,
         uffd_handler_name=None,
@@ -1158,39 +1168,44 @@ class MicroVMFactory:
         """A generator of `n` microvms restored, either all restored from the same given snapshot
         (incremental=False), or created by taking successive snapshots of restored VMs
         """
+        last_snapshot = None
         for _ in range(nr_vms):
             microvm = self.build()
             microvm.spawn()
 
-            uffd_path = None
             if uffd_handler_name is not None:
-                pf_handler = spawn_pf_handler(
+                spawn_pf_handler(
                     microvm,
                     uffd_handler(uffd_handler_name, binary_dir=self.binary_path),
-                    snapshot.mem,
+                    current_snapshot,
                 )
-                uffd_path = pf_handler.socket_path
 
-            snapshot_copy = microvm.restore_from_snapshot(
-                snapshot, resume=True, uffd_path=uffd_path
-            )
+            snapshot_copy = microvm.restore_from_snapshot(current_snapshot, resume=True)
 
             yield microvm
 
             if incremental:
-                new_snapshot = microvm.make_snapshot(snapshot.snapshot_type)
+                # When doing diff snapshots, we continuously overwrite the same base snapshot file from the first
+                # iteration in-place with successive snapshots, so don't delete it!
+                if last_snapshot is not None and not last_snapshot.is_diff:
+                    last_snapshot.delete()
 
-                if snapshot.is_diff:
-                    new_snapshot = new_snapshot.rebase_snapshot(
-                        snapshot, use_snapshot_editor
+                next_snapshot = microvm.make_snapshot(current_snapshot.snapshot_type)
+
+                if current_snapshot.is_diff:
+                    next_snapshot = next_snapshot.rebase_snapshot(
+                        current_snapshot, use_snapshot_editor
                     )
 
-                snapshot = new_snapshot
+                last_snapshot = current_snapshot
+                current_snapshot = next_snapshot
 
             microvm.kill()
             snapshot_copy.delete()
 
-        snapshot.delete()
+        if last_snapshot is not None and not last_snapshot.is_diff:
+            last_snapshot.delete()
+        current_snapshot.delete()
 
     def kill(self):
         """Clean up all built VMs"""
