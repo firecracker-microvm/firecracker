@@ -259,18 +259,16 @@ pub fn create(
 }
 
 /// Creates a GuestMemoryMmap with `size` in MiB backed by a memfd.
-pub fn memfd_backed(
-    regions: &[(GuestAddress, usize)],
+pub fn file_shared(
+    file: File,
+    regions: impl Iterator<Item = (GuestAddress, usize)>,
     track_dirty_pages: bool,
     huge_pages: HugePageConfig,
 ) -> Result<Vec<GuestRegionMmap>, MemoryError> {
-    let size = regions.iter().map(|&(_, size)| size as u64).sum();
-    let memfd_file = create_memfd(size, huge_pages.into())?.into_file();
-
     create(
-        regions.iter().copied(),
+        regions,
         libc::MAP_SHARED | huge_pages.mmap_flags(),
-        Some(memfd_file),
+        Some(file),
         track_dirty_pages,
     )
 }
@@ -291,7 +289,7 @@ pub fn anonymous(
 
 /// Creates a GuestMemoryMmap given a `file` containing the data
 /// and a `state` containing mapping information.
-pub fn snapshot_file(
+pub fn file_private(
     file: File,
     regions: impl Iterator<Item = (GuestAddress, usize)>,
     track_dirty_pages: bool,
@@ -477,7 +475,8 @@ impl GuestMemoryExtension for GuestMemoryMmap {
     }
 }
 
-fn create_memfd(
+/// Creates a memfd of the given size and huge pages configuration
+pub fn create_memfd(
     mem_size: u64,
     hugetlb_size: Option<memfd::HugetlbSize>,
 ) -> Result<memfd::Memfd, MemoryError> {
@@ -731,7 +730,7 @@ mod tests {
         guest_memory.dump(&mut memory_file).unwrap();
 
         let restored_guest_memory = GuestMemoryMmap::from_regions(
-            snapshot_file(memory_file, memory_state.regions(), false).unwrap(),
+            file_private(memory_file, memory_state.regions(), false).unwrap(),
         )
         .unwrap();
 
@@ -793,7 +792,7 @@ mod tests {
 
         // We can restore from this because this is the first dirty dump.
         let restored_guest_memory = GuestMemoryMmap::from_regions(
-            snapshot_file(file, memory_state.regions(), false).unwrap(),
+            file_private(file, memory_state.regions(), false).unwrap(),
         )
         .unwrap();
 
