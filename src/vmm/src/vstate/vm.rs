@@ -18,8 +18,8 @@ use kvm_ioctls::{Cap, VmFd};
 use userfaultfd::{FeatureFlags, Uffd, UffdBuilder};
 use vmm_sys_util::eventfd::EventFd;
 
-use crate::arch::host_page_size;
 pub use crate::arch::{ArchVm as Vm, ArchVmError, VmState};
+use crate::arch::{Kvm, host_page_size};
 use crate::logger::info;
 use crate::persist::{CreateSnapshotError, GuestRegionUffdMapping};
 use crate::utils::u64_to_usize;
@@ -73,7 +73,7 @@ pub enum VmError {
 /// Contains Vm functions that are usable across CPU architectures
 impl Vm {
     /// Create a KVM VM
-    pub fn create_common(kvm: &crate::vstate::kvm::Kvm) -> Result<VmCommon, VmError> {
+    pub fn create_common(kvm: &Kvm, vm_type: Option<u64>) -> Result<VmCommon, VmError> {
         // It is known that KVM_CREATE_VM occasionally fails with EINTR on heavily loaded machines
         // with many VMs.
         //
@@ -97,7 +97,12 @@ impl Vm {
         const MAX_ATTEMPTS: u32 = 5;
         let mut attempt = 1;
         let fd = loop {
-            match kvm.fd.create_vm() {
+            let vm_res = match vm_type {
+                Some(r#type) => kvm.fd.create_vm_with_type(r#type),
+                None => kvm.fd.create_vm(),
+            };
+
+            match vm_res {
                 Ok(fd) => break fd,
                 Err(e) if e.errno() == libc::EINTR && attempt < MAX_ATTEMPTS => {
                     info!("Attempt #{attempt} of KVM_CREATE_VM returned EINTR");
@@ -458,7 +463,7 @@ pub(crate) mod tests {
     // Auxiliary function being used throughout the tests.
     pub(crate) fn setup_vm() -> (Kvm, Vm) {
         let kvm = Kvm::new(vec![]).expect("Cannot create Kvm");
-        let vm = Vm::new(&kvm).expect("Cannot create new vm");
+        let vm = Vm::new(&kvm, None).expect("Cannot create new vm");
         (kvm, vm)
     }
 
@@ -474,7 +479,7 @@ pub(crate) mod tests {
     fn test_new() {
         // Testing with a valid /dev/kvm descriptor.
         let kvm = Kvm::new(vec![]).expect("Cannot create Kvm");
-        Vm::new(&kvm).unwrap();
+        Vm::new(&kvm, None).unwrap();
     }
 
     #[test]
