@@ -4,6 +4,11 @@
 use derive_more::Display;
 use serde::{Deserialize, Serialize};
 
+use crate::arch::x86_64::cpu_model::{
+    CASCADE_LAKE_FMS, CpuModel, ICE_LAKE_FMS, MILAN_FMS, SKYLAKE_FMS,
+};
+use crate::cpu_config::x86_64::cpuid::{VENDOR_ID_AMD, VENDOR_ID_INTEL};
+
 /// Module with C3 CPU template for x86_64
 pub mod c3;
 /// Module with T2 CPU template for x86_64
@@ -44,6 +49,30 @@ impl StaticCpuTemplate {
     /// Check if no template specified
     pub fn is_none(&self) -> bool {
         self == &StaticCpuTemplate::None
+    }
+
+    /// Return the supported vendor for the CPU template.
+    pub fn get_supported_vendor(&self) -> &'static [u8; 12] {
+        match self {
+            StaticCpuTemplate::C3 => VENDOR_ID_INTEL,
+            StaticCpuTemplate::T2 => VENDOR_ID_INTEL,
+            StaticCpuTemplate::T2S => VENDOR_ID_INTEL,
+            StaticCpuTemplate::T2CL => VENDOR_ID_INTEL,
+            StaticCpuTemplate::T2A => VENDOR_ID_AMD,
+            StaticCpuTemplate::None => unreachable!(), // Should be handled in advance
+        }
+    }
+
+    /// Return supported CPU models for the CPU template.
+    pub fn get_supported_cpu_models(&self) -> &'static [CpuModel] {
+        match self {
+            StaticCpuTemplate::C3 => &[SKYLAKE_FMS, CASCADE_LAKE_FMS, ICE_LAKE_FMS],
+            StaticCpuTemplate::T2 => &[SKYLAKE_FMS, CASCADE_LAKE_FMS, ICE_LAKE_FMS],
+            StaticCpuTemplate::T2S => &[SKYLAKE_FMS, CASCADE_LAKE_FMS],
+            StaticCpuTemplate::T2CL => &[CASCADE_LAKE_FMS, ICE_LAKE_FMS],
+            StaticCpuTemplate::T2A => &[MILAN_FMS],
+            StaticCpuTemplate::None => unreachable!(), // Should be handled in advance
+        }
     }
 }
 
