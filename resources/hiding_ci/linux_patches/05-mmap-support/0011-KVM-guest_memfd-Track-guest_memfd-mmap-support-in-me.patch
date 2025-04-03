@@ -1,0 +1,76 @@
+From a5d0015d5701f7c76c975dcba6ed4bdc8863ced1 Mon Sep 17 00:00:00 2001
+From: Fuad Tabba <tabba@google.com>
+Date: Tue, 29 Jul 2025 15:54:42 -0700
+Subject: [PATCH 11/49] KVM: guest_memfd: Track guest_memfd mmap support in
+ memslot
+
+Add a new internal flag, KVM_MEMSLOT_GMEM_ONLY, to the top half of
+memslot->flags (which makes it strictly for KVM's internal use). This
+flag tracks when a guest_memfd-backed memory slot supports host
+userspace mmap operations, which implies that all memory, not just
+private memory for CoCo VMs, is consumed through guest_memfd: "gmem
+only".
+
+This optimization avoids repeatedly checking the underlying guest_memfd
+file for mmap support, which would otherwise require taking and
+releasing a reference on the file for each check. By caching this
+information directly in the memslot, we reduce overhead and simplify the
+logic involved in handling guest_memfd-backed pages for host mappings.
+
+Reviewed-by: Gavin Shan <gshan@redhat.com>
+Reviewed-by: Shivank Garg <shivankg@amd.com>
+Reviewed-by: Xiaoyao Li <xiaoyao.li@intel.com>
+Acked-by: David Hildenbrand <david@redhat.com>
+Suggested-by: David Hildenbrand <david@redhat.com>
+Signed-off-by: Fuad Tabba <tabba@google.com>
+Signed-off-by: Sean Christopherson <seanjc@google.com>
+---
+ include/linux/kvm_host.h | 11 ++++++++++-
+ virt/kvm/guest_memfd.c   |  2 ++
+ 2 files changed, 12 insertions(+), 1 deletion(-)
+
+diff --git a/include/linux/kvm_host.h b/include/linux/kvm_host.h
+index 26bad600f9fa..8b47891adca1 100644
+--- a/include/linux/kvm_host.h
++++ b/include/linux/kvm_host.h
+@@ -54,7 +54,8 @@
+  * used in kvm, other bits are visible for userspace which are defined in
+  * include/uapi/linux/kvm.h.
+  */
+-#define KVM_MEMSLOT_INVALID	(1UL << 16)
++#define KVM_MEMSLOT_INVALID			(1UL << 16)
++#define KVM_MEMSLOT_GMEM_ONLY			(1UL << 17)
+ 
+ /*
+  * Bit 63 of the memslot generation number is an "update in-progress flag",
+@@ -2490,6 +2491,14 @@ static inline void kvm_prepare_memory_fault_exit(struct kvm_vcpu *vcpu,
+ 		vcpu->run->memory_fault.flags |= KVM_MEMORY_EXIT_FLAG_PRIVATE;
+ }
+ 
++static inline bool kvm_memslot_is_gmem_only(const struct kvm_memory_slot *slot)
++{
++	if (!IS_ENABLED(CONFIG_KVM_GUEST_MEMFD))
++		return false;
++
++	return slot->flags & KVM_MEMSLOT_GMEM_ONLY;
++}
++
+ #ifdef CONFIG_KVM_GENERIC_MEMORY_ATTRIBUTES
+ static inline unsigned long kvm_get_memory_attributes(struct kvm *kvm, gfn_t gfn)
+ {
+diff --git a/virt/kvm/guest_memfd.c b/virt/kvm/guest_memfd.c
+index 67e7cd7210ef..d5b445548af4 100644
+--- a/virt/kvm/guest_memfd.c
++++ b/virt/kvm/guest_memfd.c
+@@ -578,6 +578,8 @@ int kvm_gmem_bind(struct kvm *kvm, struct kvm_memory_slot *slot,
+ 	 */
+ 	WRITE_ONCE(slot->gmem.file, file);
+ 	slot->gmem.pgoff = start;
++	if (kvm_gmem_supports_mmap(inode))
++		slot->flags |= KVM_MEMSLOT_GMEM_ONLY;
+ 
+ 	xa_store_range(&gmem->bindings, start, end - 1, slot, GFP_KERNEL);
+ 	filemap_invalidate_unlock(inode->i_mapping);
+-- 
+2.50.1
+

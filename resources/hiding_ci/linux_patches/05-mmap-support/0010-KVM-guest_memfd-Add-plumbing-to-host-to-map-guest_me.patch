@@ -1,0 +1,185 @@
+From b280399f5bc244bc6f443a0a67375c400f1a44b6 Mon Sep 17 00:00:00 2001
+From: Fuad Tabba <tabba@google.com>
+Date: Tue, 29 Jul 2025 15:54:41 -0700
+Subject: [PATCH 10/49] KVM: guest_memfd: Add plumbing to host to map
+ guest_memfd pages
+
+Introduce the core infrastructure to enable host userspace to mmap()
+guest_memfd-backed memory. This is needed for several evolving KVM use
+cases:
+
+* Non-CoCo VM backing: Allows VMMs like Firecracker to run guests
+  entirely backed by guest_memfd, even for non-CoCo VMs [1]. This
+  provides a unified memory management model and simplifies guest memory
+  handling.
+
+* Direct map removal for enhanced security: This is an important step
+  for direct map removal of guest memory [2]. By allowing host userspace
+  to fault in guest_memfd pages directly, we can avoid maintaining host
+  kernel direct maps of guest memory. This provides additional hardening
+  against Spectre-like transient execution attacks by removing a
+  potential attack surface within the kernel.
+
+* Future guest_memfd features: This also lays the groundwork for future
+  enhancements to guest_memfd, such as supporting huge pages and
+  enabling in-place sharing of guest memory with the host for CoCo
+  platforms that permit it [3].
+
+Enable the basic mmap and fault handling logic within guest_memfd, but
+hold off on allow userspace to actually do mmap() until the architecture
+support is also in place.
+
+[1] https://github.com/firecracker-microvm/firecracker/tree/feature/secret-hiding
+[2] https://lore.kernel.org/linux-mm/cc1bb8e9bc3e1ab637700a4d3defeec95b55060a.camel@amazon.com
+[3] https://lore.kernel.org/all/c1c9591d-218a-495c-957b-ba356c8f8e09@redhat.com/T/#u
+
+Reviewed-by: Gavin Shan <gshan@redhat.com>
+Reviewed-by: Shivank Garg <shivankg@amd.com>
+Acked-by: David Hildenbrand <david@redhat.com>
+Co-developed-by: Ackerley Tng <ackerleytng@google.com>
+Signed-off-by: Ackerley Tng <ackerleytng@google.com>
+Signed-off-by: Fuad Tabba <tabba@google.com>
+Reviewed-by: Xiaoyao Li <xiaoyao.li@intel.com>
+Signed-off-by: Sean Christopherson <seanjc@google.com>
+---
+ arch/x86/kvm/x86.c       | 11 +++++++
+ include/linux/kvm_host.h |  4 +++
+ virt/kvm/guest_memfd.c   | 70 ++++++++++++++++++++++++++++++++++++++++
+ 3 files changed, 85 insertions(+)
+
+diff --git a/arch/x86/kvm/x86.c b/arch/x86/kvm/x86.c
+index a1c49bc681c4..e5cd54ba1eaa 100644
+--- a/arch/x86/kvm/x86.c
++++ b/arch/x86/kvm/x86.c
+@@ -13518,6 +13518,16 @@ bool kvm_arch_no_poll(struct kvm_vcpu *vcpu)
+ }
+ EXPORT_SYMBOL_GPL(kvm_arch_no_poll);
+ 
++#ifdef CONFIG_KVM_GUEST_MEMFD
++/*
++ * KVM doesn't yet support mmap() on guest_memfd for VMs with private memory
++ * (the private vs. shared tracking needs to be moved into guest_memfd).
++ */
++bool kvm_arch_supports_gmem_mmap(struct kvm *kvm)
++{
++	return !kvm_arch_has_private_mem(kvm);
++}
++
+ #ifdef CONFIG_HAVE_KVM_ARCH_GMEM_PREPARE
+ int kvm_arch_gmem_prepare(struct kvm *kvm, gfn_t gfn, kvm_pfn_t pfn, int max_order)
+ {
+@@ -13531,6 +13541,7 @@ void kvm_arch_gmem_invalidate(kvm_pfn_t start, kvm_pfn_t end)
+ 	kvm_x86_call(gmem_invalidate)(start, end);
+ }
+ #endif
++#endif
+ 
+ int kvm_spec_ctrl_test_value(u64 value)
+ {
+diff --git a/include/linux/kvm_host.h b/include/linux/kvm_host.h
+index 4d1c44622056..26bad600f9fa 100644
+--- a/include/linux/kvm_host.h
++++ b/include/linux/kvm_host.h
+@@ -726,6 +726,10 @@ static inline bool kvm_arch_has_private_mem(struct kvm *kvm)
+ }
+ #endif
+ 
++#ifdef CONFIG_KVM_GUEST_MEMFD
++bool kvm_arch_supports_gmem_mmap(struct kvm *kvm);
++#endif
++
+ #ifndef kvm_arch_has_readonly_mem
+ static inline bool kvm_arch_has_readonly_mem(struct kvm *kvm)
+ {
+diff --git a/virt/kvm/guest_memfd.c b/virt/kvm/guest_memfd.c
+index a99e11b8b77f..67e7cd7210ef 100644
+--- a/virt/kvm/guest_memfd.c
++++ b/virt/kvm/guest_memfd.c
+@@ -312,7 +312,72 @@ static pgoff_t kvm_gmem_get_index(struct kvm_memory_slot *slot, gfn_t gfn)
+ 	return gfn - slot->base_gfn + slot->gmem.pgoff;
+ }
+ 
++static bool kvm_gmem_supports_mmap(struct inode *inode)
++{
++	return false;
++}
++
++static vm_fault_t kvm_gmem_fault_user_mapping(struct vm_fault *vmf)
++{
++	struct inode *inode = file_inode(vmf->vma->vm_file);
++	struct folio *folio;
++	vm_fault_t ret = VM_FAULT_LOCKED;
++
++	if (((loff_t)vmf->pgoff << PAGE_SHIFT) >= i_size_read(inode))
++		return VM_FAULT_SIGBUS;
++
++	folio = kvm_gmem_get_folio(inode, vmf->pgoff);
++	if (IS_ERR(folio)) {
++		int err = PTR_ERR(folio);
++
++		if (err == -EAGAIN)
++			return VM_FAULT_RETRY;
++
++		return vmf_error(err);
++	}
++
++	if (WARN_ON_ONCE(folio_test_large(folio))) {
++		ret = VM_FAULT_SIGBUS;
++		goto out_folio;
++	}
++
++	if (!folio_test_uptodate(folio)) {
++		clear_highpage(folio_page(folio, 0));
++		kvm_gmem_mark_prepared(folio);
++	}
++
++	vmf->page = folio_file_page(folio, vmf->pgoff);
++
++out_folio:
++	if (ret != VM_FAULT_LOCKED) {
++		folio_unlock(folio);
++		folio_put(folio);
++	}
++
++	return ret;
++}
++
++static const struct vm_operations_struct kvm_gmem_vm_ops = {
++	.fault = kvm_gmem_fault_user_mapping,
++};
++
++static int kvm_gmem_mmap(struct file *file, struct vm_area_struct *vma)
++{
++	if (!kvm_gmem_supports_mmap(file_inode(file)))
++		return -ENODEV;
++
++	if ((vma->vm_flags & (VM_SHARED | VM_MAYSHARE)) !=
++	    (VM_SHARED | VM_MAYSHARE)) {
++		return -EINVAL;
++	}
++
++	vma->vm_ops = &kvm_gmem_vm_ops;
++
++	return 0;
++}
++
+ static struct file_operations kvm_gmem_fops = {
++	.mmap		= kvm_gmem_mmap,
+ 	.open		= generic_file_open,
+ 	.release	= kvm_gmem_release,
+ 	.fallocate	= kvm_gmem_fallocate,
+@@ -391,6 +456,11 @@ static const struct inode_operations kvm_gmem_iops = {
+ 	.setattr	= kvm_gmem_setattr,
+ };
+ 
++bool __weak kvm_arch_supports_gmem_mmap(struct kvm *kvm)
++{
++	return true;
++}
++
+ static int __kvm_gmem_create(struct kvm *kvm, loff_t size, u64 flags)
+ {
+ 	const char *anon_name = "[kvm-gmem]";
+-- 
+2.50.1
+

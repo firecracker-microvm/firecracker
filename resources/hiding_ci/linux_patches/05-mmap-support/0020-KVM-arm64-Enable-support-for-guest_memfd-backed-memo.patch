@@ -1,0 +1,61 @@
+From 0a292815117d6ce72fe76168aa51686e052deb9c Mon Sep 17 00:00:00 2001
+From: Fuad Tabba <tabba@google.com>
+Date: Tue, 29 Jul 2025 15:54:51 -0700
+Subject: [PATCH 20/49] KVM: arm64: Enable support for guest_memfd backed
+ memory
+
+Now that the infrastructure is in place, enable guest_memfd for arm64.
+
+* Select CONFIG_KVM_GUEST_MEMFD in KVM/arm64 Kconfig.
+
+* Enforce KVM_MEMSLOT_GMEM_ONLY for guest_memfd on arm64: Ensure that
+  guest_memfd-backed memory slots on arm64 are only supported if they
+  are intended for shared memory use cases (i.e.,
+  kvm_memslot_is_gmem_only() is true). This design reflects the current
+  arm64 KVM ecosystem where guest_memfd is primarily being introduced
+  for VMs that support shared memory.
+
+Reviewed-by: James Houghton <jthoughton@google.com>
+Reviewed-by: Gavin Shan <gshan@redhat.com>
+Reviewed-by: Marc Zyngier <maz@kernel.org>
+Acked-by: David Hildenbrand <david@redhat.com>
+Signed-off-by: Fuad Tabba <tabba@google.com>
+Signed-off-by: Sean Christopherson <seanjc@google.com>
+---
+ arch/arm64/kvm/Kconfig | 1 +
+ arch/arm64/kvm/mmu.c   | 7 +++++++
+ 2 files changed, 8 insertions(+)
+
+diff --git a/arch/arm64/kvm/Kconfig b/arch/arm64/kvm/Kconfig
+index 713248f240e0..bff62e75d681 100644
+--- a/arch/arm64/kvm/Kconfig
++++ b/arch/arm64/kvm/Kconfig
+@@ -37,6 +37,7 @@ menuconfig KVM
+ 	select HAVE_KVM_VCPU_RUN_PID_CHANGE
+ 	select SCHED_INFO
+ 	select GUEST_PERF_EVENTS if PERF_EVENTS
++	select KVM_GUEST_MEMFD
+ 	help
+ 	  Support hosting virtualized guest machines.
+ 
+diff --git a/arch/arm64/kvm/mmu.c b/arch/arm64/kvm/mmu.c
+index 8c82df80a835..85559b8a0845 100644
+--- a/arch/arm64/kvm/mmu.c
++++ b/arch/arm64/kvm/mmu.c
+@@ -2276,6 +2276,13 @@ int kvm_arch_prepare_memory_region(struct kvm *kvm,
+ 	if ((new->base_gfn + new->npages) > (kvm_phys_size(&kvm->arch.mmu) >> PAGE_SHIFT))
+ 		return -EFAULT;
+ 
++	/*
++	 * Only support guest_memfd backed memslots with mappable memory, since
++	 * there aren't any CoCo VMs that support only private memory on arm64.
++	 */
++	if (kvm_slot_has_gmem(new) && !kvm_memslot_is_gmem_only(new))
++		return -EINVAL;
++
+ 	hva = new->userspace_addr;
+ 	reg_end = hva + (new->npages << PAGE_SHIFT);
+ 
+-- 
+2.50.1
+

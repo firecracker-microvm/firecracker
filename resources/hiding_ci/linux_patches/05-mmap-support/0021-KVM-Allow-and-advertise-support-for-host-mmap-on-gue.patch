@@ -1,0 +1,112 @@
+From 61dcc8ae40093daad33c80b115228cf06b35ebc1 Mon Sep 17 00:00:00 2001
+From: Fuad Tabba <tabba@google.com>
+Date: Tue, 29 Jul 2025 15:54:52 -0700
+Subject: [PATCH 21/49] KVM: Allow and advertise support for host mmap() on
+ guest_memfd files
+
+Now that all the x86 and arm64 plumbing for mmap() on guest_memfd is in
+place, allow userspace to set GUEST_MEMFD_FLAG_MMAP and advertise support
+via a new capability, KVM_CAP_GUEST_MEMFD_MMAP.
+
+The availability of this capability is determined per architecture, and
+its enablement for a specific guest_memfd instance is controlled by the
+GUEST_MEMFD_FLAG_MMAP flag at creation time.
+
+Update the KVM API documentation to detail the KVM_CAP_GUEST_MEMFD_MMAP
+capability, the associated GUEST_MEMFD_FLAG_MMAP, and provide essential
+information regarding support for mmap in guest_memfd.
+
+Reviewed-by: David Hildenbrand <david@redhat.com>
+Reviewed-by: Gavin Shan <gshan@redhat.com>
+Reviewed-by: Shivank Garg <shivankg@amd.com>
+Reviewed-by: Xiaoyao Li <xiaoyao.li@intel.com>
+Signed-off-by: Fuad Tabba <tabba@google.com>
+Signed-off-by: Sean Christopherson <seanjc@google.com>
+---
+ Documentation/virt/kvm/api.rst | 9 +++++++++
+ include/uapi/linux/kvm.h       | 2 ++
+ virt/kvm/guest_memfd.c         | 7 ++++++-
+ virt/kvm/kvm_main.c            | 2 ++
+ 4 files changed, 19 insertions(+), 1 deletion(-)
+
+diff --git a/Documentation/virt/kvm/api.rst b/Documentation/virt/kvm/api.rst
+index fcb783735dd1..1e0c4a68876d 100644
+--- a/Documentation/virt/kvm/api.rst
++++ b/Documentation/virt/kvm/api.rst
+@@ -6414,6 +6414,15 @@ most one mapping per page, i.e. binding multiple memory regions to a single
+ guest_memfd range is not allowed (any number of memory regions can be bound to
+ a single guest_memfd file, but the bound ranges must not overlap).
+ 
++When the capability KVM_CAP_GUEST_MEMFD_MMAP is supported, the 'flags' field
++supports GUEST_MEMFD_FLAG_MMAP.  Setting this flag on guest_memfd creation
++enables mmap() and faulting of guest_memfd memory to host userspace.
++
++When the KVM MMU performs a PFN lookup to service a guest fault and the backing
++guest_memfd has the GUEST_MEMFD_FLAG_MMAP set, then the fault will always be
++consumed from guest_memfd, regardless of whether it is a shared or a private
++fault.
++
+ See KVM_SET_USER_MEMORY_REGION2 for additional details.
+ 
+ 4.143 KVM_PRE_FAULT_MEMORY
+diff --git a/include/uapi/linux/kvm.h b/include/uapi/linux/kvm.h
+index aeb2ca10b190..0d96d2ae6e5d 100644
+--- a/include/uapi/linux/kvm.h
++++ b/include/uapi/linux/kvm.h
+@@ -961,6 +961,7 @@ struct kvm_enable_cap {
+ #define KVM_CAP_ARM_EL2 240
+ #define KVM_CAP_ARM_EL2_E2H0 241
+ #define KVM_CAP_RISCV_MP_STATE_RESET 242
++#define KVM_CAP_GUEST_MEMFD_MMAP 243
+ 
+ struct kvm_irq_routing_irqchip {
+ 	__u32 irqchip;
+@@ -1597,6 +1598,7 @@ struct kvm_memory_attributes {
+ #define KVM_MEMORY_ATTRIBUTE_PRIVATE           (1ULL << 3)
+ 
+ #define KVM_CREATE_GUEST_MEMFD	_IOWR(KVMIO,  0xd4, struct kvm_create_guest_memfd)
++#define GUEST_MEMFD_FLAG_MMAP	(1ULL << 0)
+ 
+ struct kvm_create_guest_memfd {
+ 	__u64 size;
+diff --git a/virt/kvm/guest_memfd.c b/virt/kvm/guest_memfd.c
+index d5b445548af4..08a6bc7d25b6 100644
+--- a/virt/kvm/guest_memfd.c
++++ b/virt/kvm/guest_memfd.c
+@@ -314,7 +314,9 @@ static pgoff_t kvm_gmem_get_index(struct kvm_memory_slot *slot, gfn_t gfn)
+ 
+ static bool kvm_gmem_supports_mmap(struct inode *inode)
+ {
+-	return false;
++	const u64 flags = (u64)inode->i_private;
++
++	return flags & GUEST_MEMFD_FLAG_MMAP;
+ }
+ 
+ static vm_fault_t kvm_gmem_fault_user_mapping(struct vm_fault *vmf)
+@@ -522,6 +524,9 @@ int kvm_gmem_create(struct kvm *kvm, struct kvm_create_guest_memfd *args)
+ 	u64 flags = args->flags;
+ 	u64 valid_flags = 0;
+ 
++	if (kvm_arch_supports_gmem_mmap(kvm))
++		valid_flags |= GUEST_MEMFD_FLAG_MMAP;
++
+ 	if (flags & ~valid_flags)
+ 		return -EINVAL;
+ 
+diff --git a/virt/kvm/kvm_main.c b/virt/kvm/kvm_main.c
+index 4f57cb92e109..18f29ef93543 100644
+--- a/virt/kvm/kvm_main.c
++++ b/virt/kvm/kvm_main.c
+@@ -4918,6 +4918,8 @@ static int kvm_vm_ioctl_check_extension_generic(struct kvm *kvm, long arg)
+ #ifdef CONFIG_KVM_GUEST_MEMFD
+ 	case KVM_CAP_GUEST_MEMFD:
+ 		return 1;
++	case KVM_CAP_GUEST_MEMFD_MMAP:
++		return !kvm || kvm_arch_supports_gmem_mmap(kvm);
+ #endif
+ 	default:
+ 		break;
+-- 
+2.50.1
+

@@ -1,0 +1,209 @@
+From a8936a9daf5ed24a1dafe514da65b92df92b79e0 Mon Sep 17 00:00:00 2001
+From: James Houghton <jthoughton@google.com>
+Date: Thu, 9 Jan 2025 20:49:21 +0000
+Subject: [PATCH 41/49] KVM: x86/mmu: Add support for KVM_MEM_USERFAULT
+
+Adhering to the requirements of KVM Userfault:
+
+1. Zap all sptes for the memslot when KVM_MEM_USERFAULT is toggled on
+   with kvm_arch_flush_shadow_memslot().
+2. Only all PAGE_SIZE sptes when KVM_MEM_USERFAULT is enabled (for both
+   normal/GUP memory and guest_memfd memory).
+3. Reconstruct huge mappings when KVM_MEM_USERFAULT is toggled off with
+   kvm_mmu_recover_huge_pages(). This is the behavior when dirty logging
+   is disabled; remain consistent with it.
+
+With the new logic in kvm_mmu_slot_apply_flags(), I've simplified the
+two dirty-logging-toggle checks into one, and I have dropped the
+WARN_ON() that was there.
+
+Signed-off-by: James Houghton <jthoughton@google.com>
+---
+ arch/arm64/kvm/mmu.c            |  2 +-
+ arch/arm64/kvm/nested.c         |  2 +-
+ arch/x86/kvm/Kconfig            |  1 +
+ arch/x86/kvm/mmu/mmu.c          | 12 +++++++++++
+ arch/x86/kvm/mmu/mmu_internal.h | 20 +++++++++++++++---
+ arch/x86/kvm/x86.c              | 36 ++++++++++++++++++++++++---------
+ include/linux/kvm_host.h        |  5 ++++-
+ 7 files changed, 62 insertions(+), 16 deletions(-)
+
+diff --git a/arch/arm64/kvm/mmu.c b/arch/arm64/kvm/mmu.c
+index 85559b8a0845..f0fc1f59cd6d 100644
+--- a/arch/arm64/kvm/mmu.c
++++ b/arch/arm64/kvm/mmu.c
+@@ -1551,7 +1551,7 @@ static int gmem_abort(struct kvm_vcpu *vcpu, phys_addr_t fault_ipa,
+ 	ret = kvm_gmem_get_pfn(kvm, memslot, gfn, &pfn, &page, NULL);
+ 	if (ret) {
+ 		kvm_prepare_memory_fault_exit(vcpu, fault_ipa, PAGE_SIZE,
+-					      write_fault, exec_fault, false);
++					      write_fault, exec_fault, false, false);
+ 		return ret;
+ 	}
+ 
+diff --git a/arch/arm64/kvm/nested.c b/arch/arm64/kvm/nested.c
+index b3edd7f7c8cd..2e2d03e578b5 100644
+--- a/arch/arm64/kvm/nested.c
++++ b/arch/arm64/kvm/nested.c
+@@ -1231,7 +1231,7 @@ static int kvm_translate_vncr(struct kvm_vcpu *vcpu, bool *is_gmem)
+ 		ret = kvm_gmem_get_pfn(vcpu->kvm, memslot, gfn, &pfn, &page, NULL);
+ 		if (ret) {
+ 			kvm_prepare_memory_fault_exit(vcpu, vt->wr.pa, PAGE_SIZE,
+-					      write_fault, false, false);
++					      write_fault, false, false, false);
+ 			return ret;
+ 		}
+ 	}
+diff --git a/arch/x86/kvm/Kconfig b/arch/x86/kvm/Kconfig
+index 4e43923656d0..1390ba799d4f 100644
+--- a/arch/x86/kvm/Kconfig
++++ b/arch/x86/kvm/Kconfig
+@@ -48,6 +48,7 @@ config KVM_X86
+ 	select KVM_GENERIC_PRE_FAULT_MEMORY
+ 	select KVM_WERROR if WERROR
+ 	select KVM_GUEST_MEMFD if X86_64
++	select HAVE_KVM_USERFAULT
+ 
+ config KVM
+ 	tristate "Kernel-based Virtual Machine (KVM) support"
+diff --git a/arch/x86/kvm/mmu/mmu.c b/arch/x86/kvm/mmu/mmu.c
+index 56c80588efa0..ae0f244357a5 100644
+--- a/arch/x86/kvm/mmu/mmu.c
++++ b/arch/x86/kvm/mmu/mmu.c
+@@ -4588,6 +4588,18 @@ static int __kvm_mmu_faultin_pfn(struct kvm_vcpu *vcpu,
+ 				 struct kvm_page_fault *fault)
+ {
+ 	unsigned int foll = fault->write ? FOLL_WRITE : 0;
++	int userfault;
++
++	userfault = kvm_gfn_userfault(vcpu->kvm, fault->slot, fault->gfn);
++	if (userfault < 0)
++		return userfault;
++	if (userfault) {
++		kvm_mmu_prepare_userfault_exit(vcpu, fault);
++		return -EFAULT;
++	}
++
++	if (kvm_memslot_userfault(fault->slot))
++		fault->max_level = PG_LEVEL_4K;
+ 
+ 	if (fault->is_private || kvm_memslot_is_gmem_only(fault->slot))
+ 		return kvm_mmu_faultin_pfn_gmem(vcpu, fault);
+diff --git a/arch/x86/kvm/mmu/mmu_internal.h b/arch/x86/kvm/mmu/mmu_internal.h
+index b776be783a2f..120ce9d340b4 100644
+--- a/arch/x86/kvm/mmu/mmu_internal.h
++++ b/arch/x86/kvm/mmu/mmu_internal.h
+@@ -339,12 +339,26 @@ enum {
+  */
+ static_assert(RET_PF_CONTINUE == 0);
+ 
+-static inline void kvm_mmu_prepare_memory_fault_exit(struct kvm_vcpu *vcpu,
+-						     struct kvm_page_fault *fault)
++static inline void __kvm_mmu_prepare_memory_fault_exit(struct kvm_vcpu *vcpu,
++						       struct kvm_page_fault *fault,
++						       bool is_userfault)
+ {
+ 	kvm_prepare_memory_fault_exit(vcpu, fault->gfn << PAGE_SHIFT,
+ 				      PAGE_SIZE, fault->write, fault->exec,
+-				      fault->is_private);
++				      fault->is_private,
++				      is_userfault);
++}
++
++static inline void kvm_mmu_prepare_memory_fault_exit(struct kvm_vcpu *vcpu,
++						     struct kvm_page_fault *fault)
++{
++	__kvm_mmu_prepare_memory_fault_exit(vcpu, fault, false);
++}
++
++static inline void kvm_mmu_prepare_userfault_exit(struct kvm_vcpu *vcpu,
++						  struct kvm_page_fault *fault)
++{
++	__kvm_mmu_prepare_memory_fault_exit(vcpu, fault, true);
+ }
+ 
+ static inline int kvm_mmu_do_page_fault(struct kvm_vcpu *vcpu, gpa_t cr2_or_gpa,
+diff --git a/arch/x86/kvm/x86.c b/arch/x86/kvm/x86.c
+index 197428567239..2279bb7cf9fe 100644
+--- a/arch/x86/kvm/x86.c
++++ b/arch/x86/kvm/x86.c
+@@ -13091,12 +13091,36 @@ static void kvm_mmu_slot_apply_flags(struct kvm *kvm,
+ 	u32 new_flags = new ? new->flags : 0;
+ 	bool log_dirty_pages = new_flags & KVM_MEM_LOG_DIRTY_PAGES;
+ 
++	/*
++	 * When toggling KVM Userfault on, zap all sptes so that userfault-ness
++	 * will be respected at refault time. All new faults will only install
++	 * small sptes. Therefore, when toggling it off, recover hugepages.
++	 *
++	 * For MOVE and DELETE, there will be nothing to do, as the old
++	 * mappings will have already been deleted by
++	 * kvm_arch_flush_shadow_memslot().
++	 *
++	 * For CREATE, no mappings will have been created yet.
++	 */
++	if ((old_flags ^ new_flags) & KVM_MEM_USERFAULT &&
++	    (change == KVM_MR_FLAGS_ONLY)) {
++		if (old_flags & KVM_MEM_USERFAULT)
++			kvm_mmu_recover_huge_pages(kvm, new);
++		else
++			kvm_arch_flush_shadow_memslot(kvm, old);
++	}
++
++	/*
++	 * Nothing more to do if dirty logging isn't being toggled.
++	 */
++	if (!((old_flags ^ new_flags) & KVM_MEM_LOG_DIRTY_PAGES))
++		return;
++
+ 	/*
+ 	 * Update CPU dirty logging if dirty logging is being toggled.  This
+ 	 * applies to all operations.
+ 	 */
+-	if ((old_flags ^ new_flags) & KVM_MEM_LOG_DIRTY_PAGES)
+-		kvm_mmu_update_cpu_dirty_logging(kvm, log_dirty_pages);
++	kvm_mmu_update_cpu_dirty_logging(kvm, log_dirty_pages);
+ 
+ 	/*
+ 	 * Nothing more to do for RO slots (which can't be dirtied and can't be
+@@ -13116,14 +13140,6 @@ static void kvm_mmu_slot_apply_flags(struct kvm *kvm,
+ 	if ((change != KVM_MR_FLAGS_ONLY) || (new_flags & KVM_MEM_READONLY))
+ 		return;
+ 
+-	/*
+-	 * READONLY and non-flags changes were filtered out above, and the only
+-	 * other flag is LOG_DIRTY_PAGES, i.e. something is wrong if dirty
+-	 * logging isn't being toggled on or off.
+-	 */
+-	if (WARN_ON_ONCE(!((old_flags ^ new_flags) & KVM_MEM_LOG_DIRTY_PAGES)))
+-		return;
+-
+ 	if (!log_dirty_pages) {
+ 		/*
+ 		 * Recover huge page mappings in the slot now that dirty logging
+diff --git a/include/linux/kvm_host.h b/include/linux/kvm_host.h
+index 716f958e852c..59f4857e8ec2 100644
+--- a/include/linux/kvm_host.h
++++ b/include/linux/kvm_host.h
+@@ -2492,7 +2492,8 @@ static inline void kvm_account_pgtable_pages(void *virt, int nr)
+ static inline void kvm_prepare_memory_fault_exit(struct kvm_vcpu *vcpu,
+ 						 gpa_t gpa, gpa_t size,
+ 						 bool is_write, bool is_exec,
+-						 bool is_private)
++						 bool is_private,
++						 bool is_userfault)
+ {
+ 	vcpu->run->exit_reason = KVM_EXIT_MEMORY_FAULT;
+ 	vcpu->run->memory_fault.gpa = gpa;
+@@ -2502,6 +2503,8 @@ static inline void kvm_prepare_memory_fault_exit(struct kvm_vcpu *vcpu,
+ 	vcpu->run->memory_fault.flags = 0;
+ 	if (is_private)
+ 		vcpu->run->memory_fault.flags |= KVM_MEMORY_EXIT_FLAG_PRIVATE;
++	if (is_userfault)
++		vcpu->run->memory_fault.flags |= KVM_MEMORY_EXIT_FLAG_USERFAULT;
+ }
+ 
+ static inline bool kvm_memslot_is_gmem_only(const struct kvm_memory_slot *slot)
+-- 
+2.50.1
+

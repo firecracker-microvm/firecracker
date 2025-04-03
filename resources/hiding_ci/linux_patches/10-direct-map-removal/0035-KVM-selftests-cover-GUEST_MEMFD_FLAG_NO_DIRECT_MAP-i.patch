@@ -1,0 +1,27 @@
+From 1c1fdb1be73ab38b5d7377dcf68cc6781521ea56 Mon Sep 17 00:00:00 2001
+From: Patrick Roy <roypat@amazon.co.uk>
+Date: Wed, 16 Jul 2025 15:30:39 +0100
+Subject: [PATCH 35/49] KVM: selftests: cover GUEST_MEMFD_FLAG_NO_DIRECT_MAP in
+ guest_memfd_test.c
+
+Signed-off-by: Patrick Roy <roypat@amazon.co.uk>
+---
+ tools/testing/selftests/kvm/guest_memfd_test.c | 2 ++
+ 1 file changed, 2 insertions(+)
+
+diff --git a/tools/testing/selftests/kvm/guest_memfd_test.c b/tools/testing/selftests/kvm/guest_memfd_test.c
+index b86bf89a71e0..2ca82bd58322 100644
+--- a/tools/testing/selftests/kvm/guest_memfd_test.c
++++ b/tools/testing/selftests/kvm/guest_memfd_test.c
+@@ -275,6 +275,8 @@ static void test_guest_memfd(unsigned long vm_type)
+ 
+ 	if (vm_check_cap(vm, KVM_CAP_GUEST_MEMFD_MMAP))
+ 		flags |= GUEST_MEMFD_FLAG_MMAP;
++	if (vm_check_cap(vm, KVM_CAP_GUEST_MEMFD_NO_DIRECT_MAP))
++		flags |= GUEST_MEMFD_FLAG_NO_DIRECT_MAP;
+ 
+ 	test_create_guest_memfd_multiple(vm);
+ 	test_create_guest_memfd_invalid_sizes(vm, flags, page_size);
+-- 
+2.50.1
+
