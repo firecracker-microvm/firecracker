@@ -288,7 +288,100 @@ impl MachineConfig {
 #[cfg(test)]
 mod tests {
     use crate::cpu_config::templates::{CpuTemplateType, CustomCpuTemplate, StaticCpuTemplate};
-    use crate::vmm_config::machine_config::MachineConfig;
+    use crate::vmm_config::machine_config::{
+        HugePageConfig, MachineConfig, MachineConfigError, MachineConfigUpdate,
+    };
+
+    #[test]
+    #[allow(unused)] // some assertions exist only on specific architectures.
+    fn test_machine_config_update() {
+        let mconf = MachineConfig::default();
+
+        // Assert that the default machine config is valid
+        assert_eq!(
+            mconf
+                .update(&MachineConfigUpdate::from(mconf.clone()))
+                .unwrap(),
+            mconf
+        );
+
+        // Invalid vCPU counts
+        let res = mconf.update(&MachineConfigUpdate {
+            vcpu_count: Some(0),
+            ..Default::default()
+        });
+        assert_eq!(res, Err(MachineConfigError::InvalidVcpuCount));
+
+        let res = mconf.update(&MachineConfigUpdate {
+            vcpu_count: Some(33),
+            ..Default::default()
+        });
+        assert_eq!(res, Err(MachineConfigError::InvalidVcpuCount));
+
+        // Invalid memory size
+        let res = mconf.update(&MachineConfigUpdate {
+            mem_size_mib: Some(0),
+            ..Default::default()
+        });
+        assert_eq!(res, Err(MachineConfigError::InvalidMemorySize));
+
+        // Memory Size incompatible with huge page configuration
+        let res = mconf.update(&MachineConfigUpdate {
+            mem_size_mib: Some(31),
+            huge_pages: Some(HugePageConfig::Hugetlbfs2M),
+            ..Default::default()
+        });
+        assert_eq!(res, Err(MachineConfigError::InvalidMemorySize));
+
+        // works if the memory size is a multiple of huge page size indeed
+        let updated = mconf
+            .update(&MachineConfigUpdate {
+                mem_size_mib: Some(32),
+                huge_pages: Some(HugePageConfig::Hugetlbfs2M),
+                ..Default::default()
+            })
+            .unwrap();
+        assert_eq!(updated.huge_pages, HugePageConfig::Hugetlbfs2M);
+        assert_eq!(updated.mem_size_mib, 32);
+    }
+
+    #[test]
+    #[cfg(target_arch = "aarch64")]
+    fn test_machine_config_update_aarch64() {
+        let mconf = MachineConfig::default();
+
+        // Check that SMT is not supported on aarch64
+        let res = mconf.update(&MachineConfigUpdate {
+            smt: Some(true),
+            ..Default::default()
+        });
+        assert_eq!(res, Err(MachineConfigError::SmtNotSupported));
+    }
+
+    #[test]
+    #[cfg(target_arch = "x86_64")]
+    fn test_machine_config_update_x86_64() {
+        let mconf = MachineConfig::default();
+
+        // Test that SMT requires an even vcpu count
+        let res = mconf.update(&MachineConfigUpdate {
+            vcpu_count: Some(3),
+            smt: Some(true),
+            ..Default::default()
+        });
+        assert_eq!(res, Err(MachineConfigError::InvalidVcpuCount));
+
+        // Works if the vcpu count is even indeed
+        let updated = mconf
+            .update(&MachineConfigUpdate {
+                vcpu_count: Some(32),
+                smt: Some(true),
+                ..Default::default()
+            })
+            .unwrap();
+        assert_eq!(updated.vcpu_count, 32);
+        assert!(updated.smt);
+    }
 
     // Ensure the special (de)serialization logic for the cpu_template field works:
     // only static cpu templates can be specified via the machine-config endpoint, but
