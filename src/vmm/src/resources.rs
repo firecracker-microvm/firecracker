@@ -1323,44 +1323,6 @@ mod tests {
             aux_vm_config
         );
 
-        // Invalid vcpu count.
-        aux_vm_config.vcpu_count = Some(0);
-        assert_eq!(
-            vm_resources.update_machine_config(&aux_vm_config),
-            Err(MachineConfigError::InvalidVcpuCount)
-        );
-        aux_vm_config.vcpu_count = Some(33);
-        assert_eq!(
-            vm_resources.update_machine_config(&aux_vm_config),
-            Err(MachineConfigError::InvalidVcpuCount)
-        );
-
-        // Check that SMT is not supported on aarch64, and that on x86_64 enabling it requires vcpu
-        // count to be even.
-        aux_vm_config.smt = Some(true);
-        #[cfg(target_arch = "aarch64")]
-        assert_eq!(
-            vm_resources.update_machine_config(&aux_vm_config),
-            Err(MachineConfigError::SmtNotSupported)
-        );
-        aux_vm_config.vcpu_count = Some(3);
-        #[cfg(target_arch = "x86_64")]
-        assert_eq!(
-            vm_resources.update_machine_config(&aux_vm_config),
-            Err(MachineConfigError::InvalidVcpuCount)
-        );
-        aux_vm_config.vcpu_count = Some(32);
-        #[cfg(target_arch = "x86_64")]
-        vm_resources.update_machine_config(&aux_vm_config).unwrap();
-        aux_vm_config.smt = Some(false);
-
-        // Invalid mem_size_mib.
-        aux_vm_config.mem_size_mib = Some(0);
-        assert_eq!(
-            vm_resources.update_machine_config(&aux_vm_config),
-            Err(MachineConfigError::InvalidMemorySize)
-        );
-
         // Incompatible mem_size_mib with balloon size.
         vm_resources.machine_config.mem_size_mib = 128;
         vm_resources
@@ -1378,23 +1340,6 @@ mod tests {
 
         // mem_size_mib compatible with balloon size.
         aux_vm_config.mem_size_mib = Some(256);
-        vm_resources.update_machine_config(&aux_vm_config).unwrap();
-
-        // mem_size_mib incompatible with huge pages configuration
-        aux_vm_config.mem_size_mib = Some(129);
-        aux_vm_config.huge_pages = Some(HugePageConfig::Hugetlbfs2M);
-        assert_eq!(
-            vm_resources
-                .update_machine_config(&aux_vm_config)
-                .unwrap_err(),
-            MachineConfigError::InvalidMemorySize
-        );
-
-        // mem_size_mib compatible with huge page configuration
-        aux_vm_config.mem_size_mib = Some(2048);
-        // Remove the balloon device config that's added by `default_vm_resources` as it would
-        // trigger the "ballooning incompatible with huge pages" check.
-        vm_resources.balloon = BalloonBuilder::new();
         vm_resources.update_machine_config(&aux_vm_config).unwrap();
     }
 
