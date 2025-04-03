@@ -1,0 +1,208 @@
+From 138b7a4c83c43b42851cb8fec2bbdbaadd960241 Mon Sep 17 00:00:00 2001
+From: Patrick Roy <roypat@amazon.co.uk>
+Date: Fri, 7 Feb 2025 11:16:06 +0000
+Subject: [PATCH 1/2] mm: introduce AS_NO_DIRECT_MAP
+
+Add AS_NO_DIRECT_MAP for mappings where direct map entries of folios are
+set to not present . Currently, mappings that match this description are
+secretmem mappings (memfd_secret()). Later, some guest_memfd
+configurations will also fall into this category.
+
+Reject this new type of mappings in all locations that currently reject
+secretmem mappings, on the assumption that if secretmem mappings are
+rejected somewhere, it is precisely because of an inability to deal with
+folios without direct map entries, and then make memfd_secret() use
+AS_NO_DIRECT_MAP on its address_space to drop its special
+vma_is_secretmem()/secretmem_mapping() checks.
+
+This drops a optimization in gup_fast_folio_allowed() where
+secretmem_mapping() was only called if CONFIG_SECRETMEM=y. secretmem is
+enabled by default since commit b758fe6df50d ("mm/secretmem: make it on
+by default"), so the secretmem check did not actually end up elided in
+most cases anymore anyway.
+
+Use a new flag instead of overloading AS_INACCESSIBLE (which is already
+set by guest_memfd) because not all guest_memfd mappings will end up
+being direct map removed (e.g. in pKVM setups, parts of guest_memfd that
+can be mapped to userspace should also be GUP-able, and generally not
+have restrictions on who can access it).
+
+Signed-off-by: Patrick Roy <roypat@amazon.co.uk>
+---
+ include/linux/pagemap.h   | 16 ++++++++++++++++
+ include/linux/secretmem.h | 18 ------------------
+ lib/buildid.c             |  4 ++--
+ mm/gup.c                  | 14 +++-----------
+ mm/mlock.c                |  2 +-
+ mm/secretmem.c            |  6 +-----
+ 6 files changed, 23 insertions(+), 37 deletions(-)
+
+diff --git a/include/linux/pagemap.h b/include/linux/pagemap.h
+index 47bfc6b1b632..903b41e89cf8 100644
+--- a/include/linux/pagemap.h
++++ b/include/linux/pagemap.h
+@@ -210,6 +210,7 @@ enum mapping_flags {
+ 	AS_STABLE_WRITES = 7,	/* must wait for writeback before modifying
+ 				   folio contents */
+ 	AS_INACCESSIBLE = 8,	/* Do not attempt direct R/W access to the mapping */
++	AS_NO_DIRECT_MAP = 9,	/* Folios in the mapping are not in the direct map */
+ 	/* Bits 16-25 are used for FOLIO_ORDER */
+ 	AS_FOLIO_ORDER_BITS = 5,
+ 	AS_FOLIO_ORDER_MIN = 16,
+@@ -335,6 +336,21 @@ static inline bool mapping_inaccessible(struct address_space *mapping)
+ 	return test_bit(AS_INACCESSIBLE, &mapping->flags);
+ }
+ 
++static inline void mapping_set_no_direct_map(struct address_space *mapping)
++{
++	set_bit(AS_NO_DIRECT_MAP, &mapping->flags);
++}
++
++static inline bool mapping_no_direct_map(struct address_space *mapping)
++{
++	return test_bit(AS_NO_DIRECT_MAP, &mapping->flags);
++}
++
++static inline bool vma_is_no_direct_map(const struct vm_area_struct *vma)
++{
++	return vma->vm_file && mapping_no_direct_map(vma->vm_file->f_mapping);
++}
++
+ static inline gfp_t mapping_gfp_mask(struct address_space * mapping)
+ {
+ 	return mapping->gfp_mask;
+diff --git a/include/linux/secretmem.h b/include/linux/secretmem.h
+index e918f96881f5..0ae1fb057b3d 100644
+--- a/include/linux/secretmem.h
++++ b/include/linux/secretmem.h
+@@ -4,28 +4,10 @@
+ 
+ #ifdef CONFIG_SECRETMEM
+ 
+-extern const struct address_space_operations secretmem_aops;
+-
+-static inline bool secretmem_mapping(struct address_space *mapping)
+-{
+-	return mapping->a_ops == &secretmem_aops;
+-}
+-
+-bool vma_is_secretmem(struct vm_area_struct *vma);
+ bool secretmem_active(void);
+ 
+ #else
+ 
+-static inline bool vma_is_secretmem(struct vm_area_struct *vma)
+-{
+-	return false;
+-}
+-
+-static inline bool secretmem_mapping(struct address_space *mapping)
+-{
+-	return false;
+-}
+-
+ static inline bool secretmem_active(void)
+ {
+ 	return false;
+diff --git a/lib/buildid.c b/lib/buildid.c
+index c4b0f376fb34..33f173a607ad 100644
+--- a/lib/buildid.c
++++ b/lib/buildid.c
+@@ -65,8 +65,8 @@ static int freader_get_folio(struct freader *r, loff_t file_off)
+ 
+ 	freader_put_folio(r);
+ 
+-	/* reject secretmem folios created with memfd_secret() */
+-	if (secretmem_mapping(r->file->f_mapping))
++	/* reject secretmem folios created with memfd_secret() or guest_memfd() */
++	if (mapping_no_direct_map(r->file->f_mapping))
+ 		return -EFAULT;
+ 
+ 	r->folio = filemap_get_folio(r->file->f_mapping, file_off >> PAGE_SHIFT);
+diff --git a/mm/gup.c b/mm/gup.c
+index 3883b307780e..b1483a876740 100644
+--- a/mm/gup.c
++++ b/mm/gup.c
+@@ -1283,7 +1283,7 @@ static int check_vma_flags(struct vm_area_struct *vma, unsigned long gup_flags)
+ 	if ((gup_flags & FOLL_LONGTERM) && vma_is_fsdax(vma))
+ 		return -EOPNOTSUPP;
+ 
+-	if (vma_is_secretmem(vma))
++	if (vma_is_no_direct_map(vma))
+ 		return -EFAULT;
+ 
+ 	if (write) {
+@@ -2786,7 +2786,6 @@ static bool gup_fast_folio_allowed(struct folio *folio, unsigned int flags)
+ {
+ 	bool reject_file_backed = false;
+ 	struct address_space *mapping;
+-	bool check_secretmem = false;
+ 	unsigned long mapping_flags;
+ 
+ 	/*
+@@ -2798,14 +2797,6 @@ static bool gup_fast_folio_allowed(struct folio *folio, unsigned int flags)
+ 		reject_file_backed = true;
+ 
+ 	/* We hold a folio reference, so we can safely access folio fields. */
+-
+-	/* secretmem folios are always order-0 folios. */
+-	if (IS_ENABLED(CONFIG_SECRETMEM) && !folio_test_large(folio))
+-		check_secretmem = true;
+-
+-	if (!reject_file_backed && !check_secretmem)
+-		return true;
+-
+ 	if (WARN_ON_ONCE(folio_test_slab(folio)))
+ 		return false;
+ 
+@@ -2847,8 +2838,9 @@ static bool gup_fast_folio_allowed(struct folio *folio, unsigned int flags)
+ 	 * At this point, we know the mapping is non-null and points to an
+ 	 * address_space object.
+ 	 */
+-	if (check_secretmem && secretmem_mapping(mapping))
++	if (mapping_no_direct_map(mapping))
+ 		return false;
++
+ 	/* The only remaining allowed file system is shmem. */
+ 	return !reject_file_backed || shmem_mapping(mapping);
+ }
+diff --git a/mm/mlock.c b/mm/mlock.c
+index cde076fa7d5e..a43f308be70d 100644
+--- a/mm/mlock.c
++++ b/mm/mlock.c
+@@ -474,7 +474,7 @@ static int mlock_fixup(struct vma_iterator *vmi, struct vm_area_struct *vma,
+ 
+ 	if (newflags == oldflags || (oldflags & VM_SPECIAL) ||
+ 	    is_vm_hugetlb_page(vma) || vma == get_gate_vma(current->mm) ||
+-	    vma_is_dax(vma) || vma_is_secretmem(vma) || (oldflags & VM_DROPPABLE))
++	    vma_is_dax(vma) || vma_is_no_direct_map(vma) || (oldflags & VM_DROPPABLE))
+ 		/* don't set VM_LOCKED or VM_LOCKONFAULT and don't count */
+ 		goto out;
+ 
+diff --git a/mm/secretmem.c b/mm/secretmem.c
+index 1b0a214ee558..ea4c04d469b1 100644
+--- a/mm/secretmem.c
++++ b/mm/secretmem.c
+@@ -136,11 +136,6 @@ static int secretmem_mmap(struct file *file, struct vm_area_struct *vma)
+ 	return 0;
+ }
+ 
+-bool vma_is_secretmem(struct vm_area_struct *vma)
+-{
+-	return vma->vm_ops == &secretmem_vm_ops;
+-}
+-
+ static const struct file_operations secretmem_fops = {
+ 	.release	= secretmem_release,
+ 	.mmap		= secretmem_mmap,
+@@ -214,6 +209,7 @@ static struct file *secretmem_file_create(unsigned long flags)
+ 
+ 	mapping_set_gfp_mask(inode->i_mapping, GFP_HIGHUSER);
+ 	mapping_set_unevictable(inode->i_mapping);
++	mapping_set_no_direct_map(inode->i_mapping);
+ 
+ 	inode->i_op = &secretmem_iops;
+ 	inode->i_mapping->a_ops = &secretmem_aops;
+-- 
+2.48.1
+
