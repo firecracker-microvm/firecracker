@@ -114,6 +114,8 @@ pub mod vstate;
 /// Module with initrd.
 pub mod initrd;
 
+pub mod vm_memory_vendored;
+
 use std::collections::HashMap;
 use std::io;
 use std::os::unix::io::AsRawFd;
