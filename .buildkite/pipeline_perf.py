@@ -37,7 +37,12 @@ perf_test = {
     },
     "snapshot-latency": {
         "label": "📸 Snapshot Latency",
-        "test_path": "integration_tests/performance/test_snapshot_ab.py",
+        "test_path": "integration_tests/performance/test_snapshot_ab.py::test_restore_latency integration_tests/performance/test_snapshot_ab.py::test_post_restore_latency",
+        "devtool_opts": "-c 1-12 -m 0",
+    },
+    "population-latency": {
+        "label": "📸 Memory Population Latency",
+        "test_path": "integration_tests/performance/test_snapshot_ab.py::test_population_latency",
         "devtool_opts": "-c 1-12 -m 0",
     },
     "vsock-throughput": {
