@@ -21,6 +21,18 @@ check_ubuntu() {
   fi
 }
 
+install_build_deps() {
+  case $USERSPACE in
+    "UBUNTU")
+	    apt-get update && apt-get install -y make bsdmainutils flex yacc bison bc xz-utils libelf-dev elfutils libssl-dev
+	    ;;
+    "AL2023")
+	    yum groupinstall "Development Tools"
+	    yum install make openssl-devel dkms
+	    ;;
+  esac
+}
+
 tidy_up() {
   # Some cleanup after we are done
   echo "Cleaning up.."
@@ -57,6 +69,8 @@ confirm() {
 }
 
 apply_patch_file() {
+  echo "Applying patch:" $(basename $1)
+
   git apply $1
 }
 
@@ -85,6 +99,23 @@ apply_patch_or_series() {
   esac
 }
 
+apply_all_patches() {
+  if [ ! -d "$1" ]; then
+    echo "Not a directory: $1"
+    return
+  fi
+
+  echo "Applying all patches in $1"
+
+  for f in $1/*; do
+    if [ -d $f ]; then
+      apply_all_patches $f
+    else
+      apply_patch_or_series $f
+    fi
+  done
+}
+
 check_override_presence() {
   while IFS= read -r line; do
     if ! grep -Fq "$line" .config; then
@@ -96,9 +127,12 @@ check_override_presence() {
   echo "All overrides correctly applied.."
 }
 
+check_ubuntu
+install_build_deps
+
 KERNEL_URL=$(cat kernel_url)
 KERNEL_COMMIT_HASH=$(cat kernel_commit_hash)
-KERNEL_PATCHES_DIR=$(pwd)/patches
+KERNEL_PATCHES_DIR=$(pwd)/linux_patches
 KERNEL_CONFIG_OVERRIDES=$(pwd)/kernel_config_overrides
 
 TMP_BUILD_DIR=$(mktemp -d -t kernel-build-XXXX)
@@ -117,10 +151,7 @@ git fetch --depth 1 origin $KERNEL_COMMIT_HASH
 git checkout FETCH_HEAD
 
 # Apply our patches on top
-for PATCH in $KERNEL_PATCHES_DIR/*.*; do
-  echo "Applying patch:" $(basename $PATCH)
-  apply_patch_or_series $PATCH
-done
+apply_all_patches $KERNEL_PATCHES_DIR
 
 echo "Making kernel config ready for build"
 # We use olddefconfig to automatically pull in the
@@ -155,7 +186,6 @@ echo "New kernel version:" $KERNEL_VERSION
 confirm "$@"
 
 check_root
-check_ubuntu
 
 echo "Installing kernel modules..."
 make INSTALL_MOD_STRIP=1 modules_install
