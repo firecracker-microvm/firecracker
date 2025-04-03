@@ -27,21 +27,22 @@ perf_test = {
         "devtool_opts": "-c 1-10 -m 0",
         "ab_opts": "--noise-threshold 0.1",
     },
-    "network-latency": {
-        "label": "📠 Network Latency",
-        "test_path": "integration_tests/performance/test_network_ab.py::test_network_latency",
+    "network": {
+        "label": "📠 Network Latency and Throughput",
+        "test_path": "integration_tests/performance/test_network_ab.py",
         "devtool_opts": "-c 1-10 -m 0",
         # Triggers if delta is > 0.01ms (10µs) or default relative threshold (5%)
+        # only relevant for latency test, throughput test will always be magnitudes above this anyway
         "ab_opts": "--absolute-strength 0.010",
-    },
-    "network-throughput": {
-        "label": "📠 Network TCP Throughput",
-        "test_path": "integration_tests/performance/test_network_ab.py::test_network_tcp_throughput",
-        "devtool_opts": "-c 1-10 -m 0",
     },
     "snapshot-latency": {
         "label": "📸 Snapshot Latency",
-        "test_path": "integration_tests/performance/test_snapshot_ab.py",
+        "test_path": "integration_tests/performance/test_snapshot_ab.py::test_restore_latency integration_tests/performance/test_snapshot_ab.py::test_post_restore_latency",
+        "devtool_opts": "-c 1-12 -m 0",
+    },
+    "population-latency": {
+        "label": "📸 Memory Population Latency",
+        "test_path": "integration_tests/performance/test_snapshot_ab.py::test_population_latency",
         "devtool_opts": "-c 1-12 -m 0",
     },
     "vsock-throughput": {
