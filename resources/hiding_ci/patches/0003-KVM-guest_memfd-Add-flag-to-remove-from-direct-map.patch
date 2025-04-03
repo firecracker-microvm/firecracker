@@ -1,0 +1,178 @@
+From 9bbc39f9c7622f0060d395b1063a564c24926d8d Mon Sep 17 00:00:00 2001
+From: Patrick Roy <roypat@amazon.co.uk>
+Date: Fri, 7 Feb 2025 14:33:01 +0000
+Subject: [PATCH 2/2] KVM: guest_memfd: Add flag to remove from direct map
+
+Add KVM_GMEM_NO_DIRECT_MAP flag for KVM_CREATE_GUEST_MEMFD() ioctl. When
+set, guest_memfd folios will be removed from the direct map after
+preparation, with direct map entries only restored when the folios are
+freed.
+
+To ensure these folios do not end up in places where the kernel cannot
+deal with them, set AS_NO_DIRECT_MAP on the guest_memfd's struct
+address_space if KVM_GMEM_NO_DIRECT_MAP is requested.
+
+Add KVM_CAP_GMEM_NO_DIRECT_MAP to let userspace discover whether
+guest_memfd supports KVM_GMEM_NO_DIRECT_MAP. Support depends on
+guest_memfd itself being supported, but also on whether KVM can
+manipulate the direct map at page granularity at all (possible most of
+the time, just arm64 is a notable outlier where its impossible if the
+direct map has been setup using hugepages, as arm64 cannot break these
+apart due to break-before-make semantics).
+
+Note that this flag causes removal of direct map entries for all
+guest_memfd folios independent of whether they are "shared" or "private"
+(although current guest_memfd only supports either all folios in the
+"shared" state, or all folios in the "private" state if
+!IS_ENABLED(CONFIG_KVM_GMEM_SHARED_MEM)). The usecase for removing
+direct map entries of also the shared parts of guest_memfd are a special
+type of non-CoCo VM where, host userspace is trusted to have access to
+all of guest memory, but where Spectre-style transient execution attacks
+through the host kernel's direct map should still be mitigated.
+
+Note that KVM retains access to guest memory via userspace
+mappings of guest_memfd, which are reflected back into KVM's memslots
+via userspace_addr. This is needed for things like MMIO emulation on
+x86_64 to work. Previous iterations attempted to instead have KVM
+temporarily restore direct map entries whenever such an access to guest
+memory was needed, but this turned out to have a significant performance
+impact, as well as additional complexity due to needing to refcount
+direct map reinsertion operations and making them play nicely with gmem
+truncations.
+
+This iteration also doesn't have KVM perform TLB flushes after direct
+map manipulations. This is because TLB flushes resulted in a up to 40x
+elongation of page faults in guest_memfd (scaling with the number of CPU
+cores), or a 5x elongation of memory population. On the one hand, TLB
+flushes are not needed for functional correctness (the virt->phys
+mapping technically stays "correct",  the kernel should simply to not it
+for a while), so this is a correct optimization to make. On the other
+hand, it means that the desired protection from Spectre-style attacks is
+not perfect, as an attacker could try to prevent a stale TLB entry from
+getting evicted, keeping it alive until the page it refers to is used by
+the guest for some sensitive data, and then targeting it using a
+spectre-gadget.
+
+Signed-off-by: Patrick Roy <roypat@amazon.co.uk>
+---
+ include/uapi/linux/kvm.h |  3 +++
+ virt/kvm/guest_memfd.c   | 28 +++++++++++++++++++++++++++-
+ virt/kvm/kvm_main.c      |  5 +++++
+ 3 files changed, 35 insertions(+), 1 deletion(-)
+
+diff --git a/include/uapi/linux/kvm.h b/include/uapi/linux/kvm.h
+index 117937a895da..fb02a93546d8 100644
+--- a/include/uapi/linux/kvm.h
++++ b/include/uapi/linux/kvm.h
+@@ -930,6 +930,7 @@ struct kvm_enable_cap {
+ #define KVM_CAP_X86_APIC_BUS_CYCLES_NS 237
+ #define KVM_CAP_X86_GUEST_MODE 238
+ #define KVM_CAP_GMEM_SHARED_MEM 239
++#define KVM_CAP_GMEM_NO_DIRECT_MAP 240
+ 
+ struct kvm_irq_routing_irqchip {
+ 	__u32 irqchip;
+@@ -1573,6 +1574,8 @@ struct kvm_create_guest_memfd {
+ 	__u64 reserved[6];
+ };
+ 
++#define KVM_GMEM_NO_DIRECT_MAP			(1ULL << 0)
++
+ #define KVM_PRE_FAULT_MEMORY	_IOWR(KVMIO, 0xd5, struct kvm_pre_fault_memory)
+ 
+ struct kvm_pre_fault_memory {
+diff --git a/virt/kvm/guest_memfd.c b/virt/kvm/guest_memfd.c
+index fbf89e643add..a2b96bc51391 100644
+--- a/virt/kvm/guest_memfd.c
++++ b/virt/kvm/guest_memfd.c
+@@ -4,6 +4,7 @@
+ #include <linux/kvm_host.h>
+ #include <linux/pagemap.h>
+ #include <linux/anon_inodes.h>
++#include <linux/set_memory.h>
+ 
+ #include "kvm_mm.h"
+ 
+@@ -50,8 +51,23 @@ static int __kvm_gmem_prepare_folio(struct kvm *kvm, struct kvm_memory_slot *slo
+ 	return 0;
+ }
+ 
++static bool kvm_gmem_test_no_direct_map(struct inode *inode)
++{
++	return ((unsigned long) inode->i_private) & KVM_GMEM_NO_DIRECT_MAP;
++}
++
+ static inline void kvm_gmem_mark_prepared(struct folio *folio)
+ {
++	struct inode *inode = folio_inode(folio);
++
++	if (kvm_gmem_test_no_direct_map(inode)) {
++		int r = set_direct_map_valid_noflush(folio_page(folio, 0), folio_nr_pages(folio),
++						     false);
++
++		if (!r)
++			folio_set_private(folio);
++	}
++
+ 	folio_mark_uptodate(folio);
+ }
+ 
+@@ -478,6 +494,10 @@ static void kvm_gmem_free_folio(struct folio *folio)
+ 	kvm_pfn_t pfn = page_to_pfn(page);
+ 	int order = folio_order(folio);
+ 
++	if (folio_test_private(folio))
++		WARN_ON_ONCE(set_direct_map_valid_noflush(folio_page(folio, 0),
++							  folio_nr_pages(folio), true));
++
+ 	kvm_arch_gmem_invalidate(pfn, pfn + (1ul << order));
+ }
+ #endif
+@@ -551,6 +571,9 @@ static int __kvm_gmem_create(struct kvm *kvm, loff_t size, u64 flags)
+ 	/* Unmovable mappings are supposed to be marked unevictable as well. */
+ 	WARN_ON_ONCE(!mapping_unevictable(inode->i_mapping));
+ 
++	if (flags & KVM_GMEM_NO_DIRECT_MAP)
++		mapping_set_no_direct_map(inode->i_mapping);
++
+ 	kvm_get_kvm(kvm);
+ 	gmem->kvm = kvm;
+ 	xa_init(&gmem->bindings);
+@@ -570,7 +593,10 @@ int kvm_gmem_create(struct kvm *kvm, struct kvm_create_guest_memfd *args)
+ {
+ 	loff_t size = args->size;
+ 	u64 flags = args->flags;
+-	u64 valid_flags = 0;
++	u64 valid_flags = KVM_GMEM_NO_DIRECT_MAP;
++
++	if (!can_set_direct_map())
++		valid_flags &= ~KVM_GMEM_NO_DIRECT_MAP;
+ 
+ 	if (flags & ~valid_flags)
+ 		return -EINVAL;
+diff --git a/virt/kvm/kvm_main.c b/virt/kvm/kvm_main.c
+index 3e40acb9f5c0..32ca1c921ab0 100644
+--- a/virt/kvm/kvm_main.c
++++ b/virt/kvm/kvm_main.c
+@@ -65,6 +65,7 @@
+ #include <trace/events/kvm.h>
+ 
+ #include <linux/kvm_dirty_ring.h>
++#include <linux/set_memory.h>
+ 
+ 
+ /* Worst case buffer size needed for holding an integer. */
+@@ -4823,6 +4824,10 @@ static int kvm_vm_ioctl_check_extension_generic(struct kvm *kvm, long arg)
+ 		return kvm_supported_mem_attributes(kvm);
+ #endif
+ #ifdef CONFIG_KVM_PRIVATE_MEM
++	case KVM_CAP_GMEM_NO_DIRECT_MAP:
++		if (!can_set_direct_map())
++			return false;
++		fallthrough;
+ 	case KVM_CAP_GUEST_MEMFD:
+ 		return !kvm || kvm_arch_has_private_mem(kvm);
+ #endif
+-- 
+2.48.1
+
