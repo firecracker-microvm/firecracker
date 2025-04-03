@@ -70,7 +70,6 @@ cpu_template_test = {
             "m5n.metal",
             "m6i.metal",
             "m6a.metal",
-            "m7a.metal-48xl",
         ],
     },
 }

@@ -25,12 +25,13 @@ def get_supported_cpu_templates():
     """Return the list of static CPU templates supported by the platform."""
     host_linux = global_props.host_linux_version_tpl
     match get_cpu_vendor(), global_props.cpu_codename:
-        # T2CL template is only supported on Cascade Lake and newer CPUs.
         case CpuVendor.INTEL, CpuModel.INTEL_SKYLAKE:
             return sorted(set(INTEL_TEMPLATES) - {"T2CL"})
-        case CpuVendor.INTEL, _:
+        case CpuVendor.INTEL, CpuModel.INTEL_CASCADELAKE:
             return INTEL_TEMPLATES
-        case CpuVendor.AMD, _:
+        case CpuVendor.INTEL, CpuModel.INTEL_ICELAKE:
+            return sorted(set(INTEL_TEMPLATES) - {"T2S"})
+        case CpuVendor.AMD, CpuModel.AMD_MILAN:
             return AMD_TEMPLATES
         case CpuVendor.ARM, CpuModel.ARM_NEOVERSE_V1 if host_linux >= (6, 1):
             return ARM_TEMPLATES
@@ -45,12 +46,13 @@ def get_supported_custom_cpu_templates():
     """Return the list of custom CPU templates supported by the platform."""
     host_linux = global_props.host_linux_version_tpl
     match get_cpu_vendor(), global_props.cpu_codename:
-        # T2CL template is only supported on Cascade Lake and newer CPUs.
         case CpuVendor.INTEL, CpuModel.INTEL_SKYLAKE:
             return set(INTEL_TEMPLATES) - {"T2CL"}
-        case CpuVendor.INTEL, _:
+        case CpuVendor.INTEL, CpuModel.INTEL_CASCADELAKE:
             return INTEL_TEMPLATES
-        case CpuVendor.AMD, _:
+        case CpuVendor.INTEL, CpuModel.INTEL_ICELAKE:
+            return set(INTEL_TEMPLATES) - {"T2S"}
+        case CpuVendor.AMD, CpuModel.AMD_MILAN:
             return AMD_TEMPLATES
         case CpuVendor.ARM, CpuModel.ARM_NEOVERSE_N1 if host_linux >= (6, 1):
             return ["v1n1"]

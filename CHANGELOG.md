@@ -26,6 +26,10 @@ and this project adheres to
   WAITPKG CPUID bit in CPUID normalization. The feature enables a guest to put a
   physical processor into an idle state, which is undesirable in a FaaS
   environment since that is what the host wants to decide.
+- [#5142](https://github.com/firecracker-microvm/firecracker/pull/5142):
+  Clarified what CPU models are supported by each existing CPU template.
+  Firecracker exits with an error if a CPU template is used on an unsupported
+  CPU model.
 
 ### Deprecated
 

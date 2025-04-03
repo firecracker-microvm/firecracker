@@ -832,17 +832,6 @@ mod tests {
         (kvm, vm, vcpu)
     }
 
-    fn is_at_least_cascade_lake() -> bool {
-        CpuModel::get_cpu_model()
-            >= (CpuModel {
-                extended_family: 0,
-                extended_model: 5,
-                family: 6,
-                model: 5,
-                stepping: 7,
-            })
-    }
-
     fn create_vcpu_config(
         kvm: &Kvm,
         vcpu: &KvmVcpu,
@@ -915,16 +904,33 @@ mod tests {
         // Test configure while using the T2S template.
         let t2a_res = try_configure(&kvm, &mut vcpu, StaticCpuTemplate::T2A);
 
+        let cpu_model = CpuModel::get_cpu_model();
         match &cpuid::common::get_vendor_id_from_host().unwrap() {
             cpuid::VENDOR_ID_INTEL => {
-                assert!(t2_res);
-                assert!(c3_res);
-                assert!(t2s_res);
-                if is_at_least_cascade_lake() {
-                    assert!(t2cl_res);
-                } else {
-                    assert!(!t2cl_res);
-                }
+                assert_eq!(
+                    t2_res,
+                    StaticCpuTemplate::T2
+                        .get_supported_cpu_models()
+                        .contains(&cpu_model)
+                );
+                assert_eq!(
+                    c3_res,
+                    StaticCpuTemplate::C3
+                        .get_supported_cpu_models()
+                        .contains(&cpu_model)
+                );
+                assert_eq!(
+                    t2s_res,
+                    StaticCpuTemplate::T2S
+                        .get_supported_cpu_models()
+                        .contains(&cpu_model)
+                );
+                assert_eq!(
+                    t2cl_res,
+                    StaticCpuTemplate::T2CL
+                        .get_supported_cpu_models()
+                        .contains(&cpu_model)
+                );
                 assert!(!t2a_res);
             }
             cpuid::VENDOR_ID_AMD => {
@@ -932,7 +938,12 @@ mod tests {
                 assert!(!c3_res);
                 assert!(!t2s_res);
                 assert!(!t2cl_res);
-                assert!(t2a_res);
+                assert_eq!(
+                    t2a_res,
+                    StaticCpuTemplate::T2A
+                        .get_supported_cpu_models()
+                        .contains(&cpu_model)
+                );
             }
             _ => {
                 assert!(!t2_res);

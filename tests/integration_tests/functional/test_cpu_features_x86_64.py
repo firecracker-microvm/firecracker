@@ -643,7 +643,9 @@ def test_cpu_cpuid_restore(microvm_factory, guest_kernel, msr_cpu_template):
     )
 
 
-@pytest.mark.parametrize("cpu_template", ["T2", "T2S", "C3"])
+@pytest.mark.parametrize(
+    "cpu_template", sorted({"T2", "T2S", "C3"}.intersection(SUPPORTED_CPU_TEMPLATES))
+)
 def test_cpu_template(uvm_plain_any, cpu_template, microvm_factory):
     """
     Test masked and enabled cpu features against the expected template.

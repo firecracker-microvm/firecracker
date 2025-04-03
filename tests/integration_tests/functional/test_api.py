@@ -18,6 +18,7 @@ import host_tools.drive as drive_tools
 import host_tools.network as net_tools
 from framework import utils, utils_cpuid
 from framework.utils import get_firecracker_version_from_toml
+from framework.utils_cpu_templates import SUPPORTED_CPU_TEMPLATES
 
 MEM_LIMIT = 1000000000
 
@@ -393,21 +394,13 @@ def test_api_machine_config(uvm_plain):
     test_microvm.api.machine_config.patch(mem_size_mib=256)
 
     # Set the cpu template
-    if platform.machine() == "x86_64":
-        test_microvm.api.machine_config.patch(cpu_template="C3")
-    else:
-        # We test with "None" because this is the only option supported on
-        # all aarch64 instances. It still tests setting `cpu_template`,
-        # even though the values we set is "None".
+    if len(SUPPORTED_CPU_TEMPLATES) == 0:
+        # No static CPU templates are supported on this CPU.
         test_microvm.api.machine_config.patch(cpu_template="None")
-
-    if utils_cpuid.get_cpu_vendor() == utils_cpuid.CpuVendor.AMD:
-        # We shouldn't be able to apply Intel templates on AMD hosts
-        fail_msg = "CPU vendor mismatched between actual CPU and CPU template"
-        with pytest.raises(RuntimeError, match=fail_msg):
-            test_microvm.start()
     else:
-        test_microvm.start()
+        test_microvm.api.machine_config.patch(cpu_template=SUPPORTED_CPU_TEMPLATES[0])
+
+    test_microvm.start()
 
     # Validate full vm configuration after patching machine config.
     json = test_microvm.api.vm_config.get().json()
@@ -1077,8 +1070,8 @@ def test_get_full_config_after_restoring_snapshot(microvm_factory, uvm_nano):
     if cpu_vendor == utils_cpuid.CpuVendor.ARM:
         setup_cfg["machine-config"]["smt"] = False
 
-    if cpu_vendor == utils_cpuid.CpuVendor.INTEL:
-        setup_cfg["machine-config"]["cpu_template"] = "C3"
+    if len(SUPPORTED_CPU_TEMPLATES) != 0:
+        setup_cfg["machine-config"]["cpu_template"] = SUPPORTED_CPU_TEMPLATES[0]
 
     uvm_nano.api.machine_config.patch(**setup_cfg["machine-config"])
 

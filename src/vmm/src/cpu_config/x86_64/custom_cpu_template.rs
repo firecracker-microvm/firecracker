@@ -8,13 +8,13 @@ use std::borrow::Cow;
 use serde::de::Error as SerdeError;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
-use crate::arch::x86_64::cpu_model::CpuModel;
+use crate::arch::x86_64::cpu_model::{CpuModel, SKYLAKE_FMS};
 use crate::cpu_config::templates::{
     CpuTemplateType, GetCpuTemplate, GetCpuTemplateError, KvmCapability, RegisterValueFilter,
 };
 use crate::cpu_config::templates_serde::*;
+use crate::cpu_config::x86_64::cpuid::KvmCpuidFlags;
 use crate::cpu_config::x86_64::cpuid::common::get_vendor_id_from_host;
-use crate::cpu_config::x86_64::cpuid::{KvmCpuidFlags, VENDOR_ID_AMD, VENDOR_ID_INTEL};
 use crate::cpu_config::x86_64::static_cpu_templates::{StaticCpuTemplate, c3, t2, t2a, t2cl, t2s};
 use crate::logger::warn;
 
@@ -26,13 +26,25 @@ impl GetCpuTemplate for Option<CpuTemplateType> {
             Some(template_type) => match template_type {
                 CpuTemplateType::Custom(template) => Ok(Cow::Borrowed(template)),
                 CpuTemplateType::Static(template) => {
-                    let vendor_id = get_vendor_id_from_host().map_err(GetCpuVendor)?;
+                    // Return early for `None` due to no valid vendor and CPU models.
+                    if template == &StaticCpuTemplate::None {
+                        return Err(InvalidStaticCpuTemplate(StaticCpuTemplate::None));
+                    }
+
+                    if &get_vendor_id_from_host().map_err(GetCpuVendor)?
+                        != template.get_supported_vendor()
+                    {
+                        return Err(CpuVendorMismatched);
+                    }
+
+                    let cpu_model = CpuModel::get_cpu_model();
+                    if !template.get_supported_cpu_models().contains(&cpu_model) {
+                        return Err(InvalidCpuModel);
+                    }
+
                     match template {
                         StaticCpuTemplate::C3 => {
-                            if &vendor_id != VENDOR_ID_INTEL {
-                                return Err(CpuVendorMismatched);
-                            }
-                            if !CpuModel::get_cpu_model().is_at_least_cascade_lake() {
+                            if cpu_model == SKYLAKE_FMS {
                                 warn!(
                                     "On processors that do not enumerate FBSDP_NO, PSDP_NO and \
                                      SBDR_SSDP_NO on IA32_ARCH_CAPABILITIES MSR, the guest kernel \
@@ -42,35 +54,11 @@ impl GetCpuTemplate for Option<CpuTemplateType> {
                             }
                             Ok(Cow::Owned(c3::c3()))
                         }
-                        StaticCpuTemplate::T2 => {
-                            if &vendor_id != VENDOR_ID_INTEL {
-                                return Err(CpuVendorMismatched);
-                            }
-                            Ok(Cow::Owned(t2::t2()))
-                        }
-                        StaticCpuTemplate::T2S => {
-                            if &vendor_id != VENDOR_ID_INTEL {
-                                return Err(CpuVendorMismatched);
-                            }
-                            Ok(Cow::Owned(t2s::t2s()))
-                        }
-                        StaticCpuTemplate::T2CL => {
-                            if &vendor_id != VENDOR_ID_INTEL {
-                                return Err(CpuVendorMismatched);
-                            } else if !CpuModel::get_cpu_model().is_at_least_cascade_lake() {
-                                return Err(InvalidCpuModel);
-                            }
-                            Ok(Cow::Owned(t2cl::t2cl()))
-                        }
-                        StaticCpuTemplate::T2A => {
-                            if &vendor_id != VENDOR_ID_AMD {
-                                return Err(CpuVendorMismatched);
-                            }
-                            Ok(Cow::Owned(t2a::t2a()))
-                        }
-                        StaticCpuTemplate::None => {
-                            Err(InvalidStaticCpuTemplate(StaticCpuTemplate::None))
-                        }
+                        StaticCpuTemplate::T2 => Ok(Cow::Owned(t2::t2())),
+                        StaticCpuTemplate::T2S => Ok(Cow::Owned(t2s::t2s())),
+                        StaticCpuTemplate::T2CL => Ok(Cow::Owned(t2cl::t2cl())),
+                        StaticCpuTemplate::T2A => Ok(Cow::Owned(t2a::t2a())),
+                        StaticCpuTemplate::None => unreachable!(), // Handled earlier
                     }
                 }
             },
@@ -230,13 +218,25 @@ mod tests {
     #[test]
     fn test_get_cpu_template_with_c3_static_template() {
         // Test `get_cpu_template()` when C3 static CPU template is specified. The owned
-        // `CustomCpuTemplate` should be returned if CPU vendor is Intel. Otherwise, it should fail.
-        let cpu_template = Some(CpuTemplateType::Static(StaticCpuTemplate::C3));
-        if &get_vendor_id_from_host().unwrap() == VENDOR_ID_INTEL {
-            assert_eq!(
-                cpu_template.get_cpu_template().unwrap(),
-                Cow::Owned(c3::c3())
-            );
+        // `CustomCpuTemplate` should be returned if CPU vendor is Intel and the CPU model is
+        // supported. Otherwise, it should fail.
+        let c3 = StaticCpuTemplate::C3;
+        let cpu_template = Some(CpuTemplateType::Static(c3));
+        if &get_vendor_id_from_host().unwrap() == c3.get_supported_vendor() {
+            if c3
+                .get_supported_cpu_models()
+                .contains(&CpuModel::get_cpu_model())
+            {
+                assert_eq!(
+                    cpu_template.get_cpu_template().unwrap(),
+                    Cow::Owned(c3::c3())
+                );
+            } else {
+                assert_eq!(
+                    cpu_template.get_cpu_template().unwrap_err(),
+                    GetCpuTemplateError::InvalidCpuModel,
+                );
+            }
         } else {
             assert_eq!(
                 cpu_template.get_cpu_template().unwrap_err(),
@@ -248,13 +248,25 @@ mod tests {
     #[test]
     fn test_get_cpu_template_with_t2_static_template() {
         // Test `get_cpu_template()` when T2 static CPU template is specified. The owned
-        // `CustomCpuTemplate` should be returned if CPU vendor is Intel. Otherwise, it should fail.
-        let cpu_template = Some(CpuTemplateType::Static(StaticCpuTemplate::T2));
-        if &get_vendor_id_from_host().unwrap() == VENDOR_ID_INTEL {
-            assert_eq!(
-                cpu_template.get_cpu_template().unwrap(),
-                Cow::Owned(t2::t2())
-            );
+        // `CustomCpuTemplate` should be returned if CPU vendor is Intel and the CPU model is
+        // supported. Otherwise, it should fail.
+        let t2 = StaticCpuTemplate::T2;
+        let cpu_template = Some(CpuTemplateType::Static(t2));
+        if &get_vendor_id_from_host().unwrap() == t2.get_supported_vendor() {
+            if t2
+                .get_supported_cpu_models()
+                .contains(&CpuModel::get_cpu_model())
+            {
+                assert_eq!(
+                    cpu_template.get_cpu_template().unwrap(),
+                    Cow::Owned(t2::t2())
+                );
+            } else {
+                assert_eq!(
+                    cpu_template.get_cpu_template().unwrap_err(),
+                    GetCpuTemplateError::InvalidCpuModel,
+                );
+            }
         } else {
             assert_eq!(
                 cpu_template.get_cpu_template().unwrap_err(),
@@ -266,13 +278,25 @@ mod tests {
     #[test]
     fn test_get_cpu_template_with_t2s_static_template() {
         // Test `get_cpu_template()` when T2S static CPU template is specified. The owned
-        // `CustomCpuTemplate` should be returned if CPU vendor is Intel. Otherwise, it should fail.
-        let cpu_template = Some(CpuTemplateType::Static(StaticCpuTemplate::T2S));
-        if &get_vendor_id_from_host().unwrap() == VENDOR_ID_INTEL {
-            assert_eq!(
-                cpu_template.get_cpu_template().unwrap(),
-                Cow::Owned(t2s::t2s())
-            );
+        // `CustomCpuTemplate` should be returned if CPU vendor is Intel and the CPU model is
+        // supported. Otherwise, it should fail.
+        let t2s = StaticCpuTemplate::T2S;
+        let cpu_template = Some(CpuTemplateType::Static(t2s));
+        if &get_vendor_id_from_host().unwrap() == t2s.get_supported_vendor() {
+            if t2s
+                .get_supported_cpu_models()
+                .contains(&CpuModel::get_cpu_model())
+            {
+                assert_eq!(
+                    cpu_template.get_cpu_template().unwrap(),
+                    Cow::Owned(t2s::t2s())
+                );
+            } else {
+                assert_eq!(
+                    cpu_template.get_cpu_template().unwrap_err(),
+                    GetCpuTemplateError::InvalidCpuModel,
+                );
+            }
         } else {
             assert_eq!(
                 cpu_template.get_cpu_template().unwrap_err(),
@@ -299,10 +323,15 @@ mod tests {
     #[test]
     fn test_get_cpu_template_with_t2cl_static_template() {
         // Test `get_cpu_template()` when T2CL static CPU template is specified. The owned
-        // `CustomCpuTemplate` should be returned if CPU vendor is Intel. Otherwise, it should fail.
-        let cpu_template = Some(CpuTemplateType::Static(StaticCpuTemplate::T2CL));
-        if &get_vendor_id_from_host().unwrap() == VENDOR_ID_INTEL {
-            if CpuModel::get_cpu_model().is_at_least_cascade_lake() {
+        // `CustomCpuTemplate` should be returned if CPU vendor is Intel and the CPU model is
+        // supported. Otherwise, it should fail.
+        let t2cl = StaticCpuTemplate::T2CL;
+        let cpu_template = Some(CpuTemplateType::Static(t2cl));
+        if &get_vendor_id_from_host().unwrap() == t2cl.get_supported_vendor() {
+            if t2cl
+                .get_supported_cpu_models()
+                .contains(&CpuModel::get_cpu_model())
+            {
                 assert_eq!(
                     cpu_template.get_cpu_template().unwrap(),
                     Cow::Owned(t2cl::t2cl())
@@ -311,7 +340,7 @@ mod tests {
                 assert_eq!(
                     cpu_template.get_cpu_template().unwrap_err(),
                     GetCpuTemplateError::InvalidCpuModel,
-                )
+                );
             }
         } else {
             assert_eq!(
@@ -325,12 +354,23 @@ mod tests {
     fn test_get_cpu_template_with_t2a_static_template() {
         // Test `get_cpu_template()` when T2A static CPU template is specified. The owned
         // `CustomCpuTemplate` should be returned if CPU vendor is AMD. Otherwise it should fail.
-        let cpu_template = Some(CpuTemplateType::Static(StaticCpuTemplate::T2A));
-        if &get_vendor_id_from_host().unwrap() == VENDOR_ID_AMD {
-            assert_eq!(
-                cpu_template.get_cpu_template().unwrap(),
-                Cow::Owned(t2a::t2a())
-            );
+        let t2a = StaticCpuTemplate::T2A;
+        let cpu_template = Some(CpuTemplateType::Static(t2a));
+        if &get_vendor_id_from_host().unwrap() == t2a.get_supported_vendor() {
+            if t2a
+                .get_supported_cpu_models()
+                .contains(&CpuModel::get_cpu_model())
+            {
+                assert_eq!(
+                    cpu_template.get_cpu_template().unwrap(),
+                    Cow::Owned(t2a::t2a())
+                );
+            } else {
+                assert_eq!(
+                    cpu_template.get_cpu_template().unwrap_err(),
+                    GetCpuTemplateError::InvalidCpuModel,
+                );
+            }
         } else {
             assert_eq!(
                 cpu_template.get_cpu_template().unwrap_err(),
