@@ -1,0 +1,64 @@
+From f50caa83e9d90c71bc473e9e0ac0eef205ca62b9 Mon Sep 17 00:00:00 2001
+From: Patrick Roy <roypat@amazon.co.uk>
+Date: Thu, 24 Oct 2024 07:18:57 +0100
+Subject: [PATCH 09/10] KVM: selftests: cover GUEST_MEMFD_FLAG_NO_DIRECT_MAP in
+ existing selftests
+
+Extend mem conversion selftests to cover the scenario that the guest can
+fault in and write gmem-backed guest memory even if its direct map
+removed. Also cover the new flag in guest_memfd_test.c tests.
+
+Signed-off-by: Patrick Roy <roypat@amazon.co.uk>
+---
+ tools/testing/selftests/kvm/guest_memfd_test.c             | 2 ++
+ .../selftests/kvm/x86/private_mem_conversions_test.c       | 7 ++++---
+ 2 files changed, 6 insertions(+), 3 deletions(-)
+
+diff --git a/tools/testing/selftests/kvm/guest_memfd_test.c b/tools/testing/selftests/kvm/guest_memfd_test.c
+index b3ca6737f304..1187438b6831 100644
+--- a/tools/testing/selftests/kvm/guest_memfd_test.c
++++ b/tools/testing/selftests/kvm/guest_memfd_test.c
+@@ -275,6 +275,8 @@ static void test_guest_memfd(unsigned long vm_type)
+ 
+ 	if (vm_check_cap(vm, KVM_CAP_GUEST_MEMFD_MMAP))
+ 		flags |= GUEST_MEMFD_FLAG_MMAP;
++	if (vm_check_cap(vm, KVM_CAP_GUEST_MEMFD_NO_DIRECT_MAP))
++		flags |= GUEST_MEMFD_FLAG_NO_DIRECT_MAP;
+ 
+ 	test_create_guest_memfd_multiple(vm);
+ 	test_create_guest_memfd_invalid_sizes(vm, flags, page_size);
+diff --git a/tools/testing/selftests/kvm/x86/private_mem_conversions_test.c b/tools/testing/selftests/kvm/x86/private_mem_conversions_test.c
+index 82a8d88b5338..8427d9fbdb23 100644
+--- a/tools/testing/selftests/kvm/x86/private_mem_conversions_test.c
++++ b/tools/testing/selftests/kvm/x86/private_mem_conversions_test.c
+@@ -367,7 +367,7 @@ static void *__test_mem_conversions(void *__vcpu)
+ }
+ 
+ static void test_mem_conversions(enum vm_mem_backing_src_type src_type, uint32_t nr_vcpus,
+-				 uint32_t nr_memslots)
++				 uint32_t nr_memslots, uint64_t gmem_flags)
+ {
+ 	/*
+ 	 * Allocate enough memory so that each vCPU's chunk of memory can be
+@@ -394,7 +394,7 @@ static void test_mem_conversions(enum vm_mem_backing_src_type src_type, uint32_t
+ 
+ 	vm_enable_cap(vm, KVM_CAP_EXIT_HYPERCALL, (1 << KVM_HC_MAP_GPA_RANGE));
+ 
+-	memfd = vm_create_guest_memfd(vm, memfd_size, 0);
++	memfd = vm_create_guest_memfd(vm, memfd_size, gmem_flags);
+ 
+ 	for (i = 0; i < nr_memslots; i++)
+ 		vm_mem_add(vm, src_type, BASE_DATA_GPA + slot_size * i,
+@@ -477,7 +477,8 @@ int main(int argc, char *argv[])
+ 		}
+ 	}
+ 
+-	test_mem_conversions(src_type, nr_vcpus, nr_memslots);
++	test_mem_conversions(src_type, nr_vcpus, nr_memslots, 0);
++	test_mem_conversions(src_type, nr_vcpus, nr_memslots, GUEST_MEMFD_FLAG_NO_DIRECT_MAP);
+ 
+ 	return 0;
+ }
+-- 
+2.51.0
+

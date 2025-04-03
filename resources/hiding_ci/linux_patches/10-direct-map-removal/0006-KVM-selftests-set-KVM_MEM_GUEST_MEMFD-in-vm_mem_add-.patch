@@ -1,0 +1,71 @@
+From 27c849319c2eb4ba66b64478709a880fc12e93e4 Mon Sep 17 00:00:00 2001
+From: Patrick Roy <roypat@amazon.co.uk>
+Date: Thu, 20 Feb 2025 14:56:20 +0000
+Subject: [PATCH 06/10] KVM: selftests: set KVM_MEM_GUEST_MEMFD in vm_mem_add()
+ if guest_memfd != -1
+
+Have vm_mem_add() always set KVM_MEM_GUEST_MEMFD in the memslot flags if
+a guest_memfd is passed in as an argument. This eliminates the
+possibility where a guest_memfd instance is passed to vm_mem_add(), but
+it ends up being ignored because the flags argument does not specify
+KVM_MEM_GUEST_MEMFD at the same time.
+
+This makes it easy to support more scenarios in which no vm_mem_add() is
+not passed a guest_memfd instance, but is expected to allocate one.
+Currently, this only happens if guest_memfd == -1 but flags &
+KVM_MEM_GUEST_MEMFD != 0, but later vm_mem_add() will gain support for
+loading the test code itself into guest_memfd (via
+GUEST_MEMFD_FLAG_MMAP) if requested via a special
+vm_mem_backing_src_type, at which point having to make sure the src_type
+and flags are in-sync becomes cumbersome.
+
+Signed-off-by: Patrick Roy <roypat@amazon.co.uk>
+---
+ tools/testing/selftests/kvm/lib/kvm_util.c | 26 +++++++++++++---------
+ 1 file changed, 15 insertions(+), 11 deletions(-)
+
+diff --git a/tools/testing/selftests/kvm/lib/kvm_util.c b/tools/testing/selftests/kvm/lib/kvm_util.c
+index c3f5142b0a54..cc67dfecbf65 100644
+--- a/tools/testing/selftests/kvm/lib/kvm_util.c
++++ b/tools/testing/selftests/kvm/lib/kvm_util.c
+@@ -1107,22 +1107,26 @@ void vm_mem_add(struct kvm_vm *vm, enum vm_mem_backing_src_type src_type,
+ 
+ 	region->backing_src_type = src_type;
+ 
+-	if (flags & KVM_MEM_GUEST_MEMFD) {
+-		if (guest_memfd < 0) {
++	if (guest_memfd < 0) {
++		if (flags & KVM_MEM_GUEST_MEMFD) {
+ 			uint32_t guest_memfd_flags = 0;
+ 			TEST_ASSERT(!guest_memfd_offset,
+ 				    "Offset must be zero when creating new guest_memfd");
+ 			guest_memfd = vm_create_guest_memfd(vm, mem_size, guest_memfd_flags);
+-		} else {
+-			/*
+-			 * Install a unique fd for each memslot so that the fd
+-			 * can be closed when the region is deleted without
+-			 * needing to track if the fd is owned by the framework
+-			 * or by the caller.
+-			 */
+-			guest_memfd = dup(guest_memfd);
+-			TEST_ASSERT(guest_memfd >= 0, __KVM_SYSCALL_ERROR("dup()", guest_memfd));
+ 		}
++	} else {
++		/*
++		 * Install a unique fd for each memslot so that the fd
++		 * can be closed when the region is deleted without
++		 * needing to track if the fd is owned by the framework
++		 * or by the caller.
++		 */
++		guest_memfd = dup(guest_memfd);
++		TEST_ASSERT(guest_memfd >= 0, __KVM_SYSCALL_ERROR("dup()", guest_memfd));
++	}
++
++	if (guest_memfd > 0) {
++		flags |= KVM_MEM_GUEST_MEMFD;
+ 
+ 		region->region.guest_memfd = guest_memfd;
+ 		region->region.guest_memfd_offset = guest_memfd_offset;
+-- 
+2.51.0
+
