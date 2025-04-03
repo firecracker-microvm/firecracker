@@ -164,9 +164,11 @@ fn create_vmm_and_vcpus(
         let reset_evt = vcpus_exit_evt.try_clone().map_err(VmmError::EventFd)?;
 
         // create pio dev manager with legacy devices
-        // TODO Remove these unwraps.
-        let mut pio_dev_mgr = PortIODeviceManager::new(serial_device, reset_evt).unwrap();
-        pio_dev_mgr.register_devices(vm.fd()).unwrap();
+        let mut pio_dev_mgr =
+            PortIODeviceManager::new(serial_device, reset_evt).map_err(VmmError::LegacyIOBus)?;
+        pio_dev_mgr
+            .register_devices(vm.fd())
+            .map_err(VmmError::LegacyIOBus)?;
         pio_dev_mgr
     };
 
