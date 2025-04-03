@@ -9,7 +9,7 @@ use crate::cpu_config::templates::CustomCpuTemplate;
 pub fn get_json_template(filename: &str) -> CustomCpuTemplate {
     let json_path = [
         env!("CARGO_MANIFEST_DIR"),
-        "../../tests/data/static_cpu_templates",
+        "../../tests/data/custom_cpu_templates",
         filename,
     ]
     .iter()
