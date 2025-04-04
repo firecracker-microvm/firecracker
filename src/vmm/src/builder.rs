@@ -568,11 +568,8 @@ pub fn setup_serial_device(
 /// Sets up the pvtime device.
 #[cfg(target_arch = "aarch64")]
 fn setup_pv_time(vmm: &mut Vmm, vcpus: &mut Vec<Vcpu>) -> Result<(), StartMicrovmError> {
-    // Q: Is this bad practice, using crates in this scope?
     use crate::arch::aarch64::pvtime::PVTime;
-
-    info!("PVTime setup started");
-
+    
     // Check if pvtime is enabled
     let pvtime_device_attr = kvm_bindings::kvm_device_attr {
         group: kvm_bindings::KVM_ARM_VCPU_PVTIME_CTRL,
@@ -589,8 +586,6 @@ fn setup_pv_time(vmm: &mut Vmm, vcpus: &mut Vec<Vcpu>) -> Result<(), StartMicrov
         .has_device_attr(&pvtime_device_attr)
         .map_err(StartMicrovmError::PVTimeNotSupported)?;
 
-    info!("PVTime is supported");
-
     // Create the pvtime device
     let pv_time = PVTime::new(&mut vmm.resource_allocator, vcpus.len() as u8)
         .map_err(StartMicrovmError::CreatePVTime)?;
@@ -599,11 +594,10 @@ fn setup_pv_time(vmm: &mut Vmm, vcpus: &mut Vec<Vcpu>) -> Result<(), StartMicrov
     for i in 0..vcpus.len() {
         pv_time
             .register_vcpu(i as u8, &vcpus[i].kvm_vcpu.fd)
-            .map_err(StartMicrovmError::CreatePVTime)?; // Change this to its own error
+            .map_err(StartMicrovmError::CreatePVTime)?; // TODO: Change this to its own error
     }
 
     // TODO: Store pv_time somewhere (in Vmm ?) for snapshotting later instead of dropping it
-    info!("PVTime setup completed");
 
     Ok(())
 }
