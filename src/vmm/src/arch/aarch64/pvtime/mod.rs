@@ -6,11 +6,12 @@ use displaydoc::Display;
 use kvm_bindings::{KVM_ARM_VCPU_PVTIME_CTRL, KVM_ARM_VCPU_PVTIME_IPA};
 use log::{debug, info, warn};
 use thiserror::Error;
+use vm_memory::GuestAddress;
 
 use crate::device_manager::resources::ResourceAllocator;
 
-/// Size of the stolen_time struct in bytes, see 3.2.2 in DEN0057A
-pub const STEALTIME_STRUCT_MEM_SIZE: u64 = 16;
+/// 64 bytes due to alignment requirement in 3.1 of https://www.kernel.org/doc/html/v5.8/virt/kvm/devices/vcpu.html#attribute-kvm-arm-vcpu-pvtime-ipa
+pub const STEALTIME_STRUCT_MEM_SIZE: u64 = 64;
 
 /// Represent PVTime device for ARM
 #[derive(Debug)]
@@ -36,27 +37,21 @@ impl PVTime {
         resource_allocator: &mut ResourceAllocator,
         vcpu_count: u8,
     ) -> Result<Self, PVTimeError> {
-        info!("Creating PVTime for {vcpu_count} vCPUs...");
-        // This returns the IPA(?) of the start of our shared memory region for all vCPUs.
-        // Q: Confirm that allocate_system_memory returns an IPA?
-        let base_addr = resource_allocator
+
+        // This returns the IPA of the start of our shared memory region for all vCPUs.
+        let base_addr: GuestAddress = GuestAddress(resource_allocator
             .allocate_system_memory(
                 STEALTIME_STRUCT_MEM_SIZE * vcpu_count as u64,
-                16, // Q: We believe this to be 16, need confirmation.
+                64, 
                 vm_allocator::AllocPolicy::LastMatch,
             )
-            .map_err(|e| PVTimeError::AllocationFailed(e.to_string()))?;
+            .map_err(|e| PVTimeError::AllocationFailed(e.to_string()))?);
 
-        debug!(
-            "Allocated base address for PVTime stolen_time region: 0x{:x}",
-            base_addr
-        );
 
         // Now we need to store the base IPA for each vCPU's steal_time struct.
         let mut steal_time_regions = HashMap::new();
         for i in 0..vcpu_count {
-            let ipa = base_addr + (i as u64 * STEALTIME_STRUCT_MEM_SIZE);
-            debug!("Assigned vCPU {} to stolen_time IPA 0x{:x}", i, ipa);
+            let ipa = base_addr.0 + (i as u64 * STEALTIME_STRUCT_MEM_SIZE);
             steal_time_regions.insert(i, ipa);
         }
 
@@ -70,40 +65,22 @@ impl PVTime {
         vcpu_index: u8,
         vcpu_fd: &kvm_ioctls::VcpuFd,
     ) -> Result<(), PVTimeError> {
+
         // Get IPA of the steal_time region for this vCPU
         let ipa = self
             .steal_time_regions
             .get(&vcpu_index)
             .ok_or(PVTimeError::InvalidVcpuIndex(vcpu_index))?;
 
-        debug!(
-            "Registering vCPU {} with stolen_time IPA = 0x{:x}",
-            vcpu_index, ipa
-        );
-
-        // IMPORTANT QUESTION: We need to confirm this is safe. We need to somehow
-        // ensure the ipa value is not dropped before we use it etc. since we
-        // are creating a raw pointer? Do we need a Box?
-        let ipa_val = *ipa;
-        let ipa_ptr = &ipa_val as *const u64;
-        debug!(
-            "Registering vCPU {} with stolen_time IPA = 0x{:x} (at userspace addr 0x{:x})",
-            vcpu_index, ipa_val, ipa_ptr as u64
-        );
-
         // Use KVM syscall (kvm_set_device_attr) to register the vCPU with the steal_time region
         let vcpu_device_attr = kvm_bindings::kvm_device_attr {
             group: KVM_ARM_VCPU_PVTIME_CTRL,
             attr: KVM_ARM_VCPU_PVTIME_IPA as u64,
-            addr: ipa_ptr as u64, // userspace address of attr data
+            addr: ipa as *const u64 as u64, // userspace address of attr data
             flags: 0,
         };
 
         vcpu_fd.set_device_attr(&vcpu_device_attr).map_err(|err| {
-            warn!(
-                "Failed to set device attribute for vCPU {}: {:?}",
-                vcpu_index, err
-            );
             PVTimeError::DeviceAttribute(err, true, KVM_ARM_VCPU_PVTIME_CTRL)
         })?;
 
