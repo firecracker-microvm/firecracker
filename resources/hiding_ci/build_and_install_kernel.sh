@@ -121,11 +121,14 @@ al2023_update_boot() {
   echo "Creating the new ram disk"
   dracut --kver $KERNEL_VERSION -f -v
 
+  # This varies from x86 and ARM so capture what was generated
+  VM_LINUX_LOCATION=$(ls /boot/vmlinu{x,z}-$KERNEL_VERSION 2>/dev/null | head -n1)
+
   echo "Updating GRUB..."
-  grubby --grub2 --add-kernel /boot/vmlinux-$KERNEL_VERSION \
+  grubby --grub2 --add-kernel $VM_LINUX_LOCATION \
     --title="Secret Hiding" \
     --initrd=/boot/initramfs-$KERNEL_VERSION.img --copy-default
-  grubby --set-default /boot/vmlinux-$KERNEL_VERSION
+  grubby --set-default $VM_LINUX_LOCATION
 }
 
 update_boot_config() {
