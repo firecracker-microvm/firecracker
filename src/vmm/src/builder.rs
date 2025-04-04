@@ -2,7 +2,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
 //! Enables pre-boot setup, instantiation and booting of a Firecracker VMM.
-
 use std::fmt::Debug;
 use std::io;
 #[cfg(feature = "gdb")]
@@ -12,6 +11,7 @@ use std::sync::{Arc, Mutex};
 use event_manager::{MutEventSubscriber, SubscriberOps};
 use libc::EFD_NONBLOCK;
 use linux_loader::cmdline::Cmdline as LoaderKernelCmdline;
+use log::{info, warn};
 use userfaultfd::Uffd;
 use utils::time::TimestampUs;
 #[cfg(target_arch = "aarch64")]
@@ -19,6 +19,7 @@ use vm_superio::Rtc;
 use vm_superio::Serial;
 use vmm_sys_util::eventfd::EventFd;
 
+use crate::arch::aarch64::pvtime::PVTimeError;
 use crate::arch::{ConfigurationError, configure_system_for_boot, load_kernel};
 #[cfg(target_arch = "aarch64")]
 use crate::construct_kvm_mpidrs;
@@ -69,6 +70,9 @@ pub enum StartMicrovmError {
     AttachBlockDevice(io::Error),
     /// Unable to attach the VMGenID device: {0}
     AttachVmgenidDevice(kvm_ioctls::Error),
+    /// PVTime not supported: {0}
+    #[cfg(target_arch = "aarch64")]
+    PVTimeNotSupported(kvm_ioctls::Error),
     /// System configuration error: {0}
     ConfigureSystem(#[from] ConfigurationError),
     /// Failed to create guest config: {0}
@@ -82,6 +86,8 @@ pub enum StartMicrovmError {
     CreateLegacyDevice(device_manager::legacy::LegacyDeviceError),
     /// Error creating VMGenID device: {0}
     CreateVMGenID(VmGenIdError),
+    /// Error creating PVTime device: {0}
+    CreatePVTime(PVTimeError),
     /// Invalid Memory Configuration: {0}
     GuestMemory(crate::vstate::memory::MemoryError),
     /// Error with initrd initialization: {0}.
@@ -288,6 +294,17 @@ pub fn build_microvm_for_boot(
     attach_legacy_devices_aarch64(event_manager, &mut vmm, &mut boot_cmdline)?;
 
     attach_vmgenid_device(&mut vmm)?;
+
+    // Attempt to setup PVTime, continue if not supported
+    #[cfg(target_arch = "aarch64")]
+    if let Err(e) = setup_pv_time(&mut vmm, vcpus.as_mut()) {
+        match e {
+            StartMicrovmError::PVTimeNotSupported(e) => {
+                warn!("PVTime not supported: {}", e);
+            }
+            other => return Err(other),
+        }
+    }
 
     configure_system_for_boot(
         &mut vmm,
@@ -546,6 +563,49 @@ pub fn setup_serial_device(
     })));
     event_manager.add_subscriber(serial.clone());
     Ok(serial)
+}
+
+/// Sets up the pvtime device.
+#[cfg(target_arch = "aarch64")]
+fn setup_pv_time(vmm: &mut Vmm, vcpus: &mut Vec<Vcpu>) -> Result<(), StartMicrovmError> {
+    // Q: Is this bad practice, using crates in this scope?
+    use crate::arch::aarch64::pvtime::PVTime;
+
+    info!("PVTime setup started");
+
+    // Check if pvtime is enabled
+    let pvtime_device_attr = kvm_bindings::kvm_device_attr {
+        group: kvm_bindings::KVM_ARM_VCPU_PVTIME_CTRL,
+        attr: kvm_bindings::KVM_ARM_VCPU_PVTIME_IPA as u64,
+        addr: 0,
+        flags: 0,
+    };
+
+    // Use kvm_has_device_attr to check if PVTime is supported
+    // TODO: Flesh out feature detection. Either throw error and handle, or
+    // even return silently and just log "no support", or something else.
+    let vcpu_fd = &vcpus[0].kvm_vcpu.fd;
+    vcpu_fd
+        .has_device_attr(&pvtime_device_attr)
+        .map_err(StartMicrovmError::PVTimeNotSupported)?;
+
+    info!("PVTime is supported");
+
+    // Create the pvtime device
+    let pv_time = PVTime::new(&mut vmm.resource_allocator, vcpus.len() as u8)
+        .map_err(StartMicrovmError::CreatePVTime)?;
+
+    // Register the vcpu with the pvtime device to map its steal time region
+    for i in 0..vcpus.len() {
+        pv_time
+            .register_vcpu(i as u8, &vcpus[i].kvm_vcpu.fd)
+            .map_err(StartMicrovmError::CreatePVTime)?; // Change this to its own error
+    }
+
+    // TODO: Store pv_time somewhere (in Vmm ?) for snapshotting later instead of dropping it
+    info!("PVTime setup completed");
+
+    Ok(())
 }
 
 #[cfg(target_arch = "aarch64")]
