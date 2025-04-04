@@ -20,6 +20,9 @@ pub enum MachineConfigError {
     IncompatibleBalloonSize,
     /// The memory size (MiB) is either 0, or not a multiple of the configured page size.
     InvalidMemorySize,
+    /// The specified swiotlb region matches or exceeds the total VM memory, or not a multiple of the configured page size.
+    #[cfg(target_arch = "aarch64")]
+    InvalidSwiotlbRegionSize,
     /// The number of vCPUs must be greater than 0, less than {MAX_SUPPORTED_VCPUS:} and must be 1 or an even number if SMT is enabled.
     InvalidVcpuCount,
     /// Could not get the configuration of the previously installed balloon device to validate the memory size.
@@ -27,10 +30,8 @@ pub enum MachineConfigError {
     /// Enabling simultaneous multithreading is not supported on aarch64.
     #[cfg(target_arch = "aarch64")]
     SmtNotSupported,
-    /// Could not determine host kernel version when checking hugetlbfs compatibility
-    KernelVersion,
-    /// Firecracker's huge pages support is incompatible with memory ballooning.
-    BalloonAndHugePages,
+    /// '{0}' and '{1}' are mutually exclusive and cannot be used together.
+    Incompatible(&'static str, &'static str)
 }
 
 /// Describes the possible (huge)page configurations for a microVM's memory.
@@ -89,6 +90,22 @@ impl From<HugePageConfig> for Option<memfd::HugetlbSize> {
     }
 }
 
+/// Structure containing options for tweaking guest memory configuration.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Deserialize, Serialize)]
+pub struct MemoryConfig {
+    /// The initial size of the swiotlb region. If 0, no swiotlb region will be created.
+    /// If non-zero, all device will be forced to bounce buffers through a swiotlb region
+    /// of the specified size that will have been placed into a dedicated kvm memslot.
+    #[cfg(target_arch = "aarch64")]
+    #[serde(default)]
+    pub initial_swiotlb_size: usize,
+    /// Whether guest_memfd should be used to back normal guest memory. If this is enabled
+    /// and any devices are attached to the VM, then initial_swiotlb_size must be non-zero,
+    /// as I/O into secret free memory is not possible.
+    #[serde(default)]
+    pub secret_free: bool,
+}
+
 /// Struct used in PUT `/machine-config` API call.
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
@@ -97,6 +114,10 @@ pub struct MachineConfig {
     pub vcpu_count: u8,
     /// The memory size in MiB.
     pub mem_size_mib: usize,
+    /// Additional configuration options for guest memory
+    #[serde(default)]
+    #[serde(skip_serializing_if = "is_default")]
+    pub mem_config: MemoryConfig,
     /// Enables or disabled SMT.
     #[serde(default)]
     pub smt: bool,
@@ -119,6 +140,10 @@ pub struct MachineConfig {
     #[cfg(feature = "gdb")]
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub gdb_socket_path: Option<String>,
+}
+
+fn is_default<T: Default + Eq>(t: &T) -> bool {
+    t == &T::default()
 }
 
 fn is_none_or_custom_template(template: &Option<CpuTemplateType>) -> bool {
@@ -153,6 +178,7 @@ impl Default for MachineConfig {
         Self {
             vcpu_count: 1,
             mem_size_mib: DEFAULT_MEM_SIZE_MIB,
+            mem_config: Default::default(),
             smt: false,
             cpu_template: None,
             track_dirty_pages: false,
@@ -178,6 +204,9 @@ pub struct MachineConfigUpdate {
     /// The memory size in MiB.
     #[serde(default)]
     pub mem_size_mib: Option<usize>,
+    /// The memory configuration
+    #[serde(default)]
+    pub mem_config: Option<MemoryConfig>,
     /// Enables or disabled SMT.
     #[serde(default)]
     pub smt: Option<bool>,
@@ -210,6 +239,7 @@ impl From<MachineConfig> for MachineConfigUpdate {
         MachineConfigUpdate {
             vcpu_count: Some(cfg.vcpu_count),
             mem_size_mib: Some(cfg.mem_size_mib),
+            mem_config: Some(cfg.mem_config),
             smt: Some(cfg.smt),
             cpu_template: cfg.static_template(),
             track_dirty_pages: Some(cfg.track_dirty_pages),
@@ -263,9 +293,24 @@ impl MachineConfig {
 
         let mem_size_mib = update.mem_size_mib.unwrap_or(self.mem_size_mib);
         let page_config = update.huge_pages.unwrap_or(self.huge_pages);
+        let mem_config = update.mem_config.unwrap_or(self.mem_config);
 
         if mem_size_mib == 0 || !page_config.is_valid_mem_size(mem_size_mib) {
             return Err(MachineConfigError::InvalidMemorySize);
+        }
+
+        #[cfg(target_arch = "aarch64")]
+        if mem_config.initial_swiotlb_size >= mem_size_mib
+            || !page_config.is_valid_mem_size(mem_config.initial_swiotlb_size)
+        {
+            return Err(MachineConfigError::InvalidSwiotlbRegionSize);
+        }
+
+        if mem_config.secret_free && page_config != HugePageConfig::None {
+            return Err(MachineConfigError::Incompatible(
+                "secret freedom",
+                "huge pages",
+            ));
         }
 
         let cpu_template = match update.cpu_template {
@@ -277,6 +322,7 @@ impl MachineConfig {
         Ok(MachineConfig {
             vcpu_count,
             mem_size_mib,
+            mem_config,
             smt,
             cpu_template,
             track_dirty_pages: update.track_dirty_pages.unwrap_or(self.track_dirty_pages),

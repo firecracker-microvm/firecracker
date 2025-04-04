@@ -374,9 +374,7 @@ def test_api_machine_config(uvm_plain):
     bad_size = (1 << 64) - 1
     test_microvm.api.machine_config.patch(mem_size_mib=bad_size)
 
-    fail_msg = re.escape(
-        "Invalid Memory Configuration: Cannot create mmap region: Out of memory (os error 12)"
-    )
+    fail_msg = re.escape("Out of memory (os error 12)")
     with pytest.raises(RuntimeError, match=fail_msg):
         test_microvm.start()
 

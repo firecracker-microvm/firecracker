@@ -18,11 +18,11 @@ pub mod vm;
 
 use std::cmp::min;
 use std::fmt::Debug;
-use std::fs::File;
+use std::io::{Read, Seek};
 
 use linux_loader::loader::pe::PE as Loader;
 use linux_loader::loader::{Cmdline, KernelLoader};
-use vm_memory::GuestMemoryError;
+use vm_memory::{GuestMemoryError, ReadVolatile};
 
 use crate::arch::{BootProtocol, EntryPoint};
 use crate::cpu_config::aarch64::{CpuConfiguration, CpuConfigurationError};
@@ -89,6 +89,14 @@ pub fn arch_memory_regions(offset: usize, size: usize) -> Vec<(GuestAddress, usi
     )]
 }
 
+/// How many bytes of physical guest memory are addressible before the final gap in
+/// the address space on this architecture.
+///
+/// There are no architectural gaps in the physical address space on aarch64, so this is 0
+pub fn bytes_before_last_gap() -> usize {
+    0
+}
+
 /// Configures the system for booting Linux.
 pub fn configure_system_for_boot(
     vmm: &mut Vmm,
@@ -130,8 +138,16 @@ pub fn configure_system_for_boot(
         .as_cstring()
         .expect("Cannot create cstring from cmdline string");
 
+    let swiotlb_region = match vmm.vm.swiotlb_regions().num_regions() {
+        0 | 1 => vmm.vm.swiotlb_regions().iter().next(),
+        _ => panic!(
+            "Firecracker tried to configure more than one swiotlb region. This is a logic bug."
+        ),
+    };
+
     let fdt = fdt::create_fdt(
         vmm.vm.guest_memory(),
+        swiotlb_region,
         vcpu_mpidr,
         cmdline,
         vmm.mmio_device_manager.get_device_info(),
@@ -187,16 +203,10 @@ fn get_fdt_addr(mem: &GuestMemoryMmap) -> u64 {
 }
 
 /// Load linux kernel into guest memory.
-pub fn load_kernel(
-    kernel: &File,
+pub fn load_kernel<R: ReadVolatile + Read + Seek>(
+    mut kernel_file: R,
     guest_memory: &GuestMemoryMmap,
 ) -> Result<EntryPoint, ConfigurationError> {
-    // Need to clone the File because reading from it
-    // mutates it.
-    let mut kernel_file = kernel
-        .try_clone()
-        .map_err(|_| ConfigurationError::KernelFile)?;
-
     let entry_addr = Loader::load(
         guest_memory,
         Some(GuestAddress(get_kernel_start())),

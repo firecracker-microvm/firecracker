@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use std::convert::From;
+use std::fs::File;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex, MutexGuard};
 
@@ -30,7 +31,7 @@ use crate::vmm_config::mmds::{MmdsConfig, MmdsConfigError};
 use crate::vmm_config::net::*;
 use crate::vmm_config::vsock::*;
 use crate::vstate::memory;
-use crate::vstate::memory::{GuestRegionMmap, MemoryError};
+use crate::vstate::memory::{GuestRegionMmap, MemoryError, create_memfd};
 
 /// Errors encountered when configuring microVM resources.
 #[derive(Debug, thiserror::Error, displaydoc::Display)]
@@ -213,7 +214,14 @@ impl VmResources {
                 self.balloon.set_device(balloon);
 
                 if self.machine_config.huge_pages != HugePageConfig::None {
-                    return Err(ResourcesError::BalloonDevice(BalloonConfigError::HugePages));
+                    return Err(ResourcesError::BalloonDevice(
+                        BalloonConfigError::IncompatibleWith("huge pages"),
+                    ));
+                }
+                if self.machine_config.mem_config.secret_free {
+                    return Err(ResourcesError::BalloonDevice(
+                        BalloonConfigError::IncompatibleWith("secret freedom"),
+                    ));
                 }
             }
 
@@ -255,7 +263,16 @@ impl VmResources {
         }
 
         if self.balloon.get().is_some() && updated.huge_pages != HugePageConfig::None {
-            return Err(MachineConfigError::BalloonAndHugePages);
+            return Err(MachineConfigError::Incompatible(
+                "balloon device",
+                "huge pages",
+            ));
+        }
+        if self.balloon.get().is_some() && updated.mem_config.secret_free {
+            return Err(MachineConfigError::Incompatible(
+                "balloon device",
+                "secret freedom",
+            ));
         }
         self.machine_config = updated;
 
@@ -312,7 +329,10 @@ impl VmResources {
         }
 
         if self.machine_config.huge_pages != HugePageConfig::None {
-            return Err(BalloonConfigError::HugePages);
+            return Err(BalloonConfigError::IncompatibleWith("huge pages"));
+        }
+        if self.machine_config.mem_config.secret_free {
+            return Err(BalloonConfigError::IncompatibleWith("secret freedom"));
         }
 
         self.balloon.set(config)
@@ -437,41 +457,123 @@ impl VmResources {
         Ok(())
     }
 
+    /// Returns true if any vhost user devices are configured int his [`VmResources`] object
+    pub fn vhost_user_devices_used(&self) -> bool {
+        self.block
+            .devices
+            .iter()
+            .any(|b| b.lock().expect("Poisoned lock").is_vhost_user())
+    }
+
+    /// The size of the swiotlb region requested, in MiB
+    #[cfg(target_arch = "aarch64")]
+    pub fn swiotlb_size(&self) -> usize {
+        mib_to_bytes(self.machine_config.mem_config.initial_swiotlb_size)
+    }
+
+    /// The size of the swiotlb region requested, in MiB
+    #[cfg(target_arch = "x86_64")]
+    pub fn swiotlb_size(&self) -> usize {
+        0
+    }
+
+    /// Gets the size of the "traditional" memory region, e.g. total memory excluding the swiotlb
+    /// region.
+    pub fn memory_size(&self) -> usize {
+        mib_to_bytes(self.machine_config.mem_size_mib) - self.swiotlb_size()
+    }
+
+    /// Whether the use of swiotlb was requested
+    pub fn swiotlb_used(&self) -> bool {
+        self.swiotlb_size() > 0
+    }
+
+    fn allocate_memory(
+        &self,
+        offset: usize,
+        size: usize,
+        vhost_accessible: bool,
+        file: Option<File>,
+    ) -> Result<Vec<GuestRegionMmap>, MemoryError> {
+        let regions = crate::arch::arch_memory_regions(offset, size).into_iter();
+        match file {
+            Some(file) => memory::file_shared(
+                file,
+                regions,
+                self.machine_config.track_dirty_pages,
+                self.machine_config.huge_pages,
+            ),
+            None => {
+                if vhost_accessible {
+                    let memfd = create_memfd(size as u64, self.machine_config.huge_pages.into())?
+                        .into_file();
+                    memory::file_shared(
+                        memfd,
+                        regions,
+                        self.machine_config.track_dirty_pages,
+                        self.machine_config.huge_pages,
+                    )
+                } else {
+                    memory::anonymous(
+                        regions.into_iter(),
+                        self.machine_config.track_dirty_pages,
+                        self.machine_config.huge_pages,
+                    )
+                }
+            }
+        }
+    }
+
     /// Allocates guest memory in a configuration most appropriate for these [`VmResources`].
     ///
     /// If vhost-user-blk devices are in use, allocates memfd-backed shared memory, otherwise
     /// prefers anonymous memory for performance reasons.
-    pub fn allocate_guest_memory(&self) -> Result<Vec<GuestRegionMmap>, MemoryError> {
-        let vhost_user_device_used = self
-            .block
-            .devices
-            .iter()
-            .any(|b| b.lock().expect("Poisoned lock").is_vhost_user());
-
+    pub fn allocate_guest_memory(
+        &self,
+        guest_memfd: Option<File>,
+    ) -> Result<Vec<GuestRegionMmap>, MemoryError> {
         // Page faults are more expensive for shared memory mapping, including  memfd.
         // For this reason, we only back guest memory with a memfd
         // if a vhost-user-blk device is configured in the VM, otherwise we fall back to
         // an anonymous private memory.
         //
+        // Note that if a swiotlb region is used, no I/O will go through the "regular"
+        // memory regions, and we can back them with anon memory regardless.
+        //
         // The vhost-user-blk branch is not currently covered by integration tests in Rust,
         // because that would require running a backend process. If in the future we converge to
         // a single way of backing guest memory for vhost-user and non-vhost-user cases,
         // that would not be worth the effort.
-        let regions =
-            crate::arch::arch_memory_regions(0, mib_to_bytes(self.machine_config.mem_size_mib));
-        if vhost_user_device_used {
-            memory::memfd_backed(
-                regions.as_ref(),
-                self.machine_config.track_dirty_pages,
-                self.machine_config.huge_pages,
-            )
-        } else {
-            memory::anonymous(
-                regions.into_iter(),
-                self.machine_config.track_dirty_pages,
-                self.machine_config.huge_pages,
-            )
+        self.allocate_memory(
+            0,
+            self.memory_size(),
+            self.vhost_user_devices_used() && !self.swiotlb_used(),
+            guest_memfd,
+        )
+    }
+
+    /// Allocates the dedicated I/O region for swiotlb use, if one was requested.
+    pub fn allocate_swiotlb_region(&self) -> Result<Option<GuestRegionMmap>, MemoryError> {
+        if !self.swiotlb_used() {
+            return Ok(None);
         }
+
+        // We already allocated at least self.memory_size() bytes of non swiotlb memory
+        let start = self.memory_size();
+        // Ensure that swiotlb region gets placed after the mmio gap, to avoid the possibility
+        // of its getting split (which we cannot handle).
+        let start = start.max(crate::arch::bytes_before_last_gap());
+
+        let mut mem = self.allocate_memory(
+            start,
+            self.swiotlb_size(),
+            self.vhost_user_devices_used(),
+            None,
+        )?;
+
+        assert_eq!(mem.len(), 1);
+
+        Ok(Some(mem.remove(0)))
     }
 }
 
@@ -1302,6 +1404,7 @@ mod tests {
         let mut aux_vm_config = MachineConfigUpdate {
             vcpu_count: Some(32),
             mem_size_mib: Some(512),
+            mem_config: Some(Default::default()),
             smt: Some(false),
             #[cfg(target_arch = "x86_64")]
             cpu_template: Some(StaticCpuTemplate::T2),
@@ -1449,7 +1552,7 @@ mod tests {
         assert!(
             matches!(
                 err,
-                ResourcesError::BalloonDevice(BalloonConfigError::HugePages)
+                ResourcesError::BalloonDevice(BalloonConfigError::IncompatibleWith("huge pages"))
             ),
             "{:?}",
             err
