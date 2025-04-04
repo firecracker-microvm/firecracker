@@ -11,17 +11,18 @@ use std::io::Write;
 use std::path::Path;
 use std::sync::Arc;
 
-use kvm_bindings::{KVM_MEM_LOG_DIRTY_PAGES, kvm_userspace_memory_region};
 use kvm_ioctls::VmFd;
+use userfaultfd::{FeatureFlags, Uffd, UffdBuilder};
 use vmm_sys_util::eventfd::EventFd;
 
 pub use crate::arch::{ArchVm as Vm, ArchVmError, VmState};
 use crate::logger::info;
-use crate::persist::CreateSnapshotError;
+use crate::persist::{CreateSnapshotError, GuestRegionUffdMapping};
 use crate::utils::u64_to_usize;
 use crate::vmm_config::snapshot::SnapshotType;
 use crate::vstate::memory::{
-    Address, GuestMemory, GuestMemoryExtension, GuestMemoryMmap, GuestMemoryRegion, GuestRegionMmap,
+    GuestMemory, GuestMemoryExtension, GuestMemoryMmap, GuestMemoryRegion, GuestRegionMmap,
+    KvmRegion,
 };
 use crate::vstate::vcpu::VcpuError;
 use crate::{DirtyBitmap, Vcpu, mem_size_mib};
@@ -34,6 +35,8 @@ pub struct VmCommon {
     max_memslots: usize,
     /// The guest memory of this Vm.
     pub guest_memory: GuestMemoryMmap,
+    /// The swiotlb regions of this Vm.
+    pub swiotlb_regions: GuestMemoryMmap,
 }
 
 /// Errors associated with the wrappers over KVM ioctls.
@@ -101,6 +104,7 @@ impl Vm {
             fd,
             max_memslots: kvm.max_nr_memslots(),
             guest_memory: GuestMemoryMmap::default(),
+            swiotlb_regions: GuestMemoryMmap::default(),
         })
     }
 
@@ -136,42 +140,58 @@ impl Vm {
         Ok(())
     }
 
-    /// Register a new memory region to this [`Vm`].
-    pub fn register_memory_region(&mut self, region: GuestRegionMmap) -> Result<(), VmError> {
+    fn kvmify_region(&self, region: GuestRegionMmap) -> Result<KvmRegion, VmError> {
         let next_slot = self
             .guest_memory()
             .num_regions()
+            .checked_add(self.swiotlb_regions().num_regions())
+            .ok_or(VmError::NotEnoughMemorySlots)?
             .try_into()
             .map_err(|_| VmError::NotEnoughMemorySlots)?;
+
         if next_slot as usize >= self.common.max_memslots {
             return Err(VmError::NotEnoughMemorySlots);
         }
 
-        let flags = if region.bitmap().is_some() {
-            KVM_MEM_LOG_DIRTY_PAGES
-        } else {
-            0
-        };
+        Ok(KvmRegion::from_mmap_region(region, next_slot))
+    }
 
-        let memory_region = kvm_userspace_memory_region {
-            slot: next_slot,
-            guest_phys_addr: region.start_addr().raw_value(),
-            memory_size: region.len(),
-            userspace_addr: region.as_ptr() as u64,
-            flags,
-        };
-
-        let new_guest_memory = self.common.guest_memory.insert_region(Arc::new(region))?;
-
+    fn register_kvm_region(&mut self, region: &KvmRegion) -> Result<(), VmError> {
         // SAFETY: Safe because the fd is a valid KVM file descriptor.
         unsafe {
             self.fd()
-                .set_user_memory_region(memory_region)
+                .set_user_memory_region(*region.inner())
                 .map_err(VmError::SetUserMemoryRegion)?;
         }
 
-        self.common.guest_memory = new_guest_memory;
+        Ok(())
+    }
 
+    /// Register a new memory region to this [`Vm`].
+    pub fn register_memory_region(&mut self, region: GuestRegionMmap) -> Result<(), VmError> {
+        let arcd_region = Arc::new(self.kvmify_region(region)?);
+        let new_guest_memory = self
+            .common
+            .guest_memory
+            .insert_region(Arc::clone(&arcd_region))?;
+
+        self.register_kvm_region(arcd_region.as_ref())?;
+
+        self.common.guest_memory = new_guest_memory;
+        Ok(())
+    }
+
+    /// Registers a new io memory region to this [`Vm`].
+    pub fn register_swiotlb_region(&mut self, region: GuestRegionMmap) -> Result<(), VmError> {
+        let arcd_region = Arc::new(self.kvmify_region(region)?);
+        let new_collection = self
+            .common
+            .swiotlb_regions
+            .insert_region(Arc::clone(&arcd_region))?;
+
+        self.register_kvm_region(arcd_region.as_ref())?;
+
+        self.common.swiotlb_regions = new_collection;
         Ok(())
     }
 
@@ -180,32 +200,97 @@ impl Vm {
         &self.common.fd
     }
 
-    /// Gets a reference to this [`Vm`]'s [`GuestMemoryMmap`] object
+    /// Gets a reference to this [`Vm`]'s [`GuestMemoryMmap`] object, which
+    /// contains all non-swiotlb guest memory regions.
     pub fn guest_memory(&self) -> &GuestMemoryMmap {
         &self.common.guest_memory
     }
 
-    /// Resets the KVM dirty bitmap for each of the guest's memory regions.
-    pub fn reset_dirty_bitmap(&self) {
+    /// Returns a reference to the [`GuestMemoryMmap`] that I/O devices attached to this [`Vm`]
+    /// have access to. If no I/O regions were registered, return the same as [`Vm::guest_memory`],
+    /// otherwise returns the [`GuestMemoryMmap`] describing a specific swiotlb region.
+    pub fn io_memory(&self) -> &GuestMemoryMmap {
+        if self.has_swiotlb() {
+            &self.common.swiotlb_regions
+        } else {
+            &self.common.guest_memory
+        }
+    }
+
+    /// Gets a reference to the [`GuestMemoryMmap`] holding the swiotlb regions registered to
+    /// this [`Vm`]. Unlike [`Vm::io_memory`], does not fall back to returning the
+    /// [`GuestMemoryMmap`] of normal memory when no swiotlb regions were registered.
+    pub fn swiotlb_regions(&self) -> &GuestMemoryMmap {
+        &self.common.swiotlb_regions
+    }
+
+    /// Returns `true` iff any io memory regions where registered via [`Vm::register_io_region`].
+    pub fn has_swiotlb(&self) -> bool {
+        self.common.swiotlb_regions.num_regions() > 0
+    }
+
+    /// Returns an iterator over all regions, normal and swiotlb.
+    fn all_regions(&self) -> impl Iterator<Item = &KvmRegion> {
         self.guest_memory()
             .iter()
-            .zip(0u32..)
-            .for_each(|(region, slot)| {
-                let _ = self.fd().get_dirty_log(slot, u64_to_usize(region.len()));
+            .chain(self.common.swiotlb_regions.iter())
+    }
+
+    pub(crate) fn create_uffd(
+        &self,
+    ) -> Result<(Uffd, Vec<GuestRegionUffdMapping>), userfaultfd::Error> {
+        let mut uffd_builder = UffdBuilder::new();
+        let mut mappings = Vec::new();
+
+        // We only make use of this if balloon devices are present, but we can enable it unconditionally
+        // because the only place the kernel checks this is in a hook from madvise, e.g. it doesn't
+        // actively change the behavior of UFFD, only passively. Without balloon devices
+        // we never call madvise anyway, so no need to put this into a conditional.
+        uffd_builder.require_features(FeatureFlags::EVENT_REMOVE);
+
+        let uffd = uffd_builder
+            .close_on_exec(true)
+            .non_blocking(true)
+            .user_mode_only(false)
+            .create()?;
+
+        let mut offset = 0;
+
+        for mem_region in self.common.guest_memory.iter() {
+            uffd.register(
+                mem_region.inner().userspace_addr as *mut libc::c_void,
+                u64_to_usize(mem_region.len()),
+            )?;
+            mappings.push(GuestRegionUffdMapping {
+                base_host_virt_addr: mem_region.inner().userspace_addr,
+                size: u64_to_usize(mem_region.len()),
+                offset,
+                ..Default::default()
             });
+
+            offset += mem_region.len();
+        }
+
+        Ok((uffd, mappings))
+    }
+
+    /// Resets the KVM dirty bitmap for each of the guest's memory regions.
+    pub fn reset_dirty_bitmap(&self) {
+        self.all_regions().for_each(|region| {
+            let _ = self
+                .fd()
+                .get_dirty_log(region.inner().slot, u64_to_usize(region.len()));
+        });
     }
 
     /// Retrieves the KVM dirty bitmap for each of the guest's memory regions.
     pub fn get_dirty_bitmap(&self) -> Result<DirtyBitmap, vmm_sys_util::errno::Error> {
         let mut bitmap: DirtyBitmap = HashMap::new();
-        self.guest_memory()
-            .iter()
-            .zip(0u32..)
-            .try_for_each(|(region, slot)| {
-                self.fd()
-                    .get_dirty_log(slot, u64_to_usize(region.len()))
-                    .map(|bitmap_region| _ = bitmap.insert(slot, bitmap_region))
-            })?;
+        self.all_regions().try_for_each(|region| {
+            self.fd()
+                .get_dirty_log(region.inner().slot, u64_to_usize(region.len()))
+                .map(|bitmap_region| _ = bitmap.insert(region.inner().slot, bitmap_region))
+        })?;
         Ok(bitmap)
     }
 
@@ -262,10 +347,14 @@ impl Vm {
         match snapshot_type {
             SnapshotType::Diff => {
                 let dirty_bitmap = self.get_dirty_bitmap()?;
-                self.guest_memory().dump_dirty(&mut file, &dirty_bitmap)?;
+                self.guest_memory()
+                    .dump_dirty(&mut file, &dirty_bitmap)
+                    .and_then(|_| self.swiotlb_regions().dump_dirty(&mut file, &dirty_bitmap))?;
             }
             SnapshotType::Full => {
-                self.guest_memory().dump(&mut file)?;
+                self.guest_memory()
+                    .dump(&mut file)
+                    .and_then(|_| self.swiotlb_regions().dump(&mut file))?;
                 self.reset_dirty_bitmap();
                 self.guest_memory().reset_dirty();
             }

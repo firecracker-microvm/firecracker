@@ -89,6 +89,14 @@ pub fn arch_memory_regions(offset: usize, size: usize) -> Vec<(GuestAddress, usi
     )]
 }
 
+/// How many bytes of physical guest memory are addressible before the final gap in
+/// the address space on this architecture.
+///
+/// There are no architectural gaps in the physical address space on aarch64, so this is 0
+pub fn bytes_before_last_gap() -> usize {
+    0
+}
+
 /// Configures the system for booting Linux.
 pub fn configure_system_for_boot(
     vmm: &mut Vmm,
@@ -130,8 +138,16 @@ pub fn configure_system_for_boot(
         .as_cstring()
         .expect("Cannot create cstring from cmdline string");
 
+    let swiotlb_region = match vmm.vm.swiotlb_regions().num_regions() {
+        0 | 1 => vmm.vm.swiotlb_regions().iter().next(),
+        _ => panic!(
+            "Firecracker tried to configure more than one swiotlb region. This is a logic bug."
+        ),
+    };
+
     let fdt = fdt::create_fdt(
         vmm.vm.guest_memory(),
+        swiotlb_region,
         vcpu_mpidr,
         cmdline,
         vmm.mmio_device_manager.get_device_info(),

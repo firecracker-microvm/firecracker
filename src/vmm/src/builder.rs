@@ -4,7 +4,7 @@
 //! Enables pre-boot setup, instantiation and booting of a Firecracker VMM.
 
 use std::fmt::Debug;
-use std::io;
+use std::io::{self};
 #[cfg(feature = "gdb")]
 use std::sync::mpsc;
 use std::sync::{Arc, Mutex};
@@ -12,8 +12,8 @@ use std::sync::{Arc, Mutex};
 use event_manager::{MutEventSubscriber, SubscriberOps};
 use libc::EFD_NONBLOCK;
 use linux_loader::cmdline::Cmdline as LoaderKernelCmdline;
-use userfaultfd::Uffd;
 use utils::time::TimestampUs;
+use vm_memory::GuestMemoryRegion;
 #[cfg(target_arch = "aarch64")]
 use vm_superio::Rtc;
 use vm_superio::Serial;
@@ -50,14 +50,17 @@ use crate::devices::virtio::vsock::{Vsock, VsockUnixBackend};
 use crate::gdb;
 use crate::initrd::{InitrdConfig, InitrdError};
 use crate::logger::{debug, error};
-use crate::persist::{MicrovmState, MicrovmStateError};
+use crate::persist::{
+    MicrovmState, MicrovmStateError, RestoreMemoryError, SnapshotStateFromFileError,
+    restore_memory, send_uffd_handshake,
+};
 use crate::resources::VmResources;
 use crate::seccomp::BpfThreadMap;
 use crate::snapshot::Persist;
 use crate::vmm_config::instance_info::InstanceInfo;
 use crate::vmm_config::machine_config::MachineConfigError;
+use crate::vmm_config::snapshot::{MemBackendConfig, MemBackendType};
 use crate::vstate::kvm::Kvm;
-use crate::vstate::memory::GuestRegionMmap;
 use crate::vstate::vcpu::{Vcpu, VcpuError};
 use crate::vstate::vm::Vm;
 use crate::{EventManager, Vmm, VmmError, device_manager};
@@ -215,6 +218,10 @@ pub fn build_microvm_for_boot(
         .allocate_guest_memory()
         .map_err(StartMicrovmError::GuestMemory)?;
 
+    let swiotlb = vm_resources
+        .allocate_swiotlb_region()
+        .map_err(StartMicrovmError::GuestMemory)?;
+
     // Clone the command-line so that a failed boot doesn't pollute the original.
     #[allow(unused_mut)]
     let mut boot_cmdline = boot_config.cmdline.clone();
@@ -234,6 +241,12 @@ pub fn build_microvm_for_boot(
     vmm.vm
         .register_memory_regions(guest_memory)
         .map_err(VmmError::Vm)?;
+
+    if let Some(swiotlb) = swiotlb {
+        vmm.vm
+            .register_swiotlb_region(swiotlb)
+            .map_err(VmmError::Vm)?;
+    }
 
     let entry_point = load_kernel(&boot_config.kernel_file, vmm.vm.guest_memory())?;
     let initrd = InitrdConfig::from_config(boot_config, vmm.vm.guest_memory())?;
@@ -381,6 +394,8 @@ pub enum BuildMicrovmFromSnapshotError {
     SetTsc(#[from] crate::arch::SetTscError),
     /// Failed to restore microVM state: {0}
     RestoreState(#[from] crate::vstate::vm::ArchVmError),
+    /// Failed to get snapshot state from file: {0}
+    LoadState(#[from] SnapshotStateFromFileError),
     /// Failed to update microVM configuration: {0}
     VmUpdateConfig(#[from] MachineConfigError),
     /// Failed to restore MMIO device: {0}
@@ -401,19 +416,19 @@ pub enum BuildMicrovmFromSnapshotError {
     ACPIDeviManager(#[from] ACPIDeviceManagerRestoreError),
     /// VMGenID update failed: {0}
     VMGenIDUpdate(std::io::Error),
+    /// Failed to restore guest memory: {0}
+    Memory(#[from] RestoreMemoryError),
 }
 
 /// Builds and starts a microVM based on the provided MicrovmState.
 ///
 /// An `Arc` reference of the built `Vmm` is also plugged in the `EventManager`, while another
 /// is returned.
-#[allow(clippy::too_many_arguments)]
 pub fn build_microvm_from_snapshot(
     instance_info: &InstanceInfo,
     event_manager: &mut EventManager,
     microvm_state: MicrovmState,
-    guest_memory: Vec<GuestRegionMmap>,
-    uffd: Option<Uffd>,
+    mem_backend: &MemBackendConfig,
     seccomp_filters: &BpfThreadMap,
     vm_resources: &mut VmResources,
 ) -> Result<Arc<Mutex<Vmm>>, BuildMicrovmFromSnapshotError> {
@@ -427,11 +442,63 @@ pub fn build_microvm_from_snapshot(
     )
     .map_err(StartMicrovmError::Internal)?;
 
+    let track_dirty_pages = vm_resources.machine_config.track_dirty_pages;
+    let huge_pages = vm_resources.machine_config.huge_pages;
+
+    let mem_backend_path = &mem_backend.backend_path;
+
+    let mem_file = match mem_backend.backend_type {
+        MemBackendType::File => Some(mem_backend_path),
+        MemBackendType::Uffd => None,
+    };
+
+    let guest_memory = restore_memory(
+        &microvm_state.vm_state.memory,
+        mem_file,
+        huge_pages,
+        track_dirty_pages,
+        0,
+    )?;
+    let io_memory = restore_memory(
+        &microvm_state.vm_state.io_memory,
+        mem_file,
+        huge_pages,
+        track_dirty_pages,
+        guest_memory.iter().map(|r| r.len()).sum(),
+    )?;
+
     vmm.vm
         .register_memory_regions(guest_memory)
         .map_err(VmmError::Vm)
         .map_err(StartMicrovmError::Internal)?;
-    vmm.uffd = uffd;
+
+    for region in io_memory {
+        vmm.vm
+            .register_swiotlb_region(region)
+            .map_err(VmmError::Vm)
+            .map_err(StartMicrovmError::Internal)?;
+    }
+
+    vmm.uffd = match mem_backend.backend_type {
+        MemBackendType::File => None,
+        MemBackendType::Uffd => {
+            let (uffd, mut mappings) = vmm
+                .vm
+                .create_uffd()
+                .map_err(RestoreMemoryError::UffdCreate)?;
+
+            #[allow(deprecated)]
+            mappings.iter_mut().for_each(|mapping| {
+                mapping.page_size = vm_resources.machine_config.huge_pages.page_size();
+                mapping.page_size_kib = vm_resources.machine_config.huge_pages.page_size();
+            });
+
+            send_uffd_handshake(mem_backend_path, &mappings, &uffd)
+                .map_err(RestoreMemoryError::UffdHandshake)?;
+
+            Some(uffd)
+        }
+    };
 
     #[cfg(target_arch = "x86_64")]
     {
@@ -471,7 +538,7 @@ pub fn build_microvm_from_snapshot(
 
     // Restore devices states.
     let mmio_ctor_args = MMIODevManagerConstructorArgs {
-        mem: vmm.vm.guest_memory(),
+        mem: vmm.vm.io_memory(),
         vm: vmm.vm.fd(),
         event_manager,
         resource_allocator: &mut vmm.resource_allocator,
@@ -595,8 +662,15 @@ fn attach_virtio_device<T: 'static + VirtioDevice + MutEventSubscriber + Debug>(
 ) -> Result<(), MmioError> {
     event_manager.add_subscriber(device.clone());
 
+    // We have to enable swiotlb as part of the boot process, because the device objects
+    // themselves are created when the corresponding PUT API calls are made, and at that
+    // point we don't know yet whether swiotlb should be enabled or not.
+    if vmm.vm.has_swiotlb() {
+        device.lock().unwrap().force_swiotlb();
+    }
+
     // The device mutex mustn't be locked here otherwise it will deadlock.
-    let device = MmioTransport::new(vmm.vm.guest_memory().clone(), device, is_vhost_user);
+    let device = MmioTransport::new(vmm.vm.io_memory().clone(), device, is_vhost_user);
     vmm.mmio_device_manager
         .register_mmio_virtio_for_boot(
             vmm.vm.fd(),

@@ -600,6 +600,10 @@ mod tests {
 
         fn set_acked_features(&mut self, _: u64) {}
 
+        fn force_swiotlb(&mut self) {
+            unimplemented!()
+        }
+
         fn device_type(&self) -> u32 {
             0
         }

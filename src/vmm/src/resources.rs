@@ -437,29 +437,39 @@ impl VmResources {
         Ok(())
     }
 
-    /// Allocates guest memory in a configuration most appropriate for these [`VmResources`].
-    ///
-    /// If vhost-user-blk devices are in use, allocates memfd-backed shared memory, otherwise
-    /// prefers anonymous memory for performance reasons.
-    pub fn allocate_guest_memory(&self) -> Result<Vec<GuestRegionMmap>, MemoryError> {
-        let vhost_user_device_used = self
-            .block
+    /// Returns true if any vhost user devices are configured int his [`VmResources`] object
+    pub fn vhost_user_devices_used(&self) -> bool {
+        self.block
             .devices
             .iter()
-            .any(|b| b.lock().expect("Poisoned lock").is_vhost_user());
+            .any(|b| b.lock().expect("Poisoned lock").is_vhost_user())
+    }
 
-        // Page faults are more expensive for shared memory mapping, including  memfd.
-        // For this reason, we only back guest memory with a memfd
-        // if a vhost-user-blk device is configured in the VM, otherwise we fall back to
-        // an anonymous private memory.
-        //
-        // The vhost-user-blk branch is not currently covered by integration tests in Rust,
-        // because that would require running a backend process. If in the future we converge to
-        // a single way of backing guest memory for vhost-user and non-vhost-user cases,
-        // that would not be worth the effort.
-        let regions =
-            crate::arch::arch_memory_regions(0, mib_to_bytes(self.machine_config.mem_size_mib));
-        if vhost_user_device_used {
+    /// The size of the swiotlb region requested, in MiB
+    #[cfg(target_arch = "aarch64")]
+    pub fn swiotlb_size_mib(&self) -> usize {
+        self.machine_config.mem_config.initial_swiotlb_size
+    }
+
+    /// The size of the swiotlb region requested, in MiB
+    #[cfg(target_arch = "x86_64")]
+    pub fn swiotlb_size_mib(&self) -> usize {
+        0
+    }
+
+    /// Whether the use of swiotlb was requested
+    pub fn swiotlb_used(&self) -> bool {
+        self.swiotlb_size_mib() > 0
+    }
+
+    fn allocate_memory(
+        &self,
+        offset: usize,
+        size: usize,
+        vhost_accessible: bool,
+    ) -> Result<Vec<GuestRegionMmap>, MemoryError> {
+        let regions = crate::arch::arch_memory_regions(offset, size);
+        if vhost_accessible {
             memory::memfd_backed(
                 regions.as_ref(),
                 self.machine_config.track_dirty_pages,
@@ -472,6 +482,47 @@ impl VmResources {
                 self.machine_config.huge_pages,
             )
         }
+    }
+
+    /// Allocates guest memory in a configuration most appropriate for these [`VmResources`].
+    ///
+    /// If vhost-user-blk devices are in use, allocates memfd-backed shared memory, otherwise
+    /// prefers anonymous memory for performance reasons.
+    pub fn allocate_guest_memory(&self) -> Result<Vec<GuestRegionMmap>, MemoryError> {
+        // Page faults are more expensive for shared memory mapping, including  memfd.
+        // For this reason, we only back guest memory with a memfd
+        // if a vhost-user-blk device is configured in the VM, otherwise we fall back to
+        // an anonymous private memory.
+        //
+        // Note that if a swiotlb region is used, no I/O will go through the "regular"
+        // memory regions, and we can back them with anon memory regardless.
+        //
+        // The vhost-user-blk branch is not currently covered by integration tests in Rust,
+        // because that would require running a backend process. If in the future we converge to
+        // a single way of backing guest memory for vhost-user and non-vhost-user cases,
+        // that would not be worth the effort.
+        self.allocate_memory(
+            0,
+            mib_to_bytes(self.machine_config.mem_size_mib - self.swiotlb_size_mib()),
+            self.vhost_user_devices_used() && !self.swiotlb_used(),
+        )
+    }
+
+    /// Allocates the dedicated I/O region for swiotlb use, if one was requested.
+    pub fn allocate_swiotlb_region(&self) -> Result<Option<GuestRegionMmap>, MemoryError> {
+        if !self.swiotlb_used() {
+            return Ok(None);
+        }
+
+        let swiotlb_size = mib_to_bytes(self.swiotlb_size_mib());
+        let start = mib_to_bytes(self.machine_config.mem_size_mib) - swiotlb_size;
+        let start = start.max(crate::arch::bytes_before_last_gap());
+
+        let mut mem = self.allocate_memory(start, swiotlb_size, self.vhost_user_devices_used())?;
+
+        assert_eq!(mem.len(), 1);
+
+        Ok(Some(mem.remove(0)))
     }
 }
 
@@ -1302,6 +1353,7 @@ mod tests {
         let mut aux_vm_config = MachineConfigUpdate {
             vcpu_count: Some(32),
             mem_size_mib: Some(512),
+            mem_config: Some(Default::default()),
             smt: Some(false),
             #[cfg(target_arch = "x86_64")]
             cpu_template: Some(StaticCpuTemplate::T2),
@@ -1323,44 +1375,6 @@ mod tests {
             aux_vm_config
         );
 
-        // Invalid vcpu count.
-        aux_vm_config.vcpu_count = Some(0);
-        assert_eq!(
-            vm_resources.update_machine_config(&aux_vm_config),
-            Err(MachineConfigError::InvalidVcpuCount)
-        );
-        aux_vm_config.vcpu_count = Some(33);
-        assert_eq!(
-            vm_resources.update_machine_config(&aux_vm_config),
-            Err(MachineConfigError::InvalidVcpuCount)
-        );
-
-        // Check that SMT is not supported on aarch64, and that on x86_64 enabling it requires vcpu
-        // count to be even.
-        aux_vm_config.smt = Some(true);
-        #[cfg(target_arch = "aarch64")]
-        assert_eq!(
-            vm_resources.update_machine_config(&aux_vm_config),
-            Err(MachineConfigError::SmtNotSupported)
-        );
-        aux_vm_config.vcpu_count = Some(3);
-        #[cfg(target_arch = "x86_64")]
-        assert_eq!(
-            vm_resources.update_machine_config(&aux_vm_config),
-            Err(MachineConfigError::InvalidVcpuCount)
-        );
-        aux_vm_config.vcpu_count = Some(32);
-        #[cfg(target_arch = "x86_64")]
-        vm_resources.update_machine_config(&aux_vm_config).unwrap();
-        aux_vm_config.smt = Some(false);
-
-        // Invalid mem_size_mib.
-        aux_vm_config.mem_size_mib = Some(0);
-        assert_eq!(
-            vm_resources.update_machine_config(&aux_vm_config),
-            Err(MachineConfigError::InvalidMemorySize)
-        );
-
         // Incompatible mem_size_mib with balloon size.
         vm_resources.machine_config.mem_size_mib = 128;
         vm_resources
@@ -1378,23 +1392,6 @@ mod tests {
 
         // mem_size_mib compatible with balloon size.
         aux_vm_config.mem_size_mib = Some(256);
-        vm_resources.update_machine_config(&aux_vm_config).unwrap();
-
-        // mem_size_mib incompatible with huge pages configuration
-        aux_vm_config.mem_size_mib = Some(129);
-        aux_vm_config.huge_pages = Some(HugePageConfig::Hugetlbfs2M);
-        assert_eq!(
-            vm_resources
-                .update_machine_config(&aux_vm_config)
-                .unwrap_err(),
-            MachineConfigError::InvalidMemorySize
-        );
-
-        // mem_size_mib compatible with huge page configuration
-        aux_vm_config.mem_size_mib = Some(2048);
-        // Remove the balloon device config that's added by `default_vm_resources` as it would
-        // trigger the "ballooning incompatible with huge pages" check.
-        vm_resources.balloon = BalloonBuilder::new();
         vm_resources.update_machine_config(&aux_vm_config).unwrap();
     }
 

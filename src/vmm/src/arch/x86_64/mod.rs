@@ -140,6 +140,14 @@ pub fn arch_memory_regions(offset: usize, size: usize) -> Vec<(GuestAddress, usi
     }
 }
 
+/// How many bytes of physical guest memory are addressible before the final gap in
+/// the address space on this architecture.
+///
+/// On x86_64, this is the number of bytes that fit before the MMIO gap.
+pub fn bytes_before_last_gap() -> usize {
+    u64_to_usize(MMIO_MEM_START)
+}
+
 /// Returns the memory address where the kernel could be loaded.
 pub fn get_kernel_start() -> u64 {
     layout::HIMEM_START
