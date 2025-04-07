@@ -8,7 +8,7 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 
 use event_manager::{EventOps, Events, MutEventSubscriber, SubscriberOps};
-use vmm::logger::{ProcessTimeReporter, error, warn};
+use vmm::logger::{ProcessTimeReporter, error, info, warn};
 use vmm::resources::VmResources;
 use vmm::rpc_interface::{
     ApiRequest, ApiResponse, BuildMicrovmFromRequestsError, PrebootApiController,
@@ -175,6 +175,7 @@ pub(crate) fn run_with_api(
             return Err(ApiServerError::FailedToBindAndRunHttpServer(err));
         }
     };
+    info!("Listening on API socket ({bind_path:?}).");
 
     let api_kill_switch_clone = api_kill_switch
         .try_clone()
