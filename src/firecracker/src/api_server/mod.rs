@@ -86,6 +86,7 @@ impl ApiServer {
         }
 
         server.start_server().expect("Cannot start HTTP server");
+        info!("API server started.");
 
         loop {
             let request_vec = match server.requests() {
