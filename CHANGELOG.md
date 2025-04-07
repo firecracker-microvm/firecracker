@@ -48,6 +48,11 @@ and this project adheres to
   the UFFD Unix domain socket open to prevent the race condition between the
   guest memory mappings message and the shutdown event that was sometimes
   causing arrival of an empty message on the UFFD handler side.
+- [#5143](https://github.com/firecracker-microvm/firecracker/pull/5143): Fixed
+  to report `process_startup_time_us` and `process_startup_time_cpu_us` metrics
+  for `api_server` right after the API server starts, while previously reported
+  before applying seccomp filter and starting the API server. Users may observe
+  a bit longer startup time metrics.
 
 ## [1.11.0]
 
