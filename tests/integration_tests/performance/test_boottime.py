@@ -79,7 +79,7 @@ def test_boottime(
         pytest.skip("swiotlb only supported on aarch64/6.1")
 
     for _ in range(10):
-        vm = microvm_factory.build(guest_kernel_acpi, rootfs_rw)
+        vm = microvm_factory.build(guest_kernel_acpi, rootfs_rw, monitor_memory=False)
         vm.jailer.extra_args.update({"boot-timer": None})
         vm.spawn()
         vm.basic_config(
