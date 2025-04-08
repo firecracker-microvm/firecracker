@@ -111,7 +111,7 @@ def test_boottime(
     """Test boot time with different guest configurations"""
 
     for _ in range(10):
-        vm = microvm_factory.build(guest_kernel_acpi, rootfs_rw)
+        vm = microvm_factory.build(guest_kernel_acpi, rootfs_rw, monitor_memory=False)
         vm.jailer.extra_args.update({"boot-timer": None})
         vm.spawn()
         vm.basic_config(
