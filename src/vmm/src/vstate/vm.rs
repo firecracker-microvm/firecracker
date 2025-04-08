@@ -38,7 +38,7 @@ use crate::vstate::interrupts::{InterruptError, MsixVector, MsixVectorConfig, Ms
 use crate::vstate::kvm::Kvm;
 use crate::vstate::memory::{
     GuestMemoryExtension, GuestMemoryMmap, GuestMemoryRegion, GuestMemorySlot, GuestMemoryState,
-    GuestRegionMmap, GuestRegionMmapExt, MemoryError,
+    GuestRegionMmap, GuestRegionMmapExt, MaybeBounce, MemoryError,
 };
 use crate::vstate::resources::ResourceAllocator;
 use crate::vstate::vcpu::{StartThreadedError, VcpuError, VcpuHandle};
@@ -696,7 +696,11 @@ impl KvmVm {
                 self.guest_memory().dump_dirty(&mut file, &dirty_bitmap)?;
             }
             SnapshotType::Full => {
-                self.guest_memory().dump(&mut file)?;
+                self.guest_memory()
+                    .dump(&mut MaybeBounce::<_, 4096>::new_persistent(
+                        &file,
+                        self.secret_free(),
+                    ))?;
                 self.reset_dirty_bitmap();
                 self.guest_memory().reset_dirty();
             }
