@@ -12,7 +12,10 @@ use std::os::fd::FromRawFd;
 use std::path::Path;
 use std::sync::Arc;
 
-use kvm_bindings::{kvm_create_guest_memfd, kvm_userspace_memory_region};
+use kvm_bindings::{
+    KVM_MEMORY_ATTRIBUTE_PRIVATE, kvm_create_guest_memfd, kvm_memory_attributes,
+    kvm_userspace_memory_region,
+};
 use kvm_ioctls::{Cap, VmFd};
 use userfaultfd::{FeatureFlags, Uffd, UffdBuilder};
 use vmm_sys_util::eventfd::EventFd;
@@ -67,6 +70,8 @@ pub enum VmError {
     GuestMemfd(kvm_ioctls::Error),
     /// guest_memfd is not supported on this host kernel.
     GuestMemfdNotSupported,
+    /// Failed to set memory attributes to private: {0}
+    SetMemoryAttributes(kvm_ioctls::Error),
 }
 
 /// Contains Vm functions that are usable across CPU architectures
@@ -310,6 +315,26 @@ impl Vm {
     /// Returns `true` iff any io memory regions where registered via [`Vm::register_io_region`].
     pub fn has_swiotlb(&self) -> bool {
         self.common.swiotlb_regions.num_regions() > 0
+    }
+
+    /// Sets the memory attributes on all guest_memfd-backed regions to private
+    pub fn set_memory_private(&self) -> Result<(), VmError> {
+        for region in self.guest_memory().iter() {
+            if region.inner().guest_memfd != 0 {
+                let attr = kvm_memory_attributes {
+                    address: region.start_addr().0,
+                    size: region.len(),
+                    attributes: KVM_MEMORY_ATTRIBUTE_PRIVATE as u64,
+                    ..Default::default()
+                };
+
+                self.fd()
+                    .set_memory_attributes(attr)
+                    .map_err(VmError::SetMemoryAttributes)?
+            }
+        }
+
+        Ok(())
     }
 
     /// Returns an iterator over all regions, normal and swiotlb.
