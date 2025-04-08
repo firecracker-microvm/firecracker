@@ -802,11 +802,11 @@ class Microvm:
         # static CPU template
         if isinstance(cpu_template, str):
             self.api.machine_config.patch(cpu_template=cpu_template)
-            self.cpu_template_name = cpu_template.lower()
+            self.cpu_template_name = cpu_template
         # custom CPU template
         elif isinstance(cpu_template, dict):
             self.api.cpu_config.put(**cpu_template["template"])
-            self.cpu_template_name = cpu_template["name"].lower()
+            self.cpu_template_name = cpu_template["name"]
 
     def add_drive(
         self,

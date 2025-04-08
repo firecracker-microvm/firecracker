@@ -84,11 +84,11 @@ mod tests {
     #[test]
     fn verify_consistency_with_json_templates() {
         let static_templates = [
-            (c3::c3(), "c3.json"),
-            (t2::t2(), "t2.json"),
-            (t2s::t2s(), "t2s.json"),
-            (t2cl::t2cl(), "t2cl.json"),
-            (t2a::t2a(), "t2a.json"),
+            (c3::c3(), "C3.json"),
+            (t2::t2(), "T2.json"),
+            (t2s::t2s(), "T2S.json"),
+            (t2cl::t2cl(), "T2CL.json"),
+            (t2a::t2a(), "T2A.json"),
         ];
 
         for (hardcoded_template, filename) in static_templates {

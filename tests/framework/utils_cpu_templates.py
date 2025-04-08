@@ -55,13 +55,13 @@ def get_supported_custom_cpu_templates():
         case CpuVendor.AMD, CpuModel.AMD_MILAN:
             return AMD_TEMPLATES
         case CpuVendor.ARM, CpuModel.ARM_NEOVERSE_N1 if host_linux >= (6, 1):
-            return ["v1n1"]
+            return ["V1N1"]
         case CpuVendor.ARM, CpuModel.ARM_NEOVERSE_V1 if host_linux >= (6, 1):
-            return ["v1n1", "aarch64_with_sve_and_pac"]
+            return ["V1N1", "AARCH64_WITH_SVE_AND_PAC"]
         case CpuVendor.ARM, CpuModel.ARM_NEOVERSE_V1:
-            return ["aarch64_with_sve_and_pac"]
+            return ["AARCH64_WITH_SVE_AND_PAC"]
         case CpuVendor.ARM, CpuModel.ARM_NEOVERSE_V2:
-            return ["aarch64_with_sve_and_pac"]
+            return ["AARCH64_WITH_SVE_AND_PAC"]
         case _:
             return []
 
@@ -69,7 +69,7 @@ def get_supported_custom_cpu_templates():
 def custom_cpu_templates_params():
     """Return Custom CPU templates as pytest parameters"""
     for name in sorted(get_supported_custom_cpu_templates()):
-        tmpl = Path(f"./data/custom_cpu_templates/{name.lower()}.json")
+        tmpl = Path(f"./data/custom_cpu_templates/{name}.json")
         yield pytest.param(
             {"name": name, "template": json.loads(tmpl.read_text("utf-8"))},
             id="custom_" + name,
