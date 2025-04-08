@@ -166,9 +166,9 @@ def get_vuln_files_exception_dict(template):
     # Since those bits are not set on Intel Skylake and C3 template makes guests pretend to be AWS
     # C3 instance (quite old processor now) by overwriting CPUID.1H:EAX, it is impossible to avoid
     # this "Unknown" state.
-    if global_props.cpu_codename == "INTEL_SKYLAKE" and template == "c3":
+    if global_props.cpu_codename == "INTEL_SKYLAKE" and template == "C3":
         exception_dict["mmio_stale_data"] = "Unknown: No mitigations"
-    elif global_props.cpu_codename == "INTEL_SKYLAKE" or template == "t2s":
+    elif global_props.cpu_codename == "INTEL_SKYLAKE" or template == "T2S":
         exception_dict["mmio_stale_data"] = "Clear CPU buffers"
 
     return exception_dict
