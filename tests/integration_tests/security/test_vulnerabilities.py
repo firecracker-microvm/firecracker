@@ -87,7 +87,7 @@ class SpectreMeltdownChecker:
         """
         if (
             global_props.cpu_codename in ["INTEL_ICELAKE", "INTEL_SAPPHIRE_RAPIDS"]
-            and cpu_template_name is None
+            and cpu_template_name == "None"
         ):
             return {
                 '{"NAME": "REPTAR", "CVE": "CVE-2023-23583", "VULNERABLE": true, "INFOS": "Your microcode is too old to mitigate the vulnerability"}'

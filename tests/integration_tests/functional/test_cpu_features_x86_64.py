@@ -21,7 +21,7 @@ import framework.utils_cpuid as cpuid_utils
 from framework import utils
 from framework.defs import SUPPORTED_HOST_KERNELS
 from framework.properties import global_props
-from framework.utils_cpu_templates import SUPPORTED_CPU_TEMPLATES
+from framework.utils_cpu_templates import get_cpu_template_name
 
 PLATFORM = platform.machine()
 UNSUPPORTED_HOST_KERNEL = (
@@ -75,16 +75,6 @@ def _check_extended_cache_features(vm):
     assert lines_per_tag == 0x1  # This is hardcoded in the AMD spec
     assert assoc == 0x9  # This is hardcoded in the AMD spec
     assert cache_size > 0
-
-
-def get_cpu_template_dir(cpu_template):
-    """
-    Utility function to return a valid string which will be used as
-    name of the directory where snapshot artifacts are stored during
-    snapshot test and loaded from during restore test.
-
-    """
-    return cpu_template if cpu_template else "none"
 
 
 def skip_test_based_on_artifacts(snapshot_artifacts_dir):
@@ -431,7 +421,7 @@ def test_cpu_wrmsr_snapshot(microvm_factory, guest_kernel, rootfs, msr_cpu_templ
     snapshot_artifacts_dir = (
         Path(shared_names["snapshot_artifacts_root_dir_wrmsr"])
         / guest_kernel.name
-        / (msr_cpu_template if msr_cpu_template else "none")
+        / get_cpu_template_name(msr_cpu_template, with_type=True)
     )
     clean_and_mkdir(snapshot_artifacts_dir)
 
@@ -499,7 +489,7 @@ def test_cpu_wrmsr_restore(microvm_factory, msr_cpu_template, guest_kernel):
     """
 
     shared_names = SNAPSHOT_RESTORE_SHARED_NAMES
-    cpu_template_dir = msr_cpu_template if msr_cpu_template else "none"
+    cpu_template_dir = get_cpu_template_name(msr_cpu_template, with_type=True)
     snapshot_artifacts_dir = (
         Path(shared_names["snapshot_artifacts_root_dir_wrmsr"])
         / guest_kernel.name
@@ -567,7 +557,7 @@ def test_cpu_cpuid_snapshot(microvm_factory, guest_kernel, rootfs, msr_cpu_templ
     vm.start()
 
     # Dump CPUID to a file that will be published to S3 for the 2nd part of the test
-    cpu_template_dir = get_cpu_template_dir(msr_cpu_template)
+    cpu_template_dir = get_cpu_template_name(msr_cpu_template, with_type=True)
     snapshot_artifacts_dir = (
         Path(shared_names["snapshot_artifacts_root_dir_cpuid"])
         / guest_kernel.name
@@ -619,7 +609,7 @@ def test_cpu_cpuid_restore(microvm_factory, guest_kernel, msr_cpu_template):
     """
 
     shared_names = SNAPSHOT_RESTORE_SHARED_NAMES
-    cpu_template_dir = get_cpu_template_dir(msr_cpu_template)
+    cpu_template_dir = get_cpu_template_name(msr_cpu_template, with_type=True)
     snapshot_artifacts_dir = (
         Path(shared_names["snapshot_artifacts_root_dir_cpuid"])
         / guest_kernel.name

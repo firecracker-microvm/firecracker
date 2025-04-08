@@ -16,6 +16,7 @@ from framework.utils import (
     generate_mmds_get_request,
     generate_mmds_session_token,
 )
+from framework.utils_cpu_templates import get_cpu_template_name
 
 if platform.machine() != "x86_64":
     pytestmark = pytest.mark.skip("only x86_64 architecture supported")
@@ -36,13 +37,10 @@ def test_snapshot_phase1(
     vm.add_net_iface()
 
     static_cpu_template = None
-    cpu_template_name = "None"
     if isinstance(cpu_template_any, str):
         static_cpu_template = cpu_template_any
-        cpu_template_name = f"static_{cpu_template_any}"
     elif isinstance(cpu_template_any, dict):
         vm.api.cpu_config.put(**cpu_template_any["template"])
-        cpu_template_name = f"custom_{cpu_template_any['name']}"
     vm.basic_config(
         vcpu_count=2,
         mem_size_mib=512,
@@ -50,6 +48,7 @@ def test_snapshot_phase1(
     )
 
     guest_kernel_version = re.search("vmlinux-(.*)", vm.kernel_file.name)
+    cpu_template_name = get_cpu_template_name(cpu_template_any, with_type=True)
     snapshot_artifacts_dir = (
         results_dir
         / f"{guest_kernel_version.group(1)}_{cpu_template_name}_guest_snapshot"
