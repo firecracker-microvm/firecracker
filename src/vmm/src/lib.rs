@@ -157,7 +157,7 @@ use crate::vstate::memory::{
 use crate::vstate::vcpu::VcpuState;
 pub use crate::vstate::vcpu::{Vcpu, VcpuConfig, VcpuEvent, VcpuHandle, VcpuResponse};
 pub use crate::vstate::vm::Vm;
-
+use crate::arch::aarch64::pvtime::PVTime;
 /// Shorthand type for the EventManager flavour used by Firecracker.
 pub type EventManager = BaseEventManager<Arc<Mutex<dyn MutEventSubscriber>>>;
 
@@ -324,6 +324,9 @@ pub struct Vmm {
     #[cfg(target_arch = "x86_64")]
     pio_device_manager: PortIODeviceManager,
     acpi_device_manager: ACPIDeviceManager,
+    #[cfg(target_arch = "aarch64")]
+    pv_time: Option<PVTime>,
+
 }
 
 impl Vmm {
@@ -523,6 +526,7 @@ impl Vmm {
 
         let memory_state = self.guest_memory.describe();
         let acpi_dev_state = self.acpi_device_manager.save();
+        let pvtime_state = self.pv_time.as_ref().map(|pvtime| pvtime.save());
 
         Ok(MicrovmState {
             vm_info: vm_info.clone(),
@@ -532,6 +536,7 @@ impl Vmm {
             vcpu_states,
             device_states,
             acpi_dev_state,
+            pvtime_state,
         })
     }
 

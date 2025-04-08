@@ -11,7 +11,7 @@ use std::sync::{Arc, Mutex};
 use event_manager::{MutEventSubscriber, SubscriberOps};
 use libc::EFD_NONBLOCK;
 use linux_loader::cmdline::Cmdline as LoaderKernelCmdline;
-use log::{info, warn};
+use log::warn;
 use userfaultfd::Uffd;
 use utils::time::TimestampUs;
 #[cfg(target_arch = "aarch64")]
@@ -19,7 +19,7 @@ use vm_superio::Rtc;
 use vm_superio::Serial;
 use vmm_sys_util::eventfd::EventFd;
 
-use crate::arch::aarch64::pvtime::PVTimeError;
+use crate::arch::aarch64::pvtime::{PVTime, PVTimeConstructorArgs, PVTimeError};
 use crate::arch::{ConfigurationError, configure_system_for_boot, load_kernel};
 #[cfg(target_arch = "aarch64")]
 use crate::construct_kvm_mpidrs;
@@ -195,6 +195,7 @@ fn create_vmm_and_vcpus(
         #[cfg(target_arch = "x86_64")]
         pio_device_manager,
         acpi_device_manager,
+        pv_time: None,
     };
 
     Ok((vmm, vcpus))
@@ -420,6 +421,8 @@ pub enum BuildMicrovmFromSnapshotError {
     ACPIDeviManager(#[from] ACPIDeviceManagerRestoreError),
     /// VMGenID update failed: {0}
     VMGenIDUpdate(std::io::Error),
+    /// Failed to restore PVTime device: {0}
+    RestorePVTime(#[from] PVTimeError),
 }
 
 /// Builds and starts a microVM based on the provided MicrovmState.
@@ -468,6 +471,21 @@ pub fn build_microvm_from_snapshot(
             .restore_state(state)
             .map_err(VcpuError::VcpuResponse)
             .map_err(BuildMicrovmFromSnapshotError::RestoreVcpus)?;
+    }
+
+    // Restore the PVTime device
+    let pvtime_state = microvm_state.pvtime_state;
+    if let Some(pvtime_state) = pvtime_state {
+        let pvtime_ctor_args = PVTimeConstructorArgs {
+            resource_allocator: &mut vmm.resource_allocator,
+            vcpu_count: vcpus.len() as u8,
+        };
+        vmm.pv_time = Some(
+            PVTime::restore(pvtime_ctor_args, &pvtime_state)
+                .map_err(BuildMicrovmFromSnapshotError::RestorePVTime)?,
+        );
+        setup_pv_time_with(vmm.pv_time.as_ref().unwrap(), &mut vcpus) // We can force unwrap here b/c we just set it
+            .map_err(BuildMicrovmFromSnapshotError::RestorePVTime)?;
     }
 
     #[cfg(target_arch = "aarch64")]
@@ -569,7 +587,7 @@ pub fn setup_serial_device(
 #[cfg(target_arch = "aarch64")]
 fn setup_pv_time(vmm: &mut Vmm, vcpus: &mut Vec<Vcpu>) -> Result<(), StartMicrovmError> {
     use crate::arch::aarch64::pvtime::PVTime;
-    
+
     // Check if pvtime is enabled
     let pvtime_device_attr = kvm_bindings::kvm_device_attr {
         group: kvm_bindings::KVM_ARM_VCPU_PVTIME_CTRL,
@@ -590,15 +608,21 @@ fn setup_pv_time(vmm: &mut Vmm, vcpus: &mut Vec<Vcpu>) -> Result<(), StartMicrov
     let pv_time = PVTime::new(&mut vmm.resource_allocator, vcpus.len() as u8)
         .map_err(StartMicrovmError::CreatePVTime)?;
 
+    // Register all vcpus with pvtime device
+    setup_pv_time_with(&pv_time, vcpus).map_err(StartMicrovmError::CreatePVTime)?;
+
+    // TODO: Might be a better design to return the device instead of assigning it to vmm here.
+    vmm.pv_time = Some(pv_time);
+    Ok(())
+}
+
+/// Helper method to register all vcpus with pvtime device
+#[cfg(target_arch = "aarch64")]
+fn setup_pv_time_with(pv_time: &PVTime, vcpus: &mut Vec<Vcpu>) -> Result<(), PVTimeError> {
     // Register the vcpu with the pvtime device to map its steal time region
     for i in 0..vcpus.len() {
-        pv_time
-            .register_vcpu(i as u8, &vcpus[i].kvm_vcpu.fd)
-            .map_err(StartMicrovmError::CreatePVTime)?; // TODO: Change this to its own error
+        pv_time.register_vcpu(i as u8, &vcpus[i].kvm_vcpu.fd)?; // TODO: Change this to its own error
     }
-
-    // TODO: Store pv_time somewhere (in Vmm ?) for snapshotting later instead of dropping it
-
     Ok(())
 }
 

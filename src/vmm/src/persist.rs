@@ -16,6 +16,7 @@ use serde::{Deserialize, Serialize};
 use userfaultfd::{FeatureFlags, Uffd, UffdBuilder};
 use vmm_sys_util::sock_ctrl_msg::ScmSocket;
 
+use crate::arch::aarch64::pvtime::PVTimeState;
 #[cfg(target_arch = "aarch64")]
 use crate::arch::aarch64::vcpu::get_manufacturer_id_from_host;
 use crate::builder::{self, BuildMicrovmFromSnapshotError};
@@ -88,6 +89,9 @@ pub struct MicrovmState {
     pub device_states: DeviceStates,
     /// ACPI devices state.
     pub acpi_dev_state: ACPIDeviceManagerState,
+    /// PVTime device state (optional for platforms that support it).
+    #[cfg(target_arch = "aarch64")]
+    pub pvtime_state: Option<PVTimeState>,
 }
 
 /// This describes the mapping between Firecracker base virtual address and
