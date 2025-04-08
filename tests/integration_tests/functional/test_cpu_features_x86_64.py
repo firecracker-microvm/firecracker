@@ -253,19 +253,10 @@ MSR_EXCEPTION_LIST = [
 MSR_SUPPORTED_TEMPLATES = ["T2A", "T2CL", "T2S"]
 
 
-@pytest.fixture(
-    name="msr_cpu_template",
-    params=sorted(set(SUPPORTED_CPU_TEMPLATES).intersection(MSR_SUPPORTED_TEMPLATES)),
-)
-def msr_cpu_template_fxt(request):
-    """CPU template fixture for MSR read/write supported CPU templates"""
-    return request.param
-
-
 @pytest.mark.timeout(900)
 @pytest.mark.nonci
 def test_cpu_rdmsr(
-    microvm_factory, msr_cpu_template, guest_kernel, rootfs, results_dir
+    microvm_factory, cpu_template_any, guest_kernel, rootfs, results_dir
 ):
     """
     Test MSRs that are available to the guest.
@@ -298,14 +289,16 @@ def test_cpu_rdmsr(
     - All supported guest kernels and rootfs
     - Microvm: 1vCPU with 1024 MB RAM
     """
+    cpu_template_name = get_cpu_template_name(cpu_template_any)
+    if cpu_template_name not in MSR_SUPPORTED_TEMPLATES:
+        pytest.skip(f"This test does not support {cpu_template_name} template.")
 
     vcpus, guest_mem_mib = 1, 1024
     vm = microvm_factory.build(guest_kernel, rootfs, monitor_memory=False)
     vm.spawn()
     vm.add_net_iface()
-    vm.basic_config(
-        vcpu_count=vcpus, mem_size_mib=guest_mem_mib, cpu_template=msr_cpu_template
-    )
+    vm.basic_config(vcpu_count=vcpus, mem_size_mib=guest_mem_mib)
+    vm.set_cpu_template(cpu_template_any)
     vm.start()
     vm.ssh.scp_put(DATA_FILES / "msr_reader.sh", "/tmp/msr_reader.sh")
     _, stdout, stderr = vm.ssh.run("/tmp/msr_reader.sh", timeout=None)
@@ -319,7 +312,7 @@ def test_cpu_rdmsr(
     host_kv = global_props.host_linux_version
     guest_kv = re.search(r"vmlinux-(\d+\.\d+)", guest_kernel.name).group(1)
     baseline_file_name = (
-        f"msr_list_{msr_cpu_template}_{host_cpu}_{host_kv}host_{guest_kv}guest.csv"
+        f"msr_list_{cpu_template_name}_{host_cpu}_{host_kv}host_{guest_kv}guest.csv"
     )
     # save it as an artifact, so we don't have to manually launch an instance to
     # get a baseline
@@ -371,7 +364,7 @@ def dump_msr_state_to_file(dump_fname, ssh_conn, shared_names):
 )
 @pytest.mark.timeout(900)
 @pytest.mark.nonci
-def test_cpu_wrmsr_snapshot(microvm_factory, guest_kernel, rootfs, msr_cpu_template):
+def test_cpu_wrmsr_snapshot(microvm_factory, guest_kernel, rootfs, cpu_template_any):
     """
     This is the first part of the test verifying
     that MSRs retain their values after restoring from a snapshot.
@@ -388,6 +381,10 @@ def test_cpu_wrmsr_snapshot(microvm_factory, guest_kernel, rootfs, msr_cpu_templ
     This part of the test is responsible for taking a snapshot and publishing
     its files along with the `before` MSR dump.
     """
+    cpu_template_name = get_cpu_template_name(cpu_template_any)
+    if cpu_template_name not in MSR_SUPPORTED_TEMPLATES:
+        pytest.skip(f"This test does not support {cpu_template_name} template.")
+
     shared_names = SNAPSHOT_RESTORE_SHARED_NAMES
 
     vcpus, guest_mem_mib = 1, 1024
@@ -397,10 +394,10 @@ def test_cpu_wrmsr_snapshot(microvm_factory, guest_kernel, rootfs, msr_cpu_templ
     vm.basic_config(
         vcpu_count=vcpus,
         mem_size_mib=guest_mem_mib,
-        cpu_template=msr_cpu_template,
         track_dirty_pages=True,
         boot_args="msr.allow_writes=on",
     )
+    vm.set_cpu_template(cpu_template_any)
     vm.start()
 
     # Make MSR modifications
@@ -421,7 +418,7 @@ def test_cpu_wrmsr_snapshot(microvm_factory, guest_kernel, rootfs, msr_cpu_templ
     snapshot_artifacts_dir = (
         Path(shared_names["snapshot_artifacts_root_dir_wrmsr"])
         / guest_kernel.name
-        / get_cpu_template_name(msr_cpu_template, with_type=True)
+        / get_cpu_template_name(cpu_template_any, with_type=True)
     )
     clean_and_mkdir(snapshot_artifacts_dir)
 
@@ -473,7 +470,7 @@ def check_msrs_are_equal(before_recs, after_recs):
 )
 @pytest.mark.timeout(900)
 @pytest.mark.nonci
-def test_cpu_wrmsr_restore(microvm_factory, msr_cpu_template, guest_kernel):
+def test_cpu_wrmsr_restore(microvm_factory, cpu_template_any, guest_kernel):
     """
     This is the second part of the test verifying
     that MSRs retain their values after restoring from a snapshot.
@@ -487,13 +484,15 @@ def test_cpu_wrmsr_restore(microvm_factory, msr_cpu_template, guest_kernel):
     This part of the test is responsible for restoring from a snapshot and
     comparing two sets of MSR values.
     """
+    cpu_template_name = get_cpu_template_name(cpu_template_any)
+    if cpu_template_name not in MSR_SUPPORTED_TEMPLATES:
+        pytest.skip(f"This test does not support {cpu_template_name} template.")
 
     shared_names = SNAPSHOT_RESTORE_SHARED_NAMES
-    cpu_template_dir = get_cpu_template_name(msr_cpu_template, with_type=True)
     snapshot_artifacts_dir = (
         Path(shared_names["snapshot_artifacts_root_dir_wrmsr"])
         / guest_kernel.name
-        / cpu_template_dir
+        / get_cpu_template_name(cpu_template_any, with_type=True)
     )
 
     skip_test_based_on_artifacts(snapshot_artifacts_dir)
@@ -528,7 +527,7 @@ def dump_cpuid_to_file(dump_fname, ssh_conn):
 )
 @pytest.mark.timeout(900)
 @pytest.mark.nonci
-def test_cpu_cpuid_snapshot(microvm_factory, guest_kernel, rootfs, msr_cpu_template):
+def test_cpu_cpuid_snapshot(microvm_factory, guest_kernel, rootfs, cpu_template_any):
     """
     This is the first part of the test verifying
     that CPUID remains the same after restoring from a snapshot.
@@ -540,6 +539,10 @@ def test_cpu_cpuid_snapshot(microvm_factory, guest_kernel, rootfs, msr_cpu_templ
     This part of the test is responsible for taking a snapshot and publishing
     its files along with the `before` CPUID dump.
     """
+    cpu_template_name = get_cpu_template_name(cpu_template_any)
+    if cpu_template_name not in MSR_SUPPORTED_TEMPLATES:
+        pytest.skip("This test does not support {cpu_template_name} template.")
+
     shared_names = SNAPSHOT_RESTORE_SHARED_NAMES
 
     vm = microvm_factory.build(
@@ -551,17 +554,16 @@ def test_cpu_cpuid_snapshot(microvm_factory, guest_kernel, rootfs, msr_cpu_templ
     vm.basic_config(
         vcpu_count=1,
         mem_size_mib=1024,
-        cpu_template=msr_cpu_template,
         track_dirty_pages=True,
     )
+    vm.set_cpu_template(cpu_template_any)
     vm.start()
 
     # Dump CPUID to a file that will be published to S3 for the 2nd part of the test
-    cpu_template_dir = get_cpu_template_name(msr_cpu_template, with_type=True)
     snapshot_artifacts_dir = (
         Path(shared_names["snapshot_artifacts_root_dir_cpuid"])
         / guest_kernel.name
-        / cpu_template_dir
+        / get_cpu_template_name(cpu_template_any, with_type=True)
     )
     clean_and_mkdir(snapshot_artifacts_dir)
 
@@ -595,7 +597,7 @@ def check_cpuid_is_equal(before_cpuid_fname, after_cpuid_fname):
 )
 @pytest.mark.timeout(900)
 @pytest.mark.nonci
-def test_cpu_cpuid_restore(microvm_factory, guest_kernel, msr_cpu_template):
+def test_cpu_cpuid_restore(microvm_factory, guest_kernel, cpu_template_any):
     """
     This is the second part of the test verifying
     that CPUID remains the same after restoring from a snapshot.
@@ -607,13 +609,15 @@ def test_cpu_cpuid_restore(microvm_factory, guest_kernel, msr_cpu_template):
     This part of the test is responsible for restoring from a snapshot and
     comparing two CPUIDs.
     """
+    cpu_template_name = get_cpu_template_name(cpu_template_any)
+    if cpu_template_name not in MSR_SUPPORTED_TEMPLATES:
+        pytest.skip("This test does not support {cpu_template_name} template.")
 
     shared_names = SNAPSHOT_RESTORE_SHARED_NAMES
-    cpu_template_dir = get_cpu_template_name(msr_cpu_template, with_type=True)
     snapshot_artifacts_dir = (
         Path(shared_names["snapshot_artifacts_root_dir_cpuid"])
         / guest_kernel.name
-        / cpu_template_dir
+        / get_cpu_template_name(cpu_template_any, with_type=True)
     )
 
     skip_test_based_on_artifacts(snapshot_artifacts_dir)
@@ -633,10 +637,7 @@ def test_cpu_cpuid_restore(microvm_factory, guest_kernel, msr_cpu_template):
     )
 
 
-@pytest.mark.parametrize(
-    "cpu_template", sorted({"T2", "T2S", "C3"}.intersection(SUPPORTED_CPU_TEMPLATES))
-)
-def test_cpu_template(uvm_plain_any, cpu_template, microvm_factory):
+def test_cpu_template(uvm_plain_any, cpu_template_any, microvm_factory):
     """
     Test masked and enabled cpu features against the expected template.
 
@@ -644,14 +645,18 @@ def test_cpu_template(uvm_plain_any, cpu_template, microvm_factory):
     guest and that expected enabled features are present for each of the
     supported CPU templates.
     """
+    cpu_template_name = get_cpu_template_name(cpu_template_any)
+    if cpu_template_name not in ["T2", "T2S", "C3"]:
+        pytest.skip("This test does not support {cpu_template_name} template.")
+
     test_microvm = uvm_plain_any
     test_microvm.spawn()
     # Set template as specified in the `cpu_template` parameter.
     test_microvm.basic_config(
         vcpu_count=1,
         mem_size_mib=256,
-        cpu_template=cpu_template,
     )
+    test_microvm.set_cpu_template(cpu_template_any)
     test_microvm.add_net_iface()
 
     if cpuid_utils.get_cpu_vendor() != cpuid_utils.CpuVendor.INTEL:
@@ -662,8 +667,8 @@ def test_cpu_template(uvm_plain_any, cpu_template, microvm_factory):
 
     test_microvm.start()
 
-    check_masked_features(test_microvm, cpu_template)
-    check_enabled_features(test_microvm, cpu_template)
+    check_masked_features(test_microvm, cpu_template_name)
+    check_enabled_features(test_microvm, cpu_template_name)
 
     # Check that cpu features are still correct
     # after snap/restore cycle.
@@ -671,8 +676,8 @@ def test_cpu_template(uvm_plain_any, cpu_template, microvm_factory):
     restored_vm = microvm_factory.build()
     restored_vm.spawn()
     restored_vm.restore_from_snapshot(snapshot, resume=True)
-    check_masked_features(restored_vm, cpu_template)
-    check_enabled_features(restored_vm, cpu_template)
+    check_masked_features(restored_vm, cpu_template_name)
+    check_enabled_features(restored_vm, cpu_template_name)
 
 
 def check_masked_features(test_microvm, cpu_template):
