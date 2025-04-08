@@ -36,16 +36,11 @@ def test_snapshot_phase1(
     vm.spawn(log_level="Info")
     vm.add_net_iface()
 
-    static_cpu_template = None
-    if isinstance(cpu_template_any, str):
-        static_cpu_template = cpu_template_any
-    elif isinstance(cpu_template_any, dict):
-        vm.api.cpu_config.put(**cpu_template_any["template"])
     vm.basic_config(
         vcpu_count=2,
         mem_size_mib=512,
-        cpu_template=static_cpu_template,
     )
+    vm.set_cpu_template(cpu_template_any)
 
     guest_kernel_version = re.search("vmlinux-(.*)", vm.kernel_file.name)
     cpu_template_name = get_cpu_template_name(cpu_template_any, with_type=True)
