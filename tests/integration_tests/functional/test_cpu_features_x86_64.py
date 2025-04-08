@@ -701,7 +701,7 @@ def check_masked_features(test_microvm, cpu_template):
             ),
             (0x1, 0x0, "edx",
                 (1 << 18) | # PSN
-                (1 << 20) | # DS
+                (1 << 21) | # DS
                 (1 << 22) | # ACPI
                 (1 << 27) | # SS
                 (1 << 29) | # TM
@@ -787,7 +787,7 @@ def check_masked_features(test_microvm, cpu_template):
             ),
             (0x1, 0x0, "edx",
                 (1 << 18) | # PSN
-                (1 << 20) | # DS
+                (1 << 21) | # DS
                 (1 << 22) | # ACPI
                 (1 << 27) | # SS
                 (1 << 29) | # TM
