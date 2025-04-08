@@ -264,6 +264,9 @@ pub fn build_microvm_for_boot(
         .register_memory_regions(guest_memory, secret_free)
         .map_err(VmmError::Vm)?;
 
+    #[cfg(target_arch = "x86_64")]
+    vmm.vm.set_memory_private().map_err(VmmError::Vm)?;
+
     if let Some(swiotlb) = swiotlb {
         vmm.vm
             .register_swiotlb_region(swiotlb)
