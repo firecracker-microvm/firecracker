@@ -52,6 +52,12 @@ def get_supported_custom_cpu_templates():
             return INTEL_TEMPLATES
         case CpuVendor.INTEL, CpuModel.INTEL_ICELAKE:
             return set(INTEL_TEMPLATES) - {"T2S"}
+        case CpuVendor.INTEL, CpuModel.INTEL_SAPPHIRE_RAPIDS:
+            # Intel AMX is only supported on kernel 5.17+. KVM does not support
+            # related CPUID range.
+            if host_linux >= (5, 17):
+                return ["SPR_TO_T2_6.1"]
+            return ["SPR_TO_T2_5.10"]
         case CpuVendor.AMD, CpuModel.AMD_MILAN:
             return AMD_TEMPLATES
         case CpuVendor.ARM, CpuModel.ARM_NEOVERSE_N1 if host_linux >= (6, 1):
