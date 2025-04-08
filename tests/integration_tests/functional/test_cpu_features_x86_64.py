@@ -250,7 +250,7 @@ MSR_EXCEPTION_LIST = [
 # fmt: on
 
 
-MSR_SUPPORTED_TEMPLATES = ["T2A", "T2CL", "T2S"]
+MSR_SUPPORTED_TEMPLATES = ["T2A", "T2CL", "T2S", "SPR_TO_T2_5.10", "SPR_TO_T2_6.1"]
 
 
 @pytest.mark.timeout(900)
@@ -646,7 +646,7 @@ def test_cpu_template(uvm_plain_any, cpu_template_any, microvm_factory):
     supported CPU templates.
     """
     cpu_template_name = get_cpu_template_name(cpu_template_any)
-    if cpu_template_name not in ["T2", "T2S", "C3"]:
+    if cpu_template_name not in ["T2", "T2S", "SPR_TO_T2_5.10", "SPR_TO_T2_6.1" "C3"]:
         pytest.skip("This test does not support {cpu_template_name} template.")
 
     test_microvm = uvm_plain_any
@@ -863,6 +863,141 @@ def check_masked_features(test_microvm, cpu_template):
                 (1 << 9)    # WBNOINVD
             )
         ]
+    elif cpu_template in ["SPR_TO_T2_5.10", "SPR_TO_T2_6.1"]:
+        must_be_unset = [
+            (0x1, 0x0, "ecx",
+                (1 << 2) |  # DTES64
+                (1 << 3) |  # MONITOR
+                (1 << 4) |  # DS-CPL
+                (1 << 5) |  # VMX
+                (1 << 6) |  # SMX
+                (1 << 7) |  # EIST
+                (1 << 8) |  # TM2
+                (1 << 10) | # CNXT-ID
+                (1 << 11) | # SDBG
+                (1 << 14) | # XTPR_UPDATE
+                (1 << 15) | # PDCM
+                (1 << 18)   # DCA
+            ),
+            (0x1, 0x0, "edx",
+                (1 << 18) | # PSN
+                (1 << 21) | # DS
+                (1 << 22) | # ACPI
+                (1 << 27) | # SS
+                (1 << 29) | # TM
+                (1 << 30) | # IA64
+                (1 << 31)   # PBE
+            ),
+            (0x7, 0x0, "ebx",
+                (1 << 2) |  # SGX
+                (1 << 4) |  # HLE
+                (1 << 11) | # RTM
+                (1 << 12) | # RDT-M
+                (1 << 14) | # MPX
+                (1 << 15) | # RDT-A
+                (1 << 16) | # AVX512F
+                (1 << 17) | # AVX512DQ
+                (1 << 18) | # RDSEED
+                (1 << 19) | # ADX
+                (1 << 21) | # AVX512IFMA
+                (1 << 22) | # PCOMMIT
+                (1 << 23) | # CLFLUSHOPT
+                (1 << 24) | # CLWB
+                (1 << 25) | # PT
+                (1 << 26) | # AVX512PF
+                (1 << 27) | # AVX512ER
+                (1 << 28) | # AVX512CD
+                (1 << 29) | # SHA
+                (1 << 30) | # AVX512BW
+                (1 << 31)   # AVX512VL
+            ),
+            (0x7, 0x0, "ecx",
+                (1 << 1) |  # AVX512_VBMI
+                (1 << 2) |  # UMIP
+                (1 << 3) |  # PKU
+                (1 << 4) |  # OSPKE
+                (1 << 6) |  # AVX512_VBMI2
+                (1 << 8) |  # GFNI
+                (1 << 9) |  # VAES
+                (1 << 10) | # VPCLMULQDQ
+                (1 << 11) | # AVX512_VNNI
+                (1 << 12) | # AVX512_BITALG
+                (1 << 14) | # AVX512_VPOPCNTDQ
+                (1 << 16) | # LA57
+                (1 << 22) | # RDPID
+                (1 << 24) | # BUS_LOCK_DETECT
+                (1 << 25) | # CLDEMOTE
+                (1 << 27) | # MOVDIRI
+                (1 << 28) | # MOVDIR64B
+                (1 << 30)   # SGX_LC
+            ),
+            (0x7, 0x0, "edx",
+                (1 << 2) |  # AVX512_4VNNIW
+                (1 << 3) |  # AVX512_4FMAPS
+                (1 << 4) |  # FSRM
+                (1 << 8) |  # AVX512_VP2INTERSECT
+                (1 << 14) | # SERIALIZE
+                (1 << 16) | # TSXLDTRK
+                (1 << 22) | # AMX-BF16
+                (1 << 23) | # AVX512_FP16
+                (1 << 24) | # AMX-TILE
+                (1 << 25)   # AMX-INT8
+            ),
+            (0x7, 0x1, "eax",
+                (1 << 4) |  # AVX-VNI
+                (1 << 5)    # AVX512_BF16
+            ),
+            # Note that we don't intentionally mask hardware security features.
+            # - IPRED_CTRL: CPUID.(EAX=07H,ECX=2):EDX[1]
+            # - RRSBA_CTRL: CPUID.(EAX=07H,ECX=2):EDX[2]
+            # - BHI_CTRL: CPUID.(EAX=07H,ECX=2):EDX[4]
+            (0xd, 0x0, "eax",
+                (1 << 3) |  # MPX state bit 0
+                (1 << 4) |  # MPX state bit 1
+                (1 << 5) |  # AVX-512 state bit 0
+                (1 << 6) |  # AVX-512 state bit 1
+                (1 << 7) |  # AVX-512 state bit 2
+                (1 << 9) |  # PKRU state
+                (1 << 17) | # AMX TILECFG state
+                (1 << 18)   # AMX TILEDATA state
+            ),
+            (0xd, 0x1, "eax",
+                (1 << 1) |  # XSAVEC
+                (1 << 2) |  # XGETBV with ECX=1
+                (1 << 3) |  # XSAVES/XRSTORS and IA32_XSS
+                (1 << 4)    # XFD
+            ),
+            (0xd, 0x11, "eax", (1 << 32) - 1), # AMX TILECFG XSTATE leaf, EAX
+            (0xd, 0x11, "ebx", (1 << 32) - 1), # AMX TILECFG XSTATE leaf, EBX
+            (0xd, 0x11, "ecx", (1 << 32) - 1), # AMX TILECFG XSTATE leaf, ECX
+            (0xd, 0x11, "edx", (1 << 32) - 1), # AMX TILECFG XSTATE leaf, EDX
+            (0xd, 0x12, "eax", (1 << 32) - 1), # AMX TILEDATA XSTATE leaf, EAX
+            (0xd, 0x12, "ebx", (1 << 32) - 1), # AMX TILEDATA XSTATE leaf, EBX
+            (0xd, 0x12, "ecx", (1 << 32) - 1), # AMX TILEDATA XSTATE leaf, ECX
+            (0xd, 0x12, "edx", (1 << 32) - 1), # AMX TILEDATA XSTATE leaf, EDX
+            (0x1d, 0x0, "eax", (1 << 32) - 1), # AMX Tile Information leaf, EAX
+            (0x1d, 0x0, "ebx", (1 << 32) - 1), # AMX Tile Information leaf, EBX
+            (0x1d, 0x0, "ecx", (1 << 32) - 1), # AMX Tile Information leaf, ECX
+            (0x1d, 0x0, "edx", (1 << 32) - 1), # AMX Tile Information leaf, EDX
+            (0x1d, 0x1, "eax", (1 << 32) - 1), # AMX Tile Palette 1 leaf, EAX
+            (0x1d, 0x1, "ebx", (1 << 32) - 1), # AMX Tile Palette 1 leaf, EBX
+            (0x1d, 0x1, "ecx", (1 << 32) - 1), # AMX Tile Palette 1 leaf, ECX
+            (0x1d, 0x1, "edx", (1 << 32) - 1), # AMX TIle Palette 1 leaf, EDX
+            (0x1e, 0x0, "eax", (1 << 32) - 1), # AMX TMUL Information leaf, EAX
+            (0x1e, 0x0, "ebx", (1 << 32) - 1), # AMX TMUL Information leaf, EBX
+            (0x1e, 0x0, "ecx", (1 << 32) - 1), # AMX TMUL Information leaf, ECX
+            (0x1e, 0x0, "edx", (1 << 32) - 1), # AMX TMUL Information leaf, EDX
+            (0x80000001, 0x0, "ecx",
+                (1 << 8) |  # PREFETCHW
+                (1 << 29)   # MWAITX / MONITORX
+            ),
+            (0x80000001, 0x0, "edx",
+                (1 << 26)   # 1-GByte pages
+            ),
+            (0x80000008, 0x0, "ebx",
+                (1 << 9)    # WBNOINVD
+            )
+        ]
     # fmt: on
 
     cpuid_utils.check_cpuid_feat_flags(
@@ -943,7 +1078,7 @@ def check_enabled_features(test_microvm, cpu_template):
     cpuid_utils.check_guest_cpuid_output(
         test_microvm, "cpuid -1", None, "=", enabled_list
     )
-    if cpu_template == "T2":
+    if cpu_template in ["T2", "SPR_TO_T2_5.10", "SPR_TO_T2_6.1"]:
         t2_enabled_features = {
             "FMA instruction": "true",
             "BMI1 instructions": "true",
