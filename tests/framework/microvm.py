@@ -37,6 +37,7 @@ from framework.http_api import Api
 from framework.jailer import JailerContext
 from framework.microvm_helpers import MicrovmHelpers
 from framework.properties import global_props
+from framework.utils_cpu_templates import get_cpu_template_name
 from framework.utils_drive import VhostUserBlkBackend, VhostUserBlkBackendType
 from framework.utils_uffd import spawn_pf_handler, uffd_handler
 from host_tools.fcmetrics import FCMetricsMonitor
@@ -248,7 +249,7 @@ class Microvm:
         self.disks_vhost_user = {}
         self.vcpus_count = None
         self.mem_size_bytes = None
-        self.cpu_template_name = None
+        self.cpu_template_name = "None"
         # The given custom CPU template will be set in basic_config() but could
         # be overwritten via set_cpu_template().
         self.custom_cpu_template = custom_cpu_template
@@ -797,16 +798,15 @@ class Microvm:
 
     def set_cpu_template(self, cpu_template):
         """Set guest CPU template."""
+        self.cpu_template_name = get_cpu_template_name(cpu_template)
         if cpu_template is None:
             return
         # static CPU template
         if isinstance(cpu_template, str):
             self.api.machine_config.patch(cpu_template=cpu_template)
-            self.cpu_template_name = cpu_template
         # custom CPU template
         elif isinstance(cpu_template, dict):
             self.api.cpu_config.put(**cpu_template["template"])
-            self.cpu_template_name = cpu_template["name"]
 
     def add_drive(
         self,

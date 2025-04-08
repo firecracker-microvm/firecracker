@@ -80,3 +80,12 @@ def static_cpu_templates_params():
     """Return Static CPU templates as pytest parameters"""
     for name in sorted(get_supported_cpu_templates()):
         yield pytest.param(name, id="static_" + name)
+
+
+def get_cpu_template_name(cpu_template, with_type=False):
+    """Return the CPU template name."""
+    if isinstance(cpu_template, str):
+        return ("static_" if with_type else "") + cpu_template
+    if isinstance(cpu_template, dict):
+        return ("custom_" if with_type else "") + cpu_template["name"]
+    return "None"
