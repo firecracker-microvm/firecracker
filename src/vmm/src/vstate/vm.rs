@@ -12,8 +12,9 @@ use std::path::Path;
 use std::sync::Arc;
 
 use kvm_bindings::{
-    KVM_MEM_GUEST_MEMFD, KVM_MEM_LOG_DIRTY_PAGES, kvm_create_guest_memfd,
-    kvm_userspace_memory_region, kvm_userspace_memory_region2,
+    KVM_MEM_GUEST_MEMFD, KVM_MEM_LOG_DIRTY_PAGES, KVM_MEMORY_ATTRIBUTE_PRIVATE,
+    kvm_create_guest_memfd, kvm_memory_attributes, kvm_userspace_memory_region,
+    kvm_userspace_memory_region2,
 };
 use kvm_ioctls::{Cap, VmFd};
 use vmm_sys_util::eventfd::EventFd;
@@ -71,6 +72,8 @@ pub enum VmError {
     GuestMemfd(kvm_ioctls::Error),
     /// guest_memfd is not supported on this host kernel.
     GuestMemfdNotSupported,
+    /// Failed to set memory attributes to private: {0}
+    SetMemoryAttributes(kvm_ioctls::Error),
 }
 
 /// Contains Vm functions that are usable across CPU architectures
@@ -277,6 +280,28 @@ impl Vm {
     /// Gets a reference to this [`Vm`]'s [`GuestMemoryMmap`] object
     pub fn guest_memory(&self) -> &GuestMemoryMmap {
         &self.common.guest_memory
+    }
+
+    /// Sets the memory attributes on all guest_memfd-backed regions to private
+    pub fn set_memory_private(&self) -> Result<(), VmError> {
+        if !self.secret_free() {
+            return Ok(());
+        }
+
+        for region in self.guest_memory().iter() {
+            let attr = kvm_memory_attributes {
+                address: region.start_addr().0,
+                size: region.len(),
+                attributes: KVM_MEMORY_ATTRIBUTE_PRIVATE as u64,
+                ..Default::default()
+            };
+
+            self.fd()
+                .set_memory_attributes(attr)
+                .map_err(VmError::SetMemoryAttributes)?
+        }
+
+        Ok(())
     }
 
     /// Resets the KVM dirty bitmap for each of the guest's memory regions.
