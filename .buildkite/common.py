@@ -14,15 +14,19 @@ import string
 import subprocess
 from pathlib import Path
 
+# fmt: off
 DEFAULT_INSTANCES = [
-    "c5n.metal",  # Intel Skylake
-    "m5n.metal",  # Intel Cascade Lake
-    "m6i.metal",  # Intel Icelake
-    "m6a.metal",  # AMD Milan
-    "m7a.metal-48xl",  # AMD Genoa
-    "m6g.metal",  # Graviton2
-    "m7g.metal",  # Graviton3
+    "c5n.metal",      # Intel Skylake
+    "m5n.metal",      # Intel Cascade Lake
+    "m6i.metal",      # Intel Icelake
+    "m7i.metal-24xl", # Intel Sapphire Rapids
+    "m7i.metal-48xl", # Intel Sapphire Rapids
+    "m6a.metal",      # AMD Milan
+    "m7a.metal-48xl", # AMD Genoa
+    "m6g.metal",      # Graviton2
+    "m7g.metal",      # Graviton3
 ]
+# fmt: on
 
 DEFAULT_PLATFORMS = [
     ("al2", "linux_5.10"),
