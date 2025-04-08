@@ -258,6 +258,9 @@ pub fn build_microvm_for_boot(
         .register_memory_regions(guest_memory)
         .map_err(VmmError::Vm)?;
 
+    #[cfg(target_arch = "x86_64")]
+    vmm.vm.set_memory_private().map_err(VmmError::Vm)?;
+
     let entry_point = load_kernel(
         MaybeBounce::new(boot_config.kernel_file.try_clone().unwrap(), secret_free),
         vmm.vm.guest_memory(),
