@@ -25,6 +25,8 @@ DEFAULT_INSTANCES = [
     "m7a.metal-48xl", # AMD Genoa
     "m6g.metal",      # Graviton2
     "m7g.metal",      # Graviton3
+    "m8g.metal-24xl", # Graviton4 1 socket
+    "m8g.metal-48xl", # Graviton4 2 sockets
 ]
 # fmt: on
 
