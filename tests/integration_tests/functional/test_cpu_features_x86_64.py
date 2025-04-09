@@ -1149,3 +1149,21 @@ def test_intel_amx_reported_on_sapphire_rapids(
         "=",
         expected_dict,
     )
+
+
+def test_waitpkg_inaccessibility(uvm_nano, waitpkg_bin):
+    """
+    Verifies that attempting to use WAITPKG (UMONITOR / UMWAIT instructions)
+    generates #UD.
+    """
+    vm = uvm_nano
+    vm.add_net_iface()
+    vm.start()
+
+    rmt_path = "/tmp/waitpkg"
+    vm.ssh.scp_put(waitpkg_bin, rmt_path)
+
+    cmd = f"{rmt_path}; echo $?"
+    _, stdout, stderr = vm.ssh.check_output(cmd)
+    assert stdout == "132\n"
+    assert "Illegal instruction" in stderr

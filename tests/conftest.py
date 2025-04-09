@@ -237,6 +237,18 @@ def change_net_config_space_bin(test_fc_session_root_path):
     yield change_net_config_space_bin
 
 
+@pytest.fixture(scope="session")
+def waitpkg_bin(test_fc_session_root_path):
+    """Build a binary that attempts to use WAITPKG (UMONITOR / UMWAIT)"""
+    waitpkg_bin_path = os.path.join(test_fc_session_root_path, "waitpkg")
+    build_tools.gcc_compile(
+        "host_tools/waitpkg.c",
+        waitpkg_bin_path,
+        extra_flags="-mwaitpkg",
+    )
+    yield waitpkg_bin_path
+
+
 @pytest.fixture
 def bin_seccomp_paths():
     """Build jailers and jailed binaries to test seccomp.
