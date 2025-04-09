@@ -19,6 +19,7 @@ use vm_superio::Rtc;
 use vm_superio::Serial;
 use vmm_sys_util::eventfd::EventFd;
 
+#[cfg(target_arch = "aarch64")]
 use crate::arch::aarch64::pvtime::{PVTime, PVTimeConstructorArgs, PVTimeError};
 use crate::arch::{ConfigurationError, configure_system_for_boot, load_kernel};
 #[cfg(target_arch = "aarch64")]
@@ -70,9 +71,6 @@ pub enum StartMicrovmError {
     AttachBlockDevice(io::Error),
     /// Unable to attach the VMGenID device: {0}
     AttachVmgenidDevice(kvm_ioctls::Error),
-    /// PVTime not supported: {0}
-    #[cfg(target_arch = "aarch64")]
-    PVTimeNotSupported(kvm_ioctls::Error),
     /// System configuration error: {0}
     ConfigureSystem(#[from] ConfigurationError),
     /// Failed to create guest config: {0}
@@ -195,6 +193,7 @@ fn create_vmm_and_vcpus(
         #[cfg(target_arch = "x86_64")]
         pio_device_manager,
         acpi_device_manager,
+        #[cfg(target_arch = "aarch64")]
         pv_time: None,
     };
 
@@ -298,13 +297,13 @@ pub fn build_microvm_for_boot(
 
     // Attempt to setup PVTime, continue if not supported
     #[cfg(target_arch = "aarch64")]
-    if let Err(e) = setup_pv_time(&mut vmm, vcpus.as_mut()) {
-        match e {
-            StartMicrovmError::PVTimeNotSupported(e) => {
-                warn!("PVTime not supported: {}", e);
-            }
-            other => return Err(other),
-        }
+    {
+        vmm.pv_time = if PVTime::is_supported(&vcpus[0].kvm_vcpu.fd) {
+            Some(setup_pv_time(&mut vmm, vcpus.as_mut())?)
+        } else {
+            warn!("PVTime is not supported by KVM. Steal time will not be reported to the guest.");
+            None
+        };
     }
 
     configure_system_for_boot(
@@ -474,18 +473,26 @@ pub fn build_microvm_from_snapshot(
     }
 
     // Restore the PVTime device
-    let pvtime_state = microvm_state.pvtime_state;
-    if let Some(pvtime_state) = pvtime_state {
-        let pvtime_ctor_args = PVTimeConstructorArgs {
-            resource_allocator: &mut vmm.resource_allocator,
-            vcpu_count: vcpus.len() as u8,
-        };
-        vmm.pv_time = Some(
-            PVTime::restore(pvtime_ctor_args, &pvtime_state)
-                .map_err(BuildMicrovmFromSnapshotError::RestorePVTime)?,
-        );
-        setup_pv_time_with(vmm.pv_time.as_ref().unwrap(), &mut vcpus) // We can force unwrap here b/c we just set it
-            .map_err(BuildMicrovmFromSnapshotError::RestorePVTime)?;
+    #[cfg(target_arch = "aarch64")]
+    {
+        let pvtime_state = microvm_state.pvtime_state;
+        if let Some(pvtime_state) = pvtime_state {
+            #[allow(clippy::cast_possible_truncation)]
+            // We know vcpu_count is u8 according to VcpuConfig
+            let pvtime_ctor_args = PVTimeConstructorArgs {
+                resource_allocator: &mut vmm.resource_allocator,
+                vcpu_count: vcpus.len() as u8,
+            };
+            vmm.pv_time = Some(
+                PVTime::restore(pvtime_ctor_args, &pvtime_state)
+                    .map_err(BuildMicrovmFromSnapshotError::RestorePVTime)?,
+            );
+            vmm.pv_time
+                .as_ref()
+                .unwrap()
+                .register_all_vcpus(&mut vcpus) // We can safely unwrap here
+                .map_err(StartMicrovmError::CreatePVTime)?;
+        }
     }
 
     #[cfg(target_arch = "aarch64")]
@@ -585,45 +592,20 @@ pub fn setup_serial_device(
 
 /// Sets up the pvtime device.
 #[cfg(target_arch = "aarch64")]
-fn setup_pv_time(vmm: &mut Vmm, vcpus: &mut Vec<Vcpu>) -> Result<(), StartMicrovmError> {
+fn setup_pv_time(vmm: &mut Vmm, vcpus: &mut [Vcpu]) -> Result<PVTime, StartMicrovmError> {
     use crate::arch::aarch64::pvtime::PVTime;
 
-    // Check if pvtime is enabled
-    let pvtime_device_attr = kvm_bindings::kvm_device_attr {
-        group: kvm_bindings::KVM_ARM_VCPU_PVTIME_CTRL,
-        attr: kvm_bindings::KVM_ARM_VCPU_PVTIME_IPA as u64,
-        addr: 0,
-        flags: 0,
-    };
-
-    // Use kvm_has_device_attr to check if PVTime is supported
-    // TODO: Flesh out feature detection. Either throw error and handle, or
-    // even return silently and just log "no support", or something else.
-    let vcpu_fd = &vcpus[0].kvm_vcpu.fd;
-    vcpu_fd
-        .has_device_attr(&pvtime_device_attr)
-        .map_err(StartMicrovmError::PVTimeNotSupported)?;
-
     // Create the pvtime device
+    #[allow(clippy::cast_possible_truncation)] // We know vcpu_count is u8 according to VcpuConfig
     let pv_time = PVTime::new(&mut vmm.resource_allocator, vcpus.len() as u8)
         .map_err(StartMicrovmError::CreatePVTime)?;
 
     // Register all vcpus with pvtime device
-    setup_pv_time_with(&pv_time, vcpus).map_err(StartMicrovmError::CreatePVTime)?;
+    pv_time
+        .register_all_vcpus(vcpus)
+        .map_err(StartMicrovmError::CreatePVTime)?;
 
-    // TODO: Might be a better design to return the device instead of assigning it to vmm here.
-    vmm.pv_time = Some(pv_time);
-    Ok(())
-}
-
-/// Helper method to register all vcpus with pvtime device
-#[cfg(target_arch = "aarch64")]
-fn setup_pv_time_with(pv_time: &PVTime, vcpus: &mut Vec<Vcpu>) -> Result<(), PVTimeError> {
-    // Register the vcpu with the pvtime device to map its steal time region
-    for i in 0..vcpus.len() {
-        pv_time.register_vcpu(i as u8, &vcpus[i].kvm_vcpu.fd)?; // TODO: Change this to its own error
-    }
-    Ok(())
+    Ok(pv_time)
 }
 
 #[cfg(target_arch = "aarch64")]
@@ -929,6 +911,8 @@ pub(crate) mod tests {
             #[cfg(target_arch = "x86_64")]
             pio_device_manager,
             acpi_device_manager,
+            #[cfg(target_arch = "aarch64")]
+            pv_time: None,
         }
     }
 
