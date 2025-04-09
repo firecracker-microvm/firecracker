@@ -141,6 +141,8 @@ We test all combinations of:
 | m7a.metal-48xl |                  |              |              |
 | m6g.metal      |                  |              |              |
 | m7g.metal      |                  |              |              |
+| m8g.metal-24xl |                  |              |              |
+| m8g.metal-48xl |                  |              |              |
 
 ## Known issues and Limitations
 
