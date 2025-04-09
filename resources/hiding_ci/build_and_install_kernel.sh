@@ -153,7 +153,9 @@ al2023_update_boot() {
   dracut --kver $KERNEL_VERSION -f -v
 
   # This varies from x86 and ARM so capture what was generated
-  VM_LINUX_LOCATION=$(ls /boot/vmlinu{x,z}-$KERNEL_VERSION 2>/dev/null | head -n1)
+  # We add the || true here due to the fact that we have pipefail enabled
+  # this causes a non 0 exit when ls cant find vmlinux or vmlinux
+  VM_LINUX_LOCATION=$(ls /boot/vmlinu{x,z}-$KERNEL_VERSION 2>/dev/null | head -n1 || true)
 
   echo "Updating GRUB..."
   grubby --grub2 --add-kernel $VM_LINUX_LOCATION \
