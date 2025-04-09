@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use std::arch::x86_64::__cpuid as host_cpuid;
-use std::cmp::{Eq, Ordering, PartialEq, PartialOrd};
+use std::cmp::{Eq, PartialEq};
 
 /// Structure representing x86_64 CPU model.
 #[derive(Debug, Eq, PartialEq)]
@@ -19,6 +19,42 @@ pub struct CpuModel {
     pub stepping: u8,
 }
 
+/// Family / Model / Stepping for Intel Skylake
+pub const SKYLAKE_FMS: CpuModel = CpuModel {
+    extended_family: 0x0,
+    extended_model: 0x5,
+    family: 0x6,
+    model: 0x5,
+    stepping: 0x4,
+};
+
+/// Family / Model / Stepping for Intel Cascade Lake
+pub const CASCADE_LAKE_FMS: CpuModel = CpuModel {
+    extended_family: 0x0,
+    extended_model: 0x5,
+    family: 0x6,
+    model: 0x5,
+    stepping: 0x7,
+};
+
+/// Family / Model / Stepping for Intel Ice Lake
+pub const ICE_LAKE_FMS: CpuModel = CpuModel {
+    extended_family: 0x0,
+    extended_model: 0x6,
+    family: 0x6,
+    model: 0xa,
+    stepping: 0x6,
+};
+
+/// Family / Model / Stepping for AMD Milan
+pub const MILAN_FMS: CpuModel = CpuModel {
+    extended_family: 0xa,
+    extended_model: 0x0,
+    family: 0xf,
+    model: 0x1,
+    stepping: 0x1,
+};
+
 impl CpuModel {
     /// Get CPU model from current machine.
     pub fn get_cpu_model() -> Self {
@@ -26,19 +62,6 @@ impl CpuModel {
         // 0x1 is the defined code for getting the processor version information.
         let eax = unsafe { host_cpuid(0x1) }.eax;
         CpuModel::from(&eax)
-    }
-
-    /// Check if the current CPU model is Intel Cascade Lake or later.
-    pub fn is_at_least_cascade_lake(&self) -> bool {
-        let cascade_lake = CpuModel {
-            extended_family: 0,
-            extended_model: 5,
-            family: 6,
-            model: 5,
-            stepping: 7,
-        };
-
-        self >= &cascade_lake
     }
 }
 
@@ -54,59 +77,22 @@ impl From<&u32> for CpuModel {
     }
 }
 
-impl From<&CpuModel> for u32 {
-    fn from(cpu_model: &CpuModel) -> Self {
-        (u32::from(cpu_model.extended_family) << 20)
-            | (u32::from(cpu_model.extended_model) << 16)
-            | (u32::from(cpu_model.family) << 8)
-            | (u32::from(cpu_model.model) << 4)
-            | u32::from(cpu_model.stepping)
-    }
-}
-
-impl PartialOrd for CpuModel {
-    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        Some(u32::from(self).cmp(&u32::from(other)))
-    }
-}
-
-impl Ord for CpuModel {
-    fn cmp(&self, other: &Self) -> Ordering {
-        u32::from(self).cmp(&u32::from(other))
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    const SKYLAKE: CpuModel = CpuModel {
-        extended_family: 0,
-        extended_model: 5,
-        family: 6,
-        model: 5,
-        stepping: 4,
-    };
-
-    const CASCADE_LAKE: CpuModel = CpuModel {
-        extended_family: 0,
-        extended_model: 5,
-        family: 6,
-        model: 5,
-        stepping: 7,
-    };
-
     #[test]
     fn cpu_model_from() {
         let skylake_eax = 0x00050654;
-        assert_eq!(u32::from(&SKYLAKE), skylake_eax);
-        assert_eq!(CpuModel::from(&skylake_eax), SKYLAKE);
-    }
+        assert_eq!(CpuModel::from(&skylake_eax), SKYLAKE_FMS);
 
-    #[test]
-    fn cpu_model_ord() {
-        assert_eq!(SKYLAKE, SKYLAKE);
-        assert!(SKYLAKE < CASCADE_LAKE);
-        assert!(CASCADE_LAKE > SKYLAKE);
+        let cascade_lake_eax = 0x00050657;
+        assert_eq!(CpuModel::from(&cascade_lake_eax), CASCADE_LAKE_FMS);
+
+        let ice_lake_eax = 0x000606a6;
+        assert_eq!(CpuModel::from(&ice_lake_eax), ICE_LAKE_FMS);
+
+        let milan_eax = 0x00a00f11;
+        assert_eq!(CpuModel::from(&milan_eax), MILAN_FMS);
     }
 }

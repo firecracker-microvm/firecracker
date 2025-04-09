@@ -48,14 +48,14 @@ Firecracker supports two types of CPU templates:
 
 At the moment the following set of static CPU templates are supported:
 
-| CPU template | CPU vendor | CPU model             |
-| ------------ | ---------- | --------------------- |
-| C3           | Intel      | any                   |
-| T2           | Intel      | any                   |
-| T2A          | AMD        | Milan                 |
-| T2CL         | Intel      | Cascade Lake or newer |
-| T2S          | Intel      | any                   |
-| V1N1         | ARM        | Neoverse V1           |
+| CPU template | CPU vendor | CPU model                       |
+| ------------ | ---------- | ------------------------------- |
+| C3           | Intel      | Skylake, Cascade Lake, Ice Lake |
+| T2           | Intel      | Skylake, Cascade Lake, Ice Lake |
+| T2A          | AMD        | Milan                           |
+| T2CL         | Intel      | Cascade Lake, Ice Lake          |
+| T2S          | Intel      | Skylake, Cascade Lake           |
+| V1N1         | ARM        | Neoverse V1                     |
 
 T2 and C3 templates are mapped as close as possible to AWS T2 and C3 instances
 in terms of CPU features. Note that on a microVM that is lauched with the C3
@@ -71,8 +71,8 @@ a performance assessment if they wish to use the T2S template. Note that
 Firecracker expects the host to always be running the latest version of the
 microcode.
 
-The T2CL template is mapped to be close to Intel Cascade Lake. It is not safe to
-use it on Intel CPUs older than Cascade Lake (such as Skylake).
+The T2CL template is mapped to be close to Intel Cascade Lake. It is only safe
+to use it on Intel Cascade Lake and Ice Lake.
 
 The only AMD template is T2A. It is considered safe to be used with AMD Milan.
 
