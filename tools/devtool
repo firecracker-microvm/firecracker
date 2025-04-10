@@ -575,6 +575,7 @@ ensure_ci_artifacts() {
     if [ ! -d "$ARTIFACTS" ]; then
         mkdir -pv $ARTIFACTS
         aws s3 sync --no-sign-request "$S3_URL" "$ARTIFACTS"
+        ok_or_die "Failed to download CI artifacts using awscli!"
         cmd_sh "./tools/setup-ci-artifacts.sh"
     fi
 }
