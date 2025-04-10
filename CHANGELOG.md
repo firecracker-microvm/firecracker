@@ -16,7 +16,9 @@ and this project adheres to
   Linux kernels newer than 5.0 compiled with `CONFIG_PVH=y` set this ELF Note,
   as do FreeBSD kernels.
 - [#5065](https://github.com/firecracker-microvm/firecracker/pull/5065) Added
-  support for Intel AMX (Advanced Matrix Extensions).
+  support for Intel AMX (Advanced Matrix Extensions). To be able to take and
+  restore a snapshot of Intel AMX state, `Xsave` is used instead of `kvm_xsave`,
+  so users need to regenerate snapshots.
 - [#4731](https://github.com/firecracker-microvm/firecracker/pull/4731): Added
   support for modifying the host TAP device name during snapshot restore.
 
