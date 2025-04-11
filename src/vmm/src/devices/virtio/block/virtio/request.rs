@@ -398,13 +398,13 @@ impl Request {
         match res {
             Ok(block_io::FileEngineOk::Submitted) => ProcessingResult::Submitted,
             Ok(block_io::FileEngineOk::Executed(res)) => {
-                ProcessingResult::Executed(res.user_data.finish(mem, Ok(res.count), block_metrics))
+                ProcessingResult::Executed(res.req.finish(mem, Ok(res.count), block_metrics))
             }
             Err(err) => {
                 if err.error.is_throttling_err() {
                     ProcessingResult::Throttled
                 } else {
-                    ProcessingResult::Executed(err.user_data.finish(
+                    ProcessingResult::Executed(err.req.finish(
                         mem,
                         Err(IoErr::FileEngine(err.error)),
                         block_metrics,
@@ -425,6 +425,17 @@ mod tests {
     use crate::vstate::memory::{Address, GuestAddress, GuestMemory};
 
     const NUM_DISK_SECTORS: u64 = 1024;
+
+    impl Default for PendingRequest {
+        fn default() -> Self {
+            PendingRequest {
+                r#type: RequestType::In,
+                data_len: 0,
+                status_addr: Default::default(),
+                desc_idx: 0,
+            }
+        }
+    }
 
     #[test]
     fn test_read_request_header() {
