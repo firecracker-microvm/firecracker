@@ -102,7 +102,15 @@ impl VsockEpollListener for TestBackend {
         self.evset = Some(evset);
     }
 }
-impl VsockBackend for TestBackend {}
+impl VsockBackend for TestBackend {
+    fn start_bouncing(&mut self) {
+        unimplemented!()
+    }
+
+    fn is_bouncing(&self) -> bool {
+        false
+    }
+}
 
 #[derive(Debug)]
 pub struct TestContext {

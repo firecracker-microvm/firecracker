@@ -20,7 +20,7 @@ use crate::devices::virtio::iovec::IoVecBufferMut;
 use crate::devices::virtio::queue::{FIRECRACKER_MAX_QUEUE_SIZE, InvalidAvailIdx, Queue};
 use crate::devices::virtio::transport::{VirtioInterrupt, VirtioInterruptType};
 use crate::impl_device_type;
-use crate::logger::{IncMetric, debug, error};
+use crate::logger::{IncMetric, debug, error, info};
 use crate::rate_limiter::{RateLimiter, TokenType};
 use crate::vstate::memory::GuestMemoryMmap;
 
@@ -323,6 +323,21 @@ impl VirtioDevice for Entropy {
         })?;
         self.device_state = DeviceState::Activated(ActiveState { mem, interrupt });
         Ok(())
+    }
+
+    fn kick(&mut self) {
+        if self.is_activated() {
+            info!("kick entropy {}.", self.id());
+            self.process_virtio_queues();
+        }
+    }
+
+    fn force_userspace_bounce_buffers(&mut self) {
+        // rng device works with only userspace accesses
+    }
+
+    fn userspace_bounce_buffers(&self) -> bool {
+        false
     }
 }
 
