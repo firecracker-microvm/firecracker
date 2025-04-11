@@ -75,7 +75,11 @@ def test_boottime(
 ):
     """Test boot time with different guest configurations"""
 
-    if memory_config is not None and "6.1" not in guest_kernel_acpi.name:
+    if (
+        memory_config is not None
+        and memory_config["initial_swiotlb_size"] != 0
+        and "6.1" not in guest_kernel_acpi.name
+    ):
         pytest.skip("swiotlb only supported on aarch64/6.1")
 
     for _ in range(10):
