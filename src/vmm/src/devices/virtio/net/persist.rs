@@ -127,6 +127,7 @@ impl Persist<'_> for Net {
         )?;
         net.avail_features = state.virtio_state.avail_features;
         net.acked_features = state.virtio_state.acked_features;
+        net.userspace_bouncing = state.virtio_state.bounce_in_userspace;
 
         Ok(net)
     }

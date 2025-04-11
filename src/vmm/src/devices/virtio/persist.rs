@@ -126,17 +126,20 @@ pub struct VirtioDeviceState {
     pub queues: Vec<QueueState>,
     /// Flag for activated status.
     pub activated: bool,
+    /// Whether this device has to use userspace bounce buffers
+    pub bounce_in_userspace: bool,
 }
 
 impl VirtioDeviceState {
     /// Construct the virtio state of a device.
-    pub fn from_device(device: &dyn VirtioDevice) -> Self {
+    pub fn from_device(device: &impl VirtioDevice) -> Self {
         VirtioDeviceState {
             device_type: device.device_type(),
             avail_features: device.avail_features(),
             acked_features: device.acked_features(),
             queues: device.queues().iter().map(Persist::save).collect(),
             activated: device.is_activated(),
+            bounce_in_userspace: device.userspace_bounce_buffers(),
         }
     }
 
