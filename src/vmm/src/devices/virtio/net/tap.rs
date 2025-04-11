@@ -49,7 +49,7 @@ ioctl_iow_nr!(TUNSETVNETHDRSZ, TUNTAP, 216, ::std::os::raw::c_int);
 /// Tap goes out of scope, and the kernel will clean up the interface automatically.
 #[derive(Debug)]
 pub struct Tap {
-    tap_file: File,
+    pub(crate) tap_file: File,
     pub(crate) if_name: [u8; IFACE_NAME_MAX_LEN],
 }
 
