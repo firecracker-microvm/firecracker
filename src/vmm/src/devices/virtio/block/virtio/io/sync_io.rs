@@ -8,7 +8,7 @@ use std::os::unix::fs::FileTypeExt;
 
 use vm_memory::{GuestMemoryBackend, GuestMemoryError, ReadVolatile, WriteVolatile};
 
-use crate::vstate::memory::{GuestAddress, GuestMemoryMmap};
+use crate::vstate::memory::{GuestAddress, GuestMemoryMmap, MaybeBounce};
 
 #[derive(Debug, thiserror::Error, displaydoc::Display)]
 pub enum SyncIoError {
@@ -26,7 +26,12 @@ pub enum SyncIoError {
 
 #[derive(Debug)]
 pub struct SyncFileEngine {
-    file: File,
+    // 65536 is the largest buffer a linux guest will give us, empirically. Determined by
+    // having `MaybeBounce` logging scenarios where the fixed size bounce buffer isn't sufficient.
+    // Note that even if this assumption ever changes, the worse that'll happen is that we do
+    // multiple roundtrips between guest memory and the bounce buffer, as MaybeBounce would
+    // just chop larger reads/writes into chunks of 65k.
+    file: MaybeBounce<File, { u16::MAX as usize + 1 }>,
 }
 
 // SAFETY: `File` is send and ultimately a POD.
@@ -80,16 +85,26 @@ pub(super) fn file_discard_range(file: &File, range: (u64, u32)) -> Result<u32, 
 
 impl SyncFileEngine {
     pub fn from_file(file: File) -> SyncFileEngine {
-        SyncFileEngine { file }
+        SyncFileEngine {
+            file: MaybeBounce::new_persistent(file, false),
+        }
     }
 
     pub fn file(&self) -> &File {
-        &self.file
+        &self.file.target
+    }
+
+    pub fn start_bouncing(&mut self) {
+        self.file.activate()
+    }
+
+    pub fn is_bouncing(&self) -> bool {
+        self.file.is_activated()
     }
 
     /// Update the backing file of the engine
     pub fn update_file(&mut self, file: File) {
-        self.file = file
+        self.file.target = file
     }
 
     pub fn read(
@@ -126,13 +141,13 @@ impl SyncFileEngine {
 
     pub fn flush(&mut self) -> Result<(), SyncIoError> {
         // flush() first to force any cached data out of rust buffers.
-        self.file.flush().map_err(SyncIoError::Flush)?;
+        self.file.target.flush().map_err(SyncIoError::Flush)?;
         // Sync data out to physical media on host.
-        self.file.sync_all().map_err(SyncIoError::SyncAll)
+        self.file.target.sync_all().map_err(SyncIoError::SyncAll)
     }
 
     pub fn discard(&mut self, range: (u64, u32)) -> Result<u32, SyncIoError> {
-        file_discard_range(&self.file, range).map_err(SyncIoError::Discard)
+        file_discard_range(self.file(), range).map_err(SyncIoError::Discard)
     }
 }
 

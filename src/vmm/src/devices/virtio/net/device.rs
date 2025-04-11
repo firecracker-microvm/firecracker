@@ -5,6 +5,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the THIRD-PARTY file.
 
+use std::io::{Read, Write};
 use std::mem::{self};
 use std::net::Ipv4Addr;
 use std::num::Wrapping;
@@ -216,7 +217,9 @@ pub struct Net {
     pub(crate) rx_rate_limiter: RateLimiter,
     pub(crate) tx_rate_limiter: RateLimiter,
 
-    rx_frame_buf: [u8; MAX_BUFFER_SIZE],
+    /// Used both for bounce buffering and for relaying frames to MMDS
+    userspace_buffer: [u8; MAX_BUFFER_SIZE],
+    pub(crate) userspace_bouncing: bool,
 
     tx_frame_headers: [u8; frame_hdr_len()],
 
@@ -288,8 +291,9 @@ impl Net {
             queue_evts,
             rx_rate_limiter,
             tx_rate_limiter,
-            rx_frame_buf: [0u8; MAX_BUFFER_SIZE],
+            userspace_buffer: [0u8; MAX_BUFFER_SIZE],
             tx_frame_headers: [0u8; frame_hdr_len()],
+            userspace_bouncing: false,
             config_space,
             guest_mac,
             device_state: DeviceState::Inactive,
@@ -487,6 +491,7 @@ impl Net {
     // Tries to detour the frame to MMDS and if MMDS doesn't accept it, sends it on the host TAP.
     //
     // Returns whether MMDS consumed the frame.
+    #[allow(clippy::too_many_arguments)]
     fn write_to_mmds_or_tap(
         mmds_ns: Option<&mut MmdsNetworkStack>,
         rate_limiter: &mut RateLimiter,
@@ -495,6 +500,7 @@ impl Net {
         tap: &mut Tap,
         guest_mac: Option<MacAddr>,
         net_metrics: &NetDeviceMetrics,
+        bb: Option<&mut [u8]>,
     ) -> Result<bool, NetError> {
         // There is a potential for a TOCTOU race condition here where,
         // when MMDS is enabled, the guest can rewrite packet headers between
@@ -566,7 +572,19 @@ impl Net {
         }
 
         let _metric = net_metrics.tap_write_agg.record_latency_metrics();
-        match frame_iovec.writev_to(tap) {
+        let written = if let Some(bb) = bb {
+            // Copy the frame into the bounce buffer first, so the kernel never touches guest
+            // memory.
+            let how_many = frame_iovec.len() as usize;
+            let copied = frame_iovec
+                .read_volatile_at(&mut &mut *bb, 0, how_many)
+                .unwrap();
+            assert_eq!(copied, how_many);
+            tap.tap_file.write(&bb[..copied])
+        } else {
+            frame_iovec.writev_to(tap)
+        };
+        match written {
             Ok(_) => {
                 let len = u64::from(frame_iovec.len());
                 net_metrics.tx_bytes_count.add(len);
@@ -605,20 +623,20 @@ impl Net {
 
         let len = if let Some(ns) = self.mmds_ns.as_mut()
             && let Some(len) =
-                ns.write_next_frame(frame_bytes_from_buf_mut(&mut self.rx_frame_buf)?)
+                ns.write_next_frame(frame_bytes_from_buf_mut(&mut self.userspace_buffer)?)
         {
             let len = len.get();
             METRICS.mmds.tx_frames.inc();
             METRICS.mmds.tx_bytes.add(len as u64);
-            init_vnet_hdr(&mut self.rx_frame_buf);
+            init_vnet_hdr(&mut self.userspace_buffer);
             self.rx_buffer.iovec.write_all_volatile_at(
                 mem,
-                &self.rx_frame_buf[..vnet_hdr_len() + len],
+                &self.userspace_buffer[..vnet_hdr_len() + len],
                 0,
             )?;
             // SAFETY:
             // * len will never be bigger that u32::MAX because mmds is bound
-            // by the size of `self.rx_frame_buf` which is MAX_BUFFER_SIZE size.
+            // by the size of `self.userspace_buffer` which is MAX_BUFFER_SIZE size.
             (vnet_hdr_len() + len).try_into().unwrap()
         } else {
             // Without VIRTIO_NET_F_MRG_RXBUF a frame must fit in a single chain, so `readv` only
@@ -630,11 +648,29 @@ impl Net {
             } else {
                 self.rx_buffer.iovec.chains[0].length as usize
             };
-            let len = self
-                .rx_buffer
-                .iovec
-                .readv_from(mem, &self.tap, min_capacity)
-                .map_err(NetError::IO)?;
+            let len = if self.userspace_bouncing {
+                // Read the frame into the userspace bounce buffer first and copy it into guest
+                // memory afterwards. Bounding the read by `min_capacity` keeps the frame within
+                // the chains `readv` would have filled; without VIRTIO_NET_F_MRG_RXBUF the first
+                // chain may be larger than the bounce buffer, which holds `MAX_BUFFER_SIZE` bytes.
+                let bounce_len = min_capacity.min(MAX_BUFFER_SIZE);
+                let how_many = self
+                    .tap
+                    .tap_file
+                    .read(&mut self.userspace_buffer[..bounce_len])
+                    .map_err(NetError::IO)?;
+                self.rx_buffer.iovec.write_all_volatile_at(
+                    mem,
+                    &self.userspace_buffer[..how_many],
+                    0,
+                )?;
+                how_many
+            } else {
+                self.rx_buffer
+                    .iovec
+                    .readv_from(mem, &self.tap, min_capacity)
+                    .map_err(NetError::IO)?
+            };
             // SAFETY:
             // * len will never be bigger that u32::MAX
             len.try_into().unwrap()
@@ -751,6 +787,8 @@ impl Net {
                 &mut self.tap,
                 self.guest_mac,
                 &self.metrics,
+                self.userspace_bouncing
+                    .then_some(self.userspace_buffer.as_mut_slice()),
             )
             .unwrap_or(false);
             if frame_consumed_by_mmds && self.rx_buffer.used_bytes == 0 {
@@ -953,6 +991,14 @@ impl VirtioDevice for Net {
 
     fn set_acked_features(&mut self, acked_features: u64) {
         self.acked_features = acked_features;
+    }
+
+    fn force_userspace_bounce_buffers(&mut self) {
+        self.userspace_bouncing = true
+    }
+
+    fn userspace_bounce_buffers(&self) -> bool {
+        self.userspace_bouncing
     }
 
     fn queues(&self) -> &[Queue] {
@@ -2224,6 +2270,7 @@ pub mod tests {
                     &mut net.tap,
                     Some(src_mac),
                     &net.metrics,
+                    None
                 )
                 .unwrap()
             )
@@ -2263,6 +2310,7 @@ pub mod tests {
                 &mut net.tap,
                 Some(guest_mac),
                 &net.metrics,
+                None
             )
         );
 
@@ -2278,6 +2326,7 @@ pub mod tests {
                 &mut net.tap,
                 Some(not_guest_mac),
                 &net.metrics,
+                None
             )
         );
     }

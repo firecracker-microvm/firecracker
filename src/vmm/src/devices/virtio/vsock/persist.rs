@@ -8,7 +8,7 @@ use std::fmt::Debug;
 use serde::{Deserialize, Serialize};
 
 use super::*;
-use crate::devices::virtio::device::{DeviceState, VirtioDeviceType};
+use crate::devices::virtio::device::{DeviceState, VirtioDevice, VirtioDeviceType};
 use crate::devices::virtio::persist::VirtioDeviceState;
 use crate::devices::virtio::queue::FIRECRACKER_MAX_QUEUE_SIZE;
 use crate::snapshot::Persist;
@@ -119,6 +119,11 @@ where
         vsock.avail_features = state.virtio_state.avail_features;
         vsock.device_state = DeviceState::Inactive;
         vsock.pending_event_ack = state.pending_event_ack;
+
+        if state.virtio_state.bounce_in_userspace {
+            vsock.force_userspace_bounce_buffers();
+        }
+
         Ok(vsock)
     }
 }
