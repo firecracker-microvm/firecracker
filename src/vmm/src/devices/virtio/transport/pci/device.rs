@@ -1073,6 +1073,7 @@ mod tests {
                 &mut Cmdline::new(1024).unwrap(),
                 &mut event_manager,
                 false,
+                false,
             )
             .unwrap();
         vmm
