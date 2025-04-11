@@ -40,7 +40,11 @@ def network_microvm(request, microvm_factory, guest_kernel_acpi, rootfs, memory_
     """Creates a microvm with the networking setup used by the performance tests in this file.
     This fixture receives its vcpu count via indirect parameterization"""
 
-    if memory_config is not None and "6.1" not in guest_kernel_acpi.name:
+    if (
+        memory_config is not None
+        and memory_config["initial_swiotlb_size"] != 0
+        and "6.1" not in guest_kernel_acpi.name
+    ):
         pytest.skip("swiotlb only supported on aarch64/6.1")
 
     guest_mem_mib = 1024
@@ -49,7 +53,9 @@ def network_microvm(request, microvm_factory, guest_kernel_acpi, rootfs, memory_
     vm = microvm_factory.build(guest_kernel_acpi, rootfs, monitor_memory=False)
     vm.spawn(log_level="Info", emit_metrics=True)
     vm.basic_config(
-        vcpu_count=guest_vcpus, mem_size_mib=guest_mem_mib, memory_config=memory_config
+        vcpu_count=guest_vcpus,
+        mem_size_mib=guest_mem_mib,
+        memory_config=memory_config,
     )
     vm.add_net_iface()
     vm.start()
