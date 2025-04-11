@@ -264,6 +264,7 @@ impl DeviceManager {
     }
 
     /// Attaches a VirtioDevice device to the device manager and event manager.
+    #[allow(clippy::too_many_arguments)]
     pub(crate) fn attach_virtio_device<T: 'static + VirtioDevice + MutEventSubscriber + Debug>(
         &mut self,
         vm: &Arc<Vm>,
@@ -272,7 +273,12 @@ impl DeviceManager {
         cmdline: &mut Cmdline,
         event_manager: &mut EventManager,
         is_vhost_user: bool,
+        secret_free: bool,
     ) -> Result<(), AttachDeviceError> {
+        if secret_free {
+            device.lock().unwrap().force_userspace_bounce_buffers()
+        }
+
         if self.is_pci_enabled() {
             self.pci_devices
                 .attach_pci_virtio_device(vm, id, device, event_manager)?;
