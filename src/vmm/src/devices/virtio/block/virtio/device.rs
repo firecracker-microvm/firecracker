@@ -52,7 +52,7 @@ pub enum FileEngineType {
 #[derive(Debug)]
 pub struct DiskProperties {
     pub file_path: String,
-    pub file_engine: FileEngine<PendingRequest>,
+    pub file_engine: FileEngine,
     pub nsectors: u64,
     pub image_id: [u8; VIRTIO_BLK_ID_BYTES as usize],
 }
