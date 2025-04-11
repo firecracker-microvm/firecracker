@@ -255,6 +255,7 @@ pub fn build_microvm_for_boot(
             &mut boot_cmdline,
             balloon,
             event_manager,
+            vm_resources.machine_config.secret_free,
         )?;
     }
 
@@ -264,6 +265,7 @@ pub fn build_microvm_for_boot(
         &mut boot_cmdline,
         vm_resources.block.devices.iter(),
         event_manager,
+        vm_resources.machine_config.secret_free,
     )?;
     attach_net_devices(
         &mut device_manager,
@@ -271,6 +273,7 @@ pub fn build_microvm_for_boot(
         &mut boot_cmdline,
         vm_resources.net_builder.iter(),
         event_manager,
+        vm_resources.machine_config.secret_free,
     )?;
     attach_pmem_devices(
         &mut device_manager,
@@ -278,6 +281,7 @@ pub fn build_microvm_for_boot(
         &mut boot_cmdline,
         &vm_resources.pmem.configs,
         event_manager,
+        vm_resources.machine_config.secret_free,
     )?;
 
     if let Some(unix_vsock) = vm_resources.vsock.get() {
@@ -287,6 +291,7 @@ pub fn build_microvm_for_boot(
             &mut boot_cmdline,
             unix_vsock,
             event_manager,
+            vm_resources.machine_config.secret_free,
         )?;
     }
 
@@ -297,6 +302,7 @@ pub fn build_microvm_for_boot(
             &mut boot_cmdline,
             entropy,
             event_manager,
+            vm_resources.machine_config.secret_free,
         )?;
     }
 
@@ -309,6 +315,7 @@ pub fn build_microvm_for_boot(
             memory_hotplug,
             event_manager,
             virtio_mem_addr.expect("address should be allocated"),
+            vm_resources.machine_config.secret_free,
         )?;
     }
 
@@ -611,6 +618,7 @@ fn attach_entropy_device(
     cmdline: &mut LoaderKernelCmdline,
     entropy_device: &Arc<Mutex<Entropy>>,
     event_manager: &mut EventManager,
+    secret_free: bool,
 ) -> Result<(), AttachDeviceError> {
     let id = entropy_device
         .lock()
@@ -625,6 +633,7 @@ fn attach_entropy_device(
         cmdline,
         event_manager,
         false,
+        secret_free,
     )
 }
 
@@ -651,6 +660,7 @@ fn attach_virtio_mem_device(
     config: &MemoryHotplugConfig,
     event_manager: &mut EventManager,
     addr: GuestAddress,
+    secret_free: bool,
 ) -> Result<(), StartMicrovmError> {
     let kvm_vm = vm
         .as_kvm()
@@ -675,6 +685,7 @@ fn attach_virtio_mem_device(
         cmdline,
         event_manager,
         false,
+        secret_free,
     )?;
     Ok(())
 }
@@ -685,6 +696,7 @@ fn attach_block_devices<'a, I: Iterator<Item = &'a Arc<Mutex<Block>>> + Debug>(
     cmdline: &mut LoaderKernelCmdline,
     blocks: I,
     event_manager: &mut EventManager,
+    secret_free: bool,
 ) -> Result<(), StartMicrovmError> {
     for block in blocks {
         let (id, is_vhost_user) = {
@@ -706,6 +718,7 @@ fn attach_block_devices<'a, I: Iterator<Item = &'a Arc<Mutex<Block>>> + Debug>(
             cmdline,
             event_manager,
             is_vhost_user,
+            secret_free,
         )?;
     }
     Ok(())
@@ -717,6 +730,7 @@ fn attach_net_devices<'a, I: Iterator<Item = &'a Arc<Mutex<Net>>> + Debug>(
     cmdline: &mut LoaderKernelCmdline,
     net_devices: I,
     event_manager: &mut EventManager,
+    secret_free: bool,
 ) -> Result<(), StartMicrovmError> {
     for net_device in net_devices {
         let id = net_device.lock().expect("Poisoned lock").id().to_string();
@@ -728,6 +742,7 @@ fn attach_net_devices<'a, I: Iterator<Item = &'a Arc<Mutex<Net>>> + Debug>(
             cmdline,
             event_manager,
             false,
+            secret_free,
         )?;
     }
     Ok(())
@@ -739,6 +754,7 @@ fn attach_pmem_devices(
     cmdline: &mut LoaderKernelCmdline,
     configs: &[PmemConfig],
     event_manager: &mut EventManager,
+    secret_free: bool,
 ) -> Result<(), StartMicrovmError> {
     let kvm_vm = vm.as_kvm().ok_or(AttachDeviceError::NotSupported)?;
     for (i, config) in configs.iter().enumerate() {
@@ -753,7 +769,15 @@ fn attach_pmem_devices(
         let pmem = Pmem::new(kvm_vm.clone(), config.clone())?;
         let device = Arc::new(Mutex::new(pmem));
 
-        device_manager.attach_boot_virtio_device(vm, id, device, cmdline, event_manager, false)?;
+        device_manager.attach_boot_virtio_device(
+            vm,
+            id,
+            device,
+            cmdline,
+            event_manager,
+            false,
+            secret_free,
+        )?;
     }
     Ok(())
 }
@@ -764,6 +788,7 @@ fn attach_unixsock_vsock_device(
     cmdline: &mut LoaderKernelCmdline,
     unix_vsock: &Arc<Mutex<Vsock<VsockUnixBackend>>>,
     event_manager: &mut EventManager,
+    secret_free: bool,
 ) -> Result<(), AttachDeviceError> {
     let id = String::from(unix_vsock.lock().expect("Poisoned lock").id());
     // The device mutex mustn't be locked here otherwise it will deadlock.
@@ -774,6 +799,7 @@ fn attach_unixsock_vsock_device(
         cmdline,
         event_manager,
         false,
+        secret_free,
     )
 }
 
@@ -783,11 +809,20 @@ fn attach_balloon_device(
     cmdline: &mut LoaderKernelCmdline,
     balloon: &Arc<Mutex<Balloon>>,
     event_manager: &mut EventManager,
+    secret_free: bool,
 ) -> Result<(), AttachDeviceError> {
     let _kvm_vm = vm.as_kvm().ok_or(AttachDeviceError::NotSupported)?;
     let id = String::from(balloon.lock().expect("Poisoned lock").id());
     // The device mutex mustn't be locked here otherwise it will deadlock.
-    device_manager.attach_boot_virtio_device(vm, id, balloon.clone(), cmdline, event_manager, false)
+    device_manager.attach_boot_virtio_device(
+        vm,
+        id,
+        balloon.clone(),
+        cmdline,
+        event_manager,
+        false,
+        secret_free,
+    )
 }
 
 #[cfg(test)]
@@ -943,6 +978,7 @@ pub(crate) mod tests {
             cmdline,
             block_dev_configs.devices.iter(),
             event_manager,
+            false,
         )
         .unwrap();
         block_files
@@ -963,6 +999,7 @@ pub(crate) mod tests {
             cmdline,
             net_builder.iter(),
             event_manager,
+            false,
         );
         res.unwrap();
     }
@@ -990,6 +1027,7 @@ pub(crate) mod tests {
             cmdline,
             net_builder.iter(),
             event_manager,
+            false,
         )
         .unwrap();
     }
@@ -1010,6 +1048,7 @@ pub(crate) mod tests {
             cmdline,
             &vsock,
             event_manager,
+            false,
         )
         .unwrap();
 
@@ -1035,6 +1074,7 @@ pub(crate) mod tests {
             cmdline,
             &entropy,
             event_manager,
+            false,
         )
         .unwrap();
 
@@ -1068,6 +1108,7 @@ pub(crate) mod tests {
             cmdline,
             &builder.configs,
             event_manager,
+            false,
         )
         .unwrap();
         files
@@ -1103,6 +1144,7 @@ pub(crate) mod tests {
             cmdline,
             balloon,
             event_manager,
+            false,
         )
         .unwrap();
 
@@ -1439,6 +1481,7 @@ pub(crate) mod tests {
             &config,
             event_manager,
             GuestAddress(512 << 30),
+            false,
         )
         .unwrap();
     }
