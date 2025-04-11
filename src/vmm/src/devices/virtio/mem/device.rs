@@ -638,6 +638,14 @@ impl VirtioDevice for VirtioMem {
         self.acked_features = acked_features;
     }
 
+    fn force_userspace_bounce_buffers(&mut self) {
+        // mem device doesn't have a need for bounce buffers
+    }
+
+    fn userspace_bounce_buffers(&self) -> bool {
+        false
+    }
+
     fn config_as_bytes(&self) -> &[u8] {
         self.config.as_slice()
     }

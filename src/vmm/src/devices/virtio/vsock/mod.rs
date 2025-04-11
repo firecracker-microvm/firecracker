@@ -190,4 +190,10 @@ pub trait VsockBackend: VsockChannel + VsockEpollListener + Send {
     /// Reset the backend, dropping all active connections and removing its listeners
     /// from the poll set.
     fn reset(&mut self);
+
+    /// Start bouncing all I/O through userspace bounce buffers.
+    fn start_bouncing(&mut self);
+
+    /// Returns `true` if this backend is bouncing I/O through userspace bounce buffers.
+    fn is_bouncing(&self) -> bool;
 }

@@ -108,6 +108,14 @@ impl VsockBackend for TestBackend {
     }
 
     fn reset(&mut self) {}
+
+    fn start_bouncing(&mut self) {
+        unimplemented!()
+    }
+
+    fn is_bouncing(&self) -> bool {
+        false
+    }
 }
 
 #[derive(Debug)]

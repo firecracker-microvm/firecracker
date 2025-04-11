@@ -114,6 +114,7 @@ pub struct VsockMuxer {
     /// This appears to have been a design decision dating back to the initial introduction of the
     /// vsock implementation.
     pub(crate) local_port_last: u32,
+    bounce: bool,
 }
 
 impl VsockChannel for VsockMuxer {
@@ -325,6 +326,18 @@ impl VsockBackend for VsockMuxer {
         self.local_port_set.clear();
         self.local_port_last = (1u32 << 30) - 1;
     }
+
+    fn start_bouncing(&mut self) {
+        self.bounce = true;
+
+        for conn in self.conn_map.values_mut() {
+            conn.stream.activate()
+        }
+    }
+
+    fn is_bouncing(&self) -> bool {
+        self.bounce
+    }
 }
 
 impl VsockMuxer {
@@ -347,6 +360,7 @@ impl VsockMuxer {
             killq: MuxerKillQ::new(),
             local_port_last: (1u32 << 30) - 1,
             local_port_set: HashSet::with_capacity(defs::MAX_CONNECTIONS),
+            bounce: false,
         };
 
         Ok(muxer)
@@ -426,6 +440,7 @@ impl VsockMuxer {
                                     self.cid,
                                     local_port,
                                     peer_port,
+                                    self.bounce,
                                 ),
                             )
                         })
@@ -653,6 +668,7 @@ impl VsockMuxer {
                         pkt.hdr.dst_port(),
                         pkt.hdr.src_port(),
                         pkt.hdr.buf_alloc(),
+                        self.bounce,
                     ),
                 )
             })
