@@ -103,6 +103,11 @@ impl<T, const N: usize> MaybeBounce<T, N> {
     pub fn activate(&mut self) {
         self.persistent_buffer = Some(vec![0u8; N].into_boxed_slice().try_into().unwrap())
     }
+
+    /// Returns `true` if this `MaybeBounce` is actually bouncing buffers.
+    pub fn is_activated(&self) -> bool {
+        self.persistent_buffer.is_some()
+    }
 }
 
 // FIXME: replace AsFd with ReadVolatile once &File: ReadVolatile in vm-memory.
