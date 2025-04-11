@@ -269,6 +269,7 @@ impl DeviceManager {
     }
 
     /// Attaches a boot-time VirtioDevice device to the device and event managers.
+    #[allow(clippy::too_many_arguments)]
     pub(crate) fn attach_boot_virtio_device<
         T: 'static + VirtioDevice + MutEventSubscriber + Debug,
     >(
@@ -279,8 +280,14 @@ impl DeviceManager {
         cmdline: &mut Cmdline,
         event_manager: &mut EventManager,
         is_vhost_user: bool,
+        secret_free: bool,
     ) -> Result<(), AttachDeviceError> {
         let vm = vm.as_kvm().ok_or(AttachDeviceError::NotSupported)?;
+
+        if secret_free {
+            device.lock().unwrap().force_userspace_bounce_buffers()
+        }
+
         match &mut self.virtio_devices {
             VirtioDevices::Mmio(mmio_devices) => mmio_devices
                 .attach_mmio_virtio_device(vm, id, device, cmdline, event_manager, is_vhost_user)
