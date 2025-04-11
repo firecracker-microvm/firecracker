@@ -9,7 +9,7 @@ use std::sync::Arc;
 use serde::{Deserialize, Serialize};
 
 use super::*;
-use crate::devices::virtio::device::{ActiveState, DeviceState};
+use crate::devices::virtio::device::{ActiveState, DeviceState, VirtioDevice};
 use crate::devices::virtio::persist::VirtioDeviceState;
 use crate::devices::virtio::queue::FIRECRACKER_MAX_QUEUE_SIZE;
 use crate::devices::virtio::transport::VirtioInterrupt;
@@ -122,6 +122,11 @@ where
         vsock.acked_features = state.virtio_state.acked_features;
         vsock.avail_features = state.virtio_state.avail_features;
         vsock.device_state = DeviceState::Inactive;
+
+        if state.virtio_state.bounce_in_userspace {
+            vsock.force_userspace_bounce_buffers();
+        }
+
         Ok(vsock)
     }
 }

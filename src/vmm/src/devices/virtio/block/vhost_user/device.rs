@@ -298,6 +298,14 @@ impl<T: VhostUserHandleBackend + Send + 'static> VirtioDevice for VhostUserBlock
         self.acked_features = acked_features;
     }
 
+    fn force_userspace_bounce_buffers(&mut self) {
+        // Nothing Firecracker can do about this, the backend would need to do the bouncing
+    }
+
+    fn userspace_bounce_buffers(&self) -> bool {
+        false
+    }
+
     fn device_type(&self) -> u32 {
         TYPE_BLOCK
     }

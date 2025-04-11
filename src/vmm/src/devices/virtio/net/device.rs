@@ -6,6 +6,7 @@
 // found in the THIRD-PARTY file.
 
 use std::collections::VecDeque;
+use std::io::{Read, Write};
 use std::mem::{self};
 use std::net::Ipv4Addr;
 use std::num::Wrapping;
@@ -14,6 +15,7 @@ use std::sync::{Arc, Mutex};
 
 use libc::{EAGAIN, iovec};
 use log::{error, info};
+use vm_memory::VolatileSlice;
 use vmm_sys_util::eventfd::EventFd;
 
 use super::NET_QUEUE_MAX_SIZE;
@@ -248,7 +250,9 @@ pub struct Net {
     pub(crate) rx_rate_limiter: RateLimiter,
     pub(crate) tx_rate_limiter: RateLimiter,
 
-    rx_frame_buf: [u8; MAX_BUFFER_SIZE],
+    /// Used both for bounce buffering and for relaying frames to MMDS
+    userspace_buffer: [u8; MAX_BUFFER_SIZE],
+    pub(crate) userspace_bouncing: bool,
 
     tx_frame_headers: [u8; frame_hdr_len()],
 
@@ -312,8 +316,9 @@ impl Net {
             queue_evts,
             rx_rate_limiter,
             tx_rate_limiter,
-            rx_frame_buf: [0u8; MAX_BUFFER_SIZE],
+            userspace_buffer: [0u8; MAX_BUFFER_SIZE],
             tx_frame_headers: [0u8; frame_hdr_len()],
+            userspace_bouncing: false,
             config_space,
             guest_mac,
             device_state: DeviceState::Inactive,
@@ -499,6 +504,7 @@ impl Net {
     // Tries to detour the frame to MMDS and if MMDS doesn't accept it, sends it on the host TAP.
     //
     // Returns whether MMDS consumed the frame.
+    #[allow(clippy::too_many_arguments)]
     fn write_to_mmds_or_tap(
         mmds_ns: Option<&mut MmdsNetworkStack>,
         rate_limiter: &mut RateLimiter,
@@ -507,6 +513,7 @@ impl Net {
         tap: &mut Tap,
         guest_mac: Option<MacAddr>,
         net_metrics: &NetDeviceMetrics,
+        bb: Option<&mut [u8]>,
     ) -> Result<bool, NetError> {
         // Read the frame headers from the IoVecBuffer
         let max_header_len = headers.len();
@@ -554,7 +561,7 @@ impl Net {
         }
 
         let _metric = net_metrics.tap_write_agg.record_latency_metrics();
-        match Self::write_tap(tap, frame_iovec) {
+        match Self::write_tap(tap, frame_iovec, bb) {
             Ok(_) => {
                 let len = u64::from(frame_iovec.len());
                 net_metrics.tx_bytes_count.add(len);
@@ -588,15 +595,15 @@ impl Net {
 
         if let Some(ns) = self.mmds_ns.as_mut() {
             if let Some(len) =
-                ns.write_next_frame(frame_bytes_from_buf_mut(&mut self.rx_frame_buf)?)
+                ns.write_next_frame(frame_bytes_from_buf_mut(&mut self.userspace_buffer)?)
             {
                 let len = len.get();
                 METRICS.mmds.tx_frames.inc();
                 METRICS.mmds.tx_bytes.add(len as u64);
-                init_vnet_hdr(&mut self.rx_frame_buf);
+                init_vnet_hdr(&mut self.userspace_buffer);
                 self.rx_buffer
                     .iovec
-                    .write_all_volatile_at(&self.rx_frame_buf[..vnet_hdr_len() + len], 0)?;
+                    .write_all_volatile_at(&self.userspace_buffer[..vnet_hdr_len() + len], 0)?;
                 // SAFETY:
                 // * len will never be bigger that u32::MAX because mmds is bound
                 // by the size of `self.rx_frame_buf` which is MAX_BUFFER_SIZE size.
@@ -736,6 +743,8 @@ impl Net {
                 &mut self.tap,
                 self.guest_mac,
                 &self.metrics,
+                self.userspace_bouncing
+                    .then_some(self.userspace_buffer.as_mut_slice()),
             )
             .unwrap_or(false);
             if frame_consumed_by_mmds && self.rx_buffer.used_bytes == 0 {
@@ -826,11 +835,57 @@ impl Net {
         } else {
             self.rx_buffer.single_chain_slice_mut()
         };
-        self.tap.read_iovec(slice)
+
+        if self.userspace_bouncing {
+            let how_many = self
+                .tap
+                .tap_file
+                .read(self.userspace_buffer.as_mut_slice())?;
+
+            assert!(how_many <= MAX_BUFFER_SIZE);
+
+            let mut offset = 0;
+            for iov in slice {
+                assert!(
+                    offset <= how_many,
+                    "copied more bytes into guest memory than read from tap"
+                );
+
+                let to_copy = (how_many - offset).min(iov.iov_len);
+
+                if to_copy == 0 {
+                    break;
+                }
+
+                // SAFETY: the iovec comes from an `IoVecBufferMut`, which upholds the invariant
+                // that all contained iovecs are covering valid ranges of guest memory.
+                // Particularly, to_copy <= iov.iov_len
+                let vslice = unsafe { VolatileSlice::new(iov.iov_base.cast(), to_copy) };
+
+                vslice.copy_from(&self.userspace_buffer[offset..]);
+
+                offset += to_copy;
+            }
+
+            Ok(how_many)
+        } else {
+            self.tap.read_iovec(slice)
+        }
     }
 
-    fn write_tap(tap: &mut Tap, buf: &IoVecBuffer) -> std::io::Result<usize> {
-        tap.write_iovec(buf)
+    fn write_tap(
+        tap: &mut Tap,
+        buf: &IoVecBuffer,
+        bounce_buffer: Option<&mut [u8]>,
+    ) -> std::io::Result<usize> {
+        if let Some(bb) = bounce_buffer {
+            let how_many = buf.len() as usize;
+            let copied = buf.read_volatile_at(&mut &mut *bb, 0, how_many).unwrap();
+            assert_eq!(copied, how_many);
+            tap.tap_file.write(&bb[..copied])
+        } else {
+            tap.write_iovec(buf)
+        }
     }
 
     /// Process a single RX queue event.
@@ -970,6 +1025,14 @@ impl VirtioDevice for Net {
 
     fn set_acked_features(&mut self, acked_features: u64) {
         self.acked_features = acked_features;
+    }
+
+    fn force_userspace_bounce_buffers(&mut self) {
+        self.userspace_bouncing = true
+    }
+
+    fn userspace_bounce_buffers(&self) -> bool {
+        self.userspace_bouncing
     }
 
     fn device_type(&self) -> u32 {
@@ -2027,6 +2090,7 @@ pub mod tests {
                     &mut net.tap,
                     Some(src_mac),
                     &net.metrics,
+                    None
                 )
                 .unwrap()
             )
@@ -2066,6 +2130,7 @@ pub mod tests {
                 &mut net.tap,
                 Some(guest_mac),
                 &net.metrics,
+                None
             )
         );
 
@@ -2081,6 +2146,7 @@ pub mod tests {
                 &mut net.tap,
                 Some(not_guest_mac),
                 &net.metrics,
+                None
             )
         );
     }

@@ -532,6 +532,14 @@ pub(crate) mod tests {
 
         fn set_acked_features(&mut self, _: u64) {}
 
+        fn force_userspace_bounce_buffers(&mut self) {
+            todo!()
+        }
+
+        fn userspace_bounce_buffers(&self) -> bool {
+            todo!()
+        }
+
         fn device_type(&self) -> u32 {
             0
         }
