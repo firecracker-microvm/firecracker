@@ -169,3 +169,41 @@ impl<'a> Persist<'a> for PVTime {
         ))
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::device_manager::resources::ResourceAllocator;
+
+    #[test]
+    fn test_get_steal_time_region_addr() {
+        let base = GuestAddress(0x1000);
+        let dev = PVTime::from_base(base, 3);
+
+        assert_eq!(
+            dev.get_steal_time_region_addr(0).unwrap(),
+            GuestAddress(0x1000)
+        );
+        assert_eq!(
+            dev.get_steal_time_region_addr(1).unwrap(),
+            GuestAddress(0x1000 + STEALTIME_STRUCT_MEM_SIZE)
+        );
+        assert!(matches!(
+            dev.get_steal_time_region_addr(3),
+            Err(PVTimeError::InvalidVcpuIndex(3))
+        ));
+    }
+
+    #[test]
+    fn test_new_pvtime_allocates_correctly() {
+        let mut allocator = ResourceAllocator::new().unwrap();
+        let dev = PVTime::new(&mut allocator, 2).unwrap();
+
+        assert_eq!(dev.vcpu_count, 2);
+        assert_eq!(
+            dev.base_ipa.0 % STEALTIME_STRUCT_MEM_SIZE,
+            0,
+            "Base IPA should be aligned"
+        );
+    }
+}
