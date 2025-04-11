@@ -583,7 +583,9 @@ impl VirtioDevice for VirtioBlock {
 
     fn force_userspace_bounce_buffers(&mut self) {
         match self.disk.file_engine {
-            FileEngine::Async(_) => panic!("No idea how this is supposed to work for io_uring"),
+            FileEngine::Async(_) => {
+                panic!("async engine is incompatible with userspace bounce buffers")
+            }
             FileEngine::Sync(ref mut engine) => engine.start_bouncing(),
         }
     }
