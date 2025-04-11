@@ -154,13 +154,22 @@ def test_block_performance(
     """
     Execute block device emulation benchmarking scenarios.
     """
-    if memory_config is not None and "6.1" not in guest_kernel_acpi.name:
+    if (
+        memory_config is not None
+        and memory_config["initial_swiotlb_size"] != 0
+        and "6.1" not in guest_kernel_acpi.name
+    ):
         pytest.skip("swiotlb only supported on aarch64/6.1")
+
+    if memory_config is not None and io_engine == "Async":
+        pytest.skip("userspace bounce buffers not supported with async block engine")
 
     vm = microvm_factory.build(guest_kernel_acpi, rootfs, monitor_memory=False)
     vm.spawn(log_level="Info", emit_metrics=True)
     vm.basic_config(
-        vcpu_count=vcpus, mem_size_mib=GUEST_MEM_MIB, memory_config=memory_config
+        vcpu_count=vcpus,
+        mem_size_mib=GUEST_MEM_MIB,
+        memory_config=memory_config,
     )
     vm.add_net_iface()
     # Add a secondary block device for benchmark tests.
