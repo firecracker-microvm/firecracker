@@ -12,7 +12,7 @@ use super::*;
 use crate::devices::virtio::block::persist::BlockConstructorArgs;
 use crate::devices::virtio::block::virtio::device::FileEngineType;
 use crate::devices::virtio::block::virtio::metrics::BlockMetricsPerDevice;
-use crate::devices::virtio::device::{ActiveState, DeviceState};
+use crate::devices::virtio::device::{ActiveState, DeviceState, VirtioDevice};
 use crate::devices::virtio::generated::virtio_blk::VIRTIO_BLK_F_RO;
 use crate::devices::virtio::generated::virtio_ids::VIRTIO_ID_BLOCK;
 use crate::devices::virtio::persist::VirtioDeviceState;
@@ -115,7 +115,7 @@ impl Persist<'_> for VirtioBlock {
             capacity: disk_properties.nsectors.to_le(),
         };
 
-        Ok(VirtioBlock {
+        let mut dev = VirtioBlock {
             avail_features,
             acked_features,
             config_space,
@@ -135,7 +135,13 @@ impl Persist<'_> for VirtioBlock {
             rate_limiter,
             is_io_engine_throttled: false,
             metrics: BlockMetricsPerDevice::alloc(state.id.clone()),
-        })
+        };
+
+        if state.virtio_state.bounce_in_userspace {
+            dev.force_userspace_bounce_buffers()
+        }
+
+        Ok(dev)
     }
 }
 

@@ -298,6 +298,14 @@ where
         self.acked_features = acked_features
     }
 
+    fn force_userspace_bounce_buffers(&mut self) {
+        self.backend.start_bouncing()
+    }
+
+    fn userspace_bounce_buffers(&self) -> bool {
+        self.backend.is_bouncing()
+    }
+
     fn queues(&self) -> &[VirtQueue] {
         &self.queues
     }

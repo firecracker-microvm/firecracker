@@ -531,6 +531,14 @@ pub(crate) mod tests {
             self.acked_features = acked_features;
         }
 
+        fn force_userspace_bounce_buffers(&mut self) {
+            unimplemented!()
+        }
+
+        fn userspace_bounce_buffers(&self) -> bool {
+            false
+        }
+
         fn queues(&self) -> &[Queue] {
             &self.queues
         }
