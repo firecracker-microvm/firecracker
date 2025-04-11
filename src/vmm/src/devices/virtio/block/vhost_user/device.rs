@@ -302,6 +302,7 @@ impl<T: VhostUserHandleBackend + Send + 'static> VirtioDevice for VhostUserBlock
 
     fn force_userspace_bounce_buffers(&mut self) {
         // Nothing Firecracker can do about this, the backend would need to do the bouncing
+        panic!("vhost-user-blk is incompatible with userspace bounce buffers")
     }
 
     fn userspace_bounce_buffers(&self) -> bool {

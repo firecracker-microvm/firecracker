@@ -17,8 +17,6 @@ pub enum VsockConfigError {
     CreateVsockBackend(VsockUnixBackendError),
     /// Cannot create vsock device: {0}
     CreateVsockDevice(VsockError),
-    /// A vsock device was added to a secret free VM that doesnt have a swiotlb region.
-    SecretFreeWithoutSwiotlb,
 }
 
 /// This struct represents the strongly typed equivalent of the json body
