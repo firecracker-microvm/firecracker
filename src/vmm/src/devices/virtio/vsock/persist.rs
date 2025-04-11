@@ -10,7 +10,7 @@ use std::sync::atomic::AtomicU32;
 use serde::{Deserialize, Serialize};
 
 use super::*;
-use crate::devices::virtio::device::DeviceState;
+use crate::devices::virtio::device::{DeviceState, VirtioDevice};
 use crate::devices::virtio::persist::VirtioDeviceState;
 use crate::devices::virtio::queue::FIRECRACKER_MAX_QUEUE_SIZE;
 use crate::devices::virtio::vsock::TYPE_VSOCK;
@@ -128,6 +128,11 @@ where
         } else {
             DeviceState::Inactive
         };
+
+        if state.virtio_state.bounce_in_userspace {
+            vsock.force_userspace_bounce_buffers();
+        }
+
         Ok(vsock)
     }
 }
