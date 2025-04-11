@@ -152,6 +152,8 @@ impl Persist<'_> for Net {
         net.avail_features = state.virtio_state.avail_features;
         net.acked_features = state.virtio_state.acked_features;
 
+        net.userspace_bouncing = state.virtio_state.bounce_in_userspace;
+
         if state.virtio_state.activated {
             let supported_flags: u32 = Net::build_tap_offload_features(net.acked_features);
             net.tap
