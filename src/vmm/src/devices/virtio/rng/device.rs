@@ -312,6 +312,21 @@ impl VirtioDevice for Entropy {
         self.device_state = DeviceState::Activated(ActiveState { mem, interrupt });
         Ok(())
     }
+
+    fn kick(&mut self) {
+        if self.is_activated() {
+            info!("kick entropy {}.", self.id());
+            self.process_virtio_queues();
+        }
+    }
+
+    fn force_userspace_bounce_buffers(&mut self) {
+        // rng device works with only userspace accesses
+    }
+
+    fn userspace_bounce_buffers(&self) -> bool {
+        false
+    }
 }
 
 #[cfg(test)]

@@ -348,6 +348,14 @@ impl VirtioDevice for Pmem {
         self.acked_features = acked_features;
     }
 
+    fn force_userspace_bounce_buffers(&mut self) {
+        // pmem device doesn't have a need for bounce buffers
+    }
+
+    fn userspace_bounce_buffers(&self) -> bool {
+        false
+    }
+
     fn queues(&self) -> &[Queue] {
         &self.queues
     }
