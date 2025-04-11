@@ -11,6 +11,7 @@ use std::sync::{Arc, Mutex};
 use event_manager::{MutEventSubscriber, SubscriberOps};
 use libc::EFD_NONBLOCK;
 use linux_loader::cmdline::Cmdline as LoaderKernelCmdline;
+#[cfg(target_arch = "aarch64")]
 use log::warn;
 use userfaultfd::Uffd;
 use utils::time::TimestampUs;
@@ -85,6 +86,7 @@ pub enum StartMicrovmError {
     /// Error creating VMGenID device: {0}
     CreateVMGenID(VmGenIdError),
     /// Error creating PVTime device: {0}
+    #[cfg(target_arch = "aarch64")]
     CreatePVTime(PVTimeError),
     /// Invalid Memory Configuration: {0}
     GuestMemory(crate::vstate::memory::MemoryError),
@@ -420,6 +422,7 @@ pub enum BuildMicrovmFromSnapshotError {
     ACPIDeviManager(#[from] ACPIDeviceManagerRestoreError),
     /// VMGenID update failed: {0}
     VMGenIDUpdate(std::io::Error),
+    #[cfg(target_arch = "aarch64")]
     /// Failed to restore PVTime device: {0}
     RestorePVTime(#[from] PVTimeError),
 }
