@@ -1104,6 +1104,7 @@ mod tests {
                 entropy.clone(),
                 &mut Cmdline::new(1024).unwrap(),
                 false,
+                false,
             )
             .unwrap();
 
@@ -1221,6 +1222,7 @@ mod tests {
                 "rng".to_string(),
                 entropy.clone(),
                 &mut Cmdline::new(1024).unwrap(),
+                false,
                 false,
             )
             .unwrap();
