@@ -10,6 +10,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::cpu_config::templates::CustomCpuTemplate;
 use crate::device_manager::persist::SharedDeviceType;
+use crate::devices::virtio::block::device::Block;
 use crate::logger::info;
 use crate::mmds;
 use crate::mmds::data_store::{Mmds, MmdsVersion};
@@ -111,14 +112,6 @@ pub struct VmResources {
 }
 
 impl VmResources {
-    /// Whether this [`VmResources`] object contains any devices that require host kernel access
-    /// into guest memory.
-    pub fn has_any_io_devices(&self) -> bool {
-        !self.block.devices.is_empty()
-            || self.vsock.get().is_some()
-            || self.net_builder.iter().next().is_some()
-    }
-
     /// Configures Vmm resources as described by the `config_json` param.
     pub fn from_json(
         config_json: &str,
@@ -270,16 +263,6 @@ impl VmResources {
             return Err(MachineConfigError::IncompatibleBalloonSize);
         }
 
-        if self.has_any_io_devices()
-            && self.machine_config.mem_config.secret_free
-            && !self.swiotlb_used()
-        {
-            return Err(MachineConfigError::Incompatible(
-                "secret freedom",
-                "I/O without swiotlb",
-            ));
-        }
-
         if self.balloon.get().is_some() && updated.huge_pages != HugePageConfig::None {
             return Err(MachineConfigError::Incompatible(
                 "balloon device",
@@ -292,6 +275,22 @@ impl VmResources {
                 "secret freedom",
             ));
         }
+        if !self.swiotlb_used() && updated.mem_config.secret_free {
+            if self.vhost_user_devices_used() {
+                return Err(MachineConfigError::Incompatible(
+                    "vhost-user devices",
+                    "userspace bounce buffers",
+                ));
+            }
+
+            if self.async_block_engine_used() {
+                return Err(MachineConfigError::Incompatible(
+                    "async block engine",
+                    "userspace bounce buffers",
+                ));
+            }
+        }
+
         self.machine_config = updated;
 
         Ok(())
@@ -377,13 +376,18 @@ impl VmResources {
         &mut self,
         block_device_config: BlockDeviceConfig,
     ) -> Result<(), DriveError> {
-        if self.has_any_io_devices()
-            && self.machine_config.mem_config.secret_free
-            && !self.swiotlb_used()
-        {
-            return Err(DriveError::SecretFreeWithoutSwiotlb);
+        if self.machine_config.mem_config.secret_free && !self.swiotlb_used() {
+            if block_device_config.file_engine_type == Some(FileEngineType::Async) {
+                return Err(DriveError::IncompatibleWithUserspaceBounceBuffers(
+                    "async file engine",
+                ));
+            }
+            if block_device_config.socket.is_some() {
+                return Err(DriveError::IncompatibleWithUserspaceBounceBuffers(
+                    "vhost-user-blk",
+                ));
+            }
         }
-
         self.block.insert(block_device_config)
     }
 
@@ -392,26 +396,12 @@ impl VmResources {
         &mut self,
         body: NetworkInterfaceConfig,
     ) -> Result<(), NetworkInterfaceError> {
-        if self.has_any_io_devices()
-            && self.machine_config.mem_config.secret_free
-            && !self.swiotlb_used()
-        {
-            return Err(NetworkInterfaceError::SecretFreeWithoutSwiotlb);
-        }
-
         let _ = self.net_builder.build(body)?;
         Ok(())
     }
 
     /// Sets a vsock device to be attached when the VM starts.
     pub fn set_vsock_device(&mut self, config: VsockDeviceConfig) -> Result<(), VsockConfigError> {
-        if self.has_any_io_devices()
-            && self.machine_config.mem_config.secret_free
-            && !self.swiotlb_used()
-        {
-            return Err(VsockConfigError::SecretFreeWithoutSwiotlb);
-        }
-
         self.vsock.insert(config)
     }
 
@@ -503,6 +493,16 @@ impl VmResources {
             .devices
             .iter()
             .any(|b| b.lock().expect("Poisoned lock").is_vhost_user())
+    }
+
+    fn async_block_engine_used(&self) -> bool {
+        self.block
+            .devices
+            .iter()
+            .any(|b| match &*b.lock().unwrap() {
+                Block::Virtio(b) => b.file_engine_type() == FileEngineType::Async,
+                Block::VhostUser(_) => false,
+            })
     }
 
     /// The size of the swiotlb region requested, in MiB
