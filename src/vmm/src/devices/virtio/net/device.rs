@@ -6,7 +6,7 @@
 // found in the THIRD-PARTY file.
 
 use std::collections::VecDeque;
-use std::io::{ErrorKind, Read, Write};
+use std::io::{Read, Write};
 use std::mem::{self};
 use std::net::Ipv4Addr;
 use std::sync::{Arc, Mutex};
@@ -561,17 +561,12 @@ impl Net {
 
         let _metric = net_metrics.tap_write_agg.record_latency_metrics();
         match Self::write_tap(tap, frame_iovec, bb) {
-            Ok(written) if written == frame_iovec.len() as usize => {
+            Ok(_) => {
                 let len = u64::from(frame_iovec.len());
                 net_metrics.tx_bytes_count.add(len);
                 net_metrics.tx_packets_count.inc();
                 net_metrics.tx_count.inc();
             }
-            Ok(how_many) => error!(
-                "Failed to write full frame to tap! {}/{}",
-                how_many,
-                frame_iovec.len()
-            ),
             Err(err) => {
                 error!("Failed to write to tap: {:?}", err);
                 net_metrics.tap_write_fails.inc();
@@ -844,11 +839,10 @@ impl Net {
         };
 
         if self.userspace_bouncing {
-            let how_many = match self.tap.tap_file.read(self.userspace_buffer.as_mut_slice()) {
-                Err(ioe) if ioe.kind() == ErrorKind::WouldBlock => return Ok(0),
-                Err(err) => return Err(err),
-                Ok(read) => read,
-            };
+            let how_many = self
+                .tap
+                .tap_file
+                .read(self.userspace_buffer.as_mut_slice())?;
 
             assert!(how_many <= MAX_BUFFER_SIZE);
 
@@ -877,11 +871,7 @@ impl Net {
 
             Ok(how_many)
         } else {
-            match self.tap.read_iovec(slice) {
-                Err(ioe) if ioe.kind() == ErrorKind::WouldBlock => Ok(0),
-                Err(err) => Err(err),
-                Ok(read) => Ok(read),
-            }
+            self.tap.read_iovec(slice)
         }
     }
 

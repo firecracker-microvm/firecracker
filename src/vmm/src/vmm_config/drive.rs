@@ -24,8 +24,8 @@ pub enum DriveError {
     DeviceUpdate(VmmError),
     /// A root block device already exists!
     RootBlockDeviceAlreadyAdded,
-    /// A block device was added to a secret free VM that doesnt have a swiotlb region.
-    SecretFreeWithoutSwiotlb,
+    /// {0} is incompatible with userspace bounce buffers.
+    IncompatibleWithUserspaceBounceBuffers(&'static str),
 }
 
 /// Use this structure to set up the Block Device before booting the kernel.
