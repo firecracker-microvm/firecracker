@@ -466,7 +466,7 @@ impl Vm {
                     .iter()
                     .any(|r| r.inner().guest_memfd != 0);
                 self.guest_memory()
-                    .dump(&mut MaybeBounce(&file, secret_hidden))
+                    .dump(&mut MaybeBounce::new(&file, secret_hidden))
                     .and_then(|_| self.swiotlb_regions().dump(&mut file))?;
                 self.reset_dirty_bitmap();
                 self.guest_memory().reset_dirty();
