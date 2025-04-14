@@ -6,7 +6,7 @@
 // found in the THIRD-PARTY file.
 
 use std::fs::File;
-use std::io::{Read, Seek, SeekFrom};
+use std::io::{Read, Seek, SeekFrom, Write};
 use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
@@ -56,52 +56,131 @@ pub enum MemoryError {
 /// Newtype that implements [`ReadVolatile`] and [`WriteVolatile`] if `T` implements `Read` or
 /// `Write` respectively, by reading/writing using a bounce buffer, and memcpy-ing into the
 /// [`VolatileSlice`].
+///
+/// Bounce buffers are allocated on the heap, as on-stack bounce buffers could cause stack
+/// overflows. If `N == 0` then bounce buffers will be allocated on demand.
 #[derive(Debug)]
-pub struct MaybeBounce<T>(pub T, pub bool);
+pub struct MaybeBounce<T, const N: usize = 0> {
+    pub(crate) target: T,
+    persistent_buffer: Option<Box<[u8; N]>>,
+}
 
-impl<T: ReadVolatile> ReadVolatile for MaybeBounce<T> {
+impl<T> MaybeBounce<T, 0> {
+    /// Creates a new `MaybeBounce` that always allocates a bounce
+    /// buffer on-demand
+    pub fn new(target: T, should_bounce: bool) -> Self {
+        MaybeBounce::new_persistent(target, should_bounce)
+    }
+}
+
+impl<T, const N: usize> MaybeBounce<T, N> {
+    /// Creates a new `MaybeBounce` that uses a persistent, fixed size bounce buffer
+    /// of size `N`. If a read/write request exceeds the size of this bounce buffer, it
+    /// is split into multiple, `<= N`-size read/writes.
+    pub fn new_persistent(target: T, should_bounce: bool) -> Self {
+        let mut bounce = MaybeBounce {
+            target,
+            persistent_buffer: None,
+        };
+
+        if should_bounce {
+            bounce.activate()
+        }
+
+        bounce
+    }
+
+    /// Activates this [`MaybeBounce`] to start doing reads/writes via a bounce buffer,
+    /// which is allocated on the heap by this function (e.g. if `activate()` is never called,
+    /// no bounce buffer is ever allocated).
+    pub fn activate(&mut self) {
+        self.persistent_buffer = Some(vec![0u8; N].into_boxed_slice().try_into().unwrap())
+    }
+}
+
+impl<T: ReadVolatile, const N: usize> ReadVolatile for MaybeBounce<T, N> {
     fn read_volatile<B: BitmapSlice>(
         &mut self,
         buf: &mut VolatileSlice<B>,
     ) -> Result<usize, VolatileMemoryError> {
-        if self.1 {
-            let mut bbuf = vec![0; buf.len()];
-            let n = self
-                .0
-                .read_volatile(&mut VolatileSlice::from(bbuf.as_mut_slice()))?;
-            buf.copy_from(&bbuf[..n]);
-            Ok(n)
+        if let Some(ref mut persistent) = self.persistent_buffer {
+            let mut bbuf = (N == 0).then(|| vec![0u8; buf.len()]);
+            let bbuf = bbuf.as_deref_mut().unwrap_or(persistent.as_mut_slice());
+
+            let mut buf = buf.offset(0)?;
+            let mut total = 0;
+            while !buf.is_empty() {
+                let how_much = buf.len().min(bbuf.len());
+                let n = self
+                    .target
+                    .read_volatile(&mut VolatileSlice::from(&mut bbuf[..how_much]))?;
+                buf.copy_from(&bbuf[..n]);
+
+                buf = buf.offset(n)?;
+                total += n;
+
+                if n < how_much {
+                    break;
+                }
+            }
+
+            Ok(total)
         } else {
-            self.0.read_volatile(buf)
+            self.target.read_volatile(buf)
         }
     }
 }
 
-impl<T: WriteVolatile> WriteVolatile for MaybeBounce<T> {
+impl<T: WriteVolatile, const N: usize> WriteVolatile for MaybeBounce<T, N> {
     fn write_volatile<B: BitmapSlice>(
         &mut self,
         buf: &VolatileSlice<B>,
     ) -> Result<usize, VolatileMemoryError> {
-        if self.1 {
-            let mut bbuf = vec![0; buf.len()];
-            buf.copy_to(bbuf.as_mut_slice());
-            self.0
-                .write_volatile(&VolatileSlice::from(bbuf.as_mut_slice()))
+        if let Some(ref mut persistent) = self.persistent_buffer {
+            let mut bbuf = (N == 0).then(|| vec![0u8; buf.len()]);
+            let bbuf = bbuf.as_deref_mut().unwrap_or(persistent.as_mut_slice());
+
+            let mut buf = buf.offset(0)?;
+            let mut total = 0;
+            while !buf.is_empty() {
+                let how_much = buf.copy_to(bbuf);
+                let n = self
+                    .target
+                    .write_volatile(&VolatileSlice::from(&mut bbuf[..how_much]))?;
+                buf = buf.offset(n)?;
+                total += n;
+
+                if n < how_much {
+                    break;
+                }
+            }
+
+            Ok(total)
         } else {
-            self.0.write_volatile(buf)
+            self.target.write_volatile(buf)
         }
     }
 }
 
-impl<R: Read> Read for MaybeBounce<R> {
+impl<R: Read, const N: usize> Read for MaybeBounce<R, N> {
     fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
-        self.0.read(buf)
+        self.target.read(buf)
     }
 }
 
-impl<S: Seek> Seek for MaybeBounce<S> {
+impl<W: Write, const N: usize> Write for MaybeBounce<W, N> {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        self.target.write(buf)
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        self.target.flush()
+    }
+}
+
+impl<S: Seek, const N: usize> Seek for MaybeBounce<S, N> {
     fn seek(&mut self, pos: SeekFrom) -> std::io::Result<u64> {
-        self.0.seek(pos)
+        self.target.seek(pos)
     }
 }
 
@@ -787,30 +866,45 @@ mod tests {
     fn test_bounce() {
         let file_direct = TempFile::new().unwrap();
         let file_bounced = TempFile::new().unwrap();
+        let file_persistent_bounced = TempFile::new().unwrap();
 
         let mut data = (0..=255).collect::<Vec<_>>();
 
-        MaybeBounce(file_direct.as_file().as_fd(), false)
+        MaybeBounce::new(file_direct.as_file().as_fd(), false)
             .write_all_volatile(&VolatileSlice::from(data.as_mut_slice()))
             .unwrap();
-        MaybeBounce(file_bounced.as_file().as_fd(), true)
+        MaybeBounce::new(file_bounced.as_file().as_fd(), true)
+            .write_all_volatile(&VolatileSlice::from(data.as_mut_slice()))
+            .unwrap();
+        MaybeBounce::<_, 7>::new_persistent(file_persistent_bounced.as_file().as_fd(), true)
             .write_all_volatile(&VolatileSlice::from(data.as_mut_slice()))
             .unwrap();
 
         let mut data_direct = vec![0u8; 256];
         let mut data_bounced = vec![0u8; 256];
+        let mut data_persistent_bounced = vec![0u8; 256];
 
         file_direct.as_file().seek(SeekFrom::Start(0)).unwrap();
         file_bounced.as_file().seek(SeekFrom::Start(0)).unwrap();
+        file_persistent_bounced
+            .as_file()
+            .seek(SeekFrom::Start(0))
+            .unwrap();
 
-        MaybeBounce(file_direct.as_file().as_fd(), false)
+        MaybeBounce::new(file_direct.as_file().as_fd(), false)
             .read_exact_volatile(&mut VolatileSlice::from(data_direct.as_mut_slice()))
             .unwrap();
-        MaybeBounce(file_bounced.as_file().as_fd(), true)
+        MaybeBounce::new(file_bounced.as_file().as_fd(), true)
             .read_exact_volatile(&mut VolatileSlice::from(data_bounced.as_mut_slice()))
+            .unwrap();
+        MaybeBounce::<_, 7>::new_persistent(file_persistent_bounced.as_file().as_fd(), true)
+            .read_exact_volatile(&mut VolatileSlice::from(
+                data_persistent_bounced.as_mut_slice(),
+            ))
             .unwrap();
 
         assert_eq!(data_direct, data_bounced);
         assert_eq!(data_direct, data);
+        assert_eq!(data_persistent_bounced, data);
     }
 }
