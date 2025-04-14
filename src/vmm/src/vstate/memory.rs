@@ -64,10 +64,10 @@ pub enum MemoryError {
 /// `Write` respectively, by reading/writing using a bounce buffer, and memcpy-ing into the
 /// [`VolatileSlice`].
 #[derive(Debug)]
-pub struct Bounce<T>(pub T, pub bool);
+pub struct MaybeBounce<T>(pub T, pub bool);
 
 // FIXME: replace AsFd with ReadVolatile once &File: ReadVolatile in vm-memory.
-impl<T: Read + AsFd> ReadVolatile for Bounce<T> {
+impl<T: Read + AsFd> ReadVolatile for MaybeBounce<T> {
     fn read_volatile<B: BitmapSlice>(
         &mut self,
         buf: &mut VolatileSlice<B>,
@@ -86,7 +86,7 @@ impl<T: Read + AsFd> ReadVolatile for Bounce<T> {
     }
 }
 
-impl<T: Write + AsFd> WriteVolatile for Bounce<T> {
+impl<T: Write + AsFd> WriteVolatile for MaybeBounce<T> {
     fn write_volatile<B: BitmapSlice>(
         &mut self,
         buf: &VolatileSlice<B>,
@@ -103,13 +103,13 @@ impl<T: Write + AsFd> WriteVolatile for Bounce<T> {
     }
 }
 
-impl<R: Read> Read for Bounce<R> {
+impl<R: Read> Read for MaybeBounce<R> {
     fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
         self.0.read(buf)
     }
 }
 
-impl<S: Seek> Seek for Bounce<S> {
+impl<S: Seek> Seek for MaybeBounce<S> {
     fn seek(&mut self, pos: SeekFrom) -> std::io::Result<u64> {
         self.0.seek(pos)
     }
@@ -950,10 +950,10 @@ mod tests {
 
         let mut data = (0..=255).collect_vec();
 
-        Bounce(file_direct.as_file(), false)
+        MaybeBounce(file_direct.as_file(), false)
             .write_all_volatile(&VolatileSlice::from(data.as_mut_slice()))
             .unwrap();
-        Bounce(file_bounced.as_file(), true)
+        MaybeBounce(file_bounced.as_file(), true)
             .write_all_volatile(&VolatileSlice::from(data.as_mut_slice()))
             .unwrap();
 
@@ -963,10 +963,10 @@ mod tests {
         file_direct.as_file().seek(SeekFrom::Start(0)).unwrap();
         file_bounced.as_file().seek(SeekFrom::Start(0)).unwrap();
 
-        Bounce(file_direct.as_file(), false)
+        MaybeBounce(file_direct.as_file(), false)
             .read_exact_volatile(&mut VolatileSlice::from(data_direct.as_mut_slice()))
             .unwrap();
-        Bounce(file_bounced.as_file(), true)
+        MaybeBounce(file_bounced.as_file(), true)
             .read_exact_volatile(&mut VolatileSlice::from(data_bounced.as_mut_slice()))
             .unwrap();
 

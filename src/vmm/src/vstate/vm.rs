@@ -27,8 +27,8 @@ use crate::persist::{CreateSnapshotError, GuestRegionUffdMapping};
 use crate::utils::u64_to_usize;
 use crate::vmm_config::snapshot::SnapshotType;
 use crate::vstate::memory::{
-    Bounce, GuestMemory, GuestMemoryExtension, GuestMemoryMmap, GuestMemoryRegion, GuestRegionMmap,
-    KvmRegion,
+    GuestMemory, GuestMemoryExtension, GuestMemoryMmap, GuestMemoryRegion, GuestRegionMmap,
+    KvmRegion, MaybeBounce,
 };
 use crate::vstate::vcpu::VcpuError;
 use crate::{DirtyBitmap, Vcpu, mem_size_mib};
@@ -466,7 +466,7 @@ impl Vm {
                     .iter()
                     .any(|r| r.inner().guest_memfd != 0);
                 self.guest_memory()
-                    .dump(&mut Bounce(&file, secret_hidden))
+                    .dump(&mut MaybeBounce(&file, secret_hidden))
                     .and_then(|_| self.swiotlb_regions().dump(&mut file))?;
                 self.reset_dirty_bitmap();
                 self.guest_memory().reset_dirty();
