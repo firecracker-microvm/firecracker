@@ -65,7 +65,7 @@ use crate::vmm_config::instance_info::InstanceInfo;
 use crate::vmm_config::machine_config::MachineConfigError;
 use crate::vmm_config::snapshot::{MemBackendConfig, MemBackendType};
 use crate::vstate::kvm::Kvm;
-use crate::vstate::memory::Bounce;
+use crate::vstate::memory::MaybeBounce;
 use crate::vstate::vcpu::{Vcpu, VcpuError};
 use crate::vstate::vm::{KVM_GMEM_NO_DIRECT_MAP, Vm};
 use crate::{EventManager, Vmm, VmmError, device_manager};
@@ -274,7 +274,7 @@ pub fn build_microvm_for_boot(
     }
 
     let entry_point = load_kernel(
-        Bounce(&boot_config.kernel_file, secret_free),
+        MaybeBounce(&boot_config.kernel_file, secret_free),
         vmm.vm.guest_memory(),
     )?;
     let initrd = match &boot_config.initrd_file {
@@ -286,7 +286,7 @@ pub fn build_microvm_for_boot(
 
             Some(InitrdConfig::from_reader(
                 vmm.vm.guest_memory(),
-                Bounce(initrd_file, secret_free),
+                MaybeBounce(initrd_file, secret_free),
                 u64_to_usize(size),
             )?)
         }
