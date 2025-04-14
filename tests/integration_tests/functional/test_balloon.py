@@ -33,9 +33,11 @@ def get_stable_rss_mem_by_pid(pid, percentage_delta=1):
     first_rss = get_rss_from_pmap()
     time.sleep(1)
     second_rss = get_rss_from_pmap()
-    print(f"RSS readings: {first_rss}, {second_rss}")
     abs_diff = abs(first_rss - second_rss)
     abs_delta = 100 * abs_diff / first_rss
+    print(
+        f"RSS readings: old: {first_rss} new: {second_rss} abs_diff: {abs_diff} abs_delta: {abs_delta}"
+    )
     assert abs_delta < percentage_delta or abs_diff < 2**10
     return second_rss
 
