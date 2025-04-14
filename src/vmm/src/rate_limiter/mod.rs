@@ -774,6 +774,13 @@ pub(crate) mod tests {
 
     use super::*;
 
+    // Define custom refill interval to be a bit bigger. This will help
+    // in tests which wait for a limiter refill in 2 stages. This will make it so
+    // second wait will always result in the limiter being refilled. Otherwise
+    // there is a chance for a race condition between limiter refilling and limiter
+    // checking.
+    const TEST_REFILL_TIMER_INTERVAL_MS: u64 = REFILL_TIMER_INTERVAL_MS + 10;
+
     impl TokenBucket {
         // Resets the token bucket: budget set to max capacity and last-updated set to now.
         fn reset(&mut self) {
@@ -1009,11 +1016,11 @@ pub(crate) mod tests {
         // since consume failed, limiter should be blocked now
         assert!(l.is_blocked());
         // wait half the timer period
-        thread::sleep(Duration::from_millis(REFILL_TIMER_INTERVAL_MS / 2));
+        thread::sleep(Duration::from_millis(TEST_REFILL_TIMER_INTERVAL_MS / 2));
         // limiter should still be blocked
         assert!(l.is_blocked());
         // wait the other half of the timer period
-        thread::sleep(Duration::from_millis(REFILL_TIMER_INTERVAL_MS / 2));
+        thread::sleep(Duration::from_millis(TEST_REFILL_TIMER_INTERVAL_MS / 2));
         // the timer_fd should have an event on it by now
         l.event_handler().unwrap();
         // limiter should now be unblocked
@@ -1042,11 +1049,11 @@ pub(crate) mod tests {
         // since consume failed, limiter should be blocked now
         assert!(l.is_blocked());
         // wait half the timer period
-        thread::sleep(Duration::from_millis(REFILL_TIMER_INTERVAL_MS / 2));
+        thread::sleep(Duration::from_millis(TEST_REFILL_TIMER_INTERVAL_MS / 2));
         // limiter should still be blocked
         assert!(l.is_blocked());
         // wait the other half of the timer period
-        thread::sleep(Duration::from_millis(REFILL_TIMER_INTERVAL_MS / 2));
+        thread::sleep(Duration::from_millis(TEST_REFILL_TIMER_INTERVAL_MS / 2));
         // the timer_fd should have an event on it by now
         l.event_handler().unwrap();
         // limiter should now be unblocked
@@ -1076,11 +1083,11 @@ pub(crate) mod tests {
         // since consume failed, limiter should be blocked now
         assert!(l.is_blocked());
         // wait half the timer period
-        thread::sleep(Duration::from_millis(REFILL_TIMER_INTERVAL_MS / 2));
+        thread::sleep(Duration::from_millis(TEST_REFILL_TIMER_INTERVAL_MS / 2));
         // limiter should still be blocked
         assert!(l.is_blocked());
         // wait the other half of the timer period
-        thread::sleep(Duration::from_millis(REFILL_TIMER_INTERVAL_MS / 2));
+        thread::sleep(Duration::from_millis(TEST_REFILL_TIMER_INTERVAL_MS / 2));
         // the timer_fd should have an event on it by now
         l.event_handler().unwrap();
         // limiter should now be unblocked
