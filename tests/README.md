@@ -198,7 +198,7 @@ branch and the `HEAD` of your current branch, run
 ```sh
 tools/devtool -y build --rev main --release
 tools/devtool -y build --rev HEAD --release
-tools/devtool -y test --ab -- run build/main build/HEAD --test integration_tests/performance/test_boottime.py::test_boottime
+tools/devtool -y test --no-build --ab -- run build/main build/HEAD --test integration_tests/performance/test_boottime.py::test_boottime
 ```
 
 #### How to Write an A/B-Compatible Test and Common Pitfalls
