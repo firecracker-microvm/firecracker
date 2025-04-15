@@ -52,7 +52,7 @@ def run_fio(microvm, mode, block_size):
         .with_arg(f"--rw={mode}")
         .with_arg(f"--bs={block_size}")
         .with_arg("--filename=/dev/vdb")
-        .with_arg("--time_base=1")
+        .with_arg("--time_based=1")
         .with_arg(f"--size={BLOCK_DEVICE_SIZE_MB}M")
         .with_arg("--direct=1")
         .with_arg("--ioengine=libaio")
