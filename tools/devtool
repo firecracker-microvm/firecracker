@@ -723,6 +723,7 @@ cmd_test() {
       cmd_build --release
       if [ -n "$BUILDKITE_PULL_REQUEST_BASE_BRANCH" ]; then
         cmd_build --release --rev "$BUILDKITE_PULL_REQUEST_BASE_BRANCH"
+        ok_or_die "Failed to build Firecracker!"
       fi
     fi
 
