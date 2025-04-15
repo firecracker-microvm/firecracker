@@ -8,7 +8,7 @@
 use std::fs::File;
 use std::io::{Read, Seek, SeekFrom, Write};
 use std::mem::ManuallyDrop;
-use std::os::fd::{AsFd, AsRawFd};
+use std::os::fd::AsRawFd;
 use std::ptr::null_mut;
 use std::sync::Arc;
 
@@ -106,7 +106,7 @@ impl<T, const N: usize> MaybeBounce<T, N> {
 }
 
 // FIXME: replace AsFd with ReadVolatile once &File: ReadVolatile in vm-memory.
-impl<T: Read + AsFd, const N: usize> ReadVolatile for MaybeBounce<T, N> {
+impl<T: ReadVolatile, const N: usize> ReadVolatile for MaybeBounce<T, N> {
     fn read_volatile<B: BitmapSlice>(
         &mut self,
         buf: &mut VolatileSlice<B>,
@@ -121,8 +121,7 @@ impl<T: Read + AsFd, const N: usize> ReadVolatile for MaybeBounce<T, N> {
                 let how_much = buf.len().min(bbuf.len());
                 let n = self
                     .target
-                    .read(&mut bbuf[..how_much])
-                    .map_err(VolatileMemoryError::IOError)?;
+                    .read_volatile(&mut VolatileSlice::from(&mut bbuf[..how_much]))?;
                 buf.copy_from(&bbuf[..n]);
 
                 buf = buf.offset(n)?;
@@ -135,12 +134,12 @@ impl<T: Read + AsFd, const N: usize> ReadVolatile for MaybeBounce<T, N> {
 
             Ok(total)
         } else {
-            self.target.as_fd().read_volatile(buf)
+            self.target.read_volatile(buf)
         }
     }
 }
 
-impl<T: Write + AsFd, const N: usize> WriteVolatile for MaybeBounce<T, N> {
+impl<T: WriteVolatile, const N: usize> WriteVolatile for MaybeBounce<T, N> {
     fn write_volatile<B: BitmapSlice>(
         &mut self,
         buf: &VolatileSlice<B>,
@@ -155,8 +154,7 @@ impl<T: Write + AsFd, const N: usize> WriteVolatile for MaybeBounce<T, N> {
                 let how_much = buf.copy_to(bbuf);
                 let n = self
                     .target
-                    .write(&bbuf[..how_much])
-                    .map_err(VolatileMemoryError::IOError)?;
+                    .write_volatile(&VolatileSlice::from(&mut bbuf[..how_much]))?;
                 buf = buf.offset(n)?;
                 total += n;
 
@@ -167,7 +165,7 @@ impl<T: Write + AsFd, const N: usize> WriteVolatile for MaybeBounce<T, N> {
 
             Ok(total)
         } else {
-            self.target.as_fd().write_volatile(buf)
+            self.target.write_volatile(buf)
         }
     }
 }
@@ -652,6 +650,7 @@ mod tests {
 
     use std::collections::HashMap;
     use std::io::{Read, Seek};
+    use std::os::fd::AsFd;
 
     use itertools::Itertools;
     use vmm_sys_util::tempfile::TempFile;
@@ -1030,13 +1029,13 @@ mod tests {
 
         let mut data = (0..=255).collect_vec();
 
-        MaybeBounce::new(file_direct.as_file(), false)
+        MaybeBounce::new(file_direct.as_file().as_fd(), false)
             .write_all_volatile(&VolatileSlice::from(data.as_mut_slice()))
             .unwrap();
-        MaybeBounce::new(file_bounced.as_file(), true)
+        MaybeBounce::new(file_bounced.as_file().as_fd(), true)
             .write_all_volatile(&VolatileSlice::from(data.as_mut_slice()))
             .unwrap();
-        MaybeBounce::<_, 7>::new_persistent(file_persistent_bounced.as_file(), true)
+        MaybeBounce::<_, 7>::new_persistent(file_persistent_bounced.as_file().as_fd(), true)
             .write_all_volatile(&VolatileSlice::from(data.as_mut_slice()))
             .unwrap();
 
@@ -1051,13 +1050,13 @@ mod tests {
             .seek(SeekFrom::Start(0))
             .unwrap();
 
-        MaybeBounce::new(file_direct.as_file(), false)
+        MaybeBounce::new(file_direct.as_file().as_fd(), false)
             .read_exact_volatile(&mut VolatileSlice::from(data_direct.as_mut_slice()))
             .unwrap();
-        MaybeBounce::new(file_bounced.as_file(), true)
+        MaybeBounce::new(file_bounced.as_file().as_fd(), true)
             .read_exact_volatile(&mut VolatileSlice::from(data_bounced.as_mut_slice()))
             .unwrap();
-        MaybeBounce::<_, 7>::new_persistent(file_persistent_bounced.as_file(), true)
+        MaybeBounce::<_, 7>::new_persistent(file_persistent_bounced.as_file().as_fd(), true)
             .read_exact_volatile(&mut VolatileSlice::from(
                 data_persistent_bounced.as_mut_slice(),
             ))
