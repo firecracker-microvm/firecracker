@@ -8,7 +8,7 @@
 use std::collections::HashMap;
 use std::fs::{File, OpenOptions};
 use std::io::Write;
-use std::os::fd::FromRawFd;
+use std::os::fd::{AsFd, FromRawFd};
 use std::path::Path;
 use std::sync::Arc;
 
@@ -465,9 +465,10 @@ impl Vm {
                     .guest_memory()
                     .iter()
                     .any(|r| r.inner().guest_memfd != 0);
+                let mut maybe_bounce = MaybeBounce::new(file.as_fd(), secret_hidden);
                 self.guest_memory()
-                    .dump(&mut MaybeBounce::new(&file, secret_hidden))
-                    .and_then(|_| self.swiotlb_regions().dump(&mut file))?;
+                    .dump(&mut maybe_bounce)
+                    .and_then(|_| self.swiotlb_regions().dump(&mut maybe_bounce))?;
                 self.reset_dirty_bitmap();
                 self.guest_memory().reset_dirty();
             }

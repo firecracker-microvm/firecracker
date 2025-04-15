@@ -5,6 +5,7 @@
 
 use std::fmt::Debug;
 use std::io::{self};
+use std::os::fd::AsFd;
 use std::os::unix::fs::MetadataExt;
 #[cfg(feature = "gdb")]
 use std::sync::mpsc;
@@ -274,7 +275,7 @@ pub fn build_microvm_for_boot(
     }
 
     let entry_point = load_kernel(
-        MaybeBounce::new(&boot_config.kernel_file, secret_free),
+        MaybeBounce::new(boot_config.kernel_file.try_clone().unwrap(), secret_free),
         vmm.vm.guest_memory(),
     )?;
     let initrd = match &boot_config.initrd_file {
@@ -286,7 +287,7 @@ pub fn build_microvm_for_boot(
 
             Some(InitrdConfig::from_reader(
                 vmm.vm.guest_memory(),
-                MaybeBounce::new(initrd_file, secret_free),
+                MaybeBounce::new(initrd_file.as_fd(), secret_free),
                 u64_to_usize(size),
             )?)
         }
