@@ -9,19 +9,20 @@ use std::fs::File;
 
 pub use self::async_io::{AsyncFileEngine, AsyncIoError};
 pub use self::sync_io::{SyncFileEngine, SyncIoError};
+use crate::devices::virtio::block::virtio::PendingRequest;
 use crate::devices::virtio::block::virtio::device::FileEngineType;
 use crate::vstate::memory::{GuestAddress, GuestMemoryMmap};
 
-#[derive(Debug, PartialEq, Eq)]
-pub struct UserDataOk<T> {
-    pub user_data: T,
+#[derive(Debug)]
+pub struct RequestOk {
+    pub req: PendingRequest,
     pub count: u32,
 }
 
-#[derive(Debug, PartialEq, Eq)]
-pub enum FileEngineOk<T> {
+#[derive(Debug)]
+pub enum FileEngineOk {
     Submitted,
-    Executed(UserDataOk<T>),
+    Executed(RequestOk),
 }
 
 #[derive(Debug, thiserror::Error, displaydoc::Display)]
@@ -41,25 +42,22 @@ impl BlockIoError {
     }
 }
 
-#[derive(Debug, PartialEq, Eq)]
-pub struct UserDataError<T, E> {
-    pub user_data: T,
+#[derive(Debug)]
+pub struct RequestError<E> {
+    pub req: PendingRequest,
     pub error: E,
 }
 
 #[allow(clippy::large_enum_variant)]
 #[derive(Debug)]
-pub enum FileEngine<T> {
+pub enum FileEngine {
     #[allow(unused)]
-    Async(AsyncFileEngine<T>),
+    Async(AsyncFileEngine),
     Sync(SyncFileEngine),
 }
 
-impl<T: Debug> FileEngine<T> {
-    pub fn from_file(
-        file: File,
-        engine_type: FileEngineType,
-    ) -> Result<FileEngine<T>, BlockIoError> {
+impl FileEngine {
+    pub fn from_file(file: File, engine_type: FileEngineType) -> Result<FileEngine, BlockIoError> {
         match engine_type {
             FileEngineType::Async => Ok(FileEngine::Async(
                 AsyncFileEngine::from_file(file).map_err(BlockIoError::Async)?,
@@ -91,22 +89,20 @@ impl<T: Debug> FileEngine<T> {
         mem: &GuestMemoryMmap,
         addr: GuestAddress,
         count: u32,
-        user_data: T,
-    ) -> Result<FileEngineOk<T>, UserDataError<T, BlockIoError>> {
+        req: PendingRequest,
+    ) -> Result<FileEngineOk, RequestError<BlockIoError>> {
         match self {
-            FileEngine::Async(engine) => {
-                match engine.push_read(offset, mem, addr, count, user_data) {
-                    Ok(_) => Ok(FileEngineOk::Submitted),
-                    Err(err) => Err(UserDataError {
-                        user_data: err.user_data,
-                        error: BlockIoError::Async(err.error),
-                    }),
-                }
-            }
+            FileEngine::Async(engine) => match engine.push_read(offset, mem, addr, count, req) {
+                Ok(_) => Ok(FileEngineOk::Submitted),
+                Err(err) => Err(RequestError {
+                    req: err.req,
+                    error: BlockIoError::Async(err.error),
+                }),
+            },
             FileEngine::Sync(engine) => match engine.read(offset, mem, addr, count) {
-                Ok(count) => Ok(FileEngineOk::Executed(UserDataOk { user_data, count })),
-                Err(err) => Err(UserDataError {
-                    user_data,
+                Ok(count) => Ok(FileEngineOk::Executed(RequestOk { req, count })),
+                Err(err) => Err(RequestError {
+                    req,
                     error: BlockIoError::Sync(err),
                 }),
             },
@@ -119,22 +115,20 @@ impl<T: Debug> FileEngine<T> {
         mem: &GuestMemoryMmap,
         addr: GuestAddress,
         count: u32,
-        user_data: T,
-    ) -> Result<FileEngineOk<T>, UserDataError<T, BlockIoError>> {
+        req: PendingRequest,
+    ) -> Result<FileEngineOk, RequestError<BlockIoError>> {
         match self {
-            FileEngine::Async(engine) => {
-                match engine.push_write(offset, mem, addr, count, user_data) {
-                    Ok(_) => Ok(FileEngineOk::Submitted),
-                    Err(err) => Err(UserDataError {
-                        user_data: err.user_data,
-                        error: BlockIoError::Async(err.error),
-                    }),
-                }
-            }
+            FileEngine::Async(engine) => match engine.push_write(offset, mem, addr, count, req) {
+                Ok(_) => Ok(FileEngineOk::Submitted),
+                Err(err) => Err(RequestError {
+                    req: err.req,
+                    error: BlockIoError::Async(err.error),
+                }),
+            },
             FileEngine::Sync(engine) => match engine.write(offset, mem, addr, count) {
-                Ok(count) => Ok(FileEngineOk::Executed(UserDataOk { user_data, count })),
-                Err(err) => Err(UserDataError {
-                    user_data,
+                Ok(count) => Ok(FileEngineOk::Executed(RequestOk { req, count })),
+                Err(err) => Err(RequestError {
+                    req,
                     error: BlockIoError::Sync(err),
                 }),
             },
@@ -143,23 +137,20 @@ impl<T: Debug> FileEngine<T> {
 
     pub fn flush(
         &mut self,
-        user_data: T,
-    ) -> Result<FileEngineOk<T>, UserDataError<T, BlockIoError>> {
+        req: PendingRequest,
+    ) -> Result<FileEngineOk, RequestError<BlockIoError>> {
         match self {
-            FileEngine::Async(engine) => match engine.push_flush(user_data) {
+            FileEngine::Async(engine) => match engine.push_flush(req) {
                 Ok(_) => Ok(FileEngineOk::Submitted),
-                Err(err) => Err(UserDataError {
-                    user_data: err.user_data,
+                Err(err) => Err(RequestError {
+                    req: err.req,
                     error: BlockIoError::Async(err.error),
                 }),
             },
             FileEngine::Sync(engine) => match engine.flush() {
-                Ok(_) => Ok(FileEngineOk::Executed(UserDataOk {
-                    user_data,
-                    count: 0,
-                })),
-                Err(err) => Err(UserDataError {
-                    user_data,
+                Ok(_) => Ok(FileEngineOk::Executed(RequestOk { req, count: 0 })),
+                Err(err) => Err(RequestError {
+                    req,
                     error: BlockIoError::Sync(err),
                 }),
             },
@@ -194,7 +185,8 @@ pub mod tests {
     use crate::devices::virtio::block::virtio::device::FileEngineType;
     use crate::utils::u64_to_usize;
     use crate::vmm_config::machine_config::HugePageConfig;
-    use crate::vstate::memory::{Bitmap, Bytes, GuestMemory, GuestMemoryExtension};
+    use crate::vstate::memory;
+    use crate::vstate::memory::{Bitmap, Bytes, GuestMemory};
 
     const FILE_LEN: u32 = 1024;
     // 2 pages of memory should be enough to test read/write ops and also dirty tracking.
@@ -203,10 +195,9 @@ pub mod tests {
     macro_rules! assert_sync_execution {
         ($expression:expr, $count:expr) => {
             match $expression {
-                Ok(FileEngineOk::Executed(UserDataOk {
-                    user_data: _,
-                    count,
-                })) => assert_eq!(count, $count),
+                Ok(FileEngineOk::Executed(RequestOk { req: _, count })) => {
+                    assert_eq!(count, $count)
+                }
                 other => panic!(
                     "Expected: Ok(FileEngineOk::Executed(UserDataOk {{ user_data: _, count: {} \
                      }})), got: {:?}",
@@ -222,7 +213,7 @@ pub mod tests {
         };
     }
 
-    fn assert_async_execution(mem: &GuestMemoryMmap, engine: &mut FileEngine<()>, count: u32) {
+    fn assert_async_execution(mem: &GuestMemoryMmap, engine: &mut FileEngine, count: u32) {
         if let FileEngine::Async(engine) = engine {
             engine.drain(false).unwrap();
             assert_eq!(engine.pop(mem).unwrap().unwrap().result().unwrap(), count);
@@ -230,10 +221,13 @@ pub mod tests {
     }
 
     fn create_mem() -> GuestMemoryMmap {
-        GuestMemoryMmap::anonymous(
-            [(GuestAddress(0), MEM_LEN)].into_iter(),
-            true,
-            HugePageConfig::None,
+        GuestMemoryMmap::from_regions(
+            memory::anonymous(
+                [(GuestAddress(0), MEM_LEN)].into_iter(),
+                true,
+                HugePageConfig::None,
+            )
+            .unwrap(),
         )
         .unwrap()
     }
@@ -267,10 +261,16 @@ pub mod tests {
         let partial_len = 50;
         let addr = GuestAddress(MEM_LEN as u64 - u64::from(partial_len));
         mem.write(&data, addr).unwrap();
-        assert_sync_execution!(engine.write(0, &mem, addr, partial_len, ()), partial_len);
+        assert_sync_execution!(
+            engine.write(0, &mem, addr, partial_len, PendingRequest::default()),
+            partial_len
+        );
         // Partial read
         let mem = create_mem();
-        assert_sync_execution!(engine.read(0, &mem, addr, partial_len, ()), partial_len);
+        assert_sync_execution!(
+            engine.read(0, &mem, addr, partial_len, PendingRequest::default()),
+            partial_len
+        );
         // Check data
         let mut buf = vec![0u8; partial_len as usize];
         mem.read_slice(&mut buf, addr).unwrap();
@@ -282,13 +282,13 @@ pub mod tests {
         let addr = GuestAddress(0);
         mem.write(&data, addr).unwrap();
         assert_sync_execution!(
-            engine.write(offset, &mem, addr, partial_len, ()),
+            engine.write(offset, &mem, addr, partial_len, PendingRequest::default()),
             partial_len
         );
         // Offset read
         let mem = create_mem();
         assert_sync_execution!(
-            engine.read(offset, &mem, addr, partial_len, ()),
+            engine.read(offset, &mem, addr, partial_len, PendingRequest::default()),
             partial_len
         );
         // Check data
@@ -299,13 +299,25 @@ pub mod tests {
         // Full write
         mem.write(&data, GuestAddress(0)).unwrap();
         assert_sync_execution!(
-            engine.write(0, &mem, GuestAddress(0), FILE_LEN, ()),
+            engine.write(
+                0,
+                &mem,
+                GuestAddress(0),
+                FILE_LEN,
+                PendingRequest::default()
+            ),
             FILE_LEN
         );
         // Full read
         let mem = create_mem();
         assert_sync_execution!(
-            engine.read(0, &mem, GuestAddress(0), FILE_LEN, ()),
+            engine.read(
+                0,
+                &mem,
+                GuestAddress(0),
+                FILE_LEN,
+                PendingRequest::default()
+            ),
             FILE_LEN
         );
         // Check data
@@ -314,7 +326,7 @@ pub mod tests {
         assert_eq!(buf, data.as_slice());
 
         // Check other ops
-        engine.flush(()).unwrap();
+        engine.flush(PendingRequest::default()).unwrap();
         engine.drain(true).unwrap();
         engine.drain_and_flush(true).unwrap();
     }
@@ -323,7 +335,7 @@ pub mod tests {
     fn test_async() {
         // Create backing file.
         let file = TempFile::new().unwrap().into_file();
-        let mut engine = FileEngine::<()>::from_file(file, FileEngineType::Async).unwrap();
+        let mut engine = FileEngine::from_file(file, FileEngineType::Async).unwrap();
 
         let data = vmm_sys_util::rand::rand_alphanumerics(FILE_LEN as usize)
             .as_bytes()
@@ -338,11 +350,11 @@ pub mod tests {
         let partial_len = 50;
         let addr = GuestAddress(0);
         mem.write(&data, addr).unwrap();
-        assert_queued!(engine.write(offset, &mem, addr, partial_len, ()));
+        assert_queued!(engine.write(offset, &mem, addr, partial_len, PendingRequest::default()));
         assert_async_execution(&mem, &mut engine, partial_len);
         // Offset read
         let mem = create_mem();
-        assert_queued!(engine.read(offset, &mem, addr, partial_len, ()));
+        assert_queued!(engine.read(offset, &mem, addr, partial_len, PendingRequest::default()));
         assert_async_execution(&mem, &mut engine, partial_len);
         // Check data
         let mut buf = vec![0u8; partial_len as usize];
@@ -354,12 +366,12 @@ pub mod tests {
 
         // Full write
         mem.write(&data, GuestAddress(0)).unwrap();
-        assert_queued!(engine.write(0, &mem, addr, FILE_LEN, ()));
+        assert_queued!(engine.write(0, &mem, addr, FILE_LEN, PendingRequest::default()));
         assert_async_execution(&mem, &mut engine, FILE_LEN);
 
         // Full read
         let mem = create_mem();
-        assert_queued!(engine.read(0, &mem, addr, FILE_LEN, ()));
+        assert_queued!(engine.read(0, &mem, addr, FILE_LEN, PendingRequest::default()));
         assert_async_execution(&mem, &mut engine, FILE_LEN);
         // Check data
         let mut buf = vec![0u8; FILE_LEN as usize];
@@ -370,7 +382,7 @@ pub mod tests {
         check_clean_mem(&mem, GuestAddress(4096), 4096);
 
         // Check other ops
-        assert_queued!(engine.flush(()));
+        assert_queued!(engine.flush(PendingRequest::default()));
         assert_async_execution(&mem, &mut engine, 0);
 
         engine.drain(true).unwrap();

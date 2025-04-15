@@ -2,7 +2,6 @@
 # SPDX-License-Identifier: Apache-2.0
 """Generic utility functions that are used in the framework."""
 import errno
-import functools
 import json
 import logging
 import os
@@ -15,7 +14,6 @@ import time
 import typing
 from collections import defaultdict, namedtuple
 from contextlib import contextmanager
-from pathlib import Path
 from typing import Dict
 
 import packaging.version
@@ -162,72 +160,14 @@ class CpuMap:
 
         See this issue for details:
         https://github.com/moby/moby/issues/20770.
+
+        Note that this method is called only once when `CpuMap.arr` is
+        initialized.
         """
-        # The real processor map is found at different paths based on cgroups version:
-        #  - cgroupsv1: /cpuset.cpus
-        #  - cgroupsv2: /cpuset.cpus.effective
-        # For more details, see https://docs.kernel.org/admin-guide/cgroup-v2.html#cpuset-interface-files
-        for path in [
-            Path("/sys/fs/cgroup/cpuset/cpuset.cpus"),
-            Path("/sys/fs/cgroup/cpuset.cpus.effective"),
-        ]:
-            if path.exists():
-                return ListFormatParser(path.read_text("ascii").strip()).parse()
-
-        raise RuntimeError("Could not find cgroups cpuset")
-
-
-class ListFormatParser:
-    """Parser class for LIST FORMAT strings."""
-
-    def __init__(self, content):
-        """Initialize the parser with the content."""
-        self._content = content.strip()
-
-    @classmethod
-    def _is_range(cls, rng):
-        """Return true if the parser content is a range.
-
-        E.g ranges: 0-10.
-        """
-        match = re.search("([0-9][1-9]*)-([0-9][1-9]*)", rng)
-        # Group is a singular value.
-        return match is not None
-
-    @classmethod
-    def _range_to_list(cls, rng):
-        """Return a range of integers based on the content.
-
-        The content respects the LIST FORMAT defined in the
-        cpuset documentation.
-        See: https://man7.org/linux/man-pages/man7/cpuset.7.html.
-        """
-        ends = rng.split("-")
-        if len(ends) != 2:
-            return []
-
-        return list(range(int(ends[0]), int(ends[1]) + 1))
-
-    def parse(self):
-        """Parse list formats for cpuset and mems.
-
-        See LIST FORMAT here:
-        https://man7.org/linux/man-pages/man7/cpuset.7.html.
-        """
-        if len(self._content) == 0:
-            return []
-
-        groups = self._content.split(",")
-        arr = set()
-
-        def func(acc, cpu):
-            if ListFormatParser._is_range(cpu):
-                acc.update(ListFormatParser._range_to_list(cpu))
-            else:
-                acc.add(int(cpu))
-            return acc
-
-        return list(functools.reduce(func, groups, arr))
+        # https://psutil.readthedocs.io/en/latest/#psutil.Process.cpu_affinity
+        # > If no argument is passed it returns the current CPU affinity as a
+        # > list of intergers.
+        return psutil.Process().cpu_affinity()
 
 
 class CmdBuilder:

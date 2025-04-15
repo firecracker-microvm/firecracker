@@ -70,11 +70,6 @@ impl ApiServer {
         // Set the api payload size limit.
         server.set_payload_max_size(api_payload_limit);
 
-        // Store process start time metric.
-        process_time_reporter.report_start_time();
-        // Store process CPU start time metric.
-        process_time_reporter.report_cpu_start_time();
-
         // Load seccomp filters on the API thread.
         // Execution panics if filters cannot be loaded, use --no-seccomp if skipping filters
         // altogether is the desired behaviour.
@@ -86,6 +81,12 @@ impl ApiServer {
         }
 
         server.start_server().expect("Cannot start HTTP server");
+        info!("API server started.");
+
+        // Store process start time metric.
+        process_time_reporter.report_start_time();
+        // Store process CPU start time metric.
+        process_time_reporter.report_cpu_start_time();
 
         loop {
             let request_vec = match server.requests() {

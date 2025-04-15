@@ -16,11 +16,22 @@ and this project adheres to
   Linux kernels newer than 5.0 compiled with `CONFIG_PVH=y` set this ELF Note,
   as do FreeBSD kernels.
 - [#5065](https://github.com/firecracker-microvm/firecracker/pull/5065) Added
-  support for Intel AMX (Advanced Matrix Extensions).
+  support for Intel AMX (Advanced Matrix Extensions). To be able to take and
+  restore a snapshot of Intel AMX state, `Xsave` is used instead of `kvm_xsave`,
+  so users need to regenerate snapshots.
 - [#4731](https://github.com/firecracker-microvm/firecracker/pull/4731): Added
   support for modifying the host TAP device name during snapshot restore.
 
 ### Changed
+
+- [#5118](https://github.com/firecracker-microvm/firecracker/pull/5118): Cleared
+  WAITPKG CPUID bit in CPUID normalization. The feature enables a guest to put a
+  physical processor into an idle state, which is undesirable in a FaaS
+  environment since that is what the host wants to decide.
+- [#5142](https://github.com/firecracker-microvm/firecracker/pull/5142):
+  Clarified what CPU models are supported by each existing CPU template.
+  Firecracker exits with an error if a CPU template is used on an unsupported
+  CPU model.
 
 ### Deprecated
 
@@ -39,6 +50,15 @@ and this project adheres to
   the `SendCtrlAltDel` command not working for ACPI-enabled guest kernels, by
   dropping the i8042.nopnp argument from the default kernel command line
   Firecracker constructs.
+- [#5122](https://github.com/firecracker-microvm/firecracker/pull/5122): Keep
+  the UFFD Unix domain socket open to prevent the race condition between the
+  guest memory mappings message and the shutdown event that was sometimes
+  causing arrival of an empty message on the UFFD handler side.
+- [#5143](https://github.com/firecracker-microvm/firecracker/pull/5143): Fixed
+  to report `process_startup_time_us` and `process_startup_time_cpu_us` metrics
+  for `api_server` right after the API server starts, while previously reported
+  before applying seccomp filter and starting the API server. Users may observe
+  a bit longer startup time metrics.
 
 ## [1.11.0]
 

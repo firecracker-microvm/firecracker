@@ -194,6 +194,9 @@ def check_cpuid_feat_flags(vm, must_be_set, must_be_unset):
 
     for leaf, subleaf, reg, flags in must_be_unset:
         assert reg in allowed_regs
+        if (leaf, subleaf, reg) not in cpuid:
+            # The absence of the leaf/subleaf is equivalent to "unset".
+            continue
         actual = cpuid[(leaf, subleaf, reg)] & flags
         expected = 0
         assert (

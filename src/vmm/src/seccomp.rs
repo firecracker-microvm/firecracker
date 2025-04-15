@@ -5,7 +5,20 @@ use std::collections::HashMap;
 use std::io::Read;
 use std::sync::Arc;
 
-use bincode::{DefaultOptions, Options};
+use bincode::config;
+use bincode::config::{Configuration, Fixint, Limit, LittleEndian};
+
+// This byte limit is passed to `bincode` to guard against a potential memory
+// allocation DOS caused by binary filters that are too large.
+// This limit can be safely determined since the maximum length of a BPF
+// filter is 4096 instructions and Firecracker has a finite number of threads.
+const DESERIALIZATION_BYTES_LIMIT: usize = 100_000;
+
+const BINCODE_CONFIG: Configuration<LittleEndian, Fixint, Limit<DESERIALIZATION_BYTES_LIMIT>> =
+    config::standard()
+        .with_fixed_int_encoding()
+        .with_limit::<DESERIALIZATION_BYTES_LIMIT>()
+        .with_little_endian();
 
 /// Each BPF instruction is 8 bytes long and 4 byte aligned.
 /// This alignment needs to be satisfied in order for a BPF code to be accepted
@@ -22,7 +35,7 @@ pub type BpfProgramRef<'a> = &'a [BpfInstruction];
 pub type BpfThreadMap = HashMap<String, Arc<BpfProgram>>;
 
 /// Binary filter deserialization errors.
-pub type DeserializationError = bincode::Error;
+pub type DeserializationError = bincode::error::DecodeError;
 
 /// Retrieve empty seccomp filters.
 pub fn get_empty_filters() -> BpfThreadMap {
@@ -34,19 +47,8 @@ pub fn get_empty_filters() -> BpfThreadMap {
 }
 
 /// Deserialize binary with bpf filters
-pub fn deserialize_binary<R: Read>(
-    reader: R,
-    bytes_limit: Option<u64>,
-) -> Result<BpfThreadMap, DeserializationError> {
-    let result = match bytes_limit {
-        Some(limit) => DefaultOptions::new()
-            .with_fixint_encoding()
-            .allow_trailing_bytes()
-            .with_limit(limit)
-            .deserialize_from::<R, HashMap<String, BpfProgram>>(reader),
-        // No limit is the default.
-        None => bincode::deserialize_from::<R, HashMap<String, BpfProgram>>(reader),
-    }?;
+pub fn deserialize_binary<R: Read>(mut reader: R) -> Result<BpfThreadMap, DeserializationError> {
+    let result: HashMap<String, _> = bincode::decode_from_std_read(&mut reader, BINCODE_CONFIG)?;
 
     Ok(result
         .into_iter()
@@ -134,49 +136,28 @@ mod tests {
     #[test]
     fn test_deserialize_binary() {
         // Malformed bincode binary.
-        {
-            let data = "adassafvc".to_string();
-            deserialize_binary(data.as_bytes(), None).unwrap_err();
-        }
+        let data = "adassafvc".to_string();
+        deserialize_binary(data.as_bytes()).unwrap_err();
 
         // Test that the binary deserialization is correct, and that the thread keys
         // have been lowercased.
-        {
-            let bpf_prog = vec![0; 2];
-            let mut filter_map: HashMap<String, BpfProgram> = HashMap::new();
-            filter_map.insert("VcpU".to_string(), bpf_prog.clone());
-            let bytes = bincode::serialize(&filter_map).unwrap();
+        let bpf_prog = vec![0; 2];
+        let mut filter_map: HashMap<String, BpfProgram> = HashMap::new();
+        filter_map.insert("VcpU".to_string(), bpf_prog.clone());
+        let bytes = bincode::serde::encode_to_vec(&filter_map, BINCODE_CONFIG).unwrap();
 
-            let mut expected_res = BpfThreadMap::new();
-            expected_res.insert("vcpu".to_string(), Arc::new(bpf_prog));
-            assert_eq!(deserialize_binary(&bytes[..], None).unwrap(), expected_res);
-        }
+        let mut expected_res = BpfThreadMap::new();
+        expected_res.insert("vcpu".to_string(), Arc::new(bpf_prog));
+        assert_eq!(deserialize_binary(&bytes[..]).unwrap(), expected_res);
 
-        // Test deserialization with binary_limit.
-        {
-            let bpf_prog = vec![0; 2];
-
-            let mut filter_map: HashMap<String, BpfProgram> = HashMap::new();
-            filter_map.insert("t1".to_string(), bpf_prog.clone());
-
-            let bytes = bincode::serialize(&filter_map).unwrap();
-
-            // Binary limit too low.
-            assert!(matches!(
-                deserialize_binary(&bytes[..], Some(20)).unwrap_err(),
-                error
-                    if error.to_string() == "the size limit has been reached"
-            ));
-
-            let mut expected_res = BpfThreadMap::new();
-            expected_res.insert("t1".to_string(), Arc::new(bpf_prog));
-
-            // Correct binary limit.
-            assert_eq!(
-                deserialize_binary(&bytes[..], Some(50)).unwrap(),
-                expected_res
-            );
-        }
+        let bpf_prog = vec![0; DESERIALIZATION_BYTES_LIMIT + 1];
+        let mut filter_map: HashMap<String, BpfProgram> = HashMap::new();
+        filter_map.insert("VcpU".to_string(), bpf_prog.clone());
+        let bytes = bincode::serde::encode_to_vec(&filter_map, BINCODE_CONFIG).unwrap();
+        assert!(matches!(
+            deserialize_binary(&bytes[..]).unwrap_err(),
+            bincode::error::DecodeError::LimitExceeded
+        ));
     }
 
     #[test]

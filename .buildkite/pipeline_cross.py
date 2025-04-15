@@ -22,6 +22,8 @@ if __name__ == "__main__":
         "c5n.metal",
         "m5n.metal",
         "m6i.metal",
+        "m7i.metal-24xl",
+        "m7i.metal-48xl",
         "m6a.metal",
         "m7a.metal-48xl",
     ]

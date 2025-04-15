@@ -274,6 +274,9 @@ def test_host_vs_guest_cpu_features(uvm_plain_any):
                 # is not enumerated on CPUID, instead detected by actually attempting to read from
                 # MSR address 0x33 (MSR_MEMORY_CTRL in Intel SDM, MSR_TEST_CTRL in Linux kernel).
                 "split_lock_detect",
+                # Firecracker disables WAITPKG in CPUID normalization.
+                # https://github.com/firecracker-microvm/firecracker/pull/5118
+                "waitpkg",
             }
 
             # The following features are also not virtualized by KVM yet but are only supported on

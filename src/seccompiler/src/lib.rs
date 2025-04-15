@@ -8,7 +8,9 @@ use std::os::fd::{AsRawFd, FromRawFd};
 use std::os::unix::fs::MetadataExt;
 use std::str::FromStr;
 
-use bincode::Error as BincodeError;
+use bincode::config;
+use bincode::config::{Configuration, Fixint, Limit, LittleEndian};
+use bincode::error::EncodeError as BincodeError;
 
 mod bindings;
 use bindings::*;
@@ -16,6 +18,18 @@ use bindings::*;
 pub mod types;
 pub use types::*;
 use zerocopy::IntoBytes;
+
+// This byte limit is passed to `bincode` to guard against a potential memory
+// allocation DOS caused by binary filters that are too large.
+// This limit can be safely determined since the maximum length of a BPF
+// filter is 4096 instructions and Firecracker has a finite number of threads.
+const DESERIALIZATION_BYTES_LIMIT: usize = 100_000;
+
+pub const BINCODE_CONFIG: Configuration<LittleEndian, Fixint, Limit<DESERIALIZATION_BYTES_LIMIT>> =
+    config::standard()
+        .with_fixed_int_encoding()
+        .with_limit::<DESERIALIZATION_BYTES_LIMIT>()
+        .with_little_endian();
 
 /// Binary filter compilation errors.
 #[derive(Debug, thiserror::Error, displaydoc::Display)]
@@ -174,8 +188,9 @@ pub fn compile_bpf(
         bpf_map.insert(name.clone(), bpf);
     }
 
-    let output_file = File::create(out_path).map_err(CompilationError::OutputCreate)?;
+    let mut output_file = File::create(out_path).map_err(CompilationError::OutputCreate)?;
 
-    bincode::serialize_into(output_file, &bpf_map).map_err(CompilationError::BincodeSerialize)?;
+    bincode::encode_into_std_write(&bpf_map, &mut output_file, BINCODE_CONFIG)
+        .map_err(CompilationError::BincodeSerialize)?;
     Ok(())
 }

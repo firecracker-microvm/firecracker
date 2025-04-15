@@ -151,11 +151,8 @@ use crate::logger::{METRICS, MetricsError, error, info, warn};
 use crate::persist::{MicrovmState, MicrovmStateError, VmInfo};
 use crate::rate_limiter::BucketUpdate;
 use crate::snapshot::Persist;
-use crate::utils::u64_to_usize;
 use crate::vmm_config::instance_info::{InstanceInfo, VmState};
-use crate::vstate::memory::{
-    GuestMemory, GuestMemoryExtension, GuestMemoryMmap, GuestMemoryRegion,
-};
+use crate::vstate::memory::{GuestMemory, GuestMemoryMmap, GuestMemoryRegion};
 use crate::vstate::vcpu::VcpuState;
 pub use crate::vstate::vcpu::{Vcpu, VcpuConfig, VcpuEvent, VcpuHandle, VcpuResponse};
 pub use crate::vstate::vm::Vm;
@@ -266,7 +263,7 @@ pub enum VmmError {
 }
 
 /// Shorthand type for KVM dirty page bitmap.
-pub type DirtyBitmap = HashMap<usize, Vec<u64>>;
+pub type DirtyBitmap = HashMap<u32, Vec<u64>>;
 
 /// Returns the size of guest memory, in MiB.
 pub(crate) fn mem_size_mib(guest_memory: &GuestMemoryMmap) -> u64 {
@@ -310,8 +307,8 @@ pub struct Vmm {
 
     // Guest VM core resources.
     kvm: Kvm,
-    vm: Vm,
-    guest_memory: GuestMemoryMmap,
+    /// VM object
+    pub vm: Vm,
     // Save UFFD in order to keep it open in the Firecracker process, as well.
     uffd: Option<Uffd>,
     vcpus_handles: Vec<VcpuHandle>,
@@ -524,7 +521,6 @@ impl Vmm {
         };
         let device_states = self.mmio_device_manager.save();
 
-        let memory_state = self.guest_memory.describe();
         let acpi_dev_state = self.acpi_device_manager.save();
         #[cfg(target_arch = "aarch64")]
         let pvtime_state: Option<arch::aarch64::pvtime::PVTimeState> =
@@ -532,7 +528,6 @@ impl Vmm {
 
         Ok(MicrovmState {
             vm_info: vm_info.clone(),
-            memory_state,
             kvm_state,
             vm_state,
             vcpu_states,
@@ -597,37 +592,6 @@ impl Vmm {
             .collect::<Result<Vec<CpuConfiguration>, DumpCpuConfigError>>()?;
 
         Ok(cpu_configs)
-    }
-
-    /// Retrieves the KVM dirty bitmap for each of the guest's memory regions.
-    pub fn reset_dirty_bitmap(&self) {
-        self.guest_memory
-            .iter()
-            .enumerate()
-            .for_each(|(slot, region)| {
-                let _ = self
-                    .vm
-                    .fd()
-                    .get_dirty_log(u32::try_from(slot).unwrap(), u64_to_usize(region.len()));
-            });
-    }
-
-    /// Retrieves the KVM dirty bitmap for each of the guest's memory regions.
-    pub fn get_dirty_bitmap(&self) -> Result<DirtyBitmap, VmmError> {
-        let mut bitmap: DirtyBitmap = HashMap::new();
-        self.guest_memory
-            .iter()
-            .enumerate()
-            .try_for_each(|(slot, region)| {
-                let bitmap_region = self
-                    .vm
-                    .fd()
-                    .get_dirty_log(u32::try_from(slot).unwrap(), u64_to_usize(region.len()))?;
-                bitmap.insert(slot, bitmap_region);
-                Ok(())
-            })
-            .map_err(VmmError::DirtyBitmap)?;
-        Ok(bitmap)
     }
 
     /// Updates the path of the host file backing the emulated block device with id `drive_id`.
@@ -744,7 +708,7 @@ impl Vmm {
     pub fn update_balloon_config(&mut self, amount_mib: u32) -> Result<(), BalloonError> {
         // The balloon cannot have a target size greater than the size of
         // the guest memory.
-        if u64::from(amount_mib) > mem_size_mib(&self.guest_memory) {
+        if u64::from(amount_mib) > mem_size_mib(self.vm.guest_memory()) {
             return Err(BalloonError::TooManyPagesRequested);
         }
 

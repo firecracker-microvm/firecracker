@@ -29,7 +29,8 @@ use crate::vmm_config::metrics::{MetricsConfig, MetricsConfigError, init_metrics
 use crate::vmm_config::mmds::{MmdsConfig, MmdsConfigError};
 use crate::vmm_config::net::*;
 use crate::vmm_config::vsock::*;
-use crate::vstate::memory::{GuestMemoryExtension, GuestMemoryMmap, MemoryError};
+use crate::vstate::memory;
+use crate::vstate::memory::{GuestRegionMmap, MemoryError};
 
 /// Errors encountered when configuring microVM resources.
 #[derive(Debug, thiserror::Error, displaydoc::Display)]
@@ -440,7 +441,7 @@ impl VmResources {
     ///
     /// If vhost-user-blk devices are in use, allocates memfd-backed shared memory, otherwise
     /// prefers anonymous memory for performance reasons.
-    pub fn allocate_guest_memory(&self) -> Result<GuestMemoryMmap, MemoryError> {
+    pub fn allocate_guest_memory(&self) -> Result<Vec<GuestRegionMmap>, MemoryError> {
         let vhost_user_device_used = self
             .block
             .devices
@@ -456,16 +457,16 @@ impl VmResources {
         // because that would require running a backend process. If in the future we converge to
         // a single way of backing guest memory for vhost-user and non-vhost-user cases,
         // that would not be worth the effort.
+        let regions =
+            crate::arch::arch_memory_regions(0, mib_to_bytes(self.machine_config.mem_size_mib));
         if vhost_user_device_used {
-            GuestMemoryMmap::memfd_backed(
-                self.machine_config.mem_size_mib,
+            memory::memfd_backed(
+                regions.as_ref(),
                 self.machine_config.track_dirty_pages,
                 self.machine_config.huge_pages,
             )
         } else {
-            let regions =
-                crate::arch::arch_memory_regions(mib_to_bytes(self.machine_config.mem_size_mib));
-            GuestMemoryMmap::anonymous(
+            memory::anonymous(
                 regions.into_iter(),
                 self.machine_config.track_dirty_pages,
                 self.machine_config.huge_pages,

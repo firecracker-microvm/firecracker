@@ -8,7 +8,7 @@ info:
   version: 1.12.0-dev
   termsOfService: ""
   contact:
-    email: "compute-capsule@amazon.com"
+    email: "firecracker-maintainers@amazon.com"
   license:
     name: "Apache 2.0"
     url: "http://www.apache.org/licenses/LICENSE-2.0.html"

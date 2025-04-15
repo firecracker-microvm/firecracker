@@ -38,6 +38,7 @@ from framework.microvm import MicroVMFactory
 from framework.properties import global_props
 from framework.utils_cpu_templates import (
     custom_cpu_templates_params,
+    get_cpu_template_name,
     static_cpu_templates_params,
 )
 from host_tools.metrics import get_metrics_logger
@@ -236,6 +237,18 @@ def change_net_config_space_bin(test_fc_session_root_path):
     yield change_net_config_space_bin
 
 
+@pytest.fixture(scope="session")
+def waitpkg_bin(test_fc_session_root_path):
+    """Build a binary that attempts to use WAITPKG (UMONITOR / UMWAIT)"""
+    waitpkg_bin_path = os.path.join(test_fc_session_root_path, "waitpkg")
+    build_tools.gcc_compile(
+        "host_tools/waitpkg.c",
+        waitpkg_bin_path,
+        extra_flags="-mwaitpkg",
+    )
+    yield waitpkg_bin_path
+
+
 @pytest.fixture
 def bin_seccomp_paths():
     """Build jailers and jailed binaries to test seccomp.
@@ -361,12 +374,9 @@ def custom_cpu_template(request, record_property):
 )
 def cpu_template_any(request, record_property):
     """This fixture combines no template, static and custom CPU templates"""
-    cpu_template_name = request.param
-    if request.param is None:
-        cpu_template_name = "None"
-    elif "name" in request.param:
-        cpu_template_name = request.param["name"]
-    record_property("cpu_template", cpu_template_name)
+    record_property(
+        "cpu_template", get_cpu_template_name(request.param, with_type=True)
+    )
     return request.param
 
 

@@ -110,17 +110,33 @@ pub const MMIO_MEM_SIZE: u64 = MEM_32BIT_GAP_SIZE;
 /// These should be used to configure the GuestMemoryMmap structure for the platform.
 /// For x86_64 all addresses are valid from the start of the kernel except a
 /// carve out at the end of 32bit address space.
-pub fn arch_memory_regions(size: usize) -> Vec<(GuestAddress, usize)> {
+pub fn arch_memory_regions(offset: usize, size: usize) -> Vec<(GuestAddress, usize)> {
+    // If we get here with size == 0 something has seriously gone wrong. Firecracker should never
+    // try to allocate guest memory of size 0
+    assert!(size > 0, "Attempt to allocate guest memory of length 0");
+    assert!(
+        offset.checked_add(size).is_some(),
+        "Attempt to allocate guest memory such that the address space would wrap around"
+    );
+
     // It's safe to cast MMIO_MEM_START to usize because it fits in a u32 variable
     // (It points to an address in the 32 bit space).
-    match size.checked_sub(usize::try_from(MMIO_MEM_START).unwrap()) {
+    match (size + offset).checked_sub(u64_to_usize(MMIO_MEM_START)) {
         // case1: guest memory fits before the gap
-        None | Some(0) => vec![(GuestAddress(0), size)],
-        // case2: guest memory extends beyond the gap
-        Some(remaining) => vec![
-            (GuestAddress(0), usize::try_from(MMIO_MEM_START).unwrap()),
+        None | Some(0) => vec![(GuestAddress(offset as u64), size)],
+        // case2: starts before the gap, but doesn't completely fit
+        Some(remaining) if (offset as u64) < MMIO_MEM_START => vec![
+            (
+                GuestAddress(offset as u64),
+                u64_to_usize(MMIO_MEM_START) - offset,
+            ),
             (GuestAddress(FIRST_ADDR_PAST_32BITS), remaining),
         ],
+        // case3: guest memory start after the gap
+        Some(_) => vec![(
+            GuestAddress(FIRST_ADDR_PAST_32BITS.max(offset as u64)),
+            size,
+        )],
     }
 }
 
@@ -169,7 +185,7 @@ pub fn configure_system_for_boot(
     // Configure vCPUs with normalizing and setting the generated CPU configuration.
     for vcpu in vcpus.iter_mut() {
         vcpu.kvm_vcpu
-            .configure(&vmm.guest_memory, entry_point, &vcpu_config)?;
+            .configure(vmm.vm.guest_memory(), entry_point, &vcpu_config)?;
     }
 
     // Write the kernel command line to guest memory. This is x86_64 specific, since on
@@ -180,7 +196,7 @@ pub fn configure_system_for_boot(
         .expect("Cannot create cstring from cmdline string");
 
     load_cmdline(
-        &vmm.guest_memory,
+        vmm.vm.guest_memory(),
         GuestAddress(crate::arch::x86_64::layout::CMDLINE_START),
         &boot_cmdline,
     )
@@ -188,7 +204,7 @@ pub fn configure_system_for_boot(
 
     // Note that this puts the mptable at the last 1k of Linux's 640k base RAM
     mptable::setup_mptable(
-        &vmm.guest_memory,
+        vmm.vm.guest_memory(),
         &mut vmm.resource_allocator,
         vcpu_config.vcpu_count,
     )
@@ -196,11 +212,11 @@ pub fn configure_system_for_boot(
 
     match entry_point.protocol {
         BootProtocol::PvhBoot => {
-            configure_pvh(&vmm.guest_memory, GuestAddress(CMDLINE_START), initrd)?;
+            configure_pvh(vmm.vm.guest_memory(), GuestAddress(CMDLINE_START), initrd)?;
         }
         BootProtocol::LinuxBoot => {
             configure_64bit_boot(
-                &vmm.guest_memory,
+                vmm.vm.guest_memory(),
                 GuestAddress(CMDLINE_START),
                 cmdline_size,
                 initrd,
@@ -211,7 +227,7 @@ pub fn configure_system_for_boot(
     // Create ACPI tables and write them in guest memory
     // For the time being we only support ACPI in x86_64
     create_acpi_tables(
-        &vmm.guest_memory,
+        vmm.vm.guest_memory(),
         &mut vmm.resource_allocator,
         &vmm.mmio_device_manager,
         &vmm.acpi_device_manager,
@@ -456,6 +472,56 @@ pub fn load_kernel(
     })
 }
 
+#[cfg(kani)]
+mod verification {
+    use crate::arch::x86_64::FIRST_ADDR_PAST_32BITS;
+    use crate::arch::{MMIO_MEM_START, arch_memory_regions};
+
+    #[kani::proof]
+    #[kani::unwind(3)]
+    fn verify_arch_memory_regions() {
+        let offset: u64 = kani::any::<u64>();
+        let len: u64 = kani::any::<u64>();
+
+        kani::assume(len > 0);
+        kani::assume(offset.checked_add(len).is_some());
+
+        let regions = arch_memory_regions(offset as usize, len as usize);
+
+        // There's only one MMIO gap, so we can get either 1 or 2 regions
+        assert!(regions.len() <= 2);
+        assert!(regions.len() >= 1);
+
+        // The total length of all regions is what we requested
+        assert_eq!(
+            regions.iter().map(|&(_, len)| len).sum::<usize>(),
+            len as usize
+        );
+
+        // No region overlaps the MMIO gap
+        assert!(
+            regions
+                .iter()
+                .all(|&(start, len)| start.0 >= FIRST_ADDR_PAST_32BITS
+                    || start.0 + len as u64 <= MMIO_MEM_START)
+        );
+
+        // All regions start after our specified offset
+        assert!(regions.iter().all(|&(start, _)| start.0 >= offset as u64));
+
+        // All regions have non-zero length
+        assert!(regions.iter().all(|&(_, len)| len > 0));
+
+        // If there's two regions, they perfectly snuggle up to the MMIO gap
+        if regions.len() == 2 {
+            kani::cover!();
+
+            assert_eq!(regions[0].0.0 + regions[0].1 as u64, MMIO_MEM_START);
+            assert_eq!(regions[1].0.0, FIRST_ADDR_PAST_32BITS);
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use linux_loader::loader::bootparam::boot_e820_entry;
@@ -466,18 +532,41 @@ mod tests {
 
     #[test]
     fn regions_lt_4gb() {
-        let regions = arch_memory_regions(1usize << 29);
+        let regions = arch_memory_regions(0, 1usize << 29);
         assert_eq!(1, regions.len());
         assert_eq!(GuestAddress(0), regions[0].0);
         assert_eq!(1usize << 29, regions[0].1);
+
+        let regions = arch_memory_regions(1 << 28, 1 << 29);
+        assert_eq!(1, regions.len());
+        assert_eq!(regions[0], (GuestAddress(1 << 28), 1 << 29));
     }
 
     #[test]
     fn regions_gt_4gb() {
-        let regions = arch_memory_regions((1usize << 32) + 0x8000);
+        const MEMORY_SIZE: usize = (1 << 32) + 0x8000;
+
+        let regions = arch_memory_regions(0, MEMORY_SIZE);
         assert_eq!(2, regions.len());
         assert_eq!(GuestAddress(0), regions[0].0);
         assert_eq!(GuestAddress(1u64 << 32), regions[1].0);
+
+        let regions = arch_memory_regions(1 << 31, MEMORY_SIZE);
+        assert_eq!(2, regions.len());
+        assert_eq!(
+            regions[0],
+            (
+                GuestAddress(1 << 31),
+                u64_to_usize(MMIO_MEM_START) - (1 << 31)
+            )
+        );
+        assert_eq!(
+            regions[1],
+            (
+                GuestAddress(FIRST_ADDR_PAST_32BITS),
+                MEMORY_SIZE - regions[0].1
+            )
+        )
     }
 
     #[test]
