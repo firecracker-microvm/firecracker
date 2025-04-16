@@ -2,7 +2,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
 //! Enables pre-boot setup, instantiation and booting of a Firecracker VMM.
-
 use std::fmt::Debug;
 use std::io;
 #[cfg(feature = "gdb")]
@@ -19,6 +18,8 @@ use vm_superio::Rtc;
 use vm_superio::Serial;
 use vmm_sys_util::eventfd::EventFd;
 
+#[cfg(target_arch = "aarch64")]
+use crate::arch::aarch64::pvtime::{PVTime, PVTimeConstructorArgs, PVTimeError};
 use crate::arch::{ConfigurationError, configure_system_for_boot, load_kernel};
 #[cfg(target_arch = "aarch64")]
 use crate::construct_kvm_mpidrs;
@@ -82,6 +83,9 @@ pub enum StartMicrovmError {
     CreateLegacyDevice(device_manager::legacy::LegacyDeviceError),
     /// Error creating VMGenID device: {0}
     CreateVMGenID(VmGenIdError),
+    /// Error creating PVTime device: {0}
+    #[cfg(target_arch = "aarch64")]
+    CreatePVTime(PVTimeError),
     /// Invalid Memory Configuration: {0}
     GuestMemory(crate::vstate::memory::MemoryError),
     /// Error with initrd initialization: {0}.
@@ -186,6 +190,8 @@ fn create_vmm_and_vcpus(
         #[cfg(target_arch = "x86_64")]
         pio_device_manager,
         acpi_device_manager,
+        #[cfg(target_arch = "aarch64")]
+        pv_time: None,
     };
 
     Ok((vmm, vcpus))
@@ -288,6 +294,19 @@ pub fn build_microvm_for_boot(
     attach_legacy_devices_aarch64(event_manager, &mut vmm, &mut boot_cmdline)?;
 
     attach_vmgenid_device(&mut vmm)?;
+
+    // Attempt to setup PVTime, continue if not supported
+    #[cfg(target_arch = "aarch64")]
+    {
+        vmm.pv_time = if PVTime::is_supported(&vcpus[0].kvm_vcpu.fd) {
+            Some(setup_pv_time(&mut vmm, vcpus.as_mut())?)
+        } else {
+            log::warn!(
+                "PVTime is not supported by KVM. Steal time will not be reported to the guest."
+            );
+            None
+        };
+    }
 
     configure_system_for_boot(
         &mut vmm,
@@ -403,6 +422,9 @@ pub enum BuildMicrovmFromSnapshotError {
     ACPIDeviManager(#[from] ACPIDeviceManagerRestoreError),
     /// VMGenID update failed: {0}
     VMGenIDUpdate(std::io::Error),
+    #[cfg(target_arch = "aarch64")]
+    /// Failed to restore PVTime device: {0}
+    RestorePVTime(#[from] PVTimeError),
 }
 
 /// Builds and starts a microVM based on the provided MicrovmState.
@@ -455,6 +477,27 @@ pub fn build_microvm_from_snapshot(
             .restore_state(state)
             .map_err(VcpuError::VcpuResponse)
             .map_err(BuildMicrovmFromSnapshotError::RestoreVcpus)?;
+    }
+
+    // Restore the PVTime device
+    #[cfg(target_arch = "aarch64")]
+    {
+        let pvtime_state = microvm_state.pvtime_state;
+        if let Some(pvtime_state) = pvtime_state {
+            let pvtime_ctor_args = PVTimeConstructorArgs {
+                resource_allocator: &mut vmm.resource_allocator,
+                vcpu_count: vcpus.len() as u64,
+            };
+            vmm.pv_time = Some(
+                PVTime::restore(pvtime_ctor_args, &pvtime_state)
+                    .map_err(BuildMicrovmFromSnapshotError::RestorePVTime)?,
+            );
+            vmm.pv_time
+                .as_ref()
+                .unwrap()
+                .register_all_vcpus(&mut vcpus) // We can safely unwrap here
+                .map_err(StartMicrovmError::CreatePVTime)?;
+        }
     }
 
     #[cfg(target_arch = "aarch64")]
@@ -550,6 +593,23 @@ pub fn setup_serial_device(
     })));
     event_manager.add_subscriber(serial.clone());
     Ok(serial)
+}
+
+/// Sets up the pvtime device.
+#[cfg(target_arch = "aarch64")]
+fn setup_pv_time(vmm: &mut Vmm, vcpus: &mut [Vcpu]) -> Result<PVTime, StartMicrovmError> {
+    use crate::arch::aarch64::pvtime::PVTime;
+
+    // Create the pvtime device
+    let pv_time = PVTime::new(&mut vmm.resource_allocator, vcpus.len() as u64)
+        .map_err(StartMicrovmError::CreatePVTime)?;
+
+    // Register all vcpus with pvtime device
+    pv_time
+        .register_all_vcpus(vcpus)
+        .map_err(StartMicrovmError::CreatePVTime)?;
+
+    Ok(pv_time)
 }
 
 #[cfg(target_arch = "aarch64")]
@@ -854,6 +914,8 @@ pub(crate) mod tests {
             #[cfg(target_arch = "x86_64")]
             pio_device_manager,
             acpi_device_manager,
+            #[cfg(target_arch = "aarch64")]
+            pv_time: None,
         }
     }
 

@@ -9,6 +9,8 @@ pub mod gic;
 pub mod kvm;
 /// Layout for this aarch64 system.
 pub mod layout;
+/// Module for the paravirtualized time device
+pub mod pvtime;
 /// Logic for configuring aarch64 registers.
 pub mod regs;
 /// Architecture specific vCPU code
