@@ -16,10 +16,10 @@ use crate::devices::virtio::block::virtio::device::FileEngineType;
 #[cfg(test)]
 use crate::devices::virtio::block::virtio::io::FileEngine;
 use crate::devices::virtio::block::virtio::{CacheType, VirtioBlock};
-#[cfg(test)]
-use crate::devices::virtio::device::IrqType;
 use crate::devices::virtio::queue::{Queue, VIRTQ_DESC_F_NEXT, VIRTQ_DESC_F_WRITE};
 use crate::devices::virtio::test_utils::{VirtQueue, VirtqDesc};
+#[cfg(test)]
+use crate::devices::virtio::transport::mmio::IrqType;
 use crate::rate_limiter::RateLimiter;
 use crate::vmm_config::{RateLimiterConfig, TokenBucketConfig};
 use crate::vstate::memory::{Bytes, GuestAddress};
