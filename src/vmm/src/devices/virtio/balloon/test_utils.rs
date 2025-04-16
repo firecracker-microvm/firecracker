@@ -10,7 +10,7 @@ use crate::devices::virtio::{balloon::BALLOON_NUM_QUEUES, balloon::Balloon};
 #[cfg(test)]
 pub fn invoke_handler_for_queue_event(b: &mut Balloon, queue_index: usize) {
     use crate::devices::virtio::balloon::{DEFLATE_INDEX, INFLATE_INDEX, STATS_INDEX};
-    use crate::devices::virtio::device::IrqType;
+    use crate::devices::virtio::transport::mmio::IrqType;
 
     assert!(queue_index < BALLOON_NUM_QUEUES);
     // Trigger the queue event.
