@@ -9,7 +9,9 @@ use std::fmt::Debug;
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
 
-use crate::devices::virtio::device::{IrqType, VirtioDevice};
+use vmm_sys_util::eventfd::EventFd;
+
+use crate::devices::virtio::device::VirtioDevice;
 use crate::devices::virtio::device_status;
 use crate::devices::virtio::queue::Queue;
 use crate::logger::{error, warn};
@@ -363,13 +365,52 @@ impl MmioTransport {
     }
 }
 
+/// The 2 types of interrupt sources in MMIO transport.
+#[derive(Debug)]
+pub enum IrqType {
+    /// Interrupt triggered by change in config.
+    Config,
+    /// Interrupt triggered by used vring buffers.
+    Vring,
+}
+
+/// Helper struct that is responsible for triggering guest IRQs
+#[derive(Debug)]
+pub struct IrqTrigger {
+    pub(crate) irq_status: Arc<AtomicU32>,
+    pub(crate) irq_evt: EventFd,
+}
+
+impl IrqTrigger {
+    pub fn new() -> std::io::Result<Self> {
+        Ok(Self {
+            irq_status: Arc::new(AtomicU32::new(0)),
+            irq_evt: EventFd::new(libc::EFD_NONBLOCK)?,
+        })
+    }
+
+    pub fn trigger_irq(&self, irq_type: IrqType) -> Result<(), std::io::Error> {
+        let irq = match irq_type {
+            IrqType::Config => VIRTIO_MMIO_INT_CONFIG,
+            IrqType::Vring => VIRTIO_MMIO_INT_VRING,
+        };
+        self.irq_status.fetch_or(irq, Ordering::SeqCst);
+
+        self.irq_evt.write(1).map_err(|err| {
+            error!("Failed to send irq to the guest: {:?}", err);
+            err
+        })?;
+
+        Ok(())
+    }
+}
+
 #[cfg(test)]
 pub(crate) mod tests {
     use vmm_sys_util::eventfd::EventFd;
 
     use super::*;
     use crate::devices::virtio::ActivateError;
-    use crate::devices::virtio::device::IrqTrigger;
     use crate::devices::virtio::device_status::DEVICE_NEEDS_RESET;
     use crate::test_utils::single_region_mem;
     use crate::utils::byte_order::{read_le_u32, write_le_u32};
@@ -983,5 +1024,46 @@ pub(crate) mod tests {
         dummy_dev.set_avail_features(8);
         dummy_dev.ack_features_by_page(0, 8);
         assert_eq!(dummy_dev.acked_features(), 24);
+    }
+
+    impl IrqTrigger {
+        pub fn has_pending_irq(&self, irq_type: IrqType) -> bool {
+            if let Ok(num_irqs) = self.irq_evt.read() {
+                if num_irqs == 0 {
+                    return false;
+                }
+
+                let irq_status = self.irq_status.load(Ordering::SeqCst);
+                return matches!(
+                    (irq_status, irq_type),
+                    (VIRTIO_MMIO_INT_CONFIG, IrqType::Config)
+                        | (VIRTIO_MMIO_INT_VRING, IrqType::Vring)
+                );
+            }
+
+            false
+        }
+    }
+
+    #[test]
+    fn irq_trigger() {
+        let irq_trigger = IrqTrigger::new().unwrap();
+        assert_eq!(irq_trigger.irq_status.load(Ordering::SeqCst), 0);
+
+        // Check that there are no pending irqs.
+        assert!(!irq_trigger.has_pending_irq(IrqType::Config));
+        assert!(!irq_trigger.has_pending_irq(IrqType::Vring));
+
+        // Check that trigger_irq() correctly generates irqs.
+        irq_trigger.trigger_irq(IrqType::Config).unwrap();
+        assert!(irq_trigger.has_pending_irq(IrqType::Config));
+        irq_trigger.irq_status.store(0, Ordering::SeqCst);
+        irq_trigger.trigger_irq(IrqType::Vring).unwrap();
+        assert!(irq_trigger.has_pending_irq(IrqType::Vring));
+
+        // Check trigger_irq() failure case (irq_evt is full).
+        irq_trigger.irq_evt.write(u64::MAX - 1).unwrap();
+        irq_trigger.trigger_irq(IrqType::Config).unwrap_err();
+        irq_trigger.trigger_irq(IrqType::Vring).unwrap_err();
     }
 }

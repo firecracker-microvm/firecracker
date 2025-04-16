@@ -23,13 +23,14 @@ use super::request::*;
 use super::{BLOCK_QUEUE_SIZES, SECTOR_SHIFT, SECTOR_SIZE, VirtioBlockError, io as block_io};
 use crate::devices::virtio::block::CacheType;
 use crate::devices::virtio::block::virtio::metrics::{BlockDeviceMetrics, BlockMetricsPerDevice};
-use crate::devices::virtio::device::{DeviceState, IrqTrigger, IrqType, VirtioDevice};
+use crate::devices::virtio::device::{DeviceState, VirtioDevice};
 use crate::devices::virtio::generated::virtio_blk::{
     VIRTIO_BLK_F_FLUSH, VIRTIO_BLK_F_RO, VIRTIO_BLK_ID_BYTES,
 };
 use crate::devices::virtio::generated::virtio_config::VIRTIO_F_VERSION_1;
 use crate::devices::virtio::generated::virtio_ring::VIRTIO_RING_F_EVENT_IDX;
 use crate::devices::virtio::queue::Queue;
+use crate::devices::virtio::transport::mmio::{IrqTrigger, IrqType};
 use crate::devices::virtio::{ActivateError, TYPE_BLOCK};
 use crate::logger::{IncMetric, error, warn};
 use crate::rate_limiter::{BucketUpdate, RateLimiter};
@@ -826,7 +827,7 @@ mod tests {
             block.read_config(0, actual_config_space.as_mut_slice());
             assert_eq!(actual_config_space, expected_config_space);
 
-            // If priviledged user writes to `/dev/mem`, in block config space - byte by byte.
+            // If privileged user writes to `/dev/mem`, in block config space - byte by byte.
             let expected_config_space = ConfigSpace {
                 capacity: 0x1122334455667788,
             };
