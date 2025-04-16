@@ -330,7 +330,7 @@ class Microvm:
 
             # filter ps results for the jailer's unique id
             _, stdout, stderr = utils.check_output(
-                f"ps aux | grep {self.jailer.jailer_id}"
+                f"ps ax -o cmd -ww | grep {self.jailer.jailer_id}"
             )
             # make sure firecracker was killed
             assert (
