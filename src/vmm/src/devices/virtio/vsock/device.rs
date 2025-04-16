@@ -6,7 +6,7 @@
 // found in the THIRD-PARTY file.
 
 //! This is the `VirtioDevice` implementation for our vsock device. It handles the virtio-level
-//! device logic: feature negociation, device configuration, and device activation.
+//! device logic: feature negotiation, device configuration, and device activation.
 //!
 //! We aim to conform to the VirtIO v1.1 spec:
 //! https://docs.oasis-open.org/virtio/virtio/v1.1/virtio-v1.1.html
@@ -30,9 +30,10 @@ use super::defs::uapi;
 use super::packet::{VSOCK_PKT_HDR_SIZE, VsockPacketRx, VsockPacketTx};
 use super::{VsockBackend, defs};
 use crate::devices::virtio::ActivateError;
-use crate::devices::virtio::device::{DeviceState, IrqTrigger, IrqType, VirtioDevice};
+use crate::devices::virtio::device::{DeviceState, VirtioDevice};
 use crate::devices::virtio::generated::virtio_config::{VIRTIO_F_IN_ORDER, VIRTIO_F_VERSION_1};
 use crate::devices::virtio::queue::Queue as VirtQueue;
+use crate::devices::virtio::transport::mmio::{IrqTrigger, IrqType};
 use crate::devices::virtio::vsock::VsockError;
 use crate::devices::virtio::vsock::metrics::METRICS;
 use crate::logger::IncMetric;
