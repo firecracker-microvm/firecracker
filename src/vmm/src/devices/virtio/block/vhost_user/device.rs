@@ -14,11 +14,12 @@ use vmm_sys_util::eventfd::EventFd;
 
 use super::{NUM_QUEUES, QUEUE_SIZE, VhostUserBlockError};
 use crate::devices::virtio::block::CacheType;
-use crate::devices::virtio::device::{DeviceState, IrqTrigger, IrqType, VirtioDevice};
+use crate::devices::virtio::device::{DeviceState, VirtioDevice};
 use crate::devices::virtio::generated::virtio_blk::{VIRTIO_BLK_F_FLUSH, VIRTIO_BLK_F_RO};
 use crate::devices::virtio::generated::virtio_config::VIRTIO_F_VERSION_1;
 use crate::devices::virtio::generated::virtio_ring::VIRTIO_RING_F_EVENT_IDX;
 use crate::devices::virtio::queue::Queue;
+use crate::devices::virtio::transport::mmio::{IrqTrigger, IrqType};
 use crate::devices::virtio::vhost_user::{VhostUserHandleBackend, VhostUserHandleImpl};
 use crate::devices::virtio::vhost_user_metrics::{
     VhostUserDeviceMetrics, VhostUserMetricsPerDevice,
@@ -34,7 +35,7 @@ const BLOCK_CONFIG_SPACE_SIZE: u32 = 60;
 
 const AVAILABLE_FEATURES: u64 = (1 << VIRTIO_F_VERSION_1)
     | (1 << VIRTIO_RING_F_EVENT_IDX)
-    // vhost-user specific bit. Not defined in standart virtio spec.
+    // vhost-user specific bit. Not defined in standard virtio spec.
     // Specifies ability of frontend to negotiate protocol features.
     | VhostUserVirtioFeatures::PROTOCOL_FEATURES.bits()
     // We always try to negotiate readonly with the backend.
@@ -375,7 +376,7 @@ mod tests {
 
     use super::*;
     use crate::devices::virtio::block::virtio::device::FileEngineType;
-    use crate::devices::virtio::mmio::VIRTIO_MMIO_INT_CONFIG;
+    use crate::devices::virtio::transport::mmio::VIRTIO_MMIO_INT_CONFIG;
     use crate::devices::virtio::vhost_user::tests::create_mem;
     use crate::test_utils::create_tmp_socket;
     use crate::vstate::memory::GuestAddress;
