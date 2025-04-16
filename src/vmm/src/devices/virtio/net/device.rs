@@ -15,7 +15,7 @@ use log::error;
 use vmm_sys_util::eventfd::EventFd;
 
 use super::NET_QUEUE_MAX_SIZE;
-use crate::devices::virtio::device::{DeviceState, IrqTrigger, IrqType, VirtioDevice};
+use crate::devices::virtio::device::{DeviceState, VirtioDevice};
 use crate::devices::virtio::generated::virtio_config::VIRTIO_F_VERSION_1;
 use crate::devices::virtio::generated::virtio_net::{
     VIRTIO_NET_F_CSUM, VIRTIO_NET_F_GUEST_CSUM, VIRTIO_NET_F_GUEST_TSO4, VIRTIO_NET_F_GUEST_TSO6,
@@ -32,6 +32,7 @@ use crate::devices::virtio::net::{
     MAX_BUFFER_SIZE, NET_QUEUE_SIZES, NetError, NetQueue, RX_INDEX, TX_INDEX, generated,
 };
 use crate::devices::virtio::queue::{DescriptorChain, Queue};
+use crate::devices::virtio::transport::mmio::{IrqTrigger, IrqType};
 use crate::devices::virtio::{ActivateError, TYPE_NET};
 use crate::devices::{DeviceError, report_net_event_fail};
 use crate::dumbo::pdu::arp::ETH_IPV4_FRAME_LEN;
@@ -1053,6 +1054,7 @@ pub mod tests {
     };
     use crate::devices::virtio::queue::VIRTQ_DESC_F_WRITE;
     use crate::devices::virtio::test_utils::VirtQueue;
+    use crate::devices::virtio::transport::mmio::IrqType;
     use crate::dumbo::EthernetFrame;
     use crate::dumbo::pdu::arp::{ETH_IPV4_FRAME_LEN, EthIPv4ArpFrame};
     use crate::dumbo::pdu::ethernet::ETHERTYPE_ARP;
