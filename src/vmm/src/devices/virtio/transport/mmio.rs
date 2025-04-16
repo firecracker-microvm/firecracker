@@ -11,6 +11,7 @@ use std::sync::{Arc, Mutex, MutexGuard};
 
 use vmm_sys_util::eventfd::EventFd;
 
+use super::{VirtioInterrupt, VirtioInterruptType};
 use crate::devices::virtio::device::VirtioDevice;
 use crate::devices::virtio::device_status;
 use crate::devices::virtio::queue::Queue;
@@ -368,6 +369,15 @@ pub enum IrqType {
     Vring,
 }
 
+impl From<VirtioInterruptType> for IrqType {
+    fn from(interrupt_type: VirtioInterruptType) -> Self {
+        match interrupt_type {
+            VirtioInterruptType::Config => IrqType::Config,
+            VirtioInterruptType::Queue(_) => IrqType::Vring,
+        }
+    }
+}
+
 /// Helper struct that is responsible for triggering guest IRQs
 #[derive(Debug)]
 pub struct IrqTrigger {
@@ -378,6 +388,40 @@ pub struct IrqTrigger {
 impl Default for IrqTrigger {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+impl VirtioInterrupt for IrqTrigger {
+    fn trigger(&self, interrupt_type: VirtioInterruptType) -> Result<(), std::io::Error> {
+        match interrupt_type {
+            VirtioInterruptType::Config => self.trigger_irq(IrqType::Config),
+            VirtioInterruptType::Queue(_) => self.trigger_irq(IrqType::Vring),
+        }
+    }
+
+    fn notifier(&self, _interrupt_type: VirtioInterruptType) -> Option<&EventFd> {
+        Some(&self.irq_evt)
+    }
+
+    fn status(&self) -> Arc<AtomicU32> {
+        self.irq_status.clone()
+    }
+
+    #[cfg(test)]
+    fn has_pending_interrupt(&self, interrupt_type: VirtioInterruptType) -> bool {
+        if let Ok(num_irqs) = self.irq_evt.read() {
+            if num_irqs == 0 {
+                return false;
+            }
+
+            let irq_status = self.irq_status.load(Ordering::SeqCst);
+            return matches!(
+                (irq_status, interrupt_type.into()),
+                (VIRTIO_MMIO_INT_CONFIG, IrqType::Config) | (VIRTIO_MMIO_INT_VRING, IrqType::Vring)
+            );
+        }
+
+        false
     }
 }
 
@@ -1070,19 +1114,23 @@ pub(crate) mod tests {
         assert_eq!(irq_trigger.irq_status.load(Ordering::SeqCst), 0);
 
         // Check that there are no pending irqs.
-        assert!(!irq_trigger.has_pending_irq(IrqType::Config));
-        assert!(!irq_trigger.has_pending_irq(IrqType::Vring));
+        assert!(!irq_trigger.has_pending_interrupt(VirtioInterruptType::Config));
+        assert!(!irq_trigger.has_pending_interrupt(VirtioInterruptType::Queue(0)));
 
         // Check that trigger_irq() correctly generates irqs.
-        irq_trigger.trigger_irq(IrqType::Config).unwrap();
-        assert!(irq_trigger.has_pending_irq(IrqType::Config));
+        irq_trigger.trigger(VirtioInterruptType::Config).unwrap();
+        assert!(irq_trigger.has_pending_interrupt(VirtioInterruptType::Config));
         irq_trigger.irq_status.store(0, Ordering::SeqCst);
-        irq_trigger.trigger_irq(IrqType::Vring).unwrap();
-        assert!(irq_trigger.has_pending_irq(IrqType::Vring));
+        irq_trigger.trigger(VirtioInterruptType::Queue(0)).unwrap();
+        assert!(irq_trigger.has_pending_interrupt(VirtioInterruptType::Queue(0)));
 
         // Check trigger_irq() failure case (irq_evt is full).
         irq_trigger.irq_evt.write(u64::MAX - 1).unwrap();
-        irq_trigger.trigger_irq(IrqType::Config).unwrap_err();
-        irq_trigger.trigger_irq(IrqType::Vring).unwrap_err();
+        irq_trigger
+            .trigger(VirtioInterruptType::Config)
+            .unwrap_err();
+        irq_trigger
+            .trigger(VirtioInterruptType::Queue(0))
+            .unwrap_err();
     }
 }
