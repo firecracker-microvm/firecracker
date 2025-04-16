@@ -584,6 +584,22 @@ impl VirtioDevice for VirtioBlock {
         self.avail_features |= 1 << VIRTIO_F_ACCESS_PLATFORM;
     }
 
+    fn force_userspace_bounce_buffers(&mut self) {
+        match self.disk.file_engine {
+            FileEngine::Async(_) => {
+                panic!("async engine is incompatible with userspace bounce buffers")
+            }
+            FileEngine::Sync(ref mut engine) => engine.start_bouncing(),
+        }
+    }
+
+    fn userspace_bounce_buffers(&self) -> bool {
+        match self.disk.file_engine {
+            FileEngine::Async(_) => false,
+            FileEngine::Sync(ref engine) => engine.is_bouncing(),
+        }
+    }
+
     fn device_type(&self) -> u32 {
         TYPE_BLOCK
     }

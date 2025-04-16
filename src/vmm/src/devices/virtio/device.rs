@@ -105,6 +105,12 @@ pub trait VirtioDevice: AsAny + Send {
     /// Make the virtio device offer the VIRTIO_F_ACCESS_PLATFORM feature
     fn force_swiotlb(&mut self);
 
+    /// Make the virtio device user userspace bounce buffers
+    fn force_userspace_bounce_buffers(&mut self);
+
+    /// Whether this device is using userspace bounce buffers
+    fn userspace_bounce_buffers(&self) -> bool;
+
     /// Check if virtio device has negotiated given feature.
     fn has_feature(&self, feature: u64) -> bool {
         (self.acked_features() & (1 << feature)) != 0
@@ -264,6 +270,14 @@ pub(crate) mod tests {
 
         fn force_swiotlb(&mut self) {
             unimplemented!()
+        }
+
+        fn force_userspace_bounce_buffers(&mut self) {
+            todo!()
+        }
+
+        fn userspace_bounce_buffers(&self) -> bool {
+            todo!()
         }
 
         fn device_type(&self) -> u32 {

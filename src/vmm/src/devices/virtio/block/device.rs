@@ -155,6 +155,20 @@ impl VirtioDevice for Block {
         }
     }
 
+    fn force_userspace_bounce_buffers(&mut self) {
+        match self {
+            Block::Virtio(b) => b.force_userspace_bounce_buffers(),
+            Block::VhostUser(b) => b.force_userspace_bounce_buffers(),
+        }
+    }
+
+    fn userspace_bounce_buffers(&self) -> bool {
+        match self {
+            Block::Virtio(b) => b.userspace_bounce_buffers(),
+            Block::VhostUser(b) => b.userspace_bounce_buffers(),
+        }
+    }
+
     fn device_type(&self) -> u32 {
         TYPE_BLOCK
     }

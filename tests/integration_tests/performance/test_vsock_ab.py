@@ -91,14 +91,20 @@ def test_vsock_throughput(
     if mode == "bd" and vcpus < 2:
         pytest.skip("bidrectional test only done with at least 2 vcpus")
 
-    if memory_config is not None and "6.1" not in guest_kernel_acpi.name:
+    if (
+        memory_config is not None
+        and memory_config["initial_swiotlb_size"] != 0
+        and "6.1" not in guest_kernel_acpi.name
+    ):
         pytest.skip("swiotlb only supported on aarch64/6.1")
 
     mem_size_mib = 1024
     vm = microvm_factory.build(guest_kernel_acpi, rootfs, monitor_memory=False)
     vm.spawn(log_level="Info", emit_metrics=True)
     vm.basic_config(
-        vcpu_count=vcpus, mem_size_mib=mem_size_mib, memory_config=memory_config
+        vcpu_count=vcpus,
+        mem_size_mib=mem_size_mib,
+        memory_config=memory_config,
     )
     vm.add_net_iface()
     # Create a vsock device

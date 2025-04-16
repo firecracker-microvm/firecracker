@@ -2,8 +2,6 @@
 # SPDX-License-Identifier: Apache-2.0
 """Test secret-freedom related functionality."""
 
-import platform
-
 import pytest
 
 from framework import defs
@@ -23,17 +21,15 @@ pytestmark = [
 ]
 
 
-@pytest.mark.skipif(
-    platform.machine() != "aarch64",
-    reason="only ARM can boot secret free VMs with I/O devices",
-)
-def test_secret_free_boot(microvm_factory, guest_kernel_linux_6_1, rootfs):
+def test_secret_free_boot(microvm_factory, guest_kernel, rootfs):
     """Tests that a VM can boot if all virtio devices are bound to a swiotlb region, and
     that this swiotlb region is actually discovered by the guest."""
-    vm = microvm_factory.build(guest_kernel_linux_6_1, rootfs)
+    vm = microvm_factory.build(guest_kernel, rootfs)
     vm.spawn()
     vm.memory_monitor = None
-    vm.basic_config(memory_config={"initial_swiotlb_size": 8, "secret_free": True})
+    vm.basic_config(
+        memory_config={"secret_free": True},
+    )
     vm.add_net_iface()
     vm.start()
 
@@ -52,9 +48,8 @@ def test_secret_free_initrd(microvm_factory, guest_kernel):
     uvm.basic_config(
         add_root_device=False,
         vcpu_count=1,
-        boot_args="console=ttyS0 reboot=k panic=1 pci=off no-kvmclock",
         use_initrd=True,
-        memory_config={"initial_swiotlb_size": 64, "secret_free": True},
+        memory_config={"secret_free": True},
     )
 
     uvm.start()
@@ -65,16 +60,14 @@ def test_secret_free_initrd(microvm_factory, guest_kernel):
     serial.rx(token=f"rootfs on / type {INITRD_FILESYSTEM}")
 
 
-@pytest.mark.skipif(
-    platform.machine() != "aarch64",
-    reason="only ARM can boot secret free VMs with I/O devices",
-)
-def test_secret_free_snapshot_creation(microvm_factory, guest_kernel_linux_6_1, rootfs):
+def test_secret_free_snapshot_creation(microvm_factory, guest_kernel, rootfs):
     """Test that snapshot creation works for secret hidden VMs"""
-    vm = microvm_factory.build(guest_kernel_linux_6_1, rootfs)
+    vm = microvm_factory.build(guest_kernel, rootfs)
     vm.spawn()
     vm.memory_monitor = None
-    vm.basic_config(memory_config={"initial_swiotlb_size": 8, "secret_free": True})
+    vm.basic_config(
+        memory_config={"secret_free": True},
+    )
     vm.add_net_iface()
     vm.start()
 

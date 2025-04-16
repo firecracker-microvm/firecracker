@@ -604,6 +604,14 @@ mod tests {
             unimplemented!()
         }
 
+        fn force_userspace_bounce_buffers(&mut self) {
+            todo!()
+        }
+
+        fn userspace_bounce_buffers(&self) -> bool {
+            todo!()
+        }
+
         fn device_type(&self) -> u32 {
             0
         }

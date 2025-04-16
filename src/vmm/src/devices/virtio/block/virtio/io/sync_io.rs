@@ -6,7 +6,7 @@ use std::io::{Seek, SeekFrom, Write};
 
 use vm_memory::{GuestMemoryError, ReadVolatile, WriteVolatile};
 
-use crate::vstate::memory::{GuestAddress, GuestMemory, GuestMemoryMmap};
+use crate::vstate::memory::{GuestAddress, GuestMemory, GuestMemoryMmap, MaybeBounce};
 
 #[derive(Debug, thiserror::Error, displaydoc::Display)]
 pub enum SyncIoError {
@@ -22,7 +22,8 @@ pub enum SyncIoError {
 
 #[derive(Debug)]
 pub struct SyncFileEngine {
-    file: File,
+    // 65536 is the largest buffer a linux guest will give us, empirically
+    file: MaybeBounce<File, { u16::MAX as usize + 1 }>,
 }
 
 // SAFETY: `File` is send and ultimately a POD.
@@ -30,17 +31,27 @@ unsafe impl Send for SyncFileEngine {}
 
 impl SyncFileEngine {
     pub fn from_file(file: File) -> SyncFileEngine {
-        SyncFileEngine { file }
+        SyncFileEngine {
+            file: MaybeBounce::new_persistent(file, false),
+        }
     }
 
     #[cfg(test)]
     pub fn file(&self) -> &File {
-        &self.file
+        &self.file.target
+    }
+
+    pub fn start_bouncing(&mut self) {
+        self.file.activate()
+    }
+
+    pub fn is_bouncing(&self) -> bool {
+        self.file.is_activated()
     }
 
     /// Update the backing file of the engine
     pub fn update_file(&mut self, file: File) {
-        self.file = file
+        self.file.target = file
     }
 
     pub fn read(
@@ -77,8 +88,8 @@ impl SyncFileEngine {
 
     pub fn flush(&mut self) -> Result<(), SyncIoError> {
         // flush() first to force any cached data out of rust buffers.
-        self.file.flush().map_err(SyncIoError::Flush)?;
+        self.file.target.flush().map_err(SyncIoError::Flush)?;
         // Sync data out to physical media on host.
-        self.file.sync_all().map_err(SyncIoError::SyncAll)
+        self.file.target.sync_all().map_err(SyncIoError::SyncAll)
     }
 }

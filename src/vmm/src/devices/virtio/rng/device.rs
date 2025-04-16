@@ -309,6 +309,14 @@ impl VirtioDevice for Entropy {
     fn force_swiotlb(&mut self) {
         self.avail_features |= 1 << VIRTIO_F_ACCESS_PLATFORM;
     }
+
+    fn force_userspace_bounce_buffers(&mut self) {
+        // rng device works with only userspace accesses
+    }
+
+    fn userspace_bounce_buffers(&self) -> bool {
+        false
+    }
 }
 
 #[cfg(test)]

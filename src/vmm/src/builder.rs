@@ -5,6 +5,7 @@
 
 use std::fmt::Debug;
 use std::io::{self};
+use std::os::fd::AsFd;
 use std::os::unix::fs::MetadataExt;
 #[cfg(feature = "gdb")]
 use std::sync::mpsc;
@@ -65,7 +66,7 @@ use crate::vmm_config::instance_info::InstanceInfo;
 use crate::vmm_config::machine_config::MachineConfigError;
 use crate::vmm_config::snapshot::{MemBackendConfig, MemBackendType};
 use crate::vstate::kvm::Kvm;
-use crate::vstate::memory::Bounce;
+use crate::vstate::memory::MaybeBounce;
 use crate::vstate::vcpu::{Vcpu, VcpuError};
 use crate::vstate::vm::{KVM_GMEM_NO_DIRECT_MAP, Vm};
 use crate::{EventManager, Vmm, VmmError, device_manager};
@@ -235,6 +236,11 @@ pub fn build_microvm_for_boot(
         false => None,
     };
 
+    #[cfg(target_arch = "x86_64")]
+    if secret_free {
+        boot_cmdline.insert_str("no-kvmclock")?;
+    }
+
     let (mut vmm, mut vcpus) = create_vmm_and_vcpus(
         instance_info,
         event_manager,
@@ -274,7 +280,7 @@ pub fn build_microvm_for_boot(
     }
 
     let entry_point = load_kernel(
-        Bounce(&boot_config.kernel_file, secret_free),
+        MaybeBounce::new(boot_config.kernel_file.try_clone().unwrap(), secret_free),
         vmm.vm.guest_memory(),
     )?;
     let initrd = match &boot_config.initrd_file {
@@ -286,7 +292,7 @@ pub fn build_microvm_for_boot(
 
             Some(InitrdConfig::from_reader(
                 vmm.vm.guest_memory(),
-                Bounce(initrd_file, secret_free),
+                MaybeBounce::new(initrd_file.as_fd(), secret_free),
                 u64_to_usize(size),
             )?)
         }
@@ -321,16 +327,24 @@ pub fn build_microvm_for_boot(
         &mut boot_cmdline,
         vm_resources.block.devices.iter(),
         event_manager,
+        secret_free,
     )?;
     attach_net_devices(
         &mut vmm,
         &mut boot_cmdline,
         vm_resources.net_builder.iter(),
         event_manager,
+        secret_free,
     )?;
 
     if let Some(unix_vsock) = vm_resources.vsock.get() {
-        attach_unixsock_vsock_device(&mut vmm, &mut boot_cmdline, unix_vsock, event_manager)?;
+        attach_unixsock_vsock_device(
+            &mut vmm,
+            &mut boot_cmdline,
+            unix_vsock,
+            event_manager,
+            secret_free,
+        )?;
     }
 
     if let Some(entropy) = vm_resources.entropy.get() {
@@ -707,6 +721,7 @@ fn attach_virtio_device<T: 'static + VirtioDevice + MutEventSubscriber + Debug>(
     device: Arc<Mutex<T>>,
     cmdline: &mut LoaderKernelCmdline,
     is_vhost_user: bool,
+    needs_bouncing: bool,
 ) -> Result<(), MmioError> {
     event_manager.add_subscriber(device.clone());
 
@@ -714,7 +729,11 @@ fn attach_virtio_device<T: 'static + VirtioDevice + MutEventSubscriber + Debug>(
     // themselves are created when the corresponding PUT API calls are made, and at that
     // point we don't know yet whether swiotlb should be enabled or not.
     if vmm.vm.has_swiotlb() {
+        // If swiotlb was requested via the API, enable it independently of whether
+        // bouncing is actually required (e.g. of whether secret hiding is enabled)
         device.lock().unwrap().force_swiotlb();
+    } else if needs_bouncing {
+        device.lock().unwrap().force_userspace_bounce_buffers();
     }
 
     // The device mutex mustn't be locked here otherwise it will deadlock.
@@ -772,6 +791,7 @@ fn attach_entropy_device(
         entropy_device.clone(),
         cmdline,
         false,
+        false,
     )
 }
 
@@ -780,6 +800,7 @@ fn attach_block_devices<'a, I: Iterator<Item = &'a Arc<Mutex<Block>>> + Debug>(
     cmdline: &mut LoaderKernelCmdline,
     blocks: I,
     event_manager: &mut EventManager,
+    needs_bouncing: bool,
 ) -> Result<(), StartMicrovmError> {
     for block in blocks {
         let (id, is_vhost_user) = {
@@ -804,6 +825,7 @@ fn attach_block_devices<'a, I: Iterator<Item = &'a Arc<Mutex<Block>>> + Debug>(
             block.clone(),
             cmdline,
             is_vhost_user,
+            needs_bouncing,
         )?;
     }
     Ok(())
@@ -814,11 +836,20 @@ fn attach_net_devices<'a, I: Iterator<Item = &'a Arc<Mutex<Net>>> + Debug>(
     cmdline: &mut LoaderKernelCmdline,
     net_devices: I,
     event_manager: &mut EventManager,
+    needs_bouncing: bool,
 ) -> Result<(), StartMicrovmError> {
     for net_device in net_devices {
         let id = net_device.lock().expect("Poisoned lock").id().clone();
         // The device mutex mustn't be locked here otherwise it will deadlock.
-        attach_virtio_device(event_manager, vmm, id, net_device.clone(), cmdline, false)?;
+        attach_virtio_device(
+            event_manager,
+            vmm,
+            id,
+            net_device.clone(),
+            cmdline,
+            false,
+            needs_bouncing,
+        )?;
     }
     Ok(())
 }
@@ -828,10 +859,19 @@ fn attach_unixsock_vsock_device(
     cmdline: &mut LoaderKernelCmdline,
     unix_vsock: &Arc<Mutex<Vsock<VsockUnixBackend>>>,
     event_manager: &mut EventManager,
+    needs_bouncing: bool,
 ) -> Result<(), MmioError> {
     let id = String::from(unix_vsock.lock().expect("Poisoned lock").id());
     // The device mutex mustn't be locked here otherwise it will deadlock.
-    attach_virtio_device(event_manager, vmm, id, unix_vsock.clone(), cmdline, false)
+    attach_virtio_device(
+        event_manager,
+        vmm,
+        id,
+        unix_vsock.clone(),
+        cmdline,
+        false,
+        needs_bouncing,
+    )
 }
 
 fn attach_balloon_device(
@@ -842,7 +882,15 @@ fn attach_balloon_device(
 ) -> Result<(), MmioError> {
     let id = String::from(balloon.lock().expect("Poisoned lock").id());
     // The device mutex mustn't be locked here otherwise it will deadlock.
-    attach_virtio_device(event_manager, vmm, id, balloon.clone(), cmdline, false)
+    attach_virtio_device(
+        event_manager,
+        vmm,
+        id,
+        balloon.clone(),
+        cmdline,
+        false,
+        false,
+    )
 }
 
 // Adds `O_NONBLOCK` to the stdout flags.
@@ -1018,6 +1066,7 @@ pub(crate) mod tests {
             cmdline,
             block_dev_configs.devices.iter(),
             event_manager,
+            false,
         )
         .unwrap();
         block_files
@@ -1032,7 +1081,7 @@ pub(crate) mod tests {
         let mut net_builder = NetBuilder::new();
         net_builder.build(net_config).unwrap();
 
-        let res = attach_net_devices(vmm, cmdline, net_builder.iter(), event_manager);
+        let res = attach_net_devices(vmm, cmdline, net_builder.iter(), event_manager, false);
         res.unwrap();
     }
 
@@ -1053,7 +1102,7 @@ pub(crate) mod tests {
             Arc::new(Mutex::new(mmds)),
         );
 
-        attach_net_devices(vmm, cmdline, net_builder.iter(), event_manager).unwrap();
+        attach_net_devices(vmm, cmdline, net_builder.iter(), event_manager, false).unwrap();
     }
 
     pub(crate) fn insert_vsock_device(
@@ -1066,7 +1115,7 @@ pub(crate) mod tests {
         let vsock = VsockBuilder::create_unixsock_vsock(vsock_config).unwrap();
         let vsock = Arc::new(Mutex::new(vsock));
 
-        attach_unixsock_vsock_device(vmm, cmdline, &vsock, event_manager).unwrap();
+        attach_unixsock_vsock_device(vmm, cmdline, &vsock, event_manager, false).unwrap();
 
         assert!(
             vmm.mmio_device_manager
