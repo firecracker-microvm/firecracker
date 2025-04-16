@@ -56,7 +56,7 @@ use event_manager::{EventOps, Events, MutEventSubscriber};
 use super::legacy::RTCDevice;
 use super::legacy::{I8042Device, SerialDevice};
 use super::pseudo::BootTimer;
-use super::virtio::mmio::MmioTransport;
+use super::virtio::transport::mmio::MmioTransport;
 
 #[derive(Debug)]
 pub enum BusDevice {
