@@ -29,9 +29,9 @@ use crate::devices::pseudo::BootTimer;
 use crate::devices::virtio::balloon::Balloon;
 use crate::devices::virtio::block::device::Block;
 use crate::devices::virtio::device::VirtioDevice;
-use crate::devices::virtio::mmio::MmioTransport;
 use crate::devices::virtio::net::Net;
 use crate::devices::virtio::rng::Entropy;
+use crate::devices::virtio::transport::mmio::MmioTransport;
 use crate::devices::virtio::vsock::{TYPE_VSOCK, Vsock, VsockUnixBackend};
 use crate::devices::virtio::{TYPE_BALLOON, TYPE_BLOCK, TYPE_NET, TYPE_RNG};
 #[cfg(target_arch = "x86_64")]
@@ -222,7 +222,7 @@ impl MMIODeviceManager {
         device_info: &MMIODeviceInfo,
     ) -> Result<(), MmioError> {
         // as per doc, [virtio_mmio.]device=<size>@<baseaddr>:<irq> needs to be appended
-        // to kernel command line for virtio mmio devices to get recongnized
+        // to kernel command line for virtio mmio devices to get recognized
         // the size parameter has to be transformed to KiB, so dividing hexadecimal value in
         // bytes to 1024; further, the '{}' formatting rust construct will automatically
         // transform it to decimal
@@ -529,8 +529,9 @@ mod tests {
     use super::*;
     use crate::Vm;
     use crate::devices::virtio::ActivateError;
-    use crate::devices::virtio::device::{IrqTrigger, VirtioDevice};
+    use crate::devices::virtio::device::VirtioDevice;
     use crate::devices::virtio::queue::Queue;
+    use crate::devices::virtio::transport::mmio::IrqTrigger;
     use crate::test_utils::multi_region_mem_raw;
     use crate::vstate::kvm::Kvm;
     use crate::vstate::memory::{GuestAddress, GuestMemoryMmap};
