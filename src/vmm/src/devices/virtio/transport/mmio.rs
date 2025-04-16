@@ -11,6 +11,7 @@ use std::sync::{Arc, Mutex, MutexGuard};
 
 use vmm_sys_util::eventfd::EventFd;
 
+use super::{VirtioInterrupt, VirtioInterruptType};
 use crate::devices::virtio::device::VirtioDevice;
 use crate::devices::virtio::device_status;
 use crate::devices::virtio::queue::Queue;
@@ -375,11 +376,54 @@ pub enum IrqType {
     Vring,
 }
 
+impl From<VirtioInterruptType> for IrqType {
+    fn from(interrupt_type: VirtioInterruptType) -> Self {
+        match interrupt_type {
+            VirtioInterruptType::Config => IrqType::Config,
+            VirtioInterruptType::Queue(_) => IrqType::Vring,
+        }
+    }
+}
+
 /// Helper struct that is responsible for triggering guest IRQs
 #[derive(Debug)]
 pub struct IrqTrigger {
     pub(crate) irq_status: Arc<AtomicU32>,
     pub(crate) irq_evt: EventFd,
+}
+
+impl VirtioInterrupt for IrqTrigger {
+    fn trigger(&self, interrupt_type: super::VirtioInterruptType) -> Result<(), std::io::Error> {
+        match interrupt_type {
+            VirtioInterruptType::Config => self.trigger_irq(IrqType::Config),
+            VirtioInterruptType::Queue(_) => self.trigger_irq(IrqType::Vring),
+        }
+    }
+
+    fn notifier(&self, _interrupt_type: VirtioInterruptType) -> Option<EventFd> {
+        self.irq_evt.try_clone().ok()
+    }
+
+    fn status(&self) -> Arc<AtomicU32> {
+        self.irq_status.clone()
+    }
+
+    #[cfg(test)]
+    fn has_pending_interrupt(&self, interrupt_type: VirtioInterruptType) -> bool {
+        if let Ok(num_irqs) = self.irq_evt.read() {
+            if num_irqs == 0 {
+                return false;
+            }
+
+            let irq_status = self.irq_status.load(Ordering::SeqCst);
+            return matches!(
+                (irq_status, interrupt_type.into()),
+                (VIRTIO_MMIO_INT_CONFIG, IrqType::Config) | (VIRTIO_MMIO_INT_VRING, IrqType::Vring)
+            );
+        }
+
+        false
+    }
 }
 
 impl IrqTrigger {
@@ -993,6 +1037,25 @@ pub(crate) mod tests {
         assert!(d.locked_device().is_activated());
     }
 
+    impl IrqTrigger {
+        pub fn has_pending_irq(&self, irq_type: IrqType) -> bool {
+            if let Ok(num_irqs) = self.irq_evt.read() {
+                if num_irqs == 0 {
+                    return false;
+                }
+
+                let irq_status = self.irq_status.load(Ordering::SeqCst);
+                return matches!(
+                    (irq_status, irq_type),
+                    (VIRTIO_MMIO_INT_CONFIG, IrqType::Config)
+                        | (VIRTIO_MMIO_INT_VRING, IrqType::Vring)
+                );
+            }
+
+            false
+        }
+    }
+
     #[test]
     fn test_bus_device_reset() {
         let m = single_region_mem(0x1000);
@@ -1051,25 +1114,6 @@ pub(crate) mod tests {
         dummy_dev.set_avail_features(8);
         dummy_dev.ack_features_by_page(0, 8);
         assert_eq!(dummy_dev.acked_features(), 24);
-    }
-
-    impl IrqTrigger {
-        pub fn has_pending_irq(&self, irq_type: IrqType) -> bool {
-            if let Ok(num_irqs) = self.irq_evt.read() {
-                if num_irqs == 0 {
-                    return false;
-                }
-
-                let irq_status = self.irq_status.load(Ordering::SeqCst);
-                return matches!(
-                    (irq_status, irq_type),
-                    (VIRTIO_MMIO_INT_CONFIG, IrqType::Config)
-                        | (VIRTIO_MMIO_INT_VRING, IrqType::Vring)
-                );
-            }
-
-            false
-        }
     }
 
     #[test]
