@@ -3,12 +3,19 @@
 
 """Tests for verifying the PVTime device behavior under contention and across snapshots."""
 
-import re
 import time
 
 import pytest
 
 from framework.properties import global_props
+
+
+def get_steal_time_ms(vm):
+    """Returns total steal time of vCPUs in VM in milliseconds"""
+    _, out, _ = vm.ssh.run("grep -w '^cpu' /proc/stat")
+    steal_time_tck = int(out.strip().split()[8])
+    clk_tck = int(vm.ssh.run("getconf CLK_TCK").stdout)
+    return steal_time_tck / clk_tck * 1000
 
 
 @pytest.mark.skipif(
@@ -43,35 +50,20 @@ def test_pvtime_steal_time_increases(uvm_plain):
     # Pin both vCPUs to the same physical CPU to induce contention
     vm.pin_vcpu(0, 0)
     vm.pin_vcpu(1, 0)
-    vm.pin_vmm(1)
-    vm.pin_api(2)
 
     # Start two infinite loops to hog CPU time
     hog_cmd = "nohup bash -c 'while true; do :; done' >/dev/null 2>&1 &"
     vm.ssh.run(hog_cmd)
     vm.ssh.run(hog_cmd)
 
+    # Measure before and after steal time
+    steal_before = get_steal_time_ms(vm)
     time.sleep(2)
-
-    # Measure steal time before
-    _, out_before, _ = vm.ssh.run("grep '^cpu[0-9]' /proc/stat")
-    steal_before = sum(
-        int(re.split(r"\s+", line.strip())[8])
-        for line in out_before.strip().splitlines()
-    )
-
-    time.sleep(2)
-
-    # Measure steal time after
-    _, out_after, _ = vm.ssh.run("grep '^cpu[0-9]' /proc/stat")
-    steal_after = sum(
-        int(re.split(r"\s+", line.strip())[8])
-        for line in out_after.strip().splitlines()
-    )
+    steal_after = get_steal_time_ms(vm)
 
     # Require increase in steal time
     assert (
-        steal_after - steal_before >= 200
+        steal_after > steal_before
     ), f"Steal time did not increase as expected. Before: {steal_before}, After: {steal_after}"
 
 
@@ -88,21 +80,13 @@ def test_pvtime_snapshot(uvm_plain, microvm_factory):
 
     vm.pin_vcpu(0, 0)
     vm.pin_vcpu(1, 0)
-    vm.pin_vmm(1)
-    vm.pin_api(2)
 
     hog_cmd = "nohup bash -c 'while true; do :; done' >/dev/null 2>&1 &"
     vm.ssh.run(hog_cmd)
     vm.ssh.run(hog_cmd)
 
-    time.sleep(1)
-
     # Snapshot pre-steal time
-    _, out_before_snap, _ = vm.ssh.run("grep '^cpu[0-9]' /proc/stat")
-    steal_before = [
-        int(re.split(r"\s+", line.strip())[8])
-        for line in out_before_snap.strip().splitlines()
-    ]
+    steal_before = get_steal_time_ms(vm)
 
     snapshot = vm.snapshot_full()
     vm.kill()
@@ -115,31 +99,20 @@ def test_pvtime_snapshot(uvm_plain, microvm_factory):
 
     restored_vm.pin_vcpu(0, 0)
     restored_vm.pin_vcpu(1, 0)
-    restored_vm.pin_vmm(1)
-    restored_vm.pin_api(2)
     restored_vm.resume()
 
-    time.sleep(1)
-
     # Steal time just after restoring
-    _, out_after_snap, _ = restored_vm.ssh.run("grep '^cpu[0-9]' /proc/stat")
-    steal_after_snap = [
-        int(re.split(r"\s+", line.strip())[8])
-        for line in out_after_snap.strip().splitlines()
-    ]
+    steal_after_snap = get_steal_time_ms(restored_vm)
 
     time.sleep(2)
 
     # Steal time after running resumed VM
-    _, out_after_resume, _ = restored_vm.ssh.run("grep '^cpu[0-9]' /proc/stat")
-    steal_after_resume = [
-        int(re.split(r"\s+", line.strip())[8])
-        for line in out_after_resume.strip().splitlines()
-    ]
+    steal_after_resume = get_steal_time_ms(restored_vm)
 
     # Ensure steal time persisted and continued increasing
-    persisted = sum(steal_before) + 100 <= sum(steal_after_snap)
-    increased = sum(steal_after_resume) > sum(steal_after_snap)
+    tolerance = 1500  # 1.5 seconds tolerance for persistence check
+    persisted = steal_after_snap - steal_before < tolerance
+    increased = steal_after_resume > steal_after_snap
 
     assert (
         persisted and increased

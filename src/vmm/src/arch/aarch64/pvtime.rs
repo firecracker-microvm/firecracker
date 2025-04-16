@@ -18,7 +18,7 @@ pub const STEALTIME_STRUCT_MEM_SIZE: u64 = 64;
 #[derive(Debug)]
 pub struct PVTime {
     /// Number of vCPUs
-    vcpu_count: u8,
+    vcpu_count: u64,
     /// The base IPA of the shared memory region
     base_ipa: GuestAddress,
 }
@@ -29,25 +29,25 @@ pub enum PVTimeError {
     /// Failed to allocate memory region: {0}
     AllocationFailed(vm_allocator::Error),
     /// Invalid VCPU ID: {0}
-    InvalidVcpuIndex(u8),
+    InvalidVcpuIndex(u64),
     /// Error while setting or getting device attributes for vCPU: {0}
     DeviceAttribute(kvm_ioctls::Error),
 }
 
 impl PVTime {
     /// Helper function to get the IPA of the steal_time region for a given vCPU
-    fn get_steal_time_region_addr(&self, vcpu_index: u8) -> Result<GuestAddress, PVTimeError> {
+    fn get_steal_time_region_addr(&self, vcpu_index: u64) -> Result<GuestAddress, PVTimeError> {
         if vcpu_index >= self.vcpu_count {
             return Err(PVTimeError::InvalidVcpuIndex(vcpu_index));
         }
         Ok(GuestAddress(
-            self.base_ipa.0 + (vcpu_index as u64 * STEALTIME_STRUCT_MEM_SIZE),
+            self.base_ipa.0 + (vcpu_index * STEALTIME_STRUCT_MEM_SIZE),
         ))
     }
 
     /// Create a new PVTime device given a base addr
     /// - Assumes total shared memory region from base addr is already allocated
-    fn from_base(base_ipa: GuestAddress, vcpu_count: u8) -> Self {
+    fn from_base(base_ipa: GuestAddress, vcpu_count: u64) -> Self {
         PVTime {
             vcpu_count,
             base_ipa,
@@ -57,13 +57,13 @@ impl PVTime {
     /// Creates a new PVTime device by allocating new system memory for all vCPUs
     pub fn new(
         resource_allocator: &mut ResourceAllocator,
-        vcpu_count: u8,
+        vcpu_count: u64,
     ) -> Result<Self, PVTimeError> {
         // This returns the IPA of the start of our shared memory region for all vCPUs.
         let base_ipa: GuestAddress = GuestAddress(
             resource_allocator
                 .allocate_system_memory(
-                    STEALTIME_STRUCT_MEM_SIZE * vcpu_count as u64,
+                    STEALTIME_STRUCT_MEM_SIZE * vcpu_count,
                     STEALTIME_STRUCT_MEM_SIZE,
                     vm_allocator::AllocPolicy::LastMatch,
                 )
@@ -89,7 +89,7 @@ impl PVTime {
     /// Register a vCPU with its pre-allocated steal time region
     fn register_vcpu(
         &self,
-        vcpu_index: u8,
+        vcpu_index: u64,
         vcpu_fd: &kvm_ioctls::VcpuFd,
     ) -> Result<(), PVTimeError> {
         // Get IPA of the steal_time region for this vCPU
@@ -114,9 +114,7 @@ impl PVTime {
     pub fn register_all_vcpus(&self, vcpus: &mut [Vcpu]) -> Result<(), PVTimeError> {
         // Register the vcpu with the pvtime device to map its steal time region
         for (i, vcpu) in vcpus.iter().enumerate() {
-            #[allow(clippy::cast_possible_truncation)]
-            // We know vcpu_count is u8 according to VcpuConfig
-            self.register_vcpu(i as u8, &vcpu.kvm_vcpu.fd)?;
+            self.register_vcpu(i as u64, &vcpu.kvm_vcpu.fd)?;
         }
         Ok(())
     }
@@ -135,7 +133,7 @@ pub struct PVTimeConstructorArgs<'a> {
     /// For steal_time shared memory region
     pub resource_allocator: &'a mut ResourceAllocator,
     /// Number of vCPUs (should be consistent with pre-snapshot state)
-    pub vcpu_count: u8,
+    pub vcpu_count: u64,
 }
 
 impl<'a> Persist<'a> for PVTime {
@@ -158,7 +156,7 @@ impl<'a> Persist<'a> for PVTime {
         constructor_args
             .resource_allocator
             .allocate_system_memory(
-                STEALTIME_STRUCT_MEM_SIZE * constructor_args.vcpu_count as u64,
+                STEALTIME_STRUCT_MEM_SIZE * constructor_args.vcpu_count,
                 STEALTIME_STRUCT_MEM_SIZE,
                 vm_allocator::AllocPolicy::ExactMatch(state.base_ipa),
             )

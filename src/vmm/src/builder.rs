@@ -11,8 +11,6 @@ use std::sync::{Arc, Mutex};
 use event_manager::{MutEventSubscriber, SubscriberOps};
 use libc::EFD_NONBLOCK;
 use linux_loader::cmdline::Cmdline as LoaderKernelCmdline;
-#[cfg(target_arch = "aarch64")]
-use log::warn;
 use userfaultfd::Uffd;
 use utils::time::TimestampUs;
 #[cfg(target_arch = "aarch64")]
@@ -303,7 +301,9 @@ pub fn build_microvm_for_boot(
         vmm.pv_time = if PVTime::is_supported(&vcpus[0].kvm_vcpu.fd) {
             Some(setup_pv_time(&mut vmm, vcpus.as_mut())?)
         } else {
-            warn!("PVTime is not supported by KVM. Steal time will not be reported to the guest.");
+            log::warn!(
+                "PVTime is not supported by KVM. Steal time will not be reported to the guest."
+            );
             None
         };
     }
@@ -484,11 +484,9 @@ pub fn build_microvm_from_snapshot(
     {
         let pvtime_state = microvm_state.pvtime_state;
         if let Some(pvtime_state) = pvtime_state {
-            #[allow(clippy::cast_possible_truncation)]
-            // We know vcpu_count is u8 according to VcpuConfig
             let pvtime_ctor_args = PVTimeConstructorArgs {
                 resource_allocator: &mut vmm.resource_allocator,
-                vcpu_count: vcpus.len() as u8,
+                vcpu_count: vcpus.len() as u64,
             };
             vmm.pv_time = Some(
                 PVTime::restore(pvtime_ctor_args, &pvtime_state)
@@ -603,8 +601,7 @@ fn setup_pv_time(vmm: &mut Vmm, vcpus: &mut [Vcpu]) -> Result<PVTime, StartMicro
     use crate::arch::aarch64::pvtime::PVTime;
 
     // Create the pvtime device
-    #[allow(clippy::cast_possible_truncation)] // We know vcpu_count is u8 according to VcpuConfig
-    let pv_time = PVTime::new(&mut vmm.resource_allocator, vcpus.len() as u8)
+    let pv_time = PVTime::new(&mut vmm.resource_allocator, vcpus.len() as u64)
         .map_err(StartMicrovmError::CreatePVTime)?;
 
     // Register all vcpus with pvtime device
