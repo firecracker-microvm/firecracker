@@ -236,6 +236,11 @@ pub fn build_microvm_for_boot(
         false => None,
     };
 
+    #[cfg(target_arch = "x86_64")]
+    if secret_free {
+        boot_cmdline.insert_str("no-kvmclock")?;
+    }
+
     let (mut vmm, mut vcpus) = create_vmm_and_vcpus(
         instance_info,
         event_manager,
