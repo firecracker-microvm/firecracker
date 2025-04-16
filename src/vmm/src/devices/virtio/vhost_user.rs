@@ -13,8 +13,8 @@ use vhost::{Error as VhostError, VhostBackend, VhostUserMemoryRegionInfo, VringC
 use vm_memory::{Address, Error as MmapError, GuestMemory, GuestMemoryError, GuestMemoryRegion};
 use vmm_sys_util::eventfd::EventFd;
 
-use crate::devices::virtio::device::IrqTrigger;
 use crate::devices::virtio::queue::Queue;
+use crate::devices::virtio::transport::mmio::IrqTrigger;
 use crate::vstate::memory::GuestMemoryMmap;
 
 /// vhost-user error.
