@@ -240,7 +240,7 @@ mod tests {
         {
             let test_ctx = TestContext::new();
             let mut ctx = test_ctx.create_event_handler_context();
-            ctx.mock_activate(test_ctx.mem.clone());
+            ctx.mock_activate(test_ctx.mem.clone(), test_ctx.interrupt.clone());
 
             ctx.device.backend.set_pending_rx(false);
             ctx.signal_txq_event();
@@ -257,7 +257,7 @@ mod tests {
         {
             let test_ctx = TestContext::new();
             let mut ctx = test_ctx.create_event_handler_context();
-            ctx.mock_activate(test_ctx.mem.clone());
+            ctx.mock_activate(test_ctx.mem.clone(), test_ctx.interrupt.clone());
 
             ctx.device.backend.set_pending_rx(true);
             ctx.signal_txq_event();
@@ -273,7 +273,7 @@ mod tests {
         {
             let test_ctx = TestContext::new();
             let mut ctx = test_ctx.create_event_handler_context();
-            ctx.mock_activate(test_ctx.mem.clone());
+            ctx.mock_activate(test_ctx.mem.clone(), test_ctx.interrupt.clone());
 
             ctx.device.backend.set_pending_rx(false);
             ctx.device.backend.set_tx_err(Some(VsockError::NoData));
@@ -289,7 +289,7 @@ mod tests {
         {
             let test_ctx = TestContext::new();
             let mut ctx = test_ctx.create_event_handler_context();
-            ctx.mock_activate(test_ctx.mem.clone());
+            ctx.mock_activate(test_ctx.mem.clone(), test_ctx.interrupt.clone());
 
             // Invalidate the descriptor chain, by setting its length to 0.
             ctx.guest_txvq.dtable[0].len.set(0);
@@ -306,7 +306,7 @@ mod tests {
         {
             let test_ctx = TestContext::new();
             let mut ctx = test_ctx.create_event_handler_context();
-            ctx.mock_activate(test_ctx.mem.clone());
+            ctx.mock_activate(test_ctx.mem.clone(), test_ctx.interrupt.clone());
 
             assert!(!ctx.device.handle_txq_event(EventSet::IN));
         }
@@ -321,7 +321,7 @@ mod tests {
         {
             let test_ctx = TestContext::new();
             let mut ctx = test_ctx.create_event_handler_context();
-            ctx.mock_activate(test_ctx.mem.clone());
+            ctx.mock_activate(test_ctx.mem.clone(), test_ctx.interrupt.clone());
 
             ctx.device.backend.set_pending_rx(true);
             ctx.device.backend.set_rx_err(Some(VsockError::NoData));
@@ -338,7 +338,7 @@ mod tests {
         {
             let test_ctx = TestContext::new();
             let mut ctx = test_ctx.create_event_handler_context();
-            ctx.mock_activate(test_ctx.mem.clone());
+            ctx.mock_activate(test_ctx.mem.clone(), test_ctx.interrupt.clone());
 
             ctx.device.backend.set_pending_rx(true);
             ctx.signal_rxq_event();
@@ -351,7 +351,7 @@ mod tests {
         {
             let test_ctx = TestContext::new();
             let mut ctx = test_ctx.create_event_handler_context();
-            ctx.mock_activate(test_ctx.mem.clone());
+            ctx.mock_activate(test_ctx.mem.clone(), test_ctx.interrupt.clone());
 
             // Invalidate the descriptor chain, by setting its length to 0.
             ctx.guest_rxvq.dtable[0].len.set(0);
@@ -367,7 +367,7 @@ mod tests {
         {
             let test_ctx = TestContext::new();
             let mut ctx = test_ctx.create_event_handler_context();
-            ctx.mock_activate(test_ctx.mem.clone());
+            ctx.mock_activate(test_ctx.mem.clone(), test_ctx.interrupt.clone());
             ctx.device.backend.set_pending_rx(false);
             assert!(!ctx.device.handle_rxq_event(EventSet::IN));
         }
@@ -392,7 +392,7 @@ mod tests {
         {
             let test_ctx = TestContext::new();
             let mut ctx = test_ctx.create_event_handler_context();
-            ctx.mock_activate(test_ctx.mem.clone());
+            ctx.mock_activate(test_ctx.mem.clone(), test_ctx.interrupt.clone());
 
             ctx.device.backend.set_pending_rx(true);
             ctx.device.notify_backend(EventSet::IN).unwrap();
@@ -411,7 +411,7 @@ mod tests {
         {
             let test_ctx = TestContext::new();
             let mut ctx = test_ctx.create_event_handler_context();
-            ctx.mock_activate(test_ctx.mem.clone());
+            ctx.mock_activate(test_ctx.mem.clone(), test_ctx.interrupt.clone());
 
             ctx.device.backend.set_pending_rx(false);
             ctx.device.notify_backend(EventSet::IN).unwrap();
@@ -454,7 +454,7 @@ mod tests {
         {
             let mut ctx = test_ctx.create_event_handler_context();
 
-            // When modifiyng the buffer descriptor, make sure the len field is altered in the
+            // When modifying the buffer descriptor, make sure the len field is altered in the
             // vsock packet header descriptor as well.
             if desc_idx == 1 {
                 // The vsock packet len field has offset 24 in the header.
@@ -582,7 +582,7 @@ mod tests {
         vsock
             .lock()
             .unwrap()
-            .activate(test_ctx.mem.clone())
+            .activate(test_ctx.mem.clone(), test_ctx.interrupt.clone())
             .unwrap();
         // Process the activate event.
         let ev_count = event_manager.run_with_timeout(50).unwrap();
