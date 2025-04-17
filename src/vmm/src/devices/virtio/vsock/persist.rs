@@ -13,6 +13,7 @@ use super::*;
 use crate::devices::virtio::device::DeviceState;
 use crate::devices::virtio::persist::VirtioDeviceState;
 use crate::devices::virtio::queue::FIRECRACKER_MAX_QUEUE_SIZE;
+use crate::devices::virtio::transport::mmio::IrqTrigger;
 use crate::devices::virtio::vsock::TYPE_VSOCK;
 use crate::snapshot::Persist;
 use crate::vstate::memory::GuestMemoryMmap;
@@ -29,7 +30,7 @@ pub struct VsockState {
 /// The Vsock frontend serializable state.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct VsockFrontendState {
-    /// Context IDentifier.
+    /// Context Identifier.
     pub cid: u64,
     virtio_state: VirtioDeviceState,
 }
@@ -121,10 +122,10 @@ where
 
         vsock.acked_features = state.virtio_state.acked_features;
         vsock.avail_features = state.virtio_state.avail_features;
-        vsock.irq_trigger.irq_status =
-            Arc::new(AtomicU32::new(state.virtio_state.interrupt_status));
         vsock.device_state = if state.virtio_state.activated {
-            DeviceState::Activated(constructor_args.mem)
+            let mut interrupt = IrqTrigger::new().expect("Could not create IRQ for VirtIO device");
+            interrupt.irq_status = Arc::new(AtomicU32::new(state.virtio_state.interrupt_status));
+            DeviceState::Activated((constructor_args.mem, Arc::new(interrupt)))
         } else {
             DeviceState::Inactive
         };

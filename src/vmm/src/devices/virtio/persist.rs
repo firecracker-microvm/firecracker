@@ -10,6 +10,7 @@ use std::sync::{Arc, Mutex};
 use serde::{Deserialize, Serialize};
 
 use super::queue::QueueError;
+use super::transport::mmio::IrqTrigger;
 use crate::devices::virtio::device::VirtioDevice;
 use crate::devices::virtio::generated::virtio_ring::VIRTIO_RING_F_EVENT_IDX;
 use crate::devices::virtio::queue::Queue;
@@ -130,12 +131,18 @@ pub struct VirtioDeviceState {
 impl VirtioDeviceState {
     /// Construct the virtio state of a device.
     pub fn from_device(device: &dyn VirtioDevice) -> Self {
+        let interrupt_status = if device.is_activated() {
+            device.interrupt_status().load(Ordering::Relaxed)
+        } else {
+            0
+        };
+
         VirtioDeviceState {
             device_type: device.device_type(),
             avail_features: device.avail_features(),
             acked_features: device.acked_features(),
             queues: device.queues().iter().map(Persist::save).collect(),
-            interrupt_status: device.interrupt_status().load(Ordering::Relaxed),
+            interrupt_status,
             activated: device.is_activated(),
         }
     }
@@ -214,6 +221,8 @@ pub struct MmioTransportState {
 pub struct MmioTransportConstructorArgs {
     /// Pointer to guest memory.
     pub mem: GuestMemoryMmap,
+    /// Interrupt to use for the device
+    pub interrupt: Arc<IrqTrigger>,
     /// Device associated with the current MMIO state.
     pub device: Arc<Mutex<dyn VirtioDevice>>,
     /// Is device backed by vhost-user.
@@ -241,6 +250,7 @@ impl Persist<'_> for MmioTransport {
     ) -> Result<Self, Self::Error> {
         let mut transport = MmioTransport::new(
             constructor_args.mem,
+            constructor_args.interrupt,
             constructor_args.device,
             constructor_args.is_vhost_user,
         );
@@ -385,7 +395,7 @@ mod tests {
                 self.queue_select == other.queue_select &&
                 self.device_status == other.device_status &&
                 self.config_generation == other.config_generation &&
-                self.interrupt_status.load(Ordering::SeqCst) == other.interrupt_status.load(Ordering::SeqCst) &&
+                self.interrupt.irq_status.load(Ordering::SeqCst) == other.interrupt.irq_status.load(Ordering::SeqCst) &&
                 // Only checking equality of device type, actual device (de)ser is tested by that
                 // device's tests.
                 self_dev_type == other.device().lock().unwrap().device_type()
@@ -394,6 +404,7 @@ mod tests {
 
     fn generic_mmiotransport_persistence_test(
         mmio_transport: MmioTransport,
+        interrupt: Arc<IrqTrigger>,
         mem: GuestMemoryMmap,
         device: Arc<Mutex<dyn VirtioDevice>>,
     ) {
@@ -403,6 +414,7 @@ mod tests {
 
         let restore_args = MmioTransportConstructorArgs {
             mem,
+            interrupt,
             device,
             is_vhost_user: false,
         };
@@ -415,8 +427,14 @@ mod tests {
         assert_eq!(restored_mmio_transport, mmio_transport);
     }
 
-    fn create_default_block() -> (MmioTransport, GuestMemoryMmap, Arc<Mutex<VirtioBlock>>) {
+    fn create_default_block() -> (
+        MmioTransport,
+        Arc<IrqTrigger>,
+        GuestMemoryMmap,
+        Arc<Mutex<VirtioBlock>>,
+    ) {
         let mem = default_mem();
+        let interrupt = Arc::new(IrqTrigger::new().unwrap());
 
         // Create backing file.
         let f = TempFile::new().unwrap();
@@ -426,25 +444,34 @@ mod tests {
             FileEngineType::default(),
         );
         let block = Arc::new(Mutex::new(block));
-        let mmio_transport = MmioTransport::new(mem.clone(), block.clone(), false);
+        let mmio_transport =
+            MmioTransport::new(mem.clone(), interrupt.clone(), block.clone(), false);
 
-        (mmio_transport, mem, block)
+        (mmio_transport, interrupt, mem, block)
     }
 
-    fn create_default_net() -> (MmioTransport, GuestMemoryMmap, Arc<Mutex<Net>>) {
+    fn create_default_net() -> (
+        MmioTransport,
+        Arc<IrqTrigger>,
+        GuestMemoryMmap,
+        Arc<Mutex<Net>>,
+    ) {
         let mem = default_mem();
+        let interrupt = Arc::new(IrqTrigger::new().unwrap());
         let net = Arc::new(Mutex::new(default_net()));
-        let mmio_transport = MmioTransport::new(mem.clone(), net.clone(), false);
+        let mmio_transport = MmioTransport::new(mem.clone(), interrupt.clone(), net.clone(), false);
 
-        (mmio_transport, mem, net)
+        (mmio_transport, interrupt, mem, net)
     }
 
     fn default_vsock() -> (
         MmioTransport,
+        Arc<IrqTrigger>,
         GuestMemoryMmap,
         Arc<Mutex<Vsock<VsockUnixBackend>>>,
     ) {
         let mem = default_mem();
+        let interrupt = Arc::new(IrqTrigger::new().unwrap());
 
         let guest_cid = 52;
         let mut temp_uds_path = TempFile::new().unwrap();
@@ -454,26 +481,27 @@ mod tests {
         let backend = VsockUnixBackend::new(guest_cid, uds_path).unwrap();
         let vsock = Vsock::new(guest_cid, backend).unwrap();
         let vsock = Arc::new(Mutex::new(vsock));
-        let mmio_transport = MmioTransport::new(mem.clone(), vsock.clone(), false);
+        let mmio_transport =
+            MmioTransport::new(mem.clone(), interrupt.clone(), vsock.clone(), false);
 
-        (mmio_transport, mem, vsock)
+        (mmio_transport, interrupt, mem, vsock)
     }
 
     #[test]
     fn test_block_over_mmiotransport_persistence() {
-        let (mmio_transport, mem, block) = create_default_block();
-        generic_mmiotransport_persistence_test(mmio_transport, mem, block);
+        let (mmio_transport, interrupt, mem, block) = create_default_block();
+        generic_mmiotransport_persistence_test(mmio_transport, interrupt, mem, block);
     }
 
     #[test]
     fn test_net_over_mmiotransport_persistence() {
-        let (mmio_transport, mem, net) = create_default_net();
-        generic_mmiotransport_persistence_test(mmio_transport, mem, net);
+        let (mmio_transport, interrupt, mem, net) = create_default_net();
+        generic_mmiotransport_persistence_test(mmio_transport, interrupt, mem, net);
     }
 
     #[test]
     fn test_vsock_over_mmiotransport_persistence() {
-        let (mmio_transport, mem, vsock) = default_vsock();
-        generic_mmiotransport_persistence_test(mmio_transport, mem, vsock);
+        let (mmio_transport, interrupt, mem, vsock) = default_vsock();
+        generic_mmiotransport_persistence_test(mmio_transport, interrupt, mem, vsock);
     }
 }

@@ -1,6 +1,8 @@
 // Copyright 2023 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
+use std::sync::Arc;
+
 use event_manager::{EventOps, Events, MutEventSubscriber};
 use vmm_sys_util::eventfd::EventFd;
 
@@ -174,10 +176,20 @@ impl VirtioDevice for Block {
         }
     }
 
-    fn interrupt_trigger(&self) -> &IrqTrigger {
+    fn interrupt_trigger(&self) -> Arc<IrqTrigger> {
         match self {
-            Self::Virtio(b) => &b.irq_trigger,
-            Self::VhostUser(b) => &b.irq_trigger,
+            Self::Virtio(b) => {
+                b.device_state
+                    .active_state()
+                    .expect("Device is not initialized")
+                    .1
+            }
+            Self::VhostUser(b) => {
+                b.device_state
+                    .active_state()
+                    .expect("Device is not initialized")
+                    .1
+            }
         }
     }
 
@@ -195,10 +207,14 @@ impl VirtioDevice for Block {
         }
     }
 
-    fn activate(&mut self, mem: GuestMemoryMmap) -> Result<(), ActivateError> {
+    fn activate(
+        &mut self,
+        mem: GuestMemoryMmap,
+        interrupt: Arc<IrqTrigger>,
+    ) -> Result<(), ActivateError> {
         match self {
-            Self::Virtio(b) => b.activate(mem),
-            Self::VhostUser(b) => b.activate(mem),
+            Self::Virtio(b) => b.activate(mem, interrupt),
+            Self::VhostUser(b) => b.activate(mem, interrupt),
         }
     }
 

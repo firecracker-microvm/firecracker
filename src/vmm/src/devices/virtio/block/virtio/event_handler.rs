@@ -125,6 +125,7 @@ mod tests {
     use crate::devices::virtio::block::virtio::{VIRTIO_BLK_S_OK, VIRTIO_BLK_T_OUT};
     use crate::devices::virtio::queue::VIRTQ_DESC_F_NEXT;
     use crate::devices::virtio::test_utils::{VirtQueue, default_mem};
+    use crate::devices::virtio::transport::mmio::IrqTrigger;
     use crate::vstate::memory::{Bytes, GuestAddress};
 
     #[test]
@@ -132,6 +133,7 @@ mod tests {
         let mut event_manager = EventManager::new().unwrap();
         let mut block = default_block(FileEngineType::default());
         let mem = default_mem();
+        let interrupt = Arc::new(IrqTrigger::new().unwrap());
         let vq = VirtQueue::new(GuestAddress(0), &mem, 16);
         set_queue(&mut block, 0, vq.create_queue());
         read_blk_req_descriptors(&vq);
@@ -162,7 +164,11 @@ mod tests {
         assert_eq!(ev_count, 0);
 
         // Now activate the device.
-        block.lock().unwrap().activate(mem.clone()).unwrap();
+        block
+            .lock()
+            .unwrap()
+            .activate(mem.clone(), interrupt)
+            .unwrap();
         // Process the activate event.
         let ev_count = event_manager.run_with_timeout(50).unwrap();
         assert_eq!(ev_count, 1);

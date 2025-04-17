@@ -320,7 +320,7 @@ pub mod test {
     use crate::devices::virtio::net::{MAX_BUFFER_SIZE, Net, RX_INDEX, TX_INDEX};
     use crate::devices::virtio::queue::{VIRTQ_DESC_F_NEXT, VIRTQ_DESC_F_WRITE};
     use crate::devices::virtio::test_utils::{VirtQueue, VirtqDesc};
-    use crate::devices::virtio::transport::mmio::IrqType;
+    use crate::devices::virtio::transport::mmio::{IrqTrigger, IrqType};
     use crate::logger::IncMetric;
     use crate::vstate::memory::{Address, Bytes, GuestAddress, GuestMemoryMmap};
 
@@ -379,7 +379,12 @@ pub mod test {
         }
 
         pub fn activate_net(&mut self) {
-            self.net.lock().unwrap().activate(self.mem.clone()).unwrap();
+            let interrupt = Arc::new(IrqTrigger::new().unwrap());
+            self.net
+                .lock()
+                .unwrap()
+                .activate(self.mem.clone(), interrupt)
+                .unwrap();
             // Process the activate event.
             let ev_count = self.event_manager.run_with_timeout(100).unwrap();
             assert_eq!(ev_count, 1);
@@ -456,7 +461,8 @@ pub mod test {
                 old_used_descriptors + 1
             );
 
-            assert!(&self.net().irq_trigger.has_pending_irq(IrqType::Vring));
+            let interrupt = self.net().device_state.active_state().unwrap().1;
+            assert!(interrupt.has_pending_irq(IrqType::Vring));
 
             frame
         }
@@ -482,7 +488,8 @@ pub mod test {
             );
             // Check that the expected frame was sent to the Rx queue eventually.
             assert_eq!(self.rxq.used.idx.get(), used_idx + 1);
-            assert!(&self.net().irq_trigger.has_pending_irq(IrqType::Vring));
+            let interrupt = self.net().device_state.active_state().unwrap().1;
+            assert!(interrupt.has_pending_irq(IrqType::Vring));
             self.rxq
                 .check_used_elem(used_idx, 0, expected_frame.len().try_into().unwrap());
             self.rxq.dtable[0].check_data(expected_frame);

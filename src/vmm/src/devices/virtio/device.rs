@@ -23,7 +23,7 @@ use crate::vstate::memory::GuestMemoryMmap;
 #[derive(Debug)]
 pub enum DeviceState {
     Inactive,
-    Activated(GuestMemoryMmap),
+    Activated((GuestMemoryMmap, Arc<IrqTrigger>)),
 }
 
 impl DeviceState {
@@ -35,10 +35,10 @@ impl DeviceState {
         }
     }
 
-    /// Gets the memory attached to the device if it is activated.
-    pub fn mem(&self) -> Option<&GuestMemoryMmap> {
+    /// Gets the memory and interrupt attached to the device if it is activated.
+    pub fn active_state(&self) -> Option<(&GuestMemoryMmap, Arc<IrqTrigger>)> {
         match self {
-            DeviceState::Activated(mem) => Some(mem),
+            DeviceState::Activated((mem, interrupt)) => Some((mem, interrupt.clone())),
             DeviceState::Inactive => None,
         }
     }
@@ -84,7 +84,7 @@ pub trait VirtioDevice: AsAny + Send {
         Arc::clone(&self.interrupt_trigger().irq_status)
     }
 
-    fn interrupt_trigger(&self) -> &IrqTrigger;
+    fn interrupt_trigger(&self) -> Arc<IrqTrigger>;
 
     /// The set of feature bits shifted by `page * 32`.
     fn avail_features_by_page(&self, page: u32) -> u32 {
@@ -130,7 +130,11 @@ pub trait VirtioDevice: AsAny + Send {
     fn write_config(&mut self, offset: u64, data: &[u8]);
 
     /// Performs the formal activation for a device, which can be verified also with `is_activated`.
-    fn activate(&mut self, mem: GuestMemoryMmap) -> Result<(), ActivateError>;
+    fn activate(
+        &mut self,
+        mem: GuestMemoryMmap,
+        interrupt: Arc<IrqTrigger>,
+    ) -> Result<(), ActivateError>;
 
     /// Checks if the resources of this device are activated.
     fn is_activated(&self) -> bool;
@@ -194,7 +198,7 @@ pub(crate) mod tests {
             todo!()
         }
 
-        fn interrupt_trigger(&self) -> &IrqTrigger {
+        fn interrupt_trigger(&self) -> Arc<IrqTrigger> {
             todo!()
         }
 
@@ -206,7 +210,11 @@ pub(crate) mod tests {
             todo!()
         }
 
-        fn activate(&mut self, _mem: GuestMemoryMmap) -> Result<(), ActivateError> {
+        fn activate(
+            &mut self,
+            _mem: GuestMemoryMmap,
+            _interrupt: Arc<IrqTrigger>,
+        ) -> Result<(), ActivateError> {
             todo!()
         }
 

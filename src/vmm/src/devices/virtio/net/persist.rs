@@ -14,6 +14,7 @@ use super::{NET_NUM_QUEUES, NET_QUEUE_MAX_SIZE, RX_INDEX, TapError};
 use crate::devices::virtio::TYPE_NET;
 use crate::devices::virtio::device::DeviceState;
 use crate::devices::virtio::persist::{PersistError as VirtioStateError, VirtioDeviceState};
+use crate::devices::virtio::transport::mmio::IrqTrigger;
 use crate::mmds::data_store::Mmds;
 use crate::mmds::ns::MmdsNetworkStack;
 use crate::mmds::persist::MmdsNetworkStackState;
@@ -148,7 +149,6 @@ impl Persist<'_> for Net {
             NET_NUM_QUEUES,
             NET_QUEUE_MAX_SIZE,
         )?;
-        net.irq_trigger.irq_status = Arc::new(AtomicU32::new(state.virtio_state.interrupt_status));
         net.avail_features = state.virtio_state.avail_features;
         net.acked_features = state.virtio_state.acked_features;
 
@@ -158,7 +158,9 @@ impl Persist<'_> for Net {
                 .set_offload(supported_flags)
                 .map_err(NetPersistError::TapSetOffload)?;
 
-            net.device_state = DeviceState::Activated(constructor_args.mem);
+            let mut interrupt = IrqTrigger::new().expect("Could not create IRQ for VirtIO device");
+            interrupt.irq_status = Arc::new(AtomicU32::new(state.virtio_state.interrupt_status));
+            net.device_state = DeviceState::Activated((constructor_args.mem, Arc::new(interrupt)));
 
             // Recreate `Net::rx_buffer`. We do it by re-parsing the RX queue. We're temporarily
             // rolling back `next_avail` in the RX queue and call `parse_rx_descriptors`.
@@ -174,7 +176,6 @@ impl Persist<'_> for Net {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::atomic::Ordering;
 
     use super::*;
     use crate::devices::virtio::device::VirtioDevice;
@@ -221,10 +222,6 @@ mod tests {
                     assert_eq!(restored_net.device_type(), TYPE_NET);
                     assert_eq!(restored_net.avail_features(), virtio_state.avail_features);
                     assert_eq!(restored_net.acked_features(), virtio_state.acked_features);
-                    assert_eq!(
-                        restored_net.interrupt_status().load(Ordering::Relaxed),
-                        virtio_state.interrupt_status
-                    );
                     assert_eq!(restored_net.is_activated(), virtio_state.activated);
 
                     // Test that net specific fields are the same.

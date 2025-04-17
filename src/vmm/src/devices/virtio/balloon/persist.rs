@@ -16,6 +16,7 @@ use crate::devices::virtio::balloon::device::{BalloonStats, ConfigSpace};
 use crate::devices::virtio::device::DeviceState;
 use crate::devices::virtio::persist::VirtioDeviceState;
 use crate::devices::virtio::queue::FIRECRACKER_MAX_QUEUE_SIZE;
+use crate::devices::virtio::transport::mmio::IrqTrigger;
 use crate::snapshot::Persist;
 use crate::vstate::memory::GuestMemoryMmap;
 
@@ -144,8 +145,6 @@ impl Persist<'_> for Balloon {
                 FIRECRACKER_MAX_QUEUE_SIZE,
             )
             .map_err(|_| Self::Error::QueueRestoreError)?;
-        balloon.irq_trigger.irq_status =
-            Arc::new(AtomicU32::new(state.virtio_state.interrupt_status));
         balloon.avail_features = state.virtio_state.avail_features;
         balloon.acked_features = state.virtio_state.acked_features;
         balloon.latest_stats = state.latest_stats.create_stats();
@@ -155,7 +154,10 @@ impl Persist<'_> for Balloon {
         };
 
         if state.virtio_state.activated {
-            balloon.device_state = DeviceState::Activated(constructor_args.mem);
+            let mut interrupt = IrqTrigger::new().expect("Could not create IRQ for VirtIO device");
+            interrupt.irq_status = Arc::new(AtomicU32::new(state.virtio_state.interrupt_status));
+            balloon.device_state =
+                DeviceState::Activated((constructor_args.mem, Arc::new(interrupt)));
 
             if balloon.stats_enabled() {
                 // Restore the stats descriptor.
@@ -178,7 +180,6 @@ impl Persist<'_> for Balloon {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::atomic::Ordering;
 
     use super::*;
     use crate::devices::virtio::TYPE_BALLOON;
@@ -213,11 +214,8 @@ mod tests {
         assert_eq!(restored_balloon.avail_features, balloon.avail_features);
         assert_eq!(restored_balloon.config_space, balloon.config_space);
         assert_eq!(restored_balloon.queues(), balloon.queues());
-        assert_eq!(
-            restored_balloon.interrupt_status().load(Ordering::Relaxed),
-            balloon.interrupt_status().load(Ordering::Relaxed)
-        );
-        assert_eq!(restored_balloon.is_activated(), balloon.is_activated());
+        assert!(!restored_balloon.is_activated());
+        assert!(!balloon.is_activated());
 
         assert_eq!(
             restored_balloon.stats_polling_interval_s,

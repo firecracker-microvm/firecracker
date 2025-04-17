@@ -3,12 +3,16 @@
 
 //! Defines the structures needed for saving/restoring entropy devices.
 
+use std::sync::Arc;
+use std::sync::atomic::AtomicU32;
+
 use serde::{Deserialize, Serialize};
 
 use crate::devices::virtio::TYPE_RNG;
 use crate::devices::virtio::persist::{PersistError as VirtioStateError, VirtioDeviceState};
 use crate::devices::virtio::queue::FIRECRACKER_MAX_QUEUE_SIZE;
 use crate::devices::virtio::rng::{Entropy, EntropyError, RNG_NUM_QUEUES};
+use crate::devices::virtio::transport::mmio::IrqTrigger;
 use crate::rate_limiter::RateLimiter;
 use crate::rate_limiter::persist::RateLimiterState;
 use crate::snapshot::Persist;
@@ -66,9 +70,10 @@ impl Persist<'_> for Entropy {
         let mut entropy = Entropy::new_with_queues(queues, rate_limiter)?;
         entropy.set_avail_features(state.virtio_state.avail_features);
         entropy.set_acked_features(state.virtio_state.acked_features);
-        entropy.set_irq_status(state.virtio_state.interrupt_status);
         if state.virtio_state.activated {
-            entropy.set_activated(constructor_args.0);
+            let mut interrupt = IrqTrigger::new().expect("Could not create IRQ for VirtIO device");
+            interrupt.irq_status = Arc::new(AtomicU32::new(state.virtio_state.interrupt_status));
+            entropy.set_activated(constructor_args.0, Arc::new(interrupt));
         }
 
         Ok(entropy)
@@ -77,7 +82,6 @@ impl Persist<'_> for Entropy {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::atomic::Ordering;
 
     use super::*;
     use crate::devices::virtio::device::VirtioDevice;
@@ -101,12 +105,9 @@ mod tests {
 
         assert_eq!(restored.device_type(), TYPE_RNG);
         assert_eq!(restored.id(), ENTROPY_DEV_ID);
-        assert_eq!(restored.is_activated(), entropy.is_activated());
+        assert!(!restored.is_activated());
+        assert!(!entropy.is_activated());
         assert_eq!(restored.avail_features(), entropy.avail_features());
         assert_eq!(restored.acked_features(), entropy.acked_features());
-        assert_eq!(
-            restored.interrupt_status().load(Ordering::Relaxed),
-            entropy.interrupt_status().load(Ordering::Relaxed)
-        );
     }
 }

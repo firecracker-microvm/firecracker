@@ -34,7 +34,7 @@ use crate::devices::virtio::rng::Entropy;
 use crate::devices::virtio::rng::persist::{
     EntropyConstructorArgs, EntropyPersistError as EntropyError, EntropyState,
 };
-use crate::devices::virtio::transport::mmio::MmioTransport;
+use crate::devices::virtio::transport::mmio::{IrqTrigger, MmioTransport};
 use crate::devices::virtio::vsock::persist::{
     VsockConstructorArgs, VsockState, VsockUdsConstructorArgs,
 };
@@ -476,8 +476,22 @@ impl<'a> Persist<'a> for MMIODeviceManager {
                                   device_info: &MMIODeviceInfo,
                                   event_manager: &mut EventManager|
          -> Result<(), Self::Error> {
+            // If the device was already activated, an interrupt was created and assigned to it. In
+            // that case grab a reference to it and pass it to the transport state. Otherwise,
+            // create a fresh one. Like this both the transport and the device will hold a
+            // reference to the same interrupt object, at all times.
+            let interrupt = {
+                let locked_dev = device.lock().expect("Poisoned lock");
+                if locked_dev.is_activated() {
+                    locked_dev.interrupt_trigger()
+                } else {
+                    Arc::new(IrqTrigger::new().expect("Could not create IRQ for MMIO device"))
+                }
+            };
+
             let restore_args = MmioTransportConstructorArgs {
                 mem: mem.clone(),
+                interrupt,
                 device,
                 is_vhost_user,
             };

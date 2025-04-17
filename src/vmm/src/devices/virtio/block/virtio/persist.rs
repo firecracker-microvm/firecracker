@@ -119,7 +119,9 @@ impl Persist<'_> for VirtioBlock {
         let acked_features = state.virtio_state.acked_features;
 
         let device_state = if state.virtio_state.activated {
-            DeviceState::Activated(constructor_args.mem)
+            let mut interrupt = IrqTrigger::new().expect("Could not create IRQ for VirtIO device");
+            interrupt.irq_status = Arc::new(AtomicU32::new(state.virtio_state.interrupt_status));
+            DeviceState::Activated((constructor_args.mem, Arc::new(interrupt)))
         } else {
             DeviceState::Inactive
         };
@@ -137,7 +139,6 @@ impl Persist<'_> for VirtioBlock {
             queues,
             queue_evts,
             device_state,
-            irq_trigger,
 
             id: state.id.clone(),
             partuuid: state.partuuid.clone(),
@@ -155,8 +156,6 @@ impl Persist<'_> for VirtioBlock {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::atomic::Ordering;
-
     use vmm_sys_util::tempfile::TempFile;
 
     use super::*;
@@ -244,11 +243,8 @@ mod tests {
         assert_eq!(restored_block.avail_features(), block.avail_features());
         assert_eq!(restored_block.acked_features(), block.acked_features());
         assert_eq!(restored_block.queues(), block.queues());
-        assert_eq!(
-            restored_block.interrupt_status().load(Ordering::Relaxed),
-            block.interrupt_status().load(Ordering::Relaxed)
-        );
-        assert_eq!(restored_block.is_activated(), block.is_activated());
+        assert!(!block.is_activated());
+        assert!(!restored_block.is_activated());
 
         // Test that block specific fields are the same.
         assert_eq!(restored_block.disk.file_path, block.disk.file_path);
