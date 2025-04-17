@@ -4,7 +4,6 @@
 //! Defines the structures needed for saving/restoring net devices.
 
 use std::io;
-use std::sync::atomic::AtomicU32;
 use std::sync::{Arc, Mutex};
 
 use serde::{Deserialize, Serialize};
@@ -12,8 +11,9 @@ use serde::{Deserialize, Serialize};
 use super::device::{Net, RxBuffers};
 use super::{NET_NUM_QUEUES, NET_QUEUE_MAX_SIZE, RX_INDEX, TapError};
 use crate::devices::virtio::TYPE_NET;
-use crate::devices::virtio::device::DeviceState;
+use crate::devices::virtio::device::{ActiveState, DeviceState};
 use crate::devices::virtio::persist::{PersistError as VirtioStateError, VirtioDeviceState};
+use crate::devices::virtio::transport::mmio::IrqTrigger;
 use crate::mmds::data_store::Mmds;
 use crate::mmds::ns::MmdsNetworkStack;
 use crate::mmds::persist::MmdsNetworkStackState;
@@ -71,6 +71,8 @@ pub struct NetState {
 pub struct NetConstructorArgs {
     /// Pointer to guest memory.
     pub mem: GuestMemoryMmap,
+    /// Interrupt for the device.
+    pub interrupt: Arc<IrqTrigger>,
     /// Pointer to the MMDS data store.
     pub mmds: Option<Arc<Mutex<Mmds>>>,
 }
@@ -148,7 +150,6 @@ impl Persist<'_> for Net {
             NET_NUM_QUEUES,
             NET_QUEUE_MAX_SIZE,
         )?;
-        net.irq_trigger.irq_status = Arc::new(AtomicU32::new(state.virtio_state.interrupt_status));
         net.avail_features = state.virtio_state.avail_features;
         net.acked_features = state.virtio_state.acked_features;
 
@@ -158,7 +159,10 @@ impl Persist<'_> for Net {
                 .set_offload(supported_flags)
                 .map_err(NetPersistError::TapSetOffload)?;
 
-            net.device_state = DeviceState::Activated(constructor_args.mem);
+            net.device_state = DeviceState::Activated(ActiveState {
+                mem: constructor_args.mem,
+                interrupt: constructor_args.interrupt,
+            });
 
             // Recreate `Net::rx_buffer`. We do it by re-parsing the RX queue. We're temporarily
             // rolling back `next_avail` in the RX queue and call `parse_rx_descriptors`.
@@ -174,12 +178,11 @@ impl Persist<'_> for Net {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::atomic::Ordering;
 
     use super::*;
     use crate::devices::virtio::device::VirtioDevice;
     use crate::devices::virtio::net::test_utils::{default_net, default_net_no_mmds};
-    use crate::devices::virtio::test_utils::default_mem;
+    use crate::devices::virtio::test_utils::{default_interrupt, default_mem};
     use crate::snapshot::Snapshot;
 
     fn validate_save_and_restore(net: Net, mmds_ds: Option<Arc<Mutex<Mmds>>>) {
@@ -212,6 +215,7 @@ mod tests {
             match Net::restore(
                 NetConstructorArgs {
                     mem: guest_mem,
+                    interrupt: default_interrupt(),
                     mmds: mmds_ds,
                 },
                 &Snapshot::deserialize(&mut mem.as_slice()).unwrap(),
@@ -221,10 +225,6 @@ mod tests {
                     assert_eq!(restored_net.device_type(), TYPE_NET);
                     assert_eq!(restored_net.avail_features(), virtio_state.avail_features);
                     assert_eq!(restored_net.acked_features(), virtio_state.acked_features);
-                    assert_eq!(
-                        restored_net.interrupt_status().load(Ordering::Relaxed),
-                        virtio_state.interrupt_status
-                    );
                     assert_eq!(restored_net.is_activated(), virtio_state.activated);
 
                     // Test that net specific fields are the same.

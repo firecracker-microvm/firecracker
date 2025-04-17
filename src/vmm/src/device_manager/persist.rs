@@ -34,7 +34,7 @@ use crate::devices::virtio::rng::Entropy;
 use crate::devices::virtio::rng::persist::{
     EntropyConstructorArgs, EntropyPersistError as EntropyError, EntropyState,
 };
-use crate::devices::virtio::transport::mmio::MmioTransport;
+use crate::devices::virtio::transport::mmio::{IrqTrigger, MmioTransport};
 use crate::devices::virtio::vsock::persist::{
     VsockConstructorArgs, VsockState, VsockUdsConstructorArgs,
 };
@@ -473,11 +473,13 @@ impl<'a> Persist<'a> for MMIODeviceManager {
                                   as_subscriber: Arc<Mutex<dyn MutEventSubscriber>>,
                                   id: &String,
                                   state: &MmioTransportState,
+                                  interrupt: Arc<IrqTrigger>,
                                   device_info: &MMIODeviceInfo,
                                   event_manager: &mut EventManager|
          -> Result<(), Self::Error> {
             let restore_args = MmioTransportConstructorArgs {
                 mem: mem.clone(),
+                interrupt,
                 device,
                 is_vhost_user,
             };
@@ -512,9 +514,11 @@ impl<'a> Persist<'a> for MMIODeviceManager {
         };
 
         if let Some(balloon_state) = &state.balloon_device {
+            let interrupt = Arc::new(IrqTrigger::new());
             let device = Arc::new(Mutex::new(Balloon::restore(
                 BalloonConstructorArgs {
                     mem: mem.clone(),
+                    interrupt: interrupt.clone(),
                     restored_from_file: constructor_args.restored_from_file,
                 },
                 &balloon_state.device_state,
@@ -530,14 +534,19 @@ impl<'a> Persist<'a> for MMIODeviceManager {
                 device,
                 &balloon_state.device_id,
                 &balloon_state.transport_state,
+                interrupt,
                 &balloon_state.device_info,
                 constructor_args.event_manager,
             )?;
         }
 
         for block_state in &state.block_devices {
+            let interrupt = Arc::new(IrqTrigger::new());
             let device = Arc::new(Mutex::new(Block::restore(
-                BlockConstructorArgs { mem: mem.clone() },
+                BlockConstructorArgs {
+                    mem: mem.clone(),
+                    interrupt: interrupt.clone(),
+                },
                 &block_state.device_state,
             )?));
 
@@ -551,6 +560,7 @@ impl<'a> Persist<'a> for MMIODeviceManager {
                 device,
                 &block_state.device_id,
                 &block_state.transport_state,
+                interrupt,
                 &block_state.device_info,
                 constructor_args.event_manager,
             )?;
@@ -573,9 +583,11 @@ impl<'a> Persist<'a> for MMIODeviceManager {
         }
 
         for net_state in &state.net_devices {
+            let interrupt = Arc::new(IrqTrigger::new());
             let device = Arc::new(Mutex::new(Net::restore(
                 NetConstructorArgs {
                     mem: mem.clone(),
+                    interrupt: interrupt.clone(),
                     mmds: constructor_args
                         .vm_resources
                         .mmds
@@ -596,6 +608,7 @@ impl<'a> Persist<'a> for MMIODeviceManager {
                 device,
                 &net_state.device_id,
                 &net_state.transport_state,
+                interrupt,
                 &net_state.device_info,
                 constructor_args.event_manager,
             )?;
@@ -606,9 +619,11 @@ impl<'a> Persist<'a> for MMIODeviceManager {
                 cid: vsock_state.device_state.frontend.cid,
             };
             let backend = VsockUnixBackend::restore(ctor_args, &vsock_state.device_state.backend)?;
+            let interrupt = Arc::new(IrqTrigger::new());
             let device = Arc::new(Mutex::new(Vsock::restore(
                 VsockConstructorArgs {
                     mem: mem.clone(),
+                    interrupt: interrupt.clone(),
                     backend,
                 },
                 &vsock_state.device_state.frontend,
@@ -624,13 +639,15 @@ impl<'a> Persist<'a> for MMIODeviceManager {
                 device,
                 &vsock_state.device_id,
                 &vsock_state.transport_state,
+                interrupt,
                 &vsock_state.device_info,
                 constructor_args.event_manager,
             )?;
         }
 
         if let Some(entropy_state) = &state.entropy_device {
-            let ctor_args = EntropyConstructorArgs::new(mem.clone());
+            let interrupt = Arc::new(IrqTrigger::new());
+            let ctor_args = EntropyConstructorArgs::new(mem.clone(), interrupt.clone());
 
             let device = Arc::new(Mutex::new(Entropy::restore(
                 ctor_args,
@@ -647,6 +664,7 @@ impl<'a> Persist<'a> for MMIODeviceManager {
                 device,
                 &entropy_state.device_id,
                 &entropy_state.transport_state,
+                interrupt,
                 &entropy_state.device_info,
                 constructor_args.event_manager,
             )?;

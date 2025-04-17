@@ -53,6 +53,8 @@ pub enum MmioError {
     InvalidDeviceType,
     /// {0}
     InternalDeviceError(String),
+    /// Could not create IRQ for MMIO device: {0}
+    CreateIrq(#[from] std::io::Error),
     /// Invalid MMIO IRQ configuration.
     InvalidIrqConfig,
     /// Failed to register IO event: {0}
@@ -205,7 +207,7 @@ impl MMIODeviceManager {
                 vm.register_ioevent(queue_evt, &io_addr, u32::try_from(i).unwrap())
                     .map_err(MmioError::RegisterIoEvent)?;
             }
-            vm.register_irqfd(&locked_device.interrupt_trigger().irq_evt, irq.get())
+            vm.register_irqfd(&mmio_device.interrupt.irq_evt, irq.get())
                 .map_err(MmioError::RegisterIrqFd)?;
         }
 
@@ -549,7 +551,8 @@ mod tests {
             cmdline: &mut kernel_cmdline::Cmdline,
             dev_id: &str,
         ) -> Result<u64, MmioError> {
-            let mmio_device = MmioTransport::new(guest_mem, device, false);
+            let interrupt = Arc::new(IrqTrigger::new());
+            let mmio_device = MmioTransport::new(guest_mem, interrupt, device, false);
             let device_info = self.register_mmio_virtio_for_boot(
                 vm,
                 resource_allocator,
@@ -576,7 +579,7 @@ mod tests {
         dummy: u32,
         queues: Vec<Queue>,
         queue_evts: [EventFd; 1],
-        interrupt_trigger: IrqTrigger,
+        interrupt_trigger: Option<Arc<IrqTrigger>>,
     }
 
     impl DummyDevice {
@@ -585,7 +588,7 @@ mod tests {
                 dummy: 0,
                 queues: QUEUE_SIZES.iter().map(|&s| Queue::new(s)).collect(),
                 queue_evts: [EventFd::new(libc::EFD_NONBLOCK).expect("cannot create eventFD")],
-                interrupt_trigger: IrqTrigger::new(),
+                interrupt_trigger: None,
             }
         }
     }
@@ -618,7 +621,9 @@ mod tests {
         }
 
         fn interrupt_trigger(&self) -> &IrqTrigger {
-            &self.interrupt_trigger
+            self.interrupt_trigger
+                .as_ref()
+                .expect("Device is not activated")
         }
 
         fn ack_features_by_page(&mut self, page: u32, value: u32) {
@@ -636,7 +641,11 @@ mod tests {
             let _ = data;
         }
 
-        fn activate(&mut self, _: GuestMemoryMmap) -> Result<(), ActivateError> {
+        fn activate(
+            &mut self,
+            _: GuestMemoryMmap,
+            _: Arc<IrqTrigger>,
+        ) -> Result<(), ActivateError> {
             Ok(())
         }
 
