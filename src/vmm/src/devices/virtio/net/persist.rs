@@ -4,7 +4,6 @@
 //! Defines the structures needed for saving/restoring net devices.
 
 use std::io;
-use std::sync::atomic::AtomicU32;
 use std::sync::{Arc, Mutex};
 
 use serde::{Deserialize, Serialize};
@@ -72,6 +71,8 @@ pub struct NetState {
 pub struct NetConstructorArgs {
     /// Pointer to guest memory.
     pub mem: GuestMemoryMmap,
+    /// Interrupt for the device.
+    pub interrupt: Arc<IrqTrigger>,
     /// Pointer to the MMDS data store.
     pub mmds: Option<Arc<Mutex<Mmds>>>,
 }
@@ -158,9 +159,8 @@ impl Persist<'_> for Net {
                 .set_offload(supported_flags)
                 .map_err(NetPersistError::TapSetOffload)?;
 
-            let mut interrupt = IrqTrigger::new().expect("Could not create IRQ for VirtIO device");
-            interrupt.irq_status = Arc::new(AtomicU32::new(state.virtio_state.interrupt_status));
-            net.device_state = DeviceState::Activated((constructor_args.mem, Arc::new(interrupt)));
+            net.device_state =
+                DeviceState::Activated((constructor_args.mem, constructor_args.interrupt));
 
             // Recreate `Net::rx_buffer`. We do it by re-parsing the RX queue. We're temporarily
             // rolling back `next_avail` in the RX queue and call `parse_rx_descriptors`.
@@ -180,7 +180,7 @@ mod tests {
     use super::*;
     use crate::devices::virtio::device::VirtioDevice;
     use crate::devices::virtio::net::test_utils::{default_net, default_net_no_mmds};
-    use crate::devices::virtio::test_utils::default_mem;
+    use crate::devices::virtio::test_utils::{default_interrupt, default_mem};
     use crate::snapshot::Snapshot;
 
     fn validate_save_and_restore(net: Net, mmds_ds: Option<Arc<Mutex<Mmds>>>) {
@@ -213,6 +213,7 @@ mod tests {
             match Net::restore(
                 NetConstructorArgs {
                     mem: guest_mem,
+                    interrupt: default_interrupt(),
                     mmds: mmds_ds,
                 },
                 &Snapshot::deserialize(&mut mem.as_slice()).unwrap(),

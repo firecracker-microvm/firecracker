@@ -4,7 +4,6 @@
 //! Defines the structures needed for saving/restoring entropy devices.
 
 use std::sync::Arc;
-use std::sync::atomic::AtomicU32;
 
 use serde::{Deserialize, Serialize};
 
@@ -25,11 +24,14 @@ pub struct EntropyState {
 }
 
 #[derive(Debug)]
-pub struct EntropyConstructorArgs(GuestMemoryMmap);
+pub struct EntropyConstructorArgs {
+    mem: GuestMemoryMmap,
+    interrupt: Arc<IrqTrigger>,
+}
 
 impl EntropyConstructorArgs {
-    pub fn new(mem: GuestMemoryMmap) -> Self {
-        Self(mem)
+    pub fn new(mem: GuestMemoryMmap, interrupt: Arc<IrqTrigger>) -> Self {
+        Self { mem, interrupt }
     }
 }
 
@@ -60,7 +62,7 @@ impl Persist<'_> for Entropy {
         state: &Self::State,
     ) -> Result<Self, Self::Error> {
         let queues = state.virtio_state.build_queues_checked(
-            &constructor_args.0,
+            &constructor_args.mem,
             TYPE_RNG,
             RNG_NUM_QUEUES,
             FIRECRACKER_MAX_QUEUE_SIZE,
@@ -71,9 +73,7 @@ impl Persist<'_> for Entropy {
         entropy.set_avail_features(state.virtio_state.avail_features);
         entropy.set_acked_features(state.virtio_state.acked_features);
         if state.virtio_state.activated {
-            let mut interrupt = IrqTrigger::new().expect("Could not create IRQ for VirtIO device");
-            interrupt.irq_status = Arc::new(AtomicU32::new(state.virtio_state.interrupt_status));
-            entropy.set_activated(constructor_args.0, Arc::new(interrupt));
+            entropy.set_activated(constructor_args.mem, constructor_args.interrupt);
         }
 
         Ok(entropy)
@@ -86,6 +86,7 @@ mod tests {
     use super::*;
     use crate::devices::virtio::device::VirtioDevice;
     use crate::devices::virtio::rng::device::ENTROPY_DEV_ID;
+    use crate::devices::virtio::test_utils::default_interrupt;
     use crate::devices::virtio::test_utils::test::create_virtio_mem;
     use crate::snapshot::Snapshot;
 
@@ -98,7 +99,7 @@ mod tests {
 
         let guest_mem = create_virtio_mem();
         let restored = Entropy::restore(
-            EntropyConstructorArgs(guest_mem),
+            EntropyConstructorArgs::new(guest_mem, default_interrupt()),
             &Snapshot::deserialize(&mut mem.as_slice()).unwrap(),
         )
         .unwrap();

@@ -4,7 +4,6 @@
 //! Defines the structures needed for saving/restoring balloon devices.
 
 use std::sync::Arc;
-use std::sync::atomic::AtomicU32;
 use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
@@ -96,6 +95,8 @@ pub struct BalloonState {
 pub struct BalloonConstructorArgs {
     /// Pointer to guest memory.
     pub mem: GuestMemoryMmap,
+    /// Interrupt used from the device.
+    pub interrupt: Arc<IrqTrigger>,
     pub restored_from_file: bool,
 }
 
@@ -154,10 +155,8 @@ impl Persist<'_> for Balloon {
         };
 
         if state.virtio_state.activated {
-            let mut interrupt = IrqTrigger::new().expect("Could not create IRQ for VirtIO device");
-            interrupt.irq_status = Arc::new(AtomicU32::new(state.virtio_state.interrupt_status));
             balloon.device_state =
-                DeviceState::Activated((constructor_args.mem, Arc::new(interrupt)));
+                DeviceState::Activated((constructor_args.mem, constructor_args.interrupt));
 
             if balloon.stats_enabled() {
                 // Restore the stats descriptor.
@@ -184,7 +183,7 @@ mod tests {
     use super::*;
     use crate::devices::virtio::TYPE_BALLOON;
     use crate::devices::virtio::device::VirtioDevice;
-    use crate::devices::virtio::test_utils::default_mem;
+    use crate::devices::virtio::test_utils::{default_interrupt, default_mem};
     use crate::snapshot::Snapshot;
 
     #[test]
@@ -201,6 +200,7 @@ mod tests {
         let restored_balloon = Balloon::restore(
             BalloonConstructorArgs {
                 mem: guest_mem,
+                interrupt: default_interrupt(),
                 restored_from_file: true,
             },
             &Snapshot::deserialize(&mut mem.as_slice()).unwrap(),

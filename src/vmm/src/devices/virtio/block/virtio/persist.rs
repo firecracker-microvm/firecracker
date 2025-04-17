@@ -3,9 +3,6 @@
 
 //! Defines the structures needed for saving/restoring block devices.
 
-use std::sync::Arc;
-use std::sync::atomic::AtomicU32;
-
 use device::ConfigSpace;
 use serde::{Deserialize, Serialize};
 use vmm_sys_util::eventfd::EventFd;
@@ -19,7 +16,6 @@ use crate::devices::virtio::block::virtio::metrics::BlockMetricsPerDevice;
 use crate::devices::virtio::device::DeviceState;
 use crate::devices::virtio::generated::virtio_blk::VIRTIO_BLK_F_RO;
 use crate::devices::virtio::persist::VirtioDeviceState;
-use crate::devices::virtio::transport::mmio::IrqTrigger;
 use crate::rate_limiter::RateLimiter;
 use crate::rate_limiter::persist::RateLimiterState;
 use crate::snapshot::Persist;
@@ -112,16 +108,11 @@ impl Persist<'_> for VirtioBlock {
             )
             .map_err(VirtioBlockError::Persist)?;
 
-        let mut irq_trigger = IrqTrigger::new().map_err(VirtioBlockError::IrqTrigger)?;
-        irq_trigger.irq_status = Arc::new(AtomicU32::new(state.virtio_state.interrupt_status));
-
         let avail_features = state.virtio_state.avail_features;
         let acked_features = state.virtio_state.acked_features;
 
         let device_state = if state.virtio_state.activated {
-            let mut interrupt = IrqTrigger::new().expect("Could not create IRQ for VirtIO device");
-            interrupt.irq_status = Arc::new(AtomicU32::new(state.virtio_state.interrupt_status));
-            DeviceState::Activated((constructor_args.mem, Arc::new(interrupt)))
+            DeviceState::Activated((constructor_args.mem, constructor_args.interrupt))
         } else {
             DeviceState::Inactive
         };
@@ -161,7 +152,7 @@ mod tests {
     use super::*;
     use crate::devices::virtio::block::virtio::device::VirtioBlockConfig;
     use crate::devices::virtio::device::VirtioDevice;
-    use crate::devices::virtio::test_utils::default_mem;
+    use crate::devices::virtio::test_utils::{default_interrupt, default_mem};
     use crate::snapshot::Snapshot;
 
     #[test]
@@ -233,7 +224,10 @@ mod tests {
 
         // Restore the block device.
         let restored_block = VirtioBlock::restore(
-            BlockConstructorArgs { mem: guest_mem },
+            BlockConstructorArgs {
+                mem: guest_mem,
+                interrupt: default_interrupt(),
+            },
             &Snapshot::deserialize(&mut mem.as_slice()).unwrap(),
         )
         .unwrap();

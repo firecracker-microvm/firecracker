@@ -122,8 +122,6 @@ pub struct VirtioDeviceState {
     pub acked_features: u64,
     /// List of queues.
     pub queues: Vec<QueueState>,
-    /// The MMIO interrupt status.
-    pub interrupt_status: u32,
     /// Flag for activated status.
     pub activated: bool,
 }
@@ -131,18 +129,11 @@ pub struct VirtioDeviceState {
 impl VirtioDeviceState {
     /// Construct the virtio state of a device.
     pub fn from_device(device: &dyn VirtioDevice) -> Self {
-        let interrupt_status = if device.is_activated() {
-            device.interrupt_status().load(Ordering::Relaxed)
-        } else {
-            0
-        };
-
         VirtioDeviceState {
             device_type: device.device_type(),
             avail_features: device.avail_features(),
             acked_features: device.acked_features(),
             queues: device.queues().iter().map(Persist::save).collect(),
-            interrupt_status,
             activated: device.is_activated(),
         }
     }
@@ -214,6 +205,7 @@ pub struct MmioTransportState {
     queue_select: u32,
     device_status: u32,
     config_generation: u32,
+    interrupt_status: u32,
 }
 
 /// Auxiliary structure for initializing the transport when resuming from a snapshot.
@@ -241,6 +233,7 @@ impl Persist<'_> for MmioTransport {
             queue_select: self.queue_select,
             device_status: self.device_status,
             config_generation: self.config_generation,
+            interrupt_status: self.interrupt.irq_status.load(Ordering::SeqCst),
         }
     }
 
@@ -259,6 +252,10 @@ impl Persist<'_> for MmioTransport {
         transport.queue_select = state.queue_select;
         transport.device_status = state.device_status;
         transport.config_generation = state.config_generation;
+        transport
+            .interrupt
+            .irq_status
+            .store(state.interrupt_status, Ordering::SeqCst);
         Ok(transport)
     }
 }

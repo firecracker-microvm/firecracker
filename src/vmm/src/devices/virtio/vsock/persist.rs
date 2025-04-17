@@ -5,7 +5,6 @@
 
 use std::fmt::Debug;
 use std::sync::Arc;
-use std::sync::atomic::AtomicU32;
 
 use serde::{Deserialize, Serialize};
 
@@ -54,6 +53,8 @@ pub struct VsockUdsState {
 pub struct VsockConstructorArgs<B> {
     /// Pointer to guest memory.
     pub mem: GuestMemoryMmap,
+    /// Interrupt to use for the device.
+    pub interrupt: Arc<IrqTrigger>,
     /// The vsock Unix Backend.
     pub backend: B,
 }
@@ -123,9 +124,7 @@ where
         vsock.acked_features = state.virtio_state.acked_features;
         vsock.avail_features = state.virtio_state.avail_features;
         vsock.device_state = if state.virtio_state.activated {
-            let mut interrupt = IrqTrigger::new().expect("Could not create IRQ for VirtIO device");
-            interrupt.irq_status = Arc::new(AtomicU32::new(state.virtio_state.interrupt_status));
-            DeviceState::Activated((constructor_args.mem, Arc::new(interrupt)))
+            DeviceState::Activated((constructor_args.mem, constructor_args.interrupt))
         } else {
             DeviceState::Inactive
         };
@@ -138,6 +137,7 @@ pub(crate) mod tests {
     use super::device::AVAIL_FEATURES;
     use super::*;
     use crate::devices::virtio::device::VirtioDevice;
+    use crate::devices::virtio::test_utils::default_interrupt;
     use crate::devices::virtio::vsock::defs::uapi;
     use crate::devices::virtio::vsock::test_utils::{TestBackend, TestContext};
     use crate::snapshot::Snapshot;
@@ -190,6 +190,7 @@ pub(crate) mod tests {
         let mut restored_device = Vsock::restore(
             VsockConstructorArgs {
                 mem: ctx.mem.clone(),
+                interrupt: default_interrupt(),
                 backend: match restored_state.backend {
                     VsockBackendState::Uds(uds_state) => {
                         assert_eq!(uds_state.path, "test".to_owned());
