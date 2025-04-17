@@ -16,6 +16,8 @@ use crate::devices::virtio::block::virtio::device::FileEngineType;
 #[cfg(test)]
 use crate::devices::virtio::block::virtio::io::FileEngine;
 use crate::devices::virtio::block::virtio::{CacheType, VirtioBlock};
+#[cfg(test)]
+use crate::devices::virtio::device::VirtioDevice;
 use crate::devices::virtio::queue::{Queue, VIRTQ_DESC_F_NEXT, VIRTQ_DESC_F_WRITE};
 use crate::devices::virtio::test_utils::{VirtQueue, VirtqDesc};
 #[cfg(test)]
@@ -82,7 +84,10 @@ pub fn simulate_queue_event(b: &mut VirtioBlock, maybe_expected_irq: Option<bool
     b.process_queue_event();
     // Validate the queue operation finished successfully.
     if let Some(expected_irq) = maybe_expected_irq {
-        assert_eq!(b.irq_trigger.has_pending_irq(IrqType::Vring), expected_irq);
+        assert_eq!(
+            b.interrupt_trigger().has_pending_irq(IrqType::Vring),
+            expected_irq
+        );
     }
 }
 
@@ -98,7 +103,10 @@ pub fn simulate_async_completion_event(b: &mut VirtioBlock, expected_irq: bool) 
     }
 
     // Validate if there are pending IRQs.
-    assert_eq!(b.irq_trigger.has_pending_irq(IrqType::Vring), expected_irq);
+    assert_eq!(
+        b.interrupt_trigger().has_pending_irq(IrqType::Vring),
+        expected_irq
+    );
 }
 
 #[cfg(test)]
