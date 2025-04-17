@@ -57,7 +57,7 @@ pub struct MmioTransport {
     pub(crate) device_status: u32,
     pub(crate) config_generation: u32,
     mem: GuestMemoryMmap,
-    pub(crate) interrupt_status: Arc<AtomicU32>,
+    pub(crate) interrupt: Arc<IrqTrigger>,
     pub is_vhost_user: bool,
 }
 
@@ -65,11 +65,10 @@ impl MmioTransport {
     /// Constructs a new MMIO transport for the given virtio device.
     pub fn new(
         mem: GuestMemoryMmap,
+        interrupt: Arc<IrqTrigger>,
         device: Arc<Mutex<dyn VirtioDevice>>,
         is_vhost_user: bool,
     ) -> MmioTransport {
-        let interrupt_status = device.lock().expect("Poisoned lock").interrupt_status();
-
         MmioTransport {
             device,
             features_select: 0,
@@ -78,7 +77,7 @@ impl MmioTransport {
             device_status: device_status::INIT,
             config_generation: 0,
             mem,
-            interrupt_status,
+            interrupt,
             is_vhost_user,
         }
     }
@@ -146,7 +145,7 @@ impl MmioTransport {
         self.features_select = 0;
         self.acked_features_select = 0;
         self.queue_select = 0;
-        self.interrupt_status.store(0, Ordering::SeqCst);
+        self.interrupt.irq_status.store(0, Ordering::SeqCst);
         self.device_status = device_status::INIT;
         // . Keep interrupt_evt and queue_evts as is. There may be pending notifications in those
         //   eventfds, but nothing will happen other than supurious wakeups.
@@ -182,7 +181,9 @@ impl MmioTransport {
                 let device_activated = self.locked_device().is_activated();
                 if !device_activated {
                     // temporary variable needed for borrow checker
-                    let activate_result = self.locked_device().activate(self.mem.clone());
+                    let activate_result = self
+                        .locked_device()
+                        .activate(self.mem.clone(), self.interrupt.clone());
                     if let Err(err) = activate_result {
                         self.device_status |= DEVICE_NEEDS_RESET;
 
@@ -265,7 +266,7 @@ impl MmioTransport {
                         // `VIRTIO_MMIO_INT_CONFIG` or not to understand if we need to send
                         // `VIRTIO_MMIO_INT_CONFIG` or
                         // `VIRTIO_MMIO_INT_VRING`.
-                        let is = self.interrupt_status.load(Ordering::SeqCst);
+                        let is = self.interrupt.irq_status.load(Ordering::SeqCst);
                         if !self.is_vhost_user {
                             is
                         } else if is == VIRTIO_MMIO_INT_CONFIG {
@@ -326,7 +327,7 @@ impl MmioTransport {
                     0x44 => self.update_queue_field(|q| q.ready = v == 1),
                     0x64 => {
                         if self.check_device_status(device_status::DRIVER_OK, 0) {
-                            self.interrupt_status.fetch_and(!v, Ordering::SeqCst);
+                            self.interrupt.irq_status.fetch_and(!v, Ordering::SeqCst);
                         }
                     }
                     0x70 => self.set_device_status(v),
@@ -407,6 +408,7 @@ impl IrqTrigger {
 
 #[cfg(test)]
 pub(crate) mod tests {
+
     use vmm_sys_util::eventfd::EventFd;
 
     use super::*;
@@ -421,7 +423,7 @@ pub(crate) mod tests {
     pub(crate) struct DummyDevice {
         acked_features: u64,
         avail_features: u64,
-        interrupt_trigger: IrqTrigger,
+        interrupt_trigger: Option<Arc<IrqTrigger>>,
         queue_evts: Vec<EventFd>,
         queues: Vec<Queue>,
         device_activated: bool,
@@ -434,7 +436,7 @@ pub(crate) mod tests {
             DummyDevice {
                 acked_features: 0,
                 avail_features: 0,
-                interrupt_trigger: IrqTrigger::new(),
+                interrupt_trigger: None,
                 queue_evts: vec![
                     EventFd::new(libc::EFD_NONBLOCK).unwrap(),
                     EventFd::new(libc::EFD_NONBLOCK).unwrap(),
@@ -481,7 +483,9 @@ pub(crate) mod tests {
         }
 
         fn interrupt_trigger(&self) -> &IrqTrigger {
-            &self.interrupt_trigger
+            self.interrupt_trigger
+                .as_ref()
+                .expect("Device is not activated")
         }
 
         fn read_config(&self, offset: u64, data: &mut [u8]) {
@@ -494,8 +498,13 @@ pub(crate) mod tests {
             }
         }
 
-        fn activate(&mut self, _: GuestMemoryMmap) -> Result<(), ActivateError> {
+        fn activate(
+            &mut self,
+            _: GuestMemoryMmap,
+            interrupt: Arc<IrqTrigger>,
+        ) -> Result<(), ActivateError> {
             self.device_activated = true;
+            self.interrupt_trigger = Some(interrupt);
             if self.activate_should_error {
                 Err(ActivateError::EventFd)
             } else {
@@ -517,10 +526,11 @@ pub(crate) mod tests {
     #[test]
     fn test_new() {
         let m = single_region_mem(0x1000);
+        let interrupt = Arc::new(IrqTrigger::new());
         let mut dummy = DummyDevice::new();
         // Validate reset is no-op.
         assert!(dummy.reset().is_none());
-        let mut d = MmioTransport::new(m, Arc::new(Mutex::new(dummy)), false);
+        let mut d = MmioTransport::new(m, interrupt, Arc::new(Mutex::new(dummy)), false);
 
         // We just make sure here that the implementation of a mmio device behaves as we expect,
         // given a known virtio device implementation (the dummy device).
@@ -545,7 +555,13 @@ pub(crate) mod tests {
     #[test]
     fn test_bus_device_read() {
         let m = single_region_mem(0x1000);
-        let mut d = MmioTransport::new(m, Arc::new(Mutex::new(DummyDevice::new())), false);
+        let interrupt = Arc::new(IrqTrigger::new());
+        let mut d = MmioTransport::new(
+            m,
+            interrupt,
+            Arc::new(Mutex::new(DummyDevice::new())),
+            false,
+        );
 
         let mut buf = vec![0xff, 0, 0xfe, 0];
         let buf_copy = buf.to_vec();
@@ -592,17 +608,18 @@ pub(crate) mod tests {
         d.bus_read(0x44, &mut buf[..]);
         assert_eq!(read_le_u32(&buf[..]), u32::from(false));
 
-        d.interrupt_status.store(111, Ordering::SeqCst);
+        d.interrupt.irq_status.store(111, Ordering::SeqCst);
         d.bus_read(0x60, &mut buf[..]);
         assert_eq!(read_le_u32(&buf[..]), 111);
 
         d.is_vhost_user = true;
-        d.interrupt_status.store(0, Ordering::SeqCst);
+        d.interrupt.irq_status.store(0, Ordering::SeqCst);
         d.bus_read(0x60, &mut buf[..]);
         assert_eq!(read_le_u32(&buf[..]), VIRTIO_MMIO_INT_VRING);
 
         d.is_vhost_user = true;
-        d.interrupt_status
+        d.interrupt
+            .irq_status
             .store(VIRTIO_MMIO_INT_CONFIG, Ordering::SeqCst);
         d.bus_read(0x60, &mut buf[..]);
         assert_eq!(read_le_u32(&buf[..]), VIRTIO_MMIO_INT_CONFIG);
@@ -634,8 +651,9 @@ pub(crate) mod tests {
     #[allow(clippy::cognitive_complexity)]
     fn test_bus_device_write() {
         let m = single_region_mem(0x1000);
+        let interrupt = Arc::new(IrqTrigger::new());
         let dummy_dev = Arc::new(Mutex::new(DummyDevice::new()));
-        let mut d = MmioTransport::new(m, dummy_dev.clone(), false);
+        let mut d = MmioTransport::new(m, interrupt, dummy_dev.clone(), false);
         let mut buf = vec![0; 5];
         write_le_u32(&mut buf[..4], 1);
 
@@ -762,10 +780,10 @@ pub(crate) mod tests {
                 | device_status::DRIVER_OK,
         );
 
-        d.interrupt_status.store(0b10_1010, Ordering::Relaxed);
+        d.interrupt.irq_status.store(0b10_1010, Ordering::Relaxed);
         write_le_u32(&mut buf[..], 0b111);
         d.bus_write(0x64, &buf[..]);
-        assert_eq!(d.interrupt_status.load(Ordering::Relaxed), 0b10_1000);
+        assert_eq!(d.interrupt.irq_status.load(Ordering::Relaxed), 0b10_1000);
 
         // Write to an invalid address in generic register range.
         write_le_u32(&mut buf[..], 0xf);
@@ -796,7 +814,13 @@ pub(crate) mod tests {
     #[test]
     fn test_bus_device_activate() {
         let m = single_region_mem(0x1000);
-        let mut d = MmioTransport::new(m, Arc::new(Mutex::new(DummyDevice::new())), false);
+        let interrupt = Arc::new(IrqTrigger::new());
+        let mut d = MmioTransport::new(
+            m,
+            interrupt,
+            Arc::new(Mutex::new(DummyDevice::new())),
+            false,
+        );
 
         assert!(!d.locked_device().is_activated());
         assert_eq!(d.device_status, device_status::INIT);
@@ -873,11 +897,12 @@ pub(crate) mod tests {
     #[test]
     fn test_bus_device_activate_failure() {
         let m = single_region_mem(0x1000);
+        let interrupt = Arc::new(IrqTrigger::new());
         let device = DummyDevice {
             activate_should_error: true,
             ..DummyDevice::new()
         };
-        let mut d = MmioTransport::new(m, Arc::new(Mutex::new(device)), false);
+        let mut d = MmioTransport::new(m, interrupt, Arc::new(Mutex::new(device)), false);
 
         set_device_status(&mut d, device_status::ACKNOWLEDGE);
         set_device_status(&mut d, device_status::ACKNOWLEDGE | device_status::DRIVER);
@@ -895,10 +920,7 @@ pub(crate) mod tests {
             write_le_u32(&mut buf[..], 1);
             d.bus_write(0x44, &buf[..]);
         }
-        assert_eq!(
-            d.locked_device().interrupt_status().load(Ordering::SeqCst),
-            0
-        );
+        assert!(!d.locked_device().is_activated());
 
         set_device_status(
             &mut d,
@@ -967,7 +989,13 @@ pub(crate) mod tests {
     #[test]
     fn test_bus_device_reset() {
         let m = single_region_mem(0x1000);
-        let mut d = MmioTransport::new(m, Arc::new(Mutex::new(DummyDevice::new())), false);
+        let interrupt = Arc::new(IrqTrigger::new());
+        let mut d = MmioTransport::new(
+            m,
+            interrupt,
+            Arc::new(Mutex::new(DummyDevice::new())),
+            false,
+        );
         let mut buf = [0; 4];
 
         assert!(!d.locked_device().is_activated());

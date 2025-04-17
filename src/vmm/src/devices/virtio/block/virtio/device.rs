@@ -23,7 +23,7 @@ use super::request::*;
 use super::{BLOCK_QUEUE_SIZES, SECTOR_SHIFT, SECTOR_SIZE, VirtioBlockError, io as block_io};
 use crate::devices::virtio::block::CacheType;
 use crate::devices::virtio::block::virtio::metrics::{BlockDeviceMetrics, BlockMetricsPerDevice};
-use crate::devices::virtio::device::{DeviceState, VirtioDevice};
+use crate::devices::virtio::device::{ActiveState, DeviceState, VirtioDevice};
 use crate::devices::virtio::generated::virtio_blk::{
     VIRTIO_BLK_F_FLUSH, VIRTIO_BLK_F_RO, VIRTIO_BLK_ID_BYTES,
 };
@@ -250,7 +250,6 @@ pub struct VirtioBlock {
     pub queues: Vec<Queue>,
     pub queue_evts: [EventFd; 1],
     pub device_state: DeviceState,
-    pub irq_trigger: IrqTrigger,
 
     // Implementation specific fields.
     pub id: String,
@@ -323,7 +322,6 @@ impl VirtioBlock {
             queues,
             queue_evts,
             device_state: DeviceState::Inactive,
-            irq_trigger: IrqTrigger::new(),
 
             id: config.drive_id.clone(),
             partuuid: config.partuuid,
@@ -388,34 +386,40 @@ impl VirtioBlock {
     /// Device specific function for peaking inside a queue and processing descriptors.
     pub fn process_queue(&mut self, queue_index: usize) -> Result<(), InvalidAvailIdx> {
         // This is safe since we checked in the event handler that the device is activated.
-        let mem = self.device_state.mem().unwrap();
+        let active_state = self.device_state.active_state().unwrap();
 
         let queue = &mut self.queues[queue_index];
         let mut used_any = false;
 
         while let Some(head) = queue.pop_or_enable_notification()? {
             self.metrics.remaining_reqs_count.add(queue.len().into());
-            let processing_result = match Request::parse(&head, mem, self.disk.nsectors) {
-                Ok(request) => {
-                    if request.rate_limit(&mut self.rate_limiter) {
-                        // Stop processing the queue and return this descriptor chain to the
-                        // avail ring, for later processing.
-                        queue.undo_pop();
-                        self.metrics.rate_limiter_throttled_events.inc();
-                        break;
-                    }
+            let processing_result =
+                match Request::parse(&head, &active_state.mem, self.disk.nsectors) {
+                    Ok(request) => {
+                        if request.rate_limit(&mut self.rate_limiter) {
+                            // Stop processing the queue and return this descriptor chain to the
+                            // avail ring, for later processing.
+                            queue.undo_pop();
+                            self.metrics.rate_limiter_throttled_events.inc();
+                            break;
+                        }
 
-                    request.process(&mut self.disk, head.index, mem, &self.metrics)
-                }
-                Err(err) => {
-                    error!("Failed to parse available descriptor chain: {:?}", err);
-                    self.metrics.execute_fails.inc();
-                    ProcessingResult::Executed(FinishedRequest {
-                        num_bytes_to_mem: 0,
-                        desc_idx: head.index,
-                    })
-                }
-            };
+                        request.process(
+                            &mut self.disk,
+                            head.index,
+                            &active_state.mem,
+                            &self.metrics,
+                        )
+                    }
+                    Err(err) => {
+                        error!("Failed to parse available descriptor chain: {:?}", err);
+                        self.metrics.execute_fails.inc();
+                        ProcessingResult::Executed(FinishedRequest {
+                            num_bytes_to_mem: 0,
+                            desc_idx: head.index,
+                        })
+                    }
+                };
 
             match processing_result {
                 ProcessingResult::Submitted => {}
@@ -440,7 +444,8 @@ impl VirtioBlock {
         queue.advance_used_ring_idx();
 
         if used_any && queue.prepare_kick() {
-            self.irq_trigger
+            active_state
+                .interrupt
                 .trigger_irq(IrqType::Vring)
                 .unwrap_or_else(|_| {
                     self.metrics.event_fails.inc();
@@ -464,11 +469,11 @@ impl VirtioBlock {
         let engine = unwrap_async_file_engine_or_return!(&mut self.disk.file_engine);
 
         // This is safe since we checked in the event handler that the device is activated.
-        let mem = self.device_state.mem().unwrap();
+        let active_state = self.device_state.active_state().unwrap();
         let queue = &mut self.queues[0];
 
         loop {
-            match engine.pop(mem) {
+            match engine.pop(&active_state.mem) {
                 Err(error) => {
                     error!("Failed to read completed io_uring entry: {:?}", error);
                     break;
@@ -487,7 +492,7 @@ impl VirtioBlock {
                             ))),
                         ),
                     };
-                    let finished = pending.finish(mem, res, &self.metrics);
+                    let finished = pending.finish(&active_state.mem, res, &self.metrics);
                     queue
                         .add_used(finished.desc_idx, finished.num_bytes_to_mem)
                         .unwrap_or_else(|err| {
@@ -502,7 +507,8 @@ impl VirtioBlock {
         queue.advance_used_ring_idx();
 
         if queue.prepare_kick() {
-            self.irq_trigger
+            active_state
+                .interrupt
                 .trigger_irq(IrqType::Vring)
                 .unwrap_or_else(|_| {
                     self.metrics.event_fails.inc();
@@ -531,7 +537,9 @@ impl VirtioBlock {
         self.config_space.capacity = self.disk.nsectors.to_le(); // virtio_block_config_space();
 
         // Kick the driver to pick up the changes.
-        self.irq_trigger.trigger_irq(IrqType::Config).unwrap();
+        self.interrupt_trigger()
+            .trigger_irq(IrqType::Config)
+            .unwrap();
 
         self.metrics.update_count.inc();
         Ok(())
@@ -599,7 +607,11 @@ impl VirtioDevice for VirtioBlock {
     }
 
     fn interrupt_trigger(&self) -> &IrqTrigger {
-        &self.irq_trigger
+        &self
+            .device_state
+            .active_state()
+            .expect("Device is not initialized")
+            .interrupt
     }
 
     fn read_config(&self, offset: u64, data: &mut [u8]) {
@@ -628,7 +640,11 @@ impl VirtioDevice for VirtioBlock {
         dst.copy_from_slice(data);
     }
 
-    fn activate(&mut self, mem: GuestMemoryMmap) -> Result<(), ActivateError> {
+    fn activate(
+        &mut self,
+        mem: GuestMemoryMmap,
+        interrupt: Arc<IrqTrigger>,
+    ) -> Result<(), ActivateError> {
         for q in self.queues.iter_mut() {
             q.initialize(&mem)
                 .map_err(ActivateError::QueueMemoryError)?;
@@ -645,7 +661,7 @@ impl VirtioDevice for VirtioBlock {
             self.metrics.activate_fails.inc();
             return Err(ActivateError::EventFd);
         }
-        self.device_state = DeviceState::Activated(mem);
+        self.device_state = DeviceState::Activated(ActiveState { mem, interrupt });
         Ok(())
     }
 
@@ -688,7 +704,7 @@ mod tests {
         simulate_queue_event,
     };
     use crate::devices::virtio::queue::{VIRTQ_DESC_F_NEXT, VIRTQ_DESC_F_WRITE};
-    use crate::devices::virtio::test_utils::{VirtQueue, default_mem};
+    use crate::devices::virtio::test_utils::{VirtQueue, default_interrupt, default_mem};
     use crate::rate_limiter::TokenType;
     use crate::vstate::memory::{Address, Bytes, GuestAddress};
 
@@ -863,9 +879,10 @@ mod tests {
         for engine in [FileEngineType::Sync, FileEngineType::Async] {
             let mut block = default_block(engine);
             let mem = default_mem();
+            let interrupt = default_interrupt();
             let vq = VirtQueue::new(GuestAddress(0), &mem, 16);
             set_queue(&mut block, 0, vq.create_queue());
-            block.activate(mem.clone()).unwrap();
+            block.activate(mem.clone(), interrupt).unwrap();
             read_blk_req_descriptors(&vq);
 
             let request_type_addr = GuestAddress(vq.dtable[0].addr.get());
@@ -891,9 +908,10 @@ mod tests {
             let mut block = default_block(engine);
             // Default mem size is 0x10000
             let mem = default_mem();
+            let interrupt = default_interrupt();
             let vq = VirtQueue::new(GuestAddress(0), &mem, 16);
             set_queue(&mut block, 0, vq.create_queue());
-            block.activate(mem.clone()).unwrap();
+            block.activate(mem.clone(), interrupt).unwrap();
             read_blk_req_descriptors(&vq);
             let request_type_addr = GuestAddress(vq.dtable[0].addr.get());
 
@@ -954,9 +972,10 @@ mod tests {
         for engine in [FileEngineType::Sync, FileEngineType::Async] {
             let mut block = default_block(engine);
             let mem = default_mem();
+            let interrupt = default_interrupt();
             let vq = VirtQueue::new(GuestAddress(0), &mem, 16);
             set_queue(&mut block, 0, vq.create_queue());
-            block.activate(mem.clone()).unwrap();
+            block.activate(mem.clone(), interrupt).unwrap();
             read_blk_req_descriptors(&vq);
 
             let request_type_addr = GuestAddress(vq.dtable[0].addr.get());
@@ -1005,9 +1024,10 @@ mod tests {
         for engine in [FileEngineType::Sync, FileEngineType::Async] {
             let mut block = default_block(engine);
             let mem = default_mem();
+            let interrupt = default_interrupt();
             let vq = VirtQueue::new(GuestAddress(0), &mem, 16);
             set_queue(&mut block, 0, vq.create_queue());
-            block.activate(mem.clone()).unwrap();
+            block.activate(mem.clone(), interrupt).unwrap();
             read_blk_req_descriptors(&vq);
 
             let request_type_addr = GuestAddress(vq.dtable[0].addr.get());
@@ -1037,9 +1057,10 @@ mod tests {
         for engine in [FileEngineType::Sync, FileEngineType::Async] {
             let mut block = default_block(engine);
             let mem = default_mem();
+            let interrupt = default_interrupt();
             let vq = VirtQueue::new(GuestAddress(0), &mem, 16);
             set_queue(&mut block, 0, vq.create_queue());
-            block.activate(mem.clone()).unwrap();
+            block.activate(mem.clone(), interrupt).unwrap();
             read_blk_req_descriptors(&vq);
             vq.dtable[1].set(0xf000, 0x1000, VIRTQ_DESC_F_NEXT | VIRTQ_DESC_F_WRITE, 2);
 
@@ -1073,9 +1094,10 @@ mod tests {
         for engine in [FileEngineType::Sync, FileEngineType::Async] {
             let mut block = default_block(engine);
             let mem = default_mem();
+            let interrupt = default_interrupt();
             let vq = VirtQueue::new(GuestAddress(0), &mem, 16);
             set_queue(&mut block, 0, vq.create_queue());
-            block.activate(mem.clone()).unwrap();
+            block.activate(mem.clone(), interrupt).unwrap();
             read_blk_req_descriptors(&vq);
 
             let request_type_addr = GuestAddress(vq.dtable[0].addr.get());
@@ -1120,9 +1142,10 @@ mod tests {
 
                 // Default mem size is 0x10000
                 let mem = default_mem();
+                let interrupt = default_interrupt();
                 let vq = VirtQueue::new(GuestAddress(0), &mem, 16);
                 set_queue(&mut block, 0, vq.create_queue());
-                block.activate(mem.clone()).unwrap();
+                block.activate(mem.clone(), interrupt).unwrap();
                 read_blk_req_descriptors(&vq);
                 let request_type_addr = GuestAddress(vq.dtable[0].addr.get());
 
@@ -1359,9 +1382,10 @@ mod tests {
             {
                 // Default mem size is 0x10000
                 let mem = default_mem();
+                let interrupt = default_interrupt();
                 let vq = VirtQueue::new(GuestAddress(0), &mem, 16);
                 set_queue(&mut block, 0, vq.create_queue());
-                block.activate(mem.clone()).unwrap();
+                block.activate(mem.clone(), interrupt).unwrap();
                 read_blk_req_descriptors(&vq);
                 vq.dtable[1].set(0xff00, 0x1000, VIRTQ_DESC_F_NEXT | VIRTQ_DESC_F_WRITE, 2);
 
@@ -1400,9 +1424,10 @@ mod tests {
         for engine in [FileEngineType::Sync, FileEngineType::Async] {
             let mut block = default_block(engine);
             let mem = default_mem();
+            let interrupt = default_interrupt();
             let vq = VirtQueue::new(GuestAddress(0), &mem, 16);
             set_queue(&mut block, 0, vq.create_queue());
-            block.activate(mem.clone()).unwrap();
+            block.activate(mem.clone(), interrupt).unwrap();
             read_blk_req_descriptors(&vq);
 
             let request_type_addr = GuestAddress(vq.dtable[0].addr.get());
@@ -1446,9 +1471,10 @@ mod tests {
         for engine in [FileEngineType::Sync, FileEngineType::Async] {
             let mut block = default_block(engine);
             let mem = default_mem();
+            let interrupt = default_interrupt();
             let vq = VirtQueue::new(GuestAddress(0), &mem, 16);
             set_queue(&mut block, 0, vq.create_queue());
-            block.activate(mem.clone()).unwrap();
+            block.activate(mem.clone(), interrupt).unwrap();
             read_blk_req_descriptors(&vq);
 
             let request_type_addr = GuestAddress(vq.dtable[0].addr.get());
@@ -1570,9 +1596,10 @@ mod tests {
             let mut block = default_block(FileEngineType::Async);
 
             let mem = default_mem();
+            let interrupt = default_interrupt();
             let vq = VirtQueue::new(GuestAddress(0), &mem, IO_URING_NUM_ENTRIES * 4);
             block.queues[0] = vq.create_queue();
-            block.activate(mem.clone()).unwrap();
+            block.activate(mem.clone(), interrupt).unwrap();
 
             // Run scenario that doesn't trigger FullSq BlockError: Add sq_size flush requests.
             add_flush_requests_batch(&mut block, &vq, IO_URING_NUM_ENTRIES);
@@ -1604,9 +1631,10 @@ mod tests {
             let mut block = default_block(FileEngineType::Async);
 
             let mem = default_mem();
+            let interrupt = default_interrupt();
             let vq = VirtQueue::new(GuestAddress(0), &mem, IO_URING_NUM_ENTRIES * 4);
             block.queues[0] = vq.create_queue();
-            block.activate(mem.clone()).unwrap();
+            block.activate(mem.clone(), interrupt).unwrap();
 
             // Run scenario that triggers FullCqError. Push 2 * IO_URING_NUM_ENTRIES and wait for
             // completion. Then try to push another entry.
@@ -1634,9 +1662,10 @@ mod tests {
             let mut block = default_block(engine);
 
             let mem = default_mem();
+            let interrupt = default_interrupt();
             let vq = VirtQueue::new(GuestAddress(0), &mem, 16);
             block.queues[0] = vq.create_queue();
-            block.activate(mem.clone()).unwrap();
+            block.activate(mem.clone(), interrupt).unwrap();
 
             // Add a batch of flush requests.
             add_flush_requests_batch(&mut block, &vq, 5);
@@ -1653,9 +1682,10 @@ mod tests {
         for engine in [FileEngineType::Sync, FileEngineType::Async] {
             let mut block = default_block(engine);
             let mem = default_mem();
+            let interrupt = default_interrupt();
             let vq = VirtQueue::new(GuestAddress(0), &mem, 16);
             set_queue(&mut block, 0, vq.create_queue());
-            block.activate(mem.clone()).unwrap();
+            block.activate(mem.clone(), interrupt).unwrap();
             read_blk_req_descriptors(&vq);
 
             let request_type_addr = GuestAddress(vq.dtable[0].addr.get());
@@ -1722,9 +1752,10 @@ mod tests {
         for engine in [FileEngineType::Sync, FileEngineType::Async] {
             let mut block = default_block(engine);
             let mem = default_mem();
+            let interrupt = default_interrupt();
             let vq = VirtQueue::new(GuestAddress(0), &mem, 16);
             set_queue(&mut block, 0, vq.create_queue());
-            block.activate(mem.clone()).unwrap();
+            block.activate(mem.clone(), interrupt).unwrap();
             read_blk_req_descriptors(&vq);
 
             let request_type_addr = GuestAddress(vq.dtable[0].addr.get());
@@ -1804,6 +1835,11 @@ mod tests {
     fn test_update_disk_image() {
         for engine in [FileEngineType::Sync, FileEngineType::Async] {
             let mut block = default_block(engine);
+            let mem = default_mem();
+            let interrupt = default_interrupt();
+            let vq = VirtQueue::new(GuestAddress(0), &mem, 16);
+            set_queue(&mut block, 0, vq.create_queue());
+            block.activate(mem, interrupt).unwrap();
             let f = TempFile::new().unwrap();
             let path = f.as_path();
             let mdata = metadata(path).unwrap();
