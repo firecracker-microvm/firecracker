@@ -46,7 +46,7 @@ use crate::devices::virtio::block::device::Block;
 use crate::devices::virtio::device::VirtioDevice;
 use crate::devices::virtio::net::Net;
 use crate::devices::virtio::rng::Entropy;
-use crate::devices::virtio::transport::mmio::MmioTransport;
+use crate::devices::virtio::transport::mmio::{IrqTrigger, MmioTransport};
 use crate::devices::virtio::vsock::{Vsock, VsockUnixBackend};
 #[cfg(feature = "gdb")]
 use crate::gdb;
@@ -657,8 +657,14 @@ fn attach_virtio_device<T: 'static + VirtioDevice + MutEventSubscriber + Debug>(
 ) -> Result<(), MmioError> {
     event_manager.add_subscriber(device.clone());
 
+    let interrupt = Arc::new(IrqTrigger::new());
     // The device mutex mustn't be locked here otherwise it will deadlock.
-    let device = MmioTransport::new(vmm.vm.guest_memory().clone(), device, is_vhost_user);
+    let device = MmioTransport::new(
+        vmm.vm.guest_memory().clone(),
+        interrupt,
+        device,
+        is_vhost_user,
+    );
     vmm.mmio_device_manager
         .register_mmio_virtio_for_boot(
             vmm.vm.fd(),
