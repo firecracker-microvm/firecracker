@@ -18,12 +18,19 @@ use crate::devices::virtio::AsAny;
 use crate::logger::warn;
 use crate::vstate::memory::GuestMemoryMmap;
 
+/// State of an active VirtIO device
+#[derive(Debug, Clone)]
+pub struct ActiveState {
+    pub mem: GuestMemoryMmap,
+    pub interrupt: Arc<IrqTrigger>,
+}
+
 /// Enum that indicates if a VirtioDevice is inactive or has been activated
 /// and memory attached to it.
 #[derive(Debug)]
 pub enum DeviceState {
     Inactive,
-    Activated(GuestMemoryMmap),
+    Activated(ActiveState),
 }
 
 impl DeviceState {
@@ -35,10 +42,10 @@ impl DeviceState {
         }
     }
 
-    /// Gets the memory attached to the device if it is activated.
-    pub fn mem(&self) -> Option<&GuestMemoryMmap> {
+    /// Gets the memory and interrupt attached to the device if it is activated.
+    pub fn active_state(&self) -> Option<&ActiveState> {
         match self {
-            DeviceState::Activated(mem) => Some(mem),
+            DeviceState::Activated(state) => Some(state),
             DeviceState::Inactive => None,
         }
     }
@@ -130,7 +137,11 @@ pub trait VirtioDevice: AsAny + Send {
     fn write_config(&mut self, offset: u64, data: &[u8]);
 
     /// Performs the formal activation for a device, which can be verified also with `is_activated`.
-    fn activate(&mut self, mem: GuestMemoryMmap) -> Result<(), ActivateError>;
+    fn activate(
+        &mut self,
+        mem: GuestMemoryMmap,
+        interrupt: Arc<IrqTrigger>,
+    ) -> Result<(), ActivateError>;
 
     /// Checks if the resources of this device are activated.
     fn is_activated(&self) -> bool;
@@ -206,7 +217,11 @@ pub(crate) mod tests {
             todo!()
         }
 
-        fn activate(&mut self, _mem: GuestMemoryMmap) -> Result<(), ActivateError> {
+        fn activate(
+            &mut self,
+            _mem: GuestMemoryMmap,
+            _interrupt: Arc<IrqTrigger>,
+        ) -> Result<(), ActivateError> {
             todo!()
         }
 
