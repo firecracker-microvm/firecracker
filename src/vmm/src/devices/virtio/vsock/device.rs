@@ -21,6 +21,7 @@
 //! - a backend FD.
 
 use std::fmt::Debug;
+use std::sync::Arc;
 
 use log::{error, warn};
 use vmm_sys_util::eventfd::EventFd;
@@ -30,7 +31,7 @@ use super::defs::uapi;
 use super::packet::{VSOCK_PKT_HDR_SIZE, VsockPacketRx, VsockPacketTx};
 use super::{VsockBackend, defs};
 use crate::devices::virtio::ActivateError;
-use crate::devices::virtio::device::{DeviceState, VirtioDevice};
+use crate::devices::virtio::device::{ActiveState, DeviceState, VirtioDevice};
 use crate::devices::virtio::generated::virtio_config::{VIRTIO_F_IN_ORDER, VIRTIO_F_VERSION_1};
 use crate::devices::virtio::queue::{InvalidAvailIdx, Queue as VirtQueue};
 use crate::devices::virtio::transport::mmio::{IrqTrigger, IrqType};
@@ -62,7 +63,6 @@ pub struct Vsock<B> {
     pub(crate) backend: B,
     pub(crate) avail_features: u64,
     pub(crate) acked_features: u64,
-    pub(crate) irq_trigger: IrqTrigger,
     // This EventFd is the only one initially registered for a vsock device, and is used to convert
     // a VirtioDevice::activate call into an EventHandler read event which allows the other events
     // (queue and backend related) to be registered post virtio device activation. That's
@@ -103,7 +103,6 @@ where
             backend,
             avail_features: AVAIL_FEATURES,
             acked_features: 0,
-            irq_trigger: IrqTrigger::new(),
             activate_evt: EventFd::new(libc::EFD_NONBLOCK).map_err(VsockError::EventFd)?,
             device_state: DeviceState::Inactive,
             rx_packet: VsockPacketRx::new()?,
@@ -138,7 +137,10 @@ where
     /// Signal the guest driver that we've used some virtio buffers that it had previously made
     /// available.
     pub fn signal_used_queue(&self) -> Result<(), DeviceError> {
-        self.irq_trigger
+        self.device_state
+            .active_state()
+            .expect("Device is not initialized")
+            .interrupt
             .trigger_irq(IrqType::Vring)
             .map_err(DeviceError::FailedSignalingIrq)
     }
@@ -148,7 +150,7 @@ where
     /// otherwise.
     pub fn process_rx(&mut self) -> Result<bool, InvalidAvailIdx> {
         // This is safe since we checked in the event handler that the device is activated.
-        let mem = self.device_state.mem().unwrap();
+        let mem = &self.device_state.active_state().unwrap().mem;
 
         let queue = &mut self.queues[RXQ_INDEX];
         let mut have_used = false;
@@ -201,7 +203,7 @@ where
     /// ring, and `false` otherwise.
     pub fn process_tx(&mut self) -> Result<bool, InvalidAvailIdx> {
         // This is safe since we checked in the event handler that the device is activated.
-        let mem = self.device_state.mem().unwrap();
+        let mem = &self.device_state.active_state().unwrap().mem;
 
         let queue = &mut self.queues[TXQ_INDEX];
         let mut have_used = false;
@@ -241,7 +243,7 @@ where
     // remain but their CID is updated to reflect the current guest_cid.
     pub fn send_transport_reset_event(&mut self) -> Result<(), DeviceError> {
         // This is safe since we checked in the caller function that the device is activated.
-        let mem = self.device_state.mem().unwrap();
+        let mem = &self.device_state.active_state().unwrap().mem;
 
         let queue = &mut self.queues[EVQ_INDEX];
         let head = queue.pop()?.ok_or_else(|| {
@@ -296,7 +298,11 @@ where
     }
 
     fn interrupt_trigger(&self) -> &IrqTrigger {
-        &self.irq_trigger
+        &self
+            .device_state
+            .active_state()
+            .expect("Device is not initialized")
+            .interrupt
     }
 
     fn read_config(&self, offset: u64, data: &mut [u8]) {
@@ -328,7 +334,11 @@ where
         );
     }
 
-    fn activate(&mut self, mem: GuestMemoryMmap) -> Result<(), ActivateError> {
+    fn activate(
+        &mut self,
+        mem: GuestMemoryMmap,
+        interrupt: Arc<IrqTrigger>,
+    ) -> Result<(), ActivateError> {
         for q in self.queues.iter_mut() {
             q.initialize(&mem)
                 .map_err(ActivateError::QueueMemoryError)?;
@@ -347,7 +357,7 @@ where
             return Err(ActivateError::EventFd);
         }
 
-        self.device_state = DeviceState::Activated(mem);
+        self.device_state = DeviceState::Activated(ActiveState { mem, interrupt });
 
         Ok(())
     }
@@ -430,6 +440,8 @@ mod tests {
         // }
 
         // Test a correct activation.
-        ctx.device.activate(ctx.mem.clone()).unwrap();
+        ctx.device
+            .activate(ctx.mem.clone(), ctx.interrupt.clone())
+            .unwrap();
     }
 }

@@ -81,7 +81,7 @@ pub enum BalloonError {
     MalformedPayload,
     /// Error restoring the balloon device queues.
     QueueRestoreError,
-    /// Received stats querry when stats are disabled.
+    /// Received stats query when stats are disabled.
     StatisticsDisabled,
     /// Statistics cannot be enabled/disabled after activation.
     StatisticsStateChange,
