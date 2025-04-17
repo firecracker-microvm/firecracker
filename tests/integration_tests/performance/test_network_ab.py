@@ -27,7 +27,12 @@ def consume_ping_output(ping_putput, request_per_round):
     assert len(output) > 2
 
     # Compute percentiles.
-    seqs = output[1 : request_per_round + 1]
+
+    pattern_received = ".+ packets transmitted, (.+) received, .*"
+    received = int(re.findall(pattern_received, output[-2])[0])
+    assert request_per_round - 1 <= received, "Lost more than 1 packet during ping"
+
+    seqs = output[1 : received + 1]
     pattern_time = ".+ bytes from .+: icmp_seq=.+ ttl=.+ time=(.+) ms"
     for seq in seqs:
         time = re.findall(pattern_time, seq)
