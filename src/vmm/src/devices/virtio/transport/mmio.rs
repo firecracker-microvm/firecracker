@@ -9,7 +9,10 @@ use std::fmt::Debug;
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
 
-use crate::devices::virtio::device::{IrqType, VirtioDevice};
+use vmm_sys_util::eventfd::EventFd;
+
+use super::{VirtioInterrupt, VirtioInterruptType};
+use crate::devices::virtio::device::VirtioDevice;
 use crate::devices::virtio::device_status;
 use crate::devices::virtio::queue::Queue;
 use crate::logger::{error, warn};
@@ -55,7 +58,7 @@ pub struct MmioTransport {
     pub(crate) device_status: u32,
     pub(crate) config_generation: u32,
     mem: GuestMemoryMmap,
-    pub(crate) interrupt_status: Arc<AtomicU32>,
+    pub(crate) interrupt: Arc<IrqTrigger>,
     pub is_vhost_user: bool,
 }
 
@@ -63,11 +66,10 @@ impl MmioTransport {
     /// Constructs a new MMIO transport for the given virtio device.
     pub fn new(
         mem: GuestMemoryMmap,
+        interrupt: Arc<IrqTrigger>,
         device: Arc<Mutex<dyn VirtioDevice>>,
         is_vhost_user: bool,
     ) -> MmioTransport {
-        let interrupt_status = device.lock().expect("Poisoned lock").interrupt_status();
-
         MmioTransport {
             device,
             features_select: 0,
@@ -76,7 +78,7 @@ impl MmioTransport {
             device_status: device_status::INIT,
             config_generation: 0,
             mem,
-            interrupt_status,
+            interrupt,
             is_vhost_user,
         }
     }
@@ -151,7 +153,7 @@ impl MmioTransport {
         self.features_select = 0;
         self.acked_features_select = 0;
         self.queue_select = 0;
-        self.interrupt_status.store(0, Ordering::SeqCst);
+        self.interrupt.status().store(0, Ordering::SeqCst);
         self.device_status = device_status::INIT;
         // . Keep interrupt_evt and queue_evts as is. There may be pending notifications in those
         //   eventfds, but nothing will happen other than supurious wakeups.
@@ -187,7 +189,9 @@ impl MmioTransport {
                 let device_activated = self.locked_device().is_activated();
                 if !device_activated && self.are_queues_valid() {
                     // temporary variable needed for borrow checker
-                    let activate_result = self.locked_device().activate(self.mem.clone());
+                    let activate_result = self
+                        .locked_device()
+                        .activate(self.mem.clone(), self.interrupt.clone());
                     if let Err(err) = activate_result {
                         self.device_status |= DEVICE_NEEDS_RESET;
 
@@ -270,7 +274,7 @@ impl MmioTransport {
                         // `VIRTIO_MMIO_INT_CONFIG` or not to understand if we need to send
                         // `VIRTIO_MMIO_INT_CONFIG` or
                         // `VIRTIO_MMIO_INT_VRING`.
-                        let is = self.interrupt_status.load(Ordering::SeqCst);
+                        let is = self.interrupt.status().load(Ordering::SeqCst);
                         if !self.is_vhost_user {
                             is
                         } else if is == VIRTIO_MMIO_INT_CONFIG {
@@ -331,7 +335,7 @@ impl MmioTransport {
                     0x44 => self.update_queue_field(|q| q.ready = v == 1),
                     0x64 => {
                         if self.check_device_status(device_status::DRIVER_OK, 0) {
-                            self.interrupt_status.fetch_and(!v, Ordering::SeqCst);
+                            self.interrupt.status().fetch_and(!v, Ordering::SeqCst);
                         }
                     }
                     0x70 => self.set_device_status(v),
@@ -363,13 +367,95 @@ impl MmioTransport {
     }
 }
 
+/// The 2 types of interrupt sources in MMIO transport.
+#[derive(Debug)]
+pub enum IrqType {
+    /// Interrupt triggered by change in config.
+    Config,
+    /// Interrupt triggered by used vring buffers.
+    Vring,
+}
+
+impl From<VirtioInterruptType> for IrqType {
+    fn from(interrupt_type: VirtioInterruptType) -> Self {
+        match interrupt_type {
+            VirtioInterruptType::Config => IrqType::Config,
+            VirtioInterruptType::Queue(_) => IrqType::Vring,
+        }
+    }
+}
+
+/// Helper struct that is responsible for triggering guest IRQs
+#[derive(Debug)]
+pub struct IrqTrigger {
+    pub(crate) irq_status: Arc<AtomicU32>,
+    pub(crate) irq_evt: EventFd,
+}
+
+impl VirtioInterrupt for IrqTrigger {
+    fn trigger(&self, interrupt_type: super::VirtioInterruptType) -> Result<(), std::io::Error> {
+        match interrupt_type {
+            VirtioInterruptType::Config => self.trigger_irq(IrqType::Config),
+            VirtioInterruptType::Queue(_) => self.trigger_irq(IrqType::Vring),
+        }
+    }
+
+    fn notifier(&self, _interrupt_type: VirtioInterruptType) -> Option<EventFd> {
+        self.irq_evt.try_clone().ok()
+    }
+
+    fn status(&self) -> Arc<AtomicU32> {
+        self.irq_status.clone()
+    }
+
+    #[cfg(test)]
+    fn has_pending_interrupt(&self, interrupt_type: VirtioInterruptType) -> bool {
+        if let Ok(num_irqs) = self.irq_evt.read() {
+            if num_irqs == 0 {
+                return false;
+            }
+
+            let irq_status = self.irq_status.load(Ordering::SeqCst);
+            return matches!(
+                (irq_status, interrupt_type.into()),
+                (VIRTIO_MMIO_INT_CONFIG, IrqType::Config) | (VIRTIO_MMIO_INT_VRING, IrqType::Vring)
+            );
+        }
+
+        false
+    }
+}
+
+impl IrqTrigger {
+    pub fn new() -> std::io::Result<Self> {
+        Ok(Self {
+            irq_status: Arc::new(AtomicU32::new(0)),
+            irq_evt: EventFd::new(libc::EFD_NONBLOCK)?,
+        })
+    }
+
+    pub fn trigger_irq(&self, irq_type: IrqType) -> Result<(), std::io::Error> {
+        let irq = match irq_type {
+            IrqType::Config => VIRTIO_MMIO_INT_CONFIG,
+            IrqType::Vring => VIRTIO_MMIO_INT_VRING,
+        };
+        self.irq_status.fetch_or(irq, Ordering::SeqCst);
+
+        self.irq_evt.write(1).map_err(|err| {
+            error!("Failed to send irq to the guest: {:?}", err);
+            err
+        })?;
+
+        Ok(())
+    }
+}
+
 #[cfg(test)]
 pub(crate) mod tests {
     use vmm_sys_util::eventfd::EventFd;
 
     use super::*;
     use crate::devices::virtio::ActivateError;
-    use crate::devices::virtio::device::IrqTrigger;
     use crate::devices::virtio::device_status::DEVICE_NEEDS_RESET;
     use crate::test_utils::single_region_mem;
     use crate::utils::byte_order::{read_le_u32, write_le_u32};
@@ -380,7 +466,7 @@ pub(crate) mod tests {
     pub(crate) struct DummyDevice {
         acked_features: u64,
         avail_features: u64,
-        interrupt_trigger: IrqTrigger,
+        interrupt_trigger: Option<Arc<IrqTrigger>>,
         queue_evts: Vec<EventFd>,
         queues: Vec<Queue>,
         device_activated: bool,
@@ -393,7 +479,7 @@ pub(crate) mod tests {
             DummyDevice {
                 acked_features: 0,
                 avail_features: 0,
-                interrupt_trigger: IrqTrigger::new().unwrap(),
+                interrupt_trigger: None,
                 queue_evts: vec![
                     EventFd::new(libc::EFD_NONBLOCK).unwrap(),
                     EventFd::new(libc::EFD_NONBLOCK).unwrap(),
@@ -439,8 +525,11 @@ pub(crate) mod tests {
             &self.queue_evts
         }
 
-        fn interrupt_trigger(&self) -> &IrqTrigger {
-            &self.interrupt_trigger
+        fn interrupt_trigger(&self) -> Arc<IrqTrigger> {
+            self.interrupt_trigger
+                .as_ref()
+                .expect("Device is not activated")
+                .clone()
         }
 
         fn read_config(&self, offset: u64, data: &mut [u8]) {
@@ -453,8 +542,13 @@ pub(crate) mod tests {
             }
         }
 
-        fn activate(&mut self, _: GuestMemoryMmap) -> Result<(), ActivateError> {
+        fn activate(
+            &mut self,
+            _: GuestMemoryMmap,
+            interrupt: Arc<IrqTrigger>,
+        ) -> Result<(), ActivateError> {
             self.device_activated = true;
+            self.interrupt_trigger = Some(interrupt);
             if self.activate_should_error {
                 Err(ActivateError::EventFd)
             } else {
@@ -476,10 +570,11 @@ pub(crate) mod tests {
     #[test]
     fn test_new() {
         let m = single_region_mem(0x1000);
+        let interrupt = Arc::new(IrqTrigger::new().unwrap());
         let mut dummy = DummyDevice::new();
         // Validate reset is no-op.
         assert!(dummy.reset().is_none());
-        let mut d = MmioTransport::new(m, Arc::new(Mutex::new(dummy)), false);
+        let mut d = MmioTransport::new(m, interrupt, Arc::new(Mutex::new(dummy)), false);
 
         // We just make sure here that the implementation of a mmio device behaves as we expect,
         // given a known virtio device implementation (the dummy device).
@@ -508,7 +603,13 @@ pub(crate) mod tests {
     #[test]
     fn test_bus_device_read() {
         let m = single_region_mem(0x1000);
-        let mut d = MmioTransport::new(m, Arc::new(Mutex::new(DummyDevice::new())), false);
+        let interrupt = Arc::new(IrqTrigger::new().unwrap());
+        let mut d = MmioTransport::new(
+            m,
+            interrupt,
+            Arc::new(Mutex::new(DummyDevice::new())),
+            false,
+        );
 
         let mut buf = vec![0xff, 0, 0xfe, 0];
         let buf_copy = buf.to_vec();
@@ -555,17 +656,18 @@ pub(crate) mod tests {
         d.bus_read(0x44, &mut buf[..]);
         assert_eq!(read_le_u32(&buf[..]), u32::from(false));
 
-        d.interrupt_status.store(111, Ordering::SeqCst);
+        d.interrupt.status().store(111, Ordering::SeqCst);
         d.bus_read(0x60, &mut buf[..]);
         assert_eq!(read_le_u32(&buf[..]), 111);
 
         d.is_vhost_user = true;
-        d.interrupt_status.store(0, Ordering::SeqCst);
+        d.interrupt.status().store(0, Ordering::SeqCst);
         d.bus_read(0x60, &mut buf[..]);
         assert_eq!(read_le_u32(&buf[..]), VIRTIO_MMIO_INT_VRING);
 
         d.is_vhost_user = true;
-        d.interrupt_status
+        d.interrupt
+            .status()
             .store(VIRTIO_MMIO_INT_CONFIG, Ordering::SeqCst);
         d.bus_read(0x60, &mut buf[..]);
         assert_eq!(read_le_u32(&buf[..]), VIRTIO_MMIO_INT_CONFIG);
@@ -597,8 +699,9 @@ pub(crate) mod tests {
     #[allow(clippy::cognitive_complexity)]
     fn test_bus_device_write() {
         let m = single_region_mem(0x1000);
+        let interrupt = Arc::new(IrqTrigger::new().unwrap());
         let dummy_dev = Arc::new(Mutex::new(DummyDevice::new()));
-        let mut d = MmioTransport::new(m, dummy_dev.clone(), false);
+        let mut d = MmioTransport::new(m, interrupt, dummy_dev.clone(), false);
         let mut buf = vec![0; 5];
         write_le_u32(&mut buf[..4], 1);
 
@@ -725,10 +828,10 @@ pub(crate) mod tests {
                 | device_status::DRIVER_OK,
         );
 
-        d.interrupt_status.store(0b10_1010, Ordering::Relaxed);
+        d.interrupt.status().store(0b10_1010, Ordering::Relaxed);
         write_le_u32(&mut buf[..], 0b111);
         d.bus_write(0x64, &buf[..]);
-        assert_eq!(d.interrupt_status.load(Ordering::Relaxed), 0b10_1000);
+        assert_eq!(d.interrupt.status().load(Ordering::Relaxed), 0b10_1000);
 
         // Write to an invalid address in generic register range.
         write_le_u32(&mut buf[..], 0xf);
@@ -759,7 +862,13 @@ pub(crate) mod tests {
     #[test]
     fn test_bus_device_activate() {
         let m = single_region_mem(0x1000);
-        let mut d = MmioTransport::new(m, Arc::new(Mutex::new(DummyDevice::new())), false);
+        let interrupt = Arc::new(IrqTrigger::new().unwrap());
+        let mut d = MmioTransport::new(
+            m,
+            interrupt,
+            Arc::new(Mutex::new(DummyDevice::new())),
+            false,
+        );
 
         assert!(!d.are_queues_valid());
         assert!(!d.locked_device().is_activated());
@@ -838,11 +947,12 @@ pub(crate) mod tests {
     #[test]
     fn test_bus_device_activate_failure() {
         let m = single_region_mem(0x1000);
+        let interrupt = Arc::new(IrqTrigger::new().unwrap());
         let device = DummyDevice {
             activate_should_error: true,
             ..DummyDevice::new()
         };
-        let mut d = MmioTransport::new(m, Arc::new(Mutex::new(device)), false);
+        let mut d = MmioTransport::new(m, interrupt, Arc::new(Mutex::new(device)), false);
 
         set_device_status(&mut d, device_status::ACKNOWLEDGE);
         set_device_status(&mut d, device_status::ACKNOWLEDGE | device_status::DRIVER);
@@ -861,10 +971,6 @@ pub(crate) mod tests {
             d.bus_write(0x44, &buf[..]);
         }
         assert!(d.are_queues_valid());
-        assert_eq!(
-            d.locked_device().interrupt_status().load(Ordering::SeqCst),
-            0
-        );
 
         set_device_status(
             &mut d,
@@ -931,10 +1037,35 @@ pub(crate) mod tests {
         assert!(d.locked_device().is_activated());
     }
 
+    impl IrqTrigger {
+        pub fn has_pending_irq(&self, irq_type: IrqType) -> bool {
+            if let Ok(num_irqs) = self.irq_evt.read() {
+                if num_irqs == 0 {
+                    return false;
+                }
+
+                let irq_status = self.irq_status.load(Ordering::SeqCst);
+                return matches!(
+                    (irq_status, irq_type),
+                    (VIRTIO_MMIO_INT_CONFIG, IrqType::Config)
+                        | (VIRTIO_MMIO_INT_VRING, IrqType::Vring)
+                );
+            }
+
+            false
+        }
+    }
+
     #[test]
     fn test_bus_device_reset() {
         let m = single_region_mem(0x1000);
-        let mut d = MmioTransport::new(m, Arc::new(Mutex::new(DummyDevice::new())), false);
+        let interrupt = Arc::new(IrqTrigger::new().unwrap());
+        let mut d = MmioTransport::new(
+            m,
+            interrupt,
+            Arc::new(Mutex::new(DummyDevice::new())),
+            false,
+        );
         let mut buf = [0; 4];
 
         assert!(!d.are_queues_valid());
@@ -983,5 +1114,27 @@ pub(crate) mod tests {
         dummy_dev.set_avail_features(8);
         dummy_dev.ack_features_by_page(0, 8);
         assert_eq!(dummy_dev.acked_features(), 24);
+    }
+
+    #[test]
+    fn irq_trigger() {
+        let irq_trigger = IrqTrigger::new().unwrap();
+        assert_eq!(irq_trigger.irq_status.load(Ordering::SeqCst), 0);
+
+        // Check that there are no pending irqs.
+        assert!(!irq_trigger.has_pending_irq(IrqType::Config));
+        assert!(!irq_trigger.has_pending_irq(IrqType::Vring));
+
+        // Check that trigger_irq() correctly generates irqs.
+        irq_trigger.trigger_irq(IrqType::Config).unwrap();
+        assert!(irq_trigger.has_pending_irq(IrqType::Config));
+        irq_trigger.irq_status.store(0, Ordering::SeqCst);
+        irq_trigger.trigger_irq(IrqType::Vring).unwrap();
+        assert!(irq_trigger.has_pending_irq(IrqType::Vring));
+
+        // Check trigger_irq() failure case (irq_evt is full).
+        irq_trigger.irq_evt.write(u64::MAX - 1).unwrap();
+        irq_trigger.trigger_irq(IrqType::Config).unwrap_err();
+        irq_trigger.trigger_irq(IrqType::Vring).unwrap_err();
     }
 }

@@ -1,10 +1,13 @@
 // Copyright 2023 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
+use std::sync::Arc;
+
 use serde::{Deserialize, Serialize};
 
 use super::vhost_user::persist::VhostUserBlockState;
 use super::virtio::persist::VirtioBlockState;
+use crate::devices::virtio::transport::mmio::IrqTrigger;
 use crate::vstate::memory::GuestMemoryMmap;
 
 /// Block device state.
@@ -18,4 +21,5 @@ pub enum BlockState {
 #[derive(Debug)]
 pub struct BlockConstructorArgs {
     pub mem: GuestMemoryMmap,
+    pub interrupt: Arc<IrqTrigger>,
 }

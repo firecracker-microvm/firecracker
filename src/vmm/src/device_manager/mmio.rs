@@ -30,9 +30,9 @@ use crate::devices::pseudo::BootTimer;
 use crate::devices::virtio::balloon::Balloon;
 use crate::devices::virtio::block::device::Block;
 use crate::devices::virtio::device::VirtioDevice;
-use crate::devices::virtio::mmio::MmioTransport;
 use crate::devices::virtio::net::Net;
 use crate::devices::virtio::rng::Entropy;
+use crate::devices::virtio::transport::mmio::MmioTransport;
 use crate::devices::virtio::vsock::{TYPE_VSOCK, Vsock, VsockUnixBackend};
 use crate::devices::virtio::{TYPE_BALLOON, TYPE_BLOCK, TYPE_NET, TYPE_RNG};
 #[cfg(target_arch = "x86_64")]
@@ -53,6 +53,8 @@ pub enum MmioError {
     InvalidDeviceType,
     /// {0}
     InternalDeviceError(String),
+    /// Could not create IRQ for MMIO device: {0}
+    CreateIrq(#[from] std::io::Error),
     /// Invalid MMIO IRQ configuration.
     InvalidIrqConfig,
     /// Failed to register IO event: {0}
@@ -205,7 +207,7 @@ impl MMIODeviceManager {
                 vm.register_ioevent(queue_evt, &io_addr, u32::try_from(i).unwrap())
                     .map_err(MmioError::RegisterIoEvent)?;
             }
-            vm.register_irqfd(&locked_device.interrupt_trigger().irq_evt, irq.get())
+            vm.register_irqfd(&mmio_device.interrupt.irq_evt, irq.get())
                 .map_err(MmioError::RegisterIrqFd)?;
         }
 
@@ -223,7 +225,7 @@ impl MMIODeviceManager {
         device_info: &MMIODeviceInfo,
     ) -> Result<(), MmioError> {
         // as per doc, [virtio_mmio.]device=<size>@<baseaddr>:<irq> needs to be appended
-        // to kernel command line for virtio mmio devices to get recongnized
+        // to kernel command line for virtio mmio devices to get recognized
         // the size parameter has to be transformed to KiB, so dividing hexadecimal value in
         // bytes to 1024; further, the '{}' formatting rust construct will automatically
         // transform it to decimal
@@ -530,8 +532,9 @@ mod tests {
     use super::*;
     use crate::Vm;
     use crate::devices::virtio::ActivateError;
-    use crate::devices::virtio::device::{IrqTrigger, VirtioDevice};
+    use crate::devices::virtio::device::VirtioDevice;
     use crate::devices::virtio::queue::Queue;
+    use crate::devices::virtio::transport::mmio::IrqTrigger;
     use crate::test_utils::multi_region_mem_raw;
     use crate::vstate::kvm::Kvm;
     use crate::vstate::memory::{GuestAddress, GuestMemoryMmap};
@@ -548,7 +551,8 @@ mod tests {
             cmdline: &mut kernel_cmdline::Cmdline,
             dev_id: &str,
         ) -> Result<u64, MmioError> {
-            let mmio_device = MmioTransport::new(guest_mem, device, false);
+            let interrupt = Arc::new(IrqTrigger::new().unwrap());
+            let mmio_device = MmioTransport::new(guest_mem, interrupt, device, false);
             let device_info = self.register_mmio_virtio_for_boot(
                 vm,
                 resource_allocator,
@@ -575,7 +579,7 @@ mod tests {
         dummy: u32,
         queues: Vec<Queue>,
         queue_evts: [EventFd; 1],
-        interrupt_trigger: IrqTrigger,
+        interrupt_trigger: Option<Arc<IrqTrigger>>,
     }
 
     impl DummyDevice {
@@ -584,7 +588,7 @@ mod tests {
                 dummy: 0,
                 queues: QUEUE_SIZES.iter().map(|&s| Queue::new(s)).collect(),
                 queue_evts: [EventFd::new(libc::EFD_NONBLOCK).expect("cannot create eventFD")],
-                interrupt_trigger: IrqTrigger::new().expect("cannot create eventFD"),
+                interrupt_trigger: None,
             }
         }
     }
@@ -616,8 +620,11 @@ mod tests {
             &self.queue_evts
         }
 
-        fn interrupt_trigger(&self) -> &IrqTrigger {
-            &self.interrupt_trigger
+        fn interrupt_trigger(&self) -> Arc<IrqTrigger> {
+            self.interrupt_trigger
+                .as_ref()
+                .expect("Device is not activated")
+                .clone()
         }
 
         fn ack_features_by_page(&mut self, page: u32, value: u32) {
@@ -635,7 +642,11 @@ mod tests {
             let _ = data;
         }
 
-        fn activate(&mut self, _: GuestMemoryMmap) -> Result<(), ActivateError> {
+        fn activate(
+            &mut self,
+            _: GuestMemoryMmap,
+            _: Arc<IrqTrigger>,
+        ) -> Result<(), ActivateError> {
             Ok(())
         }
 

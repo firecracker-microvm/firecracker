@@ -20,7 +20,7 @@ pub(super) const FIRECRACKER_MAX_QUEUE_SIZE: u16 = 256;
 
 // GuestMemoryMmap::read_obj_from_addr() will be used to fetch the descriptor,
 // which has an explicit constraint that the entire descriptor doesn't
-// cross the page boundary. Otherwise the descriptor may be splitted into
+// cross the page boundary. Otherwise the descriptor may be split into
 // two mmap regions which causes failure of GuestMemoryMmap::read_obj_from_addr().
 //
 // The Virtio Spec 1.0 defines the alignment of VirtIO descriptor is 16 bytes,

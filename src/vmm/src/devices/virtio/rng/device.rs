@@ -3,7 +3,6 @@
 
 use std::io;
 use std::sync::Arc;
-use std::sync::atomic::AtomicU32;
 
 use aws_lc_rs::rand;
 use vm_memory::GuestMemoryError;
@@ -12,11 +11,12 @@ use vmm_sys_util::eventfd::EventFd;
 use super::metrics::METRICS;
 use super::{RNG_NUM_QUEUES, RNG_QUEUE};
 use crate::devices::DeviceError;
-use crate::devices::virtio::device::{DeviceState, IrqTrigger, IrqType, VirtioDevice};
+use crate::devices::virtio::device::{DeviceState, VirtioDevice};
 use crate::devices::virtio::generated::virtio_config::VIRTIO_F_VERSION_1;
 use crate::devices::virtio::iov_deque::IovDequeError;
 use crate::devices::virtio::iovec::IoVecBufferMut;
 use crate::devices::virtio::queue::{FIRECRACKER_MAX_QUEUE_SIZE, Queue};
+use crate::devices::virtio::transport::mmio::{IrqTrigger, IrqType};
 use crate::devices::virtio::{ActivateError, TYPE_RNG};
 use crate::logger::{IncMetric, debug, error};
 use crate::rate_limiter::{RateLimiter, TokenType};
@@ -47,7 +47,6 @@ pub struct Entropy {
     device_state: DeviceState,
     pub(crate) queues: Vec<Queue>,
     queue_events: Vec<EventFd>,
-    irq_trigger: IrqTrigger,
 
     // Device specific fields
     rate_limiter: RateLimiter,
@@ -69,7 +68,6 @@ impl Entropy {
         let queue_events = (0..RNG_NUM_QUEUES)
             .map(|_| EventFd::new(libc::EFD_NONBLOCK))
             .collect::<Result<Vec<EventFd>, io::Error>>()?;
-        let irq_trigger = IrqTrigger::new()?;
 
         Ok(Self {
             avail_features: 1 << VIRTIO_F_VERSION_1,
@@ -78,7 +76,6 @@ impl Entropy {
             device_state: DeviceState::Inactive,
             queues,
             queue_events,
-            irq_trigger,
             rate_limiter,
             buffer: IoVecBufferMut::new()?,
         })
@@ -89,7 +86,11 @@ impl Entropy {
     }
 
     fn signal_used_queue(&self) -> Result<(), DeviceError> {
-        self.irq_trigger
+        let (_, interrupt) = self
+            .device_state
+            .active_state()
+            .expect("Device is not initialized");
+        interrupt
             .trigger_irq(IrqType::Vring)
             .map_err(DeviceError::FailedSignalingIrq)
     }
@@ -132,7 +133,7 @@ impl Entropy {
         let mut used_any = false;
         while let Some(desc) = self.queues[RNG_QUEUE].pop() {
             // This is safe since we checked in the event handler that the device is activated.
-            let mem = self.device_state.mem().unwrap();
+            let mem = self.device_state.active_state().unwrap().0;
             let index = desc.index;
             METRICS.entropy_event_count.inc();
 
@@ -236,12 +237,8 @@ impl Entropy {
         self.acked_features = features;
     }
 
-    pub(crate) fn set_irq_status(&mut self, status: u32) {
-        self.irq_trigger.irq_status = Arc::new(AtomicU32::new(status));
-    }
-
-    pub(crate) fn set_activated(&mut self, mem: GuestMemoryMmap) {
-        self.device_state = DeviceState::Activated(mem);
+    pub(crate) fn set_activated(&mut self, mem: GuestMemoryMmap, interrupt: Arc<IrqTrigger>) {
+        self.device_state = DeviceState::Activated((mem, interrupt));
     }
 
     pub(crate) fn activate_event(&self) -> &EventFd {
@@ -266,8 +263,11 @@ impl VirtioDevice for Entropy {
         &self.queue_events
     }
 
-    fn interrupt_trigger(&self) -> &IrqTrigger {
-        &self.irq_trigger
+    fn interrupt_trigger(&self) -> Arc<IrqTrigger> {
+        self.device_state
+            .active_state()
+            .expect("Device is not initialized")
+            .1
     }
 
     fn avail_features(&self) -> u64 {
@@ -290,7 +290,11 @@ impl VirtioDevice for Entropy {
         self.device_state.is_activated()
     }
 
-    fn activate(&mut self, mem: GuestMemoryMmap) -> Result<(), ActivateError> {
+    fn activate(
+        &mut self,
+        mem: GuestMemoryMmap,
+        interrupt: Arc<IrqTrigger>,
+    ) -> Result<(), ActivateError> {
         for q in self.queues.iter_mut() {
             q.initialize(&mem)
                 .map_err(ActivateError::QueueMemoryError)?;
@@ -300,7 +304,7 @@ impl VirtioDevice for Entropy {
             METRICS.activate_fails.inc();
             ActivateError::EventFd
         })?;
-        self.device_state = DeviceState::Activated(mem);
+        self.device_state = DeviceState::Activated((mem, interrupt));
         Ok(())
     }
 }

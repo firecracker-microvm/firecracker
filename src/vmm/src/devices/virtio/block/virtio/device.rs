@@ -23,13 +23,14 @@ use super::request::*;
 use super::{BLOCK_QUEUE_SIZES, SECTOR_SHIFT, SECTOR_SIZE, VirtioBlockError, io as block_io};
 use crate::devices::virtio::block::CacheType;
 use crate::devices::virtio::block::virtio::metrics::{BlockDeviceMetrics, BlockMetricsPerDevice};
-use crate::devices::virtio::device::{DeviceState, IrqTrigger, IrqType, VirtioDevice};
+use crate::devices::virtio::device::{DeviceState, VirtioDevice};
 use crate::devices::virtio::generated::virtio_blk::{
     VIRTIO_BLK_F_FLUSH, VIRTIO_BLK_F_RO, VIRTIO_BLK_ID_BYTES,
 };
 use crate::devices::virtio::generated::virtio_config::VIRTIO_F_VERSION_1;
 use crate::devices::virtio::generated::virtio_ring::VIRTIO_RING_F_EVENT_IDX;
 use crate::devices::virtio::queue::Queue;
+use crate::devices::virtio::transport::mmio::{IrqTrigger, IrqType};
 use crate::devices::virtio::{ActivateError, TYPE_BLOCK};
 use crate::logger::{IncMetric, error, warn};
 use crate::rate_limiter::{BucketUpdate, RateLimiter};
@@ -249,7 +250,6 @@ pub struct VirtioBlock {
     pub queues: Vec<Queue>,
     pub queue_evts: [EventFd; 1],
     pub device_state: DeviceState,
-    pub irq_trigger: IrqTrigger,
 
     // Implementation specific fields.
     pub id: String,
@@ -322,7 +322,6 @@ impl VirtioBlock {
             queues,
             queue_evts,
             device_state: DeviceState::Inactive,
-            irq_trigger: IrqTrigger::new().map_err(VirtioBlockError::IrqTrigger)?,
 
             id: config.drive_id.clone(),
             partuuid: config.partuuid,
@@ -388,7 +387,7 @@ impl VirtioBlock {
         queue: &mut Queue,
         index: u16,
         len: u32,
-        irq_trigger: &IrqTrigger,
+        irq_trigger: Arc<IrqTrigger>,
         block_metrics: &BlockDeviceMetrics,
     ) {
         queue.add_used(index, len).unwrap_or_else(|err| {
@@ -405,7 +404,7 @@ impl VirtioBlock {
     /// Device specific function for peaking inside a queue and processing descriptors.
     pub fn process_queue(&mut self, queue_index: usize) {
         // This is safe since we checked in the event handler that the device is activated.
-        let mem = self.device_state.mem().unwrap();
+        let (mem, interrupt) = self.device_state.active_state().unwrap();
 
         let queue = &mut self.queues[queue_index];
         let mut used_any = false;
@@ -447,7 +446,7 @@ impl VirtioBlock {
                         queue,
                         head.index,
                         finished.num_bytes_to_mem,
-                        &self.irq_trigger,
+                        interrupt.clone(),
                         &self.metrics,
                     );
                 }
@@ -469,7 +468,7 @@ impl VirtioBlock {
         let engine = unwrap_async_file_engine_or_return!(&mut self.disk.file_engine);
 
         // This is safe since we checked in the event handler that the device is activated.
-        let mem = self.device_state.mem().unwrap();
+        let (mem, interrupt) = self.device_state.active_state().unwrap();
         let queue = &mut self.queues[0];
 
         loop {
@@ -498,7 +497,7 @@ impl VirtioBlock {
                         queue,
                         finished.desc_idx,
                         finished.num_bytes_to_mem,
-                        &self.irq_trigger,
+                        interrupt.clone(),
                         &self.metrics,
                     );
                 }
@@ -527,7 +526,9 @@ impl VirtioBlock {
         self.config_space.capacity = self.disk.nsectors.to_le(); // virtio_block_config_space();
 
         // Kick the driver to pick up the changes.
-        self.irq_trigger.trigger_irq(IrqType::Config).unwrap();
+        self.interrupt_trigger()
+            .trigger_irq(IrqType::Config)
+            .unwrap();
 
         self.metrics.update_count.inc();
         Ok(())
@@ -594,8 +595,12 @@ impl VirtioDevice for VirtioBlock {
         &self.queue_evts
     }
 
-    fn interrupt_trigger(&self) -> &IrqTrigger {
-        &self.irq_trigger
+    fn interrupt_trigger(&self) -> Arc<IrqTrigger> {
+        let (_, interrupt) = self
+            .device_state
+            .active_state()
+            .expect("Device is not initialized");
+        interrupt
     }
 
     fn read_config(&self, offset: u64, data: &mut [u8]) {
@@ -624,7 +629,11 @@ impl VirtioDevice for VirtioBlock {
         dst.copy_from_slice(data);
     }
 
-    fn activate(&mut self, mem: GuestMemoryMmap) -> Result<(), ActivateError> {
+    fn activate(
+        &mut self,
+        mem: GuestMemoryMmap,
+        interrupt: Arc<IrqTrigger>,
+    ) -> Result<(), ActivateError> {
         for q in self.queues.iter_mut() {
             q.initialize(&mem)
                 .map_err(ActivateError::QueueMemoryError)?;
@@ -641,7 +650,7 @@ impl VirtioDevice for VirtioBlock {
             self.metrics.activate_fails.inc();
             return Err(ActivateError::EventFd);
         }
-        self.device_state = DeviceState::Activated(mem);
+        self.device_state = DeviceState::Activated((mem, interrupt));
         Ok(())
     }
 
@@ -684,7 +693,7 @@ mod tests {
         simulate_queue_event,
     };
     use crate::devices::virtio::queue::{VIRTQ_DESC_F_NEXT, VIRTQ_DESC_F_WRITE};
-    use crate::devices::virtio::test_utils::{VirtQueue, default_mem};
+    use crate::devices::virtio::test_utils::{VirtQueue, default_interrupt, default_mem};
     use crate::rate_limiter::TokenType;
     use crate::vstate::memory::{Address, Bytes, GuestAddress};
 
@@ -826,7 +835,7 @@ mod tests {
             block.read_config(0, actual_config_space.as_mut_slice());
             assert_eq!(actual_config_space, expected_config_space);
 
-            // If priviledged user writes to `/dev/mem`, in block config space - byte by byte.
+            // If privileged user writes to `/dev/mem`, in block config space - byte by byte.
             let expected_config_space = ConfigSpace {
                 capacity: 0x1122334455667788,
             };
@@ -859,9 +868,10 @@ mod tests {
         for engine in [FileEngineType::Sync, FileEngineType::Async] {
             let mut block = default_block(engine);
             let mem = default_mem();
+            let interrupt = Arc::new(IrqTrigger::new().unwrap());
             let vq = VirtQueue::new(GuestAddress(0), &mem, 16);
             set_queue(&mut block, 0, vq.create_queue());
-            block.activate(mem.clone()).unwrap();
+            block.activate(mem.clone(), interrupt).unwrap();
             read_blk_req_descriptors(&vq);
 
             let request_type_addr = GuestAddress(vq.dtable[0].addr.get());
@@ -887,9 +897,10 @@ mod tests {
             let mut block = default_block(engine);
             // Default mem size is 0x10000
             let mem = default_mem();
+            let interrupt = Arc::new(IrqTrigger::new().unwrap());
             let vq = VirtQueue::new(GuestAddress(0), &mem, 16);
             set_queue(&mut block, 0, vq.create_queue());
-            block.activate(mem.clone()).unwrap();
+            block.activate(mem.clone(), interrupt).unwrap();
             read_blk_req_descriptors(&vq);
             let request_type_addr = GuestAddress(vq.dtable[0].addr.get());
 
@@ -950,9 +961,10 @@ mod tests {
         for engine in [FileEngineType::Sync, FileEngineType::Async] {
             let mut block = default_block(engine);
             let mem = default_mem();
+            let interrupt = Arc::new(IrqTrigger::new().unwrap());
             let vq = VirtQueue::new(GuestAddress(0), &mem, 16);
             set_queue(&mut block, 0, vq.create_queue());
-            block.activate(mem.clone()).unwrap();
+            block.activate(mem.clone(), interrupt).unwrap();
             read_blk_req_descriptors(&vq);
 
             let request_type_addr = GuestAddress(vq.dtable[0].addr.get());
@@ -1001,9 +1013,10 @@ mod tests {
         for engine in [FileEngineType::Sync, FileEngineType::Async] {
             let mut block = default_block(engine);
             let mem = default_mem();
+            let interrupt = Arc::new(IrqTrigger::new().unwrap());
             let vq = VirtQueue::new(GuestAddress(0), &mem, 16);
             set_queue(&mut block, 0, vq.create_queue());
-            block.activate(mem.clone()).unwrap();
+            block.activate(mem.clone(), interrupt).unwrap();
             read_blk_req_descriptors(&vq);
 
             let request_type_addr = GuestAddress(vq.dtable[0].addr.get());
@@ -1033,9 +1046,10 @@ mod tests {
         for engine in [FileEngineType::Sync, FileEngineType::Async] {
             let mut block = default_block(engine);
             let mem = default_mem();
+            let interrupt = Arc::new(IrqTrigger::new().unwrap());
             let vq = VirtQueue::new(GuestAddress(0), &mem, 16);
             set_queue(&mut block, 0, vq.create_queue());
-            block.activate(mem.clone()).unwrap();
+            block.activate(mem.clone(), interrupt).unwrap();
             read_blk_req_descriptors(&vq);
             vq.dtable[1].set(0xf000, 0x1000, VIRTQ_DESC_F_NEXT | VIRTQ_DESC_F_WRITE, 2);
 
@@ -1069,9 +1083,10 @@ mod tests {
         for engine in [FileEngineType::Sync, FileEngineType::Async] {
             let mut block = default_block(engine);
             let mem = default_mem();
+            let interrupt = Arc::new(IrqTrigger::new().unwrap());
             let vq = VirtQueue::new(GuestAddress(0), &mem, 16);
             set_queue(&mut block, 0, vq.create_queue());
-            block.activate(mem.clone()).unwrap();
+            block.activate(mem.clone(), interrupt).unwrap();
             read_blk_req_descriptors(&vq);
 
             let request_type_addr = GuestAddress(vq.dtable[0].addr.get());
@@ -1116,9 +1131,10 @@ mod tests {
 
                 // Default mem size is 0x10000
                 let mem = default_mem();
+                let interrupt = Arc::new(IrqTrigger::new().unwrap());
                 let vq = VirtQueue::new(GuestAddress(0), &mem, 16);
                 set_queue(&mut block, 0, vq.create_queue());
-                block.activate(mem.clone()).unwrap();
+                block.activate(mem.clone(), interrupt).unwrap();
                 read_blk_req_descriptors(&vq);
                 let request_type_addr = GuestAddress(vq.dtable[0].addr.get());
 
@@ -1355,9 +1371,10 @@ mod tests {
             {
                 // Default mem size is 0x10000
                 let mem = default_mem();
+                let interrupt = Arc::new(IrqTrigger::new().unwrap());
                 let vq = VirtQueue::new(GuestAddress(0), &mem, 16);
                 set_queue(&mut block, 0, vq.create_queue());
-                block.activate(mem.clone()).unwrap();
+                block.activate(mem.clone(), interrupt).unwrap();
                 read_blk_req_descriptors(&vq);
                 vq.dtable[1].set(0xff00, 0x1000, VIRTQ_DESC_F_NEXT | VIRTQ_DESC_F_WRITE, 2);
 
@@ -1396,9 +1413,10 @@ mod tests {
         for engine in [FileEngineType::Sync, FileEngineType::Async] {
             let mut block = default_block(engine);
             let mem = default_mem();
+            let interrupt = Arc::new(IrqTrigger::new().unwrap());
             let vq = VirtQueue::new(GuestAddress(0), &mem, 16);
             set_queue(&mut block, 0, vq.create_queue());
-            block.activate(mem.clone()).unwrap();
+            block.activate(mem.clone(), interrupt).unwrap();
             read_blk_req_descriptors(&vq);
 
             let request_type_addr = GuestAddress(vq.dtable[0].addr.get());
@@ -1442,9 +1460,10 @@ mod tests {
         for engine in [FileEngineType::Sync, FileEngineType::Async] {
             let mut block = default_block(engine);
             let mem = default_mem();
+            let interrupt = Arc::new(IrqTrigger::new().unwrap());
             let vq = VirtQueue::new(GuestAddress(0), &mem, 16);
             set_queue(&mut block, 0, vq.create_queue());
-            block.activate(mem.clone()).unwrap();
+            block.activate(mem.clone(), interrupt).unwrap();
             read_blk_req_descriptors(&vq);
 
             let request_type_addr = GuestAddress(vq.dtable[0].addr.get());
@@ -1566,8 +1585,9 @@ mod tests {
             let mut block = default_block(FileEngineType::Async);
 
             let mem = default_mem();
+            let interrupt = Arc::new(IrqTrigger::new().unwrap());
             let vq = VirtQueue::new(GuestAddress(0), &mem, IO_URING_NUM_ENTRIES * 4);
-            block.activate(mem.clone()).unwrap();
+            block.activate(mem.clone(), interrupt).unwrap();
 
             // Run scenario that doesn't trigger FullSq BlockError: Add sq_size flush requests.
             add_flush_requests_batch(&mut block, &vq, IO_URING_NUM_ENTRIES);
@@ -1599,8 +1619,9 @@ mod tests {
             let mut block = default_block(FileEngineType::Async);
 
             let mem = default_mem();
+            let interrupt = Arc::new(IrqTrigger::new().unwrap());
             let vq = VirtQueue::new(GuestAddress(0), &mem, IO_URING_NUM_ENTRIES * 4);
-            block.activate(mem.clone()).unwrap();
+            block.activate(mem.clone(), interrupt).unwrap();
 
             // Run scenario that triggers FullCqError. Push 2 * IO_URING_NUM_ENTRIES and wait for
             // completion. Then try to push another entry.
@@ -1628,8 +1649,9 @@ mod tests {
             let mut block = default_block(engine);
 
             let mem = default_mem();
+            let interrupt = Arc::new(IrqTrigger::new().unwrap());
             let vq = VirtQueue::new(GuestAddress(0), &mem, 16);
-            block.activate(mem.clone()).unwrap();
+            block.activate(mem.clone(), interrupt).unwrap();
 
             // Add a batch of flush requests.
             add_flush_requests_batch(&mut block, &vq, 5);
@@ -1646,9 +1668,10 @@ mod tests {
         for engine in [FileEngineType::Sync, FileEngineType::Async] {
             let mut block = default_block(engine);
             let mem = default_mem();
+            let interrupt = Arc::new(IrqTrigger::new().unwrap());
             let vq = VirtQueue::new(GuestAddress(0), &mem, 16);
             set_queue(&mut block, 0, vq.create_queue());
-            block.activate(mem.clone()).unwrap();
+            block.activate(mem.clone(), interrupt).unwrap();
             read_blk_req_descriptors(&vq);
 
             let request_type_addr = GuestAddress(vq.dtable[0].addr.get());
@@ -1715,9 +1738,10 @@ mod tests {
         for engine in [FileEngineType::Sync, FileEngineType::Async] {
             let mut block = default_block(engine);
             let mem = default_mem();
+            let interrupt = Arc::new(IrqTrigger::new().unwrap());
             let vq = VirtQueue::new(GuestAddress(0), &mem, 16);
             set_queue(&mut block, 0, vq.create_queue());
-            block.activate(mem.clone()).unwrap();
+            block.activate(mem.clone(), interrupt).unwrap();
             read_blk_req_descriptors(&vq);
 
             let request_type_addr = GuestAddress(vq.dtable[0].addr.get());
@@ -1797,6 +1821,7 @@ mod tests {
     fn test_update_disk_image() {
         for engine in [FileEngineType::Sync, FileEngineType::Async] {
             let mut block = default_block(engine);
+            block.activate(default_mem(), default_interrupt()).unwrap();
             let f = TempFile::new().unwrap();
             let path = f.as_path();
             let mdata = metadata(path).unwrap();
