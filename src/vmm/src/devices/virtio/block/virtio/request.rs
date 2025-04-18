@@ -9,6 +9,7 @@ use std::convert::From;
 
 use vm_memory::GuestMemoryError;
 
+use super::io::{BlockIoError, SyncIoError};
 use super::{SECTOR_SHIFT, SECTOR_SIZE, VirtioBlockError, io as block_io};
 use crate::devices::virtio::block::virtio::device::DiskProperties;
 use crate::devices::virtio::block::virtio::metrics::BlockDeviceMetrics;
@@ -178,6 +179,12 @@ impl PendingRequest {
             }
             (Ok(transferred_data_len), RequestType::GetDeviceID) => {
                 Status::from_data(self.data_len, transferred_data_len, true)
+            }
+            (Ok(_), RequestType::Discard) => {
+                block_metrics.discard_count.inc();
+                Status::Ok {
+                    num_bytes_to_mem: 0,
+                }
             }
             (_, RequestType::Unsupported(op)) => Status::Unsupported { op },
             (Err(err), _) => Status::IoErr {
@@ -451,8 +458,23 @@ impl Request {
                 return ProcessingResult::Executed(pending.finish(mem, res, block_metrics));
             }
             RequestType::Discard => {
-                // Some code here
+                let res = disk
+                    .file_engine
+                    .handle_discard(self.offset(), self.data_len);
+            
+                // Convert std::io::Result<()> to Result<FileEngineOk<T>, UserDataError<T, BlockIoError>>
+                match res {
+                    Ok(()) => Ok(block_io::FileEngineOk::Executed(block_io::UserDataOk {
+                        user_data: pending,
+                        count: 0,
+                    })),
+                    Err(e) => Err(block_io::UserDataError {
+                        user_data: pending,
+                        error: BlockIoError::Sync(SyncIoError::Seek(e)),
+                    }),
+                }
             }
+            
             RequestType::Unsupported(_) => {
                 return ProcessingResult::Executed(pending.finish(mem, Ok(0), block_metrics));
             }
@@ -793,6 +815,7 @@ mod tests {
                 RequestType::Out => VIRTIO_BLK_T_OUT,
                 RequestType::Flush => VIRTIO_BLK_T_FLUSH,
                 RequestType::GetDeviceID => VIRTIO_BLK_T_GET_ID,
+                RequestType::Discard => VIRTIO_BLK_T_DISCARD,
                 RequestType::Unsupported(id) => id,
             }
         }
@@ -805,6 +828,7 @@ mod tests {
             RequestType::Out => VIRTQ_DESC_F_NEXT,
             RequestType::Flush => VIRTQ_DESC_F_NEXT,
             RequestType::GetDeviceID => VIRTQ_DESC_F_NEXT | VIRTQ_DESC_F_WRITE,
+            RequestType::Discard => VIRTQ_DESC_F_NEXT,
             RequestType::Unsupported(_) => VIRTQ_DESC_F_NEXT,
         }
     }
