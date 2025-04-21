@@ -24,7 +24,7 @@ gdbstub = { version = "0.7.5", optional = true }
 gdbstub_arch = { version = "0.3.1", optional = true }
 kvm-bindings = { version = "0.11.1", features = ["fam-wrappers", "serde"] }
 kvm-ioctls = "0.21.0"
-libc = "0.2.171"
+libc = "0.2.172"
 linux-loader = "0.13.0"
 log = { version = "0.4.27", features = ["std", "serde"] }
 log-instrument = { path = "../log-instrument", optional = true }
