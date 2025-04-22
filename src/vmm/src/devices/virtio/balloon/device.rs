@@ -1,6 +1,7 @@
 // Copyright 2020 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
+use std::ops::Deref;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -26,7 +27,7 @@ use super::{
 use crate::devices::virtio::balloon::BalloonError;
 use crate::devices::virtio::device::ActiveState;
 use crate::devices::virtio::generated::virtio_config::VIRTIO_F_VERSION_1;
-use crate::devices::virtio::transport::mmio::{IrqTrigger, IrqType};
+use crate::devices::virtio::transport::{VirtioInterrupt, VirtioInterruptType};
 use crate::logger::IncMetric;
 use crate::utils::u64_to_usize;
 use crate::vstate::memory::{Address, ByteValued, Bytes, GuestAddress, GuestMemoryMmap};
@@ -340,7 +341,7 @@ impl Balloon {
         }
 
         if needs_interrupt {
-            self.signal_used_queue()?;
+            self.signal_used_queue(INFLATE_INDEX)?;
         }
 
         Ok(())
@@ -358,7 +359,7 @@ impl Balloon {
         }
 
         if needs_interrupt {
-            self.signal_used_queue()
+            self.signal_used_queue(DEFLATE_INDEX)
         } else {
             Ok(())
         }
@@ -402,9 +403,12 @@ impl Balloon {
         Ok(())
     }
 
-    pub(crate) fn signal_used_queue(&self) -> Result<(), BalloonError> {
+    pub(crate) fn signal_used_queue(&self, qidx: usize) -> Result<(), BalloonError> {
         self.interrupt_trigger()
-            .trigger_irq(IrqType::Vring)
+            .trigger(VirtioInterruptType::Queue(
+                qidx.try_into()
+                    .unwrap_or_else(|_| panic!("balloon: invalid queue id: {qidx}")),
+            ))
             .map_err(|err| {
                 METRICS.event_fails.inc();
                 BalloonError::InterruptError(err)
@@ -429,7 +433,7 @@ impl Balloon {
             self.queues[STATS_INDEX]
                 .add_used(index, 0)
                 .map_err(BalloonError::Queue)?;
-            self.signal_used_queue()
+            self.signal_used_queue(STATS_INDEX)
         } else {
             error!("Failed to update balloon stats, missing descriptor.");
             Ok(())
@@ -441,7 +445,7 @@ impl Balloon {
         if self.is_activated() {
             self.config_space.num_pages = mib_to_pages(amount_mib)?;
             self.interrupt_trigger()
-                .trigger_irq(IrqType::Config)
+                .trigger(VirtioInterruptType::Config)
                 .map_err(BalloonError::InterruptError)
         } else {
             Err(BalloonError::DeviceNotActive)
@@ -552,12 +556,12 @@ impl VirtioDevice for Balloon {
         &self.queue_evts
     }
 
-    fn interrupt_trigger(&self) -> &IrqTrigger {
-        &self
-            .device_state
+    fn interrupt_trigger(&self) -> &dyn VirtioInterrupt {
+        self.device_state
             .active_state()
             .expect("Device is not activated")
             .interrupt
+            .deref()
     }
 
     fn read_config(&self, offset: u64, data: &mut [u8]) {
@@ -587,7 +591,7 @@ impl VirtioDevice for Balloon {
     fn activate(
         &mut self,
         mem: GuestMemoryMmap,
-        interrupt: Arc<IrqTrigger>,
+        interrupt: Arc<dyn VirtioInterrupt>,
     ) -> Result<(), ActivateError> {
         for q in self.queues.iter_mut() {
             q.initialize(&mem)
@@ -1059,7 +1063,9 @@ pub(crate) mod tests {
                 assert!(balloon.stats_desc_index.is_some());
                 balloon.process_stats_timer_event().unwrap();
                 assert!(balloon.stats_desc_index.is_none());
-                assert!(balloon.interrupt_trigger().has_pending_irq(IrqType::Vring));
+                assert!(balloon.interrupt_trigger().has_pending_interrupt(
+                    VirtioInterruptType::Queue(STATS_INDEX.try_into().unwrap())
+                ));
             });
         }
     }
