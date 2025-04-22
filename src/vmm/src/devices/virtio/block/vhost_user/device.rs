@@ -4,6 +4,7 @@
 // Portions Copyright 2019 Intel Corporation. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
+use std::ops::Deref;
 use std::sync::Arc;
 
 use log::error;
@@ -14,13 +15,12 @@ use vmm_sys_util::eventfd::EventFd;
 
 use super::{NUM_QUEUES, QUEUE_SIZE, VhostUserBlockError};
 use crate::devices::virtio::block::CacheType;
-use crate::devices::virtio::device::ActiveState;
-use crate::devices::virtio::device::{DeviceState, VirtioDevice};
+use crate::devices::virtio::device::{ActiveState, DeviceState, VirtioDevice};
 use crate::devices::virtio::generated::virtio_blk::{VIRTIO_BLK_F_FLUSH, VIRTIO_BLK_F_RO};
 use crate::devices::virtio::generated::virtio_config::VIRTIO_F_VERSION_1;
 use crate::devices::virtio::generated::virtio_ring::VIRTIO_RING_F_EVENT_IDX;
 use crate::devices::virtio::queue::Queue;
-use crate::devices::virtio::transport::mmio::{IrqTrigger, IrqType};
+use crate::devices::virtio::transport::{VirtioInterrupt, VirtioInterruptType};
 use crate::devices::virtio::vhost_user::{VhostUserHandleBackend, VhostUserHandleImpl};
 use crate::devices::virtio::vhost_user_metrics::{
     VhostUserDeviceMetrics, VhostUserMetricsPerDevice,
@@ -275,8 +275,8 @@ impl<T: VhostUserHandleBackend> VhostUserBlockImpl<T> {
             .map_err(VhostUserBlockError::Vhost)?;
         self.config_space = new_config_space;
         interrupt
-            .trigger_irq(IrqType::Config)
-            .map_err(VhostUserBlockError::IrqTrigger)?;
+            .trigger(VirtioInterruptType::Config)
+            .map_err(VhostUserBlockError::Interrupt)?;
 
         let delta_us = get_time_us(ClockType::Monotonic) - start_time;
         self.metrics.config_change_time_us.store(delta_us);
@@ -314,12 +314,12 @@ impl<T: VhostUserHandleBackend + Send + 'static> VirtioDevice for VhostUserBlock
         &self.queue_evts
     }
 
-    fn interrupt_trigger(&self) -> &IrqTrigger {
-        &self
-            .device_state
+    fn interrupt_trigger(&self) -> &dyn VirtioInterrupt {
+        self.device_state
             .active_state()
             .expect("Device is not initialized")
             .interrupt
+            .deref()
     }
 
     fn read_config(&self, offset: u64, data: &mut [u8]) {
@@ -341,7 +341,7 @@ impl<T: VhostUserHandleBackend + Send + 'static> VirtioDevice for VhostUserBlock
     fn activate(
         &mut self,
         mem: GuestMemoryMmap,
-        interrupt: Arc<IrqTrigger>,
+        interrupt: Arc<dyn VirtioInterrupt>,
     ) -> Result<(), ActivateError> {
         for q in self.queues.iter_mut() {
             q.initialize(&mem)
@@ -357,7 +357,7 @@ impl<T: VhostUserHandleBackend + Send + 'static> VirtioDevice for VhostUserBlock
                 self.vu_handle.setup_backend(
                     &mem,
                     &[(0, &self.queues[0], &self.queue_evts[0])],
-                    &interrupt,
+                    interrupt.clone(),
                 )
             })
             .map_err(|err| {

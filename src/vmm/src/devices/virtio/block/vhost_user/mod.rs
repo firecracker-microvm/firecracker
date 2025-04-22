@@ -28,5 +28,5 @@ pub enum VhostUserBlockError {
     /// Error opening eventfd: {0}
     EventFd(std::io::Error),
     /// Error creating irqfd: {0}
-    IrqTrigger(std::io::Error),
+    Interrupt(std::io::Error),
 }

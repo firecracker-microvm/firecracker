@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 
 use super::vhost_user::persist::VhostUserBlockState;
 use super::virtio::persist::VirtioBlockState;
-use crate::devices::virtio::transport::mmio::IrqTrigger;
+use crate::devices::virtio::transport::VirtioInterrupt;
 use crate::vstate::memory::GuestMemoryMmap;
 
 /// Block device state.
@@ -21,5 +21,5 @@ pub enum BlockState {
 #[derive(Debug)]
 pub struct BlockConstructorArgs {
     pub mem: GuestMemoryMmap,
-    pub interrupt: Arc<IrqTrigger>,
+    pub interrupt: Arc<dyn VirtioInterrupt>,
 }

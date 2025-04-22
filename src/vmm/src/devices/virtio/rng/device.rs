@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use std::io;
+use std::ops::Deref;
 use std::sync::Arc;
 
 use aws_lc_rs::rand;
@@ -16,7 +17,7 @@ use crate::devices::virtio::generated::virtio_config::VIRTIO_F_VERSION_1;
 use crate::devices::virtio::iov_deque::IovDequeError;
 use crate::devices::virtio::iovec::IoVecBufferMut;
 use crate::devices::virtio::queue::{FIRECRACKER_MAX_QUEUE_SIZE, Queue};
-use crate::devices::virtio::transport::mmio::{IrqTrigger, IrqType};
+use crate::devices::virtio::transport::{VirtioInterrupt, VirtioInterruptType};
 use crate::devices::virtio::{ActivateError, TYPE_RNG};
 use crate::logger::{IncMetric, debug, error};
 use crate::rate_limiter::{RateLimiter, TokenType};
@@ -87,7 +88,7 @@ impl Entropy {
 
     fn signal_used_queue(&self) -> Result<(), DeviceError> {
         self.interrupt_trigger()
-            .trigger_irq(IrqType::Vring)
+            .trigger(VirtioInterruptType::Queue(RNG_QUEUE.try_into().unwrap()))
             .map_err(DeviceError::FailedSignalingIrq)
     }
 
@@ -233,7 +234,11 @@ impl Entropy {
         self.acked_features = features;
     }
 
-    pub(crate) fn set_activated(&mut self, mem: GuestMemoryMmap, interrupt: Arc<IrqTrigger>) {
+    pub(crate) fn set_activated(
+        &mut self,
+        mem: GuestMemoryMmap,
+        interrupt: Arc<dyn VirtioInterrupt>,
+    ) {
         self.device_state = DeviceState::Activated(ActiveState { mem, interrupt });
     }
 
@@ -259,12 +264,12 @@ impl VirtioDevice for Entropy {
         &self.queue_events
     }
 
-    fn interrupt_trigger(&self) -> &IrqTrigger {
-        &self
-            .device_state
+    fn interrupt_trigger(&self) -> &dyn VirtioInterrupt {
+        self.device_state
             .active_state()
             .expect("Device is not initialized")
             .interrupt
+            .deref()
     }
 
     fn avail_features(&self) -> u64 {
@@ -290,7 +295,7 @@ impl VirtioDevice for Entropy {
     fn activate(
         &mut self,
         mem: GuestMemoryMmap,
-        interrupt: Arc<IrqTrigger>,
+        interrupt: Arc<dyn VirtioInterrupt>,
     ) -> Result<(), ActivateError> {
         for q in self.queues.iter_mut() {
             q.initialize(&mem)

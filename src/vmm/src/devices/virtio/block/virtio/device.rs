@@ -9,6 +9,7 @@ use std::cmp;
 use std::convert::From;
 use std::fs::{File, OpenOptions};
 use std::io::{Seek, SeekFrom};
+use std::ops::Deref;
 use std::os::linux::fs::MetadataExt;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -30,7 +31,7 @@ use crate::devices::virtio::generated::virtio_blk::{
 use crate::devices::virtio::generated::virtio_config::VIRTIO_F_VERSION_1;
 use crate::devices::virtio::generated::virtio_ring::VIRTIO_RING_F_EVENT_IDX;
 use crate::devices::virtio::queue::Queue;
-use crate::devices::virtio::transport::mmio::{IrqTrigger, IrqType};
+use crate::devices::virtio::transport::{VirtioInterrupt, VirtioInterruptType};
 use crate::devices::virtio::{ActivateError, TYPE_BLOCK};
 use crate::logger::{IncMetric, error, warn};
 use crate::rate_limiter::{BucketUpdate, RateLimiter};
@@ -387,7 +388,7 @@ impl VirtioBlock {
         queue: &mut Queue,
         index: u16,
         len: u32,
-        irq_trigger: &IrqTrigger,
+        interrupt: &dyn VirtioInterrupt,
         block_metrics: &BlockDeviceMetrics,
     ) {
         queue.add_used(index, len).unwrap_or_else(|err| {
@@ -395,9 +396,11 @@ impl VirtioBlock {
         });
 
         if queue.prepare_kick() {
-            irq_trigger.trigger_irq(IrqType::Vring).unwrap_or_else(|_| {
-                block_metrics.event_fails.inc();
-            });
+            interrupt
+                .trigger(VirtioInterruptType::Queue(index))
+                .unwrap_or_else(|_| {
+                    block_metrics.event_fails.inc();
+                });
         }
     }
 
@@ -452,7 +455,7 @@ impl VirtioBlock {
                         queue,
                         head.index,
                         finished.num_bytes_to_mem,
-                        &active_state.interrupt,
+                        active_state.interrupt.deref(),
                         &self.metrics,
                     );
                 }
@@ -503,7 +506,7 @@ impl VirtioBlock {
                         queue,
                         finished.desc_idx,
                         finished.num_bytes_to_mem,
-                        &active_state.interrupt,
+                        active_state.interrupt.deref(),
                         &self.metrics,
                     );
                 }
@@ -531,10 +534,12 @@ impl VirtioBlock {
         self.disk.update(disk_image_path, self.read_only)?;
         self.config_space.capacity = self.disk.nsectors.to_le(); // virtio_block_config_space();
 
-        // Kick the driver to pick up the changes.
-        self.interrupt_trigger()
-            .trigger_irq(IrqType::Config)
-            .unwrap();
+        // Kick the driver to pick up the changes. (But only if the device is already activated).
+        if self.is_activated() {
+            self.interrupt_trigger()
+                .trigger(VirtioInterruptType::Config)
+                .unwrap();
+        }
 
         self.metrics.update_count.inc();
         Ok(())
@@ -601,12 +606,12 @@ impl VirtioDevice for VirtioBlock {
         &self.queue_evts
     }
 
-    fn interrupt_trigger(&self) -> &IrqTrigger {
-        &self
-            .device_state
+    fn interrupt_trigger(&self) -> &dyn VirtioInterrupt {
+        self.device_state
             .active_state()
             .expect("Device is not initialized")
             .interrupt
+            .deref()
     }
 
     fn read_config(&self, offset: u64, data: &mut [u8]) {
@@ -638,7 +643,7 @@ impl VirtioDevice for VirtioBlock {
     fn activate(
         &mut self,
         mem: GuestMemoryMmap,
-        interrupt: Arc<IrqTrigger>,
+        interrupt: Arc<dyn VirtioInterrupt>,
     ) -> Result<(), ActivateError> {
         for q in self.queues.iter_mut() {
             q.initialize(&mem)

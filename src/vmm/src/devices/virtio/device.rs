@@ -13,7 +13,7 @@ use vmm_sys_util::eventfd::EventFd;
 
 use super::ActivateError;
 use super::queue::{Queue, QueueError};
-use super::transport::mmio::IrqTrigger;
+use super::transport::VirtioInterrupt;
 use crate::devices::virtio::AsAny;
 use crate::logger::warn;
 use crate::vstate::memory::GuestMemoryMmap;
@@ -22,7 +22,7 @@ use crate::vstate::memory::GuestMemoryMmap;
 #[derive(Debug, Clone)]
 pub struct ActiveState {
     pub mem: GuestMemoryMmap,
-    pub interrupt: Arc<IrqTrigger>,
+    pub interrupt: Arc<dyn VirtioInterrupt>,
 }
 
 /// Enum that indicates if a VirtioDevice is inactive or has been activated
@@ -88,10 +88,10 @@ pub trait VirtioDevice: AsAny + Send {
 
     /// Returns the current device interrupt status.
     fn interrupt_status(&self) -> Arc<AtomicU32> {
-        Arc::clone(&self.interrupt_trigger().irq_status)
+        self.interrupt_trigger().status()
     }
 
-    fn interrupt_trigger(&self) -> &IrqTrigger;
+    fn interrupt_trigger(&self) -> &dyn VirtioInterrupt;
 
     /// The set of feature bits shifted by `page * 32`.
     fn avail_features_by_page(&self, page: u32) -> u32 {
@@ -140,7 +140,7 @@ pub trait VirtioDevice: AsAny + Send {
     fn activate(
         &mut self,
         mem: GuestMemoryMmap,
-        interrupt: Arc<IrqTrigger>,
+        interrupt: Arc<dyn VirtioInterrupt>,
     ) -> Result<(), ActivateError>;
 
     /// Checks if the resources of this device are activated.
@@ -205,7 +205,7 @@ pub(crate) mod tests {
             todo!()
         }
 
-        fn interrupt_trigger(&self) -> &IrqTrigger {
+        fn interrupt_trigger(&self) -> &dyn VirtioInterrupt {
             todo!()
         }
 
@@ -220,7 +220,7 @@ pub(crate) mod tests {
         fn activate(
             &mut self,
             _mem: GuestMemoryMmap,
-            _interrupt: Arc<IrqTrigger>,
+            _interrupt: Arc<dyn VirtioInterrupt>,
         ) -> Result<(), ActivateError> {
             todo!()
         }
