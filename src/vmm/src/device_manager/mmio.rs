@@ -504,7 +504,7 @@ impl MMIODeviceManager {
                             .unwrap();
                         if vsock.is_activated() {
                             info!("kick vsock {id}.");
-                            vsock.signal_used_queue().unwrap();
+                            vsock.signal_used_queue(0).unwrap();
                         }
                     }
                     TYPE_RNG => {
@@ -524,6 +524,7 @@ impl MMIODeviceManager {
 #[cfg(test)]
 mod tests {
 
+    use std::ops::Deref;
     use std::sync::Arc;
 
     use vmm_sys_util::eventfd::EventFd;
@@ -533,6 +534,7 @@ mod tests {
     use crate::devices::virtio::ActivateError;
     use crate::devices::virtio::device::VirtioDevice;
     use crate::devices::virtio::queue::Queue;
+    use crate::devices::virtio::transport::VirtioInterrupt;
     use crate::devices::virtio::transport::mmio::IrqTrigger;
     use crate::test_utils::multi_region_mem_raw;
     use crate::vstate::kvm::Kvm;
@@ -619,10 +621,8 @@ mod tests {
             &self.queue_evts
         }
 
-        fn interrupt_trigger(&self) -> &IrqTrigger {
-            self.interrupt_trigger
-                .as_ref()
-                .expect("Device is not activated")
+        fn interrupt_trigger(&self) -> &dyn VirtioInterrupt {
+            self.interrupt_trigger.as_ref().unwrap().deref()
         }
 
         fn ack_features_by_page(&mut self, page: u32, value: u32) {
@@ -643,7 +643,7 @@ mod tests {
         fn activate(
             &mut self,
             _: GuestMemoryMmap,
-            _: Arc<IrqTrigger>,
+            _: Arc<dyn VirtioInterrupt>,
         ) -> Result<(), ActivateError> {
             Ok(())
         }

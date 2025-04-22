@@ -12,7 +12,7 @@ use super::*;
 use crate::devices::virtio::device::{ActiveState, DeviceState};
 use crate::devices::virtio::persist::VirtioDeviceState;
 use crate::devices::virtio::queue::FIRECRACKER_MAX_QUEUE_SIZE;
-use crate::devices::virtio::transport::mmio::IrqTrigger;
+use crate::devices::virtio::transport::VirtioInterrupt;
 use crate::devices::virtio::vsock::TYPE_VSOCK;
 use crate::snapshot::Persist;
 use crate::vstate::memory::GuestMemoryMmap;
@@ -54,7 +54,7 @@ pub struct VsockConstructorArgs<B> {
     /// Pointer to guest memory.
     pub mem: GuestMemoryMmap,
     /// Interrupt to use for the device.
-    pub interrupt: Arc<IrqTrigger>,
+    pub interrupt: Arc<dyn VirtioInterrupt>,
     /// The vsock Unix Backend.
     pub backend: B,
 }
