@@ -1,0 +1,44 @@
+From 140a906e90e2ba2092148d80e0764e54802c947c Mon Sep 17 00:00:00 2001
+From: Nikita Kalyazin <kalyazin@amazon.com>
+Date: Tue, 1 Apr 2025 15:02:56 +0000
+Subject: [PATCH 31/34] KVM: guest_memfd: add support for userfaultfd minor
+
+Add support for sending a pagefault event if userfaultfd is registered.
+Only page minor event is currently supported.
+
+Signed-off-by: Nikita Kalyazin <kalyazin@amazon.com>
+---
+ virt/kvm/guest_memfd.c | 10 ++++++++++
+ 1 file changed, 10 insertions(+)
+
+diff --git a/virt/kvm/guest_memfd.c b/virt/kvm/guest_memfd.c
+index 5abb6d52a375..91ee5dd91c31 100644
+--- a/virt/kvm/guest_memfd.c
++++ b/virt/kvm/guest_memfd.c
+@@ -5,6 +5,9 @@
+ #include <linux/pagemap.h>
+ #include <linux/anon_inodes.h>
+ #include <linux/set_memory.h>
++#ifdef CONFIG_KVM_PRIVATE_MEM
++#include <linux/userfaultfd_k.h>
++#endif /* CONFIG_KVM_PRIVATE_MEM */
+ 
+ #include "kvm_mm.h"
+ 
+@@ -396,6 +399,13 @@ static vm_fault_t kvm_gmem_fault(struct vm_fault *vmf)
+ 		kvm_gmem_mark_prepared(folio);
+ 	}
+ 
++	if (userfaultfd_minor(vmf->vma) &&
++	    !(vmf->flags & FAULT_FLAG_USERFAULT_CONTINUE)) {
++		folio_unlock(folio);
++		filemap_invalidate_unlock_shared(inode->i_mapping);
++		return handle_userfault(vmf, VM_UFFD_MINOR);
++	}
++
+ 	vmf->page = folio_file_page(folio, vmf->pgoff);
+ 
+ out_folio:
+-- 
+2.47.1
+
