@@ -1,7 +1,7 @@
-From 9bbc39f9c7622f0060d395b1063a564c24926d8d Mon Sep 17 00:00:00 2001
+From b1fc478976c93fd42b14e06d2de57e121be03142 Mon Sep 17 00:00:00 2001
 From: Patrick Roy <roypat@amazon.co.uk>
 Date: Fri, 7 Feb 2025 14:33:01 +0000
-Subject: [PATCH 2/2] KVM: guest_memfd: Add flag to remove from direct map
+Subject: [PATCH 11/34] KVM: guest_memfd: Add flag to remove from direct map
 
 Add KVM_GMEM_NO_DIRECT_MAP flag for KVM_CREATE_GUEST_MEMFD() ioctl. When
 set, guest_memfd folios will be removed from the direct map after
@@ -174,5 +174,5 @@ index 3e40acb9f5c0..32ca1c921ab0 100644
  		return !kvm || kvm_arch_has_private_mem(kvm);
  #endif
 -- 
-2.48.1
+2.47.1
 
