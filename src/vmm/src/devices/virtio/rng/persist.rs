@@ -11,7 +11,7 @@ use crate::devices::virtio::TYPE_RNG;
 use crate::devices::virtio::persist::{PersistError as VirtioStateError, VirtioDeviceState};
 use crate::devices::virtio::queue::FIRECRACKER_MAX_QUEUE_SIZE;
 use crate::devices::virtio::rng::{Entropy, EntropyError, RNG_NUM_QUEUES};
-use crate::devices::virtio::transport::mmio::IrqTrigger;
+use crate::devices::virtio::transport::VirtioInterrupt;
 use crate::rate_limiter::RateLimiter;
 use crate::rate_limiter::persist::RateLimiterState;
 use crate::snapshot::Persist;
@@ -26,11 +26,11 @@ pub struct EntropyState {
 #[derive(Debug)]
 pub struct EntropyConstructorArgs {
     mem: GuestMemoryMmap,
-    interrupt: Arc<IrqTrigger>,
+    interrupt: Arc<dyn VirtioInterrupt>,
 }
 
 impl EntropyConstructorArgs {
-    pub fn new(mem: GuestMemoryMmap, interrupt: Arc<IrqTrigger>) -> Self {
+    pub fn new(mem: GuestMemoryMmap, interrupt: Arc<dyn VirtioInterrupt>) -> Self {
         Self { mem, interrupt }
     }
 }
