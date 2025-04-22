@@ -1,0 +1,193 @@
+From fd39febef2e0d41394e51f5e34f2c8de80b3b4dc Mon Sep 17 00:00:00 2001
+From: Fuad Tabba <tabba@google.com>
+Date: Tue, 18 Mar 2025 16:18:17 +0000
+Subject: [PATCH 03/34] KVM: guest_memfd: Allow host to map guest_memfd() pages
+
+Add support for mmap() and fault() for guest_memfd backed memory
+in the host for VMs that support in-place conversion between
+shared and private. To that end, this patch adds the ability to
+check whether the VM type supports in-place conversion, and only
+allows mapping its memory if that's the case.
+
+Also add the KVM capability KVM_CAP_GMEM_SHARED_MEM, which
+indicates that the VM supports shared memory in guest_memfd, or
+that the host can create VMs that support shared memory.
+Supporting shared memory implies that memory can be mapped when
+shared with the host.
+
+This is controlled by the KVM_GMEM_SHARED_MEM configuration
+option.
+
+Signed-off-by: Fuad Tabba <tabba@google.com>
+---
+ include/linux/kvm_host.h |  11 +++++
+ include/uapi/linux/kvm.h |   1 +
+ virt/kvm/guest_memfd.c   | 101 +++++++++++++++++++++++++++++++++++++++
+ virt/kvm/kvm_main.c      |   4 ++
+ 4 files changed, 117 insertions(+)
+
+diff --git a/include/linux/kvm_host.h b/include/linux/kvm_host.h
+index 3ad0719bfc4f..601bbcaa5e41 100644
+--- a/include/linux/kvm_host.h
++++ b/include/linux/kvm_host.h
+@@ -728,6 +728,17 @@ static inline bool kvm_arch_has_private_mem(struct kvm *kvm)
+ }
+ #endif
+ 
++/*
++ * Arch code must define kvm_arch_gmem_supports_shared_mem if support for
++ * private memory is enabled and it supports in-place shared/private conversion.
++ */
++#if !defined(kvm_arch_gmem_supports_shared_mem) && !IS_ENABLED(CONFIG_KVM_GMEM_SHARED_MEM)
++static inline bool kvm_arch_gmem_supports_shared_mem(struct kvm *kvm)
++{
++	return false;
++}
++#endif
++
+ #ifndef kvm_arch_has_readonly_mem
+ static inline bool kvm_arch_has_readonly_mem(struct kvm *kvm)
+ {
+diff --git a/include/uapi/linux/kvm.h b/include/uapi/linux/kvm.h
+index 45e6d8fca9b9..117937a895da 100644
+--- a/include/uapi/linux/kvm.h
++++ b/include/uapi/linux/kvm.h
+@@ -929,6 +929,7 @@ struct kvm_enable_cap {
+ #define KVM_CAP_PRE_FAULT_MEMORY 236
+ #define KVM_CAP_X86_APIC_BUS_CYCLES_NS 237
+ #define KVM_CAP_X86_GUEST_MODE 238
++#define KVM_CAP_GMEM_SHARED_MEM 239
+ 
+ struct kvm_irq_routing_irqchip {
+ 	__u32 irqchip;
+diff --git a/virt/kvm/guest_memfd.c b/virt/kvm/guest_memfd.c
+index 5fc414becae5..fbf89e643add 100644
+--- a/virt/kvm/guest_memfd.c
++++ b/virt/kvm/guest_memfd.c
+@@ -320,7 +320,108 @@ static pgoff_t kvm_gmem_get_index(struct kvm_memory_slot *slot, gfn_t gfn)
+ 	return gfn - slot->base_gfn + slot->gmem.pgoff;
+ }
+ 
++#ifdef CONFIG_KVM_GMEM_SHARED_MEM
++static bool kvm_gmem_offset_is_shared(struct file *file, pgoff_t index)
++{
++	struct kvm_gmem *gmem = file->private_data;
++
++
++	/* For now, VMs that support shared memory share all their memory. */
++	return kvm_arch_gmem_supports_shared_mem(gmem->kvm);
++}
++
++static vm_fault_t kvm_gmem_fault(struct vm_fault *vmf)
++{
++	struct inode *inode = file_inode(vmf->vma->vm_file);
++	struct folio *folio;
++	vm_fault_t ret = VM_FAULT_LOCKED;
++
++	filemap_invalidate_lock_shared(inode->i_mapping);
++
++	folio = kvm_gmem_get_folio(inode, vmf->pgoff);
++	if (IS_ERR(folio)) {
++		int err = PTR_ERR(folio);
++
++		if (err == -EAGAIN)
++			ret = VM_FAULT_RETRY;
++		else
++			ret = vmf_error(err);
++
++		goto out_filemap;
++	}
++
++	if (folio_test_hwpoison(folio)) {
++		ret = VM_FAULT_HWPOISON;
++		goto out_folio;
++	}
++
++	if (!kvm_gmem_offset_is_shared(vmf->vma->vm_file, vmf->pgoff)) {
++		ret = VM_FAULT_SIGBUS;
++		goto out_folio;
++	}
++
++	/*
++	 * Shared folios would not be marked as "guestmem" so far, and we only
++	 * expect shared folios at this point.
++	 */
++	if (WARN_ON_ONCE(folio_test_guestmem(folio)))  {
++		ret = VM_FAULT_SIGBUS;
++		goto out_folio;
++	}
++
++	/* No support for huge pages. */
++	if (WARN_ON_ONCE(folio_test_large(folio))) {
++		ret = VM_FAULT_SIGBUS;
++		goto out_folio;
++	}
++
++	if (!folio_test_uptodate(folio)) {
++		clear_highpage(folio_page(folio, 0));
++		kvm_gmem_mark_prepared(folio);
++	}
++
++	vmf->page = folio_file_page(folio, vmf->pgoff);
++
++out_folio:
++	if (ret != VM_FAULT_LOCKED) {
++		folio_unlock(folio);
++		folio_put(folio);
++	}
++
++out_filemap:
++	filemap_invalidate_unlock_shared(inode->i_mapping);
++
++	return ret;
++}
++
++static const struct vm_operations_struct kvm_gmem_vm_ops = {
++	.fault = kvm_gmem_fault,
++};
++
++static int kvm_gmem_mmap(struct file *file, struct vm_area_struct *vma)
++{
++	struct kvm_gmem *gmem = file->private_data;
++
++	if (!kvm_arch_gmem_supports_shared_mem(gmem->kvm))
++		return -ENODEV;
++
++	if ((vma->vm_flags & (VM_SHARED | VM_MAYSHARE)) !=
++	    (VM_SHARED | VM_MAYSHARE)) {
++		return -EINVAL;
++	}
++
++	file_accessed(file);
++	vm_flags_set(vma, VM_DONTDUMP);
++	vma->vm_ops = &kvm_gmem_vm_ops;
++
++	return 0;
++}
++#else
++#define kvm_gmem_mmap NULL
++#endif /* CONFIG_KVM_GMEM_SHARED_MEM */
++
+ static struct file_operations kvm_gmem_fops = {
++	.mmap		= kvm_gmem_mmap,
+ 	.open		= generic_file_open,
+ 	.release	= kvm_gmem_release,
+ 	.fallocate	= kvm_gmem_fallocate,
+diff --git a/virt/kvm/kvm_main.c b/virt/kvm/kvm_main.c
+index ba0327e2d0d3..38f0f402ea46 100644
+--- a/virt/kvm/kvm_main.c
++++ b/virt/kvm/kvm_main.c
+@@ -4830,6 +4830,10 @@ static int kvm_vm_ioctl_check_extension_generic(struct kvm *kvm, long arg)
+ #ifdef CONFIG_KVM_PRIVATE_MEM
+ 	case KVM_CAP_GUEST_MEMFD:
+ 		return !kvm || kvm_arch_has_private_mem(kvm);
++#endif
++#ifdef CONFIG_KVM_GMEM_SHARED_MEM
++	case KVM_CAP_GMEM_SHARED_MEM:
++		return !kvm || kvm_arch_gmem_supports_shared_mem(kvm);
+ #endif
+ 	default:
+ 		break;
+-- 
+2.47.1
+
