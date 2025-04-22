@@ -1,0 +1,149 @@
+From 1ee5d01987bff47f007fb86ad7738b299816b2ef Mon Sep 17 00:00:00 2001
+From: Fuad Tabba <tabba@google.com>
+Date: Tue, 18 Mar 2025 16:18:23 +0000
+Subject: [PATCH 08/34] KVM: guest_memfd: selftests: guest_memfd mmap() test
+ when mapping is allowed
+
+Expand the guest_memfd selftests to include testing mapping guest
+memory for VM types that support it.
+
+Also, build the guest_memfd selftest for arm64.
+
+Signed-off-by: Fuad Tabba <tabba@google.com>
+---
+ tools/testing/selftests/kvm/Makefile.kvm      |  1 +
+ .../testing/selftests/kvm/guest_memfd_test.c  | 75 +++++++++++++++++--
+ 2 files changed, 70 insertions(+), 6 deletions(-)
+
+diff --git a/tools/testing/selftests/kvm/Makefile.kvm b/tools/testing/selftests/kvm/Makefile.kvm
+index 4277b983cace..c9a3f30e28dd 100644
+--- a/tools/testing/selftests/kvm/Makefile.kvm
++++ b/tools/testing/selftests/kvm/Makefile.kvm
+@@ -160,6 +160,7 @@ TEST_GEN_PROGS_arm64 += coalesced_io_test
+ TEST_GEN_PROGS_arm64 += demand_paging_test
+ TEST_GEN_PROGS_arm64 += dirty_log_test
+ TEST_GEN_PROGS_arm64 += dirty_log_perf_test
++TEST_GEN_PROGS_arm64 += guest_memfd_test
+ TEST_GEN_PROGS_arm64 += guest_print_test
+ TEST_GEN_PROGS_arm64 += get-reg-list
+ TEST_GEN_PROGS_arm64 += kvm_create_max_vcpus
+diff --git a/tools/testing/selftests/kvm/guest_memfd_test.c b/tools/testing/selftests/kvm/guest_memfd_test.c
+index ce687f8d248f..38c501e49e0e 100644
+--- a/tools/testing/selftests/kvm/guest_memfd_test.c
++++ b/tools/testing/selftests/kvm/guest_memfd_test.c
+@@ -34,12 +34,48 @@ static void test_file_read_write(int fd)
+ 		    "pwrite on a guest_mem fd should fail");
+ }
+ 
+-static void test_mmap(int fd, size_t page_size)
++static void test_mmap_allowed(int fd, size_t total_size)
+ {
++	size_t page_size = getpagesize();
++	const char val = 0xaa;
++	char *mem;
++	int ret;
++	int i;
++
++	mem = mmap(NULL, total_size, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
++	TEST_ASSERT(mem != MAP_FAILED, "mmaping() guest memory should pass.");
++
++	memset(mem, val, total_size);
++	for (i = 0; i < total_size; i++)
++		TEST_ASSERT_EQ(mem[i], val);
++
++	ret = fallocate(fd, FALLOC_FL_KEEP_SIZE | FALLOC_FL_PUNCH_HOLE, 0,
++			page_size);
++	TEST_ASSERT(!ret, "fallocate the first page should succeed");
++
++	for (i = 0; i < page_size; i++)
++		TEST_ASSERT_EQ(mem[i], 0x00);
++	for (; i < total_size; i++)
++		TEST_ASSERT_EQ(mem[i], val);
++
++	memset(mem, val, total_size);
++	for (i = 0; i < total_size; i++)
++		TEST_ASSERT_EQ(mem[i], val);
++
++	ret = munmap(mem, total_size);
++	TEST_ASSERT(!ret, "munmap should succeed");
++}
++
++static void test_mmap_denied(int fd, size_t total_size)
++{
++	size_t page_size = getpagesize();
+ 	char *mem;
+ 
+ 	mem = mmap(NULL, page_size, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
+ 	TEST_ASSERT_EQ(mem, MAP_FAILED);
++
++	mem = mmap(NULL, total_size, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
++	TEST_ASSERT_EQ(mem, MAP_FAILED);
+ }
+ 
+ static void test_file_size(int fd, size_t page_size, size_t total_size)
+@@ -170,19 +206,27 @@ static void test_create_guest_memfd_multiple(struct kvm_vm *vm)
+ 	close(fd1);
+ }
+ 
+-int main(int argc, char *argv[])
++unsigned long get_shared_type(void)
+ {
+-	size_t page_size;
++#ifdef __x86_64__
++	return KVM_X86_SW_PROTECTED_VM;
++#endif
++	return 0;
++}
++
++void test_vm_type(unsigned long type, bool is_shared)
++{
++	struct kvm_vm *vm;
+ 	size_t total_size;
++	size_t page_size;
+ 	int fd;
+-	struct kvm_vm *vm;
+ 
+ 	TEST_REQUIRE(kvm_has_cap(KVM_CAP_GUEST_MEMFD));
+ 
+ 	page_size = getpagesize();
+ 	total_size = page_size * 4;
+ 
+-	vm = vm_create_barebones();
++	vm = vm_create_barebones_type(type);
+ 
+ 	test_create_guest_memfd_invalid(vm);
+ 	test_create_guest_memfd_multiple(vm);
+@@ -190,10 +234,29 @@ int main(int argc, char *argv[])
+ 	fd = vm_create_guest_memfd(vm, total_size, 0);
+ 
+ 	test_file_read_write(fd);
+-	test_mmap(fd, page_size);
++
++	if (is_shared)
++		test_mmap_allowed(fd, total_size);
++	else
++		test_mmap_denied(fd, total_size);
++
+ 	test_file_size(fd, page_size, total_size);
+ 	test_fallocate(fd, page_size, total_size);
+ 	test_invalid_punch_hole(fd, page_size, total_size);
+ 
+ 	close(fd);
++	kvm_vm_release(vm);
++}
++
++int main(int argc, char *argv[])
++{
++#ifndef __aarch64__
++	/* For now, arm64 only supports shared guest memory. */
++	test_vm_type(VM_TYPE_DEFAULT, false);
++#endif
++
++	if (kvm_has_cap(KVM_CAP_GMEM_SHARED_MEM))
++		test_vm_type(get_shared_type(), true);
++
++	return 0;
+ }
+-- 
+2.47.1
+

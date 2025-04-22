@@ -1,7 +1,7 @@
-From 138b7a4c83c43b42851cb8fec2bbdbaadd960241 Mon Sep 17 00:00:00 2001
+From 22ec89c0ff7af3430027cf71cf8bce5c8ed6e402 Mon Sep 17 00:00:00 2001
 From: Patrick Roy <roypat@amazon.co.uk>
 Date: Fri, 7 Feb 2025 11:16:06 +0000
-Subject: [PATCH 1/2] mm: introduce AS_NO_DIRECT_MAP
+Subject: [PATCH 10/34] mm: introduce AS_NO_DIRECT_MAP
 
 Add AS_NO_DIRECT_MAP for mappings where direct map entries of folios are
 set to not present . Currently, mappings that match this description are
@@ -204,5 +204,5 @@ index 1b0a214ee558..ea4c04d469b1 100644
  	inode->i_op = &secretmem_iops;
  	inode->i_mapping->a_ops = &secretmem_aops;
 -- 
-2.48.1
+2.47.1
 
