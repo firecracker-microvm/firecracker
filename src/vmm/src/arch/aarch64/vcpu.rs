@@ -7,7 +7,6 @@
 
 use std::fmt::{Debug, Write};
 use std::mem::offset_of;
-use std::path::PathBuf;
 
 use kvm_bindings::*;
 use kvm_ioctls::{VcpuExit, VcpuFd, VmFd};
@@ -48,9 +47,7 @@ pub enum VcpuArchError {
 /// Extract the Manufacturer ID from the host.
 /// The ID is found between bits 24-31 of MIDR_EL1 register.
 pub fn get_manufacturer_id_from_host() -> Result<u32, VcpuArchError> {
-    let midr_el1_path =
-        &PathBuf::from("/sys/devices/system/cpu/cpu0/regs/identification/midr_el1".to_string());
-
+    let midr_el1_path = "/sys/devices/system/cpu/cpu0/regs/identification/midr_el1";
     let midr_el1 = std::fs::read_to_string(midr_el1_path).map_err(|err| {
         VcpuArchError::GetMidrEl1(format!("Failed to get MIDR_EL1 from host path: {err}"))
     })?;
