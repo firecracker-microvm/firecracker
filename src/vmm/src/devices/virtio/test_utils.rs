@@ -10,11 +10,11 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 use crate::devices::virtio::queue::Queue;
+use crate::devices::virtio::transport::VirtioInterrupt;
+use crate::devices::virtio::transport::mmio::IrqTrigger;
 use crate::test_utils::single_region_mem;
 use crate::utils::{align_up, u64_to_usize};
 use crate::vstate::memory::{Address, Bytes, GuestAddress, GuestMemoryMmap};
-
-use super::transport::mmio::IrqTrigger;
 
 #[macro_export]
 macro_rules! check_metric_after_block {
@@ -32,7 +32,7 @@ pub fn default_mem() -> GuestMemoryMmap {
 }
 
 /// Creates a default ['IrqTrigger'] interrupt for a VirtIO device.
-pub fn default_interrupt() -> Arc<IrqTrigger> {
+pub fn default_interrupt() -> Arc<dyn VirtioInterrupt> {
     Arc::new(IrqTrigger::new())
 }
 

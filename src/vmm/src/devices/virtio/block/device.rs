@@ -12,7 +12,7 @@ use super::vhost_user::device::{VhostUserBlock, VhostUserBlockConfig};
 use super::virtio::device::{VirtioBlock, VirtioBlockConfig};
 use crate::devices::virtio::device::VirtioDevice;
 use crate::devices::virtio::queue::{InvalidAvailIdx, Queue};
-use crate::devices::virtio::transport::mmio::IrqTrigger;
+use crate::devices::virtio::transport::VirtioInterrupt;
 use crate::devices::virtio::{ActivateError, TYPE_BLOCK};
 use crate::rate_limiter::BucketUpdate;
 use crate::snapshot::Persist;
@@ -176,7 +176,7 @@ impl VirtioDevice for Block {
         }
     }
 
-    fn interrupt_trigger(&self) -> &IrqTrigger {
+    fn interrupt_trigger(&self) -> &dyn VirtioInterrupt {
         match self {
             Self::Virtio(b) => b.interrupt_trigger(),
             Self::VhostUser(b) => b.interrupt_trigger(),
@@ -200,7 +200,7 @@ impl VirtioDevice for Block {
     fn activate(
         &mut self,
         mem: GuestMemoryMmap,
-        interrupt: Arc<IrqTrigger>,
+        interrupt: Arc<dyn VirtioInterrupt>,
     ) -> Result<(), ActivateError> {
         match self {
             Self::Virtio(b) => b.activate(mem, interrupt),

@@ -197,9 +197,10 @@ where
                 Self::PROCESS_EVQ => raise_irq = self.handle_evq_event(evset),
                 Self::PROCESS_NOTIFY_BACKEND => raise_irq = self.notify_backend(evset).unwrap(),
                 _ => warn!("Unexpected vsock event received: {:?}", source),
-            }
+            };
             if raise_irq {
-                self.signal_used_queue().unwrap_or_default();
+                self.signal_used_queue(source as usize)
+                    .expect("vsock: Could not trigger device interrupt");
             }
         } else {
             warn!(
