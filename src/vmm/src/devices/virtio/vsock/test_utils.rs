@@ -14,7 +14,7 @@ use super::packet::{VsockPacketRx, VsockPacketTx};
 use crate::devices::virtio::device::VirtioDevice;
 use crate::devices::virtio::queue::{VIRTQ_DESC_F_NEXT, VIRTQ_DESC_F_WRITE};
 use crate::devices::virtio::test_utils::{VirtQueue as GuestQ, default_interrupt};
-use crate::devices::virtio::transport::mmio::IrqTrigger;
+use crate::devices::virtio::transport::VirtioInterrupt;
 use crate::devices::virtio::vsock::device::{RXQ_INDEX, TXQ_INDEX};
 use crate::devices::virtio::vsock::packet::VSOCK_PKT_HDR_SIZE;
 use crate::devices::virtio::vsock::{
@@ -119,7 +119,7 @@ impl VsockBackend for TestBackend {}
 pub struct TestContext {
     pub cid: u64,
     pub mem: GuestMemoryMmap,
-    pub interrupt: Arc<IrqTrigger>,
+    pub interrupt: Arc<dyn VirtioInterrupt>,
     pub mem_size: usize,
     pub device: Vsock<TestBackend>,
 }
@@ -200,7 +200,7 @@ pub struct EventHandlerContext<'a> {
 }
 
 impl EventHandlerContext<'_> {
-    pub fn mock_activate(&mut self, mem: GuestMemoryMmap, interrupt: Arc<IrqTrigger>) {
+    pub fn mock_activate(&mut self, mem: GuestMemoryMmap, interrupt: Arc<dyn VirtioInterrupt>) {
         // Artificially activate the device.
         self.device.activate(mem, interrupt).unwrap();
     }

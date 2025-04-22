@@ -300,7 +300,7 @@ pub mod test {
     use crate::devices::virtio::net::{MAX_BUFFER_SIZE, Net, RX_INDEX, TX_INDEX};
     use crate::devices::virtio::queue::{VIRTQ_DESC_F_NEXT, VIRTQ_DESC_F_WRITE};
     use crate::devices::virtio::test_utils::{VirtQueue, VirtqDesc, default_interrupt};
-    use crate::devices::virtio::transport::mmio::IrqType;
+    use crate::devices::virtio::transport::VirtioInterruptType;
     use crate::logger::IncMetric;
     use crate::vstate::memory::{Address, Bytes, GuestAddress, GuestMemoryMmap};
 
@@ -444,7 +444,7 @@ pub mod test {
             assert!(
                 self.net()
                     .interrupt_trigger()
-                    .has_pending_irq(IrqType::Vring)
+                    .has_pending_interrupt(VirtioInterruptType::Queue(RX_INDEX as u16))
             );
 
             frame
@@ -474,7 +474,7 @@ pub mod test {
             assert!(
                 self.net()
                     .interrupt_trigger()
-                    .has_pending_irq(IrqType::Vring)
+                    .has_pending_interrupt(VirtioInterruptType::Queue(RX_INDEX as u16))
             );
             self.rxq
                 .check_used_elem(used_idx, 0, expected_frame.len().try_into().unwrap());
