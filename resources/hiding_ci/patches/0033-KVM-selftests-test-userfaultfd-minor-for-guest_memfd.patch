@@ -1,0 +1,146 @@
+From 4647a42c34b3896fd872f8b2991b55827d084a38 Mon Sep 17 00:00:00 2001
+From: Nikita Kalyazin <kalyazin@amazon.com>
+Date: Fri, 28 Feb 2025 16:17:41 +0000
+Subject: [PATCH 33/34] KVM: selftests: test userfaultfd minor for guest_memfd
+
+The test demonstrates that a minor userfaultfd event in guest_memfd can
+be resolved via a memcpy followed by a UFFDIO_CONTINUE ioctl.
+
+Signed-off-by: Nikita Kalyazin <kalyazin@amazon.com>
+---
+ .../testing/selftests/kvm/guest_memfd_test.c  | 99 +++++++++++++++++++
+ 1 file changed, 99 insertions(+)
+
+diff --git a/tools/testing/selftests/kvm/guest_memfd_test.c b/tools/testing/selftests/kvm/guest_memfd_test.c
+index b07221aa54c9..c9578f0ce46f 100644
+--- a/tools/testing/selftests/kvm/guest_memfd_test.c
++++ b/tools/testing/selftests/kvm/guest_memfd_test.c
+@@ -10,12 +10,16 @@
+ #include <errno.h>
+ #include <stdio.h>
+ #include <fcntl.h>
++#include <pthread.h>
+ 
+ #include <linux/bitmap.h>
+ #include <linux/falloc.h>
++#include <linux/userfaultfd.h>
+ #include <sys/mman.h>
+ #include <sys/types.h>
+ #include <sys/stat.h>
++#include <sys/syscall.h>
++#include <sys/ioctl.h>
+ 
+ #include "kvm_util.h"
+ #include "test_util.h"
+@@ -278,6 +282,98 @@ static void test_create_guest_memfd_multiple(struct kvm_vm *vm)
+ 	close(fd1);
+ }
+ 
++struct fault_args {
++	char *addr;
++	volatile char value;
++};
++
++static void *fault_thread_fn(void *arg)
++{
++	struct fault_args *args = arg;
++
++	/* Trigger page fault */
++	args->value = *args->addr;
++	return NULL;
++}
++
++static void test_uffd_minor(int fd, size_t page_size, size_t total_size)
++{
++	struct uffdio_register uffd_reg;
++	struct uffdio_continue uffd_cont;
++	struct uffd_msg msg;
++	struct fault_args args;
++	pthread_t fault_thread;
++	void *mem, *mem_nofault, *buf = NULL;
++	int uffd, ret;
++	off_t offset = page_size;
++	void *fault_addr;
++
++	ret = posix_memalign(&buf, page_size, total_size);
++	TEST_ASSERT_EQ(ret, 0);
++
++	uffd = syscall(__NR_userfaultfd, O_CLOEXEC);
++	TEST_ASSERT(uffd != -1, "userfaultfd creation should succeed");
++
++	struct uffdio_api uffdio_api = {
++		.api = UFFD_API,
++		.features = UFFD_FEATURE_MINOR_GUEST_MEMFD,
++	};
++	ret = ioctl(uffd, UFFDIO_API, &uffdio_api);
++	TEST_ASSERT(ret != -1, "ioctl(UFFDIO_API) should succeed");
++
++	mem = mmap(NULL, total_size, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
++	TEST_ASSERT(mem != MAP_FAILED, "mmap should succeed");
++
++	mem_nofault = mmap(NULL, total_size, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
++	TEST_ASSERT(mem_nofault != MAP_FAILED, "mmap should succeed");
++
++	uffd_reg.range.start = (unsigned long)mem;
++	uffd_reg.range.len = total_size;
++	uffd_reg.mode = UFFDIO_REGISTER_MODE_MINOR;
++	ret = ioctl(uffd, UFFDIO_REGISTER, &uffd_reg);
++	TEST_ASSERT(ret != -1, "ioctl(UFFDIO_REGISTER) should succeed");
++
++	ret = fallocate(fd, FALLOC_FL_KEEP_SIZE | FALLOC_FL_PUNCH_HOLE,
++			offset, page_size);
++	TEST_ASSERT(!ret, "fallocate(PUNCH_HOLE) should succeed");
++
++	fault_addr = mem + offset;
++	args.addr = fault_addr;
++
++	ret = pthread_create(&fault_thread, NULL, fault_thread_fn, &args);
++	TEST_ASSERT(ret == 0, "pthread_create should succeed");
++
++	ret = read(uffd, &msg, sizeof(msg));
++	TEST_ASSERT(ret != -1, "read from userfaultfd should succeed");
++	TEST_ASSERT(msg.event == UFFD_EVENT_PAGEFAULT, "event type should be pagefault");
++	TEST_ASSERT((void *)(msg.arg.pagefault.address & ~(page_size - 1)) == fault_addr,
++		    "pagefault should occur at expected address");
++
++	memcpy(mem_nofault + offset, buf + offset, page_size);
++
++	uffd_cont.range.start = (unsigned long)fault_addr;
++	uffd_cont.range.len = page_size;
++	uffd_cont.mode = 0;
++	ret = ioctl(uffd, UFFDIO_CONTINUE, &uffd_cont);
++	TEST_ASSERT(ret != -1, "ioctl(UFFDIO_CONTINUE) should succeed");
++
++	TEST_ASSERT(args.value == *(char *)(mem_nofault + offset),
++		    "memory should contain the value that was copied");
++	TEST_ASSERT(args.value == *(char *)(mem + offset),
++		    "no further fault is expected");
++
++	ret = pthread_join(fault_thread, NULL);
++	TEST_ASSERT(ret == 0, "pthread_join should succeed");
++
++	ret = munmap(mem_nofault, total_size);
++	TEST_ASSERT(!ret, "munmap should succeed");
++
++	ret = munmap(mem, total_size);
++	TEST_ASSERT(!ret, "munmap should succeed");
++	free(buf);
++	close(uffd);
++}
++
+ unsigned long get_shared_type(void)
+ {
+ #ifdef __x86_64__
+@@ -317,6 +413,9 @@ void test_vm_type(unsigned long type, bool is_shared)
+ 	test_fallocate(fd, page_size, total_size);
+ 	test_invalid_punch_hole(fd, page_size, total_size);
+ 
++	if (is_shared)
++		test_uffd_minor(fd, page_size, total_size);
++
+ 	close(fd);
+ 	kvm_vm_release(vm);
+ }
+-- 
+2.47.1
+
