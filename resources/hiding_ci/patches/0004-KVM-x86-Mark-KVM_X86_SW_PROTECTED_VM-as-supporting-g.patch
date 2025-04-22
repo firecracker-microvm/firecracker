@@ -1,0 +1,58 @@
+From d16c343f0f95ecd8d2cda2dfba4ac8b7c293f217 Mon Sep 17 00:00:00 2001
+From: Fuad Tabba <tabba@google.com>
+Date: Tue, 18 Mar 2025 16:18:19 +0000
+Subject: [PATCH 04/34] KVM: x86: Mark KVM_X86_SW_PROTECTED_VM as supporting
+ guest_memfd shared memory
+
+The KVM_X86_SW_PROTECTED_VM type is meant for experimentation and
+does not have any underlying support for protected guests. This
+makes it a good candidate for testing mapping shared memory.
+Therefore, when the kconfig option is enabled, mark
+KVM_X86_SW_PROTECTED_VM as supporting shared memory.
+
+This means that this memory is considered by guest_memfd to be
+shared with the host, with the possibility of in-place conversion
+between shared and private. This allows the host to map and fault
+in guest_memfd memory belonging to this VM type.
+
+Signed-off-by: Fuad Tabba <tabba@google.com>
+---
+ arch/x86/include/asm/kvm_host.h | 5 +++++
+ arch/x86/kvm/Kconfig            | 3 ++-
+ 2 files changed, 7 insertions(+), 1 deletion(-)
+
+diff --git a/arch/x86/include/asm/kvm_host.h b/arch/x86/include/asm/kvm_host.h
+index 32ae3aa50c7e..b874e54a5ee4 100644
+--- a/arch/x86/include/asm/kvm_host.h
++++ b/arch/x86/include/asm/kvm_host.h
+@@ -2246,8 +2246,13 @@ void kvm_configure_mmu(bool enable_tdp, int tdp_forced_root_level,
+ 
+ #ifdef CONFIG_KVM_PRIVATE_MEM
+ #define kvm_arch_has_private_mem(kvm) ((kvm)->arch.has_private_mem)
++
++#define kvm_arch_gmem_supports_shared_mem(kvm)         \
++	(IS_ENABLED(CONFIG_KVM_GMEM_SHARED_MEM) &&      \
++	 ((kvm)->arch.vm_type == KVM_X86_SW_PROTECTED_VM))
+ #else
+ #define kvm_arch_has_private_mem(kvm) false
++#define kvm_arch_gmem_supports_shared_mem(kvm) false
+ #endif
+ 
+ #define kvm_arch_has_readonly_mem(kvm) (!(kvm)->arch.has_protected_state)
+diff --git a/arch/x86/kvm/Kconfig b/arch/x86/kvm/Kconfig
+index ea2c4f21c1ca..22d1bcdaad58 100644
+--- a/arch/x86/kvm/Kconfig
++++ b/arch/x86/kvm/Kconfig
+@@ -45,7 +45,8 @@ config KVM_X86
+ 	select HAVE_KVM_PM_NOTIFIER if PM
+ 	select KVM_GENERIC_HARDWARE_ENABLING
+ 	select KVM_GENERIC_PRE_FAULT_MEMORY
+-	select KVM_GENERIC_PRIVATE_MEM if KVM_SW_PROTECTED_VM
++	select KVM_PRIVATE_MEM if KVM_SW_PROTECTED_VM
++	select KVM_GMEM_SHARED_MEM if KVM_SW_PROTECTED_VM
+ 	select KVM_WERROR if WERROR
+ 
+ config KVM
+-- 
+2.47.1
+
