@@ -3,6 +3,8 @@
 
 #![doc(hidden)]
 
+#[cfg(test)]
+use crate::devices::virtio::device::VirtioDevice;
 use crate::devices::virtio::test_utils::VirtQueue;
 #[cfg(test)]
 use crate::devices::virtio::{balloon::BALLOON_NUM_QUEUES, balloon::Balloon};
@@ -10,8 +12,7 @@ use crate::devices::virtio::{balloon::BALLOON_NUM_QUEUES, balloon::Balloon};
 #[cfg(test)]
 pub fn invoke_handler_for_queue_event(b: &mut Balloon, queue_index: usize) {
     use crate::devices::virtio::balloon::{DEFLATE_INDEX, INFLATE_INDEX, STATS_INDEX};
-    use crate::devices::virtio::device::VirtioDevice;
-    use crate::devices::virtio::transport::mmio::IrqType;
+    use crate::devices::virtio::transport::VirtioInterruptType;
 
     assert!(queue_index < BALLOON_NUM_QUEUES);
     // Trigger the queue event.
@@ -25,7 +26,10 @@ pub fn invoke_handler_for_queue_event(b: &mut Balloon, queue_index: usize) {
     };
     // Validate the queue operation finished successfully.
     let interrupt = b.interrupt_trigger();
-    assert!(interrupt.has_pending_irq(IrqType::Vring));
+    assert!(
+        interrupt
+            .has_pending_interrupt(VirtioInterruptType::Queue(queue_index.try_into().unwrap()))
+    );
 }
 
 pub fn set_request(queue: &VirtQueue, idx: u16, addr: u64, len: u32, flags: u16) {

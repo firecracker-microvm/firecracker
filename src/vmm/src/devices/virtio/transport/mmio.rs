@@ -200,7 +200,7 @@ impl MmioTransport {
                         let _ = self
                             .locked_device()
                             .interrupt_trigger()
-                            .trigger_irq(IrqType::Config);
+                            .trigger(VirtioInterruptType::Config);
 
                         error!("Failed to activate virtio device: {}", err)
                     }
@@ -441,7 +441,7 @@ impl IrqTrigger {
         }
     }
 
-    pub fn trigger_irq(&self, irq_type: IrqType) -> Result<(), std::io::Error> {
+    fn trigger_irq(&self, irq_type: IrqType) -> Result<(), std::io::Error> {
         let irq = match irq_type {
             IrqType::Config => VIRTIO_MMIO_INT_CONFIG,
             IrqType::Vring => VIRTIO_MMIO_INT_VRING,
@@ -460,6 +460,8 @@ impl IrqTrigger {
 #[cfg(test)]
 pub(crate) mod tests {
 
+    use std::ops::Deref;
+
     use vmm_sys_util::eventfd::EventFd;
 
     use super::*;
@@ -474,7 +476,7 @@ pub(crate) mod tests {
     pub(crate) struct DummyDevice {
         acked_features: u64,
         avail_features: u64,
-        interrupt_trigger: Option<Arc<IrqTrigger>>,
+        interrupt_trigger: Option<Arc<dyn VirtioInterrupt>>,
         queue_evts: Vec<EventFd>,
         queues: Vec<Queue>,
         device_activated: bool,
@@ -533,10 +535,11 @@ pub(crate) mod tests {
             &self.queue_evts
         }
 
-        fn interrupt_trigger(&self) -> &IrqTrigger {
+        fn interrupt_trigger(&self) -> &dyn VirtioInterrupt {
             self.interrupt_trigger
                 .as_ref()
                 .expect("Device is not activated")
+                .deref()
         }
 
         fn read_config(&self, offset: u64, data: &mut [u8]) {
@@ -552,7 +555,7 @@ pub(crate) mod tests {
         fn activate(
             &mut self,
             _: GuestMemoryMmap,
-            interrupt: Arc<IrqTrigger>,
+            interrupt: Arc<dyn VirtioInterrupt>,
         ) -> Result<(), ActivateError> {
             self.device_activated = true;
             self.interrupt_trigger = Some(interrupt);
@@ -998,7 +1001,8 @@ pub(crate) mod tests {
         assert_eq!(
             d.locked_device()
                 .interrupt_trigger()
-                .irq_evt
+                .notifier(VirtioInterruptType::Config)
+                .unwrap()
                 .read()
                 .unwrap(),
             1

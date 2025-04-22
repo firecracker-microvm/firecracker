@@ -15,7 +15,7 @@ use crate::devices::virtio::balloon::device::{BalloonStats, ConfigSpace};
 use crate::devices::virtio::device::{ActiveState, DeviceState};
 use crate::devices::virtio::persist::VirtioDeviceState;
 use crate::devices::virtio::queue::FIRECRACKER_MAX_QUEUE_SIZE;
-use crate::devices::virtio::transport::mmio::IrqTrigger;
+use crate::devices::virtio::transport::VirtioInterrupt;
 use crate::snapshot::Persist;
 use crate::vstate::memory::GuestMemoryMmap;
 
@@ -96,7 +96,7 @@ pub struct BalloonConstructorArgs {
     /// Pointer to guest memory.
     pub mem: GuestMemoryMmap,
     /// Interrupt used from the device.
-    pub interrupt: Arc<IrqTrigger>,
+    pub interrupt: Arc<dyn VirtioInterrupt>,
     pub restored_from_file: bool,
 }
 
