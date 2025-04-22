@@ -100,10 +100,7 @@ apply_patch_or_series() {
   *.patch) apply_patch_file $1 ;;
   *.mbox) apply_series_mbox $1 ;;
   *.lore) apply_series_link $1 ;;
-  *)
-    echo "Uknown patch file: "$1
-    exit 1
-    ;;
+  *) echo "Skipping non-patch file" $1 ;;
   esac
 }
 
