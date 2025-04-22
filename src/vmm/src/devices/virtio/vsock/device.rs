@@ -21,6 +21,7 @@
 //! - a backend FD.
 
 use std::fmt::Debug;
+use std::ops::Deref;
 use std::sync::Arc;
 
 use log::{error, warn};
@@ -34,7 +35,7 @@ use crate::devices::virtio::ActivateError;
 use crate::devices::virtio::device::{ActiveState, DeviceState, VirtioDevice};
 use crate::devices::virtio::generated::virtio_config::{VIRTIO_F_IN_ORDER, VIRTIO_F_VERSION_1};
 use crate::devices::virtio::queue::{InvalidAvailIdx, Queue as VirtQueue};
-use crate::devices::virtio::transport::mmio::{IrqTrigger, IrqType};
+use crate::devices::virtio::transport::{VirtioInterrupt, VirtioInterruptType};
 use crate::devices::virtio::vsock::VsockError;
 use crate::devices::virtio::vsock::metrics::METRICS;
 use crate::logger::IncMetric;
@@ -136,12 +137,14 @@ where
 
     /// Signal the guest driver that we've used some virtio buffers that it had previously made
     /// available.
-    pub fn signal_used_queue(&self) -> Result<(), DeviceError> {
+    pub fn signal_used_queue(&self, qidx: usize) -> Result<(), DeviceError> {
         self.device_state
             .active_state()
             .expect("Device is not initialized")
             .interrupt
-            .trigger_irq(IrqType::Vring)
+            .trigger(VirtioInterruptType::Queue(qidx.try_into().unwrap_or_else(
+                |_| panic!("vsock: invalid queue index: {qidx}"),
+            )))
             .map_err(DeviceError::FailedSignalingIrq)
     }
 
@@ -259,7 +262,7 @@ where
         });
         queue.advance_used_ring_idx();
 
-        self.signal_used_queue()?;
+        self.signal_used_queue(EVQ_INDEX)?;
 
         Ok(())
     }
@@ -297,12 +300,12 @@ where
         &self.queue_events
     }
 
-    fn interrupt_trigger(&self) -> &IrqTrigger {
-        &self
-            .device_state
+    fn interrupt_trigger(&self) -> &dyn VirtioInterrupt {
+        self.device_state
             .active_state()
             .expect("Device is not initialized")
             .interrupt
+            .deref()
     }
 
     fn read_config(&self, offset: u64, data: &mut [u8]) {
@@ -337,7 +340,7 @@ where
     fn activate(
         &mut self,
         mem: GuestMemoryMmap,
-        interrupt: Arc<IrqTrigger>,
+        interrupt: Arc<dyn VirtioInterrupt>,
     ) -> Result<(), ActivateError> {
         for q in self.queues.iter_mut() {
             q.initialize(&mem)

@@ -13,7 +13,7 @@ use super::{NET_NUM_QUEUES, NET_QUEUE_MAX_SIZE, RX_INDEX, TapError};
 use crate::devices::virtio::TYPE_NET;
 use crate::devices::virtio::device::{ActiveState, DeviceState};
 use crate::devices::virtio::persist::{PersistError as VirtioStateError, VirtioDeviceState};
-use crate::devices::virtio::transport::mmio::IrqTrigger;
+use crate::devices::virtio::transport::VirtioInterrupt;
 use crate::mmds::data_store::Mmds;
 use crate::mmds::ns::MmdsNetworkStack;
 use crate::mmds::persist::MmdsNetworkStackState;
@@ -72,7 +72,7 @@ pub struct NetConstructorArgs {
     /// Pointer to guest memory.
     pub mem: GuestMemoryMmap,
     /// Interrupt for the device.
-    pub interrupt: Arc<IrqTrigger>,
+    pub interrupt: Arc<dyn VirtioInterrupt>,
     /// Pointer to the MMDS data store.
     pub mmds: Option<Arc<Mutex<Mmds>>>,
 }
