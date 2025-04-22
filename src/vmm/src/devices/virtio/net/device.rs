@@ -8,6 +8,7 @@
 use std::collections::VecDeque;
 use std::mem::{self};
 use std::net::Ipv4Addr;
+use std::ops::Deref;
 use std::sync::{Arc, Mutex};
 
 use libc::{EAGAIN, iovec};
@@ -32,7 +33,7 @@ use crate::devices::virtio::net::{
     MAX_BUFFER_SIZE, NET_QUEUE_SIZES, NetError, NetQueue, RX_INDEX, TX_INDEX, generated,
 };
 use crate::devices::virtio::queue::{DescriptorChain, Queue};
-use crate::devices::virtio::transport::mmio::{IrqTrigger, IrqType};
+use crate::devices::virtio::transport::{VirtioInterrupt, VirtioInterruptType};
 use crate::devices::virtio::{ActivateError, TYPE_NET};
 use crate::devices::{DeviceError, report_net_event_fail};
 use crate::dumbo::pdu::arp::ETH_IPV4_FRAME_LEN;
@@ -390,14 +391,14 @@ impl Net {
     /// https://docs.oasis-open.org/virtio/virtio/v1.1/csprd01/virtio-v1.1-csprd01.html#x1-320005
     /// 2.6.7.1 Driver Requirements: Used Buffer Notification Suppression
     fn try_signal_queue(&mut self, queue_type: NetQueue) -> Result<(), DeviceError> {
-        let queue = match queue_type {
-            NetQueue::Rx => &mut self.queues[RX_INDEX],
-            NetQueue::Tx => &mut self.queues[TX_INDEX],
+        let qidx = match queue_type {
+            NetQueue::Rx => RX_INDEX,
+            NetQueue::Tx => TX_INDEX,
         };
 
-        if queue.prepare_kick() {
+        if self.queues[qidx].prepare_kick() {
             self.interrupt_trigger()
-                .trigger_irq(IrqType::Vring)
+                .trigger(VirtioInterruptType::Queue(qidx.try_into().unwrap()))
                 .map_err(|err| {
                     self.metrics.event_fails.inc();
                     DeviceError::FailedSignalingIrq(err)
@@ -960,12 +961,12 @@ impl VirtioDevice for Net {
         &self.queue_evts
     }
 
-    fn interrupt_trigger(&self) -> &IrqTrigger {
-        &self
-            .device_state
+    fn interrupt_trigger(&self) -> &dyn VirtioInterrupt {
+        self.device_state
             .active_state()
             .expect("Device is not implemented")
             .interrupt
+            .deref()
     }
 
     fn read_config(&self, offset: u64, data: &mut [u8]) {
@@ -999,7 +1000,7 @@ impl VirtioDevice for Net {
     fn activate(
         &mut self,
         mem: GuestMemoryMmap,
-        interrupt: Arc<IrqTrigger>,
+        interrupt: Arc<dyn VirtioInterrupt>,
     ) -> Result<(), ActivateError> {
         for q in self.queues.iter_mut() {
             q.initialize(&mem)
@@ -1060,7 +1061,6 @@ pub mod tests {
     };
     use crate::devices::virtio::queue::VIRTQ_DESC_F_WRITE;
     use crate::devices::virtio::test_utils::VirtQueue;
-    use crate::devices::virtio::transport::mmio::IrqType;
     use crate::dumbo::EthernetFrame;
     use crate::dumbo::pdu::arp::{ETH_IPV4_FRAME_LEN, EthIPv4ArpFrame};
     use crate::dumbo::pdu::ethernet::ETHERTYPE_ARP;
@@ -1402,7 +1402,12 @@ pub mod tests {
 
         // Check that the used queue has advanced.
         assert_eq!(th.rxq.used.idx.get(), 4);
-        assert!(th.net().interrupt_trigger().has_pending_irq(IrqType::Vring));
+        assert!(
+            th.net()
+                .interrupt_trigger()
+                .has_pending_interrupt(VirtioInterruptType::Queue(RX_INDEX as u16))
+        );
+
         // Check that the invalid descriptor chains have been discarded
         th.rxq.check_used_elem(0, 0, 0);
         th.rxq.check_used_elem(1, 3, 0);
@@ -1459,7 +1464,11 @@ pub mod tests {
         assert!(th.net().rx_buffer.used_descriptors == 0);
         // Check that the used queue has advanced.
         assert_eq!(th.rxq.used.idx.get(), 1);
-        assert!(th.net().interrupt_trigger().has_pending_irq(IrqType::Vring));
+        assert!(
+            th.net()
+                .interrupt_trigger()
+                .has_pending_interrupt(VirtioInterruptType::Queue(RX_INDEX as u16))
+        );
         // Check that the frame has been written successfully to the Rx descriptor chain.
         header_set_num_buffers(frame.as_mut_slice(), 1);
         th.rxq
@@ -1522,7 +1531,11 @@ pub mod tests {
         assert!(th.net().rx_buffer.used_bytes == 0);
         // Check that the used queue has advanced.
         assert_eq!(th.rxq.used.idx.get(), 2);
-        assert!(th.net().interrupt_trigger().has_pending_irq(IrqType::Vring));
+        assert!(
+            th.net()
+                .interrupt_trigger()
+                .has_pending_interrupt(VirtioInterruptType::Queue(RX_INDEX as u16))
+        );
         // Check that the 1st frame was written successfully to the 1st Rx descriptor chain.
         header_set_num_buffers(frame_1.as_mut_slice(), 1);
         th.rxq
@@ -1580,7 +1593,11 @@ pub mod tests {
         assert!(th.net().rx_buffer.used_bytes == 0);
         // Check that the used queue has advanced.
         assert_eq!(th.rxq.used.idx.get(), 2);
-        assert!(th.net().interrupt_trigger().has_pending_irq(IrqType::Vring));
+        assert!(
+            th.net()
+                .interrupt_trigger()
+                .has_pending_interrupt(VirtioInterruptType::Queue(RX_INDEX as u16))
+        );
         // 2 chains should be used for the packet.
         header_set_num_buffers(frame.as_mut_slice(), 2);
 
@@ -1645,7 +1662,11 @@ pub mod tests {
 
         // Check that the used queue advanced.
         assert_eq!(th.txq.used.idx.get(), 1);
-        assert!(th.net().interrupt_trigger().has_pending_irq(IrqType::Vring));
+        assert!(
+            th.net()
+                .interrupt_trigger()
+                .has_pending_interrupt(VirtioInterruptType::Queue(TX_INDEX as u16))
+        );
         th.txq.check_used_elem(0, 0, 0);
         // Check that the frame was skipped.
         assert!(!tap_traffic_simulator.pop_rx_packet(&mut []));
@@ -1668,7 +1689,11 @@ pub mod tests {
 
         // Check that the used queue advanced.
         assert_eq!(th.txq.used.idx.get(), 1);
-        assert!(th.net().interrupt_trigger().has_pending_irq(IrqType::Vring));
+        assert!(
+            th.net()
+                .interrupt_trigger()
+                .has_pending_interrupt(VirtioInterruptType::Queue(TX_INDEX as u16))
+        );
         th.txq.check_used_elem(0, 0, 0);
         // Check that the frame was skipped.
         assert!(!tap_traffic_simulator.pop_rx_packet(&mut []));
@@ -1695,7 +1720,11 @@ pub mod tests {
 
         // Check that the used queue advanced.
         assert_eq!(th.txq.used.idx.get(), 1);
-        assert!(th.net().interrupt_trigger().has_pending_irq(IrqType::Vring));
+        assert!(
+            th.net()
+                .interrupt_trigger()
+                .has_pending_interrupt(VirtioInterruptType::Queue(TX_INDEX as u16))
+        );
         th.txq.check_used_elem(0, 0, 0);
         // Check that the frame was skipped.
         assert!(!tap_traffic_simulator.pop_rx_packet(&mut []));
@@ -1718,7 +1747,11 @@ pub mod tests {
 
         // Check that the used queue advanced.
         assert_eq!(th.txq.used.idx.get(), 1);
-        assert!(th.net().interrupt_trigger().has_pending_irq(IrqType::Vring));
+        assert!(
+            th.net()
+                .interrupt_trigger()
+                .has_pending_interrupt(VirtioInterruptType::Queue(TX_INDEX as u16))
+        );
         th.txq.check_used_elem(0, 0, 0);
         // Check that the frame was skipped.
         assert!(!tap_traffic_simulator.pop_rx_packet(&mut []));
@@ -1757,7 +1790,11 @@ pub mod tests {
 
         // Check that the used queue advanced.
         assert_eq!(th.txq.used.idx.get(), 4);
-        assert!(th.net().interrupt_trigger().has_pending_irq(IrqType::Vring));
+        assert!(
+            th.net()
+                .interrupt_trigger()
+                .has_pending_interrupt(VirtioInterruptType::Queue(TX_INDEX as u16))
+        );
         th.txq.check_used_elem(3, 4, 0);
         // Check that the valid frame was sent to the tap.
         let mut buf = vec![0; 1000];
@@ -1788,7 +1825,11 @@ pub mod tests {
 
         // Check that the used queue advanced.
         assert_eq!(th.txq.used.idx.get(), 1);
-        assert!(th.net().interrupt_trigger().has_pending_irq(IrqType::Vring));
+        assert!(
+            th.net()
+                .interrupt_trigger()
+                .has_pending_interrupt(VirtioInterruptType::Queue(TX_INDEX as u16))
+        );
         th.txq.check_used_elem(0, 3, 0);
         // Check that the frame was sent to the tap.
         let mut buf = vec![0; 1000];
@@ -1817,7 +1858,11 @@ pub mod tests {
 
         // Check that the used queue advanced.
         assert_eq!(th.txq.used.idx.get(), 1);
-        assert!(th.net().interrupt_trigger().has_pending_irq(IrqType::Vring));
+        assert!(
+            th.net()
+                .interrupt_trigger()
+                .has_pending_interrupt(VirtioInterruptType::Queue(TX_INDEX as u16))
+        );
         th.txq.check_used_elem(0, 0, 0);
 
         // dropping th would double close the tap fd, so leak it
@@ -1848,7 +1893,11 @@ pub mod tests {
 
         // Check that the used queue advanced.
         assert_eq!(th.txq.used.idx.get(), 2);
-        assert!(th.net().interrupt_trigger().has_pending_irq(IrqType::Vring));
+        assert!(
+            th.net()
+                .interrupt_trigger()
+                .has_pending_interrupt(VirtioInterruptType::Queue(TX_INDEX as u16))
+        );
         th.txq.check_used_elem(0, 0, 0);
         th.txq.check_used_elem(1, 3, 0);
         // Check that the first frame was sent to the tap.
@@ -2200,7 +2249,11 @@ pub mod tests {
                 assert_eq!(th.net().metrics.rx_rate_limiter_throttled.count(), 1);
                 assert!(th.net().rx_buffer.used_descriptors != 0);
                 // assert that no operation actually completed (limiter blocked it)
-                assert!(th.net().interrupt_trigger().has_pending_irq(IrqType::Vring));
+                assert!(
+                    th.net()
+                        .interrupt_trigger()
+                        .has_pending_interrupt(VirtioInterruptType::Queue(RX_INDEX as u16))
+                );
                 // make sure the data is still queued for processing
                 assert_eq!(th.rxq.used.idx.get(), 0);
             }
@@ -2228,7 +2281,11 @@ pub mod tests {
                 // validate the rate_limiter is no longer blocked
                 assert!(!th.net().rx_rate_limiter.is_blocked());
                 // make sure the virtio queue operation completed this time
-                assert!(th.net().interrupt_trigger().has_pending_irq(IrqType::Vring));
+                assert!(
+                    th.net()
+                        .interrupt_trigger()
+                        .has_pending_interrupt(VirtioInterruptType::Queue(RX_INDEX as u16))
+                );
                 // make sure the data queue advanced
                 assert_eq!(th.rxq.used.idx.get(), 1);
                 th.rxq
@@ -2325,14 +2382,22 @@ pub mod tests {
                 assert!(th.net().metrics.rx_rate_limiter_throttled.count() >= 1);
                 assert!(th.net().rx_buffer.used_descriptors != 0);
                 // assert that no operation actually completed (limiter blocked it)
-                assert!(th.net().interrupt_trigger().has_pending_irq(IrqType::Vring));
+                assert!(
+                    th.net()
+                        .interrupt_trigger()
+                        .has_pending_interrupt(VirtioInterruptType::Queue(RX_INDEX as u16))
+                );
                 // make sure the data is still queued for processing
                 assert_eq!(th.rxq.used.idx.get(), 0);
 
                 // trigger the RX handler again, this time it should do the limiter fast path exit
                 th.simulate_event(NetEvent::Tap);
                 // assert that no operation actually completed, that the limiter blocked it
-                assert!(!th.net().interrupt_trigger().has_pending_irq(IrqType::Vring));
+                assert!(
+                    !th.net()
+                        .interrupt_trigger()
+                        .has_pending_interrupt(VirtioInterruptType::Queue(RX_INDEX as u16))
+                );
                 // make sure the data is still queued for processing
                 assert_eq!(th.rxq.used.idx.get(), 0);
             }
@@ -2345,7 +2410,11 @@ pub mod tests {
             {
                 th.simulate_event(NetEvent::RxRateLimiter);
                 // make sure the virtio queue operation completed this time
-                assert!(th.net().interrupt_trigger().has_pending_irq(IrqType::Vring));
+                assert!(
+                    th.net()
+                        .interrupt_trigger()
+                        .has_pending_interrupt(VirtioInterruptType::Queue(RX_INDEX as u16))
+                );
                 // make sure the data queue advanced
                 assert_eq!(th.rxq.used.idx.get(), 1);
                 th.rxq
@@ -2415,7 +2484,14 @@ pub mod tests {
         assert_eq!(net.queue_events().len(), NET_QUEUE_SIZES.len());
 
         // Test interrupts.
-        assert!(!net.interrupt_trigger().has_pending_irq(IrqType::Vring));
+        assert!(
+            !net.interrupt_trigger()
+                .has_pending_interrupt(VirtioInterruptType::Queue(RX_INDEX as u16))
+        );
+        assert!(
+            !net.interrupt_trigger()
+                .has_pending_interrupt(VirtioInterruptType::Queue(TX_INDEX as u16))
+        );
     }
 
     #[test]
