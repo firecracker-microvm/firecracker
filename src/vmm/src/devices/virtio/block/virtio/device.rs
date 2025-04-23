@@ -323,7 +323,7 @@ impl VirtioBlock {
             queues,
             queue_evts,
             device_state: DeviceState::Inactive,
-            irq_trigger: IrqTrigger::new().map_err(VirtioBlockError::IrqTrigger)?,
+            irq_trigger: IrqTrigger::new(),
 
             id: config.drive_id.clone(),
             partuuid: config.partuuid,
