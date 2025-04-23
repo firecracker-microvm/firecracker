@@ -69,7 +69,6 @@ def run_fio(microvm, mode, block_size):
         .with_arg("--cpus_allowed_policy=split")
         .with_arg(f"--write_bw_log={mode}")
         .with_arg("--log_avg_msec=1000")
-        .with_arg("--output-format=json+")
         .build()
     )
 
