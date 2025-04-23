@@ -585,7 +585,7 @@ mod tests {
                 dummy: 0,
                 queues: QUEUE_SIZES.iter().map(|&s| Queue::new(s)).collect(),
                 queue_evts: [EventFd::new(libc::EFD_NONBLOCK).expect("cannot create eventFD")],
-                interrupt_trigger: IrqTrigger::new().expect("cannot create eventFD"),
+                interrupt_trigger: IrqTrigger::new(),
             }
         }
     }

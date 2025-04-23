@@ -112,7 +112,7 @@ impl Persist<'_> for VirtioBlock {
             )
             .map_err(VirtioBlockError::Persist)?;
 
-        let mut irq_trigger = IrqTrigger::new().map_err(VirtioBlockError::IrqTrigger)?;
+        let mut irq_trigger = IrqTrigger::new();
         irq_trigger.irq_status = Arc::new(AtomicU32::new(state.virtio_state.interrupt_status));
 
         let avail_features = state.virtio_state.avail_features;

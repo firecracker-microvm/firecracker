@@ -70,7 +70,7 @@ impl Entropy {
         let queue_events = (0..RNG_NUM_QUEUES)
             .map(|_| EventFd::new(libc::EFD_NONBLOCK))
             .collect::<Result<Vec<EventFd>, io::Error>>()?;
-        let irq_trigger = IrqTrigger::new()?;
+        let irq_trigger = IrqTrigger::new();
 
         Ok(Self {
             avail_features: 1 << VIRTIO_F_VERSION_1,
