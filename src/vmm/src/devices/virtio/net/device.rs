@@ -314,7 +314,7 @@ impl Net {
             tx_rate_limiter,
             rx_frame_buf: [0u8; MAX_BUFFER_SIZE],
             tx_frame_headers: [0u8; frame_hdr_len()],
-            irq_trigger: IrqTrigger::new().map_err(NetError::EventFd)?,
+            irq_trigger: IrqTrigger::new(),
             config_space,
             guest_mac,
             device_state: DeviceState::Inactive,
