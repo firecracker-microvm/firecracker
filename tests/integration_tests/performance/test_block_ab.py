@@ -49,24 +49,24 @@ def run_fio(microvm, mode, block_size):
     cmd = (
         CmdBuilder("fio")
         .with_arg(f"--name={mode}-{block_size}")
-        .with_arg(f"--rw={mode}")
-        .with_arg(f"--bs={block_size}")
+        .with_arg(f"--numjobs={microvm.vcpus_count}")
+        .with_arg(f"--runtime={RUNTIME_SEC}")
+        .with_arg("--time_based=1")
+        .with_arg(f"--ramp_time={WARMUP_SEC}")
         .with_arg("--filename=/dev/vdb")
-        .with_arg("--time_base=1")
-        .with_arg(f"--size={BLOCK_DEVICE_SIZE_MB}M")
         .with_arg("--direct=1")
+        .with_arg(f"--rw={mode}")
+        .with_arg("--randrepeat=0")
+        .with_arg(f"--bs={block_size}")
+        .with_arg(f"--size={BLOCK_DEVICE_SIZE_MB}M")
         .with_arg("--ioengine=libaio")
         .with_arg("--iodepth=32")
-        .with_arg(f"--ramp_time={WARMUP_SEC}")
-        .with_arg(f"--numjobs={microvm.vcpus_count}")
         # Set affinity of the entire fio process to a set of vCPUs equal in size to number of workers
         .with_arg(
             f"--cpus_allowed={','.join(str(i) for i in range(microvm.vcpus_count))}"
         )
         # Instruct fio to pin one worker per vcpu
         .with_arg("--cpus_allowed_policy=split")
-        .with_arg("--randrepeat=0")
-        .with_arg(f"--runtime={RUNTIME_SEC}")
         .with_arg(f"--write_bw_log={mode}")
         .with_arg("--log_avg_msec=1000")
         .with_arg("--output-format=json+")
