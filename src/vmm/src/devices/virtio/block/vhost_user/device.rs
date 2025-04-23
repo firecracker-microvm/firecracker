@@ -204,7 +204,7 @@ impl<T: VhostUserHandleBackend> VhostUserBlockImpl<T> {
         let queue_evts = [EventFd::new(libc::EFD_NONBLOCK).map_err(VhostUserBlockError::EventFd)?;
             u64_to_usize(NUM_QUEUES)];
         let device_state = DeviceState::Inactive;
-        let irq_trigger = IrqTrigger::new().map_err(VhostUserBlockError::IrqTrigger)?;
+        let irq_trigger = IrqTrigger::new();
 
         // We negotiated features with backend. Now these acked_features
         // are available for guest driver to choose from.

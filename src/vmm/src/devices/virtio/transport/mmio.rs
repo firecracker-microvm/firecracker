@@ -381,12 +381,19 @@ pub struct IrqTrigger {
     pub(crate) irq_evt: EventFd,
 }
 
+impl Default for IrqTrigger {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl IrqTrigger {
-    pub fn new() -> std::io::Result<Self> {
-        Ok(Self {
+    pub fn new() -> Self {
+        Self {
             irq_status: Arc::new(AtomicU32::new(0)),
-            irq_evt: EventFd::new(libc::EFD_NONBLOCK)?,
-        })
+            irq_evt: EventFd::new(libc::EFD_NONBLOCK)
+                .expect("Could not create EventFd for IrqTrigger"),
+        }
     }
 
     pub fn trigger_irq(&self, irq_type: IrqType) -> Result<(), std::io::Error> {
@@ -434,7 +441,7 @@ pub(crate) mod tests {
             DummyDevice {
                 acked_features: 0,
                 avail_features: 0,
-                interrupt_trigger: IrqTrigger::new().unwrap(),
+                interrupt_trigger: IrqTrigger::new(),
                 queue_evts: vec![
                     EventFd::new(libc::EFD_NONBLOCK).unwrap(),
                     EventFd::new(libc::EFD_NONBLOCK).unwrap(),
@@ -1047,7 +1054,7 @@ pub(crate) mod tests {
 
     #[test]
     fn irq_trigger() {
-        let irq_trigger = IrqTrigger::new().unwrap();
+        let irq_trigger = IrqTrigger::new();
         assert_eq!(irq_trigger.irq_status.load(Ordering::SeqCst), 0);
 
         // Check that there are no pending irqs.
