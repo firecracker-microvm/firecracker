@@ -32,6 +32,9 @@ and this project adheres to
   Clarified what CPU models are supported by each existing CPU template.
   Firecracker exits with an error if a CPU template is used on an unsupported
   CPU model.
+- [#5165](https://github.com/firecracker-microvm/firecracker/pull/5165): Changed
+  Firecracker snapshot feature from developer preview to generally available.
+  Incremental snapshots remain in developer preview.
 
 ### Deprecated
 

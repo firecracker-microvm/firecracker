@@ -39,12 +39,13 @@ workload at that particular point in time.
 
 ### Supported platforms
 
-> [!WARNING]
->
-> The Firecracker snapshot feature is in
-> [developer preview](../RELEASE_POLICY.md) on all CPU micro-architectures
-> listed in [README](../../README.md#supported-platforms). See
-> [this section](#developer-preview-status) for more info.
+The Firecracker snapshot feature is supported on all CPU micro-architectures
+listed in [README](../../README.md#supported-platforms).
+
+[!WARNING]
+
+Diff snapshot support is in developer preview. See
+[this section](#developer-preview-status) for more info.
 
 ### Overview
 
@@ -116,13 +117,8 @@ all [supported platforms](../../README.md#tested-platforms).
 
 ### Developer preview status
 
-The snapshot functionality is still in developer preview due to the following:
-
-- Poor entropy and replayable randomness when resuming multiple microvms from
-  the same snapshot. We do not recommend to use snapshotting in production if
-  there is no mechanism to guarantee proper secrecy and uniqueness between
-  guests. Please see
-  [Snapshot security and uniqueness](#snapshot-security-and-uniqueness).
+Diff snapshots are still in developer preview while we are diving deep into how
+the feature can be combined with guest_memfd support in Firecracker.
 
 ### Limitations
 
@@ -528,7 +524,7 @@ For more information please see [this doc](random-for-clones.md)
 
 ### Usage examples
 
-#### Example 1: secure usage (currently in dev preview)
+#### Example 1: secure usage
 
 ```console
 Boot microVM A -> ... -> Create snapshot S -> Terminate
