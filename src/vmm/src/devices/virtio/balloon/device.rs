@@ -220,7 +220,7 @@ impl Balloon {
             },
             queue_evts,
             queues,
-            irq_trigger: IrqTrigger::new().map_err(BalloonError::EventFd)?,
+            irq_trigger: IrqTrigger::new(),
             device_state: DeviceState::Inactive,
             activate_evt: EventFd::new(libc::EFD_NONBLOCK).map_err(BalloonError::EventFd)?,
             restored_from_file,
