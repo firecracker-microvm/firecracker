@@ -103,7 +103,7 @@ where
             backend,
             avail_features: AVAIL_FEATURES,
             acked_features: 0,
-            irq_trigger: IrqTrigger::new().map_err(VsockError::EventFd)?,
+            irq_trigger: IrqTrigger::new(),
             activate_evt: EventFd::new(libc::EFD_NONBLOCK).map_err(VsockError::EventFd)?,
             device_state: DeviceState::Inactive,
             rx_packet: VsockPacketRx::new()?,
