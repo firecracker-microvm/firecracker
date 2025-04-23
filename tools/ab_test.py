@@ -46,6 +46,9 @@ IGNORED = [
     {"instance": "m6a.metal", "performance_test": "test_network_tcp_throughput"},
     # Network throughput on m7a.metal
     {"instance": "m7a.metal-48xl", "performance_test": "test_network_tcp_throughput"},
+    # block latencies if guest uses async request submission
+    {"fio_engine": "libaio", "metric": "clat_read"},
+    {"fio_engine": "libaio", "metric": "clat_write"},
 ]
 
 
