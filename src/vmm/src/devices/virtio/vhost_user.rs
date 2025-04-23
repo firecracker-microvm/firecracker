@@ -901,7 +901,7 @@ pub(crate) mod tests {
         queue.initialize(&guest_memory).unwrap();
 
         let event_fd = EventFd::new(0).unwrap();
-        let irq_trigger = IrqTrigger::new().unwrap();
+        let irq_trigger = IrqTrigger::new();
 
         let queues = [(0, &queue, &event_fd)];
 
