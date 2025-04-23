@@ -532,13 +532,16 @@ mod tests {
         unsafe { libc::close(vm.fd().as_raw_fd()) };
 
         let err = KvmVcpu::new(0, &vm);
+
+        // dropping vm would double close the gic fd, so leak it
+        // do the drop before assertion. Otherwise if assert fails,
+        // we get IO runtime error instead of assert error.
+        std::mem::forget(vm);
+
         assert_eq!(
             err.err().unwrap().to_string(),
             "Error creating vcpu: Bad file descriptor (os error 9)".to_string()
         );
-
-        // dropping vm would double close the gic fd, so leak it
-        std::mem::forget(vm);
     }
 
     #[test]
@@ -574,6 +577,12 @@ mod tests {
             &vcpu_config,
             &optional_capabilities,
         );
+
+        // dropping vcpu would double close the gic fd, so leak it
+        // do the drop before assertion. Otherwise if assert fails,
+        // we get IO runtime error instead of assert error.
+        std::mem::forget(vcpu);
+
         assert_eq!(
             err.unwrap_err(),
             KvmVcpuError::ConfigureRegisters(VcpuArchError::SetOneReg(
@@ -582,9 +591,6 @@ mod tests {
                 kvm_ioctls::Error::new(9)
             ))
         );
-
-        // dropping vcpu would double close the gic fd, so leak it
-        std::mem::forget(vcpu);
     }
 
     #[test]
@@ -780,9 +786,12 @@ mod tests {
         assert!(matches!(res, Err(VcpuArchError::GetMp(_))), "{:?}", res);
 
         let res = vcpu.set_mpstate(kvm_mp_state::default());
-        assert!(matches!(res, Err(VcpuArchError::SetMp(_))), "{:?}", res);
 
         // dropping vcpu would double close the fd, so leak it
+        // do the drop before assertion. Otherwise if assert fails,
+        // we get IO runtime error instead of assert error.
         std::mem::forget(vcpu);
+
+        assert!(matches!(res, Err(VcpuArchError::SetMp(_))), "{:?}", res);
     }
 }
