@@ -143,7 +143,7 @@ update_boot_config() {
 
 KERNEL_URL=$(cat kernel_url)
 KERNEL_COMMIT_HASH=$(cat kernel_commit_hash)
-KERNEL_PATCHES_DIR=$(pwd)/patches
+KERNEL_PATCHES_DIR=$(pwd)/linux_patches
 KERNEL_CONFIG_OVERRIDES=$(pwd)/kernel_config_overrides
 
 TMP_BUILD_DIR=$(mktemp -d -t kernel-build-XXXX)
