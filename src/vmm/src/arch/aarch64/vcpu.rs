@@ -7,7 +7,6 @@
 
 use std::fmt::{Debug, Write};
 use std::mem::offset_of;
-use std::path::PathBuf;
 
 use kvm_bindings::*;
 use kvm_ioctls::{VcpuExit, VcpuFd, VmFd};
@@ -31,8 +30,8 @@ use crate::vstate::vm::Vm;
 pub enum VcpuArchError {
     /// Failed to get register {0}: {1}
     GetOneReg(u64, kvm_ioctls::Error),
-    /// Failed to set register {0}: {1}
-    SetOneReg(u64, kvm_ioctls::Error),
+    /// Failed to set register {0:#x} to value {1}: {2}
+    SetOneReg(u64, String, kvm_ioctls::Error),
     /// Failed to retrieve list of registers: {0}
     GetRegList(kvm_ioctls::Error),
     /// Failed to get multiprocessor state: {0}
@@ -48,9 +47,7 @@ pub enum VcpuArchError {
 /// Extract the Manufacturer ID from the host.
 /// The ID is found between bits 24-31 of MIDR_EL1 register.
 pub fn get_manufacturer_id_from_host() -> Result<u32, VcpuArchError> {
-    let midr_el1_path =
-        &PathBuf::from("/sys/devices/system/cpu/cpu0/regs/identification/midr_el1".to_string());
-
+    let midr_el1_path = "/sys/devices/system/cpu/cpu0/regs/identification/midr_el1";
     let midr_el1 = std::fs::read_to_string(midr_el1_path).map_err(|err| {
         VcpuArchError::GetMidrEl1(format!("Failed to get MIDR_EL1 from host path: {err}"))
     })?;
@@ -181,7 +178,11 @@ impl KvmVcpu {
     ) -> Result<(), KvmVcpuError> {
         for reg in vcpu_config.cpu_config.regs.iter() {
             self.fd.set_one_reg(reg.id, reg.as_slice()).map_err(|err| {
-                KvmVcpuError::ApplyCpuTemplate(VcpuArchError::SetOneReg(reg.id, err))
+                KvmVcpuError::ApplyCpuTemplate(VcpuArchError::SetOneReg(
+                    reg.id,
+                    reg.value_str(),
+                    err,
+                ))
             })?;
         }
 
@@ -325,7 +326,9 @@ impl KvmVcpu {
         let id = arm64_core_reg_id!(KVM_REG_SIZE_U64, pstate);
         self.fd
             .set_one_reg(id, &PSTATE_FAULT_BITS_64.to_le_bytes())
-            .map_err(|err| VcpuArchError::SetOneReg(id, err))?;
+            .map_err(|err| {
+                VcpuArchError::SetOneReg(id, format!("{PSTATE_FAULT_BITS_64:#x}"), err)
+            })?;
 
         // Other vCPUs are powered off initially awaiting PSCI wakeup.
         if self.index == 0 {
@@ -334,7 +337,7 @@ impl KvmVcpu {
             let id = arm64_core_reg_id!(KVM_REG_SIZE_U64, pc);
             self.fd
                 .set_one_reg(id, &boot_ip.to_le_bytes())
-                .map_err(|err| VcpuArchError::SetOneReg(id, err))?;
+                .map_err(|err| VcpuArchError::SetOneReg(id, format!("{boot_ip:#x}"), err))?;
 
             // Last mandatory thing to set -> the address pointing to the FDT (also called DTB).
             // "The device tree blob (dtb) must be placed on an 8-byte boundary and must
@@ -342,9 +345,10 @@ impl KvmVcpu {
             // We are choosing to place it the end of DRAM. See `get_fdt_addr`.
             let regs0 = offset_of!(user_pt_regs, regs) + kreg_off;
             let id = arm64_core_reg_id!(KVM_REG_SIZE_U64, regs0);
+            let fdt_addr = get_fdt_addr(mem);
             self.fd
-                .set_one_reg(id, &get_fdt_addr(mem).to_le_bytes())
-                .map_err(|err| VcpuArchError::SetOneReg(id, err))?;
+                .set_one_reg(id, &fdt_addr.to_le_bytes())
+                .map_err(|err| VcpuArchError::SetOneReg(id, format!("{fdt_addr:#x}"), err))?;
 
             // Reset the physical counter for the guest. This way we avoid guest reading
             // host physical counter.
@@ -360,7 +364,9 @@ impl KvmVcpu {
             if optional_capabilities.counter_offset {
                 self.fd
                     .set_one_reg(KVM_REG_ARM_PTIMER_CNT, &[0; 8])
-                    .map_err(|err| VcpuArchError::SetOneReg(id, err))?;
+                    .map_err(|err| {
+                        VcpuArchError::SetOneReg(id, format!("{KVM_REG_ARM_PTIMER_CNT:#x}"), err)
+                    })?;
             }
         }
         Ok(())
@@ -412,7 +418,7 @@ impl KvmVcpu {
     pub fn set_register(&self, reg: Aarch64RegisterRef) -> Result<(), VcpuArchError> {
         self.fd
             .set_one_reg(reg.id, reg.as_slice())
-            .map_err(|e| VcpuArchError::SetOneReg(reg.id, e))?;
+            .map_err(|e| VcpuArchError::SetOneReg(reg.id, reg.value_str(), e))?;
         Ok(())
     }
 
@@ -526,13 +532,16 @@ mod tests {
         unsafe { libc::close(vm.fd().as_raw_fd()) };
 
         let err = KvmVcpu::new(0, &vm);
+
+        // dropping vm would double close the gic fd, so leak it
+        // do the drop before assertion. Otherwise if assert fails,
+        // we get IO runtime error instead of assert error.
+        std::mem::forget(vm);
+
         assert_eq!(
             err.err().unwrap().to_string(),
             "Error creating vcpu: Bad file descriptor (os error 9)".to_string()
         );
-
-        // dropping vm would double close the gic fd, so leak it
-        std::mem::forget(vm);
     }
 
     #[test]
@@ -568,16 +577,20 @@ mod tests {
             &vcpu_config,
             &optional_capabilities,
         );
+
+        // dropping vcpu would double close the gic fd, so leak it
+        // do the drop before assertion. Otherwise if assert fails,
+        // we get IO runtime error instead of assert error.
+        std::mem::forget(vcpu);
+
         assert_eq!(
             err.unwrap_err(),
             KvmVcpuError::ConfigureRegisters(VcpuArchError::SetOneReg(
                 0x6030000000100042,
+                "0x3c5".to_string(),
                 kvm_ioctls::Error::new(9)
             ))
         );
-
-        // dropping vcpu would double close the gic fd, so leak it
-        std::mem::forget(vcpu);
     }
 
     #[test]
@@ -629,7 +642,7 @@ mod tests {
         let res = vcpu.restore_state(&faulty_vcpu_state);
         assert!(matches!(
             res.unwrap_err(),
-            KvmVcpuError::RestoreState(VcpuArchError::SetOneReg(0, _))
+            KvmVcpuError::RestoreState(VcpuArchError::SetOneReg(0, _, _))
         ));
 
         vcpu.init(&[]).unwrap();
@@ -699,7 +712,7 @@ mod tests {
         let res = vcpu.setup_boot_regs(0x0, &mem, &optional_capabilities);
         assert!(matches!(
             res.unwrap_err(),
-            VcpuArchError::SetOneReg(0x6030000000100042, _)
+            VcpuArchError::SetOneReg(0x6030000000100042, _, _)
         ));
 
         vcpu.init_vcpu().unwrap();
@@ -773,9 +786,12 @@ mod tests {
         assert!(matches!(res, Err(VcpuArchError::GetMp(_))), "{:?}", res);
 
         let res = vcpu.set_mpstate(kvm_mp_state::default());
-        assert!(matches!(res, Err(VcpuArchError::SetMp(_))), "{:?}", res);
 
         // dropping vcpu would double close the fd, so leak it
+        // do the drop before assertion. Otherwise if assert fails,
+        // we get IO runtime error instead of assert error.
         std::mem::forget(vcpu);
+
+        assert!(matches!(res, Err(VcpuArchError::SetMp(_))), "{:?}", res);
     }
 }
