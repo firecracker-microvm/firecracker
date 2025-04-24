@@ -110,7 +110,7 @@ impl AsyncFileEngine {
         Ok(())
     }
 
-    #[cfg(test)]
+
     pub fn file(&self) -> &File {
         &self.file
     }

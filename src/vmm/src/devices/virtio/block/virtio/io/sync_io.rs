@@ -18,6 +18,8 @@ pub enum SyncIoError {
     SyncAll(std::io::Error),
     /// Transfer: {0}
     Transfer(GuestMemoryError),
+    /// Discard: {0}
+    Discard(std::io::Error)
 }
 
 #[derive(Debug)]
@@ -33,7 +35,7 @@ impl SyncFileEngine {
         SyncFileEngine { file }
     }
 
-    #[cfg(test)]
+
     pub fn file(&self) -> &File {
         &self.file
     }
