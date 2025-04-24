@@ -9,6 +9,7 @@
 use std::fmt::Debug;
 use std::io::{self, Read, Stdin, Write};
 use std::os::unix::io::{AsRawFd, RawFd};
+use std::sync::{Arc, Barrier};
 
 use event_manager::{EventOps, Events, MutEventSubscriber};
 use libc::EFD_NONBLOCK;
@@ -358,10 +359,11 @@ fn is_fifo(fd: RawFd) -> bool {
     (stat.st_mode & libc::S_IFIFO) != 0
 }
 
-impl<I: Read + AsRawFd + Send + Debug + 'static>
-    SerialWrapper<EventFdTrigger, SerialEventsWrapper, I>
+impl<I> vm_device::BusDevice for SerialWrapper<EventFdTrigger, SerialEventsWrapper, I>
+where
+    I: Read + AsRawFd + Send,
 {
-    pub fn bus_read(&mut self, offset: u64, data: &mut [u8]) {
+    fn read(&mut self, _base: u64, offset: u64, data: &mut [u8]) {
         if let (Ok(offset), 1) = (u8::try_from(offset), data.len()) {
             data[0] = self.serial.read(offset);
         } else {
@@ -369,7 +371,7 @@ impl<I: Read + AsRawFd + Send + Debug + 'static>
         }
     }
 
-    pub fn bus_write(&mut self, offset: u64, data: &[u8]) {
+    fn write(&mut self, _base: u64, offset: u64, data: &[u8]) -> Option<Arc<Barrier>> {
         if let (Ok(offset), 1) = (u8::try_from(offset), data.len()) {
             if let Err(err) = self.serial.write(offset, data[0]) {
                 // Counter incremented for any handle_write() error.
@@ -379,24 +381,6 @@ impl<I: Read + AsRawFd + Send + Debug + 'static>
         } else {
             METRICS.missed_write_count.inc();
         }
-    }
-}
-
-#[cfg(target_arch = "aarch64")]
-impl<I: Read + AsRawFd + Send + Debug + 'static> vm_device::BusDevice
-    for SerialWrapper<EventFdTrigger, SerialEventsWrapper, I>
-{
-    fn read(&mut self, _base: u64, offset: u64, data: &mut [u8]) {
-        self.bus_read(offset, data)
-    }
-
-    fn write(
-        &mut self,
-        _base: u64,
-        offset: u64,
-        data: &[u8],
-    ) -> Option<std::sync::Arc<std::sync::Barrier>> {
-        self.bus_write(offset, data);
         None
     }
 }
@@ -405,6 +389,7 @@ impl<I: Read + AsRawFd + Send + Debug + 'static> vm_device::BusDevice
 mod tests {
     #![allow(clippy::undocumented_unsafe_blocks)]
 
+    use vm_device::BusDevice;
     use vmm_sys_util::eventfd::EventFd;
 
     use super::*;
@@ -430,13 +415,13 @@ mod tests {
 
         let invalid_reads_before = metrics.missed_read_count.count();
         let mut v = [0x00; 2];
-        serial.bus_read(0u64, &mut v);
+        serial.read(0x0, 0u64, &mut v);
 
         let invalid_reads_after = metrics.missed_read_count.count();
         assert_eq!(invalid_reads_before + 1, invalid_reads_after);
 
         let mut v = [0x00; 1];
-        serial.bus_read(0u64, &mut v);
+        serial.read(0x0, 0u64, &mut v);
         assert_eq!(v[0], b'a');
 
         let invalid_reads_after_2 = metrics.missed_read_count.count();
