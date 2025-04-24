@@ -9,6 +9,8 @@
 
 use std::cmp::{Ord, Ordering, PartialEq, PartialOrd};
 use std::collections::btree_map::BTreeMap;
+#[cfg(test)]
+use std::sync::Barrier;
 use std::sync::{Arc, Mutex};
 
 /// Errors triggered during bus operations.
@@ -55,19 +57,13 @@ use event_manager::{EventOps, Events, MutEventSubscriber};
 #[cfg(target_arch = "aarch64")]
 use super::legacy::RTCDevice;
 use super::legacy::{I8042Device, SerialDevice};
-use super::pseudo::BootTimer;
-use super::virtio::transport::mmio::MmioTransport;
 
 #[derive(Debug)]
 pub enum BusDevice {
     I8042Device(I8042Device),
     #[cfg(target_arch = "aarch64")]
     RTCDevice(RTCDevice),
-    BootTimer(BootTimer),
-    MmioTransport(MmioTransport),
     Serial(SerialDevice),
-    #[cfg(test)]
-    Dummy(DummyDevice),
     #[cfg(test)]
     Constant(ConstantDevice),
 }
@@ -77,9 +73,11 @@ pub enum BusDevice {
 pub struct DummyDevice;
 
 #[cfg(test)]
-impl DummyDevice {
-    pub fn bus_write(&mut self, _offset: u64, _data: &[u8]) {}
-    pub fn bus_read(&mut self, _offset: u64, _data: &[u8]) {}
+impl vm_device::BusDevice for DummyDevice {
+    fn write(&mut self, _base: u64, _offset: u64, _data: &[u8]) -> Option<Arc<Barrier>> {
+        None
+    }
+    fn read(&mut self, _base: u64, _offset: u64, _data: &mut [u8]) {}
 }
 
 #[cfg(test)]
@@ -115,18 +113,6 @@ impl BusDevice {
             _ => None,
         }
     }
-    pub fn boot_timer_ref(&self) -> Option<&BootTimer> {
-        match self {
-            Self::BootTimer(x) => Some(x),
-            _ => None,
-        }
-    }
-    pub fn mmio_transport_ref(&self) -> Option<&MmioTransport> {
-        match self {
-            Self::MmioTransport(x) => Some(x),
-            _ => None,
-        }
-    }
     pub fn serial_ref(&self) -> Option<&SerialDevice> {
         match self {
             Self::Serial(x) => Some(x),
@@ -147,18 +133,6 @@ impl BusDevice {
             _ => None,
         }
     }
-    pub fn boot_timer_mut(&mut self) -> Option<&mut BootTimer> {
-        match self {
-            Self::BootTimer(x) => Some(x),
-            _ => None,
-        }
-    }
-    pub fn mmio_transport_mut(&mut self) -> Option<&mut MmioTransport> {
-        match self {
-            Self::MmioTransport(x) => Some(x),
-            _ => None,
-        }
-    }
     pub fn serial_mut(&mut self) -> Option<&mut SerialDevice> {
         match self {
             Self::Serial(x) => Some(x),
@@ -171,11 +145,8 @@ impl BusDevice {
             Self::I8042Device(x) => x.bus_read(offset, data),
             #[cfg(target_arch = "aarch64")]
             Self::RTCDevice(x) => x.bus_read(offset, data),
-            Self::BootTimer(x) => x.bus_read(offset, data),
-            Self::MmioTransport(x) => x.bus_read(offset, data),
             Self::Serial(x) => x.bus_read(offset, data),
             #[cfg(test)]
-            Self::Dummy(x) => x.bus_read(offset, data),
             #[cfg(test)]
             Self::Constant(x) => x.bus_read(offset, data),
         }
@@ -186,11 +157,7 @@ impl BusDevice {
             Self::I8042Device(x) => x.bus_write(offset, data),
             #[cfg(target_arch = "aarch64")]
             Self::RTCDevice(x) => x.bus_write(offset, data),
-            Self::BootTimer(x) => x.bus_write(offset, data),
-            Self::MmioTransport(x) => x.bus_write(offset, data),
             Self::Serial(x) => x.bus_write(offset, data),
-            #[cfg(test)]
-            Self::Dummy(x) => x.bus_write(offset, data),
             #[cfg(test)]
             Self::Constant(x) => x.bus_write(offset, data),
         }
@@ -314,7 +281,7 @@ mod tests {
     #[test]
     fn bus_insert() {
         let mut bus = Bus::new();
-        let dummy = Arc::new(Mutex::new(BusDevice::Dummy(DummyDevice)));
+        let dummy = Arc::new(Mutex::new(BusDevice::Constant(ConstantDevice)));
         // Insert len should not be 0.
         bus.insert(dummy.clone(), 0x10, 0).unwrap_err();
         bus.insert(dummy.clone(), 0x10, 0x10).unwrap();
@@ -336,23 +303,6 @@ mod tests {
         bus.insert(dummy.clone(), 0x20, 0x05).unwrap();
         bus.insert(dummy.clone(), 0x25, 0x05).unwrap();
         bus.insert(dummy, 0x0, 0x10).unwrap();
-    }
-
-    #[test]
-    fn bus_read_write() {
-        let mut bus = Bus::new();
-        let dummy = Arc::new(Mutex::new(BusDevice::Dummy(DummyDevice)));
-        bus.insert(dummy, 0x10, 0x10).unwrap();
-        assert!(bus.read(0x10, &mut [0, 0, 0, 0]));
-        assert!(bus.write(0x10, &[0, 0, 0, 0]));
-        assert!(bus.read(0x11, &mut [0, 0, 0, 0]));
-        assert!(bus.write(0x11, &[0, 0, 0, 0]));
-        assert!(bus.read(0x16, &mut [0, 0, 0, 0]));
-        assert!(bus.write(0x16, &[0, 0, 0, 0]));
-        assert!(!bus.read(0x20, &mut [0, 0, 0, 0]));
-        assert!(!bus.write(0x20, &[0, 0, 0, 0]));
-        assert!(!bus.read(0x06, &mut [0, 0, 0, 0]));
-        assert!(!bus.write(0x06, &[0, 0, 0, 0]));
     }
 
     #[test]
@@ -381,7 +331,7 @@ mod tests {
         let mut bus = Bus::new();
         let mut data = [1, 2, 3, 4];
         bus.insert(
-            Arc::new(Mutex::new(BusDevice::Dummy(DummyDevice))),
+            Arc::new(Mutex::new(BusDevice::Constant(ConstantDevice))),
             0x10,
             0x10,
         )
