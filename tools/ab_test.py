@@ -50,7 +50,7 @@ IGNORED = [
 
 
 def is_ignored(dimensions) -> bool:
-    """Checks whether the given dimensions match a entry in the IGNORED dictionary above"""
+    """Checks whether the given dimensions match an entry in the IGNORED dictionary above"""
     for high_variance in IGNORED:
         matching = {key: dimensions[key] for key in high_variance if key in dimensions}
 
@@ -258,7 +258,7 @@ def analyze_data(
 
     failures = []
     for (dimension_set, metric), (result, unit) in results.items():
-        if is_ignored(dict(dimension_set)):
+        if is_ignored(dict(dimension_set) | {"metric": metric}):
             continue
 
         print(f"Doing A/B-test for dimensions {dimension_set} and property {metric}")
