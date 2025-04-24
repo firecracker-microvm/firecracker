@@ -1,7 +1,7 @@
 From f9ca710b51263ce8317cc2fa02232e456fa1f39c Mon Sep 17 00:00:00 2001
 From: Fuad Tabba <tabba@google.com>
 Date: Tue, 18 Mar 2025 16:18:15 +0000
-Subject: [PATCH 01/34] mm: Consolidate freeing of typed folios on final
+Subject: [PATCH 01/26] mm: Consolidate freeing of typed folios on final
  folio_put()
 
 Some folio types, such as hugetlb, handle freeing their own

@@ -1,7 +1,7 @@
 From 483ccb70335cb0c76161caf76c0ccb7c618038e2 Mon Sep 17 00:00:00 2001
 From: Fuad Tabba <tabba@google.com>
 Date: Tue, 18 Mar 2025 16:18:20 +0000
-Subject: [PATCH 05/34] KVM: arm64: Refactor user_mem_abort() calculation of
+Subject: [PATCH 05/26] KVM: arm64: Refactor user_mem_abort() calculation of
  force_pte
 
 To simplify the code and to make the assumptions clearer,
