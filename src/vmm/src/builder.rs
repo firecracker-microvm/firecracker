@@ -15,6 +15,8 @@ use userfaultfd::Uffd;
 use utils::time::TimestampUs;
 #[cfg(target_arch = "aarch64")]
 use vm_memory::GuestAddress;
+#[cfg(target_arch = "x86_64")]
+use vmm_sys_util::eventfd::EventFd;
 
 use crate::arch::{ConfigurationError, configure_system_for_boot, load_kernel};
 #[cfg(target_arch = "aarch64")]
@@ -30,8 +32,9 @@ use crate::device_manager::persist::{
     ACPIDeviceManagerConstructorArgs, ACPIDeviceManagerRestoreError, MMIODevManagerConstructorArgs,
 };
 use crate::device_manager::resources::ResourceAllocator;
-use crate::devices::BusDevice;
 use crate::devices::acpi::vmgenid::{VmGenId, VmGenIdError};
+#[cfg(target_arch = "x86_64")]
+use crate::devices::legacy::I8042Device;
 #[cfg(target_arch = "aarch64")]
 use crate::devices::legacy::RTCDevice;
 use crate::devices::legacy::SerialDevice;
@@ -162,10 +165,14 @@ fn create_vmm_and_vcpus(
 
         // x86_64 uses the i8042 reset event as the Vmm exit event.
         let reset_evt = vcpus_exit_evt.try_clone().map_err(VmmError::EventFd)?;
+        let i8042 = Arc::new(Mutex::new(I8042Device::new(
+            reset_evt,
+            EventFd::new(libc::EFD_NONBLOCK).map_err(VmmError::EventFd)?,
+        )));
 
         // create pio dev manager with legacy devices
         let mut pio_dev_mgr =
-            PortIODeviceManager::new(serial_device, reset_evt).map_err(VmmError::LegacyIOBus)?;
+            PortIODeviceManager::new(serial_device, i8042).map_err(VmmError::LegacyIOBus)?;
         pio_dev_mgr
             .register_devices(vm.fd())
             .map_err(VmmError::LegacyIOBus)?;
@@ -549,11 +556,11 @@ pub fn build_microvm_from_snapshot(
 /// Sets up the serial device.
 pub fn setup_serial_device(
     event_manager: &mut EventManager,
-) -> Result<Arc<Mutex<BusDevice>>, VmmError> {
-    let serial = Arc::new(Mutex::new(BusDevice::Serial(
+) -> Result<Arc<Mutex<SerialDevice>>, VmmError> {
+    let serial = Arc::new(Mutex::new(
         SerialDevice::new(Some(std::io::stdin()), SerialOut::Stdout(std::io::stdout()))
             .map_err(VmmError::EventFd)?,
-    )));
+    ));
     event_manager.add_subscriber(serial.clone());
     Ok(serial)
 }
@@ -879,10 +886,13 @@ pub(crate) mod tests {
         let acpi_device_manager = ACPIDeviceManager::new();
         #[cfg(target_arch = "x86_64")]
         let pio_device_manager = PortIODeviceManager::new(
-            Arc::new(Mutex::new(BusDevice::Serial(
+            Arc::new(Mutex::new(
                 SerialDevice::new(None, SerialOut::Sink(std::io::sink())).unwrap(),
+            )),
+            Arc::new(Mutex::new(I8042Device::new(
+                EventFd::new(libc::EFD_NONBLOCK).unwrap(),
+                EventFd::new(libc::EFD_NONBLOCK).unwrap(),
             ))),
-            EventFd::new(libc::EFD_NONBLOCK).unwrap(),
         )
         .unwrap();
 
