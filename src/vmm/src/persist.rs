@@ -69,7 +69,7 @@ impl From<&VmResources> for VmInfo {
     }
 }
 
-/// Contains the necesary state for saving/restoring a microVM.
+/// Contains the necessary state for saving/restoring a microVM.
 #[derive(Debug, Default, Serialize, Deserialize)]
 pub struct MicrovmState {
     /// Miscellaneous VM info.
@@ -172,8 +172,9 @@ pub fn create_snapshot(
     // This should never fail as we only mark pages only if device has already been activated,
     // and the address validation was already performed on device activation.
     vmm.mmio_device_manager
-        .for_each_virtio_device(|_, _, _, dev| {
-            let d = dev.lock().unwrap();
+        .for_each_virtio_device(|_, _, device| {
+            let mmio_dev_locked = device.inner.lock().expect("Poisoned lock");
+            let d = mmio_dev_locked.locked_device();
             if d.is_activated() {
                 d.mark_queue_memory_dirty(vmm.vm.guest_memory())
             } else {
