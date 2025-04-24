@@ -19,6 +19,10 @@ use crate::EventManager;
 #[cfg(target_arch = "aarch64")]
 use crate::arch::DeviceType;
 use crate::devices::acpi::vmgenid::{VMGenIDState, VMGenIdConstructorArgs, VmGenId, VmGenIdError};
+#[cfg(target_arch = "aarch64")]
+use crate::devices::legacy::serial::SerialOut;
+#[cfg(target_arch = "aarch64")]
+use crate::devices::legacy::{RTCDevice, SerialDevice};
 use crate::devices::virtio::balloon::persist::{BalloonConstructorArgs, BalloonState};
 use crate::devices::virtio::balloon::{Balloon, BalloonError};
 use crate::devices::virtio::block::BlockError;
@@ -61,7 +65,7 @@ pub enum DevicePersistError {
     MmioTransport,
     #[cfg(target_arch = "aarch64")]
     /// Legacy: {0}
-    Legacy(#[from] crate::VmmError),
+    Legacy(#[from] std::io::Error),
     /// Net: {0}
     Net(#[from] NetError),
     /// Vsock: {0}
@@ -285,32 +289,29 @@ impl<'a> Persist<'a> for MMIODeviceManager {
 
     fn save(&self) -> Self::State {
         let mut states = DeviceStates::default();
-        let _: Result<(), ()> = self.for_each_device(|devtype, devid, device_info, bus_dev| {
-            if *devtype == crate::arch::DeviceType::BootTimer {
-                // No need to save BootTimer state.
-                return Ok(());
+
+        #[cfg(target_arch = "aarch64")]
+        {
+            if let Some(device) = &self.serial {
+                states.legacy_devices.push(ConnectedLegacyState {
+                    type_: DeviceType::Serial,
+                    device_info: device.resources,
+                });
             }
 
-            #[cfg(target_arch = "aarch64")]
-            {
-                if *devtype == DeviceType::Serial || *devtype == DeviceType::Rtc {
-                    states.legacy_devices.push(ConnectedLegacyState {
-                        type_: *devtype,
-                        device_info: device_info.clone(),
-                    });
-                    return Ok(());
-                }
+            if let Some(device) = &self.rtc {
+                states.legacy_devices.push(ConnectedLegacyState {
+                    type_: DeviceType::Rtc,
+                    device_info: device.resources,
+                });
             }
+        }
 
-            let locked_bus_dev = bus_dev.lock().expect("Poisoned lock");
+        let _: Result<(), ()> = self.for_each_virtio_device(|_, devid, device| {
+            let mmio_transport_locked = device.inner.lock().expect("Poisoned lock");
+            let transport_state = mmio_transport_locked.save();
 
-            let mmio_transport = locked_bus_dev
-                .mmio_transport_ref()
-                .expect("Unexpected device type");
-
-            let transport_state = mmio_transport.save();
-
-            let mut locked_device = mmio_transport.locked_device();
+            let mut locked_device = mmio_transport_locked.locked_device();
             match locked_device.device_type() {
                 TYPE_BALLOON => {
                     let balloon_state = locked_device
@@ -322,7 +323,7 @@ impl<'a> Persist<'a> for MMIODeviceManager {
                         device_id: devid.clone(),
                         device_state: balloon_state,
                         transport_state,
-                        device_info: device_info.clone(),
+                        device_info: device.resources,
                     });
                 }
                 // Both virtio-block and vhost-user-block share same device type.
@@ -339,7 +340,7 @@ impl<'a> Persist<'a> for MMIODeviceManager {
                             device_id: devid.clone(),
                             device_state: block.save(),
                             transport_state,
-                            device_info: device_info.clone(),
+                            device_info: device.resources,
                         })
                     }
                 }
@@ -356,7 +357,7 @@ impl<'a> Persist<'a> for MMIODeviceManager {
                         device_id: devid.clone(),
                         device_state: net.save(),
                         transport_state,
-                        device_info: device_info.clone(),
+                        device_info: device.resources,
                     });
                 }
                 TYPE_VSOCK => {
@@ -385,7 +386,7 @@ impl<'a> Persist<'a> for MMIODeviceManager {
                         device_id: devid.clone(),
                         device_state: vsock_state,
                         transport_state,
-                        device_info: device_info.clone(),
+                        device_info: device.resources,
                     });
                 }
                 TYPE_RNG => {
@@ -398,7 +399,7 @@ impl<'a> Persist<'a> for MMIODeviceManager {
                         device_id: devid.clone(),
                         device_state: entropy.save(),
                         transport_state,
-                        device_info: device_info.clone(),
+                        device_info: device.resources,
                     });
                 }
                 _ => unreachable!(),
@@ -421,8 +422,13 @@ impl<'a> Persist<'a> for MMIODeviceManager {
         {
             for state in &state.legacy_devices {
                 if state.type_ == DeviceType::Serial {
-                    let serial =
-                        crate::builder::setup_serial_device(constructor_args.event_manager)?;
+                    let serial = Arc::new(Mutex::new(SerialDevice::new(
+                        Some(std::io::stdin()),
+                        SerialOut::Stdout(std::io::stdout()),
+                    )?));
+                    constructor_args
+                        .event_manager
+                        .add_subscriber(serial.clone());
 
                     constructor_args
                         .resource_allocator
@@ -439,11 +445,11 @@ impl<'a> Persist<'a> for MMIODeviceManager {
                         vm,
                         constructor_args.resource_allocator,
                         serial,
-                        Some(state.device_info.clone()),
+                        Some(state.device_info),
                     )?;
                 }
                 if state.type_ == DeviceType::Rtc {
-                    let rtc = crate::devices::legacy::RTCDevice(vm_superio::Rtc::with_events(
+                    let rtc = RTCDevice(vm_superio::Rtc::with_events(
                         &crate::devices::legacy::rtc_pl031::METRICS,
                     ));
                     constructor_args
@@ -459,7 +465,7 @@ impl<'a> Persist<'a> for MMIODeviceManager {
                     dev_manager.register_mmio_rtc(
                         constructor_args.resource_allocator,
                         rtc,
-                        Some(state.device_info.clone()),
+                        Some(state.device_info),
                     )?;
                 }
             }
@@ -728,24 +734,32 @@ mod tests {
             // know will results in `Ok`
             let mut clone = MMIODeviceManager::new();
             // We only care about the device hashmap.
-            clone.id_to_dev_info.clone_from(&self.id_to_dev_info);
+            clone.virtio_devices.clone_from(&self.virtio_devices);
+            clone.boot_timer = self.boot_timer.clone();
             clone
+        }
+    }
+
+    impl<T> PartialEq for MMIODevice<T> {
+        fn eq(&self, other: &Self) -> bool {
+            self.resources == other.resources
         }
     }
 
     impl PartialEq for MMIODeviceManager {
         fn eq(&self, other: &MMIODeviceManager) -> bool {
             // We only care about the device hashmap.
-            if self.id_to_dev_info.len() != other.id_to_dev_info.len() {
+            if self.virtio_devices.len() != other.virtio_devices.len() {
                 return false;
             }
-            for (key, val) in &self.id_to_dev_info {
-                match other.id_to_dev_info.get(key) {
+            for (key, val) in &self.virtio_devices {
+                match other.virtio_devices.get(key) {
                     Some(other_val) if val == other_val => continue,
                     _ => return false,
-                };
+                }
             }
-            true
+
+            self.boot_timer == other.boot_timer
         }
     }
 

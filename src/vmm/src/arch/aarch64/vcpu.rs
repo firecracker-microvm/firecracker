@@ -7,6 +7,7 @@
 
 use std::fmt::{Debug, Write};
 use std::mem::offset_of;
+use std::sync::Arc;
 
 use kvm_bindings::*;
 use kvm_ioctls::{VcpuExit, VcpuFd, VmFd};
@@ -126,7 +127,7 @@ pub struct KvmVcpu {
 #[derive(Default, Debug)]
 pub struct Peripherals {
     /// mmio bus.
-    pub mmio_bus: Option<crate::devices::Bus>,
+    pub mmio_bus: Option<Arc<vm_device::Bus>>,
 }
 
 impl KvmVcpu {

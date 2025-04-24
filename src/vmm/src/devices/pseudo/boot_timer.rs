@@ -1,6 +1,8 @@
 // Copyright 2020 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
+use std::sync::{Arc, Barrier};
+
 use utils::time::TimestampUs;
 
 use crate::logger::info;
@@ -8,16 +10,16 @@ use crate::logger::info;
 const MAGIC_VALUE_SIGNAL_GUEST_BOOT_COMPLETE: u8 = 123;
 
 /// Pseudo device to record the kernel boot time.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct BootTimer {
     start_ts: TimestampUs,
 }
 
-impl BootTimer {
-    pub fn bus_write(&mut self, offset: u64, data: &[u8]) {
+impl vm_device::BusDevice for BootTimer {
+    fn write(&mut self, _base: u64, offset: u64, data: &[u8]) -> Option<Arc<Barrier>> {
         // Only handle byte length instructions at a zero offset.
         if data.len() != 1 || offset != 0 {
-            return;
+            return None;
         }
 
         if data[0] == MAGIC_VALUE_SIGNAL_GUEST_BOOT_COMPLETE {
@@ -33,8 +35,11 @@ impl BootTimer {
                 boot_time_cpu_us / 1000
             );
         }
+
+        None
     }
-    pub fn bus_read(&mut self, _offset: u64, _data: &[u8]) {}
+
+    fn read(&mut self, _base: u64, _offset: u64, _data: &mut [u8]) {}
 }
 
 impl BootTimer {
