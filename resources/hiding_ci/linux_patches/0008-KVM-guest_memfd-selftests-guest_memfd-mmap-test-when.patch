@@ -1,7 +1,7 @@
 From 1ee5d01987bff47f007fb86ad7738b299816b2ef Mon Sep 17 00:00:00 2001
 From: Fuad Tabba <tabba@google.com>
 Date: Tue, 18 Mar 2025 16:18:23 +0000
-Subject: [PATCH 08/34] KVM: guest_memfd: selftests: guest_memfd mmap() test
+Subject: [PATCH 08/26] KVM: guest_memfd: selftests: guest_memfd mmap() test
  when mapping is allowed
 
 Expand the guest_memfd selftests to include testing mapping guest

@@ -1,7 +1,7 @@
-From 38fb84551a238b98a622433157fb2537ecb5611e Mon Sep 17 00:00:00 2001
+From 51dc7d27476d00d96f6f71882a11b5e17e80aa8f Mon Sep 17 00:00:00 2001
 From: Nikita Kalyazin <kalyazin@amazon.com>
 Date: Mon, 31 Mar 2025 10:15:35 +0000
-Subject: [PATCH 28/34] mm: userfaultfd: generic continue for non hugetlbfs
+Subject: [PATCH 21/26] mm: userfaultfd: generic continue for non hugetlbfs
 
 Remove shmem-specific code from UFFDIO_CONTINUE implementation for
 non-huge pages by calling vm_ops->fault().  A new VMF flag,
