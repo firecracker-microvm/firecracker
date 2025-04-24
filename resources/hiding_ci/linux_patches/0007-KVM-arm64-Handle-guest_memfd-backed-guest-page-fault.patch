@@ -1,7 +1,7 @@
 From 996513a423377349767d5cfef87850e80131854f Mon Sep 17 00:00:00 2001
 From: Fuad Tabba <tabba@google.com>
 Date: Tue, 18 Mar 2025 16:18:21 +0000
-Subject: [PATCH 07/34] KVM: arm64: Handle guest_memfd()-backed guest page
+Subject: [PATCH 07/26] KVM: arm64: Handle guest_memfd()-backed guest page
  faults
 
 Add arm64 support for handling guest page faults on guest_memfd

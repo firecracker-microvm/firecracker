@@ -1,7 +1,7 @@
-From 140a906e90e2ba2092148d80e0764e54802c947c Mon Sep 17 00:00:00 2001
+From b806003684d08506cb66c664efdfda3d7ff6103e Mon Sep 17 00:00:00 2001
 From: Nikita Kalyazin <kalyazin@amazon.com>
 Date: Tue, 1 Apr 2025 15:02:56 +0000
-Subject: [PATCH 31/34] KVM: guest_memfd: add support for userfaultfd minor
+Subject: [PATCH 24/26] KVM: guest_memfd: add support for userfaultfd minor
 
 Add support for sending a pagefault event if userfaultfd is registered.
 Only page minor event is currently supported.

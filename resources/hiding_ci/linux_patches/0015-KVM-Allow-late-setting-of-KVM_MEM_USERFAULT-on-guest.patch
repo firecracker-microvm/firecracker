@@ -1,7 +1,7 @@
-From 7a626f99566e7ab7fce004fcf4041d87e75512cc Mon Sep 17 00:00:00 2001
+From ed691412fd9414d3b9124e2416f6cae3f21a1071 Mon Sep 17 00:00:00 2001
 From: James Houghton <jthoughton@google.com>
 Date: Thu, 9 Jan 2025 20:49:19 +0000
-Subject: [PATCH 15/34] KVM: Allow late setting of KVM_MEM_USERFAULT on
+Subject: [PATCH 15/26] KVM: Allow late setting of KVM_MEM_USERFAULT on
  guest_memfd memslot
 
 Currently guest_memfd memslots can only be deleted. Slightly change the

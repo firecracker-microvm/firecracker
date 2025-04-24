@@ -1,7 +1,7 @@
 From fd39febef2e0d41394e51f5e34f2c8de80b3b4dc Mon Sep 17 00:00:00 2001
 From: Fuad Tabba <tabba@google.com>
 Date: Tue, 18 Mar 2025 16:18:17 +0000
-Subject: [PATCH 03/34] KVM: guest_memfd: Allow host to map guest_memfd() pages
+Subject: [PATCH 03/26] KVM: guest_memfd: Allow host to map guest_memfd() pages
 
 Add support for mmap() and fault() for guest_memfd backed memory
 in the host for VMs that support in-place conversion between
