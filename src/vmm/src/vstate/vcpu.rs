@@ -219,7 +219,7 @@ impl Vcpu {
     }
 
     /// Sets a MMIO bus for this vcpu.
-    pub fn set_mmio_bus(&mut self, mmio_bus: crate::devices::Bus) {
+    pub fn set_mmio_bus(&mut self, mmio_bus: Arc<vm_device::Bus>) {
         self.kvm_vcpu.peripherals.mmio_bus = Some(mmio_bus);
     }
 
@@ -527,7 +527,9 @@ fn handle_kvm_exit(
             VcpuExit::MmioRead(addr, data) => {
                 if let Some(mmio_bus) = &peripherals.mmio_bus {
                     let _metric = METRICS.vcpu.exit_mmio_read_agg.record_latency_metrics();
-                    mmio_bus.read(addr, data);
+                    if let Err(err) = mmio_bus.read(addr, data) {
+                        warn!("Invalid MMIO read @ {addr:#x}:{:#x}: {err}", data.len());
+                    }
                     METRICS.vcpu.exit_mmio_read.inc();
                 }
                 Ok(VcpuEmulation::Handled)
@@ -535,7 +537,9 @@ fn handle_kvm_exit(
             VcpuExit::MmioWrite(addr, data) => {
                 if let Some(mmio_bus) = &peripherals.mmio_bus {
                     let _metric = METRICS.vcpu.exit_mmio_write_agg.record_latency_metrics();
-                    mmio_bus.write(addr, data);
+                    if let Err(err) = mmio_bus.write(addr, data) {
+                        warn!("Invalid MMIO read @ {addr:#x}:{:#x}: {err}", data.len());
+                    }
                     METRICS.vcpu.exit_mmio_write.inc();
                 }
                 Ok(VcpuEmulation::Handled)
@@ -771,7 +775,6 @@ pub(crate) mod tests {
     use super::*;
     use crate::RECV_TIMEOUT_SEC;
     use crate::arch::{BootProtocol, EntryPoint};
-    use crate::devices::BusDevice;
     use crate::devices::bus::DummyDevice;
     use crate::seccomp::get_empty_filters;
     use crate::utils::mib_to_bytes;
@@ -876,8 +879,8 @@ pub(crate) mod tests {
             )
         );
 
-        let mut bus = crate::devices::Bus::new();
-        let dummy = Arc::new(Mutex::new(BusDevice::Dummy(DummyDevice)));
+        let bus = Arc::new(vm_device::Bus::new());
+        let dummy = Arc::new(Mutex::new(DummyDevice));
         bus.insert(dummy, 0x10, 0x10).unwrap();
         vcpu.set_mmio_bus(bus);
         let addr = 0x10;
@@ -1020,7 +1023,7 @@ pub(crate) mod tests {
     fn test_set_mmio_bus() {
         let (_, _, mut vcpu) = setup_vcpu(0x1000);
         assert!(vcpu.kvm_vcpu.peripherals.mmio_bus.is_none());
-        vcpu.set_mmio_bus(crate::devices::Bus::new());
+        vcpu.set_mmio_bus(Arc::new(vm_device::Bus::new()));
         assert!(vcpu.kvm_vcpu.peripherals.mmio_bus.is_some());
     }
 

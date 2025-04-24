@@ -382,6 +382,25 @@ impl<I: Read + AsRawFd + Send + Debug + 'static>
     }
 }
 
+#[cfg(target_arch = "aarch64")]
+impl<I: Read + AsRawFd + Send + Debug + 'static> vm_device::BusDevice
+    for SerialWrapper<EventFdTrigger, SerialEventsWrapper, I>
+{
+    fn read(&mut self, _base: u64, offset: u64, data: &mut [u8]) {
+        self.bus_read(offset, data)
+    }
+
+    fn write(
+        &mut self,
+        _base: u64,
+        offset: u64,
+        data: &[u8],
+    ) -> Option<std::sync::Arc<std::sync::Barrier>> {
+        self.bus_write(offset, data);
+        None
+    }
+}
+
 #[cfg(test)]
 mod tests {
     #![allow(clippy::undocumented_unsafe_blocks)]
