@@ -114,6 +114,8 @@ def load_data_series(report_path: Path, tag=None, *, reemit: bool = False):
     # Dictionary mapping EMF dimensions to A/B-testable metrics/properties
     processed_emf = {}
 
+    distinct_values_per_dimenson = defaultdict(set)
+
     report = json.loads(report_path.read_text("UTF-8"))
     for test in report["tests"]:
         for line in test["teardown"]["stdout"].splitlines():
@@ -133,6 +135,9 @@ def load_data_series(report_path: Path, tag=None, *, reemit: bool = False):
                 if not dimensions:
                     continue
 
+                for dimension, value in dimensions.items():
+                    distinct_values_per_dimenson[dimension].add(value)
+
                 dimension_set = frozenset(dimensions.items())
 
                 if dimension_set not in processed_emf:
@@ -149,7 +154,24 @@ def load_data_series(report_path: Path, tag=None, *, reemit: bool = False):
 
                         values.extend(result[metric][0])
 
-    return processed_emf
+    irrelevant_dimensions = set()
+
+    for dimension, distinct_values in distinct_values_per_dimenson.items():
+        if len(distinct_values) == 1:
+            irrelevant_dimensions.add(dimension)
+
+    post_processed_emf = {}
+
+    for dimension_set, metrics in processed_emf.items():
+        processed_key = frozenset(
+            (dim, value)
+            for (dim, value) in dimension_set
+            if dim not in irrelevant_dimensions
+        )
+
+        post_processed_emf[processed_key] = metrics
+
+    return post_processed_emf
 
 
 def collect_data(binary_dir: Path, tests: list[str]):
