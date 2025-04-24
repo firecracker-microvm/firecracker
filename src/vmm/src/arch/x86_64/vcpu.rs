@@ -7,6 +7,7 @@
 
 use std::collections::BTreeMap;
 use std::fmt::Debug;
+use std::sync::Arc;
 
 use kvm_bindings::{
     CpuId, KVM_MAX_CPUID_ENTRIES, KVM_MAX_MSR_ENTRIES, Msrs, Xsave, kvm_debugregs, kvm_lapic_state,
@@ -161,7 +162,7 @@ pub struct Peripherals {
     /// Pio bus.
     pub pio_bus: Option<crate::devices::Bus>,
     /// Mmio bus.
-    pub mmio_bus: Option<crate::devices::Bus>,
+    pub mmio_bus: Option<Arc<vm_device::Bus>>,
 }
 
 impl KvmVcpu {
