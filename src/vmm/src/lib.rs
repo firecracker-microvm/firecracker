@@ -467,12 +467,11 @@ impl Vmm {
 
         #[cfg(target_arch = "x86_64")]
         {
-            let mut guard = self
+            let mut serial = self
                 .pio_device_manager
                 .stdio_serial
                 .lock()
                 .expect("Poisoned lock");
-            let serial = guard.serial_mut().unwrap();
 
             serial
                 .serial
@@ -489,8 +488,6 @@ impl Vmm {
             .i8042
             .lock()
             .expect("i8042 lock was poisoned")
-            .i8042_device_mut()
-            .unwrap()
             .trigger_ctrl_alt_del()
             .map_err(VmmError::I8042Error)
     }

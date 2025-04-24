@@ -212,7 +212,7 @@ fn verify_create_snapshot(is_diff: bool) -> (TempFile, TempFile) {
     // Check that we can deserialize the microVM state from `snapshot_file`.
     let snapshot_path = snapshot_file.as_path().to_path_buf();
     let snapshot_file_metadata = std::fs::metadata(snapshot_path).unwrap();
-    let snapshot_len = snapshot_file_metadata.len() as usize;
+    let snapshot_len = snapshot_file_metadata.len().try_into().unwrap();
     let (restored_microvm_state, _) =
         Snapshot::load::<_, MicrovmState>(&mut snapshot_file.as_file(), snapshot_len).unwrap();
 
