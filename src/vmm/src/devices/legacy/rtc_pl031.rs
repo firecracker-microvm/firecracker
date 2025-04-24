@@ -80,7 +80,7 @@ impl RTCDevice {
     pub fn bus_read(&mut self, offset: u64, data: &mut [u8]) {
         if let (Ok(offset), 4) = (u16::try_from(offset), data.len()) {
             // read() function from RTC implementation expects a slice of
-            // len 4, and we just validated that this is the data lengt
+            // len 4, and we just validated that this is the data length
             self.read(offset, data.try_into().unwrap())
         } else {
             warn!(
@@ -105,6 +105,23 @@ impl RTCDevice {
             );
             METRICS.error_count.inc();
         }
+    }
+}
+
+#[cfg(target_arch = "aarch64")]
+impl vm_device::BusDevice for RTCDevice {
+    fn read(&mut self, _base: u64, offset: u64, data: &mut [u8]) {
+        self.bus_read(offset, data)
+    }
+
+    fn write(
+        &mut self,
+        _base: u64,
+        offset: u64,
+        data: &[u8],
+    ) -> Option<std::sync::Arc<std::sync::Barrier>> {
+        self.bus_write(offset, data);
+        None
     }
 }
 
