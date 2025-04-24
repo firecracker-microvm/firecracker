@@ -1,7 +1,7 @@
-From 098a8167ad6c55336cad9abb808ebdc105784278 Mon Sep 17 00:00:00 2001
+From ab44b2d5bfb7ef9b7bbb156d493f49a4bbebf014 Mon Sep 17 00:00:00 2001
 From: Nikita Kalyazin <kalyazin@amazon.com>
 Date: Thu, 10 Apr 2025 14:18:39 +0000
-Subject: [PATCH 12/34] patrick v4 fixup
+Subject: [PATCH 12/26] fixup for direct map removal v4
 
 Do not make kvm_gmem_free_folio dependent on
 CONFIG_HAVE_KVM_ARCH_GMEM_INVALIDATE .

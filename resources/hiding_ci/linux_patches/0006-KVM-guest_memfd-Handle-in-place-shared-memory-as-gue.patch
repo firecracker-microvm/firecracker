@@ -1,7 +1,7 @@
 From b1e925d4d5db8513dba67c3a9d40a2b507668f09 Mon Sep 17 00:00:00 2001
 From: Fuad Tabba <tabba@google.com>
 Date: Tue, 18 Mar 2025 16:18:18 +0000
-Subject: [PATCH 06/34] KVM: guest_memfd: Handle in-place shared memory as
+Subject: [PATCH 06/26] KVM: guest_memfd: Handle in-place shared memory as
  guest_memfd backed memory
 
 For VMs that allow sharing guest_memfd backed memory in-place,
