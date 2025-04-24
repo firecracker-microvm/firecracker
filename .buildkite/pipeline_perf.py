@@ -16,9 +16,14 @@ from common import BKPipeline
 # the operating system sometimes uses it for book-keeping tasks. The memory node (-m parameter)
 # has to be the node associated with the NUMA node from which we picked CPUs.
 perf_test = {
-    "virtio-block": {
+    "virtio-block-sync": {
         "label": "💿 Virtio Block Performance",
-        "tests": "integration_tests/performance/test_block_ab.py::test_block_performance",
+        "tests": "integration_tests/performance/test_block_ab.py::test_block_performance -k 'not Async'",
+        "devtool_opts": "-c 1-10 -m 0",
+    },
+    "virtio-block-async": {
+        "label": "💿 Virtio Block Performance",
+        "tests": "integration_tests/performance/test_block_ab.py::test_block_performance -k Async",
         "devtool_opts": "-c 1-10 -m 0",
     },
     "vhost-user-block": {
