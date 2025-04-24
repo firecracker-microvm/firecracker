@@ -15,6 +15,8 @@ use linux_loader::cmdline::Cmdline as LoaderKernelCmdline;
 use userfaultfd::Uffd;
 use utils::time::TimestampUs;
 #[cfg(target_arch = "aarch64")]
+use vm_memory::GuestAddress;
+#[cfg(target_arch = "aarch64")]
 use vm_superio::Rtc;
 use vm_superio::Serial;
 use vmm_sys_util::eventfd::EventFd;
@@ -82,6 +84,9 @@ pub enum StartMicrovmError {
     CreateLegacyDevice(device_manager::legacy::LegacyDeviceError),
     /// Error creating VMGenID device: {0}
     CreateVMGenID(VmGenIdError),
+    /// Error enabling pvtime on vcpu: {0}
+    #[cfg(target_arch = "aarch64")]
+    EnablePVTime(crate::arch::VcpuArchError),
     /// Invalid Memory Configuration: {0}
     GuestMemory(crate::vstate::memory::MemoryError),
     /// Error with initrd initialization: {0}.
@@ -289,6 +294,13 @@ pub fn build_microvm_for_boot(
 
     attach_vmgenid_device(&mut vmm)?;
 
+    #[cfg(target_arch = "aarch64")]
+    if vcpus[0].kvm_vcpu.supports_pvtime() {
+        setup_pvtime(&mut vmm, &mut vcpus)?;
+    } else {
+        log::warn!("Vcpus do not support pvtime, steal time will not be reported to guest");
+    }
+
     configure_system_for_boot(
         &mut vmm,
         vcpus.as_mut(),
@@ -449,6 +461,16 @@ pub fn build_microvm_from_snapshot(
         }
     }
 
+    // Restore allocator state
+    #[cfg(target_arch = "aarch64")]
+    if let Some(pvtime_ipa) = vcpus[0].kvm_vcpu.pvtime_ipa {
+        allocate_pvtime_region(
+            &mut vmm,
+            vcpus.len(),
+            vm_allocator::AllocPolicy::ExactMatch(pvtime_ipa.0),
+        )?;
+    }
+
     // Restore vcpus kvm state.
     for (vcpu, state) in vcpus.iter_mut().zip(microvm_state.vcpu_states.iter()) {
         vcpu.kvm_vcpu
@@ -550,6 +572,44 @@ pub fn setup_serial_device(
     })));
     event_manager.add_subscriber(serial.clone());
     Ok(serial)
+}
+
+/// 64 bytes due to alignment requirement in 3.1 of https://www.kernel.org/doc/html/v5.8/virt/kvm/devices/vcpu.html#attribute-kvm-arm-vcpu-pvtime-ipa
+#[cfg(target_arch = "aarch64")]
+const STEALTIME_STRUCT_MEM_SIZE: u64 = 64;
+
+/// Helper method to allocate steal time region
+#[cfg(target_arch = "aarch64")]
+fn allocate_pvtime_region(
+    vmm: &mut Vmm,
+    vcpu_count: usize,
+    policy: vm_allocator::AllocPolicy,
+) -> Result<GuestAddress, StartMicrovmError> {
+    let size = STEALTIME_STRUCT_MEM_SIZE * vcpu_count as u64;
+    let addr = vmm
+        .resource_allocator
+        .allocate_system_memory(size, STEALTIME_STRUCT_MEM_SIZE, policy)
+        .map_err(StartMicrovmError::AllocateResources)?;
+    Ok(GuestAddress(addr))
+}
+
+/// Sets up pvtime for all vcpus
+#[cfg(target_arch = "aarch64")]
+fn setup_pvtime(vmm: &mut Vmm, vcpus: &mut [Vcpu]) -> Result<(), StartMicrovmError> {
+    // Alloc sys mem for steal time region
+    let pvtime_mem: GuestAddress =
+        allocate_pvtime_region(vmm, vcpus.len(), vm_allocator::AllocPolicy::LastMatch)?;
+
+    // Register all vcpus with pvtime device
+    for (i, vcpu) in vcpus.iter_mut().enumerate() {
+        vcpu.kvm_vcpu
+            .enable_pvtime(GuestAddress(
+                pvtime_mem.0 + i as u64 * STEALTIME_STRUCT_MEM_SIZE,
+            ))
+            .map_err(StartMicrovmError::EnablePVTime)?;
+    }
+
+    Ok(())
 }
 
 #[cfg(target_arch = "aarch64")]
