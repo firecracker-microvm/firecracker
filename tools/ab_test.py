@@ -174,19 +174,20 @@ def load_data_series(report_path: Path, tag=None, *, reemit: bool = False):
     return post_processed_emf
 
 
-def collect_data(binary_dir: Path, tests: list[str]):
+def collect_data(binary_dir: Path, pytest_opts: str):
     """Executes the specified test using the provided firecracker binaries"""
     binary_dir = binary_dir.resolve()
 
     print(f"Collecting samples with {binary_dir}")
     subprocess.run(
-        ["./tools/test.sh", f"--binary-dir={binary_dir}", *tests, "-m", ""],
+        f"./tools/test.sh --binary-dir={binary_dir} {pytest_opts} -m ''",
         env=os.environ
         | {
             "AWS_EMF_ENVIRONMENT": "local",
             "AWS_EMF_NAMESPACE": "local",
         },
         check=True,
+        shell=True,
     )
     return load_data_series(
         Path("test_results/test-report.json"), binary_dir, reemit=True
@@ -330,7 +331,7 @@ def analyze_data(
 def ab_performance_test(
     a_revision: Path,
     b_revision: Path,
-    tests,
+    pytest_opts,
     p_thresh,
     strength_abs_thresh,
     noise_threshold,
@@ -338,7 +339,7 @@ def ab_performance_test(
     """Does an A/B-test of the specified test with the given firecracker/jailer binaries"""
 
     return binary_ab_test(
-        lambda bin_dir, _: collect_data(bin_dir, tests),
+        lambda bin_dir, _: collect_data(bin_dir, pytest_opts),
         lambda ah, be: analyze_data(
             ah,
             be,
@@ -371,7 +372,11 @@ if __name__ == "__main__":
         help="Directory containing firecracker and jailer binaries whose performance we want to compare against the results from a_revision",
         type=Path,
     )
-    run_parser.add_argument("--test", help="The test to run", nargs="+", required=True)
+    run_parser.add_argument(
+        "--pytest-opts",
+        help="Parameters to pass through to pytest, for example for test selection",
+        required=True,
+    )
     analyze_parser = subparsers.add_parser(
         "analyze",
         help="Analyze the results of two manually ran tests based on their test-report.json files",
@@ -410,7 +415,7 @@ if __name__ == "__main__":
         ab_performance_test(
             args.a_revision,
             args.b_revision,
-            args.test,
+            args.pytest_opts,
             args.significance,
             args.absolute_strength,
             args.noise_threshold,
