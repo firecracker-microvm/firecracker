@@ -5,14 +5,12 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the THIRD-PARTY file.
 
-use std::collections::HashMap;
 use std::ffi::CString;
 use std::fmt::Debug;
 
 use vm_fdt::{Error as VmFdtError, FdtWriter, FdtWriterNode};
 use vm_memory::GuestMemoryError;
 
-use super::super::DeviceType;
 use super::cache_info::{CacheEntry, read_cache_config};
 use super::gic::GICDevice;
 use crate::device_manager::mmio::MMIODeviceInfo;
@@ -55,12 +53,15 @@ pub enum FdtError {
     WriteFdtToMemory(#[from] GuestMemoryError),
 }
 
+#[allow(clippy::too_many_arguments)]
 /// Creates the flattened device tree for this aarch64 microVM.
 pub fn create_fdt(
     guest_mem: &GuestMemoryMmap,
     vcpu_mpidr: Vec<u64>,
     cmdline: CString,
-    device_info: &HashMap<(DeviceType, String), MMIODeviceInfo>,
+    virtio_devices: Vec<&MMIODeviceInfo>,
+    rtc: Option<&MMIODeviceInfo>,
+    serial: Option<&MMIODeviceInfo>,
     gic_device: &GICDevice,
     vmgenid: &Option<VmGenId>,
     initrd: &Option<InitrdConfig>,
@@ -89,7 +90,7 @@ pub fn create_fdt(
     create_timer_node(&mut fdt_writer)?;
     create_clock_node(&mut fdt_writer)?;
     create_psci_node(&mut fdt_writer)?;
-    create_devices_node(&mut fdt_writer, device_info)?;
+    create_devices_node(&mut fdt_writer, virtio_devices, rtc, serial)?;
     create_vmgenid_node(&mut fdt_writer, vmgenid)?;
 
     // End Header node.
@@ -411,25 +412,21 @@ fn create_rtc_node(fdt: &mut FdtWriter, dev_info: &MMIODeviceInfo) -> Result<(),
 
 fn create_devices_node(
     fdt: &mut FdtWriter,
-    dev_info: &HashMap<(DeviceType, String), MMIODeviceInfo>,
+    mut virtio_devices: Vec<&MMIODeviceInfo>,
+    rtc: Option<&MMIODeviceInfo>,
+    serial: Option<&MMIODeviceInfo>,
 ) -> Result<(), FdtError> {
-    // Create one temp Vec to store all virtio devices
-    let mut ordered_virtio_device: Vec<&MMIODeviceInfo> = Vec::new();
+    if let Some(device_info) = rtc {
+        create_rtc_node(fdt, device_info)?;
+    }
 
-    for ((device_type, _device_id), info) in dev_info {
-        match device_type {
-            DeviceType::BootTimer => (), // since it's not a real device
-            DeviceType::Rtc => create_rtc_node(fdt, info)?,
-            DeviceType::Serial => create_serial_node(fdt, info)?,
-            DeviceType::Virtio(_) => {
-                ordered_virtio_device.push(info);
-            }
-        }
+    if let Some(device_info) = serial {
+        create_serial_node(fdt, device_info)?;
     }
 
     // Sort out virtio devices by address from low to high and insert them into fdt table.
-    ordered_virtio_device.sort_by_key(|a| a.addr);
-    for ordered_device_info in ordered_virtio_device.drain(..) {
+    virtio_devices.sort_by_key(|a| a.addr);
+    for ordered_device_info in virtio_devices.drain(..) {
         create_virtio_node(fdt, ordered_device_info)?;
     }
 
@@ -464,35 +461,22 @@ mod tests {
     fn test_create_fdt_with_devices() {
         let mem = arch_mem(layout::FDT_MAX_SIZE + 0x1000);
 
-        let dev_info: HashMap<(DeviceType, std::string::String), MMIODeviceInfo> = [
-            (
-                (DeviceType::Serial, DeviceType::Serial.to_string()),
-                MMIODeviceInfo {
-                    addr: 0x00,
-                    irq: Some(1u32),
-                    len: LEN,
-                },
-            ),
-            (
-                (DeviceType::Virtio(1), "virtio".to_string()),
-                MMIODeviceInfo {
-                    addr: LEN,
-                    irq: Some(2u32),
-                    len: LEN,
-                },
-            ),
-            (
-                (DeviceType::Rtc, "rtc".to_string()),
-                MMIODeviceInfo {
-                    addr: 2 * LEN,
-                    irq: Some(3u32),
-                    len: LEN,
-                },
-            ),
-        ]
-        .iter()
-        .cloned()
-        .collect();
+        let serial = MMIODeviceInfo {
+            addr: 0x00,
+            irq: Some(1u32),
+            len: LEN,
+        };
+        let virtio_device = MMIODeviceInfo {
+            addr: LEN,
+            irq: Some(2u32),
+            len: LEN,
+        };
+        let rtc = MMIODeviceInfo {
+            addr: 2 * LEN,
+            irq: Some(3u32),
+            len: LEN,
+        };
+
         let kvm = Kvm::new().unwrap();
         let vm = kvm.create_vm().unwrap();
         let gic = create_gic(&vm, 1, None).unwrap();
@@ -500,7 +484,9 @@ mod tests {
             &mem,
             vec![0],
             CString::new("console=tty0").unwrap(),
-            &dev_info,
+            vec![&virtio_device],
+            Some(&rtc),
+            Some(&serial),
             &gic,
             &None,
             &None,
@@ -520,7 +506,9 @@ mod tests {
             &mem,
             vec![0],
             CString::new("console=tty0").unwrap(),
-            &HashMap::<(DeviceType, std::string::String), MMIODeviceInfo>::new(),
+            Vec::new(),
+            None,
+            None,
             &gic,
             &Some(vmgenid),
             &None,
@@ -545,7 +533,9 @@ mod tests {
             &mem,
             vec![0],
             CString::new("console=tty0").unwrap(),
-            &HashMap::<(DeviceType, std::string::String), MMIODeviceInfo>::new(),
+            Vec::new(),
+            None,
+            None,
             &gic,
             &None,
             &None,
@@ -607,7 +597,9 @@ mod tests {
             &mem,
             vec![0],
             CString::new("console=tty0").unwrap(),
-            &HashMap::<(DeviceType, std::string::String), MMIODeviceInfo>::new(),
+            vec![],
+            None,
+            None,
             &gic,
             &None,
             &Some(initrd),
