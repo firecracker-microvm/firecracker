@@ -8,6 +8,9 @@ import subprocess
 import time
 from pathlib import Path
 
+import pytest
+
+from framework.properties import global_props
 from framework.utils import chroot
 from host_tools import cargo_build
 
@@ -102,4 +105,7 @@ def spawn_pf_handler(vm, handler_path, snapshot):
 
 def uffd_handler(handler_name, **kwargs):
     """Retrieves the uffd handler with the given name"""
+    if global_props.host_linux_version_metrics != "next":
+        pytest.skip("UFFD is currently broken on this host kernel")
+
     return cargo_build.get_example(f"uffd_{handler_name}_handler", **kwargs)
