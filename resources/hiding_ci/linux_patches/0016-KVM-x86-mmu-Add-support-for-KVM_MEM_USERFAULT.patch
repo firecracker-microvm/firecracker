@@ -1,7 +1,7 @@
-From 7e9f22f83ca191df8deab84d7c8c9d64a1b5b10f Mon Sep 17 00:00:00 2001
+From fa324f2e503cd36dc357c3eb9b807e02f9b6206e Mon Sep 17 00:00:00 2001
 From: James Houghton <jthoughton@google.com>
 Date: Thu, 9 Jan 2025 20:49:21 +0000
-Subject: [PATCH 16/34] KVM: x86/mmu: Add support for KVM_MEM_USERFAULT
+Subject: [PATCH 16/26] KVM: x86/mmu: Add support for KVM_MEM_USERFAULT
 
 Adhering to the requirements of KVM Userfault:
 

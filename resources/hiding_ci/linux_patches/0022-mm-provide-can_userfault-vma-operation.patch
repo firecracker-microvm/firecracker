@@ -1,7 +1,7 @@
-From bcfff7f58b747aac6f27a51ce54efe5eae4b02f9 Mon Sep 17 00:00:00 2001
+From 7ed09f6e50ea4e4448e457a7b7712bdf3b38e826 Mon Sep 17 00:00:00 2001
 From: Nikita Kalyazin <kalyazin@amazon.com>
 Date: Fri, 4 Apr 2025 14:15:18 +0000
-Subject: [PATCH 29/34] mm: provide can_userfault vma operation
+Subject: [PATCH 22/26] mm: provide can_userfault vma operation
 
 The new operation allows to decouple the userfaulfd code from
 dependencies to VMA types, specifically, shmem and hugetlb.  The
