@@ -718,12 +718,12 @@ pub(crate) mod tests {
     use std::sync::{Arc, Barrier, Mutex};
 
     use linux_loader::loader::KernelLoader;
+    use vm_device::BusDevice;
     use vmm_sys_util::errno;
 
     use super::*;
     use crate::RECV_TIMEOUT_SEC;
     use crate::arch::{BootProtocol, EntryPoint};
-    use crate::devices::bus::DummyDevice;
     use crate::seccomp::get_empty_filters;
     use crate::utils::mib_to_bytes;
     use crate::utils::signal::validate_signal_num;
@@ -732,6 +732,16 @@ pub(crate) mod tests {
     use crate::vstate::vcpu::VcpuError as EmulationError;
     use crate::vstate::vm::Vm;
     use crate::vstate::vm::tests::setup_vm_with_memory;
+
+    struct DummyDevice;
+
+    impl BusDevice for DummyDevice {
+        fn read(&mut self, _base: u64, _offset: u64, _data: &mut [u8]) {}
+
+        fn write(&mut self, _base: u64, _offset: u64, _data: &[u8]) -> Option<Arc<Barrier>> {
+            None
+        }
+    }
 
     #[test]
     fn test_handle_kvm_exit() {
