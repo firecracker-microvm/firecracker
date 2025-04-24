@@ -16,15 +16,14 @@ use libc::EFD_NONBLOCK;
 use vm_superio::Serial;
 use vmm_sys_util::eventfd::EventFd;
 
-use crate::devices::bus::BusDevice;
 use crate::devices::legacy::serial::SerialOut;
-use crate::devices::legacy::{EventFdTrigger, SerialDevice, SerialEventsWrapper};
+use crate::devices::legacy::{EventFdTrigger, I8042Device, SerialDevice, SerialEventsWrapper};
 
 /// Errors corresponding to the `PortIODeviceManager`.
 #[derive(Debug, derive_more::From, thiserror::Error, displaydoc::Display)]
 pub enum LegacyDeviceError {
     /// Failed to add legacy device to Bus: {0}
-    BusError(crate::devices::BusError),
+    BusError(vm_device::BusError),
     /// Failed to create EventFd: {0}
     EventFd(std::io::Error),
 }
@@ -34,11 +33,11 @@ pub enum LegacyDeviceError {
 /// The `LegacyDeviceManger` should be initialized only by using the constructor.
 #[derive(Debug)]
 pub struct PortIODeviceManager {
-    pub io_bus: crate::devices::Bus,
+    pub io_bus: Arc<vm_device::Bus>,
     // BusDevice::Serial
-    pub stdio_serial: Arc<Mutex<BusDevice>>,
+    pub stdio_serial: Arc<Mutex<SerialDevice>>,
     // BusDevice::I8042Device
-    pub i8042: Arc<Mutex<BusDevice>>,
+    pub i8042: Arc<Mutex<I8042Device>>,
 
     // Communication event on ports 1 & 3.
     pub com_evt_1_3: EventFdTrigger,
@@ -73,29 +72,26 @@ impl PortIODeviceManager {
 
     /// Create a new DeviceManager handling legacy devices (uart, i8042).
     pub fn new(
-        serial: Arc<Mutex<BusDevice>>,
-        i8042_reset_evfd: EventFd,
+        stdio_serial: Arc<Mutex<SerialDevice>>,
+        i8042: Arc<Mutex<I8042Device>>,
     ) -> Result<Self, LegacyDeviceError> {
-        debug_assert!(matches!(*serial.lock().unwrap(), BusDevice::Serial(_)));
-        let io_bus = crate::devices::Bus::new();
-        let com_evt_1_3 = serial
+        let io_bus = Arc::new(vm_device::Bus::new());
+        let com_evt_1_3 = stdio_serial
             .lock()
             .expect("Poisoned lock")
-            .serial_mut()
-            .unwrap()
             .serial
             .interrupt_evt()
             .try_clone()?;
         let com_evt_2_4 = EventFdTrigger::new(EventFd::new(EFD_NONBLOCK)?);
-        let kbd_evt = EventFd::new(libc::EFD_NONBLOCK)?;
-
-        let i8042 = Arc::new(Mutex::new(BusDevice::I8042Device(
-            crate::devices::legacy::I8042Device::new(i8042_reset_evfd, kbd_evt.try_clone()?),
-        )));
+        let kbd_evt = i8042
+            .lock()
+            .expect("Poisoned lock")
+            .kbd_interrupt_evt
+            .try_clone()?;
 
         Ok(PortIODeviceManager {
             io_bus,
-            stdio_serial: serial,
+            stdio_serial,
             i8042,
             com_evt_1_3,
             com_evt_2_4,
@@ -105,7 +101,7 @@ impl PortIODeviceManager {
 
     /// Register supported legacy devices.
     pub fn register_devices(&mut self, vm_fd: &VmFd) -> Result<(), LegacyDeviceError> {
-        let serial_2_4 = Arc::new(Mutex::new(BusDevice::Serial(SerialDevice {
+        let serial_2_4 = Arc::new(Mutex::new(SerialDevice {
             serial: Serial::with_events(
                 self.com_evt_2_4.try_clone()?.try_clone()?,
                 SerialEventsWrapper {
@@ -114,8 +110,8 @@ impl PortIODeviceManager {
                 SerialOut::Sink(std::io::sink()),
             ),
             input: None,
-        })));
-        let serial_1_3 = Arc::new(Mutex::new(BusDevice::Serial(SerialDevice {
+        }));
+        let serial_1_3 = Arc::new(Mutex::new(SerialDevice {
             serial: Serial::with_events(
                 self.com_evt_1_3.try_clone()?.try_clone()?,
                 SerialEventsWrapper {
@@ -124,7 +120,7 @@ impl PortIODeviceManager {
                 SerialOut::Sink(std::io::sink()),
             ),
             input: None,
-        })));
+        }));
         self.io_bus.insert(
             self.stdio_serial.clone(),
             Self::SERIAL_PORT_ADDRESSES[0],
@@ -251,7 +247,7 @@ mod tests {
         let (_, vm) = setup_vm_with_memory(0x1000);
         vm.setup_irqchip().unwrap();
         let mut ldm = PortIODeviceManager::new(
-            Arc::new(Mutex::new(BusDevice::Serial(SerialDevice {
+            Arc::new(Mutex::new(SerialDevice {
                 serial: Serial::with_events(
                     EventFdTrigger::new(EventFd::new(EFD_NONBLOCK).unwrap()),
                     SerialEventsWrapper {
@@ -260,8 +256,11 @@ mod tests {
                     SerialOut::Sink(std::io::sink()),
                 ),
                 input: None,
-            }))),
-            EventFd::new(libc::EFD_NONBLOCK).unwrap(),
+            })),
+            Arc::new(Mutex::new(I8042Device::new(
+                EventFd::new(libc::EFD_NONBLOCK).unwrap(),
+                EventFd::new(libc::EFD_NONBLOCK).unwrap(),
+            ))),
         )
         .unwrap();
         ldm.register_devices(vm.fd()).unwrap();
