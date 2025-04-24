@@ -124,6 +124,7 @@ use std::time::Duration;
 use device_manager::acpi::ACPIDeviceManager;
 use device_manager::resources::ResourceAllocator;
 use devices::acpi::vmgenid::VmGenIdError;
+use devices::virtio::device::VirtioDevice;
 use event_manager::{EventManager as BaseEventManager, EventOps, Events, MutEventSubscriber};
 use seccomp::BpfProgram;
 use userfaultfd::Uffd;
@@ -133,7 +134,6 @@ use vmm_sys_util::terminal::Terminal;
 use vstate::kvm::Kvm;
 use vstate::vcpu::{self, StartThreadedError, VcpuSendEventError};
 
-use crate::arch::DeviceType;
 use crate::cpu_config::templates::CpuConfiguration;
 #[cfg(target_arch = "x86_64")]
 use crate::device_manager::legacy::PortIODeviceManager;
@@ -340,12 +340,16 @@ impl Vmm {
     }
 
     /// Gets the specified bus device.
-    pub fn get_bus_device(
+    pub fn get_virtio_device(
         &self,
-        device_type: DeviceType,
+        device_type: u32,
         device_id: &str,
-    ) -> Option<&Mutex<devices::bus::BusDevice>> {
-        self.mmio_device_manager.get_device(device_type, device_id)
+    ) -> Option<Arc<Mutex<dyn VirtioDevice>>> {
+        let device = self
+            .mmio_device_manager
+            .get_virtio_device(device_type, device_id)?;
+
+        Some(device.inner.lock().expect("Poisoned lock").device().clone())
     }
 
     /// Starts the microVM vcpus.
@@ -450,20 +454,14 @@ impl Vmm {
 
         #[cfg(target_arch = "aarch64")]
         {
-            let serial_bus_device = self.get_bus_device(DeviceType::Serial, "Serial");
-            if serial_bus_device.is_none() {
-                return Ok(());
-            }
-            let mut serial_device_locked =
-                serial_bus_device.unwrap().lock().expect("Poisoned lock");
-            let serial = serial_device_locked
-                .serial_mut()
-                .expect("Unexpected BusDeviceType");
+            if let Some(device) = &self.mmio_device_manager.serial {
+                let mut device_locked = device.inner.lock().expect("Poisoned lock");
 
-            serial
-                .serial
-                .write(IER_RDA_OFFSET, IER_RDA_BIT)
-                .map_err(|_| EmulateSerialInitError(std::io::Error::last_os_error()))?;
+                device_locked
+                    .serial
+                    .write(IER_RDA_OFFSET, IER_RDA_BIT)
+                    .map_err(|_| EmulateSerialInitError(std::io::Error::last_os_error()))?;
+            }
             Ok(())
         }
 
@@ -644,15 +642,7 @@ impl Vmm {
 
     /// Returns a reference to the balloon device if present.
     pub fn balloon_config(&self) -> Result<BalloonConfig, BalloonError> {
-        if let Some(busdev) = self.get_bus_device(DeviceType::Virtio(TYPE_BALLOON), BALLOON_DEV_ID)
-        {
-            let virtio_device = busdev
-                .lock()
-                .expect("Poisoned lock")
-                .mmio_transport_ref()
-                .expect("Unexpected device type")
-                .device();
-
+        if let Some(virtio_device) = self.get_virtio_device(TYPE_BALLOON, BALLOON_DEV_ID) {
             let config = virtio_device
                 .lock()
                 .expect("Poisoned lock")
@@ -669,15 +659,7 @@ impl Vmm {
 
     /// Returns the latest balloon statistics if they are enabled.
     pub fn latest_balloon_stats(&self) -> Result<BalloonStats, BalloonError> {
-        if let Some(busdev) = self.get_bus_device(DeviceType::Virtio(TYPE_BALLOON), BALLOON_DEV_ID)
-        {
-            let virtio_device = busdev
-                .lock()
-                .expect("Poisoned lock")
-                .mmio_transport_ref()
-                .expect("Unexpected device type")
-                .device();
-
+        if let Some(virtio_device) = self.get_virtio_device(TYPE_BALLOON, BALLOON_DEV_ID) {
             let latest_stats = virtio_device
                 .lock()
                 .expect("Poisoned lock")
@@ -702,16 +684,8 @@ impl Vmm {
             return Err(BalloonError::TooManyPagesRequested);
         }
 
-        if let Some(busdev) = self.get_bus_device(DeviceType::Virtio(TYPE_BALLOON), BALLOON_DEV_ID)
-        {
+        if let Some(virtio_device) = self.get_virtio_device(TYPE_BALLOON, BALLOON_DEV_ID) {
             {
-                let virtio_device = busdev
-                    .lock()
-                    .expect("Poisoned lock")
-                    .mmio_transport_ref()
-                    .expect("Unexpected device type")
-                    .device();
-
                 virtio_device
                     .lock()
                     .expect("Poisoned lock")
@@ -732,16 +706,8 @@ impl Vmm {
         &mut self,
         stats_polling_interval_s: u16,
     ) -> Result<(), BalloonError> {
-        if let Some(busdev) = self.get_bus_device(DeviceType::Virtio(TYPE_BALLOON), BALLOON_DEV_ID)
-        {
+        if let Some(virtio_device) = self.get_virtio_device(TYPE_BALLOON, BALLOON_DEV_ID) {
             {
-                let virtio_device = busdev
-                    .lock()
-                    .expect("Poisoned lock")
-                    .mmio_transport_ref()
-                    .expect("Unexpected device type")
-                    .device();
-
                 virtio_device
                     .lock()
                     .expect("Poisoned lock")
