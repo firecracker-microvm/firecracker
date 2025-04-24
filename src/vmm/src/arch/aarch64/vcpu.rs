@@ -11,6 +11,7 @@ use std::mem::offset_of;
 use kvm_bindings::*;
 use kvm_ioctls::{VcpuExit, VcpuFd, VmFd};
 use serde::{Deserialize, Serialize};
+use vm_memory::GuestAddress;
 
 use super::get_fdt_addr;
 use super::regs::*;
@@ -42,6 +43,8 @@ pub enum VcpuArchError {
     Fam(vmm_sys_util::fam::Error),
     /// {0}
     GetMidrEl1(String),
+    /// Failed to set/get device attributes for vCPU: {0}
+    DeviceAttribute(kvm_ioctls::Error),
 }
 
 /// Extract the Manufacturer ID from the host.
@@ -115,6 +118,8 @@ pub struct KvmVcpu {
     /// Vcpu peripherals, such as buses
     pub peripherals: Peripherals,
     kvi: kvm_vcpu_init,
+    /// IPA of steal_time region
+    pub pvtime_ipa: Option<GuestAddress>,
 }
 
 /// Vcpu peripherals
@@ -148,6 +153,7 @@ impl KvmVcpu {
             fd: kvm_vcpu,
             peripherals: Default::default(),
             kvi,
+            pvtime_ipa: None,
         })
     }
 
@@ -243,6 +249,8 @@ impl KvmVcpu {
         // the boot state and turned secondary vcpus on.
         state.kvi.features[0] &= !(1 << KVM_ARM_VCPU_POWER_OFF);
 
+        state.pvtime_ipa = self.pvtime_ipa.map(|guest_addr| guest_addr.0);
+
         Ok(state)
     }
 
@@ -276,6 +284,13 @@ impl KvmVcpu {
         }
         self.set_mpstate(state.mp_state)
             .map_err(KvmVcpuError::RestoreState)?;
+
+        // Assumes that steal time memory region was set up already
+        if let Some(pvtime_ipa) = state.pvtime_ipa {
+            self.enable_pvtime(GuestAddress(pvtime_ipa))
+                .map_err(KvmVcpuError::RestoreState)?;
+        }
+
         Ok(())
     }
 
@@ -439,6 +454,38 @@ impl KvmVcpu {
     pub fn set_mpstate(&self, state: kvm_mp_state) -> Result<(), VcpuArchError> {
         self.fd.set_mp_state(state).map_err(VcpuArchError::SetMp)
     }
+
+    /// Check if pvtime (steal time on ARM) is supported for vcpu
+    pub fn supports_pvtime(&self) -> bool {
+        let pvtime_device_attr = kvm_bindings::kvm_device_attr {
+            group: kvm_bindings::KVM_ARM_VCPU_PVTIME_CTRL,
+            attr: kvm_bindings::KVM_ARM_VCPU_PVTIME_IPA as u64,
+            addr: 0,
+            flags: 0,
+        };
+
+        // Use kvm_has_device_attr to check if PVTime is supported
+        self.fd.has_device_attr(&pvtime_device_attr).is_ok()
+    }
+
+    /// Enables pvtime for vcpu
+    pub fn enable_pvtime(&mut self, ipa: GuestAddress) -> Result<(), VcpuArchError> {
+        self.pvtime_ipa = Some(ipa);
+
+        // Use KVM syscall (kvm_set_device_attr) to register the vCPU with the steal_time region
+        let vcpu_device_attr = kvm_bindings::kvm_device_attr {
+            group: KVM_ARM_VCPU_PVTIME_CTRL,
+            attr: KVM_ARM_VCPU_PVTIME_IPA as u64,
+            addr: &ipa.0 as *const u64 as u64, // userspace address of attr data
+            flags: 0,
+        };
+
+        self.fd
+            .set_device_attr(&vcpu_device_attr)
+            .map_err(VcpuArchError::DeviceAttribute)?;
+
+        Ok(())
+    }
 }
 
 impl Peripherals {
@@ -467,6 +514,8 @@ pub struct VcpuState {
     pub mpidr: u64,
     /// kvi states for vcpu initialization.
     pub kvi: kvm_vcpu_init,
+    /// ipa for steal_time region
+    pub pvtime_ipa: Option<u64>,
 }
 
 impl Debug for VcpuState {
