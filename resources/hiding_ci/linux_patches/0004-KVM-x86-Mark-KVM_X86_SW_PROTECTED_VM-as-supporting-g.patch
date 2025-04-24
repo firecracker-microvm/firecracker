@@ -1,7 +1,7 @@
 From d16c343f0f95ecd8d2cda2dfba4ac8b7c293f217 Mon Sep 17 00:00:00 2001
 From: Fuad Tabba <tabba@google.com>
 Date: Tue, 18 Mar 2025 16:18:19 +0000
-Subject: [PATCH 04/34] KVM: x86: Mark KVM_X86_SW_PROTECTED_VM as supporting
+Subject: [PATCH 04/26] KVM: x86: Mark KVM_X86_SW_PROTECTED_VM as supporting
  guest_memfd shared memory
 
 The KVM_X86_SW_PROTECTED_VM type is meant for experimentation and

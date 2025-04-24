@@ -1,7 +1,7 @@
 From 9a4d7cd855d14e1522f363e3e04ebb9fa0a90ff0 Mon Sep 17 00:00:00 2001
 From: Fuad Tabba <tabba@google.com>
 Date: Tue, 18 Mar 2025 16:18:16 +0000
-Subject: [PATCH 02/34] KVM: guest_memfd: Handle final folio_put() of
+Subject: [PATCH 02/26] KVM: guest_memfd: Handle final folio_put() of
  guest_memfd pages
 
 Before transitioning a guest_memfd folio to unshared, thereby
