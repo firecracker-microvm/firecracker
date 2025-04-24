@@ -10,6 +10,9 @@ and this project adheres to
 
 ### Added
 
+- [#5139](https://github.com/firecracker-microvm/firecracker/pull/5139): Added
+  support for [PVTime](https://docs.kernel.org/virt/kvm/arm/pvtime.html). This
+  is used to support steal time on ARM machines.
 - [#5048](https://github.com/firecracker-microvm/firecracker/pull/5048): Added
   support for [PVH boot mode](docs/pvh.md). This is used when an x86 kernel
   provides the appropriate ELF Note to indicate that PVH boot mode is supported.
