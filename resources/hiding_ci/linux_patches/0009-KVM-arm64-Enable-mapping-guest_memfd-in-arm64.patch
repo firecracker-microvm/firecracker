@@ -1,7 +1,7 @@
 From 3cc51efc17a2c41a480eed36b31c1773936717e0 Mon Sep 17 00:00:00 2001
 From: Fuad Tabba <tabba@google.com>
 Date: Tue, 18 Mar 2025 16:18:22 +0000
-Subject: [PATCH 09/34] KVM: arm64: Enable mapping guest_memfd in arm64
+Subject: [PATCH 09/26] KVM: arm64: Enable mapping guest_memfd in arm64
 
 Enable mapping guest_memfd in arm64. For now, it applies to all
 VMs in arm64 that use guest_memfd. In the future, new VM types
