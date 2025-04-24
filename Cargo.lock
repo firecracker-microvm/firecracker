@@ -1655,6 +1655,7 @@ dependencies = [
  "utils",
  "vhost",
  "vm-allocator",
+ "vm-device",
  "vm-fdt",
  "vm-memory",
  "vm-superio",
