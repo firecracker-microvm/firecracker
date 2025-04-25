@@ -25,7 +25,7 @@ use crate::cpu_config::templates::StaticCpuTemplate;
 use crate::cpu_config::x86_64::cpuid::CpuidTrait;
 #[cfg(target_arch = "x86_64")]
 use crate::cpu_config::x86_64::cpuid::common::get_vendor_id_from_host;
-use crate::device_manager::persist::{ACPIDeviceManagerState, DevicePersistError, DeviceStates};
+use crate::device_manager::{DevicePersistError, DevicesState};
 use crate::logger::{info, warn};
 use crate::resources::VmResources;
 use crate::seccomp::BpfThreadMap;
@@ -81,9 +81,7 @@ pub struct MicrovmState {
     /// Vcpu states.
     pub vcpu_states: Vec<VcpuState>,
     /// Device states.
-    pub device_states: DeviceStates,
-    /// ACPI devices state.
-    pub acpi_dev_state: ACPIDeviceManagerState,
+    pub device_states: DevicesState,
 }
 
 /// This describes the mapping between Firecracker base virtual address and
@@ -118,7 +116,7 @@ pub enum MicrovmStateError {
     /// Operation not allowed: {0}
     NotAllowed(String),
     /// Cannot restore devices: {0}
-    RestoreDevices(DevicePersistError),
+    RestoreDevices(#[from] DevicePersistError),
     /// Cannot save Vcpu state: {0}
     SaveVcpuState(vstate::vcpu::VcpuError),
     /// Cannot save Vm state: {0}
@@ -171,7 +169,8 @@ pub fn create_snapshot(
     // SAFETY:
     // This should never fail as we only mark pages only if device has already been activated,
     // and the address validation was already performed on device activation.
-    vmm.mmio_device_manager
+    vmm.device_manager
+        .mmio_devices
         .for_each_virtio_device(|_, _, device| {
             let mmio_dev_locked = device.inner.lock().expect("Poisoned lock");
             let mut d = mmio_dev_locked.locked_device();
@@ -335,7 +334,7 @@ pub fn restore_from_snapshot(
 ) -> Result<Arc<Mutex<Vmm>>, RestoreFromSnapshotError> {
     let mut microvm_state = snapshot_state_from_file(&params.snapshot_path)?;
     for entry in &params.network_overrides {
-        let net_devices = &mut microvm_state.device_states.net_devices;
+        let net_devices = &mut microvm_state.device_states.mmio_state.net_devices;
         if let Some(device) = net_devices
             .iter_mut()
             .find(|x| x.device_state.id == entry.iface_id)
@@ -600,7 +599,6 @@ mod tests {
     #[cfg(target_arch = "aarch64")]
     use crate::construct_kvm_mpidrs;
     use crate::devices::virtio::block::CacheType;
-    use crate::snapshot::Persist;
     use crate::vmm_config::balloon::BalloonDeviceConfig;
     use crate::vmm_config::net::NetworkInterfaceConfig;
     use crate::vmm_config::vsock::tests::default_config;
@@ -661,14 +659,14 @@ mod tests {
     #[test]
     fn test_microvm_state_snapshot() {
         let vmm = default_vmm_with_devices();
-        let states = vmm.mmio_device_manager.save();
+        let states = vmm.device_manager.save();
 
         // Only checking that all devices are saved, actual device state
         // is tested by that device's tests.
-        assert_eq!(states.block_devices.len(), 1);
-        assert_eq!(states.net_devices.len(), 1);
-        assert!(states.vsock_device.is_some());
-        assert!(states.balloon_device.is_some());
+        assert_eq!(states.mmio_state.block_devices.len(), 1);
+        assert_eq!(states.mmio_state.net_devices.len(), 1);
+        assert!(states.mmio_state.vsock_device.is_some());
+        assert!(states.mmio_state.balloon_device.is_some());
 
         let vcpu_states = vec![VcpuState::default()];
         #[cfg(target_arch = "aarch64")]
@@ -685,7 +683,6 @@ mod tests {
             vm_state: vmm.vm.save_state(&mpidrs).unwrap(),
             #[cfg(target_arch = "x86_64")]
             vm_state: vmm.vm.save_state().unwrap(),
-            acpi_dev_state: vmm.acpi_device_manager.save(),
         };
 
         let mut buf = vec![0; 10000];
@@ -696,8 +693,8 @@ mod tests {
 
         assert_eq!(restored_microvm_state.vm_info, microvm_state.vm_info);
         assert_eq!(
-            restored_microvm_state.device_states,
-            microvm_state.device_states
+            restored_microvm_state.device_states.mmio_state,
+            microvm_state.device_states.mmio_state
         )
     }
 
