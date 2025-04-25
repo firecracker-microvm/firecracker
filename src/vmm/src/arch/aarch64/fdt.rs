@@ -559,7 +559,7 @@ mod tests {
         let mut event_manager = EventManager::new().unwrap();
         let mut device_manager = default_device_manager();
         let kvm = Kvm::new(vec![]).unwrap();
-        let vm = Vm::new(&kvm).unwrap();
+        let vm = Vm::new(&kvm, false).unwrap();
         let gic = create_gic(vm.fd(), 1, None).unwrap();
         let mut cmdline = kernel_cmdline::Cmdline::new(4096).unwrap();
         cmdline.insert("console", "/dev/tty0").unwrap();
@@ -589,7 +589,7 @@ mod tests {
         let mem = arch_mem(layout::FDT_MAX_SIZE + 0x1000);
         let device_manager = default_device_manager();
         let kvm = Kvm::new(vec![]).unwrap();
-        let vm = Vm::new(&kvm).unwrap();
+        let vm = Vm::new(&kvm, false).unwrap();
         let gic = create_gic(vm.fd(), 1, None).unwrap();
 
         let saved_dtb_bytes = match gic.fdt_compatibility() {
@@ -646,7 +646,7 @@ mod tests {
         let mem = arch_mem(layout::FDT_MAX_SIZE + 0x1000);
         let device_manager = default_device_manager();
         let kvm = Kvm::new(vec![]).unwrap();
-        let vm = Vm::new(&kvm).unwrap();
+        let vm = Vm::new(&kvm, false).unwrap();
         let gic = create_gic(vm.fd(), 1, None).unwrap();
 
         let saved_dtb_bytes = match gic.fdt_compatibility() {

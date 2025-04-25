@@ -33,8 +33,8 @@ pub enum ArchVmError {
 
 impl ArchVm {
     /// Create a new `Vm` struct.
-    pub fn new(kvm: &Kvm) -> Result<ArchVm, VmError> {
-        let common = Self::create_common(kvm)?;
+    pub fn new(kvm: &Kvm, secret_free: bool) -> Result<ArchVm, VmError> {
+        let common = Self::create_common(kvm, secret_free)?;
         Ok(ArchVm {
             common,
             irqchip_handle: None,
