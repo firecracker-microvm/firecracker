@@ -32,7 +32,7 @@ pub mod xstate;
 pub mod generated;
 
 use std::cmp::max;
-use std::fs::File;
+use std::io::{Read, Seek};
 
 use super::EntryPoint;
 use crate::acpi::create_acpi_tables;
@@ -68,7 +68,7 @@ use linux_loader::loader::elf::start_info::{
 use linux_loader::loader::{
     Cmdline, Error as KernelLoaderError, KernelLoader, PvhBootCapability, load_cmdline,
 };
-use vm_memory::GuestMemoryBackend;
+use vm_memory::{GuestMemoryBackend, ReadVolatile};
 
 // Value taken from https://elixir.bootlin.com/linux/v5.10.68/source/arch/x86/include/uapi/asm/e820.h#L31
 // Usable normal RAM
@@ -451,16 +451,10 @@ const BZIMAGE_64BIT_ENTRY_OFFSET: u64 = 0x200;
 ///
 /// Supports uncompressed ELF (`vmlinux`) and `bzImage`; ELF is tried
 /// first, falling back to the bzImage loader.
-pub fn load_kernel(
-    kernel: &File,
+pub fn load_kernel<R: Read + ReadVolatile + Seek>(
+    mut kernel_file: R,
     guest_memory: &GuestMemoryMmap,
 ) -> Result<EntryPoint, ConfigurationError> {
-    // Need to clone the File because reading from it
-    // mutates it.
-    let mut kernel_file = kernel
-        .try_clone()
-        .map_err(|_| ConfigurationError::KernelFile)?;
-
     let highmem_start = Some(GuestAddress(get_kernel_start()));
 
     // Try to load the image as an ELF (vmlinux); if it has no ELF magic,
