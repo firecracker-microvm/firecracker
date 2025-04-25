@@ -169,7 +169,7 @@ pub fn build_microvm_for_boot(
     let kvm = Kvm::new(cpu_template.kvm_capabilities.clone())?;
     // Set up Kvm Vm and register memory regions.
     // Build custom CPU config if a custom template is provided.
-    let mut vm = Vm::new(&kvm)?;
+    let mut vm = Vm::new(&kvm, vm_resources.machine_config.secret_free)?;
     let (mut vcpus, vcpus_exit_evt) = vm.create_vcpus(vm_resources.machine_config.vcpu_count)?;
     vm.register_memory_regions(guest_memory)?;
 
@@ -180,7 +180,7 @@ pub fn build_microvm_for_boot(
     let entry_point = load_kernel(
         MaybeBounce::<_, 4096>::new_persistent(
             boot_config.kernel_file.try_clone().unwrap(),
-            vm_resources.machine_config.secret_free,
+            vm.secret_free(),
         ),
         vm.guest_memory(),
     )?;
@@ -193,10 +193,7 @@ pub fn build_microvm_for_boot(
 
             Some(InitrdConfig::from_reader(
                 vm.guest_memory(),
-                MaybeBounce::<_, 4096>::new_persistent(
-                    initrd_file.as_fd(),
-                    vm_resources.machine_config.secret_free,
-                ),
+                MaybeBounce::<_, 4096>::new_persistent(initrd_file.as_fd(), vm.secret_free()),
                 u64_to_usize(size),
             )?)
         }
@@ -439,7 +436,7 @@ pub fn build_microvm_from_snapshot(
         .map_err(StartMicrovmError::Kvm)?;
     // Set up Kvm Vm and register memory regions.
     // Build custom CPU config if a custom template is provided.
-    let mut vm = Vm::new(&kvm).map_err(StartMicrovmError::Vm)?;
+    let mut vm = Vm::new(&kvm, false).map_err(StartMicrovmError::Vm)?;
 
     let (mut vcpus, vcpus_exit_evt) = vm
         .create_vcpus(vm_resources.machine_config.vcpu_count)
