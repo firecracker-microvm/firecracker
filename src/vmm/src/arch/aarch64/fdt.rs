@@ -576,7 +576,7 @@ mod tests {
         let mut event_manager = EventManager::new().unwrap();
         let mut device_manager = default_device_manager();
         let kvm = Kvm::new(vec![]).unwrap();
-        let vm = KvmVm::new(kvm).unwrap();
+        let vm = KvmVm::new(kvm, false).unwrap();
         let gic = create_gic(vm.fd(), 1, None).unwrap();
         let initrd = InitrdConfig {
             address: GuestAddress(0x1000_0000),
