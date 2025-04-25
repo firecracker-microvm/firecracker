@@ -5,6 +5,8 @@
 
 use std::fmt::Debug;
 use std::io;
+use std::os::fd::AsFd;
+use std::os::unix::fs::MetadataExt;
 #[cfg(feature = "gdb")]
 use std::sync::mpsc;
 use std::sync::{Arc, Mutex};
@@ -48,13 +50,14 @@ use crate::resources::VmResources;
 use crate::seccomp::BpfThreadMap;
 use crate::snapshot::Persist;
 use crate::utils::mib_to_bytes;
+use crate::utils::u64_to_usize;
 use crate::vmm_config::boot_source::{DEFAULT_KERNEL_CMDLINE, build_cmdline};
 use crate::vmm_config::instance_info::{InstanceInfo, VmState};
 use crate::vmm_config::machine_config::MachineConfigError;
 use crate::vmm_config::memory_hotplug::MemoryHotplugConfig;
 use crate::vmm_config::pmem::PmemConfig;
 use crate::vstate::kvm::{Kvm, KvmError};
-use crate::vstate::memory::GuestRegionMmap;
+use crate::vstate::memory::{GuestRegionMmap, MaybeBounce};
 #[cfg(target_arch = "aarch64")]
 use crate::vstate::resources::ResourceAllocator;
 use crate::vstate::vcpu::VcpuError;
@@ -210,8 +213,31 @@ pub fn build_microvm_for_boot(
     )?;
 
     let guest_memory = kvm_vm.guest_memory();
-    let entry_point = load_kernel(&boot_config.kernel_file, guest_memory)?;
-    let initrd = InitrdConfig::from_config(boot_config, guest_memory)?;
+    let entry_point = load_kernel(
+        MaybeBounce::<_, 4096>::new_persistent(
+            boot_config.kernel_file.try_clone().unwrap(),
+            vm_resources.machine_config.secret_free,
+        ),
+        guest_memory,
+    )?;
+    let initrd = match &boot_config.initrd_file {
+        Some(initrd_file) => {
+            let size = initrd_file
+                .metadata()
+                .map_err(InitrdError::Metadata)?
+                .size();
+
+            Some(InitrdConfig::from_reader(
+                guest_memory,
+                MaybeBounce::<_, 4096>::new_persistent(
+                    initrd_file.as_fd(),
+                    vm_resources.machine_config.secret_free,
+                ),
+                u64_to_usize(size),
+            )?)
+        }
+        None => None,
+    };
 
     if vm_resources.pci_enabled {
         device_manager.enable_pci(&kvm_vm)?;
