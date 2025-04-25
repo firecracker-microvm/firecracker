@@ -96,7 +96,7 @@ mod tests {
         let pmem = Pmem::new(config).unwrap();
         let guest_mem = default_mem();
         let kvm = Kvm::new(vec![]).unwrap();
-        let vm = Vm::new(&kvm).unwrap();
+        let vm = Vm::new(&kvm, false).unwrap();
 
         // Save the block device.
         let pmem_state = pmem.save();
