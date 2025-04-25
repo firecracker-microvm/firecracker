@@ -3,6 +3,7 @@
 """Performance benchmark for block device emulation."""
 
 import concurrent
+import glob
 import os
 import shutil
 from pathlib import Path
@@ -44,7 +45,7 @@ def prepare_microvm_for_test(microvm):
     check_output("echo 3 > /proc/sys/vm/drop_caches")
 
 
-def run_fio(microvm, mode, block_size):
+def run_fio(microvm, mode, block_size, fio_engine="libaio"):
     """Run a fio test in the specified mode with block size bs."""
     cmd = (
         CmdBuilder("fio")
@@ -59,7 +60,7 @@ def run_fio(microvm, mode, block_size):
         .with_arg("--randrepeat=0")
         .with_arg(f"--bs={block_size}")
         .with_arg(f"--size={BLOCK_DEVICE_SIZE_MB}M")
-        .with_arg("--ioengine=libaio")
+        .with_arg(f"--ioengine={fio_engine}")
         .with_arg("--iodepth=32")
         # Set affinity of the entire fio process to a set of vCPUs equal in size to number of workers
         .with_arg(
@@ -68,8 +69,8 @@ def run_fio(microvm, mode, block_size):
         # Instruct fio to pin one worker per vcpu
         .with_arg("--cpus_allowed_policy=split")
         .with_arg(f"--write_bw_log={mode}")
+        .with_arg(f"--write_lat_log={mode}")
         .with_arg("--log_avg_msec=1000")
-        .with_arg("--output-format=json+")
         .build()
     )
 
@@ -102,44 +103,57 @@ def run_fio(microvm, mode, block_size):
         return logs_path, cpu_load_future.result()
 
 
-def process_fio_logs(vm, fio_mode, logs_dir, metrics):
-    """Parses the fio logs in `{logs_dir}/{fio_mode}_bw.*.log and emits their contents as CloudWatch metrics"""
-
+def process_fio_log_files(logs_glob):
+    """Parses all fio log files matching the given glob and yields tuples of same-timestamp read and write metrics"""
     data = [
-        Path(f"{logs_dir}/{fio_mode}_bw.{job_id + 1}.log")
-        .read_text("UTF-8")
-        .splitlines()
-        for job_id in range(vm.vcpus_count)
+        Path(pathname).read_text("UTF-8").splitlines()
+        for pathname in glob.glob(logs_glob)
     ]
 
+    assert data, "no log files found!"
+
     for tup in zip(*data):
-        bw_read = 0
-        bw_write = 0
+        read_values = []
+        write_values = []
 
         for line in tup:
+            # See https://fio.readthedocs.io/en/latest/fio_doc.html#log-file-formats
             _, value, direction, _ = line.split(",", maxsplit=3)
             value = int(value.strip())
 
-            # See https://fio.readthedocs.io/en/latest/fio_doc.html#log-file-formats
             match direction.strip():
                 case "0":
-                    bw_read += value
+                    read_values.append(value)
                 case "1":
-                    bw_write += value
+                    write_values.append(value)
                 case _:
                     assert False
 
+        yield read_values, write_values
+
+
+def emit_fio_metrics(logs_dir, metrics):
+    """Parses the fio logs in `{logs_dir}/*_[clat|bw].*.log and emits their contents as CloudWatch metrics"""
+    for bw_read, bw_write in process_fio_log_files(f"{logs_dir}/*_bw.*.log"):
         if bw_read:
-            metrics.put_metric("bw_read", bw_read, "Kilobytes/Second")
+            metrics.put_metric("bw_read", sum(bw_read), "Kilobytes/Second")
         if bw_write:
-            metrics.put_metric("bw_write", bw_write, "Kilobytes/Second")
+            metrics.put_metric("bw_write", sum(bw_write), "Kilobytes/Second")
+
+    for lat_read, lat_write in process_fio_log_files(f"{logs_dir}/*_clat.*.log"):
+        # latency values in fio logs are in nanoseconds, but cloudwatch only supports
+        # microseconds as the more granular unit, so need to divide by 1000.
+        for value in lat_read:
+            metrics.put_metric("clat_read", value / 1000, "Microseconds")
+        for value in lat_write:
+            metrics.put_metric("clat_write", value / 1000, "Microseconds")
 
 
-@pytest.mark.timeout(120)
 @pytest.mark.nonci
 @pytest.mark.parametrize("vcpus", [1, 2], ids=["1vcpu", "2vcpu"])
 @pytest.mark.parametrize("fio_mode", ["randread", "randwrite"])
 @pytest.mark.parametrize("fio_block_size", [4096], ids=["bs4096"])
+@pytest.mark.parametrize("fio_engine", ["libaio", "psync"])
 def test_block_performance(
     microvm_factory,
     guest_kernel_acpi,
@@ -147,6 +161,7 @@ def test_block_performance(
     vcpus,
     fio_mode,
     fio_block_size,
+    fio_engine,
     io_engine,
     metrics,
 ):
@@ -170,15 +185,16 @@ def test_block_performance(
             "io_engine": io_engine,
             "fio_mode": fio_mode,
             "fio_block_size": str(fio_block_size),
+            "fio_engine": fio_engine,
             **vm.dimensions,
         }
     )
 
     vm.pin_threads(0)
 
-    logs_dir, cpu_util = run_fio(vm, fio_mode, fio_block_size)
+    logs_dir, cpu_util = run_fio(vm, fio_mode, fio_block_size, fio_engine)
 
-    process_fio_logs(vm, fio_mode, logs_dir, metrics)
+    emit_fio_metrics(logs_dir, metrics)
 
     for thread_name, values in cpu_util.items():
         for value in values:
@@ -218,6 +234,7 @@ def test_block_vhost_user_performance(
             "io_engine": "vhost-user",
             "fio_mode": fio_mode,
             "fio_block_size": str(fio_block_size),
+            "fio_engine": "libaio",
             **vm.dimensions,
         }
     )
@@ -227,7 +244,7 @@ def test_block_vhost_user_performance(
 
     logs_dir, cpu_util = run_fio(vm, fio_mode, fio_block_size)
 
-    process_fio_logs(vm, fio_mode, logs_dir, metrics)
+    emit_fio_metrics(logs_dir, metrics)
 
     for thread_name, values in cpu_util.items():
         for value in values:

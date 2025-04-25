@@ -16,20 +16,25 @@ from common import BKPipeline
 # the operating system sometimes uses it for book-keeping tasks. The memory node (-m parameter)
 # has to be the node associated with the NUMA node from which we picked CPUs.
 perf_test = {
-    "virtio-block": {
-        "label": "💿 Virtio Block Performance",
-        "test_path": "integration_tests/performance/test_block_ab.py::test_block_performance",
+    "virtio-block-sync": {
+        "label": "💿 Virtio Sync Block Performance",
+        "tests": "integration_tests/performance/test_block_ab.py::test_block_performance -k 'not Async'",
+        "devtool_opts": "-c 1-10 -m 0",
+    },
+    "virtio-block-async": {
+        "label": "💿 Virtio Async Block Performance",
+        "tests": "integration_tests/performance/test_block_ab.py::test_block_performance -k Async",
         "devtool_opts": "-c 1-10 -m 0",
     },
     "vhost-user-block": {
         "label": "💿 vhost-user Block Performance",
-        "test_path": "integration_tests/performance/test_block_ab.py::test_block_vhost_user_performance",
+        "tests": "integration_tests/performance/test_block_ab.py::test_block_vhost_user_performance",
         "devtool_opts": "-c 1-10 -m 0",
         "ab_opts": "--noise-threshold 0.1",
     },
     "network": {
         "label": "📠 Network Latency and Throughput",
-        "test_path": "integration_tests/performance/test_network_ab.py",
+        "tests": "integration_tests/performance/test_network_ab.py",
         "devtool_opts": "-c 1-10 -m 0",
         # Triggers if delta is > 0.01ms (10µs) or default relative threshold (5%)
         # only relevant for latency test, throughput test will always be magnitudes above this anyway
@@ -37,22 +42,22 @@ perf_test = {
     },
     "snapshot-latency": {
         "label": "📸 Snapshot Latency",
-        "test_path": "integration_tests/performance/test_snapshot_ab.py::test_restore_latency integration_tests/performance/test_snapshot_ab.py::test_post_restore_latency",
+        "tests": "integration_tests/performance/test_snapshot_ab.py::test_restore_latency integration_tests/performance/test_snapshot_ab.py::test_post_restore_latency",
         "devtool_opts": "-c 1-12 -m 0",
     },
     "population-latency": {
         "label": "📸 Memory Population Latency",
-        "test_path": "integration_tests/performance/test_snapshot_ab.py::test_population_latency",
+        "tests": "integration_tests/performance/test_snapshot_ab.py::test_population_latency",
         "devtool_opts": "-c 1-12 -m 0",
     },
     "vsock-throughput": {
         "label": "🧦 Vsock Throughput",
-        "test_path": "integration_tests/performance/test_vsock_ab.py",
+        "tests": "integration_tests/performance/test_vsock_ab.py",
         "devtool_opts": "-c 1-10 -m 0",
     },
     "memory-overhead": {
         "label": "💾 Memory Overhead and 👢 Boottime",
-        "test_path": "integration_tests/performance/test_memory_overhead.py integration_tests/performance/test_boottime.py::test_boottime",
+        "tests": "integration_tests/performance/test_memory_overhead.py integration_tests/performance/test_boottime.py::test_boottime",
         "devtool_opts": "-c 1-10 -m 0",
     },
 }
@@ -93,23 +98,21 @@ pipeline = BKPipeline(
 tests = [perf_test[test] for test in pipeline.args.test or perf_test.keys()]
 for test in tests:
     devtool_opts = test.pop("devtool_opts")
-    test_path = test.pop("test_path")
+    test_selector = test.pop("tests")
     ab_opts = test.pop("ab_opts", "")
     devtool_opts += " --performance"
-    pytest_opts = ""
+    test_script_opts = ""
     if REVISION_A:
         devtool_opts += " --ab"
-        pytest_opts = (
-            f"{ab_opts} run build/{REVISION_A}/ build/{REVISION_B} --test {test_path}"
-        )
+        test_script_opts = f'{ab_opts} run build/{REVISION_A}/ build/{REVISION_B} --pytest-opts "{test_selector}"'
     else:
         # Passing `-m ''` below instructs pytest to collect tests regardless of
         # their markers (e.g. it will collect both tests marked as nonci, and
         # tests without any markers).
-        pytest_opts += f" -m '' {test_path}"
+        test_script_opts += f" -m '' {test_selector}"
 
     pipeline.build_group(
-        command=pipeline.devtool_test(devtool_opts, pytest_opts),
+        command=pipeline.devtool_test(devtool_opts, test_script_opts),
         # and the rest can be command arguments
         **test,
     )
