@@ -51,8 +51,8 @@ pub enum KvmVmError {
 
 impl KvmVm {
     /// Create a new `KvmVm` struct.
-    pub fn new(kvm: Kvm) -> Result<KvmVm, VmError> {
-        let common = Self::create_common(kvm)?;
+    pub fn new(kvm: Kvm, secret_free: bool) -> Result<KvmVm, VmError> {
+        let common = Self::create_common(kvm, secret_free)?;
 
         // KVM gates writes to the implementation ID registers (MIDR_EL1,
         // REVIDR_EL1, AIDR_EL1) behind KVM_CAP_ARM_WRITABLE_IMP_ID_REGS,

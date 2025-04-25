@@ -71,8 +71,8 @@ pub struct KvmVm {
 
 impl KvmVm {
     /// Create a new `KvmVm` struct.
-    pub fn new(kvm: Kvm) -> Result<KvmVm, VmError> {
-        let common = Self::create_common(kvm)?;
+    pub fn new(kvm: Kvm, secret_free: bool) -> Result<KvmVm, VmError> {
+        let common = Self::create_common(kvm, secret_free)?;
         let msrs_to_save = common
             .kvm
             .msrs_to_save()
@@ -97,6 +97,10 @@ impl KvmVm {
             // SAFETY: Safe because negative values are handled above.
             ret => Some(usize::try_from(ret).unwrap()),
         };
+
+        if secret_free && !common.fd.check_extension(Cap::UserMemory2) {
+            return Err(VmError::UserMemory2NotSupported);
+        }
 
         common
             .fd
