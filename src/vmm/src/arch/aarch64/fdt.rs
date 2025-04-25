@@ -13,6 +13,7 @@ use vm_memory::GuestMemoryError;
 
 use super::cache_info::{CacheEntry, read_cache_config};
 use super::gic::GICDevice;
+use crate::device_manager::DeviceManager;
 use crate::device_manager::mmio::MMIODeviceInfo;
 use crate::devices::acpi::vmgenid::{VMGENID_MEM_SIZE, VmGenId};
 use crate::initrd::InitrdConfig;
@@ -59,11 +60,8 @@ pub fn create_fdt(
     guest_mem: &GuestMemoryMmap,
     vcpu_mpidr: Vec<u64>,
     cmdline: CString,
-    virtio_devices: Vec<&MMIODeviceInfo>,
-    rtc: Option<&MMIODeviceInfo>,
-    serial: Option<&MMIODeviceInfo>,
+    device_manager: &DeviceManager,
     gic_device: &GICDevice,
-    vmgenid: &Option<VmGenId>,
     initrd: &Option<InitrdConfig>,
 ) -> Result<Vec<u8>, FdtError> {
     // Allocate stuff necessary for storing the blob.
@@ -90,8 +88,8 @@ pub fn create_fdt(
     create_timer_node(&mut fdt_writer)?;
     create_clock_node(&mut fdt_writer)?;
     create_psci_node(&mut fdt_writer)?;
-    create_devices_node(&mut fdt_writer, virtio_devices, rtc, serial)?;
-    create_vmgenid_node(&mut fdt_writer, vmgenid)?;
+    create_devices_node(&mut fdt_writer, device_manager)?;
+    create_vmgenid_node(&mut fdt_writer, &device_manager.acpi_devices.vmgenid)?;
 
     // End Header node.
     fdt_writer.end_node(root)?;
@@ -412,21 +410,21 @@ fn create_rtc_node(fdt: &mut FdtWriter, dev_info: &MMIODeviceInfo) -> Result<(),
 
 fn create_devices_node(
     fdt: &mut FdtWriter,
-    mut virtio_devices: Vec<&MMIODeviceInfo>,
-    rtc: Option<&MMIODeviceInfo>,
-    serial: Option<&MMIODeviceInfo>,
+    device_manager: &DeviceManager,
 ) -> Result<(), FdtError> {
-    if let Some(device_info) = rtc {
-        create_rtc_node(fdt, device_info)?;
+    if let Some(rtc_info) = device_manager.mmio_devices.rtc_device_info() {
+        create_rtc_node(fdt, rtc_info)?;
     }
 
-    if let Some(device_info) = serial {
-        create_serial_node(fdt, device_info)?;
+    if let Some(serial_info) = device_manager.mmio_devices.serial_device_info() {
+        create_serial_node(fdt, serial_info)?;
     }
+
+    let mut virtio_mmio = device_manager.mmio_devices.virtio_device_info();
 
     // Sort out virtio devices by address from low to high and insert them into fdt table.
-    virtio_devices.sort_by_key(|a| a.addr);
-    for ordered_device_info in virtio_devices.drain(..) {
+    virtio_mmio.sort_by_key(|a| a.addr);
+    for ordered_device_info in virtio_mmio.drain(..) {
         create_virtio_node(fdt, ordered_device_info)?;
     }
 
@@ -436,17 +434,19 @@ fn create_devices_node(
 #[cfg(test)]
 mod tests {
     use std::ffi::CString;
+    use std::sync::{Arc, Mutex};
 
     use kvm_ioctls::Kvm;
+    use linux_loader::cmdline as kernel_cmdline;
 
     use super::*;
+    use crate::EventManager;
     use crate::arch::aarch64::gic::create_gic;
     use crate::arch::aarch64::layout;
-    use crate::device_manager::resources::ResourceAllocator;
+    use crate::device_manager::mmio::tests::DummyDevice;
+    use crate::device_manager::tests::default_device_manager;
     use crate::test_utils::arch_mem;
     use crate::vstate::memory::GuestAddress;
-
-    const LEN: u64 = 4096;
 
     // The `load` function from the `device_tree` will mistakenly check the actual size
     // of the buffer with the allocated size. This works around that.
@@ -460,35 +460,36 @@ mod tests {
     #[test]
     fn test_create_fdt_with_devices() {
         let mem = arch_mem(layout::FDT_MAX_SIZE + 0x1000);
-
-        let serial = MMIODeviceInfo {
-            addr: 0x00,
-            irq: Some(1u32),
-            len: LEN,
-        };
-        let virtio_device = MMIODeviceInfo {
-            addr: LEN,
-            irq: Some(2u32),
-            len: LEN,
-        };
-        let rtc = MMIODeviceInfo {
-            addr: 2 * LEN,
-            irq: Some(3u32),
-            len: LEN,
-        };
-
+        let mut event_manager = EventManager::new().unwrap();
+        let mut device_manager = default_device_manager();
         let kvm = Kvm::new().unwrap();
         let vm = kvm.create_vm().unwrap();
         let gic = create_gic(&vm, 1, None).unwrap();
+        let mut cmdline = kernel_cmdline::Cmdline::new(4096).unwrap();
+        cmdline.insert("console", "/dev/tty0").unwrap();
+
+        device_manager
+            .attach_legacy_devices_aarch64(&vm, &mut event_manager, &mut cmdline)
+            .unwrap();
+        let dummy = Arc::new(Mutex::new(DummyDevice::new()));
+        device_manager
+            .mmio_devices
+            .register_virtio_test_device(
+                &vm,
+                mem.clone(),
+                &mut device_manager.resource_allocator,
+                dummy,
+                &mut cmdline,
+                "dummy",
+            )
+            .unwrap();
+
         create_fdt(
             &mem,
             vec![0],
-            CString::new("console=tty0").unwrap(),
-            vec![&virtio_device],
-            Some(&rtc),
-            Some(&serial),
+            cmdline.as_cstring().unwrap(),
+            &device_manager,
             &gic,
-            &None,
             &None,
         )
         .unwrap();
@@ -497,20 +498,21 @@ mod tests {
     #[test]
     fn test_create_fdt_with_vmgenid() {
         let mem = arch_mem(layout::FDT_MAX_SIZE + 0x1000);
-        let mut resource_allocator = ResourceAllocator::new().unwrap();
-        let vmgenid = VmGenId::new(&mem, &mut resource_allocator).unwrap();
+        let mut device_manager = default_device_manager();
         let kvm = Kvm::new().unwrap();
         let vm = kvm.create_vm().unwrap();
         let gic = create_gic(&vm, 1, None).unwrap();
+        let mut cmdline = kernel_cmdline::Cmdline::new(4096).unwrap();
+        cmdline.insert("console", "/dev/tty0").unwrap();
+
+        device_manager.attach_vmgenid_device(&mem, &vm).unwrap();
+
         create_fdt(
             &mem,
             vec![0],
             CString::new("console=tty0").unwrap(),
-            Vec::new(),
-            None,
-            None,
+            &device_manager,
             &gic,
-            &Some(vmgenid),
             &None,
         )
         .unwrap();
@@ -519,6 +521,7 @@ mod tests {
     #[test]
     fn test_create_fdt() {
         let mem = arch_mem(layout::FDT_MAX_SIZE + 0x1000);
+        let device_manager = default_device_manager();
         let kvm = Kvm::new().unwrap();
         let vm = kvm.create_vm().unwrap();
         let gic = create_gic(&vm, 1, None).unwrap();
@@ -533,11 +536,8 @@ mod tests {
             &mem,
             vec![0],
             CString::new("console=tty0").unwrap(),
-            Vec::new(),
-            None,
-            None,
+            &device_manager,
             &gic,
-            &None,
             &None,
         )
         .unwrap();
@@ -578,6 +578,7 @@ mod tests {
     #[test]
     fn test_create_fdt_with_initrd() {
         let mem = arch_mem(layout::FDT_MAX_SIZE + 0x1000);
+        let device_manager = default_device_manager();
         let kvm = Kvm::new().unwrap();
         let vm = kvm.create_vm().unwrap();
         let gic = create_gic(&vm, 1, None).unwrap();
@@ -597,11 +598,8 @@ mod tests {
             &mem,
             vec![0],
             CString::new("console=tty0").unwrap(),
-            vec![],
-            None,
-            None,
+            &device_manager,
             &gic,
-            &None,
             &Some(initrd),
         )
         .unwrap();
