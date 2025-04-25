@@ -8,6 +8,14 @@ use crate::arch::aarch64::gic::GicState;
 use crate::vstate::memory::{GuestMemoryExtension, GuestMemoryState};
 use crate::vstate::vm::{VmCommon, VmError};
 
+/// The VM type for this architecture that allows us to use guest_memfd. On ARM, all VMs
+/// support guest_memfd and no special type is needed (in fact, no concept of vm types really
+/// exists, and the correspoding field of the CREATE_VM ioctl determines IPA size instead,
+/// e.g. the size of the guest physical address space. This value cannot be hardcoded, hence
+/// `None` to let the `Vm` constructor now that just normal [`Kvm::create_vm`] should be called,
+/// which internally determines the preferred IPA size.
+pub const VM_TYPE_FOR_SECRET_FREEDOM: Option<u64> = None;
+
 /// Structure representing the current architecture's understand of what a "virtual machine" is.
 #[derive(Debug)]
 pub struct ArchVm {
@@ -30,8 +38,8 @@ pub enum ArchVmError {
 
 impl ArchVm {
     /// Create a new `Vm` struct.
-    pub fn new(kvm: &Kvm) -> Result<ArchVm, VmError> {
-        let common = Self::create_common(kvm)?;
+    pub fn new(kvm: &Kvm, secret_free: bool) -> Result<ArchVm, VmError> {
+        let common = Self::create_common(kvm, secret_free)?;
         Ok(ArchVm {
             common,
             irqchip_handle: None,

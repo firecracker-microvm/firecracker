@@ -17,7 +17,7 @@ pub use aarch64::kvm::{Kvm, KvmArchError, OptionalCapabilities};
 #[cfg(target_arch = "aarch64")]
 pub use aarch64::vcpu::*;
 #[cfg(target_arch = "aarch64")]
-pub use aarch64::vm::{ArchVm, ArchVmError, VmState};
+pub use aarch64::vm::{ArchVm, ArchVmError, VM_TYPE_FOR_SECRET_FREEDOM, VmState};
 #[cfg(target_arch = "aarch64")]
 pub use aarch64::{
     ConfigurationError, MMIO_MEM_SIZE, MMIO_MEM_START, arch_memory_regions,
@@ -35,7 +35,7 @@ pub use x86_64::kvm::{Kvm, KvmArchError};
 #[cfg(target_arch = "x86_64")]
 pub use x86_64::vcpu::*;
 #[cfg(target_arch = "x86_64")]
-pub use x86_64::vm::{ArchVm, ArchVmError, VmState};
+pub use x86_64::vm::{ArchVm, ArchVmError, VM_TYPE_FOR_SECRET_FREEDOM, VmState};
 
 #[cfg(target_arch = "x86_64")]
 pub use crate::arch::x86_64::{
