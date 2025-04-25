@@ -604,7 +604,7 @@ pub(crate) mod tests {
         let start_addr2 = GuestAddress(0x1000);
         let guest_mem = multi_region_mem_raw(&[(start_addr1, 0x1000), (start_addr2, 0x1000)]);
         let kvm = Kvm::new(vec![]).expect("Cannot create Kvm");
-        let mut vm = KvmVm::new(kvm).unwrap();
+        let mut vm = KvmVm::new(kvm, false).unwrap();
         vm.register_dram_memory_regions(guest_mem).unwrap();
         let mut device_manager = MMIODeviceManager::new();
 
@@ -658,7 +658,7 @@ pub(crate) mod tests {
         let start_addr2 = GuestAddress(0x1000);
         let guest_mem = multi_region_mem_raw(&[(start_addr1, 0x1000), (start_addr2, 0x1000)]);
         let kvm = Kvm::new(vec![]).expect("Cannot create Kvm");
-        let mut vm = KvmVm::new(kvm).unwrap();
+        let mut vm = KvmVm::new(kvm, false).unwrap();
         vm.register_dram_memory_regions(guest_mem).unwrap();
         let mut device_manager = MMIODeviceManager::new();
 
@@ -714,7 +714,7 @@ pub(crate) mod tests {
         let start_addr2 = GuestAddress(0x1000);
         let guest_mem = multi_region_mem_raw(&[(start_addr1, 0x1000), (start_addr2, 0x1000)]);
         let kvm = Kvm::new(vec![]).expect("Cannot create Kvm");
-        let mut vm = KvmVm::new(kvm).unwrap();
+        let mut vm = KvmVm::new(kvm, false).unwrap();
         vm.register_dram_memory_regions(guest_mem).unwrap();
 
         #[cfg(target_arch = "x86_64")]
