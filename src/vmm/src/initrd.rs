@@ -1,14 +1,9 @@
 // Copyright 2025 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-use std::fs::File;
-use std::os::unix::fs::MetadataExt;
-
 use vm_memory::{GuestAddress, GuestMemory, ReadVolatile, VolatileMemoryError};
 
 use crate::arch::initrd_load_addr;
-use crate::utils::u64_to_usize;
-use crate::vmm_config::boot_source::BootConfig;
 use crate::vstate::memory::GuestMemoryMmap;
 
 /// Errors associated with initrd loading.
@@ -20,8 +15,6 @@ pub enum InitrdError {
     Load,
     /// Cannot image metadata: {0}
     Metadata(std::io::Error),
-    /// Cannot copy initrd file fd: {0}
-    CloneFd(std::io::Error),
     /// Cannot load initrd due to an invalid image: {0}
     Read(VolatileMemoryError),
 }
@@ -36,31 +29,20 @@ pub struct InitrdConfig {
 }
 
 impl InitrdConfig {
-    /// Load initrd into guest memory based on the boot config.
-    pub fn from_config(
-        boot_cfg: &BootConfig,
-        vm_memory: &GuestMemoryMmap,
-    ) -> Result<Option<Self>, InitrdError> {
-        Ok(match &boot_cfg.initrd_file {
-            Some(f) => {
-                let f = f.try_clone().map_err(InitrdError::CloneFd)?;
-                Some(Self::from_file(vm_memory, f)?)
-            }
-            None => None,
-        })
-    }
-
     /// Loads the initrd from a file into guest memory.
-    pub fn from_file(vm_memory: &GuestMemoryMmap, mut file: File) -> Result<Self, InitrdError> {
-        let size = file.metadata().map_err(InitrdError::Metadata)?.size();
-        let size = u64_to_usize(size);
+    pub fn from_reader<R: ReadVolatile>(
+        vm_memory: &GuestMemoryMmap,
+        mut reader: R,
+        size: usize,
+    ) -> Result<Self, InitrdError> {
         let Some(address) = initrd_load_addr(vm_memory, size) else {
             return Err(InitrdError::Address);
         };
         let mut slice = vm_memory
             .get_slice(GuestAddress(address), size)
             .map_err(|_| InitrdError::Load)?;
-        file.read_exact_volatile(&mut slice)
+        reader
+            .read_exact_volatile(&mut slice)
             .map_err(InitrdError::Read)?;
 
         Ok(InitrdConfig {
@@ -105,7 +87,7 @@ mod tests {
 
         // Need to reset the cursor to read initrd properly.
         tempfile.seek(SeekFrom::Start(0)).unwrap();
-        let initrd = InitrdConfig::from_file(&gm, tempfile).unwrap();
+        let initrd = InitrdConfig::from_reader(&gm, tempfile, image.len()).unwrap();
         assert!(gm.address_in_range(initrd.address));
         assert_eq!(initrd.size, image.len());
     }
@@ -120,7 +102,7 @@ mod tests {
 
         // Need to reset the cursor to read initrd properly.
         tempfile.seek(SeekFrom::Start(0)).unwrap();
-        let res = InitrdConfig::from_file(&gm, tempfile);
+        let res = InitrdConfig::from_reader(&gm, tempfile, image.len());
         assert!(matches!(res, Err(InitrdError::Address)), "{:?}", res);
     }
 
@@ -134,7 +116,7 @@ mod tests {
 
         // Need to reset the cursor to read initrd properly.
         tempfile.seek(SeekFrom::Start(0)).unwrap();
-        let res = InitrdConfig::from_file(&gm, tempfile);
+        let res = InitrdConfig::from_reader(&gm, tempfile, image.len());
         assert!(matches!(res, Err(InitrdError::Address)), "{:?}", res);
     }
 }
