@@ -6,7 +6,7 @@
 // found in the THIRD-PARTY file.
 
 use std::fs::File;
-use std::io::SeekFrom;
+use std::io::{Read, Seek, SeekFrom};
 use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
@@ -17,7 +17,10 @@ pub use vm_memory::{
     Address, ByteValued, Bytes, FileOffset, GuestAddress, GuestMemory, GuestMemoryRegion,
     GuestUsize, MemoryRegionAddress, MmapRegion, address,
 };
-use vm_memory::{Error as VmMemoryError, GuestMemoryError, WriteVolatile};
+use vm_memory::{
+    Error as VmMemoryError, GuestMemoryError, ReadVolatile, VolatileMemoryError, VolatileSlice,
+    WriteVolatile,
+};
 use vmm_sys_util::errno;
 
 use crate::DirtyBitmap;
@@ -48,6 +51,58 @@ pub enum MemoryError {
     MemfdSetLen(std::io::Error),
     /// Total sum of memory regions exceeds largest possible file offset
     OffsetTooLarge,
+}
+
+/// Newtype that implements [`ReadVolatile`] and [`WriteVolatile`] if `T` implements `Read` or
+/// `Write` respectively, by reading/writing using a bounce buffer, and memcpy-ing into the
+/// [`VolatileSlice`].
+#[derive(Debug)]
+pub struct MaybeBounce<T>(pub T, pub bool);
+
+impl<T: ReadVolatile> ReadVolatile for MaybeBounce<T> {
+    fn read_volatile<B: BitmapSlice>(
+        &mut self,
+        buf: &mut VolatileSlice<B>,
+    ) -> Result<usize, VolatileMemoryError> {
+        if self.1 {
+            let mut bbuf = vec![0; buf.len()];
+            let n = self
+                .0
+                .read_volatile(&mut VolatileSlice::from(bbuf.as_mut_slice()))?;
+            buf.copy_from(&bbuf[..n]);
+            Ok(n)
+        } else {
+            self.0.read_volatile(buf)
+        }
+    }
+}
+
+impl<T: WriteVolatile> WriteVolatile for MaybeBounce<T> {
+    fn write_volatile<B: BitmapSlice>(
+        &mut self,
+        buf: &VolatileSlice<B>,
+    ) -> Result<usize, VolatileMemoryError> {
+        if self.1 {
+            let mut bbuf = vec![0; buf.len()];
+            buf.copy_to(bbuf.as_mut_slice());
+            self.0
+                .write_volatile(&VolatileSlice::from(bbuf.as_mut_slice()))
+        } else {
+            self.0.write_volatile(buf)
+        }
+    }
+}
+
+impl<R: Read> Read for MaybeBounce<R> {
+    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+        self.0.read(buf)
+    }
+}
+
+impl<S: Seek> Seek for MaybeBounce<S> {
+    fn seek(&mut self, pos: SeekFrom) -> std::io::Result<u64> {
+        self.0.seek(pos)
+    }
 }
 
 /// Creates a `Vec` of `GuestRegionMmap` with the given configuration
@@ -346,6 +401,7 @@ mod tests {
 
     use std::collections::HashMap;
     use std::io::{Read, Seek};
+    use std::os::fd::AsFd;
 
     use vmm_sys_util::tempfile::TempFile;
 
@@ -721,5 +777,36 @@ mod tests {
         let mut seals = memfd::SealsHashSet::new();
         seals.insert(memfd::FileSeal::SealGrow);
         memfd.add_seals(&seals).unwrap_err();
+    }
+
+    #[test]
+    fn test_bounce() {
+        let file_direct = TempFile::new().unwrap();
+        let file_bounced = TempFile::new().unwrap();
+
+        let mut data = (0..=255).collect::<Vec<_>>();
+
+        MaybeBounce(file_direct.as_file().as_fd(), false)
+            .write_all_volatile(&VolatileSlice::from(data.as_mut_slice()))
+            .unwrap();
+        MaybeBounce(file_bounced.as_file().as_fd(), true)
+            .write_all_volatile(&VolatileSlice::from(data.as_mut_slice()))
+            .unwrap();
+
+        let mut data_direct = vec![0u8; 256];
+        let mut data_bounced = vec![0u8; 256];
+
+        file_direct.as_file().seek(SeekFrom::Start(0)).unwrap();
+        file_bounced.as_file().seek(SeekFrom::Start(0)).unwrap();
+
+        MaybeBounce(file_direct.as_file().as_fd(), false)
+            .read_exact_volatile(&mut VolatileSlice::from(data_direct.as_mut_slice()))
+            .unwrap();
+        MaybeBounce(file_bounced.as_file().as_fd(), true)
+            .read_exact_volatile(&mut VolatileSlice::from(data_bounced.as_mut_slice()))
+            .unwrap();
+
+        assert_eq!(data_direct, data_bounced);
+        assert_eq!(data_direct, data);
     }
 }
