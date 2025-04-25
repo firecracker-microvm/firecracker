@@ -19,8 +19,8 @@ use kvm_bindings::{
 use kvm_ioctls::{Cap, VmFd};
 use vmm_sys_util::eventfd::EventFd;
 
-use crate::arch::host_page_size;
 pub use crate::arch::{ArchVm as Vm, ArchVmError, VmState};
+use crate::arch::{VM_TYPE_FOR_SECRET_FREEDOM, host_page_size};
 use crate::logger::info;
 use crate::persist::CreateSnapshotError;
 use crate::utils::u64_to_usize;
@@ -39,6 +39,7 @@ pub struct VmCommon {
     max_memslots: usize,
     /// The guest memory of this Vm.
     pub guest_memory: GuestMemoryMmap,
+    secret_free: bool,
 }
 
 /// Errors associated with the wrappers over KVM ioctls.
@@ -69,7 +70,14 @@ pub enum VmError {
 /// Contains Vm functions that are usable across CPU architectures
 impl Vm {
     /// Create a KVM VM
-    pub fn create_common(kvm: &crate::vstate::kvm::Kvm) -> Result<VmCommon, VmError> {
+    pub fn create_common(
+        kvm: &crate::vstate::kvm::Kvm,
+        secret_free: bool,
+    ) -> Result<VmCommon, VmError> {
+        if secret_free && !kvm.fd.check_extension(Cap::GuestMemfd) {
+            return Err(VmError::GuestMemfdNotSupported);
+        }
+
         // It is known that KVM_CREATE_VM occasionally fails with EINTR on heavily loaded machines
         // with many VMs.
         //
@@ -93,7 +101,14 @@ impl Vm {
         const MAX_ATTEMPTS: u32 = 5;
         let mut attempt = 1;
         let fd = loop {
-            match kvm.fd.create_vm() {
+            let create_result = if secret_free && VM_TYPE_FOR_SECRET_FREEDOM.is_some() {
+                kvm.fd
+                    .create_vm_with_type(VM_TYPE_FOR_SECRET_FREEDOM.unwrap())
+            } else {
+                kvm.fd.create_vm()
+            };
+
+            match create_result {
                 Ok(fd) => break fd,
                 Err(e) if e.errno() == libc::EINTR && attempt < MAX_ATTEMPTS => {
                     info!("Attempt #{attempt} of KVM_CREATE_VM returned EINTR");
@@ -110,6 +125,7 @@ impl Vm {
             fd,
             max_memslots: kvm.max_nr_memslots(),
             guest_memory: GuestMemoryMmap::default(),
+            secret_free,
         })
     }
 
@@ -224,6 +240,11 @@ impl Vm {
         self.common.guest_memory = new_guest_memory;
 
         Ok(())
+    }
+
+    /// Whether this VM is secret free
+    pub fn secret_free(&self) -> bool {
+        self.common.secret_free
     }
 
     /// Gets a reference to the kvm file descriptor owned by this VM.
@@ -343,7 +364,7 @@ pub(crate) mod tests {
     // Auxiliary function being used throughout the tests.
     pub(crate) fn setup_vm() -> (Kvm, Vm) {
         let kvm = Kvm::new(vec![]).expect("Cannot create Kvm");
-        let vm = Vm::new(&kvm).expect("Cannot create new vm");
+        let vm = Vm::new(&kvm, false).expect("Cannot create new vm");
         (kvm, vm)
     }
 
@@ -359,7 +380,19 @@ pub(crate) mod tests {
     fn test_new() {
         // Testing with a valid /dev/kvm descriptor.
         let kvm = Kvm::new(vec![]).expect("Cannot create Kvm");
-        Vm::new(&kvm).unwrap();
+        Vm::new(&kvm, false).unwrap();
+    }
+
+    #[test]
+    fn test_new_secret_free() {
+        let kvm = Kvm::new(vec![]).unwrap();
+
+        if !kvm.fd.check_extension(Cap::GuestMemfd) {
+            return;
+        }
+
+        Vm::new(&kvm, true)
+            .expect("should be able to create secret free VMs if guest_memfd is supported");
     }
 
     #[test]
