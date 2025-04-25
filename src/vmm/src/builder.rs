@@ -5,6 +5,8 @@
 
 use std::fmt::Debug;
 use std::io;
+use std::os::fd::AsFd;
+use std::os::unix::fs::MetadataExt;
 #[cfg(feature = "gdb")]
 use std::sync::mpsc;
 use std::sync::{Arc, Mutex};
@@ -56,10 +58,11 @@ use crate::persist::{MicrovmState, MicrovmStateError};
 use crate::resources::VmResources;
 use crate::seccomp::BpfThreadMap;
 use crate::snapshot::Persist;
+use crate::utils::u64_to_usize;
 use crate::vmm_config::instance_info::InstanceInfo;
 use crate::vmm_config::machine_config::MachineConfigError;
 use crate::vstate::kvm::Kvm;
-use crate::vstate::memory::GuestRegionMmap;
+use crate::vstate::memory::{GuestRegionMmap, MaybeBounce};
 use crate::vstate::vcpu::{Vcpu, VcpuError};
 use crate::vstate::vm::Vm;
 use crate::{EventManager, Vmm, VmmError, device_manager};
@@ -242,8 +245,28 @@ pub fn build_microvm_for_boot(
         .register_memory_regions(guest_memory)
         .map_err(VmmError::Vm)?;
 
-    let entry_point = load_kernel(&boot_config.kernel_file, vmm.vm.guest_memory())?;
-    let initrd = InitrdConfig::from_config(boot_config, vmm.vm.guest_memory())?;
+    let entry_point = load_kernel(
+        MaybeBounce::new(
+            boot_config.kernel_file.try_clone().unwrap(),
+            vm_resources.machine_config.secret_free,
+        ),
+        vmm.vm.guest_memory(),
+    )?;
+    let initrd = match &boot_config.initrd_file {
+        Some(initrd_file) => {
+            let size = initrd_file
+                .metadata()
+                .map_err(InitrdError::Metadata)?
+                .size();
+
+            Some(InitrdConfig::from_reader(
+                vmm.vm.guest_memory(),
+                MaybeBounce::new(initrd_file.as_fd(), vm_resources.machine_config.secret_free),
+                u64_to_usize(size),
+            )?)
+        }
+        None => None,
+    };
 
     #[cfg(feature = "gdb")]
     let (gdb_tx, gdb_rx) = mpsc::channel();
