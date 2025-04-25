@@ -126,7 +126,6 @@ pub struct MMIODevice<T> {
 /// Manages the complexities of registering a MMIO device.
 #[derive(Debug)]
 pub struct MMIODeviceManager {
-    pub(crate) bus: Arc<vm_device::Bus>,
     /// VirtIO devices using an MMIO transport layer
     pub(crate) virtio_devices: HashMap<(u32, String), MMIODevice<MmioTransport>>,
     /// Boot timer device
@@ -152,7 +151,6 @@ impl MMIODeviceManager {
     /// Create a new DeviceManager handling mmio devices (virtio net, block).
     pub fn new() -> MMIODeviceManager {
         MMIODeviceManager {
-            bus: Arc::new(vm_device::Bus::new()),
             virtio_devices: HashMap::new(),
             boot_timer: None,
             #[cfg(target_arch = "aarch64")]
@@ -193,21 +191,20 @@ impl MMIODeviceManager {
         &mut self,
         vm: &VmFd,
         device_id: String,
-        mmio_device: MmioTransport,
-        device_info: &MMIODeviceInfo,
+        mmio_bus: &vm_device::Bus,
+        device: MMIODevice<MmioTransport>,
     ) -> Result<(), MmioError> {
         // Our virtio devices are currently hardcoded to use a single IRQ.
         // Validate that requirement.
-        let Some(irq) = device_info.irq else {
-            return Err(MmioError::InvalidIrqConfig);
-        };
+        let irq = device.resources.irq.ok_or(MmioError::InvalidIrqConfig)?;
         let identifier;
         {
+            let mmio_device = device.inner.lock().expect("Poisoned lock");
             let locked_device = mmio_device.locked_device();
             identifier = (locked_device.device_type(), device_id);
             for (i, queue_evt) in locked_device.queue_events().iter().enumerate() {
                 let io_addr = IoEventAddress::Mmio(
-                    device_info.addr + u64::from(crate::devices::virtio::NOTIFY_REG_OFFSET),
+                    device.resources.addr + u64::from(crate::devices::virtio::NOTIFY_REG_OFFSET),
                 );
                 vm.register_ioevent(queue_evt, &io_addr, u32::try_from(i).unwrap())
                     .map_err(MmioError::RegisterIoEvent)?;
@@ -216,16 +213,12 @@ impl MMIODeviceManager {
                 .map_err(MmioError::RegisterIrqFd)?;
         }
 
-        let device = Arc::new(Mutex::new(mmio_device));
-        self.bus
-            .insert(device.clone(), device_info.addr, device_info.len)?;
-        self.virtio_devices.insert(
-            identifier,
-            MMIODevice {
-                resources: *device_info,
-                inner: device,
-            },
-        );
+        mmio_bus.insert(
+            device.inner.clone(),
+            device.resources.addr,
+            device.resources.len,
+        )?;
+        self.virtio_devices.insert(identifier, device);
 
         Ok(())
     }
@@ -258,24 +251,29 @@ impl MMIODeviceManager {
         vm: &VmFd,
         resource_allocator: &mut ResourceAllocator,
         device_id: String,
+        mmio_bus: &vm_device::Bus,
         mmio_device: MmioTransport,
         _cmdline: &mut kernel_cmdline::Cmdline,
-    ) -> Result<MMIODeviceInfo, MmioError> {
-        let device_info = self.allocate_mmio_resources(resource_allocator, 1)?;
-        self.register_mmio_virtio(vm, device_id, mmio_device, &device_info)?;
+    ) -> Result<(), MmioError> {
+        let device = MMIODevice {
+            resources: self.allocate_mmio_resources(resource_allocator, 1)?,
+            inner: Arc::new(Mutex::new(mmio_device)),
+        };
+
         #[cfg(target_arch = "x86_64")]
         {
-            Self::add_virtio_device_to_cmdline(_cmdline, &device_info)?;
+            Self::add_virtio_device_to_cmdline(_cmdline, &device.resources)?;
             add_virtio_aml(
                 &mut self.dsdt_data,
-                device_info.addr,
-                device_info.len,
+                device.resources.addr,
+                device.resources.len,
                 // We are sure that `irqs` has at least one element; allocate_mmio_resources makes
                 // sure of it.
-                device_info.irq.unwrap(),
+                device.resources.irq.unwrap(),
             )?;
         }
-        Ok(device_info)
+        self.register_mmio_virtio(vm, device_id, mmio_bus, device)?;
+        Ok(())
     }
 
     #[cfg(target_arch = "aarch64")]
@@ -284,6 +282,7 @@ impl MMIODeviceManager {
     pub fn register_mmio_serial(
         &mut self,
         vm: &VmFd,
+        mmio_bus: &vm_device::Bus,
         resource_allocator: &mut ResourceAllocator,
         serial: Arc<Mutex<SerialDevice>>,
         device_info_opt: Option<MMIODeviceInfo>,
@@ -302,31 +301,35 @@ impl MMIODeviceManager {
         )
         .map_err(MmioError::RegisterIrqFd)?;
 
-        self.bus
-            .insert(serial.clone(), device_info.addr, device_info.len)?;
-        self.serial = Some(MMIODevice {
+        let device = MMIODevice {
             resources: device_info,
             inner: serial,
-        });
+        };
+
+        mmio_bus.insert(
+            device.inner.clone(),
+            device.resources.addr,
+            device.resources.len,
+        )?;
+
+        self.serial = Some(device);
         Ok(())
     }
 
     #[cfg(target_arch = "aarch64")]
     /// Append the registered early console to the kernel cmdline.
+    ///
+    /// This assumes that the device has been registered with the device manager.
     pub fn add_mmio_serial_to_cmdline(
         &self,
         cmdline: &mut kernel_cmdline::Cmdline,
     ) -> Result<(), MmioError> {
-        match &self.serial {
-            Some(device) => {
-                cmdline.insert(
-                    "earlycon",
-                    &format!("uart,mmio,0x{:08x}", device.resources.addr),
-                )?;
-                Ok(())
-            }
-            None => Err(MmioError::DeviceNotFound),
-        }
+        let device = self.serial.as_ref().unwrap();
+        cmdline.insert(
+            "earlycon",
+            &format!("uart,mmio,0x{:08x}", device.resources.addr),
+        )?;
+        Ok(())
     }
 
     #[cfg(target_arch = "aarch64")]
@@ -334,11 +337,11 @@ impl MMIODeviceManager {
     /// given as parameter, otherwise allocate a new MMIO resources for it.
     pub fn register_mmio_rtc(
         &mut self,
+        mmio_bus: &vm_device::Bus,
         resource_allocator: &mut ResourceAllocator,
-        rtc: RTCDevice,
+        rtc: Arc<Mutex<RTCDevice>>,
         device_info_opt: Option<MMIODeviceInfo>,
     ) -> Result<(), MmioError> {
-        let device = Arc::new(Mutex::new(rtc));
         // Create a new MMIODeviceInfo object on boot path or unwrap the
         // existing object on restore path.
         let device_info = if let Some(device_info) = device_info_opt {
@@ -347,32 +350,41 @@ impl MMIODeviceManager {
             self.allocate_mmio_resources(resource_allocator, 1)?
         };
 
-        self.bus
-            .insert(device.clone(), device_info.addr, device_info.len)?;
-        self.rtc = Some(MMIODevice {
+        let device = MMIODevice {
             resources: device_info,
-            inner: device,
-        });
+            inner: rtc,
+        };
 
+        mmio_bus.insert(
+            device.inner.clone(),
+            device.resources.addr,
+            device.resources.len,
+        )?;
+        self.rtc = Some(device);
         Ok(())
     }
 
     /// Register a boot timer device.
     pub fn register_mmio_boot_timer(
         &mut self,
+        mmio_bus: &vm_device::Bus,
         resource_allocator: &mut ResourceAllocator,
-        boot_timer: BootTimer,
+        boot_timer: Arc<Mutex<BootTimer>>,
     ) -> Result<(), MmioError> {
         // Attach a new boot timer device.
         let device_info = self.allocate_mmio_resources(resource_allocator, 0)?;
-
-        let device = Arc::new(Mutex::new(boot_timer));
-        self.bus
-            .insert(device.clone(), device_info.addr, device_info.len)?;
-        self.boot_timer = Some(MMIODevice {
+        let device = MMIODevice {
             resources: device_info,
-            inner: device,
-        });
+            inner: boot_timer,
+        };
+
+        mmio_bus.insert(
+            device.inner.clone(),
+            device.resources.addr,
+            device.resources.len,
+        )?;
+        self.boot_timer = Some(device);
+
         Ok(())
     }
 
@@ -516,7 +528,7 @@ impl MMIODeviceManager {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
 
     use std::ops::Deref;
     use std::sync::Arc;
@@ -537,7 +549,7 @@ mod tests {
     const QUEUE_SIZES: &[u16] = &[64];
 
     impl MMIODeviceManager {
-        fn register_virtio_test_device(
+        pub(crate) fn register_virtio_test_device(
             &mut self,
             vm: &VmFd,
             guest_mem: GuestMemoryMmap,
@@ -547,15 +559,21 @@ mod tests {
             dev_id: &str,
         ) -> Result<u64, MmioError> {
             let interrupt = Arc::new(IrqTrigger::new());
-            let mmio_device = MmioTransport::new(guest_mem, interrupt, device, false);
-            let device_info = self.register_mmio_virtio_for_boot(
+            let mmio_bus = vm_device::Bus::new();
+            let mmio_device = MmioTransport::new(guest_mem, interrupt, device.clone(), false);
+            self.register_mmio_virtio_for_boot(
                 vm,
                 resource_allocator,
                 dev_id.to_string(),
+                &mmio_bus,
                 mmio_device,
                 cmdline,
             )?;
-            Ok(device_info.addr)
+            Ok(self
+                .get_virtio_device(device.lock().unwrap().device_type(), dev_id)
+                .unwrap()
+                .resources
+                .addr)
         }
 
         #[cfg(target_arch = "x86_64")]
@@ -570,7 +588,7 @@ mod tests {
 
     #[allow(dead_code)]
     #[derive(Debug)]
-    struct DummyDevice {
+    pub(crate) struct DummyDevice {
         dummy: u32,
         queues: Vec<Queue>,
         queue_evts: [EventFd; 1],
