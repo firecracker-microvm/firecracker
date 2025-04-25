@@ -134,11 +134,8 @@ pub fn configure_system_for_boot(
         vmm.vm.guest_memory(),
         vcpu_mpidr,
         cmdline,
-        vmm.mmio_device_manager.virtio_device_info(),
-        vmm.mmio_device_manager.rtc_device_info(),
-        vmm.mmio_device_manager.serial_device_info(),
+        &vmm.device_manager,
         vmm.vm.get_irqchip(),
-        &vmm.acpi_device_manager.vmgenid,
         initrd,
     )?;
 

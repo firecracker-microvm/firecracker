@@ -33,7 +33,6 @@ pub enum LegacyDeviceError {
 /// The `LegacyDeviceManger` should be initialized only by using the constructor.
 #[derive(Debug)]
 pub struct PortIODeviceManager {
-    pub io_bus: Arc<vm_device::Bus>,
     // BusDevice::Serial
     pub stdio_serial: Arc<Mutex<SerialDevice>>,
     // BusDevice::I8042Device
@@ -75,7 +74,6 @@ impl PortIODeviceManager {
         stdio_serial: Arc<Mutex<SerialDevice>>,
         i8042: Arc<Mutex<I8042Device>>,
     ) -> Result<Self, LegacyDeviceError> {
-        let io_bus = Arc::new(vm_device::Bus::new());
         let com_evt_1_3 = stdio_serial
             .lock()
             .expect("Poisoned lock")
@@ -90,7 +88,6 @@ impl PortIODeviceManager {
             .try_clone()?;
 
         Ok(PortIODeviceManager {
-            io_bus,
             stdio_serial,
             i8042,
             com_evt_1_3,
@@ -100,7 +97,11 @@ impl PortIODeviceManager {
     }
 
     /// Register supported legacy devices.
-    pub fn register_devices(&mut self, vm_fd: &VmFd) -> Result<(), LegacyDeviceError> {
+    pub fn register_devices(
+        &mut self,
+        io_bus: &vm_device::Bus,
+        vm_fd: &VmFd,
+    ) -> Result<(), LegacyDeviceError> {
         let serial_2_4 = Arc::new(Mutex::new(SerialDevice {
             serial: Serial::with_events(
                 self.com_evt_2_4.try_clone()?.try_clone()?,
@@ -121,27 +122,27 @@ impl PortIODeviceManager {
             ),
             input: None,
         }));
-        self.io_bus.insert(
+        io_bus.insert(
             self.stdio_serial.clone(),
             Self::SERIAL_PORT_ADDRESSES[0],
             Self::SERIAL_PORT_SIZE,
         )?;
-        self.io_bus.insert(
+        io_bus.insert(
             serial_2_4.clone(),
             Self::SERIAL_PORT_ADDRESSES[1],
             Self::SERIAL_PORT_SIZE,
         )?;
-        self.io_bus.insert(
+        io_bus.insert(
             serial_1_3,
             Self::SERIAL_PORT_ADDRESSES[2],
             Self::SERIAL_PORT_SIZE,
         )?;
-        self.io_bus.insert(
+        io_bus.insert(
             serial_2_4,
             Self::SERIAL_PORT_ADDRESSES[3],
             Self::SERIAL_PORT_SIZE,
         )?;
-        self.io_bus.insert(
+        io_bus.insert(
             self.i8042.clone(),
             Self::I8042_KDB_DATA_REGISTER_ADDRESS,
             Self::I8042_KDB_DATA_REGISTER_SIZE,
@@ -245,6 +246,7 @@ mod tests {
     #[test]
     fn test_register_legacy_devices() {
         let (_, vm) = setup_vm_with_memory(0x1000);
+        let io_bus = vm_device::Bus::new();
         vm.setup_irqchip().unwrap();
         let mut ldm = PortIODeviceManager::new(
             Arc::new(Mutex::new(SerialDevice {
@@ -263,6 +265,6 @@ mod tests {
             ))),
         )
         .unwrap();
-        ldm.register_devices(vm.fd()).unwrap();
+        ldm.register_devices(&io_bus, vm.fd()).unwrap();
     }
 }

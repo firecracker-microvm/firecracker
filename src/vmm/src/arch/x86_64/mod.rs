@@ -205,7 +205,7 @@ pub fn configure_system_for_boot(
     // Note that this puts the mptable at the last 1k of Linux's 640k base RAM
     mptable::setup_mptable(
         vmm.vm.guest_memory(),
-        &mut vmm.resource_allocator,
+        &mut vmm.device_manager.resource_allocator,
         vcpu_config.vcpu_count,
     )
     .map_err(ConfigurationError::MpTableSetup)?;
@@ -226,13 +226,7 @@ pub fn configure_system_for_boot(
 
     // Create ACPI tables and write them in guest memory
     // For the time being we only support ACPI in x86_64
-    create_acpi_tables(
-        vmm.vm.guest_memory(),
-        &mut vmm.resource_allocator,
-        &vmm.mmio_device_manager,
-        &vmm.acpi_device_manager,
-        vcpus,
-    )?;
+    create_acpi_tables(vmm.vm.guest_memory(), &mut vmm.device_manager, vcpus)?;
     Ok(())
 }
 
