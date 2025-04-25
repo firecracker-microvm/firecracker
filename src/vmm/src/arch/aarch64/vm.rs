@@ -36,8 +36,8 @@ pub enum KvmVmError {
 
 impl KvmVm {
     /// Create a new `KvmVm` struct.
-    pub fn new(kvm: Kvm) -> Result<KvmVm, VmError> {
-        let common = Self::create_common(kvm)?;
+    pub fn new(kvm: Kvm, secret_free: bool) -> Result<KvmVm, VmError> {
+        let common = Self::create_common(kvm, secret_free)?;
         Ok(KvmVm {
             common,
             irqchip_handle: None,
