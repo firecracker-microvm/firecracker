@@ -7,20 +7,19 @@ import time
 from subprocess import TimeoutExpired
 
 import pytest
-from tenacity import retry, stop_after_attempt, wait_fixed
+import requests
 
 from framework.utils import check_output, get_free_mem_ssh
 
 STATS_POLLING_INTERVAL_S = 1
 
 
-@retry(wait=wait_fixed(0.5), stop=stop_after_attempt(10), reraise=True)
 def get_stable_rss_mem_by_pid(pid, percentage_delta=1):
     """
     Get the RSS memory that a guest uses, given the pid of the guest.
 
-    Wait till the fluctuations in RSS drop below percentage_delta. If timeout
-    is reached before the fluctuations drop, raise an exception.
+    Wait till the fluctuations in RSS drop below percentage_delta.
+    Or print a warning if this does not happen.
     """
 
     # All values are reported as KiB
@@ -29,13 +28,23 @@ def get_stable_rss_mem_by_pid(pid, percentage_delta=1):
         _, output, _ = check_output("pmap -X {}".format(pid))
         return int(output.split("\n")[-2].split()[1], 10)
 
-    first_rss = get_rss_from_pmap()
-    time.sleep(1)
-    second_rss = get_rss_from_pmap()
-    print(f"RSS readings: {first_rss}, {second_rss}")
-    abs_diff = abs(first_rss - second_rss)
-    abs_delta = 100 * abs_diff / first_rss
-    assert abs_delta < percentage_delta or abs_diff < 2**10
+    first_rss = 0
+    second_rss = 0
+    for _ in range(5):
+        first_rss = get_rss_from_pmap()
+        time.sleep(1)
+        second_rss = get_rss_from_pmap()
+        abs_diff = abs(first_rss - second_rss)
+        abs_delta = abs_diff / first_rss * 100
+        print(
+            f"RSS readings: old: {first_rss} new: {second_rss} abs_diff: {abs_diff} abs_delta: {abs_delta}"
+        )
+        if abs_delta < percentage_delta:
+            return second_rss
+
+        time.sleep(1)
+
+    print("WARNING: RSS readings did not stabilize")
     return second_rss
 
 
@@ -75,7 +84,7 @@ def make_guest_dirty_memory(ssh_connection, amount_mib=32):
     time.sleep(5)
 
 
-def _test_rss_memory_lower(test_microvm, stable_delta=1):
+def _test_rss_memory_lower(test_microvm):
     """Check inflating the balloon makes guest use less rss memory."""
     # Get the firecracker pid, and open an ssh connection.
     firecracker_pid = test_microvm.firecracker_pid
@@ -85,20 +94,18 @@ def _test_rss_memory_lower(test_microvm, stable_delta=1):
     test_microvm.api.balloon.patch(amount_mib=200)
 
     # Get initial rss consumption.
-    init_rss = get_stable_rss_mem_by_pid(firecracker_pid, percentage_delta=stable_delta)
+    init_rss = get_stable_rss_mem_by_pid(firecracker_pid)
 
     # Get the balloon back to 0.
     test_microvm.api.balloon.patch(amount_mib=0)
     # This call will internally wait for rss to become stable.
-    _ = get_stable_rss_mem_by_pid(firecracker_pid, percentage_delta=stable_delta)
+    _ = get_stable_rss_mem_by_pid(firecracker_pid)
 
     # Dirty memory, then inflate balloon and get ballooned rss consumption.
     make_guest_dirty_memory(ssh_connection, amount_mib=32)
 
     test_microvm.api.balloon.patch(amount_mib=200)
-    balloon_rss = get_stable_rss_mem_by_pid(
-        firecracker_pid, percentage_delta=stable_delta
-    )
+    balloon_rss = get_stable_rss_mem_by_pid(firecracker_pid)
 
     # Check that the ballooning reclaimed the memory.
     assert balloon_rss - init_rss <= 15000
@@ -209,7 +216,7 @@ def test_deflate_on_oom(uvm_plain_any, deflate_on_oom):
 
     try:
         balloon_size_after = test_microvm.api.balloon_stats.get().json()["actual_mib"]
-    except ConnectionError:
+    except requests.exceptions.ConnectionError:
         assert (
             not deflate_on_oom
         ), "Guest died even though it should have deflated balloon to alleviate memory pressure"

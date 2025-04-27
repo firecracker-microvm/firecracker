@@ -15,30 +15,31 @@ use vm_allocator::AllocPolicy;
 use super::acpi::ACPIDeviceManager;
 use super::mmio::*;
 use super::resources::ResourceAllocator;
+use crate::EventManager;
 #[cfg(target_arch = "aarch64")]
 use crate::arch::DeviceType;
 use crate::devices::acpi::vmgenid::{VMGenIDState, VMGenIdConstructorArgs, VmGenId, VmGenIdError};
 use crate::devices::virtio::balloon::persist::{BalloonConstructorArgs, BalloonState};
 use crate::devices::virtio::balloon::{Balloon, BalloonError};
+use crate::devices::virtio::block::BlockError;
 use crate::devices::virtio::block::device::Block;
 use crate::devices::virtio::block::persist::{BlockConstructorArgs, BlockState};
-use crate::devices::virtio::block::BlockError;
 use crate::devices::virtio::device::VirtioDevice;
 use crate::devices::virtio::mmio::MmioTransport;
+use crate::devices::virtio::net::Net;
 use crate::devices::virtio::net::persist::{
     NetConstructorArgs, NetPersistError as NetError, NetState,
 };
-use crate::devices::virtio::net::Net;
 use crate::devices::virtio::persist::{MmioTransportConstructorArgs, MmioTransportState};
+use crate::devices::virtio::rng::Entropy;
 use crate::devices::virtio::rng::persist::{
     EntropyConstructorArgs, EntropyPersistError as EntropyError, EntropyState,
 };
-use crate::devices::virtio::rng::Entropy;
 use crate::devices::virtio::vsock::persist::{
     VsockConstructorArgs, VsockState, VsockUdsConstructorArgs,
 };
 use crate::devices::virtio::vsock::{
-    Vsock, VsockError, VsockUnixBackend, VsockUnixBackendError, TYPE_VSOCK,
+    TYPE_VSOCK, Vsock, VsockError, VsockUnixBackend, VsockUnixBackendError,
 };
 use crate::devices::virtio::{TYPE_BALLOON, TYPE_BLOCK, TYPE_NET, TYPE_RNG};
 use crate::mmds::data_store::MmdsVersion;
@@ -46,7 +47,6 @@ use crate::resources::{ResourcesError, VmResources};
 use crate::snapshot::Persist;
 use crate::vmm_config::mmds::MmdsConfigError;
 use crate::vstate::memory::GuestMemoryMmap;
-use crate::EventManager;
 
 /// Errors for (de)serialization of the MMIO device manager.
 #[derive(Debug, thiserror::Error, displaydoc::Display)]
@@ -805,7 +805,7 @@ mod tests {
         let device_states: DeviceStates = Snapshot::deserialize(&mut buf.as_slice()).unwrap();
         let vm_resources = &mut VmResources::default();
         let restore_args = MMIODevManagerConstructorArgs {
-            mem: vmm.guest_memory(),
+            mem: vmm.vm.guest_memory(),
             vm: vmm.vm.fd(),
             event_manager: &mut event_manager,
             resource_allocator: &mut resource_allocator,

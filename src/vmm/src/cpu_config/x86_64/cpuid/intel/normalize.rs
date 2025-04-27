@@ -2,11 +2,11 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use crate::cpu_config::x86_64::cpuid::normalize::{
-    get_range, set_bit, set_range, CheckedAssignError,
+    CheckedAssignError, get_range, set_bit, set_range,
 };
 use crate::cpu_config::x86_64::cpuid::{
-    host_brand_string, CpuidKey, CpuidRegisters, CpuidTrait, MissingBrandStringLeaves,
-    BRAND_STRING_LENGTH,
+    BRAND_STRING_LENGTH, CpuidKey, CpuidRegisters, CpuidTrait, MissingBrandStringLeaves,
+    host_brand_string,
 };
 
 /// Error type for [`super::IntelCpuid::normalize`].
@@ -34,14 +34,14 @@ pub enum NormalizeCpuidError {
 #[allow(clippy::enum_variant_names)]
 #[derive(Debug, thiserror::Error, displaydoc::Display, Eq, PartialEq)]
 pub enum DeterministicCacheError {
-    /// Failed to set `Maximum number of addressable IDs for logical processors sharing this cache` due to underflow in cpu count.
-    MaxCpusPerCoreUnderflow,
-    /// Failed to set `Maximum number of addressable IDs for logical processors sharing this cache`: {0}.
-    MaxCpusPerCore(CheckedAssignError),
-    /// Failed to set `Maximum number of addressable IDs for processor cores in the physical package` due to underflow in cores.
-    MaxCorePerPackageUnderflow,
-    /// Failed to set `Maximum number of addressable IDs for processor cores in the physical package`: {0}.
+    /// Failed to set max addressable core ID in physical package (CPUID.04H:EAX[31:26]): {0}.
     MaxCorePerPackage(CheckedAssignError),
+    /// Failed to set max addressable core ID in physical package (CPUID.04H:EAX[31:26]) due to underflow in cores.
+    MaxCorePerPackageUnderflow,
+    /// Failed to set max addressable processor ID sharing cache (CPUID.04H:EAX[25:14]): {0}.
+    MaxCpusPerCore(CheckedAssignError),
+    /// Failed to set max addressable processor ID sharing cache (CPUID.04H:EAX[25:14]) due to underflow in cpu count.
+    MaxCpusPerCoreUnderflow,
 }
 
 /// We always use this brand string.
@@ -73,6 +73,7 @@ impl super::IntelCpuid {
         self.update_power_management_entry()?;
         self.update_extended_feature_flags_entry()?;
         self.update_performance_monitoring_entry()?;
+        self.update_extended_topology_v2_entry();
         self.update_brand_string_entry()?;
 
         Ok(())
@@ -97,18 +98,16 @@ impl super::IntelCpuid {
                     break;
                 }
 
+                // CPUID.04H:EAX[7:5]
                 // Cache Level (Starts at 1)
-                //
-                // cache_level: 5..8
-                let cache_level = get_range(subleaf.result.eax, 5..8);
+                let cache_level = get_range(subleaf.result.eax, 5..=7);
 
+                // CPUID.04H:EAX[25:14]
                 // Maximum number of addressable IDs for logical processors sharing this cache.
                 // - Add one to the return value to get the result.
                 // - The nearest power-of-2 integer that is not smaller than (1 + EAX[25:14]) is the
                 //   number of unique initial APIC IDs reserved for addressing different logical
                 //   processors sharing this cache.
-                //
-                // max_num_addressable_ids_for_logical_processors_sharing_this_cache: 14..26,
 
                 // We know `cpus_per_core > 0` therefore `cpus_per_core.checked_sub(1).unwrap()` is
                 // always safe.
@@ -118,7 +117,7 @@ impl super::IntelCpuid {
                     // The L1 & L2 cache is shared by at most 2 hyperthreads
                     1 | 2 => {
                         let sub = u32::from(cpus_per_core.checked_sub(1).unwrap());
-                        set_range(&mut subleaf.result.eax, 14..26, sub)
+                        set_range(&mut subleaf.result.eax, 14..=25, sub)
                             .map_err(DeterministicCacheError::MaxCpusPerCore)?;
                     }
                     // L3 Cache
@@ -129,7 +128,7 @@ impl super::IntelCpuid {
                                 .checked_sub(1)
                                 .ok_or(DeterministicCacheError::MaxCpusPerCoreUnderflow)?,
                         );
-                        set_range(&mut subleaf.result.eax, 14..26, sub)
+                        set_range(&mut subleaf.result.eax, 14..=25, sub)
                             .map_err(DeterministicCacheError::MaxCpusPerCore)?;
                     }
                     _ => (),
@@ -139,6 +138,7 @@ impl super::IntelCpuid {
                 #[allow(clippy::unwrap_used)]
                 let cores = cpu_count.checked_div(cpus_per_core).unwrap();
 
+                // CPUID.04H:EAX[31:26]
                 // Maximum number of addressable IDs for processor cores in the physical package.
                 // - Add one to the return value to get the result.
                 // - The nearest power-of-2 integer that is not smaller than (1 + EAX[31:26]) is the
@@ -146,14 +146,12 @@ impl super::IntelCpuid {
                 //   a physical package. Core ID is a subset of bits of the initial APIC ID.
                 // - The returned value is constant for valid initial values in ECX. Valid ECX
                 //   values start from 0.
-                //
-                // max_num_addressable_ids_for_processor_cores_in_physical_package: 26..32,
 
                 // Put all the cores in the same socket
                 let sub = u32::from(cores)
                     .checked_sub(1)
                     .ok_or(DeterministicCacheError::MaxCorePerPackageUnderflow)?;
-                set_range(&mut subleaf.result.eax, 26..32, sub)
+                set_range(&mut subleaf.result.eax, 26..=31, sub)
                     .map_err(DeterministicCacheError::MaxCorePerPackage)?;
             } else {
                 break;
@@ -168,16 +166,14 @@ impl super::IntelCpuid {
             .get_mut(&CpuidKey::leaf(0x6))
             .ok_or(NormalizeCpuidError::MissingLeaf6)?;
 
+        // CPUID.06H:EAX[1]
         // Intel Turbo Boost Technology available (see description of IA32_MISC_ENABLE[38]).
-        //
-        // intel_turbo_boost_technology: 1,
         set_bit(&mut leaf_6.result.eax, 1, false);
 
+        // CPUID.06H:ECX[3]
         // The processor supports performance-energy bias preference if CPUID.06H:ECX.SETBH[bit 3]
         // is set and it also implies the presence of a new architectural MSR called
         // IA32_ENERGY_PERF_BIAS (1B0H).
-        //
-        // performance_energy_bias: 3,
 
         // Clear X86 EPB feature. No frequency selection in the hypervisor.
         set_bit(&mut leaf_6.result.ecx, 3, false);
@@ -190,12 +186,55 @@ impl super::IntelCpuid {
             .get_mut(&CpuidKey::subleaf(0x7, 0))
             .ok_or(NormalizeCpuidError::MissingLeaf7)?;
 
-        // Set FDP_EXCPTN_ONLY bit (bit 6) and ZERO_FCS_FDS bit (bit 13) as recommended in kernel
-        // doc. These bits are reserved in AMD.
+        // Set the following bits as recommended in kernel doc. These bits are reserved in AMD.
+        // - CPUID.07H:EBX[6] (FDP_EXCPTN_ONLY)
+        // - CPUID.07H:EBX[13] (Deprecates FPU CS and FPU DS values)
         // https://lore.kernel.org/all/20220322110712.222449-3-pbonzini@redhat.com/
         // https://github.com/torvalds/linux/commit/45016721de3c714902c6f475b705e10ae0bdd801
         set_bit(&mut leaf_7_0.result.ebx, 6, true);
         set_bit(&mut leaf_7_0.result.ebx, 13, true);
+
+        // CPUID.(EAX=07H,ECX=0):ECX[5] (Mnemonic: WAITPKG)
+        //
+        // WAITPKG indicates support of user wait instructions (UMONITOR, UMWAIT and TPAUSE).
+        // - UMONITOR arms address monitoring hardware that checks for store operations on the
+        //   specified address range.
+        // - UMWAIT instructs the processor to enter an implementation-dependent optimized state
+        //   (either a light-weight power/performance optimized state (C0.1 idle state) or an
+        //   improved power/performance optimized state (C0.2 idle state)) while monitoring the
+        //   address range specified in UMONITOR. The instruction wakes up when the time-stamp
+        //   counter reaches or exceeds the implicit EDX:EAX 64-bit input value.
+        // - TPAUSE instructs the processor to enter an implementation-dependent optimized state.
+        //   The instruction wakes up when the time-stamp counter reaches or exceeds the implict
+        //   EDX:EAX 64-bit input value.
+        //
+        // These instructions may be executed at any privilege level. Even when UMWAIT/TPAUSE are
+        // executed within a guest, the *physical* processor enters the requested optimized state.
+        // See Intel SDM vol.3 for more details of the behavior of these instructions in VMX
+        // non-root operation.
+        //
+        // MONITOR/MWAIT instructions are the privileged variant of UMONITOR/UMWAIT and are
+        // unconditionally emulated as NOP by KVM.
+        // https://github.com/torvalds/linux/commit/87c00572ba05aa8c9db118da75c608f47eb10b9e
+        //
+        // When UMONITOR/UMWAIT/TPAUSE were initially introduced, KVM clears the WAITPKG CPUID bit
+        // in KVM_GET_SUPPORTED_CPUID by default, and KVM exposed them to guest only when VMM
+        // explicitly set the bit via KVM_SET_CPUID2 API.
+        // https://github.com/torvalds/linux/commit/e69e72faa3a0709dd23df6a4ca060a15e99168a1
+        // However, since v5.8, if the processor supports "enable user wait and pause" in Intel VMX,
+        // KVM_GET_SUPPORTED_CPUID sets the bit to 1 to let VMM know that it is available. So if the
+        // returned value is passed to KVM_SET_CPUID2 API as it is, guests are able to execute them.
+        // https://github.com/torvalds/linux/commit/0abcc8f65cc23b65bc8d1614cc64b02b1641ed7c
+        //
+        // Similar to MONITOR/MWAIT, we disable the guest's WAITPKG in order to prevent a guest from
+        // executing those instructions and putting a physical processor to an idle state which may
+        // lead to an overhead of waking it up when scheduling another guest on it. By clearing the
+        // WAITPKG bit in KVM_SET_CPUID2 API, KVM does not set the "enable user wait and pause" bit
+        // (bit 26) of the secondary processor-based VM-execution control, which makes guests get
+        // #UD when attempting to executing those instructions.
+        //
+        // Note that the WAITPKG bit is reserved on AMD.
+        set_bit(&mut leaf_7_0.result.ecx, 5, false);
 
         Ok(())
     }
@@ -212,6 +251,29 @@ impl super::IntelCpuid {
             edx: 0,
         };
         Ok(())
+    }
+
+    /// Update extended topology v2 entry
+    ///
+    /// CPUID leaf 1FH is a preferred superset to leaf 0xB. Intel recommends using leaf 0x1F when
+    /// available rather than leaf 0xB.
+    ///
+    /// Since we don't use any domains than ones supported in leaf 0xB, we just copy contents of
+    /// leaf 0xB to leaf 0x1F.
+    fn update_extended_topology_v2_entry(&mut self) {
+        // Skip if leaf 0x1F does not exist.
+        if self.get(&CpuidKey::leaf(0x1F)).is_none() {
+            return;
+        }
+
+        for index in 0.. {
+            if let Some(subleaf) = self.get(&CpuidKey::subleaf(0xB, index)) {
+                self.0
+                    .insert(CpuidKey::subleaf(0x1F, index), subleaf.clone());
+            } else {
+                break;
+            }
+        }
     }
 
     fn update_brand_string_entry(&mut self) -> Result<(), NormalizeCpuidError> {
@@ -335,9 +397,12 @@ mod tests {
         clippy::as_conversions
     )]
 
+    use std::collections::BTreeMap;
     use std::ffi::CStr;
 
     use super::*;
+    use crate::cpu_config::x86_64::cpuid::{CpuidEntry, IntelCpuid, KvmCpuidFlags};
+
     #[test]
     fn default_brand_string_test() {
         let brand_string = b"Intel(R) Xeon(R) Platinum 8275CL CPU @ 3.00GHz\0\0";
@@ -375,27 +440,129 @@ mod tests {
 
     #[test]
     fn test_update_extended_feature_flags_entry() {
-        let mut cpuid =
-            crate::cpu_config::x86_64::cpuid::IntelCpuid(std::collections::BTreeMap::from([(
-                crate::cpu_config::x86_64::cpuid::CpuidKey {
-                    leaf: 0x7,
-                    subleaf: 0,
-                },
-                crate::cpu_config::x86_64::cpuid::CpuidEntry {
-                    flags: crate::cpu_config::x86_64::cpuid::KvmCpuidFlags::SIGNIFICANT_INDEX,
-                    ..Default::default()
-                },
-            )]));
+        let mut cpuid = IntelCpuid(BTreeMap::from([(
+            CpuidKey {
+                leaf: 0x7,
+                subleaf: 0,
+            },
+            CpuidEntry {
+                flags: KvmCpuidFlags::SIGNIFICANT_INDEX,
+                ..Default::default()
+            },
+        )]));
 
         cpuid.update_extended_feature_flags_entry().unwrap();
 
         let leaf_7_0 = cpuid
-            .get(&crate::cpu_config::x86_64::cpuid::CpuidKey {
+            .get(&CpuidKey {
                 leaf: 0x7,
                 subleaf: 0,
             })
             .unwrap();
         assert!((leaf_7_0.result.ebx & (1 << 6)) > 0);
         assert!((leaf_7_0.result.ebx & (1 << 13)) > 0);
+        assert_eq!((leaf_7_0.result.ecx & (1 << 5)), 0);
+    }
+
+    #[test]
+    fn test_update_extended_topology_v2_entry_no_leaf_0x1f() {
+        let mut cpuid = IntelCpuid(BTreeMap::from([(
+            CpuidKey {
+                leaf: 0xB,
+                subleaf: 0,
+            },
+            CpuidEntry {
+                flags: KvmCpuidFlags::SIGNIFICANT_INDEX,
+                ..Default::default()
+            },
+        )]));
+
+        cpuid.update_extended_topology_v2_entry();
+
+        assert!(
+            cpuid
+                .get(&CpuidKey {
+                    leaf: 0x1F,
+                    subleaf: 0,
+                })
+                .is_none()
+        );
+    }
+
+    #[test]
+    fn test_update_extended_topology_v2_entry() {
+        let mut cpuid = IntelCpuid(BTreeMap::from([
+            (
+                CpuidKey {
+                    leaf: 0xB,
+                    subleaf: 0,
+                },
+                CpuidEntry {
+                    flags: KvmCpuidFlags::SIGNIFICANT_INDEX,
+                    result: CpuidRegisters {
+                        eax: 0x1,
+                        ebx: 0x2,
+                        ecx: 0x3,
+                        edx: 0x4,
+                    },
+                },
+            ),
+            (
+                CpuidKey {
+                    leaf: 0xB,
+                    subleaf: 1,
+                },
+                CpuidEntry {
+                    flags: KvmCpuidFlags::SIGNIFICANT_INDEX,
+                    result: CpuidRegisters {
+                        eax: 0xa,
+                        ebx: 0xb,
+                        ecx: 0xc,
+                        edx: 0xd,
+                    },
+                },
+            ),
+            (
+                CpuidKey {
+                    leaf: 0x1F,
+                    subleaf: 0,
+                },
+                CpuidEntry {
+                    flags: KvmCpuidFlags::SIGNIFICANT_INDEX,
+                    result: CpuidRegisters {
+                        eax: 0xFFFFFFFF,
+                        ebx: 0xFFFFFFFF,
+                        ecx: 0xFFFFFFFF,
+                        edx: 0xFFFFFFFF,
+                    },
+                },
+            ),
+        ]));
+
+        cpuid.update_extended_topology_v2_entry();
+
+        // Check leaf 0x1F, subleaf 0 is updated.
+        let leaf_1f_0 = cpuid
+            .get(&CpuidKey {
+                leaf: 0x1F,
+                subleaf: 0,
+            })
+            .unwrap();
+        assert_eq!(leaf_1f_0.result.eax, 0x1);
+        assert_eq!(leaf_1f_0.result.ebx, 0x2);
+        assert_eq!(leaf_1f_0.result.ecx, 0x3);
+        assert_eq!(leaf_1f_0.result.edx, 0x4);
+
+        // Check lefa 0x1F, subleaf 1 is inserted.
+        let leaf_1f_1 = cpuid
+            .get(&CpuidKey {
+                leaf: 0x1F,
+                subleaf: 1,
+            })
+            .unwrap();
+        assert_eq!(leaf_1f_1.result.eax, 0xa);
+        assert_eq!(leaf_1f_1.result.ebx, 0xb);
+        assert_eq!(leaf_1f_1.result.ecx, 0xc);
+        assert_eq!(leaf_1f_1.result.edx, 0xd);
     }
 }

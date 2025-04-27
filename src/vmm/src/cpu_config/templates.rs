@@ -6,7 +6,7 @@ mod common_types {
     pub use crate::cpu_config::x86_64::custom_cpu_template::CustomCpuTemplate;
     pub use crate::cpu_config::x86_64::static_cpu_templates::StaticCpuTemplate;
     pub use crate::cpu_config::x86_64::{
-        test_utils, CpuConfiguration, CpuConfigurationError as GuestConfigError,
+        CpuConfiguration, CpuConfigurationError as GuestConfigError, test_utils,
     };
 }
 
@@ -15,7 +15,7 @@ mod common_types {
     pub use crate::cpu_config::aarch64::custom_cpu_template::CustomCpuTemplate;
     pub use crate::cpu_config::aarch64::static_cpu_templates::StaticCpuTemplate;
     pub use crate::cpu_config::aarch64::{
-        test_utils, CpuConfiguration, CpuConfigurationError as GuestConfigError,
+        CpuConfiguration, CpuConfigurationError as GuestConfigError, test_utils,
     };
 }
 
@@ -250,7 +250,7 @@ where
                     return Err(D::Error::custom(format!(
                         "Failed to parse string [{}] as a bitmap - unknown character: {}",
                         original_str, c
-                    )))
+                    )));
                 }
             }
             i += 1;

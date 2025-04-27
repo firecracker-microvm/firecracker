@@ -196,9 +196,9 @@ mapping:
 
 ### How can I gracefully reboot the guest? How can I gracefully poweroff the guest?
 
-Firecracker does not implement ACPI and PM devices, therefore operations like
-gracefully rebooting or powering off the guest are supported in unconventional
-ways.
+Firecracker does not virtualize guest power management, therefore operations
+like gracefully rebooting or powering off the guest are supported in
+unconventional ways.
 
 Running the `poweroff` or `halt` commands inside a Linux guest will bring it
 down but Firecracker process remains unaware of the guest shutdown so it lives

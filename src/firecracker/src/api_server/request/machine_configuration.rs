@@ -5,7 +5,7 @@ use vmm::logger::{IncMetric, METRICS};
 use vmm::rpc_interface::VmmAction;
 use vmm::vmm_config::machine_config::{MachineConfig, MachineConfigUpdate};
 
-use super::super::parsed_request::{method_to_error, ParsedRequest, RequestError};
+use super::super::parsed_request::{ParsedRequest, RequestError, method_to_error};
 use super::{Body, Method};
 
 pub(crate) fn parse_get_machine_config() -> Result<ParsedRequest, RequestError> {
@@ -123,6 +123,8 @@ mod tests {
                 cpu_template: None,
                 track_dirty_pages: Some(false),
                 huge_pages: Some(expected),
+                #[cfg(feature = "gdb")]
+                gdb_socket_path: None,
             };
             assert_eq!(
                 vmm_action_from_request(parse_put_machine_config(&Body::new(body)).unwrap()),
@@ -142,6 +144,8 @@ mod tests {
             cpu_template: Some(StaticCpuTemplate::None),
             track_dirty_pages: Some(false),
             huge_pages: Some(HugePageConfig::None),
+            #[cfg(feature = "gdb")]
+            gdb_socket_path: None,
         };
         assert_eq!(
             vmm_action_from_request(parse_put_machine_config(&Body::new(body)).unwrap()),
@@ -161,6 +165,8 @@ mod tests {
             cpu_template: None,
             track_dirty_pages: Some(true),
             huge_pages: Some(HugePageConfig::None),
+            #[cfg(feature = "gdb")]
+            gdb_socket_path: None,
         };
         assert_eq!(
             vmm_action_from_request(parse_put_machine_config(&Body::new(body)).unwrap()),
@@ -184,6 +190,8 @@ mod tests {
                 cpu_template: Some(StaticCpuTemplate::T2),
                 track_dirty_pages: Some(true),
                 huge_pages: Some(HugePageConfig::None),
+                #[cfg(feature = "gdb")]
+                gdb_socket_path: None,
             };
             assert_eq!(
                 vmm_action_from_request(parse_put_machine_config(&Body::new(body)).unwrap()),
@@ -209,6 +217,8 @@ mod tests {
             cpu_template: None,
             track_dirty_pages: Some(true),
             huge_pages: Some(HugePageConfig::None),
+            #[cfg(feature = "gdb")]
+            gdb_socket_path: None,
         };
         assert_eq!(
             vmm_action_from_request(parse_put_machine_config(&Body::new(body)).unwrap()),

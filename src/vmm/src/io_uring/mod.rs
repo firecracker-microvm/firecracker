@@ -1,8 +1,7 @@
 // Copyright 2021 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-#[allow(clippy::undocumented_unsafe_blocks)]
-mod gen;
+mod generated;
 pub mod operation;
 mod probe;
 mod queue;
@@ -14,9 +13,9 @@ use std::fs::File;
 use std::io::Error as IOError;
 use std::os::unix::io::{AsRawFd, FromRawFd, RawFd};
 
-use gen::io_uring_params;
+use generated::io_uring_params;
 use operation::{Cqe, FixedFd, OpCode, Operation};
-use probe::{ProbeWrapper, PROBE_LEN};
+use probe::{PROBE_LEN, ProbeWrapper};
 pub use queue::completion::CQueueError;
 use queue::completion::CompletionQueue;
 pub use queue::submission::SQueueError;
@@ -110,7 +109,7 @@ impl<T: Debug> IoUring<T> {
     ) -> Result<Self, IoUringError> {
         let mut params = io_uring_params {
             // Create the ring as disabled, so that we may register restrictions.
-            flags: gen::IORING_SETUP_R_DISABLED,
+            flags: generated::IORING_SETUP_R_DISABLED,
 
             ..Default::default()
         };
@@ -248,7 +247,7 @@ impl<T: Debug> IoUring<T> {
             libc::syscall(
                 libc::SYS_io_uring_register,
                 self.fd.as_raw_fd(),
-                gen::IORING_REGISTER_ENABLE_RINGS,
+                generated::IORING_REGISTER_ENABLE_RINGS,
                 std::ptr::null::<libc::c_void>(),
                 0,
             )
@@ -273,7 +272,7 @@ impl<T: Debug> IoUring<T> {
             libc::syscall(
                 libc::SYS_io_uring_register,
                 self.fd.as_raw_fd(),
-                gen::IORING_REGISTER_FILES,
+                generated::IORING_REGISTER_FILES,
                 files
                     .iter()
                     .map(|f| f.as_raw_fd())
@@ -297,7 +296,7 @@ impl<T: Debug> IoUring<T> {
             libc::syscall(
                 libc::SYS_io_uring_register,
                 self.fd.as_raw_fd(),
-                gen::IORING_REGISTER_EVENTFD,
+                generated::IORING_REGISTER_EVENTFD,
                 (&fd) as *const _,
                 1,
             )
@@ -316,10 +315,10 @@ impl<T: Debug> IoUring<T> {
             libc::syscall(
                 libc::SYS_io_uring_register,
                 self.fd.as_raw_fd(),
-                gen::IORING_REGISTER_RESTRICTIONS,
+                generated::IORING_REGISTER_RESTRICTIONS,
                 restrictions
                     .iter()
-                    .map(gen::io_uring_restriction::from)
+                    .map(generated::io_uring_restriction::from)
                     .collect::<Vec<_>>()
                     .as_mut_slice()
                     .as_mut_ptr(),
@@ -337,7 +336,7 @@ impl<T: Debug> IoUring<T> {
         // An alternative fix would be to keep an internal counter that tracks the number of
         // submitted entries that haven't been completed and makes sure it doesn't exceed
         // (2 * num_entries).
-        if (params.features & gen::IORING_FEAT_NODROP) == 0 {
+        if (params.features & generated::IORING_FEAT_NODROP) == 0 {
             return Err(IoUringError::UnsupportedFeature("IORING_FEAT_NODROP"));
         }
 
@@ -352,7 +351,7 @@ impl<T: Debug> IoUring<T> {
             libc::syscall(
                 libc::SYS_io_uring_register,
                 self.fd.as_raw_fd(),
-                gen::IORING_REGISTER_PROBE,
+                generated::IORING_REGISTER_PROBE,
                 probes.as_mut_fam_struct_ptr(),
                 PROBE_LEN,
             )
@@ -363,7 +362,7 @@ impl<T: Debug> IoUring<T> {
         let supported_opcodes: HashSet<u8> = probes
             .as_slice()
             .iter()
-            .filter(|op| ((u32::from(op.flags)) & gen::IO_URING_OP_SUPPORTED) != 0)
+            .filter(|op| ((u32::from(op.flags)) & generated::IO_URING_OP_SUPPORTED) != 0)
             .map(|op| op.op)
             .collect();
 

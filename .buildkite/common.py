@@ -14,14 +14,21 @@ import string
 import subprocess
 from pathlib import Path
 
+# fmt: off
 DEFAULT_INSTANCES = [
-    "c5n.metal",  # Intel Skylake
-    "m5n.metal",  # Intel Cascade Lake
-    "m6i.metal",  # Intel Icelake
-    "m6a.metal",  # AMD Milan
-    "m6g.metal",  # Graviton2
-    "m7g.metal",  # Graviton3
+    "c5n.metal",      # Intel Skylake
+    "m5n.metal",      # Intel Cascade Lake
+    "m6i.metal",      # Intel Icelake
+    "m7i.metal-24xl", # Intel Sapphire Rapids
+    "m7i.metal-48xl", # Intel Sapphire Rapids
+    "m6a.metal",      # AMD Milan
+    "m7a.metal-48xl", # AMD Genoa
+    "m6g.metal",      # Graviton2
+    "m7g.metal",      # Graviton3
+    "m8g.metal-24xl", # Graviton4 1 socket
+    "m8g.metal-48xl", # Graviton4 2 sockets
 ]
+# fmt: on
 
 DEFAULT_PLATFORMS = [
     ("al2", "linux_5.10"),
@@ -178,6 +185,12 @@ COMMON_PARSER.add_argument(
     default=None,
     type=str,
 )
+COMMON_PARSER.add_argument(
+    "--no-kani",
+    help="Don't add kani step",
+    action="store_true",
+    default=False,
+)
 
 
 def random_str(k: int):
@@ -250,7 +263,7 @@ class BKPipeline:
         self.per_instance = overlay_dict(per_instance, args.step_param)
         self.per_arch = self.per_instance.copy()
         self.per_arch["instances"] = ["m6i.metal", "m7g.metal"]
-        self.per_arch["platforms"] = [("al2", "linux_5.10")]
+        self.per_arch["platforms"] = [("al2023", "linux_6.1")]
         self.binary_dir = args.binary_dir
         # Build sharing
         if with_build_step:

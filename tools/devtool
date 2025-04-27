@@ -68,7 +68,7 @@
 DEVCTR_IMAGE_NO_TAG="public.ecr.aws/firecracker/fcuvm"
 
 # Development container tag
-DEVCTR_IMAGE_TAG=${DEVCTR_IMAGE_TAG:-v77}
+DEVCTR_IMAGE_TAG=${DEVCTR_IMAGE_TAG:-v79}
 
 # Development container image (name:tag)
 # This should be updated whenever we upgrade the development container.
@@ -517,8 +517,9 @@ cmd_build() {
     if [ ! -z "$revision" ]; then
       popd
       git branch -D $branch_name
-      mkdir -p build/"$revision"
+      mkdir -p build/"$revision"/examples
       cp $tmp_dir/build/cargo_target/$(uname -m)-unknown-linux-$libc/$profile/* build/"$revision"
+      cp $tmp_dir/build/cargo_target/$(uname -m)-unknown-linux-$libc/$profile/examples/* build/"$revision"/examples
       cmd_sh "rm -rf $tmp_dir"
     fi
 
@@ -574,6 +575,7 @@ ensure_ci_artifacts() {
     if [ ! -d "$ARTIFACTS" ]; then
         mkdir -pv $ARTIFACTS
         aws s3 sync --no-sign-request "$S3_URL" "$ARTIFACTS"
+        ok_or_die "Failed to download CI artifacts using awscli!"
         cmd_sh "./tools/setup-ci-artifacts.sh"
     fi
 }
@@ -721,6 +723,7 @@ cmd_test() {
       cmd_build --release
       if [ -n "$BUILDKITE_PULL_REQUEST_BASE_BRANCH" ]; then
         cmd_build --release --rev "$BUILDKITE_PULL_REQUEST_BASE_BRANCH"
+        ok_or_die "Failed to build Firecracker!"
       fi
     fi
 
@@ -742,9 +745,9 @@ cmd_test() {
       # It seems that even if the tests using huge pages run sequentially on ag=1 agents, right-sizing the huge pages
       # pool to the total number of huge pages used across all tests results in spurious failures with pool depletion
       # anyway (something else on the host seems to be stealing our huge pages, and we cannot "ear mark" them for
-      # Firecracker processes). Thus, just allocate 4GB of them and call it a day.
+      # Firecracker processes). Thus, just allocate 48GB of them and call it a day.
       say "Setting up huge pages pool"
-      num_hugetlbfs_pages=2048
+      num_hugetlbfs_pages=24552
 
       huge_pages_old=$(cat /sys/kernel/mm/hugepages/hugepages-2048kB/nr_hugepages)
       huge_pages_new=$(echo $num_hugetlbfs_pages |sudo tee /sys/kernel/mm/hugepages/hugepages-2048kB/nr_hugepages)

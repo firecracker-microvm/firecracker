@@ -2,7 +2,6 @@
 # SPDX-License-Identifier: Apache-2.0
 """Generic utility functions that are used in the framework."""
 import errno
-import functools
 import json
 import logging
 import os
@@ -10,13 +9,11 @@ import platform
 import re
 import select
 import signal
-import stat
 import subprocess
 import time
 import typing
 from collections import defaultdict, namedtuple
 from contextlib import contextmanager
-from pathlib import Path
 from typing import Dict
 
 import packaging.version
@@ -28,8 +25,6 @@ from tenacity import (
     stop_after_attempt,
     wait_fixed,
 )
-
-from framework.defs import MIN_KERNEL_VERSION_FOR_IO_URING
 
 FLUSH_CMD = 'screen -S {session} -X colon "logfile flush 0^M"'
 CommandReturn = namedtuple("CommandReturn", "returncode stdout stderr")
@@ -133,69 +128,6 @@ def chroot(path):
         os.chdir(working_dir)
 
 
-class UffdHandler:
-    """Describe the UFFD page fault handler process."""
-
-    def __init__(self, name, socket_path, mem_file, chroot_path, log_file_name):
-        """Instantiate the handler process with arguments."""
-        self._proc = None
-        self._handler_name = name
-        self._socket_path = socket_path
-        self._mem_file = mem_file
-        self._chroot = chroot_path
-        self._log_file = log_file_name
-
-    def spawn(self, uid, gid):
-        """Spawn handler process using arguments provided."""
-
-        with chroot(self._chroot):
-            st = os.stat(self._handler_name)
-            os.chmod(self._handler_name, st.st_mode | stat.S_IEXEC)
-
-            chroot_log_file = Path("/") / self._log_file
-            with open(chroot_log_file, "w", encoding="utf-8") as logfile:
-                args = [f"/{self._handler_name}", self._socket_path, self._mem_file]
-                self._proc = subprocess.Popen(
-                    args, stdout=logfile, stderr=subprocess.STDOUT
-                )
-
-            # Give it time start and fail, if it really has too (bad things happen).
-            time.sleep(1)
-            if not self.is_running():
-                print(chroot_log_file.read_text(encoding="utf-8"))
-                assert False, "Could not start PF handler!"
-
-            # The page fault handler will create the socket path with root rights.
-            # Change rights to the jailer's.
-            os.chown(self._socket_path, uid, gid)
-
-    @property
-    def proc(self):
-        """Return UFFD handler process."""
-        return self._proc
-
-    def is_running(self):
-        """Check if UFFD process is running"""
-        return self.proc is not None and self.proc.poll() is None
-
-    @property
-    def log_file(self):
-        """Return the path to the UFFD handler's log file"""
-        return Path(self._chroot) / Path(self._log_file)
-
-    @property
-    def log_data(self):
-        """Return the log data of the UFFD handler"""
-        if self.log_file is None:
-            return ""
-        return self.log_file.read_text(encoding="utf-8")
-
-    def __del__(self):
-        """Tear down the UFFD handler process."""
-        if self.proc is not None:
-            self.proc.kill()
-
-
 class CpuMap:
     """Cpu map from real cpu cores to containers visible cores.
 
@@ -228,72 +160,14 @@ class CpuMap:
 
         See this issue for details:
         https://github.com/moby/moby/issues/20770.
+
+        Note that this method is called only once when `CpuMap.arr` is
+        initialized.
         """
-        # The real processor map is found at different paths based on cgroups version:
-        #  - cgroupsv1: /cpuset.cpus
-        #  - cgroupsv2: /cpuset.cpus.effective
-        # For more details, see https://docs.kernel.org/admin-guide/cgroup-v2.html#cpuset-interface-files
-        for path in [
-            Path("/sys/fs/cgroup/cpuset/cpuset.cpus"),
-            Path("/sys/fs/cgroup/cpuset.cpus.effective"),
-        ]:
-            if path.exists():
-                return ListFormatParser(path.read_text("ascii").strip()).parse()
-
-        raise RuntimeError("Could not find cgroups cpuset")
-
-
-class ListFormatParser:
-    """Parser class for LIST FORMAT strings."""
-
-    def __init__(self, content):
-        """Initialize the parser with the content."""
-        self._content = content.strip()
-
-    @classmethod
-    def _is_range(cls, rng):
-        """Return true if the parser content is a range.
-
-        E.g ranges: 0-10.
-        """
-        match = re.search("([0-9][1-9]*)-([0-9][1-9]*)", rng)
-        # Group is a singular value.
-        return match is not None
-
-    @classmethod
-    def _range_to_list(cls, rng):
-        """Return a range of integers based on the content.
-
-        The content respects the LIST FORMAT defined in the
-        cpuset documentation.
-        See: https://man7.org/linux/man-pages/man7/cpuset.7.html.
-        """
-        ends = rng.split("-")
-        if len(ends) != 2:
-            return []
-
-        return list(range(int(ends[0]), int(ends[1]) + 1))
-
-    def parse(self):
-        """Parse list formats for cpuset and mems.
-
-        See LIST FORMAT here:
-        https://man7.org/linux/man-pages/man7/cpuset.7.html.
-        """
-        if len(self._content) == 0:
-            return []
-
-        groups = self._content.split(",")
-        arr = set()
-
-        def func(acc, cpu):
-            if ListFormatParser._is_range(cpu):
-                acc.update(ListFormatParser._range_to_list(cpu))
-            else:
-                acc.add(int(cpu))
-            return acc
-
-        return list(functools.reduce(func, groups, arr))
+        # https://psutil.readthedocs.io/en/latest/#psutil.Process.cpu_affinity
+        # > If no argument is passed it returns the current CPU affinity as a
+        # > list of intergers.
+        return psutil.Process().cpu_affinity()
 
 
 class CmdBuilder:
@@ -519,17 +393,6 @@ def get_kernel_version(level=2):
     return linux_version
 
 
-def is_io_uring_supported():
-    """
-    Return whether Firecracker supports io_uring for the running kernel ...
-
-    ...version.
-    """
-    kv = packaging.version.parse(get_kernel_version())
-    min_kv = packaging.version.parse(MIN_KERNEL_VERSION_FOR_IO_URING)
-    return kv >= min_kv
-
-
 def generate_mmds_session_token(ssh_connection, ipv4_address, token_ttl):
     """Generate session token used for MMDS V2 requests."""
     cmd = "curl -m 2 -s"
@@ -678,3 +541,8 @@ class Timeout:
 
     def __exit__(self, _type, _value, _traceback):
         signal.alarm(0)
+
+
+def pvh_supported() -> bool:
+    """Checks if PVH boot is supported"""
+    return platform.architecture() == "x86_64"

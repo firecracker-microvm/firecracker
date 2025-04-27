@@ -13,6 +13,9 @@ pub mod sm;
 use std::num::Wrapping;
 use std::result::Result;
 
+/// How many bits to left-shift by to convert MiB to bytes
+const MIB_TO_BYTES_SHIFT: usize = 20;
+
 /// Return the default page size of the platform, in bytes.
 pub fn get_page_size() -> Result<usize, vmm_sys_util::errno::Error> {
     // SAFETY: Safe because the parameters are valid.
@@ -44,4 +47,21 @@ pub const fn usize_to_u64(num: usize) -> u64 {
 #[inline]
 pub const fn wrap_usize_to_u32(num: usize) -> Wrapping<u32> {
     Wrapping(((num as u64) & 0xFFFFFFFF) as u32)
+}
+
+/// Converts MiB to Bytes
+pub const fn mib_to_bytes(mib: usize) -> usize {
+    mib << MIB_TO_BYTES_SHIFT
+}
+
+/// Align address up to the aligment.
+pub const fn align_up(addr: u64, align: u64) -> u64 {
+    debug_assert!(align != 0);
+    (addr + align - 1) & !(align - 1)
+}
+
+/// Align address down to the aligment.
+pub const fn align_down(addr: u64, align: u64) -> u64 {
+    debug_assert!(align != 0);
+    addr & !(align - 1)
 }

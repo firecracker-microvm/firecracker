@@ -3,13 +3,13 @@
 
 /// Model Specific Registers (MSRs) related functionality.
 use bitflags::bitflags;
-use kvm_bindings::{kvm_msr_entry, MsrList, Msrs};
+use kvm_bindings::{MsrList, Msrs, kvm_msr_entry};
 use kvm_ioctls::{Kvm, VcpuFd};
 
-use crate::arch::x86_64::gen::hyperv::*;
-use crate::arch::x86_64::gen::hyperv_tlfs::*;
-use crate::arch::x86_64::gen::msr_index::*;
-use crate::arch::x86_64::gen::perf_event::*;
+use crate::arch::x86_64::generated::hyperv::*;
+use crate::arch::x86_64::generated::hyperv_tlfs::*;
+use crate::arch::x86_64::generated::msr_index::*;
+use crate::arch::x86_64::generated::perf_event::*;
 use crate::cpu_config::x86_64::cpuid::common::GetCpuidError;
 
 #[derive(Debug, PartialEq, Eq, thiserror::Error, displaydoc::Display)]

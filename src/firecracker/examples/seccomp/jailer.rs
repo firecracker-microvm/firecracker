@@ -13,12 +13,12 @@ fn main() {
     let bpf_path = &args[2];
 
     let filter_file = File::open(bpf_path).unwrap();
-    let map = deserialize_binary(&filter_file, None).unwrap();
+    let map = deserialize_binary(&filter_file).unwrap();
 
     // Loads filters.
     apply_filter(map.get("main").unwrap()).unwrap();
 
-    Command::new(exec_file)
+    let _ = Command::new(exec_file)
         .stdin(Stdio::inherit())
         .stdout(Stdio::inherit())
         .stderr(Stdio::inherit())

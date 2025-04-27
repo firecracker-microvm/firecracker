@@ -1,3 +1,5 @@
+// Copyright © 2020, Oracle and/or its affiliates.
+//
 // Copyright 2018 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 //
@@ -24,8 +26,38 @@ fn get_base(entry: u64) -> u64 {
         | (((entry) & 0x0000_0000_FFFF_0000) >> 16)
 }
 
+// Extract the segment limit from the GDT segment descriptor.
+//
+// In a segment descriptor, the limit field is 20 bits, so it can directly describe
+// a range from 0 to 0xFFFFF (1 MB). When G flag is set (4-KByte page granularity) it
+// scales the value in the limit field by a factor of 2^12 (4 Kbytes), making the effective
+// limit range from 0xFFF (4 KBytes) to 0xFFFF_FFFF (4 GBytes).
+//
+// However, the limit field in the VMCS definition is a 32 bit field, and the limit value is not
+// automatically scaled using the G flag. This means that for a desired range of 4GB for a
+// given segment, its limit must be specified as 0xFFFF_FFFF. Therefore the method of obtaining
+// the limit from the GDT entry is not sufficient, since it only provides 20 bits when 32 bits
+// are necessary. Fortunately, we can check if the G flag is set when extracting the limit since
+// the full GDT entry is passed as an argument, and perform the scaling of the limit value to
+// return the full 32 bit value.
+//
+// The scaling mentioned above is required when using PVH boot, since the guest boots in protected
+// (32-bit) mode and must be able to access the entire 32-bit address space. It does not cause
+// issues for the case of direct boot to 64-bit (long) mode, since in 64-bit mode the processor does
+// not perform runtime limit checking on code or data segments.
+//
+// (For more information concerning the formats of segment descriptors, VMCS fields, et cetera,
+// please consult the Intel Software Developer Manual.)
 fn get_limit(entry: u64) -> u32 {
-    ((((entry) & 0x000F_0000_0000_0000) >> 32) as u32) | (((entry) & 0x0000_0000_0000_FFFF) as u32)
+    #[allow(clippy::cast_possible_truncation)] // clearly, truncation is not possible
+    let limit: u32 =
+        ((((entry) & 0x000F_0000_0000_0000) >> 32) | ((entry) & 0x0000_0000_0000_FFFF)) as u32;
+
+    // Perform manual limit scaling if G flag is set
+    match get_g(entry) {
+        0 => limit,
+        _ => (limit << 12) | 0xFFF, // G flag is either 0 or 1
+    }
 }
 
 fn get_g(entry: u64) -> u8 {
@@ -109,7 +141,7 @@ mod tests {
         assert_eq!(0xB, seg.type_);
         // base and limit
         assert_eq!(0x10_0000, seg.base);
-        assert_eq!(0xfffff, seg.limit);
+        assert_eq!(0xffff_ffff, seg.limit);
         assert_eq!(0x0, seg.unusable);
     }
 }

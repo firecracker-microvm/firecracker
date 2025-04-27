@@ -3,7 +3,7 @@
 
 use vmm::cpu_config::templates::CustomCpuTemplate;
 
-use super::{verify_common, VerifyError};
+use super::{VerifyError, verify_common};
 use crate::utils::aarch64::RegModifierMap;
 
 pub fn verify(

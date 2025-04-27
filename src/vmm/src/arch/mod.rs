@@ -6,16 +6,24 @@ use std::sync::LazyLock;
 
 use log::warn;
 use serde::{Deserialize, Serialize};
+use vm_memory::GuestAddress;
 
 /// Module for aarch64 related functionality.
 #[cfg(target_arch = "aarch64")]
 pub mod aarch64;
 
 #[cfg(target_arch = "aarch64")]
+pub use aarch64::kvm::{Kvm, KvmArchError, OptionalCapabilities};
+#[cfg(target_arch = "aarch64")]
+pub use aarch64::vcpu::*;
+#[cfg(target_arch = "aarch64")]
+pub use aarch64::vm::{ArchVm, ArchVmError, VmState};
+#[cfg(target_arch = "aarch64")]
 pub use aarch64::{
-    arch_memory_regions, configure_system, get_kernel_start, initrd_load_addr,
-    layout::CMDLINE_MAX_SIZE, layout::IRQ_BASE, layout::IRQ_MAX, layout::SYSTEM_MEM_SIZE,
-    layout::SYSTEM_MEM_START, ConfigurationError, MMIO_MEM_SIZE, MMIO_MEM_START,
+    ConfigurationError, MMIO_MEM_SIZE, MMIO_MEM_START, arch_memory_regions,
+    configure_system_for_boot, get_kernel_start, initrd_load_addr, layout::CMDLINE_MAX_SIZE,
+    layout::IRQ_BASE, layout::IRQ_MAX, layout::SYSTEM_MEM_SIZE, layout::SYSTEM_MEM_START,
+    load_kernel,
 };
 
 /// Module for x86_64 related functionality.
@@ -23,11 +31,18 @@ pub use aarch64::{
 pub mod x86_64;
 
 #[cfg(target_arch = "x86_64")]
+pub use x86_64::kvm::{Kvm, KvmArchError};
+#[cfg(target_arch = "x86_64")]
+pub use x86_64::vcpu::*;
+#[cfg(target_arch = "x86_64")]
+pub use x86_64::vm::{ArchVm, ArchVmError, VmState};
+
+#[cfg(target_arch = "x86_64")]
 pub use crate::arch::x86_64::{
-    arch_memory_regions, configure_system, get_kernel_start, initrd_load_addr, layout::APIC_ADDR,
+    ConfigurationError, MMIO_MEM_SIZE, MMIO_MEM_START, arch_memory_regions,
+    configure_system_for_boot, get_kernel_start, initrd_load_addr, layout::APIC_ADDR,
     layout::CMDLINE_MAX_SIZE, layout::IOAPIC_ADDR, layout::IRQ_BASE, layout::IRQ_MAX,
-    layout::SYSTEM_MEM_SIZE, layout::SYSTEM_MEM_START, ConfigurationError, MMIO_MEM_SIZE,
-    MMIO_MEM_START,
+    layout::SYSTEM_MEM_SIZE, layout::SYSTEM_MEM_START, load_kernel,
 };
 
 /// Types of devices that can get attached to this platform.
@@ -43,15 +58,6 @@ pub enum DeviceType {
     Rtc,
     /// Device Type: BootTimer.
     BootTimer,
-}
-
-/// Type for passing information about the initrd in the guest memory.
-#[derive(Debug)]
-pub struct InitrdConfig {
-    /// Load address of initrd in guest memory
-    pub address: crate::vstate::memory::GuestAddress,
-    /// Size of initrd in guest memory
-    pub size: usize,
 }
 
 /// Default page size for the guest OS.
@@ -76,4 +82,35 @@ impl fmt::Display for DeviceType {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{:?}", self)
     }
+}
+
+/// Supported boot protocols for
+#[derive(Debug, Copy, Clone, PartialEq)]
+pub enum BootProtocol {
+    /// Linux 64-bit boot protocol
+    LinuxBoot,
+    #[cfg(target_arch = "x86_64")]
+    /// PVH boot protocol (x86/HVM direct boot ABI)
+    PvhBoot,
+}
+
+impl fmt::Display for BootProtocol {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
+        match self {
+            BootProtocol::LinuxBoot => write!(f, "Linux 64-bit boot protocol"),
+            #[cfg(target_arch = "x86_64")]
+            BootProtocol::PvhBoot => write!(f, "PVH boot protocol"),
+        }
+    }
+}
+
+#[derive(Debug, Copy, Clone)]
+/// Specifies the entry point address where the guest must start
+/// executing code, as well as which boot protocol is to be used
+/// to configure the guest initial state.
+pub struct EntryPoint {
+    /// Address in guest memory where the guest must start execution
+    pub entry_addr: GuestAddress,
+    /// Specifies which boot protocol to use
+    pub protocol: BootProtocol,
 }

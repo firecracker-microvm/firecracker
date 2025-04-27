@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 use std::fmt::{self, Display, Formatter};
 
-use serde::{ser, Serialize};
+use serde::{Serialize, ser};
 
 /// Enumerates microVM runtime states.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]

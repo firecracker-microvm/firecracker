@@ -44,11 +44,16 @@ from host_tools.metrics import (
 IGNORED = [
     # Network throughput on m6a.metal
     {"instance": "m6a.metal", "performance_test": "test_network_tcp_throughput"},
+    # Network throughput on m7a.metal
+    {"instance": "m7a.metal-48xl", "performance_test": "test_network_tcp_throughput"},
+    # block latencies if guest uses async request submission
+    {"fio_engine": "libaio", "metric": "clat_read"},
+    {"fio_engine": "libaio", "metric": "clat_write"},
 ]
 
 
 def is_ignored(dimensions) -> bool:
-    """Checks whether the given dimensions match a entry in the IGNORED dictionary above"""
+    """Checks whether the given dimensions match an entry in the IGNORED dictionary above"""
     for high_variance in IGNORED:
         matching = {key: dimensions[key] for key in high_variance if key in dimensions}
 
@@ -64,7 +69,11 @@ def extract_dimensions(emf):
         # Skipped tests emit a duration metric, but have no dimensions set
         return {}
 
-    dimension_list = emf["_aws"]["CloudWatchMetrics"][0]["Dimensions"][0]
+    dimension_list = [
+        dim
+        for dimensions in emf["_aws"]["CloudWatchMetrics"][0]["Dimensions"]
+        for dim in dimensions
+    ]
     return {key: emf[key] for key in emf if key in dimension_list}
 
 
@@ -108,6 +117,8 @@ def load_data_series(report_path: Path, tag=None, *, reemit: bool = False):
     # Dictionary mapping EMF dimensions to A/B-testable metrics/properties
     processed_emf = {}
 
+    distinct_values_per_dimenson = defaultdict(set)
+
     report = json.loads(report_path.read_text("UTF-8"))
     for test in report["tests"]:
         for line in test["teardown"]["stdout"].splitlines():
@@ -127,6 +138,9 @@ def load_data_series(report_path: Path, tag=None, *, reemit: bool = False):
                 if not dimensions:
                     continue
 
+                for dimension, value in dimensions.items():
+                    distinct_values_per_dimenson[dimension].add(value)
+
                 dimension_set = frozenset(dimensions.items())
 
                 if dimension_set not in processed_emf:
@@ -136,29 +150,47 @@ def load_data_series(report_path: Path, tag=None, *, reemit: bool = False):
                     # multiple EMF log messages. We need to reassemble :(
                     assert (
                         processed_emf[dimension_set].keys() == result.keys()
-                    ), f"Found incompatible metrics associated with dimension set {dimension_set}: {processed_emf[dimension_set].key()} in one EMF message, but {result.keys()} in another."
+                    ), f"Found incompatible metrics associated with dimension set {dimension_set}: {processed_emf[dimension_set].keys()} in one EMF message, but {result.keys()} in another."
 
                     for metric, (values, unit) in processed_emf[dimension_set].items():
                         assert result[metric][1] == unit
 
                         values.extend(result[metric][0])
 
-    return processed_emf
+    irrelevant_dimensions = set()
+
+    for dimension, distinct_values in distinct_values_per_dimenson.items():
+        if len(distinct_values) == 1:
+            irrelevant_dimensions.add(dimension)
+
+    post_processed_emf = {}
+
+    for dimension_set, metrics in processed_emf.items():
+        processed_key = frozenset(
+            (dim, value)
+            for (dim, value) in dimension_set
+            if dim not in irrelevant_dimensions
+        )
+
+        post_processed_emf[processed_key] = metrics
+
+    return post_processed_emf
 
 
-def collect_data(binary_dir: Path, tests: list[str]):
+def collect_data(binary_dir: Path, pytest_opts: str):
     """Executes the specified test using the provided firecracker binaries"""
     binary_dir = binary_dir.resolve()
 
     print(f"Collecting samples with {binary_dir}")
     subprocess.run(
-        ["./tools/test.sh", f"--binary-dir={binary_dir}", *tests, "-m", ""],
+        f"./tools/test.sh --binary-dir={binary_dir} {pytest_opts} -m ''",
         env=os.environ
         | {
             "AWS_EMF_ENVIRONMENT": "local",
             "AWS_EMF_NAMESPACE": "local",
         },
         check=True,
+        shell=True,
     )
     return load_data_series(
         Path("test_results/test-report.json"), binary_dir, reemit=True
@@ -252,7 +284,7 @@ def analyze_data(
 
     failures = []
     for (dimension_set, metric), (result, unit) in results.items():
-        if is_ignored(dict(dimension_set)):
+        if is_ignored(dict(dimension_set) | {"metric": metric}):
             continue
 
         print(f"Doing A/B-test for dimensions {dimension_set} and property {metric}")
@@ -302,7 +334,7 @@ def analyze_data(
 def ab_performance_test(
     a_revision: Path,
     b_revision: Path,
-    tests,
+    pytest_opts,
     p_thresh,
     strength_abs_thresh,
     noise_threshold,
@@ -310,7 +342,7 @@ def ab_performance_test(
     """Does an A/B-test of the specified test with the given firecracker/jailer binaries"""
 
     return binary_ab_test(
-        lambda bin_dir, _: collect_data(bin_dir, tests),
+        lambda bin_dir, _: collect_data(bin_dir, pytest_opts),
         lambda ah, be: analyze_data(
             ah,
             be,
@@ -343,7 +375,11 @@ if __name__ == "__main__":
         help="Directory containing firecracker and jailer binaries whose performance we want to compare against the results from a_revision",
         type=Path,
     )
-    run_parser.add_argument("--test", help="The test to run", nargs="+", required=True)
+    run_parser.add_argument(
+        "--pytest-opts",
+        help="Parameters to pass through to pytest, for example for test selection",
+        required=True,
+    )
     analyze_parser = subparsers.add_parser(
         "analyze",
         help="Analyze the results of two manually ran tests based on their test-report.json files",
@@ -382,7 +418,7 @@ if __name__ == "__main__":
         ab_performance_test(
             args.a_revision,
             args.b_revision,
-            args.test,
+            args.pytest_opts,
             args.significance,
             args.absolute_strength,
             args.noise_threshold,

@@ -2,7 +2,7 @@
 name = "utils"
 version = "0.1.0"
 authors = ["Amazon Firecracker team <firecracker-devel@amazon.com>"]
-edition = "2021"
+edition = "2024"
 license = "Apache-2.0"
 
 [lib]
@@ -10,9 +10,9 @@ bench = false
 
 [dependencies]
 displaydoc = "0.2.5"
-libc = "0.2.170"
+libc = "0.2.172"
 log-instrument = { path = "../log-instrument", optional = true }
-thiserror = "2.0.11"
+thiserror = "2.0.12"
 
 [features]
 tracing = ["log-instrument"]

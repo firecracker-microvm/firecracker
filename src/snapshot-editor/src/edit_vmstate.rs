@@ -8,7 +8,7 @@ use clap_num::maybe_hex;
 use vmm::arch::aarch64::regs::Aarch64RegisterVec;
 use vmm::persist::MicrovmState;
 
-use crate::utils::{open_vmstate, save_vmstate, UtilsError};
+use crate::utils::{UtilsError, open_vmstate, save_vmstate};
 
 #[derive(Debug, thiserror::Error, displaydoc::Display)]
 pub enum EditVmStateError {
@@ -99,7 +99,7 @@ mod tests {
         const KVM_REG_SIZE_U32: u64 = 0x20000000000000;
 
         use vmm::arch::aarch64::regs::Aarch64RegisterRef;
-        use vmm::vstate::vcpu::aarch64::VcpuState;
+        use vmm::arch::aarch64::vcpu::VcpuState;
 
         let vcpu_state = VcpuState {
             regs: {
@@ -158,7 +158,7 @@ mod tests {
         const KVM_REG_SIZE_U32: u64 = 0x20000000000000;
 
         use vmm::arch::aarch64::regs::Aarch64RegisterRef;
-        use vmm::vstate::vcpu::aarch64::VcpuState;
+        use vmm::arch::aarch64::vcpu::VcpuState;
 
         let vcpu_state = VcpuState {
             regs: {

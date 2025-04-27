@@ -6,7 +6,7 @@
 
 from enum import Enum
 
-from common import DEFAULT_INSTANCES, DEFAULT_PLATFORMS, BKPipeline, group
+from common import DEFAULT_PLATFORMS, BKPipeline, group
 
 
 class BkStep(str, Enum):
@@ -26,16 +26,21 @@ cpu_template_test = {
             "tools/devtool -y test --no-build -- -m nonci -n4 --dist worksteal integration_tests/functional/test_cpu_features_x86_64.py -k 'test_cpu_rdmsr' "
         ],
         BkStep.LABEL: "📖 rdmsr",
-        "instances": ["c5n.metal", "m5n.metal", "m6a.metal", "m6i.metal"],
-        "platforms": DEFAULT_PLATFORMS,
+        "instances": [
+            "c5n.metal",
+            "m5n.metal",
+            "m6i.metal",
+            "m7i.metal-24xl",
+            "m7i.metal-48xl",
+            "m6a.metal",
+            "m7a.metal-48xl",
+        ],
     },
     "fingerprint": {
         BkStep.COMMAND: [
             "tools/devtool -y test --no-build -- -m no_block_pr integration_tests/functional/test_cpu_template_helper.py -k test_guest_cpu_config_change",
         ],
         BkStep.LABEL: "🖐️ fingerprint",
-        "instances": DEFAULT_INSTANCES,
-        "platforms": DEFAULT_PLATFORMS,
     },
     "cpuid_wrmsr": {
         "snapshot": {
@@ -62,7 +67,14 @@ cpu_template_test = {
             "c5n.metal": ["m5n.metal", "m6i.metal"],
             "m6i.metal": ["m5n.metal", "c5n.metal"],
         },
-        "instances": ["c5n.metal", "m5n.metal", "m6i.metal", "m6a.metal"],
+        "instances": [
+            "c5n.metal",
+            "m5n.metal",
+            "m6i.metal",
+            "m7i.metal-24xl",
+            "m7i.metal-48xl",
+            "m6a.metal",
+        ],
     },
 }
 

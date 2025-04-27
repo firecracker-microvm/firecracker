@@ -130,14 +130,19 @@ The **API endpoint** can be used to:
 
 We test all combinations of:
 
-| Instance  | Host OS & Kernel | Guest Rootfs | Guest Kernel |
-| :-------- | :--------------- | :----------- | :----------- |
-| c5n.metal | al2 linux_5.10   | ubuntu 24.04 | linux_5.10   |
-| m5n.metal | al2023 linux_6.1 |              | linux_6.1    |
-| m6i.metal |                  |              |              |
-| m6a.metal |                  |              |              |
-| m6g.metal |                  |              |              |
-| m7g.metal |                  |              |              |
+| Instance       | Host OS & Kernel | Guest Rootfs | Guest Kernel |
+| :------------- | :--------------- | :----------- | :----------- |
+| c5n.metal      | al2 linux_5.10   | ubuntu 24.04 | linux_5.10   |
+| m5n.metal      | al2023 linux_6.1 |              | linux_6.1    |
+| m6i.metal      |                  |              |              |
+| m7i.metal-24xl |                  |              |              |
+| m7i.metal-48xl |                  |              |              |
+| m6a.metal      |                  |              |              |
+| m7a.metal-48xl |                  |              |              |
+| m6g.metal      |                  |              |              |
+| m7g.metal      |                  |              |              |
+| m8g.metal-24xl |                  |              |              |
+| m8g.metal-48xl |                  |              |              |
 
 ## Known issues and Limitations
 

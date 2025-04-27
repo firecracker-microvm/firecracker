@@ -9,12 +9,12 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
-use vmm::builder::{build_microvm_for_boot, StartMicrovmError};
+use vmm::builder::{StartMicrovmError, build_microvm_for_boot};
 use vmm::cpu_config::templates::{CustomCpuTemplate, Numeric};
 use vmm::resources::VmResources;
 use vmm::seccomp::get_empty_filters;
 use vmm::vmm_config::instance_info::{InstanceInfo, VmState};
-use vmm::{EventManager, Vmm, HTTP_MAX_PAYLOAD_SIZE};
+use vmm::{EventManager, HTTP_MAX_PAYLOAD_SIZE, Vmm};
 use vmm_sys_util::tempfile::TempFile;
 
 #[cfg(target_arch = "aarch64")]

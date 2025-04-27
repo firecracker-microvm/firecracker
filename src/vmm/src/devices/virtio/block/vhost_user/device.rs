@@ -7,25 +7,24 @@
 use std::sync::Arc;
 
 use log::error;
-use utils::time::{get_time_us, ClockType};
-use vhost::vhost_user::message::*;
+use utils::time::{ClockType, get_time_us};
 use vhost::vhost_user::Frontend;
+use vhost::vhost_user::message::*;
 use vmm_sys_util::eventfd::EventFd;
 
-use super::{VhostUserBlockError, NUM_QUEUES, QUEUE_SIZE};
+use super::{NUM_QUEUES, QUEUE_SIZE, VhostUserBlockError};
 use crate::devices::virtio::block::CacheType;
 use crate::devices::virtio::device::{DeviceState, IrqTrigger, IrqType, VirtioDevice};
-use crate::devices::virtio::gen::virtio_blk::{
-    VIRTIO_BLK_F_FLUSH, VIRTIO_BLK_F_RO, VIRTIO_F_VERSION_1,
-};
-use crate::devices::virtio::gen::virtio_ring::VIRTIO_RING_F_EVENT_IDX;
+use crate::devices::virtio::generated::virtio_blk::{VIRTIO_BLK_F_FLUSH, VIRTIO_BLK_F_RO};
+use crate::devices::virtio::generated::virtio_config::VIRTIO_F_VERSION_1;
+use crate::devices::virtio::generated::virtio_ring::VIRTIO_RING_F_EVENT_IDX;
 use crate::devices::virtio::queue::Queue;
 use crate::devices::virtio::vhost_user::{VhostUserHandleBackend, VhostUserHandleImpl};
 use crate::devices::virtio::vhost_user_metrics::{
     VhostUserDeviceMetrics, VhostUserMetricsPerDevice,
 };
 use crate::devices::virtio::{ActivateError, TYPE_BLOCK};
-use crate::logger::{log_dev_preview_warning, IncMetric, StoreMetric};
+use crate::logger::{IncMetric, StoreMetric, log_dev_preview_warning};
 use crate::utils::u64_to_usize;
 use crate::vmm_config::drive::BlockDeviceConfig;
 use crate::vstate::memory::GuestMemoryMmap;
@@ -377,8 +376,9 @@ mod tests {
     use super::*;
     use crate::devices::virtio::block::virtio::device::FileEngineType;
     use crate::devices::virtio::mmio::VIRTIO_MMIO_INT_CONFIG;
+    use crate::devices::virtio::vhost_user::tests::create_mem;
     use crate::test_utils::create_tmp_socket;
-    use crate::vstate::memory::{GuestAddress, GuestMemoryExtension};
+    use crate::vstate::memory::GuestAddress;
 
     #[test]
     fn test_from_config() {
@@ -779,9 +779,7 @@ mod tests {
         let file = TempFile::new().unwrap().into_file();
         file.set_len(region_size as u64).unwrap();
         let regions = vec![(GuestAddress(0x0), region_size)];
-        let guest_memory =
-            GuestMemoryMmap::create(regions.into_iter(), libc::MAP_PRIVATE, Some(file), false)
-                .unwrap();
+        let guest_memory = create_mem(file, &regions);
 
         // During actiavion of the device features, memory and queues should be set and activated.
         vhost_block.activate(guest_memory).unwrap();

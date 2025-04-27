@@ -2,15 +2,15 @@
 name = "acpi_tables"
 version = "0.1.0"
 authors = ["The Cloud Hypervisor Authors", "Amazon Firecracker team <firecracker-devel@amazon.com>"]
-edition = "2021"
+edition = "2024"
 license = "Apache-2.0"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
 displaydoc = "0.2.5"
-thiserror = "2.0.11"
+thiserror = "2.0.12"
 vm-memory = { version = "0.16.1", features = ["backend-mmap", "backend-bitmap"] }
-zerocopy = { version = "0.8.20", features = ["derive"] }
+zerocopy = { version = "0.8.24", features = ["derive"] }
 
 [lib]
 bench = false

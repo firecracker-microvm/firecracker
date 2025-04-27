@@ -373,7 +373,7 @@ impl<T: VhostUserHandleBackend> VhostUserHandleImpl<T> {
                 None => {
                     return Err(VhostUserError::VhostUserMemoryRegion(
                         MmapError::NoMemoryRegion,
-                    ))
+                    ));
                 }
             };
 
@@ -459,14 +459,30 @@ impl<T: VhostUserHandleBackend> VhostUserHandleImpl<T> {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     #![allow(clippy::undocumented_unsafe_blocks)]
+
+    use std::fs::File;
 
     use vmm_sys_util::tempfile::TempFile;
 
     use super::*;
     use crate::test_utils::create_tmp_socket;
-    use crate::vstate::memory::{GuestAddress, GuestMemoryExtension};
+    use crate::vstate::memory;
+    use crate::vstate::memory::GuestAddress;
+
+    pub(crate) fn create_mem(file: File, regions: &[(GuestAddress, usize)]) -> GuestMemoryMmap {
+        GuestMemoryMmap::from_regions(
+            memory::create(
+                regions.iter().copied(),
+                libc::MAP_PRIVATE,
+                Some(file),
+                false,
+            )
+            .unwrap(),
+        )
+        .unwrap()
+    }
 
     #[test]
     fn test_new() {
@@ -763,9 +779,7 @@ mod tests {
             (GuestAddress(0x10000), region_size),
         ];
 
-        let guest_memory =
-            GuestMemoryMmap::create(regions.into_iter(), libc::MAP_PRIVATE, Some(file), false)
-                .unwrap();
+        let guest_memory = create_mem(file, &regions);
 
         vuh.update_mem_table(&guest_memory).unwrap();
 
@@ -879,9 +893,7 @@ mod tests {
         file.set_len(region_size as u64).unwrap();
         let regions = vec![(GuestAddress(0x0), region_size)];
 
-        let guest_memory =
-            GuestMemoryMmap::create(regions.into_iter(), libc::MAP_PRIVATE, Some(file), false)
-                .unwrap();
+        let guest_memory = create_mem(file, &regions);
 
         let mut queue = Queue::new(69);
         queue.initialize(&guest_memory).unwrap();

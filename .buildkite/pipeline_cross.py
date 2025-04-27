@@ -18,7 +18,15 @@ if __name__ == "__main__":
     per_instance = pipeline.per_instance.copy()
     per_instance.pop("instances")
     per_instance.pop("platforms")
-    instances_x86_64 = ["c5n.metal", "m5n.metal", "m6i.metal", "m6a.metal"]
+    instances_x86_64 = [
+        "c5n.metal",
+        "m5n.metal",
+        "m6i.metal",
+        "m7i.metal-24xl",
+        "m7i.metal-48xl",
+        "m6a.metal",
+        "m7a.metal-48xl",
+    ]
     instances_aarch64 = ["m7g.metal"]
     commands = [
         "./tools/devtool -y test --no-build -- -m nonci -n4 integration_tests/functional/test_snapshot_phase1.py",

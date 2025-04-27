@@ -21,7 +21,7 @@ import framework.utils_cpuid as cpuid_utils
 from framework import utils
 from framework.defs import SUPPORTED_HOST_KERNELS
 from framework.properties import global_props
-from framework.utils_cpu_templates import SUPPORTED_CPU_TEMPLATES
+from framework.utils_cpu_templates import get_cpu_template_name
 
 PLATFORM = platform.machine()
 UNSUPPORTED_HOST_KERNEL = (
@@ -75,16 +75,6 @@ def _check_extended_cache_features(vm):
     assert lines_per_tag == 0x1  # This is hardcoded in the AMD spec
     assert assoc == 0x9  # This is hardcoded in the AMD spec
     assert cache_size > 0
-
-
-def get_cpu_template_dir(cpu_template):
-    """
-    Utility function to return a valid string which will be used as
-    name of the directory where snapshot artifacts are stored during
-    snapshot test and loaded from during restore test.
-
-    """
-    return cpu_template if cpu_template else "none"
 
 
 def skip_test_based_on_artifacts(snapshot_artifacts_dir):
@@ -150,6 +140,8 @@ def test_brand_string(uvm_plain_any):
 
     * For Intel CPUs, the guest brand string should be:
         Intel(R) Xeon(R) Processor @ {host frequency}
+    or
+        Intel(R) Xeon(R) Processor
     where {host frequency} is the frequency reported by the host CPUID
     (e.g. 4.01GHz)
     * For AMD CPUs, the guest brand string should be:
@@ -184,7 +176,9 @@ def test_brand_string(uvm_plain_any):
         cif = open("/proc/cpuinfo", "r", encoding="utf-8")
         cpu_info = cif.read()
         mo = re.search("model name.*:.* ([0-9]*.[0-9]*[G|M|T]Hz)", cpu_info)
-        assert mo
+        # Skip if host frequency is not reported
+        if mo is None:
+            return
         host_frequency = mo.group(1)
 
         # Assert the model name matches "Intel(R) Xeon(R) Processor @ "
@@ -256,22 +250,13 @@ MSR_EXCEPTION_LIST = [
 # fmt: on
 
 
-MSR_SUPPORTED_TEMPLATES = ["T2A", "T2CL", "T2S"]
-
-
-@pytest.fixture(
-    name="msr_cpu_template",
-    params=sorted(set(SUPPORTED_CPU_TEMPLATES).intersection(MSR_SUPPORTED_TEMPLATES)),
-)
-def msr_cpu_template_fxt(request):
-    """CPU template fixture for MSR read/write supported CPU templates"""
-    return request.param
+MSR_SUPPORTED_TEMPLATES = ["T2A", "T2CL", "T2S", "SPR_TO_T2_5.10", "SPR_TO_T2_6.1"]
 
 
 @pytest.mark.timeout(900)
 @pytest.mark.nonci
 def test_cpu_rdmsr(
-    microvm_factory, msr_cpu_template, guest_kernel, rootfs, results_dir
+    microvm_factory, cpu_template_any, guest_kernel, rootfs, results_dir
 ):
     """
     Test MSRs that are available to the guest.
@@ -304,14 +289,16 @@ def test_cpu_rdmsr(
     - All supported guest kernels and rootfs
     - Microvm: 1vCPU with 1024 MB RAM
     """
+    cpu_template_name = get_cpu_template_name(cpu_template_any)
+    if cpu_template_name not in MSR_SUPPORTED_TEMPLATES:
+        pytest.skip(f"This test does not support {cpu_template_name} template.")
 
     vcpus, guest_mem_mib = 1, 1024
     vm = microvm_factory.build(guest_kernel, rootfs, monitor_memory=False)
     vm.spawn()
     vm.add_net_iface()
-    vm.basic_config(
-        vcpu_count=vcpus, mem_size_mib=guest_mem_mib, cpu_template=msr_cpu_template
-    )
+    vm.basic_config(vcpu_count=vcpus, mem_size_mib=guest_mem_mib)
+    vm.set_cpu_template(cpu_template_any)
     vm.start()
     vm.ssh.scp_put(DATA_FILES / "msr_reader.sh", "/tmp/msr_reader.sh")
     _, stdout, stderr = vm.ssh.run("/tmp/msr_reader.sh", timeout=None)
@@ -325,7 +312,7 @@ def test_cpu_rdmsr(
     host_kv = global_props.host_linux_version
     guest_kv = re.search(r"vmlinux-(\d+\.\d+)", guest_kernel.name).group(1)
     baseline_file_name = (
-        f"msr_list_{msr_cpu_template}_{host_cpu}_{host_kv}host_{guest_kv}guest.csv"
+        f"msr_list_{cpu_template_name}_{host_cpu}_{host_kv}host_{guest_kv}guest.csv"
     )
     # save it as an artifact, so we don't have to manually launch an instance to
     # get a baseline
@@ -377,7 +364,7 @@ def dump_msr_state_to_file(dump_fname, ssh_conn, shared_names):
 )
 @pytest.mark.timeout(900)
 @pytest.mark.nonci
-def test_cpu_wrmsr_snapshot(microvm_factory, guest_kernel, rootfs, msr_cpu_template):
+def test_cpu_wrmsr_snapshot(microvm_factory, guest_kernel, rootfs, cpu_template_any):
     """
     This is the first part of the test verifying
     that MSRs retain their values after restoring from a snapshot.
@@ -394,6 +381,10 @@ def test_cpu_wrmsr_snapshot(microvm_factory, guest_kernel, rootfs, msr_cpu_templ
     This part of the test is responsible for taking a snapshot and publishing
     its files along with the `before` MSR dump.
     """
+    cpu_template_name = get_cpu_template_name(cpu_template_any)
+    if cpu_template_name not in MSR_SUPPORTED_TEMPLATES:
+        pytest.skip(f"This test does not support {cpu_template_name} template.")
+
     shared_names = SNAPSHOT_RESTORE_SHARED_NAMES
 
     vcpus, guest_mem_mib = 1, 1024
@@ -403,10 +394,10 @@ def test_cpu_wrmsr_snapshot(microvm_factory, guest_kernel, rootfs, msr_cpu_templ
     vm.basic_config(
         vcpu_count=vcpus,
         mem_size_mib=guest_mem_mib,
-        cpu_template=msr_cpu_template,
         track_dirty_pages=True,
         boot_args="msr.allow_writes=on",
     )
+    vm.set_cpu_template(cpu_template_any)
     vm.start()
 
     # Make MSR modifications
@@ -427,7 +418,7 @@ def test_cpu_wrmsr_snapshot(microvm_factory, guest_kernel, rootfs, msr_cpu_templ
     snapshot_artifacts_dir = (
         Path(shared_names["snapshot_artifacts_root_dir_wrmsr"])
         / guest_kernel.name
-        / (msr_cpu_template if msr_cpu_template else "none")
+        / get_cpu_template_name(cpu_template_any, with_type=True)
     )
     clean_and_mkdir(snapshot_artifacts_dir)
 
@@ -479,7 +470,7 @@ def check_msrs_are_equal(before_recs, after_recs):
 )
 @pytest.mark.timeout(900)
 @pytest.mark.nonci
-def test_cpu_wrmsr_restore(microvm_factory, msr_cpu_template, guest_kernel):
+def test_cpu_wrmsr_restore(microvm_factory, cpu_template_any, guest_kernel):
     """
     This is the second part of the test verifying
     that MSRs retain their values after restoring from a snapshot.
@@ -493,13 +484,15 @@ def test_cpu_wrmsr_restore(microvm_factory, msr_cpu_template, guest_kernel):
     This part of the test is responsible for restoring from a snapshot and
     comparing two sets of MSR values.
     """
+    cpu_template_name = get_cpu_template_name(cpu_template_any)
+    if cpu_template_name not in MSR_SUPPORTED_TEMPLATES:
+        pytest.skip(f"This test does not support {cpu_template_name} template.")
 
     shared_names = SNAPSHOT_RESTORE_SHARED_NAMES
-    cpu_template_dir = msr_cpu_template if msr_cpu_template else "none"
     snapshot_artifacts_dir = (
         Path(shared_names["snapshot_artifacts_root_dir_wrmsr"])
         / guest_kernel.name
-        / cpu_template_dir
+        / get_cpu_template_name(cpu_template_any, with_type=True)
     )
 
     skip_test_based_on_artifacts(snapshot_artifacts_dir)
@@ -534,7 +527,7 @@ def dump_cpuid_to_file(dump_fname, ssh_conn):
 )
 @pytest.mark.timeout(900)
 @pytest.mark.nonci
-def test_cpu_cpuid_snapshot(microvm_factory, guest_kernel, rootfs, msr_cpu_template):
+def test_cpu_cpuid_snapshot(microvm_factory, guest_kernel, rootfs, cpu_template_any):
     """
     This is the first part of the test verifying
     that CPUID remains the same after restoring from a snapshot.
@@ -546,6 +539,10 @@ def test_cpu_cpuid_snapshot(microvm_factory, guest_kernel, rootfs, msr_cpu_templ
     This part of the test is responsible for taking a snapshot and publishing
     its files along with the `before` CPUID dump.
     """
+    cpu_template_name = get_cpu_template_name(cpu_template_any)
+    if cpu_template_name not in MSR_SUPPORTED_TEMPLATES:
+        pytest.skip("This test does not support {cpu_template_name} template.")
+
     shared_names = SNAPSHOT_RESTORE_SHARED_NAMES
 
     vm = microvm_factory.build(
@@ -557,17 +554,16 @@ def test_cpu_cpuid_snapshot(microvm_factory, guest_kernel, rootfs, msr_cpu_templ
     vm.basic_config(
         vcpu_count=1,
         mem_size_mib=1024,
-        cpu_template=msr_cpu_template,
         track_dirty_pages=True,
     )
+    vm.set_cpu_template(cpu_template_any)
     vm.start()
 
     # Dump CPUID to a file that will be published to S3 for the 2nd part of the test
-    cpu_template_dir = get_cpu_template_dir(msr_cpu_template)
     snapshot_artifacts_dir = (
         Path(shared_names["snapshot_artifacts_root_dir_cpuid"])
         / guest_kernel.name
-        / cpu_template_dir
+        / get_cpu_template_name(cpu_template_any, with_type=True)
     )
     clean_and_mkdir(snapshot_artifacts_dir)
 
@@ -601,7 +597,7 @@ def check_cpuid_is_equal(before_cpuid_fname, after_cpuid_fname):
 )
 @pytest.mark.timeout(900)
 @pytest.mark.nonci
-def test_cpu_cpuid_restore(microvm_factory, guest_kernel, msr_cpu_template):
+def test_cpu_cpuid_restore(microvm_factory, guest_kernel, cpu_template_any):
     """
     This is the second part of the test verifying
     that CPUID remains the same after restoring from a snapshot.
@@ -613,13 +609,15 @@ def test_cpu_cpuid_restore(microvm_factory, guest_kernel, msr_cpu_template):
     This part of the test is responsible for restoring from a snapshot and
     comparing two CPUIDs.
     """
+    cpu_template_name = get_cpu_template_name(cpu_template_any)
+    if cpu_template_name not in MSR_SUPPORTED_TEMPLATES:
+        pytest.skip("This test does not support {cpu_template_name} template.")
 
     shared_names = SNAPSHOT_RESTORE_SHARED_NAMES
-    cpu_template_dir = get_cpu_template_dir(msr_cpu_template)
     snapshot_artifacts_dir = (
         Path(shared_names["snapshot_artifacts_root_dir_cpuid"])
         / guest_kernel.name
-        / cpu_template_dir
+        / get_cpu_template_name(cpu_template_any, with_type=True)
     )
 
     skip_test_based_on_artifacts(snapshot_artifacts_dir)
@@ -639,8 +637,7 @@ def test_cpu_cpuid_restore(microvm_factory, guest_kernel, msr_cpu_template):
     )
 
 
-@pytest.mark.parametrize("cpu_template", ["T2", "T2S", "C3"])
-def test_cpu_template(uvm_plain_any, cpu_template, microvm_factory):
+def test_cpu_template(uvm_plain_any, cpu_template_any, microvm_factory):
     """
     Test masked and enabled cpu features against the expected template.
 
@@ -648,14 +645,18 @@ def test_cpu_template(uvm_plain_any, cpu_template, microvm_factory):
     guest and that expected enabled features are present for each of the
     supported CPU templates.
     """
+    cpu_template_name = get_cpu_template_name(cpu_template_any)
+    if cpu_template_name not in ["T2", "T2S", "SPR_TO_T2_5.10", "SPR_TO_T2_6.1" "C3"]:
+        pytest.skip("This test does not support {cpu_template_name} template.")
+
     test_microvm = uvm_plain_any
     test_microvm.spawn()
     # Set template as specified in the `cpu_template` parameter.
     test_microvm.basic_config(
         vcpu_count=1,
         mem_size_mib=256,
-        cpu_template=cpu_template,
     )
+    test_microvm.set_cpu_template(cpu_template_any)
     test_microvm.add_net_iface()
 
     if cpuid_utils.get_cpu_vendor() != cpuid_utils.CpuVendor.INTEL:
@@ -666,8 +667,8 @@ def test_cpu_template(uvm_plain_any, cpu_template, microvm_factory):
 
     test_microvm.start()
 
-    check_masked_features(test_microvm, cpu_template)
-    check_enabled_features(test_microvm, cpu_template)
+    check_masked_features(test_microvm, cpu_template_name)
+    check_enabled_features(test_microvm, cpu_template_name)
 
     # Check that cpu features are still correct
     # after snap/restore cycle.
@@ -675,8 +676,8 @@ def test_cpu_template(uvm_plain_any, cpu_template, microvm_factory):
     restored_vm = microvm_factory.build()
     restored_vm.spawn()
     restored_vm.restore_from_snapshot(snapshot, resume=True)
-    check_masked_features(restored_vm, cpu_template)
-    check_enabled_features(restored_vm, cpu_template)
+    check_masked_features(restored_vm, cpu_template_name)
+    check_enabled_features(restored_vm, cpu_template_name)
 
 
 def check_masked_features(test_microvm, cpu_template):
@@ -700,7 +701,7 @@ def check_masked_features(test_microvm, cpu_template):
             ),
             (0x1, 0x0, "edx",
                 (1 << 18) | # PSN
-                (1 << 20) | # DS
+                (1 << 21) | # DS
                 (1 << 22) | # ACPI
                 (1 << 27) | # SS
                 (1 << 29) | # TM
@@ -786,7 +787,7 @@ def check_masked_features(test_microvm, cpu_template):
             ),
             (0x1, 0x0, "edx",
                 (1 << 18) | # PSN
-                (1 << 20) | # DS
+                (1 << 21) | # DS
                 (1 << 22) | # ACPI
                 (1 << 27) | # SS
                 (1 << 29) | # TM
@@ -857,6 +858,141 @@ def check_masked_features(test_microvm, cpu_template):
             ),
             (0x80000001, 0x0, "edx",
                 (1 << 26)   # PDPE1GB
+            ),
+            (0x80000008, 0x0, "ebx",
+                (1 << 9)    # WBNOINVD
+            )
+        ]
+    elif cpu_template in ["SPR_TO_T2_5.10", "SPR_TO_T2_6.1"]:
+        must_be_unset = [
+            (0x1, 0x0, "ecx",
+                (1 << 2) |  # DTES64
+                (1 << 3) |  # MONITOR
+                (1 << 4) |  # DS-CPL
+                (1 << 5) |  # VMX
+                (1 << 6) |  # SMX
+                (1 << 7) |  # EIST
+                (1 << 8) |  # TM2
+                (1 << 10) | # CNXT-ID
+                (1 << 11) | # SDBG
+                (1 << 14) | # XTPR_UPDATE
+                (1 << 15) | # PDCM
+                (1 << 18)   # DCA
+            ),
+            (0x1, 0x0, "edx",
+                (1 << 18) | # PSN
+                (1 << 21) | # DS
+                (1 << 22) | # ACPI
+                (1 << 27) | # SS
+                (1 << 29) | # TM
+                (1 << 30) | # IA64
+                (1 << 31)   # PBE
+            ),
+            (0x7, 0x0, "ebx",
+                (1 << 2) |  # SGX
+                (1 << 4) |  # HLE
+                (1 << 11) | # RTM
+                (1 << 12) | # RDT-M
+                (1 << 14) | # MPX
+                (1 << 15) | # RDT-A
+                (1 << 16) | # AVX512F
+                (1 << 17) | # AVX512DQ
+                (1 << 18) | # RDSEED
+                (1 << 19) | # ADX
+                (1 << 21) | # AVX512IFMA
+                (1 << 22) | # PCOMMIT
+                (1 << 23) | # CLFLUSHOPT
+                (1 << 24) | # CLWB
+                (1 << 25) | # PT
+                (1 << 26) | # AVX512PF
+                (1 << 27) | # AVX512ER
+                (1 << 28) | # AVX512CD
+                (1 << 29) | # SHA
+                (1 << 30) | # AVX512BW
+                (1 << 31)   # AVX512VL
+            ),
+            (0x7, 0x0, "ecx",
+                (1 << 1) |  # AVX512_VBMI
+                (1 << 2) |  # UMIP
+                (1 << 3) |  # PKU
+                (1 << 4) |  # OSPKE
+                (1 << 6) |  # AVX512_VBMI2
+                (1 << 8) |  # GFNI
+                (1 << 9) |  # VAES
+                (1 << 10) | # VPCLMULQDQ
+                (1 << 11) | # AVX512_VNNI
+                (1 << 12) | # AVX512_BITALG
+                (1 << 14) | # AVX512_VPOPCNTDQ
+                (1 << 16) | # LA57
+                (1 << 22) | # RDPID
+                (1 << 24) | # BUS_LOCK_DETECT
+                (1 << 25) | # CLDEMOTE
+                (1 << 27) | # MOVDIRI
+                (1 << 28) | # MOVDIR64B
+                (1 << 30)   # SGX_LC
+            ),
+            (0x7, 0x0, "edx",
+                (1 << 2) |  # AVX512_4VNNIW
+                (1 << 3) |  # AVX512_4FMAPS
+                (1 << 4) |  # FSRM
+                (1 << 8) |  # AVX512_VP2INTERSECT
+                (1 << 14) | # SERIALIZE
+                (1 << 16) | # TSXLDTRK
+                (1 << 22) | # AMX-BF16
+                (1 << 23) | # AVX512_FP16
+                (1 << 24) | # AMX-TILE
+                (1 << 25)   # AMX-INT8
+            ),
+            (0x7, 0x1, "eax",
+                (1 << 4) |  # AVX-VNI
+                (1 << 5)    # AVX512_BF16
+            ),
+            # Note that we don't intentionally mask hardware security features.
+            # - IPRED_CTRL: CPUID.(EAX=07H,ECX=2):EDX[1]
+            # - RRSBA_CTRL: CPUID.(EAX=07H,ECX=2):EDX[2]
+            # - BHI_CTRL: CPUID.(EAX=07H,ECX=2):EDX[4]
+            (0xd, 0x0, "eax",
+                (1 << 3) |  # MPX state bit 0
+                (1 << 4) |  # MPX state bit 1
+                (1 << 5) |  # AVX-512 state bit 0
+                (1 << 6) |  # AVX-512 state bit 1
+                (1 << 7) |  # AVX-512 state bit 2
+                (1 << 9) |  # PKRU state
+                (1 << 17) | # AMX TILECFG state
+                (1 << 18)   # AMX TILEDATA state
+            ),
+            (0xd, 0x1, "eax",
+                (1 << 1) |  # XSAVEC
+                (1 << 2) |  # XGETBV with ECX=1
+                (1 << 3) |  # XSAVES/XRSTORS and IA32_XSS
+                (1 << 4)    # XFD
+            ),
+            (0xd, 0x11, "eax", (1 << 32) - 1), # AMX TILECFG XSTATE leaf, EAX
+            (0xd, 0x11, "ebx", (1 << 32) - 1), # AMX TILECFG XSTATE leaf, EBX
+            (0xd, 0x11, "ecx", (1 << 32) - 1), # AMX TILECFG XSTATE leaf, ECX
+            (0xd, 0x11, "edx", (1 << 32) - 1), # AMX TILECFG XSTATE leaf, EDX
+            (0xd, 0x12, "eax", (1 << 32) - 1), # AMX TILEDATA XSTATE leaf, EAX
+            (0xd, 0x12, "ebx", (1 << 32) - 1), # AMX TILEDATA XSTATE leaf, EBX
+            (0xd, 0x12, "ecx", (1 << 32) - 1), # AMX TILEDATA XSTATE leaf, ECX
+            (0xd, 0x12, "edx", (1 << 32) - 1), # AMX TILEDATA XSTATE leaf, EDX
+            (0x1d, 0x0, "eax", (1 << 32) - 1), # AMX Tile Information leaf, EAX
+            (0x1d, 0x0, "ebx", (1 << 32) - 1), # AMX Tile Information leaf, EBX
+            (0x1d, 0x0, "ecx", (1 << 32) - 1), # AMX Tile Information leaf, ECX
+            (0x1d, 0x0, "edx", (1 << 32) - 1), # AMX Tile Information leaf, EDX
+            (0x1d, 0x1, "eax", (1 << 32) - 1), # AMX Tile Palette 1 leaf, EAX
+            (0x1d, 0x1, "ebx", (1 << 32) - 1), # AMX Tile Palette 1 leaf, EBX
+            (0x1d, 0x1, "ecx", (1 << 32) - 1), # AMX Tile Palette 1 leaf, ECX
+            (0x1d, 0x1, "edx", (1 << 32) - 1), # AMX TIle Palette 1 leaf, EDX
+            (0x1e, 0x0, "eax", (1 << 32) - 1), # AMX TMUL Information leaf, EAX
+            (0x1e, 0x0, "ebx", (1 << 32) - 1), # AMX TMUL Information leaf, EBX
+            (0x1e, 0x0, "ecx", (1 << 32) - 1), # AMX TMUL Information leaf, ECX
+            (0x1e, 0x0, "edx", (1 << 32) - 1), # AMX TMUL Information leaf, EDX
+            (0x80000001, 0x0, "ecx",
+                (1 << 8) |  # PREFETCHW
+                (1 << 29)   # MWAITX / MONITORX
+            ),
+            (0x80000001, 0x0, "edx",
+                (1 << 26)   # 1-GByte pages
             ),
             (0x80000008, 0x0, "ebx",
                 (1 << 9)    # WBNOINVD
@@ -942,7 +1078,7 @@ def check_enabled_features(test_microvm, cpu_template):
     cpuid_utils.check_guest_cpuid_output(
         test_microvm, "cpuid -1", None, "=", enabled_list
     )
-    if cpu_template == "T2":
+    if cpu_template in ["T2", "SPR_TO_T2_5.10", "SPR_TO_T2_6.1"]:
         t2_enabled_features = {
             "FMA instruction": "true",
             "BMI1 instructions": "true",
@@ -979,3 +1115,55 @@ def test_c3_on_skylake_show_warning(uvm_plain, cpu_template_any):
         assert message in uvm.log_data
     else:
         assert message not in uvm.log_data
+
+
+@pytest.mark.skipif(
+    global_props.cpu_codename != "INTEL_SAPPHIRE_RAPIDS"
+    or global_props.host_linux_version_tpl < (5, 17),
+    reason="Intel AMX is only supported on Intel Sapphire Rapids and kernel v5.17+",
+)
+def test_intel_amx_reported_on_sapphire_rapids(
+    microvm_factory, guest_kernel_linux_6_1, rootfs
+):
+    """
+    Verifies that Intel AMX is reported on guest (v5.17+)
+    """
+    uvm = microvm_factory.build(guest_kernel_linux_6_1, rootfs)
+    uvm.spawn()
+    uvm.basic_config()
+    uvm.add_net_iface()
+    uvm.start()
+
+    expected_dict = {
+        "AMX-BF16: tile bfloat16 support": "true",  # CPUID.(EAX=07H,ECX=0):EDX[22]
+        "AMX-TILE: tile architecture support": "true",  # CPUID.(EAX=07H,ECX=0):EDX[24]
+        "AMX-INT8: tile 8-bit integer support": "true",  # CPUID.(EAX=07H,ECX=0):EDX[25]
+        "AMX-FP16: FP16 tile operations": "false",  # CPUID.(EAX=07H,ECX=1):EAX[21], not supported on host as well
+        "XTILECFG state": "true",  # CPUID.(EAX=0DH,ECX=0):EAX[17]
+        "XTILEDATA state": "true",  # CPUID.(EAX=0DH,ECX=0):EAX[17]
+    }
+    cpuid_utils.check_guest_cpuid_output(
+        uvm,
+        "cpuid -1",
+        None,
+        "=",
+        expected_dict,
+    )
+
+
+def test_waitpkg_inaccessibility(uvm_nano, waitpkg_bin):
+    """
+    Verifies that attempting to use WAITPKG (UMONITOR / UMWAIT instructions)
+    generates #UD.
+    """
+    vm = uvm_nano
+    vm.add_net_iface()
+    vm.start()
+
+    rmt_path = "/tmp/waitpkg"
+    vm.ssh.scp_put(waitpkg_bin, rmt_path)
+
+    cmd = f"{rmt_path}; echo $?"
+    _, stdout, stderr = vm.ssh.check_output(cmd)
+    assert stdout == "132\n"
+    assert "Illegal instruction" in stderr

@@ -10,30 +10,30 @@ use std::mem::{self};
 use std::net::Ipv4Addr;
 use std::sync::{Arc, Mutex};
 
-use libc::{iovec, EAGAIN};
+use libc::{EAGAIN, iovec};
 use log::error;
 use vmm_sys_util::eventfd::EventFd;
 
 use super::NET_QUEUE_MAX_SIZE;
 use crate::devices::virtio::device::{DeviceState, IrqTrigger, IrqType, VirtioDevice};
-use crate::devices::virtio::gen::virtio_blk::VIRTIO_F_VERSION_1;
-use crate::devices::virtio::gen::virtio_net::{
-    virtio_net_hdr_v1, VIRTIO_NET_F_CSUM, VIRTIO_NET_F_GUEST_CSUM, VIRTIO_NET_F_GUEST_TSO4,
-    VIRTIO_NET_F_GUEST_TSO6, VIRTIO_NET_F_GUEST_UFO, VIRTIO_NET_F_HOST_TSO4,
-    VIRTIO_NET_F_HOST_TSO6, VIRTIO_NET_F_HOST_UFO, VIRTIO_NET_F_MAC, VIRTIO_NET_F_MRG_RXBUF,
+use crate::devices::virtio::generated::virtio_config::VIRTIO_F_VERSION_1;
+use crate::devices::virtio::generated::virtio_net::{
+    VIRTIO_NET_F_CSUM, VIRTIO_NET_F_GUEST_CSUM, VIRTIO_NET_F_GUEST_TSO4, VIRTIO_NET_F_GUEST_TSO6,
+    VIRTIO_NET_F_GUEST_UFO, VIRTIO_NET_F_HOST_TSO4, VIRTIO_NET_F_HOST_TSO6, VIRTIO_NET_F_HOST_UFO,
+    VIRTIO_NET_F_MAC, VIRTIO_NET_F_MRG_RXBUF, virtio_net_hdr_v1,
 };
-use crate::devices::virtio::gen::virtio_ring::VIRTIO_RING_F_EVENT_IDX;
+use crate::devices::virtio::generated::virtio_ring::VIRTIO_RING_F_EVENT_IDX;
 use crate::devices::virtio::iovec::{
     IoVecBuffer, IoVecBufferMut, IoVecError, ParsedDescriptorChain,
 };
 use crate::devices::virtio::net::metrics::{NetDeviceMetrics, NetMetricsPerDevice};
 use crate::devices::virtio::net::tap::Tap;
 use crate::devices::virtio::net::{
-    gen, NetError, NetQueue, MAX_BUFFER_SIZE, NET_QUEUE_SIZES, RX_INDEX, TX_INDEX,
+    MAX_BUFFER_SIZE, NET_QUEUE_SIZES, NetError, NetQueue, RX_INDEX, TX_INDEX, generated,
 };
 use crate::devices::virtio::queue::{DescriptorChain, Queue};
 use crate::devices::virtio::{ActivateError, TYPE_NET};
-use crate::devices::{report_net_event_fail, DeviceError};
+use crate::devices::{DeviceError, report_net_event_fail};
 use crate::dumbo::pdu::arp::ETH_IPV4_FRAME_LEN;
 use crate::dumbo::pdu::ethernet::{EthernetFrame, PAYLOAD_OFFSET};
 use crate::logger::{IncMetric, METRICS};
@@ -135,7 +135,8 @@ impl RxBuffers {
         mem: &GuestMemoryMmap,
         head: DescriptorChain,
     ) -> Result<(), AddRxBufferError> {
-        let parsed_dc = self.iovec.append_descriptor_chain(mem, head)?;
+        // SAFETY: descriptor chain cannot be referencing the same memory location as another chain
+        let parsed_dc = unsafe { self.iovec.append_descriptor_chain(mem, head)? };
         if parsed_dc.length < self.min_buffer_size {
             self.iovec.drop_chain_back(&parsed_dc);
             return Err(AddRxBufferError::BufferTooSmall);
@@ -274,17 +275,17 @@ impl Net {
         rx_rate_limiter: RateLimiter,
         tx_rate_limiter: RateLimiter,
     ) -> Result<Self, NetError> {
-        let mut avail_features = 1 << VIRTIO_NET_F_GUEST_CSUM
-            | 1 << VIRTIO_NET_F_CSUM
-            | 1 << VIRTIO_NET_F_GUEST_TSO4
-            | 1 << VIRTIO_NET_F_GUEST_TSO6
-            | 1 << VIRTIO_NET_F_GUEST_UFO
-            | 1 << VIRTIO_NET_F_HOST_TSO4
-            | 1 << VIRTIO_NET_F_HOST_TSO6
-            | 1 << VIRTIO_NET_F_HOST_UFO
-            | 1 << VIRTIO_F_VERSION_1
-            | 1 << VIRTIO_NET_F_MRG_RXBUF
-            | 1 << VIRTIO_RING_F_EVENT_IDX;
+        let mut avail_features = (1 << VIRTIO_NET_F_GUEST_CSUM)
+            | (1 << VIRTIO_NET_F_CSUM)
+            | (1 << VIRTIO_NET_F_GUEST_TSO4)
+            | (1 << VIRTIO_NET_F_GUEST_TSO6)
+            | (1 << VIRTIO_NET_F_GUEST_UFO)
+            | (1 << VIRTIO_NET_F_HOST_TSO4)
+            | (1 << VIRTIO_NET_F_HOST_TSO6)
+            | (1 << VIRTIO_NET_F_HOST_UFO)
+            | (1 << VIRTIO_F_VERSION_1)
+            | (1 << VIRTIO_NET_F_MRG_RXBUF)
+            | (1 << VIRTIO_RING_F_EVENT_IDX);
 
         let mut config_space = ConfigSpace::default();
         if let Some(mac) = guest_mac {
@@ -777,25 +778,25 @@ impl Net {
         add_if_supported(
             &mut tap_features,
             guest_supported_features,
-            gen::TUN_F_CSUM,
+            generated::TUN_F_CSUM,
             VIRTIO_NET_F_GUEST_CSUM,
         );
         add_if_supported(
             &mut tap_features,
             guest_supported_features,
-            gen::TUN_F_UFO,
+            generated::TUN_F_UFO,
             VIRTIO_NET_F_GUEST_UFO,
         );
         add_if_supported(
             &mut tap_features,
             guest_supported_features,
-            gen::TUN_F_TSO4,
+            generated::TUN_F_TSO4,
             VIRTIO_NET_F_GUEST_TSO4,
         );
         add_if_supported(
             &mut tap_features,
             guest_supported_features,
-            gen::TUN_F_TSO6,
+            generated::TUN_F_TSO6,
             VIRTIO_NET_F_GUEST_TSO6,
         );
 
@@ -1039,26 +1040,26 @@ pub mod tests {
 
     use super::*;
     use crate::check_metric_after_block;
-    use crate::devices::virtio::gen::virtio_ring::VIRTIO_RING_F_EVENT_IDX;
+    use crate::devices::virtio::generated::virtio_ring::VIRTIO_RING_F_EVENT_IDX;
     use crate::devices::virtio::iovec::IoVecBuffer;
+    use crate::devices::virtio::net::NET_QUEUE_SIZES;
     use crate::devices::virtio::net::device::{
         frame_bytes_from_buf, frame_bytes_from_buf_mut, frame_hdr_len, init_vnet_hdr, vnet_hdr_len,
     };
     use crate::devices::virtio::net::test_utils::test::TestHelper;
     use crate::devices::virtio::net::test_utils::{
-        default_net, if_index, inject_tap_tx_frame, set_mac, NetEvent, NetQueue,
-        TapTrafficSimulator,
+        NetEvent, NetQueue, TapTrafficSimulator, default_net, if_index, inject_tap_tx_frame,
+        set_mac,
     };
-    use crate::devices::virtio::net::NET_QUEUE_SIZES;
     use crate::devices::virtio::queue::VIRTQ_DESC_F_WRITE;
     use crate::devices::virtio::test_utils::VirtQueue;
-    use crate::dumbo::pdu::arp::{EthIPv4ArpFrame, ETH_IPV4_FRAME_LEN};
-    use crate::dumbo::pdu::ethernet::ETHERTYPE_ARP;
     use crate::dumbo::EthernetFrame;
+    use crate::dumbo::pdu::arp::{ETH_IPV4_FRAME_LEN, EthIPv4ArpFrame};
+    use crate::dumbo::pdu::ethernet::ETHERTYPE_ARP;
     use crate::logger::IncMetric;
     use crate::rate_limiter::{BucketUpdate, RateLimiter, TokenBucket, TokenType};
     use crate::test_utils::single_region_mem;
-    use crate::utils::net::mac::{MacAddr, MAC_ADDR_LEN};
+    use crate::utils::net::mac::{MAC_ADDR_LEN, MacAddr};
     use crate::vstate::memory::{Address, GuestMemory};
 
     impl Net {
@@ -1115,18 +1116,18 @@ pub mod tests {
         set_mac(&mut net, MacAddr::from_str("11:22:33:44:55:66").unwrap());
 
         // Test `features()` and `ack_features()`.
-        let features = 1 << VIRTIO_NET_F_GUEST_CSUM
-            | 1 << VIRTIO_NET_F_CSUM
-            | 1 << VIRTIO_NET_F_GUEST_TSO4
-            | 1 << VIRTIO_NET_F_GUEST_TSO6
-            | 1 << VIRTIO_NET_F_MAC
-            | 1 << VIRTIO_NET_F_GUEST_UFO
-            | 1 << VIRTIO_NET_F_HOST_TSO4
-            | 1 << VIRTIO_NET_F_HOST_TSO6
-            | 1 << VIRTIO_NET_F_HOST_UFO
-            | 1 << VIRTIO_F_VERSION_1
-            | 1 << VIRTIO_NET_F_MRG_RXBUF
-            | 1 << VIRTIO_RING_F_EVENT_IDX;
+        let features = (1 << VIRTIO_NET_F_GUEST_CSUM)
+            | (1 << VIRTIO_NET_F_CSUM)
+            | (1 << VIRTIO_NET_F_GUEST_TSO4)
+            | (1 << VIRTIO_NET_F_GUEST_TSO6)
+            | (1 << VIRTIO_NET_F_MAC)
+            | (1 << VIRTIO_NET_F_GUEST_UFO)
+            | (1 << VIRTIO_NET_F_HOST_TSO4)
+            | (1 << VIRTIO_NET_F_HOST_TSO6)
+            | (1 << VIRTIO_NET_F_HOST_UFO)
+            | (1 << VIRTIO_F_VERSION_1)
+            | (1 << VIRTIO_NET_F_MRG_RXBUF)
+            | (1 << VIRTIO_RING_F_EVENT_IDX);
 
         assert_eq!(
             net.avail_features_by_page(0),
@@ -1148,12 +1149,14 @@ pub mod tests {
     // Test that `Net::build_tap_offload_features` creates the TAP offload features that we expect
     // it to do, based on the available guest features
     fn test_build_tap_offload_features_all() {
-        let supported_features = 1 << VIRTIO_NET_F_GUEST_CSUM
-            | 1 << VIRTIO_NET_F_GUEST_UFO
-            | 1 << VIRTIO_NET_F_GUEST_TSO4
-            | 1 << VIRTIO_NET_F_GUEST_TSO6;
-        let expected_tap_features =
-            gen::TUN_F_CSUM | gen::TUN_F_UFO | gen::TUN_F_TSO4 | gen::TUN_F_TSO6;
+        let supported_features = (1 << VIRTIO_NET_F_GUEST_CSUM)
+            | (1 << VIRTIO_NET_F_GUEST_UFO)
+            | (1 << VIRTIO_NET_F_GUEST_TSO4)
+            | (1 << VIRTIO_NET_F_GUEST_TSO6);
+        let expected_tap_features = generated::TUN_F_CSUM
+            | generated::TUN_F_UFO
+            | generated::TUN_F_TSO4
+            | generated::TUN_F_TSO6;
         let supported_flags = Net::build_tap_offload_features(supported_features);
 
         assert_eq!(supported_flags, expected_tap_features);
@@ -1163,9 +1166,9 @@ pub mod tests {
     // Same as before, however, using each supported feature one by one.
     fn test_build_tap_offload_features_one_by_one() {
         let features = [
-            (1 << VIRTIO_NET_F_GUEST_CSUM, gen::TUN_F_CSUM),
-            (1 << VIRTIO_NET_F_GUEST_UFO, gen::TUN_F_UFO),
-            (1 << VIRTIO_NET_F_GUEST_TSO4, gen::TUN_F_TSO4),
+            (1 << VIRTIO_NET_F_GUEST_CSUM, generated::TUN_F_CSUM),
+            (1 << VIRTIO_NET_F_GUEST_UFO, generated::TUN_F_UFO),
+            (1 << VIRTIO_NET_F_GUEST_TSO4, generated::TUN_F_TSO4),
         ];
         for (virtio_flag, tap_flag) in features {
             let supported_flags = Net::build_tap_offload_features(virtio_flag);
@@ -1919,16 +1922,18 @@ pub mod tests {
         check_metric_after_block!(
             &METRICS.mmds.rx_accepted,
             1,
-            assert!(Net::write_to_mmds_or_tap(
-                net.mmds_ns.as_mut(),
-                &mut net.tx_rate_limiter,
-                &mut headers,
-                &buffer,
-                &mut net.tap,
-                Some(src_mac),
-                &net.metrics,
+            assert!(
+                Net::write_to_mmds_or_tap(
+                    net.mmds_ns.as_mut(),
+                    &mut net.tx_rate_limiter,
+                    &mut headers,
+                    &buffer,
+                    &mut net.tap,
+                    Some(src_mac),
+                    &net.metrics,
+                )
+                .unwrap()
             )
-            .unwrap())
         );
 
         // Validate that MMDS has a response and we can retrieve it.

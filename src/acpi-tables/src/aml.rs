@@ -265,12 +265,12 @@ impl EisaName {
 
         let data = name.as_bytes();
 
-        let value: u32 = (u32::from(data[0] - 0x40) << 26
-            | u32::from(data[1] - 0x40) << 21
-            | u32::from(data[2] - 0x40) << 16
-            | name.chars().nth(3).unwrap().to_digit(16).unwrap() << 12
-            | name.chars().nth(4).unwrap().to_digit(16).unwrap() << 8
-            | name.chars().nth(5).unwrap().to_digit(16).unwrap() << 4
+        let value: u32 = ((u32::from(data[0] - 0x40) << 26)
+            | (u32::from(data[1] - 0x40) << 21)
+            | (u32::from(data[2] - 0x40) << 16)
+            | (name.chars().nth(3).unwrap().to_digit(16).unwrap() << 12)
+            | (name.chars().nth(4).unwrap().to_digit(16).unwrap() << 8)
+            | (name.chars().nth(5).unwrap().to_digit(16).unwrap() << 4)
             | name.chars().nth(6).unwrap().to_digit(16).unwrap())
         .swap_bytes();
 
@@ -439,7 +439,7 @@ where
             r#type: AddressSpaceType::Memory,
             min,
             max,
-            type_flags: (cacheable as u8) << 1 | u8::from(read_write),
+            type_flags: ((cacheable as u8) << 1) | u8::from(read_write),
         })
     }
 
@@ -471,7 +471,7 @@ where
         bytes.push(descriptor); // Word Address Space Descriptor
         bytes.extend_from_slice(&(TryInto::<u16>::try_into(length).unwrap()).to_le_bytes());
         bytes.push(self.r#type as u8); // type
-        let generic_flags = 1 << 2 /* Min Fixed */ | 1 << 3; // Max Fixed
+        let generic_flags = (1 << 2) /* Min Fixed */ | (1 << 3); // Max Fixed
         bytes.push(generic_flags);
         bytes.push(self.type_flags);
     }
@@ -591,9 +591,9 @@ impl Aml for Interrupt {
     fn append_aml_bytes(&self, bytes: &mut Vec<u8>) -> Result<(), AmlError> {
         bytes.push(0x89); // Extended IRQ Descriptor
         bytes.extend_from_slice(&6u16.to_le_bytes());
-        let flags = u8::from(self.shared) << 3
-            | u8::from(self.active_low) << 2
-            | u8::from(self.edge_triggered) << 1
+        let flags = (u8::from(self.shared) << 3)
+            | (u8::from(self.active_low) << 2)
+            | (u8::from(self.edge_triggered) << 1)
             | u8::from(self.consumer);
         bytes.push(flags);
         bytes.push(1u8); // count
@@ -682,7 +682,7 @@ impl Aml for Method<'_> {
     fn append_aml_bytes(&self, bytes: &mut Vec<u8>) -> Result<(), AmlError> {
         let mut tmp = Vec::new();
         self.path.append_aml_bytes(&mut tmp)?;
-        let flags: u8 = (self.args & 0x7) | u8::from(self.serialized) << 3;
+        let flags: u8 = (self.args & 0x7) | (u8::from(self.serialized) << 3);
         tmp.push(flags);
         for child in &self.children {
             child.append_aml_bytes(&mut tmp)?;
@@ -766,7 +766,7 @@ impl Aml for Field {
         let mut tmp = Vec::new();
         self.path.append_aml_bytes(&mut tmp)?;
 
-        let flags: u8 = self.access_type as u8 | (self.update_rule as u8) << 5;
+        let flags: u8 = self.access_type as u8 | ((self.update_rule as u8) << 5);
         tmp.push(flags);
 
         for field in self.fields.iter() {
@@ -1263,15 +1263,17 @@ mod tests {
         assert_eq!(
             Scope::new(
                 "_SB_.MBRD".try_into().unwrap(),
-                vec![&Name::new(
-                    "_CRS".try_into().unwrap(),
-                    &ResourceTemplate::new(vec![&Memory32Fixed::new(
-                        true,
-                        0xE800_0000,
-                        0x1000_0000
-                    )])
-                )
-                .unwrap()]
+                vec![
+                    &Name::new(
+                        "_CRS".try_into().unwrap(),
+                        &ResourceTemplate::new(vec![&Memory32Fixed::new(
+                            true,
+                            0xE800_0000,
+                            0x1000_0000
+                        )])
+                    )
+                    .unwrap()
+                ]
             )
             .to_aml_bytes()
             .unwrap(),
@@ -1438,13 +1440,15 @@ mod tests {
         assert_eq!(
             Name::new(
                 "_CRS".try_into().unwrap(),
-                &ResourceTemplate::new(vec![&AddressSpace::new_memory(
-                    AddressSpaceCacheable::Cacheable,
-                    true,
-                    0x8_0000_0000u64,
-                    0xf_ffff_ffffu64
-                )
-                .unwrap()])
+                &ResourceTemplate::new(vec![
+                    &AddressSpace::new_memory(
+                        AddressSpaceCacheable::Cacheable,
+                        true,
+                        0x8_0000_0000u64,
+                        0xf_ffff_ffffu64
+                    )
+                    .unwrap()
+                ])
             )
             .unwrap()
             .to_aml_bytes()
@@ -1491,12 +1495,12 @@ mod tests {
         assert_eq!(create_pkg_length(&[0u8; 62], true), vec![63]);
         assert_eq!(
             create_pkg_length(&[0u8; 64], true),
-            vec![1 << 6 | (66 & 0xf), 66 >> 4]
+            vec![(1 << 6) | (66 & 0xf), 66 >> 4]
         );
         assert_eq!(
             create_pkg_length(&[0u8; 4096], true),
             vec![
-                2 << 6 | (4099 & 0xf) as u8,
+                (2 << 6) | (4099 & 0xf) as u8,
                 ((4099 >> 4) & 0xff).try_into().unwrap(),
                 ((4099 >> 12) & 0xff).try_into().unwrap()
             ]
@@ -1553,7 +1557,9 @@ mod tests {
             (&"_SB_.PCI0._HID".try_into().unwrap() as &Path)
                 .to_aml_bytes()
                 .unwrap(),
-            [0x2F, 0x03, 0x5F, 0x53, 0x42, 0x5F, 0x50, 0x43, 0x49, 0x30, 0x5F, 0x48, 0x49, 0x44]
+            [
+                0x2F, 0x03, 0x5F, 0x53, 0x42, 0x5F, 0x50, 0x43, 0x49, 0x30, 0x5F, 0x48, 0x49, 0x44
+            ]
         );
     }
 
@@ -2007,13 +2013,15 @@ mod tests {
                 vec![
                     &Name::new(
                         "MR64".try_into().unwrap(),
-                        &ResourceTemplate::new(vec![&AddressSpace::new_memory(
-                            AddressSpaceCacheable::Cacheable,
-                            true,
-                            0x0000_0000_0000_0000u64,
-                            0xFFFF_FFFF_FFFF_FFFEu64
-                        )
-                        .unwrap()])
+                        &ResourceTemplate::new(vec![
+                            &AddressSpace::new_memory(
+                                AddressSpaceCacheable::Cacheable,
+                                true,
+                                0x0000_0000_0000_0000u64,
+                                0xFFFF_FFFF_FFFF_FFFEu64
+                            )
+                            .unwrap()
+                        ])
                     )
                     .unwrap(),
                     &CreateField::<u64>::new(

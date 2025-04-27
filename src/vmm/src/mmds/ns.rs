@@ -13,19 +13,19 @@ use std::sync::{Arc, Mutex};
 
 use utils::time::timestamp_cycles;
 
+use crate::dumbo::pdu::Incomplete;
 use crate::dumbo::pdu::arp::{
-    test_speculative_tpa, ArpError as ArpFrameError, EthIPv4ArpFrame, ETH_IPV4_FRAME_LEN,
+    ArpError as ArpFrameError, ETH_IPV4_FRAME_LEN, EthIPv4ArpFrame, test_speculative_tpa,
 };
 use crate::dumbo::pdu::ethernet::{
-    EthernetError as EthernetFrameError, EthernetFrame, ETHERTYPE_ARP, ETHERTYPE_IPV4,
+    ETHERTYPE_ARP, ETHERTYPE_IPV4, EthernetError as EthernetFrameError, EthernetFrame,
 };
 use crate::dumbo::pdu::ipv4::{
-    test_speculative_dst_addr, IPv4Packet, Ipv4Error as IPv4PacketError, PROTOCOL_TCP,
+    IPv4Packet, Ipv4Error as IPv4PacketError, PROTOCOL_TCP, test_speculative_dst_addr,
 };
 use crate::dumbo::pdu::tcp::TcpError as TcpSegmentError;
-use crate::dumbo::pdu::Incomplete;
-use crate::dumbo::tcp::handler::{RecvEvent, TcpIPv4Handler, WriteEvent, WriteNextError};
 use crate::dumbo::tcp::NextSegmentStatus;
+use crate::dumbo::tcp::handler::{RecvEvent, TcpIPv4Handler, WriteEvent, WriteNextError};
 use crate::logger::{IncMetric, METRICS};
 use crate::mmds::data_store::Mmds;
 use crate::utils::net::mac::MacAddr;

@@ -120,7 +120,7 @@ EOF
 }
 
 function clone_amazon_linux_repo {
-    [ -d linux ] || git clone https://github.com/amazonlinux/linux linux
+    [ -d linux ] || git clone --no-checkout --filter=tree:0 https://github.com/amazonlinux/linux
 }
 
 # prints the git tag corresponding to the newest and best matching the provided kernel version $1
@@ -145,7 +145,8 @@ function build_al_kernel {
     local KERNEL_VERSION=$(echo $KERNEL_CFG | grep -Po "microvm-kernel-ci-$ARCH-\K(\d+\.\d+)")
 
     pushd linux
-    make distclean
+    # fails immediately after clone because nothing is checked out
+    make distclean || true
 
     git checkout $(get_tag $KERNEL_VERSION)
 

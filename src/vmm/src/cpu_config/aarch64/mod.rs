@@ -9,13 +9,19 @@ pub mod static_cpu_templates;
 pub mod test_utils;
 
 use super::templates::CustomCpuTemplate;
+use crate::Vcpu;
 use crate::arch::aarch64::regs::{Aarch64RegisterVec, RegSize};
-use crate::arch::aarch64::vcpu::VcpuError as ArchError;
+use crate::arch::aarch64::vcpu::{VcpuArchError, get_registers};
+use crate::vstate::vcpu::KvmVcpuError;
 
 /// Errors thrown while configuring templates.
-#[derive(Debug, PartialEq, Eq, thiserror::Error)]
-#[error("Failed to create a guest cpu configuration: {0}")]
-pub struct CpuConfigurationError(#[from] pub ArchError);
+#[derive(Debug, PartialEq, Eq, thiserror::Error, displaydoc::Display)]
+pub enum CpuConfigurationError {
+    /// Error initializing the vcpu: {0}
+    VcpuInit(#[from] KvmVcpuError),
+    /// Error reading vcpu registers: {0}
+    VcpuGetRegs(#[from] VcpuArchError),
+}
 
 /// CPU configuration for aarch64
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
@@ -25,11 +31,22 @@ pub struct CpuConfiguration {
 }
 
 impl CpuConfiguration {
-    /// Creates new guest CPU config based on the provided template
-    pub fn apply_template(
-        mut self,
-        template: &CustomCpuTemplate,
+    /// Create new CpuConfiguration.
+    pub fn new(
+        cpu_template: &CustomCpuTemplate,
+        vcpus: &mut [Vcpu],
     ) -> Result<Self, CpuConfigurationError> {
+        for vcpu in vcpus.iter_mut() {
+            vcpu.kvm_vcpu.init(&cpu_template.vcpu_features)?;
+        }
+
+        let mut regs = Aarch64RegisterVec::default();
+        get_registers(&vcpus[0].kvm_vcpu.fd, &cpu_template.reg_list(), &mut regs)?;
+        Ok(CpuConfiguration { regs })
+    }
+
+    /// Creates new guest CPU config based on the provided template
+    pub fn apply_template(mut self, template: &CustomCpuTemplate) -> Self {
         for (modifier, mut reg) in template.reg_modifiers.iter().zip(self.regs.iter_mut()) {
             match reg.size() {
                 RegSize::U32 => {
@@ -50,7 +67,7 @@ impl CpuConfiguration {
                 _ => unreachable!("Only 32, 64 and 128 bit wide registers are supported"),
             }
         }
-        Ok(self)
+        self
     }
 
     /// Returns ids of registers that are changed

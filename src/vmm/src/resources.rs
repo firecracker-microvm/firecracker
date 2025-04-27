@@ -13,6 +13,7 @@ use crate::logger::info;
 use crate::mmds;
 use crate::mmds::data_store::{Mmds, MmdsVersion};
 use crate::mmds::ns::MmdsNetworkStack;
+use crate::utils::mib_to_bytes;
 use crate::utils::net::ipv4addr::is_link_local_valid;
 use crate::vmm_config::balloon::*;
 use crate::vmm_config::boot_source::{
@@ -24,11 +25,12 @@ use crate::vmm_config::instance_info::InstanceInfo;
 use crate::vmm_config::machine_config::{
     HugePageConfig, MachineConfig, MachineConfigError, MachineConfigUpdate,
 };
-use crate::vmm_config::metrics::{init_metrics, MetricsConfig, MetricsConfigError};
+use crate::vmm_config::metrics::{MetricsConfig, MetricsConfigError, init_metrics};
 use crate::vmm_config::mmds::{MmdsConfig, MmdsConfigError};
 use crate::vmm_config::net::*;
 use crate::vmm_config::vsock::*;
-use crate::vstate::memory::{GuestMemoryExtension, GuestMemoryMmap, MemoryError};
+use crate::vstate::memory;
+use crate::vstate::memory::{GuestRegionMmap, MemoryError};
 
 /// Errors encountered when configuring microVM resources.
 #[derive(Debug, thiserror::Error, displaydoc::Display)]
@@ -439,7 +441,7 @@ impl VmResources {
     ///
     /// If vhost-user-blk devices are in use, allocates memfd-backed shared memory, otherwise
     /// prefers anonymous memory for performance reasons.
-    pub fn allocate_guest_memory(&self) -> Result<GuestMemoryMmap, MemoryError> {
+    pub fn allocate_guest_memory(&self) -> Result<Vec<GuestRegionMmap>, MemoryError> {
         let vhost_user_device_used = self
             .block
             .devices
@@ -455,15 +457,16 @@ impl VmResources {
         // because that would require running a backend process. If in the future we converge to
         // a single way of backing guest memory for vhost-user and non-vhost-user cases,
         // that would not be worth the effort.
+        let regions =
+            crate::arch::arch_memory_regions(0, mib_to_bytes(self.machine_config.mem_size_mib));
         if vhost_user_device_used {
-            GuestMemoryMmap::memfd_backed(
-                self.machine_config.mem_size_mib,
+            memory::memfd_backed(
+                regions.as_ref(),
                 self.machine_config.track_dirty_pages,
                 self.machine_config.huge_pages,
             )
         } else {
-            let regions = crate::arch::arch_memory_regions(self.machine_config.mem_size_mib << 20);
-            GuestMemoryMmap::anonymous(
+            memory::anonymous(
                 regions.into_iter(),
                 self.machine_config.track_dirty_pages,
                 self.machine_config.huge_pages,
@@ -501,6 +504,7 @@ mod tests {
     use vmm_sys_util::tempfile::TempFile;
 
     use super::*;
+    use crate::HTTP_MAX_PAYLOAD_SIZE;
     use crate::cpu_config::templates::{CpuTemplateType, StaticCpuTemplate};
     use crate::devices::virtio::balloon::Balloon;
     use crate::devices::virtio::block::virtio::VirtioBlockError;
@@ -508,6 +512,7 @@ mod tests {
     use crate::devices::virtio::vsock::VSOCK_DEV_ID;
     use crate::resources::VmResources;
     use crate::utils::net::mac::MacAddr;
+    use crate::vmm_config::RateLimiterConfig;
     use crate::vmm_config::boot_source::{
         BootConfig, BootSource, BootSourceConfig, DEFAULT_KERNEL_CMDLINE,
     };
@@ -515,8 +520,6 @@ mod tests {
     use crate::vmm_config::machine_config::{HugePageConfig, MachineConfig, MachineConfigError};
     use crate::vmm_config::net::{NetBuilder, NetworkInterfaceConfig};
     use crate::vmm_config::vsock::tests::default_config;
-    use crate::vmm_config::RateLimiterConfig;
-    use crate::HTTP_MAX_PAYLOAD_SIZE;
 
     fn default_net_cfg() -> NetworkInterfaceConfig {
         NetworkInterfaceConfig {
@@ -595,28 +598,6 @@ mod tests {
             boot_timer: false,
             mmds_size_limit: HTTP_MAX_PAYLOAD_SIZE,
             entropy: Default::default(),
-        }
-    }
-
-    impl PartialEq for BootConfig {
-        fn eq(&self, other: &Self) -> bool {
-            self.cmdline.eq(&other.cmdline)
-                && self.kernel_file.metadata().unwrap().st_ino()
-                    == other.kernel_file.metadata().unwrap().st_ino()
-                && self
-                    .initrd_file
-                    .as_ref()
-                    .unwrap()
-                    .metadata()
-                    .unwrap()
-                    .st_ino()
-                    == other
-                        .initrd_file
-                        .as_ref()
-                        .unwrap()
-                        .metadata()
-                        .unwrap()
-                        .st_ino()
         }
     }
 
@@ -1328,6 +1309,8 @@ mod tests {
             cpu_template: Some(StaticCpuTemplate::V1N1),
             track_dirty_pages: Some(false),
             huge_pages: Some(HugePageConfig::None),
+            #[cfg(feature = "gdb")]
+            gdb_socket_path: None,
         };
 
         assert_ne!(

@@ -15,7 +15,8 @@ use crate::test_utils::mock_resources::{MockBootSourceConfig, MockVmConfig, Mock
 use crate::vmm_config::boot_source::BootSourceConfig;
 use crate::vmm_config::instance_info::InstanceInfo;
 use crate::vmm_config::machine_config::HugePageConfig;
-use crate::vstate::memory::{GuestMemoryExtension, GuestMemoryMmap};
+use crate::vstate::memory;
+use crate::vstate::memory::{GuestMemoryMmap, GuestRegionMmap};
 use crate::{EventManager, Vmm};
 
 pub mod mock_resources;
@@ -26,22 +27,42 @@ pub fn single_region_mem(region_size: usize) -> GuestMemoryMmap {
     single_region_mem_at(0, region_size)
 }
 
+pub fn single_region_mem_raw(region_size: usize) -> Vec<GuestRegionMmap> {
+    single_region_mem_at_raw(0, region_size)
+}
+
 /// Creates a [`GuestMemoryMmap`] with a single region of the given size starting at the given
 /// guest physical address `at` and without dirty tracking.
 pub fn single_region_mem_at(at: u64, size: usize) -> GuestMemoryMmap {
     multi_region_mem(&[(GuestAddress(at), size)])
 }
 
+pub fn single_region_mem_at_raw(at: u64, size: usize) -> Vec<GuestRegionMmap> {
+    multi_region_mem_raw(&[(GuestAddress(at), size)])
+}
+
 /// Creates a [`GuestMemoryMmap`] with multiple regions and without dirty page tracking.
 pub fn multi_region_mem(regions: &[(GuestAddress, usize)]) -> GuestMemoryMmap {
-    GuestMemoryMmap::anonymous(regions.iter().copied(), false, HugePageConfig::None)
+    GuestMemoryMmap::from_regions(
+        memory::anonymous(regions.iter().copied(), false, HugePageConfig::None)
+            .expect("Cannot initialize memory"),
+    )
+    .unwrap()
+}
+
+pub fn multi_region_mem_raw(regions: &[(GuestAddress, usize)]) -> Vec<GuestRegionMmap> {
+    memory::anonymous(regions.iter().copied(), false, HugePageConfig::None)
         .expect("Cannot initialize memory")
 }
 
 /// Creates a [`GuestMemoryMmap`] of the given size with the contained regions laid out in
 /// accordance with the requirements of the architecture on which the tests are being run.
 pub fn arch_mem(mem_size_bytes: usize) -> GuestMemoryMmap {
-    multi_region_mem(&crate::arch::arch_memory_regions(mem_size_bytes))
+    multi_region_mem(&crate::arch::arch_memory_regions(0, mem_size_bytes))
+}
+
+pub fn arch_mem_raw(mem_size_bytes: usize) -> Vec<GuestRegionMmap> {
+    multi_region_mem_raw(&crate::arch::arch_memory_regions(0, mem_size_bytes))
 }
 
 pub fn create_vmm(
@@ -117,7 +138,7 @@ pub fn create_tmp_socket() -> (TempDir, String) {
         std::ptr::copy(
             tmp_socket_path.as_ptr().cast(),
             socket_addr.sun_path.as_mut_ptr(),
-            tmp_socket_path.as_bytes().len(),
+            tmp_socket_path.len(),
         );
 
         let bind = libc::bind(

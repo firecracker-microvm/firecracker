@@ -26,7 +26,7 @@ def build_tarball(release_dir, release_tgz, arch):
     exclude_files = {
         "RELEASE_NOTES",
         "SHA256SUMS.sig",
-        *[f.stem for f in Path("tests/data/static_cpu_templates").glob("*.json")],
+        *[f.stem for f in Path("tests/data/custom_cpu_templates").glob("*.json")],
     }
     with tarfile.open(release_tgz, "w:gz") as tar:
         files = [x for x in release_dir.rglob("*") if x.is_file()]

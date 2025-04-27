@@ -5,6 +5,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the THIRD-PARTY file.
 
+use std::fmt::Write;
 use std::mem::offset_of;
 
 use kvm_bindings::*;
@@ -260,6 +261,14 @@ impl Aarch64RegisterVec {
             data: &mut self.data,
         }
     }
+
+    /// Extract the Manufacturer ID from a VCPU state's registers.
+    /// The ID is found between bits 24-31 of MIDR_EL1 register.
+    pub fn manifacturer_id(&self) -> Option<u32> {
+        self.iter()
+            .find(|reg| reg.id == MIDR_EL1)
+            .map(|reg| ((reg.value::<u64, 8>() >> 24) & 0xFF) as u32)
+    }
 }
 
 impl Serialize for Aarch64RegisterVec {
@@ -394,6 +403,15 @@ impl<'a> Aarch64RegisterRef<'a> {
     /// will panic.
     pub fn value<T: Aarch64RegisterData<N>, const N: usize>(&self) -> T {
         T::from_slice(self.data)
+    }
+
+    /// Returns a string with hex formatted value of the register.
+    pub fn value_str(&self) -> String {
+        let hex = self.data.iter().rev().fold(String::new(), |mut acc, byte| {
+            write!(&mut acc, "{:02x}", byte).unwrap();
+            acc
+        });
+        format!("0x{hex}")
     }
 
     /// Returns register data as a byte slice
@@ -685,6 +703,32 @@ mod tests {
 
         assert_eq!(usize::from(reg_ref.size()), 8);
         assert_eq!(reg_ref.value::<u64, 8>(), 69);
+    }
+
+    #[test]
+    fn test_reg_ref_value_str() {
+        let bytes = 0x10_u8.to_le_bytes();
+        let reg_ref = Aarch64RegisterRef::new(KVM_REG_SIZE_U8 as u64, &bytes);
+        assert_eq!(reg_ref.value_str(), "0x10");
+
+        let bytes = 0x1020_u16.to_le_bytes();
+        let reg_ref = Aarch64RegisterRef::new(KVM_REG_SIZE_U16, &bytes);
+        assert_eq!(reg_ref.value_str(), "0x1020");
+
+        let bytes = 0x10203040_u32.to_le_bytes();
+        let reg_ref = Aarch64RegisterRef::new(KVM_REG_SIZE_U32, &bytes);
+        assert_eq!(reg_ref.value_str(), "0x10203040");
+
+        let bytes = 0x1020304050607080_u64.to_le_bytes();
+        let reg_ref = Aarch64RegisterRef::new(KVM_REG_SIZE_U64, &bytes);
+        assert_eq!(reg_ref.value_str(), "0x1020304050607080");
+
+        let bytes = [
+            0x71, 0x61, 0x51, 0x41, 0x31, 0x21, 0x11, 0x90, 0x80, 0x70, 0x60, 0x50, 0x40, 0x30,
+            0x20, 0x10,
+        ];
+        let reg_ref = Aarch64RegisterRef::new(KVM_REG_SIZE_U128, &bytes);
+        assert_eq!(reg_ref.value_str(), "0x10203040506070809011213141516171");
     }
 
     /// Should panic because ID has different size from a slice length.

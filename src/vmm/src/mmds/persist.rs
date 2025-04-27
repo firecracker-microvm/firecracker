@@ -11,7 +11,7 @@ use serde::{Deserialize, Serialize};
 use super::ns::MmdsNetworkStack;
 use crate::mmds::data_store::Mmds;
 use crate::snapshot::Persist;
-use crate::utils::net::mac::{MacAddr, MAC_ADDR_LEN};
+use crate::utils::net::mac::{MAC_ADDR_LEN, MacAddr};
 
 /// State of a MmdsNetworkStack.
 #[derive(Debug, Clone, Serialize, Deserialize)]

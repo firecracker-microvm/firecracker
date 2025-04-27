@@ -7,30 +7,48 @@ related changes.
 
 We are continuously validating the currently supported Firecracker releases (as
 per [Firecracker’s release policy](../docs/RELEASE_POLICY.md)) using a
-combination of:
-
-- host linux kernel versions 5.10, and 6.1;
-- guest linux kernel versions 5.10 and 6.1. Guest linux kernels 4.14 are
-  deprecated with Firecracker v1.9 and we will drop support for them with
-  Firecracker v1.10.
+combination of all supported host and guest kernel versions in the table below.
 
 While other versions and other kernel configs might work, they are not
 periodically validated in our test suite, and using them might result in
 unexpected behaviour. Starting with release `v1.0` each major and minor release
 will specify the supported kernel versions.
 
-Once a kernel version is officially enabled, it is supported for a **minimum of
-2 years**. Adding support for a new kernel version will result in a Firecracker
-release only if compatibility changes are required.
+Once a kernel version is officially added, it is supported for a **minimum of 2
+years**. At least 2 major guest and host versions will be supported at any time.
+When support is added for a third kernel version, the oldest will be deprecated
+and removed in a following release, after its minimum end of support date.
 
-| Host kernel | Guest kernel v4.14 (deprecated) | Guest kernel v5.10 | Guest kernel v6.1 | Min. end of support |
-| ----------: | :-----------------------------: | :----------------: | :---------------: | ------------------: |
-|       v5.10 |         Y (deprecated)          |         Y          |         Y         |          2024-01-31 |
-|        v6.1 |         Y (deprecated)          |         Y          |         Y         |          2025-10-12 |
+### Host Kernel
+
+| Host kernel | Min. version | Min. end of support |
+| ----------: | -----------: | ------------------: |
+|       v5.10 |       v1.0.0 |          2024-01-31 |
+|        v6.1 |       v1.5.0 |          2025-10-12 |
+
+### Guest Kernel
+
+| Guest kernel | Min. version | Min. end of support |
+| -----------: | -----------: | ------------------: |
+|        v5.10 |       v1.0.0 |          2024-01-31 |
+|         v6.1 |       v1.9.0 |          2026-09-02 |
 
 The guest kernel configs used in our validation pipelines can be found
 [here](../resources/guest_configs/) while a breakdown of the relevant guest
 kernel modules can be found in the next section.
+
+We use these configurations to build microVM-specific kernels vended by Amazon
+Linux. microVM kernel source code is published in the Amazon Linux
+[linux repo](https://github.com/amazonlinux/linux) under tags in the form of
+`microvm-kernel-*`, e.g. 6.1.128-3.201.amazn2023 kernel can be found
+[here](https://github.com/amazonlinux/linux/tree/microvm-kernel-6.1.128-3.201.amzn2023).
+These kernels may have diverged from the equivalent mainline versions, as we
+often backport patches that we require for supporting Firecracker features not
+present in the kernel versions we officially support. As a result, kernel
+configurations found in this repo should be used to build exclusively the
+aforementioned Amazon Linux kernels. We do not guarantee that using these
+configurations to build upstream kernels, will work or produce usable kernel
+images.
 
 ## Guest kernel configuration items
 

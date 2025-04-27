@@ -6,14 +6,14 @@
 // found in the THIRD-PARTY file.
 
 use std::fmt;
-use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU32, Ordering};
 
 use vmm_sys_util::eventfd::EventFd;
 
+use super::ActivateError;
 use super::mmio::{VIRTIO_MMIO_INT_CONFIG, VIRTIO_MMIO_INT_VRING};
 use super::queue::{Queue, QueueError};
-use super::ActivateError;
 use crate::devices::virtio::AsAny;
 use crate::logger::{error, warn};
 use crate::vstate::memory::GuestMemoryMmap;
@@ -38,7 +38,7 @@ impl DeviceState {
     /// Gets the memory attached to the device if it is activated.
     pub fn mem(&self) -> Option<&GuestMemoryMmap> {
         match self {
-            DeviceState::Activated(ref mem) => Some(mem),
+            DeviceState::Activated(mem) => Some(mem),
             DeviceState::Inactive => None,
         }
     }
@@ -104,7 +104,7 @@ pub trait VirtioDevice: AsAny + Send {
 
     /// Check if virtio device has negotiated given feature.
     fn has_feature(&self, feature: u64) -> bool {
-        (self.acked_features() & 1 << feature) != 0
+        (self.acked_features() & (1 << feature)) != 0
     }
 
     /// The virtio device type.

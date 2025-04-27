@@ -12,10 +12,12 @@ use std::fmt::Debug;
 use vm_fdt::{Error as VmFdtError, FdtWriter, FdtWriterNode};
 use vm_memory::GuestMemoryError;
 
-use super::super::{DeviceType, InitrdConfig};
-use super::cache_info::{read_cache_config, CacheEntry};
+use super::super::DeviceType;
+use super::cache_info::{CacheEntry, read_cache_config};
 use super::gic::GICDevice;
-use crate::devices::acpi::vmgenid::{VmGenId, VMGENID_MEM_SIZE};
+use crate::device_manager::mmio::MMIODeviceInfo;
+use crate::devices::acpi::vmgenid::{VMGENID_MEM_SIZE, VmGenId};
+use crate::initrd::InitrdConfig;
 use crate::vstate::memory::{Address, GuestMemory, GuestMemoryMmap};
 
 // This is a value for uniquely identifying the FDT node declaring the interrupt controller.
@@ -42,16 +44,6 @@ const GIC_FDT_IRQ_TYPE_PPI: u32 = 1;
 const IRQ_TYPE_EDGE_RISING: u32 = 1;
 const IRQ_TYPE_LEVEL_HI: u32 = 4;
 
-/// Trait for devices to be added to the Flattened Device Tree.
-pub trait DeviceInfoForFDT {
-    /// Returns the address where this device will be loaded.
-    fn addr(&self) -> u64;
-    /// Returns the associated interrupt for this device.
-    fn irq(&self) -> u32;
-    /// Returns the amount of memory that needs to be reserved for this device.
-    fn length(&self) -> u64;
-}
-
 /// Errors thrown while configuring the Flattened Device Tree for aarch64.
 #[derive(Debug, thiserror::Error, displaydoc::Display)]
 pub enum FdtError {
@@ -64,11 +56,11 @@ pub enum FdtError {
 }
 
 /// Creates the flattened device tree for this aarch64 microVM.
-pub fn create_fdt<T: DeviceInfoForFDT + Clone + Debug>(
+pub fn create_fdt(
     guest_mem: &GuestMemoryMmap,
     vcpu_mpidr: Vec<u64>,
     cmdline: CString,
-    device_info: &HashMap<(DeviceType, String), T>,
+    device_info: &HashMap<(DeviceType, String), MMIODeviceInfo>,
     gic_device: &GICDevice,
     vmgenid: &Option<VmGenId>,
     initrd: &Option<InitrdConfig>,
@@ -361,17 +353,18 @@ fn create_psci_node(fdt: &mut FdtWriter) -> Result<(), FdtError> {
     Ok(())
 }
 
-fn create_virtio_node<T: DeviceInfoForFDT + Clone + Debug>(
-    fdt: &mut FdtWriter,
-    dev_info: &T,
-) -> Result<(), FdtError> {
-    let virtio_mmio = fdt.begin_node(&format!("virtio_mmio@{:x}", dev_info.addr()))?;
+fn create_virtio_node(fdt: &mut FdtWriter, dev_info: &MMIODeviceInfo) -> Result<(), FdtError> {
+    let virtio_mmio = fdt.begin_node(&format!("virtio_mmio@{:x}", dev_info.addr))?;
 
     fdt.property_string("compatible", "virtio,mmio")?;
-    fdt.property_array_u64("reg", &[dev_info.addr(), dev_info.length()])?;
+    fdt.property_array_u64("reg", &[dev_info.addr, dev_info.len])?;
     fdt.property_array_u32(
         "interrupts",
-        &[GIC_FDT_IRQ_TYPE_SPI, dev_info.irq(), IRQ_TYPE_EDGE_RISING],
+        &[
+            GIC_FDT_IRQ_TYPE_SPI,
+            dev_info.irq.unwrap().into(),
+            IRQ_TYPE_EDGE_RISING,
+        ],
     )?;
     fdt.property_u32("interrupt-parent", GIC_PHANDLE)?;
     fdt.end_node(virtio_mmio)?;
@@ -379,38 +372,36 @@ fn create_virtio_node<T: DeviceInfoForFDT + Clone + Debug>(
     Ok(())
 }
 
-fn create_serial_node<T: DeviceInfoForFDT + Clone + Debug>(
-    fdt: &mut FdtWriter,
-    dev_info: &T,
-) -> Result<(), FdtError> {
-    let serial = fdt.begin_node(&format!("uart@{:x}", dev_info.addr()))?;
+fn create_serial_node(fdt: &mut FdtWriter, dev_info: &MMIODeviceInfo) -> Result<(), FdtError> {
+    let serial = fdt.begin_node(&format!("uart@{:x}", dev_info.addr))?;
 
     fdt.property_string("compatible", "ns16550a")?;
-    fdt.property_array_u64("reg", &[dev_info.addr(), dev_info.length()])?;
+    fdt.property_array_u64("reg", &[dev_info.addr, dev_info.len])?;
     fdt.property_u32("clocks", CLOCK_PHANDLE)?;
     fdt.property_string("clock-names", "apb_pclk")?;
     fdt.property_array_u32(
         "interrupts",
-        &[GIC_FDT_IRQ_TYPE_SPI, dev_info.irq(), IRQ_TYPE_EDGE_RISING],
+        &[
+            GIC_FDT_IRQ_TYPE_SPI,
+            dev_info.irq.unwrap().into(),
+            IRQ_TYPE_EDGE_RISING,
+        ],
     )?;
     fdt.end_node(serial)?;
 
     Ok(())
 }
 
-fn create_rtc_node<T: DeviceInfoForFDT + Clone + Debug>(
-    fdt: &mut FdtWriter,
-    dev_info: &T,
-) -> Result<(), FdtError> {
+fn create_rtc_node(fdt: &mut FdtWriter, dev_info: &MMIODeviceInfo) -> Result<(), FdtError> {
     // Driver requirements:
     // https://elixir.bootlin.com/linux/latest/source/Documentation/devicetree/bindings/rtc/arm,pl031.yaml
     // We do not offer the `interrupt` property because the device
     // does not implement interrupt support.
     let compatible = b"arm,pl031\0arm,primecell\0";
 
-    let rtc = fdt.begin_node(&format!("rtc@{:x}", dev_info.addr()))?;
+    let rtc = fdt.begin_node(&format!("rtc@{:x}", dev_info.addr))?;
     fdt.property("compatible", compatible)?;
-    fdt.property_array_u64("reg", &[dev_info.addr(), dev_info.length()])?;
+    fdt.property_array_u64("reg", &[dev_info.addr, dev_info.len])?;
     fdt.property_u32("clocks", CLOCK_PHANDLE)?;
     fdt.property_string("clock-names", "apb_pclk")?;
     fdt.end_node(rtc)?;
@@ -418,12 +409,12 @@ fn create_rtc_node<T: DeviceInfoForFDT + Clone + Debug>(
     Ok(())
 }
 
-fn create_devices_node<T: DeviceInfoForFDT + Clone + Debug, S: std::hash::BuildHasher>(
+fn create_devices_node(
     fdt: &mut FdtWriter,
-    dev_info: &HashMap<(DeviceType, String), T, S>,
+    dev_info: &HashMap<(DeviceType, String), MMIODeviceInfo>,
 ) -> Result<(), FdtError> {
     // Create one temp Vec to store all virtio devices
-    let mut ordered_virtio_device: Vec<&T> = Vec::new();
+    let mut ordered_virtio_device: Vec<&MMIODeviceInfo> = Vec::new();
 
     for ((device_type, _device_id), info) in dev_info {
         match device_type {
@@ -437,7 +428,7 @@ fn create_devices_node<T: DeviceInfoForFDT + Clone + Debug, S: std::hash::BuildH
     }
 
     // Sort out virtio devices by address from low to high and insert them into fdt table.
-    ordered_virtio_device.sort_by_key(|&a| a.addr());
+    ordered_virtio_device.sort_by_key(|a| a.addr);
     for ordered_device_info in ordered_virtio_device.drain(..) {
         create_virtio_node(fdt, ordered_device_info)?;
     }
@@ -448,6 +439,7 @@ fn create_devices_node<T: DeviceInfoForFDT + Clone + Debug, S: std::hash::BuildH
 #[cfg(test)]
 mod tests {
     use std::ffi::CString;
+    use std::num::NonZeroU32;
 
     use kvm_ioctls::Kvm;
 
@@ -460,23 +452,6 @@ mod tests {
 
     const LEN: u64 = 4096;
 
-    #[derive(Clone, Debug)]
-    pub struct MMIODeviceInfo {
-        addr: u64,
-        irq: u32,
-    }
-
-    impl DeviceInfoForFDT for MMIODeviceInfo {
-        fn addr(&self) -> u64 {
-            self.addr
-        }
-        fn irq(&self) -> u32 {
-            self.irq
-        }
-        fn length(&self) -> u64 {
-            LEN
-        }
-    }
     // The `load` function from the `device_tree` will mistakenly check the actual size
     // of the buffer with the allocated size. This works around that.
     fn set_size(buf: &mut [u8], pos: usize, val: u32) {
@@ -493,17 +468,26 @@ mod tests {
         let dev_info: HashMap<(DeviceType, std::string::String), MMIODeviceInfo> = [
             (
                 (DeviceType::Serial, DeviceType::Serial.to_string()),
-                MMIODeviceInfo { addr: 0x00, irq: 1 },
+                MMIODeviceInfo {
+                    addr: 0x00,
+                    irq: NonZeroU32::new(1),
+                    len: LEN,
+                },
             ),
             (
                 (DeviceType::Virtio(1), "virtio".to_string()),
-                MMIODeviceInfo { addr: LEN, irq: 2 },
+                MMIODeviceInfo {
+                    addr: LEN,
+                    irq: NonZeroU32::new(2),
+                    len: LEN,
+                },
             ),
             (
                 (DeviceType::Rtc, "rtc".to_string()),
                 MMIODeviceInfo {
                     addr: 2 * LEN,
-                    irq: 3,
+                    irq: NonZeroU32::new(3),
+                    len: LEN,
                 },
             ),
         ]

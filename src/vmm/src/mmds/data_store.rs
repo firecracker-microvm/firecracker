@@ -5,7 +5,7 @@ use std::fmt;
 use std::fmt::{Display, Formatter};
 
 use serde::{Deserialize, Serialize};
-use serde_json::{to_vec, Value};
+use serde_json::{Value, to_vec};
 
 use crate::mmds::token::{MmdsTokenError as TokenError, TokenAuthority};
 

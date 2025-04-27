@@ -26,9 +26,12 @@ LOCAL_BUILD_PATH = FC_WORKSPACE_DIR / "build/"
 # Absolute path to the test results folder
 TEST_RESULTS_DIR = FC_WORKSPACE_DIR / "test_results"
 
-# The minimum required host kernel version for which io_uring is supported in
-# Firecracker.
-MIN_KERNEL_VERSION_FOR_IO_URING = "5.10.51"
+DEFAULT_BINARY_DIR = (
+    LOCAL_BUILD_PATH
+    / "cargo_target"
+    / f"{platform.machine()}-unknown-linux-musl"
+    / "release"
+)
 
 SUPPORTED_HOST_KERNELS = ["5.10", "6.1"]
 

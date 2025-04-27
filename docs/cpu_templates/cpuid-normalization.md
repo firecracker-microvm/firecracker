@@ -21,24 +21,24 @@ See also: [boot protocol settings](boot-protocol.md)
 | Enable TSC_DEADLINE                                                                  |    0x1     |    -    |      ECX      |  24   |
 | Enable HYPERVISOR                                                                    |    0x1     |    -    |      ECX      |  31   |
 | Set HTT value if the microVM's CPU count is greater than 1                           |    0x1     |    -    |      EDX      |  28   |
-| Insert leaf 0xb, subleaf 0x1 filled with `0` if it is not already present            |    0xb     |   0x1   |      all      |  all  |
-| Update extended topology enumeration                                                 |    0xb     |   all   |      EAX      |  4:0  |
-| Update extended topology enumeration                                                 |    0xb     |   all   |      EBX      | 15:0  |
-| Update extended topology enumeration                                                 |    0xb     |   all   |      ECX      | 15:8  |
+| Insert leaf 0xb, subleaf 0x1 if not present                                          |    0xb     |   0x1   |      all      |  all  |
+| Fill extended topology enumeration leaf                                              |    0xb     |   all   |      all      |  all  |
 | Pass through L1 cache and TLB information from host                                  | 0x80000005 |    -    |      all      |  all  |
 | Pass through L2 cache and TLB and L3 cache information from host                     | 0x80000006 |    -    |      all      |  all  |
 
 ## Intel-specific CPUID normalization
 
-| Description                                                    |                Leaf                | Subleaf |      Register      | Bits  |
-| -------------------------------------------------------------- | :--------------------------------: | :-----: | :----------------: | :---: |
-| Update deterministic cache parameters                          |                0x4                 |   all   |        EAX         | 31:14 |
-| Disable Intel Turbo Boost technology                           |                0x6                 |    -    |        EAX         |   1   |
-| Disable frequency selection                                    |                0x6                 |    -    |        ECX         |   3   |
-| Set FDP_EXCPTN_ONLY bit                                        |                0x7                 |   0x0   |        EBX         |   6   |
-| Set "Deprecates FPU CS and FPU DS values" bit                  |                0x7                 |   0x0   |        EBX         |  13   |
-| Disable performance monitoring                                 |                0xa                 |    -    | EAX, EBX, ECX, EDX |  all  |
-| Update brand string to use a default format and real frequency | 0x80000002, 0x80000003, 0x80000004 |    -    | EAX, EBX, ECX, EDX |  all  |
+| Description                                                    |                Leaf                | Subleaf | Register | Bits  |
+| -------------------------------------------------------------- | :--------------------------------: | :-----: | :------: | :---: |
+| Update deterministic cache parameters                          |                0x4                 |   all   |   EAX    | 31:14 |
+| Disable Intel Turbo Boost technology                           |                0x6                 |    -    |   EAX    |   1   |
+| Disable frequency selection                                    |                0x6                 |    -    |   ECX    |   3   |
+| Set FDP_EXCPTN_ONLY bit                                        |                0x7                 |   0x0   |   EBX    |   6   |
+| Set "Deprecates FPU CS and FPU DS values" bit                  |                0x7                 |   0x0   |   EBX    |  13   |
+| Disable WAITPKG (UMONITOR / UMWAIT / TPAUSE)                   |                0x7                 |   0x0   |   ECX    |   5   |
+| Disable performance monitoring                                 |                0xa                 |    -    |   all    |  all  |
+| Fill v2 extended topology enumeration leaf                     |                0x1f                |   all   |   all    |  all  |
+| Update brand string to use a default format and real frequency | 0x80000002, 0x80000003, 0x80000004 |    -    |   all    |  all  |
 
 ## AMD-specifc CPUID normalization
 

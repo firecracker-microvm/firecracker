@@ -8,9 +8,9 @@ use std::sync::{Arc, Mutex};
 use serde::{Deserialize, Serialize};
 
 use super::RateLimiterConfig;
+use crate::VmmError;
 use crate::devices::virtio::net::{Net, TapError};
 use crate::utils::net::mac::MacAddr;
-use crate::VmmError;
 
 /// This struct represents the strongly typed equivalent of the json body from net iface
 /// related requests.

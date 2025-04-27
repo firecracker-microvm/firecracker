@@ -4,8 +4,8 @@
 use kvm_bindings::*;
 use kvm_ioctls::DeviceFd;
 
-use crate::arch::aarch64::gic::regs::{GicRegState, SimpleReg, VgicRegEngine};
 use crate::arch::aarch64::gic::GicError;
+use crate::arch::aarch64::gic::regs::{GicRegState, SimpleReg, VgicRegEngine};
 
 // Relevant PPI redistributor registers that we want to save/restore.
 const GICR_CTLR: SimpleReg = SimpleReg::new(0x0000, 4);
@@ -91,7 +91,7 @@ mod tests {
     use kvm_ioctls::Kvm;
 
     use super::*;
-    use crate::arch::aarch64::gic::{create_gic, GICVersion};
+    use crate::arch::aarch64::gic::{GICVersion, create_gic};
 
     #[test]
     fn test_access_redist_regs() {

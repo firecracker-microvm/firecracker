@@ -11,7 +11,7 @@ use std::process;
 
 use regex::Regex;
 
-use crate::{readln_special, writeln_special, JailerError};
+use crate::{JailerError, readln_special, writeln_special};
 
 // Holds information on a cgroup mount point discovered on the system
 #[derive(Debug)]
@@ -234,8 +234,8 @@ pub enum CgroupConfiguration {
 impl CgroupConfiguration {
     pub fn setup(&self) -> Result<(), JailerError> {
         match self {
-            Self::V1(ref conf) => setup_cgroup_conf(conf),
-            Self::V2(ref conf) => setup_cgroup_conf(conf),
+            Self::V1(conf) => setup_cgroup_conf(conf),
+            Self::V2(conf) => setup_cgroup_conf(conf),
         }
     }
 }
@@ -817,9 +817,11 @@ mod tests {
         );
 
         // check that the controller was enabled in all parent dirs
-        assert!(read_first_line(cg_root.join("cgroup.subtree_control"))
-            .unwrap()
-            .contains("cpuset"));
+        assert!(
+            read_first_line(cg_root.join("cgroup.subtree_control"))
+                .unwrap()
+                .contains("cpuset")
+        );
         assert!(
             read_first_line(cg_root.join("fc_test_cgv2/cgroup.subtree_control"))
                 .unwrap()

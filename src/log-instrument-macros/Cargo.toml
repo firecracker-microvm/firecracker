@@ -2,7 +2,7 @@
 name = "log-instrument-macros"
 version = "0.1.0"
 authors = ["Amazon Firecracker team <firecracker-devel@amazon.com>"]
-edition = "2021"
+edition = "2024"
 description = "Offers an attribute procedural macro that adds `log::trace!` events at the start and end of attributed functions."
 license = "Apache-2.0"
 
@@ -11,9 +11,9 @@ proc-macro = true
 bench = false
 
 [dependencies]
-proc-macro2 = "1.0.93"
-quote = "1.0.38"
-syn = { version = "2.0.98", features = ["full", "extra-traits"] }
+proc-macro2 = "1.0.95"
+quote = "1.0.40"
+syn = { version = "2.0.100", features = ["full", "extra-traits"] }
 
 [lints]
 workspace = true

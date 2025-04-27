@@ -8,7 +8,7 @@ use std::num::Wrapping;
 
 use vm_memory::{VolatileMemoryError, VolatileSlice, WriteVolatile};
 
-use super::{defs, VsockCsmError};
+use super::{VsockCsmError, defs};
 use crate::utils::wrap_usize_to_u32;
 use crate::vstate::memory::{BitmapSlice, Bytes};
 

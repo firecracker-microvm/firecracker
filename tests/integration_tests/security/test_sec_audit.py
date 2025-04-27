@@ -35,6 +35,6 @@ def test_cargo_audit():
         )
 
     git_ab_test_host_command_if_pr(
-        "cargo audit --deny warnings -q --json |grep -Po '{.*}'",
+        "cargo audit --deny warnings -q --json",
         comparator=set_did_not_grow_comparator(set_of_vulnerabilities),
     )

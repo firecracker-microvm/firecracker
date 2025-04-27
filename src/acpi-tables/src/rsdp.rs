@@ -8,7 +8,7 @@ use vm_memory::{Bytes, GuestAddress, GuestMemory};
 use zerocopy::little_endian::{U32, U64};
 use zerocopy::{Immutable, IntoBytes};
 
-use crate::{checksum, Result, Sdt};
+use crate::{Result, Sdt, checksum};
 
 // clippy doesn't understand that we actually "use" the fields of this struct when we serialize
 // them as bytes in guest memory, so here we just ignore dead code to avoid having to name
@@ -21,7 +21,7 @@ use crate::{checksum, Result, Sdt};
 /// a pointer to XSDT
 /// More information about this structure can be found in the ACPI specification:
 /// https://uefi.org/specs/ACPI/6.5/05_ACPI_Software_Programming_Model.html#root-system-description-pointer-rsdp
-#[repr(packed)]
+#[repr(C, packed)]
 #[derive(Clone, Copy, Debug, Default, IntoBytes, Immutable)]
 pub struct Rsdp {
     signature: [u8; 8],

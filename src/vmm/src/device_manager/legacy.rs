@@ -10,7 +10,7 @@ use std::fmt::Debug;
 use std::sync::{Arc, Mutex};
 
 use acpi_tables::aml::AmlError;
-use acpi_tables::{aml, Aml};
+use acpi_tables::{Aml, aml};
 use kvm_ioctls::VmFd;
 use libc::EFD_NONBLOCK;
 use vm_superio::Serial;
@@ -248,7 +248,7 @@ mod tests {
 
     #[test]
     fn test_register_legacy_devices() {
-        let (_, vm, _) = setup_vm_with_memory(0x1000);
+        let (_, vm) = setup_vm_with_memory(0x1000);
         vm.setup_irqchip().unwrap();
         let mut ldm = PortIODeviceManager::new(
             Arc::new(Mutex::new(BusDevice::Serial(SerialDevice {

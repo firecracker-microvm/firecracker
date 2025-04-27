@@ -51,8 +51,8 @@ deserialize_from_str!(deserialize_from_str_u64, u64);
 
 #[cfg(test)]
 mod tests {
-    use serde::de::value::{Error, StrDeserializer};
     use serde::de::IntoDeserializer;
+    use serde::de::value::{Error, StrDeserializer};
 
     use super::*;
 

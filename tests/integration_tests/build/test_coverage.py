@@ -63,7 +63,7 @@ def test_coverage(monkeypatch):
             --ignore "**/test_utils*" \
             --ignore "**/mock_*" \
             --ignore "src/firecracker/examples/*" \
-            --ignore "**/gen*" \
+            --ignore "**/generated*" \
             -t lcov \
             --ignore-not-existing \
             -o {lcov_file}"""

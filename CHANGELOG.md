@@ -10,12 +10,71 @@ and this project adheres to
 
 ### Added
 
+- [#5048](https://github.com/firecracker-microvm/firecracker/pull/5048): Added
+  support for [PVH boot mode](docs/pvh.md). This is used when an x86 kernel
+  provides the appropriate ELF Note to indicate that PVH boot mode is supported.
+  Linux kernels newer than 5.0 compiled with `CONFIG_PVH=y` set this ELF Note,
+  as do FreeBSD kernels.
+- [#5065](https://github.com/firecracker-microvm/firecracker/pull/5065) Added
+  support for Intel AMX (Advanced Matrix Extensions). To be able to take and
+  restore a snapshot of Intel AMX state, `Xsave` is used instead of `kvm_xsave`,
+  so users need to regenerate snapshots.
+- [#4731](https://github.com/firecracker-microvm/firecracker/pull/4731): Added
+  support for modifying the host TAP device name during snapshot restore.
+
+### Changed
+
+- [#5118](https://github.com/firecracker-microvm/firecracker/pull/5118): Cleared
+  WAITPKG CPUID bit in CPUID normalization. The feature enables a guest to put a
+  physical processor into an idle state, which is undesirable in a FaaS
+  environment since that is what the host wants to decide.
+- [#5142](https://github.com/firecracker-microvm/firecracker/pull/5142):
+  Clarified what CPU models are supported by each existing CPU template.
+  Firecracker exits with an error if a CPU template is used on an unsupported
+  CPU model.
+- [#5165](https://github.com/firecracker-microvm/firecracker/pull/5165): Changed
+  Firecracker snapshot feature from developer preview to generally available.
+  Incremental snapshots remain in developer preview.
+
+### Deprecated
+
+- [#4948](https://github.com/firecracker-microvm/firecracker/pull/4948):
+  Deprecated the `page_size_kib` field in the
+  [UFFD handshake](docs/snapshotting/handling-page-faults-on-snapshot-resume.md#registering-memory-to-be-handled-via-userfault-file-descriptors),
+  and replaced it with a `page_size` field. The `page_size_kib` field is
+  misnamed, as the value Firecracker sets it to is actually the page size in
+  _bytes_, not KiB. It will be removed in Firecracker 2.0.
+
+### Removed
+
+### Fixed
+
+- #\[[5074](https://github.com/firecracker-microvm/firecracker/pull/5074)\] Fix
+  the `SendCtrlAltDel` command not working for ACPI-enabled guest kernels, by
+  dropping the i8042.nopnp argument from the default kernel command line
+  Firecracker constructs.
+- [#5122](https://github.com/firecracker-microvm/firecracker/pull/5122): Keep
+  the UFFD Unix domain socket open to prevent the race condition between the
+  guest memory mappings message and the shutdown event that was sometimes
+  causing arrival of an empty message on the UFFD handler side.
+- [#5143](https://github.com/firecracker-microvm/firecracker/pull/5143): Fixed
+  to report `process_startup_time_us` and `process_startup_time_cpu_us` metrics
+  for `api_server` right after the API server starts, while previously reported
+  before applying seccomp filter and starting the API server. Users may observe
+  a bit longer startup time metrics.
+
+## [1.11.0]
+
+### Added
+
 - [#4987](https://github.com/firecracker-microvm/firecracker/pull/4987): Reset
   physical counter register (`CNTPCT_EL0`) on VM startup. This avoids VM reading
   the host physical counter value. This is only possible on 6.4 and newer
   kernels. For older kernels physical counter will still be passed to the guest
   unmodified. See more info
   [here](https://github.com/firecracker-microvm/firecracker/blob/main/docs/prod-host-setup.md#arm-only-vm-physical-counter-behaviour)
+- [#5088](https://github.com/firecracker-microvm/firecracker/pull/5088): Added
+  AMD Genoa as a supported and tested platform for Firecracker.
 
 ### Changed
 
@@ -64,6 +123,9 @@ and this project adheres to
 - [#5046](https://github.com/firecracker-microvm/firecracker/pull/5046): Retry
   KVM_CREATE_VM on EINTR that occasionally happen on heavily loaded hosts to
   improve reliability of microVM creation.
+- [#5052](https://github.com/firecracker-microvm/firecracker/pull/5052): Build
+  the empty seccomp policy as default for debug builds to avoid crashes on
+  syscalls introduced by debug assertions from Rust 1.80.0.
 
 ## [1.10.1]
 

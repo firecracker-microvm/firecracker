@@ -4,11 +4,13 @@
 // Not everything is used by both binaries
 #![allow(dead_code)]
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
+use std::ffi::c_void;
 use std::fs::File;
 use std::os::unix::io::{AsRawFd, FromRawFd, IntoRawFd};
 use std::os::unix::net::UnixStream;
 use std::ptr;
+use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 use userfaultfd::{Error, Event, Uffd};
@@ -31,47 +33,68 @@ pub struct GuestRegionUffdMapping {
     /// Offset in the backend file/buffer where the region contents are.
     pub offset: u64,
     /// The configured page size for this memory region.
-    pub page_size_kib: usize,
+    pub page_size: usize,
 }
 
-#[derive(Debug, Clone, Copy)]
-pub enum MemPageState {
-    Uninitialized,
-    FromFile,
-    Removed,
-    Anonymous,
-}
-
-#[derive(Debug, Clone)]
-pub struct MemRegion {
-    pub mapping: GuestRegionUffdMapping,
-    page_states: HashMap<u64, MemPageState>,
+impl GuestRegionUffdMapping {
+    fn contains(&self, fault_page_addr: u64) -> bool {
+        fault_page_addr >= self.base_host_virt_addr
+            && fault_page_addr < self.base_host_virt_addr + self.size as u64
+    }
 }
 
 #[derive(Debug)]
 pub struct UffdHandler {
-    pub mem_regions: Vec<MemRegion>,
+    pub mem_regions: Vec<GuestRegionUffdMapping>,
     pub page_size: usize,
     backing_buffer: *const u8,
     uffd: Uffd,
+    removed_pages: HashSet<u64>,
 }
 
 impl UffdHandler {
-    pub fn from_unix_stream(stream: &UnixStream, backing_buffer: *const u8, size: usize) -> Self {
+    fn try_get_mappings_and_file(
+        stream: &UnixStream,
+    ) -> Result<(String, Option<File>), std::io::Error> {
         let mut message_buf = vec![0u8; 1024];
-        let (bytes_read, file) = stream
-            .recv_with_fd(&mut message_buf[..])
-            .expect("Cannot read from a stream");
+        let (bytes_read, file) = stream.recv_with_fd(&mut message_buf[..])?;
         message_buf.resize(bytes_read, 0);
 
+        // We do not expect to receive non-UTF-8 data from Firecracker, so this is probably
+        // an error we can't recover from. Just immediately abort
         let body = String::from_utf8(message_buf.clone()).unwrap_or_else(|_| {
             panic!(
                 "Received body is not a utf-8 valid string. Raw bytes received: {message_buf:#?}"
             )
         });
-        let file =
-            file.unwrap_or_else(|| panic!("Did not receive Uffd from UDS. Received body: {body}"));
+        Ok((body, file))
+    }
 
+    fn get_mappings_and_file(stream: &UnixStream) -> (String, File) {
+        // Sometimes, reading from the stream succeeds but we don't receive any
+        // UFFD descriptor. We don't really have a good understanding why this is
+        // happening, but let's try to be a bit more robust and retry a few times
+        // before we declare defeat.
+        for _ in 1..=5 {
+            match Self::try_get_mappings_and_file(stream) {
+                Ok((body, Some(file))) => {
+                    return (body, file);
+                }
+                Ok((body, None)) => {
+                    println!("Didn't receive UFFD over socket. We received: '{body}'. Retrying...");
+                }
+                Err(err) => {
+                    println!("Could not get UFFD and mapping from Firecracker: {err}. Retrying...");
+                }
+            }
+            std::thread::sleep(Duration::from_millis(100));
+        }
+
+        panic!("Could not get UFFD and mappings after 5 retries");
+    }
+
+    pub fn from_unix_stream(stream: &UnixStream, backing_buffer: *const u8, size: usize) -> Self {
+        let (body, file) = Self::get_mappings_and_file(stream);
         let mappings =
             serde_json::from_str::<Vec<GuestRegionUffdMapping>>(&body).unwrap_or_else(|_| {
                 panic!("Cannot deserialize memory mappings. Received body: {body}")
@@ -84,7 +107,7 @@ impl UffdHandler {
                 mappings.len()
             )
         });
-        let page_size = first_mapping.page_size_kib;
+        let page_size = first_mapping.page_size;
 
         // Make sure memory size matches backing data size.
         assert_eq!(memsize, size);
@@ -92,13 +115,12 @@ impl UffdHandler {
 
         let uffd = unsafe { Uffd::from_raw_fd(file.into_raw_fd()) };
 
-        let mem_regions = create_mem_regions(&mappings, page_size);
-
         Self {
-            mem_regions,
+            mem_regions: mappings,
             page_size,
             backing_buffer,
             uffd,
+            removed_pages: HashSet::new(),
         }
     }
 
@@ -106,13 +128,12 @@ impl UffdHandler {
         self.uffd.read_event()
     }
 
-    pub fn update_mem_state_mappings(&mut self, start: u64, end: u64, state: MemPageState) {
-        for region in self.mem_regions.iter_mut() {
-            for (key, value) in region.page_states.iter_mut() {
-                if key >= &start && key < &end {
-                    *value = state;
-                }
-            }
+    pub fn mark_range_removed(&mut self, start: u64, end: u64) {
+        let pfn_start = start / self.page_size as u64;
+        let pfn_end = end / self.page_size as u64;
+
+        for pfn in pfn_start..pfn_end {
+            self.removed_pages.insert(pfn);
         }
     }
 
@@ -120,33 +141,16 @@ impl UffdHandler {
         // Find the start of the page that the current faulting address belongs to.
         let dst = (addr as usize & !(self.page_size - 1)) as *mut libc::c_void;
         let fault_page_addr = dst as u64;
+        let fault_pfn = fault_page_addr / self.page_size as u64;
 
-        // Get the state of the current faulting page.
-        for region in self.mem_regions.iter() {
-            match region.page_states.get(&fault_page_addr) {
-                // Our simple PF handler has a simple strategy:
-                // There exist 4 states in which a memory page can be in:
-                // 1. Uninitialized - page was never touched
-                // 2. FromFile - the page is populated with content from snapshotted memory file
-                // 3. Removed - MADV_DONTNEED was called due to balloon inflation
-                // 4. Anonymous - page was zeroed out -> this implies that more than one page fault
-                //    event was received. This can be a consequence of guest reclaiming back its
-                //    memory from the host (through balloon device)
-                Some(MemPageState::Uninitialized) | Some(MemPageState::FromFile) => {
-                    match self.populate_from_file(region, fault_page_addr, len) {
-                        Some((start, end)) => {
-                            self.update_mem_state_mappings(start, end, MemPageState::FromFile)
-                        }
-                        None => return false,
-                    }
-                    return true;
+        if self.removed_pages.contains(&fault_pfn) {
+            self.zero_out(fault_page_addr);
+            return true;
+        } else {
+            for region in self.mem_regions.iter() {
+                if region.contains(fault_page_addr) {
+                    return self.populate_from_file(region, fault_page_addr, len);
                 }
-                Some(MemPageState::Removed) | Some(MemPageState::Anonymous) => {
-                    let (start, end) = self.zero_out(fault_page_addr);
-                    self.update_mem_state_mappings(start, end, MemPageState::Anonymous);
-                    return true;
-                }
-                None => {}
             }
         }
 
@@ -156,13 +160,14 @@ impl UffdHandler {
         );
     }
 
-    fn populate_from_file(&self, region: &MemRegion, dst: u64, len: usize) -> Option<(u64, u64)> {
-        let offset = dst - region.mapping.base_host_virt_addr;
-        let src = self.backing_buffer as u64 + region.mapping.offset + offset;
+    fn populate_from_file(&self, region: &GuestRegionUffdMapping, dst: u64, len: usize) -> bool {
+        let offset = dst - region.base_host_virt_addr;
+        let src = self.backing_buffer as u64 + region.offset + offset;
 
-        let ret = unsafe {
+        unsafe {
             match self.uffd.copy(src as *const _, dst as *mut _, len, true) {
-                Ok(value) => value,
+                // Make sure the UFFD copied some bytes.
+                Ok(value) => assert!(value > 0),
                 // Catch EAGAIN errors, which occur when a `remove` event lands in the UFFD
                 // queue while we're processing `pagefault` events.
                 // The weird cast is because the `bytes_copied` field is based on the
@@ -172,26 +177,20 @@ impl UffdHandler {
                 Err(Error::PartiallyCopied(bytes_copied))
                     if bytes_copied == 0 || bytes_copied == (-libc::EAGAIN) as usize =>
                 {
-                    return None
+                    return false;
                 }
                 Err(Error::CopyFailed(errno))
-                    if std::io::Error::from(errno).raw_os_error().unwrap() == libc::EEXIST =>
-                {
-                    len
-                }
+                    if std::io::Error::from(errno).raw_os_error().unwrap() == libc::EEXIST => {}
                 Err(e) => {
                     panic!("Uffd copy failed: {e:?}");
                 }
             }
         };
 
-        // Make sure the UFFD copied some bytes.
-        assert!(ret > 0);
-
-        Some((dst, dst + len as u64))
+        true
     }
 
-    fn zero_out(&mut self, addr: u64) -> (u64, u64) {
+    fn zero_out(&mut self, addr: u64) {
         let ret = unsafe {
             self.uffd
                 .zeropage(addr as *mut _, self.page_size, true)
@@ -199,8 +198,6 @@ impl UffdHandler {
         };
         // Make sure the UFFD zeroed out some bytes.
         assert!(ret > 0);
-
-        (addr, addr + self.page_size as u64)
     }
 }
 
@@ -256,8 +253,8 @@ impl Runtime {
                 self.stream.as_raw_fd(),
                 libc::SOL_SOCKET,
                 libc::SO_PEERCRED,
-                &mut creds as *mut _ as *mut _,
-                &mut creds_size as *mut libc::socklen_t,
+                (&raw mut creds).cast::<c_void>(),
+                &raw mut creds_size,
             )
         };
         if ret != 0 {
@@ -345,28 +342,6 @@ impl Runtime {
     }
 }
 
-fn create_mem_regions(mappings: &Vec<GuestRegionUffdMapping>, page_size: usize) -> Vec<MemRegion> {
-    let mut mem_regions: Vec<MemRegion> = Vec::with_capacity(mappings.len());
-
-    for r in mappings.iter() {
-        let mapping = r.clone();
-        let mut addr = r.base_host_virt_addr;
-        let end_addr = r.base_host_virt_addr + r.size as u64;
-        let mut page_states = HashMap::new();
-
-        while addr < end_addr {
-            page_states.insert(addr, MemPageState::Uninitialized);
-            addr += page_size as u64;
-        }
-        mem_regions.push(MemRegion {
-            mapping,
-            page_states,
-        });
-    }
-
-    mem_regions
-}
-
 #[cfg(test)]
 mod tests {
     use std::mem::MaybeUninit;
@@ -414,7 +389,7 @@ mod tests {
             base_host_virt_addr: 0,
             size: 0x1000,
             offset: 0,
-            page_size_kib: 4096,
+            page_size: 4096,
         }];
         let dummy_memory_region_json = serde_json::to_string(&dummy_memory_region).unwrap();
 
@@ -447,7 +422,7 @@ mod tests {
             base_host_virt_addr: 0,
             size: 0,
             offset: 0,
-            page_size_kib: 4096,
+            page_size: 4096,
         }];
         let error_memory_region_json = serde_json::to_string(&error_memory_region).unwrap();
         stream

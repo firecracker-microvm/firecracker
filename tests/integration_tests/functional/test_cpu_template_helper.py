@@ -133,6 +133,10 @@ UNAVAILABLE_CPUID_ON_DUMP_LIST = [
     # support it, the userspace cpuid command in ubuntu 22 reports not only
     # the subleaf 0 but also the subleaf 1.
     (0x1B, 0x1),
+    # CPUID.1Fh is a preferred superset to CPUID.0Bh. For the same reason as
+    # CPUID.Bh, the subleaf 2 should be skipped when the guest userspace cpuid
+    # enumerates it.
+    (0x1F, 0x2),
     # CPUID.20000000h is not documented in Intel SDM and AMD APM. KVM doesn't
     # report it, but the userspace cpuid command in ubuntu 22 does.
     (0x20000000, 0x0),
@@ -184,6 +188,9 @@ MSR_EXCEPTION_LIST = [
     0x48,
     # MSR_IA32_SMBASE is not accessible outside of System Management Mode.
     0x9E,
+    # MSR_IA32_UMWAIT_CONTROL is R/W MSR that guest OS modifies after boot to
+    # control UMWAIT feature.
+    0xE1,
     # MSR_IA32_TSX_CTRL is R/W MSR to disable Intel TSX feature as a mitigation
     # against TAA vulnerability.
     0x122,
@@ -193,6 +200,10 @@ MSR_EXCEPTION_LIST = [
     0x174,
     0x175,
     0x176,
+    # MSR_IA32_XFD is R/W MSR for guest OS to control which XSAVE-enabled
+    # features are temporarily disabled. Guest OS disables TILEDATA by default
+    # using the MSR.
+    0x1C4,
     # MSR_IA32_TSC_DEADLINE specifies the time at which a timer interrupt
     # should occur and depends on the elapsed time.
     0x6E0,

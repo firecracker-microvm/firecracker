@@ -85,7 +85,10 @@ class SpectreMeltdownChecker:
         Since we have a test on host and the exception in guest is not valid,
         we add a check to ignore this exception.
         """
-        if global_props.cpu_codename == "INTEL_ICELAKE" and cpu_template_name is None:
+        if (
+            global_props.cpu_codename in ["INTEL_ICELAKE", "INTEL_SAPPHIRE_RAPIDS"]
+            and cpu_template_name == "None"
+        ):
             return {
                 '{"NAME": "REPTAR", "CVE": "CVE-2023-23583", "VULNERABLE": true, "INFOS": "Your microcode is too old to mitigate the vulnerability"}'
             }
@@ -163,9 +166,9 @@ def get_vuln_files_exception_dict(template):
     # Since those bits are not set on Intel Skylake and C3 template makes guests pretend to be AWS
     # C3 instance (quite old processor now) by overwriting CPUID.1H:EAX, it is impossible to avoid
     # this "Unknown" state.
-    if global_props.cpu_codename == "INTEL_SKYLAKE" and template == "c3":
+    if global_props.cpu_codename == "INTEL_SKYLAKE" and template == "C3":
         exception_dict["mmio_stale_data"] = "Unknown: No mitigations"
-    elif global_props.cpu_codename == "INTEL_SKYLAKE" or template == "t2s":
+    elif global_props.cpu_codename == "INTEL_SKYLAKE" or template == "T2S":
         exception_dict["mmio_stale_data"] = "Clear CPU buffers"
 
     return exception_dict
@@ -206,10 +209,8 @@ def microvm_factory_a(record_property):
     """MicroVMFactory using revision A binaries"""
     revision_a = global_props.buildkite_revision_a
     bin_dir = git_clone(Path("../build") / revision_a, revision_a).resolve()
-    fc_bin = bin_dir / "firecracker"
-    jailer_bin = bin_dir / "jailer"
-    record_property("firecracker_bin", str(fc_bin))
-    uvm_factory = MicroVMFactory(fc_bin, jailer_bin)
+    record_property("firecracker_bin", str(bin_dir / "firecracker"))
+    uvm_factory = MicroVMFactory(bin_dir)
     yield uvm_factory
     uvm_factory.kill()
 
