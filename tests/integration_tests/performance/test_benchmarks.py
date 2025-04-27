@@ -47,6 +47,7 @@ class TestBenchMarks:
     """
 
     @pytest.mark.no_block_pr
+    @pytest.mark.timeout(420)
     @pytest.mark.parametrize("benchname", get_benchmark_names())
     def test_no_regression_relative_to_target_branch(
         self, benchname, git_clone_ab_dirs_one_time
