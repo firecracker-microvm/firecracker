@@ -120,7 +120,7 @@ def get_compare_results(benchmark_name) -> Callable[[Path, Path], None]:
         _, stdout, _ = cargo(
             "bench",
             f"--workspace --target {platform.machine()}-unknown-linux-musl",
-            f"{benchmark_name} --baseline a_baseline --load-baseline b_baseline",
+            f"{benchmark_name} --exact --baseline a_baseline --load-baseline b_baseline",
         )
 
         regressions_only = "\n\n".join(
