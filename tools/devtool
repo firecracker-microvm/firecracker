@@ -1104,12 +1104,12 @@ cmd_pgo_build() {
         instrument)
             echo "Building instrumented Firecracker binary"
             RUSTFLAGS="-Cprofile-generate=/tmp/firecracker-profdata" cargo build --release
-	    echo "Instrumentation complete."
+	        echo "Instrumentation complete."
             ;;
         profile)
             echo "Run workloads manually to generate .profraw files in /tmp/firecracker-profdata/"
             echo "Please consult README-pgo.md for more information."
-	    ;;
+	        ;;
         merge)
             echo "Merging .profraw files"
               if ! llvm-profdata merge -output=${PROFDATA_FILE} ${PROFDATA_DIR}/*.profraw; then
@@ -1117,7 +1117,7 @@ cmd_pgo_build() {
                    echo "    Make sure .profraw files exist and are readable."
                    exit 1
               fi
-	    echo "Merging complete."
+	        echo "Merging complete."
             ;;
         optimize)
             echo "Building optimized Firecracker with profile data"
