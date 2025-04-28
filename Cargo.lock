@@ -1048,6 +1048,20 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "57c0d7b74b563b49d38dae00a0c37d4d6de9b432382b2892f0574ddcae73fd0a"
 
 [[package]]
+name = "pci"
+version = "0.1.0"
+dependencies = [
+ "byteorder",
+ "libc",
+ "log",
+ "serde",
+ "thiserror 2.0.12",
+ "vm-allocator",
+ "vm-device",
+ "vm-memory",
+]
+
+[[package]]
 name = "peeking_take_while"
 version = "0.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1699,6 +1713,7 @@ dependencies = [
  "log-instrument",
  "memfd",
  "micro_http",
+ "pci",
  "proptest",
  "semver",
  "serde",
@@ -1708,6 +1723,7 @@ dependencies = [
  "timerfd",
  "userfaultfd",
  "utils",
+ "uuid",
  "vhost",
  "vm-allocator",
  "vm-fdt",
