@@ -251,6 +251,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "46c5e41b57b8bba42a04676d81cb89e9ee8e859a1a66f80a5a72e1cb76b34d43"
 
 [[package]]
+name = "byteorder"
+version = "1.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1fd0f2584146f6f2ef48085050886acf353beff7305ebd1ae69500e27c67f64b"
+
+[[package]]
 name = "cargo_toml"
 version = "0.22.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1028,6 +1034,20 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "57c0d7b74b563b49d38dae00a0c37d4d6de9b432382b2892f0574ddcae73fd0a"
 
 [[package]]
+name = "pci"
+version = "0.1.0"
+dependencies = [
+ "byteorder",
+ "libc",
+ "log",
+ "serde",
+ "thiserror 2.0.12",
+ "vm-allocator",
+ "vm-device",
+ "vm-memory",
+]
+
+[[package]]
 name = "peeking_take_while"
 version = "0.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1644,6 +1664,7 @@ dependencies = [
  "log-instrument",
  "memfd",
  "micro_http",
+ "pci",
  "proptest",
  "semver",
  "serde",
@@ -1653,6 +1674,7 @@ dependencies = [
  "timerfd",
  "userfaultfd",
  "utils",
+ "uuid",
  "vhost",
  "vm-allocator",
  "vm-device",
