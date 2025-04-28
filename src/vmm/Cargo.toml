@@ -43,7 +43,7 @@ vm-allocator = "0.1.0"
 vm-memory = { version = "0.16.1", features = ["backend-mmap", "backend-bitmap"] }
 vm-superio = "0.8.0"
 vmm-sys-util = { version = "0.12.1", features = ["with-serde"] }
-zerocopy = { version = "0.8.24" }
+zerocopy = { version = "0.8.25" }
 
 [target.'cfg(target_arch = "aarch64")'.dependencies]
 vm-fdt = "0.3.0"
