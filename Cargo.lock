@@ -1054,6 +1054,20 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "57c0d7b74b563b49d38dae00a0c37d4d6de9b432382b2892f0574ddcae73fd0a"
 
 [[package]]
+name = "pci"
+version = "0.1.0"
+dependencies = [
+ "byteorder",
+ "libc",
+ "log",
+ "serde",
+ "thiserror 2.0.12",
+ "vm-allocator",
+ "vm-device",
+ "vm-memory",
+]
+
+[[package]]
 name = "peeking_take_while"
 version = "0.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1650,12 +1664,12 @@ checksum = "051eb1abcf10076295e815102942cc58f9d5e3b4560e46e53c21e8ff6f3af7b1"
 
 [[package]]
 name = "vm-allocator"
-version = "0.1.1"
+version = "0.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5e4ce718bd4e8d74b1747363e27f715a6b1bd6971597cb21425dadbf4e712241"
+checksum = "3c2fce39487bd03b5b0ab176f584682e9eaab7875254bafd3d188c69c85fce6e"
 dependencies = [
  "libc",
- "thiserror 1.0.69",
+ "thiserror 2.0.12",
 ]
 
 [[package]]
@@ -1717,6 +1731,7 @@ dependencies = [
  "log-instrument",
  "memfd",
  "micro_http",
+ "pci",
  "proptest",
  "semver",
  "serde",
@@ -1726,6 +1741,7 @@ dependencies = [
  "timerfd",
  "userfaultfd",
  "utils",
+ "uuid",
  "vhost",
  "vm-allocator",
  "vm-device",
