@@ -173,7 +173,7 @@ pub fn create_snapshot(
         .mmio_devices
         .for_each_virtio_device(|_, _, device| {
             let mmio_dev_locked = device.inner.lock().expect("Poisoned lock");
-            let d = mmio_dev_locked.locked_device();
+            let mut d = mmio_dev_locked.locked_device();
             if d.is_activated() {
                 d.mark_queue_memory_dirty(vmm.vm.guest_memory())
             } else {

@@ -450,7 +450,7 @@ impl MMIODeviceManager {
                     // Stats queue doesn't need kicking as it is notified via a `timer_fd`.
                     if balloon.is_activated() {
                         info!("kick balloon {}.", id);
-                        balloon.process_virtio_queues();
+                        balloon.process_virtio_queues().unwrap();
                     }
                 }
                 TYPE_BLOCK => {
