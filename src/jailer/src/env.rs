@@ -1138,26 +1138,35 @@ mod tests {
         mock_cgroups.add_v1_mounts().unwrap();
         let env = create_env(mock_cgroups.proc_mounts_path.as_str());
 
+        let mock_dev_dir = TempDir::new().unwrap();
+
         // Ensure device nodes are created with correct major/minor numbers and permissions.
-        let mut dev_infos: Vec<(&CStr, u32, u32)> = vec![
-            (c"/dev/net/tun-test", DEV_NET_TUN_MAJOR, DEV_NET_TUN_MINOR),
-            (c"/dev/kvm-test", DEV_KVM_MAJOR, DEV_KVM_MINOR),
+        let mut dev_infos: Vec<(PathBuf, u32, u32)> = vec![
+            (
+                mock_dev_dir.as_path().join("net/tun-test"),
+                DEV_NET_TUN_MAJOR,
+                DEV_NET_TUN_MINOR,
+            ),
+            (
+                mock_dev_dir.as_path().join("kvm-test"),
+                DEV_KVM_MAJOR,
+                DEV_KVM_MINOR,
+            ),
         ];
 
         if let Some(uffd_dev_minor) = env.uffd_dev_minor {
-            dev_infos.push((c"/dev/userfaultfd-test", DEV_UFFD_MAJOR, uffd_dev_minor));
+            dev_infos.push((
+                mock_dev_dir.as_path().join("userfaultfd-test"),
+                DEV_UFFD_MAJOR,
+                uffd_dev_minor,
+            ));
         }
 
         for (dev, major, minor) in dev_infos {
-            // Checking this just to be super sure there's no file at `dev_str` path (though
-            // it shouldn't be as we deleted it at the end of the previous test run).
-            if Path::new(dev.to_str().unwrap()).exists() {
-                fs::remove_file(dev.to_str().unwrap()).unwrap();
-            }
-
-            ensure_mknod_and_own_dev(&env, dev, major, minor);
-            // Remove the device node.
-            fs::remove_file(dev.to_str().unwrap()).expect("Could not remove file.");
+            // Ensure the folder where we are creating the node exists
+            fs::create_dir_all(dev.parent().unwrap()).unwrap();
+            let dev_path = dev.to_str().map(CString::new).unwrap().unwrap();
+            ensure_mknod_and_own_dev(&env, &dev_path, major, minor);
         }
     }
 
