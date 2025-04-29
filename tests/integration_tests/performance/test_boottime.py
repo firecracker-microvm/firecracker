@@ -11,7 +11,6 @@ import pytest
 from framework.properties import global_props
 
 # Regex for obtaining boot time from some string.
-TIMESTAMP_LOG_REGEX = r"Guest-boot-time\s+\=\s+(\d+)\s+us"
 
 DEFAULT_BOOT_ARGS = (
     "reboot=k panic=1 pci=off nomodule 8250.nr_uarts=0"
@@ -27,27 +26,32 @@ DIMENSIONS = {
 }
 
 
-def _get_microvm_boottime(vm):
+def get_boottime_device_info(vm):
     """Auxiliary function for asserting the expected boot time."""
     boot_time_us = None
+    boot_time_cpu_us = None
     timestamps = []
+
+    timestamp_log_regex = (
+        r"Guest-boot-time =\s+(\d+) us\s+(\d+) ms,\s+(\d+) CPU us\s+(\d+) CPU ms"
+    )
 
     iterations = 50
     sleep_time_s = 0.1
     for _ in range(iterations):
-        timestamps = re.findall(TIMESTAMP_LOG_REGEX, vm.log_data)
+        timestamps = re.findall(timestamp_log_regex, vm.log_data)
         if timestamps:
             break
         time.sleep(sleep_time_s)
     if timestamps:
-        boot_time_us = int(timestamps[0])
+        boot_time_us, _, boot_time_cpu_us, _ = timestamps[0]
 
-    assert boot_time_us, (
+    assert boot_time_us and boot_time_cpu_us, (
         f"MicroVM did not boot within {sleep_time_s * iterations}s\n"
         f"Firecracker logs:\n{vm.log_data}\n"
         f"Thread backtraces:\n{vm.thread_backtraces}"
     )
-    return boot_time_us
+    return int(boot_time_us), int(boot_time_cpu_us)
 
 
 def find_events(log_data):
@@ -133,16 +137,22 @@ def test_boottime(
         vm.add_net_iface()
         vm.start()
         vm.pin_threads(0)
-        boottime_us = _get_microvm_boottime(vm)
-        metrics.put_metric("boot_time", boottime_us, unit="Microseconds")
+
+        boot_time_us, cpu_boot_time_us = get_boottime_device_info(vm)
+        metrics.put_metric(
+            "guest_boot_time",
+            boot_time_us,
+            unit="Microseconds",
+        )
+        metrics.put_metric(
+            "guest_cpu_boot_time",
+            cpu_boot_time_us,
+            unit="Microseconds",
+        )
+
         timestamps = find_events(vm.log_data)
         build_time = timestamps["build microvm for boot"]["duration"]
         metrics.put_metric("build_time", build_time.microseconds, unit="Microseconds")
-        metrics.put_metric(
-            "guest_boot_time",
-            boottime_us - build_time.microseconds,
-            unit="Microseconds",
-        )
 
         kernel, userspace, total = get_systemd_analyze_times(vm)
         metrics.put_metric("systemd_kernel", kernel, unit="Milliseconds")
