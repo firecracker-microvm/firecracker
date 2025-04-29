@@ -69,6 +69,37 @@ def find_events(log_data):
     return timestamps
 
 
+def get_systemd_analyze_times(microvm):
+    """
+    Parse systemd-analyze output
+    """
+    rc, stdout, stderr = microvm.ssh.run("systemd-analyze")
+    assert rc == 0, stderr
+    assert stderr == ""
+
+    boot_line = stdout.splitlines()[0]
+    # The line will look like this:
+    # Startup finished in 79ms (kernel) + 231ms (userspace) = 310ms
+    # In the regex we capture the time and the unit for kernel, userspace and total values
+    pattern = r"Startup finished in (\d*)(ms|s)\s+\(kernel\) \+ (\d*)(ms|s)\s+\(userspace\) = ([\d.]*)(ms|s)\s*"
+    kernel, kernel_unit, userspace, userspace_unit, total, total_unit = re.findall(
+        pattern, boot_line
+    )[0]
+
+    def to_ms(v, unit):
+        match unit:
+            case "ms":
+                return float(v)
+            case "s":
+                return float(v) * 1000
+
+    kernel = to_ms(kernel, kernel_unit)
+    userspace = to_ms(userspace, userspace_unit)
+    total = to_ms(total, total_unit)
+
+    return kernel, userspace, total
+
+
 @pytest.mark.parametrize(
     "vcpu_count,mem_size_mib",
     [(1, 128), (1, 1024), (2, 2048), (4, 4096)],
@@ -112,4 +143,10 @@ def test_boottime(
             boottime_us - build_time.microseconds,
             unit="Microseconds",
         )
+
+        kernel, userspace, total = get_systemd_analyze_times(vm)
+        metrics.put_metric("systemd_kernel", kernel, unit="Milliseconds")
+        metrics.put_metric("systemd_userspace", userspace, unit="Milliseconds")
+        metrics.put_metric("systemd_total", total, unit="Milliseconds")
+
         vm.kill()
