@@ -150,9 +150,11 @@ def test_boottime(
             unit="Microseconds",
         )
 
-        timestamps = find_events(vm.log_data)
-        build_time = timestamps["build microvm for boot"]["duration"]
+        events = find_events(vm.log_data)
+        build_time = events["build microvm for boot"]["duration"]
         metrics.put_metric("build_time", build_time.microseconds, unit="Microseconds")
+        resume_time = events["boot microvm"]["duration"]
+        metrics.put_metric("resume_time", resume_time.microseconds, unit="Microseconds")
 
         kernel, userspace, total = get_systemd_analyze_times(vm)
         metrics.put_metric("systemd_kernel", kernel, unit="Milliseconds")
