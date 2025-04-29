@@ -24,6 +24,9 @@ and this project adheres to
   so users need to regenerate snapshots.
 - [#4731](https://github.com/firecracker-microvm/firecracker/pull/4731): Added
   support for modifying the host TAP device name during snapshot restore.
+- [#5175](https://github.com/firecracker-microvm/firecracker/pull/5175): Allow
+  including a custom cpu template directly in the json configuration file passed
+  to `--config-file` under the `cpu_config` key.
 
 ### Changed
 
