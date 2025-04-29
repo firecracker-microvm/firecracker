@@ -32,7 +32,7 @@ DEFAULT_INSTANCES = [
 DEFAULT_PLATFORMS = [
     ("al2", "linux_5.10"),
     ("al2023", "linux_6.1"),
-    ("ubuntu24", "secret_hiding"),
+    ("al2023", "secret_hiding"),
 ]
 
 
