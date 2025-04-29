@@ -522,6 +522,8 @@ def test_balloon_snapshot(microvm_factory, guest_kernel, rootfs):
 
     # Get the stats after we take a snapshot and dirty some memory,
     # then reclaim it.
+    # Ensure we gave enough time for the stats to update.
+    time.sleep(STATS_POLLING_INTERVAL_S)
     latest_stats = microvm.api.balloon_stats.get().json()
 
     # Ensure the stats are still working after restore and show
