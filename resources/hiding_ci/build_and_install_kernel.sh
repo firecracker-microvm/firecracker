@@ -208,14 +208,14 @@ make olddefconfig
 scripts/config --disable SYSTEM_TRUSTED_KEYS
 scripts/config --disable SYSTEM_REVOCATION_KEYS
 
-# We run this again to default options now changed by
-# the disabling of the ubuntu keys
-make olddefconfig
-
 # Apply our config overrides on top of the config
 scripts/kconfig/merge_config.sh -m .config $KERNEL_CONFIG_OVERRIDES
 
 check_override_presence
+
+# We run this again to default options now changed by
+# the disabling of the ubuntu keys
+make olddefconfig
 
 echo "Building kernel this may take a while"
 make -s -j $(nproc)
