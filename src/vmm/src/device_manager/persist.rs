@@ -449,9 +449,7 @@ impl<'a> Persist<'a> for MMIODeviceManager {
                     )?;
                 }
                 if state.type_ == DeviceType::Rtc {
-                    let rtc = RTCDevice(vm_superio::Rtc::with_events(
-                        &crate::devices::legacy::rtc_pl031::METRICS,
-                    ));
+                    let rtc = RTCDevice::new();
                     constructor_args
                         .resource_allocator
                         .allocate_mmio_memory(
