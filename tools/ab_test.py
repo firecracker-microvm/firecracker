@@ -49,6 +49,8 @@ IGNORED = [
     # block latencies if guest uses async request submission
     {"fio_engine": "libaio", "metric": "clat_read"},
     {"fio_engine": "libaio", "metric": "clat_write"},
+    # boot time metrics
+    {"performance_test": "test_boottime", "metric": "resume_time"},
 ]
 
 
