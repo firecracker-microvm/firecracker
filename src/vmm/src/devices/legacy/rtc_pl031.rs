@@ -4,6 +4,7 @@
 use std::convert::TryInto;
 
 use serde::Serialize;
+use vm_superio::Rtc;
 use vm_superio::rtc_pl031::RtcEvents;
 
 use crate::logger::{IncMetric, SharedIncMetric, warn};
@@ -59,7 +60,19 @@ pub static METRICS: RTCDeviceMetrics = RTCDeviceMetrics::new();
 
 /// Wrapper over vm_superio's RTC implementation.
 #[derive(Debug)]
-pub struct RTCDevice(pub vm_superio::Rtc<&'static RTCDeviceMetrics>);
+pub struct RTCDevice(vm_superio::Rtc<&'static RTCDeviceMetrics>);
+
+impl Default for RTCDevice {
+    fn default() -> Self {
+        RTCDevice(Rtc::with_events(&METRICS))
+    }
+}
+
+impl RTCDevice {
+    pub fn new() -> RTCDevice {
+        Default::default()
+    }
+}
 
 impl std::ops::Deref for RTCDevice {
     type Target = vm_superio::Rtc<&'static RTCDeviceMetrics>;

@@ -15,8 +15,6 @@ use userfaultfd::Uffd;
 use utils::time::TimestampUs;
 #[cfg(target_arch = "aarch64")]
 use vm_memory::GuestAddress;
-#[cfg(target_arch = "aarch64")]
-use vm_superio::Rtc;
 
 use crate::arch::{ConfigurationError, configure_system_for_boot, load_kernel};
 #[cfg(target_arch = "aarch64")]
@@ -628,9 +626,7 @@ fn attach_legacy_devices_aarch64(
             .map_err(VmmError::RegisterMMIODevice)?;
     }
 
-    let rtc = RTCDevice(Rtc::with_events(
-        &crate::devices::legacy::rtc_pl031::METRICS,
-    ));
+    let rtc = RTCDevice::new();
     vmm.mmio_device_manager
         .register_mmio_rtc(&mut vmm.resource_allocator, rtc, None)
         .map_err(VmmError::RegisterMMIODevice)
