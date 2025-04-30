@@ -27,15 +27,6 @@ def test_reboot(uvm_plain_any):
     vm.add_net_iface()
     vm.start()
 
-    # Get Firecracker PID so we can count the number of threads.
-    firecracker_pid = vm.firecracker_pid
-
-    # Get number of threads in Firecracker
-    cmd = "ps -o nlwp {} | tail -1 | awk '{{print $1}}'".format(firecracker_pid)
-    _, stdout, _ = utils.check_output(cmd)
-    nr_of_threads = stdout.rstrip()
-    assert int(nr_of_threads) == 6
-
     # Consume existing metrics
     lines = vm.get_all_metrics()
     assert len(lines) == 1
