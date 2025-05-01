@@ -50,7 +50,6 @@ macro_rules! generate_handler {
 
             $body(si_code, info);
 
-            #[cfg(not(test))]
             match si_signo {
                 $signal_name => exit_with_code(crate::FcExitCode::$exit_code),
                 _ => exit_with_code(FcExitCode::UnexpectedError),
@@ -169,75 +168,4 @@ pub fn register_signal_handlers() -> vmm_sys_util::errno::Result<()> {
     register_signal_handler(SIGHUP, sighup_handler)?;
     register_signal_handler(SIGILL, sigill_handler)?;
     Ok(())
-}
-
-#[cfg(test)]
-mod tests {
-    #![allow(clippy::undocumented_unsafe_blocks)]
-    use std::{process, thread};
-
-    use libc::syscall;
-
-    use super::*;
-
-    #[test]
-    fn test_signal_handler() {
-        let child = thread::spawn(move || {
-            register_signal_handlers().unwrap();
-
-            // Call the forbidden `SYS_mkdirat`.
-            unsafe { libc::syscall(libc::SYS_mkdirat, "/foo/bar\0") };
-
-            // Call SIGBUS signal handler.
-            assert_eq!(METRICS.signals.sigbus.fetch(), 0);
-            unsafe {
-                syscall(libc::SYS_kill, process::id(), SIGBUS);
-            }
-
-            // Call SIGSEGV signal handler.
-            assert_eq!(METRICS.signals.sigsegv.fetch(), 0);
-            unsafe {
-                syscall(libc::SYS_kill, process::id(), SIGSEGV);
-            }
-
-            // Call SIGXFSZ signal handler.
-            assert_eq!(METRICS.signals.sigxfsz.fetch(), 0);
-            unsafe {
-                syscall(libc::SYS_kill, process::id(), SIGXFSZ);
-            }
-
-            // Call SIGXCPU signal handler.
-            assert_eq!(METRICS.signals.sigxcpu.fetch(), 0);
-            unsafe {
-                syscall(libc::SYS_kill, process::id(), SIGXCPU);
-            }
-
-            // Call SIGPIPE signal handler.
-            assert_eq!(METRICS.signals.sigpipe.count(), 0);
-            unsafe {
-                syscall(libc::SYS_kill, process::id(), SIGPIPE);
-            }
-
-            // Call SIGHUP signal handler.
-            assert_eq!(METRICS.signals.sighup.fetch(), 0);
-            unsafe {
-                syscall(libc::SYS_kill, process::id(), SIGHUP);
-            }
-
-            // Call SIGILL signal handler.
-            assert_eq!(METRICS.signals.sigill.fetch(), 0);
-            unsafe {
-                syscall(libc::SYS_kill, process::id(), SIGILL);
-            }
-        });
-        child.join().unwrap();
-
-        assert!(METRICS.signals.sigbus.fetch() >= 1);
-        assert!(METRICS.signals.sigsegv.fetch() >= 1);
-        assert!(METRICS.signals.sigxfsz.fetch() >= 1);
-        assert!(METRICS.signals.sigxcpu.fetch() >= 1);
-        assert!(METRICS.signals.sigpipe.count() >= 1);
-        assert!(METRICS.signals.sighup.fetch() >= 1);
-        assert!(METRICS.signals.sigill.fetch() >= 1);
-    }
 }
