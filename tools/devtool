@@ -681,6 +681,7 @@ unapply_performance_tweaks() {
 cmd_test() {
     do_ab_test=0
     do_build=1
+    do_archive=1
     do_kvm_check=1
     # Parse any command line args.
     while [ $# -gt 0 ]; do
@@ -702,6 +703,9 @@ cmd_test() {
                 ;;
             "--no-build")
                 do_build=0
+                ;;
+            "--no-archive")
+                do_archive=0
                 ;;
             "--no-kvm-check")
                 do_kvm_check=0
@@ -801,6 +805,14 @@ cmd_test() {
 
     # do not leave behind env.list file
     rm env.list
+
+    # archive everything in the `test_result` to speed up upload/download
+    # to s3 if we are in CI
+    if [ $do_archive != 0 ] && [ -n "$BUILDKITE" ] && [ "$BUILDKITE" = "true" ]; then
+      tar -czf data.tar.gz -C test_results .
+      rm -r test_results/*
+      mv data.tar.gz test_results
+    fi
 
     return $ret
 }
