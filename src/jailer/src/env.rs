@@ -854,7 +854,7 @@ mod tests {
         arg_vec
     }
 
-    fn create_env(mock_proc_mounts: &str) -> Env {
+    fn create_env(mock_proc_mounts: &Path) -> Env {
         // Create a standard environment.
         let arg_parser = build_arg_parser();
         let mut args = arg_parser.arguments().clone();
@@ -862,7 +862,7 @@ mod tests {
         let pseudo_exec_file_path = get_pseudo_exec_file_path();
         args.parse(&make_args(&ArgVals::new(pseudo_exec_file_path.as_str())))
             .unwrap();
-        Env::new(&args, 0, 0, mock_proc_mounts).unwrap()
+        Env::new(&args, 0, 0, mock_proc_mounts.to_str().unwrap()).unwrap()
     }
 
     #[test]
@@ -876,7 +876,7 @@ mod tests {
         let mut args = arg_parser.arguments().clone();
         args.parse(&make_args(&good_arg_vals)).unwrap();
         // This should be fine.
-        let good_env = Env::new(&args, 0, 0, mock_cgroups.proc_mounts_path.as_str())
+        let good_env = Env::new(&args, 0, 0, mock_cgroups.proc_mounts_path.to_str().unwrap())
             .expect("This new environment should be created successfully.");
 
         let mut chroot_dir = PathBuf::from(good_arg_vals.chroot_base);
@@ -902,8 +902,9 @@ mod tests {
         let arg_parser = build_arg_parser();
         args = arg_parser.arguments().clone();
         args.parse(&make_args(&another_good_arg_vals)).unwrap();
-        let another_good_env = Env::new(&args, 0, 0, mock_cgroups.proc_mounts_path.as_str())
-            .expect("This another new environment should be created successfully.");
+        let another_good_env =
+            Env::new(&args, 0, 0, mock_cgroups.proc_mounts_path.to_str().unwrap())
+                .expect("This another new environment should be created successfully.");
         assert!(!another_good_env.daemonize);
         assert!(!another_good_env.new_pid_ns);
 
@@ -920,7 +921,7 @@ mod tests {
         let arg_parser = build_arg_parser();
         args = arg_parser.arguments().clone();
         args.parse(&make_args(&invalid_cgroup_arg_vals)).unwrap();
-        Env::new(&args, 0, 0, mock_cgroups.proc_mounts_path.as_str()).unwrap_err();
+        Env::new(&args, 0, 0, mock_cgroups.proc_mounts_path.to_str().unwrap()).unwrap_err();
 
         let invalid_res_limit_arg_vals = ArgVals {
             resource_limits: vec!["zzz"],
@@ -930,7 +931,7 @@ mod tests {
         let arg_parser = build_arg_parser();
         args = arg_parser.arguments().clone();
         args.parse(&make_args(&invalid_res_limit_arg_vals)).unwrap();
-        Env::new(&args, 0, 0, mock_cgroups.proc_mounts_path.as_str()).unwrap_err();
+        Env::new(&args, 0, 0, mock_cgroups.proc_mounts_path.to_str().unwrap()).unwrap_err();
 
         let invalid_id_arg_vals = ArgVals {
             id: "/ad./sa12",
@@ -940,7 +941,7 @@ mod tests {
         let arg_parser = build_arg_parser();
         args = arg_parser.arguments().clone();
         args.parse(&make_args(&invalid_id_arg_vals)).unwrap();
-        Env::new(&args, 0, 0, mock_cgroups.proc_mounts_path.as_str()).unwrap_err();
+        Env::new(&args, 0, 0, mock_cgroups.proc_mounts_path.to_str().unwrap()).unwrap_err();
 
         let inexistent_exec_file_arg_vals = ArgVals {
             exec_file: "/this!/file!/should!/not!/exist!/",
@@ -951,7 +952,7 @@ mod tests {
         args = arg_parser.arguments().clone();
         args.parse(&make_args(&inexistent_exec_file_arg_vals))
             .unwrap();
-        Env::new(&args, 0, 0, mock_cgroups.proc_mounts_path.as_str()).unwrap_err();
+        Env::new(&args, 0, 0, mock_cgroups.proc_mounts_path.to_str().unwrap()).unwrap_err();
 
         let invalid_uid_arg_vals = ArgVals {
             uid: "zzz",
@@ -961,7 +962,7 @@ mod tests {
         let arg_parser = build_arg_parser();
         args = arg_parser.arguments().clone();
         args.parse(&make_args(&invalid_uid_arg_vals)).unwrap();
-        Env::new(&args, 0, 0, mock_cgroups.proc_mounts_path.as_str()).unwrap_err();
+        Env::new(&args, 0, 0, mock_cgroups.proc_mounts_path.to_str().unwrap()).unwrap_err();
 
         let invalid_gid_arg_vals = ArgVals {
             gid: "zzz",
@@ -971,7 +972,7 @@ mod tests {
         let arg_parser = build_arg_parser();
         args = arg_parser.arguments().clone();
         args.parse(&make_args(&invalid_gid_arg_vals)).unwrap();
-        Env::new(&args, 0, 0, mock_cgroups.proc_mounts_path.as_str()).unwrap_err();
+        Env::new(&args, 0, 0, mock_cgroups.proc_mounts_path.to_str().unwrap()).unwrap_err();
 
         let invalid_parent_cg_vals = ArgVals {
             parent_cgroup: Some("/root"),
@@ -981,7 +982,7 @@ mod tests {
         let arg_parser = build_arg_parser();
         args = arg_parser.arguments().clone();
         args.parse(&make_args(&invalid_parent_cg_vals)).unwrap();
-        Env::new(&args, 0, 0, mock_cgroups.proc_mounts_path.as_str()).unwrap_err();
+        Env::new(&args, 0, 0, mock_cgroups.proc_mounts_path.to_str().unwrap()).unwrap_err();
 
         let invalid_controller_pt = ArgVals {
             cgroups: vec!["../file_name=1", "./root=1", "/home=1"],
@@ -990,7 +991,7 @@ mod tests {
         let arg_parser = build_arg_parser();
         args = arg_parser.arguments().clone();
         args.parse(&make_args(&invalid_controller_pt)).unwrap();
-        Env::new(&args, 0, 0, mock_cgroups.proc_mounts_path.as_str()).unwrap_err();
+        Env::new(&args, 0, 0, mock_cgroups.proc_mounts_path.to_str().unwrap()).unwrap_err();
 
         let invalid_format = ArgVals {
             cgroups: vec!["./root/", "../root"],
@@ -999,7 +1000,7 @@ mod tests {
         let arg_parser = build_arg_parser();
         args = arg_parser.arguments().clone();
         args.parse(&make_args(&invalid_format)).unwrap();
-        Env::new(&args, 0, 0, mock_cgroups.proc_mounts_path.as_str()).unwrap_err();
+        Env::new(&args, 0, 0, mock_cgroups.proc_mounts_path.to_str().unwrap()).unwrap_err();
 
         // The chroot-base-dir param is not validated by Env::new, but rather in run, when we
         // actually attempt to create the folder structure (the same goes for netns).
@@ -1065,7 +1066,7 @@ mod tests {
     fn test_setup_jailed_folder() {
         let mut mock_cgroups = MockCgroupFs::new().unwrap();
         mock_cgroups.add_v1_mounts().unwrap();
-        let env = create_env(mock_cgroups.proc_mounts_path.as_str());
+        let env = create_env(&mock_cgroups.proc_mounts_path);
 
         // Error case: non UTF-8 paths.
         let bad_string_bytes: Vec<u8> = vec![0, 102, 111, 111, 0]; // A leading nul followed by 'f', 'o', 'o'
@@ -1136,28 +1137,37 @@ mod tests {
     fn test_mknod_and_own_dev() {
         let mut mock_cgroups = MockCgroupFs::new().unwrap();
         mock_cgroups.add_v1_mounts().unwrap();
-        let env = create_env(mock_cgroups.proc_mounts_path.as_str());
+        let env = create_env(&mock_cgroups.proc_mounts_path);
+
+        let mock_dev_dir = TempDir::new().unwrap();
 
         // Ensure device nodes are created with correct major/minor numbers and permissions.
-        let mut dev_infos: Vec<(&CStr, u32, u32)> = vec![
-            (c"/dev/net/tun-test", DEV_NET_TUN_MAJOR, DEV_NET_TUN_MINOR),
-            (c"/dev/kvm-test", DEV_KVM_MAJOR, DEV_KVM_MINOR),
+        let mut dev_infos: Vec<(PathBuf, u32, u32)> = vec![
+            (
+                mock_dev_dir.as_path().join("net/tun-test"),
+                DEV_NET_TUN_MAJOR,
+                DEV_NET_TUN_MINOR,
+            ),
+            (
+                mock_dev_dir.as_path().join("kvm-test"),
+                DEV_KVM_MAJOR,
+                DEV_KVM_MINOR,
+            ),
         ];
 
         if let Some(uffd_dev_minor) = env.uffd_dev_minor {
-            dev_infos.push((c"/dev/userfaultfd-test", DEV_UFFD_MAJOR, uffd_dev_minor));
+            dev_infos.push((
+                mock_dev_dir.as_path().join("userfaultfd-test"),
+                DEV_UFFD_MAJOR,
+                uffd_dev_minor,
+            ));
         }
 
         for (dev, major, minor) in dev_infos {
-            // Checking this just to be super sure there's no file at `dev_str` path (though
-            // it shouldn't be as we deleted it at the end of the previous test run).
-            if Path::new(dev.to_str().unwrap()).exists() {
-                fs::remove_file(dev.to_str().unwrap()).unwrap();
-            }
-
-            ensure_mknod_and_own_dev(&env, dev, major, minor);
-            // Remove the device node.
-            fs::remove_file(dev.to_str().unwrap()).expect("Could not remove file.");
+            // Ensure the folder where we are creating the node exists
+            fs::create_dir_all(dev.parent().unwrap()).unwrap();
+            let dev_path = dev.to_str().map(CString::new).unwrap().unwrap();
+            ensure_mknod_and_own_dev(&env, &dev_path, major, minor);
         }
     }
 
@@ -1165,7 +1175,7 @@ mod tests {
     fn test_userfaultfd_dev() {
         let mut mock_cgroups = MockCgroupFs::new().unwrap();
         mock_cgroups.add_v1_mounts().unwrap();
-        let env = create_env(mock_cgroups.proc_mounts_path.as_str());
+        let env = create_env(&mock_cgroups.proc_mounts_path);
 
         if !Path::new(DEV_UFFD_PATH.to_str().unwrap()).exists() {
             assert_eq!(env.uffd_dev_minor, None);
@@ -1207,7 +1217,8 @@ mod tests {
         let exec_file_name = Path::new(&some_arg_vals.exec_file).file_name().unwrap();
         fs::write(some_arg_vals.exec_file, "some_content").unwrap();
         args.parse(&make_args(&some_arg_vals)).unwrap();
-        let mut env = Env::new(&args, 0, 0, mock_cgroups.proc_mounts_path.as_str()).unwrap();
+        let mut env =
+            Env::new(&args, 0, 0, mock_cgroups.proc_mounts_path.to_str().unwrap()).unwrap();
 
         // Create the required chroot dir hierarchy.
         fs::create_dir_all(env.chroot_dir()).expect("Could not create dir hierarchy.");
@@ -1270,7 +1281,7 @@ mod tests {
             ..good_arg_vals.clone()
         };
         args.parse(&make_args(&invalid_cgroup_arg_vals)).unwrap();
-        Env::new(&args, 0, 0, mock_cgroups.proc_mounts_path.as_str()).unwrap_err();
+        Env::new(&args, 0, 0, mock_cgroups.proc_mounts_path.to_str().unwrap()).unwrap_err();
 
         // Check empty string
         let mut args = arg_parser.arguments().clone();
@@ -1279,7 +1290,7 @@ mod tests {
             ..good_arg_vals.clone()
         };
         args.parse(&make_args(&invalid_cgroup_arg_vals)).unwrap();
-        Env::new(&args, 0, 0, mock_cgroups.proc_mounts_path.as_str()).unwrap_err();
+        Env::new(&args, 0, 0, mock_cgroups.proc_mounts_path.to_str().unwrap()).unwrap_err();
 
         // Check valid file empty value
         let mut args = arg_parser.arguments().clone();
@@ -1288,7 +1299,7 @@ mod tests {
             ..good_arg_vals.clone()
         };
         args.parse(&make_args(&invalid_cgroup_arg_vals)).unwrap();
-        Env::new(&args, 0, 0, mock_cgroups.proc_mounts_path.as_str()).unwrap_err();
+        Env::new(&args, 0, 0, mock_cgroups.proc_mounts_path.to_str().unwrap()).unwrap_err();
 
         // Check valid file no value
         let mut args = arg_parser.arguments().clone();
@@ -1297,7 +1308,7 @@ mod tests {
             ..good_arg_vals.clone()
         };
         args.parse(&make_args(&invalid_cgroup_arg_vals)).unwrap();
-        Env::new(&args, 0, 0, mock_cgroups.proc_mounts_path.as_str()).unwrap_err();
+        Env::new(&args, 0, 0, mock_cgroups.proc_mounts_path.to_str().unwrap()).unwrap_err();
 
         // Cases that should succeed
 
@@ -1308,7 +1319,7 @@ mod tests {
             ..good_arg_vals.clone()
         };
         args.parse(&make_args(&invalid_cgroup_arg_vals)).unwrap();
-        Env::new(&args, 0, 0, mock_cgroups.proc_mounts_path.as_str()).unwrap();
+        Env::new(&args, 0, 0, mock_cgroups.proc_mounts_path.to_str().unwrap()).unwrap();
 
         // Check valid case
         let mut args = arg_parser.arguments().clone();
@@ -1317,7 +1328,7 @@ mod tests {
             ..good_arg_vals.clone()
         };
         args.parse(&make_args(&invalid_cgroup_arg_vals)).unwrap();
-        Env::new(&args, 0, 0, mock_cgroups.proc_mounts_path.as_str()).unwrap();
+        Env::new(&args, 0, 0, mock_cgroups.proc_mounts_path.to_str().unwrap()).unwrap();
 
         // Check file with multiple "."
         let mut args = arg_parser.arguments().clone();
@@ -1326,7 +1337,7 @@ mod tests {
             ..good_arg_vals.clone()
         };
         args.parse(&make_args(&invalid_cgroup_arg_vals)).unwrap();
-        Env::new(&args, 0, 0, mock_cgroups.proc_mounts_path.as_str()).unwrap();
+        Env::new(&args, 0, 0, mock_cgroups.proc_mounts_path.to_str().unwrap()).unwrap();
     }
 
     #[test]
@@ -1400,7 +1411,7 @@ mod tests {
         let mut mock_cgroups = MockCgroupFs::new().unwrap();
         mock_cgroups.add_v1_mounts().unwrap();
 
-        let env = create_env(mock_cgroups.proc_mounts_path.as_str());
+        let env = create_env(&mock_cgroups.proc_mounts_path);
 
         // Create the required chroot dir hierarchy.
         fs::create_dir_all(env.chroot_dir()).expect("Could not create dir hierarchy.");
@@ -1427,7 +1438,7 @@ mod tests {
         let mut mock_cgroups = MockCgroupFs::new().unwrap();
         mock_cgroups.add_v1_mounts().unwrap();
 
-        let mut env = create_env(mock_cgroups.proc_mounts_path.as_str());
+        let mut env = create_env(&mock_cgroups.proc_mounts_path);
         env.save_exec_file_pid(pid, PathBuf::from(exec_file_name))
             .unwrap();
 

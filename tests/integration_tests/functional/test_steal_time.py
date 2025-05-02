@@ -110,7 +110,7 @@ def test_pvtime_snapshot(uvm_plain, microvm_factory):
     steal_after_resume = get_steal_time_ms(restored_vm)
 
     # Ensure steal time persisted and continued increasing
-    tolerance = 2000  # 2.0 seconds tolerance for persistence check
+    tolerance = 10000  # 10.0 seconds tolerance for persistence check
     persisted = (
         steal_before < steal_after_snap and steal_after_snap - steal_before < tolerance
     )

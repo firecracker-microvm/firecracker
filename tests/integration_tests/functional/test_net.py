@@ -6,6 +6,7 @@ import re
 import time
 
 import pytest
+from tenacity import Retrying, stop_after_attempt, wait_fixed
 
 from framework import utils
 
@@ -118,5 +119,12 @@ def test_tap_offload(uvm_any):
     vm.netns.check_output(f"python3 ./host_tools/udp_offload.py {vm.ssh.host} {port}")
 
     # Check that the server received the message
-    ret = vm.ssh.run(f"sync ; cat {out_filename}")
-    assert ret.stdout == message, f"{ret.stdout=} {ret.stderr=}"
+    # Allow for some delay due to the asynchronous nature of the test
+    for attempt in Retrying(
+        stop=stop_after_attempt(10),
+        wait=wait_fixed(0.1),
+        reraise=True,
+    ):
+        with attempt:
+            ret = vm.ssh.check_output(f"sync; cat {out_filename}")
+            assert ret.stdout == message, f"{ret.stdout=} {ret.stderr=}"

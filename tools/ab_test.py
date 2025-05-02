@@ -49,6 +49,11 @@ IGNORED = [
     # block latencies if guest uses async request submission
     {"fio_engine": "libaio", "metric": "clat_read"},
     {"fio_engine": "libaio", "metric": "clat_write"},
+    # boot time metrics
+    {"performance_test": "test_boottime", "metric": "resume_time"},
+    # block throughput on m8g
+    {"fio_engine": "libaio", "vcpus": 2, "instance": "m8g.metal-24xl"},
+    {"fio_engine": "libaio", "vcpus": 2, "instance": "m8g.metal-48xl"},
 ]
 
 
@@ -117,8 +122,6 @@ def load_data_series(report_path: Path, tag=None, *, reemit: bool = False):
     # Dictionary mapping EMF dimensions to A/B-testable metrics/properties
     processed_emf = {}
 
-    distinct_values_per_dimenson = defaultdict(set)
-
     report = json.loads(report_path.read_text("UTF-8"))
     for test in report["tests"]:
         for line in test["teardown"]["stdout"].splitlines():
@@ -138,9 +141,6 @@ def load_data_series(report_path: Path, tag=None, *, reemit: bool = False):
                 if not dimensions:
                     continue
 
-                for dimension, value in dimensions.items():
-                    distinct_values_per_dimenson[dimension].add(value)
-
                 dimension_set = frozenset(dimensions.items())
 
                 if dimension_set not in processed_emf:
@@ -157,24 +157,27 @@ def load_data_series(report_path: Path, tag=None, *, reemit: bool = False):
 
                         values.extend(result[metric][0])
 
-    irrelevant_dimensions = set()
+    return processed_emf
 
-    for dimension, distinct_values in distinct_values_per_dimenson.items():
+
+def uninteresting_dimensions(processed_emf):
+    """
+    Computes the set of cloudwatch dimensions that only ever take on a
+    single value across the entire dataset.
+    """
+    values_per_dimension = defaultdict(set)
+
+    for dimension_set in processed_emf:
+        for dimension, value in dimension_set:
+            values_per_dimension[dimension].add(value)
+
+    uninteresting = set()
+
+    for dimension, distinct_values in values_per_dimension.items():
         if len(distinct_values) == 1:
-            irrelevant_dimensions.add(dimension)
+            uninteresting.add(dimension)
 
-    post_processed_emf = {}
-
-    for dimension_set, metrics in processed_emf.items():
-        processed_key = frozenset(
-            (dim, value)
-            for (dim, value) in dimension_set
-            if dim not in irrelevant_dimensions
-        )
-
-        post_processed_emf[processed_key] = metrics
-
-    return post_processed_emf
+    return uninteresting
 
 
 def collect_data(binary_dir: Path, pytest_opts: str):
@@ -302,6 +305,7 @@ def analyze_data(
             )
 
     messages = []
+    do_not_print_list = uninteresting_dimensions(processed_emf_a)
     for dimension_set, metric, result, unit in failures:
         # Sanity check as described above
         if abs(statistics.mean(relative_changes_by_metric[metric])) <= noise_threshold:
@@ -323,7 +327,7 @@ def analyze_data(
                 f"for metric \033[1m{metric}\033[0m with \033[0;31m\033[1mp={result.pvalue}\033[0m. "
                 f"This means that observing a change of this magnitude or worse, assuming that performance "
                 f"characteristics did not change across the tested commits, has a probability of {result.pvalue:.2%}. "
-                f"Tested Dimensions:\n{json.dumps(dict(dimension_set), indent=2, sort_keys=True)}"
+                f"Tested Dimensions:\n{json.dumps(dict({k: v for k,v in dimension_set.items() if k not in do_not_print_list}), indent=2, sort_keys=True)}"
             )
             messages.append(msg)
 

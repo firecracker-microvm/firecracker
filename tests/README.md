@@ -184,7 +184,7 @@ function to [`.buildkite/pipeline_perf.py`](../.buildkite/pipeline_perf.py). To
 manually run an A/B-Test, use
 
 ```sh
-tools/devtool -y test --ab [optional arguments to ab_test.py] run <dir A> <dir B> --test <test specification>
+tools/devtool -y test --ab [optional arguments to ab_test.py] run <dir A> <dir B> --pytest-opts <test specification>
 ```
 
 Here, _dir A_ and _dir B_ are directories containing firecracker and jailer
@@ -198,7 +198,7 @@ branch and the `HEAD` of your current branch, run
 ```sh
 tools/devtool -y build --rev main --release
 tools/devtool -y build --rev HEAD --release
-tools/devtool -y test --no-build --ab -- run build/main build/HEAD --test integration_tests/performance/test_boottime.py::test_boottime
+tools/devtool -y test --no-build --ab -- run build/main build/HEAD --pytest-opts integration_tests/performance/test_boottime.py::test_boottime
 ```
 
 #### How to Write an A/B-Compatible Test and Common Pitfalls
@@ -213,9 +213,9 @@ dimension to match up data series between two test runs. It only matches up two
 data series with the same name if their dimensions match.
 
 Special care needs to be taken when pytest expands the argument passed to
-`tools/ab_test.py`'s `--test` option into multiple individual test cases. If two
-test cases use the same dimensions for different data series, the script will
-fail and print out the names of the violating data series. For this reason,
+`tools/ab_test.py`'s `--pytest-opts` option into multiple individual test cases.
+If two test cases use the same dimensions for different data series, the script
+will fail and print out the names of the violating data series. For this reason,
 **A/B-Compatible tests should include a `performance_test` key in their
 dimension set whose value is set to the name of the test**.
 
