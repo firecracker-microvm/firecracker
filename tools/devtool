@@ -411,6 +411,9 @@ cmd_help() {
     echo "        Downloads the CI artifacts used for testing from our S3 bucket. If --force is passed, purges any existing"
     echo "        artifacts first. Useful for refreshing local artifacts after an update, or if something got messed up."
     echo ""
+    echo "    pgo_build [instrument|profile|merge|optimize]"
+    echo "        Build Firecracker with Profile-Guided Optimization (PGO). See README-pgo.md for more information"
+    echo ""
 
     cat <<EOF
     test_debug [-- [<pytest args>]]
@@ -1083,6 +1086,49 @@ cmd_build_ci_artifacts() {
     cmd_fix_perms
 }
 
+cmd_pgo_build() {
+    # For error checking and detecting architecture type
+    set -e
+
+    PROFDATA_DIR=/tmp/firecracker-profdata
+    PROFDATA_FILE=/tmp/firecracker.profdata
+
+    arch=$(uname -m)
+    if [[ "$arch" != "x86_64" ]]; then
+        echo "Warning: Non-x86_64 architecture detected ($arch)"
+        echo "Some features like /dev/kvm and full microVM profiling may not work."
+    fi
+
+
+    case "$1" in
+        instrument)
+            echo "Building instrumented Firecracker binary"
+            RUSTFLAGS="-Cprofile-generate=/tmp/firecracker-profdata" cargo build --release
+	    echo "Instrumentation complete."
+            ;;
+        profile)
+            echo "Run workloads manually to generate .profraw files in /tmp/firecracker-profdata/"
+            echo "Please consult README-pgo.md for more information."
+	    ;;
+        merge)
+            echo "Merging .profraw files"
+              if ! llvm-profdata merge -output=${PROFDATA_FILE} ${PROFDATA_DIR}/*.profraw; then
+   	           echo "Error: Failed to merge profile data."
+                   echo "    Make sure .profraw files exist and are readable."
+                   exit 1
+              fi
+	    echo "Merging complete."
+            ;;
+        optimize)
+            echo "Building optimized Firecracker with profile data"
+            RUSTFLAGS="-Cprofile-use=/tmp/firecracker.profdata -Cllvm-args=-pgo-warn-missing-function" cargo build --release
+            ;;
+        *)
+            echo "Usage: $0 pgo_build [instrument|profile|merge|optimize]"
+            exit 1
+            ;;
+    esac
+}
 
 main() {
 

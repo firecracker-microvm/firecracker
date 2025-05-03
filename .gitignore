@@ -15,3 +15,6 @@ test_results/*
 /resources/linux
 /resources/x86_64
 /resources/aarch64
+llvm.sh
+vmlinux
+vmlinux.bin
