@@ -237,7 +237,6 @@ def validate_fc_metrics(metrics):
             {"exit_mmio_write_agg": latency_agg_metrics_fields},
         ],
         "vmm": [
-            "device_events",
             "panic_count",
         ],
         "uart": [

@@ -799,8 +799,6 @@ impl VcpuMetrics {
 /// Metrics specific to the machine manager as a whole.
 #[derive(Debug, Default, Serialize)]
 pub struct VmmMetrics {
-    /// Number of device related events received for a VM.
-    pub device_events: SharedIncMetric,
     /// Metric for signaling a panic has occurred.
     pub panic_count: SharedStoreMetric,
 }
@@ -808,7 +806,6 @@ impl VmmMetrics {
     /// Const default construction.
     pub const fn new() -> Self {
         Self {
-            device_events: SharedIncMetric::new(),
             panic_count: SharedStoreMetric::new(),
         }
     }
