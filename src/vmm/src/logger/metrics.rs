@@ -502,15 +502,12 @@ impl PatchRequestsMetrics {
 pub struct DeprecatedApiMetrics {
     /// Total number of calls to deprecated HTTP endpoints.
     pub deprecated_http_api_calls: SharedIncMetric,
-    /// Total number of calls to deprecated CMD line parameters.
-    pub deprecated_cmd_line_api_calls: SharedIncMetric,
 }
 impl DeprecatedApiMetrics {
     /// Const default construction.
     pub const fn new() -> Self {
         Self {
             deprecated_http_api_calls: SharedIncMetric::new(),
-            deprecated_cmd_line_api_calls: SharedIncMetric::new(),
         }
     }
 }

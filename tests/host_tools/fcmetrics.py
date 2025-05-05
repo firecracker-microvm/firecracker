@@ -143,7 +143,6 @@ def validate_fc_metrics(metrics):
         "block": block_metrics,
         "deprecated_api": [
             "deprecated_http_api_calls",
-            "deprecated_cmd_line_api_calls",
         ],
         "get_api_requests": [
             "instance_info_count",
