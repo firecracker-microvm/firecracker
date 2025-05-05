@@ -1038,8 +1038,8 @@ pub(crate) mod tests {
             #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
             assert!(cmdline_contains(
                 &cmdline,
-                "virtio_mmio.device=4K@0xd0000000:5 virtio_mmio.device=4K@0xd0001000:6 \
-                 virtio_mmio.device=4K@0xd0002000:7"
+                "virtio_mmio.device=4K@0xc0001000:5 virtio_mmio.device=4K@0xc0002000:6 \
+                 virtio_mmio.device=4K@0xc0003000:7"
             ));
         }
 
@@ -1137,7 +1137,7 @@ pub(crate) mod tests {
         #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
         assert!(cmdline_contains(
             &cmdline,
-            "virtio_mmio.device=4K@0xd0000000:5"
+            "virtio_mmio.device=4K@0xc0001000:5"
         ));
     }
 
@@ -1154,7 +1154,7 @@ pub(crate) mod tests {
         #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
         assert!(cmdline_contains(
             &cmdline,
-            "virtio_mmio.device=4K@0xd0000000:5"
+            "virtio_mmio.device=4K@0xc0001000:5"
         ));
     }
 
@@ -1173,7 +1173,7 @@ pub(crate) mod tests {
         #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
         assert!(cmdline_contains(
             &cmdline,
-            "virtio_mmio.device=4K@0xd0000000:5"
+            "virtio_mmio.device=4K@0xc0001000:5"
         ));
     }
 }

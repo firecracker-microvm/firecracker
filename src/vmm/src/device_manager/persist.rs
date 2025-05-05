@@ -415,17 +415,6 @@ impl<'a> Persist<'a> for MMIODeviceManager {
                         .event_manager
                         .add_subscriber(serial.clone());
 
-                    constructor_args
-                        .resource_allocator
-                        .allocate_mmio_memory(
-                            MMIO_LEN,
-                            MMIO_LEN,
-                            AllocPolicy::ExactMatch(state.device_info.addr),
-                        )
-                        .map_err(|e| {
-                            DevicePersistError::DeviceManager(super::mmio::MmioError::Allocator(e))
-                        })?;
-
                     dev_manager.register_mmio_serial(
                         vm,
                         constructor_args.mmio_bus,
@@ -436,16 +425,6 @@ impl<'a> Persist<'a> for MMIODeviceManager {
                 }
                 if state.type_ == DeviceType::Rtc {
                     let rtc = Arc::new(Mutex::new(RTCDevice::new()));
-                    constructor_args
-                        .resource_allocator
-                        .allocate_mmio_memory(
-                            MMIO_LEN,
-                            MMIO_LEN,
-                            AllocPolicy::ExactMatch(state.device_info.addr),
-                        )
-                        .map_err(|e| {
-                            DevicePersistError::DeviceManager(super::mmio::MmioError::Allocator(e))
-                        })?;
                     dev_manager.register_mmio_rtc(
                         constructor_args.mmio_bus,
                         constructor_args.resource_allocator,
@@ -489,7 +468,7 @@ impl<'a> Persist<'a> for MMIODeviceManager {
 
             constructor_args
                 .resource_allocator
-                .allocate_mmio_memory(
+                .allocate_32bit_mmio_memory(
                     MMIO_LEN,
                     MMIO_LEN,
                     AllocPolicy::ExactMatch(device_info.addr),

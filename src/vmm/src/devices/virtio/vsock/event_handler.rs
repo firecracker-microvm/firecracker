@@ -481,8 +481,8 @@ mod tests {
     #[cfg(target_arch = "x86_64")]
     #[allow(clippy::cast_possible_truncation)] /* casting of constants we know fit into u32 */
     fn test_vsock_bof() {
-        use crate::arch::MMIO_MEM_START;
-        use crate::arch::x86_64::{FIRST_ADDR_PAST_32BITS, MEM_32BIT_GAP_SIZE};
+        use crate::arch::x86_64::layout::FIRST_ADDR_PAST_32BITS;
+        use crate::arch::{MMIO32_MEM_SIZE, MMIO32_MEM_START};
         use crate::devices::virtio::vsock::packet::VSOCK_PKT_HDR_SIZE;
         use crate::test_utils::multi_region_mem;
         use crate::utils::mib_to_bytes;
@@ -493,7 +493,7 @@ mod tests {
         let mut test_ctx = TestContext::new();
         test_ctx.mem = multi_region_mem(&[
             (GuestAddress(0), 8 * MIB),
-            (GuestAddress(MMIO_MEM_START - MIB as u64), MIB),
+            (GuestAddress(MMIO32_MEM_START - MIB as u64), MIB),
             (GuestAddress(FIRST_ADDR_PAST_32BITS), MIB),
         ]);
 
@@ -516,15 +516,15 @@ mod tests {
         }
 
         // Let's check what happens when the header descriptor is right before the gap.
-        vsock_bof_helper(&mut test_ctx, 0, MMIO_MEM_START - 1, VSOCK_PKT_HDR_SIZE);
+        vsock_bof_helper(&mut test_ctx, 0, MMIO32_MEM_START - 1, VSOCK_PKT_HDR_SIZE);
 
         // Let's check what happens when the buffer descriptor crosses into the gap, but does
         // not go past its right edge.
         vsock_bof_helper(
             &mut test_ctx,
             1,
-            MMIO_MEM_START - 4,
-            MEM_32BIT_GAP_SIZE as u32 + 4,
+            MMIO32_MEM_START - 4,
+            MMIO32_MEM_SIZE as u32 + 4,
         );
 
         // Let's modify the buffer descriptor addr and len such that it crosses over the MMIO gap,
@@ -532,8 +532,8 @@ mod tests {
         vsock_bof_helper(
             &mut test_ctx,
             1,
-            MMIO_MEM_START - 4,
-            MEM_32BIT_GAP_SIZE as u32 + 100,
+            MMIO32_MEM_START - 4,
+            MMIO32_MEM_SIZE as u32 + 100,
         );
     }
 
