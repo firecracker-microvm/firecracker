@@ -174,7 +174,6 @@ def validate_fc_metrics(metrics):
             "missed_metrics_count",
             "metrics_fails",
             "missed_log_count",
-            "log_fails",
         ],
         "mmds": [
             "rx_accepted",

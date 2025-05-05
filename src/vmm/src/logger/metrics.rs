@@ -521,8 +521,6 @@ pub struct LoggerSystemMetrics {
     pub metrics_fails: SharedIncMetric,
     /// Number of misses on logging human readable content.
     pub missed_log_count: SharedIncMetric,
-    /// Number of errors while trying to log human readable content.
-    pub log_fails: SharedIncMetric,
 }
 impl LoggerSystemMetrics {
     /// Const default construction.
@@ -531,7 +529,6 @@ impl LoggerSystemMetrics {
             missed_metrics_count: SharedIncMetric::new(),
             metrics_fails: SharedIncMetric::new(),
             missed_log_count: SharedIncMetric::new(),
-            log_fails: SharedIncMetric::new(),
         }
     }
 }
