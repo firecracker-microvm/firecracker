@@ -472,7 +472,7 @@ impl VmResources {
         // a single way of backing guest memory for vhost-user and non-vhost-user cases,
         // that would not be worth the effort.
         let regions =
-            crate::arch::arch_memory_regions(0, mib_to_bytes(self.machine_config.mem_size_mib));
+            crate::arch::arch_memory_regions(mib_to_bytes(self.machine_config.mem_size_mib));
         if vhost_user_device_used {
             memory::memfd_backed(
                 regions.as_ref(),
