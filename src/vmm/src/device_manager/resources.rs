@@ -17,8 +17,10 @@ use crate::arch;
 pub struct ResourceAllocator {
     // Allocator for device interrupt lines
     gsi_allocator: IdAllocator,
-    // Allocator for memory in the MMIO address space
-    mmio_memory: AddressAllocator,
+    // Allocator for memory in the 32-bit MMIO address space
+    mmio32_memory: AddressAllocator,
+    // Allocator for memory in the 64-bit MMIO address space
+    mmio64_memory: AddressAllocator,
     // Memory allocator for system data
     system_memory: AddressAllocator,
 }
@@ -28,7 +30,14 @@ impl ResourceAllocator {
     pub fn new() -> Result<Self, vm_allocator::Error> {
         Ok(Self {
             gsi_allocator: IdAllocator::new(arch::GSI_BASE, arch::GSI_MAX)?,
-            mmio_memory: AddressAllocator::new(arch::MMIO_MEM_START, arch::MMIO_MEM_SIZE)?,
+            mmio32_memory: AddressAllocator::new(
+                arch::MEM_32BIT_DEVICES_START,
+                arch::MEM_32BIT_DEVICES_SIZE,
+            )?,
+            mmio64_memory: AddressAllocator::new(
+                arch::MEM_64BIT_DEVICES_START,
+                arch::MEM_64BIT_DEVICES_SIZE,
+            )?,
             system_memory: AddressAllocator::new(arch::SYSTEM_MEM_START, arch::SYSTEM_MEM_SIZE)?,
         })
     }
@@ -57,7 +66,7 @@ impl ResourceAllocator {
         Ok(gsis)
     }
 
-    /// Allocate a memory range in MMIO address space
+    /// Allocate a memory range in 32-bit MMIO address space
     ///
     /// If it succeeds, it returns the first address of the allocated range
     ///
@@ -66,13 +75,37 @@ impl ResourceAllocator {
     /// * `size` - The size in bytes of the memory to allocate
     /// * `alignment` - The alignment of the address of the first byte
     /// * `policy` - A [`vm_allocator::AllocPolicy`] variant for determining the allocation policy
-    pub fn allocate_mmio_memory(
+    pub fn allocate_32bit_mmio_memory(
         &mut self,
         size: u64,
         alignment: u64,
         policy: AllocPolicy,
     ) -> Result<u64, vm_allocator::Error> {
-        Ok(self.mmio_memory.allocate(size, alignment, policy)?.start())
+        Ok(self
+            .mmio32_memory
+            .allocate(size, alignment, policy)?
+            .start())
+    }
+
+    /// Allocate a memory range in 64-bit MMIO address space
+    ///
+    /// If it succeeds, it returns the first address of the allocated range
+    ///
+    /// # Arguments
+    ///
+    /// * `size` - The size in bytes of the memory to allocate
+    /// * `alignment` - The alignment of the address of the first byte
+    /// * `policy` - A [`vm_allocator::AllocPolicy`] variant for determining the allocation policy
+    pub fn allocate_64bit_mmio_memory(
+        &mut self,
+        size: u64,
+        alignment: u64,
+        policy: AllocPolicy,
+    ) -> Result<u64, vm_allocator::Error> {
+        Ok(self
+            .mmio64_memory
+            .allocate(size, alignment, policy)?
+            .start())
     }
 
     /// Allocate a memory range for system data
