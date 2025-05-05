@@ -131,8 +131,6 @@ def validate_fc_metrics(metrics):
         "api_server": [
             "process_startup_time_us",
             "process_startup_time_cpu_us",
-            "sync_response_fails",
-            "sync_vmm_send_timeout_count",
         ],
         "balloon": [
             "activate_fails",
