@@ -30,7 +30,7 @@ impl GICv3 {
 
     /// Get the address of the GIC distributor.
     fn get_dist_addr() -> u64 {
-        super::layout::MAPPED_IO_START - GICv3::KVM_VGIC_V3_DIST_SIZE
+        super::layout::MMIO32_MEM_START - GICv3::KVM_VGIC_V3_DIST_SIZE
     }
 
     /// Get the size of the GIC distributor.

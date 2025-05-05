@@ -211,11 +211,8 @@ impl DeviceManager {
     ) -> Result<(), AttachMmioDeviceError> {
         let boot_timer = Arc::new(Mutex::new(BootTimer::new(request_ts)));
 
-        self.mmio_devices.register_mmio_boot_timer(
-            &self.mmio_bus,
-            &mut self.resource_allocator,
-            boot_timer,
-        )?;
+        self.mmio_devices
+            .register_mmio_boot_timer(&self.mmio_bus, boot_timer)?;
 
         Ok(())
     }
