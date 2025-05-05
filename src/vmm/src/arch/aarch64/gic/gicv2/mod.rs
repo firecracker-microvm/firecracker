@@ -30,7 +30,7 @@ impl GICv2 {
 
     /// Get the address of the GICv2 distributor.
     const fn get_dist_addr() -> u64 {
-        super::layout::MAPPED_IO_START - GICv2::KVM_VGIC_V2_DIST_SIZE
+        super::layout::MMIO32_MEM_START - GICv2::KVM_VGIC_V2_DIST_SIZE
     }
 
     /// Get the size of the GIC_v2 distributor.
