@@ -24,6 +24,7 @@ use crate::cpu_config::templates::{
 };
 #[cfg(target_arch = "aarch64")]
 use crate::device_manager::AttachLegacyMmioDeviceError;
+use crate::device_manager::pci_mngr::PciManagerError;
 use crate::device_manager::{
     AttachMmioDeviceError, AttachVmgenidError, DeviceManager, DevicePersistError, DeviceRestoreArgs,
 };
@@ -71,6 +72,8 @@ pub enum StartMicrovmError {
     CreateLegacyDevice(device_manager::legacy::LegacyDeviceError),
     /// Error creating VMGenID device: {0}
     CreateVMGenID(VmGenIdError),
+    /// Error enabling PCIe support: {0}
+    EnablePciDevices(#[from] PciManagerError),
     /// Error enabling pvtime on vcpu: {0}
     #[cfg(target_arch = "aarch64")]
     EnablePVTime(crate::arch::VcpuArchError),
@@ -213,6 +216,8 @@ pub fn build_microvm_for_boot(
         .iter()
         .map(|vcpu| vcpu.copy_kvm_vcpu_fd(vmm.vm()))
         .collect::<Result<Vec<_>, _>>()?;
+
+    vmm.device_manager.enable_pci()?;
 
     // The boot timer device needs to be the first device attached in order
     // to maintain the same MMIO address referenced in the documentation
