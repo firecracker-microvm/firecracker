@@ -6,7 +6,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [1.12.0]
 
 ### Added
 
@@ -42,11 +42,9 @@ and this project adheres to
   misnamed, as the value Firecracker sets it to is actually the page size in
   _bytes_, not KiB. It will be removed in Firecracker 2.0.
 
-### Removed
-
 ### Fixed
 
-- #\[[5074](https://github.com/firecracker-microvm/firecracker/pull/5074)\] Fix
+- [#5074](https://github.com/firecracker-microvm/firecracker/pull/5074) Fix
   the `SendCtrlAltDel` command not working for ACPI-enabled guest kernels, by
   dropping the i8042.nopnp argument from the default kernel command line
   Firecracker constructs.
