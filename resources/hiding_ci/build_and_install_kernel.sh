@@ -121,6 +121,15 @@ apply_all_patches() {
   done
 }
 
+check_new_config() {
+  if [[ -e "/boot/config-$KERNEL_VERSION" ]]; then
+    return 0;
+  fi
+
+  echo "Storing new config in /boot/config-$KERNEL_VERSION"
+  cp .config /boot/config-$KERNEL_VERSION
+}
+
 check_override_presence() {
   while IFS= read -r line; do
     if ! grep -Fq "$line" .config; then
@@ -238,6 +247,8 @@ echo "Installing kernel..."
 make INSTALL_MOD_STRIP=1 install
 
 update_boot_config
+
+check_new_config
 
 echo "Kernel built and installed successfully!"
 
