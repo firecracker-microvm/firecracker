@@ -14,12 +14,8 @@ use crate::cpu_config::x86_64::cpuid::{
 pub enum NormalizeCpuidError {
     /// Failed to set deterministic cache leaf: {0}
     DeterministicCache(#[from] DeterministicCacheError),
-    /// Leaf 0x6 is missing from CPUID.
-    MissingLeaf6,
-    /// Leaf 0x7 / subleaf 0 is missing from CPUID.
-    MissingLeaf7,
-    /// Leaf 0xA is missing from CPUID.
-    MissingLeafA,
+    /// Leaf {0} is missing from CPUID.
+    MissingLeaf(usize),
     /// Failed to get brand string: {0}
     GetBrandString(DefaultBrandStringError),
     /// Failed to set brand string: {0}
@@ -164,7 +160,7 @@ impl super::IntelCpuid {
     fn update_power_management_entry(&mut self) -> Result<(), NormalizeCpuidError> {
         let leaf_6 = self
             .get_mut(&CpuidKey::leaf(0x6))
-            .ok_or(NormalizeCpuidError::MissingLeaf6)?;
+            .ok_or(NormalizeCpuidError::MissingLeaf(6))?;
 
         // CPUID.06H:EAX[1]
         // Intel Turbo Boost Technology available (see description of IA32_MISC_ENABLE[38]).
@@ -184,7 +180,7 @@ impl super::IntelCpuid {
     fn update_extended_feature_flags_entry(&mut self) -> Result<(), NormalizeCpuidError> {
         let leaf_7_0 = self
             .get_mut(&CpuidKey::subleaf(0x7, 0))
-            .ok_or(NormalizeCpuidError::MissingLeaf7)?;
+            .ok_or(NormalizeCpuidError::MissingLeaf(7))?;
 
         // Set the following bits as recommended in kernel doc. These bits are reserved in AMD.
         // - CPUID.07H:EBX[6] (FDP_EXCPTN_ONLY)
@@ -243,7 +239,7 @@ impl super::IntelCpuid {
     fn update_performance_monitoring_entry(&mut self) -> Result<(), NormalizeCpuidError> {
         let leaf_a = self
             .get_mut(&CpuidKey::leaf(0xA))
-            .ok_or(NormalizeCpuidError::MissingLeafA)?;
+            .ok_or(NormalizeCpuidError::MissingLeaf(0xA))?;
         leaf_a.result = CpuidRegisters {
             eax: 0,
             ebx: 0,
