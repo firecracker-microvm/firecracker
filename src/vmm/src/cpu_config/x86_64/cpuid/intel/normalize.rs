@@ -5,7 +5,7 @@ use crate::cpu_config::x86_64::cpuid::normalize::{
     CheckedAssignError, get_range, set_bit, set_range,
 };
 use crate::cpu_config::x86_64::cpuid::{
-    BRAND_STRING_LENGTH, CpuidKey, CpuidRegisters, CpuidTrait, MissingBrandStringLeaves,
+    BRAND_STRING_LENGTH, CpuidKey, CpuidRegisters, CpuidTrait, MissingBrandStringLeaves, cpuid,
     host_brand_string,
 };
 
@@ -71,8 +71,51 @@ impl super::IntelCpuid {
         self.update_performance_monitoring_entry()?;
         self.update_extended_topology_v2_entry();
         self.update_brand_string_entry()?;
+        self.update_frequency_information();
 
         Ok(())
+    }
+
+    /// Passes through the host value of cpuid leaves 15h and 16h if they
+    /// are not already configured via cpu template.
+    fn update_frequency_information(&mut self) {
+        let Some(leaf_15h) = self.get_mut(&CpuidKey::leaf(0x15)) else {
+            return;
+        };
+
+        if leaf_15h.result == CpuidRegisters::default() {
+            let host_leaf_15 = cpuid(0x15);
+
+            // CPUID.15H:EAX[31:0]
+            // Ratio of TSC frequency to Core Crystal Clock frequency, denominator
+            leaf_15h.result.eax = host_leaf_15.eax;
+            // CPUID.15H:EBX[31:0]
+            // Ratio of TSC frequency to Core Crystal Clock frequency, numerator
+            leaf_15h.result.ebx = host_leaf_15.ebx;
+            // CPUID.15H:ECX[31:0]
+            // Core Crystal Clock frequency, in units of Hz
+            leaf_15h.result.ecx = host_leaf_15.ecx;
+            // edx is reserved
+        }
+
+        let Some(leaf_16h) = self.get_mut(&CpuidKey::leaf(0x16)) else {
+            return;
+        };
+
+        if leaf_16h.result == CpuidRegisters::default() {
+            let host_leaf_16 = cpuid(0x16);
+
+            // CPUID.16H:EAX[15:0]
+            // Processor Base Frequency (in MHz)
+            leaf_16h.result.eax = host_leaf_16.eax;
+            // CPUID.16H:EBX[15:0]
+            // Processor Maximum Frequency (in MHz)
+            leaf_16h.result.ebx = host_leaf_16.ebx;
+            // CPUID.16H:ECX[15:0]
+            // Bus/Reference frequency (in MHz)
+            leaf_16h.result.ecx = host_leaf_16.ecx;
+            // edx is reserved
+        }
     }
 
     /// Update deterministic cache entry
