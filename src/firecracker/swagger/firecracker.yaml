@@ -5,7 +5,7 @@ info:
     The API is accessible through HTTP calls on specific URLs
     carrying JSON modeled data.
     The transport medium is a Unix Domain Socket.
-  version: 1.12.0-dev
+  version: 1.13.0-dev
   termsOfService: ""
   contact:
     email: "firecracker-maintainers@amazon.com"
