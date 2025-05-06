@@ -3,8 +3,8 @@
 
 
 """Provides:
-    - Mechanism to collect and export Firecracker metrics every 60seconds to CloudWatch
-    - Utility functions to validate Firecracker metrics format and to validate Firecracker device metrics.
+- Mechanism to collect and export Firecracker metrics every 60seconds to CloudWatch
+- Utility functions to validate Firecracker metrics format and to validate Firecracker device metrics.
 """
 
 import datetime

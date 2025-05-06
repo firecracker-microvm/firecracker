@@ -1,7 +1,8 @@
 # Copyright 2024 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 # SPDX-License-Identifier: Apache-2.0
 """A test that fails if it can definitely prove a seccomp rule redundant
-(although it passing does not guarantee the converse, that all rules are definitely needed)."""
+(although it passing does not guarantee the converse, that all rules are definitely needed).
+"""
 import platform
 from pathlib import Path
 
