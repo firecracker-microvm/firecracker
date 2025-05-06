@@ -20,6 +20,9 @@ and this project adheres to
   taking diff snapshots even if dirty page tracking is disabled, by using
   `mincore(2)` to overapproximate the set of dirty pages. Only works if swap is
   disabled.
+- [#5186](https://github.com/firecracker-microvm/firecracker/pull/5186): Pass
+  through CPUID leaves 15h and 16h on Intel CPUs (Crystal clock, processor, and
+  and bus frequencies).
 
 ### Changed
 
