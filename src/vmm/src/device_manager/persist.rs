@@ -214,11 +214,10 @@ pub enum SharedDeviceType {
 }
 
 pub struct MMIODevManagerConstructorArgs<'a> {
-    pub mmio_bus: &'a vm_device::Bus,
     pub mem: &'a GuestMemoryMmap,
     pub vm: &'a VmFd,
     pub event_manager: &'a mut EventManager,
-    pub resource_allocator: &'a mut ResourceAllocator,
+    pub resource_allocator: &'a ResourceAllocator,
     pub vm_resources: &'a mut VmResources,
     pub instance_id: &'a str,
     pub restored_from_file: bool,
@@ -243,7 +242,7 @@ pub struct ACPIDeviceManagerState {
 
 pub struct ACPIDeviceManagerConstructorArgs<'a> {
     pub mem: &'a GuestMemoryMmap,
-    pub resource_allocator: &'a mut ResourceAllocator,
+    pub resource_allocator: &'a ResourceAllocator,
     pub vm: &'a VmFd,
 }
 
@@ -435,7 +434,6 @@ impl<'a> Persist<'a> for MMIODeviceManager {
 
                     dev_manager.register_mmio_serial(
                         vm,
-                        constructor_args.mmio_bus,
                         constructor_args.resource_allocator,
                         serial,
                         Some(state.device_info),
@@ -444,7 +442,6 @@ impl<'a> Persist<'a> for MMIODeviceManager {
                 if state.type_ == DeviceType::Rtc {
                     let rtc = Arc::new(Mutex::new(RTCDevice::new()));
                     dev_manager.register_mmio_rtc(
-                        constructor_args.mmio_bus,
                         constructor_args.resource_allocator,
                         rtc,
                         Some(state.device_info),
@@ -532,7 +529,7 @@ impl<'a> Persist<'a> for MMIODeviceManager {
                 &balloon_state.transport_state,
                 interrupt,
                 &balloon_state.device_info,
-                constructor_args.mmio_bus,
+                &constructor_args.resource_allocator.mmio_bus,
                 constructor_args.event_manager,
             )?;
         }
@@ -559,7 +556,7 @@ impl<'a> Persist<'a> for MMIODeviceManager {
                 &block_state.transport_state,
                 interrupt,
                 &block_state.device_info,
-                constructor_args.mmio_bus,
+                &constructor_args.resource_allocator.mmio_bus,
                 constructor_args.event_manager,
             )?;
         }
@@ -608,7 +605,7 @@ impl<'a> Persist<'a> for MMIODeviceManager {
                 &net_state.transport_state,
                 interrupt,
                 &net_state.device_info,
-                constructor_args.mmio_bus,
+                &constructor_args.resource_allocator.mmio_bus,
                 constructor_args.event_manager,
             )?;
         }
@@ -640,7 +637,7 @@ impl<'a> Persist<'a> for MMIODeviceManager {
                 &vsock_state.transport_state,
                 interrupt,
                 &vsock_state.device_info,
-                constructor_args.mmio_bus,
+                &constructor_args.resource_allocator.mmio_bus,
                 constructor_args.event_manager,
             )?;
         }
@@ -666,7 +663,7 @@ impl<'a> Persist<'a> for MMIODeviceManager {
                 &entropy_state.transport_state,
                 interrupt,
                 &entropy_state.device_info,
-                constructor_args.mmio_bus,
+                &constructor_args.resource_allocator.mmio_bus,
                 constructor_args.event_manager,
             )?;
         }
@@ -755,7 +752,7 @@ mod tests {
         // These need to survive so the restored blocks find them.
         let _block_files;
         let mut tmp_sock_file = TempFile::new().unwrap();
-        let mut resource_allocator = ResourceAllocator::new().unwrap();
+        let resource_allocator = ResourceAllocator::new().unwrap();
         tmp_sock_file.remove().unwrap();
         // Set up a vmm with one of each device, and get the serialized DeviceStates.
         {
@@ -818,11 +815,10 @@ mod tests {
         let device_states: DeviceStates = Snapshot::deserialize(&mut buf.as_slice()).unwrap();
         let vm_resources = &mut VmResources::default();
         let restore_args = MMIODevManagerConstructorArgs {
-            mmio_bus: &vmm.device_manager.mmio_bus,
             mem: vmm.vm.guest_memory(),
             vm: vmm.vm.fd(),
             event_manager: &mut event_manager,
-            resource_allocator: &mut resource_allocator,
+            resource_allocator: &resource_allocator,
             vm_resources,
             instance_id: "microvm-id",
             restored_from_file: true,
