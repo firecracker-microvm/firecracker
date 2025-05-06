@@ -90,6 +90,10 @@ impl AcpiTableWriter<'_> {
             .acpi_devices
             .append_aml_bytes(&mut dsdt_data)?;
 
+        if let Some(pci_segment) = &device_manager.pci_devices.pci_segment {
+            pci_segment.append_aml_bytes(&mut dsdt_data)?;
+        }
+
         // Architecture specific DSDT data
         setup_arch_dsdt(&mut dsdt_data)?;
 
