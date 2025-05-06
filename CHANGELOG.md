@@ -16,6 +16,9 @@ and this project adheres to
 - [#5175](https://github.com/firecracker-microvm/firecracker/pull/5175): Allow
   including a custom cpu template directly in the json configuration file passed
   to `--config-file` under the `cpu_config` key.
+- [#5186](https://github.com/firecracker-microvm/firecracker/pull/5186): Pass
+  through CPUID leaves 15h and 16h on Intel CPUs (Crystal clock, processor, and
+  and bus frequencies).
 
 ### Changed
 
