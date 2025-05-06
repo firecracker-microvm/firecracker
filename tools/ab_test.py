@@ -19,6 +19,7 @@ collected this way must be the same. Then, we match corresponding dimensions
 between the two runs, performing statistical regression test across all the list-
 valued properties collected.
 """
+
 import argparse
 import json
 import os
@@ -180,13 +181,17 @@ def uninteresting_dimensions(processed_emf):
     return uninteresting
 
 
-def collect_data(binary_dir: Path, pytest_opts: str):
-    """Executes the specified test using the provided firecracker binaries"""
+def collect_data(tag: str, binary_dir: Path, pytest_opts: str):
+    """
+    Executes the specified test using the provided firecracker binaries and
+    stores results into the `test_results/tag` directory
+    """
     binary_dir = binary_dir.resolve()
 
     print(f"Collecting samples with {binary_dir}")
+    test_report_path = f"test_results/{tag}/test-report.json"
     subprocess.run(
-        f"./tools/test.sh --binary-dir={binary_dir} {pytest_opts} -m ''",
+        f"./tools/test.sh --binary-dir={binary_dir} {pytest_opts} -m '' --json-report-file=../{test_report_path}",
         env=os.environ
         | {
             "AWS_EMF_ENVIRONMENT": "local",
@@ -195,9 +200,8 @@ def collect_data(binary_dir: Path, pytest_opts: str):
         check=True,
         shell=True,
     )
-    return load_data_series(
-        Path("test_results/test-report.json"), binary_dir, reemit=True
-    )
+
+    return load_data_series(Path(test_report_path), binary_dir, reemit=True)
 
 
 def analyze_data(
@@ -327,7 +331,7 @@ def analyze_data(
                 f"for metric \033[1m{metric}\033[0m with \033[0;31m\033[1mp={result.pvalue}\033[0m. "
                 f"This means that observing a change of this magnitude or worse, assuming that performance "
                 f"characteristics did not change across the tested commits, has a probability of {result.pvalue:.2%}. "
-                f"Tested Dimensions:\n{json.dumps({k: v for k,v in dimension_set if k not in do_not_print_list}, indent=2, sort_keys=True)}"
+                f"Tested Dimensions:\n{json.dumps({k: v for k, v in dimension_set if k not in do_not_print_list}, indent=2, sort_keys=True)}"
             )
             messages.append(msg)
 
@@ -346,7 +350,7 @@ def ab_performance_test(
     """Does an A/B-test of the specified test with the given firecracker/jailer binaries"""
 
     return binary_ab_test(
-        lambda bin_dir, _: collect_data(bin_dir, pytest_opts),
+        lambda bin_dir, is_a: collect_data(is_a and "A" or "B", bin_dir, pytest_opts),
         lambda ah, be: analyze_data(
             ah,
             be,
