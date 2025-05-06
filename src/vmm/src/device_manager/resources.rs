@@ -1,8 +1,12 @@
 // Copyright 2023 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
+use std::sync::{Arc, Mutex};
+
+use pci::DeviceRelocation;
 pub use vm_allocator::AllocPolicy;
 use vm_allocator::{AddressAllocator, IdAllocator};
+use vm_device::Bus;
 
 use crate::arch;
 
@@ -16,29 +20,40 @@ use crate::arch;
 #[derive(Debug)]
 pub struct ResourceAllocator {
     // Allocator for device interrupt lines
-    gsi_allocator: IdAllocator,
+    pub gsi_allocator: Arc<Mutex<IdAllocator>>,
     // Allocator for memory in the 32-bit MMIO address space
-    mmio32_memory: AddressAllocator,
+    pub mmio32_memory: Arc<Mutex<AddressAllocator>>,
     // Allocator for memory in the 64-bit MMIO address space
-    mmio64_memory: AddressAllocator,
+    pub mmio64_memory: Arc<Mutex<AddressAllocator>>,
     // Memory allocator for system data
-    system_memory: AddressAllocator,
+    pub system_memory: Arc<Mutex<AddressAllocator>>,
+    /// MMIO bus
+    pub mmio_bus: Arc<vm_device::Bus>,
+    #[cfg(target_arch = "x86_64")]
+    /// Port IO bus
+    pub pio_bus: Arc<vm_device::Bus>,
 }
 
 impl ResourceAllocator {
     /// Create a new resource allocator for Firecracker devices
     pub fn new() -> Result<Self, vm_allocator::Error> {
         Ok(Self {
-            gsi_allocator: IdAllocator::new(arch::IRQ_BASE, arch::IRQ_MAX)?,
-            mmio32_memory: AddressAllocator::new(
+            gsi_allocator: Arc::new(Mutex::new(IdAllocator::new(arch::IRQ_BASE, arch::IRQ_MAX)?)),
+            mmio32_memory: Arc::new(Mutex::new(AddressAllocator::new(
                 arch::MEM_32BIT_DEVICES_START,
                 arch::MEM_32BIT_DEVICES_SIZE,
-            )?,
-            mmio64_memory: AddressAllocator::new(
+            )?)),
+            mmio64_memory: Arc::new(Mutex::new(AddressAllocator::new(
                 arch::MEM_64BIT_DEVICES_START,
                 arch::MEM_64BIT_DEVICES_SIZE,
-            )?,
-            system_memory: AddressAllocator::new(arch::SYSTEM_MEM_START, arch::SYSTEM_MEM_SIZE)?,
+            )?)),
+            system_memory: Arc::new(Mutex::new(AddressAllocator::new(
+                arch::SYSTEM_MEM_START,
+                arch::SYSTEM_MEM_SIZE,
+            )?)),
+            mmio_bus: Arc::new(Bus::new()),
+            #[cfg(target_arch = "x86_64")]
+            pio_bus: Arc::new(Bus::new()),
         })
     }
 
@@ -47,16 +62,17 @@ impl ResourceAllocator {
     /// # Arguments
     ///
     /// * `gsi_count` - The number of GSIs to allocate
-    pub fn allocate_gsi(&mut self, gsi_count: u32) -> Result<Vec<u32>, vm_allocator::Error> {
+    pub fn allocate_gsi(&self, gsi_count: u32) -> Result<Vec<u32>, vm_allocator::Error> {
+        let mut gsi_allocator = self.gsi_allocator.lock().expect("Poisoned lock");
         let mut gsis = Vec::with_capacity(gsi_count as usize);
 
         for _ in 0..gsi_count {
-            match self.gsi_allocator.allocate_id() {
+            match gsi_allocator.allocate_id() {
                 Ok(gsi) => gsis.push(gsi),
                 Err(err) => {
                     // It is ok to unwrap here, we just allocated the GSI
                     gsis.into_iter().for_each(|gsi| {
-                        self.gsi_allocator.free_id(gsi).unwrap();
+                        gsi_allocator.free_id(gsi).unwrap();
                     });
                     return Err(err);
                 }
@@ -76,13 +92,15 @@ impl ResourceAllocator {
     /// * `alignment` - The alignment of the address of the first byte
     /// * `policy` - A [`vm_allocator::AllocPolicy`] variant for determining the allocation policy
     pub fn allocate_32bit_mmio_memory(
-        &mut self,
+        &self,
         size: u64,
         alignment: u64,
         policy: AllocPolicy,
     ) -> Result<u64, vm_allocator::Error> {
         Ok(self
             .mmio32_memory
+            .lock()
+            .expect("Poisoned lock")
             .allocate(size, alignment, policy)?
             .start())
     }
@@ -97,13 +115,15 @@ impl ResourceAllocator {
     /// * `alignment` - The alignment of the address of the first byte
     /// * `policy` - A [`vm_allocator::AllocPolicy`] variant for determining the allocation policy
     pub fn allocate_64bit_mmio_memory(
-        &mut self,
+        &self,
         size: u64,
         alignment: u64,
         policy: AllocPolicy,
     ) -> Result<u64, vm_allocator::Error> {
         Ok(self
             .mmio64_memory
+            .lock()
+            .expect("Poisoned lock")
             .allocate(size, alignment, policy)?
             .start())
     }
@@ -118,15 +138,30 @@ impl ResourceAllocator {
     /// * `alignment` - The alignment of the address of the first byte
     /// * `policy` - A [`vm_allocator::AllocPolicy`] variant for determining the allocation policy
     pub fn allocate_system_memory(
-        &mut self,
+        &self,
         size: u64,
         alignment: u64,
         policy: AllocPolicy,
     ) -> Result<u64, vm_allocator::Error> {
         Ok(self
             .system_memory
+            .lock()
+            .expect("Poisoned lock")
             .allocate(size, alignment, policy)?
             .start())
+    }
+}
+
+impl DeviceRelocation for ResourceAllocator {
+    fn move_bar(
+        &self,
+        _old_base: u64,
+        _new_base: u64,
+        _len: u64,
+        _pci_dev: &mut dyn pci::PciDevice,
+        _region_type: pci::PciBarRegionType,
+    ) -> Result<(), std::io::Error> {
+        todo!()
     }
 }
 
@@ -139,7 +174,7 @@ mod tests {
 
     #[test]
     fn test_allocate_gsi() {
-        let mut allocator = ResourceAllocator::new().unwrap();
+        let allocator = ResourceAllocator::new().unwrap();
         // asking for 0 IRQs should return us an empty vector
         assert_eq!(allocator.allocate_gsi(0), Ok(vec![]));
         // We cannot allocate more GSIs than available
@@ -160,7 +195,7 @@ mod tests {
         // But we should be able to ask for 0 GSIs
         assert_eq!(allocator.allocate_gsi(0), Ok(vec![]));
 
-        let mut allocator = ResourceAllocator::new().unwrap();
+        let allocator = ResourceAllocator::new().unwrap();
         // We should be able to allocate 1 GSI
         assert_eq!(allocator.allocate_gsi(1), Ok(vec![arch::IRQ_BASE]));
         // We can't allocate MAX_IRQS any more

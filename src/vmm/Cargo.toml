@@ -49,7 +49,7 @@ userfaultfd = "0.8.1"
 utils = { path = "../utils" }
 uuid = "1.16.0"
 vhost = { version = "0.13.0", features = ["vhost-user-frontend"] }
-vm-allocator = "0.1.0"
+vm-allocator = "0.1.2"
 vm-device = { path = "../vm-device" }
 vm-memory = { version = "0.16.1", features = [
   "backend-mmap",
