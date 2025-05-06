@@ -96,14 +96,9 @@ pub enum AttachLegacyMmioDeviceError {
 /// A manager of all peripheral devices of Firecracker
 pub struct DeviceManager {
     /// Allocator for system memory and interrupt numbers
-    pub resource_allocator: ResourceAllocator,
-    /// MMIO bus
-    pub mmio_bus: Arc<vm_device::Bus>,
+    pub resource_allocator: Arc<ResourceAllocator>,
     /// MMIO devices
     pub mmio_devices: MMIODeviceManager,
-    #[cfg(target_arch = "x86_64")]
-    /// Port IO bus
-    pub pio_bus: Arc<vm_device::Bus>,
     #[cfg(target_arch = "x86_64")]
     /// Legacy devices
     pub legacy_devices: PortIODeviceManager,
@@ -145,10 +140,7 @@ impl DeviceManager {
         vcpu_exit_evt: &EventFd,
         vmfd: &VmFd,
     ) -> Result<Self, DeviceManagerCreateError> {
-        let mmio_bus = Arc::new(vm_device::Bus::new());
-
-        #[cfg(target_arch = "x86_64")]
-        let pio_bus = Arc::new(vm_device::Bus::new());
+        let resource_allocator = Arc::new(ResourceAllocator::new()?);
         #[cfg(target_arch = "x86_64")]
         let legacy_devices = {
             Self::set_stdout_nonblocking();
@@ -163,16 +155,13 @@ impl DeviceManager {
 
             // create pio dev manager with legacy devices
             let mut legacy_devices = PortIODeviceManager::new(serial, i8042)?;
-            legacy_devices.register_devices(&pio_bus, vmfd)?;
+            legacy_devices.register_devices(&resource_allocator.pio_bus, vmfd)?;
             legacy_devices
         };
 
         Ok(DeviceManager {
-            resource_allocator: ResourceAllocator::new()?,
-            mmio_bus,
+            resource_allocator,
             mmio_devices: MMIODeviceManager::new(),
-            #[cfg(target_arch = "x86_64")]
-            pio_bus,
             #[cfg(target_arch = "x86_64")]
             legacy_devices,
             acpi_devices: ACPIDeviceManager::new(),
@@ -194,9 +183,8 @@ impl DeviceManager {
         let device = MmioTransport::new(mem.clone(), interrupt, device, is_vhost_user);
         self.mmio_devices.register_mmio_virtio_for_boot(
             vmfd,
-            &mut self.resource_allocator,
+            &self.resource_allocator,
             id,
-            &self.mmio_bus,
             device,
             cmdline,
         )?;
@@ -212,7 +200,7 @@ impl DeviceManager {
         let boot_timer = Arc::new(Mutex::new(BootTimer::new(request_ts)));
 
         self.mmio_devices
-            .register_mmio_boot_timer(&self.mmio_bus, boot_timer)?;
+            .register_mmio_boot_timer(&self.resource_allocator.mmio_bus, boot_timer)?;
 
         Ok(())
     }
@@ -222,7 +210,7 @@ impl DeviceManager {
         mem: &GuestMemoryMmap,
         vmfd: &VmFd,
     ) -> Result<(), AttachVmgenidError> {
-        let vmgenid = VmGenId::new(mem, &mut self.resource_allocator)?;
+        let vmgenid = VmGenId::new(mem, &self.resource_allocator)?;
         self.acpi_devices.attach_vmgenid(vmgenid, vmfd)?;
         Ok(())
     }
@@ -246,23 +234,14 @@ impl DeviceManager {
             // Make stdout non-blocking.
             Self::set_stdout_nonblocking();
             let serial = Self::setup_serial_device(event_manager)?;
-            self.mmio_devices.register_mmio_serial(
-                vmfd,
-                &self.mmio_bus,
-                &mut self.resource_allocator,
-                serial,
-                None,
-            )?;
+            self.mmio_devices
+                .register_mmio_serial(vmfd, &self.resource_allocator, serial, None)?;
             self.mmio_devices.add_mmio_serial_to_cmdline(cmdline)?;
         }
 
         let rtc = Arc::new(Mutex::new(RTCDevice::new()));
-        self.mmio_devices.register_mmio_rtc(
-            &self.mmio_bus,
-            &mut self.resource_allocator,
-            rtc,
-            None,
-        )?;
+        self.mmio_devices
+            .register_mmio_rtc(&self.resource_allocator, rtc, None)?;
         Ok(())
     }
 }
@@ -352,11 +331,10 @@ impl DeviceManager {
     ) -> Result<(), DevicePersistError> {
         // Restore MMIO devices
         let mmio_ctor_args = MMIODevManagerConstructorArgs {
-            mmio_bus: &self.mmio_bus,
             mem: restore_args.mem,
             vm: restore_args.vm,
             event_manager: restore_args.event_manager,
-            resource_allocator: &mut self.resource_allocator,
+            resource_allocator: &self.resource_allocator,
             vm_resources: restore_args.vm_resources,
             instance_id: restore_args.instance_id,
             restored_from_file: restore_args.restored_from_file,
@@ -370,7 +348,7 @@ impl DeviceManager {
         // Restore ACPI devices
         let acpi_ctor_args = ACPIDeviceManagerConstructorArgs {
             mem: restore_args.mem,
-            resource_allocator: &mut self.resource_allocator,
+            resource_allocator: &self.resource_allocator,
             vm: restore_args.vm,
         };
         self.acpi_devices = ACPIDeviceManager::restore(acpi_ctor_args, &state.acpi_state)?;
@@ -387,12 +365,9 @@ pub(crate) mod tests {
     use crate::builder::tests::default_vmm;
 
     pub(crate) fn default_device_manager() -> DeviceManager {
-        let mmio_bus = Arc::new(vm_device::Bus::new());
-        #[cfg(target_arch = "x86_64")]
-        let pio_bus = Arc::new(vm_device::Bus::new());
         let mmio_devices = MMIODeviceManager::new();
         let acpi_devices = ACPIDeviceManager::new();
-        let resource_allocator = ResourceAllocator::new().unwrap();
+        let resource_allocator = Arc::new(ResourceAllocator::new().unwrap());
 
         #[cfg(target_arch = "x86_64")]
         let legacy_devices = PortIODeviceManager::new(
@@ -407,10 +382,7 @@ pub(crate) mod tests {
 
         DeviceManager {
             resource_allocator,
-            mmio_bus,
             mmio_devices,
-            #[cfg(target_arch = "x86_64")]
-            pio_bus,
             #[cfg(target_arch = "x86_64")]
             legacy_devices,
             acpi_devices,
