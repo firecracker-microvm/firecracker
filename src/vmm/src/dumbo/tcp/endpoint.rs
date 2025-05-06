@@ -17,11 +17,11 @@ use std::num::{NonZeroU16, NonZeroU64, Wrapping};
 use micro_http::{Body, Request, RequestError, Response, StatusCode, Version};
 use utils::time::timestamp_cycles;
 
+use crate::dumbo::pdu::Incomplete;
 use crate::dumbo::pdu::bytes::NetworkBytes;
 use crate::dumbo::pdu::tcp::TcpSegment;
-use crate::dumbo::pdu::Incomplete;
 use crate::dumbo::tcp::connection::{Connection, PassiveOpenError, RecvStatusFlags};
-use crate::dumbo::tcp::{seq_after, NextSegmentStatus, MAX_WINDOW_SIZE};
+use crate::dumbo::tcp::{MAX_WINDOW_SIZE, NextSegmentStatus, seq_after};
 use crate::logger::{IncMetric, METRICS};
 
 // TODO: These are currently expressed in cycles. Normally, they would be the equivalent of a
@@ -281,9 +281,8 @@ impl Endpoint {
             tcp_payload_src,
             timestamp_cycles(),
         ) {
-            Ok(write_result) => write_result.map(|segment| {
+            Ok(write_result) => write_result.inspect(|segment| {
                 self.response_seq += Wrapping(u32::from(segment.inner().payload_len()));
-                segment
             }),
             Err(_) => {
                 METRICS.mmds.tx_errors.inc();
@@ -630,9 +629,11 @@ mod tests {
                                  Expect: 100-continue\r\n\
                                  Transfer-Encoding: identity; q=0\r\n\
                                  Content-Length: 26\r\n\r\nthis is not\n\r\na json \nbody";
-        assert!(parse_request_bytes(request_bytes, mock_callback)
-            .body()
-            .is_none());
+        assert!(
+            parse_request_bytes(request_bytes, mock_callback)
+                .body()
+                .is_none()
+        );
 
         let request_bytes = b"PATCH http://localhost/home HTTP/1.1\r\n\
                                  Expect: 100-continue\r\n\

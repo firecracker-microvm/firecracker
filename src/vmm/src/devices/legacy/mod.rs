@@ -14,8 +14,8 @@ pub mod serial;
 use std::io;
 use std::ops::Deref;
 
-use serde::ser::SerializeMap;
 use serde::Serializer;
+use serde::ser::SerializeMap;
 use vm_superio::Trigger;
 use vmm_sys_util::eventfd::EventFd;
 
@@ -23,7 +23,7 @@ pub use self::i8042::{I8042Device, I8042Error as I8042DeviceError};
 #[cfg(target_arch = "aarch64")]
 pub use self::rtc_pl031::RTCDevice;
 pub use self::serial::{
-    SerialDevice, SerialEventsWrapper, SerialWrapper, IER_RDA_BIT, IER_RDA_OFFSET,
+    IER_RDA_BIT, IER_RDA_OFFSET, SerialDevice, SerialEventsWrapper, SerialWrapper,
 };
 
 /// Wrapper for implementing the trigger functionality for `EventFd`.

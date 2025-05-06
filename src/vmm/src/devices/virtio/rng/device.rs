@@ -2,8 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use std::io;
-use std::sync::atomic::AtomicU32;
 use std::sync::Arc;
+use std::sync::atomic::AtomicU32;
 
 use aws_lc_rs::rand;
 use vm_memory::GuestMemoryError;
@@ -11,14 +11,14 @@ use vmm_sys_util::eventfd::EventFd;
 
 use super::metrics::METRICS;
 use super::{RNG_NUM_QUEUES, RNG_QUEUE};
+use crate::devices::DeviceError;
 use crate::devices::virtio::device::{DeviceState, IrqTrigger, IrqType, VirtioDevice};
-use crate::devices::virtio::gen::virtio_rng::VIRTIO_F_VERSION_1;
+use crate::devices::virtio::generated::virtio_config::VIRTIO_F_VERSION_1;
 use crate::devices::virtio::iov_deque::IovDequeError;
 use crate::devices::virtio::iovec::IoVecBufferMut;
-use crate::devices::virtio::queue::{Queue, FIRECRACKER_MAX_QUEUE_SIZE};
+use crate::devices::virtio::queue::{FIRECRACKER_MAX_QUEUE_SIZE, Queue};
 use crate::devices::virtio::{ActivateError, TYPE_RNG};
-use crate::devices::DeviceError;
-use crate::logger::{debug, error, IncMetric};
+use crate::logger::{IncMetric, debug, error};
 use crate::rate_limiter::{RateLimiter, TokenType};
 use crate::vstate::memory::GuestMemoryMmap;
 
@@ -119,9 +119,8 @@ impl Entropy {
         }
 
         let mut rand_bytes = vec![0; self.buffer.len() as usize];
-        rand::fill(&mut rand_bytes).map_err(|err| {
+        rand::fill(&mut rand_bytes).inspect_err(|_| {
             METRICS.host_rng_fails.inc();
-            err
         })?;
 
         // It is ok to unwrap here. We are writing `iovec.len()` bytes at offset 0.
@@ -315,7 +314,7 @@ mod tests {
     use crate::devices::virtio::device::VirtioDevice;
     use crate::devices::virtio::queue::VIRTQ_DESC_F_WRITE;
     use crate::devices::virtio::test_utils::test::{
-        create_virtio_mem, VirtioTestDevice, VirtioTestHelper,
+        VirtioTestDevice, VirtioTestHelper, create_virtio_mem,
     };
 
     impl VirtioTestDevice for Entropy {
@@ -442,7 +441,7 @@ mod tests {
         let desc = entropy_dev.queues_mut()[RNG_QUEUE].pop().unwrap();
         assert!(matches!(
             // SAFETY: This descriptor chain is only loaded into one buffer
-            unsafe { IoVecBufferMut::from_descriptor_chain(&mem, desc) },
+            unsafe { IoVecBufferMut::<256>::from_descriptor_chain(&mem, desc) },
             Err(crate::devices::virtio::iovec::IoVecError::ReadOnlyDescriptor)
         ));
 

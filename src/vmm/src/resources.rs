@@ -9,10 +9,11 @@ use serde::{Deserialize, Serialize};
 
 use crate::cpu_config::templates::CustomCpuTemplate;
 use crate::device_manager::persist::SharedDeviceType;
-use crate::logger::{info, log_dev_preview_warning};
+use crate::logger::info;
 use crate::mmds;
 use crate::mmds::data_store::{Mmds, MmdsVersion};
 use crate::mmds::ns::MmdsNetworkStack;
+use crate::utils::mib_to_bytes;
 use crate::utils::net::ipv4addr::is_link_local_valid;
 use crate::vmm_config::balloon::*;
 use crate::vmm_config::boot_source::{
@@ -22,13 +23,14 @@ use crate::vmm_config::drive::*;
 use crate::vmm_config::entropy::*;
 use crate::vmm_config::instance_info::InstanceInfo;
 use crate::vmm_config::machine_config::{
-    HugePageConfig, MachineConfig, MachineConfigUpdate, VmConfig, VmConfigError,
+    HugePageConfig, MachineConfig, MachineConfigError, MachineConfigUpdate,
 };
-use crate::vmm_config::metrics::{init_metrics, MetricsConfig, MetricsConfigError};
+use crate::vmm_config::metrics::{MetricsConfig, MetricsConfigError, init_metrics};
 use crate::vmm_config::mmds::{MmdsConfig, MmdsConfigError};
 use crate::vmm_config::net::*;
 use crate::vmm_config::vsock::*;
-use crate::vstate::memory::{GuestMemoryExtension, GuestMemoryMmap, MemoryError};
+use crate::vstate::memory;
+use crate::vstate::memory::{GuestRegionMmap, MemoryError};
 
 /// Errors encountered when configuring microVM resources.
 #[derive(Debug, thiserror::Error, displaydoc::Display)]
@@ -54,7 +56,7 @@ pub enum ResourcesError {
     /// Network device error: {0}
     NetDevice(#[from] NetworkInterfaceError),
     /// VM config error: {0}
-    VmConfig(#[from] VmConfigError),
+    MachineConfig(#[from] MachineConfigError),
     /// Vsock device error: {0}
     VsockDevice(#[from] VsockConfigError),
     /// Entropy device error: {0}
@@ -63,32 +65,20 @@ pub enum ResourcesError {
 
 /// Used for configuring a vmm from one single json passed to the Firecracker process.
 #[derive(Debug, Default, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(rename_all = "kebab-case")]
 pub struct VmmConfig {
-    #[serde(rename = "balloon")]
-    balloon_device: Option<BalloonDeviceConfig>,
-    #[serde(rename = "drives")]
-    block_devices: Vec<BlockDeviceConfig>,
-    #[serde(rename = "boot-source")]
+    balloon: Option<BalloonDeviceConfig>,
+    drives: Vec<BlockDeviceConfig>,
     boot_source: BootSourceConfig,
-    #[serde(rename = "cpu-config")]
     cpu_config: Option<PathBuf>,
-    #[serde(rename = "logger")]
     logger: Option<crate::logger::LoggerConfig>,
-    #[serde(rename = "machine-config")]
     machine_config: Option<MachineConfig>,
-    #[serde(rename = "metrics")]
     metrics: Option<MetricsConfig>,
-    #[serde(rename = "mmds-config")]
     mmds_config: Option<MmdsConfig>,
-    #[serde(rename = "network-interfaces", default)]
-    net_devices: Vec<NetworkInterfaceConfig>,
-    #[serde(rename = "vsock")]
-    vsock_device: Option<VsockDeviceConfig>,
-    #[serde(rename = "entropy")]
-    entropy_device: Option<EntropyDeviceConfig>,
-    #[cfg(feature = "gdb")]
-    #[serde(rename = "gdb-socket")]
-    gdb_socket_addr: Option<String>,
+    #[serde(default)]
+    network_interfaces: Vec<NetworkInterfaceConfig>,
+    vsock: Option<VsockDeviceConfig>,
+    entropy: Option<EntropyDeviceConfig>,
 }
 
 /// A data structure that encapsulates the device configurations
@@ -96,7 +86,7 @@ pub struct VmmConfig {
 #[derive(Debug, Default)]
 pub struct VmResources {
     /// The vCpu and memory configuration for this microVM.
-    pub vm_config: VmConfig,
+    pub machine_config: MachineConfig,
     /// The boot source spec (contains both config and builder) for this microVM.
     pub boot_source: BootSource,
     /// The block devices.
@@ -117,9 +107,6 @@ pub struct VmResources {
     pub mmds_size_limit: usize,
     /// Whether or not to load boot timer device.
     pub boot_timer: bool,
-    #[cfg(feature = "gdb")]
-    /// Configures the location of the GDB socket
-    pub gdb_socket_addr: Option<String>,
 }
 
 impl VmResources {
@@ -142,13 +129,11 @@ impl VmResources {
 
         let mut resources: Self = Self {
             mmds_size_limit,
-            #[cfg(feature = "gdb")]
-            gdb_socket_addr: vmm_config.gdb_socket_addr,
             ..Default::default()
         };
         if let Some(machine_config) = vmm_config.machine_config {
             let machine_config = MachineConfigUpdate::from(machine_config);
-            resources.update_vm_config(&machine_config)?;
+            resources.update_machine_config(&machine_config)?;
         }
 
         if let Some(cpu_config) = vmm_config.cpu_config {
@@ -160,19 +145,19 @@ impl VmResources {
 
         resources.build_boot_source(vmm_config.boot_source)?;
 
-        for drive_config in vmm_config.block_devices.into_iter() {
+        for drive_config in vmm_config.drives.into_iter() {
             resources.set_block_device(drive_config)?;
         }
 
-        for net_config in vmm_config.net_devices.into_iter() {
+        for net_config in vmm_config.network_interfaces.into_iter() {
             resources.build_net_device(net_config)?;
         }
 
-        if let Some(vsock_config) = vmm_config.vsock_device {
+        if let Some(vsock_config) = vmm_config.vsock {
             resources.set_vsock_device(vsock_config)?;
         }
 
-        if let Some(balloon_config) = vmm_config.balloon_device {
+        if let Some(balloon_config) = vmm_config.balloon {
             resources.set_balloon_device(balloon_config)?;
         }
 
@@ -188,7 +173,7 @@ impl VmResources {
             resources.set_mmds_config(mmds_config, &instance_info.id)?;
         }
 
-        if let Some(entropy_device_config) = vmm_config.entropy_device {
+        if let Some(entropy_device_config) = vmm_config.entropy {
             resources.build_entropy_device(entropy_device_config)?;
         }
 
@@ -227,7 +212,7 @@ impl VmResources {
             SharedDeviceType::Balloon(balloon) => {
                 self.balloon.set_device(balloon);
 
-                if self.vm_config.huge_pages != HugePageConfig::None {
+                if self.machine_config.huge_pages != HugePageConfig::None {
                     return Err(ResourcesError::BalloonDevice(BalloonConfigError::HugePages));
                 }
             }
@@ -246,16 +231,15 @@ impl VmResources {
     /// Add a custom CPU template to the VM resources
     /// to configure vCPUs.
     pub fn set_custom_cpu_template(&mut self, cpu_template: CustomCpuTemplate) {
-        self.vm_config.set_custom_cpu_template(cpu_template);
+        self.machine_config.set_custom_cpu_template(cpu_template);
     }
 
     /// Updates the configuration of the microVM.
-    pub fn update_vm_config(&mut self, update: &MachineConfigUpdate) -> Result<(), VmConfigError> {
-        if update.huge_pages.is_some() && update.huge_pages != Some(HugePageConfig::None) {
-            log_dev_preview_warning("Huge pages support", None);
-        }
-
-        let updated = self.vm_config.update(update)?;
+    pub fn update_machine_config(
+        &mut self,
+        update: &MachineConfigUpdate,
+    ) -> Result<(), MachineConfigError> {
+        let updated = self.machine_config.update(update)?;
 
         // The VM cannot have a memory size smaller than the target size
         // of the balloon device, if present.
@@ -264,23 +248,16 @@ impl VmResources {
                 < self
                     .balloon
                     .get_config()
-                    .map_err(|_| VmConfigError::InvalidVmState)?
+                    .map_err(|_| MachineConfigError::InvalidVmState)?
                     .amount_mib as usize
         {
-            return Err(VmConfigError::IncompatibleBalloonSize);
+            return Err(MachineConfigError::IncompatibleBalloonSize);
         }
 
         if self.balloon.get().is_some() && updated.huge_pages != HugePageConfig::None {
-            return Err(VmConfigError::BalloonAndHugePages);
+            return Err(MachineConfigError::BalloonAndHugePages);
         }
-
-        if self.boot_source.config.initrd_path.is_some()
-            && updated.huge_pages != HugePageConfig::None
-        {
-            return Err(VmConfigError::InitrdAndHugePages);
-        }
-
-        self.vm_config = updated;
+        self.machine_config = updated;
 
         Ok(())
     }
@@ -323,16 +300,6 @@ impl VmResources {
         mmds_config
     }
 
-    /// Gets a reference to the boot source configuration.
-    pub fn boot_source_config(&self) -> &BootSourceConfig {
-        &self.boot_source.config
-    }
-
-    /// Gets a reference to the boot source builder.
-    pub fn boot_source_builder(&self) -> Option<&BootConfig> {
-        self.boot_source.builder.as_ref()
-    }
-
     /// Sets a balloon device to be attached when the VM starts.
     pub fn set_balloon_device(
         &mut self,
@@ -340,11 +307,11 @@ impl VmResources {
     ) -> Result<(), BalloonConfigError> {
         // The balloon cannot have a target size greater than the size of
         // the guest memory.
-        if config.amount_mib as usize > self.vm_config.mem_size_mib {
+        if config.amount_mib as usize > self.machine_config.mem_size_mib {
             return Err(BalloonConfigError::TooManyPagesRequested);
         }
 
-        if self.vm_config.huge_pages != HugePageConfig::None {
+        if self.machine_config.huge_pages != HugePageConfig::None {
             return Err(BalloonConfigError::HugePages);
         }
 
@@ -356,20 +323,12 @@ impl VmResources {
         &mut self,
         boot_source_cfg: BootSourceConfig,
     ) -> Result<(), BootSourceConfigError> {
-        if boot_source_cfg.initrd_path.is_some()
-            && self.vm_config.huge_pages != HugePageConfig::None
-        {
-            return Err(BootSourceConfigError::HugePagesAndInitRd);
-        }
+        self.boot_source = BootSource {
+            builder: Some(BootConfig::new(&boot_source_cfg)?),
+            config: boot_source_cfg,
+        };
 
-        self.set_boot_source_config(boot_source_cfg);
-        self.boot_source.builder = Some(BootConfig::new(self.boot_source_config())?);
         Ok(())
-    }
-
-    /// Set the boot source configuration (contains raw kernel config details).
-    pub fn set_boot_source_config(&mut self, boot_source_cfg: BootSourceConfig) {
-        self.boot_source.config = boot_source_cfg;
     }
 
     /// Inserts a block to be attached when the VM starts.
@@ -482,7 +441,7 @@ impl VmResources {
     ///
     /// If vhost-user-blk devices are in use, allocates memfd-backed shared memory, otherwise
     /// prefers anonymous memory for performance reasons.
-    pub fn allocate_guest_memory(&self) -> Result<GuestMemoryMmap, MemoryError> {
+    pub fn allocate_guest_memory(&self) -> Result<Vec<GuestRegionMmap>, MemoryError> {
         let vhost_user_device_used = self
             .block
             .devices
@@ -498,18 +457,19 @@ impl VmResources {
         // because that would require running a backend process. If in the future we converge to
         // a single way of backing guest memory for vhost-user and non-vhost-user cases,
         // that would not be worth the effort.
+        let regions =
+            crate::arch::arch_memory_regions(0, mib_to_bytes(self.machine_config.mem_size_mib));
         if vhost_user_device_used {
-            GuestMemoryMmap::memfd_backed(
-                self.vm_config.mem_size_mib,
-                self.vm_config.track_dirty_pages,
-                self.vm_config.huge_pages,
+            memory::memfd_backed(
+                regions.as_ref(),
+                self.machine_config.track_dirty_pages,
+                self.machine_config.huge_pages,
             )
         } else {
-            let regions = crate::arch::arch_memory_regions(self.vm_config.mem_size_mib << 20);
-            GuestMemoryMmap::from_raw_regions(
-                &regions,
-                self.vm_config.track_dirty_pages,
-                self.vm_config.huge_pages,
+            memory::anonymous(
+                regions.into_iter(),
+                self.machine_config.track_dirty_pages,
+                self.machine_config.huge_pages,
             )
         }
     }
@@ -518,19 +478,17 @@ impl VmResources {
 impl From<&VmResources> for VmmConfig {
     fn from(resources: &VmResources) -> Self {
         VmmConfig {
-            balloon_device: resources.balloon.get_config().ok(),
-            block_devices: resources.block.configs(),
-            boot_source: resources.boot_source_config().clone(),
+            balloon: resources.balloon.get_config().ok(),
+            drives: resources.block.configs(),
+            boot_source: resources.boot_source.config.clone(),
             cpu_config: None,
             logger: None,
-            machine_config: Some(MachineConfig::from(&resources.vm_config)),
+            machine_config: Some(resources.machine_config.clone()),
             metrics: None,
             mmds_config: resources.mmds_config(),
-            net_devices: resources.net_builder.configs(),
-            vsock_device: resources.vsock.config(),
-            entropy_device: resources.entropy.config(),
-            #[cfg(feature = "gdb")]
-            gdb_socket_addr: resources.gdb_socket_addr.clone(),
+            network_interfaces: resources.net_builder.configs(),
+            vsock: resources.vsock.config(),
+            entropy: resources.entropy.config(),
         }
     }
 }
@@ -546,6 +504,7 @@ mod tests {
     use vmm_sys_util::tempfile::TempFile;
 
     use super::*;
+    use crate::HTTP_MAX_PAYLOAD_SIZE;
     use crate::cpu_config::templates::{CpuTemplateType, StaticCpuTemplate};
     use crate::devices::virtio::balloon::Balloon;
     use crate::devices::virtio::block::virtio::VirtioBlockError;
@@ -553,15 +512,14 @@ mod tests {
     use crate::devices::virtio::vsock::VSOCK_DEV_ID;
     use crate::resources::VmResources;
     use crate::utils::net::mac::MacAddr;
+    use crate::vmm_config::RateLimiterConfig;
     use crate::vmm_config::boot_source::{
         BootConfig, BootSource, BootSourceConfig, DEFAULT_KERNEL_CMDLINE,
     };
     use crate::vmm_config::drive::{BlockBuilder, BlockDeviceConfig};
-    use crate::vmm_config::machine_config::{HugePageConfig, MachineConfig, VmConfigError};
+    use crate::vmm_config::machine_config::{HugePageConfig, MachineConfig, MachineConfigError};
     use crate::vmm_config::net::{NetBuilder, NetworkInterfaceConfig};
     use crate::vmm_config::vsock::tests::default_config;
-    use crate::vmm_config::RateLimiterConfig;
-    use crate::HTTP_MAX_PAYLOAD_SIZE;
 
     fn default_net_cfg() -> NetworkInterfaceConfig {
         NetworkInterfaceConfig {
@@ -630,7 +588,7 @@ mod tests {
 
     fn default_vm_resources() -> VmResources {
         VmResources {
-            vm_config: VmConfig::default(),
+            machine_config: MachineConfig::default(),
             boot_source: default_boot_cfg(),
             block: default_blocks(),
             vsock: Default::default(),
@@ -640,30 +598,6 @@ mod tests {
             boot_timer: false,
             mmds_size_limit: HTTP_MAX_PAYLOAD_SIZE,
             entropy: Default::default(),
-            #[cfg(feature = "gdb")]
-            gdb_socket_addr: None,
-        }
-    }
-
-    impl PartialEq for BootConfig {
-        fn eq(&self, other: &Self) -> bool {
-            self.cmdline.eq(&other.cmdline)
-                && self.kernel_file.metadata().unwrap().st_ino()
-                    == other.kernel_file.metadata().unwrap().st_ino()
-                && self
-                    .initrd_file
-                    .as_ref()
-                    .unwrap()
-                    .metadata()
-                    .unwrap()
-                    .st_ino()
-                    == other
-                        .initrd_file
-                        .as_ref()
-                        .unwrap()
-                        .metadata()
-                        .unwrap()
-                        .st_ino()
         }
     }
 
@@ -845,7 +779,7 @@ mod tests {
         assert!(
             matches!(
                 error,
-                ResourcesError::VmConfig(VmConfigError::InvalidMemorySize)
+                ResourcesError::MachineConfig(MachineConfigError::InvalidMemorySize)
             ),
             "{:?}",
             error
@@ -1159,7 +1093,7 @@ mod tests {
         )
         .unwrap();
         assert_eq!(
-            vm_resources.vm_config.cpu_template,
+            vm_resources.machine_config.cpu_template,
             Some(CpuTemplateType::Custom(CustomCpuTemplate::default()))
         );
     }
@@ -1363,7 +1297,7 @@ mod tests {
     }
 
     #[test]
-    fn test_update_vm_config() {
+    fn test_update_machine_config() {
         let mut vm_resources = default_vm_resources();
         let mut aux_vm_config = MachineConfigUpdate {
             vcpu_count: Some(32),
@@ -1375,28 +1309,30 @@ mod tests {
             cpu_template: Some(StaticCpuTemplate::V1N1),
             track_dirty_pages: Some(false),
             huge_pages: Some(HugePageConfig::None),
+            #[cfg(feature = "gdb")]
+            gdb_socket_path: None,
         };
 
         assert_ne!(
-            MachineConfigUpdate::from(MachineConfig::from(&vm_resources.vm_config)),
+            MachineConfigUpdate::from(vm_resources.machine_config.clone()),
             aux_vm_config
         );
-        vm_resources.update_vm_config(&aux_vm_config).unwrap();
+        vm_resources.update_machine_config(&aux_vm_config).unwrap();
         assert_eq!(
-            MachineConfigUpdate::from(MachineConfig::from(&vm_resources.vm_config)),
+            MachineConfigUpdate::from(vm_resources.machine_config.clone()),
             aux_vm_config
         );
 
         // Invalid vcpu count.
         aux_vm_config.vcpu_count = Some(0);
         assert_eq!(
-            vm_resources.update_vm_config(&aux_vm_config),
-            Err(VmConfigError::InvalidVcpuCount)
+            vm_resources.update_machine_config(&aux_vm_config),
+            Err(MachineConfigError::InvalidVcpuCount)
         );
         aux_vm_config.vcpu_count = Some(33);
         assert_eq!(
-            vm_resources.update_vm_config(&aux_vm_config),
-            Err(VmConfigError::InvalidVcpuCount)
+            vm_resources.update_machine_config(&aux_vm_config),
+            Err(MachineConfigError::InvalidVcpuCount)
         );
 
         // Check that SMT is not supported on aarch64, and that on x86_64 enabling it requires vcpu
@@ -1404,29 +1340,29 @@ mod tests {
         aux_vm_config.smt = Some(true);
         #[cfg(target_arch = "aarch64")]
         assert_eq!(
-            vm_resources.update_vm_config(&aux_vm_config),
-            Err(VmConfigError::SmtNotSupported)
+            vm_resources.update_machine_config(&aux_vm_config),
+            Err(MachineConfigError::SmtNotSupported)
         );
         aux_vm_config.vcpu_count = Some(3);
         #[cfg(target_arch = "x86_64")]
         assert_eq!(
-            vm_resources.update_vm_config(&aux_vm_config),
-            Err(VmConfigError::InvalidVcpuCount)
+            vm_resources.update_machine_config(&aux_vm_config),
+            Err(MachineConfigError::InvalidVcpuCount)
         );
         aux_vm_config.vcpu_count = Some(32);
         #[cfg(target_arch = "x86_64")]
-        vm_resources.update_vm_config(&aux_vm_config).unwrap();
+        vm_resources.update_machine_config(&aux_vm_config).unwrap();
         aux_vm_config.smt = Some(false);
 
         // Invalid mem_size_mib.
         aux_vm_config.mem_size_mib = Some(0);
         assert_eq!(
-            vm_resources.update_vm_config(&aux_vm_config),
-            Err(VmConfigError::InvalidMemorySize)
+            vm_resources.update_machine_config(&aux_vm_config),
+            Err(MachineConfigError::InvalidMemorySize)
         );
 
         // Incompatible mem_size_mib with balloon size.
-        vm_resources.vm_config.mem_size_mib = 128;
+        vm_resources.machine_config.mem_size_mib = 128;
         vm_resources
             .set_balloon_device(BalloonDeviceConfig {
                 amount_mib: 100,
@@ -1436,20 +1372,22 @@ mod tests {
             .unwrap();
         aux_vm_config.mem_size_mib = Some(90);
         assert_eq!(
-            vm_resources.update_vm_config(&aux_vm_config),
-            Err(VmConfigError::IncompatibleBalloonSize)
+            vm_resources.update_machine_config(&aux_vm_config),
+            Err(MachineConfigError::IncompatibleBalloonSize)
         );
 
         // mem_size_mib compatible with balloon size.
         aux_vm_config.mem_size_mib = Some(256);
-        vm_resources.update_vm_config(&aux_vm_config).unwrap();
+        vm_resources.update_machine_config(&aux_vm_config).unwrap();
 
         // mem_size_mib incompatible with huge pages configuration
         aux_vm_config.mem_size_mib = Some(129);
         aux_vm_config.huge_pages = Some(HugePageConfig::Hugetlbfs2M);
         assert_eq!(
-            vm_resources.update_vm_config(&aux_vm_config).unwrap_err(),
-            VmConfigError::InvalidMemorySize
+            vm_resources
+                .update_machine_config(&aux_vm_config)
+                .unwrap_err(),
+            MachineConfigError::InvalidMemorySize
         );
 
         // mem_size_mib compatible with huge page configuration
@@ -1457,7 +1395,7 @@ mod tests {
         // Remove the balloon device config that's added by `default_vm_resources` as it would
         // trigger the "ballooning incompatible with huge pages" check.
         vm_resources.balloon = BalloonBuilder::new();
-        vm_resources.update_vm_config(&aux_vm_config).unwrap();
+        vm_resources.update_machine_config(&aux_vm_config).unwrap();
     }
 
     #[test]
@@ -1498,7 +1436,7 @@ mod tests {
         let mut vm_resources = default_vm_resources();
         vm_resources.balloon = BalloonBuilder::new();
         vm_resources
-            .update_vm_config(&MachineConfigUpdate {
+            .update_machine_config(&MachineConfigUpdate {
                 huge_pages: Some(HugePageConfig::Hugetlbfs2M),
                 ..Default::default()
             })
@@ -1534,15 +1472,6 @@ mod tests {
     }
 
     #[test]
-    fn test_boot_config() {
-        let vm_resources = default_vm_resources();
-        let expected_boot_cfg = vm_resources.boot_source.builder.as_ref().unwrap();
-        let actual_boot_cfg = vm_resources.boot_source_builder().unwrap();
-
-        assert!(actual_boot_cfg == expected_boot_cfg);
-    }
-
-    #[test]
     fn test_set_boot_source() {
         let tmp_file = TempFile::new().unwrap();
         let cmdline = "reboot=k panic=1 pci=off nomodule 8250.nr_uarts=0";
@@ -1553,7 +1482,7 @@ mod tests {
         };
 
         let mut vm_resources = default_vm_resources();
-        let boot_builder = vm_resources.boot_source_builder().unwrap();
+        let boot_builder = vm_resources.boot_source.builder.as_ref().unwrap();
         let tmp_ino = tmp_file.as_file().metadata().unwrap().st_ino();
 
         assert_ne!(
@@ -1562,7 +1491,7 @@ mod tests {
                 .as_cstring()
                 .unwrap()
                 .as_bytes_with_nul(),
-            [cmdline.as_bytes(), &[b'\0']].concat()
+            [cmdline.as_bytes(), b"\0"].concat()
         );
         assert_ne!(
             boot_builder.kernel_file.metadata().unwrap().st_ino(),
@@ -1580,14 +1509,14 @@ mod tests {
         );
 
         vm_resources.build_boot_source(expected_boot_cfg).unwrap();
-        let boot_source_builder = vm_resources.boot_source_builder().unwrap();
+        let boot_source_builder = vm_resources.boot_source.builder.unwrap();
         assert_eq!(
             boot_source_builder
                 .cmdline
                 .as_cstring()
                 .unwrap()
                 .as_bytes_with_nul(),
-            [cmdline.as_bytes(), &[b'\0']].concat()
+            [cmdline.as_bytes(), b"\0"].concat()
         );
         assert_eq!(
             boot_source_builder.kernel_file.metadata().unwrap().st_ino(),

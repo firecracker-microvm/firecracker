@@ -99,6 +99,9 @@ EOF
 done
 
 
+# workaround until we rebuild devctr
+git config --global --replace-all safe.directory '*'
+
 ARCH=$(uname -m)
 VERSION=$(get-firecracker-version)
 PROFILE_DIR=$(get-profile-dir "$PROFILE")
@@ -176,7 +179,7 @@ cp -v src/firecracker/swagger/firecracker.yaml "$RELEASE_DIR/firecracker_spec-$V
 
 CPU_TEMPLATES=(c3 t2 t2s t2cl t2a v1n1)
 for template in "${CPU_TEMPLATES[@]}"; do
-    cp -v tests/data/static_cpu_templates/$template.json $RELEASE_DIR/$template-$VERSION.json
+    cp -v tests/data/custom_cpu_templates/$template.json $RELEASE_DIR/$template-$VERSION.json
 done
 
 (

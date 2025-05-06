@@ -142,7 +142,7 @@ fn respond_to_request_mmdsv2(mmds: &mut Mmds, request: Request) -> Response {
                 request.http_version(),
                 StatusCode::BadRequest,
                 Body::new(err.to_string()),
-            )
+            );
         }
     };
 

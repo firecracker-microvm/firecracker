@@ -24,11 +24,12 @@
 ///       destination port to which it wants to connect);
 ///    3. Some event was triggered for a connected Unix socket, that belongs to a
 ///       `VsockConnection`.
-///    The muxer gets notified about all of these events, because, as a `VsockEpollListener`
-///    implementor, it gets to register a nested epoll FD into the main VMM epolling loop. All
-///    other pollable FDs are then registered under this nested epoll FD.
-///    To route all these events to their handlers, the muxer uses another `HashMap` object,
-///    mapping `RawFd`s to `EpollListener`s.
+///
+///  The muxer gets notified about all of these events, because, as a `VsockEpollListener`
+///  implementor, it gets to register a nested epoll FD into the main VMM epolling loop. All
+///  other pollable FDs are then registered under this nested epoll FD.
+///  To route all these events to their handlers, the muxer uses another `HashMap` object,
+///  mapping `RawFd`s to `EpollListener`s.
 use std::collections::{HashMap, HashSet};
 use std::fmt::Debug;
 use std::io::Read;
@@ -43,7 +44,7 @@ use super::super::defs::uapi;
 use super::super::{VsockBackend, VsockChannel, VsockEpollListener, VsockError};
 use super::muxer_killq::MuxerKillQ;
 use super::muxer_rxq::MuxerRxQ;
-use super::{defs, MuxerConnection, VsockUnixBackendError};
+use super::{MuxerConnection, VsockUnixBackendError, defs};
 use crate::devices::virtio::vsock::metrics::METRICS;
 use crate::devices::virtio::vsock::packet::{VsockPacketRx, VsockPacketTx};
 use crate::logger::IncMetric;

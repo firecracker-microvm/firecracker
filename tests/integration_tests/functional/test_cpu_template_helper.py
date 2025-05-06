@@ -133,6 +133,10 @@ UNAVAILABLE_CPUID_ON_DUMP_LIST = [
     # support it, the userspace cpuid command in ubuntu 22 reports not only
     # the subleaf 0 but also the subleaf 1.
     (0x1B, 0x1),
+    # CPUID.1Fh is a preferred superset to CPUID.0Bh. For the same reason as
+    # CPUID.Bh, the subleaf 2 should be skipped when the guest userspace cpuid
+    # enumerates it.
+    (0x1F, 0x2),
     # CPUID.20000000h is not documented in Intel SDM and AMD APM. KVM doesn't
     # report it, but the userspace cpuid command in ubuntu 22 does.
     (0x20000000, 0x0),
@@ -146,13 +150,14 @@ UNAVAILABLE_CPUID_ON_DUMP_LIST = [
     # https://github.com/torvalds/linux/commit/8765d75329a386dd7742f94a1ea5fdcdea8d93d0
     (0x8000001B, 0x0),
     (0x8000001C, 0x0),
-    (0x8000001F, 0x0),
     # CPUID.80860000h is a Transmeta-specific leaf.
     (0x80860000, 0x0),
     # CPUID.C0000000h is a Centaur-specific leaf.
     (0xC0000000, 0x0),
 ]
 
+# An upper range of CPUID leaves which are not supported by our kernels
+UNAVAILABLE_CPUID_UPPER_RANGE = range(0x8000001F, 0x80000029)
 
 # Dictionary of CPUID bitmasks that should not be tested due to its mutability.
 CPUID_EXCEPTION_LIST = {
@@ -183,6 +188,9 @@ MSR_EXCEPTION_LIST = [
     0x48,
     # MSR_IA32_SMBASE is not accessible outside of System Management Mode.
     0x9E,
+    # MSR_IA32_UMWAIT_CONTROL is R/W MSR that guest OS modifies after boot to
+    # control UMWAIT feature.
+    0xE1,
     # MSR_IA32_TSX_CTRL is R/W MSR to disable Intel TSX feature as a mitigation
     # against TAA vulnerability.
     0x122,
@@ -192,6 +200,10 @@ MSR_EXCEPTION_LIST = [
     0x174,
     0x175,
     0x176,
+    # MSR_IA32_XFD is R/W MSR for guest OS to control which XSAVE-enabled
+    # features are temporarily disabled. Guest OS disables TILEDATA by default
+    # using the MSR.
+    0x1C4,
     # MSR_IA32_TSC_DEADLINE specifies the time at which a timer interrupt
     # should occur and depends on the elapsed time.
     0x6E0,
@@ -280,6 +292,8 @@ def test_cpu_config_dump_vs_actual(
     keys_not_in_dump = {}
     for key, actual in actual_cpu_config["cpuid"].items():
         if (key[0], key[1]) in UNAVAILABLE_CPUID_ON_DUMP_LIST:
+            continue
+        if key[0] in UNAVAILABLE_CPUID_UPPER_RANGE:
             continue
         if key not in dump_cpu_config["cpuid"]:
             keys_not_in_dump[key] = actual_cpu_config["cpuid"][key]

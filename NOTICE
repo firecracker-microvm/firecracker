@@ -5,3 +5,8 @@ SPDX-License-Identifier: Apache-2.0
 Portions Copyright 2017 The Chromium OS Authors. All rights reserved.
 Use of this source code is governed by a BSD-style license that can be
 found in the THIRD-PARTY file.
+
+The Firecracker release bundle includes libseccomp which is available
+under the LGPLv2.1 license. This is used in the Firecracker build process
+to produce cBPF bytecode that is shipped alongside Firecracker for use by
+the Linux kernel.

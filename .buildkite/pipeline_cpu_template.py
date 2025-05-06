@@ -6,7 +6,7 @@
 
 from enum import Enum
 
-from common import DEFAULT_INSTANCES, DEFAULT_PLATFORMS, BKPipeline, group
+from common import DEFAULT_PLATFORMS, BKPipeline, group
 
 
 class BkStep(str, Enum):
@@ -23,24 +23,29 @@ class BkStep(str, Enum):
 cpu_template_test = {
     "rdmsr": {
         BkStep.COMMAND: [
-            "tools/devtool -y test --no-build -- -m nonci -n4 --dist worksteal integration_tests/functional/test_cpu_features.py -k 'test_cpu_rdmsr' "
+            "tools/devtool -y test --no-build -- -m nonci -n4 --dist worksteal integration_tests/functional/test_cpu_features_x86_64.py -k 'test_cpu_rdmsr' "
         ],
         BkStep.LABEL: "📖 rdmsr",
-        "instances": ["c5n.metal", "m5n.metal", "m6a.metal", "m6i.metal"],
-        "platforms": DEFAULT_PLATFORMS,
+        "instances": [
+            "c5n.metal",
+            "m5n.metal",
+            "m6i.metal",
+            "m7i.metal-24xl",
+            "m7i.metal-48xl",
+            "m6a.metal",
+            "m7a.metal-48xl",
+        ],
     },
     "fingerprint": {
         BkStep.COMMAND: [
             "tools/devtool -y test --no-build -- -m no_block_pr integration_tests/functional/test_cpu_template_helper.py -k test_guest_cpu_config_change",
         ],
         BkStep.LABEL: "🖐️ fingerprint",
-        "instances": DEFAULT_INSTANCES.keys(),
-        "platforms": DEFAULT_PLATFORMS,
     },
     "cpuid_wrmsr": {
         "snapshot": {
             BkStep.COMMAND: [
-                "tools/devtool -y test --no-build -- -m nonci -n4 --dist worksteal integration_tests/functional/test_cpu_features.py -k 'test_cpu_wrmsr_snapshot or test_cpu_cpuid_snapshot'",
+                "tools/devtool -y test --no-build -- -m nonci -n4 --dist worksteal integration_tests/functional/test_cpu_features_x86_64.py -k 'test_cpu_wrmsr_snapshot or test_cpu_cpuid_snapshot'",
                 "mkdir -pv tests/snapshot_artifacts_upload/{instance}_{os}_{kv}",
                 "sudo mv tests/snapshot_artifacts/* tests/snapshot_artifacts_upload/{instance}_{os}_{kv}",
             ],
@@ -52,7 +57,7 @@ cpu_template_test = {
             BkStep.COMMAND: [
                 "buildkite-agent artifact download tests/snapshot_artifacts_upload/{instance}_{os}_{kv}/**/* .",
                 "mv tests/snapshot_artifacts_upload/{instance}_{os}_{kv} tests/snapshot_artifacts",
-                "tools/devtool -y test --no-build -- -m nonci -n4 --dist worksteal integration_tests/functional/test_cpu_features.py -k 'test_cpu_wrmsr_restore or test_cpu_cpuid_restore'",
+                "tools/devtool -y test --no-build -- -m nonci -n4 --dist worksteal integration_tests/functional/test_cpu_features_x86_64.py -k 'test_cpu_wrmsr_restore or test_cpu_cpuid_restore'",
             ],
             BkStep.LABEL: "📸 load snapshot artifacts created on {instance} {snapshot_os} {snapshot_kv} to {restore_instance} {restore_os} {restore_kv}",
             BkStep.TIMEOUT: 30,
@@ -62,7 +67,14 @@ cpu_template_test = {
             "c5n.metal": ["m5n.metal", "m6i.metal"],
             "m6i.metal": ["m5n.metal", "c5n.metal"],
         },
-        "instances": ["c5n.metal", "m5n.metal", "m6i.metal", "m6a.metal"],
+        "instances": [
+            "c5n.metal",
+            "m5n.metal",
+            "m6i.metal",
+            "m7i.metal-24xl",
+            "m7i.metal-48xl",
+            "m6a.metal",
+        ],
     },
 }
 

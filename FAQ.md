@@ -60,11 +60,10 @@ minimal required device model to the guest operating system while excluding
 non-essential functionality (only 6 emulated devices are available: virtio-net,
 virtio-balloon, virtio-block, virtio-vsock, serial console, and a minimal
 keyboard controller used only to stop the microVM). This, along with a
-streamlined kernel loading process enables a \< 125 ms startup time and a \< 5
-MiB memory footprint. The Firecracker process also provides a RESTful control
-API, handles resource rate limiting for microVMs, and provides a microVM
-metadata service to enable the sharing of configuration data between the host
-and guest.
+streamlined kernel loading process enables a < 125 ms startup time and a < 5 MiB
+memory footprint. The Firecracker process also provides a RESTful control API,
+handles resource rate limiting for microVMs, and provides a microVM metadata
+service to enable the sharing of configuration data between the host and guest.
 
 ### What operating systems are supported by Firecracker?
 
@@ -197,9 +196,9 @@ mapping:
 
 ### How can I gracefully reboot the guest? How can I gracefully poweroff the guest?
 
-Firecracker does not implement ACPI and PM devices, therefore operations like
-gracefully rebooting or powering off the guest are supported in unconventional
-ways.
+Firecracker does not virtualize guest power management, therefore operations
+like gracefully rebooting or powering off the guest are supported in
+unconventional ways.
 
 Running the `poweroff` or `halt` commands inside a Linux guest will bring it
 down but Firecracker process remains unaware of the guest shutdown so it lives

@@ -1,25 +1,25 @@
 // Copyright 2018 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-use std::ffi::{CString, OsString};
-use std::fs::{self, canonicalize, read_to_string, File, OpenOptions, Permissions};
+use std::ffi::{CStr, CString, OsString};
+use std::fs::{self, File, OpenOptions, Permissions, canonicalize, read_to_string};
+use std::io;
 use std::io::Write;
 use std::os::unix::fs::PermissionsExt;
 use std::os::unix::io::AsRawFd;
 use std::os::unix::process::CommandExt;
 use std::path::{Component, Path, PathBuf};
-use std::process::{exit, id, Command, Stdio};
-use std::{fmt, io};
+use std::process::{Command, Stdio, exit, id};
 
 use utils::arg_parser::UtilsArgParserError::MissingValue;
-use utils::time::{get_time_us, ClockType};
+use utils::time::{ClockType, get_time_us};
 use utils::{arg_parser, validators};
 use vmm_sys_util::syscall::SyscallReturnCode;
 
+use crate::JailerError;
 use crate::cgroup::{CgroupConfiguration, CgroupConfigurationBuilder};
 use crate::chroot::chroot;
-use crate::resource_limits::{ResourceLimits, FSIZE_ARG, NO_FILE_ARG};
-use crate::JailerError;
+use crate::resource_limits::{FSIZE_ARG, NO_FILE_ARG, ResourceLimits};
 
 pub const PROC_MOUNTS: &str = "/proc/mounts";
 
@@ -30,19 +30,19 @@ const STDERR_FILENO: libc::c_int = 2;
 // Kernel-based virtual machine (hardware virtualization extensions)
 // minor/major numbers are taken from
 // https://www.kernel.org/doc/html/latest/admin-guide/devices.html
-const DEV_KVM_WITH_NUL: &str = "/dev/kvm";
+const DEV_KVM: &CStr = c"/dev/kvm";
 const DEV_KVM_MAJOR: u32 = 10;
 const DEV_KVM_MINOR: u32 = 232;
 
 // TUN/TAP device minor/major numbers are taken from
 // www.kernel.org/doc/Documentation/networking/tuntap.txt
-const DEV_NET_TUN_WITH_NUL: &str = "/dev/net/tun";
+const DEV_NET_TUN: &CStr = c"/dev/net/tun";
 const DEV_NET_TUN_MAJOR: u32 = 10;
 const DEV_NET_TUN_MINOR: u32 = 200;
 
 // Random number generator device minor/major numbers are taken from
 // https://www.kernel.org/doc/Documentation/admin-guide/devices.txt
-const DEV_URANDOM_WITH_NUL: &str = "/dev/urandom";
+const DEV_URANDOM: &CStr = c"/dev/urandom";
 const DEV_URANDOM_MAJOR: u32 = 1;
 const DEV_URANDOM_MINOR: u32 = 9;
 
@@ -54,7 +54,7 @@ const DEV_URANDOM_MINOR: u32 = 9;
 // so we will have to find it at initialization time parsing /proc/misc.
 // What we do know is the major number for misc devices:
 // https://elixir.bootlin.com/linux/v6.1.51/source/Documentation/admin-guide/devices.txt
-const DEV_UFFD_PATH: &str = "/dev/userfaultfd";
+const DEV_UFFD_PATH: &CStr = c"/dev/userfaultfd";
 const DEV_UFFD_MAJOR: u32 = 10;
 
 // Relevant folders inside the jail that we create or/and for which we change ownership.
@@ -114,6 +114,7 @@ enum UserfaultfdParseError {
     NotFound,
 }
 
+#[derive(Debug)]
 pub struct Env {
     id: String,
     chroot_dir: PathBuf,
@@ -130,26 +131,6 @@ pub struct Env {
     cgroup_conf: Option<CgroupConfiguration>,
     resource_limits: ResourceLimits,
     uffd_dev_minor: Option<u32>,
-}
-
-impl fmt::Debug for Env {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("Env")
-            .field("id", &self.id)
-            .field("chroot_dir", &self.chroot_dir)
-            .field("exec_file_path", &self.exec_file_path)
-            .field("uid", &self.uid)
-            .field("gid", &self.gid)
-            .field("netns", &self.netns)
-            .field("daemonize", &self.daemonize)
-            .field("new_pid_ns", &self.new_pid_ns)
-            .field("start_time_us", &self.start_time_us)
-            .field("jailer_cpu_time_us", &self.jailer_cpu_time_us)
-            .field("extra_args", &self.extra_args)
-            .field("cgroups", &self.cgroup_conf)
-            .field("resource_limits", &self.resource_limits)
-            .finish()
-    }
 }
 
 impl Env {
@@ -349,12 +330,52 @@ impl Env {
     }
 
     fn exec_into_new_pid_ns(&mut self, chroot_exec_file: PathBuf) -> Result<(), JailerError> {
+        // https://man7.org/linux/man-pages/man7/pid_namespaces.7.html
+        // > a process in an ancestor namespace can send signals to the "init" process of a child
+        // > PID namespace only if the "init" process has established a handler for that signal.
+        //
+        // Firecracker (i.e. the "init" process of the new PID namespace) sets up handlers for some
+        // signals including SIGHUP and jailer exits soon after spawning firecracker into a new PID
+        // namespace. If the jailer process is a session leader and its exit happens after
+        // firecracker configures the signal handlers, SIGHUP will be sent to firecracker and be
+        // caught by the handler unexpectedly.
+        //
+        // In order to avoid the above issue, if jailer is a session leader, creates a new session
+        // and makes the child process (i.e. firecracker) become the leader of the new session to
+        // not get SIGHUP on the exit of jailer.
+
+        // Check whether jailer is a session leader or not before clone().
+        // Note that, if `--daemonize` is passed, jailer is always not a session leader. This is
+        // because we use the double fork method, making itself not a session leader.
+        let is_session_leader = match self.daemonize {
+            true => false,
+            false => {
+                // SAFETY: Safe because it doesn't take any input parameters.
+                let sid = SyscallReturnCode(unsafe { libc::getsid(0) })
+                    .into_result()
+                    .map_err(JailerError::GetSid)?;
+                // SAFETY: Safe because it doesn't take any input parameters.
+                let ppid = SyscallReturnCode(unsafe { libc::getpid() })
+                    .into_result()
+                    .map_err(JailerError::GetPid)?;
+                sid == ppid
+            }
+        };
+
         // Duplicate the current process. The child process will belong to the previously created
         // PID namespace. The current process will not be moved into the newly created namespace,
         // but its first child will assume the role of init(1) in the new namespace.
         let pid = clone(std::ptr::null_mut(), libc::CLONE_NEWPID)?;
         match pid {
-            0 => Err(JailerError::Exec(self.exec_command(chroot_exec_file))),
+            0 => {
+                if is_session_leader {
+                    // SAFETY: Safe bacause it doesn't take any input parameters.
+                    SyscallReturnCode(unsafe { libc::setsid() })
+                        .into_empty_result()
+                        .map_err(JailerError::SetSid)?;
+                }
+                Err(JailerError::Exec(self.exec_command(chroot_exec_file)))
+            }
             child_pid => {
                 // Save the PID of the process running the exec file provided
                 // inside <chroot_exec_file>.pid file.
@@ -404,18 +425,17 @@ impl Env {
 
     fn mknod_and_own_dev(
         &self,
-        dev_path_str: &'static str,
+        dev_path: &CStr,
         dev_major: u32,
         dev_minor: u32,
     ) -> Result<(), JailerError> {
-        let dev_path = CString::new(dev_path_str).unwrap();
         // As per sysstat.h:
         // S_IFCHR -> character special device
         // S_IRUSR -> read permission, owner
         // S_IWUSR -> write permission, owner
         // See www.kernel.org/doc/Documentation/networking/tuntap.txt, 'Configuration' chapter for
         // more clarity.
-        // SAFETY: This is safe because dev_path is CString, and hence null-terminated.
+        // SAFETY: This is safe because dev_path is CStr, and hence null-terminated.
         SyscallReturnCode(unsafe {
             libc::mknod(
                 dev_path.as_ptr(),
@@ -424,7 +444,7 @@ impl Env {
             )
         })
         .into_empty_result()
-        .map_err(|err| JailerError::MknodDev(err, dev_path_str.to_owned()))?;
+        .map_err(|err| JailerError::MknodDev(err, dev_path.to_str().unwrap().to_owned()))?;
 
         // SAFETY: This is safe because dev_path is CStr, and hence null-terminated.
         SyscallReturnCode(unsafe { libc::chown(dev_path.as_ptr(), self.uid(), self.gid()) })
@@ -443,12 +463,8 @@ impl Env {
             .map_err(|err| JailerError::Chmod(folder_path.to_owned(), err))?;
 
         let c_path = CString::new(folder_path.to_str().unwrap()).unwrap();
-        #[cfg(target_arch = "x86_64")]
-        let folder_bytes_ptr = c_path.as_ptr().cast::<i8>();
-        #[cfg(target_arch = "aarch64")]
-        let folder_bytes_ptr = c_path.as_ptr();
         // SAFETY: This is safe because folder was checked for a null-terminator.
-        SyscallReturnCode(unsafe { libc::chown(folder_bytes_ptr, self.uid(), self.gid()) })
+        SyscallReturnCode(unsafe { libc::chown(c_path.as_ptr(), self.uid(), self.gid()) })
             .into_empty_result()
             .map_err(|err| JailerError::ChangeFileOwner(folder_path.to_owned(), err))
     }
@@ -458,12 +474,7 @@ impl Env {
             .exec_file_path
             .file_name()
             .ok_or_else(|| JailerError::ExtractFileName(self.exec_file_path.clone()))?;
-        // We do a quick push here to get the global path of the executable inside the chroot,
-        // without having to create a new PathBuf. We'll then do a pop to revert to the actual
-        // chroot_dir right after the copy.
-        // TODO: just now wondering ... is doing a push()/pop() thing better than just creating
-        // a new PathBuf, with something like chroot_dir.join(exec_file_name) ?!
-        self.chroot_dir.push(exec_file_name);
+        let jailer_exec_file_path = self.chroot_dir.join(exec_file_name);
 
         // We do a copy instead of a hard-link for 2 reasons
         // 1. hard-linking is not possible if the file is in another device
@@ -471,13 +482,15 @@ impl Env {
         //    Firecracker binary (like the executable .text section), this latter part is not
         //    desirable in Firecracker's threat model. Copying prevents 2 Firecracker processes from
         //    sharing memory.
-        fs::copy(&self.exec_file_path, &self.chroot_dir).map_err(|err| {
-            JailerError::Copy(self.exec_file_path.clone(), self.chroot_dir.clone(), err)
+        fs::copy(&self.exec_file_path, &jailer_exec_file_path).map_err(|err| {
+            JailerError::Copy(
+                self.exec_file_path.clone(),
+                jailer_exec_file_path.clone(),
+                err,
+            )
         })?;
 
-        // Pop exec_file_name.
-        self.chroot_dir.pop();
-        Ok(exec_file_name.to_os_string())
+        Ok(exec_file_name.to_owned())
     }
 
     fn join_netns(path: &str) -> Result<(), JailerError> {
@@ -495,7 +508,10 @@ impl Env {
         Command::new(chroot_exec_file)
             .args(["--id", &self.id])
             .args(["--start-time-us", &self.start_time_us.to_string()])
-            .args(["--start-time-cpu-us", &self.start_time_cpu_us.to_string()])
+            .args([
+                "--start-time-cpu-us",
+                &get_time_us(ClockType::ProcessCpu).to_string(),
+            ])
             .args(["--parent-cpu-time-us", &self.jailer_cpu_time_us.to_string()])
             .stdin(Stdio::inherit())
             .stdout(Stdio::inherit())
@@ -551,17 +567,20 @@ impl Env {
                 let host_cache_file = host_path.join(entry);
                 let jailer_cache_file = jailer_path.join(entry);
 
-                let line = readln_special(&host_cache_file)?;
-                writeln_special(&jailer_cache_file, line)?;
+                if let Ok(line) = readln_special(&host_cache_file) {
+                    writeln_special(&jailer_cache_file, line)?;
 
-                // We now change the permissions.
-                let dest_path_cstr = to_cstring(&jailer_cache_file)?;
-                // SAFETY: Safe because dest_path_cstr is null-terminated.
-                SyscallReturnCode(unsafe {
-                    libc::chown(dest_path_cstr.as_ptr(), self.uid(), self.gid())
-                })
-                .into_empty_result()
-                .map_err(|err| JailerError::ChangeFileOwner(jailer_cache_file.to_owned(), err))?;
+                    // We now change the permissions.
+                    let dest_path_cstr = to_cstring(&jailer_cache_file)?;
+                    // SAFETY: Safe because dest_path_cstr is null-terminated.
+                    SyscallReturnCode(unsafe {
+                        libc::chown(dest_path_cstr.as_ptr(), self.uid(), self.gid())
+                    })
+                    .into_empty_result()
+                    .map_err(|err| {
+                        JailerError::ChangeFileOwner(jailer_cache_file.to_owned(), err)
+                    })?;
+                }
             }
         }
         Ok(())
@@ -639,14 +658,14 @@ impl Env {
         // $: mknod $dev_net_tun_path c 10 200
         // www.kernel.org/doc/Documentation/networking/tuntap.txt specifies 10 and 200 as the major
         // and minor for the /dev/net/tun device.
-        self.mknod_and_own_dev(DEV_NET_TUN_WITH_NUL, DEV_NET_TUN_MAJOR, DEV_NET_TUN_MINOR)?;
+        self.mknod_and_own_dev(DEV_NET_TUN, DEV_NET_TUN_MAJOR, DEV_NET_TUN_MINOR)?;
         // Do the same for /dev/kvm with (major, minor) = (10, 232).
-        self.mknod_and_own_dev(DEV_KVM_WITH_NUL, DEV_KVM_MAJOR, DEV_KVM_MINOR)?;
+        self.mknod_and_own_dev(DEV_KVM, DEV_KVM_MAJOR, DEV_KVM_MINOR)?;
         // And for /dev/urandom with (major, minor) = (1, 9).
         // If the device is not accessible on the host, output a warning to inform user that MMDS
         // version 2 will not be available to use.
         let _ = self
-            .mknod_and_own_dev(DEV_URANDOM_WITH_NUL, DEV_URANDOM_MAJOR, DEV_URANDOM_MINOR)
+            .mknod_and_own_dev(DEV_URANDOM, DEV_URANDOM_MAJOR, DEV_URANDOM_MINOR)
             .map_err(|err| {
                 println!(
                     "Warning! Could not create /dev/urandom device inside jailer: {}.",
@@ -661,11 +680,10 @@ impl Env {
             self.mknod_and_own_dev(DEV_UFFD_PATH, DEV_UFFD_MAJOR, minor)?;
         }
 
+        self.jailer_cpu_time_us = get_time_us(ClockType::ProcessCpu) - self.start_time_cpu_us;
+
         // Daemonize before exec, if so required (when the dev_null variable != None).
         if let Some(dev_null) = dev_null {
-            // Meter CPU usage before fork()
-            self.jailer_cpu_time_us = get_time_us(ClockType::ProcessCpu);
-
             // We follow the double fork method to daemonize the jailer referring to
             // https://0xjet.github.io/3OHA/2022/04/11/post.html
             // setsid() will fail if the calling process is a process group leader.
@@ -688,7 +706,7 @@ impl Env {
                 .into_empty_result()
                 .map_err(JailerError::SetSid)?;
 
-            // Meter CPU usage before fork()
+            // Meter CPU usage after first fork()
             self.jailer_cpu_time_us += get_time_us(ClockType::ProcessCpu);
 
             // Daemons should not have controlling terminals.
@@ -712,12 +730,10 @@ impl Env {
             dup2(dev_null.as_raw_fd(), STDIN_FILENO)?;
             dup2(dev_null.as_raw_fd(), STDOUT_FILENO)?;
             dup2(dev_null.as_raw_fd(), STDERR_FILENO)?;
-        }
 
-        // Compute jailer's total CPU time up to the current time.
-        self.jailer_cpu_time_us += get_time_us(ClockType::ProcessCpu) - self.start_time_cpu_us;
-        // Reset process start time.
-        self.start_time_cpu_us = 0;
+            // Meter CPU usage after second fork()
+            self.jailer_cpu_time_us += get_time_us(ClockType::ProcessCpu);
+        }
 
         // If specified, exec the provided binary into a new PID namespace.
         if self.new_pid_ns {
@@ -838,15 +854,7 @@ mod tests {
         arg_vec
     }
 
-    fn get_major(dev: u64) -> u32 {
-        unsafe { libc::major(dev) }
-    }
-
-    fn get_minor(dev: u64) -> u32 {
-        unsafe { libc::minor(dev) }
-    }
-
-    fn create_env(mock_proc_mounts: &str) -> Env {
+    fn create_env(mock_proc_mounts: &Path) -> Env {
         // Create a standard environment.
         let arg_parser = build_arg_parser();
         let mut args = arg_parser.arguments().clone();
@@ -854,7 +862,7 @@ mod tests {
         let pseudo_exec_file_path = get_pseudo_exec_file_path();
         args.parse(&make_args(&ArgVals::new(pseudo_exec_file_path.as_str())))
             .unwrap();
-        Env::new(&args, 0, 0, mock_proc_mounts).unwrap()
+        Env::new(&args, 0, 0, mock_proc_mounts.to_str().unwrap()).unwrap()
     }
 
     #[test]
@@ -868,7 +876,7 @@ mod tests {
         let mut args = arg_parser.arguments().clone();
         args.parse(&make_args(&good_arg_vals)).unwrap();
         // This should be fine.
-        let good_env = Env::new(&args, 0, 0, mock_cgroups.proc_mounts_path.as_str())
+        let good_env = Env::new(&args, 0, 0, mock_cgroups.proc_mounts_path.to_str().unwrap())
             .expect("This new environment should be created successfully.");
 
         let mut chroot_dir = PathBuf::from(good_arg_vals.chroot_base);
@@ -894,8 +902,9 @@ mod tests {
         let arg_parser = build_arg_parser();
         args = arg_parser.arguments().clone();
         args.parse(&make_args(&another_good_arg_vals)).unwrap();
-        let another_good_env = Env::new(&args, 0, 0, mock_cgroups.proc_mounts_path.as_str())
-            .expect("This another new environment should be created successfully.");
+        let another_good_env =
+            Env::new(&args, 0, 0, mock_cgroups.proc_mounts_path.to_str().unwrap())
+                .expect("This another new environment should be created successfully.");
         assert!(!another_good_env.daemonize);
         assert!(!another_good_env.new_pid_ns);
 
@@ -912,7 +921,7 @@ mod tests {
         let arg_parser = build_arg_parser();
         args = arg_parser.arguments().clone();
         args.parse(&make_args(&invalid_cgroup_arg_vals)).unwrap();
-        Env::new(&args, 0, 0, mock_cgroups.proc_mounts_path.as_str()).unwrap_err();
+        Env::new(&args, 0, 0, mock_cgroups.proc_mounts_path.to_str().unwrap()).unwrap_err();
 
         let invalid_res_limit_arg_vals = ArgVals {
             resource_limits: vec!["zzz"],
@@ -922,7 +931,7 @@ mod tests {
         let arg_parser = build_arg_parser();
         args = arg_parser.arguments().clone();
         args.parse(&make_args(&invalid_res_limit_arg_vals)).unwrap();
-        Env::new(&args, 0, 0, mock_cgroups.proc_mounts_path.as_str()).unwrap_err();
+        Env::new(&args, 0, 0, mock_cgroups.proc_mounts_path.to_str().unwrap()).unwrap_err();
 
         let invalid_id_arg_vals = ArgVals {
             id: "/ad./sa12",
@@ -932,7 +941,7 @@ mod tests {
         let arg_parser = build_arg_parser();
         args = arg_parser.arguments().clone();
         args.parse(&make_args(&invalid_id_arg_vals)).unwrap();
-        Env::new(&args, 0, 0, mock_cgroups.proc_mounts_path.as_str()).unwrap_err();
+        Env::new(&args, 0, 0, mock_cgroups.proc_mounts_path.to_str().unwrap()).unwrap_err();
 
         let inexistent_exec_file_arg_vals = ArgVals {
             exec_file: "/this!/file!/should!/not!/exist!/",
@@ -943,7 +952,7 @@ mod tests {
         args = arg_parser.arguments().clone();
         args.parse(&make_args(&inexistent_exec_file_arg_vals))
             .unwrap();
-        Env::new(&args, 0, 0, mock_cgroups.proc_mounts_path.as_str()).unwrap_err();
+        Env::new(&args, 0, 0, mock_cgroups.proc_mounts_path.to_str().unwrap()).unwrap_err();
 
         let invalid_uid_arg_vals = ArgVals {
             uid: "zzz",
@@ -953,7 +962,7 @@ mod tests {
         let arg_parser = build_arg_parser();
         args = arg_parser.arguments().clone();
         args.parse(&make_args(&invalid_uid_arg_vals)).unwrap();
-        Env::new(&args, 0, 0, mock_cgroups.proc_mounts_path.as_str()).unwrap_err();
+        Env::new(&args, 0, 0, mock_cgroups.proc_mounts_path.to_str().unwrap()).unwrap_err();
 
         let invalid_gid_arg_vals = ArgVals {
             gid: "zzz",
@@ -963,7 +972,7 @@ mod tests {
         let arg_parser = build_arg_parser();
         args = arg_parser.arguments().clone();
         args.parse(&make_args(&invalid_gid_arg_vals)).unwrap();
-        Env::new(&args, 0, 0, mock_cgroups.proc_mounts_path.as_str()).unwrap_err();
+        Env::new(&args, 0, 0, mock_cgroups.proc_mounts_path.to_str().unwrap()).unwrap_err();
 
         let invalid_parent_cg_vals = ArgVals {
             parent_cgroup: Some("/root"),
@@ -973,7 +982,7 @@ mod tests {
         let arg_parser = build_arg_parser();
         args = arg_parser.arguments().clone();
         args.parse(&make_args(&invalid_parent_cg_vals)).unwrap();
-        Env::new(&args, 0, 0, mock_cgroups.proc_mounts_path.as_str()).unwrap_err();
+        Env::new(&args, 0, 0, mock_cgroups.proc_mounts_path.to_str().unwrap()).unwrap_err();
 
         let invalid_controller_pt = ArgVals {
             cgroups: vec!["../file_name=1", "./root=1", "/home=1"],
@@ -982,7 +991,7 @@ mod tests {
         let arg_parser = build_arg_parser();
         args = arg_parser.arguments().clone();
         args.parse(&make_args(&invalid_controller_pt)).unwrap();
-        Env::new(&args, 0, 0, mock_cgroups.proc_mounts_path.as_str()).unwrap_err();
+        Env::new(&args, 0, 0, mock_cgroups.proc_mounts_path.to_str().unwrap()).unwrap_err();
 
         let invalid_format = ArgVals {
             cgroups: vec!["./root/", "../root"],
@@ -991,7 +1000,7 @@ mod tests {
         let arg_parser = build_arg_parser();
         args = arg_parser.arguments().clone();
         args.parse(&make_args(&invalid_format)).unwrap();
-        Env::new(&args, 0, 0, mock_cgroups.proc_mounts_path.as_str()).unwrap_err();
+        Env::new(&args, 0, 0, mock_cgroups.proc_mounts_path.to_str().unwrap()).unwrap_err();
 
         // The chroot-base-dir param is not validated by Env::new, but rather in run, when we
         // actually attempt to create the folder structure (the same goes for netns).
@@ -1057,7 +1066,7 @@ mod tests {
     fn test_setup_jailed_folder() {
         let mut mock_cgroups = MockCgroupFs::new().unwrap();
         mock_cgroups.add_v1_mounts().unwrap();
-        let env = create_env(mock_cgroups.proc_mounts_path.as_str());
+        let env = create_env(&mock_cgroups.proc_mounts_path);
 
         // Error case: non UTF-8 paths.
         let bad_string_bytes: Vec<u8> = vec![0, 102, 111, 111, 0]; // A leading nul followed by 'f', 'o', 'o'
@@ -1095,17 +1104,17 @@ mod tests {
         // process management; it can't be isolated from side effects.
     }
 
-    fn ensure_mknod_and_own_dev(env: &Env, dev_path: &'static str, major: u32, minor: u32) {
+    fn ensure_mknod_and_own_dev(env: &Env, dev_path: &CStr, major: u32, minor: u32) {
         use std::os::unix::fs::FileTypeExt;
 
         // Create a new device node.
         env.mknod_and_own_dev(dev_path, major, minor).unwrap();
 
         // Ensure device's properties.
-        let metadata = fs::metadata(dev_path).unwrap();
+        let metadata = fs::metadata(dev_path.to_str().unwrap()).unwrap();
         assert!(metadata.file_type().is_char_device());
-        assert_eq!(get_major(metadata.st_rdev()), major);
-        assert_eq!(get_minor(metadata.st_rdev()), minor);
+        assert_eq!(libc::major(metadata.st_rdev()), major);
+        assert_eq!(libc::minor(metadata.st_rdev()), minor);
         assert_eq!(
             metadata.permissions().mode(),
             libc::S_IFCHR | libc::S_IRUSR | libc::S_IWUSR
@@ -1119,7 +1128,7 @@ mod tests {
             ),
             format!(
                 "Failed to create {} via mknod inside the jail: File exists (os error 17)",
-                dev_path
+                dev_path.to_str().unwrap()
             )
         );
     }
@@ -1128,28 +1137,37 @@ mod tests {
     fn test_mknod_and_own_dev() {
         let mut mock_cgroups = MockCgroupFs::new().unwrap();
         mock_cgroups.add_v1_mounts().unwrap();
-        let env = create_env(mock_cgroups.proc_mounts_path.as_str());
+        let env = create_env(&mock_cgroups.proc_mounts_path);
+
+        let mock_dev_dir = TempDir::new().unwrap();
 
         // Ensure device nodes are created with correct major/minor numbers and permissions.
-        let mut dev_infos: Vec<(&str, u32, u32)> = vec![
-            ("/dev/net/tun-test", DEV_NET_TUN_MAJOR, DEV_NET_TUN_MINOR),
-            ("/dev/kvm-test", DEV_KVM_MAJOR, DEV_KVM_MINOR),
+        let mut dev_infos: Vec<(PathBuf, u32, u32)> = vec![
+            (
+                mock_dev_dir.as_path().join("net/tun-test"),
+                DEV_NET_TUN_MAJOR,
+                DEV_NET_TUN_MINOR,
+            ),
+            (
+                mock_dev_dir.as_path().join("kvm-test"),
+                DEV_KVM_MAJOR,
+                DEV_KVM_MINOR,
+            ),
         ];
 
         if let Some(uffd_dev_minor) = env.uffd_dev_minor {
-            dev_infos.push(("/dev/userfaultfd-test", DEV_UFFD_MAJOR, uffd_dev_minor));
+            dev_infos.push((
+                mock_dev_dir.as_path().join("userfaultfd-test"),
+                DEV_UFFD_MAJOR,
+                uffd_dev_minor,
+            ));
         }
 
         for (dev, major, minor) in dev_infos {
-            // Checking this just to be super sure there's no file at `dev_str` path (though
-            // it shouldn't be as we deleted it at the end of the previous test run).
-            if Path::new(dev).exists() {
-                fs::remove_file(dev).unwrap();
-            }
-
-            ensure_mknod_and_own_dev(&env, dev, major, minor);
-            // Remove the device node.
-            fs::remove_file(dev).expect("Could not remove file.");
+            // Ensure the folder where we are creating the node exists
+            fs::create_dir_all(dev.parent().unwrap()).unwrap();
+            let dev_path = dev.to_str().map(CString::new).unwrap().unwrap();
+            ensure_mknod_and_own_dev(&env, &dev_path, major, minor);
         }
     }
 
@@ -1157,9 +1175,9 @@ mod tests {
     fn test_userfaultfd_dev() {
         let mut mock_cgroups = MockCgroupFs::new().unwrap();
         mock_cgroups.add_v1_mounts().unwrap();
-        let env = create_env(mock_cgroups.proc_mounts_path.as_str());
+        let env = create_env(&mock_cgroups.proc_mounts_path);
 
-        if !Path::new(DEV_UFFD_PATH).exists() {
+        if !Path::new(DEV_UFFD_PATH.to_str().unwrap()).exists() {
             assert_eq!(env.uffd_dev_minor, None);
         } else {
             assert!(env.uffd_dev_minor.is_some());
@@ -1199,7 +1217,8 @@ mod tests {
         let exec_file_name = Path::new(&some_arg_vals.exec_file).file_name().unwrap();
         fs::write(some_arg_vals.exec_file, "some_content").unwrap();
         args.parse(&make_args(&some_arg_vals)).unwrap();
-        let mut env = Env::new(&args, 0, 0, mock_cgroups.proc_mounts_path.as_str()).unwrap();
+        let mut env =
+            Env::new(&args, 0, 0, mock_cgroups.proc_mounts_path.to_str().unwrap()).unwrap();
 
         // Create the required chroot dir hierarchy.
         fs::create_dir_all(env.chroot_dir()).expect("Could not create dir hierarchy.");
@@ -1262,7 +1281,7 @@ mod tests {
             ..good_arg_vals.clone()
         };
         args.parse(&make_args(&invalid_cgroup_arg_vals)).unwrap();
-        Env::new(&args, 0, 0, mock_cgroups.proc_mounts_path.as_str()).unwrap_err();
+        Env::new(&args, 0, 0, mock_cgroups.proc_mounts_path.to_str().unwrap()).unwrap_err();
 
         // Check empty string
         let mut args = arg_parser.arguments().clone();
@@ -1271,7 +1290,7 @@ mod tests {
             ..good_arg_vals.clone()
         };
         args.parse(&make_args(&invalid_cgroup_arg_vals)).unwrap();
-        Env::new(&args, 0, 0, mock_cgroups.proc_mounts_path.as_str()).unwrap_err();
+        Env::new(&args, 0, 0, mock_cgroups.proc_mounts_path.to_str().unwrap()).unwrap_err();
 
         // Check valid file empty value
         let mut args = arg_parser.arguments().clone();
@@ -1280,7 +1299,7 @@ mod tests {
             ..good_arg_vals.clone()
         };
         args.parse(&make_args(&invalid_cgroup_arg_vals)).unwrap();
-        Env::new(&args, 0, 0, mock_cgroups.proc_mounts_path.as_str()).unwrap_err();
+        Env::new(&args, 0, 0, mock_cgroups.proc_mounts_path.to_str().unwrap()).unwrap_err();
 
         // Check valid file no value
         let mut args = arg_parser.arguments().clone();
@@ -1289,7 +1308,7 @@ mod tests {
             ..good_arg_vals.clone()
         };
         args.parse(&make_args(&invalid_cgroup_arg_vals)).unwrap();
-        Env::new(&args, 0, 0, mock_cgroups.proc_mounts_path.as_str()).unwrap_err();
+        Env::new(&args, 0, 0, mock_cgroups.proc_mounts_path.to_str().unwrap()).unwrap_err();
 
         // Cases that should succeed
 
@@ -1300,7 +1319,7 @@ mod tests {
             ..good_arg_vals.clone()
         };
         args.parse(&make_args(&invalid_cgroup_arg_vals)).unwrap();
-        Env::new(&args, 0, 0, mock_cgroups.proc_mounts_path.as_str()).unwrap();
+        Env::new(&args, 0, 0, mock_cgroups.proc_mounts_path.to_str().unwrap()).unwrap();
 
         // Check valid case
         let mut args = arg_parser.arguments().clone();
@@ -1309,7 +1328,7 @@ mod tests {
             ..good_arg_vals.clone()
         };
         args.parse(&make_args(&invalid_cgroup_arg_vals)).unwrap();
-        Env::new(&args, 0, 0, mock_cgroups.proc_mounts_path.as_str()).unwrap();
+        Env::new(&args, 0, 0, mock_cgroups.proc_mounts_path.to_str().unwrap()).unwrap();
 
         // Check file with multiple "."
         let mut args = arg_parser.arguments().clone();
@@ -1318,7 +1337,7 @@ mod tests {
             ..good_arg_vals.clone()
         };
         args.parse(&make_args(&invalid_cgroup_arg_vals)).unwrap();
-        Env::new(&args, 0, 0, mock_cgroups.proc_mounts_path.as_str()).unwrap();
+        Env::new(&args, 0, 0, mock_cgroups.proc_mounts_path.to_str().unwrap()).unwrap();
     }
 
     #[test]
@@ -1392,7 +1411,7 @@ mod tests {
         let mut mock_cgroups = MockCgroupFs::new().unwrap();
         mock_cgroups.add_v1_mounts().unwrap();
 
-        let env = create_env(mock_cgroups.proc_mounts_path.as_str());
+        let env = create_env(&mock_cgroups.proc_mounts_path);
 
         // Create the required chroot dir hierarchy.
         fs::create_dir_all(env.chroot_dir()).expect("Could not create dir hierarchy.");
@@ -1419,7 +1438,7 @@ mod tests {
         let mut mock_cgroups = MockCgroupFs::new().unwrap();
         mock_cgroups.add_v1_mounts().unwrap();
 
-        let mut env = create_env(mock_cgroups.proc_mounts_path.as_str());
+        let mut env = create_env(&mock_cgroups.proc_mounts_path);
         env.save_exec_file_pid(pid, PathBuf::from(exec_file_name))
             .unwrap();
 

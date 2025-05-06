@@ -5,7 +5,6 @@
 import subprocess
 from pathlib import Path
 
-import packaging.version
 import pytest
 
 from framework.utils import check_output
@@ -21,14 +20,6 @@ def test_describe_snapshot_all_versions(
     For each release create a snapshot and verify the data version of the
     snapshot state file.
     """
-
-    # TODO: remove this check once all versions prior to 1.6.0 go out of support.
-    if packaging.version.parse(firecracker_release.version) < packaging.version.parse(
-        "1.7.0"
-    ):
-        pytest.skip(
-            "We can't parse snapshot files created from Firecracker with version < 1.7.0."
-        )
 
     target_version = firecracker_release.snapshot_version
     vm = microvm_factory.build(
@@ -105,9 +96,7 @@ def test_cli_metrics_if_resume_no_metrics(uvm_plain, microvm_factory):
     snapshot = uvm1.snapshot_full()
 
     # When: restoring from the snapshot
-    uvm2 = microvm_factory.build()
-    uvm2.spawn()
-    uvm2.restore_from_snapshot(snapshot)
+    uvm2 = microvm_factory.build_from_snapshot(snapshot)
 
     # Then: the old metrics configuration does not exist
     metrics2 = Path(uvm2.jailer.chroot_path()) / metrics_path.name

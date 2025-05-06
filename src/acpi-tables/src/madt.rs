@@ -9,7 +9,7 @@ use vm_memory::{Address, Bytes, GuestAddress, GuestMemory};
 use zerocopy::little_endian::U32;
 use zerocopy::{Immutable, IntoBytes};
 
-use crate::{checksum, AcpiError, Result, Sdt, SdtHeader};
+use crate::{AcpiError, Result, Sdt, SdtHeader, checksum};
 
 const MADT_CPU_ENABLE_FLAG: u32 = 0;
 
@@ -17,7 +17,7 @@ const MADT_CPU_ENABLE_FLAG: u32 = 0;
 // them as bytes in guest memory, so here we just ignore dead code to avoid having to name
 // everything with an underscore prefix
 #[allow(dead_code)]
-#[repr(packed)]
+#[repr(C, packed)]
 #[derive(Copy, Clone, Debug, Default, IntoBytes, Immutable)]
 pub struct LocalAPIC {
     r#type: u8,
@@ -43,7 +43,7 @@ impl LocalAPIC {
 // them as bytes in guest memory, so here we just ignore dead code to avoid having to name
 // everything with an underscore prefix
 #[allow(dead_code)]
-#[repr(packed)]
+#[repr(C, packed)]
 #[derive(Copy, Clone, Debug, Default, IntoBytes, Immutable)]
 pub struct IoAPIC {
     r#type: u8,
@@ -71,7 +71,7 @@ impl IoAPIC {
 // them as bytes in guest memory, so here we just ignore dead code to avoid having to name
 // everything with an underscore prefix
 #[allow(dead_code)]
-#[repr(packed)]
+#[repr(C, packed)]
 #[derive(Debug, IntoBytes, Immutable)]
 struct MadtHeader {
     sdt: SdtHeader,

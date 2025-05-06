@@ -7,8 +7,8 @@
 use std::fmt::Debug;
 use std::result::Result;
 
-use super::bytes::{InnerBytes, NetworkBytes, NetworkBytesMut};
 use super::Incomplete;
+use super::bytes::{InnerBytes, NetworkBytes, NetworkBytesMut};
 use crate::dumbo::MacAddr;
 
 const DST_MAC_OFFSET: usize = 0;
@@ -40,7 +40,7 @@ pub struct EthernetFrame<'a, T: 'a> {
 }
 
 #[allow(clippy::len_without_is_empty)]
-impl<'a, T: NetworkBytes + Debug> EthernetFrame<'a, T> {
+impl<T: NetworkBytes + Debug> EthernetFrame<'_, T> {
     /// Interprets `bytes` as an Ethernet frame without any validity checks.
     ///
     /// # Panics
@@ -101,7 +101,7 @@ impl<'a, T: NetworkBytes + Debug> EthernetFrame<'a, T> {
     }
 }
 
-impl<'a, T: NetworkBytesMut + Debug> EthernetFrame<'a, T> {
+impl<T: NetworkBytesMut + Debug> EthernetFrame<'_, T> {
     /// Attempts to write an Ethernet frame using the given header fields to `buf`.
     fn new_with_header(
         buf: T,
@@ -252,16 +252,6 @@ mod kani_proofs {
     impl<'a, T: NetworkBytesMut + Debug> EthernetFrame<'a, T> {
         fn is_valid(&self) -> bool {
             self.len() >= PAYLOAD_OFFSET
-        }
-    }
-
-    mod stubs {
-        // The current implementation of read_be_u16 function leads to a significant
-        // performance degradation given a necessary loop unrolling. Using this stub,
-        // we read the same information from the buffer while avoiding the loop, thus,
-        // notably improving performance.
-        pub fn read_be_u16(input: &[u8]) -> u16 {
-            u16::from_be_bytes([input[0], input[1]])
         }
     }
 
@@ -519,7 +509,6 @@ mod kani_proofs {
 
     #[kani::proof]
     #[kani::solver(cadical)]
-    #[kani::stub(crate::utils::byte_order::read_be_u16, stubs::read_be_u16)]
     fn verify_with_payload_len_unchecked() {
         // Create non-deterministic stream of bytes up to MAX_FRAME_SIZE
         let mut bytes: [u8; MAX_FRAME_SIZE] = kani::Arbitrary::any_array::<MAX_FRAME_SIZE>();

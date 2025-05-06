@@ -6,8 +6,7 @@ use std::os::fd::AsRawFd;
 use libc::{c_int, c_void, iovec, off_t, size_t};
 use memfd;
 
-use super::queue::FIRECRACKER_MAX_QUEUE_SIZE;
-use crate::arch::PAGE_SIZE;
+use crate::arch::host_page_size;
 
 #[derive(Debug, thiserror::Error, displaydoc::Display)]
 pub enum IovDequeError {
@@ -69,26 +68,36 @@ pub enum IovDequeError {
 //
 // Like that, the elements stored in the buffer are always laid out in contiguous virtual memory,
 // so making a slice out of them does not require any copies.
+//
+// The `L` const generic determines the maximum number of `iovec` elements the queue should hold.
+//
+// ```Rust
+// pub struct iovec {
+//    pub iov_base: *mut ::c_void,
+//    pub iov_len: ::size_t,
+// }
+// ```
+
 #[derive(Debug)]
-pub struct IovDeque {
+pub struct IovDeque<const L: u16> {
     pub iov: *mut libc::iovec,
     pub start: u16,
     pub len: u16,
 }
 
 // SAFETY: This is `Send`. We hold sole ownership of the underlying buffer.
-unsafe impl Send for IovDeque {}
+unsafe impl<const L: u16> Send for IovDeque<L> {}
 
-impl IovDeque {
+impl<const L: u16> IovDeque<L> {
     /// Create a [`memfd`] object that represents a single physical page
-    fn create_memfd() -> Result<memfd::Memfd, IovDequeError> {
+    fn create_memfd(pages_bytes: usize) -> Result<memfd::Memfd, IovDequeError> {
         // Create a sealable memfd.
         let opts = memfd::MemfdOptions::default().allow_sealing(true);
-        let mfd = opts.create("sized-1K")?;
+        let mfd = opts.create("iov_deque")?;
 
         // Resize to system page size.
         mfd.as_file()
-            .set_len(PAGE_SIZE.try_into().unwrap())
+            .set_len(pages_bytes.try_into().unwrap())
             .map_err(IovDequeError::MemfdResize)?;
 
         // Add seals to prevent further resizing.
@@ -111,7 +120,8 @@ impl IovDeque {
         fd: c_int,
         offset: off_t,
     ) -> Result<*mut c_void, IovDequeError> {
-        let ptr = libc::mmap(addr, len, prot, flags, fd, offset);
+        // SAFETY: caller should ensure the parameters are valid
+        let ptr = unsafe { libc::mmap(addr, len, prot, flags, fd, offset) };
         if ptr == libc::MAP_FAILED {
             return Err(IovDequeError::Mmap(std::io::Error::last_os_error()));
         }
@@ -121,35 +131,13 @@ impl IovDeque {
 
     /// Allocate memory for our ring buffer
     ///
-    /// This will allocate exactly two pages of virtual memory. In order to implement the
-    /// optimization that allows us to always have elements in contiguous memory we need
-    /// allocations at the granularity of `PAGE_SIZE`. Now, our queues are at maximum 256
-    /// descriptors long and `struct iovec` looks like this:
-    ///
-    /// ```Rust
-    /// pub struct iovec {
-    ///    pub iov_base: *mut ::c_void,
-    ///    pub iov_len: ::size_t,
-    /// }
-    /// ```
-    ///
-    /// so, it's 16 bytes long. As a result, we need a single page for holding the actual data of
-    /// our buffer.
-    fn allocate_ring_buffer_memory() -> Result<*mut c_void, IovDequeError> {
-        // The fact that we allocate two pages is due to the size of `struct iovec` times our queue
-        // size equals the page size. Add here a debug assertion to reflect that and ensure that we
-        // will adapt our logic if the assumption changes in the future.
-        const {
-            assert!(
-                std::mem::size_of::<iovec>() * FIRECRACKER_MAX_QUEUE_SIZE as usize == PAGE_SIZE
-            );
-        }
-
+    /// This will allocate 2 * `pages_bytes` bytes of virtual memory.
+    fn allocate_ring_buffer_memory(pages_bytes: usize) -> Result<*mut c_void, IovDequeError> {
         // SAFETY: We are calling the system call with valid arguments
         unsafe {
             Self::mmap(
                 std::ptr::null_mut(),
-                PAGE_SIZE * 2,
+                pages_bytes * 2,
                 libc::PROT_NONE,
                 libc::MAP_PRIVATE | libc::MAP_ANONYMOUS,
                 -1,
@@ -158,18 +146,29 @@ impl IovDeque {
         }
     }
 
+    /// Calculate a number of bytes in full pages required for
+    /// the type to operate.
+    fn pages_bytes() -> usize {
+        let host_page_size = host_page_size();
+        let bytes = L as usize * std::mem::size_of::<iovec>();
+        let num_host_pages = bytes.div_ceil(host_page_size);
+        num_host_pages * host_page_size
+    }
+
     /// Create a new [`IovDeque`] that can hold memory described by a single VirtIO queue.
     pub fn new() -> Result<Self, IovDequeError> {
-        let memfd = Self::create_memfd()?;
+        let pages_bytes = Self::pages_bytes();
+
+        let memfd = Self::create_memfd(pages_bytes)?;
         let raw_memfd = memfd.as_file().as_raw_fd();
-        let buffer = Self::allocate_ring_buffer_memory()?;
+        let buffer = Self::allocate_ring_buffer_memory(pages_bytes)?;
 
         // Map the first page of virtual memory to the physical page described by the memfd object
         // SAFETY: We are calling the system call with valid arguments
         let _ = unsafe {
             Self::mmap(
                 buffer,
-                PAGE_SIZE,
+                pages_bytes,
                 libc::PROT_READ | libc::PROT_WRITE,
                 libc::MAP_SHARED | libc::MAP_FIXED,
                 raw_memfd,
@@ -180,19 +179,17 @@ impl IovDeque {
         // Map the second page of virtual memory to the physical page described by the memfd object
         //
         // SAFETY: This is safe because:
-        // * Both `buffer` and the result of `buffer.add(PAGE_SIZE)` are within bounds of the
+        // * Both `buffer` and the result of `buffer.add(pages_bytes)` are within bounds of the
         //   allocation we got from `Self::allocate_ring_buffer_memory`.
-        // * The computed offset is `PAGE_SIZE * size_of::<c_void>() == PAGE_SIZE bytes` which fits
-        //   in `isize`
         // * The resulting pointer is the beginning of the second page of our allocation, so it
         //   doesn't wrap around the address space.
-        let next_page = unsafe { buffer.add(PAGE_SIZE) };
+        let next_page = unsafe { buffer.add(pages_bytes) };
 
         // SAFETY: We are calling the system call with valid arguments
         let _ = unsafe {
             Self::mmap(
                 next_page,
-                PAGE_SIZE,
+                pages_bytes,
                 libc::PROT_READ | libc::PROT_WRITE,
                 libc::MAP_SHARED | libc::MAP_FIXED,
                 raw_memfd,
@@ -216,7 +213,7 @@ impl IovDeque {
     /// Returns `true` if the [`IovDeque`] is full, `false` otherwise
     #[inline(always)]
     pub fn is_full(&self) -> bool {
-        self.len() == FIRECRACKER_MAX_QUEUE_SIZE
+        self.len() == L
     }
 
     /// Resets the queue, dropping all its elements.
@@ -261,8 +258,8 @@ impl IovDeque {
 
         self.start += nr_iovecs;
         self.len -= nr_iovecs;
-        if self.start >= FIRECRACKER_MAX_QUEUE_SIZE {
-            self.start -= FIRECRACKER_MAX_QUEUE_SIZE;
+        if self.start >= L {
+            self.start -= L;
         }
     }
 
@@ -318,11 +315,12 @@ impl IovDeque {
     }
 }
 
-impl Drop for IovDeque {
+impl<const L: u16> Drop for IovDeque<L> {
     fn drop(&mut self) {
+        let pages_bytes = Self::pages_bytes();
         // SAFETY: We are passing an address that we got from a previous allocation of `2 *
-        // PAGE_SIZE` bytes by calling mmap
-        let _ = unsafe { libc::munmap(self.iov.cast(), PAGE_SIZE * 2) };
+        // pages_bytes` by calling mmap
+        let _ = unsafe { libc::munmap(self.iov.cast(), 2 * pages_bytes) };
     }
 }
 
@@ -330,11 +328,25 @@ impl Drop for IovDeque {
 mod tests {
     use libc::iovec;
 
-    use super::IovDeque;
+    // Redefine `IovDeque` with specific length. Otherwise
+    // Rust will not know what to do.
+    type IovDeque = super::IovDeque<256>;
 
     #[test]
     fn test_new() {
         let deque = IovDeque::new().unwrap();
+        assert_eq!(deque.len(), 0);
+    }
+
+    #[test]
+    fn test_new_less_than_page() {
+        let deque = super::IovDeque::<128>::new().unwrap();
+        assert_eq!(deque.len(), 0);
+    }
+
+    #[test]
+    fn test_new_more_than_page() {
+        let deque = super::IovDeque::<512>::new().unwrap();
         assert_eq!(deque.len(), 0);
     }
 

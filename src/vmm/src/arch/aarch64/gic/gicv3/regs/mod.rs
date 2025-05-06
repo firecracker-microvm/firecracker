@@ -7,8 +7,8 @@ mod redist_regs;
 
 use kvm_ioctls::DeviceFd;
 
-use crate::arch::aarch64::gic::regs::{GicState, GicVcpuState};
 use crate::arch::aarch64::gic::GicError;
+use crate::arch::aarch64::gic::regs::{GicState, GicVcpuState};
 
 /// Save the state of the GIC device.
 pub fn save_state(fd: &DeviceFd, mpidrs: &[u64]) -> Result<GicState, GicError> {
@@ -46,10 +46,12 @@ pub fn restore_state(fd: &DeviceFd, mpidrs: &[u64], state: &GicState) -> Result<
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::undocumented_unsafe_blocks)]
+
     use kvm_ioctls::Kvm;
 
     use super::*;
-    use crate::arch::aarch64::gic::{create_gic, GICVersion};
+    use crate::arch::aarch64::gic::{GICVersion, create_gic};
 
     #[test]
     fn test_vm_save_restore_state() {
@@ -81,7 +83,9 @@ mod tests {
             addr: &val as *const u32 as u64,
             flags: 0,
         };
-        gic_fd.get_device_attr(&mut gic_dist_attr).unwrap();
+        unsafe {
+            gic_fd.get_device_attr(&mut gic_dist_attr).unwrap();
+        }
 
         // The second value from the list of distributor registers is the value of the GICD_STATUSR
         // register. We assert that the one saved in the bitmap is the same with the one we

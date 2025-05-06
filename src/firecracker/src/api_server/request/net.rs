@@ -5,7 +5,7 @@ use vmm::logger::{IncMetric, METRICS};
 use vmm::rpc_interface::VmmAction;
 use vmm::vmm_config::net::{NetworkInterfaceConfig, NetworkInterfaceUpdateConfig};
 
-use super::super::parsed_request::{checked_id, ParsedRequest, RequestError};
+use super::super::parsed_request::{ParsedRequest, RequestError, checked_id};
 use super::{Body, StatusCode};
 
 pub(crate) fn parse_put_net(
@@ -20,9 +20,8 @@ pub(crate) fn parse_put_net(
         return Err(RequestError::EmptyID);
     };
 
-    let netif = serde_json::from_slice::<NetworkInterfaceConfig>(body.raw()).map_err(|err| {
+    let netif = serde_json::from_slice::<NetworkInterfaceConfig>(body.raw()).inspect_err(|_| {
         METRICS.put_api_requests.network_fails.inc();
-        err
     })?;
     if id != netif.iface_id.as_str() {
         METRICS.put_api_requests.network_fails.inc();
@@ -53,9 +52,8 @@ pub(crate) fn parse_patch_net(
     };
 
     let netif =
-        serde_json::from_slice::<NetworkInterfaceUpdateConfig>(body.raw()).map_err(|err| {
+        serde_json::from_slice::<NetworkInterfaceUpdateConfig>(body.raw()).inspect_err(|_| {
             METRICS.patch_api_requests.network_fails.inc();
-            err
         })?;
     if id != netif.iface_id {
         METRICS.patch_api_requests.network_count.inc();

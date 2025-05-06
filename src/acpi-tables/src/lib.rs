@@ -49,7 +49,7 @@ pub enum AcpiError {
 pub type Result<T> = std::result::Result<T, AcpiError>;
 
 /// ACPI type representing memory addresses
-#[repr(packed)]
+#[repr(C, packed)]
 #[derive(IntoBytes, Immutable, Clone, Copy, Debug, Default)]
 pub struct GenericAddressStructure {
     pub address_space_id: u8,
@@ -78,7 +78,7 @@ impl GenericAddressStructure {
 }
 
 /// Header included in all System Descriptor Tables
-#[repr(packed)]
+#[repr(C, packed)]
 #[derive(Clone, Debug, Copy, Default, IntoBytes, Immutable)]
 pub struct SdtHeader {
     pub signature: [u8; 4],

@@ -9,29 +9,31 @@ use arrayvec::ArrayVec;
 use gdbstub::arch::Arch;
 use gdbstub::common::{Signal, Tid};
 use gdbstub::stub::{BaseStopReason, MultiThreadStopReason};
+use gdbstub::target::ext::base::BaseOps;
 use gdbstub::target::ext::base::multithread::{
     MultiThreadBase, MultiThreadResume, MultiThreadResumeOps, MultiThreadSingleStep,
     MultiThreadSingleStepOps,
 };
-use gdbstub::target::ext::base::BaseOps;
 use gdbstub::target::ext::breakpoints::{
     Breakpoints, BreakpointsOps, HwBreakpoint, HwBreakpointOps, SwBreakpoint, SwBreakpointOps,
 };
 use gdbstub::target::ext::thread_extra_info::{ThreadExtraInfo, ThreadExtraInfoOps};
 use gdbstub::target::{Target, TargetError, TargetResult};
 #[cfg(target_arch = "aarch64")]
-use gdbstub_arch::aarch64::reg::AArch64CoreRegs as CoreRegs;
-#[cfg(target_arch = "aarch64")]
 use gdbstub_arch::aarch64::AArch64 as GdbArch;
-#[cfg(target_arch = "x86_64")]
-use gdbstub_arch::x86::reg::X86_64CoreRegs as CoreRegs;
+#[cfg(target_arch = "aarch64")]
+use gdbstub_arch::aarch64::reg::AArch64CoreRegs as CoreRegs;
 #[cfg(target_arch = "x86_64")]
 use gdbstub_arch::x86::X86_64_SSE as GdbArch;
+#[cfg(target_arch = "x86_64")]
+use gdbstub_arch::x86::reg::X86_64CoreRegs as CoreRegs;
 use kvm_ioctls::VcpuFd;
-use vm_memory::{Bytes, GuestAddress};
+use vm_memory::{Bytes, GuestAddress, GuestMemoryError};
 
 use super::arch;
-use crate::arch::PAGE_SIZE;
+use crate::arch::GUEST_PAGE_SIZE;
+#[cfg(target_arch = "aarch64")]
+use crate::arch::aarch64::vcpu::VcpuArchError as AarchVcpuError;
 use crate::logger::{error, info};
 use crate::utils::u64_to_usize;
 use crate::vstate::vcpu::VcpuSendEventError;
@@ -99,9 +101,17 @@ pub enum GdbTargetError {
     /// KVM set guest debug error
     KvmIoctlsError(#[from] kvm_ioctls::Error),
     /// Gva no translation available
-    KvmGvaTranslateError,
+    GvaTranslateError,
     /// Conversion error with cpu rflags
     RegFlagConversionError,
+    #[cfg(target_arch = "aarch64")]
+    /// Error retrieving registers from a Vcpu
+    ReadRegisterError(#[from] AarchVcpuError),
+    #[cfg(target_arch = "aarch64")]
+    /// Error retrieving registers from a register vec.
+    ReadRegisterVecError,
+    /// Error while reading/writing to guest memory
+    GuestMemoryError(#[from] GuestMemoryError),
 }
 
 impl From<GdbTargetError> for TargetError<GdbTargetError> {
@@ -175,8 +185,7 @@ impl FirecrackerTarget {
         gdb_event: Receiver<usize>,
         entry_addr: GuestAddress,
     ) -> Self {
-        let mut vcpu_state: Vec<VcpuState> =
-            vcpu_fds.into_iter().map(VcpuState::from_vcpu_fd).collect();
+        let mut vcpu_state: Vec<_> = vcpu_fds.into_iter().map(VcpuState::from_vcpu_fd).collect();
         // By default vcpu 1 will be paused at the entry point
         vcpu_state[0].paused = true;
 
@@ -312,7 +321,7 @@ impl FirecrackerTarget {
             return Ok(Some(MultiThreadStopReason::SwBreak(tid)));
         };
 
-        let gpa = arch::translate_gva(&vcpu_state.vcpu_fd, ip)?;
+        let gpa = arch::translate_gva(&vcpu_state.vcpu_fd, ip, &self.vmm.lock().unwrap())?;
         if self.sw_breakpoints.contains_key(&gpa) {
             return Ok(Some(MultiThreadStopReason::SwBreak(tid)));
         }
@@ -377,25 +386,24 @@ impl MultiThreadBase for FirecrackerTarget {
         let data_len = data.len();
         let vcpu_state = &self.vcpu_state[tid_to_vcpuid(tid)];
 
+        let vmm = &self.vmm.lock().expect("Error locking vmm in read addr");
+
         while !data.is_empty() {
-            let gpa = arch::translate_gva(&vcpu_state.vcpu_fd, gva).map_err(|e| {
-                error!("Error {e:?} translating gva on read address: {gva:X}");
+            let gpa = arch::translate_gva(&vcpu_state.vcpu_fd, gva, &vmm).map_err(|e| {
+                error!("Error {e:?} translating gva on read address: {gva:#X}");
             })?;
 
             // Compute the amount space left in the page after the gpa
             let read_len = std::cmp::min(
                 data.len(),
-                PAGE_SIZE - (u64_to_usize(gpa) & (PAGE_SIZE - 1)),
+                GUEST_PAGE_SIZE - (u64_to_usize(gpa) & (GUEST_PAGE_SIZE - 1)),
             );
 
-            let vmm = &self.vmm.lock().map_err(|_| {
-                error!("Error locking vmm in read addr");
-                TargetError::Fatal(GdbTargetError::VmmLockError)
-            })?;
-            vmm.guest_memory()
+            vmm.vm
+                .guest_memory()
                 .read(&mut data[..read_len], GuestAddress(gpa as u64))
                 .map_err(|e| {
-                    error!("Error reading memory {e:?}");
+                    error!("Error reading memory {e:?} gpa is {gpa}");
                 })?;
 
             data = &mut data[read_len..];
@@ -413,26 +421,24 @@ impl MultiThreadBase for FirecrackerTarget {
         tid: Tid,
     ) -> TargetResult<(), Self> {
         let vcpu_state = &self.vcpu_state[tid_to_vcpuid(tid)];
+        let vmm = &self.vmm.lock().expect("Error locking vmm in write addr");
+
         while !data.is_empty() {
-            let gpa = arch::translate_gva(&vcpu_state.vcpu_fd, gva).map_err(|e| {
-                error!("Error {e:?} translating gva on read address: {gva:X}");
+            let gpa = arch::translate_gva(&vcpu_state.vcpu_fd, gva, &vmm).map_err(|e| {
+                error!("Error {e:?} translating gva on read address: {gva:#X}");
             })?;
 
             // Compute the amount space left in the page after the gpa
             let write_len = std::cmp::min(
                 data.len(),
-                PAGE_SIZE - (u64_to_usize(gpa) & (PAGE_SIZE - 1)),
+                GUEST_PAGE_SIZE - (u64_to_usize(gpa) & (GUEST_PAGE_SIZE - 1)),
             );
 
-            let vmm = &self.vmm.lock().map_err(|_| {
-                error!("Error locking vmm in write addr");
-                TargetError::Fatal(GdbTargetError::VmmLockError)
-            })?;
-
-            vmm.guest_memory()
+            vmm.vm
+                .guest_memory()
                 .write(&data[..write_len], GuestAddress(gpa))
                 .map_err(|e| {
-                    error!("Error {e:?} writing memory at {gpa:X}");
+                    error!("Error {e:?} writing memory at {gpa:#X}");
                 })?;
 
             data = &data[write_len..];
@@ -574,7 +580,11 @@ impl SwBreakpoint for FirecrackerTarget {
         addr: <Self::Arch as Arch>::Usize,
         _kind: <Self::Arch as Arch>::BreakpointKind,
     ) -> TargetResult<bool, Self> {
-        let gpa = arch::translate_gva(&self.get_paused_vcpu()?.vcpu_fd, addr)?;
+        let gpa = arch::translate_gva(
+            &self.get_paused_vcpu()?.vcpu_fd,
+            addr,
+            &self.vmm.lock().unwrap(),
+        )?;
 
         if self.sw_breakpoints.contains_key(&gpa) {
             return Ok(true);
@@ -598,7 +608,11 @@ impl SwBreakpoint for FirecrackerTarget {
         addr: <Self::Arch as Arch>::Usize,
         _kind: <Self::Arch as Arch>::BreakpointKind,
     ) -> TargetResult<bool, Self> {
-        let gpa = arch::translate_gva(&self.get_paused_vcpu()?.vcpu_fd, addr)?;
+        let gpa = arch::translate_gva(
+            &self.get_paused_vcpu()?.vcpu_fd,
+            addr,
+            &self.vmm.lock().unwrap(),
+        )?;
 
         if let Some(removed) = self.sw_breakpoints.remove(&gpa) {
             self.write_addrs(addr, &removed, self.get_paused_vcpu_id()?)?;

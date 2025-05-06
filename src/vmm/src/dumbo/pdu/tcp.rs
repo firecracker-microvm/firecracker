@@ -15,10 +15,10 @@ use std::result::Result;
 
 use bitflags::bitflags;
 
-use super::bytes::{InnerBytes, NetworkBytes, NetworkBytesMut};
 use super::Incomplete;
-use crate::dumbo::pdu::ChecksumProto;
+use super::bytes::{InnerBytes, NetworkBytes, NetworkBytesMut};
 use crate::dumbo::ByteBuffer;
+use crate::dumbo::pdu::ChecksumProto;
 
 const SOURCE_PORT_OFFSET: usize = 0;
 const DESTINATION_PORT_OFFSET: usize = 2;
@@ -99,7 +99,7 @@ pub struct TcpSegment<'a, T: 'a> {
 }
 
 #[allow(clippy::len_without_is_empty)]
-impl<'a, T: NetworkBytes + Debug> TcpSegment<'a, T> {
+impl<T: NetworkBytes + Debug> TcpSegment<'_, T> {
     /// Returns the source port.
     #[inline]
     pub fn source_port(&self) -> u16 {
@@ -314,7 +314,7 @@ impl<'a, T: NetworkBytes + Debug> TcpSegment<'a, T> {
     }
 }
 
-impl<'a, T: NetworkBytesMut + Debug> TcpSegment<'a, T> {
+impl<T: NetworkBytesMut + Debug> TcpSegment<'_, T> {
     /// Sets the source port.
     #[inline]
     pub fn set_source_port(&mut self, value: u16) -> &mut Self {

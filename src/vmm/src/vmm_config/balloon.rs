@@ -5,8 +5,8 @@ use std::sync::{Arc, Mutex};
 
 use serde::{Deserialize, Serialize};
 
-pub use crate::devices::virtio::balloon::device::BalloonStats;
 pub use crate::devices::virtio::balloon::BALLOON_DEV_ID;
+pub use crate::devices::virtio::balloon::device::BalloonStats;
 use crate::devices::virtio::balloon::{Balloon, BalloonConfig};
 
 type MutexBalloon = Arc<Mutex<Balloon>>;

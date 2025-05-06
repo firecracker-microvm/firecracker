@@ -5,6 +5,7 @@
 import os
 
 from framework import utils
+from framework.ab_test import DEFAULT_A_REVISION
 
 
 def test_gitlint():
@@ -15,6 +16,6 @@ def test_gitlint():
     os.environ["LANG"] = "C.UTF-8"
 
     rc, _, stderr = utils.run_cmd(
-        "gitlint --commits origin/main..HEAD -C ../.gitlint --extra-path framework/gitlint_rules.py",
+        f"gitlint --commits origin/{DEFAULT_A_REVISION}..HEAD -C ../.gitlint --extra-path framework/gitlint_rules.py",
     )
     assert rc == 0, "Commit message violates gitlint rules: {}".format(stderr)

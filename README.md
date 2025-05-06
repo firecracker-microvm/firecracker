@@ -116,7 +116,7 @@ The **API endpoint** can be used to:
 - Add a [entropy device](docs/entropy.md) to the microVM.
 - Start the microVM using a given kernel image, root file system, and boot
   arguments.
-- \[x86_64 only\] Stop the microVM.
+- [x86_64 only] Stop the microVM.
 
 **Built-in Capabilities**:
 
@@ -130,14 +130,19 @@ The **API endpoint** can be used to:
 
 We test all combinations of:
 
-| Instance  | Host OS & Kernel  | Guest Rootfs | Guest Kernel |
-| :-------- | :---------------- | :----------- | :----------- |
-| c5n.metal | al2    linux_5.10 | ubuntu 22.04 | linux_5.10   |
-| m5n.metal | al2023 linux_6.1  |              | linux_6.1    |
-| m6i.metal |                   |              |              |
-| m6a.metal |                   |              |              |
-| m6g.metal |                   |              |              |
-| m7g.metal |                   |              |              |
+| Instance       | Host OS & Kernel | Guest Rootfs | Guest Kernel |
+| :------------- | :--------------- | :----------- | :----------- |
+| c5n.metal      | al2 linux_5.10   | ubuntu 24.04 | linux_5.10   |
+| m5n.metal      | al2023 linux_6.1 |              | linux_6.1    |
+| m6i.metal      |                  |              |              |
+| m7i.metal-24xl |                  |              |              |
+| m7i.metal-48xl |                  |              |              |
+| m6a.metal      |                  |              |              |
+| m7a.metal-48xl |                  |              |              |
+| m6g.metal      |                  |              |              |
+| m7g.metal      |                  |              |              |
+| m8g.metal-24xl |                  |              |              |
+| m8g.metal-48xl |                  |              |              |
 
 ## Known issues and Limitations
 
@@ -167,7 +172,7 @@ You can get in touch with the Firecracker community in the following ways:
 
 - Security-related issues, see our [security policy document](SECURITY.md).
 - Chat with us on our
-  [Slack workspace](https://join.slack.com/t/firecracker-microvm/shared_invite/zt-1zlb87h4z-NED1rBhVqOQ1ygBgT76wlg)
+  [Slack workspace](https://join.slack.com/t/firecracker-microvm/shared_invite/zt-2tc0mfxpc-tU~HYAYSzLDl5XGGJU3YIg)
   _Note: most of the maintainers are on a European time zone._
 - Open a GitHub issue in this repository.
 - Email the maintainers at

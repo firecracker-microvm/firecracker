@@ -13,7 +13,7 @@ use std::net::Ipv4Addr;
 use std::result::Result;
 
 use crate::dumbo::pdu::bytes::{InnerBytes, NetworkBytes, NetworkBytesMut};
-use crate::dumbo::pdu::{ethernet, Incomplete};
+use crate::dumbo::pdu::{Incomplete, ethernet};
 
 const VERSION_AND_IHL_OFFSET: usize = 0;
 const DSCP_AND_ECN_OFFSET: usize = 1;
@@ -62,7 +62,7 @@ pub struct IPv4Packet<'a, T: 'a> {
 }
 
 #[allow(clippy::len_without_is_empty)]
-impl<'a, T: NetworkBytes + Debug> IPv4Packet<'a, T> {
+impl<T: NetworkBytes + Debug> IPv4Packet<'_, T> {
     /// Interpret `bytes` as an IPv4Packet without checking the validity of the header fields, and
     /// the length of the inner byte sequence.
     ///
@@ -250,7 +250,7 @@ impl<'a, T: NetworkBytes + Debug> IPv4Packet<'a, T> {
     }
 }
 
-impl<'a, T: NetworkBytesMut + Debug> IPv4Packet<'a, T> {
+impl<T: NetworkBytesMut + Debug> IPv4Packet<'_, T> {
     /// Attempts to write an IPv4 packet header to `buf`, making sure there is enough space.
     ///
     /// This method returns an incomplete packet, because the size of the payload might be unknown

@@ -3,18 +3,18 @@
 
 use std::os::unix::io::AsRawFd;
 use std::path::PathBuf;
-use std::sync::mpsc::{channel, Receiver, Sender, TryRecvError};
+use std::sync::mpsc::{Receiver, Sender, TryRecvError, channel};
 use std::sync::{Arc, Mutex};
 use std::thread;
 
 use event_manager::{EventOps, Events, MutEventSubscriber, SubscriberOps};
-use seccompiler::BpfThreadMap;
-use vmm::logger::{error, warn, ProcessTimeReporter};
+use vmm::logger::{ProcessTimeReporter, error, info, warn};
 use vmm::resources::VmResources;
 use vmm::rpc_interface::{
     ApiRequest, ApiResponse, BuildMicrovmFromRequestsError, PrebootApiController,
     RuntimeApiController, VmmAction,
 };
+use vmm::seccomp::BpfThreadMap;
 use vmm::vmm_config::instance_info::InstanceInfo;
 use vmm::{EventManager, FcExitCode, Vmm};
 use vmm_sys_util::epoll::EventSet;
@@ -175,6 +175,7 @@ pub(crate) fn run_with_api(
             return Err(ApiServerError::FailedToBindAndRunHttpServer(err));
         }
     };
+    info!("Listening on API socket ({bind_path:?}).");
 
     let api_kill_switch_clone = api_kill_switch
         .try_clone()

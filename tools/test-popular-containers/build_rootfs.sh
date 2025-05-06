@@ -48,7 +48,6 @@ function make_rootfs {
     systemd-nspawn --timezone=off --pipe -i $IMG /bin/sh <<EOF
 set -x
 . /etc/os-release
-passwd -d root
 case \$ID in
 ubuntu)
     export DEBIAN_FRONTEND=noninteractive
@@ -61,12 +60,21 @@ alpine)
     rc-update add local default
     echo "ttyS0::respawn:/sbin/getty -L ttyS0 115200 vt100" >>/etc/inittab
     ;;
+amzn)
+    dnf update
+    dnf install -y openssh-server iproute passwd
+    # re-do this
+    ln -svf /etc/systemd/system/fcnet.service /etc/systemd/system/sysinit.target.wants/fcnet.service
+    rm -fv /etc/systemd/system/getty.target.wants/getty@tty1.service
+    ;;
 esac
+passwd -d root
 EOF
 }
 
 make_rootfs alpine:latest
 make_rootfs ubuntu:22.04
-make_rootfs ubuntu:23.10
 make_rootfs ubuntu:24.04
+make_rootfs ubuntu:24.10
 # make_rootfs ubuntu:latest
+make_rootfs amazonlinux:2023

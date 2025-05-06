@@ -7,7 +7,7 @@ use vm_memory::{Bytes, GuestAddress, GuestMemory};
 use zerocopy::little_endian::{U16, U32, U64};
 use zerocopy::{Immutable, IntoBytes};
 
-use crate::{checksum, GenericAddressStructure, Result, Sdt, SdtHeader};
+use crate::{GenericAddressStructure, Result, Sdt, SdtHeader, checksum};
 
 #[cfg(target_arch = "x86_64")]
 pub const IAPC_BOOT_ARG_FLAGS_VGA_NOT_PRESENT: u16 = 2;
@@ -41,7 +41,7 @@ pub const FADT_F_HW_REDUCED_ACPI: u8 = 20;
 /// the pointer to the DSDT table.
 /// More information about this table can be found in the ACPI specification:
 /// https://uefi.org/specs/ACPI/6.5/05_ACPI_Software_Programming_Model.html#fixed-acpi-description-table-fadt
-#[repr(packed)]
+#[repr(C, packed)]
 #[derive(Debug, Copy, Clone, Default, IntoBytes, Immutable)]
 pub struct Fadt {
     header: SdtHeader,

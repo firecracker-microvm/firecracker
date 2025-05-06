@@ -12,13 +12,13 @@ use std::num::{NonZeroU16, NonZeroU64, NonZeroUsize, Wrapping};
 use bitflags::bitflags;
 use vmm_sys_util::rand::xor_pseudo_rng_u32;
 
+use crate::dumbo::ByteBuffer;
+use crate::dumbo::pdu::Incomplete;
 use crate::dumbo::pdu::bytes::NetworkBytes;
 use crate::dumbo::pdu::tcp::{Flags as TcpFlags, TcpError as TcpSegmentError, TcpSegment};
-use crate::dumbo::pdu::Incomplete;
 use crate::dumbo::tcp::{
-    seq_after, seq_at_or_after, NextSegmentStatus, RstConfig, MAX_WINDOW_SIZE, MSS_DEFAULT,
+    MAX_WINDOW_SIZE, MSS_DEFAULT, NextSegmentStatus, RstConfig, seq_after, seq_at_or_after,
 };
-use crate::dumbo::ByteBuffer;
 
 bitflags! {
     // We use a set of flags, instead of a state machine, to represent the connection status. Some
@@ -815,7 +815,7 @@ impl Connection {
     /// * `mss_reserved` - How much (if anything) of the MSS value has been already used at the
     ///   lower layers (by IP options, for example). This will be zero most of the time.
     /// * `payload_src` - References a buffer which contains data to send, and also specifies the
-    ///   sequence number associated with the first byte from that that buffer.
+    ///   sequence number associated with the first byte from that buffer.
     /// * `now` - An opaque timestamp representing the current moment in time.
     ///
     /// [`MAX_WINDOW_SIZE`]: ../constant.MAX_WINDOW_SIZE.html

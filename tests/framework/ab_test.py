@@ -21,23 +21,23 @@ while still preventing the latter: We run cargo audit twice, once on main HEAD, 
 of both invocations is the same, the test passes (with us being alerted to this situtation via a special pipeline that
 does not block PRs). If not, it fails, preventing PRs from introducing new vulnerable dependencies.
 """
-import contextlib
-import os
 import statistics
 from pathlib import Path
+from tempfile import TemporaryDirectory
 from typing import Callable, List, Optional, TypeVar
 
 import scipy
 
 from framework import utils
-from framework.microvm import Microvm
+from framework.defs import FC_WORKSPACE_DIR
+from framework.properties import global_props
 from framework.utils import CommandReturn
 from framework.with_filelock import with_filelock
-from host_tools.cargo_build import get_binary, get_firecracker_binaries
+from host_tools.cargo_build import DEFAULT_TARGET_DIR
 
 # Locally, this will always compare against main, even if we try to merge into, say, a feature branch.
 # We might want to do a more sophisticated way to determine a "parent" branch here.
-DEFAULT_A_REVISION = os.environ.get("BUILDKITE_PULL_REQUEST_BASE_BRANCH") or "main"
+DEFAULT_A_REVISION = global_props.buildkite_revision_a or "main"
 
 
 T = TypeVar("T")
@@ -82,24 +82,41 @@ def git_ab_test(
              (alternatively, your comparator can perform any required assertions and not return anything).
     """
 
-    dir_a = git_clone(Path("../build") / a_revision, a_revision)
-    result_a = test_runner(dir_a, True)
+    with TemporaryDirectory() as tmp_dir:
+        dir_a = git_clone(Path(tmp_dir) / a_revision, a_revision)
+        result_a = test_runner(dir_a, True)
 
-    if b_revision:
-        dir_b = git_clone(Path("../build") / b_revision, b_revision)
-    else:
-        # By default, pytest execution happens inside the `tests` subdirectory. Pass the repository root, as
-        # documented.
-        dir_b = Path.cwd().parent
-    result_b = test_runner(dir_b, False)
+        if b_revision:
+            dir_b = git_clone(Path(tmp_dir) / b_revision, b_revision)
+        else:
+            # By default, pytest execution happens inside the `tests` subdirectory. Pass the repository root, as
+            # documented.
+            dir_b = Path.cwd().parent
+        result_b = test_runner(dir_b, False)
 
-    comparison = comparator(result_a, result_b)
-    return result_a, result_b, comparison
+        comparison = comparator(result_a, result_b)
+        return result_a, result_b, comparison
 
 
-def is_pr() -> bool:
-    """Returns `True` iff we are executing in the context of a build kite run on a pull request"""
-    return os.environ.get("BUILDKITE_PULL_REQUEST", "false") != "false"
+DEFAULT_A_DIRECTORY = FC_WORKSPACE_DIR / "build" / "main"
+DEFAULT_B_DIRECTORY = FC_WORKSPACE_DIR / "build" / "cargo_target" / DEFAULT_TARGET_DIR
+
+
+def binary_ab_test(
+    test_runner: Callable[[Path, bool], T],
+    comparator: Callable[[T, T], U] = default_comparator,
+    *,
+    a_directory: Path = DEFAULT_A_DIRECTORY,
+    b_directory: Path = DEFAULT_B_DIRECTORY,
+):
+    """
+    Similar to `git_ab_test`, but instead of locally checking out different revisions, it operates on
+    directories containing firecracker/jailer binaries
+    """
+    result_a = test_runner(a_directory, True)
+    result_b = test_runner(b_directory, False)
+
+    return result_a, result_b, comparator(result_a, result_b)
 
 
 def git_ab_test_host_command_if_pr(
@@ -111,7 +128,7 @@ def git_ab_test_host_command_if_pr(
     """Runs the given bash command as an A/B-Test if we're in a pull request context (asserting that its stdout and
     stderr did not change across the PR). Otherwise runs the command, asserting it returns a zero exit code
     """
-    if is_pr():
+    if global_props.buildkite_pr:
         git_ab_test_host_command(command, comparator=comparator)
         return None
 
@@ -151,55 +168,6 @@ def set_did_not_grow_comparator(
     return lambda output_a, output_b: set_generator(output_b).issubset(
         set_generator(output_a)
     )
-
-
-def git_ab_test_guest_command(
-    microvm_factory: Callable[[Path, Path], Microvm],
-    command: str,
-    *,
-    comparator: Callable[[CommandReturn, CommandReturn], bool] = default_comparator,
-    a_revision: str = DEFAULT_A_REVISION,
-    b_revision: Optional[str] = None,
-):
-    """The same as git_ab_test_command, but via SSH. The closure argument should setup a microvm using the passed
-    paths to firecracker and jailer binaries."""
-
-    @with_filelock
-    def build_firecracker(workspace_dir):
-        utils.check_output("./tools/release.sh --profile release", cwd=workspace_dir)
-
-    def test_runner(workspace_dir, _is_a: bool):
-        firecracker = get_binary("firecracker", workspace_dir=workspace_dir)
-        if not firecracker.exists():
-            build_firecracker(workspace_dir)
-        bin_dir = firecracker.parent.resolve()
-        firecracker, jailer = bin_dir / "firecracker", bin_dir / "jailer"
-        microvm = microvm_factory(firecracker, jailer)
-        return microvm.ssh.run(command)
-
-    (_, old_out, old_err), (_, new_out, new_err), the_same = git_ab_test(
-        test_runner, comparator, a_revision=a_revision, b_revision=b_revision
-    )
-
-    assert (
-        the_same
-    ), f"The output of running command `{command}` changed:\nOld:\nstdout:\n{old_out}\nstderr\n{old_err}\n\nNew:\nstdout:\n{new_out}\nstderr:\n{new_err}"
-
-
-def git_ab_test_guest_command_if_pr(
-    microvm_factory: Callable[[Path, Path], Microvm],
-    command: str,
-    *,
-    comparator=default_comparator,
-    check_in_nonpr=True,
-):
-    """The same as git_ab_test_command_if_pr, but via SSH"""
-    if is_pr():
-        git_ab_test_guest_command(microvm_factory, command, comparator=comparator)
-        return None
-
-    microvm = microvm_factory(*get_firecracker_binaries())
-    return microvm.ssh.run(command, check=check_in_nonpr)
 
 
 def check_regression(
@@ -249,17 +217,3 @@ def git_clone(clone_path, commitish):
         )
         utils.check_output(f"git branch -D {branch_name}")
     return clone_path
-
-
-# Once we upgrade to python 3.11, this will be in contextlib:
-# https://docs.python.org/3/library/contextlib.html#contextlib.chdir
-@contextlib.contextmanager
-def chdir(to):
-    """Context manager that temporarily `chdir`s to the specified path"""
-    cur = os.getcwd()
-
-    try:
-        os.chdir(to)
-        yield
-    finally:
-        os.chdir(cur)

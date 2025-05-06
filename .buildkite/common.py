@@ -6,6 +6,7 @@ Common helpers to create Buildkite pipelines
 """
 
 import argparse
+import ast
 import json
 import os
 import random
@@ -13,19 +14,31 @@ import string
 import subprocess
 from pathlib import Path
 
-DEFAULT_INSTANCES = {
-    "c5n.metal": "x86_64",  # Intel Skylake
-    "m5n.metal": "x86_64",  # Intel Cascade Lake
-    "m6i.metal": "x86_64",  # Intel Icelake
-    "m6a.metal": "x86_64",  # AMD Milan
-    "m6g.metal": "aarch64",  # Graviton2
-    "m7g.metal": "aarch64",  # Graviton3
-}
+# fmt: off
+DEFAULT_INSTANCES = [
+    "c5n.metal",      # Intel Skylake
+    "m5n.metal",      # Intel Cascade Lake
+    "m6i.metal",      # Intel Icelake
+    "m7i.metal-24xl", # Intel Sapphire Rapids
+    "m7i.metal-48xl", # Intel Sapphire Rapids
+    "m6a.metal",      # AMD Milan
+    "m7a.metal-48xl", # AMD Genoa
+    "m6g.metal",      # Graviton2
+    "m7g.metal",      # Graviton3
+    "m8g.metal-24xl", # Graviton4 1 socket
+    "m8g.metal-48xl", # Graviton4 2 sockets
+]
+# fmt: on
 
 DEFAULT_PLATFORMS = [
     ("al2", "linux_5.10"),
     ("al2023", "linux_6.1"),
 ]
+
+
+def get_arch_for_instance(instance):
+    """Return instance architecture"""
+    return "x86_64" if instance[2] != "g" else "aarch64"
 
 
 def overlay_dict(base: dict, update: dict):
@@ -133,7 +146,8 @@ class DictAction(argparse.Action):
         res = getattr(namespace, self.dest, {})
         key_str, val = value.split("=", maxsplit=1)
         keys = key_str.split("/")
-        update = {keys[-1]: val}
+        # Interpret it as a literal iff it starts like one
+        update = {keys[-1]: ast.literal_eval(val) if val[0] in "[{'" else val}
         for key in list(reversed(keys))[1:]:
             update = {key: update}
         res = overlay_dict(res, update)
@@ -145,7 +159,7 @@ COMMON_PARSER.add_argument(
     "--instances",
     required=False,
     nargs="+",
-    default=DEFAULT_INSTANCES.keys(),
+    default=DEFAULT_INSTANCES,
 )
 COMMON_PARSER.add_argument(
     "--platforms",
@@ -171,6 +185,12 @@ COMMON_PARSER.add_argument(
     default=None,
     type=str,
 )
+COMMON_PARSER.add_argument(
+    "--no-kani",
+    help="Don't add kani step",
+    action="store_true",
+    default=False,
+)
 
 
 def random_str(k: int):
@@ -180,16 +200,7 @@ def random_str(k: int):
 
 def ab_revision_build(revision):
     """Generate steps for building an A/B-test revision"""
-    # Copied from framework/ab_test. Double dollar signs needed for Buildkite (otherwise it will try to interpolate itself)
-    return [
-        f"commitish={revision}",
-        f"if ! git cat-file -t $$commitish; then commitish=origin/{revision}; fi",
-        "branch_name=tmp-$$commitish",
-        "git branch $$branch_name $$commitish",
-        f"git clone -b $$branch_name . build/{revision}",
-        f"cd build/{revision} && ./tools/devtool -y build --release && cd -",
-        "git branch -D $$branch_name",
-    ]
+    return [f"./tools/devtool -y build --rev {revision} --release"]
 
 
 def shared_build():
@@ -252,7 +263,7 @@ class BKPipeline:
         self.per_instance = overlay_dict(per_instance, args.step_param)
         self.per_arch = self.per_instance.copy()
         self.per_arch["instances"] = ["m6i.metal", "m7g.metal"]
-        self.per_arch["platforms"] = [("al2", "linux_5.10")]
+        self.per_arch["platforms"] = [("al2023", "linux_6.1")]
         self.binary_dir = args.binary_dir
         # Build sharing
         if with_build_step:
@@ -297,7 +308,7 @@ class BKPipeline:
             step["command"] = prepend + step["command"]
             if self.shared_build is not None:
                 step["depends_on"] = self.build_key(
-                    DEFAULT_INSTANCES[step["agents"]["instance"]]
+                    get_arch_for_instance(step["agents"]["instance"])
                 )
         return group
 
@@ -332,7 +343,7 @@ class BKPipeline:
         if set_key:
             for step in grp["steps"]:
                 step["key"] = self.build_key(
-                    DEFAULT_INSTANCES[step["agents"]["instance"]]
+                    get_arch_for_instance(step["agents"]["instance"])
                 )
         return self.add_step(grp, depends_on_build=depends_on_build)
 

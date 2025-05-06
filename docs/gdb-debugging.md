@@ -1,14 +1,14 @@
 # GDB Debugging with Firecracker
 
+**The GDB feature is not for production use.**
+
 Firecracker supports debugging the guest kernel via GDB remote serial protocol.
 This allows us to connect GDB to the firecracker process and step through debug
-the guest kernel. Currently only debugging on x86 is supported.
-
-The GDB feature requires Firecracker to be booted with a config file.
+the guest kernel.
 
 ## Prerequisites
 
-Firstly, to enable GDB debugging we need to compile Firecracker with the `debug`
+Firstly, to enable GDB debugging we need to compile Firecracker with the `gdb`
 feature enabled, this will enable the necessary components for the debugging
 process.
 
@@ -23,20 +23,33 @@ debugging to work. The key config options to enable are:
 
 ```
 CONFIG_FRAME_POINTER=y
-CONFIG_KGDB=y
-CONFIG_KGDB_SERIAL_CONSOLE=y
 CONFIG_DEBUG_INFO=y
 ```
 
-For GDB debugging the `gdb-socket` option should be set in your config file. In
-this example we set it to `/tmp/gdb.socket`
+For GDB debugging the `gdb_socket_path` option under `machine-config` should be
+set. When using the API the socket address must be set before instance start.
+
+In this example we set the address to `/tmp/gdb.socket` in the config file:
 
 ```
 {
   ...
-  "gdb-socket": "/tmp/gdb.socket"
+  "machine-config": {
+    ...
+    "gdb_socket_path": "/tmp/gdb.socket"
+    ...
+  }
   ...
 }
+```
+
+Using the API the socket address can be configured before boot like so:
+
+```
+sudo curl -X PATCH --unix-socket "${API_SOCKET}" \
+  --data "{
+    \"gdb_socket_path\": \"/tmp/gdb.socket\"
+  }" "http://localhost/machine-config"
 ```
 
 ## Starting Firecracker with GDB
@@ -102,9 +115,14 @@ command in the GDB session which will terminate both.
   mitigated by setting these kernel config values:
 
   ```
-    CONFIG_SCHED_MC=y
-    CONFIG_SCHED_MC_PRIO=y
+    CONFIG_SCHED_MC=n
+    CONFIG_SCHED_MC_PRIO=n
   ```
 
 - Currently we support a limited subset of cpu registers for get and set
   operations, if more are required feel free to contribute.
+
+- On ARM the guest virtual address translation will only work on guests with 4kb
+  pages and not all physical address sizes are supported. If the current
+  translation implementation doesn't cover a specific setup, feel free to
+  contribute.

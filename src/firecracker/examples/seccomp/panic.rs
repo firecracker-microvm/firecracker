@@ -3,7 +3,7 @@
 use std::env::args;
 use std::fs::File;
 
-use seccompiler::{apply_filter, deserialize_binary};
+use vmm::seccomp::{apply_filter, deserialize_binary};
 
 fn main() {
     let args: Vec<String> = args().collect();
@@ -11,7 +11,7 @@ fn main() {
     let filter_thread = &args[2];
 
     let filter_file = File::open(bpf_path).unwrap();
-    let map = deserialize_binary(&filter_file, None).unwrap();
+    let map = deserialize_binary(&filter_file).unwrap();
     apply_filter(map.get(filter_thread).unwrap()).unwrap();
     panic!("Expected panic.");
 }

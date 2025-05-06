@@ -32,10 +32,8 @@ from pathlib import Path
 sys.path.append(str(Path(__file__).parent.parent / "tests"))
 
 # pylint:disable=wrong-import-position
-from framework import utils
-from framework.ab_test import check_regression, git_ab_test
+from framework.ab_test import binary_ab_test, check_regression
 from framework.properties import global_props
-from host_tools.cargo_build import get_binary
 from host_tools.metrics import (
     emit_raw_emf,
     format_with_reduced_unit,
@@ -46,18 +44,21 @@ from host_tools.metrics import (
 IGNORED = [
     # Network throughput on m6a.metal
     {"instance": "m6a.metal", "performance_test": "test_network_tcp_throughput"},
-    # Block throughput for 1 vcpu on m6g.metal/5.10
-    {
-        "performance_test": "test_block_performance",
-        "instance": "m6g.metal",
-        "host_kernel": "linux-5.10",
-        "vcpus": "1",
-    },
+    # Network throughput on m7a.metal
+    {"instance": "m7a.metal-48xl", "performance_test": "test_network_tcp_throughput"},
+    # block latencies if guest uses async request submission
+    {"fio_engine": "libaio", "metric": "clat_read"},
+    {"fio_engine": "libaio", "metric": "clat_write"},
+    # boot time metrics
+    {"performance_test": "test_boottime", "metric": "resume_time"},
+    # block throughput on m8g
+    {"fio_engine": "libaio", "vcpus": 2, "instance": "m8g.metal-24xl"},
+    {"fio_engine": "libaio", "vcpus": 2, "instance": "m8g.metal-48xl"},
 ]
 
 
 def is_ignored(dimensions) -> bool:
-    """Checks whether the given dimensions match a entry in the IGNORED dictionary above"""
+    """Checks whether the given dimensions match an entry in the IGNORED dictionary above"""
     for high_variance in IGNORED:
         matching = {key: dimensions[key] for key in high_variance if key in dimensions}
 
@@ -73,7 +74,11 @@ def extract_dimensions(emf):
         # Skipped tests emit a duration metric, but have no dimensions set
         return {}
 
-    dimension_list = emf["_aws"]["CloudWatchMetrics"][0]["Dimensions"][0]
+    dimension_list = [
+        dim
+        for dimensions in emf["_aws"]["CloudWatchMetrics"][0]["Dimensions"]
+        for dim in dimensions
+    ]
     return {key: emf[key] for key in emf if key in dimension_list}
 
 
@@ -107,7 +112,7 @@ def find_unit(emf: dict, metric: str):
     return metrics.get(metric, "None")
 
 
-def load_data_series(report_path: Path, revision: str = None, *, reemit: bool = False):
+def load_data_series(report_path: Path, tag=None, *, reemit: bool = False):
     """Loads the data series relevant for A/B-testing from test_results/test-report.json
     into a dictionary mapping each message's cloudwatch dimensions to a dictionary of
     its list-valued properties/metrics.
@@ -126,10 +131,9 @@ def load_data_series(report_path: Path, revision: str = None, *, reemit: bool = 
                 emf = json.loads(line)
 
                 if reemit:
-                    assert revision is not None
+                    assert tag is not None
 
-                    # These will show up in Cloudwatch, so canonicalize to long commit SHAs
-                    emf["git_commit_id"] = canonicalize_revision(revision)
+                    emf["git_commit_id"] = str(tag)
                     emit_raw_emf(emf)
 
                 dimensions, result = process_log_entry(emf)
@@ -146,7 +150,7 @@ def load_data_series(report_path: Path, revision: str = None, *, reemit: bool = 
                     # multiple EMF log messages. We need to reassemble :(
                     assert (
                         processed_emf[dimension_set].keys() == result.keys()
-                    ), f"Found incompatible metrics associated with dimension set {dimension_set}: {processed_emf[dimension_set].key()} in one EMF message, but {result.keys()} in another."
+                    ), f"Found incompatible metrics associated with dimension set {dimension_set}: {processed_emf[dimension_set].keys()} in one EMF message, but {result.keys()} in another."
 
                     for metric, (values, unit) in processed_emf[dimension_set].items():
                         assert result[metric][1] == unit
@@ -156,23 +160,43 @@ def load_data_series(report_path: Path, revision: str = None, *, reemit: bool = 
     return processed_emf
 
 
-def collect_data(binary_dir: Path, tests: list[str]):
+def uninteresting_dimensions(processed_emf):
+    """
+    Computes the set of cloudwatch dimensions that only ever take on a
+    single value across the entire dataset.
+    """
+    values_per_dimension = defaultdict(set)
+
+    for dimension_set in processed_emf:
+        for dimension, value in dimension_set:
+            values_per_dimension[dimension].add(value)
+
+    uninteresting = set()
+
+    for dimension, distinct_values in values_per_dimension.items():
+        if len(distinct_values) == 1:
+            uninteresting.add(dimension)
+
+    return uninteresting
+
+
+def collect_data(binary_dir: Path, pytest_opts: str):
     """Executes the specified test using the provided firecracker binaries"""
-    # Example binary_dir: ../build/main/build/cargo_target/x86_64-unknown-linux-musl/release
-    revision = binary_dir.parents[3].name
+    binary_dir = binary_dir.resolve()
 
     print(f"Collecting samples with {binary_dir}")
     subprocess.run(
-        ["./tools/test.sh", f"--binary-dir={binary_dir}", *tests, "-m", ""],
+        f"./tools/test.sh --binary-dir={binary_dir} {pytest_opts} -m ''",
         env=os.environ
         | {
             "AWS_EMF_ENVIRONMENT": "local",
             "AWS_EMF_NAMESPACE": "local",
         },
         check=True,
+        shell=True,
     )
     return load_data_series(
-        Path("test_results/test-report.json"), revision, reemit=True
+        Path("test_results/test-report.json"), binary_dir, reemit=True
     )
 
 
@@ -263,7 +287,7 @@ def analyze_data(
 
     failures = []
     for (dimension_set, metric), (result, unit) in results.items():
-        if is_ignored(dict(dimension_set)):
+        if is_ignored(dict(dimension_set) | {"metric": metric}):
             continue
 
         print(f"Doing A/B-test for dimensions {dimension_set} and property {metric}")
@@ -281,6 +305,7 @@ def analyze_data(
             )
 
     messages = []
+    do_not_print_list = uninteresting_dimensions(processed_emf_a)
     for dimension_set, metric, result, unit in failures:
         # Sanity check as described above
         if abs(statistics.mean(relative_changes_by_metric[metric])) <= noise_threshold:
@@ -302,7 +327,7 @@ def analyze_data(
                 f"for metric \033[1m{metric}\033[0m with \033[0;31m\033[1mp={result.pvalue}\033[0m. "
                 f"This means that observing a change of this magnitude or worse, assuming that performance "
                 f"characteristics did not change across the tested commits, has a probability of {result.pvalue:.2%}. "
-                f"Tested Dimensions:\n{json.dumps(dict(dimension_set), indent=2, sort_keys=True)}"
+                f"Tested Dimensions:\n{json.dumps(dict({k: v for k,v in dimension_set.items() if k not in do_not_print_list}), indent=2, sort_keys=True)}"
             )
             messages.append(msg)
 
@@ -311,23 +336,17 @@ def analyze_data(
 
 
 def ab_performance_test(
-    a_revision, b_revision, tests, p_thresh, strength_abs_thresh, noise_threshold
+    a_revision: Path,
+    b_revision: Path,
+    pytest_opts,
+    p_thresh,
+    strength_abs_thresh,
+    noise_threshold,
 ):
-    """Does an A/B-test of the specified test across the given revisions"""
-    _, commit_list, _ = utils.check_output(
-        f"git --no-pager log --oneline {a_revision}..{b_revision}"
-    )
-    print(
-        f"Performance A/B-test across {a_revision}..{b_revision}. This includes the following commits:"
-    )
-    print(commit_list.strip())
+    """Does an A/B-test of the specified test with the given firecracker/jailer binaries"""
 
-    def test_runner(workspace, _is_ab: bool):
-        bin_dir = get_binary("firecracker", workspace_dir=workspace).parent
-        return collect_data(bin_dir, tests)
-
-    return git_ab_test(
-        test_runner,
+    return binary_ab_test(
+        lambda bin_dir, _: collect_data(bin_dir, pytest_opts),
         lambda ah, be: analyze_data(
             ah,
             be,
@@ -336,14 +355,9 @@ def ab_performance_test(
             noise_threshold,
             n_resamples=int(100 / p_thresh),
         ),
-        a_revision=a_revision,
-        b_revision=b_revision,
+        a_directory=a_revision,
+        b_directory=b_revision,
     )
-
-
-def canonicalize_revision(revision):
-    """Canonicalizes the given revision to a 40 digit hex SHA"""
-    return utils.check_output(f"git rev-parse {revision}").stdout.strip()
 
 
 if __name__ == "__main__":
@@ -357,13 +371,19 @@ if __name__ == "__main__":
     )
     run_parser.add_argument(
         "a_revision",
-        help="The baseline revision compared to which we want to avoid regressing",
+        help="Directory containing firecracker and jailer binaries to be considered the performance baseline",
+        type=Path,
     )
     run_parser.add_argument(
         "b_revision",
-        help="The revision whose performance we want to compare against the results from a_revision",
+        help="Directory containing firecracker and jailer binaries whose performance we want to compare against the results from a_revision",
+        type=Path,
     )
-    run_parser.add_argument("--test", help="The test to run", nargs="+", required=True)
+    run_parser.add_argument(
+        "--pytest-opts",
+        help="Parameters to pass through to pytest, for example for test selection",
+        required=True,
+    )
     analyze_parser = subparsers.add_parser(
         "analyze",
         help="Analyze the results of two manually ran tests based on their test-report.json files",
@@ -402,7 +422,7 @@ if __name__ == "__main__":
         ab_performance_test(
             args.a_revision,
             args.b_revision,
-            args.test,
+            args.pytest_opts,
             args.significance,
             args.absolute_strength,
             args.noise_threshold,

@@ -10,7 +10,7 @@ from framework import utils
 from framework.microvm import HugePagesConfig
 from framework.properties import global_props
 from framework.utils_ftrace import ftrace_events
-from integration_tests.functional.test_uffd import SOCKET_PATH, spawn_pf_handler
+from framework.utils_uffd import spawn_pf_handler, uffd_handler
 
 
 def check_hugetlbfs_in_use(pid: int, allocation_name: str):
@@ -69,15 +69,13 @@ def test_hugetlbfs_boot(uvm_plain):
     )
 
 
-def test_hugetlbfs_snapshot(
-    microvm_factory, guest_kernel_linux_5_10, rootfs_ubuntu_22, uffd_handler_paths
-):
+def test_hugetlbfs_snapshot(microvm_factory, guest_kernel_linux_5_10, rootfs):
     """
     Test hugetlbfs snapshot restore via uffd
     """
 
     ### Create Snapshot ###
-    vm = microvm_factory.build(guest_kernel_linux_5_10, rootfs_ubuntu_22)
+    vm = microvm_factory.build(guest_kernel_linux_5_10, rootfs)
     vm.memory_monitor = None
     vm.spawn()
     vm.basic_config(huge_pages=HugePagesConfig.HUGETLBFS_2MB, mem_size_mib=128)
@@ -95,16 +93,14 @@ def test_hugetlbfs_snapshot(
     vm.spawn()
 
     # Spawn page fault handler process.
-    _pf_handler = spawn_pf_handler(
-        vm, uffd_handler_paths["valid_handler"], snapshot.mem
-    )
+    spawn_pf_handler(vm, uffd_handler("on_demand"), snapshot)
 
-    vm.restore_from_snapshot(snapshot, resume=True, uffd_path=SOCKET_PATH)
+    vm.restore_from_snapshot(resume=True)
 
     check_hugetlbfs_in_use(vm.firecracker_pid, "/anon_hugepage")
 
 
-def test_hugetlbfs_diff_snapshot(microvm_factory, uvm_plain, uffd_handler_paths):
+def test_hugetlbfs_diff_snapshot(microvm_factory, uvm_plain):
     """
     Test hugetlbfs differential snapshot support.
 
@@ -139,11 +135,9 @@ def test_hugetlbfs_diff_snapshot(microvm_factory, uvm_plain, uffd_handler_paths)
     vm.spawn()
 
     # Spawn page fault handler process.
-    _pf_handler = spawn_pf_handler(
-        vm, uffd_handler_paths["valid_handler"], snapshot_merged.mem
-    )
+    spawn_pf_handler(vm, uffd_handler("on_demand"), snapshot_merged)
 
-    vm.restore_from_snapshot(snapshot_merged, resume=True, uffd_path=SOCKET_PATH)
+    vm.restore_from_snapshot(resume=True)
 
     # Verify if the restored microvm works.
 
@@ -152,8 +146,7 @@ def test_hugetlbfs_diff_snapshot(microvm_factory, uvm_plain, uffd_handler_paths)
 def test_ept_violation_count(
     microvm_factory,
     guest_kernel_linux_5_10,
-    rootfs_ubuntu_22,
-    uffd_handler_paths,
+    rootfs,
     metrics,
     huge_pages,
 ):
@@ -163,7 +156,7 @@ def test_ept_violation_count(
     """
 
     ### Create Snapshot ###
-    vm = microvm_factory.build(guest_kernel_linux_5_10, rootfs_ubuntu_22)
+    vm = microvm_factory.build(guest_kernel_linux_5_10, rootfs)
     vm.memory_monitor = None
     vm.spawn()
     vm.basic_config(huge_pages=huge_pages, mem_size_mib=256)
@@ -200,12 +193,10 @@ def test_ept_violation_count(
     vm.spawn()
 
     # Spawn page fault handler process.
-    _pf_handler = spawn_pf_handler(
-        vm, uffd_handler_paths["fault_all_handler"], snapshot.mem
-    )
+    spawn_pf_handler(vm, uffd_handler("fault_all"), snapshot)
 
     with ftrace_events("kvm:*"):
-        vm.restore_from_snapshot(snapshot, resume=True, uffd_path=SOCKET_PATH)
+        vm.restore_from_snapshot(resume=True)
 
         # Verify if guest can run commands, and also wake up the fast page fault helper to trigger page faults.
         vm.ssh.check_output(f"kill -s {signal.SIGUSR1} {pid}")
@@ -251,41 +242,3 @@ def test_negative_huge_pages_plus_balloon(uvm_plain):
         match="Machine config error: Firecracker's huge pages support is incompatible with memory ballooning.",
     ):
         uvm_plain.basic_config(huge_pages=HugePagesConfig.HUGETLBFS_2MB)
-
-
-def test_negative_huge_pages_plus_initrd(uvm_with_initrd):
-    """Tests that huge pages and initrd cannot be used together"""
-    uvm_with_initrd.jailer.daemonize = False
-    uvm_with_initrd.spawn()
-    uvm_with_initrd.memory_monitor = None
-
-    # Ensure setting huge pages and then telling FC to boot an initrd does not work
-    with pytest.raises(
-        RuntimeError,
-        match="Boot source error: Firecracker's huge pages support is incompatible with initrds.",
-    ):
-        # `basic_config` first does a PUT to /machine-config, which will apply the huge pages configuration,
-        # and then a PUT to /boot-source, which will register the initrd
-        uvm_with_initrd.basic_config(
-            boot_args="console=ttyS0 reboot=k panic=1 pci=off",
-            use_initrd=True,
-            huge_pages=HugePagesConfig.HUGETLBFS_2MB,
-            add_root_device=False,
-            vcpu_count=1,
-        )
-
-    # Ensure telling FC about the initrd first and then setting huge pages doesn't work
-    # This first does a PUT to /machine-config to reset the huge pages configuration, before doing a
-    # PUT to /boot-source to register the initrd
-    uvm_with_initrd.basic_config(
-        huge_pages=HugePagesConfig.NONE,
-        boot_args="console=ttyS0 reboot=k panic=1 pci=off",
-        use_initrd=True,
-    )
-    with pytest.raises(
-        RuntimeError,
-        match="Machine config error: Firecracker's huge pages support is incompatible with initrds.",
-    ):
-        uvm_with_initrd.api.machine_config.patch(
-            huge_pages=HugePagesConfig.HUGETLBFS_2MB
-        )

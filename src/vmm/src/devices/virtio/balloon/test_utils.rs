@@ -5,7 +5,7 @@
 
 use crate::devices::virtio::test_utils::VirtQueue;
 #[cfg(test)]
-use crate::devices::virtio::{balloon::Balloon, balloon::BALLOON_NUM_QUEUES};
+use crate::devices::virtio::{balloon::BALLOON_NUM_QUEUES, balloon::Balloon};
 
 #[cfg(test)]
 pub fn invoke_handler_for_queue_event(b: &mut Balloon, queue_index: usize) {

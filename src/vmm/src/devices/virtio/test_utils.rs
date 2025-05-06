@@ -10,7 +10,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 
 use crate::devices::virtio::queue::Queue;
 use crate::test_utils::single_region_mem;
-use crate::utils::u64_to_usize;
+use crate::utils::{align_up, u64_to_usize};
 use crate::vstate::memory::{Address, Bytes, GuestAddress, GuestMemoryMmap};
 
 #[macro_export]
@@ -250,7 +250,7 @@ impl<'a> VirtQueue<'a> {
         const USED_ALIGN: u64 = 4;
 
         let mut x = avail.end().0;
-        x = (x + USED_ALIGN - 1) & !(USED_ALIGN - 1);
+        x = align_up(x, USED_ALIGN);
 
         let used = VirtqUsed::new(GuestAddress(x), mem, qsize, u64_to_usize(USED_ALIGN));
 
@@ -377,7 +377,7 @@ pub(crate) mod test {
         const QUEUE_SIZE: u16 = 16;
 
         // Helper function to create a set of Virtqueues for the device
-        fn create_virtqueues(mem: &'a GuestMemoryMmap, num_queues: usize) -> Vec<VirtQueue> {
+        fn create_virtqueues(mem: &'a GuestMemoryMmap, num_queues: usize) -> Vec<VirtQueue<'a>> {
             (0..num_queues)
                 .scan(GuestAddress(0), |next_addr, _| {
                     let vqueue = VirtQueue::new(*next_addr, mem, Self::QUEUE_SIZE);

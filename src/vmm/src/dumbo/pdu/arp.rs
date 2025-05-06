@@ -14,7 +14,7 @@ use std::result::Result;
 
 use super::bytes::{InnerBytes, NetworkBytes, NetworkBytesMut};
 use super::ethernet::{self, ETHERTYPE_IPV4};
-use crate::utils::net::mac::{MacAddr, MAC_ADDR_LEN};
+use crate::utils::net::mac::{MAC_ADDR_LEN, MacAddr};
 
 /// ARP Request operation
 pub const OPER_REQUEST: u16 = 0x0001;
@@ -71,7 +71,7 @@ pub struct EthIPv4ArpFrame<'a, T: 'a> {
 }
 
 #[allow(clippy::len_without_is_empty)]
-impl<'a, T: NetworkBytes + Debug> EthIPv4ArpFrame<'a, T> {
+impl<T: NetworkBytes + Debug> EthIPv4ArpFrame<'_, T> {
     /// Interprets the given bytes as an ARP frame, without doing any validity checks beforehand.
     ///
     ///  # Panics
@@ -184,7 +184,7 @@ impl<'a, T: NetworkBytes + Debug> EthIPv4ArpFrame<'a, T> {
     }
 }
 
-impl<'a, T: NetworkBytesMut + Debug> EthIPv4ArpFrame<'a, T> {
+impl<T: NetworkBytesMut + Debug> EthIPv4ArpFrame<'_, T> {
     #[allow(clippy::too_many_arguments)]
     fn write_raw(
         buf: T,

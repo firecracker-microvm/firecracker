@@ -5,6 +5,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the THIRD-PARTY file.
 
+use std::fmt::Write;
 use std::mem::offset_of;
 
 use kvm_bindings::*;
@@ -98,6 +99,22 @@ arm64_sys_reg!(SYS_CNTV_CVAL_EL0, 3, 3, 14, 3, 2);
 // https://developer.arm.com/documentation/ddi0601/2023-12/AArch64-Registers/CNTPCT-EL0--Counter-timer-Physical-Count-Register
 // https://elixir.bootlin.com/linux/v6.8/source/arch/arm64/include/asm/sysreg.h#L459
 arm64_sys_reg!(SYS_CNTPCT_EL0, 3, 3, 14, 0, 1);
+
+// Physical Timer EL0 count Register
+// The id of this register is same as SYS_CNTPCT_EL0, but KVM defines it
+// separately, so we do as well.
+// https://elixir.bootlin.com/linux/v6.12.6/source/arch/arm64/include/uapi/asm/kvm.h#L259
+arm64_sys_reg!(KVM_REG_ARM_PTIMER_CNT, 3, 3, 14, 0, 1);
+
+// Translation Table Base Register
+// https://developer.arm.com/documentation/ddi0595/2021-03/AArch64-Registers/TTBR1-EL1--Translation-Table-Base-Register-1--EL1-
+arm64_sys_reg!(TTBR1_EL1, 3, 0, 2, 0, 1);
+// Translation Control Register
+// https://developer.arm.com/documentation/ddi0601/2024-09/AArch64-Registers/TCR-EL1--Translation-Control-Register--EL1-
+arm64_sys_reg!(TCR_EL1, 3, 0, 2, 0, 2);
+// AArch64 Memory Model Feature Register
+// https://developer.arm.com/documentation/100798/0400/register-descriptions/aarch64-system-registers/id-aa64mmfr0-el1--aarch64-memory-model-feature-register-0--el1
+arm64_sys_reg!(ID_AA64MMFR0_EL1, 3, 0, 0, 7, 0);
 
 /// Vector lengths pseudo-register
 /// TODO: this can be removed after https://github.com/rust-vmm/kvm-bindings/pull/89
@@ -244,6 +261,14 @@ impl Aarch64RegisterVec {
             data: &mut self.data,
         }
     }
+
+    /// Extract the Manufacturer ID from a VCPU state's registers.
+    /// The ID is found between bits 24-31 of MIDR_EL1 register.
+    pub fn manifacturer_id(&self) -> Option<u32> {
+        self.iter()
+            .find(|reg| reg.id == MIDR_EL1)
+            .map(|reg| ((reg.value::<u64, 8>() >> 24) & 0xFF) as u32)
+    }
 }
 
 impl Serialize for Aarch64RegisterVec {
@@ -378,6 +403,15 @@ impl<'a> Aarch64RegisterRef<'a> {
     /// will panic.
     pub fn value<T: Aarch64RegisterData<N>, const N: usize>(&self) -> T {
         T::from_slice(self.data)
+    }
+
+    /// Returns a string with hex formatted value of the register.
+    pub fn value_str(&self) -> String {
+        let hex = self.data.iter().rev().fold(String::new(), |mut acc, byte| {
+            write!(&mut acc, "{:02x}", byte).unwrap();
+            acc
+        });
+        format!("0x{hex}")
     }
 
     /// Returns register data as a byte slice
@@ -669,6 +703,32 @@ mod tests {
 
         assert_eq!(usize::from(reg_ref.size()), 8);
         assert_eq!(reg_ref.value::<u64, 8>(), 69);
+    }
+
+    #[test]
+    fn test_reg_ref_value_str() {
+        let bytes = 0x10_u8.to_le_bytes();
+        let reg_ref = Aarch64RegisterRef::new(KVM_REG_SIZE_U8 as u64, &bytes);
+        assert_eq!(reg_ref.value_str(), "0x10");
+
+        let bytes = 0x1020_u16.to_le_bytes();
+        let reg_ref = Aarch64RegisterRef::new(KVM_REG_SIZE_U16, &bytes);
+        assert_eq!(reg_ref.value_str(), "0x1020");
+
+        let bytes = 0x10203040_u32.to_le_bytes();
+        let reg_ref = Aarch64RegisterRef::new(KVM_REG_SIZE_U32, &bytes);
+        assert_eq!(reg_ref.value_str(), "0x10203040");
+
+        let bytes = 0x1020304050607080_u64.to_le_bytes();
+        let reg_ref = Aarch64RegisterRef::new(KVM_REG_SIZE_U64, &bytes);
+        assert_eq!(reg_ref.value_str(), "0x1020304050607080");
+
+        let bytes = [
+            0x71, 0x61, 0x51, 0x41, 0x31, 0x21, 0x11, 0x90, 0x80, 0x70, 0x60, 0x50, 0x40, 0x30,
+            0x20, 0x10,
+        ];
+        let reg_ref = Aarch64RegisterRef::new(KVM_REG_SIZE_U128, &bytes);
+        assert_eq!(reg_ref.value_str(), "0x10203040506070809011213141516171");
     }
 
     /// Should panic because ID has different size from a slice length.

@@ -7,7 +7,7 @@
 
 use std::cmp::min;
 use std::num::Wrapping;
-use std::sync::atomic::{fence, Ordering};
+use std::sync::atomic::{Ordering, fence};
 
 use crate::logger::error;
 use crate::vstate::memory::{Address, Bitmap, ByteValued, GuestAddress, GuestMemory};
@@ -34,6 +34,8 @@ pub enum QueueError {
     DescIndexOutOfBounds(u16),
     /// Failed to write value into the virtio queue used ring: {0}
     MemoryError(#[from] vm_memory::GuestMemoryError),
+    /// Pointer is not aligned properly: {0:#x} not {1}-byte aligned.
+    PointerNotAligned(usize, u8),
 }
 
 /// A virtio descriptor constraints with C representative.
@@ -114,11 +116,7 @@ impl DescriptorChain {
             next: desc.next,
         };
 
-        if chain.is_valid() {
-            Some(chain)
-        } else {
-            None
-        }
+        if chain.is_valid() { Some(chain) } else { None }
     }
 
     fn is_valid(&self) -> bool {
@@ -172,9 +170,8 @@ impl Iterator for DescriptorIterator {
     type Item = DescriptorChain;
 
     fn next(&mut self) -> Option<Self::Item> {
-        self.0.take().map(|desc| {
+        self.0.take().inspect(|desc| {
             self.0 = desc.next_descriptor();
-            desc
         })
     }
 }
@@ -324,11 +321,36 @@ impl Queue {
             .get_slice_ptr(mem, self.used_ring_address, self.used_ring_size())?
             .cast();
 
-        // Disable it for kani tests, otherwise it will hit this assertion
-        // and fail.
-        #[cfg(not(kani))]
-        if self.actual_size() < self.len() {
-            return Err(QueueError::InvalidQueueSize(self.len(), self.actual_size()));
+        // All the above pointers are expected to be aligned properly; otherwise some methods (e.g.
+        // `read_volatile()`) will panic. Such an unalignment is possible when restored from a
+        // broken/fuzzed snapshot.
+        //
+        // Specification of those pointers' alignments
+        // https://docs.oasis-open.org/virtio/virtio/v1.2/csd01/virtio-v1.2-csd01.html#x1-350007
+        // > ================ ==========
+        // > Virtqueue Part    Alignment
+        // > ================ ==========
+        // > Descriptor Table 16
+        // > Available Ring   2
+        // > Used Ring        4
+        // > ================ ==========
+        if !self.desc_table_ptr.cast::<u128>().is_aligned() {
+            return Err(QueueError::PointerNotAligned(
+                self.desc_table_ptr as usize,
+                16,
+            ));
+        }
+        if !self.avail_ring_ptr.is_aligned() {
+            return Err(QueueError::PointerNotAligned(
+                self.avail_ring_ptr as usize,
+                2,
+            ));
+        }
+        if !self.used_ring_ptr.cast::<u32>().is_aligned() {
+            return Err(QueueError::PointerNotAligned(
+                self.used_ring_ptr as usize,
+                4,
+            ));
         }
 
         Ok(())
@@ -560,10 +582,9 @@ impl Queue {
         // index is bound by the queue size
         let desc_index = unsafe { self.avail_ring_ring_get(usize::from(idx)) };
 
-        DescriptorChain::checked_new(self.desc_table_ptr, self.actual_size(), desc_index).map(
-            |dc| {
+        DescriptorChain::checked_new(self.desc_table_ptr, self.actual_size(), desc_index).inspect(
+            |_| {
                 self.next_avail += Wrapping(1);
-                dc
             },
         )
     }
@@ -575,9 +596,8 @@ impl Queue {
     }
 
     /// Write used element into used_ring ring.
-    /// - [`ring_index_offset`] is an offset added to
-    /// the current [`self.next_used`] to obtain actual index
-    /// into used_ring.
+    /// - [`ring_index_offset`] is an offset added to the current [`self.next_used`] to obtain
+    ///   actual index into used_ring.
     pub fn write_used_element(
         &mut self,
         ring_index_offset: u16,
@@ -700,7 +720,6 @@ mod verification {
     use std::mem::ManuallyDrop;
     use std::num::Wrapping;
 
-    use vm_memory::guest_memory::GuestMemoryIterator;
     use vm_memory::{GuestMemoryRegion, MemoryRegionAddress};
 
     use super::*;
@@ -717,13 +736,8 @@ mod verification {
         the_region: vm_memory::GuestRegionMmap,
     }
 
-    impl<'a> GuestMemoryIterator<'a, vm_memory::GuestRegionMmap> for ProofGuestMemory {
-        type Iter = std::iter::Once<&'a vm_memory::GuestRegionMmap>;
-    }
-
     impl GuestMemory for ProofGuestMemory {
         type R = vm_memory::GuestRegionMmap;
-        type I = Self;
 
         fn num_regions(&self) -> usize {
             1
@@ -735,7 +749,7 @@ mod verification {
                 .map(|_| &self.the_region)
         }
 
-        fn iter(&self) -> <Self::I as GuestMemoryIterator<Self::R>>::Iter {
+        fn iter(&self) -> impl Iterator<Item = &Self::R> {
             std::iter::once(&self.the_region)
         }
 
@@ -785,10 +799,11 @@ mod verification {
     const GUEST_MEMORY_BASE: u64 = 512;
 
     // We size our guest memory to fit a properly aligned queue, plus some wiggles bytes
-    // to make sure we not only test queues where all segments are consecutively aligned.
+    // to make sure we not only test queues where all segments are consecutively aligned (at least
+    // for those proofs that use a completely arbitrary queue structure).
     // We need to give at least 16 bytes of buffer space for the descriptor table to be
     // able to change its address, as it is 16-byte aligned.
-    const GUEST_MEMORY_SIZE: usize = QUEUE_END as usize + 30;
+    const GUEST_MEMORY_SIZE: usize = (QUEUE_END - QUEUE_BASE_ADDRESS) as usize + 30;
 
     fn guest_memory(memory: *mut u8) -> ProofGuestMemory {
         // Ideally, we'd want to do
@@ -858,8 +873,7 @@ mod verification {
     const USED_RING_BASE_ADDRESS: u64 =
         AVAIL_RING_BASE_ADDRESS + 6 + 2 * FIRECRACKER_MAX_QUEUE_SIZE as u64 + 2;
 
-    /// The address of the first byte after the queue. Since our queue starts at guest physical
-    /// address 0, this is also the size of the memory area occupied by the queue.
+    /// The address of the first byte after the queue (which starts at QUEUE_BASE_ADDRESS).
     /// Note that the used ring structure has size 6 + 8 * FIRECRACKER_MAX_QUEUE_SIZE
     const QUEUE_END: u64 = USED_RING_BASE_ADDRESS + 6 + 8 * FIRECRACKER_MAX_QUEUE_SIZE as u64;
 
@@ -937,8 +951,8 @@ mod verification {
 
     #[kani::proof]
     #[kani::unwind(0)] // There are no loops anywhere, but kani really enjoys getting stuck in std::ptr::drop_in_place.
-                       // This is a compiler intrinsic that has a "dummy" implementation in stdlib that just
-                       // recursively calls itself. Kani will generally unwind this recursion infinitely
+    // This is a compiler intrinsic that has a "dummy" implementation in stdlib that just
+    // recursively calls itself. Kani will generally unwind this recursion infinitely
     fn verify_spec_2_6_7_2() {
         // Section 2.6.7.2 deals with device-to-driver notification suppression.
         // It describes a mechanism by which the driver can tell the device that it does not
@@ -1073,11 +1087,7 @@ mod verification {
             // Section 2.6: Alignment of descriptor table, available ring and used ring; size of
             // queue
             fn alignment_of(val: u64) -> u64 {
-                if val == 0 {
-                    u64::MAX
-                } else {
-                    val & (!val + 1)
-                }
+                if val == 0 { u64::MAX } else { val & (!val + 1) }
             }
 
             assert!(alignment_of(queue.desc_table_address.0) >= 16);
@@ -1243,12 +1253,11 @@ mod verification {
 
 #[cfg(test)]
 mod tests {
-
     use vm_memory::Bytes;
 
     pub use super::*;
     use crate::devices::virtio::queue::QueueError::DescIndexOutOfBounds;
-    use crate::devices::virtio::test_utils::{default_mem, VirtQueue};
+    use crate::devices::virtio::test_utils::{VirtQueue, default_mem};
     use crate::test_utils::{multi_region_mem, single_region_mem};
     use crate::vstate::memory::GuestAddress;
 
@@ -1651,6 +1660,63 @@ mod tests {
         assert!(q.pop().is_some());
         assert!(q.try_enable_notification());
         assert_eq!(q.used_ring_avail_event_get(), 1);
+    }
+
+    #[test]
+    fn test_initialize_with_aligned_pointer() {
+        let mut q = Queue::new(0);
+
+        let random_addr = 0x321;
+        // Descriptor table must be 16-byte aligned.
+        q.desc_table_address = GuestAddress(random_addr / 16 * 16);
+        // Available ring must be 2-byte aligned.
+        q.avail_ring_address = GuestAddress(random_addr / 2 * 2);
+        // Used ring must be 4-byte aligned.
+        q.avail_ring_address = GuestAddress(random_addr / 4 * 4);
+
+        let mem = single_region_mem(0x1000);
+        q.initialize(&mem).unwrap();
+    }
+
+    #[test]
+    fn test_initialize_with_misaligned_pointer() {
+        let mut q = Queue::new(0);
+        let mem = single_region_mem(0x1000);
+
+        // Descriptor table must be 16-byte aligned.
+        q.desc_table_address = GuestAddress(0xb);
+        match q.initialize(&mem) {
+            Ok(_) => panic!("Unexpected success"),
+            Err(QueueError::PointerNotAligned(addr, alignment)) => {
+                assert_eq!(addr % 16, 0xb);
+                assert_eq!(alignment, 16);
+            }
+            Err(e) => panic!("Unexpected error {e:#?}"),
+        }
+        q.desc_table_address = GuestAddress(0x0);
+
+        // Available ring must be 2-byte aligned.
+        q.avail_ring_address = GuestAddress(0x1);
+        match q.initialize(&mem) {
+            Ok(_) => panic!("Unexpected success"),
+            Err(QueueError::PointerNotAligned(addr, alignment)) => {
+                assert_eq!(addr % 2, 0x1);
+                assert_eq!(alignment, 2);
+            }
+            Err(e) => panic!("Unexpected error {e:#?}"),
+        }
+        q.avail_ring_address = GuestAddress(0x0);
+
+        // Used ring must be 4-byte aligned.
+        q.used_ring_address = GuestAddress(0x3);
+        match q.initialize(&mem) {
+            Ok(_) => panic!("unexpected success"),
+            Err(QueueError::PointerNotAligned(addr, alignment)) => {
+                assert_eq!(addr % 4, 0x3);
+                assert_eq!(alignment, 4);
+            }
+            Err(e) => panic!("Unexpected error {e:#?}"),
+        }
     }
 
     #[test]

@@ -386,7 +386,7 @@ mod tests {
             ),
             input: None::<std::io::Stdin>,
         };
-        serial.serial.raw_input(&[b'a', b'b', b'c']).unwrap();
+        serial.serial.raw_input(b"abc").unwrap();
 
         let invalid_reads_before = metrics.missed_read_count.count();
         let mut v = [0x00; 2];

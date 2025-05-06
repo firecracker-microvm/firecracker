@@ -8,16 +8,15 @@ import re
 import pytest
 import requests
 
-from framework.utils import Timeout, UffdHandler, check_output
-
-SOCKET_PATH = "/firecracker-uffd.sock"
+from framework.utils import Timeout, check_output
+from framework.utils_uffd import spawn_pf_handler, uffd_handler
 
 
 @pytest.fixture(scope="function", name="snapshot")
-def snapshot_fxt(microvm_factory, guest_kernel_linux_5_10, rootfs_ubuntu_22):
+def snapshot_fxt(microvm_factory, guest_kernel_linux_5_10, rootfs):
     """Create a snapshot of a microVM."""
 
-    basevm = microvm_factory.build(guest_kernel_linux_5_10, rootfs_ubuntu_22)
+    basevm = microvm_factory.build(guest_kernel_linux_5_10, rootfs)
     basevm.spawn()
     basevm.basic_config(vcpu_count=2, mem_size_mib=256)
     basevm.add_net_iface()
@@ -34,22 +33,6 @@ def snapshot_fxt(microvm_factory, guest_kernel_linux_5_10, rootfs_ubuntu_22):
     basevm.kill()
 
     yield snapshot
-
-
-def spawn_pf_handler(vm, handler_path, mem_path):
-    """Spawn page fault handler process."""
-    # Copy snapshot memory file into chroot of microVM.
-    jailed_mem = vm.create_jailed_resource(mem_path)
-    # Copy the valid page fault binary into chroot of microVM.
-    jailed_handler = vm.create_jailed_resource(handler_path)
-    handler_name = os.path.basename(jailed_handler)
-
-    uffd_handler = UffdHandler(
-        handler_name, SOCKET_PATH, jailed_mem, vm.chroot(), "uffd.log"
-    )
-    uffd_handler.spawn(vm.jailer.uid, vm.jailer.gid)
-
-    return uffd_handler
 
 
 def test_bad_socket_path(uvm_plain, snapshot):
@@ -100,7 +83,7 @@ def test_unbinded_socket(uvm_plain, snapshot):
     vm.mark_killed()
 
 
-def test_valid_handler(uvm_plain, snapshot, uffd_handler_paths):
+def test_valid_handler(uvm_plain, snapshot):
     """
     Test valid uffd handler scenario.
     """
@@ -109,22 +92,24 @@ def test_valid_handler(uvm_plain, snapshot, uffd_handler_paths):
     vm.spawn()
 
     # Spawn page fault handler process.
-    _pf_handler = spawn_pf_handler(
-        vm, uffd_handler_paths["valid_handler"], snapshot.mem
-    )
+    spawn_pf_handler(vm, uffd_handler("on_demand"), snapshot)
 
-    vm.restore_from_snapshot(snapshot, resume=True, uffd_path=SOCKET_PATH)
+    vm.restore_from_snapshot(resume=True)
 
     # Inflate balloon.
     vm.api.balloon.patch(amount_mib=200)
+
+    # Verify if the restored guest works.
+    vm.ssh.check_output("true")
 
     # Deflate balloon.
     vm.api.balloon.patch(amount_mib=0)
 
     # Verify if the restored guest works.
+    vm.ssh.check_output("true")
 
 
-def test_malicious_handler(uvm_plain, snapshot, uffd_handler_paths):
+def test_malicious_handler(uvm_plain, snapshot):
     """
     Test malicious uffd handler scenario.
 
@@ -140,15 +125,13 @@ def test_malicious_handler(uvm_plain, snapshot, uffd_handler_paths):
     vm.spawn()
 
     # Spawn page fault handler process.
-    _pf_handler = spawn_pf_handler(
-        vm, uffd_handler_paths["malicious_handler"], snapshot.mem
-    )
+    spawn_pf_handler(vm, uffd_handler("malicious"), snapshot)
 
     # We expect Firecracker to freeze while resuming from a snapshot
     # due to the malicious handler's unavailability.
     try:
         with Timeout(seconds=30):
-            vm.restore_from_snapshot(snapshot, resume=True, uffd_path=SOCKET_PATH)
+            vm.restore_from_snapshot(resume=True)
             assert False, "Firecracker should freeze"
     except (TimeoutError, requests.exceptions.ReadTimeout):
         pass

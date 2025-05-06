@@ -83,14 +83,14 @@ use std::os::unix::io::{AsRawFd, RawFd};
 use std::time::{Duration, Instant};
 
 use log::{debug, error, info, warn};
-use vm_memory::io::{ReadVolatile, WriteVolatile};
 use vm_memory::GuestMemoryError;
+use vm_memory::io::{ReadVolatile, WriteVolatile};
 use vmm_sys_util::epoll::EventSet;
 
 use super::super::defs::uapi;
 use super::super::{VsockChannel, VsockEpollListener, VsockError};
 use super::txbuf::TxBuf;
-use super::{defs, ConnState, PendingRx, PendingRxSet, VsockCsmError};
+use super::{ConnState, PendingRx, PendingRxSet, VsockCsmError, defs};
 use crate::devices::virtio::vsock::metrics::METRICS;
 use crate::devices::virtio::vsock::packet::{VsockPacketHeader, VsockPacketRx, VsockPacketTx};
 use crate::logger::IncMetric;

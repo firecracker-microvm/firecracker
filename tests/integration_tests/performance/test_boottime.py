@@ -11,7 +11,6 @@ import pytest
 from framework.properties import global_props
 
 # Regex for obtaining boot time from some string.
-TIMESTAMP_LOG_REGEX = r"Guest-boot-time\s+\=\s+(\d+)\s+us"
 
 DEFAULT_BOOT_ARGS = (
     "reboot=k panic=1 pci=off nomodule 8250.nr_uarts=0"
@@ -27,27 +26,32 @@ DIMENSIONS = {
 }
 
 
-def _get_microvm_boottime(vm):
+def get_boottime_device_info(vm):
     """Auxiliary function for asserting the expected boot time."""
     boot_time_us = None
+    boot_time_cpu_us = None
     timestamps = []
+
+    timestamp_log_regex = (
+        r"Guest-boot-time =\s+(\d+) us\s+(\d+) ms,\s+(\d+) CPU us\s+(\d+) CPU ms"
+    )
 
     iterations = 50
     sleep_time_s = 0.1
     for _ in range(iterations):
-        timestamps = re.findall(TIMESTAMP_LOG_REGEX, vm.log_data)
+        timestamps = re.findall(timestamp_log_regex, vm.log_data)
         if timestamps:
             break
         time.sleep(sleep_time_s)
     if timestamps:
-        boot_time_us = int(timestamps[0])
+        boot_time_us, _, boot_time_cpu_us, _ = timestamps[0]
 
-    assert boot_time_us, (
+    assert boot_time_us and boot_time_cpu_us, (
         f"MicroVM did not boot within {sleep_time_s * iterations}s\n"
         f"Firecracker logs:\n{vm.log_data}\n"
         f"Thread backtraces:\n{vm.thread_backtraces}"
     )
-    return boot_time_us
+    return int(boot_time_us), int(boot_time_cpu_us)
 
 
 def find_events(log_data):
@@ -67,6 +71,37 @@ def find_events(log_data):
     for _, val in timestamps.items():
         val["duration"] = val["end"] - val["start"]
     return timestamps
+
+
+def get_systemd_analyze_times(microvm):
+    """
+    Parse systemd-analyze output
+    """
+    rc, stdout, stderr = microvm.ssh.run("systemd-analyze")
+    assert rc == 0, stderr
+    assert stderr == ""
+
+    boot_line = stdout.splitlines()[0]
+    # The line will look like this:
+    # Startup finished in 79ms (kernel) + 231ms (userspace) = 310ms
+    # In the regex we capture the time and the unit for kernel, userspace and total values
+    pattern = r"Startup finished in (\d*)(ms|s)\s+\(kernel\) \+ (\d*)(ms|s)\s+\(userspace\) = ([\d.]*)(ms|s)\s*"
+    kernel, kernel_unit, userspace, userspace_unit, total, total_unit = re.findall(
+        pattern, boot_line
+    )[0]
+
+    def to_ms(v, unit):
+        match unit:
+            case "ms":
+                return float(v)
+            case "s":
+                return float(v) * 1000
+
+    kernel = to_ms(kernel, kernel_unit)
+    userspace = to_ms(userspace, userspace_unit)
+    total = to_ms(total, total_unit)
+
+    return kernel, userspace, total
 
 
 @pytest.mark.parametrize(
@@ -102,14 +137,28 @@ def test_boottime(
         vm.add_net_iface()
         vm.start()
         vm.pin_threads(0)
-        boottime_us = _get_microvm_boottime(vm)
-        metrics.put_metric("boot_time", boottime_us, unit="Microseconds")
-        timestamps = find_events(vm.log_data)
-        build_time = timestamps["build microvm for boot"]["duration"]
-        metrics.put_metric("build_time", build_time.microseconds, unit="Microseconds")
+
+        boot_time_us, cpu_boot_time_us = get_boottime_device_info(vm)
         metrics.put_metric(
             "guest_boot_time",
-            boottime_us - build_time.microseconds,
+            boot_time_us,
             unit="Microseconds",
         )
+        metrics.put_metric(
+            "guest_cpu_boot_time",
+            cpu_boot_time_us,
+            unit="Microseconds",
+        )
+
+        events = find_events(vm.log_data)
+        build_time = events["build microvm for boot"]["duration"]
+        metrics.put_metric("build_time", build_time.microseconds, unit="Microseconds")
+        resume_time = events["boot microvm"]["duration"]
+        metrics.put_metric("resume_time", resume_time.microseconds, unit="Microseconds")
+
+        kernel, userspace, total = get_systemd_analyze_times(vm)
+        metrics.put_metric("systemd_kernel", kernel, unit="Milliseconds")
+        metrics.put_metric("systemd_userspace", userspace, unit="Milliseconds")
+        metrics.put_metric("systemd_total", total, unit="Milliseconds")
+
         vm.kill()

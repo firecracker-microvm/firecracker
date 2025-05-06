@@ -7,6 +7,7 @@
 //! virtio queue:
 //! - the packet header; and
 //! - the packet data/buffer.
+//!
 //! There is a 1:1 relation between descriptor chains and packets: the first (chain head) holds
 //! the header, and an optional second descriptor holds the data. The second descriptor is only
 //! present for data packets (VSOCK_OP_RW).
@@ -20,7 +21,7 @@ use std::fmt::Debug;
 use vm_memory::volatile_memory::Error;
 use vm_memory::{GuestMemoryError, ReadVolatile, WriteVolatile};
 
-use super::{defs, VsockError};
+use super::{VsockError, defs};
 use crate::devices::virtio::iovec::{IoVecBuffer, IoVecBufferMut};
 use crate::devices::virtio::queue::DescriptorChain;
 use crate::vstate::memory::{ByteValued, GuestMemoryMmap};
@@ -44,7 +45,7 @@ use crate::vstate::memory::{ByteValued, GuestMemoryMmap};
 // The mirroring struct is only used privately by `VsockPacket`, that offers getter and setter
 // methods, for each struct field, that will also handle the correct endianess.
 
-#[repr(packed)]
+#[repr(C, packed)]
 #[derive(Copy, Clone, Debug, Default)]
 pub struct VsockPacketHeader {
     // Source CID.
@@ -222,7 +223,7 @@ impl VsockPacketTx {
         match self.buffer.read_exact_volatile_at(hdr.as_mut_slice(), 0) {
             Ok(()) => (),
             Err(Error::PartialBuffer { completed, .. }) => {
-                return Err(VsockError::DescChainTooShortForHeader(completed))
+                return Err(VsockError::DescChainTooShortForHeader(completed));
             }
             Err(err) => return Err(VsockError::GuestMemoryMmap(err.into())),
         }
@@ -517,7 +518,7 @@ mod tests {
             ))
         }
 
-        // Test case: the buffer descriptor cannot fit all the data advertised by the the
+        // Test case: the buffer descriptor cannot fit all the data advertised by the
         // packet header `len` field.
         {
             create_context!(test_ctx, handler_ctx);

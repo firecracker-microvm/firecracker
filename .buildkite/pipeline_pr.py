@@ -48,8 +48,10 @@ if any(
         "./tools/devtool -y make_release",
     )
 
-if not changed_files or any(
-    x.suffix in [".rs", ".toml", ".lock"] for x in changed_files
+if not pipeline.args.no_kani and (
+    not changed_files
+    or any(x.suffix in [".rs", ".toml", ".lock"] for x in changed_files)
+    or any(x.parent.name == "devctr" for x in changed_files)
 ):
     kani_grp = pipeline.build_group(
         "🔍 Kani",
@@ -57,7 +59,7 @@ if not changed_files or any(
         # Kani step default
         # Kani runs fastest on m6a.metal
         instances=["m6a.metal", "m7g.metal"],
-        platforms=[("al2", "linux_5.10")],
+        platforms=[("al2023", "linux_6.1")],
         timeout_in_minutes=300,
         **DEFAULTS_PERF,
         depends_on_build=False,
@@ -76,7 +78,7 @@ if run_all_tests(changed_files):
     pipeline.build_group(
         "⚙ Functional and security 🔒",
         pipeline.devtool_test(
-            pytest_opts="-n 8 --dist worksteal integration_tests/{{functional,security}}",
+            pytest_opts="-n 16 --dist worksteal integration_tests/{{functional,security}}",
         ),
     )
 

@@ -142,6 +142,21 @@ above when run on a PR will fail iff a newly added dependency has a known open
 RustSec advisory. If run outside a PR, it will fail if any existing dependency
 has an open RustSec advisory).
 
+### Functional A/B-Tests
+
+Firecracker has some functional A/B-tests (for example, in
+`test_vulnerabilities.py`), which generally compare the state of the pull
+request target branch (e.g. `main`), with the PR head. However, when running
+these locally, pytest does not know anything about potential PRs that the commit
+the tests are being run on are contained in, and as such cannot do this
+A/B-Test. To run functional A/B-Tests locally, you need to create a "fake" PR
+environment by setting the `BUILDKITE_PULL_REQUEST` and
+`BUILDKITE_PULL_REQUEST_BASE_BRANCH` environment variables:
+
+```
+BUILDKITE_PULL_REQUEST=true BUILDKITE_PULL_REQUEST_BASE_BRANCH=main ./tools/devtool test -- integration_tests/security/test_vulnerabilities.py
+```
+
 ### Performance A/B-Tests
 
 Firecracker has a special framework for orchestrating long-running A/B-tests
@@ -169,16 +184,21 @@ function to [`.buildkite/pipeline_perf.py`](../.buildkite/pipeline_perf.py). To
 manually run an A/B-Test, use
 
 ```sh
-tools/devtool -y test --ab [optional arguments to ab_test.py] run <revision A> <revision B> --test <test specification>
+tools/devtool -y test --ab [optional arguments to ab_test.py] run <dir A> <dir B> --pytest-opts <test specification>
 ```
 
-Here, _revision A_ and _revision B_ can be arbitrary git objects, such as commit
-SHAs, branches or tags. For example, to compare boottime of microVMs between
-Firecracker binaries compiled from the `main` branch and the `HEAD` of your
-current branch, run
+Here, _dir A_ and _dir B_ are directories containing firecracker and jailer
+binaries whose performance characteristics you wish to compare. You can use
+`./tools/devtool build --rev <revision> --release` to compile binaries from an
+arbitrary git object (commit SHAs, branches, tags etc.). This will create
+sub-directories in `build` containing the binaries. For example, to compare
+boottime of microVMs between Firecracker binaries compiled from the `main`
+branch and the `HEAD` of your current branch, run
 
 ```sh
-tools/devtool -y test --ab run main HEAD --test integration_tests/performance/test_boottime.py::test_boottime
+tools/devtool -y build --rev main --release
+tools/devtool -y build --rev HEAD --release
+tools/devtool -y test --no-build --ab -- run build/main build/HEAD --pytest-opts integration_tests/performance/test_boottime.py::test_boottime
 ```
 
 #### How to Write an A/B-Compatible Test and Common Pitfalls
@@ -193,9 +213,9 @@ dimension to match up data series between two test runs. It only matches up two
 data series with the same name if their dimensions match.
 
 Special care needs to be taken when pytest expands the argument passed to
-`tools/ab_test.py`'s `--test` option into multiple individual test cases. If two
-test cases use the same dimensions for different data series, the script will
-fail and print out the names of the violating data series. For this reason,
+`tools/ab_test.py`'s `--pytest-opts` option into multiple individual test cases.
+If two test cases use the same dimensions for different data series, the script
+will fail and print out the names of the violating data series. For this reason,
 **A/B-Compatible tests should include a `performance_test` key in their
 dimension set whose value is set to the name of the test**.
 
@@ -298,13 +318,17 @@ that are pre-initialized with specific guest kernels and rootfs:
 
 - `uvm_plain_any` is parametrized by the guest kernels
   [supported](../docs/kernel-policy.md) by Firecracker and a read-only Ubuntu
-  22.04 squashfs as rootfs,
+  24.04 squashfs as rootfs,
 - `uvm_plain` yields a Firecracker process pre-initialized with a 5.10 kernel
-  and the same Ubuntu 22.04 squashfs.
+  and the same Ubuntu 24.04 squashfs.
+- `uvm_any` yields started microvms, parametrized by all supported kernels, all
+  CPU templates (static, custom and none), and either booted or restored from a
+  snapshot.
+- `uvm_any_booted` works the same as `uvm_any`, but only for booted VMs.
 
-Generally, tests should use the former if you are testing some interaction
-between the guest and Firecracker, while the latter should be used if
-Firecracker functionality unrelated to the guest is being tested.
+Generally, tests should use `uvm_plain_any` if you are testing some interaction
+between the guest and Firecracker, and `uvm_plain` should be used if Firecracker
+functionality unrelated to the guest is being tested.
 
 ### Markers
 
@@ -391,36 +415,33 @@ setting to achieve consistent performance. Please see the `test` section of
 
 `Q1:` *I have a shell script that runs my tests and I don't want to rewrite
 it.*\
-`A1:` Insofar as it makes sense, you should write it as a python test
-function. However, you can always call the script from a shim python test
-function. You can also add it as a microvm image resource in the s3 bucket (and
-it will be made available under `microvm.slot.path`) or copy it over to a guest
-filesystem as part of your test.
+`A1:` Insofar as it makes sense, you should write it as a python test function.
+However, you can always call the script from a shim python test function. You
+can also add it as a microvm image resource in the s3 bucket (and it will be
+made available under `microvm.slot.path`) or copy it over to a guest filesystem
+as part of your test.
 
 `Q2:` *I want to add more tests that I don't want to commit to the Firecracker
 repository.*\
-`A2:` Before a testrun or test session, just add your test
-directory under `tests/`. `pytest` will discover all tests in this tree.
+`A2:` Before a testrun or test session, just add your test directory under
+`tests/`. `pytest` will discover all tests in this tree.
 
-`Q3:` *I want to have my own test fixtures, and not commit them in the
-repo.*\
-`A3:` Add a `conftest.py` file in your test directory, and place your
-fixtures there. `pytest` will bring them into scope for all your tests.
+`Q3:` *I want to have my own test fixtures, and not commit them in the repo.*\
+`A3:` Add a `conftest.py` file in your test directory, and place your fixtures
+there. `pytest` will bring them into scope for all your tests.
 
 `Q4:` *I want to use more/other microvm test images, but I don't want to add
 them to the common s3 bucket.*\
-`A4:` Add your custom images to the `build/img`
-subdirectory in the Firecracker source tree. This directory is bind-mounted in
-the container and used as a local image cache.
+`A4:` Add your custom images to the `build/img` subdirectory in the Firecracker
+source tree. This directory is bind-mounted in the container and used as a local
+image cache.
 
 `Q5:` *How can I get live logger output from the tests?*\
-`A5:` Accessing
-**pytest.ini** will allow you to modify logger settings.
+`A5:` Accessing **pytest.ini** will allow you to modify logger settings.
 
 `Q6:` *Is there a way to speed up integration tests execution time?*\
-`A6:` You
-can narrow down the test selection as described in the **Running** section. For
-example:
+`A6:` You can narrow down the test selection as described in the **Running**
+section. For example:
 
 1. Pass the `-k substring` option to pytest to only run a subset of tests by
    specifying a part of their name.
@@ -634,6 +655,6 @@ sudo pip3 install pytest ipython requests psutil tenacity filelock "urllib3<2.0"
 sudo env PYTHONPATH=tests HOME=$HOME ~/.local/bin/ipython3 -i tools/sandbox.py -- --binary-dir ../repro/v1.4.1
 ```
 
-> \[!WARNING\]
+> [!WARNING]
 >
 > **Notice this runs as root!**

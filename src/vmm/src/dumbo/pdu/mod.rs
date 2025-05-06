@@ -66,8 +66,7 @@ enum ChecksumProto {
 /// * `bytes` - Raw bytes of a TCP packet or a UDP datagram
 /// * `src_addr` - IPv4 source address
 /// * `dst_addr` - IPv4 destination address
-/// * `protocol` - **must** be either `PROTOCOL_TCP` or `PROTOCOL_UDP` defined in
-/// `ipv4` module
+/// * `protocol` - **must** be either `PROTOCOL_TCP` or `PROTOCOL_UDP` defined in `ipv4` module
 ///
 /// More details about TCP checksum computation can be found [here].
 ///

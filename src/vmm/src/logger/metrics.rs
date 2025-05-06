@@ -46,10 +46,9 @@
 //!
 //! The system implements 2 types of metrics:
 //! * Shared Incremental Metrics (SharedIncMetrics) - dedicated for the metrics which need a counter
-//! (i.e the number of times an API request failed). These metrics are reset upon flush.
+//!   (i.e the number of times an API request failed). These metrics are reset upon flush.
 //! * Shared Store Metrics (SharedStoreMetrics) - are targeted at keeping a persistent value, it is
-//!   not
-//! intended to act as a counter (i.e for measure the process start up time for example).
+//!   not intended to act as a counter (i.e for measure the process start up time for example).
 //!
 //! The current approach for the `SharedIncMetrics` type is to store two values (current and
 //! previous) and compute the delta between them each time we do a flush (i.e by serialization).
@@ -58,6 +57,7 @@
 //!   to actual writing, so less synchronization effort is required.
 //! * We don't have to worry at all that much about losing some data if writing fails for a while
 //!   (this could be a concern, I guess).
+//!
 //! If if turns out this approach is not really what we want, it's pretty easy to resort to
 //! something else, while working behind the same interface.
 
@@ -68,7 +68,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Mutex, OnceLock};
 
 use serde::{Serialize, Serializer};
-use utils::time::{get_time_ns, get_time_us, ClockType};
+use utils::time::{ClockType, get_time_ns, get_time_us};
 
 use super::FcLineWriter;
 use crate::devices::legacy;
@@ -706,7 +706,7 @@ impl<'a> LatencyMetricsRecorder<'a> {
         }
     }
 }
-impl<'a> Drop for LatencyMetricsRecorder<'a> {
+impl Drop for LatencyMetricsRecorder<'_> {
     /// records aggregate (min/max/sum) for the given metric
     /// This captures delta between self.start_time and current time
     /// and updates min/max/sum metrics.
@@ -779,6 +779,8 @@ pub struct VcpuMetrics {
     pub exit_mmio_write: SharedIncMetric,
     /// Number of errors during this VCPU's run.
     pub failures: SharedIncMetric,
+    /// Number of times that the `KVM_KVMCLOCK_CTRL` ioctl failed.
+    pub kvmclock_ctrl_fails: SharedIncMetric,
     /// Provides Min/max/sum for KVM exits handling input IO.
     pub exit_io_in_agg: LatencyAggregateMetrics,
     /// Provides Min/max/sum for KVM exits handling output IO.
@@ -797,6 +799,7 @@ impl VcpuMetrics {
             exit_mmio_read: SharedIncMetric::new(),
             exit_mmio_write: SharedIncMetric::new(),
             failures: SharedIncMetric::new(),
+            kvmclock_ctrl_fails: SharedIncMetric::new(),
             exit_io_in_agg: LatencyAggregateMetrics::new(),
             exit_io_out_agg: LatencyAggregateMetrics::new(),
             exit_mmio_read_agg: LatencyAggregateMetrics::new(),
@@ -948,8 +951,8 @@ impl FirecrackerMetrics {
 #[cfg(test)]
 mod tests {
     use std::io::{ErrorKind, LineWriter};
-    use std::sync::atomic::fence;
     use std::sync::Arc;
+    use std::sync::atomic::fence;
     use std::thread;
 
     use vmm_sys_util::tempfile::TempFile;

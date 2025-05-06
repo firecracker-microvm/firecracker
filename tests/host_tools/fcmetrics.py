@@ -234,6 +234,7 @@ def validate_fc_metrics(metrics):
             "exit_mmio_read",
             "exit_mmio_write",
             "failures",
+            "kvmclock_ctrl_fails",
             {"exit_io_in_agg": latency_agg_metrics_fields},
             {"exit_io_out_agg": latency_agg_metrics_fields},
             {"exit_mmio_read_agg": latency_agg_metrics_fields},
@@ -471,6 +472,7 @@ def flush_fc_metrics_to_cw(fc_metrics, metrics):
         # See also https://github.com/stefano-garzarella/iperf-vsock/issues/4
         "fc_metrics.vsock.rx_read_fails",
         "fc_metrics.vsock.tx_write_fails",
+        "fc_metrics.vsock.tx_flush_fails",
     ]
 
     failure_metrics = {

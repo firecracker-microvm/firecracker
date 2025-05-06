@@ -18,8 +18,6 @@ pub use self::request::*;
 pub use crate::devices::virtio::block::CacheType;
 use crate::devices::virtio::queue::FIRECRACKER_MAX_QUEUE_SIZE;
 
-/// Size of config space for block device.
-pub const BLOCK_CONFIG_SPACE_SIZE: usize = 8;
 /// Sector shift for block device.
 pub const SECTOR_SHIFT: u8 = 9;
 /// Size of block sector.

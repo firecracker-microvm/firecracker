@@ -2,18 +2,25 @@
 # SPDX-License-Identifier: Apache-2.0
 """Basic tests scenarios for snapshot save/restore."""
 
+import dataclasses
 import filecmp
 import logging
 import os
+import platform
 import re
 import shutil
 import time
+import uuid
 from pathlib import Path
 
 import pytest
 
+import host_tools.cargo_build as host
 import host_tools.drive as drive_tools
+import host_tools.network as net_tools
+from framework import utils
 from framework.microvm import SnapshotType
+from framework.properties import global_props
 from framework.utils import check_filesystem, check_output
 from framework.utils_vsock import (
     ECHO_SERVER_PORT,
@@ -50,39 +57,25 @@ def _get_guest_drive_size(ssh_connection, guest_dev_name="/dev/vdb"):
     return lines[1].strip()
 
 
-def test_resume_after_restoration(uvm_nano, microvm_factory):
-    """Tests snapshot is resumable after restoration.
+@pytest.mark.parametrize("resume_at_restore", [True, False])
+def test_resume(uvm_nano, microvm_factory, resume_at_restore):
+    """Tests snapshot is resumable at or after restoration.
 
-    Check that a restored microVM is resumable by calling PATCH /vm with Resumed
-    after PUT /snapshot/load with `resume_vm=False`.
+    Check that a restored microVM is resumable by either
+    a. PUT /snapshot/load with `resume_vm=False`, then calling PATCH /vm resume=True
+    b. PUT /snapshot/load with `resume_vm=True`
     """
     vm = uvm_nano
     vm.add_net_iface()
     vm.start()
-
     snapshot = vm.snapshot_full()
-
     restored_vm = microvm_factory.build()
     restored_vm.spawn()
-    restored_vm.restore_from_snapshot(snapshot)
-    restored_vm.resume()
-
-
-def test_resume_at_restoration(uvm_nano, microvm_factory):
-    """Tests snapshot is resumable at restoration.
-
-    Check that a restored microVM is resumable by calling PUT /snapshot/load
-    with `resume_vm=True`.
-    """
-    vm = uvm_nano
-    vm.add_net_iface()
-    vm.start()
-
-    snapshot = vm.snapshot_full()
-
-    restored_vm = microvm_factory.build()
-    restored_vm.spawn()
-    restored_vm.restore_from_snapshot(snapshot, resume=True)
+    restored_vm.restore_from_snapshot(snapshot, resume=resume_at_restore)
+    if not resume_at_restore:
+        assert restored_vm.state == "Paused"
+        restored_vm.resume()
+    assert restored_vm.state == "Running"
 
 
 def test_snapshot_current_version(uvm_nano):
@@ -120,7 +113,7 @@ def test_snapshot_current_version(uvm_nano):
 # TODO: Multiple microvm sizes must be tested in the async pipeline.
 @pytest.mark.parametrize("snapshot_type", [SnapshotType.DIFF, SnapshotType.FULL])
 @pytest.mark.parametrize("use_snapshot_editor", [False, True])
-def test_5_snapshots(
+def test_cycled_snapshot_restore(
     bin_vsock_path,
     tmp_path,
     microvm_factory,
@@ -128,12 +121,17 @@ def test_5_snapshots(
     rootfs,
     snapshot_type,
     use_snapshot_editor,
+    cpu_template_any,
 ):
     """
-    Create and load 5 snapshots.
+    Run a cycle of VM restoration and VM snapshot creation where new VM is
+    restored from a snapshot of the previous one.
     """
+    # This is an arbitrary selected value. It is big enough to test the
+    # functionality, but small enough to not be annoying long to run.
+    cycles = 3
+
     logger = logging.getLogger("snapshot_sequence")
-    seq_len = 5
     diff_snapshots = snapshot_type == SnapshotType.DIFF
 
     vm = microvm_factory.build(guest_kernel, rootfs)
@@ -143,6 +141,7 @@ def test_5_snapshots(
         mem_size_mib=512,
         track_dirty_pages=diff_snapshots,
     )
+    vm.set_cpu_template(cpu_template_any)
     vm.add_net_iface()
     vm.api.vsock.put(vsock_id="vsock0", guest_cid=3, uds_path=VSOCK_UDS_PATH)
     vm.start()
@@ -157,15 +156,11 @@ def test_5_snapshots(
     # Create a snapshot from a microvm.
     start_guest_echo_server(vm)
     snapshot = vm.make_snapshot(snapshot_type)
-    base_snapshot = snapshot
     vm.kill()
 
-    for i in range(seq_len):
-        logger.info("Load snapshot #%s, mem %s", i, snapshot.mem)
-        microvm = microvm_factory.build()
-        microvm.spawn()
-        copied_snapshot = microvm.restore_from_snapshot(snapshot, resume=True)
-
+    for microvm in microvm_factory.build_n_from_snapshot(
+        snapshot, cycles, incremental=True, use_snapshot_editor=use_snapshot_editor
+    ):
         # FIXME: This and the sleep below reduce the rate of vsock/ssh connection
         # related spurious test failures, although we do not know why this is the case.
         time.sleep(2)
@@ -182,21 +177,6 @@ def test_5_snapshots(
         check_filesystem(microvm.ssh, "squashfs", "/dev/vda")
 
         time.sleep(2)
-        logger.info("Create snapshot %s #%d.", snapshot_type, i + 1)
-        snapshot = microvm.make_snapshot(snapshot_type)
-
-        # If we are testing incremental snapshots we must merge the base with
-        # current layer.
-        if snapshot.is_diff:
-            logger.info("Base: %s, Layer: %s", base_snapshot.mem, snapshot.mem)
-            snapshot = snapshot.rebase_snapshot(
-                base_snapshot, use_snapshot_editor=use_snapshot_editor
-            )
-
-        microvm.kill()
-        copied_snapshot.delete()
-        # Update the base for next iteration.
-        base_snapshot = snapshot
 
 
 def test_patch_drive_snapshot(uvm_nano, microvm_factory):
@@ -229,9 +209,7 @@ def test_patch_drive_snapshot(uvm_nano, microvm_factory):
 
     # Load snapshot in a new Firecracker microVM.
     logger.info("Load snapshot, mem %s", snapshot.mem)
-    vm = microvm_factory.build()
-    vm.spawn()
-    vm.restore_from_snapshot(snapshot, resume=True)
+    vm = microvm_factory.build_from_snapshot(snapshot)
 
     # Attempt to connect to resumed microvm and verify the new microVM has the
     # right scratch drive.
@@ -320,9 +298,7 @@ def test_negative_postload_api(uvm_plain, microvm_factory):
     basevm.kill()
 
     # Do not resume, just load, so we can still call APIs that work.
-    microvm = microvm_factory.build()
-    microvm.spawn()
-    microvm.restore_from_snapshot(snapshot, resume=True)
+    microvm = microvm_factory.build_from_snapshot(snapshot)
 
     fail_msg = "The requested operation is not supported after starting the microVM"
     with pytest.raises(RuntimeError, match=fail_msg):
@@ -487,9 +463,7 @@ def test_diff_snapshot_overlay(guest_kernel, rootfs, microvm_factory):
 
     assert not filecmp.cmp(merged_snapshot.mem, first_snapshot_backup, shallow=False)
 
-    new_vm = microvm_factory.build()
-    new_vm.spawn()
-    new_vm.restore_from_snapshot(merged_snapshot, resume=True)
+    _ = microvm_factory.build_from_snapshot(merged_snapshot)
 
     # Check that the restored VM works
 
@@ -511,9 +485,7 @@ def test_snapshot_overwrite_self(guest_kernel, rootfs, microvm_factory):
     snapshot = base_vm.snapshot_full()
     base_vm.kill()
 
-    vm = microvm_factory.build()
-    vm.spawn()
-    vm.restore_from_snapshot(snapshot, resume=True)
+    vm = microvm_factory.build_from_snapshot(snapshot)
 
     # When restoring a snapshot, vm.restore_from_snapshot first copies
     # the memory file (inside of the jailer) to /mem.src
@@ -543,23 +515,93 @@ def test_vmgenid(guest_kernel_linux_6_1, rootfs, microvm_factory, snapshot_type)
     base_snapshot = snapshot
     base_vm.kill()
 
-    for i in range(5):
-        vm = microvm_factory.build()
-        vm.spawn()
-        copied_snapshot = vm.restore_from_snapshot(snapshot, resume=True)
-
+    for i, vm in enumerate(
+        microvm_factory.build_n_from_snapshot(base_snapshot, 5, incremental=True)
+    ):
         # We should have as DMESG_VMGENID_RESUME messages as
         # snapshots we have resumed
         check_vmgenid_update_count(vm, i + 1)
 
-        snapshot = vm.make_snapshot(snapshot_type)
-        vm.kill()
-        copied_snapshot.delete()
 
-        # If we are testing incremental snapshots we ust merge the base with
-        # current layer.
-        if snapshot.is_diff:
-            snapshot = snapshot.rebase_snapshot(base_snapshot)
+@pytest.mark.skipif(
+    platform.machine() != "aarch64"
+    or (
+        global_props.host_linux_version_tpl < (6, 4)
+        and global_props.host_os not in ("amzn2", "amzn2023")
+    ),
+    reason="This test requires aarch64 and either kernel 6.4+ or Amazon Linux",
+)
+def test_physical_counter_reset_aarch64(uvm_nano):
+    """
+    Test that the CNTPCT_EL0 register is reset on VM boot.
+    We assume the smallest VM will not consume more than
+    some MAX_VALUE cycles to be created and snapshotted.
+    The MAX_VALUE is selected by doing a manual run of this test and
+    seeing what the actual counter value is. The assumption here is that
+    if resetting will not occur the guest counter value will be huge as it
+    will be a copy of host value. The host value in its turn will be huge because
+    it will include host OS boot + CI prep + other CI tests ...
+    """
+    vm = uvm_nano
+    vm.add_net_iface()
+    vm.start()
 
-        # Update the base for next iteration
-        base_snapshot = snapshot
+    snapshot = vm.snapshot_full()
+    vm.kill()
+    snap_editor = host.get_binary("snapshot-editor")
+
+    cntpct_el0 = hex(0x603000000013DF01)
+    # If a CPU runs at 3GHz, it will have a counter value of 8_000_000_000
+    # in 2.66 seconds. The host surely will run for more than 2.66 seconds before
+    # executing this test.
+    max_value = 8_000_000_000
+
+    cmd = [
+        str(snap_editor),
+        "info-vmstate",
+        "vcpu-states",
+        "--vmstate-path",
+        str(snapshot.vmstate),
+    ]
+    _, stdout, _ = utils.check_output(cmd)
+
+    # The output will look like this:
+    # kvm_mp_state: 0x0
+    # mpidr: 0x80000000
+    # 0x6030000000100000 0x0000000e0
+    # 0x6030000000100002 0xffff00fe33c0
+    for line in stdout.splitlines():
+        parts = line.split()
+        if len(parts) == 2:
+            reg_id, reg_value = parts
+            if reg_id == cntpct_el0:
+                assert int(reg_value, 16) < max_value
+                break
+    else:
+        raise RuntimeError("Did not find CNTPCT_EL0 register in snapshot")
+
+
+def test_snapshot_rename_interface(uvm_nano, microvm_factory):
+    """
+    Test that we can restore a snapshot and point its interface to a
+    different host interface.
+    """
+    vm = uvm_nano
+    base_iface = vm.add_net_iface()
+    vm.start()
+    snapshot = vm.snapshot_full()
+
+    # We don't reuse the network namespace as it may conflict with
+    # previous/future devices
+    restored_vm = microvm_factory.build(netns=net_tools.NetNs(str(uuid.uuid4())))
+    # Override the tap name, but keep the same IP configuration
+    iface_override = dataclasses.replace(base_iface, tap_name="tap_override")
+
+    restored_vm.spawn()
+    snapshot.net_ifaces.clear()
+    snapshot.net_ifaces.append(iface_override)
+    restored_vm.restore_from_snapshot(
+        snapshot,
+        rename_interfaces={iface_override.dev_name: iface_override.tap_name},
+        resume=True,
+    )

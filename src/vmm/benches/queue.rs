@@ -8,7 +8,7 @@
 
 use std::num::Wrapping;
 
-use criterion::{criterion_group, criterion_main, Criterion};
+use criterion::{Criterion, criterion_group, criterion_main};
 use vm_memory::GuestAddress;
 use vmm::devices::virtio::queue::{VIRTQ_DESC_F_NEXT, VIRTQ_DESC_F_WRITE};
 use vmm::devices::virtio::test_utils::VirtQueue;
@@ -88,7 +88,7 @@ pub fn queue_benchmark(c: &mut Criterion) {
             for i in 0_u16..16_u16 {
                 let index = std::hint::black_box(i);
                 let len = std::hint::black_box(i + 1);
-                _ = queue.add_used(index as u16, len as u32);
+                _ = queue.add_used(index, len as u32);
             }
         })
     });
@@ -100,7 +100,7 @@ pub fn queue_benchmark(c: &mut Criterion) {
             for i in 0_u16..256_u16 {
                 let index = std::hint::black_box(i);
                 let len = std::hint::black_box(i + 1);
-                _ = queue.add_used(index as u16, len as u32);
+                _ = queue.add_used(index, len as u32);
             }
         })
     });

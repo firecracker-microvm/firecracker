@@ -328,15 +328,15 @@ impl RateLimiter {
     /// # Arguments
     ///
     /// * `bytes_total_capacity` - the total capacity of the `TokenType::Bytes` token bucket.
-    /// * `bytes_one_time_burst` - initial extra credit on top of `bytes_total_capacity`,
-    /// that does not replenish and which can be used for an initial burst of data.
-    /// * `bytes_complete_refill_time_ms` - number of milliseconds for the `TokenType::Bytes`
-    /// token bucket to go from zero Bytes to `bytes_total_capacity` Bytes.
+    /// * `bytes_one_time_burst` - initial extra credit on top of `bytes_total_capacity`, that does
+    ///   not replenish and which can be used for an initial burst of data.
+    /// * `bytes_complete_refill_time_ms` - number of milliseconds for the `TokenType::Bytes` token
+    ///   bucket to go from zero Bytes to `bytes_total_capacity` Bytes.
     /// * `ops_total_capacity` - the total capacity of the `TokenType::Ops` token bucket.
-    /// * `ops_one_time_burst` - initial extra credit on top of `ops_total_capacity`,
-    /// that does not replenish and which can be used for an initial burst of data.
+    /// * `ops_one_time_burst` - initial extra credit on top of `ops_total_capacity`, that does not
+    ///   replenish and which can be used for an initial burst of data.
     /// * `ops_complete_refill_time_ms` - number of milliseconds for the `TokenType::Ops` token
-    /// bucket to go from zero Ops to `ops_total_capacity` Ops.
+    ///   bucket to go from zero Ops to `ops_total_capacity` Ops.
     ///
     /// If either bytes/ops *size* or *refill_time* are **zero**, the limiter
     /// is **disabled** for that respective token type.
@@ -774,6 +774,13 @@ pub(crate) mod tests {
 
     use super::*;
 
+    // Define custom refill interval to be a bit bigger. This will help
+    // in tests which wait for a limiter refill in 2 stages. This will make it so
+    // second wait will always result in the limiter being refilled. Otherwise
+    // there is a chance for a race condition between limiter refilling and limiter
+    // checking.
+    const TEST_REFILL_TIMER_INTERVAL_MS: u64 = REFILL_TIMER_INTERVAL_MS + 10;
+
     impl TokenBucket {
         // Resets the token bucket: budget set to max capacity and last-updated set to now.
         fn reset(&mut self) {
@@ -794,7 +801,7 @@ pub(crate) mod tests {
         }
 
         // After a restore, we cannot be certain that the last_update field has the same value.
-        pub fn partial_eq(&self, other: &TokenBucket) -> bool {
+        pub(crate) fn partial_eq(&self, other: &TokenBucket) -> bool {
             (other.capacity() == self.capacity())
                 && (other.one_time_burst() == self.one_time_burst())
                 && (other.refill_time_ms() == self.refill_time_ms())
@@ -1009,11 +1016,11 @@ pub(crate) mod tests {
         // since consume failed, limiter should be blocked now
         assert!(l.is_blocked());
         // wait half the timer period
-        thread::sleep(Duration::from_millis(REFILL_TIMER_INTERVAL_MS / 2));
+        thread::sleep(Duration::from_millis(TEST_REFILL_TIMER_INTERVAL_MS / 2));
         // limiter should still be blocked
         assert!(l.is_blocked());
         // wait the other half of the timer period
-        thread::sleep(Duration::from_millis(REFILL_TIMER_INTERVAL_MS / 2));
+        thread::sleep(Duration::from_millis(TEST_REFILL_TIMER_INTERVAL_MS / 2));
         // the timer_fd should have an event on it by now
         l.event_handler().unwrap();
         // limiter should now be unblocked
@@ -1042,11 +1049,11 @@ pub(crate) mod tests {
         // since consume failed, limiter should be blocked now
         assert!(l.is_blocked());
         // wait half the timer period
-        thread::sleep(Duration::from_millis(REFILL_TIMER_INTERVAL_MS / 2));
+        thread::sleep(Duration::from_millis(TEST_REFILL_TIMER_INTERVAL_MS / 2));
         // limiter should still be blocked
         assert!(l.is_blocked());
         // wait the other half of the timer period
-        thread::sleep(Duration::from_millis(REFILL_TIMER_INTERVAL_MS / 2));
+        thread::sleep(Duration::from_millis(TEST_REFILL_TIMER_INTERVAL_MS / 2));
         // the timer_fd should have an event on it by now
         l.event_handler().unwrap();
         // limiter should now be unblocked
@@ -1076,11 +1083,11 @@ pub(crate) mod tests {
         // since consume failed, limiter should be blocked now
         assert!(l.is_blocked());
         // wait half the timer period
-        thread::sleep(Duration::from_millis(REFILL_TIMER_INTERVAL_MS / 2));
+        thread::sleep(Duration::from_millis(TEST_REFILL_TIMER_INTERVAL_MS / 2));
         // limiter should still be blocked
         assert!(l.is_blocked());
         // wait the other half of the timer period
-        thread::sleep(Duration::from_millis(REFILL_TIMER_INTERVAL_MS / 2));
+        thread::sleep(Duration::from_millis(TEST_REFILL_TIMER_INTERVAL_MS / 2));
         // the timer_fd should have an event on it by now
         l.event_handler().unwrap();
         // limiter should now be unblocked

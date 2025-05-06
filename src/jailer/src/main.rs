@@ -8,7 +8,7 @@ use std::{env as p_env, fs, io};
 
 use env::PROC_MOUNTS;
 use utils::arg_parser::{ArgParser, Argument, UtilsArgParserError as ParsingError};
-use utils::time::{get_time_us, ClockType};
+use utils::time::{ClockType, get_time_us};
 use utils::validators;
 use vmm_sys_util::syscall::SyscallReturnCode;
 
@@ -85,6 +85,10 @@ pub enum JailerError {
     FromBytesWithNul(std::ffi::FromBytesWithNulError),
     #[error("Failed to get flags from fd: {0}")]
     GetOldFdFlags(io::Error),
+    #[error("Failed to get PID (getpid): {0}")]
+    GetPid(io::Error),
+    #[error("Failed to get SID (getsid): {0}")]
+    GetSid(io::Error),
     #[error("Invalid gid: {0}")]
     Gid(String),
     #[error("Invalid instance ID: {0}")]
@@ -284,7 +288,10 @@ fn clean_env_vars() {
     // the parent process so there are no leaks
     // inside the jailer environment
     for (key, _) in p_env::vars() {
-        p_env::remove_var(key);
+        // SAFETY: the function is safe to call in a single-threaded program
+        unsafe {
+            p_env::remove_var(key);
+        }
     }
 }
 
@@ -301,6 +308,7 @@ pub fn to_cstring<T: AsRef<Path> + Debug>(path: T) -> Result<CString, JailerErro
     CString::new(path_str).map_err(JailerError::CStringParsing)
 }
 
+/// We wrap the actual main in order to pretty print an error with Display trait.
 fn main() -> Result<(), JailerError> {
     let result = main_exec();
     if let Err(e) = result {
@@ -418,7 +426,10 @@ mod tests {
 
         // Set environment variables
         for env_var in env_vars.iter() {
-            env::set_var(env_var, "0");
+            // SAFETY: the function is safe to call in a single-threaded program
+            unsafe {
+                env::set_var(env_var, "0");
+            }
         }
 
         // Cleanup the environment

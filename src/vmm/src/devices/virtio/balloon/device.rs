@@ -16,7 +16,7 @@ use super::metrics::METRICS;
 use super::util::{compact_page_frame_numbers, remove_range};
 use super::{
     BALLOON_DEV_ID, BALLOON_NUM_QUEUES, BALLOON_QUEUE_SIZES, DEFLATE_INDEX, INFLATE_INDEX,
-    MAX_PAGES_IN_DESC, MAX_PAGE_COMPACT_BUFFER, MIB_TO_4K_PAGES, STATS_INDEX,
+    MAX_PAGE_COMPACT_BUFFER, MAX_PAGES_IN_DESC, MIB_TO_4K_PAGES, STATS_INDEX,
     VIRTIO_BALLOON_F_DEFLATE_ON_OOM, VIRTIO_BALLOON_F_STATS_VQ, VIRTIO_BALLOON_PFN_SHIFT,
     VIRTIO_BALLOON_S_AVAIL, VIRTIO_BALLOON_S_CACHES, VIRTIO_BALLOON_S_HTLB_PGALLOC,
     VIRTIO_BALLOON_S_HTLB_PGFAIL, VIRTIO_BALLOON_S_MAJFLT, VIRTIO_BALLOON_S_MEMFREE,
@@ -25,7 +25,7 @@ use super::{
 };
 use crate::devices::virtio::balloon::BalloonError;
 use crate::devices::virtio::device::{IrqTrigger, IrqType};
-use crate::devices::virtio::gen::virtio_blk::VIRTIO_F_VERSION_1;
+use crate::devices::virtio::generated::virtio_config::VIRTIO_F_VERSION_1;
 use crate::logger::IncMetric;
 use crate::utils::u64_to_usize;
 use crate::vstate::memory::{Address, ByteValued, Bytes, GuestAddress, GuestMemoryMmap};
@@ -164,7 +164,7 @@ pub struct Balloon {
     pub(crate) irq_trigger: IrqTrigger,
 
     // Implementation specific fields.
-    pub(crate) restored: bool,
+    pub(crate) restored_from_file: bool,
     pub(crate) stats_polling_interval_s: u16,
     pub(crate) stats_timer: TimerFd,
     // The index of the previous stats descriptor is saved because
@@ -189,7 +189,7 @@ impl fmt::Debug for Balloon {
             .field("queue_evts", &self.queue_evts)
             .field("device_state", &self.device_state)
             .field("irq_trigger", &self.irq_trigger)
-            .field("restored", &self.restored)
+            .field("restored_from_file", &self.restored_from_file)
             .field("stats_polling_interval_s", &self.stats_polling_interval_s)
             .field("stats_desc_index", &self.stats_desc_index)
             .field("latest_stats", &self.latest_stats)
@@ -204,7 +204,7 @@ impl Balloon {
         amount_mib: u32,
         deflate_on_oom: bool,
         stats_polling_interval_s: u16,
-        restored: bool,
+        restored_from_file: bool,
     ) -> Result<Balloon, BalloonError> {
         let mut avail_features = 1u64 << VIRTIO_F_VERSION_1;
 
@@ -245,7 +245,7 @@ impl Balloon {
             irq_trigger: IrqTrigger::new().map_err(BalloonError::EventFd)?,
             device_state: DeviceState::Inactive,
             activate_evt: EventFd::new(libc::EFD_NONBLOCK).map_err(BalloonError::EventFd)?,
-            restored,
+            restored_from_file,
             stats_polling_interval_s,
             stats_timer,
             stats_desc_index: None,
@@ -355,7 +355,7 @@ impl Balloon {
                 if let Err(err) = remove_range(
                     mem,
                     (guest_addr, u64::from(range_len) << VIRTIO_BALLOON_PFN_SHIFT),
-                    self.restored,
+                    self.restored_from_file,
                 ) {
                     error!("Error removing memory range: {:?}", err);
                 }
@@ -636,7 +636,7 @@ pub(crate) mod tests {
         check_request_completion, invoke_handler_for_queue_event, set_request,
     };
     use crate::devices::virtio::queue::{VIRTQ_DESC_F_NEXT, VIRTQ_DESC_F_WRITE};
-    use crate::devices::virtio::test_utils::{default_mem, VirtQueue};
+    use crate::devices::virtio::test_utils::{VirtQueue, default_mem};
     use crate::test_utils::single_region_mem;
     use crate::vstate::memory::GuestAddress;
 

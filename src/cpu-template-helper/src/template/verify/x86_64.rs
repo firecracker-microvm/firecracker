@@ -3,7 +3,7 @@
 
 use vmm::cpu_config::templates::CustomCpuTemplate;
 
-use super::{verify_common, VerifyError};
+use super::{VerifyError, verify_common};
 use crate::utils::x86_64::{CpuidModifierMap, MsrModifierMap};
 
 pub fn verify(
@@ -34,8 +34,8 @@ mod tests {
 
     use super::*;
     use crate::utils::x86_64::{
-        cpuid_leaf_modifier, cpuid_reg_modifier, msr_modifier, CpuidModifierMapKey,
-        MsrModifierMapKey,
+        CpuidModifierMapKey, MsrModifierMapKey, cpuid_leaf_modifier, cpuid_reg_modifier,
+        msr_modifier,
     };
 
     macro_rules! cpuid_modifier_map {

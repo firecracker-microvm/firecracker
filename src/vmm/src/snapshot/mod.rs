@@ -28,19 +28,27 @@ mod persist;
 use std::fmt::Debug;
 use std::io::{Read, Write};
 
-use bincode::Options;
+use bincode::config;
+use bincode::config::{Configuration, Fixint, Limit, LittleEndian};
 use semver::Version;
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 
 use crate::snapshot::crc::{CRC64Reader, CRC64Writer};
 pub use crate::snapshot::persist::Persist;
+use crate::utils::mib_to_bytes;
 
 #[cfg(target_arch = "x86_64")]
 const SNAPSHOT_MAGIC_ID: u64 = 0x0710_1984_8664_0000u64;
 
 /// Constant bounding how much memory bincode may allocate during vmstate file deserialization
-const VM_STATE_DESERIALIZE_LIMIT: u64 = 10_485_760; // 10MiB
+const DESERIALIZATION_BYTES_LIMIT: usize = mib_to_bytes(10);
+
+const BINCODE_CONFIG: Configuration<LittleEndian, Fixint, Limit<DESERIALIZATION_BYTES_LIMIT>> =
+    config::standard()
+        .with_fixed_int_encoding()
+        .with_limit::<DESERIALIZATION_BYTES_LIMIT>()
+        .with_little_endian();
 
 #[cfg(target_arch = "aarch64")]
 const SNAPSHOT_MAGIC_ID: u64 = 0x0710_1984_AAAA_0000u64;
@@ -85,20 +93,28 @@ impl SnapshotHdr {
         Ok(hdr)
     }
 
-    pub fn store<W: Write>(&self, writer: &mut W) -> Result<(), SnapshotError> {
-        match serialize(writer, self) {
-            Ok(_) => Ok(()),
-            Err(e) => Err(e)
-        }
+    /// Helper function to deserialize an object from a reader
+    pub fn deserialize<T, O>(reader: &mut T) -> Result<O, SnapshotError>
+    where
+        T: Read,
+        O: DeserializeOwned + Debug,
+    {
+        bincode::serde::decode_from_std_read(reader, BINCODE_CONFIG)
+            .map_err(|err| SnapshotError::Serde(err.to_string()))
     }
 }
 
-#[derive(Debug, Serialize, Deserialize)]
-pub struct Snapshot<Data> {
-    // The snapshot version we can handle
-    header: SnapshotHdr,
-    pub data: Data,
-}
+    /// Helper function to serialize an object to a writer
+    pub fn serialize<T, O>(writer: &mut T, data: &O) -> Result<(), SnapshotError>
+    where
+        T: Write,
+        O: Serialize + Debug,
+    {
+        bincode::serde::encode_into_std_write(data, writer, BINCODE_CONFIG)
+            .map_err(|err| SnapshotError::Serde(err.to_string()))?;
+
+        Ok(())
+    }
 
 impl<Data: DeserializeOwned> Snapshot<Data> {
     pub fn load_unchecked<R: Read>(reader: &mut R) -> Result<Self, SnapshotError>

@@ -8,7 +8,6 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterator
 
-import packaging.version
 import pytest
 
 from framework.defs import ARTIFACT_DIR
@@ -33,33 +32,29 @@ def select_supported_kernels():
     return supported_kernels
 
 
-def kernels(glob) -> Iterator:
+def kernels(glob, artifact_dir: Path = ARTIFACT_DIR) -> Iterator:
     """Return supported kernels as kernels supported by the current combination of kernel and
     instance type.
     """
     supported_kernels = select_supported_kernels()
-    for kernel in sorted(ARTIFACT_DIR.rglob(glob)):
+    for kernel in sorted(artifact_dir.glob(glob)):
         for kernel_regex in supported_kernels:
             if re.fullmatch(kernel_regex, kernel.name):
                 yield kernel
                 break
 
 
-def disks(glob) -> Iterator:
+def disks(glob) -> list:
     """Return supported rootfs"""
-    yield from sorted(ARTIFACT_DIR.glob(glob))
+    return sorted(ARTIFACT_DIR.glob(glob))
 
 
-def kernel_params(glob="vmlinux-*", select=kernels) -> Iterator:
+def kernel_params(
+    glob="vmlinux-*", select=kernels, artifact_dir=ARTIFACT_DIR
+) -> Iterator:
     """Return supported kernels"""
-    for kernel in select(glob):
+    for kernel in select(glob, artifact_dir):
         yield pytest.param(kernel, id=kernel.name)
-
-
-def rootfs_params(glob="ubuntu-*.squashfs") -> Iterator:
-    """Return supported rootfs as pytest parameters"""
-    for rootfs in disks(glob=glob):
-        yield pytest.param(rootfs, id=rootfs.name)
 
 
 @dataclass(frozen=True, repr=True)
@@ -98,9 +93,6 @@ class FirecrackerArtifact:
         # independent of Firecracker versions. For these Firecracker versions, use
         # the --snapshot-version Firecracker flag, to figure out which snapshot version
         # it supports.
-        # TODO: remove this check once all version up to (and including) 1.6.0 go out of support.
-        if packaging.version.parse(self.version) < packaging.version.parse("1.7.0"):
-            return self.version_tuple[:2] + (0,)
 
         return (
             check_output([self.path, "--snapshot-version"])

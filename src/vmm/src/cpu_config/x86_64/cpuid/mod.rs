@@ -720,12 +720,14 @@ mod tests {
             }),
             None
         );
-        assert!(cpuid
-            .get(&CpuidKey {
-                leaf: 0x0,
-                subleaf: 0x0,
-            })
-            .is_some());
+        assert!(
+            cpuid
+                .get(&CpuidKey {
+                    leaf: 0x0,
+                    subleaf: 0x0,
+                })
+                .is_some()
+        );
     }
 
     #[test]
@@ -738,12 +740,14 @@ mod tests {
             }),
             None
         );
-        assert!(cpuid
-            .get_mut(&CpuidKey {
-                leaf: 0x0,
-                subleaf: 0x0,
-            })
-            .is_some());
+        assert!(
+            cpuid
+                .get_mut(&CpuidKey {
+                    leaf: 0x0,
+                    subleaf: 0x0,
+                })
+                .is_some()
+        );
     }
 
     #[test]

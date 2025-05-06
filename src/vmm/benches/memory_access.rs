@@ -1,10 +1,9 @@
 // Copyright 2024 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-use criterion::{criterion_group, criterion_main, BatchSize, Criterion};
-use vm_memory::GuestMemory;
+use criterion::{BatchSize, Criterion, criterion_group, criterion_main};
 use vmm::resources::VmResources;
-use vmm::vmm_config::machine_config::{HugePageConfig, VmConfig};
+use vmm::vmm_config::machine_config::{HugePageConfig, MachineConfig};
 
 fn bench_single_page_fault(c: &mut Criterion, configuration: VmResources) {
     c.bench_function("page_fault", |b| {
@@ -14,7 +13,7 @@ fn bench_single_page_fault(c: &mut Criterion, configuration: VmResources) {
                 // Get a pointer to the first memory region (cannot do `.get_slice(GuestAddress(0),
                 // 1)`, because on ARM64 guest memory does not start at physical
                 // address 0).
-                let ptr = memory.iter().next().unwrap().as_ptr();
+                let ptr = memory.first().unwrap().as_ptr();
 
                 // fine to return both here, because ptr is not a reference into `memory` (e.g. no
                 // self-referential structs are happening here)
@@ -33,7 +32,7 @@ pub fn bench_4k_page_fault(c: &mut Criterion) {
     bench_single_page_fault(
         c,
         VmResources {
-            vm_config: VmConfig {
+            machine_config: MachineConfig {
                 vcpu_count: 1,
                 mem_size_mib: 2,
                 ..Default::default()
@@ -47,7 +46,7 @@ pub fn bench_2m_page_fault(c: &mut Criterion) {
     bench_single_page_fault(
         c,
         VmResources {
-            vm_config: VmConfig {
+            machine_config: MachineConfig {
                 vcpu_count: 1,
                 mem_size_mib: 2,
                 huge_pages: HugePageConfig::Hugetlbfs2M,

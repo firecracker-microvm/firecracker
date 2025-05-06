@@ -6,8 +6,8 @@ use std::ops::Range;
 use kvm_bindings::KVM_DEV_ARM_VGIC_GRP_DIST_REGS;
 use kvm_ioctls::DeviceFd;
 
-use crate::arch::aarch64::gic::regs::{GicRegState, MmioReg, SimpleReg, VgicRegEngine};
 use crate::arch::aarch64::gic::GicError;
+use crate::arch::aarch64::gic::regs::{GicRegState, MmioReg, SimpleReg, VgicRegEngine};
 use crate::arch::{IRQ_BASE, IRQ_MAX};
 
 // Distributor registers as detailed at page 456 from
@@ -134,7 +134,7 @@ mod tests {
     use kvm_ioctls::Kvm;
 
     use super::*;
-    use crate::arch::aarch64::gic::{create_gic, GICVersion};
+    use crate::arch::aarch64::gic::{GICVersion, create_gic};
 
     #[test]
     fn test_access_dist_regs() {
@@ -159,6 +159,9 @@ mod tests {
             format!("{:?}", res.unwrap_err()),
             "DeviceAttribute(Error(9), false, 1)"
         );
+
+        // dropping gic_fd would double close the gic fd, so leak it
+        std::mem::forget(gic_fd);
     }
 
     #[test]

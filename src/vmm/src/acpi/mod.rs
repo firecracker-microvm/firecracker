@@ -2,10 +2,11 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use acpi_tables::fadt::{FADT_F_HW_REDUCED_ACPI, FADT_F_PWR_BUTTON, FADT_F_SLP_BUTTON};
-use acpi_tables::{Aml, Dsdt, Fadt, Madt, Rsdp, Sdt, Xsdt};
+use acpi_tables::{Aml, Dsdt, Fadt, Madt, Rsdp, Sdt, Xsdt, aml};
 use log::{debug, error};
 use vm_allocator::AllocPolicy;
 
+use crate::Vcpu;
 use crate::acpi::x86_64::{
     apic_addr, rsdp_addr, setup_arch_dsdt, setup_arch_fadt, setup_interrupt_controllers,
 };
@@ -13,7 +14,6 @@ use crate::device_manager::acpi::ACPIDeviceManager;
 use crate::device_manager::mmio::MMIODeviceManager;
 use crate::device_manager::resources::ResourceAllocator;
 use crate::vstate::memory::{GuestAddress, GuestMemoryMmap};
-use crate::Vcpu;
 
 mod x86_64;
 
@@ -37,6 +37,8 @@ pub enum AcpiError {
     VmAllocator(#[from] vm_allocator::Error),
     /// ACPI tables error: {0}
     AcpiTables(#[from] acpi_tables::AcpiError),
+    /// Error creating AML bytecode: {0}
+    AmlError(#[from] aml::AmlError),
 }
 
 /// Helper type that holds the guest memory in which we write the tables in and a resource
@@ -46,7 +48,7 @@ struct AcpiTableWriter<'a> {
     resource_allocator: &'a mut ResourceAllocator,
 }
 
-impl<'a> AcpiTableWriter<'a> {
+impl AcpiTableWriter<'_> {
     /// Write a table in guest memory
     ///
     /// This will allocate enough space inside guest memory and write the table in the allocated
@@ -86,10 +88,10 @@ impl<'a> AcpiTableWriter<'a> {
         dsdt_data.extend_from_slice(&mmio_device_manager.dsdt_data);
 
         // Add GED and VMGenID AML data.
-        acpi_device_manager.append_aml_bytes(&mut dsdt_data);
+        acpi_device_manager.append_aml_bytes(&mut dsdt_data)?;
 
         // Architecture specific DSDT data
-        setup_arch_dsdt(&mut dsdt_data);
+        setup_arch_dsdt(&mut dsdt_data)?;
 
         let mut dsdt = Dsdt::new(OEM_ID, *b"FCVMDSDT", OEM_REVISION, dsdt_data);
         self.write_acpi_table(&mut dsdt)
@@ -103,7 +105,7 @@ impl<'a> AcpiTableWriter<'a> {
         fadt.set_hypervisor_vendor_id(HYPERVISOR_VENDOR_ID);
         fadt.set_x_dsdt(dsdt_addr);
         fadt.set_flags(
-            1 << FADT_F_HW_REDUCED_ACPI | 1 << FADT_F_PWR_BUTTON | 1 << FADT_F_SLP_BUTTON,
+            (1 << FADT_F_HW_REDUCED_ACPI) | (1 << FADT_F_PWR_BUTTON) | (1 << FADT_F_SLP_BUTTON),
         );
         setup_arch_fadt(&mut fadt);
         self.write_acpi_table(&mut fadt)
@@ -179,14 +181,16 @@ pub(crate) fn create_acpi_tables(
 }
 
 #[cfg(test)]
-pub mod tests {
+mod tests {
     use acpi_tables::Sdt;
     use vm_memory::Bytes;
 
     use crate::acpi::{AcpiError, AcpiTableWriter};
     use crate::arch::x86_64::layout::{SYSTEM_MEM_SIZE, SYSTEM_MEM_START};
     use crate::builder::tests::default_vmm;
-    use crate::test_utils::arch_mem;
+    use crate::device_manager::resources::ResourceAllocator;
+    use crate::utils::u64_to_usize;
+    use crate::vstate::vm::tests::setup_vm_with_memory;
 
     struct MockSdt(Vec<u8>);
 
@@ -213,7 +217,7 @@ pub mod tests {
         // A mocke Vmm object with 128MBs of memory
         let mut vmm = default_vmm();
         let mut writer = AcpiTableWriter {
-            mem: &vmm.guest_memory,
+            mem: vmm.vm.guest_memory(),
             resource_allocator: &mut vmm.resource_allocator,
         };
 
@@ -261,15 +265,10 @@ pub mod tests {
     // change in the future.
     #[test]
     fn test_write_acpi_table_small_memory() {
-        let mut vmm = default_vmm();
-        vmm.guest_memory = arch_mem(
-            (SYSTEM_MEM_START + SYSTEM_MEM_SIZE - 4096)
-                .try_into()
-                .unwrap(),
-        );
+        let (_, vm) = setup_vm_with_memory(u64_to_usize(SYSTEM_MEM_START + SYSTEM_MEM_SIZE - 4096));
         let mut writer = AcpiTableWriter {
-            mem: &vmm.guest_memory,
-            resource_allocator: &mut vmm.resource_allocator,
+            mem: vm.guest_memory(),
+            resource_allocator: &mut ResourceAllocator::new().unwrap(),
         };
 
         let mut sdt = MockSdt(vec![0; usize::try_from(SYSTEM_MEM_SIZE).unwrap()]);

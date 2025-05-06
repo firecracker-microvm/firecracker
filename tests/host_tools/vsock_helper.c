@@ -84,7 +84,7 @@ int run_echo(uint32_t cid, uint32_t port) {
         }
     }
 
-    return 0;
+    return close(sock);
 }
 
 

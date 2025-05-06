@@ -3,7 +3,7 @@
 
 mod api_server;
 mod api_server_adapter;
-mod gen;
+mod generated;
 mod metrics;
 mod seccomp;
 
@@ -17,19 +17,20 @@ use std::{io, panic};
 use api_server_adapter::ApiServerError;
 use event_manager::SubscriberOps;
 use seccomp::FilterError;
-use seccompiler::BpfThreadMap;
 use utils::arg_parser::{ArgParser, Argument};
 use utils::validators::validate_instance_id;
+use vmm::arch::host_page_size;
 use vmm::builder::StartMicrovmError;
 use vmm::logger::{
-    debug, error, info, LoggerConfig, ProcessTimeReporter, StoreMetric, LOGGER, METRICS,
+    LOGGER, LoggerConfig, METRICS, ProcessTimeReporter, StoreMetric, debug, error, info,
 };
 use vmm::persist::SNAPSHOT_VERSION;
 use vmm::resources::VmResources;
+use vmm::seccomp::BpfThreadMap;
 use vmm::signal_handler::register_signal_handlers;
 use vmm::snapshot::{Snapshot, SnapshotError};
 use vmm::vmm_config::instance_info::{InstanceInfo, VmState};
-use vmm::vmm_config::metrics::{init_metrics, MetricsConfig, MetricsConfigError};
+use vmm::vmm_config::metrics::{MetricsConfig, MetricsConfigError, init_metrics};
 use vmm::{EventManager, FcExitCode, HTTP_MAX_PAYLOAD_SIZE};
 use vmm_sys_util::terminal::Terminal;
 
@@ -107,6 +108,10 @@ fn main() -> ExitCode {
 fn main_exec() -> Result<(), MainError> {
     // Initialize the logger.
     LOGGER.init().map_err(MainError::SetLogger)?;
+
+    // First call to this function updates the value to current
+    // host page size.
+    _ = host_page_size();
 
     // We need this so that we can reset terminal to canonical mode if panic occurs.
     let stdin = io::stdin();
@@ -496,9 +501,9 @@ pub fn enable_ssbd_mitigation() {
     // to leave the latter 2 as zero.
     let ret = unsafe {
         libc::prctl(
-            gen::prctl::PR_SET_SPECULATION_CTRL,
-            gen::prctl::PR_SPEC_STORE_BYPASS,
-            gen::prctl::PR_SPEC_FORCE_DISABLE,
+            generated::prctl::PR_SET_SPECULATION_CTRL,
+            generated::prctl::PR_SPEC_STORE_BYPASS,
+            generated::prctl::PR_SPEC_FORCE_DISABLE,
             0,
             0,
         )

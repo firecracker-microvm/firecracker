@@ -5,7 +5,7 @@ use std::fmt;
 use std::fmt::{Display, Formatter};
 
 use serde::{Deserialize, Serialize};
-use serde_json::{to_vec, Value};
+use serde_json::{Value, to_vec};
 
 use crate::mmds::token::{MmdsTokenError as TokenError, TokenAuthority};
 
@@ -281,7 +281,7 @@ mod tests {
     use super::*;
 
     impl Mmds {
-        pub fn get_data_str(&self) -> String {
+        fn get_data_str(&self) -> String {
             if self.data_store.is_null() {
                 return String::from("{}");
             }

@@ -6,9 +6,10 @@ use std::fmt::Debug;
 use micro_http::{Body, Method, Request, Response, StatusCode, Version};
 use serde::ser::Serialize;
 use serde_json::Value;
-use vmm::logger::{error, info, log_enabled, Level};
+use vmm::logger::{Level, error, info, log_enabled};
 use vmm::rpc_interface::{VmmAction, VmmActionError, VmmData};
 
+use super::ApiServer;
 use super::request::actions::parse_put_actions;
 use super::request::balloon::{parse_get_balloon, parse_patch_balloon, parse_put_balloon};
 use super::request::boot_source::parse_put_boot_source;
@@ -26,7 +27,6 @@ use super::request::net::{parse_patch_net, parse_put_net};
 use super::request::snapshot::{parse_patch_vm_state, parse_put_snapshot};
 use super::request::version::parse_get_version;
 use super::request::vsock::parse_put_vsock;
-use super::ApiServer;
 
 #[derive(Debug)]
 pub(crate) enum RequestAction {
@@ -163,8 +163,8 @@ impl ParsedRequest {
                     info!("The request was executed successfully. Status code: 204 No Content.");
                     Response::new(Version::Http11, StatusCode::NoContent)
                 }
-                VmmData::MachineConfiguration(vm_config) => {
-                    Self::success_response_with_data(vm_config)
+                VmmData::MachineConfiguration(machine_config) => {
+                    Self::success_response_with_data(machine_config)
                 }
                 VmmData::MmdsValue(value) => Self::success_response_with_mmds_value(value),
                 VmmData::BalloonConfig(balloon_config) => {
@@ -276,7 +276,7 @@ pub(crate) enum RequestError {
     #[error("API Resource IDs can only contain alphanumeric characters and underscores.")]
     InvalidID,
     // The HTTP method & request path combination is not valid.
-    #[error("Invalid request method and/or path: {} {0}.", .1.to_str())]
+    #[error("Invalid request method and/or path: {} {}.", .1.to_str(), .0)]
     InvalidPathMethod(String, Method),
     // An error occurred when deserializing the json body of a request.
     #[error("An error occurred when deserializing the json body of a request: {0}.")]
@@ -336,7 +336,7 @@ pub mod tests {
             }
 
             match (&self.action, &other.action) {
-                (RequestAction::Sync(ref sync_req), RequestAction::Sync(ref other_sync_req)) => {
+                (RequestAction::Sync(sync_req), RequestAction::Sync(other_sync_req)) => {
                     sync_req == other_sync_req
                 }
             }

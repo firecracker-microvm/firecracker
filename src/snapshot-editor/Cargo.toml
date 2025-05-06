@@ -1,8 +1,8 @@
 [package]
 name = "snapshot-editor"
-version = "1.10.0-dev"
+version = "1.12.0-dev"
 authors = ["Amazon Firecracker team <firecracker-devel@amazon.com>"]
-edition = "2021"
+edition = "2024"
 license = "Apache-2.0"
 
 [[bin]]
@@ -10,19 +10,19 @@ name = "snapshot-editor"
 bench = false
 
 [dependencies]
-clap = { version = "4.5.20", features = ["derive", "string"] }
+clap = { version = "4.5.37", features = ["derive", "string"] }
 displaydoc = "0.2.5"
 
 fc_utils = { package = "utils", path = "../utils" }
-libc = "0.2.159"
+libc = "0.2.172"
 log-instrument = { path = "../log-instrument", optional = true }
-semver = "1.0.23"
-thiserror = "1.0.64"
+semver = "1.0.26"
+thiserror = "2.0.12"
 vmm = { path = "../vmm" }
 vmm-sys-util = "0.12.1"
 
 [target.'cfg(target_arch = "aarch64")'.dependencies]
-clap-num = "1.0.2"
+clap-num = "1.2.0"
 
 [features]
 tracing = ["log-instrument", "fc_utils/tracing", "vmm/tracing"]

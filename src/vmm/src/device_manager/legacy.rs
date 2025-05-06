@@ -9,7 +9,8 @@
 use std::fmt::Debug;
 use std::sync::{Arc, Mutex};
 
-use acpi_tables::{aml, Aml};
+use acpi_tables::aml::AmlError;
+use acpi_tables::{Aml, aml};
 use kvm_ioctls::VmFd;
 use libc::EFD_NONBLOCK;
 use vm_superio::Serial;
@@ -169,7 +170,7 @@ impl PortIODeviceManager {
         Ok(())
     }
 
-    pub(crate) fn append_aml_bytes(bytes: &mut Vec<u8>) {
+    pub(crate) fn append_aml_bytes(bytes: &mut Vec<u8>) -> Result<(), AmlError> {
         // Set up COM devices
         let gsi = [
             Self::COM_EVT_1_3_GSI,
@@ -180,13 +181,13 @@ impl PortIODeviceManager {
         for com in 0u8..4 {
             // COM1
             aml::Device::new(
-                format!("_SB_.COM{}", com + 1).as_str().into(),
+                format!("_SB_.COM{}", com + 1).as_str().try_into()?,
                 vec![
-                    &aml::Name::new("_HID".into(), &aml::EisaName::new("PNP0501")),
-                    &aml::Name::new("_UID".into(), &com),
-                    &aml::Name::new("_DDN".into(), &format!("COM{}", com + 1)),
+                    &aml::Name::new("_HID".try_into()?, &aml::EisaName::new("PNP0501")?)?,
+                    &aml::Name::new("_UID".try_into()?, &com)?,
+                    &aml::Name::new("_DDN".try_into()?, &format!("COM{}", com + 1))?,
                     &aml::Name::new(
-                        "_CRS".into(),
+                        "_CRS".try_into().unwrap(),
                         &aml::ResourceTemplate::new(vec![
                             &aml::Interrupt::new(true, true, false, false, gsi[com as usize]),
                             &aml::Io::new(
@@ -200,19 +201,24 @@ impl PortIODeviceManager {
                                 PortIODeviceManager::SERIAL_PORT_SIZE.try_into().unwrap(),
                             ),
                         ]),
-                    ),
+                    )?,
                 ],
             )
-            .append_aml_bytes(bytes);
+            .append_aml_bytes(bytes)?;
         }
         // Setup i8042
         aml::Device::new(
-            "_SB_.PS2_".into(),
+            "_SB_.PS2_".try_into()?,
             vec![
-                &aml::Name::new("_HID".into(), &aml::EisaName::new("PNP0303")),
-                &aml::Method::new("_STA".into(), 0, false, vec![&aml::Return::new(&0x0fu8)]),
+                &aml::Name::new("_HID".try_into()?, &aml::EisaName::new("PNP0303")?)?,
+                &aml::Method::new(
+                    "_STA".try_into()?,
+                    0,
+                    false,
+                    vec![&aml::Return::new(&0x0fu8)],
+                ),
                 &aml::Name::new(
-                    "_CRS".into(),
+                    "_CRS".try_into()?,
                     &aml::ResourceTemplate::new(vec![
                         &aml::Io::new(
                             PortIODeviceManager::I8042_KDB_DATA_REGISTER_ADDRESS
@@ -228,25 +234,22 @@ impl PortIODeviceManager {
                         &aml::Io::new(0x0064, 0x0064, 1u8, 1u8),
                         &aml::Interrupt::new(true, true, false, false, Self::KBD_EVT_GSI),
                     ]),
-                ),
+                )?,
             ],
         )
-        .append_aml_bytes(bytes);
+        .append_aml_bytes(bytes)
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_utils::single_region_mem;
-    use crate::Vm;
+    use crate::vstate::vm::tests::setup_vm_with_memory;
 
     #[test]
     fn test_register_legacy_devices() {
-        let guest_mem = single_region_mem(0x1000);
-        let mut vm = Vm::new(vec![]).unwrap();
-        vm.memory_init(&guest_mem, false).unwrap();
-        crate::builder::setup_interrupt_controller(&mut vm).unwrap();
+        let (_, vm) = setup_vm_with_memory(0x1000);
+        vm.setup_irqchip().unwrap();
         let mut ldm = PortIODeviceManager::new(
             Arc::new(Mutex::new(BusDevice::Serial(SerialDevice {
                 serial: Serial::with_events(

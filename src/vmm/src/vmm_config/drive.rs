@@ -8,10 +8,10 @@ use std::sync::{Arc, Mutex};
 use serde::{Deserialize, Serialize};
 
 use super::RateLimiterConfig;
+use crate::VmmError;
 use crate::devices::virtio::block::device::Block;
 pub use crate::devices::virtio::block::virtio::device::FileEngineType;
 use crate::devices::virtio::block::{BlockError, CacheType};
-use crate::VmmError;
 
 /// Errors associated with the operations allowed on a drive.
 #[derive(Debug, thiserror::Error, displaydoc::Display)]
@@ -513,15 +513,19 @@ mod tests {
         );
 
         // Get None.
-        assert!(block_devs
-            .get_index_of_drive_id(&String::from("foo"))
-            .is_none());
+        assert!(
+            block_devs
+                .get_index_of_drive_id(&String::from("foo"))
+                .is_none()
+        );
 
         // Test several update cases using dummy_block_device_2.
         // Validate `dummy_block_device_2` is already in the list
-        assert!(block_devs
-            .get_index_of_drive_id(&dummy_block_device_2.drive_id)
-            .is_some());
+        assert!(
+            block_devs
+                .get_index_of_drive_id(&dummy_block_device_2.drive_id)
+                .is_some()
+        );
         // Update OK.
         dummy_block_device_2.is_read_only = Some(true);
         block_devs.insert(dummy_block_device_2.clone()).unwrap();

@@ -97,7 +97,7 @@ pub mod resources;
 /// microVM RPC API adapters.
 pub mod rpc_interface;
 /// Seccomp filter utilities.
-pub mod seccomp_filters;
+pub mod seccomp;
 /// Signal handling utilities.
 pub mod signal_handler;
 /// Serialization and deserialization facilities
@@ -111,6 +111,9 @@ pub mod vmm_config;
 /// Module with virtual state structs.
 pub mod vstate;
 
+/// Module with initrd.
+pub mod initrd;
+
 use std::collections::HashMap;
 use std::io;
 use std::os::unix::io::AsRawFd;
@@ -122,12 +125,13 @@ use device_manager::acpi::ACPIDeviceManager;
 use device_manager::resources::ResourceAllocator;
 use devices::acpi::vmgenid::VmGenIdError;
 use event_manager::{EventManager as BaseEventManager, EventOps, Events, MutEventSubscriber};
-use seccompiler::BpfProgram;
+use seccomp::BpfProgram;
 use userfaultfd::Uffd;
 use vmm_sys_util::epoll::EventSet;
 use vmm_sys_util::eventfd::EventFd;
 use vmm_sys_util::terminal::Terminal;
-use vstate::vcpu::{self, KvmVcpuConfigureError, StartThreadedError, VcpuSendEventError};
+use vstate::kvm::Kvm;
+use vstate::vcpu::{self, StartThreadedError, VcpuSendEventError};
 
 use crate::arch::DeviceType;
 use crate::cpu_config::templates::CpuConfiguration;
@@ -136,20 +140,17 @@ use crate::device_manager::legacy::PortIODeviceManager;
 use crate::device_manager::mmio::MMIODeviceManager;
 use crate::devices::legacy::{IER_RDA_BIT, IER_RDA_OFFSET};
 use crate::devices::virtio::balloon::{
-    Balloon, BalloonConfig, BalloonError, BalloonStats, BALLOON_DEV_ID,
+    BALLOON_DEV_ID, Balloon, BalloonConfig, BalloonError, BalloonStats,
 };
 use crate::devices::virtio::block::device::Block;
 use crate::devices::virtio::net::Net;
 use crate::devices::virtio::{TYPE_BALLOON, TYPE_BLOCK, TYPE_NET};
-use crate::logger::{error, info, warn, MetricsError, METRICS};
+use crate::logger::{METRICS, MetricsError, error, info, warn};
 use crate::persist::{MicrovmState, MicrovmStateError, VmInfo};
 use crate::rate_limiter::BucketUpdate;
 use crate::snapshot::Persist;
-use crate::utils::u64_to_usize;
 use crate::vmm_config::instance_info::{InstanceInfo, VmState};
-use crate::vstate::memory::{
-    GuestMemory, GuestMemoryExtension, GuestMemoryMmap, GuestMemoryRegion,
-};
+use crate::vstate::memory::{GuestMemory, GuestMemoryMmap, GuestMemoryRegion};
 use crate::vstate::vcpu::VcpuState;
 pub use crate::vstate::vcpu::{Vcpu, VcpuConfig, VcpuEvent, VcpuHandle, VcpuResponse};
 pub use crate::vstate::vm::Vm;
@@ -204,6 +205,8 @@ pub const HTTP_MAX_PAYLOAD_SIZE: usize = 51200;
 /// have permissions to open the KVM fd).
 #[derive(Debug, thiserror::Error, displaydoc::Display)]
 pub enum VmmError {
+    /// Failed to allocate guest resource: {0}
+    AllocateResources(#[from] vm_allocator::Error),
     #[cfg(target_arch = "aarch64")]
     /// Invalid command line error.
     Cmdline,
@@ -215,8 +218,6 @@ pub enum VmmError {
     EventFd(io::Error),
     /// I8042 error: {0}
     I8042Error(devices::legacy::I8042DeviceError),
-    /// Cannot access kernel file: {0}
-    KernelFile(io::Error),
     #[cfg(target_arch = "x86_64")]
     /// Cannot add devices to the legacy I/O Bus. {0}
     LegacyIOBus(device_manager::legacy::LegacyDeviceError),
@@ -225,22 +226,17 @@ pub enum VmmError {
     /// Cannot add a device to the MMIO Bus. {0}
     RegisterMMIODevice(device_manager::mmio::MmioError),
     /// Cannot install seccomp filters: {0}
-    SeccompFilters(seccompiler::InstallationError),
+    SeccompFilters(seccomp::InstallationError),
     /// Error writing to the serial console: {0}
     Serial(io::Error),
     /// Error creating timer fd: {0}
     TimerFd(io::Error),
-    /// Error configuring the vcpu for boot: {0}
-    VcpuConfigure(KvmVcpuConfigureError),
     /// Error creating the vcpu: {0}
     VcpuCreate(vstate::vcpu::VcpuError),
     /// Cannot send event to vCPU. {0}
     VcpuEvent(vstate::vcpu::VcpuError),
     /// Cannot create a vCPU handle. {0}
     VcpuHandle(vstate::vcpu::VcpuError),
-    #[cfg(target_arch = "aarch64")]
-    /// Error initializing the vcpu: {0}
-    VcpuInit(vstate::vcpu::KvmVcpuError),
     /// Failed to start vCPUs
     VcpuStart(StartVcpusError),
     /// Failed to pause the vCPUs.
@@ -254,7 +250,9 @@ pub enum VmmError {
     /// Cannot spawn Vcpu thread: {0}
     VcpuSpawn(io::Error),
     /// Vm error: {0}
-    Vm(vstate::vm::VmError),
+    Vm(#[from] vstate::vm::VmError),
+    /// Kvm error: {0}
+    Kvm(#[from] vstate::kvm::KvmError),
     /// Error thrown by observer object on Vmm initialization: {0}
     VmmObserverInit(vmm_sys_util::errno::Error),
     /// Error thrown by observer object on Vmm teardown: {0}
@@ -264,7 +262,7 @@ pub enum VmmError {
 }
 
 /// Shorthand type for KVM dirty page bitmap.
-pub type DirtyBitmap = HashMap<usize, Vec<u64>>;
+pub type DirtyBitmap = HashMap<u32, Vec<u64>>;
 
 /// Returns the size of guest memory, in MiB.
 pub(crate) fn mem_size_mib(guest_memory: &GuestMemoryMmap) -> u64 {
@@ -307,11 +305,10 @@ pub struct Vmm {
     shutdown_exit_code: Option<FcExitCode>,
 
     // Guest VM core resources.
-    vm: Vm,
-    guest_memory: GuestMemoryMmap,
+    kvm: Kvm,
+    /// VM object
+    pub vm: Vm,
     // Save UFFD in order to keep it open in the Firecracker process, as well.
-    // Since this field is never read again, we need to allow `dead_code`.
-    #[allow(dead_code)]
     uffd: Option<Uffd>,
     vcpus_handles: Vec<VcpuHandle>,
     // Used by Vcpus and devices to initiate teardown; Vmm should never write here.
@@ -368,15 +365,13 @@ impl Vmm {
 
         if let Some(stdin) = self.events_observer.as_mut() {
             // Set raw mode for stdin.
-            stdin.lock().set_raw_mode().map_err(|err| {
+            stdin.lock().set_raw_mode().inspect_err(|&err| {
                 warn!("Cannot set raw mode for the terminal. {:?}", err);
-                err
             })?;
 
             // Set non blocking stdin.
-            stdin.lock().set_non_block(true).map_err(|err| {
+            stdin.lock().set_non_block(true).inspect_err(|&err| {
                 warn!("Cannot set non block for the terminal. {:?}", err);
-                err
             })?;
         }
 
@@ -446,11 +441,6 @@ impl Vmm {
         Ok(())
     }
 
-    /// Returns a reference to the inner `GuestMemoryMmap` object.
-    pub fn guest_memory(&self) -> &GuestMemoryMmap {
-        &self.guest_memory
-    }
-
     /// Sets RDA bit in serial console
     pub fn emulate_serial_init(&self) -> Result<(), EmulateSerialInitError> {
         // When restoring from a previously saved state, there is no serial
@@ -513,6 +503,7 @@ impl Vmm {
     pub fn save_state(&mut self, vm_info: &VmInfo) -> Result<MicrovmState, MicrovmStateError> {
         use self::MicrovmStateError::SaveVmState;
         let vcpu_states = self.save_vcpu_states()?;
+        let kvm_state = self.kvm.save_state();
         let vm_state = {
             #[cfg(target_arch = "x86_64")]
             {
@@ -527,12 +518,11 @@ impl Vmm {
         };
         let device_states = self.mmio_device_manager.save();
 
-        let memory_state = self.guest_memory().describe();
         let acpi_dev_state = self.acpi_device_manager.save();
 
         Ok(MicrovmState {
             vm_info: vm_info.clone(),
-            memory_state,
+            kvm_state,
             vm_state,
             vcpu_states,
             device_states,
@@ -594,49 +584,6 @@ impl Vmm {
             .collect::<Result<Vec<CpuConfiguration>, DumpCpuConfigError>>()?;
 
         Ok(cpu_configs)
-    }
-
-    /// Retrieves the KVM dirty bitmap for each of the guest's memory regions.
-    pub fn reset_dirty_bitmap(&self) {
-        self.guest_memory
-            .iter()
-            .enumerate()
-            .for_each(|(slot, region)| {
-                let _ = self
-                    .vm
-                    .fd()
-                    .get_dirty_log(u32::try_from(slot).unwrap(), u64_to_usize(region.len()));
-            });
-    }
-
-    /// Retrieves the KVM dirty bitmap for each of the guest's memory regions.
-    pub fn get_dirty_bitmap(&self) -> Result<DirtyBitmap, VmmError> {
-        let mut bitmap: DirtyBitmap = HashMap::new();
-        self.guest_memory
-            .iter()
-            .enumerate()
-            .try_for_each(|(slot, region)| {
-                let bitmap_region = self
-                    .vm
-                    .fd()
-                    .get_dirty_log(u32::try_from(slot).unwrap(), u64_to_usize(region.len()))?;
-                bitmap.insert(slot, bitmap_region);
-                Ok(())
-            })
-            .map_err(VmmError::DirtyBitmap)?;
-        Ok(bitmap)
-    }
-
-    /// Enables or disables KVM dirty page tracking.
-    pub fn set_dirty_page_tracking(&mut self, enable: bool) -> Result<(), VmmError> {
-        // This function _always_ results in an ioctl update. The VMM is stateless in the sense
-        // that it's unaware of the current dirty page tracking setting.
-        // The VMM's consumer will need to cache the dirty tracking setting internally. For
-        // example, if this function were to be exposed through the VMM controller, the VMM
-        // resources should cache the flag.
-        self.vm
-            .set_kvm_memory_regions(&self.guest_memory, enable)
-            .map_err(VmmError::Vm)
     }
 
     /// Updates the path of the host file backing the emulated block device with id `drive_id`.
@@ -753,7 +700,7 @@ impl Vmm {
     pub fn update_balloon_config(&mut self, amount_mib: u32) -> Result<(), BalloonError> {
         // The balloon cannot have a target size greater than the size of
         // the guest memory.
-        if u64::from(amount_mib) > mem_size_mib(self.guest_memory()) {
+        if u64::from(amount_mib) > mem_size_mib(self.vm.guest_memory()) {
             return Err(BalloonError::TooManyPagesRequested);
         }
 
@@ -906,9 +853,8 @@ impl Drop for Vmm {
         self.stop(self.shutdown_exit_code.unwrap_or(FcExitCode::Ok));
 
         if let Some(observer) = self.events_observer.as_mut() {
-            let res = observer.lock().set_canon_mode().map_err(|err| {
+            let res = observer.lock().set_canon_mode().inspect_err(|&err| {
                 warn!("Cannot set canonical mode for the terminal. {:?}", err);
-                err
             });
             if let Err(err) = res {
                 warn!("{}", VmmError::VmmObserverTeardown(err));

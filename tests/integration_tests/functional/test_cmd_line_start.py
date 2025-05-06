@@ -12,8 +12,9 @@ from pathlib import Path
 import pytest
 from tenacity import Retrying, retry_if_exception_type, stop_after_attempt, wait_fixed
 
-from framework import utils, utils_cpuid
+from framework import utils
 from framework.utils import generate_mmds_get_request, generate_mmds_session_token
+from framework.utils_cpu_templates import SUPPORTED_CPU_TEMPLATES
 
 # Directory with metadata JSON files
 DIR = Path("./data")
@@ -195,8 +196,8 @@ def test_config_bad_machine_config(uvm_plain, vm_config_file):
 @pytest.mark.parametrize(
     "test_config",
     [
-        ("framework/vm_config_cpu_template_C3.json", False, True, True),
-        ("framework/vm_config_smt_true.json", False, False, True),
+        ("framework/vm_config_cpu_template_C3.json", True, False),
+        ("framework/vm_config_smt_true.json", False, True),
     ],
 )
 def test_config_machine_config_params(uvm_plain, test_config):
@@ -207,22 +208,20 @@ def test_config_machine_config_params(uvm_plain, test_config):
 
     # Test configuration determines if the file is a valid config or not
     # based on the CPU
-    (vm_config_file, fail_intel, fail_amd, fail_aarch64) = test_config
+    (vm_config_file, cpu_template_used, smt_used) = test_config
 
     _configure_vm_from_json(test_microvm, vm_config_file)
     test_microvm.jailer.extra_args.update({"no-api": None})
 
     test_microvm.spawn()
 
-    cpu_vendor = utils_cpuid.get_cpu_vendor()
+    should_fail = False
+    if cpu_template_used and "C3" not in SUPPORTED_CPU_TEMPLATES:
+        should_fail = True
+    if smt_used and (platform.machine() == "aarch64"):
+        should_fail = True
 
-    check_for_failed_start = (
-        (cpu_vendor == utils_cpuid.CpuVendor.AMD and fail_amd)
-        or (cpu_vendor == utils_cpuid.CpuVendor.INTEL and fail_intel)
-        or (platform.machine() == "aarch64" and fail_aarch64)
-    )
-
-    if check_for_failed_start:
+    if should_fail:
         test_microvm.check_any_log_message(
             [
                 "Failed to build MicroVM from Json",

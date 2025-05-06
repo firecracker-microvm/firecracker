@@ -10,6 +10,8 @@ from enum import Enum, auto
 from framework.utils import check_output
 from framework.utils_imdsv2 import imdsv2_get
 
+CPU_FEATURES_CMD = r"lscpu |grep -oP '^Flags:\s+\K.+'"
+
 
 class CpuVendor(Enum):
     """CPU vendors enum."""
@@ -23,11 +25,14 @@ class CpuModel(str, Enum):
     """CPU models"""
 
     AMD_MILAN = "AMD_MILAN"
+    AMD_GENOA = "AMD_GENOA"
     ARM_NEOVERSE_N1 = "ARM_NEOVERSE_N1"
     ARM_NEOVERSE_V1 = "ARM_NEOVERSE_V1"
+    ARM_NEOVERSE_V2 = "ARM_NEOVERSE_V2"
     INTEL_SKYLAKE = "INTEL_SKYLAKE"
     INTEL_CASCADELAKE = "INTEL_CASCADELAKE"
     INTEL_ICELAKE = "INTEL_ICELAKE"
+    INTEL_SAPPHIRE_RAPIDS = "INTEL_SAPPHIRE_RAPIDS"
 
 
 CPU_DICT = {
@@ -36,11 +41,14 @@ CPU_DICT = {
         "Intel(R) Xeon(R) Platinum 8124M CPU": "INTEL_SKYLAKE",
         "Intel(R) Xeon(R) Platinum 8259CL CPU": "INTEL_CASCADELAKE",
         "Intel(R) Xeon(R) Platinum 8375C CPU": "INTEL_ICELAKE",
+        "Intel(R) Xeon(R) Platinum 8488C": "INTEL_SAPPHIRE_RAPIDS",
     },
-    CpuVendor.AMD: {
-        "AMD EPYC 7R13": "AMD_MILAN",
+    CpuVendor.AMD: {"AMD EPYC 7R13": "AMD_MILAN", "AMD EPYC 9R14": "AMD_GENOA"},
+    CpuVendor.ARM: {
+        "0xd0c": "ARM_NEOVERSE_N1",
+        "0xd40": "ARM_NEOVERSE_V1",
+        "0xd4f": "ARM_NEOVERSE_V2",
     },
-    CpuVendor.ARM: {"0xd0c": "ARM_NEOVERSE_N1", "0xd40": "ARM_NEOVERSE_V1"},
 }
 
 
@@ -77,6 +85,8 @@ def get_cpu_codename(default="Unknown"):
         result = re.match(r"^(.*) @.*$", cpu_model)
         if result:
             return CPU_DICT[CpuVendor.INTEL].get(result.group(1), default)
+        # Some Intel CPUs (e.g. Intel Sapphire Rapids) don't include "@ <frequency>".
+        return CPU_DICT[CpuVendor.INTEL].get(cpu_model, default)
     if vendor == CpuVendor.AMD:
         result = re.match(r"^(.*) [0-9]*-Core Processor$", cpu_model)
         if result:
@@ -184,6 +194,9 @@ def check_cpuid_feat_flags(vm, must_be_set, must_be_unset):
 
     for leaf, subleaf, reg, flags in must_be_unset:
         assert reg in allowed_regs
+        if (leaf, subleaf, reg) not in cpuid:
+            # The absence of the leaf/subleaf is equivalent to "unset".
+            continue
         actual = cpuid[(leaf, subleaf, reg)] & flags
         expected = 0
         assert (

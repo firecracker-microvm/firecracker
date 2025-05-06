@@ -8,11 +8,9 @@ from framework.utils import check_entropy
 from host_tools.network import SSHConnection
 
 
-@pytest.fixture(params=[None])
-def uvm_with_rng(uvm_plain, request):
-    """Fixture of a microvm with virtio-rng configured"""
-    rate_limiter = request.param
-    uvm = uvm_plain
+def uvm_with_rng_booted(microvm_factory, guest_kernel, rootfs, rate_limiter):
+    """Return a booted microvm with virtio-rng configured"""
+    uvm = microvm_factory.build(guest_kernel, rootfs)
     uvm.spawn(log_level="INFO")
     uvm.basic_config(vcpu_count=2, mem_size_mib=256)
     uvm.add_net_iface()
@@ -21,6 +19,34 @@ def uvm_with_rng(uvm_plain, request):
     # Just stuff it in the microvm so we can look at it later
     uvm.rng_rate_limiter = rate_limiter
     return uvm
+
+
+def uvm_with_rng_restored(microvm_factory, guest_kernel, rootfs, rate_limiter):
+    """Return a restored uvm with virtio-rng configured"""
+    uvm = uvm_with_rng_booted(microvm_factory, guest_kernel, rootfs, rate_limiter)
+    snapshot = uvm.snapshot_full()
+    uvm.kill()
+    uvm2 = microvm_factory.build_from_snapshot(snapshot)
+    uvm2.rng_rate_limiter = uvm.rng_rate_limiter
+    return uvm2
+
+
+@pytest.fixture(params=[uvm_with_rng_booted, uvm_with_rng_restored])
+def uvm_ctor(request):
+    """Fixture to return uvms with different constructors"""
+    return request.param
+
+
+@pytest.fixture(params=[None])
+def rate_limiter(request):
+    """Fixture to return different rate limiters"""
+    return request.param
+
+
+@pytest.fixture
+def uvm_any(microvm_factory, uvm_ctor, guest_kernel, rootfs, rate_limiter):
+    """Return booted and restored uvms"""
+    return uvm_ctor(microvm_factory, guest_kernel, rootfs, rate_limiter)
 
 
 def list_rng_available(ssh_connection: SSHConnection) -> list[str]:
@@ -62,33 +88,15 @@ def test_rng_not_present(uvm_nano):
     ), "virtio_rng device should not be available in the uvm"
 
 
-def test_rng_present(uvm_with_rng):
+def test_rng_present(uvm_any):
     """
     Test a guest microVM with an entropy defined configured and ensure
     that we can access `/dev/hwrng`
     """
 
-    vm = uvm_with_rng
+    vm = uvm_any
     assert_virtio_rng_is_current_hwrng_device(vm.ssh)
     check_entropy(vm.ssh)
-
-
-def test_rng_snapshot(uvm_with_rng, microvm_factory):
-    """
-    Test that a virtio-rng device is functional after resuming from
-    a snapshot
-    """
-
-    vm = uvm_with_rng
-    assert_virtio_rng_is_current_hwrng_device(vm.ssh)
-    check_entropy(vm.ssh)
-    snapshot = vm.snapshot_full()
-
-    new_vm = microvm_factory.build()
-    new_vm.spawn()
-    new_vm.restore_from_snapshot(snapshot, resume=True)
-    assert_virtio_rng_is_current_hwrng_device(new_vm.ssh)
-    check_entropy(new_vm.ssh)
 
 
 def _get_percentage_difference(measured, base):
@@ -199,7 +207,7 @@ def _rate_limiter_id(rate_limiter):
 
 # parametrize the RNG rate limiter
 @pytest.mark.parametrize(
-    "uvm_with_rng",
+    "rate_limiter",
     [
         {"bandwidth": {"size": 1000, "refill_time": 100}},
         {"bandwidth": {"size": 10000, "refill_time": 100}},
@@ -208,16 +216,14 @@ def _rate_limiter_id(rate_limiter):
     indirect=True,
     ids=_rate_limiter_id,
 )
-def test_rng_bw_rate_limiter(uvm_with_rng):
+@pytest.mark.parametrize("uvm_ctor", [uvm_with_rng_booted], indirect=True)
+def test_rng_bw_rate_limiter(uvm_any):
     """
     Test that rate limiter without initial burst budget works
     """
-    vm = uvm_with_rng
-    # _start_vm_with_rng(vm, rate_limiter)
-
+    vm = uvm_any
     size = vm.rng_rate_limiter["bandwidth"]["size"]
     refill_time = vm.rng_rate_limiter["bandwidth"]["refill_time"]
-
     expected_kbps = size / refill_time
 
     assert_virtio_rng_is_current_hwrng_device(vm.ssh)

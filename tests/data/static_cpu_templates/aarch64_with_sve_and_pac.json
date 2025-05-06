@@ -1,4 +1,0 @@
-{
-  "kvm_capabilities": ["170", "171", "172"],
-  "vcpu_features": [{ "index": 0, "bitmap": "0b1110000" }]
-}

@@ -14,8 +14,8 @@ import re
 from pathlib import Path
 
 from framework.artifacts import disks, kernels
+from framework.defs import DEFAULT_BINARY_DIR
 from framework.microvm import MicroVMFactory
-from host_tools.cargo_build import get_firecracker_binaries
 
 kernels = list(kernels("vmlinux-*"))
 rootfs = list(disks("ubuntu*ext4"))
@@ -61,18 +61,18 @@ parser.add_argument("--cpu-template-path", help="CPU template to use", type=Path
 args = parser.parse_args()
 print(args)
 
-bins = None
+binary_dir = None
 if args.binary_dir:
     binary_dir = Path(args.binary_dir).resolve()
-    bins = binary_dir / "firecracker", binary_dir / "jailer"
 else:
-    bins = get_firecracker_binaries()
+    binary_dir = DEFAULT_BINARY_DIR
 
-print("This step may take a while to compile Firecracker ...")
 cpu_template = None
 if args.cpu_template_path is not None:
     cpu_template = json.loads(args.cpu_template_path.read_text())
-vmfcty = MicroVMFactory(*bins)
+vmfcty = MicroVMFactory(binary_dir)
+
+print(f"uvm with kernel {args.kernel} ...")
 uvm = vmfcty.build(args.kernel, args.rootfs)
 uvm.help.enable_console()
 uvm.help.resize_disk(uvm.rootfs_file, args.rootfs_size)
@@ -85,3 +85,15 @@ if cpu_template is not None:
     print(cpu_template)
 uvm.start()
 uvm.get_all_metrics()
+
+kernel_dbg_dir = args.kernel.parent / "debug"
+kernel_dbg = kernel_dbg_dir / args.kernel.name
+print(f"uvm2 with kernel {kernel_dbg} ...")
+uvm2 = vmfcty.build(kernel_dbg, args.rootfs)
+uvm2.spawn()
+uvm2.add_net_iface()
+uvm2.basic_config(vcpu_count=args.vcpus, mem_size_mib=args.guest_mem_size // 2**20)
+uvm2.start()
+# trace-cmd needs this (DNS resolution?)
+uvm2.help.enable_ip_forwarding()
+files = uvm2.help.trace_cmd_guest(["-l", "read_msr"], cmd="sleep 5")

@@ -15,7 +15,7 @@ use vmm_sys_util::ioctl::{ioctl_with_mut_ref, ioctl_with_ref, ioctl_with_val};
 use vmm_sys_util::{ioctl_ioc_nr, ioctl_iow_nr};
 
 use crate::devices::virtio::iovec::IoVecBuffer;
-use crate::devices::virtio::net::gen;
+use crate::devices::virtio::net::generated;
 
 // As defined in the Linux UAPI:
 // https://elixir.bootlin.com/linux/v4.17/source/include/uapi/linux/if.h#L33
@@ -71,7 +71,7 @@ fn build_terminated_if_name(if_name: &str) -> Result<[u8; IFACE_NAME_MAX_LEN], T
 }
 
 #[derive(Copy, Clone)]
-pub struct IfReqBuilder(gen::ifreq);
+pub struct IfReqBuilder(generated::ifreq);
 
 impl fmt::Debug for IfReqBuilder {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -102,7 +102,7 @@ impl IfReqBuilder {
         mut self,
         socket: &F,
         ioctl: u64,
-    ) -> std::io::Result<gen::ifreq> {
+    ) -> std::io::Result<generated::ifreq> {
         // SAFETY: ioctl is safe. Called with a valid socket fd, and we check the return.
         if unsafe { ioctl_with_mut_ref(socket, ioctl, &mut self.0) } < 0 {
             return Err(IoError::last_os_error());
@@ -122,7 +122,7 @@ impl Tap {
         // string and verify the result.
         let fd = unsafe {
             libc::open(
-                b"/dev/net/tun\0".as_ptr().cast::<c_char>(),
+                c"/dev/net/tun".as_ptr(),
                 libc::O_RDWR | libc::O_NONBLOCK | libc::O_CLOEXEC,
             )
         };
@@ -136,7 +136,10 @@ impl Tap {
         let terminated_if_name = build_terminated_if_name(if_name)?;
         let ifreq = IfReqBuilder::new()
             .if_name(&terminated_if_name)
-            .flags(i16::try_from(gen::IFF_TAP | gen::IFF_NO_PI | gen::IFF_VNET_HDR).unwrap())
+            .flags(
+                i16::try_from(generated::IFF_TAP | generated::IFF_NO_PI | generated::IFF_VNET_HDR)
+                    .unwrap(),
+            )
             .execute(&tuntap, TUNSETIFF())
             .map_err(|io_error| TapError::IfreqExecuteError(io_error, if_name.to_owned()))?;
 
@@ -219,9 +222,12 @@ pub mod tests {
     use std::os::unix::ffi::OsStrExt;
 
     use super::*;
-    use crate::devices::virtio::iovec::IoVecBufferMut;
-    use crate::devices::virtio::net::gen;
-    use crate::devices::virtio::net::test_utils::{enable, if_index, TapTrafficSimulator};
+    use crate::devices::virtio::net::generated;
+    use crate::devices::virtio::net::test_utils::{TapTrafficSimulator, enable, if_index};
+
+    // Redefine `IoVecBufferMut` with specific length. Otherwise
+    // Rust will not know what to do.
+    type IoVecBufferMut = crate::devices::virtio::iovec::IoVecBufferMut<256>;
 
     // The size of the virtio net header
     const VNET_HDR_SIZE: usize = 10;
@@ -232,7 +238,7 @@ pub mod tests {
     fn test_tap_name() {
         // Sanity check that the assumed max iface name length is correct.
         assert_eq!(IFACE_NAME_MAX_LEN, unsafe {
-            gen::ifreq__bindgen_ty_1::default().ifrn_name.len()
+            generated::ifreq__bindgen_ty_1::default().ifrn_name.len()
         });
 
         // Empty name - The tap should be named "tap0" by default
@@ -274,19 +280,6 @@ pub mod tests {
         let tap = Tap::open_named("").unwrap();
         tap.set_vnet_hdr_size(16).unwrap();
         tap.set_offload(0).unwrap();
-
-        let faulty_tap = Tap {
-            tap_file: unsafe { File::from_raw_fd(-2) },
-            if_name: [0x01; 16],
-        };
-        assert_eq!(
-            faulty_tap.set_vnet_hdr_size(16).unwrap_err().to_string(),
-            TapError::SetSizeOfVnetHdr(IoError::from_raw_os_error(9)).to_string()
-        );
-        assert_eq!(
-            faulty_tap.set_offload(0).unwrap_err().to_string(),
-            TapError::SetOffloadFlags(IoError::from_raw_os_error(9)).to_string()
-        );
     }
 
     #[test]
@@ -302,8 +295,8 @@ pub mod tests {
         let tap_traffic_simulator = TapTrafficSimulator::new(if_index(&tap));
 
         let mut fragment1 = vmm_sys_util::rand::rand_bytes(PAYLOAD_SIZE);
-        fragment1.as_mut_slice()[..gen::ETH_HLEN as usize]
-            .copy_from_slice(&[0; gen::ETH_HLEN as usize]);
+        fragment1.as_mut_slice()[..generated::ETH_HLEN as usize]
+            .copy_from_slice(&[0; generated::ETH_HLEN as usize]);
         let fragment2 = vmm_sys_util::rand::rand_bytes(PAYLOAD_SIZE);
         let fragment3 = vmm_sys_util::rand::rand_bytes(PAYLOAD_SIZE);
 

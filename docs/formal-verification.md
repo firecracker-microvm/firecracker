@@ -143,45 +143,40 @@ Verification Time: 0.19135727s
 ## FAQ
 
 **Q:** What is the Kani verifier?\
-**A:** The
-[Kani Rust Verifier](https://github.com/model-checking/kani) is a bit-precise
-model checker for Rust. Kani is particularly useful for verifying unsafe code
-blocks in Rust, where the
+**A:** The [Kani Rust Verifier](https://github.com/model-checking/kani) is a
+bit-precise model checker for Rust. Kani is particularly useful for verifying
+unsafe code blocks in Rust, where the
 “[unsafe superpowers](https://doc.rust-lang.org/stable/book/ch19-01-unsafe-rust.html#unsafe-superpowers)"
 are unchecked by the compiler.
 
 **Q:** What safety properties does Kani verify?\
-**A:** Kani verifies memory
-safety properties (e.g., invalid-pointer dereferences, out-of-bounds array
-access), user-specified assertions (i.e., `assert!(...)`), the absence of
-`panic!()`s (e.g., `unwrap()` on `None` values), and the absence of some types
-of unexpected behavior (e.g., arithmetic overflows). For a full overview, see
-the
+**A:** Kani verifies memory safety properties (e.g., invalid-pointer
+dereferences, out-of-bounds array access), user-specified assertions (i.e.,
+`assert!(...)`), the absence of `panic!()`s (e.g., `unwrap()` on `None` values),
+and the absence of some types of unexpected behavior (e.g., arithmetic
+overflows). For a full overview, see the
 [Kani documentation](https://model-checking.github.io/kani/tutorial-kinds-of-failure.html).
 
 **Q:** Do we expect all contributors to write harnesses for newly introduced
 code?\
-**A:** No. Kani is complementary to unit testing, and we do not have
-target for “proof coverage”. We employ formal verification in especially
-critical code areas. Generally we do not expect someone who might not be
-familiar with formal tools to contribute harnesses. We do expect all contributed
-code to pass verification though, just like we expect it to pass unit test!
+**A:** No. Kani is complementary to unit testing, and we do not have target for
+“proof coverage”. We employ formal verification in especially critical code
+areas. Generally we do not expect someone who might not be familiar with formal
+tools to contribute harnesses. We do expect all contributed code to pass
+verification though, just like we expect it to pass unit test!
 
 **Q:** How should I report issues related to any Firecracker harnesses?\
-**A:**
-Our Kani harnesses verify safety critical invariants. If you discover a flaw in
-a harness, please report it using the
+**A:** Our Kani harnesses verify safety critical invariants. If you discover a
+flaw in a harness, please report it using the
 [security issue disclosure process](https://github.com/firecracker-microvm/firecracker/blob/main/SECURITY.md).
 
-**Q:** How do I know which properties I should prove in the Kani
-harness?\
-**A:** Generally, these are given by some sort of specification. This
-can either be the function contract described in its document (e.g. what
-relation between input and output do callers expect?), or even something formal
-such as the TCP/IP standard. Don't forget to mention the specification in your
-proof harness!
+**Q:** How do I know which properties I should prove in the Kani harness?\
+**A:** Generally, these are given by some sort of specification. This can either
+be the function contract described in its document (e.g. what relation between
+input and output do callers expect?), or even something formal such as the
+TCP/IP standard. Don't forget to mention the specification in your proof
+harness!
 
 **Q:** Where do I debug a broken proof?\
-**A:** Check out the Kani book section
-on
+**A:** Check out the Kani book section on
 [debugging verification failures](https://model-checking.github.io/kani/debugging-verification-failures.html).

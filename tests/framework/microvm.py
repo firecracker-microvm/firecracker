@@ -37,7 +37,9 @@ from framework.http_api import Api
 from framework.jailer import JailerContext
 from framework.microvm_helpers import MicrovmHelpers
 from framework.properties import global_props
+from framework.utils_cpu_templates import get_cpu_template_name
 from framework.utils_drive import VhostUserBlkBackend, VhostUserBlkBackendType
+from framework.utils_uffd import spawn_pf_handler, uffd_handler
 from host_tools.fcmetrics import FCMetricsMonitor
 from host_tools.memory import MemoryMonitor
 
@@ -75,6 +77,7 @@ class Snapshot:
     disks: dict
     ssh_key: Path
     snapshot_type: SnapshotType
+    meta: dict
 
     @property
     def is_diff(self) -> bool:
@@ -110,6 +113,7 @@ class Snapshot:
             disks=self.disks,
             ssh_key=self.ssh_key,
             snapshot_type=self.snapshot_type,
+            meta=self.meta,
         )
 
     @classmethod
@@ -125,6 +129,7 @@ class Snapshot:
             disks={dsk: src / p for dsk, p in obj["disks"].items()},
             ssh_key=src / obj["ssh_key"],
             snapshot_type=SnapshotType(obj["snapshot_type"]),
+            meta=obj["meta"],
         )
 
     def save_to(self, dst: Path):
@@ -147,6 +152,7 @@ class Snapshot:
             "disks": new_disks,
             "ssh_key": self.ssh_key.name,
             "snapshot_type": self.snapshot_type.value,
+            "meta": self.meta,
         }
         snap_json = dst / "snapshot.json"
         snap_json.write_text(json.dumps(obj))
@@ -184,6 +190,7 @@ class Microvm:
         monitor_memory: bool = True,
         jailer_kwargs: Optional[dict] = None,
         numa_node=None,
+        custom_cpu_template: Path = None,
     ):
         """Set up microVM attributes, paths, and data structures."""
         # pylint: disable=too-many-statements
@@ -196,6 +203,7 @@ class Microvm:
         self.ssh_key = None
         self.initrd_file = None
         self.boot_args = None
+        self.uffd_handler = None
 
         self.fc_binary_path = Path(fc_binary_path)
         assert fc_binary_path.exists()
@@ -241,6 +249,12 @@ class Microvm:
         self.disks_vhost_user = {}
         self.vcpus_count = None
         self.mem_size_bytes = None
+        self.cpu_template_name = "None"
+        # The given custom CPU template will be set in basic_config() but could
+        # be overwritten via set_cpu_template().
+        self.custom_cpu_template = custom_cpu_template
+
+        self._connections = []
 
         self._pre_cmd = []
         if numa_node:
@@ -277,6 +291,10 @@ class Microvm:
         for monitor in self.monitors:
             monitor.stop()
 
+        # Kill all background SSH connections
+        for connection in self._connections:
+            connection.close()
+
         # We start with vhost-user backends,
         # because if we stop Firecracker first, the backend will want
         # to exit as well and this will cause a race condition.
@@ -295,6 +313,9 @@ class Microvm:
             if self.screen_pid:
                 os.kill(self.screen_pid, signal.SIGKILL)
         except:
+            LOG.error(
+                "Failed to kill Firecracker Process. Did it already die (or did the UFFD handler process die and take it down)?"
+            )
             LOG.error(self.log_data)
             raise
 
@@ -309,7 +330,7 @@ class Microvm:
 
             # filter ps results for the jailer's unique id
             _, stdout, stderr = utils.check_output(
-                f"ps aux | grep {self.jailer.jailer_id}"
+                f"ps ax -o cmd -ww | grep {self.jailer.jailer_id}"
             )
             # make sure firecracker was killed
             assert (
@@ -370,7 +391,7 @@ class Microvm:
                         "Got API call duration log entry before request entry"
                     )
 
-                if current_call.url != "/snapshot/create":
+                if current_call.url not in ["/snapshot/create", "/snapshot/load"]:
                     exec_time = float(match.group("execution_time")) / 1000.0
 
                     assert (
@@ -732,11 +753,16 @@ class Microvm:
             smt=smt,
             mem_size_mib=mem_size_mib,
             track_dirty_pages=track_dirty_pages,
-            cpu_template=cpu_template,
             huge_pages=huge_pages,
         )
         self.vcpus_count = vcpu_count
         self.mem_size_bytes = mem_size_mib * 2**20
+
+        if self.custom_cpu_template is not None:
+            self.set_cpu_template(self.custom_cpu_template)
+
+        if cpu_template is not None:
+            self.set_cpu_template(cpu_template)
 
         if self.memory_monitor:
             self.memory_monitor.start()
@@ -769,6 +795,18 @@ class Microvm:
 
         if enable_entropy_device:
             self.enable_entropy_device()
+
+    def set_cpu_template(self, cpu_template):
+        """Set guest CPU template."""
+        self.cpu_template_name = get_cpu_template_name(cpu_template)
+        if cpu_template is None:
+            return
+        # static CPU template
+        if isinstance(cpu_template, str):
+            self.api.machine_config.patch(cpu_template=cpu_template)
+        # custom CPU template
+        elif isinstance(cpu_template, dict):
+            self.api.cpu_config.put(**cpu_template["template"])
 
     def add_drive(
         self,
@@ -917,6 +955,10 @@ class Microvm:
             net_ifaces=[x["iface"] for ifname, x in self.iface.items()],
             ssh_key=self.ssh_key,
             snapshot_type=snapshot_type,
+            meta={
+                "kernel_file": str(self.kernel_file),
+                "vcpus_count": self.vcpus_count,
+            },
         )
 
     def snapshot_diff(self, *, mem_path: str = "mem", vmstate_path="vmstate"):
@@ -929,39 +971,71 @@ class Microvm:
 
     def restore_from_snapshot(
         self,
-        snapshot: Snapshot,
+        snapshot: Snapshot = None,
         resume: bool = False,
-        uffd_path: Path = None,
+        rename_interfaces: dict = None,
     ):
         """Restore a snapshot"""
-        jailed_snapshot = snapshot.copy_to_chroot(Path(self.chroot()))
+        if self.uffd_handler is None:
+            assert (
+                snapshot is not None
+            ), "snapshot file must be provided if no uffd handler is attached!"
+
+            jailed_snapshot = snapshot.copy_to_chroot(Path(self.chroot()))
+        else:
+            jailed_snapshot = self.uffd_handler.snapshot
+
         jailed_mem = Path("/") / jailed_snapshot.mem.name
         jailed_vmstate = Path("/") / jailed_snapshot.vmstate.name
 
-        snapshot_disks = [v for k, v in snapshot.disks.items()]
+        snapshot_disks = [v for k, v in jailed_snapshot.disks.items()]
         assert len(snapshot_disks) > 0, "Snapshot requires at least one disk."
         jailed_disks = []
         for disk in snapshot_disks:
             jailed_disks.append(self.create_jailed_resource(disk))
-        self.disks = snapshot.disks
-        self.ssh_key = snapshot.ssh_key
+        self.disks = jailed_snapshot.disks
+        self.ssh_key = jailed_snapshot.ssh_key
 
         # Create network interfaces.
-        for iface in snapshot.net_ifaces:
+        for iface in jailed_snapshot.net_ifaces:
             self.add_net_iface(iface, api=False)
 
         mem_backend = {"backend_type": "File", "backend_path": str(jailed_mem)}
-        if uffd_path is not None:
-            mem_backend = {"backend_type": "Uffd", "backend_path": str(uffd_path)}
+        if self.uffd_handler is not None:
+            mem_backend = {
+                "backend_type": "Uffd",
+                "backend_path": str(self.uffd_handler.socket_path),
+            }
+
+        for key, value in jailed_snapshot.meta.items():
+            setattr(self, key, value)
+        # Adjust things just in case
+        self.kernel_file = Path(self.kernel_file)
+
+        iface_overrides = []
+        if rename_interfaces is not None:
+            iface_overrides = [
+                {"iface_id": k, "host_dev_name": v}
+                for k, v in rename_interfaces.items()
+            ]
+
+        optional_kwargs = {}
+        if iface_overrides:
+            # For backwards compatibility ab testing we want to avoid adding
+            # new parameters until we have a release baseline with the new
+            # parameter. Once the release baseline has moved, this assignment
+            # can be inline in the snapshot_load command below
+            optional_kwargs["network_overrides"] = iface_overrides
 
         self.api.snapshot_load.put(
             mem_backend=mem_backend,
             snapshot_path=str(jailed_vmstate),
-            enable_diff_snapshots=snapshot.is_diff,
+            enable_diff_snapshots=jailed_snapshot.is_diff,
             resume_vm=resume,
+            **optional_kwargs,
         )
         # This is not a "wait for boot", but rather a "VM still works after restoration"
-        if snapshot.net_ifaces and resume:
+        if jailed_snapshot.net_ifaces and resume:
             self.wait_for_ssh_up()
         return jailed_snapshot
 
@@ -978,12 +1052,16 @@ class Microvm:
         """Return a cached SSH connection on a given interface id."""
         guest_ip = list(self.iface.values())[iface_idx]["iface"].guest_ip
         self.ssh_key = Path(self.ssh_key)
-        return net_tools.SSHConnection(
+        connection = net_tools.SSHConnection(
             netns=self.netns.id,
             ssh_key=self.ssh_key,
             user="root",
             host=guest_ip,
+            control_path=Path(self.chroot()) / f"ssh-{iface_idx}.sock",
+            on_error=self._dump_debug_information,
         )
+        self._connections.append(connection)
+        return connection
 
     @property
     def ssh(self):
@@ -1002,29 +1080,46 @@ class Microvm:
                 )
         return "\n".join(backtraces)
 
+    def _dump_debug_information(self, exc: Exception):
+        """
+        Dumps debug information about this microvm
+
+        Used for example when running a command inside the guest via `SSHConnection.check_output` fails.
+        """
+        print(
+            f"Failure executing command via SSH in microVM: {exc}\n\n"
+            f"Firecracker logs:\n{self.log_data}\n"
+            f"Thread backtraces:\n{self.thread_backtraces}"
+        )
+
     def wait_for_ssh_up(self):
         """Wait for guest running inside the microVM to come up and respond."""
-        try:
-            # Ensure that we have an initialized SSH connection to the guest that can
-            # run commands. The actual connection retry loop happens in SSHConnection._init_connection
-            self.ssh_iface(0)
-        except Exception as exc:
-            print(
-                f"Failed to establish SSH connection to guest: {exc}\n\n"
-                f"Firecracker logs:\n{self.log_data}\n"
-                f"Thread backtraces:\n{self.thread_backtraces}"
-            )
-            raise
+        # Ensure that we have an initialized SSH connection to the guest that can
+        # run commands. The actual connection retry loop happens in SSHConnection._init_connection
+        _ = self.ssh_iface(0)
 
 
 class MicroVMFactory:
     """MicroVM factory"""
 
-    def __init__(self, fc_binary_path: Path, jailer_binary_path: Path, **kwargs):
+    def __init__(self, binary_path: Path, **kwargs):
         self.vms = []
-        self.fc_binary_path = Path(fc_binary_path)
-        self.jailer_binary_path = Path(jailer_binary_path)
+        self.binary_path = binary_path
+        self.netns_factory = kwargs.pop("netns_factory", net_tools.NetNs)
         self.kwargs = kwargs
+
+        assert self.fc_binary_path.exists(), "missing firecracker binary"
+        assert self.jailer_binary_path.exists(), "missing jailer binary"
+
+    @property
+    def fc_binary_path(self):
+        """The path to the firecracker binary from which this factory will build VMs"""
+        return self.binary_path / "firecracker"
+
+    @property
+    def jailer_binary_path(self):
+        """The path to the jailer binary using which this factory will build VMs"""
+        return self.binary_path / "jailer"
 
     def build(self, kernel=None, rootfs=None, **kwargs):
         """Build a microvm"""
@@ -1036,7 +1131,7 @@ class MicroVMFactory:
             jailer_binary_path=kwargs.pop(
                 "jailer_binary_path", self.jailer_binary_path
             ),
-            netns=kwargs.pop("netns", net_tools.NetNs(microvm_id)),
+            netns=kwargs.pop("netns", self.netns_factory(microvm_id)),
             **kwargs,
         )
         vm.netns.setup()
@@ -1053,6 +1148,64 @@ class MicroVMFactory:
             vm.rootfs_file = rootfs_path
             vm.ssh_key = ssh_key
         return vm
+
+    def build_from_snapshot(self, snapshot: Snapshot):
+        """Build a microvm from a snapshot"""
+        vm = self.build()
+        vm.spawn()
+        vm.restore_from_snapshot(snapshot, resume=True)
+        return vm
+
+    def build_n_from_snapshot(
+        self,
+        current_snapshot,
+        nr_vms,
+        *,
+        uffd_handler_name=None,
+        incremental=False,
+        use_snapshot_editor=True,
+    ):
+        """A generator of `n` microvms restored, either all restored from the same given snapshot
+        (incremental=False), or created by taking successive snapshots of restored VMs
+        """
+        last_snapshot = None
+        for _ in range(nr_vms):
+            microvm = self.build()
+            microvm.spawn()
+
+            if uffd_handler_name is not None:
+                spawn_pf_handler(
+                    microvm,
+                    uffd_handler(uffd_handler_name, binary_dir=self.binary_path),
+                    current_snapshot,
+                )
+
+            snapshot_copy = microvm.restore_from_snapshot(current_snapshot, resume=True)
+
+            yield microvm
+
+            if incremental:
+                # When doing diff snapshots, we continuously overwrite the same base snapshot file from the first
+                # iteration in-place with successive snapshots, so don't delete it!
+                if last_snapshot is not None and not last_snapshot.is_diff:
+                    last_snapshot.delete()
+
+                next_snapshot = microvm.make_snapshot(current_snapshot.snapshot_type)
+
+                if current_snapshot.is_diff:
+                    next_snapshot = next_snapshot.rebase_snapshot(
+                        current_snapshot, use_snapshot_editor
+                    )
+
+                last_snapshot = current_snapshot
+                current_snapshot = next_snapshot
+
+            microvm.kill()
+            snapshot_copy.delete()
+
+        if last_snapshot is not None and not last_snapshot.is_diff:
+            last_snapshot.delete()
+        current_snapshot.delete()
 
     def kill(self):
         """Clean up all built VMs"""

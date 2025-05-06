@@ -3,23 +3,24 @@
 
 //! Defines the structures needed for saving/restoring block devices.
 
-use std::sync::atomic::AtomicU32;
 use std::sync::Arc;
+use std::sync::atomic::AtomicU32;
 
+use device::ConfigSpace;
 use serde::{Deserialize, Serialize};
 use vmm_sys_util::eventfd::EventFd;
 
 use super::device::DiskProperties;
 use super::*;
+use crate::devices::virtio::TYPE_BLOCK;
 use crate::devices::virtio::block::persist::BlockConstructorArgs;
 use crate::devices::virtio::block::virtio::device::FileEngineType;
 use crate::devices::virtio::block::virtio::metrics::BlockMetricsPerDevice;
 use crate::devices::virtio::device::{DeviceState, IrqTrigger};
-use crate::devices::virtio::gen::virtio_blk::VIRTIO_BLK_F_RO;
+use crate::devices::virtio::generated::virtio_blk::VIRTIO_BLK_F_RO;
 use crate::devices::virtio::persist::VirtioDeviceState;
-use crate::devices::virtio::TYPE_BLOCK;
-use crate::rate_limiter::persist::RateLimiterState;
 use crate::rate_limiter::RateLimiter;
+use crate::rate_limiter::persist::RateLimiterState;
 use crate::snapshot::Persist;
 
 /// Holds info about block's file engine type. Gets saved in snapshot.
@@ -122,10 +123,14 @@ impl Persist<'_> for VirtioBlock {
             DeviceState::Inactive
         };
 
+        let config_space = ConfigSpace {
+            capacity: disk_properties.nsectors.to_le(),
+        };
+
         Ok(VirtioBlock {
             avail_features,
             acked_features,
-            config_space: disk_properties.virtio_block_config_space(),
+            config_space,
             activate_evt: EventFd::new(libc::EFD_NONBLOCK).map_err(VirtioBlockError::EventFd)?,
 
             queues,

@@ -9,7 +9,7 @@ You can check if your system meets the requirements by running
 `firecracker/tools/devtool checkenv`.
 
 An opinionated way to run Firecracker is to launch an
-[EC2](https://aws.amazon.com/ec2/) `c5.metal` instance with Ubuntu 22.04.
+[EC2](https://aws.amazon.com/ec2/) `c5.metal` instance with Ubuntu 24.04.
 
 Firecracker requires [the KVM Linux kernel module](https://www.linux-kvm.org/)
 to perform its virtualization and emulation tasks.
@@ -94,25 +94,44 @@ For simplicity, this guide will not use the [`jailer`](../src/jailer/).
 ### Getting a rootfs and Guest Kernel Image
 
 To successfully start a microVM, you will need an uncompressed Linux kernel
-binary, and an ext4 file system image (to use as rootfs). This guide uses a 5.10
-kernel image with a Ubuntu 22.04 rootfs from our CI:
+binary, and an ext4 file system image (to use as rootfs). This guide uses the
+latest kernel image and Ubuntu rootfs available in our CI for the latest
+release.
 
 ```bash
 ARCH="$(uname -m)"
-
-latest=$(wget "http://spec.ccfc.min.s3.amazonaws.com/?prefix=firecracker-ci/v1.10/x86_64/vmlinux-5.10&list-type=2" -O - 2>/dev/null | grep "(?<=<Key>)(firecracker-ci/v1.10/x86_64/vmlinux-5\.10\.[0-9]{3})(?=</Key>)" -o -P)
+release_url="https://github.com/firecracker-microvm/firecracker/releases"
+latest_version=$(basename $(curl -fsSLI -o /dev/null -w  %{url_effective} ${release_url}/latest))
+CI_VERSION=${latest_version%.*}
+latest_kernel_key=$(curl "http://spec.ccfc.min.s3.amazonaws.com/?prefix=firecracker-ci/$CI_VERSION/$ARCH/vmlinux-&list-type=2" \
+    | grep -oP "(?<=<Key>)(firecracker-ci/$CI_VERSION/$ARCH/vmlinux-[0-9]+\.[0-9]+\.[0-9]{1,3})(?=</Key>)" \
+    | sort -V | tail -1)
 
 # Download a linux kernel binary
-wget "https://s3.amazonaws.com/spec.ccfc.min/${latest}"
+wget "https://s3.amazonaws.com/spec.ccfc.min/${latest_kernel_key}"
+
+latest_ubuntu_key=$(curl "http://spec.ccfc.min.s3.amazonaws.com/?prefix=firecracker-ci/$CI_VERSION/$ARCH/ubuntu-&list-type=2" \
+    | grep -oP "(?<=<Key>)(firecracker-ci/$CI_VERSION/$ARCH/ubuntu-[0-9]+\.[0-9]+\.squashfs)(?=</Key>)" \
+    | sort -V | tail -1)
+ubuntu_version=$(basename $latest_ubuntu_key .sqashfs | grep -oE '[0-9]+\.[0-9]+')
 
 # Download a rootfs
-wget "https://s3.amazonaws.com/spec.ccfc.min/firecracker-ci/v1.10/${ARCH}/ubuntu-22.04.ext4"
+wget -O ubuntu-$ubuntu_version.squashfs.upstream "https://s3.amazonaws.com/spec.ccfc.min/$latest_ubuntu_key"
 
-# Download the ssh key for the rootfs
-wget "https://s3.amazonaws.com/spec.ccfc.min/firecracker-ci/v1.10/${ARCH}/ubuntu-22.04.id_rsa"
+# Create an ssh key for the rootfs
+unsquashfs ubuntu-$ubuntu_version.squashfs.upstream
+ssh-keygen -f id_rsa -N ""
+cp -v id_rsa.pub squashfs-root/root/.ssh/authorized_keys
+mv -v id_rsa ./ubuntu-$ubuntu_version.id_rsa
+# create ext4 filesystem image
+sudo chown -R root:root squashfs-root
+truncate -s 400M ubuntu-$ubuntu_version.ext4
+sudo mkfs.ext4 -d squashfs-root -F ubuntu-$ubuntu_version.ext4
 
-# Set user read permission on the ssh key
-chmod 400 ./ubuntu-22.04.id_rsa
+# Verify everything was correctly set up and print versions
+echo "Kernel: $(ls vmlinux-* | tail -1)"
+echo "Rootfs: $(ls *.ext4 | tail -1)"
+echo "SSH Key: $(ls *.id_rsa | tail -1)"
 ```
 
 ### Getting a Firecracker Binary
@@ -193,17 +212,16 @@ sudo ip link set dev "$TAP_DEV" up
 
 # Enable ip forwarding
 sudo sh -c "echo 1 > /proc/sys/net/ipv4/ip_forward"
+sudo iptables -P FORWARD ACCEPT
 
-HOST_IFACE="eth0"
+# This tries to determine the name of the host network interface to forward
+# VM's outbound network traffic through. If outbound traffic doesn't work,
+# double check this returns the correct interface!
+HOST_IFACE=$(ip -j route list default |jq -r '.[0].dev')
 
 # Set up microVM internet access
 sudo iptables -t nat -D POSTROUTING -o "$HOST_IFACE" -j MASQUERADE || true
-sudo iptables -D FORWARD -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT \
-    || true
-sudo iptables -D FORWARD -i "$TAP_DEV" -o "$HOST_IFACE" -j ACCEPT || true
 sudo iptables -t nat -A POSTROUTING -o "$HOST_IFACE" -j MASQUERADE
-sudo iptables -I FORWARD 1 -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT
-sudo iptables -I FORWARD 1 -i "$TAP_DEV" -o "$HOST_IFACE" -j ACCEPT
 
 API_SOCKET="/tmp/firecracker.socket"
 LOGFILE="./firecracker.log"
@@ -238,7 +256,7 @@ sudo curl -X PUT --unix-socket "${API_SOCKET}" \
     }" \
     "http://localhost/boot-source"
 
-ROOTFS="./ubuntu-22.04.ext4"
+ROOTFS="./$(ls *.ext4 | tail -1)"
 
 # Set rootfs
 sudo curl -X PUT --unix-socket "${API_SOCKET}" \
@@ -279,14 +297,16 @@ sudo curl -X PUT --unix-socket "${API_SOCKET}" \
 # started before we attempt to SSH into it.
 sleep 2s
 
+KEY_NAME=./$(ls *.id_rsa | tail -1)
+
 # Setup internet access in the guest
-ssh -i ./ubuntu-22.04.id_rsa root@172.16.0.2  "ip route add default via 172.16.0.1 dev eth0"
+ssh -i $KEY_NAME root@172.16.0.2  "ip route add default via 172.16.0.1 dev eth0"
 
 # Setup DNS resolution in the guest
-ssh -i ./ubuntu-22.04.id_rsa root@172.16.0.2  "echo 'nameserver 8.8.8.8' > /etc/resolv.conf"
+ssh -i $KEY_NAME root@172.16.0.2  "echo 'nameserver 8.8.8.8' > /etc/resolv.conf"
 
 # SSH into the microVM
-ssh -i ./ubuntu-22.04.id_rsa root@172.16.0.2
+ssh -i $KEY_NAME root@172.16.0.2
 
 # Use `root` for both the login and password.
 # Run `reboot` to exit.
