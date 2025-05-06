@@ -213,7 +213,7 @@ pub fn configure_system_for_boot(
     // Note that this puts the mptable at the last 1k of Linux's 640k base RAM
     mptable::setup_mptable(
         vmm.vm.guest_memory(),
-        &mut vmm.device_manager.resource_allocator,
+        &vmm.device_manager.resource_allocator,
         vcpu_config.vcpu_count,
     )
     .map_err(ConfigurationError::MpTableSetup)?;
@@ -598,8 +598,8 @@ mod tests {
     fn test_system_configuration() {
         let no_vcpus = 4;
         let gm = single_region_mem(0x10000);
-        let mut resource_allocator = ResourceAllocator::new().unwrap();
-        let err = mptable::setup_mptable(&gm, &mut resource_allocator, 1);
+        let resource_allocator = ResourceAllocator::new().unwrap();
+        let err = mptable::setup_mptable(&gm, &resource_allocator, 1);
         assert!(matches!(
             err.unwrap_err(),
             mptable::MptableError::NotEnoughMemory
@@ -608,24 +608,24 @@ mod tests {
         // Now assigning some memory that falls before the 32bit memory hole.
         let mem_size = mib_to_bytes(128);
         let gm = arch_mem(mem_size);
-        let mut resource_allocator = ResourceAllocator::new().unwrap();
-        mptable::setup_mptable(&gm, &mut resource_allocator, no_vcpus).unwrap();
+        let resource_allocator = ResourceAllocator::new().unwrap();
+        mptable::setup_mptable(&gm, &resource_allocator, no_vcpus).unwrap();
         configure_64bit_boot(&gm, GuestAddress(0), 0, &None).unwrap();
         configure_pvh(&gm, GuestAddress(0), &None).unwrap();
 
         // Now assigning some memory that is equal to the start of the 32bit memory hole.
         let mem_size = mib_to_bytes(3328);
         let gm = arch_mem(mem_size);
-        let mut resource_allocator = ResourceAllocator::new().unwrap();
-        mptable::setup_mptable(&gm, &mut resource_allocator, no_vcpus).unwrap();
+        let resource_allocator = ResourceAllocator::new().unwrap();
+        mptable::setup_mptable(&gm, &resource_allocator, no_vcpus).unwrap();
         configure_64bit_boot(&gm, GuestAddress(0), 0, &None).unwrap();
         configure_pvh(&gm, GuestAddress(0), &None).unwrap();
 
         // Now assigning some memory that falls after the 32bit memory hole.
         let mem_size = mib_to_bytes(3330);
         let gm = arch_mem(mem_size);
-        let mut resource_allocator = ResourceAllocator::new().unwrap();
-        mptable::setup_mptable(&gm, &mut resource_allocator, no_vcpus).unwrap();
+        let resource_allocator = ResourceAllocator::new().unwrap();
+        mptable::setup_mptable(&gm, &resource_allocator, no_vcpus).unwrap();
         configure_64bit_boot(&gm, GuestAddress(0), 0, &None).unwrap();
         configure_pvh(&gm, GuestAddress(0), &None).unwrap();
     }
