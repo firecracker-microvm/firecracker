@@ -65,6 +65,8 @@ confirm() {
 }
 
 apply_patch_file() {
+  echo "Applying patch:" $(basename $1)
+
   git apply $1
 }
 
@@ -73,6 +75,23 @@ apply_patch_or_series() {
   *.patch) apply_patch_file $1 ;;
   *) echo "Skipping non-patch file" $1 ;;
   esac
+}
+
+apply_all_patches() {
+  if [ ! -d "$1" ]; then
+    echo "Not a directory: $1"
+    return
+  fi
+
+  echo "Applying all patches in $1"
+
+  for f in $1/*; do
+    if [ -d $f ]; then
+      apply_all_patches $f
+    else
+      apply_patch_or_series $f
+    fi
+  done
 }
 
 check_new_config() {
@@ -156,10 +175,7 @@ git fetch --depth 1 origin $KERNEL_COMMIT_HASH
 git checkout FETCH_HEAD
 
 # Apply our patches on top
-for PATCH in $KERNEL_PATCHES_DIR/*.*; do
-  echo "Applying patch:" $(basename $PATCH)
-  apply_patch_or_series $PATCH
-done
+apply_all_patches $KERNEL_PATCHES_DIR
 
 echo "Making kernel config ready for build"
 # We use olddefconfig to automatically pull in the
