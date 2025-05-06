@@ -477,7 +477,7 @@ mod tests {
             .register_virtio_test_device(
                 &vm,
                 mem.clone(),
-                &mut device_manager.resource_allocator,
+                &device_manager.resource_allocator,
                 dummy,
                 &mut cmdline,
                 "dummy",
