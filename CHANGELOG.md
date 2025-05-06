@@ -21,6 +21,10 @@ and this project adheres to
   so users need to regenerate snapshots.
 - [#4731](https://github.com/firecracker-microvm/firecracker/pull/4731): Added
   support for modifying the host TAP device name during snapshot restore.
+- [#5146](https://github.com/firecracker-microvm/firecracker/pull/5146): Added
+  Intel Sapphire Rapids as a supported and tested platform for Firecracker.
+- [#5148](https://github.com/firecracker-microvm/firecracker/pull/5148): Added
+  ARM Graviton4 as a supported and tested platform for Firecracker.
 
 ### Changed
 
