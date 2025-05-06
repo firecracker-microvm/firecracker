@@ -371,10 +371,10 @@ impl Vmm {
         self.vcpus_handles.reserve(vcpu_count);
 
         for mut vcpu in vcpus.drain(..) {
-            vcpu.set_mmio_bus(self.device_manager.mmio_bus.clone());
+            vcpu.set_mmio_bus(self.device_manager.resource_allocator.mmio_bus.clone());
             #[cfg(target_arch = "x86_64")]
             vcpu.kvm_vcpu
-                .set_pio_bus(self.device_manager.pio_bus.clone());
+                .set_pio_bus(self.device_manager.resource_allocator.pio_bus.clone());
 
             self.vcpus_handles
                 .push(vcpu.start_threaded(vcpu_seccomp_filter.clone(), barrier.clone())?);

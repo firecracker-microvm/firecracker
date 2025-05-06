@@ -169,7 +169,7 @@ impl MMIODeviceManager {
     /// Allocates resources for a new device to be added.
     fn allocate_mmio_resources(
         &mut self,
-        resource_allocator: &mut ResourceAllocator,
+        resource_allocator: &ResourceAllocator,
         irq_count: u32,
     ) -> Result<MMIODeviceInfo, MmioError> {
         let irq = match resource_allocator.allocate_gsi(irq_count)?[..] {
@@ -253,9 +253,8 @@ impl MMIODeviceManager {
     pub fn register_mmio_virtio_for_boot(
         &mut self,
         vm: &VmFd,
-        resource_allocator: &mut ResourceAllocator,
+        resource_allocator: &ResourceAllocator,
         device_id: String,
-        mmio_bus: &vm_device::Bus,
         mmio_device: MmioTransport,
         _cmdline: &mut kernel_cmdline::Cmdline,
     ) -> Result<(), MmioError> {
@@ -276,7 +275,7 @@ impl MMIODeviceManager {
                 device.resources.irq.unwrap().get(),
             )?;
         }
-        self.register_mmio_virtio(vm, device_id, mmio_bus, device)?;
+        self.register_mmio_virtio(vm, device_id, &resource_allocator.mmio_bus, device)?;
         Ok(())
     }
 
@@ -286,8 +285,7 @@ impl MMIODeviceManager {
     pub fn register_mmio_serial(
         &mut self,
         vm: &VmFd,
-        mmio_bus: &vm_device::Bus,
-        resource_allocator: &mut ResourceAllocator,
+        resource_allocator: &ResourceAllocator,
         serial: Arc<Mutex<SerialDevice>>,
         device_info_opt: Option<MMIODeviceInfo>,
     ) -> Result<(), MmioError> {
@@ -315,7 +313,7 @@ impl MMIODeviceManager {
             inner: serial,
         };
 
-        mmio_bus.insert(
+        resource_allocator.mmio_bus.insert(
             device.inner.clone(),
             device.resources.addr,
             device.resources.len,
@@ -346,8 +344,7 @@ impl MMIODeviceManager {
     /// given as parameter, otherwise allocate a new MMIO resources for it.
     pub fn register_mmio_rtc(
         &mut self,
-        mmio_bus: &vm_device::Bus,
-        resource_allocator: &mut ResourceAllocator,
+        resource_allocator: &ResourceAllocator,
         rtc: Arc<Mutex<RTCDevice>>,
         device_info_opt: Option<MMIODeviceInfo>,
     ) -> Result<(), MmioError> {
@@ -369,7 +366,7 @@ impl MMIODeviceManager {
             inner: rtc,
         };
 
-        mmio_bus.insert(
+        resource_allocator.mmio_bus.insert(
             device.inner.clone(),
             device.resources.addr,
             device.resources.len,
@@ -571,19 +568,17 @@ pub(crate) mod tests {
             &mut self,
             vm: &VmFd,
             guest_mem: GuestMemoryMmap,
-            resource_allocator: &mut ResourceAllocator,
+            resource_allocator: &ResourceAllocator,
             device: Arc<Mutex<dyn VirtioDevice>>,
             cmdline: &mut kernel_cmdline::Cmdline,
             dev_id: &str,
         ) -> Result<u64, MmioError> {
             let interrupt = Arc::new(IrqTrigger::new());
-            let mmio_bus = vm_device::Bus::new();
             let mmio_device = MmioTransport::new(guest_mem, interrupt, device.clone(), false);
             self.register_mmio_virtio_for_boot(
                 vm,
                 resource_allocator,
                 dev_id.to_string(),
-                &mmio_bus,
                 mmio_device,
                 cmdline,
             )?;
@@ -693,7 +688,7 @@ pub(crate) mod tests {
         let mut vm = Vm::new(&kvm).unwrap();
         vm.register_memory_regions(guest_mem).unwrap();
         let mut device_manager = MMIODeviceManager::new();
-        let mut resource_allocator = ResourceAllocator::new().unwrap();
+        let resource_allocator = ResourceAllocator::new().unwrap();
 
         let mut cmdline = kernel_cmdline::Cmdline::new(4096).unwrap();
         let dummy = Arc::new(Mutex::new(DummyDevice::new()));
@@ -706,7 +701,7 @@ pub(crate) mod tests {
             .register_virtio_test_device(
                 vm.fd(),
                 vm.guest_memory().clone(),
-                &mut resource_allocator,
+                &resource_allocator,
                 dummy,
                 &mut cmdline,
                 "dummy",
@@ -747,7 +742,7 @@ pub(crate) mod tests {
         let mut vm = Vm::new(&kvm).unwrap();
         vm.register_memory_regions(guest_mem).unwrap();
         let mut device_manager = MMIODeviceManager::new();
-        let mut resource_allocator = ResourceAllocator::new().unwrap();
+        let resource_allocator = ResourceAllocator::new().unwrap();
 
         let mut cmdline = kernel_cmdline::Cmdline::new(4096).unwrap();
         #[cfg(target_arch = "x86_64")]
@@ -760,7 +755,7 @@ pub(crate) mod tests {
                 .register_virtio_test_device(
                     vm.fd(),
                     vm.guest_memory().clone(),
-                    &mut resource_allocator,
+                    &resource_allocator,
                     Arc::new(Mutex::new(DummyDevice::new())),
                     &mut cmdline,
                     "dummy1",
@@ -774,7 +769,7 @@ pub(crate) mod tests {
                     .register_virtio_test_device(
                         vm.fd(),
                         vm.guest_memory().clone(),
-                        &mut resource_allocator,
+                        &resource_allocator,
                         Arc::new(Mutex::new(DummyDevice::new())),
                         &mut cmdline,
                         "dummy2"
@@ -809,7 +804,7 @@ pub(crate) mod tests {
         vm.setup_irqchip(1).unwrap();
 
         let mut device_manager = MMIODeviceManager::new();
-        let mut resource_allocator = ResourceAllocator::new().unwrap();
+        let resource_allocator = ResourceAllocator::new().unwrap();
         let mut cmdline = kernel_cmdline::Cmdline::new(4096).unwrap();
         let dummy = Arc::new(Mutex::new(DummyDevice::new()));
 
@@ -819,7 +814,7 @@ pub(crate) mod tests {
             .register_virtio_test_device(
                 vm.fd(),
                 vm.guest_memory().clone(),
-                &mut resource_allocator,
+                &resource_allocator,
                 dummy,
                 &mut cmdline,
                 &id,
@@ -850,7 +845,7 @@ pub(crate) mod tests {
             .register_virtio_test_device(
                 vm.fd(),
                 vm.guest_memory().clone(),
-                &mut resource_allocator,
+                &resource_allocator,
                 dummy2,
                 &mut cmdline,
                 &id2,
@@ -876,10 +871,10 @@ pub(crate) mod tests {
     #[test]
     fn test_no_irq_allocation() {
         let mut device_manager = MMIODeviceManager::new();
-        let mut resource_allocator = ResourceAllocator::new().unwrap();
+        let resource_allocator = ResourceAllocator::new().unwrap();
 
         let device_info = device_manager
-            .allocate_mmio_resources(&mut resource_allocator, 0)
+            .allocate_mmio_resources(&resource_allocator, 0)
             .unwrap();
         assert!(device_info.irq.is_none());
     }
@@ -887,10 +882,10 @@ pub(crate) mod tests {
     #[test]
     fn test_irq_allocation() {
         let mut device_manager = MMIODeviceManager::new();
-        let mut resource_allocator = ResourceAllocator::new().unwrap();
+        let resource_allocator = ResourceAllocator::new().unwrap();
 
         let device_info = device_manager
-            .allocate_mmio_resources(&mut resource_allocator, 1)
+            .allocate_mmio_resources(&resource_allocator, 1)
             .unwrap();
         assert_eq!(device_info.irq.unwrap().get(), crate::arch::IRQ_BASE);
     }
@@ -898,12 +893,12 @@ pub(crate) mod tests {
     #[test]
     fn test_allocation_failure() {
         let mut device_manager = MMIODeviceManager::new();
-        let mut resource_allocator = ResourceAllocator::new().unwrap();
+        let resource_allocator = ResourceAllocator::new().unwrap();
         assert_eq!(
             format!(
                 "{}",
                 device_manager
-                    .allocate_mmio_resources(&mut resource_allocator, 2)
+                    .allocate_mmio_resources(&resource_allocator, 2)
                     .unwrap_err()
             ),
             "Invalid MMIO IRQ configuration.".to_string()
