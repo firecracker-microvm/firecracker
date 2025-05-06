@@ -449,7 +449,7 @@ fn main_exec() -> Result<(), MainError> {
 /// the default the jailer would set).
 ///
 /// We do this resizing because the kernel default is 64, with a reallocation happening whenever
-/// the tabel fills up. This was happening for some larger microVMs, and reallocating the
+/// the table fills up. This was happening for some larger microVMs, and reallocating the
 /// fdtable while a lot of file descriptors are active (due to being eventfds/timerfds registered
 /// to epoll) incurs a penalty of 30ms-70ms on the snapshot restore path.
 fn resize_fdtable() -> Result<(), ResizeFdTableError> {
