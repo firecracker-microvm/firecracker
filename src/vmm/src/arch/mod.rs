@@ -47,7 +47,9 @@ pub use crate::arch::x86_64::{
     layout::IOAPIC_ADDR, layout::IRQ_BASE, layout::IRQ_MAX, layout::MEM_32BIT_DEVICES_SIZE,
     layout::MEM_32BIT_DEVICES_START, layout::MEM_64BIT_DEVICES_SIZE,
     layout::MEM_64BIT_DEVICES_START, layout::MMIO32_MEM_SIZE, layout::MMIO32_MEM_START,
-    layout::SYSTEM_MEM_SIZE, layout::SYSTEM_MEM_START, load_kernel,
+    layout::PCI_MMCONFIG_SIZE, layout::PCI_MMCONFIG_START,
+    layout::PCI_MMIO_CONFIG_SIZE_PER_SEGMENT, layout::SYSTEM_MEM_SIZE, layout::SYSTEM_MEM_START,
+    load_kernel,
 };
 
 /// Types of devices that can get attached to this platform.
