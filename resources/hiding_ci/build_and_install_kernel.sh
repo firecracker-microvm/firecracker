@@ -82,24 +82,9 @@ apply_patch_file() {
   git apply $1
 }
 
-apply_series_mbox() {
-  git am $1 --empty=drop
-}
-
-apply_series_link() {
-  patch_url=$(cat $1)
-  echo "Fetching mbox from:" $patch_url
-  curl --output lore.mbox.gz "$patch_url/t.mbox.gz"
-  gunzip lore.mbox
-  apply_series_mbox lore.mbox
-  rm lore.mbox
-}
-
 apply_patch_or_series() {
   case "$1" in
   *.patch) apply_patch_file $1 ;;
-  *.mbox) apply_series_mbox $1 ;;
-  *.lore) apply_series_link $1 ;;
   *) echo "Skipping non-patch file" $1 ;;
   esac
 }
