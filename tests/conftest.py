@@ -350,7 +350,7 @@ def microvm_factory(request, record_property, results_dir, netns_factory):
                 if not os.path.isfile(src):
                     continue
                 dst = uvm_data / item
-                shutil.move(src, dst)
+                shutil.copy(src, dst)
                 console_data = uvm.console_data
                 if console_data:
                     uvm_data.joinpath("guest-console.log").write_text(console_data)
