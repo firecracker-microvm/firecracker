@@ -21,6 +21,9 @@ and this project adheres to
   so users need to regenerate snapshots.
 - [#4731](https://github.com/firecracker-microvm/firecracker/pull/4731): Added
   support for modifying the host TAP device name during snapshot restore.
+- [#5186](https://github.com/firecracker-microvm/firecracker/pull/5186): Pass
+  through CPUID leaves 15h and 16h on Intel CPUs (Crystal clock, processor, and
+  and bus frequencies).
 
 ### Changed
 
