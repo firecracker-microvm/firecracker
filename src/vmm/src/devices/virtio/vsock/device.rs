@@ -34,7 +34,7 @@ use crate::devices::virtio::device::{DeviceState, IrqTrigger, IrqType, VirtioDev
 use crate::devices::virtio::generated::virtio_config::{VIRTIO_F_IN_ORDER, VIRTIO_F_VERSION_1};
 use crate::devices::virtio::queue::Queue as VirtQueue;
 use crate::devices::virtio::vsock::VsockError;
-use crate::devices::virtio::vsock::metrics::METRICS;
+use crate::devices::virtio::vsock::metrics::VsockMetricsPerDevice;
 use crate::logger::IncMetric;
 use crate::utils::byte_order;
 use crate::vstate::memory::{Bytes, GuestMemoryMmap};
@@ -241,11 +241,12 @@ where
     // connections and the guest_cid configuration field is fetched again. Existing listen sockets
     // remain but their CID is updated to reflect the current guest_cid.
     pub fn send_transport_reset_event(&mut self) -> Result<(), DeviceError> {
+        let global = VsockMetricsPerDevice::alloc("global".to_string());
         // This is safe since we checked in the caller function that the device is activated.
         let mem = self.device_state.mem().unwrap();
 
         let head = self.queues[EVQ_INDEX].pop().ok_or_else(|| {
-            METRICS.ev_queue_event_fails.inc();
+            global.ev_queue_event_fails.inc();
             DeviceError::VsockError(VsockError::EmptyQueue)
         })?;
 
@@ -301,6 +302,7 @@ where
     }
 
     fn read_config(&self, offset: u64, data: &mut [u8]) {
+        let global = VsockMetricsPerDevice::alloc("global".to_string());
         match offset {
             0 if data.len() == 8 => byte_order::write_le_u64(data, self.cid()),
             0 if data.len() == 4 => {
@@ -310,7 +312,7 @@ where
                 byte_order::write_le_u32(data, ((self.cid() >> 32) & 0xffff_ffff) as u32)
             }
             _ => {
-                METRICS.cfg_fails.inc();
+                global.cfg_fails.inc();
                 warn!(
                     "vsock: virtio-vsock received invalid read request of {} bytes at offset {}",
                     data.len(),
@@ -321,7 +323,8 @@ where
     }
 
     fn write_config(&mut self, offset: u64, data: &[u8]) {
-        METRICS.cfg_fails.inc();
+        let global = VsockMetricsPerDevice::alloc("global".to_string());
+        global.cfg_fails.inc();
         warn!(
             "vsock: guest driver attempted to write device config (offset={:#x}, len={:#x})",
             offset,
@@ -330,13 +333,14 @@ where
     }
 
     fn activate(&mut self, mem: GuestMemoryMmap) -> Result<(), ActivateError> {
+        let global = VsockMetricsPerDevice::alloc("global".to_string());
         for q in self.queues.iter_mut() {
             q.initialize(&mem)
                 .map_err(ActivateError::QueueMemoryError)?;
         }
 
         if self.queues.len() != defs::VSOCK_NUM_QUEUES {
-            METRICS.activate_fails.inc();
+            global.activate_fails.inc();
             return Err(ActivateError::QueueMismatch {
                 expected: defs::VSOCK_NUM_QUEUES,
                 got: self.queues.len(),
@@ -344,7 +348,7 @@ where
         }
 
         if self.activate_evt.write(1).is_err() {
-            METRICS.activate_fails.inc();
+            global.activate_fails.inc();
             return Err(ActivateError::EventFd);
         }
 
