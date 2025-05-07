@@ -95,6 +95,7 @@ use crate::devices::virtio::vsock::metrics::METRICS;
 use crate::devices::virtio::vsock::packet::{VsockPacketHeader, VsockPacketRx, VsockPacketTx};
 use crate::logger::IncMetric;
 use crate::utils::wrap_usize_to_u32;
+use crate::vmm_config::vsock::VsockSocketType;
 
 /// Trait that vsock connection backends need to implement.
 ///
@@ -139,6 +140,9 @@ pub struct VsockConnection<S: VsockConnectionBackend> {
     /// Instant when this connection should be scheduled for immediate termination, due to some
     /// timeout condition having been fulfilled.
     expiry: Option<Instant>,
+    /// Manages type of connection to determine whether to use S backend or buffer
+    socket_type: VsockSocketType,
+    seqpacket_buf: Option<Vec<u8>>,
 }
 
 impl<S> VsockChannel for VsockConnection<S>
@@ -509,6 +513,7 @@ where
         local_port: u32,
         peer_port: u32,
         peer_buf_alloc: u32,
+        socket_type: VsockSocketType::Stream,
     ) -> Self {
         Self {
             local_cid,
@@ -525,6 +530,12 @@ where
             last_fwd_cnt_to_peer: Wrapping(0),
             pending_rx: PendingRxSet::from(PendingRx::Response),
             expiry: None,
+            socket_type,
+            seqpacket_buf: if socket_type == VsockSocketType::SeqPacket {
+                Some(Vec::new())
+            } else {
+                None
+            },
         }
     }
 
@@ -535,6 +546,7 @@ where
         peer_cid: u64,
         local_port: u32,
         peer_port: u32,
+        socket_type: VsockSocketType,
     ) -> Self {
         Self {
             local_cid,
@@ -551,6 +563,12 @@ where
             last_fwd_cnt_to_peer: Wrapping(0),
             pending_rx: PendingRxSet::from(PendingRx::Request),
             expiry: None,
+            socket_type,
+            seqpacket_buf: if socket_type == VsockSocketType::SeqPacket {
+                Some(Vec::new())
+            } else {
+                None
+            },
         }
     }
 
@@ -874,6 +892,7 @@ mod tests {
                     handler_ctx.device.queues[TXQ_INDEX].pop().unwrap(),
                 )
                 .unwrap();
+            let socket_type = VsockSocketType::Stream;
             let conn = match conn_state {
                 ConnState::PeerInit => VsockConnection::<TestStream>::new_peer_init(
                     stream,
@@ -882,9 +901,10 @@ mod tests {
                     LOCAL_PORT,
                     PEER_PORT,
                     PEER_BUF_ALLOC,
+                    socket_type,
                 ),
                 ConnState::LocalInit => VsockConnection::<TestStream>::new_local_init(
-                    stream, LOCAL_CID, PEER_CID, LOCAL_PORT, PEER_PORT,
+                    stream, LOCAL_CID, PEER_CID, LOCAL_PORT, PEER_PORT, socket_type,
                 ),
                 ConnState::Established => {
                     let mut conn = VsockConnection::<TestStream>::new_peer_init(
@@ -894,6 +914,7 @@ mod tests {
                         LOCAL_PORT,
                         PEER_PORT,
                         PEER_BUF_ALLOC,
+                        socket_type,
                     );
                     assert!(conn.has_pending_rx());
                     conn.recv_pkt(&mut rx_pkt).unwrap();
