@@ -427,9 +427,7 @@ fn snapshot_state_from_file(
 ) -> Result<MicrovmState, SnapshotStateFromFileError> {
     let mut snapshot_reader =
         File::open(snapshot_path).map_err(SnapshotStateFromFileError::Open)?;
-    let metadata = std::fs::metadata(snapshot_path).map_err(SnapshotStateFromFileError::Meta)?;
-    let snapshot_len = u64_to_usize(metadata.len());
-    let state: Snapshot<MicrovmState> = Snapshot::load(&mut snapshot_reader, snapshot_len)
+    let state: Snapshot<MicrovmState> = Snapshot::load_with_version_check(&mut snapshot_reader, SNAPSHOT_VERSION)
         .map_err(SnapshotStateFromFileError::Load)?;
 
     Ok(state.data)
@@ -690,12 +688,11 @@ mod tests {
 
         let mut buf = vec![0; 10000];
 
-        let snapshot_hdr = SnapshotHdr::new(Version::new(1, 0, 42));
-        let snapshot = Snapshot::new(snapshot_hdr, microvm_state);
+        let snapshot = Snapshot::new(Version::new(1, 0, 42), microvm_state);
         snapshot.save(&mut buf.as_mut_slice()).unwrap();
 
         let restored_snapshot: Snapshot<MicrovmState> =
-            Snapshot::load(&mut buf.as_slice(), buf.len()).unwrap();
+            Snapshot::load(&mut buf.as_slice());
         let restored_microvm_state = restored_snapshot.data;
 
         assert_eq!(restored_microvm_state.vm_info, vm_info);

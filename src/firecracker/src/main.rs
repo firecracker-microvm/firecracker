@@ -529,20 +529,18 @@ fn warn_deprecated_parameters() {}
 enum SnapshotVersionError {
     /// Unable to open snapshot state file: {0}
     OpenSnapshot(io::Error),
-    /// Invalid data format version of snapshot file: {0}
-    SnapshotVersion(SnapshotError),
+    /// Invalid data format of snapshot file: {0}
+    LoadSnapshot(SnapshotError),
 }
 
 // Print data format of provided snapshot state file.
 fn print_snapshot_data_format(snapshot_path: &str) -> Result<(), SnapshotVersionError> {
-    let mut snapshot_reader =
-        File::open(snapshot_path).map_err(SnapshotVersionError::OpenSnapshot)?;
+    let mut snapshot_reader = File::open(snapshot_path).map_err(SnapshotVersionError::OpenSnapshot);
 
-    // TODO: Need to fix this
-    // let data_format_version = Snapshot::get_format_version(&mut snapshot_reader)
-    //     .map_err(SnapshotVersionError::SnapshotVersion)?;
+    let snapshot = Snapshot::load(snapshot_reader).map_err();
+    let data_format_version = snapshot.version(SnapshotVersionError::LoadSnapshot);
 
-    // println!("v{}", data_format_version);
+    println!("v{}", data_format_version);
     Ok(())
 }
 
