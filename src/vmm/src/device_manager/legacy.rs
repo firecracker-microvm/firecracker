@@ -259,10 +259,9 @@ mod tests {
                 ),
                 input: None,
             })),
-            Arc::new(Mutex::new(I8042Device::new(
-                EventFd::new(libc::EFD_NONBLOCK).unwrap(),
-                EventFd::new(libc::EFD_NONBLOCK).unwrap(),
-            ))),
+            Arc::new(Mutex::new(
+                I8042Device::new(EventFd::new(libc::EFD_NONBLOCK).unwrap()).unwrap(),
+            )),
         )
         .unwrap();
         ldm.register_devices(&io_bus, vm.fd()).unwrap();
