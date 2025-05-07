@@ -30,6 +30,7 @@ use std::io::{Read, Write};
 
 use bincode::config;
 use bincode::config::{Configuration, Fixint, Limit, LittleEndian};
+use bincode::error::{DecodeError, EncodeError};
 use semver::Version;
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
@@ -72,35 +73,37 @@ pub enum SnapshotError {
 
 /// Firecracker snapshot header
 #[derive(Debug, Serialize, Deserialize)]
-pub struct SnapshotHdr {
-    /// magic value
+struct SnapshotHdr {
+    /// Magic value
     magic: u64,
     /// Snapshot data version
     version: Version,
 }
 
 impl SnapshotHdr {
-    pub fn new(version: Version) -> Self {
+    /// Create a new header for writing snapshots
+    fn new(version: Version) -> Self {
         Self {
             magic: SNAPSHOT_MAGIC_ID,
             version,
         }
     }
 
-    pub fn load<R: Read>(reader: &mut R) -> Result<Self, SnapshotError> {
+    /// Load and deserialize just the header (magic + version)
+    fn load<R: Read>(reader: &mut R) -> Result<Self, SnapshotError> {
         let hdr: SnapshotHdr = deserialize(reader)?;
-
-        Ok(hdr)
+        if hdr.magic != SNAPSHOT_MAGIC_ID {
+            Err(SnapshotError::InvalidMagic(hdr.magic))
+        }
+        else {
+            Ok(hdr)
+        }
     }
 
-    /// Helper function to deserialize an object from a reader
-    pub fn deserialize<T, O>(reader: &mut T) -> Result<O, SnapshotError>
-    where
-        T: Read,
-        O: DeserializeOwned + Debug,
-    {
-        bincode::serde::decode_from_std_read(reader, BINCODE_CONFIG)
-            .map_err(|err| SnapshotError::Serde(err.to_string()))
+    /// Serialize and write just the header
+    fn store<W: Write>(&self, writer: &mut W) -> Result<(), SnapshotError> {
+        serialize(writer, self)?;
+        Ok(())
     }
 }
 
@@ -116,51 +119,44 @@ impl SnapshotHdr {
         Ok(())
     }
 
-impl<Data: DeserializeOwned> Snapshot<Data> {
-    pub fn load_unchecked<R: Read>(reader: &mut R) -> Result<Self, SnapshotError>
-    where
-        Data: DeserializeOwned + Debug,
-    {
-        let hdr: SnapshotHdr = deserialize(reader)?;
-        if hdr.magic != SNAPSHOT_MAGIC_ID {
-            return Err(SnapshotError::InvalidMagic(hdr.magic));
-        }
-
-        let data: Data = deserialize(reader)?;
+// Implementations for deserializing snapshots
+// Publicly exposed functions:
+// - load_unchecked()
+//- load()
+impl<Data: DeserializeOwned + Debug> Snapshot<Data> {
+    /// Load without CRC or version‐check, but verify magic via `SnapshotHdr::load`.
+    pub fn load_unchecked<R: Read + Debug>(reader: &mut R) -> Result<Self, SnapshotError> {
+        // this calls `deserialize` + checks magic internally
+        let hdr: SnapshotHdr = SnapshotHdr::load(reader)?;
+        let data: Data      = deserialize(reader)?;
         Ok(Self { header: hdr, data })
     }
 
-    pub fn load<R: Read>(reader: &mut R, snapshot_len: usize) -> Result<Self, SnapshotError>
-    where
-        Data: DeserializeOwned + Debug,
-    {
+    /// Load with CRC64 validation in one pass, using `load_unchecked` for header+data.
+    pub fn load<R: Read + Debug>(reader: &mut R) -> Result<Self, SnapshotError> {
+        // 1) Wrap in CRC reader
         let mut crc_reader = CRC64Reader::new(reader);
 
-        // Fail-fast if the snapshot length is too small
-        let raw_snapshot_len = snapshot_len
-            .checked_sub(std::mem::size_of::<u64>())
-            .ok_or(SnapshotError::InvalidSnapshotSize)?;
+        // 2) Parse header + payload & magic‐check
+        let snapshot = Snapshot::load_unchecked(&mut crc_reader)?;
 
-        // Read everything apart from the CRC.
-        let mut snapshot = vec![0u8; raw_snapshot_len];
-        crc_reader
-            .read_exact(&mut snapshot)
-            .map_err(|ref err| SnapshotError::Io(err.raw_os_error().unwrap_or(libc::EINVAL)))?;
+        // 3) Grab the computed CRC over everything read so far
+        let computed = crc_reader.checksum();
 
-        // Since the reader updates the checksum as bytes ar being read from it, the order of these
-        // 2 statements is important, we first get the checksum computed on the read bytes
-        // then read the stored checksum.
-        let computed_checksum = crc_reader.checksum();
-        let stored_checksum: u64 = deserialize(&mut crc_reader)?;
-        if computed_checksum != stored_checksum {
-            return Err(SnapshotError::Crc64(computed_checksum));
+        // 4) Deserialize the trailing u64 and compare
+        let stored: u64 = deserialize(&mut crc_reader)?;
+        if stored != computed {
+            return Err(SnapshotError::Crc64(computed));
         }
 
-        let mut snapshot_slice: &[u8] = snapshot.as_mut_slice();
-        Snapshot::load_unchecked::<_>(&mut snapshot_slice)
+        Ok(snapshot)
     }
 }
 
+// Implementations for serializing snapshots
+// Publicly-exposed *methods*:
+// - save(self,...)
+// - save_with_crc(self,...)
 impl<Data: Serialize + Debug> Snapshot<Data> {
     pub fn save<W: Write>(&self, mut writer: &mut W) -> Result<usize, SnapshotError> {
         // Write magic value and snapshot version
@@ -179,8 +175,12 @@ impl<Data: Serialize + Debug> Snapshot<Data> {
     }
 }
 
+// General methods for snapshots (related to serialization, see above, since an
+// instance is needed to serialize)
 impl<Data> Snapshot<Data> {
-    pub fn new(header: SnapshotHdr, data: Data) -> Self {
+    /// Construct from a pre‐built header + payload
+    pub fn new(version: Version, data: Data) -> Self {
+        header = SnapshotHdr::new(version);
         Snapshot { header, data }
     }
 
@@ -189,35 +189,56 @@ impl<Data> Snapshot<Data> {
     }
 }
 
-/// Helper function to deserialize an object from a reader
+/// Deserialize any `O: DeserializeOwned + Debug` via bincode + our config,
 fn deserialize<T, O>(reader: &mut T) -> Result<O, SnapshotError>
 where
     T: Read,
     O: DeserializeOwned + Debug,
 {
-    // flags below are those used by default by bincode::deserialize_from, plus `with_limit`.
-    bincode::DefaultOptions::new()
-        .with_limit(VM_STATE_DESERIALIZE_LIMIT)
-        .with_fixint_encoding()
-        .allow_trailing_bytes() // need this because we deserialize header and snapshot from the same file, so after
-        // reading the header, there will be trailing bytes.
-        .deserialize_from(reader)
-        .map_err(|err| SnapshotError::Serde(err.to_string()))
+    bincode::serde::decode_from_std_read(reader, BINCODE_CONFIG)
+        .map_err(|err| match err {
+            // The reader hit an actual IO error.
+            DecodeError::Io { inner, .. } =>
+                SnapshotError::Io(inner.raw_os_error().unwrap_or(EIO)),
+
+            // Not enough bytes in the input for what we expected.
+            DecodeError::UnexpectedEnd { .. } |
+            DecodeError::LimitExceeded =>
+                SnapshotError::InvalidSnapshotSize,
+
+            // Anything else is a ser/de format issue.
+            other =>
+                SnapshotError::Serde(other.to_string()),
+        })
 }
 
-/// Helper function to serialize an object to a writer
+/// Serialize any `O: Serialize + Debug` into a Vec, write it, and return the byte‐count,
 fn serialize<T, O>(writer: &mut T, data: &O) -> Result<usize, SnapshotError>
 where
     T: Write,
     O: Serialize + Debug,
 {
-    let mut buffer = Vec::new();
-    bincode::serialize_into(&mut buffer, data)
-        .map_err(|err| SnapshotError::Serde(err.to_string()))?;
+    // 1) Encode into an in-memory buffer
+    let mut buf = Vec::new();
+    bincode::serde::encode_into_std_write(data, &mut buf, BINCODE_CONFIG)
+        .map_err(|err| match err {
+            // Ran out of room while encoding
+            EncodeError::UnexpectedEnd =>
+                SnapshotError::Io(libc::EIO),
 
+            // Underlying IO failure during encode (index tells how many bytes got written)
+            EncodeError::Io { inner, .. } =>
+                SnapshotError::Io(inner.raw_os_error().unwrap_or(libc::EIO)),
+
+            // Any other encode error we surface as Serde
+            other =>
+                SnapshotError::Serde(other.to_string()),
+        })?;
+
+    // 2) Flush that buffer to the target writer
     writer
-        .write_all(&buffer)
-        .map_err(|err| SnapshotError::Serde(err.to_string()))?;
+        .write_all(&buf)
+        .map_err(|io_err| SnapshotError::Io(io_err.raw_os_error().unwrap_or(libc::EIO)))?;
 
     Ok(buffer.len())
     // bincode::serialize_into(writer, data).map_err(|err| SnapshotError::Serde(err.to_string()))
