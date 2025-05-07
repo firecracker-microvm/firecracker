@@ -119,10 +119,10 @@ pub struct I8042Device {
 
 impl I8042Device {
     /// Constructs an i8042 device that will signal the given event when the guest requests it.
-    pub fn new(reset_evt: EventFd, kbd_interrupt_evt: EventFd) -> I8042Device {
-        I8042Device {
+    pub fn new(reset_evt: EventFd) -> Result<I8042Device, std::io::Error> {
+        Ok(I8042Device {
             reset_evt,
-            kbd_interrupt_evt,
+            kbd_interrupt_evt: EventFd::new(libc::EFD_NONBLOCK)?,
             control: CB_POST_OK | CB_KBD_INT,
             cmd: 0,
             outp: 0,
@@ -130,7 +130,7 @@ impl I8042Device {
             buf: [0; BUF_SIZE],
             bhead: Wrapping(0),
             btail: Wrapping(0),
-        }
+        })
     }
 
     /// Signal a ctrl-alt-del (reset) event.
@@ -355,10 +355,7 @@ mod tests {
 
     #[test]
     fn test_i8042_read_write_and_event() {
-        let mut i8042 = I8042Device::new(
-            EventFd::new(libc::EFD_NONBLOCK).unwrap(),
-            EventFd::new(libc::EFD_NONBLOCK).unwrap(),
-        );
+        let mut i8042 = I8042Device::new(EventFd::new(libc::EFD_NONBLOCK).unwrap()).unwrap();
         let reset_evt = i8042.reset_evt.try_clone().unwrap();
 
         // Check if reading in a 2-length array doesn't have side effects.
@@ -395,10 +392,7 @@ mod tests {
 
     #[test]
     fn test_i8042_commands() {
-        let mut i8042 = I8042Device::new(
-            EventFd::new(libc::EFD_NONBLOCK).unwrap(),
-            EventFd::new(libc::EFD_NONBLOCK).unwrap(),
-        );
+        let mut i8042 = I8042Device::new(EventFd::new(libc::EFD_NONBLOCK).unwrap()).unwrap();
         let mut data = [1];
 
         // Test reading/writing the control register.
@@ -435,10 +429,7 @@ mod tests {
 
     #[test]
     fn test_i8042_buffer() {
-        let mut i8042 = I8042Device::new(
-            EventFd::new(libc::EFD_NONBLOCK).unwrap(),
-            EventFd::new(libc::EFD_NONBLOCK).unwrap(),
-        );
+        let mut i8042 = I8042Device::new(EventFd::new(libc::EFD_NONBLOCK).unwrap()).unwrap();
 
         // Test push/pop.
         i8042.push_byte(52).unwrap();
@@ -462,10 +453,7 @@ mod tests {
 
     #[test]
     fn test_i8042_kbd() {
-        let mut i8042 = I8042Device::new(
-            EventFd::new(libc::EFD_NONBLOCK).unwrap(),
-            EventFd::new(libc::EFD_NONBLOCK).unwrap(),
-        );
+        let mut i8042 = I8042Device::new(EventFd::new(libc::EFD_NONBLOCK).unwrap()).unwrap();
 
         fn expect_key(i8042: &mut I8042Device, key: u16) {
             let mut data = [1];
