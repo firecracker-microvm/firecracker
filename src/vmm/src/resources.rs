@@ -63,6 +63,13 @@ pub enum ResourcesError {
     EntropyDevice(#[from] EntropyDeviceError),
 }
 
+#[derive(Serialize, Deserialize, PartialEq, Eq, Debug)]
+#[serde(untagged)]
+enum CustomCpuTemplateOrPath {
+    Path(PathBuf),
+    Template(CustomCpuTemplate),
+}
+
 /// Used for configuring a vmm from one single json passed to the Firecracker process.
 #[derive(Debug, Default, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "kebab-case")]
@@ -70,7 +77,7 @@ pub struct VmmConfig {
     balloon: Option<BalloonDeviceConfig>,
     drives: Vec<BlockDeviceConfig>,
     boot_source: BootSourceConfig,
-    cpu_config: Option<PathBuf>,
+    cpu_config: Option<CustomCpuTemplateOrPath>,
     logger: Option<crate::logger::LoggerConfig>,
     machine_config: Option<MachineConfig>,
     metrics: Option<MetricsConfig>,
@@ -136,11 +143,18 @@ impl VmResources {
             resources.update_machine_config(&machine_config)?;
         }
 
-        if let Some(cpu_config) = vmm_config.cpu_config {
-            let cpu_config_json =
-                std::fs::read_to_string(cpu_config).map_err(ResourcesError::File)?;
-            let cpu_template = CustomCpuTemplate::try_from(cpu_config_json.as_str())?;
-            resources.set_custom_cpu_template(cpu_template);
+        if let Some(either) = vmm_config.cpu_config {
+            match either {
+                CustomCpuTemplateOrPath::Path(path) => {
+                    let cpu_config_json =
+                        std::fs::read_to_string(path).map_err(ResourcesError::File)?;
+                    let cpu_template = CustomCpuTemplate::try_from(cpu_config_json.as_str())?;
+                    resources.set_custom_cpu_template(cpu_template);
+                }
+                CustomCpuTemplateOrPath::Template(template) => {
+                    resources.set_custom_cpu_template(template)
+                }
+            }
         }
 
         resources.build_boot_source(vmm_config.boot_source)?;
@@ -505,6 +519,7 @@ mod tests {
 
     use super::*;
     use crate::HTTP_MAX_PAYLOAD_SIZE;
+    use crate::cpu_config::templates::test_utils::TEST_TEMPLATE_JSON;
     use crate::cpu_config::templates::{CpuTemplateType, StaticCpuTemplate};
     use crate::devices::virtio::balloon::Balloon;
     use crate::devices::virtio::block::virtio::VirtioBlockError;
@@ -1049,6 +1064,43 @@ mod tests {
         )
         .unwrap_err();
         assert!(matches!(error, ResourcesError::File(_)), "{:?}", error);
+    }
+
+    #[test]
+    fn test_cpu_config_inline() {
+        // Include custom cpu template directly inline in config json
+        let kernel_file = TempFile::new().unwrap();
+        let rootfs_file = TempFile::new().unwrap();
+        let default_instance_info = InstanceInfo::default();
+
+        let json = format!(
+            r#"{{
+                    "boot-source": {{
+                        "kernel_image_path": "{}",
+                        "boot_args": "console=ttyS0 reboot=k panic=1 pci=off"
+                    }},
+                    "cpu-config": {},
+                    "drives": [
+                        {{
+                            "drive_id": "rootfs",
+                            "path_on_host": "{}",
+                            "is_root_device": true,
+                            "is_read_only": false
+                        }}
+                    ]
+            }}"#,
+            kernel_file.as_path().to_str().unwrap(),
+            TEST_TEMPLATE_JSON,
+            rootfs_file.as_path().to_str().unwrap(),
+        );
+
+        VmResources::from_json(
+            json.as_str(),
+            &default_instance_info,
+            HTTP_MAX_PAYLOAD_SIZE,
+            None,
+        )
+        .unwrap();
     }
 
     #[test]
