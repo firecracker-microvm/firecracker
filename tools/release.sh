@@ -4,7 +4,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 # fail if we encounter an error, uninitialized variable or a pipe breaks
-set -eu -o pipefail
+set -eux -o pipefail
 
 FC_TOOLS_DIR=$(dirname $(realpath $0))
 source "$FC_TOOLS_DIR/functions"
