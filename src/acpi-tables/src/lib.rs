@@ -10,6 +10,7 @@ pub mod aml;
 pub mod dsdt;
 pub mod fadt;
 pub mod madt;
+pub mod mcfg;
 pub mod rsdp;
 pub mod xsdt;
 
@@ -17,6 +18,7 @@ pub use aml::Aml;
 pub use dsdt::Dsdt;
 pub use fadt::Fadt;
 pub use madt::Madt;
+pub use mcfg::Mcfg;
 pub use rsdp::Rsdp;
 pub use xsdt::Xsdt;
 use zerocopy::little_endian::{U32, U64};
@@ -89,7 +91,7 @@ pub struct SdtHeader {
     pub oem_table_id: [u8; 8],
     pub oem_revision: U32,
     pub creator_id: [u8; 4],
-    pub creator_revison: U32,
+    pub creator_revision: U32,
 }
 
 impl SdtHeader {
@@ -110,7 +112,7 @@ impl SdtHeader {
             oem_table_id,
             oem_revision: U32::new(oem_revision),
             creator_id: FC_ACPI_CREATOR_ID,
-            creator_revison: U32::new(FC_ACPI_CREATOR_REVISION),
+            creator_revision: U32::new(FC_ACPI_CREATOR_REVISION),
         }
     }
 }
