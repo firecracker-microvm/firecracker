@@ -3,6 +3,7 @@ on:
     branches:
       - main
       - firecracker-v*
+      - feature/*
 
 jobs:
   trigger_ab_test:
