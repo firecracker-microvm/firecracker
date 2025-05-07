@@ -264,140 +264,77 @@ mod tests {
         );
     }
 
-    // #[test]
-    // fn test_bad_snapshot_size() {
-    //     let snapshot_data = vec![0u8; 1];
+    #[test]
+    fn test_bad_snapshot_size() {
+        let snapshot_data = vec![0u8; 1];
 
-    //     let snapshot = SnapshotHdr::new(Version::new(1, 6, 1));
-    //     assert!(matches!(
-    //         snapshot.load_with_version_check::<_, u8>(
-    //             &mut snapshot_data.as_slice(),
-    //             snapshot_data.len()
-    //         ),
-    //         Err(SnapshotError::InvalidSnapshotSize)
-    //     ));
-    // }
+        let snapshot = SnapshotHdr::new(Version::new(1, 6, 1));
+        assert!(matches!(
+            Snapshot::load::<_, u8>(
+                &mut snapshot_data.as_slice(),
+            ),
+            Err(SnapshotError::InvalidSnapshotSize)
+        ));
+    }
 
-    // #[test]
-    // fn test_bad_reader() {
-    //     #[derive(Debug)]
-    //     struct BadReader;
+    #[test]
+    fn test_bad_reader() {
+        #[derive(Debug)]
+        struct BadReader;
 
-    //     impl Read for BadReader {
-    //         fn read(&mut self, _buf: &mut [u8]) -> std::io::Result<usize> {
-    //             Err(std::io::ErrorKind::InvalidInput.into())
-    //         }
-    //     }
+        impl Read for BadReader {
+            fn read(&mut self, _buf: &mut [u8]) -> std::io::Result<usize> {
+                Err(std::io::ErrorKind::InvalidInput.into())
+            }
+        }
 
-    //     let mut reader = BadReader {};
+        let mut reader = BadReader {};
 
-    //     let snapshot = Snapshot::new(Version::new(42, 27, 18));
-    //     assert!(matches!(
-    //         snapshot.load_with_version_check::<_, u8>(&mut reader, 1024),
-    //         Err(SnapshotError::Io(_))
-    //     ));
-    // }
+        assert!(matches!(
+            Snapshot::load::<_, u8>(&mut reader),
+            Err(SnapshotError::Io(_))
+        ));
+    }
 
-    // #[test]
-    // fn test_bad_magic() {
-    //     let mut data = vec![0u8; 100];
+    #[test]
+    fn test_bad_magic() {
+        let mut data = vec![0u8; 100];
 
-    //     let snapshot = Snapshot::new(Version::new(24, 16, 1));
-    //     snapshot.save(&mut data.as_mut_slice(), &42u8).unwrap();
+        let snapshot = Snapshot::new(Version::new(24, 16, 1), &42u8);
+        snapshot.save(&mut data.as_mut_slice()).unwrap();
 
-    //     // Writing dummy values in the first bytes of the snapshot data (we are on little-endian
-    //     // machines) should trigger an `Error::InvalidMagic` error.
-    //     data[0] = 0x01;
-    //     data[1] = 0x02;
-    //     data[2] = 0x03;
-    //     data[3] = 0x04;
-    //     data[4] = 0x42;
-    //     data[5] = 0x43;
-    //     data[6] = 0x44;
-    //     data[7] = 0x45;
-    //     assert!(matches!(
-    //         Snapshot::unchecked_load::<_, u8>(&mut data.as_slice()),
-    //         Err(SnapshotError::InvalidMagic(0x4544_4342_0403_0201u64))
-    //     ));
-    // }
+        // Writing dummy values in the first bytes of the snapshot data (we are on little-endian
+        // machines) should trigger an `Error::InvalidMagic` error.
+        data[0] = 0x01;
+        data[1] = 0x02;
+        data[2] = 0x03;
+        data[3] = 0x04;
+        data[4] = 0x42;
+        data[5] = 0x43;
+        data[6] = 0x44;
+        data[7] = 0x45;
+        assert!(matches!(
+            Snapshot::unchecked_load::<_, u8>(&mut data.as_slice()),
+            Err(SnapshotError::InvalidMagic(0x4544_4342_0403_0201u64))
+        ));
+    }
 
-    // #[test]
-    // fn test_bad_crc() {
-    //     let mut data = vec![0u8; 100];
+    #[test]
+    fn test_bad_crc() {
+        let mut data = vec![0u8; 100];
 
-    //     let snapshot = Snapshot::new(Version::new(12, 1, 3));
-    //     snapshot.save(&mut data.as_mut_slice(), &42u8).unwrap();
+        let snapshot = Snapshot::new(Version::new(12, 1, 3), &42u8);
+        snapshot.save(&mut data.as_mut_slice()).unwrap();
 
-    //     // Tamper the bytes written, without touching the previously CRC.
-    //     snapshot
-    //         .save_without_crc(&mut data.as_mut_slice(), &43u8)
-    //         .unwrap();
+        // Tamper the bytes written, without touching the previously CRC.
+        let snapshot2 = Snapshot::new(Version::new(12, 1, 3), &43u8);
+        snapshot2
+            .save_without_crc(&mut data.as_mut_slice())
+            .unwrap();
 
-    //     assert!(matches!(
-    //         snapshot.load_with_version_check::<_, u8>(&mut data.as_slice(), data.len()),
-    //         Err(SnapshotError::Crc64(_))
-    //     ));
-    // }
-
-    // #[test]
-    // fn test_bad_version() {
-    //     let mut data = vec![0u8; 100];
-
-    //     // We write a snapshot with version "v1.3.12"
-    //     let snapshot = Snapshot::new(Version::new(1, 3, 12));
-    //     snapshot.save(&mut data.as_mut_slice(), &42u8).unwrap();
-
-    //     // Different major versions should not work
-    //     let snapshot = Snapshot::new(Version::new(2, 3, 12));
-    //     assert!(matches!(
-    //         snapshot.load_with_version_check::<_, u8>(&mut data.as_slice(), data.len()),
-    //         Err(SnapshotError::InvalidFormatVersion(Version {
-    //             major: 1,
-    //             minor: 3,
-    //             patch: 12,
-    //             ..
-    //         }))
-    //     ));
-    //     let snapshot = Snapshot::new(Version::new(0, 3, 12));
-    //     assert!(matches!(
-    //         snapshot.load_with_version_check::<_, u8>(&mut data.as_slice(), data.len()),
-    //         Err(SnapshotError::InvalidFormatVersion(Version {
-    //             major: 1,
-    //             minor: 3,
-    //             patch: 12,
-    //             ..
-    //         }))
-    //     ));
-
-    //     // We can't support minor versions bigger than ours
-    //     let snapshot = Snapshot::new(Version::new(1, 2, 12));
-    //     assert!(matches!(
-    //         snapshot.load_with_version_check::<_, u8>(&mut data.as_slice(), data.len()),
-    //         Err(SnapshotError::InvalidFormatVersion(Version {
-    //             major: 1,
-    //             minor: 3,
-    //             patch: 12,
-    //             ..
-    //         }))
-    //     ));
-
-    //     // But we can support minor versions smaller or equeal to ours. We also support
-    //     // all patch versions within our supported major.minor version.
-    //     let snapshot = Snapshot::new(Version::new(1, 4, 12));
-    //     snapshot
-    //         .load_with_version_check::<_, u8>(&mut data.as_slice(), data.len())
-    //         .unwrap();
-    //     let snapshot = Snapshot::new(Version::new(1, 3, 0));
-    //     snapshot
-    //         .load_with_version_check::<_, u8>(&mut data.as_slice(), data.len())
-    //         .unwrap();
-    //     let snapshot = Snapshot::new(Version::new(1, 3, 12));
-    //     snapshot
-    //         .load_with_version_check::<_, u8>(&mut data.as_slice(), data.len())
-    //         .unwrap();
-    //     let snapshot = Snapshot::new(Version::new(1, 3, 1024));
-    //     snapshot
-    //         .load_with_version_check::<_, u8>(&mut data.as_slice(), data.len())
-    //         .unwrap();
-    // }
+        assert!(matches!(
+            Snapshot::load::<_, u8>(&mut data.as_slice()),
+            Err(SnapshotError::Crc64(_))
+        ));
+    }
 }
