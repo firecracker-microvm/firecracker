@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use acpi_tables::fadt::{FADT_F_HW_REDUCED_ACPI, FADT_F_PWR_BUTTON, FADT_F_SLP_BUTTON};
-use acpi_tables::{Aml, Dsdt, Fadt, Madt, Rsdp, Sdt, Xsdt, aml};
+use acpi_tables::{Aml, Dsdt, Fadt, Madt, Mcfg, Rsdp, Sdt, Xsdt, aml};
 use log::{debug, error};
 use vm_allocator::AllocPolicy;
 
@@ -10,6 +10,7 @@ use crate::Vcpu;
 use crate::acpi::x86_64::{
     apic_addr, rsdp_addr, setup_arch_dsdt, setup_arch_fadt, setup_interrupt_controllers,
 };
+use crate::arch::x86_64::layout;
 use crate::device_manager::DeviceManager;
 use crate::device_manager::resources::ResourceAllocator;
 use crate::vstate::memory::{GuestAddress, GuestMemoryMmap};
@@ -145,14 +146,25 @@ impl AcpiTableWriter<'_> {
         resource_allocator: &ResourceAllocator,
         fadt_addr: u64,
         madt_addr: u64,
+        mcfg_addr: u64,
     ) -> Result<u64, AcpiError> {
         let mut xsdt = Xsdt::new(
             OEM_ID,
             *b"FCMVXSDT",
             OEM_REVISION,
-            vec![fadt_addr, madt_addr],
+            vec![fadt_addr, madt_addr, mcfg_addr],
         );
         self.write_acpi_table(resource_allocator, &mut xsdt)
+    }
+
+    /// Build the MCFG table for the guest.
+    fn build_mcfg(
+        &mut self,
+        resource_allocator: &ResourceAllocator,
+        pci_mmio_config_addr: u64,
+    ) -> Result<u64, AcpiError> {
+        let mut mcfg = Mcfg::new(OEM_ID, *b"FCMVMCFG", OEM_REVISION, pci_mmio_config_addr);
+        self.write_acpi_table(resource_allocator, &mut mcfg)
     }
 
     /// Build the RSDP pointer for the guest.
@@ -191,7 +203,16 @@ pub(crate) fn create_acpi_tables(
         &device_manager.resource_allocator,
         vcpus.len().try_into().unwrap(),
     )?;
-    let xsdt_addr = writer.build_xsdt(&device_manager.resource_allocator, fadt_addr, madt_addr)?;
+    let mcfg_addr = writer.build_mcfg(
+        &device_manager.resource_allocator,
+        layout::PCI_MMCONFIG_START,
+    )?;
+    let xsdt_addr = writer.build_xsdt(
+        &device_manager.resource_allocator,
+        fadt_addr,
+        madt_addr,
+        mcfg_addr,
+    )?;
     writer.build_rsdp(xsdt_addr)
 }
 
