@@ -1,0 +1,122 @@
+## VirtualBox Setup for Firecracker
+
+This guide shows how to use **VirtualBox** (GPL-licensed, free for all uses) combined with **Vagrant** (source-available, BSL 1.1) to automate the creation of a **nested-virtualization–capable** Linux VM for Firecracker development on macOS (Intel), Windows, or Linux hosts. It replaces ad hoc VMware Fusion setups with a **reproducible**, **version-controlled** workflow that anyone can run with a single `vagrant up`.
+
+---
+
+## Prerequisites
+
+- **Host CPU**: Intel with VT-x or AMD with AMD-V enabled  
+- **Host OS**:  
+  - **macOS (Intel)** 10.12–Sonoma (Full VirtualBox support; early Apple Silicon in VirtualBox 7.1.8+)  
+  - **Windows** 7–11 (Disable Hyper-V on Windows 10/11)  
+  - **Linux** with VirtualBox installed  
+- **Software**:  
+  - **VirtualBox 7.1.x** (GPL v3 core)  
+  - **Vagrant 2.4+** (BSL 1.1 source-available)  
+  - **Box**: `bento/ubuntu-24.04`
+
+---
+
+## 1. Enable Hardware Virtualization
+
+1. **Reboot into BIOS/UEFI** (common keys: F2, Del, Esc)  
+2. Navigate to **Advanced → CPU Configuration**  
+3. **Intel**: Enable **Intel VT-x (VMX)**  
+4. **AMD**: Enable **SVM Mode (AMD-V)**  
+5. **Save & Exit** (often F10)  
+6. **Verify** on host:  
+   - **Linux**:  
+     ```bash
+     grep -Eoc '(vmx|svm)' /proc/cpuinfo
+     ```  
+   - **Windows**: Task Manager → Performance → **Virtualization: Enabled**
+
+---
+
+## 2. Apple Silicon Note
+
+Apple Silicon (M1/M2) uses **ARM EL2** via the Hypervisor.framework and **does not** support nested virtualization until **macOS 15 “Sequoia”** on **M3+** hardware. Until then, use an Intel/AMD host for reliable nested VT-x/AMD-V.
+
+---
+
+## 3. Why VirtualBox + Vagrant?
+
+- **VirtualBox** (GPL v3 core) is free for personal, educational, **and commercial** use; nested VT-x/AMD-V passthrough is part of the core package  
+- **Vagrant** (BSL 1.1) automates VM provisioning via a single `Vagrantfile`, ensuring consistency across macOS, Windows, and Linux  
+- **Nested Virtualization**: VirtualBox ≥ 6.1 supports `--nested-hw-virt on`, exposing VT-x/AMD-V to guests so KVM (and Firecracker) runs inside the VM  
+- **Reproducibility**: Teammates and CI pipelines simply run `vagrant up` to spin up identical environments  
+
+---
+
+## 4. Automated VM Setup with Vagrant
+
+Create a `Vagrantfile` in your Firecracker project root:
+
+```ruby
+# Vagrantfile: Firecracker Dev VM with Nested Virtualization
+
+Vagrant.configure("2") do |config|
+  # Base Ubuntu 24.04 LTS box
+  config.vm.box = "bento/ubuntu-24.04"
+
+  # SSH key forwarding & synced folder
+  config.ssh.forward_agent = true
+  config.vm.synced_folder "./", "/home/vagrant/firecracker"
+
+  # Port forwarding & LAN access
+  config.vm.network "forwarded_port", guest: 9090, host: 9090
+  config.vm.network "public_network"
+
+  # VM resources
+  cpus   = 2
+  memory = 8192
+
+  # VirtualBox provider: enable nested VT-x/AMD-V
+  config.vm.provider :virtualbox do |vb|
+    vb.customize ["modifyvm", :id, "--nested-hw-virt", "on"]
+    vb.cpus   = cpus
+    vb.memory = memory
+  end
+
+  # Provisioning steps
+  config.vm.provision "update", type: "shell", run: "once" do |sh|
+    sh.inline = "sudo apt-get update"
+  end
+
+  config.vm.provision "deps", type: "shell", run: "once" do |sh|
+    sh.inline = <<~SHELL
+      sudo apt-get install -y \
+        build-essential git pkg-config libssl-dev libelf-dev \
+        cmake curl unzip llvm clang
+    SHELL
+  end
+
+  config.vm.provision "rust", type: "shell", run: "once" do |sh|
+    sh.inline = <<~SHELL
+      curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | \
+        sh -s -- -y --default-toolchain stable
+      source $HOME/.cargo/env
+    SHELL
+  end
+
+  config.vm.provision "kvm", type: "shell", run: "once" do |sh|
+    sh.inline = <<~SHELL
+      sudo apt-get install -y qemu-kvm libvirt-daemon-system \
+        libvirt-clients bridge-utils
+      sudo adduser vagrant libvirt
+      sudo adduser vagrant kvm
+    SHELL
+  end
+
+  config.vm.provision "firecracker", type: "shell", run: "once" do |sh|
+    sh.inline = <<~SHELL
+      cd /home/vagrant/firecracker
+      [ -d firecracker ] || git clone https://github.com/firecracker-microvm/firecracker.git
+      cd firecracker
+      source $HOME/.cargo/env
+      tools/devtool build
+      tools/devtool test
+    SHELL
+  end
+end
