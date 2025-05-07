@@ -21,6 +21,7 @@ Contributors to the Firecracker repository:
 - Aaron O'Mullan <aaron.omullan@gmail.com>
 - Abhijeet Kasurde <akasurde@redhat.com>
 - acatangiu <adrian@parity.io>
+- acsmyth <54330152+acsmyth@users.noreply.github.com>
 - Adam Jensen <adam@acj.sh>
 - Adam Leskis <leskis@gmail.com>
 - Adrian Catangiu <acatan@amazon.com>
@@ -42,6 +43,7 @@ Contributors to the Firecracker repository:
 - Andrei Casu-Pop <cpo@amazon.com>
 - Andrei Cipu <acipu@amazon.com>
 - Andrei Sandu <sandreim@amazon.com>
+- Andrew Laucius <andrewla@gmail.com>
 - Andrew Yao <andr3wy@gmail.com>
 - Andrii Radyk <ander.ender@gmail.com>
 - andros21 <andrea.ros21@murena.io>
@@ -76,11 +78,12 @@ Contributors to the Firecracker repository:
 - Christopher Diehl <diehl.chris24@gmail.com>
 - Christos Katsakioris <ckatsak@cslab.ece.ntua.gr>
 - cneira <cneirabustos@gmail.com>
-- Colin Percival <cperciva@tarsnap.com>
+- Colin Percival <cperciva@freebsd.org>
 - Colton J. McCurdy <mccurdyc22@gmail.com>
 - Constantin Musca <mcostin@amazon.com>
 - CuriousCorrelation <curiouscorrelation@protonmail.com>
 - czybjtu <smartczy@outlook.com>
+- Dakshin Devanand <dakshind2005@gmail.com>
 - Damien Stanton <damien.stanton@gmail.com>
 - Dan Horobeanu <dhr@amazon.com>
 - Dan Lemmond <d.j.lemmond@gmail.com>
@@ -112,6 +115,7 @@ Contributors to the Firecracker repository:
 - Greg Dunn <gregdunn@amazon.com>
 - Gregory Brzeski <gregory@brzeski.pl>
 - Grzegorz Uriasz <gorbak25@gmail.com>
+- Gudmundur Bjarni Olafsson <gudmundur.bjarni@gmail.com>
 - Gulshan Kumar <kumargu@amazon.com>
 - Gábor Lipták <gliptak@gmail.com>
 - hacker65536 <s.hacker65536@gmail.com>
