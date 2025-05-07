@@ -159,10 +159,7 @@ impl DeviceManager {
                 .try_clone()
                 .map_err(DeviceManagerCreateError::EventFd)?;
             // Create keyboard emulator for reset event
-            let i8042 = Arc::new(Mutex::new(I8042Device::new(
-                reset_evt,
-                EventFd::new(libc::EFD_NONBLOCK).map_err(DeviceManagerCreateError::EventFd)?,
-            )));
+            let i8042 = Arc::new(Mutex::new(I8042Device::new(reset_evt)?));
 
             // create pio dev manager with legacy devices
             let mut legacy_devices = PortIODeviceManager::new(serial, i8042)?;
@@ -405,10 +402,9 @@ pub(crate) mod tests {
             Arc::new(Mutex::new(
                 SerialDevice::new(None, SerialOut::Sink(std::io::sink())).unwrap(),
             )),
-            Arc::new(Mutex::new(I8042Device::new(
-                EventFd::new(libc::EFD_NONBLOCK).unwrap(),
-                EventFd::new(libc::EFD_NONBLOCK).unwrap(),
-            ))),
+            Arc::new(Mutex::new(
+                I8042Device::new(EventFd::new(libc::EFD_NONBLOCK).unwrap()).unwrap(),
+            )),
         )
         .unwrap();
 
