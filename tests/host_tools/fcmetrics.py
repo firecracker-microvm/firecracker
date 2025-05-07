@@ -117,7 +117,6 @@ def validate_fc_metrics(metrics):
         "tx_fails",
         "tx_count",
         "tx_packets_count",
-        "tx_partial_reads",
         "tx_queue_event_count",
         "tx_rate_limiter_event_count",
         "tx_rate_limiter_throttled",

@@ -189,8 +189,6 @@ pub struct NetDeviceMetrics {
     pub tx_count: SharedIncMetric,
     /// Number of transmitted packets.
     pub tx_packets_count: SharedIncMetric,
-    /// Number of TX partial reads from guest.
-    pub tx_partial_reads: SharedIncMetric,
     /// Number of events associated with the transmitting queue.
     pub tx_queue_event_count: SharedIncMetric,
     /// Number of events associated with the rate limiter installed on the transmitting path.
@@ -252,8 +250,6 @@ impl NetDeviceMetrics {
         self.tx_count.add(other.tx_count.fetch_diff());
         self.tx_packets_count
             .add(other.tx_packets_count.fetch_diff());
-        self.tx_partial_reads
-            .add(other.tx_partial_reads.fetch_diff());
         self.tx_queue_event_count
             .add(other.tx_queue_event_count.fetch_diff());
         self.tx_rate_limiter_event_count
