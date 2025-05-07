@@ -2,6 +2,9 @@
 
 This guide shows how to use **VirtualBox** (GPL-licensed, free for all uses) combined with **Vagrant** (source-available, BSL 1.1) to automate the creation of a **nested-virtualization–capable** Linux VM for Firecracker development on macOS (Intel), Windows, or Linux hosts. It replaces ad hoc VMware Fusion setups with a **reproducible**, **version-controlled** workflow that anyone can run with a single `vagrant up`.
 
+# Adapted from Richard Case’s Vagrant setup:
+# https://github.com/liquidmetal-dev/flintlock/blob/main/Vagrantfile
+
 ---
 
 ## Prerequisites
