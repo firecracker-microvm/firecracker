@@ -104,7 +104,6 @@ def validate_fc_metrics(metrics):
         "event_fails",
         "rx_queue_event_count",
         "rx_event_rate_limiter_count",
-        "rx_partial_writes",
         "rx_rate_limiter_throttled",
         "rx_tap_event_count",
         "rx_bytes_count",
