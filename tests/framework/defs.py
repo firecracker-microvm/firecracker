@@ -23,9 +23,6 @@ DEFAULT_TEST_SESSION_ROOT_PATH = "/srv"
 # Default test session artifacts path
 LOCAL_BUILD_PATH = FC_WORKSPACE_DIR / "build/"
 
-# Absolute path to the test results folder
-TEST_RESULTS_DIR = FC_WORKSPACE_DIR / "test_results"
-
 DEFAULT_BINARY_DIR = (
     LOCAL_BUILD_PATH
     / "cargo_target"
