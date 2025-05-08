@@ -389,7 +389,7 @@ def io_engine(request):
 
 
 @pytest.fixture
-def results_dir(request):
+def results_dir(request, pytestconfig):
     """
     Fixture yielding the path to a directory into which the test can dump its results
 
@@ -411,9 +411,9 @@ def results_dir(request):
     during doc tests, it will return None.
     """
     try:
-        results_dir = (
-            defs.TEST_RESULTS_DIR / request.node.originalname / request.node.name
-        )
+        report_file = pytestconfig.getoption("--json-report-file")
+        parent = Path(report_file).parent.absolute()
+        results_dir = parent / request.node.originalname / request.node.name
     except AttributeError:
         return None
     results_dir.mkdir(parents=True, exist_ok=True)
