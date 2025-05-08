@@ -327,7 +327,7 @@ def analyze_data(
                 f"for metric \033[1m{metric}\033[0m with \033[0;31m\033[1mp={result.pvalue}\033[0m. "
                 f"This means that observing a change of this magnitude or worse, assuming that performance "
                 f"characteristics did not change across the tested commits, has a probability of {result.pvalue:.2%}. "
-                f"Tested Dimensions:\n{json.dumps(dict({k: v for k,v in dimension_set.items() if k not in do_not_print_list}), indent=2, sort_keys=True)}"
+                f"Tested Dimensions:\n{json.dumps({k: v for k,v in dimension_set if k not in do_not_print_list}, indent=2, sort_keys=True)}"
             )
             messages.append(msg)
 

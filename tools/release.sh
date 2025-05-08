@@ -4,7 +4,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 # fail if we encounter an error, uninitialized variable or a pipe breaks
-set -eu -o pipefail
+set -eux -o pipefail
 
 FC_TOOLS_DIR=$(dirname $(realpath $0))
 source "$FC_TOOLS_DIR/functions"
@@ -177,7 +177,7 @@ cp -v -t "$RELEASE_DIR" LICENSE NOTICE THIRD-PARTY
 check_swagger_artifact src/firecracker/swagger/firecracker.yaml "$VERSION"
 cp -v src/firecracker/swagger/firecracker.yaml "$RELEASE_DIR/firecracker_spec-$VERSION.yaml"
 
-CPU_TEMPLATES=(c3 t2 t2s t2cl t2a v1n1)
+CPU_TEMPLATES=(C3 T2 T2S T2CL T2A V1N1)
 for template in "${CPU_TEMPLATES[@]}"; do
     cp -v tests/data/custom_cpu_templates/$template.json $RELEASE_DIR/$template-$VERSION.json
 done

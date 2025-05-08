@@ -13,6 +13,26 @@ and this project adheres to
 - [#5139](https://github.com/firecracker-microvm/firecracker/pull/5139): Added
   support for [PVTime](https://docs.kernel.org/virt/kvm/arm/pvtime.html). This
   is used to support steal time on ARM machines.
+- [#5175](https://github.com/firecracker-microvm/firecracker/pull/5175): Allow
+  including a custom cpu template directly in the json configuration file passed
+  to `--config-file` under the `cpu_config` key.
+
+### Changed
+
+- [#5165](https://github.com/firecracker-microvm/firecracker/pull/5165): Changed
+  Firecracker snapshot feature from developer preview to generally available.
+  Incremental snapshots remain in developer preview.
+
+### Deprecated
+
+### Removed
+
+### Fixed
+
+## [1.12.0]
+
+### Added
+
 - [#5048](https://github.com/firecracker-microvm/firecracker/pull/5048): Added
   support for [PVH boot mode](docs/pvh.md). This is used when an x86 kernel
   provides the appropriate ELF Note to indicate that PVH boot mode is supported.
@@ -24,6 +44,10 @@ and this project adheres to
   so users need to regenerate snapshots.
 - [#4731](https://github.com/firecracker-microvm/firecracker/pull/4731): Added
   support for modifying the host TAP device name during snapshot restore.
+- [#5146](https://github.com/firecracker-microvm/firecracker/pull/5146): Added
+  Intel Sapphire Rapids as a supported and tested platform for Firecracker.
+- [#5148](https://github.com/firecracker-microvm/firecracker/pull/5148): Added
+  ARM Graviton4 as a supported and tested platform for Firecracker.
 
 ### Changed
 
@@ -35,9 +59,6 @@ and this project adheres to
   Clarified what CPU models are supported by each existing CPU template.
   Firecracker exits with an error if a CPU template is used on an unsupported
   CPU model.
-- [#5165](https://github.com/firecracker-microvm/firecracker/pull/5165): Changed
-  Firecracker snapshot feature from developer preview to generally available.
-  Incremental snapshots remain in developer preview.
 
 ### Deprecated
 
@@ -48,12 +69,10 @@ and this project adheres to
   misnamed, as the value Firecracker sets it to is actually the page size in
   _bytes_, not KiB. It will be removed in Firecracker 2.0.
 
-### Removed
-
 ### Fixed
 
-- #\[[5074](https://github.com/firecracker-microvm/firecracker/pull/5074)\] Fix
-  the `SendCtrlAltDel` command not working for ACPI-enabled guest kernels, by
+- [#5074](https://github.com/firecracker-microvm/firecracker/pull/5074) Fix the
+  `SendCtrlAltDel` command not working for ACPI-enabled guest kernels, by
   dropping the i8042.nopnp argument from the default kernel command line
   Firecracker constructs.
 - [#5122](https://github.com/firecracker-microvm/firecracker/pull/5122): Keep
