@@ -243,6 +243,7 @@ impl RequestHeader {
 
 // For this, please see VirtIO v1.2. This struct mimics that of the implementation in Virtio.
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[repr(C)]
 pub struct DiscardSegment {
     sector: u64,
     num_sectors: u32,
@@ -257,7 +258,7 @@ pub struct Request {
     pub status_addr: GuestAddress,
     sector: u64,
     data_addr: GuestAddress,
-    discard_segments: Option<Vec<DiscardSegment>>, // New field, holds ranges
+    discard_segments: Option<Vec<DiscardSegment>>,
 }
 
 impl Request {
@@ -293,6 +294,7 @@ impl Request {
             if req.r#type != RequestType::Flush {
                 return Err(VirtioBlockError::DescriptorChainTooShort);
             }
+            data_desc = desc;
         } else {
             data_desc = desc;
             status_desc = data_desc
@@ -307,6 +309,9 @@ impl Request {
             }
             if !data_desc.is_write_only() && req.r#type == RequestType::GetDeviceID {
                 return Err(VirtioBlockError::UnexpectedReadOnlyDescriptor);
+            }
+            if data_desc.is_write_only() && req.r#type == RequestType::Discard {
+                return Err(VirtioBlockError::UnexpectedWriteOnlyDescriptor);
             }
 
             req.data_addr = data_desc.addr;
@@ -335,15 +340,8 @@ impl Request {
                 }
             }
             RequestType::Discard => {
-                // Get data descriptor
-                let data_desc = avail_desc.next_descriptor()
-                    .ok_or(VirtioBlockError::DescriptorChainTooShort)?;
-                if data_desc.is_write_only() {
-                    return Err(VirtioBlockError::UnexpectedWriteOnlyDescriptor);
-                }
-            
                 // Validate data length
-                let segment_size = std::mem::size_of::<DiscardSegment>() as u32; // 16 bytes
+                let segment_size = std::mem::size_of::<DiscardSegment>() as u32;
                 if data_desc.len % segment_size != 0 {
                     return Err(VirtioBlockError::InvalidDataLength);
                 }
@@ -458,20 +456,9 @@ impl Request {
                 return ProcessingResult::Executed(pending.finish(mem, res, block_metrics));
             }
             RequestType::Discard => {
-                let res = disk
-                    .file_engine
-                    .handle_discard(self.offset(), self.data_len);
-            
-                match res {
-                    Ok(()) => Ok(block_io::FileEngineOk::Executed(block_io::RequestOk {
-                        req: pending,
-                        count: 0,
-                    })),
-                    Err(e) => Err(block_io::RequestError {
-                        req: pending,
-                        error: BlockIoError::Sync(SyncIoError::Discard(e)),
-                    }),
-                }
+                let _metric = block_metrics.write_agg.record_latency_metrics();
+                disk.file_engine
+                    .discard(self.offset(), self.data_len, pending)
             }
             RequestType::Unsupported(_) => {
                 return ProcessingResult::Executed(pending.finish(mem, Ok(0), block_metrics));

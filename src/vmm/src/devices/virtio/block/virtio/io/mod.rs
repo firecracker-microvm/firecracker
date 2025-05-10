@@ -6,11 +6,12 @@ pub mod sync_io;
 
 use std::fmt::Debug;
 use std::fs::File;
-use libc::{c_int, off64_t};
+use libc::{c_int, off64_t, FALLOC_FL_KEEP_SIZE, FALLOC_FL_PUNCH_HOLE};
 use std::os::unix::io::AsRawFd;
 
 pub use self::async_io::{AsyncFileEngine, AsyncIoError};
 pub use self::sync_io::{SyncFileEngine, SyncIoError};
+use crate::device_manager::mmio::MMIO_LEN;
 use crate::devices::virtio::block::virtio::PendingRequest;
 use crate::devices::virtio::block::virtio::device::FileEngineType;
 use crate::vstate::memory::{GuestAddress, GuestMemoryMmap};
@@ -33,13 +34,6 @@ pub enum BlockIoError {
     Sync(SyncIoError),
     /// Async error: {0}
     Async(AsyncIoError),
-}
-
-bitflags::bitflags! {
-    pub struct FallocateFlags: c_int {
-        const FALLOC_FL_KEEP_SIZE = 0x01;
-        const FALLOC_FL_PUNCH_HOLE = 0x02;
-    }
 }
 
 impl BlockIoError {
@@ -182,32 +176,30 @@ impl FileEngine {
         }
     }
 
-    pub fn handle_discard(&self, offset: u64, len: u32) -> Result<(), std::io::Error> {
-        let fd = self.file().as_raw_fd();
-        let result = Self::fallocate(
-            fd,
-            FallocateFlags::FALLOC_FL_PUNCH_HOLE | FallocateFlags::FALLOC_FL_KEEP_SIZE,
-            offset as i64,
-            len as i64,
-        );
-        if let Err(e) = result {
-            eprintln!("Discard failed: {}", e);
-            return Err(std::io::Error::last_os_error());
-        }
-        Ok(())
-    }
+    pub fn discard(
+        &mut self,
+        offset: u64,
+        count: u32,
+        req: PendingRequest,
+    ) -> Result<FileEngineOk, RequestError<BlockIoError>> {
 
-    pub fn fallocate(fd: c_int, mode: FallocateFlags, offset: off64_t, len: off64_t) -> Result<(), std::io::Error> {
-        // need to refer to libc library.
-        let ret: i32 = unsafe { libc::fallocate64(fd, mode.bits(), offset, len) };
-        if ret == 0 {
-            Ok(())
-        } else {
-            Err(std::io::Error::last_os_error())
+        match self {
+            FileEngine::Async(engine) => match engine.push_discard(offset, count, req) {
+                Ok(_) => Ok(FileEngineOk::Submitted),
+                Err(err) => Err(RequestError {
+                    req: err.req,
+                    error: BlockIoError::Async(err.error),
+                }),
+            },
+            FileEngine::Sync(engine) => match engine.discard(offset,count) {
+                Ok(count) => Ok(FileEngineOk::Executed(RequestOk { req, count })),
+                Err(err) => Err(RequestError {
+                    req,
+                    error: BlockIoError::Sync(err),
+                }),
+            },
         }
     }
-    
-
 
 }
 

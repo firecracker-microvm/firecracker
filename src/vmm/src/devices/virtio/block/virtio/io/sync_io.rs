@@ -3,6 +3,8 @@
 
 use std::fs::File;
 use std::io::{Seek, SeekFrom, Write};
+use libc::{c_int, off64_t, FALLOC_FL_KEEP_SIZE, FALLOC_FL_PUNCH_HOLE};
+use std::os::unix::io::AsRawFd;
 
 use vm_memory::{GuestMemoryError, ReadVolatile, WriteVolatile};
 
@@ -83,4 +85,30 @@ impl SyncFileEngine {
         // Sync data out to physical media on host.
         self.file.sync_all().map_err(SyncIoError::SyncAll)
     }
+
+    pub fn discard(&mut self, offset: u64, len: u32) -> Result<u32, SyncIoError> {
+
+        unsafe {
+            let ret = libc::fallocate(
+                self.file.as_raw_fd(),
+                libc::FALLOC_FL_PUNCH_HOLE | libc::FALLOC_FL_KEEP_SIZE,
+                offset as i64,
+                len as i64,
+            );
+            if ret != 0 {
+                return Err(SyncIoError::Discard(std::io::Error::last_os_error()));
+            }
+        }
+        Ok(len)
+    }
+
+    pub fn fallocate(fd: c_int, mode: i32, offset: off64_t, len: off64_t) -> Result<(), std::io::Error> {
+        let ret: i32 = unsafe { libc::fallocate(fd, mode, offset, len) };
+        if ret == 0 {
+            Ok(())
+        } else {
+            Err(std::io::Error::last_os_error())
+        }
+    }
+
 }
