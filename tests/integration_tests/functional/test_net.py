@@ -85,9 +85,9 @@ def test_multi_queue_unsupported(uvm_plain):
 
 
 @pytest.fixture
-def uvm_any(microvm_factory, uvm_ctor, guest_kernel, rootfs):
+def uvm_any(microvm_factory, uvm_ctor, guest_kernel, rootfs, pci_enabled):
     """Return booted and restored uvm with no CPU templates"""
-    return uvm_ctor(microvm_factory, guest_kernel, rootfs, None)
+    return uvm_ctor(microvm_factory, guest_kernel, rootfs, None, pci_enabled)
 
 
 def test_tap_offload(uvm_any):
