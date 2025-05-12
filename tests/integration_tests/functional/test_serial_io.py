@@ -148,6 +148,7 @@ def test_serial_dos(uvm_plain_any):
         vcpu_count=1,
         boot_args="console=ttyS0 reboot=k panic=1 pci=off",
     )
+    microvm.add_net_iface()
     microvm.start()
 
     # Open an fd for firecracker process terminal.
