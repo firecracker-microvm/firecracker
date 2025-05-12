@@ -12,7 +12,7 @@ bench = false
 acpi_tables = { path = "../acpi-tables" }
 aes-gcm =  { version = "0.10.1", default-features = false, features = ["aes"] }
 arrayvec = { version = "0.7.6", optional = true }
-aws-lc-rs = { version = "1.13.0", features = ["bindgen"] }
+aws-lc-rs = { version = "1.13.1", features = ["bindgen"] }
 base64 = "0.22.1"
 bincode = { version = "2.0.1", features = ["serde"] }
 bitflags = "2.9.0"
