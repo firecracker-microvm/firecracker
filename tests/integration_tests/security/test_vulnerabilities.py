@@ -216,13 +216,17 @@ def microvm_factory_a(record_property):
 
 
 @pytest.fixture
-def uvm_any_a(microvm_factory_a, uvm_ctor, guest_kernel, rootfs, cpu_template_any):
+def uvm_any_a(
+    microvm_factory_a, uvm_ctor, guest_kernel, rootfs, cpu_template_any, pci_enabled
+):
     """Return uvm with revision A firecracker
 
     Since pytest caches fixtures, this guarantees uvm_any_a will match a vm from uvm_any.
     See https://docs.pytest.org/en/stable/how-to/fixtures.html#fixtures-can-be-requested-more-than-once-per-test-return-values-are-cached
     """
-    return uvm_ctor(microvm_factory_a, guest_kernel, rootfs, cpu_template_any)
+    return uvm_ctor(
+        microvm_factory_a, guest_kernel, rootfs, cpu_template_any, pci_enabled
+    )
 
 
 def test_check_vulnerability_files_ab(request, uvm_any):
