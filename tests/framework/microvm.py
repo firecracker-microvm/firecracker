@@ -633,6 +633,7 @@ class Microvm:
         log_show_origin=False,
         metrics_path="fc.ndjson",
         emit_metrics: bool = False,
+        pci: bool = False,
     ):
         """Start a microVM as a daemon or in a screen session."""
         # pylint: disable=subprocess-run-check
@@ -677,6 +678,9 @@ class Microvm:
         if log_level != "Debug":
             # Checking the timings requires DEBUG level log messages
             self.time_api_requests = False
+
+        if pci:
+            self.jailer.extra_args["enable-pci"] = None
 
         cmd = [
             *self._pre_cmd,
