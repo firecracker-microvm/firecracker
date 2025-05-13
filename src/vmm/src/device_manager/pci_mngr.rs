@@ -3,6 +3,7 @@
 
 use std::sync::Arc;
 
+use serde::{Deserialize, Serialize};
 use vm_device::BusError;
 
 use super::resources::ResourceAllocator;
@@ -42,4 +43,27 @@ impl PciDevices {
 
         Ok(())
     }
+
+    pub fn save(&self) -> PciDevicesState {
+        PciDevicesState {
+            pci_enabled: self.pci_segment.is_some(),
+        }
+    }
+
+    pub fn restore(
+        &mut self,
+        state: &PciDevicesState,
+        resource_allocator: &Arc<ResourceAllocator>,
+    ) -> Result<(), PciManagerError> {
+        if state.pci_enabled {
+            self.attach_pci_segment(resource_allocator)?;
+        }
+
+        Ok(())
+    }
+}
+
+#[derive(Default, Debug, Clone, Serialize, Deserialize)]
+pub struct PciDevicesState {
+    pci_enabled: bool,
 }
