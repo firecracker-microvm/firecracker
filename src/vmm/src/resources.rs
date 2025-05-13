@@ -114,6 +114,8 @@ pub struct VmResources {
     pub mmds_size_limit: usize,
     /// Whether or not to load boot timer device.
     pub boot_timer: bool,
+    /// Whether or not to use PCIe transport for VirtIO devices.
+    pub pci_enabled: bool,
 }
 
 impl VmResources {
@@ -613,6 +615,7 @@ mod tests {
             boot_timer: false,
             mmds_size_limit: HTTP_MAX_PAYLOAD_SIZE,
             entropy: Default::default(),
+            pci_enabled: false,
         }
     }
 
