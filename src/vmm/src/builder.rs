@@ -217,7 +217,11 @@ pub fn build_microvm_for_boot(
         .map(|vcpu| vcpu.copy_kvm_vcpu_fd(vmm.vm()))
         .collect::<Result<Vec<_>, _>>()?;
 
-    vmm.device_manager.enable_pci()?;
+    if vm_resources.pci_enabled {
+        vmm.device_manager.enable_pci()?;
+    } else {
+        boot_cmdline.insert("pci", "off")?;
+    }
 
     // The boot timer device needs to be the first device attached in order
     // to maintain the same MMIO address referenced in the documentation
