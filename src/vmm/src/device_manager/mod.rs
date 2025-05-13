@@ -265,6 +265,8 @@ pub struct DevicesState {
     pub mmio_state: persist::DeviceStates,
     /// ACPI devices state
     pub acpi_state: persist::ACPIDeviceManagerState,
+    /// PCI devices state
+    pub pci_state: pci_mngr::PciDevicesState,
 }
 
 #[derive(Debug, thiserror::Error, displaydoc::Display)]
@@ -273,6 +275,8 @@ pub enum DevicePersistError {
     MmioRestore(#[from] persist::DevicePersistError),
     /// Error restoring ACPI devices: {0}
     AcpiRestore(#[from] persist::ACPIDeviceManagerRestoreError),
+    /// Error restoring PCI devices: {0}
+    PciRestore(#[from] PciManagerError),
     /// Error notifying VMGenID device: {0}
     VmGenidUpdate(#[from] std::io::Error),
     /// Error resetting serial console: {0}
@@ -295,6 +299,7 @@ impl DeviceManager {
         DevicesState {
             mmio_state: self.mmio_devices.save(),
             acpi_state: self.acpi_devices.save(),
+            pci_state: self.pci_devices.save(),
         }
     }
 
@@ -365,6 +370,10 @@ impl DeviceManager {
         };
         self.acpi_devices = ACPIDeviceManager::restore(acpi_ctor_args, &state.acpi_state)?;
         self.acpi_devices.notify_vmgenid()?;
+
+        // Restore PCI devices
+        self.pci_devices
+            .restore(&state.pci_state, &self.resource_allocator)?;
 
         Ok(())
     }
