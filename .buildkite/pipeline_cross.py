@@ -29,7 +29,7 @@ if __name__ == "__main__":
     ]
     instances_aarch64 = ["m7g.metal"]
     commands = [
-        "./tools/devtool -y test --no-build -- -m nonci -n4 integration_tests/functional/test_snapshot_phase1.py",
+        "./tools/devtool -y test --no-build --no-archive -- -m nonci -n4 integration_tests/functional/test_snapshot_phase1.py",
         # punch holes in mem snapshot tiles and tar them so they are preserved in S3
         "find test_results/test_snapshot_phase1 -type f -name mem |xargs -P4 -t -n1 fallocate -d",
         "mv -v test_results/test_snapshot_phase1 snapshot_artifacts",

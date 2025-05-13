@@ -2,7 +2,9 @@
 # SPDX-License-Identifier: Apache-2.0
 """Tests the VSOCK throughput of Firecracker uVMs."""
 
+import json
 import os
+from pathlib import Path
 
 import pytest
 
@@ -73,7 +75,14 @@ class VsockIPerf3Test(IPerf3Test):
 @pytest.mark.parametrize("payload_length", ["64K", "1024K"], ids=["p64K", "p1024K"])
 @pytest.mark.parametrize("mode", ["g2h", "h2g", "bd"])
 def test_vsock_throughput(
-    microvm_factory, guest_kernel_acpi, rootfs, vcpus, payload_length, mode, metrics
+    microvm_factory,
+    guest_kernel_acpi,
+    rootfs,
+    vcpus,
+    payload_length,
+    mode,
+    metrics,
+    results_dir,
 ):
     """
     Test vsock throughput for multiple vm configurations.
@@ -106,5 +115,14 @@ def test_vsock_throughput(
 
     test = VsockIPerf3Test(vm, mode, payload_length)
     data = test.run_test(vm.vcpus_count + 2)
+
+    for i, g2h in enumerate(data["g2h"]):
+        Path(results_dir / f"g2h_{i}.json").write_text(
+            json.dumps(g2h), encoding="utf-8"
+        )
+    for i, h2g in enumerate(data["h2g"]):
+        Path(results_dir / f"h2g_{i}.json").write_text(
+            json.dumps(h2g), encoding="utf-8"
+        )
 
     emit_iperf3_metrics(metrics, data, VsockIPerf3Test.WARMUP_SEC)

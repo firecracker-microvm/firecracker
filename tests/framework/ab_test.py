@@ -160,7 +160,7 @@ def git_ab_test_host_command(
 
 
 def set_did_not_grow_comparator(
-    set_generator: Callable[[CommandReturn], set]
+    set_generator: Callable[[CommandReturn], set],
 ) -> Callable[[CommandReturn, CommandReturn], bool]:
     """Factory function for comparators to use with git_ab_test_command that converts the command output to sets
     (using the given callable) and then checks that the "B" set is a subset of the "A" set

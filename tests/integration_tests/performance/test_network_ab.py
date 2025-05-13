@@ -2,7 +2,9 @@
 # SPDX-License-Identifier: Apache-2.0
 """Tests the network latency of a Firecracker guest."""
 
+import json
 import re
+from pathlib import Path
 
 import pytest
 
@@ -95,6 +97,7 @@ def test_network_tcp_throughput(
     payload_length,
     mode,
     metrics,
+    results_dir,
 ):
     """
     Iperf between guest and host in both directions for TCP workload.
@@ -132,5 +135,14 @@ def test_network_tcp_throughput(
         payload_length=payload_length,
     )
     data = test.run_test(network_microvm.vcpus_count + 2)
+
+    for i, g2h in enumerate(data["g2h"]):
+        Path(results_dir / f"g2h_{i}.json").write_text(
+            json.dumps(g2h), encoding="utf-8"
+        )
+    for i, h2g in enumerate(data["h2g"]):
+        Path(results_dir / f"h2g_{i}.json").write_text(
+            json.dumps(h2g), encoding="utf-8"
+        )
 
     emit_iperf3_metrics(metrics, data, warmup_sec)

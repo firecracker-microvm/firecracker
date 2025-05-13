@@ -172,7 +172,7 @@ def pytest_runtest_logreport(report):
 
 
 @pytest.fixture()
-def metrics(request):
+def metrics(results_dir, request):
     """Fixture to pass the metrics scope
 
     We use a fixture instead of the @metrics_scope decorator as that conflicts
@@ -188,6 +188,8 @@ def metrics(request):
         metrics_logger.set_property(prop_name, prop_val)
     yield metrics_logger
     metrics_logger.flush()
+    if results_dir:
+        metrics_logger.store_data(results_dir)
 
 
 @pytest.fixture
@@ -392,21 +394,33 @@ def io_engine(request):
 
 
 @pytest.fixture
-def results_dir(request):
+def results_dir(request, pytestconfig):
     """
     Fixture yielding the path to a directory into which the test can dump its results
 
-    Directories are unique per test, and named after the test name. Everything the tests puts
-    into its directory will to be uploaded to S3. Directory will be placed inside defs.TEST_RESULTS_DIR.
+    Directories are unique per test, and their names include test name and test parameters.
+    Everything the tests puts into its directory will to be uploaded to S3.
+    Directory will be placed inside defs.TEST_RESULTS_DIR.
 
     For example
     ```py
-    def test_my_file(results_dir):
+    @pytest.mark.parametrize("p", ["a", "b"])
+    def test_my_file(p, results_dir):
         (results_dir / "output.txt").write_text("Hello World")
     ```
-    will result in `defs.TEST_RESULTS_DIR`/test_my_file/output.txt.
+    will result in:
+    - `defs.TEST_RESULTS_DIR`/test_my_file/test_my_file[a]/output.txt.
+    - `defs.TEST_RESULTS_DIR`/test_my_file/test_my_file[b]/output.txt.
+
+    When this fixture is called with DoctestItem as a request.node
+    during doc tests, it will return None.
     """
-    results_dir = defs.TEST_RESULTS_DIR / request.node.originalname
+    try:
+        report_file = pytestconfig.getoption("--json-report-file")
+        parent = Path(report_file).parent.absolute()
+        results_dir = parent / request.node.originalname / request.node.name
+    except AttributeError:
+        return None
     results_dir.mkdir(parents=True, exist_ok=True)
     return results_dir
 

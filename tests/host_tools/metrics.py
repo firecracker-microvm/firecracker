@@ -46,52 +46,59 @@ import asyncio
 import json
 import os
 import socket
+from pathlib import Path
 from urllib.parse import urlparse
 
 from aws_embedded_metrics.constants import DEFAULT_NAMESPACE
 from aws_embedded_metrics.logger.metrics_logger_factory import create_metrics_logger
 
 
-class MetricsWrapperDummy:
-    """Send metrics to /dev/null"""
-
-    def set_dimensions(self, *args, **kwargs):
-        """Set dimensions"""
-
-    def put_metric(self, *args, **kwargs):
-        """Put a datapoint with given dimensions"""
-
-    def set_property(self, *args, **kwargs):
-        """Set a property"""
-
-    def flush(self):
-        """Flush any remaining metrics"""
-
-
 class MetricsWrapper:
     """A convenient metrics logger"""
 
     def __init__(self, logger):
+        self.data = {}
         self.logger = logger
 
-    def __getattr__(self, attr):
-        """Dispatch methods to logger instance"""
-        if attr not in self.__dict__:
-            return getattr(self.logger, attr)
-        return getattr(self, attr)
+    def set_dimensions(self, *args, **kwargs):
+        """Set dimensions"""
+        if self.logger:
+            self.logger.set_dimensions(*args, **kwargs)
+
+    def put_metric(self, name, data, unit):
+        """Put a datapoint with given dimensions"""
+        if name not in self.data:
+            self.data[name] = {"unit": unit, "values": []}
+        self.data[name]["values"].append(data)
+
+        if self.logger:
+            self.logger.put_metric(name, data, unit)
+
+    def set_property(self, *args, **kwargs):
+        """Set a property"""
+        if self.logger:
+            self.logger.set_property(*args, **kwargs)
 
     def flush(self):
         """Flush any remaining metrics"""
-        asyncio.run(self.logger.flush())
+        if self.logger:
+            asyncio.run(self.logger.flush())
+
+    def store_data(self, dir_path):
+        """Store data into a file"""
+        metrics_path = Path(dir_path / "metrics.json")
+        with open(metrics_path, "w", encoding="utf-8") as f:
+            json.dump(self.data, f)
 
 
 def get_metrics_logger():
     """Get a new metrics logger object"""
     # if no metrics namespace, don't output metrics
-    if "AWS_EMF_NAMESPACE" not in os.environ:
-        return MetricsWrapperDummy()
-    logger = create_metrics_logger()
-    logger.reset_dimensions(False)
+    if "AWS_EMF_NAMESPACE" in os.environ:
+        logger = create_metrics_logger()
+        logger.reset_dimensions(False)
+    else:
+        logger = None
     return MetricsWrapper(logger)
 
 
