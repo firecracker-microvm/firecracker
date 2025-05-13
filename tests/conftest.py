@@ -339,6 +339,11 @@ def microvm_factory(request, record_property, results_dir, netns_factory):
     report = request.node.stash[PHASE_REPORT_KEY]
     if "call" in report and report["call"].failed:
         for uvm in uvm_factory.vms:
+            # This is best effort. We want to proceed even if the VM is not responding.
+            try:
+                uvm.flush_metrics()
+            except:  # pylint: disable=bare-except
+                pass
             uvm_data = results_dir / uvm.id
             uvm_data.mkdir()
             uvm_data.joinpath("host-dmesg.log").write_text(
