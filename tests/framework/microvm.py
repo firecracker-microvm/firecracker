@@ -313,10 +313,14 @@ class Microvm:
             if self.screen_pid:
                 os.kill(self.screen_pid, signal.SIGKILL)
         except:
-            LOG.error(
-                "Failed to kill Firecracker Process. Did it already die (or did the UFFD handler process die and take it down)?"
-            )
-            LOG.error(self.log_data)
+            if self.uffd_handler:
+                LOG.error(
+                    "Failed to kill Firecracker Process. Did it already die (or did the UFFD handler process die and take it down)?"
+                )
+                LOG.error("UFFD Handler Logs:\n" + self.uffd_handler.log_data)
+            else:
+                LOG.error("Failed to kill Firecracker Process. Did it already die?")
+            LOG.error("Firecracker Logs:\n" + self.log_data)
             raise
 
         # if microvm was spawned then check if it gets killed
