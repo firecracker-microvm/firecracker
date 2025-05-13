@@ -191,6 +191,13 @@ COMMON_PARSER.add_argument(
     action="store_true",
     default=False,
 )
+COMMON_PARSER.add_argument(
+    "--parallelism",
+    help="How many instances of test to create",
+    required=False,
+    default=1,
+    type=int,
+)
 
 
 def random_str(k: int):
@@ -320,6 +327,7 @@ class BKPipeline:
         """
         depends_on_build = kwargs.pop("depends_on_build", True)
         combined = overlay_dict(self.per_instance, kwargs)
+        combined["parallelism"] = self.args.parallelism
         return self.add_step(
             group(*args, **combined), depends_on_build=depends_on_build
         )
