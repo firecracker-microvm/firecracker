@@ -13,8 +13,13 @@ use vm_memory::GuestMemoryError;
 
 use super::cache_info::{CacheEntry, read_cache_config};
 use super::gic::GICDevice;
+use crate::arch::{
+    MEM_32BIT_DEVICES_SIZE, MEM_32BIT_DEVICES_START, MEM_64BIT_DEVICES_SIZE,
+    MEM_64BIT_DEVICES_START, PCI_MMIO_CONFIG_SIZE_PER_SEGMENT,
+};
 use crate::device_manager::DeviceManager;
 use crate::device_manager::mmio::MMIODeviceInfo;
+use crate::device_manager::pci_mngr::PciDevices;
 use crate::devices::acpi::vmgenid::{VMGENID_MEM_SIZE, VmGenId};
 use crate::initrd::InitrdConfig;
 use crate::vstate::memory::{Address, GuestMemory, GuestMemoryMmap};
@@ -90,6 +95,7 @@ pub fn create_fdt(
     create_psci_node(&mut fdt_writer)?;
     create_devices_node(&mut fdt_writer, device_manager)?;
     create_vmgenid_node(&mut fdt_writer, &device_manager.acpi_devices.vmgenid)?;
+    create_pci_nodes(&mut fdt_writer, &device_manager.pci_devices)?;
 
     // End Header node.
     fdt_writer.end_node(root)?;
@@ -429,6 +435,63 @@ fn create_devices_node(
     }
 
     Ok(())
+}
+
+fn create_pci_nodes(fdt: &mut FdtWriter, pci_devices: &PciDevices) -> Result<(), FdtError> {
+    if pci_devices.pci_segment.is_none() {
+        return Ok(());
+    }
+
+    // Fine to unwrap here, we just checked it's not `None`.
+    let segment = pci_devices.pci_segment.as_ref().unwrap();
+
+    let pci_node_name = format!("pci@{:x}", segment.mmio_config_address);
+    // Each range here is a thruple of `(PCI address, CPU address, PCI size)`.
+    //
+    // More info about the format can be found here:
+    // https://elinux.org/Device_Tree_Usage#PCI_Address_Translation
+    let ranges = [
+        // 32bit addresses
+        0x200_0000u32,
+        (MEM_32BIT_DEVICES_START >> 32) as u32, // PCI address
+        (MEM_32BIT_DEVICES_START & 0xffff_ffff) as u32,
+        (MEM_32BIT_DEVICES_START >> 32) as u32, // CPU address
+        (MEM_32BIT_DEVICES_START & 0xffff_ffff) as u32,
+        (MEM_32BIT_DEVICES_SIZE >> 32) as u32, // Range size
+        (MEM_32BIT_DEVICES_SIZE & 0xffff_ffff) as u32,
+        // 64bit addresses
+        0x300_0000u32,
+        // PCI address
+        (MEM_64BIT_DEVICES_START >> 32) as u32, // PCI address
+        (MEM_64BIT_DEVICES_START & 0xffff_ffff) as u32,
+        // CPU address
+        (MEM_64BIT_DEVICES_START >> 32) as u32, // CPU address
+        (MEM_64BIT_DEVICES_START & 0xffff_ffff) as u32,
+        // Range size
+        (MEM_64BIT_DEVICES_SIZE >> 32) as u32, // Range size
+        ((MEM_64BIT_DEVICES_SIZE & 0xffff_ffff) >> 32) as u32,
+    ];
+    let pci_node = fdt.begin_node(&pci_node_name)?;
+
+    fdt.property_string("compatible", "pci-host-ecam-generic")?;
+    fdt.property_string("device_type", "pci")?;
+    fdt.property_array_u32("ranges", &ranges)?;
+    fdt.property_array_u32("bus-range", &[0, 0])?;
+    fdt.property_u32("linux,pci-domain", segment.id.into())?;
+    fdt.property_u32("#address-cells", 3)?;
+    fdt.property_u32("#size-cells", 2)?;
+    fdt.property_array_u64(
+        "reg",
+        &[
+            segment.mmio_config_address,
+            PCI_MMIO_CONFIG_SIZE_PER_SEGMENT,
+        ],
+    )?;
+    fdt.property_u32("#interrupt-cells", 1)?;
+    fdt.property_null("interrupt-map")?;
+    fdt.property_null("interrupt-map-mask")?;
+    fdt.property_null("dma-coherent")?;
+    Ok(fdt.end_node(pci_node)?)
 }
 
 #[cfg(test)]
