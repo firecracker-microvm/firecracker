@@ -67,13 +67,17 @@ def run_fio(microvm, mode, block_size, test_output_dir, fio_engine="libaio"):
         )
         # Instruct fio to pin one worker per vcpu
         .with_arg("--cpus_allowed_policy=split")
-        .with_arg(f"--write_bw_log={mode}")
-        .with_arg(f"--write_lat_log={mode}")
         .with_arg("--log_avg_msec=1000")
+        .with_arg(f"--write_bw_log={mode}")
         .with_arg("--output-format=json+")
         .with_arg("--output=/tmp/fio.json")
-        .build()
     )
+
+    # Latency measurements only make sence for psync engine
+    if fio_engine == "psync":
+        cmd = cmd.with_arg(f"--write_lat_log={mode}")
+
+    cmd = cmd.build()
 
     prepare_microvm_for_test(microvm)
 
@@ -110,7 +114,9 @@ def process_fio_log_files(root_dir, logs_glob):
         for pathname in glob.glob(logs_glob, root_dir=root_dir)
     ]
 
-    assert data, "no log files found!"
+    # If not data found, there is nothing to iterate over
+    if not data:
+        return [], []
 
     for tup in zip(*data):
         read_values = []
