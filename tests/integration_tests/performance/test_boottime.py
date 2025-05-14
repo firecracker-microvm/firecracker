@@ -8,22 +8,12 @@ import time
 
 import pytest
 
-from framework.properties import global_props
-
 # Regex for obtaining boot time from some string.
 
 DEFAULT_BOOT_ARGS = (
     "reboot=k panic=1 pci=off nomodule 8250.nr_uarts=0"
     " i8042.noaux i8042.nomux i8042.nopnp i8042.dumbkbd"
 )
-
-
-DIMENSIONS = {
-    "instance": global_props.instance,
-    "cpu_model": global_props.cpu_model,
-    "host_os": global_props.host_os,
-    "host_kernel": "linux-" + global_props.host_linux_version,
-}
 
 
 def get_boottime_device_info(vm):
@@ -114,17 +104,7 @@ def test_boottime(
 ):
     """Test boot time with different guest configurations"""
 
-    metrics.set_dimensions(
-        {
-            **DIMENSIONS,
-            "performance_test": "test_boottime",
-            "guest_kernel": guest_kernel_acpi.name,
-            "vcpus": str(vcpu_count),
-            "mem_size_mib": str(mem_size_mib),
-        }
-    )
-
-    for _ in range(10):
+    for i in range(10):
         vm = microvm_factory.build(guest_kernel_acpi, rootfs_rw)
         vm.jailer.extra_args.update({"boot-timer": None})
         vm.spawn()
@@ -139,6 +119,15 @@ def test_boottime(
         vm.pin_threads(0)
 
         boot_time_us, cpu_boot_time_us = get_boottime_device_info(vm)
+
+        if i == 0:
+            metrics.set_dimensions(
+                {
+                    "performance_test": "test_boottime",
+                    **vm.dimensions,
+                }
+            )
+
         metrics.put_metric(
             "guest_boot_time",
             boot_time_us,
