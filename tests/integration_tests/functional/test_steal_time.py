@@ -104,18 +104,19 @@ def test_pvtime_snapshot(uvm_plain, microvm_factory):
     # Steal time just after restoring
     steal_after_snap = get_steal_time_ms(restored_vm)
 
+    # Ensure steal time persisted
+    tolerance = 10000  # 10.0 seconds tolerance for persistence check
+    persisted = (
+        steal_before < steal_after_snap and steal_after_snap - steal_before < tolerance
+    )
+    assert persisted, "Steal time did not persist through snapshot"
+
     time.sleep(2)
 
     # Steal time after running resumed VM
     steal_after_resume = get_steal_time_ms(restored_vm)
 
-    # Ensure steal time persisted and continued increasing
-    tolerance = 10000  # 10.0 seconds tolerance for persistence check
-    persisted = (
-        steal_before < steal_after_snap and steal_after_snap - steal_before < tolerance
-    )
-    increased = steal_after_resume > steal_after_snap
-
+    # Ensure steal time continued increasing
     assert (
-        persisted and increased
-    ), "Steal time did not persist through snapshot or failed to increase after resume"
+        steal_after_resume > steal_after_snap
+    ), "Steal time failed to increase after resume"
