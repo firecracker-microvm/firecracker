@@ -435,11 +435,3 @@ section without needing `iproute2` installed in the guest.
 
 As soon as you boot the guest, it will already be connected to the network
 (assuming you correctly performing the other steps).
-
-**Note**: you can also use the `ip` argument to configure a primary DNS server
-and, optionally, a second DNS server without needing to touch
-`/etc/resolv.conf`. As an example:
-
-`ip=172.16.0.2::172.16.0.1:255.255.255.252::eth0:off:8.8.8.8:1.1.1.1` configures
-`8.8.8.8` as the primary DNS server and `1.1.1.1` as the secondary DNS server,
-as well as the rest of the guest-side routing.
