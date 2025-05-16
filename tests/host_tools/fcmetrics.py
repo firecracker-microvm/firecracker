@@ -104,7 +104,6 @@ def validate_fc_metrics(metrics):
         "event_fails",
         "rx_queue_event_count",
         "rx_event_rate_limiter_count",
-        "rx_partial_writes",
         "rx_rate_limiter_throttled",
         "rx_tap_event_count",
         "rx_bytes_count",
@@ -118,7 +117,6 @@ def validate_fc_metrics(metrics):
         "tx_fails",
         "tx_count",
         "tx_packets_count",
-        "tx_partial_reads",
         "tx_queue_event_count",
         "tx_rate_limiter_event_count",
         "tx_rate_limiter_throttled",
@@ -131,8 +129,6 @@ def validate_fc_metrics(metrics):
         "api_server": [
             "process_startup_time_us",
             "process_startup_time_cpu_us",
-            "sync_response_fails",
-            "sync_vmm_send_timeout_count",
         ],
         "balloon": [
             "activate_fails",
@@ -145,7 +141,6 @@ def validate_fc_metrics(metrics):
         "block": block_metrics,
         "deprecated_api": [
             "deprecated_http_api_calls",
-            "deprecated_cmd_line_api_calls",
         ],
         "get_api_requests": [
             "instance_info_count",
@@ -177,7 +172,6 @@ def validate_fc_metrics(metrics):
             "missed_metrics_count",
             "metrics_fails",
             "missed_log_count",
-            "log_fails",
         ],
         "mmds": [
             "rx_accepted",
@@ -241,7 +235,6 @@ def validate_fc_metrics(metrics):
             {"exit_mmio_write_agg": latency_agg_metrics_fields},
         ],
         "vmm": [
-            "device_events",
             "panic_count",
         ],
         "uart": [
