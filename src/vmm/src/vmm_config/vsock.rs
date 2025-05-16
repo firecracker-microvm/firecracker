@@ -32,6 +32,20 @@ pub struct VsockDeviceConfig {
     pub guest_cid: u32,
     /// Path to local unix socket.
     pub uds_path: String,
+    // Type of socket being used
+    #[serde(default = "default_socket_type")]
+    pub socket_type : VsockSocketType, 
+}
+
+fn default_socket_type() -> VsockSocketType {
+    VsockSocketType::Stream
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum VsockSocketType {
+    Stream,
+    SeqPacket,
 }
 
 #[derive(Debug)]
@@ -47,6 +61,7 @@ impl From<&VsockAndUnixPath> for VsockDeviceConfig {
             vsock_id: None,
             guest_cid: u32::try_from(vsock_lock.cid()).unwrap(),
             uds_path: vsock.uds_path.clone(),
+            socket_type: vsock_lock.socket_type()
         }
     }
 }
@@ -99,7 +114,7 @@ impl VsockBuilder {
     pub fn create_unixsock_vsock(
         cfg: VsockDeviceConfig,
     ) -> Result<Vsock<VsockUnixBackend>, VsockConfigError> {
-        let backend = VsockUnixBackend::new(u64::from(cfg.guest_cid), cfg.uds_path)?;
+        let backend = VsockUnixBackend::new(u64::from(cfg.guest_cid), cfg.uds_path, cfg.socket_type)?;
 
         Vsock::new(u64::from(cfg.guest_cid), backend).map_err(VsockConfigError::CreateVsockDevice)
     }
@@ -122,6 +137,7 @@ pub(crate) mod tests {
             vsock_id: None,
             guest_cid: 3,
             uds_path: tmp_sock_file.as_path().to_str().unwrap().to_string(),
+            socket_type: VsockSocketType::Stream,
         }
     }
 
@@ -168,10 +184,11 @@ pub(crate) mod tests {
     fn test_set_device() {
         let mut vsock_builder = VsockBuilder::new();
         let mut tmp_sock_file = TempFile::new().unwrap();
+        let socket_type = VsockSocketType::Stream;
         tmp_sock_file.remove().unwrap();
         let vsock = Vsock::new(
             0,
-            VsockUnixBackend::new(1, tmp_sock_file.as_path().to_str().unwrap().to_string())
+            VsockUnixBackend::new(1, tmp_sock_file.as_path().to_str().unwrap().to_string(), socket_type)
                 .unwrap(),
         )
         .unwrap();
