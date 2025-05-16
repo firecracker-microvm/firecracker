@@ -313,10 +313,14 @@ class Microvm:
             if self.screen_pid:
                 os.kill(self.screen_pid, signal.SIGKILL)
         except:
-            LOG.error(
+            msg = (
                 "Failed to kill Firecracker Process. Did it already die (or did the UFFD handler process die and take it down)?"
+                if self.uffd_handler
+                else "Failed to kill Firecracker Process. Did it already die?"
             )
-            LOG.error(self.log_data)
+
+            self._dump_debug_information(msg)
+
             raise
 
         # if microvm was spawned then check if it gets killed
@@ -1058,7 +1062,9 @@ class Microvm:
             user="root",
             host=guest_ip,
             control_path=Path(self.chroot()) / f"ssh-{iface_idx}.sock",
-            on_error=self._dump_debug_information,
+            on_error=lambda exc: self._dump_debug_information(
+                f"Failure executing command via SSH in microVM: {exc}"
+            ),
         )
         self._connections.append(connection)
         return connection
@@ -1080,17 +1086,18 @@ class Microvm:
                 )
         return "\n".join(backtraces)
 
-    def _dump_debug_information(self, exc: Exception):
+    def _dump_debug_information(self, what: str):
         """
         Dumps debug information about this microvm
 
         Used for example when running a command inside the guest via `SSHConnection.check_output` fails.
         """
-        print(
-            f"Failure executing command via SSH in microVM: {exc}\n\n"
-            f"Firecracker logs:\n{self.log_data}\n"
-            f"Thread backtraces:\n{self.thread_backtraces}"
-        )
+        LOG.error(what)
+        LOG.error("Firecracker logs:\n%s", self.log_data)
+        if self.uffd_handler:
+            LOG.error("Uffd logs:\n%s", self.uffd_handler.log_data)
+        if not self._killed:
+            LOG.error("Thread backtraces:\n%s", self.thread_backtraces)
 
     def wait_for_ssh_up(self):
         """Wait for guest running inside the microVM to come up and respond."""

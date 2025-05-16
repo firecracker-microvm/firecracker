@@ -249,3 +249,29 @@ def test_population_latency(
                 break
         else:
             raise RuntimeError("UFFD handler did not print population latency after 5s")
+
+
+def test_snapshot_create_latency(
+    microvm_factory,
+    guest_kernel_linux_5_10,
+    rootfs,
+    metrics,
+):
+    """Measure the latency of creating a Full snapshot"""
+
+    vm = microvm_factory.build(guest_kernel_linux_5_10, rootfs, monitor_memory=False)
+    vm.spawn()
+    vm.basic_config(vcpu_count=2, mem_size_mib=512)
+    vm.start()
+    vm.pin_threads(0)
+
+    metrics.set_dimensions(
+        {**vm.dimensions, "performance_test": "test_snapshot_create_latency"}
+    )
+
+    for _ in range(ITERATIONS):
+        vm.snapshot_full()
+        fc_metrics = vm.flush_metrics()
+
+        value = fc_metrics["latencies_us"]["full_create_snapshot"] / USEC_IN_MSEC
+        metrics.put_metric("latency", value, "Milliseconds")
