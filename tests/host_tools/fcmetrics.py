@@ -9,6 +9,7 @@
 
 import datetime
 import json
+import logging
 import math
 import platform
 import time
@@ -544,8 +545,14 @@ class FCMetricsMonitor(Thread):
             # this should also avoid any race condition leading to
             # uploading the same metrics twice
             self.join()
-            self.vm.api.actions.put(action_type="FlushMetrics")
-            self._flush_metrics()
+            try:
+                self.vm.api.actions.put(action_type="FlushMetrics")
+            except:  # pylint: disable=bare-except
+                # if this doesn't work, ignore the failure. This function is called during teardown,
+                # and if it fails there, then the resulting exception hides the actual test failure.
+                logging.error("Failed to flush Firecracker metrics!")
+            finally:
+                self._flush_metrics()
 
     def run(self):
         self.running = True
