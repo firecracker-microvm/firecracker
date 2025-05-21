@@ -69,6 +69,7 @@ pub fn create_vmm(
     _kernel_image: Option<&str>,
     is_diff: bool,
     boot_microvm: bool,
+    pci_enabled: bool,
 ) -> (Arc<Mutex<Vmm>>, EventManager) {
     let mut event_manager = EventManager::new().unwrap();
     let empty_seccomp_filters = get_empty_filters();
@@ -82,13 +83,15 @@ pub fn create_vmm(
         None => boot_source_cfg.into(),
     };
     let mock_vm_res = MockVmResources::new().with_boot_source(boot_source_cfg);
-    let resources: VmResources = if is_diff {
+    let mut resources: VmResources = if is_diff {
         mock_vm_res
             .with_vm_config(MockVmConfig::new().with_dirty_page_tracking().into())
             .into()
     } else {
         mock_vm_res.into()
     };
+
+    resources.pci_enabled = pci_enabled;
 
     let vmm = build_microvm_for_boot(
         &InstanceInfo::default(),
@@ -106,16 +109,24 @@ pub fn create_vmm(
 }
 
 pub fn default_vmm(kernel_image: Option<&str>) -> (Arc<Mutex<Vmm>>, EventManager) {
-    create_vmm(kernel_image, false, true)
+    create_vmm(kernel_image, false, true, false)
 }
 
 pub fn default_vmm_no_boot(kernel_image: Option<&str>) -> (Arc<Mutex<Vmm>>, EventManager) {
-    create_vmm(kernel_image, false, false)
+    create_vmm(kernel_image, false, false, false)
+}
+
+pub fn default_vmm_pci_no_boot(kernel_image: Option<&str>) -> (Arc<Mutex<Vmm>>, EventManager) {
+    create_vmm(kernel_image, false, false, true)
 }
 
 #[cfg(target_arch = "x86_64")]
 pub fn dirty_tracking_vmm(kernel_image: Option<&str>) -> (Arc<Mutex<Vmm>>, EventManager) {
-    create_vmm(kernel_image, true, true)
+    create_vmm(kernel_image, true, true, false)
+}
+
+pub fn default_vmm_pci(kernel_image: Option<&str>) -> (Arc<Mutex<Vmm>>, EventManager) {
+    create_vmm(kernel_image, false, true, false)
 }
 
 #[allow(clippy::undocumented_unsafe_blocks)]
