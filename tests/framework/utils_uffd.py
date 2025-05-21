@@ -77,10 +77,22 @@ class UffdHandler:
             return ""
         return self.log_file.read_text(encoding="utf-8")
 
+    def kill(self):
+        """Kills the uffd handler process"""
+        assert self.is_running()
+
+        self.proc.kill()
+
+    def mark_killed(self):
+        """Marks the uffd handler as already dead"""
+        assert not self.is_running()
+
+        self._proc = None
+
     def __del__(self):
         """Tear down the UFFD handler process."""
-        if self.proc is not None:
-            self.proc.kill()
+        if self.is_running():
+            self.kill()
 
 
 def spawn_pf_handler(vm, handler_path, jailed_snapshot):

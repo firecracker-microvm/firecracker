@@ -341,6 +341,9 @@ class Microvm:
                 stderr == "" and "firecracker" not in stdout
             ), f"Firecracker reported its pid {self.firecracker_pid}, which was killed, but there still exist processes using the supposedly dead Firecracker's jailer_id: {stdout}"
 
+        if self.uffd_handler and self.uffd_handler.is_running():
+            self.uffd_handler.kill()
+
         # Mark the microVM as not spawned, so we avoid trying to kill twice.
         self._spawned = False
         self._killed = True

@@ -128,4 +128,4 @@ def test_malicious_handler(uvm_plain, snapshot):
             )
             assert False, "Firecracker should freeze"
     except (TimeoutError, requests.exceptions.ReadTimeout):
-        pass
+        vm.uffd_handler.mark_killed()
