@@ -9,7 +9,6 @@ import pytest
 import requests
 
 from framework.utils import Timeout, check_output
-from framework.utils_uffd import spawn_pf_handler, uffd_handler
 
 
 @pytest.fixture(scope="function", name="snapshot")
@@ -90,11 +89,7 @@ def test_valid_handler(uvm_plain, snapshot):
     vm = uvm_plain
     vm.memory_monitor = None
     vm.spawn()
-
-    # Spawn page fault handler process.
-    spawn_pf_handler(vm, uffd_handler("on_demand"), snapshot)
-
-    vm.restore_from_snapshot(resume=True)
+    vm.restore_from_snapshot(snapshot, resume=True, uffd_handler_name="on_demand")
 
     # Inflate balloon.
     vm.api.balloon.patch(amount_mib=200)
@@ -124,14 +119,13 @@ def test_malicious_handler(uvm_plain, snapshot):
     vm.memory_monitor = None
     vm.spawn()
 
-    # Spawn page fault handler process.
-    spawn_pf_handler(vm, uffd_handler("malicious"), snapshot)
-
     # We expect Firecracker to freeze while resuming from a snapshot
     # due to the malicious handler's unavailability.
     try:
         with Timeout(seconds=30):
-            vm.restore_from_snapshot(resume=True)
+            vm.restore_from_snapshot(
+                snapshot, resume=True, uffd_handler_name="malicious"
+            )
             assert False, "Firecracker should freeze"
     except (TimeoutError, requests.exceptions.ReadTimeout):
         pass

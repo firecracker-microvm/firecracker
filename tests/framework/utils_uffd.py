@@ -83,10 +83,9 @@ class UffdHandler:
             self.proc.kill()
 
 
-def spawn_pf_handler(vm, handler_path, snapshot):
+def spawn_pf_handler(vm, handler_path, jailed_snapshot):
     """Spawn page fault handler process."""
     # Copy snapshot memory file into chroot of microVM.
-    jailed_snapshot = snapshot.copy_to_chroot(Path(vm.chroot()))
     # Copy the valid page fault binary into chroot of microVM.
     jailed_handler = vm.create_jailed_resource(handler_path)
     handler_name = os.path.basename(jailed_handler)
