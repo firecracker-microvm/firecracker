@@ -198,6 +198,7 @@ class Microvm:
         assert microvm_id is not None
         self._microvm_id = microvm_id
 
+        self.pci_enabled = False
         self.kernel_file = None
         self.rootfs_file = None
         self.ssh_key = None
@@ -642,6 +643,7 @@ class Microvm:
             self.time_api_requests = False
 
         if pci:
+            self.pci_enabled = True
             self.jailer.extra_args["enable-pci"] = None
 
         cmd = [
