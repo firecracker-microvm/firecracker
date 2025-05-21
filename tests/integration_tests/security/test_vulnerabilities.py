@@ -216,22 +216,18 @@ def microvm_factory_a(record_property):
 
 
 @pytest.fixture
-def uvm_any_a(
-    microvm_factory_a, uvm_ctor, guest_kernel, rootfs, cpu_template_any, pci_enabled
-):
+def uvm_any_a(microvm_factory_a, uvm_ctor, guest_kernel, rootfs, cpu_template_any):
     """Return uvm with revision A firecracker
 
     Since pytest caches fixtures, this guarantees uvm_any_a will match a vm from uvm_any.
     See https://docs.pytest.org/en/stable/how-to/fixtures.html#fixtures-can-be-requested-more-than-once-per-test-return-values-are-cached
     """
-    return uvm_ctor(
-        microvm_factory_a, guest_kernel, rootfs, cpu_template_any, pci_enabled
-    )
+    return uvm_ctor(microvm_factory_a, guest_kernel, rootfs, cpu_template_any, False)
 
 
-def test_check_vulnerability_files_ab(request, uvm_any):
+def test_check_vulnerability_files_ab(request, uvm_any_without_pci):
     """Test vulnerability files on guests"""
-    res_b = check_vulnerabilities_files_on_guest(uvm_any)
+    res_b = check_vulnerabilities_files_on_guest(uvm_any_without_pci)
     if global_props.buildkite_pr:
         # we only get the uvm_any_a fixtures if we need it
         uvm_a = request.getfixturevalue("uvm_any_a")
@@ -243,11 +239,11 @@ def test_check_vulnerability_files_ab(request, uvm_any):
 
 def test_spectre_meltdown_checker_on_guest(
     request,
-    uvm_any,
+    uvm_any_without_pci,
     spectre_meltdown_checker,
 ):
     """Test with the spectre / meltdown checker on any supported guest."""
-    res_b = spectre_meltdown_checker.get_report_for_guest(uvm_any)
+    res_b = spectre_meltdown_checker.get_report_for_guest(uvm_any_without_pci)
     if global_props.buildkite_pr:
         # we only get the uvm_any_a fixtures if we need it
         uvm_a = request.getfixturevalue("uvm_any_a")
@@ -255,5 +251,5 @@ def test_spectre_meltdown_checker_on_guest(
         assert res_b <= res_a
     else:
         assert res_b == spectre_meltdown_checker.expected_vulnerabilities(
-            uvm_any.cpu_template_name
+            uvm_any_without_pci.cpu_template_name
         )
