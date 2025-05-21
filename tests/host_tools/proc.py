@@ -13,7 +13,7 @@ def proc_type():
     lines = result.stdout.strip().splitlines()
     for line in lines:
         if "model name" in line:
-            return re.sub(".*model name.*:", "", line, 1)
+            return re.sub(".*model name.*:", "", line, count=1)
 
     cmd = "uname -m"
     result = utils.check_output(cmd).stdout.strip()
