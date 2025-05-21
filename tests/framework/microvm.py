@@ -986,7 +986,7 @@ class Microvm:
         jailed_snapshot = snapshot.copy_to_chroot(Path(self.chroot()))
 
         if uffd_handler_name:
-            spawn_pf_handler(
+            self.uffd_handler = spawn_pf_handler(
                 self,
                 uffd_handler(uffd_handler_name, binary_dir=self.fc_binary_path.parent),
                 jailed_snapshot,
