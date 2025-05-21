@@ -975,19 +975,22 @@ class Microvm:
 
     def restore_from_snapshot(
         self,
-        snapshot: Snapshot = None,
+        snapshot: Snapshot,
         resume: bool = False,
         rename_interfaces: dict = None,
+        *,
+        uffd_handler_name: str = None,
     ):
         """Restore a snapshot"""
-        if self.uffd_handler is None:
-            assert (
-                snapshot is not None
-            ), "snapshot file must be provided if no uffd handler is attached!"
 
-            jailed_snapshot = snapshot.copy_to_chroot(Path(self.chroot()))
-        else:
-            jailed_snapshot = self.uffd_handler.snapshot
+        jailed_snapshot = snapshot.copy_to_chroot(Path(self.chroot()))
+
+        if uffd_handler_name:
+            spawn_pf_handler(
+                self,
+                uffd_handler(uffd_handler_name, binary_dir=self.fc_binary_path.parent),
+                jailed_snapshot,
+            )
 
         jailed_mem = Path("/") / jailed_snapshot.mem.name
         jailed_vmstate = Path("/") / jailed_snapshot.vmstate.name
@@ -1180,14 +1183,9 @@ class MicroVMFactory:
             microvm = self.build()
             microvm.spawn()
 
-            if uffd_handler_name is not None:
-                spawn_pf_handler(
-                    microvm,
-                    uffd_handler(uffd_handler_name, binary_dir=self.binary_path),
-                    current_snapshot,
-                )
-
-            snapshot_copy = microvm.restore_from_snapshot(current_snapshot, resume=True)
+            snapshot_copy = microvm.restore_from_snapshot(
+                current_snapshot, resume=True, uffd_handler_name=uffd_handler_name
+            )
 
             yield microvm
 
