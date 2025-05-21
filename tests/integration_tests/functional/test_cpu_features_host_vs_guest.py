@@ -91,7 +91,6 @@ AMD_MILAN_HOST_ONLY_FEATS = {
     "cqm_occup_llc",
     "decodeassists",
     "extapic",
-    "extd_apicid",
     "flushbyasid",
     "hw_pstate",
     "ibs",
