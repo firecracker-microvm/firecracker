@@ -29,6 +29,9 @@ and this project adheres to
 
 ### Fixed
 
+- [#5222](https://github.com/firecracker-microvm/firecracker/pull/5222): Fixed
+  network and rng devices locking up on hosts with non 4K pages.
+
 ## [1.12.0]
 
 ### Added
