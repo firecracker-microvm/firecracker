@@ -30,6 +30,8 @@ pub use aarch64::{
 #[cfg(target_arch = "riscv64")]
 pub mod riscv64;
 #[cfg(target_arch = "riscv64")]
+pub use riscv64::kvm::Kvm;
+#[cfg(target_arch = "riscv64")]
 pub use riscv64::{ConfigurationError, configure_system_for_boot, load_kernel};
 
 /// Module for x86_64 related functionality.
