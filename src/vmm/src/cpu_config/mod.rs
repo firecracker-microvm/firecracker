@@ -14,5 +14,9 @@ pub mod x86_64;
 #[cfg(target_arch = "aarch64")]
 pub mod aarch64;
 
+/// Module containing type implementations needed for riscv64 CPU configuration
+#[cfg(target_arch = "riscv64")]
+pub mod riscv64;
+
 #[cfg(test)]
 pub(crate) mod test_utils;
