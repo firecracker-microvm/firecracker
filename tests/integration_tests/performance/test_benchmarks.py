@@ -18,7 +18,7 @@ LOGGER = logging.getLogger(__name__)
 
 
 @pytest.mark.no_block_pr
-@pytest.mark.timeout(900)
+@pytest.mark.timeout(9000)
 def test_no_regression_relative_to_target_branch():
     """
     Run the microbenchmarks in this repository, comparing results from pull

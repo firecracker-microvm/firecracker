@@ -59,7 +59,7 @@ pub fn bench_2m_page_fault(c: &mut Criterion) {
 
 criterion_group! {
     name = memory_access_benches;
-    config = Criterion::default().noise_threshold(0.05);
+    config = Criterion::default().noise_threshold(0.05).measurement_time(std::time::Duration::from_secs(10)).sample_size(10000);
     targets = bench_4k_page_fault, bench_2m_page_fault
 }
 

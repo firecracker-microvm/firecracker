@@ -36,7 +36,7 @@ pub fn block_request_benchmark(c: &mut Criterion) {
 
 criterion_group! {
     name = block_request_benches;
-    config = Criterion::default().sample_size(1000).noise_threshold(0.05);
+    config = Criterion::default().noise_threshold(0.05).measurement_time(std::time::Duration::from_secs(10)).sample_size(10000);
     targets = block_request_benchmark
 }
 
