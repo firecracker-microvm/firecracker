@@ -69,7 +69,9 @@ pub enum IovDequeError {
 // Like that, the elements stored in the buffer are always laid out in contiguous virtual memory,
 // so making a slice out of them does not require any copies.
 //
-// The `L` const generic determines the maximum number of `iovec` elements the queue should hold.
+// The `L` const generic determines the maximum number of `iovec` elements the queue should hold
+// at any point in time. The actual capacity of the queue may differ and will depend on the host
+// page size.
 //
 // ```Rust
 // pub struct iovec {
@@ -83,6 +85,7 @@ pub struct IovDeque<const L: u16> {
     pub iov: *mut libc::iovec,
     pub start: u16,
     pub len: u16,
+    pub capacity: u16,
 }
 
 // SAFETY: This is `Send`. We hold sole ownership of the underlying buffer.
@@ -158,6 +161,14 @@ impl<const L: u16> IovDeque<L> {
     /// Create a new [`IovDeque`] that can hold memory described by a single VirtIO queue.
     pub fn new() -> Result<Self, IovDequeError> {
         let pages_bytes = Self::pages_bytes();
+        let capacity = pages_bytes / std::mem::size_of::<iovec>();
+        let capacity: u16 = capacity.try_into().unwrap();
+        assert!(
+            L <= capacity,
+            "Actual capacity {} is smaller than requested capacity {}",
+            capacity,
+            L
+        );
 
         let memfd = Self::create_memfd(pages_bytes)?;
         let raw_memfd = memfd.as_file().as_raw_fd();
@@ -201,6 +212,7 @@ impl<const L: u16> IovDeque<L> {
             iov: buffer.cast(),
             start: 0,
             len: 0,
+            capacity,
         })
     }
 
@@ -258,8 +270,8 @@ impl<const L: u16> IovDeque<L> {
 
         self.start += nr_iovecs;
         self.len -= nr_iovecs;
-        if self.start >= L {
-            self.start -= L;
+        if self.capacity <= self.start {
+            self.start -= self.capacity;
         }
     }
 
@@ -531,5 +543,47 @@ mod tests {
         for (i, iov) in deque.as_slice().iter().enumerate() {
             assert_eq!(iov.iov_len, 2 * copy[i].iov_len);
         }
+    }
+
+    #[test]
+    fn test_size_less_than_capacity() {
+        // Usually we have a queue size of 256 which is a perfect fit
+        // for 4K pages. But with 16K or bigger pages the `perfect fit`
+        // is not perfect anymore. Need to ensure the wraparound logic
+        // remains valid in such cases.
+        const L: u16 = 16;
+        let mut deque = super::IovDeque::<L>::new().unwrap();
+        assert!(deque.as_mut_slice().is_empty());
+
+        // Number of times need to fill/empty the queue to reach the
+        // wraparound point.
+        let fills = deque.capacity / L;
+
+        // Almost reach the wraparound.
+        for _ in 0..(fills - 1) {
+            for _ in 0..L {
+                deque.push_back(make_iovec(0, 100));
+            }
+            deque.pop_front(L);
+        }
+        // 1 element away from the wraparound
+        for _ in 0..(L - 1) {
+            deque.push_back(make_iovec(0, 100));
+        }
+        deque.pop_front(L - 1);
+
+        // Start filling the 'second' page
+        // First element will be put at the end of the
+        // first page, while the rest will be in `second`
+        // page.
+        for _ in 0..L {
+            deque.push_back(make_iovec(1, 100));
+        }
+
+        // Pop one element to trigger the wraparound.
+        deque.pop_front(1);
+        // Now the slice should be pointing to the memory of the `first` page
+        // which should have the same content as the `second` page.
+        assert_eq!(deque.as_slice(), vec![make_iovec(1, 100); L as usize - 1]);
     }
 }

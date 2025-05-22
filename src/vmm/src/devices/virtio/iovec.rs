@@ -927,6 +927,7 @@ mod verification {
             iov: mem.cast(),
             start: kani::any_where(|&start| start < FIRECRACKER_MAX_QUEUE_SIZE),
             len: 0,
+            capacity: FIRECRACKER_MAX_QUEUE_SIZE,
         }
     }
 
