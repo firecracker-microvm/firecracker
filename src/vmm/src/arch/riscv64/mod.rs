@@ -38,3 +38,8 @@ pub fn load_kernel(
 ) -> Result<EntryPoint, ConfigurationError> {
     todo!()
 }
+
+/// Auxiliary function to get the address where the device tree blob is loaded.
+fn get_fdt_addr() -> u64 {
+    layout::DRAM_MEM_START
+}
