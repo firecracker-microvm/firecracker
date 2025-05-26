@@ -29,10 +29,20 @@ pub use aarch64::{
 /// Module for riscv64 related functionality.
 #[cfg(target_arch = "riscv64")]
 pub mod riscv64;
+
 #[cfg(target_arch = "riscv64")]
-pub use riscv64::kvm::Kvm;
+pub use riscv64::kvm::{Kvm, KvmArchError};
 #[cfg(target_arch = "riscv64")]
-pub use riscv64::{ConfigurationError, configure_system_for_boot, load_kernel};
+pub use riscv64::vcpu::*;
+#[cfg(target_arch = "riscv64")]
+pub use riscv64::vm::{ArchVm, ArchVmError, VmState};
+#[cfg(target_arch = "riscv64")]
+pub use riscv64::{
+    ConfigurationError, MMIO_MEM_SIZE, MMIO_MEM_START, arch_memory_regions,
+    configure_system_for_boot, get_kernel_start, initrd_load_addr, layout::CMDLINE_MAX_SIZE,
+    layout::IRQ_BASE, layout::IRQ_MAX, layout::SYSTEM_MEM_SIZE, layout::SYSTEM_MEM_START,
+    load_kernel,
+};
 
 /// Module for x86_64 related functionality.
 #[cfg(target_arch = "x86_64")]
