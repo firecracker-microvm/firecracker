@@ -8,6 +8,7 @@ use std::sync::{Arc, Mutex};
 
 use event_manager::{MutEventSubscriber, SubscriberOps};
 use kvm_ioctls::VmFd;
+#[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
 use log::{error, warn};
 use serde::{Deserialize, Serialize};
 use vm_allocator::AllocPolicy;
@@ -35,12 +36,13 @@ use crate::devices::virtio::rng::Entropy;
 use crate::devices::virtio::rng::persist::{
     EntropyConstructorArgs, EntropyPersistError as EntropyError, EntropyState,
 };
+#[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
+use crate::devices::virtio::vsock::TYPE_VSOCK;
 use crate::devices::virtio::vsock::persist::{
     VsockConstructorArgs, VsockState, VsockUdsConstructorArgs,
 };
-use crate::devices::virtio::vsock::{
-    TYPE_VSOCK, Vsock, VsockError, VsockUnixBackend, VsockUnixBackendError,
-};
+use crate::devices::virtio::vsock::{Vsock, VsockError, VsockUnixBackend, VsockUnixBackendError};
+#[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
 use crate::devices::virtio::{TYPE_BALLOON, TYPE_BLOCK, TYPE_NET, TYPE_RNG};
 use crate::mmds::data_store::MmdsVersion;
 use crate::resources::{ResourcesError, VmResources};
@@ -283,6 +285,7 @@ impl<'a> Persist<'a> for MMIODeviceManager {
     type ConstructorArgs = MMIODevManagerConstructorArgs<'a>;
     type Error = DevicePersistError;
 
+    #[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
     fn save(&self) -> Self::State {
         let mut states = DeviceStates::default();
         let _: Result<(), ()> = self.for_each_device(|devtype, devid, device_info, bus_dev| {
@@ -407,6 +410,11 @@ impl<'a> Persist<'a> for MMIODeviceManager {
             Ok(())
         });
         states
+    }
+
+    #[cfg(target_arch = "riscv64")]
+    fn save(&self) -> Self::State {
+        unimplemented!();
     }
 
     fn restore(

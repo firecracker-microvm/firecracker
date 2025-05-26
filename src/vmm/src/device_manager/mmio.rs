@@ -26,6 +26,7 @@ use crate::arch::DeviceType::Virtio;
 use crate::devices::BusDevice;
 #[cfg(target_arch = "aarch64")]
 use crate::devices::legacy::RTCDevice;
+#[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
 use crate::devices::pseudo::BootTimer;
 use crate::devices::virtio::balloon::Balloon;
 use crate::devices::virtio::block::device::Block;
@@ -342,6 +343,7 @@ impl MMIODeviceManager {
     }
 
     /// Register a boot timer device.
+    #[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
     pub fn register_mmio_boot_timer(
         &mut self,
         resource_allocator: &mut ResourceAllocator,

@@ -3,6 +3,7 @@
 // Copyright 2025 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
+/// Module for custom CPU templates
 pub mod custom_cpu_template;
 /// Module for static CPU templates
 pub mod static_cpu_templates;

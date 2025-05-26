@@ -145,7 +145,6 @@ macro_rules! riscv64_reg_timer_id {
         riscv64_reg_id!(KVM_REG_RISCV_TIMER, $offset)
     };
 }
-pub(crate) use riscv64_reg_timer_id;
 
 /// Return the ID of an ISA extension.
 #[macro_export]

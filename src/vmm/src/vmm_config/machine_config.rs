@@ -270,7 +270,11 @@ impl MachineConfig {
 
         let cpu_template = match update.cpu_template {
             None => self.cpu_template.clone(),
+            #[cfg(target_arch = "riscv64")]
+            Some(_) => unreachable!(),
+            #[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
             Some(StaticCpuTemplate::None) => None,
+            #[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
             Some(other) => Some(CpuTemplateType::Static(other)),
         };
 
