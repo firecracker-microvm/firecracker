@@ -352,7 +352,8 @@ mod tests {
             ],
             "member": false,
             "shares_percentage": 12.12,
-            "balance": -24
+            "balance": -24,
+            "json_string": "{\n  \"hello\": \"world\"\n}"
         }"#;
         let data_store: Value = serde_json::from_str(data).unwrap();
         mmds.put_data(data_store).unwrap();
@@ -492,6 +493,18 @@ mod tests {
                 .to_string(),
             MmdsDatastoreError::UnsupportedValueType.to_string()
         );
+
+        // Retrieve a string including escapes.
+        assert_eq!(
+            mmds.get_value("/json_string".to_string(), OutputFormat::Json)
+                .unwrap(),
+            r#""{\n  \"hello\": \"world\"\n}""#
+        );
+        assert_eq!(
+            mmds.get_value("/json_string".to_string(), OutputFormat::Imds)
+                .unwrap(),
+            "{\n  \"hello\": \"world\"\n}"
+        )
     }
 
     #[test]
