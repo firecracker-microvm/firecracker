@@ -69,12 +69,13 @@ pub enum DeviceType {
     /// Device Type: Virtio.
     Virtio(u32),
     /// Device Type: Serial.
-    #[cfg(target_arch = "aarch64")]
+    #[cfg(any(target_arch = "aarch64", target_arch = "riscv64"))]
     Serial,
     /// Device Type: RTC.
     #[cfg(target_arch = "aarch64")]
     Rtc,
     /// Device Type: BootTimer.
+    #[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
     BootTimer,
 }
 
