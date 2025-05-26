@@ -31,6 +31,10 @@ and this project adheres to
 
 - [#5222](https://github.com/firecracker-microvm/firecracker/pull/5222): Fixed
   network and rng devices locking up on hosts with non 4K pages.
+- [#5226](https://github.com/firecracker-microvm/firecracker/pull/5226): Fixed
+  MMDS to set `Content-Type` header correctly (i.e. `Content-Type: text/plain`
+  for IMDS-formatted or error responses and `Content-Type: application/json` for
+  JSON-formatted responses).
 
 ## [1.12.0]
 
