@@ -300,6 +300,11 @@ where
         &self.irq_trigger
     }
 
+    #[cfg(target_arch = "riscv64")]
+    fn interrupt_trigger_mut(&mut self) -> &mut IrqTrigger {
+        unimplemented!()
+    }
+
     fn read_config(&self, offset: u64, data: &mut [u8]) {
         match offset {
             0 if data.len() == 8 => byte_order::write_le_u64(data, self.cid()),

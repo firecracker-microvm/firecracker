@@ -394,6 +394,7 @@ impl<T: VhostUserHandleBackend> VhostUserHandleImpl<T> {
         Ok(())
     }
 
+    #[cfg_attr(target_arch = "riscv64", allow(unused_variables))]
     /// Set up vhost-user backend. This includes updating memory table,
     /// sending information about virtio rings and enabling them.
     pub fn setup_backend(
@@ -439,6 +440,9 @@ impl<T: VhostUserHandleBackend> VhostUserHandleImpl<T> {
                 .set_vring_base(*queue_index, queue.avail_ring_idx_get())
                 .map_err(VhostUserError::VhostUserSetVringBase)?;
 
+            // TODO: This is a temporary workaround to avoid `irq_trigger.irq_evt` unknown field
+            // error, since we don't implement vhost for RISC-V yet.
+            #[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
             // No matter the queue, we set irq_evt for signaling the guest that buffers were
             // consumed.
             self.vu

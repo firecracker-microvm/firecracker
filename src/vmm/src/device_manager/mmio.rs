@@ -8,6 +8,8 @@
 use std::collections::HashMap;
 use std::fmt::Debug;
 use std::num::NonZeroU32;
+#[cfg(target_arch = "riscv64")]
+use std::os::fd::AsRawFd;
 use std::sync::{Arc, Mutex};
 
 #[cfg(target_arch = "x86_64")]
@@ -197,7 +199,11 @@ impl MMIODeviceManager {
         };
         let identifier;
         {
+            #[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
             let locked_device = mmio_device.locked_device();
+            #[cfg(target_arch = "riscv64")]
+            let mut locked_device = mmio_device.locked_device();
+
             identifier = (DeviceType::Virtio(locked_device.device_type()), device_id);
             for (i, queue_evt) in locked_device.queue_events().iter().enumerate() {
                 let io_addr = IoEventAddress::Mmio(
@@ -206,8 +212,14 @@ impl MMIODeviceManager {
                 vm.register_ioevent(queue_evt, &io_addr, u32::try_from(i).unwrap())
                     .map_err(MmioError::RegisterIoEvent)?;
             }
+            #[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
             vm.register_irqfd(&locked_device.interrupt_trigger().irq_evt, irq.get())
                 .map_err(MmioError::RegisterIrqFd)?;
+
+            #[cfg(target_arch = "riscv64")]
+            locked_device
+                .interrupt_trigger_mut()
+                .set_vmfd_and_gsi(vm.as_raw_fd(), irq.get());
         }
 
         self.register_mmio_device(

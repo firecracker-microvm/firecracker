@@ -270,6 +270,11 @@ impl VirtioDevice for Entropy {
         &self.irq_trigger
     }
 
+    #[cfg(target_arch = "riscv64")]
+    fn interrupt_trigger_mut(&mut self) -> &mut IrqTrigger {
+        unimplemented!()
+    }
+
     fn avail_features(&self) -> u64 {
         self.avail_features
     }
