@@ -1,5 +1,14 @@
 #!/bin/sh
 
+# ---------------------------------------------------------------------------
+# DEPRECATION NOTICE
+# ---------------------------------------------------------------------------
+echo "WARNING: This legacy pre-commit hook is deprecated and unmaintained."
+echo "Please switch to using devtool. Ex: './tools/devtool fmt' and './tools/devtool checkstyle'."
+echo "This hook will be removed in a future release."
+echo
+# ---------------------------------------------------------------------------
+
 # Copyright 2022 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 # SPDX-License-Identifier: Apache-2.0
 
