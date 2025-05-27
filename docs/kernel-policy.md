@@ -9,29 +9,29 @@ We are continuously validating the currently supported Firecracker releases (as
 per [Firecracker’s release policy](../docs/RELEASE_POLICY.md)) using a
 combination of all supported host and guest kernel versions in the table below.
 
-While other versions and other kernel configs might work, they are not
-periodically validated in our test suite, and using them might result in
-unexpected behaviour. Starting with release `v1.0` each major and minor release
-will specify the supported kernel versions.
-
 Once a kernel version is officially added, it is supported for a **minimum of 2
 years**. At least 2 major guest and host versions will be supported at any time.
 When support is added for a third kernel version, the oldest will be deprecated
 and removed in a following release, after its minimum end of support date.
 
+**Note** While other versions and other kernel configs might work, they are not
+periodically validated in our test suite, and using them might result in
+unexpected behaviour. Starting with release `v1.0` each major and minor release
+will specify the supported kernel versions.
+
 ### Host Kernel
 
-| Host kernel | Min. version | Min. end of support |
-| ----------: | -----------: | ------------------: |
-|       v5.10 |       v1.0.0 |          2024-01-31 |
-|        v6.1 |       v1.5.0 |          2025-10-12 |
+| Page size | Host kernel | Min. version | Min. end of support |
+| --------: | ----------: | -----------: | ------------------: |
+|        4K |       v5.10 |       v1.0.0 |          2024-01-31 |
+|        4K |        v6.1 |       v1.5.0 |          2025-10-12 |
 
 ### Guest Kernel
 
-| Guest kernel | Min. version | Min. end of support |
-| -----------: | -----------: | ------------------: |
-|        v5.10 |       v1.0.0 |          2024-01-31 |
-|         v6.1 |       v1.9.0 |          2026-09-02 |
+| Page size | Guest kernel | Min. version | Min. end of support |
+| --------: | -----------: | -----------: | ------------------: |
+|        4K |        v5.10 |       v1.0.0 |          2024-01-31 |
+|        4K |         v6.1 |       v1.9.0 |          2026-09-02 |
 
 The guest kernel configs used in our validation pipelines can be found
 [here](../resources/guest_configs/) while a breakdown of the relevant guest
