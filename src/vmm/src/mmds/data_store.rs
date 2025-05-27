@@ -267,7 +267,16 @@ impl Mmds {
 
         if let Some(json) = value {
             match format {
-                OutputFormat::Json => Ok(json.to_string()),
+                OutputFormat::Json => match json {
+                    Value::String(inner) => {
+                        if path.starts_with("/latest/meta-data/iam/security-credentials/") {
+                            Ok(inner.clone())
+                        } else {
+                            Ok(json.to_string())
+                        }
+                    }
+                    _ => Ok(json.to_string()),
+                },
                 OutputFormat::Imds => Mmds::format_imds(json),
             }
         } else {
@@ -352,7 +361,19 @@ mod tests {
             ],
             "member": false,
             "shares_percentage": 12.12,
-            "balance": -24
+            "balance": -24,
+            "latest": {
+                "meta-data": {
+                    "iam": {
+                        "security-credentials": {
+                            "iam-role": "{\n  \"AccessKeyId\": \"DUMMY\",\n  \"Code\": \"Success\",\n}"
+                        },
+                        "non-security-credentials": {
+                            "iam-role": "{\n  \"AccessKeyId\": \"DUMMY\",\n  \"Code\": \"Success\",\n}"
+                        }
+                    }
+                }
+            }
         }"#;
         let data_store: Value = serde_json::from_str(data).unwrap();
         mmds.put_data(data_store).unwrap();
@@ -491,6 +512,45 @@ mod tests {
                 .unwrap()
                 .to_string(),
             MmdsDatastoreError::UnsupportedValueType.to_string()
+        );
+
+        // Retrieve a security credential.
+        let expected_json = "{\n  \"AccessKeyId\": \"DUMMY\",\n  \"Code\": \"Success\",\n}";
+        assert_eq!(
+            mmds.get_value(
+                "/latest/meta-data/iam/security-credentials/iam-role".to_string(),
+                OutputFormat::Json
+            )
+            .unwrap(),
+            expected_json
+        );
+        assert_eq!(
+            mmds.get_value(
+                "/latest/meta-data/iam/security-credentials/iam-role".to_string(),
+                OutputFormat::Imds
+            )
+            .unwrap(),
+            expected_json
+        );
+
+        // Retrieve a non-security credential string.
+        let expected_json_string =
+            r#""{\n  \"AccessKeyId\": \"DUMMY\",\n  \"Code\": \"Success\",\n}""#;
+        assert_eq!(
+            mmds.get_value(
+                "/latest/meta-data/iam/non-security-credentials/iam-role".to_string(),
+                OutputFormat::Json
+            )
+            .unwrap(),
+            expected_json_string,
+        );
+        assert_eq!(
+            mmds.get_value(
+                "/latest/meta-data/iam/non-security-credentials/iam-role".to_string(),
+                OutputFormat::Imds
+            )
+            .unwrap(),
+            expected_json,
         );
     }
 

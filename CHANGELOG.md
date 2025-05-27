@@ -46,6 +46,13 @@ and this project adheres to
   misnamed, as the value Firecracker sets it to is actually the page size in
   _bytes_, not KiB. It will be removed in Firecracker 2.0.
 
+### Changed
+
+- [#220](https://github.com/firecracker-microvm/private-firecracker-staging/pull/220):
+  Made MMDS unwrap a string of JSON and respond a JSON object for IMDS security
+  credentials paths so that some clients that requesting with
+  `Accept: application/json` is able to parse the response.
+
 ### Fixed
 
 - [#5074](https://github.com/firecracker-microvm/firecracker/pull/5074) Fix the
