@@ -147,7 +147,7 @@ impl MMIODeviceManager {
     }
 
     /// Allocates resources for a new device to be added.
-    fn allocate_mmio_resources(
+    pub fn allocate_mmio_resources(
         &mut self,
         resource_allocator: &mut ResourceAllocator,
         irq_count: u32,
@@ -312,7 +312,29 @@ impl MMIODeviceManager {
         self.register_mmio_device(identifier, device_info, serial)
     }
 
-    #[cfg(target_arch = "aarch64")]
+    #[cfg(target_arch = "riscv64")]
+    /// Register an early console at the specified MMIO configuration if given as parameter,
+    /// otherwise allocate a new MMIO resources for it.
+    pub fn register_mmio_serial(
+        &mut self,
+        resource_allocator: &mut ResourceAllocator,
+        serial: Arc<Mutex<BusDevice>>,
+        device_info_opt: Option<MMIODeviceInfo>,
+    ) -> Result<(), MmioError> {
+        // Create a new MMIODeviceInfo object on boot path or unwrap the
+        // existing object on restore path.
+        let device_info = if let Some(device_info) = device_info_opt {
+            device_info
+        } else {
+            self.allocate_mmio_resources(resource_allocator, 1)?
+        };
+
+        let identifier = (DeviceType::Serial, DeviceType::Serial.to_string());
+        // Register the newly created Serial object.
+        self.register_mmio_device(identifier, device_info, serial)
+    }
+
+    #[cfg(any(target_arch = "aarch64", target_arch = "riscv64"))]
     /// Append the registered early console to the kernel cmdline.
     pub fn add_mmio_serial_to_cmdline(
         &self,

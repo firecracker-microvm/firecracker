@@ -5,6 +5,8 @@
 
 use std::fmt::Debug;
 use std::io;
+#[cfg(target_arch = "riscv64")]
+use std::os::fd::AsRawFd;
 #[cfg(feature = "gdb")]
 use std::sync::mpsc;
 use std::sync::{Arc, Mutex};
@@ -31,6 +33,8 @@ use crate::cpu_config::templates::{
 use crate::device_manager::acpi::ACPIDeviceManager;
 #[cfg(target_arch = "x86_64")]
 use crate::device_manager::legacy::PortIODeviceManager;
+#[cfg(target_arch = "riscv64")]
+use crate::device_manager::mmio::MMIODeviceInfo;
 use crate::device_manager::mmio::{MMIODeviceManager, MmioError};
 use crate::device_manager::persist::{
     ACPIDeviceManagerConstructorArgs, ACPIDeviceManagerRestoreError, MMIODevManagerConstructorArgs,
@@ -39,6 +43,8 @@ use crate::device_manager::resources::ResourceAllocator;
 use crate::devices::BusDevice;
 #[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
 use crate::devices::acpi::vmgenid::{VmGenId, VmGenIdError};
+#[cfg(target_arch = "riscv64")]
+use crate::devices::legacy::IrqLineTrigger;
 #[cfg(target_arch = "aarch64")]
 use crate::devices::legacy::RTCDevice;
 use crate::devices::legacy::serial::SerialOut;
@@ -306,6 +312,9 @@ pub fn build_microvm_for_boot(
     #[cfg(target_arch = "aarch64")]
     attach_legacy_devices_aarch64(event_manager, &mut vmm, &mut boot_cmdline)?;
 
+    #[cfg(target_arch = "riscv64")]
+    attach_legacy_devices_riscv64(event_manager, &mut vmm, &mut boot_cmdline)?;
+
     #[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
     attach_vmgenid_device(&mut vmm)?;
 
@@ -566,6 +575,7 @@ pub fn build_microvm_from_snapshot(
     Ok(vmm)
 }
 
+#[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
 /// Sets up the serial device.
 pub fn setup_serial_device(
     event_manager: &mut EventManager,
@@ -573,6 +583,35 @@ pub fn setup_serial_device(
     out: std::io::Stdout,
 ) -> Result<Arc<Mutex<BusDevice>>, VmmError> {
     let interrupt_evt = EventFdTrigger::new(EventFd::new(EFD_NONBLOCK).map_err(VmmError::EventFd)?);
+    let kick_stdin_read_evt =
+        EventFdTrigger::new(EventFd::new(EFD_NONBLOCK).map_err(VmmError::EventFd)?);
+    let serial = Arc::new(Mutex::new(BusDevice::Serial(SerialWrapper {
+        serial: Serial::with_events(
+            interrupt_evt,
+            SerialEventsWrapper {
+                buffer_ready_event_fd: Some(kick_stdin_read_evt),
+            },
+            SerialOut::Stdout(out),
+        ),
+        input: Some(input),
+    })));
+    event_manager.add_subscriber(serial.clone());
+    Ok(serial)
+}
+
+#[cfg(target_arch = "riscv64")]
+/// Sets up the serial device.
+pub fn setup_serial_device(
+    event_manager: &mut EventManager,
+    vmfd: &kvm_ioctls::VmFd,
+    input: std::io::Stdin,
+    out: std::io::Stdout,
+    device_info: &Option<MMIODeviceInfo>,
+) -> Result<Arc<Mutex<BusDevice>>, VmmError> {
+    let interrupt_evt = IrqLineTrigger::new(
+        vmfd.as_raw_fd(),
+        device_info.as_ref().unwrap().irq.unwrap().get(),
+    );
     let kick_stdin_read_evt =
         EventFdTrigger::new(EventFd::new(EFD_NONBLOCK).map_err(VmmError::EventFd)?);
     let serial = Arc::new(Mutex::new(BusDevice::Serial(SerialWrapper {
@@ -659,6 +698,47 @@ fn attach_legacy_devices_aarch64(
     vmm.mmio_device_manager
         .register_mmio_rtc(&mut vmm.resource_allocator, rtc, None)
         .map_err(VmmError::RegisterMMIODevice)
+}
+
+#[cfg(target_arch = "riscv64")]
+fn attach_legacy_devices_riscv64(
+    event_manager: &mut EventManager,
+    vmm: &mut Vmm,
+    cmdline: &mut LoaderKernelCmdline,
+) -> Result<(), VmmError> {
+    // Serial device setup.
+    let cmdline_contains_console = cmdline
+        .as_cstring()
+        .map_err(|_| VmmError::Cmdline)?
+        .into_string()
+        .map_err(|_| VmmError::Cmdline)?
+        .contains("console=");
+
+    if cmdline_contains_console {
+        // Make stdout non-blocking.
+        set_stdout_nonblocking();
+        let device_info = vmm
+            .mmio_device_manager
+            .allocate_mmio_resources(&mut vmm.resource_allocator, 1)
+            .map_err(|err| VmmError::DeviceManager(err))?;
+
+        let serial = setup_serial_device(
+            event_manager,
+            vmm.vm.fd(),
+            std::io::stdin(),
+            std::io::stdout(),
+            &Some(device_info.clone()),
+        )?;
+
+        vmm.mmio_device_manager
+            .register_mmio_serial(&mut vmm.resource_allocator, serial, Some(device_info))
+            .map_err(VmmError::RegisterMMIODevice)?;
+        vmm.mmio_device_manager
+            .add_mmio_serial_to_cmdline(cmdline)
+            .map_err(VmmError::RegisterMMIODevice)?;
+    }
+
+    Ok(())
 }
 
 /// Attaches a VirtioDevice device to the device manager and event manager.

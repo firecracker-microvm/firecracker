@@ -207,7 +207,7 @@ pub const HTTP_MAX_PAYLOAD_SIZE: usize = 51200;
 pub enum VmmError {
     /// Failed to allocate guest resource: {0}
     AllocateResources(#[from] vm_allocator::Error),
-    #[cfg(target_arch = "aarch64")]
+    #[cfg(any(target_arch = "aarch64", target_arch = "riscv64"))]
     /// Invalid command line error.
     Cmdline,
     /// Device manager error: {0}
