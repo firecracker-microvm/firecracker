@@ -54,7 +54,6 @@ use crate::devices::virtio::balloon::Balloon;
 use crate::devices::virtio::block::device::Block;
 use crate::devices::virtio::device::VirtioDevice;
 use crate::devices::virtio::mmio::MmioTransport;
-#[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
 use crate::devices::virtio::net::Net;
 #[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
 use crate::devices::virtio::rng::Entropy;
@@ -291,7 +290,6 @@ pub fn build_microvm_for_boot(
         event_manager,
     )?;
 
-    #[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
     attach_net_devices(
         &mut vmm,
         &mut boot_cmdline,
@@ -847,7 +845,6 @@ fn attach_block_devices<'a, I: Iterator<Item = &'a Arc<Mutex<Block>>> + Debug>(
     Ok(())
 }
 
-#[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
 fn attach_net_devices<'a, I: Iterator<Item = &'a Arc<Mutex<Net>>> + Debug>(
     vmm: &mut Vmm,
     cmdline: &mut LoaderKernelCmdline,

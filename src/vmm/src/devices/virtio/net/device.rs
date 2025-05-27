@@ -968,7 +968,7 @@ impl VirtioDevice for Net {
 
     #[cfg(target_arch = "riscv64")]
     fn interrupt_trigger_mut(&mut self) -> &mut IrqTrigger {
-        unimplemented!()
+        &mut self.irq_trigger
     }
 
     fn read_config(&self, offset: u64, data: &mut [u8]) {
