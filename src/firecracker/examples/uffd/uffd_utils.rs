@@ -144,13 +144,12 @@ impl UffdHandler {
         let fault_pfn = fault_page_addr / self.page_size as u64;
 
         if self.removed_pages.contains(&fault_pfn) {
-            self.zero_out(fault_page_addr);
-            return true;
-        } else {
-            for region in self.mem_regions.iter() {
-                if region.contains(fault_page_addr) {
-                    return self.populate_from_file(region, fault_page_addr, len);
-                }
+            return self.zero_out(fault_page_addr);
+        }
+
+        for region in self.mem_regions.iter() {
+            if region.contains(fault_page_addr) {
+                return self.populate_from_file(region, fault_page_addr, len);
             }
         }
 
@@ -190,14 +189,12 @@ impl UffdHandler {
         true
     }
 
-    fn zero_out(&mut self, addr: u64) {
-        let ret = unsafe {
-            self.uffd
-                .zeropage(addr as *mut _, self.page_size, true)
-                .expect("Uffd zeropage failed")
-        };
-        // Make sure the UFFD zeroed out some bytes.
-        assert!(ret > 0);
+    fn zero_out(&mut self, addr: u64) -> bool {
+        match unsafe { self.uffd.zeropage(addr as *mut _, self.page_size, true) } {
+            Ok(r) if r >= 0 => true,
+            Err(Error::ZeropageFailed(error)) if error as i32 == libc::EAGAIN => false,
+            r => panic!("Unexpected zeropage result: {:?}", r),
+        }
     }
 }
 
