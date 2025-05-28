@@ -8,7 +8,6 @@ import os
 import platform
 import re
 import resource
-import time
 from pathlib import Path
 
 import packaging.version
@@ -1020,11 +1019,8 @@ def test_api_balloon(uvm_nano):
         )
 
     # Start the microvm.
+    test_microvm.add_net_iface()
     test_microvm.start()
-
-    # Give the balloon driver time to initialize.
-    # 500 ms is the maximum acceptable boot time.
-    time.sleep(0.5)
 
     # But updating should be OK.
     test_microvm.api.balloon.patch(amount_mib=4)
