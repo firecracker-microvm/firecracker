@@ -9,6 +9,13 @@ license = "Apache-2.0"
 [lib]
 bench = false
 
+[dependencies]
+log = "0.4.27"
+log-instrument-macros = { path = "../log-instrument-macros" }
+
+[dev-dependencies]
+env_logger = "0.11.8"
+
 [[example]]
 name = "one"
 
@@ -26,13 +33,6 @@ name = "five"
 
 [[example]]
 name = "six"
-
-[dependencies]
-log = "0.4.27"
-log-instrument-macros = { path = "../log-instrument-macros" }
-
-[dev-dependencies]
-env_logger = "0.11.8"
 
 [lints]
 workspace = true

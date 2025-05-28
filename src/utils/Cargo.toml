@@ -8,14 +8,14 @@ license = "Apache-2.0"
 [lib]
 bench = false
 
+[features]
+tracing = ["log-instrument"]
+
 [dependencies]
 displaydoc = "0.2.5"
 libc = "0.2.172"
 log-instrument = { path = "../log-instrument", optional = true }
 thiserror = "2.0.12"
-
-[features]
-tracing = ["log-instrument"]
 
 [lints]
 workspace = true

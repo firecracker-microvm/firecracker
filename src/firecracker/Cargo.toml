@@ -8,12 +8,16 @@ description = "Firecracker enables you to deploy workloads in lightweight virtua
 homepage = "https://firecracker-microvm.github.io/"
 license = "Apache-2.0"
 
+[lib]
+bench = false
+
 [[bin]]
 name = "firecracker"
 bench = false
 
-[lib]
-bench = false
+[features]
+tracing = ["log-instrument", "utils/tracing", "vmm/tracing"]
+gdb = ["vmm/gdb"]
 
 [dependencies]
 displaydoc = "0.2.5"
@@ -21,7 +25,6 @@ event-manager = "0.4.0"
 libc = "0.2.172"
 log-instrument = { path = "../log-instrument", optional = true }
 micro_http = { git = "https://github.com/firecracker-microvm/micro-http" }
-
 serde = { version = "1.0.219", features = ["derive"] }
 serde_derive = "1.0.136"
 serde_json = "1.0.140"
@@ -31,6 +34,11 @@ utils = { path = "../utils" }
 vmm = { path = "../vmm" }
 vmm-sys-util = { version = "0.12.1", features = ["with-serde"] }
 
+[build-dependencies]
+seccompiler = { path = "../seccompiler" }
+serde = { version = "1.0.219" }
+serde_json = "1.0.140"
+
 [dev-dependencies]
 cargo_toml = "0.22.1"
 libc = "0.2.172"
@@ -39,15 +47,6 @@ regex = { version = "1.11.1", default-features = false, features = ["std", "unic
 # Dev-Dependencies for uffd examples
 serde = { version = "1.0.219", features = ["derive"] }
 userfaultfd = "0.8.1"
-
-[build-dependencies]
-seccompiler = { path = "../seccompiler" }
-serde = { version = "1.0.219" }
-serde_json = "1.0.140"
-
-[features]
-tracing = ["log-instrument", "utils/tracing", "vmm/tracing"]
-gdb = ["vmm/gdb"]
 
 [lints]
 workspace = true

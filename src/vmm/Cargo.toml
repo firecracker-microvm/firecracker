@@ -8,9 +8,14 @@ license = "Apache-2.0"
 [lib]
 bench = false
 
+[features]
+default = []
+tracing = ["log-instrument"]
+gdb = ["arrayvec", "gdbstub", "gdbstub_arch"]
+
 [dependencies]
 acpi_tables = { path = "../acpi-tables" }
-aes-gcm =  { version = "0.10.1", default-features = false, features = ["aes"] }
+aes-gcm = { version = "0.10.1", default-features = false, features = ["aes"] }
 arrayvec = { version = "0.7.6", optional = true }
 aws-lc-rs = { version = "1.13.1", features = ["bindgen"] }
 base64 = "0.22.1"
@@ -53,11 +58,6 @@ criterion = { version = "0.6.0", default-features = false }
 device_tree = "1.1.0"
 itertools = "0.14.0"
 proptest = { version = "1.6.0", default-features = false, features = ["std"] }
-
-[features]
-default = []
-tracing = ["log-instrument"]
-gdb = ["arrayvec", "gdbstub", "gdbstub_arch"]
 
 [[bench]]
 name = "cpu_templates"
