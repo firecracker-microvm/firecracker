@@ -968,8 +968,8 @@ ensure_kvm_rw () {
 }
 
 check_kernver () {
-    KERN_MAJOR=4
-    KERN_MINOR=14
+    KERN_MAJOR=5
+    KERN_MINOR=10
     (uname -r | awk -v MAJOR=$KERN_MAJOR -v MINOR=$KERN_MINOR '{ split($0,kver,".");
     if( (kver[1] + (kver[2] / 100) ) <  MAJOR + (MINOR/100) )
     {
