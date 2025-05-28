@@ -46,6 +46,7 @@ if any(
     pipeline.build_group_per_arch(
         "📦 Release Sanity Build",
         "./tools/devtool -y make_release",
+        depends_on_build=False,
     )
 
 if not pipeline.args.no_kani and (
