@@ -102,6 +102,12 @@ ENV PATH=$VENV/bin:$PATH
 # apt-get installs it globally, to manually copy it into the venv
 RUN cp /usr/lib/python3/dist-packages/seccomp.cpython-312-"$ARCH"-linux-gnu.so "$VENV"/lib/python3.12/site-packages/
 
+RUN git clone https://github.com/awslabs/git-secrets /tmp/git-secrets \
+    && cd /tmp/git-secrets \
+    && make install \
+    && cd - \
+    && rm -rf /tmp/git-secrets
+
 # Running the three as a single dockerfile command to avoid inflation of the image:
 # - Install the Rust toolchain.
 # - Kani always installs _some_ nightly toolchain, we reuse it for the seccomp filter analysis test. Dynamically
