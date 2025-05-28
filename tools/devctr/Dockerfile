@@ -156,7 +156,7 @@ RUN cd /usr/include/$ARCH-linux-musl \
     && ln -s ../asm-generic asm-generic
 
 # Install static version of libseccomp
-# We need to compile from source because 
+# We need to compile from source because
 # libseccomp provided by the distribution is not
 # compiled with musl-gcc and we need this
 # for our musl builds.

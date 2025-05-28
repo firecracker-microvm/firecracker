@@ -75,10 +75,10 @@ class FirecrackerArtifact:
 
     @property
     def version(self):
-        """Return Firecracker's version: `X.Y.Z`."""
-        # Get the filename, split on '-' and trim the leading 'v'.
-        # sample: firecracker-v1.2.0
-        return self.path.name.split("-")[1][1:]
+        """Return Firecracker's version: `X.Y.Z-prerelase`."""
+        # Get the filename, split on the first '-' and trim the leading 'v'.
+        # sample: firecracker-v1.2.0-alpha
+        return self.path.name.split("-", 1)[1][1:]
 
     @property
     def version_tuple(self):
@@ -132,7 +132,7 @@ def working_version_as_artifact():
     Return working copy of Firecracker as a release artifact
     """
     cargo_version = get_firecracker_version_from_toml()
-    return FirecrackerArtifact(current_release(cargo_version.base_version)[0])
+    return FirecrackerArtifact(current_release(str(cargo_version))[0])
 
 
 def firecracker_artifacts():
