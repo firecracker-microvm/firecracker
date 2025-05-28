@@ -36,7 +36,7 @@ pipeline.add_step(
 if any(x.parent.name == "devctr" for x in changed_files):
     pipeline.build_group_per_arch(
         "🐋 Dev Container Sanity Build",
-        "./tools/devtool -y build_devctr && DEVCTR_IMAGE_TAG=latest ./tools/devtool test -- integration_tests/functional/test_api.py",
+        "./tools/devtool -y build_devctr && DEVCTR_IMAGE_TAG=latest ./tools/devtool test --no-build -- integration_tests/functional/test_api.py",
     )
 
 if any(
