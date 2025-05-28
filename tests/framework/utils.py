@@ -18,8 +18,8 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Dict
 
-import packaging.version
 import psutil
+import semver
 from tenacity import (
     Retrying,
     retry,
@@ -437,7 +437,7 @@ def get_firecracker_version_from_toml():
     """
     cmd = "cd ../src/firecracker && cargo pkgid | cut -d# -f2 | cut -d: -f2"
     _, stdout, _ = check_output(cmd)
-    return packaging.version.parse(stdout)
+    return semver.Version.parse(stdout)
 
 
 def get_kernel_version(level=2):
