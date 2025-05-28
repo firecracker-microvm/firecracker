@@ -108,7 +108,7 @@ def test_tap_offload(uvm_any):
     # Start a UDP server in the guest
     # vm.ssh.check_output(f"nohup socat UDP-LISTEN:{port} - > {out_filename} &")
     vm.ssh.check_output(
-        f"nohup socat UDP4-LISTEN:{port} OPEN:{out_filename},creat > /dev/null 2>&1 &"
+        f"nohup socat UDP4-LISTEN:{port} CREATE:{out_filename} > /dev/null 2>&1 &"
     )
 
     # wait for socat server to spin up
