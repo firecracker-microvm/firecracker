@@ -26,7 +26,7 @@ def get_os_version():
     """Get the OS version
 
     >>> get_os_version()
-    'Ubuntu 24.04.1 LTS'
+    'Ubuntu 24.04.2 LTS'
     """
 
     os_release = Path("/etc/os-release").read_text(encoding="ascii")
