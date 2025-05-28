@@ -10,8 +10,8 @@ import re
 import resource
 from pathlib import Path
 
-import packaging.version
 import pytest
+import semver
 
 import host_tools.drive as drive_tools
 import host_tools.network as net_tools
@@ -923,14 +923,12 @@ def test_api_version(uvm_plain):
     assert preboot_response.json() == postboot_response.json()
 
     cargo_version = get_firecracker_version_from_toml()
-    api_version = packaging.version.parse(
-        preboot_response.json()["firecracker_version"]
-    )
+    api_version = semver.Version.parse(preboot_response.json()["firecracker_version"])
 
     # Cargo version should match FC API version
     assert cargo_version == api_version
 
-    binary_version = packaging.version.parse(test_microvm.firecracker_version)
+    binary_version = semver.Version.parse(test_microvm.firecracker_version)
     assert api_version == binary_version
 
 
