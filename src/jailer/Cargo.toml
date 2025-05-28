@@ -11,6 +11,9 @@ license = "Apache-2.0"
 name = "jailer"
 bench = false
 
+[features]
+tracing = ["log-instrument", "utils/tracing"]
+
 [dependencies]
 libc = "0.2.172"
 log-instrument = { path = "../log-instrument", optional = true }
@@ -19,9 +22,6 @@ thiserror = "2.0.12"
 vmm-sys-util = "0.12.1"
 
 utils = { path = "../utils" }
-
-[features]
-tracing = ["log-instrument", "utils/tracing"]
 
 [lints]
 workspace = true

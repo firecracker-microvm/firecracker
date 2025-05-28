@@ -9,6 +9,9 @@ license = "Apache-2.0"
 name = "rebase-snap"
 bench = false
 
+[features]
+tracing = ["log-instrument", "utils/tracing"]
+
 [dependencies]
 displaydoc = "0.2.5"
 libc = "0.2.172"
@@ -17,9 +20,6 @@ thiserror = "2.0.12"
 vmm-sys-util = "0.12.1"
 
 utils = { path = "../utils" }
-
-[features]
-tracing = ["log-instrument", "utils/tracing"]
 
 [lints]
 workspace = true
