@@ -69,8 +69,6 @@ pub enum ExtendedTopologyError {
     NumLogicalProcs(u32, CheckedAssignError),
     /// Failed to set right-shift bits (CPUID.(EAX=0xB,ECX={0}):EAX[4:0]): {1}
     RightShiftBits(u32, CheckedAssignError),
-    /// Unexpected subleaf: {0}
-    UnexpectedSubleaf(u32)
 }
 
 /// Error type for setting leaf 0x80000006 of Cpuid::normalize().
@@ -372,11 +370,9 @@ impl super::Cpuid {
                             .map_err(|err| ExtendedTopologyError::DomainType(index, err))?;
                     }
                     _ => {
-                        // KVM no longer returns any subleaf numbers greater than 0. The patch was
-                        // merged in v6.2 and backported to v5.10. Subleaves >= 2 should not be
-                        // included.
-                        // https://github.com/torvalds/linux/commit/45e966fcca03ecdcccac7cb236e16eea38cc18af
-                        return Err(ExtendedTopologyError::UnexpectedSubleaf(index));
+                        // We expect here as this is an extremely rare case that is unlikely to ever
+                        // occur.
+                        subleaf.result.ecx = index;
                     }
                 }
             } else {
