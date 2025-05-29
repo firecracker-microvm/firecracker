@@ -541,7 +541,7 @@ def test_cpu_cpuid_snapshot(microvm_factory, guest_kernel, rootfs, cpu_template_
     """
     cpu_template_name = get_cpu_template_name(cpu_template_any)
     if cpu_template_name not in MSR_SUPPORTED_TEMPLATES:
-        pytest.skip("This test does not support {cpu_template_name} template.")
+        pytest.skip(f"This test does not support {cpu_template_name} template.")
 
     shared_names = SNAPSHOT_RESTORE_SHARED_NAMES
 
@@ -611,7 +611,7 @@ def test_cpu_cpuid_restore(microvm_factory, guest_kernel, cpu_template_any):
     """
     cpu_template_name = get_cpu_template_name(cpu_template_any)
     if cpu_template_name not in MSR_SUPPORTED_TEMPLATES:
-        pytest.skip("This test does not support {cpu_template_name} template.")
+        pytest.skip(f"This test does not support {cpu_template_name} template.")
 
     shared_names = SNAPSHOT_RESTORE_SHARED_NAMES
     snapshot_artifacts_dir = (
@@ -646,8 +646,8 @@ def test_cpu_template(uvm_plain_any, cpu_template_any, microvm_factory):
     supported CPU templates.
     """
     cpu_template_name = get_cpu_template_name(cpu_template_any)
-    if cpu_template_name not in ["T2", "T2S", "SPR_TO_T2_5.10", "SPR_TO_T2_6.1" "C3"]:
-        pytest.skip("This test does not support {cpu_template_name} template.")
+    if cpu_template_name not in ["T2", "T2S", "SPR_TO_T2_5.10", "SPR_TO_T2_6.1", "C3"]:
+        pytest.skip(f"This test does not support {cpu_template_name} template.")
 
     test_microvm = uvm_plain_any
     test_microvm.spawn()
