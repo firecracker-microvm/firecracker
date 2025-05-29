@@ -337,6 +337,8 @@ class Microvm:
                 f"ps ax -o pid,cmd -ww | grep {self.jailer.jailer_id}"
             )
 
+            assert not stderr, f"error querying processes using `ps`: {stderr}"
+
             offenders = []
             for proc in stdout.splitlines():
                 _, cmd = proc.lower().split(maxsplit=1)
@@ -344,7 +346,7 @@ class Microvm:
                     offenders.append(proc)
 
             # make sure firecracker was killed
-            assert not stderr and not offenders, (
+            assert not offenders, (
                 f"Firecracker reported its pid {self.firecracker_pid}, which was killed, but there still exist processes using the supposedly dead Firecracker's jailer_id: \n"
                 + "\n".join(offenders)
             )
