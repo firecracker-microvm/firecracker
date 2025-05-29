@@ -339,7 +339,8 @@ class Microvm:
 
             offenders = []
             for proc in stdout.splitlines():
-                if "firecracker" in proc:
+                _, cmd = proc.lower().split(maxsplit=1)
+                if "firecracker" in proc and not cmd.startswith("screen"):
                     offenders.append(proc)
 
             # make sure firecracker was killed
