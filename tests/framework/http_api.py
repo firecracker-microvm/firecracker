@@ -58,7 +58,12 @@ class Resource:
     def get(self):
         """Make a GET request"""
         url = self._api.endpoint + self.resource
-        res = self._api.session.get(url)
+        try:
+            res = self._api.session.get(url)
+        except Exception as e:
+            if self._api.error_callback:
+                self._api.error_callback("GET", self.resource, str(e))
+            raise
         assert res.status_code == HTTPStatus.OK, res.json()
         return res
 
@@ -66,7 +71,12 @@ class Resource:
         """Make an HTTP request"""
         kwargs = {key: val for key, val in kwargs.items() if val is not None}
         url = self._api.endpoint + path
-        res = self._api.session.request(method, url, json=kwargs)
+        try:
+            res = self._api.session.request(method, url, json=kwargs)
+        except Exception as e:
+            if self._api.error_callback:
+                self._api.error_callback(method, path, str(e))
+            raise
         if res.status_code != HTTPStatus.NO_CONTENT:
             json = res.json()
             msg = res.content
@@ -95,7 +105,8 @@ class Resource:
 class Api:
     """A simple HTTP client for the Firecracker API"""
 
-    def __init__(self, api_usocket_full_name):
+    def __init__(self, api_usocket_full_name, *, on_error=None):
+        self.error_callback = on_error
         self.socket = api_usocket_full_name
         url_encoded_path = urllib.parse.quote_plus(api_usocket_full_name)
         self.endpoint = DEFAULT_SCHEME + url_encoded_path

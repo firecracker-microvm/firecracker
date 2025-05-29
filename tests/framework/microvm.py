@@ -615,7 +615,12 @@ class Microvm:
         # pylint: disable=subprocess-run-check
         # pylint: disable=too-many-branches
         self.jailer.setup()
-        self.api = Api(self.jailer.api_socket_path())
+        self.api = Api(
+            self.jailer.api_socket_path(),
+            on_error=lambda verb, uri, err_msg: self._dump_debug_information(
+                f"Error during {verb} {uri}: {err_msg}"
+            ),
+        )
 
         if log_file is not None:
             self.log_file = Path(self.path) / log_file
