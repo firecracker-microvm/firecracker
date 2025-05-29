@@ -48,6 +48,7 @@ use super::{MuxerConnection, VsockUnixBackendError, defs};
 use crate::devices::virtio::vsock::metrics::METRICS;
 use crate::devices::virtio::vsock::packet::{VsockPacketRx, VsockPacketTx};
 use crate::logger::IncMetric;
+use crate::vmm_config::vsock::VsockSocketType;
 
 /// A unique identifier of a `MuxerConnection` object. Connections are stored in a hash map,
 /// keyed by a `ConnMapKey` object.
@@ -108,6 +109,8 @@ pub struct VsockMuxer {
     local_port_set: HashSet<u32>,
     /// The last used host-side port.
     local_port_last: u32,
+    /// Type of Socket (Either Stream or SeqPacket)
+    socket_type: VsockSocketType,
 }
 
 impl VsockChannel for VsockMuxer {
@@ -303,7 +306,7 @@ impl VsockBackend for VsockMuxer {}
 
 impl VsockMuxer {
     /// Muxer constructor.
-    pub fn new(cid: u64, host_sock_path: String) -> Result<Self, VsockUnixBackendError> {
+    pub fn new(cid: u64, host_sock_path: String, socket_type: VsockSocketType) -> Result<Self, VsockUnixBackendError> {
         // Open/bind on the host Unix socket, so we can accept host-initiated
         // connections.
         let host_sock = UnixListener::bind(&host_sock_path)
@@ -321,6 +324,7 @@ impl VsockMuxer {
             killq: MuxerKillQ::new(),
             local_port_last: (1u32 << 30) - 1,
             local_port_set: HashSet::with_capacity(defs::MAX_CONNECTIONS),
+            socket_type,
         };
 
         // Listen on the host initiated socket, for incoming connections.
@@ -849,7 +853,7 @@ mod tests {
                 )
                 .unwrap();
 
-            let muxer = VsockMuxer::new(PEER_CID, get_file(name)).unwrap();
+            let muxer = VsockMuxer::new(PEER_CID, get_file(name), VsockSocketType::Stream).unwrap();
             Self {
                 _vsock_test_ctx: vsock_test_ctx,
                 rx_pkt,
