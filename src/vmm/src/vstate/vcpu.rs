@@ -51,10 +51,6 @@ pub enum VcpuError {
     VcpuResponse(KvmVcpuError),
     /// Cannot spawn a new vCPU thread: {0}
     VcpuSpawn(io::Error),
-    /// Cannot clean init vcpu TLS
-    VcpuTlsInit,
-    /// Vcpu not present in TLS
-    VcpuTlsNotPresent,
     /// Error with gdb request sent
     #[cfg(feature = "gdb")]
     GdbRequest(GdbTargetError),
@@ -121,31 +117,9 @@ impl Vcpu {
     /// This function will return an error if there already is a `Vcpu` present in the TLS.
     fn init_thread_local_data(&mut self) -> Result<(), VcpuError> {
         Self::TLS_VCPU_PTR.with(|cell: &VcpuCell| {
-            if cell.get().is_some() {
-                return Err(VcpuError::VcpuTlsInit);
-            }
+            assert!(cell.get().is_none());
             cell.set(Some(self as *mut Vcpu));
             Ok(())
-        })
-    }
-
-    /// Deassociates `self` from the current thread.
-    ///
-    /// Should be called if the current `self` had called `init_thread_local_data()` and
-    /// now needs to move to a different thread.
-    ///
-    /// Fails if `self` was not previously associated with the current thread.
-    fn reset_thread_local_data(&mut self) -> Result<(), VcpuError> {
-        // Best-effort to clean up TLS. If the `Vcpu` was moved to another thread
-        // _before_ running this, then there is nothing we can do.
-        Self::TLS_VCPU_PTR.with(|cell: &VcpuCell| {
-            if let Some(vcpu_ptr) = cell.get() {
-                if vcpu_ptr == self as *mut Vcpu {
-                    Self::TLS_VCPU_PTR.with(|cell: &VcpuCell| cell.take());
-                    return Ok(());
-                }
-            }
-            Err(VcpuError::VcpuTlsNotPresent)
         })
     }
 
@@ -159,20 +133,15 @@ impl Vcpu {
     ///
     /// This is marked unsafe as it allows temporary aliasing through
     /// dereferencing from pointer an already borrowed `Vcpu`.
-    unsafe fn run_on_thread_local<F>(func: F) -> Result<(), VcpuError>
+    unsafe fn run_on_thread_local<F>(func: F)
     where
         F: FnOnce(&mut Vcpu),
     {
         Self::TLS_VCPU_PTR.with(|cell: &VcpuCell| {
-            if let Some(vcpu_ptr) = cell.get() {
-                // SAFETY: Dereferencing here is safe since `TLS_VCPU_PTR` is populated/non-empty,
-                // and it is being cleared on `Vcpu::drop` so there is no dangling pointer.
-                let vcpu_ref = unsafe { &mut *vcpu_ptr };
-                func(vcpu_ref);
-                Ok(())
-            } else {
-                Err(VcpuError::VcpuTlsNotPresent)
-            }
+            let vcpu_ptr = cell.get().unwrap();
+            // SAFETY: Dereferencing here is safe since `TLS_VCPU_PTR` is populated/non-empty.
+            let vcpu_ref = unsafe { &mut *vcpu_ptr };
+            func(vcpu_ref);
         })
     }
 
@@ -183,7 +152,7 @@ impl Vcpu {
             // SAFETY: This is safe because it's temporarily aliasing the `Vcpu` object, but we are
             // only reading `vcpu.fd` which does not change for the lifetime of the `Vcpu`.
             unsafe {
-                let _ = Vcpu::run_on_thread_local(|vcpu| {
+                Vcpu::run_on_thread_local(|vcpu| {
                     vcpu.kvm_vcpu.fd.set_kvm_immediate_exit(1);
                     fence(Ordering::Release);
                 });
@@ -617,12 +586,6 @@ fn handle_kvm_exit(
     }
 }
 
-impl Drop for Vcpu {
-    fn drop(&mut self) {
-        let _ = self.reset_thread_local_data();
-    }
-}
-
 /// List of events that the Vcpu can receive.
 #[derive(Debug, Clone)]
 pub enum VcpuEvent {
@@ -1025,43 +988,39 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn test_vcpu_tls() {
+    #[should_panic]
+    fn test_vcpu_tls_not_set_panic() {
         let (_, _, mut vcpu) = setup_vcpu(0x1000);
 
         // Running on the TLS vcpu should fail before we actually initialize it.
         unsafe {
-            Vcpu::run_on_thread_local(|_| ()).unwrap_err();
+            Vcpu::run_on_thread_local(|_| ());
         }
+    }
+
+    #[test]
+    fn test_vcpu_tls_set() {
+        let (_, _, mut vcpu) = setup_vcpu(0x1000);
 
         // Initialize vcpu TLS.
-        vcpu.init_thread_local_data().unwrap();
+        vcpu.init_thread_local_data();
 
         // Validate TLS vcpu is the local vcpu by changing the `id` then validating against
         // the one in TLS.
         vcpu.kvm_vcpu.index = 12;
         unsafe {
-            Vcpu::run_on_thread_local(|v| assert_eq!(v.kvm_vcpu.index, 12)).unwrap();
+            Vcpu::run_on_thread_local(|v| assert_eq!(v.kvm_vcpu.index, 12));
         }
-
-        // Reset vcpu TLS.
-        vcpu.reset_thread_local_data().unwrap();
-
-        // Running on the TLS vcpu after TLS reset should fail.
-        unsafe {
-            Vcpu::run_on_thread_local(|_| ()).unwrap_err();
-        }
-
-        // Second reset should return error.
-        vcpu.reset_thread_local_data().unwrap_err();
     }
 
     #[test]
+    #[should_panic]
     fn test_invalid_tls() {
         let (_, _, mut vcpu) = setup_vcpu(0x1000);
         // Initialize vcpu TLS.
-        vcpu.init_thread_local_data().unwrap();
+        vcpu.init_thread_local_data();
         // Trying to initialize non-empty TLS should error.
-        vcpu.init_thread_local_data().unwrap_err();
+        vcpu.init_thread_local_data();
     }
 
     #[test]
