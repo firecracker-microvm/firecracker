@@ -23,7 +23,7 @@ def test_api_socket_in_use(uvm_plain):
 
     sock = socket.socket(socket.AF_UNIX)
     sock.bind(microvm.jailer.api_socket_path())
-    microvm.spawn()
+    microvm.spawn(log_level="warn")
     msg = "Failed to open the API socket at: /run/firecracker.socket. Check that it is not already used."
     microvm.check_log_message(msg)
 

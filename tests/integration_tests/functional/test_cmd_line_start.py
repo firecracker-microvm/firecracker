@@ -371,7 +371,7 @@ def test_start_with_missing_metadata(uvm_plain):
 
     try:
         test_microvm.spawn()
-    except FileNotFoundError:
+    except:  # pylint: disable=bare-except
         pass
     finally:
         test_microvm.check_log_message(
@@ -394,7 +394,7 @@ def test_start_with_invalid_metadata(uvm_plain):
 
     try:
         test_microvm.spawn()
-    except FileNotFoundError:
+    except:  # pylint: disable=bare-except
         pass
     finally:
         test_microvm.check_log_message("MMDS error: metadata provided not valid json")
