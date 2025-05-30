@@ -53,6 +53,10 @@ const BINCODE_CONFIG: Configuration<LittleEndian, Fixint, Limit<DESERIALIZATION_
 #[cfg(target_arch = "aarch64")]
 const SNAPSHOT_MAGIC_ID: u64 = 0x0710_1984_AAAA_0000u64;
 
+// Just set a (dummy) value to silence errors. We don't support snapshots in riscv64 yet.
+#[cfg(target_arch = "riscv64")]
+const SNAPSHOT_MAGIC_ID: u64 = 0x0710_1984_BBBB_0000u64;
+
 /// Error definitions for the Snapshot API.
 #[derive(Debug, thiserror::Error, displaydoc::Display, PartialEq)]
 pub enum SnapshotError {
