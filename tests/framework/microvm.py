@@ -333,13 +333,23 @@ class Microvm:
             # https://github.com/firecracker-microvm/firecracker/pull/4442/commits/d63eb7a65ffaaae0409d15ed55d99ecbd29bc572
 
             # filter ps results for the jailer's unique id
-            _, stdout, stderr = utils.check_output(
-                f"ps ax -o cmd -ww | grep {self.jailer.jailer_id}"
+            _, stdout, stderr = utils.run_cmd(
+                f"ps ax -o pid,cmd -ww | grep {self.jailer.jailer_id}"
             )
+
+            assert not stderr, f"error querying processes using `ps`: {stderr}"
+
+            offenders = []
+            for proc in stdout.splitlines():
+                _, cmd = proc.lower().split(maxsplit=1)
+                if "firecracker" in proc and not cmd.startswith("screen"):
+                    offenders.append(proc)
+
             # make sure firecracker was killed
-            assert (
-                stderr == "" and "firecracker" not in stdout
-            ), f"Firecracker reported its pid {self.firecracker_pid}, which was killed, but there still exist processes using the supposedly dead Firecracker's jailer_id: {stdout}"
+            assert not offenders, (
+                f"Firecracker reported its pid {self.firecracker_pid}, which was killed, but there still exist processes using the supposedly dead Firecracker's jailer_id: \n"
+                + "\n".join(offenders)
+            )
 
         if self.uffd_handler and self.uffd_handler.is_running():
             self.uffd_handler.kill()
