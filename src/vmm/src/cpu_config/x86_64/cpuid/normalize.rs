@@ -4,6 +4,7 @@
 use crate::cpu_config::x86_64::cpuid::{
     CpuidEntry, CpuidKey, CpuidRegisters, CpuidTrait, KvmCpuidFlags, cpuid,
 };
+use crate::logger::warn;
 use crate::vmm_config::machine_config::MAX_SUPPORTED_VCPUS;
 
 /// Error type for [`super::Cpuid::normalize`].
@@ -69,8 +70,6 @@ pub enum ExtendedTopologyError {
     NumLogicalProcs(u32, CheckedAssignError),
     /// Failed to set right-shift bits (CPUID.(EAX=0xB,ECX={0}):EAX[4:0]): {1}
     RightShiftBits(u32, CheckedAssignError),
-    /// Unexpected subleaf: {0}
-    UnexpectedSubleaf(u32)
 }
 
 /// Error type for setting leaf 0x80000006 of Cpuid::normalize().
@@ -372,11 +371,16 @@ impl super::Cpuid {
                             .map_err(|err| ExtendedTopologyError::DomainType(index, err))?;
                     }
                     _ => {
-                        // KVM no longer returns any subleaf numbers greater than 0. The patch was
-                        // merged in v6.2 and backported to v5.10. Subleaves >= 2 should not be
-                        // included.
+                        // KVM no longer returns any subleaves greater than 0. The patch was merged
+                        // in v6.2 and backported to v5.10. So for all our supported kernels,
+                        // subleaves >= 2 should not be included.
                         // https://github.com/torvalds/linux/commit/45e966fcca03ecdcccac7cb236e16eea38cc18af
-                        return Err(ExtendedTopologyError::UnexpectedSubleaf(index));
+                        //
+                        // However, we intentionally leave Firecracker not fail for unsupported
+                        // kernels to keep working. Note that we can detect KVM regression thanks
+                        // to the test that compares a fingerprint with its baseline.
+                        warn!("Subleaf {index} not expected for CPUID leaf 0xB.");
+                        subleaf.result.ecx = index;
                     }
                 }
             } else {
