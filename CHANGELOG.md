@@ -6,6 +6,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.12.0-nemo]
+
+### Changed
+
+- [#220](https://github.com/firecracker-microvm/private-firecracker-staging/pull/220):
+  Made MMDS unwrap a string of JSON and respond a JSON object for IMDS security
+  credentials paths so that some clients that requesting with
+  `Accept: application/json` is able to parse the response.
+
 ## [1.12.0]
 
 ### Added
@@ -45,13 +54,6 @@ and this project adheres to
   and replaced it with a `page_size` field. The `page_size_kib` field is
   misnamed, as the value Firecracker sets it to is actually the page size in
   _bytes_, not KiB. It will be removed in Firecracker 2.0.
-
-### Changed
-
-- [#220](https://github.com/firecracker-microvm/private-firecracker-staging/pull/220):
-  Made MMDS unwrap a string of JSON and respond a JSON object for IMDS security
-  credentials paths so that some clients that requesting with
-  `Accept: application/json` is able to parse the response.
 
 ### Fixed
 
