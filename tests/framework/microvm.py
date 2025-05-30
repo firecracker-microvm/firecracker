@@ -694,14 +694,14 @@ class Microvm:
         # 1 sec since we are rechecking the existence of the socket 5 times
         # and leave 0.2 delay between them.
         if "no-api" not in self.jailer.extra_args:
-            self._wait_create()
+            self._wait_for_api_socket()
         if "config-file" in self.jailer.extra_args and self.iface:
             self.wait_for_ssh_up()
         if self.log_file and log_level in ("Trace", "Debug", "Info"):
             self.check_log_message("Running Firecracker")
 
     @retry(wait=wait_fixed(0.2), stop=stop_after_attempt(5), reraise=True)
-    def _wait_create(self):
+    def _wait_for_api_socket(self):
         """Wait until the API socket and chroot folder are available."""
         os.stat(self.jailer.api_socket_path())
 
