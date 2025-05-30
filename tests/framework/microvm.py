@@ -688,21 +688,33 @@ class Microvm:
         if emit_metrics:
             self.monitors.append(FCMetricsMonitor(self))
 
-        # Wait for the jailer to create resources needed, and Firecracker to
-        # create its API socket.
-        # We expect the jailer to start within 80 ms. However, we wait for
-        # 1 sec since we are rechecking the existence of the socket 5 times
-        # and leave 0.2 delay between them.
-        if "no-api" not in self.jailer.extra_args:
-            self._wait_for_api_socket()
+        # Ensure Firecracker is in as good a state as possible wrts guest
+        # responsiveness / API availability.
+        # If we are using a config file and it has a network device specified,
+        # use SSH to wait until guest userspace is available. If we are
+        # using the API, wait until the log message indicating the API server
+        # has finished initializing is printed (if logging is enabled), or
+        # until the API socket file has been created.
+        # If none of these apply, do a last ditch effort to make sure the
+        # Firecracker process itself at least came up by checking
+        # for the startup log message. Otherwise, you're on your own kid.
         if "config-file" in self.jailer.extra_args and self.iface:
             self.wait_for_ssh_up()
-        if self.log_file and log_level in ("Trace", "Debug", "Info"):
+        elif "no-api" not in self.jailer.extra_args:
+            if self.log_file and log_level in ("Trace", "Debug", "Info"):
+                self.check_log_message("API server started.")
+            else:
+                self._wait_for_api_socket()
+        elif self.log_file and log_level in ("Trace", "Debug", "Info"):
             self.check_log_message("Running Firecracker")
 
     @retry(wait=wait_fixed(0.2), stop=stop_after_attempt(5), reraise=True)
     def _wait_for_api_socket(self):
         """Wait until the API socket and chroot folder are available."""
+
+        # We expect the jailer to start within 80 ms. However, we wait for
+        # 1 sec since we are rechecking the existence of the socket 5 times
+        # and leave 0.2 delay between them.
         os.stat(self.jailer.api_socket_path())
 
     @retry(wait=wait_fixed(0.2), stop=stop_after_attempt(5), reraise=True)
