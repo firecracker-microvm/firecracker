@@ -294,6 +294,18 @@ pub struct DeviceRestoreArgs<'a> {
     pub restored_from_file: bool,
 }
 
+impl std::fmt::Debug for DeviceRestoreArgs<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("DeviceRestoreArgs")
+            .field("mem", &self.mem)
+            .field("vm", &self.vm)
+            .field("vm_resources", &self.vm_resources)
+            .field("instance_id", &self.instance_id)
+            .field("restored_from_file", &self.restored_from_file)
+            .finish()
+    }
+}
+
 impl DeviceManager {
     pub fn save(&self) -> DevicesState {
         DevicesState {
