@@ -669,6 +669,19 @@ impl Queue {
 
         new - used_event - Wrapping(1) < new - old
     }
+
+    /// Resets the Virtio Queue
+    pub(crate) fn reset(&mut self) {
+        self.ready = false;
+        self.size = self.max_size;
+        self.desc_table_address = GuestAddress(0);
+        self.avail_ring_address = GuestAddress(0);
+        self.used_ring_address = GuestAddress(0);
+        self.next_avail = Wrapping(0);
+        self.next_used = Wrapping(0);
+        self.num_added = Wrapping(0);
+        self.uses_notif_suppression = false;
+    }
 }
 
 #[cfg(kani)]
