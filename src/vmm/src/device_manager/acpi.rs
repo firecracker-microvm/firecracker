@@ -6,7 +6,7 @@ use kvm_ioctls::VmFd;
 
 use crate::devices::acpi::vmgenid::VmGenId;
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct ACPIDeviceManager {
     /// VMGenID device
     pub vmgenid: Option<VmGenId>,
@@ -15,7 +15,7 @@ pub struct ACPIDeviceManager {
 impl ACPIDeviceManager {
     /// Create a new ACPIDeviceManager object
     pub fn new() -> Self {
-        Self { vmgenid: None }
+        Default::default()
     }
 
     /// Attach a new VMGenID device to the microVM
