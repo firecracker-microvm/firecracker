@@ -221,6 +221,7 @@ pub struct ACPIDeviceManagerState {
     vmgenid: Option<VMGenIDState>,
 }
 
+#[derive(Debug)]
 pub struct ACPIDeviceManagerConstructorArgs<'a> {
     pub mem: &'a GuestMemoryMmap,
     pub resource_allocator: &'a ResourceAllocator,
