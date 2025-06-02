@@ -24,7 +24,7 @@ bitflags = "2.9.1"
 crc64 = "2.0.0"
 derive_more = { version = "2.0.1", default-features = false, features = ["from", "display"] }
 displaydoc = "0.2.5"
-event-manager = "0.4.0"
+event-manager = "0.4.1"
 gdbstub = { version = "0.7.5", optional = true }
 gdbstub_arch = { version = "0.3.1", optional = true }
 kvm-bindings = { version = "0.11.1", features = ["fam-wrappers", "serde"] }
@@ -44,8 +44,8 @@ timerfd = "1.5.0"
 userfaultfd = "0.8.1"
 utils = { path = "../utils" }
 vhost = { version = "0.13.0", features = ["vhost-user-frontend"] }
-vm-allocator = "0.1.0"
-vm-memory = { version = "0.16.1", features = ["backend-mmap", "backend-bitmap"] }
+vm-allocator = "0.1.2"
+vm-memory = { version = "0.16.2", features = ["backend-mmap", "backend-bitmap"] }
 vm-superio = "0.8.0"
 vmm-sys-util = { version = "0.12.1", features = ["with-serde"] }
 zerocopy = { version = "0.8.25" }
