@@ -76,6 +76,18 @@ pub struct MsixConfig {
     enabled: bool,
 }
 
+impl std::fmt::Debug for MsixConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("MsixConfig")
+            .field("table_entries", &self.table_entries)
+            .field("pba_entries", &self.pba_entries)
+            .field("devid", &self.devid)
+            .field("masked", &self.masked)
+            .field("enabled", &self.enabled)
+            .finish()
+    }
+}
+
 impl MsixConfig {
     pub fn new(
         msix_vectors: u16,
