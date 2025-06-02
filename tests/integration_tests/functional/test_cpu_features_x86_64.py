@@ -256,7 +256,7 @@ MSR_SUPPORTED_TEMPLATES = ["T2A", "T2CL", "T2S", "SPR_TO_T2_5.10", "SPR_TO_T2_6.
 @pytest.mark.timeout(900)
 @pytest.mark.nonci
 def test_cpu_rdmsr(
-    microvm_factory, cpu_template_any, guest_kernel, rootfs, results_dir
+    msr_reader_bin, microvm_factory, cpu_template_any, guest_kernel, rootfs, results_dir
 ):
     """
     Test MSRs that are available to the guest.
@@ -300,8 +300,8 @@ def test_cpu_rdmsr(
     vm.basic_config(vcpu_count=vcpus, mem_size_mib=guest_mem_mib)
     vm.set_cpu_template(cpu_template_any)
     vm.start()
-    vm.ssh.scp_put(DATA_FILES / "msr_reader.sh", "/tmp/msr_reader.sh")
-    _, stdout, stderr = vm.ssh.run("/tmp/msr_reader.sh", timeout=None)
+    vm.ssh.scp_put(msr_reader_bin, "/tmp/msr_reader")
+    _, stdout, stderr = vm.ssh.run("/tmp/msr_reader")
     assert stderr == ""
 
     # Load results read from the microvm
