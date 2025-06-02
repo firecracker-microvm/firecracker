@@ -2,8 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use acpi_tables::{Aml, aml};
-use kvm_ioctls::VmFd;
 
+use crate::Vm;
 use crate::devices::acpi::vmgenid::VmGenId;
 
 #[derive(Debug, Default)]
@@ -21,12 +21,8 @@ impl ACPIDeviceManager {
     /// Attach a new VMGenID device to the microVM
     ///
     /// This will register the device's interrupt with KVM
-    pub fn attach_vmgenid(
-        &mut self,
-        vmgenid: VmGenId,
-        vm_fd: &VmFd,
-    ) -> Result<(), kvm_ioctls::Error> {
-        vm_fd.register_irqfd(&vmgenid.interrupt_evt, vmgenid.gsi)?;
+    pub fn attach_vmgenid(&mut self, vmgenid: VmGenId, vm: &Vm) -> Result<(), kvm_ioctls::Error> {
+        vm.register_irq(&vmgenid.interrupt_evt, vmgenid.gsi)?;
         self.vmgenid = Some(vmgenid);
         Ok(())
     }
