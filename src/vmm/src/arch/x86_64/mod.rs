@@ -33,6 +33,7 @@ pub mod generated;
 
 use std::fs::File;
 
+use kvm::Kvm;
 use layout::{
     CMDLINE_START, FIRST_ADDR_PAST_32BITS, FIRST_ADDR_PAST_64BITS_MMIO, MMIO32_MEM_SIZE,
     MMIO32_MEM_START, MMIO64_MEM_SIZE, MMIO64_MEM_START, PCI_MMCONFIG_SIZE, PCI_MMCONFIG_START,
@@ -53,6 +54,7 @@ use crate::acpi::create_acpi_tables;
 use crate::arch::{BootProtocol, SYSTEM_MEM_SIZE, SYSTEM_MEM_START, arch_memory_regions_with_gap};
 use crate::cpu_config::templates::{CustomCpuTemplate, GuestConfigError};
 use crate::cpu_config::x86_64::CpuConfiguration;
+use crate::device_manager::DeviceManager;
 use crate::initrd::InitrdConfig;
 use crate::utils::{align_down, u64_to_usize, usize_to_u64};
 use crate::vmm_config::machine_config::MachineConfig;
@@ -60,7 +62,7 @@ use crate::vstate::memory::{
     Address, GuestAddress, GuestMemory, GuestMemoryMmap, GuestMemoryRegion,
 };
 use crate::vstate::vcpu::KvmVcpuConfigureError;
-use crate::{Vcpu, VcpuConfig, Vmm, logger};
+use crate::{Vcpu, VcpuConfig, Vm, logger};
 
 // Value taken from https://elixir.bootlin.com/linux/v5.10.68/source/arch/x86/include/uapi/asm/e820.h#L31
 // Usable normal RAM
@@ -169,8 +171,11 @@ pub fn initrd_load_addr(guest_mem: &GuestMemoryMmap, initrd_size: usize) -> Opti
 }
 
 /// Configures the system for booting Linux.
+#[allow(clippy::too_many_arguments)]
 pub fn configure_system_for_boot(
-    vmm: &mut Vmm,
+    kvm: &Kvm,
+    vm: &Vm,
+    device_manager: &mut DeviceManager,
     vcpus: &mut [Vcpu],
     machine_config: &MachineConfig,
     cpu_template: &CustomCpuTemplate,
@@ -179,8 +184,7 @@ pub fn configure_system_for_boot(
     boot_cmdline: Cmdline,
 ) -> Result<(), ConfigurationError> {
     // Construct the base CpuConfiguration to apply CPU template onto.
-    let cpu_config =
-        CpuConfiguration::new(vmm.kvm.supported_cpuid.clone(), cpu_template, &vcpus[0])?;
+    let cpu_config = CpuConfiguration::new(kvm.supported_cpuid.clone(), cpu_template, &vcpus[0])?;
     // Apply CPU template to the base CpuConfiguration.
     let cpu_config = CpuConfiguration::apply_template(cpu_config, cpu_template)?;
 
@@ -193,7 +197,7 @@ pub fn configure_system_for_boot(
     // Configure vCPUs with normalizing and setting the generated CPU configuration.
     for vcpu in vcpus.iter_mut() {
         vcpu.kvm_vcpu
-            .configure(vmm.vm.guest_memory(), entry_point, &vcpu_config)?;
+            .configure(vm.guest_memory(), entry_point, &vcpu_config)?;
     }
 
     // Write the kernel command line to guest memory. This is x86_64 specific, since on
@@ -204,7 +208,7 @@ pub fn configure_system_for_boot(
         .expect("Cannot create cstring from cmdline string");
 
     load_cmdline(
-        vmm.vm.guest_memory(),
+        vm.guest_memory(),
         GuestAddress(crate::arch::x86_64::layout::CMDLINE_START),
         &boot_cmdline,
     )
@@ -212,19 +216,19 @@ pub fn configure_system_for_boot(
 
     // Note that this puts the mptable at the last 1k of Linux's 640k base RAM
     mptable::setup_mptable(
-        vmm.vm.guest_memory(),
-        &vmm.device_manager.resource_allocator,
+        vm.guest_memory(),
+        &device_manager.resource_allocator,
         vcpu_config.vcpu_count,
     )
     .map_err(ConfigurationError::MpTableSetup)?;
 
     match entry_point.protocol {
         BootProtocol::PvhBoot => {
-            configure_pvh(vmm.vm.guest_memory(), GuestAddress(CMDLINE_START), initrd)?;
+            configure_pvh(vm.guest_memory(), GuestAddress(CMDLINE_START), initrd)?;
         }
         BootProtocol::LinuxBoot => {
             configure_64bit_boot(
-                vmm.vm.guest_memory(),
+                vm.guest_memory(),
                 GuestAddress(CMDLINE_START),
                 cmdline_size,
                 initrd,
@@ -234,7 +238,7 @@ pub fn configure_system_for_boot(
 
     // Create ACPI tables and write them in guest memory
     // For the time being we only support ACPI in x86_64
-    create_acpi_tables(vmm.vm.guest_memory(), &mut vmm.device_manager, vcpus)?;
+    create_acpi_tables(vm.guest_memory(), device_manager, vcpus)?;
     Ok(())
 }
 
