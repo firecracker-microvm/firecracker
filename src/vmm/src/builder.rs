@@ -169,6 +169,8 @@ pub fn build_microvm_for_boot(
 
     let mut device_manager = DeviceManager::new(event_manager, &vcpus_exit_evt, &vm)?;
 
+    let vm = Arc::new(vm);
+
     let entry_point = load_kernel(&boot_config.kernel_file, vm.guest_memory())?;
     let initrd = InitrdConfig::from_config(boot_config, vm.guest_memory())?;
 
@@ -271,7 +273,7 @@ pub fn build_microvm_for_boot(
         instance_info: instance_info.clone(),
         shutdown_exit_code: None,
         kvm,
-        vm: Arc::new(vm),
+        vm,
         uffd: None,
         vcpus_handles: Vec::new(),
         vcpus_exit_evt,
@@ -554,7 +556,7 @@ fn setup_pvtime(
 
 fn attach_entropy_device(
     device_manager: &mut DeviceManager,
-    vm: &Vm,
+    vm: &Arc<Vm>,
     cmdline: &mut LoaderKernelCmdline,
     entropy_device: &Arc<Mutex<Entropy>>,
     event_manager: &mut EventManager,
@@ -571,7 +573,7 @@ fn attach_entropy_device(
 
 fn attach_block_devices<'a, I: Iterator<Item = &'a Arc<Mutex<Block>>> + Debug>(
     device_manager: &mut DeviceManager,
-    vm: &Vm,
+    vm: &Arc<Vm>,
     cmdline: &mut LoaderKernelCmdline,
     blocks: I,
     event_manager: &mut EventManager,
@@ -600,7 +602,7 @@ fn attach_block_devices<'a, I: Iterator<Item = &'a Arc<Mutex<Block>>> + Debug>(
 
 fn attach_net_devices<'a, I: Iterator<Item = &'a Arc<Mutex<Net>>> + Debug>(
     device_manager: &mut DeviceManager,
-    vm: &Vm,
+    vm: &Arc<Vm>,
     cmdline: &mut LoaderKernelCmdline,
     net_devices: I,
     event_manager: &mut EventManager,
@@ -616,7 +618,7 @@ fn attach_net_devices<'a, I: Iterator<Item = &'a Arc<Mutex<Net>>> + Debug>(
 
 fn attach_unixsock_vsock_device(
     device_manager: &mut DeviceManager,
-    vm: &Vm,
+    vm: &Arc<Vm>,
     cmdline: &mut LoaderKernelCmdline,
     unix_vsock: &Arc<Mutex<Vsock<VsockUnixBackend>>>,
     event_manager: &mut EventManager,
@@ -629,7 +631,7 @@ fn attach_unixsock_vsock_device(
 
 fn attach_balloon_device(
     device_manager: &mut DeviceManager,
-    vm: &Vm,
+    vm: &Arc<Vm>,
     cmdline: &mut LoaderKernelCmdline,
     balloon: &Arc<Mutex<Balloon>>,
     event_manager: &mut EventManager,
