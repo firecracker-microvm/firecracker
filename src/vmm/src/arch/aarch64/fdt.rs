@@ -499,17 +499,16 @@ mod tests {
     use std::ffi::CString;
     use std::sync::{Arc, Mutex};
 
-    use kvm_ioctls::Kvm;
     use linux_loader::cmdline as kernel_cmdline;
 
     use super::*;
-    use crate::EventManager;
     use crate::arch::aarch64::gic::create_gic;
     use crate::arch::aarch64::layout;
     use crate::device_manager::mmio::tests::DummyDevice;
     use crate::device_manager::tests::default_device_manager;
     use crate::test_utils::arch_mem;
     use crate::vstate::memory::GuestAddress;
+    use crate::{EventManager, Kvm, Vm};
 
     // The `load` function from the `device_tree` will mistakenly check the actual size
     // of the buffer with the allocated size. This works around that.
@@ -525,9 +524,9 @@ mod tests {
         let mem = arch_mem(layout::FDT_MAX_SIZE + 0x1000);
         let mut event_manager = EventManager::new().unwrap();
         let mut device_manager = default_device_manager();
-        let kvm = Kvm::new().unwrap();
-        let vm = kvm.create_vm().unwrap();
-        let gic = create_gic(&vm, 1, None).unwrap();
+        let kvm = Kvm::new(vec![]).unwrap();
+        let vm = Vm::new(&kvm).unwrap();
+        let gic = create_gic(vm.fd(), 1, None).unwrap();
         let mut cmdline = kernel_cmdline::Cmdline::new(4096).unwrap();
         cmdline.insert("console", "/dev/tty0").unwrap();
 
@@ -562,9 +561,9 @@ mod tests {
     fn test_create_fdt_with_vmgenid() {
         let mem = arch_mem(layout::FDT_MAX_SIZE + 0x1000);
         let mut device_manager = default_device_manager();
-        let kvm = Kvm::new().unwrap();
-        let vm = kvm.create_vm().unwrap();
-        let gic = create_gic(&vm, 1, None).unwrap();
+        let kvm = Kvm::new(vec![]).unwrap();
+        let vm = Vm::new(&kvm).unwrap();
+        let gic = create_gic(vm.fd(), 1, None).unwrap();
         let mut cmdline = kernel_cmdline::Cmdline::new(4096).unwrap();
         cmdline.insert("console", "/dev/tty0").unwrap();
 
@@ -585,9 +584,9 @@ mod tests {
     fn test_create_fdt() {
         let mem = arch_mem(layout::FDT_MAX_SIZE + 0x1000);
         let device_manager = default_device_manager();
-        let kvm = Kvm::new().unwrap();
-        let vm = kvm.create_vm().unwrap();
-        let gic = create_gic(&vm, 1, None).unwrap();
+        let kvm = Kvm::new(vec![]).unwrap();
+        let vm = Vm::new(&kvm).unwrap();
+        let gic = create_gic(vm.fd(), 1, None).unwrap();
 
         let saved_dtb_bytes = match gic.fdt_compatibility() {
             "arm,gic-v3" => include_bytes!("output_GICv3.dtb"),
@@ -642,9 +641,9 @@ mod tests {
     fn test_create_fdt_with_initrd() {
         let mem = arch_mem(layout::FDT_MAX_SIZE + 0x1000);
         let device_manager = default_device_manager();
-        let kvm = Kvm::new().unwrap();
-        let vm = kvm.create_vm().unwrap();
-        let gic = create_gic(&vm, 1, None).unwrap();
+        let kvm = Kvm::new(vec![]).unwrap();
+        let vm = Vm::new(&kvm).unwrap();
+        let gic = create_gic(vm.fd(), 1, None).unwrap();
 
         let saved_dtb_bytes = match gic.fdt_compatibility() {
             "arm,gic-v3" => include_bytes!("output_initrd_GICv3.dtb"),
