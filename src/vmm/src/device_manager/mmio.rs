@@ -127,7 +127,7 @@ pub struct MMIODevice<T> {
 }
 
 /// Manages the complexities of registering a MMIO device.
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct MMIODeviceManager {
     /// VirtIO devices using an MMIO transport layer
     pub(crate) virtio_devices: HashMap<(u32, String), MMIODevice<MmioTransport>>,
@@ -153,16 +153,7 @@ pub struct MMIODeviceManager {
 impl MMIODeviceManager {
     /// Create a new DeviceManager handling mmio devices (virtio net, block).
     pub fn new() -> MMIODeviceManager {
-        MMIODeviceManager {
-            virtio_devices: HashMap::new(),
-            boot_timer: None,
-            #[cfg(target_arch = "aarch64")]
-            rtc: None,
-            #[cfg(target_arch = "aarch64")]
-            serial: None,
-            #[cfg(target_arch = "x86_64")]
-            dsdt_data: vec![],
-        }
+        Default::default()
     }
 
     /// Allocates resources for a new device to be added.
