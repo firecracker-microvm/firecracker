@@ -7,7 +7,6 @@ use std::fmt::{self, Debug};
 use std::sync::{Arc, Mutex};
 
 use event_manager::{MutEventSubscriber, SubscriberOps};
-use kvm_ioctls::VmFd;
 use log::{error, warn};
 use serde::{Deserialize, Serialize};
 use vm_allocator::AllocPolicy;
@@ -15,7 +14,6 @@ use vm_allocator::AllocPolicy;
 use super::acpi::ACPIDeviceManager;
 use super::mmio::*;
 use super::resources::ResourceAllocator;
-use crate::EventManager;
 #[cfg(target_arch = "aarch64")]
 use crate::arch::DeviceType;
 use crate::devices::acpi::vmgenid::{VMGenIDState, VMGenIdConstructorArgs, VmGenId, VmGenIdError};
@@ -51,6 +49,7 @@ use crate::resources::{ResourcesError, VmResources};
 use crate::snapshot::Persist;
 use crate::vmm_config::mmds::MmdsConfigError;
 use crate::vstate::memory::GuestMemoryMmap;
+use crate::{EventManager, Vm};
 
 /// Errors for (de)serialization of the MMIO device manager.
 #[derive(Debug, thiserror::Error, displaydoc::Display)]
@@ -196,7 +195,7 @@ pub enum SharedDeviceType {
 
 pub struct MMIODevManagerConstructorArgs<'a> {
     pub mem: &'a GuestMemoryMmap,
-    pub vm: &'a VmFd,
+    pub vm: &'a Vm,
     pub event_manager: &'a mut EventManager,
     pub resource_allocator: &'a ResourceAllocator,
     pub vm_resources: &'a mut VmResources,
@@ -225,7 +224,7 @@ pub struct ACPIDeviceManagerState {
 pub struct ACPIDeviceManagerConstructorArgs<'a> {
     pub mem: &'a GuestMemoryMmap,
     pub resource_allocator: &'a ResourceAllocator,
-    pub vm: &'a VmFd,
+    pub vm: &'a Vm,
 }
 
 #[derive(Debug, thiserror::Error, displaydoc::Display)]
@@ -792,7 +791,7 @@ mod tests {
         let vm_resources = &mut VmResources::default();
         let restore_args = MMIODevManagerConstructorArgs {
             mem: vmm.vm.guest_memory(),
-            vm: vmm.vm.fd(),
+            vm: &vmm.vm,
             event_manager: &mut event_manager,
             resource_allocator: &resource_allocator,
             vm_resources,
