@@ -9,10 +9,16 @@ use std::collections::HashMap;
 use std::fs::OpenOptions;
 use std::io::Write;
 use std::path::Path;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
-use kvm_bindings::{KVM_MEM_LOG_DIRTY_PAGES, kvm_userspace_memory_region};
+#[cfg(target_arch = "x86_64")]
+use kvm_bindings::KVM_IRQCHIP_IOAPIC;
+use kvm_bindings::{
+    KVM_IRQ_ROUTING_IRQCHIP, KVM_MEM_LOG_DIRTY_PAGES, kvm_irq_routing_entry,
+    kvm_userspace_memory_region,
+};
 use kvm_ioctls::VmFd;
+use vmm_sys_util::errno;
 use vmm_sys_util::eventfd::EventFd;
 
 pub use crate::arch::{ArchVm as Vm, ArchVmError, VmState};
@@ -26,6 +32,26 @@ use crate::vstate::memory::{
 use crate::vstate::vcpu::VcpuError;
 use crate::{DirtyBitmap, Vcpu, mem_size_mib};
 
+#[derive(Debug, thiserror::Error, displaydoc::Display)]
+/// Errors related with Firecracker interrupts
+pub enum InterruptError {
+    /// Error allocating resources: {0}
+    Allocator(#[from] vm_allocator::Error),
+    /// EventFd error: {0}
+    EventFd(std::io::Error),
+    /// FamStruct error: {0}
+    FamStruct(#[from] vmm_sys_util::fam::Error),
+    /// KVM error: {0}
+    Kvm(#[from] kvm_ioctls::Error),
+}
+
+#[derive(Debug)]
+/// A struct representing an interrupt line used by some device of the microVM
+pub struct RoutingEntry {
+    entry: kvm_irq_routing_entry,
+    masked: bool,
+}
+
 /// Architecture independent parts of a VM.
 #[derive(Debug)]
 pub struct VmCommon {
@@ -34,6 +60,8 @@ pub struct VmCommon {
     max_memslots: usize,
     /// The guest memory of this Vm.
     pub guest_memory: GuestMemoryMmap,
+    /// Interrupts used by Vm's devices
+    pub interrupts: Mutex<HashMap<u32, RoutingEntry>>,
 }
 
 /// Errors associated with the wrappers over KVM ioctls.
@@ -101,6 +129,7 @@ impl Vm {
             fd,
             max_memslots: kvm.max_nr_memslots(),
             guest_memory: GuestMemoryMmap::default(),
+            interrupts: Mutex::new(HashMap::new()),
         })
     }
 
@@ -275,6 +304,40 @@ impl Vm {
             .map_err(|err| MemoryBackingFile("flush", err))?;
         file.sync_all()
             .map_err(|err| MemoryBackingFile("sync_all", err))
+    }
+
+    /// Register a device IRQ
+    pub fn register_irq(&self, fd: &EventFd, gsi: u32) -> Result<(), errno::Error> {
+        self.common.fd.register_irqfd(fd, gsi)?;
+
+        let mut entry = kvm_irq_routing_entry {
+            gsi,
+            type_: KVM_IRQ_ROUTING_IRQCHIP,
+            ..Default::default()
+        };
+        #[cfg(target_arch = "x86_64")]
+        {
+            entry.u.irqchip.irqchip = KVM_IRQCHIP_IOAPIC;
+        }
+        #[cfg(target_arch = "aarch64")]
+        {
+            entry.u.irqchip.irqchip = 0;
+        }
+
+        entry.u.irqchip.pin = gsi;
+
+        self.common
+            .interrupts
+            .lock()
+            .expect("Poisoned lock")
+            .insert(
+                gsi,
+                RoutingEntry {
+                    entry,
+                    masked: false,
+                },
+            );
+        Ok(())
     }
 }
 
