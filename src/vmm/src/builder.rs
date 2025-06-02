@@ -160,15 +160,6 @@ pub fn build_microvm_for_boot(
         .cpu_template
         .get_cpu_template()?;
 
-    /*
-        let (mut vmm, mut vcpus) = create_vmm_and_vcpus(
-            instance_info,
-            event_manager,
-            vm_resources.machine_config.vcpu_count,
-            cpu_template.kvm_capabilities.clone(),
-        )?;
-    */
-
     let kvm = Kvm::new(cpu_template.kvm_capabilities.clone()).unwrap();
     // Set up Kvm Vm and register memory regions.
     // Build custom CPU config if a custom template is provided.
@@ -178,7 +169,7 @@ pub fn build_microvm_for_boot(
         .create_vcpus(vm_resources.machine_config.vcpu_count)
         .unwrap();
 
-    let mut device_manager = DeviceManager::new(event_manager, &vcpus_exit_evt, vm.fd()).unwrap();
+    let mut device_manager = DeviceManager::new(event_manager, &vcpus_exit_evt, &vm).unwrap();
 
     vm.register_memory_regions(guest_memory)
         .map_err(VmmError::Vm)?;
@@ -257,9 +248,9 @@ pub fn build_microvm_for_boot(
     }
 
     #[cfg(target_arch = "aarch64")]
-    device_manager.attach_legacy_devices_aarch64(vm.fd(), event_manager, &mut boot_cmdline)?;
+    device_manager.attach_legacy_devices_aarch64(&vm, event_manager, &mut boot_cmdline)?;
 
-    device_manager.attach_vmgenid_device(vm.guest_memory(), vm.fd())?;
+    device_manager.attach_vmgenid_device(vm.guest_memory(), &vm)?;
 
     #[cfg(target_arch = "aarch64")]
     if vcpus[0].kvm_vcpu.supports_pvtime() {
@@ -412,15 +403,6 @@ pub fn build_microvm_from_snapshot(
 ) -> Result<Arc<Mutex<Vmm>>, BuildMicrovmFromSnapshotError> {
     // Build Vmm.
     debug!("event_start: build microvm from snapshot");
-    /*
-        let (mut vmm, mut vcpus) = create_vmm_and_vcpus(
-            instance_info,
-            event_manager,
-            vm_resources.machine_config.vcpu_count,
-            microvm_state.kvm_state.kvm_cap_modifiers.clone(),
-        )
-        .map_err(StartMicrovmError::Internal)?;
-    */
 
     let kvm = Kvm::new(microvm_state.kvm_state.kvm_cap_modifiers.clone()).unwrap();
     // Set up Kvm Vm and register memory regions.
@@ -431,7 +413,7 @@ pub fn build_microvm_from_snapshot(
         .create_vcpus(vm_resources.machine_config.vcpu_count)
         .unwrap();
 
-    let mut device_manager = DeviceManager::new(event_manager, &vcpus_exit_evt, vm.fd()).unwrap();
+    let mut device_manager = DeviceManager::new(event_manager, &vcpus_exit_evt, &vm).unwrap();
 
     vm.register_memory_regions(guest_memory)
         .map_err(VmmError::Vm)
@@ -486,7 +468,7 @@ pub fn build_microvm_from_snapshot(
     // Restore devices states.
     let device_ctor_args = DeviceRestoreArgs {
         mem: vm.guest_memory(),
-        vm: vm.fd(),
+        vm: &vm,
         event_manager,
         vm_resources,
         instance_id: &instance_info.id,
@@ -589,14 +571,7 @@ fn attach_entropy_device(
         .to_string();
 
     event_manager.add_subscriber(entropy_device.clone());
-    device_manager.attach_virtio_device(
-        vm.guest_memory(),
-        vm.fd(),
-        id,
-        entropy_device.clone(),
-        cmdline,
-        false,
-    )
+    device_manager.attach_virtio_device(vm, id, entropy_device.clone(), cmdline, false)
 }
 
 fn attach_block_devices<'a, I: Iterator<Item = &'a Arc<Mutex<Block>>> + Debug>(
@@ -623,14 +598,7 @@ fn attach_block_devices<'a, I: Iterator<Item = &'a Arc<Mutex<Block>>> + Debug>(
         };
         // The device mutex mustn't be locked here otherwise it will deadlock.
         event_manager.add_subscriber(block.clone());
-        device_manager.attach_virtio_device(
-            vm.guest_memory(),
-            vm.fd(),
-            id,
-            block.clone(),
-            cmdline,
-            is_vhost_user,
-        )?;
+        device_manager.attach_virtio_device(vm, id, block.clone(), cmdline, is_vhost_user)?;
     }
     Ok(())
 }
@@ -646,14 +614,7 @@ fn attach_net_devices<'a, I: Iterator<Item = &'a Arc<Mutex<Net>>> + Debug>(
         let id = net_device.lock().expect("Poisoned lock").id().clone();
         event_manager.add_subscriber(net_device.clone());
         // The device mutex mustn't be locked here otherwise it will deadlock.
-        device_manager.attach_virtio_device(
-            vm.guest_memory(),
-            vm.fd(),
-            id,
-            net_device.clone(),
-            cmdline,
-            false,
-        )?;
+        device_manager.attach_virtio_device(vm, id, net_device.clone(), cmdline, false)?;
     }
     Ok(())
 }
@@ -668,14 +629,7 @@ fn attach_unixsock_vsock_device(
     let id = String::from(unix_vsock.lock().expect("Poisoned lock").id());
     event_manager.add_subscriber(unix_vsock.clone());
     // The device mutex mustn't be locked here otherwise it will deadlock.
-    device_manager.attach_virtio_device(
-        vm.guest_memory(),
-        vm.fd(),
-        id,
-        unix_vsock.clone(),
-        cmdline,
-        false,
-    )
+    device_manager.attach_virtio_device(vm, id, unix_vsock.clone(), cmdline, false)
 }
 
 fn attach_balloon_device(
@@ -688,14 +642,7 @@ fn attach_balloon_device(
     let id = String::from(balloon.lock().expect("Poisoned lock").id());
     event_manager.add_subscriber(balloon.clone());
     // The device mutex mustn't be locked here otherwise it will deadlock.
-    device_manager.attach_virtio_device(
-        vm.guest_memory(),
-        vm.fd(),
-        id,
-        balloon.clone(),
-        cmdline,
-        false,
-    )
+    device_manager.attach_virtio_device(vm, id, balloon.clone(), cmdline, false)
 }
 
 #[cfg(test)]
@@ -942,7 +889,7 @@ pub(crate) mod tests {
     #[cfg(target_arch = "x86_64")]
     pub(crate) fn insert_vmgenid_device(vmm: &mut Vmm) {
         vmm.device_manager
-            .attach_vmgenid_device(vmm.vm.guest_memory(), vmm.vm.fd())
+            .attach_vmgenid_device(vmm.vm.guest_memory(), &vmm.vm)
             .unwrap();
         assert!(vmm.device_manager.acpi_devices.vmgenid.is_some());
     }
