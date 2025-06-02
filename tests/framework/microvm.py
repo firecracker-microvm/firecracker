@@ -333,13 +333,23 @@ class Microvm:
             # https://github.com/firecracker-microvm/firecracker/pull/4442/commits/d63eb7a65ffaaae0409d15ed55d99ecbd29bc572
 
             # filter ps results for the jailer's unique id
-            _, stdout, stderr = utils.check_output(
-                f"ps ax -o cmd -ww | grep {self.jailer.jailer_id}"
+            _, stdout, stderr = utils.run_cmd(
+                f"ps ax -o pid,cmd -ww | grep {self.jailer.jailer_id}"
             )
+
+            assert not stderr, f"error querying processes using `ps`: {stderr}"
+
+            offenders = []
+            for proc in stdout.splitlines():
+                _, cmd = proc.lower().split(maxsplit=1)
+                if "firecracker" in proc and not cmd.startswith("screen"):
+                    offenders.append(proc)
+
             # make sure firecracker was killed
-            assert (
-                stderr == "" and "firecracker" not in stdout
-            ), f"Firecracker reported its pid {self.firecracker_pid}, which was killed, but there still exist processes using the supposedly dead Firecracker's jailer_id: {stdout}"
+            assert not offenders, (
+                f"Firecracker reported its pid {self.firecracker_pid}, which was killed, but there still exist processes using the supposedly dead Firecracker's jailer_id: \n"
+                + "\n".join(offenders)
+            )
 
         if self.uffd_handler and self.uffd_handler.is_running():
             self.uffd_handler.kill()
@@ -605,7 +615,12 @@ class Microvm:
         # pylint: disable=subprocess-run-check
         # pylint: disable=too-many-branches
         self.jailer.setup()
-        self.api = Api(self.jailer.api_socket_path())
+        self.api = Api(
+            self.jailer.api_socket_path(),
+            on_error=lambda verb, uri, err_msg: self._dump_debug_information(
+                f"Error during {verb} {uri}: {err_msg}"
+            ),
+        )
 
         if log_file is not None:
             self.log_file = Path(self.path) / log_file
@@ -673,21 +688,33 @@ class Microvm:
         if emit_metrics:
             self.monitors.append(FCMetricsMonitor(self))
 
-        # Wait for the jailer to create resources needed, and Firecracker to
-        # create its API socket.
-        # We expect the jailer to start within 80 ms. However, we wait for
-        # 1 sec since we are rechecking the existence of the socket 5 times
-        # and leave 0.2 delay between them.
-        if "no-api" not in self.jailer.extra_args:
-            self._wait_create()
+        # Ensure Firecracker is in as good a state as possible wrts guest
+        # responsiveness / API availability.
+        # If we are using a config file and it has a network device specified,
+        # use SSH to wait until guest userspace is available. If we are
+        # using the API, wait until the log message indicating the API server
+        # has finished initializing is printed (if logging is enabled), or
+        # until the API socket file has been created.
+        # If none of these apply, do a last ditch effort to make sure the
+        # Firecracker process itself at least came up by checking
+        # for the startup log message. Otherwise, you're on your own kid.
         if "config-file" in self.jailer.extra_args and self.iface:
             self.wait_for_ssh_up()
-        if self.log_file and log_level in ("Trace", "Debug", "Info"):
+        elif "no-api" not in self.jailer.extra_args:
+            if self.log_file and log_level in ("Trace", "Debug", "Info"):
+                self.check_log_message("API server started.")
+            else:
+                self._wait_for_api_socket()
+        elif self.log_file and log_level in ("Trace", "Debug", "Info"):
             self.check_log_message("Running Firecracker")
 
     @retry(wait=wait_fixed(0.2), stop=stop_after_attempt(5), reraise=True)
-    def _wait_create(self):
+    def _wait_for_api_socket(self):
         """Wait until the API socket and chroot folder are available."""
+
+        # We expect the jailer to start within 80 ms. However, we wait for
+        # 1 sec since we are rechecking the existence of the socket 5 times
+        # and leave 0.2 delay between them.
         os.stat(self.jailer.api_socket_path())
 
     @retry(wait=wait_fixed(0.2), stop=stop_after_attempt(5), reraise=True)
@@ -1086,10 +1113,12 @@ class Microvm:
         backtraces = []
         for thread_name, thread_pids in utils.get_threads(self.firecracker_pid).items():
             for pid in thread_pids:
-                backtraces.append(
-                    f"{thread_name} ({pid=}):\n"
-                    f"{utils.check_output(f'cat /proc/{pid}/stack').stdout}"
-                )
+                try:
+                    stack = Path(f"/proc/{pid}/stack").read_text("UTF-8")
+                except FileNotFoundError:
+                    continue  # process might've gone away between get_threads() call and here
+
+                backtraces.append(f"{thread_name} ({pid=}):\n{stack}")
         return "\n".join(backtraces)
 
     def _dump_debug_information(self, what: str):
