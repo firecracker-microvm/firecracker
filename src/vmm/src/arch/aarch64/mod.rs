@@ -32,7 +32,7 @@ use crate::utils::{align_up, u64_to_usize, usize_to_u64};
 use crate::vmm_config::machine_config::MachineConfig;
 use crate::vstate::memory::{Address, Bytes, GuestAddress, GuestMemory, GuestMemoryMmap};
 use crate::vstate::vcpu::KvmVcpuError;
-use crate::{Vcpu, VcpuConfig, Vmm, logger};
+use crate::{DeviceManager, Kvm, Vcpu, VcpuConfig, Vm, logger};
 
 /// Errors thrown while configuring aarch64 system.
 #[derive(Debug, thiserror::Error, displaydoc::Display)]
@@ -82,8 +82,11 @@ pub fn arch_memory_regions(size: usize) -> Vec<(GuestAddress, usize)> {
 }
 
 /// Configures the system for booting Linux.
+#[allow(clippy::too_many_arguments)]
 pub fn configure_system_for_boot(
-    vmm: &mut Vmm,
+    kvm: &Kvm,
+    vm: &Vm,
+    device_manager: &mut DeviceManager,
     vcpus: &mut [Vcpu],
     machine_config: &MachineConfig,
     cpu_template: &CustomCpuTemplate,
@@ -103,11 +106,11 @@ pub fn configure_system_for_boot(
         cpu_config,
     };
 
-    let optional_capabilities = vmm.kvm.optional_capabilities();
+    let optional_capabilities = kvm.optional_capabilities();
     // Configure vCPUs with normalizing and setting the generated CPU configuration.
     for vcpu in vcpus.iter_mut() {
         vcpu.kvm_vcpu.configure(
-            vmm.vm.guest_memory(),
+            vm.guest_memory(),
             entry_point,
             &vcpu_config,
             &optional_capabilities,
@@ -123,18 +126,16 @@ pub fn configure_system_for_boot(
         .expect("Cannot create cstring from cmdline string");
 
     let fdt = fdt::create_fdt(
-        vmm.vm.guest_memory(),
+        vm.guest_memory(),
         vcpu_mpidr,
         cmdline,
-        &vmm.device_manager,
-        vmm.vm.get_irqchip(),
+        device_manager,
+        vm.get_irqchip(),
         initrd,
     )?;
 
-    let fdt_address = GuestAddress(get_fdt_addr(vmm.vm.guest_memory()));
-    vmm.vm
-        .guest_memory()
-        .write_slice(fdt.as_slice(), fdt_address)?;
+    let fdt_address = GuestAddress(get_fdt_addr(vm.guest_memory()));
+    vm.guest_memory().write_slice(fdt.as_slice(), fdt_address)?;
 
     Ok(())
 }
