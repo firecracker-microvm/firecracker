@@ -8,6 +8,8 @@ use vmm_sys_util::eventfd::EventFd;
 
 /// MMIO transport for VirtIO devices
 pub mod mmio;
+/// PCI transport for VirtIO devices
+pub mod pci;
 
 /// Represents the types of interrupts used by VirtIO devices
 #[derive(Debug, Clone)]
