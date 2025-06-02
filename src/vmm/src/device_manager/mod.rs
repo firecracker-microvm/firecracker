@@ -79,6 +79,8 @@ pub enum AttachDeviceError {
     #[cfg(target_arch = "aarch64")]
     /// Error creating serial device: {0}
     CreateSerial(#[from] std::io::Error),
+    /// Error attach PCI device: {0}
+    PciTransport(#[from] PciManagerError),
 }
 
 #[derive(Debug)]
@@ -160,8 +162,10 @@ impl DeviceManager {
         })
     }
 
-    /// Attaches a VirtioDevice device to the device manager and event manager.
-    pub(crate) fn attach_virtio_device<T: 'static + VirtioDevice + MutEventSubscriber + Debug>(
+    /// Attaches an MMIO VirtioDevice device to the device manager and event manager.
+    pub(crate) fn attach_mmio_virtio_device<
+        T: 'static + VirtioDevice + MutEventSubscriber + Debug,
+    >(
         &mut self,
         vm: &Vm,
         id: String,
@@ -180,6 +184,25 @@ impl DeviceManager {
             device,
             cmdline,
         )?;
+
+        Ok(())
+    }
+
+    /// Attaches a VirtioDevice device to the device manager and event manager.
+    pub(crate) fn attach_virtio_device<T: 'static + VirtioDevice + MutEventSubscriber + Debug>(
+        &mut self,
+        vm: &Arc<Vm>,
+        id: String,
+        device: Arc<Mutex<T>>,
+        cmdline: &mut Cmdline,
+        is_vhost_user: bool,
+    ) -> Result<(), AttachDeviceError> {
+        if self.pci_devices.pci_segment.is_some() {
+            self.pci_devices
+                .attach_pci_virtio_device(vm, &self.resource_allocator, id, device)?;
+        } else {
+            self.attach_mmio_virtio_device(vm, id, device, cmdline, is_vhost_user)?;
+        }
 
         Ok(())
     }
