@@ -397,7 +397,7 @@ impl VirtioBlock {
 
         if queue.prepare_kick() {
             interrupt
-                .trigger(VirtioInterruptType::Queue(index))
+                .trigger(VirtioInterruptType::Queue(0))
                 .unwrap_or_else(|_| {
                     block_metrics.event_fails.inc();
                 });
