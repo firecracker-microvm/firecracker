@@ -20,6 +20,7 @@ use crate::arch::aarch64::kvm::OptionalCapabilities;
 use crate::arch::aarch64::regs::{Aarch64RegisterVec, KVM_REG_ARM64_SVE_VLS};
 use crate::cpu_config::aarch64::custom_cpu_template::VcpuFeatures;
 use crate::cpu_config::templates::CpuConfiguration;
+use crate::logger::warn;
 use crate::logger::{IncMetric, METRICS, error};
 use crate::vcpu::{VcpuConfig, VcpuError};
 use crate::vstate::memory::{Address, GuestMemoryMmap};
@@ -41,25 +42,18 @@ pub enum VcpuArchError {
     SetMp(kvm_ioctls::Error),
     /// Failed FamStructWrapper operation: {0}
     Fam(vmm_sys_util::fam::Error),
-    /// {0}
-    GetMidrEl1(String),
     /// Failed to set/get device attributes for vCPU: {0}
     DeviceAttribute(kvm_ioctls::Error),
 }
 
 /// Extract the Manufacturer ID from the host.
 /// The ID is found between bits 24-31 of MIDR_EL1 register.
-pub fn get_manufacturer_id_from_host() -> Result<u32, VcpuArchError> {
+pub fn get_manufacturer_id_from_host() -> Option<u32> {
     let midr_el1_path = "/sys/devices/system/cpu/cpu0/regs/identification/midr_el1";
-    let midr_el1 = std::fs::read_to_string(midr_el1_path).map_err(|err| {
-        VcpuArchError::GetMidrEl1(format!("Failed to get MIDR_EL1 from host path: {err}"))
-    })?;
+    let midr_el1 = std::fs::read_to_string(midr_el1_path).ok()?;
     let midr_el1_trimmed = midr_el1.trim_end().trim_start_matches("0x");
-    let manufacturer_id = u32::from_str_radix(midr_el1_trimmed, 16).map_err(|err| {
-        VcpuArchError::GetMidrEl1(format!("Invalid MIDR_EL1 found on host: {err}",))
-    })?;
-
-    Ok(manufacturer_id >> 24)
+    let manufacturer_id = u32::from_str_radix(midr_el1_trimmed, 16).ok()?;
+    Some(manufacturer_id >> 24)
 }
 
 /// Saves states of registers into `state`.
