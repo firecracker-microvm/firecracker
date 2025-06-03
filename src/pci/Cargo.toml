@@ -13,6 +13,7 @@ default = []
 
 [dependencies]
 byteorder = "1.5.0"
+displaydoc = "0.2.5"
 libc = "0.2.172"
 log = "0.4.27"
 serde = { version = "1.0.219", features = ["derive"] }
