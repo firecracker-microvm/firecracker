@@ -345,7 +345,7 @@ fn default_brand_string(
             let c = before[i];
             match c {
                 b' ' => break 'outer Ok(before.split_at(i)),
-                b'0'..=b'9' | b'.' => continue,
+                b'0'..=b'9' | b'.' => (),
                 _ => break,
             }
         }
@@ -373,13 +373,12 @@ fn default_brand_string(
         // Include frequency suffix e.g. "GHz"
         .chain(after.iter().copied())
         // Pad with 0s to `BRAND_STRING_LENGTH`
-        .chain(
-            std::iter::repeat(b'\0').take(
-                BRAND_STRING_LENGTH
-                    .checked_sub(len)
-                    .ok_or(DefaultBrandStringError::Overflow)?,
-            ),
-        )
+        .chain(std::iter::repeat_n(
+            b'\0',
+            BRAND_STRING_LENGTH
+                .checked_sub(len)
+                .ok_or(DefaultBrandStringError::Overflow)?,
+        ))
         .collect::<Vec<_>>();
     debug_assert_eq!(brand_string.len(), BRAND_STRING_LENGTH);
 

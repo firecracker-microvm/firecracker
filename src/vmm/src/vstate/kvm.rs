@@ -106,15 +106,7 @@ pub(crate) mod tests {
         ];
 
         let combined_caps = Kvm::combine_capabilities(&additional_capabilities);
-        assert!(
-            combined_caps
-                .iter()
-                .any(|c| *c == kvm_bindings::KVM_CAP_IOMMU)
-        );
-        assert!(
-            !combined_caps
-                .iter()
-                .any(|c| *c == kvm_bindings::KVM_CAP_IOEVENTFD)
-        );
+        assert!(combined_caps.contains(&kvm_bindings::KVM_CAP_IOMMU));
+        assert!(!combined_caps.contains(&kvm_bindings::KVM_CAP_IOEVENTFD));
     }
 }

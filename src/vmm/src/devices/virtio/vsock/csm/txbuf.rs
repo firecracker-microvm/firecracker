@@ -142,9 +142,9 @@ impl WriteVolatile for TxBuf {
         &mut self,
         buf: &VolatileSlice<B>,
     ) -> Result<usize, VolatileMemoryError> {
-        self.push(buf).map(|()| buf.len()).map_err(|err| {
-            VolatileMemoryError::IOError(std::io::Error::new(std::io::ErrorKind::Other, err))
-        })
+        self.push(buf)
+            .map(|()| buf.len())
+            .map_err(|err| VolatileMemoryError::IOError(std::io::Error::other(err)))
     }
 }
 

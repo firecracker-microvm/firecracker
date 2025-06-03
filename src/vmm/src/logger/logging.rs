@@ -234,7 +234,8 @@ impl<'de> Deserialize<'de> for LevelFilter {
     {
         use serde::de::Error;
         let key = String::deserialize(deserializer)?;
-        let level = match key.to_lowercase().as_str() {
+
+        match key.to_lowercase().as_str() {
             "off" => Ok(LevelFilter::Off),
             "trace" => Ok(LevelFilter::Trace),
             "debug" => Ok(LevelFilter::Debug),
@@ -242,8 +243,7 @@ impl<'de> Deserialize<'de> for LevelFilter {
             "warn" | "warning" => Ok(LevelFilter::Warn),
             "error" => Ok(LevelFilter::Error),
             _ => Err(D::Error::custom("Invalid LevelFilter")),
-        };
-        level
+        }
     }
 }
 

@@ -44,7 +44,7 @@ enum RebaseSnapError {
 }
 
 fn build_arg_parser<'a>() -> ArgParser<'a> {
-    let arg_parser = ArgParser::new()
+    ArgParser::new()
         .arg(
             Argument::new(BASE_FILE)
                 .required(true)
@@ -56,9 +56,7 @@ fn build_arg_parser<'a>() -> ArgParser<'a> {
                 .required(true)
                 .takes_value(true)
                 .help("File path of the diff mem snapshot."),
-        );
-
-    arg_parser
+        )
 }
 
 fn get_files(args: &Arguments) -> Result<(File, File), FileError> {
