@@ -22,11 +22,11 @@ use crate::arch::{ConfigurationError, configure_system_for_boot, load_kernel};
 #[cfg(target_arch = "aarch64")]
 use crate::construct_kvm_mpidrs;
 use crate::cpu_config::templates::{GetCpuTemplate, GetCpuTemplateError, GuestConfigError};
-#[cfg(target_arch = "aarch64")]
-use crate::device_manager::AttachLegacyMmioDeviceError;
+#[cfg(target_arch = "x86_64")]
+use crate::device_manager;
 use crate::device_manager::pci_mngr::PciManagerError;
 use crate::device_manager::{
-    AttachMmioDeviceError, AttachVmgenidError, DeviceManager, DevicePersistError, DeviceRestoreArgs,
+    AttachDeviceError, DeviceManager, DevicePersistError, DeviceRestoreArgs,
 };
 use crate::devices::acpi::vmgenid::VmGenIdError;
 use crate::devices::virtio::balloon::Balloon;
@@ -47,18 +47,13 @@ use crate::vstate::kvm::Kvm;
 use crate::vstate::memory::GuestRegionMmap;
 use crate::vstate::vcpu::VcpuError;
 use crate::vstate::vm::Vm;
-use crate::{EventManager, Vmm, VmmError, device_manager};
+use crate::{EventManager, Vmm, VmmError};
 
 /// Errors associated with starting the instance.
 #[derive(Debug, thiserror::Error, displaydoc::Display)]
 pub enum StartMicrovmError {
     /// Unable to attach block device to Vmm: {0}
     AttachBlockDevice(io::Error),
-    /// Unable to attach the VMGenID device: {0}
-    AttachVmgenidDevice(#[from] AttachVmgenidError),
-    #[cfg(target_arch = "aarch64")]
-    /// Unable to attach legacy MMIO devices: {0}
-    AttachLegacyDevices(#[from] AttachLegacyMmioDeviceError),
     /// System configuration error: {0}
     ConfigureSystem(#[from] ConfigurationError),
     /// Failed to create guest config: {0}
@@ -99,8 +94,6 @@ pub enum StartMicrovmError {
     NetDeviceNotConfigured,
     /// Cannot open the block device backing file: {0}
     OpenBlockDevice(io::Error),
-    /// Cannot initialize a MMIO Device or add a device to the MMIO Bus or cmdline: {0}
-    RegisterMmioDevice(#[from] device_manager::AttachMmioDeviceError),
     /// Cannot restore microvm state: {0}
     RestoreMicrovmState(MicrovmStateError),
     /// Cannot set vm resources: {0}
@@ -115,6 +108,8 @@ pub enum StartMicrovmError {
     /// Error cloning Vcpu fds
     #[cfg(feature = "gdb")]
     VcpuFdCloneError(#[from] crate::vstate::vcpu::CopyKvmFdError),
+    /// Could not attach device: {0}
+    AttachDevice(#[from] AttachDeviceError),
 }
 
 /// It's convenient to automatically convert `linux_loader::cmdline::Error`s
@@ -563,7 +558,7 @@ fn attach_entropy_device(
     cmdline: &mut LoaderKernelCmdline,
     entropy_device: &Arc<Mutex<Entropy>>,
     event_manager: &mut EventManager,
-) -> Result<(), AttachMmioDeviceError> {
+) -> Result<(), AttachDeviceError> {
     let id = entropy_device
         .lock()
         .expect("Poisoned lock")
@@ -625,7 +620,7 @@ fn attach_unixsock_vsock_device(
     cmdline: &mut LoaderKernelCmdline,
     unix_vsock: &Arc<Mutex<Vsock<VsockUnixBackend>>>,
     event_manager: &mut EventManager,
-) -> Result<(), AttachMmioDeviceError> {
+) -> Result<(), AttachDeviceError> {
     let id = String::from(unix_vsock.lock().expect("Poisoned lock").id());
     event_manager.add_subscriber(unix_vsock.clone());
     // The device mutex mustn't be locked here otherwise it will deadlock.
@@ -638,7 +633,7 @@ fn attach_balloon_device(
     cmdline: &mut LoaderKernelCmdline,
     balloon: &Arc<Mutex<Balloon>>,
     event_manager: &mut EventManager,
-) -> Result<(), AttachMmioDeviceError> {
+) -> Result<(), AttachDeviceError> {
     let id = String::from(balloon.lock().expect("Poisoned lock").id());
     event_manager.add_subscriber(balloon.clone());
     // The device mutex mustn't be locked here otherwise it will deadlock.

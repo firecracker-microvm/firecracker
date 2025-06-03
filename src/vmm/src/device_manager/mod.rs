@@ -64,34 +64,21 @@ pub enum DeviceManagerCreateError {
 
 #[derive(Debug, thiserror::Error, displaydoc::Display)]
 /// Error while attaching a VirtIO device
-pub enum AttachMmioDeviceError {
+pub enum AttachDeviceError {
     /// MMIO transport error: {0}
     MmioTransport(#[from] MmioError),
     /// Error inserting device in bus: {0}
     Bus(#[from] vm_device::BusError),
-}
-
-#[derive(Debug, thiserror::Error, displaydoc::Display)]
-/// Error while attaching the VMGenID device
-pub enum AttachVmgenidError {
     /// Error creating VMGenID device: {0}
     CreateVmGenID(#[from] VmGenIdError),
     /// Error while registering VMGenID with KVM: {0}
     AttachVmGenID(#[from] kvm_ioctls::Error),
-}
-
-#[cfg(target_arch = "aarch64")]
-#[derive(Debug, thiserror::Error, displaydoc::Display)]
-/// Error while attaching the VMGenID device
-pub enum AttachLegacyMmioDeviceError {
+    #[cfg(target_arch = "aarch64")]
     /// Cmdline error
     Cmdline,
+    #[cfg(target_arch = "aarch64")]
     /// Error creating serial device: {0}
     CreateSerial(#[from] std::io::Error),
-    /// Error registering device: {0}
-    RegisterMMIODevice(#[from] MmioError),
-    /// Error inserting device in the Bus: {0}
-    Bus(#[from] vm_device::BusError),
 }
 
 #[derive(Debug)]
@@ -181,7 +168,7 @@ impl DeviceManager {
         device: Arc<Mutex<T>>,
         cmdline: &mut Cmdline,
         is_vhost_user: bool,
-    ) -> Result<(), AttachMmioDeviceError> {
+    ) -> Result<(), AttachDeviceError> {
         let interrupt = Arc::new(IrqTrigger::new());
         // The device mutex mustn't be locked here otherwise it will deadlock.
         let device =
@@ -201,7 +188,7 @@ impl DeviceManager {
     pub(crate) fn attach_boot_timer_device(
         &mut self,
         request_ts: TimestampUs,
-    ) -> Result<(), AttachMmioDeviceError> {
+    ) -> Result<(), AttachDeviceError> {
         let boot_timer = Arc::new(Mutex::new(BootTimer::new(request_ts)));
 
         self.mmio_devices
@@ -214,7 +201,7 @@ impl DeviceManager {
         &mut self,
         mem: &GuestMemoryMmap,
         vm: &Vm,
-    ) -> Result<(), AttachVmgenidError> {
+    ) -> Result<(), AttachDeviceError> {
         let vmgenid = VmGenId::new(mem, &self.resource_allocator)?;
         self.acpi_devices.attach_vmgenid(vmgenid, vm)?;
         Ok(())
@@ -226,13 +213,13 @@ impl DeviceManager {
         vm: &Vm,
         event_manager: &mut EventManager,
         cmdline: &mut Cmdline,
-    ) -> Result<(), AttachLegacyMmioDeviceError> {
+    ) -> Result<(), AttachDeviceError> {
         // Serial device setup.
         let cmdline_contains_console = cmdline
             .as_cstring()
-            .map_err(|_| AttachLegacyMmioDeviceError::Cmdline)?
+            .map_err(|_| AttachDeviceError::Cmdline)?
             .into_string()
-            .map_err(|_| AttachLegacyMmioDeviceError::Cmdline)?
+            .map_err(|_| AttachDeviceError::Cmdline)?
             .contains("console=");
 
         if cmdline_contains_console {
