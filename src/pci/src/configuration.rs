@@ -409,7 +409,7 @@ struct PciBar {
     r#type: Option<PciBarRegionType>,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PciConfigurationState {
     registers: Vec<u32>,
     writable_bits: Vec<u32>,
@@ -466,7 +466,7 @@ impl From<PciBarRegionType> for PciBarType {
     }
 }
 
-#[derive(Copy, Clone)]
+#[derive(Debug, Copy, Clone, Serialize, Deserialize)]
 pub enum PciBarPrefetchable {
     NotPrefetchable = 0,
     Prefetchable = 0x08,
@@ -481,7 +481,7 @@ impl From<PciBarPrefetchable> for bool {
     }
 }
 
-#[derive(Copy, Clone)]
+#[derive(Debug, Copy, Clone, Serialize, Deserialize)]
 pub struct PciBarConfiguration {
     addr: u64,
     size: u64,

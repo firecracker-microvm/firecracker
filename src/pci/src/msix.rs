@@ -26,7 +26,7 @@ const MSIX_ENABLE_MASK: u16 = (1 << MSIX_ENABLE_BIT) as u16;
 pub const MSIX_TABLE_ENTRY_SIZE: usize = 16;
 pub const MSIX_CONFIG_ID: &str = "msix_config";
 
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error, displaydoc::Display)]
 pub enum Error {
     /// Failed enabling the interrupt route.
     EnableInterruptRoute(io::Error),
@@ -59,7 +59,7 @@ impl Default for MsixTableEntry {
     }
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MsixConfigState {
     table_entries: Vec<MsixTableEntry>,
     pba_entries: Vec<u64>,
@@ -71,9 +71,21 @@ pub struct MsixConfig {
     pub table_entries: Vec<MsixTableEntry>,
     pub pba_entries: Vec<u64>,
     pub devid: u32,
-    interrupt_source_group: Arc<dyn InterruptSourceGroup>,
+    pub interrupt_source_group: Arc<dyn InterruptSourceGroup>,
     masked: bool,
     enabled: bool,
+}
+
+impl std::fmt::Debug for MsixConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("MsixConfig")
+            .field("table_entries", &self.table_entries)
+            .field("pba_entries", &self.pba_entries)
+            .field("devid", &self.devid)
+            .field("masked", &self.masked)
+            .field("enabled", &self.enabled)
+            .finish()
+    }
 }
 
 impl MsixConfig {
