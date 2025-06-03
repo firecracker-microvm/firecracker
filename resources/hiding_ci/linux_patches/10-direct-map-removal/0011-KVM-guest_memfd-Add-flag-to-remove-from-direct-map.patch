@@ -1,7 +1,7 @@
-From b1fc478976c93fd42b14e06d2de57e121be03142 Mon Sep 17 00:00:00 2001
+From a06590a8007e35c86caf7344f76e69d4501bc43a Mon Sep 17 00:00:00 2001
 From: Patrick Roy <roypat@amazon.co.uk>
 Date: Fri, 7 Feb 2025 14:33:01 +0000
-Subject: [PATCH 11/26] KVM: guest_memfd: Add flag to remove from direct map
+Subject: [PATCH] KVM: guest_memfd: Add flag to remove from direct map
 
 Add KVM_GMEM_NO_DIRECT_MAP flag for KVM_CREATE_GUEST_MEMFD() ioctl. When
 set, guest_memfd folios will be removed from the direct map after
@@ -56,9 +56,9 @@ spectre-gadget.
 Signed-off-by: Patrick Roy <roypat@amazon.co.uk>
 ---
  include/uapi/linux/kvm.h |  3 +++
- virt/kvm/guest_memfd.c   | 28 +++++++++++++++++++++++++++-
+ virt/kvm/guest_memfd.c   | 38 +++++++++++++++++++++++++++++++++-----
  virt/kvm/kvm_main.c      |  5 +++++
- 3 files changed, 35 insertions(+), 1 deletion(-)
+ 3 files changed, 41 insertions(+), 5 deletions(-)
 
 diff --git a/include/uapi/linux/kvm.h b/include/uapi/linux/kvm.h
 index 117937a895da..fb02a93546d8 100644
@@ -82,7 +82,7 @@ index 117937a895da..fb02a93546d8 100644
  
  struct kvm_pre_fault_memory {
 diff --git a/virt/kvm/guest_memfd.c b/virt/kvm/guest_memfd.c
-index fbf89e643add..a2b96bc51391 100644
+index fbf89e643add..5545a35ce900 100644
 --- a/virt/kvm/guest_memfd.c
 +++ b/virt/kvm/guest_memfd.c
 @@ -4,6 +4,7 @@
@@ -117,18 +117,42 @@ index fbf89e643add..a2b96bc51391 100644
  	folio_mark_uptodate(folio);
  }
  
-@@ -478,6 +494,10 @@ static void kvm_gmem_free_folio(struct folio *folio)
+@@ -471,24 +487,30 @@ static int kvm_gmem_error_folio(struct address_space *mapping, struct folio *fol
+ 	return MF_DELAYED;
+ }
+ 
+-#ifdef CONFIG_HAVE_KVM_ARCH_GMEM_INVALIDATE
+ static void kvm_gmem_free_folio(struct folio *folio)
+ {
++#ifdef CONFIG_HAVE_KVM_ARCH_GMEM_INVALIDATE
+ 	struct page *page = folio_page(folio, 0);
  	kvm_pfn_t pfn = page_to_pfn(page);
  	int order = folio_order(folio);
++#endif
  
-+	if (folio_test_private(folio))
++	if (folio_test_private(folio)) {
 +		WARN_ON_ONCE(set_direct_map_valid_noflush(folio_page(folio, 0),
 +							  folio_nr_pages(folio), true));
++		folio_clear_private(folio);
++	}
 +
++#ifdef CONFIG_HAVE_KVM_ARCH_GMEM_INVALIDATE
  	kvm_arch_gmem_invalidate(pfn, pfn + (1ul << order));
- }
+-}
  #endif
-@@ -551,6 +571,9 @@ static int __kvm_gmem_create(struct kvm *kvm, loff_t size, u64 flags)
++}
+ 
+ static const struct address_space_operations kvm_gmem_aops = {
+ 	.dirty_folio = noop_dirty_folio,
+ 	.migrate_folio	= kvm_gmem_migrate_folio,
+ 	.error_remove_folio = kvm_gmem_error_folio,
+-#ifdef CONFIG_HAVE_KVM_ARCH_GMEM_INVALIDATE
+ 	.free_folio = kvm_gmem_free_folio,
+-#endif
+ };
+ 
+ static int kvm_gmem_getattr(struct mnt_idmap *idmap, const struct path *path,
+@@ -551,6 +573,9 @@ static int __kvm_gmem_create(struct kvm *kvm, loff_t size, u64 flags)
  	/* Unmovable mappings are supposed to be marked unevictable as well. */
  	WARN_ON_ONCE(!mapping_unevictable(inode->i_mapping));
  
@@ -138,7 +162,7 @@ index fbf89e643add..a2b96bc51391 100644
  	kvm_get_kvm(kvm);
  	gmem->kvm = kvm;
  	xa_init(&gmem->bindings);
-@@ -570,7 +593,10 @@ int kvm_gmem_create(struct kvm *kvm, struct kvm_create_guest_memfd *args)
+@@ -570,7 +595,10 @@ int kvm_gmem_create(struct kvm *kvm, struct kvm_create_guest_memfd *args)
  {
  	loff_t size = args->size;
  	u64 flags = args->flags;
@@ -174,5 +198,5 @@ index 3e40acb9f5c0..32ca1c921ab0 100644
  		return !kvm || kvm_arch_has_private_mem(kvm);
  #endif
 -- 
-2.47.1
+2.49.0
 
