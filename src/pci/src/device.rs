@@ -6,7 +6,6 @@
 // SPDX-License-Identifier: Apache-2.0 AND BSD-3-Clause
 
 use std::any::Any;
-use std::fmt::{self, Display};
 use std::sync::{Arc, Barrier};
 use std::{io, result};
 
@@ -16,38 +15,20 @@ use vm_device::Resource;
 use crate::configuration::{self, PciBarRegionType};
 use crate::PciBarConfiguration;
 
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error, displaydoc::Display)]
 pub enum Error {
-    /// Setup of the device capabilities failed.
+    /// Setup of the device capabilities failed: {0}.
     CapabilitiesSetup(configuration::Error),
-    /// Allocating space for an IO BAR failed.
+    /// Allocating space for an IO BAR failed, size={0}.
     IoAllocationFailed(u64),
-    /// Registering an IO BAR failed.
+    /// Registering an IO BAR at address {0} failed: {1}
     IoRegistrationFailed(u64, configuration::Error),
     /// Expected resource not found.
     MissingResource,
-    /// Invalid resource.
+    /// Invalid resource
     InvalidResource(Resource),
 }
 pub type Result<T> = std::result::Result<T, Error>;
-
-impl Display for Error {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        use self::Error::*;
-
-        match self {
-            CapabilitiesSetup(e) => write!(f, "failed to add capability {e}"),
-            IoAllocationFailed(size) => {
-                write!(f, "failed to allocate space for an IO BAR, size={size}")
-            }
-            IoRegistrationFailed(addr, e) => {
-                write!(f, "failed to register an IO BAR, addr={addr} err={e}")
-            }
-            MissingResource => write!(f, "failed to find expected resource"),
-            InvalidResource(r) => write!(f, "invalid resource {r:?}"),
-        }
-    }
-}
 
 #[derive(Clone, Copy)]
 pub struct BarReprogrammingParams {
