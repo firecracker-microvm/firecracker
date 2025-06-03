@@ -26,7 +26,7 @@ const MSIX_ENABLE_MASK: u16 = (1 << MSIX_ENABLE_BIT) as u16;
 pub const MSIX_TABLE_ENTRY_SIZE: usize = 16;
 pub const MSIX_CONFIG_ID: &str = "msix_config";
 
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error, displaydoc::Display)]
 pub enum Error {
     /// Failed enabling the interrupt route.
     EnableInterruptRoute(io::Error),

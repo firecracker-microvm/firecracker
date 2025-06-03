@@ -32,7 +32,9 @@ pub use self::device::{
     BarReprogrammingParams, DeviceRelocation, Error as PciDeviceError, PciDevice,
 };
 pub use self::msi::{msi_num_enabled_vectors, MsiCap, MsiConfig};
-pub use self::msix::{MsixCap, MsixConfig, MsixTableEntry, MSIX_CONFIG_ID, MSIX_TABLE_ENTRY_SIZE};
+pub use self::msix::{
+    Error as MsixError, MsixCap, MsixConfig, MsixTableEntry, MSIX_CONFIG_ID, MSIX_TABLE_ENTRY_SIZE,
+};
 
 /// PCI has four interrupt pins A->D.
 #[derive(Copy, Clone)]
