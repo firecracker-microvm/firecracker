@@ -922,10 +922,10 @@ pub(crate) mod tests {
         // the backend.
         let expected_config = VringData {
             index: 0,
-            size: 0,
+            size: 69,
             config: VringConfigData {
                 queue_max_size: 69,
-                queue_size: 0,
+                queue_size: 69,
                 flags: 0,
                 desc_table_addr: guest_memory
                     .get_host_address(queue.desc_table_address)
