@@ -71,7 +71,7 @@ impl super::IntelCpuid {
         self.update_performance_monitoring_entry()?;
         self.update_extended_topology_v2_entry();
         self.update_brand_string_entry()?;
-        self.update_frequency_information();
+        //self.update_frequency_information();
 
         Ok(())
     }
