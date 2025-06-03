@@ -140,7 +140,7 @@ impl Vcpu {
         // _before_ running this, then there is nothing we can do.
         Self::TLS_VCPU_PTR.with(|cell: &VcpuCell| {
             if let Some(vcpu_ptr) = cell.get() {
-                if vcpu_ptr == self as *mut Vcpu {
+                if std::ptr::eq(vcpu_ptr, self) {
                     Self::TLS_VCPU_PTR.with(|cell: &VcpuCell| cell.take());
                     return Ok(());
                 }
