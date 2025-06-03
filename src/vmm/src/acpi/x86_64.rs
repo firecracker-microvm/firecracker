@@ -3,10 +3,7 @@
 
 use std::mem::size_of;
 
-use acpi_tables::fadt::{
-    IAPC_BOOT_ARG_FLAGS_MSI_NOT_PRESENT, IAPC_BOOT_ARG_FLAGS_PCI_ASPM,
-    IAPC_BOOT_ARG_FLAGS_VGA_NOT_PRESENT,
-};
+use acpi_tables::fadt::IAPC_BOOT_ARG_FLAGS_VGA_NOT_PRESENT;
 use acpi_tables::madt::{IoAPIC, LocalAPIC};
 use acpi_tables::{Fadt, aml};
 use vm_memory::GuestAddress;
@@ -33,11 +30,7 @@ pub(crate) fn setup_arch_fadt(fadt: &mut Fadt) {
     // neither do we support ASPM, or MSI type of interrupts.
     // More info here:
     // https://uefi.org/specs/ACPI/6.5/05_ACPI_Software_Programming_Model.html?highlight=0a06#ia-pc-boot-architecture-flags
-    fadt.setup_iapc_flags(
-        (1 << IAPC_BOOT_ARG_FLAGS_VGA_NOT_PRESENT)
-            | (1 << IAPC_BOOT_ARG_FLAGS_PCI_ASPM)
-            | (1 << IAPC_BOOT_ARG_FLAGS_MSI_NOT_PRESENT),
-    );
+    fadt.setup_iapc_flags(1 << IAPC_BOOT_ARG_FLAGS_VGA_NOT_PRESENT);
 }
 
 #[inline(always)]
