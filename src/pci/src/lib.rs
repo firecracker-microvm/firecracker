@@ -24,15 +24,18 @@ use serde::de::Visitor;
 pub use self::bus::{PciBus, PciConfigIo, PciConfigMmio, PciRoot, PciRootError};
 pub use self::configuration::{
     PciBarConfiguration, PciBarPrefetchable, PciBarRegionType, PciCapability, PciCapabilityId,
-    PciClassCode, PciConfiguration, PciExpressCapabilityId, PciHeaderType, PciMassStorageSubclass,
-    PciNetworkControllerSubclass, PciProgrammingInterface, PciSerialBusSubClass, PciSubclass,
-    PCI_CONFIGURATION_ID,
+    PciClassCode, PciConfiguration, PciConfigurationState, PciExpressCapabilityId, PciHeaderType,
+    PciMassStorageSubclass, PciNetworkControllerSubclass, PciProgrammingInterface,
+    PciSerialBusSubClass, PciSubclass, PCI_CONFIGURATION_ID,
 };
 pub use self::device::{
     BarReprogrammingParams, DeviceRelocation, Error as PciDeviceError, PciDevice,
 };
 pub use self::msi::{msi_num_enabled_vectors, MsiCap, MsiConfig};
-pub use self::msix::{MsixCap, MsixConfig, MsixTableEntry, MSIX_CONFIG_ID, MSIX_TABLE_ENTRY_SIZE};
+pub use self::msix::{
+    Error as MsixError, MsixCap, MsixConfig, MsixConfigState, MsixTableEntry, MSIX_CONFIG_ID,
+    MSIX_TABLE_ENTRY_SIZE,
+};
 
 /// PCI has four interrupt pins A->D.
 #[derive(Copy, Clone)]
