@@ -26,6 +26,7 @@ use super::{
 use crate::devices::virtio::balloon::BalloonError;
 use crate::devices::virtio::device::{IrqTrigger, IrqType};
 use crate::devices::virtio::generated::virtio_config::VIRTIO_F_VERSION_1;
+use crate::devices::virtio::queue::InvalidAvailIdx;
 use crate::logger::IncMetric;
 use crate::utils::u64_to_usize;
 use crate::vstate::memory::{Address, ByteValued, Bytes, GuestAddress, GuestMemoryMmap};
@@ -297,7 +298,7 @@ impl Balloon {
             // Internal loop processes descriptors and acummulates the pfns in `pfn_buffer`.
             // Breaks out when there is not enough space in `pfn_buffer` to completely process
             // the next descriptor.
-            while let Some(head) = queue.pop() {
+            while let Some(head) = queue.pop()? {
                 let len = head.len as usize;
                 let max_len = MAX_PAGES_IN_DESC * SIZE_OF_U32;
                 valid_descs_found = true;
@@ -375,7 +376,7 @@ impl Balloon {
         let queue = &mut self.queues[DEFLATE_INDEX];
         let mut needs_interrupt = false;
 
-        while let Some(head) = queue.pop() {
+        while let Some(head) = queue.pop()? {
             queue.add_used(head.index, 0)?;
             needs_interrupt = true;
         }
@@ -392,7 +393,7 @@ impl Balloon {
         let mem = self.device_state.mem().unwrap();
         METRICS.stats_updates_count.inc();
 
-        while let Some(head) = self.queues[STATS_INDEX].pop() {
+        while let Some(head) = self.queues[STATS_INDEX].pop()? {
             if let Some(prev_stats_desc) = self.stats_desc_index {
                 // We shouldn't ever have an extra buffer if the driver follows
                 // the protocol, but return it if we find one.
@@ -431,9 +432,15 @@ impl Balloon {
     }
 
     /// Process device virtio queue(s).
-    pub fn process_virtio_queues(&mut self) {
-        let _ = self.process_inflate();
-        let _ = self.process_deflate_queue();
+    pub fn process_virtio_queues(&mut self) -> Result<(), InvalidAvailIdx> {
+        if let Err(BalloonError::InvalidAvailIdx(err)) = self.process_inflate() {
+            return Err(err);
+        }
+        if let Err(BalloonError::InvalidAvailIdx(err)) = self.process_deflate_queue() {
+            return Err(err);
+        }
+
+        Ok(())
     }
 
     /// Provides the ID of this balloon device.
@@ -1080,7 +1087,7 @@ pub(crate) mod tests {
         balloon.set_queue(DEFLATE_INDEX, defq.create_queue());
 
         balloon.activate(mem).unwrap();
-        balloon.process_virtio_queues()
+        balloon.process_virtio_queues().unwrap();
     }
 
     #[test]

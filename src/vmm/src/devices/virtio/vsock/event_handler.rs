@@ -58,7 +58,9 @@ where
             error!("Failed to get vsock rx queue event: {:?}", err);
             METRICS.rx_queue_event_fails.inc();
         } else if self.backend.has_pending_rx() {
-            raise_irq |= self.process_rx();
+            // OK to unwrap: Only QueueError::InvalidAvailIdx is returned, and we explicitly
+            // want to panic on that one.
+            raise_irq |= self.process_rx().unwrap();
             METRICS.rx_queue_event_count.inc();
         }
         raise_irq
@@ -76,13 +78,15 @@ where
             error!("Failed to get vsock tx queue event: {:?}", err);
             METRICS.tx_queue_event_fails.inc();
         } else {
-            raise_irq |= self.process_tx();
+            // OK to unwrap: Only QueueError::InvalidAvailIdx is returned, and we explicitly
+            // want to panic on that one.
+            raise_irq |= self.process_tx().unwrap();
             METRICS.tx_queue_event_count.inc();
             // The backend may have queued up responses to the packets we sent during
             // TX queue processing. If that happened, we need to fetch those responses
             // and place them into RX buffers.
             if self.backend.has_pending_rx() {
-                raise_irq |= self.process_rx();
+                raise_irq |= self.process_rx().unwrap();
             }
         }
         raise_irq
@@ -110,9 +114,11 @@ where
         // In particular, if `self.backend.send_pkt()` halted the TX queue processing (by
         // returning an error) at some point in the past, now is the time to try walking the
         // TX queue again.
-        let mut raise_irq = self.process_tx();
+        // OK to unwrap: Only QueueError::InvalidAvailIdx is returned, and we explicitly
+        // want to panic on that one.
+        let mut raise_irq = self.process_tx().unwrap();
         if self.backend.has_pending_rx() {
-            raise_irq |= self.process_rx();
+            raise_irq |= self.process_rx().unwrap();
         }
         raise_irq
     }
@@ -351,7 +357,7 @@ mod tests {
             ctx.guest_rxvq.dtable[1].len.set(0);
 
             // The chain should've been processed, without employing the backend.
-            assert!(ctx.device.process_rx());
+            assert!(ctx.device.process_rx().unwrap());
             assert_eq!(ctx.guest_rxvq.used.idx.get(), 1);
             assert_eq!(ctx.device.backend.rx_ok_cnt, 0);
         }
@@ -436,7 +442,7 @@ mod tests {
             ctx.guest_rxvq.dtable[desc_idx].len.set(len);
             // If the descriptor chain is already declared invalid, there's no reason to assemble
             // a packet.
-            if let Some(rx_desc) = ctx.device.queues[RXQ_INDEX].pop() {
+            if let Some(rx_desc) = ctx.device.queues[RXQ_INDEX].pop().unwrap() {
                 VsockPacketRx::new()
                     .unwrap()
                     .parse(&test_ctx.mem, rx_desc)
@@ -461,7 +467,7 @@ mod tests {
             ctx.guest_txvq.dtable[desc_idx].addr.set(addr);
             ctx.guest_txvq.dtable[desc_idx].len.set(len);
 
-            if let Some(tx_desc) = ctx.device.queues[TXQ_INDEX].pop() {
+            if let Some(tx_desc) = ctx.device.queues[TXQ_INDEX].pop().unwrap() {
                 VsockPacketTx::default()
                     .parse(&test_ctx.mem, tx_desc)
                     .unwrap_err();
@@ -492,7 +498,7 @@ mod tests {
         // The default configured descriptor chains are valid.
         {
             let mut ctx = test_ctx.create_event_handler_context();
-            let rx_desc = ctx.device.queues[RXQ_INDEX].pop().unwrap();
+            let rx_desc = ctx.device.queues[RXQ_INDEX].pop().unwrap().unwrap();
             VsockPacketRx::new()
                 .unwrap()
                 .parse(&test_ctx.mem, rx_desc)
@@ -501,7 +507,7 @@ mod tests {
 
         {
             let mut ctx = test_ctx.create_event_handler_context();
-            let tx_desc = ctx.device.queues[TXQ_INDEX].pop().unwrap();
+            let tx_desc = ctx.device.queues[TXQ_INDEX].pop().unwrap().unwrap();
             VsockPacketTx::default()
                 .parse(&test_ctx.mem, tx_desc)
                 .unwrap();

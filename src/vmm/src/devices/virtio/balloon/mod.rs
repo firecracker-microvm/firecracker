@@ -13,7 +13,7 @@ mod util;
 use log::error;
 
 pub use self::device::{Balloon, BalloonConfig, BalloonStats};
-use super::queue::QueueError;
+use super::queue::{InvalidAvailIdx, QueueError};
 use crate::devices::virtio::balloon::metrics::METRICS;
 use crate::devices::virtio::queue::FIRECRACKER_MAX_QUEUE_SIZE;
 use crate::logger::IncMetric;
@@ -89,6 +89,8 @@ pub enum BalloonError {
     TooManyPagesRequested,
     /// Error while processing the virt queues: {0}
     Queue(#[from] QueueError),
+    /// {0}
+    InvalidAvailIdx(#[from] InvalidAvailIdx),
     /// Error creating the statistics timer: {0}
     Timer(std::io::Error),
 }
@@ -108,6 +110,9 @@ pub enum RemoveRegionError {
 }
 
 pub(super) fn report_balloon_event_fail(err: BalloonError) {
+    if let BalloonError::InvalidAvailIdx(err) = err {
+        panic!("{}", err);
+    }
     error!("{:?}", err);
     METRICS.event_fails.inc();
 }

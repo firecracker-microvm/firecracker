@@ -9,7 +9,7 @@ use super::persist::{BlockConstructorArgs, BlockState};
 use super::vhost_user::device::{VhostUserBlock, VhostUserBlockConfig};
 use super::virtio::device::{VirtioBlock, VirtioBlockConfig};
 use crate::devices::virtio::device::{IrqTrigger, VirtioDevice};
-use crate::devices::virtio::queue::Queue;
+use crate::devices::virtio::queue::{InvalidAvailIdx, Queue};
 use crate::devices::virtio::{ActivateError, TYPE_BLOCK};
 use crate::rate_limiter::BucketUpdate;
 use crate::snapshot::Persist;
@@ -83,10 +83,10 @@ impl Block {
         }
     }
 
-    pub fn process_virtio_queues(&mut self) {
+    pub fn process_virtio_queues(&mut self) -> Result<(), InvalidAvailIdx> {
         match self {
             Self::Virtio(b) => b.process_virtio_queues(),
-            Self::VhostUser(_) => {}
+            Self::VhostUser(_) => Ok(()),
         }
     }
 

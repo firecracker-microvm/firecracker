@@ -484,7 +484,7 @@ mod tests {
             let memory = self.driver_queue.memory();
 
             assert!(matches!(
-                Request::parse(&q.pop().unwrap(), memory, NUM_DISK_SECTORS),
+                Request::parse(&q.pop().unwrap().unwrap(), memory, NUM_DISK_SECTORS),
                 Err(_e)
             ));
         }
@@ -492,7 +492,8 @@ mod tests {
         fn check_parse(&self, check_data: bool) {
             let mut q = self.driver_queue.create_queue();
             let memory = self.driver_queue.memory();
-            let request = Request::parse(&q.pop().unwrap(), memory, NUM_DISK_SECTORS).unwrap();
+            let request =
+                Request::parse(&q.pop().unwrap().unwrap(), memory, NUM_DISK_SECTORS).unwrap();
             let expected_header = self.header();
 
             assert_eq!(
@@ -959,7 +960,7 @@ mod tests {
     fn parse_random_requests() {
         let cfg = ProptestConfig::with_cases(1000);
         proptest!(cfg, |(mut request in random_request_parse())| {
-            let result = Request::parse(&request.2.pop().unwrap(), &request.1, NUM_DISK_SECTORS);
+            let result = Request::parse(&request.2.pop().unwrap().unwrap(), &request.1, NUM_DISK_SECTORS);
             match result {
                 Ok(r) => prop_assert!(r == request.0.unwrap()),
                 Err(err) => {

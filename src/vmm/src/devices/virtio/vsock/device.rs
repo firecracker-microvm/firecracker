@@ -32,7 +32,7 @@ use super::{VsockBackend, defs};
 use crate::devices::virtio::ActivateError;
 use crate::devices::virtio::device::{DeviceState, IrqTrigger, IrqType, VirtioDevice};
 use crate::devices::virtio::generated::virtio_config::{VIRTIO_F_IN_ORDER, VIRTIO_F_VERSION_1};
-use crate::devices::virtio::queue::Queue as VirtQueue;
+use crate::devices::virtio::queue::{InvalidAvailIdx, Queue as VirtQueue};
 use crate::devices::virtio::vsock::VsockError;
 use crate::devices::virtio::vsock::metrics::METRICS;
 use crate::logger::IncMetric;
@@ -145,13 +145,13 @@ where
     /// Walk the driver-provided RX queue buffers and attempt to fill them up with any data that we
     /// have pending. Return `true` if descriptors have been added to the used ring, and `false`
     /// otherwise.
-    pub fn process_rx(&mut self) -> bool {
+    pub fn process_rx(&mut self) -> Result<bool, InvalidAvailIdx> {
         // This is safe since we checked in the event handler that the device is activated.
         let mem = self.device_state.mem().unwrap();
 
         let mut have_used = false;
 
-        while let Some(head) = self.queues[RXQ_INDEX].pop() {
+        while let Some(head) = self.queues[RXQ_INDEX].pop()? {
             let index = head.index;
             let used_len = match self.rx_packet.parse(mem, head) {
                 Ok(()) => {
@@ -192,19 +192,19 @@ where
                 });
         }
 
-        have_used
+        Ok(have_used)
     }
 
     /// Walk the driver-provided TX queue buffers, package them up as vsock packets, and send them
     /// to the backend for processing. Return `true` if descriptors have been added to the used
     /// ring, and `false` otherwise.
-    pub fn process_tx(&mut self) -> bool {
+    pub fn process_tx(&mut self) -> Result<bool, InvalidAvailIdx> {
         // This is safe since we checked in the event handler that the device is activated.
         let mem = self.device_state.mem().unwrap();
 
         let mut have_used = false;
 
-        while let Some(head) = self.queues[TXQ_INDEX].pop() {
+        while let Some(head) = self.queues[TXQ_INDEX].pop()? {
             let index = head.index;
             // let pkt = match VsockPacket::from_tx_virtq_head(mem, head) {
             match self.tx_packet.parse(mem, head) {
@@ -234,7 +234,7 @@ where
                 });
         }
 
-        have_used
+        Ok(have_used)
     }
 
     // Send TRANSPORT_RESET_EVENT to driver. According to specs, the driver shuts down established
@@ -244,7 +244,7 @@ where
         // This is safe since we checked in the caller function that the device is activated.
         let mem = self.device_state.mem().unwrap();
 
-        let head = self.queues[EVQ_INDEX].pop().ok_or_else(|| {
+        let head = self.queues[EVQ_INDEX].pop()?.ok_or_else(|| {
             METRICS.ev_queue_event_fails.inc();
             DeviceError::VsockError(VsockError::EmptyQueue)
         })?;
