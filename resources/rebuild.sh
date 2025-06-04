@@ -92,7 +92,7 @@ function build_initramfs {
 
     # Report guest boot time back to Firecracker via MMIO
     # See arch/src/lib.rs and the BootTimer device
-    MAGIC_BOOT_ADDRESS=0xd0000000
+    MAGIC_BOOT_ADDRESS=0xc0000000
     if [ $ARCH = "aarch64" ]; then
         MAGIC_BOOT_ADDRESS=0x40000000
     fi
