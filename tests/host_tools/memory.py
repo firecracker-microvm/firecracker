@@ -84,7 +84,6 @@ class MemoryMonitor(Thread):
             mem_total = 0
             for mmap in mmaps:
                 if self.is_guest_mem(mmap.size, guest_mem_bytes):
-                    print(f"Region {mmap} is guest memory")
                     continue
 
                 mem_total += mmap.rss
