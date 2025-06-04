@@ -701,9 +701,7 @@ impl Net {
             // are live at the same time, meaning this has exclusive ownership over the memory
             if unsafe { self.tx_buffer.load_descriptor_chain(mem, head).is_err() } {
                 self.metrics.tx_fails.inc();
-                tx_queue
-                    .add_used(head_index, 0)
-                    .map_err(DeviceError::QueueError)?;
+                tx_queue.add_used(head_index, 0)?;
                 continue;
             };
 
@@ -711,9 +709,7 @@ impl Net {
             if self.tx_buffer.len() as usize > MAX_BUFFER_SIZE {
                 error!("net: received too big frame from driver");
                 self.metrics.tx_malformed_frames.inc();
-                tx_queue
-                    .add_used(head_index, 0)
-                    .map_err(DeviceError::QueueError)?;
+                tx_queue.add_used(head_index, 0)?;
                 continue;
             }
 
@@ -741,9 +737,7 @@ impl Net {
                 process_rx_for_mmds = true;
             }
 
-            tx_queue
-                .add_used(head_index, 0)
-                .map_err(DeviceError::QueueError)?;
+            tx_queue.add_used(head_index, 0)?;
             used_any = true;
         }
 

@@ -45,7 +45,7 @@ pub enum DeviceError {
     /// Device received malformed descriptor.
     MalformedDescriptor,
     /// Error during queue processing: {0}
-    QueueError(QueueError),
+    QueueError(#[from] QueueError),
     /// Vsock device error: {0}
-    VsockError(VsockError),
+    VsockError(#[from] VsockError),
 }
