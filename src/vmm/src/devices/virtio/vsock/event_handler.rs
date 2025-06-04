@@ -33,7 +33,7 @@ use vmm_sys_util::epoll::EventSet;
 use super::VsockBackend;
 use super::device::{EVQ_INDEX, RXQ_INDEX, TXQ_INDEX, Vsock};
 use crate::devices::virtio::device::VirtioDevice;
-use crate::devices::virtio::vsock::metrics::METRICS;
+use crate::devices::virtio::vsock::metrics::VsockMetricsPerDevice;
 use crate::logger::IncMetric;
 
 impl<B> Vsock<B>
@@ -47,37 +47,39 @@ where
     const PROCESS_NOTIFY_BACKEND: u32 = 4;
 
     pub fn handle_rxq_event(&mut self, evset: EventSet) -> bool {
+        let global = VsockMetricsPerDevice::alloc("global".to_string());
         if evset != EventSet::IN {
             warn!("vsock: rxq unexpected event {:?}", evset);
-            METRICS.rx_queue_event_fails.inc();
+            global.rx_queue_event_fails.inc();
             return false;
         }
 
         let mut raise_irq = false;
         if let Err(err) = self.queue_events[RXQ_INDEX].read() {
             error!("Failed to get vsock rx queue event: {:?}", err);
-            METRICS.rx_queue_event_fails.inc();
+            global.rx_queue_event_fails.inc();
         } else if self.backend.has_pending_rx() {
             raise_irq |= self.process_rx();
-            METRICS.rx_queue_event_count.inc();
+            global.rx_queue_event_count.inc();
         }
         raise_irq
     }
 
     pub fn handle_txq_event(&mut self, evset: EventSet) -> bool {
+        let global = VsockMetricsPerDevice::alloc("global".to_string());
         if evset != EventSet::IN {
             warn!("vsock: txq unexpected event {:?}", evset);
-            METRICS.tx_queue_event_fails.inc();
+            global.tx_queue_event_fails.inc();
             return false;
         }
 
         let mut raise_irq = false;
         if let Err(err) = self.queue_events[TXQ_INDEX].read() {
             error!("Failed to get vsock tx queue event: {:?}", err);
-            METRICS.tx_queue_event_fails.inc();
+            global.tx_queue_event_fails.inc();
         } else {
             raise_irq |= self.process_tx();
-            METRICS.tx_queue_event_count.inc();
+            global.tx_queue_event_count.inc();
             // The backend may have queued up responses to the packets we sent during
             // TX queue processing. If that happened, we need to fetch those responses
             // and place them into RX buffers.
@@ -89,15 +91,16 @@ where
     }
 
     pub fn handle_evq_event(&mut self, evset: EventSet) -> bool {
+        let global = VsockMetricsPerDevice::alloc("global".to_string());
         if evset != EventSet::IN {
             warn!("vsock: evq unexpected event {:?}", evset);
-            METRICS.ev_queue_event_fails.inc();
+            global.ev_queue_event_fails.inc();
             return false;
         }
 
         if let Err(err) = self.queue_events[EVQ_INDEX].read() {
             error!("Failed to consume vsock evq event: {:?}", err);
-            METRICS.ev_queue_event_fails.inc();
+            global.ev_queue_event_fails.inc();
         }
         false
     }
