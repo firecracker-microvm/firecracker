@@ -258,6 +258,17 @@ def waitpkg_bin(test_fc_session_root_path):
     yield waitpkg_bin_path
 
 
+@pytest.fixture(scope="session")
+def msr_reader_bin(test_fc_session_root_path):
+    """Build a binary that reads msrs"""
+    msr_reader_bin_path = os.path.join(test_fc_session_root_path, "msr_reader")
+    build_tools.gcc_compile(
+        "data/msr/msr_reader.c",
+        msr_reader_bin_path,
+    )
+    yield msr_reader_bin_path
+
+
 @pytest.fixture
 def bin_seccomp_paths():
     """Build jailers and jailed binaries to test seccomp.
