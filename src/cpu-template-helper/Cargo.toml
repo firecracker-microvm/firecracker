@@ -13,7 +13,7 @@ bench = false
 tracing = ["log-instrument", "vmm/tracing"]
 
 [dependencies]
-clap = { version = "4.5.38", features = ["derive", "string"] }
+clap = { version = "4.5.39", features = ["derive", "string"] }
 displaydoc = "0.2.5"
 libc = "0.2.172"
 log-instrument = { path = "../log-instrument", optional = true }
@@ -22,7 +22,7 @@ serde_json = "1.0.140"
 thiserror = "2.0.12"
 
 vmm = { path = "../vmm" }
-vmm-sys-util = "0.12.1"
+vmm-sys-util = "0.14.0"
 
 [lints]
 workspace = true
