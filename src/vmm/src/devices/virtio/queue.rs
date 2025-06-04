@@ -28,8 +28,6 @@ pub(super) const FIRECRACKER_MAX_QUEUE_SIZE: u16 = 256;
 
 #[derive(Debug, thiserror::Error, displaydoc::Display)]
 pub enum QueueError {
-    /// Virtio queue number of available descriptors {0} is greater than queue size {1}.
-    InvalidQueueSize(u16, u16),
     /// Descriptor index out of bounds: {0}.
     DescIndexOutOfBounds(u16),
     /// Failed to write value into the virtio queue used ring: {0}

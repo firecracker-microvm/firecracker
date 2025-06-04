@@ -12,12 +12,11 @@ use std::str::FromStr;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
-use crate::devices::DeviceError;
 use crate::devices::virtio::net::Net;
 #[cfg(test)]
 use crate::devices::virtio::net::device::vnet_hdr_len;
 use crate::devices::virtio::net::tap::{IfReqBuilder, Tap};
-use crate::devices::virtio::queue::{Queue, QueueError};
+use crate::devices::virtio::queue::Queue;
 use crate::devices::virtio::test_utils::VirtQueue;
 use crate::mmds::data_store::Mmds;
 use crate::mmds::ns::MmdsNetworkStack;
@@ -263,25 +262,6 @@ pub(crate) fn inject_tap_tx_frame(net: &Net, len: usize) -> Vec<u8> {
     frame.splice(0..0, vec![b'\0'; vnet_hdr_len()]);
 
     frame
-}
-
-pub fn write_element_in_queue(net: &Net, idx: u16, val: u64) -> Result<(), DeviceError> {
-    if idx as usize > net.queue_evts.len() {
-        return Err(DeviceError::QueueError(QueueError::DescIndexOutOfBounds(
-            idx,
-        )));
-    }
-    net.queue_evts[idx as usize].write(val).unwrap();
-    Ok(())
-}
-
-pub fn get_element_from_queue(net: &Net, idx: u16) -> Result<u64, DeviceError> {
-    if idx as usize > net.queue_evts.len() {
-        return Err(DeviceError::QueueError(QueueError::DescIndexOutOfBounds(
-            idx,
-        )));
-    }
-    Ok(u64::try_from(net.queue_evts[idx as usize].as_raw_fd()).unwrap())
 }
 
 pub fn default_guest_mac() -> MacAddr {
