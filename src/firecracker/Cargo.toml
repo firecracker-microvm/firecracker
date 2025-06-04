@@ -21,7 +21,7 @@ gdb = ["vmm/gdb"]
 
 [dependencies]
 displaydoc = "0.2.5"
-event-manager = "0.4.0"
+event-manager = "0.4.1"
 libc = "0.2.172"
 log-instrument = { path = "../log-instrument", optional = true }
 micro_http = { git = "https://github.com/firecracker-microvm/micro-http" }
