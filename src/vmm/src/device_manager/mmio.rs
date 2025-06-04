@@ -461,7 +461,7 @@ impl MMIODeviceManager {
                         // Stats queue doesn't need kicking as it is notified via a `timer_fd`.
                         if balloon.is_activated() {
                             info!("kick balloon {}.", id);
-                            balloon.process_virtio_queues();
+                            balloon.process_virtio_queues().unwrap();
                         }
                     }
                     TYPE_BLOCK => {
@@ -475,7 +475,7 @@ impl MMIODeviceManager {
                             // any inflight `timer_fd` events can be safely discarded.
                             if block.is_activated() {
                                 info!("kick block {}.", id);
-                                block.process_virtio_queues();
+                                block.process_virtio_queues().unwrap()
                             }
                         }
                     }
@@ -487,7 +487,7 @@ impl MMIODeviceManager {
                         // any inflight `timer_fd` events can be safely discarded.
                         if net.is_activated() {
                             info!("kick net {}.", id);
-                            net.process_virtio_queues();
+                            net.process_virtio_queues().unwrap();
                         }
                     }
                     TYPE_VSOCK => {
@@ -510,7 +510,7 @@ impl MMIODeviceManager {
                         let entropy = virtio.as_mut_any().downcast_mut::<Entropy>().unwrap();
                         if entropy.is_activated() {
                             info!("kick entropy {id}.");
-                            entropy.process_virtio_queues();
+                            entropy.process_virtio_queues().unwrap();
                         }
                     }
                     _ => (),

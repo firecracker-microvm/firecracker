@@ -19,7 +19,7 @@ pub use bus::{Bus, BusDevice, BusError};
 use log::error;
 
 use crate::devices::virtio::net::metrics::NetDeviceMetrics;
-use crate::devices::virtio::queue::QueueError;
+use crate::devices::virtio::queue::{InvalidAvailIdx, QueueError};
 use crate::devices::virtio::vsock::VsockError;
 use crate::logger::IncMetric;
 
@@ -28,6 +28,9 @@ use crate::logger::IncMetric;
 // network metrics is reported per device so we need a handle to each net device's
 // metrics `net_iface_metrics` to report metrics for that device.
 pub(crate) fn report_net_event_fail(net_iface_metrics: &NetDeviceMetrics, err: DeviceError) {
+    if let DeviceError::InvalidAvailIdx(err) = err {
+        panic!("{}", err);
+    }
     error!("{:?}", err);
     net_iface_metrics.event_fails.inc();
 }
@@ -46,6 +49,8 @@ pub enum DeviceError {
     MalformedDescriptor,
     /// Error during queue processing: {0}
     QueueError(#[from] QueueError),
+    /// {0}
+    InvalidAvailIdx(#[from] InvalidAvailIdx),
     /// Vsock device error: {0}
     VsockError(#[from] VsockError),
 }

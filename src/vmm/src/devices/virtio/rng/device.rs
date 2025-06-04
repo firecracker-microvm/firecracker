@@ -16,7 +16,7 @@ use crate::devices::virtio::device::{DeviceState, IrqTrigger, IrqType, VirtioDev
 use crate::devices::virtio::generated::virtio_config::VIRTIO_F_VERSION_1;
 use crate::devices::virtio::iov_deque::IovDequeError;
 use crate::devices::virtio::iovec::IoVecBufferMut;
-use crate::devices::virtio::queue::{FIRECRACKER_MAX_QUEUE_SIZE, Queue};
+use crate::devices::virtio::queue::{FIRECRACKER_MAX_QUEUE_SIZE, InvalidAvailIdx, Queue};
 use crate::devices::virtio::{ActivateError, TYPE_RNG};
 use crate::logger::{IncMetric, debug, error};
 use crate::rate_limiter::{RateLimiter, TokenType};
@@ -128,9 +128,9 @@ impl Entropy {
         Ok(self.buffer.len())
     }
 
-    fn process_entropy_queue(&mut self) {
+    fn process_entropy_queue(&mut self) -> Result<(), InvalidAvailIdx> {
         let mut used_any = false;
-        while let Some(desc) = self.queues[RNG_QUEUE].pop() {
+        while let Some(desc) = self.queues[RNG_QUEUE].pop()? {
             // This is safe since we checked in the event handler that the device is activated.
             let mem = self.device_state.mem().unwrap();
             let index = desc.index;
@@ -192,6 +192,8 @@ impl Entropy {
                 METRICS.entropy_event_fails.inc()
             });
         }
+
+        Ok(())
     }
 
     pub(crate) fn process_entropy_queue_event(&mut self) {
@@ -200,7 +202,7 @@ impl Entropy {
             METRICS.entropy_event_fails.inc();
         } else if !self.rate_limiter.is_blocked() {
             // We are not throttled, handle the entropy queue
-            self.process_entropy_queue();
+            self.process_entropy_queue().unwrap()
         } else {
             METRICS.rate_limiter_event_count.inc();
         }
@@ -211,7 +213,7 @@ impl Entropy {
         match self.rate_limiter.event_handler() {
             Ok(_) => {
                 // There might be enough budget now to process entropy requests.
-                self.process_entropy_queue();
+                self.process_entropy_queue().unwrap()
             }
             Err(err) => {
                 error!("entropy: Failed to handle rate-limiter event: {err:?}");
@@ -220,8 +222,8 @@ impl Entropy {
         }
     }
 
-    pub fn process_virtio_queues(&mut self) {
-        self.process_entropy_queue();
+    pub fn process_virtio_queues(&mut self) -> Result<(), InvalidAvailIdx> {
+        self.process_entropy_queue()
     }
 
     pub fn rate_limiter(&self) -> &RateLimiter {
@@ -438,7 +440,7 @@ mod tests {
         let mut entropy_dev = th.device();
 
         // This should succeed, we just added two descriptors
-        let desc = entropy_dev.queues_mut()[RNG_QUEUE].pop().unwrap();
+        let desc = entropy_dev.queues_mut()[RNG_QUEUE].pop().unwrap().unwrap();
         assert!(matches!(
             // SAFETY: This descriptor chain is only loaded into one buffer
             unsafe { IoVecBufferMut::<256>::from_descriptor_chain(&mem, desc) },
@@ -446,7 +448,7 @@ mod tests {
         ));
 
         // This should succeed, we should have one more descriptor
-        let desc = entropy_dev.queues_mut()[RNG_QUEUE].pop().unwrap();
+        let desc = entropy_dev.queues_mut()[RNG_QUEUE].pop().unwrap().unwrap();
         // SAFETY: This descriptor chain is only loaded into one buffer
         entropy_dev.buffer = unsafe { IoVecBufferMut::from_descriptor_chain(&mem, desc).unwrap() };
         entropy_dev.handle_one().unwrap();

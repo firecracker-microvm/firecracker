@@ -9,7 +9,7 @@ use std::sync::{Arc, Mutex};
 
 use serde::{Deserialize, Serialize};
 
-use super::queue::QueueError;
+use super::queue::{InvalidAvailIdx, QueueError};
 use crate::devices::virtio::device::VirtioDevice;
 use crate::devices::virtio::generated::virtio_ring::VIRTIO_RING_F_EVENT_IDX;
 use crate::devices::virtio::mmio::MmioTransport;
@@ -24,6 +24,8 @@ pub enum PersistError {
     InvalidInput,
     /// Could not restore queue: {0}
     QueueConstruction(QueueError),
+    /// {0}
+    InvalidAvailIdx(#[from] InvalidAvailIdx),
 }
 
 /// Queue information saved in snapshot.

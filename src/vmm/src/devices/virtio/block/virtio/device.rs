@@ -29,7 +29,7 @@ use crate::devices::virtio::generated::virtio_blk::{
 };
 use crate::devices::virtio::generated::virtio_config::VIRTIO_F_VERSION_1;
 use crate::devices::virtio::generated::virtio_ring::VIRTIO_RING_F_EVENT_IDX;
-use crate::devices::virtio::queue::Queue;
+use crate::devices::virtio::queue::{InvalidAvailIdx, Queue};
 use crate::devices::virtio::{ActivateError, TYPE_BLOCK};
 use crate::logger::{IncMetric, error, warn};
 use crate::rate_limiter::{BucketUpdate, RateLimiter};
@@ -366,13 +366,13 @@ impl VirtioBlock {
         } else if self.is_io_engine_throttled {
             self.metrics.io_engine_throttled_events.inc();
         } else {
-            self.process_virtio_queues();
+            self.process_virtio_queues().unwrap()
         }
     }
 
     /// Process device virtio queue(s).
-    pub fn process_virtio_queues(&mut self) {
-        self.process_queue(0);
+    pub fn process_virtio_queues(&mut self) -> Result<(), InvalidAvailIdx> {
+        self.process_queue(0)
     }
 
     pub(crate) fn process_rate_limiter_event(&mut self) {
@@ -380,7 +380,7 @@ impl VirtioBlock {
         // Upon rate limiter event, call the rate limiter handler
         // and restart processing the queue.
         if self.rate_limiter.event_handler().is_ok() {
-            self.process_queue(0);
+            self.process_queue(0).unwrap()
         }
     }
 
@@ -403,14 +403,14 @@ impl VirtioBlock {
     }
 
     /// Device specific function for peaking inside a queue and processing descriptors.
-    pub fn process_queue(&mut self, queue_index: usize) {
+    pub fn process_queue(&mut self, queue_index: usize) -> Result<(), InvalidAvailIdx> {
         // This is safe since we checked in the event handler that the device is activated.
         let mem = self.device_state.mem().unwrap();
 
         let queue = &mut self.queues[queue_index];
         let mut used_any = false;
 
-        while let Some(head) = queue.pop_or_enable_notification() {
+        while let Some(head) = queue.pop_or_enable_notification()? {
             self.metrics.remaining_reqs_count.add(queue.len().into());
             let processing_result = match Request::parse(&head, mem, self.disk.nsectors) {
                 Ok(request) => {
@@ -463,6 +463,8 @@ impl VirtioBlock {
         if !used_any {
             self.metrics.no_avail_buffer.inc();
         }
+
+        Ok(())
     }
 
     fn process_async_completion_queue(&mut self) {
@@ -516,7 +518,7 @@ impl VirtioBlock {
 
             if self.is_io_engine_throttled {
                 self.is_io_engine_throttled = false;
-                self.process_queue(0);
+                self.process_queue(0).unwrap()
             }
         }
     }

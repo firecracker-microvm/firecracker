@@ -61,7 +61,7 @@ pub fn queue_benchmark(c: &mut Criterion) {
 
     set_dtable_one_chain(&rxq, 16);
     queue.next_avail = Wrapping(0);
-    let desc = queue.pop().unwrap();
+    let desc = queue.pop().unwrap().unwrap();
     c.bench_function("next_descriptor_16", |b| {
         b.iter(|| {
             let mut head = Some(desc);
@@ -75,7 +75,7 @@ pub fn queue_benchmark(c: &mut Criterion) {
     c.bench_function("queue_pop_16", |b| {
         b.iter(|| {
             queue.next_avail = Wrapping(0);
-            while let Some(desc) = queue.pop() {
+            while let Some(desc) = queue.pop().unwrap() {
                 std::hint::black_box(desc);
             }
         })
