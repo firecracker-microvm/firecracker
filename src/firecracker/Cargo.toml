@@ -21,7 +21,7 @@ gdb = ["vmm/gdb"]
 
 [dependencies]
 displaydoc = "0.2.5"
-event-manager = "0.4.0"
+event-manager = "0.4.1"
 libc = "0.2.172"
 log-instrument = { path = "../log-instrument", optional = true }
 micro_http = { git = "https://github.com/firecracker-microvm/micro-http" }
@@ -32,7 +32,7 @@ thiserror = "2.0.12"
 timerfd = "1.6.0"
 utils = { path = "../utils" }
 vmm = { path = "../vmm" }
-vmm-sys-util = { version = "0.12.1", features = ["with-serde"] }
+vmm-sys-util = { version = "0.14.0", features = ["with-serde"] }
 
 [build-dependencies]
 seccompiler = { path = "../seccompiler" }
