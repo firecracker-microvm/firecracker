@@ -462,3 +462,100 @@ impl Aml for PciSegment {
         .append_aml_bytes(v)
     }
 }
+
+#[cfg(test)]
+mod tests {
+
+    use super::*;
+    use crate::arch;
+    use crate::utils::u64_to_usize;
+
+    #[test]
+    fn test_pci_segment_build() {
+        let resource_allocator = Arc::new(ResourceAllocator::new().unwrap());
+        let pci_irq_slots = &[0u8; 32];
+        let pci_segment = PciSegment::new(0, &resource_allocator, pci_irq_slots).unwrap();
+
+        assert_eq!(pci_segment.id, 0);
+        assert_eq!(
+            pci_segment.start_of_mem32_area,
+            arch::MEM_32BIT_DEVICES_START
+        );
+        assert_eq!(
+            pci_segment.end_of_mem32_area,
+            arch::MEM_32BIT_DEVICES_START + arch::MEM_32BIT_DEVICES_SIZE - 1
+        );
+        assert_eq!(
+            pci_segment.start_of_mem64_area,
+            arch::MEM_64BIT_DEVICES_START
+        );
+        assert_eq!(
+            pci_segment.end_of_mem64_area,
+            arch::MEM_64BIT_DEVICES_START + arch::MEM_64BIT_DEVICES_SIZE - 1
+        );
+        assert_eq!(pci_segment.mmio_config_address, arch::PCI_MMCONFIG_START);
+        assert_eq!(pci_segment.proximity_domain, 0);
+        assert_eq!(pci_segment.pci_devices_up, 0);
+        assert_eq!(pci_segment.pci_devices_down, 0);
+        assert_eq!(pci_segment.pci_irq_slots, [0u8; 32]);
+    }
+
+    #[cfg(target_arch = "x86_64")]
+    #[test]
+    fn test_io_bus() {
+        let resource_allocator = Arc::new(ResourceAllocator::new().unwrap());
+        let pci_irq_slots = &[0u8; 32];
+        let pci_segment = PciSegment::new(0, &resource_allocator, pci_irq_slots).unwrap();
+
+        let mut data = [0u8; u64_to_usize(PCI_CONFIG_IO_PORT_SIZE)];
+        resource_allocator
+            .pio_bus
+            .read(PCI_CONFIG_IO_PORT, &mut data)
+            .unwrap();
+
+        resource_allocator
+            .pio_bus
+            .read(PCI_CONFIG_IO_PORT + PCI_CONFIG_IO_PORT_SIZE, &mut data)
+            .unwrap_err();
+    }
+
+    #[test]
+    fn test_mmio_bus() {
+        let resource_allocator = Arc::new(ResourceAllocator::new().unwrap());
+        let pci_irq_slots = &[0u8; 32];
+        let pci_segment = PciSegment::new(0, &resource_allocator, pci_irq_slots).unwrap();
+
+        let mut data = [0u8; u64_to_usize(PCI_MMIO_CONFIG_SIZE_PER_SEGMENT)];
+
+        resource_allocator
+            .mmio_bus
+            .read(pci_segment.mmio_config_address, &mut data)
+            .unwrap();
+        resource_allocator
+            .mmio_bus
+            .read(
+                pci_segment.mmio_config_address + PCI_MMIO_CONFIG_SIZE_PER_SEGMENT,
+                &mut data,
+            )
+            .unwrap_err();
+    }
+
+    #[test]
+    fn test_next_device_bdf() {
+        let resource_allocator = Arc::new(ResourceAllocator::new().unwrap());
+        let pci_irq_slots = &[0u8; 32];
+        let pci_segment = PciSegment::new(0, &resource_allocator, pci_irq_slots).unwrap();
+
+        // Start checking from device id 1, since 0 is allocated to the Root port.
+        for dev_id in 1..32 {
+            let bdf = pci_segment.next_device_bdf().unwrap();
+            // In our case we have a single Segment with id 0, which has
+            // a single bus with id 0. Also, each device of ours has a
+            // single function.
+            assert_eq!(bdf, PciBdf::new(0, 0, dev_id, 0));
+        }
+
+        // We can only have 32 devices on a segment
+        pci_segment.next_device_bdf().unwrap_err();
+    }
+}
