@@ -13,7 +13,7 @@
 // Position on the bus is defined by MMIO_LEN increments, where MMIO_LEN is
 // defined as 0x1000 in vmm/src/device_manager/mmio.rs.
 #ifdef __x86_64__
-#define MAGIC_MMIO_SIGNAL_GUEST_BOOT_COMPLETE 0xd0000000
+#define MAGIC_MMIO_SIGNAL_GUEST_BOOT_COMPLETE 0xc0000000
 #endif
 #ifdef __aarch64__
 #define MAGIC_MMIO_SIGNAL_GUEST_BOOT_COMPLETE 0x40000000
