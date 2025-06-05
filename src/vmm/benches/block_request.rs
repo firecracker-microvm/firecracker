@@ -24,7 +24,7 @@ pub fn block_request_benchmark(c: &mut Criterion) {
     chain.set_header(request_header);
 
     let mut queue = virt_queue.create_queue();
-    let desc = queue.pop().unwrap();
+    let desc = queue.pop().unwrap().unwrap();
 
     c.bench_function("request_parse", |b| {
         b.iter(|| {

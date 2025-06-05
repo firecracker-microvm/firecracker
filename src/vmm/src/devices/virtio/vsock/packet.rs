@@ -417,7 +417,7 @@ mod tests {
             let mut pkt = VsockPacketTx::default();
             pkt.parse(
                 &test_ctx.mem,
-                handler_ctx.device.queues[TXQ_INDEX].pop().unwrap(),
+                handler_ctx.device.queues[TXQ_INDEX].pop().unwrap().unwrap(),
             )
             .unwrap();
 
@@ -436,7 +436,7 @@ mod tests {
             assert!(matches!(
                 VsockPacketTx::default().parse(
                     &test_ctx.mem,
-                    handler_ctx.device.queues[TXQ_INDEX].pop().unwrap(),
+                    handler_ctx.device.queues[TXQ_INDEX].pop().unwrap().unwrap(),
                 ),
                 Err(VsockError::UnreadableDescriptor)
             ))
@@ -452,7 +452,7 @@ mod tests {
             assert!(matches!(
                 VsockPacketTx::default().parse(
                     &test_ctx.mem,
-                    handler_ctx.device.queues[TXQ_INDEX].pop().unwrap(),
+                    handler_ctx.device.queues[TXQ_INDEX].pop().unwrap().unwrap(),
                 ),
                 Err(VsockError::DescChainTooShortForHeader(_))
             ))
@@ -465,7 +465,7 @@ mod tests {
             VsockPacketTx::default()
                 .parse(
                     &test_ctx.mem,
-                    handler_ctx.device.queues[TXQ_INDEX].pop().unwrap(),
+                    handler_ctx.device.queues[TXQ_INDEX].pop().unwrap().unwrap(),
                 )
                 .unwrap();
         }
@@ -481,7 +481,7 @@ mod tests {
             assert!(matches!(
                 VsockPacketTx::default().parse(
                     &test_ctx.mem,
-                    handler_ctx.device.queues[TXQ_INDEX].pop().unwrap(),
+                    handler_ctx.device.queues[TXQ_INDEX].pop().unwrap().unwrap(),
                 ),
                 Err(VsockError::InvalidPktLen(_))
             ))
@@ -497,7 +497,7 @@ mod tests {
             assert!(matches!(
                 VsockPacketTx::default().parse(
                     &test_ctx.mem,
-                    handler_ctx.device.queues[TXQ_INDEX].pop().unwrap(),
+                    handler_ctx.device.queues[TXQ_INDEX].pop().unwrap().unwrap(),
                 ),
                 Err(VsockError::DescChainTooShortForPacket(44, 1024))
             ))
@@ -512,7 +512,7 @@ mod tests {
             assert!(matches!(
                 VsockPacketTx::default().parse(
                     &test_ctx.mem,
-                    handler_ctx.device.queues[TXQ_INDEX].pop().unwrap(),
+                    handler_ctx.device.queues[TXQ_INDEX].pop().unwrap().unwrap(),
                 ),
                 Err(VsockError::UnreadableDescriptor)
             ))
@@ -527,7 +527,7 @@ mod tests {
             assert!(matches!(
                 VsockPacketTx::default().parse(
                     &test_ctx.mem,
-                    handler_ctx.device.queues[TXQ_INDEX].pop().unwrap(),
+                    handler_ctx.device.queues[TXQ_INDEX].pop().unwrap().unwrap(),
                 ),
                 Err(VsockError::DescChainTooShortForPacket(4140, 8192))
             ))
@@ -542,7 +542,7 @@ mod tests {
             let mut pkt = VsockPacketRx::new().unwrap();
             pkt.parse(
                 &test_ctx.mem,
-                handler_ctx.device.queues[RXQ_INDEX].pop().unwrap(),
+                handler_ctx.device.queues[RXQ_INDEX].pop().unwrap().unwrap(),
             )
             .unwrap();
             assert_eq!(pkt.buf_size(), handler_ctx.guest_rxvq.dtable[1].len.get());
@@ -555,7 +555,7 @@ mod tests {
             assert!(matches!(
                 VsockPacketRx::new().unwrap().parse(
                     &test_ctx.mem,
-                    handler_ctx.device.queues[RXQ_INDEX].pop().unwrap(),
+                    handler_ctx.device.queues[RXQ_INDEX].pop().unwrap().unwrap(),
                 ),
                 Err(VsockError::UnwritableDescriptor)
             ))
@@ -571,7 +571,7 @@ mod tests {
             assert!(matches!(
                 VsockPacketRx::new().unwrap().parse(
                     &test_ctx.mem,
-                    handler_ctx.device.queues[RXQ_INDEX].pop().unwrap(),
+                    handler_ctx.device.queues[RXQ_INDEX].pop().unwrap().unwrap(),
                 ),
                 Err(VsockError::DescChainTooShortForHeader(_))
             ))
@@ -642,13 +642,13 @@ mod tests {
         let mut pkt = VsockPacketRx::new().unwrap();
         pkt.parse(
             &test_ctx.mem,
-            handler_ctx.device.queues[RXQ_INDEX].pop().unwrap(),
+            handler_ctx.device.queues[RXQ_INDEX].pop().unwrap().unwrap(),
         )
         .unwrap();
         let mut pkt2 = VsockPacketTx::default();
         pkt2.parse(
             &test_ctx.mem,
-            handler_ctx.device.queues[TXQ_INDEX].pop().unwrap(),
+            handler_ctx.device.queues[TXQ_INDEX].pop().unwrap().unwrap(),
         )
         .unwrap();
 

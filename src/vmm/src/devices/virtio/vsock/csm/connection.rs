@@ -864,14 +864,14 @@ mod tests {
             rx_pkt
                 .parse(
                     &vsock_test_ctx.mem,
-                    handler_ctx.device.queues[RXQ_INDEX].pop().unwrap(),
+                    handler_ctx.device.queues[RXQ_INDEX].pop().unwrap().unwrap(),
                 )
                 .unwrap();
             let mut tx_pkt = VsockPacketTx::default();
             tx_pkt
                 .parse(
                     &vsock_test_ctx.mem,
-                    handler_ctx.device.queues[TXQ_INDEX].pop().unwrap(),
+                    handler_ctx.device.queues[TXQ_INDEX].pop().unwrap().unwrap(),
                 )
                 .unwrap();
             let conn = match conn_state {

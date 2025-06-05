@@ -11,10 +11,9 @@ pub mod test_utils;
 mod util;
 
 use log::error;
-use vm_memory::GuestMemoryError;
 
 pub use self::device::{Balloon, BalloonConfig, BalloonStats};
-use super::queue::QueueError;
+use super::queue::{InvalidAvailIdx, QueueError};
 use crate::devices::virtio::balloon::metrics::METRICS;
 use crate::devices::virtio::queue::FIRECRACKER_MAX_QUEUE_SIZE;
 use crate::logger::IncMetric;
@@ -68,16 +67,12 @@ const VIRTIO_BALLOON_S_HTLB_PGFAIL: u16 = 9;
 /// Balloon device related errors.
 #[derive(Debug, thiserror::Error, displaydoc::Display)]
 pub enum BalloonError {
-    /// Activation error: {0}
-    Activate(super::ActivateError),
     /// No balloon device found.
     DeviceNotFound,
     /// Device not activated yet.
     DeviceNotActive,
     /// EventFd error: {0}
     EventFd(std::io::Error),
-    /// Guest gave us bad memory addresses: {0}
-    GuestMemory(GuestMemoryError),
     /// Received error while sending an interrupt: {0}
     InterruptError(std::io::Error),
     /// Guest gave us a malformed descriptor.
@@ -93,9 +88,9 @@ pub enum BalloonError {
     /// Amount of pages requested cannot fit in `u32`.
     TooManyPagesRequested,
     /// Error while processing the virt queues: {0}
-    Queue(QueueError),
-    /// Error removing a memory region at inflate time: {0}
-    RemoveMemoryRegion(RemoveRegionError),
+    Queue(#[from] QueueError),
+    /// {0}
+    InvalidAvailIdx(#[from] InvalidAvailIdx),
     /// Error creating the statistics timer: {0}
     Timer(std::io::Error),
 }
@@ -115,6 +110,9 @@ pub enum RemoveRegionError {
 }
 
 pub(super) fn report_balloon_event_fail(err: BalloonError) {
+    if let BalloonError::InvalidAvailIdx(err) = err {
+        panic!("{}", err);
+    }
     error!("{:?}", err);
     METRICS.event_fails.inc();
 }

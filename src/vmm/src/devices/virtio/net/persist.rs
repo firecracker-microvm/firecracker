@@ -163,7 +163,8 @@ impl Persist<'_> for Net {
             // Recreate `Net::rx_buffer`. We do it by re-parsing the RX queue. We're temporarily
             // rolling back `next_avail` in the RX queue and call `parse_rx_descriptors`.
             net.queues[RX_INDEX].next_avail -= state.rx_buffers_state.parsed_descriptor_chains_nr;
-            net.parse_rx_descriptors();
+            net.parse_rx_descriptors()
+                .map_err(|e| NetPersistError::VirtioState(VirtioStateError::InvalidAvailIdx(e)))?;
             net.rx_buffer.used_descriptors = state.rx_buffers_state.used_descriptors;
             net.rx_buffer.used_bytes = state.rx_buffers_state.used_bytes;
         }

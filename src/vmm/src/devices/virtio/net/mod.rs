@@ -31,6 +31,7 @@ use vm_memory::VolatileMemoryError;
 
 pub use self::device::Net;
 use super::iovec::IoVecError;
+use crate::devices::virtio::queue::{InvalidAvailIdx, QueueError};
 
 /// Enum representing the Net device queue types
 #[derive(Debug)]
@@ -58,4 +59,8 @@ pub enum NetError {
     VnetHeaderMissing,
     /// IoVecBuffer(Mut) error: {0}
     IoVecError(#[from] IoVecError),
+    /// virtio queue error: {0}
+    QueueError(#[from] QueueError),
+    /// {0}
+    InvalidAvailIdx(#[from] InvalidAvailIdx),
 }
