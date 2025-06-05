@@ -7,7 +7,7 @@ use vmm::rpc_interface::VmmAction;
 
 use super::super::parsed_request::{ParsedRequest, RequestError};
 use super::Body;
-#[cfg(target_arch = "aarch64")]
+#[cfg(any(target_arch = "aarch64", target_arch = "riscv64"))]
 use super::StatusCode;
 
 // The names of the members from this enum must precisely correspond (as a string) to the possible
@@ -43,6 +43,13 @@ pub(crate) fn parse_put_actions(body: &Body) -> Result<ParsedRequest, RequestErr
             return Err(RequestError::Generic(
                 StatusCode::BadRequest,
                 "SendCtrlAltDel does not supported on aarch64.".to_string(),
+            ));
+
+            // SendCtrlAltDel not supported on riscv64.
+            #[cfg(target_arch = "riscv64")]
+            return Err(RequestError::Generic(
+                StatusCode::BadRequest,
+                "SendCtrlAltDel is not supported on riscv64.".to_string(),
             ));
 
             #[cfg(target_arch = "x86_64")]

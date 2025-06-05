@@ -56,6 +56,7 @@ pub struct scmp_arg_cmp {
 
 pub const SCMP_ARCH_X86_64: u32 = 0xc000003e;
 pub const SCMP_ARCH_AARCH64: u32 = 0xc00000b7;
+pub const SCMP_ARCH_RISCV64: u32 = 0xc00000f3;
 /// Kill the process
 pub const SCMP_ACT_KILL_PROCESS: u32 = 0x80000000;
 /// Kill the thread
