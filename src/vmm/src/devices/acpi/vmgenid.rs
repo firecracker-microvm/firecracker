@@ -152,11 +152,6 @@ impl<'a> Persist<'a> for VmGenId {
         constructor_args: Self::ConstructorArgs,
         state: &Self::State,
     ) -> std::result::Result<Self, Self::Error> {
-        constructor_args.resource_allocator.allocate_system_memory(
-            VMGENID_MEM_SIZE,
-            8,
-            vm_allocator::AllocPolicy::ExactMatch(state.addr),
-        )?;
         Self::from_parts(GuestAddress(state.addr), state.gsi, constructor_args.mem)
     }
 }

@@ -126,6 +126,7 @@ use devices::acpi::vmgenid::VmGenIdError;
 use devices::virtio::device::VirtioDevice;
 use event_manager::{EventManager as BaseEventManager, EventOps, Events, MutEventSubscriber};
 use seccomp::BpfProgram;
+use snapshot::Persist;
 use userfaultfd::Uffd;
 use vmm_sys_util::epoll::EventSet;
 use vmm_sys_util::eventfd::EventFd;
