@@ -309,7 +309,7 @@ pub enum DevicePersistError {
 
 pub struct DeviceRestoreArgs<'a> {
     pub mem: &'a GuestMemoryMmap,
-    pub vm: &'a Vm,
+    pub vm: &'a Arc<Vm>,
     pub event_manager: &'a mut EventManager,
     pub vcpus_exit_evt: &'a EventFd,
     pub vm_resources: &'a mut VmResources,
@@ -375,6 +375,11 @@ impl<'a> Persist<'a> for DeviceManager {
         // Restore PCI devices
         let pci_ctor_args = PciDevicesConstructorArgs {
             resource_allocator: &resource_allocator,
+            vm: constructor_args.vm.clone(),
+            mem: constructor_args.mem,
+            vm_resources: constructor_args.vm_resources,
+            instance_id: constructor_args.instance_id,
+            restored_from_file: constructor_args.restored_from_file,
         };
         let pci_devices = PciDevices::restore(pci_ctor_args, &state.pci_state)?;
 

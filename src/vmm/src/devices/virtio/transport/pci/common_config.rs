@@ -144,7 +144,7 @@ impl VirtioPciCommonConfig {
         }
     }
 
-    fn state(&self) -> VirtioPciCommonConfigState {
+    pub fn state(&self) -> VirtioPciCommonConfigState {
         VirtioPciCommonConfigState {
             driver_status: self.driver_status,
             config_generation: self.config_generation,
