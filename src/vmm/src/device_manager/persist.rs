@@ -107,8 +107,8 @@ pub struct ConnectedLegacyState {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MmdsState {
-    version: MmdsVersion,
-    imds_compat: bool,
+    pub version: MmdsVersion,
+    pub imds_compat: bool,
 }
 
 /// Holds the device states.
