@@ -451,6 +451,8 @@ pub fn build_microvm_from_snapshot(
     // Restore the boot source config paths.
     vm_resources.boot_source.config = microvm_state.vm_info.boot_source;
 
+    let vm = Arc::new(vm);
+
     // Restore devices states.
     // Restoring VMGenID injects an interrupt in the guest to notify it about the new generation
     // ID. As a result, we need to restore DeviceManager after restoring the KVM state, otherwise
@@ -473,7 +475,7 @@ pub fn build_microvm_from_snapshot(
         instance_info: instance_info.clone(),
         shutdown_exit_code: None,
         kvm,
-        vm: Arc::new(vm),
+        vm,
         uffd,
         vcpus_handles: Vec::new(),
         vcpus_exit_evt,

@@ -357,6 +357,11 @@ impl DeviceManager {
             Self::do_kick_device(mmio_transport_locked.device());
             Ok(())
         });
+        // Go through PCI VirtIO devices
+        for device in self.pci_devices.virtio_devices.values() {
+            let virtio_device = device.lock().expect("Poisoned lock").virtio_device();
+            Self::do_kick_device(virtio_device);
+        }
     }
 
     fn do_mark_virtio_queue_memory_dirty(
@@ -380,6 +385,12 @@ impl DeviceManager {
             Self::do_mark_virtio_queue_memory_dirty(mmio_transport_locked.device(), mem);
             Ok(())
         });
+
+        // Go through PCI VirtIO devices
+        for device in self.pci_devices.virtio_devices.values() {
+            let virtio_device = device.lock().expect("Poisoned lock").virtio_device();
+            Self::do_mark_virtio_queue_memory_dirty(virtio_device, mem);
+        }
     }
 }
 
@@ -416,7 +427,7 @@ pub enum DevicePersistError {
 
 pub struct DeviceRestoreArgs<'a> {
     pub mem: &'a GuestMemoryMmap,
-    pub vm: &'a Vm,
+    pub vm: &'a Arc<Vm>,
     pub event_manager: &'a mut EventManager,
     pub vcpus_exit_evt: &'a EventFd,
     pub vm_resources: &'a mut VmResources,
@@ -491,6 +502,12 @@ impl<'a> Persist<'a> for DeviceManager {
         // Restore PCI devices
         let pci_ctor_args = PciDevicesConstructorArgs {
             resource_allocator: &resource_allocator,
+            vm: constructor_args.vm.clone(),
+            mem: constructor_args.mem,
+            vm_resources: constructor_args.vm_resources,
+            instance_id: constructor_args.instance_id,
+            restored_from_file: constructor_args.restored_from_file,
+            event_manager: constructor_args.event_manager,
         };
         let pci_devices = PciDevices::restore(pci_ctor_args, &state.pci_state)?;
 
