@@ -1620,6 +1620,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "040a65b0c29f298d71ca45dd52d02b0d0ddc15b9b97d95dfeebe67d6fdd42a28"
 dependencies = [
  "libc",
+ "serde",
  "thiserror 2.0.12",
 ]
 
