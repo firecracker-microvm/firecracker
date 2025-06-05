@@ -16,6 +16,7 @@ use crate::device_manager::resources::ResourceAllocator;
 use crate::devices::pci::PciSegment;
 use crate::devices::virtio::device::VirtioDevice;
 use crate::devices::virtio::transport::pci::device::{VirtioPciDevice, VirtioPciDeviceError};
+use crate::snapshot::Persist;
 use crate::vstate::vm::InterruptError;
 
 #[derive(Debug, Default)]
@@ -61,24 +62,6 @@ impl PciDevices {
         // only.
         let pci_segment = PciSegment::new(0, resource_allocator, &[0u8; 32])?;
         self.pci_segment = Some(pci_segment);
-
-        Ok(())
-    }
-
-    pub fn save(&self) -> PciDevicesState {
-        PciDevicesState {
-            pci_enabled: self.pci_segment.is_some(),
-        }
-    }
-
-    pub fn restore(
-        &mut self,
-        state: &PciDevicesState,
-        resource_allocator: &Arc<ResourceAllocator>,
-    ) -> Result<(), PciManagerError> {
-        if state.pci_enabled {
-            self.attach_pci_segment(resource_allocator)?;
-        }
 
         Ok(())
     }
@@ -193,4 +176,34 @@ impl PciDevices {
 #[derive(Default, Debug, Clone, Serialize, Deserialize)]
 pub struct PciDevicesState {
     pci_enabled: bool,
+}
+
+#[derive(Debug)]
+pub struct PciDevicesConstructorArgs<'a> {
+    pub resource_allocator: &'a Arc<ResourceAllocator>,
+}
+
+impl<'a> Persist<'a> for PciDevices {
+    type State = PciDevicesState;
+    type ConstructorArgs = PciDevicesConstructorArgs<'a>;
+    type Error = PciManagerError;
+
+    fn save(&self) -> Self::State {
+        PciDevicesState {
+            pci_enabled: self.pci_segment.is_some(),
+        }
+    }
+
+    fn restore(
+        constructor_args: Self::ConstructorArgs,
+        state: &Self::State,
+    ) -> std::result::Result<Self, Self::Error> {
+        let mut pci_devices = PciDevices::new();
+
+        if state.pci_enabled {
+            pci_devices.attach_pci_segment(constructor_args.resource_allocator)?;
+        }
+
+        Ok(pci_devices)
+    }
 }

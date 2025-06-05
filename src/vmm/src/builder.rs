@@ -42,6 +42,7 @@ use crate::logger::debug;
 use crate::persist::{MicrovmState, MicrovmStateError};
 use crate::resources::VmResources;
 use crate::seccomp::BpfThreadMap;
+use crate::snapshot::Persist;
 use crate::vmm_config::instance_info::InstanceInfo;
 use crate::vmm_config::machine_config::MachineConfigError;
 use crate::vstate::kvm::{Kvm, KvmError};
@@ -411,8 +412,6 @@ pub fn build_microvm_from_snapshot(
         .create_vcpus(vm_resources.machine_config.vcpu_count)
         .map_err(StartMicrovmError::Vm)?;
 
-    let mut device_manager = DeviceManager::new(event_manager, &vcpus_exit_evt, &vm).unwrap();
-
     vm.register_memory_regions(guest_memory)
         .map_err(StartMicrovmError::Vm)?;
 
@@ -428,16 +427,6 @@ pub fn build_microvm_from_snapshot(
                 }
             }
         }
-    }
-
-    // Restore allocator state
-    #[cfg(target_arch = "aarch64")]
-    if let Some(pvtime_ipa) = vcpus[0].kvm_vcpu.pvtime_ipa {
-        allocate_pvtime_region(
-            &mut device_manager,
-            vcpus.len(),
-            vm_allocator::AllocPolicy::ExactMatch(pvtime_ipa.0),
-        )?;
     }
 
     // Restore vcpus kvm state.
@@ -463,6 +452,9 @@ pub fn build_microvm_from_snapshot(
     vm_resources.boot_source.config = microvm_state.vm_info.boot_source;
 
     // Restore devices states.
+    // Restoring VMGenID injects an interrupt in the guest to notify it about the new generation
+    // ID. As a result, we need to restore DeviceManager after restoring the KVM state, otherwise
+    // the injected interrupt will be overwritten.
     let device_ctor_args = DeviceRestoreArgs {
         mem: vm.guest_memory(),
         vm: &vm,
@@ -470,9 +462,11 @@ pub fn build_microvm_from_snapshot(
         vm_resources,
         instance_id: &instance_info.id,
         restored_from_file: uffd.is_none(),
+        vcpus_exit_evt: &vcpus_exit_evt,
     };
-
-    device_manager.restore(&microvm_state.device_states, device_ctor_args)?;
+    #[allow(unused_mut)]
+    let mut device_manager =
+        DeviceManager::restore(device_ctor_args, &microvm_state.device_states)?;
 
     let mut vmm = Vmm {
         events_observer: Some(std::io::stdin()),

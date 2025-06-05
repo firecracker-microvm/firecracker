@@ -9,7 +9,6 @@ use std::sync::{Arc, Mutex};
 use event_manager::{MutEventSubscriber, SubscriberOps};
 use log::{error, warn};
 use serde::{Deserialize, Serialize};
-use vm_allocator::AllocPolicy;
 
 use super::acpi::ACPIDeviceManager;
 use super::mmio::*;
@@ -471,27 +470,6 @@ impl<'a> Persist<'a> for MMIODeviceManager {
                     .map_err(|()| DevicePersistError::MmioTransport)?,
             ));
 
-            // We do not currently require exact re-allocation of IDs via
-            // `dev_manager.irq_allocator.allocate_id()` and currently cannot do
-            // this effectively as `IdAllocator` does not implement an exact
-            // match API.
-            // In the future we may require preserving `IdAllocator`'s state
-            // after snapshot restore so as to restore the exact interrupt IDs
-            // from the original device's state for implementing hot-plug.
-            // For now this is why we do not restore the state of the
-            // `IdAllocator` under `dev_manager`.
-
-            constructor_args
-                .resource_allocator
-                .allocate_32bit_mmio_memory(
-                    MMIO_LEN,
-                    MMIO_LEN,
-                    AllocPolicy::ExactMatch(device_info.addr),
-                )
-                .map_err(|e| {
-                    DevicePersistError::DeviceManager(super::mmio::MmioError::Allocator(e))
-                })?;
-
             dev_manager.register_mmio_virtio(
                 vm,
                 id.clone(),
@@ -678,6 +656,7 @@ mod tests {
 
     use super::*;
     use crate::builder::tests::*;
+    use crate::device_manager;
     use crate::devices::virtio::block::CacheType;
     use crate::resources::VmmConfig;
     use crate::snapshot::Snapshot;
@@ -748,11 +727,10 @@ mod tests {
 
     #[test]
     fn test_device_manager_persistence() {
-        let mut buf = vec![0; 16384];
+        let mut buf = vec![0; 65536];
         // These need to survive so the restored blocks find them.
         let _block_files;
         let mut tmp_sock_file = TempFile::new().unwrap();
-        let resource_allocator = ResourceAllocator::new().unwrap();
         tmp_sock_file.remove().unwrap();
         // Set up a vmm with one of each device, and get the serialized DeviceStates.
         {
@@ -812,7 +790,10 @@ mod tests {
 
         let mut event_manager = EventManager::new().expect("Unable to create EventManager");
         let vmm = default_vmm();
-        let device_states: DeviceStates = Snapshot::deserialize(&mut buf.as_slice()).unwrap();
+        let device_manager_state: device_manager::DevicesState =
+            Snapshot::deserialize(&mut buf.as_slice()).unwrap();
+        let resource_allocator =
+            ResourceAllocator::restore((), &device_manager_state.resource_allocator_state).unwrap();
         let vm_resources = &mut VmResources::default();
         let restore_args = MMIODevManagerConstructorArgs {
             mem: vmm.vm.guest_memory(),
@@ -824,7 +805,7 @@ mod tests {
             restored_from_file: true,
         };
         let _restored_dev_manager =
-            MMIODeviceManager::restore(restore_args, &device_states).unwrap();
+            MMIODeviceManager::restore(restore_args, &device_manager_state.mmio_state).unwrap();
 
         let expected_vm_resources = format!(
             r#"{{
@@ -899,7 +880,10 @@ mod tests {
                 .version(),
             MmdsVersion::V2
         );
-        assert_eq!(device_states.mmds_version.unwrap(), MmdsVersion::V2.into());
+        assert_eq!(
+            device_manager_state.mmio_state.mmds_version.unwrap(),
+            MmdsVersion::V2.into()
+        );
         assert_eq!(
             expected_vm_resources,
             serde_json::to_string_pretty(&VmmConfig::from(&*vm_resources)).unwrap()
