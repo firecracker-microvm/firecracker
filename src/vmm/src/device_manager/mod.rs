@@ -15,7 +15,7 @@ use legacy::{LegacyDeviceError, PortIODeviceManager};
 use linux_loader::loader::Cmdline;
 use log::error;
 use mmio::{MMIODeviceManager, MmioError};
-use pci_mngr::{PciDevices, PciManagerError};
+use pci_mngr::{PciDevices, PciDevicesConstructorArgs, PciManagerError};
 use persist::{ACPIDeviceManagerConstructorArgs, MMIODevManagerConstructorArgs};
 use resources::ResourceAllocator;
 use serde::{Deserialize, Serialize};
@@ -127,30 +127,39 @@ impl DeviceManager {
         Ok(serial)
     }
 
+    #[cfg(target_arch = "x86_64")]
+    fn create_legacy_devices(
+        event_manager: &mut EventManager,
+        vcpus_exit_evt: &EventFd,
+        vm: &Vm,
+        resource_allocator: &ResourceAllocator,
+    ) -> Result<PortIODeviceManager, DeviceManagerCreateError> {
+        Self::set_stdout_nonblocking();
+
+        // Create serial device
+        let serial = Self::setup_serial_device(event_manager)?;
+        let reset_evt = vcpus_exit_evt
+            .try_clone()
+            .map_err(DeviceManagerCreateError::EventFd)?;
+        // Create keyboard emulator for reset event
+        let i8042 = Arc::new(Mutex::new(I8042Device::new(reset_evt)?));
+
+        // create pio dev manager with legacy devices
+        let mut legacy_devices = PortIODeviceManager::new(serial, i8042)?;
+        legacy_devices.register_devices(&resource_allocator.pio_bus, vm)?;
+        Ok(legacy_devices)
+    }
+
     #[cfg_attr(target_arch = "aarch64", allow(unused))]
     pub fn new(
         event_manager: &mut EventManager,
-        vcpu_exit_evt: &EventFd,
+        vcpus_exit_evt: &EventFd,
         vm: &Vm,
     ) -> Result<Self, DeviceManagerCreateError> {
         let resource_allocator = Arc::new(ResourceAllocator::new()?);
         #[cfg(target_arch = "x86_64")]
-        let legacy_devices = {
-            Self::set_stdout_nonblocking();
-
-            // Create serial device
-            let serial = Self::setup_serial_device(event_manager)?;
-            let reset_evt = vcpu_exit_evt
-                .try_clone()
-                .map_err(DeviceManagerCreateError::EventFd)?;
-            // Create keyboard emulator for reset event
-            let i8042 = Arc::new(Mutex::new(I8042Device::new(reset_evt)?));
-
-            // create pio dev manager with legacy devices
-            let mut legacy_devices = PortIODeviceManager::new(serial, i8042)?;
-            legacy_devices.register_devices(&resource_allocator.pio_bus, vm)?;
-            legacy_devices
-        };
+        let legacy_devices =
+            Self::create_legacy_devices(event_manager, vcpus_exit_evt, vm, &resource_allocator)?;
 
         Ok(DeviceManager {
             resource_allocator,
@@ -270,6 +279,8 @@ impl DeviceManager {
 #[derive(Debug, Default, Clone, Serialize, Deserialize)]
 /// State of devices in the system
 pub struct DevicesState {
+    /// Resource allocator state
+    pub resource_allocator_state: resources::ResourceAllocatorState,
     /// MMIO devices state
     pub mmio_state: persist::DeviceStates,
     /// ACPI devices state
@@ -292,12 +303,15 @@ pub enum DevicePersistError {
     SerialRestore(#[from] EmulateSerialInitError),
     /// Error inserting device in bus: {0}
     Bus(#[from] vm_device::BusError),
+    /// Error creating DeviceManager: {0}
+    DeviceManager(#[from] DeviceManagerCreateError),
 }
 
 pub struct DeviceRestoreArgs<'a> {
     pub mem: &'a GuestMemoryMmap,
     pub vm: &'a Vm,
     pub event_manager: &'a mut EventManager,
+    pub vcpus_exit_evt: &'a EventFd,
     pub vm_resources: &'a mut VmResources,
     pub instance_id: &'a str,
     pub restored_from_file: bool,
@@ -315,15 +329,82 @@ impl std::fmt::Debug for DeviceRestoreArgs<'_> {
     }
 }
 
-impl DeviceManager {
-    pub fn save(&self) -> DevicesState {
+impl<'a> Persist<'a> for DeviceManager {
+    type State = DevicesState;
+    type ConstructorArgs = DeviceRestoreArgs<'a>;
+    type Error = DevicePersistError;
+
+    fn save(&self) -> Self::State {
         DevicesState {
+            resource_allocator_state: self.resource_allocator.save(),
             mmio_state: self.mmio_devices.save(),
             acpi_state: self.acpi_devices.save(),
             pci_state: self.pci_devices.save(),
         }
     }
 
+    fn restore(
+        constructor_args: Self::ConstructorArgs,
+        state: &Self::State,
+    ) -> std::result::Result<Self, Self::Error> {
+        // Safe to unwrap here. ResourceAllocator restoring cannot fail.
+        let resource_allocator =
+            Arc::new(ResourceAllocator::restore((), &state.resource_allocator_state).unwrap());
+
+        // Setup legacy devices in case of x86
+        #[cfg(target_arch = "x86_64")]
+        let legacy_devices = Self::create_legacy_devices(
+            constructor_args.event_manager,
+            constructor_args.vcpus_exit_evt,
+            constructor_args.vm,
+            &resource_allocator,
+        )?;
+
+        // Restore MMIO devices
+        let mmio_ctor_args = MMIODevManagerConstructorArgs {
+            mem: constructor_args.mem,
+            vm: constructor_args.vm,
+            event_manager: constructor_args.event_manager,
+            resource_allocator: &resource_allocator,
+            vm_resources: constructor_args.vm_resources,
+            instance_id: constructor_args.instance_id,
+            restored_from_file: constructor_args.restored_from_file,
+        };
+        let mmio_devices = MMIODeviceManager::restore(mmio_ctor_args, &state.mmio_state)?;
+
+        // Restore ACPI devices
+        let acpi_ctor_args = ACPIDeviceManagerConstructorArgs {
+            mem: constructor_args.mem,
+            resource_allocator: &resource_allocator,
+            vm: constructor_args.vm,
+        };
+        let mut acpi_devices = ACPIDeviceManager::restore(acpi_ctor_args, &state.acpi_state)?;
+        acpi_devices.notify_vmgenid()?;
+
+        // Restore PCI devices
+        let pci_ctor_args = PciDevicesConstructorArgs {
+            resource_allocator: &resource_allocator,
+        };
+        let pci_devices = PciDevices::restore(pci_ctor_args, &state.pci_state)?;
+
+        let device_manager = DeviceManager {
+            resource_allocator,
+            mmio_devices,
+            #[cfg(target_arch = "x86_64")]
+            legacy_devices,
+            acpi_devices,
+            pci_devices,
+        };
+
+        // Restore serial.
+        // We need to do that after we restore mmio devices, otherwise it won't succeed in Aarch64
+        device_manager.emulate_serial_init()?;
+
+        Ok(device_manager)
+    }
+}
+
+impl DeviceManager {
     /// Sets RDA bit in serial console
     pub fn emulate_serial_init(&self) -> Result<(), EmulateSerialInitError> {
         // When restoring from a previously saved state, there is no serial
@@ -360,43 +441,6 @@ impl DeviceManager {
                 .map_err(|_| EmulateSerialInitError(std::io::Error::last_os_error()))?;
             Ok(())
         }
-    }
-
-    pub fn restore(
-        &mut self,
-        state: &DevicesState,
-        restore_args: DeviceRestoreArgs,
-    ) -> Result<(), DevicePersistError> {
-        // Restore MMIO devices
-        let mmio_ctor_args = MMIODevManagerConstructorArgs {
-            mem: restore_args.mem,
-            vm: restore_args.vm,
-            event_manager: restore_args.event_manager,
-            resource_allocator: &self.resource_allocator,
-            vm_resources: restore_args.vm_resources,
-            instance_id: restore_args.instance_id,
-            restored_from_file: restore_args.restored_from_file,
-        };
-        self.mmio_devices = MMIODeviceManager::restore(mmio_ctor_args, &state.mmio_state)?;
-
-        // Restore serial.
-        // We need to do that after we restore mmio devices, otherwise it won't succeed in Aarch64
-        self.emulate_serial_init()?;
-
-        // Restore ACPI devices
-        let acpi_ctor_args = ACPIDeviceManagerConstructorArgs {
-            mem: restore_args.mem,
-            resource_allocator: &self.resource_allocator,
-            vm: restore_args.vm,
-        };
-        self.acpi_devices = ACPIDeviceManager::restore(acpi_ctor_args, &state.acpi_state)?;
-        self.acpi_devices.notify_vmgenid()?;
-
-        // Restore PCI devices
-        self.pci_devices
-            .restore(&state.pci_state, &self.resource_allocator)?;
-
-        Ok(())
     }
 }
 
