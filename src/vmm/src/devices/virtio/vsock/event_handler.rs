@@ -33,6 +33,7 @@ use vmm_sys_util::epoll::EventSet;
 use super::VsockBackend;
 use super::device::{EVQ_INDEX, RXQ_INDEX, TXQ_INDEX, Vsock};
 use crate::devices::virtio::device::VirtioDevice;
+use crate::devices::virtio::queue::InvalidAvailIdx;
 use crate::devices::virtio::vsock::metrics::METRICS;
 use crate::logger::IncMetric;
 
@@ -107,7 +108,7 @@ where
     }
 
     /// Notify backend of new events.
-    pub fn notify_backend(&mut self, evset: EventSet) -> bool {
+    pub fn notify_backend(&mut self, evset: EventSet) -> Result<bool, InvalidAvailIdx> {
         self.backend.notify(evset);
         // After the backend has been kicked, it might've freed up some resources, so we
         // can attempt to send it more data to process.
@@ -116,11 +117,11 @@ where
         // TX queue again.
         // OK to unwrap: Only QueueError::InvalidAvailIdx is returned, and we explicitly
         // want to panic on that one.
-        let mut raise_irq = self.process_tx().unwrap();
+        let mut raise_irq = self.process_tx()?;
         if self.backend.has_pending_rx() {
-            raise_irq |= self.process_rx().unwrap();
+            raise_irq |= self.process_rx()?;
         }
-        raise_irq
+        Ok(raise_irq)
     }
 
     fn register_runtime_events(&self, ops: &mut EventOps) {
@@ -194,7 +195,7 @@ where
                 Self::PROCESS_RXQ => raise_irq = self.handle_rxq_event(evset),
                 Self::PROCESS_TXQ => raise_irq = self.handle_txq_event(evset),
                 Self::PROCESS_EVQ => raise_irq = self.handle_evq_event(evset),
-                Self::PROCESS_NOTIFY_BACKEND => raise_irq = self.notify_backend(evset),
+                Self::PROCESS_NOTIFY_BACKEND => raise_irq = self.notify_backend(evset).unwrap(),
                 _ => warn!("Unexpected vsock event received: {:?}", source),
             }
             if raise_irq {
@@ -394,7 +395,7 @@ mod tests {
             ctx.mock_activate(test_ctx.mem.clone());
 
             ctx.device.backend.set_pending_rx(true);
-            ctx.device.notify_backend(EventSet::IN);
+            ctx.device.notify_backend(EventSet::IN).unwrap();
 
             // The backend should've received this event.
             assert_eq!(ctx.device.backend.evset, Some(EventSet::IN));
@@ -413,7 +414,7 @@ mod tests {
             ctx.mock_activate(test_ctx.mem.clone());
 
             ctx.device.backend.set_pending_rx(false);
-            ctx.device.notify_backend(EventSet::IN);
+            ctx.device.notify_backend(EventSet::IN).unwrap();
 
             // The backend should've received this event.
             assert_eq!(ctx.device.backend.evset, Some(EventSet::IN));
