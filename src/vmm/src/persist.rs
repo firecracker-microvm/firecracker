@@ -599,6 +599,7 @@ mod tests {
     #[cfg(target_arch = "aarch64")]
     use crate::construct_kvm_mpidrs;
     use crate::devices::virtio::block::CacheType;
+    use crate::snapshot::Persist;
     use crate::vmm_config::balloon::BalloonDeviceConfig;
     use crate::vmm_config::net::NetworkInterfaceConfig;
     use crate::vmm_config::vsock::tests::default_config;

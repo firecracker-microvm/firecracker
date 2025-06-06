@@ -409,7 +409,7 @@ struct PciBar {
     r#type: Option<PciBarRegionType>,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct PciConfigurationState {
     registers: Vec<u32>,
     writable_bits: Vec<u32>,

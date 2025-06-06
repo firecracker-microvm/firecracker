@@ -126,6 +126,7 @@ use devices::acpi::vmgenid::VmGenIdError;
 use devices::virtio::device::VirtioDevice;
 use event_manager::{EventManager as BaseEventManager, EventOps, Events, MutEventSubscriber};
 use seccomp::BpfProgram;
+use snapshot::Persist;
 use userfaultfd::Uffd;
 use vmm_sys_util::epoll::EventSet;
 use vmm_sys_util::eventfd::EventFd;
@@ -299,8 +300,9 @@ pub struct Vmm {
     // Guest VM core resources.
     kvm: Kvm,
     /// VM object
-    pub vm: Vm,
+    pub vm: Arc<Vm>,
     // Save UFFD in order to keep it open in the Firecracker process, as well.
+    #[allow(unused)]
     uffd: Option<Uffd>,
     vcpus_handles: Vec<VcpuHandle>,
     // Used by Vcpus and devices to initiate teardown; Vmm should never write here.

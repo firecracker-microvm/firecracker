@@ -24,7 +24,7 @@ const DEVICE_ID_INTEL_VIRT_PCIE_HOST: u16 = 0x0d57;
 const NUM_DEVICE_IDS: usize = 32;
 
 /// Errors for device manager.
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error, displaydoc::Display)]
 pub enum PciRootError {
     /// Could not allocate device address space for the device.
     AllocateDeviceAddrs(PciDeviceError),
