@@ -101,46 +101,29 @@ fn test_pause_resume_microvm() {
 }
 
 #[test]
-fn test_dirty_bitmap_error() {
-    // Error case: dirty tracking disabled.
-    let (vmm, _) = default_vmm(None);
-
-    // The vmm will start with dirty page tracking = OFF.
-    // With dirty tracking disabled, the underlying KVM_GET_DIRTY_LOG ioctl will fail
-    // with errno 2 (ENOENT) because KVM can't find any guest memory regions with dirty
-    // page tracking enabled.
-    assert_eq!(
-        vmm.lock()
-            .unwrap()
-            .vm
-            .get_dirty_bitmap()
-            .unwrap_err()
-            .errno(),
-        2
-    );
-    vmm.lock().unwrap().stop(FcExitCode::Ok);
-}
-
-#[test]
 #[cfg(target_arch = "x86_64")]
 fn test_dirty_bitmap_success() {
-    // The vmm will start with dirty page tracking = ON.
-    let (vmm, _) = vmm::test_utils::dirty_tracking_vmm(Some(NOISY_KERNEL_IMAGE));
+    let vmms = [
+        vmm::test_utils::dirty_tracking_vmm(Some(NOISY_KERNEL_IMAGE)),
+        default_vmm(Some(NOISY_KERNEL_IMAGE)),
+    ];
 
-    // Let it churn for a while and dirty some pages...
-    thread::sleep(Duration::from_millis(100));
-    let bitmap = vmm.lock().unwrap().vm.get_dirty_bitmap().unwrap();
-    let num_dirty_pages: u32 = bitmap
-        .values()
-        .map(|bitmap_per_region| {
-            // Gently coerce to u32
-            let num_dirty_pages_per_region: u32 =
-                bitmap_per_region.iter().map(|n| n.count_ones()).sum();
-            num_dirty_pages_per_region
-        })
-        .sum();
-    assert!(num_dirty_pages > 0);
-    vmm.lock().unwrap().stop(FcExitCode::Ok);
+    for (vmm, _) in vmms {
+        // Let it churn for a while and dirty some pages...
+        thread::sleep(Duration::from_millis(100));
+        let bitmap = vmm.lock().unwrap().vm.get_dirty_bitmap().unwrap();
+        let num_dirty_pages: u32 = bitmap
+            .values()
+            .map(|bitmap_per_region| {
+                // Gently coerce to u32
+                let num_dirty_pages_per_region: u32 =
+                    bitmap_per_region.iter().map(|n| n.count_ones()).sum();
+                num_dirty_pages_per_region
+            })
+            .sum();
+        assert!(num_dirty_pages > 0);
+        vmm.lock().unwrap().stop(FcExitCode::Ok);
+    }
 }
 
 #[test]

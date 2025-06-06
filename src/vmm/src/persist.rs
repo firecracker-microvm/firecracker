@@ -39,7 +39,7 @@ use crate::vstate::kvm::KvmState;
 use crate::vstate::memory;
 use crate::vstate::memory::{GuestMemoryState, GuestRegionMmap, MemoryError};
 use crate::vstate::vcpu::{VcpuSendEventError, VcpuState};
-use crate::vstate::vm::VmState;
+use crate::vstate::vm::{VmError, VmState};
 use crate::{EventManager, Vmm, vstate};
 
 /// Holds information related to the VM that is not part of VmState.
@@ -134,7 +134,7 @@ pub enum MicrovmStateError {
 #[derive(Debug, thiserror::Error, displaydoc::Display)]
 pub enum CreateSnapshotError {
     /// Cannot get dirty bitmap: {0}
-    DirtyBitmap(#[from] vmm_sys_util::errno::Error),
+    DirtyBitmap(#[from] VmError),
     /// Cannot write memory file: {0}
     Memory(#[from] MemoryError),
     /// Cannot perform {0} on the memory backing file: {1}
