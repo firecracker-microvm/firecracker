@@ -930,6 +930,22 @@ impl Net {
         let _ = self.resume_rx();
         let _ = self.process_tx();
     }
+
+    /// Prepare saving state
+    pub fn prepare_save(&mut self) {
+        // We shouldn't be messing with the queue if the device is not activated.
+        // Anyways, if it isn't there's nothing to prepare; we haven't parsed any
+        // descriptors yet from it and we can't have a deferred frame.
+        if !self.is_activated() {
+            return;
+        }
+
+        // Give potential deferred RX frame to guest
+        self.rx_buffer.finish_frame(&mut self.queues[RX_INDEX]);
+        // Reset the parsed available descriptors, so we will re-parse them
+        self.queues[RX_INDEX].next_avail -=
+            u16::try_from(self.rx_buffer.parsed_descriptors.len()).unwrap();
+    }
 }
 
 impl VirtioDevice for Net {

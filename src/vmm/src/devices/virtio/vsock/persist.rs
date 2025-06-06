@@ -31,7 +31,7 @@ pub struct VsockState {
 pub struct VsockFrontendState {
     /// Context Identifier.
     pub cid: u64,
-    virtio_state: VirtioDeviceState,
+    pub virtio_state: VirtioDeviceState,
 }
 
 /// An enum for the serializable backend state types.
@@ -53,8 +53,6 @@ pub struct VsockUdsState {
 pub struct VsockConstructorArgs<B> {
     /// Pointer to guest memory.
     pub mem: GuestMemoryMmap,
-    /// Interrupt to use for the device.
-    pub interrupt: Arc<dyn VirtioInterrupt>,
     /// The vsock Unix Backend.
     pub backend: B,
 }
@@ -123,14 +121,7 @@ where
 
         vsock.acked_features = state.virtio_state.acked_features;
         vsock.avail_features = state.virtio_state.avail_features;
-        vsock.device_state = if state.virtio_state.activated {
-            DeviceState::Activated(ActiveState {
-                mem: constructor_args.mem,
-                interrupt: constructor_args.interrupt,
-            })
-        } else {
-            DeviceState::Inactive
-        };
+        vsock.device_state = DeviceState::Inactive;
         Ok(vsock)
     }
 }
@@ -193,7 +184,6 @@ pub(crate) mod tests {
         let mut restored_device = Vsock::restore(
             VsockConstructorArgs {
                 mem: ctx.mem.clone(),
-                interrupt: default_interrupt(),
                 backend: match restored_state.backend {
                     VsockBackendState::Uds(uds_state) => {
                         assert_eq!(uds_state.path, "test".to_owned());
