@@ -29,6 +29,9 @@
                 "syscall": "write"
             },
             {
+                "syscall": "mincore"
+            },
+            {
                 "syscall": "writev",
                 "comment": "Used by the VirtIO net device to write to tap"
             },
