@@ -390,7 +390,7 @@ impl Vmm {
 
     /// Sends a resume command to the vCPUs.
     pub fn resume_vm(&mut self) -> Result<(), VmmError> {
-        self.device_manager.mmio_devices.kick_devices();
+        self.device_manager.kick_virtio_devices();
 
         // Send the events.
         self.vcpus_handles
