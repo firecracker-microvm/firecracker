@@ -5,7 +5,6 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the THIRD-PARTY file.
 
-use std::collections::HashMap;
 use std::fs::OpenOptions;
 use std::io::Write;
 use std::path::Path;
@@ -15,6 +14,7 @@ use kvm_bindings::{KVM_MEM_LOG_DIRTY_PAGES, kvm_userspace_memory_region};
 use kvm_ioctls::VmFd;
 use vmm_sys_util::eventfd::EventFd;
 
+use crate::arch::host_page_size;
 pub use crate::arch::{ArchVm as Vm, ArchVmError, VmState};
 use crate::logger::info;
 use crate::persist::CreateSnapshotError;
@@ -45,6 +45,8 @@ pub enum VmError {
     SetUserMemoryRegion(kvm_ioctls::Error),
     /// Failed to create VM: {0}
     CreateVm(kvm_ioctls::Error),
+    /// Failed to get KVM's dirty log: {0}
+    GetDirtyLog(kvm_ioctls::Error),
     /// {0}
     Arch(#[from] ArchVmError),
     /// Error during eventfd operations: {0}
@@ -55,6 +57,8 @@ pub enum VmError {
     NotEnoughMemorySlots(u32),
     /// Memory Error: {0}
     VmMemory(#[from] vm_memory::Error),
+    /// Error calling mincore: {0}
+    Mincore(vmm_sys_util::errno::Error),
 }
 
 /// Contains Vm functions that are usable across CPU architectures
@@ -196,17 +200,21 @@ impl Vm {
     }
 
     /// Retrieves the KVM dirty bitmap for each of the guest's memory regions.
-    pub fn get_dirty_bitmap(&self) -> Result<DirtyBitmap, vmm_sys_util::errno::Error> {
-        let mut bitmap: DirtyBitmap = HashMap::new();
+    pub fn get_dirty_bitmap(&self) -> Result<DirtyBitmap, VmError> {
         self.guest_memory()
             .iter()
             .zip(0u32..)
-            .try_for_each(|(region, slot)| {
-                self.fd()
-                    .get_dirty_log(slot, u64_to_usize(region.len()))
-                    .map(|bitmap_region| _ = bitmap.insert(slot, bitmap_region))
-            })?;
-        Ok(bitmap)
+            .map(|(region, slot)| {
+                let bitmap = match region.bitmap() {
+                    Some(_) => self
+                        .fd()
+                        .get_dirty_log(slot, u64_to_usize(region.len()))
+                        .map_err(VmError::GetDirtyLog)?,
+                    None => mincore_bitmap(region)?,
+                };
+                Ok((slot, bitmap))
+            })
+            .collect()
     }
 
     /// Takes a snapshot of the virtual machine running inside the given [`Vmm`] and saves it to
@@ -276,6 +284,47 @@ impl Vm {
         file.sync_all()
             .map_err(|err| MemoryBackingFile("sync_all", err))
     }
+}
+
+/// Use `mincore(2)` to overapproximate the dirty bitmap for the given memslot. To be used
+/// if a diff snapshot is requested, but dirty page tracking wasn't enabled.
+fn mincore_bitmap(region: &GuestRegionMmap) -> Result<Vec<u64>, VmError> {
+    // TODO: Once Host 5.10 goes out of support, we can make this more robust and work on
+    // swap-enabled systems, by doing mlock2(MLOCK_ONFAULT)/munlock() in this function (to
+    // force swapped-out pages to get paged in, so that mincore will consider them incore).
+    // However, on AMD (m6a/m7a) 5.10, doing so introduces a 100%/30ms regression to snapshot
+    // creation, even if swap is disabled, so currently it cannot be done.
+
+    // Mincore always works at PAGE_SIZE granularity, even if the VMA we are dealing with
+    // is a hugetlbfs VMA (e.g. to report a single hugepage as "present", mincore will
+    // give us 512 4k markers with the lowest bit set).
+    let page_size = host_page_size();
+    let mut mincore_bitmap = vec![0u8; u64_to_usize(region.len()) / page_size];
+    let mut bitmap = vec![0u64; (u64_to_usize(region.len()) / page_size).div_ceil(64)];
+
+    // SAFETY: The safety invariants of GuestRegionMmap ensure that region.as_ptr() is a valid
+    // userspace mapping of size region.len() bytes. The bitmap has exactly one byte for each
+    // page in this userspace mapping. Note that mincore does not operate on bitmaps like
+    // KVM_MEM_LOG_DIRTY_PAGES, but rather it uses 8 bits per page (e.g. 1 byte), setting the
+    // least significant bit to 1 if the page corresponding to a byte is in core (available in
+    // the page cache and resolvable via just a minor page fault).
+    let r = unsafe {
+        libc::mincore(
+            region.as_ptr().cast::<libc::c_void>(),
+            u64_to_usize(region.len()),
+            mincore_bitmap.as_mut_ptr(),
+        )
+    };
+
+    if r != 0 {
+        return Err(VmError::Mincore(vmm_sys_util::errno::Error::last()));
+    }
+
+    for (page_idx, b) in mincore_bitmap.iter().enumerate() {
+        bitmap[page_idx / 64] |= (*b as u64 & 0x1) << (page_idx as u64 % 64);
+    }
+
+    Ok(bitmap)
 }
 
 #[cfg(test)]
