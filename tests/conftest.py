@@ -144,6 +144,13 @@ def pytest_runtest_logreport(report):
             "cpu_model": global_props.cpu_model,
             "host_kernel": "linux-" + global_props.host_linux_version,
         },
+        # per coarse-grained test name, dropping parameters and other dimensions to reduce metric count for dashboard
+        # Note: noideid is formatted as below
+        # - with parameters: "path/to/test.py::test_name[parameter0,parameter1]"
+        # - without parameters: "path/to/test.py::test_name"
+        {
+            "test_name": report.nodeid.split("[")[0],
+        },
         # per phase
         {"phase": report.when},
         # per host kernel
