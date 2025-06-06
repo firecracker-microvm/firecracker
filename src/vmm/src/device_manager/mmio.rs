@@ -16,7 +16,6 @@ use kvm_ioctls::IoEventAddress;
 use linux_loader::cmdline as kernel_cmdline;
 #[cfg(target_arch = "x86_64")]
 use log::debug;
-use log::info;
 use serde::{Deserialize, Serialize};
 use vm_allocator::AllocPolicy;
 
@@ -28,14 +27,8 @@ use crate::arch::{RTC_MEM_START, SERIAL_MEM_START};
 #[cfg(target_arch = "aarch64")]
 use crate::devices::legacy::{RTCDevice, SerialDevice};
 use crate::devices::pseudo::BootTimer;
-use crate::devices::virtio::balloon::Balloon;
-use crate::devices::virtio::block::device::Block;
 use crate::devices::virtio::device::VirtioDevice;
-use crate::devices::virtio::net::Net;
-use crate::devices::virtio::rng::Entropy;
 use crate::devices::virtio::transport::mmio::MmioTransport;
-use crate::devices::virtio::vsock::{TYPE_VSOCK, Vsock, VsockUnixBackend};
-use crate::devices::virtio::{TYPE_BALLOON, TYPE_BLOCK, TYPE_NET, TYPE_RNG};
 #[cfg(target_arch = "x86_64")]
 use crate::vstate::memory::GuestAddress;
 
@@ -440,79 +433,6 @@ impl MMIODeviceManager {
             return Err(MmioError::DeviceNotFound);
         }
         Ok(())
-    }
-
-    /// Artificially kick devices as if they had external events.
-    pub fn kick_devices(&self) {
-        info!("Artificially kick devices.");
-        // We only kick virtio devices for now.
-        let _: Result<(), MmioError> = self.for_each_virtio_device(|virtio_type, id, device| {
-            let mmio_transport_locked = device.inner.lock().expect("Poisoned locked");
-            let mut virtio = mmio_transport_locked.locked_device();
-            match *virtio_type {
-                TYPE_BALLOON => {
-                    let balloon = virtio.as_mut_any().downcast_mut::<Balloon>().unwrap();
-                    // If device is activated, kick the balloon queue(s) to make up for any
-                    // pending or in-flight epoll events we may have not captured in snapshot.
-                    // Stats queue doesn't need kicking as it is notified via a `timer_fd`.
-                    if balloon.is_activated() {
-                        info!("kick balloon {}.", id);
-                        balloon.process_virtio_queues();
-                    }
-                }
-                TYPE_BLOCK => {
-                    // We only care about kicking virtio block.
-                    // If we need to kick vhost-user-block we can do nothing.
-                    if let Some(block) = virtio.as_mut_any().downcast_mut::<Block>() {
-                        // If device is activated, kick the block queue(s) to make up for any
-                        // pending or in-flight epoll events we may have not captured in
-                        // snapshot. No need to kick Ratelimiters
-                        // because they are restored 'unblocked' so
-                        // any inflight `timer_fd` events can be safely discarded.
-                        if block.is_activated() {
-                            info!("kick block {}.", id);
-                            block.process_virtio_queues();
-                        }
-                    }
-                }
-                TYPE_NET => {
-                    let net = virtio.as_mut_any().downcast_mut::<Net>().unwrap();
-                    // If device is activated, kick the net queue(s) to make up for any
-                    // pending or in-flight epoll events we may have not captured in snapshot.
-                    // No need to kick Ratelimiters because they are restored 'unblocked' so
-                    // any inflight `timer_fd` events can be safely discarded.
-                    if net.is_activated() {
-                        info!("kick net {}.", id);
-                        net.process_virtio_queues();
-                    }
-                }
-                TYPE_VSOCK => {
-                    // Vsock has complicated protocol that isn't resilient to any packet loss,
-                    // so for Vsock we don't support connection persistence through snapshot.
-                    // Any in-flight packets or events are simply lost.
-                    // Vsock is restored 'empty'.
-                    // The only reason we still `kick` it is to make guest process
-                    // `TRANSPORT_RESET_EVENT` event we sent during snapshot creation.
-                    let vsock = virtio
-                        .as_mut_any()
-                        .downcast_mut::<Vsock<VsockUnixBackend>>()
-                        .unwrap();
-                    if vsock.is_activated() {
-                        info!("kick vsock {id}.");
-                        vsock.signal_used_queue(0).unwrap();
-                    }
-                }
-                TYPE_RNG => {
-                    let entropy = virtio.as_mut_any().downcast_mut::<Entropy>().unwrap();
-                    if entropy.is_activated() {
-                        info!("kick entropy {id}.");
-                        entropy.process_virtio_queues();
-                    }
-                }
-                _ => (),
-            }
-            Ok(())
-        });
     }
 
     #[cfg(target_arch = "aarch64")]
