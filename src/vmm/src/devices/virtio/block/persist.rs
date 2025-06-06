@@ -17,9 +17,17 @@ pub enum BlockState {
     VhostUser(VhostUserBlockState),
 }
 
+impl BlockState {
+    pub fn is_activated(&self) -> bool {
+        match self {
+            BlockState::Virtio(virtio_block_state) => virtio_block_state.virtio_state.activated,
+            BlockState::VhostUser(vhost_user_block_state) => false,
+        }
+    }
+}
+
 /// Auxiliary structure for creating a device when resuming from a snapshot.
 #[derive(Debug)]
 pub struct BlockConstructorArgs {
     pub mem: GuestMemoryMmap,
-    pub interrupt: Arc<dyn VirtioInterrupt>,
 }
