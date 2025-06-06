@@ -87,7 +87,7 @@ pub struct BalloonState {
     stats_desc_index: Option<u16>,
     latest_stats: BalloonStatsState,
     config_space: BalloonConfigSpaceState,
-    virtio_state: VirtioDeviceState,
+    pub virtio_state: VirtioDeviceState,
 }
 
 /// Auxiliary structure for creating a device when resuming from a snapshot.
@@ -95,8 +95,6 @@ pub struct BalloonState {
 pub struct BalloonConstructorArgs {
     /// Pointer to guest memory.
     pub mem: GuestMemoryMmap,
-    /// Interrupt used from the device.
-    pub interrupt: Arc<dyn VirtioInterrupt>,
     pub restored_from_file: bool,
 }
 
@@ -154,25 +152,18 @@ impl Persist<'_> for Balloon {
             actual_pages: state.config_space.actual_pages,
         };
 
-        if state.virtio_state.activated {
-            balloon.device_state = DeviceState::Activated(ActiveState {
-                mem: constructor_args.mem,
-                interrupt: constructor_args.interrupt,
-            });
+        if state.virtio_state.activated && balloon.stats_enabled() {
+            // Restore the stats descriptor.
+            balloon.set_stats_desc_index(state.stats_desc_index);
 
-            if balloon.stats_enabled() {
-                // Restore the stats descriptor.
-                balloon.set_stats_desc_index(state.stats_desc_index);
-
-                // Restart timer if needed.
-                let timer_state = TimerState::Periodic {
-                    current: Duration::from_secs(u64::from(state.stats_polling_interval_s)),
-                    interval: Duration::from_secs(u64::from(state.stats_polling_interval_s)),
-                };
-                balloon
-                    .stats_timer
-                    .set_state(timer_state, SetTimeFlags::Default);
-            }
+            // Restart timer if needed.
+            let timer_state = TimerState::Periodic {
+                current: Duration::from_secs(u64::from(state.stats_polling_interval_s)),
+                interval: Duration::from_secs(u64::from(state.stats_polling_interval_s)),
+            };
+            balloon
+                .stats_timer
+                .set_state(timer_state, SetTimeFlags::Default);
         }
 
         Ok(balloon)
@@ -202,7 +193,6 @@ mod tests {
         let restored_balloon = Balloon::restore(
             BalloonConstructorArgs {
                 mem: guest_mem,
-                interrupt: default_interrupt(),
                 restored_from_file: true,
             },
             &Snapshot::deserialize(&mut mem.as_slice()).unwrap(),
