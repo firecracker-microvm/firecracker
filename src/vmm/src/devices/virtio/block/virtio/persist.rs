@@ -58,7 +58,7 @@ pub struct VirtioBlockState {
     cache_type: CacheType,
     root_device: bool,
     disk_path: String,
-    virtio_state: VirtioDeviceState,
+    pub virtio_state: VirtioDeviceState,
     rate_limiter_state: RateLimiterState,
     file_engine_type: FileEngineTypeState,
 }
@@ -111,15 +111,6 @@ impl Persist<'_> for VirtioBlock {
         let avail_features = state.virtio_state.avail_features;
         let acked_features = state.virtio_state.acked_features;
 
-        let device_state = if state.virtio_state.activated {
-            DeviceState::Activated(ActiveState {
-                mem: constructor_args.mem,
-                interrupt: constructor_args.interrupt,
-            })
-        } else {
-            DeviceState::Inactive
-        };
-
         let config_space = ConfigSpace {
             capacity: disk_properties.nsectors.to_le(),
         };
@@ -132,7 +123,7 @@ impl Persist<'_> for VirtioBlock {
 
             queues,
             queue_evts,
-            device_state,
+            device_state: DeviceState::Inactive,
 
             id: state.id.clone(),
             partuuid: state.partuuid.clone(),
@@ -227,10 +218,7 @@ mod tests {
 
         // Restore the block device.
         let restored_block = VirtioBlock::restore(
-            BlockConstructorArgs {
-                mem: guest_mem,
-                interrupt: default_interrupt(),
-            },
+            BlockConstructorArgs { mem: guest_mem },
             &Snapshot::deserialize(&mut mem.as_slice()).unwrap(),
         )
         .unwrap();
