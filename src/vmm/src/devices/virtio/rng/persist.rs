@@ -19,20 +19,13 @@ use crate::vstate::memory::GuestMemoryMmap;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct EntropyState {
-    virtio_state: VirtioDeviceState,
+    pub virtio_state: VirtioDeviceState,
     rate_limiter_state: RateLimiterState,
 }
 
 #[derive(Debug)]
 pub struct EntropyConstructorArgs {
-    mem: GuestMemoryMmap,
-    interrupt: Arc<dyn VirtioInterrupt>,
-}
-
-impl EntropyConstructorArgs {
-    pub fn new(mem: GuestMemoryMmap, interrupt: Arc<dyn VirtioInterrupt>) -> Self {
-        Self { mem, interrupt }
-    }
+    pub mem: GuestMemoryMmap,
 }
 
 #[derive(Debug, thiserror::Error, displaydoc::Display)]
@@ -72,9 +65,6 @@ impl Persist<'_> for Entropy {
         let mut entropy = Entropy::new_with_queues(queues, rate_limiter)?;
         entropy.set_avail_features(state.virtio_state.avail_features);
         entropy.set_acked_features(state.virtio_state.acked_features);
-        if state.virtio_state.activated {
-            entropy.set_activated(constructor_args.mem, constructor_args.interrupt);
-        }
 
         Ok(entropy)
     }
@@ -99,7 +89,7 @@ mod tests {
 
         let guest_mem = create_virtio_mem();
         let restored = Entropy::restore(
-            EntropyConstructorArgs::new(guest_mem, default_interrupt()),
+            EntropyConstructorArgs { mem: guest_mem },
             &Snapshot::deserialize(&mut mem.as_slice()).unwrap(),
         )
         .unwrap();

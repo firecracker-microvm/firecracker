@@ -5,6 +5,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the THIRD-PARTY file.
 
+use std::convert::Infallible;
 use std::fmt::Debug;
 use std::sync::{Arc, Mutex};
 
@@ -13,7 +14,7 @@ use event_manager::{MutEventSubscriber, SubscriberOps};
 #[cfg(target_arch = "x86_64")]
 use legacy::{LegacyDeviceError, PortIODeviceManager};
 use linux_loader::loader::Cmdline;
-use log::error;
+use log::{error, info};
 use mmio::{MMIODeviceManager, MmioError};
 use pci_mngr::{PciDevices, PciDevicesConstructorArgs, PciManagerError};
 use persist::{ACPIDeviceManagerConstructorArgs, MMIODevManagerConstructorArgs};
@@ -30,8 +31,14 @@ use crate::devices::legacy::RTCDevice;
 use crate::devices::legacy::serial::SerialOut;
 use crate::devices::legacy::{IER_RDA_BIT, IER_RDA_OFFSET, SerialDevice};
 use crate::devices::pseudo::BootTimer;
+use crate::devices::virtio::balloon::Balloon;
+use crate::devices::virtio::block::device::Block;
 use crate::devices::virtio::device::VirtioDevice;
+use crate::devices::virtio::net::Net;
+use crate::devices::virtio::rng::Entropy;
 use crate::devices::virtio::transport::mmio::{IrqTrigger, MmioTransport};
+use crate::devices::virtio::vsock::{TYPE_VSOCK, Vsock, VsockUnixBackend};
+use crate::devices::virtio::{TYPE_BALLOON, TYPE_BLOCK, TYPE_NET, TYPE_RNG};
 use crate::resources::VmResources;
 use crate::snapshot::Persist;
 use crate::vstate::memory::GuestMemoryMmap;
@@ -273,6 +280,106 @@ impl DeviceManager {
     pub fn enable_pci(&mut self) -> Result<(), PciManagerError> {
         self.pci_devices
             .attach_pci_segment(&self.resource_allocator)
+    }
+
+    fn do_kick_device(virtio_device: Arc<Mutex<dyn VirtioDevice>>) {
+        let mut device = virtio_device.lock().expect("Poisoned lock");
+        match device.device_type() {
+            TYPE_BALLOON => {
+                let balloon = device.as_mut_any().downcast_mut::<Balloon>().unwrap();
+                // If device is activated, kick the balloon queue(s) to make up for any
+                // pending or in-flight epoll events we may have not captured in snapshot.
+                // Stats queue doesn't need kicking as it is notified via a `timer_fd`.
+                if balloon.is_activated() {
+                    info!("kick balloon {}.", balloon.id());
+                    balloon.process_virtio_queues().unwrap();
+                }
+            }
+            TYPE_BLOCK => {
+                // We only care about kicking virtio block.
+                // If we need to kick vhost-user-block we can do nothing.
+                if let Some(block) = device.as_mut_any().downcast_mut::<Block>() {
+                    // If device is activated, kick the block queue(s) to make up for any
+                    // pending or in-flight epoll events we may have not captured in
+                    // snapshot. No need to kick Ratelimiters
+                    // because they are restored 'unblocked' so
+                    // any inflight `timer_fd` events can be safely discarded.
+                    if block.is_activated() {
+                        info!("kick block {}.", block.id());
+                        block.process_virtio_queues().unwrap();
+                    }
+                }
+            }
+            TYPE_NET => {
+                let net = device.as_mut_any().downcast_mut::<Net>().unwrap();
+                // If device is activated, kick the net queue(s) to make up for any
+                // pending or in-flight epoll events we may have not captured in snapshot.
+                // No need to kick Ratelimiters because they are restored 'unblocked' so
+                // any inflight `timer_fd` events can be safely discarded.
+                if net.is_activated() {
+                    info!("kick net {}.", net.id());
+                    net.process_virtio_queues().unwrap();
+                }
+            }
+            TYPE_VSOCK => {
+                // Vsock has complicated protocol that isn't resilient to any packet loss,
+                // so for Vsock we don't support connection persistence through snapshot.
+                // Any in-flight packets or events are simply lost.
+                // Vsock is restored 'empty'.
+                // The only reason we still `kick` it is to make guest process
+                // `TRANSPORT_RESET_EVENT` event we sent during snapshot creation.
+                let vsock = device
+                    .as_mut_any()
+                    .downcast_mut::<Vsock<VsockUnixBackend>>()
+                    .unwrap();
+                if vsock.is_activated() {
+                    info!("kick vsock {}.", vsock.id());
+                    vsock.signal_used_queue(0).unwrap();
+                }
+            }
+            TYPE_RNG => {
+                let entropy = device.as_mut_any().downcast_mut::<Entropy>().unwrap();
+                if entropy.is_activated() {
+                    info!("kick entropy {}.", entropy.id());
+                    entropy.process_virtio_queues().unwrap();
+                }
+            }
+            _ => (),
+        }
+    }
+
+    /// Artificially kick VirtIO devices as if they had external events.
+    pub fn kick_virtio_devices(&self) {
+        info!("Artificially kick devices");
+        // Go through MMIO VirtIO devices
+        let _: Result<(), MmioError> = self.mmio_devices.for_each_virtio_device(|_, _, device| {
+            let mmio_transport_locked = device.inner.lock().expect("Poisoned lock");
+            Self::do_kick_device(mmio_transport_locked.device());
+            Ok(())
+        });
+    }
+
+    fn do_mark_virtio_queue_memory_dirty(
+        device: Arc<Mutex<dyn VirtioDevice>>,
+        mem: &GuestMemoryMmap,
+    ) {
+        // SAFETY:
+        // This should never fail as we mark pages only if device has already been activated,
+        // and the address validation was already performed on device activation.
+        let mut locked_device = device.lock().expect("Poisoned lock");
+        if locked_device.is_activated() {
+            locked_device.mark_queue_memory_dirty(mem).unwrap()
+        }
+    }
+
+    /// Mark queue memory dirty for activated VirtIO devices
+    pub fn mark_virtio_queue_memory_dirty(&self, mem: &GuestMemoryMmap) {
+        // Go through MMIO VirtIO devices
+        let _: Result<(), Infallible> = self.mmio_devices.for_each_virtio_device(|_, _, device| {
+            let mmio_transport_locked = device.inner.lock().expect("Poisoned locked");
+            Self::do_mark_virtio_queue_memory_dirty(mmio_transport_locked.device(), mem);
+            Ok(())
+        });
     }
 }
 
