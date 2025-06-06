@@ -76,6 +76,7 @@ def test_resume(uvm_nano, microvm_factory, resume_at_restore):
         assert restored_vm.state == "Paused"
         restored_vm.resume()
     assert restored_vm.state == "Running"
+    restored_vm.ssh.check_output("true")
 
 
 def test_snapshot_current_version(uvm_nano):
@@ -389,21 +390,6 @@ def test_negative_snapshot_create(uvm_nano):
         vm.api.snapshot_create.put(
             mem_file_path="memfile", snapshot_path="statefile", snapshot_type="Full"
         )
-
-    vm.api.vm.patch(state="Paused")
-
-    # Try diff with dirty pages tracking disabled.
-    expected_msg = (
-        "Diff snapshots are not allowed on uVMs with dirty page tracking disabled"
-    )
-    with pytest.raises(RuntimeError, match=expected_msg):
-        vm.api.snapshot_create.put(
-            mem_file_path="memfile", snapshot_path="statefile", snapshot_type="Diff"
-        )
-    assert not os.path.exists("statefile")
-    assert not os.path.exists("memfile")
-
-    vm.kill()
 
 
 def test_create_large_diff_snapshot(uvm_plain):

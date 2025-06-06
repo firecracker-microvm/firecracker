@@ -16,6 +16,10 @@ and this project adheres to
 - [#5175](https://github.com/firecracker-microvm/firecracker/pull/5175): Allow
   including a custom cpu template directly in the json configuration file passed
   to `--config-file` under the `cpu_config` key.
+- [#5274](https://github.com/firecracker-microvm/firecracker/pull/5274): Allow
+  taking diff snapshots even if dirty page tracking is disabled, by using
+  `mincore(2)` to overapproximate the set of dirty pages. Only works if swap is
+  disabled.
 
 ### Changed
 
