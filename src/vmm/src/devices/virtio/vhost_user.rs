@@ -416,7 +416,7 @@ impl<T: VhostUserHandleBackend> VhostUserHandleImpl<T> {
 
         for (queue_index, queue, queue_evt) in queues.iter() {
             let config_data = VringConfigData {
-                queue_max_size: queue.get_max_size(),
+                queue_max_size: queue.max_size,
                 queue_size: queue.actual_size(),
                 flags: 0u32,
                 desc_table_addr: mem
