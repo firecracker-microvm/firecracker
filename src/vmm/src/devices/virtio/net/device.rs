@@ -1000,8 +1000,7 @@ impl VirtioDevice for Net {
 
     fn activate(&mut self, mem: GuestMemoryMmap) -> Result<(), ActivateError> {
         for q in self.queues.iter_mut() {
-            q.initialize(&mem)
-                .map_err(ActivateError::QueueMemoryError)?;
+            q.initialize(&mem).map_err(ActivateError::QueueError)?;
         }
 
         let event_idx = self.has_feature(u64::from(VIRTIO_RING_F_EVENT_IDX));

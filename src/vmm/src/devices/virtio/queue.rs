@@ -32,6 +32,8 @@ pub enum QueueError {
     DescIndexOutOfBounds(u16),
     /// Failed to write value into the virtio queue used ring: {0}
     MemoryError(#[from] vm_memory::GuestMemoryError),
+    /// Invalid queue size configured by the driver: max: {0} configured: {1}
+    InvalidQueueSize(u16, u16),
     /// Pointer is not aligned properly: {0:#x} not {1}-byte aligned.
     PointerNotAligned(usize, u8),
 }
@@ -322,9 +324,14 @@ impl Queue {
         Ok(slice.ptr_guard_mut().as_ptr())
     }
 
+    /// Do final checks and setup of the queue before it can be usable.
     /// Set up pointers to the queue objects in the guest memory
     /// and mark memory dirty for those objects
     pub fn initialize<M: GuestMemory>(&mut self, mem: &M) -> Result<(), QueueError> {
+        if self.max_size < self.size {
+            return Err(QueueError::InvalidQueueSize(self.max_size, self.size));
+        }
+
         self.desc_table_ptr = self
             .get_slice_ptr(mem, self.desc_table_address, self.desc_table_size())?
             .cast();
