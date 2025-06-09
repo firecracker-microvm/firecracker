@@ -448,11 +448,6 @@ impl Queue {
         }
     }
 
-    /// Maximum size of the queue.
-    pub fn get_max_size(&self) -> u16 {
-        self.max_size
-    }
-
     /// Return the actual size of the queue, as the driver may not set up a
     /// queue as big as the device allows.
     pub fn actual_size(&self) -> u16 {
@@ -1105,7 +1100,7 @@ mod verification {
     fn verify_actual_size() {
         let ProofContext(queue, _) = kani::any();
 
-        assert!(queue.actual_size() <= queue.get_max_size());
+        assert!(queue.actual_size() <= queue.max_size);
         assert!(queue.actual_size() <= queue.size);
     }
 
