@@ -5,7 +5,6 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the THIRD-PARTY file.
 
-use std::cmp::min;
 use std::num::Wrapping;
 use std::sync::atomic::{Ordering, fence};
 
@@ -448,12 +447,6 @@ impl Queue {
         }
     }
 
-    /// Return the actual size of the queue, as the driver may not set up a
-    /// queue as big as the device allows.
-    pub fn actual_size(&self) -> u16 {
-        min(self.size, self.max_size)
-    }
-
     /// Validates the queue's in-memory layout is correct.
     pub fn is_valid<M: GuestMemory>(&self, mem: &M) -> bool {
         let desc_table = self.desc_table_address;
@@ -525,13 +518,13 @@ impl Queue {
         // once. Checking and reporting such incorrect driver behavior
         // can prevent potential hanging and Denial-of-Service from
         // happening on the VMM side.
-        if len > self.actual_size() {
+        if self.size < len {
             // We are choosing to interrupt execution since this could be a potential malicious
             // driver scenario. This way we also eliminate the risk of repeatedly
             // logging and potentially clogging the microVM through the log system.
             panic!(
                 "The number of available virtio descriptors {len} is greater than queue size: {}!",
-                self.actual_size()
+                self.size
             );
         }
 
@@ -571,17 +564,15 @@ impl Queue {
         //
         // We use `self.next_avail` to store the position, in `ring`, of the next available
         // descriptor index, with a twist: we always only increment `self.next_avail`, so the
-        // actual position will be `self.next_avail % self.actual_size()`.
-        let idx = self.next_avail.0 % self.actual_size();
+        // actual position will be `self.next_avail % self.size`.
+        let idx = self.next_avail.0 % self.size;
         // SAFETY:
         // index is bound by the queue size
         let desc_index = unsafe { self.avail_ring_ring_get(usize::from(idx)) };
 
-        DescriptorChain::checked_new(self.desc_table_ptr, self.actual_size(), desc_index).inspect(
-            |_| {
-                self.next_avail += Wrapping(1);
-            },
-        )
+        DescriptorChain::checked_new(self.desc_table_ptr, self.size, desc_index).inspect(|_| {
+            self.next_avail += Wrapping(1);
+        })
     }
 
     /// Undo the effects of the last `self.pop()` call.
@@ -599,7 +590,7 @@ impl Queue {
         desc_index: u16,
         len: u32,
     ) -> Result<(), QueueError> {
-        if self.actual_size() <= desc_index {
+        if self.size <= desc_index {
             error!(
                 "attempted to add out of bounds descriptor to used ring: {}",
                 desc_index
@@ -607,7 +598,7 @@ impl Queue {
             return Err(QueueError::DescIndexOutOfBounds(desc_index));
         }
 
-        let next_used = (self.next_used + Wrapping(ring_index_offset)).0 % self.actual_size();
+        let next_used = (self.next_used + Wrapping(ring_index_offset)).0 % self.size;
         let used_element = UsedElement {
             id: u32::from(desc_index),
             len,
@@ -653,7 +644,7 @@ impl Queue {
         if len != 0 {
             // The number of descriptor chain heads to process should always
             // be smaller or equal to the queue size.
-            if len > self.actual_size() {
+            if len > self.size {
                 // We are choosing to interrupt execution since this could be a potential malicious
                 // driver scenario. This way we also eliminate the risk of
                 // repeatedly logging and potentially clogging the microVM through
@@ -661,7 +652,7 @@ impl Queue {
                 panic!(
                     "The number of available virtio descriptors {len} is greater than queue size: \
                      {}!",
-                    self.actual_size()
+                    self.size
                 );
             }
             return false;
@@ -1060,7 +1051,7 @@ mod verification {
             // done. This is relying on implementation details of add_used, namely that
             // the check for out-of-bounds descriptor index happens at the very beginning of the
             // function.
-            assert!(used_desc_table_index >= queue.actual_size());
+            assert!(used_desc_table_index >= queue.size);
         }
     }
 
@@ -1097,11 +1088,11 @@ mod verification {
 
     #[kani::proof]
     #[kani::unwind(0)]
-    fn verify_actual_size() {
+    fn verify_size() {
         let ProofContext(queue, _) = kani::any();
 
-        assert!(queue.actual_size() <= queue.max_size);
-        assert!(queue.actual_size() <= queue.size);
+        assert!(queue.size <= queue.max_size);
+        assert!(queue.size <= queue.size);
     }
 
     #[kani::proof]
@@ -1166,7 +1157,7 @@ mod verification {
         // is called when the queue is being initialized, e.g. empty. We compute it using
         // local variables here to make things easier on kani: One less roundtrip through vm-memory.
         let queue_len = queue.len();
-        kani::assume(queue_len <= queue.actual_size());
+        kani::assume(queue_len <= queue.size);
 
         let next_avail = queue.next_avail;
 
@@ -1184,7 +1175,7 @@ mod verification {
         let ProofContext(mut queue, _) = kani::any();
 
         // See verify_pop for explanation
-        kani::assume(queue.len() <= queue.actual_size());
+        kani::assume(queue.len() <= queue.size);
 
         let queue_clone = queue.clone();
         if let Some(_) = queue.pop() {
@@ -1200,7 +1191,7 @@ mod verification {
     fn verify_try_enable_notification() {
         let ProofContext(mut queue, _) = ProofContext::bounded_queue();
 
-        kani::assume(queue.len() <= queue.actual_size());
+        kani::assume(queue.len() <= queue.size);
 
         if queue.try_enable_notification() && queue.uses_notif_suppression {
             // We only require new notifications if the queue is empty (e.g. we've processed
@@ -1218,10 +1209,9 @@ mod verification {
         let ProofContext(queue, mem) = kani::any();
 
         let index = kani::any();
-        let maybe_chain =
-            DescriptorChain::checked_new(queue.desc_table_ptr, queue.actual_size(), index);
+        let maybe_chain = DescriptorChain::checked_new(queue.desc_table_ptr, queue.size, index);
 
-        if index >= queue.actual_size() {
+        if index >= queue.size {
             assert!(maybe_chain.is_none())
         } else {
             // If the index was in-bounds for the descriptor table, we at least should be
@@ -1236,7 +1226,7 @@ mod verification {
             match maybe_chain {
                 None => {
                     // This assert is the negation of the "is_valid" check in checked_new
-                    assert!(desc.flags & VIRTQ_DESC_F_NEXT == 1 && desc.next >= queue.actual_size())
+                    assert!(desc.flags & VIRTQ_DESC_F_NEXT == 1 && desc.next >= queue.size)
                 }
                 Some(head) => {
                     assert!(head.is_valid())
