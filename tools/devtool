@@ -526,6 +526,22 @@ cmd_build() {
     return $ret
 }
 
+cmd_cargo() {
+    # Check prerequisites
+    ensure_devctr
+    ensure_build_dir
+
+    run_devctr \
+        --privileged \
+        --workdir "$CTR_FC_ROOT_DIR" \
+        -- \
+        cargo $@
+
+    # Running as root would have created some root-owned files under the build
+    # dir. Let's fix that.
+    cmd_fix_perms
+}
+
 function cmd_make_release {
     ensure_build_dir
     run_devctr \
