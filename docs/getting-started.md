@@ -113,7 +113,7 @@ wget "https://s3.amazonaws.com/spec.ccfc.min/${latest_kernel_key}"
 latest_ubuntu_key=$(curl "http://spec.ccfc.min.s3.amazonaws.com/?prefix=firecracker-ci/$CI_VERSION/$ARCH/ubuntu-&list-type=2" \
     | grep -oP "(?<=<Key>)(firecracker-ci/$CI_VERSION/$ARCH/ubuntu-[0-9]+\.[0-9]+\.squashfs)(?=</Key>)" \
     | sort -V | tail -1)
-ubuntu_version=$(basename $latest_ubuntu_key .sqashfs | grep -oE '[0-9]+\.[0-9]+')
+ubuntu_version=$(basename $latest_ubuntu_key .squashfs | grep -oE '[0-9]+\.[0-9]+')
 
 # Download a rootfs
 wget -O ubuntu-$ubuntu_version.squashfs.upstream "https://s3.amazonaws.com/spec.ccfc.min/$latest_ubuntu_key"
