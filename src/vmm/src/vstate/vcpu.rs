@@ -124,26 +124,6 @@ impl Vcpu {
         })
     }
 
-    /// Deassociates `self` from the current thread.
-    ///
-    /// Should be called if the current `self` had called `init_thread_local_data()` and
-    /// now needs to move to a different thread.
-    ///
-    /// Fails if `self` was not previously associated with the current thread.
-    fn reset_thread_local_data(&mut self) -> Result<(), VcpuError> {
-        // Best-effort to clean up TLS. If the `Vcpu` was moved to another thread
-        // _before_ running this, then there is nothing we can do.
-        Self::TLS_VCPU_PTR.with(|cell: &VcpuCell| {
-            if let Some(vcpu_ptr) = cell.get() {
-                if std::ptr::eq(vcpu_ptr, self) {
-                    Self::TLS_VCPU_PTR.with(|cell: &VcpuCell| cell.take());
-                    return Ok(());
-                }
-            }
-            Err(VcpuError::VcpuTlsNotPresent)
-        })
-    }
-
     /// Runs `func` for the `Vcpu` associated with the current thread.
     ///
     /// It requires that `init_thread_local_data()` was run on this thread.
@@ -613,9 +593,19 @@ fn handle_kvm_exit(
     }
 }
 
+// During normal runtime there is a strong assumption that vcpus will be
+// put on their own threads, thus TLS will be initialized.
+// In test we do not put vcpus on separate threads.
+#[cfg(not(test))]
 impl Drop for Vcpu {
     fn drop(&mut self) {
-        let _ = self.reset_thread_local_data();
+        Self::TLS_VCPU_PTR.with(|cell| {
+            let vcpu_ptr = cell.get().unwrap();
+            assert!(std::ptr::eq(vcpu_ptr, self));
+            // Have to do this trick because `update` method is
+            // not stable on Cell.
+            Self::TLS_VCPU_PTR.with(|cell| cell.take());
+        })
     }
 }
 
@@ -1039,15 +1029,12 @@ pub(crate) mod tests {
         }
 
         // Reset vcpu TLS.
-        vcpu.reset_thread_local_data().unwrap();
+        Vcpu::TLS_VCPU_PTR.with(|cell| cell.take());
 
         // Running on the TLS vcpu after TLS reset should fail.
         unsafe {
             Vcpu::run_on_thread_local(|_| ()).unwrap_err();
         }
-
-        // Second reset should return error.
-        vcpu.reset_thread_local_data().unwrap_err();
     }
 
     #[test]
