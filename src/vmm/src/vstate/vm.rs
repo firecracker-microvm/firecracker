@@ -20,6 +20,7 @@ use kvm_bindings::{
 };
 use kvm_ioctls::VmFd;
 use log::debug;
+use serde::{Deserialize, Serialize};
 use vm_device::interrupt::{
     InterruptIndex, InterruptSourceConfig, InterruptSourceGroup, MsiIrqSourceConfig,
 };
@@ -31,6 +32,7 @@ pub use crate::arch::{ArchVm as Vm, ArchVmError, VmState};
 use crate::device_manager::resources::ResourceAllocator;
 use crate::logger::info;
 use crate::persist::CreateSnapshotError;
+use crate::snapshot::Persist;
 use crate::utils::u64_to_usize;
 use crate::vmm_config::snapshot::SnapshotType;
 use crate::vstate::memory::{
@@ -52,7 +54,7 @@ pub enum InterruptError {
     Kvm(#[from] kvm_ioctls::Error),
 }
 
-#[derive(Debug)]
+#[derive(Debug, Serialize, Deserialize)]
 /// A struct representing an interrupt line used by some device of the microVM
 pub struct RoutingEntry {
     entry: kvm_irq_routing_entry,
@@ -116,6 +118,38 @@ impl MsiVectorGroup {
         // It is safe to unwrap here. We are creating `MsiVectorGroup` objects through the
         // `Vm::create_msix_group` where the argument for the number of `irq_routes` is a `u16`.
         u16::try_from(self.irq_routes.len()).unwrap()
+    }
+}
+
+impl<'a> Persist<'a> for MsiVectorGroup {
+    type State = HashMap<u32, u32>;
+    type ConstructorArgs = Arc<Vm>;
+    type Error = InterruptError;
+
+    fn save(&self) -> Self::State {
+        // We don't save the "enabled" state of the MSI interrupt. PCI devices store the MSI-X
+        // configuration and make sure that the vector is enabled during the restore path if it was
+        // initially enabled
+        self.irq_routes
+            .iter()
+            .map(|(id, route)| (*id, route.gsi))
+            .collect()
+    }
+
+    fn restore(
+        constructor_args: Self::ConstructorArgs,
+        state: &Self::State,
+    ) -> std::result::Result<Self, Self::Error> {
+        let mut irq_routes = HashMap::new();
+
+        for (id, gsi) in state {
+            irq_routes.insert(*id, MsiVector::new(*gsi, false)?);
+        }
+
+        Ok(MsiVectorGroup {
+            vm: constructor_args,
+            irq_routes,
+        })
     }
 }
 
@@ -938,5 +972,27 @@ pub(crate) mod tests {
         let msix_group = create_msix_group(&vm);
 
         msix_group.set_gsi().unwrap();
+    }
+
+    #[test]
+    fn test_msi_vector_group_persistence() {
+        let (_, mut vm) = setup_vm_with_memory(mib_to_bytes(128));
+        enable_irqchip(&mut vm);
+        let vm = Arc::new(vm);
+        let msix_group = create_msix_group(&vm);
+
+        msix_group.enable().unwrap();
+        let state = msix_group.save();
+        let restored_group = MsiVectorGroup::restore(vm, &state).unwrap();
+
+        assert_eq!(msix_group.num_vectors(), restored_group.num_vectors());
+        // Even if an MSI group is enabled, we don't save it as such. During restoration, the PCI
+        // transport will make sure the correct config is set for the vectors and enable them
+        // accordingly.
+        for (id, vector) in msix_group.irq_routes {
+            let new_vector = restored_group.irq_routes.get(&id).unwrap();
+            assert_eq!(vector.gsi, new_vector.gsi);
+            assert!(!new_vector.enabled.load(Ordering::Acquire));
+        }
     }
 }
