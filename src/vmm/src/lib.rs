@@ -375,8 +375,6 @@ impl Vmm {
             })?;
         }
 
-        Vcpu::register_kick_signal_handler();
-
         self.vcpus_handles.reserve(vcpu_count);
 
         for mut vcpu in vcpus.drain(..) {
