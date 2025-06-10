@@ -173,7 +173,9 @@ impl Vcpu {
 
     /// Registers a signal handler which makes use of TLS and kvm immediate exit to
     /// kick the vcpu running on the current thread, if there is one.
-    pub fn register_kick_signal_handler() {
+    fn register_kick_signal_handler(&mut self) {
+        self.init_thread_local_data();
+
         extern "C" fn handle_signal(_: c_int, _: *mut siginfo_t, _: *mut c_void) {
             // SAFETY: This is safe because it's temporarily aliasing the `Vcpu` object, but we are
             // only reading `vcpu.fd` which does not change for the lifetime of the `Vcpu`.
@@ -249,7 +251,7 @@ impl Vcpu {
             .name(format!("fc_vcpu {}", self.kvm_vcpu.index))
             .spawn(move || {
                 let filter = &*seccomp_filter;
-                self.init_thread_local_data();
+                self.register_kick_signal_handler();
                 // Synchronization to make sure thread local data is initialized.
                 barrier.wait();
                 self.run(filter);
@@ -953,7 +955,6 @@ pub(crate) mod tests {
     }
 
     fn vcpu_configured_for_boot() -> (Vm, VcpuHandle, EventFd) {
-        Vcpu::register_kick_signal_handler();
         // Need enough mem to boot linux.
         let mem_size = mib_to_bytes(64);
         let (kvm, vm, mut vcpu) = setup_vcpu(mem_size);
@@ -1059,7 +1060,6 @@ pub(crate) mod tests {
 
     #[test]
     fn test_vcpu_kick() {
-        Vcpu::register_kick_signal_handler();
         let (_, vm, mut vcpu) = setup_vcpu(0x1000);
 
         let mut kvm_run =
@@ -1073,7 +1073,7 @@ pub(crate) mod tests {
         let handle = std::thread::Builder::new()
             .name("test_vcpu_kick".to_string())
             .spawn(move || {
-                vcpu.init_thread_local_data();
+                vcpu.register_kick_signal_handler();
                 // Notify TLS was populated.
                 vcpu_barrier.wait();
                 // Loop for max 1 second to check if the signal handler has run.
