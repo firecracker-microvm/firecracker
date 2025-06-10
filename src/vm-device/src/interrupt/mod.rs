@@ -172,7 +172,7 @@ pub trait InterruptSourceGroup: Send + Sync {
     /// to inject interrupts into a guest, by writing to the file returned
     /// by this method.
     #[allow(unused_variables)]
-    fn notifier(&self, index: InterruptIndex) -> Option<EventFd>;
+    fn notifier(&self, index: InterruptIndex) -> Option<&EventFd>;
 
     /// Update the interrupt source group configuration.
     ///
