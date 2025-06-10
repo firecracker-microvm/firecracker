@@ -1,7 +1,9 @@
 // Copyright 2025 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
+use std::collections::HashMap;
 use std::fmt;
+use std::sync::{Arc, Mutex};
 
 use kvm_bindings::{
     KVM_CLOCK_TSC_STABLE, KVM_IRQCHIP_IOAPIC, KVM_IRQCHIP_PIC_MASTER, KVM_IRQCHIP_PIC_SLAVE,
@@ -13,7 +15,7 @@ use serde::{Deserialize, Serialize};
 use crate::arch::x86_64::msr::MsrError;
 use crate::utils::u64_to_usize;
 use crate::vstate::memory::{GuestMemoryExtension, GuestMemoryState};
-use crate::vstate::vm::{VmCommon, VmError};
+use crate::vstate::vm::{RoutingEntry, VmCommon, VmError};
 
 /// Error type for [`Vm::restore_state`]
 #[allow(missing_docs)]
@@ -134,6 +136,7 @@ impl ArchVm {
         self.fd()
             .set_irqchip(&state.ioapic)
             .map_err(ArchVmError::SetIrqChipIoAPIC)?;
+        self.common.interrupts = state.interrupts.clone();
         Ok(())
     }
 
@@ -184,6 +187,7 @@ impl ArchVm {
         self.fd()
             .get_irqchip(&mut ioapic)
             .map_err(ArchVmError::VmGetIrqChip)?;
+        let interrupts = self.common.interrupts.clone();
 
         Ok(VmState {
             memory: self.common.guest_memory.describe(),
@@ -192,6 +196,7 @@ impl ArchVm {
             pic_master,
             pic_slave,
             ioapic,
+            interrupts,
         })
     }
 
@@ -218,6 +223,8 @@ pub struct VmState {
     // TODO: rename this field to adopt inclusive language once Linux updates it, too.
     pic_slave: kvm_irqchip,
     ioapic: kvm_irqchip,
+    // Interrupt state
+    interrupts: Arc<Mutex<HashMap<u32, RoutingEntry>>>,
 }
 
 impl fmt::Debug for VmState {
@@ -228,6 +235,7 @@ impl fmt::Debug for VmState {
             .field("pic_master", &"?")
             .field("pic_slave", &"?")
             .field("ioapic", &"?")
+            .field("interrupts", &self.interrupts)
             .finish()
     }
 }

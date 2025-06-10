@@ -20,6 +20,7 @@ use kvm_bindings::{
 };
 use kvm_ioctls::VmFd;
 use log::debug;
+use serde::{Deserialize, Serialize};
 use vm_device::interrupt::{InterruptSourceGroup, MsiIrqSourceConfig};
 use vmm_sys_util::errno;
 use vmm_sys_util::eventfd::EventFd;
@@ -49,7 +50,7 @@ pub enum InterruptError {
     Kvm(#[from] kvm_ioctls::Error),
 }
 
-#[derive(Debug)]
+#[derive(Debug, Serialize, Deserialize)]
 /// A struct representing an interrupt line used by some device of the microVM
 pub struct RoutingEntry {
     entry: kvm_irq_routing_entry,
@@ -111,6 +112,32 @@ impl MsiVectorGroup {
     /// Returns the number of vectors in this group
     pub fn num_vectors(&self) -> u16 {
         u16::try_from(self.irq_routes.len()).unwrap()
+    }
+
+    /// Save the vectors state
+    pub fn state(&self) -> Vec<(u32, (u32, bool))> {
+        let mut state = vec![];
+        for (idx, irq_route) in &self.irq_routes {
+            state.push((
+                *idx,
+                (irq_route.gsi, irq_route.enabled.load(Ordering::Acquire)),
+            ));
+        }
+        state
+    }
+
+    /// Create a new group from state
+    pub fn from_state(
+        vm: Arc<Vm>,
+        state: &[(u32, (u32, bool))],
+    ) -> Result<MsiVectorGroup, InterruptError> {
+        let mut irq_routes = HashMap::new();
+
+        for (idx, (gsi, enabled)) in state {
+            irq_routes.insert(*idx, MsiVector::new(*gsi, *enabled)?);
+        }
+
+        Ok(MsiVectorGroup { vm, irq_routes })
     }
 }
 
@@ -207,7 +234,7 @@ pub struct VmCommon {
     /// The guest memory of this Vm.
     pub guest_memory: GuestMemoryMmap,
     /// Interrupts used by Vm's devices
-    interrupts: Arc<Mutex<HashMap<u32, RoutingEntry>>>,
+    pub interrupts: Arc<Mutex<HashMap<u32, RoutingEntry>>>,
 }
 
 /// Errors associated with the wrappers over KVM ioctls.
