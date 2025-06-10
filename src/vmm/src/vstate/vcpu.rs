@@ -51,8 +51,6 @@ pub enum VcpuError {
     VcpuResponse(KvmVcpuError),
     /// Cannot spawn a new vCPU thread: {0}
     VcpuSpawn(io::Error),
-    /// Cannot clean init vcpu TLS
-    VcpuTlsInit,
     /// Vcpu not present in TLS
     VcpuTlsNotPresent,
     /// Error with gdb request sent
@@ -118,14 +116,11 @@ impl Vcpu {
     ///
     /// It is a prerequisite to successfully run `init_thread_local_data()` before using
     /// `run_on_thread_local()` on the current thread.
-    /// This function will return an error if there already is a `Vcpu` present in the TLS.
-    fn init_thread_local_data(&mut self) -> Result<(), VcpuError> {
+    /// This function will panic if there already is a `Vcpu` present in the TLS.
+    fn init_thread_local_data(&mut self) {
         Self::TLS_VCPU_PTR.with(|cell: &VcpuCell| {
-            if cell.get().is_some() {
-                return Err(VcpuError::VcpuTlsInit);
-            }
+            assert!(cell.get().is_none());
             cell.set(Some(self as *mut Vcpu));
-            Ok(())
         })
     }
 
@@ -254,8 +249,7 @@ impl Vcpu {
             .name(format!("fc_vcpu {}", self.kvm_vcpu.index))
             .spawn(move || {
                 let filter = &*seccomp_filter;
-                self.init_thread_local_data()
-                    .expect("Cannot cleanly initialize vcpu TLS.");
+                self.init_thread_local_data();
                 // Synchronization to make sure thread local data is initialized.
                 barrier.wait();
                 self.run(filter);
@@ -1034,7 +1028,7 @@ pub(crate) mod tests {
         }
 
         // Initialize vcpu TLS.
-        vcpu.init_thread_local_data().unwrap();
+        vcpu.init_thread_local_data();
 
         // Validate TLS vcpu is the local vcpu by changing the `id` then validating against
         // the one in TLS.
@@ -1056,12 +1050,11 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn test_invalid_tls() {
+    #[should_panic]
+    fn test_tls_double_init() {
         let (_, _, mut vcpu) = setup_vcpu(0x1000);
-        // Initialize vcpu TLS.
-        vcpu.init_thread_local_data().unwrap();
-        // Trying to initialize non-empty TLS should error.
-        vcpu.init_thread_local_data().unwrap_err();
+        vcpu.init_thread_local_data();
+        vcpu.init_thread_local_data();
     }
 
     #[test]
@@ -1080,7 +1073,7 @@ pub(crate) mod tests {
         let handle = std::thread::Builder::new()
             .name("test_vcpu_kick".to_string())
             .spawn(move || {
-                vcpu.init_thread_local_data().unwrap();
+                vcpu.init_thread_local_data();
                 // Notify TLS was populated.
                 vcpu_barrier.wait();
                 // Loop for max 1 second to check if the signal handler has run.
