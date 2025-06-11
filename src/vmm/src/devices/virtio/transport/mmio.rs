@@ -798,7 +798,7 @@ pub(crate) mod tests {
         assert_eq!(d.queue_select, 3);
 
         d.queue_select = 0;
-        assert_eq!(d.locked_device().queues()[0].size, 0);
+        assert_eq!(d.locked_device().queues()[0].size, 16);
         write_le_u32(&mut buf[..], 16);
         d.write(0x0, 0x38, &buf[..]);
         assert_eq!(d.locked_device().queues()[0].size, 16);

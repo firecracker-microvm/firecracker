@@ -148,7 +148,7 @@ pub trait VirtioDevice: AsAny + Send {
 
     /// Optionally deactivates this device and returns ownership of the guest memory map, interrupt
     /// event, and queue events.
-    fn reset(&mut self) -> Option<(EventFd, Vec<EventFd>)> {
+    fn reset(&mut self) -> Option<(Arc<dyn VirtioInterrupt>, Vec<EventFd>)> {
         None
     }
 
