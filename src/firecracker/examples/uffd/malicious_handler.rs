@@ -21,17 +21,23 @@ fn main() {
     // Get Uffd from UDS. We'll use the uffd to handle PFs for Firecracker.
     let listener = UnixListener::bind(uffd_sock_path).expect("Cannot bind to socket path");
     let (stream, _) = listener.accept().expect("Cannot listen on UDS socket");
+    stream
+        .set_nonblocking(true)
+        .expect("Cannot set non-blocking");
 
     let mut runtime = Runtime::new(stream, file);
-    runtime.run(|uffd_handler: &mut UffdHandler| {
-        // Read an event from the userfaultfd.
-        let event = uffd_handler
-            .read_event()
-            .expect("Failed to read uffd_msg")
-            .expect("uffd_msg not ready");
+    runtime.run(
+        |uffd_handler: &mut UffdHandler| {
+            // Read an event from the userfaultfd.
+            let event = uffd_handler
+                .read_event()
+                .expect("Failed to read uffd_msg")
+                .expect("uffd_msg not ready");
 
-        if let userfaultfd::Event::Pagefault { .. } = event {
-            panic!("Fear me! I am the malicious page fault handler.")
-        }
-    });
+            if let userfaultfd::Event::Pagefault { .. } = event {
+                panic!("Fear me! I am the malicious page fault handler.")
+            }
+        },
+        |_uffd_handler: &mut UffdHandler, _offset: usize| {},
+    );
 }
