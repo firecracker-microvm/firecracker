@@ -14,10 +14,14 @@ pub const DEFAULT_BOOT_ARGS: &str = "reboot=k panic=1 pci=off";
 pub const DEFAULT_KERNEL_IMAGE: &str = "test_elf.bin";
 #[cfg(target_arch = "aarch64")]
 pub const DEFAULT_KERNEL_IMAGE: &str = "test_pe.bin";
+#[cfg(target_arch = "riscv64")]
+pub const DEFAULT_KERNEL_IMAGE: &str = "test_pe_riscv.bin"; // Fake file, to pass compilation
 #[cfg(target_arch = "x86_64")]
 pub const NOISY_KERNEL_IMAGE: &str = "test_noisy_elf.bin";
 #[cfg(target_arch = "aarch64")]
 pub const NOISY_KERNEL_IMAGE: &str = "test_pe.bin";
+#[cfg(target_arch = "riscv64")]
+pub const NOISY_KERNEL_IMAGE: &str = "test_pe_noisy.bin"; // Fake file, to pass compilation
 
 pub fn kernel_image_path(kernel_image: Option<&str>) -> String {
     let mut path = PathBuf::from(env!("CARGO_MANIFEST_DIR"));

@@ -180,6 +180,14 @@ impl VirtioDevice for Block {
         }
     }
 
+    #[cfg(target_arch = "riscv64")]
+    fn interrupt_trigger_mut(&mut self) -> &mut IrqTrigger {
+        match self {
+            Self::Virtio(b) => b.interrupt_trigger_mut(),
+            Self::VhostUser(_) => unimplemented!(),
+        }
+    }
+
     fn read_config(&self, offset: u64, data: &mut [u8]) {
         match self {
             Self::Virtio(b) => b.read_config(offset, data),

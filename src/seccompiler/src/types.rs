@@ -169,6 +169,7 @@ pub struct BpfJson(pub BTreeMap<String, Filter>);
 pub enum TargetArch {
     X86_64,
     Aarch64,
+    Riscv64,
 }
 
 impl TargetArch {
@@ -176,6 +177,7 @@ impl TargetArch {
         match self {
             TargetArch::X86_64 => SCMP_ARCH_X86_64,
             TargetArch::Aarch64 => SCMP_ARCH_AARCH64,
+            TargetArch::Riscv64 => SCMP_ARCH_RISCV64,
         }
     }
 }
@@ -186,6 +188,7 @@ impl FromStr for TargetArch {
         match s.to_lowercase().as_str() {
             "x86_64" => Ok(TargetArch::X86_64),
             "aarch64" => Ok(TargetArch::Aarch64),
+            "riscv64" => Ok(TargetArch::Riscv64),
             _ => Err(s.to_string()),
         }
     }
