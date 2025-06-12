@@ -22,6 +22,9 @@ fn main() {
     // Get Uffd from UDS. We'll use the uffd to handle PFs for Firecracker.
     let listener = UnixListener::bind(uffd_sock_path).expect("Cannot bind to socket path");
     let (stream, _) = listener.accept().expect("Cannot listen on UDS socket");
+    stream
+        .set_nonblocking(true)
+        .expect("Cannot set non-blocking");
 
     let mut runtime = Runtime::new(stream, file);
     runtime.install_panic_hook();
