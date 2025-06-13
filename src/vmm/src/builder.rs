@@ -47,6 +47,8 @@ use crate::vmm_config::instance_info::InstanceInfo;
 use crate::vmm_config::machine_config::MachineConfigError;
 use crate::vstate::kvm::{Kvm, KvmError};
 use crate::vstate::memory::GuestRegionMmap;
+#[cfg(target_arch = "aarch64")]
+use crate::vstate::resources::ResourceAllocator;
 use crate::vstate::vcpu::VcpuError;
 use crate::vstate::vm::{Vm, VmError};
 use crate::{EventManager, Vmm, VmmError};
@@ -188,7 +190,7 @@ pub fn build_microvm_for_boot(
         .collect::<Result<Vec<_>, _>>()?;
 
     if vm_resources.pci_enabled {
-        device_manager.enable_pci()?;
+        device_manager.enable_pci(&vm)?;
     } else {
         boot_cmdline.insert("pci", "off")?;
     }
@@ -197,7 +199,7 @@ pub fn build_microvm_for_boot(
     // to maintain the same MMIO address referenced in the documentation
     // and tests.
     if vm_resources.boot_timer {
-        device_manager.attach_boot_timer_device(request_ts)?;
+        device_manager.attach_boot_timer_device(&vm, request_ts)?;
     }
 
     if let Some(balloon) = vm_resources.balloon.get() {
@@ -252,7 +254,7 @@ pub fn build_microvm_for_boot(
 
     #[cfg(target_arch = "aarch64")]
     if vcpus[0].kvm_vcpu.supports_pvtime() {
-        setup_pvtime(&mut device_manager, &mut vcpus)?;
+        setup_pvtime(&vm.common.resource_allocator, &mut vcpus)?;
     } else {
         log::warn!("Vcpus do not support pvtime, steal time will not be reported to guest");
     }
@@ -513,13 +515,12 @@ const STEALTIME_STRUCT_MEM_SIZE: u64 = 64;
 /// Helper method to allocate steal time region
 #[cfg(target_arch = "aarch64")]
 fn allocate_pvtime_region(
-    device_manager: &mut DeviceManager,
+    resource_allocator: &ResourceAllocator,
     vcpu_count: usize,
     policy: vm_allocator::AllocPolicy,
 ) -> Result<GuestAddress, StartMicrovmError> {
     let size = STEALTIME_STRUCT_MEM_SIZE * vcpu_count as u64;
-    let addr = device_manager
-        .resource_allocator
+    let addr = resource_allocator
         .allocate_system_memory(size, STEALTIME_STRUCT_MEM_SIZE, policy)
         .map_err(StartMicrovmError::AllocateResources)?;
     Ok(GuestAddress(addr))
@@ -528,12 +529,12 @@ fn allocate_pvtime_region(
 /// Sets up pvtime for all vcpus
 #[cfg(target_arch = "aarch64")]
 fn setup_pvtime(
-    device_manager: &mut DeviceManager,
+    resource_allocator: &ResourceAllocator,
     vcpus: &mut [Vcpu],
 ) -> Result<(), StartMicrovmError> {
     // Alloc sys mem for steal time region
     let pvtime_mem: GuestAddress = allocate_pvtime_region(
-        device_manager,
+        resource_allocator,
         vcpus.len(),
         vm_allocator::AllocPolicy::LastMatch,
     )?;
@@ -1141,7 +1142,9 @@ pub(crate) mod tests {
         let mut vmm = default_vmm();
         let request_ts = TimestampUs::default();
 
-        let res = vmm.device_manager.attach_boot_timer_device(request_ts);
+        let res = vmm
+            .device_manager
+            .attach_boot_timer_device(&vmm.vm, request_ts);
         res.unwrap();
         assert!(vmm.device_manager.mmio_devices.boot_timer.is_some());
     }
