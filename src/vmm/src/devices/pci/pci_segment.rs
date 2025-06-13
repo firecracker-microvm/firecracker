@@ -21,7 +21,7 @@ use uuid::Uuid;
 use vm_allocator::AddressAllocator;
 use vm_device::{BusDeviceSync, BusError};
 
-use crate::arch::{PCI_MMCONFIG_START, PCI_MMIO_CONFIG_SIZE_PER_SEGMENT};
+use crate::arch::{ArchVm as Vm, PCI_MMCONFIG_START, PCI_MMIO_CONFIG_SIZE_PER_SEGMENT};
 use crate::vstate::resources::ResourceAllocator;
 
 pub struct PciSegment {
@@ -67,28 +67,21 @@ impl std::fmt::Debug for PciSegment {
 }
 
 impl PciSegment {
-    fn build(
-        id: u16,
-        resource_allocator: &Arc<ResourceAllocator>,
-        pci_irq_slots: &[u8; 32],
-    ) -> Result<PciSegment, BusError> {
+    fn build(id: u16, vm: &Arc<Vm>, pci_irq_slots: &[u8; 32]) -> Result<PciSegment, BusError> {
         let pci_root = PciRoot::new(None);
-        let pci_bus = Arc::new(Mutex::new(PciBus::new(
-            pci_root,
-            resource_allocator.clone(),
-        )));
+        let pci_bus = Arc::new(Mutex::new(PciBus::new(pci_root, vm.clone())));
 
         let pci_config_mmio = Arc::new(Mutex::new(PciConfigMmio::new(Arc::clone(&pci_bus))));
         let mmio_config_address = PCI_MMCONFIG_START + PCI_MMIO_CONFIG_SIZE_PER_SEGMENT * id as u64;
 
-        resource_allocator.mmio_bus.insert(
+        vm.common.mmio_bus.insert(
             Arc::clone(&pci_config_mmio) as Arc<dyn BusDeviceSync>,
             mmio_config_address,
             PCI_MMIO_CONFIG_SIZE_PER_SEGMENT,
         )?;
 
-        let mem32_allocator = resource_allocator.mmio32_memory.clone();
-        let mem64_allocator = resource_allocator.mmio64_memory.clone();
+        let mem32_allocator = vm.common.resource_allocator.mmio32_memory.clone();
+        let mem64_allocator = vm.common.resource_allocator.mmio64_memory.clone();
 
         let start_of_mem32_area = mem32_allocator.lock().unwrap().base();
         let end_of_mem32_area = mem32_allocator.lock().unwrap().end();
@@ -119,13 +112,15 @@ impl PciSegment {
     #[cfg(target_arch = "x86_64")]
     pub(crate) fn new(
         id: u16,
-        resource_allocator: &Arc<ResourceAllocator>,
+        vm: &Arc<Vm>,
         pci_irq_slots: &[u8; 32],
     ) -> Result<PciSegment, BusError> {
-        let mut segment = Self::build(id, resource_allocator, pci_irq_slots)?;
+        use crate::Vm;
+
+        let mut segment = Self::build(id, vm, pci_irq_slots)?;
         let pci_config_io = Arc::new(Mutex::new(PciConfigIo::new(Arc::clone(&segment.pci_bus))));
 
-        resource_allocator.pio_bus.insert(
+        vm.pio_bus.insert(
             pci_config_io.clone(),
             PCI_CONFIG_IO_PORT,
             PCI_CONFIG_IO_PORT_SIZE,
@@ -151,10 +146,10 @@ impl PciSegment {
     #[cfg(target_arch = "aarch64")]
     pub(crate) fn new(
         id: u16,
-        resource_allocator: &Arc<ResourceAllocator>,
+        vm: &Arc<Vm>,
         pci_irq_slots: &[u8; 32],
     ) -> Result<PciSegment, BusError> {
-        let segment = Self::build(id, resource_allocator, pci_irq_slots)?;
+        let segment = Self::build(id, vm, pci_irq_slots)?;
         info!(
             "pci: adding PCI segment: id={:#x}, PCI MMIO config address: {:#x}, mem32 area: \
              [{:#x}-{:#x}], mem64 area: [{:#x}-{:#x}]",
@@ -468,13 +463,14 @@ mod tests {
 
     use super::*;
     use crate::arch;
+    use crate::builder::tests::default_vmm;
     use crate::utils::u64_to_usize;
 
     #[test]
     fn test_pci_segment_build() {
-        let resource_allocator = Arc::new(ResourceAllocator::new().unwrap());
+        let vmm = default_vmm();
         let pci_irq_slots = &[0u8; 32];
-        let pci_segment = PciSegment::new(0, &resource_allocator, pci_irq_slots).unwrap();
+        let pci_segment = PciSegment::new(0, &vmm.vm, pci_irq_slots).unwrap();
 
         assert_eq!(pci_segment.id, 0);
         assert_eq!(
@@ -503,17 +499,14 @@ mod tests {
     #[cfg(target_arch = "x86_64")]
     #[test]
     fn test_io_bus() {
-        let resource_allocator = Arc::new(ResourceAllocator::new().unwrap());
+        let vmm = default_vmm();
         let pci_irq_slots = &[0u8; 32];
-        let pci_segment = PciSegment::new(0, &resource_allocator, pci_irq_slots).unwrap();
+        let pci_segment = PciSegment::new(0, &vmm.vm, pci_irq_slots).unwrap();
 
         let mut data = [0u8; u64_to_usize(PCI_CONFIG_IO_PORT_SIZE)];
-        resource_allocator
-            .pio_bus
-            .read(PCI_CONFIG_IO_PORT, &mut data)
-            .unwrap();
+        vmm.vm.pio_bus.read(PCI_CONFIG_IO_PORT, &mut data).unwrap();
 
-        resource_allocator
+        vmm.vm
             .pio_bus
             .read(PCI_CONFIG_IO_PORT + PCI_CONFIG_IO_PORT_SIZE, &mut data)
             .unwrap_err();
@@ -521,17 +514,19 @@ mod tests {
 
     #[test]
     fn test_mmio_bus() {
-        let resource_allocator = Arc::new(ResourceAllocator::new().unwrap());
+        let vmm = default_vmm();
         let pci_irq_slots = &[0u8; 32];
-        let pci_segment = PciSegment::new(0, &resource_allocator, pci_irq_slots).unwrap();
+        let pci_segment = PciSegment::new(0, &vmm.vm, pci_irq_slots).unwrap();
 
         let mut data = [0u8; u64_to_usize(PCI_MMIO_CONFIG_SIZE_PER_SEGMENT)];
 
-        resource_allocator
+        vmm.vm
+            .common
             .mmio_bus
             .read(pci_segment.mmio_config_address, &mut data)
             .unwrap();
-        resource_allocator
+        vmm.vm
+            .common
             .mmio_bus
             .read(
                 pci_segment.mmio_config_address + PCI_MMIO_CONFIG_SIZE_PER_SEGMENT,
@@ -542,9 +537,9 @@ mod tests {
 
     #[test]
     fn test_next_device_bdf() {
-        let resource_allocator = Arc::new(ResourceAllocator::new().unwrap());
+        let vmm = default_vmm();
         let pci_irq_slots = &[0u8; 32];
-        let pci_segment = PciSegment::new(0, &resource_allocator, pci_irq_slots).unwrap();
+        let pci_segment = PciSegment::new(0, &vmm.vm, pci_irq_slots).unwrap();
 
         // Start checking from device id 1, since 0 is allocated to the Root port.
         for dev_id in 1..32 {

@@ -371,7 +371,7 @@ impl<'a> Persist<'a> for MMIODeviceManager {
                 if state.type_ == DeviceType::Rtc {
                     let rtc = Arc::new(Mutex::new(RTCDevice::new()));
                     dev_manager.register_mmio_rtc(
-                        &constructor_args.vm.common.resource_allocator,
+                        constructor_args.vm,
                         rtc,
                         Some(state.device_info),
                     )?;
