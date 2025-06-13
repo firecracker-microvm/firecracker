@@ -75,7 +75,7 @@ impl PciDevices {
 
         // Currently we don't assign any IRQs to PCI devices. We will be using MSI-X interrupts
         // only.
-        let pci_segment = PciSegment::new(0, &vm.common.resource_allocator, &[0u8; 32])?;
+        let pci_segment = PciSegment::new(0, vm, &[0u8; 32])?;
         self.pci_segment = Some(pci_segment);
 
         Ok(())
@@ -140,20 +140,15 @@ impl PciDevices {
             match bar.region_type() {
                 PciBarRegionType::IoRegion => {
                     #[cfg(target_arch = "x86_64")]
-                    resource_allocator.pio_bus.insert(
-                        virtio_device.clone(),
-                        bar.addr(),
-                        bar.size(),
-                    )?;
+                    vm.pio_bus
+                        .insert(virtio_device.clone(), bar.addr(), bar.size())?;
                     #[cfg(target_arch = "aarch64")]
                     log::error!("pci: We do not support I/O region allocation")
                 }
                 PciBarRegionType::Memory32BitRegion | PciBarRegionType::Memory64BitRegion => {
-                    resource_allocator.mmio_bus.insert(
-                        virtio_device.clone(),
-                        bar.addr(),
-                        bar.size(),
-                    )?;
+                    vm.common
+                        .mmio_bus
+                        .insert(virtio_device.clone(), bar.addr(), bar.size())?;
                 }
             }
         }
@@ -223,11 +218,8 @@ impl PciDevices {
                         bar.size()
                     );
                     #[cfg(target_arch = "x86_64")]
-                    vm.common.resource_allocator.pio_bus.insert(
-                        virtio_device.clone(),
-                        bar.addr(),
-                        bar.size(),
-                    )?;
+                    vm.pio_bus
+                        .insert(virtio_device.clone(), bar.addr(), bar.size())?;
                     #[cfg(target_arch = "aarch64")]
                     log::error!("pci: We do not support I/O region allocation")
                 }
@@ -237,11 +229,9 @@ impl PciDevices {
                         bar.addr(),
                         bar.size()
                     );
-                    vm.common.resource_allocator.mmio_bus.insert(
-                        virtio_device.clone(),
-                        bar.addr(),
-                        bar.size(),
-                    )?;
+                    vm.common
+                        .mmio_bus
+                        .insert(virtio_device.clone(), bar.addr(), bar.size())?;
                 }
             }
         }

@@ -20,6 +20,7 @@ use kvm_bindings::{
 };
 use kvm_ioctls::VmFd;
 use log::debug;
+use pci::DeviceRelocation;
 use serde::{Deserialize, Serialize};
 use vm_device::interrupt::{InterruptSourceGroup, MsiIrqSourceConfig};
 use vmm_sys_util::errno;
@@ -237,6 +238,8 @@ pub struct VmCommon {
     pub interrupts: Arc<Mutex<HashMap<u32, RoutingEntry>>>,
     /// Allocator for VM resources
     pub resource_allocator: Arc<ResourceAllocator>,
+    /// MMIO bus
+    pub mmio_bus: Arc<vm_device::Bus>,
 }
 
 /// Errors associated with the wrappers over KVM ioctls.
@@ -308,6 +311,7 @@ impl Vm {
             guest_memory: GuestMemoryMmap::default(),
             interrupts: Arc::new(Mutex::new(HashMap::new())),
             resource_allocator: Arc::new(ResourceAllocator::new()?),
+            mmio_bus: Arc::new(vm_device::Bus::new()),
         })
     }
 
@@ -602,6 +606,19 @@ impl Vm {
 
         self.common.fd.set_gsi_routing(&routes)?;
         Ok(())
+    }
+}
+
+impl DeviceRelocation for Vm {
+    fn move_bar(
+        &self,
+        _old_base: u64,
+        _new_base: u64,
+        _len: u64,
+        _pci_dev: &mut dyn pci::PciDevice,
+        _region_type: pci::PciBarRegionType,
+    ) -> Result<(), std::io::Error> {
+        todo!()
     }
 }
 
