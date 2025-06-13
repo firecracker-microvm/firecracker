@@ -612,20 +612,23 @@ impl Queue {
     }
 
     /// Advance queue and used ring by `n` elements.
-    pub fn advance_used_ring(&mut self, n: u16) {
+    pub fn advance_next_used(&mut self, n: u16) {
         self.num_added += Wrapping(n);
         self.next_used += Wrapping(n);
+    }
 
+    /// Set the used ring index to the current `next_used` value.
+    /// Should be called once after number of `add_used` calls.
+    pub fn advance_used_ring_idx(&mut self) {
         // This fence ensures all descriptor writes are visible before the index update is.
         fence(Ordering::Release);
-
         self.used_ring_idx_set(self.next_used.0);
     }
 
     /// Puts an available descriptor head into the used ring for use by the guest.
     pub fn add_used(&mut self, desc_index: u16, len: u32) -> Result<(), QueueError> {
         self.write_used_element(0, desc_index, len)?;
-        self.advance_used_ring(1);
+        self.advance_next_used(1);
         Ok(())
     }
 
@@ -1531,6 +1534,7 @@ mod tests {
 
             // should be ok
             q.add_used(1, 0x1000).unwrap();
+            q.advance_used_ring_idx();
             assert_eq!(vq.used.idx.get(), 1);
             let x = vq.used.ring[0].get();
             assert_eq!(x.id, 1);
