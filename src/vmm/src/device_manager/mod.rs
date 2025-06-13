@@ -217,7 +217,7 @@ impl DeviceManager {
         let boot_timer = Arc::new(Mutex::new(BootTimer::new(request_ts)));
 
         self.mmio_devices
-            .register_mmio_boot_timer(&vm.common.resource_allocator.mmio_bus, boot_timer)?;
+            .register_mmio_boot_timer(&vm.common.mmio_bus, boot_timer)?;
 
         Ok(())
     }
@@ -256,8 +256,7 @@ impl DeviceManager {
         }
 
         let rtc = Arc::new(Mutex::new(RTCDevice::new()));
-        self.mmio_devices
-            .register_mmio_rtc(&vm.common.resource_allocator, rtc, None)?;
+        self.mmio_devices.register_mmio_rtc(vm, rtc, None)?;
         Ok(())
     }
 
