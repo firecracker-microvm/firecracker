@@ -5,6 +5,8 @@
 pub mod kvm;
 /// Module with GuestMemory implementation.
 pub mod memory;
+/// Resource manager for devices.
+pub mod resources;
 /// Module with Vcpu implementation.
 pub mod vcpu;
 /// Module with Vm implementation.
