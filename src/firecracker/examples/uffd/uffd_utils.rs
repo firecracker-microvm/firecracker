@@ -4,17 +4,27 @@
 // Not everything is used by both binaries
 #![allow(dead_code)]
 
+mod userfault_bitmap;
+
 use std::collections::{HashMap, HashSet};
 use std::ffi::c_void;
 use std::fs::File;
+use std::io::{Read, Write};
+use std::num::NonZero;
+use std::ops::DerefMut;
+use std::os::fd::RawFd;
 use std::os::unix::io::{AsRawFd, FromRawFd, IntoRawFd};
 use std::os::unix::net::UnixStream;
 use std::ptr;
+use std::sync::atomic::AtomicU64;
 use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
+use serde_json::{Deserializer, StreamDeserializer};
 use userfaultfd::{Error, Event, Uffd};
 use vmm_sys_util::sock_ctrl_msg::ScmSocket;
+
+use crate::uffd_utils::userfault_bitmap::UserfaultBitmap;
 
 // This is the same with the one used in src/vmm.
 /// This describes the mapping between Firecracker base virtual address and offset in the
@@ -34,8 +44,6 @@ pub struct GuestRegionUffdMapping {
     pub offset: u64,
     /// The configured page size for this memory region.
     pub page_size: usize,
-    #[deprecated]
-    pub page_size_kib: usize,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
@@ -112,6 +120,9 @@ pub struct UffdHandler {
     backing_buffer: *const u8,
     uffd: Uffd,
     removed_pages: HashSet<u64>,
+    pub guest_memfd: Option<File>,
+    pub guest_memfd_addr: Option<*mut u8>,
+    pub userfault_bitmap: Option<UserfaultBitmap>,
 }
 
 impl UffdHandler {
@@ -155,9 +166,29 @@ impl UffdHandler {
         panic!("Could not get UFFD and mappings after 5 retries");
     }
 
+    fn mmap_helper(len: libc::size_t, fd: libc::c_int) -> *mut libc::c_void {
+        // SAFETY: `mmap` is a safe function to call with valid parameters.
+        let ret = unsafe {
+            libc::mmap(
+                ptr::null_mut(),
+                len,
+                libc::PROT_WRITE,
+                libc::MAP_SHARED,
+                fd,
+                0,
+            )
+        };
+
+        assert_ne!(ret, libc::MAP_FAILED);
+
+        ret
+    }
+
     pub fn from_mappings(
         mappings: Vec<GuestRegionUffdMapping>,
         uffd: File,
+        guest_memfd: Option<File>,
+        userfault_bitmap_memfd: Option<File>,
         backing_buffer: *const u8,
         size: usize,
     ) -> Self {
@@ -177,12 +208,44 @@ impl UffdHandler {
 
         let uffd = unsafe { Uffd::from_raw_fd(uffd.into_raw_fd()) };
 
-        Self {
-            mem_regions: mappings,
-            page_size,
-            backing_buffer,
-            uffd,
-            removed_pages: HashSet::new(),
+        match (&guest_memfd, &userfault_bitmap_memfd) {
+            (Some(guestmem_file), Some(bitmap_file)) => {
+                let guest_memfd_addr =
+                    Some(Self::mmap_helper(size, guestmem_file.as_raw_fd()) as *mut u8);
+
+                let bitmap_ptr = Self::mmap_helper(size, bitmap_file.as_raw_fd()) as *mut AtomicU64;
+
+                // SAFETY: The bitmap pointer is valid and the size is correct.
+                let userfault_bitmap = Some(unsafe {
+                    UserfaultBitmap::new(bitmap_ptr, memsize, NonZero::new(page_size).unwrap())
+                });
+
+                Self {
+                    mem_regions: mappings,
+                    page_size,
+                    backing_buffer,
+                    uffd,
+                    removed_pages: HashSet::new(),
+                    guest_memfd,
+                    guest_memfd_addr,
+                    userfault_bitmap,
+                }
+            }
+            (None, None) => Self {
+                mem_regions: mappings,
+                page_size,
+                backing_buffer,
+                uffd,
+                removed_pages: HashSet::new(),
+                guest_memfd: None,
+                guest_memfd_addr: None,
+                userfault_bitmap: None,
+            },
+            (_, _) => {
+                panic!(
+                    "Only both guest_memfd and userfault_bitmap_memfd can be set at the same time."
+                );
+            }
         }
     }
 
@@ -220,6 +283,10 @@ impl UffdHandler {
             "Could not find addr: {:?} within guest region mappings.",
             addr
         );
+    }
+
+    pub fn size(&self) -> usize {
+        self.mem_regions.iter().map(|r| r.size).sum()
     }
 
     fn populate_from_file(&self, region: &GuestRegionUffdMapping, dst: u64, len: usize) -> bool {
@@ -263,6 +330,107 @@ impl UffdHandler {
     }
 }
 
+struct UffdMsgIterator {
+    stream: UnixStream,
+    buffer: Vec<u8>,
+    fds_received: bool,
+    secret_free: bool,
+    current_pos: usize,
+    fds: [RawFd; 3],
+}
+
+impl Iterator for UffdMsgIterator {
+    type Item = UffdMsgFromFirecracker;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if !self.fds_received {
+            let mut iov = [];
+            let mut fds = [0; 3];
+            let ret = unsafe { self.stream.recv_with_fds(&mut iov, &mut fds) };
+            match ret {
+                Ok((0, 1)) => {
+                    self.secret_free = false;
+                }
+                Ok((0, 3)) => {
+                    self.secret_free = true;
+                }
+                Ok((n, _)) => {
+                    panic!("Wrong number of fds: {}", n);
+                }
+                Err(e) => {
+                    if e.errno() == libc::EAGAIN {
+                        return None;
+                    }
+                    panic!("Read error: {}", e);
+                }
+            }
+            self.fds_received = true;
+            self.fds = fds;
+
+            match self.recv_mappings() {
+                Some(mappings) => Some(UffdMsgFromFirecracker::Mappings(mappings)),
+                None => None, // EOF or error
+            }
+        } else {
+            match self.recv_fault_request() {
+                Some(request) => Some(UffdMsgFromFirecracker::FaultReq(request)),
+                None => None, // EOF or error
+            }
+        }
+    }
+}
+
+impl UffdMsgIterator {
+    fn new(stream: UnixStream) -> Self {
+        Self {
+            stream,
+            buffer: vec![0u8; 4096],
+            fds_received: false,
+            secret_free: false,
+            current_pos: 0,
+            fds: [0; 3],
+        }
+    }
+
+    fn recv_json<T: serde::de::DeserializeOwned + serde::Serialize>(&mut self) -> Option<T> {
+        let bytes_read = self
+            .stream
+            .read(&mut self.buffer[self.current_pos..])
+            .ok()?;
+        if bytes_read == 0 {
+            return None;
+        }
+
+        self.current_pos += bytes_read;
+
+        let str_slice = std::str::from_utf8(&self.buffer[..self.current_pos]).unwrap();
+        let mut stream: StreamDeserializer<_, T> = Deserializer::from_str(str_slice).into_iter();
+
+        match stream.next() {
+            Some(Ok(value)) => {
+                let consumed = stream.byte_offset();
+                self.buffer.copy_within(consumed..self.current_pos, 0);
+                self.current_pos -= consumed;
+                Some(value)
+            }
+            Some(Err(e)) => panic!(
+                "Failed to deserialize JSON message: {}. Error: {}",
+                String::from_utf8_lossy(&self.buffer[..self.current_pos]),
+                e
+            ),
+            None => None,
+        }
+    }
+
+    fn recv_mappings(&mut self) -> Option<Vec<GuestRegionUffdMapping>> {
+        self.recv_json()
+    }
+
+    fn recv_fault_request(&mut self) -> Option<FaultRequest> {
+        self.recv_json()
+    }
+}
+
 #[derive(Debug)]
 pub struct Runtime {
     stream: UnixStream,
@@ -270,6 +438,7 @@ pub struct Runtime {
     backing_memory: *mut u8,
     backing_memory_size: usize,
     uffds: HashMap<i32, UffdHandler>,
+    main_handler_fd: Option<i32>,
 }
 
 impl Runtime {
@@ -300,6 +469,7 @@ impl Runtime {
             backing_memory: ret.cast(),
             backing_memory_size,
             uffds: HashMap::default(),
+            main_handler_fd: None,
         }
     }
 
@@ -340,12 +510,22 @@ impl Runtime {
         }));
     }
 
+    pub fn send_fault_reply(&mut self, fault_reply: FaultReply) {
+        let reply = UffdMsgToFirecracker::FaultRep(fault_reply);
+        let reply_json = serde_json::to_string(&reply).unwrap();
+        self.stream.write_all(reply_json.as_bytes()).unwrap();
+    }
+
     /// Polls the `UnixStream` and UFFD fds in a loop.
     /// When stream is polled, new uffd is retrieved.
     /// When uffd is polled, page fault is handled by
     /// calling `pf_event_dispatch` with corresponding
     /// uffd object passed in.
-    pub fn run(&mut self, pf_event_dispatch: impl Fn(&mut UffdHandler)) {
+    pub fn run(
+        &mut self,
+        pf_event_dispatch: impl Fn(&mut UffdHandler),
+        pf_vcpu_event_dispatch: impl Fn(&mut UffdHandler, usize),
+    ) {
         let mut pollfds = vec![];
 
         // Poll the stream for incoming uffds
@@ -354,6 +534,9 @@ impl Runtime {
             events: libc::POLLIN,
             revents: 0,
         });
+
+        let mut uffd_msg_iter =
+            UffdMsgIterator::new(self.stream.try_clone().expect("Failed to clone stream"));
 
         // We can skip polling on stream fd if
         // the connection is closed.
@@ -377,109 +560,70 @@ impl Runtime {
                 if pollfds[i].revents & libc::POLLIN != 0 {
                     nready -= 1;
                     if pollfds[i].fd == self.stream.as_raw_fd() {
-                        const BUFFER_SIZE: usize = 4096;
+                        while let Some(msg) = uffd_msg_iter.next() {
+                            match msg {
+                                UffdMsgFromFirecracker::Mappings(mappings) => {
+                                    let (guest_memfd, userfault_bitmap_memfd) =
+                                        if uffd_msg_iter.secret_free {
+                                            (
+                                                Some(unsafe {
+                                                    File::from_raw_fd(uffd_msg_iter.fds[1])
+                                                }),
+                                                Some(unsafe {
+                                                    File::from_raw_fd(uffd_msg_iter.fds[2])
+                                                }),
+                                            )
+                                        } else {
+                                            (None, None)
+                                        };
 
-                        let mut buffer = [0u8; BUFFER_SIZE];
-                        let mut fds = [0; 1];
-                        let mut current_pos = 0;
-                        let mut exit_loop = false;
+                                    let uffd_handler = UffdHandler::from_mappings(
+                                        mappings,
+                                        unsafe { File::from_raw_fd(uffd_msg_iter.fds[0]) },
+                                        guest_memfd,
+                                        userfault_bitmap_memfd,
+                                        self.backing_memory,
+                                        self.backing_memory_size,
+                                    );
 
-                        loop {
-                            // Read more data into the buffer if there's space
-                            let mut iov = [libc::iovec {
-                                iov_base: (buffer[current_pos..]).as_mut_ptr() as *mut libc::c_void,
-                                iov_len: buffer.len() - current_pos,
-                            }];
-
-                            if current_pos < BUFFER_SIZE {
-                                let ret = unsafe { self.stream.recv_with_fds(&mut iov, &mut fds) };
-                                match ret {
-                                    Ok((0, _)) => break,
-                                    Ok((n, 1)) => current_pos += n,
-                                    Ok((n, 0)) | Ok((_, n)) => panic!("Wrong number of fds: {}", n),
-                                    Err(e) if e.errno() == libc::EAGAIN => {
-                                        if exit_loop {
-                                            break;
-                                        }
-                                        continue;
+                                    let fd = uffd_handler.uffd.as_raw_fd();
+                                    if uffd_handler.guest_memfd.is_some() {
+                                        self.main_handler_fd = Some(fd);
                                     }
-                                    Err(e) => panic!("Read error: {}", e),
+
+                                    pollfds.push(libc::pollfd {
+                                        fd,
+                                        events: libc::POLLIN,
+                                        revents: 0,
+                                    });
+                                    self.uffds.insert(fd, uffd_handler);
                                 }
+                                UffdMsgFromFirecracker::FaultReq(fault_request) => {
+                                    let fd = self.main_handler_fd.unwrap();
 
-                                exit_loop = false;
-                            }
+                                    let mut locked_uffd = self.uffds.get_mut(&fd).unwrap();
+                                    let page_size = locked_uffd.page_size;
 
-                            let mut parser =
-                                serde_json::Deserializer::from_slice(&buffer[..current_pos])
-                                    .into_iter::<UffdMsgFromFirecracker>();
-                            let mut total_consumed = 0;
-                            let mut needs_more = false;
+                                    assert!(
+                                        (fault_request.offset as usize) < locked_uffd.size(),
+                                        "received bogus offset from firecracker"
+                                    );
 
-                            while let Some(result) = parser.next() {
-                                match result {
-                                    Ok(UffdMsgFromFirecracker::Mappings(mappings)) => {
-                                        // Handle new uffd from stream
-                                        let handler = UffdHandler::from_mappings(
-                                            mappings,
-                                            unsafe { File::from_raw_fd(fds[0]) },
-                                            self.backing_memory,
-                                            self.backing_memory_size,
-                                        );
+                                    // Handle one of FaultRequest page faults
+                                    pf_vcpu_event_dispatch(
+                                        locked_uffd.deref_mut(),
+                                        fault_request.offset as usize,
+                                    );
 
-                                        let fd = handler.uffd.as_raw_fd();
-
-                                        pollfds.push(libc::pollfd {
-                                            fd,
-                                            events: libc::POLLIN,
-                                            revents: 0,
-                                        });
-                                        self.uffds.insert(fd, handler);
-
-                                        // If connection is closed, we can skip the socket from
-                                        // being polled.
-                                        if pollfds[i].revents & (libc::POLLRDHUP | libc::POLLHUP)
-                                            != 0
-                                        {
-                                            skip_stream = 1;
-                                        }
-
-                                        total_consumed = parser.byte_offset();
-                                    }
-                                    Ok(UffdMsgFromFirecracker::FaultReq(ref _fault_request)) => {
-                                        unimplemented!(
-                                            "Received unsupported message from Firecracker: {:?}",
-                                            result
-                                        )
-                                    }
-                                    Err(e) if e.is_eof() => {
-                                        needs_more = true;
-                                        break;
-                                    }
-                                    Err(e) => {
-                                        println!(
-                                            "Buffer content: {:?}",
-                                            std::str::from_utf8(&buffer[..current_pos])
-                                        );
-                                        panic!("Invalid JSON: {}", e);
-                                    }
+                                    self.send_fault_reply(
+                                        fault_request.into_reply(page_size as u64),
+                                    );
                                 }
                             }
-
-                            if total_consumed > 0 {
-                                buffer.copy_within(total_consumed..current_pos, 0);
-                                current_pos -= total_consumed;
-                            }
-
-                            if needs_more {
-                                continue;
-                            }
-
-                            // We consumed all data in the buffer, but the socket may have remaining
-                            // unread data so we attempt to read from it
-                            // and exit the loop only if we confirm that nothing is in
-                            // there.
-                            if current_pos == 0 {
-                                exit_loop = true;
+                            // If connection is closed, we can skip the socket from
+                            // being polled.
+                            if pollfds[i].revents & (libc::POLLRDHUP | libc::POLLHUP) != 0 {
+                                skip_stream = 1;
                             }
                         }
                     } else {
@@ -535,6 +679,7 @@ mod tests {
         let stream =
             UnixStream::connect(dummy_socket_path_clone).expect("Cannot connect to the socket");
 
+        #[allow(deprecated)]
         let dummy_memory_region = vec![GuestRegionUffdMapping {
             base_host_virt_addr: 0,
             size: 0x1000,
@@ -543,6 +688,8 @@ mod tests {
         }];
         let dummy_memory_region_json = serde_json::to_string(&dummy_memory_region).unwrap();
 
+        // Send the first mapping message to the runtime.
+        // We expect the runtime to store its UFFD.
         let dummy_file_1 = TempFile::new().unwrap();
         let dummy_fd_1 = dummy_file_1.as_file().as_raw_fd();
         stream
@@ -554,6 +701,8 @@ mod tests {
             assert_eq!((*runtime_ptr).uffds.len(), 1);
         }
 
+        // Send the second mappings message to the runtime.
+        // The runtime is only accepting one mappings message.
         let dummy_file_2 = TempFile::new().unwrap();
         let dummy_fd_2 = dummy_file_2.as_file().as_raw_fd();
         stream
@@ -562,12 +711,13 @@ mod tests {
         // wait for the runtime thread to process message
         std::thread::sleep(std::time::Duration::from_millis(100));
         unsafe {
-            assert_eq!((*runtime_ptr).uffds.len(), 2);
+            assert_eq!((*runtime_ptr).uffds.len(), 1);
         }
 
         // there is no way to properly stop runtime, so
         // we send a message with an incorrect memory region
         // to cause runtime thread to panic
+        #[allow(deprecated)]
         let error_memory_region = vec![GuestRegionUffdMapping {
             base_host_virt_addr: 0,
             size: 0,
