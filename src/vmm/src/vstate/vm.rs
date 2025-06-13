@@ -29,7 +29,6 @@ use vmm_sys_util::eventfd::EventFd;
 
 use crate::arch::host_page_size;
 pub use crate::arch::{ArchVm as Vm, ArchVmError, VmState};
-use crate::device_manager::resources::ResourceAllocator;
 use crate::logger::info;
 use crate::persist::CreateSnapshotError;
 use crate::snapshot::Persist;
@@ -38,6 +37,7 @@ use crate::vmm_config::snapshot::SnapshotType;
 use crate::vstate::memory::{
     Address, GuestMemory, GuestMemoryExtension, GuestMemoryMmap, GuestMemoryRegion, GuestRegionMmap,
 };
+use crate::vstate::resources::ResourceAllocator;
 use crate::vstate::vcpu::VcpuError;
 use crate::{DirtyBitmap, Vcpu, mem_size_mib};
 
@@ -245,6 +245,8 @@ pub struct VmCommon {
     pub guest_memory: GuestMemoryMmap,
     /// Interrupts used by Vm's devices
     pub interrupts: Mutex<HashMap<u32, RoutingEntry>>,
+    /// Allocator for VM resources
+    pub resource_allocator: Arc<ResourceAllocator>,
 }
 
 /// Errors associated with the wrappers over KVM ioctls.
@@ -270,6 +272,8 @@ pub enum VmError {
     VmMemory(#[from] vm_memory::Error),
     /// Error calling mincore: {0}
     Mincore(vmm_sys_util::errno::Error),
+    /// ResourceAllocator error: {0}
+    ResourceAllocator(#[from] vm_allocator::Error)
 }
 
 /// Contains Vm functions that are usable across CPU architectures
@@ -317,6 +321,7 @@ impl Vm {
             max_memslots: kvm.max_nr_memslots(),
             guest_memory: GuestMemoryMmap::default(),
             interrupts: Mutex::new(HashMap::new()),
+            resource_allocator: Arc::new(ResourceAllocator::new()?),
         })
     }
 
@@ -574,14 +579,12 @@ impl Vm {
     }
 
     /// Create a group of MSI-X interrupts
-    pub fn create_msix_group(
-        vm: Arc<Vm>,
-        resource_allocator: &ResourceAllocator,
-        count: u16,
-    ) -> Result<MsiVectorGroup, InterruptError> {
+    pub fn create_msix_group(vm: Arc<Vm>, count: u16) -> Result<MsiVectorGroup, InterruptError> {
         debug!("Creating new MSI group with {count} vectors");
         let mut irq_routes = HashMap::with_capacity(count as usize);
-        for (gsi, i) in resource_allocator
+        for (gsi, i) in vm
+            .common
+            .resource_allocator
             .allocate_gsi(count as u32)?
             .iter()
             .zip(0u32..)
@@ -772,8 +775,7 @@ pub(crate) mod tests {
     }
 
     fn create_msix_group(vm: &Arc<Vm>) -> MsiVectorGroup {
-        let resource_allocator = ResourceAllocator::new().unwrap();
-        Vm::create_msix_group(vm.clone(), &resource_allocator, 4).unwrap()
+        Vm::create_msix_group(vm.clone(), 4).unwrap()
     }
 
     #[test]
