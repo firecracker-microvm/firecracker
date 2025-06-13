@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use std::fmt;
+use std::sync::Arc;
 
 use kvm_bindings::{
     KVM_CLOCK_TSC_STABLE, KVM_IRQCHIP_IOAPIC, KVM_IRQCHIP_PIC_MASTER, KVM_IRQCHIP_PIC_SLAVE,
@@ -58,6 +59,8 @@ pub struct ArchVm {
     ///
     /// `None` if `KVM_CAP_XSAVE2` not supported.
     xsave2_size: Option<usize>,
+    /// Port IO bus
+    pub pio_bus: Arc<vm_device::Bus>,
 }
 
 impl ArchVm {
@@ -92,10 +95,13 @@ impl ArchVm {
             .set_tss_address(u64_to_usize(crate::arch::x86_64::layout::KVM_TSS_ADDRESS))
             .map_err(ArchVmError::SetTssAddress)?;
 
+        let pio_bus = Arc::new(vm_device::Bus::new());
+
         Ok(ArchVm {
             common,
             msrs_to_save,
             xsave2_size,
+            pio_bus,
         })
     }
 
