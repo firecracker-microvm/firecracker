@@ -49,7 +49,7 @@ regex = { version = "1.12.2", default-features = false, features = [
 
 # Dev-Dependencies for uffd examples
 serde = { version = "1.0.228", features = ["derive"] }
-userfaultfd = "0.9.0"
+userfaultfd = { version = "0.9.0", features = ["linux5_13"] }
 
 [lints]
 workspace = true

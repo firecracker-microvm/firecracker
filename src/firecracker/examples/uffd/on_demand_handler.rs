@@ -5,6 +5,8 @@
 //! which loads the whole region from the backing memory file
 //! when a page fault occurs.
 
+#![allow(clippy::cast_possible_truncation)]
+
 mod uffd_utils;
 
 use std::fs::File;
@@ -90,7 +92,31 @@ fn main() {
                     // event (if the balloon device is enabled).
                     match event {
                         userfaultfd::Event::Pagefault { addr, .. } => {
-                            if !uffd_handler.serve_pf(addr.cast(), uffd_handler.page_size) {
+                            let bit = uffd_handler.addr_to_offset(addr.cast()) as usize
+                                / uffd_handler.page_size;
+
+                            if uffd_handler.userfault_bitmap.is_some() {
+                                if uffd_handler
+                                    .userfault_bitmap
+                                    .as_mut()
+                                    .unwrap()
+                                    .is_bit_set(bit)
+                                {
+                                    if !uffd_handler.serve_pf(addr.cast(), uffd_handler.page_size) {
+                                        deferred_events.push(event);
+                                    }
+                                } else {
+                                    // TODO: we currently ignore the result as we may attempt to
+                                    // populate the page that is already present as we may receive
+                                    // multiple minor fault events per page.
+                                    let _ = uffd_handler
+                                        .uffd
+                                        .r#continue(addr.cast(), uffd_handler.page_size, true)
+                                        .inspect_err(|err| {
+                                            println!("uffdio_continue error: {:?}", err)
+                                        });
+                                }
+                            } else if !uffd_handler.serve_pf(addr.cast(), uffd_handler.page_size) {
                                 deferred_events.push(event);
                             }
                         }
@@ -111,6 +137,17 @@ fn main() {
                 }
             }
         },
-        |_uffd_handler: &mut UffdHandler, _offset: usize| {},
+        |uffd_handler: &mut UffdHandler, offset: usize| {
+            let bytes_written = uffd_handler.populate_via_write(offset, uffd_handler.page_size);
+
+            if bytes_written == 0 {
+                println!(
+                    "got a vcpu fault for an already populated page at offset {}",
+                    offset
+                );
+            } else {
+                assert_eq!(bytes_written, uffd_handler.page_size);
+            }
+        },
     );
 }
