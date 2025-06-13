@@ -436,6 +436,7 @@ impl VirtioBlock {
                 }
             }
         }
+        queue.advance_used_ring_idx();
 
         if queue.prepare_kick() {
             self.irq_trigger
@@ -497,6 +498,7 @@ impl VirtioBlock {
                 }
             }
         }
+        queue.advance_used_ring_idx();
 
         if queue.prepare_kick() {
             self.irq_trigger

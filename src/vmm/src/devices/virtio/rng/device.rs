@@ -185,6 +185,7 @@ impl Entropy {
                 }
             }
         }
+        self.queues[RNG_QUEUE].advance_used_ring_idx();
 
         if used_any {
             self.signal_used_queue().unwrap_or_else(|err| {
