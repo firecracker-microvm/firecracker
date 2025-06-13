@@ -202,7 +202,7 @@ impl MMIODeviceManager {
                 .map_err(MmioError::RegisterIrqFd)?;
         }
 
-        vm.common.resource_allocator.mmio_bus.insert(
+        vm.common.mmio_bus.insert(
             device.inner.clone(),
             device.resources.addr,
             device.resources.len,
@@ -296,7 +296,7 @@ impl MMIODeviceManager {
             inner: serial,
         };
 
-        vm.common.resource_allocator.mmio_bus.insert(
+        vm.common.mmio_bus.insert(
             device.inner.clone(),
             device.resources.addr,
             device.resources.len,
@@ -327,7 +327,7 @@ impl MMIODeviceManager {
     /// given as parameter, otherwise allocate a new MMIO resources for it.
     pub fn register_mmio_rtc(
         &mut self,
-        resource_allocator: &ResourceAllocator,
+        vm: &Vm,
         rtc: Arc<Mutex<RTCDevice>>,
         device_info_opt: Option<MMIODeviceInfo>,
     ) -> Result<(), MmioError> {
@@ -336,7 +336,7 @@ impl MMIODeviceManager {
         let device_info = if let Some(device_info) = device_info_opt {
             device_info
         } else {
-            let gsi = resource_allocator.allocate_gsi(1)?;
+            let gsi = vm.common.resource_allocator.allocate_gsi(1)?;
             MMIODeviceInfo {
                 addr: RTC_MEM_START,
                 len: MMIO_LEN,
@@ -349,7 +349,7 @@ impl MMIODeviceManager {
             inner: rtc,
         };
 
-        resource_allocator.mmio_bus.insert(
+        vm.common.mmio_bus.insert(
             device.inner.clone(),
             device.resources.addr,
             device.resources.len,
