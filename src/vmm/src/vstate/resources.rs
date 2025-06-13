@@ -4,11 +4,9 @@
 use std::convert::Infallible;
 use std::sync::{Arc, Mutex};
 
-use pci::DeviceRelocation;
 use serde::{Deserialize, Serialize};
 pub use vm_allocator::AllocPolicy;
 use vm_allocator::{AddressAllocator, IdAllocator};
-use vm_device::Bus;
 
 use crate::arch;
 use crate::snapshot::Persist;
@@ -30,11 +28,6 @@ pub struct ResourceAllocator {
     pub mmio64_memory: Arc<Mutex<AddressAllocator>>,
     /// Memory allocator for system data
     pub system_memory: Arc<Mutex<AddressAllocator>>,
-    /// MMIO bus
-    pub mmio_bus: Arc<vm_device::Bus>,
-    #[cfg(target_arch = "x86_64")]
-    /// Port IO bus
-    pub pio_bus: Arc<vm_device::Bus>,
 }
 
 impl ResourceAllocator {
@@ -54,9 +47,6 @@ impl ResourceAllocator {
                 arch::SYSTEM_MEM_START,
                 arch::SYSTEM_MEM_SIZE,
             )?)),
-            mmio_bus: Arc::new(Bus::new()),
-            #[cfg(target_arch = "x86_64")]
-            pio_bus: Arc::new(Bus::new()),
         })
     }
 
@@ -178,9 +168,6 @@ impl<'a> Persist<'a> for ResourceAllocator {
             mmio32_memory: state.mmio32_memory.clone(),
             mmio64_memory: state.mmio64_memory.clone(),
             system_memory: state.system_memory.clone(),
-            mmio_bus: Arc::new(Bus::new()),
-            #[cfg(target_arch = "x86_64")]
-            pio_bus: Arc::new(Bus::new()),
         })
     }
 }
@@ -216,19 +203,6 @@ impl Default for ResourceAllocatorState {
                 AddressAllocator::new(arch::SYSTEM_MEM_START, arch::SYSTEM_MEM_SIZE).unwrap(),
             )),
         }
-    }
-}
-
-impl DeviceRelocation for ResourceAllocator {
-    fn move_bar(
-        &self,
-        _old_base: u64,
-        _new_base: u64,
-        _len: u64,
-        _pci_dev: &mut dyn pci::PciDevice,
-        _region_type: pci::PciBarRegionType,
-    ) -> Result<(), std::io::Error> {
-        todo!()
     }
 }
 

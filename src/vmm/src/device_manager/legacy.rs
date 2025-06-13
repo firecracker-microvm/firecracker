@@ -119,7 +119,7 @@ impl PortIODeviceManager {
             input: None,
         }));
 
-        let io_bus = &vm.common.resource_allocator.pio_bus;
+        let io_bus = &vm.pio_bus;
         io_bus.insert(
             self.stdio_serial.clone(),
             Self::SERIAL_PORT_ADDRESSES[0],
