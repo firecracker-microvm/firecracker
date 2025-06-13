@@ -4,17 +4,25 @@
 // Not everything is used by both binaries
 #![allow(dead_code)]
 
+mod userfault_bitmap;
+
 use std::collections::{HashMap, HashSet};
 use std::ffi::c_void;
 use std::fs::File;
+use std::io::Write;
+use std::num::NonZero;
+use std::ops::DerefMut;
 use std::os::unix::io::{AsRawFd, FromRawFd, IntoRawFd};
 use std::os::unix::net::UnixStream;
 use std::ptr;
+use std::sync::atomic::AtomicU64;
 use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 use userfaultfd::{Error, Event, Uffd};
 use vmm_sys_util::sock_ctrl_msg::ScmSocket;
+
+use crate::uffd_utils::userfault_bitmap::UserfaultBitmap;
 
 // This is the same with the one used in src/vmm.
 /// This describes the mapping between Firecracker base virtual address and offset in the
@@ -110,6 +118,9 @@ pub struct UffdHandler {
     backing_buffer: *const u8,
     uffd: Uffd,
     removed_pages: HashSet<u64>,
+    pub guest_memfd: Option<File>,
+    pub guest_memfd_addr: Option<*mut u8>,
+    pub userfault_bitmap: Option<UserfaultBitmap>,
 }
 
 impl UffdHandler {
@@ -153,9 +164,29 @@ impl UffdHandler {
         panic!("Could not get UFFD and mappings after 5 retries");
     }
 
+    fn mmap_helper(len: libc::size_t, fd: libc::c_int) -> *mut libc::c_void {
+        // SAFETY: `mmap` is a safe function to call with valid parameters.
+        let ret = unsafe {
+            libc::mmap(
+                ptr::null_mut(),
+                len,
+                libc::PROT_WRITE,
+                libc::MAP_SHARED,
+                fd,
+                0,
+            )
+        };
+
+        assert_ne!(ret, libc::MAP_FAILED);
+
+        ret
+    }
+
     pub fn from_mappings(
         mappings: Vec<GuestRegionUffdMapping>,
         uffd: File,
+        guest_memfd: Option<File>,
+        userfault_bitmap_memfd: Option<File>,
         backing_buffer: *const u8,
         size: usize,
     ) -> Self {
@@ -175,12 +206,44 @@ impl UffdHandler {
 
         let uffd = unsafe { Uffd::from_raw_fd(uffd.into_raw_fd()) };
 
-        Self {
-            mem_regions: mappings,
-            page_size,
-            backing_buffer,
-            uffd,
-            removed_pages: HashSet::new(),
+        match (&guest_memfd, &userfault_bitmap_memfd) {
+            (Some(guestmem_file), Some(bitmap_file)) => {
+                let guest_memfd_addr =
+                    Some(Self::mmap_helper(size, guestmem_file.as_raw_fd()) as *mut u8);
+
+                let bitmap_ptr = Self::mmap_helper(size, bitmap_file.as_raw_fd()) as *mut AtomicU64;
+
+                // SAFETY: The bitmap pointer is valid and the size is correct.
+                let userfault_bitmap = Some(unsafe {
+                    UserfaultBitmap::new(bitmap_ptr, memsize, NonZero::new(page_size).unwrap())
+                });
+
+                Self {
+                    mem_regions: mappings,
+                    page_size,
+                    backing_buffer,
+                    uffd,
+                    removed_pages: HashSet::new(),
+                    guest_memfd,
+                    guest_memfd_addr,
+                    userfault_bitmap,
+                }
+            }
+            (None, None) => Self {
+                mem_regions: mappings,
+                page_size,
+                backing_buffer,
+                uffd,
+                removed_pages: HashSet::new(),
+                guest_memfd: None,
+                guest_memfd_addr: None,
+                userfault_bitmap: None,
+            },
+            (_, _) => {
+                panic!(
+                    "Only both guest_memfd and userfault_bitmap_memfd can be set at the same time."
+                );
+            }
         }
     }
 
@@ -218,6 +281,10 @@ impl UffdHandler {
             "Could not find addr: {:?} within guest region mappings.",
             addr
         );
+    }
+
+    pub fn size(&self) -> usize {
+        self.mem_regions.iter().map(|r| r.size).sum()
     }
 
     fn populate_from_file(&self, region: &GuestRegionUffdMapping, dst: u64, len: usize) -> bool {
@@ -268,6 +335,7 @@ pub struct Runtime {
     backing_memory: *mut u8,
     backing_memory_size: usize,
     uffds: HashMap<i32, UffdHandler>,
+    main_handler_fd: Option<i32>,
 }
 
 impl Runtime {
@@ -298,6 +366,7 @@ impl Runtime {
             backing_memory: ret.cast(),
             backing_memory_size,
             uffds: HashMap::default(),
+            main_handler_fd: None,
         }
     }
 
@@ -338,12 +407,22 @@ impl Runtime {
         }));
     }
 
+    pub fn send_fault_reply(&mut self, fault_reply: FaultReply) {
+        let reply = UffdMsgToFirecracker::FaultRep(fault_reply);
+        let reply_json = serde_json::to_string(&reply).unwrap();
+        self.stream.write_all(reply_json.as_bytes()).unwrap();
+    }
+
     /// Polls the `UnixStream` and UFFD fds in a loop.
     /// When stream is polled, new uffd is retrieved.
     /// When uffd is polled, page fault is handled by
     /// calling `pf_event_dispatch` with corresponding
     /// uffd object passed in.
-    pub fn run(&mut self, pf_event_dispatch: impl Fn(&mut UffdHandler)) {
+    pub fn run(
+        &mut self,
+        pf_event_dispatch: impl Fn(&mut UffdHandler),
+        pf_vcpu_event_dispatch: impl Fn(&mut UffdHandler, usize),
+    ) {
         let mut pollfds = vec![];
 
         // Poll the stream for incoming uffds
@@ -378,8 +457,9 @@ impl Runtime {
                         const BUFFER_SIZE: usize = 4096;
 
                         let mut buffer = [0u8; BUFFER_SIZE];
-                        let mut fds = [0; 1];
+                        let mut fds = [0; 3];
                         let mut current_pos = 0;
+                        let mut secret_free = false;
                         let mut exit_loop = false;
 
                         loop {
@@ -394,6 +474,10 @@ impl Runtime {
                                 match ret {
                                     Ok((0, _)) => break,
                                     Ok((n, 1)) => current_pos += n,
+                                    Ok((n, 3)) => {
+                                        current_pos += n;
+                                        secret_free = true;
+                                    }
                                     Ok((n, 0)) | Ok((_, n)) => panic!("Wrong number of fds: {}", n),
                                     Err(e) if e.errno() == libc::EAGAIN => {
                                         if exit_loop {
@@ -416,10 +500,21 @@ impl Runtime {
                             while let Some(result) = parser.next() {
                                 match result {
                                     Ok(UffdMsgFromFirecracker::Mappings(mappings)) => {
+                                        let (guest_memfd, userfault_bitmap_memfd) = if secret_free {
+                                            (
+                                                Some(unsafe { File::from_raw_fd(fds[1]) }),
+                                                Some(unsafe { File::from_raw_fd(fds[2]) }),
+                                            )
+                                        } else {
+                                            (None, None)
+                                        };
+
                                         // Handle new uffd from stream
                                         let handler = UffdHandler::from_mappings(
                                             mappings,
                                             unsafe { File::from_raw_fd(fds[0]) },
+                                            guest_memfd,
+                                            userfault_bitmap_memfd,
                                             self.backing_memory,
                                             self.backing_memory_size,
                                         );
@@ -443,11 +538,36 @@ impl Runtime {
 
                                         total_consumed = parser.byte_offset();
                                     }
-                                    Ok(UffdMsgFromFirecracker::FaultReq(ref _fault_request)) => {
-                                        unimplemented!(
-                                            "Received unsupported message from Firecracker: {:?}",
-                                            result
-                                        )
+                                    Ok(UffdMsgFromFirecracker::FaultReq(fault_request)) => {
+                                        let fd = self.main_handler_fd.unwrap();
+
+                                        let mut locked_uffd = self.uffds.get_mut(&fd).unwrap();
+                                        let page_size = locked_uffd.page_size;
+
+                                        assert!(
+                                            (fault_request.offset as usize) < locked_uffd.size(),
+                                            "received bogus offset from firecracker"
+                                        );
+
+                                        // Handle one of FaultRequest page faults
+                                        pf_vcpu_event_dispatch(
+                                            locked_uffd.deref_mut(),
+                                            fault_request.offset as usize,
+                                        );
+
+                                        self.send_fault_reply(
+                                            fault_request.into_reply(page_size as u64),
+                                        );
+
+                                        // If connection is closed, we can skip the socket from
+                                        // being polled.
+                                        if pollfds[i].revents & (libc::POLLRDHUP | libc::POLLHUP)
+                                            != 0
+                                        {
+                                            skip_stream = 1;
+                                        }
+
+                                        total_consumed = parser.byte_offset();
                                     }
                                     Err(e) if e.is_eof() => {
                                         needs_more = true;
