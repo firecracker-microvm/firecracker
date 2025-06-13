@@ -97,11 +97,7 @@ impl PortIODeviceManager {
     }
 
     /// Register supported legacy devices.
-    pub fn register_devices(
-        &mut self,
-        io_bus: &vm_device::Bus,
-        vm: &Vm,
-    ) -> Result<(), LegacyDeviceError> {
+    pub fn register_devices(&mut self, vm: &Vm) -> Result<(), LegacyDeviceError> {
         let serial_2_4 = Arc::new(Mutex::new(SerialDevice {
             serial: Serial::with_events(
                 self.com_evt_2_4.try_clone()?.try_clone()?,
@@ -122,6 +118,8 @@ impl PortIODeviceManager {
             ),
             input: None,
         }));
+
+        let io_bus = &vm.common.resource_allocator.pio_bus;
         io_bus.insert(
             self.stdio_serial.clone(),
             Self::SERIAL_PORT_ADDRESSES[0],
@@ -243,7 +241,6 @@ mod tests {
     #[test]
     fn test_register_legacy_devices() {
         let (_, vm) = setup_vm_with_memory(0x1000);
-        let io_bus = vm_device::Bus::new();
         vm.setup_irqchip().unwrap();
         let mut ldm = PortIODeviceManager::new(
             Arc::new(Mutex::new(SerialDevice {
@@ -261,6 +258,6 @@ mod tests {
             )),
         )
         .unwrap();
-        ldm.register_devices(&io_bus, &vm).unwrap();
+        ldm.register_devices(&vm).unwrap();
     }
 }

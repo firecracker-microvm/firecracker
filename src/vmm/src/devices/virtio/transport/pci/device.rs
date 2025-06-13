@@ -33,7 +33,6 @@ use vmm_sys_util::errno;
 use vmm_sys_util::eventfd::EventFd;
 
 use crate::Vm;
-use crate::device_manager::resources::ResourceAllocator;
 use crate::devices::virtio::device::VirtioDevice;
 use crate::devices::virtio::queue::Queue;
 use crate::devices::virtio::transport::pci::common_config::{
@@ -45,6 +44,7 @@ use crate::logger::{debug, error};
 use crate::snapshot::Persist;
 use crate::utils::u64_to_usize;
 use crate::vstate::memory::GuestMemoryMmap;
+use crate::vstate::resources::ResourceAllocator;
 use crate::vstate::vm::{InterruptError, MsiVectorGroup};
 
 const DEVICE_INIT: u8 = 0x00;
@@ -1153,7 +1153,7 @@ mod tests {
     #[test]
     fn test_pci_device_config() {
         let mut vmm = default_vmm();
-        vmm.device_manager.enable_pci();
+        vmm.device_manager.enable_pci(&vmm.vm);
         let entropy = Arc::new(Mutex::new(Entropy::new(RateLimiter::default()).unwrap()));
         vmm.device_manager
             .attach_virtio_device(
@@ -1271,7 +1271,7 @@ mod tests {
     #[test]
     fn test_reading_bars() {
         let mut vmm = default_vmm();
-        vmm.device_manager.enable_pci();
+        vmm.device_manager.enable_pci(&vmm.vm);
         let entropy = Arc::new(Mutex::new(Entropy::new(RateLimiter::default()).unwrap()));
         vmm.device_manager
             .attach_virtio_device(
