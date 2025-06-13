@@ -33,3 +33,6 @@ strip = "none"
 
 [profile.bench]
 strip = "debuginfo"
+
+[patch.crates-io]
+vm-memory = { git = "https://github.com/kalyazin/vm-memory", branch = "as_ptr_0.16.2" }

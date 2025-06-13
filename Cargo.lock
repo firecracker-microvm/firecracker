@@ -1636,9 +1636,8 @@ checksum = "7e21282841a059bb62627ce8441c491f09603622cd5a21c43bfedc85a2952f23"
 
 [[package]]
 name = "vm-memory"
-version = "0.16.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f1720e7240cdc739f935456eb77f370d7e9b2a3909204da1e2b47bef1137a013"
+version = "0.16.2"
+source = "git+https://github.com/kalyazin/vm-memory?branch=as_ptr_0.16.2#e4e63bbad5e017bacbe9d459980fea89e974503e"
 dependencies = [
  "libc",
  "thiserror 1.0.69",
