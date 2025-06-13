@@ -22,13 +22,13 @@ use crate::snapshot::Persist;
 /// * Memory allocations in the MMIO address space
 #[derive(Debug)]
 pub struct ResourceAllocator {
-    // Allocator for device interrupt lines
+    /// Allocator for device interrupt lines
     pub gsi_allocator: Arc<Mutex<IdAllocator>>,
-    // Allocator for memory in the 32-bit MMIO address space
+    /// Allocator for memory in the 32-bit MMIO address space
     pub mmio32_memory: Arc<Mutex<AddressAllocator>>,
-    // Allocator for memory in the 64-bit MMIO address space
+    /// Allocator for memory in the 64-bit MMIO address space
     pub mmio64_memory: Arc<Mutex<AddressAllocator>>,
-    // Memory allocator for system data
+    /// Memory allocator for system data
     pub system_memory: Arc<Mutex<AddressAllocator>>,
     /// MMIO bus
     pub mmio_bus: Arc<vm_device::Bus>,
@@ -186,14 +186,15 @@ impl<'a> Persist<'a> for ResourceAllocator {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+/// State of a ResourceAllocator
 pub struct ResourceAllocatorState {
-    // Allocator for device interrupt lines
+    /// Allocator for device interrupt lines
     pub gsi_allocator: Arc<Mutex<IdAllocator>>,
-    // Allocator for memory in the 32-bit MMIO address space
+    /// Allocator for memory in the 32-bit MMIO address space
     pub mmio32_memory: Arc<Mutex<AddressAllocator>>,
-    // Allocator for memory in the 64-bit MMIO address space
+    /// Allocator for memory in the 64-bit MMIO address space
     pub mmio64_memory: Arc<Mutex<AddressAllocator>>,
-    // Memory allocator for system data
+    /// Memory allocator for system data
     pub system_memory: Arc<Mutex<AddressAllocator>>,
 }
 
