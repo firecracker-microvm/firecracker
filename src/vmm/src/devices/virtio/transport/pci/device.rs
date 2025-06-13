@@ -30,7 +30,6 @@ use vm_device::{BusDevice, PciBarType, Resource};
 use vm_memory::{Address, ByteValued, GuestAddress, Le32};
 use vmm_sys_util::eventfd::EventFd;
 
-use crate::device_manager::resources::ResourceAllocator;
 use crate::devices::virtio::device::VirtioDevice;
 use crate::devices::virtio::queue::Queue;
 use crate::devices::virtio::transport::pci::common_config::{
@@ -41,6 +40,7 @@ use crate::devices::virtio::{TYPE_BLOCK, TYPE_NET};
 use crate::logger::{debug, error};
 use crate::utils::u64_to_usize;
 use crate::vstate::memory::GuestMemoryMmap;
+use crate::vstate::resources::ResourceAllocator;
 use crate::vstate::vm::{InterruptError, MsiVectorGroup};
 
 const DEVICE_INIT: u8 = 0x00;

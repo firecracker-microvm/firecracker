@@ -11,8 +11,10 @@ use kvm_ioctls::Cap;
 use serde::{Deserialize, Serialize};
 
 use crate::arch::x86_64::msr::MsrError;
+use crate::snapshot::Persist;
 use crate::utils::u64_to_usize;
 use crate::vstate::memory::{GuestMemoryExtension, GuestMemoryState};
+use crate::vstate::resources::ResourceAllocatorState;
 use crate::vstate::vm::{VmCommon, VmError};
 
 /// Error type for [`Vm::restore_state`]
@@ -187,6 +189,7 @@ impl ArchVm {
 
         Ok(VmState {
             memory: self.common.guest_memory.describe(),
+            resource_allocator: self.common.resource_allocator.save(),
             pitstate,
             clock,
             pic_master,
@@ -211,6 +214,8 @@ impl ArchVm {
 pub struct VmState {
     /// guest memory state
     pub memory: GuestMemoryState,
+    /// resource allocator
+    pub resource_allocator: ResourceAllocatorState,
     pitstate: kvm_pit_state2,
     clock: kvm_clock_data,
     // TODO: rename this field to adopt inclusive language once Linux updates it, too.

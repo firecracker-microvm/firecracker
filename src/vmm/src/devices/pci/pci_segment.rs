@@ -22,7 +22,7 @@ use vm_allocator::AddressAllocator;
 use vm_device::{BusDeviceSync, BusError};
 
 use crate::arch::{PCI_MMCONFIG_START, PCI_MMIO_CONFIG_SIZE_PER_SEGMENT};
-use crate::device_manager::resources::ResourceAllocator;
+use crate::vstate::resources::ResourceAllocator;
 
 pub struct PciSegment {
     pub(crate) id: u16,

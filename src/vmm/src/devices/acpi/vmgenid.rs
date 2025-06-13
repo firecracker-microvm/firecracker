@@ -11,9 +11,9 @@ use vm_superio::Trigger;
 use vmm_sys_util::eventfd::EventFd;
 
 use super::super::legacy::EventFdTrigger;
-use crate::device_manager::resources::ResourceAllocator;
 use crate::snapshot::Persist;
 use crate::vstate::memory::{Bytes, GuestMemoryMmap};
+use crate::vstate::resources::ResourceAllocator;
 
 /// Bytes of memory we allocate for VMGenID device
 pub const VMGENID_MEM_SIZE: u64 = 16;

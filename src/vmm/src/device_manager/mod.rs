@@ -17,7 +17,6 @@ use log::error;
 use mmio::{MMIODeviceManager, MmioError};
 use pci_mngr::{PciDevices, PciDevicesConstructorArgs, PciManagerError};
 use persist::{ACPIDeviceManagerConstructorArgs, MMIODevManagerConstructorArgs};
-use resources::ResourceAllocator;
 use serde::{Deserialize, Serialize};
 use utils::time::TimestampUs;
 use vmm_sys_util::eventfd::EventFd;
@@ -47,8 +46,6 @@ pub mod mmio;
 pub mod pci_mngr;
 /// Device managers (de)serialization support.
 pub mod persist;
-/// Resource manager for devices.
-pub mod resources;
 
 #[derive(Debug, thiserror::Error, displaydoc::Display)]
 /// Error while creating a new [`DeviceManager`]
@@ -86,8 +83,6 @@ pub enum AttachDeviceError {
 #[derive(Debug)]
 /// A manager of all peripheral devices of Firecracker
 pub struct DeviceManager {
-    /// Allocator for system memory and interrupt numbers
-    pub resource_allocator: Arc<ResourceAllocator>,
     /// MMIO devices
     pub mmio_devices: MMIODeviceManager,
     #[cfg(target_arch = "x86_64")]
@@ -132,7 +127,6 @@ impl DeviceManager {
         event_manager: &mut EventManager,
         vcpus_exit_evt: &EventFd,
         vm: &Vm,
-        resource_allocator: &ResourceAllocator,
     ) -> Result<PortIODeviceManager, DeviceManagerCreateError> {
         Self::set_stdout_nonblocking();
 
@@ -146,7 +140,7 @@ impl DeviceManager {
 
         // create pio dev manager with legacy devices
         let mut legacy_devices = PortIODeviceManager::new(serial, i8042)?;
-        legacy_devices.register_devices(&resource_allocator.pio_bus, vm)?;
+        legacy_devices.register_devices(vm)?;
         Ok(legacy_devices)
     }
 
@@ -156,13 +150,10 @@ impl DeviceManager {
         vcpus_exit_evt: &EventFd,
         vm: &Vm,
     ) -> Result<Self, DeviceManagerCreateError> {
-        let resource_allocator = Arc::new(ResourceAllocator::new()?);
         #[cfg(target_arch = "x86_64")]
-        let legacy_devices =
-            Self::create_legacy_devices(event_manager, vcpus_exit_evt, vm, &resource_allocator)?;
+        let legacy_devices = Self::create_legacy_devices(event_manager, vcpus_exit_evt, vm)?;
 
         Ok(DeviceManager {
-            resource_allocator,
             mmio_devices: MMIODeviceManager::new(),
             #[cfg(target_arch = "x86_64")]
             legacy_devices,
@@ -186,13 +177,8 @@ impl DeviceManager {
         // The device mutex mustn't be locked here otherwise it will deadlock.
         let device =
             MmioTransport::new(vm.guest_memory().clone(), interrupt, device, is_vhost_user);
-        self.mmio_devices.register_mmio_virtio_for_boot(
-            vm,
-            &self.resource_allocator,
-            id,
-            device,
-            cmdline,
-        )?;
+        self.mmio_devices
+            .register_mmio_virtio_for_boot(vm, id, device, cmdline)?;
 
         Ok(())
     }
@@ -207,8 +193,7 @@ impl DeviceManager {
         is_vhost_user: bool,
     ) -> Result<(), AttachDeviceError> {
         if self.pci_devices.pci_segment.is_some() {
-            self.pci_devices
-                .attach_pci_virtio_device(vm, &self.resource_allocator, id, device)?;
+            self.pci_devices.attach_pci_virtio_device(vm, id, device)?;
         } else {
             self.attach_mmio_virtio_device(vm, id, device, cmdline, is_vhost_user)?;
         }
@@ -219,12 +204,13 @@ impl DeviceManager {
     /// Attaches a [`BootTimer`] to the VM
     pub(crate) fn attach_boot_timer_device(
         &mut self,
+        vm: &Vm,
         request_ts: TimestampUs,
     ) -> Result<(), AttachDeviceError> {
         let boot_timer = Arc::new(Mutex::new(BootTimer::new(request_ts)));
 
         self.mmio_devices
-            .register_mmio_boot_timer(&self.resource_allocator.mmio_bus, boot_timer)?;
+            .register_mmio_boot_timer(&vm.common.resource_allocator.mmio_bus, boot_timer)?;
 
         Ok(())
     }
@@ -234,7 +220,7 @@ impl DeviceManager {
         mem: &GuestMemoryMmap,
         vm: &Vm,
     ) -> Result<(), AttachDeviceError> {
-        let vmgenid = VmGenId::new(mem, &self.resource_allocator)?;
+        let vmgenid = VmGenId::new(mem, &vm.common.resource_allocator)?;
         self.acpi_devices.attach_vmgenid(vmgenid, vm)?;
         Ok(())
     }
@@ -258,29 +244,25 @@ impl DeviceManager {
             // Make stdout non-blocking.
             Self::set_stdout_nonblocking();
             let serial = Self::setup_serial_device(event_manager)?;
-            self.mmio_devices
-                .register_mmio_serial(vm, &self.resource_allocator, serial, None)?;
+            self.mmio_devices.register_mmio_serial(vm, serial, None)?;
             self.mmio_devices.add_mmio_serial_to_cmdline(cmdline)?;
         }
 
         let rtc = Arc::new(Mutex::new(RTCDevice::new()));
         self.mmio_devices
-            .register_mmio_rtc(&self.resource_allocator, rtc, None)?;
+            .register_mmio_rtc(&vm.common.resource_allocator, rtc, None)?;
         Ok(())
     }
 
     /// Enables PCIe support for Firecracker devices
-    pub fn enable_pci(&mut self) -> Result<(), PciManagerError> {
-        self.pci_devices
-            .attach_pci_segment(&self.resource_allocator)
+    pub fn enable_pci(&mut self, vm: &Arc<Vm>) -> Result<(), PciManagerError> {
+        self.pci_devices.attach_pci_segment(vm)
     }
 }
 
 #[derive(Debug, Default, Clone, Serialize, Deserialize)]
 /// State of devices in the system
 pub struct DevicesState {
-    /// Resource allocator state
-    pub resource_allocator_state: resources::ResourceAllocatorState,
     /// MMIO devices state
     pub mmio_state: persist::DeviceStates,
     /// ACPI devices state
@@ -336,7 +318,6 @@ impl<'a> Persist<'a> for DeviceManager {
 
     fn save(&self) -> Self::State {
         DevicesState {
-            resource_allocator_state: self.resource_allocator.save(),
             mmio_state: self.mmio_devices.save(),
             acpi_state: self.acpi_devices.save(),
             pci_state: self.pci_devices.save(),
@@ -347,17 +328,12 @@ impl<'a> Persist<'a> for DeviceManager {
         constructor_args: Self::ConstructorArgs,
         state: &Self::State,
     ) -> std::result::Result<Self, Self::Error> {
-        // Safe to unwrap here. ResourceAllocator restoring cannot fail.
-        let resource_allocator =
-            Arc::new(ResourceAllocator::restore((), &state.resource_allocator_state).unwrap());
-
         // Setup legacy devices in case of x86
         #[cfg(target_arch = "x86_64")]
         let legacy_devices = Self::create_legacy_devices(
             constructor_args.event_manager,
             constructor_args.vcpus_exit_evt,
             constructor_args.vm,
-            &resource_allocator,
         )?;
 
         // Restore MMIO devices
@@ -365,7 +341,6 @@ impl<'a> Persist<'a> for DeviceManager {
             mem: constructor_args.mem,
             vm: constructor_args.vm,
             event_manager: constructor_args.event_manager,
-            resource_allocator: &resource_allocator,
             vm_resources: constructor_args.vm_resources,
             instance_id: constructor_args.instance_id,
             restored_from_file: constructor_args.restored_from_file,
@@ -375,7 +350,6 @@ impl<'a> Persist<'a> for DeviceManager {
         // Restore ACPI devices
         let acpi_ctor_args = ACPIDeviceManagerConstructorArgs {
             mem: constructor_args.mem,
-            resource_allocator: &resource_allocator,
             vm: constructor_args.vm,
         };
         let mut acpi_devices = ACPIDeviceManager::restore(acpi_ctor_args, &state.acpi_state)?;
@@ -383,7 +357,6 @@ impl<'a> Persist<'a> for DeviceManager {
 
         // Restore PCI devices
         let pci_ctor_args = PciDevicesConstructorArgs {
-            resource_allocator: &resource_allocator,
             vm: constructor_args.vm.clone(),
             mem: constructor_args.mem,
             vm_resources: constructor_args.vm_resources,
@@ -393,7 +366,6 @@ impl<'a> Persist<'a> for DeviceManager {
         let pci_devices = PciDevices::restore(pci_ctor_args, &state.pci_state)?;
 
         let device_manager = DeviceManager {
-            resource_allocator,
             mmio_devices,
             #[cfg(target_arch = "x86_64")]
             legacy_devices,
@@ -459,7 +431,6 @@ pub(crate) mod tests {
         let mmio_devices = MMIODeviceManager::new();
         let acpi_devices = ACPIDeviceManager::new();
         let pci_devices = PciDevices::new();
-        let resource_allocator = Arc::new(ResourceAllocator::new().unwrap());
 
         #[cfg(target_arch = "x86_64")]
         let legacy_devices = PortIODeviceManager::new(
@@ -473,7 +444,6 @@ pub(crate) mod tests {
         .unwrap();
 
         DeviceManager {
-            resource_allocator,
             mmio_devices,
             #[cfg(target_arch = "x86_64")]
             legacy_devices,

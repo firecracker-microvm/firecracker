@@ -12,7 +12,6 @@ use serde::{Deserialize, Serialize};
 
 use super::acpi::ACPIDeviceManager;
 use super::mmio::*;
-use super::resources::ResourceAllocator;
 #[cfg(target_arch = "aarch64")]
 use crate::arch::DeviceType;
 use crate::devices::acpi::vmgenid::{VMGenIDState, VMGenIdConstructorArgs, VmGenId, VmGenIdError};
@@ -165,7 +164,6 @@ pub struct MMIODevManagerConstructorArgs<'a> {
     pub mem: &'a GuestMemoryMmap,
     pub vm: &'a Vm,
     pub event_manager: &'a mut EventManager,
-    pub resource_allocator: &'a ResourceAllocator,
     pub vm_resources: &'a mut VmResources,
     pub instance_id: &'a str,
     pub restored_from_file: bool,
@@ -191,7 +189,6 @@ pub struct ACPIDeviceManagerState {
 #[derive(Debug)]
 pub struct ACPIDeviceManagerConstructorArgs<'a> {
     pub mem: &'a GuestMemoryMmap,
-    pub resource_allocator: &'a ResourceAllocator,
     pub vm: &'a Vm,
 }
 
@@ -223,7 +220,7 @@ impl<'a> Persist<'a> for ACPIDeviceManager {
             let vmgenid = VmGenId::restore(
                 VMGenIdConstructorArgs {
                     mem: constructor_args.mem,
-                    resource_allocator: constructor_args.resource_allocator,
+                    resource_allocator: &constructor_args.vm.common.resource_allocator,
                 },
                 vmgenid_args,
             )?;
@@ -387,17 +384,12 @@ impl<'a> Persist<'a> for MMIODeviceManager {
                         .event_manager
                         .add_subscriber(serial.clone());
 
-                    dev_manager.register_mmio_serial(
-                        vm,
-                        constructor_args.resource_allocator,
-                        serial,
-                        Some(state.device_info),
-                    )?;
+                    dev_manager.register_mmio_serial(vm, serial, Some(state.device_info))?;
                 }
                 if state.type_ == DeviceType::Rtc {
                     let rtc = Arc::new(Mutex::new(RTCDevice::new()));
                     dev_manager.register_mmio_rtc(
-                        constructor_args.resource_allocator,
+                        &constructor_args.vm.common.resource_allocator,
                         rtc,
                         Some(state.device_info),
                     )?;
@@ -412,7 +404,6 @@ impl<'a> Persist<'a> for MMIODeviceManager {
                                   id: &String,
                                   state: &MmioTransportState,
                                   device_info: &MMIODeviceInfo,
-                                  mmio_bus: &vm_device::Bus,
                                   event_manager: &mut EventManager|
          -> Result<(), Self::Error> {
             let interrupt = Arc::new(IrqTrigger::new());
@@ -430,7 +421,6 @@ impl<'a> Persist<'a> for MMIODeviceManager {
             dev_manager.register_mmio_virtio(
                 vm,
                 id.clone(),
-                mmio_bus,
                 MMIODevice {
                     resources: *device_info,
                     inner: mmio_transport,
@@ -469,7 +459,6 @@ impl<'a> Persist<'a> for MMIODeviceManager {
                 &balloon_state.device_id,
                 &balloon_state.transport_state,
                 &balloon_state.device_info,
-                &constructor_args.resource_allocator.mmio_bus,
                 constructor_args.event_manager,
             )?;
         }
@@ -492,7 +481,6 @@ impl<'a> Persist<'a> for MMIODeviceManager {
                 &block_state.device_id,
                 &block_state.transport_state,
                 &block_state.device_info,
-                &constructor_args.resource_allocator.mmio_bus,
                 constructor_args.event_manager,
             )?;
         }
@@ -539,7 +527,6 @@ impl<'a> Persist<'a> for MMIODeviceManager {
                 &net_state.device_id,
                 &net_state.transport_state,
                 &net_state.device_info,
-                &constructor_args.resource_allocator.mmio_bus,
                 constructor_args.event_manager,
             )?;
         }
@@ -569,7 +556,6 @@ impl<'a> Persist<'a> for MMIODeviceManager {
                 &vsock_state.device_id,
                 &vsock_state.transport_state,
                 &vsock_state.device_info,
-                &constructor_args.resource_allocator.mmio_bus,
                 constructor_args.event_manager,
             )?;
         }
@@ -594,7 +580,6 @@ impl<'a> Persist<'a> for MMIODeviceManager {
                 &entropy_state.device_id,
                 &entropy_state.transport_state,
                 &entropy_state.device_info,
-                &constructor_args.resource_allocator.mmio_bus,
                 constructor_args.event_manager,
             )?;
         }
@@ -725,14 +710,11 @@ mod tests {
         let vmm = default_vmm();
         let device_manager_state: device_manager::DevicesState =
             Snapshot::deserialize(&mut buf.as_slice()).unwrap();
-        let resource_allocator =
-            ResourceAllocator::restore((), &device_manager_state.resource_allocator_state).unwrap();
         let vm_resources = &mut VmResources::default();
         let restore_args = MMIODevManagerConstructorArgs {
             mem: vmm.vm.guest_memory(),
             vm: &vmm.vm,
             event_manager: &mut event_manager,
-            resource_allocator: &resource_allocator,
             vm_resources,
             instance_id: "microvm-id",
             restored_from_file: true,

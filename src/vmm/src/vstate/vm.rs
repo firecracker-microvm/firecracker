@@ -26,7 +26,6 @@ use vmm_sys_util::errno;
 use vmm_sys_util::eventfd::EventFd;
 
 pub use crate::arch::{ArchVm as Vm, ArchVmError, VmState};
-use crate::device_manager::resources::ResourceAllocator;
 use crate::logger::info;
 use crate::persist::CreateSnapshotError;
 use crate::utils::u64_to_usize;
@@ -34,6 +33,7 @@ use crate::vmm_config::snapshot::SnapshotType;
 use crate::vstate::memory::{
     Address, GuestMemory, GuestMemoryExtension, GuestMemoryMmap, GuestMemoryRegion, GuestRegionMmap,
 };
+use crate::vstate::resources::ResourceAllocator;
 use crate::vstate::vcpu::VcpuError;
 use crate::{DirtyBitmap, Vcpu, mem_size_mib};
 
@@ -235,6 +235,8 @@ pub struct VmCommon {
     pub guest_memory: GuestMemoryMmap,
     /// Interrupts used by Vm's devices
     pub interrupts: Arc<Mutex<HashMap<u32, RoutingEntry>>>,
+    /// Allocator for VM resources
+    pub resource_allocator: Arc<ResourceAllocator>,
 }
 
 /// Errors associated with the wrappers over KVM ioctls.
@@ -256,6 +258,8 @@ pub enum VmError {
     NotEnoughMemorySlots,
     /// Memory Error: {0}
     VmMemory(#[from] vm_memory::Error),
+    /// ResourceAllocator error: {0}
+    ResourceAllocator(#[from] vm_allocator::Error)
 }
 
 /// Contains Vm functions that are usable across CPU architectures
@@ -303,6 +307,7 @@ impl Vm {
             max_memslots: kvm.max_nr_memslots(),
             guest_memory: GuestMemoryMmap::default(),
             interrupts: Arc::new(Mutex::new(HashMap::new())),
+            resource_allocator: Arc::new(ResourceAllocator::new()?),
         })
     }
 
@@ -562,13 +567,14 @@ impl Vm {
     /// Create a group of MSI-X interrupts
     pub fn create_msix_group(
         vm: Arc<Vm>,
-        resource_allocator: &ResourceAllocator,
         base: u32,
         count: u16,
     ) -> Result<MsiVectorGroup, InterruptError> {
         debug!("Creating new MSI group with {count} vectors");
         let mut irq_routes = HashMap::with_capacity(count as usize);
-        for (i, gsi) in resource_allocator
+        for (i, gsi) in vm
+            .common
+            .resource_allocator
             .allocate_gsi(count as u32)?
             .iter()
             .enumerate()
