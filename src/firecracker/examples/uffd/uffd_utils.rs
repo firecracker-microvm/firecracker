@@ -6,6 +6,7 @@
     clippy::cast_sign_loss,
     clippy::undocumented_unsafe_blocks,
     clippy::ptr_as_ptr,
+    clippy::cast_possible_wrap,
     // Not everything is used by both binaries
     dead_code
 )]
@@ -121,7 +122,7 @@ pub struct UffdHandler {
     pub mem_regions: Vec<GuestRegionUffdMapping>,
     pub page_size: usize,
     backing_buffer: *const u8,
-    uffd: Uffd,
+    pub uffd: Uffd,
     pub guest_memfd: Option<File>,
     pub guest_memfd_addr: Option<*mut u8>,
     pub userfault_bitmap: Option<UserfaultBitmap>,
@@ -266,6 +267,20 @@ impl UffdHandler {
             .expect("range should be valid");
     }
 
+    pub fn addr_to_offset(&self, addr: *mut u8) -> u64 {
+        let addr = addr as u64;
+        for region in &self.mem_regions {
+            if region.contains(addr) {
+                return addr - region.base_host_virt_addr + region.offset;
+            }
+        }
+
+        panic!(
+            "Could not find addr: {:#x} within guest region mappings.",
+            addr
+        );
+    }
+
     pub fn serve_pf(&mut self, addr: *mut u8, len: usize) -> bool {
         // Find the start of the page that the current faulting address belongs to.
         let dst = (addr as usize & !(self.page_size - 1)) as *mut libc::c_void;
@@ -273,7 +288,7 @@ impl UffdHandler {
 
         for region in self.mem_regions.iter() {
             if region.contains(fault_page_addr) {
-                return self.populate_from_file(region, fault_page_addr, len);
+                return self.populate_from_file(&region.clone(), fault_page_addr, len);
             }
         }
 
@@ -287,12 +302,61 @@ impl UffdHandler {
         self.mem_regions.iter().map(|r| r.size).sum()
     }
 
-    fn populate_from_file(&self, region: &GuestRegionUffdMapping, dst: u64, len: usize) -> bool {
-        let offset = dst - region.base_host_virt_addr;
-        let src = self.backing_buffer as u64 + region.offset + offset;
+    pub fn populate_via_write(&mut self, offset: usize, len: usize) -> usize {
+        // man 2 write:
+        //
+        //    On Linux, write() (and similar system calls) will transfer at most
+        //    0x7ffff000 (2,147,479,552) bytes, returning the number of bytes
+        //    actually transferred.  (This is true on both 32-bit and 64-bit
+        //    systems.)
+        const MAX_WRITE_LEN: usize = 2_147_479_552;
 
+        assert!(
+            offset.checked_add(len).unwrap() <= self.size(),
+            "{} + {} >= {}",
+            offset,
+            len,
+            self.size()
+        );
+
+        let mut total_written = 0;
+
+        while total_written < len {
+            let src = unsafe { self.backing_buffer.add(offset + total_written) };
+            let len_to_write = (len - total_written).min(MAX_WRITE_LEN);
+            let bytes_written = unsafe {
+                libc::pwrite64(
+                    self.guest_memfd.as_ref().unwrap().as_raw_fd(),
+                    src.cast(),
+                    len_to_write,
+                    (offset + total_written) as libc::off64_t,
+                )
+            };
+
+            let bytes_written = match bytes_written {
+                -1 if vmm_sys_util::errno::Error::last().errno() == libc::ENOSPC => 0,
+                written @ 0.. => written as usize,
+                _ => panic!("{:?}", std::io::Error::last_os_error()),
+            };
+
+            self.userfault_bitmap
+                .as_mut()
+                .unwrap()
+                .reset_addr_range(offset + total_written, bytes_written);
+
+            total_written += bytes_written;
+
+            if bytes_written != len_to_write {
+                break;
+            }
+        }
+
+        total_written
+    }
+
+    fn populate_via_uffdio_copy(&self, src: *const u8, dst: u64, len: usize) -> bool {
         unsafe {
-            match self.uffd.copy(src as *const _, dst as *mut _, len, true) {
+            match self.uffd.copy(src.cast(), dst as *mut _, len, true) {
                 // Make sure the UFFD copied some bytes.
                 Ok(value) => assert!(value > 0),
                 // Catch EAGAIN errors, which occur when a `remove` event lands in the UFFD
@@ -315,6 +379,52 @@ impl UffdHandler {
         };
 
         true
+    }
+
+    fn populate_via_memcpy(&mut self, src: *const u8, dst: u64, offset: usize, len: usize) -> bool {
+        let dst_memcpy = unsafe {
+            self.guest_memfd_addr
+                .expect("no guest_memfd addr")
+                .add(offset)
+        };
+
+        unsafe {
+            std::ptr::copy_nonoverlapping(src, dst_memcpy, len);
+        }
+
+        self.userfault_bitmap
+            .as_mut()
+            .unwrap()
+            .reset_addr_range(offset, len);
+
+        self.uffd
+            .r#continue(dst as _, len, true)
+            .expect("uffd_continue");
+
+        true
+    }
+
+    fn populate_from_file(
+        &mut self,
+        region: &GuestRegionUffdMapping,
+        dst: u64,
+        len: usize,
+    ) -> bool {
+        let offset = (region.offset + dst - region.base_host_virt_addr) as usize;
+        let src = unsafe { self.backing_buffer.add(offset) };
+
+        match self.guest_memfd {
+            Some(_) => self.populate_via_memcpy(src, dst, offset, len),
+            None => self.populate_via_uffdio_copy(src, dst, len),
+        }
+    }
+
+    fn zero_out(&mut self, addr: u64) -> bool {
+        match unsafe { self.uffd.zeropage(addr as *mut _, self.page_size, true) } {
+            Ok(_) => true,
+            Err(Error::ZeropageFailed(error)) if error as i32 == libc::EAGAIN => false,
+            r => panic!("Unexpected zeropage result: {:?}", r),
+        }
     }
 }
 
@@ -601,7 +711,7 @@ mod tests {
             let (stream, _) = listener.accept().expect("Cannot listen on UDS socket");
             // Update runtime with actual runtime
             let runtime = uninit_runtime.write(Runtime::new(stream, file));
-            runtime.run(|_: &mut UffdHandler| {});
+            runtime.run(|_: &mut UffdHandler| {}, |_: &mut UffdHandler, _: usize| {});
         });
 
         // wait for runtime thread to initialize itself
