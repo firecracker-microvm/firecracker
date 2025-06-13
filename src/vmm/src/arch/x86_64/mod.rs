@@ -217,7 +217,7 @@ pub fn configure_system_for_boot(
     // Note that this puts the mptable at the last 1k of Linux's 640k base RAM
     mptable::setup_mptable(
         vm.guest_memory(),
-        &device_manager.resource_allocator,
+        &vm.common.resource_allocator,
         vcpu_config.vcpu_count,
     )
     .map_err(ConfigurationError::MpTableSetup)?;
@@ -238,7 +238,12 @@ pub fn configure_system_for_boot(
 
     // Create ACPI tables and write them in guest memory
     // For the time being we only support ACPI in x86_64
-    create_acpi_tables(vm.guest_memory(), device_manager, vcpus)?;
+    create_acpi_tables(
+        vm.guest_memory(),
+        device_manager,
+        &vm.common.resource_allocator,
+        vcpus,
+    )?;
     Ok(())
 }
 
@@ -568,9 +573,9 @@ mod tests {
     use linux_loader::loader::bootparam::boot_e820_entry;
 
     use super::*;
-    use crate::device_manager::resources::ResourceAllocator;
     use crate::test_utils::{arch_mem, single_region_mem};
     use crate::utils::mib_to_bytes;
+    use crate::vstate::resources::ResourceAllocator;
 
     #[test]
     fn regions_lt_4gb() {
