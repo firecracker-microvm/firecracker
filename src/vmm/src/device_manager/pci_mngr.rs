@@ -12,7 +12,6 @@ use serde::{Deserialize, Serialize};
 use vm_device::BusError;
 
 use super::persist::{MmdsVersionState, SharedDeviceType};
-use crate::device_manager::resources::ResourceAllocator;
 use crate::devices::pci::PciSegment;
 use crate::devices::virtio::balloon::Balloon;
 use crate::devices::virtio::balloon::persist::{BalloonConstructorArgs, BalloonState};
@@ -35,6 +34,7 @@ use crate::resources::VmResources;
 use crate::snapshot::Persist;
 use crate::vmm_config::mmds::MmdsConfigError;
 use crate::vstate::memory::GuestMemoryMmap;
+use crate::vstate::resources::ResourceAllocator;
 use crate::vstate::vm::{InterruptError, MsiVectorGroup};
 use crate::{EventManager, Vm};
 
@@ -71,17 +71,14 @@ impl PciDevices {
         Default::default()
     }
 
-    pub fn attach_pci_segment(
-        &mut self,
-        resource_allocator: &Arc<ResourceAllocator>,
-    ) -> Result<(), PciManagerError> {
+    pub fn attach_pci_segment(&mut self, vm: &Arc<Vm>) -> Result<(), PciManagerError> {
         // We only support a single PCIe segment. Calling this function twice is a Firecracker
         // internal error.
         assert!(self.pci_segment.is_none());
 
         // Currently we don't assign any IRQs to PCI devices. We will be using MSI-X interrupts
         // only.
-        let pci_segment = PciSegment::new(0, resource_allocator, &[0u8; 32])?;
+        let pci_segment = PciSegment::new(0, &vm.common.resource_allocator, &[0u8; 32])?;
         self.pci_segment = Some(pci_segment);
 
         Ok(())
@@ -131,7 +128,6 @@ impl PciDevices {
     >(
         &mut self,
         vm: &Arc<Vm>,
-        resource_allocator: &ResourceAllocator,
         id: String,
         device: Arc<Mutex<T>>,
     ) -> Result<(), PciManagerError> {
@@ -140,17 +136,14 @@ impl PciDevices {
         let pci_device_bdf = pci_segment.next_device_bdf()?;
         debug!("Allocating BDF: {pci_device_bdf:?} for device");
         let mem = vm.guest_memory().clone();
+        let resource_allocator = &vm.common.resource_allocator;
         let device_type: u32 = device.lock().expect("Poisoned lock").device_type();
 
         // Allocate one MSI vector per queue, plus one for configuration
         let msix_num =
             u16::try_from(device.lock().expect("Poisoned lock").queues().len() + 1).unwrap();
 
-        let msix_vectors = Arc::new(Vm::create_msix_group(
-            vm.clone(),
-            resource_allocator,
-            msix_num,
-        )?);
+        let msix_vectors = Arc::new(Vm::create_msix_group(vm.clone(), msix_num)?);
 
         // Create the transport
         let mut virtio_device =
@@ -190,7 +183,6 @@ impl PciDevices {
     fn restore_pci_device<T: 'static + VirtioDevice + MutEventSubscriber + Debug>(
         &mut self,
         vm: &Arc<Vm>,
-        resource_allocator: &ResourceAllocator,
         device: Arc<Mutex<T>>,
         device_id: &str,
         transport_state: &VirtioPciDeviceState,
@@ -224,7 +216,7 @@ impl PciDevices {
         self.virtio_devices
             .insert((device_type, device_id.to_string()), virtio_device.clone());
 
-        Self::register_bars_with_bus(resource_allocator, &virtio_device)?;
+        Self::register_bars_with_bus(&vm.common.resource_allocator, &virtio_device)?;
         virtio_device
             .lock()
             .expect("Poisoned lock")
@@ -279,7 +271,6 @@ pub struct PciDevicesState {
 pub struct PciDevicesConstructorArgs<'a> {
     pub vm: Arc<Vm>,
     pub mem: &'a GuestMemoryMmap,
-    pub resource_allocator: &'a Arc<ResourceAllocator>,
     pub vm_resources: &'a mut VmResources,
     pub instance_id: &'a str,
     pub restored_from_file: bool,
@@ -291,7 +282,6 @@ impl<'a> Debug for PciDevicesConstructorArgs<'a> {
         f.debug_struct("PciDevicesConstructorArgs")
             .field("vm", &self.vm)
             .field("mem", &self.mem)
-            .field("resource_allocator", &self.resource_allocator)
             .field("vm_resources", &self.vm_resources)
             .field("instance_id", &self.instance_id)
             .field("restored_from_file", &self.restored_from_file)
@@ -440,7 +430,7 @@ impl<'a> Persist<'a> for PciDevices {
             return Ok(pci_devices);
         }
 
-        pci_devices.attach_pci_segment(constructor_args.resource_allocator)?;
+        pci_devices.attach_pci_segment(&constructor_args.vm)?;
 
         if let Some(balloon_state) = &state.balloon_device {
             let device = Arc::new(Mutex::new(
@@ -462,7 +452,6 @@ impl<'a> Persist<'a> for PciDevices {
             pci_devices
                 .restore_pci_device(
                     &constructor_args.vm,
-                    constructor_args.resource_allocator,
                     device,
                     &balloon_state.device_id,
                     &balloon_state.transport_state,
@@ -488,7 +477,6 @@ impl<'a> Persist<'a> for PciDevices {
             pci_devices
                 .restore_pci_device(
                     &constructor_args.vm,
-                    constructor_args.resource_allocator,
                     device,
                     &block_state.device_id,
                     &block_state.transport_state,
@@ -539,7 +527,6 @@ impl<'a> Persist<'a> for PciDevices {
             pci_devices
                 .restore_pci_device(
                     &constructor_args.vm,
-                    constructor_args.resource_allocator,
                     device,
                     &net_state.device_id,
                     &net_state.transport_state,
@@ -573,7 +560,6 @@ impl<'a> Persist<'a> for PciDevices {
             pci_devices
                 .restore_pci_device(
                     &constructor_args.vm,
-                    constructor_args.resource_allocator,
                     device,
                     &vsock_state.device_id,
                     &vsock_state.transport_state,
@@ -597,7 +583,6 @@ impl<'a> Persist<'a> for PciDevices {
             pci_devices
                 .restore_pci_device(
                     &constructor_args.vm,
-                    constructor_args.resource_allocator,
                     device,
                     &entropy_state.device_id,
                     &entropy_state.transport_state,
