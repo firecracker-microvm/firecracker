@@ -34,7 +34,6 @@ use crate::resources::VmResources;
 use crate::snapshot::Persist;
 use crate::vmm_config::mmds::MmdsConfigError;
 use crate::vstate::memory::GuestMemoryMmap;
-use crate::vstate::resources::ResourceAllocator;
 use crate::vstate::vm::{InterruptError, MsiVectorGroup};
 use crate::{EventManager, Vm};
 
@@ -78,14 +77,14 @@ impl PciDevices {
 
         // Currently we don't assign any IRQs to PCI devices. We will be using MSI-X interrupts
         // only.
-        let pci_segment = PciSegment::new(0, &vm.common.resource_allocator, &[0u8; 32])?;
+        let pci_segment = PciSegment::new(0, vm, &[0u8; 32])?;
         self.pci_segment = Some(pci_segment);
 
         Ok(())
     }
 
     fn register_bars_with_bus(
-        resource_allocator: &ResourceAllocator,
+        vm: &Vm,
         virtio_device: &Arc<Mutex<VirtioPciDevice>>,
     ) -> Result<(), PciManagerError> {
         for bar in &virtio_device.lock().expect("Poisoned lock").bar_regions {
@@ -97,11 +96,8 @@ impl PciDevices {
                         bar.size()
                     );
                     #[cfg(target_arch = "x86_64")]
-                    resource_allocator.pio_bus.insert(
-                        virtio_device.clone(),
-                        bar.addr(),
-                        bar.size(),
-                    )?;
+                    vm.pio_bus
+                        .insert(virtio_device.clone(), bar.addr(), bar.size())?;
                     #[cfg(target_arch = "aarch64")]
                     log::error!("pci: We do not support I/O region allocation")
                 }
@@ -111,11 +107,9 @@ impl PciDevices {
                         bar.addr(),
                         bar.size()
                     );
-                    resource_allocator.mmio_bus.insert(
-                        virtio_device.clone(),
-                        bar.addr(),
-                        bar.size(),
-                    )?;
+                    vm.common
+                        .mmio_bus
+                        .insert(virtio_device.clone(), bar.addr(), bar.size())?;
                 }
             }
         }
@@ -171,7 +165,7 @@ impl PciDevices {
         self.virtio_devices
             .insert((device_type, id.clone()), virtio_device.clone());
 
-        Self::register_bars_with_bus(resource_allocator, &virtio_device)?;
+        Self::register_bars_with_bus(vm, &virtio_device)?;
         virtio_device
             .lock()
             .expect("Poisoned lock")
@@ -216,7 +210,7 @@ impl PciDevices {
         self.virtio_devices
             .insert((device_type, device_id.to_string()), virtio_device.clone());
 
-        Self::register_bars_with_bus(&vm.common.resource_allocator, &virtio_device)?;
+        Self::register_bars_with_bus(vm, &virtio_device)?;
         virtio_device
             .lock()
             .expect("Poisoned lock")
