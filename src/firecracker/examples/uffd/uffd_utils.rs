@@ -191,7 +191,7 @@ impl UffdHandler {
 
     fn zero_out(&mut self, addr: u64) -> bool {
         match unsafe { self.uffd.zeropage(addr as *mut _, self.page_size, true) } {
-            Ok(r) if r >= 0 => true,
+            Ok(_) => true,
             Err(Error::ZeropageFailed(error)) if error as i32 == libc::EAGAIN => false,
             r => panic!("Unexpected zeropage result: {:?}", r),
         }
