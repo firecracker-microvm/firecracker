@@ -185,6 +185,7 @@ impl Entropy {
                 }
             }
         }
+        self.queues[RNG_QUEUE].advance_used_ring_idx();
 
         if used_any {
             self.signal_used_queue().unwrap_or_else(|err| {
@@ -294,8 +295,7 @@ impl VirtioDevice for Entropy {
 
     fn activate(&mut self, mem: GuestMemoryMmap) -> Result<(), ActivateError> {
         for q in self.queues.iter_mut() {
-            q.initialize(&mem)
-                .map_err(ActivateError::QueueMemoryError)?;
+            q.initialize(&mem).map_err(ActivateError::QueueError)?;
         }
 
         self.activate_event.write(1).map_err(|_| {
