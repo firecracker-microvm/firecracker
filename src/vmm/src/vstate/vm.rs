@@ -18,15 +18,19 @@ use kvm_bindings::{
     KVM_IRQ_ROUTING_IRQCHIP, KVM_IRQ_ROUTING_MSI, KVM_MEM_LOG_DIRTY_PAGES, KVM_MSI_VALID_DEVID,
     KvmIrqRouting, kvm_irq_routing_entry, kvm_userspace_memory_region,
 };
-use kvm_ioctls::VmFd;
+use kvm_ioctls::{IoEventAddress, NoDatamatch, VmFd};
 use log::debug;
-use pci::DeviceRelocation;
+#[cfg(target_arch = "aarch64")]
+use log::error;
+use pci::{DeviceRelocation, PciBarRegionType};
 use serde::{Deserialize, Serialize};
+use vm_allocator::RangeInclusive;
 use vm_device::interrupt::{InterruptSourceGroup, MsiIrqSourceConfig};
 use vmm_sys_util::errno;
 use vmm_sys_util::eventfd::EventFd;
 
 pub use crate::arch::{ArchVm as Vm, ArchVmError, VmState};
+use crate::devices::virtio::transport::pci::device::VirtioPciDevice;
 use crate::logger::info;
 use crate::persist::CreateSnapshotError;
 use crate::utils::u64_to_usize;
@@ -116,26 +120,22 @@ impl MsiVectorGroup {
     }
 
     /// Save the vectors state
-    pub fn state(&self) -> Vec<(u32, (u32, bool))> {
+    pub fn state(&self) -> Vec<(u32, u32)> {
         let mut state = vec![];
         for (idx, irq_route) in &self.irq_routes {
-            state.push((
-                *idx,
-                (irq_route.gsi, irq_route.enabled.load(Ordering::Acquire)),
-            ));
+            state.push((*idx, irq_route.gsi));
         }
         state
     }
 
     /// Create a new group from state
-    pub fn from_state(
-        vm: Arc<Vm>,
-        state: &[(u32, (u32, bool))],
-    ) -> Result<MsiVectorGroup, InterruptError> {
+    pub fn from_state(vm: Arc<Vm>, state: &[(u32, u32)]) -> Result<MsiVectorGroup, InterruptError> {
         let mut irq_routes = HashMap::new();
 
-        for (idx, (gsi, enabled)) in state {
-            irq_routes.insert(*idx, MsiVector::new(*gsi, *enabled)?);
+        for (idx, gsi) in state {
+            // We always re-create the route as disabled. The PCI transport state will make sure
+            // that the route will be re-enabled if it finds the MSI vector already configured.
+            irq_routes.insert(*idx, MsiVector::new(*gsi, false)?);
         }
 
         Ok(MsiVectorGroup { vm, irq_routes })
@@ -612,13 +612,106 @@ impl Vm {
 impl DeviceRelocation for Vm {
     fn move_bar(
         &self,
-        _old_base: u64,
-        _new_base: u64,
-        _len: u64,
-        _pci_dev: &mut dyn pci::PciDevice,
-        _region_type: pci::PciBarRegionType,
+        old_base: u64,
+        new_base: u64,
+        len: u64,
+        pci_dev: &mut dyn pci::PciDevice,
+        region_type: pci::PciBarRegionType,
     ) -> Result<(), std::io::Error> {
-        todo!()
+        debug!("pci: moving BAR from {old_base:#x}:{len:#x} to {new_base:#x}:{len:#x}");
+        match region_type {
+            PciBarRegionType::IoRegion => {
+                #[cfg(target_arch = "x86_64")]
+                // We do not allocate IO addresses, we just hard-code them, no need to handle
+                // (re)allocations. Just update PIO bus
+                self.pio_bus
+                    .update_range(old_base, len, new_base, len)
+                    .map_err(std::io::Error::other)?;
+
+                #[cfg(target_arch = "aarch64")]
+                error!("pci: IO relocation is not supported on Aarch64");
+            }
+            PciBarRegionType::Memory32BitRegion | PciBarRegionType::Memory64BitRegion => {
+                let old_range =
+                    RangeInclusive::new(old_base, old_base + len - 1).map_err(|_| {
+                        std::io::Error::other("pci: invalid old range for device relocation")
+                    })?;
+                let allocator = if region_type == PciBarRegionType::Memory32BitRegion {
+                    &self.common.resource_allocator.mmio32_memory
+                } else {
+                    &self.common.resource_allocator.mmio64_memory
+                };
+
+                allocator
+                    .lock()
+                    .expect("Poisoned lock")
+                    .free(&old_range)
+                    .map_err(|_| {
+                        std::io::Error::other("pci: failed deallocating old MMIO range")
+                    })?;
+
+                allocator
+                    .lock()
+                    .unwrap()
+                    .allocate(len, len, vm_allocator::AllocPolicy::ExactMatch(new_base))
+                    .map_err(|_| std::io::Error::other("pci: failed allocating new MMIO range"))?;
+
+                // Update MMIO bus
+                self.common
+                    .mmio_bus
+                    .update_range(old_base, len, new_base, len)
+                    .map_err(std::io::Error::other)?;
+            }
+        }
+
+        let any_dev = pci_dev.as_any_mut();
+        if let Some(virtio_pci_dev) = any_dev.downcast_ref::<VirtioPciDevice>() {
+            let bar_addr = virtio_pci_dev.config_bar_addr();
+            if bar_addr == new_base {
+                for (i, queue_evt) in virtio_pci_dev
+                    .virtio_device()
+                    .lock()
+                    .expect("Poisoned lock")
+                    .queue_events()
+                    .iter()
+                    .enumerate()
+                {
+                    const NOTIFICATION_BAR_OFFSET: u64 = 0x6000;
+                    const NOTIFY_OFF_MULTIPLIER: u64 = 4;
+                    let notify_base = old_base + NOTIFICATION_BAR_OFFSET;
+                    let io_addr =
+                        IoEventAddress::Mmio(notify_base + i as u64 * NOTIFY_OFF_MULTIPLIER);
+                    self.common
+                        .fd
+                        .unregister_ioevent(queue_evt, &io_addr, NoDatamatch)?;
+
+                    let notify_base = new_base + NOTIFICATION_BAR_OFFSET;
+                    let io_addr =
+                        IoEventAddress::Mmio(notify_base + i as u64 * NOTIFY_OFF_MULTIPLIER);
+                    self.common
+                        .fd
+                        .register_ioevent(queue_evt, &io_addr, NoDatamatch)?;
+                }
+                /*
+                                for (event, addr) in virtio_pci_dev.ioeventfds(old_base) {
+                                    let io_addr = IoEventAddress::Mmio(addr);
+                                    self.vm.unregister_ioevent(event, &io_addr).map_err(|e| {
+                                        io::Error::other(format!("failed to unregister ioevent: {e:?}"))
+                                    })?;
+                                }
+                                for (event, addr) in virtio_pci_dev.ioeventfds(new_base) {
+                                    let io_addr = IoEventAddress::Mmio(addr);
+                                    self.vm
+                                        .register_ioevent(event, &io_addr, None)
+                                        .map_err(|e| {
+                                            io::Error::other(format!("failed to register ioevent: {e:?}"))
+                                        })?;
+                                }
+                */
+            }
+        }
+
+        pci_dev.move_bar(old_base, new_base)
     }
 }
 

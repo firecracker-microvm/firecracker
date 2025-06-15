@@ -301,7 +301,7 @@ pub struct VirtioPciDeviceState {
     pub pci_configuration_state: PciConfigurationState,
     pub pci_dev_state: VirtioPciCommonConfigState,
     pub msix_state: MsixConfigState,
-    pub msi_vector_group: Vec<(u32, (u32, bool))>,
+    pub msi_vector_group: Vec<(u32, u32)>,
     pub bar_configuration: Vec<PciBarConfiguration>,
 }
 
@@ -432,8 +432,7 @@ impl VirtioPciDevice {
             msix_config: VIRTQ_MSI_NO_VECTOR,
             msix_queues: vec![VIRTQ_MSI_NO_VECTOR; num_queues],
         });
-        let (device_activated, interrupt_status, cap_pci_cfg_info) =
-            (false, 0, VirtioPciCfgCapInfo::default());
+        let cap_pci_cfg_info = VirtioPciCfgCapInfo::default();
 
         // Dropping the MutexGuard to unlock the VirtioDevice. This is required
         // in the context of a restore given the device might require some
@@ -448,8 +447,8 @@ impl VirtioPciDevice {
             msix_config: Some(msix_config),
             msix_num,
             device,
-            device_activated: Arc::new(AtomicBool::new(device_activated)),
-            interrupt_status: Arc::new(AtomicUsize::new(interrupt_status)),
+            device_activated: Arc::new(AtomicBool::new(false)),
+            interrupt_status: Arc::new(AtomicUsize::new(0)),
             virtio_interrupt: None,
             memory,
             settings_bar: 0,
@@ -524,14 +523,10 @@ impl VirtioPciDevice {
         );
 
         let common_config = VirtioPciCommonConfig::new(state.pci_dev_state);
-        let (device_activated, interrupt_status, cap_pci_cfg_info) = (
-            state.device_activated,
-            state.interrupt_status,
-            VirtioPciCfgCapInfo {
-                offset: state.cap_pci_cfg_offset,
-                cap: *VirtioPciCfgCap::from_slice(&state.cap_pci_cfg).unwrap(),
-            },
-        );
+        let cap_pci_cfg_info = VirtioPciCfgCapInfo {
+            offset: state.cap_pci_cfg_offset,
+            cap: *VirtioPciCfgCap::from_slice(&state.cap_pci_cfg).unwrap(),
+        };
 
         // Dropping the MutexGuard to unlock the VirtioDevice. This is required
         // in the context of a restore given the device might require some
@@ -546,8 +541,8 @@ impl VirtioPciDevice {
             msix_config: Some(msix_config),
             msix_num,
             device,
-            device_activated: Arc::new(AtomicBool::new(device_activated)),
-            interrupt_status: Arc::new(AtomicUsize::new(interrupt_status)),
+            device_activated: Arc::new(AtomicBool::new(state.device_activated)),
+            interrupt_status: Arc::new(AtomicUsize::new(state.interrupt_status)),
             virtio_interrupt: None,
             memory: memory.clone(),
             settings_bar: 0,
@@ -1093,6 +1088,7 @@ impl PciDevice for VirtioPciDevice {
                     Arc::clone(self.virtio_interrupt.as_ref().unwrap()),
                 )
                 .unwrap_or_else(|err| error!("Error activating device: {err:?}"));
+            self.device_activated.store(true, Ordering::SeqCst);
         } else {
             debug!("Device doesn't need activation");
         }

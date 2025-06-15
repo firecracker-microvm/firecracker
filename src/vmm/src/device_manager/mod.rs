@@ -361,6 +361,7 @@ impl<'a> Persist<'a> for DeviceManager {
             vm_resources: constructor_args.vm_resources,
             instance_id: constructor_args.instance_id,
             restored_from_file: constructor_args.restored_from_file,
+            event_manager: constructor_args.event_manager,
         };
         let pci_devices = PciDevices::restore(pci_ctor_args, &state.pci_state)?;
 

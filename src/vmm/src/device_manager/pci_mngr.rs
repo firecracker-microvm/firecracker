@@ -5,15 +5,14 @@ use std::collections::HashMap;
 use std::fmt::Debug;
 use std::sync::{Arc, Mutex};
 
-use event_manager::MutEventSubscriber;
+use event_manager::{MutEventSubscriber, SubscriberOps};
 use kvm_ioctls::{IoEventAddress, NoDatamatch};
-use log::{debug, error, warn};
+use log::{debug, error, info, warn};
 use pci::{PciBarRegionType, PciBdf, PciDevice, PciDeviceError, PciRootError};
 use serde::{Deserialize, Serialize};
 use vm_device::BusError;
 
 use super::persist::{MmdsVersionState, SharedDeviceType};
-use crate::Vm;
 use crate::devices::pci::PciSegment;
 use crate::devices::virtio::balloon::Balloon;
 use crate::devices::virtio::balloon::persist::{BalloonConstructorArgs, BalloonState};
@@ -36,6 +35,7 @@ use crate::resources::VmResources;
 use crate::snapshot::Persist;
 use crate::vstate::memory::GuestMemoryMmap;
 use crate::vstate::vm::{InterruptError, MsiVectorGroup};
+use crate::{EventManager, Vm};
 
 #[derive(Debug, Default)]
 pub struct PciDevices {
@@ -180,7 +180,8 @@ impl PciDevices {
         device: Arc<Mutex<T>>,
         device_id: &String,
         pci_device_bdf: PciBdf,
-        transport_state: &VirtioPciDeviceState,
+        transport_state: VirtioPciDeviceState,
+        event_manager: &mut EventManager,
     ) -> Result<(), PciManagerError> {
         // We should only be reaching this point if PCI is enabled
         let pci_segment = self.pci_segment.as_ref().unwrap();
@@ -192,11 +193,11 @@ impl PciDevices {
         let virtio_device = Arc::new(Mutex::new(VirtioPciDevice::new_from_state(
             device_id.to_string(),
             vm.guest_memory().clone(),
-            device,
+            device.clone(),
             pci_device_bdf.into(),
             msi_vector_group,
             true,
-            transport_state.clone(),
+            transport_state,
         )?));
 
         pci_segment
@@ -252,7 +253,86 @@ impl PciDevices {
             vm.fd().register_ioevent(queue_evt, &io_addr, NoDatamatch)?;
         }
 
+        event_manager.add_subscriber(device);
         Ok(())
+    }
+
+    /// Artificially kick devices as if they had external events.
+    pub fn kick_devices(&self) {
+        info!("Artificially kick PCI devices.");
+        // We only kick virtio devices for now.
+        for (id, device) in &self.virtio_devices {
+            let virtio_device = device.lock().expect("Poisoned lock").virtio_device();
+            let mut virtio_locked = virtio_device.lock().expect("Poisoned lock");
+            match virtio_locked.device_type() {
+                TYPE_BALLOON => {
+                    let balloon = virtio_locked
+                        .as_mut_any()
+                        .downcast_mut::<Balloon>()
+                        .unwrap();
+                    // If device is activated, kick the balloon queue(s) to make up for any
+                    // pending or in-flight epoll events we may have not captured in snapshot.
+                    // Stats queue doesn't need kicking as it is notified via a `timer_fd`.
+                    if balloon.is_activated() {
+                        info!("kick balloon {}.", id);
+                        balloon.process_virtio_queues();
+                    }
+                }
+                TYPE_BLOCK => {
+                    // We only care about kicking virtio block.
+                    // If we need to kick vhost-user-block we can do nothing.
+                    if let Some(block) = virtio_locked.as_mut_any().downcast_mut::<Block>() {
+                        // If device is activated, kick the block queue(s) to make up for any
+                        // pending or in-flight epoll events we may have not captured in
+                        // snapshot. No need to kick Ratelimiters
+                        // because they are restored 'unblocked' so
+                        // any inflight `timer_fd` events can be safely discarded.
+                        if block.is_activated() {
+                            info!("kick block {}.", id);
+                            block.process_virtio_queues();
+                        }
+                    }
+                }
+                TYPE_NET => {
+                    let net = virtio_locked.as_mut_any().downcast_mut::<Net>().unwrap();
+                    // If device is activated, kick the net queue(s) to make up for any
+                    // pending or in-flight epoll events we may have not captured in snapshot.
+                    // No need to kick Ratelimiters because they are restored 'unblocked' so
+                    // any inflight `timer_fd` events can be safely discarded.
+                    if net.is_activated() {
+                        info!("kick net {}.", id);
+                        net.process_virtio_queues();
+                    }
+                }
+                TYPE_VSOCK => {
+                    // Vsock has complicated protocol that isn't resilient to any packet loss,
+                    // so for Vsock we don't support connection persistence through snapshot.
+                    // Any in-flight packets or events are simply lost.
+                    // Vsock is restored 'empty'.
+                    // The only reason we still `kick` it is to make guest process
+                    // `TRANSPORT_RESET_EVENT` event we sent during snapshot creation.
+                    let vsock = virtio_locked
+                        .as_mut_any()
+                        .downcast_mut::<Vsock<VsockUnixBackend>>()
+                        .unwrap();
+                    if vsock.is_activated() {
+                        info!("kick vsock {id}.");
+                        vsock.signal_used_queue(0).unwrap();
+                    }
+                }
+                TYPE_RNG => {
+                    let entropy = virtio_locked
+                        .as_mut_any()
+                        .downcast_mut::<Entropy>()
+                        .unwrap();
+                    if entropy.is_activated() {
+                        info!("kick entropy {id}.");
+                        entropy.process_virtio_queues();
+                    }
+                }
+                _ => (),
+            }
+        }
     }
 }
 
@@ -286,13 +366,25 @@ pub struct PciDevicesState {
     pub entropy_device: Option<VirtioDeviceState<EntropyState>>,
 }
 
-#[derive(Debug)]
 pub struct PciDevicesConstructorArgs<'a> {
     pub vm: Arc<Vm>,
     pub mem: &'a GuestMemoryMmap,
     pub vm_resources: &'a mut VmResources,
     pub instance_id: &'a str,
     pub restored_from_file: bool,
+    pub event_manager: &'a mut EventManager,
+}
+
+impl<'a> Debug for PciDevicesConstructorArgs<'a> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("PciDevicesConstructorArgs")
+            .field("vm", &self.vm)
+            .field("mem", &self.mem)
+            .field("vm_resources", &self.vm_resources)
+            .field("instance_id", &self.instance_id)
+            .field("restored_from_file", &self.restored_from_file)
+            .finish()
+    }
 }
 
 impl<'a> Persist<'a> for PciDevices {
@@ -461,7 +553,8 @@ impl<'a> Persist<'a> for PciDevices {
                     device,
                     &balloon_state.device_id,
                     balloon_state.pci_device_bdf.into(),
-                    &balloon_state.transport_state,
+                    balloon_state.transport_state.clone(),
+                    constructor_args.event_manager,
                 )
                 .unwrap()
         }
@@ -486,7 +579,8 @@ impl<'a> Persist<'a> for PciDevices {
                     device,
                     &block_state.device_id,
                     block_state.pci_device_bdf.into(),
-                    &block_state.transport_state,
+                    block_state.transport_state.clone(),
+                    constructor_args.event_manager,
                 )
                 .unwrap()
         }
@@ -536,7 +630,8 @@ impl<'a> Persist<'a> for PciDevices {
                     device,
                     &net_state.device_id,
                     net_state.pci_device_bdf.into(),
-                    &net_state.transport_state,
+                    net_state.transport_state.clone(),
+                    constructor_args.event_manager,
                 )
                 .unwrap()
         }
@@ -569,7 +664,8 @@ impl<'a> Persist<'a> for PciDevices {
                     device,
                     &vsock_state.device_id,
                     vsock_state.pci_device_bdf.into(),
-                    &vsock_state.transport_state,
+                    vsock_state.transport_state.clone(),
+                    constructor_args.event_manager,
                 )
                 .unwrap()
         }
@@ -592,7 +688,8 @@ impl<'a> Persist<'a> for PciDevices {
                     device,
                     &entropy_state.device_id,
                     entropy_state.pci_device_bdf.into(),
-                    &entropy_state.transport_state,
+                    entropy_state.transport_state.clone(),
+                    constructor_args.event_manager,
                 )
                 .unwrap()
         }
