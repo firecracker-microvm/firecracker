@@ -262,7 +262,7 @@ impl Queue {
     pub fn new(max_size: u16) -> Queue {
         Queue {
             max_size,
-            size: 0,
+            size: max_size,
             ready: false,
             desc_table_address: GuestAddress(0),
             avail_ring_address: GuestAddress(0),
@@ -711,6 +711,19 @@ impl Queue {
         self.num_added = Wrapping(0);
 
         new - used_event - Wrapping(1) < new - old
+    }
+
+    /// Resets the Virtio Queue
+    pub(crate) fn reset(&mut self) {
+        self.ready = false;
+        self.size = self.max_size;
+        self.desc_table_address = GuestAddress(0);
+        self.avail_ring_address = GuestAddress(0);
+        self.used_ring_address = GuestAddress(0);
+        self.next_avail = Wrapping(0);
+        self.next_used = Wrapping(0);
+        self.num_added = Wrapping(0);
+        self.uses_notif_suppression = false;
     }
 }
 

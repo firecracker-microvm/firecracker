@@ -182,6 +182,16 @@ pub fn create_snapshot(
         })
         .unwrap();
 
+    for device in vmm.device_manager.pci_devices.virtio_devices.values() {
+        let pci_virtio_dev = device.lock().expect("Poisoned lock").virtio_device();
+        let pci_virtio_dev_locked = pci_virtio_dev.lock().expect("Poisoned lock");
+        if pci_virtio_dev_locked.is_activated() {
+            pci_virtio_dev_locked
+                .mark_queue_memory_dirty(vmm.vm.guest_memory())
+                .unwrap();
+        }
+    }
+
     Ok(())
 }
 
@@ -599,6 +609,7 @@ mod tests {
     #[cfg(target_arch = "aarch64")]
     use crate::construct_kvm_mpidrs;
     use crate::devices::virtio::block::CacheType;
+    use crate::snapshot::Persist;
     use crate::vmm_config::balloon::BalloonDeviceConfig;
     use crate::vmm_config::net::NetworkInterfaceConfig;
     use crate::vmm_config::vsock::tests::default_config;
