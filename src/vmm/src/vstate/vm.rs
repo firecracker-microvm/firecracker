@@ -18,15 +18,17 @@ use kvm_bindings::{
     KVM_IRQ_ROUTING_IRQCHIP, KVM_IRQ_ROUTING_MSI, KVM_MEM_LOG_DIRTY_PAGES, KVM_MSI_VALID_DEVID,
     KvmIrqRouting, kvm_irq_routing_entry, kvm_userspace_memory_region,
 };
-use kvm_ioctls::VmFd;
+use kvm_ioctls::{IoEventAddress, NoDatamatch, VmFd};
 use log::debug;
-use pci::DeviceRelocation;
+use pci::{DeviceRelocation, PciBarRegionType};
 use serde::{Deserialize, Serialize};
+use vm_allocator::RangeInclusive;
 use vm_device::interrupt::{InterruptSourceGroup, MsiIrqSourceConfig};
 use vmm_sys_util::errno;
 use vmm_sys_util::eventfd::EventFd;
 
 pub use crate::arch::{ArchVm as Vm, ArchVmError, VmState};
+use crate::devices::virtio::transport::pci::device::VirtioPciDevice;
 use crate::logger::info;
 use crate::persist::CreateSnapshotError;
 use crate::snapshot::Persist;
@@ -622,23 +624,107 @@ impl Vm {
 impl DeviceRelocation for Vm {
     fn move_bar(
         &self,
-        _old_base: u64,
-        _new_base: u64,
-        _len: u64,
-        _pci_dev: &mut dyn pci::PciDevice,
-        _region_type: pci::PciBarRegionType,
+        old_base: u64,
+        new_base: u64,
+        len: u64,
+        pci_dev: &mut dyn pci::PciDevice,
+        region_type: pci::PciBarRegionType,
     ) -> Result<(), std::io::Error> {
-        todo!()
+        debug!("pci: moving BAR from {old_base:#x}:{len:#x} to {new_base:#x}:{len:#x}");
+        match region_type {
+            PciBarRegionType::IoRegion => {
+                #[cfg(target_arch = "x86_64")]
+                // We do not allocate IO addresses, we just hard-code them, no need to handle
+                // (re)allocations. Just update PIO bus
+                self.pio_bus
+                    .update_range(old_base, len, new_base, len)
+                    .map_err(std::io::Error::other)?;
+
+                #[cfg(target_arch = "aarch64")]
+                return Err(std::io::Error::other(
+                    "pci: IO regions not supported on Aarch64",
+                ));
+            }
+            PciBarRegionType::Memory32BitRegion | PciBarRegionType::Memory64BitRegion => {
+                let old_range =
+                    RangeInclusive::new(old_base, old_base + len - 1).map_err(|_| {
+                        std::io::Error::other("pci: invalid old range for device relocation")
+                    })?;
+                let allocator = if region_type == PciBarRegionType::Memory32BitRegion {
+                    &self.common.resource_allocator.mmio32_memory
+                } else {
+                    &self.common.resource_allocator.mmio64_memory
+                };
+
+                allocator
+                    .lock()
+                    .expect("Poisoned lock")
+                    .free(&old_range)
+                    .map_err(|_| {
+                        std::io::Error::other("pci: failed deallocating old MMIO range")
+                    })?;
+
+                allocator
+                    .lock()
+                    .unwrap()
+                    .allocate(len, len, vm_allocator::AllocPolicy::ExactMatch(new_base))
+                    .map_err(|_| std::io::Error::other("pci: failed allocating new MMIO range"))?;
+
+                // Update MMIO bus
+                self.common
+                    .mmio_bus
+                    .update_range(old_base, len, new_base, len)
+                    .map_err(std::io::Error::other)?;
+            }
+        }
+
+        let any_dev = pci_dev.as_any_mut();
+        if let Some(virtio_pci_dev) = any_dev.downcast_ref::<VirtioPciDevice>() {
+            let bar_addr = virtio_pci_dev.config_bar_addr();
+            if bar_addr == new_base {
+                for (i, queue_evt) in virtio_pci_dev
+                    .virtio_device()
+                    .lock()
+                    .expect("Poisoned lock")
+                    .queue_events()
+                    .iter()
+                    .enumerate()
+                {
+                    const NOTIFICATION_BAR_OFFSET: u64 = 0x6000;
+                    const NOTIFY_OFF_MULTIPLIER: u64 = 4;
+                    let notify_base = old_base + NOTIFICATION_BAR_OFFSET;
+                    let io_addr =
+                        IoEventAddress::Mmio(notify_base + i as u64 * NOTIFY_OFF_MULTIPLIER);
+                    self.common
+                        .fd
+                        .unregister_ioevent(queue_evt, &io_addr, NoDatamatch)?;
+
+                    let notify_base = new_base + NOTIFICATION_BAR_OFFSET;
+                    let io_addr =
+                        IoEventAddress::Mmio(notify_base + i as u64 * NOTIFY_OFF_MULTIPLIER);
+                    self.common
+                        .fd
+                        .register_ioevent(queue_evt, &io_addr, NoDatamatch)?;
+                }
+            }
+        }
+
+        pci_dev.move_bar(old_base, new_base)
     }
 }
 
 #[cfg(test)]
 pub(crate) mod tests {
+    use std::ops::DerefMut;
+
+    use pci::PciBdf;
+    use vm_allocator::AllocPolicy;
     use vm_device::interrupt::{InterruptSourceConfig, LegacyIrqSourceConfig};
     use vm_memory::GuestAddress;
     use vm_memory::mmap::MmapRegionBuilder;
 
     use super::*;
+    use crate::device_manager::mmio::tests::DummyDevice;
     use crate::test_utils::single_region_mem_raw;
     use crate::utils::mib_to_bytes;
     use crate::vstate::kvm::Kvm;
@@ -976,5 +1062,192 @@ pub(crate) mod tests {
             assert_eq!(vector.gsi, new_vector.gsi);
             assert!(!new_vector.enabled.load(Ordering::Acquire));
         }
+    }
+
+    fn new_virtio_pci_device(vm: &Arc<Vm>) -> Arc<Mutex<VirtioPciDevice>> {
+        let dummy = Arc::new(Mutex::new(DummyDevice::new()));
+        let msi_vectors = Arc::new(Vm::create_msix_group(vm.clone(), 0, 2).unwrap());
+        Arc::new(Mutex::new(
+            VirtioPciDevice::new(
+                "dummy".to_string(),
+                vm.guest_memory().clone(),
+                dummy,
+                msi_vectors,
+                PciBdf::new(0, 0, 1, 0).into(),
+                true,
+                None,
+            )
+            .unwrap(),
+        ))
+    }
+
+    #[cfg(target_arch = "aarch64")]
+    #[test]
+    fn test_device_relocation_no_io_on_arm() {
+        let (_, vm) = setup_vm_with_memory(mib_to_bytes(128));
+        let vm = Arc::new(vm);
+        let old_base = 0x42;
+        let new_base = 0x84;
+        let len = 0x1312000;
+        let virtio_dev = new_virtio_pci_device(&vm);
+        let mut virtio_dev_locked = virtio_dev.lock().unwrap();
+        let pci_dev = virtio_dev_locked.deref_mut();
+
+        vm.move_bar(old_base, new_base, len, pci_dev, PciBarRegionType::IoRegion)
+            .unwrap_err();
+    }
+
+    #[test]
+    fn test_device_relocation_bad_ranges() {
+        let (_, vm) = setup_vm_with_memory(mib_to_bytes(128));
+        let vm = Arc::new(vm);
+        let virtio_dev = new_virtio_pci_device(&vm);
+        let mut virtio_dev_locked = virtio_dev.lock().unwrap();
+        let pci_dev = virtio_dev_locked.deref_mut();
+
+        // Old region would overflow
+        vm.move_bar(0, 0x12, u64::MAX, pci_dev, PciBarRegionType::IoRegion)
+            .unwrap_err();
+        // New region would overflow
+        vm.move_bar(0x13, 0, u64::MAX, pci_dev, PciBarRegionType::IoRegion)
+            .unwrap_err();
+    }
+
+    #[test]
+    fn test_device_relocation_old_region_not_allocated() {
+        let (_, vm) = setup_vm_with_memory(mib_to_bytes(128));
+        let vm = Arc::new(vm);
+        let virtio_dev = new_virtio_pci_device(&vm);
+        let mut virtio_dev_locked = virtio_dev.lock().unwrap();
+        let pci_dev = virtio_dev_locked.deref_mut();
+
+        let err = vm
+            .move_bar(
+                0x12,
+                0x13,
+                0x42,
+                pci_dev,
+                PciBarRegionType::Memory32BitRegion,
+            )
+            .unwrap_err();
+        assert_eq!(format!("{err}"), "pci: failed deallocating old MMIO range");
+    }
+
+    #[test]
+    fn test_device_relocation_new_region_allocated() {
+        let (_, vm) = setup_vm_with_memory(mib_to_bytes(128));
+        let vm = Arc::new(vm);
+        let virtio_dev = new_virtio_pci_device(&vm);
+        let mut virtio_dev_locked = virtio_dev.lock().unwrap();
+        let pci_dev = virtio_dev_locked.deref_mut();
+
+        // Allocate old range and add it to bus
+        let old_base = vm
+            .common
+            .resource_allocator
+            .allocate_32bit_mmio_memory(0x1000, 0x1000, AllocPolicy::FirstMatch)
+            .unwrap();
+        vm.common
+            .mmio_bus
+            .insert(virtio_dev.clone(), 0x1000, 0x1000)
+            .unwrap();
+
+        // Also allocate new region. This should cause relocation to fail
+        let new_base = vm
+            .common
+            .resource_allocator
+            .allocate_32bit_mmio_memory(0x1000, 0x1000, AllocPolicy::FirstMatch)
+            .unwrap();
+
+        let err = vm
+            .move_bar(
+                old_base,
+                new_base,
+                0x1000,
+                pci_dev,
+                PciBarRegionType::Memory32BitRegion,
+            )
+            .unwrap_err();
+        assert_eq!(format!("{err}"), "pci: failed allocating new MMIO range");
+    }
+
+    #[cfg(target_arch = "x86_64")]
+    #[test]
+    fn test_device_relocation_io_device() {
+        let (_, vm) = setup_vm_with_memory(mib_to_bytes(128));
+        let vm = Arc::new(vm);
+        let virtio_dev = new_virtio_pci_device(&vm);
+        let mut virtio_dev_locked = virtio_dev.lock().unwrap();
+        let pci_dev = virtio_dev_locked.deref_mut();
+
+        let err = vm
+            .move_bar(0x12, 0x13, 0x42000, pci_dev, PciBarRegionType::IoRegion)
+            .unwrap_err();
+        assert_eq!(format!("{err}"), "bus_error: MissingAddressRange");
+
+        // If, instead, we add the device in the PIO bus, everything should work fine
+        vm.pio_bus
+            .insert(virtio_dev.clone(), 0x12, 0x42000)
+            .unwrap();
+
+        vm.move_bar(0x12, 0x13, 0x42000, pci_dev, PciBarRegionType::IoRegion)
+            .unwrap()
+    }
+
+    #[test]
+    fn test_device_relocation_mmio_device() {
+        let (_, vm) = setup_vm_with_memory(mib_to_bytes(128));
+        let vm = Arc::new(vm);
+
+        let virtio_dev = new_virtio_pci_device(&vm);
+        let mut virtio_dev_locked = virtio_dev.lock().unwrap();
+        let pci_dev = virtio_dev_locked.deref_mut();
+
+        let old_base = vm
+            .common
+            .resource_allocator
+            .allocate_64bit_mmio_memory(0x8000, 0x1000, AllocPolicy::FirstMatch)
+            .unwrap();
+
+        let err = vm
+            .move_bar(
+                old_base,
+                old_base + 0x8000,
+                0x8000,
+                pci_dev,
+                PciBarRegionType::Memory64BitRegion,
+            )
+            .unwrap_err();
+        assert_eq!(format!("{err}"), "bus_error: MissingAddressRange");
+
+        // Need to reset the allocator here. Erroring out left it to a limbo state (old range is
+        // deallocated, new range is allocated).
+        vm.common
+            .resource_allocator
+            .mmio64_memory
+            .lock()
+            .unwrap()
+            .free(&RangeInclusive::new(old_base + 0x8000, old_base + 0x8000 + 0x8000 - 1).unwrap())
+            .unwrap();
+        vm.common
+            .resource_allocator
+            .allocate_64bit_mmio_memory(0x8000, 0x1000, AllocPolicy::FirstMatch)
+            .unwrap();
+
+        // If we add the device to the MMIO bus, everything should work fine
+        vm.common
+            .mmio_bus
+            .insert(virtio_dev.clone(), old_base, 0x8000)
+            .unwrap();
+
+        println!("old base: {old_base:#x}");
+        vm.move_bar(
+            old_base,
+            old_base + 0x8000,
+            0x8000,
+            pci_dev,
+            PciBarRegionType::Memory64BitRegion,
+        )
+        .unwrap();
     }
 }
