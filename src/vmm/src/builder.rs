@@ -4,7 +4,7 @@
 //! Enables pre-boot setup, instantiation and booting of a Firecracker VMM.
 
 use std::fmt::Debug;
-use std::io;
+use std::io::{self, Write};
 use std::os::fd::AsFd;
 use std::os::unix::fs::MetadataExt;
 #[cfg(feature = "gdb")]
@@ -14,7 +14,6 @@ use std::sync::{Arc, Mutex};
 use event_manager::{MutEventSubscriber, SubscriberOps};
 use libc::EFD_NONBLOCK;
 use linux_loader::cmdline::Cmdline as LoaderKernelCmdline;
-use userfaultfd::Uffd;
 use utils::time::TimestampUs;
 #[cfg(target_arch = "aarch64")]
 use vm_memory::GuestAddress;
@@ -23,7 +22,7 @@ use vm_superio::Rtc;
 use vm_superio::Serial;
 use vmm_sys_util::eventfd::EventFd;
 
-use crate::arch::{ConfigurationError, configure_system_for_boot, load_kernel};
+use crate::arch::{ConfigurationError, configure_system_for_boot, host_page_size, load_kernel};
 #[cfg(target_arch = "aarch64")]
 use crate::construct_kvm_mpidrs;
 use crate::cpu_config::templates::{
@@ -54,15 +53,19 @@ use crate::devices::virtio::vsock::{Vsock, VsockUnixBackend};
 use crate::gdb;
 use crate::initrd::{InitrdConfig, InitrdError};
 use crate::logger::{debug, error};
-use crate::persist::{MicrovmState, MicrovmStateError};
+use crate::persist::{
+    GuestMemoryFromFileError, GuestMemoryFromUffdError, MicrovmState, MicrovmStateError,
+    guest_memory_from_file, guest_memory_from_uffd,
+};
 use crate::resources::VmResources;
 use crate::seccomp::BpfThreadMap;
 use crate::snapshot::Persist;
 use crate::utils::u64_to_usize;
 use crate::vmm_config::instance_info::InstanceInfo;
 use crate::vmm_config::machine_config::MachineConfigError;
+use crate::vmm_config::snapshot::{LoadSnapshotParams, MemBackendType};
 use crate::vstate::kvm::Kvm;
-use crate::vstate::memory::{GuestRegionMmap, MaybeBounce};
+use crate::vstate::memory::{MaybeBounce, create_memfd};
 use crate::vstate::vcpu::{Vcpu, VcpuError};
 use crate::vstate::vm::{KVM_GMEM_NO_DIRECT_MAP, Vm};
 use crate::{EventManager, Vmm, VmmError, device_manager};
@@ -188,6 +191,7 @@ fn create_vmm_and_vcpus(
         kvm,
         vm,
         uffd: None,
+        uffd_socket: None,
         vcpus_handles: Vec::new(),
         vcpus_exit_evt,
         resource_allocator,
@@ -422,6 +426,17 @@ pub fn build_and_boot_microvm(
     Ok(vmm)
 }
 
+/// Sub-Error type for [`build_microvm_from_snapshot`] to contain either
+/// [`GuestMemoryFromFileError`] or [`GuestMemoryFromUffdError`] within
+/// [`BuildMicrovmFromSnapshotError`].
+#[derive(Debug, thiserror::Error, displaydoc::Display)]
+pub enum BuildMicrovmFromSnapshotErrorGuestMemoryError {
+    /// Error creating guest memory from file: {0}
+    File(#[from] GuestMemoryFromFileError),
+    /// Error creating guest memory from uffd: {0}
+    Uffd(#[from] GuestMemoryFromUffdError),
+}
+
 /// Error type for [`build_microvm_from_snapshot`].
 #[derive(Debug, thiserror::Error, displaydoc::Display)]
 pub enum BuildMicrovmFromSnapshotError {
@@ -459,6 +474,12 @@ pub enum BuildMicrovmFromSnapshotError {
     ACPIDeviManager(#[from] ACPIDeviceManagerRestoreError),
     /// VMGenID update failed: {0}
     VMGenIDUpdate(std::io::Error),
+    /// Internal error while restoring microVM: {0}
+    Internal(#[from] VmmError),
+    /// Failed to load guest memory: {0}
+    GuestMemory(#[from] BuildMicrovmFromSnapshotErrorGuestMemoryError),
+    /// Userfault bitmap memfd error: {0}
+    UserfaultBitmapMemfd(#[from] crate::vstate::memory::MemoryError),
 }
 
 /// Builds and starts a microVM based on the provided MicrovmState.
@@ -470,27 +491,93 @@ pub fn build_microvm_from_snapshot(
     instance_info: &InstanceInfo,
     event_manager: &mut EventManager,
     microvm_state: MicrovmState,
-    guest_memory: Vec<GuestRegionMmap>,
-    uffd: Option<Uffd>,
     seccomp_filters: &BpfThreadMap,
+    params: &LoadSnapshotParams,
     vm_resources: &mut VmResources,
 ) -> Result<Arc<Mutex<Vmm>>, BuildMicrovmFromSnapshotError> {
+    // TODO: take it from kvm-bindings when userfault support is merged upstream
+    const KVM_CAP_USERFAULT: u32 = 241;
+
     // Build Vmm.
     debug!("event_start: build microvm from snapshot");
+
+    let secret_free = vm_resources.machine_config.secret_free;
+
+    let mut kvm_capabilities = microvm_state.kvm_state.kvm_cap_modifiers.clone();
+    if secret_free {
+        kvm_capabilities.push(KvmCapability::Add(KVM_CAP_USERFAULT));
+    }
+
     let (mut vmm, mut vcpus) = create_vmm_and_vcpus(
         instance_info,
         event_manager,
         vm_resources.machine_config.vcpu_count,
-        microvm_state.kvm_state.kvm_cap_modifiers.clone(),
-        false,
+        kvm_capabilities,
+        secret_free,
     )
     .map_err(StartMicrovmError::Internal)?;
 
+    let guest_memfd = match secret_free {
+        true => Some(
+            vmm.vm
+                .create_guest_memfd(vm_resources.memory_size(), KVM_GMEM_NO_DIRECT_MAP)
+                .map_err(VmmError::Vm)?,
+        ),
+        false => None,
+    };
+
+    let userfault_bitmap_memfd = if secret_free {
+        let bitmap_size = vm_resources.memory_size() / host_page_size();
+        let bitmap_file = create_memfd(bitmap_size as u64, None)?;
+
+        // Set all bits so a fault on any page will cause a VM exit
+        let all_set = vec![0xffu8; bitmap_size];
+        bitmap_file.as_file().write_all(&all_set).unwrap();
+
+        Some(bitmap_file.into_file())
+    } else {
+        None
+    };
+
+    let mem_backend_path = &params.mem_backend.backend_path;
+    let mem_state = &microvm_state.vm_state.memory;
+    let track_dirty_pages = params.enable_diff_snapshots;
+
+    let (guest_memory, uffd, socket) = match params.mem_backend.backend_type {
+        MemBackendType::File => {
+            if vm_resources.machine_config.huge_pages.is_hugetlbfs() {
+                return Err(BuildMicrovmFromSnapshotErrorGuestMemoryError::File(
+                    GuestMemoryFromFileError::HugetlbfsSnapshot,
+                )
+                .into());
+            }
+            (
+                guest_memory_from_file(mem_backend_path, mem_state, track_dirty_pages)
+                    .map_err(BuildMicrovmFromSnapshotErrorGuestMemoryError::File)?,
+                None,
+                None,
+            )
+        }
+        MemBackendType::Uffd => guest_memory_from_uffd(
+            mem_backend_path,
+            mem_state,
+            track_dirty_pages,
+            vm_resources.machine_config.huge_pages,
+            guest_memfd,
+            userfault_bitmap_memfd.as_ref(),
+        )
+        .map_err(BuildMicrovmFromSnapshotErrorGuestMemoryError::Uffd)?,
+    };
+
     vmm.vm
-        .register_memory_regions(guest_memory, None)
+        .register_memory_regions(guest_memory, userfault_bitmap_memfd.as_ref())
         .map_err(VmmError::Vm)
         .map_err(StartMicrovmError::Internal)?;
     vmm.uffd = uffd;
+    vmm.uffd_socket = socket;
+
+    #[cfg(target_arch = "x86_64")]
+    vmm.vm.set_memory_private().map_err(VmmError::Vm)?;
 
     #[cfg(target_arch = "x86_64")]
     {
@@ -956,6 +1043,7 @@ pub(crate) mod tests {
             kvm,
             vm,
             uffd: None,
+            uffd_socket: None,
             vcpus_handles: Vec::new(),
             vcpus_exit_evt,
             resource_allocator: ResourceAllocator::new().unwrap(),
