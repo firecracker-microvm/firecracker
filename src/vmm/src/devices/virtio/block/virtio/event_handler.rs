@@ -1,6 +1,7 @@
 // Copyright 2020 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 use event_manager::{EventOps, Events, MutEventSubscriber};
+use log::info;
 use vmm_sys_util::epoll::EventSet;
 
 use super::io::FileEngine;
@@ -85,7 +86,11 @@ impl MutEventSubscriber for VirtioBlock {
         if self.is_activated() {
             match source {
                 Self::PROCESS_ACTIVATE => self.process_activate_event(ops),
-                Self::PROCESS_QUEUE => self.process_queue_event(),
+                Self::PROCESS_QUEUE => {
+                    info!("Started processing Block queue");
+                    self.process_queue_event();
+                    info!("Stopped processing Block queue");
+                }
                 Self::PROCESS_RATE_LIMITER => self.process_rate_limiter_event(),
                 Self::PROCESS_ASYNC_COMPLETION => self.process_async_completion_event(),
                 _ => warn!("Block: Spurious event received: {:?}", source),
