@@ -199,7 +199,7 @@ pub fn build_microvm_for_boot(
         .allocate_guest_memory(guest_memfd)
         .map_err(StartMicrovmError::GuestMemory)?;
 
-    vm.register_memory_regions(guest_memory)
+    vm.register_memory_regions(guest_memory, None)
         .map_err(VmmError::Vm)?;
 
     let mut device_manager = DeviceManager::new(event_manager, &vcpus_exit_evt, &vm)?;
@@ -471,7 +471,7 @@ pub fn build_microvm_from_snapshot(
         .create_vcpus(vm_resources.machine_config.vcpu_count)
         .map_err(StartMicrovmError::Vm)?;
 
-    vm.register_memory_regions(guest_memory)
+    vm.register_memory_regions(guest_memory, None)
         .map_err(StartMicrovmError::Vm)?;
 
     #[cfg(target_arch = "x86_64")]

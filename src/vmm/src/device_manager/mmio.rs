@@ -596,7 +596,7 @@ pub(crate) mod tests {
         let guest_mem = multi_region_mem_raw(&[(start_addr1, 0x1000), (start_addr2, 0x1000)]);
         let kvm = Kvm::new(vec![]).expect("Cannot create Kvm");
         let mut vm = Vm::new(&kvm, false).unwrap();
-        vm.register_memory_regions(guest_mem).unwrap();
+        vm.register_memory_regions(guest_mem, None).unwrap();
         let mut device_manager = MMIODeviceManager::new();
 
         let mut cmdline = kernel_cmdline::Cmdline::new(4096).unwrap();
@@ -642,7 +642,7 @@ pub(crate) mod tests {
         let guest_mem = multi_region_mem_raw(&[(start_addr1, 0x1000), (start_addr2, 0x1000)]);
         let kvm = Kvm::new(vec![]).expect("Cannot create Kvm");
         let mut vm = Vm::new(&kvm, false).unwrap();
-        vm.register_memory_regions(guest_mem).unwrap();
+        vm.register_memory_regions(guest_mem, None).unwrap();
         let mut device_manager = MMIODeviceManager::new();
 
         let mut cmdline = kernel_cmdline::Cmdline::new(4096).unwrap();
@@ -695,7 +695,7 @@ pub(crate) mod tests {
         let guest_mem = multi_region_mem_raw(&[(start_addr1, 0x1000), (start_addr2, 0x1000)]);
         let kvm = Kvm::new(vec![]).expect("Cannot create Kvm");
         let mut vm = Vm::new(&kvm, false).unwrap();
-        vm.register_memory_regions(guest_mem).unwrap();
+        vm.register_memory_regions(guest_mem, None).unwrap();
 
         #[cfg(target_arch = "x86_64")]
         vm.setup_irqchip().unwrap();
