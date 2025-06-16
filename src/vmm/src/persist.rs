@@ -114,6 +114,54 @@ pub struct GuestRegionUffdMapping {
     pub page_size_kib: usize,
 }
 
+/// FaultRequest
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+pub struct FaultRequest {
+    /// vCPU that encountered the fault
+    pub vcpu: u32,
+    /// Offset in guest_memfd where the fault occured
+    pub offset: u64,
+    /// Flags
+    pub flags: u64,
+    /// Async PF token
+    pub token: Option<u32>,
+}
+
+/// FaultReply
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+pub struct FaultReply {
+    /// vCPU that encountered the fault, from `FaultRequest` (if present, otherwise 0)
+    pub vcpu: Option<u32>,
+    /// Offset in guest_memfd where population started
+    pub offset: u64,
+    /// Length of populated area
+    pub len: u64,
+    /// Flags, must be copied from `FaultRequest`, otherwise 0
+    pub flags: u64,
+    /// Async PF token, must be copied from `FaultRequest`, otherwise None
+    pub token: Option<u32>,
+    /// Whether the populated pages are zero pages
+    pub zero: bool,
+}
+
+/// UffdMsgFromFirecracker
+#[derive(Serialize, Deserialize, Debug)]
+#[serde(untagged)]
+pub enum UffdMsgFromFirecracker {
+    /// Mappings
+    Mappings(Vec<GuestRegionUffdMapping>),
+    /// FaultReq
+    FaultReq(FaultRequest),
+}
+
+/// UffdMsgToFirecracker
+#[derive(Serialize, Deserialize, Debug)]
+#[serde(untagged)]
+pub enum UffdMsgToFirecracker {
+    /// FaultRep
+    FaultRep(FaultReply),
+}
+
 /// Errors related to saving and restoring Microvm state.
 #[derive(Debug, thiserror::Error, displaydoc::Display)]
 pub enum MicrovmStateError {
