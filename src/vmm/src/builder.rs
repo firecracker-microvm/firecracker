@@ -260,7 +260,7 @@ pub fn build_microvm_for_boot(
         .map_err(StartMicrovmError::GuestMemory)?;
 
     vmm.vm
-        .register_memory_regions(guest_memory)
+        .register_memory_regions(guest_memory, None)
         .map_err(VmmError::Vm)?;
 
     #[cfg(target_arch = "x86_64")]
@@ -487,7 +487,7 @@ pub fn build_microvm_from_snapshot(
     .map_err(StartMicrovmError::Internal)?;
 
     vmm.vm
-        .register_memory_regions(guest_memory)
+        .register_memory_regions(guest_memory, None)
         .map_err(VmmError::Vm)
         .map_err(StartMicrovmError::Internal)?;
     vmm.uffd = uffd;
