@@ -6,7 +6,7 @@
 use std::fmt::Debug;
 use std::fs::{File, OpenOptions};
 use std::io::{self, Write};
-use std::mem::forget;
+use std::os::fd::RawFd;
 use std::os::unix::io::AsRawFd;
 use std::os::unix::net::UnixStream;
 use std::path::Path;
@@ -14,7 +14,7 @@ use std::sync::{Arc, Mutex};
 
 use semver::Version;
 use serde::{Deserialize, Serialize};
-use userfaultfd::{FeatureFlags, Uffd, UffdBuilder};
+use userfaultfd::{FeatureFlags, RegisterMode, Uffd, UffdBuilder};
 use vmm_sys_util::sock_ctrl_msg::ScmSocket;
 
 #[cfg(target_arch = "aarch64")]
@@ -34,7 +34,7 @@ use crate::utils::u64_to_usize;
 use crate::vmm_config::boot_source::BootSourceConfig;
 use crate::vmm_config::instance_info::InstanceInfo;
 use crate::vmm_config::machine_config::{HugePageConfig, MachineConfigError, MachineConfigUpdate};
-use crate::vmm_config::snapshot::{CreateSnapshotParams, LoadSnapshotParams, MemBackendType};
+use crate::vmm_config::snapshot::{CreateSnapshotParams, LoadSnapshotParams};
 use crate::vstate::kvm::KvmState;
 use crate::vstate::memory;
 use crate::vstate::memory::{GuestMemoryState, GuestRegionMmap, MemoryError};
@@ -416,38 +416,12 @@ pub fn restore_from_snapshot(
     // Some sanity checks before building the microvm.
     snapshot_state_sanity_check(&microvm_state)?;
 
-    let mem_backend_path = &params.mem_backend.backend_path;
-    let mem_state = &microvm_state.vm_state.memory;
-
-    let (guest_memory, uffd) = match params.mem_backend.backend_type {
-        MemBackendType::File => {
-            if vm_resources.machine_config.huge_pages.is_hugetlbfs() {
-                return Err(RestoreFromSnapshotGuestMemoryError::File(
-                    GuestMemoryFromFileError::HugetlbfsSnapshot,
-                )
-                .into());
-            }
-            (
-                guest_memory_from_file(mem_backend_path, mem_state, track_dirty_pages)
-                    .map_err(RestoreFromSnapshotGuestMemoryError::File)?,
-                None,
-            )
-        }
-        MemBackendType::Uffd => guest_memory_from_uffd(
-            mem_backend_path,
-            mem_state,
-            track_dirty_pages,
-            vm_resources.machine_config.huge_pages,
-        )
-        .map_err(RestoreFromSnapshotGuestMemoryError::Uffd)?,
-    };
     builder::build_microvm_from_snapshot(
         instance_info,
         event_manager,
         microvm_state,
-        guest_memory,
-        uffd,
         seccomp_filters,
+        params,
         vm_resources,
     )
     .map_err(RestoreFromSnapshotError::Build)
@@ -491,7 +465,8 @@ pub enum GuestMemoryFromFileError {
     HugetlbfsSnapshot,
 }
 
-fn guest_memory_from_file(
+/// Creates guest memory from a file.
+pub fn guest_memory_from_file(
     mem_file_path: &Path,
     mem_state: &GuestMemoryState,
     track_dirty_pages: bool,
@@ -514,16 +489,28 @@ pub enum GuestMemoryFromUffdError {
     Connect(#[from] std::io::Error),
     /// Failed to sends file descriptor: {0}
     Send(#[from] vmm_sys_util::errno::Error),
+    /// Cannot restore hugetlbfs backed snapshot when using Secret Freedom.
+    HugetlbfsSnapshot,
 }
 
-fn guest_memory_from_uffd(
+// TODO remove these when the UFFD crate supports minor faults for guest_memfd
+const UFFDIO_REGISTER_MODE_MINOR: u64 = 1 << 2;
+
+type GuestMemoryResult =
+    Result<(Vec<GuestRegionMmap>, Option<Uffd>, Option<UnixStream>), GuestMemoryFromUffdError>;
+
+/// Creates guest memory using a UDS socket provided by a UFFD handler.
+pub fn guest_memory_from_uffd(
     mem_uds_path: &Path,
     mem_state: &GuestMemoryState,
     track_dirty_pages: bool,
     huge_pages: HugePageConfig,
-) -> Result<(Vec<GuestRegionMmap>, Option<Uffd>), GuestMemoryFromUffdError> {
+    guest_memfd: Option<File>,
+    userfault_bitmap_memfd: Option<&File>,
+) -> GuestMemoryResult {
+    let guest_memfd_fd = guest_memfd.as_ref().map(|f| f.as_raw_fd());
     let (guest_memory, backend_mappings) =
-        create_guest_memory(mem_state, track_dirty_pages, huge_pages)?;
+        create_guest_memory(mem_state, track_dirty_pages, huge_pages, guest_memfd)?;
 
     let mut uffd_builder = UffdBuilder::new();
 
@@ -540,22 +527,42 @@ fn guest_memory_from_uffd(
         .create()
         .map_err(GuestMemoryFromUffdError::Create)?;
 
+    let mut mode = RegisterMode::MISSING;
+    let mut fds = vec![uffd.as_raw_fd()];
+
+    if let Some(gmem) = guest_memfd_fd {
+        mode = RegisterMode::from_bits_retain(UFFDIO_REGISTER_MODE_MINOR);
+        fds.push(gmem);
+        fds.push(
+            userfault_bitmap_memfd
+                .expect("memfd is not present")
+                .as_raw_fd(),
+        );
+    }
+
     for mem_region in guest_memory.iter() {
-        uffd.register(mem_region.as_ptr().cast(), mem_region.size() as _)
+        uffd.register_with_mode(mem_region.as_ptr().cast(), mem_region.size() as _, mode)
             .map_err(GuestMemoryFromUffdError::Register)?;
     }
 
-    send_uffd_handshake(mem_uds_path, &backend_mappings, &uffd)?;
+    let socket = send_uffd_handshake(mem_uds_path, &backend_mappings, fds)?;
 
-    Ok((guest_memory, Some(uffd)))
+    Ok((guest_memory, Some(uffd), Some(socket)))
 }
 
 fn create_guest_memory(
     mem_state: &GuestMemoryState,
     track_dirty_pages: bool,
     huge_pages: HugePageConfig,
+    guest_memfd: Option<File>,
 ) -> Result<(Vec<GuestRegionMmap>, Vec<GuestRegionUffdMapping>), GuestMemoryFromUffdError> {
-    let guest_memory = memory::anonymous(mem_state.regions(), track_dirty_pages, huge_pages)?;
+    let guest_memory = match guest_memfd {
+        Some(file) => {
+            memory::file_shared(file, mem_state.regions(), track_dirty_pages, huge_pages)?
+        }
+        None => memory::anonymous(mem_state.regions(), track_dirty_pages, huge_pages)?,
+    };
+
     let mut backend_mappings = Vec::with_capacity(guest_memory.len());
     let mut offset = 0;
     for mem_region in guest_memory.iter() {
@@ -576,15 +583,15 @@ fn create_guest_memory(
 fn send_uffd_handshake(
     mem_uds_path: &Path,
     backend_mappings: &[GuestRegionUffdMapping],
-    uffd: &impl AsRawFd,
-) -> Result<(), GuestMemoryFromUffdError> {
+    fds: Vec<RawFd>,
+) -> Result<UnixStream, GuestMemoryFromUffdError> {
     // This is safe to unwrap() because we control the contents of the vector
     // (i.e GuestRegionUffdMapping entries).
     let backend_mappings = serde_json::to_string(backend_mappings).unwrap();
 
     let socket = UnixStream::connect(mem_uds_path)?;
-    socket.send_with_fd(
-        backend_mappings.as_bytes(),
+    socket.send_with_fds(
+        &[backend_mappings.as_bytes()],
         // In the happy case we can close the fd since the other process has it open and is
         // using it to serve us pages.
         //
@@ -615,15 +622,10 @@ fn send_uffd_handshake(
         // Moreover, Firecracker holds a copy of the UFFD fd as well, so that even if the
         // page fault handler process does not tear down Firecracker when necessary, the
         // uffd will still be alive but with no one to serve faults, leading to guest freeze.
-        uffd.as_raw_fd(),
+        &fds,
     )?;
 
-    // We prevent Rust from closing the socket file descriptor to avoid a potential race condition
-    // between the mappings message and the connection shutdown. If the latter arrives at the UFFD
-    // handler first, the handler never sees the mappings.
-    forget(socket);
-
-    Ok(())
+    Ok(socket)
 }
 
 #[cfg(test)]
@@ -753,7 +755,7 @@ mod tests {
         };
 
         let (_, uffd_regions) =
-            create_guest_memory(&mem_state, false, HugePageConfig::None).unwrap();
+            create_guest_memory(&mem_state, false, HugePageConfig::None, None).unwrap();
 
         assert_eq!(uffd_regions.len(), 1);
         assert_eq!(uffd_regions[0].size, 0x20000);
@@ -787,7 +789,7 @@ mod tests {
 
         let listener = UnixListener::bind(uds_path).expect("Cannot bind to socket path");
 
-        send_uffd_handshake(uds_path, &uffd_regions, &std::io::stdin()).unwrap();
+        send_uffd_handshake(uds_path, &uffd_regions, vec![std::io::stdin().as_raw_fd()]).unwrap();
 
         let (stream, _) = listener.accept().expect("Cannot listen on UDS socket");
 
