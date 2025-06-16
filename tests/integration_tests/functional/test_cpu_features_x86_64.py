@@ -332,8 +332,6 @@ def test_cpu_rdmsr(
 SNAPSHOT_RESTORE_SHARED_NAMES = {
     "snapshot_artifacts_root_dir_wrmsr": "snapshot_artifacts/wrmsr",
     "snapshot_artifacts_root_dir_cpuid": "snapshot_artifacts/cpuid",
-    "msr_reader_host_fname":             DATA_FILES / "msr_reader.sh",
-    "msr_reader_guest_fname":            "/tmp/msr_reader.sh",
     "msrs_before_fname":                 "msrs_before.txt",
     "msrs_after_fname":                  "msrs_after.txt",
     "cpuid_before_fname":                "cpuid_before.txt",
@@ -342,16 +340,12 @@ SNAPSHOT_RESTORE_SHARED_NAMES = {
 # fmt: on
 
 
-def dump_msr_state_to_file(dump_fname, ssh_conn, shared_names):
+def dump_msr_state_to_file(msr_reader_bin, dump_fname, ssh_conn):
     """
     Read MSR state via SSH and dump it into a file.
     """
-    ssh_conn.scp_put(
-        shared_names["msr_reader_host_fname"], shared_names["msr_reader_guest_fname"]
-    )
-    _, stdout, stderr = ssh_conn.run(
-        shared_names["msr_reader_guest_fname"], timeout=None
-    )
+    ssh_conn.scp_put(msr_reader_bin, "/tmp/msr_reader")
+    _, stdout, stderr = ssh_conn.run("/tmp/msr_reader")
     assert stderr == ""
 
     with open(dump_fname, "w", encoding="UTF-8") as file:
@@ -364,7 +358,9 @@ def dump_msr_state_to_file(dump_fname, ssh_conn, shared_names):
 )
 @pytest.mark.timeout(900)
 @pytest.mark.nonci
-def test_cpu_wrmsr_snapshot(microvm_factory, guest_kernel, rootfs, cpu_template_any):
+def test_cpu_wrmsr_snapshot(
+    msr_reader_bin, microvm_factory, guest_kernel, rootfs, cpu_template_any
+):
     """
     This is the first part of the test verifying
     that MSRs retain their values after restoring from a snapshot.
@@ -424,7 +420,7 @@ def test_cpu_wrmsr_snapshot(microvm_factory, guest_kernel, rootfs, cpu_template_
 
     msrs_before_fname = snapshot_artifacts_dir / shared_names["msrs_before_fname"]
 
-    dump_msr_state_to_file(msrs_before_fname, vm.ssh, shared_names)
+    dump_msr_state_to_file(msr_reader_bin, msrs_before_fname, vm.ssh)
     # On T2A, the restore test fails with error "cannot allocate memory" so,
     # adding delay below as a workaround to unblock the tests for now.
     # TODO: Debug the issue and remove this delay. Create below issue to track this:
@@ -470,7 +466,9 @@ def check_msrs_are_equal(before_recs, after_recs):
 )
 @pytest.mark.timeout(900)
 @pytest.mark.nonci
-def test_cpu_wrmsr_restore(microvm_factory, cpu_template_any, guest_kernel):
+def test_cpu_wrmsr_restore(
+    msr_reader_bin, microvm_factory, cpu_template_any, guest_kernel
+):
     """
     This is the second part of the test verifying
     that MSRs retain their values after restoring from a snapshot.
@@ -503,7 +501,7 @@ def test_cpu_wrmsr_restore(microvm_factory, cpu_template_any, guest_kernel):
 
     # Dump MSR state to a file for further comparison
     msrs_after_fname = snapshot_artifacts_dir / shared_names["msrs_after_fname"]
-    dump_msr_state_to_file(msrs_after_fname, vm.ssh, shared_names)
+    dump_msr_state_to_file(msr_reader_bin, msrs_after_fname, vm.ssh)
     msrs_before_fname = snapshot_artifacts_dir / shared_names["msrs_before_fname"]
 
     # Compare the two lists of MSR values and assert they are equal
