@@ -73,7 +73,7 @@ def run_fio(microvm, mode, block_size, test_output_dir, fio_engine="libaio"):
         .with_arg("--output=/tmp/fio.json")
     )
 
-    # Latency measurements only make sence for psync engine
+    # Latency measurements only make sense for psync engine
     if fio_engine == "psync":
         cmd = cmd.with_arg(f"--write_lat_log={mode}")
 
