@@ -13,12 +13,13 @@ use std::path::Path;
 use std::sync::Arc;
 
 use kvm_bindings::{
-    KVM_MEM_GUEST_MEMFD, KVM_MEM_LOG_DIRTY_PAGES, KVM_MEMORY_ATTRIBUTE_PRIVATE,
+    KVM_MEM_GUEST_MEMFD, KVM_MEM_LOG_DIRTY_PAGES, KVM_MEMORY_ATTRIBUTE_PRIVATE, KVMIO,
     kvm_create_guest_memfd, kvm_memory_attributes, kvm_userspace_memory_region,
-    kvm_userspace_memory_region2,
 };
 use kvm_ioctls::{Cap, VmFd};
 use vmm_sys_util::eventfd::EventFd;
+use vmm_sys_util::ioctl::ioctl_with_ref;
+use vmm_sys_util::{ioctl_ioc_nr, ioctl_iow_nr};
 
 pub use crate::arch::{ArchVm as Vm, ArchVmError, VmState};
 use crate::arch::{VM_TYPE_FOR_SECRET_FREEDOM, host_page_size};
@@ -71,6 +72,24 @@ pub enum VmError {
     GuestMemfdNotSupported,
     /// Failed to set memory attributes to private: {0}
     SetMemoryAttributes(kvm_ioctls::Error),
+}
+
+// Upstream `kvm_userspace_memory_region2` definition does not include `userfault_bitmap` field yet.
+// TODO: revert to `kvm_userspace_memory_region2` from kvm-bindings
+#[allow(non_camel_case_types)]
+#[repr(C)]
+#[derive(Debug, Default, Copy, Clone, PartialEq)]
+struct kvm_userspace_memory_region2 {
+    slot: u32,
+    flags: u32,
+    guest_phys_addr: u64,
+    memory_size: u64,
+    userspace_addr: u64,
+    guest_memfd_offset: u64,
+    guest_memfd: u32,
+    pad1: u32,
+    userfault_bitmap: u64,
+    pad2: [u64; 13],
 }
 
 /// Contains Vm functions that are usable across CPU architectures
@@ -181,16 +200,78 @@ impl Vm {
     pub fn register_memory_regions(
         &mut self,
         regions: Vec<GuestRegionMmap>,
+        userfault_bitmap_memfd: Option<&File>,
     ) -> Result<(), VmError> {
+        let addr = match userfault_bitmap_memfd {
+            Some(file) => {
+                // SAFETY: the arguments to mmap cannot cause any memory unsafety in the rust sense
+                let addr = unsafe {
+                    libc::mmap(
+                        std::ptr::null_mut(),
+                        usize::try_from(file.metadata().unwrap().len())
+                            .expect("userfault bitmap file size is too large"),
+                        libc::PROT_WRITE,
+                        libc::MAP_SHARED,
+                        file.as_raw_fd(),
+                        0,
+                    )
+                };
+
+                if addr == libc::MAP_FAILED {
+                    panic!(
+                        "Failed to mmap userfault bitmap file: {}",
+                        std::io::Error::last_os_error()
+                    );
+                }
+
+                Some(addr as u64)
+            }
+            None => None,
+        };
+
         for region in regions {
-            self.register_memory_region(region)?
+            self.register_memory_region(region, addr)?
         }
 
         Ok(())
     }
 
+    // TODO: remove when userfault support is merged upstream
+    fn set_user_memory_region2(
+        &self,
+        user_memory_region2: kvm_userspace_memory_region2,
+    ) -> Result<(), VmError> {
+        ioctl_iow_nr!(
+            KVM_SET_USER_MEMORY_REGION2,
+            KVMIO,
+            0x49,
+            kvm_userspace_memory_region2
+        );
+
+        #[allow(clippy::undocumented_unsafe_blocks)]
+        let ret = unsafe {
+            ioctl_with_ref(
+                self.fd(),
+                KVM_SET_USER_MEMORY_REGION2(),
+                &user_memory_region2,
+            )
+        };
+        if ret == 0 {
+            Ok(())
+        } else {
+            Err(VmError::SetUserMemoryRegion(kvm_ioctls::Error::last()))
+        }
+    }
+
     /// Register a new memory region to this [`Vm`].
-    pub fn register_memory_region(&mut self, region: GuestRegionMmap) -> Result<(), VmError> {
+    pub fn register_memory_region(
+        &mut self,
+        region: GuestRegionMmap,
+        userfault_addr: Option<u64>,
+    ) -> Result<(), VmError> {
+        // TODO: take it from kvm-bindings when merged upstream
+        const KVM_MEM_USERFAULT: u32 = 1 << 3;
+
         let next_slot = self
             .guest_memory()
             .num_regions()
@@ -218,6 +299,18 @@ impl Vm {
             (0, 0)
         };
 
+        let userfault_bitmap = match userfault_addr {
+            Some(addr) => {
+                flags |= KVM_MEM_USERFAULT;
+
+                let file_offset_start = region.file_offset().unwrap().start();
+                let pages_offset = file_offset_start / (host_page_size() as u64);
+                let bytes_offset = pages_offset / (u8::BITS as u64);
+                addr + bytes_offset
+            }
+            None => 0,
+        };
+
         let memory_region = kvm_userspace_memory_region2 {
             slot: next_slot,
             guest_phys_addr: region.start_addr().raw_value(),
@@ -226,18 +319,14 @@ impl Vm {
             flags,
             guest_memfd,
             guest_memfd_offset,
+            userfault_bitmap,
             ..Default::default()
         };
 
         let new_guest_memory = self.common.guest_memory.insert_region(Arc::new(region))?;
 
         if self.fd().check_extension(Cap::UserMemory2) {
-            // SAFETY: We are passing a valid memory region and operate on a valid KVM FD.
-            unsafe {
-                self.fd()
-                    .set_user_memory_region2(memory_region)
-                    .map_err(VmError::SetUserMemoryRegion)?;
-            }
+            self.set_user_memory_region2(memory_region)?;
         } else {
             // Something is seriously wrong if we manage to set these fields on a host that doesn't
             // even allow creation of guest_memfds!
@@ -417,7 +506,7 @@ pub(crate) mod tests {
     pub(crate) fn setup_vm_with_memory(mem_size: usize) -> (Kvm, Vm) {
         let (kvm, mut vm) = setup_vm();
         let gm = single_region_mem_raw(mem_size);
-        vm.register_memory_regions(gm).unwrap();
+        vm.register_memory_regions(gm, None).unwrap();
         (kvm, vm)
     }
 
@@ -447,14 +536,14 @@ pub(crate) mod tests {
         // Trying to set a memory region with a size that is not a multiple of GUEST_PAGE_SIZE
         // will result in error.
         let gm = single_region_mem_raw(0x10);
-        let res = vm.register_memory_regions(gm);
+        let res = vm.register_memory_regions(gm, None);
         assert_eq!(
             res.unwrap_err().to_string(),
             "Cannot set the memory regions: Invalid argument (os error 22)"
         );
 
         let gm = single_region_mem_raw(0x1000);
-        let res = vm.register_memory_regions(gm);
+        let res = vm.register_memory_regions(gm, None);
         res.unwrap();
     }
 
@@ -489,7 +578,7 @@ pub(crate) mod tests {
 
             let region = GuestRegionMmap::new(region, GuestAddress(i as u64 * 0x1000)).unwrap();
 
-            let res = vm.register_memory_region(region);
+            let res = vm.register_memory_region(region, None);
 
             if i >= max_nr_regions {
                 assert!(
