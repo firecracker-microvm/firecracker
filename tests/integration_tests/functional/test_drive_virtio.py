@@ -2,13 +2,21 @@
 # SPDX-License-Identifier: Apache-2.0
 """Tests for guest-side operations on /drives resources."""
 
+import concurrent
 import os
+import time
 
 import pytest
 
 import host_tools.drive as drive_tools
 from framework import utils
 from framework.utils_drive import partuuid_and_disk_path
+from integration_tests.performance.test_block_ab import (
+    BLOCK_DEVICE_SIZE_MB,
+    RUNTIME_SEC,
+    WARMUP_SEC,
+    prepare_microvm_for_test,
+)
 
 MB = 1024 * 1024
 
@@ -383,3 +391,91 @@ def _check_mount(ssh_connection, dev_path):
     assert stderr == ""
     _, _, stderr = ssh_connection.run("umount /tmp", timeout=30.0)
     assert stderr == ""
+
+
+def run_fio(microvm, mode, block_size, test_output_dir, fio_engine="libaio"):
+    """Run a fio test in the specified mode with block size bs."""
+    cmd = (
+        utils.CmdBuilder("fio")
+        .with_arg(f"--name={mode}-{block_size}")
+        .with_arg(f"--numjobs={microvm.vcpus_count}")
+        .with_arg(f"--runtime={RUNTIME_SEC}")
+        .with_arg("--time_based=1")
+        .with_arg(f"--ramp_time={WARMUP_SEC}")
+        .with_arg("--filename=/dev/vdb")
+        .with_arg("--direct=1")
+        .with_arg(f"--rw={mode}")
+        .with_arg("--randrepeat=0")
+        .with_arg(f"--bs={block_size}")
+        .with_arg(f"--size={BLOCK_DEVICE_SIZE_MB}M")
+        .with_arg(f"--ioengine={fio_engine}")
+        .with_arg("--iodepth=32")
+        # Set affinity of the entire fio process to a set of vCPUs equal in size to number of workers
+        .with_arg(
+            f"--cpus_allowed={','.join(str(i) for i in range(microvm.vcpus_count))}"
+        )
+        # Instruct fio to pin one worker per vcpu
+        .with_arg("--cpus_allowed_policy=split")
+        .with_arg("--log_avg_msec=1000")
+        .with_arg(f"--write_bw_log={mode}")
+        .with_arg("--output-format=json+")
+        .with_arg("--output=/tmp/fio.json")
+    )
+
+    # Latency measurements only make sense for psync engine
+    if fio_engine == "psync":
+        cmd = cmd.with_arg(f"--write_lat_log={mode}")
+
+    cmd = cmd.build()
+
+    prepare_microvm_for_test(microvm)
+
+    with concurrent.futures.ThreadPoolExecutor() as executor:
+        executor.submit(_run_fio, microvm, test_output_dir)
+
+        for _ in range(30):
+            microvm.ssh.check_output("true")
+            time.sleep(1)
+
+
+def _run_fio(microvm, cmd, test_output_dir):
+    rc, _, stderr = microvm.ssh.run(f"cd /tmp; {cmd}")
+    assert rc == 0, stderr
+    assert stderr == ""
+
+    microvm.ssh.scp_get("/tmp/fio.json", test_output_dir)
+    microvm.ssh.scp_get("/tmp/*.log", test_output_dir)
+
+
+@pytest.mark.parametrize("vcpus", [1, 2], ids=["1vcpu", "2vcpu"])
+@pytest.mark.parametrize("fio_mode", ["randread", "randwrite"])
+@pytest.mark.parametrize("fio_block_size", [4096], ids=["bs4096"])
+@pytest.mark.parametrize("fio_engine", ["libaio", "psync"])
+def test_greedy_block(
+    microvm_factory,
+    guest_kernel_acpi,
+    rootfs,
+    vcpus,
+    fio_mode,
+    fio_block_size,
+    fio_engine,
+    io_engine,
+    metrics,
+    results_dir,
+):
+    """
+    Make sure that a guest continuously using the block device
+    doesn't starve a Network device
+    """
+    vm = microvm_factory.build(guest_kernel_acpi, rootfs, monitor_memory=False)
+    vm.spawn(log_level="Info", emit_metrics=False)
+    vm.basic_config(vcpu_count=vcpus, mem_size_mib=1024)
+    vm.add_net_iface()
+
+    # Add a secondary block device for testing
+    fs = drive_tools.FilesystemFile(os.path.join(vm.fsfiles, "scratch"), 4096)
+    vm.add_drive("scratch", fs.path, io_engine=io_engine)
+
+    vm.start()
+
+    cpu_util = run_fio(vm, fio_mode, fio_block_size, results_dir, fio_engine)
