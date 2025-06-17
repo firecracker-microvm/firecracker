@@ -251,6 +251,7 @@ def test_population_latency(
             raise RuntimeError("UFFD handler did not print population latency after 5s")
 
 
+@pytest.mark.nonci
 def test_snapshot_create_latency(
     microvm_factory,
     guest_kernel_linux_5_10,
