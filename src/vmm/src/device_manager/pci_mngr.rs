@@ -589,3 +589,188 @@ impl<'a> Persist<'a> for PciDevices {
         Ok(pci_devices)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use vmm_sys_util::tempfile::TempFile;
+
+    use super::*;
+    use crate::builder::tests::*;
+    use crate::device_manager;
+    use crate::devices::virtio::block::CacheType;
+    use crate::mmds::data_store::MmdsVersion;
+    use crate::resources::VmmConfig;
+    use crate::snapshot::Snapshot;
+    use crate::vmm_config::balloon::BalloonDeviceConfig;
+    use crate::vmm_config::entropy::EntropyDeviceConfig;
+    use crate::vmm_config::net::NetworkInterfaceConfig;
+    use crate::vmm_config::vsock::VsockDeviceConfig;
+
+    #[test]
+    fn test_device_manager_persistence() {
+        let mut buf = vec![0; 65536];
+        // These need to survive so the restored blocks find them.
+        let _block_files;
+        let mut tmp_sock_file = TempFile::new().unwrap();
+        tmp_sock_file.remove().unwrap();
+        // Set up a vmm with one of each device, and get the serialized DeviceStates.
+        {
+            let mut event_manager = EventManager::new().expect("Unable to create EventManager");
+            let mut vmm = default_vmm();
+            vmm.device_manager.enable_pci(&vmm.vm).unwrap();
+            let mut cmdline = default_kernel_cmdline();
+
+            // Add a balloon device.
+            let balloon_cfg = BalloonDeviceConfig {
+                amount_mib: 123,
+                deflate_on_oom: false,
+                stats_polling_interval_s: 1,
+            };
+            insert_balloon_device(&mut vmm, &mut cmdline, &mut event_manager, balloon_cfg);
+            // Add a block device.
+            let drive_id = String::from("root");
+            let block_configs = vec![CustomBlockConfig::new(
+                drive_id,
+                true,
+                None,
+                true,
+                CacheType::Unsafe,
+            )];
+            _block_files =
+                insert_block_devices(&mut vmm, &mut cmdline, &mut event_manager, block_configs);
+            // Add a net device.
+            let network_interface = NetworkInterfaceConfig {
+                iface_id: String::from("netif"),
+                host_dev_name: String::from("hostname"),
+                guest_mac: None,
+                rx_rate_limiter: None,
+                tx_rate_limiter: None,
+            };
+            insert_net_device_with_mmds(
+                &mut vmm,
+                &mut cmdline,
+                &mut event_manager,
+                network_interface,
+                MmdsVersion::V2,
+            );
+            // Add a vsock device.
+            let vsock_dev_id = "vsock";
+            let vsock_config = VsockDeviceConfig {
+                vsock_id: Some(vsock_dev_id.to_string()),
+                guest_cid: 3,
+                uds_path: tmp_sock_file.as_path().to_str().unwrap().to_string(),
+            };
+            insert_vsock_device(&mut vmm, &mut cmdline, &mut event_manager, vsock_config);
+            // Add an entropy device.
+            let entropy_config = EntropyDeviceConfig::default();
+            insert_entropy_device(&mut vmm, &mut cmdline, &mut event_manager, entropy_config);
+
+            Snapshot::serialize(&mut buf.as_mut_slice(), &vmm.device_manager.save()).unwrap();
+        }
+
+        tmp_sock_file.remove().unwrap();
+
+        let mut event_manager = EventManager::new().expect("Unable to create EventManager");
+        // Keep in mind we are re-creating here an empty DeviceManager. Restoring later on
+        // will create a new PciDevices manager different than vmm.pci_devices. We're doing
+        // this to avoid restoring the whole Vmm, since what we really need from Vmm is the Vm
+        // object and calling default_vmm() is the easiest way to create one.
+        let vmm = default_vmm();
+        let device_manager_state: device_manager::DevicesState =
+            Snapshot::deserialize(&mut buf.as_slice()).unwrap();
+        let vm_resources = &mut VmResources::default();
+        let restore_args = PciDevicesConstructorArgs {
+            vm: vmm.vm.clone(),
+            mem: vmm.vm.guest_memory(),
+            vm_resources,
+            instance_id: "microvm-id",
+            restored_from_file: true,
+            event_manager: &mut event_manager,
+        };
+        let _restored_dev_manager =
+            PciDevices::restore(restore_args, &device_manager_state.pci_state).unwrap();
+
+        let expected_vm_resources = format!(
+            r#"{{
+  "balloon": {{
+    "amount_mib": 123,
+    "deflate_on_oom": false,
+    "stats_polling_interval_s": 1
+  }},
+  "drives": [
+    {{
+      "drive_id": "root",
+      "partuuid": null,
+      "is_root_device": true,
+      "cache_type": "Unsafe",
+      "is_read_only": true,
+      "path_on_host": "{}",
+      "rate_limiter": null,
+      "io_engine": "Sync",
+      "socket": null
+    }}
+  ],
+  "boot-source": {{
+    "kernel_image_path": "",
+    "initrd_path": null,
+    "boot_args": null
+  }},
+  "cpu-config": null,
+  "logger": null,
+  "machine-config": {{
+    "vcpu_count": 1,
+    "mem_size_mib": 128,
+    "smt": false,
+    "track_dirty_pages": false,
+    "huge_pages": "None"
+  }},
+  "metrics": null,
+  "mmds-config": {{
+    "version": "V2",
+    "network_interfaces": [
+      "netif"
+    ],
+    "ipv4_address": "169.254.169.254",
+    "imds_compat": false
+  }},
+  "network-interfaces": [
+    {{
+      "iface_id": "netif",
+      "host_dev_name": "hostname",
+      "guest_mac": null,
+      "rx_rate_limiter": null,
+      "tx_rate_limiter": null
+    }}
+  ],
+  "vsock": {{
+    "guest_cid": 3,
+    "uds_path": "{}"
+  }},
+  "entropy": {{
+    "rate_limiter": null
+  }}
+}}"#,
+            _block_files.last().unwrap().as_path().to_str().unwrap(),
+            tmp_sock_file.as_path().to_str().unwrap()
+        );
+
+        assert_eq!(
+            vm_resources
+                .mmds
+                .as_ref()
+                .unwrap()
+                .lock()
+                .unwrap()
+                .version(),
+            MmdsVersion::V2
+        );
+        assert_eq!(
+            device_manager_state.pci_state.mmds.unwrap().version,
+            MmdsVersion::V2
+        );
+        assert_eq!(
+            expected_vm_resources,
+            serde_json::to_string_pretty(&VmmConfig::from(&*vm_resources)).unwrap()
+        );
+    }
+}
