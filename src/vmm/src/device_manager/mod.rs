@@ -375,6 +375,36 @@ impl DeviceManager {
             Self::do_mark_virtio_queue_memory_dirty(virtio_device, mem);
         }
     }
+
+    /// Get a VirtIO device of type `virtio_type` with ID `device_id`
+    pub fn get_virtio_device(
+        &self,
+        virtio_type: u32,
+        device_id: &str,
+    ) -> Option<Arc<Mutex<dyn VirtioDevice>>> {
+        if self.pci_devices.pci_segment.is_some() {
+            let pci_device = self.pci_devices.get_virtio_device(virtio_type, device_id)?;
+            Some(
+                pci_device
+                    .lock()
+                    .expect("Poisoned lock")
+                    .virtio_device()
+                    .clone(),
+            )
+        } else {
+            let mmio_device = self
+                .mmio_devices
+                .get_virtio_device(virtio_type, device_id)?;
+            Some(
+                mmio_device
+                    .inner
+                    .lock()
+                    .expect("Poisoned lock")
+                    .device()
+                    .clone(),
+            )
+        }
+    }
 }
 
 #[derive(Debug, Default, Clone, Serialize, Deserialize)]
