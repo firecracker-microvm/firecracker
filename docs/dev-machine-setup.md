@@ -21,6 +21,7 @@ Note that Firecracker development on macOS has no hard dependency on VMware
 Fusion or Ubuntu. All that is required is a Linux VM that supports nested
 virtualization. This is but one example of that setup:
 
+
 1. Download and install
    [VMware Fusion](https://www.vmware.com/products/fusion/fusion-evaluation.html).
 1. Download an [Ubuntu 18.04.2 LTS](https://www.ubuntu.com/download/desktop) ISO
@@ -44,6 +45,7 @@ virtualization. This is but one example of that setup:
 1. Check the **Enable hypervisor applications in this virtual machine** option,
    close the settings window, open the **Virtual Machine** menu, and select
    **Start Up**.
+1. Network adapter setting for the VM must use auto-detect bridged networking. Go to Virtual Machine, Settings, Network Adapter, select Autodetect under Bridged Networking.
 1. If you receive a **Cannot connect the virtual device sata0:1 because no
    corresponding device is available on the host.** error, you can respond
    **No** to the prompt.
