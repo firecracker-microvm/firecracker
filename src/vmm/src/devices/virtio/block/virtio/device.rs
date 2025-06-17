@@ -12,6 +12,7 @@ use std::io::{Seek, SeekFrom};
 use std::os::linux::fs::MetadataExt;
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::time::Duration;
 
 use block_io::FileEngine;
 use serde::{Deserialize, Serialize};
@@ -405,6 +406,11 @@ impl VirtioBlock {
                     }
 
                     used_any = true;
+                    if self.id == "scratch"
+                        && (request.r#type == RequestType::In || request.r#type == RequestType::Out)
+                    {
+                        std::thread::sleep(Duration::from_millis(60));
+                    }
                     request.process(&mut self.disk, head.index, mem, &self.metrics)
                 }
                 Err(err) => {

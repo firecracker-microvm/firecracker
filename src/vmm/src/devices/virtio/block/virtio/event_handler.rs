@@ -87,9 +87,13 @@ impl MutEventSubscriber for VirtioBlock {
             match source {
                 Self::PROCESS_ACTIVATE => self.process_activate_event(ops),
                 Self::PROCESS_QUEUE => {
-                    info!("Started processing Block queue");
+                    let tstamp = std::time::Instant::now();
                     self.process_queue_event();
-                    info!("Stopped processing Block queue");
+                    info!(
+                        "block[{}]: processed queue for {} usec",
+                        &self.id,
+                        tstamp.elapsed().as_micros()
+                    );
                 }
                 Self::PROCESS_RATE_LIMITER => self.process_rate_limiter_event(),
                 Self::PROCESS_ASYNC_COMPLETION => self.process_async_completion_event(),

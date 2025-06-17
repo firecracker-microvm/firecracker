@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 """Tests for guest-side operations on /drives resources."""
 
-import concurrent
+import concurrent.futures
 import os
 import time
 
@@ -409,7 +409,7 @@ def run_fio(microvm, mode, block_size, test_output_dir, fio_engine="libaio"):
         .with_arg(f"--bs={block_size}")
         .with_arg(f"--size={BLOCK_DEVICE_SIZE_MB}M")
         .with_arg(f"--ioengine={fio_engine}")
-        .with_arg("--iodepth=32")
+        .with_arg("--iodepth=256")
         # Set affinity of the entire fio process to a set of vCPUs equal in size to number of workers
         .with_arg(
             f"--cpus_allowed={','.join(str(i) for i in range(microvm.vcpus_count))}"
@@ -431,17 +431,17 @@ def run_fio(microvm, mode, block_size, test_output_dir, fio_engine="libaio"):
     prepare_microvm_for_test(microvm)
 
     with concurrent.futures.ThreadPoolExecutor() as executor:
-        executor.submit(_run_fio, microvm, test_output_dir)
-
-        for _ in range(30):
-            microvm.ssh.check_output("true")
-            time.sleep(1)
+        fio_future = executor.submit(_run_fio, microvm, cmd, test_output_dir)
+        while not fio_future.done():
+            microvm.ssh.check_output("true", timeout=1)
+        fio_future.result()
 
 
 def _run_fio(microvm, cmd, test_output_dir):
-    rc, _, stderr = microvm.ssh.run(f"cd /tmp; {cmd}")
-    assert rc == 0, stderr
+    rc, stdout, stderr = microvm.ssh.run(f"cd /tmp; {cmd}")
+    assert rc == 0
     assert stderr == ""
+    print(f"standard output: {stdout}")
 
     microvm.ssh.scp_get("/tmp/fio.json", test_output_dir)
     microvm.ssh.scp_get("/tmp/*.log", test_output_dir)
@@ -460,7 +460,6 @@ def test_greedy_block(
     fio_block_size,
     fio_engine,
     io_engine,
-    metrics,
     results_dir,
 ):
     """
@@ -468,14 +467,15 @@ def test_greedy_block(
     doesn't starve a Network device
     """
     vm = microvm_factory.build(guest_kernel_acpi, rootfs, monitor_memory=False)
+    vm.jailer.extra_args.update({"no-seccomp": None})
     vm.spawn(log_level="Info", emit_metrics=False)
     vm.basic_config(vcpu_count=vcpus, mem_size_mib=1024)
     vm.add_net_iface()
 
     # Add a secondary block device for testing
     fs = drive_tools.FilesystemFile(os.path.join(vm.fsfiles, "scratch"), 4096)
-    vm.add_drive("scratch", fs.path, io_engine=io_engine)
+    vm.add_drive("scratch2", fs.path, io_engine=io_engine)
 
     vm.start()
 
-    cpu_util = run_fio(vm, fio_mode, fio_block_size, results_dir, fio_engine)
+    run_fio(vm, fio_mode, fio_block_size, results_dir, fio_engine)
