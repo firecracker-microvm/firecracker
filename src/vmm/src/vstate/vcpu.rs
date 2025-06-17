@@ -31,7 +31,7 @@ use crate::logger::{IncMetric, METRICS};
 use crate::seccomp::{BpfProgram, BpfProgramRef};
 use crate::utils::signal::{Killable, register_signal_handler, sigrtmin};
 use crate::utils::sm::StateMachine;
-use crate::vstate::vm::Vm;
+use crate::vstate::vm::{UserfaultChannel, Vm};
 
 /// Signal number (SIGRTMIN) used to kick Vcpus.
 pub const VCPU_RTSIG_OFFSET: i32 = 0;
@@ -109,6 +109,8 @@ pub struct Vcpu {
     response_receiver: Option<Receiver<VcpuResponse>>,
     /// The transmitting end of the responses channel owned by the vcpu side.
     response_sender: Sender<VcpuResponse>,
+    /// Channel for communicating userfaults with the VMM thread
+    userfault_channel: Option<UserfaultChannel>,
 }
 
 impl Vcpu {
@@ -201,7 +203,13 @@ impl Vcpu {
     /// * `index` - Represents the 0-based CPU index between [0, max vcpus).
     /// * `vm` - The vm to which this vcpu will get attached.
     /// * `exit_evt` - An `EventFd` that will be written into when this vcpu exits.
-    pub fn new(index: u8, vm: &Vm, exit_evt: EventFd) -> Result<Self, VcpuError> {
+    /// * `userfault_channel` - An optional userfault channel for handling page faults.
+    pub fn new(
+        index: u8,
+        vm: &Vm,
+        exit_evt: EventFd,
+        userfault_channel: Option<UserfaultChannel>,
+    ) -> Result<Self, VcpuError> {
         let (event_sender, event_receiver) = channel();
         let (response_sender, response_receiver) = channel();
         let kvm_vcpu = KvmVcpu::new(index, vm).unwrap();
@@ -215,6 +223,7 @@ impl Vcpu {
             #[cfg(feature = "gdb")]
             gdb_event: None,
             kvm_vcpu,
+            userfault_channel,
         })
     }
 
@@ -922,7 +931,7 @@ pub(crate) mod tests {
     pub(crate) fn setup_vcpu(mem_size: usize) -> (Kvm, Vm, Vcpu) {
         let (kvm, mut vm) = setup_vm_with_memory(mem_size);
 
-        let (mut vcpus, _) = vm.create_vcpus(1).unwrap();
+        let (mut vcpus, _, _) = vm.create_vcpus(1, false).unwrap();
         let mut vcpu = vcpus.remove(0);
 
         #[cfg(target_arch = "aarch64")]

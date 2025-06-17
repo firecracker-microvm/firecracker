@@ -12,6 +12,7 @@ use std::os::fd::{AsFd, AsRawFd, FromRawFd};
 use std::path::Path;
 use std::sync::Arc;
 
+use bincode::{Decode, Encode};
 use kvm_bindings::{
     KVM_MEM_GUEST_MEMFD, KVM_MEM_LOG_DIRTY_PAGES, KVM_MEMORY_ATTRIBUTE_PRIVATE, KVMIO,
     kvm_create_guest_memfd, kvm_memory_attributes, kvm_userspace_memory_region,
@@ -35,6 +36,47 @@ use crate::vstate::vcpu::VcpuError;
 use crate::{DirtyBitmap, Vcpu, mem_size_mib};
 
 pub(crate) const KVM_GMEM_NO_DIRECT_MAP: u64 = 1;
+
+/// KVM userfault information
+#[derive(Copy, Clone, Decode, Default, Eq, PartialEq, Debug, Encode)]
+pub struct UserfaultData {
+    /// Flags
+    pub flags: u64,
+    /// Guest physical address
+    pub gpa: u64,
+    /// Size
+    pub size: u64,
+}
+
+/// KVM userfault channel
+#[derive(Debug)]
+pub struct UserfaultChannel {
+    /// Sender
+    pub sender: File,
+    /// Receiver
+    pub receiver: File,
+}
+
+fn pipe2(flags: libc::c_int) -> std::io::Result<(File, File)> {
+    let mut fds = [0, 0];
+
+    // SAFETY: pipe2() is safe to call with a valid mutable pointer to an array of 2 integers
+    // The fds array is stack-allocated and lives for the entire unsafe block.
+    let res = unsafe { libc::pipe2(fds.as_mut_ptr(), flags) };
+
+    if res == 0 {
+        Ok((
+            // SAFETY: fds[0] contains a valid file descriptor for the read end of the pipe
+            // We only convert successful pipe2() calls, and each fd is used exactly once.
+            unsafe { File::from_raw_fd(fds[0]) },
+            // SAFETY: fds[1] contains a valid file descriptor for the write end of the pipe
+            // We only convert successful pipe2() calls, and each fd is used exactly once.
+            unsafe { File::from_raw_fd(fds[1]) },
+        ))
+    } else {
+        Err(std::io::Error::last_os_error())
+    }
+}
 
 /// Architecture independent parts of a VM.
 #[derive(Debug)]
@@ -60,6 +102,8 @@ pub enum VmError {
     Arch(#[from] ArchVmError),
     /// Error during eventfd operations: {0}
     EventFd(std::io::Error),
+    /// Failed to create a userfault channel: {0}
+    UserfaultChannel(std::io::Error),
     /// Failed to create vcpu: {0}
     CreateVcpu(VcpuError),
     /// The number of configured slots is bigger than the maximum reported by KVM
@@ -91,6 +135,8 @@ struct kvm_userspace_memory_region2 {
     userfault_bitmap: u64,
     pad2: [u64; 13],
 }
+
+type VcpuCreationResult = Result<(Vec<Vcpu>, EventFd, Option<Vec<UserfaultChannel>>), VmError>;
 
 /// Contains Vm functions that are usable across CPU architectures
 impl Vm {
@@ -154,24 +200,65 @@ impl Vm {
         })
     }
 
+    fn create_userfault_channels(
+        &self,
+        secret_free: bool,
+    ) -> Result<(Option<UserfaultChannel>, Option<UserfaultChannel>), std::io::Error> {
+        if secret_free {
+            let (receiver_vcpu_to_vm, sender_vcpu_to_vm) = pipe2(libc::O_NONBLOCK)?;
+            let (receiver_vm_to_vcpu, sender_vm_to_vcpu) = pipe2(0)?;
+            Ok((
+                Some(UserfaultChannel {
+                    sender: sender_vcpu_to_vm,
+                    receiver: receiver_vm_to_vcpu,
+                }),
+                Some(UserfaultChannel {
+                    sender: sender_vm_to_vcpu,
+                    receiver: receiver_vcpu_to_vm,
+                }),
+            ))
+        } else {
+            Ok((None, None))
+        }
+    }
+
     /// Creates the specified number of [`Vcpu`]s.
     ///
     /// The returned [`EventFd`] is written to whenever any of the vcpus exit.
-    pub fn create_vcpus(&mut self, vcpu_count: u8) -> Result<(Vec<Vcpu>, EventFd), VmError> {
+    pub fn create_vcpus(&mut self, vcpu_count: u8, secret_free: bool) -> VcpuCreationResult {
         self.arch_pre_create_vcpus(vcpu_count)?;
 
         let exit_evt = EventFd::new(libc::EFD_NONBLOCK).map_err(VmError::EventFd)?;
 
         let mut vcpus = Vec::with_capacity(vcpu_count as usize);
+        let mut userfault_channels = Vec::with_capacity(vcpu_count as usize);
         for cpu_idx in 0..vcpu_count {
             let exit_evt = exit_evt.try_clone().map_err(VmError::EventFd)?;
-            let vcpu = Vcpu::new(cpu_idx, self, exit_evt).map_err(VmError::CreateVcpu)?;
+
+            let (vcpu_channel, vmm_channel) = self
+                .create_userfault_channels(secret_free)
+                .map_err(VmError::UserfaultChannel)?;
+
+            let vcpu =
+                Vcpu::new(cpu_idx, self, exit_evt, vcpu_channel).map_err(VmError::CreateVcpu)?;
             vcpus.push(vcpu);
+
+            if secret_free {
+                userfault_channels.push(vmm_channel.unwrap());
+            }
         }
 
         self.arch_post_create_vcpus(vcpu_count)?;
 
-        Ok((vcpus, exit_evt))
+        Ok((
+            vcpus,
+            exit_evt,
+            if secret_free {
+                Some(userfault_channels)
+            } else {
+                None
+            },
+        ))
     }
 
     /// Create a guest_memfd of the specified size
@@ -605,7 +692,7 @@ pub(crate) mod tests {
         let vcpu_count = 2;
         let (_, mut vm) = setup_vm_with_memory(mib_to_bytes(128));
 
-        let (vcpu_vec, _) = vm.create_vcpus(vcpu_count).unwrap();
+        let (vcpu_vec, _, _) = vm.create_vcpus(vcpu_count, false).unwrap();
 
         assert_eq!(vcpu_vec.len(), vcpu_count as usize);
     }
