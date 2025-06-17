@@ -42,7 +42,7 @@ perf_test = {
     },
     "snapshot-latency": {
         "label": "📸 Snapshot Latency",
-        "tests": "integration_tests/performance/test_snapshot_ab.py::test_restore_latency integration_tests/performance/test_snapshot_ab.py::test_post_restore_latency",
+        "tests": "integration_tests/performance/test_snapshot_ab.py::test_restore_latency integration_tests/performance/test_snapshot_ab.py::test_post_restore_latency integration_tests/performance/test_snapshot_ab.py::test_snapshot_create_latency",
         "devtool_opts": "-c 1-12 -m 0",
     },
     "population-latency": {
