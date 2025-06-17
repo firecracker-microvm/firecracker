@@ -98,7 +98,7 @@ impl MutEventSubscriber for Net {
         }
 
         if self.is_activated() {
-            info!("Started processing Net device event");
+            let tstamp = std::time::Instant::now();
             match source {
                 Self::PROCESS_ACTIVATE => self.process_activate_event(ops),
                 Self::PROCESS_VIRTQ_RX => self.process_rx_queue_event(),
@@ -111,7 +111,10 @@ impl MutEventSubscriber for Net {
                     self.metrics.event_fails.inc();
                 }
             }
-            info!("Stopped processing Net device event");
+            info!(
+                "net: processed queue for {} usec",
+                tstamp.elapsed().as_micros()
+            );
         } else {
             warn!(
                 "Net: The device is not yet activated. Spurious event received: {:?}",
