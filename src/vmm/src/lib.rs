@@ -154,6 +154,7 @@ use crate::vmm_config::instance_info::{InstanceInfo, VmState};
 use crate::vstate::memory::{GuestMemory, GuestMemoryMmap, GuestMemoryRegion};
 use crate::vstate::vcpu::VcpuState;
 pub use crate::vstate::vcpu::{Vcpu, VcpuConfig, VcpuEvent, VcpuHandle, VcpuResponse};
+use crate::vstate::vm::UserfaultChannel;
 pub use crate::vstate::vm::Vm;
 
 /// Shorthand type for the EventManager flavour used by Firecracker.
@@ -313,6 +314,8 @@ pub struct Vmm {
     uffd: Option<Uffd>,
     // Used for userfault communication with the UFFD handler when secret freedom is enabled
     uffd_socket: Option<UnixStream>,
+    // Used for userfault communication with vCPUs when secret freedom is enabled
+    userfault_channels: Option<Vec<UserfaultChannel>>,
     vcpus_handles: Vec<VcpuHandle>,
     // Used by Vcpus and devices to initiate teardown; Vmm should never write here.
     vcpus_exit_evt: EventFd,

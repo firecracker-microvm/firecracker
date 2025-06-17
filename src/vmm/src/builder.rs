@@ -162,7 +162,7 @@ fn create_vmm_and_vcpus(
     // Instantiate ACPI device manager.
     let acpi_device_manager = ACPIDeviceManager::new();
 
-    let (vcpus, vcpus_exit_evt) = vm.create_vcpus(vcpu_count)?;
+    let (vcpus, vcpus_exit_evt, userfault_channels) = vm.create_vcpus(vcpu_count, secret_free)?;
 
     #[cfg(target_arch = "x86_64")]
     let pio_device_manager = {
@@ -192,6 +192,7 @@ fn create_vmm_and_vcpus(
         vm,
         uffd: None,
         uffd_socket: None,
+        userfault_channels,
         vcpus_handles: Vec::new(),
         vcpus_exit_evt,
         resource_allocator,
@@ -1034,7 +1035,7 @@ pub(crate) mod tests {
         )
         .unwrap();
 
-        let (_, vcpus_exit_evt) = vm.create_vcpus(1).unwrap();
+        let (_, vcpus_exit_evt, _) = vm.create_vcpus(1, false).unwrap();
 
         Vmm {
             events_observer: Some(std::io::stdin()),
@@ -1044,6 +1045,7 @@ pub(crate) mod tests {
             vm,
             uffd: None,
             uffd_socket: None,
+            userfault_channels: None,
             vcpus_handles: Vec::new(),
             vcpus_exit_evt,
             resource_allocator: ResourceAllocator::new().unwrap(),
