@@ -111,7 +111,6 @@ def test_snapshot_current_version(uvm_nano):
 # - Rootfs: Ubuntu 18.04
 # - Microvm: 2vCPU with 512 MB RAM
 # TODO: Multiple microvm sizes must be tested in the async pipeline.
-@pytest.mark.parametrize("snapshot_type", [SnapshotType.DIFF, SnapshotType.FULL])
 @pytest.mark.parametrize("use_snapshot_editor", [False, True])
 def test_cycled_snapshot_restore(
     bin_vsock_path,
@@ -500,7 +499,6 @@ def test_snapshot_overwrite_self(guest_kernel, rootfs, microvm_factory):
     # restored, with a new snapshot of this vm, does not break the VM
 
 
-@pytest.mark.parametrize("snapshot_type", [SnapshotType.DIFF, SnapshotType.FULL])
 def test_vmgenid(guest_kernel_linux_6_1, rootfs, microvm_factory, snapshot_type):
     """
     Test VMGenID device upon snapshot resume

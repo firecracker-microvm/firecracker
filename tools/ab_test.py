@@ -53,8 +53,8 @@ IGNORED = [
     # boot time metrics
     {"performance_test": "test_boottime", "metric": "resume_time"},
     # block throughput on m8g
-    {"fio_engine": "libaio", "vcpus": 2, "instance": "m8g.metal-24xl"},
-    {"fio_engine": "libaio", "vcpus": 2, "instance": "m8g.metal-48xl"},
+    {"fio_engine": "libaio", "vcpus": "2", "instance": "m8g.metal-24xl"},
+    {"fio_engine": "libaio", "vcpus": "2", "instance": "m8g.metal-48xl"},
 ]
 
 
