@@ -353,10 +353,13 @@ impl Vcpu {
                 // does not panic on resume, see https://docs.kernel.org/virt/kvm/api.html .
                 // We do not want to fail if the call is not successful, because depending
                 // that may be acceptable depending on the workload.
+                // TODO: once kvmclock is supported with Secret Fredom, remove this condition.
                 #[cfg(target_arch = "x86_64")]
-                if let Err(err) = self.kvm_vcpu.fd.kvmclock_ctrl() {
-                    METRICS.vcpu.kvmclock_ctrl_fails.inc();
-                    warn!("KVM_KVMCLOCK_CTRL call failed {}", err);
+                if self.userfault_channel.is_none() {
+                    if let Err(err) = self.kvm_vcpu.fd.kvmclock_ctrl() {
+                        METRICS.vcpu.kvmclock_ctrl_fails.inc();
+                        warn!("KVM_KVMCLOCK_CTRL call failed {}", err);
+                    }
                 }
 
                 // Move to 'paused' state.
