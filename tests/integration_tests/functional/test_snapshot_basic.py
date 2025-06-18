@@ -337,9 +337,9 @@ def test_negative_snapshot_permissions(uvm_plain_rw, microvm_factory):
     microvm.spawn()
 
     expected_err = re.escape(
-        "Load snapshot error: Failed to restore from snapshot: Failed to load guest "
-        "memory: Error creating guest memory from file: Failed to load guest memory: "
-        "Permission denied (os error 13)"
+        "Load snapshot error: Failed to restore from snapshot: Failed to build microVM "
+        "from snapshot: Failed to load guest memory: Error creating guest memory from file: "
+        "Failed to load guest memory: Permission denied (os error 13)"
     )
     with pytest.raises(RuntimeError, match=expected_err):
         microvm.restore_from_snapshot(snapshot, resume=True)
