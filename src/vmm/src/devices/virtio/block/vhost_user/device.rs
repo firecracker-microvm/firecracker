@@ -332,8 +332,7 @@ impl<T: VhostUserHandleBackend + Send + 'static> VirtioDevice for VhostUserBlock
 
     fn activate(&mut self, mem: GuestMemoryMmap) -> Result<(), ActivateError> {
         for q in self.queues.iter_mut() {
-            q.initialize(&mem)
-                .map_err(ActivateError::QueueMemoryError)?;
+            q.initialize(&mem).map_err(ActivateError::QueueError)?;
         }
 
         let start_time = get_time_us(ClockType::Monotonic);
