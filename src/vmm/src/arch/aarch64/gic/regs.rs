@@ -30,6 +30,18 @@ pub struct GicState {
     pub dist: Vec<GicRegState<u32>>,
     /// The state of the vcpu interfaces.
     pub gic_vcpu_states: Vec<GicVcpuState>,
+    /// ITS control register
+    pub its_ctlr: u64,
+    /// ITS IID register
+    pub its_iidr: u64,
+    /// ITS CBASE register
+    pub its_cbaser: u64,
+    /// ITS CWRITE register
+    pub its_cwriter: u64,
+    /// ITS CREAD register
+    pub its_creadr: u64,
+    /// ITS BASE registers
+    pub its_baser: [u64; 8],
 }
 
 /// Structure used for serializing the state of the GIC registers for a specific vCPU.
