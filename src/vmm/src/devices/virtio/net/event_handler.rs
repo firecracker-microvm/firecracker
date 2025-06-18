@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use event_manager::{EventOps, Events, MutEventSubscriber};
+use log::info;
 use vmm_sys_util::epoll::EventSet;
 
 use crate::devices::virtio::device::VirtioDevice;
@@ -97,6 +98,7 @@ impl MutEventSubscriber for Net {
         }
 
         if self.is_activated() {
+            let tstamp = std::time::Instant::now();
             match source {
                 Self::PROCESS_ACTIVATE => self.process_activate_event(ops),
                 Self::PROCESS_VIRTQ_RX => self.process_rx_queue_event(),
@@ -109,6 +111,10 @@ impl MutEventSubscriber for Net {
                     self.metrics.event_fails.inc();
                 }
             }
+            info!(
+                "net: processed queue for {} usec",
+                tstamp.elapsed().as_micros()
+            );
         } else {
             warn!(
                 "Net: The device is not yet activated. Spurious event received: {:?}",
