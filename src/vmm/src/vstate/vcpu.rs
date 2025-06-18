@@ -31,10 +31,14 @@ use crate::logger::{IncMetric, METRICS};
 use crate::seccomp::{BpfProgram, BpfProgramRef};
 use crate::utils::signal::{Killable, register_signal_handler, sigrtmin};
 use crate::utils::sm::StateMachine;
-use crate::vstate::vm::{UserfaultChannel, Vm};
+use crate::vstate::vm::{UserfaultChannel, UserfaultData, Vm};
 
 /// Signal number (SIGRTMIN) used to kick Vcpus.
 pub const VCPU_RTSIG_OFFSET: i32 = 0;
+
+// TODO: remove when KVM userfault support is merged upstream.
+/// VM exit due to a userfault.
+const KVM_MEMORY_EXIT_FLAG_USERFAULT: u64 = 1 << 4;
 
 /// Errors associated with the wrappers over KVM ioctls.
 #[derive(Debug, thiserror::Error, displaydoc::Display)]
@@ -312,6 +316,7 @@ impl Vcpu {
                 // - the other vCPUs won't ever exit out of `KVM_RUN`, but they won't consume CPU.
                 // So we pause vCPU0 and send a signal to the emulation thread to stop the VMM.
                 Ok(VcpuEmulation::Stopped) => return self.exit(FcExitCode::Ok),
+                Ok(VcpuEmulation::Userfault(_)) => unreachable!(),
                 // If the emulation requests a pause lets do this
                 #[cfg(feature = "gdb")]
                 Ok(VcpuEmulation::Paused) => {
@@ -495,6 +500,26 @@ impl Vcpu {
         StateMachine::finish()
     }
 
+    fn handle_userfault(
+        &mut self,
+        userfaultfd_data: UserfaultData,
+    ) -> Result<VcpuEmulation, VcpuError> {
+        let userfault_channel = self
+            .userfault_channel
+            .as_mut()
+            .expect("userfault channel not set");
+
+        userfault_channel
+            .send(userfaultfd_data)
+            .expect("Failed to send userfault data");
+
+        let _ = userfault_channel
+            .recv()
+            .expect("Failed to receive userfault response");
+
+        Ok(VcpuEmulation::Handled)
+    }
+
     /// Runs the vCPU in KVM context and handles the kvm exit reason.
     ///
     /// Returns error or enum specifying whether emulation was handled or interrupted.
@@ -505,7 +530,7 @@ impl Vcpu {
             return Ok(VcpuEmulation::Interrupted);
         }
 
-        match self.kvm_vcpu.fd.run() {
+        let result = match self.kvm_vcpu.fd.run() {
             Err(ref err) if err.errno() == libc::EINTR => {
                 self.kvm_vcpu.fd.set_kvm_immediate_exit(0);
                 // Notify that this KVM_RUN was interrupted.
@@ -522,7 +547,14 @@ impl Vcpu {
                 Ok(VcpuEmulation::Paused)
             }
             emulation_result => handle_kvm_exit(&mut self.kvm_vcpu.peripherals, emulation_result),
-        }
+        };
+
+        let userfault_data = match result {
+            Ok(VcpuEmulation::Userfault(userfault_data)) => userfault_data,
+            _ => return result,
+        };
+
+        self.handle_userfault(userfault_data)
     }
 }
 
@@ -600,6 +632,16 @@ fn handle_kvm_exit(
                     )))
                 }
             },
+            VcpuExit::MemoryFault { flags, gpa, size } => {
+                if flags & KVM_MEMORY_EXIT_FLAG_USERFAULT == 0 {
+                    Err(VcpuError::UnhandledKvmExit(format!(
+                        "flags {:x} gpa {:x} size {:x}",
+                        flags, gpa, size
+                    )))
+                } else {
+                    Ok(VcpuEmulation::Userfault(UserfaultData { flags, gpa, size }))
+                }
+            }
             arch_specific_reason => {
                 // run specific architecture emulation.
                 peripherals.run_arch_emulation(arch_specific_reason)
@@ -761,6 +803,8 @@ pub enum VcpuEmulation {
     Interrupted,
     /// Stopped.
     Stopped,
+    /// Userfault
+    Userfault(UserfaultData),
     /// Pause request
     #[cfg(feature = "gdb")]
     Paused,

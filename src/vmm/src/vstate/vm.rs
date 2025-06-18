@@ -7,7 +7,7 @@
 
 use std::collections::HashMap;
 use std::fs::{File, OpenOptions};
-use std::io::Write;
+use std::io::{Read, Write};
 use std::os::fd::{AsFd, AsRawFd, FromRawFd};
 use std::path::Path;
 use std::sync::Arc;
@@ -48,6 +48,17 @@ pub struct UserfaultData {
     pub size: u64,
 }
 
+/// Errors associated with `UserfaultChannel`.
+#[derive(Debug, thiserror::Error, displaydoc::Display)]
+pub enum UserfaultChannelError {
+    /// Encode error {0}
+    Encode(#[from] bincode::error::EncodeError),
+    /// Decode error {0}
+    Decode(#[from] bincode::error::DecodeError),
+    /// IO error {0}
+    IO(#[from] std::io::Error),
+}
+
 /// KVM userfault channel
 #[derive(Debug)]
 pub struct UserfaultChannel {
@@ -55,6 +66,34 @@ pub struct UserfaultChannel {
     pub sender: File,
     /// Receiver
     pub receiver: File,
+}
+
+impl UserfaultChannel {
+    fn bincode_config(&self) -> impl bincode::config::Config {
+        bincode::config::standard().with_fixed_int_encoding()
+    }
+
+    /// Receive `UserfaultData` from the channel.
+    pub fn send(&mut self, data: UserfaultData) -> Result<(), UserfaultChannelError> {
+        let encoded_data = bincode::encode_to_vec(data, self.bincode_config())
+            .map_err(UserfaultChannelError::Encode)?;
+
+        self.sender.write_all(&encoded_data)?;
+
+        Ok(())
+    }
+
+    /// Send `UserfaultData` to the channel.
+    pub fn recv(&mut self) -> Result<UserfaultData, UserfaultChannelError> {
+        let size = bincode::encode_to_vec(UserfaultData::default(), self.bincode_config())?.len();
+
+        let mut encoded_data = vec![0u8; size as usize];
+        self.receiver.read_exact(&mut encoded_data)?;
+
+        bincode::decode_from_slice(&encoded_data, self.bincode_config())
+            .map_err(UserfaultChannelError::Decode)
+            .map(|(data, _)| data)
+    }
 }
 
 fn pipe2(flags: libc::c_int) -> std::io::Result<(File, File)> {
