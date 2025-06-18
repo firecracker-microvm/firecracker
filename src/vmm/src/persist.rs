@@ -34,7 +34,7 @@ use crate::utils::u64_to_usize;
 use crate::vmm_config::boot_source::BootSourceConfig;
 use crate::vmm_config::instance_info::InstanceInfo;
 use crate::vmm_config::machine_config::{HugePageConfig, MachineConfigError, MachineConfigUpdate};
-use crate::vmm_config::snapshot::{CreateSnapshotParams, LoadSnapshotParams};
+use crate::vmm_config::snapshot::{CreateSnapshotParams, LoadSnapshotParams, MemBackendType};
 use crate::vstate::kvm::KvmState;
 use crate::vstate::memory::{
     self, GuestMemoryState, GuestRegionMmap, GuestRegionType, MemoryError,
@@ -401,6 +401,17 @@ pub fn restore_from_snapshot(
     vm_resources: &mut VmResources,
 ) -> Result<Arc<Mutex<Vmm>>, RestoreFromSnapshotError> {
     let mut microvm_state = snapshot_state_from_file(&params.snapshot_path)?;
+
+    if microvm_state.vm_info.secret_free && params.mem_backend.backend_type == MemBackendType::File
+    {
+        return Err(RestoreFromSnapshotError::Build(
+            BuildMicrovmFromSnapshotError::VmUpdateConfig(MachineConfigError::Incompatible(
+                "secret freedom",
+                "file memory backend",
+            )),
+        ));
+    }
+
     for entry in &params.network_overrides {
         microvm_state
             .device_states
