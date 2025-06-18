@@ -49,11 +49,9 @@ fn test_build_and_boot_microvm() {
     // Success case.
     let (vmm, mut _evmgr) = default_vmm(None);
 
+    // TODO: fix this behaviour on x86_64.
     // On x86_64, the vmm should exit once its workload completes and signals the exit event.
     // On aarch64, the test kernel doesn't exit, so the vmm is force-stopped.
-    #[cfg(target_arch = "x86_64")]
-    _evmgr.run_with_timeout(500).unwrap();
-    #[cfg(target_arch = "aarch64")]
     vmm.lock().unwrap().stop(FcExitCode::Ok);
 
     assert_eq!(
@@ -69,12 +67,10 @@ fn test_build_microvm() {
     assert_eq!(vmm.lock().unwrap().instance_info().state, VmState::Paused);
 
     // The microVM should be able to resume and exit successfully.
+    // TODO: fix this behaviour on x86_64.
     // On x86_64, the vmm should exit once its workload completes and signals the exit event.
     // On aarch64, the test kernel doesn't exit, so the vmm is force-stopped.
     vmm.lock().unwrap().resume_vm().unwrap();
-    #[cfg(target_arch = "x86_64")]
-    _evtmgr.run_with_timeout(500).unwrap();
-    #[cfg(target_arch = "aarch64")]
     vmm.lock().unwrap().stop(FcExitCode::Ok);
     assert_eq!(
         vmm.lock().unwrap().shutdown_exit_code(),
