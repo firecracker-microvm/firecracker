@@ -117,7 +117,8 @@ pub mod vstate;
 pub mod initrd;
 
 use std::collections::HashMap;
-use std::io;
+use std::io::{self, Read, Write};
+use std::os::fd::RawFd;
 use std::os::unix::io::AsRawFd;
 use std::os::unix::net::UnixStream;
 use std::sync::{Arc, Mutex};
@@ -126,6 +127,7 @@ use std::time::Duration;
 use device_manager::DeviceManager;
 use event_manager::{EventManager as BaseEventManager, EventOps, Events, MutEventSubscriber};
 use snapshot::Persist;
+use vm_memory::GuestAddress;
 use vmm_sys_util::epoll::EventSet;
 use vmm_sys_util::terminal::Terminal;
 use vstate::vcpu::{self, VcpuSendEventError};
@@ -146,7 +148,7 @@ use crate::devices::virtio::rng::Entropy;
 use crate::devices::virtio::vsock::{Vsock, VsockUnixBackend};
 use crate::logger::{METRICS, MetricsError, log_dev_preview_warning};
 use crate::mmds::data_store::Mmds;
-use crate::persist::{MicrovmState, MicrovmStateError, VmInfo};
+use crate::persist::{FaultReply, FaultRequest, MicrovmState, MicrovmStateError, VmInfo};
 use crate::rate_limiter::BucketUpdate;
 use crate::resources::VmmConfig;
 use crate::rpc_interface::VmmActionError;
@@ -161,10 +163,13 @@ use crate::vmm_config::mmds::MmdsConfig;
 use crate::vmm_config::net::NetworkInterfaceConfig;
 use crate::vmm_config::vsock::VsockDeviceConfig;
 pub use crate::vstate::kvm::Kvm;
-use crate::vstate::memory::{GuestMemory, GuestMemoryMmap, GuestMemoryRegion};
+use crate::vstate::memory::{
+    GuestMemory, GuestMemoryExtension, GuestMemoryMmap, GuestMemoryRegion,
+};
 #[cfg(target_arch = "aarch64")]
 use crate::vstate::vcpu::VcpuState;
 pub use crate::vstate::vcpu::{Vcpu, VcpuConfig, VcpuEvent, VcpuHandle, VcpuResponse};
+use crate::vstate::vm::UserfaultData;
 pub use crate::vstate::vm::{StartVcpusError, Vm};
 
 /// Shorthand type for the EventManager flavour used by Firecracker.
@@ -698,6 +703,116 @@ impl Vmm {
         self.shutdown_exit_code = Some(exit_code);
     }
 
+    fn process_vcpu_userfault(&mut self, vcpu: u32, userfault_data: UserfaultData) {
+        let offset = self
+            .vm
+            .as_kvm()
+            .expect("Only KVM VMs are supported")
+            .guest_memory()
+            .gpa_to_offset(GuestAddress(userfault_data.gpa))
+            .expect("Failed to convert GPA to offset");
+
+        let fault_request = FaultRequest {
+            vcpu,
+            offset,
+            flags: userfault_data.flags,
+            token: None,
+        };
+        let fault_request_json =
+            serde_json::to_string(&fault_request).expect("Failed to serialize fault request");
+
+        let written = self
+            .uffd_socket
+            .as_ref()
+            .expect("Uffd socket is not set")
+            .write(fault_request_json.as_bytes())
+            .expect("Failed to write to uffd socket");
+
+        if written != fault_request_json.len() {
+            panic!(
+                "Failed to write the entire fault request to the uffd socket: expected {}, \
+                 written {}",
+                fault_request_json.len(),
+                written
+            );
+        }
+    }
+
+    fn active_event_in_uffd_socket(&self, source: RawFd, event_set: EventSet) -> bool {
+        if let Some(uffd_socket) = &self.uffd_socket {
+            uffd_socket.as_raw_fd() == source && event_set == EventSet::IN
+        } else {
+            false
+        }
+    }
+
+    fn process_uffd_socket(&mut self) {
+        const BUFFER_SIZE: usize = 4096;
+
+        let stream = self.uffd_socket.as_mut().expect("Uffd socket is not set");
+
+        let mut buffer = [0u8; BUFFER_SIZE];
+        let mut current_pos = 0;
+
+        loop {
+            if current_pos < BUFFER_SIZE {
+                match stream.read(&mut buffer[current_pos..]) {
+                    Ok(0) => break,
+                    Ok(n) => current_pos += n,
+                    Err(e) if e.kind() == io::ErrorKind::WouldBlock => {
+                        if current_pos == 0 {
+                            break;
+                        }
+                    }
+                    Err(e) => panic!("Read error: {}", e),
+                }
+            }
+
+            let mut parser = serde_json::Deserializer::from_slice(&buffer[..current_pos])
+                .into_iter::<FaultReply>();
+            let mut total_consumed = 0;
+            let mut needs_more = false;
+
+            while let Some(result) = parser.next() {
+                match result {
+                    Ok(fault_reply) => {
+                        let vcpu = fault_reply.vcpu.expect("vCPU must be set");
+
+                        self.vm
+                            .as_kvm()
+                            .expect("Userfault handling is only supported for KVM VMs")
+                            .vcpus_handles()
+                            .get(vcpu as usize)
+                            .expect("Invalid vcpu index")
+                            .send_userfault_resolved();
+
+                        total_consumed = parser.byte_offset();
+                    }
+                    Err(e) if e.is_eof() => {
+                        needs_more = true;
+                        break;
+                    }
+                    Err(e) => {
+                        println!(
+                            "Buffer content: {:?}",
+                            std::str::from_utf8(&buffer[..current_pos])
+                        );
+                        panic!("Invalid JSON: {}", e);
+                    }
+                }
+            }
+
+            if total_consumed > 0 {
+                buffer.copy_within(total_consumed..current_pos, 0);
+                current_pos -= total_consumed;
+            }
+
+            if needs_more {
+                continue;
+            }
+        }
+    }
+
     /// Gets a reference to kvm-ioctls KvmVm
     #[cfg(feature = "gdb")]
     pub fn vm(&self) -> &Vm {
@@ -794,38 +909,53 @@ impl MutEventSubscriber for Vmm {
         let source = event.fd();
         let event_set = event.event_set();
 
-        match &self.vm {
-            Vm::Kvm(kvm_vm) => {
-                if source == kvm_vm.vcpus_exit_evt().as_raw_fd() && event_set == EventSet::IN {
-                    // Exit event handling should never do anything more than call 'self.stop()'.
-                    let _ = kvm_vm.vcpus_exit_evt().read();
+        let kvm_vm = self
+            .vm
+            .as_kvm()
+            .expect("Only KVM VMs are supported")
+            .clone();
 
-                    let exit_code = 'exit_code: {
-                        // Query each vcpu for their exit_code.
-                        let handles = kvm_vm.vcpus_handles();
-                        for handle in handles.iter() {
-                            // Drain all vcpu responses that are pending from this vcpu
-                            // until we find an exit status.
-                            for response in handle.response_receiver().try_iter() {
-                                if let VcpuResponse::Exited(status) = response {
-                                    // It could be that some vcpus exited successfully while
-                                    // others errored out. Thus make sure that error exits from
-                                    // one vcpu always takes precedence over "ok" exits
-                                    if status != FcExitCode::Ok {
-                                        break 'exit_code status;
-                                    }
+        if source == kvm_vm.vcpus_exit_evt().as_raw_fd() && event_set == EventSet::IN {
+            let _ = kvm_vm.vcpus_exit_evt().read();
+
+            let mut pending_userfaults = Vec::new();
+            let mut should_exit = false;
+            let mut final_exit_code = FcExitCode::Ok;
+
+            // First pass: collect all responses and determine exit status
+            {
+                let handles = kvm_vm.vcpus_handles();
+                for (handle, index) in handles.iter().zip(0u32..) {
+                    for response in handle.response_receiver().try_iter() {
+                        match response {
+                            VcpuResponse::Exited(status) => {
+                                should_exit = true;
+                                if status != FcExitCode::Ok {
+                                    final_exit_code = status;
                                 }
                             }
+                            VcpuResponse::Userfault(userfault_data) => {
+                                pending_userfaults.push((index, userfault_data));
+                            }
+                            _ => panic!("Unexpected response from vcpu: {:?}", response),
                         }
-
-                        // No CPUs exited with error status code, report "Ok"
-                        FcExitCode::Ok
-                    };
-                    self.stop(exit_code);
-                } else {
-                    error!("Spurious EventManager event for handler: Vmm");
+                    }
                 }
             }
+
+            // Process any pending userfaults
+            for (index, userfault_data) in pending_userfaults {
+                self.process_vcpu_userfault(index, userfault_data);
+            }
+
+            // Stop if we received an exit event
+            if should_exit {
+                self.stop(final_exit_code);
+            }
+        }
+
+        if self.active_event_in_uffd_socket(source, event_set) {
+            self.process_uffd_socket();
         }
     }
 
@@ -836,6 +966,12 @@ impl MutEventSubscriber for Vmm {
                     error!("Failed to register vmm exit event: {}", err);
                 }
             }
+        }
+
+        if let Some(uffd_socket) = self.uffd_socket.as_ref()
+            && let Err(err) = ops.add(Events::new(uffd_socket, EventSet::IN))
+        {
+            panic!("Failed to register UFFD socket: {}", err);
         }
     }
 }
