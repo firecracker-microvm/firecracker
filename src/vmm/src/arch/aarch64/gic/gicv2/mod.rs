@@ -68,7 +68,9 @@ impl GICv2 {
                 GICv2::get_cpu_addr(),
                 GICv2::get_cpu_size(),
             ],
+            msi_properties: None,
             vcpu_count,
+            its_device: None,
         })
     }
 
@@ -82,7 +84,7 @@ impl GICv2 {
 
     pub fn init_device_attributes(gic_device: &Self) -> Result<(), GicError> {
         // Setting up the distributor attribute.
-        // We are placing the GIC below 1GB so we need to substract the size of the distributor.
+        // We are placing the GIC below 1GB so we need to subtract the size of the distributor.
         Self::set_device_attribute(
             gic_device.device_fd(),
             kvm_bindings::KVM_DEV_ARM_VGIC_GRP_ADDR,
