@@ -10,7 +10,7 @@ use std::fs::{File, OpenOptions};
 use std::io::Write;
 use std::os::fd::{AsFd, AsRawFd, FromRawFd};
 use std::path::Path;
-use std::sync::Arc;
+use std::sync::{Arc, Condvar, Mutex};
 
 use kvm_bindings::{
     KVM_MEM_GUEST_MEMFD, KVM_MEM_LOG_DIRTY_PAGES, KVM_MEMORY_ATTRIBUTE_PRIVATE, KVMIO,
@@ -35,6 +35,17 @@ use crate::vstate::vcpu::VcpuError;
 use crate::{DirtyBitmap, Vcpu, mem_size_mib};
 
 pub(crate) const KVM_GMEM_NO_DIRECT_MAP: u64 = 1;
+
+/// KVM userfault information
+#[derive(Copy, Clone, Default, Eq, PartialEq, Debug)]
+pub struct UserfaultData {
+    /// Flags
+    pub flags: u64,
+    /// Guest physical address
+    pub gpa: u64,
+    /// Size
+    pub size: u64,
+}
 
 /// Architecture independent parts of a VM.
 #[derive(Debug)]
@@ -157,7 +168,11 @@ impl Vm {
     /// Creates the specified number of [`Vcpu`]s.
     ///
     /// The returned [`EventFd`] is written to whenever any of the vcpus exit.
-    pub fn create_vcpus(&mut self, vcpu_count: u8) -> Result<(Vec<Vcpu>, EventFd), VmError> {
+    pub fn create_vcpus(
+        &mut self,
+        vcpu_count: u8,
+        secret_free: bool,
+    ) -> Result<(Vec<Vcpu>, EventFd), VmError> {
         self.arch_pre_create_vcpus(vcpu_count)?;
 
         let exit_evt = EventFd::new(libc::EFD_NONBLOCK).map_err(VmError::EventFd)?;
@@ -165,7 +180,14 @@ impl Vm {
         let mut vcpus = Vec::with_capacity(vcpu_count as usize);
         for cpu_idx in 0..vcpu_count {
             let exit_evt = exit_evt.try_clone().map_err(VmError::EventFd)?;
-            let vcpu = Vcpu::new(cpu_idx, self, exit_evt).map_err(VmError::CreateVcpu)?;
+            let userfault_resolved = if secret_free {
+                Some(Arc::new((Mutex::new(false), Condvar::new())))
+            } else {
+                None
+            };
+
+            let vcpu = Vcpu::new(cpu_idx, self, exit_evt, userfault_resolved)
+                .map_err(VmError::CreateVcpu)?;
             vcpus.push(vcpu);
         }
 
@@ -586,7 +608,7 @@ pub(crate) mod tests {
         let vcpu_count = 2;
         let (_, mut vm) = setup_vm_with_memory(mib_to_bytes(128));
 
-        let (vcpu_vec, _) = vm.create_vcpus(vcpu_count).unwrap();
+        let (vcpu_vec, _) = vm.create_vcpus(vcpu_count, false).unwrap();
 
         assert_eq!(vcpu_vec.len(), vcpu_count as usize);
     }
