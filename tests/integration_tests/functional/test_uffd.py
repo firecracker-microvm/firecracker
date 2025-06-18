@@ -12,12 +12,12 @@ from framework.utils import Timeout, check_output
 
 
 @pytest.fixture(scope="function", name="snapshot")
-def snapshot_fxt(microvm_factory, guest_kernel_linux_5_10, rootfs):
+def snapshot_fxt(microvm_factory, guest_kernel_linux_5_10, rootfs, secret_free):
     """Create a snapshot of a microVM."""
 
     basevm = microvm_factory.build(guest_kernel_linux_5_10, rootfs)
     basevm.spawn()
-    basevm.basic_config(vcpu_count=2, mem_size_mib=256)
+    basevm.basic_config(vcpu_count=2, mem_size_mib=256, secret_free=secret_free)
     basevm.add_net_iface()
 
     # Add a memory balloon.
