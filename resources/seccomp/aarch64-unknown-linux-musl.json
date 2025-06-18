@@ -744,6 +744,9 @@
                 "syscall": "exit_group"
             },
             {
+                "syscall": "read"
+            },
+            {
                 "syscall": "write"
             },
             {
