@@ -163,7 +163,7 @@ fn create_vmm_and_vcpus(
     // Instantiate ACPI device manager.
     let acpi_device_manager = ACPIDeviceManager::new();
 
-    let (vcpus, vcpus_exit_evt) = vm.create_vcpus(vcpu_count)?;
+    let (vcpus, vcpus_exit_evt) = vm.create_vcpus(vcpu_count, secret_free)?;
 
     #[cfg(target_arch = "x86_64")]
     let pio_device_manager = {
@@ -1080,7 +1080,7 @@ pub(crate) mod tests {
         )
         .unwrap();
 
-        let (_, vcpus_exit_evt) = vm.create_vcpus(1).unwrap();
+        let (_, vcpus_exit_evt) = vm.create_vcpus(1, false).unwrap();
 
         Vmm {
             events_observer: Some(std::io::stdin()),
