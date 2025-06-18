@@ -11,7 +11,7 @@ use std::io::Write;
 use std::os::fd::FromRawFd;
 use std::path::Path;
 use std::sync::atomic::{AtomicU32, Ordering};
-use std::sync::{Arc, Mutex, MutexGuard};
+use std::sync::{Arc, Condvar, Mutex, MutexGuard};
 
 #[cfg(target_arch = "x86_64")]
 use kvm_bindings::KVM_IRQCHIP_IOAPIC;
@@ -45,6 +45,17 @@ use crate::{DirtyBitmap, Vcpu, mem_size_mib};
 
 pub(crate) const GUEST_MEMFD_FLAG_MMAP: u64 = 1;
 pub(crate) const GUEST_MEMFD_FLAG_NO_DIRECT_MAP: u64 = 2;
+
+/// KVM userfault information
+#[derive(Copy, Clone, Default, Eq, PartialEq, Debug)]
+pub struct UserfaultData {
+    /// Flags
+    pub flags: u64,
+    /// Guest physical address
+    pub gpa: u64,
+    /// Size
+    pub size: u64,
+}
 
 #[derive(Debug, Serialize, Deserialize)]
 /// A struct representing an interrupt line used by some device of the microVM
@@ -188,7 +199,11 @@ impl Vm {
     /// Creates the specified number of [`Vcpu`]s.
     ///
     /// The returned [`EventFd`] is written to whenever any of the vcpus exit.
-    pub fn create_vcpus(&mut self, vcpu_count: u8) -> Result<(Vec<Vcpu>, EventFd), VmError> {
+    pub fn create_vcpus(
+        &mut self,
+        vcpu_count: u8,
+        secret_free: bool,
+    ) -> Result<(Vec<Vcpu>, EventFd), VmError> {
         self.arch_pre_create_vcpus(vcpu_count)?;
 
         let exit_evt = EventFd::new(libc::EFD_NONBLOCK).map_err(VmError::EventFd)?;
@@ -196,7 +211,14 @@ impl Vm {
         let mut vcpus = Vec::with_capacity(vcpu_count as usize);
         for cpu_idx in 0..vcpu_count {
             let exit_evt = exit_evt.try_clone().map_err(VmError::EventFd)?;
-            let vcpu = Vcpu::new(cpu_idx, self, exit_evt).map_err(VmError::CreateVcpu)?;
+            let userfault_resolved = if secret_free {
+                Some(Arc::new((Mutex::new(false), Condvar::new())))
+            } else {
+                None
+            };
+
+            let vcpu = Vcpu::new(cpu_idx, self, exit_evt, userfault_resolved)
+                .map_err(VmError::CreateVcpu)?;
             vcpus.push(vcpu);
         }
 
@@ -804,7 +826,7 @@ pub(crate) mod tests {
         let vcpu_count = 2;
         let (_, mut vm) = setup_vm_with_memory(mib_to_bytes(128));
 
-        let (vcpu_vec, _) = vm.create_vcpus(vcpu_count).unwrap();
+        let (vcpu_vec, _) = vm.create_vcpus(vcpu_count, false).unwrap();
 
         assert_eq!(vcpu_vec.len(), vcpu_count as usize);
     }

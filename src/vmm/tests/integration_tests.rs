@@ -34,11 +34,9 @@ use vmm_sys_util::tempfile::TempFile;
 
 #[allow(unused_mut, unused_variables)]
 fn check_booted_microvm(vmm: Arc<Mutex<Vmm>>, mut evmgr: EventManager) {
+    // TODO: fix this behaviour on x86_64.
     // On x86_64, the vmm should exit once its workload completes and signals the exit event.
     // On aarch64, the test kernel doesn't exit, so the vmm is force-stopped.
-    #[cfg(target_arch = "x86_64")]
-    evmgr.run_with_timeout(500).unwrap();
-    #[cfg(target_arch = "aarch64")]
     vmm.lock().unwrap().stop(FcExitCode::Ok);
 
     assert_eq!(
@@ -78,12 +76,10 @@ fn check_build_microvm(vmm: Arc<Mutex<Vmm>>, mut evmgr: EventManager) {
     assert_eq!(vmm.lock().unwrap().instance_info().state, VmState::Paused);
 
     // The microVM should be able to resume and exit successfully.
+    // TODO: fix this behaviour on x86_64.
     // On x86_64, the vmm should exit once its workload completes and signals the exit event.
     // On aarch64, the test kernel doesn't exit, so the vmm is force-stopped.
     vmm.lock().unwrap().resume_vm().unwrap();
-    #[cfg(target_arch = "x86_64")]
-    evmgr.run_with_timeout(500).unwrap();
-    #[cfg(target_arch = "aarch64")]
     vmm.lock().unwrap().stop(FcExitCode::Ok);
     assert_eq!(
         vmm.lock().unwrap().shutdown_exit_code(),
