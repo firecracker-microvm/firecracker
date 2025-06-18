@@ -6,7 +6,6 @@
 use std::fmt::Debug;
 use std::fs::{File, OpenOptions};
 use std::io::{self, Write};
-use std::mem::forget;
 use std::os::fd::RawFd;
 use std::os::unix::io::AsRawFd;
 use std::os::unix::net::UnixStream;
@@ -606,6 +605,9 @@ pub enum GuestMemoryFromUffdError {
 // TODO remove these when the UFFD crate supports minor faults for guest_memfd
 const UFFDIO_REGISTER_MODE_MINOR: u64 = 1 << 2;
 
+type GuestMemoryResult =
+    Result<(Vec<GuestRegionMmap>, Option<Uffd>, Option<UnixStream>), GuestMemoryFromUffdError>;
+
 /// Creates guest memory using a UDS socket provided by a UFFD handler.
 pub fn guest_memory_from_uffd(
     mem_uds_path: &Path,
@@ -614,7 +616,7 @@ pub fn guest_memory_from_uffd(
     huge_pages: HugePageConfig,
     guest_memfd: Option<File>,
     userfault_bitmap_memfd: Option<&File>,
-) -> Result<(Vec<GuestRegionMmap>, Option<Uffd>), GuestMemoryFromUffdError> {
+) -> GuestMemoryResult {
     let guest_memfd_fd = guest_memfd.as_ref().map(|f| f.as_raw_fd());
     let (guest_memory, backend_mappings) =
         create_guest_memory(mem_state, track_dirty_pages, huge_pages, guest_memfd)?;
@@ -652,9 +654,9 @@ pub fn guest_memory_from_uffd(
             .map_err(GuestMemoryFromUffdError::Register)?;
     }
 
-    send_uffd_handshake(mem_uds_path, &backend_mappings, fds)?;
+    let socket = send_uffd_handshake(mem_uds_path, &backend_mappings, fds)?;
 
-    Ok((guest_memory, Some(uffd)))
+    Ok((guest_memory, Some(uffd), Some(socket)))
 }
 
 fn create_guest_memory(
@@ -693,12 +695,16 @@ fn send_uffd_handshake(
     mem_uds_path: &Path,
     backend_mappings: &[GuestRegionUffdMapping],
     fds: Vec<RawFd>,
-) -> Result<(), GuestMemoryFromUffdError> {
+) -> Result<UnixStream, GuestMemoryFromUffdError> {
     // This is safe to unwrap() because we control the contents of the vector
     // (i.e GuestRegionUffdMapping entries).
     let backend_mappings = serde_json::to_string(backend_mappings).unwrap();
 
     let socket = UnixStream::connect(mem_uds_path)?;
+    socket
+        .set_nonblocking(true)
+        .expect("Cannot set non-blocking");
+
     socket.send_with_fds(
         &[backend_mappings.as_bytes()],
         // In the happy case we can close the fd since the other process has it open and is
@@ -734,12 +740,7 @@ fn send_uffd_handshake(
         &fds,
     )?;
 
-    // We prevent Rust from closing the socket file descriptor to avoid a potential race condition
-    // between the mappings message and the connection shutdown. If the latter arrives at the UFFD
-    // handler first, the handler never sees the mappings.
-    forget(socket);
-
-    Ok(())
+    Ok(socket)
 }
 
 #[cfg(test)]

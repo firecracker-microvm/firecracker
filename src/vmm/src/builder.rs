@@ -196,7 +196,7 @@ pub fn build_microvm_for_boot(
     // Set up KVM VM and register memory regions.
     // Build custom CPU config if a custom template is provided.
     let mut vm = KvmVm::new(kvm, secret_free)?;
-    let mut vcpus = vm.create_vcpus(vm_resources.machine_config.vcpu_count)?;
+    let mut vcpus = vm.create_vcpus(vm_resources.machine_config.vcpu_count, secret_free)?;
 
     let guest_memfd = match secret_free {
         true => Some(
@@ -398,6 +398,7 @@ pub fn build_microvm_for_boot(
         boot_source_config: vm_resources.boot_source.config.clone(),
         shutdown_exit_code: None,
         vm,
+        uffd_socket: None,
         device_manager,
     };
     let vmm = Arc::new(Mutex::new(vmm));
@@ -618,7 +619,7 @@ pub fn build_microvm_from_snapshot(
     let mut vm = KvmVm::new(kvm, secret_free).map_err(StartMicrovmError::KvmVm)?;
 
     let mut vcpus = vm
-        .create_vcpus(vm_resources.machine_config.vcpu_count)
+        .create_vcpus(vm_resources.machine_config.vcpu_count, secret_free)
         .map_err(StartMicrovmError::KvmVm)?;
 
     let guest_memfd = match secret_free {
@@ -646,7 +647,7 @@ pub fn build_microvm_from_snapshot(
     let mem_state = &microvm_state.vm_state.memory;
     let track_dirty_pages = params.track_dirty_pages;
 
-    let (guest_memory, uffd) = match params.mem_backend.backend_type {
+    let (guest_memory, uffd, uffd_socket) = match params.mem_backend.backend_type {
         MemBackendType::File => {
             if vm_resources.machine_config.huge_pages.is_hugetlbfs() {
                 return Err(BuildMicrovmFromSnapshotErrorGuestMemoryError::File(
@@ -662,6 +663,7 @@ pub fn build_microvm_from_snapshot(
                     vm_resources.machine_config.huge_pages,
                 )
                 .map_err(BuildMicrovmFromSnapshotErrorGuestMemoryError::File)?,
+                None,
                 None,
             )
         }
@@ -771,6 +773,7 @@ pub fn build_microvm_from_snapshot(
         boot_source_config: vm_resources.boot_source.config.clone(),
         shutdown_exit_code: None,
         vm,
+        uffd_socket,
         device_manager,
     };
 
@@ -1114,7 +1117,7 @@ pub(crate) mod tests {
         ] {
             let count = u8::try_from(offsets.len()).unwrap();
             let mut source_vm = setup_vm_with_memory(0x1000);
-            let source_vcpus = source_vm.create_vcpus(count).unwrap();
+            let source_vcpus = source_vm.create_vcpus(count, false).unwrap();
             if !source_vcpus[0].kvm_vcpu.supports_tsc_offset_attr() {
                 eprintln!("Skipping TSC offset synchronization: KVM attribute unavailable");
                 return;
@@ -1126,7 +1129,7 @@ pub(crate) mod tests {
                 .collect();
 
             let mut vm = setup_vm_with_memory(0x1000);
-            let vcpus = vm.create_vcpus(count).unwrap();
+            let vcpus = vm.create_vcpus(count, false).unwrap();
             for ((vcpu, state), &offset) in vcpus.iter().zip(&states).zip(offsets) {
                 vcpu.kvm_vcpu.restore_state(state).unwrap();
                 // Establish exact offsets without depending on KVM's MSR-write heuristics.
@@ -1172,7 +1175,7 @@ pub(crate) mod tests {
     pub(crate) fn default_vmm() -> Vmm {
         let mut vm = setup_vm_with_memory(mib_to_bytes(128));
 
-        let _ = vm.create_vcpus(1).unwrap();
+        let _ = vm.create_vcpus(1, false).unwrap();
 
         Vmm {
             instance_info: InstanceInfo::default(),
@@ -1180,6 +1183,7 @@ pub(crate) mod tests {
             boot_source_config: BootSourceConfig::default(),
             shutdown_exit_code: None,
             vm: Vm::Kvm(Arc::new(vm)),
+            uffd_socket: None,
             device_manager: default_device_manager(),
         }
     }
@@ -1191,7 +1195,7 @@ pub(crate) mod tests {
     pub(crate) fn default_vmm_with_pci_ports(hotplug_ports: u8) -> Vmm {
         let mut vm = setup_vm_with_memory(mib_to_bytes(128));
 
-        let _ = vm.create_vcpus(1).unwrap();
+        let _ = vm.create_vcpus(1, false).unwrap();
 
         let vm = Arc::new(vm);
         let device_manager = default_device_manager_with_pci(&vm, hotplug_ports);
@@ -1202,6 +1206,7 @@ pub(crate) mod tests {
             boot_source_config: BootSourceConfig::default(),
             shutdown_exit_code: None,
             vm: Vm::Kvm(vm),
+            uffd_socket: None,
             device_manager,
         }
     }
