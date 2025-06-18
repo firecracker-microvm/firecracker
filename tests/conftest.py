@@ -34,7 +34,7 @@ import host_tools.cargo_build as build_tools
 from framework import defs, utils
 from framework.artifacts import disks, kernel_params
 from framework.defs import DEFAULT_BINARY_DIR
-from framework.microvm import MicroVMFactory
+from framework.microvm import MicroVMFactory, SnapshotType
 from framework.properties import global_props
 from framework.utils_cpu_templates import (
     custom_cpu_templates_params,
@@ -408,6 +408,12 @@ def cpu_template_any(request, record_property):
 @pytest.fixture(params=["Sync", "Async"])
 def io_engine(request):
     """All supported io_engines"""
+    return request.param
+
+
+@pytest.fixture(params=[SnapshotType.DIFF, SnapshotType.FULL])
+def snapshot_type(request):
+    """All possible snapshot types"""
     return request.param
 
 

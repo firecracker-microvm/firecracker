@@ -162,7 +162,7 @@ BUILDKITE_PULL_REQUEST=true BUILDKITE_PULL_REQUEST_BASE_BRANCH=main ./tools/devt
 Firecracker has a special framework for orchestrating long-running A/B-tests
 which run outside the pre-PR CI. Instead, these tests are scheduled to run
 post-merge. Specific tests, such as our
-[snapshot restore latency tests](integration_tests/performance/test_snapshot_ab.py)
+[snapshot restore latency tests](integration_tests/performance/test_snapshot.py)
 contain no assertions themselves, but rather they emit data series using the
 `aws_embedded_metrics` library. When executed by the
 [`tools/ab_test.py`](../tools/ab_test.py) orchestration script, these data

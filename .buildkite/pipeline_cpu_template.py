@@ -88,16 +88,18 @@ def group_snapshot_restore(test_step):
     groups = []
 
     groups.append(
-        group(
-            label=test_step["snapshot"][BkStep.LABEL],
-            command=test_step["snapshot"][BkStep.COMMAND],
-            instances=test_step["instances"],
-            platforms=DEFAULT_PLATFORMS,
-            timeout=test_step["snapshot"][BkStep.TIMEOUT],
-            artifacts=test_step["snapshot"][BkStep.ARTIFACTS],
-        )
+        {
+            "key": "snapshot",
+            **group(
+                label=test_step["snapshot"][BkStep.LABEL],
+                command=test_step["snapshot"][BkStep.COMMAND],
+                instances=test_step["instances"],
+                platforms=DEFAULT_PLATFORMS,
+                timeout=test_step["snapshot"][BkStep.TIMEOUT],
+                artifacts=test_step["snapshot"][BkStep.ARTIFACTS],
+            ),
+        }
     )
-    groups.append("wait")
     snapshot_restore_combinations = []
     for dp in DEFAULT_PLATFORMS:
         for src_instance in test_step["instances"]:
@@ -137,7 +139,9 @@ def group_snapshot_restore(test_step):
             }
         )
 
-    groups.append({"group": "📸 restores snapshots", "steps": steps})
+    groups.append(
+        {"group": "📸 restores snapshots", "steps": steps, "depends_on": "snapshot"}
+    )
     return groups
 
 
