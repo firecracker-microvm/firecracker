@@ -187,7 +187,8 @@ pub fn build_microvm_for_boot(
     // Set up Kvm Vm and register memory regions.
     // Build custom CPU config if a custom template is provided.
     let mut vm = Vm::new(&kvm, secret_free)?;
-    let (mut vcpus, vcpus_exit_evt) = vm.create_vcpus(vm_resources.machine_config.vcpu_count)?;
+    let (mut vcpus, vcpus_exit_evt) =
+        vm.create_vcpus(vm_resources.machine_config.vcpu_count, secret_free)?;
 
     let guest_memfd = match secret_free {
         true => Some(
@@ -548,7 +549,7 @@ pub fn build_microvm_from_snapshot(
     let mut vm = Vm::new(&kvm, secret_free).map_err(StartMicrovmError::Vm)?;
 
     let (mut vcpus, vcpus_exit_evt) = vm
-        .create_vcpus(vm_resources.machine_config.vcpu_count)
+        .create_vcpus(vm_resources.machine_config.vcpu_count, secret_free)
         .map_err(StartMicrovmError::Vm)?;
 
     let guest_memfd = match secret_free {
@@ -939,7 +940,7 @@ pub(crate) mod tests {
     pub(crate) fn default_vmm() -> Vmm {
         let (kvm, mut vm) = setup_vm_with_memory(mib_to_bytes(128));
 
-        let (_, vcpus_exit_evt) = vm.create_vcpus(1).unwrap();
+        let (_, vcpus_exit_evt) = vm.create_vcpus(1, false).unwrap();
 
         Vmm {
             instance_info: InstanceInfo::default(),
