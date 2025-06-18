@@ -45,9 +45,9 @@ def test_bad_socket_path(uvm_plain, snapshot):
     jailed_vmstate = vm.create_jailed_resource(snapshot.vmstate)
 
     expected_msg = re.escape(
-        "Load snapshot error: Failed to restore from snapshot: Failed to load guest "
-        "memory: Error creating guest memory from uffd: Failed to connect to UDS Unix stream: No "
-        "such file or directory (os error 2)"
+        "Load snapshot error: Failed to restore from snapshot: Failed to build microVM from "
+        "snapshot: Failed to load guest memory: Error creating guest memory from uffd: Failed "
+        "to connect to UDS Unix stream: No such file or directory (os error 2)"
     )
     with pytest.raises(RuntimeError, match=expected_msg):
         vm.api.snapshot_load.put(
@@ -71,9 +71,9 @@ def test_unbinded_socket(uvm_plain, snapshot):
     jailed_sock_path = vm.create_jailed_resource(socket_path)
 
     expected_msg = re.escape(
-        "Load snapshot error: Failed to restore from snapshot: Failed to load guest "
-        "memory: Error creating guest memory from uffd: Failed to connect to UDS Unix stream: "
-        "Connection refused (os error 111)"
+        "Load snapshot error: Failed to restore from snapshot: Failed to build microVM "
+        "from snapshot: Failed to load guest memory: Error creating guest memory from uffd: "
+        "Failed to connect to UDS Unix stream: Connection refused (os error 111)"
     )
     with pytest.raises(RuntimeError, match=expected_msg):
         vm.api.snapshot_load.put(
