@@ -28,11 +28,11 @@ const GICR_ICFGR0: SimpleReg = SimpleReg::new(GICR_SGI_OFFSET + 0x0C00, 8);
 
 // List with relevant redistributor registers that we will be restoring.
 static VGIC_RDIST_REGS: &[SimpleReg] = &[
-    GICR_CTLR,
     GICR_STATUSR,
     GICR_WAKER,
     GICR_PROPBASER,
     GICR_PENDBASER,
+    GICR_CTLR,
 ];
 
 // List with relevant SGI associated redistributor registers that we will be restoring.

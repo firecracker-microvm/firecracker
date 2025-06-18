@@ -10,6 +10,7 @@ use kvm_ioctls::DeviceFd;
 use serde::{Deserialize, Serialize};
 
 use crate::arch::aarch64::gic::GicError;
+use crate::arch::aarch64::gic::gicv3::regs::its_regs::ItsRegisterState;
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct GicRegState<T> {
@@ -30,6 +31,8 @@ pub struct GicState {
     pub dist: Vec<GicRegState<u32>>,
     /// The state of the vcpu interfaces.
     pub gic_vcpu_states: Vec<GicVcpuState>,
+    /// The state of the ITS device. Only present with GICv3.
+    pub its_state: Option<ItsRegisterState>,
 }
 
 /// Structure used for serializing the state of the GIC registers for a specific vCPU.

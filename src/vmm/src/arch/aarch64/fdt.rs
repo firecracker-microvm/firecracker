@@ -28,6 +28,8 @@ use crate::vstate::memory::{Address, GuestMemory, GuestMemoryMmap};
 const GIC_PHANDLE: u32 = 1;
 // This is a value for uniquely identifying the FDT node containing the clock definition.
 const CLOCK_PHANDLE: u32 = 2;
+// This is a value for uniquely identifying the FDT node declaring the MSI controller.
+const MSI_PHANDLE: u32 = 3;
 // You may be wondering why this big value?
 // This phandle is used to uniquely identify the FDT nodes containing cache information. Each cpu
 // can have a variable number of caches, some of these caches may be shared with other cpus.
@@ -302,6 +304,16 @@ fn create_gic_node(fdt: &mut FdtWriter, gic_device: &GICDevice) -> Result<(), Fd
     ];
 
     fdt.property_array_u32("interrupts", &gic_intr)?;
+
+    if let Some(msi_properties) = gic_device.msi_properties() {
+        let msic_node = fdt.begin_node("msic")?;
+        fdt.property_string("compatible", "arm,gic-v3-its")?;
+        fdt.property_null("msi-controller")?;
+        fdt.property_u32("phandle", MSI_PHANDLE)?;
+        fdt.property_array_u64("reg", msi_properties)?;
+        fdt.end_node(msic_node)?;
+    }
+
     fdt.end_node(interrupt)?;
 
     Ok(())
@@ -471,6 +483,21 @@ fn create_pci_nodes(fdt: &mut FdtWriter, pci_devices: &PciDevices) -> Result<(),
         (MEM_64BIT_DEVICES_SIZE >> 32) as u32, // Range size
         ((MEM_64BIT_DEVICES_SIZE & 0xffff_ffff) >> 32) as u32,
     ];
+
+    // See kernel document Documentation/devicetree/bindings/pci/pci-msi.txt
+    let msi_map = [
+        // rid-base: A single cell describing the first RID matched by the entry.
+        0x0,
+        // msi-controller: A single phandle to an MSI controller.
+        MSI_PHANDLE,
+        // msi-base: An msi-specifier describing the msi-specifier produced for the
+        // first RID matched by the entry.
+        segment.id as u32,
+        // length: A single cell describing how many consecutive RIDs are matched
+        // following the rid-base.
+        0x100,
+    ];
+
     let pci_node = fdt.begin_node(&pci_node_name)?;
 
     fdt.property_string("compatible", "pci-host-ecam-generic")?;
@@ -491,6 +518,9 @@ fn create_pci_nodes(fdt: &mut FdtWriter, pci_devices: &PciDevices) -> Result<(),
     fdt.property_null("interrupt-map")?;
     fdt.property_null("interrupt-map-mask")?;
     fdt.property_null("dma-coherent")?;
+    fdt.property_array_u32("msi-map", &msi_map)?;
+    fdt.property_u32("msi-parent", MSI_PHANDLE)?;
+
     Ok(fdt.end_node(pci_node)?)
 }
 
