@@ -92,9 +92,11 @@ class GlobalProps:
         self.environment = self._detect_environment()
         if self.is_ec2:
             self.instance = imdsv2_get("/meta-data/instance-type")
+            self.instance_id = imdsv2_get("/meta-data/instance-id")
             self.ami = imdsv2_get("/meta-data/ami-id")
         else:
             self.instance = "NA"
+            self.instance_id = "NA"
             self.ami = "NA"
 
     @property
