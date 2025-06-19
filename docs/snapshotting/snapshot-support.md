@@ -221,14 +221,6 @@ base, users should copy its content over the base. This can be done using the
 `rebase-snap` (deprecated) or `snapshot-editor` tools provided with the
 firecracker release:
 
-`rebase-snap` (deprecated) example:
-
-```bash
-rebase-snap --base-file path/to/base --diff-file path/to/layer
-```
-
-`snapshot-editor` example:
-
 ```bash
 snapshot-editor edit-memory rebase \
      --memory-path path/to/base \
