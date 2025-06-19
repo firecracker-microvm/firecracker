@@ -93,10 +93,16 @@ class MemoryMonitor(Thread):
         #  - its size matches the guest memory exactly
         #  - its size is 3328M
         #  - its size is guest memory minus 3328M.
-        return size in (
-            guest_mem_bytes,
-            self.X86_MEMORY_GAP_START,
-            guest_mem_bytes - self.X86_MEMORY_GAP_START,
+        # Note: we add a workaround for Secret Free VMs
+        # to also exclude the snapshot bounce buffer VMA from the check.
+        return (
+            size
+            in (
+                guest_mem_bytes,
+                self.X86_MEMORY_GAP_START,
+                guest_mem_bytes - self.X86_MEMORY_GAP_START,
+            )
+            or size > guest_mem_bytes
         )
 
     def check_samples(self):
