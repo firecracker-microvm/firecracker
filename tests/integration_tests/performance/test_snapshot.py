@@ -284,7 +284,7 @@ def test_snapshot_create_latency(
     match snapshot_type:
         case SnapshotType.FULL:
             metric = "full_create_snapshot"
-        case SnapshotType.DIFF:
+        case SnapshotType.DIFF | SnapshotType.DIFF_MINCORE:
             metric = "diff_create_snapshot"
 
     for _ in range(ITERATIONS):
