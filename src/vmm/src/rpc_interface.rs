@@ -1249,7 +1249,7 @@ mod tests {
                     backend_type: MemBackendType::File,
                     backend_path: PathBuf::new(),
                 },
-                enable_diff_snapshots: false,
+                track_dirty_pages: false,
                 resume_vm: false,
                 network_overrides: vec![],
             },
