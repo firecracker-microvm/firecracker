@@ -11,7 +11,7 @@ from functools import lru_cache
 import pytest
 
 import host_tools.drive as drive_tools
-from framework.microvm import HugePagesConfig, Microvm
+from framework.microvm import HugePagesConfig, Microvm, SnapshotType
 
 USEC_IN_MSEC = 1000
 NS_IN_MSEC = 1_000_000
@@ -251,27 +251,43 @@ def test_population_latency(
             raise RuntimeError("UFFD handler did not print population latency after 5s")
 
 
+@pytest.mark.nonci
 def test_snapshot_create_latency(
     microvm_factory,
     guest_kernel_linux_5_10,
     rootfs,
     metrics,
+    snapshot_type,
 ):
     """Measure the latency of creating a Full snapshot"""
 
     vm = microvm_factory.build(guest_kernel_linux_5_10, rootfs, monitor_memory=False)
     vm.spawn()
-    vm.basic_config(vcpu_count=2, mem_size_mib=512)
+    vm.basic_config(
+        vcpu_count=2,
+        mem_size_mib=512,
+        track_dirty_pages=snapshot_type == SnapshotType.DIFF,
+    )
     vm.start()
     vm.pin_threads(0)
 
     metrics.set_dimensions(
-        {**vm.dimensions, "performance_test": "test_snapshot_create_latency"}
+        {
+            **vm.dimensions,
+            "performance_test": "test_snapshot_create_latency",
+            "snapshot_type": snapshot_type.value,
+        }
     )
 
+    match snapshot_type:
+        case SnapshotType.FULL:
+            metric = "full_create_snapshot"
+        case SnapshotType.DIFF:
+            metric = "diff_create_snapshot"
+
     for _ in range(ITERATIONS):
-        vm.snapshot_full()
+        vm.make_snapshot(snapshot_type)
         fc_metrics = vm.flush_metrics()
 
-        value = fc_metrics["latencies_us"]["full_create_snapshot"] / USEC_IN_MSEC
+        value = fc_metrics["latencies_us"][metric] / USEC_IN_MSEC
         metrics.put_metric("latency", value, "Milliseconds")
