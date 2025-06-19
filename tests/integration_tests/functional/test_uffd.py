@@ -21,9 +21,11 @@ def snapshot_fxt(microvm_factory, guest_kernel_linux_5_10, rootfs, secret_free):
     basevm.add_net_iface()
 
     # Add a memory balloon.
-    basevm.api.balloon.put(
-        amount_mib=0, deflate_on_oom=True, stats_polling_interval_s=0
-    )
+    # Note: Secret Free VMs do not support ballooning as of now.
+    if not secret_free:
+        basevm.api.balloon.put(
+            amount_mib=0, deflate_on_oom=True, stats_polling_interval_s=0
+        )
 
     basevm.start()
 
@@ -82,6 +84,15 @@ def test_unbinded_socket(uvm_plain, snapshot):
     vm.mark_killed()
 
 
+def has_balloon_device(microvm):
+    """
+    Check if a balloon device is present in the Firecracker microVM.
+    """
+    response = microvm.api.vm_config.get()
+    config = response.json()
+    return config.get("balloon")
+
+
 def test_valid_handler(uvm_plain, snapshot):
     """
     Test valid uffd handler scenario.
@@ -91,14 +102,16 @@ def test_valid_handler(uvm_plain, snapshot):
     vm.spawn()
     vm.restore_from_snapshot(snapshot, resume=True, uffd_handler_name="on_demand")
 
-    # Inflate balloon.
-    vm.api.balloon.patch(amount_mib=200)
+    # Secret Free VMs do not support ballooning so the balloon device is not added to them.
+    if has_balloon_device(vm):
+        # Inflate balloon.
+        vm.api.balloon.patch(amount_mib=200)
 
-    # Verify if the restored guest works.
-    vm.ssh.check_output("true")
+        # Verify if the restored guest works.
+        vm.ssh.check_output("true")
 
-    # Deflate balloon.
-    vm.api.balloon.patch(amount_mib=0)
+        # Deflate balloon.
+        vm.api.balloon.patch(amount_mib=0)
 
     # Verify if the restored guest works.
     vm.ssh.check_output("true")
