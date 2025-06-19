@@ -22,7 +22,7 @@ import time
 import uuid
 from collections import namedtuple
 from dataclasses import dataclass
-from enum import Enum
+from enum import Enum, auto
 from functools import lru_cache
 from pathlib import Path
 from typing import Optional
@@ -49,8 +49,8 @@ LOG = logging.getLogger("microvm")
 class SnapshotType(Enum):
     """Supported snapshot types."""
 
-    FULL = "Full"
-    DIFF = "Diff"
+    FULL = auto()
+    DIFF = auto()
 
     def __repr__(self):
         cls_name = self.__class__.__name__
@@ -65,6 +65,15 @@ class SnapshotType(Enum):
     def needs_dirty_page_tracking(self) -> bool:
         """Does taking this snapshot type require dirty page tracking to be enabled?"""
         return self == SnapshotType.DIFF
+
+    @property
+    def api_type(self) -> str:
+        """Converts this `SnapshotType` to the string value expected by the Firecracker API"""
+        match self:
+            case SnapshotType.FULL:
+                return "Full"
+            case SnapshotType.DIFF:
+                return "Diff"
 
 
 def hardlink_or_copy(src, dst):
@@ -984,7 +993,7 @@ class Microvm:
         self.api.snapshot_create.put(
             mem_file_path=str(mem_path),
             snapshot_path=str(vmstate_path),
-            snapshot_type=snapshot_type.value,
+            snapshot_type=snapshot_type.api_type,
         )
         root = Path(self.chroot())
         return Snapshot(
