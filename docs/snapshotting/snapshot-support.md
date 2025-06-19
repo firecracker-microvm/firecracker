@@ -208,14 +208,18 @@ Now that the microVM is paused, you can create a snapshot, which can be either a
 `full`one or a `diff` one. Full snapshots always create a complete, resume-able
 snapshot of the current microVM state and memory. Diff snapshots save the
 current microVM state and the memory dirtied since the last snapshot (full or
-diff). Diff snapshots are not resume-able, but can be merged into a full
-snapshot. In this context, we will refer to the base as the first memory file
-created by a `/snapshot/create` API call and the layer as a memory file created
-by a subsequent `/snapshot/create` API call. The order in which the snapshots
-were created matters and they should be merged in the same order in which they
-were created. To merge a `diff` snapshot memory file on top of a base, users
-should copy its content over the base. This can be done using the `rebase-snap`
-(deprecated) or `snapshot-editor` tools provided with the firecracker release:
+diff). The result of a diff snapshot will be a sparse file, with only dirty
+pages written (and undirtied ranges becoming holes). Diff snapshots are
+generally not resume-able, but must be merged with a base snapshot into a full
+snapshot. The exception here are diff snapshots of booted VMs, which are
+immediately resumable. In this context, we will refer to the base as the first
+memory file created by a `/snapshot/create` API call and the layer as a memory
+file created by a subsequent `/snapshot/create` API call. The order in which the
+snapshots were created matters and they should be merged in the same order in
+which they were created. To merge a `diff` snapshot memory file on top of a
+base, users should copy its content over the base. This can be done using the
+`rebase-snap` (deprecated) or `snapshot-editor` tools provided with the
+firecracker release:
 
 `rebase-snap` (deprecated) example:
 
