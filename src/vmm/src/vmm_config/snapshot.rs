@@ -64,9 +64,9 @@ pub struct LoadSnapshotParams {
     pub snapshot_path: PathBuf,
     /// Specifies guest memory backend configuration.
     pub mem_backend: MemBackendConfig,
-    /// Setting this flag will enable KVM dirty page tracking and will
-    /// allow taking subsequent incremental snapshots.
-    pub enable_diff_snapshots: bool,
+    /// Whether KVM dirty page tracking should be enabled, to space optimization
+    /// of differential snapshots.
+    pub track_dirty_pages: bool,
     /// When set to true, the vm is also resumed if the snapshot load
     /// is successful.
     pub resume_vm: bool,
@@ -90,7 +90,11 @@ pub struct LoadSnapshotConfig {
     pub mem_backend: Option<MemBackendConfig>,
     /// Whether or not to enable KVM dirty page tracking.
     #[serde(default)]
+    #[deprecated]
     pub enable_diff_snapshots: bool,
+    /// Whether KVM dirty page tracking should be enabled.
+    #[serde(default)]
+    pub track_dirty_pages: bool,
     /// Whether or not to resume the vm post snapshot load.
     #[serde(default)]
     pub resume_vm: bool,

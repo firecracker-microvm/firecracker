@@ -245,7 +245,7 @@ fn verify_load_snapshot(snapshot_file: TempFile, memory_file: TempFile) {
                 backend_path: memory_file.as_path().to_path_buf(),
                 backend_type: MemBackendType::File,
             },
-            enable_diff_snapshots: false,
+            track_dirty_pages: false,
             resume_vm: true,
             network_overrides: vec![],
         }))
@@ -329,7 +329,7 @@ fn verify_load_snap_disallowed_after_boot_resources(res: VmmAction, res_name: &s
             backend_path: memory_file.as_path().to_path_buf(),
             backend_type: MemBackendType::File,
         },
-        enable_diff_snapshots: false,
+        track_dirty_pages: false,
         resume_vm: false,
         network_overrides: vec![],
     });

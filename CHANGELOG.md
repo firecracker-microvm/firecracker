@@ -31,6 +31,10 @@ and this project adheres to
 
 ### Deprecated
 
+- [#5274](https://github.com/firecracker-microvm/firecracker/pull/5274):
+  Deprecated the `enable_diff_snapshots` parameter of the `/snapshot/load` API.
+  Use `track_dirty_pages` instead.
+
 ### Removed
 
 ### Fixed
