@@ -277,7 +277,7 @@ def test_snapshot_create_latency(
         {
             **vm.dimensions,
             "performance_test": "test_snapshot_create_latency",
-            "snapshot_type": snapshot_type.value,
+            "snapshot_type": str(snapshot_type),
         }
     )
 
