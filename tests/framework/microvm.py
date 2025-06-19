@@ -56,6 +56,16 @@ class SnapshotType(Enum):
         cls_name = self.__class__.__name__
         return f"{cls_name}.{self.name}"
 
+    @property
+    def needs_rebase(self) -> bool:
+        """Does this snapshot type need rebasing on top of a base snapshot before restoration?"""
+        return self == SnapshotType.DIFF
+
+    @property
+    def needs_dirty_page_tracking(self) -> bool:
+        """Does taking this snapshot type require dirty page tracking to be enabled?"""
+        return self == SnapshotType.DIFF
+
 
 def hardlink_or_copy(src, dst):
     """If src and dst are in the same device, hardlink. Otherwise, copy."""
@@ -79,15 +89,10 @@ class Snapshot:
     snapshot_type: SnapshotType
     meta: dict
 
-    @property
-    def is_diff(self) -> bool:
-        """Is this a DIFF snapshot?"""
-        return self.snapshot_type == SnapshotType.DIFF
-
     def rebase_snapshot(self, base, use_snapshot_editor=False):
         """Rebases current incremental snapshot onto a specified base layer."""
-        if not self.is_diff:
-            raise ValueError("Can only rebase DIFF snapshots")
+        if not self.snapshot_type.needs_rebase:
+            raise ValueError(f"Cannot rebase {self.snapshot_type}")
         if use_snapshot_editor:
             build_tools.run_snap_editor_rebase(base.mem, self.mem)
         else:
@@ -1067,7 +1072,7 @@ class Microvm:
         self.api.snapshot_load.put(
             mem_backend=mem_backend,
             snapshot_path=str(jailed_vmstate),
-            enable_diff_snapshots=jailed_snapshot.is_diff,
+            enable_diff_snapshots=jailed_snapshot.snapshot_type.needs_dirty_page_tracking,
             resume_vm=resume,
             **optional_kwargs,
         )
@@ -1231,12 +1236,15 @@ class MicroVMFactory:
             if incremental:
                 # When doing diff snapshots, we continuously overwrite the same base snapshot file from the first
                 # iteration in-place with successive snapshots, so don't delete it!
-                if last_snapshot is not None and not last_snapshot.is_diff:
+                if (
+                    last_snapshot is not None
+                    and not last_snapshot.snapshot_type.needs_rebase
+                ):
                     last_snapshot.delete()
 
                 next_snapshot = microvm.make_snapshot(current_snapshot.snapshot_type)
 
-                if current_snapshot.is_diff:
+                if current_snapshot.snapshot_type.needs_rebase:
                     next_snapshot = next_snapshot.rebase_snapshot(
                         current_snapshot, use_snapshot_editor
                     )
@@ -1247,7 +1255,7 @@ class MicroVMFactory:
             microvm.kill()
             snapshot_copy.delete()
 
-        if last_snapshot is not None and not last_snapshot.is_diff:
+        if last_snapshot is not None and not last_snapshot.snapshot_type.needs_rebase:
             last_snapshot.delete()
         current_snapshot.delete()
 
