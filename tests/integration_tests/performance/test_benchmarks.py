@@ -18,6 +18,7 @@ LOGGER = logging.getLogger(__name__)
 
 
 @pytest.mark.no_block_pr
+@pytest.mark.nonci
 @pytest.mark.timeout(900)
 def test_no_regression_relative_to_target_branch():
     """
