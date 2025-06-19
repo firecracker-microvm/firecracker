@@ -277,9 +277,9 @@ the snapshot. If they exist, the files will be truncated and overwritten.
     contents are only guaranteed to be committed/flushed to the host FS, but not
     necessarily to the underlying persistent storage (could still live in host
     FS cache).
-  - If diff snapshots were enabled, the snapshot creation resets then the
-    dirtied page bitmap and marks all pages clean (from a diff snapshot point of
-    view).
+  - If dirty page tracking is enabled, the snapshot creation resets then the
+    dirtied page bitmap and marks all pages clean (from a dirty page tracking
+    point of view).
 
 - _on failure_: no side-effects.
 
@@ -388,7 +388,7 @@ curl --unix-socket /tmp/firecracker.socket -i \
                 "backend_path": "./mem_file",
                 "backend_type": "File"
             },
-            "enable_diff_snapshots": true,
+            "track_dirty_pages": true,
             "resume_vm": false
     }'
 ```
@@ -424,7 +424,7 @@ curl --unix-socket /tmp/firecracker.socket -i \
     -d '{
             "snapshot_path": "./snapshot_file",
             "mem_file_path": "./mem_file",
-            "enable_diff_snapshots": true,
+            "track_dirty_pages": true,
             "resume_vm": false
     }'
 ```
@@ -455,8 +455,8 @@ to the new Firecracker process as they were to the original one.
     the guest memory and leads to undefined behavior.
   - The file indicated by `snapshot_path`, that is used to load from, is
     released and no longer used by this process.
-  - If `enable_diff_snapshots` is set, then diff snapshots can be taken
-    afterwards.
+  - If `track_dirty_pages` is set, subsequent diff snapshots will be based on
+    KVM dirty page tracking.
   - If `resume_vm` is set, the vm is automatically resumed if load is
     successful.
 - _on failure_: A specific error is reported and then the current Firecracker
