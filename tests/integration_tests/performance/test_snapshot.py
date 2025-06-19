@@ -279,9 +279,15 @@ def test_snapshot_create_latency(
         }
     )
 
+    match snapshot_type:
+        case SnapshotType.FULL:
+            metric = "full_create_snapshot"
+        case SnapshotType.DIFF:
+            metric = "diff_create_snapshot"
+
     for _ in range(ITERATIONS):
         vm.make_snapshot(snapshot_type)
         fc_metrics = vm.flush_metrics()
 
-        value = fc_metrics["latencies_us"]["full_create_snapshot"] / USEC_IN_MSEC
+        value = fc_metrics["latencies_us"][metric] / USEC_IN_MSEC
         metrics.put_metric("latency", value, "Milliseconds")
