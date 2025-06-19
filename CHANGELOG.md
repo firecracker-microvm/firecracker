@@ -35,6 +35,9 @@ and this project adheres to
   MMDS to set `Content-Type` header correctly (i.e. `Content-Type: text/plain`
   for IMDS-formatted or error responses and `Content-Type: application/json` for
   JSON-formatted responses).
+- [#5260](https://github.com/firecracker-microvm/firecracker/pull/5260): Fixed a
+  bug allowing the block device to starve all other devices when backed by a
+  sufficiently slow drive.
 
 ## [1.12.0]
 
