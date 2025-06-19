@@ -51,6 +51,7 @@ class SnapshotType(Enum):
 
     FULL = auto()
     DIFF = auto()
+    DIFF_MINCORE = auto()
 
     def __repr__(self):
         cls_name = self.__class__.__name__
@@ -59,7 +60,7 @@ class SnapshotType(Enum):
     @property
     def needs_rebase(self) -> bool:
         """Does this snapshot type need rebasing on top of a base snapshot before restoration?"""
-        return self == SnapshotType.DIFF
+        return self in [SnapshotType.DIFF, SnapshotType.DIFF_MINCORE]
 
     @property
     def needs_dirty_page_tracking(self) -> bool:
@@ -72,7 +73,7 @@ class SnapshotType(Enum):
         match self:
             case SnapshotType.FULL:
                 return "Full"
-            case SnapshotType.DIFF:
+            case SnapshotType.DIFF | SnapshotType.DIFF_MINCORE:
                 return "Diff"
 
 
