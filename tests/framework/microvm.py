@@ -976,7 +976,7 @@ class Microvm:
 
     def make_snapshot(
         self,
-        snapshot_type: SnapshotType | str,
+        snapshot_type: SnapshotType,
         *,
         mem_path: str = "mem",
         vmstate_path="vmstate",
@@ -988,7 +988,6 @@ class Microvm:
 
         It pauses the microvm before taking the snapshot.
         """
-        snapshot_type = SnapshotType(snapshot_type)
         self.pause()
         self.api.snapshot_create.put(
             mem_file_path=str(mem_path),
@@ -1011,11 +1010,15 @@ class Microvm:
 
     def snapshot_diff(self, *, mem_path: str = "mem", vmstate_path="vmstate"):
         """Make a Diff snapshot"""
-        return self.make_snapshot("Diff", mem_path=mem_path, vmstate_path=vmstate_path)
+        return self.make_snapshot(
+            SnapshotType.DIFF, mem_path=mem_path, vmstate_path=vmstate_path
+        )
 
     def snapshot_full(self, *, mem_path: str = "mem", vmstate_path="vmstate"):
         """Make a Full snapshot"""
-        return self.make_snapshot("Full", mem_path=mem_path, vmstate_path=vmstate_path)
+        return self.make_snapshot(
+            SnapshotType.FULL, mem_path=mem_path, vmstate_path=vmstate_path
+        )
 
     def restore_from_snapshot(
         self,
