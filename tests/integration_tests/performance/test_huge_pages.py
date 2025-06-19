@@ -68,22 +68,31 @@ def test_hugetlbfs_boot(uvm_plain):
     )
 
 
-def test_hugetlbfs_snapshot(microvm_factory, guest_kernel_linux_5_10, rootfs):
+def test_hugetlbfs_snapshot(
+    microvm_factory, guest_kernel_linux_5_10, rootfs, snapshot_type
+):
     """
     Test hugetlbfs snapshot restore via uffd
+
+    Despite guest memory being backed by huge pages, enabling differential snapshots
+    causes KVM to set up guest mappings at 4k granularity
     """
 
     ### Create Snapshot ###
     vm = microvm_factory.build(guest_kernel_linux_5_10, rootfs)
     vm.memory_monitor = None
     vm.spawn()
-    vm.basic_config(huge_pages=HugePagesConfig.HUGETLBFS_2MB, mem_size_mib=128)
+    vm.basic_config(
+        huge_pages=HugePagesConfig.HUGETLBFS_2MB,
+        mem_size_mib=128,
+        track_dirty_pages=snapshot_type.needs_dirty_page_tracking,
+    )
     vm.add_net_iface()
     vm.start()
 
     check_hugetlbfs_in_use(vm.firecracker_pid, "/anon_hugepage")
 
-    snapshot = vm.snapshot_full()
+    snapshot = vm.make_snapshot(snapshot_type)
 
     vm.kill()
 
@@ -93,46 +102,6 @@ def test_hugetlbfs_snapshot(microvm_factory, guest_kernel_linux_5_10, rootfs):
     vm.restore_from_snapshot(snapshot, resume=True, uffd_handler_name="on_demand")
 
     check_hugetlbfs_in_use(vm.firecracker_pid, "/anon_hugepage")
-
-
-def test_hugetlbfs_diff_snapshot(microvm_factory, uvm_plain):
-    """
-    Test hugetlbfs differential snapshot support.
-
-    Despite guest memory being backed by huge pages, differential snapshots still work at 4K granularity.
-    """
-
-    ### Create Snapshot ###
-    uvm_plain.memory_monitor = None
-    uvm_plain.spawn()
-    uvm_plain.basic_config(
-        huge_pages=HugePagesConfig.HUGETLBFS_2MB,
-        mem_size_mib=128,
-        track_dirty_pages=True,
-    )
-    uvm_plain.add_net_iface()
-    uvm_plain.start()
-
-    # Wait for microvm to boot
-
-    base_snapshot = uvm_plain.snapshot_diff()
-    uvm_plain.resume()
-
-    # Run command to dirty some pages
-    uvm_plain.ssh.check_output("sync")
-
-    snapshot_diff = uvm_plain.snapshot_diff()
-    snapshot_merged = snapshot_diff.rebase_snapshot(base_snapshot)
-
-    uvm_plain.kill()
-
-    vm = microvm_factory.build()
-    vm.spawn()
-    vm.restore_from_snapshot(
-        snapshot_merged, resume=True, uffd_handler_name="on_demand"
-    )
-
-    # Verify if the restored microvm works.
 
 
 @pytest.mark.parametrize("huge_pages", HugePagesConfig)
