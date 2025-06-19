@@ -206,20 +206,20 @@ the microVM in the `Paused` state. **Effects**:
 
 Now that the microVM is paused, you can create a snapshot, which can be either a
 `full`one or a `diff` one. Full snapshots always create a complete, resume-able
-snapshot of the current microVM state and memory. Diff snapshots save the
-current microVM state and the memory dirtied since the last snapshot (full or
-diff). The result of a diff snapshot will be a sparse file, with only dirty
-pages written (and undirtied ranges becoming holes). Diff snapshots are
-generally not resume-able, but must be merged with a base snapshot into a full
-snapshot. The exception here are diff snapshots of booted VMs, which are
-immediately resumable. In this context, we will refer to the base as the first
-memory file created by a `/snapshot/create` API call and the layer as a memory
-file created by a subsequent `/snapshot/create` API call. The order in which the
-snapshots were created matters and they should be merged in the same order in
-which they were created. To merge a `diff` snapshot memory file on top of a
-base, users should copy its content over the base. This can be done using the
-`rebase-snap` (deprecated) or `snapshot-editor` tools provided with the
-firecracker release:
+snapshot of the current microVM state and memory. Diff snapshots save at least
+the current microVM state and the memory accessed since the last snapshot (full
+or diff) in a sparse file (but they might include more pages than strictly
+needed due to technical limitation in Firecracker's ability to accurately track
+accesses). Diff snapshots are generally not resume-able, but must be merged with
+a base snapshot into a full snapshot. The exception here are diff snapshots of
+booted VMs, which are immediately resumable. In this context, we will refer to
+the base as the first memory file created by a `/snapshot/create` API call and
+the layer as a memory file created by a subsequent `/snapshot/create` API call.
+The order in which the snapshots were created matters and they should be merged
+in the same order in which they were created. To merge a `diff` snapshot memory
+file on top of a base, users should copy its content over the base. This can be
+done using the `rebase-snap` (deprecated) or `snapshot-editor` tools provided
+with the firecracker release:
 
 ```bash
 snapshot-editor edit-memory rebase \
@@ -309,10 +309,17 @@ curl --unix-socket /tmp/firecracker.socket -i \
 
 **Prerequisites**: The microVM is `Paused`.
 
-*Note*: On a fresh microVM, `track_dirty_pages` field should be set to `true`,
-when configuring the `/machine-config` resource, while on a snapshot loaded
-microVM, `enable_diff_snapshots` from `PUT /snapshot/load`request body, should
-be set.
+Diff snapshots come in two flavors. If `track_dirty_pages` was set to `true`
+when configuring the `/machine-config` resource or when restoring from a
+snapshot via `/snapshot/load`, Firecracker will use KVM's dirty page log runtime
+functionality to ensure the diff snapshot only contains exactly pages that were
+written to since boot / snapshot restoration. If `track_dirty_pages` is not
+enabled, Firecracker uses the [`mincore(2)`][man mincore] syscall to determine
+which pages to include in the snapshot. As such, this mode of snapshot taking
+will only work _if swap is disabled_, as mincore does not consider pages written
+to swap to be "in core". This potentially results in bigger memory files
+(although they are still sparse), but avoids the runtime overhead of dirty page
+logging.
 
 **Effects**:
 
@@ -628,3 +635,5 @@ the compatibility table reported below:
 For example, a snapshot taken on a m6i.metal host running a 5.10 host kernel can
 be restored on a different m6i.metal host running a 6.1 host kernel (but not
 vice versa), but could not be restored on a c5n.metal host.
+
+[man mincore]: https://man7.org/linux/man-pages/man2/mincore.2.html
