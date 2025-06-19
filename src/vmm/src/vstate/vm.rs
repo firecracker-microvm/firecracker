@@ -31,7 +31,7 @@ use crate::{DirtyBitmap, Vcpu, mem_size_mib};
 pub struct VmCommon {
     /// The KVM file descriptor used to access this Vm.
     pub fd: VmFd,
-    max_memslots: usize,
+    max_memslots: u32,
     /// The guest memory of this Vm.
     pub guest_memory: GuestMemoryMmap,
 }
@@ -51,8 +51,8 @@ pub enum VmError {
     EventFd(std::io::Error),
     /// Failed to create vcpu: {0}
     CreateVcpu(VcpuError),
-    /// The number of configured slots is bigger than the maximum reported by KVM
-    NotEnoughMemorySlots,
+    /// The number of configured slots is bigger than the maximum reported by KVM: {0}
+    NotEnoughMemorySlots(u32),
     /// Memory Error: {0}
     VmMemory(#[from] vm_memory::Error),
 }
@@ -142,9 +142,9 @@ impl Vm {
             .guest_memory()
             .num_regions()
             .try_into()
-            .map_err(|_| VmError::NotEnoughMemorySlots)?;
-        if next_slot as usize >= self.common.max_memslots {
-            return Err(VmError::NotEnoughMemorySlots);
+            .expect("Number of existing memory regions exceeds u32::MAX");
+        if self.common.max_memslots <= next_slot {
+            return Err(VmError::NotEnoughMemorySlots(self.common.max_memslots));
         }
 
         let flags = if region.bitmap().is_some() {
@@ -362,9 +362,11 @@ pub(crate) mod tests {
 
             let res = vm.register_memory_region(region);
 
-            if i >= max_nr_regions {
+            // For some reason max_nr_regions is considered unused here
+            #[allow(unused_variables)]
+            if max_nr_regions <= i {
                 assert!(
-                    matches!(res, Err(VmError::NotEnoughMemorySlots)),
+                    matches!(res, Err(VmError::NotEnoughMemorySlots(max_nr_regions))),
                     "{:?} at iteration {} - max_nr_memslots: {}",
                     res,
                     i,
