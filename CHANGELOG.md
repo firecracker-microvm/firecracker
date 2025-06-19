@@ -6,6 +6,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.12.1]
+
+### Fixed
+
+- [#5277](https://github.com/firecracker-microvm/firecracker/pull/5277): Fixed a
+  bug allowing the block device to starve all other devices when backed by a
+  sufficiently slow drive.
+
 ## [1.12.0]
 
 ### Added
