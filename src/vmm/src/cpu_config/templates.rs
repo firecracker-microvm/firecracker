@@ -19,6 +19,15 @@ mod common_types {
     };
 }
 
+#[cfg(target_arch = "riscv64")]
+mod common_types {
+    pub use crate::cpu_config::riscv64::custom_cpu_template::CustomCpuTemplate;
+    pub use crate::cpu_config::riscv64::static_cpu_templates::StaticCpuTemplate;
+    pub use crate::cpu_config::riscv64::{
+        CpuConfiguration, CpuConfigurationError as GuestConfigError,
+    };
+}
+
 use std::borrow::Cow;
 use std::fmt::Debug;
 
