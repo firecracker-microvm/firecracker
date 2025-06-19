@@ -19,7 +19,6 @@ import host_tools.cargo_build as host
 import host_tools.drive as drive_tools
 import host_tools.network as net_tools
 from framework import utils
-from framework.microvm import SnapshotType
 from framework.properties import global_props
 from framework.utils import check_filesystem, check_output
 from framework.utils_vsock import (
@@ -132,14 +131,13 @@ def test_cycled_snapshot_restore(
     cycles = 3
 
     logger = logging.getLogger("snapshot_sequence")
-    diff_snapshots = snapshot_type == SnapshotType.DIFF
 
     vm = microvm_factory.build(guest_kernel, rootfs)
     vm.spawn()
     vm.basic_config(
         vcpu_count=2,
         mem_size_mib=512,
-        track_dirty_pages=diff_snapshots,
+        track_dirty_pages=snapshot_type.needs_dirty_page_tracking,
     )
     vm.set_cpu_template(cpu_template_any)
     vm.add_net_iface()
