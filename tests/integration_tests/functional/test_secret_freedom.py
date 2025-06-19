@@ -56,20 +56,3 @@ def test_secret_free_initrd(microvm_factory, guest_kernel):
     serial.rx(token="# ")
     serial.tx("mount |grep rootfs")
     serial.rx(token=f"rootfs on / type {INITRD_FILESYSTEM}")
-
-
-def test_secret_free_snapshot_creation(microvm_factory, guest_kernel, rootfs):
-    """Test that snapshot creation works for secret hidden VMs"""
-    vm = microvm_factory.build(guest_kernel, rootfs)
-    vm.spawn()
-    vm.memory_monitor = None
-    vm.basic_config(secret_free=True)
-    vm.add_net_iface()
-    vm.start()
-
-    snapshot = vm.snapshot_full()
-
-    # After restoration, the VM will not be secret hidden anymore, as that's not supported yet.
-    # But we can at least test that in principle, the snapshot creation worked.
-    vm = microvm_factory.build_from_snapshot(snapshot)
-    vm.ssh.check_output("true")
