@@ -347,7 +347,7 @@ pub fn restore_from_snapshot(
             return Err(SnapshotStateFromFileError::UnknownNetworkDevice.into());
         }
     }
-    let track_dirty_pages = params.enable_diff_snapshots;
+    let track_dirty_pages = params.track_dirty_pages;
 
     let vcpu_count = microvm_state
         .vcpu_states
