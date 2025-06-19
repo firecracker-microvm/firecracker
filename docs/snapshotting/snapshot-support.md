@@ -307,10 +307,20 @@ curl --unix-socket /tmp/firecracker.socket -i \
 
 **Prerequisites**: The microVM is `Paused`.
 
-*Note*: On a fresh microVM, `track_dirty_pages` field should be set to `true`,
-when configuring the `/machine-config` resource, while on a snapshot loaded
-microVM, `enable_diff_snapshots` from `PUT /snapshot/load`request body, should
-be set.
+*Note*: Diff snapshots come in two flavor. If `track_dirty_pages` was set to
+`true` when configuring the `/machine-config` resource or when restoring from a
+snapshot via `/snapshot/load`, Firecracker will use KVM's dirty page log runtime
+functionality to ensure the diff snapshot only contains exactly pages that were
+written to since boot / snapshot restoration. If `track_dirty_pages` is not
+enabled, Firecracker will instead over-approximate the set of pages to include
+in the snapshot by instead considering all pages that were _accessed_ during the
+VM's lifetime. This potentially results in bigger memory files (although they
+are still sparse), but avoids the runtime overhead of dirty page logging.
+
+Without dirty page tracking enabled, Firecracker uses the
+[`mincore(2)`][man mincore] syscall to determine which pages to include in the
+snapshot. As such, this mode of snapshot taking will only work _if swap is
+disabled_, as mincore will not consider pages written to swap to be "in core".
 
 **Effects**:
 
@@ -626,3 +636,5 @@ the compatibility table reported below:
 For example, a snapshot taken on a m6i.metal host running a 5.10 host kernel can
 be restored on a different m6i.metal host running a 6.1 host kernel (but not
 vice versa), but could not be restored on a c5n.metal host.
+
+[man mincore]: https://man7.org/linux/man-pages/man2/mincore.2.html
