@@ -1,6 +1,6 @@
 [package]
 name = "jailer"
-version = "1.6.1"
+version = "1.6.2"
 authors = ["Amazon Firecracker team <firecracker-devel@amazon.com>"]
 edition = "2021"
 description = "Process for starting Firecracker in production scenarios; applies a cgroup/namespace isolation barrier and then drops privileges."

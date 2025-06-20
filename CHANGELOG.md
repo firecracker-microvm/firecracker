@@ -5,7 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.6.2]
+
+- [#4796](https://github.com/firecracker-microvm/firecracker/pull/4796): Fixed
+  Vsock not notifying guest about `TRANSPORT_RESET_EVENT` event after snapshot
+  restore. This resulted in guest waiting indefinitely on a connection which was
+  reset during snapshot creation.
+
 ## [1.6.1]
+
 - [#4618](https://github.com/firecracker-microvm/firecracker/pull/4618): On
   x86_64, when taking a snapshot, if a vCPU has MSR_IA32_TSC_DEADLINE set to 0,
   Firecracker will replace it with the MSR_IA32_TSC value from the same vCPU.
