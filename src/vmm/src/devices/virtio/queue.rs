@@ -369,14 +369,6 @@ impl Queue {
         Ok(())
     }
 
-    /// Mark memory used for queue objects as dirty.
-    pub fn mark_memory_dirty<M: GuestMemory>(&self, mem: &M) -> Result<(), QueueError> {
-        _ = self.get_slice_ptr(mem, self.desc_table_address, self.desc_table_size())?;
-        _ = self.get_slice_ptr(mem, self.avail_ring_address, self.avail_ring_size())?;
-        _ = self.get_slice_ptr(mem, self.used_ring_address, self.used_ring_size())?;
-        Ok(())
-    }
-
     /// Get AvailRing.idx
     #[inline(always)]
     pub fn avail_ring_idx_get(&self) -> u16 {

@@ -182,9 +182,9 @@ pub trait VirtioDevice: AsAny + Send {
     }
 
     /// Mark pages used by queues as dirty.
-    fn mark_queue_memory_dirty(&self, mem: &GuestMemoryMmap) -> Result<(), QueueError> {
-        for queue in self.queues() {
-            queue.mark_memory_dirty(mem)?
+    fn mark_queue_memory_dirty(&mut self, mem: &GuestMemoryMmap) -> Result<(), QueueError> {
+        for queue in self.queues_mut() {
+            queue.initialize(mem)?
         }
         Ok(())
     }
