@@ -5,20 +5,19 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the THIRD-PARTY file.
 
+use std::convert::Infallible;
 use std::fmt::Debug;
 use std::sync::{Arc, Mutex};
 
 use acpi::ACPIDeviceManager;
 use event_manager::{MutEventSubscriber, SubscriberOps};
-use kvm_ioctls::VmFd;
 #[cfg(target_arch = "x86_64")]
 use legacy::{LegacyDeviceError, PortIODeviceManager};
 use linux_loader::loader::Cmdline;
-use log::error;
+use log::{error, info};
 use mmio::{MMIODeviceManager, MmioError};
-use pci_mngr::{PciDevices, PciManagerError};
+use pci_mngr::{PciDevices, PciDevicesConstructorArgs, PciManagerError};
 use persist::{ACPIDeviceManagerConstructorArgs, MMIODevManagerConstructorArgs};
-use resources::ResourceAllocator;
 use serde::{Deserialize, Serialize};
 use utils::time::TimestampUs;
 use vmm_sys_util::eventfd::EventFd;
@@ -31,12 +30,18 @@ use crate::devices::legacy::RTCDevice;
 use crate::devices::legacy::serial::SerialOut;
 use crate::devices::legacy::{IER_RDA_BIT, IER_RDA_OFFSET, SerialDevice};
 use crate::devices::pseudo::BootTimer;
+use crate::devices::virtio::balloon::Balloon;
+use crate::devices::virtio::block::device::Block;
 use crate::devices::virtio::device::VirtioDevice;
+use crate::devices::virtio::net::Net;
+use crate::devices::virtio::rng::Entropy;
 use crate::devices::virtio::transport::mmio::{IrqTrigger, MmioTransport};
+use crate::devices::virtio::vsock::{TYPE_VSOCK, Vsock, VsockUnixBackend};
+use crate::devices::virtio::{TYPE_BALLOON, TYPE_BLOCK, TYPE_NET, TYPE_RNG};
 use crate::resources::VmResources;
 use crate::snapshot::Persist;
 use crate::vstate::memory::GuestMemoryMmap;
-use crate::{EmulateSerialInitError, EventManager};
+use crate::{EmulateSerialInitError, EventManager, Vm};
 
 /// ACPI device manager.
 pub mod acpi;
@@ -48,8 +53,6 @@ pub mod mmio;
 pub mod pci_mngr;
 /// Device managers (de)serialization support.
 pub mod persist;
-/// Resource manager for devices.
-pub mod resources;
 
 #[derive(Debug, thiserror::Error, displaydoc::Display)]
 /// Error while creating a new [`DeviceManager`]
@@ -65,41 +68,28 @@ pub enum DeviceManagerCreateError {
 
 #[derive(Debug, thiserror::Error, displaydoc::Display)]
 /// Error while attaching a VirtIO device
-pub enum AttachMmioDeviceError {
+pub enum AttachDeviceError {
     /// MMIO transport error: {0}
     MmioTransport(#[from] MmioError),
     /// Error inserting device in bus: {0}
     Bus(#[from] vm_device::BusError),
-}
-
-#[derive(Debug, thiserror::Error, displaydoc::Display)]
-/// Error while attaching the VMGenID device
-pub enum AttachVmgenidError {
     /// Error creating VMGenID device: {0}
     CreateVmGenID(#[from] VmGenIdError),
     /// Error while registering VMGenID with KVM: {0}
     AttachVmGenID(#[from] kvm_ioctls::Error),
-}
-
-#[cfg(target_arch = "aarch64")]
-#[derive(Debug, thiserror::Error, displaydoc::Display)]
-/// Error while attaching the VMGenID device
-pub enum AttachLegacyMmioDeviceError {
+    #[cfg(target_arch = "aarch64")]
     /// Cmdline error
     Cmdline,
+    #[cfg(target_arch = "aarch64")]
     /// Error creating serial device: {0}
     CreateSerial(#[from] std::io::Error),
-    /// Error registering device: {0}
-    RegisterMMIODevice(#[from] MmioError),
-    /// Error inserting device in the Bus: {0}
-    Bus(#[from] vm_device::BusError),
+    /// Error attach PCI device: {0}
+    PciTransport(#[from] PciManagerError),
 }
 
 #[derive(Debug)]
 /// A manager of all peripheral devices of Firecracker
 pub struct DeviceManager {
-    /// Allocator for system memory and interrupt numbers
-    pub resource_allocator: Arc<ResourceAllocator>,
     /// MMIO devices
     pub mmio_devices: MMIODeviceManager,
     #[cfg(target_arch = "x86_64")]
@@ -139,33 +129,38 @@ impl DeviceManager {
         Ok(serial)
     }
 
+    #[cfg(target_arch = "x86_64")]
+    fn create_legacy_devices(
+        event_manager: &mut EventManager,
+        vcpus_exit_evt: &EventFd,
+        vm: &Vm,
+    ) -> Result<PortIODeviceManager, DeviceManagerCreateError> {
+        Self::set_stdout_nonblocking();
+
+        // Create serial device
+        let serial = Self::setup_serial_device(event_manager)?;
+        let reset_evt = vcpus_exit_evt
+            .try_clone()
+            .map_err(DeviceManagerCreateError::EventFd)?;
+        // Create keyboard emulator for reset event
+        let i8042 = Arc::new(Mutex::new(I8042Device::new(reset_evt)?));
+
+        // create pio dev manager with legacy devices
+        let mut legacy_devices = PortIODeviceManager::new(serial, i8042)?;
+        legacy_devices.register_devices(vm)?;
+        Ok(legacy_devices)
+    }
+
     #[cfg_attr(target_arch = "aarch64", allow(unused))]
     pub fn new(
         event_manager: &mut EventManager,
-        vcpu_exit_evt: &EventFd,
-        vmfd: &VmFd,
+        vcpus_exit_evt: &EventFd,
+        vm: &Vm,
     ) -> Result<Self, DeviceManagerCreateError> {
-        let resource_allocator = Arc::new(ResourceAllocator::new()?);
         #[cfg(target_arch = "x86_64")]
-        let legacy_devices = {
-            Self::set_stdout_nonblocking();
-
-            // Create serial device
-            let serial = Self::setup_serial_device(event_manager)?;
-            let reset_evt = vcpu_exit_evt
-                .try_clone()
-                .map_err(DeviceManagerCreateError::EventFd)?;
-            // Create keyboard emulator for reset event
-            let i8042 = Arc::new(Mutex::new(I8042Device::new(reset_evt)?));
-
-            // create pio dev manager with legacy devices
-            let mut legacy_devices = PortIODeviceManager::new(serial, i8042)?;
-            legacy_devices.register_devices(&resource_allocator.pio_bus, vmfd)?;
-            legacy_devices
-        };
+        let legacy_devices = Self::create_legacy_devices(event_manager, vcpus_exit_evt, vm)?;
 
         Ok(DeviceManager {
-            resource_allocator,
             mmio_devices: MMIODeviceManager::new(),
             #[cfg(target_arch = "x86_64")]
             legacy_devices,
@@ -174,26 +169,41 @@ impl DeviceManager {
         })
     }
 
-    /// Attaches a VirtioDevice device to the device manager and event manager.
-    pub(crate) fn attach_virtio_device<T: 'static + VirtioDevice + MutEventSubscriber + Debug>(
+    /// Attaches an MMIO VirtioDevice device to the device manager and event manager.
+    pub(crate) fn attach_mmio_virtio_device<
+        T: 'static + VirtioDevice + MutEventSubscriber + Debug,
+    >(
         &mut self,
-        mem: &GuestMemoryMmap,
-        vmfd: &VmFd,
+        vm: &Vm,
         id: String,
         device: Arc<Mutex<T>>,
         cmdline: &mut Cmdline,
         is_vhost_user: bool,
-    ) -> Result<(), AttachMmioDeviceError> {
+    ) -> Result<(), AttachDeviceError> {
         let interrupt = Arc::new(IrqTrigger::new());
         // The device mutex mustn't be locked here otherwise it will deadlock.
-        let device = MmioTransport::new(mem.clone(), interrupt, device, is_vhost_user);
-        self.mmio_devices.register_mmio_virtio_for_boot(
-            vmfd,
-            &self.resource_allocator,
-            id,
-            device,
-            cmdline,
-        )?;
+        let device =
+            MmioTransport::new(vm.guest_memory().clone(), interrupt, device, is_vhost_user);
+        self.mmio_devices
+            .register_mmio_virtio_for_boot(vm, id, device, cmdline)?;
+
+        Ok(())
+    }
+
+    /// Attaches a VirtioDevice device to the device manager and event manager.
+    pub(crate) fn attach_virtio_device<T: 'static + VirtioDevice + MutEventSubscriber + Debug>(
+        &mut self,
+        vm: &Arc<Vm>,
+        id: String,
+        device: Arc<Mutex<T>>,
+        cmdline: &mut Cmdline,
+        is_vhost_user: bool,
+    ) -> Result<(), AttachDeviceError> {
+        if self.pci_devices.pci_segment.is_some() {
+            self.pci_devices.attach_pci_virtio_device(vm, id, device)?;
+        } else {
+            self.attach_mmio_virtio_device(vm, id, device, cmdline, is_vhost_user)?;
+        }
 
         Ok(())
     }
@@ -201,12 +211,13 @@ impl DeviceManager {
     /// Attaches a [`BootTimer`] to the VM
     pub(crate) fn attach_boot_timer_device(
         &mut self,
+        vm: &Vm,
         request_ts: TimestampUs,
-    ) -> Result<(), AttachMmioDeviceError> {
+    ) -> Result<(), AttachDeviceError> {
         let boot_timer = Arc::new(Mutex::new(BootTimer::new(request_ts)));
 
         self.mmio_devices
-            .register_mmio_boot_timer(&self.resource_allocator.mmio_bus, boot_timer)?;
+            .register_mmio_boot_timer(&vm.common.mmio_bus, boot_timer)?;
 
         Ok(())
     }
@@ -214,47 +225,185 @@ impl DeviceManager {
     pub(crate) fn attach_vmgenid_device(
         &mut self,
         mem: &GuestMemoryMmap,
-        vmfd: &VmFd,
-    ) -> Result<(), AttachVmgenidError> {
-        let vmgenid = VmGenId::new(mem, &self.resource_allocator)?;
-        self.acpi_devices.attach_vmgenid(vmgenid, vmfd)?;
+        vm: &Vm,
+    ) -> Result<(), AttachDeviceError> {
+        let vmgenid = VmGenId::new(mem, &vm.common.resource_allocator)?;
+        self.acpi_devices.attach_vmgenid(vmgenid, vm)?;
         Ok(())
     }
 
     #[cfg(target_arch = "aarch64")]
     pub(crate) fn attach_legacy_devices_aarch64(
         &mut self,
-        vmfd: &VmFd,
+        vm: &Vm,
         event_manager: &mut EventManager,
         cmdline: &mut Cmdline,
-    ) -> Result<(), AttachLegacyMmioDeviceError> {
+    ) -> Result<(), AttachDeviceError> {
         // Serial device setup.
         let cmdline_contains_console = cmdline
             .as_cstring()
-            .map_err(|_| AttachLegacyMmioDeviceError::Cmdline)?
+            .map_err(|_| AttachDeviceError::Cmdline)?
             .into_string()
-            .map_err(|_| AttachLegacyMmioDeviceError::Cmdline)?
+            .map_err(|_| AttachDeviceError::Cmdline)?
             .contains("console=");
 
         if cmdline_contains_console {
             // Make stdout non-blocking.
             Self::set_stdout_nonblocking();
             let serial = Self::setup_serial_device(event_manager)?;
-            self.mmio_devices
-                .register_mmio_serial(vmfd, &self.resource_allocator, serial, None)?;
+            self.mmio_devices.register_mmio_serial(vm, serial, None)?;
             self.mmio_devices.add_mmio_serial_to_cmdline(cmdline)?;
         }
 
         let rtc = Arc::new(Mutex::new(RTCDevice::new()));
-        self.mmio_devices
-            .register_mmio_rtc(&self.resource_allocator, rtc, None)?;
+        self.mmio_devices.register_mmio_rtc(vm, rtc, None)?;
         Ok(())
     }
 
     /// Enables PCIe support for Firecracker devices
-    pub fn enable_pci(&mut self) -> Result<(), PciManagerError> {
-        self.pci_devices
-            .attach_pci_segment(&self.resource_allocator)
+    pub fn enable_pci(&mut self, vm: &Arc<Vm>) -> Result<(), PciManagerError> {
+        self.pci_devices.attach_pci_segment(vm)
+    }
+
+    fn do_kick_device(virtio_device: Arc<Mutex<dyn VirtioDevice>>) {
+        let mut device = virtio_device.lock().expect("Poisoned lock");
+        match device.device_type() {
+            TYPE_BALLOON => {
+                let balloon = device.as_mut_any().downcast_mut::<Balloon>().unwrap();
+                // If device is activated, kick the balloon queue(s) to make up for any
+                // pending or in-flight epoll events we may have not captured in snapshot.
+                // Stats queue doesn't need kicking as it is notified via a `timer_fd`.
+                if balloon.is_activated() {
+                    info!("kick balloon {}.", balloon.id());
+                    balloon.process_virtio_queues();
+                }
+            }
+            TYPE_BLOCK => {
+                // We only care about kicking virtio block.
+                // If we need to kick vhost-user-block we can do nothing.
+                if let Some(block) = device.as_mut_any().downcast_mut::<Block>() {
+                    // If device is activated, kick the block queue(s) to make up for any
+                    // pending or in-flight epoll events we may have not captured in
+                    // snapshot. No need to kick Ratelimiters
+                    // because they are restored 'unblocked' so
+                    // any inflight `timer_fd` events can be safely discarded.
+                    if block.is_activated() {
+                        info!("kick block {}.", block.id());
+                        block.process_virtio_queues();
+                    }
+                }
+            }
+            TYPE_NET => {
+                let net = device.as_mut_any().downcast_mut::<Net>().unwrap();
+                // If device is activated, kick the net queue(s) to make up for any
+                // pending or in-flight epoll events we may have not captured in snapshot.
+                // No need to kick Ratelimiters because they are restored 'unblocked' so
+                // any inflight `timer_fd` events can be safely discarded.
+                if net.is_activated() {
+                    info!("kick net {}.", net.id());
+                    net.process_virtio_queues();
+                }
+            }
+            TYPE_VSOCK => {
+                // Vsock has complicated protocol that isn't resilient to any packet loss,
+                // so for Vsock we don't support connection persistence through snapshot.
+                // Any in-flight packets or events are simply lost.
+                // Vsock is restored 'empty'.
+                // The only reason we still `kick` it is to make guest process
+                // `TRANSPORT_RESET_EVENT` event we sent during snapshot creation.
+                let vsock = device
+                    .as_mut_any()
+                    .downcast_mut::<Vsock<VsockUnixBackend>>()
+                    .unwrap();
+                if vsock.is_activated() {
+                    info!("kick vsock {}.", vsock.id());
+                    vsock.signal_used_queue(0).unwrap();
+                }
+            }
+            TYPE_RNG => {
+                let entropy = device.as_mut_any().downcast_mut::<Entropy>().unwrap();
+                if entropy.is_activated() {
+                    info!("kick entropy {}.", entropy.id());
+                    entropy.process_virtio_queues();
+                }
+            }
+            _ => (),
+        }
+    }
+
+    /// Artificially kick VirtIO devices as if they had external events.
+    pub fn kick_virtio_devices(&self) {
+        info!("Artificially kick devices");
+        // Go through MMIO VirtIO devices
+        let _: Result<(), MmioError> = self.mmio_devices.for_each_virtio_device(|_, _, device| {
+            let mmio_transport_locked = device.inner.lock().expect("Poisoned lock");
+            Self::do_kick_device(mmio_transport_locked.device());
+            Ok(())
+        });
+        // Go through PCI VirtIO devices
+        for device in self.pci_devices.virtio_devices.values() {
+            let virtio_device = device.lock().expect("Poisoned lock").virtio_device();
+            Self::do_kick_device(virtio_device);
+        }
+    }
+
+    fn do_mark_virtio_queue_memory_dirty(
+        device: Arc<Mutex<dyn VirtioDevice>>,
+        mem: &GuestMemoryMmap,
+    ) {
+        // SAFETY:
+        // This should never fail as we mark pages only if device has already been activated,
+        // and the address validation was already performed on device activation.
+        let locked_device = device.lock().expect("Poisoned lock");
+        if locked_device.is_activated() {
+            locked_device.mark_queue_memory_dirty(mem).unwrap()
+        }
+    }
+
+    /// Mark queue memory dirty for activated VirtIO devices
+    pub fn mark_virtio_queue_memory_dirty(&self, mem: &GuestMemoryMmap) {
+        // Go through MMIO VirtIO devices
+        let _: Result<(), Infallible> = self.mmio_devices.for_each_virtio_device(|_, _, device| {
+            let mmio_transport_locked = device.inner.lock().expect("Poisoned locked");
+            Self::do_mark_virtio_queue_memory_dirty(mmio_transport_locked.device(), mem);
+            Ok(())
+        });
+
+        // Go through PCI VirtIO devices
+        for device in self.pci_devices.virtio_devices.values() {
+            let virtio_device = device.lock().expect("Poisoned lock").virtio_device();
+            Self::do_mark_virtio_queue_memory_dirty(virtio_device, mem);
+        }
+    }
+
+    /// Get a VirtIO device of type `virtio_type` with ID `device_id`
+    pub fn get_virtio_device(
+        &self,
+        virtio_type: u32,
+        device_id: &str,
+    ) -> Option<Arc<Mutex<dyn VirtioDevice>>> {
+        if self.pci_devices.pci_segment.is_some() {
+            let pci_device = self.pci_devices.get_virtio_device(virtio_type, device_id)?;
+            Some(
+                pci_device
+                    .lock()
+                    .expect("Poisoned lock")
+                    .virtio_device()
+                    .clone(),
+            )
+        } else {
+            let mmio_device = self
+                .mmio_devices
+                .get_virtio_device(virtio_type, device_id)?;
+            Some(
+                mmio_device
+                    .inner
+                    .lock()
+                    .expect("Poisoned lock")
+                    .device()
+                    .clone(),
+            )
+        }
     }
 }
 
@@ -283,19 +432,38 @@ pub enum DevicePersistError {
     SerialRestore(#[from] EmulateSerialInitError),
     /// Error inserting device in bus: {0}
     Bus(#[from] vm_device::BusError),
+    /// Error creating DeviceManager: {0}
+    DeviceManager(#[from] DeviceManagerCreateError),
 }
 
 pub struct DeviceRestoreArgs<'a> {
     pub mem: &'a GuestMemoryMmap,
-    pub vm: &'a VmFd,
+    pub vm: &'a Arc<Vm>,
     pub event_manager: &'a mut EventManager,
+    pub vcpus_exit_evt: &'a EventFd,
     pub vm_resources: &'a mut VmResources,
     pub instance_id: &'a str,
     pub restored_from_file: bool,
 }
 
-impl DeviceManager {
-    pub fn save(&self) -> DevicesState {
+impl std::fmt::Debug for DeviceRestoreArgs<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("DeviceRestoreArgs")
+            .field("mem", &self.mem)
+            .field("vm", &self.vm)
+            .field("vm_resources", &self.vm_resources)
+            .field("instance_id", &self.instance_id)
+            .field("restored_from_file", &self.restored_from_file)
+            .finish()
+    }
+}
+
+impl<'a> Persist<'a> for DeviceManager {
+    type State = DevicesState;
+    type ConstructorArgs = DeviceRestoreArgs<'a>;
+    type Error = DevicePersistError;
+
+    fn save(&self) -> Self::State {
         DevicesState {
             mmio_state: self.mmio_devices.save(),
             acpi_state: self.acpi_devices.save(),
@@ -303,6 +471,65 @@ impl DeviceManager {
         }
     }
 
+    fn restore(
+        constructor_args: Self::ConstructorArgs,
+        state: &Self::State,
+    ) -> std::result::Result<Self, Self::Error> {
+        // Setup legacy devices in case of x86
+        #[cfg(target_arch = "x86_64")]
+        let legacy_devices = Self::create_legacy_devices(
+            constructor_args.event_manager,
+            constructor_args.vcpus_exit_evt,
+            constructor_args.vm,
+        )?;
+
+        // Restore MMIO devices
+        let mmio_ctor_args = MMIODevManagerConstructorArgs {
+            mem: constructor_args.mem,
+            vm: constructor_args.vm,
+            event_manager: constructor_args.event_manager,
+            vm_resources: constructor_args.vm_resources,
+            instance_id: constructor_args.instance_id,
+            restored_from_file: constructor_args.restored_from_file,
+        };
+        let mmio_devices = MMIODeviceManager::restore(mmio_ctor_args, &state.mmio_state)?;
+
+        // Restore ACPI devices
+        let acpi_ctor_args = ACPIDeviceManagerConstructorArgs {
+            mem: constructor_args.mem,
+            vm: constructor_args.vm,
+        };
+        let mut acpi_devices = ACPIDeviceManager::restore(acpi_ctor_args, &state.acpi_state)?;
+        acpi_devices.notify_vmgenid()?;
+
+        // Restore PCI devices
+        let pci_ctor_args = PciDevicesConstructorArgs {
+            vm: constructor_args.vm.clone(),
+            mem: constructor_args.mem,
+            vm_resources: constructor_args.vm_resources,
+            instance_id: constructor_args.instance_id,
+            restored_from_file: constructor_args.restored_from_file,
+            event_manager: constructor_args.event_manager,
+        };
+        let pci_devices = PciDevices::restore(pci_ctor_args, &state.pci_state)?;
+
+        let device_manager = DeviceManager {
+            mmio_devices,
+            #[cfg(target_arch = "x86_64")]
+            legacy_devices,
+            acpi_devices,
+            pci_devices,
+        };
+
+        // Restore serial.
+        // We need to do that after we restore mmio devices, otherwise it won't succeed in Aarch64
+        device_manager.emulate_serial_init()?;
+
+        Ok(device_manager)
+    }
+}
+
+impl DeviceManager {
     /// Sets RDA bit in serial console
     pub fn emulate_serial_init(&self) -> Result<(), EmulateSerialInitError> {
         // When restoring from a previously saved state, there is no serial
@@ -340,43 +567,6 @@ impl DeviceManager {
             Ok(())
         }
     }
-
-    pub fn restore(
-        &mut self,
-        state: &DevicesState,
-        restore_args: DeviceRestoreArgs,
-    ) -> Result<(), DevicePersistError> {
-        // Restore MMIO devices
-        let mmio_ctor_args = MMIODevManagerConstructorArgs {
-            mem: restore_args.mem,
-            vm: restore_args.vm,
-            event_manager: restore_args.event_manager,
-            resource_allocator: &self.resource_allocator,
-            vm_resources: restore_args.vm_resources,
-            instance_id: restore_args.instance_id,
-            restored_from_file: restore_args.restored_from_file,
-        };
-        self.mmio_devices = MMIODeviceManager::restore(mmio_ctor_args, &state.mmio_state)?;
-
-        // Restore serial.
-        // We need to do that after we restore mmio devices, otherwise it won't succeed in Aarch64
-        self.emulate_serial_init()?;
-
-        // Restore ACPI devices
-        let acpi_ctor_args = ACPIDeviceManagerConstructorArgs {
-            mem: restore_args.mem,
-            resource_allocator: &self.resource_allocator,
-            vm: restore_args.vm,
-        };
-        self.acpi_devices = ACPIDeviceManager::restore(acpi_ctor_args, &state.acpi_state)?;
-        self.acpi_devices.notify_vmgenid()?;
-
-        // Restore PCI devices
-        self.pci_devices
-            .restore(&state.pci_state, &self.resource_allocator)?;
-
-        Ok(())
-    }
 }
 
 #[cfg(test)]
@@ -389,7 +579,6 @@ pub(crate) mod tests {
         let mmio_devices = MMIODeviceManager::new();
         let acpi_devices = ACPIDeviceManager::new();
         let pci_devices = PciDevices::new();
-        let resource_allocator = Arc::new(ResourceAllocator::new().unwrap());
 
         #[cfg(target_arch = "x86_64")]
         let legacy_devices = PortIODeviceManager::new(
@@ -403,7 +592,6 @@ pub(crate) mod tests {
         .unwrap();
 
         DeviceManager {
-            resource_allocator,
             mmio_devices,
             #[cfg(target_arch = "x86_64")]
             legacy_devices,
@@ -422,7 +610,7 @@ pub(crate) mod tests {
         let mut cmdline = Cmdline::new(4096).unwrap();
         let mut event_manager = EventManager::new().unwrap();
         vmm.device_manager
-            .attach_legacy_devices_aarch64(vmm.vm.fd(), &mut event_manager, &mut cmdline)
+            .attach_legacy_devices_aarch64(&vmm.vm, &mut event_manager, &mut cmdline)
             .unwrap();
         assert!(vmm.device_manager.mmio_devices.rtc.is_some());
         assert!(vmm.device_manager.mmio_devices.serial.is_none());
@@ -430,7 +618,7 @@ pub(crate) mod tests {
         let mut vmm = default_vmm();
         cmdline.insert("console", "/dev/blah").unwrap();
         vmm.device_manager
-            .attach_legacy_devices_aarch64(vmm.vm.fd(), &mut event_manager, &mut cmdline)
+            .attach_legacy_devices_aarch64(&vmm.vm, &mut event_manager, &mut cmdline)
             .unwrap();
         assert!(vmm.device_manager.mmio_devices.rtc.is_some());
         assert!(vmm.device_manager.mmio_devices.serial.is_some());

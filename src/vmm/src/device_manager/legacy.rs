@@ -11,11 +11,11 @@ use std::sync::{Arc, Mutex};
 
 use acpi_tables::aml::AmlError;
 use acpi_tables::{Aml, aml};
-use kvm_ioctls::VmFd;
 use libc::EFD_NONBLOCK;
 use vm_superio::Serial;
 use vmm_sys_util::eventfd::EventFd;
 
+use crate::Vm;
 use crate::devices::legacy::serial::SerialOut;
 use crate::devices::legacy::{EventFdTrigger, I8042Device, SerialDevice, SerialEventsWrapper};
 
@@ -97,11 +97,7 @@ impl PortIODeviceManager {
     }
 
     /// Register supported legacy devices.
-    pub fn register_devices(
-        &mut self,
-        io_bus: &vm_device::Bus,
-        vm_fd: &VmFd,
-    ) -> Result<(), LegacyDeviceError> {
+    pub fn register_devices(&mut self, vm: &Vm) -> Result<(), LegacyDeviceError> {
         let serial_2_4 = Arc::new(Mutex::new(SerialDevice {
             serial: Serial::with_events(
                 self.com_evt_2_4.try_clone()?.try_clone()?,
@@ -122,6 +118,8 @@ impl PortIODeviceManager {
             ),
             input: None,
         }));
+
+        let io_bus = &vm.pio_bus;
         io_bus.insert(
             self.stdio_serial.clone(),
             Self::SERIAL_PORT_ADDRESSES[0],
@@ -148,18 +146,15 @@ impl PortIODeviceManager {
             Self::I8042_KDB_DATA_REGISTER_SIZE,
         )?;
 
-        vm_fd
-            .register_irqfd(&self.com_evt_1_3, Self::COM_EVT_1_3_GSI)
+        vm.register_irq(&self.com_evt_1_3, Self::COM_EVT_1_3_GSI)
             .map_err(|e| {
                 LegacyDeviceError::EventFd(std::io::Error::from_raw_os_error(e.errno()))
             })?;
-        vm_fd
-            .register_irqfd(&self.com_evt_2_4, Self::COM_EVT_2_4_GSI)
+        vm.register_irq(&self.com_evt_2_4, Self::COM_EVT_2_4_GSI)
             .map_err(|e| {
                 LegacyDeviceError::EventFd(std::io::Error::from_raw_os_error(e.errno()))
             })?;
-        vm_fd
-            .register_irqfd(&self.kbd_evt, Self::KBD_EVT_GSI)
+        vm.register_irq(&self.kbd_evt, Self::KBD_EVT_GSI)
             .map_err(|e| {
                 LegacyDeviceError::EventFd(std::io::Error::from_raw_os_error(e.errno()))
             })?;
@@ -246,7 +241,6 @@ mod tests {
     #[test]
     fn test_register_legacy_devices() {
         let (_, vm) = setup_vm_with_memory(0x1000);
-        let io_bus = vm_device::Bus::new();
         vm.setup_irqchip().unwrap();
         let mut ldm = PortIODeviceManager::new(
             Arc::new(Mutex::new(SerialDevice {
@@ -264,6 +258,6 @@ mod tests {
             )),
         )
         .unwrap();
-        ldm.register_devices(&io_bus, vm.fd()).unwrap();
+        ldm.register_devices(&vm).unwrap();
     }
 }

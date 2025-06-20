@@ -22,12 +22,15 @@ use crate::device_manager::mmio::MMIODeviceInfo;
 use crate::device_manager::pci_mngr::PciDevices;
 use crate::devices::acpi::vmgenid::{VMGENID_MEM_SIZE, VmGenId};
 use crate::initrd::InitrdConfig;
+use crate::logger::info;
 use crate::vstate::memory::{Address, GuestMemory, GuestMemoryMmap};
 
 // This is a value for uniquely identifying the FDT node declaring the interrupt controller.
 const GIC_PHANDLE: u32 = 1;
 // This is a value for uniquely identifying the FDT node containing the clock definition.
 const CLOCK_PHANDLE: u32 = 2;
+// This is a value for uniquely identifying the FDT node declaring the MSI controller.
+const MSI_PHANDLE: u32 = 3;
 // You may be wondering why this big value?
 // This phandle is used to uniquely identify the FDT nodes containing cache information. Each cpu
 // can have a variable number of caches, some of these caches may be shared with other cpus.
@@ -302,6 +305,17 @@ fn create_gic_node(fdt: &mut FdtWriter, gic_device: &GICDevice) -> Result<(), Fd
     ];
 
     fdt.property_array_u32("interrupts", &gic_intr)?;
+
+    if let Some(msi_properties) = gic_device.msi_properties() {
+        info!("msi_properties: {msi_properties:#?}");
+        let msic_node = fdt.begin_node("msic")?;
+        fdt.property_string("compatible", "arm,gic-v3-its")?;
+        fdt.property_null("msi-controller")?;
+        fdt.property_u32("phandle", MSI_PHANDLE)?;
+        fdt.property_array_u64("reg", msi_properties)?;
+        fdt.end_node(msic_node)?;
+    }
+
     fdt.end_node(interrupt)?;
 
     Ok(())
@@ -471,6 +485,21 @@ fn create_pci_nodes(fdt: &mut FdtWriter, pci_devices: &PciDevices) -> Result<(),
         (MEM_64BIT_DEVICES_SIZE >> 32) as u32, // Range size
         ((MEM_64BIT_DEVICES_SIZE & 0xffff_ffff) >> 32) as u32,
     ];
+
+    // See kernel document Documentation/devicetree/bindings/pci/pci-msi.txt
+    let msi_map = [
+        // rid-base: A single cell describing the first RID matched by the entry.
+        0x0,
+        // msi-controller: A single phandle to an MSI controller.
+        MSI_PHANDLE,
+        // msi-base: An msi-specifier describing the msi-specifier produced for the
+        // first RID matched by the entry.
+        segment.id as u32,
+        // length: A single cell describing how many consecutive RIDs are matched
+        // following the rid-base.
+        0x100,
+    ];
+
     let pci_node = fdt.begin_node(&pci_node_name)?;
 
     fdt.property_string("compatible", "pci-host-ecam-generic")?;
@@ -491,6 +520,9 @@ fn create_pci_nodes(fdt: &mut FdtWriter, pci_devices: &PciDevices) -> Result<(),
     fdt.property_null("interrupt-map")?;
     fdt.property_null("interrupt-map-mask")?;
     fdt.property_null("dma-coherent")?;
+    fdt.property_array_u32("msi-map", &msi_map)?;
+    fdt.property_u32("msi-parent", MSI_PHANDLE)?;
+
     Ok(fdt.end_node(pci_node)?)
 }
 
@@ -499,17 +531,16 @@ mod tests {
     use std::ffi::CString;
     use std::sync::{Arc, Mutex};
 
-    use kvm_ioctls::Kvm;
     use linux_loader::cmdline as kernel_cmdline;
 
     use super::*;
-    use crate::EventManager;
     use crate::arch::aarch64::gic::create_gic;
     use crate::arch::aarch64::layout;
     use crate::device_manager::mmio::tests::DummyDevice;
     use crate::device_manager::tests::default_device_manager;
     use crate::test_utils::arch_mem;
     use crate::vstate::memory::GuestAddress;
+    use crate::{EventManager, Kvm, Vm};
 
     // The `load` function from the `device_tree` will mistakenly check the actual size
     // of the buffer with the allocated size. This works around that.
@@ -525,9 +556,9 @@ mod tests {
         let mem = arch_mem(layout::FDT_MAX_SIZE + 0x1000);
         let mut event_manager = EventManager::new().unwrap();
         let mut device_manager = default_device_manager();
-        let kvm = Kvm::new().unwrap();
-        let vm = kvm.create_vm().unwrap();
-        let gic = create_gic(&vm, 1, None).unwrap();
+        let kvm = Kvm::new(vec![]).unwrap();
+        let vm = Vm::new(&kvm).unwrap();
+        let gic = create_gic(vm.fd(), 1, None).unwrap();
         let mut cmdline = kernel_cmdline::Cmdline::new(4096).unwrap();
         cmdline.insert("console", "/dev/tty0").unwrap();
 
@@ -537,14 +568,7 @@ mod tests {
         let dummy = Arc::new(Mutex::new(DummyDevice::new()));
         device_manager
             .mmio_devices
-            .register_virtio_test_device(
-                &vm,
-                mem.clone(),
-                &device_manager.resource_allocator,
-                dummy,
-                &mut cmdline,
-                "dummy",
-            )
+            .register_virtio_test_device(&vm, mem.clone(), dummy, &mut cmdline, "dummy")
             .unwrap();
 
         create_fdt(
@@ -562,9 +586,9 @@ mod tests {
     fn test_create_fdt_with_vmgenid() {
         let mem = arch_mem(layout::FDT_MAX_SIZE + 0x1000);
         let mut device_manager = default_device_manager();
-        let kvm = Kvm::new().unwrap();
-        let vm = kvm.create_vm().unwrap();
-        let gic = create_gic(&vm, 1, None).unwrap();
+        let kvm = Kvm::new(vec![]).unwrap();
+        let vm = Vm::new(&kvm).unwrap();
+        let gic = create_gic(vm.fd(), 1, None).unwrap();
         let mut cmdline = kernel_cmdline::Cmdline::new(4096).unwrap();
         cmdline.insert("console", "/dev/tty0").unwrap();
 
@@ -585,9 +609,9 @@ mod tests {
     fn test_create_fdt() {
         let mem = arch_mem(layout::FDT_MAX_SIZE + 0x1000);
         let device_manager = default_device_manager();
-        let kvm = Kvm::new().unwrap();
-        let vm = kvm.create_vm().unwrap();
-        let gic = create_gic(&vm, 1, None).unwrap();
+        let kvm = Kvm::new(vec![]).unwrap();
+        let vm = Vm::new(&kvm).unwrap();
+        let gic = create_gic(vm.fd(), 1, None).unwrap();
 
         let saved_dtb_bytes = match gic.fdt_compatibility() {
             "arm,gic-v3" => include_bytes!("output_GICv3.dtb"),
@@ -642,9 +666,9 @@ mod tests {
     fn test_create_fdt_with_initrd() {
         let mem = arch_mem(layout::FDT_MAX_SIZE + 0x1000);
         let device_manager = default_device_manager();
-        let kvm = Kvm::new().unwrap();
-        let vm = kvm.create_vm().unwrap();
-        let gic = create_gic(&vm, 1, None).unwrap();
+        let kvm = Kvm::new(vec![]).unwrap();
+        let vm = Vm::new(&kvm).unwrap();
+        let gic = create_gic(vm.fd(), 1, None).unwrap();
 
         let saved_dtb_bytes = match gic.fdt_compatibility() {
             "arm,gic-v3" => include_bytes!("output_initrd_GICv3.dtb"),

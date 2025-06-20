@@ -17,11 +17,13 @@ gdb = ["arrayvec", "gdbstub", "gdbstub_arch"]
 
 acpi_tables = { path = "../acpi-tables" }
 aes-gcm = { version = "0.10.1", default-features = false, features = ["aes"] }
+anyhow = "1.0.98"
 arrayvec = { version = "0.7.6", optional = true }
 aws-lc-rs = { version = "1.13.1", features = ["bindgen"] }
 base64 = "0.22.1"
 bincode = { version = "2.0.1", features = ["serde"] }
 bitflags = "2.9.1"
+byteorder = "1.5.0"
 crc64 = "2.0.0"
 derive_more = { version = "2.0.1", default-features = false, features = [
   "from",
@@ -50,7 +52,7 @@ userfaultfd = "0.8.1"
 utils = { path = "../utils" }
 uuid = "1.16.0"
 vhost = { version = "0.14.0", features = ["vhost-user-frontend"] }
-vm-allocator = "0.1.2"
+vm-allocator = { version = "0.1.2", features = ["serde"] }
 vm-device = { path = "../vm-device" }
 vm-memory = { version = "0.16.2", features = [
   "backend-mmap",

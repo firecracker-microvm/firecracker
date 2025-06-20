@@ -126,6 +126,7 @@ use devices::acpi::vmgenid::VmGenIdError;
 use devices::virtio::device::VirtioDevice;
 use event_manager::{EventManager as BaseEventManager, EventOps, Events, MutEventSubscriber};
 use seccomp::BpfProgram;
+use snapshot::Persist;
 use userfaultfd::Uffd;
 use vmm_sys_util::epoll::EventSet;
 use vmm_sys_util::eventfd::EventFd;
@@ -299,8 +300,9 @@ pub struct Vmm {
     // Guest VM core resources.
     kvm: Kvm,
     /// VM object
-    pub vm: Vm,
+    pub vm: Arc<Vm>,
     // Save UFFD in order to keep it open in the Firecracker process, as well.
+    #[allow(unused)]
     uffd: Option<Uffd>,
     vcpus_handles: Vec<VcpuHandle>,
     // Used by Vcpus and devices to initiate teardown; Vmm should never write here.
@@ -371,10 +373,9 @@ impl Vmm {
         self.vcpus_handles.reserve(vcpu_count);
 
         for mut vcpu in vcpus.drain(..) {
-            vcpu.set_mmio_bus(self.device_manager.resource_allocator.mmio_bus.clone());
+            vcpu.set_mmio_bus(self.vm.common.mmio_bus.clone());
             #[cfg(target_arch = "x86_64")]
-            vcpu.kvm_vcpu
-                .set_pio_bus(self.device_manager.resource_allocator.pio_bus.clone());
+            vcpu.kvm_vcpu.set_pio_bus(self.vm.pio_bus.clone());
 
             self.vcpus_handles
                 .push(vcpu.start_threaded(vcpu_seccomp_filter.clone(), barrier.clone())?);
@@ -388,7 +389,7 @@ impl Vmm {
 
     /// Sends a resume command to the vCPUs.
     pub fn resume_vm(&mut self) -> Result<(), VmmError> {
-        self.device_manager.mmio_devices.kick_devices();
+        self.device_manager.kick_virtio_devices();
 
         // Send the events.
         self.vcpus_handles
