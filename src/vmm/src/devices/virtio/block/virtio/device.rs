@@ -1570,6 +1570,7 @@ mod tests {
 
             let mem = default_mem();
             let vq = VirtQueue::new(GuestAddress(0), &mem, IO_URING_NUM_ENTRIES * 4);
+            block.queues[0] = vq.create_queue();
             block.activate(mem.clone()).unwrap();
 
             // Run scenario that doesn't trigger FullSq BlockError: Add sq_size flush requests.
@@ -1603,6 +1604,7 @@ mod tests {
 
             let mem = default_mem();
             let vq = VirtQueue::new(GuestAddress(0), &mem, IO_URING_NUM_ENTRIES * 4);
+            block.queues[0] = vq.create_queue();
             block.activate(mem.clone()).unwrap();
 
             // Run scenario that triggers FullCqError. Push 2 * IO_URING_NUM_ENTRIES and wait for
@@ -1632,6 +1634,7 @@ mod tests {
 
             let mem = default_mem();
             let vq = VirtQueue::new(GuestAddress(0), &mem, 16);
+            block.queues[0] = vq.create_queue();
             block.activate(mem.clone()).unwrap();
 
             // Add a batch of flush requests.

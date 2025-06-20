@@ -895,7 +895,9 @@ pub(crate) mod tests {
 
         let guest_memory = create_mem(file, &regions);
 
-        let mut queue = Queue::new(69);
+        let mut queue = Queue::new(128);
+        queue.ready = true;
+        queue.size = queue.max_size;
         queue.initialize(&guest_memory).unwrap();
 
         let event_fd = EventFd::new(0).unwrap();
@@ -910,10 +912,10 @@ pub(crate) mod tests {
         // the backend.
         let expected_config = VringData {
             index: 0,
-            size: 0,
+            size: 128,
             config: VringConfigData {
-                queue_max_size: 69,
-                queue_size: 0,
+                queue_max_size: 128,
+                queue_size: 128,
                 flags: 0,
                 desc_table_addr: guest_memory
                     .get_host_address(queue.desc_table_address)
