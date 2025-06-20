@@ -504,6 +504,7 @@ class Microvm:
             "rootfs": self.rootfs_file.name,
             "vcpus": str(self.vcpus_count),
             "guest_memory": f"{self.mem_size_bytes / (1024 * 1024)}MB",
+            "pci": f"{self.pci_enabled}",
         }
 
     @property
