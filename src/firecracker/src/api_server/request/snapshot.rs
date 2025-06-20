@@ -13,7 +13,8 @@ use super::super::parsed_request::{ParsedRequest, RequestError};
 use super::super::request::{Body, Method, StatusCode};
 
 /// Deprecation message for the `mem_file_path` field.
-const LOAD_DEPRECATION_MESSAGE: &str = "PUT /snapshot/load: mem_file_path field is deprecated.";
+const LOAD_DEPRECATION_MESSAGE: &str =
+    "PUT /snapshot/load: mem_file_path and enable_diff_snapshots fields are deprecated.";
 /// None of the `mem_backend` or `mem_file_path` fields has been specified.
 pub const MISSING_FIELD: &str =
     "missing field: either `mem_backend` or `mem_file_path` is required";
@@ -80,7 +81,8 @@ fn parse_put_snapshot_load(body: &Body) -> Result<ParsedRequest, RequestError> {
     // Check for the presence of deprecated `mem_file_path` field and create
     // deprecation message if found.
     let mut deprecation_message = None;
-    if snapshot_config.mem_file_path.is_some() {
+    #[allow(deprecated)]
+    if snapshot_config.mem_file_path.is_some() || snapshot_config.enable_diff_snapshots {
         // `mem_file_path` field in request is deprecated.
         METRICS.deprecated_api.deprecated_http_api_calls.inc();
         deprecation_message = Some(LOAD_DEPRECATION_MESSAGE);
@@ -103,7 +105,9 @@ fn parse_put_snapshot_load(body: &Body) -> Result<ParsedRequest, RequestError> {
     let snapshot_params = LoadSnapshotParams {
         snapshot_path: snapshot_config.snapshot_path,
         mem_backend,
-        enable_diff_snapshots: snapshot_config.enable_diff_snapshots,
+        #[allow(deprecated)]
+        track_dirty_pages: snapshot_config.enable_diff_snapshots
+            || snapshot_config.track_dirty_pages,
         resume_vm: snapshot_config.resume_vm,
         network_overrides: snapshot_config.network_overrides,
     };
@@ -180,7 +184,7 @@ mod tests {
                 backend_path: PathBuf::from("bar"),
                 backend_type: MemBackendType::File,
             },
-            enable_diff_snapshots: false,
+            track_dirty_pages: false,
             resume_vm: false,
             network_overrides: vec![],
         };
@@ -202,7 +206,7 @@ mod tests {
                 "backend_path": "bar",
                 "backend_type": "File"
             },
-            "enable_diff_snapshots": true
+            "track_dirty_pages": true
         }"#;
         let expected_config = LoadSnapshotParams {
             snapshot_path: PathBuf::from("foo"),
@@ -210,7 +214,7 @@ mod tests {
                 backend_path: PathBuf::from("bar"),
                 backend_type: MemBackendType::File,
             },
-            enable_diff_snapshots: true,
+            track_dirty_pages: true,
             resume_vm: false,
             network_overrides: vec![],
         };
@@ -240,7 +244,7 @@ mod tests {
                 backend_path: PathBuf::from("bar"),
                 backend_type: MemBackendType::Uffd,
             },
-            enable_diff_snapshots: false,
+            track_dirty_pages: false,
             resume_vm: true,
             network_overrides: vec![],
         };
@@ -276,7 +280,7 @@ mod tests {
                 backend_path: PathBuf::from("bar"),
                 backend_type: MemBackendType::Uffd,
             },
-            enable_diff_snapshots: false,
+            track_dirty_pages: false,
             resume_vm: true,
             network_overrides: vec![NetworkOverride {
                 iface_id: String::from("eth0"),
@@ -306,7 +310,7 @@ mod tests {
                 backend_path: PathBuf::from("bar"),
                 backend_type: MemBackendType::File,
             },
-            enable_diff_snapshots: false,
+            track_dirty_pages: false,
             resume_vm: true,
             network_overrides: vec![],
         };
