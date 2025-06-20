@@ -173,7 +173,7 @@ pub fn create_snapshot(
     // and the address validation was already performed on device activation.
     vmm.mmio_device_manager
         .for_each_virtio_device(|_, _, _, dev| {
-            let d = dev.lock().unwrap();
+            let mut d = dev.lock().unwrap();
             if d.is_activated() {
                 d.mark_queue_memory_dirty(vmm.vm.guest_memory())
             } else {
