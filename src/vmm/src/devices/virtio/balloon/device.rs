@@ -822,6 +822,7 @@ pub(crate) mod tests {
         // Only initialize the inflate queue to demonstrate invalid request handling.
         let infq = VirtQueue::new(GuestAddress(0), &mem, 16);
         balloon.set_queue(INFLATE_INDEX, infq.create_queue());
+        balloon.set_queue(DEFLATE_INDEX, infq.create_queue());
         balloon.activate(mem.clone()).unwrap();
 
         // Fill the second page with non-zero bytes.
@@ -880,6 +881,7 @@ pub(crate) mod tests {
         let mem = default_mem();
         let infq = VirtQueue::new(GuestAddress(0), &mem, 16);
         balloon.set_queue(INFLATE_INDEX, infq.create_queue());
+        balloon.set_queue(DEFLATE_INDEX, infq.create_queue());
         balloon.activate(mem.clone()).unwrap();
 
         // Fill the third page with non-zero bytes.
@@ -949,6 +951,7 @@ pub(crate) mod tests {
         let mut balloon = Balloon::new(0, true, 0, false).unwrap();
         let mem = default_mem();
         let defq = VirtQueue::new(GuestAddress(0), &mem, 16);
+        balloon.set_queue(INFLATE_INDEX, defq.create_queue());
         balloon.set_queue(DEFLATE_INDEX, defq.create_queue());
         balloon.activate(mem.clone()).unwrap();
 
@@ -997,6 +1000,8 @@ pub(crate) mod tests {
         let mut balloon = Balloon::new(0, true, 1, false).unwrap();
         let mem = default_mem();
         let statsq = VirtQueue::new(GuestAddress(0), &mem, 16);
+        balloon.set_queue(INFLATE_INDEX, statsq.create_queue());
+        balloon.set_queue(DEFLATE_INDEX, statsq.create_queue());
         balloon.set_queue(STATS_INDEX, statsq.create_queue());
         balloon.activate(mem.clone()).unwrap();
 
@@ -1097,6 +1102,9 @@ pub(crate) mod tests {
     fn test_update_stats_interval() {
         let mut balloon = Balloon::new(0, true, 0, false).unwrap();
         let mem = default_mem();
+        let q = VirtQueue::new(GuestAddress(0), &mem, 16);
+        balloon.set_queue(INFLATE_INDEX, q.create_queue());
+        balloon.set_queue(DEFLATE_INDEX, q.create_queue());
         balloon.activate(mem).unwrap();
         assert_eq!(
             format!("{:?}", balloon.update_stats_polling_interval(1)),
@@ -1106,6 +1114,10 @@ pub(crate) mod tests {
 
         let mut balloon = Balloon::new(0, true, 1, false).unwrap();
         let mem = default_mem();
+        let q = VirtQueue::new(GuestAddress(0), &mem, 16);
+        balloon.set_queue(INFLATE_INDEX, q.create_queue());
+        balloon.set_queue(DEFLATE_INDEX, q.create_queue());
+        balloon.set_queue(STATS_INDEX, q.create_queue());
         balloon.activate(mem).unwrap();
         assert_eq!(
             format!("{:?}", balloon.update_stats_polling_interval(0)),
