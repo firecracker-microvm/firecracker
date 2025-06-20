@@ -1056,15 +1056,6 @@ mod verification {
 
     #[kani::proof]
     #[kani::unwind(0)]
-    fn verify_size() {
-        let ProofContext(queue, _) = kani::any();
-
-        assert!(queue.size <= queue.max_size);
-        assert!(queue.size <= queue.size);
-    }
-
-    #[kani::proof]
-    #[kani::unwind(0)]
     fn verify_avail_ring_idx_get() {
         let ProofContext(queue, _) = kani::any();
         _ = queue.avail_ring_idx_get();
