@@ -166,7 +166,7 @@ pub fn create_snapshot(
         .snapshot_memory_to_file(&params.mem_file_path, params.snapshot_type)?;
 
     // We need to mark queues as dirty again for all activated devices. The reason we
-    // do it here is because we don't mark pages as dirty during runtime
+    // do it here is that we don't mark pages as dirty during runtime
     // for queue objects.
     // SAFETY:
     // This should never fail as we only mark pages only if device has already been activated,

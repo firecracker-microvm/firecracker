@@ -184,14 +184,7 @@ impl VirtioDeviceState {
 
         for q in &queues {
             // Sanity check queue size and queue max size.
-            if q.max_size != expected_queue_max_size || q.size > expected_queue_max_size {
-                return Err(PersistError::InvalidInput);
-            }
-            // Snapshot can happen at any time, including during device configuration/activation
-            // when fields are only partially configured.
-            //
-            // Only if the device was activated, check `q.is_valid()`.
-            if self.activated && !q.is_valid(mem) {
+            if q.max_size != expected_queue_max_size {
                 return Err(PersistError::InvalidInput);
             }
         }
