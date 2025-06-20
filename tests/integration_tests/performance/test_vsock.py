@@ -80,6 +80,7 @@ def test_vsock_throughput(
     rootfs,
     vcpus,
     payload_length,
+    pci_enabled,
     mode,
     metrics,
     results_dir,
@@ -95,7 +96,7 @@ def test_vsock_throughput(
 
     mem_size_mib = 1024
     vm = microvm_factory.build(guest_kernel_acpi, rootfs, monitor_memory=False)
-    vm.spawn(log_level="Info", emit_metrics=True)
+    vm.spawn(log_level="Info", emit_metrics=True, pci=pci_enabled)
     vm.basic_config(vcpu_count=vcpus, mem_size_mib=mem_size_mib)
     vm.add_net_iface()
     # Create a vsock device
