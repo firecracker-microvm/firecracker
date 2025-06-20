@@ -9,6 +9,7 @@ use std::num::Wrapping;
 use std::sync::atomic::{Ordering, fence};
 
 use crate::logger::error;
+use crate::utils::u64_to_usize;
 use crate::vstate::memory::{Address, Bitmap, ByteValued, GuestAddress, GuestMemory};
 
 pub const VIRTQ_DESC_F_NEXT: u16 = 0x1;
@@ -32,7 +33,7 @@ pub enum QueueError {
     /// Failed to write value into the virtio queue used ring: {0}
     MemoryError(#[from] vm_memory::GuestMemoryError),
     /// Pointer is not aligned properly: {0:#x} not {1}-byte aligned.
-    PointerNotAligned(usize, u8),
+    PointerNotAligned(usize, usize),
 }
 
 /// Error type indicating the guest configured a virtio queue such that the avail_idx field would
@@ -310,31 +311,32 @@ impl Queue {
             + std::mem::size_of::<u16>()
     }
 
-    fn get_slice_ptr<M: GuestMemory>(
+    fn get_aligned_slice_ptr<T, M: GuestMemory>(
         &self,
         mem: &M,
         addr: GuestAddress,
         len: usize,
-    ) -> Result<*mut u8, QueueError> {
+        alignment: usize,
+    ) -> Result<*mut T, QueueError> {
+        // Guest memory base address is page aligned, so as long as alignment divides page size,
+        // It suffices to check that the GPA is properly aligned (e.g. we don't need to recheck
+        // the HVA).
+        if addr.0 & (alignment as u64 - 1) != 0 {
+            return Err(QueueError::PointerNotAligned(
+                u64_to_usize(addr.0),
+                alignment,
+            ));
+        }
+
         let slice = mem.get_slice(addr, len).map_err(QueueError::MemoryError)?;
         slice.bitmap().mark_dirty(0, len);
-        Ok(slice.ptr_guard_mut().as_ptr())
+        Ok(slice.ptr_guard_mut().as_ptr().cast())
     }
 
     /// Set up pointers to the queue objects in the guest memory
     /// and mark memory dirty for those objects
     pub fn initialize<M: GuestMemory>(&mut self, mem: &M) -> Result<(), QueueError> {
-        self.desc_table_ptr = self
-            .get_slice_ptr(mem, self.desc_table_address, self.desc_table_size())?
-            .cast();
-        self.avail_ring_ptr = self
-            .get_slice_ptr(mem, self.avail_ring_address, self.avail_ring_size())?
-            .cast();
-        self.used_ring_ptr = self
-            .get_slice_ptr(mem, self.used_ring_address, self.used_ring_size())?
-            .cast();
-
-        // All the above pointers are expected to be aligned properly; otherwise some methods (e.g.
+        // All the below pointers are verified to be aligned properly; otherwise some methods (e.g.
         // `read_volatile()`) will panic. Such an unalignment is possible when restored from a
         // broken/fuzzed snapshot.
         //
@@ -347,24 +349,12 @@ impl Queue {
         // > Available Ring   2
         // > Used Ring        4
         // > ================ ==========
-        if !self.desc_table_ptr.cast::<u128>().is_aligned() {
-            return Err(QueueError::PointerNotAligned(
-                self.desc_table_ptr as usize,
-                16,
-            ));
-        }
-        if !self.avail_ring_ptr.is_aligned() {
-            return Err(QueueError::PointerNotAligned(
-                self.avail_ring_ptr as usize,
-                2,
-            ));
-        }
-        if !self.used_ring_ptr.cast::<u32>().is_aligned() {
-            return Err(QueueError::PointerNotAligned(
-                self.used_ring_ptr as usize,
-                4,
-            ));
-        }
+        self.desc_table_ptr =
+            self.get_aligned_slice_ptr(mem, self.desc_table_address, self.desc_table_size(), 16)?;
+        self.avail_ring_ptr =
+            self.get_aligned_slice_ptr(mem, self.avail_ring_address, self.avail_ring_size(), 2)?;
+        self.used_ring_ptr =
+            self.get_aligned_slice_ptr(mem, self.used_ring_address, self.used_ring_size(), 4)?;
 
         Ok(())
     }
