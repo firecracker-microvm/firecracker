@@ -168,6 +168,7 @@ def test_block_performance(
     fio_mode,
     fio_block_size,
     fio_engine,
+    pci_enabled,
     io_engine,
     metrics,
     results_dir,
@@ -176,7 +177,7 @@ def test_block_performance(
     Execute block device emulation benchmarking scenarios.
     """
     vm = microvm_factory.build(guest_kernel_acpi, rootfs, monitor_memory=False)
-    vm.spawn(log_level="Info", emit_metrics=True)
+    vm.spawn(log_level="Info", emit_metrics=True, pci=pci_enabled)
     vm.basic_config(vcpu_count=vcpus, mem_size_mib=GUEST_MEM_MIB)
     vm.add_net_iface()
     # Add a secondary block device for benchmark tests.
