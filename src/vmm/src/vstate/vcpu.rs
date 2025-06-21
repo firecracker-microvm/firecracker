@@ -31,10 +31,14 @@ use crate::logger::{IncMetric, METRICS};
 use crate::seccomp::{BpfProgram, BpfProgramRef};
 use crate::utils::signal::{Killable, register_signal_handler, sigrtmin};
 use crate::utils::sm::StateMachine;
-use crate::vstate::vm::Vm;
+use crate::vstate::vm::{UserfaultChannel, UserfaultData, Vm};
 
 /// Signal number (SIGRTMIN) used to kick Vcpus.
 pub const VCPU_RTSIG_OFFSET: i32 = 0;
+
+// TODO: remove when KVM userfault support is merged upstream.
+/// VM exit due to a userfault.
+const KVM_MEMORY_EXIT_FLAG_USERFAULT: u64 = 1 << 4;
 
 /// Errors associated with the wrappers over KVM ioctls.
 #[derive(Debug, thiserror::Error, displaydoc::Display)]
@@ -109,6 +113,8 @@ pub struct Vcpu {
     response_receiver: Option<Receiver<VcpuResponse>>,
     /// The transmitting end of the responses channel owned by the vcpu side.
     response_sender: Sender<VcpuResponse>,
+    /// Channel for communicating userfaults with the VMM thread
+    userfault_channel: Option<UserfaultChannel>,
 }
 
 impl Vcpu {
@@ -201,7 +207,13 @@ impl Vcpu {
     /// * `index` - Represents the 0-based CPU index between [0, max vcpus).
     /// * `vm` - The vm to which this vcpu will get attached.
     /// * `exit_evt` - An `EventFd` that will be written into when this vcpu exits.
-    pub fn new(index: u8, vm: &Vm, exit_evt: EventFd) -> Result<Self, VcpuError> {
+    /// * `userfault_channel` - An optional userfault channel for handling page faults.
+    pub fn new(
+        index: u8,
+        vm: &Vm,
+        exit_evt: EventFd,
+        userfault_channel: Option<UserfaultChannel>,
+    ) -> Result<Self, VcpuError> {
         let (event_sender, event_receiver) = channel();
         let (response_sender, response_receiver) = channel();
         let kvm_vcpu = KvmVcpu::new(index, vm).unwrap();
@@ -215,6 +227,7 @@ impl Vcpu {
             #[cfg(feature = "gdb")]
             gdb_event: None,
             kvm_vcpu,
+            userfault_channel,
         })
     }
 
@@ -303,6 +316,7 @@ impl Vcpu {
                 // - the other vCPUs won't ever exit out of `KVM_RUN`, but they won't consume CPU.
                 // So we pause vCPU0 and send a signal to the emulation thread to stop the VMM.
                 Ok(VcpuEmulation::Stopped) => return self.exit(FcExitCode::Ok),
+                Ok(VcpuEmulation::Userfault(_)) => unreachable!(),
                 // If the emulation requests a pause lets do this
                 #[cfg(feature = "gdb")]
                 Ok(VcpuEmulation::Paused) => {
@@ -339,10 +353,13 @@ impl Vcpu {
                 // does not panic on resume, see https://docs.kernel.org/virt/kvm/api.html .
                 // We do not want to fail if the call is not successful, because depending
                 // that may be acceptable depending on the workload.
+                // TODO: once kvmclock is supported with Secret Fredom, remove this condition.
                 #[cfg(target_arch = "x86_64")]
-                if let Err(err) = self.kvm_vcpu.fd.kvmclock_ctrl() {
-                    METRICS.vcpu.kvmclock_ctrl_fails.inc();
-                    warn!("KVM_KVMCLOCK_CTRL call failed {}", err);
+                if self.userfault_channel.is_none() {
+                    if let Err(err) = self.kvm_vcpu.fd.kvmclock_ctrl() {
+                        METRICS.vcpu.kvmclock_ctrl_fails.inc();
+                        warn!("KVM_KVMCLOCK_CTRL call failed {}", err);
+                    }
                 }
 
                 // Move to 'paused' state.
@@ -486,6 +503,26 @@ impl Vcpu {
         StateMachine::finish()
     }
 
+    fn handle_userfault(
+        &mut self,
+        userfaultfd_data: UserfaultData,
+    ) -> Result<VcpuEmulation, VcpuError> {
+        let userfault_channel = self
+            .userfault_channel
+            .as_mut()
+            .expect("userfault channel not set");
+
+        userfault_channel
+            .send(userfaultfd_data)
+            .expect("Failed to send userfault data");
+
+        let _ = userfault_channel
+            .recv()
+            .expect("Failed to receive userfault response");
+
+        Ok(VcpuEmulation::Handled)
+    }
+
     /// Runs the vCPU in KVM context and handles the kvm exit reason.
     ///
     /// Returns error or enum specifying whether emulation was handled or interrupted.
@@ -496,7 +533,7 @@ impl Vcpu {
             return Ok(VcpuEmulation::Interrupted);
         }
 
-        match self.kvm_vcpu.fd.run() {
+        let result = match self.kvm_vcpu.fd.run() {
             Err(ref err) if err.errno() == libc::EINTR => {
                 self.kvm_vcpu.fd.set_kvm_immediate_exit(0);
                 // Notify that this KVM_RUN was interrupted.
@@ -513,7 +550,14 @@ impl Vcpu {
                 Ok(VcpuEmulation::Paused)
             }
             emulation_result => handle_kvm_exit(&mut self.kvm_vcpu.peripherals, emulation_result),
-        }
+        };
+
+        let userfault_data = match result {
+            Ok(VcpuEmulation::Userfault(userfault_data)) => userfault_data,
+            _ => return result,
+        };
+
+        self.handle_userfault(userfault_data)
     }
 }
 
@@ -591,6 +635,16 @@ fn handle_kvm_exit(
                     )))
                 }
             },
+            VcpuExit::MemoryFault { flags, gpa, size } => {
+                if flags & KVM_MEMORY_EXIT_FLAG_USERFAULT == 0 {
+                    Err(VcpuError::UnhandledKvmExit(format!(
+                        "flags {:x} gpa {:x} size {:x}",
+                        flags, gpa, size
+                    )))
+                } else {
+                    Ok(VcpuEmulation::Userfault(UserfaultData { flags, gpa, size }))
+                }
+            }
             arch_specific_reason => {
                 // run specific architecture emulation.
                 peripherals.run_arch_emulation(arch_specific_reason)
@@ -752,6 +806,8 @@ pub enum VcpuEmulation {
     Interrupted,
     /// Stopped.
     Stopped,
+    /// Userfault
+    Userfault(UserfaultData),
     /// Pause request
     #[cfg(feature = "gdb")]
     Paused,
@@ -922,7 +978,7 @@ pub(crate) mod tests {
     pub(crate) fn setup_vcpu(mem_size: usize) -> (Kvm, Vm, Vcpu) {
         let (kvm, mut vm) = setup_vm_with_memory(mem_size);
 
-        let (mut vcpus, _) = vm.create_vcpus(1).unwrap();
+        let (mut vcpus, _, _) = vm.create_vcpus(1, false).unwrap();
         let mut vcpu = vcpus.remove(0);
 
         #[cfg(target_arch = "aarch64")]

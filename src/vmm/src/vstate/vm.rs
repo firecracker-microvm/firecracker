@@ -7,18 +7,20 @@
 
 use std::collections::HashMap;
 use std::fs::{File, OpenOptions};
-use std::io::Write;
+use std::io::{Read, Write};
 use std::os::fd::{AsFd, AsRawFd, FromRawFd};
 use std::path::Path;
 use std::sync::Arc;
 
+use bincode::{Decode, Encode};
 use kvm_bindings::{
-    KVM_MEM_GUEST_MEMFD, KVM_MEM_LOG_DIRTY_PAGES, KVM_MEMORY_ATTRIBUTE_PRIVATE,
+    KVM_MEM_GUEST_MEMFD, KVM_MEM_LOG_DIRTY_PAGES, KVM_MEMORY_ATTRIBUTE_PRIVATE, KVMIO,
     kvm_create_guest_memfd, kvm_memory_attributes, kvm_userspace_memory_region,
-    kvm_userspace_memory_region2,
 };
 use kvm_ioctls::{Cap, VmFd};
 use vmm_sys_util::eventfd::EventFd;
+use vmm_sys_util::ioctl::ioctl_with_ref;
+use vmm_sys_util::{ioctl_ioc_nr, ioctl_iow_nr};
 
 pub use crate::arch::{ArchVm as Vm, ArchVmError, VmState};
 use crate::arch::{VM_TYPE_FOR_SECRET_FREEDOM, host_page_size};
@@ -34,6 +36,86 @@ use crate::vstate::vcpu::VcpuError;
 use crate::{DirtyBitmap, Vcpu, mem_size_mib};
 
 pub(crate) const KVM_GMEM_NO_DIRECT_MAP: u64 = 1;
+
+/// KVM userfault information
+#[derive(Copy, Clone, Decode, Default, Eq, PartialEq, Debug, Encode)]
+pub struct UserfaultData {
+    /// Flags
+    pub flags: u64,
+    /// Guest physical address
+    pub gpa: u64,
+    /// Size
+    pub size: u64,
+}
+
+/// Errors associated with `UserfaultChannel`.
+#[derive(Debug, thiserror::Error, displaydoc::Display)]
+pub enum UserfaultChannelError {
+    /// Encode error {0}
+    Encode(#[from] bincode::error::EncodeError),
+    /// Decode error {0}
+    Decode(#[from] bincode::error::DecodeError),
+    /// IO error {0}
+    IO(#[from] std::io::Error),
+}
+
+/// KVM userfault channel
+#[derive(Debug)]
+pub struct UserfaultChannel {
+    /// Sender
+    pub sender: File,
+    /// Receiver
+    pub receiver: File,
+}
+
+impl UserfaultChannel {
+    fn bincode_config(&self) -> impl bincode::config::Config {
+        bincode::config::standard().with_fixed_int_encoding()
+    }
+
+    /// Receive `UserfaultData` from the channel.
+    pub fn send(&mut self, data: UserfaultData) -> Result<(), UserfaultChannelError> {
+        let encoded_data = bincode::encode_to_vec(data, self.bincode_config())
+            .map_err(UserfaultChannelError::Encode)?;
+
+        self.sender.write_all(&encoded_data)?;
+
+        Ok(())
+    }
+
+    /// Send `UserfaultData` to the channel.
+    pub fn recv(&mut self) -> Result<UserfaultData, UserfaultChannelError> {
+        let size = bincode::encode_to_vec(UserfaultData::default(), self.bincode_config())?.len();
+
+        let mut encoded_data = vec![0u8; size as usize];
+        self.receiver.read_exact(&mut encoded_data)?;
+
+        bincode::decode_from_slice(&encoded_data, self.bincode_config())
+            .map_err(UserfaultChannelError::Decode)
+            .map(|(data, _)| data)
+    }
+}
+
+fn pipe2(flags: libc::c_int) -> std::io::Result<(File, File)> {
+    let mut fds = [0, 0];
+
+    // SAFETY: pipe2() is safe to call with a valid mutable pointer to an array of 2 integers
+    // The fds array is stack-allocated and lives for the entire unsafe block.
+    let res = unsafe { libc::pipe2(fds.as_mut_ptr(), flags) };
+
+    if res == 0 {
+        Ok((
+            // SAFETY: fds[0] contains a valid file descriptor for the read end of the pipe
+            // We only convert successful pipe2() calls, and each fd is used exactly once.
+            unsafe { File::from_raw_fd(fds[0]) },
+            // SAFETY: fds[1] contains a valid file descriptor for the write end of the pipe
+            // We only convert successful pipe2() calls, and each fd is used exactly once.
+            unsafe { File::from_raw_fd(fds[1]) },
+        ))
+    } else {
+        Err(std::io::Error::last_os_error())
+    }
+}
 
 /// Architecture independent parts of a VM.
 #[derive(Debug)]
@@ -59,6 +141,8 @@ pub enum VmError {
     Arch(#[from] ArchVmError),
     /// Error during eventfd operations: {0}
     EventFd(std::io::Error),
+    /// Failed to create a userfault channel: {0}
+    UserfaultChannel(std::io::Error),
     /// Failed to create vcpu: {0}
     CreateVcpu(VcpuError),
     /// The number of configured slots is bigger than the maximum reported by KVM
@@ -72,6 +156,26 @@ pub enum VmError {
     /// Failed to set memory attributes to private: {0}
     SetMemoryAttributes(kvm_ioctls::Error),
 }
+
+// Upstream `kvm_userspace_memory_region2` definition does not include `userfault_bitmap` field yet.
+// TODO: revert to `kvm_userspace_memory_region2` from kvm-bindings
+#[allow(non_camel_case_types)]
+#[repr(C)]
+#[derive(Debug, Default, Copy, Clone, PartialEq)]
+struct kvm_userspace_memory_region2 {
+    slot: u32,
+    flags: u32,
+    guest_phys_addr: u64,
+    memory_size: u64,
+    userspace_addr: u64,
+    guest_memfd_offset: u64,
+    guest_memfd: u32,
+    pad1: u32,
+    userfault_bitmap: u64,
+    pad2: [u64; 13],
+}
+
+type VcpuCreationResult = Result<(Vec<Vcpu>, EventFd, Option<Vec<UserfaultChannel>>), VmError>;
 
 /// Contains Vm functions that are usable across CPU architectures
 impl Vm {
@@ -135,24 +239,65 @@ impl Vm {
         })
     }
 
+    fn create_userfault_channels(
+        &self,
+        secret_free: bool,
+    ) -> Result<(Option<UserfaultChannel>, Option<UserfaultChannel>), std::io::Error> {
+        if secret_free {
+            let (receiver_vcpu_to_vm, sender_vcpu_to_vm) = pipe2(libc::O_NONBLOCK)?;
+            let (receiver_vm_to_vcpu, sender_vm_to_vcpu) = pipe2(0)?;
+            Ok((
+                Some(UserfaultChannel {
+                    sender: sender_vcpu_to_vm,
+                    receiver: receiver_vm_to_vcpu,
+                }),
+                Some(UserfaultChannel {
+                    sender: sender_vm_to_vcpu,
+                    receiver: receiver_vcpu_to_vm,
+                }),
+            ))
+        } else {
+            Ok((None, None))
+        }
+    }
+
     /// Creates the specified number of [`Vcpu`]s.
     ///
     /// The returned [`EventFd`] is written to whenever any of the vcpus exit.
-    pub fn create_vcpus(&mut self, vcpu_count: u8) -> Result<(Vec<Vcpu>, EventFd), VmError> {
+    pub fn create_vcpus(&mut self, vcpu_count: u8, secret_free: bool) -> VcpuCreationResult {
         self.arch_pre_create_vcpus(vcpu_count)?;
 
         let exit_evt = EventFd::new(libc::EFD_NONBLOCK).map_err(VmError::EventFd)?;
 
         let mut vcpus = Vec::with_capacity(vcpu_count as usize);
+        let mut userfault_channels = Vec::with_capacity(vcpu_count as usize);
         for cpu_idx in 0..vcpu_count {
             let exit_evt = exit_evt.try_clone().map_err(VmError::EventFd)?;
-            let vcpu = Vcpu::new(cpu_idx, self, exit_evt).map_err(VmError::CreateVcpu)?;
+
+            let (vcpu_channel, vmm_channel) = self
+                .create_userfault_channels(secret_free)
+                .map_err(VmError::UserfaultChannel)?;
+
+            let vcpu =
+                Vcpu::new(cpu_idx, self, exit_evt, vcpu_channel).map_err(VmError::CreateVcpu)?;
             vcpus.push(vcpu);
+
+            if secret_free {
+                userfault_channels.push(vmm_channel.unwrap());
+            }
         }
 
         self.arch_post_create_vcpus(vcpu_count)?;
 
-        Ok((vcpus, exit_evt))
+        Ok((
+            vcpus,
+            exit_evt,
+            if secret_free {
+                Some(userfault_channels)
+            } else {
+                None
+            },
+        ))
     }
 
     /// Create a guest_memfd of the specified size
@@ -181,16 +326,78 @@ impl Vm {
     pub fn register_memory_regions(
         &mut self,
         regions: Vec<GuestRegionMmap>,
+        userfault_bitmap_memfd: Option<&File>,
     ) -> Result<(), VmError> {
+        let addr = match userfault_bitmap_memfd {
+            Some(file) => {
+                // SAFETY: the arguments to mmap cannot cause any memory unsafety in the rust sense
+                let addr = unsafe {
+                    libc::mmap(
+                        std::ptr::null_mut(),
+                        usize::try_from(file.metadata().unwrap().len())
+                            .expect("userfault bitmap file size is too large"),
+                        libc::PROT_WRITE,
+                        libc::MAP_SHARED,
+                        file.as_raw_fd(),
+                        0,
+                    )
+                };
+
+                if addr == libc::MAP_FAILED {
+                    panic!(
+                        "Failed to mmap userfault bitmap file: {}",
+                        std::io::Error::last_os_error()
+                    );
+                }
+
+                Some(addr as u64)
+            }
+            None => None,
+        };
+
         for region in regions {
-            self.register_memory_region(region)?
+            self.register_memory_region(region, addr)?
         }
 
         Ok(())
     }
 
+    // TODO: remove when userfault support is merged upstream
+    fn set_user_memory_region2(
+        &self,
+        user_memory_region2: kvm_userspace_memory_region2,
+    ) -> Result<(), VmError> {
+        ioctl_iow_nr!(
+            KVM_SET_USER_MEMORY_REGION2,
+            KVMIO,
+            0x49,
+            kvm_userspace_memory_region2
+        );
+
+        #[allow(clippy::undocumented_unsafe_blocks)]
+        let ret = unsafe {
+            ioctl_with_ref(
+                self.fd(),
+                KVM_SET_USER_MEMORY_REGION2(),
+                &user_memory_region2,
+            )
+        };
+        if ret == 0 {
+            Ok(())
+        } else {
+            Err(VmError::SetUserMemoryRegion(kvm_ioctls::Error::last()))
+        }
+    }
+
     /// Register a new memory region to this [`Vm`].
-    pub fn register_memory_region(&mut self, region: GuestRegionMmap) -> Result<(), VmError> {
+    pub fn register_memory_region(
+        &mut self,
+        region: GuestRegionMmap,
+        userfault_addr: Option<u64>,
+    ) -> Result<(), VmError> {
+        // TODO: take it from kvm-bindings when merged upstream
+        const KVM_MEM_USERFAULT: u32 = 1 << 3;
+
         let next_slot = self
             .guest_memory()
             .num_regions()
@@ -218,6 +425,18 @@ impl Vm {
             (0, 0)
         };
 
+        let userfault_bitmap = match userfault_addr {
+            Some(addr) => {
+                flags |= KVM_MEM_USERFAULT;
+
+                let file_offset_start = region.file_offset().unwrap().start();
+                let pages_offset = file_offset_start / (host_page_size() as u64);
+                let bytes_offset = pages_offset / (u8::BITS as u64);
+                addr + bytes_offset
+            }
+            None => 0,
+        };
+
         let memory_region = kvm_userspace_memory_region2 {
             slot: next_slot,
             guest_phys_addr: region.start_addr().raw_value(),
@@ -226,18 +445,14 @@ impl Vm {
             flags,
             guest_memfd,
             guest_memfd_offset,
+            userfault_bitmap,
             ..Default::default()
         };
 
         let new_guest_memory = self.common.guest_memory.insert_region(Arc::new(region))?;
 
         if self.fd().check_extension(Cap::UserMemory2) {
-            // SAFETY: We are passing a valid memory region and operate on a valid KVM FD.
-            unsafe {
-                self.fd()
-                    .set_user_memory_region2(memory_region)
-                    .map_err(VmError::SetUserMemoryRegion)?;
-            }
+            self.set_user_memory_region2(memory_region)?;
         } else {
             // Something is seriously wrong if we manage to set these fields on a host that doesn't
             // even allow creation of guest_memfds!
@@ -417,7 +632,7 @@ pub(crate) mod tests {
     pub(crate) fn setup_vm_with_memory(mem_size: usize) -> (Kvm, Vm) {
         let (kvm, mut vm) = setup_vm();
         let gm = single_region_mem_raw(mem_size);
-        vm.register_memory_regions(gm).unwrap();
+        vm.register_memory_regions(gm, None).unwrap();
         (kvm, vm)
     }
 
@@ -447,14 +662,14 @@ pub(crate) mod tests {
         // Trying to set a memory region with a size that is not a multiple of GUEST_PAGE_SIZE
         // will result in error.
         let gm = single_region_mem_raw(0x10);
-        let res = vm.register_memory_regions(gm);
+        let res = vm.register_memory_regions(gm, None);
         assert_eq!(
             res.unwrap_err().to_string(),
             "Cannot set the memory regions: Invalid argument (os error 22)"
         );
 
         let gm = single_region_mem_raw(0x1000);
-        let res = vm.register_memory_regions(gm);
+        let res = vm.register_memory_regions(gm, None);
         res.unwrap();
     }
 
@@ -489,7 +704,7 @@ pub(crate) mod tests {
 
             let region = GuestRegionMmap::new(region, GuestAddress(i as u64 * 0x1000)).unwrap();
 
-            let res = vm.register_memory_region(region);
+            let res = vm.register_memory_region(region, None);
 
             if i >= max_nr_regions {
                 assert!(
@@ -516,7 +731,7 @@ pub(crate) mod tests {
         let vcpu_count = 2;
         let (_, mut vm) = setup_vm_with_memory(mib_to_bytes(128));
 
-        let (vcpu_vec, _) = vm.create_vcpus(vcpu_count).unwrap();
+        let (vcpu_vec, _, _) = vm.create_vcpus(vcpu_count, false).unwrap();
 
         assert_eq!(vcpu_vec.len(), vcpu_count as usize);
     }
