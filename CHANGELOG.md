@@ -159,13 +159,6 @@ and this project adheres to
   the empty seccomp policy as default for debug builds to avoid crashes on
   syscalls introduced by debug assertions from Rust 1.80.0.
 
-## [1.10.1]
-
-### Changed
-
-- [#4907](https://github.com/firecracker-microvm/firecracker/pull/4907): Bumped
-  the snapshot version to 4.0.0, so users need to regenerate snapshots.
-
 ## [1.10.0]
 
 ### Added
