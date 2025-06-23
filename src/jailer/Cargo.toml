@@ -15,7 +15,7 @@ bench = false
 tracing = ["log-instrument", "utils/tracing"]
 
 [dependencies]
-libc = "0.2.173"
+libc = "0.2.174"
 log-instrument = { path = "../log-instrument", optional = true }
 regex = { version = "1.11.1", default-features = false, features = ["std"] }
 thiserror = "2.0.12"
