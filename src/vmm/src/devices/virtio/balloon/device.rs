@@ -362,6 +362,7 @@ impl Balloon {
                 }
             }
         }
+        queue.advance_used_ring_idx();
 
         if needs_interrupt {
             self.signal_used_queue()?;
@@ -380,6 +381,7 @@ impl Balloon {
             queue.add_used(head.index, 0)?;
             needs_interrupt = true;
         }
+        queue.advance_used_ring_idx();
 
         if needs_interrupt {
             self.signal_used_queue()
@@ -453,6 +455,7 @@ impl Balloon {
         // and sending a used buffer notification
         if let Some(index) = self.stats_desc_index.take() {
             self.queues[STATS_INDEX].add_used(index, 0)?;
+            self.queues[STATS_INDEX].advance_used_ring_idx();
             self.signal_used_queue()
         } else {
             error!("Failed to update balloon stats, missing descriptor.");

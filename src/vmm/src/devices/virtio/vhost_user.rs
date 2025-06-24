@@ -410,14 +410,14 @@ impl<T: VhostUserHandleBackend> VhostUserHandleImpl<T> {
         // at early stage.
         for (queue_index, queue, _) in queues.iter() {
             self.vu
-                .set_vring_num(*queue_index, queue.actual_size())
+                .set_vring_num(*queue_index, queue.size)
                 .map_err(VhostUserError::VhostUserSetVringNum)?;
         }
 
         for (queue_index, queue, queue_evt) in queues.iter() {
             let config_data = VringConfigData {
-                queue_max_size: queue.get_max_size(),
-                queue_size: queue.actual_size(),
+                queue_max_size: queue.max_size,
+                queue_size: queue.size,
                 flags: 0u32,
                 desc_table_addr: mem
                     .get_host_address(queue.desc_table_address)

@@ -207,7 +207,7 @@ impl RxBuffers {
     /// This will let the guest know that about all the `DescriptorChain` object that has been
     /// used to receive a frame from the TAP.
     fn finish_frame(&mut self, rx_queue: &mut Queue) {
-        rx_queue.advance_used_ring(self.used_descriptors);
+        rx_queue.advance_next_used(self.used_descriptors);
         self.used_descriptors = 0;
         self.used_bytes = 0;
     }
@@ -396,6 +396,7 @@ impl Net {
             NetQueue::Rx => &mut self.queues[RX_INDEX],
             NetQueue::Tx => &mut self.queues[TX_INDEX],
         };
+        queue.advance_used_ring_idx();
 
         if queue.prepare_kick() {
             self.irq_trigger
@@ -1070,6 +1071,7 @@ pub mod tests {
     impl Net {
         pub fn finish_frame(&mut self) {
             self.rx_buffer.finish_frame(&mut self.queues[RX_INDEX]);
+            self.queues[RX_INDEX].advance_used_ring_idx();
         }
     }
 
