@@ -146,6 +146,8 @@ pub mod tests {
         let mem = default_mem();
         let infq = VirtQueue::new(GuestAddress(0), &mem, 16);
         balloon.set_queue(INFLATE_INDEX, infq.create_queue());
+        balloon.set_queue(DEFLATE_INDEX, infq.create_queue());
+        balloon.set_queue(STATS_INDEX, infq.create_queue());
 
         let balloon = Arc::new(Mutex::new(balloon));
         let _id = event_manager.add_subscriber(balloon.clone());
