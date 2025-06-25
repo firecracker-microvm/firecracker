@@ -9,7 +9,6 @@
 use serde::{Deserialize, Serialize};
 
 mod bus;
-pub mod dma_mapping;
 pub mod interrupt;
 
 pub use self::bus::{Bus, BusDevice, BusDeviceSync, Error as BusError};
