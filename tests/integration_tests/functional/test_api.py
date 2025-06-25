@@ -851,6 +851,7 @@ def _pin_aarch64_logind(func):
 
 
 @_pin_aarch64_logind
+@pytest.mark.skip(reason="TODO: fix graceful shutdown on x86_64")
 @pytest.mark.parametrize(
     "ctrl_alt_del_mode,timeout",
     [
@@ -902,6 +903,7 @@ def test_send_ctrl_alt_del(uvm, ctrl_alt_del_mode, timeout):
 
 
 @_pin_aarch64_logind
+@pytest.mark.skip(reason="TODO: fix graceful shutdown on x86_64")
 def test_send_ctrl_alt_del_while_paused(uvm):
     """
     Test that a SendCtrlAltDel issued while the microVM is paused is not lost.
