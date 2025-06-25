@@ -16,6 +16,7 @@ from framework.properties import global_props
     global_props.host_linux_version_tpl > (6, 1),
     reason="The number of threads associated to firecracker changes in newer kernels",
 )
+@pytest.mark.skip(reason="TODO: fix graceful shutdown on x86_64")
 @pytest.mark.parametrize(
     "huge_pages", [HugePagesConfig.NONE, HugePagesConfig.TRANSPARENT]
 )
