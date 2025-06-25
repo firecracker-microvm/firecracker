@@ -12,7 +12,6 @@ extern crate log;
 mod bus;
 mod configuration;
 mod device;
-mod msi;
 mod msix;
 
 use std::fmt::{self, Debug, Display};
@@ -31,7 +30,6 @@ pub use self::configuration::{
 pub use self::device::{
     BarReprogrammingParams, DeviceRelocation, Error as PciDeviceError, PciDevice,
 };
-pub use self::msi::{msi_num_enabled_vectors, MsiCap, MsiConfig};
 pub use self::msix::{
     Error as MsixError, MsixCap, MsixConfig, MsixConfigState, MsixTableEntry, MSIX_CONFIG_ID,
     MSIX_TABLE_ENTRY_SIZE,
