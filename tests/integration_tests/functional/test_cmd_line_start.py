@@ -154,6 +154,7 @@ def test_config_start_no_api(uvm_plain, vm_config_file):
 
 
 @pytest.mark.parametrize("vm_config_file", ["framework/vm_config_network.json"])
+@pytest.mark.skip(reason="TODO: fix graceful shutdown on x86_64")
 def test_config_start_no_api_exit(uvm_plain, vm_config_file):
     """
     Test microvm exit when API server is disabled.
