@@ -623,6 +623,9 @@ pub fn build_microvm_from_snapshot(
     vmm.uffd_socket = socket;
 
     #[cfg(target_arch = "x86_64")]
+    vmm.vm.set_memory_private().map_err(VmmError::Vm)?;
+
+    #[cfg(target_arch = "x86_64")]
     {
         // Scale TSC to match, extract the TSC freq from the state if specified
         if let Some(state_tsc) = microvm_state.vcpu_states[0].tsc_khz {
