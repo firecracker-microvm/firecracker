@@ -410,14 +410,14 @@ impl<T: VhostUserHandleBackend> VhostUserHandleImpl<T> {
         // at early stage.
         for (queue_index, queue, _) in queues.iter() {
             self.vu
-                .set_vring_num(*queue_index, queue.actual_size())
+                .set_vring_num(*queue_index, queue.size)
                 .map_err(VhostUserError::VhostUserSetVringNum)?;
         }
 
         for (queue_index, queue, queue_evt) in queues.iter() {
             let config_data = VringConfigData {
-                queue_max_size: queue.get_max_size(),
-                queue_size: queue.actual_size(),
+                queue_max_size: queue.max_size,
+                queue_size: queue.size,
                 flags: 0u32,
                 desc_table_addr: mem
                     .get_host_address(queue.desc_table_address)
@@ -895,7 +895,9 @@ pub(crate) mod tests {
 
         let guest_memory = create_mem(file, &regions);
 
-        let mut queue = Queue::new(69);
+        let mut queue = Queue::new(128);
+        queue.ready = true;
+        queue.size = queue.max_size;
         queue.initialize(&guest_memory).unwrap();
 
         let event_fd = EventFd::new(0).unwrap();
@@ -910,10 +912,10 @@ pub(crate) mod tests {
         // the backend.
         let expected_config = VringData {
             index: 0,
-            size: 0,
+            size: 128,
             config: VringConfigData {
-                queue_max_size: 69,
-                queue_size: 0,
+                queue_max_size: 128,
+                queue_size: 128,
                 flags: 0,
                 desc_table_addr: guest_memory
                     .get_host_address(queue.desc_table_address)

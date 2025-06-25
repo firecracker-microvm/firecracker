@@ -35,6 +35,9 @@ and this project adheres to
   MMDS to set `Content-Type` header correctly (i.e. `Content-Type: text/plain`
   for IMDS-formatted or error responses and `Content-Type: application/json` for
   JSON-formatted responses).
+- [#5260](https://github.com/firecracker-microvm/firecracker/pull/5260): Fixed a
+  bug allowing the block device to starve all other devices when backed by a
+  sufficiently slow drive.
 
 ## [1.12.0]
 
@@ -155,13 +158,6 @@ and this project adheres to
 - [#5052](https://github.com/firecracker-microvm/firecracker/pull/5052): Build
   the empty seccomp policy as default for debug builds to avoid crashes on
   syscalls introduced by debug assertions from Rust 1.80.0.
-
-## [1.10.1]
-
-### Changed
-
-- [#4907](https://github.com/firecracker-microvm/firecracker/pull/4907): Bumped
-  the snapshot version to 4.0.0, so users need to regenerate snapshots.
 
 ## [1.10.0]
 

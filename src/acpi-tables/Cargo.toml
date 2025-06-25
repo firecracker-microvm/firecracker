@@ -16,7 +16,7 @@ bench = false
 displaydoc = "0.2.5"
 thiserror = "2.0.12"
 vm-memory = { version = "0.16.2", features = ["backend-mmap", "backend-bitmap"] }
-zerocopy = { version = "0.8.25", features = ["derive"] }
+zerocopy = { version = "0.8.26", features = ["derive"] }
 
 [lints]
 workspace = true
