@@ -347,8 +347,7 @@ fn main_exec() -> Result<(), JailerError> {
         fs::create_dir_all(env.chroot_dir())
             .map_err(|err| JailerError::CreateDir(env.chroot_dir().to_owned(), err))?;
         env.run()
-    })
-    .unwrap_or_else(|err| panic!("Jailer error: {}", err));
+    })?;
     Ok(())
 }
 
