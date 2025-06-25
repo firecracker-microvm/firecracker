@@ -289,7 +289,14 @@ impl Env {
         let exec_file_path = canonicalize(exec_file)
             .map_err(|err| JailerError::Canonicalize(PathBuf::from(exec_file), err))?;
 
-        if !exec_file_path.is_file() {
+        // Safety: the `canonicalize` call above ensured the existance of the path.
+        let metadata = std::fs::metadata(&exec_file_path).unwrap();
+
+        // Check that it is executable
+        if metadata.permissions().mode() & 0o111 == 0 {
+            return Err(JailerError::NotExecutable(exec_file_path));
+        }
+        if !metadata.is_file() {
             return Err(JailerError::NotAFile(exec_file_path));
         }
 
@@ -782,7 +789,8 @@ mod tests {
         pub fn new(pseudo_exec_file_path: &'a str) -> ArgVals<'a> {
             let pseudo_exec_file_dir = Path::new(&pseudo_exec_file_path).parent().unwrap();
             fs::create_dir_all(pseudo_exec_file_dir).unwrap();
-            File::create(pseudo_exec_file_path).unwrap();
+            create_exec_file(pseudo_exec_file_path);
+
             ArgVals {
                 id: "bd65600d-8669-4903-8a14-af88203add38",
                 exec_file: pseudo_exec_file_path,
@@ -797,6 +805,13 @@ mod tests {
                 parent_cgroup: None,
             }
         }
+    }
+
+    fn create_exec_file(pseudo_exec_file_path: &str) {
+        let exec = File::create(pseudo_exec_file_path).unwrap();
+        let mut perms = exec.metadata().unwrap().permissions();
+        perms.set_mode(0o111);
+        exec.set_permissions(perms).unwrap();
     }
 
     fn make_args(arg_vals: &ArgVals) -> Vec<String> {
@@ -1018,31 +1033,30 @@ mod tests {
         let pseudo_exec_file_path = get_pseudo_exec_file_path();
         let pseudo_exec_file_dir = Path::new(&pseudo_exec_file_path).parent().unwrap();
         create_dir_all(pseudo_exec_file_dir).unwrap();
-        File::create(&pseudo_exec_file_path).unwrap();
+        create_exec_file(&pseudo_exec_file_path);
         Env::validate_exec_file(&pseudo_exec_file_path).unwrap();
 
         // Error case 1: No such file exists
         std::fs::remove_file(&pseudo_exec_file_path).unwrap();
-        assert_eq!(
-            format!(
-                "{}",
-                Env::validate_exec_file(&pseudo_exec_file_path).unwrap_err()
-            ),
-            format!(
-                "Failed to canonicalize path {}: No such file or directory (os error 2)",
-                pseudo_exec_file_path
-            )
-        );
+        assert!(matches!(
+            Env::validate_exec_file("/tmp/firecracker_test_dir/foobarbaz"),
+            Err(JailerError::Canonicalize(_, _))
+        ));
 
         // Error case 2: Not a file
         std::fs::create_dir_all("/tmp/firecracker_test_dir").unwrap();
-        assert_eq!(
-            format!(
-                "{}",
-                Env::validate_exec_file("/tmp/firecracker_test_dir").unwrap_err()
-            ),
-            "/tmp/firecracker_test_dir is not a file"
-        );
+        assert!(matches!(
+            Env::validate_exec_file("/tmp/firecracker_test_dir"),
+            Err(JailerError::NotAFile(_))
+        ));
+
+        // Error case 3: Not an executable
+        File::create("/tmp/firecracker_test_dir/foobarbaz").unwrap();
+        assert!(matches!(
+            Env::validate_exec_file("/tmp/firecracker_test_dir/foobarbaz"),
+            Err(JailerError::NotExecutable(_))
+        ));
+        std::fs::remove_file("/tmp/firecracker_test_dir/foobarbaz").unwrap();
 
         std::fs::remove_dir_all("/tmp/firecracker_test_dir").unwrap();
     }
@@ -1181,7 +1195,7 @@ mod tests {
         let exec_file_path = get_pseudo_exec_file_path();
         let exec_file_dir = Path::new(&exec_file_path).parent().unwrap();
         fs::create_dir_all(exec_file_dir).unwrap();
-        File::create(&exec_file_path).unwrap();
+        create_exec_file(&exec_file_path);
         let some_dir = TempDir::new().unwrap();
         let some_dir_path = some_dir.as_path().to_str().unwrap();
 

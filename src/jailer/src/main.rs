@@ -99,6 +99,8 @@ pub enum JailerError {
     MountBind(io::Error),
     #[error("Failed to change the propagation type to slave: {0}")]
     MountPropagationSlave(io::Error),
+    #[error("{}", format!("{:?} is not executable", .0).replace('\"', ""))]
+    NotExecutable(PathBuf),
     #[error("{}", format!("{:?} is not a file", .0).replace('\"', ""))]
     NotAFile(PathBuf),
     #[error("{}", format!("{:?} is not a directory", .0).replace('\"', ""))]
