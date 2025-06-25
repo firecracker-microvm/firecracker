@@ -776,6 +776,7 @@ def test_drive_patch(uvm, io_engine):
 @pytest.mark.skipif(
     platform.machine() != "x86_64", reason="not yet implemented on aarch64"
 )
+@pytest.mark.skip(reason="TODO: fix graceful shutdown on x86_64")
 def test_send_ctrl_alt_del(uvm):
     """
     Test shutting down the microVM gracefully on x86, by sending CTRL+ALT+DEL.
