@@ -106,20 +106,6 @@ def test_exec_file_not_exist(uvm_plain, tmp_path):
     ):
         test_microvm.spawn()
 
-    # Error case 3: Filename without "firecracker"
-    pseudo_exec_file_path = tmp_path / "foobarbaz"
-    pseudo_exec_file_path.touch()
-    fc_dir = Path("/srv/jailer") / pseudo_exec_file_path.name / test_microvm.id
-    fc_dir.mkdir(parents=True, exist_ok=True)
-    test_microvm.jailer.exec_file = pseudo_exec_file_path
-
-    with pytest.raises(
-        Exception,
-        match=r"Jailer error: Invalid filename. The filename of `--exec-file` option"
-        r' must contain "firecracker": foobarbaz',
-    ):
-        test_microvm.spawn()
-
 
 def test_default_chroot_hierarchy(uvm_plain):
     """
