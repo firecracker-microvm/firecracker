@@ -11,7 +11,7 @@ import pytest
 # Regex for obtaining boot time from some string.
 
 DEFAULT_BOOT_ARGS = (
-    "reboot=k panic=1 pci=off nomodule 8250.nr_uarts=0"
+    "reboot=k panic=1 nomodule 8250.nr_uarts=0"
     " i8042.noaux i8042.nomux i8042.nopnp i8042.dumbkbd"
 )
 
@@ -98,13 +98,14 @@ def launch_vm_with_boot_timer(
     microvm_factory, guest_kernel_acpi, rootfs_rw, vcpu_count, mem_size_mib, pci_enabled
 ):
     """Launches a microVM with guest-timer and returns the reported metrics for it"""
+    boot_args = DEFAULT_BOOT_ARGS if pci_enabled else DEFAULT_BOOT_ARGS + " pci=off"
     vm = microvm_factory.build(guest_kernel_acpi, rootfs_rw)
     vm.jailer.extra_args.update({"boot-timer": None})
     vm.spawn(pci=pci_enabled)
     vm.basic_config(
         vcpu_count=vcpu_count,
         mem_size_mib=mem_size_mib,
-        boot_args=DEFAULT_BOOT_ARGS + " init=/usr/local/bin/init",
+        boot_args=boot_args + " init=/usr/local/bin/init",
         enable_entropy_device=True,
     )
     vm.add_net_iface()
