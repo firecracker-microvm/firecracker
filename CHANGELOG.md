@@ -22,6 +22,8 @@ and this project adheres to
 - [#5165](https://github.com/firecracker-microvm/firecracker/pull/5165): Changed
   Firecracker snapshot feature from developer preview to generally available.
   Incremental snapshots remain in developer preview.
+- [#5282](https://github.com/firecracker-microvm/firecracker/pull/5282): Updated
+  jailer to no longer require the executable file name to contain `firecracker`.
 
 ### Deprecated
 
