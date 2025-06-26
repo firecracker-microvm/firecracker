@@ -77,7 +77,12 @@ def pytest_addoption(parser):
 
 def pytest_report_header():
     """Pytest hook to print relevant metadata in the logs"""
-    return f"EC2 AMI: {global_props.ami}"
+    return "\n".join(
+        [
+            f"EC2 AMI: {global_props.ami}",
+            f"EC2 Instance ID: {global_props.instance_id}",
+        ]
+    )
 
 
 @pytest.hookimpl(wrapper=True, tryfirst=True)
