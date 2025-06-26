@@ -3,20 +3,28 @@
 
 #![allow(missing_docs)]
 
+#[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
 use std::sync::{Arc, Mutex};
 
 use vm_memory::GuestAddress;
 use vmm_sys_util::tempdir::TempDir;
 
+#[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
 use crate::builder::build_microvm_for_boot;
+#[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
 use crate::resources::VmResources;
+#[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
 use crate::seccomp::get_empty_filters;
+#[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
 use crate::test_utils::mock_resources::{MockBootSourceConfig, MockVmConfig, MockVmResources};
+#[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
 use crate::vmm_config::boot_source::BootSourceConfig;
+#[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
 use crate::vmm_config::instance_info::InstanceInfo;
 use crate::vmm_config::machine_config::HugePageConfig;
 use crate::vstate::memory;
 use crate::vstate::memory::{GuestMemoryMmap, GuestRegionMmap};
+#[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
 use crate::{EventManager, Vmm};
 
 pub mod mock_resources;
@@ -65,6 +73,7 @@ pub fn arch_mem_raw(mem_size_bytes: usize) -> Vec<GuestRegionMmap> {
     multi_region_mem_raw(&crate::arch::arch_memory_regions(0, mem_size_bytes))
 }
 
+#[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
 pub fn create_vmm(
     _kernel_image: Option<&str>,
     is_diff: bool,
@@ -105,10 +114,12 @@ pub fn create_vmm(
     (vmm, event_manager)
 }
 
+#[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
 pub fn default_vmm(kernel_image: Option<&str>) -> (Arc<Mutex<Vmm>>, EventManager) {
     create_vmm(kernel_image, false, true)
 }
 
+#[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
 pub fn default_vmm_no_boot(kernel_image: Option<&str>) -> (Arc<Mutex<Vmm>>, EventManager) {
     create_vmm(kernel_image, false, false)
 }
