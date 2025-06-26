@@ -747,13 +747,6 @@ impl RuntimeApiController {
     ) -> Result<VmmData, VmmActionError> {
         if create_params.snapshot_type == SnapshotType::Diff {
             log_dev_preview_warning("Virtual machine diff snapshots", None);
-
-            if !self.vm_resources.machine_config.track_dirty_pages {
-                return Err(VmmActionError::NotSupported(
-                    "Diff snapshots are not allowed on uVMs with dirty page tracking disabled."
-                        .to_string(),
-                ));
-            }
         }
 
         let mut locked_vmm = self.vmm.lock().unwrap();
@@ -1256,7 +1249,7 @@ mod tests {
                     backend_type: MemBackendType::File,
                     backend_path: PathBuf::new(),
                 },
-                enable_diff_snapshots: false,
+                track_dirty_pages: false,
                 resume_vm: false,
                 network_overrides: vec![],
             },
