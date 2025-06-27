@@ -11,7 +11,7 @@ import pytest
 # Regex for obtaining boot time from some string.
 
 DEFAULT_BOOT_ARGS = (
-    "reboot=k panic=1 pci=off nomodule 8250.nr_uarts=0"
+    "reboot=k panic=1 nomodule 8250.nr_uarts=0"
     " i8042.noaux i8042.nomux i8042.nopnp i8042.dumbkbd"
 )
 
@@ -95,16 +95,17 @@ def get_systemd_analyze_times(microvm):
 
 
 def launch_vm_with_boot_timer(
-    microvm_factory, guest_kernel_acpi, rootfs_rw, vcpu_count, mem_size_mib
+    microvm_factory, guest_kernel_acpi, rootfs_rw, vcpu_count, mem_size_mib, pci_enabled
 ):
     """Launches a microVM with guest-timer and returns the reported metrics for it"""
+    boot_args = DEFAULT_BOOT_ARGS if pci_enabled else DEFAULT_BOOT_ARGS + "pci=off"
     vm = microvm_factory.build(guest_kernel_acpi, rootfs_rw)
     vm.jailer.extra_args.update({"boot-timer": None})
-    vm.spawn()
+    vm.spawn(pci=pci_enabled)
     vm.basic_config(
         vcpu_count=vcpu_count,
         mem_size_mib=mem_size_mib,
-        boot_args=DEFAULT_BOOT_ARGS + " init=/usr/local/bin/init",
+        boot_args=boot_args + " init=/usr/local/bin/init",
         enable_entropy_device=True,
     )
     vm.add_net_iface()
@@ -116,9 +117,11 @@ def launch_vm_with_boot_timer(
     return (vm, boot_time_us, cpu_boot_time_us)
 
 
-def test_boot_timer(microvm_factory, guest_kernel_acpi, rootfs):
+def test_boot_timer(microvm_factory, guest_kernel_acpi, rootfs, pci_enabled):
     """Tests that the boot timer device works"""
-    launch_vm_with_boot_timer(microvm_factory, guest_kernel_acpi, rootfs, 1, 128)
+    launch_vm_with_boot_timer(
+        microvm_factory, guest_kernel_acpi, rootfs, 1, 128, pci_enabled
+    )
 
 
 @pytest.mark.parametrize(
@@ -127,13 +130,24 @@ def test_boot_timer(microvm_factory, guest_kernel_acpi, rootfs):
 )
 @pytest.mark.nonci
 def test_boottime(
-    microvm_factory, guest_kernel_acpi, rootfs_rw, vcpu_count, mem_size_mib, metrics
+    microvm_factory,
+    guest_kernel_acpi,
+    rootfs_rw,
+    vcpu_count,
+    mem_size_mib,
+    pci_enabled,
+    metrics,
 ):
     """Test boot time with different guest configurations"""
 
     for i in range(10):
         vm, boot_time_us, cpu_boot_time_us = launch_vm_with_boot_timer(
-            microvm_factory, guest_kernel_acpi, rootfs_rw, vcpu_count, mem_size_mib
+            microvm_factory,
+            guest_kernel_acpi,
+            rootfs_rw,
+            vcpu_count,
+            mem_size_mib,
+            pci_enabled,
         )
 
         if i == 0:

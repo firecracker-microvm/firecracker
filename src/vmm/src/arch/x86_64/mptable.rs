@@ -15,10 +15,10 @@ use vm_allocator::AllocPolicy;
 
 use crate::arch::IRQ_MAX;
 use crate::arch::x86_64::generated::mpspec;
-use crate::device_manager::resources::ResourceAllocator;
 use crate::vstate::memory::{
     Address, ByteValued, Bytes, GuestAddress, GuestMemory, GuestMemoryMmap,
 };
+use crate::vstate::resources::ResourceAllocator;
 
 // These `mpspec` wrapper types are only data, reading them from data is a safe initialization.
 // SAFETY: POD

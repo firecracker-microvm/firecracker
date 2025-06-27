@@ -481,6 +481,7 @@ class Microvm:
             "rootfs": self.rootfs_file.name,
             "vcpus": str(self.vcpus_count),
             "guest_memory": f"{self.mem_size_bytes / (1024 * 1024)}MB",
+            "pci": f"{self.pci_enabled}",
         }
 
     @property
@@ -783,8 +784,10 @@ class Microvm:
         the response is within the interval [200, 300).
 
         If boot_args is None, the default boot_args in Firecracker is
-            reboot=k panic=1 pci=off nomodule 8250.nr_uarts=0
-            i8042.noaux i8042.nomux i8042.nopnp i8042.dumbkbd
+            reboot=k panic=1 nomodule 8250.nr_uarts=0 i8042.noaux i8042.nomux
+            i8042.nopnp i8042.dumbkbd
+
+        if PCI is disabled, Firecracker also passes to the guest pci=off
 
         Reference: file:../../src/vmm/src/vmm_config/boot_source.rs::DEFAULT_KERNEL_CMDLINE
         """
