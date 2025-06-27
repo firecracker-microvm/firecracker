@@ -834,7 +834,7 @@ mod tests {
         let device_info = device_manager
             .allocate_mmio_resources(&mut resource_allocator, 1)
             .unwrap();
-        assert_eq!(device_info.irq.unwrap().get(), crate::arch::IRQ_BASE);
+        assert_eq!(device_info.irq.unwrap().get(), crate::arch::GSI_BASE);
     }
 
     #[test]
