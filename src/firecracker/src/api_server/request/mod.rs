@@ -10,6 +10,7 @@ pub mod entropy;
 pub mod instance_info;
 pub mod logger;
 pub mod machine_configuration;
+pub mod memory_hp;
 pub mod metrics;
 pub mod mmds;
 pub mod net;

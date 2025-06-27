@@ -6,9 +6,11 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex, MutexGuard};
 
 use serde::{Deserialize, Serialize};
+use vm_memory::GuestAddress;
 
 use crate::cpu_config::templates::CustomCpuTemplate;
 use crate::device_manager::persist::SharedDeviceType;
+use crate::devices::virtio::mem::VIRTIO_MEM_GUEST_ADDRESS;
 use crate::logger::info;
 use crate::mmds;
 use crate::mmds::data_store::{Mmds, MmdsVersion};
@@ -25,6 +27,7 @@ use crate::vmm_config::instance_info::InstanceInfo;
 use crate::vmm_config::machine_config::{
     HugePageConfig, MachineConfig, MachineConfigError, MachineConfigUpdate,
 };
+use crate::vmm_config::memory_hp::{MemoryHpConfig, MemoryHpConfigError};
 use crate::vmm_config::metrics::{MetricsConfig, MetricsConfigError, init_metrics};
 use crate::vmm_config::mmds::{MmdsConfig, MmdsConfigError};
 use crate::vmm_config::net::*;
@@ -61,6 +64,8 @@ pub enum ResourcesError {
     VsockDevice(#[from] VsockConfigError),
     /// Entropy device error: {0}
     EntropyDevice(#[from] EntropyDeviceError),
+    /// Memory hotplug config error: {0}
+    MemoryHpConfig(#[from] MemoryHpConfigError),
 }
 
 #[derive(Serialize, Deserialize, PartialEq, Eq, Debug)]
@@ -86,6 +91,7 @@ pub struct VmmConfig {
     network_interfaces: Vec<NetworkInterfaceConfig>,
     vsock: Option<VsockDeviceConfig>,
     entropy: Option<EntropyDeviceConfig>,
+    memory_hp: Option<MemoryHpConfig>,
 }
 
 /// A data structure that encapsulates the device configurations
@@ -106,6 +112,8 @@ pub struct VmResources {
     pub net_builder: NetBuilder,
     /// The entropy device builder.
     pub entropy: EntropyDeviceBuilder,
+    /// The memory hotplug configuration.
+    pub memory_hp: Option<MemoryHpConfig>,
     /// The optional Mmds data store.
     // This is initialised on demand (if ever used), so that we don't allocate it unless it's
     // actually used.
@@ -191,6 +199,10 @@ impl VmResources {
 
         if let Some(entropy_device_config) = vmm_config.entropy {
             resources.build_entropy_device(entropy_device_config)?;
+        }
+
+        if let Some(memory_hp_config) = vmm_config.memory_hp {
+            resources.set_memory_hp_config(memory_hp_config)?;
         }
 
         Ok(resources)
@@ -378,6 +390,16 @@ impl VmResources {
         self.entropy.insert(body)
     }
 
+    /// Sets the memory hotplug configuration.
+    pub fn set_memory_hp_config(
+        &mut self,
+        config: MemoryHpConfig,
+    ) -> Result<(), MemoryHpConfigError> {
+        config.validate()?;
+        self.memory_hp = Some(config);
+        Ok(())
+    }
+
     /// Setter for mmds config.
     pub fn set_mmds_config(
         &mut self,
@@ -450,11 +472,10 @@ impl VmResources {
         Ok(())
     }
 
-    /// Allocates guest memory in a configuration most appropriate for these [`VmResources`].
-    ///
-    /// If vhost-user-blk devices are in use, allocates memfd-backed shared memory, otherwise
-    /// prefers anonymous memory for performance reasons.
-    pub fn allocate_guest_memory(&self) -> Result<Vec<GuestRegionMmap>, MemoryError> {
+    fn allocate_guest_memory_regions(
+        &self,
+        regions: Vec<(GuestAddress, usize)>,
+    ) -> Result<Vec<GuestRegionMmap>, MemoryError> {
         let vhost_user_device_used = self
             .block
             .devices
@@ -470,8 +491,6 @@ impl VmResources {
         // because that would require running a backend process. If in the future we converge to
         // a single way of backing guest memory for vhost-user and non-vhost-user cases,
         // that would not be worth the effort.
-        let regions =
-            crate::arch::arch_memory_regions(mib_to_bytes(self.machine_config.mem_size_mib));
         if vhost_user_device_used {
             memory::memfd_backed(
                 regions.as_ref(),
@@ -485,6 +504,28 @@ impl VmResources {
                 self.machine_config.huge_pages,
             )
         }
+    }
+
+    /// Allocates guest memory in a configuration most appropriate for these [`VmResources`].
+    ///
+    /// If vhost-user-blk devices are in use, allocates memfd-backed shared memory, otherwise
+    /// prefers anonymous memory for performance reasons.
+    pub fn allocate_guest_memory(&self) -> Result<Vec<GuestRegionMmap>, MemoryError> {
+        let regions =
+            crate::arch::arch_memory_regions(mib_to_bytes(self.machine_config.mem_size_mib));
+        self.allocate_guest_memory_regions(regions)
+    }
+
+    /// Allocates hotpluggable guest memory at a fixed address
+    pub fn allocate_guest_hotpluggable_memory(&self) -> Result<Vec<GuestRegionMmap>, MemoryError> {
+        if self.memory_hp.is_none() {
+            return Ok(Vec::new());
+        }
+        let regions = vec![(
+            VIRTIO_MEM_GUEST_ADDRESS,
+            mib_to_bytes(self.memory_hp.as_ref().unwrap().total_size_mib),
+        )];
+        self.allocate_guest_memory_regions(regions)
     }
 }
 
@@ -502,6 +543,7 @@ impl From<&VmResources> for VmmConfig {
             network_interfaces: resources.net_builder.configs(),
             vsock: resources.vsock.config(),
             entropy: resources.entropy.config(),
+            memory_hp: resources.memory_hp.clone(),
         }
     }
 }

@@ -28,6 +28,7 @@ use crate::vmm_config::drive::{BlockDeviceConfig, BlockDeviceUpdateConfig, Drive
 use crate::vmm_config::entropy::{EntropyDeviceConfig, EntropyDeviceError};
 use crate::vmm_config::instance_info::InstanceInfo;
 use crate::vmm_config::machine_config::{MachineConfig, MachineConfigError, MachineConfigUpdate};
+use crate::vmm_config::memory_hp::{MemoryHpConfig, MemoryHpConfigError};
 use crate::vmm_config::metrics::{MetricsConfig, MetricsConfigError};
 use crate::vmm_config::mmds::{MmdsConfig, MmdsConfigError};
 use crate::vmm_config::net::{
@@ -103,6 +104,9 @@ pub enum VmmAction {
     /// Set the entropy device using `EntropyDeviceConfig` as input. This action can only be called
     /// before the microVM has booted.
     SetEntropyDevice(EntropyDeviceConfig),
+    /// Set the memory hotplug device using `MemoryHpConfig` as input. This action can only be
+    /// called before the microVM has booted.
+    SetMemoryHpDevice(MemoryHpConfig),
     /// Launch the microVM. This action can only be called before the microVM has booted.
     StartMicroVm,
     /// Send CTRL+ALT+DEL to the microVM, using the i8042 keyboard function. If an AT-keyboard
@@ -138,6 +142,8 @@ pub enum VmmActionError {
     DriveConfig(#[from] DriveError),
     /// Entropy device error: {0}
     EntropyDevice(#[from] EntropyDeviceError),
+    /// Memory hotplug config error: {0}
+    MemoryHpConfig(#[from] MemoryHpConfigError),
     /// Internal VMM error: {0}
     InternalVmm(#[from] VmmError),
     /// Load snapshot error: {0}
@@ -438,6 +444,7 @@ impl<'a> PrebootApiController<'a> {
             StartMicroVm => self.start_microvm(),
             UpdateMachineConfiguration(config) => self.update_machine_config(config),
             SetEntropyDevice(config) => self.set_entropy_device(config),
+            SetMemoryHpDevice(config) => self.set_memory_hp_device(config),
             // Operations not allowed pre-boot.
             CreateSnapshot(_)
             | FlushMetrics
@@ -534,6 +541,13 @@ impl<'a> PrebootApiController<'a> {
     fn set_entropy_device(&mut self, cfg: EntropyDeviceConfig) -> Result<VmmData, VmmActionError> {
         self.boot_path = true;
         self.vm_resources.build_entropy_device(cfg)?;
+        Ok(VmmData::Empty)
+    }
+
+    fn set_memory_hp_device(&mut self, cfg: MemoryHpConfig) -> Result<VmmData, VmmActionError> {
+        self.boot_path = true;
+        cfg.validate()?;
+        self.vm_resources.set_memory_hp_config(cfg)?;
         Ok(VmmData::Empty)
     }
 
@@ -684,6 +698,7 @@ impl RuntimeApiController {
             | SetVsockDevice(_)
             | SetMmdsConfiguration(_)
             | SetEntropyDevice(_)
+            | SetMemoryHpDevice(_)
             | StartMicroVm
             | UpdateMachineConfiguration(_) => Err(VmmActionError::OperationNotSupportedPostBoot),
         }

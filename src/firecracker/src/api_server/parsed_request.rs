@@ -21,6 +21,7 @@ use super::request::logger::parse_put_logger;
 use super::request::machine_configuration::{
     parse_get_machine_config, parse_patch_machine_config, parse_put_machine_config,
 };
+use super::request::memory_hp::parse_put_memory_hp;
 use super::request::metrics::parse_put_metrics;
 use super::request::mmds::{parse_get_mmds, parse_patch_mmds, parse_put_mmds};
 use super::request::net::{parse_patch_net, parse_put_net};
@@ -91,6 +92,7 @@ impl TryFrom<&Request> for ParsedRequest {
             (Method::Put, "drives", Some(body)) => parse_put_drive(body, path_tokens.next()),
             (Method::Put, "logger", Some(body)) => parse_put_logger(body),
             (Method::Put, "machine-config", Some(body)) => parse_put_machine_config(body),
+            (Method::Put, "memory-hp", Some(body)) => parse_put_memory_hp(body),
             (Method::Put, "metrics", Some(body)) => parse_put_metrics(body),
             (Method::Put, "mmds", Some(body)) => parse_put_mmds(body, path_tokens.next()),
             (Method::Put, "network-interfaces", Some(body)) => {

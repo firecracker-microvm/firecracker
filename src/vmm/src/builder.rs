@@ -13,7 +13,6 @@ use event_manager::SubscriberOps;
 use linux_loader::cmdline::Cmdline as LoaderKernelCmdline;
 use userfaultfd::Uffd;
 use utils::time::TimestampUs;
-use vm_memory::GuestAddress;
 
 #[cfg(target_arch = "aarch64")]
 use crate::Vcpu;
@@ -31,7 +30,7 @@ use crate::device_manager::{
 use crate::devices::acpi::vmgenid::VmGenIdError;
 use crate::devices::virtio::balloon::Balloon;
 use crate::devices::virtio::block::device::Block;
-use crate::devices::virtio::mem::VirtioMem;
+use crate::devices::virtio::mem::{VIRTIO_MEM_GUEST_ADDRESS, VirtioMem};
 use crate::devices::virtio::net::Net;
 use crate::devices::virtio::rng::Entropy;
 use crate::devices::virtio::vsock::{Vsock, VsockUnixBackend};
@@ -43,8 +42,10 @@ use crate::persist::{MicrovmState, MicrovmStateError};
 use crate::resources::VmResources;
 use crate::seccomp::BpfThreadMap;
 use crate::snapshot::Persist;
+use crate::utils::mib_to_bytes;
 use crate::vmm_config::instance_info::InstanceInfo;
 use crate::vmm_config::machine_config::MachineConfigError;
+use crate::vmm_config::memory_hp::MemoryHpConfig;
 use crate::vstate::kvm::{Kvm, KvmError};
 use crate::vstate::memory::GuestRegionMmap;
 #[cfg(target_arch = "aarch64")]
@@ -154,6 +155,10 @@ pub fn build_microvm_for_boot(
         .allocate_guest_memory()
         .map_err(StartMicrovmError::GuestMemory)?;
 
+    let guest_hp_memory = vm_resources
+        .allocate_guest_hotpluggable_memory()
+        .map_err(StartMicrovmError::GuestMemory)?;
+
     // Clone the command-line so that a failed boot doesn't pollute the original.
     #[allow(unused_mut)]
     let mut boot_cmdline = boot_config.cmdline.clone();
@@ -169,6 +174,10 @@ pub fn build_microvm_for_boot(
     let mut vm = Vm::new(&kvm)?;
     let (mut vcpus, vcpus_exit_evt) = vm.create_vcpus(vm_resources.machine_config.vcpu_count)?;
     vm.register_memory_regions(guest_memory)?;
+
+    // TODO: make logic in rest of the devices to not depend on the last address of the guest memory
+    vm.register_memory_regions(guest_hp_memory)
+        .map_err(VmmError::Vm)?;
 
     let mut device_manager = DeviceManager::new(event_manager, &vcpus_exit_evt, &vm)?;
 
@@ -247,8 +256,15 @@ pub fn build_microvm_for_boot(
         )?;
     }
 
-    // TODO: Always attach virtio-mem device
-    attach_virtio_mem_device(&mut device_manager, &vm, &mut boot_cmdline)?;
+    // Attach virtio-mem device if configured
+    if let Some(memory_hp_config) = &vm_resources.memory_hp {
+        attach_virtio_mem_device(
+            &mut device_manager,
+            &vm,
+            &mut boot_cmdline,
+            memory_hp_config,
+        )?;
+    }
 
     #[cfg(target_arch = "aarch64")]
     device_manager.attach_legacy_devices_aarch64(&vm, event_manager, &mut boot_cmdline)?;
@@ -575,9 +591,11 @@ fn attach_virtio_mem_device(
     device_manager: &mut DeviceManager,
     vm: &Arc<Vm>,
     cmdline: &mut LoaderKernelCmdline,
+    memory_hp_config: &MemoryHpConfig,
 ) -> Result<(), StartMicrovmError> {
+    let size = mib_to_bytes(memory_hp_config.total_size_mib);
     let virtio_mem = Arc::new(Mutex::new(
-        VirtioMem::new(GuestAddress(0), 0)
+        VirtioMem::new(VIRTIO_MEM_GUEST_ADDRESS, size)
             .map_err(|e| StartMicrovmError::Internal(VmmError::VirtioMem(e)))?,
     ));
 
