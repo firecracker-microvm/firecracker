@@ -253,6 +253,8 @@ pub enum VmmError {
     VMGenID(#[from] VmGenIdError),
     /// Failed perform action on device: {0}
     FindDeviceError(#[from] device_manager::FindDeviceError),
+    /// VirtioMem error: {0}
+    VirtioMem(crate::devices::virtio::mem::VirtioMemError),
 }
 
 /// Shorthand type for KVM dirty page bitmap.

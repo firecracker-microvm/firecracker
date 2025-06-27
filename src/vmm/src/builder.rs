@@ -13,7 +13,6 @@ use event_manager::SubscriberOps;
 use linux_loader::cmdline::Cmdline as LoaderKernelCmdline;
 use userfaultfd::Uffd;
 use utils::time::TimestampUs;
-#[cfg(target_arch = "aarch64")]
 use vm_memory::GuestAddress;
 
 #[cfg(target_arch = "aarch64")]
@@ -32,6 +31,7 @@ use crate::device_manager::{
 use crate::devices::acpi::vmgenid::VmGenIdError;
 use crate::devices::virtio::balloon::Balloon;
 use crate::devices::virtio::block::device::Block;
+use crate::devices::virtio::mem::VirtioMem;
 use crate::devices::virtio::net::Net;
 use crate::devices::virtio::rng::Entropy;
 use crate::devices::virtio::vsock::{Vsock, VsockUnixBackend};
@@ -246,6 +246,9 @@ pub fn build_microvm_for_boot(
             event_manager,
         )?;
     }
+
+    // TODO: Always attach virtio-mem device
+    attach_virtio_mem_device(&mut device_manager, &vm, &mut boot_cmdline)?;
 
     #[cfg(target_arch = "aarch64")]
     device_manager.attach_legacy_devices_aarch64(&vm, event_manager, &mut boot_cmdline)?;
@@ -566,6 +569,22 @@ fn attach_entropy_device(
 
     event_manager.add_subscriber(entropy_device.clone());
     device_manager.attach_virtio_device(vm, id, entropy_device.clone(), cmdline, false)
+}
+
+fn attach_virtio_mem_device(
+    device_manager: &mut DeviceManager,
+    vm: &Arc<Vm>,
+    cmdline: &mut LoaderKernelCmdline,
+) -> Result<(), StartMicrovmError> {
+    let virtio_mem = Arc::new(Mutex::new(
+        VirtioMem::new(GuestAddress(0), 0)
+            .map_err(|e| StartMicrovmError::Internal(VmmError::VirtioMem(e)))?,
+    ));
+
+    let id = virtio_mem.lock().expect("Poisoned lock").id().to_string();
+
+    device_manager.attach_virtio_device(vm, id, virtio_mem.clone(), cmdline, false)?;
+    Ok(())
 }
 
 fn attach_block_devices<'a, I: Iterator<Item = &'a Arc<Mutex<Block>>> + Debug>(
