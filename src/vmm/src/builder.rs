@@ -254,7 +254,7 @@ pub fn build_microvm_for_boot(
 
     #[cfg(target_arch = "aarch64")]
     if vcpus[0].kvm_vcpu.supports_pvtime() {
-        setup_pvtime(&vm.common.resource_allocator, &mut vcpus)?;
+        setup_pvtime(&mut vm.resource_allocator(), &mut vcpus)?;
     } else {
         log::warn!("Vcpus do not support pvtime, steal time will not be reported to guest");
     }
@@ -515,7 +515,7 @@ const STEALTIME_STRUCT_MEM_SIZE: u64 = 64;
 /// Helper method to allocate steal time region
 #[cfg(target_arch = "aarch64")]
 fn allocate_pvtime_region(
-    resource_allocator: &ResourceAllocator,
+    resource_allocator: &mut ResourceAllocator,
     vcpu_count: usize,
     policy: vm_allocator::AllocPolicy,
 ) -> Result<GuestAddress, StartMicrovmError> {
@@ -529,7 +529,7 @@ fn allocate_pvtime_region(
 /// Sets up pvtime for all vcpus
 #[cfg(target_arch = "aarch64")]
 fn setup_pvtime(
-    resource_allocator: &ResourceAllocator,
+    resource_allocator: &mut ResourceAllocator,
     vcpus: &mut [Vcpu],
 ) -> Result<(), StartMicrovmError> {
     // Alloc sys mem for steal time region
