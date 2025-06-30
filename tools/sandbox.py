@@ -79,6 +79,7 @@ uvm.help.resize_disk(uvm.rootfs_file, args.rootfs_size)
 uvm.spawn(log_show_level=True)
 uvm.help.print_log()
 uvm.add_net_iface()
+uvm.api.memory_hp.put(total_size_mib=1024)
 uvm.basic_config(vcpu_count=args.vcpus, mem_size_mib=args.guest_mem_size // 2**20)
 if cpu_template is not None:
     uvm.api.cpu_config.put(**cpu_template)
