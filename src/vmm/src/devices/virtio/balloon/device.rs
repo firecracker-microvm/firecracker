@@ -5,7 +5,7 @@ use std::ops::Deref;
 use std::sync::Arc;
 use std::time::Duration;
 
-use log::error;
+use log::{error, info};
 use serde::Serialize;
 use timerfd::{ClockId, SetTimeFlags, TimerFd, TimerState};
 use vmm_sys_util::eventfd::EventFd;
@@ -614,6 +614,16 @@ impl VirtioDevice for Balloon {
 
     fn is_activated(&self) -> bool {
         self.device_state.is_activated()
+    }
+
+    fn kick(&mut self) {
+        // If device is activated, kick the balloon queue(s) to make up for any
+        // pending or in-flight epoll events we may have not captured in snapshot.
+        // Stats queue doesn't need kicking as it is notified via a `timer_fd`.
+        if self.is_activated() {
+            info!("kick balloon {}.", self.id());
+            self.process_virtio_queues();
+        }
     }
 }
 
