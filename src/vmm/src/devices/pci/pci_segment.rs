@@ -80,14 +80,13 @@ impl PciSegment {
             PCI_MMIO_CONFIG_SIZE_PER_SEGMENT,
         )?;
 
-        let mem32_allocator = vm.common.resource_allocator.mmio32_memory.clone();
-        let mem64_allocator = vm.common.resource_allocator.mmio64_memory.clone();
+        let resource_allocator = vm.resource_allocator();
 
-        let start_of_mem32_area = mem32_allocator.lock().unwrap().base();
-        let end_of_mem32_area = mem32_allocator.lock().unwrap().end();
+        let start_of_mem32_area = resource_allocator.mmio32_memory.base();
+        let end_of_mem32_area = resource_allocator.mmio32_memory.end();
 
-        let start_of_mem64_area = mem64_allocator.lock().unwrap().base();
-        let end_of_mem64_area = mem64_allocator.lock().unwrap().end();
+        let start_of_mem64_area = resource_allocator.mmio64_memory.base();
+        let end_of_mem64_area = resource_allocator.mmio64_memory.end();
 
         let segment = PciSegment {
             id,

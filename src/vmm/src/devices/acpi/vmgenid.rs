@@ -86,7 +86,7 @@ impl VmGenId {
     /// Allocate memory and a GSI for sending notifications and build the device
     pub fn new(
         mem: &GuestMemoryMmap,
-        resource_allocator: &ResourceAllocator,
+        resource_allocator: &mut ResourceAllocator,
     ) -> Result<Self, VmGenIdError> {
         let gsi = resource_allocator.allocate_gsi(1)?;
         // The generation ID needs to live in an 8-byte aligned buffer
@@ -133,7 +133,7 @@ pub struct VMGenIDState {
 #[derive(Debug)]
 pub struct VMGenIdConstructorArgs<'a> {
     pub mem: &'a GuestMemoryMmap,
-    pub resource_allocator: &'a ResourceAllocator,
+    pub resource_allocator: &'a mut ResourceAllocator,
 }
 
 impl<'a> Persist<'a> for VmGenId {
