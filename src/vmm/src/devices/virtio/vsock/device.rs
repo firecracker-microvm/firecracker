@@ -24,7 +24,7 @@ use std::fmt::Debug;
 use std::ops::Deref;
 use std::sync::Arc;
 
-use log::{error, warn};
+use log::{error, info, warn};
 use vmm_sys_util::eventfd::EventFd;
 
 use super::super::super::DeviceError;
@@ -367,6 +367,19 @@ where
 
     fn is_activated(&self) -> bool {
         self.device_state.is_activated()
+    }
+
+    fn kick(&mut self) {
+        // Vsock has complicated protocol that isn't resilient to any packet loss,
+        // so for Vsock we don't support connection persistence through snapshot.
+        // Any in-flight packets or events are simply lost.
+        // Vsock is restored 'empty'.
+        // The only reason we still `kick` it is to make guest process
+        // `TRANSPORT_RESET_EVENT` event we sent during snapshot creation.
+        if self.is_activated() {
+            info!("kick vsock {}.", self.id());
+            self.signal_used_queue(0).unwrap();
+        }
     }
 }
 
