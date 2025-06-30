@@ -54,7 +54,7 @@ impl AcpiTableWriter<'_> {
     /// buffer. It returns the address in which it wrote the table.
     fn write_acpi_table<S>(
         &mut self,
-        resource_allocator: &ResourceAllocator,
+        resource_allocator: &mut ResourceAllocator,
         table: &mut S,
     ) -> Result<u64, AcpiError>
     where
@@ -83,7 +83,7 @@ impl AcpiTableWriter<'_> {
     fn build_dsdt(
         &mut self,
         device_manager: &mut DeviceManager,
-        resource_allocator: &ResourceAllocator,
+        resource_allocator: &mut ResourceAllocator,
     ) -> Result<u64, AcpiError> {
         let mut dsdt_data = Vec::new();
 
@@ -111,7 +111,7 @@ impl AcpiTableWriter<'_> {
     /// This includes a pointer with the location of the DSDT in guest memory
     fn build_fadt(
         &mut self,
-        resource_allocator: &ResourceAllocator,
+        resource_allocator: &mut ResourceAllocator,
         dsdt_addr: u64,
     ) -> Result<u64, AcpiError> {
         let mut fadt = Fadt::new(OEM_ID, *b"FCVMFADT", OEM_REVISION);
@@ -129,7 +129,7 @@ impl AcpiTableWriter<'_> {
     /// This includes information about the interrupt controllers supported in the platform
     fn build_madt(
         &mut self,
-        resource_allocator: &ResourceAllocator,
+        resource_allocator: &mut ResourceAllocator,
         nr_vcpus: u8,
     ) -> Result<u64, AcpiError> {
         let mut madt = Madt::new(
@@ -147,7 +147,7 @@ impl AcpiTableWriter<'_> {
     /// Currently, we pass to the guest just FADT and MADT tables.
     fn build_xsdt(
         &mut self,
-        resource_allocator: &ResourceAllocator,
+        resource_allocator: &mut ResourceAllocator,
         fadt_addr: u64,
         madt_addr: u64,
         mcfg_addr: u64,
@@ -164,7 +164,7 @@ impl AcpiTableWriter<'_> {
     /// Build the MCFG table for the guest.
     fn build_mcfg(
         &mut self,
-        resource_allocator: &ResourceAllocator,
+        resource_allocator: &mut ResourceAllocator,
         pci_mmio_config_addr: u64,
     ) -> Result<u64, AcpiError> {
         let mut mcfg = Mcfg::new(OEM_ID, *b"FCMVMCFG", OEM_REVISION, pci_mmio_config_addr);
@@ -197,7 +197,7 @@ impl AcpiTableWriter<'_> {
 pub(crate) fn create_acpi_tables(
     mem: &GuestMemoryMmap,
     device_manager: &mut DeviceManager,
-    resource_allocator: &ResourceAllocator,
+    resource_allocator: &mut ResourceAllocator,
     vcpus: &[Vcpu],
 ) -> Result<(), AcpiError> {
     let mut writer = AcpiTableWriter { mem };
@@ -249,18 +249,19 @@ mod tests {
         let mut writer = AcpiTableWriter {
             mem: vmm.vm.guest_memory(),
         };
+        let mut resource_allocator = vmm.vm.resource_allocator();
 
         // This should succeed
         let mut sdt = MockSdt(vec![0; 4096]);
         let addr = writer
-            .write_acpi_table(&vmm.vm.common.resource_allocator, &mut sdt)
+            .write_acpi_table(&mut resource_allocator, &mut sdt)
             .unwrap();
         assert_eq!(addr, SYSTEM_MEM_START);
 
         // Let's try to write two 4K pages plus one byte
         let mut sdt = MockSdt(vec![0; usize::try_from(SYSTEM_MEM_SIZE + 1).unwrap()]);
         let err = writer
-            .write_acpi_table(&vmm.vm.common.resource_allocator, &mut sdt)
+            .write_acpi_table(&mut resource_allocator, &mut sdt)
             .unwrap_err();
         assert!(
             matches!(
@@ -275,27 +276,27 @@ mod tests {
         // succeed.
         let mut sdt = MockSdt(vec![0; 5]);
         let addr = writer
-            .write_acpi_table(&vmm.vm.common.resource_allocator, &mut sdt)
+            .write_acpi_table(&mut resource_allocator, &mut sdt)
             .unwrap();
         assert_eq!(addr, SYSTEM_MEM_START + 4096);
         let mut sdt = MockSdt(vec![0; 2]);
         let addr = writer
-            .write_acpi_table(&vmm.vm.common.resource_allocator, &mut sdt)
+            .write_acpi_table(&mut resource_allocator, &mut sdt)
             .unwrap();
         assert_eq!(addr, SYSTEM_MEM_START + 4101);
         let mut sdt = MockSdt(vec![0; 4]);
         let addr = writer
-            .write_acpi_table(&vmm.vm.common.resource_allocator, &mut sdt)
+            .write_acpi_table(&mut resource_allocator, &mut sdt)
             .unwrap();
         assert_eq!(addr, SYSTEM_MEM_START + 4103);
         let mut sdt = MockSdt(vec![0; 8]);
         let addr = writer
-            .write_acpi_table(&vmm.vm.common.resource_allocator, &mut sdt)
+            .write_acpi_table(&mut resource_allocator, &mut sdt)
             .unwrap();
         assert_eq!(addr, SYSTEM_MEM_START + 4107);
         let mut sdt = MockSdt(vec![0; 16]);
         let addr = writer
-            .write_acpi_table(&vmm.vm.common.resource_allocator, &mut sdt)
+            .write_acpi_table(&mut resource_allocator, &mut sdt)
             .unwrap();
         assert_eq!(addr, SYSTEM_MEM_START + 4115);
     }
@@ -312,11 +313,11 @@ mod tests {
         let mut writer = AcpiTableWriter {
             mem: vm.guest_memory(),
         };
-        let resource_allocator = ResourceAllocator::new().unwrap();
+        let mut resource_allocator = ResourceAllocator::new();
 
         let mut sdt = MockSdt(vec![0; usize::try_from(SYSTEM_MEM_SIZE).unwrap()]);
         let err = writer
-            .write_acpi_table(&resource_allocator, &mut sdt)
+            .write_acpi_table(&mut resource_allocator, &mut sdt)
             .unwrap_err();
         assert!(
             matches!(
