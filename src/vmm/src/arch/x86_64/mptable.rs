@@ -116,7 +116,7 @@ fn compute_mp_size(num_cpus: u8) -> usize {
 /// Performs setup of the MP table for the given `num_cpus`.
 pub fn setup_mptable(
     mem: &GuestMemoryMmap,
-    resource_allocator: &ResourceAllocator,
+    resource_allocator: &mut ResourceAllocator,
     num_cpus: u8,
 ) -> Result<(), MptableError> {
     if num_cpus > MAX_SUPPORTED_CPUS {
@@ -334,27 +334,27 @@ mod tests {
     fn bounds_check() {
         let num_cpus = 4;
         let mem = single_region_mem_at(SYSTEM_MEM_START, compute_mp_size(num_cpus));
-        let resource_allocator = ResourceAllocator::new().unwrap();
+        let mut resource_allocator = ResourceAllocator::new();
 
-        setup_mptable(&mem, &resource_allocator, num_cpus).unwrap();
+        setup_mptable(&mem, &mut resource_allocator, num_cpus).unwrap();
     }
 
     #[test]
     fn bounds_check_fails() {
         let num_cpus = 4;
         let mem = single_region_mem_at(SYSTEM_MEM_START, compute_mp_size(num_cpus) - 1);
-        let resource_allocator = ResourceAllocator::new().unwrap();
+        let mut resource_allocator = ResourceAllocator::new();
 
-        setup_mptable(&mem, &resource_allocator, num_cpus).unwrap_err();
+        setup_mptable(&mem, &mut resource_allocator, num_cpus).unwrap_err();
     }
 
     #[test]
     fn mpf_intel_checksum() {
         let num_cpus = 1;
         let mem = single_region_mem_at(SYSTEM_MEM_START, compute_mp_size(num_cpus));
-        let resource_allocator = ResourceAllocator::new().unwrap();
+        let mut resource_allocator = ResourceAllocator::new();
 
-        setup_mptable(&mem, &resource_allocator, num_cpus).unwrap();
+        setup_mptable(&mem, &mut resource_allocator, num_cpus).unwrap();
 
         let mpf_intel: mpspec::mpf_intel = mem.read_obj(GuestAddress(SYSTEM_MEM_START)).unwrap();
 
@@ -365,9 +365,9 @@ mod tests {
     fn mpc_table_checksum() {
         let num_cpus = 4;
         let mem = single_region_mem_at(SYSTEM_MEM_START, compute_mp_size(num_cpus));
-        let resource_allocator = ResourceAllocator::new().unwrap();
+        let mut resource_allocator = ResourceAllocator::new();
 
-        setup_mptable(&mem, &resource_allocator, num_cpus).unwrap();
+        setup_mptable(&mem, &mut resource_allocator, num_cpus).unwrap();
 
         let mpf_intel: mpspec::mpf_intel = mem.read_obj(GuestAddress(SYSTEM_MEM_START)).unwrap();
         let mpc_offset = GuestAddress(u64::from(mpf_intel.physptr));
@@ -388,9 +388,9 @@ mod tests {
     fn mpc_entry_count() {
         let num_cpus = 1;
         let mem = single_region_mem_at(SYSTEM_MEM_START, compute_mp_size(num_cpus));
-        let resource_allocator = ResourceAllocator::new().unwrap();
+        let mut resource_allocator = ResourceAllocator::new();
 
-        setup_mptable(&mem, &resource_allocator, num_cpus).unwrap();
+        setup_mptable(&mem, &mut resource_allocator, num_cpus).unwrap();
 
         let mpf_intel: mpspec::mpf_intel = mem.read_obj(GuestAddress(SYSTEM_MEM_START)).unwrap();
         let mpc_offset = GuestAddress(u64::from(mpf_intel.physptr));
@@ -419,8 +419,9 @@ mod tests {
         let mem = single_region_mem_at(SYSTEM_MEM_START, compute_mp_size(MAX_SUPPORTED_CPUS));
 
         for i in 0..MAX_SUPPORTED_CPUS {
-            let resource_allocator = ResourceAllocator::new().unwrap();
-            setup_mptable(&mem, &resource_allocator, i).unwrap();
+            let mut resource_allocator = ResourceAllocator::new();
+
+            setup_mptable(&mem, &mut resource_allocator, i).unwrap();
 
             let mpf_intel: mpspec::mpf_intel =
                 mem.read_obj(GuestAddress(SYSTEM_MEM_START)).unwrap();
@@ -450,9 +451,9 @@ mod tests {
     fn cpu_entry_count_max() {
         let cpus = MAX_SUPPORTED_CPUS + 1;
         let mem = single_region_mem_at(SYSTEM_MEM_START, compute_mp_size(cpus));
-        let resource_allocator = ResourceAllocator::new().unwrap();
+        let mut resource_allocator = ResourceAllocator::new();
 
-        let result = setup_mptable(&mem, &resource_allocator, cpus).unwrap_err();
+        let result = setup_mptable(&mem, &mut resource_allocator, cpus).unwrap_err();
         assert_eq!(result, MptableError::TooManyCpus);
     }
 }

@@ -221,7 +221,7 @@ impl DeviceManager {
         mem: &GuestMemoryMmap,
         vm: &Vm,
     ) -> Result<(), AttachDeviceError> {
-        let vmgenid = VmGenId::new(mem, &vm.common.resource_allocator)?;
+        let vmgenid = VmGenId::new(mem, &mut vm.resource_allocator())?;
         self.acpi_devices.attach_vmgenid(vmgenid, vm)?;
         Ok(())
     }
