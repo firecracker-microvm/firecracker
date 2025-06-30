@@ -10,7 +10,7 @@ use std::fs::OpenOptions;
 use std::io::Write;
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, MutexGuard};
 
 #[cfg(target_arch = "x86_64")]
 use kvm_bindings::KVM_IRQCHIP_IOAPIC;
@@ -246,7 +246,7 @@ pub struct VmCommon {
     /// Interrupts used by Vm's devices
     pub interrupts: Mutex<HashMap<u32, RoutingEntry>>,
     /// Allocator for VM resources
-    pub resource_allocator: Arc<ResourceAllocator>,
+    pub resource_allocator: Mutex<ResourceAllocator>,
     /// MMIO bus
     pub mmio_bus: Arc<vm_device::Bus>,
 }
@@ -319,7 +319,7 @@ impl Vm {
             max_memslots: kvm.max_nr_memslots(),
             guest_memory: GuestMemoryMmap::default(),
             interrupts: Mutex::new(HashMap::new()),
-            resource_allocator: Arc::new(ResourceAllocator::new()?),
+            resource_allocator: Mutex::new(ResourceAllocator::new()),
             mmio_bus: Arc::new(vm_device::Bus::new()),
         })
     }
@@ -403,6 +403,14 @@ impl Vm {
     /// Gets a reference to this [`Vm`]'s [`GuestMemoryMmap`] object
     pub fn guest_memory(&self) -> &GuestMemoryMmap {
         &self.common.guest_memory
+    }
+
+    /// Gets a mutable reference to this [`Vm`]'s [`ResourceAllocator`] object
+    pub fn resource_allocator(&self) -> MutexGuard<ResourceAllocator> {
+        self.common
+            .resource_allocator
+            .lock()
+            .expect("Poisoned lock")
     }
 
     /// Resets the KVM dirty bitmap for each of the guest's memory regions.
@@ -578,8 +586,7 @@ impl Vm {
         debug!("Creating new MSI group with {count} vectors");
         let mut irq_routes = HashMap::with_capacity(count as usize);
         for (gsi, i) in vm
-            .common
-            .resource_allocator
+            .resource_allocator()
             .allocate_gsi(count as u32)?
             .iter()
             .zip(0u32..)
@@ -628,6 +635,8 @@ pub(crate) mod tests {
     use vm_memory::mmap::MmapRegionBuilder;
 
     use super::*;
+    #[cfg(target_arch = "x86_64")]
+    use crate::snapshot::Snapshot;
     use crate::test_utils::single_region_mem_raw;
     use crate::utils::mib_to_bytes;
     use crate::vstate::kvm::Kvm;
@@ -965,5 +974,44 @@ pub(crate) mod tests {
             assert_eq!(vector.gsi, new_vector.gsi);
             assert!(!new_vector.enabled.load(Ordering::Acquire));
         }
+    }
+
+    #[cfg(target_arch = "x86_64")]
+    #[test]
+    fn test_restore_state_resource_allocator() {
+        use vm_allocator::AllocPolicy;
+
+        let mut snapshot_data = vec![0u8; 10000];
+        let (_, mut vm) = setup_vm_with_memory(0x1000);
+        vm.setup_irqchip().unwrap();
+
+        // Allocate a GSI and some memory and make sure they are still allocated after restore
+        let (gsi, range) = {
+            let mut resource_allocator = vm.resource_allocator();
+
+            let gsi = resource_allocator.allocate_gsi(1).unwrap()[0];
+            let range = resource_allocator
+                .allocate_32bit_mmio_memory(1024, 1024, AllocPolicy::FirstMatch)
+                .unwrap();
+            (gsi, range)
+        };
+
+        let state = vm.save_state().unwrap();
+        Snapshot::serialize(&mut snapshot_data.as_mut_slice(), &state).unwrap();
+
+        let restored_state: VmState = Snapshot::deserialize(&mut snapshot_data.as_slice()).unwrap();
+        vm.restore_state(&restored_state).unwrap();
+
+        let mut resource_allocator = vm.resource_allocator();
+        let gsi_new = resource_allocator.allocate_gsi(1).unwrap()[0];
+        assert_eq!(gsi + 1, gsi_new);
+
+        resource_allocator
+            .allocate_32bit_mmio_memory(1024, 1024, AllocPolicy::ExactMatch(range))
+            .unwrap_err();
+        let range_new = resource_allocator
+            .allocate_32bit_mmio_memory(1024, 1024, AllocPolicy::FirstMatch)
+            .unwrap();
+        assert_eq!(range + 1024, range_new);
     }
 }

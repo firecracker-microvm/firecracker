@@ -2,7 +2,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use std::convert::Infallible;
-use std::sync::{Arc, Mutex};
 
 use serde::{Deserialize, Serialize};
 pub use vm_allocator::AllocPolicy;
@@ -18,36 +17,44 @@ use crate::snapshot::Persist;
 /// * GSIs for legacy x86_64 devices
 /// * GSIs for MMIO devicecs
 /// * Memory allocations in the MMIO address space
-#[derive(Debug)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ResourceAllocator {
     /// Allocator for device interrupt lines
-    pub gsi_allocator: Arc<Mutex<IdAllocator>>,
+    pub gsi_allocator: IdAllocator,
     /// Allocator for memory in the 32-bit MMIO address space
-    pub mmio32_memory: Arc<Mutex<AddressAllocator>>,
+    pub mmio32_memory: AddressAllocator,
     /// Allocator for memory in the 64-bit MMIO address space
-    pub mmio64_memory: Arc<Mutex<AddressAllocator>>,
+    pub mmio64_memory: AddressAllocator,
     /// Memory allocator for system data
-    pub system_memory: Arc<Mutex<AddressAllocator>>,
+    pub system_memory: AddressAllocator,
+}
+
+impl Default for ResourceAllocator {
+    fn default() -> Self {
+        ResourceAllocator::new()
+    }
 }
 
 impl ResourceAllocator {
     /// Create a new resource allocator for Firecracker devices
-    pub fn new() -> Result<Self, vm_allocator::Error> {
-        Ok(Self {
-            gsi_allocator: Arc::new(Mutex::new(IdAllocator::new(arch::IRQ_BASE, arch::IRQ_MAX)?)),
-            mmio32_memory: Arc::new(Mutex::new(AddressAllocator::new(
+    pub fn new() -> Self {
+        // It is fine for us to unwrap the following since we know we are passing valid ranges for
+        // all allocators
+        Self {
+            gsi_allocator: IdAllocator::new(arch::IRQ_BASE, arch::IRQ_MAX).unwrap(),
+            mmio32_memory: AddressAllocator::new(
                 arch::MEM_32BIT_DEVICES_START,
                 arch::MEM_32BIT_DEVICES_SIZE,
-            )?)),
-            mmio64_memory: Arc::new(Mutex::new(AddressAllocator::new(
+            )
+            .unwrap(),
+            mmio64_memory: AddressAllocator::new(
                 arch::MEM_64BIT_DEVICES_START,
                 arch::MEM_64BIT_DEVICES_SIZE,
-            )?)),
-            system_memory: Arc::new(Mutex::new(AddressAllocator::new(
-                arch::SYSTEM_MEM_START,
-                arch::SYSTEM_MEM_SIZE,
-            )?)),
-        })
+            )
+            .unwrap(),
+            system_memory: AddressAllocator::new(arch::SYSTEM_MEM_START, arch::SYSTEM_MEM_SIZE)
+                .unwrap(),
+        }
     }
 
     /// Allocate a number of GSIs
@@ -55,17 +62,16 @@ impl ResourceAllocator {
     /// # Arguments
     ///
     /// * `gsi_count` - The number of GSIs to allocate
-    pub fn allocate_gsi(&self, gsi_count: u32) -> Result<Vec<u32>, vm_allocator::Error> {
-        let mut gsi_allocator = self.gsi_allocator.lock().expect("Poisoned lock");
+    pub fn allocate_gsi(&mut self, gsi_count: u32) -> Result<Vec<u32>, vm_allocator::Error> {
         let mut gsis = Vec::with_capacity(gsi_count as usize);
 
         for _ in 0..gsi_count {
-            match gsi_allocator.allocate_id() {
+            match self.gsi_allocator.allocate_id() {
                 Ok(gsi) => gsis.push(gsi),
                 Err(err) => {
                     // It is ok to unwrap here, we just allocated the GSI
                     gsis.into_iter().for_each(|gsi| {
-                        gsi_allocator.free_id(gsi).unwrap();
+                        self.gsi_allocator.free_id(gsi).unwrap();
                     });
                     return Err(err);
                 }
@@ -85,15 +91,13 @@ impl ResourceAllocator {
     /// * `alignment` - The alignment of the address of the first byte
     /// * `policy` - A [`vm_allocator::AllocPolicy`] variant for determining the allocation policy
     pub fn allocate_32bit_mmio_memory(
-        &self,
+        &mut self,
         size: u64,
         alignment: u64,
         policy: AllocPolicy,
     ) -> Result<u64, vm_allocator::Error> {
         Ok(self
             .mmio32_memory
-            .lock()
-            .expect("Poisoned lock")
             .allocate(size, alignment, policy)?
             .start())
     }
@@ -108,15 +112,13 @@ impl ResourceAllocator {
     /// * `alignment` - The alignment of the address of the first byte
     /// * `policy` - A [`vm_allocator::AllocPolicy`] variant for determining the allocation policy
     pub fn allocate_64bit_mmio_memory(
-        &self,
+        &mut self,
         size: u64,
         alignment: u64,
         policy: AllocPolicy,
     ) -> Result<u64, vm_allocator::Error> {
         Ok(self
             .mmio64_memory
-            .lock()
-            .expect("Poisoned lock")
             .allocate(size, alignment, policy)?
             .start())
     }
@@ -131,78 +133,32 @@ impl ResourceAllocator {
     /// * `alignment` - The alignment of the address of the first byte
     /// * `policy` - A [`vm_allocator::AllocPolicy`] variant for determining the allocation policy
     pub fn allocate_system_memory(
-        &self,
+        &mut self,
         size: u64,
         alignment: u64,
         policy: AllocPolicy,
     ) -> Result<u64, vm_allocator::Error> {
         Ok(self
             .system_memory
-            .lock()
-            .expect("Poisoned lock")
             .allocate(size, alignment, policy)?
             .start())
     }
 }
 
 impl<'a> Persist<'a> for ResourceAllocator {
-    type State = ResourceAllocatorState;
+    type State = ResourceAllocator;
     type ConstructorArgs = ();
     type Error = Infallible;
 
     fn save(&self) -> Self::State {
-        ResourceAllocatorState {
-            gsi_allocator: self.gsi_allocator.clone(),
-            mmio32_memory: self.mmio32_memory.clone(),
-            mmio64_memory: self.mmio64_memory.clone(),
-            system_memory: self.system_memory.clone(),
-        }
+        self.clone()
     }
 
     fn restore(
         _constructor_args: Self::ConstructorArgs,
         state: &Self::State,
     ) -> std::result::Result<Self, Self::Error> {
-        Ok(ResourceAllocator {
-            gsi_allocator: state.gsi_allocator.clone(),
-            mmio32_memory: state.mmio32_memory.clone(),
-            mmio64_memory: state.mmio64_memory.clone(),
-            system_memory: state.system_memory.clone(),
-        })
-    }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-/// State of a ResourceAllocator
-pub struct ResourceAllocatorState {
-    /// Allocator for device interrupt lines
-    pub gsi_allocator: Arc<Mutex<IdAllocator>>,
-    /// Allocator for memory in the 32-bit MMIO address space
-    pub mmio32_memory: Arc<Mutex<AddressAllocator>>,
-    /// Allocator for memory in the 64-bit MMIO address space
-    pub mmio64_memory: Arc<Mutex<AddressAllocator>>,
-    /// Memory allocator for system data
-    pub system_memory: Arc<Mutex<AddressAllocator>>,
-}
-
-impl Default for ResourceAllocatorState {
-    fn default() -> Self {
-        Self {
-            gsi_allocator: Arc::new(Mutex::new(
-                IdAllocator::new(arch::IRQ_BASE, arch::IRQ_MAX).unwrap(),
-            )),
-            mmio32_memory: Arc::new(Mutex::new(
-                AddressAllocator::new(arch::MEM_32BIT_DEVICES_START, arch::MEM_32BIT_DEVICES_SIZE)
-                    .unwrap(),
-            )),
-            mmio64_memory: Arc::new(Mutex::new(
-                AddressAllocator::new(arch::MEM_64BIT_DEVICES_START, arch::MEM_64BIT_DEVICES_SIZE)
-                    .unwrap(),
-            )),
-            system_memory: Arc::new(Mutex::new(
-                AddressAllocator::new(arch::SYSTEM_MEM_START, arch::SYSTEM_MEM_SIZE).unwrap(),
-            )),
-        }
+        Ok(state.clone())
     }
 }
 
@@ -210,7 +166,7 @@ impl Default for ResourceAllocatorState {
 mod tests {
     use vm_allocator::AllocPolicy;
 
-    use super::{ResourceAllocator, ResourceAllocatorState};
+    use super::ResourceAllocator;
     use crate::arch::{self, IRQ_BASE};
     use crate::snapshot::{Persist, Snapshot};
 
@@ -218,7 +174,7 @@ mod tests {
 
     #[test]
     fn test_allocate_gsi() {
-        let allocator = ResourceAllocator::new().unwrap();
+        let mut allocator = ResourceAllocator::new();
         // asking for 0 IRQs should return us an empty vector
         assert_eq!(allocator.allocate_gsi(0), Ok(vec![]));
         // We cannot allocate more GSIs than available
@@ -239,7 +195,7 @@ mod tests {
         // But we should be able to ask for 0 GSIs
         assert_eq!(allocator.allocate_gsi(0), Ok(vec![]));
 
-        let allocator = ResourceAllocator::new().unwrap();
+        let mut allocator = ResourceAllocator::new();
         // We should be able to allocate 1 GSI
         assert_eq!(allocator.allocate_gsi(1), Ok(vec![arch::IRQ_BASE]));
         // We can't allocate MAX_IRQS any more
@@ -258,18 +214,17 @@ mod tests {
     fn clone_allocator(allocator: &ResourceAllocator) -> ResourceAllocator {
         let mut buf = vec![0u8; 1024];
         Snapshot::serialize(&mut buf.as_mut_slice(), &allocator.save()).unwrap();
-        let restored_state: ResourceAllocatorState =
-            Snapshot::deserialize(&mut buf.as_slice()).unwrap();
+        let restored_state: ResourceAllocator = Snapshot::deserialize(&mut buf.as_slice()).unwrap();
         ResourceAllocator::restore((), &restored_state).unwrap()
     }
 
     #[test]
     fn test_save_restore() {
-        let allocator0 = ResourceAllocator::new().unwrap();
+        let mut allocator0 = ResourceAllocator::new();
         let gsi_0 = allocator0.allocate_gsi(1).unwrap()[0];
         assert_eq!(gsi_0, IRQ_BASE);
 
-        let allocator1 = clone_allocator(&allocator0);
+        let mut allocator1 = clone_allocator(&allocator0);
         let gsi_1 = allocator1.allocate_gsi(1).unwrap()[0];
         assert_eq!(gsi_1, IRQ_BASE + 1);
         let mmio32_mem = allocator1
@@ -285,7 +240,7 @@ mod tests {
             .unwrap();
         assert_eq!(system_mem, arch::SYSTEM_MEM_START);
 
-        let allocator2 = clone_allocator(&allocator1);
+        let mut allocator2 = clone_allocator(&allocator1);
         allocator2
             .allocate_32bit_mmio_memory(0x42, 1, AllocPolicy::ExactMatch(mmio32_mem))
             .unwrap_err();

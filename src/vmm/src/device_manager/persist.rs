@@ -220,7 +220,7 @@ impl<'a> Persist<'a> for ACPIDeviceManager {
             let vmgenid = VmGenId::restore(
                 VMGenIdConstructorArgs {
                     mem: constructor_args.mem,
-                    resource_allocator: &constructor_args.vm.common.resource_allocator,
+                    resource_allocator: &mut constructor_args.vm.resource_allocator(),
                 },
                 vmgenid_args,
             )?;

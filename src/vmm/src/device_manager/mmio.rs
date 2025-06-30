@@ -154,7 +154,7 @@ impl MMIODeviceManager {
     /// Allocates resources for a new device to be added.
     fn allocate_mmio_resources(
         &mut self,
-        resource_allocator: &ResourceAllocator,
+        resource_allocator: &mut ResourceAllocator,
         irq_count: u32,
     ) -> Result<MMIODeviceInfo, MmioError> {
         let irq = match resource_allocator.allocate_gsi(irq_count)?[..] {
@@ -243,7 +243,7 @@ impl MMIODeviceManager {
         _cmdline: &mut kernel_cmdline::Cmdline,
     ) -> Result<(), MmioError> {
         let device = MMIODevice {
-            resources: self.allocate_mmio_resources(&vm.common.resource_allocator, 1)?,
+            resources: self.allocate_mmio_resources(&mut vm.resource_allocator(), 1)?,
             inner: Arc::new(Mutex::new(mmio_device)),
         };
 
@@ -277,7 +277,7 @@ impl MMIODeviceManager {
         let device_info = if let Some(device_info) = device_info_opt {
             device_info
         } else {
-            let gsi = vm.common.resource_allocator.allocate_gsi(1)?;
+            let gsi = vm.resource_allocator().allocate_gsi(1)?;
             MMIODeviceInfo {
                 addr: SERIAL_MEM_START,
                 len: MMIO_LEN,
@@ -336,7 +336,7 @@ impl MMIODeviceManager {
         let device_info = if let Some(device_info) = device_info_opt {
             device_info
         } else {
-            let gsi = vm.common.resource_allocator.allocate_gsi(1)?;
+            let gsi = vm.resource_allocator().allocate_gsi(1)?;
             MMIODeviceInfo {
                 addr: RTC_MEM_START,
                 len: MMIO_LEN,
@@ -754,10 +754,10 @@ pub(crate) mod tests {
     #[test]
     fn test_no_irq_allocation() {
         let mut device_manager = MMIODeviceManager::new();
-        let resource_allocator = ResourceAllocator::new().unwrap();
+        let mut resource_allocator = ResourceAllocator::new();
 
         let device_info = device_manager
-            .allocate_mmio_resources(&resource_allocator, 0)
+            .allocate_mmio_resources(&mut resource_allocator, 0)
             .unwrap();
         assert!(device_info.irq.is_none());
     }
@@ -765,10 +765,10 @@ pub(crate) mod tests {
     #[test]
     fn test_irq_allocation() {
         let mut device_manager = MMIODeviceManager::new();
-        let resource_allocator = ResourceAllocator::new().unwrap();
+        let mut resource_allocator = ResourceAllocator::new();
 
         let device_info = device_manager
-            .allocate_mmio_resources(&resource_allocator, 1)
+            .allocate_mmio_resources(&mut resource_allocator, 1)
             .unwrap();
         assert_eq!(device_info.irq.unwrap().get(), crate::arch::IRQ_BASE);
     }
@@ -776,12 +776,12 @@ pub(crate) mod tests {
     #[test]
     fn test_allocation_failure() {
         let mut device_manager = MMIODeviceManager::new();
-        let resource_allocator = ResourceAllocator::new().unwrap();
+        let mut resource_allocator = ResourceAllocator::new();
         assert_eq!(
             format!(
                 "{}",
                 device_manager
-                    .allocate_mmio_resources(&resource_allocator, 2)
+                    .allocate_mmio_resources(&mut resource_allocator, 2)
                     .unwrap_err()
             ),
             "Invalid MMIO IRQ configuration.".to_string()
