@@ -14,8 +14,8 @@ function make_rootfs {
     local rootfs=$LABEL
     local IMG=$LABEL.ext4
     mkdir $LABEL
-    ctr image pull docker.io/library/$LABEL
-    ctr image mount --rw docker.io/library/$LABEL $LABEL
+    ctr image pull public.ecr.aws/docker/library/$LABEL
+    ctr image mount --rw public.ecr.aws/docker/library/$LABEL $LABEL
     MNT_SIZE=$(du -sb $LABEL |cut -f1)
     SIZE=$(( $MNT_SIZE + 512 * 2**20 ))
 
@@ -75,6 +75,6 @@ EOF
 make_rootfs alpine:latest
 make_rootfs ubuntu:22.04
 make_rootfs ubuntu:24.04
-make_rootfs ubuntu:24.10
-# make_rootfs ubuntu:latest
+make_rootfs ubuntu:25.04
+make_rootfs ubuntu:latest
 make_rootfs amazonlinux:2023
