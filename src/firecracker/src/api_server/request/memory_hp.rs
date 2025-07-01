@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use vmm::rpc_interface::VmmAction;
-use vmm::vmm_config::memory_hp::MemoryHpConfig;
+use vmm::vmm_config::memory_hp::{MemoryHpConfig, MemoryHpUpdateConfig};
 
 use super::super::parsed_request::{ParsedRequest, RequestError};
 use super::Body;
@@ -10,6 +10,12 @@ use super::Body;
 pub(crate) fn parse_put_memory_hp(body: &Body) -> Result<ParsedRequest, RequestError> {
     Ok(ParsedRequest::new_sync(VmmAction::SetMemoryHpDevice(
         serde_json::from_slice::<MemoryHpConfig>(body.raw())?,
+    )))
+}
+
+pub(crate) fn parse_patch_memory_hp(body: &Body) -> Result<ParsedRequest, RequestError> {
+    Ok(ParsedRequest::new_sync(VmmAction::UpdateMemoryHp(
+        serde_json::from_slice::<MemoryHpUpdateConfig>(body.raw())?,
     )))
 }
 
@@ -38,6 +44,29 @@ mod tests {
         assert_eq!(
             vmm_action_from_request(parse_put_memory_hp(&Body::new(body)).unwrap()),
             VmmAction::SetMemoryHpDevice(expected_config)
+        );
+    }
+
+    #[test]
+    fn test_parse_patch_memory_hp_request() {
+        parse_patch_memory_hp(&Body::new("invalid_payload")).unwrap_err();
+
+        // PATCH with invalid fields.
+        let body = r#"{
+            "requested_size_mib": "bar"
+        }"#;
+        parse_patch_memory_hp(&Body::new(body)).unwrap_err();
+
+        // PATCH with valid input fields.
+        let body = r#"{
+            "requested_size_mib": 1024
+        }"#;
+        let expected_config = MemoryHpUpdateConfig {
+            requested_size_mib: 1024,
+        };
+        assert_eq!(
+            vmm_action_from_request(parse_patch_memory_hp(&Body::new(body)).unwrap()),
+            VmmAction::UpdateMemoryHp(expected_config)
         );
     }
 }

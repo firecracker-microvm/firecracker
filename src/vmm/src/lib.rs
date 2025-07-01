@@ -138,8 +138,10 @@ use crate::devices::virtio::balloon::{
     BALLOON_DEV_ID, Balloon, BalloonConfig, BalloonError, BalloonStats,
 };
 use crate::devices::virtio::block::device::Block;
+use crate::devices::virtio::mem::VirtioMemError;
+use crate::devices::virtio::mem::device::VIRTIO_MEM_DEV_ID;
 use crate::devices::virtio::net::Net;
-use crate::devices::virtio::{TYPE_BALLOON, TYPE_BLOCK, TYPE_NET};
+use crate::devices::virtio::{TYPE_BALLOON, TYPE_BLOCK, TYPE_MEM, TYPE_NET};
 use crate::logger::{METRICS, MetricsError, error, info, warn};
 use crate::persist::{MicrovmState, MicrovmStateError, VmInfo};
 use crate::rate_limiter::BucketUpdate;
@@ -254,7 +256,7 @@ pub enum VmmError {
     /// Failed perform action on device: {0}
     FindDeviceError(#[from] device_manager::FindDeviceError),
     /// VirtioMem error: {0}
-    VirtioMem(crate::devices::virtio::mem::VirtioMemError),
+    VirtioMem(#[from] VirtioMemError),
 }
 
 /// Shorthand type for KVM dirty page bitmap.
@@ -665,6 +667,31 @@ impl Vmm {
             Ok(())
         } else {
             Err(BalloonError::DeviceNotFound)
+        }
+    }
+
+    /// Updates configuration for the memory hotplug device requested size.
+    pub fn update_memory_hp_config(
+        &mut self,
+        requested_size_mib: usize,
+    ) -> Result<(), VirtioMemError> {
+        use crate::devices::virtio::mem::VirtioMem;
+
+        if let Some(virtio_device) = self
+            .device_manager
+            .get_virtio_device(TYPE_MEM, VIRTIO_MEM_DEV_ID)
+        {
+            virtio_device
+                .lock()
+                .expect("Poisoned lock")
+                .as_mut_any()
+                .downcast_mut::<VirtioMem>()
+                .unwrap()
+                .update_requested_size((requested_size_mib * 1024 * 1024) as u64)?;
+
+            Ok(())
+        } else {
+            Err(VirtioMemError::DeviceNotFound)
         }
     }
 
