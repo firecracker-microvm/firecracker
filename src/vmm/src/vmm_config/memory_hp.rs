@@ -28,6 +28,20 @@ pub struct MemoryHpUpdateConfig {
     pub requested_size_mib: usize,
 }
 
+/// Memory hotplug device status information.
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct MemoryHpStatus {
+    /// Block size in MiB.
+    pub block_size_mib: usize,
+    /// Total memory size in MiB that can be hotplugged.
+    pub total_size_mib: usize,
+    /// Currently plugged memory size in MiB.
+    pub plugged_size_mib: usize,
+    /// Requested memory size in MiB.
+    pub requested_size_mib: usize,
+}
+
 impl MemoryHpConfig {
     /// Validates the configuration.
     pub fn validate(&self) -> Result<(), MemoryHpConfigError> {

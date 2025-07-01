@@ -21,7 +21,7 @@ use super::request::logger::parse_put_logger;
 use super::request::machine_configuration::{
     parse_get_machine_config, parse_patch_machine_config, parse_put_machine_config,
 };
-use super::request::memory_hp::{parse_patch_memory_hp, parse_put_memory_hp};
+use super::request::memory_hp::{parse_get_memory_hp, parse_patch_memory_hp, parse_put_memory_hp};
 use super::request::metrics::parse_put_metrics;
 use super::request::mmds::{parse_get_mmds, parse_patch_mmds, parse_put_mmds};
 use super::request::net::{parse_patch_net, parse_put_net};
@@ -83,6 +83,7 @@ impl TryFrom<&Request> for ParsedRequest {
                 Ok(ParsedRequest::new_sync(VmmAction::GetFullVmConfig))
             }
             (Method::Get, "machine-config", None) => parse_get_machine_config(),
+            (Method::Get, "memory-hp", None) => parse_get_memory_hp(),
             (Method::Get, "mmds", None) => parse_get_mmds(),
             (Method::Get, _, Some(_)) => method_to_error(Method::Get),
             (Method::Put, "actions", Some(body)) => parse_put_actions(body),
@@ -179,6 +180,7 @@ impl ParsedRequest {
                     &serde_json::json!({ "firecracker_version": version.as_str() }),
                 ),
                 VmmData::FullVmConfig(config) => Self::success_response_with_data(config),
+                VmmData::MemoryHpStatus(status) => Self::success_response_with_data(status),
             },
             Err(vmm_action_error) => {
                 let mut response = match vmm_action_error {

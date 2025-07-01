@@ -429,6 +429,11 @@ impl VirtioMem {
             .trigger(VirtioInterruptType::Config)
             .map_err(VirtioMemError::InterruptError)
     }
+
+    /// Gets the configuration of the virtio-mem device.
+    pub fn config(&self) -> &VirtioMemConfig {
+        &self.config
+    }
 }
 
 impl VirtioDevice for VirtioMem {

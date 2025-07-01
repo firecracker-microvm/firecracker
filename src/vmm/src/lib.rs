@@ -146,6 +146,7 @@ use crate::logger::{METRICS, MetricsError, error, info, warn};
 use crate::persist::{MicrovmState, MicrovmStateError, VmInfo};
 use crate::rate_limiter::BucketUpdate;
 use crate::vmm_config::instance_info::{InstanceInfo, VmState};
+use crate::vmm_config::memory_hp::MemoryHpStatus;
 use crate::vstate::memory::{GuestMemory, GuestMemoryMmap, GuestMemoryRegion};
 use crate::vstate::vcpu::VcpuState;
 pub use crate::vstate::vcpu::{Vcpu, VcpuConfig, VcpuEvent, VcpuHandle, VcpuResponse};
@@ -690,6 +691,28 @@ impl Vmm {
                 .update_requested_size((requested_size_mib * 1024 * 1024) as u64)?;
 
             Ok(())
+        } else {
+            Err(VirtioMemError::DeviceNotFound)
+        }
+    }
+
+    /// Gets the memory hotplug device status.
+    pub fn memory_hp_status(&self) -> Result<MemoryHpStatus, VirtioMemError> {
+        use crate::devices::virtio::mem::VirtioMem;
+
+        if let Some(virtio_device) = self
+            .device_manager
+            .get_virtio_device(TYPE_MEM, VIRTIO_MEM_DEV_ID)
+        {
+            let guard = virtio_device.lock().expect("Poisoned lock");
+            let config = guard.as_any().downcast_ref::<VirtioMem>().unwrap().config();
+
+            Ok(MemoryHpStatus {
+                block_size_mib: (config.block_size / (1024 * 1024)) as usize,
+                total_size_mib: (config.region_size / (1024 * 1024)) as usize,
+                plugged_size_mib: (config.plugged_size / (1024 * 1024)) as usize,
+                requested_size_mib: (config.requested_size / (1024 * 1024)) as usize,
+            })
         } else {
             Err(VirtioMemError::DeviceNotFound)
         }

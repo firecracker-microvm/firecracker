@@ -19,6 +19,10 @@ pub(crate) fn parse_patch_memory_hp(body: &Body) -> Result<ParsedRequest, Reques
     )))
 }
 
+pub(crate) fn parse_get_memory_hp() -> Result<ParsedRequest, RequestError> {
+    Ok(ParsedRequest::new_sync(VmmAction::GetMemoryHpConfig))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -67,6 +71,14 @@ mod tests {
         assert_eq!(
             vmm_action_from_request(parse_patch_memory_hp(&Body::new(body)).unwrap()),
             VmmAction::UpdateMemoryHp(expected_config)
+        );
+    }
+
+    #[test]
+    fn test_parse_get_memory_hp_request() {
+        assert_eq!(
+            vmm_action_from_request(parse_get_memory_hp().unwrap()),
+            VmmAction::GetMemoryHpConfig
         );
     }
 }
