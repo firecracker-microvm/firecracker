@@ -261,7 +261,7 @@ pub enum VmmError {
 }
 
 /// Shorthand type for KVM dirty page bitmap.
-pub type DirtyBitmap = HashMap<u32, Vec<u64>>;
+pub type DirtyBitmap = HashMap<u64, Vec<u64>>;
 
 /// Returns the size of guest memory, in MiB.
 pub(crate) fn mem_size_mib(guest_memory: &GuestMemoryMmap) -> u64 {

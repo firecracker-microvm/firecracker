@@ -173,10 +173,10 @@ pub fn build_microvm_for_boot(
     // Build custom CPU config if a custom template is provided.
     let mut vm = Vm::new(&kvm)?;
     let (mut vcpus, vcpus_exit_evt) = vm.create_vcpus(vm_resources.machine_config.vcpu_count)?;
-    vm.register_memory_regions(guest_memory)?;
 
-    // TODO: make logic in rest of the devices to not depend on the last address of the guest memory
-    vm.register_memory_regions(guest_hp_memory)
+    vm.put_memory_regions(guest_memory, true)
+        .map_err(VmmError::Vm)?;
+    vm.put_memory_regions(guest_hp_memory, true)
         .map_err(VmmError::Vm)?;
 
     let mut device_manager = DeviceManager::new(event_manager, &vcpus_exit_evt, &vm)?;
@@ -433,8 +433,9 @@ pub fn build_microvm_from_snapshot(
         .create_vcpus(vm_resources.machine_config.vcpu_count)
         .map_err(StartMicrovmError::Vm)?;
 
-    vm.register_memory_regions(guest_memory)
-        .map_err(StartMicrovmError::Vm)?;
+    vm.put_memory_regions(guest_memory, true)
+        .map_err(VmmError::Vm)
+        .map_err(StartMicrovmError::Internal)?;
 
     #[cfg(target_arch = "x86_64")]
     {
