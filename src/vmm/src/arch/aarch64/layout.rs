@@ -82,10 +82,8 @@ pub const IRQ_BASE: u32 = 32;
 
 // The Linux kernel automatically shifts the GSI by 32 if it is an SPI,
 // allowing us to start numbering from 0 instead of 32.
-// But device_manager/mmio.rs states that 0 is not allowed for GSIs
-// So we start with 1 instead.
 /// The first usable GSI on aarch64.
-pub const GSI_BASE: u32 = 1;
+pub const GSI_BASE: u32 = 0;
 
 /// The maximum usable GSI on aarch64.
 pub const GSI_MAX: u32 = IRQ_MAX - IRQ_BASE - 1;
