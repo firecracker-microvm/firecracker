@@ -439,7 +439,6 @@ fn create_devices_node(
 #[cfg(test)]
 mod tests {
     use std::ffi::CString;
-    use std::num::NonZeroU32;
 
     use kvm_ioctls::Kvm;
 
@@ -470,7 +469,7 @@ mod tests {
                 (DeviceType::Serial, DeviceType::Serial.to_string()),
                 MMIODeviceInfo {
                     addr: 0x00,
-                    irq: NonZeroU32::new(1),
+                    irq: Some(1u32),
                     len: LEN,
                 },
             ),
@@ -478,7 +477,7 @@ mod tests {
                 (DeviceType::Virtio(1), "virtio".to_string()),
                 MMIODeviceInfo {
                     addr: LEN,
-                    irq: NonZeroU32::new(2),
+                    irq: Some(2u32),
                     len: LEN,
                 },
             ),
@@ -486,7 +485,7 @@ mod tests {
                 (DeviceType::Rtc, "rtc".to_string()),
                 MMIODeviceInfo {
                     addr: 2 * LEN,
-                    irq: NonZeroU32::new(3),
+                    irq: Some(3u32),
                     len: LEN,
                 },
             ),
