@@ -47,8 +47,8 @@ tracking is enabled, even if the host users huge mappings.
 
 ### Why does Firecracker not offer a transparent huge pages (THP) setting?
 
-Firecracker's guest memory is memfd based. Linux (as of 6.1) does not offer a
-way to dynamically enable THP for such memory regions. Additionally, UFFD does
+Firecracker's guest memory can be memfd based. Linux (as of 6.1) does not offer
+a way to dynamically enable THP for such memory regions. Additionally, UFFD does
 not integrate with THP (no transparent huge pages will be allocated during
 userfaulting). Please refer to the [Linux Documentation][thp_docs] for more
 information.
