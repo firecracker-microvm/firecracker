@@ -17,7 +17,7 @@ use micro_http::{
     Body, HttpHeaderError, MediaType, Method, Request, RequestError, Response, StatusCode, Version,
 };
 use serde_json::{Map, Value};
-use token_headers::TokenHeaders;
+use token_headers::{XMetadataToken, XMetadataTokenTtlSeconds};
 
 use crate::mmds::data_store::{Mmds, MmdsDatastoreError as MmdsError, MmdsVersion, OutputFormat};
 use crate::mmds::token::PATH_TO_TOKEN;
@@ -142,23 +142,10 @@ fn respond_to_request_mmdsv1(mmds: &Mmds, request: Request) -> Response {
 }
 
 fn respond_to_request_mmdsv2(mmds: &mut Mmds, request: Request) -> Response {
-    // Fetch custom headers from request.
-    let token_headers = match TokenHeaders::try_from(request.headers.custom_entries()) {
-        Ok(token_headers) => token_headers,
-        Err(err) => {
-            return build_response(
-                request.http_version(),
-                StatusCode::BadRequest,
-                MediaType::PlainText,
-                Body::new(err.to_string()),
-            );
-        }
-    };
-
     // Allow only GET and PUT requests.
     match request.method() {
-        Method::Get => respond_to_get_request_checked(mmds, request, token_headers),
-        Method::Put => respond_to_put_request(mmds, request, token_headers),
+        Method::Get => respond_to_get_request_checked(mmds, request),
+        Method::Put => respond_to_put_request(mmds, request),
         _ => {
             let mut response = build_response(
                 request.http_version(),
@@ -173,13 +160,10 @@ fn respond_to_request_mmdsv2(mmds: &mut Mmds, request: Request) -> Response {
     }
 }
 
-fn respond_to_get_request_checked(
-    mmds: &Mmds,
-    request: Request,
-    token_headers: TokenHeaders,
-) -> Response {
-    // Get MMDS token from custom headers.
-    let token = match token_headers.x_metadata_token() {
+fn respond_to_get_request_checked(mmds: &Mmds, request: Request) -> Response {
+    // Check whether a token exists.
+    let x_metadata_token = XMetadataToken::from(request.headers.custom_entries());
+    let token = match x_metadata_token.0 {
         Some(token) => token,
         None => {
             let error_msg = VmmMmdsError::NoTokenProvided.to_string();
@@ -192,8 +176,8 @@ fn respond_to_get_request_checked(
         }
     };
 
-    // Validate MMDS token.
-    match mmds.is_valid_token(token) {
+    // Validate the token.
+    match mmds.is_valid_token(&token) {
         Ok(true) => respond_to_get_request_unchecked(mmds, request),
         Ok(false) => build_response(
             request.http_version(),
@@ -248,17 +232,11 @@ fn respond_to_get_request_unchecked(mmds: &Mmds, request: Request) -> Response {
     }
 }
 
-fn respond_to_put_request(
-    mmds: &mut Mmds,
-    request: Request,
-    token_headers: TokenHeaders,
-) -> Response {
+fn respond_to_put_request(mmds: &mut Mmds, request: Request) -> Response {
+    let custom_headers = request.headers.custom_entries();
+
     // Reject `PUT` requests that contain `X-Forwarded-For` header.
-    if request
-        .headers
-        .custom_entries()
-        .contains_key(REJECTED_HEADER)
-    {
+    if custom_headers.contains_key(REJECTED_HEADER) {
         let error_msg = RequestError::HeaderError(HttpHeaderError::UnsupportedName(
             REJECTED_HEADER.to_string(),
         ))
@@ -287,16 +265,26 @@ fn respond_to_put_request(
     }
 
     // Get token lifetime value.
-    let ttl_seconds = match token_headers.x_metadata_token_ttl_seconds() {
-        Some(ttl_seconds) => ttl_seconds,
-        None => {
+    let ttl_seconds = match XMetadataTokenTtlSeconds::try_from(custom_headers) {
+        Err(err) => {
             return build_response(
                 request.http_version(),
                 StatusCode::BadRequest,
                 MediaType::PlainText,
-                Body::new(VmmMmdsError::NoTtlProvided.to_string()),
+                Body::new(err.to_string()),
             );
         }
+        Ok(ttl_seconds) => match ttl_seconds.0 {
+            Some(ttl_seconds) => ttl_seconds,
+            None => {
+                return build_response(
+                    request.http_version(),
+                    StatusCode::BadRequest,
+                    MediaType::PlainText,
+                    Body::new(VmmMmdsError::NoTtlProvided.to_string()),
+                );
+            }
+        },
     };
 
     // Generate token.
@@ -530,7 +518,7 @@ mod tests {
         let actual_response = convert_to_response(mmds.clone(), request);
         assert_eq!(actual_response, expected_response);
 
-        // Test invalid custom header value is ignored when V1 is configured.
+        // Test invalid custom header value is ignored if not PUT request to /latest/api/token.
         let (request, expected_response) = generate_request_and_expected_response(
             b"GET http://169.254.169.254/ HTTP/1.0\r\n\
               Accept: application/json\r\n\
@@ -576,23 +564,6 @@ mod tests {
         let actual_response = convert_to_response(mmds.clone(), request);
         assert_eq!(actual_response, expected_response);
 
-        // Test invalid value for custom header.
-        let request = Request::try_from(
-            b"GET http://169.254.169.254/ HTTP/1.0\r\n\
-              Accept: application/json\r\n\
-              X-metadata-token-ttl-seconds: -60\r\n\r\n",
-            None,
-        )
-        .unwrap();
-        let mut expected_response = Response::new(Version::Http10, StatusCode::BadRequest);
-        expected_response.set_content_type(MediaType::PlainText);
-        expected_response.set_body(Body::new(
-            "Invalid header. Reason: Invalid value. Key:X-metadata-token-ttl-seconds; Value:-60"
-                .to_string(),
-        ));
-        let actual_response = convert_to_response(mmds.clone(), request);
-        assert_eq!(actual_response, expected_response);
-
         // Test PUT requests.
         // Unsupported `X-Forwarded-For` header present.
         let request = Request::try_from(
@@ -620,6 +591,22 @@ mod tests {
         expected_response.set_content_type(MediaType::PlainText);
         expected_response.set_body(Body::new(
             VmmMmdsError::ResourceNotFound(String::from("/token")).to_string(),
+        ));
+        let actual_response = convert_to_response(mmds.clone(), request);
+        assert_eq!(actual_response, expected_response);
+
+        // Test invalid X-metadata-token-ttl-seconds value gets BadRequest.
+        let request = Request::try_from(
+            b"PUT http://169.254.169.254/latest/api/token HTTP/1.0\r\n\
+              X-metadata-token-ttl-seconds: -60\r\n\r\n",
+            None,
+        )
+        .unwrap();
+        let mut expected_response = Response::new(Version::Http10, StatusCode::BadRequest);
+        expected_response.set_content_type(MediaType::PlainText);
+        expected_response.set_body(Body::new(
+            "Invalid header. Reason: Invalid value. Key:X-metadata-token-ttl-seconds; Value:-60"
+                .to_string(),
         ));
         let actual_response = convert_to_response(mmds.clone(), request);
         assert_eq!(actual_response, expected_response);
@@ -680,6 +667,21 @@ mod tests {
                 "GET http://169.254.169.254/ HTTP/1.0\r\n\
                  Accept: application/json\r\n\
                  X-metadata-token: {valid_token}\r\n\r\n",
+            )
+            .as_bytes(),
+            MediaType::ApplicationJson,
+        );
+        let actual_response = convert_to_response(mmds.clone(), request);
+        assert_eq!(actual_response, expected_response);
+
+        // Test invalid customer header value is ignored if not PUT request to /latest/api/token.
+        #[rustfmt::skip]
+        let (request, expected_response) = generate_request_and_expected_response(
+            format!(
+                "GET http://169.254.169.254/ HTTP/1.0\r\n\
+                 Accept: application/json\r\n\
+                 X-metadata-token: {valid_token}\r\n\
+                 X-metadata-token-ttl-seconds: -60\r\n\r\n",
             )
             .as_bytes(),
             MediaType::ApplicationJson,
