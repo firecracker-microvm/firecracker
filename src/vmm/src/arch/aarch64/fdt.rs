@@ -362,7 +362,7 @@ fn create_virtio_node(fdt: &mut FdtWriter, dev_info: &MMIODeviceInfo) -> Result<
         "interrupts",
         &[
             GIC_FDT_IRQ_TYPE_SPI,
-            dev_info.irq.unwrap().into(),
+            dev_info.irq.unwrap(),
             IRQ_TYPE_EDGE_RISING,
         ],
     )?;
@@ -383,7 +383,7 @@ fn create_serial_node(fdt: &mut FdtWriter, dev_info: &MMIODeviceInfo) -> Result<
         "interrupts",
         &[
             GIC_FDT_IRQ_TYPE_SPI,
-            dev_info.irq.unwrap().into(),
+            dev_info.irq.unwrap(),
             IRQ_TYPE_EDGE_RISING,
         ],
     )?;
