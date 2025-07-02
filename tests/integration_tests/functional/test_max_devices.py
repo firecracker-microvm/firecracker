@@ -6,14 +6,17 @@ import platform
 
 import pytest
 
-# IRQs are available from 5 to 23. We always use one IRQ for VMGenID device, so
-# the maximum number of devices supported at the same time is 18.
-MAX_DEVICES_ATTACHED = 18
+# On x86_64, IRQs are available from 5 to 23. We always use one IRQ for VMGenID
+# device, so the maximum number of devices supported at the same time is 18.
 
+# On aarch64, IRQs are available from 32 to 127. We always use one IRQ each for
+# the VMGenID and RTC devices, so the maximum number of devices supported
+# at the same time is 94.
+MAX_DEVICES_ATTACHED = {
+    "x86_64": 18,
+    "aarch64": 94
+}.get(platform.machine())
 
-@pytest.mark.skipif(
-    platform.machine() != "x86_64", reason="Firecracker supports 24 IRQs on x86_64."
-)
 def test_attach_maximum_devices(uvm_plain_any):
     """
     Test attaching maximum number of devices to the microVM.
@@ -36,9 +39,6 @@ def test_attach_maximum_devices(uvm_plain_any):
         test_microvm.ssh_iface(i).check_output("sync")
 
 
-@pytest.mark.skipif(
-    platform.machine() != "x86_64", reason="Firecracker supports 24 IRQs on x86_64."
-)
 def test_attach_too_many_devices(uvm_plain):
     """
     Test attaching to a microVM more devices than available IRQs.
