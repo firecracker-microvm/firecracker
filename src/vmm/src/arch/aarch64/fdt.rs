@@ -64,7 +64,7 @@ pub enum FdtError {
 #[allow(clippy::too_many_arguments)]
 /// Creates the flattened device tree for this aarch64 microVM.
 pub fn create_fdt(
-    guest_mem: &GuestMemoryMmap,
+    last_addr: GuestAddress,
     vcpu_mpidr: Vec<u64>,
     cmdline: CString,
     device_manager: &DeviceManager,
@@ -89,7 +89,7 @@ pub fn create_fdt(
     // containing description of the interrupt controller for this VM.
     fdt_writer.property_u32("interrupt-parent", GIC_PHANDLE)?;
     create_cpu_nodes(&mut fdt_writer, &vcpu_mpidr)?;
-    create_memory_node(&mut fdt_writer, guest_mem)?;
+    create_memory_node(&mut fdt_writer, last_addr)?;
     create_chosen_node(&mut fdt_writer, cmdline, initrd)?;
     create_gic_node(&mut fdt_writer, gic_device)?;
     create_timer_node(&mut fdt_writer)?;
@@ -215,7 +215,7 @@ fn create_cpu_nodes(fdt: &mut FdtWriter, vcpu_mpidr: &[u64]) -> Result<(), FdtEr
     Ok(())
 }
 
-fn create_memory_node(fdt: &mut FdtWriter, guest_mem: &GuestMemoryMmap) -> Result<(), FdtError> {
+fn create_memory_node(fdt: &mut FdtWriter, last_addr: GuestAddress) -> Result<(), FdtError> {
     // See https://github.com/torvalds/linux/blob/master/Documentation/devicetree/booting-without-of.txt#L960
     // for an explanation of this.
 
@@ -227,10 +227,8 @@ fn create_memory_node(fdt: &mut FdtWriter, guest_mem: &GuestMemoryMmap) -> Resul
     // The reason we do this is that Linux does not allow remapping system memory. However, without
     // remap, kernel drivers cannot get virtual addresses to read data from device memory. Leaving
     // this memory region out allows Linux kernel modules to remap and thus read this region.
-    let mem_size = guest_mem.last_addr().raw_value()
-        - super::layout::DRAM_MEM_START
-        - super::layout::SYSTEM_MEM_SIZE
-        + 1;
+    let mem_size =
+        last_addr.raw_value() - super::layout::DRAM_MEM_START - super::layout::SYSTEM_MEM_SIZE + 1;
     let mem_reg_prop = &[
         super::layout::DRAM_MEM_START + super::layout::SYSTEM_MEM_SIZE,
         mem_size,

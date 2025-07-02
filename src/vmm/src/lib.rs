@@ -127,6 +127,7 @@ use event_manager::{EventManager as BaseEventManager, EventOps, Events, MutEvent
 use seccomp::BpfProgram;
 use snapshot::Persist;
 use userfaultfd::Uffd;
+use vm_memory::GuestAddress;
 use vmm_sys_util::epoll::EventSet;
 use vmm_sys_util::eventfd::EventFd;
 use vmm_sys_util::terminal::Terminal;
@@ -688,7 +689,7 @@ impl Vmm {
                 .as_mut_any()
                 .downcast_mut::<VirtioMem>()
                 .unwrap()
-                .update_requested_size((requested_size_mib * 1024 * 1024) as u64)?;
+                .update_requested_size((requested_size_mib * 1024 * 1024) as u64, &self.vm)?;
 
             Ok(())
         } else {

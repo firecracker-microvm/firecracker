@@ -6,11 +6,12 @@ use std::ops::Deref;
 use std::sync::Arc;
 use std::sync::atomic::AtomicU32;
 
-use vm_memory::{GuestAddress, GuestMemoryError};
+use vm_memory::{Address, GuestAddress, GuestMemoryError, GuestMemoryRegion};
 use vmm_sys_util::eventfd::EventFd;
 
 use super::metrics::METRICS;
 use super::{MEM_NUM_QUEUES, MEM_QUEUE};
+use crate::Vm;
 use crate::devices::DeviceError;
 use crate::devices::virtio::device::{ActiveState, DeviceState, VirtioDevice};
 use crate::devices::virtio::generated::virtio_config::VIRTIO_F_VERSION_1;
@@ -24,7 +25,8 @@ use crate::devices::virtio::queue::{FIRECRACKER_MAX_QUEUE_SIZE, InvalidAvailIdx,
 use crate::devices::virtio::transport::{VirtioInterrupt, VirtioInterruptType};
 use crate::devices::virtio::{ActivateError, TYPE_MEM};
 use crate::logger::{IncMetric, debug, error};
-use crate::vstate::memory::{ByteValued, GuestMemoryMmap};
+use crate::vstate::memory::{ByteValued, GuestMemoryMmap, GuestRegionMmap};
+use crate::vstate::vm::VmError;
 
 pub const VIRTIO_MEM_DEV_ID: &str = "mem";
 
@@ -53,7 +55,7 @@ impl VirtioMemConfig {
             padding: [0; 6],
             addr: addr.0,
             region_size: size as u64,
-            usable_region_size: size as u64, // All memory is usable since it's pre-allocated
+            usable_region_size: 0,
             plugged_size: 0,
             requested_size: 0,
         }
@@ -95,6 +97,8 @@ pub enum VirtioMemError {
     DeviceNotActive,
     /// Device wasn't found in the device manager.
     DeviceNotFound,
+    /// Error while registering a new memory region with KVM: {0}
+    RegisterMemoryRegion(VmError),
 }
 
 #[derive(Debug)]
@@ -115,17 +119,20 @@ pub struct VirtioMem {
     plugged_blocks: Vec<u64>,
     // Total number of blocks
     total_blocks: usize,
+
+    userspace_addr: u64,
+    track_dirty_pages: bool,
 }
 
 impl VirtioMem {
-    pub fn new(addr: GuestAddress, size: usize) -> Result<Self, VirtioMemError> {
+    pub fn new(hp_region: &GuestRegionMmap, size: usize) -> Result<Self, VirtioMemError> {
         let queues = vec![Queue::new(FIRECRACKER_MAX_QUEUE_SIZE); MEM_NUM_QUEUES];
-        Self::new_with_queues(queues, addr, size)
+        Self::new_with_queues(queues, hp_region, size)
     }
 
     pub fn new_with_queues(
         queues: Vec<Queue>,
-        addr: GuestAddress,
+        hp_region: &GuestRegionMmap,
         size: usize,
     ) -> Result<Self, VirtioMemError> {
         let activate_event = EventFd::new(libc::EFD_NONBLOCK)?;
@@ -143,9 +150,11 @@ impl VirtioMem {
             device_state: DeviceState::Inactive,
             queues,
             queue_events,
-            config: VirtioMemConfig::new(addr, size),
+            config: VirtioMemConfig::new(hp_region.start_addr(), size),
             plugged_blocks: vec![0; bitmap_size],
             total_blocks,
+            userspace_addr: hp_region.as_ptr() as u64,
+            track_dirty_pages: hp_region.bitmap().is_some(),
         })
     }
 
@@ -405,7 +414,11 @@ impl VirtioMem {
     }
 
     /// Updates the requested size of the virtio-mem device.
-    pub fn update_requested_size(&mut self, requested_size: u64) -> Result<(), VirtioMemError> {
+    pub fn update_requested_size(
+        &mut self,
+        requested_size: u64,
+        vm: &Vm,
+    ) -> Result<(), VirtioMemError> {
         if !self.is_activated() {
             return Err(VirtioMemError::DeviceNotActive);
         }
@@ -415,6 +428,19 @@ impl VirtioMem {
         }
         if requested_size > self.config.region_size {
             return Err(VirtioMemError::InvalidSize(requested_size));
+        }
+
+        if self.config.usable_region_size < requested_size {
+            vm.register_memory_region(
+                self.userspace_addr + self.config.usable_region_size,
+                GuestAddress(self.config.addr)
+                    .checked_add(self.config.usable_region_size)
+                    .unwrap(),
+                requested_size - self.config.usable_region_size,
+                self.track_dirty_pages,
+            )
+            .map_err(VirtioMemError::RegisterMemoryRegion)?;
+            self.config.usable_region_size = requested_size;
         }
 
         self.config.requested_size = requested_size;
@@ -529,11 +555,23 @@ impl VirtioDevice for VirtioMem {
 
 #[cfg(test)]
 mod tests {
+    use std::ptr::null_mut;
+
+    use vm_memory::mmap::MmapRegionBuilder;
+
     use super::*;
     use crate::devices::virtio::device::VirtioDevice;
 
     fn default_virtio_mem() -> VirtioMem {
-        VirtioMem::new(GuestAddress(0), 0).unwrap()
+        let region = unsafe {
+            MmapRegionBuilder::new(0x1000)
+                .with_raw_mmap_pointer(null_mut())
+                .build()
+                .unwrap()
+        };
+
+        let region = GuestRegionMmap::new(region, GuestAddress(0)).unwrap();
+        VirtioMem::new(&region, 0).unwrap()
     }
 
     #[test]

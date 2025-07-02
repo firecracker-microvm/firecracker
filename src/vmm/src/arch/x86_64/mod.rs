@@ -224,7 +224,12 @@ pub fn configure_system_for_boot(
 
     match entry_point.protocol {
         BootProtocol::PvhBoot => {
-            configure_pvh(vm.guest_memory(), GuestAddress(CMDLINE_START), initrd)?;
+            configure_pvh(
+                vm.guest_memory(),
+                GuestAddress(CMDLINE_START),
+                initrd,
+                vm.last_ram_addr(),
+            )?;
         }
         BootProtocol::LinuxBoot => {
             configure_64bit_boot(
@@ -232,6 +237,7 @@ pub fn configure_system_for_boot(
                 GuestAddress(CMDLINE_START),
                 cmdline_size,
                 initrd,
+                vm.last_ram_addr(),
             )?;
         }
     }
@@ -251,6 +257,7 @@ fn configure_pvh(
     guest_mem: &GuestMemoryMmap,
     cmdline_addr: GuestAddress,
     initrd: &Option<InitrdConfig>,
+    last_addr: GuestAddress,
 ) -> Result<(), ConfigurationError> {
     const XEN_HVM_START_MAGIC_VALUE: u32 = 0x336e_c578;
     let first_addr_past_32bits = GuestAddress(FIRST_ADDR_PAST_32BITS);
@@ -294,7 +301,6 @@ fn configure_pvh(
         type_: E820_RESERVED,
         ..Default::default()
     });
-    let last_addr = guest_mem.last_addr();
 
     if last_addr > first_addr_past_64bits {
         memmap.push(hvm_memmap_table_entry {
@@ -363,6 +369,7 @@ fn configure_64bit_boot(
     cmdline_addr: GuestAddress,
     cmdline_size: usize,
     initrd: &Option<InitrdConfig>,
+    last_addr: GuestAddress,
 ) -> Result<(), ConfigurationError> {
     const KERNEL_BOOT_FLAG_MAGIC: u16 = 0xaa55;
     const KERNEL_HDR_MAGIC: u32 = 0x5372_6448;
@@ -408,8 +415,6 @@ fn configure_64bit_boot(
         PCI_MMCONFIG_SIZE,
         E820_RESERVED,
     )?;
-
-    let last_addr = guest_mem.last_addr();
 
     if last_addr > first_addr_past_64bits {
         add_e820_entry(

@@ -126,7 +126,7 @@ pub fn configure_system_for_boot(
         .expect("Cannot create cstring from cmdline string");
 
     let fdt = fdt::create_fdt(
-        vm.guest_memory(),
+        vm.last_ram_addr(),
         vcpu_mpidr,
         cmdline,
         device_manager,

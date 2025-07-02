@@ -13,6 +13,7 @@ use event_manager::SubscriberOps;
 use linux_loader::cmdline::Cmdline as LoaderKernelCmdline;
 use userfaultfd::Uffd;
 use utils::time::TimestampUs;
+use vm_memory::GuestMemory;
 
 #[cfg(target_arch = "aarch64")]
 use crate::Vcpu;
@@ -159,6 +160,8 @@ pub fn build_microvm_for_boot(
         .allocate_guest_hotpluggable_memory()
         .map_err(StartMicrovmError::GuestMemory)?;
 
+    debug!("Allocated HP memory: {guest_hp_memory:?}");
+
     // Clone the command-line so that a failed boot doesn't pollute the original.
     #[allow(unused_mut)]
     let mut boot_cmdline = boot_config.cmdline.clone();
@@ -176,6 +179,7 @@ pub fn build_microvm_for_boot(
 
     vm.put_memory_regions(guest_memory, true)
         .map_err(VmmError::Vm)?;
+    vm.set_last_ram_addr();
     vm.put_memory_regions(guest_hp_memory, true)
         .map_err(VmmError::Vm)?;
 
@@ -595,10 +599,12 @@ fn attach_virtio_mem_device(
     memory_hp_config: &MemoryHpConfig,
 ) -> Result<(), StartMicrovmError> {
     let size = mib_to_bytes(memory_hp_config.total_size_mib);
+    let memory_hp_region = vm.guest_memory().iter().last().unwrap();
     let virtio_mem = Arc::new(Mutex::new(
-        VirtioMem::new(VIRTIO_MEM_GUEST_ADDRESS, size)
+        VirtioMem::new(memory_hp_region, size)
             .map_err(|e| StartMicrovmError::Internal(VmmError::VirtioMem(e)))?,
     ));
+    debug!("virtio_mem: {:?}", virtio_mem);
 
     let id = virtio_mem.lock().expect("Poisoned lock").id().to_string();
 

@@ -10,7 +10,7 @@ use crate::devices::virtio::mem::{MEM_NUM_QUEUES, VirtioMem, VirtioMemError};
 use crate::devices::virtio::persist::{PersistError as VirtioStateError, VirtioDeviceState};
 use crate::devices::virtio::queue::FIRECRACKER_MAX_QUEUE_SIZE;
 use crate::snapshot::Persist;
-use crate::vstate::memory::GuestMemoryMmap;
+use crate::vstate::memory::{GuestMemoryMmap, GuestRegionMmap};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct VirtioMemState {
@@ -18,11 +18,14 @@ pub struct VirtioMemState {
 }
 
 #[derive(Debug)]
-pub struct VirtioMemConstructorArgs(GuestMemoryMmap);
+pub struct VirtioMemConstructorArgs {
+    mem: GuestMemoryMmap,
+    hp_region: GuestRegionMmap,
+}
 
 impl VirtioMemConstructorArgs {
-    pub fn new(mem: GuestMemoryMmap) -> Self {
-        Self(mem)
+    pub fn new(mem: GuestMemoryMmap, hp_region: GuestRegionMmap) -> Self {
+        Self { mem, hp_region }
     }
 }
 
@@ -50,13 +53,13 @@ impl Persist<'_> for VirtioMem {
         state: &Self::State,
     ) -> Result<Self, Self::Error> {
         let queues = state.virtio_state.build_queues_checked(
-            &constructor_args.0,
+            &constructor_args.mem,
             TYPE_MEM,
             MEM_NUM_QUEUES,
             FIRECRACKER_MAX_QUEUE_SIZE,
         )?;
 
-        let mut virtio_mem = VirtioMem::new_with_queues(queues, vm_memory::GuestAddress(0), 0)?;
+        let mut virtio_mem = VirtioMem::new_with_queues(queues, &constructor_args.hp_region, 0)?;
         virtio_mem.set_avail_features(state.virtio_state.avail_features);
         virtio_mem.set_acked_features(state.virtio_state.acked_features);
 
