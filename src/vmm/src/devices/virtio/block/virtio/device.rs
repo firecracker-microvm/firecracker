@@ -384,24 +384,6 @@ impl VirtioBlock {
         }
     }
 
-    fn add_used_descriptor(
-        queue: &mut Queue,
-        index: u16,
-        len: u32,
-        irq_trigger: &IrqTrigger,
-        block_metrics: &BlockDeviceMetrics,
-    ) {
-        queue.add_used(index, len).unwrap_or_else(|err| {
-            error!("Failed to add available descriptor head {}: {}", index, err)
-        });
-
-        if queue.prepare_kick() {
-            irq_trigger.trigger_irq(IrqType::Vring).unwrap_or_else(|_| {
-                block_metrics.event_fails.inc();
-            });
-        }
-    }
-
     /// Device specific function for peaking inside a queue and processing descriptors.
     pub fn process_queue(&mut self, queue_index: usize) -> Result<(), InvalidAvailIdx> {
         // This is safe since we checked in the event handler that the device is activated.
@@ -422,7 +404,6 @@ impl VirtioBlock {
                         break;
                     }
 
-                    used_any = true;
                     request.process(&mut self.disk, head.index, mem, &self.metrics)
                 }
                 Err(err) => {
@@ -443,15 +424,26 @@ impl VirtioBlock {
                     break;
                 }
                 ProcessingResult::Executed(finished) => {
-                    Self::add_used_descriptor(
-                        queue,
-                        head.index,
-                        finished.num_bytes_to_mem,
-                        &self.irq_trigger,
-                        &self.metrics,
-                    );
+                    used_any = true;
+                    queue
+                        .add_used(head.index, finished.num_bytes_to_mem)
+                        .unwrap_or_else(|err| {
+                            error!(
+                                "Failed to add available descriptor head {}: {}",
+                                head.index, err
+                            )
+                        });
                 }
             }
+        }
+        queue.advance_used_ring_idx();
+
+        if used_any && queue.prepare_kick() {
+            self.irq_trigger
+                .trigger_irq(IrqType::Vring)
+                .unwrap_or_else(|_| {
+                    self.metrics.event_fails.inc();
+                });
         }
 
         if let FileEngine::Async(ref mut engine) = self.disk.file_engine {
@@ -495,16 +487,25 @@ impl VirtioBlock {
                         ),
                     };
                     let finished = pending.finish(mem, res, &self.metrics);
-
-                    Self::add_used_descriptor(
-                        queue,
-                        finished.desc_idx,
-                        finished.num_bytes_to_mem,
-                        &self.irq_trigger,
-                        &self.metrics,
-                    );
+                    queue
+                        .add_used(finished.desc_idx, finished.num_bytes_to_mem)
+                        .unwrap_or_else(|err| {
+                            error!(
+                                "Failed to add available descriptor head {}: {}",
+                                finished.desc_idx, err
+                            )
+                        });
                 }
             }
+        }
+        queue.advance_used_ring_idx();
+
+        if queue.prepare_kick() {
+            self.irq_trigger
+                .trigger_irq(IrqType::Vring)
+                .unwrap_or_else(|_| {
+                    self.metrics.event_fails.inc();
+                });
         }
     }
 
@@ -1569,6 +1570,7 @@ mod tests {
 
             let mem = default_mem();
             let vq = VirtQueue::new(GuestAddress(0), &mem, IO_URING_NUM_ENTRIES * 4);
+            block.queues[0] = vq.create_queue();
             block.activate(mem.clone()).unwrap();
 
             // Run scenario that doesn't trigger FullSq BlockError: Add sq_size flush requests.
@@ -1602,6 +1604,7 @@ mod tests {
 
             let mem = default_mem();
             let vq = VirtQueue::new(GuestAddress(0), &mem, IO_URING_NUM_ENTRIES * 4);
+            block.queues[0] = vq.create_queue();
             block.activate(mem.clone()).unwrap();
 
             // Run scenario that triggers FullCqError. Push 2 * IO_URING_NUM_ENTRIES and wait for
@@ -1631,6 +1634,7 @@ mod tests {
 
             let mem = default_mem();
             let vq = VirtQueue::new(GuestAddress(0), &mem, 16);
+            block.queues[0] = vq.create_queue();
             block.activate(mem.clone()).unwrap();
 
             // Add a batch of flush requests.

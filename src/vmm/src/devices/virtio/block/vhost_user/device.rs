@@ -376,6 +376,7 @@ mod tests {
     use super::*;
     use crate::devices::virtio::block::virtio::device::FileEngineType;
     use crate::devices::virtio::mmio::VIRTIO_MMIO_INT_CONFIG;
+    use crate::devices::virtio::test_utils::VirtQueue;
     use crate::devices::virtio::vhost_user::tests::create_mem;
     use crate::test_utils::create_tmp_socket;
     use crate::vstate::memory::GuestAddress;
@@ -780,6 +781,8 @@ mod tests {
         file.set_len(region_size as u64).unwrap();
         let regions = vec![(GuestAddress(0x0), region_size)];
         let guest_memory = create_mem(file, &regions);
+        let q = VirtQueue::new(GuestAddress(0), &guest_memory, 16);
+        vhost_block.queues[0] = q.create_queue();
 
         // During actiavion of the device features, memory and queues should be set and activated.
         vhost_block.activate(guest_memory).unwrap();

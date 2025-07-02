@@ -95,13 +95,6 @@ impl MmioTransport {
         self.device_status & (set | clr) == set
     }
 
-    fn are_queues_valid(&self) -> bool {
-        self.locked_device()
-            .queues()
-            .iter()
-            .all(|q| q.is_valid(&self.mem))
-    }
-
     fn with_queue<U, F>(&self, d: U, f: F) -> U
     where
         F: FnOnce(&Queue) -> U,
@@ -157,7 +150,7 @@ impl MmioTransport {
         //   eventfds, but nothing will happen other than supurious wakeups.
         // . Do not reset config_generation and keep it monotonically increasing
         for queue in self.locked_device().queues_mut() {
-            *queue = Queue::new(queue.get_max_size());
+            *queue = Queue::new(queue.max_size);
         }
     }
 
@@ -185,7 +178,7 @@ impl MmioTransport {
             DRIVER_OK if self.device_status == (ACKNOWLEDGE | DRIVER | FEATURES_OK) => {
                 self.device_status = status;
                 let device_activated = self.locked_device().is_activated();
-                if !device_activated && self.are_queues_valid() {
+                if !device_activated {
                     // temporary variable needed for borrow checker
                     let activate_result = self.locked_device().activate(self.mem.clone());
                     if let Err(err) = activate_result {
@@ -253,7 +246,7 @@ impl MmioTransport {
                         }
                         features
                     }
-                    0x34 => self.with_queue(0, |q| u32::from(q.get_max_size())),
+                    0x34 => self.with_queue(0, |q| u32::from(q.max_size)),
                     0x44 => self.with_queue(0, |q| u32::from(q.ready)),
                     0x60 => {
                         // For vhost-user backed devices we need some additional
@@ -486,23 +479,19 @@ pub(crate) mod tests {
 
         assert_eq!(d.locked_device().queue_events().len(), 2);
 
-        assert!(!d.are_queues_valid());
-
         d.queue_select = 0;
-        assert_eq!(d.with_queue(0, Queue::get_max_size), 16);
+        assert_eq!(d.with_queue(0, |q| q.max_size), 16);
         assert!(d.with_queue_mut(|q| q.size = 16));
         assert_eq!(d.locked_device().queues()[d.queue_select as usize].size, 16);
 
         d.queue_select = 1;
-        assert_eq!(d.with_queue(0, Queue::get_max_size), 32);
+        assert_eq!(d.with_queue(0, |q| q.max_size), 32);
         assert!(d.with_queue_mut(|q| q.size = 16));
         assert_eq!(d.locked_device().queues()[d.queue_select as usize].size, 16);
 
         d.queue_select = 2;
-        assert_eq!(d.with_queue(0, Queue::get_max_size), 0);
+        assert_eq!(d.with_queue(0, |q| q.max_size), 0);
         assert!(!d.with_queue_mut(|q| q.size = 16));
-
-        assert!(!d.are_queues_valid());
     }
 
     #[test]
@@ -761,7 +750,6 @@ pub(crate) mod tests {
         let m = single_region_mem(0x1000);
         let mut d = MmioTransport::new(m, Arc::new(Mutex::new(DummyDevice::new())), false);
 
-        assert!(!d.are_queues_valid());
         assert!(!d.locked_device().is_activated());
         assert_eq!(d.device_status, device_status::INIT);
 
@@ -800,7 +788,6 @@ pub(crate) mod tests {
             write_le_u32(&mut buf[..], 1);
             d.bus_write(0x44, &buf[..]);
         }
-        assert!(d.are_queues_valid());
         assert!(!d.locked_device().is_activated());
 
         // Device should be ready for activation now.
@@ -860,7 +847,6 @@ pub(crate) mod tests {
             write_le_u32(&mut buf[..], 1);
             d.bus_write(0x44, &buf[..]);
         }
-        assert!(d.are_queues_valid());
         assert_eq!(
             d.locked_device().interrupt_status().load(Ordering::SeqCst),
             0
@@ -910,7 +896,6 @@ pub(crate) mod tests {
             write_le_u32(&mut buf[..], 1);
             d.bus_write(0x44, &buf[..]);
         }
-        assert!(d.are_queues_valid());
         assert!(!d.locked_device().is_activated());
 
         // Device should be ready for activation now.
@@ -937,7 +922,6 @@ pub(crate) mod tests {
         let mut d = MmioTransport::new(m, Arc::new(Mutex::new(DummyDevice::new())), false);
         let mut buf = [0; 4];
 
-        assert!(!d.are_queues_valid());
         assert!(!d.locked_device().is_activated());
         assert_eq!(d.device_status, 0);
         activate_device(&mut d);
