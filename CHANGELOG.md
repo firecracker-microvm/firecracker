@@ -28,6 +28,9 @@ and this project adheres to
   Incremental snapshots remain in developer preview.
 - [#5282](https://github.com/firecracker-microvm/firecracker/pull/5282): Updated
   jailer to no longer require the executable file name to contain `firecracker`.
+- [#5290](https://github.com/firecracker-microvm/firecracker/pull/5290): Changed
+  MMDS to validate the value of "X-metadata-token-ttl-seconds" header only if it
+  is a PUT request to /latest/api/token, as in EC2 IMDS.
 
 ### Deprecated
 
