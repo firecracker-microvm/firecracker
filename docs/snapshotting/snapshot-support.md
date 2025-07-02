@@ -318,6 +318,9 @@ in the snapshot by instead considering all pages that were _accessed_ during the
 VM's lifetime. This potentially results in bigger memory files (although they
 are still sparse), but avoids the runtime overhead of dirty page logging.
 
+*Note*: Dirty page tracking negates most of the benefits of
+[huge pages](../hugepages.md#known-limitations).
+
 Without dirty page tracking enabled, Firecracker uses the
 [`mincore(2)`][man mincore] syscall to determine which pages to include in the
 snapshot. As such, this mode of snapshot taking will only work _if swap is
