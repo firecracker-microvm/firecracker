@@ -47,81 +47,82 @@ where
     const PROCESS_EVQ: u32 = 3;
     const PROCESS_NOTIFY_BACKEND: u32 = 4;
 
-    pub fn handle_rxq_event(&mut self, evset: EventSet) -> bool {
+    pub fn handle_rxq_event(&mut self, evset: EventSet) {
         if evset != EventSet::IN {
             warn!("vsock: rxq unexpected event {:?}", evset);
             METRICS.rx_queue_event_fails.inc();
-            return false;
+            return;
         }
 
-        let mut raise_irq = false;
         if let Err(err) = self.queue_events[RXQ_INDEX].read() {
             error!("Failed to get vsock rx queue event: {:?}", err);
             METRICS.rx_queue_event_fails.inc();
         } else if self.backend.has_pending_rx() {
-            // OK to unwrap: Only QueueError::InvalidAvailIdx is returned, and we explicitly
-            // want to panic on that one.
-            raise_irq |= self.process_rx().unwrap();
+            if self.process_rx().unwrap() {
+                self.signal_used_queue(RXQ_INDEX)
+                    .expect("vsock: Could not trigger device interrupt or RX queue");
+            }
             METRICS.rx_queue_event_count.inc();
         }
-        raise_irq
     }
 
-    pub fn handle_txq_event(&mut self, evset: EventSet) -> bool {
+    pub fn handle_txq_event(&mut self, evset: EventSet) {
         if evset != EventSet::IN {
             warn!("vsock: txq unexpected event {:?}", evset);
             METRICS.tx_queue_event_fails.inc();
-            return false;
+            return;
         }
 
-        let mut raise_irq = false;
         if let Err(err) = self.queue_events[TXQ_INDEX].read() {
             error!("Failed to get vsock tx queue event: {:?}", err);
             METRICS.tx_queue_event_fails.inc();
         } else {
-            // OK to unwrap: Only QueueError::InvalidAvailIdx is returned, and we explicitly
-            // want to panic on that one.
-            raise_irq |= self.process_tx().unwrap();
+            if self.process_tx().unwrap() {
+                self.signal_used_queue(TXQ_INDEX)
+                    .expect("vsock: Could not trigger device interrupt or TX queue");
+            }
             METRICS.tx_queue_event_count.inc();
             // The backend may have queued up responses to the packets we sent during
             // TX queue processing. If that happened, we need to fetch those responses
             // and place them into RX buffers.
-            if self.backend.has_pending_rx() {
-                raise_irq |= self.process_rx().unwrap();
+            if self.backend.has_pending_rx() && self.process_rx().unwrap() {
+                self.signal_used_queue(RXQ_INDEX)
+                    .expect("vsock: Could not trigger device interrupt or RX queue");
             }
         }
-        raise_irq
     }
 
-    pub fn handle_evq_event(&mut self, evset: EventSet) -> bool {
+    pub fn handle_evq_event(&mut self, evset: EventSet) {
         if evset != EventSet::IN {
             warn!("vsock: evq unexpected event {:?}", evset);
             METRICS.ev_queue_event_fails.inc();
-            return false;
+            return;
         }
 
         if let Err(err) = self.queue_events[EVQ_INDEX].read() {
             error!("Failed to consume vsock evq event: {:?}", err);
             METRICS.ev_queue_event_fails.inc();
         }
-        false
     }
 
     /// Notify backend of new events.
-    pub fn notify_backend(&mut self, evset: EventSet) -> Result<bool, InvalidAvailIdx> {
+    pub fn notify_backend(&mut self, evset: EventSet) -> Result<(), InvalidAvailIdx> {
         self.backend.notify(evset);
         // After the backend has been kicked, it might've freed up some resources, so we
         // can attempt to send it more data to process.
         // In particular, if `self.backend.send_pkt()` halted the TX queue processing (by
         // returning an error) at some point in the past, now is the time to try walking the
         // TX queue again.
-        // OK to unwrap: Only QueueError::InvalidAvailIdx is returned, and we explicitly
-        // want to panic on that one.
-        let mut raise_irq = self.process_tx()?;
-        if self.backend.has_pending_rx() {
-            raise_irq |= self.process_rx()?;
+        if self.process_tx()? {
+            self.signal_used_queue(TXQ_INDEX)
+                .expect("vsock: Could not trigger device interrupt or TX queue");
         }
-        Ok(raise_irq)
+        if self.backend.has_pending_rx() && self.process_rx()? {
+            self.signal_used_queue(RXQ_INDEX)
+                .expect("vsock: Could not trigger device interrupt or RX queue");
+        }
+
+        Ok(())
     }
 
     fn register_runtime_events(&self, ops: &mut EventOps) {
@@ -189,19 +190,14 @@ where
         let evset = event.event_set();
 
         if self.is_activated() {
-            let mut raise_irq = false;
             match source {
                 Self::PROCESS_ACTIVATE => self.handle_activate_event(ops),
-                Self::PROCESS_RXQ => raise_irq = self.handle_rxq_event(evset),
-                Self::PROCESS_TXQ => raise_irq = self.handle_txq_event(evset),
-                Self::PROCESS_EVQ => raise_irq = self.handle_evq_event(evset),
-                Self::PROCESS_NOTIFY_BACKEND => raise_irq = self.notify_backend(evset).unwrap(),
+                Self::PROCESS_RXQ => self.handle_rxq_event(evset),
+                Self::PROCESS_TXQ => self.handle_txq_event(evset),
+                Self::PROCESS_EVQ => self.handle_evq_event(evset),
+                Self::PROCESS_NOTIFY_BACKEND => self.notify_backend(evset).unwrap(),
                 _ => warn!("Unexpected vsock event received: {:?}", source),
             };
-            if raise_irq {
-                self.signal_used_queue(source as usize)
-                    .expect("vsock: Could not trigger device interrupt");
-            }
         } else {
             warn!(
                 "Vsock: The device is not yet activated. Spurious event received: {:?}",
@@ -309,7 +305,9 @@ mod tests {
             let mut ctx = test_ctx.create_event_handler_context();
             ctx.mock_activate(test_ctx.mem.clone(), test_ctx.interrupt.clone());
 
-            assert!(!ctx.device.handle_txq_event(EventSet::IN));
+            let metric_before = METRICS.tx_queue_event_fails.count();
+            ctx.device.handle_txq_event(EventSet::IN);
+            assert_eq!(metric_before + 1, METRICS.tx_queue_event_fails.count());
         }
     }
 
@@ -370,7 +368,9 @@ mod tests {
             let mut ctx = test_ctx.create_event_handler_context();
             ctx.mock_activate(test_ctx.mem.clone(), test_ctx.interrupt.clone());
             ctx.device.backend.set_pending_rx(false);
-            assert!(!ctx.device.handle_rxq_event(EventSet::IN));
+            let metric_before = METRICS.rx_queue_event_fails.count();
+            ctx.device.handle_rxq_event(EventSet::IN);
+            assert_eq!(metric_before + 1, METRICS.rx_queue_event_fails.count());
         }
     }
 
@@ -381,7 +381,9 @@ mod tests {
             let test_ctx = TestContext::new();
             let mut ctx = test_ctx.create_event_handler_context();
             ctx.device.backend.set_pending_rx(false);
-            assert!(!ctx.device.handle_evq_event(EventSet::IN));
+            let metric_before = METRICS.ev_queue_event_fails.count();
+            ctx.device.handle_evq_event(EventSet::IN);
+            assert_eq!(metric_before + 1, METRICS.ev_queue_event_fails.count());
         }
     }
 
