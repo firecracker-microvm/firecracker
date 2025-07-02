@@ -380,7 +380,7 @@ where
         // `TRANSPORT_RESET_EVENT` event we sent during snapshot creation.
         if self.is_activated() {
             info!("kick vsock {}.", self.id());
-            self.signal_used_queue(0).unwrap();
+            self.signal_used_queue(EVQ_INDEX).unwrap();
         }
     }
 }
