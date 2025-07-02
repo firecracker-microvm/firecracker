@@ -321,6 +321,9 @@ to swap to be "in core". This potentially results in bigger memory files
 (although they are still sparse), but avoids the runtime overhead of dirty page
 logging.
 
+*Note*: Dirty page tracking negates most of the benefits of
+[huge pages](../hugepages.md#known-limitations).
+
 **Effects**:
 
 - _on success_:
