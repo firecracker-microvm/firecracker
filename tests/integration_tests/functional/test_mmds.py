@@ -63,10 +63,7 @@ def _validate_mmds_snapshot(
     ssh_connection = basevm.ssh
     run_guest_cmd(ssh_connection, f"ip route add {ipv4_address} dev eth0", "")
 
-    # Generate token if needed.
-    token = None
-    if version == "V2":
-        token = generate_mmds_session_token(ssh_connection, ipv4_address, token_ttl=60)
+    token = generate_mmds_session_token(ssh_connection, ipv4_address, token_ttl=60)
 
     # Fetch metadata.
     cmd = generate_mmds_get_request(
@@ -103,15 +100,8 @@ def _validate_mmds_snapshot(
     response = microvm.api.vm_config.get()
     assert response.json()["mmds-config"] == expected_mmds_config
 
-    if version == "V1":
-        # Verify that V2 requests don't work
-        assert (
-            generate_mmds_session_token(ssh_connection, ipv4_address, token_ttl=60)
-            == "Not allowed HTTP method."
-        )
-
-        token = None
-    else:
+    # Since V1 should accept GET request even with invalid token, don't regenerate a token for V1.
+    if version == "V2":
         # Attempting to reuse the token across a restore must fail.
         cmd = generate_mmds_get_request(ipv4_address, token=token)
         run_guest_cmd(ssh_connection, cmd, "MMDS token not valid.")

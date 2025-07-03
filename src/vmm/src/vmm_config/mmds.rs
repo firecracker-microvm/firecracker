@@ -48,6 +48,6 @@ pub enum MmdsConfigError {
     InvalidIpv4Addr,
     /// The list of network interface IDs provided contains at least one ID that does not correspond to any existing network interface.
     InvalidNetworkInterfaceId,
-    /// The MMDS could not be configured to version {0}: {1}
-    MmdsVersion(MmdsVersion, data_store::MmdsDatastoreError),
+    /// Failed to initialize MMDS data store: {0}
+    InitMmdsDatastore(#[from] data_store::MmdsDatastoreError),
 }

@@ -177,7 +177,7 @@ impl VmResources {
 
         // Init the data store from file, if present.
         if let Some(data) = metadata_json {
-            resources.locked_mmds_or_default().put_data(
+            resources.locked_mmds_or_default()?.put_data(
                 serde_json::from_str(data).expect("MMDS error: metadata provided not valid json"),
             )?;
             info!("Successfully added metadata to mmds from file");
@@ -195,17 +195,16 @@ impl VmResources {
     }
 
     /// If not initialised, create the mmds data store with the default config.
-    pub fn mmds_or_default(&mut self) -> &Arc<Mutex<Mmds>> {
-        self.mmds
-            .get_or_insert(Arc::new(Mutex::new(Mmds::default_with_limit(
-                self.mmds_size_limit,
-            ))))
+    pub fn mmds_or_default(&mut self) -> Result<&Arc<Mutex<Mmds>>, MmdsConfigError> {
+        Ok(self
+            .mmds
+            .get_or_insert(Arc::new(Mutex::new(Mmds::try_new(self.mmds_size_limit)?))))
     }
 
     /// If not initialised, create the mmds data store with the default config.
-    pub fn locked_mmds_or_default(&mut self) -> MutexGuard<'_, Mmds> {
-        let mmds = self.mmds_or_default();
-        mmds.lock().expect("Poisoned lock")
+    pub fn locked_mmds_or_default(&mut self) -> Result<MutexGuard<'_, Mmds>, MmdsConfigError> {
+        let mmds = self.mmds_or_default()?;
+        Ok(mmds.lock().expect("Poisoned lock"))
     }
 
     /// Updates the resources from a restored device (used for configuring resources when
@@ -395,10 +394,8 @@ impl VmResources {
         version: MmdsVersion,
         instance_id: &str,
     ) -> Result<(), MmdsConfigError> {
-        let mut mmds_guard = self.locked_mmds_or_default();
-        mmds_guard
-            .set_version(version)
-            .map_err(|err| MmdsConfigError::MmdsVersion(version, err))?;
+        let mut mmds_guard = self.locked_mmds_or_default()?;
+        mmds_guard.set_version(version);
         mmds_guard.set_aad(instance_id);
 
         Ok(())
@@ -434,7 +431,7 @@ impl VmResources {
         }
 
         // Safe to unwrap because we've just made sure that it's initialised.
-        let mmds = self.mmds_or_default().clone();
+        let mmds = self.mmds_or_default()?.clone();
 
         // Create `MmdsNetworkStack` and configure the IPv4 address for
         // existing built network devices whose names are defined in the
