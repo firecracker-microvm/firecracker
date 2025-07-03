@@ -25,11 +25,11 @@ and this project adheres to
   "X-aws-ec2-metadata-token" and "X-aws-ec2-metadata-token-ttl-seconds")
   alongside the MMDS-specific ones.
 - [#5290](https://github.com/firecracker-microvm/firecracker/pull/5290): Added
-  `mmds.rx_invalid_token` metric to track the number of GET requests that were
-  rejected due to token validation failures in MMDS version 2. This metric also
-  counts requests that would be rejected in MMDS version 2 when MMDS version 1
-  is configured. This helps users assess readiness for migrating to MMDS version
-  2.
+  `mmds.rx_invalid_token` and `mmds.rx_no_token` metrics to track the number of
+  GET requests that were rejected due to token validation failures in MMDS
+  version 2. These metrics also count requests that would be rejected in MMDS
+  version 2 when MMDS version 1 is configured. They helps users assess readiness
+  for migrating to MMDS version 2.
 
 ### Changed
 
