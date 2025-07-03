@@ -69,7 +69,7 @@ def test_empty_jailer_id(uvm_plain):
     # we can set an empty ID.
     with pytest.raises(
         ChildProcessError,
-        match=r"Jailer error: Invalid instance ID: Invalid len \(0\);  the length must be between 1 and 64",
+        match=r"Invalid instance ID: Invalid len \(0\);  the length must be between 1 and 64",
     ):
         test_microvm.spawn()
 
@@ -88,7 +88,7 @@ def test_exec_file_not_exist(uvm_plain, tmp_path):
 
     with pytest.raises(
         Exception,
-        match=rf"Jailer error: Failed to canonicalize path {pseudo_exec_file_path}:"
+        match=rf"Failed to canonicalize path {pseudo_exec_file_path}:"
         rf" No such file or directory \(os error 2\)",
     ):
         test_microvm.spawn()
@@ -102,21 +102,7 @@ def test_exec_file_not_exist(uvm_plain, tmp_path):
 
     with pytest.raises(
         Exception,
-        match=rf"Jailer error: {pseudo_exec_dir_path} is not a file",
-    ):
-        test_microvm.spawn()
-
-    # Error case 3: Filename without "firecracker"
-    pseudo_exec_file_path = tmp_path / "foobarbaz"
-    pseudo_exec_file_path.touch()
-    fc_dir = Path("/srv/jailer") / pseudo_exec_file_path.name / test_microvm.id
-    fc_dir.mkdir(parents=True, exist_ok=True)
-    test_microvm.jailer.exec_file = pseudo_exec_file_path
-
-    with pytest.raises(
-        Exception,
-        match=r"Jailer error: Invalid filename. The filename of `--exec-file` option"
-        r' must contain "firecracker": foobarbaz',
+        match=rf"{pseudo_exec_dir_path} is not a file",
     ):
         test_microvm.spawn()
 

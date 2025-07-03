@@ -274,6 +274,17 @@ def msr_reader_bin(test_fc_session_root_path):
     yield msr_reader_bin_path
 
 
+@pytest.fixture(scope="session")
+def jailer_time_bin(test_fc_session_root_path):
+    """Build a binary that fakes fc"""
+    jailer_time_bin_path = os.path.join(test_fc_session_root_path, "jailer_time")
+    build_tools.gcc_compile(
+        "host_tools/jailer_time.c",
+        jailer_time_bin_path,
+    )
+    yield jailer_time_bin_path
+
+
 @pytest.fixture
 def bin_seccomp_paths():
     """Build jailers and jailed binaries to test seccomp.
