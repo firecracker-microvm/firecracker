@@ -100,7 +100,7 @@ impl Mmds {
             }
             MmdsVersion::V2 => {
                 if self.token_authority.is_none() {
-                    self.token_authority = Some(TokenAuthority::new()?);
+                    self.token_authority = Some(TokenAuthority::try_new()?);
                 }
                 Ok(())
             }

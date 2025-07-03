@@ -92,7 +92,7 @@ impl fmt::Debug for TokenAuthority {
 
 impl TokenAuthority {
     /// Create a new token authority entity.
-    pub fn new() -> Result<TokenAuthority, MmdsTokenError> {
+    pub fn try_new() -> Result<TokenAuthority, MmdsTokenError> {
         let mut file = File::open(Path::new(RANDOMNESS_POOL))?;
 
         Ok(TokenAuthority {
@@ -334,7 +334,7 @@ mod tests {
 
     #[test]
     fn test_set_aad() {
-        let mut token_authority = TokenAuthority::new().unwrap();
+        let mut token_authority = TokenAuthority::try_new().unwrap();
         assert_eq!(token_authority.aad, "".to_string());
 
         token_authority.set_aad("foo");
@@ -343,7 +343,7 @@ mod tests {
 
     #[test]
     fn test_create_token() {
-        let mut token_authority = TokenAuthority::new().unwrap();
+        let mut token_authority = TokenAuthority::try_new().unwrap();
 
         // Test invalid time to live value.
         assert_eq!(
@@ -384,7 +384,7 @@ mod tests {
 
     #[test]
     fn test_encrypt_decrypt() {
-        let mut token_authority = TokenAuthority::new().unwrap();
+        let mut token_authority = TokenAuthority::try_new().unwrap();
         let mut file = File::open(Path::new(RANDOMNESS_POOL)).unwrap();
         let mut iv = [0u8; IV_LEN];
         file.read_exact(&mut iv).unwrap();
@@ -445,7 +445,7 @@ mod tests {
 
     #[test]
     fn test_generate_token_secret() {
-        let mut token_authority = TokenAuthority::new().unwrap();
+        let mut token_authority = TokenAuthority::try_new().unwrap();
 
         // Test time to live value too small.
         assert_eq!(
@@ -484,7 +484,7 @@ mod tests {
 
     #[test]
     fn test_is_valid() {
-        let mut token_authority = TokenAuthority::new().unwrap();
+        let mut token_authority = TokenAuthority::try_new().unwrap();
 
         // Test token with size bigger than expected.
         assert!(!token_authority.is_valid(str::repeat("a", TOKEN_LENGTH_LIMIT + 1).as_str()));
@@ -496,7 +496,7 @@ mod tests {
 
     #[test]
     fn test_token_authority() {
-        let mut token_authority = TokenAuthority::new().unwrap();
+        let mut token_authority = TokenAuthority::try_new().unwrap();
 
         // Generate token with lifespan of 60 seconds.
         let token0 = token_authority.generate_token_secret(60).unwrap();
