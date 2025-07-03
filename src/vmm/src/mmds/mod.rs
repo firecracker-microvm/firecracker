@@ -18,6 +18,7 @@ use micro_http::{
 };
 use serde_json::{Map, Value};
 
+use crate::logger::{IncMetric, METRICS};
 use crate::mmds::data_store::{Mmds, MmdsDatastoreError as MmdsError, MmdsVersion, OutputFormat};
 use crate::mmds::token::PATH_TO_TOKEN;
 use crate::mmds::token_headers::{
@@ -143,7 +144,20 @@ pub fn convert_to_response(mmds: Arc<Mutex<Mmds>>, request: Request) -> Response
 }
 
 fn respond_to_get_request_v1(mmds: &Mmds, request: Request) -> Response {
-    // TODO: Increments metrics that will be added in an upcoming commit.
+    match get_header_value_pair(
+        request.headers.custom_entries(),
+        &[X_METADATA_TOKEN_HEADER, X_AWS_EC2_METADATA_TOKEN_HEADER],
+    ) {
+        Some((_, token)) => {
+            if !mmds.is_valid_token(token) {
+                METRICS.mmds.rx_invalid_token.inc();
+            }
+        }
+        None => {
+            // TODO: Increment a metric that will be added in an upcoming commit.
+        }
+    }
+
     respond_to_get_request(mmds, request)
 }
 
@@ -168,12 +182,15 @@ fn respond_to_get_request_v2(mmds: &Mmds, request: Request) -> Response {
     // Validate the token.
     match mmds.is_valid_token(token) {
         true => respond_to_get_request(mmds, request),
-        false => build_response(
-            request.http_version(),
-            StatusCode::Unauthorized,
-            MediaType::PlainText,
-            Body::new(VmmMmdsError::InvalidToken.to_string()),
-        ),
+        false => {
+            METRICS.mmds.rx_invalid_token.inc();
+            build_response(
+                request.http_version(),
+                StatusCode::Unauthorized,
+                MediaType::PlainText,
+                Body::new(VmmMmdsError::InvalidToken.to_string()),
+            )
+        }
     }
 }
 
@@ -536,8 +553,10 @@ mod tests {
               Accept: application/json\r\n\r\n",
             MediaType::ApplicationJson,
         );
+        let prev_rx_invalid_token = METRICS.mmds.rx_invalid_token.count();
         let actual_response = convert_to_response(mmds.clone(), request);
         assert_eq!(actual_response, expected_response);
+        assert_eq!(prev_rx_invalid_token, METRICS.mmds.rx_invalid_token.count());
 
         // Test valid v2 request.
         let request = Request::try_from(
@@ -561,8 +580,10 @@ mod tests {
             .as_bytes(),
             MediaType::ApplicationJson,
         );
+        let prev_rx_invalid_token = METRICS.mmds.rx_invalid_token.count();
         let actual_response = convert_to_response(mmds.clone(), request);
         assert_eq!(actual_response, expected_response);
+        assert_eq!(prev_rx_invalid_token, METRICS.mmds.rx_invalid_token.count());
 
         // Test GET request with invalid token is accepted when v1 is configured.
         let (request, expected_response) = generate_request_and_expected_response(
@@ -571,8 +592,13 @@ mod tests {
               X-metadata-token: INVALID_TOKEN\r\n\r\n",
             MediaType::ApplicationJson,
         );
+        let prev_rx_invalid_token = METRICS.mmds.rx_invalid_token.count();
         let actual_response = convert_to_response(mmds, request);
         assert_eq!(actual_response, expected_response);
+        assert_eq!(
+            prev_rx_invalid_token + 1,
+            METRICS.mmds.rx_invalid_token.count()
+        );
     }
 
     #[test]
@@ -707,8 +733,10 @@ mod tests {
             .as_bytes(),
             MediaType::ApplicationJson,
         );
+        let prev_rx_invalid_token = METRICS.mmds.rx_invalid_token.count();
         let actual_response = convert_to_response(mmds.clone(), request);
         assert_eq!(actual_response, expected_response);
+        assert_eq!(prev_rx_invalid_token, METRICS.mmds.rx_invalid_token.count());
 
         // Test invalid customer header value is ignored if not PUT request to /latest/api/token.
         #[rustfmt::skip]
@@ -801,8 +829,13 @@ mod tests {
             let mut expected_response = Response::new(Version::Http10, StatusCode::Unauthorized);
             expected_response.set_content_type(MediaType::PlainText);
             expected_response.set_body(Body::new(VmmMmdsError::InvalidToken.to_string()));
+            let prev_rx_invalid_token = METRICS.mmds.rx_invalid_token.count();
             let actual_response = convert_to_response(mmds.clone(), request);
             assert_eq!(actual_response, expected_response);
+            assert_eq!(
+                prev_rx_invalid_token + 1,
+                METRICS.mmds.rx_invalid_token.count()
+            );
 
             // Wait for the second token to expire.
             std::thread::sleep(Duration::from_secs(1));

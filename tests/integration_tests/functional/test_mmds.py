@@ -156,6 +156,8 @@ def test_mmds_token(uvm_plain, version, imds_compat):
                 " header to specify the session token."
             ),
         )
+    metrics = test_microvm.flush_metrics()
+    assert metrics["mmds"]["rx_invalid_token"] == 0
 
     # GET request with invalid token
     cmd = (
@@ -168,11 +170,15 @@ def test_mmds_token(uvm_plain, version, imds_compat):
     elif version == "V2":
         # V2 denies invalid token
         run_guest_cmd(ssh_connection, cmd, "MMDS token not valid.")
+    metrics = test_microvm.flush_metrics()
+    assert metrics["mmds"]["rx_invalid_token"] == 1
 
     # Get request with valid token
     token = generate_mmds_session_token(ssh_connection, DEFAULT_IPV4, 60, imds_compat)
     cmd = generate_mmds_get_request(DEFAULT_IPV4, token, False, imds_compat) + "foo"
     run_guest_cmd(ssh_connection, cmd, "bar")
+    metrics = test_microvm.flush_metrics()
+    assert metrics["mmds"]["rx_invalid_token"] == 0
 
 
 @pytest.mark.parametrize("version", MMDS_VERSIONS)
