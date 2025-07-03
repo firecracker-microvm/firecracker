@@ -5,7 +5,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the THIRD-PARTY file.
 
-use std::cell::Cell;
+use std::cell::RefCell;
 #[cfg(feature = "gdb")]
 use std::os::fd::AsRawFd;
 use std::sync::atomic::{Ordering, fence};
@@ -14,9 +14,9 @@ use std::sync::{Arc, Barrier};
 use std::{fmt, io, thread};
 
 use kvm_bindings::{KVM_SYSTEM_EVENT_RESET, KVM_SYSTEM_EVENT_SHUTDOWN};
-use kvm_ioctls::VcpuExit;
 #[cfg(feature = "gdb")]
 use kvm_ioctls::VcpuFd;
+use kvm_ioctls::{KvmRunWrapper, VcpuExit};
 use libc::{c_int, c_void, siginfo_t};
 use log::{error, info, warn};
 use vmm_sys_util::errno;
@@ -69,9 +69,6 @@ pub struct VcpuConfig {
     pub cpu_config: CpuConfiguration,
 }
 
-// Using this for easier explicit type-casting to help IDEs interpret the code.
-type VcpuCell = Cell<Option<*mut Vcpu>>;
-
 /// Error type for [`Vcpu::start_threaded`].
 #[derive(Debug, derive_more::From, thiserror::Error)]
 #[error("Failed to spawn vCPU thread: {0}")]
@@ -88,7 +85,10 @@ pub enum CopyKvmFdError {
     CreateVcpuError(#[from] kvm_ioctls::Error),
 }
 
-thread_local!(static TLS_VCPU_PTR: VcpuCell = const { Cell::new(None) });
+// Stores the mmap region of `kvm_run` struct for the current Vcpu. This allows for the
+// signal handler to safely access the `kvm_run` even when Vcpu is dropped and vcpu fd
+// is closed.
+thread_local!(static TLS_VCPU_PTR: RefCell<Option<KvmRunWrapper>> = const { RefCell::new(None) });
 
 /// A wrapper around creating and using a vcpu.
 #[derive(Debug)]
@@ -118,9 +118,16 @@ impl Vcpu {
     /// `run_on_thread_local()` on the current thread.
     /// This function will panic if there already is a `Vcpu` present in the TLS.
     fn init_thread_local_data(&mut self) {
-        TLS_VCPU_PTR.with(|cell: &VcpuCell| {
-            assert!(cell.get().is_none());
-            cell.set(Some(self as *mut Vcpu));
+        // Use of `kvm_run` size here is safe because we only
+        // care about `immediate_exit` field which is at byte offset of 2.
+        let kvm_run_ptr = KvmRunWrapper::mmap_from_fd(
+            &self.kvm_vcpu.fd,
+            std::mem::size_of::<kvm_bindings::kvm_run>(),
+        )
+        .unwrap();
+        TLS_VCPU_PTR.with(|cell| {
+            assert!(cell.borrow().is_none());
+            *cell.borrow_mut() = Some(kvm_run_ptr);
         })
     }
 
@@ -130,14 +137,9 @@ impl Vcpu {
         self.init_thread_local_data();
 
         extern "C" fn handle_signal(_: c_int, _: *mut siginfo_t, _: *mut c_void) {
-            TLS_VCPU_PTR.with(|cell: &VcpuCell| {
-                if let Some(vcpu_ptr) = cell.get() {
-                    // SAFETY: Dereferencing here is safe since `TLS_VCPU_PTR` is
-                    // populated/non-empty, and it is being cleared on
-                    // `Vcpu::drop` so there is no dangling pointer.
-                    let vcpu = unsafe { &mut *vcpu_ptr };
-
-                    vcpu.kvm_vcpu.fd.set_kvm_immediate_exit(1);
+            TLS_VCPU_PTR.with(|cell| {
+                if let Some(kvm_run_ptr) = &mut *cell.borrow_mut() {
+                    kvm_run_ptr.as_mut_ref().immediate_exit = 1;
                     fence(Ordering::Release);
                 }
             })
@@ -566,28 +568,6 @@ fn handle_kvm_exit(
                 Err(VcpuError::FaultyKvmExit(format!("{}", err)))
             }
         },
-    }
-}
-
-impl Drop for Vcpu {
-    fn drop(&mut self) {
-        TLS_VCPU_PTR.with(|cell| {
-            // The reason for not asserting TLS being set here is that
-            // it can happen that Vcpu::Drop is called on vcpus which never were
-            // put on their threads. This can happen if some error occurs during Vmm
-            // setup before `start_threaded` call.
-            if let Some(_vcpu_ptr) = cell.get() {
-                // During normal runtime there is a strong assumption that vcpus will be
-                // put on their own threads, thus TLS will be initialized with the
-                // correct pointer.
-                // In test we do not put vcpus on separate threads, so TLS will have a value
-                // of the last created vcpu.
-                #[cfg(not(test))]
-                assert!(std::ptr::eq(_vcpu_ptr, self));
-
-                TLS_VCPU_PTR.take();
-            }
-        })
     }
 }
 
