@@ -569,7 +569,7 @@ impl<'a> Persist<'a> for MMIODeviceManager {
             // If there's at least one network device having an mmds_ns, it means
             // that we are restoring from a version that did not persist the `MmdsVersionState`.
             // Init with the default.
-            constructor_args.vm_resources.mmds_or_default();
+            constructor_args.vm_resources.mmds_or_default()?;
         }
 
         for net_state in &state.net_devices {

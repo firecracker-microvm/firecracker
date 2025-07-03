@@ -59,8 +59,6 @@ pub enum MmdsTokenError {
     EntropyPool(#[from] io::Error),
     /// Failed to extract expiry value from token.
     ExpiryExtraction,
-    /// Invalid token authority state.
-    InvalidState,
     /// Invalid time to live value provided for token: {0}. Please provide a value between {MIN_TOKEN_TTL_SECONDS:} and {MAX_TOKEN_TTL_SECONDS:}.
     InvalidTtlValue(u32),
     /// Bincode serialization failed: {0}.
