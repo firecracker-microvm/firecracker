@@ -108,6 +108,7 @@ fn sanitize_uri(mut uri: String) -> String {
 
 /// Build a response for `request` and return response based on MMDS version
 pub fn convert_to_response(mmds: Arc<Mutex<Mmds>>, request: Request) -> Response {
+    // Check URI is not empty
     let uri = request.uri().get_abs_path();
     if uri.is_empty() {
         return build_response(
@@ -120,34 +121,13 @@ pub fn convert_to_response(mmds: Arc<Mutex<Mmds>>, request: Request) -> Response
 
     let mut mmds_guard = mmds.lock().expect("Poisoned lock");
 
-    match mmds_guard.version() {
-        MmdsVersion::V1 => respond_to_request_mmdsv1(&mmds_guard, request),
-        MmdsVersion::V2 => respond_to_request_mmdsv2(&mut mmds_guard, request),
-    }
-}
-
-fn respond_to_request_mmdsv1(mmds: &Mmds, request: Request) -> Response {
-    // Allow only GET requests.
+    // Allow only GET and PUT requests
     match request.method() {
-        Method::Get => respond_to_get_request_unchecked(mmds, request),
-        _ => {
-            let mut response = build_response(
-                request.http_version(),
-                StatusCode::MethodNotAllowed,
-                MediaType::PlainText,
-                Body::new(VmmMmdsError::MethodNotAllowed.to_string()),
-            );
-            response.allow_method(Method::Get);
-            response
-        }
-    }
-}
-
-fn respond_to_request_mmdsv2(mmds: &mut Mmds, request: Request) -> Response {
-    // Allow only GET and PUT requests.
-    match request.method() {
-        Method::Get => respond_to_get_request_checked(mmds, request),
-        Method::Put => respond_to_put_request(mmds, request),
+        Method::Get => match mmds_guard.version() {
+            MmdsVersion::V1 => respond_to_get_request_v1(&mmds_guard, request),
+            MmdsVersion::V2 => respond_to_get_request_v2(&mmds_guard, request),
+        },
+        Method::Put => respond_to_put_request(&mut mmds_guard, request),
         _ => {
             let mut response = build_response(
                 request.http_version(),
@@ -162,7 +142,12 @@ fn respond_to_request_mmdsv2(mmds: &mut Mmds, request: Request) -> Response {
     }
 }
 
-fn respond_to_get_request_checked(mmds: &Mmds, request: Request) -> Response {
+fn respond_to_get_request_v1(mmds: &Mmds, request: Request) -> Response {
+    // TODO: Increments metrics that will be added in an upcoming commit.
+    respond_to_get_request(mmds, request)
+}
+
+fn respond_to_get_request_v2(mmds: &Mmds, request: Request) -> Response {
     // Check whether a token exists.
     let token = match get_header_value_pair(
         request.headers.custom_entries(),
@@ -182,18 +167,17 @@ fn respond_to_get_request_checked(mmds: &Mmds, request: Request) -> Response {
 
     // Validate the token.
     match mmds.is_valid_token(token) {
-        Ok(true) => respond_to_get_request_unchecked(mmds, request),
-        Ok(false) => build_response(
+        true => respond_to_get_request(mmds, request),
+        false => build_response(
             request.http_version(),
             StatusCode::Unauthorized,
             MediaType::PlainText,
             Body::new(VmmMmdsError::InvalidToken.to_string()),
         ),
-        Err(_) => unreachable!(),
     }
 }
 
-fn respond_to_get_request_unchecked(mmds: &Mmds, request: Request) -> Response {
+fn respond_to_get_request(mmds: &Mmds, request: Request) -> Response {
     let uri = request.uri().get_abs_path();
 
     // The data store expects a strict json path, so we need to
@@ -483,8 +467,7 @@ mod tests {
         // Set version to V1.
         mmds.lock()
             .expect("Poisoned lock")
-            .set_version(MmdsVersion::V1)
-            .unwrap();
+            .set_version(MmdsVersion::V1);
         assert_eq!(
             mmds.lock().expect("Poisoned lock").version(),
             MmdsVersion::V1
@@ -512,7 +495,7 @@ mod tests {
         assert_eq!(actual_response, expected_response);
 
         // Test not allowed HTTP Method.
-        let not_allowed_methods = ["PUT", "PATCH"];
+        let not_allowed_methods = ["PATCH"];
         for method in not_allowed_methods.iter() {
             let request = Request::try_from(
                 format!("{method} http://169.254.169.255/ HTTP/1.0\r\n\r\n").as_bytes(),
@@ -524,6 +507,7 @@ mod tests {
             expected_response.set_content_type(MediaType::PlainText);
             expected_response.set_body(Body::new(VmmMmdsError::MethodNotAllowed.to_string()));
             expected_response.allow_method(Method::Get);
+            expected_response.allow_method(Method::Put);
             let actual_response = convert_to_response(mmds.clone(), request);
             assert_eq!(actual_response, expected_response);
         }
@@ -546,10 +530,45 @@ mod tests {
         let actual_response = convert_to_response(mmds.clone(), request);
         assert_eq!(actual_response, expected_response);
 
-        // Test Ok path.
+        // Test valid v1 request.
         let (request, expected_response) = generate_request_and_expected_response(
             b"GET http://169.254.169.254/ HTTP/1.0\r\n\
               Accept: application/json\r\n\r\n",
+            MediaType::ApplicationJson,
+        );
+        let actual_response = convert_to_response(mmds.clone(), request);
+        assert_eq!(actual_response, expected_response);
+
+        // Test valid v2 request.
+        let request = Request::try_from(
+            b"PUT http://169.254.169.254/latest/api/token HTTP/1.0\r\n\
+              X-metadata-token-ttl-seconds: 60\r\n\r\n",
+            None,
+        )
+        .unwrap();
+        let actual_response = convert_to_response(mmds.clone(), request);
+        assert_eq!(actual_response.status(), StatusCode::OK);
+        assert_eq!(actual_response.content_type(), MediaType::PlainText);
+
+        let valid_token = String::from_utf8(actual_response.body().unwrap().body).unwrap();
+        #[rustfmt::skip]
+        let (request, expected_response) = generate_request_and_expected_response(
+            format!(
+                "GET http://169.254.169.254/ HTTP/1.0\r\n\
+                 Accept: application/json\r\n\
+                 X-metadata-token: {valid_token}\r\n\r\n",
+            )
+            .as_bytes(),
+            MediaType::ApplicationJson,
+        );
+        let actual_response = convert_to_response(mmds.clone(), request);
+        assert_eq!(actual_response, expected_response);
+
+        // Test GET request with invalid token is accepted when v1 is configured.
+        let (request, expected_response) = generate_request_and_expected_response(
+            b"GET http://169.254.169.254/ HTTP/1.0\r\n\
+              Accept: application/json\r\n\
+              X-metadata-token: INVALID_TOKEN\r\n\r\n",
             MediaType::ApplicationJson,
         );
         let actual_response = convert_to_response(mmds, request);
@@ -564,8 +583,7 @@ mod tests {
         // Set version to V2.
         mmds.lock()
             .expect("Poisoned lock")
-            .set_version(MmdsVersion::V2)
-            .unwrap();
+            .set_version(MmdsVersion::V2);
         assert_eq!(
             mmds.lock().expect("Poisoned lock").version(),
             MmdsVersion::V2

@@ -35,6 +35,11 @@ and this project adheres to
 - [#5290](https://github.com/firecracker-microvm/firecracker/pull/5290): Changed
   MMDS to validate the value of "X-metadata-token-ttl-seconds" header only if it
   is a PUT request to /latest/api/token, as in EC2 IMDS.
+- [#5290](https://github.com/firecracker-microvm/firecracker/pull/5290): Changed
+  MMDS version 1 to support the session oriented method as in version 2,
+  allowing easier migration to version 2. Note that MMDS version 1 accepts a GET
+  request even with no token or an invalid token so that existing workloads
+  continue to work.
 
 ### Deprecated
 
