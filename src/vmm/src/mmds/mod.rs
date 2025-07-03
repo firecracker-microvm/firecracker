@@ -154,7 +154,7 @@ fn respond_to_get_request_v1(mmds: &Mmds, request: Request) -> Response {
             }
         }
         None => {
-            // TODO: Increment a metric that will be added in an upcoming commit.
+            METRICS.mmds.rx_no_token.inc();
         }
     }
 
@@ -169,6 +169,7 @@ fn respond_to_get_request_v2(mmds: &Mmds, request: Request) -> Response {
     ) {
         Some((_, token)) => token,
         None => {
+            METRICS.mmds.rx_no_token.inc();
             let error_msg = VmmMmdsError::NoTokenProvided.to_string();
             return build_response(
                 request.http_version(),
@@ -554,9 +555,11 @@ mod tests {
             MediaType::ApplicationJson,
         );
         let prev_rx_invalid_token = METRICS.mmds.rx_invalid_token.count();
+        let prev_rx_no_token = METRICS.mmds.rx_no_token.count();
         let actual_response = convert_to_response(mmds.clone(), request);
         assert_eq!(actual_response, expected_response);
         assert_eq!(prev_rx_invalid_token, METRICS.mmds.rx_invalid_token.count());
+        assert_eq!(prev_rx_no_token + 1, METRICS.mmds.rx_no_token.count());
 
         // Test valid v2 request.
         let request = Request::try_from(
@@ -581,9 +584,11 @@ mod tests {
             MediaType::ApplicationJson,
         );
         let prev_rx_invalid_token = METRICS.mmds.rx_invalid_token.count();
+        let prev_rx_no_token = METRICS.mmds.rx_no_token.count();
         let actual_response = convert_to_response(mmds.clone(), request);
         assert_eq!(actual_response, expected_response);
         assert_eq!(prev_rx_invalid_token, METRICS.mmds.rx_invalid_token.count());
+        assert_eq!(prev_rx_no_token, METRICS.mmds.rx_no_token.count());
 
         // Test GET request with invalid token is accepted when v1 is configured.
         let (request, expected_response) = generate_request_and_expected_response(
@@ -593,12 +598,14 @@ mod tests {
             MediaType::ApplicationJson,
         );
         let prev_rx_invalid_token = METRICS.mmds.rx_invalid_token.count();
+        let prev_rx_no_token = METRICS.mmds.rx_no_token.count();
         let actual_response = convert_to_response(mmds, request);
         assert_eq!(actual_response, expected_response);
         assert_eq!(
             prev_rx_invalid_token + 1,
             METRICS.mmds.rx_invalid_token.count()
         );
+        assert_eq!(prev_rx_no_token, METRICS.mmds.rx_no_token.count());
     }
 
     #[test]
@@ -734,9 +741,11 @@ mod tests {
             MediaType::ApplicationJson,
         );
         let prev_rx_invalid_token = METRICS.mmds.rx_invalid_token.count();
+        let prev_rx_no_token = METRICS.mmds.rx_no_token.count();
         let actual_response = convert_to_response(mmds.clone(), request);
         assert_eq!(actual_response, expected_response);
         assert_eq!(prev_rx_invalid_token, METRICS.mmds.rx_invalid_token.count());
+        assert_eq!(prev_rx_no_token, METRICS.mmds.rx_no_token.count());
 
         // Test invalid customer header value is ignored if not PUT request to /latest/api/token.
         #[rustfmt::skip]
@@ -796,8 +805,10 @@ mod tests {
         let mut expected_response = Response::new(Version::Http10, StatusCode::Unauthorized);
         expected_response.set_content_type(MediaType::PlainText);
         expected_response.set_body(Body::new(VmmMmdsError::NoTokenProvided.to_string()));
+        let prev_rx_no_token = METRICS.mmds.rx_no_token.count();
         let actual_response = convert_to_response(mmds.clone(), request);
         assert_eq!(actual_response, expected_response);
+        assert_eq!(prev_rx_no_token + 1, METRICS.mmds.rx_no_token.count());
 
         // Create a new MMDS token that expires in one second.
         let request = Request::try_from(
@@ -830,12 +841,14 @@ mod tests {
             expected_response.set_content_type(MediaType::PlainText);
             expected_response.set_body(Body::new(VmmMmdsError::InvalidToken.to_string()));
             let prev_rx_invalid_token = METRICS.mmds.rx_invalid_token.count();
+            let prev_rx_no_token = METRICS.mmds.rx_no_token.count();
             let actual_response = convert_to_response(mmds.clone(), request);
             assert_eq!(actual_response, expected_response);
             assert_eq!(
                 prev_rx_invalid_token + 1,
                 METRICS.mmds.rx_invalid_token.count()
             );
+            assert_eq!(prev_rx_no_token, METRICS.mmds.rx_no_token.count());
 
             // Wait for the second token to expire.
             std::thread::sleep(Duration::from_secs(1));
