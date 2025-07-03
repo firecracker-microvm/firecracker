@@ -63,10 +63,8 @@ def _validate_mmds_snapshot(
     ssh_connection = basevm.ssh
     run_guest_cmd(ssh_connection, f"ip route add {ipv4_address} dev eth0", "")
 
-    # Generate token if needed.
-    token = None
-    if version == "V2":
-        token = generate_mmds_session_token(ssh_connection, ipv4_address, token_ttl=60)
+    # Both V1 and V2 support token generation.
+    token = generate_mmds_session_token(ssh_connection, ipv4_address, token_ttl=60)
 
     # Fetch metadata.
     cmd = generate_mmds_get_request(
@@ -103,21 +101,14 @@ def _validate_mmds_snapshot(
     response = microvm.api.vm_config.get()
     assert response.json()["mmds-config"] == expected_mmds_config
 
-    if version == "V1":
-        # Verify that V2 requests don't work
-        assert (
-            generate_mmds_session_token(ssh_connection, ipv4_address, token_ttl=60)
-            == "Not allowed HTTP method."
-        )
-
-        token = None
-    else:
-        # Attempting to reuse the token across a restore must fail.
+    # Since V1 should accept GET request even with invalid token, don't regenerate a token for V1.
+    if version == "V2":
+        # Attempting to reuse the token across a restore must fail in V2.
         cmd = generate_mmds_get_request(ipv4_address, token=token)
         run_guest_cmd(ssh_connection, cmd, "MMDS token not valid.")
 
-        # Generate token.
-        token = generate_mmds_session_token(ssh_connection, ipv4_address, token_ttl=60)
+    # Re-generate token.
+    token = generate_mmds_session_token(ssh_connection, ipv4_address, token_ttl=60)
 
     # Data store is empty after a restore.
     cmd = generate_mmds_get_request(ipv4_address, token=token)
@@ -132,9 +123,9 @@ def _validate_mmds_snapshot(
 
 @pytest.mark.parametrize("version", MMDS_VERSIONS)
 @pytest.mark.parametrize("imds_compat", [True, False])
-def test_token_generation(uvm_plain, version, imds_compat):
+def test_mmds_token(uvm_plain, version, imds_compat):
     """
-    Test MMDS token generation.
+    Test MMDS with no token / invalid token / valid token.
     """
     test_microvm = uvm_plain
     test_microvm.spawn()
@@ -150,11 +141,36 @@ def test_token_generation(uvm_plain, version, imds_compat):
     cmd = "ip route add {} dev eth0".format(DEFAULT_IPV4)
     run_guest_cmd(ssh_connection, cmd, "")
 
-    token = generate_mmds_session_token(ssh_connection, DEFAULT_IPV4, 60, imds_compat)
+    # GET request with no token
+    cmd = generate_mmds_get_request(DEFAULT_IPV4, None, False, imds_compat) + "foo"
     if version == "V1":
-        assert token == "Not allowed HTTP method."
-        # V1 accepts GET request even with an invalid token. So keep going.
+        # V1 accepts no token
+        run_guest_cmd(ssh_connection, cmd, "bar")
+    elif version == "V2":
+        # V2 denies no token
+        run_guest_cmd(
+            ssh_connection,
+            cmd,
+            (
+                "No MMDS token provided. Use `X-metadata-token` or `X-aws-ec2-metadata-token`"
+                " header to specify the session token."
+            ),
+        )
 
+    # GET request with invalid token
+    cmd = (
+        generate_mmds_get_request(DEFAULT_IPV4, "INVALID_TOKEN", False, imds_compat)
+        + "foo"
+    )
+    if version == "V1":
+        # V1 accepts invalid token
+        run_guest_cmd(ssh_connection, cmd, "bar")
+    elif version == "V2":
+        # V2 denies invalid token
+        run_guest_cmd(ssh_connection, cmd, "MMDS token not valid.")
+
+    # Get request with valid token
+    token = generate_mmds_session_token(ssh_connection, DEFAULT_IPV4, 60, imds_compat)
     cmd = generate_mmds_get_request(DEFAULT_IPV4, token, False, imds_compat) + "foo"
     run_guest_cmd(ssh_connection, cmd, "bar")
 

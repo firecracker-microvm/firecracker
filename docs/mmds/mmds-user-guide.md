@@ -231,8 +231,13 @@ must be issued. The requested resource can be referenced by its corresponding
 the MMDS request. The HTTP response content will contain the referenced metadata
 resource.
 
-The only HTTP method supported by MMDS version 1 is `GET`. Requests containing
-any other HTTP method will receive **405 Method Not Allowed** error.
+As in version 2, version 1 also supports a session oriented method in order to
+make the migration easier. See [the next section](#version-2) for the session
+oriented method. Note that version 1 returns a successful response to a `GET`
+request even with an invalid token or no token not to break existing workloads.
+
+Requests containing any other HTTP methods than `GET` and `PUT` will receive
+**405 Method Not Allowed** error.
 
 ```bash
 MMDS_IPV4_ADDR=169.254.170.2

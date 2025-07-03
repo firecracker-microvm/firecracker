@@ -987,7 +987,7 @@ pub(crate) mod tests {
         net_builder.build(net_config).unwrap();
         let net = net_builder.iter().next().unwrap();
         let mut mmds = Mmds::default();
-        mmds.set_version(mmds_version).unwrap();
+        mmds.set_version(mmds_version);
         net.lock().unwrap().configure_mmds_network_stack(
             MmdsNetworkStack::default_ipv4_addr(),
             Arc::new(Mutex::new(mmds)),
