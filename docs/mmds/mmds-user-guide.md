@@ -235,6 +235,8 @@ As in version 2, version 1 also supports a session oriented method in order to
 make the migration easier. See [the next section](#version-2) for the session
 oriented method. Note that version 1 returns a successful response to a `GET`
 request even with an invalid token or no token not to break existing workloads.
+`mmds.rx_invalid_token` metric tracks the number of `GET` requests with invalid
+tokens, helping users evaluate their readiness for migrating to MMDS version 2.
 
 Requests containing any other HTTP methods than `GET` and `PUT` will receive
 **405 Method Not Allowed** error.
