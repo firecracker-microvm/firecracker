@@ -73,10 +73,6 @@ pub enum JailerError {
     Dup2(io::Error),
     #[error("Failed to exec into Firecracker: {0}")]
     Exec(io::Error),
-    #[error(
-        "Invalid filename. The filename of `--exec-file` option must contain \"firecracker\": {0}"
-    )]
-    ExecFileName(String),
     #[error("{}", format!("Failed to extract filename from path {:?}", .0).replace('\"', ""))]
     ExtractFileName(PathBuf),
     #[error("{}", format!("Failed to open file {:?}: {}", .0, .1).replace('\"', ""))]
@@ -351,8 +347,7 @@ fn main_exec() -> Result<(), JailerError> {
         fs::create_dir_all(env.chroot_dir())
             .map_err(|err| JailerError::CreateDir(env.chroot_dir().to_owned(), err))?;
         env.run()
-    })
-    .unwrap_or_else(|err| panic!("Jailer error: {}", err));
+    })?;
     Ok(())
 }
 
