@@ -40,6 +40,9 @@ and this project adheres to
 - [#5260](https://github.com/firecracker-microvm/firecracker/pull/5260): Fixed a
   bug allowing the block device to starve all other devices when backed by a
   sufficiently slow drive.
+- [#4207](https://github.com/firecracker-microvm/firecracker/issues/4207): Fixed
+  GSI numbering on aarch64 to correctly allow up to 96 devices being attached
+  simultaneously.
 
 ## [1.12.0]
 

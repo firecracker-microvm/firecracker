@@ -24,6 +24,12 @@ pub const IRQ_BASE: u32 = 5;
 /// Last usable IRQ ID for virtio device interrupts on x86_64.
 pub const IRQ_MAX: u32 = 23;
 
+/// The first usable GSI on x86_64 is the same as the first usable IRQ ID.
+pub const GSI_BASE: u32 = IRQ_BASE;
+
+/// The maximum usable GSI on x86_64 is the same as the last usable IRQ ID.
+pub const GSI_MAX: u32 = IRQ_MAX;
+
 /// Address for the TSS setup.
 pub const KVM_TSS_ADDRESS: u64 = 0xfffb_d000;
 
