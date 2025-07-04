@@ -647,7 +647,7 @@ def test_mmds_v2_negative(uvm_plain):
     # Check `GET` request fails when token is not provided.
     cmd = generate_mmds_get_request(DEFAULT_IPV4)
     expected = (
-        "No MMDS token provided. Use `X-metadata-token` header "
+        "No MMDS token provided. Use `X-metadata-token` or `X-aws-ec2-metadata-token` header "
         "to specify the session token."
     )
     run_guest_cmd(ssh_connection, cmd, expected)
@@ -664,9 +664,8 @@ def test_mmds_v2_negative(uvm_plain):
     # Check `PUT` request fails when token TTL is not provided.
     cmd = f"curl -m 2 -s -X PUT http://{DEFAULT_IPV4}/latest/api/token"
     expected = (
-        "Token time to live value not found. Use "
-        "`X-metadata-token-ttl-seconds` header to specify "
-        "the token's lifetime."
+        "Token time to live value not found. Use `X-metadata-token-ttl-seconds` or "
+        "`X-aws-ec2-metadata-token-ttl-seconds` header to specify the token's lifetime."
     )
     run_guest_cmd(ssh_connection, cmd, expected)
 
