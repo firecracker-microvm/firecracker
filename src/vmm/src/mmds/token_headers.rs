@@ -7,7 +7,8 @@ use std::result::Result;
 use micro_http::{HttpHeaderError, RequestError};
 
 /// Header rejected by MMDS.
-pub const REJECTED_HEADER: &str = "X-Forwarded-For";
+/// Defined in lowercase since HTTP headers are case-insensitive.
+pub const REJECTED_HEADER: &str = "x-forwarded-for";
 
 /// `X-metadata-token` header might be used by HTTP clients to specify a token in order to
 /// authenticate to the session. This is used for GET requests issued by the guest to MMDS only.
