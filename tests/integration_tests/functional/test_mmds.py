@@ -129,6 +129,35 @@ def _validate_mmds_snapshot(
 
 
 @pytest.mark.parametrize("version", MMDS_VERSIONS)
+@pytest.mark.parametrize("imds_compat", [True, False])
+def test_token_generation(uvm_plain, version, imds_compat):
+    """
+    Test MMDS token generation.
+    """
+    test_microvm = uvm_plain
+    test_microvm.spawn()
+
+    test_microvm.add_net_iface()
+    configure_mmds(test_microvm, iface_ids=["eth0"], version=version)
+    populate_data_store(test_microvm, {"foo": "bar"})
+
+    test_microvm.basic_config(vcpu_count=1)
+    test_microvm.start()
+    ssh_connection = test_microvm.ssh
+
+    cmd = "ip route add {} dev eth0".format(DEFAULT_IPV4)
+    run_guest_cmd(ssh_connection, cmd, "")
+
+    token = generate_mmds_session_token(ssh_connection, DEFAULT_IPV4, 60, imds_compat)
+    if version == "V1":
+        assert token == "Not allowed HTTP method."
+        # V1 accepts GET request even with an invalid token. So keep going.
+
+    cmd = generate_mmds_get_request(DEFAULT_IPV4, token, False, imds_compat) + "foo"
+    run_guest_cmd(ssh_connection, cmd, "bar")
+
+
+@pytest.mark.parametrize("version", MMDS_VERSIONS)
 def test_custom_ipv4(uvm_plain, version):
     """
     Test the API for MMDS custom ipv4 support.
@@ -647,7 +676,7 @@ def test_mmds_v2_negative(uvm_plain):
     # Check `GET` request fails when token is not provided.
     cmd = generate_mmds_get_request(DEFAULT_IPV4)
     expected = (
-        "No MMDS token provided. Use `X-metadata-token` header "
+        "No MMDS token provided. Use `X-metadata-token` or `X-aws-ec2-metadata-token` header "
         "to specify the session token."
     )
     run_guest_cmd(ssh_connection, cmd, expected)
@@ -664,9 +693,8 @@ def test_mmds_v2_negative(uvm_plain):
     # Check `PUT` request fails when token TTL is not provided.
     cmd = f"curl -m 2 -s -X PUT http://{DEFAULT_IPV4}/latest/api/token"
     expected = (
-        "Token time to live value not found. Use "
-        "`X-metadata-token-ttl-seconds` header to specify "
-        "the token's lifetime."
+        "Token time to live value not found. Use `X-metadata-token-ttl-seconds` or "
+        "`X-aws-ec2-metadata-token-ttl-seconds` header to specify the token's lifetime."
     )
     run_guest_cmd(ssh_connection, cmd, expected)
 

@@ -8,16 +8,21 @@ pub const REJECTED_HEADER: &str = "X-Forwarded-For";
 
 // `X-metadata-token`
 pub(crate) const X_METADATA_TOKEN_HEADER: &str = "x-metadata-token";
+// `X-aws-ec2-metadata-token`
+pub(crate) const X_AWS_EC2_METADATA_TOKEN_HEADER: &str = "x-aws-ec2-metadata-token";
 // `X-metadata-token-ttl-seconds`
 pub(crate) const X_METADATA_TOKEN_TTL_SECONDS_HEADER: &str = "x-metadata-token-ttl-seconds";
+// `X-aws-ec2-metadata-token-ttl-seconds`
+pub(crate) const X_AWS_EC2_METADATA_TOKEN_SSL_SECONDS_HEADER: &str =
+    "x-aws-ec2-metadata-token-ttl-seconds";
 
 pub(crate) fn get_header_value_pair<'a>(
     custom_headers: &'a HashMap<String, String>,
-    header: &'static str,
+    headers: &'a [&'static str],
 ) -> Option<(&'a String, &'a String)> {
     custom_headers
         .iter()
-        .find(|(k, _)| k.eq_ignore_ascii_case(header))
+        .find(|(k, _)| headers.iter().any(|header| k.eq_ignore_ascii_case(header)))
 }
 
 #[cfg(test)]
@@ -39,9 +44,11 @@ mod tests {
 
     #[test]
     fn test_get_header_value_pair() {
+        let headers = [X_METADATA_TOKEN_HEADER, X_AWS_EC2_METADATA_TOKEN_HEADER];
+
         // No custom headers
         let custom_headers = HashMap::default();
-        let token = get_header_value_pair(&custom_headers, X_METADATA_TOKEN_HEADER);
+        let token = get_header_value_pair(&custom_headers, &headers);
         assert!(token.is_none());
 
         // Unrelated custom headers
@@ -49,28 +56,30 @@ mod tests {
             ("Some-Header".into(), "10".into()),
             ("Another-Header".into(), "value".into()),
         ]);
-        let token = get_header_value_pair(&custom_headers, X_METADATA_TOKEN_HEADER);
+        let token = get_header_value_pair(&custom_headers, &headers);
         assert!(token.is_none());
 
-        // Valid header
-        let expected = "THIS_IS_TOKEN";
-        let custom_headers = HashMap::from([(X_METADATA_TOKEN_HEADER.into(), expected.into())]);
-        let token = get_header_value_pair(&custom_headers, X_METADATA_TOKEN_HEADER).unwrap();
-        assert_eq!(token, (&X_METADATA_TOKEN_HEADER.into(), &expected.into()));
+        for header in headers {
+            // Valid header
+            let expected = "THIS_IS_TOKEN";
+            let custom_headers = HashMap::from([(header.into(), expected.into())]);
+            let token = get_header_value_pair(&custom_headers, &headers).unwrap();
+            assert_eq!(token, (&header.into(), &expected.into()));
 
-        // Valid header in unrelated custom headers
-        let custom_headers = HashMap::from([
-            ("Some-Header".into(), "10".into()),
-            ("Another-Header".into(), "value".into()),
-            (X_METADATA_TOKEN_HEADER.into(), expected.into()),
-        ]);
-        let token = get_header_value_pair(&custom_headers, X_METADATA_TOKEN_HEADER).unwrap();
-        assert_eq!(token, (&X_METADATA_TOKEN_HEADER.into(), &expected.into()));
+            // Valid header in unrelated custom headers
+            let custom_headers = HashMap::from([
+                ("Some-Header".into(), "10".into()),
+                ("Another-Header".into(), "value".into()),
+                (header.into(), expected.into()),
+            ]);
+            let token = get_header_value_pair(&custom_headers, &headers).unwrap();
+            assert_eq!(token, (&header.into(), &expected.into()));
 
-        // Test case-insensitiveness
-        let header = to_mixed_case(X_METADATA_TOKEN_HEADER);
-        let custom_headers = HashMap::from([(header.clone(), expected.into())]);
-        let token = get_header_value_pair(&custom_headers, X_METADATA_TOKEN_HEADER).unwrap();
-        assert_eq!(token, (&header, &expected.into()));
+            // Test case-insensitiveness
+            let header = to_mixed_case(header);
+            let custom_headers = HashMap::from([(header.clone(), expected.into())]);
+            let token = get_header_value_pair(&custom_headers, &headers).unwrap();
+            assert_eq!(token, (&header, &expected.into()));
+        }
     }
 }

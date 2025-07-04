@@ -20,6 +20,10 @@ and this project adheres to
   taking diff snapshots even if dirty page tracking is disabled, by using
   `mincore(2)` to overapproximate the set of dirty pages. Only works if swap is
   disabled.
+- [#5290](https://github.com/firecracker-microvm/firecracker/pull/5290):
+  Extended MMDS to support the EC2 IMDS-compatible session token headers (i.e.
+  "X-aws-ec2-metadata-token" and "X-aws-ec2-metadata-token-ttl-seconds")
+  alongside the MMDS-specific ones.
 
 ### Changed
 

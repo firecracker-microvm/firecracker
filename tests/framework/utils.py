@@ -397,11 +397,16 @@ def get_kernel_version(level=2):
     return linux_version
 
 
-def generate_mmds_session_token(ssh_connection, ipv4_address, token_ttl):
+def generate_mmds_session_token(
+    ssh_connection, ipv4_address, token_ttl, imds_compat=False
+):
     """Generate session token used for MMDS V2 requests."""
     cmd = "curl -m 2 -s"
     cmd += " -X PUT"
-    cmd += ' -H  "X-metadata-token-ttl-seconds: {}"'.format(token_ttl)
+    if imds_compat:
+        cmd += ' -H "X-aws-ec2-metadata-token-ttl-seconds: {}"'.format(token_ttl)
+    else:
+        cmd += ' -H "X-metadata-token-ttl-seconds: {}"'.format(token_ttl)
     cmd += " http://{}/latest/api/token".format(ipv4_address)
     _, stdout, _ = ssh_connection.run(cmd)
     token = stdout
@@ -409,13 +414,18 @@ def generate_mmds_session_token(ssh_connection, ipv4_address, token_ttl):
     return token
 
 
-def generate_mmds_get_request(ipv4_address, token=None, app_json=True):
+def generate_mmds_get_request(
+    ipv4_address, token=None, app_json=True, imds_compat=False
+):
     """Build `GET` request to fetch metadata from MMDS."""
     cmd = "curl -m 2 -s"
 
     if token is not None:
         cmd += " -X GET"
-        cmd += ' -H  "X-metadata-token: {}"'.format(token)
+        if imds_compat:
+            cmd += ' -H "X-aws-ec2-metadata-token: {}"'.format(token)
+        else:
+            cmd += ' -H "X-metadata-token: {}"'.format(token)
 
     if app_json:
         cmd += ' -H "Accept: application/json"'

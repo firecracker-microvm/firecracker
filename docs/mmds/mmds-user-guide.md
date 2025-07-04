@@ -252,9 +252,9 @@ token. In order to be successful, the request must respect the following
 constraints:
 
 - must be directed towards `/latest/api/token` path
-- must contain a `X-metadata-token-ttl-seconds` header specifying the token
-  lifetime in seconds. The value cannot be lower than 1 or greater than 21600 (6
-  hours).
+- must contain a `X-metadata-token-ttl-seconds` or
+  `X-aws-ec2-metadata-token-ttl-seconds` header specifying the token lifetime in
+  seconds. The value cannot be lower than 1 or greater than 21600 (6 hours).
 - must not contain a `X-Forwarded-For` header.
 
 ```bash
@@ -266,8 +266,8 @@ TOKEN=`curl -X PUT "http://${MMDS_IPV4_ADDR}/latest/api/token" \
 The HTTP response from MMDS is a plaintext containing the session token.
 
 During the duration specified by the token's time to live value, all subsequent
-`GET` requests must specify the session token through the `X-metadata-token`
-header in order to fetch data from MMDS.
+`GET` requests must specify the session token through the `X-metadata-token` or
+`X-aws-ec2-metadata-token` header in order to fetch data from MMDS.
 
 ```bash
 MMDS_IPV4_ADDR=169.254.170.2
