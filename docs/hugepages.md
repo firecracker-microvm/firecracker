@@ -24,9 +24,7 @@ pool, please refer to the [Linux Documentation][hugetlbfs_docs].
 Restoring a Firecracker snapshot of a microVM backed by huge pages will also use
 huge pages to back the restored guest. There is no option to flip between
 regular, 4K, pages and huge pages at restore time. Furthermore, snapshots of
-microVMs backed with huge pages can only be restored via UFFD. Lastly, note that
-even for guests backed by huge pages, differential snapshots will always track
-write accesses to guest memory at 4K granularity.
+microVMs backed with huge pages can only be restored via UFFD.
 
 When restoring snapshots via UFFD, Firecracker will send the configured page
 size (in KiB) for each memory region as part of the initial handshake, as
@@ -40,12 +38,17 @@ Firecracker features:
 
 - Memory Ballooning via the [Balloon Device](./ballooning.md)
 
+Furthermore, enabling dirty page tracking for hugepage memory negates the
+performance benefits of using huge pages. This is because KVM will
+unconditionally establish guest page tables at 4K granularity if dirty page
+tracking is enabled, even if the host users huge mappings.
+
 ## FAQ
 
 ### Why does Firecracker not offer a transparent huge pages (THP) setting?
 
-Firecracker's guest memory is memfd based. Linux (as of 6.1) does not offer a
-way to dynamically enable THP for such memory regions. Additionally, UFFD does
+Firecracker's guest memory can be memfd based. Linux (as of 6.1) does not offer
+a way to dynamically enable THP for such memory regions. Additionally, UFFD does
 not integrate with THP (no transparent huge pages will be allocated during
 userfaulting). Please refer to the [Linux Documentation][thp_docs] for more
 information.
