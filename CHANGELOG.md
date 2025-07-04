@@ -16,6 +16,10 @@ and this project adheres to
 - [#5175](https://github.com/firecracker-microvm/firecracker/pull/5175): Allow
   including a custom cpu template directly in the json configuration file passed
   to `--config-file` under the `cpu_config` key.
+- [#XXXX](https://github.com/firecracker-microvm/firecracker/pull/XXXX):
+  Extended MMDS to support the EC2 IMDS-compatible session token headers (i.e.
+  "X-aws-ec2-metadata-token" and "X-aws-ec2-metadata-token-ttl-seconds")
+  alongside the MMDS-specific ones.
 
 ### Changed
 
@@ -24,6 +28,9 @@ and this project adheres to
   Incremental snapshots remain in developer preview.
 - [#5282](https://github.com/firecracker-microvm/firecracker/pull/5282): Updated
   jailer to no longer require the executable file name to contain `firecracker`.
+- [#XXXX](https://github.com/firecracker-microvm/firecracker/pull/XXXX): Changed
+  MMDS to validate the value of "X-metadata-token-ttl-seconds" header only if it
+  is a PUT request to /latest/api/token, as in EC2 IMDS.
 
 ### Deprecated
 

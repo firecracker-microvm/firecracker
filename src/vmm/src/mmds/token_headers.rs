@@ -7,85 +7,63 @@ use std::result::Result;
 use micro_http::{HttpHeaderError, RequestError};
 
 /// Header rejected by MMDS.
-pub const REJECTED_HEADER: &str = "X-Forwarded-For";
+/// Defined in lowercase since HTTP headers are case-insensitive.
+pub const REJECTED_HEADER: &str = "x-forwarded-for";
 
-/// Wrapper over the list of token headers associated with a Request.
-#[derive(Debug, PartialEq, Eq)]
-pub struct TokenHeaders {
-    /// The `X-metadata-token` header might be used by HTTP clients to specify a token in order
-    /// to authenticate to the session. This is used for guest requests to MMDS only.
-    x_metadata_token: Option<String>,
-    /// The `X-metadata-token-ttl-seconds` header might be used by HTTP clients to specify
-    /// the expiry time of a token. This is used for PUT requests issued by the guest to MMDS only.
-    x_metadata_token_ttl_seconds: Option<u32>,
-}
+/// `X-metadata-token` header might be used by HTTP clients to specify a token in order to
+/// authenticate to the session. This is used for GET requests issued by the guest to MMDS only.
+#[derive(Debug)]
+pub struct XMetadataToken(pub Option<String>);
 
-impl Default for TokenHeaders {
-    /// Token headers are not present in the request by default.
-    fn default() -> Self {
-        Self {
-            x_metadata_token: None,
-            x_metadata_token_ttl_seconds: None,
-        }
+// Defined in lowercase since HTTP headers are case-insensitive.
+const X_METADATA_TOKEN_HEADER: &str = "x-metadata-token";
+const X_AWS_EC2_METADATA_TOKEN_HEADER: &str = "x-aws-ec2-metadata-token";
+
+impl From<&HashMap<String, String>> for XMetadataToken {
+    fn from(custom_headers: &HashMap<String, String>) -> Self {
+        Self(
+            custom_headers
+                .iter()
+                .find(|(k, _)| {
+                    let k = k.to_lowercase();
+                    k == X_METADATA_TOKEN_HEADER || k == X_AWS_EC2_METADATA_TOKEN_HEADER
+                })
+                .map(|(_, v)| v.to_string()),
+        )
     }
 }
 
-impl TokenHeaders {
-    /// `X-metadata-token` header.
-    const X_METADATA_TOKEN: &'static str = "X-metadata-token";
-    /// `X-metadata-token-ttl-seconds` header.
-    const X_METADATA_TOKEN_TTL_SECONDS: &'static str = "X-metadata-token-ttl-seconds";
+/// `X-metadata-token-ttl-seconds` header might be used by HTTP clients to specify the expiry time
+/// of a token. This is used for PUT requests issued by the guest to MMDS only.
+#[derive(Debug)]
+pub struct XMetadataTokenTtlSeconds(pub Option<u32>);
 
-    /// Return `TokenHeaders` from headers map.
-    pub fn try_from(map: &HashMap<String, String>) -> Result<TokenHeaders, RequestError> {
-        let mut headers = Self::default();
-        let lowercased_headers: HashMap<String, String> = map
+// Defined in lowercase since HTTP headers are case-insensitive.
+const X_METADATA_TOKEN_TTL_SECONDS_HEADER: &str = "x-metadata-token-ttl-seconds";
+const X_AWS_EC2_METADATA_TOKEN_SSL_SECONDS_HEADER: &str = "x-aws-ec2-metadata-token-ttl-seconds";
+
+impl TryFrom<&HashMap<String, String>> for XMetadataTokenTtlSeconds {
+    type Error = RequestError;
+
+    fn try_from(custom_headers: &HashMap<String, String>) -> Result<Self, RequestError> {
+        let seconds = custom_headers
             .iter()
-            .map(|(k, v)| (k.to_lowercase(), v.clone()))
-            .collect();
+            .find(|(k, _)| {
+                let k = k.to_lowercase();
+                k == X_METADATA_TOKEN_TTL_SECONDS_HEADER
+                    || k == X_AWS_EC2_METADATA_TOKEN_SSL_SECONDS_HEADER
+            })
+            .map(|(k, v)| {
+                v.parse::<u32>().map_err(|_| {
+                    RequestError::HeaderError(HttpHeaderError::InvalidValue(
+                        k.to_string(),
+                        v.to_string(),
+                    ))
+                })
+            })
+            .transpose()?;
 
-        if let Some(token) = lowercased_headers.get(&TokenHeaders::X_METADATA_TOKEN.to_lowercase())
-        {
-            headers.x_metadata_token = Some(token.to_string());
-        }
-
-        if let Some(value) =
-            lowercased_headers.get(&TokenHeaders::X_METADATA_TOKEN_TTL_SECONDS.to_lowercase())
-        {
-            match value.parse::<u32>() {
-                Ok(seconds) => {
-                    headers.x_metadata_token_ttl_seconds = Some(seconds);
-                }
-                Err(_) => {
-                    return Err(RequestError::HeaderError(HttpHeaderError::InvalidValue(
-                        TokenHeaders::X_METADATA_TOKEN_TTL_SECONDS.to_string(),
-                        value.to_string(),
-                    )));
-                }
-            }
-        }
-
-        Ok(headers)
-    }
-
-    /// Returns the `XMetadataToken` token.
-    pub fn x_metadata_token(&self) -> Option<&String> {
-        self.x_metadata_token.as_ref()
-    }
-
-    /// Returns the `XMetadataTokenTtlSeconds` token.
-    pub fn x_metadata_token_ttl_seconds(&self) -> Option<u32> {
-        self.x_metadata_token_ttl_seconds
-    }
-
-    /// Sets the `XMetadataToken` token.
-    pub fn set_x_metadata_token(&mut self, token: String) {
-        self.x_metadata_token = Some(token)
-    }
-
-    /// Sets the `XMetadataTokenTtlSeconds` token.
-    pub fn set_x_metadata_token_ttl_seconds(&mut self, ttl: u32) {
-        self.x_metadata_token_ttl_seconds = Some(ttl);
+        Ok(Self(seconds))
     }
 }
 
@@ -93,70 +71,115 @@ impl TokenHeaders {
 mod tests {
     use super::*;
 
-    #[test]
-    fn test_default() {
-        let headers = TokenHeaders::default();
-        assert_eq!(headers.x_metadata_token(), None);
-        assert_eq!(headers.x_metadata_token_ttl_seconds(), None);
+    fn to_mixed_case(s: &str) -> String {
+        s.chars()
+            .enumerate()
+            .map(|(i, c)| {
+                if i % 2 == 0 {
+                    c.to_ascii_lowercase()
+                } else {
+                    c.to_ascii_uppercase()
+                }
+            })
+            .collect()
     }
 
     #[test]
-    fn test_try_from_headers() {
-        // Empty token header map.
-        let map: HashMap<String, String> = HashMap::default();
-        let headers = TokenHeaders::try_from(&map).unwrap();
-        assert_eq!(headers, TokenHeaders::default());
+    fn test_x_metadata_token() {
+        // No custom headers
+        let custom_headers = HashMap::default();
+        let x_metadata_token = XMetadataToken::from(&custom_headers);
+        assert!(x_metadata_token.0.is_none());
 
-        // Unrecognised headers.
-        let mut map: HashMap<String, String> = HashMap::default();
-        map.insert("Some-Header".to_string(), "10".to_string());
-        map.insert("Another-Header".to_string(), "value".to_string());
-        let headers = TokenHeaders::try_from(&map).unwrap();
-        assert_eq!(headers, TokenHeaders::default());
+        // Unrelated custom headers
+        let custom_headers = HashMap::from([
+            ("Some-Header".into(), "10".into()),
+            ("Another-Header".into(), "value".into()),
+        ]);
+        let x_metadata_token = XMetadataToken::from(&custom_headers);
+        assert!(x_metadata_token.0.is_none());
 
-        // Valid headers.
-        let mut map: HashMap<String, String> = HashMap::default();
-        map.insert("Some-Header".to_string(), "10".to_string());
-        map.insert(
-            TokenHeaders::X_METADATA_TOKEN_TTL_SECONDS.to_string(),
-            "60".to_string(),
-        );
-        map.insert(
-            TokenHeaders::X_METADATA_TOKEN.to_string(),
-            "foo".to_string(),
-        );
-        let headers = TokenHeaders::try_from(&map).unwrap();
-        assert_eq!(headers.x_metadata_token_ttl_seconds().unwrap(), 60);
-        assert_eq!(*headers.x_metadata_token().unwrap(), "foo".to_string());
+        for header in [X_METADATA_TOKEN_HEADER, X_AWS_EC2_METADATA_TOKEN_HEADER] {
+            let token = "THIS_IS_TOKEN";
 
-        let mut map: HashMap<String, String> = HashMap::default();
-        map.insert(TokenHeaders::X_METADATA_TOKEN.to_string(), "".to_string());
-        let headers = TokenHeaders::try_from(&map).unwrap();
-        assert_eq!(*headers.x_metadata_token().unwrap(), "".to_string());
+            // Valid header
+            let custom_headers = HashMap::from([(header.into(), token.into())]);
+            let x_metadata_token = XMetadataToken::from(&custom_headers);
+            assert_eq!(&x_metadata_token.0.unwrap(), token);
 
-        // Lowercased headers
-        let mut map: HashMap<String, String> = HashMap::default();
-        map.insert(
-            TokenHeaders::X_METADATA_TOKEN_TTL_SECONDS
-                .to_string()
-                .to_lowercase(),
-            "60".to_string(),
-        );
-        let headers = TokenHeaders::try_from(&map).unwrap();
-        assert_eq!(headers.x_metadata_token_ttl_seconds().unwrap(), 60);
+            // Valid header in unrelated custom headers
+            let custom_headers = HashMap::from([
+                ("Some-Header".into(), "10".into()),
+                ("Another-Header".into(), "value".into()),
+                (header.into(), token.into()),
+            ]);
+            let x_metadata_token = XMetadataToken::from(&custom_headers);
+            assert_eq!(&x_metadata_token.0.unwrap(), token);
 
-        // Invalid value.
-        let mut map: HashMap<String, String> = HashMap::default();
-        map.insert(
-            TokenHeaders::X_METADATA_TOKEN_TTL_SECONDS.to_string(),
-            "-60".to_string(),
-        );
-        assert_eq!(
-            TokenHeaders::try_from(&map).unwrap_err(),
-            RequestError::HeaderError(HttpHeaderError::InvalidValue(
-                TokenHeaders::X_METADATA_TOKEN_TTL_SECONDS.to_string(),
-                "-60".to_string()
-            ))
-        );
+            // Test case-insensitiveness
+            let custom_headers = HashMap::from([(to_mixed_case(header), token.into())]);
+            let x_metadata_token = XMetadataToken::from(&custom_headers);
+            assert_eq!(&x_metadata_token.0.unwrap(), token);
+        }
+    }
+
+    #[test]
+    fn test_x_metadata_token_ttl_seconds() {
+        // No custom headers
+        let custom_headers = HashMap::default();
+        let x_metadata_token_ttl_seconds =
+            XMetadataTokenTtlSeconds::try_from(&custom_headers).unwrap();
+        assert!(x_metadata_token_ttl_seconds.0.is_none());
+
+        // Unrelated custom headers
+        let custom_headers = HashMap::from([
+            ("Some-Header".into(), "10".into()),
+            ("Another-Header".into(), "value".into()),
+        ]);
+        let x_metadata_token_ttl_seconds =
+            XMetadataTokenTtlSeconds::try_from(&custom_headers).unwrap();
+        assert!(x_metadata_token_ttl_seconds.0.is_none());
+
+        for header in [
+            X_METADATA_TOKEN_TTL_SECONDS_HEADER,
+            X_AWS_EC2_METADATA_TOKEN_SSL_SECONDS_HEADER,
+        ] {
+            let seconds = 60;
+
+            // Valid header
+            let custom_headers = HashMap::from([(header.into(), seconds.to_string())]);
+            let x_metadata_token_ttl_seconds =
+                XMetadataTokenTtlSeconds::try_from(&custom_headers).unwrap();
+            assert_eq!(x_metadata_token_ttl_seconds.0.unwrap(), seconds);
+
+            // Valid header in unrelated custom headers
+            let custom_headers = HashMap::from([
+                ("Some-Header".into(), "10".into()),
+                ("Another-Header".into(), "value".into()),
+                (header.into(), seconds.to_string()),
+            ]);
+            let x_metadata_token_ttl_seconds =
+                XMetadataTokenTtlSeconds::try_from(&custom_headers).unwrap();
+            assert_eq!(x_metadata_token_ttl_seconds.0.unwrap(), seconds);
+
+            // Test case-insensitiveness
+            let custom_headers = HashMap::from([(to_mixed_case(header), seconds.to_string())]);
+            let x_metadata_token_ttl_seconds =
+                XMetadataTokenTtlSeconds::try_from(&custom_headers).unwrap();
+            assert_eq!(x_metadata_token_ttl_seconds.0.unwrap(), seconds);
+
+            // Invalid value
+            let mixed_case_header = to_mixed_case(header);
+            let invalid_seconds = "-60";
+            let custom_headers =
+                HashMap::from([(mixed_case_header.clone(), invalid_seconds.to_string())]);
+            assert_eq!(
+                XMetadataTokenTtlSeconds::try_from(&custom_headers).unwrap_err(),
+                RequestError::HeaderError(HttpHeaderError::InvalidValue(
+                    mixed_case_header,
+                    invalid_seconds.to_string()
+                ))
+            );
+        }
     }
 }

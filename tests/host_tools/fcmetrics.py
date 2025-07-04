@@ -185,6 +185,8 @@ def validate_fc_metrics(metrics):
             "rx_accepted_err",
             "rx_accepted_unusual",
             "rx_bad_eth",
+            "rx_invalid_token",
+            "rx_no_token",
             "rx_count",
             "tx_bytes",
             "tx_count",
