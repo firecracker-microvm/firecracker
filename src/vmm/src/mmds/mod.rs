@@ -21,8 +21,8 @@ use serde_json::{Map, Value};
 use crate::mmds::data_store::{Mmds, MmdsDatastoreError as MmdsError, MmdsVersion, OutputFormat};
 use crate::mmds::token::PATH_TO_TOKEN;
 use crate::mmds::token_headers::{
-    REJECTED_HEADER, X_METADATA_TOKEN_HEADER, X_METADATA_TOKEN_TTL_SECONDS_HEADER,
-    get_header_value_pair,
+    REJECTED_HEADER, X_AWS_EC2_METADATA_TOKEN_HEADER, X_AWS_EC2_METADATA_TOKEN_SSL_SECONDS_HEADER,
+    X_METADATA_TOKEN_HEADER, X_METADATA_TOKEN_TTL_SECONDS_HEADER, get_header_value_pair,
 };
 
 #[rustfmt::skip]
@@ -35,9 +35,9 @@ pub enum VmmMmdsError {
     InvalidURI,
     /// Not allowed HTTP method.
     MethodNotAllowed,
-    /// No MMDS token provided. Use `X-metadata-token` header to specify the session token.
+    /// No MMDS token provided. Use `X-metadata-token` or `X-aws-ec2-metadata-token` header to specify the session token.
     NoTokenProvided,
-    /// Token time to live value not found. Use `X-metadata-token-ttl-seconds` header to specify the token's lifetime.
+    /// Token time to live value not found. Use `X-metadata-token-ttl-seconds` or `X-aws-ec2-metadata-token-ttl-seconds` header to specify the token's lifetime.
     NoTtlProvided,
     /// Resource not found: {0}.
     ResourceNotFound(String),
@@ -164,19 +164,21 @@ fn respond_to_request_mmdsv2(mmds: &mut Mmds, request: Request) -> Response {
 
 fn respond_to_get_request_checked(mmds: &Mmds, request: Request) -> Response {
     // Check whether a token exists.
-    let token =
-        match get_header_value_pair(request.headers.custom_entries(), X_METADATA_TOKEN_HEADER) {
-            Some((_, token)) => token,
-            None => {
-                let error_msg = VmmMmdsError::NoTokenProvided.to_string();
-                return build_response(
-                    request.http_version(),
-                    StatusCode::Unauthorized,
-                    MediaType::PlainText,
-                    Body::new(error_msg),
-                );
-            }
-        };
+    let token = match get_header_value_pair(
+        request.headers.custom_entries(),
+        &[X_METADATA_TOKEN_HEADER, X_AWS_EC2_METADATA_TOKEN_HEADER],
+    ) {
+        Some((_, token)) => token,
+        None => {
+            let error_msg = VmmMmdsError::NoTokenProvided.to_string();
+            return build_response(
+                request.http_version(),
+                StatusCode::Unauthorized,
+                MediaType::PlainText,
+                Body::new(error_msg),
+            );
+        }
+    };
 
     // Validate the token.
     match mmds.is_valid_token(token) {
@@ -267,36 +269,41 @@ fn respond_to_put_request(mmds: &mut Mmds, request: Request) -> Response {
     }
 
     // Get token lifetime value.
-    let ttl_seconds =
-        match get_header_value_pair(custom_headers, X_METADATA_TOKEN_TTL_SECONDS_HEADER) {
-            // Header found
-            Some((k, v)) => match v.parse::<u32>() {
-                Ok(ttl_seconds) => ttl_seconds,
-                Err(_) => {
-                    return build_response(
-                        request.http_version(),
-                        StatusCode::BadRequest,
-                        MediaType::PlainText,
-                        Body::new(
-                            RequestError::HeaderError(HttpHeaderError::InvalidValue(
-                                k.into(),
-                                v.into(),
-                            ))
-                            .to_string(),
-                        ),
-                    );
-                }
-            },
-            // Header not found
-            None => {
+    let ttl_seconds = match get_header_value_pair(
+        custom_headers,
+        &[
+            X_METADATA_TOKEN_TTL_SECONDS_HEADER,
+            X_AWS_EC2_METADATA_TOKEN_SSL_SECONDS_HEADER,
+        ],
+    ) {
+        // Header found
+        Some((k, v)) => match v.parse::<u32>() {
+            Ok(ttl_seconds) => ttl_seconds,
+            Err(_) => {
                 return build_response(
                     request.http_version(),
                     StatusCode::BadRequest,
                     MediaType::PlainText,
-                    Body::new(VmmMmdsError::NoTtlProvided.to_string()),
+                    Body::new(
+                        RequestError::HeaderError(HttpHeaderError::InvalidValue(
+                            k.into(),
+                            v.into(),
+                        ))
+                        .to_string(),
+                    ),
                 );
             }
-        };
+        },
+        // Header not found
+        None => {
+            return build_response(
+                request.http_version(),
+                StatusCode::BadRequest,
+                MediaType::PlainText,
+                Body::new(VmmMmdsError::NoTtlProvided.to_string()),
+            );
+        }
+    };
 
     // Generate token.
     let result = mmds.generate_token(ttl_seconds);
@@ -854,13 +861,14 @@ mod tests {
 
         assert_eq!(
             VmmMmdsError::NoTokenProvided.to_string(),
-            "No MMDS token provided. Use `X-metadata-token` header to specify the session token."
+            "No MMDS token provided. Use `X-metadata-token` or `X-aws-ec2-metadata-token` header \
+             to specify the session token."
         );
 
         assert_eq!(
             VmmMmdsError::NoTtlProvided.to_string(),
-            "Token time to live value not found. Use `X-metadata-token-ttl-seconds` header to \
-             specify the token's lifetime."
+            "Token time to live value not found. Use `X-metadata-token-ttl-seconds` or \
+             `X-aws-ec2-metadata-token-ttl-seconds` header to specify the token's lifetime."
         );
 
         assert_eq!(
