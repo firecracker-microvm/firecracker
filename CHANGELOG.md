@@ -69,6 +69,9 @@ and this project adheres to
 - [#4207](https://github.com/firecracker-microvm/firecracker/issues/4207): Fixed
   GSI numbering on aarch64 to correctly allow up to 96 devices being attached
   simultaneously.
+- [#5290](https://github.com/firecracker-microvm/firecracker/pull/5290): Fixed
+  MMDS to reject PUT requests containing `X-Forwarded-For` header regardless of
+  its casing (e.g. `x-forwarded-for`).
 
 ## [1.12.0]
 

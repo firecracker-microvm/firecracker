@@ -3,9 +3,8 @@
 
 use std::collections::HashMap;
 
-/// Header rejected by MMDS.
-pub const REJECTED_HEADER: &str = "X-Forwarded-For";
-
+// `X-Forwarded-For`
+pub(crate) const X_FORWARDED_FOR_HEADER: &str = "x-forwarded-for";
 // `X-metadata-token`
 pub(crate) const X_METADATA_TOKEN_HEADER: &str = "x-metadata-token";
 // `X-aws-ec2-metadata-token`
