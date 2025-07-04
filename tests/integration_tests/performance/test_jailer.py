@@ -52,6 +52,7 @@ def test_jailer_startup(
         {
             "instance": global_props.instance,
             "cpu_model": global_props.cpu_model,
+            "host_kernel": f"linux-{global_props.host_linux_version}",
             "performance_test": "test_jailer_startup",
             "parallel": str(parallel),
             "mounts": str(mounts),
