@@ -5,6 +5,8 @@
 
 use std::fmt::Debug;
 use std::io;
+#[cfg(target_arch = "riscv64")]
+use std::os::fd::AsRawFd;
 #[cfg(feature = "gdb")]
 use std::sync::mpsc;
 use std::sync::{Arc, Mutex};
@@ -13,6 +15,7 @@ use event_manager::{MutEventSubscriber, SubscriberOps};
 use libc::EFD_NONBLOCK;
 use linux_loader::cmdline::Cmdline as LoaderKernelCmdline;
 use userfaultfd::Uffd;
+#[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
 use utils::time::TimestampUs;
 #[cfg(target_arch = "aarch64")]
 use vm_memory::GuestAddress;
@@ -30,23 +33,31 @@ use crate::cpu_config::templates::{
 use crate::device_manager::acpi::ACPIDeviceManager;
 #[cfg(target_arch = "x86_64")]
 use crate::device_manager::legacy::PortIODeviceManager;
+#[cfg(target_arch = "riscv64")]
+use crate::device_manager::mmio::MMIODeviceInfo;
 use crate::device_manager::mmio::{MMIODeviceManager, MmioError};
 use crate::device_manager::persist::{
     ACPIDeviceManagerConstructorArgs, ACPIDeviceManagerRestoreError, MMIODevManagerConstructorArgs,
 };
 use crate::device_manager::resources::ResourceAllocator;
 use crate::devices::BusDevice;
+#[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
 use crate::devices::acpi::vmgenid::{VmGenId, VmGenIdError};
+#[cfg(target_arch = "riscv64")]
+use crate::devices::legacy::IrqLineTrigger;
 #[cfg(target_arch = "aarch64")]
 use crate::devices::legacy::RTCDevice;
 use crate::devices::legacy::serial::SerialOut;
 use crate::devices::legacy::{EventFdTrigger, SerialEventsWrapper, SerialWrapper};
+#[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
 use crate::devices::virtio::balloon::Balloon;
 use crate::devices::virtio::block::device::Block;
 use crate::devices::virtio::device::VirtioDevice;
 use crate::devices::virtio::mmio::MmioTransport;
 use crate::devices::virtio::net::Net;
+#[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
 use crate::devices::virtio::rng::Entropy;
+#[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
 use crate::devices::virtio::vsock::{Vsock, VsockUnixBackend};
 #[cfg(feature = "gdb")]
 use crate::gdb;
@@ -83,6 +94,7 @@ pub enum StartMicrovmError {
     #[cfg(target_arch = "x86_64")]
     CreateLegacyDevice(device_manager::legacy::LegacyDeviceError),
     /// Error creating VMGenID device: {0}
+    #[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
     CreateVMGenID(VmGenIdError),
     /// Error enabling pvtime on vcpu: {0}
     #[cfg(target_arch = "aarch64")]
@@ -135,7 +147,7 @@ impl std::convert::From<linux_loader::cmdline::Error> for StartMicrovmError {
     }
 }
 
-#[cfg_attr(target_arch = "aarch64", allow(unused))]
+#[cfg_attr(any(target_arch = "aarch64", target_arch = "riscv64"), allow(unused))]
 fn create_vmm_and_vcpus(
     instance_info: &InstanceInfo,
     event_manager: &mut EventManager,
@@ -209,6 +221,7 @@ pub fn build_microvm_for_boot(
 ) -> Result<Arc<Mutex<Vmm>>, StartMicrovmError> {
     use self::StartMicrovmError::*;
 
+    #[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
     // Timestamp for measuring microVM boot duration.
     let request_ts = TimestampUs::default();
 
@@ -260,10 +273,12 @@ pub fn build_microvm_for_boot(
     // The boot timer device needs to be the first device attached in order
     // to maintain the same MMIO address referenced in the documentation
     // and tests.
+    #[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
     if vm_resources.boot_timer {
         attach_boot_timer_device(&mut vmm, request_ts)?;
     }
 
+    #[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
     if let Some(balloon) = vm_resources.balloon.get() {
         attach_balloon_device(&mut vmm, &mut boot_cmdline, balloon, event_manager)?;
     }
@@ -274,6 +289,7 @@ pub fn build_microvm_for_boot(
         vm_resources.block.devices.iter(),
         event_manager,
     )?;
+
     attach_net_devices(
         &mut vmm,
         &mut boot_cmdline,
@@ -281,10 +297,12 @@ pub fn build_microvm_for_boot(
         event_manager,
     )?;
 
+    #[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
     if let Some(unix_vsock) = vm_resources.vsock.get() {
         attach_unixsock_vsock_device(&mut vmm, &mut boot_cmdline, unix_vsock, event_manager)?;
     }
 
+    #[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
     if let Some(entropy) = vm_resources.entropy.get() {
         attach_entropy_device(&mut vmm, &mut boot_cmdline, entropy, event_manager)?;
     }
@@ -292,6 +310,10 @@ pub fn build_microvm_for_boot(
     #[cfg(target_arch = "aarch64")]
     attach_legacy_devices_aarch64(event_manager, &mut vmm, &mut boot_cmdline)?;
 
+    #[cfg(target_arch = "riscv64")]
+    attach_legacy_devices_riscv64(event_manager, &mut vmm, &mut boot_cmdline)?;
+
+    #[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
     attach_vmgenid_device(&mut vmm)?;
 
     #[cfg(target_arch = "aarch64")]
@@ -551,6 +573,7 @@ pub fn build_microvm_from_snapshot(
     Ok(vmm)
 }
 
+#[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
 /// Sets up the serial device.
 pub fn setup_serial_device(
     event_manager: &mut EventManager,
@@ -558,6 +581,35 @@ pub fn setup_serial_device(
     out: std::io::Stdout,
 ) -> Result<Arc<Mutex<BusDevice>>, VmmError> {
     let interrupt_evt = EventFdTrigger::new(EventFd::new(EFD_NONBLOCK).map_err(VmmError::EventFd)?);
+    let kick_stdin_read_evt =
+        EventFdTrigger::new(EventFd::new(EFD_NONBLOCK).map_err(VmmError::EventFd)?);
+    let serial = Arc::new(Mutex::new(BusDevice::Serial(SerialWrapper {
+        serial: Serial::with_events(
+            interrupt_evt,
+            SerialEventsWrapper {
+                buffer_ready_event_fd: Some(kick_stdin_read_evt),
+            },
+            SerialOut::Stdout(out),
+        ),
+        input: Some(input),
+    })));
+    event_manager.add_subscriber(serial.clone());
+    Ok(serial)
+}
+
+#[cfg(target_arch = "riscv64")]
+/// Sets up the serial device.
+pub fn setup_serial_device(
+    event_manager: &mut EventManager,
+    vmfd: &kvm_ioctls::VmFd,
+    input: std::io::Stdin,
+    out: std::io::Stdout,
+    device_info: &Option<MMIODeviceInfo>,
+) -> Result<Arc<Mutex<BusDevice>>, VmmError> {
+    let interrupt_evt = IrqLineTrigger::new(
+        vmfd.as_raw_fd(),
+        device_info.as_ref().unwrap().irq.unwrap().get(),
+    );
     let kick_stdin_read_evt =
         EventFdTrigger::new(EventFd::new(EFD_NONBLOCK).map_err(VmmError::EventFd)?);
     let serial = Arc::new(Mutex::new(BusDevice::Serial(SerialWrapper {
@@ -646,6 +698,47 @@ fn attach_legacy_devices_aarch64(
         .map_err(VmmError::RegisterMMIODevice)
 }
 
+#[cfg(target_arch = "riscv64")]
+fn attach_legacy_devices_riscv64(
+    event_manager: &mut EventManager,
+    vmm: &mut Vmm,
+    cmdline: &mut LoaderKernelCmdline,
+) -> Result<(), VmmError> {
+    // Serial device setup.
+    let cmdline_contains_console = cmdline
+        .as_cstring()
+        .map_err(|_| VmmError::Cmdline)?
+        .into_string()
+        .map_err(|_| VmmError::Cmdline)?
+        .contains("console=");
+
+    if cmdline_contains_console {
+        // Make stdout non-blocking.
+        set_stdout_nonblocking();
+        let device_info = vmm
+            .mmio_device_manager
+            .allocate_mmio_resources(&mut vmm.resource_allocator, 1)
+            .map_err(|err| VmmError::DeviceManager(err))?;
+
+        let serial = setup_serial_device(
+            event_manager,
+            vmm.vm.fd(),
+            std::io::stdin(),
+            std::io::stdout(),
+            &Some(device_info.clone()),
+        )?;
+
+        vmm.mmio_device_manager
+            .register_mmio_serial(&mut vmm.resource_allocator, serial, Some(device_info))
+            .map_err(VmmError::RegisterMMIODevice)?;
+        vmm.mmio_device_manager
+            .add_mmio_serial_to_cmdline(cmdline)
+            .map_err(VmmError::RegisterMMIODevice)?;
+    }
+
+    Ok(())
+}
+
 /// Attaches a VirtioDevice device to the device manager and event manager.
 fn attach_virtio_device<T: 'static + VirtioDevice + MutEventSubscriber + Debug>(
     event_manager: &mut EventManager,
@@ -670,6 +763,7 @@ fn attach_virtio_device<T: 'static + VirtioDevice + MutEventSubscriber + Debug>(
         .map(|_| ())
 }
 
+#[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
 pub(crate) fn attach_boot_timer_device(
     vmm: &mut Vmm,
     request_ts: TimestampUs,
@@ -682,6 +776,7 @@ pub(crate) fn attach_boot_timer_device(
     Ok(())
 }
 
+#[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
 fn attach_vmgenid_device(vmm: &mut Vmm) -> Result<(), StartMicrovmError> {
     let vmgenid = VmGenId::new(vmm.vm.guest_memory(), &mut vmm.resource_allocator)
         .map_err(StartMicrovmError::CreateVMGenID)?;
@@ -693,6 +788,7 @@ fn attach_vmgenid_device(vmm: &mut Vmm) -> Result<(), StartMicrovmError> {
     Ok(())
 }
 
+#[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
 fn attach_entropy_device(
     vmm: &mut Vmm,
     cmdline: &mut LoaderKernelCmdline,
@@ -763,6 +859,7 @@ fn attach_net_devices<'a, I: Iterator<Item = &'a Arc<Mutex<Net>>> + Debug>(
     Ok(())
 }
 
+#[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
 fn attach_unixsock_vsock_device(
     vmm: &mut Vmm,
     cmdline: &mut LoaderKernelCmdline,
@@ -774,6 +871,7 @@ fn attach_unixsock_vsock_device(
     attach_virtio_device(event_manager, vmm, id, unix_vsock.clone(), cmdline, false)
 }
 
+#[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
 fn attach_balloon_device(
     vmm: &mut Vmm,
     cmdline: &mut LoaderKernelCmdline,

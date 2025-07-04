@@ -6,10 +6,14 @@
 // found in the THIRD-PARTY file.
 
 use std::fmt;
+#[cfg(target_arch = "riscv64")]
+use std::os::fd::AsRawFd;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU32, Ordering};
 
 use vmm_sys_util::eventfd::EventFd;
+#[cfg(target_arch = "riscv64")]
+use vmm_sys_util::{errno, ioctl::ioctl_with_ref, ioctl_ioc_nr, ioctl_iow_nr};
 
 use super::ActivateError;
 use super::mmio::{VIRTIO_MMIO_INT_CONFIG, VIRTIO_MMIO_INT_VRING};
@@ -57,9 +61,15 @@ pub enum IrqType {
 #[derive(Debug)]
 pub struct IrqTrigger {
     pub(crate) irq_status: Arc<AtomicU32>,
+    #[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
     pub(crate) irq_evt: EventFd,
+    #[cfg(target_arch = "riscv64")]
+    pub(crate) raw_vmfd: Option<i32>,
+    #[cfg(target_arch = "riscv64")]
+    pub(crate) gsi: Option<u32>,
 }
 
+#[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
 impl IrqTrigger {
     pub fn new() -> std::io::Result<Self> {
         Ok(Self {
@@ -82,6 +92,68 @@ impl IrqTrigger {
 
         Ok(())
     }
+}
+
+#[cfg(target_arch = "riscv64")]
+impl IrqTrigger {
+    pub fn new() -> std::io::Result<Self> {
+        Ok(Self {
+            irq_status: Arc::new(AtomicU32::new(0)),
+            raw_vmfd: None,
+            gsi: None,
+        })
+    }
+
+    pub fn trigger_irq(&self, irq_type: IrqType) -> Result<(), std::io::Error> {
+        let irq = match irq_type {
+            IrqType::Config => VIRTIO_MMIO_INT_CONFIG,
+            IrqType::Vring => VIRTIO_MMIO_INT_VRING,
+        };
+        self.irq_status.fetch_or(irq, Ordering::SeqCst);
+
+        // Safe to unwrap since `gsi` and `vmfd` have been set
+        let gsi = self.gsi.unwrap();
+        IrqTrigger::set_irq_line(self.raw_vmfd.unwrap(), gsi, true).map_err(|err| {
+            error!("Failed to set IRQ line: {:?}", err);
+            std::io::Error::last_os_error()
+        })?;
+        IrqTrigger::set_irq_line(self.raw_vmfd.unwrap(), gsi, false).map_err(|err| {
+            error!("Failed to set IRQ line: {:?}", err);
+            std::io::Error::last_os_error()
+        })?;
+
+        Ok(())
+    }
+
+    pub fn set_vmfd_and_gsi(&mut self, raw_vmfd: i32, gsi: u32) {
+        self.raw_vmfd = Some(raw_vmfd);
+        self.gsi = Some(gsi);
+    }
+
+    // This function is taken from kvm-ioctls because it requires VmFd, which we don't
+    // have at this point. However, it only uses the raw file descriptor, which is just
+    // an i32. So, we copy it here and use it directly with the raw fd.
+    fn set_irq_line<F: AsRawFd>(fd: F, irq: u32, active: bool) -> Result<(), kvm_ioctls::Error> {
+        let mut irq_level = kvm_bindings::kvm_irq_level::default();
+        irq_level.__bindgen_anon_1.irq = irq;
+        irq_level.level = u32::from(active);
+
+        // SAFETY: Safe because we know that our file is a VM fd, we know the kernel will only read
+        // the correct amount of memory from our pointer, and we verify the return result.
+        let ret = unsafe { ioctl_with_ref(&fd, IrqTrigger::KVM_IRQ_LINE(), &irq_level) };
+        if ret == 0 {
+            Ok(())
+        } else {
+            Err(errno::Error::last())
+        }
+    }
+
+    ioctl_iow_nr!(
+        KVM_IRQ_LINE,
+        kvm_bindings::KVMIO,
+        0x61,
+        kvm_bindings::kvm_irq_level
+    );
 }
 
 /// Trait for virtio devices to be driven by a virtio transport.
@@ -125,6 +197,9 @@ pub trait VirtioDevice: AsAny + Send {
     }
 
     fn interrupt_trigger(&self) -> &IrqTrigger;
+
+    #[cfg(target_arch = "riscv64")]
+    fn interrupt_trigger_mut(&mut self) -> &mut IrqTrigger;
 
     /// The set of feature bits shifted by `page * 32`.
     fn avail_features_by_page(&self, page: u32) -> u32 {

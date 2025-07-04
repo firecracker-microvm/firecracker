@@ -26,6 +26,7 @@ use crate::cpu_config::x86_64::cpuid::CpuidTrait;
 #[cfg(target_arch = "x86_64")]
 use crate::cpu_config::x86_64::cpuid::common::get_vendor_id_from_host;
 use crate::device_manager::persist::{ACPIDeviceManagerState, DevicePersistError, DeviceStates};
+#[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
 use crate::logger::{info, warn};
 use crate::resources::VmResources;
 use crate::seccomp::BpfThreadMap;

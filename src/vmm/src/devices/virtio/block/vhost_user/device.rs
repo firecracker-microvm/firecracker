@@ -314,6 +314,11 @@ impl<T: VhostUserHandleBackend + Send + 'static> VirtioDevice for VhostUserBlock
         &self.irq_trigger
     }
 
+    #[cfg(target_arch = "riscv64")]
+    fn interrupt_trigger_mut(&mut self) -> &mut IrqTrigger {
+        unimplemented!()
+    }
+
     fn read_config(&self, offset: u64, data: &mut [u8]) {
         if let Some(config_space_bytes) = self.config_space.as_slice().get(u64_to_usize(offset)..) {
             let len = config_space_bytes.len().min(data.len());

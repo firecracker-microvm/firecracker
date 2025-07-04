@@ -8,6 +8,8 @@
 use std::collections::HashMap;
 use std::fmt::Debug;
 use std::num::NonZeroU32;
+#[cfg(target_arch = "riscv64")]
+use std::os::fd::AsRawFd;
 use std::sync::{Arc, Mutex};
 
 #[cfg(target_arch = "x86_64")]
@@ -26,6 +28,7 @@ use crate::arch::DeviceType::Virtio;
 use crate::devices::BusDevice;
 #[cfg(target_arch = "aarch64")]
 use crate::devices::legacy::RTCDevice;
+#[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
 use crate::devices::pseudo::BootTimer;
 use crate::devices::virtio::balloon::Balloon;
 use crate::devices::virtio::block::device::Block;
@@ -144,7 +147,7 @@ impl MMIODeviceManager {
     }
 
     /// Allocates resources for a new device to be added.
-    fn allocate_mmio_resources(
+    pub fn allocate_mmio_resources(
         &mut self,
         resource_allocator: &mut ResourceAllocator,
         irq_count: u32,
@@ -196,7 +199,11 @@ impl MMIODeviceManager {
         };
         let identifier;
         {
+            #[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
             let locked_device = mmio_device.locked_device();
+            #[cfg(target_arch = "riscv64")]
+            let mut locked_device = mmio_device.locked_device();
+
             identifier = (DeviceType::Virtio(locked_device.device_type()), device_id);
             for (i, queue_evt) in locked_device.queue_events().iter().enumerate() {
                 let io_addr = IoEventAddress::Mmio(
@@ -205,8 +212,14 @@ impl MMIODeviceManager {
                 vm.register_ioevent(queue_evt, &io_addr, u32::try_from(i).unwrap())
                     .map_err(MmioError::RegisterIoEvent)?;
             }
+            #[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
             vm.register_irqfd(&locked_device.interrupt_trigger().irq_evt, irq.get())
                 .map_err(MmioError::RegisterIrqFd)?;
+
+            #[cfg(target_arch = "riscv64")]
+            locked_device
+                .interrupt_trigger_mut()
+                .set_vmfd_and_gsi(vm.as_raw_fd(), irq.get());
         }
 
         self.register_mmio_device(
@@ -299,7 +312,29 @@ impl MMIODeviceManager {
         self.register_mmio_device(identifier, device_info, serial)
     }
 
-    #[cfg(target_arch = "aarch64")]
+    #[cfg(target_arch = "riscv64")]
+    /// Register an early console at the specified MMIO configuration if given as parameter,
+    /// otherwise allocate a new MMIO resources for it.
+    pub fn register_mmio_serial(
+        &mut self,
+        resource_allocator: &mut ResourceAllocator,
+        serial: Arc<Mutex<BusDevice>>,
+        device_info_opt: Option<MMIODeviceInfo>,
+    ) -> Result<(), MmioError> {
+        // Create a new MMIODeviceInfo object on boot path or unwrap the
+        // existing object on restore path.
+        let device_info = if let Some(device_info) = device_info_opt {
+            device_info
+        } else {
+            self.allocate_mmio_resources(resource_allocator, 1)?
+        };
+
+        let identifier = (DeviceType::Serial, DeviceType::Serial.to_string());
+        // Register the newly created Serial object.
+        self.register_mmio_device(identifier, device_info, serial)
+    }
+
+    #[cfg(any(target_arch = "aarch64", target_arch = "riscv64"))]
     /// Append the registered early console to the kernel cmdline.
     pub fn add_mmio_serial_to_cmdline(
         &self,
@@ -342,6 +377,7 @@ impl MMIODeviceManager {
     }
 
     /// Register a boot timer device.
+    #[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
     pub fn register_mmio_boot_timer(
         &mut self,
         resource_allocator: &mut ResourceAllocator,
