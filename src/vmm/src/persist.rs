@@ -255,22 +255,22 @@ pub fn validate_cpu_manufacturer_id(microvm_state: &MicrovmState) {
     let host_cpu_id = get_manufacturer_id_from_host();
     let snapshot_cpu_id = microvm_state.vcpu_states[0].regs.manifacturer_id();
     match (host_cpu_id, snapshot_cpu_id) {
-        (Ok(host_id), Some(snapshot_id)) => {
+        (Some(host_id), Some(snapshot_id)) => {
             info!("Host CPU manufacturer ID: {host_id:?}");
             info!("Snapshot CPU manufacturer ID: {snapshot_id:?}");
             if host_id != snapshot_id {
                 warn!("Host CPU manufacturer ID differs from the snapshotted one",);
             }
         }
-        (Ok(host_id), None) => {
+        (Some(host_id), None) => {
             info!("Host CPU manufacturer ID: {host_id:?}");
             warn!("Snapshot CPU manufacturer ID: couldn't get from the snapshot");
         }
-        (Err(_), Some(snapshot_id)) => {
+        (None, Some(snapshot_id)) => {
             warn!("Host CPU manufacturer ID: couldn't get from the host");
             info!("Snapshot CPU manufacturer ID: {snapshot_id:?}");
         }
-        (Err(_), None) => {
+        (None, None) => {
             warn!("Host CPU manufacturer ID: couldn't get from the host");
             warn!("Snapshot CPU manufacturer ID: couldn't get from the snapshot");
         }
