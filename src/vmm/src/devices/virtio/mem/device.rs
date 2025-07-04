@@ -257,7 +257,7 @@ impl VirtioMem {
                 self.config.plugged_size -= VIRTIO_MEM_BLOCK_SIZE as u64;
 
                 // TODO handle file-backed devices
-                let addr = self.config.addr + block_idx * VIRTIO_MEM_BLOCK_SIZE as u64;
+                let addr: u64 = self.userspace_addr + block_idx * VIRTIO_MEM_BLOCK_SIZE as u64;
                 unsafe {
                     libc::madvise(
                         addr as *mut libc::c_void,
