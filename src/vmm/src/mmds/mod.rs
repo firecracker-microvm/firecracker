@@ -235,11 +235,13 @@ fn respond_to_put_request(mmds: &mut Mmds, request: Request) -> Response {
     let custom_headers = request.headers.custom_entries();
 
     // Reject `PUT` requests that contain `X-Forwarded-For` header.
-    if custom_headers.contains_key(REJECTED_HEADER) {
-        let error_msg = RequestError::HeaderError(HttpHeaderError::UnsupportedName(
-            REJECTED_HEADER.to_string(),
-        ))
-        .to_string();
+    if let Some((header, __)) = custom_headers
+        .iter()
+        .find(|(k, _)| k.to_lowercase() == REJECTED_HEADER)
+    {
+        let error_msg =
+            RequestError::HeaderError(HttpHeaderError::UnsupportedName(header.to_string()))
+                .to_string();
         return build_response(
             request.http_version(),
             StatusCode::BadRequest,
@@ -733,19 +735,25 @@ mod tests {
             assert_eq!(actual_response.content_type(), MediaType::PlainText);
 
             // Test unsupported `X-Forwarded-For` header
-            let request = Request::try_from(
-                b"PUT http://169.254.169.254/latest/api/token HTTP/1.0\r\n\
-                  X-Forwarded-For: 203.0.113.195\r\n\r\n",
-                None,
-            )
-            .unwrap();
-            let mut expected_response = Response::new(Version::Http10, StatusCode::BadRequest);
-            expected_response.set_content_type(MediaType::PlainText);
-            expected_response.set_body(Body::new(
-                "Invalid header. Reason: Unsupported header name. Key: X-Forwarded-For".to_string(),
-            ));
-            let actual_response = convert_to_response(mmds.clone(), request);
-            assert_eq!(actual_response, expected_response);
+            for header in ["X-Forwarded-For", "x-forwarded-for", "X-fOrWaRdEd-FoR"] {
+                #[rustfmt::skip]
+                let request = Request::try_from(
+                    format!(
+                        "PUT http://169.254.169.254/latest/api/token HTTP/1.0\r\n\
+                         {header}: 203.0.113.195\r\n\r\n"
+                    )
+                    .as_bytes(),
+                    None,
+                )
+                .unwrap();
+                let mut expected_response = Response::new(Version::Http10, StatusCode::BadRequest);
+                expected_response.set_content_type(MediaType::PlainText);
+                expected_response.set_body(Body::new(format!(
+                    "Invalid header. Reason: Unsupported header name. Key: {header}"
+                )));
+                let actual_response = convert_to_response(mmds.clone(), request);
+                assert_eq!(actual_response, expected_response);
+            }
 
             // Test invalid path
             let request = Request::try_from(
