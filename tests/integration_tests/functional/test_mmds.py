@@ -3,9 +3,11 @@
 """Tests that verify MMDS related functionality."""
 
 # pylint: disable=too-many-lines
+import json
 import random
 import string
 import time
+from datetime import datetime, timedelta, timezone
 
 import pytest
 
@@ -776,3 +778,54 @@ def test_deprecated_mmds_config(uvm_plain):
         )
         == 2
     )
+
+
+@pytest.mark.parametrize("version", MMDS_VERSIONS)
+def test_aws_credential_provider(uvm_plain, version):
+    """
+    Test AWS CLI credential provider
+    """
+    test_microvm = uvm_plain
+    test_microvm.spawn()
+    test_microvm.basic_config()
+    test_microvm.add_net_iface()
+    # V2 requires session tokens for GET requests
+    configure_mmds(test_microvm, iface_ids=["eth0"], version=version)
+    now = datetime.now(timezone.utc)
+    credentials = {
+        "Code": "Success",
+        "LastUpdated": now.strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "Type": "AWS-HMAC",
+        "AccessKeyId": "AAA",
+        "SecretAccessKey": "BBB",
+        "Token": "CCC",
+        "Expiration": (now + timedelta(seconds=60)).strftime("%Y-%m-%dT%H:%M:%SZ"),
+    }
+    data_store = {
+        "latest": {
+            "meta-data": {
+                "iam": {
+                    "security-credentials": {"role": json.dumps(credentials, indent=2)}
+                },
+                "placement": {"availability-zone": "us-east-1a"},
+            }
+        }
+    }
+    populate_data_store(test_microvm, data_store)
+    test_microvm.start()
+
+    ssh_connection = test_microvm.ssh
+
+    run_guest_cmd(ssh_connection, f"ip route add {DEFAULT_IPV4} dev eth0", "")
+
+    cmd = r"""python3 - <<EOF
+from botocore.session import get_session
+
+sess = get_session()
+cred = sess.get_credentials()
+
+print(f"{cred.access_key},{cred.secret_key},{cred.token}")
+EOF
+"""
+    _, stdout, stderr = ssh_connection.check_output(cmd)
+    assert stdout == "AAA,BBB,CCC\n", stderr
