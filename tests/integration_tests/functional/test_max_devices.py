@@ -17,15 +17,18 @@ MAX_DEVICES_ATTACHED = {
     "aarch64": 94
 }.get(platform.machine())
 
-def test_attach_maximum_devices(uvm_plain_any):
+def test_attach_maximum_devices(microvm_factory, guest_kernel, rootfs):
     """
     Test attaching maximum number of devices to the microVM.
     """
-    test_microvm = uvm_plain_any
+    if MAX_DEVICES_ATTACHED is None:
+        pytest.skip("Unsupported platform for this test.")
+        
+    test_microvm = microvm_factory.build(guest_kernel, rootfs, monitor_memory=False)
     test_microvm.spawn()
 
-    # Set up a basic microVM.
-    test_microvm.basic_config()
+    # The default 256mib is not enough for 94 ssh connections on aarch64.
+    test_microvm.basic_config(mem_size_mib=512)
 
     # Add (`MAX_DEVICES_ATTACHED` - 1) devices because the rootfs
     # has already been configured in the `basic_config()`function.
@@ -43,6 +46,9 @@ def test_attach_too_many_devices(uvm_plain):
     """
     Test attaching to a microVM more devices than available IRQs.
     """
+    if MAX_DEVICES_ATTACHED is None:
+        pytest.skip("Unsupported platform for this test.")
+        
     test_microvm = uvm_plain
     test_microvm.spawn()
 
