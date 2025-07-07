@@ -180,7 +180,7 @@ pub fn build_microvm_for_boot(
     vm.put_memory_regions(guest_memory, true)
         .map_err(VmmError::Vm)?;
     vm.set_last_ram_addr();
-    vm.put_memory_regions(guest_hp_memory, true)
+    vm.put_memory_regions(guest_hp_memory, false)
         .map_err(VmmError::Vm)?;
 
     let mut device_manager = DeviceManager::new(event_manager, &vcpus_exit_evt, &vm)?;
