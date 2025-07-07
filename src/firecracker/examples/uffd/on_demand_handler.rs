@@ -119,10 +119,8 @@ fn main() {
                                         println!("uffdio_continue error: {:?}", err)
                                     });
                                 }
-                            } else {
-                                if !uffd_handler.serve_pf(addr.cast(), uffd_handler.page_size) {
-                                    deferred_events.push(event);
-                                }
+                            } else if !uffd_handler.serve_pf(addr.cast(), uffd_handler.page_size) {
+                                deferred_events.push(event);
                             }
                         }
                         userfaultfd::Event::Remove { start, end } => {
