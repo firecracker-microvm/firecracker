@@ -1,7 +1,6 @@
 // Copyright 2020 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-use std::fmt;
 use std::time::Duration;
 
 use log::error;
@@ -151,6 +150,7 @@ impl BalloonStats {
 }
 
 /// Virtio balloon device.
+#[derive(Debug)]
 pub struct Balloon {
     // Virtio fields.
     pub(crate) avail_features: u64,
@@ -174,29 +174,6 @@ pub struct Balloon {
     pub(crate) latest_stats: BalloonStats,
     // A buffer used as pfn accumulator during descriptor processing.
     pub(crate) pfn_buffer: [u32; MAX_PAGE_COMPACT_BUFFER],
-}
-
-// TODO Use `#[derive(Debug)]` when a new release of
-// [rust-timerfd](https://github.com/main--/rust-timerfd) is published that includes
-// https://github.com/main--/rust-timerfd/pull/12.
-impl fmt::Debug for Balloon {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("Balloon")
-            .field("avail_features", &self.avail_features)
-            .field("acked_features", &self.acked_features)
-            .field("config_space", &self.config_space)
-            .field("activate_evt", &self.activate_evt)
-            .field("queues", &self.queues)
-            .field("queue_evts", &self.queue_evts)
-            .field("device_state", &self.device_state)
-            .field("irq_trigger", &self.irq_trigger)
-            .field("restored_from_file", &self.restored_from_file)
-            .field("stats_polling_interval_s", &self.stats_polling_interval_s)
-            .field("stats_desc_index", &self.stats_desc_index)
-            .field("latest_stats", &self.latest_stats)
-            .field("pfn_buffer", &self.pfn_buffer)
-            .finish()
-    }
 }
 
 impl Balloon {
