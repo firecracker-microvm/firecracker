@@ -254,9 +254,10 @@ impl UffdHandler {
         match (&guest_memfd, &userfault_bitmap_memfd) {
             (Some(guestmem_file), Some(bitmap_file)) => {
                 let guest_memfd_addr =
-                    Some(Self::mmap_helper(size, guestmem_file.as_raw_fd()) as *mut u8);
+                    Some(Self::mmap_helper(size, guestmem_file.as_raw_fd()).cast::<u8>());
 
-                let bitmap_ptr = Self::mmap_helper(size, bitmap_file.as_raw_fd()) as *mut AtomicU64;
+                let bitmap_ptr =
+                    Self::mmap_helper(size, bitmap_file.as_raw_fd()).cast::<AtomicU64>();
 
                 // SAFETY: The bitmap pointer is valid and the size is correct.
                 let userfault_bitmap = Some(unsafe {
@@ -613,7 +614,7 @@ impl Runtime {
     ) -> UffdHandler {
         let mut message_buf = vec![0u8; 1024];
         let mut iovecs = [libc::iovec {
-            iov_base: message_buf.as_mut_ptr() as *mut libc::c_void,
+            iov_base: message_buf.as_mut_ptr().cast::<libc::c_void>(),
             iov_len: message_buf.len(),
         }];
         let mut fds = [0; 3];
