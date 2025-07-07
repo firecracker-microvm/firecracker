@@ -1,0 +1,44 @@
+From 9ba5bb07f565a05b1f3692db4efbc6c934064cee Mon Sep 17 00:00:00 2001
+From: James Houghton <jthoughton@google.com>
+Date: Thu, 9 Jan 2025 20:49:25 +0000
+Subject: [PATCH 09/12] KVM: selftests: Add va_start/end into uffd_desc
+
+This will be used for the self-test to look up which userfaultfd we
+should be using when handling a KVM Userfault (in the event KVM
+Userfault and userfaultfd are being used together).
+
+Signed-off-by: James Houghton <jthoughton@google.com>
+---
+ tools/testing/selftests/kvm/include/userfaultfd_util.h | 2 ++
+ tools/testing/selftests/kvm/lib/userfaultfd_util.c     | 2 ++
+ 2 files changed, 4 insertions(+)
+
+diff --git a/tools/testing/selftests/kvm/include/userfaultfd_util.h b/tools/testing/selftests/kvm/include/userfaultfd_util.h
+index 60f7f9d435dc..b62fecdfe745 100644
+--- a/tools/testing/selftests/kvm/include/userfaultfd_util.h
++++ b/tools/testing/selftests/kvm/include/userfaultfd_util.h
+@@ -30,6 +30,8 @@ struct uffd_desc {
+ 	int *pipefds;
+ 	pthread_t *readers;
+ 	struct uffd_reader_args *reader_args;
++	void *va_start;
++	void *va_end;
+ };
+ 
+ struct uffd_desc *uffd_setup_demand_paging(int uffd_mode, useconds_t delay,
+diff --git a/tools/testing/selftests/kvm/lib/userfaultfd_util.c b/tools/testing/selftests/kvm/lib/userfaultfd_util.c
+index 5bde176cedd5..31d38b3a9d12 100644
+--- a/tools/testing/selftests/kvm/lib/userfaultfd_util.c
++++ b/tools/testing/selftests/kvm/lib/userfaultfd_util.c
+@@ -152,6 +152,8 @@ struct uffd_desc *uffd_setup_demand_paging(int uffd_mode, useconds_t delay,
+ 		    expected_ioctls, "missing userfaultfd ioctls");
+ 
+ 	uffd_desc->uffd = uffd;
++	uffd_desc->va_start = hva;
++	uffd_desc->va_end = (char *)hva + len;
+ 	for (i = 0; i < uffd_desc->num_readers; ++i) {
+ 		int pipes[2];
+ 
+-- 
+2.49.0
+

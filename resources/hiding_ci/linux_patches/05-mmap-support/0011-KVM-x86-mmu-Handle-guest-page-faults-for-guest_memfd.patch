@@ -1,0 +1,163 @@
+From aa57cd34d53f8cc0e6af44b4070c39945ac556b4 Mon Sep 17 00:00:00 2001
+From: Ackerley Tng <ackerleytng@google.com>
+Date: Wed, 11 Jun 2025 14:33:22 +0100
+Subject: [PATCH 11/42] KVM: x86/mmu: Handle guest page faults for guest_memfd
+ with shared memory
+
+For memslots backed by guest_memfd with shared mem support, the KVM MMU
+must always fault in pages from guest_memfd, and not from the host
+userspace_addr. Update the fault handler to do so.
+
+This patch also refactors related function names for accuracy:
+
+kvm_mem_is_private() returns true only when the current private/shared
+state (in the CoCo sense) of the memory is private, and returns false if
+the current state is shared explicitly or impicitly, e.g., belongs to a
+non-CoCo VM.
+
+kvm_mmu_faultin_pfn_gmem() is updated to indicate that it can be used to
+fault in not just private memory, but more generally, from guest_memfd.
+
+Co-developed-by: David Hildenbrand <david@redhat.com>
+Signed-off-by: David Hildenbrand <david@redhat.com>
+Signed-off-by: Ackerley Tng <ackerleytng@google.com>
+Co-developed-by: Fuad Tabba <tabba@google.com>
+Signed-off-by: Fuad Tabba <tabba@google.com>
+---
+ arch/x86/kvm/mmu/mmu.c   | 38 +++++++++++++++++++++++---------------
+ include/linux/kvm_host.h | 25 +++++++++++++++++++++++--
+ 2 files changed, 46 insertions(+), 17 deletions(-)
+
+diff --git a/arch/x86/kvm/mmu/mmu.c b/arch/x86/kvm/mmu/mmu.c
+index ada81a75d790..0932c1af47b6 100644
+--- a/arch/x86/kvm/mmu/mmu.c
++++ b/arch/x86/kvm/mmu/mmu.c
+@@ -3291,6 +3291,11 @@ int kvm_mmu_max_mapping_level(struct kvm *kvm,
+ 	return __kvm_mmu_max_mapping_level(kvm, slot, gfn, PG_LEVEL_NUM, is_private);
+ }
+ 
++static inline bool fault_from_gmem(struct kvm_page_fault *fault)
++{
++	return fault->is_private || kvm_gmem_memslot_supports_shared(fault->slot);
++}
++
+ void kvm_mmu_hugepage_adjust(struct kvm_vcpu *vcpu, struct kvm_page_fault *fault)
+ {
+ 	struct kvm_memory_slot *slot = fault->slot;
+@@ -4467,21 +4472,25 @@ static inline u8 kvm_max_level_for_order(int order)
+ 	return PG_LEVEL_4K;
+ }
+ 
+-static u8 kvm_max_private_mapping_level(struct kvm *kvm, kvm_pfn_t pfn,
+-					u8 max_level, int gmem_order)
++static u8 kvm_max_level_for_fault_and_order(struct kvm *kvm,
++					    struct kvm_page_fault *fault,
++					    int order)
+ {
+-	u8 req_max_level;
++	u8 max_level = fault->max_level;
+ 
+ 	if (max_level == PG_LEVEL_4K)
+ 		return PG_LEVEL_4K;
+ 
+-	max_level = min(kvm_max_level_for_order(gmem_order), max_level);
++	max_level = min(kvm_max_level_for_order(order), max_level);
+ 	if (max_level == PG_LEVEL_4K)
+ 		return PG_LEVEL_4K;
+ 
+-	req_max_level = kvm_x86_call(private_max_mapping_level)(kvm, pfn);
+-	if (req_max_level)
+-		max_level = min(max_level, req_max_level);
++	if (fault->is_private) {
++		u8 level = kvm_x86_call(private_max_mapping_level)(kvm, fault->pfn);
++
++		if (level)
++			max_level = min(max_level, level);
++	}
+ 
+ 	return max_level;
+ }
+@@ -4493,10 +4502,10 @@ static void kvm_mmu_finish_page_fault(struct kvm_vcpu *vcpu,
+ 				 r == RET_PF_RETRY, fault->map_writable);
+ }
+ 
+-static int kvm_mmu_faultin_pfn_private(struct kvm_vcpu *vcpu,
+-				       struct kvm_page_fault *fault)
++static int kvm_mmu_faultin_pfn_gmem(struct kvm_vcpu *vcpu,
++				    struct kvm_page_fault *fault)
+ {
+-	int max_order, r;
++	int gmem_order, r;
+ 
+ 	if (!kvm_slot_has_gmem(fault->slot)) {
+ 		kvm_mmu_prepare_memory_fault_exit(vcpu, fault);
+@@ -4504,15 +4513,14 @@ static int kvm_mmu_faultin_pfn_private(struct kvm_vcpu *vcpu,
+ 	}
+ 
+ 	r = kvm_gmem_get_pfn(vcpu->kvm, fault->slot, fault->gfn, &fault->pfn,
+-			     &fault->refcounted_page, &max_order);
++			     &fault->refcounted_page, &gmem_order);
+ 	if (r) {
+ 		kvm_mmu_prepare_memory_fault_exit(vcpu, fault);
+ 		return r;
+ 	}
+ 
+ 	fault->map_writable = !(fault->slot->flags & KVM_MEM_READONLY);
+-	fault->max_level = kvm_max_private_mapping_level(vcpu->kvm, fault->pfn,
+-							 fault->max_level, max_order);
++	fault->max_level = kvm_max_level_for_fault_and_order(vcpu->kvm, fault, gmem_order);
+ 
+ 	return RET_PF_CONTINUE;
+ }
+@@ -4522,8 +4530,8 @@ static int __kvm_mmu_faultin_pfn(struct kvm_vcpu *vcpu,
+ {
+ 	unsigned int foll = fault->write ? FOLL_WRITE : 0;
+ 
+-	if (fault->is_private)
+-		return kvm_mmu_faultin_pfn_private(vcpu, fault);
++	if (fault_from_gmem(fault))
++		return kvm_mmu_faultin_pfn_gmem(vcpu, fault);
+ 
+ 	foll |= FOLL_NOWAIT;
+ 	fault->pfn = __kvm_faultin_pfn(fault->slot, fault->gfn, foll,
+diff --git a/include/linux/kvm_host.h b/include/linux/kvm_host.h
+index bba7d2c14177..8f7069385189 100644
+--- a/include/linux/kvm_host.h
++++ b/include/linux/kvm_host.h
+@@ -2547,10 +2547,31 @@ bool kvm_arch_pre_set_memory_attributes(struct kvm *kvm,
+ bool kvm_arch_post_set_memory_attributes(struct kvm *kvm,
+ 					 struct kvm_gfn_range *range);
+ 
++/*
++ * Returns true if the given gfn's private/shared status (in the CoCo sense) is
++ * private.
++ *
++ * A return value of false indicates that the gfn is explicitly or implicitly
++ * shared (i.e., non-CoCo VMs).
++ */
+ static inline bool kvm_mem_is_private(struct kvm *kvm, gfn_t gfn)
+ {
+-	return IS_ENABLED(CONFIG_KVM_GMEM) &&
+-	       kvm_get_memory_attributes(kvm, gfn) & KVM_MEMORY_ATTRIBUTE_PRIVATE;
++	struct kvm_memory_slot *slot;
++
++	if (!IS_ENABLED(CONFIG_KVM_GMEM))
++		return false;
++
++	slot = gfn_to_memslot(kvm, gfn);
++	if (kvm_slot_has_gmem(slot) && kvm_gmem_memslot_supports_shared(slot)) {
++		/*
++		 * Without in-place conversion support, if a guest_memfd memslot
++		 * supports shared memory, then all the slot's memory is
++		 * considered not private, i.e., implicitly shared.
++		 */
++		return false;
++	}
++
++	return kvm_get_memory_attributes(kvm, gfn) & KVM_MEMORY_ATTRIBUTE_PRIVATE;
+ }
+ #else
+ static inline bool kvm_mem_is_private(struct kvm *kvm, gfn_t gfn)
+-- 
+2.49.0
+

@@ -1,0 +1,167 @@
+From fdaf4ca0334c928429992096ce96dbdba7d78687 Mon Sep 17 00:00:00 2001
+From: Fuad Tabba <tabba@google.com>
+Date: Wed, 11 Jun 2025 14:33:20 +0100
+Subject: [PATCH 09/42] KVM: guest_memfd: Allow host to map guest_memfd pages
+
+This patch enables support for shared memory in guest_memfd, including
+mapping that memory from host userspace.
+
+This functionality is gated by the KVM_GMEM_SHARED_MEM Kconfig option,
+and enabled for a given instance by the GUEST_MEMFD_FLAG_SUPPORT_SHARED
+flag at creation time.
+
+Reviewed-by: Gavin Shan <gshan@redhat.com>
+Acked-by: David Hildenbrand <david@redhat.com>
+Co-developed-by: Ackerley Tng <ackerleytng@google.com>
+Signed-off-by: Ackerley Tng <ackerleytng@google.com>
+Signed-off-by: Fuad Tabba <tabba@google.com>
+---
+ include/linux/kvm_host.h | 13 +++++++
+ include/uapi/linux/kvm.h |  1 +
+ virt/kvm/Kconfig         |  4 +++
+ virt/kvm/guest_memfd.c   | 73 ++++++++++++++++++++++++++++++++++++++++
+ 4 files changed, 91 insertions(+)
+
+diff --git a/include/linux/kvm_host.h b/include/linux/kvm_host.h
+index 9a6712151a74..6b63556ca150 100644
+--- a/include/linux/kvm_host.h
++++ b/include/linux/kvm_host.h
+@@ -729,6 +729,19 @@ static inline bool kvm_arch_supports_gmem(struct kvm *kvm)
+ }
+ #endif
+ 
++/*
++ * Returns true if this VM supports shared mem in guest_memfd.
++ *
++ * Arch code must define kvm_arch_supports_gmem_shared_mem if support for
++ * guest_memfd is enabled.
++ */
++#if !defined(kvm_arch_supports_gmem_shared_mem)
++static inline bool kvm_arch_supports_gmem_shared_mem(struct kvm *kvm)
++{
++	return false;
++}
++#endif
++
+ #ifndef kvm_arch_has_readonly_mem
+ static inline bool kvm_arch_has_readonly_mem(struct kvm *kvm)
+ {
+diff --git a/include/uapi/linux/kvm.h b/include/uapi/linux/kvm.h
+index 37891580d05d..954f0668130c 100644
+--- a/include/uapi/linux/kvm.h
++++ b/include/uapi/linux/kvm.h
+@@ -1592,6 +1592,7 @@ struct kvm_memory_attributes {
+ #define KVM_MEMORY_ATTRIBUTE_PRIVATE           (1ULL << 3)
+ 
+ #define KVM_CREATE_GUEST_MEMFD	_IOWR(KVMIO,  0xd4, struct kvm_create_guest_memfd)
++#define GUEST_MEMFD_FLAG_SUPPORT_SHARED	(1ULL << 0)
+ 
+ struct kvm_create_guest_memfd {
+ 	__u64 size;
+diff --git a/virt/kvm/Kconfig b/virt/kvm/Kconfig
+index 559c93ad90be..e90884f74404 100644
+--- a/virt/kvm/Kconfig
++++ b/virt/kvm/Kconfig
+@@ -128,3 +128,7 @@ config HAVE_KVM_ARCH_GMEM_PREPARE
+ config HAVE_KVM_ARCH_GMEM_INVALIDATE
+        bool
+        depends on KVM_GMEM
++
++config KVM_GMEM_SHARED_MEM
++       select KVM_GMEM
++       bool
+diff --git a/virt/kvm/guest_memfd.c b/virt/kvm/guest_memfd.c
+index 6db515833f61..06616b6b493b 100644
+--- a/virt/kvm/guest_memfd.c
++++ b/virt/kvm/guest_memfd.c
+@@ -312,7 +312,77 @@ static pgoff_t kvm_gmem_get_index(struct kvm_memory_slot *slot, gfn_t gfn)
+ 	return gfn - slot->base_gfn + slot->gmem.pgoff;
+ }
+ 
++static bool kvm_gmem_supports_shared(struct inode *inode)
++{
++	const u64 flags = (u64)inode->i_private;
++
++	if (!IS_ENABLED(CONFIG_KVM_GMEM_SHARED_MEM))
++		return false;
++
++	return flags & GUEST_MEMFD_FLAG_SUPPORT_SHARED;
++}
++
++static vm_fault_t kvm_gmem_fault_shared(struct vm_fault *vmf)
++{
++	struct inode *inode = file_inode(vmf->vma->vm_file);
++	struct folio *folio;
++	vm_fault_t ret = VM_FAULT_LOCKED;
++
++	if (((loff_t)vmf->pgoff << PAGE_SHIFT) >= i_size_read(inode))
++		return VM_FAULT_SIGBUS;
++
++	folio = kvm_gmem_get_folio(inode, vmf->pgoff);
++	if (IS_ERR(folio)) {
++		int err = PTR_ERR(folio);
++
++		if (err == -EAGAIN)
++			return VM_FAULT_RETRY;
++
++		return vmf_error(err);
++	}
++
++	if (WARN_ON_ONCE(folio_test_large(folio))) {
++		ret = VM_FAULT_SIGBUS;
++		goto out_folio;
++	}
++
++	if (!folio_test_uptodate(folio)) {
++		clear_highpage(folio_page(folio, 0));
++		kvm_gmem_mark_prepared(folio);
++	}
++
++	vmf->page = folio_file_page(folio, vmf->pgoff);
++
++out_folio:
++	if (ret != VM_FAULT_LOCKED) {
++		folio_unlock(folio);
++		folio_put(folio);
++	}
++
++	return ret;
++}
++
++static const struct vm_operations_struct kvm_gmem_vm_ops = {
++	.fault = kvm_gmem_fault_shared,
++};
++
++static int kvm_gmem_mmap(struct file *file, struct vm_area_struct *vma)
++{
++	if (!kvm_gmem_supports_shared(file_inode(file)))
++		return -ENODEV;
++
++	if ((vma->vm_flags & (VM_SHARED | VM_MAYSHARE)) !=
++	    (VM_SHARED | VM_MAYSHARE)) {
++		return -EINVAL;
++	}
++
++	vma->vm_ops = &kvm_gmem_vm_ops;
++
++	return 0;
++}
++
+ static struct file_operations kvm_gmem_fops = {
++	.mmap		= kvm_gmem_mmap,
+ 	.open		= generic_file_open,
+ 	.release	= kvm_gmem_release,
+ 	.fallocate	= kvm_gmem_fallocate,
+@@ -463,6 +533,9 @@ int kvm_gmem_create(struct kvm *kvm, struct kvm_create_guest_memfd *args)
+ 	u64 flags = args->flags;
+ 	u64 valid_flags = 0;
+ 
++	if (kvm_arch_supports_gmem_shared_mem(kvm))
++		valid_flags |= GUEST_MEMFD_FLAG_SUPPORT_SHARED;
++
+ 	if (flags & ~valid_flags)
+ 		return -EINVAL;
+ 
+-- 
+2.49.0
+

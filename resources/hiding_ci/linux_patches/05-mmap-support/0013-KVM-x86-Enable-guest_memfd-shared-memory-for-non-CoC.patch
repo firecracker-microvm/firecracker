@@ -1,0 +1,74 @@
+From 661b138e0604819c4b93b2bda4d5e3f78011d4eb Mon Sep 17 00:00:00 2001
+From: Fuad Tabba <tabba@google.com>
+Date: Wed, 11 Jun 2025 14:33:24 +0100
+Subject: [PATCH 13/42] KVM: x86: Enable guest_memfd shared memory for non-CoCo
+ VMs
+
+Define the architecture-specific macro to enable shared memory support
+in guest_memfd for ordinary, i.e., non-CoCo, VM types, specifically
+KVM_X86_DEFAULT_VM and KVM_X86_SW_PROTECTED_VM.
+
+Enable the KVM_GMEM_SHARED_MEM Kconfig option if KVM_SW_PROTECTED_VM is
+enabled.
+
+Co-developed-by: Ackerley Tng <ackerleytng@google.com>
+Signed-off-by: Ackerley Tng <ackerleytng@google.com>
+Signed-off-by: Fuad Tabba <tabba@google.com>
+---
+ arch/x86/include/asm/kvm_host.h | 10 ++++++++++
+ arch/x86/kvm/Kconfig            |  1 +
+ arch/x86/kvm/x86.c              |  3 ++-
+ 3 files changed, 13 insertions(+), 1 deletion(-)
+
+diff --git a/arch/x86/include/asm/kvm_host.h b/arch/x86/include/asm/kvm_host.h
+index 4bc50c1e21bd..7b9ccdd99f32 100644
+--- a/arch/x86/include/asm/kvm_host.h
++++ b/arch/x86/include/asm/kvm_host.h
+@@ -2271,8 +2271,18 @@ void kvm_configure_mmu(bool enable_tdp, int tdp_forced_root_level,
+ 
+ #ifdef CONFIG_KVM_GMEM
+ #define kvm_arch_supports_gmem(kvm) ((kvm)->arch.supports_gmem)
++
++/*
++ * CoCo VMs with hardware support that use guest_memfd only for backing private
++ * memory, e.g., TDX, cannot use guest_memfd with userspace mapping enabled.
++ */
++#define kvm_arch_supports_gmem_shared_mem(kvm)			\
++	(IS_ENABLED(CONFIG_KVM_GMEM_SHARED_MEM) &&			\
++	 ((kvm)->arch.vm_type == KVM_X86_SW_PROTECTED_VM ||		\
++	  (kvm)->arch.vm_type == KVM_X86_DEFAULT_VM))
+ #else
+ #define kvm_arch_supports_gmem(kvm) false
++#define kvm_arch_supports_gmem_shared_mem(kvm) false
+ #endif
+ 
+ #define kvm_arch_has_readonly_mem(kvm) (!(kvm)->arch.has_protected_state)
+diff --git a/arch/x86/kvm/Kconfig b/arch/x86/kvm/Kconfig
+index 9151cd82adab..29845a286430 100644
+--- a/arch/x86/kvm/Kconfig
++++ b/arch/x86/kvm/Kconfig
+@@ -47,6 +47,7 @@ config KVM_X86
+ 	select KVM_GENERIC_HARDWARE_ENABLING
+ 	select KVM_GENERIC_PRE_FAULT_MEMORY
+ 	select KVM_GENERIC_GMEM_POPULATE if KVM_SW_PROTECTED_VM
++	select KVM_GMEM_SHARED_MEM if KVM_SW_PROTECTED_VM
+ 	select KVM_WERROR if WERROR
+ 
+ config KVM
+diff --git a/arch/x86/kvm/x86.c b/arch/x86/kvm/x86.c
+index 401256ee817f..e21f5f2fe059 100644
+--- a/arch/x86/kvm/x86.c
++++ b/arch/x86/kvm/x86.c
+@@ -12778,7 +12778,8 @@ int kvm_arch_init_vm(struct kvm *kvm, unsigned long type)
+ 		return -EINVAL;
+ 
+ 	kvm->arch.vm_type = type;
+-	kvm->arch.supports_gmem = (type == KVM_X86_SW_PROTECTED_VM);
++	kvm->arch.supports_gmem =
++		type == KVM_X86_DEFAULT_VM || type == KVM_X86_SW_PROTECTED_VM;
+ 	/* Decided by the vendor code for other VM types.  */
+ 	kvm->arch.pre_fault_allowed =
+ 		type == KVM_X86_DEFAULT_VM || type == KVM_X86_SW_PROTECTED_VM;
+-- 
+2.49.0
+

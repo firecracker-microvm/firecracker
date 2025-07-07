@@ -1,0 +1,91 @@
+From 6724239b0af354b909d224394ba639d1a9d66d09 Mon Sep 17 00:00:00 2001
+From: Fuad Tabba <tabba@google.com>
+Date: Wed, 11 Jun 2025 14:33:16 +0100
+Subject: [PATCH 05/42] KVM: x86: Rename kvm->arch.has_private_mem to
+ kvm->arch.supports_gmem
+
+The bool has_private_mem is used to indicate whether guest_memfd is
+supported. Rename it to supports_gmem to make its meaning clearer and to
+decouple memory being private from guest_memfd.
+
+Reviewed-by: Ira Weiny <ira.weiny@intel.com>
+Reviewed-by: Gavin Shan <gshan@redhat.com>
+Reviewed-by: Shivank Garg <shivankg@amd.com>
+Reviewed-by: Vlastimil Babka <vbabka@suse.cz>
+Co-developed-by: David Hildenbrand <david@redhat.com>
+Signed-off-by: David Hildenbrand <david@redhat.com>
+Signed-off-by: Fuad Tabba <tabba@google.com>
+---
+ arch/x86/include/asm/kvm_host.h | 4 ++--
+ arch/x86/kvm/mmu/mmu.c          | 2 +-
+ arch/x86/kvm/svm/svm.c          | 4 ++--
+ arch/x86/kvm/x86.c              | 3 +--
+ 4 files changed, 6 insertions(+), 7 deletions(-)
+
+diff --git a/arch/x86/include/asm/kvm_host.h b/arch/x86/include/asm/kvm_host.h
+index 3d69da6d2d9e..4bc50c1e21bd 100644
+--- a/arch/x86/include/asm/kvm_host.h
++++ b/arch/x86/include/asm/kvm_host.h
+@@ -1341,7 +1341,7 @@ struct kvm_arch {
+ 	unsigned int indirect_shadow_pages;
+ 	u8 mmu_valid_gen;
+ 	u8 vm_type;
+-	bool has_private_mem;
++	bool supports_gmem;
+ 	bool has_protected_state;
+ 	bool pre_fault_allowed;
+ 	struct hlist_head mmu_page_hash[KVM_NUM_MMU_PAGES];
+@@ -2270,7 +2270,7 @@ void kvm_configure_mmu(bool enable_tdp, int tdp_forced_root_level,
+ 
+ 
+ #ifdef CONFIG_KVM_GMEM
+-#define kvm_arch_supports_gmem(kvm) ((kvm)->arch.has_private_mem)
++#define kvm_arch_supports_gmem(kvm) ((kvm)->arch.supports_gmem)
+ #else
+ #define kvm_arch_supports_gmem(kvm) false
+ #endif
+diff --git a/arch/x86/kvm/mmu/mmu.c b/arch/x86/kvm/mmu/mmu.c
+index b13f76630b1a..72ed7344cbf4 100644
+--- a/arch/x86/kvm/mmu/mmu.c
++++ b/arch/x86/kvm/mmu/mmu.c
+@@ -3488,7 +3488,7 @@ static bool page_fault_can_be_fast(struct kvm *kvm, struct kvm_page_fault *fault
+ 	 * on RET_PF_SPURIOUS until the update completes, or an actual spurious
+ 	 * case might go down the slow path. Either case will resolve itself.
+ 	 */
+-	if (kvm->arch.has_private_mem &&
++	if (kvm->arch.supports_gmem &&
+ 	    fault->is_private != kvm_mem_is_private(kvm, fault->gfn))
+ 		return false;
+ 
+diff --git a/arch/x86/kvm/svm/svm.c b/arch/x86/kvm/svm/svm.c
+index ab9b947dbf4f..67ab05fd3517 100644
+--- a/arch/x86/kvm/svm/svm.c
++++ b/arch/x86/kvm/svm/svm.c
+@@ -5180,8 +5180,8 @@ static int svm_vm_init(struct kvm *kvm)
+ 			(type == KVM_X86_SEV_ES_VM || type == KVM_X86_SNP_VM);
+ 		to_kvm_sev_info(kvm)->need_init = true;
+ 
+-		kvm->arch.has_private_mem = (type == KVM_X86_SNP_VM);
+-		kvm->arch.pre_fault_allowed = !kvm->arch.has_private_mem;
++		kvm->arch.supports_gmem = (type == KVM_X86_SNP_VM);
++		kvm->arch.pre_fault_allowed = !kvm->arch.supports_gmem;
+ 	}
+ 
+ 	if (!pause_filter_count || !pause_filter_thresh)
+diff --git a/arch/x86/kvm/x86.c b/arch/x86/kvm/x86.c
+index b58a74c1722d..401256ee817f 100644
+--- a/arch/x86/kvm/x86.c
++++ b/arch/x86/kvm/x86.c
+@@ -12778,8 +12778,7 @@ int kvm_arch_init_vm(struct kvm *kvm, unsigned long type)
+ 		return -EINVAL;
+ 
+ 	kvm->arch.vm_type = type;
+-	kvm->arch.has_private_mem =
+-		(type == KVM_X86_SW_PROTECTED_VM);
++	kvm->arch.supports_gmem = (type == KVM_X86_SW_PROTECTED_VM);
+ 	/* Decided by the vendor code for other VM types.  */
+ 	kvm->arch.pre_fault_allowed =
+ 		type == KVM_X86_DEFAULT_VM || type == KVM_X86_SW_PROTECTED_VM;
+-- 
+2.49.0
+
