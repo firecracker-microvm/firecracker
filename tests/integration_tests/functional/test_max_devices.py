@@ -12,10 +12,8 @@ import pytest
 # On aarch64, IRQs are available from 32 to 127. We always use one IRQ each for
 # the VMGenID and RTC devices, so the maximum number of devices supported
 # at the same time is 94.
-MAX_DEVICES_ATTACHED = {
-    "x86_64": 18,
-    "aarch64": 94
-}.get(platform.machine())
+MAX_DEVICES_ATTACHED = {"x86_64": 18, "aarch64": 94}.get(platform.machine())
+
 
 def test_attach_maximum_devices(microvm_factory, guest_kernel, rootfs):
     """
@@ -23,7 +21,7 @@ def test_attach_maximum_devices(microvm_factory, guest_kernel, rootfs):
     """
     if MAX_DEVICES_ATTACHED is None:
         pytest.skip("Unsupported platform for this test.")
-        
+
     test_microvm = microvm_factory.build(guest_kernel, rootfs, monitor_memory=False)
     test_microvm.spawn()
 
@@ -42,14 +40,14 @@ def test_attach_maximum_devices(microvm_factory, guest_kernel, rootfs):
         test_microvm.ssh_iface(i).check_output("sync")
 
 
-def test_attach_too_many_devices(uvm_plain):
+def test_attach_too_many_devices(microvm_factory, guest_kernel, rootfs):
     """
     Test attaching to a microVM more devices than available IRQs.
     """
     if MAX_DEVICES_ATTACHED is None:
         pytest.skip("Unsupported platform for this test.")
-        
-    test_microvm = uvm_plain
+
+    test_microvm = microvm_factory.build(guest_kernel, rootfs, monitor_memory=False)
     test_microvm.spawn()
 
     # Set up a basic microVM.
