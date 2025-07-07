@@ -1,0 +1,28 @@
+From 4b29cd637ae9d9b76c22ad9d9859723a27f32ee5 Mon Sep 17 00:00:00 2001
+From: James Houghton <jthoughton@google.com>
+Date: Thu, 9 Jan 2025 20:49:23 +0000
+Subject: [PATCH 07/12] KVM: selftests: Fix vm_mem_region_set_flags docstring
+
+`flags` is what region->region.flags gets set to.
+
+Signed-off-by: James Houghton <jthoughton@google.com>
+---
+ tools/testing/selftests/kvm/lib/kvm_util.c | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/tools/testing/selftests/kvm/lib/kvm_util.c b/tools/testing/selftests/kvm/lib/kvm_util.c
+index a055343a7bf7..ca1aa1699f8a 100644
+--- a/tools/testing/selftests/kvm/lib/kvm_util.c
++++ b/tools/testing/selftests/kvm/lib/kvm_util.c
+@@ -1200,7 +1200,7 @@ memslot2region(struct kvm_vm *vm, uint32_t memslot)
+  *
+  * Input Args:
+  *   vm - Virtual Machine
+- *   flags - Starting guest physical address
++ *   flags - Flags for the memslot
+  *
+  * Output Args: None
+  *
+-- 
+2.49.0
+

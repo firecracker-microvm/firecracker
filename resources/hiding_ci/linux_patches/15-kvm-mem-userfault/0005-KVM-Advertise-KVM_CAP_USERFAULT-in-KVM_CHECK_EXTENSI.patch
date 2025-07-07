@@ -1,0 +1,45 @@
+From 24ebc5c5026700260ff0a69cad25f0c1454dbc10 Mon Sep 17 00:00:00 2001
+From: James Houghton <jthoughton@google.com>
+Date: Thu, 9 Jan 2025 20:49:20 +0000
+Subject: [PATCH 05/12] KVM: Advertise KVM_CAP_USERFAULT in KVM_CHECK_EXTENSION
+
+Advertise support for KVM_CAP_USERFAULT when kvm_has_userfault() returns
+true. Currently this is merely IS_ENABLED(CONFIG_HAVE_KVM_USERFAULT), so
+it is somewhat redundant.
+
+Signed-off-by: James Houghton <jthoughton@google.com>
+---
+ include/uapi/linux/kvm.h | 1 +
+ virt/kvm/kvm_main.c      | 4 ++++
+ 2 files changed, 5 insertions(+)
+
+diff --git a/include/uapi/linux/kvm.h b/include/uapi/linux/kvm.h
+index 4ce2282f7a18..1c023deb54d7 100644
+--- a/include/uapi/linux/kvm.h
++++ b/include/uapi/linux/kvm.h
+@@ -961,6 +961,7 @@ struct kvm_enable_cap {
+ #define KVM_CAP_RISCV_MP_STATE_RESET 242
+ #define KVM_CAP_GMEM_SHARED_MEM 243
+ #define KVM_CAP_GMEM_NO_DIRECT_MAP 244
++#define KVM_CAP_USERFAULT 245
+ 
+ struct kvm_irq_routing_irqchip {
+ 	__u32 irqchip;
+diff --git a/virt/kvm/kvm_main.c b/virt/kvm/kvm_main.c
+index 2208033d5dd4..b224f167aeac 100644
+--- a/virt/kvm/kvm_main.c
++++ b/virt/kvm/kvm_main.c
+@@ -4941,6 +4941,10 @@ static int kvm_vm_ioctl_check_extension_generic(struct kvm *kvm, long arg)
+ #ifdef CONFIG_KVM_GMEM_SHARED_MEM
+ 	case KVM_CAP_GMEM_SHARED_MEM:
+ 		return !kvm || kvm_arch_supports_gmem_shared_mem(kvm);
++#endif
++#ifdef CONFIG_KVM_HAVE_USERFAULT
++		case KVM_CAP_USERFAULT:
++			return kvm_has_userfault(kvm);
+ #endif
+ 	default:
+ 		break;
+-- 
+2.49.0
+

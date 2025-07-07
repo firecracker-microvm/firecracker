@@ -1,0 +1,100 @@
+From 9dfa044aa41bcf6f11934379fbc20cdcfe568b3b Mon Sep 17 00:00:00 2001
+From: James Houghton <jthoughton@google.com>
+Date: Thu, 9 Jan 2025 20:49:22 +0000
+Subject: [PATCH 06/12] KVM: arm64: Add support for KVM_MEM_USERFAULT
+
+Adhering to the requirements of KVM Userfault:
+1. When it is toggled on, zap the second stage with
+   kvm_arch_flush_shadow_memslot(). This is to respect userfault-ness.
+2. When KVM_MEM_USERFAULT is enabled, restrict new second-stage mappings
+   to be PAGE_SIZE, just like when dirty logging is enabled.
+
+Do not zap the second stage when KVM_MEM_USERFAULT is disabled to remain
+consistent with the behavior when dirty logging is disabled.
+
+Signed-off-by: James Houghton <jthoughton@google.com>
+---
+ arch/arm64/kvm/Kconfig |  1 +
+ arch/arm64/kvm/mmu.c   | 33 ++++++++++++++++++++++++++++++++-
+ 2 files changed, 33 insertions(+), 1 deletion(-)
+
+diff --git a/arch/arm64/kvm/Kconfig b/arch/arm64/kvm/Kconfig
+index 87120d46919a..2b74fb15fcde 100644
+--- a/arch/arm64/kvm/Kconfig
++++ b/arch/arm64/kvm/Kconfig
+@@ -38,6 +38,7 @@ menuconfig KVM
+ 	select SCHED_INFO
+ 	select GUEST_PERF_EVENTS if PERF_EVENTS
+ 	select KVM_GMEM_SHARED_MEM
++	select HAVE_KVM_USERFAULT
+ 	help
+ 	  Support hosting virtualized guest machines.
+ 
+diff --git a/arch/arm64/kvm/mmu.c b/arch/arm64/kvm/mmu.c
+index c673bbafc1e3..1213bb84197d 100644
+--- a/arch/arm64/kvm/mmu.c
++++ b/arch/arm64/kvm/mmu.c
+@@ -1551,6 +1551,13 @@ static int gmem_abort(struct kvm_vcpu *vcpu, phys_addr_t fault_ipa,
+ 		return -EFAULT;
+ 	}
+ 
++	if (kvm_gfn_userfault(kvm, memslot, gfn)) {
++		kvm_prepare_memory_fault_exit(vcpu, gfn << PAGE_SHIFT,
++					      PAGE_SIZE, write_fault,
++					      exec_fault, false, true);
++		return -EFAULT;
++	}
++
+ 	ret = kvm_gmem_get_pfn(kvm, memslot, gfn, &pfn, &page, NULL);
+ 	if (ret) {
+ 		kvm_prepare_memory_fault_exit(vcpu, fault_ipa, PAGE_SIZE,
+@@ -1644,7 +1651,7 @@ static int user_mem_abort(struct kvm_vcpu *vcpu, phys_addr_t fault_ipa,
+ 		return -EFAULT;
+ 	}
+ 
+-	if (force_pte)
++	if (force_pte || kvm_memslot_userfault(memslot))
+ 		vma_shift = PAGE_SHIFT;
+ 	else
+ 		vma_shift = get_vma_page_shift(vma, hva);
+@@ -1731,6 +1738,13 @@ static int user_mem_abort(struct kvm_vcpu *vcpu, phys_addr_t fault_ipa,
+ 	mmu_seq = kvm->mmu_invalidate_seq;
+ 	mmap_read_unlock(current->mm);
+ 
++	if (kvm_gfn_userfault(kvm, memslot, gfn)) {
++		kvm_prepare_memory_fault_exit(vcpu, gfn << PAGE_SHIFT,
++					      PAGE_SIZE, write_fault,
++					      exec_fault, false, true);
++		return -EFAULT;
++	}
++
+ 	pfn = __kvm_faultin_pfn(memslot, gfn, write_fault ? FOLL_WRITE : 0,
+ 				&writable, &page);
+ 	if (pfn == KVM_PFN_ERR_HWPOISON) {
+@@ -2217,6 +2231,23 @@ void kvm_arch_commit_memory_region(struct kvm *kvm,
+ 				   enum kvm_mr_change change)
+ {
+ 	bool log_dirty_pages = new && new->flags & KVM_MEM_LOG_DIRTY_PAGES;
++	u32 new_flags = new ? new->flags : 0;
++	u32 changed_flags = (new_flags) ^ (old ? old->flags : 0);
++
++	/*
++	 * If KVM_MEM_USERFAULT has been enabled, drop all the stage-2 mappings
++	 * so that we can respect userfault-ness.
++	 */
++	if ((changed_flags & KVM_MEM_USERFAULT) &&
++	    (new_flags & KVM_MEM_USERFAULT) &&
++	    change == KVM_MR_FLAGS_ONLY)
++		kvm_arch_flush_shadow_memslot(kvm, old);
++
++	/*
++	 * Nothing left to do if not toggling dirty logging.
++	 */
++	if (!(changed_flags & KVM_MEM_LOG_DIRTY_PAGES))
++		return;
+ 
+ 	/*
+ 	 * At this point memslot has been committed and there is an
+-- 
+2.49.0
+
