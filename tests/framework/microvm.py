@@ -1206,13 +1206,20 @@ class MicroVMFactory:
         uffd_handler_name=None,
         incremental=False,
         use_snapshot_editor=True,
+        no_netns_reuse=False,
     ):
         """A generator of `n` microvms restored, either all restored from the same given snapshot
         (incremental=False), or created by taking successive snapshots of restored VMs
         """
         last_snapshot = None
         for _ in range(nr_vms):
-            microvm = self.build()
+            microvm = self.build(
+                **(
+                    {"netns": net_tools.NetNs(str(uuid.uuid4()))}
+                    if no_netns_reuse
+                    else {}
+                )
+            )
             microvm.spawn()
 
             snapshot_copy = microvm.restore_from_snapshot(

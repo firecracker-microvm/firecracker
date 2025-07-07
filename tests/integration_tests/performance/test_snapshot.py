@@ -122,7 +122,9 @@ def test_restore_latency(
 
     snapshot = vm.snapshot_full()
     vm.kill()
-    for microvm in microvm_factory.build_n_from_snapshot(snapshot, ITERATIONS):
+    for microvm in microvm_factory.build_n_from_snapshot(
+        snapshot, ITERATIONS, no_netns_reuse=True
+    ):
         value = 0
         # Parse all metric data points in search of load_snapshot time.
         microvm.flush_metrics()
