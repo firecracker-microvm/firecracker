@@ -13,6 +13,7 @@ use std::sync::mpsc;
 use std::sync::{Arc, Mutex};
 
 use event_manager::{MutEventSubscriber, SubscriberOps};
+use kvm_ioctls::Cap;
 use libc::EFD_NONBLOCK;
 use linux_loader::cmdline::Cmdline as LoaderKernelCmdline;
 use utils::time::TimestampUs;
@@ -68,7 +69,7 @@ use crate::vmm_config::snapshot::{LoadSnapshotParams, MemBackendType};
 use crate::vstate::kvm::Kvm;
 use crate::vstate::memory::{MaybeBounce, create_memfd};
 use crate::vstate::vcpu::{Vcpu, VcpuError};
-use crate::vstate::vm::{KVM_GMEM_NO_DIRECT_MAP, Vm};
+use crate::vstate::vm::{GUEST_MEMFD_FLAG_NO_DIRECT_MAP, GUEST_MEMFD_FLAG_SUPPORT_SHARED, Vm};
 use crate::{EventManager, Vmm, VmmError, device_manager};
 
 /// Errors associated with starting the instance.
@@ -147,9 +148,15 @@ fn create_vmm_and_vcpus(
     instance_info: &InstanceInfo,
     event_manager: &mut EventManager,
     vcpu_count: u8,
-    kvm_capabilities: Vec<KvmCapability>,
+    mut kvm_capabilities: Vec<KvmCapability>,
     secret_free: bool,
 ) -> Result<(Vmm, Vec<Vcpu>), VmmError> {
+    if secret_free {
+        kvm_capabilities.push(KvmCapability::Add(Cap::GuestMemfd as u32));
+        kvm_capabilities.push(KvmCapability::Add(KVM_CAP_GMEM_SHARED_MEM));
+        kvm_capabilities.push(KvmCapability::Add(KVM_CAP_GMEM_NO_DIRECT_MAP));
+    }
+
     let kvm = Kvm::new(kvm_capabilities)?;
     // Set up Kvm Vm and register memory regions.
     // Build custom CPU config if a custom template is provided.
@@ -238,23 +245,21 @@ pub fn build_microvm_for_boot(
 
     let secret_free = vm_resources.machine_config.secret_free;
 
-    #[cfg(target_arch = "x86_64")]
-    if secret_free {
-        boot_cmdline.insert_str("no-kvmclock")?;
-    }
-
     let (mut vmm, mut vcpus) = create_vmm_and_vcpus(
         instance_info,
         event_manager,
         vm_resources.machine_config.vcpu_count,
         cpu_template.kvm_capabilities.clone(),
-        vm_resources.machine_config.secret_free,
+        secret_free,
     )?;
 
     let guest_memfd = match secret_free {
         true => Some(
             vmm.vm
-                .create_guest_memfd(vm_resources.memory_size(), KVM_GMEM_NO_DIRECT_MAP)
+                .create_guest_memfd(
+                    vm_resources.memory_size(),
+                    GUEST_MEMFD_FLAG_SUPPORT_SHARED | GUEST_MEMFD_FLAG_NO_DIRECT_MAP,
+                )
                 .map_err(VmmError::Vm)?,
         ),
         false => None,
@@ -267,9 +272,6 @@ pub fn build_microvm_for_boot(
     vmm.vm
         .register_memory_regions(guest_memory, None)
         .map_err(VmmError::Vm)?;
-
-    #[cfg(target_arch = "x86_64")]
-    vmm.vm.set_memory_private().map_err(VmmError::Vm)?;
 
     let entry_point = load_kernel(
         MaybeBounce::<_, 4096>::new_persistent(
@@ -518,6 +520,10 @@ fn memfd_to_slice(memfd: &Option<File>) -> Option<&mut [u8]> {
     }
 }
 
+const KVM_CAP_GMEM_SHARED_MEM: u32 = 243;
+const KVM_CAP_GMEM_NO_DIRECT_MAP: u32 = 244;
+const KVM_CAP_USERFAULT: u32 = 245;
+
 /// Builds and starts a microVM based on the provided MicrovmState.
 ///
 /// An `Arc` reference of the built `Vmm` is also plugged in the `EventManager`, while another
@@ -531,15 +537,13 @@ pub fn build_microvm_from_snapshot(
     params: &LoadSnapshotParams,
     vm_resources: &mut VmResources,
 ) -> Result<Arc<Mutex<Vmm>>, BuildMicrovmFromSnapshotError> {
-    // TODO: take it from kvm-bindings when userfault support is merged upstream
-    const KVM_CAP_USERFAULT: u32 = 241;
-
     // Build Vmm.
     debug!("event_start: build microvm from snapshot");
 
     let secret_free = vm_resources.machine_config.secret_free;
 
     let mut kvm_capabilities = microvm_state.kvm_state.kvm_cap_modifiers.clone();
+
     if secret_free {
         kvm_capabilities.push(KvmCapability::Add(KVM_CAP_USERFAULT));
     }
@@ -556,7 +560,10 @@ pub fn build_microvm_from_snapshot(
     let guest_memfd = match secret_free {
         true => Some(
             vmm.vm
-                .create_guest_memfd(vm_resources.memory_size(), KVM_GMEM_NO_DIRECT_MAP)
+                .create_guest_memfd(
+                    vm_resources.memory_size(),
+                    GUEST_MEMFD_FLAG_SUPPORT_SHARED | GUEST_MEMFD_FLAG_NO_DIRECT_MAP,
+                )
                 .map_err(VmmError::Vm)?,
         ),
         false => None,
@@ -621,9 +628,6 @@ pub fn build_microvm_from_snapshot(
         .map_err(StartMicrovmError::Internal)?;
     vmm.uffd = uffd;
     vmm.uffd_socket = socket;
-
-    #[cfg(target_arch = "x86_64")]
-    vmm.vm.set_memory_private().map_err(VmmError::Vm)?;
 
     #[cfg(target_arch = "x86_64")]
     {

@@ -247,9 +247,10 @@ impl UffdHandler {
         match (&guest_memfd, &userfault_bitmap_memfd) {
             (Some(guestmem_file), Some(bitmap_file)) => {
                 let guest_memfd_addr =
-                    Some(Self::mmap_helper(size, guestmem_file.as_raw_fd()) as *mut u8);
+                    Some(Self::mmap_helper(size, guestmem_file.as_raw_fd()).cast::<u8>());
 
-                let bitmap_ptr = Self::mmap_helper(size, bitmap_file.as_raw_fd()) as *mut AtomicU64;
+                let bitmap_ptr =
+                    Self::mmap_helper(size, bitmap_file.as_raw_fd()).cast::<AtomicU64>();
 
                 // SAFETY: The bitmap pointer is valid and the size is correct.
                 let userfault_bitmap = Some(unsafe {
@@ -302,7 +303,7 @@ impl UffdHandler {
         let addr = addr as u64;
         for region in &self.mem_regions {
             if region.contains(addr) {
-                return addr - region.base_host_virt_addr + region.offset as u64;
+                return addr - region.base_host_virt_addr + region.offset;
             }
         }
 
@@ -606,7 +607,7 @@ impl Runtime {
     ) -> UffdHandler {
         let mut message_buf = vec![0u8; 1024];
         let mut iovecs = [libc::iovec {
-            iov_base: message_buf.as_mut_ptr() as *mut libc::c_void,
+            iov_base: message_buf.as_mut_ptr().cast::<libc::c_void>(),
             iov_len: message_buf.len(),
         }];
         let mut fds = [0; 3];
@@ -686,7 +687,7 @@ impl Runtime {
                 if pollfds[i].revents & libc::POLLIN != 0 {
                     nready -= 1;
                     if pollfds[i].fd == self.stream.as_raw_fd() {
-                        while let Some(fault_request) = uffd_msg_iter.next() {
+                        for fault_request in uffd_msg_iter.by_ref() {
                             let page_size = self.handler.page_size;
 
                             assert!(
