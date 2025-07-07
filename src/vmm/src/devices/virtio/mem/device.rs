@@ -22,7 +22,9 @@ use crate::devices::virtio::mem::request::{Request, RequestType};
 use crate::devices::virtio::mem::response::{
     Response, ResponseCode, ResponseStateCode, ResponseType,
 };
-use crate::devices::virtio::mem::{VIRTIO_MEM_BLOCK_SIZE, VIRTIO_MEM_GUEST_ADDRESS};
+use crate::devices::virtio::mem::{
+    VIRTIO_MEM_BLOCK_SIZE, VIRTIO_MEM_GUEST_ADDRESS, VIRTIO_MEM_REGION_SIZE,
+};
 use crate::devices::virtio::queue::{FIRECRACKER_MAX_QUEUE_SIZE, InvalidAvailIdx, Queue};
 use crate::devices::virtio::transport::{VirtioInterrupt, VirtioInterruptType};
 use crate::devices::virtio::{ActivateError, TYPE_MEM};
@@ -252,6 +254,12 @@ impl VirtioMem {
             }
         }
 
+        self.plug_range(
+            GuestAddress(req.addr),
+            (req.nb_blocks as u64) * (VIRTIO_MEM_BLOCK_SIZE as u64),
+            true,
+        )?;
+
         self.write_response(
             request,
             &Response {
@@ -301,6 +309,12 @@ impl VirtioMem {
             }
         }
 
+        self.plug_range(
+            GuestAddress(req.addr),
+            (req.nb_blocks as u64) * (VIRTIO_MEM_BLOCK_SIZE as u64),
+            false,
+        )?;
+
         self.write_response(
             request,
             &Response {
@@ -334,6 +348,12 @@ impl VirtioMem {
                 }
             }
         }
+
+        self.plug_range(
+            GuestAddress(self.config.addr),
+            (self.total_blocks * VIRTIO_MEM_BLOCK_SIZE) as u64,
+            false,
+        )?;
 
         self.config.plugged_size = 0;
         self.write_response(
@@ -447,17 +467,59 @@ impl VirtioMem {
         size: GuestUsize,
         plug: bool,
     ) -> Result<u64, VirtioMemError> {
+        debug!(
+            "{} kvm slots at {start_addr:?} of size {size}",
+            if plug { "Plugging" } else { "Unplugging" }
+        );
         let mem = self.vm.guest_memory();
         let mut addr = start_addr;
         let end_addr = start_addr.checked_add(size).unwrap();
+
         while addr < end_addr {
             let region = mem.find_region(addr).unwrap();
-            self.vm
-                .set_user_memory_region(region, plug)
-                .map_err(VirtioMemError::RegisterMemoryRegion)?;
+            if self.vm.is_region_plugged(region) != plug {
+                self.vm
+                    .set_user_memory_region(region, plug)
+                    .map_err(VirtioMemError::RegisterMemoryRegion)?;
+            }
             addr = addr.checked_add(region.len()).unwrap();
         }
         Ok(addr.checked_offset_from(start_addr).unwrap())
+    }
+
+    fn plug_range(
+        &self,
+        start_addr: GuestAddress,
+        size: GuestUsize,
+        plug: bool,
+    ) -> Result<(), VirtioMemError> {
+        let end_addr = start_addr.checked_add(size).unwrap();
+        let mut region = self.vm.guest_memory().find_region(start_addr).unwrap();
+        while region.start_addr() < end_addr {
+            debug!(
+                "Checking whether region {region:?} can be {}",
+                if plug { "plugged" } else { "unplugged" }
+            );
+            match self.is_range_plugged(region.start_addr(), region.size() as u64) {
+                ResponseStateCode::Plugged if plug => {
+                    self.plug_kvm_slots(region.start_addr(), region.size() as u64, true)?;
+                }
+                ResponseStateCode::Unplugged if !plug => {
+                    self.plug_kvm_slots(region.start_addr(), region.size() as u64, false)?;
+                }
+                _ => (),
+            }
+            region = match self.vm.guest_memory().find_region(
+                region
+                    .start_addr()
+                    .checked_add(region.size() as u64)
+                    .unwrap(),
+            ) {
+                Some(region) => region,
+                None => break,
+            }
+        }
+        Ok(())
     }
 
     /// Updates the requested size of the virtio-mem device.
@@ -478,11 +540,12 @@ impl VirtioMem {
         }
 
         if self.config.usable_region_size < requested_size {
-            let start_addr = GuestAddress(self.config.addr + self.config.usable_region_size);
-            let size = requested_size - self.config.usable_region_size;
-            let size = self.plug_kvm_slots(start_addr, size, true)?;
-
-            self.config.usable_region_size += size;
+            let mask = (VIRTIO_MEM_REGION_SIZE - 1) as u64;
+            self.config.usable_region_size = (requested_size + mask) & (!mask);
+            debug!(
+                "virtio-mem: Updated usable size to {} bytes",
+                self.config.usable_region_size
+            );
         }
 
         self.config.requested_size = requested_size;

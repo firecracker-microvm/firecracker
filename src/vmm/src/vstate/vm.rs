@@ -367,7 +367,7 @@ impl Vm {
             .unwrap_or(false)
     }
 
-    pub fn is_region_plugged(&self, region: GuestRegionMmap) -> bool {
+    pub fn is_region_plugged(&self, region: &GuestRegionMmap) -> bool {
         self.common
             .start_addr_to_slot
             .get(&region.start_addr().0)
