@@ -127,7 +127,6 @@ use event_manager::{EventManager as BaseEventManager, EventOps, Events, MutEvent
 use seccomp::BpfProgram;
 use snapshot::Persist;
 use userfaultfd::Uffd;
-use vm_memory::GuestAddress;
 use vmm_sys_util::epoll::EventSet;
 use vmm_sys_util::eventfd::EventFd;
 use vmm_sys_util::terminal::Terminal;
@@ -262,7 +261,7 @@ pub enum VmmError {
 }
 
 /// Shorthand type for KVM dirty page bitmap.
-pub type DirtyBitmap = HashMap<u64, Vec<u64>>;
+pub type DirtyBitmap = HashMap<u32, Vec<u64>>;
 
 /// Returns the size of guest memory, in MiB.
 pub(crate) fn mem_size_mib(guest_memory: &GuestMemoryMmap) -> u64 {

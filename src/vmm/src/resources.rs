@@ -10,13 +10,13 @@ use vm_memory::GuestAddress;
 
 use crate::cpu_config::templates::CustomCpuTemplate;
 use crate::device_manager::persist::SharedDeviceType;
-use crate::devices::virtio::mem::VIRTIO_MEM_GUEST_ADDRESS;
+use crate::devices::virtio::mem::{VIRTIO_MEM_GUEST_ADDRESS, VIRTIO_MEM_REGION_SIZE};
 use crate::logger::info;
 use crate::mmds;
 use crate::mmds::data_store::{Mmds, MmdsVersion};
 use crate::mmds::ns::MmdsNetworkStack;
-use crate::utils::mib_to_bytes;
 use crate::utils::net::ipv4addr::is_link_local_valid;
+use crate::utils::{mib_to_bytes, usize_to_u64};
 use crate::vmm_config::balloon::*;
 use crate::vmm_config::boot_source::{
     BootConfig, BootSource, BootSourceConfig, BootSourceConfigError,
@@ -521,10 +521,14 @@ impl VmResources {
         if self.memory_hp.is_none() {
             return Ok(Vec::new());
         }
-        let regions = vec![(
-            VIRTIO_MEM_GUEST_ADDRESS,
-            mib_to_bytes(self.memory_hp.as_ref().unwrap().total_size_mib),
-        )];
+        let total_size = mib_to_bytes(self.memory_hp.as_ref().unwrap().total_size_mib);
+        let region_size = VIRTIO_MEM_REGION_SIZE;
+        assert!(total_size % region_size == 0);
+        let end_addr = VIRTIO_MEM_GUEST_ADDRESS.0 + usize_to_u64(total_size);
+        let regions = (VIRTIO_MEM_GUEST_ADDRESS.0..end_addr)
+            .step_by(region_size)
+            .map(|start| (GuestAddress(start), region_size))
+            .collect::<Vec<(GuestAddress, usize)>>();
         self.allocate_guest_memory_regions(regions)
     }
 }

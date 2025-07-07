@@ -13,7 +13,6 @@ use event_manager::SubscriberOps;
 use linux_loader::cmdline::Cmdline as LoaderKernelCmdline;
 use userfaultfd::Uffd;
 use utils::time::TimestampUs;
-use vm_memory::GuestMemory;
 
 #[cfg(target_arch = "aarch64")]
 use crate::Vcpu;
@@ -31,7 +30,7 @@ use crate::device_manager::{
 use crate::devices::acpi::vmgenid::VmGenIdError;
 use crate::devices::virtio::balloon::Balloon;
 use crate::devices::virtio::block::device::Block;
-use crate::devices::virtio::mem::{VIRTIO_MEM_GUEST_ADDRESS, VirtioMem};
+use crate::devices::virtio::mem::VirtioMem;
 use crate::devices::virtio::net::Net;
 use crate::devices::virtio::rng::Entropy;
 use crate::devices::virtio::vsock::{Vsock, VsockUnixBackend};
@@ -601,9 +600,8 @@ fn attach_virtio_mem_device(
     event_manager: &mut EventManager,
 ) -> Result<(), StartMicrovmError> {
     let size = mib_to_bytes(memory_hp_config.total_size_mib);
-    let memory_hp_region = vm.guest_memory().iter().last().unwrap();
     let virtio_mem = Arc::new(Mutex::new(
-        VirtioMem::new(memory_hp_region, size)
+        VirtioMem::new(size, vm.clone())
             .map_err(|e| StartMicrovmError::Internal(VmmError::VirtioMem(e)))?,
     ));
     debug!("virtio_mem: {:?}", virtio_mem);

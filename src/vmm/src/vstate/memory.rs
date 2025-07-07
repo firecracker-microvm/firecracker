@@ -227,11 +227,11 @@ impl GuestMemoryExtension for GuestMemoryMmap {
         let mut writer_offset = 0;
         let page_size = get_page_size().map_err(MemoryError::PageSize)?;
 
-        let write_result = dirty_bitmap.iter().try_for_each(|(base, kvm_bitmap)| {
-            let base_addr = GuestAddress(*base);
-            let region = self.find_region(base_addr).unwrap();
-            let region_offset =
-                u64_to_usize(region.start_addr().checked_offset_from(base_addr).unwrap());
+        let write_result = self.iter().zip(0..).try_for_each(|(region, slot)| {
+            if dirty_bitmap.get(&slot).is_none() {
+                return Ok(());
+            }
+            let kvm_bitmap = dirty_bitmap.get(&slot).unwrap();
             let firecracker_bitmap = region.bitmap();
             let mut write_size = 0;
             let mut dirty_batch_start: u64 = 0;
@@ -240,8 +240,7 @@ impl GuestMemoryExtension for GuestMemoryMmap {
                 for j in 0..64 {
                     let is_kvm_page_dirty = ((v >> j) & 1u64) != 0u64;
                     let page_offset = ((i * 64) + j) * page_size;
-                    let is_firecracker_page_dirty =
-                        firecracker_bitmap.dirty_at(region_offset + page_offset);
+                    let is_firecracker_page_dirty = firecracker_bitmap.dirty_at(page_offset);
 
                     if is_kvm_page_dirty || is_firecracker_page_dirty {
                         // We are at the start of a new batch of dirty pages.

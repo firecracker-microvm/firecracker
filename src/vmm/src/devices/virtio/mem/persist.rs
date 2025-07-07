@@ -3,8 +3,11 @@
 
 //! Defines the structures needed for saving/restoring virtio-mem devices.
 
+use std::sync::Arc;
+
 use serde::{Deserialize, Serialize};
 
+use crate::Vm;
 use crate::devices::virtio::TYPE_MEM;
 use crate::devices::virtio::mem::{MEM_NUM_QUEUES, VirtioMem, VirtioMemError};
 use crate::devices::virtio::persist::{PersistError as VirtioStateError, VirtioDeviceState};
@@ -19,13 +22,13 @@ pub struct VirtioMemState {
 
 #[derive(Debug)]
 pub struct VirtioMemConstructorArgs {
-    mem: GuestMemoryMmap,
-    hp_region: GuestRegionMmap,
+    vm: Arc<Vm>,
+    size: usize,
 }
 
 impl VirtioMemConstructorArgs {
-    pub fn new(mem: GuestMemoryMmap, hp_region: GuestRegionMmap) -> Self {
-        Self { mem, hp_region }
+    pub fn new(vm: Arc<Vm>, size: usize) -> Self {
+        Self { vm, size }
     }
 }
 
@@ -53,13 +56,14 @@ impl Persist<'_> for VirtioMem {
         state: &Self::State,
     ) -> Result<Self, Self::Error> {
         let queues = state.virtio_state.build_queues_checked(
-            &constructor_args.mem,
+            constructor_args.vm.guest_memory(),
             TYPE_MEM,
             MEM_NUM_QUEUES,
             FIRECRACKER_MAX_QUEUE_SIZE,
         )?;
 
-        let mut virtio_mem = VirtioMem::new_with_queues(queues, &constructor_args.hp_region, 0)?;
+        let mut virtio_mem =
+            VirtioMem::new_with_queues(queues, constructor_args.size, constructor_args.vm)?;
         virtio_mem.set_avail_features(state.virtio_state.avail_features);
         virtio_mem.set_acked_features(state.virtio_state.acked_features);
 

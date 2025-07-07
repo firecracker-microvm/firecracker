@@ -6,7 +6,9 @@ use std::ops::Deref;
 use std::sync::Arc;
 use std::sync::atomic::AtomicU32;
 
-use vm_memory::{Address, GuestAddress, GuestMemoryError, GuestMemoryRegion};
+use vm_memory::{
+    Address, GuestAddress, GuestMemory, GuestMemoryError, GuestMemoryRegion, GuestUsize,
+};
 use vmm_sys_util::eventfd::EventFd;
 
 use super::metrics::METRICS;
@@ -16,15 +18,16 @@ use crate::devices::DeviceError;
 use crate::devices::virtio::device::{ActiveState, DeviceState, VirtioDevice};
 use crate::devices::virtio::generated::virtio_config::VIRTIO_F_VERSION_1;
 use crate::devices::virtio::iov_deque::IovDequeError;
-use crate::devices::virtio::mem::VIRTIO_MEM_BLOCK_SIZE;
 use crate::devices::virtio::mem::request::{Request, RequestType};
 use crate::devices::virtio::mem::response::{
     Response, ResponseCode, ResponseStateCode, ResponseType,
 };
+use crate::devices::virtio::mem::{VIRTIO_MEM_BLOCK_SIZE, VIRTIO_MEM_GUEST_ADDRESS};
 use crate::devices::virtio::queue::{FIRECRACKER_MAX_QUEUE_SIZE, InvalidAvailIdx, Queue};
 use crate::devices::virtio::transport::{VirtioInterrupt, VirtioInterruptType};
 use crate::devices::virtio::{ActivateError, TYPE_MEM};
 use crate::logger::{IncMetric, debug, error};
+use crate::utils::usize_to_u64;
 use crate::vstate::memory::{ByteValued, GuestMemoryMmap, GuestRegionMmap};
 use crate::vstate::vm::VmError;
 
@@ -119,21 +122,19 @@ pub struct VirtioMem {
     plugged_blocks: Vec<u64>,
     // Total number of blocks
     total_blocks: usize,
-
-    userspace_addr: u64,
-    track_dirty_pages: bool,
+    vm: Arc<Vm>,
 }
 
 impl VirtioMem {
-    pub fn new(hp_region: &GuestRegionMmap, size: usize) -> Result<Self, VirtioMemError> {
+    pub fn new(size: usize, vm: Arc<Vm>) -> Result<Self, VirtioMemError> {
         let queues = vec![Queue::new(FIRECRACKER_MAX_QUEUE_SIZE); MEM_NUM_QUEUES];
-        Self::new_with_queues(queues, hp_region, size)
+        Self::new_with_queues(queues, size, vm)
     }
 
     pub fn new_with_queues(
         queues: Vec<Queue>,
-        hp_region: &GuestRegionMmap,
         size: usize,
+        vm: Arc<Vm>,
     ) -> Result<Self, VirtioMemError> {
         let activate_event = EventFd::new(libc::EFD_NONBLOCK)?;
         let queue_events = (0..MEM_NUM_QUEUES)
@@ -150,11 +151,10 @@ impl VirtioMem {
             device_state: DeviceState::Inactive,
             queues,
             queue_events,
-            config: VirtioMemConfig::new(hp_region.start_addr(), size),
+            config: VirtioMemConfig::new(VIRTIO_MEM_GUEST_ADDRESS, size),
             plugged_blocks: vec![0; bitmap_size],
             total_blocks,
-            userspace_addr: hp_region.as_ptr() as u64,
-            track_dirty_pages: hp_region.bitmap().is_some(),
+            vm,
         })
     }
 
@@ -178,6 +178,29 @@ impl VirtioMem {
         let word_idx = block_idx / 64;
         let bit_idx = block_idx % 64;
         (self.plugged_blocks[word_idx] & (1u64 << bit_idx)) != 0
+    }
+
+    fn is_range_plugged(&self, addr: GuestAddress, size: GuestUsize) -> ResponseStateCode {
+        let start_block = (addr.0 - self.config.addr) / self.config.block_size as u64;
+        assert!(size % self.config.block_size == 0);
+        let nb_blocks = size / self.config.block_size;
+        let end_block = start_block + nb_blocks;
+
+        let mut plugged_count = 0;
+
+        for block_idx in start_block..end_block {
+            if self.is_block_plugged(block_idx as usize) {
+                plugged_count += 1;
+            }
+        }
+
+        if plugged_count == nb_blocks {
+            ResponseStateCode::Plugged
+        } else if plugged_count == 0 {
+            ResponseStateCode::Unplugged
+        } else {
+            ResponseStateCode::Mixed
+        }
     }
 
     fn set_block_plugged(&mut self, block_idx: usize, plugged: bool) {
@@ -256,14 +279,20 @@ impl VirtioMem {
                 self.set_block_plugged(block_idx as usize, false);
                 self.config.plugged_size -= VIRTIO_MEM_BLOCK_SIZE as u64;
 
+                let gpa = GuestAddress(self.config.addr)
+                    .checked_add(block_idx * VIRTIO_MEM_BLOCK_SIZE as u64)
+                    .unwrap();
+                let hva = self
+                    .device_state
+                    .active_state()
+                    .unwrap()
+                    .mem
+                    .get_host_address(gpa)
+                    .unwrap();
+
                 // TODO handle file-backed devices
-                let addr: u64 = self.userspace_addr + block_idx * VIRTIO_MEM_BLOCK_SIZE as u64;
                 unsafe {
-                    libc::madvise(
-                        addr as *mut libc::c_void,
-                        VIRTIO_MEM_BLOCK_SIZE,
-                        libc::MADV_DONTNEED,
-                    );
+                    libc::madvise(hva.cast(), VIRTIO_MEM_BLOCK_SIZE, libc::MADV_DONTNEED);
                 }
             }
         }
@@ -282,13 +311,20 @@ impl VirtioMem {
             if self.is_block_plugged(block_idx) {
                 self.set_block_plugged(block_idx, false);
 
-                let addr = self.config.addr + (block_idx as u64) * VIRTIO_MEM_BLOCK_SIZE as u64;
+                let gpa = GuestAddress(self.config.addr)
+                    .checked_add((block_idx * VIRTIO_MEM_BLOCK_SIZE) as u64)
+                    .unwrap();
+                let hva = self
+                    .device_state
+                    .active_state()
+                    .unwrap()
+                    .mem
+                    .get_host_address(gpa)
+                    .unwrap();
+
+                // TODO handle file-backed devices
                 unsafe {
-                    libc::madvise(
-                        addr as *mut libc::c_void,
-                        VIRTIO_MEM_BLOCK_SIZE,
-                        libc::MADV_DONTNEED,
-                    );
+                    libc::madvise(hva.cast(), VIRTIO_MEM_BLOCK_SIZE, libc::MADV_DONTNEED);
                 }
             }
         }
@@ -305,13 +341,8 @@ impl VirtioMem {
 
     fn handle_state_request(&mut self, request: &Request) -> Result<(), VirtioMemError> {
         let req = request.request.as_ref().unwrap();
-        let start_block = (req.addr - self.config.addr) / VIRTIO_MEM_BLOCK_SIZE as u64;
-        let end_block = start_block + req.nb_blocks as u64;
 
-        if req.addr % self.config.block_size != 0
-            || req.nb_blocks == 0
-            || end_block > self.total_blocks as u64
-        {
+        if req.addr % self.config.block_size != 0 || req.nb_blocks == 0 {
             return self.write_response(
                 request,
                 &Response {
@@ -321,21 +352,10 @@ impl VirtioMem {
             );
         }
 
-        let mut plugged_count = 0;
-
-        for block_idx in start_block..end_block {
-            if self.is_block_plugged(block_idx as usize) {
-                plugged_count += 1;
-            }
-        }
-
-        let state_type = if plugged_count == req.nb_blocks {
-            ResponseStateCode::Plugged
-        } else if plugged_count == 0 {
-            ResponseStateCode::Unplugged
-        } else {
-            ResponseStateCode::Mixed
-        };
+        let state_type = self.is_range_plugged(
+            GuestAddress(req.addr),
+            (req.nb_blocks as u64) * self.config.block_size,
+        );
 
         self.write_response(
             request,
@@ -413,6 +433,25 @@ impl VirtioMem {
         &self.activate_event
     }
 
+    fn plug_kvm_slots(
+        &self,
+        start_addr: GuestAddress,
+        size: GuestUsize,
+        plug: bool,
+    ) -> Result<u64, VirtioMemError> {
+        let mem = self.vm.guest_memory();
+        let mut addr = start_addr;
+        let end_addr = start_addr.checked_add(size).unwrap();
+        while addr < end_addr {
+            let region = mem.find_region(addr).unwrap();
+            self.vm
+                .set_user_memory_region(region, plug)
+                .map_err(VirtioMemError::RegisterMemoryRegion)?;
+            addr = addr.checked_add(region.len()).unwrap();
+        }
+        Ok(addr.checked_offset_from(start_addr).unwrap())
+    }
+
     /// Updates the requested size of the virtio-mem device.
     pub fn update_requested_size(
         &mut self,
@@ -431,16 +470,11 @@ impl VirtioMem {
         }
 
         if self.config.usable_region_size < requested_size {
-            vm.register_memory_region(
-                self.userspace_addr + self.config.usable_region_size,
-                GuestAddress(self.config.addr)
-                    .checked_add(self.config.usable_region_size)
-                    .unwrap(),
-                requested_size - self.config.usable_region_size,
-                self.track_dirty_pages,
-            )
-            .map_err(VirtioMemError::RegisterMemoryRegion)?;
-            self.config.usable_region_size = requested_size;
+            let start_addr = GuestAddress(self.config.addr + self.config.usable_region_size);
+            let size = requested_size - self.config.usable_region_size;
+            let size = self.plug_kvm_slots(start_addr, size, true)?;
+
+            self.config.usable_region_size += size;
         }
 
         self.config.requested_size = requested_size;

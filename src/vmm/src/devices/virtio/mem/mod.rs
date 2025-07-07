@@ -17,4 +17,5 @@ pub(crate) const MEM_NUM_QUEUES: usize = 1;
 pub(crate) const MEM_QUEUE: usize = 0;
 
 pub const VIRTIO_MEM_BLOCK_SIZE: usize = 2 << 20; // 2MiB
+pub const VIRTIO_MEM_REGION_SIZE: usize = 128 << 20; // 128 MiB
 pub const VIRTIO_MEM_GUEST_ADDRESS: GuestAddress = GuestAddress(512 << 30); // 512GiB
