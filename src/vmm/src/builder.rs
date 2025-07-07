@@ -267,6 +267,7 @@ pub fn build_microvm_for_boot(
             &vm,
             &mut boot_cmdline,
             memory_hp_config,
+            event_manager,
         )?;
     }
 
@@ -597,6 +598,7 @@ fn attach_virtio_mem_device(
     vm: &Arc<Vm>,
     cmdline: &mut LoaderKernelCmdline,
     memory_hp_config: &MemoryHpConfig,
+    event_manager: &mut EventManager,
 ) -> Result<(), StartMicrovmError> {
     let size = mib_to_bytes(memory_hp_config.total_size_mib);
     let memory_hp_region = vm.guest_memory().iter().last().unwrap();
@@ -607,7 +609,7 @@ fn attach_virtio_mem_device(
     debug!("virtio_mem: {:?}", virtio_mem);
 
     let id = virtio_mem.lock().expect("Poisoned lock").id().to_string();
-
+    event_manager.add_subscriber(virtio_mem.clone());
     device_manager.attach_virtio_device(vm, id, virtio_mem.clone(), cmdline, false)?;
     Ok(())
 }
