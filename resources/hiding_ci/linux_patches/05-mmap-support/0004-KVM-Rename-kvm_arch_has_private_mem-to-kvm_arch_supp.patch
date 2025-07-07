@@ -1,0 +1,147 @@
+From e5c3c69a2795226cfd06a78acae8934de610eb21 Mon Sep 17 00:00:00 2001
+From: Fuad Tabba <tabba@google.com>
+Date: Wed, 11 Jun 2025 14:33:15 +0100
+Subject: [PATCH 04/42] KVM: Rename kvm_arch_has_private_mem() to
+ kvm_arch_supports_gmem()
+
+The function kvm_arch_has_private_mem() indicates whether an architecture
+supports guest_memfd. Until now, this support implied the memory was
+strictly private.
+
+To decouple guest_memfd support from memory privacy, rename this
+function to kvm_arch_supports_gmem().
+
+Reviewed-by: Ira Weiny <ira.weiny@intel.com>
+Reviewed-by: Gavin Shan <gshan@redhat.com>
+Reviewed-by: Shivank Garg <shivankg@amd.com>
+Reviewed-by: Vlastimil Babka <vbabka@suse.cz>
+Co-developed-by: David Hildenbrand <david@redhat.com>
+Signed-off-by: David Hildenbrand <david@redhat.com>
+Signed-off-by: Fuad Tabba <tabba@google.com>
+---
+ arch/x86/include/asm/kvm_host.h | 8 ++++----
+ arch/x86/kvm/mmu/mmu.c          | 8 ++++----
+ include/linux/kvm_host.h        | 6 +++---
+ virt/kvm/kvm_main.c             | 6 +++---
+ 4 files changed, 14 insertions(+), 14 deletions(-)
+
+diff --git a/arch/x86/include/asm/kvm_host.h b/arch/x86/include/asm/kvm_host.h
+index 6e0bbf4c2202..3d69da6d2d9e 100644
+--- a/arch/x86/include/asm/kvm_host.h
++++ b/arch/x86/include/asm/kvm_host.h
+@@ -2270,9 +2270,9 @@ void kvm_configure_mmu(bool enable_tdp, int tdp_forced_root_level,
+ 
+ 
+ #ifdef CONFIG_KVM_GMEM
+-#define kvm_arch_has_private_mem(kvm) ((kvm)->arch.has_private_mem)
++#define kvm_arch_supports_gmem(kvm) ((kvm)->arch.has_private_mem)
+ #else
+-#define kvm_arch_has_private_mem(kvm) false
++#define kvm_arch_supports_gmem(kvm) false
+ #endif
+ 
+ #define kvm_arch_has_readonly_mem(kvm) (!(kvm)->arch.has_protected_state)
+@@ -2325,8 +2325,8 @@ enum {
+ #define HF_SMM_INSIDE_NMI_MASK	(1 << 2)
+ 
+ # define KVM_MAX_NR_ADDRESS_SPACES	2
+-/* SMM is currently unsupported for guests with private memory. */
+-# define kvm_arch_nr_memslot_as_ids(kvm) (kvm_arch_has_private_mem(kvm) ? 1 : 2)
++/* SMM is currently unsupported for guests with guest_memfd (esp private) memory. */
++# define kvm_arch_nr_memslot_as_ids(kvm) (kvm_arch_supports_gmem(kvm) ? 1 : 2)
+ # define kvm_arch_vcpu_memslots_id(vcpu) ((vcpu)->arch.hflags & HF_SMM_MASK ? 1 : 0)
+ # define kvm_memslots_for_spte_role(kvm, role) __kvm_memslots(kvm, (role).smm)
+ #else
+diff --git a/arch/x86/kvm/mmu/mmu.c b/arch/x86/kvm/mmu/mmu.c
+index 4e06e2e89a8f..b13f76630b1a 100644
+--- a/arch/x86/kvm/mmu/mmu.c
++++ b/arch/x86/kvm/mmu/mmu.c
+@@ -4915,7 +4915,7 @@ long kvm_arch_vcpu_pre_fault_memory(struct kvm_vcpu *vcpu,
+ 		return r;
+ 
+ 	direct_bits = 0;
+-	if (kvm_arch_has_private_mem(vcpu->kvm) &&
++	if (kvm_arch_supports_gmem(vcpu->kvm) &&
+ 	    kvm_mem_is_private(vcpu->kvm, gpa_to_gfn(range->gpa)))
+ 		error_code |= PFERR_PRIVATE_ACCESS;
+ 	else
+@@ -7714,7 +7714,7 @@ bool kvm_arch_pre_set_memory_attributes(struct kvm *kvm,
+ 	 * Zapping SPTEs in this case ensures KVM will reassess whether or not
+ 	 * a hugepage can be used for affected ranges.
+ 	 */
+-	if (WARN_ON_ONCE(!kvm_arch_has_private_mem(kvm)))
++	if (WARN_ON_ONCE(!kvm_arch_supports_gmem(kvm)))
+ 		return false;
+ 
+ 	if (WARN_ON_ONCE(range->end <= range->start))
+@@ -7793,7 +7793,7 @@ bool kvm_arch_post_set_memory_attributes(struct kvm *kvm,
+ 	 * a range that has PRIVATE GFNs, and conversely converting a range to
+ 	 * SHARED may now allow hugepages.
+ 	 */
+-	if (WARN_ON_ONCE(!kvm_arch_has_private_mem(kvm)))
++	if (WARN_ON_ONCE(!kvm_arch_supports_gmem(kvm)))
+ 		return false;
+ 
+ 	/*
+@@ -7849,7 +7849,7 @@ void kvm_mmu_init_memslot_memory_attributes(struct kvm *kvm,
+ {
+ 	int level;
+ 
+-	if (!kvm_arch_has_private_mem(kvm))
++	if (!kvm_arch_supports_gmem(kvm))
+ 		return;
+ 
+ 	for (level = PG_LEVEL_2M; level <= KVM_MAX_HUGEPAGE_LEVEL; level++) {
+diff --git a/include/linux/kvm_host.h b/include/linux/kvm_host.h
+index 7700efc06e35..a0e661aa3f8a 100644
+--- a/include/linux/kvm_host.h
++++ b/include/linux/kvm_host.h
+@@ -719,11 +719,11 @@ static inline int kvm_arch_vcpu_memslots_id(struct kvm_vcpu *vcpu)
+ #endif
+ 
+ /*
+- * Arch code must define kvm_arch_has_private_mem if support for private memory
++ * Arch code must define kvm_arch_supports_gmem if support for guest_memfd
+  * is enabled.
+  */
+-#if !defined(kvm_arch_has_private_mem) && !IS_ENABLED(CONFIG_KVM_GMEM)
+-static inline bool kvm_arch_has_private_mem(struct kvm *kvm)
++#if !defined(kvm_arch_supports_gmem) && !IS_ENABLED(CONFIG_KVM_GMEM)
++static inline bool kvm_arch_supports_gmem(struct kvm *kvm)
+ {
+ 	return false;
+ }
+diff --git a/virt/kvm/kvm_main.c b/virt/kvm/kvm_main.c
+index 898c3d5a7ba8..6efbea208fa6 100644
+--- a/virt/kvm/kvm_main.c
++++ b/virt/kvm/kvm_main.c
+@@ -1588,7 +1588,7 @@ static int check_memory_region_flags(struct kvm *kvm,
+ {
+ 	u32 valid_flags = KVM_MEM_LOG_DIRTY_PAGES;
+ 
+-	if (kvm_arch_has_private_mem(kvm))
++	if (kvm_arch_supports_gmem(kvm))
+ 		valid_flags |= KVM_MEM_GUEST_MEMFD;
+ 
+ 	/* Dirty logging private memory is not currently supported. */
+@@ -2419,7 +2419,7 @@ static int kvm_vm_ioctl_clear_dirty_log(struct kvm *kvm,
+ #ifdef CONFIG_KVM_GENERIC_MEMORY_ATTRIBUTES
+ static u64 kvm_supported_mem_attributes(struct kvm *kvm)
+ {
+-	if (!kvm || kvm_arch_has_private_mem(kvm))
++	if (!kvm || kvm_arch_supports_gmem(kvm))
+ 		return KVM_MEMORY_ATTRIBUTE_PRIVATE;
+ 
+ 	return 0;
+@@ -4912,7 +4912,7 @@ static int kvm_vm_ioctl_check_extension_generic(struct kvm *kvm, long arg)
+ #endif
+ #ifdef CONFIG_KVM_GMEM
+ 	case KVM_CAP_GUEST_MEMFD:
+-		return !kvm || kvm_arch_has_private_mem(kvm);
++		return !kvm || kvm_arch_supports_gmem(kvm);
+ #endif
+ 	default:
+ 		break;
+-- 
+2.49.0
+

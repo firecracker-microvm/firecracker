@@ -1,0 +1,69 @@
+From 3833ce3bfc91b7446fbbf749410a8ad7cf6767f1 Mon Sep 17 00:00:00 2001
+From: Fuad Tabba <tabba@google.com>
+Date: Wed, 11 Jun 2025 14:33:27 +0100
+Subject: [PATCH 16/42] KVM: arm64: Enable host mapping of shared guest_memfd
+ memory
+
+Enable the host mapping of guest_memfd-backed memory on arm64.
+
+This applies to all current arm64 VM types that support guest_memfd.
+Future VM types can restrict this behavior via the
+kvm_arch_gmem_supports_shared_mem() hook if needed.
+
+Reviewed-by: James Houghton <jthoughton@google.com>
+Reviewed-by: Gavin Shan <gshan@redhat.com>
+Acked-by: David Hildenbrand <david@redhat.com>
+Signed-off-by: Fuad Tabba <tabba@google.com>
+---
+ arch/arm64/include/asm/kvm_host.h | 4 ++++
+ arch/arm64/kvm/Kconfig            | 1 +
+ arch/arm64/kvm/mmu.c              | 7 +++++++
+ 3 files changed, 12 insertions(+)
+
+diff --git a/arch/arm64/include/asm/kvm_host.h b/arch/arm64/include/asm/kvm_host.h
+index d27079968341..678e7b93bb01 100644
+--- a/arch/arm64/include/asm/kvm_host.h
++++ b/arch/arm64/include/asm/kvm_host.h
+@@ -1675,5 +1675,9 @@ void compute_fgu(struct kvm *kvm, enum fgt_group_id fgt);
+ void get_reg_fixed_bits(struct kvm *kvm, enum vcpu_sysreg reg, u64 *res0, u64 *res1);
+ void check_feature_map(void);
+ 
++#ifdef CONFIG_KVM_GMEM
++#define kvm_arch_supports_gmem(kvm) true
++#define kvm_arch_supports_gmem_shared_mem(kvm) IS_ENABLED(CONFIG_KVM_GMEM_SHARED_MEM)
++#endif
+ 
+ #endif /* __ARM64_KVM_HOST_H__ */
+diff --git a/arch/arm64/kvm/Kconfig b/arch/arm64/kvm/Kconfig
+index 713248f240e0..87120d46919a 100644
+--- a/arch/arm64/kvm/Kconfig
++++ b/arch/arm64/kvm/Kconfig
+@@ -37,6 +37,7 @@ menuconfig KVM
+ 	select HAVE_KVM_VCPU_RUN_PID_CHANGE
+ 	select SCHED_INFO
+ 	select GUEST_PERF_EVENTS if PERF_EVENTS
++	select KVM_GMEM_SHARED_MEM
+ 	help
+ 	  Support hosting virtualized guest machines.
+ 
+diff --git a/arch/arm64/kvm/mmu.c b/arch/arm64/kvm/mmu.c
+index 71f8b53683e7..55ac03f277e0 100644
+--- a/arch/arm64/kvm/mmu.c
++++ b/arch/arm64/kvm/mmu.c
+@@ -2274,6 +2274,13 @@ int kvm_arch_prepare_memory_region(struct kvm *kvm,
+ 	if ((new->base_gfn + new->npages) > (kvm_phys_size(&kvm->arch.mmu) >> PAGE_SHIFT))
+ 		return -EFAULT;
+ 
++	/*
++	 * Only support guest_memfd backed memslots with shared memory, since
++	 * there aren't any CoCo VMs that support only private memory on arm64.
++	 */
++	if (kvm_slot_has_gmem(new) && !kvm_gmem_memslot_supports_shared(new))
++		return -EINVAL;
++
+ 	hva = new->userspace_addr;
+ 	reg_end = hva + (new->npages << PAGE_SHIFT);
+ 
+-- 
+2.49.0
+
