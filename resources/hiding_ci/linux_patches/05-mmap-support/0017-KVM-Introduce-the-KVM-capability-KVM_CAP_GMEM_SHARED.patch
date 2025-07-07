@@ -1,0 +1,74 @@
+From 1b14ab18d7a76d54667c1dc399348c36423d7570 Mon Sep 17 00:00:00 2001
+From: Fuad Tabba <tabba@google.com>
+Date: Wed, 11 Jun 2025 14:33:28 +0100
+Subject: [PATCH 17/42] KVM: Introduce the KVM capability
+ KVM_CAP_GMEM_SHARED_MEM
+
+This patch introduces the KVM capability KVM_CAP_GMEM_SHARED_MEM, which
+indicates that guest_memfd supports shared memory (when enabled by the
+flag). This support is limited to certain VM types, determined per
+architecture.
+
+This patch also updates the KVM documentation with details on the new
+capability, flag, and other information about support for shared memory
+in guest_memfd.
+
+Reviewed-by: David Hildenbrand <david@redhat.com>
+Reviewed-by: Gavin Shan <gshan@redhat.com>
+Signed-off-by: Fuad Tabba <tabba@google.com>
+---
+ Documentation/virt/kvm/api.rst | 9 +++++++++
+ include/uapi/linux/kvm.h       | 1 +
+ virt/kvm/kvm_main.c            | 4 ++++
+ 3 files changed, 14 insertions(+)
+
+diff --git a/Documentation/virt/kvm/api.rst b/Documentation/virt/kvm/api.rst
+index 9abf93ee5f65..0fe90d0a74b4 100644
+--- a/Documentation/virt/kvm/api.rst
++++ b/Documentation/virt/kvm/api.rst
+@@ -6407,6 +6407,15 @@ most one mapping per page, i.e. binding multiple memory regions to a single
+ guest_memfd range is not allowed (any number of memory regions can be bound to
+ a single guest_memfd file, but the bound ranges must not overlap).
+ 
++When the capability KVM_CAP_GMEM_SHARED_MEM is supported, the 'flags' field
++supports GUEST_MEMFD_FLAG_SUPPORT_SHARED.  Setting this flag on guest_memfd
++creation enables mmap() and faulting of guest_memfd memory to host userspace.
++
++When the KVM MMU performs a PFN lookup to service a guest fault and the backing
++guest_memfd has the GUEST_MEMFD_FLAG_SUPPORT_SHARED set, then the fault will
++always be consumed from guest_memfd, regardless of whether it is a shared or a
++private fault.
++
+ See KVM_SET_USER_MEMORY_REGION2 for additional details.
+ 
+ 4.143 KVM_PRE_FAULT_MEMORY
+diff --git a/include/uapi/linux/kvm.h b/include/uapi/linux/kvm.h
+index 954f0668130c..4fba730ec62b 100644
+--- a/include/uapi/linux/kvm.h
++++ b/include/uapi/linux/kvm.h
+@@ -956,6 +956,7 @@ struct kvm_enable_cap {
+ #define KVM_CAP_ARM_EL2 240
+ #define KVM_CAP_ARM_EL2_E2H0 241
+ #define KVM_CAP_RISCV_MP_STATE_RESET 242
++#define KVM_CAP_GMEM_SHARED_MEM 243
+ 
+ struct kvm_irq_routing_irqchip {
+ 	__u32 irqchip;
+diff --git a/virt/kvm/kvm_main.c b/virt/kvm/kvm_main.c
+index d41bcc6a78b0..441c9b53b876 100644
+--- a/virt/kvm/kvm_main.c
++++ b/virt/kvm/kvm_main.c
+@@ -4913,6 +4913,10 @@ static int kvm_vm_ioctl_check_extension_generic(struct kvm *kvm, long arg)
+ #ifdef CONFIG_KVM_GMEM
+ 	case KVM_CAP_GUEST_MEMFD:
+ 		return !kvm || kvm_arch_supports_gmem(kvm);
++#endif
++#ifdef CONFIG_KVM_GMEM_SHARED_MEM
++	case KVM_CAP_GMEM_SHARED_MEM:
++		return !kvm || kvm_arch_supports_gmem_shared_mem(kvm);
+ #endif
+ 	default:
+ 		break;
+-- 
+2.49.0
+
