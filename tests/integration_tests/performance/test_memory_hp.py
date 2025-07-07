@@ -34,18 +34,21 @@ def hp_microvm(microvm_factory, guest_kernel_linux_6_1, rootfs, hp_size):
 def timed_memory_hotplug(uvm, size, metrics, metric_prefix, timeout=10):
     """Wait for all memory hotplug events to be processed"""
 
+    uvm.flush_metrics()
+
     start_api = time.time()
     uvm.api.memory_hp.patch(requested_size_mib=size)
     end_api = time.time()
 
     deadline = time.time() + timeout
     while time.time() < deadline:
-        if uvm.api.memory_hp.get().json()["plugged_size_mib"] != size:
+        if uvm.api.memory_hp.get().json()["plugged_size_mib"] == size:
             break
         time.sleep(0.001)
     else:
         raise RuntimeError("Hotplug timeout")
     end_plug = time.time()
+    fc_metrics = uvm.flush_metrics()
 
     metrics.put_metric(
         f"{metric_prefix}_api_time",
@@ -53,9 +56,14 @@ def timed_memory_hotplug(uvm, size, metrics, metric_prefix, timeout=10):
         unit="Seconds",
     )
     metrics.put_metric(
-        f"{metric_prefix}_plug_time",
+        f"{metric_prefix}_total_time",
         (end_plug - start_api),
         unit="Seconds",
+    )
+    metrics.put_metric(
+        f"{metric_prefix}_fc_time",
+        fc_metrics["virtio_mem"][f"{metric_prefix}_agg"]["sum_us"],
+        unit="Microseconds",
     )
 
 

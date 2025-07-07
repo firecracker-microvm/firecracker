@@ -36,7 +36,7 @@
 use serde::ser::SerializeMap;
 use serde::{Serialize, Serializer};
 
-use crate::logger::SharedIncMetric;
+use crate::logger::{LatencyAggregateMetrics, SharedIncMetric};
 
 /// Stores aggregated virtio-mem metrics
 pub(super) static METRICS: VirtioMemDeviceMetrics = VirtioMemDeviceMetrics::new();
@@ -56,6 +56,22 @@ pub(super) struct VirtioMemDeviceMetrics {
     pub mem_event_fails: SharedIncMetric,
     /// Number of mem requests handled
     pub mem_event_count: SharedIncMetric,
+    /// Count of all plug operations.
+    pub plug_count: SharedIncMetric,
+    /// Duration of all plug operations.
+    pub plug_agg: LatencyAggregateMetrics,
+    /// Count of all unplug operations.
+    pub unplug_count: SharedIncMetric,
+    /// Duration of all unplug operations.
+    pub unplug_agg: LatencyAggregateMetrics,
+    /// Count of all unplug all operations.
+    pub unplug_all_count: SharedIncMetric,
+    /// Duration of all unplug all operations.
+    pub unplug_all_agg: LatencyAggregateMetrics,
+    /// Count of all state operations.
+    pub state_count: SharedIncMetric,
+    /// Duration of all state operations.
+    pub state_agg: LatencyAggregateMetrics,
 }
 impl VirtioMemDeviceMetrics {
     /// Const default construction.
@@ -64,6 +80,14 @@ impl VirtioMemDeviceMetrics {
             activate_fails: SharedIncMetric::new(),
             mem_event_fails: SharedIncMetric::new(),
             mem_event_count: SharedIncMetric::new(),
+            plug_count: SharedIncMetric::new(),
+            plug_agg: LatencyAggregateMetrics::new(),
+            unplug_count: SharedIncMetric::new(),
+            unplug_agg: LatencyAggregateMetrics::new(),
+            unplug_all_count: SharedIncMetric::new(),
+            unplug_all_agg: LatencyAggregateMetrics::new(),
+            state_count: SharedIncMetric::new(),
+            state_agg: LatencyAggregateMetrics::new(),
         }
     }
 }

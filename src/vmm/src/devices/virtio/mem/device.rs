@@ -229,6 +229,8 @@ impl VirtioMem {
     }
 
     fn handle_plug_request(&mut self, request: &Request) -> Result<(), VirtioMemError> {
+        METRICS.plug_count.inc();
+        let _metric = METRICS.plug_agg.record_latency_metrics();
         let req = request.request.as_ref().unwrap();
         let start_block = (req.addr - self.config.addr) / VIRTIO_MEM_BLOCK_SIZE as u64;
         let end_block = start_block + req.nb_blocks as u64;
@@ -260,6 +262,8 @@ impl VirtioMem {
     }
 
     fn handle_unplug_request(&mut self, request: &Request) -> Result<(), VirtioMemError> {
+        METRICS.unplug_count.inc();
+        let _metric = METRICS.unplug_agg.record_latency_metrics();
         let req = request.request.as_ref().unwrap();
         let start_block = (req.addr - self.config.addr) / VIRTIO_MEM_BLOCK_SIZE as u64;
         let end_block = start_block + req.nb_blocks as u64;
@@ -307,6 +311,8 @@ impl VirtioMem {
     }
 
     fn handle_unplug_all_request(&mut self, request: &Request) -> Result<(), VirtioMemError> {
+        METRICS.unplug_all_count.inc();
+        let _metric = METRICS.unplug_all_agg.record_latency_metrics();
         for block_idx in 0..self.total_blocks {
             if self.is_block_plugged(block_idx) {
                 self.set_block_plugged(block_idx, false);
@@ -340,6 +346,8 @@ impl VirtioMem {
     }
 
     fn handle_state_request(&mut self, request: &Request) -> Result<(), VirtioMemError> {
+        METRICS.state_count.inc();
+        let _metric = METRICS.state_agg.record_latency_metrics();
         let req = request.request.as_ref().unwrap();
 
         if req.addr % self.config.block_size != 0 || req.nb_blocks == 0 {
