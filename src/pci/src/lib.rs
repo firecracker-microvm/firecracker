@@ -71,7 +71,7 @@ impl Visitor<'_> for PciBdfVisitor {
     where
         E: serde::de::Error,
     {
-        Ok(v.into())
+        PciBdf::from_str(v).map_err(serde::de::Error::custom)
     }
 }
 
@@ -176,24 +176,31 @@ impl Display for PciBdf {
     }
 }
 
+/// Errors associated with parsing a BDF string.
+#[derive(Debug, thiserror::Error, displaydoc::Display)]
+pub enum PciBdfParseError {
+    /// Unable to parse bus/device/function number hex: {0}
+    InvalidHex(#[from] ParseIntError),
+    /// Invalid format: {0} (expected format: 0000:00:00.0)
+    InvalidFormat(String),
+}
+
 impl FromStr for PciBdf {
-    type Err = ParseIntError;
+    type Err = PciBdfParseError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         let items: Vec<&str> = s.split('.').collect();
-        assert_eq!(items.len(), 2);
+        if items.len() != 2 {
+            return Err(PciBdfParseError::InvalidFormat(s.to_string()));
+        }
         let function = u8::from_str_radix(items[1], 16)?;
         let items: Vec<&str> = items[0].split(':').collect();
-        assert_eq!(items.len(), 3);
+        if items.len() != 3 {
+            return Err(PciBdfParseError::InvalidFormat(s.to_string()));
+        }
         let segment = u16::from_str_radix(items[0], 16)?;
         let bus = u8::from_str_radix(items[1], 16)?;
         let device = u8::from_str_radix(items[2], 16)?;
         Ok(PciBdf::new(segment, bus, device, function))
-    }
-}
-
-impl From<&str> for PciBdf {
-    fn from(bdf: &str) -> Self {
-        Self::from_str(bdf).unwrap()
     }
 }
