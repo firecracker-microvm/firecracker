@@ -10,6 +10,29 @@ use vm_allocator::{AddressAllocator, IdAllocator};
 use crate::arch;
 use crate::snapshot::Persist;
 
+/// Helper function to allocate many ids from an id allocator
+fn allocate_many_ids(
+    id_allocator: &mut IdAllocator,
+    count: u32,
+) -> Result<Vec<u32>, vm_allocator::Error> {
+    let mut ids = Vec::with_capacity(count as usize);
+
+    for _ in 0..count {
+        match id_allocator.allocate_id() {
+            Ok(id) => ids.push(id),
+            Err(err) => {
+                // It is ok to unwrap here, we just allocated the GSI
+                ids.into_iter().for_each(|id| {
+                    id_allocator.free_id(id).unwrap();
+                });
+                return Err(err);
+            }
+        }
+    }
+
+    Ok(ids)
+}
+
 /// A resource manager for (de)allocating interrupt lines (GSIs) and guest memory
 ///
 /// At the moment, we support:
@@ -19,8 +42,10 @@ use crate::snapshot::Persist;
 /// * Memory allocations in the MMIO address space
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ResourceAllocator {
-    /// Allocator for device interrupt lines
-    pub gsi_allocator: IdAllocator,
+    /// Allocator for legacy device interrupt lines
+    pub gsi_legacy_allocator: IdAllocator,
+    /// Allocator for PCI device GSIs
+    pub gsi_msi_allocator: IdAllocator,
     /// Allocator for memory in the 32-bit MMIO address space
     pub mmio32_memory: AddressAllocator,
     /// Allocator for memory in the 64-bit MMIO address space
@@ -41,7 +66,9 @@ impl ResourceAllocator {
         // It is fine for us to unwrap the following since we know we are passing valid ranges for
         // all allocators
         Self {
-            gsi_allocator: IdAllocator::new(arch::GSI_BASE, arch::GSI_MAX).unwrap(),
+            gsi_legacy_allocator: IdAllocator::new(arch::GSI_LEGACY_START, arch::GSI_LEGACY_END)
+                .unwrap(),
+            gsi_msi_allocator: IdAllocator::new(arch::GSI_MSI_START, arch::GSI_MSI_END).unwrap(),
             mmio32_memory: AddressAllocator::new(
                 arch::MEM_32BIT_DEVICES_START,
                 arch::MEM_32BIT_DEVICES_SIZE,
@@ -57,28 +84,22 @@ impl ResourceAllocator {
         }
     }
 
-    /// Allocate a number of GSIs
+    /// Allocate a number of legacy GSIs
+    ///
+    /// # Arguments
+    ///
+    /// * `gsi_count` - The number of legacy GSIs to allocate
+    pub fn allocate_gsi_legacy(&mut self, gsi_count: u32) -> Result<Vec<u32>, vm_allocator::Error> {
+        allocate_many_ids(&mut self.gsi_legacy_allocator, gsi_count)
+    }
+
+    /// Allocate a number of GSIs for MSI
     ///
     /// # Arguments
     ///
     /// * `gsi_count` - The number of GSIs to allocate
-    pub fn allocate_gsi(&mut self, gsi_count: u32) -> Result<Vec<u32>, vm_allocator::Error> {
-        let mut gsis = Vec::with_capacity(gsi_count as usize);
-
-        for _ in 0..gsi_count {
-            match self.gsi_allocator.allocate_id() {
-                Ok(gsi) => gsis.push(gsi),
-                Err(err) => {
-                    // It is ok to unwrap here, we just allocated the GSI
-                    gsis.into_iter().for_each(|gsi| {
-                        self.gsi_allocator.free_id(gsi).unwrap();
-                    });
-                    return Err(err);
-                }
-            }
-        }
-
-        Ok(gsis)
+    pub fn allocate_gsi_msi(&mut self, gsi_count: u32) -> Result<Vec<u32>, vm_allocator::Error> {
+        allocate_many_ids(&mut self.gsi_msi_allocator, gsi_count)
     }
 
     /// Allocate a memory range in 32-bit MMIO address space
@@ -167,47 +188,93 @@ mod tests {
     use vm_allocator::AllocPolicy;
 
     use super::ResourceAllocator;
-    use crate::arch::{self, GSI_BASE};
+    use crate::arch::{self, GSI_LEGACY_NUM, GSI_LEGACY_START, GSI_MSI_NUM, GSI_MSI_START};
     use crate::snapshot::{Persist, Snapshot};
 
-    const MAX_IRQS: u32 = arch::GSI_MAX - arch::GSI_BASE + 1;
+    #[test]
+    fn test_allocate_irq() {
+        let mut allocator = ResourceAllocator::new();
+        // asking for 0 IRQs should return us an empty vector
+        assert_eq!(allocator.allocate_gsi_legacy(0), Ok(vec![]));
+        // We cannot allocate more GSIs than available
+        assert_eq!(
+            allocator.allocate_gsi_legacy(GSI_LEGACY_NUM + 1),
+            Err(vm_allocator::Error::ResourceNotAvailable)
+        );
+        // But allocating all of them at once should work
+        assert_eq!(
+            allocator.allocate_gsi_legacy(GSI_LEGACY_NUM),
+            Ok((arch::GSI_LEGACY_START..=arch::GSI_LEGACY_END).collect::<Vec<_>>())
+        );
+        // And now we ran out of GSIs
+        assert_eq!(
+            allocator.allocate_gsi_legacy(1),
+            Err(vm_allocator::Error::ResourceNotAvailable)
+        );
+        // But we should be able to ask for 0 GSIs
+        assert_eq!(allocator.allocate_gsi_legacy(0), Ok(vec![]));
+
+        let mut allocator = ResourceAllocator::new();
+        // We should be able to allocate 1 GSI
+        assert_eq!(
+            allocator.allocate_gsi_legacy(1),
+            Ok(vec![arch::GSI_LEGACY_START])
+        );
+        // We can't allocate MAX_IRQS any more
+        assert_eq!(
+            allocator.allocate_gsi_legacy(GSI_LEGACY_NUM),
+            Err(vm_allocator::Error::ResourceNotAvailable)
+        );
+        // We can allocate another one and it should be the second available
+        assert_eq!(
+            allocator.allocate_gsi_legacy(1),
+            Ok(vec![arch::GSI_LEGACY_START + 1])
+        );
+        // Let's allocate the rest in a loop
+        for i in arch::GSI_LEGACY_START + 2..=arch::GSI_LEGACY_END {
+            assert_eq!(allocator.allocate_gsi_legacy(1), Ok(vec![i]));
+        }
+    }
 
     #[test]
     fn test_allocate_gsi() {
         let mut allocator = ResourceAllocator::new();
         // asking for 0 IRQs should return us an empty vector
-        assert_eq!(allocator.allocate_gsi(0), Ok(vec![]));
+        assert_eq!(allocator.allocate_gsi_msi(0), Ok(vec![]));
         // We cannot allocate more GSIs than available
         assert_eq!(
-            allocator.allocate_gsi(MAX_IRQS + 1),
+            allocator.allocate_gsi_msi(GSI_MSI_NUM + 1),
             Err(vm_allocator::Error::ResourceNotAvailable)
         );
         // But allocating all of them at once should work
         assert_eq!(
-            allocator.allocate_gsi(MAX_IRQS),
-            Ok((arch::GSI_BASE..=arch::GSI_MAX).collect::<Vec<_>>())
+            allocator.allocate_gsi_msi(GSI_MSI_NUM),
+            Ok((arch::GSI_MSI_START..=arch::GSI_MSI_END).collect::<Vec<_>>())
         );
         // And now we ran out of GSIs
         assert_eq!(
-            allocator.allocate_gsi(1),
+            allocator.allocate_gsi_msi(1),
             Err(vm_allocator::Error::ResourceNotAvailable)
         );
         // But we should be able to ask for 0 GSIs
-        assert_eq!(allocator.allocate_gsi(0), Ok(vec![]));
+        assert_eq!(allocator.allocate_gsi_msi(0), Ok(vec![]));
 
         let mut allocator = ResourceAllocator::new();
         // We should be able to allocate 1 GSI
-        assert_eq!(allocator.allocate_gsi(1), Ok(vec![arch::GSI_BASE]));
+        assert_eq!(allocator.allocate_gsi_msi(1), Ok(vec![arch::GSI_MSI_START]));
         // We can't allocate MAX_IRQS any more
         assert_eq!(
-            allocator.allocate_gsi(MAX_IRQS),
+            allocator.allocate_gsi_msi(GSI_MSI_NUM),
             Err(vm_allocator::Error::ResourceNotAvailable)
         );
         // We can allocate another one and it should be the second available
-        assert_eq!(allocator.allocate_gsi(1), Ok(vec![arch::GSI_BASE + 1]));
+        assert_eq!(
+            allocator.allocate_gsi_msi(1),
+            Ok(vec![arch::GSI_MSI_START + 1])
+        );
         // Let's allocate the rest in a loop
-        for i in arch::GSI_BASE + 2..=arch::GSI_MAX {
-            assert_eq!(allocator.allocate_gsi(1), Ok(vec![i]));
+        for i in arch::GSI_MSI_START + 2..=arch::GSI_MSI_END {
+            assert_eq!(allocator.allocate_gsi_msi(1), Ok(vec![i]));
         }
     }
 
@@ -221,12 +288,16 @@ mod tests {
     #[test]
     fn test_save_restore() {
         let mut allocator0 = ResourceAllocator::new();
-        let gsi_0 = allocator0.allocate_gsi(1).unwrap()[0];
-        assert_eq!(gsi_0, GSI_BASE);
+        let irq_0 = allocator0.allocate_gsi_legacy(1).unwrap()[0];
+        assert_eq!(irq_0, GSI_LEGACY_START);
+        let gsi_0 = allocator0.allocate_gsi_msi(1).unwrap()[0];
+        assert_eq!(gsi_0, GSI_MSI_START);
 
         let mut allocator1 = clone_allocator(&allocator0);
-        let gsi_1 = allocator1.allocate_gsi(1).unwrap()[0];
-        assert_eq!(gsi_1, GSI_BASE + 1);
+        let irq_1 = allocator1.allocate_gsi_legacy(1).unwrap()[0];
+        assert_eq!(irq_1, GSI_LEGACY_START + 1);
+        let gsi_1 = allocator1.allocate_gsi_msi(1).unwrap()[0];
+        assert_eq!(gsi_1, GSI_MSI_START + 1);
         let mmio32_mem = allocator1
             .allocate_32bit_mmio_memory(0x42, 1, AllocPolicy::FirstMatch)
             .unwrap();
@@ -251,8 +322,10 @@ mod tests {
             .allocate_system_memory(0x42, 1, AllocPolicy::ExactMatch(system_mem))
             .unwrap_err();
 
-        let gsi_2 = allocator2.allocate_gsi(1).unwrap()[0];
-        assert_eq!(gsi_2, GSI_BASE + 2);
+        let irq_2 = allocator2.allocate_gsi_legacy(1).unwrap()[0];
+        assert_eq!(irq_2, GSI_LEGACY_START + 2);
+        let gsi_2 = allocator2.allocate_gsi_msi(1).unwrap()[0];
+        assert_eq!(gsi_2, GSI_MSI_START + 2);
         let mmio32_mem = allocator1
             .allocate_32bit_mmio_memory(0x42, 1, AllocPolicy::FirstMatch)
             .unwrap();
