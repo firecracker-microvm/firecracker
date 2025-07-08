@@ -6,23 +6,27 @@ import platform
 
 import pytest
 
-# IRQs are available from 5 to 23. We always use one IRQ for VMGenID device, so
-# the maximum number of devices supported at the same time is 18.
-MAX_DEVICES_ATTACHED = 18
+# On x86_64, IRQs are available from 5 to 23. We always use one IRQ for VMGenID
+# device, so the maximum number of devices supported at the same time is 18.
+
+# On aarch64, IRQs are available from 32 to 127. We always use one IRQ each for
+# the VMGenID and RTC devices, so the maximum number of devices supported
+# at the same time is 94.
+MAX_DEVICES_ATTACHED = {"x86_64": 18, "aarch64": 94}.get(platform.machine())
 
 
-@pytest.mark.skipif(
-    platform.machine() != "x86_64", reason="Firecracker supports 24 IRQs on x86_64."
-)
-def test_attach_maximum_devices(uvm_plain_any):
+def test_attach_maximum_devices(microvm_factory, guest_kernel, rootfs):
     """
     Test attaching maximum number of devices to the microVM.
     """
-    test_microvm = uvm_plain_any
+    if MAX_DEVICES_ATTACHED is None:
+        pytest.skip("Unsupported platform for this test.")
+
+    test_microvm = microvm_factory.build(guest_kernel, rootfs, monitor_memory=False)
     test_microvm.spawn()
 
-    # Set up a basic microVM.
-    test_microvm.basic_config()
+    # The default 256mib is not enough for 94 ssh connections on aarch64.
+    test_microvm.basic_config(mem_size_mib=512)
 
     # Add (`MAX_DEVICES_ATTACHED` - 1) devices because the rootfs
     # has already been configured in the `basic_config()`function.
@@ -36,14 +40,14 @@ def test_attach_maximum_devices(uvm_plain_any):
         test_microvm.ssh_iface(i).check_output("sync")
 
 
-@pytest.mark.skipif(
-    platform.machine() != "x86_64", reason="Firecracker supports 24 IRQs on x86_64."
-)
-def test_attach_too_many_devices(uvm_plain):
+def test_attach_too_many_devices(microvm_factory, guest_kernel, rootfs):
     """
     Test attaching to a microVM more devices than available IRQs.
     """
-    test_microvm = uvm_plain
+    if MAX_DEVICES_ATTACHED is None:
+        pytest.skip("Unsupported platform for this test.")
+
+    test_microvm = microvm_factory.build(guest_kernel, rootfs, monitor_memory=False)
     test_microvm.spawn()
 
     # Set up a basic microVM.

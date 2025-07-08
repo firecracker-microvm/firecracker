@@ -80,5 +80,13 @@ pub const IRQ_MAX: u32 = 128;
 /// First usable interrupt on aarch64.
 pub const IRQ_BASE: u32 = 32;
 
+// The Linux kernel automatically shifts the GSI by 32 if it is an SPI,
+// allowing us to start numbering from 0 instead of 32.
+/// The first usable GSI on aarch64.
+pub const GSI_BASE: u32 = 0;
+
+/// The maximum usable GSI on aarch64.
+pub const GSI_MAX: u32 = IRQ_MAX - IRQ_BASE - 1;
+
 /// Below this address will reside the GIC, above this address will reside the MMIO devices.
 pub const MAPPED_IO_START: u64 = 1 << 30; // 1 GB

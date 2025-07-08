@@ -27,7 +27,7 @@ impl ResourceAllocator {
     /// Create a new resource allocator for Firecracker devices
     pub fn new() -> Result<Self, vm_allocator::Error> {
         Ok(Self {
-            gsi_allocator: IdAllocator::new(arch::IRQ_BASE, arch::IRQ_MAX)?,
+            gsi_allocator: IdAllocator::new(arch::GSI_BASE, arch::GSI_MAX)?,
             mmio_memory: AddressAllocator::new(arch::MMIO_MEM_START, arch::MMIO_MEM_SIZE)?,
             system_memory: AddressAllocator::new(arch::SYSTEM_MEM_START, arch::SYSTEM_MEM_SIZE)?,
         })
@@ -102,7 +102,7 @@ mod tests {
     use super::ResourceAllocator;
     use crate::arch;
 
-    const MAX_IRQS: u32 = arch::IRQ_MAX - arch::IRQ_BASE + 1;
+    const MAX_IRQS: u32 = arch::GSI_MAX - arch::GSI_BASE + 1;
 
     #[test]
     fn test_allocate_gsi() {
@@ -117,7 +117,7 @@ mod tests {
         // But allocating all of them at once should work
         assert_eq!(
             allocator.allocate_gsi(MAX_IRQS),
-            Ok((arch::IRQ_BASE..=arch::IRQ_MAX).collect::<Vec<_>>())
+            Ok((arch::GSI_BASE..=arch::GSI_MAX).collect::<Vec<_>>())
         );
         // And now we ran out of GSIs
         assert_eq!(
@@ -129,16 +129,16 @@ mod tests {
 
         let mut allocator = ResourceAllocator::new().unwrap();
         // We should be able to allocate 1 GSI
-        assert_eq!(allocator.allocate_gsi(1), Ok(vec![arch::IRQ_BASE]));
+        assert_eq!(allocator.allocate_gsi(1), Ok(vec![arch::GSI_BASE]));
         // We can't allocate MAX_IRQS any more
         assert_eq!(
             allocator.allocate_gsi(MAX_IRQS),
             Err(vm_allocator::Error::ResourceNotAvailable)
         );
         // We can allocate another one and it should be the second available
-        assert_eq!(allocator.allocate_gsi(1), Ok(vec![arch::IRQ_BASE + 1]));
+        assert_eq!(allocator.allocate_gsi(1), Ok(vec![arch::GSI_BASE + 1]));
         // Let's allocate the rest in a loop
-        for i in arch::IRQ_BASE + 2..=arch::IRQ_MAX {
+        for i in arch::GSI_BASE + 2..=arch::GSI_MAX {
             assert_eq!(allocator.allocate_gsi(1), Ok(vec![i]));
         }
     }
