@@ -82,12 +82,12 @@ fn add_virtio_aml(
     dsdt_data: &mut Vec<u8>,
     addr: u64,
     len: u64,
-    irq: u32,
+    gsi: u32,
 ) -> Result<(), aml::AmlError> {
-    let dev_id = irq - crate::arch::GSI_BASE;
+    let dev_id = gsi - crate::arch::GSI_LEGACY_START;
     debug!(
-        "acpi: Building AML for VirtIO device _SB_.V{:03}. memory range: {:#010x}:{} irq: {}",
-        dev_id, addr, len, irq
+        "acpi: Building AML for VirtIO device _SB_.V{:03}. memory range: {:#010x}:{} gsi: {}",
+        dev_id, addr, len, gsi
     );
     aml::Device::new(
         format!("V{:03}", dev_id).as_str().try_into()?,
@@ -103,7 +103,7 @@ fn add_virtio_aml(
                         addr.try_into().unwrap(),
                         len.try_into().unwrap(),
                     ),
-                    &aml::Interrupt::new(true, true, false, false, irq),
+                    &aml::Interrupt::new(true, true, false, false, gsi),
                 ]),
             )?,
         ],
@@ -156,9 +156,9 @@ impl MMIODeviceManager {
         resource_allocator: &mut ResourceAllocator,
         irq_count: u32,
     ) -> Result<MMIODeviceInfo, MmioError> {
-        let irq = match resource_allocator.allocate_gsi(irq_count)?[..] {
+        let gsi = match resource_allocator.allocate_gsi_legacy(irq_count)?[..] {
             [] => None,
-            [irq] => Some(irq),
+            [gsi] => Some(gsi),
             _ => return Err(MmioError::InvalidIrqConfig),
         };
 
@@ -169,7 +169,7 @@ impl MMIODeviceManager {
                 AllocPolicy::FirstMatch,
             )?,
             len: MMIO_LEN,
-            irq,
+            irq: gsi,
         };
         Ok(device_info)
     }
@@ -183,7 +183,7 @@ impl MMIODeviceManager {
     ) -> Result<(), MmioError> {
         // Our virtio devices are currently hardcoded to use a single IRQ.
         // Validate that requirement.
-        let irq = device.resources.irq.ok_or(MmioError::InvalidIrqConfig)?;
+        let gsi = device.resources.irq.ok_or(MmioError::InvalidIrqConfig)?;
         let identifier;
         {
             let mmio_device = device.inner.lock().expect("Poisoned lock");
@@ -197,7 +197,7 @@ impl MMIODeviceManager {
                     .register_ioevent(queue_evt, &io_addr, u32::try_from(i).unwrap())
                     .map_err(MmioError::RegisterIoEvent)?;
             }
-            vm.register_irq(&mmio_device.interrupt.irq_evt, irq)
+            vm.register_irq(&mmio_device.interrupt.irq_evt, gsi)
                 .map_err(MmioError::RegisterIrqFd)?;
         }
 
@@ -276,7 +276,7 @@ impl MMIODeviceManager {
         let device_info = if let Some(device_info) = device_info_opt {
             device_info
         } else {
-            let gsi = vm.resource_allocator().allocate_gsi(1)?;
+            let gsi = vm.resource_allocator().allocate_gsi_legacy(1)?;
             MMIODeviceInfo {
                 addr: SERIAL_MEM_START,
                 len: MMIO_LEN,
@@ -335,7 +335,7 @@ impl MMIODeviceManager {
         let device_info = if let Some(device_info) = device_info_opt {
             device_info
         } else {
-            let gsi = vm.resource_allocator().allocate_gsi(1)?;
+            let gsi = vm.resource_allocator().allocate_gsi_legacy(1)?;
             MMIODeviceInfo {
                 addr: RTC_MEM_START,
                 len: MMIO_LEN,
@@ -612,7 +612,7 @@ pub(crate) mod tests {
         let dev = device_manager.get_virtio_device(0, "dummy").unwrap();
         assert_eq!(dev.resources.addr, arch::MEM_32BIT_DEVICES_START);
         assert_eq!(dev.resources.len, MMIO_LEN);
-        assert_eq!(dev.resources.irq, Some(arch::GSI_BASE));
+        assert_eq!(dev.resources.irq, Some(arch::GSI_LEGACY_START));
 
         device_manager
             .for_each_virtio_device(|virtio_type, device_id, mmio_device| {
@@ -620,7 +620,7 @@ pub(crate) mod tests {
                 assert_eq!(device_id, "dummy");
                 assert_eq!(mmio_device.resources.addr, arch::MEM_32BIT_DEVICES_START);
                 assert_eq!(mmio_device.resources.len, MMIO_LEN);
-                assert_eq!(mmio_device.resources.irq, Some(arch::GSI_BASE));
+                assert_eq!(mmio_device.resources.irq, Some(arch::GSI_LEGACY_START));
                 Ok::<(), ()>(())
             })
             .unwrap();
@@ -643,7 +643,7 @@ pub(crate) mod tests {
         #[cfg(target_arch = "aarch64")]
         vm.setup_irqchip(1).unwrap();
 
-        for _i in crate::arch::GSI_BASE..=crate::arch::GSI_MAX {
+        for _i in crate::arch::GSI_LEGACY_START..=crate::arch::GSI_LEGACY_END {
             device_manager
                 .register_virtio_test_device(
                     &vm,
@@ -711,7 +711,7 @@ pub(crate) mod tests {
                 .addr
         );
         assert_eq!(
-            crate::arch::GSI_BASE,
+            crate::arch::GSI_LEGACY_START,
             device_manager.virtio_devices[&(type_id, id)]
                 .resources
                 .irq
@@ -762,7 +762,7 @@ pub(crate) mod tests {
         let device_info = device_manager
             .allocate_mmio_resources(&mut resource_allocator, 1)
             .unwrap();
-        assert_eq!(device_info.irq.unwrap(), crate::arch::GSI_BASE);
+        assert_eq!(device_info.irq.unwrap(), crate::arch::GSI_LEGACY_START);
     }
 
     #[test]
