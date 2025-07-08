@@ -509,9 +509,9 @@ def rootfs_rw():
 
 
 @pytest.fixture
-def uvm_plain(microvm_factory, guest_kernel_linux_5_10, rootfs):
+def uvm_plain(microvm_factory, guest_kernel_linux_5_10, rootfs, pci_enabled):
     """Create a vanilla VM, non-parametrized"""
-    return microvm_factory.build(guest_kernel_linux_5_10, rootfs)
+    return microvm_factory.build(guest_kernel_linux_5_10, rootfs, pci=pci_enabled)
 
 
 @pytest.fixture
@@ -537,12 +537,12 @@ def artifact_dir():
 
 
 @pytest.fixture
-def uvm_plain_any(microvm_factory, guest_kernel, rootfs):
+def uvm_plain_any(microvm_factory, guest_kernel, rootfs, pci_enabled):
     """All guest kernels
     kernel: all
     rootfs: Ubuntu 24.04
     """
-    return microvm_factory.build(guest_kernel, rootfs)
+    return microvm_factory.build(guest_kernel, rootfs, pci=pci_enabled)
 
 
 guest_kernel_6_1_debug = pytest.fixture(
@@ -585,8 +585,8 @@ def uvm_booted(
     mem_size_mib=256,
 ):
     """Return a booted uvm"""
-    uvm = microvm_factory.build(guest_kernel, rootfs)
-    uvm.spawn(pci=pci_enabled)
+    uvm = microvm_factory.build(guest_kernel, rootfs, pci=pci_enabled)
+    uvm.spawn()
     uvm.basic_config(vcpu_count=vcpu_count, mem_size_mib=mem_size_mib)
     uvm.set_cpu_template(cpu_template)
     uvm.add_net_iface()
