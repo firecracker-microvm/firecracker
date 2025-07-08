@@ -24,3 +24,6 @@ vm-memory = { version = "0.16.1", features = [
   "backend-mmap",
   "backend-bitmap",
 ] }
+
+[dev-dependencies]
+serde_test = "1.0.177"
