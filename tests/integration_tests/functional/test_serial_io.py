@@ -55,7 +55,7 @@ def test_serial_after_snapshot(uvm_plain, microvm_factory):
     microvm.basic_config(
         vcpu_count=2,
         mem_size_mib=256,
-        boot_args="console=ttyS0 reboot=k panic=1 pci=off",
+        boot_args="console=ttyS0 reboot=k panic=1",
     )
     serial = Serial(microvm)
     serial.open()
@@ -144,7 +144,7 @@ def test_serial_dos(uvm_plain_any):
     # Set up the microVM with 1 vCPU and a serial console.
     microvm.basic_config(
         vcpu_count=1,
-        boot_args="console=ttyS0 reboot=k panic=1 pci=off",
+        boot_args="console=ttyS0 reboot=k panic=1",
     )
     microvm.add_net_iface()
     microvm.start()
@@ -176,7 +176,7 @@ def test_serial_block(uvm_plain_any):
     test_microvm.basic_config(
         vcpu_count=1,
         mem_size_mib=512,
-        boot_args="console=ttyS0 reboot=k panic=1 pci=off",
+        boot_args="console=ttyS0 reboot=k panic=1",
     )
     test_microvm.add_net_iface()
     test_microvm.start()
