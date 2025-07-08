@@ -76,19 +76,19 @@ pub const FDT_MAX_SIZE: usize = 0x20_0000;
 // * bigger than 32
 // * less than 1023 and
 // * a multiple of 32.
-/// The highest usable SPI on aarch64.
-pub const IRQ_MAX: u32 = 128;
-
-/// First usable interrupt on aarch64.
-pub const IRQ_BASE: u32 = 32;
-
-// The Linux kernel automatically shifts the GSI by 32 if it is an SPI,
-// allowing us to start numbering from 0 instead of 32.
-/// The first usable GSI on aarch64.
-pub const GSI_BASE: u32 = 0;
-
-/// The maximum usable GSI on aarch64.
-pub const GSI_MAX: u32 = IRQ_MAX - IRQ_BASE - 1;
+// The first 32 SPIs are reserved, but KVM already shifts the gsi we
+// pass, so we go from 0 to 95 for legacy gsis ("irq") and the remaining
+// we use for MSI.
+/// Offset of first legacy SPI in the GIC
+pub const SPI_BASE: u32 = 32;
+/// First usable interrupt on aarch64 (corresponds to SPI #32)
+pub const IRQ_BASE: u32 = 0;
+/// The highest usable SPI on aarch64 is 127 - 32 = 95
+pub const IRQ_MAX: u32 = 95;
+/// First GSI after legacy interrupts which will be used by MSI
+pub const GSI_BASE: u32 = IRQ_MAX + 1;
+/// The highest available GSI in KVM (KVM_MAX_IRQ_ROUTES=4096)
+pub const GSI_MAX: u32 = 4095;
 
 /// The start of the memory area reserved for MMIO 32-bit accesses.
 /// Below this address will reside the GIC, above this address will reside the MMIO devices.
