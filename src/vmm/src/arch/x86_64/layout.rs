@@ -21,17 +21,21 @@ pub const CMDLINE_MAX_SIZE: usize = 2048;
 /// Start of the high memory.
 pub const HIMEM_START: u64 = 0x0010_0000; // 1 MB.
 
-// Typically, on x86 systems 24 IRQs are used (0-23).
-/// First usable IRQ ID for virtio device interrupts on x86_64.
-pub const IRQ_BASE: u32 = 5;
-/// Last usable IRQ ID for virtio device interrupts on x86_64.
-pub const IRQ_MAX: u32 = 23;
-
-/// The first usable GSI on x86_64 is the same as the first usable IRQ ID.
-pub const GSI_BASE: u32 = IRQ_BASE;
-
-/// The maximum usable GSI on x86_64 is the same as the last usable IRQ ID.
-pub const GSI_MAX: u32 = IRQ_MAX;
+// Typically, on x86 systems 24 IRQs are used for legacy devices (0-23).
+// However, the first 5 are reserved.
+// We allocate the remaining GSIs to MSIs.
+/// First usable GSI for legacy interrupts (IRQ) on x86_64.
+pub const GSI_LEGACY_START: u32 = 5;
+/// Last usable GSI for legacy interrupts (IRQ) on x86_64.
+pub const GSI_LEGACY_END: u32 = 23;
+/// Number of legacy GSI (IRQ) available on x86_64.
+pub const GSI_LEGACY_NUM: u32 = GSI_LEGACY_END - GSI_LEGACY_START + 1;
+/// First GSI used by MSI after legacy GSI.
+pub const GSI_MSI_START: u32 = GSI_LEGACY_END + 1;
+/// The highest available GSI in KVM (KVM_MAX_IRQ_ROUTES=4096).
+pub const GSI_MSI_END: u32 = 4095;
+/// Number of GSI available for MSI.
+pub const GSI_MSI_NUM: u32 = GSI_MSI_END - GSI_MSI_START + 1;
 
 /// Address for the TSS setup.
 pub const KVM_TSS_ADDRESS: u64 = 0xfffb_d000;
