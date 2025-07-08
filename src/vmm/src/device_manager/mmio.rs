@@ -157,7 +157,7 @@ impl MMIODeviceManager {
         resource_allocator: &mut ResourceAllocator,
         irq_count: u32,
     ) -> Result<MMIODeviceInfo, MmioError> {
-        let irq = match resource_allocator.allocate_gsi(irq_count)?[..] {
+        let irq = match resource_allocator.allocate_irq(irq_count)?[..] {
             [] => None,
             [irq] => NonZeroU32::new(irq),
             _ => return Err(MmioError::InvalidIrqConfig),
@@ -277,11 +277,11 @@ impl MMIODeviceManager {
         let device_info = if let Some(device_info) = device_info_opt {
             device_info
         } else {
-            let gsi = vm.resource_allocator().allocate_gsi(1)?;
+            let irq = vm.resource_allocator().allocate_irq(1)?;
             MMIODeviceInfo {
                 addr: SERIAL_MEM_START,
                 len: MMIO_LEN,
-                irq: NonZeroU32::new(gsi[0]),
+                irq: NonZeroU32::new(irq[0]),
             }
         };
 
@@ -336,11 +336,11 @@ impl MMIODeviceManager {
         let device_info = if let Some(device_info) = device_info_opt {
             device_info
         } else {
-            let gsi = vm.resource_allocator().allocate_gsi(1)?;
+            let irq = vm.resource_allocator().allocate_irq(1)?;
             MMIODeviceInfo {
                 addr: RTC_MEM_START,
                 len: MMIO_LEN,
-                irq: NonZeroU32::new(gsi[0]),
+                irq: NonZeroU32::new(irq[0]),
             }
         };
 

@@ -26,6 +26,10 @@ pub const HIMEM_START: u64 = 0x0010_0000; // 1 MB.
 pub const IRQ_BASE: u32 = 5;
 /// Last usable IRQ ID for virtio device interrupts on x86_64.
 pub const IRQ_MAX: u32 = 23;
+/// First GSI after legacy interrupts/
+pub const GSI_BASE: u32 = 24;
+/// The highest available GSI in KVM (KVM_MAX_IRQ_ROUTES=4096)
+pub const GSI_MAX: u32 = 4095;
 
 /// Address for the TSS setup.
 pub const KVM_TSS_ADDRESS: u64 = 0xfffb_d000;

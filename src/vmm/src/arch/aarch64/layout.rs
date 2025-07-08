@@ -78,9 +78,12 @@ pub const FDT_MAX_SIZE: usize = 0x20_0000;
 // * a multiple of 32.
 /// The highest usable SPI on aarch64.
 pub const IRQ_MAX: u32 = 128;
-
 /// First usable interrupt on aarch64.
 pub const IRQ_BASE: u32 = 32;
+/// The highest available GSI in KVM (KVM_MAX_IRQ_ROUTES=4096)
+pub const GSI_MAX: u32 = 4095;
+/// First GSI after legacy IRQ on aarch64.
+pub const GSI_BASE: u32 = 129;
 
 /// The start of the memory area reserved for MMIO 32-bit accesses.
 /// Below this address will reside the GIC, above this address will reside the MMIO devices.

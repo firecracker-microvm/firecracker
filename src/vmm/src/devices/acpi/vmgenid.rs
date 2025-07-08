@@ -88,7 +88,7 @@ impl VmGenId {
         mem: &GuestMemoryMmap,
         resource_allocator: &mut ResourceAllocator,
     ) -> Result<Self, VmGenIdError> {
-        let gsi = resource_allocator.allocate_gsi(1)?;
+        let irq = resource_allocator.allocate_irq(1)?;
         // The generation ID needs to live in an 8-byte aligned buffer
         let addr = resource_allocator.allocate_system_memory(
             VMGENID_MEM_SIZE,
@@ -96,7 +96,7 @@ impl VmGenId {
             vm_allocator::AllocPolicy::LastMatch,
         )?;
 
-        Self::from_parts(GuestAddress(addr), gsi[0], mem)
+        Self::from_parts(GuestAddress(addr), irq[0], mem)
     }
 
     // Create a 16-bytes random number
