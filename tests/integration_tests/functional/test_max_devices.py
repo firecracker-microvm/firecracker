@@ -29,12 +29,13 @@ def max_devices(uvm):
             raise ValueError("Unknown platform")
 
 
-def test_attach_maximum_devices(microvm_factory, guest_kernel, rootfs, pci_enabled):
+def test_attach_maximum_devices(uvm_plain_any):
     """
     Test attaching maximum number of devices to the microVM.
     """
-    test_microvm = microvm_factory.build(guest_kernel, rootfs, monitor_memory=False)
-    test_microvm.spawn(pci=pci_enabled)
+    test_microvm = uvm_plain_any
+    test_microvm.memory_monitor = None
+    test_microvm.spawn()
 
     # The default 256mib is not enough for 94 ssh connections on aarch64.
     test_microvm.basic_config(mem_size_mib=512)
@@ -52,12 +53,13 @@ def test_attach_maximum_devices(microvm_factory, guest_kernel, rootfs, pci_enabl
         test_microvm.ssh_iface(i).check_output("sync")
 
 
-def test_attach_too_many_devices(microvm_factory, guest_kernel, rootfs, pci_enabled):
+def test_attach_too_many_devices(uvm_plain):
     """
     Test attaching to a microVM more devices than available IRQs.
     """
-    test_microvm = microvm_factory.build(guest_kernel, rootfs, monitor_memory=False)
-    test_microvm.spawn(pci=pci_enabled)
+    test_microvm = uvm_plain
+    test_microvm.memory_monitor = None
+    test_microvm.spawn()
 
     # Set up a basic microVM.
     test_microvm.basic_config()
@@ -73,7 +75,7 @@ def test_attach_too_many_devices(microvm_factory, guest_kernel, rootfs, pci_enab
     # `MAX_DEVICES_ATTACHED` devices should fail.
     error_str = (
         ("Could not find an available device slot on the PCI bus.")
-        if pci_enabled
+        if test_microvm.pci_enabled
         else (
             "Failed to allocate requested resource: The requested resource"
             " is not available."

@@ -206,6 +206,7 @@ class Microvm:
         jailer_kwargs: Optional[dict] = None,
         numa_node=None,
         custom_cpu_template: Path = None,
+        pci: bool = False,
     ):
         """Set up microVM attributes, paths, and data structures."""
         # pylint: disable=too-many-statements
@@ -213,7 +214,6 @@ class Microvm:
         assert microvm_id is not None
         self._microvm_id = microvm_id
 
-        self.pci_enabled = False
         self.kernel_file = None
         self.rootfs_file = None
         self.ssh_key = None
@@ -236,6 +236,10 @@ class Microvm:
             new_pid_ns=True,
             **jailer_kwargs,
         )
+
+        self.pci_enabled = pci
+        if pci:
+            self.jailer.extra_args["enable-pci"] = None
 
         # Copy the /etc/localtime file in the jailer root
         self.jailer.jailed_path("/etc/localtime", subdir="etc")
@@ -635,7 +639,6 @@ class Microvm:
         log_show_origin=False,
         metrics_path="fc.ndjson",
         emit_metrics: bool = False,
-        pci: bool = False,
     ):
         """Start a microVM as a daemon or in a screen session."""
         # pylint: disable=subprocess-run-check
@@ -680,10 +683,6 @@ class Microvm:
         if log_level != "Debug":
             # Checking the timings requires DEBUG level log messages
             self.time_api_requests = False
-
-        if pci:
-            self.pci_enabled = True
-            self.jailer.extra_args["enable-pci"] = None
 
         cmd = [
             *self._pre_cmd,
