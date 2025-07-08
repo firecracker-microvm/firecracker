@@ -99,9 +99,7 @@ def test_serial_console_login(uvm_plain_any):
     microvm.memory_monitor = None
 
     # Set up the microVM with 1 vCPU and a serial console.
-    microvm.basic_config(
-        vcpu_count=1, boot_args="console=ttyS0 reboot=k panic=1 pci=off"
-    )
+    microvm.basic_config(vcpu_count=1, boot_args="console=ttyS0 reboot=k panic=1")
 
     microvm.start()
 
