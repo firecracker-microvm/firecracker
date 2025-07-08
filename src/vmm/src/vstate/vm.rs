@@ -596,7 +596,7 @@ impl Vm {
         let mut irq_routes = HashMap::with_capacity(count as usize);
         for (gsi, i) in vm
             .resource_allocator()
-            .allocate_gsi(count as u32)?
+            .allocate_gsi_msi(count as u32)?
             .iter()
             .zip(0u32..)
         {
@@ -926,7 +926,7 @@ pub(crate) mod tests {
         }
 
         for i in 0..4 {
-            let gsi = crate::arch::GSI_BASE + i;
+            let gsi = crate::arch::GSI_MSI_START + i;
             let interrupts = vm.common.interrupts.lock().unwrap();
             let kvm_route = interrupts.get(&gsi).unwrap();
             assert!(kvm_route.masked);
@@ -943,7 +943,7 @@ pub(crate) mod tests {
         // Simply enabling the vectors should not update the registered IRQ routes
         msix_group.enable().unwrap();
         for i in 0..4 {
-            let gsi = crate::arch::GSI_BASE + i;
+            let gsi = crate::arch::GSI_MSI_START + i;
             let interrupts = vm.common.interrupts.lock().unwrap();
             let kvm_route = interrupts.get(&gsi).unwrap();
             assert!(kvm_route.masked);
@@ -963,7 +963,7 @@ pub(crate) mod tests {
             .update(0, InterruptSourceConfig::MsiIrq(config), false, true)
             .unwrap();
         for i in 0..4 {
-            let gsi = crate::arch::GSI_BASE + i;
+            let gsi = crate::arch::GSI_MSI_START + i;
             let interrupts = vm.common.interrupts.lock().unwrap();
             let kvm_route = interrupts.get(&gsi).unwrap();
             assert_eq!(kvm_route.masked, i != 0);
@@ -1038,7 +1038,7 @@ pub(crate) mod tests {
         let (gsi, range) = {
             let mut resource_allocator = vm.resource_allocator();
 
-            let gsi = resource_allocator.allocate_gsi(1).unwrap()[0];
+            let gsi = resource_allocator.allocate_gsi_msi(1).unwrap()[0];
             let range = resource_allocator
                 .allocate_32bit_mmio_memory(1024, 1024, AllocPolicy::FirstMatch)
                 .unwrap();
@@ -1052,7 +1052,7 @@ pub(crate) mod tests {
         vm.restore_state(&restored_state).unwrap();
 
         let mut resource_allocator = vm.resource_allocator();
-        let gsi_new = resource_allocator.allocate_gsi(1).unwrap()[0];
+        let gsi_new = resource_allocator.allocate_gsi_msi(1).unwrap()[0];
         assert_eq!(gsi + 1, gsi_new);
 
         resource_allocator

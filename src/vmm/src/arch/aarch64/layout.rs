@@ -76,19 +76,25 @@ pub const FDT_MAX_SIZE: usize = 0x20_0000;
 // * bigger than 32
 // * less than 1023 and
 // * a multiple of 32.
-/// The highest usable SPI on aarch64.
-pub const IRQ_MAX: u32 = 128;
-
-/// First usable interrupt on aarch64.
-pub const IRQ_BASE: u32 = 32;
-
-// The Linux kernel automatically shifts the GSI by 32 if it is an SPI,
-// allowing us to start numbering from 0 instead of 32.
-/// The first usable GSI on aarch64.
-pub const GSI_BASE: u32 = 0;
-
-/// The maximum usable GSI on aarch64.
-pub const GSI_MAX: u32 = IRQ_MAX - IRQ_BASE - 1;
+// The first 32 SPIs are reserved, but KVM already shifts the gsi we
+// pass, so we go from 0 to 95 for legacy gsis ("irq") and the remaining
+// we use for MSI.
+/// Offset of first SPI in the GIC
+pub const SPI_START: u32 = 32;
+/// Last possible SPI in the GIC (128 total SPIs)
+pub const SPI_END: u32 = 127;
+/// First usable GSI id on aarch64 (corresponds to SPI #32).
+pub const GSI_LEGACY_START: u32 = 0;
+/// There are 128 SPIs available, but the first 32 are reserved
+pub const GSI_LEGACY_NUM: u32 = SPI_END - SPI_START + 1;
+/// Last available GSI
+pub const GSI_LEGACY_END: u32 = GSI_LEGACY_START + GSI_LEGACY_NUM - 1;
+/// First GSI used by MSI after legacy GSI
+pub const GSI_MSI_START: u32 = GSI_LEGACY_END + 1;
+/// The highest available GSI in KVM (KVM_MAX_IRQ_ROUTES=4096)
+pub const GSI_MSI_END: u32 = 4095;
+/// Number of GSI available for MSI.
+pub const GSI_MSI_NUM: u32 = GSI_MSI_END - GSI_MSI_START + 1;
 
 /// The start of the memory area reserved for MMIO 32-bit accesses.
 /// Below this address will reside the GIC, above this address will reside the MMIO devices.

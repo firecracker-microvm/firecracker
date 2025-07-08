@@ -8,7 +8,7 @@ use kvm_ioctls::DeviceFd;
 
 use crate::arch::aarch64::gic::GicError;
 use crate::arch::aarch64::gic::regs::{GicRegState, MmioReg, SimpleReg, VgicRegEngine};
-use crate::arch::{IRQ_BASE, IRQ_MAX};
+use crate::arch::{GSI_LEGACY_NUM, SPI_START};
 
 // Distributor registers as detailed at page 456 from
 // https://static.docs.arm.com/ihi0069/c/IHI0069C_gic_architecture_specification.pdf.
@@ -64,9 +64,9 @@ impl MmioReg for SharedIrqReg {
         // read-as-zero/write-ignore (RAZ/WI) policy.
         // The first part of a shared-irq register, the one corresponding to the
         // SGI and PPI IRQs (0-32) is RAZ/WI, so we skip it.
-        let start = self.offset + u64::from(IRQ_BASE) * u64::from(self.bits_per_irq) / 8;
+        let start = self.offset + u64::from(SPI_START) * u64::from(self.bits_per_irq) / 8;
 
-        let size_in_bits = u64::from(self.bits_per_irq) * u64::from(IRQ_MAX - IRQ_BASE);
+        let size_in_bits = u64::from(self.bits_per_irq) * u64::from(GSI_LEGACY_NUM);
         let mut size_in_bytes = size_in_bits / 8;
         if size_in_bits % 8 > 0 {
             size_in_bytes += 1;
