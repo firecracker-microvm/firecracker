@@ -64,6 +64,10 @@ rm -vf /etc/systemd/system/timers.target.wants/*
 
 systemctl enable var-lib-systemd.mount
 
+# disable Predictable Network Interface Names to keep ethN names
+# even with PCI enabled
+ln -s /dev/null /etc/systemd/network/99-default.link
+
 #### trim image https://wiki.ubuntu.com/ReducingDiskFootprint
 # this does not save much, but oh well
 rm -rf /usr/share/{doc,man,info,locale}
