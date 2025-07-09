@@ -252,6 +252,8 @@ pub enum VmmError {
     VmmObserverTeardown(vmm_sys_util::errno::Error),
     /// VMGenID error: {0}
     VMGenID(#[from] VmGenIdError),
+    /// Failed perform action on device: {0}
+    FindDeviceError(#[from] device_manager::FindDeviceError),
 }
 
 /// Shorthand type for KVM dirty page bitmap.
@@ -535,13 +537,12 @@ impl Vmm {
         path_on_host: String,
     ) -> Result<(), VmmError> {
         self.device_manager
-            .mmio_devices
             .with_virtio_device_with_id(TYPE_BLOCK, drive_id, |block: &mut Block| {
                 block
                     .update_disk_image(path_on_host)
                     .map_err(|err| err.to_string())
             })
-            .map_err(VmmError::MmioDeviceManager)
+            .map_err(VmmError::FindDeviceError)
     }
 
     /// Updates the rate limiter parameters for block device with `drive_id` id.
@@ -552,23 +553,21 @@ impl Vmm {
         rl_ops: BucketUpdate,
     ) -> Result<(), VmmError> {
         self.device_manager
-            .mmio_devices
             .with_virtio_device_with_id(TYPE_BLOCK, drive_id, |block: &mut Block| {
                 block
                     .update_rate_limiter(rl_bytes, rl_ops)
                     .map_err(|err| err.to_string())
             })
-            .map_err(VmmError::MmioDeviceManager)
+            .map_err(VmmError::FindDeviceError)
     }
 
     /// Updates the rate limiter parameters for block device with `drive_id` id.
     pub fn update_vhost_user_block_config(&mut self, drive_id: &str) -> Result<(), VmmError> {
         self.device_manager
-            .mmio_devices
             .with_virtio_device_with_id(TYPE_BLOCK, drive_id, |block: &mut Block| {
                 block.update_config().map_err(|err| err.to_string())
             })
-            .map_err(VmmError::MmioDeviceManager)
+            .map_err(VmmError::FindDeviceError)
     }
 
     /// Updates the rate limiter parameters for net device with `net_id` id.
@@ -581,12 +580,11 @@ impl Vmm {
         tx_ops: BucketUpdate,
     ) -> Result<(), VmmError> {
         self.device_manager
-            .mmio_devices
             .with_virtio_device_with_id(TYPE_NET, net_id, |net: &mut Net| {
                 net.patch_rate_limiters(rx_bytes, rx_ops, tx_bytes, tx_ops);
                 Ok(())
             })
-            .map_err(VmmError::MmioDeviceManager)
+            .map_err(VmmError::FindDeviceError)
     }
 
     /// Returns a reference to the balloon device if present.
