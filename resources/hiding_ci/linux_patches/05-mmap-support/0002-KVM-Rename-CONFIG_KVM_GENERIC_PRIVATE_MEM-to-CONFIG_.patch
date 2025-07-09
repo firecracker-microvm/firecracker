@@ -1,0 +1,103 @@
+From 2ce4cc59bb3e067e019842870824d7a459d140f0 Mon Sep 17 00:00:00 2001
+From: Fuad Tabba <tabba@google.com>
+Date: Wed, 9 Jul 2025 11:59:28 +0100
+Subject: [PATCH 02/45] KVM: Rename CONFIG_KVM_GENERIC_PRIVATE_MEM to
+ CONFIG_KVM_GENERIC_GMEM_POPULATE
+
+The original name was vague regarding its functionality. This Kconfig
+option specifically enables and gates the kvm_gmem_populate() function,
+which is responsible for populating a GPA range with guest data.
+
+The new name, KVM_GENERIC_GMEM_POPULATE, describes the purpose of the
+option: to enable generic guest_memfd population mechanisms. This
+improves clarity for developers and ensures the name accurately reflects
+the functionality it controls, especially as guest_memfd support expands
+beyond purely "private" memory scenarios.
+
+Reviewed-by: Ira Weiny <ira.weiny@intel.com>
+Reviewed-by: Gavin Shan <gshan@redhat.com>
+Reviewed-by: Shivank Garg <shivankg@amd.com>
+Reviewed-by: Vlastimil Babka <vbabka@suse.cz>
+Co-developed-by: David Hildenbrand <david@redhat.com>
+Signed-off-by: David Hildenbrand <david@redhat.com>
+Signed-off-by: Fuad Tabba <tabba@google.com>
+---
+ arch/x86/kvm/Kconfig     | 6 +++---
+ include/linux/kvm_host.h | 2 +-
+ virt/kvm/Kconfig         | 2 +-
+ virt/kvm/guest_memfd.c   | 2 +-
+ 4 files changed, 6 insertions(+), 6 deletions(-)
+
+diff --git a/arch/x86/kvm/Kconfig b/arch/x86/kvm/Kconfig
+index 2eeffcec5382..df1fdbb4024b 100644
+--- a/arch/x86/kvm/Kconfig
++++ b/arch/x86/kvm/Kconfig
+@@ -46,7 +46,7 @@ config KVM_X86
+ 	select HAVE_KVM_PM_NOTIFIER if PM
+ 	select KVM_GENERIC_HARDWARE_ENABLING
+ 	select KVM_GENERIC_PRE_FAULT_MEMORY
+-	select KVM_GENERIC_PRIVATE_MEM if KVM_SW_PROTECTED_VM
++	select KVM_GENERIC_GMEM_POPULATE if KVM_SW_PROTECTED_VM
+ 	select KVM_WERROR if WERROR
+ 
+ config KVM
+@@ -95,7 +95,7 @@ config KVM_SW_PROTECTED_VM
+ config KVM_INTEL
+ 	tristate "KVM for Intel (and compatible) processors support"
+ 	depends on KVM && IA32_FEAT_CTL
+-	select KVM_GENERIC_PRIVATE_MEM if INTEL_TDX_HOST
++	select KVM_GENERIC_GMEM_POPULATE if INTEL_TDX_HOST
+ 	select KVM_GENERIC_MEMORY_ATTRIBUTES if INTEL_TDX_HOST
+ 	help
+ 	  Provides support for KVM on processors equipped with Intel's VT
+@@ -157,7 +157,7 @@ config KVM_AMD_SEV
+ 	depends on KVM_AMD && X86_64
+ 	depends on CRYPTO_DEV_SP_PSP && !(KVM_AMD=y && CRYPTO_DEV_CCP_DD=m)
+ 	select ARCH_HAS_CC_PLATFORM
+-	select KVM_GENERIC_PRIVATE_MEM
++	select KVM_GENERIC_GMEM_POPULATE
+ 	select HAVE_KVM_ARCH_GMEM_PREPARE
+ 	select HAVE_KVM_ARCH_GMEM_INVALIDATE
+ 	help
+diff --git a/include/linux/kvm_host.h b/include/linux/kvm_host.h
+index 755b09dcafce..359baaae5e9f 100644
+--- a/include/linux/kvm_host.h
++++ b/include/linux/kvm_host.h
+@@ -2556,7 +2556,7 @@ static inline int kvm_gmem_get_pfn(struct kvm *kvm,
+ int kvm_arch_gmem_prepare(struct kvm *kvm, gfn_t gfn, kvm_pfn_t pfn, int max_order);
+ #endif
+ 
+-#ifdef CONFIG_KVM_GENERIC_PRIVATE_MEM
++#ifdef CONFIG_KVM_GENERIC_GMEM_POPULATE
+ /**
+  * kvm_gmem_populate() - Populate/prepare a GPA range with guest data
+  *
+diff --git a/virt/kvm/Kconfig b/virt/kvm/Kconfig
+index 49df4e32bff7..559c93ad90be 100644
+--- a/virt/kvm/Kconfig
++++ b/virt/kvm/Kconfig
+@@ -116,7 +116,7 @@ config KVM_GMEM
+        select XARRAY_MULTI
+        bool
+ 
+-config KVM_GENERIC_PRIVATE_MEM
++config KVM_GENERIC_GMEM_POPULATE
+        select KVM_GENERIC_MEMORY_ATTRIBUTES
+        select KVM_GMEM
+        bool
+diff --git a/virt/kvm/guest_memfd.c b/virt/kvm/guest_memfd.c
+index b2aa6bf24d3a..befea51bbc75 100644
+--- a/virt/kvm/guest_memfd.c
++++ b/virt/kvm/guest_memfd.c
+@@ -638,7 +638,7 @@ int kvm_gmem_get_pfn(struct kvm *kvm, struct kvm_memory_slot *slot,
+ }
+ EXPORT_SYMBOL_GPL(kvm_gmem_get_pfn);
+ 
+-#ifdef CONFIG_KVM_GENERIC_PRIVATE_MEM
++#ifdef CONFIG_KVM_GENERIC_GMEM_POPULATE
+ long kvm_gmem_populate(struct kvm *kvm, gfn_t start_gfn, void __user *src, long npages,
+ 		       kvm_gmem_populate_cb post_populate, void *opaque)
+ {
+-- 
+2.49.0
+
