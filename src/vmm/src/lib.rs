@@ -123,7 +123,6 @@ use std::time::Duration;
 
 use device_manager::DeviceManager;
 use devices::acpi::vmgenid::VmGenIdError;
-use devices::virtio::device::VirtioDevice;
 use event_manager::{EventManager as BaseEventManager, EventOps, Events, MutEventSubscriber};
 use seccomp::BpfProgram;
 use snapshot::Persist;
@@ -327,20 +326,6 @@ impl Vmm {
     /// Provides the Vmm shutdown exit code if there is one.
     pub fn shutdown_exit_code(&self) -> Option<FcExitCode> {
         self.shutdown_exit_code
-    }
-
-    /// Gets the specified bus device.
-    pub fn get_virtio_device(
-        &self,
-        device_type: u32,
-        device_id: &str,
-    ) -> Option<Arc<Mutex<dyn VirtioDevice>>> {
-        let device = self
-            .device_manager
-            .mmio_devices
-            .get_virtio_device(device_type, device_id)?;
-
-        Some(device.inner.lock().expect("Poisoned lock").device().clone())
     }
 
     /// Starts the microVM vcpus.
@@ -591,7 +576,10 @@ impl Vmm {
 
     /// Returns a reference to the balloon device if present.
     pub fn balloon_config(&self) -> Result<BalloonConfig, BalloonError> {
-        if let Some(virtio_device) = self.get_virtio_device(TYPE_BALLOON, BALLOON_DEV_ID) {
+        if let Some(virtio_device) = self
+            .device_manager
+            .get_virtio_device(TYPE_BALLOON, BALLOON_DEV_ID)
+        {
             let config = virtio_device
                 .lock()
                 .expect("Poisoned lock")
@@ -608,7 +596,10 @@ impl Vmm {
 
     /// Returns the latest balloon statistics if they are enabled.
     pub fn latest_balloon_stats(&self) -> Result<BalloonStats, BalloonError> {
-        if let Some(virtio_device) = self.get_virtio_device(TYPE_BALLOON, BALLOON_DEV_ID) {
+        if let Some(virtio_device) = self
+            .device_manager
+            .get_virtio_device(TYPE_BALLOON, BALLOON_DEV_ID)
+        {
             let latest_stats = virtio_device
                 .lock()
                 .expect("Poisoned lock")
@@ -633,7 +624,10 @@ impl Vmm {
             return Err(BalloonError::TooManyPagesRequested);
         }
 
-        if let Some(virtio_device) = self.get_virtio_device(TYPE_BALLOON, BALLOON_DEV_ID) {
+        if let Some(virtio_device) = self
+            .device_manager
+            .get_virtio_device(TYPE_BALLOON, BALLOON_DEV_ID)
+        {
             {
                 virtio_device
                     .lock()
@@ -655,7 +649,10 @@ impl Vmm {
         &mut self,
         stats_polling_interval_s: u16,
     ) -> Result<(), BalloonError> {
-        if let Some(virtio_device) = self.get_virtio_device(TYPE_BALLOON, BALLOON_DEV_ID) {
+        if let Some(virtio_device) = self
+            .device_manager
+            .get_virtio_device(TYPE_BALLOON, BALLOON_DEV_ID)
+        {
             {
                 virtio_device
                     .lock()
