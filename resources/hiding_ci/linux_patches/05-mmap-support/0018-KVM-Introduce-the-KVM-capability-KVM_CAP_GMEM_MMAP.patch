@@ -1,0 +1,76 @@
+From 7bbe202f36cc3e670d47f353398f434063323169 Mon Sep 17 00:00:00 2001
+From: Fuad Tabba <tabba@google.com>
+Date: Wed, 9 Jul 2025 11:59:44 +0100
+Subject: [PATCH 18/45] KVM: Introduce the KVM capability KVM_CAP_GMEM_MMAP
+
+Introduce the new KVM capability KVM_CAP_GMEM_MMAP. This capability
+signals to userspace that a KVM instance supports host userspace mapping
+of guest_memfd-backed memory.
+
+The availability of this capability is determined per architecture, and
+its enablement for a specific guest_memfd instance is controlled by the
+GUEST_MEMFD_FLAG_MMAP flag at creation time.
+
+Update the KVM API documentation to detail the KVM_CAP_GMEM_MMAP
+capability, the associated GUEST_MEMFD_FLAG_MMAP, and provide essential
+information regarding support for mmap in guest_memfd.
+
+Reviewed-by: David Hildenbrand <david@redhat.com>
+Reviewed-by: Gavin Shan <gshan@redhat.com>
+Signed-off-by: Fuad Tabba <tabba@google.com>
+---
+ Documentation/virt/kvm/api.rst | 9 +++++++++
+ include/uapi/linux/kvm.h       | 1 +
+ virt/kvm/kvm_main.c            | 4 ++++
+ 3 files changed, 14 insertions(+)
+
+diff --git a/Documentation/virt/kvm/api.rst b/Documentation/virt/kvm/api.rst
+index 9abf93ee5f65..70261e189162 100644
+--- a/Documentation/virt/kvm/api.rst
++++ b/Documentation/virt/kvm/api.rst
+@@ -6407,6 +6407,15 @@ most one mapping per page, i.e. binding multiple memory regions to a single
+ guest_memfd range is not allowed (any number of memory regions can be bound to
+ a single guest_memfd file, but the bound ranges must not overlap).
+ 
++When the capability KVM_CAP_GMEM_MMAP is supported, the 'flags' field supports
++GUEST_MEMFD_FLAG_MMAP.  Setting this flag on guest_memfd creation enables mmap()
++and faulting of guest_memfd memory to host userspace.
++
++When the KVM MMU performs a PFN lookup to service a guest fault and the backing
++guest_memfd has the GUEST_MEMFD_FLAG_MMAP set, then the fault will always be
++consumed from guest_memfd, regardless of whether it is a shared or a private
++fault.
++
+ See KVM_SET_USER_MEMORY_REGION2 for additional details.
+ 
+ 4.143 KVM_PRE_FAULT_MEMORY
+diff --git a/include/uapi/linux/kvm.h b/include/uapi/linux/kvm.h
+index c71348db818f..cbf28237af79 100644
+--- a/include/uapi/linux/kvm.h
++++ b/include/uapi/linux/kvm.h
+@@ -956,6 +956,7 @@ struct kvm_enable_cap {
+ #define KVM_CAP_ARM_EL2 240
+ #define KVM_CAP_ARM_EL2_E2H0 241
+ #define KVM_CAP_RISCV_MP_STATE_RESET 242
++#define KVM_CAP_GMEM_MMAP 243
+ 
+ struct kvm_irq_routing_irqchip {
+ 	__u32 irqchip;
+diff --git a/virt/kvm/kvm_main.c b/virt/kvm/kvm_main.c
+index 81bb18fa8655..5463e81b08b9 100644
+--- a/virt/kvm/kvm_main.c
++++ b/virt/kvm/kvm_main.c
+@@ -4913,6 +4913,10 @@ static int kvm_vm_ioctl_check_extension_generic(struct kvm *kvm, long arg)
+ #ifdef CONFIG_KVM_GMEM
+ 	case KVM_CAP_GUEST_MEMFD:
+ 		return !kvm || kvm_arch_supports_gmem(kvm);
++#endif
++#ifdef CONFIG_KVM_GMEM_SUPPORTS_MMAP
++	case KVM_CAP_GMEM_MMAP:
++		return !kvm || kvm_arch_supports_gmem_mmap(kvm);
+ #endif
+ 	default:
+ 		break;
+-- 
+2.49.0
+
