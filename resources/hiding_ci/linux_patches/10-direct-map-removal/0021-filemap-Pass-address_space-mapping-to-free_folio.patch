@@ -1,0 +1,214 @@
+From dfd8fbdb2145de31f39d3a6e0a290e3c9b6a1bbe Mon Sep 17 00:00:00 2001
+From: Elliot Berman <quic_eberman@quicinc.com>
+Date: Fri, 22 Nov 2024 09:29:38 -0800
+Subject: [PATCH 21/45] filemap: Pass address_space mapping to ->free_folio()
+
+When guest_memfd removes memory from the host kernel's direct map,
+direct map entries must be restored before the memory is freed again. To
+do so, ->free_folio() needs to know whether a gmem folio was direct map
+removed in the first place though. While possible to keep track of this
+information on each individual folio (e.g. via page flags), direct map
+removal is an all-or-nothing property of the entire guest_memfd, so it
+is less error prone to just check the flag stored in the gmem inode's
+private data.  However, by the time ->free_folio() is called,
+folio->mapping might be cleared. To still allow access to the address
+space from which the folio was just removed, pass it in as an additional
+argument to ->free_folio, as the mapping is well-known to all callers.
+
+Link: https://lore.kernel.org/all/15f665b4-2d33-41ca-ac50-fafe24ade32f@redhat.com/
+Suggested-by: David Hildenbrand <david@redhat.com>
+Acked-by: David Hildenbrand <david@redhat.com>
+Signed-off-by: Elliot Berman <quic_eberman@quicinc.com>
+[patrick: rewrite shortlog for new usecase]
+Signed-off-by: Patrick Roy <roypat@amazon.co.uk>
+---
+ Documentation/filesystems/locking.rst |  2 +-
+ fs/nfs/dir.c                          | 11 ++++++-----
+ fs/orangefs/inode.c                   |  3 ++-
+ include/linux/fs.h                    |  2 +-
+ mm/filemap.c                          |  9 +++++----
+ mm/secretmem.c                        |  3 ++-
+ mm/vmscan.c                           |  4 ++--
+ virt/kvm/guest_memfd.c                |  3 ++-
+ 8 files changed, 21 insertions(+), 16 deletions(-)
+
+diff --git a/Documentation/filesystems/locking.rst b/Documentation/filesystems/locking.rst
+index 2e567e341c3b..21373864e6c2 100644
+--- a/Documentation/filesystems/locking.rst
++++ b/Documentation/filesystems/locking.rst
+@@ -262,7 +262,7 @@ prototypes::
+ 	sector_t (*bmap)(struct address_space *, sector_t);
+ 	void (*invalidate_folio) (struct folio *, size_t start, size_t len);
+ 	bool (*release_folio)(struct folio *, gfp_t);
+-	void (*free_folio)(struct folio *);
++	void (*free_folio)(struct address_space *, struct folio *);
+ 	int (*direct_IO)(struct kiocb *, struct iov_iter *iter);
+ 	int (*migrate_folio)(struct address_space *, struct folio *dst,
+ 			struct folio *src, enum migrate_mode);
+diff --git a/fs/nfs/dir.c b/fs/nfs/dir.c
+index d0e0b435a843..5cb338f0d3a2 100644
+--- a/fs/nfs/dir.c
++++ b/fs/nfs/dir.c
+@@ -55,7 +55,7 @@ static int nfs_closedir(struct inode *, struct file *);
+ static int nfs_readdir(struct file *, struct dir_context *);
+ static int nfs_fsync_dir(struct file *, loff_t, loff_t, int);
+ static loff_t nfs_llseek_dir(struct file *, loff_t, int);
+-static void nfs_readdir_clear_array(struct folio *);
++static void nfs_readdir_clear_array(struct address_space *, struct folio *);
+ static int nfs_do_create(struct inode *dir, struct dentry *dentry,
+ 			 umode_t mode, int open_flags);
+ 
+@@ -218,7 +218,8 @@ static void nfs_readdir_folio_init_array(struct folio *folio, u64 last_cookie,
+ /*
+  * we are freeing strings created by nfs_add_to_readdir_array()
+  */
+-static void nfs_readdir_clear_array(struct folio *folio)
++static void nfs_readdir_clear_array(struct address_space *mapping,
++				    struct folio *folio)
+ {
+ 	struct nfs_cache_array *array;
+ 	unsigned int i;
+@@ -233,7 +234,7 @@ static void nfs_readdir_clear_array(struct folio *folio)
+ static void nfs_readdir_folio_reinit_array(struct folio *folio, u64 last_cookie,
+ 					   u64 change_attr)
+ {
+-	nfs_readdir_clear_array(folio);
++	nfs_readdir_clear_array(folio->mapping, folio);
+ 	nfs_readdir_folio_init_array(folio, last_cookie, change_attr);
+ }
+ 
+@@ -249,7 +250,7 @@ nfs_readdir_folio_array_alloc(u64 last_cookie, gfp_t gfp_flags)
+ static void nfs_readdir_folio_array_free(struct folio *folio)
+ {
+ 	if (folio) {
+-		nfs_readdir_clear_array(folio);
++		nfs_readdir_clear_array(folio->mapping, folio);
+ 		folio_put(folio);
+ 	}
+ }
+@@ -391,7 +392,7 @@ static void nfs_readdir_folio_init_and_validate(struct folio *folio, u64 cookie,
+ 	if (folio_test_uptodate(folio)) {
+ 		if (nfs_readdir_folio_validate(folio, cookie, change_attr))
+ 			return;
+-		nfs_readdir_clear_array(folio);
++		nfs_readdir_clear_array(folio->mapping, folio);
+ 	}
+ 	nfs_readdir_folio_init_array(folio, cookie, change_attr);
+ 	folio_mark_uptodate(folio);
+diff --git a/fs/orangefs/inode.c b/fs/orangefs/inode.c
+index 08a6f372a352..14ac9ffc4431 100644
+--- a/fs/orangefs/inode.c
++++ b/fs/orangefs/inode.c
+@@ -450,7 +450,8 @@ static bool orangefs_release_folio(struct folio *folio, gfp_t foo)
+ 	return !folio_test_private(folio);
+ }
+ 
+-static void orangefs_free_folio(struct folio *folio)
++static void orangefs_free_folio(struct address_space *mapping,
++				struct folio *folio)
+ {
+ 	kfree(folio_detach_private(folio));
+ }
+diff --git a/include/linux/fs.h b/include/linux/fs.h
+index 040c0036320f..9d7ff57794fa 100644
+--- a/include/linux/fs.h
++++ b/include/linux/fs.h
+@@ -457,7 +457,7 @@ struct address_space_operations {
+ 	sector_t (*bmap)(struct address_space *, sector_t);
+ 	void (*invalidate_folio) (struct folio *, size_t offset, size_t len);
+ 	bool (*release_folio)(struct folio *, gfp_t);
+-	void (*free_folio)(struct folio *folio);
++	void (*free_folio)(struct address_space *, struct folio *folio);
+ 	ssize_t (*direct_IO)(struct kiocb *, struct iov_iter *iter);
+ 	/*
+ 	 * migrate the contents of a folio to the specified target. If
+diff --git a/mm/filemap.c b/mm/filemap.c
+index bada249b9fb7..6af53c5096fc 100644
+--- a/mm/filemap.c
++++ b/mm/filemap.c
+@@ -226,11 +226,11 @@ void __filemap_remove_folio(struct folio *folio, void *shadow)
+ 
+ void filemap_free_folio(struct address_space *mapping, struct folio *folio)
+ {
+-	void (*free_folio)(struct folio *);
++	void (*free_folio)(struct address_space *, struct folio *);
+ 
+ 	free_folio = mapping->a_ops->free_folio;
+ 	if (free_folio)
+-		free_folio(folio);
++		free_folio(mapping, folio);
+ 
+ 	folio_put_refs(folio, folio_nr_pages(folio));
+ }
+@@ -820,7 +820,8 @@ EXPORT_SYMBOL(file_write_and_wait_range);
+ void replace_page_cache_folio(struct folio *old, struct folio *new)
+ {
+ 	struct address_space *mapping = old->mapping;
+-	void (*free_folio)(struct folio *) = mapping->a_ops->free_folio;
++	void (*free_folio)(struct address_space *, struct folio *) =
++		mapping->a_ops->free_folio;
+ 	pgoff_t offset = old->index;
+ 	XA_STATE(xas, &mapping->i_pages, offset);
+ 
+@@ -849,7 +850,7 @@ void replace_page_cache_folio(struct folio *old, struct folio *new)
+ 		__lruvec_stat_add_folio(new, NR_SHMEM);
+ 	xas_unlock_irq(&xas);
+ 	if (free_folio)
+-		free_folio(old);
++		free_folio(mapping, old);
+ 	folio_put(old);
+ }
+ EXPORT_SYMBOL_GPL(replace_page_cache_folio);
+diff --git a/mm/secretmem.c b/mm/secretmem.c
+index 9a11a38a6770..4d2d6c0e342f 100644
+--- a/mm/secretmem.c
++++ b/mm/secretmem.c
+@@ -152,7 +152,8 @@ static int secretmem_migrate_folio(struct address_space *mapping,
+ 	return -EBUSY;
+ }
+ 
+-static void secretmem_free_folio(struct folio *folio)
++static void secretmem_free_folio(struct address_space *mapping,
++				 struct folio *folio)
+ {
+ 	set_direct_map_default_noflush(&folio->page);
+ 	folio_zero_segment(folio, 0, folio_size(folio));
+diff --git a/mm/vmscan.c b/mm/vmscan.c
+index f8dfd2864bbf..e23e1a44b92c 100644
+--- a/mm/vmscan.c
++++ b/mm/vmscan.c
+@@ -797,7 +797,7 @@ static int __remove_mapping(struct address_space *mapping, struct folio *folio,
+ 		xa_unlock_irq(&mapping->i_pages);
+ 		put_swap_folio(folio, swap);
+ 	} else {
+-		void (*free_folio)(struct folio *);
++		void (*free_folio)(struct address_space *, struct folio *);
+ 
+ 		free_folio = mapping->a_ops->free_folio;
+ 		/*
+@@ -826,7 +826,7 @@ static int __remove_mapping(struct address_space *mapping, struct folio *folio,
+ 		spin_unlock(&mapping->host->i_lock);
+ 
+ 		if (free_folio)
+-			free_folio(folio);
++			free_folio(mapping, folio);
+ 	}
+ 
+ 	return 1;
+diff --git a/virt/kvm/guest_memfd.c b/virt/kvm/guest_memfd.c
+index d01bd7a2c2bd..0ac1c3a5a433 100644
+--- a/virt/kvm/guest_memfd.c
++++ b/virt/kvm/guest_memfd.c
+@@ -433,7 +433,8 @@ static int kvm_gmem_error_folio(struct address_space *mapping, struct folio *fol
+ }
+ 
+ #ifdef CONFIG_HAVE_KVM_ARCH_GMEM_INVALIDATE
+-static void kvm_gmem_free_folio(struct folio *folio)
++static void kvm_gmem_free_folio(struct address_space *mapping,
++				struct folio *folio)
+ {
+ 	struct page *page = folio_page(folio, 0);
+ 	kvm_pfn_t pfn = page_to_pfn(page);
+-- 
+2.49.0
+

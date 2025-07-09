@@ -1,0 +1,102 @@
+From 85b1525e138e76dd43f58e8b5cfd2f0f861ae6a6 Mon Sep 17 00:00:00 2001
+From: Fuad Tabba <tabba@google.com>
+Date: Wed, 9 Jul 2025 11:59:29 +0100
+Subject: [PATCH 03/45] KVM: Introduce kvm_arch_supports_gmem()
+
+Introduce kvm_arch_supports_gmem() to explicitly indicate whether an
+architecture supports guest_memfd.
+
+Previously, kvm_arch_has_private_mem() was used to check for guest_memfd
+support. However, this conflated guest_memfd with "private" memory,
+implying that guest_memfd was exclusively for CoCo VMs or other private
+memory use cases.
+
+With the expansion of guest_memfd to support non-private memory, such as
+shared host mappings, it is necessary to decouple these concepts. The
+new kvm_arch_supports_gmem() function provides a clear way to check for
+guest_memfd support.
+
+Reviewed-by: Ira Weiny <ira.weiny@intel.com>
+Reviewed-by: Gavin Shan <gshan@redhat.com>
+Reviewed-by: Shivank Garg <shivankg@amd.com>
+Reviewed-by: Vlastimil Babka <vbabka@suse.cz>
+Co-developed-by: David Hildenbrand <david@redhat.com>
+Signed-off-by: David Hildenbrand <david@redhat.com>
+Signed-off-by: Fuad Tabba <tabba@google.com>
+---
+ arch/x86/include/asm/kvm_host.h |  4 +++-
+ include/linux/kvm_host.h        | 11 +++++++++++
+ virt/kvm/kvm_main.c             |  4 ++--
+ 3 files changed, 16 insertions(+), 3 deletions(-)
+
+diff --git a/arch/x86/include/asm/kvm_host.h b/arch/x86/include/asm/kvm_host.h
+index 66bdd0759d27..09f4f6240d9d 100644
+--- a/arch/x86/include/asm/kvm_host.h
++++ b/arch/x86/include/asm/kvm_host.h
+@@ -2271,8 +2271,10 @@ void kvm_configure_mmu(bool enable_tdp, int tdp_forced_root_level,
+ 
+ #ifdef CONFIG_KVM_GMEM
+ #define kvm_arch_has_private_mem(kvm) ((kvm)->arch.has_private_mem)
++#define kvm_arch_supports_gmem(kvm) kvm_arch_has_private_mem(kvm)
+ #else
+ #define kvm_arch_has_private_mem(kvm) false
++#define kvm_arch_supports_gmem(kvm) false
+ #endif
+ 
+ #define kvm_arch_has_readonly_mem(kvm) (!(kvm)->arch.has_protected_state)
+@@ -2325,7 +2327,7 @@ enum {
+ #define HF_SMM_INSIDE_NMI_MASK	(1 << 2)
+ 
+ # define KVM_MAX_NR_ADDRESS_SPACES	2
+-/* SMM is currently unsupported for guests with private memory. */
++/* SMM is currently unsupported for guests with guest_memfd private memory. */
+ # define kvm_arch_nr_memslot_as_ids(kvm) (kvm_arch_has_private_mem(kvm) ? 1 : 2)
+ # define kvm_arch_vcpu_memslots_id(vcpu) ((vcpu)->arch.hflags & HF_SMM_MASK ? 1 : 0)
+ # define kvm_memslots_for_spte_role(kvm, role) __kvm_memslots(kvm, (role).smm)
+diff --git a/include/linux/kvm_host.h b/include/linux/kvm_host.h
+index 359baaae5e9f..ab1bde048034 100644
+--- a/include/linux/kvm_host.h
++++ b/include/linux/kvm_host.h
+@@ -729,6 +729,17 @@ static inline bool kvm_arch_has_private_mem(struct kvm *kvm)
+ }
+ #endif
+ 
++/*
++ * Arch code must define kvm_arch_supports_gmem if support for guest_memfd is
++ * enabled.
++ */
++#if !defined(kvm_arch_supports_gmem) && !IS_ENABLED(CONFIG_KVM_GMEM)
++static inline bool kvm_arch_supports_gmem(struct kvm *kvm)
++{
++	return false;
++}
++#endif
++
+ #ifndef kvm_arch_has_readonly_mem
+ static inline bool kvm_arch_has_readonly_mem(struct kvm *kvm)
+ {
+diff --git a/virt/kvm/kvm_main.c b/virt/kvm/kvm_main.c
+index 898c3d5a7ba8..afbc025ce4d3 100644
+--- a/virt/kvm/kvm_main.c
++++ b/virt/kvm/kvm_main.c
+@@ -1588,7 +1588,7 @@ static int check_memory_region_flags(struct kvm *kvm,
+ {
+ 	u32 valid_flags = KVM_MEM_LOG_DIRTY_PAGES;
+ 
+-	if (kvm_arch_has_private_mem(kvm))
++	if (kvm_arch_supports_gmem(kvm))
+ 		valid_flags |= KVM_MEM_GUEST_MEMFD;
+ 
+ 	/* Dirty logging private memory is not currently supported. */
+@@ -4912,7 +4912,7 @@ static int kvm_vm_ioctl_check_extension_generic(struct kvm *kvm, long arg)
+ #endif
+ #ifdef CONFIG_KVM_GMEM
+ 	case KVM_CAP_GUEST_MEMFD:
+-		return !kvm || kvm_arch_has_private_mem(kvm);
++		return !kvm || kvm_arch_supports_gmem(kvm);
+ #endif
+ 	default:
+ 		break;
+-- 
+2.49.0
+

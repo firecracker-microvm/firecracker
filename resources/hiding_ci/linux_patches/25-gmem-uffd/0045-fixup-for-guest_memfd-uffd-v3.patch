@@ -1,0 +1,71 @@
+From 46a18cd195d8c68e319ba7142cd923db7ccff967 Mon Sep 17 00:00:00 2001
+From: Nikita Kalyazin <kalyazin@amazon.com>
+Date: Thu, 10 Apr 2025 14:18:53 +0000
+Subject: [PATCH 45/45] fixup for guest_memfd uffd v3
+
+ - implement can_userfault for guest_memfd
+ - check vma->vm_ops pointer before dereferencing
+ - proper check for VM_UFFD_MINOR
+---
+ include/linux/userfaultfd_k.h | 8 +++++---
+ mm/userfaultfd.c              | 4 +++-
+ virt/kvm/guest_memfd.c        | 7 +++++++
+ 3 files changed, 15 insertions(+), 4 deletions(-)
+
+diff --git a/include/linux/userfaultfd_k.h b/include/linux/userfaultfd_k.h
+index 64551e8a55fb..8a05a7880393 100644
+--- a/include/linux/userfaultfd_k.h
++++ b/include/linux/userfaultfd_k.h
+@@ -221,9 +221,11 @@ static inline bool vma_can_userfault(struct vm_area_struct *vma,
+ 	if (vm_flags & VM_DROPPABLE)
+ 		return false;
+ 
+-	if (!vma->vm_ops->can_userfault ||
+-	    !vma->vm_ops->can_userfault(vma, VM_UFFD_MINOR))
+-		return false;
++       if ((vm_flags & VM_UFFD_MINOR) &&
++            (!vma->vm_ops ||
++             !vma->vm_ops->can_userfault ||
++             !vma->vm_ops->can_userfault(vma, VM_UFFD_MINOR)))
++                return false;
+ 
+ 	/*
+ 	 * If wp async enabled, and WP is the only mode enabled, allow any
+diff --git a/mm/userfaultfd.c b/mm/userfaultfd.c
+index d900dfd03bbe..7fb92714bc5c 100644
+--- a/mm/userfaultfd.c
++++ b/mm/userfaultfd.c
+@@ -784,7 +784,9 @@ static __always_inline ssize_t mfill_atomic(struct userfaultfd_ctx *ctx,
+ 		return  mfill_atomic_hugetlb(ctx, dst_vma, dst_start,
+ 					     src_start, len, flags);
+ 
+-	can_userfault = dst_vma->vm_ops->can_userfault &&
++       can_userfault =
++           dst_vma->vm_ops &&
++           dst_vma->vm_ops->can_userfault &&
+ 	    dst_vma->vm_ops->can_userfault(dst_vma, __VM_UFFD_FLAGS);
+ 
+ 	if (!vma_is_anonymous(dst_vma) && !can_userfault)
+diff --git a/virt/kvm/guest_memfd.c b/virt/kvm/guest_memfd.c
+index e7fcd422c801..0226086a1a01 100644
+--- a/virt/kvm/guest_memfd.c
++++ b/virt/kvm/guest_memfd.c
+@@ -380,8 +380,15 @@ static vm_fault_t kvm_gmem_fault_user_mapping(struct vm_fault *vmf)
+ 	return ret;
+ }
+ 
++static bool kvm_gmem_can_userfault(struct vm_area_struct *vma,
++                                  unsigned long vm_flags)
++{
++       return vm_flags & VM_UFFD_MINOR;
++}
++
+ static const struct vm_operations_struct kvm_gmem_vm_ops = {
+ 	.fault = kvm_gmem_fault_user_mapping,
++	.can_userfault = kvm_gmem_can_userfault,
+ };
+ 
+ static int kvm_gmem_mmap(struct file *file, struct vm_area_struct *vma)
+-- 
+2.49.0
+

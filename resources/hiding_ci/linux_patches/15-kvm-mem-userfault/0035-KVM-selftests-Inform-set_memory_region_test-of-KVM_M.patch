@@ -1,0 +1,31 @@
+From eadccd3481d3c5eff60143480be9076a1c8b57bb Mon Sep 17 00:00:00 2001
+From: James Houghton <jthoughton@google.com>
+Date: Thu, 9 Jan 2025 20:49:27 +0000
+Subject: [PATCH 35/45] KVM: selftests: Inform set_memory_region_test of
+ KVM_MEM_USERFAULT
+
+The KVM_MEM_USERFAULT flag is supported iff KVM_CAP_USERFAULT is
+available.
+
+Signed-off-by: James Houghton <jthoughton@google.com>
+---
+ tools/testing/selftests/kvm/set_memory_region_test.c | 3 +++
+ 1 file changed, 3 insertions(+)
+
+diff --git a/tools/testing/selftests/kvm/set_memory_region_test.c b/tools/testing/selftests/kvm/set_memory_region_test.c
+index ce3ac0fd6dfb..ba3fe8a53b33 100644
+--- a/tools/testing/selftests/kvm/set_memory_region_test.c
++++ b/tools/testing/selftests/kvm/set_memory_region_test.c
+@@ -364,6 +364,9 @@ static void test_invalid_memory_region_flags(void)
+ 	if (kvm_check_cap(KVM_CAP_MEMORY_ATTRIBUTES) & KVM_MEMORY_ATTRIBUTE_PRIVATE)
+ 		supported_flags |= KVM_MEM_GUEST_MEMFD;
+ 
++	if (kvm_check_cap(KVM_CAP_USERFAULT))
++		supported_flags |= KVM_MEM_USERFAULT;
++
+ 	for (i = 0; i < 32; i++) {
+ 		if ((supported_flags & BIT(i)) && !(v2_only_flags & BIT(i)))
+ 			continue;
+-- 
+2.49.0
+
