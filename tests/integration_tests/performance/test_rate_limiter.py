@@ -144,7 +144,7 @@ def _check_tx_rate_limiting(test_microvm):
 
     # First step: get the transfer rate when no rate limiting is enabled.
     # We are receiving the result in KBytes from iperf.
-    print("Run guest TX iperf with no rate-limit")
+    print("Run guest TX iperf for no rate limiting")
     rate_no_limit_kbps = _get_tx_bandwidth_with_duration(
         test_microvm, eth0.host_ip, IPERF_TRANSMIT_TIME
     )
@@ -160,11 +160,12 @@ def _check_tx_rate_limiting(test_microvm):
     assert _get_percentage_difference(rate_no_limit_kbps, expected_kbps) > 100
 
     # Second step: check bandwidth when rate limiting is on.
+    print("Run guest TX iperf for rate limiting without burst")
     _check_tx_bandwidth(test_microvm, eth1.host_ip, expected_kbps)
 
     # Third step: get the number of bytes when rate limiting is on and there is
     # an initial burst size from where to consume.
-    print("Run guest TX iperf with exact burst size")
+    print("Run guest TX iperf for rate limiting with burst")
     # Use iperf to obtain the bandwidth when there is burst to consume from,
     # send exactly BURST_SIZE packets.
     iperf_cmd = "{} -c {} -n {} -f KBytes -w {} -N".format(
@@ -192,7 +193,7 @@ def _check_rx_rate_limiting(test_microvm):
 
     # First step: get the transfer rate when no rate limiting is enabled.
     # We are receiving the result in KBytes from iperf.
-    print("Run guest RX iperf with no rate-limit")
+    print("Run guest RX iperf with no rate limiting")
     rate_no_limit_kbps = _get_rx_bandwidth_with_duration(
         test_microvm, eth0.guest_ip, IPERF_TRANSMIT_TIME
     )
@@ -208,11 +209,12 @@ def _check_rx_rate_limiting(test_microvm):
     assert _get_percentage_difference(rate_no_limit_kbps, expected_kbps) > 100
 
     # Second step: check bandwidth when rate limiting is on.
+    print("Run guest RX iperf for rate limiting without burst")
     _check_rx_bandwidth(test_microvm, eth1.guest_ip, expected_kbps)
 
     # Third step: get the number of bytes when rate limiting is on and there is
     # an initial burst size from where to consume.
-    print("Run guest RX iperf with exact burst size")
+    print("Run guest RX iperf for rate limiting with burst")
     # Use iperf to obtain the bandwidth when there is burst to consume from,
     # send exactly BURST_SIZE packets.
     iperf_cmd = "{} {} -c {} -n {} -f KBytes -w {} -N".format(
