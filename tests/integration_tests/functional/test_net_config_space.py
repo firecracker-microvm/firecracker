@@ -2,9 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 """Tests on devices config space."""
 
-import platform
 import random
-import re
 import string
 import subprocess
 from threading import Thread
@@ -64,6 +62,8 @@ def test_net_change_mac_address(uvm_plain_any, change_net_config_space_bin):
 
     net_addr_base = _get_net_mem_addr_base(ssh_conn, guest_if1_name)
     assert net_addr_base is not None
+    config_offset = 0x4000 if test_microvm.pci_enabled else 0x100
+    dev_addr = net_addr_base + config_offset
 
     # Write into '/dev/mem' the same mac address, byte by byte.
     # This changes the MAC address physically, in the network device registers.
@@ -72,7 +72,7 @@ def test_net_change_mac_address(uvm_plain_any, change_net_config_space_bin):
     # `tx_spoofed_mac_count` metric shouldn't be incremented later on.
     rmt_path = "/tmp/change_net_config_space"
     test_microvm.ssh.scp_put(change_net_config_space_bin, rmt_path)
-    cmd = f"chmod u+x {rmt_path} && {rmt_path} {net_addr_base} {mac_hex}"
+    cmd = f"chmod u+x {rmt_path} && {rmt_path} {dev_addr} {mac_hex}"
 
     # This should be executed successfully.
     _, stdout, _ = ssh_conn.check_output(cmd)
@@ -219,8 +219,7 @@ def _find_iomem_range(ssh_connection, dev_name):
     # its contents and grep for the VirtIO device name, which
     # with ACPI is "LNRO0005:XY".
     cmd = f"cat /proc/iomem | grep -m 1 {dev_name}"
-    rc, stdout, stderr = ssh_connection.run(cmd)
-    assert rc == 0, stderr
+    _, stdout, _ = ssh_connection.check_output(cmd)
 
     # Take range in the form 'start-end' from line. The line looks like this:
     # d00002000-d0002fff : LNRO0005:02
@@ -231,89 +230,16 @@ def _find_iomem_range(ssh_connection, dev_name):
     return (int(tokens[0], 16), int(tokens[1], 16))
 
 
-def _get_net_mem_addr_base_x86_acpi(ssh_connection, if_name):
-    """Check for net device memory start address via ACPI info"""
-    # On x86 we define VirtIO devices through ACPI AML bytecode. VirtIO devices
-    # are identified as "LNRO0005" and appear under /sys/devices/platform
-    sys_virtio_mmio_cmdline = "/sys/devices/platform/"
-    cmd = "ls {}"
-    _, stdout, _ = ssh_connection.check_output(cmd.format(sys_virtio_mmio_cmdline))
-    virtio_devs = list(filter(lambda x: "LNRO0005" in x, stdout.strip().split()))
-
-    # For virtio-net LNRO0005 devices, we should have a path like:
-    # /sys/devices/platform/LNRO0005::XY/virtioXY/net which is a directory
-    # that includes a subdirectory `ethZ` which represents the network device
-    # that corresponds to the virtio-net device.
-    cmd = "ls {}/{}/virtio{}/net"
-    for idx, dev in enumerate(virtio_devs):
-        _, guest_if_name, _ = ssh_connection.run(
-            cmd.format(sys_virtio_mmio_cmdline, dev, idx)
-        )
-        if guest_if_name.strip() == if_name:
-            return _find_iomem_range(ssh_connection, dev)[0]
-
-    return None
-
-
-def _get_net_mem_addr_base_x86_cmdline(ssh_connection, if_name):
-    """Check for net device memory start address via command line arguments"""
-    sys_virtio_mmio_cmdline = "/sys/devices/virtio-mmio-cmdline/"
-    cmd = "ls {} | grep virtio-mmio. | sed 's/virtio-mmio.//'"
-    exit_code, stdout, stderr = ssh_connection.run(cmd.format(sys_virtio_mmio_cmdline))
-    assert exit_code == 0, stderr
-    virtio_devs_idx = stdout.strip().split()
-
-    cmd = "cat /proc/cmdline"
-    _, cmd_line, _ = ssh_connection.check_output(cmd)
-    pattern_dev = re.compile("(virtio_mmio.device=4K@0x[0-9a-f]+:[0-9]+)+")
-    pattern_addr = re.compile("virtio_mmio.device=4K@(0x[0-9a-f]+):[0-9]+")
-    devs_addr = []
-    for dev in re.findall(pattern_dev, cmd_line):
-        matched_addr = pattern_addr.search(dev)
-        # The 1st group which matches this pattern
-        # is the device start address. `0` group is
-        # full match
-        addr = matched_addr.group(1)
-        devs_addr.append(addr)
-
-    cmd = "ls {}/virtio-mmio.{}/virtio{}/net"
-    for idx in virtio_devs_idx:
-        _, guest_if_name, _ = ssh_connection.run(
-            cmd.format(sys_virtio_mmio_cmdline, idx, idx)
-        )
-        if guest_if_name.strip() == if_name:
-            return devs_addr[int(idx)]
-
-    return None
-
-
 def _get_net_mem_addr_base(ssh_connection, if_name):
     """Get the net device memory start address."""
-    if platform.machine() == "x86_64":
-        acpi_info = _get_net_mem_addr_base_x86_acpi(ssh_connection, if_name)
-        if acpi_info is not None:
-            return acpi_info
-
-        return _get_net_mem_addr_base_x86_cmdline(ssh_connection, if_name)
-
-    if platform.machine() == "aarch64":
-        sys_virtio_mmio_cmdline = "/sys/devices/platform"
-        cmd = "ls {} | grep .virtio_mmio".format(sys_virtio_mmio_cmdline)
-        rc, stdout, _ = ssh_connection.run(cmd)
-        assert rc == 0
-
-        virtio_devs = stdout.split()
-        devs_addr = list(map(lambda dev: dev.split(".")[0], virtio_devs))
-
-        cmd = "ls {}/{}/virtio{}/net"
-        # Device start addresses lack the hex prefix and are not interpreted
-        # accordingly when parsed inside `change_config_space.c`.
-        hex_prefix = "0x"
-        for idx, dev in enumerate(virtio_devs):
-            _, guest_if_name, _ = ssh_connection.run(
-                cmd.format(sys_virtio_mmio_cmdline, dev, idx)
-            )
-            if guest_if_name.strip() == if_name:
-                return hex_prefix + devs_addr[int(idx)]
-
-    return None
+    _, stdout, _ = ssh_connection.check_output(f"find /sys/devices -name {if_name}")
+    device_paths = stdout.strip().split("\n")
+    assert (
+        len(device_paths) == 1
+    ), f"No or multiple devices found for {if_name}:\n{stdout}"
+    device_path = device_paths[0]
+    parts = device_path.split("/")
+    assert len(parts) >= 6, f"Unexpected device path: {device_path}"
+    device = parts[-4]
+    start_addr, _ = _find_iomem_range(ssh_connection, device)
+    return start_addr
