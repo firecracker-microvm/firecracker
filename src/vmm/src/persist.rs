@@ -321,18 +321,23 @@ pub fn restore_from_snapshot(
 ) -> Result<Arc<Mutex<Vmm>>, RestoreFromSnapshotError> {
     let mut microvm_state = snapshot_state_from_file(&params.snapshot_path)?;
     for entry in &params.network_overrides {
-        let net_devices = &mut microvm_state.device_states.mmio_state.net_devices;
-        if let Some(device) = net_devices
+        microvm_state
+            .device_states
+            .mmio_state
+            .net_devices
             .iter_mut()
-            .find(|x| x.device_state.id == entry.iface_id)
-        {
-            device
-                .device_state
-                .tap_if_name
-                .clone_from(&entry.host_dev_name);
-        } else {
-            return Err(SnapshotStateFromFileError::UnknownNetworkDevice.into());
-        }
+            .map(|device| &mut device.device_state)
+            .chain(
+                microvm_state
+                    .device_states
+                    .pci_state
+                    .net_devices
+                    .iter_mut()
+                    .map(|device| &mut device.device_state),
+            )
+            .find(|x| x.id == entry.iface_id)
+            .map(|device_state| device_state.tap_if_name.clone_from(&entry.host_dev_name))
+            .ok_or(SnapshotStateFromFileError::UnknownNetworkDevice)?;
     }
     let track_dirty_pages = params.enable_diff_snapshots;
 
