@@ -6,9 +6,60 @@ import os
 import shutil
 from pathlib import Path
 
+import pytest
+
 import host_tools.drive as drive_tools
 from framework.utils_drive import partuuid_and_disk_path
 from host_tools.fcmetrics import FcDeviceMetrics
+
+
+@pytest.fixture
+def uvm_vhost_user_plain_any(microvm_factory, guest_kernel, pci_enabled):
+    """Builds a plain VM with no root volume"""
+    return microvm_factory.build(
+        guest_kernel, None, pci=pci_enabled, monitor_memory=False
+    )
+
+
+@pytest.fixture
+def uvm_vhost_user_booted_ro(uvm_vhost_user_plain_any, rootfs):
+    """Returns a VM with a vhost-user rootfs"""
+    vm = uvm_vhost_user_plain_any
+
+    # We need to setup ssh keys manually because we did not specify rootfs
+    # in microvm_factory.build method
+    ssh_key = rootfs.with_suffix(".id_rsa")
+    vm.ssh_key = ssh_key
+    vm.spawn()
+    vm.basic_config(add_root_device=False)
+    vm.add_vhost_user_drive("rootfs", rootfs, is_root_device=True, is_read_only=True)
+    vm.add_net_iface()
+    vm.start()
+
+    return vm
+
+
+@pytest.fixture
+def uvm_vhost_user_booted_rw(uvm_vhost_user_plain_any, rootfs):
+    """Returns a VM with a vhost-user rootfs"""
+    vm = uvm_vhost_user_plain_any
+
+    # We need to setup ssh keys manually because we did not specify rootfs
+    # in microvm_factory.build method
+    ssh_key = rootfs.with_suffix(".id_rsa")
+    vm.ssh_key = ssh_key
+    vm.spawn()
+    vm.basic_config(add_root_device=False)
+    # Create a rw rootfs file that is unique to the microVM
+    rootfs_rw = Path(vm.chroot()) / "rootfs"
+    shutil.copy(rootfs, rootfs_rw)
+    vm.add_vhost_user_drive(
+        "rootfs", rootfs_rw, is_root_device=True, is_read_only=False
+    )
+    vm.add_net_iface()
+    vm.start()
+
+    return vm
 
 
 def _check_block_size(ssh_connection, dev_path, size):
@@ -34,26 +85,16 @@ def _check_drives(test_microvm, assert_dict, keys_array):
         assert blockdev_out_line_cols[col] == assert_dict[key]
 
 
-def test_vhost_user_block(microvm_factory, guest_kernel, rootfs):
+def test_vhost_user_block(uvm_vhost_user_booted_ro):
     """
     This test simply tries to boot a VM with
     vhost-user-block as a root device.
     """
 
-    vm = microvm_factory.build(guest_kernel, None, monitor_memory=False)
-
-    # We need to setup ssh keys manually because we did not specify rootfs
-    # in microvm_factory.build method
-    ssh_key = rootfs.with_suffix(".id_rsa")
-    vm.ssh_key = ssh_key
-    vm.spawn()
-    vm.basic_config(add_root_device=False)
-    vm.add_vhost_user_drive("rootfs", rootfs, is_root_device=True, is_read_only=True)
-    vm.add_net_iface()
+    vm = uvm_vhost_user_booted_ro
     vhost_user_block_metrics = FcDeviceMetrics(
         "vhost_user_block", 1, aggr_supported=False
     )
-    vm.start()
 
     # Now check that vhost-user-block with rw is last.
     # 1-0 means line 1, column 0.
@@ -65,29 +106,14 @@ def test_vhost_user_block(microvm_factory, guest_kernel, rootfs):
     vhost_user_block_metrics.validate(vm)
 
 
-def test_vhost_user_block_read_write(microvm_factory, guest_kernel, rootfs):
+def test_vhost_user_block_read_write(uvm_vhost_user_booted_rw):
     """
     This test simply tries to boot a VM with
     vhost-user-block as a root device.
     This test configures vhost-user-block to be read write.
     """
 
-    vm = microvm_factory.build(guest_kernel, None, monitor_memory=False)
-
-    # We need to setup ssh keys manually because we did not specify rootfs
-    # in microvm_factory.build method
-    ssh_key = rootfs.with_suffix(".id_rsa")
-    vm.ssh_key = ssh_key
-    vm.spawn()
-    vm.basic_config(add_root_device=False)
-
-    # Create a rw rootfs file that is unique to the microVM
-    rootfs_rw = Path(vm.chroot()) / "rootfs"
-    shutil.copy(rootfs, rootfs_rw)
-
-    vm.add_vhost_user_drive("rootfs", rootfs_rw, is_root_device=True)
-    vm.add_net_iface()
-    vm.start()
+    vm = uvm_vhost_user_booted_rw
 
     # Now check that vhost-user-block with rw is last.
     # 1-0 means line 1, column 0.
@@ -98,22 +124,12 @@ def test_vhost_user_block_read_write(microvm_factory, guest_kernel, rootfs):
     _check_drives(vm, assert_dict, assert_dict.keys())
 
 
-def test_vhost_user_block_disconnect(microvm_factory, guest_kernel, rootfs):
+def test_vhost_user_block_disconnect(uvm_vhost_user_booted_ro):
     """
     Test that even if backend is killed, Firecracker is still responsive.
     """
 
-    vm = microvm_factory.build(guest_kernel, None, monitor_memory=False)
-
-    # We need to set up ssh keys manually because we did not specify rootfs
-    # in microvm_factory.build method
-    ssh_key = rootfs.with_suffix(".id_rsa")
-    vm.ssh_key = ssh_key
-    vm.spawn()
-    vm.basic_config(add_root_device=False)
-    vm.add_vhost_user_drive("rootfs", rootfs, is_root_device=True, is_read_only=True)
-    vm.add_net_iface()
-    vm.start()
+    vm = uvm_vhost_user_booted_ro
 
     # Killing the backend
     vm.disks_vhost_user["rootfs"].kill()
@@ -123,7 +139,7 @@ def test_vhost_user_block_disconnect(microvm_factory, guest_kernel, rootfs):
     _config = vm.api.vm_config.get().json()
 
 
-def test_device_ordering(microvm_factory, guest_kernel, rootfs):
+def test_device_ordering(uvm_vhost_user_plain_any, rootfs):
     """
     Verify device ordering.
 
@@ -131,7 +147,7 @@ def test_device_ordering(microvm_factory, guest_kernel, rootfs):
     the order of the other devices should match their configuration order.
     """
 
-    vm = microvm_factory.build(guest_kernel, None, monitor_memory=False)
+    vm = uvm_vhost_user_plain_any
 
     # We need to setup ssh keys manually because we did not specify rootfs
     # in microvm_factory.build method
@@ -194,16 +210,12 @@ def test_device_ordering(microvm_factory, guest_kernel, rootfs):
     vhost_user_block_metrics.validate(vm)
 
 
-def test_partuuid_boot(
-    microvm_factory,
-    guest_kernel,
-    rootfs,
-):
+def test_partuuid_boot(uvm_vhost_user_plain_any, rootfs):
     """
     Test the output reported by blockdev when booting with PARTUUID.
     """
 
-    vm = microvm_factory.build(guest_kernel, None, monitor_memory=False)
+    vm = uvm_vhost_user_plain_any
 
     # We need to setup ssh keys manually because we did not specify rootfs
     # in microvm_factory.build method
@@ -230,12 +242,12 @@ def test_partuuid_boot(
     _check_drives(vm, assert_dict, assert_dict.keys())
 
 
-def test_partuuid_update(microvm_factory, guest_kernel, rootfs):
+def test_partuuid_update(uvm_vhost_user_plain_any, rootfs):
     """
     Test successful switching from PARTUUID boot to /dev/vda boot.
     """
 
-    vm = microvm_factory.build(guest_kernel, None, monitor_memory=False)
+    vm = uvm_vhost_user_plain_any
 
     # We need to setup ssh keys manually because we did not specify rootfs
     # in microvm_factory.build method
@@ -272,7 +284,7 @@ def test_partuuid_update(microvm_factory, guest_kernel, rootfs):
     vhost_user_block_metrics.validate(vm)
 
 
-def test_config_change(microvm_factory, guest_kernel, rootfs):
+def test_config_change(uvm_plain_any):
     """
     Verify handling of block device resize.
     We expect that the guest will start reporting the updated size
@@ -283,7 +295,7 @@ def test_config_change(microvm_factory, guest_kernel, rootfs):
     new_sizes = [20, 10, 30]  # MB
     mkfs_mount_cmd = "mkfs.ext4 /dev/vdb && mkdir -p /tmp/tmp && mount /dev/vdb /tmp/tmp && umount /tmp/tmp"
 
-    vm = microvm_factory.build(guest_kernel, rootfs, monitor_memory=False)
+    vm = uvm_plain_any
     vm.spawn(log_level="Info")
     vm.basic_config()
     vm.add_net_iface()

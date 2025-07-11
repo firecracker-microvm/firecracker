@@ -9,13 +9,15 @@ INITRD_FILESYSTEM = "rootfs"
 
 
 @pytest.fixture
-def uvm_with_initrd(microvm_factory, guest_kernel, record_property, artifact_dir):
+def uvm_with_initrd(
+    microvm_factory, guest_kernel, pci_enabled, record_property, artifact_dir
+):
     """
     See file:../docs/initrd.md
     """
     fs = artifact_dir / "initramfs.cpio"
     record_property("rootfs", fs.name)
-    uvm = microvm_factory.build(guest_kernel)
+    uvm = microvm_factory.build(guest_kernel, pci=pci_enabled)
     uvm.initrd_file = fs
     yield uvm
 

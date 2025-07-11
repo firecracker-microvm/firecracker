@@ -7,13 +7,13 @@ from concurrent.futures import ThreadPoolExecutor
 NO_OF_MICROVMS = 20
 
 
-def test_run_concurrency(microvm_factory, guest_kernel, rootfs):
+def test_run_concurrency(microvm_factory, guest_kernel, rootfs, pci_enabled):
     """
     Check we can spawn multiple microvms.
     """
 
     def launch1():
-        microvm = microvm_factory.build(guest_kernel, rootfs)
+        microvm = microvm_factory.build(guest_kernel, rootfs, pci=pci_enabled)
         microvm.time_api_requests = False  # is flaky because of parallelism
         microvm.spawn()
         microvm.basic_config(vcpu_count=1, mem_size_mib=128)
