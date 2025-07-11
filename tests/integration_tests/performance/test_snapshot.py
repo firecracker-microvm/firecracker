@@ -13,7 +13,6 @@ import pytest
 
 import host_tools.drive as drive_tools
 from framework.microvm import HugePagesConfig, Microvm, SnapshotType
-from framework.properties import global_props
 
 USEC_IN_MSEC = 1000
 NS_IN_MSEC = 1_000_000
@@ -112,15 +111,6 @@ def test_restore_latency(
 
     We only test a single guest kernel, as the guest kernel does not "participate" in snapshot restore.
     """
-    if (
-        test_setup.huge_pages != HugePagesConfig.NONE
-        and global_props.host_linux_version_tpl > (6, 1)
-        and global_props.cpu_architecture == "aarch64"
-    ):
-        pytest.skip(
-            "huge pages with secret hiding kernels on ARM are currently failing"
-        )
-
     vm = test_setup.boot_vm(microvm_factory, guest_kernel_linux_5_10, rootfs, False)
 
     metrics.set_dimensions(
@@ -171,15 +161,6 @@ def test_post_restore_latency(
     """Collects latency metric of post-restore memory accesses done inside the guest"""
     if huge_pages != HugePagesConfig.NONE and uffd_handler is None:
         pytest.skip("huge page snapshots can only be restored using uffd")
-
-    if (
-        huge_pages != HugePagesConfig.NONE
-        and global_props.host_linux_version_tpl > (6, 1)
-        and global_props.cpu_architecture == "aarch64"
-    ):
-        pytest.skip(
-            "huge pages with secret hiding kernels on ARM are currently failing"
-        )
 
     if secret_free and uffd_handler is None:
         pytest.skip("Restoring from a file is not compatible with Secret Freedom")
@@ -245,15 +226,6 @@ def test_population_latency(
     secret_free,
 ):
     """Collects population latency metrics (e.g. how long it takes UFFD handler to fault in all memory)"""
-    if (
-        huge_pages != HugePagesConfig.NONE
-        and global_props.host_linux_version_tpl > (6, 1)
-        and global_props.cpu_architecture == "aarch64"
-    ):
-        pytest.skip(
-            "huge pages with secret hiding kernels on ARM are currently failing"
-        )
-
     if secret_free and huge_pages != HugePagesConfig.NONE:
         pytest.skip("Huge pages are not supported with Secret Freedom yet")
 
