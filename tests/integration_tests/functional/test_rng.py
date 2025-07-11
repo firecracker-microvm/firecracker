@@ -8,12 +8,11 @@ from framework.utils import check_entropy
 from host_tools.network import SSHConnection
 
 
-def uvm_with_rng_booted(
-    microvm_factory, guest_kernel, rootfs, rate_limiter, pci_enabled
-):
+def uvm_with_rng_booted(uvm_plain_any, microvm_factory, rate_limiter):
     """Return a booted microvm with virtio-rng configured"""
-    uvm = microvm_factory.build(guest_kernel, rootfs)
-    uvm.spawn(log_level="INFO", pci=pci_enabled)
+    # pylint: disable=unused-argument
+    uvm = uvm_plain_any
+    uvm.spawn(log_level="INFO")
     uvm.basic_config(vcpu_count=2, mem_size_mib=256)
     uvm.add_net_iface()
     uvm.api.entropy.put(rate_limiter=rate_limiter)
@@ -23,13 +22,9 @@ def uvm_with_rng_booted(
     return uvm
 
 
-def uvm_with_rng_restored(
-    microvm_factory, guest_kernel, rootfs, rate_limiter, pci_enabled
-):
+def uvm_with_rng_restored(uvm_plain_any, microvm_factory, rate_limiter):
     """Return a restored uvm with virtio-rng configured"""
-    uvm = uvm_with_rng_booted(
-        microvm_factory, guest_kernel, rootfs, rate_limiter, pci_enabled
-    )
+    uvm = uvm_with_rng_booted(uvm_plain_any, microvm_factory, rate_limiter)
     snapshot = uvm.snapshot_full()
     uvm.kill()
     uvm2 = microvm_factory.build_from_snapshot(snapshot)
@@ -50,9 +45,9 @@ def rate_limiter(request):
 
 
 @pytest.fixture
-def uvm_any(microvm_factory, uvm_ctor, guest_kernel, rootfs, rate_limiter, pci_enabled):
+def uvm_any(microvm_factory, uvm_ctor, uvm_plain_any, rate_limiter):
     """Return booted and restored uvms"""
-    return uvm_ctor(microvm_factory, guest_kernel, rootfs, rate_limiter, pci_enabled)
+    return uvm_ctor(uvm_plain_any, microvm_factory, rate_limiter)
 
 
 def list_rng_available(ssh_connection: SSHConnection) -> list[str]:

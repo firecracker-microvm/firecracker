@@ -81,6 +81,17 @@ pub enum AttachDeviceError {
     PciTransport(#[from] PciManagerError),
 }
 
+#[derive(Debug, thiserror::Error, displaydoc::Display)]
+/// Error while searching for a VirtIO device
+pub enum FindDeviceError {
+    /// Device type is invalid
+    InvalidDeviceType,
+    /// Device not found
+    DeviceNotFound,
+    /// Internal Device error: {0}
+    InternalDeviceError(String),
+}
+
 #[derive(Debug)]
 /// A manager of all peripheral devices of Firecracker
 pub struct DeviceManager {
@@ -341,6 +352,30 @@ impl DeviceManager {
                     .clone(),
             )
         }
+    }
+
+    /// Run fn `f()` for the virtio device matching `virtio_type` and `id`.
+    pub fn with_virtio_device_with_id<T, F>(
+        &self,
+        virtio_type: u32,
+        id: &str,
+        f: F,
+    ) -> Result<(), FindDeviceError>
+    where
+        T: VirtioDevice + 'static + Debug,
+        F: FnOnce(&mut T) -> Result<(), String>,
+    {
+        if let Some(device) = self.get_virtio_device(virtio_type, id) {
+            let mut dev = device.lock().expect("Poisoned lock");
+            f(dev
+                .as_mut_any()
+                .downcast_mut::<T>()
+                .ok_or(FindDeviceError::InvalidDeviceType)?)
+            .map_err(FindDeviceError::InternalDeviceError)?;
+        } else {
+            return Err(FindDeviceError::DeviceNotFound);
+        }
+        Ok(())
     }
 }
 

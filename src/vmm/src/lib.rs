@@ -123,7 +123,6 @@ use std::time::Duration;
 
 use device_manager::DeviceManager;
 use devices::acpi::vmgenid::VmGenIdError;
-use devices::virtio::device::VirtioDevice;
 use event_manager::{EventManager as BaseEventManager, EventOps, Events, MutEventSubscriber};
 use seccomp::BpfProgram;
 use snapshot::Persist;
@@ -252,6 +251,8 @@ pub enum VmmError {
     VmmObserverTeardown(vmm_sys_util::errno::Error),
     /// VMGenID error: {0}
     VMGenID(#[from] VmGenIdError),
+    /// Failed perform action on device: {0}
+    FindDeviceError(#[from] device_manager::FindDeviceError),
 }
 
 /// Shorthand type for KVM dirty page bitmap.
@@ -325,20 +326,6 @@ impl Vmm {
     /// Provides the Vmm shutdown exit code if there is one.
     pub fn shutdown_exit_code(&self) -> Option<FcExitCode> {
         self.shutdown_exit_code
-    }
-
-    /// Gets the specified bus device.
-    pub fn get_virtio_device(
-        &self,
-        device_type: u32,
-        device_id: &str,
-    ) -> Option<Arc<Mutex<dyn VirtioDevice>>> {
-        let device = self
-            .device_manager
-            .mmio_devices
-            .get_virtio_device(device_type, device_id)?;
-
-        Some(device.inner.lock().expect("Poisoned lock").device().clone())
     }
 
     /// Starts the microVM vcpus.
@@ -537,13 +524,12 @@ impl Vmm {
         path_on_host: String,
     ) -> Result<(), VmmError> {
         self.device_manager
-            .mmio_devices
             .with_virtio_device_with_id(TYPE_BLOCK, drive_id, |block: &mut Block| {
                 block
                     .update_disk_image(path_on_host)
                     .map_err(|err| err.to_string())
             })
-            .map_err(VmmError::MmioDeviceManager)
+            .map_err(VmmError::FindDeviceError)
     }
 
     /// Updates the rate limiter parameters for block device with `drive_id` id.
@@ -554,23 +540,21 @@ impl Vmm {
         rl_ops: BucketUpdate,
     ) -> Result<(), VmmError> {
         self.device_manager
-            .mmio_devices
             .with_virtio_device_with_id(TYPE_BLOCK, drive_id, |block: &mut Block| {
                 block
                     .update_rate_limiter(rl_bytes, rl_ops)
                     .map_err(|err| err.to_string())
             })
-            .map_err(VmmError::MmioDeviceManager)
+            .map_err(VmmError::FindDeviceError)
     }
 
     /// Updates the rate limiter parameters for block device with `drive_id` id.
     pub fn update_vhost_user_block_config(&mut self, drive_id: &str) -> Result<(), VmmError> {
         self.device_manager
-            .mmio_devices
             .with_virtio_device_with_id(TYPE_BLOCK, drive_id, |block: &mut Block| {
                 block.update_config().map_err(|err| err.to_string())
             })
-            .map_err(VmmError::MmioDeviceManager)
+            .map_err(VmmError::FindDeviceError)
     }
 
     /// Updates the rate limiter parameters for net device with `net_id` id.
@@ -583,17 +567,19 @@ impl Vmm {
         tx_ops: BucketUpdate,
     ) -> Result<(), VmmError> {
         self.device_manager
-            .mmio_devices
             .with_virtio_device_with_id(TYPE_NET, net_id, |net: &mut Net| {
                 net.patch_rate_limiters(rx_bytes, rx_ops, tx_bytes, tx_ops);
                 Ok(())
             })
-            .map_err(VmmError::MmioDeviceManager)
+            .map_err(VmmError::FindDeviceError)
     }
 
     /// Returns a reference to the balloon device if present.
     pub fn balloon_config(&self) -> Result<BalloonConfig, BalloonError> {
-        if let Some(virtio_device) = self.get_virtio_device(TYPE_BALLOON, BALLOON_DEV_ID) {
+        if let Some(virtio_device) = self
+            .device_manager
+            .get_virtio_device(TYPE_BALLOON, BALLOON_DEV_ID)
+        {
             let config = virtio_device
                 .lock()
                 .expect("Poisoned lock")
@@ -610,7 +596,10 @@ impl Vmm {
 
     /// Returns the latest balloon statistics if they are enabled.
     pub fn latest_balloon_stats(&self) -> Result<BalloonStats, BalloonError> {
-        if let Some(virtio_device) = self.get_virtio_device(TYPE_BALLOON, BALLOON_DEV_ID) {
+        if let Some(virtio_device) = self
+            .device_manager
+            .get_virtio_device(TYPE_BALLOON, BALLOON_DEV_ID)
+        {
             let latest_stats = virtio_device
                 .lock()
                 .expect("Poisoned lock")
@@ -635,7 +624,10 @@ impl Vmm {
             return Err(BalloonError::TooManyPagesRequested);
         }
 
-        if let Some(virtio_device) = self.get_virtio_device(TYPE_BALLOON, BALLOON_DEV_ID) {
+        if let Some(virtio_device) = self
+            .device_manager
+            .get_virtio_device(TYPE_BALLOON, BALLOON_DEV_ID)
+        {
             {
                 virtio_device
                     .lock()
@@ -657,7 +649,10 @@ impl Vmm {
         &mut self,
         stats_polling_interval_s: u16,
     ) -> Result<(), BalloonError> {
-        if let Some(virtio_device) = self.get_virtio_device(TYPE_BALLOON, BALLOON_DEV_ID) {
+        if let Some(virtio_device) = self
+            .device_manager
+            .get_virtio_device(TYPE_BALLOON, BALLOON_DEV_ID)
+        {
             {
                 virtio_device
                     .lock()

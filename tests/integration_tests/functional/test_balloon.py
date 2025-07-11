@@ -449,11 +449,11 @@ def test_stats_update(uvm_plain_any):
     assert next_stats["available_memory"] != final_stats["available_memory"]
 
 
-def test_balloon_snapshot(microvm_factory, guest_kernel, rootfs):
+def test_balloon_snapshot(uvm_plain_any, microvm_factory):
     """
     Test that the balloon works after pause/resume.
     """
-    vm = microvm_factory.build(guest_kernel, rootfs)
+    vm = uvm_plain_any
     vm.spawn()
     vm.basic_config(
         vcpu_count=2,
@@ -531,11 +531,11 @@ def test_balloon_snapshot(microvm_factory, guest_kernel, rootfs):
     assert stats_after_snap["available_memory"] > latest_stats["available_memory"]
 
 
-def test_memory_scrub(microvm_factory, guest_kernel, rootfs):
+def test_memory_scrub(uvm_plain_any):
     """
     Test that the memory is zeroed after deflate.
     """
-    microvm = microvm_factory.build(guest_kernel, rootfs)
+    microvm = uvm_plain_any
     microvm.spawn()
     microvm.basic_config(vcpu_count=2, mem_size_mib=256)
     microvm.add_net_iface()

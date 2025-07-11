@@ -21,17 +21,17 @@ pub const CMDLINE_MAX_SIZE: usize = 2048;
 /// Start of the high memory.
 pub const HIMEM_START: u64 = 0x0010_0000; // 1 MB.
 
-// Typically, on x86 systems 24 IRQs are used (0-23).
+// Typically, on x86 systems 24 IRQs are used for legacy devices (0-23).
+// However, the first 5 are reserved.
+// We allocate the remaining GSIs to MSIs.
 /// First usable IRQ ID for virtio device interrupts on x86_64.
 pub const IRQ_BASE: u32 = 5;
 /// Last usable IRQ ID for virtio device interrupts on x86_64.
 pub const IRQ_MAX: u32 = 23;
-
-/// The first usable GSI on x86_64 is the same as the first usable IRQ ID.
-pub const GSI_BASE: u32 = IRQ_BASE;
-
-/// The maximum usable GSI on x86_64 is the same as the last usable IRQ ID.
-pub const GSI_MAX: u32 = IRQ_MAX;
+/// First GSI after legacy interrupts which will be used by MSI
+pub const GSI_BASE: u32 = IRQ_MAX + 1;
+/// The highest available GSI in KVM (KVM_MAX_IRQ_ROUTES=4096)
+pub const GSI_MAX: u32 = 4095;
 
 /// Address for the TSS setup.
 pub const KVM_TSS_ADDRESS: u64 = 0xfffb_d000;

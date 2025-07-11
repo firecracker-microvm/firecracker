@@ -37,7 +37,7 @@ NEGATIVE_TEST_CONNECTION_COUNT = 100
 TEST_WORKER_COUNT = 10
 
 
-def test_vsock(uvm_plain_any, pci_enabled, bin_vsock_path, test_fc_session_root_path):
+def test_vsock(uvm_plain_any, bin_vsock_path, test_fc_session_root_path):
     """
     Test guest and host vsock initiated connections.
 
@@ -45,7 +45,7 @@ def test_vsock(uvm_plain_any, pci_enabled, bin_vsock_path, test_fc_session_root_
     """
 
     vm = uvm_plain_any
-    vm.spawn(pci=pci_enabled)
+    vm.spawn()
 
     vm.basic_config()
     vm.add_net_iface()
@@ -102,12 +102,12 @@ def negative_test_host_connections(vm, blob_path, blob_hash):
     validate_fc_metrics(metrics)
 
 
-def test_vsock_epipe(uvm_plain, pci_enabled, bin_vsock_path, test_fc_session_root_path):
+def test_vsock_epipe(uvm_plain_any, bin_vsock_path, test_fc_session_root_path):
     """
     Vsock negative test to validate SIGPIPE/EPIPE handling.
     """
-    vm = uvm_plain
-    vm.spawn(pci=pci_enabled)
+    vm = uvm_plain_any
+    vm.spawn()
     vm.basic_config()
     vm.add_net_iface()
     vm.api.vsock.put(vsock_id="vsock0", guest_cid=3, uds_path=f"/{VSOCK_UDS_PATH}")
@@ -129,7 +129,7 @@ def test_vsock_epipe(uvm_plain, pci_enabled, bin_vsock_path, test_fc_session_roo
 
 
 def test_vsock_transport_reset_h2g(
-    uvm_plain, pci_enabled, microvm_factory, bin_vsock_path, test_fc_session_root_path
+    uvm_plain_any, microvm_factory, bin_vsock_path, test_fc_session_root_path
 ):
     """
     Vsock transport reset test.
@@ -146,8 +146,8 @@ def test_vsock_transport_reset_h2g(
     6. Close VM -> Load VM from Snapshot -> check that vsock
        device is still working.
     """
-    test_vm = uvm_plain
-    test_vm.spawn(pci=pci_enabled)
+    test_vm = uvm_plain_any
+    test_vm.spawn()
     test_vm.basic_config(vcpu_count=2, mem_size_mib=256)
     test_vm.add_net_iface()
     test_vm.api.vsock.put(vsock_id="vsock0", guest_cid=3, uds_path=f"/{VSOCK_UDS_PATH}")
@@ -215,12 +215,12 @@ def test_vsock_transport_reset_h2g(
     validate_fc_metrics(metrics)
 
 
-def test_vsock_transport_reset_g2h(uvm_plain, pci_enabled, microvm_factory):
+def test_vsock_transport_reset_g2h(uvm_plain_any, microvm_factory):
     """
     Vsock transport reset test.
     """
-    test_vm = uvm_plain
-    test_vm.spawn(pci=pci_enabled)
+    test_vm = uvm_plain_any
+    test_vm.spawn()
     test_vm.basic_config(vcpu_count=2, mem_size_mib=256)
     test_vm.add_net_iface()
     test_vm.api.vsock.put(vsock_id="vsock0", guest_cid=3, uds_path=f"/{VSOCK_UDS_PATH}")

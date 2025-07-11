@@ -27,7 +27,7 @@ pub use aarch64::{
     layout::MEM_64BIT_DEVICES_START, layout::MMIO32_MEM_SIZE, layout::MMIO32_MEM_START,
     layout::PCI_MMCONFIG_SIZE, layout::PCI_MMCONFIG_START,
     layout::PCI_MMIO_CONFIG_SIZE_PER_SEGMENT, layout::RTC_MEM_START, layout::SERIAL_MEM_START,
-    layout::SYSTEM_MEM_SIZE, layout::SYSTEM_MEM_START, load_kernel,
+    layout::SPI_BASE, layout::SYSTEM_MEM_SIZE, layout::SYSTEM_MEM_START, load_kernel,
 };
 
 /// Module for x86_64 related functionality.
@@ -52,6 +52,11 @@ pub use crate::arch::x86_64::{
     layout::PCI_MMIO_CONFIG_SIZE_PER_SEGMENT, layout::SYSTEM_MEM_SIZE, layout::SYSTEM_MEM_START,
     load_kernel,
 };
+
+/// Total count of legacy interrupt lines available (IRQs)
+pub const NR_IRQ: u32 = IRQ_MAX - IRQ_BASE + 1;
+/// Total count of MSI GSIs available
+pub const NR_GSI: u32 = GSI_MAX - GSI_BASE + 1;
 
 /// Types of devices that can get attached to this platform.
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Copy, Serialize, Deserialize)]
