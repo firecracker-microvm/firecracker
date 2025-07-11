@@ -268,7 +268,7 @@ def test_snapshot_create_latency(
     vm.basic_config(
         vcpu_count=2,
         mem_size_mib=512,
-        track_dirty_pages=snapshot_type == SnapshotType.DIFF,
+        track_dirty_pages=snapshot_type.needs_dirty_page_tracking,
     )
     vm.start()
     vm.pin_threads(0)
@@ -277,14 +277,14 @@ def test_snapshot_create_latency(
         {
             **vm.dimensions,
             "performance_test": "test_snapshot_create_latency",
-            "snapshot_type": snapshot_type.value,
+            "snapshot_type": str(snapshot_type),
         }
     )
 
     match snapshot_type:
         case SnapshotType.FULL:
             metric = "full_create_snapshot"
-        case SnapshotType.DIFF:
+        case SnapshotType.DIFF | SnapshotType.DIFF_MINCORE:
             metric = "diff_create_snapshot"
 
     for _ in range(ITERATIONS):

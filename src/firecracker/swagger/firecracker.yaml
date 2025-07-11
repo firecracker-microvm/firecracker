@@ -1245,7 +1245,11 @@ definitions:
       enable_diff_snapshots:
         type: boolean
         description:
-          Enable support for incremental (diff) snapshots by tracking dirty guest pages.
+          (Deprecated) Enable dirty page tracking to improve space efficiency of diff snapshots
+      track_dirty_pages:
+        type: boolean
+        description:
+          Enable dirty page tracking to improve space efficiency of diff snapshots
       mem_file_path:
         type: string
         description:
