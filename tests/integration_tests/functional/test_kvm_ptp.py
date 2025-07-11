@@ -2,8 +2,13 @@
 # SPDX-License-Identifier: Apache-2.0
 
 """Check that the kvm_ptp device works"""
-
 import pytest
+
+from framework.properties import global_props
+
+pytestmark = pytest.mark.skipif(
+    global_props.cpu_architecture == "aarch64", reason="currently broken on aarch64"
+)
 
 
 def test_kvm_ptp(uvm_any_booted):
