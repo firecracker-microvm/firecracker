@@ -1,7 +1,7 @@
 // Copyright 2024 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 use std::fs::File;
 use std::io::{Read, Seek};
 use std::os::fd::{AsRawFd, FromRawFd};
@@ -91,7 +91,7 @@ pub fn compile_bpf(
     // SAFETY: Safe because the parameters are valid.
     let mut memfd = unsafe { File::from_raw_fd(memfd_fd) };
 
-    let mut bpf_map: HashMap<String, Vec<u64>> = HashMap::new();
+    let mut bpf_map: BTreeMap<String, Vec<u64>> = BTreeMap::new();
     for (name, filter) in bpf_map_json.0.iter() {
         let default_action = filter.default_action.to_scmp_type();
         let filter_action = filter.filter_action.to_scmp_type();

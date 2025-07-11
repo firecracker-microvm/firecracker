@@ -152,8 +152,8 @@ impl BalloonStats {
     }
 }
 
-#[derive(Debug)]
 /// Virtio balloon device.
+#[derive(Debug)]
 pub struct Balloon {
     // Virtio fields.
     pub(crate) avail_features: u64,

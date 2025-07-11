@@ -877,7 +877,7 @@ pub(crate) mod tests {
         }
 
         for i in 0..4 {
-            let gsi = crate::arch::IRQ_BASE + i;
+            let gsi = crate::arch::GSI_BASE + i;
             let interrupts = vm.common.interrupts.lock().unwrap();
             let kvm_route = interrupts.get(&gsi).unwrap();
             assert!(kvm_route.masked);
@@ -894,7 +894,7 @@ pub(crate) mod tests {
         // Simply enabling the vectors should not update the registered IRQ routes
         msix_group.enable().unwrap();
         for i in 0..4 {
-            let gsi = crate::arch::IRQ_BASE + i;
+            let gsi = crate::arch::GSI_BASE + i;
             let interrupts = vm.common.interrupts.lock().unwrap();
             let kvm_route = interrupts.get(&gsi).unwrap();
             assert!(kvm_route.masked);
@@ -914,7 +914,7 @@ pub(crate) mod tests {
             .update(0, InterruptSourceConfig::MsiIrq(config), false, true)
             .unwrap();
         for i in 0..4 {
-            let gsi = crate::arch::IRQ_BASE + i;
+            let gsi = crate::arch::GSI_BASE + i;
             let interrupts = vm.common.interrupts.lock().unwrap();
             let kvm_route = interrupts.get(&gsi).unwrap();
             assert_eq!(kvm_route.masked, i != 0);
