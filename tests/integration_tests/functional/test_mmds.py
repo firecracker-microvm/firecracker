@@ -3,9 +3,11 @@
 """Tests that verify MMDS related functionality."""
 
 # pylint: disable=too-many-lines
+import json
 import random
 import string
 import time
+from datetime import datetime, timedelta, timezone
 
 import pytest
 
@@ -61,10 +63,7 @@ def _validate_mmds_snapshot(
     ssh_connection = basevm.ssh
     run_guest_cmd(ssh_connection, f"ip route add {ipv4_address} dev eth0", "")
 
-    # Generate token if needed.
-    token = None
-    if version == "V2":
-        token = generate_mmds_session_token(ssh_connection, ipv4_address, token_ttl=60)
+    token = generate_mmds_session_token(ssh_connection, ipv4_address, token_ttl=60)
 
     # Fetch metadata.
     cmd = generate_mmds_get_request(
@@ -101,15 +100,8 @@ def _validate_mmds_snapshot(
     response = microvm.api.vm_config.get()
     assert response.json()["mmds-config"] == expected_mmds_config
 
-    if version == "V1":
-        # Verify that V2 requests don't work
-        assert (
-            generate_mmds_session_token(ssh_connection, ipv4_address, token_ttl=60)
-            == "Not allowed HTTP method."
-        )
-
-        token = None
-    else:
+    # Since V1 should accept GET request even with invalid token, don't regenerate a token for V1.
+    if version == "V2":
         # Attempting to reuse the token across a restore must fail.
         cmd = generate_mmds_get_request(ipv4_address, token=token)
         run_guest_cmd(ssh_connection, cmd, "MMDS token not valid.")
@@ -647,7 +639,7 @@ def test_mmds_v2_negative(uvm_plain):
     # Check `GET` request fails when token is not provided.
     cmd = generate_mmds_get_request(DEFAULT_IPV4)
     expected = (
-        "No MMDS token provided. Use `X-metadata-token` header "
+        "No MMDS token provided. Use `X-metadata-token` or `X-aws-ec2-metadata-token` header "
         "to specify the session token."
     )
     run_guest_cmd(ssh_connection, cmd, expected)
@@ -664,9 +656,8 @@ def test_mmds_v2_negative(uvm_plain):
     # Check `PUT` request fails when token TTL is not provided.
     cmd = f"curl -m 2 -s -X PUT http://{DEFAULT_IPV4}/latest/api/token"
     expected = (
-        "Token time to live value not found. Use "
-        "`X-metadata-token-ttl-seconds` header to specify "
-        "the token's lifetime."
+        "Token time to live value not found. Use `X-metadata-token-ttl-seconds` or "
+        "`X-aws-ec2-metadata-token-ttl-seconds` header to specify the token's lifetime."
     )
     run_guest_cmd(ssh_connection, cmd, expected)
 
@@ -748,3 +739,53 @@ def test_deprecated_mmds_config(uvm_plain):
         )
         == 2
     )
+
+
+def test_aws_credential_provider(uvm_plain):
+    """
+    Test AWS CLI credential provider
+    """
+    test_microvm = uvm_plain
+    test_microvm.spawn()
+    test_microvm.basic_config()
+    test_microvm.add_net_iface()
+    # V2 requires session tokens for GET requests
+    configure_mmds(test_microvm, iface_ids=["eth0"], version="V2")
+    now = datetime.now(timezone.utc)
+    credentials = {
+        "Code": "Success",
+        "LastUpdated": now.strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "Type": "AWS-HMAC",
+        "AccessKeyId": "AAA",
+        "SecretAccessKey": "BBB",
+        "Token": "CCC",
+        "Expiration": (now + timedelta(seconds=60)).strftime("%Y-%m-%dT%H:%M:%SZ"),
+    }
+    data_store = {
+        "latest": {
+            "meta-data": {
+                "iam": {
+                    "security-credentials": {"role": json.dumps(credentials, indent=2)}
+                },
+                "placement": {"availability-zone": "us-east-1a"},
+            }
+        }
+    }
+    populate_data_store(test_microvm, data_store)
+    test_microvm.start()
+
+    ssh_connection = test_microvm.ssh
+
+    run_guest_cmd(ssh_connection, f"ip route add {DEFAULT_IPV4} dev eth0", "")
+
+    cmd = r"""python3 - <<EOF
+from botocore.session import get_session
+
+sess = get_session()
+cred = sess.get_credentials()
+
+print(f"{cred.access_key},{cred.secret_key},{cred.token}")
+EOF
+"""
+    _, stdout, stderr = ssh_connection.check_output(cmd)
+    assert stdout == "AAA,BBB,CCC\n", stderr

@@ -39,7 +39,7 @@ for SQUASHFS in *.squashfs; do
     # Create rw ext4 image from ro squashfs
     [ -f $EXT4 ] && continue
     say "Converting $SQUASHFS to $EXT4"
-    truncate -s 400M $EXT4
+    truncate -s 500M $EXT4
     mkfs.ext4 -F $EXT4 -d squashfs-root
     rm -rf squashfs-root
 done

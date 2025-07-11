@@ -539,6 +539,10 @@ pub struct MmdsMetrics {
     pub rx_accepted_unusual: SharedIncMetric,
     /// The number of buffers which couldn't be parsed as valid Ethernet frames by the MMDS.
     pub rx_bad_eth: SharedIncMetric,
+    /// The number of GET requests with invalid tokens.
+    pub rx_invalid_token: SharedIncMetric,
+    /// The number of GET requests with no tokens.
+    pub rx_no_token: SharedIncMetric,
     /// The total number of successful receive operations by the MMDS.
     pub rx_count: SharedIncMetric,
     /// The total number of bytes sent by the MMDS.
@@ -562,6 +566,8 @@ impl MmdsMetrics {
             rx_accepted_err: SharedIncMetric::new(),
             rx_accepted_unusual: SharedIncMetric::new(),
             rx_bad_eth: SharedIncMetric::new(),
+            rx_invalid_token: SharedIncMetric::new(),
+            rx_no_token: SharedIncMetric::new(),
             rx_count: SharedIncMetric::new(),
             tx_bytes: SharedIncMetric::new(),
             tx_count: SharedIncMetric::new(),
