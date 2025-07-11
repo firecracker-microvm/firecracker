@@ -5,8 +5,7 @@ use std::fmt;
 
 use kvm_bindings::{
     KVM_CLOCK_TSC_STABLE, KVM_IRQCHIP_IOAPIC, KVM_IRQCHIP_PIC_MASTER, KVM_IRQCHIP_PIC_SLAVE,
-    KVM_PIT_SPEAKER_DUMMY, KVM_X86_SW_PROTECTED_VM, MsrList, kvm_clock_data, kvm_irqchip,
-    kvm_pit_config, kvm_pit_state2,
+    KVM_PIT_SPEAKER_DUMMY, MsrList, kvm_clock_data, kvm_irqchip, kvm_pit_config, kvm_pit_state2,
 };
 use kvm_ioctls::Cap;
 use serde::{Deserialize, Serialize};
@@ -46,9 +45,6 @@ pub enum ArchVmError {
     /// Failed during KVM_SET_TSS_ADDRESS: {0}
     SetTssAddress(kvm_ioctls::Error),
 }
-
-/// The VM type for this architecture that allows us to use guest_memfd.
-pub const VM_TYPE_FOR_SECRET_FREEDOM: Option<u64> = Some(KVM_X86_SW_PROTECTED_VM as u64);
 
 /// Structure representing the current architecture's understand of what a "virtual machine" is.
 #[derive(Debug)]

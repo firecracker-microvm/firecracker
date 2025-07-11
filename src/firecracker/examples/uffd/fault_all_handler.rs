@@ -50,7 +50,7 @@ fn main() {
                 let are_we_faulted_yet = uffd_handler
                     .userfault_bitmap
                     .as_mut()
-                    .map_or(false, |bitmap| !bitmap.is_bit_set(bit));
+                    .is_some_and(|bitmap| !bitmap.is_bit_set(bit));
 
                 if are_we_faulted_yet {
                     // TODO: we currently ignore the result as we may attempt to

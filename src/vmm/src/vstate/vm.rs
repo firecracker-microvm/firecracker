@@ -13,16 +13,16 @@ use std::path::Path;
 use std::sync::{Arc, Condvar, Mutex};
 
 use kvm_bindings::{
-    KVM_MEM_GUEST_MEMFD, KVM_MEM_LOG_DIRTY_PAGES, KVM_MEMORY_ATTRIBUTE_PRIVATE, KVMIO,
-    kvm_create_guest_memfd, kvm_memory_attributes, kvm_userspace_memory_region,
+    KVM_MEM_GUEST_MEMFD, KVM_MEM_LOG_DIRTY_PAGES, KVMIO, kvm_create_guest_memfd,
+    kvm_userspace_memory_region,
 };
 use kvm_ioctls::{Cap, VmFd};
 use vmm_sys_util::eventfd::EventFd;
 use vmm_sys_util::ioctl::ioctl_with_ref;
 use vmm_sys_util::ioctl_iow_nr;
 
+use crate::arch::host_page_size;
 pub use crate::arch::{ArchVm as Vm, ArchVmError, VmState};
-use crate::arch::{VM_TYPE_FOR_SECRET_FREEDOM, host_page_size};
 use crate::logger::info;
 use crate::persist::CreateSnapshotError;
 use crate::utils::u64_to_usize;
@@ -34,7 +34,8 @@ use crate::vstate::memory::{
 use crate::vstate::vcpu::VcpuError;
 use crate::{DirtyBitmap, Vcpu, mem_size_mib};
 
-pub(crate) const KVM_GMEM_NO_DIRECT_MAP: u64 = 1;
+pub(crate) const GUEST_MEMFD_FLAG_SUPPORT_SHARED: u64 = 1 << 0;
+pub(crate) const GUEST_MEMFD_FLAG_NO_DIRECT_MAP: u64 = 1 << 1;
 
 /// KVM userfault information
 #[derive(Copy, Clone, Default, Eq, PartialEq, Debug)]
@@ -137,14 +138,7 @@ impl Vm {
         const MAX_ATTEMPTS: u32 = 5;
         let mut attempt = 1;
         let fd = loop {
-            let create_result = if secret_free && VM_TYPE_FOR_SECRET_FREEDOM.is_some() {
-                kvm.fd
-                    .create_vm_with_type(VM_TYPE_FOR_SECRET_FREEDOM.unwrap())
-            } else {
-                kvm.fd.create_vm()
-            };
-
-            match create_result {
+            match kvm.fd.create_vm() {
                 Ok(fd) => break fd,
                 Err(e) if e.errno() == libc::EINTR && attempt < MAX_ATTEMPTS => {
                     info!("Attempt #{attempt} of KVM_CREATE_VM returned EINTR");
@@ -369,28 +363,6 @@ impl Vm {
     /// Gets a reference to this [`Vm`]'s [`GuestMemoryMmap`] object
     pub fn guest_memory(&self) -> &GuestMemoryMmap {
         &self.common.guest_memory
-    }
-
-    /// Sets the memory attributes on all guest_memfd-backed regions to private
-    pub fn set_memory_private(&self) -> Result<(), VmError> {
-        if !self.secret_free() {
-            return Ok(());
-        }
-
-        for region in self.guest_memory().iter() {
-            let attr = kvm_memory_attributes {
-                address: region.start_addr().0,
-                size: region.len(),
-                attributes: KVM_MEMORY_ATTRIBUTE_PRIVATE as u64,
-                ..Default::default()
-            };
-
-            self.fd()
-                .set_memory_attributes(attr)
-                .map_err(VmError::SetMemoryAttributes)?
-        }
-
-        Ok(())
     }
 
     /// Resets the KVM dirty bitmap for each of the guest's memory regions.
