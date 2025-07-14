@@ -141,28 +141,11 @@ impl<T: Serialize + Debug, M: Write + Send + Debug> Metrics<T, M> {
     /// known deadlock potential.
     pub fn write(&self) -> Result<bool, MetricsError> {
         if let Some(lock) = self.metrics_buf.get() {
-            match serde_json::to_string(&self.app_metrics) {
-                Ok(msg) => {
-                    if let Ok(mut guard) = lock.lock() {
-                        // No need to explicitly call flush because the underlying LineWriter
-                        // flushes automatically whenever a newline is
-                        // detected (and we always end with a newline the
-                        // current write).
-                        guard
-                            .write_all(format!("{msg}\n",).as_bytes())
-                            .map_err(MetricsError::Write)
-                            .map(|_| true)
-                    } else {
-                        // We have not incremented `missed_metrics_count` as there is no way to push
-                        // metrics if destination lock got poisoned.
-                        panic!(
-                            "Failed to write to the provided metrics destination due to poisoned \
-                             lock"
-                        );
-                    }
-                }
-                Err(err) => Err(MetricsError::Serde(err.to_string())),
-            }
+            let mut writer = lock.lock().expect("poisoned lock");
+            serde_json::to_writer(writer.by_ref(), &self.app_metrics)
+                .map_err(|err| MetricsError::Serde(err.to_string()))?;
+            writer.write_all(b"\n").map_err(MetricsError::Write)?;
+            Ok(true)
         } else {
             // If the metrics are not initialized, no error is thrown but we do let the user know
             // that metrics were not written.
