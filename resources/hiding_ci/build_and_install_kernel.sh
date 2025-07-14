@@ -35,8 +35,8 @@ install_build_deps() {
 	    apt-get update && apt-get install -y make bsdmainutils flex yacc bison bc xz-utils libelf-dev elfutils libssl-dev
 	    ;;
     "AL2023")
-	    yum groupinstall "Development Tools"
-	    yum install make openssl-devel dkms
+	    yum -y groupinstall "Development Tools"
+	    yum -y install make openssl-devel dkms
 	    ;;
   esac
 }
