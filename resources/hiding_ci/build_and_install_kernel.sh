@@ -29,6 +29,18 @@ check_userspace() {
   exit 1
 }
 
+install_build_deps() {
+  case $USERSPACE in
+    "UBUNTU")
+	    apt-get update && apt-get install -y make bsdmainutils flex yacc bison bc xz-utils libelf-dev elfutils libssl-dev
+	    ;;
+    "AL2023")
+	    yum groupinstall "Development Tools"
+	    yum install make openssl-devel dkms
+	    ;;
+  esac
+}
+
 tidy_up() {
   # Some cleanup after we are done
   echo "Cleaning up.."
@@ -154,6 +166,9 @@ update_boot_config() {
   esac
 }
 
+check_userspace
+install_build_deps
+
 KERNEL_URL=$(cat kernel_url)
 KERNEL_COMMIT_HASH=$(cat kernel_commit_hash)
 KERNEL_PATCHES_DIR=$(pwd)/linux_patches
@@ -210,7 +225,6 @@ echo "New kernel version:" $KERNEL_VERSION
 confirm "$@"
 
 check_root
-check_userspace
 
 echo "Installing kernel modules..."
 make INSTALL_MOD_STRIP=1 modules_install
