@@ -28,16 +28,11 @@ def inst_set_cpu_template_fxt(request):
 
 
 @pytest.fixture(name="vm")
-def vm_fxt(
-    microvm_factory,
-    inst_set_cpu_template,
-    guest_kernel,
-    rootfs,
-):
+def vm_fxt(uvm_plain_any, inst_set_cpu_template):
     """
     Create a VM, using the normal CPU templates
     """
-    vm = microvm_factory.build(guest_kernel, rootfs)
+    vm = uvm_plain_any
     vm.spawn()
     vm.basic_config(vcpu_count=1, mem_size_mib=1024, cpu_template=inst_set_cpu_template)
     vm.add_net_iface()
