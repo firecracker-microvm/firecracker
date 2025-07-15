@@ -68,13 +68,13 @@ def test_hugetlbfs_boot(uvm_plain):
     )
 
 
-def test_hugetlbfs_snapshot(microvm_factory, guest_kernel_linux_5_10, rootfs):
+def test_hugetlbfs_snapshot(microvm_factory, uvm_plain):
     """
     Test hugetlbfs snapshot restore via uffd
     """
 
     ### Create Snapshot ###
-    vm = microvm_factory.build(guest_kernel_linux_5_10, rootfs)
+    vm = uvm_plain
     vm.memory_monitor = None
     vm.spawn()
     vm.basic_config(huge_pages=HugePagesConfig.HUGETLBFS_2MB, mem_size_mib=128)
@@ -138,8 +138,7 @@ def test_hugetlbfs_diff_snapshot(microvm_factory, uvm_plain):
 @pytest.mark.parametrize("huge_pages", HugePagesConfig)
 def test_ept_violation_count(
     microvm_factory,
-    guest_kernel_linux_5_10,
-    rootfs,
+    uvm_plain,
     metrics,
     huge_pages,
 ):
@@ -149,7 +148,7 @@ def test_ept_violation_count(
     """
 
     ### Create Snapshot ###
-    vm = microvm_factory.build(guest_kernel_linux_5_10, rootfs)
+    vm = uvm_plain
     vm.memory_monitor = None
     vm.spawn()
     vm.basic_config(huge_pages=huge_pages, mem_size_mib=256)
