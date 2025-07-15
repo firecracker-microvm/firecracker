@@ -255,15 +255,13 @@ def test_population_latency(
 
 @pytest.mark.nonci
 def test_snapshot_create_latency(
-    microvm_factory,
-    guest_kernel_linux_5_10,
-    rootfs,
+    uvm_plain,
     metrics,
     snapshot_type,
 ):
     """Measure the latency of creating a Full snapshot"""
 
-    vm = microvm_factory.build(guest_kernel_linux_5_10, rootfs, monitor_memory=False)
+    vm = uvm_plain
     vm.spawn()
     vm.basic_config(
         vcpu_count=2,
