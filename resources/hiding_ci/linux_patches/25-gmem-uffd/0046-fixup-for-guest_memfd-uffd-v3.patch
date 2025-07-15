@@ -1,7 +1,7 @@
-From 46a18cd195d8c68e319ba7142cd923db7ccff967 Mon Sep 17 00:00:00 2001
+From 8bfc3443eeb52ebb0c018c2f93f782407c68282e Mon Sep 17 00:00:00 2001
 From: Nikita Kalyazin <kalyazin@amazon.com>
 Date: Thu, 10 Apr 2025 14:18:53 +0000
-Subject: [PATCH 45/45] fixup for guest_memfd uffd v3
+Subject: [PATCH 46/46] fixup for guest_memfd uffd v3
 
  - implement can_userfault for guest_memfd
  - check vma->vm_ops pointer before dereferencing
@@ -67,5 +67,5 @@ index e7fcd422c801..0226086a1a01 100644
  
  static int kvm_gmem_mmap(struct file *file, struct vm_area_struct *vma)
 -- 
-2.49.0
+2.50.1
 

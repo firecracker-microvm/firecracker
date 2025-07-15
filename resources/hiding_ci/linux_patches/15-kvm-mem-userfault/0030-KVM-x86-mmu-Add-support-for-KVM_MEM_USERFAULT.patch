@@ -1,7 +1,7 @@
-From fbe3a7384aa789c32aa1aa034ece2180a7b970ad Mon Sep 17 00:00:00 2001
+From 6513e6746526d2c56aaf560ea27ca173202132b4 Mon Sep 17 00:00:00 2001
 From: James Houghton <jthoughton@google.com>
 Date: Thu, 9 Jan 2025 20:49:21 +0000
-Subject: [PATCH 29/45] KVM: x86/mmu: Add support for KVM_MEM_USERFAULT
+Subject: [PATCH 30/46] KVM: x86/mmu: Add support for KVM_MEM_USERFAULT
 
 Adhering to the requirements of KVM Userfault:
 
@@ -20,18 +20,19 @@ WARN_ON() that was there.
 Signed-off-by: James Houghton <jthoughton@google.com>
 ---
  arch/arm64/kvm/mmu.c            |  2 +-
+ arch/arm64/kvm/nested.c         |  2 +-
  arch/x86/kvm/Kconfig            |  1 +
  arch/x86/kvm/mmu/mmu.c          | 12 +++++++++++
  arch/x86/kvm/mmu/mmu_internal.h | 20 +++++++++++++++---
  arch/x86/kvm/x86.c              | 36 ++++++++++++++++++++++++---------
  include/linux/kvm_host.h        |  5 ++++-
- 6 files changed, 61 insertions(+), 15 deletions(-)
+ 7 files changed, 62 insertions(+), 16 deletions(-)
 
 diff --git a/arch/arm64/kvm/mmu.c b/arch/arm64/kvm/mmu.c
-index b92ce4d9b4e0..dae1f3fea842 100644
+index 85559b8a0845..f0fc1f59cd6d 100644
 --- a/arch/arm64/kvm/mmu.c
 +++ b/arch/arm64/kvm/mmu.c
-@@ -1554,7 +1554,7 @@ static int gmem_abort(struct kvm_vcpu *vcpu, phys_addr_t fault_ipa,
+@@ -1551,7 +1551,7 @@ static int gmem_abort(struct kvm_vcpu *vcpu, phys_addr_t fault_ipa,
  	ret = kvm_gmem_get_pfn(kvm, memslot, gfn, &pfn, &page, NULL);
  	if (ret) {
  		kvm_prepare_memory_fault_exit(vcpu, fault_ipa, PAGE_SIZE,
@@ -40,23 +41,36 @@ index b92ce4d9b4e0..dae1f3fea842 100644
  		return ret;
  	}
  
+diff --git a/arch/arm64/kvm/nested.c b/arch/arm64/kvm/nested.c
+index b3edd7f7c8cd..2e2d03e578b5 100644
+--- a/arch/arm64/kvm/nested.c
++++ b/arch/arm64/kvm/nested.c
+@@ -1231,7 +1231,7 @@ static int kvm_translate_vncr(struct kvm_vcpu *vcpu, bool *is_gmem)
+ 		ret = kvm_gmem_get_pfn(vcpu->kvm, memslot, gfn, &pfn, &page, NULL);
+ 		if (ret) {
+ 			kvm_prepare_memory_fault_exit(vcpu, vt->wr.pa, PAGE_SIZE,
+-					      write_fault, false, false);
++					      write_fault, false, false, false);
+ 			return ret;
+ 		}
+ 	}
 diff --git a/arch/x86/kvm/Kconfig b/arch/x86/kvm/Kconfig
-index 239637b663dc..1f3e359a58d0 100644
+index 1ba959b9eadc..aa215d0df63b 100644
 --- a/arch/x86/kvm/Kconfig
 +++ b/arch/x86/kvm/Kconfig
 @@ -49,6 +49,7 @@ config KVM_X86
  	select KVM_GENERIC_GMEM_POPULATE if KVM_SW_PROTECTED_VM
- 	select KVM_GMEM_SUPPORTS_MMAP
+ 	select KVM_GMEM_SUPPORTS_MMAP if X86_64
  	select KVM_WERROR if WERROR
 +	select HAVE_KVM_USERFAULT
  
  config KVM
  	tristate "Kernel-based Virtual Machine (KVM) support"
 diff --git a/arch/x86/kvm/mmu/mmu.c b/arch/x86/kvm/mmu/mmu.c
-index cc4cdfea343b..bd19b2f2acc1 100644
+index ad5f337b496c..eb746b183ab2 100644
 --- a/arch/x86/kvm/mmu/mmu.c
 +++ b/arch/x86/kvm/mmu/mmu.c
-@@ -4546,6 +4546,18 @@ static int __kvm_mmu_faultin_pfn(struct kvm_vcpu *vcpu,
+@@ -4545,6 +4545,18 @@ static int __kvm_mmu_faultin_pfn(struct kvm_vcpu *vcpu,
  				 struct kvm_page_fault *fault)
  {
  	unsigned int foll = fault->write ? FOLL_WRITE : 0;
@@ -110,10 +124,10 @@ index db8f33e4de62..84e4bb34abed 100644
  
  static inline int kvm_mmu_do_page_fault(struct kvm_vcpu *vcpu, gpa_t cr2_or_gpa,
 diff --git a/arch/x86/kvm/x86.c b/arch/x86/kvm/x86.c
-index 6f3bd41f048d..947980f6c337 100644
+index 8b7ae1db9fd0..0cbdb8874ed1 100644
 --- a/arch/x86/kvm/x86.c
 +++ b/arch/x86/kvm/x86.c
-@@ -13134,12 +13134,36 @@ static void kvm_mmu_slot_apply_flags(struct kvm *kvm,
+@@ -13136,12 +13136,36 @@ static void kvm_mmu_slot_apply_flags(struct kvm *kvm,
  	u32 new_flags = new ? new->flags : 0;
  	bool log_dirty_pages = new_flags & KVM_MEM_LOG_DIRTY_PAGES;
  
@@ -152,7 +166,7 @@ index 6f3bd41f048d..947980f6c337 100644
  
  	/*
  	 * Nothing more to do for RO slots (which can't be dirtied and can't be
-@@ -13159,14 +13183,6 @@ static void kvm_mmu_slot_apply_flags(struct kvm *kvm,
+@@ -13161,14 +13185,6 @@ static void kvm_mmu_slot_apply_flags(struct kvm *kvm,
  	if ((change != KVM_MR_FLAGS_ONLY) || (new_flags & KVM_MEM_READONLY))
  		return;
  
@@ -191,5 +205,5 @@ index ad37db1bed39..fb9cdfe3a2cd 100644
  
  static inline bool kvm_memslot_is_gmem_only(const struct kvm_memory_slot *slot)
 -- 
-2.49.0
+2.50.1
 

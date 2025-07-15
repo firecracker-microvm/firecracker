@@ -1,7 +1,7 @@
-From 58c6400113b15dce2c25f61927c0572e85c497c4 Mon Sep 17 00:00:00 2001
+From 86e455716787a2e9361fb48458d38f5731e8666c Mon Sep 17 00:00:00 2001
 From: Fuad Tabba <tabba@google.com>
-Date: Wed, 9 Jul 2025 11:59:34 +0100
-Subject: [PATCH 08/45] KVM: guest_memfd: Allow host to map guest_memfd pages
+Date: Tue, 15 Jul 2025 10:33:37 +0100
+Subject: [PATCH 08/46] KVM: guest_memfd: Allow host to map guest_memfd pages
 
 Introduce the core infrastructure to enable host userspace to mmap()
 guest_memfd-backed memory. This is needed for several evolving KVM use
@@ -96,10 +96,10 @@ index 1ec71648824c..9ac21985f3b5 100644
  static inline bool kvm_arch_has_readonly_mem(struct kvm *kvm)
  {
 diff --git a/include/uapi/linux/kvm.h b/include/uapi/linux/kvm.h
-index 37891580d05d..c71348db818f 100644
+index 7a4c35ff03fe..3beafbf306af 100644
 --- a/include/uapi/linux/kvm.h
 +++ b/include/uapi/linux/kvm.h
-@@ -1592,6 +1592,7 @@ struct kvm_memory_attributes {
+@@ -1596,6 +1596,7 @@ struct kvm_memory_attributes {
  #define KVM_MEMORY_ATTRIBUTE_PRIVATE           (1ULL << 3)
  
  #define KVM_CREATE_GUEST_MEMFD	_IOWR(KVMIO,  0xd4, struct kvm_create_guest_memfd)
@@ -212,5 +212,5 @@ index 6db515833f61..07a4b165471d 100644
  		return -EINVAL;
  
 -- 
-2.49.0
+2.50.1
 

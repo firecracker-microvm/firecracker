@@ -1,7 +1,7 @@
-From c16d4a48f6fbad7bdb9024c1c91c38b6d9bdc4e8 Mon Sep 17 00:00:00 2001
+From a56ba2f9a2ec7436126f23997e502543e0e4bbe0 Mon Sep 17 00:00:00 2001
 From: Fuad Tabba <tabba@google.com>
-Date: Wed, 9 Jul 2025 11:59:31 +0100
-Subject: [PATCH 05/45] KVM: Rename kvm_slot_can_be_private() to
+Date: Tue, 15 Jul 2025 10:33:34 +0100
+Subject: [PATCH 05/46] KVM: Rename kvm_slot_can_be_private() to
  kvm_slot_has_gmem()
 
 Rename kvm_slot_can_be_private() to kvm_slot_has_gmem() to improve
@@ -54,10 +54,10 @@ index 4e06e2e89a8f..213904daf1e5 100644
  		return -EFAULT;
  	}
 diff --git a/arch/x86/kvm/svm/sev.c b/arch/x86/kvm/svm/sev.c
-index 459c3b791fd4..ade7a5b36c68 100644
+index b201f77fcd49..687392c5bf5d 100644
 --- a/arch/x86/kvm/svm/sev.c
 +++ b/arch/x86/kvm/svm/sev.c
-@@ -2319,7 +2319,7 @@ static int snp_launch_update(struct kvm *kvm, struct kvm_sev_cmd *argp)
+@@ -2323,7 +2323,7 @@ static int snp_launch_update(struct kvm *kvm, struct kvm_sev_cmd *argp)
  	mutex_lock(&kvm->slots_lock);
  
  	memslot = gfn_to_memslot(kvm, params.gfn_start);
@@ -66,7 +66,7 @@ index 459c3b791fd4..ade7a5b36c68 100644
  		ret = -EINVAL;
  		goto out;
  	}
-@@ -4670,7 +4670,7 @@ void sev_handle_rmp_fault(struct kvm_vcpu *vcpu, gpa_t gpa, u64 error_code)
+@@ -4678,7 +4678,7 @@ void sev_handle_rmp_fault(struct kvm_vcpu *vcpu, gpa_t gpa, u64 error_code)
  	}
  
  	slot = gfn_to_memslot(kvm, gfn);
@@ -102,5 +102,5 @@ index befea51bbc75..6db515833f61 100644
  
  	file = kvm_gmem_get_file(slot);
 -- 
-2.49.0
+2.50.1
 

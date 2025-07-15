@@ -1,7 +1,7 @@
-From 0bbaadd1753792a845481f48cbc9c524cf85d2ea Mon Sep 17 00:00:00 2001
+From 2c056af79dfa13aae23431c1c200b7cad1e57449 Mon Sep 17 00:00:00 2001
 From: Ackerley Tng <ackerleytng@google.com>
-Date: Wed, 9 Jul 2025 11:59:37 +0100
-Subject: [PATCH 11/45] KVM: x86/mmu: Allow NULL-able fault in
+Date: Tue, 15 Jul 2025 10:33:40 +0100
+Subject: [PATCH 11/46] KVM: x86/mmu: Allow NULL-able fault in
  kvm_max_private_mapping_level
 
 Refactor kvm_max_private_mapping_level() to accept a NULL kvm_page_fault
@@ -26,15 +26,16 @@ Optimize max_level checks: Introduce a check in the caller to skip
 querying for max_mapping_level if the current max_level is already
 PG_LEVEL_4K, as no further reduction is possible.
 
+Acked-by: David Hildenbrand <david@redhat.com>
 Suggested-by: Sean Christoperson <seanjc@google.com>
 Signed-off-by: Ackerley Tng <ackerleytng@google.com>
 Signed-off-by: Fuad Tabba <tabba@google.com>
 ---
- arch/x86/kvm/mmu/mmu.c | 17 ++++++++---------
- 1 file changed, 8 insertions(+), 9 deletions(-)
+ arch/x86/kvm/mmu/mmu.c | 16 +++++++---------
+ 1 file changed, 7 insertions(+), 9 deletions(-)
 
 diff --git a/arch/x86/kvm/mmu/mmu.c b/arch/x86/kvm/mmu/mmu.c
-index bb925994cbc5..495dcedaeafa 100644
+index bb925994cbc5..6bd28fda0fd3 100644
 --- a/arch/x86/kvm/mmu/mmu.c
 +++ b/arch/x86/kvm/mmu/mmu.c
 @@ -4467,17 +4467,13 @@ static inline u8 kvm_max_level_for_order(int order)
@@ -59,18 +60,17 @@ index bb925994cbc5..495dcedaeafa 100644
  	if (max_level == PG_LEVEL_4K)
  		return PG_LEVEL_4K;
  
-@@ -4513,7 +4509,10 @@ static int kvm_mmu_faultin_pfn_private(struct kvm_vcpu *vcpu,
+@@ -4513,7 +4509,9 @@ static int kvm_mmu_faultin_pfn_private(struct kvm_vcpu *vcpu,
  	}
  
  	fault->map_writable = !(fault->slot->flags & KVM_MEM_READONLY);
 -	fault->max_level = kvm_max_private_mapping_level(vcpu->kvm, fault, max_order);
-+	if (fault->max_level >= PG_LEVEL_4K) {
++	if (fault->max_level >= PG_LEVEL_4K)
 +		fault->max_level = kvm_gmem_max_mapping_level(vcpu->kvm,
 +							      max_order, fault);
-+	}
  
  	return RET_PF_CONTINUE;
  }
 -- 
-2.49.0
+2.50.1
 

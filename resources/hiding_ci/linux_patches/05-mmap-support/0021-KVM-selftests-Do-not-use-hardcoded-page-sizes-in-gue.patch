@@ -1,7 +1,7 @@
-From 5ad1a2fce09c242511f3ce9de606016542a7c390 Mon Sep 17 00:00:00 2001
+From f02cb2c4f0d67cfb5a9efc69da258ab60077eb4b Mon Sep 17 00:00:00 2001
 From: Fuad Tabba <tabba@google.com>
-Date: Wed, 9 Jul 2025 11:59:45 +0100
-Subject: [PATCH 19/45] KVM: selftests: Do not use hardcoded page sizes in
+Date: Tue, 15 Jul 2025 10:33:49 +0100
+Subject: [PATCH 21/46] KVM: selftests: Do not use hardcoded page sizes in
  guest_memfd test
 
 Update the guest_memfd_test selftest to use getpagesize() instead of
@@ -37,10 +37,10 @@ index 38b95998e1e6..e11ed9e59ab5 100644
  TEST_GEN_PROGS_arm64 += memslot_perf_test
  TEST_GEN_PROGS_arm64 += mmu_stress_test
 diff --git a/tools/testing/selftests/kvm/guest_memfd_test.c b/tools/testing/selftests/kvm/guest_memfd_test.c
-index ce687f8d248f..341ba616cf55 100644
+index beb556293590..1252e74fbb8f 100644
 --- a/tools/testing/selftests/kvm/guest_memfd_test.c
 +++ b/tools/testing/selftests/kvm/guest_memfd_test.c
-@@ -146,24 +146,25 @@ static void test_create_guest_memfd_multiple(struct kvm_vm *vm)
+@@ -212,24 +212,25 @@ static void test_create_guest_memfd_multiple(struct kvm_vm *vm)
  {
  	int fd1, fd2, ret;
  	struct stat st1, st2;
@@ -72,5 +72,5 @@ index ce687f8d248f..341ba616cf55 100644
  
  	close(fd2);
 -- 
-2.49.0
+2.50.1
 

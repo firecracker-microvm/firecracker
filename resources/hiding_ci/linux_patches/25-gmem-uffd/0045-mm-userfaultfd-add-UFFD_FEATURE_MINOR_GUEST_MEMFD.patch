@@ -1,7 +1,7 @@
-From 7b9d0141ede5557c7609b2fadf79be7e103c0917 Mon Sep 17 00:00:00 2001
+From d1e4c970e57a9fed70ab2667fb840fc656d53cfa Mon Sep 17 00:00:00 2001
 From: Nikita Kalyazin <kalyazin@amazon.com>
 Date: Fri, 4 Apr 2025 14:18:03 +0000
-Subject: [PATCH 44/45] mm: userfaultfd: add UFFD_FEATURE_MINOR_GUEST_MEMFD
+Subject: [PATCH 45/46] mm: userfaultfd: add UFFD_FEATURE_MINOR_GUEST_MEMFD
 
 Signed-off-by: Nikita Kalyazin <kalyazin@amazon.com>
 ---
@@ -57,5 +57,5 @@ index 2841e4ea8f2c..ed688797eba7 100644
  
  	__u64 ioctls;
 -- 
-2.49.0
+2.50.1
 

@@ -1,7 +1,7 @@
-From fca809bc76438579b831ecaef7b56731888b5c2c Mon Sep 17 00:00:00 2001
+From 3cb19e4da39630a3e1ab34d9daed24fcb1c441d3 Mon Sep 17 00:00:00 2001
 From: James Houghton <jthoughton@google.com>
 Date: Thu, 9 Jan 2025 20:49:17 +0000
-Subject: [PATCH 26/45] KVM: Add KVM_MEM_USERFAULT memslot flag and bitmap
+Subject: [PATCH 27/46] KVM: Add KVM_MEM_USERFAULT memslot flag and bitmap
 
 Use one of the 14 reserved u64s in struct kvm_userspace_memory_region2
 for the user to provide `userfault_bitmap`.
@@ -57,7 +57,7 @@ index 7dc9190d2fef..ad37db1bed39 100644
 +
  #endif
 diff --git a/include/uapi/linux/kvm.h b/include/uapi/linux/kvm.h
-index edaba6966cad..eea58b3d99e8 100644
+index 33b368564b1f..c871e2a76e90 100644
 --- a/include/uapi/linux/kvm.h
 +++ b/include/uapi/linux/kvm.h
 @@ -40,7 +40,8 @@ struct kvm_userspace_memory_region2 {
@@ -90,7 +90,7 @@ index fa4acbedb953..fd46bc7d194a 100644
 +config HAVE_KVM_USERFAULT
 +       bool
 diff --git a/virt/kvm/kvm_main.c b/virt/kvm/kvm_main.c
-index a0d14659ee2c..fe203a518ddb 100644
+index d92dd84cca8e..9208ec56a26b 100644
 --- a/virt/kvm/kvm_main.c
 +++ b/virt/kvm/kvm_main.c
 @@ -1605,6 +1605,9 @@ static int check_memory_region_flags(struct kvm *kvm,
@@ -126,7 +126,7 @@ index a0d14659ee2c..fe203a518ddb 100644
  
  	r = kvm_set_memslot(kvm, old, new, change);
  	if (r)
-@@ -6545,3 +6557,26 @@ void kvm_exit(void)
+@@ -6548,3 +6560,26 @@ void kvm_exit(void)
  	kvm_irqfd_exit();
  }
  EXPORT_SYMBOL_GPL(kvm_exit);
@@ -154,5 +154,5 @@ index a0d14659ee2c..fe203a518ddb 100644
 +	return !!(bitmap_chunk & (1ul << (offset % BITS_PER_LONG)));
 +}
 -- 
-2.49.0
+2.50.1
 

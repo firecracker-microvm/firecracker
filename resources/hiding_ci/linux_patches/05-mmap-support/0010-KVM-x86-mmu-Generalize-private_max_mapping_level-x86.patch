@@ -1,7 +1,7 @@
-From 1405fe03056846a5f0cebe06721a290a0f436094 Mon Sep 17 00:00:00 2001
+From 79a313d6ad47fed8265d9a2c39b84d057b48eddd Mon Sep 17 00:00:00 2001
 From: Ackerley Tng <ackerleytng@google.com>
-Date: Wed, 9 Jul 2025 11:59:36 +0100
-Subject: [PATCH 10/45] KVM: x86/mmu: Generalize private_max_mapping_level x86
+Date: Tue, 15 Jul 2025 10:33:39 +0100
+Subject: [PATCH 10/46] KVM: x86/mmu: Generalize private_max_mapping_level x86
  op to max_mapping_level
 
 Generalize the private_max_mapping_level x86 operation to
@@ -33,6 +33,7 @@ indicating no specific platform-imposed mapping level limits for
 non-private pages. This allows the core MMU to continue determining the
 mapping level based on generic rules for such cases.
 
+Acked-by: David Hildenbrand <david@redhat.com>
 Suggested-by: Sean Christoperson <seanjc@google.com>
 Signed-off-by: Ackerley Tng <ackerleytng@google.com>
 Signed-off-by: Fuad Tabba <tabba@google.com>
@@ -62,10 +63,10 @@ index 8d50e3e0a19b..02301fbad449 100644
  
  #undef KVM_X86_OP
 diff --git a/arch/x86/include/asm/kvm_host.h b/arch/x86/include/asm/kvm_host.h
-index ebddedf0a1f2..4c764faa12f3 100644
+index 938b5be03d33..543d09fd4bca 100644
 --- a/arch/x86/include/asm/kvm_host.h
 +++ b/arch/x86/include/asm/kvm_host.h
-@@ -1901,7 +1901,7 @@ struct kvm_x86_ops {
+@@ -1907,7 +1907,7 @@ struct kvm_x86_ops {
  	void *(*alloc_apic_backing_page)(struct kvm_vcpu *vcpu);
  	int (*gmem_prepare)(struct kvm *kvm, kvm_pfn_t pfn, gfn_t gfn, int max_order);
  	void (*gmem_invalidate)(kvm_pfn_t start, kvm_pfn_t end);
@@ -112,7 +113,7 @@ index 213904daf1e5..bb925994cbc5 100644
  	return RET_PF_CONTINUE;
  }
 diff --git a/arch/x86/kvm/svm/sev.c b/arch/x86/kvm/svm/sev.c
-index ade7a5b36c68..58116439d7c0 100644
+index 687392c5bf5d..dd470e26f6a0 100644
 --- a/arch/x86/kvm/svm/sev.c
 +++ b/arch/x86/kvm/svm/sev.c
 @@ -29,6 +29,7 @@
@@ -123,7 +124,7 @@ index ade7a5b36c68..58116439d7c0 100644
  #include "mmu.h"
  #include "x86.h"
  #include "svm.h"
-@@ -4898,7 +4899,7 @@ void sev_gmem_invalidate(kvm_pfn_t start, kvm_pfn_t end)
+@@ -4906,7 +4907,7 @@ void sev_gmem_invalidate(kvm_pfn_t start, kvm_pfn_t end)
  	}
  }
  
@@ -132,7 +133,7 @@ index ade7a5b36c68..58116439d7c0 100644
  {
  	int level, rc;
  	bool assigned;
-@@ -4906,7 +4907,10 @@ int sev_private_max_mapping_level(struct kvm *kvm, kvm_pfn_t pfn)
+@@ -4914,7 +4915,10 @@ int sev_private_max_mapping_level(struct kvm *kvm, kvm_pfn_t pfn)
  	if (!sev_snp_guest(kvm))
  		return 0;
  
@@ -206,10 +207,10 @@ index d1e02e567b57..8e53554932ba 100644
  
  struct kvm_x86_init_ops vt_init_ops __initdata = {
 diff --git a/arch/x86/kvm/vmx/tdx.c b/arch/x86/kvm/vmx/tdx.c
-index c227516e6a02..1607b1f6be21 100644
+index a3db6df245ee..7f652241491a 100644
 --- a/arch/x86/kvm/vmx/tdx.c
 +++ b/arch/x86/kvm/vmx/tdx.c
-@@ -3292,8 +3292,11 @@ int tdx_vcpu_ioctl(struct kvm_vcpu *vcpu, void __user *argp)
+@@ -3322,8 +3322,11 @@ int tdx_vcpu_ioctl(struct kvm_vcpu *vcpu, void __user *argp)
  	return ret;
  }
  
@@ -236,5 +237,5 @@ index b4596f651232..ca7bc9e0fce5 100644
  
  #endif /* __KVM_X86_VMX_X86_OPS_H */
 -- 
-2.49.0
+2.50.1
 
