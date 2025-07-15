@@ -498,11 +498,11 @@ def test_snapshot_overwrite_self(uvm_plain_any, microvm_factory):
     # restored, with a new snapshot of this vm, does not break the VM
 
 
-def test_vmgenid(guest_kernel_linux_6_1, rootfs, microvm_factory, snapshot_type):
+def test_vmgenid(uvm_plain_6_1, microvm_factory, snapshot_type):
     """
     Test VMGenID device upon snapshot resume
     """
-    base_vm = microvm_factory.build(guest_kernel_linux_6_1, rootfs)
+    base_vm = uvm_plain_6_1
     base_vm.spawn()
     base_vm.basic_config(track_dirty_pages=True)
     base_vm.add_net_iface()
