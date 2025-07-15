@@ -1,7 +1,7 @@
-From 4725838afbca877e0fb8ac428370f0d16b73f3a1 Mon Sep 17 00:00:00 2001
+From cb3a4587ef307f7cd3205e502abe3b5663c5c877 Mon Sep 17 00:00:00 2001
 From: Nikita Kalyazin <kalyazin@amazon.com>
 Date: Mon, 31 Mar 2025 10:15:35 +0000
-Subject: [PATCH 40/45] mm: userfaultfd: generic continue for non hugetlbfs
+Subject: [PATCH 41/46] mm: userfaultfd: generic continue for non hugetlbfs
 
 Remove shmem-specific code from UFFDIO_CONTINUE implementation for
 non-huge pages by calling vm_ops->fault().  A new VMF flag,
@@ -40,10 +40,10 @@ index d6b91e8a66d6..d4c35a50058c 100644
  
  typedef unsigned int __bitwise zap_flags_t;
 diff --git a/mm/hugetlb.c b/mm/hugetlb.c
-index 9dc95eac558c..6ac2c763b3ec 100644
+index a0d285d20992..7921c08fd529 100644
 --- a/mm/hugetlb.c
 +++ b/mm/hugetlb.c
-@@ -6533,7 +6533,7 @@ static vm_fault_t hugetlb_no_page(struct address_space *mapping,
+@@ -6536,7 +6536,7 @@ static vm_fault_t hugetlb_no_page(struct address_space *mapping,
  		}
  
  		/* Check for page in userfault range. */
@@ -149,5 +149,5 @@ index 8253978ee0fb..46380f262c4d 100644
  		ret = -EIO;
  		goto out_release;
 -- 
-2.49.0
+2.50.1
 

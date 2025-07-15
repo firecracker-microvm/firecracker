@@ -1,7 +1,7 @@
-From 50a700bdda054eaa3f86c79a1510a1d60325f2be Mon Sep 17 00:00:00 2001
+From 76851fca367e2d7666c3e709eab8cc016406f91b Mon Sep 17 00:00:00 2001
 From: Fuad Tabba <tabba@google.com>
-Date: Wed, 9 Jul 2025 11:59:30 +0100
-Subject: [PATCH 04/45] KVM: x86: Introduce kvm->arch.supports_gmem
+Date: Tue, 15 Jul 2025 10:33:33 +0100
+Subject: [PATCH 04/46] KVM: x86: Introduce kvm->arch.supports_gmem
 
 Introduce a new boolean member, supports_gmem, to kvm->arch.
 
@@ -31,10 +31,10 @@ Signed-off-by: Fuad Tabba <tabba@google.com>
  4 files changed, 6 insertions(+), 3 deletions(-)
 
 diff --git a/arch/x86/include/asm/kvm_host.h b/arch/x86/include/asm/kvm_host.h
-index 09f4f6240d9d..ebddedf0a1f2 100644
+index bde811b2d303..938b5be03d33 100644
 --- a/arch/x86/include/asm/kvm_host.h
 +++ b/arch/x86/include/asm/kvm_host.h
-@@ -1342,6 +1342,7 @@ struct kvm_arch {
+@@ -1348,6 +1348,7 @@ struct kvm_arch {
  	u8 mmu_valid_gen;
  	u8 vm_type;
  	bool has_private_mem;
@@ -42,7 +42,7 @@ index 09f4f6240d9d..ebddedf0a1f2 100644
  	bool has_protected_state;
  	bool pre_fault_allowed;
  	struct hlist_head mmu_page_hash[KVM_NUM_MMU_PAGES];
-@@ -2271,7 +2272,7 @@ void kvm_configure_mmu(bool enable_tdp, int tdp_forced_root_level,
+@@ -2277,7 +2278,7 @@ void kvm_configure_mmu(bool enable_tdp, int tdp_forced_root_level,
  
  #ifdef CONFIG_KVM_GMEM
  #define kvm_arch_has_private_mem(kvm) ((kvm)->arch.has_private_mem)
@@ -64,10 +64,10 @@ index ab9b947dbf4f..d1c484eaa8ad 100644
  	}
  
 diff --git a/arch/x86/kvm/vmx/tdx.c b/arch/x86/kvm/vmx/tdx.c
-index 1ad20c273f3b..c227516e6a02 100644
+index f31ccdeb905b..a3db6df245ee 100644
 --- a/arch/x86/kvm/vmx/tdx.c
 +++ b/arch/x86/kvm/vmx/tdx.c
-@@ -625,6 +625,7 @@ int tdx_vm_init(struct kvm *kvm)
+@@ -632,6 +632,7 @@ int tdx_vm_init(struct kvm *kvm)
  
  	kvm->arch.has_protected_state = true;
  	kvm->arch.has_private_mem = true;
@@ -76,10 +76,10 @@ index 1ad20c273f3b..c227516e6a02 100644
  
  	/*
 diff --git a/arch/x86/kvm/x86.c b/arch/x86/kvm/x86.c
-index a9d992d5652f..b34236029383 100644
+index 357b9e3a6cef..adbdc2cc97d4 100644
 --- a/arch/x86/kvm/x86.c
 +++ b/arch/x86/kvm/x86.c
-@@ -12778,8 +12778,8 @@ int kvm_arch_init_vm(struct kvm *kvm, unsigned long type)
+@@ -12780,8 +12780,8 @@ int kvm_arch_init_vm(struct kvm *kvm, unsigned long type)
  		return -EINVAL;
  
  	kvm->arch.vm_type = type;
@@ -91,5 +91,5 @@ index a9d992d5652f..b34236029383 100644
  	kvm->arch.pre_fault_allowed =
  		type == KVM_X86_DEFAULT_VM || type == KVM_X86_SW_PROTECTED_VM;
 -- 
-2.49.0
+2.50.1
 

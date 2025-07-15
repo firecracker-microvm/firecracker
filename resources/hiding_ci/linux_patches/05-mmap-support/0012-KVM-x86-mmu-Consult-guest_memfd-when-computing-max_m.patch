@@ -1,7 +1,7 @@
-From b8f1e64371756c75ef3d952f76342a48203b93fd Mon Sep 17 00:00:00 2001
+From 778110c1ae955ac98afac67c71c66ab5931238fd Mon Sep 17 00:00:00 2001
 From: Ackerley Tng <ackerleytng@google.com>
-Date: Wed, 9 Jul 2025 11:59:38 +0100
-Subject: [PATCH 12/45] KVM: x86/mmu: Consult guest_memfd when computing
+Date: Tue, 15 Jul 2025 10:33:41 +0100
+Subject: [PATCH 12/46] KVM: x86/mmu: Consult guest_memfd when computing
  max_mapping_level
 
 Modify kvm_mmu_max_mapping_level() to consult guest_memfd for memory
@@ -41,7 +41,7 @@ Signed-off-by: Fuad Tabba <tabba@google.com>
  3 files changed, 79 insertions(+), 35 deletions(-)
 
 diff --git a/arch/x86/kvm/mmu/mmu.c b/arch/x86/kvm/mmu/mmu.c
-index 495dcedaeafa..6d997063f76f 100644
+index 6bd28fda0fd3..94be15cde6da 100644
 --- a/arch/x86/kvm/mmu/mmu.c
 +++ b/arch/x86/kvm/mmu/mmu.c
 @@ -3282,13 +3282,67 @@ static int __kvm_mmu_max_mapping_level(struct kvm *kvm,
@@ -208,5 +208,5 @@ index 2b00f8796a15..d01bd7a2c2bd 100644
  long kvm_gmem_populate(struct kvm *kvm, gfn_t start_gfn, void __user *src, long npages,
  		       kvm_gmem_populate_cb post_populate, void *opaque)
 -- 
-2.49.0
+2.50.1
 

@@ -1,7 +1,7 @@
-From 2ce4cc59bb3e067e019842870824d7a459d140f0 Mon Sep 17 00:00:00 2001
+From 05cf45cc4528079db3c40c021947ae0cc28eec82 Mon Sep 17 00:00:00 2001
 From: Fuad Tabba <tabba@google.com>
-Date: Wed, 9 Jul 2025 11:59:28 +0100
-Subject: [PATCH 02/45] KVM: Rename CONFIG_KVM_GENERIC_PRIVATE_MEM to
+Date: Tue, 15 Jul 2025 10:33:31 +0100
+Subject: [PATCH 02/46] KVM: Rename CONFIG_KVM_GENERIC_PRIVATE_MEM to
  CONFIG_KVM_GENERIC_GMEM_POPULATE
 
 The original name was vague regarding its functionality. This Kconfig
@@ -99,5 +99,5 @@ index b2aa6bf24d3a..befea51bbc75 100644
  		       kvm_gmem_populate_cb post_populate, void *opaque)
  {
 -- 
-2.49.0
+2.50.1
 

@@ -1,7 +1,7 @@
-From 85b1525e138e76dd43f58e8b5cfd2f0f861ae6a6 Mon Sep 17 00:00:00 2001
+From fd6bbab2fcae663ac196e4c68c8bcd8393b99d6a Mon Sep 17 00:00:00 2001
 From: Fuad Tabba <tabba@google.com>
-Date: Wed, 9 Jul 2025 11:59:29 +0100
-Subject: [PATCH 03/45] KVM: Introduce kvm_arch_supports_gmem()
+Date: Tue, 15 Jul 2025 10:33:32 +0100
+Subject: [PATCH 03/46] KVM: Introduce kvm_arch_supports_gmem()
 
 Introduce kvm_arch_supports_gmem() to explicitly indicate whether an
 architecture supports guest_memfd.
@@ -30,10 +30,10 @@ Signed-off-by: Fuad Tabba <tabba@google.com>
  3 files changed, 16 insertions(+), 3 deletions(-)
 
 diff --git a/arch/x86/include/asm/kvm_host.h b/arch/x86/include/asm/kvm_host.h
-index 66bdd0759d27..09f4f6240d9d 100644
+index acb25f935d84..bde811b2d303 100644
 --- a/arch/x86/include/asm/kvm_host.h
 +++ b/arch/x86/include/asm/kvm_host.h
-@@ -2271,8 +2271,10 @@ void kvm_configure_mmu(bool enable_tdp, int tdp_forced_root_level,
+@@ -2277,8 +2277,10 @@ void kvm_configure_mmu(bool enable_tdp, int tdp_forced_root_level,
  
  #ifdef CONFIG_KVM_GMEM
  #define kvm_arch_has_private_mem(kvm) ((kvm)->arch.has_private_mem)
@@ -44,7 +44,7 @@ index 66bdd0759d27..09f4f6240d9d 100644
  #endif
  
  #define kvm_arch_has_readonly_mem(kvm) (!(kvm)->arch.has_protected_state)
-@@ -2325,7 +2327,7 @@ enum {
+@@ -2331,7 +2333,7 @@ enum {
  #define HF_SMM_INSIDE_NMI_MASK	(1 << 2)
  
  # define KVM_MAX_NR_ADDRESS_SPACES	2
@@ -76,7 +76,7 @@ index 359baaae5e9f..ab1bde048034 100644
  static inline bool kvm_arch_has_readonly_mem(struct kvm *kvm)
  {
 diff --git a/virt/kvm/kvm_main.c b/virt/kvm/kvm_main.c
-index 898c3d5a7ba8..afbc025ce4d3 100644
+index d5f0ec2d321f..162e2a69cc49 100644
 --- a/virt/kvm/kvm_main.c
 +++ b/virt/kvm/kvm_main.c
 @@ -1588,7 +1588,7 @@ static int check_memory_region_flags(struct kvm *kvm,
@@ -88,7 +88,7 @@ index 898c3d5a7ba8..afbc025ce4d3 100644
  		valid_flags |= KVM_MEM_GUEST_MEMFD;
  
  	/* Dirty logging private memory is not currently supported. */
-@@ -4912,7 +4912,7 @@ static int kvm_vm_ioctl_check_extension_generic(struct kvm *kvm, long arg)
+@@ -4915,7 +4915,7 @@ static int kvm_vm_ioctl_check_extension_generic(struct kvm *kvm, long arg)
  #endif
  #ifdef CONFIG_KVM_GMEM
  	case KVM_CAP_GUEST_MEMFD:
@@ -98,5 +98,5 @@ index 898c3d5a7ba8..afbc025ce4d3 100644
  	default:
  		break;
 -- 
-2.49.0
+2.50.1
 

@@ -1,7 +1,7 @@
-From 942e67ffcabf0218347c6e61a0656d58ac12f365 Mon Sep 17 00:00:00 2001
+From 15b9df9fc94222e6bbdab3ffcf5bfc936a4c3bba Mon Sep 17 00:00:00 2001
 From: Fuad Tabba <tabba@google.com>
-Date: Wed, 9 Jul 2025 11:59:46 +0100
-Subject: [PATCH 20/45] KVM: selftests: guest_memfd mmap() test when mmap is
+Date: Tue, 15 Jul 2025 10:33:50 +0100
+Subject: [PATCH 20/46] KVM: selftests: guest_memfd mmap() test when mmap is
  supported
 
 Expand the guest_memfd selftests to comprehensively test host userspace
@@ -47,7 +47,7 @@ Signed-off-by: Fuad Tabba <tabba@google.com>
  1 file changed, 176 insertions(+), 21 deletions(-)
 
 diff --git a/tools/testing/selftests/kvm/guest_memfd_test.c b/tools/testing/selftests/kvm/guest_memfd_test.c
-index 341ba616cf55..1252e74fbb8f 100644
+index ce687f8d248f..beb556293590 100644
 --- a/tools/testing/selftests/kvm/guest_memfd_test.c
 +++ b/tools/testing/selftests/kvm/guest_memfd_test.c
 @@ -13,6 +13,8 @@
@@ -176,7 +176,7 @@ index 341ba616cf55..1252e74fbb8f 100644
  }
  
  static void test_create_guest_memfd_multiple(struct kvm_vm *vm)
-@@ -171,30 +237,119 @@ static void test_create_guest_memfd_multiple(struct kvm_vm *vm)
+@@ -170,30 +236,119 @@ static void test_create_guest_memfd_multiple(struct kvm_vm *vm)
  	close(fd1);
  }
  
@@ -305,5 +305,5 @@ index 341ba616cf55..1252e74fbb8f 100644
 +#endif
  }
 -- 
-2.49.0
+2.50.1
 

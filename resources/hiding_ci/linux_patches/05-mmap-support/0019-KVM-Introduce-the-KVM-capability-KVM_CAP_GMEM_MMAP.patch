@@ -1,7 +1,7 @@
-From 7bbe202f36cc3e670d47f353398f434063323169 Mon Sep 17 00:00:00 2001
+From c9392e6f8240d3da85fb65cfd82f592fa415ba21 Mon Sep 17 00:00:00 2001
 From: Fuad Tabba <tabba@google.com>
-Date: Wed, 9 Jul 2025 11:59:44 +0100
-Subject: [PATCH 18/45] KVM: Introduce the KVM capability KVM_CAP_GMEM_MMAP
+Date: Tue, 15 Jul 2025 10:33:48 +0100
+Subject: [PATCH 19/46] KVM: Introduce the KVM capability KVM_CAP_GMEM_MMAP
 
 Introduce the new KVM capability KVM_CAP_GMEM_MMAP. This capability
 signals to userspace that a KVM instance supports host userspace mapping
@@ -17,6 +17,7 @@ information regarding support for mmap in guest_memfd.
 
 Reviewed-by: David Hildenbrand <david@redhat.com>
 Reviewed-by: Gavin Shan <gshan@redhat.com>
+Reviewed-by: Shivank Garg <shivankg@amd.com>
 Signed-off-by: Fuad Tabba <tabba@google.com>
 ---
  Documentation/virt/kvm/api.rst | 9 +++++++++
@@ -25,7 +26,7 @@ Signed-off-by: Fuad Tabba <tabba@google.com>
  3 files changed, 14 insertions(+)
 
 diff --git a/Documentation/virt/kvm/api.rst b/Documentation/virt/kvm/api.rst
-index 9abf93ee5f65..70261e189162 100644
+index 43ed57e048a8..5169066b53b2 100644
 --- a/Documentation/virt/kvm/api.rst
 +++ b/Documentation/virt/kvm/api.rst
 @@ -6407,6 +6407,15 @@ most one mapping per page, i.e. binding multiple memory regions to a single
@@ -45,10 +46,10 @@ index 9abf93ee5f65..70261e189162 100644
  
  4.143 KVM_PRE_FAULT_MEMORY
 diff --git a/include/uapi/linux/kvm.h b/include/uapi/linux/kvm.h
-index c71348db818f..cbf28237af79 100644
+index 3beafbf306af..698dd407980f 100644
 --- a/include/uapi/linux/kvm.h
 +++ b/include/uapi/linux/kvm.h
-@@ -956,6 +956,7 @@ struct kvm_enable_cap {
+@@ -960,6 +960,7 @@ struct kvm_enable_cap {
  #define KVM_CAP_ARM_EL2 240
  #define KVM_CAP_ARM_EL2_E2H0 241
  #define KVM_CAP_RISCV_MP_STATE_RESET 242
@@ -57,10 +58,10 @@ index c71348db818f..cbf28237af79 100644
  struct kvm_irq_routing_irqchip {
  	__u32 irqchip;
 diff --git a/virt/kvm/kvm_main.c b/virt/kvm/kvm_main.c
-index 81bb18fa8655..5463e81b08b9 100644
+index 46bddac1dacd..f1ac872e01e9 100644
 --- a/virt/kvm/kvm_main.c
 +++ b/virt/kvm/kvm_main.c
-@@ -4913,6 +4913,10 @@ static int kvm_vm_ioctl_check_extension_generic(struct kvm *kvm, long arg)
+@@ -4916,6 +4916,10 @@ static int kvm_vm_ioctl_check_extension_generic(struct kvm *kvm, long arg)
  #ifdef CONFIG_KVM_GMEM
  	case KVM_CAP_GUEST_MEMFD:
  		return !kvm || kvm_arch_supports_gmem(kvm);
@@ -72,5 +73,5 @@ index 81bb18fa8655..5463e81b08b9 100644
  	default:
  		break;
 -- 
-2.49.0
+2.50.1
 

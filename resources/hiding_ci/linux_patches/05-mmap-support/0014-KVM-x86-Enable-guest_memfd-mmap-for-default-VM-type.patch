@@ -1,7 +1,7 @@
-From 793235f72611c1bcf25801391fbe1aab6fb2373b Mon Sep 17 00:00:00 2001
+From aa1e5ba0e2a75236ad66c224f24a3f311cdee7b1 Mon Sep 17 00:00:00 2001
 From: Fuad Tabba <tabba@google.com>
-Date: Wed, 9 Jul 2025 11:59:40 +0100
-Subject: [PATCH 14/45] KVM: x86: Enable guest_memfd mmap for default VM type
+Date: Tue, 15 Jul 2025 10:33:43 +0100
+Subject: [PATCH 14/46] KVM: x86: Enable guest_memfd mmap for default VM type
 
 Enable host userspace mmap support for guest_memfd-backed memory when
 running KVM with the KVM_X86_DEFAULT_VM type:
@@ -41,10 +41,10 @@ Signed-off-by: Fuad Tabba <tabba@google.com>
  3 files changed, 12 insertions(+), 1 deletion(-)
 
 diff --git a/arch/x86/include/asm/kvm_host.h b/arch/x86/include/asm/kvm_host.h
-index 4c764faa12f3..4c89feaa1910 100644
+index 543d09fd4bca..e1426adfa93e 100644
 --- a/arch/x86/include/asm/kvm_host.h
 +++ b/arch/x86/include/asm/kvm_host.h
-@@ -2273,9 +2273,18 @@ void kvm_configure_mmu(bool enable_tdp, int tdp_forced_root_level,
+@@ -2279,9 +2279,18 @@ void kvm_configure_mmu(bool enable_tdp, int tdp_forced_root_level,
  #ifdef CONFIG_KVM_GMEM
  #define kvm_arch_has_private_mem(kvm) ((kvm)->arch.has_private_mem)
  #define kvm_arch_supports_gmem(kvm)  ((kvm)->arch.supports_gmem)
@@ -64,22 +64,22 @@ index 4c764faa12f3..4c89feaa1910 100644
  
  #define kvm_arch_has_readonly_mem(kvm) (!(kvm)->arch.has_protected_state)
 diff --git a/arch/x86/kvm/Kconfig b/arch/x86/kvm/Kconfig
-index df1fdbb4024b..239637b663dc 100644
+index df1fdbb4024b..1ba959b9eadc 100644
 --- a/arch/x86/kvm/Kconfig
 +++ b/arch/x86/kvm/Kconfig
 @@ -47,6 +47,7 @@ config KVM_X86
  	select KVM_GENERIC_HARDWARE_ENABLING
  	select KVM_GENERIC_PRE_FAULT_MEMORY
  	select KVM_GENERIC_GMEM_POPULATE if KVM_SW_PROTECTED_VM
-+	select KVM_GMEM_SUPPORTS_MMAP
++	select KVM_GMEM_SUPPORTS_MMAP if X86_64
  	select KVM_WERROR if WERROR
  
  config KVM
 diff --git a/arch/x86/kvm/x86.c b/arch/x86/kvm/x86.c
-index b34236029383..17c655e5716e 100644
+index adbdc2cc97d4..ca99187a566e 100644
 --- a/arch/x86/kvm/x86.c
 +++ b/arch/x86/kvm/x86.c
-@@ -12779,7 +12779,8 @@ int kvm_arch_init_vm(struct kvm *kvm, unsigned long type)
+@@ -12781,7 +12781,8 @@ int kvm_arch_init_vm(struct kvm *kvm, unsigned long type)
  
  	kvm->arch.vm_type = type;
  	kvm->arch.has_private_mem = (type == KVM_X86_SW_PROTECTED_VM);
@@ -90,5 +90,5 @@ index b34236029383..17c655e5716e 100644
  	kvm->arch.pre_fault_allowed =
  		type == KVM_X86_DEFAULT_VM || type == KVM_X86_SW_PROTECTED_VM;
 -- 
-2.49.0
+2.50.1
 

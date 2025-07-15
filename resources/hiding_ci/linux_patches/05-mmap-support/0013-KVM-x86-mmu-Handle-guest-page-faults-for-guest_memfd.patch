@@ -1,7 +1,7 @@
-From f83651ebccced465c3d399cf9df2705c6bb70e9c Mon Sep 17 00:00:00 2001
+From 42491fccb59ae63c35c2f38a363479fa186867e1 Mon Sep 17 00:00:00 2001
 From: Ackerley Tng <ackerleytng@google.com>
-Date: Wed, 9 Jul 2025 11:59:39 +0100
-Subject: [PATCH 13/45] KVM: x86/mmu: Handle guest page faults for guest_memfd
+Date: Tue, 15 Jul 2025 10:33:42 +0100
+Subject: [PATCH 13/46] KVM: x86/mmu: Handle guest page faults for guest_memfd
  with shared memory
 
 Update the KVM MMU fault handler to service guest page faults
@@ -28,7 +28,7 @@ Signed-off-by: Fuad Tabba <tabba@google.com>
  1 file changed, 9 insertions(+), 4 deletions(-)
 
 diff --git a/arch/x86/kvm/mmu/mmu.c b/arch/x86/kvm/mmu/mmu.c
-index 6d997063f76f..cc4cdfea343b 100644
+index 94be15cde6da..ad5f337b496c 100644
 --- a/arch/x86/kvm/mmu/mmu.c
 +++ b/arch/x86/kvm/mmu/mmu.c
 @@ -4511,8 +4511,8 @@ static void kvm_mmu_finish_page_fault(struct kvm_vcpu *vcpu,
@@ -42,7 +42,7 @@ index 6d997063f76f..cc4cdfea343b 100644
  {
  	int max_order, r;
  
-@@ -4537,13 +4537,18 @@ static int kvm_mmu_faultin_pfn_private(struct kvm_vcpu *vcpu,
+@@ -4536,13 +4536,18 @@ static int kvm_mmu_faultin_pfn_private(struct kvm_vcpu *vcpu,
  	return RET_PF_CONTINUE;
  }
  
@@ -64,5 +64,5 @@ index 6d997063f76f..cc4cdfea343b 100644
  	foll |= FOLL_NOWAIT;
  	fault->pfn = __kvm_faultin_pfn(fault->slot, fault->gfn, foll,
 -- 
-2.49.0
+2.50.1
 

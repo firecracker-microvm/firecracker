@@ -1,7 +1,7 @@
-From fc57b8c1deda99bc1e64d45dd7f97a1b9259d16e Mon Sep 17 00:00:00 2001
+From 000264f8823f76fb6cf91dc40ace84a29a0fa089 Mon Sep 17 00:00:00 2001
 From: Fuad Tabba <tabba@google.com>
-Date: Wed, 9 Jul 2025 11:59:27 +0100
-Subject: [PATCH 01/45] KVM: Rename CONFIG_KVM_PRIVATE_MEM to CONFIG_KVM_GMEM
+Date: Tue, 15 Jul 2025 10:33:30 +0100
+Subject: [PATCH 01/46] KVM: Rename CONFIG_KVM_PRIVATE_MEM to CONFIG_KVM_GMEM
 
 Rename the Kconfig option CONFIG_KVM_PRIVATE_MEM to CONFIG_KVM_GMEM. The
 original name implied that the feature only supported "private" memory.
@@ -32,10 +32,10 @@ Signed-off-by: Fuad Tabba <tabba@google.com>
  6 files changed, 17 insertions(+), 17 deletions(-)
 
 diff --git a/arch/x86/include/asm/kvm_host.h b/arch/x86/include/asm/kvm_host.h
-index 639d9bcee842..66bdd0759d27 100644
+index f7af967aa16f..acb25f935d84 100644
 --- a/arch/x86/include/asm/kvm_host.h
 +++ b/arch/x86/include/asm/kvm_host.h
-@@ -2269,7 +2269,7 @@ void kvm_configure_mmu(bool enable_tdp, int tdp_forced_root_level,
+@@ -2275,7 +2275,7 @@ void kvm_configure_mmu(bool enable_tdp, int tdp_forced_root_level,
  		       int tdp_max_root_level, int tdp_huge_page_level);
  
  
@@ -137,10 +137,10 @@ index 724c89af78af..8d00918d4c8b 100644
 -kvm-$(CONFIG_KVM_PRIVATE_MEM) += $(KVM)/guest_memfd.o
 +kvm-$(CONFIG_KVM_GMEM) += $(KVM)/guest_memfd.o
 diff --git a/virt/kvm/kvm_main.c b/virt/kvm/kvm_main.c
-index eec82775c5bf..898c3d5a7ba8 100644
+index 222f0e894a0c..d5f0ec2d321f 100644
 --- a/virt/kvm/kvm_main.c
 +++ b/virt/kvm/kvm_main.c
-@@ -4910,7 +4910,7 @@ static int kvm_vm_ioctl_check_extension_generic(struct kvm *kvm, long arg)
+@@ -4913,7 +4913,7 @@ static int kvm_vm_ioctl_check_extension_generic(struct kvm *kvm, long arg)
  	case KVM_CAP_MEMORY_ATTRIBUTES:
  		return kvm_supported_mem_attributes(kvm);
  #endif
@@ -149,7 +149,7 @@ index eec82775c5bf..898c3d5a7ba8 100644
  	case KVM_CAP_GUEST_MEMFD:
  		return !kvm || kvm_arch_has_private_mem(kvm);
  #endif
-@@ -5344,7 +5344,7 @@ static long kvm_vm_ioctl(struct file *filp,
+@@ -5347,7 +5347,7 @@ static long kvm_vm_ioctl(struct file *filp,
  	case KVM_GET_STATS_FD:
  		r = kvm_vm_ioctl_get_stats_fd(kvm);
  		break;
@@ -180,5 +180,5 @@ index acef3f5c582a..ec311c0d6718 100644
  
  #endif /* __KVM_MM_H__ */
 -- 
-2.49.0
+2.50.1
 

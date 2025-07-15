@@ -1,7 +1,7 @@
-From 9df5ae94f7773b773d1b22032a7a5e35ef377f8d Mon Sep 17 00:00:00 2001
+From a00f94321c740ed71e81e452626150545da2c288 Mon Sep 17 00:00:00 2001
 From: Patrick Roy <roypat@amazon.co.uk>
 Date: Fri, 7 Feb 2025 14:33:01 +0000
-Subject: [PATCH 24/45] KVM: guest_memfd: Add flag to remove from direct map
+Subject: [PATCH 25/46] KVM: guest_memfd: Add flag to remove from direct map
 
 Add KVM_GMEM_NO_DIRECT_MAP flag for KVM_CREATE_GUEST_MEMFD() ioctl. When
 set, guest_memfd folios will be removed from the direct map after
@@ -56,7 +56,7 @@ Signed-off-by: Patrick Roy <roypat@amazon.co.uk>
  5 files changed, 50 insertions(+), 5 deletions(-)
 
 diff --git a/arch/arm64/include/asm/kvm_host.h b/arch/arm64/include/asm/kvm_host.h
-index bd2af5470c66..ee2324c971c9 100644
+index 63f7827cfa1b..1f564f6a332f 100644
 --- a/arch/arm64/include/asm/kvm_host.h
 +++ b/arch/arm64/include/asm/kvm_host.h
 @@ -19,6 +19,7 @@
@@ -67,7 +67,7 @@ index bd2af5470c66..ee2324c971c9 100644
  #include <asm/arch_gicv3.h>
  #include <asm/barrier.h>
  #include <asm/cpufeature.h>
-@@ -1678,6 +1679,15 @@ void check_feature_map(void);
+@@ -1677,6 +1678,15 @@ void check_feature_map(void);
  #ifdef CONFIG_KVM_GMEM
  #define kvm_arch_supports_gmem(kvm) true
  #define kvm_arch_supports_gmem_mmap(kvm) IS_ENABLED(CONFIG_KVM_GMEM_SUPPORTS_MMAP)
@@ -110,10 +110,10 @@ index 662271314778..7dc9190d2fef 100644
  static inline bool kvm_arch_has_readonly_mem(struct kvm *kvm)
  {
 diff --git a/include/uapi/linux/kvm.h b/include/uapi/linux/kvm.h
-index cbf28237af79..edaba6966cad 100644
+index 698dd407980f..33b368564b1f 100644
 --- a/include/uapi/linux/kvm.h
 +++ b/include/uapi/linux/kvm.h
-@@ -957,6 +957,7 @@ struct kvm_enable_cap {
+@@ -961,6 +961,7 @@ struct kvm_enable_cap {
  #define KVM_CAP_ARM_EL2_E2H0 241
  #define KVM_CAP_RISCV_MP_STATE_RESET 242
  #define KVM_CAP_GMEM_MMAP 243
@@ -121,7 +121,7 @@ index cbf28237af79..edaba6966cad 100644
  
  struct kvm_irq_routing_irqchip {
  	__u32 irqchip;
-@@ -1594,6 +1595,7 @@ struct kvm_memory_attributes {
+@@ -1598,6 +1599,7 @@ struct kvm_memory_attributes {
  
  #define KVM_CREATE_GUEST_MEMFD	_IOWR(KVMIO,  0xd4, struct kvm_create_guest_memfd)
  #define GUEST_MEMFD_FLAG_MMAP	(1ULL << 0)
@@ -215,7 +215,7 @@ index 0ac1c3a5a433..d70ee66bb96d 100644
  		return -EINVAL;
  
 diff --git a/virt/kvm/kvm_main.c b/virt/kvm/kvm_main.c
-index 5463e81b08b9..a0d14659ee2c 100644
+index f1ac872e01e9..d92dd84cca8e 100644
 --- a/virt/kvm/kvm_main.c
 +++ b/virt/kvm/kvm_main.c
 @@ -65,6 +65,7 @@
@@ -226,7 +226,7 @@ index 5463e81b08b9..a0d14659ee2c 100644
  
  
  /* Worst case buffer size needed for holding an integer. */
-@@ -4911,6 +4912,10 @@ static int kvm_vm_ioctl_check_extension_generic(struct kvm *kvm, long arg)
+@@ -4914,6 +4915,10 @@ static int kvm_vm_ioctl_check_extension_generic(struct kvm *kvm, long arg)
  		return kvm_supported_mem_attributes(kvm);
  #endif
  #ifdef CONFIG_KVM_GMEM
@@ -238,5 +238,5 @@ index 5463e81b08b9..a0d14659ee2c 100644
  		return !kvm || kvm_arch_supports_gmem(kvm);
  #endif
 -- 
-2.49.0
+2.50.1
 

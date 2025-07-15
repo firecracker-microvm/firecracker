@@ -1,7 +1,7 @@
-From 7ad514bb5df2e781f742c113cae15f1169ac99f5 Mon Sep 17 00:00:00 2001
+From 5dc88aa0c38b04dc510ef6bb8208813479602e28 Mon Sep 17 00:00:00 2001
 From: Fuad Tabba <tabba@google.com>
-Date: Wed, 9 Jul 2025 11:59:42 +0100
-Subject: [PATCH 16/45] KVM: arm64: Handle guest_memfd-backed guest page faults
+Date: Tue, 15 Jul 2025 10:33:45 +0100
+Subject: [PATCH 16/46] KVM: arm64: Handle guest_memfd-backed guest page faults
 
 Add arm64 architecture support for handling guest page faults on memory
 slots backed by guest_memfd.
@@ -19,14 +19,14 @@ Reviewed-by: Gavin Shan <gshan@redhat.com>
 Reviewed-by: James Houghton <jthoughton@google.com>
 Signed-off-by: Fuad Tabba <tabba@google.com>
 ---
- arch/arm64/kvm/mmu.c | 82 ++++++++++++++++++++++++++++++++++++++++++--
- 1 file changed, 79 insertions(+), 3 deletions(-)
+ arch/arm64/kvm/mmu.c | 86 ++++++++++++++++++++++++++++++++++++++++++--
+ 1 file changed, 83 insertions(+), 3 deletions(-)
 
 diff --git a/arch/arm64/kvm/mmu.c b/arch/arm64/kvm/mmu.c
-index 58662e0ef13e..71f8b53683e7 100644
+index b3eacb400fab..8c82df80a835 100644
 --- a/arch/arm64/kvm/mmu.c
 +++ b/arch/arm64/kvm/mmu.c
-@@ -1512,6 +1512,78 @@ static void adjust_nested_fault_perms(struct kvm_s2_trans *nested,
+@@ -1512,6 +1512,82 @@ static void adjust_nested_fault_perms(struct kvm_s2_trans *nested,
  	*prot |= kvm_encode_nested_level(nested);
  }
  
@@ -40,6 +40,7 @@ index 58662e0ef13e..71f8b53683e7 100644
 +	enum kvm_pgtable_walk_flags flags = KVM_PGTABLE_WALK_MEMABORT_FLAGS;
 +	enum kvm_pgtable_prot prot = KVM_PGTABLE_PROT_R;
 +	struct kvm_pgtable *pgt = vcpu->arch.hw_mmu->pgt;
++	unsigned long mmu_seq;
 +	struct page *page;
 +	struct kvm *kvm = vcpu->kvm;
 +	void *memcache;
@@ -59,15 +60,11 @@ index 58662e0ef13e..71f8b53683e7 100644
 +	write_fault = kvm_is_write_fault(vcpu);
 +	exec_fault = kvm_vcpu_trap_is_exec_fault(vcpu);
 +
-+	if (write_fault && exec_fault) {
-+		kvm_err("Simultaneous write and execution fault\n");
-+		return -EFAULT;
-+	}
++	VM_WARN_ON_ONCE(write_fault && exec_fault);
 +
-+	if (is_perm && !write_fault && !exec_fault) {
-+		kvm_err("Unexpected L2 read permission error\n");
-+		return -EFAULT;
-+	}
++	mmu_seq = kvm->mmu_invalidate_seq;
++	/* Pairs with the smp_wmb() in kvm_mmu_invalidate_end(). */
++	smp_rmb();
 +
 +	ret = kvm_gmem_get_pfn(kvm, memslot, gfn, &pfn, &page, NULL);
 +	if (ret) {
@@ -90,9 +87,16 @@ index 58662e0ef13e..71f8b53683e7 100644
 +		prot |= KVM_PGTABLE_PROT_X;
 +
 +	kvm_fault_lock(kvm);
++	if (mmu_invalidate_retry(kvm, mmu_seq)) {
++		ret = -EAGAIN;
++		goto out_unlock;
++	}
++
 +	ret = KVM_PGT_FN(kvm_pgtable_stage2_map)(pgt, fault_ipa, PAGE_SIZE,
 +						 __pfn_to_phys(pfn), prot,
 +						 memcache, flags);
++
++out_unlock:
 +	kvm_release_faultin_page(kvm, page, !!ret, writable);
 +	kvm_fault_unlock(kvm);
 +
@@ -105,7 +109,7 @@ index 58662e0ef13e..71f8b53683e7 100644
  static int user_mem_abort(struct kvm_vcpu *vcpu, phys_addr_t fault_ipa,
  			  struct kvm_s2_trans *nested,
  			  struct kvm_memory_slot *memslot, unsigned long hva,
-@@ -1536,7 +1608,7 @@ static int user_mem_abort(struct kvm_vcpu *vcpu, phys_addr_t fault_ipa,
+@@ -1536,7 +1612,7 @@ static int user_mem_abort(struct kvm_vcpu *vcpu, phys_addr_t fault_ipa,
  	enum kvm_pgtable_prot prot = KVM_PGTABLE_PROT_R;
  	struct kvm_pgtable *pgt;
  	struct page *page;
@@ -114,9 +118,9 @@ index 58662e0ef13e..71f8b53683e7 100644
  
  	if (fault_is_perm)
  		fault_granule = kvm_vcpu_trap_get_perm_fault_granule(vcpu);
-@@ -1963,8 +2035,12 @@ int kvm_handle_guest_abort(struct kvm_vcpu *vcpu)
- 		goto out_unlock;
- 	}
+@@ -1961,8 +2037,12 @@ int kvm_handle_guest_abort(struct kvm_vcpu *vcpu)
+ 	VM_WARN_ON_ONCE(kvm_vcpu_trap_is_permission_fault(vcpu) &&
+ 			!write_fault && !kvm_vcpu_trap_is_exec_fault(vcpu));
  
 -	ret = user_mem_abort(vcpu, fault_ipa, nested, memslot, hva,
 -			     esr_fsc_is_permission_fault(esr));
@@ -130,5 +134,5 @@ index 58662e0ef13e..71f8b53683e7 100644
  		ret = 1;
  out:
 -- 
-2.49.0
+2.50.1
 
