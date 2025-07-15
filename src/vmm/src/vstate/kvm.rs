@@ -80,8 +80,11 @@ impl Kvm {
     }
 
     /// Returns the maximal number of memslots allowed in a [`Vm`]
-    pub fn max_nr_memslots(&self) -> usize {
-        self.fd.get_nr_memslots()
+    pub fn max_nr_memslots(&self) -> u32 {
+        self.fd
+            .get_nr_memslots()
+            .try_into()
+            .expect("Number of vcpus reported by KVM exceeds u32::MAX")
     }
 }
 
