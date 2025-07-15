@@ -35,10 +35,9 @@ fn main() {
     runtime.run(
         |uffd_handler: &mut UffdHandler| {
             // Read an event from the userfaultfd.
-            let event = uffd_handler
-                .read_event()
-                .expect("Failed to read uffd_msg")
-                .expect("uffd_msg not ready");
+            let Some(event) = uffd_handler.read_event().expect("Failed to read uffd_msg") else {
+                return;
+            };
 
             if let userfaultfd::Event::Pagefault { addr, .. } = event {
                 let bit =
