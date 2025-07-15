@@ -30,7 +30,13 @@ X86_MEMORY_GAP_START = 3328 * 2**20
 )
 @pytest.mark.nonci
 def test_memory_overhead(
-    microvm_factory, guest_kernel_acpi, rootfs, vcpu_count, mem_size_mib, metrics
+    microvm_factory,
+    guest_kernel_acpi,
+    rootfs,
+    vcpu_count,
+    mem_size_mib,
+    pci_enabled,
+    metrics,
 ):
     """Track Firecracker memory overhead.
 
@@ -38,7 +44,9 @@ def test_memory_overhead(
     """
 
     for _ in range(5):
-        microvm = microvm_factory.build(guest_kernel_acpi, rootfs, monitor_memory=False)
+        microvm = microvm_factory.build(
+            guest_kernel_acpi, rootfs, pci=pci_enabled, monitor_memory=False
+        )
         microvm.spawn(emit_metrics=True)
         microvm.basic_config(vcpu_count=vcpu_count, mem_size_mib=mem_size_mib)
         microvm.add_net_iface()
