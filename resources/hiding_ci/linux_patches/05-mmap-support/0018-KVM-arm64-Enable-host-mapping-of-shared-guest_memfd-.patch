@@ -1,7 +1,7 @@
-From 1b1ada64197d513955774384c6589c51d9f84569 Mon Sep 17 00:00:00 2001
+From 21f32f583ea8384ea7ae90a49e7642ce7b1e912a Mon Sep 17 00:00:00 2001
 From: Fuad Tabba <tabba@google.com>
-Date: Wed, 9 Jul 2025 11:59:43 +0100
-Subject: [PATCH 17/45] KVM: arm64: Enable host mapping of shared guest_memfd
+Date: Tue, 15 Jul 2025 10:33:47 +0100
+Subject: [PATCH 18/46] KVM: arm64: Enable host mapping of shared guest_memfd
  memory
 
 Enable host userspace mmap support for guest_memfd-backed memory on
@@ -20,9 +20,9 @@ memory at the host directly from guest_memfd:
 
 * Select CONFIG_KVM_GMEM_SUPPORTS_MMAP in arm64 Kconfig.
 
-* Enforce KVM_MEMSLOT_GMEM_ONLY for guest_memfd on arm64: Compile and
-  runtime checks are added to ensure that if guest_memfd is enabled on
-  arm64, KVM_GMEM_SUPPORTS_MMAP must also be enabled. This means
+* Enforce KVM_MEMSLOT_GMEM_ONLY for guest_memfd on arm64: Checks are
+  added to ensure that if guest_memfd is enabled on arm64,
+  KVM_GMEM_SUPPORTS_MMAP must also be enabled. This means
   guest_memfd-backed memory slots on arm64 are currently only supported
   if they are intended for shared memory use cases (i.e.,
   kvm_memslot_is_gmem_only() is true). This design reflects the current
@@ -35,15 +35,15 @@ Acked-by: David Hildenbrand <david@redhat.com>
 Signed-off-by: Fuad Tabba <tabba@google.com>
 ---
  arch/arm64/include/asm/kvm_host.h | 4 ++++
- arch/arm64/kvm/Kconfig            | 1 +
- arch/arm64/kvm/mmu.c              | 8 ++++++++
+ arch/arm64/kvm/Kconfig            | 2 ++
+ arch/arm64/kvm/mmu.c              | 7 +++++++
  3 files changed, 13 insertions(+)
 
 diff --git a/arch/arm64/include/asm/kvm_host.h b/arch/arm64/include/asm/kvm_host.h
-index d27079968341..bd2af5470c66 100644
+index 3e41a880b062..63f7827cfa1b 100644
 --- a/arch/arm64/include/asm/kvm_host.h
 +++ b/arch/arm64/include/asm/kvm_host.h
-@@ -1675,5 +1675,9 @@ void compute_fgu(struct kvm *kvm, enum fgt_group_id fgt);
+@@ -1674,5 +1674,9 @@ void compute_fgu(struct kvm *kvm, enum fgt_group_id fgt);
  void get_reg_fixed_bits(struct kvm *kvm, enum vcpu_sysreg reg, u64 *res0, u64 *res1);
  void check_feature_map(void);
  
@@ -54,22 +54,23 @@ index d27079968341..bd2af5470c66 100644
  
  #endif /* __ARM64_KVM_HOST_H__ */
 diff --git a/arch/arm64/kvm/Kconfig b/arch/arm64/kvm/Kconfig
-index 713248f240e0..28539479f083 100644
+index 713248f240e0..323b46b7c82f 100644
 --- a/arch/arm64/kvm/Kconfig
 +++ b/arch/arm64/kvm/Kconfig
-@@ -37,6 +37,7 @@ menuconfig KVM
+@@ -37,6 +37,8 @@ menuconfig KVM
  	select HAVE_KVM_VCPU_RUN_PID_CHANGE
  	select SCHED_INFO
  	select GUEST_PERF_EVENTS if PERF_EVENTS
++	select KVM_GMEM
 +	select KVM_GMEM_SUPPORTS_MMAP
  	help
  	  Support hosting virtualized guest machines.
  
 diff --git a/arch/arm64/kvm/mmu.c b/arch/arm64/kvm/mmu.c
-index 71f8b53683e7..b92ce4d9b4e0 100644
+index 8c82df80a835..85559b8a0845 100644
 --- a/arch/arm64/kvm/mmu.c
 +++ b/arch/arm64/kvm/mmu.c
-@@ -2274,6 +2274,14 @@ int kvm_arch_prepare_memory_region(struct kvm *kvm,
+@@ -2276,6 +2276,13 @@ int kvm_arch_prepare_memory_region(struct kvm *kvm,
  	if ((new->base_gfn + new->npages) > (kvm_phys_size(&kvm->arch.mmu) >> PAGE_SHIFT))
  		return -EFAULT;
  
@@ -77,7 +78,6 @@ index 71f8b53683e7..b92ce4d9b4e0 100644
 +	 * Only support guest_memfd backed memslots with mappable memory, since
 +	 * there aren't any CoCo VMs that support only private memory on arm64.
 +	 */
-+	BUILD_BUG_ON(IS_ENABLED(CONFIG_KVM_GMEM) && !IS_ENABLED(CONFIG_KVM_GMEM_SUPPORTS_MMAP));
 +	if (kvm_slot_has_gmem(new) && !kvm_memslot_is_gmem_only(new))
 +		return -EINVAL;
 +
@@ -85,5 +85,5 @@ index 71f8b53683e7..b92ce4d9b4e0 100644
  	reg_end = hva + (new->npages << PAGE_SHIFT);
  
 -- 
-2.49.0
+2.50.1
 

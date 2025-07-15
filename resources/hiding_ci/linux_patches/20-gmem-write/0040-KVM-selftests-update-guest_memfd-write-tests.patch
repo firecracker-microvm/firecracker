@@ -1,7 +1,7 @@
-From 548fccdfb8036d53e5a4053ac7e4a031bc40a07e Mon Sep 17 00:00:00 2001
+From 205f30ad3c9fa142c34ab2ac6a3f6a762f6fc6b1 Mon Sep 17 00:00:00 2001
 From: Nikita Kalyazin <kalyazin@amazon.com>
 Date: Mon, 3 Mar 2025 13:08:38 +0000
-Subject: [PATCH 39/45] KVM: selftests: update guest_memfd write tests
+Subject: [PATCH 40/46] KVM: selftests: update guest_memfd write tests
 
 This is to reflect that the write syscall is now implemented for
 guest_memfd.
@@ -122,5 +122,5 @@ index 1252e74fbb8f..3965a842896e 100644
  	if (expect_mmap_allowed) {
  		test_mmap_supported(fd, page_size, total_size);
 -- 
-2.49.0
+2.50.1
 

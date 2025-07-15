@@ -1,7 +1,7 @@
-From 7a5e5c1d8bb2fe2d28205e89070d55f21e965d8d Mon Sep 17 00:00:00 2001
+From 7a443341bf7db1d1b8f9c5c7cc2e74993bd71990 Mon Sep 17 00:00:00 2001
 From: Patrick Roy <roypat@amazon.co.uk>
 Date: Mon, 2 Jun 2025 12:06:10 +0100
-Subject: [PATCH 22/45] arch: export set_direct_map_valid_noflush to KVM module
+Subject: [PATCH 23/46] arch: export set_direct_map_valid_noflush to KVM module
 
 Use the new per-module export functionality to allow KVM (and only KVM)
 access to set_direct_map_valid_noflush(). This allows guest_memfd to
@@ -81,5 +81,5 @@ index 8834c76f91c9..ab469de18c4d 100644
  #ifdef CONFIG_DEBUG_PAGEALLOC
  void __kernel_map_pages(struct page *page, int numpages, int enable)
 -- 
-2.49.0
+2.50.1
 

@@ -1,7 +1,7 @@
-From 2318ed356c02e81c205e9f73f37f2ee2beac0e94 Mon Sep 17 00:00:00 2001
+From b41e9aeb778fe03d0779d2ac3891ab3463ccc3eb Mon Sep 17 00:00:00 2001
 From: Nikita Kalyazin <kalyazin@amazon.com>
 Date: Fri, 4 Apr 2025 14:16:49 +0000
-Subject: [PATCH 42/45] mm: userfaultfd: use can_userfault vma operation
+Subject: [PATCH 43/46] mm: userfaultfd: use can_userfault vma operation
 
 Signed-off-by: Nikita Kalyazin <kalyazin@amazon.com>
 ---
@@ -75,5 +75,5 @@ index 46380f262c4d..d900dfd03bbe 100644
  
  	while (src_addr < src_start + len) {
 -- 
-2.49.0
+2.50.1
 

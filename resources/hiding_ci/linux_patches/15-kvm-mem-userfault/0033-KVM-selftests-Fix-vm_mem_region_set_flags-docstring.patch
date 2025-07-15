@@ -1,7 +1,7 @@
-From 301f08c231f8643eae8dbbb8106492cc3807c0fe Mon Sep 17 00:00:00 2001
+From 955d6fe23e81d0574b96ee7f0c3540f2e98dbb7d Mon Sep 17 00:00:00 2001
 From: James Houghton <jthoughton@google.com>
 Date: Thu, 9 Jan 2025 20:49:23 +0000
-Subject: [PATCH 32/45] KVM: selftests: Fix vm_mem_region_set_flags docstring
+Subject: [PATCH 33/46] KVM: selftests: Fix vm_mem_region_set_flags docstring
 
 `flags` is what region->region.flags gets set to.
 
@@ -24,5 +24,5 @@ index a055343a7bf7..ca1aa1699f8a 100644
   * Output Args: None
   *
 -- 
-2.49.0
+2.50.1
 

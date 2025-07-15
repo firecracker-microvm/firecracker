@@ -1,7 +1,7 @@
-From 4cda7eded3f46f118c4053803921964210819b62 Mon Sep 17 00:00:00 2001
+From 0aa0ceee2a842559241467722237002b4b9101f8 Mon Sep 17 00:00:00 2001
 From: Nikita Kalyazin <kalyazin@amazon.com>
 Date: Fri, 4 Apr 2025 14:15:18 +0000
-Subject: [PATCH 41/45] mm: provide can_userfault vma operation
+Subject: [PATCH 42/46] mm: provide can_userfault vma operation
 
 The new operation allows to decouple the userfaulfd code from
 dependencies to VMA types, specifically, shmem and hugetlb.  The
@@ -17,7 +17,7 @@ Signed-off-by: Nikita Kalyazin <kalyazin@amazon.com>
  3 files changed, 20 insertions(+)
 
 diff --git a/include/linux/mm.h b/include/linux/mm.h
-index 0ef2ba0c667a..72a29c83a7cd 100644
+index fa538feaa8d9..b0dafe4c84ad 100644
 --- a/include/linux/mm.h
 +++ b/include/linux/mm.h
 @@ -653,6 +653,11 @@ struct vm_operations_struct {
@@ -33,10 +33,10 @@ index 0ef2ba0c667a..72a29c83a7cd 100644
  
  #ifdef CONFIG_NUMA_BALANCING
 diff --git a/mm/hugetlb.c b/mm/hugetlb.c
-index 6ac2c763b3ec..d7f70adda621 100644
+index 7921c08fd529..de57d4c8972b 100644
 --- a/mm/hugetlb.c
 +++ b/mm/hugetlb.c
-@@ -5447,6 +5447,12 @@ static unsigned long hugetlb_vm_op_pagesize(struct vm_area_struct *vma)
+@@ -5450,6 +5450,12 @@ static unsigned long hugetlb_vm_op_pagesize(struct vm_area_struct *vma)
  	return huge_page_size(hstate_vma(vma));
  }
  
@@ -49,7 +49,7 @@ index 6ac2c763b3ec..d7f70adda621 100644
  /*
   * We cannot handle pagefaults against hugetlb pages at all.  They cause
   * handle_mm_fault() to try to instantiate regular-sized pages in the
-@@ -5472,6 +5478,7 @@ const struct vm_operations_struct hugetlb_vm_ops = {
+@@ -5475,6 +5481,7 @@ const struct vm_operations_struct hugetlb_vm_ops = {
  	.close = hugetlb_vm_op_close,
  	.may_split = hugetlb_vm_op_split,
  	.pagesize = hugetlb_vm_op_pagesize,
@@ -91,5 +91,5 @@ index 01e20e0216bc..296bca653f77 100644
  
  int shmem_init_fs_context(struct fs_context *fc)
 -- 
-2.49.0
+2.50.1
 

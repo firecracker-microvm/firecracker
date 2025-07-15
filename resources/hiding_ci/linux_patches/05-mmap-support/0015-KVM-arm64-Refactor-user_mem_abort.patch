@@ -1,7 +1,7 @@
-From 560781ab8f7341d20675678bf4b4bf8bcee2e438 Mon Sep 17 00:00:00 2001
+From f6ccdf1e1e958348fade9a66470e3f2783bd0875 Mon Sep 17 00:00:00 2001
 From: Fuad Tabba <tabba@google.com>
-Date: Wed, 9 Jul 2025 11:59:41 +0100
-Subject: [PATCH 15/45] KVM: arm64: Refactor user_mem_abort()
+Date: Tue, 15 Jul 2025 10:33:44 +0100
+Subject: [PATCH 15/46] KVM: arm64: Refactor user_mem_abort()
 
 Refactor user_mem_abort() to improve code clarity and simplify
 assumptions within the function.
@@ -31,16 +31,15 @@ These changes primarily aim to simplify user_mem_abort() and make its
 logic easier to understand and maintain, setting the stage for future
 modifications.
 
-No functional change intended.
-
 Reviewed-by: Gavin Shan <gshan@redhat.com>
+Reviewed-by: Marc Zyngier <maz@kernel.org>
 Signed-off-by: Fuad Tabba <tabba@google.com>
 ---
- arch/arm64/kvm/mmu.c | 100 ++++++++++++++++++++++++-------------------
- 1 file changed, 55 insertions(+), 45 deletions(-)
+ arch/arm64/kvm/mmu.c | 110 +++++++++++++++++++++++--------------------
+ 1 file changed, 59 insertions(+), 51 deletions(-)
 
 diff --git a/arch/arm64/kvm/mmu.c b/arch/arm64/kvm/mmu.c
-index 2942ec92c5a4..58662e0ef13e 100644
+index 2942ec92c5a4..b3eacb400fab 100644
 --- a/arch/arm64/kvm/mmu.c
 +++ b/arch/arm64/kvm/mmu.c
 @@ -1470,13 +1470,56 @@ static bool kvm_vma_mte_allowed(struct vm_area_struct *vma)
@@ -109,18 +108,26 @@ index 2942ec92c5a4..58662e0ef13e 100644
  	long vma_pagesize, fault_granule;
  	enum kvm_pgtable_prot prot = KVM_PGTABLE_PROT_R;
  	struct kvm_pgtable *pgt;
-@@ -1505,28 +1549,16 @@ static int user_mem_abort(struct kvm_vcpu *vcpu, phys_addr_t fault_ipa,
- 		return -EFAULT;
- 	}
- 
+@@ -1498,17 +1542,7 @@ static int user_mem_abort(struct kvm_vcpu *vcpu, phys_addr_t fault_ipa,
+ 		fault_granule = kvm_vcpu_trap_get_perm_fault_granule(vcpu);
+ 	write_fault = kvm_is_write_fault(vcpu);
+ 	exec_fault = kvm_vcpu_trap_is_exec_fault(vcpu);
+-	VM_BUG_ON(write_fault && exec_fault);
+-
+-	if (fault_is_perm && !write_fault && !exec_fault) {
+-		kvm_err("Unexpected L2 read permission error\n");
+-		return -EFAULT;
+-	}
+-
 -	if (!is_protected_kvm_enabled())
 -		memcache = &vcpu->arch.mmu_page_cache;
 -	else
 -		memcache = &vcpu->arch.pkvm_memcache;
--
++	VM_WARN_ON_ONCE(write_fault && exec_fault);
+ 
  	/*
  	 * Permission faults just need to update the existing leaf entry,
- 	 * and so normally don't require allocations from the memcache. The
+@@ -1516,17 +1550,10 @@ static int user_mem_abort(struct kvm_vcpu *vcpu, phys_addr_t fault_ipa,
  	 * only exception to this is when dirty logging is enabled at runtime
  	 * and a write fault needs to collapse a block entry into a table.
  	 */
@@ -142,7 +149,7 @@ index 2942ec92c5a4..58662e0ef13e 100644
  
  	/*
  	 * Let's check if we will get back a huge page backed by hugetlbfs, or
-@@ -1540,16 +1572,10 @@ static int user_mem_abort(struct kvm_vcpu *vcpu, phys_addr_t fault_ipa,
+@@ -1540,16 +1567,10 @@ static int user_mem_abort(struct kvm_vcpu *vcpu, phys_addr_t fault_ipa,
  		return -EFAULT;
  	}
  
@@ -161,7 +168,7 @@ index 2942ec92c5a4..58662e0ef13e 100644
  
  	switch (vma_shift) {
  #ifndef __PAGETABLE_PMD_FOLDED
-@@ -1601,7 +1627,7 @@ static int user_mem_abort(struct kvm_vcpu *vcpu, phys_addr_t fault_ipa,
+@@ -1601,7 +1622,7 @@ static int user_mem_abort(struct kvm_vcpu *vcpu, phys_addr_t fault_ipa,
  			max_map_size = PAGE_SIZE;
  
  		force_pte = (max_map_size == PAGE_SIZE);
@@ -170,7 +177,7 @@ index 2942ec92c5a4..58662e0ef13e 100644
  	}
  
  	/*
-@@ -1630,7 +1656,7 @@ static int user_mem_abort(struct kvm_vcpu *vcpu, phys_addr_t fault_ipa,
+@@ -1630,7 +1651,7 @@ static int user_mem_abort(struct kvm_vcpu *vcpu, phys_addr_t fault_ipa,
  	 * Rely on mmap_read_unlock() for an implicit smp_rmb(), which pairs
  	 * with the smp_wmb() in kvm_mmu_invalidate_end().
  	 */
@@ -179,7 +186,7 @@ index 2942ec92c5a4..58662e0ef13e 100644
  	mmap_read_unlock(current->mm);
  
  	pfn = __kvm_faultin_pfn(memslot, gfn, write_fault ? FOLL_WRITE : 0,
-@@ -1665,24 +1691,8 @@ static int user_mem_abort(struct kvm_vcpu *vcpu, phys_addr_t fault_ipa,
+@@ -1665,24 +1686,8 @@ static int user_mem_abort(struct kvm_vcpu *vcpu, phys_addr_t fault_ipa,
  	if (exec_fault && device)
  		return -ENOEXEC;
  
@@ -206,6 +213,16 @@ index 2942ec92c5a4..58662e0ef13e 100644
  
  	kvm_fault_lock(kvm);
  	pgt = vcpu->arch.hw_mmu->pgt;
+@@ -1953,6 +1958,9 @@ int kvm_handle_guest_abort(struct kvm_vcpu *vcpu)
+ 		goto out_unlock;
+ 	}
+ 
++	VM_WARN_ON_ONCE(kvm_vcpu_trap_is_permission_fault(vcpu) &&
++			!write_fault && !kvm_vcpu_trap_is_exec_fault(vcpu));
++
+ 	ret = user_mem_abort(vcpu, fault_ipa, nested, memslot, hva,
+ 			     esr_fsc_is_permission_fault(esr));
+ 	if (ret == 0)
 -- 
-2.49.0
+2.50.1
 

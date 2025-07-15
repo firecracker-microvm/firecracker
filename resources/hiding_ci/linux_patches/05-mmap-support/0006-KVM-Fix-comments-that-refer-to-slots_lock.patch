@@ -1,7 +1,7 @@
-From 4e0120bc233422b398683f708873242163972916 Mon Sep 17 00:00:00 2001
+From ffbe742826fa64c4af474398ce274b58338f3e48 Mon Sep 17 00:00:00 2001
 From: Fuad Tabba <tabba@google.com>
-Date: Wed, 9 Jul 2025 11:59:32 +0100
-Subject: [PATCH 06/45] KVM: Fix comments that refer to slots_lock
+Date: Tue, 15 Jul 2025 10:33:35 +0100
+Subject: [PATCH 06/46] KVM: Fix comments that refer to slots_lock
 
 Fix comments so that they refer to slots_lock instead of slots_locks
 (remove trailing s).
@@ -31,7 +31,7 @@ index ed00c2b40e4b..9c654dfb6dce 100644
  #endif
  	char stats_id[KVM_STATS_NAME_SIZE];
 diff --git a/virt/kvm/kvm_main.c b/virt/kvm/kvm_main.c
-index afbc025ce4d3..81bb18fa8655 100644
+index 162e2a69cc49..46bddac1dacd 100644
 --- a/virt/kvm/kvm_main.c
 +++ b/virt/kvm/kvm_main.c
 @@ -331,7 +331,7 @@ void kvm_flush_remote_tlbs_memslot(struct kvm *kvm,
@@ -44,5 +44,5 @@ index afbc025ce4d3..81bb18fa8655 100644
  	 */
  	lockdep_assert_held(&kvm->slots_lock);
 -- 
-2.49.0
+2.50.1
 

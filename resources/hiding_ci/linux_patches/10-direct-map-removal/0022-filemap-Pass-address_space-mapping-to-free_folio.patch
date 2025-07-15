@@ -1,7 +1,7 @@
-From dfd8fbdb2145de31f39d3a6e0a290e3c9b6a1bbe Mon Sep 17 00:00:00 2001
+From 3ce2b54021d5ef77509e40929eff63b7686ec566 Mon Sep 17 00:00:00 2001
 From: Elliot Berman <quic_eberman@quicinc.com>
 Date: Fri, 22 Nov 2024 09:29:38 -0800
-Subject: [PATCH 21/45] filemap: Pass address_space mapping to ->free_folio()
+Subject: [PATCH 22/46] filemap: Pass address_space mapping to ->free_folio()
 
 When guest_memfd removes memory from the host kernel's direct map,
 direct map entries must be restored before the memory is freed again. To
@@ -210,5 +210,5 @@ index d01bd7a2c2bd..0ac1c3a5a433 100644
  	struct page *page = folio_page(folio, 0);
  	kvm_pfn_t pfn = page_to_pfn(page);
 -- 
-2.49.0
+2.50.1
 

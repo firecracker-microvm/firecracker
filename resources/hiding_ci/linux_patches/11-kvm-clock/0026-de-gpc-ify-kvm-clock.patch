@@ -1,7 +1,7 @@
-From 34c70a6d6eb856050b755c1db905ae8fcc34309d Mon Sep 17 00:00:00 2001
+From 4ef5b49cbbe248dd9a7a783c1339c577f1b9635c Mon Sep 17 00:00:00 2001
 From: Patrick Roy <roypat@amazon.co.uk>
 Date: Tue, 3 Jun 2025 13:57:15 +0100
-Subject: [PATCH 25/45] de-gpc-ify kvm-clock
+Subject: [PATCH 26/46] de-gpc-ify kvm-clock
 
 Signed-off-by: Patrick Roy <roypat@amazon.co.uk>
 ---
@@ -10,10 +10,10 @@ Signed-off-by: Patrick Roy <roypat@amazon.co.uk>
  2 files changed, 15 insertions(+), 34 deletions(-)
 
 diff --git a/arch/x86/include/asm/kvm_host.h b/arch/x86/include/asm/kvm_host.h
-index 4c89feaa1910..e709a54fb935 100644
+index e1426adfa93e..d93b291a7d31 100644
 --- a/arch/x86/include/asm/kvm_host.h
 +++ b/arch/x86/include/asm/kvm_host.h
-@@ -924,7 +924,7 @@ struct kvm_vcpu_arch {
+@@ -930,7 +930,7 @@ struct kvm_vcpu_arch {
  	s8  pvclock_tsc_shift;
  	u32 pvclock_tsc_mul;
  	unsigned int hw_tsc_khz;
@@ -23,7 +23,7 @@ index 4c89feaa1910..e709a54fb935 100644
  	bool pvclock_set_guest_stopped_request;
  
 diff --git a/arch/x86/kvm/x86.c b/arch/x86/kvm/x86.c
-index 17c655e5716e..6f3bd41f048d 100644
+index ca99187a566e..8b7ae1db9fd0 100644
 --- a/arch/x86/kvm/x86.c
 +++ b/arch/x86/kvm/x86.c
 @@ -2349,12 +2349,9 @@ static void kvm_write_system_time(struct kvm_vcpu *vcpu, gpa_t system_time,
@@ -97,7 +97,7 @@ index 17c655e5716e..6f3bd41f048d 100644
  
  	trace_kvm_pvclock_update(vcpu->vcpu_id, &hv_clock);
  }
-@@ -3280,7 +3263,7 @@ int kvm_guest_time_update(struct kvm_vcpu *v)
+@@ -3282,7 +3265,7 @@ int kvm_guest_time_update(struct kvm_vcpu *v)
  	if (use_master_clock)
  		hv_clock.flags |= PVCLOCK_TSC_STABLE_BIT;
  
@@ -106,7 +106,7 @@ index 17c655e5716e..6f3bd41f048d 100644
  		/*
  		 * GUEST_STOPPED is only supported by kvmclock, and KVM's
  		 * historic behavior is to only process the request if kvmclock
-@@ -3290,7 +3273,7 @@ int kvm_guest_time_update(struct kvm_vcpu *v)
+@@ -3292,7 +3275,7 @@ int kvm_guest_time_update(struct kvm_vcpu *v)
  			hv_clock.flags |= PVCLOCK_GUEST_STOPPED;
  			vcpu->pvclock_set_guest_stopped_request = false;
  		}
@@ -115,7 +115,7 @@ index 17c655e5716e..6f3bd41f048d 100644
  
  		hv_clock.flags &= ~PVCLOCK_GUEST_STOPPED;
  	}
-@@ -3606,7 +3589,7 @@ static int kvm_pv_enable_async_pf_int(struct kvm_vcpu *vcpu, u64 data)
+@@ -3608,7 +3591,7 @@ static int kvm_pv_enable_async_pf_int(struct kvm_vcpu *vcpu, u64 data)
  
  static void kvmclock_reset(struct kvm_vcpu *vcpu)
  {
@@ -124,7 +124,7 @@ index 17c655e5716e..6f3bd41f048d 100644
  	vcpu->arch.time = 0;
  }
  
-@@ -5727,7 +5710,7 @@ static int kvm_vcpu_ioctl_x86_set_xcrs(struct kvm_vcpu *vcpu,
+@@ -5729,7 +5712,7 @@ static int kvm_vcpu_ioctl_x86_set_xcrs(struct kvm_vcpu *vcpu,
   */
  static int kvm_set_guest_paused(struct kvm_vcpu *vcpu)
  {
@@ -133,7 +133,7 @@ index 17c655e5716e..6f3bd41f048d 100644
  		return -EINVAL;
  	vcpu->arch.pvclock_set_guest_stopped_request = true;
  	kvm_make_request(KVM_REQ_CLOCK_UPDATE, vcpu);
-@@ -12334,8 +12317,6 @@ int kvm_arch_vcpu_create(struct kvm_vcpu *vcpu)
+@@ -12336,8 +12319,6 @@ int kvm_arch_vcpu_create(struct kvm_vcpu *vcpu)
  	vcpu->arch.regs_avail = ~0;
  	vcpu->arch.regs_dirty = ~0;
  
@@ -143,5 +143,5 @@ index 17c655e5716e..6f3bd41f048d 100644
  		kvm_set_mp_state(vcpu, KVM_MP_STATE_RUNNABLE);
  	else
 -- 
-2.49.0
+2.50.1
 

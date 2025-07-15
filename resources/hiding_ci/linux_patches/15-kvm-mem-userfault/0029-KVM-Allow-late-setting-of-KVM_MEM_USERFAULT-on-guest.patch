@@ -1,7 +1,7 @@
-From 9978794ee7f6b3130f4e82daca38c1b073e35828 Mon Sep 17 00:00:00 2001
+From f1d9e28902fdf448ed89e6a3d7c94853e13e7188 Mon Sep 17 00:00:00 2001
 From: James Houghton <jthoughton@google.com>
 Date: Thu, 9 Jan 2025 20:49:19 +0000
-Subject: [PATCH 28/45] KVM: Allow late setting of KVM_MEM_USERFAULT on
+Subject: [PATCH 29/46] KVM: Allow late setting of KVM_MEM_USERFAULT on
  guest_memfd memslot
 
 Currently guest_memfd memslots can only be deleted. Slightly change the
@@ -14,7 +14,7 @@ Signed-off-by: James Houghton <jthoughton@google.com>
  1 file changed, 11 insertions(+), 4 deletions(-)
 
 diff --git a/virt/kvm/kvm_main.c b/virt/kvm/kvm_main.c
-index fe203a518ddb..bd9e5fb6cc80 100644
+index 9208ec56a26b..fee5a233ee03 100644
 --- a/virt/kvm/kvm_main.c
 +++ b/virt/kvm/kvm_main.c
 @@ -2081,9 +2081,6 @@ static int kvm_set_memory_region(struct kvm *kvm,
@@ -54,5 +54,5 @@ index fe203a518ddb..bd9e5fb6cc80 100644
  		if (r)
  			goto out;
 -- 
-2.49.0
+2.50.1
 
