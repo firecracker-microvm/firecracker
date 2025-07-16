@@ -556,20 +556,11 @@ impl<'a> Persist<'a> for MMIODeviceManager {
             )?;
         }
 
-        // If the snapshot has the mmds version persisted, initialise the data store with it.
+        // Initialize MMDS if MMDS state is included.
         if let Some(mmds_version) = &state.mmds_version {
             constructor_args
                 .vm_resources
                 .set_mmds_version(mmds_version.clone().into(), constructor_args.instance_id)?;
-        } else if state
-            .net_devices
-            .iter()
-            .any(|dev| dev.device_state.mmds_ns.is_some())
-        {
-            // If there's at least one network device having an mmds_ns, it means
-            // that we are restoring from a version that did not persist the `MmdsVersionState`.
-            // Init with the default.
-            constructor_args.vm_resources.mmds_or_default()?;
         }
 
         for net_state in &state.net_devices {
