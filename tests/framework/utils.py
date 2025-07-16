@@ -435,7 +435,9 @@ def generate_mmds_get_request(
     return cmd
 
 
-def configure_mmds(test_microvm, iface_ids, version=None, ipv4_address=None):
+def configure_mmds(
+    test_microvm, iface_ids, version=None, ipv4_address=None, imds_compat=False
+):
     """Configure mmds service."""
     mmds_config = {"network_interfaces": iface_ids}
 
@@ -444,6 +446,9 @@ def configure_mmds(test_microvm, iface_ids, version=None, ipv4_address=None):
 
     if ipv4_address:
         mmds_config["ipv4_address"] = ipv4_address
+
+    if imds_compat is not None:
+        mmds_config["imds_compat"] = imds_compat
 
     response = test_microvm.api.mmds_config.put(**mmds_config)
     return response

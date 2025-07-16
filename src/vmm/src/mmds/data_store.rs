@@ -17,6 +17,7 @@ pub struct Mmds {
     token_authority: TokenAuthority,
     is_initialized: bool,
     data_store_limit: usize,
+    imds_compat: bool,
 }
 
 /// MMDS version.
@@ -39,7 +40,7 @@ impl Display for MmdsVersion {
 }
 
 /// MMDS possible outputs.
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 pub enum OutputFormat {
     /// MMDS output format as Json
     Json,
@@ -78,6 +79,7 @@ impl Mmds {
             token_authority: TokenAuthority::try_new()?,
             is_initialized: false,
             data_store_limit,
+            imds_compat: false,
         })
     }
 
@@ -100,6 +102,16 @@ impl Mmds {
     /// Get the MMDS version.
     pub fn version(&self) -> MmdsVersion {
         self.version
+    }
+
+    /// Set the compatibility with EC2 IMDS.
+    pub fn set_imds_compat(&mut self, imds_compat: bool) {
+        self.imds_compat = imds_compat;
+    }
+
+    /// Get the compatibility with EC2 IMDS.
+    pub fn imds_compat(&self) -> bool {
+        self.imds_compat
     }
 
     /// Sets the Additional Authenticated Data to be used for encryption and
@@ -244,9 +256,13 @@ impl Mmds {
         };
 
         if let Some(json) = value {
-            match format {
-                OutputFormat::Json => Ok(json.to_string()),
-                OutputFormat::Imds => Mmds::format_imds(json),
+            match self.imds_compat {
+                // EC2 IMDS ignores the Accept header.
+                true => Mmds::format_imds(json),
+                false => match format {
+                    OutputFormat::Json => Ok(json.to_string()),
+                    OutputFormat::Imds => Mmds::format_imds(json),
+                },
             }
         } else {
             Err(MmdsDatastoreError::NotFound)
@@ -317,172 +333,158 @@ mod tests {
 
     #[test]
     fn test_get_value() {
-        let mut mmds = Mmds::default();
-        let data = r#"{
-            "name": {
-                "first": "John",
-                "second": "Doe"
-            },
-            "age": 43,
-            "phones": [
-                "+401234567",
-                "+441234567"
-            ],
-            "member": false,
-            "shares_percentage": 12.12,
-            "balance": -24,
-            "json_string": "{\n  \"hello\": \"world\"\n}"
-        }"#;
-        let data_store: Value = serde_json::from_str(data).unwrap();
-        mmds.put_data(data_store).unwrap();
+        for imds_compat in [false, true] {
+            let mut mmds = Mmds::default();
+            mmds.set_imds_compat(imds_compat);
+            let data = r#"{
+                "name": {
+                    "first": "John",
+                    "second": "Doe"
+                },
+                "age": 43,
+                "phones": [
+                    "+401234567",
+                    "+441234567"
+                ],
+                "member": false,
+                "shares_percentage": 12.12,
+                "balance": -24,
+                "json_string": "{\n  \"hello\": \"world\"\n}"
+            }"#;
+            let data_store: Value = serde_json::from_str(data).unwrap();
+            mmds.put_data(data_store).unwrap();
 
-        // Test invalid path.
-        assert_eq!(
-            mmds.get_value("/invalid_path".to_string(), OutputFormat::Json)
-                .unwrap_err()
-                .to_string(),
-            MmdsDatastoreError::NotFound.to_string()
-        );
-        assert_eq!(
-            mmds.get_value("/invalid_path".to_string(), OutputFormat::Imds)
-                .unwrap_err()
-                .to_string(),
-            MmdsDatastoreError::NotFound.to_string()
-        );
+            for format in [OutputFormat::Imds, OutputFormat::Json] {
+                // Test invalid path.
+                assert_eq!(
+                    mmds.get_value("/invalid_path".to_string(), format)
+                        .unwrap_err()
+                        .to_string(),
+                    MmdsDatastoreError::NotFound.to_string()
+                );
 
-        // Retrieve an object.
-        let mut expected_json = r#"{
-                "first": "John",
-                "second": "Doe"
-            }"#
-        .to_string();
-        expected_json.retain(|c| !c.is_whitespace());
-        assert_eq!(
-            mmds.get_value("/name".to_string(), OutputFormat::Json)
-                .unwrap(),
-            expected_json
-        );
-        let expected_imds = "first\nsecond";
-        assert_eq!(
-            mmds.get_value("/name".to_string(), OutputFormat::Imds)
-                .unwrap(),
-            expected_imds
-        );
+                // Retrieve an object.
+                let expected = match (imds_compat, format) {
+                    (false, OutputFormat::Imds) | (true, _) => "first\nsecond",
+                    (false, OutputFormat::Json) => r#"{"first":"John","second":"Doe"}"#,
+                };
+                assert_eq!(
+                    mmds.get_value("/name".to_string(), format).unwrap(),
+                    expected
+                );
 
-        // Retrieve an integer.
-        assert_eq!(
-            mmds.get_value("/age".to_string(), OutputFormat::Json)
-                .unwrap(),
-            "43"
-        );
-        assert_eq!(
-            mmds.get_value("/age".to_string(), OutputFormat::Imds)
-                .err()
-                .unwrap()
-                .to_string(),
-            MmdsDatastoreError::UnsupportedValueType.to_string()
-        );
+                // Retrieve an integer.
+                match (imds_compat, format) {
+                    (false, OutputFormat::Imds) | (true, _) => assert_eq!(
+                        mmds.get_value("/age".to_string(), format)
+                            .err()
+                            .unwrap()
+                            .to_string(),
+                        MmdsDatastoreError::UnsupportedValueType.to_string()
+                    ),
+                    (false, OutputFormat::Json) => {
+                        assert_eq!(mmds.get_value("/age".to_string(), format).unwrap(), "43")
+                    }
+                };
 
-        // Test path ends with /; Value is a dictionary.
-        // Retrieve an array.
-        let mut expected = r#"[
-                "+401234567",
-                "+441234567"
-            ]"#
-        .to_string();
-        expected.retain(|c| !c.is_whitespace());
-        assert_eq!(
-            mmds.get_value("/phones/".to_string(), OutputFormat::Json)
-                .unwrap(),
-            expected
-        );
-        assert_eq!(
-            mmds.get_value("/phones/".to_string(), OutputFormat::Imds)
-                .err()
-                .unwrap()
-                .to_string(),
-            MmdsDatastoreError::UnsupportedValueType.to_string()
-        );
+                // Test path ends with /; Value is a dictionary.
+                // Retrieve an array.
+                match (imds_compat, format) {
+                    (false, OutputFormat::Imds) | (true, _) => assert_eq!(
+                        mmds.get_value("/phones/".to_string(), format)
+                            .err()
+                            .unwrap()
+                            .to_string(),
+                        MmdsDatastoreError::UnsupportedValueType.to_string()
+                    ),
+                    (false, OutputFormat::Json) => assert_eq!(
+                        mmds.get_value("/phones/".to_string(), format).unwrap(),
+                        r#"["+401234567","+441234567"]"#
+                    ),
+                }
 
-        // Test path does NOT end with /; Value is a dictionary.
-        assert_eq!(
-            mmds.get_value("/phones".to_string(), OutputFormat::Json)
-                .unwrap(),
-            expected
-        );
-        assert_eq!(
-            mmds.get_value("/phones".to_string(), OutputFormat::Imds)
-                .err()
-                .unwrap()
-                .to_string(),
-            MmdsDatastoreError::UnsupportedValueType.to_string()
-        );
+                // Test path does NOT end with /; Value is a dictionary.
+                match (imds_compat, format) {
+                    (false, OutputFormat::Imds) | (true, _) => assert_eq!(
+                        mmds.get_value("/phones".to_string(), format)
+                            .err()
+                            .unwrap()
+                            .to_string(),
+                        MmdsDatastoreError::UnsupportedValueType.to_string()
+                    ),
+                    (false, OutputFormat::Json) => assert_eq!(
+                        mmds.get_value("/phones".to_string(), format).unwrap(),
+                        r#"["+401234567","+441234567"]"#
+                    ),
+                }
 
-        // Retrieve the first element of an array.
-        assert_eq!(
-            mmds.get_value("/phones/0/".to_string(), OutputFormat::Json)
-                .unwrap(),
-            "\"+401234567\""
-        );
-        assert_eq!(
-            mmds.get_value("/phones/0/".to_string(), OutputFormat::Imds)
-                .unwrap(),
-            "+401234567"
-        );
+                // Retrieve the first element of an array.
+                let expected = match (imds_compat, format) {
+                    (false, OutputFormat::Imds) | (true, _) => "+401234567",
+                    (false, OutputFormat::Json) => "\"+401234567\"",
+                };
+                assert_eq!(
+                    mmds.get_value("/phones/0/".to_string(), format).unwrap(),
+                    expected
+                );
 
-        // Retrieve a boolean.
-        assert_eq!(
-            mmds.get_value("/member".to_string(), OutputFormat::Json)
-                .unwrap(),
-            "false"
-        );
-        assert_eq!(
-            mmds.get_value("/member".to_string(), OutputFormat::Imds)
-                .err()
-                .unwrap()
-                .to_string(),
-            MmdsDatastoreError::UnsupportedValueType.to_string()
-        );
+                // Retrieve a boolean.
+                match (imds_compat, format) {
+                    (false, OutputFormat::Imds) | (true, _) => assert_eq!(
+                        mmds.get_value("/member".to_string(), format)
+                            .err()
+                            .unwrap()
+                            .to_string(),
+                        MmdsDatastoreError::UnsupportedValueType.to_string()
+                    ),
+                    (false, OutputFormat::Json) => assert_eq!(
+                        mmds.get_value("/member".to_string(), format).unwrap(),
+                        "false"
+                    ),
+                }
 
-        // Retrieve a float.
-        assert_eq!(
-            mmds.get_value("/shares_percentage".to_string(), OutputFormat::Json)
-                .unwrap(),
-            "12.12"
-        );
-        assert_eq!(
-            mmds.get_value("/shares_percentage".to_string(), OutputFormat::Imds)
-                .err()
-                .unwrap()
-                .to_string(),
-            MmdsDatastoreError::UnsupportedValueType.to_string()
-        );
+                // Retrieve a float.
+                match (imds_compat, format) {
+                    (false, OutputFormat::Imds) | (true, _) => assert_eq!(
+                        mmds.get_value("/shares_percentage".to_string(), format)
+                            .err()
+                            .unwrap()
+                            .to_string(),
+                        MmdsDatastoreError::UnsupportedValueType.to_string()
+                    ),
+                    (false, OutputFormat::Json) => assert_eq!(
+                        mmds.get_value("/shares_percentage".to_string(), format)
+                            .unwrap(),
+                        "12.12"
+                    ),
+                }
 
-        // Retrieve a negative integer.
-        assert_eq!(
-            mmds.get_value("/balance".to_string(), OutputFormat::Json)
-                .unwrap(),
-            "-24"
-        );
-        assert_eq!(
-            mmds.get_value("/balance".to_string(), OutputFormat::Imds)
-                .err()
-                .unwrap()
-                .to_string(),
-            MmdsDatastoreError::UnsupportedValueType.to_string()
-        );
+                // Retrieve a negative integer.
+                match (imds_compat, format) {
+                    (false, OutputFormat::Imds) | (true, _) => assert_eq!(
+                        mmds.get_value("/balance".to_string(), format)
+                            .err()
+                            .unwrap()
+                            .to_string(),
+                        MmdsDatastoreError::UnsupportedValueType.to_string(),
+                    ),
+                    (false, OutputFormat::Json) => assert_eq!(
+                        mmds.get_value("/balance".to_string(), format).unwrap(),
+                        "-24"
+                    ),
+                }
 
-        // Retrieve a string including escapes.
-        assert_eq!(
-            mmds.get_value("/json_string".to_string(), OutputFormat::Json)
-                .unwrap(),
-            r#""{\n  \"hello\": \"world\"\n}""#
-        );
-        assert_eq!(
-            mmds.get_value("/json_string".to_string(), OutputFormat::Imds)
-                .unwrap(),
-            "{\n  \"hello\": \"world\"\n}"
-        )
+                // Retrieve a string including escapes.
+                let expected = match (imds_compat, format) {
+                    (false, OutputFormat::Imds) | (true, _) => "{\n  \"hello\": \"world\"\n}",
+                    (false, OutputFormat::Json) => r#""{\n  \"hello\": \"world\"\n}""#,
+                };
+                assert_eq!(
+                    mmds.get_value("/json_string".to_string(), format).unwrap(),
+                    expected
+                );
+            }
+        }
     }
 
     #[test]
