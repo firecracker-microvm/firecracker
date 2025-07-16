@@ -151,29 +151,9 @@ pub struct ConnectedLegacyState {
     pub device_info: MMIODeviceInfo,
 }
 
-/// Holds the MMDS data store version.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub enum MmdsVersionState {
-    V1,
-    V2,
-}
-
-impl From<MmdsVersionState> for MmdsVersion {
-    fn from(state: MmdsVersionState) -> Self {
-        match state {
-            MmdsVersionState::V1 => MmdsVersion::V1,
-            MmdsVersionState::V2 => MmdsVersion::V2,
-        }
-    }
-}
-
-impl From<MmdsVersion> for MmdsVersionState {
-    fn from(version: MmdsVersion) -> Self {
-        match version {
-            MmdsVersion::V1 => MmdsVersionState::V1,
-            MmdsVersion::V2 => MmdsVersionState::V2,
-        }
-    }
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MmdsState {
+    version: MmdsVersion,
 }
 
 /// Holds the device states.
@@ -191,7 +171,7 @@ pub struct DeviceStates {
     /// Balloon device state.
     pub balloon_device: Option<ConnectedBalloonState>,
     /// Mmds version.
-    pub mmds_version: Option<MmdsVersionState>,
+    pub mmds: Option<MmdsState>,
     /// Entropy device state.
     pub entropy_device: Option<ConnectedEntropyState>,
 }
@@ -345,11 +325,10 @@ impl<'a> Persist<'a> for MMIODeviceManager {
                 }
                 TYPE_NET => {
                     let net = locked_device.as_any().downcast_ref::<Net>().unwrap();
-                    if let (Some(mmds_ns), None) =
-                        (net.mmds_ns.as_ref(), states.mmds_version.as_ref())
-                    {
-                        states.mmds_version =
-                            Some(mmds_ns.mmds.lock().expect("Poisoned lock").version().into());
+                    if let (Some(mmds_ns), None) = (net.mmds_ns.as_ref(), states.mmds.as_ref()) {
+                        states.mmds = Some(MmdsState {
+                            version: mmds_ns.mmds.lock().expect("Poisoned lock").version(),
+                        });
                     }
 
                     states.net_devices.push(ConnectedNetState {
@@ -557,10 +536,10 @@ impl<'a> Persist<'a> for MMIODeviceManager {
         }
 
         // Initialize MMDS if MMDS state is included.
-        if let Some(mmds_version) = &state.mmds_version {
+        if let Some(mmds) = &state.mmds {
             constructor_args
                 .vm_resources
-                .set_mmds_version(mmds_version.clone().into(), constructor_args.instance_id)?;
+                .set_mmds_version(mmds.version, constructor_args.instance_id)?;
         }
 
         for net_state in &state.net_devices {
@@ -880,7 +859,7 @@ mod tests {
                 .version(),
             MmdsVersion::V2
         );
-        assert_eq!(device_states.mmds_version.unwrap(), MmdsVersion::V2.into());
+        assert_eq!(device_states.mmds.unwrap().version, MmdsVersion::V2.into());
 
         assert_eq!(restored_dev_manager, original_mmio_device_manager);
         assert_eq!(
