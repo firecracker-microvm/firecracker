@@ -383,13 +383,13 @@ impl VmResources {
         instance_id: &str,
     ) -> Result<(), MmdsConfigError> {
         self.set_mmds_network_stack_config(&config)?;
-        self.set_mmds_version(config.version, instance_id)?;
+        self.set_mmds_basic_config(config.version, instance_id)?;
 
         Ok(())
     }
 
-    /// Updates MMDS version.
-    pub fn set_mmds_version(
+    /// Updates MMDS-related config other than MMDS network stack.
+    pub fn set_mmds_basic_config(
         &mut self,
         version: MmdsVersion,
         instance_id: &str,
