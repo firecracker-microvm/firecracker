@@ -22,4 +22,4 @@ def test_rust_clippy(target):
     """
     Test that clippy does not generate any errors/warnings.
     """
-    cargo("clippy", f"--target {target} --all --profile test", "-D warnings")
+    cargo("clippy", f"--target {target} --all --all-targets", "-D warnings")
