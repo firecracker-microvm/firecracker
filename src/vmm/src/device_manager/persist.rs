@@ -154,6 +154,7 @@ pub struct ConnectedLegacyState {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MmdsState {
     version: MmdsVersion,
+    imds_compat: bool,
 }
 
 /// Holds the device states.
@@ -326,8 +327,10 @@ impl<'a> Persist<'a> for MMIODeviceManager {
                 TYPE_NET => {
                     let net = locked_device.as_any().downcast_ref::<Net>().unwrap();
                     if let (Some(mmds_ns), None) = (net.mmds_ns.as_ref(), states.mmds.as_ref()) {
+                        let mmds_guard = mmds_ns.mmds.lock().expect("Poisoned lock");
                         states.mmds = Some(MmdsState {
-                            version: mmds_ns.mmds.lock().expect("Poisoned lock").version(),
+                            version: mmds_guard.version(),
+                            imds_compat: mmds_guard.imds_compat(),
                         });
                     }
 
@@ -537,9 +540,11 @@ impl<'a> Persist<'a> for MMIODeviceManager {
 
         // Initialize MMDS if MMDS state is included.
         if let Some(mmds) = &state.mmds {
-            constructor_args
-                .vm_resources
-                .set_mmds_basic_config(mmds.version, constructor_args.instance_id)?;
+            constructor_args.vm_resources.set_mmds_basic_config(
+                mmds.version,
+                mmds.imds_compat,
+                constructor_args.instance_id,
+            )?;
         }
 
         for net_state in &state.net_devices {
@@ -826,7 +831,8 @@ mod tests {
     "network_interfaces": [
       "netif"
     ],
-    "ipv4_address": "169.254.169.254"
+    "ipv4_address": "169.254.169.254",
+    "imds_compat": false
   }},
   "network-interfaces": [
     {{
@@ -859,7 +865,7 @@ mod tests {
                 .version(),
             MmdsVersion::V2
         );
-        assert_eq!(device_states.mmds.unwrap().version, MmdsVersion::V2.into());
+        assert_eq!(device_states.mmds.unwrap().version, MmdsVersion::V2);
 
         assert_eq!(restored_dev_manager, original_mmio_device_manager);
         assert_eq!(

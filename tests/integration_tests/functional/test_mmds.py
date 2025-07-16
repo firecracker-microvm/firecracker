@@ -34,6 +34,7 @@ def _validate_mmds_snapshot(
     basevm,
     microvm_factory,
     version,
+    imds_compat,
     fc_binary_path=None,
     jailer_binary_path=None,
 ):
@@ -46,18 +47,21 @@ def _validate_mmds_snapshot(
         version=version,
         iface_ids=["eth0"],
         ipv4_address=ipv4_address,
+        imds_compat=imds_compat,
     )
 
     expected_mmds_config = {
         "version": version,
         "ipv4_address": ipv4_address,
         "network_interfaces": ["eth0"],
+        "imds_compat": False if imds_compat is None else imds_compat,
     }
     response = basevm.api.vm_config.get()
     assert response.json()["mmds-config"] == expected_mmds_config
 
     data_store = {"latest": {"meta-data": {"ami-id": "ami-12345678"}}}
     populate_data_store(basevm, data_store)
+    expected_response = "latest/" if imds_compat else data_store
 
     basevm.start()
     ssh_connection = basevm.ssh
@@ -71,7 +75,7 @@ def _validate_mmds_snapshot(
         ipv4_address,
         token=token,
     )
-    run_guest_cmd(ssh_connection, cmd, data_store, use_json=True)
+    run_guest_cmd(ssh_connection, cmd, expected_response, use_json=not imds_compat)
 
     # Create snapshot.
     snapshot = basevm.snapshot_full()
@@ -80,7 +84,7 @@ def _validate_mmds_snapshot(
     response = basevm.resume()
 
     # Fetch metadata again using the same token.
-    run_guest_cmd(ssh_connection, cmd, data_store, use_json=True)
+    run_guest_cmd(ssh_connection, cmd, expected_response, use_json=not imds_compat)
 
     # Kill base microVM.
     basevm.kill()
@@ -112,13 +116,21 @@ def _validate_mmds_snapshot(
 
     # Data store is empty after a restore.
     cmd = generate_mmds_get_request(ipv4_address, token=token)
-    run_guest_cmd(ssh_connection, cmd, "null")
+    run_guest_cmd(
+        ssh_connection,
+        cmd,
+        (
+            "Cannot retrieve value. The value has an unsupported type."
+            if imds_compat
+            else "null"
+        ),
+    )
 
     # Now populate the store.
     populate_data_store(microvm, data_store)
 
     # Fetch metadata.
-    run_guest_cmd(ssh_connection, cmd, data_store, use_json=True)
+    run_guest_cmd(ssh_connection, cmd, expected_response, use_json=not imds_compat)
 
 
 @pytest.mark.parametrize("version", MMDS_VERSIONS)
@@ -272,73 +284,21 @@ def test_custom_ipv4(uvm_plain, version):
 
 
 @pytest.mark.parametrize("version", MMDS_VERSIONS)
-def test_json_response(uvm_plain, version):
-    """
-    Test the MMDS json response.
-    """
-    test_microvm = uvm_plain
-    test_microvm.spawn()
-
-    data_store = {
-        "latest": {
-            "meta-data": {
-                "ami-id": "ami-12345678",
-                "reservation-id": "r-fea54097",
-                "local-hostname": "ip-10-251-50-12.ec2.internal",
-                "public-hostname": "ec2-203-0-113-25.compute-1.amazonaws.com",
-                "dummy_res": ["res1", "res2"],
-            },
-            "Limits": {"CPU": 512, "Memory": 512},
-            "Usage": {"CPU": 12.12},
-        }
-    }
-
-    # Attach network device.
-    test_microvm.add_net_iface()
-
-    # Configure MMDS version.
-    configure_mmds(test_microvm, iface_ids=["eth0"], version=version)
-
-    # Populate data store with contents.
-    populate_data_store(test_microvm, data_store)
-
-    test_microvm.basic_config(vcpu_count=1)
-    test_microvm.start()
-    ssh_connection = test_microvm.ssh
-
-    cmd = "ip route add {} dev eth0".format(DEFAULT_IPV4)
-    run_guest_cmd(ssh_connection, cmd, "")
-
-    token = None
-    if version == "V2":
-        # Generate token.
-        token = generate_mmds_session_token(ssh_connection, DEFAULT_IPV4, token_ttl=60)
-
-    pre = generate_mmds_get_request(DEFAULT_IPV4, token)
-
-    cmd = pre + "latest/meta-data/"
-    run_guest_cmd(ssh_connection, cmd, data_store["latest"]["meta-data"], use_json=True)
-
-    cmd = pre + "latest/meta-data/ami-id/"
-    run_guest_cmd(ssh_connection, cmd, "ami-12345678", use_json=True)
-
-    cmd = pre + "latest/meta-data/dummy_res/0"
-    run_guest_cmd(ssh_connection, cmd, "res1", use_json=True)
-
-    cmd = pre + "latest/Usage/CPU"
-    run_guest_cmd(ssh_connection, cmd, 12.12, use_json=True)
-
-    cmd = pre + "latest/Limits/CPU"
-    run_guest_cmd(ssh_connection, cmd, 512, use_json=True)
-
-
-@pytest.mark.parametrize("version", MMDS_VERSIONS)
-def test_mmds_response(uvm_plain, version):
+@pytest.mark.parametrize("imds_compat", [None, False, True])
+@pytest.mark.parametrize("app_json", [False, True])
+def test_mmds_response(uvm_plain, version, imds_compat, app_json):
     """
     Test MMDS responses to various datastore requests.
     """
+    expected_json = not imds_compat and app_json
+
     test_microvm = uvm_plain
     test_microvm.spawn()
+
+    test_microvm.add_net_iface()
+    configure_mmds(
+        test_microvm, iface_ids=["eth0"], version=version, imds_compat=imds_compat
+    )
 
     data_store = {
         "latest": {
@@ -357,13 +317,6 @@ def test_mmds_response(uvm_plain, version):
             "Usage": {"CPU": 12.12},
         }
     }
-
-    # Attach network device.
-    test_microvm.add_net_iface()
-
-    # Configure MMDS version.
-    configure_mmds(test_microvm, iface_ids=["eth0"], version=version)
-    # Populate data store with contents.
     populate_data_store(test_microvm, data_store)
 
     test_microvm.basic_config(vcpu_count=1)
@@ -373,47 +326,62 @@ def test_mmds_response(uvm_plain, version):
     cmd = "ip route add {} dev eth0".format(DEFAULT_IPV4)
     run_guest_cmd(ssh_connection, cmd, "")
 
-    token = None
-    if version == "V2":
-        # Generate token.
-        token = generate_mmds_session_token(ssh_connection, DEFAULT_IPV4, token_ttl=60)
+    token = generate_mmds_session_token(ssh_connection, DEFAULT_IPV4, token_ttl=60)
+    pre = generate_mmds_get_request(DEFAULT_IPV4, token, app_json)
 
-    pre = generate_mmds_get_request(DEFAULT_IPV4, token=token, app_json=False)
-
+    # Query a branch node
     cmd = pre + "latest/meta-data/"
-    expected = (
-        "ami-id\n"
-        "dummy_array\n"
-        "dummy_empty\n"
-        "dummy_obj/\n"
-        "local-hostname\n"
-        "public-hostname\n"
-        "reservation-id"
-    )
-    run_guest_cmd(ssh_connection, cmd, expected)
+    if expected_json:
+        run_guest_cmd(
+            ssh_connection, cmd, data_store["latest"]["meta-data"], use_json=True
+        )
+    else:
+        expected = (
+            "ami-id\n"
+            "dummy_array\n"
+            "dummy_empty\n"
+            "dummy_obj/\n"
+            "local-hostname\n"
+            "public-hostname\n"
+            "reservation-id"
+        )
+        run_guest_cmd(ssh_connection, cmd, expected, use_json=False)
 
+    # Query a leaf node with a string value
     cmd = pre + "latest/meta-data/ami-id/"
-    run_guest_cmd(ssh_connection, cmd, "ami-12345678")
+    run_guest_cmd(ssh_connection, cmd, "ami-12345678", use_json=expected_json)
 
+    # Query the first item of an array node
     cmd = pre + "latest/meta-data/dummy_array/0"
-    run_guest_cmd(ssh_connection, cmd, "arr_val1")
+    run_guest_cmd(ssh_connection, cmd, "arr_val1", use_json=expected_json)
 
+    # Query a leaf node with an empty string
     cmd = pre + "latest/meta-data/dummy_empty"
-    run_guest_cmd(ssh_connection, cmd, "")
+    run_guest_cmd(ssh_connection, cmd, "", use_json=expected_json)
 
-    cmd = pre + "latest/Usage/CPU"
-    run_guest_cmd(
-        ssh_connection,
-        cmd,
-        "Cannot retrieve value. The value has" " an unsupported type.",
-    )
-
+    # Query a leaf node with an integer value
     cmd = pre + "latest/Limits/CPU"
-    run_guest_cmd(
-        ssh_connection,
-        cmd,
-        "Cannot retrieve value. The value has" " an unsupported type.",
-    )
+    if expected_json:
+        run_guest_cmd(ssh_connection, cmd, 512, use_json=True)
+    else:
+        run_guest_cmd(
+            ssh_connection,
+            cmd,
+            "Cannot retrieve value. The value has an unsupported type.",
+            use_json=False,
+        )
+
+    # Query a leaf node with a float value
+    cmd = pre + "latest/Usage/CPU"
+    if expected_json:
+        run_guest_cmd(ssh_connection, cmd, 12.12, use_json=True)
+    else:
+        run_guest_cmd(
+            ssh_connection,
+            cmd,
+            "Cannot retrieve value. The value has an unsupported type.",
+            use_json=False,
+        )
 
 
 @pytest.mark.parametrize("version", MMDS_VERSIONS)
@@ -651,7 +619,8 @@ def test_mmds_limit_scenario(uvm_plain, version):
 
 
 @pytest.mark.parametrize("version", MMDS_VERSIONS)
-def test_mmds_snapshot(uvm_nano, microvm_factory, version):
+@pytest.mark.parametrize("imds_compat", [None, False, True])
+def test_mmds_snapshot(uvm_nano, microvm_factory, version, imds_compat):
     """
     Test MMDS behavior by restoring a snapshot on current FC versions.
 
@@ -665,6 +634,7 @@ def test_mmds_snapshot(uvm_nano, microvm_factory, version):
         uvm_nano,
         microvm_factory,
         version,
+        imds_compat,
         fc_binary_path=current_release.path,
         jailer_binary_path=current_release.jailer,
     )
@@ -806,7 +776,8 @@ def test_deprecated_mmds_config(uvm_plain):
 
 
 @pytest.mark.parametrize("version", MMDS_VERSIONS)
-def test_aws_credential_provider(uvm_plain, version):
+@pytest.mark.parametrize("imds_compat", [None, False, True])
+def test_aws_credential_provider(uvm_plain, version, imds_compat):
     """
     Test AWS CLI credential provider
     """
@@ -815,7 +786,9 @@ def test_aws_credential_provider(uvm_plain, version):
     test_microvm.basic_config()
     test_microvm.add_net_iface()
     # V2 requires session tokens for GET requests
-    configure_mmds(test_microvm, iface_ids=["eth0"], version=version)
+    configure_mmds(
+        test_microvm, iface_ids=["eth0"], version=version, imds_compat=imds_compat
+    )
     now = datetime.now(timezone.utc)
     credentials = {
         "Code": "Success",
