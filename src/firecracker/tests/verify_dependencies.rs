@@ -1,6 +1,8 @@
 // Copyright 2022 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
+#![allow(clippy::tests_outside_test_module)]
+
 use std::collections::HashMap;
 use std::fmt::Debug;
 use std::path::Path;
