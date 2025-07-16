@@ -39,7 +39,8 @@
   "mmds-config": {
     "network_interfaces": ["1"],
     "ipv4_address": "169.254.169.250",
-    "version": "V2"
+    "version": "V2",
+    "imds_compat": true
   },
   "entropy": null
 }

@@ -76,6 +76,7 @@ specification:
 | `MmdsConfig`              | network_interfaces |    O     |       O        |      O       |        O         |   **R**    |      O       |     O      |
 |                           | version            |    O     |       O        |      O       |        O         |   **R**    |      O       |     O      |
 |                           | ipv4_address       |    O     |       O        |      O       |        O         |   **R**    |      O       |     O      |
+|                           | imds_config        |    O     |       O        |      O       |        O         |     O      |      O       |     O      |
 | `NetworkInterface`        | guest_mac          |    O     |       O        |      O       |        O         |   **R**    |      O       |     O      |
 |                           | host_dev_name      |    O     |       O        |      O       |        O         |   **R**    |      O       |     O      |
 |                           | iface_id           |    O     |       O        |      O       |        O         |   **R**    |      O       |     O      |

@@ -888,7 +888,7 @@ definitions:
       is_read_only:
         type: boolean
         description:
-          Is block read only. 
+          Is block read only.
           This field is required for virtio-block config and should be omitted for vhost-user-block configuration.
       path_on_host:
         type: string
@@ -1125,6 +1125,12 @@ definitions:
         format: "169.254.([1-9]|[1-9][0-9]|1[0-9][0-9]|2[0-4][0-9]|25[0-4]).([0-9]|[1-9][0-9]|1[0-9][0-9]|2[0-4][0-9]|25[0-5])"
         default: "169.254.169.254"
         description: A valid IPv4 link-local address.
+      imds_comat:
+        type: boolean
+        description:
+          MMDS operates compatibly with EC2 IMDS (i.e. reponds "text/plain"
+          content regardless of Accept header in requests).
+        default: false
 
   MmdsContentsObject:
     type: object
