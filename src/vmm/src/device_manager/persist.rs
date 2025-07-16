@@ -539,7 +539,7 @@ impl<'a> Persist<'a> for MMIODeviceManager {
         if let Some(mmds) = &state.mmds {
             constructor_args
                 .vm_resources
-                .set_mmds_version(mmds.version, constructor_args.instance_id)?;
+                .set_mmds_basic_config(mmds.version, constructor_args.instance_id)?;
         }
 
         for net_state in &state.net_devices {
