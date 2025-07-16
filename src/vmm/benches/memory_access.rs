@@ -1,6 +1,8 @@
 // Copyright 2024 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
+#![allow(clippy::undocumented_unsafe_blocks)]
+
 use criterion::{BatchSize, Criterion, criterion_group, criterion_main};
 use vmm::resources::VmResources;
 use vmm::vmm_config::machine_config::{HugePageConfig, MachineConfig};

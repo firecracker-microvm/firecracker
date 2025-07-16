@@ -6,6 +6,8 @@
 //   * `Queue.add_used`
 //   * `DescriptorChain.next_descriptor`
 
+#![allow(clippy::cast_possible_truncation)]
+
 use std::num::Wrapping;
 
 use criterion::{Criterion, criterion_group, criterion_main};

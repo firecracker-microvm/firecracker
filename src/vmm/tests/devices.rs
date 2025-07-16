@@ -1,7 +1,11 @@
 // Copyright 2020 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-#![allow(clippy::undocumented_unsafe_blocks)]
+#![allow(
+    clippy::cast_possible_truncation,
+    clippy::tests_outside_test_module,
+    clippy::undocumented_unsafe_blocks
+)]
 use std::os::raw::{c_int, c_void};
 use std::os::unix::io::{AsRawFd, RawFd};
 use std::sync::{Arc, Mutex};
