@@ -30,109 +30,6 @@ DEFAULT_IPV4 = "169.254.169.254"
 MMDS_VERSIONS = ["V2", "V1"]
 
 
-def _validate_mmds_snapshot(
-    basevm,
-    microvm_factory,
-    version,
-    imds_compat,
-    fc_binary_path=None,
-    jailer_binary_path=None,
-):
-    """Test MMDS behaviour across snap-restore."""
-    ipv4_address = "169.254.169.250"
-
-    # Configure MMDS version with custom IPv4 address.
-    configure_mmds(
-        basevm,
-        version=version,
-        iface_ids=["eth0"],
-        ipv4_address=ipv4_address,
-        imds_compat=imds_compat,
-    )
-
-    expected_mmds_config = {
-        "version": version,
-        "ipv4_address": ipv4_address,
-        "network_interfaces": ["eth0"],
-        "imds_compat": False if imds_compat is None else imds_compat,
-    }
-    response = basevm.api.vm_config.get()
-    assert response.json()["mmds-config"] == expected_mmds_config
-
-    data_store = {"latest": {"meta-data": {"ami-id": "ami-12345678"}}}
-    populate_data_store(basevm, data_store)
-    expected_response = "latest/" if imds_compat else data_store
-
-    basevm.start()
-    ssh_connection = basevm.ssh
-    run_guest_cmd(ssh_connection, f"ip route add {ipv4_address} dev eth0", "")
-
-    # Both V1 and V2 support token generation.
-    token = generate_mmds_session_token(ssh_connection, ipv4_address, token_ttl=60)
-
-    # Fetch metadata.
-    cmd = generate_mmds_get_request(
-        ipv4_address,
-        token=token,
-    )
-    run_guest_cmd(ssh_connection, cmd, expected_response, use_json=not imds_compat)
-
-    # Create snapshot.
-    snapshot = basevm.snapshot_full()
-
-    # Resume microVM and ensure session token is still valid on the base.
-    response = basevm.resume()
-
-    # Fetch metadata again using the same token.
-    run_guest_cmd(ssh_connection, cmd, expected_response, use_json=not imds_compat)
-
-    # Kill base microVM.
-    basevm.kill()
-
-    # Load microVM clone from snapshot.
-    kwargs = {}
-    if fc_binary_path:
-        kwargs["fc_binary_path"] = fc_binary_path
-    if jailer_binary_path:
-        kwargs["jailer_binary_path"] = jailer_binary_path
-    microvm = microvm_factory.build(**kwargs)
-    microvm.spawn()
-    microvm.restore_from_snapshot(snapshot, resume=True)
-
-    ssh_connection = microvm.ssh
-
-    # Check the reported MMDS config.
-    response = microvm.api.vm_config.get()
-    assert response.json()["mmds-config"] == expected_mmds_config
-
-    # Since V1 should accept GET request even with invalid token, don't regenerate a token for V1.
-    if version == "V2":
-        # Attempting to reuse the token across a restore must fail in V2.
-        cmd = generate_mmds_get_request(ipv4_address, token=token)
-        run_guest_cmd(ssh_connection, cmd, "MMDS token not valid.")
-
-    # Re-generate token.
-    token = generate_mmds_session_token(ssh_connection, ipv4_address, token_ttl=60)
-
-    # Data store is empty after a restore.
-    cmd = generate_mmds_get_request(ipv4_address, token=token)
-    run_guest_cmd(
-        ssh_connection,
-        cmd,
-        (
-            "Cannot retrieve value. The value has an unsupported type."
-            if imds_compat
-            else "null"
-        ),
-    )
-
-    # Now populate the store.
-    populate_data_store(microvm, data_store)
-
-    # Fetch metadata.
-    run_guest_cmd(ssh_connection, cmd, expected_response, use_json=not imds_compat)
-
-
 @pytest.mark.parametrize("version", MMDS_VERSIONS)
 @pytest.mark.parametrize("imds_compat", [True, False])
 def test_mmds_token(uvm_plain, version, imds_compat):
@@ -627,17 +524,103 @@ def test_mmds_snapshot(uvm_nano, microvm_factory, version, imds_compat):
     Ensures that the version is persisted or initialised with the default if
     the firecracker version does not support it.
     """
-
     current_release = working_version_as_artifact()
-    uvm_nano.add_net_iface()
-    _validate_mmds_snapshot(
-        uvm_nano,
-        microvm_factory,
-        version,
-        imds_compat,
-        fc_binary_path=current_release.path,
-        jailer_binary_path=current_release.jailer,
+    fc_binary_path = current_release.path
+    jailer_binary_path = current_release.jailer
+
+    basevm = uvm_nano
+    basevm.add_net_iface()
+    ipv4_address = "169.254.169.250"
+
+    # Configure MMDS version with custom IPv4 address.
+    configure_mmds(
+        basevm,
+        version=version,
+        iface_ids=["eth0"],
+        ipv4_address=ipv4_address,
+        imds_compat=imds_compat,
     )
+
+    expected_mmds_config = {
+        "version": version,
+        "ipv4_address": ipv4_address,
+        "network_interfaces": ["eth0"],
+        "imds_compat": False if imds_compat is None else imds_compat,
+    }
+    response = basevm.api.vm_config.get()
+    assert response.json()["mmds-config"] == expected_mmds_config
+
+    data_store = {"latest": {"meta-data": {"ami-id": "ami-12345678"}}}
+    populate_data_store(basevm, data_store)
+    expected_response = "latest/" if imds_compat else data_store
+
+    basevm.start()
+    ssh_connection = basevm.ssh
+    run_guest_cmd(ssh_connection, f"ip route add {ipv4_address} dev eth0", "")
+
+    # Both V1 and V2 support token generation.
+    token = generate_mmds_session_token(ssh_connection, ipv4_address, token_ttl=60)
+
+    # Fetch metadata.
+    cmd = generate_mmds_get_request(
+        ipv4_address,
+        token=token,
+    )
+    run_guest_cmd(ssh_connection, cmd, expected_response, use_json=not imds_compat)
+
+    # Create snapshot.
+    snapshot = basevm.snapshot_full()
+
+    # Resume microVM and ensure session token is still valid on the base.
+    response = basevm.resume()
+
+    # Fetch metadata again using the same token.
+    run_guest_cmd(ssh_connection, cmd, expected_response, use_json=not imds_compat)
+
+    # Kill base microVM.
+    basevm.kill()
+
+    # Load microVM clone from snapshot.
+    kwargs = {}
+    if fc_binary_path:
+        kwargs["fc_binary_path"] = fc_binary_path
+    if jailer_binary_path:
+        kwargs["jailer_binary_path"] = jailer_binary_path
+    microvm = microvm_factory.build(**kwargs)
+    microvm.spawn()
+    microvm.restore_from_snapshot(snapshot, resume=True)
+
+    ssh_connection = microvm.ssh
+
+    # Check the reported MMDS config.
+    response = microvm.api.vm_config.get()
+    assert response.json()["mmds-config"] == expected_mmds_config
+
+    if version == "V2":
+        # Attempting to reuse the token across a restore must fail in V2.
+        cmd = generate_mmds_get_request(ipv4_address, token=token)
+        run_guest_cmd(ssh_connection, cmd, "MMDS token not valid.")
+
+    # Re-generate token.
+    token = generate_mmds_session_token(ssh_connection, ipv4_address, token_ttl=60)
+
+    # Data store is empty after a restore.
+    cmd = generate_mmds_get_request(ipv4_address, token=token)
+    run_guest_cmd(
+        ssh_connection,
+        cmd,
+        (
+            "Cannot retrieve value. The value has an unsupported type."
+            if imds_compat
+            else "null"
+        ),
+    )
+
+    # Now populate the store.
+    populate_data_store(microvm, data_store)
+
+    # Fetch metadata.
+    run_guest_cmd(ssh_connection, cmd, expected_response, use_json=not imds_compat)
 
 
 def test_mmds_v2_negative(uvm_plain):
