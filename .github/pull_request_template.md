@@ -16,6 +16,8 @@ Certificate of Origin and signing off your commits, please check
 ## PR Checklist
 
 - [ ] I have read and understand [CONTRIBUTING.md][3].
+- [ ] I have run `tools/devtool checkbuild --all` to verify that the PR passes
+  build checks on all supported architectures.
 - [ ] I have run `tools/devtool checkstyle` to verify that the PR passes the
   automated style checks.
 - [ ] I have described what is done in these changes, why they are needed, and
