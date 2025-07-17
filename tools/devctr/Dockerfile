@@ -196,6 +196,22 @@ RUN cd /usr/local/bin \
     && chmod +x codecov \
     && cd -
 
+# Add cross-compile toolchain for devtool checkbuild command
+RUN case "${ARCH}" in \
+    "aarch64") \
+        apt install -y gcc-x86-64-linux-gnu libc6-dev-amd64-cross linux-libc-dev-amd64-cross && \
+        rustup target add x86_64-unknown-linux-gnu \
+        ;; \
+    "x86_64") \
+        apt install -y gcc-aarch64-linux-gnu libc6-dev-arm64-cross linux-libc-dev-arm64-cross && \
+        rustup target add aarch64-unknown-linux-gnu \
+        ;; \
+    *) \
+        echo "Unsupported arch ${ARCH}" && \
+        exit 1 \
+        ;; \
+    esac
+
 ADD tools/devctr/ctr_gitconfig /root/.gitconfig
 
 ENTRYPOINT ["/usr/bin/tini", "--"]
