@@ -89,7 +89,8 @@ RUN apt-get update \
     && pip3 install --upgrade poetry
 
 ARG VENV="/opt/venv"
-COPY tools/devctr /tmp/poetry
+COPY tools/devctr/poetry.lock /tmp/poetry/
+COPY tools/devctr/pyproject.toml /tmp/poetry/
 RUN cd /tmp/poetry \
     && virtualenv $VENV \
     && . $VENV/bin/activate \
