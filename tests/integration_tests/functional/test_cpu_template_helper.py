@@ -177,7 +177,8 @@ CPUID_EXCEPTION_LIST = {
 }
 
 
-# List of MSR indices that should not be tested due to its mutability.
+# List of MSR indices that should not be tested due to its mutability or inavailablility
+# in the guest.
 MSR_EXCEPTION_LIST = [
     # MSR_KVM_WALL_CLOCK and MSR_KVM_SYSTEM_TIME depend on the elapsed time.
     0x11,
@@ -232,6 +233,10 @@ MSR_EXCEPTION_LIST = [
     # MSR_AMD64_VIRT_SPEC_CTRL is R/W and can be modified by OS to control
     # security features for speculative attacks.
     0xC001011F,
+    # Not available in the guest
+    # MSR_TSC_RATE is a Time Stamp Counter Ratio which allows the hypervisor
+    # to control the guest's view of the Time Stamp Counter.
+    0xC0000104,
 ]
 
 
