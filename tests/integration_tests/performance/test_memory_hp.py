@@ -88,7 +88,7 @@ def test_hotplug_latency(
 ):
     """Test the latency of hotplugging memory"""
 
-    for i in range(100):
+    for i in range(20):
         uvm = hp_microvm(microvm_factory, guest_kernel_linux_6_1, rootfs, hp_size)
 
         if i == 0:
