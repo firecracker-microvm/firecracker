@@ -14,7 +14,6 @@ use kvm_ioctls::{VcpuExit, VcpuFd, VmFd};
 use serde::{Deserialize, Serialize};
 use vm_memory::GuestAddress;
 
-use super::get_fdt_addr;
 use super::regs::*;
 use crate::arch::EntryPoint;
 use crate::arch::aarch64::kvm::OptionalCapabilities;
@@ -23,7 +22,7 @@ use crate::cpu_config::aarch64::custom_cpu_template::VcpuFeatures;
 use crate::cpu_config::templates::CpuConfiguration;
 use crate::logger::{IncMetric, METRICS, error};
 use crate::vcpu::{VcpuConfig, VcpuError};
-use crate::vstate::memory::{Address, GuestMemoryMmap};
+use crate::vstate::memory::Address;
 use crate::vstate::vcpu::VcpuEmulation;
 use crate::vstate::vm::Vm;
 
@@ -171,7 +170,7 @@ impl KvmVcpu {
     /// * `vcpu_config` - The vCPU configuration.
     pub fn configure(
         &mut self,
-        guest_mem: &GuestMemoryMmap,
+        fdt_addr: GuestAddress,
         kernel_entry_point: EntryPoint,
         vcpu_config: &VcpuConfig,
         optional_capabilities: &OptionalCapabilities,
@@ -188,7 +187,7 @@ impl KvmVcpu {
 
         self.setup_boot_regs(
             kernel_entry_point.entry_addr.raw_value(),
-            guest_mem,
+            fdt_addr.raw_value(),
             optional_capabilities,
         )
         .map_err(KvmVcpuError::ConfigureRegisters)?;
@@ -325,7 +324,7 @@ impl KvmVcpu {
     pub fn setup_boot_regs(
         &self,
         boot_ip: u64,
-        mem: &GuestMemoryMmap,
+        fdt_addr: u64,
         optional_capabilities: &OptionalCapabilities,
     ) -> Result<(), VcpuArchError> {
         let kreg_off = offset_of!(kvm_regs, regs);
@@ -351,10 +350,9 @@ impl KvmVcpu {
             // Last mandatory thing to set -> the address pointing to the FDT (also called DTB).
             // "The device tree blob (dtb) must be placed on an 8-byte boundary and must
             // not exceed 2 megabytes in size." -> https://www.kernel.org/doc/Documentation/arm64/booting.txt.
-            // We are choosing to place it the end of DRAM. See `get_fdt_addr`.
+            // We are choosing to place it the end of DRAM.
             let regs0 = offset_of!(user_pt_regs, regs) + kreg_off;
             let id = arm64_core_reg_id!(KVM_REG_SIZE_U64, regs0);
-            let fdt_addr = get_fdt_addr(mem);
             self.fd
                 .set_one_reg(id, &fdt_addr.to_le_bytes())
                 .map_err(|err| VcpuArchError::SetOneReg(id, format!("{fdt_addr:#x}"), err))?;

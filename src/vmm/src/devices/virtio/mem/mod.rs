@@ -11,6 +11,7 @@ pub mod response;
 use vm_memory::GuestAddress;
 
 pub use self::device::{VirtioMem, VirtioMemError};
+use crate::arch::FIRST_ADDR_PAST_64BITS_MMIO;
 
 pub(crate) const MEM_NUM_QUEUES: usize = 1;
 
@@ -18,4 +19,4 @@ pub(crate) const MEM_QUEUE: usize = 0;
 
 pub const VIRTIO_MEM_BLOCK_SIZE: usize = 2 << 20; // 2MiB
 pub const VIRTIO_MEM_REGION_SIZE: usize = 128 << 20; // 128 MiB
-pub const VIRTIO_MEM_GUEST_ADDRESS: GuestAddress = GuestAddress(512 << 30); // 512GiB
+pub const VIRTIO_MEM_GUEST_ADDRESS: GuestAddress = GuestAddress(FIRST_ADDR_PAST_64BITS_MMIO); // 512GiB

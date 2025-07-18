@@ -223,7 +223,9 @@ impl VirtioMem {
         let mem = &self.device_state.active_state().unwrap().mem;
         let num_bytes = resp.write(mem, req.resp_addr)?;
         // TODO error handling
-        if let Err(err) = self.queues[MEM_QUEUE].add_used(req.index, u32::try_from(num_bytes).unwrap()) {
+        if let Err(err) =
+            self.queues[MEM_QUEUE].add_used(req.index, u32::try_from(num_bytes).unwrap())
+        {
             error!("virtio-mem: Failed to add used descriptor: {err}");
             METRICS.mem_event_fails.inc();
         }

@@ -22,7 +22,7 @@ use std::fs::File;
 
 use linux_loader::loader::pe::PE as Loader;
 use linux_loader::loader::{Cmdline, KernelLoader};
-use vm_memory::GuestMemoryError;
+use vm_memory::{GuestMemoryError, GuestMemoryRegion};
 
 use crate::arch::{BootProtocol, EntryPoint, arch_memory_regions_with_gap};
 use crate::cpu_config::aarch64::{CpuConfiguration, CpuConfigurationError};
@@ -106,15 +106,17 @@ pub fn configure_system_for_boot(
         cpu_config,
     };
 
+    let fdt_addr = vm
+        .last_ram_addr()
+        .checked_sub(layout::FDT_MAX_SIZE as u64 - 1)
+        .and_then(|addr| vm.guest_memory().address_in_range(addr).then_some(addr))
+        .unwrap_or(GuestAddress(layout::DRAM_MEM_START));
+
     let optional_capabilities = kvm.optional_capabilities();
     // Configure vCPUs with normalizing and setting the generated CPU configuration.
     for vcpu in vcpus.iter_mut() {
-        vcpu.kvm_vcpu.configure(
-            vm.guest_memory(),
-            entry_point,
-            &vcpu_config,
-            &optional_capabilities,
-        )?;
+        vcpu.kvm_vcpu
+            .configure(fdt_addr, entry_point, &vcpu_config, &optional_capabilities)?;
     }
     let vcpu_mpidr = vcpus
         .iter_mut()
@@ -134,8 +136,7 @@ pub fn configure_system_for_boot(
         initrd,
     )?;
 
-    let fdt_address = GuestAddress(get_fdt_addr(vm.guest_memory()));
-    vm.guest_memory().write_slice(fdt.as_slice(), fdt_address)?;
+    vm.guest_memory().write_slice(fdt.as_slice(), fdt_addr)?;
 
     Ok(())
 }
@@ -151,31 +152,18 @@ pub fn initrd_load_addr(guest_mem: &GuestMemoryMmap, initrd_size: usize) -> Opti
         usize_to_u64(initrd_size),
         usize_to_u64(super::GUEST_PAGE_SIZE),
     );
-    match GuestAddress(get_fdt_addr(guest_mem)).checked_sub(rounded_size) {
-        Some(offset) => {
-            if guest_mem.address_in_range(offset) {
-                Some(offset.raw_value())
-            } else {
-                None
-            }
-        }
-        None => None,
-    }
-}
 
-// Auxiliary function to get the address where the device tree blob is loaded.
-fn get_fdt_addr(mem: &GuestMemoryMmap) -> u64 {
-    // If the memory allocated is smaller than the size allocated for the FDT,
-    // we return the start of the DRAM so that
-    // we allow the code to try and load the FDT.
+    // TODO this is assuming the first slot is the memory
+    let offset = GuestAddress(layout::DRAM_MEM_START)
+        .checked_add(
+            guest_mem
+                .find_region(GuestAddress::new(layout::DRAM_MEM_START))?
+                .len(),
+        )?
+        .checked_sub(layout::FDT_MAX_SIZE as u64 - 1)?
+        .checked_sub(rounded_size)?;
 
-    if let Some(addr) = mem.last_addr().checked_sub(layout::FDT_MAX_SIZE as u64 - 1) {
-        if mem.address_in_range(addr) {
-            return addr.raw_value();
-        }
-    }
-
-    layout::DRAM_MEM_START
+    (guest_mem.address_in_range(offset)).then_some(offset.raw_value())
 }
 
 /// Load linux kernel into guest memory.
@@ -296,17 +284,5 @@ mod tests {
             DRAM_MEM_MAX_SIZE as u64 - MMIO64_MEM_START + DRAM_MEM_START,
             regions[1].1 as u64
         );
-    }
-
-    #[test]
-    fn test_get_fdt_addr() {
-        let mem = arch_mem(FDT_MAX_SIZE - 0x1000);
-        assert_eq!(get_fdt_addr(&mem), DRAM_MEM_START);
-
-        let mem = arch_mem(FDT_MAX_SIZE);
-        assert_eq!(get_fdt_addr(&mem), DRAM_MEM_START);
-
-        let mem = arch_mem(FDT_MAX_SIZE + 0x1000);
-        assert_eq!(get_fdt_addr(&mem), 0x1000 + DRAM_MEM_START);
     }
 }
