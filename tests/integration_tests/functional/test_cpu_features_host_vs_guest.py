@@ -120,6 +120,9 @@ AMD_MILAN_HOST_ONLY_FEATS = {
     "vgif",
     "vmcb_clean",
     "wdt",
+    "npt",
+    "nrip_save",
+    "svm",
 }
 
 AMD_GUEST_ONLY_FEATS = {
@@ -130,14 +133,7 @@ AMD_GUEST_ONLY_FEATS = {
 }
 
 AMD_MILAN_HOST_ONLY_FEATS_6_1 = AMD_MILAN_HOST_ONLY_FEATS - {
-    "lbrv",
-    "pausefilter",
-    "pfthreshold",
     "sme",
-    "tsc_scale",
-    "v_vmsave_vmload",
-    "vgif",
-    "vmcb_clean",
 } | {"brs", "rapl", "v_spec_ctrl"}
 
 AMD_GENOA_HOST_ONLY_FEATS = AMD_MILAN_HOST_ONLY_FEATS | {
