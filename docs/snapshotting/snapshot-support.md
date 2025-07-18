@@ -42,11 +42,6 @@ workload at that particular point in time.
 The Firecracker snapshot feature is supported on all CPU micro-architectures
 listed in [README](../../README.md#supported-platforms).
 
-[!WARNING]
-
-Diff snapshot support is in developer preview. See
-[this section](#developer-preview-status) for more info.
-
 ### Overview
 
 A Firecracker microVM snapshot can be used for loading it later in a different
@@ -203,6 +198,11 @@ the microVM in the `Paused` state. **Effects**:
 - _on failure_: no side-effects.
 
 ### Creating snapshots
+
+> [!WARNING]
+>
+> Diff snapshot support is in developer preview. See
+> [this section](#developer-preview-status) for more info.
 
 Now that the microVM is paused, you can create a snapshot, which can be either a
 `full`one or a `diff` one. Full snapshots always create a complete, resume-able
