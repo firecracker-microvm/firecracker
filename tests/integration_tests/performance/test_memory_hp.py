@@ -31,7 +31,7 @@ def hp_microvm(microvm_factory, guest_kernel_linux_6_1, rootfs, hp_size):
     return vm
 
 
-def timed_memory_hotplug(uvm, size, metrics, metric_prefix, timeout=10):
+def timed_memory_hotplug(uvm, size, metrics, metric, suffix="", timeout=10):
     """Wait for all memory hotplug events to be processed"""
 
     uvm.flush_metrics()
@@ -51,18 +51,18 @@ def timed_memory_hotplug(uvm, size, metrics, metric_prefix, timeout=10):
     fc_metrics = uvm.flush_metrics()
 
     metrics.put_metric(
-        f"{metric_prefix}_api_time",
+        f"{metric}{suffix}_api_time",
         (end_api - start_api),
         unit="Seconds",
     )
     metrics.put_metric(
-        f"{metric_prefix}_total_time",
+        f"{metric}{suffix}_total_time",
         (end_plug - start_api),
         unit="Seconds",
     )
     metrics.put_metric(
-        f"{metric_prefix}_fc_time",
-        fc_metrics["virtio_mem"][f"{metric_prefix}_agg"]["sum_us"],
+        f"{metric}{suffix}_fc_time",
+        fc_metrics["virtio_mem"][f"{metric}_agg"]["sum_us"],
         unit="Microseconds",
     )
 
@@ -80,6 +80,7 @@ def get_rss_from_pmap(uvm):
         2048,
         4096,
         8192,
+        16384,
     ],
 )
 def test_hotplug_latency(
@@ -104,4 +105,4 @@ def test_hotplug_latency(
 
         timed_memory_hotplug(uvm, hp_size, metrics, "hotplug")
         timed_memory_hotplug(uvm, 0, metrics, "hotunplug")
-        timed_memory_hotplug(uvm, hp_size, metrics, "hotplug_2nd")
+        timed_memory_hotplug(uvm, hp_size, metrics, "hotplug", suffix="_2nd")
