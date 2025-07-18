@@ -357,6 +357,7 @@ impl Vm {
         Ok((vcpus, exit_evt))
     }
 
+    /// Returns whether the given slot id is plugged
     pub fn is_slot_plugged(&self, slot: u32) -> bool {
         self.common
             .slot_state
@@ -367,6 +368,7 @@ impl Vm {
             .unwrap_or(false)
     }
 
+    /// Returns whether the given memory region is plugged
     pub fn is_region_plugged(&self, region: &GuestRegionMmap) -> bool {
         self.common
             .start_addr_to_slot
@@ -434,7 +436,7 @@ impl Vm {
         };
 
         let memory_region = kvm_userspace_memory_region {
-            slot: slot,
+            slot,
             guest_phys_addr: region.start_addr().raw_value(),
             memory_size: if register { region.len() } else { 0 },
             userspace_addr: region.as_ptr() as u64,
@@ -459,10 +461,12 @@ impl Vm {
         Ok(())
     }
 
+    /// Sets the last RAM address
     pub fn set_last_ram_addr(&mut self) {
         self.common.last_ram_addr = self.guest_memory().last_addr();
     }
 
+    /// Returns the last RAM address
     pub fn last_ram_addr(&self) -> GuestAddress {
         self.common.last_ram_addr
     }

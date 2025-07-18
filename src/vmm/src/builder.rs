@@ -53,6 +53,8 @@ use crate::vstate::resources::ResourceAllocator;
 use crate::vstate::vcpu::VcpuError;
 use crate::vstate::vm::{Vm, VmError};
 use crate::{EventManager, Vmm, VmmError};
+#[cfg(target_arch = "aarch64")]
+use vm_memory::GuestAddress;
 
 /// Errors associated with starting the instance.
 #[derive(Debug, thiserror::Error, displaydoc::Display)]

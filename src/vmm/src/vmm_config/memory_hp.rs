@@ -45,7 +45,7 @@ pub struct MemoryHpStatus {
 impl MemoryHpConfig {
     /// Validates the configuration.
     pub fn validate(&self) -> Result<(), MemoryHpConfigError> {
-        let block_size_mib = (VIRTIO_MEM_BLOCK_SIZE / (1024 * 1024)) as usize;
+        let block_size_mib = VIRTIO_MEM_BLOCK_SIZE / (1024 * 1024);
         if self.total_size_mib % block_size_mib != 0 {
             return Err(MemoryHpConfigError::InvalidSize(block_size_mib));
         }

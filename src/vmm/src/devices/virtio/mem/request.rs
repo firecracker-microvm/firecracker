@@ -44,6 +44,7 @@ pub struct VirtioMemRequestHeader {
     _padding: [u16; 3],
 }
 
+// SAFETY: this is safe, trust me bro
 unsafe impl ByteValued for VirtioMemRequestHeader {}
 
 #[repr(C, packed)]
@@ -55,6 +56,7 @@ pub struct VirtioMemRequest {
     _padding: [u16; 3],
 }
 
+// SAFETY: this is safe, trust me bro
 unsafe impl ByteValued for VirtioMemRequest {}
 
 #[derive(Debug, Clone, Copy)]
@@ -77,7 +79,7 @@ impl Request {
             return Err(VirtioMemError::UnexpectedWriteOnlyDescriptor);
         }
 
-        if avail_desc.len < mem::size_of::<VirtioMemRequestHeader>() as u32 {
+        if (avail_desc.len as usize) < mem::size_of::<VirtioMemRequestHeader>() {
             return Err(VirtioMemError::DescriptorLengthTooSmall);
         }
 
@@ -89,9 +91,9 @@ impl Request {
 
         let request = match req_type {
             RequestType::Plug | RequestType::Unplug | RequestType::State => {
-                if avail_desc.len
+                if (avail_desc.len as usize)
                     < (mem::size_of::<VirtioMemRequestHeader>()
-                        + mem::size_of::<VirtioMemRequest>()) as u32
+                        + mem::size_of::<VirtioMemRequest>())
                 {
                     return Err(VirtioMemError::DescriptorLengthTooSmall);
                 }

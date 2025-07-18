@@ -144,7 +144,7 @@ impl VirtioMem {
             .collect::<Result<Vec<EventFd>, io::Error>>()?;
 
         let total_blocks = size / VIRTIO_MEM_BLOCK_SIZE;
-        let bitmap_size = (total_blocks + 63) / 64; // Round up to u64 boundary
+        let bitmap_size = total_blocks.div_ceil(64); // Round up to u64 boundary
 
         Ok(Self {
             avail_features: (1 << VIRTIO_F_VERSION_1) | (1 << VIRTIO_MEM_F_UNPLUGGED_INACCESSIBLE),
@@ -183,7 +183,7 @@ impl VirtioMem {
     }
 
     fn is_range_plugged(&self, addr: GuestAddress, size: GuestUsize) -> ResponseStateCode {
-        let start_block = (addr.0 - self.config.addr) / self.config.block_size as u64;
+        let start_block = (addr.0 - self.config.addr) / self.config.block_size;
         assert!(size % self.config.block_size == 0);
         let nb_blocks = size / self.config.block_size;
         let end_block = start_block + nb_blocks;
@@ -191,7 +191,7 @@ impl VirtioMem {
         let mut plugged_count = 0;
 
         for block_idx in start_block..end_block {
-            if self.is_block_plugged(block_idx as usize) {
+            if self.is_block_plugged(usize::try_from(block_idx).unwrap()) {
                 plugged_count += 1;
             }
         }
@@ -223,7 +223,7 @@ impl VirtioMem {
         let mem = &self.device_state.active_state().unwrap().mem;
         let num_bytes = resp.write(mem, req.resp_addr)?;
         // TODO error handling
-        if let Err(err) = self.queues[MEM_QUEUE].add_used(req.index, num_bytes as u32) {
+        if let Err(err) = self.queues[MEM_QUEUE].add_used(req.index, u32::try_from(num_bytes).unwrap()) {
             error!("virtio-mem: Failed to add used descriptor: {err}");
             METRICS.mem_event_fails.inc();
         }
@@ -248,8 +248,8 @@ impl VirtioMem {
         }
 
         for block_idx in start_block..end_block {
-            if !self.is_block_plugged(block_idx as usize) {
-                self.set_block_plugged(block_idx as usize, true);
+            if !self.is_block_plugged(usize::try_from(block_idx).unwrap()) {
+                self.set_block_plugged(usize::try_from(block_idx).unwrap(), true);
                 self.config.plugged_size += VIRTIO_MEM_BLOCK_SIZE as u64;
             }
         }
@@ -287,8 +287,8 @@ impl VirtioMem {
         }
 
         for block_idx in start_block..end_block {
-            if self.is_block_plugged(block_idx as usize) {
-                self.set_block_plugged(block_idx as usize, false);
+            if self.is_block_plugged(usize::try_from(block_idx).unwrap()) {
+                self.set_block_plugged(usize::try_from(block_idx).unwrap(), false);
                 self.config.plugged_size -= VIRTIO_MEM_BLOCK_SIZE as u64;
 
                 let gpa = GuestAddress(self.config.addr)
@@ -303,6 +303,7 @@ impl VirtioMem {
                     .unwrap();
 
                 // TODO handle file-backed devices
+                // SAFETY: valid parameters
                 unsafe {
                     libc::madvise(hva.cast(), VIRTIO_MEM_BLOCK_SIZE, libc::MADV_DONTNEED);
                 }
@@ -343,6 +344,7 @@ impl VirtioMem {
                     .unwrap();
 
                 // TODO handle file-backed devices
+                // SAFETY: valid parameters
                 unsafe {
                     libc::madvise(hva.cast(), VIRTIO_MEM_BLOCK_SIZE, libc::MADV_DONTNEED);
                 }
@@ -606,7 +608,7 @@ impl VirtioDevice for VirtioMem {
 
     fn read_config(&self, offset: u64, data: &mut [u8]) {
         let config_bytes = self.config.as_slice();
-        let offset = offset as usize;
+        let offset = usize::try_from(offset).unwrap();
 
         if offset >= config_bytes.len() {
             error!(

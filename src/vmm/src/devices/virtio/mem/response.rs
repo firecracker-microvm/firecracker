@@ -33,6 +33,7 @@ pub struct StateResponse {
 
 // SAFETY: Plain data structures
 unsafe impl ByteValued for ResponseHeader {}
+// SAFETY: Plain data structures
 unsafe impl ByteValued for StateResponse {}
 
 #[derive(Debug, Clone, Copy)]
@@ -102,21 +103,18 @@ impl Response {
             .map_err(|_| VirtioMemError::DescriptorWriteFailed)?;
         num_bytes += std::mem::size_of::<ResponseHeader>();
 
-        match self.resp_type {
-            ResponseType::State(state) => {
-                let resp = StateResponse {
-                    state_type: state.into(),
-                };
-                mem.write_obj(
-                    resp,
-                    addr.checked_add(usize_to_u64(num_bytes))
-                        .ok_or(VirtioMemError::DescriptorWriteFailed)?,
-                )
-                .map_err(|_| VirtioMemError::DescriptorWriteFailed)?;
-                num_bytes += std::mem::size_of::<StateResponse>();
-            }
-            _ => (),
-        };
+        if let ResponseType::State(state) = self.resp_type {
+            let resp = StateResponse {
+                state_type: state.into(),
+            };
+            mem.write_obj(
+                resp,
+                addr.checked_add(usize_to_u64(num_bytes))
+                    .ok_or(VirtioMemError::DescriptorWriteFailed)?,
+            )
+            .map_err(|_| VirtioMemError::DescriptorWriteFailed)?;
+            num_bytes += std::mem::size_of::<StateResponse>();
+        }
         Ok(num_bytes)
     }
 }
