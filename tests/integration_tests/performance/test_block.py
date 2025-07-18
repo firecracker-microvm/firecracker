@@ -161,7 +161,7 @@ def emit_fio_metrics(logs_dir, metrics):
 @pytest.mark.parametrize("fio_block_size", [4096], ids=["bs4096"])
 @pytest.mark.parametrize("fio_engine", ["libaio", "psync"])
 def test_block_performance(
-    uvm_any_acpi,
+    uvm_plain_acpi,
     vcpus,
     fio_mode,
     fio_block_size,
@@ -173,7 +173,7 @@ def test_block_performance(
     """
     Execute block device emulation benchmarking scenarios.
     """
-    vm = uvm_any_acpi
+    vm = uvm_plain_acpi
     vm.spawn(log_level="Info", emit_metrics=True)
     vm.basic_config(vcpu_count=vcpus, mem_size_mib=GUEST_MEM_MIB)
     vm.add_net_iface()
@@ -211,7 +211,7 @@ def test_block_performance(
 @pytest.mark.parametrize("fio_mode", ["randread"])
 @pytest.mark.parametrize("fio_block_size", [4096], ids=["bs4096"])
 def test_block_vhost_user_performance(
-    uvm_any_acpi,
+    uvm_plain_acpi,
     vcpus,
     fio_mode,
     fio_block_size,
@@ -222,7 +222,7 @@ def test_block_vhost_user_performance(
     Execute block device emulation benchmarking scenarios.
     """
 
-    vm = uvm_any_acpi
+    vm = uvm_plain_acpi
     vm.spawn(log_level="Info", emit_metrics=True)
     vm.basic_config(vcpu_count=vcpus, mem_size_mib=GUEST_MEM_MIB)
     vm.add_net_iface()
