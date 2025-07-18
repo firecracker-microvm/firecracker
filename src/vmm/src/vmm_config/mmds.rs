@@ -18,6 +18,9 @@ pub struct MmdsConfig {
     pub network_interfaces: Vec<String>,
     /// MMDS IPv4 configured address.
     pub ipv4_address: Option<Ipv4Addr>,
+    /// Compatibility with EC2 IMDS.
+    #[serde(default)]
+    pub imds_compat: bool,
 }
 
 impl MmdsConfig {

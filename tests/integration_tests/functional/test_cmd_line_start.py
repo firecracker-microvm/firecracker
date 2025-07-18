@@ -104,8 +104,10 @@ def _get_optional_fields_from_file(vm_config_file):
         version = mmds_config.get("version", "V1")
         # Set to default if IPv4 is not specified .
         ipv4_address = mmds_config.get("ipv4_address", "169.254.169.254")
+        # Default to False if imds_compat is not specified.
+        imds_compat = mmds_config.get("imds_compat", False)
 
-        return version, ipv4_address
+        return version, ipv4_address, imds_compat
 
 
 @pytest.mark.parametrize("vm_config_file", ["framework/vm_config.json"])
@@ -436,7 +438,7 @@ def test_config_start_and_mmds_with_api(uvm_plain, vm_config_file):
     assert response.json() == data_store
 
     # Get MMDS version and IPv4 address configured from the file.
-    version, ipv4_address = _get_optional_fields_from_file(vm_config_file)
+    version, ipv4_address, imds_compat = _get_optional_fields_from_file(vm_config_file)
 
     cmd = "ip route add {} dev eth0".format(ipv4_address)
     _, stdout, stderr = test_microvm.ssh.run(cmd)
@@ -446,12 +448,16 @@ def test_config_start_and_mmds_with_api(uvm_plain, vm_config_file):
     cmd = _build_cmd_to_fetch_metadata(test_microvm.ssh, version, ipv4_address)
     cmd += "/latest/meta-data/"
     _, stdout, _ = test_microvm.ssh.run(cmd)
-    assert json.loads(stdout) == data_store["latest"]["meta-data"]
+    if imds_compat:
+        assert stdout == "ami-id\nreservation-id"
+    else:
+        assert json.loads(stdout) == data_store["latest"]["meta-data"]
 
     # Validate MMDS configuration.
     response = test_microvm.api.vm_config.get()
     assert response.json()["mmds-config"] == {
         "network_interfaces": ["1"],
+        "imds_compat": imds_compat,
         "ipv4_address": ipv4_address,
         "version": version,
     }
@@ -477,7 +483,7 @@ def test_with_config_and_metadata_no_api(uvm_plain, vm_config_file, metadata_fil
     test_microvm.spawn()
 
     # Get MMDS version and IPv4 address configured from the file.
-    version, ipv4_address = _get_optional_fields_from_file(vm_config_file)
+    version, ipv4_address, imds_compat = _get_optional_fields_from_file(vm_config_file)
 
     cmd = "ip route add {} dev eth0".format(ipv4_address)
     _, stdout, stderr = test_microvm.ssh.run(cmd)
@@ -488,4 +494,8 @@ def test_with_config_and_metadata_no_api(uvm_plain, vm_config_file, metadata_fil
     _, stdout, _ = test_microvm.ssh.run(cmd)
 
     # Compare response against the expected MMDS contents.
-    assert json.loads(stdout) == json.load(Path(metadata_file).open(encoding="UTF-8"))
+    metadata = json.load(Path(metadata_file).open(encoding="UTF-8"))
+    if imds_compat:
+        assert stdout == "2016-09-02/\n2019-08-01/\nlatest/"
+    else:
+        assert json.loads(stdout) == metadata

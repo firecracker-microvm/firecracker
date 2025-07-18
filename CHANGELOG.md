@@ -30,6 +30,11 @@ and this project adheres to
   version 2. These metrics also count requests that would be rejected in MMDS
   version 2 when MMDS version 1 is configured. They helps users assess readiness
   for migrating to MMDS version 2.
+- [#5310](https://github.com/firecracker-microvm/firecracker/pull/5310): Added
+  an optional `imds_compat` field (default to false if not provided) to PUT
+  requests to `/mmds/config` to enforce MMDS to always respond plain text
+  contents in the IMDS format regardless of the `Accept` header in requests.
+  Users need to regenerate snapshots.
 
 ### Changed
 

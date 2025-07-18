@@ -1243,6 +1243,7 @@ mod tests {
                 ipv4_address: None,
                 version: MmdsVersion::default(),
                 network_interfaces: Vec::new(),
+                imds_compat: false,
             },
         )));
         check_unsupported(runtime_request(VmmAction::UpdateMachineConfiguration(

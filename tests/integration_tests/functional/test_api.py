@@ -1139,11 +1139,12 @@ def test_get_full_config_after_restoring_snapshot(microvm_factory, uvm_nano):
         "boot_args": None,
     }
 
-    # no ipv4 specified during PUT /mmds/config so we expect the default
+    # no ipv4_address or imds_compat specified during PUT /mmds/config so we expect the default
     expected_cfg["mmds-config"] = {
         "version": "V1",
         "ipv4_address": "169.254.169.254",
         "network_interfaces": [net_iface.dev_name],
+        "imds_compat": False,
     }
 
     # We should expect a null entropy device
@@ -1235,6 +1236,7 @@ def test_get_full_config(uvm_plain):
         "version": "V2",
         "ipv4_address": "169.254.169.250",
         "network_interfaces": ["1"],
+        "imds_compat": True,
     }
     response = test_microvm.api.mmds_config.put(**mmds_config)
 
@@ -1244,6 +1246,7 @@ def test_get_full_config(uvm_plain):
         "version": "V2",
         "ipv4_address": "169.254.169.250",
         "network_interfaces": ["1"],
+        "imds_compat": True,
     }
 
     # We should expect a null entropy device
