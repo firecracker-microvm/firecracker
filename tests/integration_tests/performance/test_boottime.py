@@ -75,7 +75,7 @@ def get_systemd_analyze_times(microvm):
     # The line will look like this:
     # Startup finished in 79ms (kernel) + 231ms (userspace) = 310ms
     # In the regex we capture the time and the unit for kernel, userspace and total values
-    pattern = r"Startup finished in (\d*)(ms|s)\s+\(kernel\) \+ (\d*)(ms|s)\s+\(userspace\) = ([\d.]*)(ms|s)\s*"
+    pattern = r"Startup finished in ([\d.]*)(ms|s)\s+\(kernel\) \+ ([\d.]*)(ms|s)\s+\(userspace\) = ([\d.]*)(ms|s)\s*"
     kernel, kernel_unit, userspace, userspace_unit, total, total_unit = re.findall(
         pattern, boot_line
     )[0]
