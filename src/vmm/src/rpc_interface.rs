@@ -1258,6 +1258,7 @@ mod tests {
                 track_dirty_pages: false,
                 resume_vm: false,
                 network_overrides: vec![],
+                vsock_override: None,
             },
         )));
         check_unsupported(runtime_request(VmmAction::SetEntropyDevice(

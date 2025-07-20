@@ -1233,7 +1233,19 @@ definitions:
         type: string
         description:
           The new host device of the interface
-
+  VsockOverride:
+    type: object
+    description:
+      Allows for changing the backing Unix Domain Socket of a vsock device
+      during snapshot restore.
+    required:
+      - uds_path
+    properties:
+      uds_path:
+        type: string
+        description:
+          The new path for the backing Unix Domain Socket.
+          
   SnapshotLoadParams:
     type: object
     description:
@@ -1274,6 +1286,13 @@ definitions:
         description: Network host device names to override
         items:
           $ref: "#/definitions/NetworkOverride"
+      vsock_override:
+        $ref: "#/definitions/VsockOverride"
+        description:
+          Overrides the vsock device's UDS path on snapshot restore. This is useful
+          for restoring a snapshot with a different socket path than the one used
+          when the snapshot was created. For example, when the original socket path
+          is no longer available or when deploying to a different environment.
 
 
   TokenBucket:
