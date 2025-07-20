@@ -382,6 +382,32 @@ pub fn restore_from_snapshot(
             .map(|device_state| device_state.tap_if_name.clone_from(&entry.host_dev_name))
             .ok_or(SnapshotStateFromFileError::UnknownNetworkDevice)?;
     }
+
+    if let Some(vsock_override) = &params.vsock_override {
+        // There should only ever be at most one vsock device, therefore this
+        // should correctly find it and modify the path if such a device exists.
+        let device_state = microvm_state
+            .device_states
+            .mmio_state
+            .vsock_device
+            .as_mut()
+            .map(|device| &mut device.device_state)
+            .or_else(|| {
+                microvm_state
+                    .device_states
+                    .pci_state
+                    .vsock_device
+                    .as_mut()
+                    .map(|device| &mut device.device_state)
+            })
+            .ok_or(SnapshotStateFromFileError::UnknownVsockDevice)?;
+
+        device_state
+            .backend
+            .uds_path
+            .clone_from(&vsock_override.uds_path);
+    }
+
     let track_dirty_pages = params.track_dirty_pages;
 
     let vcpu_count = microvm_state
@@ -453,6 +479,8 @@ pub enum SnapshotStateFromFileError {
     Load(#[from] crate::snapshot::SnapshotError),
     /// Unknown Network Device.
     UnknownNetworkDevice,
+    /// Unknown Vsock Device.
+    UnknownVsockDevice,
 }
 
 fn snapshot_state_from_file(
