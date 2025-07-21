@@ -120,7 +120,6 @@ pub fn default_vmm_pci_no_boot(kernel_image: Option<&str>) -> (Arc<Mutex<Vmm>>, 
     create_vmm(kernel_image, false, false, true)
 }
 
-#[cfg(target_arch = "x86_64")]
 pub fn dirty_tracking_vmm(kernel_image: Option<&str>) -> (Arc<Mutex<Vmm>>, EventManager) {
     create_vmm(kernel_image, true, true, false)
 }

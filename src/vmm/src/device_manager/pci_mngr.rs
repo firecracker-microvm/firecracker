@@ -33,6 +33,7 @@ use crate::devices::virtio::vsock::{TYPE_VSOCK, Vsock, VsockUnixBackend};
 use crate::devices::virtio::{TYPE_BALLOON, TYPE_BLOCK, TYPE_NET, TYPE_RNG};
 use crate::resources::VmResources;
 use crate::snapshot::Persist;
+use crate::vmm_config::mmds::MmdsConfigError;
 use crate::vstate::memory::GuestMemoryMmap;
 use crate::vstate::vm::{InterruptError, MsiVectorGroup};
 use crate::{EventManager, Vm};
@@ -61,6 +62,8 @@ pub enum PciManagerError {
     PciDeviceError(#[from] PciDeviceError),
     /// KVM error: {0}
     Kvm(#[from] vmm_sys_util::errno::Error),
+    /// MMDS error: {0}
+    Mmds(#[from] MmdsConfigError),
 }
 
 impl PciDevices {
@@ -489,7 +492,7 @@ impl<'a> Persist<'a> for PciDevices {
             // If there's at least one network device having an mmds_ns, it means
             // that we are restoring from a version that did not persist the `MmdsVersionState`.
             // Init with the default.
-            constructor_args.vm_resources.mmds_or_default();
+            constructor_args.vm_resources.mmds_or_default()?;
         }
 
         for net_state in &state.net_devices {

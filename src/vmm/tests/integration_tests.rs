@@ -1,6 +1,8 @@
 // Copyright 2020 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
+#![allow(clippy::cast_possible_truncation, clippy::tests_outside_test_module)]
+
 use std::io::{Seek, SeekFrom};
 use std::sync::{Arc, Mutex};
 use std::thread;
@@ -32,6 +34,7 @@ use vmm::vmm_config::vsock::VsockDeviceConfig;
 use vmm::{DumpCpuConfigError, EventManager, FcExitCode, Vmm};
 use vmm_sys_util::tempfile::TempFile;
 
+#[allow(unused_mut, unused_variables)]
 fn check_booted_microvm(vmm: Arc<Mutex<Vmm>>, mut evmgr: EventManager) {
     // On x86_64, the vmm should exit once its workload completes and signals the exit event.
     // On aarch64, the test kernel doesn't exit, so the vmm is force-stopped.
@@ -72,6 +75,7 @@ fn test_build_and_boot_microvm() {
     check_booted_microvm(vmm, evmgr);
 }
 
+#[allow(unused_mut, unused_variables)]
 fn check_build_microvm(vmm: Arc<Mutex<Vmm>>, mut evmgr: EventManager) {
     // The built microVM should be in the `VmState::Paused` state here.
     assert_eq!(vmm.lock().unwrap().instance_info().state, VmState::Paused);
@@ -124,46 +128,29 @@ fn test_pause_resume_microvm() {
 }
 
 #[test]
-fn test_dirty_bitmap_error() {
-    // Error case: dirty tracking disabled.
-    let (vmm, _) = default_vmm(None);
-
-    // The vmm will start with dirty page tracking = OFF.
-    // With dirty tracking disabled, the underlying KVM_GET_DIRTY_LOG ioctl will fail
-    // with errno 2 (ENOENT) because KVM can't find any guest memory regions with dirty
-    // page tracking enabled.
-    assert_eq!(
-        vmm.lock()
-            .unwrap()
-            .vm
-            .get_dirty_bitmap()
-            .unwrap_err()
-            .errno(),
-        2
-    );
-    vmm.lock().unwrap().stop(FcExitCode::Ok);
-}
-
-#[test]
 #[cfg(target_arch = "x86_64")]
 fn test_dirty_bitmap_success() {
-    // The vmm will start with dirty page tracking = ON.
-    let (vmm, _) = vmm::test_utils::dirty_tracking_vmm(Some(NOISY_KERNEL_IMAGE));
+    let vmms = [
+        vmm::test_utils::dirty_tracking_vmm(Some(NOISY_KERNEL_IMAGE)),
+        default_vmm(Some(NOISY_KERNEL_IMAGE)),
+    ];
 
-    // Let it churn for a while and dirty some pages...
-    thread::sleep(Duration::from_millis(100));
-    let bitmap = vmm.lock().unwrap().vm.get_dirty_bitmap().unwrap();
-    let num_dirty_pages: u32 = bitmap
-        .values()
-        .map(|bitmap_per_region| {
-            // Gently coerce to u32
-            let num_dirty_pages_per_region: u32 =
-                bitmap_per_region.iter().map(|n| n.count_ones()).sum();
-            num_dirty_pages_per_region
-        })
-        .sum();
-    assert!(num_dirty_pages > 0);
-    vmm.lock().unwrap().stop(FcExitCode::Ok);
+    for (vmm, _) in vmms {
+        // Let it churn for a while and dirty some pages...
+        thread::sleep(Duration::from_millis(100));
+        let bitmap = vmm.lock().unwrap().vm.get_dirty_bitmap().unwrap();
+        let num_dirty_pages: u32 = bitmap
+            .values()
+            .map(|bitmap_per_region| {
+                // Gently coerce to u32
+                let num_dirty_pages_per_region: u32 =
+                    bitmap_per_region.iter().map(|n| n.count_ones()).sum();
+                num_dirty_pages_per_region
+            })
+            .sum();
+        assert!(num_dirty_pages > 0);
+        vmm.lock().unwrap().stop(FcExitCode::Ok);
+    }
 }
 
 #[test]
@@ -305,7 +292,7 @@ fn verify_load_snapshot(snapshot_file: TempFile, memory_file: TempFile) {
                 backend_path: memory_file.as_path().to_path_buf(),
                 backend_type: MemBackendType::File,
             },
-            enable_diff_snapshots: false,
+            track_dirty_pages: false,
             resume_vm: true,
             network_overrides: vec![],
         }))
@@ -387,7 +374,7 @@ fn verify_load_snap_disallowed_after_boot_resources(res: VmmAction, res_name: &s
             backend_path: memory_file.as_path().to_path_buf(),
             backend_type: MemBackendType::File,
         },
-        enable_diff_snapshots: false,
+        track_dirty_pages: false,
         resume_vm: false,
         network_overrides: vec![],
     });

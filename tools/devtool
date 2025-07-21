@@ -68,7 +68,7 @@
 DEVCTR_IMAGE_NO_TAG="public.ecr.aws/firecracker/fcuvm"
 
 # Development container tag
-DEVCTR_IMAGE_TAG=${DEVCTR_IMAGE_TAG:-v82}
+DEVCTR_IMAGE_TAG=${DEVCTR_IMAGE_TAG:-v83}
 
 # Development container image (name:tag)
 # This should be updated whenever we upgrade the development container.
@@ -427,6 +427,9 @@ cmd_help() {
 
     checkstyle
         Run style checks
+
+    checkbuild [--all|-m x86_64|aarch64]
+        Run cargo check on the target architecture (supports cross compilation).
 EOF
 }
 
@@ -958,6 +961,39 @@ cmd_checkstyle() {
 
     cmd_test --no-build --no-kvm-check -- -n 4 --dist worksteal integration_tests/style || exit 1
     cmd_test --no-build --no-kvm-check -- -n 4 --doctest-modules framework || exit 1
+}
+
+cmd_checkbuild() {
+    TARGET_ARCH=$(uname -m)
+    SUPPORTED_ARCHS=(x86_64 aarch64)
+    while [ $# -gt 0 ]; do
+        case "$1" in
+            "-h"|"--help") { cmd_help; exit 1; } ;;
+            "-m"|"--arch") { TARGET_ARCH=$2; shift; } ;;
+            "--all") {
+                for arch in ${SUPPORTED_ARCHS[*]}; do
+                    say "Running checkbuild -m $arch"
+                    cmd_checkbuild -m $arch || return $?
+                    done
+                }
+                say "Build check passed for ${SUPPORTED_ARCHS[*]}"
+                return 0
+                ;;
+            *)
+                die "Unknown argument: $1. Please use --help for help."
+        ;;
+        esac
+        shift
+    done
+
+    if ! grep -q $TARGET_ARCH <<< "${SUPPORTED_ARCHS[*]}"; then
+        die "Unknown architecture: $TARGET_ARCH. Supported architectures: ${SUPPORTED_ARCHS[*]}"
+    fi
+
+    # Use GNU target to check build as musl has issues with cross-compilation
+    cmd_sh "cargo clippy --target ${TARGET_ARCH}-unknown-linux-gnu --all --all-targets -- -D warnings" \
+        || die "Error running build checks for $TARGET_ARCH"
+    say "Build check passed for $TARGET_ARCH"
 }
 
 # Check if able to run firecracker.

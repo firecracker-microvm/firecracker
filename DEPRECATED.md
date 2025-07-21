@@ -21,3 +21,5 @@ a future major Firecracker release, in accordance with our
   The functionality is substituted with ACPI.
 - \[[#2628](https://github.com/firecracker-microvm/firecracker/pull/2628)\] The
   `--basic` parameter of `seccompiler-bin`.
+- \[[#5274](https://github.com/firecracker-microvm/firecracker/pull/5274)\]: The
+  `enable_diff_snapshots` body field in `PUT` requests on `/snapshot/load`

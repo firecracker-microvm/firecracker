@@ -1,6 +1,9 @@
 // Copyright 2023 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
+// Allow test functions outside of test modules
+#![allow(clippy::tests_outside_test_module)]
+
 use std::fs::{OpenOptions, remove_file};
 use std::io::{Read, Write};
 use std::process::Command;
@@ -14,6 +17,7 @@ fn setup(text: &str) -> String {
     let path = format!("/tmp/{id}.rs");
     let mut file = OpenOptions::new()
         .create(true)
+        .truncate(true)
         .read(false)
         .write(true)
         .open(&path)
@@ -203,6 +207,7 @@ fn exclude() {
 
     let mut file_one = OpenOptions::new()
         .create(true)
+        .truncate(true)
         .read(false)
         .write(true)
         .open(&file_path_one)
@@ -211,6 +216,7 @@ fn exclude() {
 
     let mut file_two = OpenOptions::new()
         .create(true)
+        .truncate(true)
         .read(false)
         .write(true)
         .open(&file_path_two)

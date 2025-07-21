@@ -12,9 +12,9 @@ use crate::mmds::token::{MmdsTokenError as TokenError, TokenAuthority};
 /// The Mmds is the Microvm Metadata Service represented as an untyped json.
 #[derive(Debug)]
 pub struct Mmds {
+    version: MmdsVersion,
     data_store: Value,
-    // None when MMDS V1 is configured, Some for MMDS V2.
-    token_authority: Option<TokenAuthority>,
+    token_authority: TokenAuthority,
     is_initialized: bool,
     data_store_limit: usize,
 }
@@ -65,19 +65,20 @@ pub enum MmdsDatastoreError {
 // Used for ease of use in tests.
 impl Default for Mmds {
     fn default() -> Self {
-        Self::default_with_limit(51200)
+        Self::try_new(51200).unwrap()
     }
 }
 
 impl Mmds {
     /// MMDS default instance with limit `data_store_limit`
-    pub fn default_with_limit(data_store_limit: usize) -> Self {
-        Mmds {
+    pub fn try_new(data_store_limit: usize) -> Result<Self, MmdsDatastoreError> {
+        Ok(Mmds {
+            version: MmdsVersion::default(),
             data_store: Value::default(),
-            token_authority: None,
+            token_authority: TokenAuthority::try_new()?,
             is_initialized: false,
             data_store_limit,
-        }
+        })
     }
 
     /// This method is needed to check if data store is initialized.
@@ -92,52 +93,29 @@ impl Mmds {
     }
 
     /// Set the MMDS version.
-    pub fn set_version(&mut self, version: MmdsVersion) -> Result<(), MmdsDatastoreError> {
-        match version {
-            MmdsVersion::V1 => {
-                self.token_authority = None;
-                Ok(())
-            }
-            MmdsVersion::V2 => {
-                if self.token_authority.is_none() {
-                    self.token_authority = Some(TokenAuthority::new()?);
-                }
-                Ok(())
-            }
-        }
+    pub fn set_version(&mut self, version: MmdsVersion) {
+        self.version = version;
     }
 
-    /// Return the MMDS version by checking the token authority field.
+    /// Get the MMDS version.
     pub fn version(&self) -> MmdsVersion {
-        if self.token_authority.is_none() {
-            MmdsVersion::V1
-        } else {
-            MmdsVersion::V2
-        }
+        self.version
     }
 
     /// Sets the Additional Authenticated Data to be used for encryption and
-    /// decryption of the session token when MMDS version 2 is enabled.
+    /// decryption of the session token.
     pub fn set_aad(&mut self, instance_id: &str) {
-        if let Some(ta) = self.token_authority.as_mut() {
-            ta.set_aad(instance_id);
-        }
+        self.token_authority.set_aad(instance_id);
     }
 
     /// Checks if the provided token has not expired.
-    pub fn is_valid_token(&self, token: &str) -> Result<bool, TokenError> {
-        self.token_authority
-            .as_ref()
-            .ok_or(TokenError::InvalidState)
-            .map(|ta| ta.is_valid(token))
+    pub fn is_valid_token(&self, token: &str) -> bool {
+        self.token_authority.is_valid(token)
     }
 
     /// Generate a new Mmds token using the token authority.
     pub fn generate_token(&mut self, ttl_seconds: u32) -> Result<String, TokenError> {
-        self.token_authority
-            .as_mut()
-            .ok_or(TokenError::InvalidState)
-            .and_then(|ta| ta.generate_token_secret(ttl_seconds))
+        self.token_authority.generate_token_secret(ttl_seconds)
     }
 
     /// set MMDS data store limit to `data_store_limit`
@@ -304,11 +282,11 @@ mod tests {
         assert_eq!(mmds.version(), MmdsVersion::V1);
 
         // Test setting MMDS version to v2.
-        mmds.set_version(MmdsVersion::V2).unwrap();
+        mmds.set_version(MmdsVersion::V2);
         assert_eq!(mmds.version(), MmdsVersion::V2);
 
-        // Test setting MMDS version back to default.
-        mmds.set_version(MmdsVersion::V1).unwrap();
+        // Test setting MMDS version back to v1.
+        mmds.set_version(MmdsVersion::V1);
         assert_eq!(mmds.version(), MmdsVersion::V1);
     }
 
@@ -592,38 +570,5 @@ mod tests {
         );
 
         assert_eq!(mmds.get_data_str().len(), 2);
-    }
-
-    #[test]
-    fn test_is_valid() {
-        let mut mmds = Mmds::default();
-        // Set MMDS version to V2.
-        mmds.set_version(MmdsVersion::V2).unwrap();
-        assert_eq!(mmds.version(), MmdsVersion::V2);
-
-        assert!(!mmds.is_valid_token("aaa").unwrap());
-
-        mmds.token_authority = None;
-        assert_eq!(
-            mmds.is_valid_token("aaa").unwrap_err().to_string(),
-            TokenError::InvalidState.to_string()
-        )
-    }
-
-    #[test]
-    fn test_generate_token() {
-        let mut mmds = Mmds::default();
-        // Set MMDS version to V2.
-        mmds.set_version(MmdsVersion::V2).unwrap();
-        assert_eq!(mmds.version(), MmdsVersion::V2);
-
-        let token = mmds.generate_token(1).unwrap();
-        assert!(mmds.is_valid_token(&token).unwrap());
-
-        mmds.token_authority = None;
-        assert_eq!(
-            mmds.generate_token(1).err().unwrap().to_string(),
-            TokenError::InvalidState.to_string()
-        );
     }
 }

@@ -17,11 +17,15 @@ use micro_http::{
     Body, HttpHeaderError, MediaType, Method, Request, RequestError, Response, StatusCode, Version,
 };
 use serde_json::{Map, Value};
-use token_headers::TokenHeaders;
 
+use crate::logger::{IncMetric, METRICS};
 use crate::mmds::data_store::{Mmds, MmdsDatastoreError as MmdsError, MmdsVersion, OutputFormat};
 use crate::mmds::token::PATH_TO_TOKEN;
-use crate::mmds::token_headers::REJECTED_HEADER;
+use crate::mmds::token_headers::{
+    X_AWS_EC2_METADATA_TOKEN_HEADER, X_AWS_EC2_METADATA_TOKEN_SSL_SECONDS_HEADER,
+    X_FORWARDED_FOR_HEADER, X_METADATA_TOKEN_HEADER, X_METADATA_TOKEN_TTL_SECONDS_HEADER,
+    get_header_value_pair,
+};
 
 #[rustfmt::skip]
 #[derive(Debug, thiserror::Error, displaydoc::Display)]
@@ -33,9 +37,9 @@ pub enum VmmMmdsError {
     InvalidURI,
     /// Not allowed HTTP method.
     MethodNotAllowed,
-    /// No MMDS token provided. Use `X-metadata-token` header to specify the session token.
+    /// No MMDS token provided. Use `X-metadata-token` or `X-aws-ec2-metadata-token` header to specify the session token.
     NoTokenProvided,
-    /// Token time to live value not found. Use `X-metadata-token-ttl-seconds` header to specify the token's lifetime.
+    /// Token time to live value not found. Use `X-metadata-token-ttl-seconds` or `X-aws-ec2-metadata-token-ttl-seconds` header to specify the token's lifetime.
     NoTtlProvided,
     /// Resource not found: {0}.
     ResourceNotFound(String),
@@ -106,6 +110,7 @@ fn sanitize_uri(mut uri: String) -> String {
 
 /// Build a response for `request` and return response based on MMDS version
 pub fn convert_to_response(mmds: Arc<Mutex<Mmds>>, request: Request) -> Response {
+    // Check URI is not empty
     let uri = request.uri().get_abs_path();
     if uri.is_empty() {
         return build_response(
@@ -118,47 +123,13 @@ pub fn convert_to_response(mmds: Arc<Mutex<Mmds>>, request: Request) -> Response
 
     let mut mmds_guard = mmds.lock().expect("Poisoned lock");
 
-    match mmds_guard.version() {
-        MmdsVersion::V1 => respond_to_request_mmdsv1(&mmds_guard, request),
-        MmdsVersion::V2 => respond_to_request_mmdsv2(&mut mmds_guard, request),
-    }
-}
-
-fn respond_to_request_mmdsv1(mmds: &Mmds, request: Request) -> Response {
-    // Allow only GET requests.
+    // Allow only GET and PUT requests
     match request.method() {
-        Method::Get => respond_to_get_request_unchecked(mmds, request),
-        _ => {
-            let mut response = build_response(
-                request.http_version(),
-                StatusCode::MethodNotAllowed,
-                MediaType::PlainText,
-                Body::new(VmmMmdsError::MethodNotAllowed.to_string()),
-            );
-            response.allow_method(Method::Get);
-            response
-        }
-    }
-}
-
-fn respond_to_request_mmdsv2(mmds: &mut Mmds, request: Request) -> Response {
-    // Fetch custom headers from request.
-    let token_headers = match TokenHeaders::try_from(request.headers.custom_entries()) {
-        Ok(token_headers) => token_headers,
-        Err(err) => {
-            return build_response(
-                request.http_version(),
-                StatusCode::BadRequest,
-                MediaType::PlainText,
-                Body::new(err.to_string()),
-            );
-        }
-    };
-
-    // Allow only GET and PUT requests.
-    match request.method() {
-        Method::Get => respond_to_get_request_checked(mmds, request, token_headers),
-        Method::Put => respond_to_put_request(mmds, request, token_headers),
+        Method::Get => match mmds_guard.version() {
+            MmdsVersion::V1 => respond_to_get_request_v1(&mmds_guard, request),
+            MmdsVersion::V2 => respond_to_get_request_v2(&mmds_guard, request),
+        },
+        Method::Put => respond_to_put_request(&mut mmds_guard, request),
         _ => {
             let mut response = build_response(
                 request.http_version(),
@@ -173,15 +144,33 @@ fn respond_to_request_mmdsv2(mmds: &mut Mmds, request: Request) -> Response {
     }
 }
 
-fn respond_to_get_request_checked(
-    mmds: &Mmds,
-    request: Request,
-    token_headers: TokenHeaders,
-) -> Response {
-    // Get MMDS token from custom headers.
-    let token = match token_headers.x_metadata_token() {
-        Some(token) => token,
+fn respond_to_get_request_v1(mmds: &Mmds, request: Request) -> Response {
+    match get_header_value_pair(
+        request.headers.custom_entries(),
+        &[X_METADATA_TOKEN_HEADER, X_AWS_EC2_METADATA_TOKEN_HEADER],
+    ) {
+        Some((_, token)) => {
+            if !mmds.is_valid_token(token) {
+                METRICS.mmds.rx_invalid_token.inc();
+            }
+        }
         None => {
+            METRICS.mmds.rx_no_token.inc();
+        }
+    }
+
+    respond_to_get_request(mmds, request)
+}
+
+fn respond_to_get_request_v2(mmds: &Mmds, request: Request) -> Response {
+    // Check whether a token exists.
+    let token = match get_header_value_pair(
+        request.headers.custom_entries(),
+        &[X_METADATA_TOKEN_HEADER, X_AWS_EC2_METADATA_TOKEN_HEADER],
+    ) {
+        Some((_, token)) => token,
+        None => {
+            METRICS.mmds.rx_no_token.inc();
             let error_msg = VmmMmdsError::NoTokenProvided.to_string();
             return build_response(
                 request.http_version(),
@@ -192,20 +181,22 @@ fn respond_to_get_request_checked(
         }
     };
 
-    // Validate MMDS token.
+    // Validate the token.
     match mmds.is_valid_token(token) {
-        Ok(true) => respond_to_get_request_unchecked(mmds, request),
-        Ok(false) => build_response(
-            request.http_version(),
-            StatusCode::Unauthorized,
-            MediaType::PlainText,
-            Body::new(VmmMmdsError::InvalidToken.to_string()),
-        ),
-        Err(_) => unreachable!(),
+        true => respond_to_get_request(mmds, request),
+        false => {
+            METRICS.mmds.rx_invalid_token.inc();
+            build_response(
+                request.http_version(),
+                StatusCode::Unauthorized,
+                MediaType::PlainText,
+                Body::new(VmmMmdsError::InvalidToken.to_string()),
+            )
+        }
     }
 }
 
-fn respond_to_get_request_unchecked(mmds: &Mmds, request: Request) -> Response {
+fn respond_to_get_request(mmds: &Mmds, request: Request) -> Response {
     let uri = request.uri().get_abs_path();
 
     // The data store expects a strict json path, so we need to
@@ -248,21 +239,14 @@ fn respond_to_get_request_unchecked(mmds: &Mmds, request: Request) -> Response {
     }
 }
 
-fn respond_to_put_request(
-    mmds: &mut Mmds,
-    request: Request,
-    token_headers: TokenHeaders,
-) -> Response {
+fn respond_to_put_request(mmds: &mut Mmds, request: Request) -> Response {
+    let custom_headers = request.headers.custom_entries();
+
     // Reject `PUT` requests that contain `X-Forwarded-For` header.
-    if request
-        .headers
-        .custom_entries()
-        .contains_key(REJECTED_HEADER)
-    {
-        let error_msg = RequestError::HeaderError(HttpHeaderError::UnsupportedName(
-            REJECTED_HEADER.to_string(),
-        ))
-        .to_string();
+    if let Some((header, _)) = get_header_value_pair(custom_headers, &[X_FORWARDED_FOR_HEADER]) {
+        let error_msg =
+            RequestError::HeaderError(HttpHeaderError::UnsupportedName(header.to_string()))
+                .to_string();
         return build_response(
             request.http_version(),
             StatusCode::BadRequest,
@@ -287,8 +271,32 @@ fn respond_to_put_request(
     }
 
     // Get token lifetime value.
-    let ttl_seconds = match token_headers.x_metadata_token_ttl_seconds() {
-        Some(ttl_seconds) => ttl_seconds,
+    let ttl_seconds = match get_header_value_pair(
+        custom_headers,
+        &[
+            X_METADATA_TOKEN_TTL_SECONDS_HEADER,
+            X_AWS_EC2_METADATA_TOKEN_SSL_SECONDS_HEADER,
+        ],
+    ) {
+        // Header found
+        Some((k, v)) => match v.parse::<u32>() {
+            Ok(ttl_seconds) => ttl_seconds,
+            Err(_) => {
+                return build_response(
+                    request.http_version(),
+                    StatusCode::BadRequest,
+                    MediaType::PlainText,
+                    Body::new(
+                        RequestError::HeaderError(HttpHeaderError::InvalidValue(
+                            k.into(),
+                            v.into(),
+                        ))
+                        .to_string(),
+                    ),
+                );
+            }
+        },
+        // Header not found
         None => {
             return build_response(
                 request.http_version(),
@@ -430,7 +438,7 @@ mod tests {
         // Test with empty `Accept` header. micro-http defaults to `Accept: text/plain`.
         let (request, expected_response) = generate_request_and_expected_response(
             b"GET http://169.254.169.254/ HTTP/1.0\r\n\"
-            Accept:\r\n\r\n",
+              Accept:\r\n\r\n",
             MediaType::PlainText,
         );
         assert_eq!(
@@ -441,7 +449,7 @@ mod tests {
         // Test with `Accept: */*` header.
         let (request, expected_response) = generate_request_and_expected_response(
             b"GET http://169.254.169.254/ HTTP/1.0\r\n\"
-            Accept: */*\r\n\r\n",
+              Accept: */*\r\n\r\n",
             MediaType::PlainText,
         );
         assert_eq!(
@@ -452,7 +460,7 @@ mod tests {
         // Test with `Accept: text/plain`.
         let (request, expected_response) = generate_request_and_expected_response(
             b"GET http://169.254.169.254/ HTTP/1.0\r\n\
-            Accept: text/plain\r\n\r\n",
+              Accept: text/plain\r\n\r\n",
             MediaType::PlainText,
         );
         assert_eq!(
@@ -463,285 +471,378 @@ mod tests {
         // Test with `Accept: application/json`.
         let (request, expected_response) = generate_request_and_expected_response(
             b"GET http://169.254.169.254/ HTTP/1.0\r\n\
-            Accept: application/json\r\n\r\n",
+              Accept: application/json\r\n\r\n",
             MediaType::ApplicationJson,
         );
         assert_eq!(convert_to_response(mmds, request), expected_response);
     }
 
+    // Test the version-independent error paths of `convert_to_response()`.
     #[test]
-    fn test_respond_to_request_mmdsv1() {
-        // Populate MMDS with data.
-        let mmds = populate_mmds();
+    fn test_convert_to_response_negative() {
+        for version in [MmdsVersion::V1, MmdsVersion::V2] {
+            let mmds = populate_mmds();
+            mmds.lock().expect("Poisoned lock").set_version(version);
 
-        // Set version to V1.
-        mmds.lock()
-            .expect("Poisoned lock")
-            .set_version(MmdsVersion::V1)
-            .unwrap();
-        assert_eq!(
-            mmds.lock().expect("Poisoned lock").version(),
-            MmdsVersion::V1
-        );
+            // Test InvalidURI (empty absolute path).
+            let request = Request::try_from(b"GET http:// HTTP/1.0\r\n\r\n", None).unwrap();
+            let mut expected_response = Response::new(Version::Http10, StatusCode::BadRequest);
+            expected_response.set_content_type(MediaType::PlainText);
+            expected_response.set_body(Body::new(VmmMmdsError::InvalidURI.to_string()));
+            let actual_response = convert_to_response(mmds.clone(), request);
+            assert_eq!(actual_response, expected_response);
 
-        // Test resource not found.
-        let request_bytes = b"GET http://169.254.169.254/invalid HTTP/1.0\r\n\r\n";
-        let request = Request::try_from(request_bytes, None).unwrap();
-        let mut expected_response = Response::new(Version::Http10, StatusCode::NotFound);
-        expected_response.set_content_type(MediaType::PlainText);
-        expected_response.set_body(Body::new(
-            VmmMmdsError::ResourceNotFound(String::from("/invalid")).to_string(),
-        ));
-        let actual_response = convert_to_response(mmds.clone(), request);
-        assert_eq!(actual_response, expected_response);
-
-        // Test NotImplemented.
-        let request_bytes = b"GET /age HTTP/1.1\r\n\r\n";
-        let request = Request::try_from(request_bytes, None).unwrap();
-        let mut expected_response = Response::new(Version::Http11, StatusCode::NotImplemented);
-        expected_response.set_content_type(MediaType::PlainText);
-        let body = "Cannot retrieve value. The value has an unsupported type.".to_string();
-        expected_response.set_body(Body::new(body));
-        let actual_response = convert_to_response(mmds.clone(), request);
-        assert_eq!(actual_response, expected_response);
-
-        // Test not allowed HTTP Method.
-        let not_allowed_methods = ["PUT", "PATCH"];
-        for method in not_allowed_methods.iter() {
-            let request_bytes = format!("{} http://169.254.169.255/ HTTP/1.0\r\n\r\n", method);
-            let request = Request::try_from(request_bytes.as_bytes(), None).unwrap();
+            // Test MethodNotAllowed (PATCH method).
+            let request =
+                Request::try_from(b"PATCH http://169.254.169.255/ HTTP/1.0\r\n\r\n", None).unwrap();
             let mut expected_response =
                 Response::new(Version::Http10, StatusCode::MethodNotAllowed);
             expected_response.set_content_type(MediaType::PlainText);
             expected_response.set_body(Body::new(VmmMmdsError::MethodNotAllowed.to_string()));
             expected_response.allow_method(Method::Get);
+            expected_response.allow_method(Method::Put);
             let actual_response = convert_to_response(mmds.clone(), request);
             assert_eq!(actual_response, expected_response);
         }
+    }
 
-        // Test invalid (empty absolute path) URI.
-        let request_bytes = b"GET http:// HTTP/1.0\r\n\r\n";
-        let request = Request::try_from(request_bytes, None).unwrap();
-        let mut expected_response = Response::new(Version::Http10, StatusCode::BadRequest);
-        expected_response.set_content_type(MediaType::PlainText);
-        expected_response.set_body(Body::new(VmmMmdsError::InvalidURI.to_string()));
+    #[test]
+    fn test_respond_to_request_mmdsv1() {
+        let mmds = populate_mmds();
+        mmds.lock()
+            .expect("Poisoned lock")
+            .set_version(MmdsVersion::V1);
+
+        // Test valid v1 GET request.
+        let (request, expected_response) = generate_request_and_expected_response(
+            b"GET http://169.254.169.254/ HTTP/1.0\r\n\
+              Accept: application/json\r\n\r\n",
+            MediaType::ApplicationJson,
+        );
+        let prev_rx_invalid_token = METRICS.mmds.rx_invalid_token.count();
+        let prev_rx_no_token = METRICS.mmds.rx_no_token.count();
         let actual_response = convert_to_response(mmds.clone(), request);
         assert_eq!(actual_response, expected_response);
+        assert_eq!(prev_rx_invalid_token, METRICS.mmds.rx_invalid_token.count());
+        assert_eq!(prev_rx_no_token + 1, METRICS.mmds.rx_no_token.count());
 
-        // Test invalid custom header value is ignored when V1 is configured.
-        let request_bytes = b"GET http://169.254.169.254/name/first HTTP/1.0\r\n\
-                                    Accept: application/json\r\n
-                                    X-metadata-token-ttl-seconds: application/json\r\n\r\n";
-        let request = Request::try_from(request_bytes, None).unwrap();
-        let mut expected_response = Response::new(Version::Http10, StatusCode::OK);
-        expected_response.set_body(Body::new("\"John\""));
+        // Test valid PUT request to generate a valid token.
+        let request = Request::try_from(
+            b"PUT http://169.254.169.254/latest/api/token HTTP/1.0\r\n\
+              X-metadata-token-ttl-seconds: 60\r\n\r\n",
+            None,
+        )
+        .unwrap();
+        let actual_response = convert_to_response(mmds.clone(), request);
+        assert_eq!(actual_response.status(), StatusCode::OK);
+        assert_eq!(actual_response.content_type(), MediaType::PlainText);
+        let valid_token = String::from_utf8(actual_response.body().unwrap().body).unwrap();
+
+        // Test valid v2 GET request.
+        #[rustfmt::skip]
+        let (request, expected_response) = generate_request_and_expected_response(
+            format!(
+                "GET http://169.254.169.254/ HTTP/1.0\r\n\
+                 Accept: application/json\r\n\
+                 X-metadata-token: {valid_token}\r\n\r\n",
+            )
+            .as_bytes(),
+            MediaType::ApplicationJson,
+        );
+        let prev_rx_invalid_token = METRICS.mmds.rx_invalid_token.count();
+        let prev_rx_no_token = METRICS.mmds.rx_no_token.count();
         let actual_response = convert_to_response(mmds.clone(), request);
         assert_eq!(actual_response, expected_response);
+        assert_eq!(prev_rx_invalid_token, METRICS.mmds.rx_invalid_token.count());
+        assert_eq!(prev_rx_no_token, METRICS.mmds.rx_no_token.count());
 
-        // Test Ok path.
-        let request_bytes = b"GET http://169.254.169.254/ HTTP/1.0\r\n\
-                                    Accept: application/json\r\n\r\n";
-        let request = Request::try_from(request_bytes, None).unwrap();
-        let mut expected_response = Response::new(Version::Http10, StatusCode::OK);
-        let mut body = get_json_data().to_string();
-        body.retain(|c| !c.is_whitespace());
-        expected_response.set_body(Body::new(body));
+        // Test GET request with invalid token is accepted when v1 is configured.
+        let (request, expected_response) = generate_request_and_expected_response(
+            b"GET http://169.254.169.254/ HTTP/1.0\r\n\
+              Accept: application/json\r\n\
+              X-metadata-token: INVALID_TOKEN\r\n\r\n",
+            MediaType::ApplicationJson,
+        );
+        let prev_rx_invalid_token = METRICS.mmds.rx_invalid_token.count();
+        let prev_rx_no_token = METRICS.mmds.rx_no_token.count();
         let actual_response = convert_to_response(mmds, request);
         assert_eq!(actual_response, expected_response);
+        assert_eq!(
+            prev_rx_invalid_token + 1,
+            METRICS.mmds.rx_invalid_token.count()
+        );
+        assert_eq!(prev_rx_no_token, METRICS.mmds.rx_no_token.count());
     }
 
     #[test]
     fn test_respond_to_request_mmdsv2() {
-        // Populate MMDS with data.
         let mmds = populate_mmds();
-
-        // Set version to V2.
         mmds.lock()
             .expect("Poisoned lock")
-            .set_version(MmdsVersion::V2)
-            .unwrap();
-        assert_eq!(
-            mmds.lock().expect("Poisoned lock").version(),
-            MmdsVersion::V2
-        );
+            .set_version(MmdsVersion::V2);
 
-        // Test not allowed PATCH HTTP Method.
-        let request_bytes = b"PATCH http://169.254.169.255/ HTTP/1.0\r\n\r\n";
-        let request = Request::try_from(request_bytes, None).unwrap();
-        let mut expected_response = Response::new(Version::Http10, StatusCode::MethodNotAllowed);
-        expected_response.set_content_type(MediaType::PlainText);
-        expected_response.set_body(Body::new(VmmMmdsError::MethodNotAllowed.to_string()));
-        expected_response.allow_method(Method::Get);
-        expected_response.allow_method(Method::Put);
-        let actual_response = convert_to_response(mmds.clone(), request);
-        assert_eq!(actual_response, expected_response);
-
-        // Test invalid value for custom header.
-        let request_bytes = b"GET http://169.254.169.254/ HTTP/1.0\r\n\
-                                    Accept: application/json\r\n
-                                    X-metadata-token-ttl-seconds: application/json\r\n\r\n";
-        let request = Request::try_from(request_bytes, None).unwrap();
-        let mut expected_response = Response::new(Version::Http10, StatusCode::BadRequest);
-        expected_response.set_content_type(MediaType::PlainText);
-        expected_response.set_body(Body::new(
-            "Invalid header. Reason: Invalid value. Key:X-metadata-token-ttl-seconds; \
-             Value:application/json"
-                .to_string(),
-        ));
-        let actual_response = convert_to_response(mmds.clone(), request);
-        assert_eq!(actual_response, expected_response);
-
-        // Test PUT requests.
-        // Unsupported `X-Forwarded-For` header present.
-        let request_bytes = b"PUT http://169.254.169.254/latest/api/token HTTP/1.0\r\n\
-                                    X-Forwarded-For: 203.0.113.195\r\n\r\n";
-        let request = Request::try_from(request_bytes, None).unwrap();
-        let mut expected_response = Response::new(Version::Http10, StatusCode::BadRequest);
-        expected_response.set_content_type(MediaType::PlainText);
-        expected_response.set_body(Body::new(
-            "Invalid header. Reason: Unsupported header name. Key: X-Forwarded-For".to_string(),
-        ));
-        let actual_response = convert_to_response(mmds.clone(), request);
-        assert_eq!(actual_response, expected_response);
-
-        // Test invalid path.
-        let request_bytes = b"PUT http://169.254.169.254/token HTTP/1.0\r\n\
-                                    X-metadata-token-ttl-seconds: 60\r\n\r\n";
-        let request = Request::try_from(request_bytes, None).unwrap();
-        let mut expected_response = Response::new(Version::Http10, StatusCode::NotFound);
-        expected_response.set_content_type(MediaType::PlainText);
-        expected_response.set_body(Body::new(
-            VmmMmdsError::ResourceNotFound(String::from("/token")).to_string(),
-        ));
-        let actual_response = convert_to_response(mmds.clone(), request);
-        assert_eq!(actual_response, expected_response);
-
-        // Test invalid lifetime values for token.
-        let invalid_values = [MIN_TOKEN_TTL_SECONDS - 1, MAX_TOKEN_TTL_SECONDS + 1];
-        for invalid_value in invalid_values.iter() {
-            let request_bytes = format!(
-                "PUT http://169.254.169.254/latest/api/token \
-                 HTTP/1.0\r\nX-metadata-token-ttl-seconds: {}\r\n\r\n",
-                invalid_value
-            );
-            let request = Request::try_from(request_bytes.as_bytes(), None).unwrap();
-            let mut expected_response = Response::new(Version::Http10, StatusCode::BadRequest);
-            expected_response.set_content_type(MediaType::PlainText);
-            let error_msg = format!(
-                "Invalid time to live value provided for token: {}. Please provide a value \
-                 between {} and {}.",
-                invalid_value, MIN_TOKEN_TTL_SECONDS, MAX_TOKEN_TTL_SECONDS
-            );
-            expected_response.set_body(Body::new(error_msg));
-            let actual_response = convert_to_response(mmds.clone(), request);
-            assert_eq!(actual_response, expected_response);
-        }
-
-        // Test no lifetime value provided for token.
-        let request_bytes = b"PUT http://169.254.169.254/latest/api/token HTTP/1.0\r\n\r\n";
-        let request = Request::try_from(request_bytes, None).unwrap();
-        let mut expected_response = Response::new(Version::Http10, StatusCode::BadRequest);
-        expected_response.set_content_type(MediaType::PlainText);
-        expected_response.set_body(Body::new(VmmMmdsError::NoTtlProvided.to_string()));
-        let actual_response = convert_to_response(mmds.clone(), request);
-        assert_eq!(actual_response, expected_response);
-
-        // Test valid PUT.
-        let request_bytes = b"PUT http://169.254.169.254/latest/api/token HTTP/1.0\r\n\
-                                    X-metadata-token-ttl-seconds: 60\r\n\r\n";
-        let request = Request::try_from(request_bytes, None).unwrap();
+        // Test valid PUT to generate a valid token.
+        let request = Request::try_from(
+            b"PUT http://169.254.169.254/latest/api/token HTTP/1.0\r\n\
+              X-metadata-token-ttl-seconds: 60\r\n\r\n",
+            None,
+        )
+        .unwrap();
         let actual_response = convert_to_response(mmds.clone(), request);
         assert_eq!(actual_response.status(), StatusCode::OK);
         assert_eq!(actual_response.content_type(), MediaType::PlainText);
+        let valid_token = String::from_utf8(actual_response.body().unwrap().body).unwrap();
 
         // Test valid GET.
-        let valid_token = String::from_utf8(actual_response.body().unwrap().body).unwrap();
-        let request_bytes = format!(
-            "GET http://169.254.169.254/ HTTP/1.0\r\nAccept: \
-             application/json\r\nX-metadata-token: {}\r\n\r\n",
-            valid_token
+        #[rustfmt::skip]
+        let (request, expected_response) = generate_request_and_expected_response(
+            format!(
+                "GET http://169.254.169.254/ HTTP/1.0\r\n\
+                 Accept: application/json\r\n\
+                 X-metadata-token: {valid_token}\r\n\r\n",
+            )
+            .as_bytes(),
+            MediaType::ApplicationJson,
         );
-        let request = Request::try_from(request_bytes.as_bytes(), None).unwrap();
-        let mut expected_response = Response::new(Version::Http10, StatusCode::OK);
-        let mut body = get_json_data().to_string();
-        body.retain(|c| !c.is_whitespace());
-        expected_response.set_body(Body::new(body));
+        let prev_rx_invalid_token = METRICS.mmds.rx_invalid_token.count();
+        let prev_rx_no_token = METRICS.mmds.rx_no_token.count();
         let actual_response = convert_to_response(mmds.clone(), request);
         assert_eq!(actual_response, expected_response);
-
-        // Test GET request towards unsupported value type.
-        let request_bytes = format!(
-            "GET /age HTTP/1.1\r\nX-metadata-token: {}\r\n\r\n",
-            valid_token
-        );
-        let request = Request::try_from(request_bytes.as_bytes(), None).unwrap();
-        let mut expected_response = Response::new(Version::Http11, StatusCode::NotImplemented);
-        expected_response.set_content_type(MediaType::PlainText);
-        let body = "Cannot retrieve value. The value has an unsupported type.".to_string();
-        expected_response.set_body(Body::new(body));
-        let actual_response = convert_to_response(mmds.clone(), request);
-        assert_eq!(actual_response, expected_response);
-
-        // Test GET request towards invalid resource.
-        let request_bytes = format!(
-            "GET http://169.254.169.254/invalid HTTP/1.0\r\nX-metadata-token: {}\r\n\r\n",
-            valid_token
-        );
-        let request = Request::try_from(request_bytes.as_bytes(), None).unwrap();
-        let mut expected_response = Response::new(Version::Http10, StatusCode::NotFound);
-        expected_response.set_content_type(MediaType::PlainText);
-        expected_response.set_body(Body::new(
-            VmmMmdsError::ResourceNotFound(String::from("/invalid")).to_string(),
-        ));
-        let actual_response = convert_to_response(mmds.clone(), request);
-        assert_eq!(actual_response, expected_response);
+        assert_eq!(prev_rx_invalid_token, METRICS.mmds.rx_invalid_token.count());
+        assert_eq!(prev_rx_no_token, METRICS.mmds.rx_no_token.count());
 
         // Test GET request without token should return Unauthorized status code.
-        let request_bytes = b"GET http://169.254.169.254/ HTTP/1.0\r\n\r\n";
-        let request = Request::try_from(request_bytes, None).unwrap();
+        let request =
+            Request::try_from(b"GET http://169.254.169.254/ HTTP/1.0\r\n\r\n", None).unwrap();
         let mut expected_response = Response::new(Version::Http10, StatusCode::Unauthorized);
         expected_response.set_content_type(MediaType::PlainText);
         expected_response.set_body(Body::new(VmmMmdsError::NoTokenProvided.to_string()));
+        let prev_rx_no_token = METRICS.mmds.rx_no_token.count();
         let actual_response = convert_to_response(mmds.clone(), request);
         assert_eq!(actual_response, expected_response);
+        assert_eq!(prev_rx_no_token + 1, METRICS.mmds.rx_no_token.count());
 
-        // Test GET request with invalid token should return Unauthorized status code.
-        let request_bytes = b"GET http://169.254.169.254/ HTTP/1.0\r\n\
-                                    X-metadata-token: foo\r\n\r\n";
-        let request = Request::try_from(request_bytes, None).unwrap();
-        let mut expected_response = Response::new(Version::Http10, StatusCode::Unauthorized);
-        expected_response.set_content_type(MediaType::PlainText);
-        expected_response.set_body(Body::new(VmmMmdsError::InvalidToken.to_string()));
-        let actual_response = convert_to_response(mmds.clone(), request);
-        assert_eq!(actual_response, expected_response);
-
-        // Create a new MMDS token that expires in one second.
-        let request_bytes = b"PUT http://169.254.169.254/latest/api/token HTTP/1.0\r\n\
-                                    X-metadata-token-ttl-seconds: 1\r\n\r\n";
-        let request = Request::try_from(request_bytes, None).unwrap();
+        // Create an expired token.
+        let request = Request::try_from(
+            b"PUT http://169.254.169.254/latest/api/token HTTP/1.0\r\n\
+              X-metadata-token-ttl-seconds: 1\r\n\r\n",
+            None,
+        )
+        .unwrap();
         let actual_response = convert_to_response(mmds.clone(), request);
         assert_eq!(actual_response.status(), StatusCode::OK);
         assert_eq!(actual_response.content_type(), MediaType::PlainText);
+        let expired_token = String::from_utf8(actual_response.body().unwrap().body).unwrap();
+        std::thread::sleep(Duration::from_secs(1));
 
         // Test GET request with invalid tokens.
-        // `valid_token` will become invalid after one second, when it expires.
-        let valid_token = String::from_utf8(actual_response.body().unwrap().body).unwrap();
-        let invalid_token = "a".repeat(58);
-        let tokens = [invalid_token, valid_token];
+        let tokens = ["INVALID_TOKEN", &expired_token];
         for token in tokens.iter() {
-            let request_bytes = format!(
-                "GET http://169.254.169.254/ HTTP/1.0\r\nX-metadata-token: {}\r\n\r\n",
-                token
-            );
-            let request = Request::try_from(request_bytes.as_bytes(), None).unwrap();
+            #[rustfmt::skip]
+            let request = Request::try_from(
+                format!(
+                    "GET http://169.254.169.254/ HTTP/1.0\r\n\
+                     X-metadata-token: {token}\r\n\r\n",
+                )
+                .as_bytes(),
+                None,
+            )
+            .unwrap();
             let mut expected_response = Response::new(Version::Http10, StatusCode::Unauthorized);
             expected_response.set_content_type(MediaType::PlainText);
             expected_response.set_body(Body::new(VmmMmdsError::InvalidToken.to_string()));
+            let prev_rx_invalid_token = METRICS.mmds.rx_invalid_token.count();
+            let prev_rx_no_token = METRICS.mmds.rx_no_token.count();
+            let actual_response = convert_to_response(mmds.clone(), request);
+            assert_eq!(actual_response, expected_response);
+            assert_eq!(
+                prev_rx_invalid_token + 1,
+                METRICS.mmds.rx_invalid_token.count()
+            );
+            assert_eq!(prev_rx_no_token, METRICS.mmds.rx_no_token.count());
+        }
+    }
+
+    // Test the version-independent parts of GET request
+    #[test]
+    fn test_respond_to_get_request() {
+        for version in [MmdsVersion::V1, MmdsVersion::V2] {
+            let mmds = populate_mmds();
+            mmds.lock().expect("Poisoned lock").set_version(version);
+
+            // Generate a token
+            let request = Request::try_from(
+                b"PUT http://169.254.169.254/latest/api/token HTTP/1.0\r\n\
+                  X-metadata-token-ttl-seconds: 60\r\n\r\n",
+                None,
+            )
+            .unwrap();
+            let actual_response = convert_to_response(mmds.clone(), request);
+            assert_eq!(actual_response.status(), StatusCode::OK);
+            assert_eq!(actual_response.content_type(), MediaType::PlainText);
+            let valid_token = String::from_utf8(actual_response.body().unwrap().body).unwrap();
+
+            // Test invalid path
+            #[rustfmt::skip]
+            let request = Request::try_from(
+                format!(
+                    "GET http://169.254.169.254/invalid HTTP/1.0\r\n\
+                     X-metadata-token: {valid_token}\r\n\r\n",
+                )
+                .as_bytes(),
+                None,
+            )
+            .unwrap();
+            let mut expected_response = Response::new(Version::Http10, StatusCode::NotFound);
+            expected_response.set_content_type(MediaType::PlainText);
+            expected_response.set_body(Body::new(
+                VmmMmdsError::ResourceNotFound(String::from("/invalid")).to_string(),
+            ));
             let actual_response = convert_to_response(mmds.clone(), request);
             assert_eq!(actual_response, expected_response);
 
-            // Wait for the second token to expire.
-            std::thread::sleep(Duration::from_secs(1));
+            // Test unsupported type
+            #[rustfmt::skip]
+            let request = Request::try_from(
+                format!(
+                    "GET /age HTTP/1.1\r\n\
+                     X-metadata-token: {valid_token}\r\n\r\n",
+                )
+                .as_bytes(),
+                None,
+            )
+            .unwrap();
+            let mut expected_response = Response::new(Version::Http11, StatusCode::NotImplemented);
+            expected_response.set_content_type(MediaType::PlainText);
+            let body = "Cannot retrieve value. The value has an unsupported type.".to_string();
+            expected_response.set_body(Body::new(body));
+            let actual_response = convert_to_response(mmds.clone(), request);
+            assert_eq!(actual_response, expected_response);
+
+            // Test invalid `X-metadata-token-ttl-seconds` value is ignored if not PUT request.
+            #[rustfmt::skip]
+            let (request, expected_response) = generate_request_and_expected_response(
+                format!(
+                    "GET http://169.254.169.254/ HTTP/1.0\r\n\
+                     X-metadata-token: {valid_token}\r\n\
+                     X-metadata-token-ttl-seconds: application/json\r\n\r\n",
+                )
+                .as_bytes(),
+                MediaType::PlainText,
+            );
+            let actual_response = convert_to_response(mmds.clone(), request);
+            assert_eq!(actual_response, expected_response);
+        }
+    }
+
+    // Test PUT request (version-independent)
+    #[test]
+    fn test_respond_to_put_request() {
+        for version in [MmdsVersion::V1, MmdsVersion::V2] {
+            let mmds = populate_mmds();
+            mmds.lock().expect("Poisoned lock").set_version(version);
+
+            // Test valid PUT
+            let request = Request::try_from(
+                b"PUT http://169.254.169.254/latest/api/token HTTP/1.0\r\n\
+                  X-metadata-token-ttl-seconds: 60\r\n\r\n",
+                None,
+            )
+            .unwrap();
+            let actual_response = convert_to_response(mmds.clone(), request);
+            assert_eq!(actual_response.status(), StatusCode::OK);
+            assert_eq!(actual_response.content_type(), MediaType::PlainText);
+
+            // Test unsupported `X-Forwarded-For` header
+            for header in ["X-Forwarded-For", "x-forwarded-for", "X-fOrWaRdEd-FoR"] {
+                #[rustfmt::skip]
+                let request = Request::try_from(
+                    format!(
+                        "PUT http://169.254.169.254/latest/api/token HTTP/1.0\r\n\
+                         {header}: 203.0.113.195\r\n\r\n"
+                    )
+                    .as_bytes(),
+                    None,
+                )
+                .unwrap();
+                let mut expected_response = Response::new(Version::Http10, StatusCode::BadRequest);
+                expected_response.set_content_type(MediaType::PlainText);
+                expected_response.set_body(Body::new(format!(
+                    "Invalid header. Reason: Unsupported header name. Key: {header}"
+                )));
+                let actual_response = convert_to_response(mmds.clone(), request);
+                assert_eq!(actual_response, expected_response);
+            }
+
+            // Test invalid path
+            let request = Request::try_from(
+                b"PUT http://169.254.169.254/token HTTP/1.0\r\n\
+                  X-metadata-token-ttl-seconds: 60\r\n\r\n",
+                None,
+            )
+            .unwrap();
+            let mut expected_response = Response::new(Version::Http10, StatusCode::NotFound);
+            expected_response.set_content_type(MediaType::PlainText);
+            expected_response.set_body(Body::new(
+                VmmMmdsError::ResourceNotFound(String::from("/token")).to_string(),
+            ));
+            let actual_response = convert_to_response(mmds.clone(), request);
+            assert_eq!(actual_response, expected_response);
+
+            // Test non-numeric `X-metadata-token-ttl-seconds` value
+            let request = Request::try_from(
+                b"PUT http://169.254.169.254/latest/api/token HTTP/1.0\r\n\
+                  X-metadata-token-ttl-seconds: application/json\r\n\r\n",
+                None,
+            )
+            .unwrap();
+            let mut expected_response = Response::new(Version::Http10, StatusCode::BadRequest);
+            expected_response.set_content_type(MediaType::PlainText);
+            #[rustfmt::skip]
+            expected_response.set_body(Body::new(
+                "Invalid header. Reason: Invalid value. \
+                 Key:X-metadata-token-ttl-seconds; Value:application/json"
+                    .to_string(),
+            ));
+            let actual_response = convert_to_response(mmds.clone(), request);
+            assert_eq!(actual_response, expected_response);
+
+            // Test out-of-range `X-metadata-token-ttl-seconds` value
+            let invalid_values = [MIN_TOKEN_TTL_SECONDS - 1, MAX_TOKEN_TTL_SECONDS + 1];
+            for invalid_value in invalid_values.iter() {
+                #[rustfmt::skip]
+                let request = Request::try_from(
+                    format!(
+                        "PUT http://169.254.169.254/latest/api/token HTTP/1.0\r\n\
+                         X-metadata-token-ttl-seconds: {invalid_value}\r\n\r\n",
+                    )
+                    .as_bytes(),
+                    None,
+                )
+                .unwrap();
+                let mut expected_response = Response::new(Version::Http10, StatusCode::BadRequest);
+                expected_response.set_content_type(MediaType::PlainText);
+                #[rustfmt::skip]
+                let error_msg = format!(
+                    "Invalid time to live value provided for token: {invalid_value}. \
+                     Please provide a value between {MIN_TOKEN_TTL_SECONDS} and {MAX_TOKEN_TTL_SECONDS}.",
+                );
+                expected_response.set_body(Body::new(error_msg));
+                let actual_response = convert_to_response(mmds.clone(), request);
+                assert_eq!(actual_response, expected_response);
+            }
+
+            // Test lack of `X-metadata-token-ttl-seconds` header
+            let request = Request::try_from(
+                b"PUT http://169.254.169.254/latest/api/token HTTP/1.0\r\n\r\n",
+                None,
+            )
+            .unwrap();
+            let mut expected_response = Response::new(Version::Http10, StatusCode::BadRequest);
+            expected_response.set_content_type(MediaType::PlainText);
+            expected_response.set_body(Body::new(VmmMmdsError::NoTtlProvided.to_string()));
+            let actual_response = convert_to_response(mmds.clone(), request);
+            assert_eq!(actual_response, expected_response);
         }
     }
 
@@ -815,13 +916,14 @@ mod tests {
 
         assert_eq!(
             VmmMmdsError::NoTokenProvided.to_string(),
-            "No MMDS token provided. Use `X-metadata-token` header to specify the session token."
+            "No MMDS token provided. Use `X-metadata-token` or `X-aws-ec2-metadata-token` header \
+             to specify the session token."
         );
 
         assert_eq!(
             VmmMmdsError::NoTtlProvided.to_string(),
-            "Token time to live value not found. Use `X-metadata-token-ttl-seconds` header to \
-             specify the token's lifetime."
+            "Token time to live value not found. Use `X-metadata-token-ttl-seconds` or \
+             `X-aws-ec2-metadata-token-ttl-seconds` header to specify the token's lifetime."
         );
 
         assert_eq!(

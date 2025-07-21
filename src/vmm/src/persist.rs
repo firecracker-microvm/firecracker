@@ -39,7 +39,7 @@ use crate::vstate::kvm::KvmState;
 use crate::vstate::memory;
 use crate::vstate::memory::{GuestMemoryState, GuestRegionMmap, MemoryError};
 use crate::vstate::vcpu::{VcpuSendEventError, VcpuState};
-use crate::vstate::vm::VmState;
+use crate::vstate::vm::{VmError, VmState};
 use crate::{EventManager, Vmm, vstate};
 
 /// Holds information related to the VM that is not part of VmState.
@@ -132,7 +132,7 @@ pub enum MicrovmStateError {
 #[derive(Debug, thiserror::Error, displaydoc::Display)]
 pub enum CreateSnapshotError {
     /// Cannot get dirty bitmap: {0}
-    DirtyBitmap(#[from] vmm_sys_util::errno::Error),
+    DirtyBitmap(#[from] VmError),
     /// Cannot write memory file: {0}
     Memory(#[from] MemoryError),
     /// Cannot perform {0} on the memory backing file: {1}
@@ -242,22 +242,22 @@ pub fn validate_cpu_manufacturer_id(microvm_state: &MicrovmState) {
     let host_cpu_id = get_manufacturer_id_from_host();
     let snapshot_cpu_id = microvm_state.vcpu_states[0].regs.manifacturer_id();
     match (host_cpu_id, snapshot_cpu_id) {
-        (Ok(host_id), Some(snapshot_id)) => {
+        (Some(host_id), Some(snapshot_id)) => {
             info!("Host CPU manufacturer ID: {host_id:?}");
             info!("Snapshot CPU manufacturer ID: {snapshot_id:?}");
             if host_id != snapshot_id {
                 warn!("Host CPU manufacturer ID differs from the snapshotted one",);
             }
         }
-        (Ok(host_id), None) => {
+        (Some(host_id), None) => {
             info!("Host CPU manufacturer ID: {host_id:?}");
             warn!("Snapshot CPU manufacturer ID: couldn't get from the snapshot");
         }
-        (Err(_), Some(snapshot_id)) => {
+        (None, Some(snapshot_id)) => {
             warn!("Host CPU manufacturer ID: couldn't get from the host");
             info!("Snapshot CPU manufacturer ID: {snapshot_id:?}");
         }
-        (Err(_), None) => {
+        (None, None) => {
             warn!("Host CPU manufacturer ID: couldn't get from the host");
             warn!("Snapshot CPU manufacturer ID: couldn't get from the snapshot");
         }
@@ -339,7 +339,7 @@ pub fn restore_from_snapshot(
             .map(|device_state| device_state.tap_if_name.clone_from(&entry.host_dev_name))
             .ok_or(SnapshotStateFromFileError::UnknownNetworkDevice)?;
     }
-    let track_dirty_pages = params.enable_diff_snapshots;
+    let track_dirty_pages = params.track_dirty_pages;
 
     let vcpu_count = microvm_state
         .vcpu_states

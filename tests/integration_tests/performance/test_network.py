@@ -11,7 +11,7 @@ import pytest
 from framework.utils_iperf import IPerf3Test, emit_iperf3_metrics
 
 
-def consume_ping_output(ping_putput, request_per_round):
+def consume_ping_output(ping_putput):
     """Consume ping output.
 
     Output example:
@@ -29,12 +29,12 @@ def consume_ping_output(ping_putput, request_per_round):
     assert len(output) > 2
 
     # Compute percentiles.
-    seqs = output[1 : request_per_round + 1]
     pattern_time = ".+ bytes from .+: icmp_seq=.+ ttl=.+ time=(.+) ms"
-    for seq in seqs:
+    for seq in output:
         time = re.findall(pattern_time, seq)
-        assert len(time) == 1
-        yield float(time[0])
+        if time:
+            assert len(time) == 1
+            yield float(time[0])
 
 
 @pytest.fixture
@@ -81,7 +81,7 @@ def test_network_latency(network_microvm, metrics):
             f"ping -c {request_per_round} -i {delay} {host_ip}"
         )
 
-        samples.extend(consume_ping_output(ping_output, request_per_round))
+        samples.extend(consume_ping_output(ping_output))
 
     for sample in samples:
         metrics.put_metric("ping_latency", sample, "Milliseconds")

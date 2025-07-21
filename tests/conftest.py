@@ -427,7 +427,9 @@ def io_engine(request):
     return request.param
 
 
-@pytest.fixture(params=[SnapshotType.DIFF, SnapshotType.FULL])
+@pytest.fixture(
+    params=[SnapshotType.DIFF, SnapshotType.DIFF_MINCORE, SnapshotType.FULL]
+)
 def snapshot_type(request):
     """All possible snapshot types"""
     return request.param
