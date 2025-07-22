@@ -425,15 +425,12 @@ pub enum SnapshotStateFromFileError {
 fn snapshot_state_from_file(
     snapshot_path: &Path,
 ) -> Result<MicrovmState, SnapshotStateFromFileError> {
-    let snapshot = Snapshot::new(SNAPSHOT_VERSION);
     let mut snapshot_reader =
         File::open(snapshot_path).map_err(SnapshotStateFromFileError::Open)?;
-    let metadata = std::fs::metadata(snapshot_path).map_err(SnapshotStateFromFileError::Meta)?;
-    let snapshot_len = u64_to_usize(metadata.len());
-    let state: MicrovmState = snapshot
-        .load_with_version_check(&mut snapshot_reader, snapshot_len)
+    let state: Snapshot<MicrovmState> = Snapshot::load_with_version_check(&mut snapshot_reader, SNAPSHOT_VERSION)
         .map_err(SnapshotStateFromFileError::Load)?;
-    Ok(state)
+
+    Ok(state.data)
 }
 
 /// Error type for [`guest_memory_from_file`].
@@ -686,17 +683,22 @@ mod tests {
             vm_state: vmm.vm.save_state().unwrap(),
             acpi_dev_state: vmm.acpi_device_manager.save(),
         };
+        let vm_info = microvm_state.vm_info.clone();
+        let device_states = microvm_state.device_states.clone();
 
         let mut buf = vec![0; 10000];
-        Snapshot::serialize(&mut buf.as_mut_slice(), &microvm_state).unwrap();
 
-        let restored_microvm_state: MicrovmState =
-            Snapshot::deserialize(&mut buf.as_slice()).unwrap();
+        let snapshot = Snapshot::new(Version::new(1, 0, 42), microvm_state);
+        snapshot.save(&mut buf.as_mut_slice()).unwrap();
 
-        assert_eq!(restored_microvm_state.vm_info, microvm_state.vm_info);
+        let restored_snapshot: Snapshot<MicrovmState> =
+            Snapshot::load(&mut buf.as_slice());
+        let restored_microvm_state = restored_snapshot.data;
+
+        assert_eq!(restored_microvm_state.vm_info, vm_info);
         assert_eq!(
             restored_microvm_state.device_states,
-            microvm_state.device_states
+            device_states
         )
     }
 
