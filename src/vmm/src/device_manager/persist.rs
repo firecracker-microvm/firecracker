@@ -25,6 +25,10 @@ use crate::devices::virtio::block::BlockError;
 use crate::devices::virtio::block::device::Block;
 use crate::devices::virtio::block::persist::{BlockConstructorArgs, BlockState};
 use crate::devices::virtio::device::VirtioDevice;
+use crate::devices::virtio::mem::VirtioMem;
+use crate::devices::virtio::mem::persist::{
+    VirtioMemConstructorArgs, VirtioMemPersistError, VirtioMemState,
+};
 use crate::devices::virtio::net::Net;
 use crate::devices::virtio::net::persist::{
     NetConstructorArgs, NetPersistError as NetError, NetState,
@@ -41,7 +45,9 @@ use crate::devices::virtio::vsock::persist::{
 use crate::devices::virtio::vsock::{
     TYPE_VSOCK, Vsock, VsockError, VsockUnixBackend, VsockUnixBackendError,
 };
-use crate::devices::virtio::{ActivateError, TYPE_BALLOON, TYPE_BLOCK, TYPE_NET, TYPE_RNG};
+use crate::devices::virtio::{
+    ActivateError, TYPE_BALLOON, TYPE_BLOCK, TYPE_MEM, TYPE_NET, TYPE_RNG,
+};
 use crate::mmds::data_store::MmdsVersion;
 use crate::resources::{ResourcesError, VmResources};
 use crate::snapshot::Persist;
@@ -75,6 +81,8 @@ pub enum DevicePersistError {
     MmdsConfig(#[from] MmdsConfigError),
     /// Entropy: {0}
     Entropy(#[from] EntropyError),
+    /// virtio-mem: {0}
+    VirtioMem(#[from] VirtioMemPersistError),
     /// Resource misconfiguration: {0}. Is the snapshot file corrupted?
     ResourcesError(#[from] ResourcesError),
     /// Could not activate device: {0}
@@ -147,6 +155,8 @@ pub struct DeviceStates {
     pub mmds_version: Option<MmdsVersionState>,
     /// Entropy device state.
     pub entropy_device: Option<VirtioDeviceState<EntropyState>>,
+    /// Memory device state.
+    pub memory_device: Option<VirtioDeviceState<VirtioMemState>>,
 }
 
 /// A type used to extract the concrete `Arc<Mutex<T>>` for each of the device
@@ -158,11 +168,12 @@ pub enum SharedDeviceType {
     Balloon(Arc<Mutex<Balloon>>),
     Vsock(Arc<Mutex<Vsock<VsockUnixBackend>>>),
     Entropy(Arc<Mutex<Entropy>>),
+    VirtioMem(Arc<Mutex<VirtioMem>>),
 }
 
 pub struct MMIODevManagerConstructorArgs<'a> {
     pub mem: &'a GuestMemoryMmap,
-    pub vm: &'a Vm,
+    pub vm: Arc<Vm>,
     pub event_manager: &'a mut EventManager,
     pub vm_resources: &'a mut VmResources,
     pub instance_id: &'a str,
@@ -356,6 +367,20 @@ impl<'a> Persist<'a> for MMIODeviceManager {
                         device_info,
                     });
                 }
+                TYPE_MEM => {
+                    let mem = locked_device
+                        .as_mut_any()
+                        .downcast_mut::<VirtioMem>()
+                        .unwrap();
+                    let device_state = mem.save();
+
+                    states.memory_device = Some(VirtioDeviceState {
+                        device_id,
+                        device_state,
+                        transport_state,
+                        device_info,
+                    });
+                }
                 _ => unreachable!(),
             };
 
@@ -384,12 +409,12 @@ impl<'a> Persist<'a> for MMIODeviceManager {
                         .event_manager
                         .add_subscriber(serial.clone());
 
-                    dev_manager.register_mmio_serial(vm, serial, Some(state.device_info))?;
+                    dev_manager.register_mmio_serial(&vm, serial, Some(state.device_info))?;
                 }
                 if state.type_ == DeviceType::Rtc {
                     let rtc = Arc::new(Mutex::new(RTCDevice::new()));
                     dev_manager.register_mmio_rtc(
-                        constructor_args.vm,
+                        &vm,
                         rtc,
                         Some(state.device_info),
                     )?;
@@ -419,7 +444,7 @@ impl<'a> Persist<'a> for MMIODeviceManager {
             ));
 
             dev_manager.register_mmio_virtio(
-                vm,
+                &vm,
                 id.clone(),
                 MMIODevice {
                     resources: *device_info,
@@ -584,6 +609,30 @@ impl<'a> Persist<'a> for MMIODeviceManager {
             )?;
         }
 
+        if let Some(memory_state) = &state.memory_device {
+            let ctor_args = VirtioMemConstructorArgs::new(vm.clone());
+
+            let device = Arc::new(Mutex::new(VirtioMem::restore(
+                ctor_args,
+                &memory_state.device_state,
+            )?));
+
+            constructor_args
+                .vm_resources
+                .update_from_restored_device(SharedDeviceType::VirtioMem(device.clone()))?;
+
+            restore_helper(
+                device.clone(),
+                memory_state.device_state.virtio_state.activated,
+                false,
+                device,
+                &memory_state.device_id,
+                &memory_state.transport_state,
+                &memory_state.device_info,
+                constructor_args.event_manager,
+            )?;
+        }
+
         Ok(dev_manager)
     }
 }
@@ -617,6 +666,7 @@ mod tests {
                 && self.net_devices == other.net_devices
                 && self.vsock_device == other.vsock_device
                 && self.entropy_device == other.entropy_device
+                && self.memory_device == other.memory_device
         }
     }
 

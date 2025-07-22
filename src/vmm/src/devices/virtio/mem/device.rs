@@ -6,6 +6,7 @@ use std::ops::Deref;
 use std::sync::Arc;
 use std::sync::atomic::AtomicU32;
 
+use serde::{Deserialize, Serialize};
 use vm_memory::{
     Address, GuestAddress, GuestMemory, GuestMemoryError, GuestMemoryRegion, GuestUsize,
 };
@@ -40,7 +41,7 @@ const VIRTIO_MEM_F_UNPLUGGED_INACCESSIBLE: u64 = 1;
 
 // Virtio-mem configuration structure
 #[repr(C)]
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub struct VirtioMemConfig {
     pub block_size: u64,
     pub node_id: u16,
@@ -119,32 +120,34 @@ pub struct VirtioMem {
     queue_events: Vec<EventFd>,
 
     // Device specific fields
-    config: VirtioMemConfig,
+    pub(crate) config: VirtioMemConfig,
     // Bitmap to track which blocks are plugged (1 bit per 2MB block)
-    plugged_blocks: Vec<u64>,
+    pub(crate) plugged_blocks: Vec<u64>,
     // Total number of blocks
-    total_blocks: usize,
+    pub(crate) total_blocks: usize,
     vm: Arc<Vm>,
 }
 
 impl VirtioMem {
     pub fn new(size: usize, vm: Arc<Vm>) -> Result<Self, VirtioMemError> {
         let queues = vec![Queue::new(FIRECRACKER_MAX_QUEUE_SIZE); MEM_NUM_QUEUES];
-        Self::new_with_queues(queues, size, vm)
+        let config = VirtioMemConfig::new(VIRTIO_MEM_GUEST_ADDRESS, size);
+        let total_blocks = size / VIRTIO_MEM_BLOCK_SIZE;
+        let bitmap_size = total_blocks.div_ceil(64); // Round up to u64 boundary
+        Self::from_state(queues, config, vec![0; bitmap_size], total_blocks, vm)
     }
 
-    pub fn new_with_queues(
+    pub fn from_state(
         queues: Vec<Queue>,
-        size: usize,
+        config: VirtioMemConfig,
+        plugged_blocks: Vec<u64>,
+        total_blocks: usize,
         vm: Arc<Vm>,
     ) -> Result<Self, VirtioMemError> {
         let activate_event = EventFd::new(libc::EFD_NONBLOCK)?;
         let queue_events = (0..MEM_NUM_QUEUES)
             .map(|_| EventFd::new(libc::EFD_NONBLOCK))
             .collect::<Result<Vec<EventFd>, io::Error>>()?;
-
-        let total_blocks = size / VIRTIO_MEM_BLOCK_SIZE;
-        let bitmap_size = total_blocks.div_ceil(64); // Round up to u64 boundary
 
         Ok(Self {
             avail_features: (1 << VIRTIO_F_VERSION_1) | (1 << VIRTIO_MEM_F_UNPLUGGED_INACCESSIBLE),
@@ -153,8 +156,8 @@ impl VirtioMem {
             device_state: DeviceState::Inactive,
             queues,
             queue_events,
-            config: VirtioMemConfig::new(VIRTIO_MEM_GUEST_ADDRESS, size),
-            plugged_blocks: vec![0; bitmap_size],
+            config,
+            plugged_blocks,
             total_blocks,
             vm,
         })
@@ -497,11 +500,14 @@ impl VirtioMem {
         size: GuestUsize,
         plug: bool,
     ) -> Result<(), VirtioMemError> {
+        debug!("plug_range({start_addr:?}, {size:?}, {plug:?})");
         let end_addr = start_addr.checked_add(size).unwrap();
         let mut region = self.vm.guest_memory().find_region(start_addr).unwrap();
         while region.start_addr() < end_addr {
             debug!(
-                "Checking whether region {region:?} can be {}",
+                "Checking whether slot {:#x}+{:#x} can be {}",
+                region.start_addr().0,
+                region.len(),
                 if plug { "plugged" } else { "unplugged" }
             );
             match self.is_range_plugged(region.start_addr(), region.size() as u64) {

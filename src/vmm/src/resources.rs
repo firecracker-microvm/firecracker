@@ -250,6 +250,11 @@ impl VmResources {
             SharedDeviceType::Entropy(entropy) => {
                 self.entropy.set_device(entropy);
             }
+            SharedDeviceType::VirtioMem(mem) => {
+                self.memory_hp = Some(MemoryHpConfig {
+                    total_size_mib: (mem.lock().unwrap().config.region_size as usize) / 1 << 20,
+                })
+            }
         }
 
         Ok(())

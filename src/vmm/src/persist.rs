@@ -39,7 +39,7 @@ use crate::vstate::kvm::KvmState;
 use crate::vstate::memory;
 use crate::vstate::memory::{GuestMemoryState, GuestRegionMmap, MemoryError};
 use crate::vstate::vcpu::{VcpuSendEventError, VcpuState};
-use crate::vstate::vm::{VmError, VmState};
+use crate::vstate::vm::{VmError, MemorySlotState, VmState};
 use crate::{EventManager, Vmm, vstate};
 
 /// Holds information related to the VM that is not part of VmState.
@@ -82,6 +82,8 @@ pub struct MicrovmState {
     pub vcpu_states: Vec<VcpuState>,
     /// Device states.
     pub device_states: DevicesState,
+    /// Memory slot states.
+    pub memory_slot_state: MemorySlotState,
 }
 
 /// This describes the mapping between Firecracker base virtual address and

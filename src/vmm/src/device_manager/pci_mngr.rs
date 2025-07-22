@@ -19,6 +19,8 @@ use crate::devices::virtio::balloon::persist::{BalloonConstructorArgs, BalloonSt
 use crate::devices::virtio::block::device::Block;
 use crate::devices::virtio::block::persist::{BlockConstructorArgs, BlockState};
 use crate::devices::virtio::device::VirtioDevice;
+use crate::devices::virtio::mem::VirtioMem;
+use crate::devices::virtio::mem::persist::{VirtioMemConstructorArgs, VirtioMemState};
 use crate::devices::virtio::net::Net;
 use crate::devices::virtio::net::persist::{NetConstructorArgs, NetState};
 use crate::devices::virtio::rng::Entropy;
@@ -30,7 +32,7 @@ use crate::devices::virtio::vsock::persist::{
     VsockConstructorArgs, VsockState, VsockUdsConstructorArgs,
 };
 use crate::devices::virtio::vsock::{TYPE_VSOCK, Vsock, VsockUnixBackend};
-use crate::devices::virtio::{TYPE_BALLOON, TYPE_BLOCK, TYPE_NET, TYPE_RNG};
+use crate::devices::virtio::{TYPE_BALLOON, TYPE_BLOCK, TYPE_MEM, TYPE_NET, TYPE_RNG};
 use crate::resources::VmResources;
 use crate::snapshot::Persist;
 use crate::vmm_config::mmds::MmdsConfigError;
@@ -259,6 +261,8 @@ pub struct PciDevicesState {
     pub mmds_version: Option<MmdsVersionState>,
     /// Entropy device state.
     pub entropy_device: Option<VirtioDeviceState<EntropyState>>,
+    /// Memory device state.
+    pub memory_device: Option<VirtioDeviceState<VirtioMemState>>,
 }
 
 pub struct PciDevicesConstructorArgs<'a> {
@@ -401,6 +405,20 @@ impl<'a> Persist<'a> for PciDevices {
 
                     state.entropy_device = Some(VirtioDeviceState {
                         device_id: rng_dev.id().to_string(),
+                        pci_device_bdf,
+                        device_state,
+                        transport_state,
+                    })
+                }
+                TYPE_MEM => {
+                    let mem_dev = locked_virtio_dev
+                        .as_mut_any()
+                        .downcast_mut::<VirtioMem>()
+                        .unwrap();
+                    let device_state = mem_dev.save();
+
+                    state.memory_device = Some(VirtioDeviceState {
+                        device_id: mem_dev.id().to_string(),
                         pci_device_bdf,
                         device_state,
                         transport_state,
@@ -579,6 +597,29 @@ impl<'a> Persist<'a> for PciDevices {
                     device,
                     &entropy_state.device_id,
                     &entropy_state.transport_state,
+                    constructor_args.event_manager,
+                )
+                .unwrap()
+        }
+
+        if let Some(memory_device) = &state.memory_device {
+            let ctor_args = VirtioMemConstructorArgs::new(constructor_args.vm.clone());
+
+            let device = Arc::new(Mutex::new(
+                VirtioMem::restore(ctor_args, &memory_device.device_state).unwrap(),
+            ));
+
+            constructor_args
+                .vm_resources
+                .update_from_restored_device(SharedDeviceType::VirtioMem(device.clone()))
+                .unwrap();
+
+            pci_devices
+                .restore_pci_device(
+                    &constructor_args.vm,
+                    device,
+                    &memory_device.device_id,
+                    &memory_device.transport_state,
                     constructor_args.event_manager,
                 )
                 .unwrap()

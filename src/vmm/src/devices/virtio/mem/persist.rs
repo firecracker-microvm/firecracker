@@ -9,6 +9,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::Vm;
 use crate::devices::virtio::TYPE_MEM;
+use crate::devices::virtio::mem::device::VirtioMemConfig;
 use crate::devices::virtio::mem::{MEM_NUM_QUEUES, VirtioMem, VirtioMemError};
 use crate::devices::virtio::persist::{PersistError as VirtioStateError, VirtioDeviceState};
 use crate::devices::virtio::queue::FIRECRACKER_MAX_QUEUE_SIZE;
@@ -17,18 +18,20 @@ use crate::vstate::memory::{GuestMemoryMmap, GuestRegionMmap};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct VirtioMemState {
-    virtio_state: VirtioDeviceState,
+    pub virtio_state: VirtioDeviceState,
+    config: VirtioMemConfig,
+    plugged_blocks: Vec<u64>,
+    total_blocks: usize,
 }
 
 #[derive(Debug)]
 pub struct VirtioMemConstructorArgs {
     vm: Arc<Vm>,
-    size: usize,
 }
 
 impl VirtioMemConstructorArgs {
-    pub fn new(vm: Arc<Vm>, size: usize) -> Self {
-        Self { vm, size }
+    pub fn new(vm: Arc<Vm>) -> Self {
+        Self { vm }
     }
 }
 
@@ -48,6 +51,9 @@ impl Persist<'_> for VirtioMem {
     fn save(&self) -> Self::State {
         VirtioMemState {
             virtio_state: VirtioDeviceState::from_device(self),
+            config: self.config.clone(),
+            plugged_blocks: self.plugged_blocks.clone(),
+            total_blocks: self.total_blocks,
         }
     }
 
@@ -62,8 +68,13 @@ impl Persist<'_> for VirtioMem {
             FIRECRACKER_MAX_QUEUE_SIZE,
         )?;
 
-        let mut virtio_mem =
-            VirtioMem::new_with_queues(queues, constructor_args.size, constructor_args.vm)?;
+        let mut virtio_mem = VirtioMem::from_state(
+            queues,
+            state.config.clone(),
+            state.plugged_blocks.clone(),
+            state.total_blocks,
+            constructor_args.vm,
+        )?;
         virtio_mem.set_avail_features(state.virtio_state.avail_features);
         virtio_mem.set_acked_features(state.virtio_state.acked_features);
 

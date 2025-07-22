@@ -453,6 +453,7 @@ impl Vmm {
             }
         };
         let device_states = self.device_manager.save();
+        let memory_slot_state = self.vm.save_memory_slot_state();
 
         Ok(MicrovmState {
             vm_info: vm_info.clone(),
@@ -460,6 +461,7 @@ impl Vmm {
             vm_state,
             vcpu_states,
             device_states,
+            memory_slot_state,
         })
     }
 

@@ -458,7 +458,7 @@ impl<'a> Persist<'a> for DeviceManager {
         // Restore MMIO devices
         let mmio_ctor_args = MMIODevManagerConstructorArgs {
             mem: constructor_args.mem,
-            vm: constructor_args.vm,
+            vm: constructor_args.vm.clone(),
             event_manager: constructor_args.event_manager,
             vm_resources: constructor_args.vm_resources,
             instance_id: constructor_args.instance_id,

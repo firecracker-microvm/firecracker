@@ -439,9 +439,11 @@ pub fn build_microvm_from_snapshot(
         .create_vcpus(vm_resources.machine_config.vcpu_count)
         .map_err(StartMicrovmError::Vm)?;
 
-    vm.put_memory_regions(guest_memory, true)
+    vm.put_memory_regions(guest_memory, false)
         .map_err(VmmError::Vm)
         .map_err(StartMicrovmError::Internal)?;
+
+    vm.restore_memory_slot_state(&microvm_state.memory_slot_state);
 
     #[cfg(target_arch = "x86_64")]
     {

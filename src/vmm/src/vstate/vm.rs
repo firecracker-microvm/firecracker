@@ -257,6 +257,13 @@ pub struct VmCommon {
     start_addr_to_slot: HashMap<u64, u32>,
 }
 
+#[derive(Debug, Default, Serialize, Deserialize)]
+pub struct MemorySlotState {
+    last_ram_addr: u64,
+    slot_state: HashMap<u32, bool>,
+    start_addr_to_slot: HashMap<u64, u32>,
+}
+
 /// Errors associated with the wrappers over KVM ioctls.
 /// Needs `rustfmt::skip` to make multiline comments work
 #[rustfmt::skip]
@@ -693,6 +700,25 @@ impl Vm {
 
         self.common.fd.set_gsi_routing(&routes)?;
         Ok(())
+    }
+
+    pub fn save_memory_slot_state(&self) -> MemorySlotState {
+        MemorySlotState {
+            last_ram_addr: self.last_ram_addr().raw_value(),
+            slot_state: self.common.slot_state.lock().unwrap().clone(),
+            start_addr_to_slot: self.common.start_addr_to_slot.clone(),
+        }
+    }
+
+    pub fn restore_memory_slot_state(&mut self, state: &MemorySlotState) -> Result<(), VmError> {
+        self.common.start_addr_to_slot = state.start_addr_to_slot.clone();
+        self.common.last_ram_addr = GuestAddress(state.last_ram_addr);
+
+        self.guest_memory()
+            .iter()
+            .zip(0u32..)
+            .filter(|(_, slot)| *state.slot_state.get(slot).unwrap_or(&false))
+            .try_for_each(|(region, _slot)| self.set_user_memory_region(region, true))
     }
 }
 
