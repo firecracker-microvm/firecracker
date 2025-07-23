@@ -18,6 +18,18 @@ source "$GIT_ROOT_DIR/tools/functions"
 function install_dependencies {
     apt update
     apt install -y bc flex bison gcc make libelf-dev libssl-dev squashfs-tools busybox-static tree cpio curl patch docker.io
+
+    # Install Go
+    version=$(curl -s https://go.dev/VERSION?m=text | head -n 1)
+    case $ARCH in
+        x86_64) archive="${version}.linux-amd64.tar.gz" ;;
+        aarch64) archive="${version}.linux-arm64.tar.gz" ;;
+    esac
+    curl -LO http://go.dev/dl/${archive}
+    tar -C /usr/local -xzf $archive
+    export PATH=$PATH:/usr/local/go/bin
+    go version
+    rm $archive
 }
 
 function prepare_docker {
