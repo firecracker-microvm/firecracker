@@ -65,12 +65,6 @@ for d in $dirs; do tar c "/$d" | tar x -C $rootfs; done
 mkdir -pv $rootfs/{dev,proc,sys,run,tmp,var/lib/systemd}
 # So apt works
 mkdir -pv $rootfs/var/lib/dpkg/
-
-# Install AWS CLI v2
-curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
-unzip awscliv2.zip
-./aws/install --install-dir $rootfs/usr/local/aws-cli --bin-dir $rootfs/usr/local/bin
-rm -rf awscliv2.zip aws
 EOF
 
     # TBD what abt /etc/hosts?
