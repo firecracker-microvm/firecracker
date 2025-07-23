@@ -752,7 +752,7 @@ def test_deprecated_mmds_config(uvm_plain):
 @pytest.mark.parametrize("imds_compat", [None, False, True])
 def test_aws_credential_provider(uvm_plain, version, imds_compat):
     """
-    Test AWS CLI credential provider
+    Test AWS SDK's credential provider works on MMDS
     """
     test_microvm = uvm_plain
     test_microvm.spawn()
