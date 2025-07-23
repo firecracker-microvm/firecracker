@@ -7,10 +7,11 @@ import time
 import pytest
 
 import framework.utils as utils
+from framework.microvm import HugePagesConfig
 from framework.properties import global_props
 
 
-def hp_microvm(microvm_factory, guest_kernel_linux_6_1, rootfs, hp_size):
+def hp_microvm(microvm_factory, guest_kernel_linux_6_1, rootfs, hp_size, huge_pages):
     """Creates a microvm with the networking setup used by the performance tests in this file.
     This fixture receives its vcpu count via indirect parameterization"""
     vcpu_count = 2
@@ -21,7 +22,10 @@ def hp_microvm(microvm_factory, guest_kernel_linux_6_1, rootfs, hp_size):
     vm = microvm_factory.build(guest_kernel_linux_6_1, rootfs, monitor_memory=False)
     vm.spawn(log_level="Info", emit_metrics=True)
     vm.basic_config(
-        vcpu_count=vcpu_count, mem_size_mib=mem_size_mib, boot_args=boot_args
+        vcpu_count=vcpu_count,
+        mem_size_mib=mem_size_mib,
+        boot_args=boot_args,
+        huge_pages=huge_pages,
     )
     vm.add_net_iface()
     vm.api.memory_hp.put(total_size_mib=hp_size)
@@ -83,13 +87,19 @@ def get_rss_from_pmap(uvm):
         16384,
     ],
 )
+@pytest.mark.parametrize(
+    "huge_pages",
+    [HugePagesConfig.NONE, HugePagesConfig.HUGETLBFS_2MB],
+)
 def test_hotplug_latency(
-    microvm_factory, guest_kernel_linux_6_1, rootfs, hp_size, metrics
+    microvm_factory, guest_kernel_linux_6_1, rootfs, hp_size, huge_pages, metrics
 ):
     """Test the latency of hotplugging memory"""
 
     for i in range(20):
-        uvm = hp_microvm(microvm_factory, guest_kernel_linux_6_1, rootfs, hp_size)
+        uvm = hp_microvm(
+            microvm_factory, guest_kernel_linux_6_1, rootfs, hp_size, huge_pages
+        )
 
         if i == 0:
             metrics.set_dimensions(
@@ -99,6 +109,7 @@ def test_hotplug_latency(
                     "host_kernel": f"linux-{global_props.host_linux_version}",
                     "performance_test": "test_hotplug_latency",
                     "hp_size": str(hp_size),
+                    "huge_pages": huge_pages,
                     **uvm.dimensions,
                 }
             )
