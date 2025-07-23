@@ -790,7 +790,17 @@ def test_aws_credential_provider(uvm_plain, version, imds_compat):
     run_guest_cmd(ssh_connection, f"ip route add {DEFAULT_IPV4} dev eth0", "")
 
     cmd = r"""python3 - <<EOF
+import logging
+import sys
+
+import boto3
 from botocore.session import get_session
+
+logging.basicConfig(
+    stream=sys.stderr,
+    level=logging.DEBUG,
+)
+boto3.set_stream_logger('', logging.DEBUG)
 
 sess = get_session()
 cred = sess.get_credentials()
