@@ -40,11 +40,9 @@ function prepare_docker {
 }
 
 function compile_and_install {
-    local C_FILE=$1
-    local BIN_FILE=$2
-    local OUTPUT_DIR=$(dirname $BIN_FILE)
-    mkdir -pv $OUTPUT_DIR
-    gcc -Wall -o $BIN_FILE $C_FILE
+    local SRC=$1
+    local BIN="${SRC%.*}"
+    gcc -Wall -o $BIN $SRC
 }
 
 # Build a rootfs
@@ -190,22 +188,23 @@ function build_al_kernel {
 }
 
 function prepare_and_build_rootfs {
-    BIN=overlay/usr/local/bin
+    BIN_DIR=overlay/usr/local/bin
 
-    tools=(init fillmem fast_page_fault_helper readmem)
+    SRCS=(init.c fillmem.c fast_page_fault_helper.c readmem.c)
     if [ $ARCH == "aarch64" ]; then
-        tools+=(devmemread)
+        SRCS+=(devmemread.c)
     fi
 
-    for tool in ${tools[@]}; do
-        compile_and_install $BIN/$tool.c $BIN/$tool
+    for SRC in ${SRCS[@]}; do
+        compile_and_install $BIN_DIR/$SRC
     done
 
     build_rootfs ubuntu-24.04 noble
     build_initramfs
 
-    for tool in ${tools[@]}; do
-        rm $BIN/$tool
+    for SRC in ${SRCS[@]}; do
+        BIN="${SRC%.*}"
+        rm $BIN_DIR/$BIN
     done
 }
 
