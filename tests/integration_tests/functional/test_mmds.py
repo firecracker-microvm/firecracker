@@ -750,7 +750,8 @@ def test_deprecated_mmds_config(uvm_plain):
 
 @pytest.mark.parametrize("version", MMDS_VERSIONS)
 @pytest.mark.parametrize("imds_compat", [None, False, True])
-def test_aws_credential_provider(uvm_plain, version, imds_compat):
+@pytest.mark.parametrize("sdk", ["py", "go"])
+def test_aws_credential_provider(uvm_plain, version, imds_compat, sdk):
     """
     Test AWS SDK's credential provider works on MMDS
     """
@@ -789,7 +790,9 @@ def test_aws_credential_provider(uvm_plain, version, imds_compat):
 
     run_guest_cmd(ssh_connection, f"ip route add {DEFAULT_IPV4} dev eth0", "")
 
-    cmd = r"""python3 - <<EOF
+    match sdk:
+        case "py":
+            cmd = r"""python3 - <<EOF
 import logging
 import sys
 
@@ -808,5 +811,7 @@ cred = sess.get_credentials()
 print(f"{cred.access_key},{cred.secret_key},{cred.token}")
 EOF
 """
+        case "go":
+            cmd = "/usr/local/bin/go_sdk_cred_provider"
     _, stdout, stderr = ssh_connection.check_output(cmd)
     assert stdout == "AAA,BBB,CCC\n", stderr
