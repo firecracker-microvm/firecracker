@@ -748,20 +748,13 @@ def test_deprecated_mmds_config(uvm_plain):
     )
 
 
-@pytest.mark.parametrize("version", MMDS_VERSIONS)
-@pytest.mark.parametrize("imds_compat", [None, False, True])
-@pytest.mark.parametrize("sdk", ["py", "go"])
-def test_aws_credential_provider(uvm_plain, version, imds_compat, sdk):
-    """
-    Test AWS SDK's credential provider works on MMDS
-    """
-    test_microvm = uvm_plain
-    test_microvm.spawn()
-    test_microvm.basic_config()
-    test_microvm.add_net_iface()
+def _configure_with_aws_credentials(microvm, version, imds_compat):
+    microvm.spawn()
+    microvm.basic_config()
+    microvm.add_net_iface()
     # V2 requires session tokens for GET requests
     configure_mmds(
-        test_microvm, iface_ids=["eth0"], version=version, imds_compat=imds_compat
+        microvm, iface_ids=["eth0"], version=version, imds_compat=imds_compat
     )
     now = datetime.now(timezone.utc)
     credentials = {
@@ -783,12 +776,23 @@ def test_aws_credential_provider(uvm_plain, version, imds_compat, sdk):
             }
         }
     }
-    populate_data_store(test_microvm, data_store)
-    test_microvm.start()
+    populate_data_store(microvm, data_store)
+    microvm.start()
 
-    ssh_connection = test_microvm.ssh
-
+    ssh_connection = microvm.ssh
     run_guest_cmd(ssh_connection, f"ip route add {DEFAULT_IPV4} dev eth0", "")
+
+    return ssh_connection
+
+
+@pytest.mark.parametrize("version", MMDS_VERSIONS)
+@pytest.mark.parametrize("imds_compat", [None, False, True])
+@pytest.mark.parametrize("sdk", ["py", "go"])
+def test_aws_credential_provider(uvm_plain, version, imds_compat, sdk):
+    """
+    Test AWS SDK's credential provider works on MMDS
+    """
+    ssh_connection = _configure_with_aws_credentials(uvm_plain, version, imds_compat)
 
     match sdk:
         case "py":
@@ -815,3 +819,35 @@ EOF
             cmd = "/usr/local/bin/go_sdk_cred_provider"
     _, stdout, stderr = ssh_connection.check_output(cmd)
     assert stdout == "AAA,BBB,CCC\n", stderr
+
+
+@pytest.mark.parametrize("version", MMDS_VERSIONS)
+@pytest.mark.parametrize("imds_compat", [None, False, True])
+def test_go_sdk_credential_provider_with_custom_endpoint(
+    uvm_plain, version, imds_compat
+):
+    """
+    Test AWS SDK's credential provider with custom endpoint.
+
+    It sets "Accept: application/json" in a request to retrieve AWS credentials.
+    If imds_compat is True, it should work. If False, it should NOT work,
+    because MMDS responds a string of a JSON object containing the credentials
+    (i.e. wrapped with doublequotes) with "Content-Type: application/json" but
+    AWS SDK for Go expects only the inner JSON object.
+    """
+    ssh_connection = _configure_with_aws_credentials(uvm_plain, version, imds_compat)
+
+    cmd = "/usr/local/bin/go_sdk_cred_provider_with_custom_endpoint"
+    ret, stdout, stderr = ssh_connection.run(cmd)
+    if imds_compat:
+        assert ret == 0
+        assert stdout == "AAA,BBB,CCC\n", stderr
+    else:
+        assert ret == 1
+        assert (
+            "Unable to retrieve credentials: "
+            "failed to refresh cached credentials, "
+            "failed to load credentials, deserialization failed, "
+            "failed to deserialize json response, "
+            "json: cannot unmarshal string into Go value of type client.GetCredentialsOutput"
+        ) in stderr
