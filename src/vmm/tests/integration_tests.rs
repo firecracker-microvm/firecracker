@@ -1,6 +1,7 @@
 // Copyright 2020 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
+#![cfg_attr(target_arch = "riscv64", allow(unused_imports))]
 use std::io::{Seek, SeekFrom};
 use std::thread;
 use std::time::Duration;
@@ -53,7 +54,7 @@ fn test_build_and_boot_microvm() {
     // On aarch64, the test kernel doesn't exit, so the vmm is force-stopped.
     #[cfg(target_arch = "x86_64")]
     _evmgr.run_with_timeout(500).unwrap();
-    #[cfg(target_arch = "aarch64")]
+    #[cfg(any(target_arch = "aarch64", target_arch = "riscv64"))]
     vmm.lock().unwrap().stop(FcExitCode::Ok);
 
     assert_eq!(
@@ -74,7 +75,7 @@ fn test_build_microvm() {
     vmm.lock().unwrap().resume_vm().unwrap();
     #[cfg(target_arch = "x86_64")]
     _evtmgr.run_with_timeout(500).unwrap();
-    #[cfg(target_arch = "aarch64")]
+    #[cfg(any(target_arch = "aarch64", target_arch = "riscv64"))]
     vmm.lock().unwrap().stop(FcExitCode::Ok);
     assert_eq!(
         vmm.lock().unwrap().shutdown_exit_code(),
@@ -144,6 +145,7 @@ fn test_dirty_bitmap_success() {
 }
 
 #[test]
+#[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
 fn test_disallow_snapshots_without_pausing() {
     let (vmm, _) = default_vmm(Some(NOISY_KERNEL_IMAGE));
     let vm_info = VmInfo {
@@ -166,6 +168,7 @@ fn test_disallow_snapshots_without_pausing() {
 }
 
 #[test]
+#[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
 fn test_disallow_dump_cpu_config_without_pausing() {
     let (vmm, _) = default_vmm_no_boot(Some(NOISY_KERNEL_IMAGE));
 
@@ -185,6 +188,7 @@ fn test_disallow_dump_cpu_config_without_pausing() {
     vmm.lock().unwrap().stop(FcExitCode::Ok);
 }
 
+#[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
 fn verify_create_snapshot(is_diff: bool) -> (TempFile, TempFile) {
     let snapshot_file = TempFile::new().unwrap();
     let memory_file = TempFile::new().unwrap();
@@ -243,6 +247,7 @@ fn verify_create_snapshot(is_diff: bool) -> (TempFile, TempFile) {
     (snapshot_file, memory_file)
 }
 
+#[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
 fn verify_load_snapshot(snapshot_file: TempFile, memory_file: TempFile) {
     let mut event_manager = EventManager::new().unwrap();
     let empty_seccomp_filters = get_empty_filters();
@@ -275,6 +280,7 @@ fn verify_load_snapshot(snapshot_file: TempFile, memory_file: TempFile) {
 }
 
 #[test]
+#[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
 fn test_create_and_load_snapshot() {
     // Create diff snapshot.
     let (snapshot_file, memory_file) = verify_create_snapshot(true);
@@ -294,6 +300,7 @@ fn test_create_and_load_snapshot() {
 }
 
 #[test]
+#[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
 fn test_snapshot_load_sanity_checks() {
     use vmm::persist::SnapShotStateSanityCheckError;
 
@@ -311,6 +318,7 @@ fn test_snapshot_load_sanity_checks() {
     );
 }
 
+#[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
 fn get_microvm_state_from_snapshot() -> MicrovmState {
     // Create a diff snapshot
     let (snapshot_file, _) = verify_create_snapshot(true);
@@ -323,6 +331,7 @@ fn get_microvm_state_from_snapshot() -> MicrovmState {
     state
 }
 
+#[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
 fn verify_load_snap_disallowed_after_boot_resources(res: VmmAction, res_name: &str) {
     let (snapshot_file, memory_file) = verify_create_snapshot(false);
 
@@ -362,6 +371,7 @@ fn verify_load_snap_disallowed_after_boot_resources(res: VmmAction, res_name: &s
 }
 
 #[test]
+#[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
 fn test_preboot_load_snap_disallowed_after_boot_resources() {
     let tmp_file = TempFile::new().unwrap();
     let tmp_file = tmp_file.as_path().to_str().unwrap().to_string();
