@@ -433,7 +433,7 @@ def test_stats_update(uvm_plain_any):
     test_microvm.api.balloon.patch(amount_mib=10)
 
     # Wait out the polling interval, then get the updated stats.
-    time.sleep(STATS_POLLING_INTERVAL_S)
+    time.sleep(STATS_POLLING_INTERVAL_S * 2)
     next_stats = test_microvm.api.balloon_stats.get().json()
     assert initial_stats["available_memory"] != next_stats["available_memory"]
 
@@ -497,7 +497,7 @@ def test_balloon_snapshot(microvm_factory, guest_kernel, rootfs):
     firecracker_pid = microvm.firecracker_pid
 
     # Wait out the polling interval, then get the updated stats.
-    time.sleep(STATS_POLLING_INTERVAL_S)
+    time.sleep(STATS_POLLING_INTERVAL_S * 2)
     stats_after_snap = microvm.api.balloon_stats.get().json()
 
     # Check memory usage.
@@ -523,7 +523,7 @@ def test_balloon_snapshot(microvm_factory, guest_kernel, rootfs):
     # Get the stats after we take a snapshot and dirty some memory,
     # then reclaim it.
     # Ensure we gave enough time for the stats to update.
-    time.sleep(STATS_POLLING_INTERVAL_S)
+    time.sleep(STATS_POLLING_INTERVAL_S * 2)
     latest_stats = microvm.api.balloon_stats.get().json()
 
     # Ensure the stats are still working after restore and show
