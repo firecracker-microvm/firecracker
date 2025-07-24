@@ -1,6 +1,7 @@
 // Copyright 2020 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
+#![cfg_attr(target_arch = "riscv64", allow(unused_imports))]
 #![allow(clippy::undocumented_unsafe_blocks)]
 use std::os::raw::{c_int, c_void};
 use std::os::unix::io::{AsRawFd, RawFd};
@@ -11,8 +12,11 @@ use libc::EFD_NONBLOCK;
 use vm_superio::Serial;
 use vmm::devices::legacy::serial::SerialOut;
 use vmm::devices::legacy::{EventFdTrigger, SerialEventsWrapper, SerialWrapper};
+#[cfg(target_arch = "riscv64")]
+use vmm::devices::legacy::IrqLineTrigger;
 use vmm_sys_util::eventfd::EventFd;
 
+#[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
 fn create_serial(
     pipe: c_int,
 ) -> Arc<Mutex<SerialWrapper<EventFdTrigger, SerialEventsWrapper, Box<MockSerialInput>>>> {
@@ -23,6 +27,26 @@ fn create_serial(
     Arc::new(Mutex::new(SerialWrapper {
         serial: Serial::with_events(
             EventFdTrigger::new(EventFd::new(EFD_NONBLOCK).unwrap()),
+            SerialEventsWrapper {
+                buffer_ready_event_fd: Some(kick_stdin_evt.try_clone().unwrap()),
+            },
+            SerialOut::Stdout(std::io::stdout()),
+        ),
+        input: Some(Box::new(serial_in)),
+    }))
+}
+
+#[cfg(target_arch = "riscv64")]
+fn create_serial(
+    pipe: c_int,
+) -> Arc<Mutex<SerialWrapper<IrqLineTrigger, SerialEventsWrapper, Box<MockSerialInput>>>> {
+    // Serial input is the reading end of the pipe.
+    let serial_in = MockSerialInput(pipe);
+    let kick_stdin_evt = EventFdTrigger::new(EventFd::new(libc::EFD_NONBLOCK).unwrap());
+
+    Arc::new(Mutex::new(SerialWrapper {
+        serial: Serial::with_events(
+            IrqLineTrigger::new(1, 1),
             SerialEventsWrapper {
                 buffer_ready_event_fd: Some(kick_stdin_evt.try_clone().unwrap()),
             },
