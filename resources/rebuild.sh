@@ -74,9 +74,6 @@ EOF
     mv $rootfs/root/manifest $OUTPUT_DIR/$ROOTFS_NAME.manifest
     mksquashfs $rootfs $rootfs_img -all-root -noappend -comp zstd
     rm -rf $rootfs
-    for bin in fast_page_fault_helper fillmem init readmem; do
-        rm $PWD/overlay/usr/local/bin/$bin
-    done
     rm -f nohup.out
 }
 
@@ -182,16 +179,22 @@ function build_al_kernel {
 
 function prepare_and_build_rootfs {
     BIN=overlay/usr/local/bin
-    compile_and_install $BIN/init.c $BIN/init
-    compile_and_install $BIN/fillmem.c $BIN/fillmem
-    compile_and_install $BIN/fast_page_fault_helper.c $BIN/fast_page_fault_helper
-    compile_and_install $BIN/readmem.c $BIN/readmem
+
+    tools=(init fillmem fast_page_fault_helper readmem)
     if [ $ARCH == "aarch64" ]; then
-        compile_and_install $BIN/devmemread.c $BIN/devmemread
+        tools+=(devmemread)
     fi
+
+    for tool in ${tools[@]}; do
+        compile_and_install $BIN/$tool.c $BIN/$tool
+    done
 
     build_rootfs ubuntu-24.04 noble
     build_initramfs
+
+    for tool in ${tools[@]}; do
+        rm $BIN/$tool
+    done
 }
 
 function vmlinux_split_debuginfo {
