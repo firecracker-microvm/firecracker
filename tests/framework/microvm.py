@@ -27,7 +27,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Optional
 
-from tenacity import retry, stop_after_attempt, wait_fixed
+from tenacity import Retrying, retry, stop_after_attempt, wait_fixed
 
 import host_tools.cargo_build as build_tools
 import host_tools.network as net_tools
@@ -481,8 +481,16 @@ class Microvm:
         """
         if not self._spawned:
             return None
-        # Read the PID stored inside the file.
-        return int(self.jailer.pid_file.read_text(encoding="ascii"))
+
+        # Read the PID from Firecracker's pidfile. Retry if
+        # file doesn't exist yet, or doesn't yet contain an integer
+        for attempt in Retrying(
+            stop=stop_after_attempt(5),
+            wait=wait_fixed(0.1),
+            reraise=True,
+        ):
+            with attempt:
+                return int(self.jailer.pid_file.read_text(encoding="ascii"))
 
     @property
     def dimensions(self):
