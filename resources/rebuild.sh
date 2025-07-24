@@ -42,7 +42,17 @@ function prepare_docker {
 function compile_and_install {
     local SRC=$1
     local BIN="${SRC%.*}"
-    gcc -Wall -o $BIN $SRC
+    if [[ $SRC == *.c ]]; then
+        gcc -Wall -o $BIN $SRC
+    elif [[ $SRC == *.go ]]; then
+        pushd $SRC
+        local MOD=$(basename $BIN)
+        go mod init $MOD
+        go mod tidy
+        go build -o ../$MOD
+        rm go.mod go.sum
+        popd
+    fi
 }
 
 # Build a rootfs
