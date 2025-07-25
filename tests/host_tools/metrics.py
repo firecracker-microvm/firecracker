@@ -57,19 +57,25 @@ class MetricsWrapper:
     """A convenient metrics logger"""
 
     def __init__(self, logger):
-        self.data = {}
+        self.metrics = {}
+        self.dimensions = {}
         self.logger = logger
 
-    def set_dimensions(self, *args, **kwargs):
+    def set_dimensions(self, *dimensions, **kwargs):
         """Set dimensions"""
         if self.logger:
-            self.logger.set_dimensions(*args, **kwargs)
+            self.logger.set_dimensions(*dimensions, **kwargs)
+
+        self.dimensions = {}
+        for dimension_dict in dimensions:
+            for k, v in dimension_dict.items():
+                self.dimensions[k] = v
 
     def put_metric(self, name, data, unit):
         """Put a datapoint with given dimensions"""
-        if name not in self.data:
-            self.data[name] = {"unit": unit, "values": []}
-        self.data[name]["values"].append(data)
+        if name not in self.metrics:
+            self.metrics[name] = {"unit": unit, "values": []}
+        self.metrics[name]["values"].append(data)
 
         if self.logger:
             self.logger.put_metric(name, data, unit)
@@ -88,7 +94,13 @@ class MetricsWrapper:
         """Store data into a file"""
         metrics_path = Path(dir_path / "metrics.json")
         with open(metrics_path, "w", encoding="utf-8") as f:
-            json.dump(self.data, f)
+            json.dump(
+                {
+                    "metrics": self.metrics,
+                    "dimensions": self.dimensions,
+                },
+                f,
+            )
 
 
 def get_metrics_logger():
