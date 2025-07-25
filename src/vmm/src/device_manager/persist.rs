@@ -151,29 +151,10 @@ pub struct ConnectedLegacyState {
     pub device_info: MMIODeviceInfo,
 }
 
-/// Holds the MMDS data store version.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub enum MmdsVersionState {
-    V1,
-    V2,
-}
-
-impl From<MmdsVersionState> for MmdsVersion {
-    fn from(state: MmdsVersionState) -> Self {
-        match state {
-            MmdsVersionState::V1 => MmdsVersion::V1,
-            MmdsVersionState::V2 => MmdsVersion::V2,
-        }
-    }
-}
-
-impl From<MmdsVersion> for MmdsVersionState {
-    fn from(version: MmdsVersion) -> Self {
-        match version {
-            MmdsVersion::V1 => MmdsVersionState::V1,
-            MmdsVersion::V2 => MmdsVersionState::V2,
-        }
-    }
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MmdsState {
+    version: MmdsVersion,
+    imds_compat: bool,
 }
 
 /// Holds the device states.
@@ -191,7 +172,7 @@ pub struct DeviceStates {
     /// Balloon device state.
     pub balloon_device: Option<ConnectedBalloonState>,
     /// Mmds version.
-    pub mmds_version: Option<MmdsVersionState>,
+    pub mmds: Option<MmdsState>,
     /// Entropy device state.
     pub entropy_device: Option<ConnectedEntropyState>,
 }
@@ -345,11 +326,12 @@ impl<'a> Persist<'a> for MMIODeviceManager {
                 }
                 TYPE_NET => {
                     let net = locked_device.as_any().downcast_ref::<Net>().unwrap();
-                    if let (Some(mmds_ns), None) =
-                        (net.mmds_ns.as_ref(), states.mmds_version.as_ref())
-                    {
-                        states.mmds_version =
-                            Some(mmds_ns.mmds.lock().expect("Poisoned lock").version().into());
+                    if let (Some(mmds_ns), None) = (net.mmds_ns.as_ref(), states.mmds.as_ref()) {
+                        let mmds_guard = mmds_ns.mmds.lock().expect("Poisoned lock");
+                        states.mmds = Some(MmdsState {
+                            version: mmds_guard.version(),
+                            imds_compat: mmds_guard.imds_compat(),
+                        });
                     }
 
                     states.net_devices.push(ConnectedNetState {
@@ -556,20 +538,13 @@ impl<'a> Persist<'a> for MMIODeviceManager {
             )?;
         }
 
-        // If the snapshot has the mmds version persisted, initialise the data store with it.
-        if let Some(mmds_version) = &state.mmds_version {
-            constructor_args
-                .vm_resources
-                .set_mmds_version(mmds_version.clone().into(), constructor_args.instance_id)?;
-        } else if state
-            .net_devices
-            .iter()
-            .any(|dev| dev.device_state.mmds_ns.is_some())
-        {
-            // If there's at least one network device having an mmds_ns, it means
-            // that we are restoring from a version that did not persist the `MmdsVersionState`.
-            // Init with the default.
-            constructor_args.vm_resources.mmds_or_default()?;
+        // Initialize MMDS if MMDS state is included.
+        if let Some(mmds) = &state.mmds {
+            constructor_args.vm_resources.set_mmds_basic_config(
+                mmds.version,
+                mmds.imds_compat,
+                constructor_args.instance_id,
+            )?;
         }
 
         for net_state in &state.net_devices {
@@ -856,7 +831,8 @@ mod tests {
     "network_interfaces": [
       "netif"
     ],
-    "ipv4_address": "169.254.169.254"
+    "ipv4_address": "169.254.169.254",
+    "imds_compat": false
   }},
   "network-interfaces": [
     {{
@@ -889,7 +865,7 @@ mod tests {
                 .version(),
             MmdsVersion::V2
         );
-        assert_eq!(device_states.mmds_version.unwrap(), MmdsVersion::V2.into());
+        assert_eq!(device_states.mmds.unwrap().version, MmdsVersion::V2);
 
         assert_eq!(restored_dev_manager, original_mmio_device_manager);
         assert_eq!(

@@ -308,7 +308,10 @@ The response format can be JSON or IMDS. The IMDS documentation can be found
 The output format can be selected by specifying the optional `Accept` header.
 Using `Accept: application/json` will format the output to JSON, while using
 `Accept: plain/text` or not specifying this optional header at all will format
-the output to IMDS.
+the output to IMDS. Setting `imds_compat` to `true` through PUT request to
+`/mmds/config` enforces MMDS to always respond in IMDS format regardless of the
+`Accept` header. This allows code written to work on EC2 IMDS to also work on
+Firecracker MMDS.
 
 Retrieving MMDS resources in IMDS format, other than JSON `string` and `object`
 types, is not supported.

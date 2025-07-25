@@ -19,9 +19,9 @@
 
 
 int fill_mem(int mb_count) {
-    int i, j;
+    int i;
     char *ptr = NULL;
-    for(j = 0; j < mb_count; j++) {
+    for(i = 0; i < mb_count; i++) {
         do {
             // We can't map the whole chunk of memory at once because
             // in case the system is already in a memory pressured
@@ -50,7 +50,7 @@ int main(int argc, char *const argv[]) {
         printf("Usage: ./fillmem mb_count\n");
         return -1;
     }
-    
+
     int mb_count = atoi(argv[1]);
 
     int pid = fork();
