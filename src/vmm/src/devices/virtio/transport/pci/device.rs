@@ -305,7 +305,7 @@ pub struct VirtioPciDeviceState {
     pub pci_configuration_state: PciConfigurationState,
     pub pci_dev_state: VirtioPciCommonConfigState,
     pub msix_state: MsixConfigState,
-    pub msi_vector_group: HashMap<u32, u32>,
+    pub msi_vector_group: Vec<u32>,
     pub bar_configuration: Vec<PciBarConfiguration>,
 }
 
