@@ -219,7 +219,7 @@ impl MsixConfig {
     }
 
     pub fn read_table(&self, offset: u64, data: &mut [u8]) {
-        assert!((data.len() == 4 || data.len() == 8));
+        assert!(data.len() <= 8);
 
         let index: usize = (offset / MSIX_TABLE_ENTRIES_MODULO) as usize;
         let modulo_offset = offset % MSIX_TABLE_ENTRIES_MODULO;
@@ -272,7 +272,7 @@ impl MsixConfig {
     }
 
     pub fn write_table(&mut self, offset: u64, data: &[u8]) {
-        assert!((data.len() == 4 || data.len() == 8));
+        assert!(data.len() <= 8);
 
         let index: usize = (offset / MSIX_TABLE_ENTRIES_MODULO) as usize;
         let modulo_offset = offset % MSIX_TABLE_ENTRIES_MODULO;
@@ -368,7 +368,7 @@ impl MsixConfig {
     }
 
     pub fn read_pba(&mut self, offset: u64, data: &mut [u8]) {
-        assert!((data.len() == 4 || data.len() == 8));
+        assert!(data.len() <= 8);
 
         let index: usize = (offset / MSIX_PBA_ENTRIES_MODULO) as usize;
         let modulo_offset = offset % MSIX_PBA_ENTRIES_MODULO;
