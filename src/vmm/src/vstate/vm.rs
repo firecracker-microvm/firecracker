@@ -110,7 +110,7 @@ impl MsiVector {
 /// MSI interrupts created for a VirtIO device
 pub struct MsiVectorGroup {
     vm: Arc<Vm>,
-    irq_routes: HashMap<u32, MsiVector>,
+    irq_routes: Vec<MsiVector>,
 }
 
 impl MsiVectorGroup {
@@ -123,7 +123,7 @@ impl MsiVectorGroup {
 }
 
 impl<'a> Persist<'a> for MsiVectorGroup {
-    type State = HashMap<u32, u32>;
+    type State = Vec<u32>;
     type ConstructorArgs = Arc<Vm>;
     type Error = InterruptError;
 
@@ -131,20 +131,17 @@ impl<'a> Persist<'a> for MsiVectorGroup {
         // We don't save the "enabled" state of the MSI interrupt. PCI devices store the MSI-X
         // configuration and make sure that the vector is enabled during the restore path if it was
         // initially enabled
-        self.irq_routes
-            .iter()
-            .map(|(id, route)| (*id, route.gsi))
-            .collect()
+        self.irq_routes.iter().map(|route| route.gsi).collect()
     }
 
     fn restore(
         constructor_args: Self::ConstructorArgs,
         state: &Self::State,
     ) -> std::result::Result<Self, Self::Error> {
-        let mut irq_routes = HashMap::new();
+        let mut irq_routes = Vec::with_capacity(state.len());
 
-        for (id, gsi) in state {
-            irq_routes.insert(*id, MsiVector::new(*gsi, false)?);
+        for gsi in state {
+            irq_routes.push(MsiVector::new(*gsi, false)?);
         }
 
         Ok(MsiVectorGroup {
@@ -156,7 +153,7 @@ impl<'a> Persist<'a> for MsiVectorGroup {
 
 impl InterruptSourceGroup for MsiVectorGroup {
     fn enable(&self) -> vm_device::interrupt::Result<()> {
-        for route in self.irq_routes.values() {
+        for route in &self.irq_routes {
             route.enable(&self.vm.common.fd)?;
         }
 
@@ -164,7 +161,7 @@ impl InterruptSourceGroup for MsiVectorGroup {
     }
 
     fn disable(&self) -> vm_device::interrupt::Result<()> {
-        for route in self.irq_routes.values() {
+        for route in &self.irq_routes {
             route.disable(&self.vm.common.fd)?;
         }
 
@@ -180,7 +177,9 @@ impl InterruptSourceGroup for MsiVectorGroup {
     }
 
     fn notifier(&self, index: InterruptIndex) -> Option<&EventFd> {
-        self.irq_routes.get(&index).map(|route| &route.event_fd)
+        self.irq_routes
+            .get(index as usize)
+            .map(|route| &route.event_fd)
     }
 
     fn update(
@@ -199,7 +198,7 @@ impl InterruptSourceGroup for MsiVectorGroup {
             InterruptSourceConfig::MsiIrq(config) => config,
         };
 
-        if let Some(route) = self.irq_routes.get(&index) {
+        if let Some(route) = self.irq_routes.get(index as usize) {
             // When an interrupt is masked the GSI will not be passed to KVM through
             // KVM_SET_GSI_ROUTING. So, call [`disable()`] to unregister the interrupt file
             // descriptor before passing the interrupt routes to KVM
@@ -593,14 +592,13 @@ impl Vm {
     /// Create a group of MSI-X interrupts
     pub fn create_msix_group(vm: Arc<Vm>, count: u16) -> Result<MsiVectorGroup, InterruptError> {
         debug!("Creating new MSI group with {count} vectors");
-        let mut irq_routes = HashMap::with_capacity(count as usize);
-        for (gsi, i) in vm
+        let mut irq_routes = Vec::with_capacity(count as usize);
+        for gsi in vm
             .resource_allocator()
             .allocate_gsi_msi(count as u32)?
             .iter()
-            .zip(0u32..)
         {
-            irq_routes.insert(i, MsiVector::new(*gsi, false)?);
+            irq_routes.push(MsiVector::new(*gsi, false)?);
         }
 
         Ok(MsiVectorGroup { vm, irq_routes })
@@ -821,13 +819,13 @@ pub(crate) mod tests {
         let msix_group = create_msix_group(&vm);
 
         // Initially all vectors are disabled
-        for route in msix_group.irq_routes.values() {
+        for route in &msix_group.irq_routes {
             assert!(!route.enabled.load(Ordering::Acquire))
         }
 
         // Enable works
         msix_group.enable().unwrap();
-        for route in msix_group.irq_routes.values() {
+        for route in &msix_group.irq_routes {
             assert!(route.enabled.load(Ordering::Acquire));
         }
         // Enabling an enabled group doesn't error out
@@ -835,7 +833,7 @@ pub(crate) mod tests {
 
         // Disable works
         msix_group.disable().unwrap();
-        for route in msix_group.irq_routes.values() {
+        for route in &msix_group.irq_routes {
             assert!(!route.enabled.load(Ordering::Acquire))
         }
         // Disabling a disabled group doesn't error out
@@ -921,7 +919,7 @@ pub(crate) mod tests {
         }
 
         // All vectors should be disabled
-        for vector in msix_group.irq_routes.values() {
+        for vector in &msix_group.irq_routes {
             assert!(!vector.enabled.load(Ordering::Acquire));
         }
 
@@ -1018,8 +1016,8 @@ pub(crate) mod tests {
         // Even if an MSI group is enabled, we don't save it as such. During restoration, the PCI
         // transport will make sure the correct config is set for the vectors and enable them
         // accordingly.
-        for (id, vector) in msix_group.irq_routes {
-            let new_vector = restored_group.irq_routes.get(&id).unwrap();
+        for (id, vector) in msix_group.irq_routes.iter().enumerate() {
+            let new_vector = &restored_group.irq_routes[id];
             assert_eq!(vector.gsi, new_vector.gsi);
             assert!(!new_vector.enabled.load(Ordering::Acquire));
         }
