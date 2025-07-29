@@ -230,7 +230,19 @@ impl VirtioPciCommonConfig {
             0x12 => queues.len().try_into().unwrap(), // num_queues
             0x16 => self.queue_select,
             0x18 => self.with_queue(queues, |q| q.size).unwrap_or(0),
-            0x1a => self.msix_queues.lock().unwrap()[self.queue_select as usize],
+            // If `queue_select` points to an invalid queue we should return NO_VECTOR.
+            // Reading from here
+            // https://docs.oasis-open.org/virtio/virtio/v1.1/csprd01/virtio-v1.1-csprd01.html#x1-1280005:
+            //
+            // > The device MUST return vector mapped to a given event, (NO_VECTOR if unmapped) on
+            // > read of config_msix_vector/queue_msix_vector.
+            0x1a => self
+                .msix_queues
+                .lock()
+                .unwrap()
+                .get(self.queue_select as usize)
+                .copied()
+                .unwrap_or(0xffff),
             0x1c => u16::from(self.with_queue(queues, |q| q.ready).unwrap_or(false)),
             0x1e => self.queue_select, // notify_off
             _ => {
@@ -408,8 +420,13 @@ mod tests {
         // 'queue_select' can be read and written.
         regs.write(0x16, &[0xaa, 0x55], dev.clone());
         let mut read_back = vec![0x00, 0x00];
-        regs.read(0x16, &mut read_back, dev);
+        regs.read(0x16, &mut read_back, dev.clone());
         assert_eq!(read_back[0], 0xaa);
         assert_eq!(read_back[1], 0x55);
+
+        // Getting the MSI vector when `queue_select` points to an invalid queue should return
+        // NO_VECTOR (0xffff)
+        regs.read(0x1a, &mut read_back, dev);
+        assert_eq!(read_back, [0xff, 0xff]);
     }
 }
