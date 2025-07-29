@@ -291,8 +291,8 @@ impl PciConfigIo {
                 u32::from(data[0]) << (offset * 8),
             ),
             2 => (
-                0x0000_ffff << (offset * 16),
-                ((u32::from(data[1]) << 8) | u32::from(data[0])) << (offset * 16),
+                0x0000_ffff << (offset * 8),
+                ((u32::from(data[1]) << 8) | u32::from(data[0])) << (offset * 8),
             ),
             4 => (0xffff_ffff, LittleEndian::read_u32(data)),
             _ => return,
@@ -474,4 +474,120 @@ fn parse_io_config_address(config_address: u32) -> (usize, usize, usize, usize) 
         shift_and_mask(config_address, FUNCTION_NUMBER_OFFSET, FUNCTION_NUMBER_MASK),
         shift_and_mask(config_address, REGISTER_NUMBER_OFFSET, REGISTER_NUMBER_MASK),
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::{Arc, Mutex};
+
+    use vm_device::BusDevice;
+
+    use super::{PciBus, PciConfigIo, PciRoot};
+    use crate::DeviceRelocation;
+
+    struct RelocationMock;
+
+    impl DeviceRelocation for RelocationMock {
+        fn move_bar(
+            &self,
+            _old_base: u64,
+            _new_base: u64,
+            _len: u64,
+            _pci_dev: &mut dyn crate::PciDevice,
+            _region_type: crate::PciBarRegionType,
+        ) -> std::result::Result<(), std::io::Error> {
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn test_writing_config_address() {
+        let mock = Arc::new(RelocationMock);
+        let root = PciRoot::new(None);
+        let mut bus = PciConfigIo::new(Arc::new(Mutex::new(PciBus::new(root, mock))));
+
+        assert_eq!(bus.config_address, 0);
+        // Writing more than 32 bits will should fail
+        bus.write(0, 0, &[0x42; 8]);
+        assert_eq!(bus.config_address, 0);
+        // Write all the address at once
+        bus.write(0, 0, &[0x13, 0x12, 0x11, 0x10]);
+        assert_eq!(bus.config_address, 0x10111213);
+        // Not writing 32bits at offset 0 should have no effect
+        bus.write(0, 1, &[0x0; 4]);
+        assert_eq!(bus.config_address, 0x10111213);
+
+        // Write two bytes at a time
+        bus.write(0, 0, &[0x42, 0x42]);
+        assert_eq!(bus.config_address, 0x10114242);
+        bus.write(0, 1, &[0x43, 0x43]);
+        assert_eq!(bus.config_address, 0x10434342);
+        bus.write(0, 2, &[0x44, 0x44]);
+        assert_eq!(bus.config_address, 0x44444342);
+        // Writing two bytes at offset 3 should overflow, so it shouldn't have any effect
+        bus.write(0, 3, &[0x45, 0x45]);
+        assert_eq!(bus.config_address, 0x44444342);
+
+        // Write one byte at a time
+        bus.write(0, 0, &[0x0]);
+        assert_eq!(bus.config_address, 0x44444300);
+        bus.write(0, 1, &[0x0]);
+        assert_eq!(bus.config_address, 0x44440000);
+        bus.write(0, 2, &[0x0]);
+        assert_eq!(bus.config_address, 0x44000000);
+        bus.write(0, 3, &[0x0]);
+        assert_eq!(bus.config_address, 0x00000000);
+        // Writing past 4 bytes should have no effect
+        bus.write(0, 4, &[0x13]);
+        assert_eq!(bus.config_address, 0x0);
+    }
+
+    #[test]
+    fn test_reading_config_address() {
+        let mock = Arc::new(RelocationMock);
+        let root = PciRoot::new(None);
+        let mut bus = PciConfigIo::new(Arc::new(Mutex::new(PciBus::new(root, mock))));
+
+        let mut buffer = [0u8; 4];
+
+        bus.config_address = 0x13121110;
+
+        // First 4 bytes are the config address
+        // Next 4 bytes are the values read from the configuration space.
+        //
+        // Reading past offset 7 should not return nothing (all 1s)
+        bus.read(0, 8, &mut buffer);
+        assert_eq!(buffer, [0xff; 4]);
+
+        // offset + buffer.len() needs to be smaller or equal than 4
+        bus.read(0, 1, &mut buffer);
+        assert_eq!(buffer, [0xff; 4]);
+        bus.read(0, 2, &mut buffer[..3]);
+        assert_eq!(buffer, [0xff; 4]);
+        bus.read(0, 3, &mut buffer[..2]);
+        assert_eq!(buffer, [0xff; 4]);
+
+        // reading one byte at a time
+        bus.read(0, 0, &mut buffer[0..1]);
+        assert_eq!(buffer, [0x10, 0xff, 0xff, 0xff]);
+        bus.read(0, 1, &mut buffer[1..2]);
+        assert_eq!(buffer, [0x10, 0x11, 0xff, 0xff]);
+        bus.read(0, 2, &mut buffer[2..3]);
+        assert_eq!(buffer, [0x10, 0x11, 0x12, 0xff]);
+        bus.read(0, 3, &mut buffer[3..4]);
+        assert_eq!(buffer, [0x10, 0x11, 0x12, 0x13]);
+
+        // reading two bytes at a time
+        bus.config_address = 0x42434445;
+        bus.read(0, 0, &mut buffer[..2]);
+        assert_eq!(buffer, [0x45, 0x44, 0x12, 0x13]);
+        bus.read(0, 1, &mut buffer[..2]);
+        assert_eq!(buffer, [0x44, 0x43, 0x12, 0x13]);
+        bus.read(0, 2, &mut buffer[..2]);
+        assert_eq!(buffer, [0x43, 0x42, 0x12, 0x13]);
+
+        // reading all of it at once
+        bus.read(0, 0, &mut buffer);
+        assert_eq!(buffer, [0x45, 0x44, 0x43, 0x42]);
+    }
 }
