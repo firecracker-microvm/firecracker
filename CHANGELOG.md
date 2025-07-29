@@ -77,6 +77,10 @@ and this project adheres to
 - [#5290](https://github.com/firecracker-microvm/firecracker/pull/5290): Fixed
   MMDS to reject PUT requests containing `X-Forwarded-For` header regardless of
   its casing (e.g. `x-forwarded-for`).
+- [#5328](https://github.com/firecracker-microvm/firecracker/pull/5328): Fixed
+  MMDS to set the token TTL header (i.e. "X-metadata-token-ttl-seconds" or
+  "X-aws-ec2-metadata-token-ttl-seconds") in the response to "PUT
+  /latest/api/token", as EC2 IMDS does.
 
 ## [1.12.0]
 

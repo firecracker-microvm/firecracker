@@ -113,6 +113,7 @@ have the same internal IP).
 # Find the host egress device
 UPSTREAM=$(ip -j route list default |jq -r '.[0].dev')
 # anything coming from the VMs, we NAT the address
+ip netns exec fc0 iptables -t nat -A POSTROUTING -s 192.168.241.1/29 -o veth0 -j MASQUERADE
 iptables -t nat -A POSTROUTING -s 10.0.0.0/30 -o $UPSTREAM -j MASQUERADE
 # forward packets by default
 iptables -P FORWARD ACCEPT
