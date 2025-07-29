@@ -28,8 +28,8 @@ use vm_device::interrupt::{
 use vmm_sys_util::errno;
 use vmm_sys_util::eventfd::EventFd;
 
-use crate::arch::host_page_size;
 pub use crate::arch::{ArchVm as Vm, ArchVmError, VmState};
+use crate::arch::{GSI_MSI_END, host_page_size};
 use crate::logger::info;
 use crate::persist::CreateSnapshotError;
 use crate::snapshot::Persist;
@@ -322,7 +322,7 @@ impl Vm {
             fd,
             max_memslots: kvm.max_nr_memslots(),
             guest_memory: GuestMemoryMmap::default(),
-            interrupts: Mutex::new(HashMap::new()),
+            interrupts: Mutex::new(HashMap::with_capacity(GSI_MSI_END as usize + 1)),
             resource_allocator: Mutex::new(ResourceAllocator::new()),
             mmio_bus: Arc::new(vm_device::Bus::new()),
         })
