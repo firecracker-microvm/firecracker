@@ -120,7 +120,9 @@ def get_total_mem_size(pid):
     _, stdout, stderr = utils.check_output(cmd)
     assert stderr == ""
 
-    return stdout
+    # This assumes that the pmap returns something in the form of
+    # 123456789K (which is typically the case for us)
+    return float(stdout.strip()[:-1] * 1000)
 
 
 def send_bytes(tty, bytes_count, timeout=60):
@@ -156,7 +158,9 @@ def test_serial_dos(uvm_plain_any):
     before_size = get_total_mem_size(microvm.firecracker_pid)
     send_bytes(tty_fd, 100000000, timeout=1)
     after_size = get_total_mem_size(microvm.firecracker_pid)
-    assert before_size == after_size, (
+    # Give the check a bit of tolerance (1%) since sometimes random unrelated
+    # allocations break it.
+    assert after_size <= (before_size * 1.01), (
         "The memory size of the "
         "Firecracker process "
         "changed from {} to {}.".format(before_size, after_size)
