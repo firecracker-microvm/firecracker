@@ -807,7 +807,7 @@ class Microvm:
 
         If boot_args is None, the default boot_args in Firecracker is
             reboot=k panic=1 nomodule 8250.nr_uarts=0 i8042.noaux i8042.nomux
-            i8042.nopnp i8042.dumbkbd
+            i8042.nopnp i8042.dumbkbd swiotlb=noforce
 
         if PCI is disabled, Firecracker also passes to the guest pci=off
 
