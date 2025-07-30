@@ -150,6 +150,8 @@ pub struct NetDeviceMetrics {
     /// Number of times when interacting with the space config of a network device failed.
     pub cfg_fails: SharedIncMetric,
     /// Number of times the mac address was updated through the config space.
+    /// Number of device resets.
+    pub device_resets: SharedIncMetric,
     pub mac_address_updates: SharedIncMetric,
     /// No available buffer for the net device rx queue.
     pub no_rx_avail_buffer: SharedIncMetric,
@@ -222,6 +224,7 @@ impl NetDeviceMetrics {
     pub fn aggregate(&mut self, other: &Self) {
         self.activate_fails.add(other.activate_fails.fetch_diff());
         self.cfg_fails.add(other.cfg_fails.fetch_diff());
+        self.device_resets.add(other.device_resets.fetch_diff());
         self.mac_address_updates
             .add(other.mac_address_updates.fetch_diff());
         self.no_rx_avail_buffer

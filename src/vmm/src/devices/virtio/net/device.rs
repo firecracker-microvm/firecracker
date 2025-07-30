@@ -1035,6 +1035,7 @@ impl VirtioDevice for Net {
         self.device_state = DeviceState::Inactive;
         self.rx_frame_buf = [0u8; MAX_BUFFER_SIZE];
         self.acked_features = 0;
+        self.metrics.device_resets.inc();
         Ok(())
     }
 }
