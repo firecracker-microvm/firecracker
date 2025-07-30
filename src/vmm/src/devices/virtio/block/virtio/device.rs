@@ -10,6 +10,7 @@ use std::convert::From;
 use std::fs::{File, OpenOptions};
 use std::io::{Seek, SeekFrom};
 use std::os::linux::fs::MetadataExt;
+use std::os::unix::fs::OpenOptionsExt;
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -63,6 +64,7 @@ impl DiskProperties {
         OpenOptions::new()
             .read(true)
             .write(!is_disk_read_only)
+            .custom_flags(libc::O_DIRECT)
             .open(PathBuf::from(&disk_image_path))
             .map_err(|x| VirtioBlockError::BackingFile(x, disk_image_path.to_string()))
     }
