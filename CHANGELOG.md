@@ -30,6 +30,11 @@ and this project adheres to
   version 2. These metrics also count requests that would be rejected in MMDS
   version 2 when MMDS version 1 is configured. They helps users assess readiness
   for migrating to MMDS version 2.
+- [#5310](https://github.com/firecracker-microvm/firecracker/pull/5310): Added
+  an optional `imds_compat` field (default to false if not provided) to PUT
+  requests to `/mmds/config` to enforce MMDS to always respond plain text
+  contents in the IMDS format regardless of the `Accept` header in requests.
+  Users need to regenerate snapshots.
 
 ### Changed
 
@@ -72,6 +77,10 @@ and this project adheres to
 - [#5290](https://github.com/firecracker-microvm/firecracker/pull/5290): Fixed
   MMDS to reject PUT requests containing `X-Forwarded-For` header regardless of
   its casing (e.g. `x-forwarded-for`).
+- [#5328](https://github.com/firecracker-microvm/firecracker/pull/5328): Fixed
+  MMDS to set the token TTL header (i.e. "X-metadata-token-ttl-seconds" or
+  "X-aws-ec2-metadata-token-ttl-seconds") in the response to "PUT
+  /latest/api/token", as EC2 IMDS does.
 
 ## [1.12.0]
 

@@ -18,6 +18,18 @@ source "$GIT_ROOT_DIR/tools/functions"
 function install_dependencies {
     apt update
     apt install -y bc flex bison gcc make libelf-dev libssl-dev squashfs-tools busybox-static tree cpio curl patch docker.io
+
+    # Install Go
+    version=$(curl -s https://go.dev/VERSION?m=text | head -n 1)
+    case $ARCH in
+        x86_64) archive="${version}.linux-amd64.tar.gz" ;;
+        aarch64) archive="${version}.linux-arm64.tar.gz" ;;
+    esac
+    curl -LO http://go.dev/dl/${archive}
+    tar -C /usr/local -xzf $archive
+    export PATH=$PATH:/usr/local/go/bin
+    go version
+    rm $archive
 }
 
 function prepare_docker {
@@ -28,11 +40,19 @@ function prepare_docker {
 }
 
 function compile_and_install {
-    local C_FILE=$1
-    local BIN_FILE=$2
-    local OUTPUT_DIR=$(dirname $BIN_FILE)
-    mkdir -pv $OUTPUT_DIR
-    gcc -Wall -o $BIN_FILE $C_FILE
+    local SRC=$1
+    local BIN="${SRC%.*}"
+    if [[ $SRC == *.c ]]; then
+        gcc -Wall -o $BIN $SRC
+    elif [[ $SRC == *.go ]]; then
+        pushd $SRC
+        local MOD=$(basename $BIN)
+        go mod init $MOD
+        go mod tidy
+        go build -o ../$MOD
+        rm go.mod go.sum
+        popd
+    fi
 }
 
 # Build a rootfs
@@ -65,12 +85,6 @@ for d in $dirs; do tar c "/$d" | tar x -C $rootfs; done
 mkdir -pv $rootfs/{dev,proc,sys,run,tmp,var/lib/systemd}
 # So apt works
 mkdir -pv $rootfs/var/lib/dpkg/
-
-# Install AWS CLI v2
-curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
-unzip awscliv2.zip
-./aws/install --install-dir $rootfs/usr/local/aws-cli --bin-dir $rootfs/usr/local/bin
-rm -rf awscliv2.zip aws
 EOF
 
     # TBD what abt /etc/hosts?
@@ -80,9 +94,6 @@ EOF
     mv $rootfs/root/manifest $OUTPUT_DIR/$ROOTFS_NAME.manifest
     mksquashfs $rootfs $rootfs_img -all-root -noappend -comp zstd
     rm -rf $rootfs
-    for bin in fast_page_fault_helper fillmem init readmem; do
-        rm $PWD/overlay/usr/local/bin/$bin
-    done
     rm -f nohup.out
 }
 
@@ -187,17 +198,24 @@ function build_al_kernel {
 }
 
 function prepare_and_build_rootfs {
-    BIN=overlay/usr/local/bin
-    compile_and_install $BIN/init.c $BIN/init
-    compile_and_install $BIN/fillmem.c $BIN/fillmem
-    compile_and_install $BIN/fast_page_fault_helper.c $BIN/fast_page_fault_helper
-    compile_and_install $BIN/readmem.c $BIN/readmem
+    BIN_DIR=overlay/usr/local/bin
+
+    SRCS=(init.c fillmem.c fast_page_fault_helper.c readmem.c go_sdk_cred_provider.go go_sdk_cred_provider_with_custom_endpoint.go)
     if [ $ARCH == "aarch64" ]; then
-        compile_and_install $BIN/devmemread.c $BIN/devmemread
+        SRCS+=(devmemread.c)
     fi
+
+    for SRC in ${SRCS[@]}; do
+        compile_and_install $BIN_DIR/$SRC
+    done
 
     build_rootfs ubuntu-24.04 noble
     build_initramfs
+
+    for SRC in ${SRCS[@]}; do
+        BIN="${SRC%.*}"
+        rm $BIN_DIR/$BIN
+    done
 }
 
 function vmlinux_split_debuginfo {

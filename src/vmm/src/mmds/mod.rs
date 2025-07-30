@@ -271,7 +271,7 @@ fn respond_to_put_request(mmds: &mut Mmds, request: Request) -> Response {
     }
 
     // Get token lifetime value.
-    let ttl_seconds = match get_header_value_pair(
+    let (header, ttl_seconds) = match get_header_value_pair(
         custom_headers,
         &[
             X_METADATA_TOKEN_TTL_SECONDS_HEADER,
@@ -279,8 +279,8 @@ fn respond_to_put_request(mmds: &mut Mmds, request: Request) -> Response {
         ],
     ) {
         // Header found
-        Some((k, v)) => match v.parse::<u32>() {
-            Ok(ttl_seconds) => ttl_seconds,
+        Some((header, value)) => match value.parse::<u32>() {
+            Ok(ttl_seconds) => (header, ttl_seconds),
             Err(_) => {
                 return build_response(
                     request.http_version(),
@@ -288,8 +288,8 @@ fn respond_to_put_request(mmds: &mut Mmds, request: Request) -> Response {
                     MediaType::PlainText,
                     Body::new(
                         RequestError::HeaderError(HttpHeaderError::InvalidValue(
-                            k.into(),
-                            v.into(),
+                            header.into(),
+                            value.into(),
                         ))
                         .to_string(),
                     ),
@@ -310,12 +310,22 @@ fn respond_to_put_request(mmds: &mut Mmds, request: Request) -> Response {
     // Generate token.
     let result = mmds.generate_token(ttl_seconds);
     match result {
-        Ok(token) => build_response(
-            request.http_version(),
-            StatusCode::OK,
-            MediaType::PlainText,
-            Body::new(token),
-        ),
+        Ok(token) => {
+            let mut response = build_response(
+                request.http_version(),
+                StatusCode::OK,
+                MediaType::PlainText,
+                Body::new(token),
+            );
+            let custom_headers = [(header.into(), ttl_seconds.to_string())].into();
+            // Safe to unwrap because the header name and the value are valid as US-ASCII.
+            // - `header` is either `X_METADATA_TOKEN_TTL_SECONDS_HEADER` or
+            //   `X_AWS_EC2_METADATA_TOKEN_SSL_SECONDS_HEADER`.
+            // - `ttl_seconds` is a decimal number between `MIN_TOKEN_TTL_SECONDS` and
+            //   `MAX_TOKEN_TTL_SECONDS`.
+            response.set_custom_headers(&custom_headers).unwrap();
+            response
+        }
         Err(err) => build_response(
             request.http_version(),
             StatusCode::BadRequest,
@@ -752,6 +762,13 @@ mod tests {
             let actual_response = convert_to_response(mmds.clone(), request);
             assert_eq!(actual_response.status(), StatusCode::OK);
             assert_eq!(actual_response.content_type(), MediaType::PlainText);
+            assert_eq!(
+                actual_response
+                    .custom_headers()
+                    .get("X-metadata-token-ttl-seconds")
+                    .unwrap(),
+                "60"
+            );
 
             // Test unsupported `X-Forwarded-For` header
             for header in ["X-Forwarded-For", "x-forwarded-for", "X-fOrWaRdEd-FoR"] {
