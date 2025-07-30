@@ -12,7 +12,7 @@ import pytest
 
 DEFAULT_BOOT_ARGS = (
     "reboot=k panic=1 nomodule 8250.nr_uarts=0"
-    " i8042.noaux i8042.nomux i8042.nopnp i8042.dumbkbd"
+    " i8042.noaux i8042.nomux i8042.nopnp i8042.dumbkbd swiotlb=noforce"
 )
 
 
