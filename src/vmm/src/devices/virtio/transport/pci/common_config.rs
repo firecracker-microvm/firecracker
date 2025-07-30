@@ -258,7 +258,18 @@ impl VirtioPciCommonConfig {
             0x10 => self.msix_config.store(value, Ordering::Release),
             0x16 => self.queue_select = value,
             0x18 => self.with_queue_mut(queues, |q| q.size = value),
-            0x1a => self.msix_queues.lock().unwrap()[self.queue_select as usize] = value,
+            0x1a => {
+                // Make sure that `queue_select` points to a valid queue. If not, we won't do
+                // anything here and subsequent reads at 0x1a will return `NO_VECTOR`.
+                if let Some(msix_queue) = self
+                    .msix_queues
+                    .lock()
+                    .unwrap()
+                    .get_mut(self.queue_select as usize)
+                {
+                    *msix_queue = value;
+                }
+            }
             0x1c => self.with_queue_mut(queues, |q| {
                 q.ready = value == 1;
             }),
@@ -426,7 +437,17 @@ mod tests {
 
         // Getting the MSI vector when `queue_select` points to an invalid queue should return
         // NO_VECTOR (0xffff)
-        regs.read(0x1a, &mut read_back, dev);
+        regs.read(0x1a, &mut read_back, dev.clone());
         assert_eq!(read_back, [0xff, 0xff]);
+
+        // Writing the MSI vector of an invalid `queue_select` does not have any effect.
+        regs.write(0x1a, &[0x12, 0x13], dev.clone());
+        assert_eq!(read_back, [0xff, 0xff]);
+        // Valid `queue_select` though should setup the corresponding MSI-X queue.
+        regs.write(0x16, &[0x1, 0x0], dev.clone());
+        assert_eq!(regs.queue_select, 1);
+        regs.write(0x1a, &[0x12, 0x13], dev.clone());
+        regs.read(0x1a, &mut read_back, dev);
+        assert_eq!(LittleEndian::read_u16(&read_back[..2]), 0x1312);
     }
 }
