@@ -118,10 +118,12 @@ def run_all_tests(changed_files):
     """
 
     # run the whole test suite if either of:
-    # - any file changed that is not documentation nor GitHub action config file
+    # - any file changed that is not documentation nor GitHub action config file, nor secret hiding patch series
     # - no files changed
     return not changed_files or any(
-        x.suffix != ".md" and not (x.parts[0] == ".github" and x.suffix == ".yml")
+        x.suffix != ".md"
+        and not (x.parts[0] == ".github" and x.suffix == ".yml")
+        and x.parts[1] != "hiding_ci"
         for x in changed_files
     )
 
