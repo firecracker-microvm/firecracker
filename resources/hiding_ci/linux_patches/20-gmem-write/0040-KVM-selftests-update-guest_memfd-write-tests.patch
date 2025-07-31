@@ -1,7 +1,7 @@
-From 205f30ad3c9fa142c34ab2ac6a3f6a762f6fc6b1 Mon Sep 17 00:00:00 2001
+From 5d2885cd8a7904642d0c92d4464a74fedb167ddd Mon Sep 17 00:00:00 2001
 From: Nikita Kalyazin <kalyazin@amazon.com>
 Date: Mon, 3 Mar 2025 13:08:38 +0000
-Subject: [PATCH 40/46] KVM: selftests: update guest_memfd write tests
+Subject: [PATCH 2/2] KVM: selftests: update guest_memfd write tests
 
 This is to reflect that the write syscall is now implemented for
 guest_memfd.
@@ -12,7 +12,7 @@ Signed-off-by: Nikita Kalyazin <kalyazin@amazon.com>
  1 file changed, 79 insertions(+), 6 deletions(-)
 
 diff --git a/tools/testing/selftests/kvm/guest_memfd_test.c b/tools/testing/selftests/kvm/guest_memfd_test.c
-index 1252e74fbb8f..3965a842896e 100644
+index 1252e74fbb8f..4c8eccd751d9 100644
 --- a/tools/testing/selftests/kvm/guest_memfd_test.c
 +++ b/tools/testing/selftests/kvm/guest_memfd_test.c
 @@ -22,18 +22,90 @@
@@ -59,7 +59,7 @@ index 1252e74fbb8f..3965a842896e 100644
 +
 +	ret = pwrite(fd, NULL, page_size, 0);
 +	TEST_ASSERT(ret == -1, "supplying a NULL buffer when writing a guest_mem fd should fail");
-+	TEST_ASSERT_EQ(errno, EINVAL);
++	TEST_ASSERT_EQ(errno, EFAULT);
 +
 +	/* Check double population is not allowed */
 +
