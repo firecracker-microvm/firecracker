@@ -1,0 +1,85 @@
+From 2d29a6cc2acd7f6c15cad81fcde5bd3d6cbe78a9 Mon Sep 17 00:00:00 2001
+From: Patrick Roy <roypat@amazon.co.uk>
+Date: Mon, 2 Jun 2025 12:06:10 +0100
+Subject: [PATCH 26/49] arch: export set_direct_map_valid_noflush to KVM module
+
+Use the new per-module export functionality to allow KVM (and only KVM)
+access to set_direct_map_valid_noflush(). This allows guest_memfd to
+remove its memory from the direct map, even if KVM is built as a module.
+
+Direct map removal gives guest_memfd the same protection that
+memfd_secret enjoys, such as hardening against Spectre-like attacks
+through in-kernel gadgets.
+
+Signed-off-by: Patrick Roy <roypat@amazon.co.uk>
+---
+ arch/arm64/mm/pageattr.c     | 1 +
+ arch/loongarch/mm/pageattr.c | 1 +
+ arch/riscv/mm/pageattr.c     | 1 +
+ arch/s390/mm/pageattr.c      | 1 +
+ arch/x86/mm/pat/set_memory.c | 1 +
+ 5 files changed, 5 insertions(+)
+
+diff --git a/arch/arm64/mm/pageattr.c b/arch/arm64/mm/pageattr.c
+index 04d4a8f676db..ff454bc6e9a2 100644
+--- a/arch/arm64/mm/pageattr.c
++++ b/arch/arm64/mm/pageattr.c
+@@ -291,6 +291,7 @@ int set_direct_map_valid_noflush(struct page *page, unsigned nr, bool valid)
+ 
+ 	return set_memory_valid(addr, nr, valid);
+ }
++EXPORT_SYMBOL_GPL_FOR_MODULES(set_direct_map_valid_noflush, "kvm");
+ 
+ #ifdef CONFIG_DEBUG_PAGEALLOC
+ /*
+diff --git a/arch/loongarch/mm/pageattr.c b/arch/loongarch/mm/pageattr.c
+index 99165903908a..43c1a873a469 100644
+--- a/arch/loongarch/mm/pageattr.c
++++ b/arch/loongarch/mm/pageattr.c
+@@ -217,6 +217,7 @@ int set_direct_map_invalid_noflush(struct page *page)
+ 
+ 	return __set_memory(addr, 1, __pgprot(0), __pgprot(_PAGE_PRESENT | _PAGE_VALID));
+ }
++EXPORT_SYMBOL_GPL_FOR_MODULES(set_direct_map_valid_noflush, "kvm");
+ 
+ int set_direct_map_valid_noflush(struct page *page, unsigned nr, bool valid)
+ {
+diff --git a/arch/riscv/mm/pageattr.c b/arch/riscv/mm/pageattr.c
+index d815448758a1..3a1627e0eeb4 100644
+--- a/arch/riscv/mm/pageattr.c
++++ b/arch/riscv/mm/pageattr.c
+@@ -400,6 +400,7 @@ int set_direct_map_valid_noflush(struct page *page, unsigned nr, bool valid)
+ 
+ 	return __set_memory((unsigned long)page_address(page), nr, set, clear);
+ }
++EXPORT_SYMBOL_GPL_FOR_MODULES(set_direct_map_valid_noflush, "kvm");
+ 
+ #ifdef CONFIG_DEBUG_PAGEALLOC
+ static int debug_pagealloc_set_page(pte_t *pte, unsigned long addr, void *data)
+diff --git a/arch/s390/mm/pageattr.c b/arch/s390/mm/pageattr.c
+index 348e759840e7..392ce9194f86 100644
+--- a/arch/s390/mm/pageattr.c
++++ b/arch/s390/mm/pageattr.c
+@@ -413,6 +413,7 @@ int set_direct_map_valid_noflush(struct page *page, unsigned nr, bool valid)
+ 
+ 	return __set_memory((unsigned long)page_to_virt(page), nr, flags);
+ }
++EXPORT_SYMBOL_GPL_FOR_MODULES(set_direct_map_valid_noflush, "kvm");
+ 
+ bool kernel_page_present(struct page *page)
+ {
+diff --git a/arch/x86/mm/pat/set_memory.c b/arch/x86/mm/pat/set_memory.c
+index 8834c76f91c9..ab469de18c4d 100644
+--- a/arch/x86/mm/pat/set_memory.c
++++ b/arch/x86/mm/pat/set_memory.c
+@@ -2661,6 +2661,7 @@ int set_direct_map_valid_noflush(struct page *page, unsigned nr, bool valid)
+ 
+ 	return __set_pages_np(page, nr);
+ }
++EXPORT_SYMBOL_GPL_FOR_MODULES(set_direct_map_valid_noflush, "kvm");
+ 
+ #ifdef CONFIG_DEBUG_PAGEALLOC
+ void __kernel_map_pages(struct page *page, int numpages, int enable)
+-- 
+2.50.1
+

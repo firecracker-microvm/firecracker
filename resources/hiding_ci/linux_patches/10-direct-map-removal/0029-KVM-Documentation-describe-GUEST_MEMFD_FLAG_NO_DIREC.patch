@@ -1,0 +1,30 @@
+From 690b035df72fd4058f96af080d3d769035090544 Mon Sep 17 00:00:00 2001
+From: Patrick Roy <roypat@amazon.co.uk>
+Date: Wed, 16 Jul 2025 15:21:10 +0100
+Subject: [PATCH 29/49] KVM: Documentation: describe
+ GUEST_MEMFD_FLAG_NO_DIRECT_MAP
+
+Signed-off-by: Patrick Roy <roypat@amazon.co.uk>
+---
+ Documentation/virt/kvm/api.rst | 5 +++++
+ 1 file changed, 5 insertions(+)
+
+diff --git a/Documentation/virt/kvm/api.rst b/Documentation/virt/kvm/api.rst
+index 1e0c4a68876d..4a94bac95dca 100644
+--- a/Documentation/virt/kvm/api.rst
++++ b/Documentation/virt/kvm/api.rst
+@@ -6418,6 +6418,11 @@ When the capability KVM_CAP_GUEST_MEMFD_MMAP is supported, the 'flags' field
+ supports GUEST_MEMFD_FLAG_MMAP.  Setting this flag on guest_memfd creation
+ enables mmap() and faulting of guest_memfd memory to host userspace.
+ 
++When the capability KVM_CAP_GMEM_NO_DIRECT_MAP is supported, the 'flags' field
++supports GUEST_MEMFG_FLAG_NO_DIRECT_MAP. Setting this flag makes the guest_memfd
++instance behave similarly to memfd_secret, and unmaps the memory backing it from
++the kernel's address space after allocation.
++
+ When the KVM MMU performs a PFN lookup to service a guest fault and the backing
+ guest_memfd has the GUEST_MEMFD_FLAG_MMAP set, then the fault will always be
+ consumed from guest_memfd, regardless of whether it is a shared or a private
+-- 
+2.50.1
+

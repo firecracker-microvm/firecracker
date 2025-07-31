@@ -1,0 +1,42 @@
+From 77d38342c84fd5a10a01fe3180aecc3acdac45dd Mon Sep 17 00:00:00 2001
+From: Sean Christopherson <seanjc@google.com>
+Date: Tue, 29 Jul 2025 15:54:34 -0700
+Subject: [PATCH 03/49] KVM: x86: Select KVM_GENERIC_PRIVATE_MEM directly from
+ KVM_SW_PROTECTED_VM
+
+Now that KVM_SW_PROTECTED_VM doesn't have a hidden dependency on KVM_X86,
+select KVM_GENERIC_PRIVATE_MEM from within KVM_SW_PROTECTED_VM instead of
+conditionally selecting it from KVM_X86.
+
+No functional change intended.
+
+Reviewed-by: Xiaoyao Li <xiaoyao.li@intel.com>
+Reviewed-by: David Hildenbrand <david@redhat.com>
+Signed-off-by: Sean Christopherson <seanjc@google.com>
+---
+ arch/x86/kvm/Kconfig | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/arch/x86/kvm/Kconfig b/arch/x86/kvm/Kconfig
+index 9895fc3cd901..402ba00fdf45 100644
+--- a/arch/x86/kvm/Kconfig
++++ b/arch/x86/kvm/Kconfig
+@@ -46,7 +46,6 @@ config KVM_X86
+ 	select HAVE_KVM_PM_NOTIFIER if PM
+ 	select KVM_GENERIC_HARDWARE_ENABLING
+ 	select KVM_GENERIC_PRE_FAULT_MEMORY
+-	select KVM_GENERIC_PRIVATE_MEM if KVM_SW_PROTECTED_VM
+ 	select KVM_WERROR if WERROR
+ 
+ config KVM
+@@ -84,6 +83,7 @@ config KVM_SW_PROTECTED_VM
+ 	bool "Enable support for KVM software-protected VMs"
+ 	depends on EXPERT
+ 	depends on KVM_X86 && X86_64
++	select KVM_GENERIC_PRIVATE_MEM
+ 	help
+ 	  Enable support for KVM software-protected VMs.  Currently, software-
+ 	  protected VMs are purely a development and testing vehicle for
+-- 
+2.50.1
+

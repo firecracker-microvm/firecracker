@@ -1,0 +1,37 @@
+From a2fbf5ba7d74d4039918211c6fc95e40ae28f1d0 Mon Sep 17 00:00:00 2001
+From: Fuad Tabba <tabba@google.com>
+Date: Tue, 29 Jul 2025 15:54:39 -0700
+Subject: [PATCH 08/49] KVM: Fix comment that refers to kvm uapi header path
+
+The comment that points to the path where the user-visible memslot flags
+are refers to an outdated path and has a typo.
+
+Update the comment to refer to the correct path.
+
+Reviewed-by: David Hildenbrand <david@redhat.com>
+Reviewed-by: Gavin Shan <gshan@redhat.com>
+Reviewed-by: Shivank Garg <shivankg@amd.com>
+Reviewed-by: Vlastimil Babka <vbabka@suse.cz>
+Reviewed-by: Xiaoyao Li <xiaoyao.li@intel.com>
+Signed-off-by: Fuad Tabba <tabba@google.com>
+Signed-off-by: Sean Christopherson <seanjc@google.com>
+---
+ include/linux/kvm_host.h | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/include/linux/kvm_host.h b/include/linux/kvm_host.h
+index 5c25b03d3d50..56ea8c862cfd 100644
+--- a/include/linux/kvm_host.h
++++ b/include/linux/kvm_host.h
+@@ -52,7 +52,7 @@
+ /*
+  * The bit 16 ~ bit 31 of kvm_userspace_memory_region::flags are internally
+  * used in kvm, other bits are visible for userspace which are defined in
+- * include/linux/kvm_h.
++ * include/uapi/linux/kvm.h.
+  */
+ #define KVM_MEMSLOT_INVALID	(1UL << 16)
+ 
+-- 
+2.50.1
+

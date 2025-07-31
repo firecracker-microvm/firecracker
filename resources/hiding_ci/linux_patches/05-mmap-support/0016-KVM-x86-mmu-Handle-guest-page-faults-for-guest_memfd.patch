@@ -1,0 +1,60 @@
+From 0bd3fa88d45b2f38ff12ec419e3b7e6fb8cd64fc Mon Sep 17 00:00:00 2001
+From: Ackerley Tng <ackerleytng@google.com>
+Date: Tue, 29 Jul 2025 15:54:47 -0700
+Subject: [PATCH 16/49] KVM: x86/mmu: Handle guest page faults for guest_memfd
+ with shared memory
+
+Update the KVM MMU fault handler to service guest page faults
+for memory slots backed by guest_memfd with mmap support. For such
+slots, the MMU must always fault in pages directly from guest_memfd,
+bypassing the host's userspace_addr.
+
+This ensures that guest_memfd-backed memory is always handled through
+the guest_memfd specific faulting path, regardless of whether it's for
+private or non-private (shared) use cases.
+
+Additionally, rename kvm_mmu_faultin_pfn_private() to
+kvm_mmu_faultin_pfn_gmem(), as this function is now used to fault in
+pages from guest_memfd for both private and non-private memory,
+accommodating the new use cases.
+
+Co-developed-by: David Hildenbrand <david@redhat.com>
+Signed-off-by: David Hildenbrand <david@redhat.com>
+Signed-off-by: Ackerley Tng <ackerleytng@google.com>
+Co-developed-by: Fuad Tabba <tabba@google.com>
+Signed-off-by: Fuad Tabba <tabba@google.com>
+[sean: drop the helper]
+Signed-off-by: Sean Christopherson <seanjc@google.com>
+---
+ arch/x86/kvm/mmu/mmu.c | 8 ++++----
+ 1 file changed, 4 insertions(+), 4 deletions(-)
+
+diff --git a/arch/x86/kvm/mmu/mmu.c b/arch/x86/kvm/mmu/mmu.c
+index e83d666f32ad..56c80588efa0 100644
+--- a/arch/x86/kvm/mmu/mmu.c
++++ b/arch/x86/kvm/mmu/mmu.c
+@@ -4561,8 +4561,8 @@ static void kvm_mmu_finish_page_fault(struct kvm_vcpu *vcpu,
+ 				 r == RET_PF_RETRY, fault->map_writable);
+ }
+ 
+-static int kvm_mmu_faultin_pfn_private(struct kvm_vcpu *vcpu,
+-				       struct kvm_page_fault *fault)
++static int kvm_mmu_faultin_pfn_gmem(struct kvm_vcpu *vcpu,
++				    struct kvm_page_fault *fault)
+ {
+ 	int max_order, r;
+ 
+@@ -4589,8 +4589,8 @@ static int __kvm_mmu_faultin_pfn(struct kvm_vcpu *vcpu,
+ {
+ 	unsigned int foll = fault->write ? FOLL_WRITE : 0;
+ 
+-	if (fault->is_private)
+-		return kvm_mmu_faultin_pfn_private(vcpu, fault);
++	if (fault->is_private || kvm_memslot_is_gmem_only(fault->slot))
++		return kvm_mmu_faultin_pfn_gmem(vcpu, fault);
+ 
+ 	foll |= FOLL_NOWAIT;
+ 	fault->pfn = __kvm_faultin_pfn(fault->slot, fault->gfn, foll,
+-- 
+2.50.1
+

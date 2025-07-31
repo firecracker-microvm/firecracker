@@ -1,0 +1,45 @@
+From 93c8b3d7b039acdd213a3250b47043218da38428 Mon Sep 17 00:00:00 2001
+From: James Houghton <jthoughton@google.com>
+Date: Thu, 9 Jan 2025 20:49:20 +0000
+Subject: [PATCH 42/49] KVM: Advertise KVM_CAP_USERFAULT in KVM_CHECK_EXTENSION
+
+Advertise support for KVM_CAP_USERFAULT when kvm_has_userfault() returns
+true. Currently this is merely IS_ENABLED(CONFIG_HAVE_KVM_USERFAULT), so
+it is somewhat redundant.
+
+Signed-off-by: James Houghton <jthoughton@google.com>
+---
+ include/uapi/linux/kvm.h | 1 +
+ virt/kvm/kvm_main.c      | 4 ++++
+ 2 files changed, 5 insertions(+)
+
+diff --git a/include/uapi/linux/kvm.h b/include/uapi/linux/kvm.h
+index 9d08e36ea93b..71b639e86a26 100644
+--- a/include/uapi/linux/kvm.h
++++ b/include/uapi/linux/kvm.h
+@@ -966,6 +966,7 @@ struct kvm_enable_cap {
+ #define KVM_CAP_RISCV_MP_STATE_RESET 242
+ #define KVM_CAP_GUEST_MEMFD_MMAP 243
+ #define KVM_CAP_GUEST_MEMFD_NO_DIRECT_MAP 244
++#define KVM_CAP_USERFAULT 245
+ 
+ struct kvm_irq_routing_irqchip {
+ 	__u32 irqchip;
+diff --git a/virt/kvm/kvm_main.c b/virt/kvm/kvm_main.c
+index ff2d40636a7a..c089e03b066b 100644
+--- a/virt/kvm/kvm_main.c
++++ b/virt/kvm/kvm_main.c
+@@ -4944,6 +4944,10 @@ static int kvm_vm_ioctl_check_extension_generic(struct kvm *kvm, long arg)
+ 		return 1;
+ 	case KVM_CAP_GUEST_MEMFD_MMAP:
+ 		return !kvm || kvm_arch_supports_gmem_mmap(kvm);
++#endif
++#ifdef CONFIG_HAVE_KVM_USERFAULT
++	case KVM_CAP_USERFAULT:
++		return kvm_has_userfault(kvm);
+ #endif
+ 	default:
+ 		break;
+-- 
+2.50.1
+

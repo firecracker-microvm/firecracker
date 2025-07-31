@@ -1,0 +1,95 @@
+From 3e1004dc6c19b37c8776069c03b58b75085e9dfd Mon Sep 17 00:00:00 2001
+From: Nikita Kalyazin <kalyazin@amazon.com>
+Date: Fri, 4 Apr 2025 14:15:18 +0000
+Subject: [PATCH 46/49] mm: provide can_userfault vma operation
+
+The new operation allows to decouple the userfaulfd code from
+dependencies to VMA types, specifically, shmem and hugetlb.  The
+vm_flags bitmap argument is processed with "any" logic, meaning if the
+VMA type supports any of the flags set, it returns true.  This is to
+avoid multiple calls when checking for __VM_UFFD_FLAGS.
+
+Signed-off-by: Nikita Kalyazin <kalyazin@amazon.com>
+---
+ include/linux/mm.h | 5 +++++
+ mm/hugetlb.c       | 7 +++++++
+ mm/shmem.c         | 8 ++++++++
+ 3 files changed, 20 insertions(+)
+
+diff --git a/include/linux/mm.h b/include/linux/mm.h
+index fa538feaa8d9..b0dafe4c84ad 100644
+--- a/include/linux/mm.h
++++ b/include/linux/mm.h
+@@ -653,6 +653,11 @@ struct vm_operations_struct {
+ 	 */
+ 	struct page *(*find_special_page)(struct vm_area_struct *vma,
+ 					  unsigned long addr);
++	/*
++	 * True if the VMA supports userfault at least for one of the vm_flags
++	 */
++	bool (*can_userfault)(struct vm_area_struct *vma,
++			      unsigned long vm_flags);
+ };
+ 
+ #ifdef CONFIG_NUMA_BALANCING
+diff --git a/mm/hugetlb.c b/mm/hugetlb.c
+index 7921c08fd529..de57d4c8972b 100644
+--- a/mm/hugetlb.c
++++ b/mm/hugetlb.c
+@@ -5450,6 +5450,12 @@ static unsigned long hugetlb_vm_op_pagesize(struct vm_area_struct *vma)
+ 	return huge_page_size(hstate_vma(vma));
+ }
+ 
++static bool hugetlb_vm_op_can_userfault(struct vm_area_struct *vma,
++					unsigned long vm_flags)
++{
++	return true;
++}
++
+ /*
+  * We cannot handle pagefaults against hugetlb pages at all.  They cause
+  * handle_mm_fault() to try to instantiate regular-sized pages in the
+@@ -5475,6 +5481,7 @@ const struct vm_operations_struct hugetlb_vm_ops = {
+ 	.close = hugetlb_vm_op_close,
+ 	.may_split = hugetlb_vm_op_split,
+ 	.pagesize = hugetlb_vm_op_pagesize,
++	.can_userfault = hugetlb_vm_op_can_userfault,
+ };
+ 
+ static pte_t make_huge_pte(struct vm_area_struct *vma, struct folio *folio,
+diff --git a/mm/shmem.c b/mm/shmem.c
+index 01e20e0216bc..296bca653f77 100644
+--- a/mm/shmem.c
++++ b/mm/shmem.c
+@@ -2882,6 +2882,12 @@ static struct mempolicy *shmem_get_policy(struct vm_area_struct *vma,
+ 	return mpol_shared_policy_lookup(&SHMEM_I(inode)->policy, index);
+ }
+ 
++static bool shmem_can_userfault(struct vm_area_struct *vma,
++				unsigned long vm_flags)
++{
++	return true;
++}
++
+ static struct mempolicy *shmem_get_pgoff_policy(struct shmem_inode_info *info,
+ 			pgoff_t index, unsigned int order, pgoff_t *ilx)
+ {
+@@ -5298,6 +5304,7 @@ static const struct vm_operations_struct shmem_vm_ops = {
+ 	.set_policy     = shmem_set_policy,
+ 	.get_policy     = shmem_get_policy,
+ #endif
++	.can_userfault  = shmem_can_userfault,
+ };
+ 
+ static const struct vm_operations_struct shmem_anon_vm_ops = {
+@@ -5307,6 +5314,7 @@ static const struct vm_operations_struct shmem_anon_vm_ops = {
+ 	.set_policy     = shmem_set_policy,
+ 	.get_policy     = shmem_get_policy,
+ #endif
++	.can_userfault  = shmem_can_userfault,
+ };
+ 
+ int shmem_init_fs_context(struct fs_context *fc)
+-- 
+2.50.1
+

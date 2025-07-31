@@ -1,0 +1,105 @@
+From b2a5123fafdbdd7637f3398f7168da24dc84b137 Mon Sep 17 00:00:00 2001
+From: Patrick Roy <roypat@amazon.co.uk>
+Date: Fri, 21 Feb 2025 09:00:45 +0000
+Subject: [PATCH 30/49] KVM: selftests: load elf via bounce buffer
+
+If guest memory is backed using a VMA that does not allow GUP (e.g. a
+userspace mapping of guest_memfd when the fd was allocated using
+KVM_GMEM_NO_DIRECT_MAP), then directly loading the test ELF binary into
+it via read(2) potentially does not work. To nevertheless support
+loading binaries in this cases, do the read(2) syscall using a bounce
+buffer, and then memcpy from the bounce buffer into guest memory.
+
+Signed-off-by: Patrick Roy <roypat@amazon.co.uk>
+---
+ .../testing/selftests/kvm/include/test_util.h |  1 +
+ tools/testing/selftests/kvm/lib/elf.c         |  8 +++----
+ tools/testing/selftests/kvm/lib/io.c          | 23 +++++++++++++++++++
+ 3 files changed, 28 insertions(+), 4 deletions(-)
+
+diff --git a/tools/testing/selftests/kvm/include/test_util.h b/tools/testing/selftests/kvm/include/test_util.h
+index c6ef895fbd9a..0409b7b96c94 100644
+--- a/tools/testing/selftests/kvm/include/test_util.h
++++ b/tools/testing/selftests/kvm/include/test_util.h
+@@ -46,6 +46,7 @@ do {								\
+ 
+ ssize_t test_write(int fd, const void *buf, size_t count);
+ ssize_t test_read(int fd, void *buf, size_t count);
++ssize_t test_read_bounce(int fd, void *buf, size_t count);
+ int test_seq_read(const char *path, char **bufp, size_t *sizep);
+ 
+ void __printf(5, 6) test_assert(bool exp, const char *exp_str,
+diff --git a/tools/testing/selftests/kvm/lib/elf.c b/tools/testing/selftests/kvm/lib/elf.c
+index f34d926d9735..e829fbe0a11e 100644
+--- a/tools/testing/selftests/kvm/lib/elf.c
++++ b/tools/testing/selftests/kvm/lib/elf.c
+@@ -31,7 +31,7 @@ static void elfhdr_get(const char *filename, Elf64_Ehdr *hdrp)
+ 	 * the real size of the ELF header.
+ 	 */
+ 	unsigned char ident[EI_NIDENT];
+-	test_read(fd, ident, sizeof(ident));
++	test_read_bounce(fd, ident, sizeof(ident));
+ 	TEST_ASSERT((ident[EI_MAG0] == ELFMAG0) && (ident[EI_MAG1] == ELFMAG1)
+ 		&& (ident[EI_MAG2] == ELFMAG2) && (ident[EI_MAG3] == ELFMAG3),
+ 		"ELF MAGIC Mismatch,\n"
+@@ -79,7 +79,7 @@ static void elfhdr_get(const char *filename, Elf64_Ehdr *hdrp)
+ 	offset_rv = lseek(fd, 0, SEEK_SET);
+ 	TEST_ASSERT(offset_rv == 0, "Seek to ELF header failed,\n"
+ 		"  rv: %zi expected: %i", offset_rv, 0);
+-	test_read(fd, hdrp, sizeof(*hdrp));
++	test_read_bounce(fd, hdrp, sizeof(*hdrp));
+ 	TEST_ASSERT(hdrp->e_phentsize == sizeof(Elf64_Phdr),
+ 		"Unexpected physical header size,\n"
+ 		"  hdrp->e_phentsize: %x\n"
+@@ -146,7 +146,7 @@ void kvm_vm_elf_load(struct kvm_vm *vm, const char *filename)
+ 
+ 		/* Read in the program header. */
+ 		Elf64_Phdr phdr;
+-		test_read(fd, &phdr, sizeof(phdr));
++		test_read_bounce(fd, &phdr, sizeof(phdr));
+ 
+ 		/* Skip if this header doesn't describe a loadable segment. */
+ 		if (phdr.p_type != PT_LOAD)
+@@ -187,7 +187,7 @@ void kvm_vm_elf_load(struct kvm_vm *vm, const char *filename)
+ 				"  expected: 0x%jx",
+ 				n1, errno, (intmax_t) offset_rv,
+ 				(intmax_t) phdr.p_offset);
+-			test_read(fd, addr_gva2hva(vm, phdr.p_vaddr),
++			test_read_bounce(fd, addr_gva2hva(vm, phdr.p_vaddr),
+ 				phdr.p_filesz);
+ 		}
+ 	}
+diff --git a/tools/testing/selftests/kvm/lib/io.c b/tools/testing/selftests/kvm/lib/io.c
+index fedb2a741f0b..74419becc8bc 100644
+--- a/tools/testing/selftests/kvm/lib/io.c
++++ b/tools/testing/selftests/kvm/lib/io.c
+@@ -155,3 +155,26 @@ ssize_t test_read(int fd, void *buf, size_t count)
+ 
+ 	return num_read;
+ }
++
++/* Test read via intermediary buffer
++ *
++ * Same as test_read, except read(2)s happen into a bounce buffer that is memcpy'd
++ * to buf. For use with buffers that cannot be GUP'd (e.g. guest_memfd VMAs if
++ * guest_memfd was created with GUEST_MEMFD_FLAG_NO_DIRECT_MAP).
++ */
++ssize_t test_read_bounce(int fd, void *buf, size_t count)
++{
++	void *bounce_buffer;
++	ssize_t num_read;
++
++	TEST_ASSERT(count >= 0, "Unexpected count, count: %li", count);
++
++	bounce_buffer = malloc(count);
++	TEST_ASSERT(bounce_buffer != NULL, "Failed to allocate bounce buffer");
++
++	num_read = test_read(fd, bounce_buffer, count);
++	memcpy(buf, bounce_buffer, num_read);
++	free(bounce_buffer);
++
++	return num_read;
++}
+-- 
+2.50.1
+
