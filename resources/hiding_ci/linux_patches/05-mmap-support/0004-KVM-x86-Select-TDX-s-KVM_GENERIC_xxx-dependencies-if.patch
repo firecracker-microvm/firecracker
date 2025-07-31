@@ -1,0 +1,43 @@
+From 746288ca13800a1aeec74f2a4527d6db2306db59 Mon Sep 17 00:00:00 2001
+From: Sean Christopherson <seanjc@google.com>
+Date: Tue, 29 Jul 2025 15:54:35 -0700
+Subject: [PATCH 04/49] KVM: x86: Select TDX's KVM_GENERIC_xxx dependencies iff
+ CONFIG_KVM_INTEL_TDX=y
+
+Select KVM_GENERIC_PRIVATE_MEM and KVM_GENERIC_MEMORY_ATTRIBUTES directly
+from KVM_INTEL_TDX, i.e. if and only if TDX support is fully enabled in
+KVM.  There is no need to enable KVM's private memory support just because
+the core kernel's INTEL_TDX_HOST is enabled.
+
+Reviewed-by: Xiaoyao Li <xiaoyao.li@intel.com>
+Reviewed-by: David Hildenbrand <david@redhat.com>
+Signed-off-by: Sean Christopherson <seanjc@google.com>
+---
+ arch/x86/kvm/Kconfig | 4 ++--
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/arch/x86/kvm/Kconfig b/arch/x86/kvm/Kconfig
+index 402ba00fdf45..13ab7265b505 100644
+--- a/arch/x86/kvm/Kconfig
++++ b/arch/x86/kvm/Kconfig
+@@ -95,8 +95,6 @@ config KVM_SW_PROTECTED_VM
+ config KVM_INTEL
+ 	tristate "KVM for Intel (and compatible) processors support"
+ 	depends on KVM && IA32_FEAT_CTL
+-	select KVM_GENERIC_PRIVATE_MEM if INTEL_TDX_HOST
+-	select KVM_GENERIC_MEMORY_ATTRIBUTES if INTEL_TDX_HOST
+ 	help
+ 	  Provides support for KVM on processors equipped with Intel's VT
+ 	  extensions, a.k.a. Virtual Machine Extensions (VMX).
+@@ -135,6 +133,8 @@ config KVM_INTEL_TDX
+ 	bool "Intel Trust Domain Extensions (TDX) support"
+ 	default y
+ 	depends on INTEL_TDX_HOST
++	select KVM_GENERIC_PRIVATE_MEM
++	select KVM_GENERIC_MEMORY_ATTRIBUTES
+ 	help
+ 	  Provides support for launching Intel Trust Domain Extensions (TDX)
+ 	  confidential VMs on Intel processors.
+-- 
+2.50.1
+
