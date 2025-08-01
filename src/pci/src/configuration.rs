@@ -10,7 +10,6 @@ use std::sync::{Arc, Mutex};
 
 use byteorder::{ByteOrder, LittleEndian};
 use serde::{Deserialize, Serialize};
-use vm_device::PciBarType;
 
 use crate::device::BarReprogrammingParams;
 use crate::MsixConfig;
@@ -441,26 +440,6 @@ pub enum PciBarRegionType {
     Memory32BitRegion = 0,
     IoRegion = 0x01,
     Memory64BitRegion = 0x04,
-}
-
-impl From<PciBarType> for PciBarRegionType {
-    fn from(type_: PciBarType) -> Self {
-        match type_ {
-            PciBarType::Io => PciBarRegionType::IoRegion,
-            PciBarType::Mmio32 => PciBarRegionType::Memory32BitRegion,
-            PciBarType::Mmio64 => PciBarRegionType::Memory64BitRegion,
-        }
-    }
-}
-
-impl From<PciBarRegionType> for PciBarType {
-    fn from(val: PciBarRegionType) -> Self {
-        match val {
-            PciBarRegionType::IoRegion => PciBarType::Io,
-            PciBarRegionType::Memory32BitRegion => PciBarType::Mmio32,
-            PciBarRegionType::Memory64BitRegion => PciBarType::Mmio64,
-        }
-    }
 }
 
 #[derive(Debug, Copy, Clone, Serialize, Deserialize)]
