@@ -13,7 +13,7 @@ use serde::{Deserialize, Serialize};
 use vm_device::PciBarType;
 
 use crate::device::BarReprogrammingParams;
-use crate::{MsixConfig, PciInterruptPin};
+use crate::MsixConfig;
 
 // The number of 32bit registers in the config space, 4096 bytes.
 const NUM_CONFIGURATION_REGISTERS: usize = 1024;
@@ -22,7 +22,6 @@ const STATUS_REG: usize = 1;
 const STATUS_REG_CAPABILITIES_USED_MASK: u32 = 0x0010_0000;
 const BAR0_REG: usize = 4;
 const ROM_BAR_REG: usize = 12;
-const ROM_BAR_IDX: usize = 6;
 const BAR_IO_ADDR_MASK: u32 = 0xffff_fffc;
 const BAR_MEM_ADDR_MASK: u32 = 0xffff_fff0;
 const ROM_BAR_ADDR_MASK: u32 = 0xffff_f800;
@@ -32,8 +31,6 @@ const NUM_BAR_REGS: usize = 6;
 const CAPABILITY_LIST_HEAD_OFFSET: usize = 0x34;
 const FIRST_CAPABILITY_OFFSET: usize = 0x40;
 const CAPABILITY_MAX_OFFSET: usize = 192;
-
-const INTERRUPT_LINE_PIN_REG: usize = 15;
 
 pub const PCI_CONFIGURATION_ID: &str = "pci_configuration";
 
@@ -483,11 +480,11 @@ impl From<PciBarPrefetchable> for bool {
 
 #[derive(Debug, Copy, Clone, Serialize, Deserialize)]
 pub struct PciBarConfiguration {
-    addr: u64,
-    size: u64,
-    idx: usize,
-    region_type: PciBarRegionType,
-    prefetchable: PciBarPrefetchable,
+    pub addr: u64,
+    pub size: u64,
+    pub idx: usize,
+    pub region_type: PciBarRegionType,
+    pub prefetchable: PciBarPrefetchable,
 }
 
 #[derive(Debug)]
@@ -797,42 +794,6 @@ impl PciConfiguration {
         Ok(())
     }
 
-    /// Adds rom expansion BAR.
-    pub fn add_pci_rom_bar(&mut self, config: &PciBarConfiguration, active: u32) -> Result<()> {
-        let bar_idx = config.idx;
-        let reg_idx = ROM_BAR_REG;
-
-        if self.rom_bar_used {
-            return Err(Error::RomBarInUse(bar_idx));
-        }
-
-        if !config.size.is_power_of_two() {
-            return Err(Error::RomBarSizeInvalid(config.size));
-        }
-
-        if bar_idx != ROM_BAR_IDX {
-            return Err(Error::RomBarInvalid(bar_idx));
-        }
-
-        let end_addr = config
-            .addr
-            .checked_add(config.size - 1)
-            .ok_or(Error::RomBarAddressInvalid(config.addr, config.size))?;
-
-        if end_addr > u64::from(u32::MAX) {
-            return Err(Error::RomBarAddressInvalid(config.addr, config.size));
-        }
-
-        self.registers[reg_idx] = (config.addr as u32) | active;
-        self.writable_bits[reg_idx] = ROM_BAR_ADDR_MASK;
-        self.rom_bar_addr = self.registers[reg_idx];
-        self.rom_bar_size =
-            encode_32_bits_bar_size(config.size as u32).ok_or(Error::Encode32BarSize)?;
-        self.rom_bar_used = true;
-
-        Ok(())
-    }
-
     /// Returns the address of the given BAR region.
     pub fn get_bar_addr(&self, bar_num: usize) -> u64 {
         let bar_idx = BAR0_REG + bar_num;
@@ -846,16 +807,6 @@ impl PciConfiguration {
         }
 
         addr
-    }
-
-    /// Configures the IRQ line and pin used by this device.
-    pub fn set_irq(&mut self, line: u8, pin: PciInterruptPin) {
-        // `pin` is 1-based in the pci config space.
-        let pin_idx = (pin as u32) + 1;
-        self.registers[INTERRUPT_LINE_PIN_REG] = (self.registers[INTERRUPT_LINE_PIN_REG]
-            & 0xffff_0000)
-            | (pin_idx << 8)
-            | u32::from(line);
     }
 
     /// Adds the capability `cap_data` to the list of capabilities.
@@ -938,10 +889,6 @@ impl PciConfiguration {
             4 => self.write_reg(reg_idx, LittleEndian::read_u32(data)),
             _ => (),
         }
-    }
-
-    pub fn read_config_register(&self, reg_idx: usize) -> u32 {
-        self.read_reg(reg_idx)
     }
 
     pub fn detect_bar_reprogramming(
@@ -1071,73 +1018,6 @@ impl Default for PciBarConfiguration {
             region_type: PciBarRegionType::Memory64BitRegion,
             prefetchable: PciBarPrefetchable::NotPrefetchable,
         }
-    }
-}
-
-impl PciBarConfiguration {
-    pub fn new(
-        idx: usize,
-        size: u64,
-        region_type: PciBarRegionType,
-        prefetchable: PciBarPrefetchable,
-    ) -> Self {
-        PciBarConfiguration {
-            idx,
-            addr: 0,
-            size,
-            region_type,
-            prefetchable,
-        }
-    }
-
-    #[must_use]
-    pub fn set_index(mut self, idx: usize) -> Self {
-        self.idx = idx;
-        self
-    }
-
-    #[must_use]
-    pub fn set_address(mut self, addr: u64) -> Self {
-        self.addr = addr;
-        self
-    }
-
-    #[must_use]
-    pub fn set_size(mut self, size: u64) -> Self {
-        self.size = size;
-        self
-    }
-
-    #[must_use]
-    pub fn set_region_type(mut self, region_type: PciBarRegionType) -> Self {
-        self.region_type = region_type;
-        self
-    }
-
-    #[must_use]
-    pub fn set_prefetchable(mut self, prefetchable: PciBarPrefetchable) -> Self {
-        self.prefetchable = prefetchable;
-        self
-    }
-
-    pub fn idx(&self) -> usize {
-        self.idx
-    }
-
-    pub fn addr(&self) -> u64 {
-        self.addr
-    }
-
-    pub fn size(&self) -> u64 {
-        self.size
-    }
-
-    pub fn region_type(&self) -> PciBarRegionType {
-        self.region_type
-    }
-
-    pub fn prefetchable(&self) -> PciBarPrefetchable {
-        self.prefetchable
     }
 }
 
