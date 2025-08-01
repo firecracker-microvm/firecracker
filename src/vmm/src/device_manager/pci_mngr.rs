@@ -89,28 +89,20 @@ impl PciDevices {
         virtio_device: &Arc<Mutex<VirtioPciDevice>>,
     ) -> Result<(), PciManagerError> {
         for bar in &virtio_device.lock().expect("Poisoned lock").bar_regions {
-            match bar.region_type() {
+            match bar.region_type {
                 PciBarRegionType::IoRegion => {
-                    debug!(
-                        "Inserting I/O BAR region: {:#x}:{:#x}",
-                        bar.addr(),
-                        bar.size()
-                    );
+                    debug!("Inserting I/O BAR region: {:#x}:{:#x}", bar.addr, bar.size);
                     #[cfg(target_arch = "x86_64")]
                     vm.pio_bus
-                        .insert(virtio_device.clone(), bar.addr(), bar.size())?;
+                        .insert(virtio_device.clone(), bar.addr, bar.size)?;
                     #[cfg(target_arch = "aarch64")]
                     log::error!("pci: We do not support I/O region allocation")
                 }
                 PciBarRegionType::Memory32BitRegion | PciBarRegionType::Memory64BitRegion => {
-                    debug!(
-                        "Inserting MMIO BAR region: {:#x}:{:#x}",
-                        bar.addr(),
-                        bar.size()
-                    );
+                    debug!("Inserting MMIO BAR region: {:#x}:{:#x}", bar.addr, bar.size);
                     vm.common
                         .mmio_bus
-                        .insert(virtio_device.clone(), bar.addr(), bar.size())?;
+                        .insert(virtio_device.clone(), bar.addr, bar.size)?;
                 }
             }
         }
