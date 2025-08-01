@@ -27,7 +27,7 @@ use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use vm_allocator::{AddressAllocator, AllocPolicy, RangeInclusive};
 use vm_device::interrupt::{InterruptIndex, InterruptSourceGroup, MsiIrqGroupConfig};
-use vm_device::{BusDevice, PciBarType, Resource};
+use vm_device::{BusDevice, PciBarType};
 use vm_memory::{Address, ByteValued, GuestAddress, Le32};
 use vmm_sys_util::errno;
 use vmm_sys_util::eventfd::EventFd;
@@ -886,7 +886,6 @@ impl PciDevice for VirtioPciDevice {
         &mut self,
         mmio32_allocator: &mut AddressAllocator,
         mmio64_allocator: &mut AddressAllocator,
-        _resources: Option<Vec<Resource>>,
     ) -> std::result::Result<Vec<PciBarConfiguration>, PciDeviceError> {
         let mut bars = Vec::new();
         let device_clone = self.device.clone();

@@ -143,7 +143,6 @@ impl PciDevices {
         virtio_device.allocate_bars(
             &mut resource_allocator.mmio32_memory,
             &mut resource_allocator.mmio64_memory,
-            None,
         )?;
 
         let virtio_device = Arc::new(Mutex::new(virtio_device));
