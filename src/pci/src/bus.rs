@@ -11,13 +11,10 @@ use std::ops::DerefMut;
 use std::sync::{Arc, Barrier, Mutex};
 
 use byteorder::{ByteOrder, LittleEndian};
-use vm_device::{Bus, BusDevice, BusDeviceSync};
+use vm_device::BusDevice;
 
-use crate::configuration::{
-    PciBarRegionType, PciBridgeSubclass, PciClassCode, PciConfiguration, PciHeaderType,
-};
+use crate::configuration::{PciBridgeSubclass, PciClassCode, PciConfiguration, PciHeaderType};
 use crate::device::{DeviceRelocation, Error as PciDeviceError, PciDevice};
-use crate::PciBarConfiguration;
 
 const VENDOR_ID_INTEL: u16 = 0x8086;
 const DEVICE_ID_INTEL_VIRT_PCIE_HOST: u16 = 0x0d57;
@@ -123,37 +120,8 @@ impl PciBus {
         }
     }
 
-    pub fn register_mapping(
-        &self,
-        dev: Arc<dyn BusDeviceSync>,
-        io_bus: &Bus,
-        mmio_bus: &Bus,
-        bars: Vec<PciBarConfiguration>,
-    ) -> Result<()> {
-        for bar in bars {
-            match bar.region_type() {
-                PciBarRegionType::IoRegion => {
-                    io_bus
-                        .insert(dev.clone(), bar.addr(), bar.size())
-                        .map_err(PciRootError::PioInsert)?;
-                }
-                PciBarRegionType::Memory32BitRegion | PciBarRegionType::Memory64BitRegion => {
-                    mmio_bus
-                        .insert(dev.clone(), bar.addr(), bar.size())
-                        .map_err(PciRootError::MmioInsert)?;
-                }
-            }
-        }
-        Ok(())
-    }
-
     pub fn add_device(&mut self, device_id: u32, device: Arc<Mutex<dyn PciDevice>>) -> Result<()> {
         self.devices.insert(device_id, device);
-        Ok(())
-    }
-
-    pub fn remove_by_device(&mut self, device: &Arc<Mutex<dyn PciDevice>>) -> Result<()> {
-        self.devices.retain(|_, dev| !Arc::ptr_eq(dev, device));
         Ok(())
     }
 
@@ -166,28 +134,6 @@ impl PciBus {
         }
 
         Err(PciRootError::NoPciDeviceSlotAvailable)
-    }
-
-    pub fn get_device_id(&mut self, id: usize) -> Result<()> {
-        if id < NUM_DEVICE_IDS {
-            if !self.device_ids[id] {
-                self.device_ids[id] = true;
-                Ok(())
-            } else {
-                Err(PciRootError::AlreadyInUsePciDeviceSlot(id))
-            }
-        } else {
-            Err(PciRootError::InvalidPciDeviceSlot(id))
-        }
-    }
-
-    pub fn put_device_id(&mut self, id: usize) -> Result<()> {
-        if id < NUM_DEVICE_IDS {
-            self.device_ids[id] = false;
-            Ok(())
-        } else {
-            Err(PciRootError::InvalidPciDeviceSlot(id))
-        }
     }
 }
 
