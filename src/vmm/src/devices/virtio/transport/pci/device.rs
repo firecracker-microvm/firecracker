@@ -918,11 +918,13 @@ impl PciDevice for VirtioPciDevice {
             (addr, region_type)
         };
 
-        let bar = PciBarConfiguration::default()
-            .set_index(VIRTIO_COMMON_BAR_INDEX)
-            .set_address(virtio_pci_bar_addr)
-            .set_size(CAPABILITY_BAR_SIZE)
-            .set_region_type(region_type);
+        let bar = PciBarConfiguration {
+            addr: virtio_pci_bar_addr,
+            size: CAPABILITY_BAR_SIZE,
+            idx: VIRTIO_COMMON_BAR_INDEX,
+            region_type,
+            prefetchable: pci::PciBarPrefetchable::NotPrefetchable,
+        };
 
         // The creation of the PCI BAR and its associated capabilities must
         // happen only during the creation of a brand new VM. When a VM is
@@ -948,8 +950,8 @@ impl PciDevice for VirtioPciDevice {
         mmio64_allocator: &mut AddressAllocator,
     ) -> std::result::Result<(), PciDeviceError> {
         for bar in self.bar_regions.drain(..) {
-            let range = RangeInclusive::new(bar.addr(), bar.addr() + bar.size()).unwrap();
-            match bar.region_type() {
+            let range = RangeInclusive::new(bar.addr, bar.addr + bar.size).unwrap();
+            match bar.region_type {
                 PciBarRegionType::Memory32BitRegion => {
                     mmio32_allocator.free(&range);
                 }
@@ -970,8 +972,8 @@ impl PciDevice for VirtioPciDevice {
         // We only update our idea of the bar in order to support free_bars() above.
         // The majority of the reallocation is done inside DeviceManager.
         for bar in self.bar_regions.iter_mut() {
-            if bar.addr() == old_base {
-                *bar = bar.set_address(new_base);
+            if bar.addr == old_base {
+                bar.addr = new_base;
             }
         }
 
