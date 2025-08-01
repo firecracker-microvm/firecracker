@@ -67,6 +67,9 @@ const VIRTIO_F_NOTIFICATION_DATA: u32 = 38;
 /// Vector value used to disable MSI for a queue.
 const VIRTQ_MSI_NO_VECTOR: u16 = 0xffff;
 
+/// BAR index we are using for VirtIO configuration
+const VIRTIO_BAR_INDEX: u8 = 0;
+
 enum PciCapabilityType {
     Common = 1,
     Notify = 2,
@@ -110,12 +113,12 @@ impl PciCapability for VirtioPciCap {
 const VIRTIO_PCI_CAP_LEN_OFFSET: u8 = 2;
 
 impl VirtioPciCap {
-    pub fn new(cfg_type: PciCapabilityType, pci_bar: u8, offset: u32, length: u32) -> Self {
+    pub fn new(cfg_type: PciCapabilityType, offset: u32, length: u32) -> Self {
         VirtioPciCap {
             cap_len: u8::try_from(std::mem::size_of::<VirtioPciCap>()).unwrap()
                 + VIRTIO_PCI_CAP_LEN_OFFSET,
             cfg_type: cfg_type as u8,
-            pci_bar,
+            pci_bar: VIRTIO_BAR_INDEX,
             id: 0,
             padding: [0; 2],
             offset: Le32::from(offset),
@@ -145,19 +148,13 @@ impl PciCapability for VirtioPciNotifyCap {
 }
 
 impl VirtioPciNotifyCap {
-    pub fn new(
-        cfg_type: PciCapabilityType,
-        pci_bar: u8,
-        offset: u32,
-        length: u32,
-        multiplier: Le32,
-    ) -> Self {
+    pub fn new(cfg_type: PciCapabilityType, offset: u32, length: u32, multiplier: Le32) -> Self {
         VirtioPciNotifyCap {
             cap: VirtioPciCap {
                 cap_len: u8::try_from(std::mem::size_of::<VirtioPciNotifyCap>()).unwrap()
                     + VIRTIO_PCI_CAP_LEN_OFFSET,
                 cfg_type: cfg_type as u8,
-                pci_bar,
+                pci_bar: VIRTIO_BAR_INDEX,
                 id: 0,
                 padding: [0; 2],
                 offset: Le32::from(offset),
@@ -231,7 +228,7 @@ impl PciCapability for VirtioPciCfgCap {
 impl VirtioPciCfgCap {
     fn new() -> Self {
         VirtioPciCfgCap {
-            cap: VirtioPciCap::new(PciCapabilityType::Pci, 0, 0, 0),
+            cap: VirtioPciCap::new(PciCapabilityType::Pci, 0, 0),
             ..Default::default()
         }
     }
@@ -306,7 +303,7 @@ pub struct VirtioPciDeviceState {
     pub pci_dev_state: VirtioPciCommonConfigState,
     pub msix_state: MsixConfigState,
     pub msi_vector_group: Vec<u32>,
-    pub bar_configuration: Vec<PciBarConfiguration>,
+    pub bar_configuration: PciBarConfiguration,
 }
 
 #[derive(Debug, thiserror::Error, displaydoc::Display)]
@@ -348,12 +345,6 @@ pub struct VirtioPciDevice {
     // Guest memory
     memory: GuestMemoryMmap,
 
-    // Settings PCI BAR
-    settings_bar: u8,
-
-    // Whether to use 64-bit bar location or 32-bit
-    use_64bit_bar: bool,
-
     // Add a dedicated structure to hold information about the very specific
     // virtio-pci capability VIRTIO_PCI_CAP_PCI_CFG. This is needed to support
     // the legacy/backward compatible mechanism of letting the guest access the
@@ -362,8 +353,8 @@ pub struct VirtioPciDevice {
     // a device.
     cap_pci_cfg_info: VirtioPciCfgCapInfo,
 
-    // Details of bar regions to free
-    pub bar_regions: Vec<PciBarConfiguration>,
+    // Details of BAR region
+    pub bar_region: PciBarConfiguration,
 }
 
 impl Debug for VirtioPciDevice {
@@ -471,11 +462,9 @@ impl VirtioPciDevice {
             interrupt_status: Arc::new(AtomicUsize::new(0)),
             virtio_interrupt: Some(interrupt),
             memory,
-            settings_bar: 0,
-            use_64bit_bar: true,
             interrupt_source_group: msi_vectors,
             cap_pci_cfg_info: VirtioPciCfgCapInfo::default(),
-            bar_regions: vec![],
+            bar_region: PciBarConfiguration::default(),
         };
 
         Ok(virtio_pci_device)
@@ -524,11 +513,9 @@ impl VirtioPciDevice {
             interrupt_status: Arc::new(AtomicUsize::new(state.interrupt_status)),
             virtio_interrupt: Some(interrupt),
             memory: memory.clone(),
-            settings_bar: 0,
-            use_64bit_bar: true,
             interrupt_source_group: msi_vectors,
             cap_pci_cfg_info,
-            bar_regions: state.bar_configuration,
+            bar_region: state.bar_configuration,
         };
 
         if state.device_activated {
@@ -558,17 +545,13 @@ impl VirtioPciDevice {
     }
 
     pub fn config_bar_addr(&self) -> u64 {
-        self.configuration.get_bar_addr(self.settings_bar as usize)
+        self.configuration.get_bar_addr(VIRTIO_BAR_INDEX as usize)
     }
 
-    fn add_pci_capabilities(
-        &mut self,
-        settings_bar: u8,
-    ) -> std::result::Result<(), PciDeviceError> {
+    fn add_pci_capabilities(&mut self) -> std::result::Result<(), PciDeviceError> {
         // Add pointers to the different configuration structures from the PCI capabilities.
         let common_cap = VirtioPciCap::new(
             PciCapabilityType::Common,
-            settings_bar,
             COMMON_CONFIG_BAR_OFFSET.try_into().unwrap(),
             COMMON_CONFIG_SIZE.try_into().unwrap(),
         );
@@ -578,7 +561,6 @@ impl VirtioPciDevice {
 
         let isr_cap = VirtioPciCap::new(
             PciCapabilityType::Isr,
-            settings_bar,
             ISR_CONFIG_BAR_OFFSET.try_into().unwrap(),
             ISR_CONFIG_SIZE.try_into().unwrap(),
         );
@@ -589,7 +571,6 @@ impl VirtioPciDevice {
         // TODO(dgreid) - set based on device's configuration size?
         let device_cap = VirtioPciCap::new(
             PciCapabilityType::Device,
-            settings_bar,
             DEVICE_CONFIG_BAR_OFFSET.try_into().unwrap(),
             DEVICE_CONFIG_SIZE.try_into().unwrap(),
         );
@@ -599,7 +580,6 @@ impl VirtioPciDevice {
 
         let notify_cap = VirtioPciNotifyCap::new(
             PciCapabilityType::Notify,
-            settings_bar,
             NOTIFICATION_BAR_OFFSET.try_into().unwrap(),
             NOTIFICATION_SIZE.try_into().unwrap(),
             Le32::from(NOTIFY_OFF_MULTIPLIER),
@@ -618,10 +598,10 @@ impl VirtioPciDevice {
 
         if self.msix_config.is_some() {
             let msix_cap = MsixCap::new(
-                settings_bar,
+                VIRTIO_BAR_INDEX,
                 self.msix_num,
                 MSIX_TABLE_BAR_OFFSET.try_into().unwrap(),
-                settings_bar,
+                VIRTIO_BAR_INDEX,
                 MSIX_PBA_BAR_OFFSET.try_into().unwrap(),
             );
             self.configuration
@@ -629,7 +609,6 @@ impl VirtioPciDevice {
                 .map_err(PciDeviceError::CapabilitiesSetup)?;
         }
 
-        self.settings_bar = settings_bar;
         Ok(())
     }
 
@@ -744,7 +723,7 @@ impl VirtioPciDevice {
                 .expect("Poisoned lock")
                 .state(),
             msi_vector_group: self.interrupt_source_group.save(),
-            bar_configuration: self.bar_regions.clone(),
+            bar_configuration: self.bar_region,
         }
     }
 }
@@ -887,41 +866,25 @@ impl PciDevice for VirtioPciDevice {
         mmio32_allocator: &mut AddressAllocator,
         mmio64_allocator: &mut AddressAllocator,
     ) -> std::result::Result<Vec<PciBarConfiguration>, PciDeviceError> {
-        let mut bars = Vec::new();
         let device_clone = self.device.clone();
         let device = device_clone.lock().unwrap();
 
         // Allocate the virtio-pci capability BAR.
         // See http://docs.oasis-open.org/virtio/virtio/v1.0/cs04/virtio-v1.0-cs04.html#x1-740004
-        let (virtio_pci_bar_addr, region_type) = if self.use_64bit_bar {
-            let region_type = PciBarRegionType::Memory64BitRegion;
-            let addr = mmio64_allocator
-                .allocate(
-                    CAPABILITY_BAR_SIZE,
-                    CAPABILITY_BAR_SIZE,
-                    AllocPolicy::FirstMatch,
-                )
-                .unwrap()
-                .start();
-            (addr, region_type)
-        } else {
-            let region_type = PciBarRegionType::Memory32BitRegion;
-            let addr = mmio32_allocator
-                .allocate(
-                    CAPABILITY_BAR_SIZE,
-                    CAPABILITY_BAR_SIZE,
-                    AllocPolicy::FirstMatch,
-                )
-                .unwrap()
-                .start();
-            (addr, region_type)
-        };
+        let virtio_pci_bar_addr = mmio64_allocator
+            .allocate(
+                CAPABILITY_BAR_SIZE,
+                CAPABILITY_BAR_SIZE,
+                AllocPolicy::FirstMatch,
+            )
+            .unwrap()
+            .start();
 
         let bar = PciBarConfiguration {
             addr: virtio_pci_bar_addr,
             size: CAPABILITY_BAR_SIZE,
             idx: VIRTIO_COMMON_BAR_INDEX,
-            region_type,
+            region_type: PciBarRegionType::Memory64BitRegion,
             prefetchable: pci::PciBarPrefetchable::NotPrefetchable,
         };
 
@@ -934,13 +897,10 @@ impl PciDevice for VirtioPciDevice {
             .map_err(|e| PciDeviceError::IoRegistrationFailed(virtio_pci_bar_addr, e))?;
 
         // Once the BARs are allocated, the capabilities can be added to the PCI configuration.
-        self.add_pci_capabilities(VIRTIO_COMMON_BAR_INDEX.try_into().unwrap())?;
+        self.add_pci_capabilities()?;
+        self.bar_region = bar;
 
-        bars.push(bar);
-
-        self.bar_regions.clone_from(&bars);
-
-        Ok(bars)
+        Ok(vec![bar])
     }
 
     fn free_bars(
@@ -948,18 +908,17 @@ impl PciDevice for VirtioPciDevice {
         mmio32_allocator: &mut AddressAllocator,
         mmio64_allocator: &mut AddressAllocator,
     ) -> std::result::Result<(), PciDeviceError> {
-        for bar in self.bar_regions.drain(..) {
-            let range = RangeInclusive::new(bar.addr, bar.addr + bar.size).unwrap();
-            match bar.region_type {
-                PciBarRegionType::Memory32BitRegion => {
-                    mmio32_allocator.free(&range);
-                }
-                PciBarRegionType::Memory64BitRegion => {
-                    mmio64_allocator.free(&range);
-                }
-                _ => error!("Unexpected PCI bar type"),
-            }
-        }
+        assert_eq!(
+            self.bar_region.region_type,
+            PciBarRegionType::Memory64BitRegion
+        );
+
+        let range = RangeInclusive::new(
+            self.bar_region.addr,
+            self.bar_region.addr + self.bar_region.size,
+        )
+        .unwrap();
+        mmio64_allocator.free(&range);
         Ok(())
     }
 
@@ -970,10 +929,8 @@ impl PciDevice for VirtioPciDevice {
     ) -> std::result::Result<(), std::io::Error> {
         // We only update our idea of the bar in order to support free_bars() above.
         // The majority of the reallocation is done inside DeviceManager.
-        for bar in self.bar_regions.iter_mut() {
-            if bar.addr == old_base {
-                bar.addr = new_base;
-            }
+        if self.bar_region.addr == old_base {
+            self.bar_region.addr = new_base;
         }
 
         Ok(())
