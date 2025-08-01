@@ -128,7 +128,6 @@ use device_manager::resources::ResourceAllocator;
 use devices::acpi::vmgenid::VmGenIdError;
 use event_manager::{EventManager as BaseEventManager, EventOps, Events, MutEventSubscriber};
 use seccomp::BpfProgram;
-use userfaultfd::Uffd;
 use vm_memory::GuestAddress;
 use vmm_sys_util::epoll::EventSet;
 use vmm_sys_util::eventfd::EventFd;
@@ -314,8 +313,6 @@ pub struct Vmm {
     kvm: Kvm,
     /// VM object
     pub vm: Vm,
-    // Save UFFD in order to keep it open in the Firecracker process, as well.
-    uffd: Option<Uffd>,
     // Used for userfault communication with the UFFD handler when secret freedom is enabled
     uffd_socket: Option<UnixStream>,
     vcpus_handles: Vec<VcpuHandle>,
