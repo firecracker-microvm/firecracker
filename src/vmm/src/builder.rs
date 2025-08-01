@@ -198,7 +198,6 @@ fn create_vmm_and_vcpus(
         shutdown_exit_code: None,
         kvm,
         vm,
-        uffd: None,
         uffd_socket: None,
         vcpus_handles: Vec::new(),
         vcpus_exit_evt,
@@ -582,7 +581,7 @@ pub fn build_microvm_from_snapshot(
     let mem_state = &microvm_state.vm_state.memory;
     let track_dirty_pages = params.track_dirty_pages;
 
-    let (guest_memory, uffd, socket) = match params.mem_backend.backend_type {
+    let (guest_memory, socket) = match params.mem_backend.backend_type {
         MemBackendType::File => {
             if vm_resources.machine_config.huge_pages.is_hugetlbfs() {
                 return Err(BuildMicrovmFromSnapshotErrorGuestMemoryError::File(
@@ -593,7 +592,6 @@ pub fn build_microvm_from_snapshot(
             (
                 guest_memory_from_file(mem_backend_path, mem_state, track_dirty_pages)
                     .map_err(BuildMicrovmFromSnapshotErrorGuestMemoryError::File)?,
-                None,
                 None,
             )
         }
@@ -626,7 +624,6 @@ pub fn build_microvm_from_snapshot(
         .register_memory_regions(guest_memory, userfault_bitmap)
         .map_err(VmmError::Vm)
         .map_err(StartMicrovmError::Internal)?;
-    vmm.uffd = uffd;
     vmm.uffd_socket = socket;
 
     #[cfg(target_arch = "x86_64")]
@@ -683,7 +680,7 @@ pub fn build_microvm_from_snapshot(
         resource_allocator: &mut vmm.resource_allocator,
         vm_resources,
         instance_id: &instance_info.id,
-        restored_from_file: vmm.uffd.is_none(),
+        restored_from_file: vmm.uffd_socket.is_none(),
     };
 
     vmm.mmio_device_manager =
@@ -1092,7 +1089,6 @@ pub(crate) mod tests {
             shutdown_exit_code: None,
             kvm,
             vm,
-            uffd: None,
             uffd_socket: None,
             vcpus_handles: Vec::new(),
             vcpus_exit_evt,

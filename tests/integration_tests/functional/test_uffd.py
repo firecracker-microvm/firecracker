@@ -4,6 +4,7 @@
 
 import os
 import re
+import time
 
 import pytest
 import requests
@@ -142,3 +143,36 @@ def test_malicious_handler(uvm_plain, snapshot):
             assert False, "Firecracker should freeze"
     except (TimeoutError, requests.exceptions.ReadTimeout):
         vm.uffd_handler.mark_killed()
+
+
+def test_fault_all_handler_exit(uvm_plain, snapshot):
+    """
+    Test that the VM is functional if the fault-all handler exits
+    after prepopulating the guest memory.
+    """
+    vm = uvm_plain
+    vm.memory_monitor = None
+    vm.spawn()
+    vm.restore_from_snapshot(snapshot, resume=True, uffd_handler_name="fault_all")
+
+    # Verify if the restored guest works.
+    vm.ssh.check_output("true")
+
+    # Kill the UFFD handler.
+    vm.uffd_handler.kill()
+
+    # Give UFFD time to unregister all guest memory.
+    time.sleep(1)
+
+    # Verify if the restored guest works after the handler exited.
+    #
+    # It is empirically known that invoking `ps` first time after snapshot restore
+    # will likely trigger an access to a guest memory page via userspace mappings
+    # either due to an MMIO instruction lookup (x86 only) or due to
+    # Firecracker accessing the guest memory.
+    #
+    # On Secret Free VMs, we do not preinstall userspace mappings when prepopulating
+    # guest memory in the fault-all handler. If we fail to unregister all guest memory
+    # with UFFD on the handler exit, accessing the userspace mapping will trigger
+    # a UFFD notification that will never be handled.
+    vm.ssh.check_output("ps")

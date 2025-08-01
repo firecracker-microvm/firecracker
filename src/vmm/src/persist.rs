@@ -14,7 +14,7 @@ use std::sync::{Arc, Mutex};
 
 use semver::Version;
 use serde::{Deserialize, Serialize};
-use userfaultfd::{FeatureFlags, RegisterMode, Uffd, UffdBuilder};
+use userfaultfd::{FeatureFlags, RegisterMode, UffdBuilder};
 use vmm_sys_util::sock_ctrl_msg::ScmSocket;
 
 #[cfg(target_arch = "aarch64")]
@@ -515,9 +515,6 @@ pub enum GuestMemoryFromUffdError {
 // TODO remove these when the UFFD crate supports minor faults for guest_memfd
 const UFFDIO_REGISTER_MODE_MINOR: u64 = 1 << 2;
 
-type GuestMemoryResult =
-    Result<(Vec<GuestRegionMmap>, Option<Uffd>, Option<UnixStream>), GuestMemoryFromUffdError>;
-
 /// Creates guest memory using a UDS socket provided by a UFFD handler.
 pub fn guest_memory_from_uffd(
     mem_uds_path: &Path,
@@ -526,7 +523,7 @@ pub fn guest_memory_from_uffd(
     huge_pages: HugePageConfig,
     guest_memfd: Option<File>,
     userfault_bitmap_memfd: Option<&File>,
-) -> GuestMemoryResult {
+) -> Result<(Vec<GuestRegionMmap>, Option<UnixStream>), GuestMemoryFromUffdError> {
     let guest_memfd_fd = guest_memfd.as_ref().map(|f| f.as_raw_fd());
     let (guest_memory, backend_mappings) =
         create_guest_memory(mem_state, track_dirty_pages, huge_pages, guest_memfd)?;
@@ -566,7 +563,7 @@ pub fn guest_memory_from_uffd(
 
     let socket = send_uffd_handshake(mem_uds_path, &backend_mappings, fds)?;
 
-    Ok((guest_memory, Some(uffd), Some(socket)))
+    Ok((guest_memory, Some(socket)))
 }
 
 fn create_guest_memory(
