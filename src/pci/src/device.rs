@@ -10,7 +10,6 @@ use std::sync::{Arc, Barrier};
 use std::{io, result};
 
 use vm_allocator::AddressAllocator;
-use vm_device::Resource;
 
 use crate::configuration::{self, PciBarRegionType};
 use crate::PciBarConfiguration;
@@ -25,8 +24,6 @@ pub enum Error {
     IoRegistrationFailed(u64, configuration::Error),
     /// Expected resource not found.
     MissingResource,
-    /// Invalid resource
-    InvalidResource(Resource),
 }
 pub type Result<T> = std::result::Result<T, Error>;
 
@@ -45,7 +42,6 @@ pub trait PciDevice: Send {
         &mut self,
         _mmio32_allocator: &mut AddressAllocator,
         _mmio64_allocator: &mut AddressAllocator,
-        _resources: Option<Vec<Resource>>,
     ) -> Result<Vec<PciBarConfiguration>> {
         Ok(Vec::new())
     }
