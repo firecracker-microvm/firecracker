@@ -148,6 +148,16 @@ where
             .map_err(DeviceError::FailedSignalingIrq)
     }
 
+    /// Signal the guest which queues are ready to be consumed
+    pub fn signal_used_queues(&self, used_queues: &[u16]) -> Result<(), DeviceError> {
+        self.device_state
+            .active_state()
+            .expect("Device is not initialized")
+            .interrupt
+            .trigger_queues(used_queues)
+            .map_err(DeviceError::FailedSignalingIrq)
+    }
+
     /// Walk the driver-provided RX queue buffers and attempt to fill them up with any data that we
     /// have pending. Return `true` if descriptors have been added to the used ring, and `false`
     /// otherwise.
