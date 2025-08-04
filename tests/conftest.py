@@ -384,6 +384,8 @@ def microvm_factory(request, record_property, results_dir, netns_factory):
                 utils.run_cmd(["dmesg", "-dPx"]).stdout
             )
             shutil.copy(f"/firecracker/build/img/{platform.machine()}/id_rsa", uvm_data)
+            if Path(uvm.screen_log).exists():
+                shutil.copy(uvm.screen_log, uvm_data)
 
             uvm_root = Path(uvm.chroot())
             for item in os.listdir(uvm_root):
@@ -392,9 +394,6 @@ def microvm_factory(request, record_property, results_dir, netns_factory):
                     continue
                 dst = uvm_data / item
                 shutil.copy(src, dst)
-                console_data = uvm.console_data
-                if console_data:
-                    uvm_data.joinpath("guest-console.log").write_text(console_data)
 
     uvm_factory.kill()
 
