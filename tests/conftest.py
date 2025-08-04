@@ -378,6 +378,14 @@ def microvm_factory(request, record_property, results_dir, netns_factory):
                 uvm.flush_metrics()
             except:  # pylint: disable=bare-except
                 pass
+
+            try:
+                uvm.snapshot_full(
+                    mem_path="post_failure.mem", vmstate_path="post_failure.vmstate"
+                )
+            except:  # pylint: disable=bare-except
+                pass
+
             uvm_data = results_dir / uvm.id
             uvm_data.mkdir()
             uvm_data.joinpath("host-dmesg.log").write_text(
