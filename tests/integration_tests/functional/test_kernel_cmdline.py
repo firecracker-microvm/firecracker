@@ -14,7 +14,7 @@ def test_init_params(uvm_plain):
     """
     vm = uvm_plain
     vm.help.enable_console()
-    vm.spawn()
+    vm.spawn(serial_out_path=None)
     vm.memory_monitor = None
 
     # We will override the init with /bin/cat so that we try to read the
