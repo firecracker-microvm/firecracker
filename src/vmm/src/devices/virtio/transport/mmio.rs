@@ -406,6 +406,14 @@ impl VirtioInterrupt for IrqTrigger {
         }
     }
 
+    fn trigger_queues(&self, queues: &[u16]) -> Result<(), std::io::Error> {
+        if queues.is_empty() {
+            Ok(())
+        } else {
+            self.trigger_irq(IrqType::Vring)
+        }
+    }
+
     fn notifier(&self, _interrupt_type: VirtioInterruptType) -> Option<&EventFd> {
         Some(&self.irq_evt)
     }
