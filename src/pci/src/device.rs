@@ -5,14 +5,12 @@
 //
 // SPDX-License-Identifier: Apache-2.0 AND BSD-3-Clause
 
-use std::any::Any;
 use std::sync::{Arc, Barrier};
 use std::{io, result};
 
 use vm_allocator::AddressAllocator;
 
 use crate::configuration::{self, PciBarRegionType};
-use crate::PciBarConfiguration;
 
 #[derive(Debug, thiserror::Error, displaydoc::Display)]
 pub enum Error {
@@ -42,8 +40,8 @@ pub trait PciDevice: Send {
         &mut self,
         _mmio32_allocator: &mut AddressAllocator,
         _mmio64_allocator: &mut AddressAllocator,
-    ) -> Result<Vec<PciBarConfiguration>> {
-        Ok(Vec::new())
+    ) -> Result<()> {
+        Ok(())
     }
 
     /// Frees the PCI BARs previously allocated with a call to allocate_bars().
@@ -89,12 +87,6 @@ pub trait PciDevice: Send {
     fn move_bar(&mut self, _old_base: u64, _new_base: u64) -> result::Result<(), io::Error> {
         Ok(())
     }
-    /// Provides a mutable reference to the Any trait. This is useful to let
-    /// the caller have access to the underlying type behind the trait.
-    fn as_any_mut(&mut self) -> &mut dyn Any;
-
-    /// Optionally returns a unique identifier.
-    fn id(&self) -> Option<String>;
 }
 
 /// This trait defines a set of functions which can be triggered whenever a
