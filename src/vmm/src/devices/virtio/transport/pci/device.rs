@@ -7,7 +7,6 @@
 //
 // SPDX-License-Identifier: Apache-2.0 AND BSD-3-Clause
 
-use std::any::Any;
 use std::cmp;
 use std::collections::HashMap;
 use std::fmt::{Debug, Formatter};
@@ -870,7 +869,7 @@ impl PciDevice for VirtioPciDevice {
         &mut self,
         mmio32_allocator: &mut AddressAllocator,
         mmio64_allocator: &mut AddressAllocator,
-    ) -> std::result::Result<Vec<PciBarConfiguration>, PciDeviceError> {
+    ) -> std::result::Result<(), PciDeviceError> {
         let device_clone = self.device.clone();
         let device = device_clone.lock().unwrap();
 
@@ -905,25 +904,6 @@ impl PciDevice for VirtioPciDevice {
         self.add_pci_capabilities()?;
         self.bar_region = bar;
 
-        Ok(vec![bar])
-    }
-
-    fn free_bars(
-        &mut self,
-        mmio32_allocator: &mut AddressAllocator,
-        mmio64_allocator: &mut AddressAllocator,
-    ) -> std::result::Result<(), PciDeviceError> {
-        assert_eq!(
-            self.bar_region.region_type,
-            PciBarRegionType::Memory64BitRegion
-        );
-
-        let range = RangeInclusive::new(
-            self.bar_region.addr,
-            self.bar_region.addr + self.bar_region.size,
-        )
-        .unwrap();
-        mmio64_allocator.free(&range);
         Ok(())
     }
 
@@ -1082,14 +1062,6 @@ impl PciDevice for VirtioPciDevice {
         }
 
         None
-    }
-
-    fn id(&self) -> Option<String> {
-        Some(self.id.clone())
-    }
-
-    fn as_any_mut(&mut self) -> &mut dyn Any {
-        self
     }
 }
 
