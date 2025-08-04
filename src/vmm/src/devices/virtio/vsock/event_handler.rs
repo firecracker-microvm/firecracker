@@ -34,6 +34,7 @@ use super::VsockBackend;
 use super::device::{EVQ_INDEX, RXQ_INDEX, TXQ_INDEX, Vsock};
 use crate::devices::virtio::device::VirtioDevice;
 use crate::devices::virtio::queue::InvalidAvailIdx;
+use crate::devices::virtio::vsock::defs::VSOCK_NUM_QUEUES;
 use crate::devices::virtio::vsock::metrics::METRICS;
 use crate::logger::IncMetric;
 
@@ -47,11 +48,12 @@ where
     const PROCESS_EVQ: u32 = 3;
     const PROCESS_NOTIFY_BACKEND: u32 = 4;
 
-    pub fn handle_rxq_event(&mut self, evset: EventSet) {
+    pub fn handle_rxq_event(&mut self, evset: EventSet) -> Vec<u16> {
+        let mut used_queues = Vec::new();
         if evset != EventSet::IN {
             warn!("vsock: rxq unexpected event {:?}", evset);
             METRICS.rx_queue_event_fails.inc();
-            return;
+            return used_queues;
         }
 
         if let Err(err) = self.queue_events[RXQ_INDEX].read() {
@@ -59,18 +61,19 @@ where
             METRICS.rx_queue_event_fails.inc();
         } else if self.backend.has_pending_rx() {
             if self.process_rx().unwrap() {
-                self.signal_used_queue(RXQ_INDEX)
-                    .expect("vsock: Could not trigger device interrupt or RX queue");
+                used_queues.push(RXQ_INDEX.try_into().unwrap());
             }
             METRICS.rx_queue_event_count.inc();
         }
+        used_queues
     }
 
-    pub fn handle_txq_event(&mut self, evset: EventSet) {
+    pub fn handle_txq_event(&mut self, evset: EventSet) -> Vec<u16> {
+        let mut used_queues = Vec::new();
         if evset != EventSet::IN {
             warn!("vsock: txq unexpected event {:?}", evset);
             METRICS.tx_queue_event_fails.inc();
-            return;
+            return used_queues;
         }
 
         if let Err(err) = self.queue_events[TXQ_INDEX].read() {
@@ -78,18 +81,17 @@ where
             METRICS.tx_queue_event_fails.inc();
         } else {
             if self.process_tx().unwrap() {
-                self.signal_used_queue(TXQ_INDEX)
-                    .expect("vsock: Could not trigger device interrupt or TX queue");
+                used_queues.push(TXQ_INDEX.try_into().unwrap());
             }
             METRICS.tx_queue_event_count.inc();
             // The backend may have queued up responses to the packets we sent during
             // TX queue processing. If that happened, we need to fetch those responses
             // and place them into RX buffers.
             if self.backend.has_pending_rx() && self.process_rx().unwrap() {
-                self.signal_used_queue(RXQ_INDEX)
-                    .expect("vsock: Could not trigger device interrupt or RX queue");
+                used_queues.push(RXQ_INDEX.try_into().unwrap());
             }
         }
+        used_queues
     }
 
     pub fn handle_evq_event(&mut self, evset: EventSet) {
@@ -106,7 +108,8 @@ where
     }
 
     /// Notify backend of new events.
-    pub fn notify_backend(&mut self, evset: EventSet) -> Result<(), InvalidAvailIdx> {
+    pub fn notify_backend(&mut self, evset: EventSet) -> Result<Vec<u16>, InvalidAvailIdx> {
+        let mut used_queues = Vec::new();
         self.backend.notify(evset);
         // After the backend has been kicked, it might've freed up some resources, so we
         // can attempt to send it more data to process.
@@ -114,15 +117,13 @@ where
         // returning an error) at some point in the past, now is the time to try walking the
         // TX queue again.
         if self.process_tx()? {
-            self.signal_used_queue(TXQ_INDEX)
-                .expect("vsock: Could not trigger device interrupt or TX queue");
+            used_queues.push(TXQ_INDEX.try_into().unwrap());
         }
         if self.backend.has_pending_rx() && self.process_rx()? {
-            self.signal_used_queue(RXQ_INDEX)
-                .expect("vsock: Could not trigger device interrupt or RX queue");
+            used_queues.push(RXQ_INDEX.try_into().unwrap())
         }
 
-        Ok(())
+        Ok(used_queues)
     }
 
     fn register_runtime_events(&self, ops: &mut EventOps) {
@@ -190,14 +191,25 @@ where
         let evset = event.event_set();
 
         if self.is_activated() {
-            match source {
-                Self::PROCESS_ACTIVATE => self.handle_activate_event(ops),
+            let used_queues = match source {
+                Self::PROCESS_ACTIVATE => {
+                    self.handle_activate_event(ops);
+                    Vec::new()
+                }
                 Self::PROCESS_RXQ => self.handle_rxq_event(evset),
                 Self::PROCESS_TXQ => self.handle_txq_event(evset),
-                Self::PROCESS_EVQ => self.handle_evq_event(evset),
+                Self::PROCESS_EVQ => {
+                    self.handle_evq_event(evset);
+                    Vec::new()
+                }
                 Self::PROCESS_NOTIFY_BACKEND => self.notify_backend(evset).unwrap(),
-                _ => warn!("Unexpected vsock event received: {:?}", source),
+                _ => {
+                    warn!("Unexpected vsock event received: {:?}", source);
+                    Vec::new()
+                }
             };
+            self.signal_used_queues(&used_queues)
+                .expect("vsock: Could not trigger device interrupt");
         } else {
             warn!(
                 "Vsock: The device is not yet activated. Spurious event received: {:?}",
