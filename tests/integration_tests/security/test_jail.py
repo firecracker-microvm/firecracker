@@ -165,7 +165,7 @@ def test_arbitrary_usocket_location(uvm_plain):
     test_microvm = uvm_plain
     test_microvm.jailer.extra_args = {"api-sock": "api.socket"}
 
-    test_microvm.spawn()
+    test_microvm.spawn(serial_out_path=None)
 
     check_stats(
         os.path.join(test_microvm.jailer.chroot_path(), "api.socket"),

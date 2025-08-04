@@ -51,11 +51,10 @@ def test_serial_after_snapshot(uvm_plain, microvm_factory):
     """
     microvm = uvm_plain
     microvm.help.enable_console()
-    microvm.spawn()
+    microvm.spawn(serial_out_path=None)
     microvm.basic_config(
         vcpu_count=2,
         mem_size_mib=256,
-        boot_args="console=ttyS0 reboot=k panic=1 swiotlb=noforce",
     )
     serial = Serial(microvm)
     serial.open()
@@ -72,7 +71,7 @@ def test_serial_after_snapshot(uvm_plain, microvm_factory):
     # Load microVM clone from snapshot.
     vm = microvm_factory.build()
     vm.help.enable_console()
-    vm.spawn()
+    vm.spawn(serial_out_path=None)
     vm.restore_from_snapshot(snapshot, resume=True)
     serial = Serial(vm)
     serial.open()
@@ -92,16 +91,14 @@ def test_serial_console_login(uvm_plain_any):
     """
     microvm = uvm_plain_any
     microvm.help.enable_console()
-    microvm.spawn()
+    microvm.spawn(serial_out_path=None)
 
     # We don't need to monitor the memory for this test because we are
     # just rebooting and the process dies before pmap gets the RSS.
     microvm.memory_monitor = None
 
     # Set up the microVM with 1 vCPU and a serial console.
-    microvm.basic_config(
-        vcpu_count=1, boot_args="console=ttyS0 reboot=k panic=1 swiotlb=noforce"
-    )
+    microvm.basic_config(vcpu_count=1)
 
     microvm.start()
 
@@ -146,7 +143,6 @@ def test_serial_dos(uvm_plain_any):
     # Set up the microVM with 1 vCPU and a serial console.
     microvm.basic_config(
         vcpu_count=1,
-        boot_args="console=ttyS0 reboot=k panic=1 swiotlb=noforce",
     )
     microvm.add_net_iface()
     microvm.start()
@@ -174,13 +170,12 @@ def test_serial_block(uvm_plain_any):
     """
     test_microvm = uvm_plain_any
     test_microvm.help.enable_console()
-    test_microvm.spawn()
+    test_microvm.spawn(serial_out_path=None)
     # Set up the microVM with 1 vCPU so we make sure the vCPU thread
     # responsible for the SSH connection will also run the serial.
     test_microvm.basic_config(
         vcpu_count=1,
         mem_size_mib=512,
-        boot_args="console=ttyS0 reboot=k panic=1 swiotlb=noforce",
     )
     test_microvm.add_net_iface()
     test_microvm.start()
