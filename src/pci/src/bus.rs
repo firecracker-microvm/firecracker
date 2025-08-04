@@ -5,7 +5,6 @@
 //
 // SPDX-License-Identifier: Apache-2.0 AND BSD-3-Clause
 
-use std::any::Any;
 use std::collections::HashMap;
 use std::ops::DerefMut;
 use std::sync::{Arc, Barrier, Mutex};
@@ -86,14 +85,6 @@ impl PciDevice for PciRoot {
 
     fn read_config_register(&mut self, reg_idx: usize) -> u32 {
         self.config.read_reg(reg_idx)
-    }
-
-    fn as_any_mut(&mut self) -> &mut dyn Any {
-        self
-    }
-
-    fn id(&self) -> Option<String> {
-        None
     }
 }
 
