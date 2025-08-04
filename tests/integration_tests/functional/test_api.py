@@ -1136,8 +1136,10 @@ def test_get_full_config_after_restoring_snapshot(microvm_factory, uvm_nano):
     expected_cfg["boot-source"] = {
         "kernel_image_path": uvm_nano.get_jailed_resource(uvm_nano.kernel_file),
         "initrd_path": None,
-        "boot_args": None,
+        "boot_args": "reboot=k panic=1 nomodule swiotlb=noforce console=ttyS0",
     }
+    if not uvm_nano.pci_enabled:
+        expected_cfg["boot-source"]["boot_args"] += " pci=off"
 
     # no ipv4_address or imds_compat specified during PUT /mmds/config so we expect the default
     expected_cfg["mmds-config"] = {

@@ -259,6 +259,7 @@ class Microvm:
 
         self.api = None
         self.log_file = None
+        self.serial_log_file = None
         self.metrics_file = None
         self._spawned = False
         self._killed = False
@@ -624,6 +625,7 @@ class Microvm:
     def spawn(
         self,
         log_file="fc.log",
+        serial_log_file="serial.log",
         log_level="Debug",
         log_show_level=False,
         log_show_origin=False,
@@ -653,6 +655,12 @@ class Microvm:
                 self.jailer.extra_args["show-level"] = None
             if log_show_origin:
                 self.jailer.extra_args["show-log-origin"] = None
+
+        if serial_log_file is not None:
+            self.serial_log_file = Path(self.path) / serial_log_file
+            self.serial_log_file.touch()
+            self.create_jailed_resource(self.serial_log_file)
+            self.jailer.extra_args.update({"serial-out-path": serial_log_file})
 
         if metrics_path is not None:
             self.metrics_file = Path(self.path) / metrics_path
@@ -795,12 +803,9 @@ class Microvm:
         The function checks the response status code and asserts that
         the response is within the interval [200, 300).
 
-        If boot_args is None, the default boot_args in Firecracker is
-            reboot=k panic=1 nomodule 8250.nr_uarts=0 i8042.noaux i8042.nomux
-            i8042.nopnp i8042.dumbkbd swiotlb=noforce
-
-        if PCI is disabled, Firecracker also passes to the guest pci=off
-
+        If boot_args is None, the default boot_args used in tests is
+            reboot=k panic=1 nomodule swiotlb=noforce console=ttyS0 [pci=off]
+        which differs from Firecracker's default only in the enabling of the serial console.
         Reference: file:../../src/vmm/src/vmm_config/boot_source.rs::DEFAULT_KERNEL_CMDLINE
         """
         self.api.machine_config.put(
@@ -824,6 +829,10 @@ class Microvm:
 
         if boot_args is not None:
             self.boot_args = boot_args
+        else:
+            self.boot_args = "reboot=k panic=1 nomodule swiotlb=noforce console=ttyS0"
+            if not self.pci_enabled:
+                self.boot_args += " pci=off"
         boot_source_args = {
             "kernel_image_path": self.create_jailed_resource(self.kernel_file),
             "boot_args": self.boot_args,
@@ -1313,9 +1322,9 @@ class Serial:
             time.sleep(0.2)
             attempt += 1
 
-        screen_log_fd = os.open(self._vm.screen_log, os.O_RDONLY)
+        serial_log_fd = os.open(self._vm.screen_log, os.O_RDONLY)
         self._poller = select.poll()
-        self._poller.register(screen_log_fd, select.POLLIN | select.POLLHUP)
+        self._poller.register(serial_log_fd, select.POLLIN | select.POLLHUP)
 
     def tx(self, input_string, end="\n"):
         # pylint: disable=invalid-name
