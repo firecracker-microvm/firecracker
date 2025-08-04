@@ -464,16 +464,6 @@ class Microvm:
         return self.log_file.read_text()
 
     @property
-    def console_data(self):
-        """Return the output of microVM's console"""
-        if self.screen_log is None:
-            return None
-        file = Path(self.screen_log)
-        if not file.exists():
-            return None
-        return file.read_text(encoding="utf-8")
-
-    @property
     def state(self):
         """Get the InstanceInfo property and return the state field."""
         return self.api.describe.get().json()["state"]
