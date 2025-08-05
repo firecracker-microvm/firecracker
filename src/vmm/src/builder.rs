@@ -67,7 +67,7 @@ use crate::vmm_config::instance_info::InstanceInfo;
 use crate::vmm_config::machine_config::MachineConfigError;
 use crate::vmm_config::snapshot::{LoadSnapshotParams, MemBackendType};
 use crate::vstate::kvm::Kvm;
-use crate::vstate::memory::{MaybeBounce, create_memfd};
+use crate::vstate::memory::{MaybeBounce, MemoryError, create_memfd};
 use crate::vstate::vcpu::{Vcpu, VcpuError};
 use crate::vstate::vm::{GUEST_MEMFD_FLAG_NO_DIRECT_MAP, GUEST_MEMFD_FLAG_SUPPORT_SHARED, Vm};
 use crate::{EventManager, Vmm, VmmError, device_manager};
@@ -482,10 +482,10 @@ pub enum BuildMicrovmFromSnapshotError {
     /// Failed to load guest memory: {0}
     GuestMemory(#[from] BuildMicrovmFromSnapshotErrorGuestMemoryError),
     /// Userfault bitmap memfd error: {0}
-    UserfaultBitmapMemfd(#[from] crate::vstate::memory::MemoryError),
+    UserfaultBitmapMemfd(#[from] MemoryError),
 }
 
-fn memfd_to_slice(memfd: &Option<File>) -> Option<&mut [u8]> {
+fn memfd_to_slice(memfd: &Option<File>) -> Result<Option<&mut [u8]>, MemoryError> {
     if let Some(bitmap_file) = memfd {
         let len = u64_to_usize(
             bitmap_file
@@ -507,16 +507,15 @@ fn memfd_to_slice(memfd: &Option<File>) -> Option<&mut [u8]> {
         };
 
         if bitmap_addr == libc::MAP_FAILED {
-            panic!(
-                "Failed to mmap userfault bitmap file: {}",
-                std::io::Error::last_os_error()
-            );
+            return Err(MemoryError::Mmap(std::io::Error::last_os_error()));
         }
 
         // SAFETY: `bitmap_addr` is a valid memory address returned by `mmap`.
-        Some(unsafe { std::slice::from_raw_parts_mut(bitmap_addr.cast(), len) })
+        Ok(Some(unsafe {
+            std::slice::from_raw_parts_mut(bitmap_addr.cast(), len)
+        }))
     } else {
-        None
+        Ok(None)
     }
 }
 
@@ -616,7 +615,7 @@ pub fn build_microvm_from_snapshot(
         }
     };
 
-    let mut userfault_bitmap = memfd_to_slice(&userfault_bitmap_memfd);
+    let mut userfault_bitmap = memfd_to_slice(&userfault_bitmap_memfd)?;
     if let Some(ref mut slice) = userfault_bitmap {
         // Set all bits so a fault on any page will cause a VM exit
         slice.fill(0xffu8);
