@@ -706,16 +706,16 @@ impl PciConfiguration {
         let bar_idx = config.idx;
         let reg_idx = BAR0_REG + bar_idx;
 
+        if bar_idx >= NUM_BAR_REGS {
+            return Err(Error::BarInvalid(bar_idx));
+        }
+
         if self.bars[bar_idx].used {
             return Err(Error::BarInUse(bar_idx));
         }
 
         if !config.size.is_power_of_two() {
             return Err(Error::BarSizeInvalid(config.size));
-        }
-
-        if bar_idx >= NUM_BAR_REGS {
-            return Err(Error::BarInvalid(bar_idx));
         }
 
         let end_addr = config
@@ -739,7 +739,7 @@ impl PciConfiguration {
                 }
 
                 if self.bars[bar_idx + 1].used {
-                    return Err(Error::BarInUse64(bar_idx));
+                    return Err(Error::BarInUse64(bar_idx + 1));
                 }
 
                 // Encode the BAR size as expected by the software running in
@@ -1002,6 +1002,7 @@ impl Default for PciBarConfiguration {
 
 #[cfg(test)]
 mod tests {
+
     use vm_memory::ByteValued;
 
     use super::*;
@@ -1107,5 +1108,166 @@ mod tests {
         assert_eq!(class_code, 0x04);
         assert_eq!(subclass, 0x01);
         assert_eq!(prog_if, 0x5a);
+    }
+
+    #[test]
+    fn test_bar_size_encoding() {
+        assert!(encode_32_bits_bar_size(0).is_none());
+        assert!(decode_32_bits_bar_size(0).is_none());
+        assert!(encode_64_bits_bar_size(0).is_none());
+        assert!(decode_64_bits_bar_size(0, 0).is_none());
+
+        // According to OSDev wiki (https://wiki.osdev.org/PCI#Address_and_size_of_the_BAR):
+        //
+        // > To determine the amount of address space needed by a PCI device, you must save the
+        // > original value of the BAR, write a value of all 1's to the register, then read it back.
+        // > The amount of memory can then be determined by masking the information bits, performing
+        // > a bitwise NOT ('~' in C), and incrementing the value by 1. The original value of the
+        // BAR > should then be restored. The BAR register is naturally aligned and as such you can
+        // only > modify the bits that are set. For example, if a device utilizes 16 MB it will
+        // have BAR0 > filled with 0xFF000000 (0x1000000 after decoding) and you can only modify
+        // the upper > 8-bits.
+        //
+        // So we should be encoding an address like this: `addr` -> `!(addr - 1)`
+        let encoded = encode_32_bits_bar_size(0x0101_0101).unwrap();
+        assert_eq!(encoded, 0xfefe_feff);
+        assert_eq!(decode_32_bits_bar_size(encoded), Some(0x0101_0101));
+
+        // Similarly we encode a 64 bits size and then store it as a 2 32bit addresses (we use
+        // two BARs).
+        let (hi, lo) = encode_64_bits_bar_size(0xffff_ffff_ffff_fff0).unwrap();
+        assert_eq!(hi, 0);
+        assert_eq!(lo, 0x0000_0010);
+        assert_eq!(decode_64_bits_bar_size(hi, lo), Some(0xffff_ffff_ffff_fff0));
+    }
+
+    #[test]
+    fn test_add_pci_bar() {
+        let mut pci_config = PciConfiguration::new(
+            0x42,
+            0x0,
+            0x0,
+            PciClassCode::MassStorage,
+            &PciMassStorageSubclass::SerialScsiController,
+            None,
+            PciHeaderType::Device,
+            0x13,
+            0x12,
+            None,
+            None,
+        );
+
+        // BAR size can only be a power of 2
+        assert!(matches!(
+            pci_config.add_pci_bar(&PciBarConfiguration {
+                addr: 0x1000,
+                size: 0x1001,
+                idx: 0,
+                region_type: PciBarRegionType::Memory32BitRegion,
+                prefetchable: PciBarPrefetchable::Prefetchable,
+            }),
+            Err(Error::BarSizeInvalid(0x1001))
+        ));
+
+        // Invalid BAR index
+        assert!(matches!(
+            pci_config.add_pci_bar(&PciBarConfiguration {
+                addr: 0x1000,
+                size: 0x1000,
+                idx: NUM_BAR_REGS,
+                region_type: PciBarRegionType::Memory32BitRegion,
+                prefetchable: PciBarPrefetchable::Prefetchable
+            }),
+            Err(Error::BarInvalid(NUM_BAR_REGS))
+        ));
+        // 64bit BARs need 2 BAR slots actually
+        assert!(matches!(
+            pci_config.add_pci_bar(&PciBarConfiguration {
+                addr: 0x1000,
+                size: 0x1000,
+                idx: NUM_BAR_REGS - 1,
+                region_type: PciBarRegionType::Memory64BitRegion,
+                prefetchable: PciBarPrefetchable::Prefetchable
+            }),
+            Err(Error::BarInvalid64(_))
+        ));
+
+        // Check for valid addresses
+        // Can't have an address that exceeds 32 bits for a 32bit BAR
+        assert!(matches!(
+            pci_config.add_pci_bar(&PciBarConfiguration {
+                addr: 0x1000_0000_0000_0000,
+                size: 0x1000,
+                idx: 0,
+                region_type: PciBarRegionType::Memory32BitRegion,
+                prefetchable: PciBarPrefetchable::Prefetchable
+            }),
+            Err(Error::BarAddressInvalid(0x1000_0000_0000_0000, 0x1000))
+        ));
+        // Ensure that we handle properly overflows in 64bit BAR ranges
+        assert!(matches!(
+            pci_config.add_pci_bar(&PciBarConfiguration {
+                addr: u64::MAX,
+                size: 0x2,
+                idx: 0,
+                region_type: PciBarRegionType::Memory64BitRegion,
+                prefetchable: PciBarPrefetchable::Prefetchable
+            }),
+            Err(Error::BarAddressInvalid(u64::MAX, 2))
+        ));
+
+        // We can't reuse a BAR slot
+        pci_config
+            .add_pci_bar(&PciBarConfiguration {
+                addr: 0x1000,
+                size: 0x1000,
+                idx: 0,
+                region_type: PciBarRegionType::Memory32BitRegion,
+                prefetchable: PciBarPrefetchable::Prefetchable,
+            })
+            .unwrap();
+        assert!(matches!(
+            pci_config.add_pci_bar(&PciBarConfiguration {
+                addr: 0x1000,
+                size: 0x1000,
+                idx: 0,
+                region_type: PciBarRegionType::Memory32BitRegion,
+                prefetchable: PciBarPrefetchable::Prefetchable,
+            }),
+            Err(Error::BarInUse(0))
+        ));
+        pci_config
+            .add_pci_bar(&PciBarConfiguration {
+                addr: 0x0000_0001_0000_0000,
+                size: 0x2000,
+                idx: 2,
+                region_type: PciBarRegionType::Memory64BitRegion,
+                prefetchable: PciBarPrefetchable::Prefetchable,
+            })
+            .unwrap();
+        // For 64bit BARs two BARs are used (in this case BARs 1 and 2)
+        assert!(matches!(
+            pci_config.add_pci_bar(&PciBarConfiguration {
+                addr: 0x0000_0001_0000_0000,
+                size: 0x1000,
+                idx: 2,
+                region_type: PciBarRegionType::Memory64BitRegion,
+                prefetchable: PciBarPrefetchable::Prefetchable,
+            }),
+            Err(Error::BarInUse(2))
+        ));
+        assert!(matches!(
+            pci_config.add_pci_bar(&PciBarConfiguration {
+                addr: 0x0000_0001_0000_0000,
+                size: 0x1000,
+                idx: 1,
+                region_type: PciBarRegionType::Memory64BitRegion,
+                prefetchable: PciBarPrefetchable::Prefetchable,
+            }),
+            Err(Error::BarInUse64(2))
+        ));
+
+        assert_eq!(pci_config.get_bar_addr(0), 0x1000);
+        assert_eq!(pci_config.get_bar_addr(2), 0x1_0000_0000);
     }
 }
