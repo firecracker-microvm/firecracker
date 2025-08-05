@@ -190,7 +190,7 @@ pub trait PciProgrammingInterface {
 }
 
 /// Types of PCI capabilities.
-#[derive(PartialEq, Eq, Copy, Clone)]
+#[derive(Debug, PartialEq, Eq, Copy, Clone)]
 #[allow(dead_code)]
 #[allow(non_camel_case_types)]
 #[repr(u8)]
@@ -474,8 +474,6 @@ pub enum Error {
     BarInvalid(usize),
     BarInvalid64(usize),
     BarSizeInvalid(u64),
-    CapabilityEmpty,
-    CapabilityLengthInvalid(usize),
     CapabilitySpaceFull(usize),
     Decode32BarSize,
     Decode64BarSize,
@@ -505,8 +503,6 @@ impl Display for Error {
                 NUM_BAR_REGS - 1
             ),
             BarSizeInvalid(s) => write!(f, "bar address {s} not a power of two"),
-            CapabilityEmpty => write!(f, "empty capabilities are invalid"),
-            CapabilityLengthInvalid(l) => write!(f, "Invalid capability length {l}"),
             CapabilitySpaceFull(s) => write!(f, "capability of size {s} doesn't fit"),
             Decode32BarSize => write!(f, "failed to decode 32 bits BAR size"),
             Decode64BarSize => write!(f, "failed to decode 64 bits BAR size"),
@@ -789,15 +785,12 @@ impl PciConfiguration {
     }
 
     /// Adds the capability `cap_data` to the list of capabilities.
-    /// `cap_data` should include the two-byte PCI capability header (type, next),
-    /// but not populate it. Correct values will be generated automatically based
-    /// on `cap_data.id()`.
+    ///
+    /// `cap_data` should not include the two-byte PCI capability header (type, next).
+    /// Correct values will be generated automatically based on `cap_data.id()` and
+    /// `cap_data.len()`.
     pub fn add_capability(&mut self, cap_data: &dyn PciCapability) -> Result<usize> {
-        let total_len = cap_data.bytes().len();
-        // Check that the length is valid.
-        if cap_data.bytes().is_empty() {
-            return Err(Error::CapabilityEmpty);
-        }
+        let total_len = cap_data.bytes().len() + 2;
         let (cap_offset, tail_offset) = match self.last_capability {
             Some((offset, len)) => (Self::next_dword(offset, len), offset + 1),
             None => (FIRST_CAPABILITY_OFFSET, CAPABILITY_LIST_HEAD_OFFSET),
@@ -1006,6 +999,7 @@ mod tests {
     use vm_memory::ByteValued;
 
     use super::*;
+    use crate::MsixCap;
 
     #[repr(C, packed)]
     #[derive(Clone, Copy, Default)]
@@ -1028,6 +1022,28 @@ mod tests {
         }
     }
 
+    struct BadCap {
+        data: Vec<u8>,
+    }
+
+    impl BadCap {
+        fn new(len: u8) -> Self {
+            Self {
+                data: (0..len).collect(),
+            }
+        }
+    }
+
+    impl PciCapability for BadCap {
+        fn bytes(&self) -> &[u8] {
+            &self.data
+        }
+
+        fn id(&self) -> PciCapabilityId {
+            PciCapabilityId::VendorSpecific
+        }
+    }
+
     #[test]
     fn add_capability() {
         let mut cfg = PciConfiguration::new(
@@ -1043,6 +1059,20 @@ mod tests {
             None,
             None,
         );
+
+        // Bad size capabilities
+        assert!(matches!(
+            cfg.add_capability(&BadCap::new(127)),
+            Err(Error::CapabilitySpaceFull(129))
+        ));
+        cfg.add_capability(&BadCap::new(62)).unwrap();
+        cfg.add_capability(&BadCap::new(62)).unwrap();
+        assert!(matches!(
+            cfg.add_capability(&BadCap::new(0)),
+            Err(Error::CapabilitySpaceFull(2))
+        ));
+        // Reset capabilities
+        cfg.last_capability = None;
 
         // Add two capabilities with different contents.
         let cap1 = TestCap { len: 4, foo: 0xAA };
@@ -1072,6 +1102,107 @@ mod tests {
         assert_eq!((cap2_data >> 8) & 0xFF, 0x00); // next capability pointer
         assert_eq!((cap2_data >> 16) & 0xFF, 0x04); // cap2.len
         assert_eq!((cap2_data >> 24) & 0xFF, 0x55); // cap2.foo
+    }
+
+    #[test]
+    fn test_msix_capability() {
+        let mut cfg = PciConfiguration::new(
+            0x1234,
+            0x5678,
+            0x1,
+            PciClassCode::MultimediaController,
+            &PciMultimediaSubclass::AudioController,
+            None,
+            PciHeaderType::Device,
+            0xABCD,
+            0x2468,
+            None,
+            None,
+        );
+
+        // Information about the MSI-X capability layout: https://wiki.osdev.org/PCI#Enabling_MSI-X
+        let msix_cap = MsixCap::new(
+            3,      // Using BAR3 for message control table
+            1024,   // 1024 MSI-X vectors
+            0x4000, // Offset of message control table inside the BAR
+            4,      // BAR4 used for pending control bit
+            0x420,  // Offset of pending bit array (PBA) inside BAR
+        );
+        cfg.add_capability(&msix_cap).unwrap();
+
+        let cap_reg = FIRST_CAPABILITY_OFFSET / 4;
+        let reg = cfg.read_reg(cap_reg);
+        // Capability ID is MSI-X
+        assert_eq!(
+            PciCapabilityId::from((reg & 0xff) as u8),
+            PciCapabilityId::MsiX
+        );
+        // We only have one capability, so `next` should be 0
+        assert_eq!(((reg >> 8) & 0xff) as u8, 0);
+        let msg_ctl = (reg >> 16) as u16;
+
+        // MSI-X is enabled
+        assert_eq!(msg_ctl & 0x8000, 0x8000);
+        // Vectors are not masked
+        assert_eq!(msg_ctl & 0x4000, 0x0);
+        // Reserved bits are 0
+        assert_eq!(msg_ctl & 0x3800, 0x0);
+        // We've got 1024 vectors (Table size is N-1 encoded)
+        assert_eq!((msg_ctl & 0x7ff) + 1, 1024);
+
+        let reg = cfg.read_reg(cap_reg + 1);
+        // We are using BAR3
+        assert_eq!(reg & 0x7, 3);
+        // Message Control Table is located in offset 0x4000 inside the BAR
+        // We don't need to shift. Offset needs to be 8-byte aligned - so BIR
+        // is stored in its last 3 bits (which we need to mask out).
+        assert_eq!(reg & 0xffff_fff8, 0x4000);
+
+        let reg = cfg.read_reg(cap_reg + 2);
+        // PBA is 0x420 bytes inside BAR4
+        assert_eq!(reg & 0x7, 4);
+        assert_eq!(reg & 0xffff_fff8, 0x420);
+
+        // Check read/write mask
+        // Capability Id of MSI-X is 0x11
+        cfg.write_config_register(cap_reg, 0, &[0x0]);
+        assert_eq!(
+            PciCapabilityId::from((cfg.read_reg(cap_reg) & 0xff) as u8),
+            PciCapabilityId::MsiX
+        );
+        // Cannot override next capability pointer
+        cfg.write_config_register(cap_reg, 1, &[0x42]);
+        assert_eq!((cfg.read_reg(cap_reg) >> 8) & 0xff, 0);
+
+        // We are writing this:
+        //
+        // meaning: | MSI enabled | Vectors Masked | Reserved | Table size |
+        // bit:     |     15      |       14       |  13 - 11 |   0 - 10   |
+        // R/W:     |     R/W     |       R/W      |     R    |     R      |
+        let msg_ctl = (cfg.read_reg(cap_reg) >> 16) as u16;
+        // Try to flip all bits
+        cfg.write_config_register(cap_reg, 2, &u16::to_le_bytes(!msg_ctl));
+        let msg_ctl = (cfg.read_reg(cap_reg) >> 16) as u16;
+        // MSI enabled and Vectors masked should be flipped (MSI disabled and vectors masked)
+        assert_eq!(msg_ctl & 0xc000, 0x4000);
+        // Reserved bits should still be 0
+        assert_eq!(msg_ctl & 0x3800, 0);
+        // Table size should not have changed
+        assert_eq!((msg_ctl & 0x07ff) + 1, 1024);
+
+        // Table offset is read only
+        let table_offset = cfg.read_reg(cap_reg + 1);
+        // Try to flip all bits
+        cfg.write_config_register(cap_reg + 1, 0, &u32::to_le_bytes(!table_offset));
+        // None should be flipped
+        assert_eq!(cfg.read_reg(cap_reg + 1), table_offset);
+
+        // PBA offset also
+        let pba_offset = cfg.read_reg(cap_reg + 2);
+        // Try to flip all bits
+        cfg.write_config_register(cap_reg + 2, 0, &u32::to_le_bytes(!pba_offset));
+        // None should be flipped
+        assert_eq!(cfg.read_reg(cap_reg + 2), pba_offset);
     }
 
     #[derive(Copy, Clone)]
