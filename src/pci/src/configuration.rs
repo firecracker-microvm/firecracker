@@ -831,6 +831,10 @@ impl PciConfiguration {
     }
 
     pub fn write_config_register(&mut self, reg_idx: usize, offset: u64, data: &[u8]) {
+        if reg_idx >= NUM_CONFIGURATION_REGISTERS {
+            return;
+        }
+
         if offset as usize + data.len() > 4 {
             return;
         }
@@ -1400,5 +1404,51 @@ mod tests {
 
         assert_eq!(pci_config.get_bar_addr(0), 0x1000);
         assert_eq!(pci_config.get_bar_addr(2), 0x1_0000_0000);
+    }
+
+    #[test]
+    fn test_access_invalid_reg() {
+        let mut pci_config = PciConfiguration::new(
+            0x42,
+            0x0,
+            0x0,
+            PciClassCode::MassStorage,
+            &PciMassStorageSubclass::SerialScsiController,
+            None,
+            PciHeaderType::Device,
+            0x13,
+            0x12,
+            None,
+            None,
+        );
+
+        // Can't read past the end of the configuration space
+        assert_eq!(
+            pci_config.read_reg(NUM_CONFIGURATION_REGISTERS),
+            0xffff_ffff
+        );
+
+        // Read out all of configuration space
+        let config_space: Vec<u32> = (0..NUM_CONFIGURATION_REGISTERS)
+            .map(|reg_idx| pci_config.read_reg(reg_idx))
+            .collect();
+
+        // Various invalid write accesses
+
+        // Past the end of config space
+        pci_config.write_config_register(NUM_CONFIGURATION_REGISTERS, 0, &[0x42]);
+        pci_config.write_config_register(NUM_CONFIGURATION_REGISTERS, 0, &[0x42, 0x42]);
+        pci_config.write_config_register(NUM_CONFIGURATION_REGISTERS, 0, &[0x42, 0x42, 0x42, 0x42]);
+
+        // Past register boundaries
+        pci_config.write_config_register(NUM_CONFIGURATION_REGISTERS, 1, &[0x42, 0x42, 0x42, 0x42]);
+        pci_config.write_config_register(NUM_CONFIGURATION_REGISTERS, 2, &[0x42, 0x42, 0x42]);
+        pci_config.write_config_register(NUM_CONFIGURATION_REGISTERS, 3, &[0x42, 0x42]);
+        pci_config.write_config_register(NUM_CONFIGURATION_REGISTERS, 4, &[0x42]);
+        pci_config.write_config_register(NUM_CONFIGURATION_REGISTERS, 5, &[]);
+
+        for (reg_idx, reg) in config_space.iter().enumerate() {
+            assert_eq!(*reg, pci_config.read_reg(reg_idx));
+        }
     }
 }
