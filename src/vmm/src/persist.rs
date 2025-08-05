@@ -601,9 +601,7 @@ fn send_uffd_handshake(
     let backend_mappings = serde_json::to_string(backend_mappings).unwrap();
 
     let socket = UnixStream::connect(mem_uds_path)?;
-    socket
-        .set_nonblocking(true)
-        .expect("Cannot set non-blocking");
+    socket.set_nonblocking(true)?;
 
     socket.send_with_fds(
         &[backend_mappings.as_bytes()],

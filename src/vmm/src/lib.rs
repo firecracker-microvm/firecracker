@@ -947,7 +947,7 @@ impl MutEventSubscriber for Vmm {
 
         if let Some(uffd_socket) = self.uffd_socket.as_ref() {
             if let Err(err) = ops.add(Events::new(uffd_socket, EventSet::IN)) {
-                panic!("Failed to register UFFD socket: {}", err);
+                error!("Failed to register UFFD socket: {}", err);
             }
         }
     }
