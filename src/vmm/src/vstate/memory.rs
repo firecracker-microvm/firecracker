@@ -73,6 +73,8 @@ pub enum MemoryError {
     SeekError(std::io::Error),
     /// Volatile memory error: {0}
     VolatileMemoryError(vm_memory::VolatileMemoryError),
+    /// Error calling mmap: {0}
+    Mmap(std::io::Error),
 }
 
 impl From<vm_memory::VolatileMemoryError> for MemoryError {
