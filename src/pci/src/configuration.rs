@@ -924,9 +924,15 @@ impl PciConfiguration {
                     region_type,
                 });
             } else if (reg_idx > BAR0_REG)
-                && ((self.registers[reg_idx - 1] & self.writable_bits[reg_idx - 1])
-                    != (self.bars[bar_idx - 1].addr & self.writable_bits[reg_idx - 1])
-                    || (value & mask) != (self.bars[bar_idx].addr & mask))
+                && (
+                    // The lower BAR (of this 64bit BAR) has been reprogrammed to a different value
+                    // than it used to be
+                    (self.registers[reg_idx - 1] & self.writable_bits[reg_idx - 1])
+                    != (self.bars[bar_idx - 1].addr & self.writable_bits[reg_idx - 1]) ||
+                    // Or the lower BAR hasn't been changed but the upper one is being reprogrammed
+                    // now to a different value
+                    (value & mask) != (self.bars[bar_idx].addr & mask)
+                )
             {
                 info!(
                     "Detected BAR reprogramming: (BAR {}) 0x{:x}->0x{:x}",
@@ -1450,5 +1456,135 @@ mod tests {
         for (reg_idx, reg) in config_space.iter().enumerate() {
             assert_eq!(*reg, pci_config.read_reg(reg_idx));
         }
+    }
+
+    #[test]
+    fn test_detect_bar_reprogramming() {
+        let mut pci_config = PciConfiguration::new(
+            0x42,
+            0x0,
+            0x0,
+            PciClassCode::MassStorage,
+            &PciMassStorageSubclass::SerialScsiController,
+            None,
+            PciHeaderType::Device,
+            0x13,
+            0x12,
+            None,
+            None,
+        );
+
+        // Trying to reprogram with something less than 4 bytes (length of the address) should fail
+        assert!(pci_config
+            .detect_bar_reprogramming(BAR0_REG, &[0x13])
+            .is_none());
+        assert!(pci_config
+            .detect_bar_reprogramming(BAR0_REG, &[0x13, 0x12])
+            .is_none());
+        assert!(pci_config
+            .detect_bar_reprogramming(BAR0_REG, &[0x13, 0x12])
+            .is_none());
+        assert!(pci_config
+            .detect_bar_reprogramming(BAR0_REG, &[0x13, 0x12, 0x16])
+            .is_none());
+
+        // Writing all 1s is a special case where we're actually asking for the size of the BAR
+        assert!(pci_config
+            .detect_bar_reprogramming(BAR0_REG, &u32::to_le_bytes(0xffff_ffff))
+            .is_none());
+
+        // Trying to reprogram a BAR that hasn't be initialized does nothing
+        for reg_idx in BAR0_REG..BAR0_REG + NUM_BAR_REGS {
+            assert!(pci_config
+                .detect_bar_reprogramming(reg_idx, &u32::to_le_bytes(0x1312_4243))
+                .is_none());
+        }
+
+        // Reprogramming of a 32bit BAR
+        pci_config
+            .add_pci_bar(&PciBarConfiguration {
+                addr: 0x1000,
+                size: 0x1000,
+                idx: 0,
+                region_type: PciBarRegionType::Memory32BitRegion,
+                prefetchable: PciBarPrefetchable::Prefetchable,
+            })
+            .unwrap();
+
+        assert_eq!(
+            pci_config.detect_bar_reprogramming(BAR0_REG, &u32::to_le_bytes(0x2000)),
+            Some(BarReprogrammingParams {
+                old_base: 0x1000,
+                new_base: 0x2000,
+                len: 0x1000,
+                region_type: PciBarRegionType::Memory32BitRegion
+            })
+        );
+
+        pci_config.write_config_register(BAR0_REG, 0, &u32::to_le_bytes(0x2000));
+        assert_eq!(pci_config.read_reg(BAR0_REG) & 0xffff_fff0, 0x2000);
+
+        // Attempting to reprogram the BAR with the same address should not have any effect
+        assert!(pci_config
+            .detect_bar_reprogramming(BAR0_REG, &u32::to_le_bytes(0x2000))
+            .is_none());
+
+        // Reprogramming of a 64bit BAR
+        pci_config
+            .add_pci_bar(&PciBarConfiguration {
+                addr: 0x13_1200_0000,
+                size: 0x8000,
+                idx: 1,
+                region_type: PciBarRegionType::Memory64BitRegion,
+                prefetchable: PciBarPrefetchable::Prefetchable,
+            })
+            .unwrap();
+
+        assert_eq!(pci_config.read_reg(BAR0_REG + 1) & 0xffff_fff0, 0x1200_0000);
+        assert_eq!(
+            pci_config.bars[1].r#type,
+            Some(PciBarRegionType::Memory64BitRegion)
+        );
+        assert_eq!(pci_config.read_reg(BAR0_REG + 2), 0x13);
+        assert!(pci_config.bars[2].r#type.is_none());
+
+        // First we write the lower 32 bits and this shouldn't cause any reprogramming
+        assert!(pci_config
+            .detect_bar_reprogramming(BAR0_REG + 1, &u32::to_le_bytes(0x4200_0000))
+            .is_none());
+        pci_config.write_config_register(BAR0_REG + 1, 0, &u32::to_le_bytes(0x4200_0000));
+
+        // Writing the upper 32 bits should trigger the reprogramming
+        assert_eq!(
+            pci_config.detect_bar_reprogramming(BAR0_REG + 2, &u32::to_le_bytes(0x84)),
+            Some(BarReprogrammingParams {
+                old_base: 0x13_1200_0000,
+                new_base: 0x84_4200_0000,
+                len: 0x8000,
+                region_type: PciBarRegionType::Memory64BitRegion
+            })
+        );
+        pci_config.write_config_register(BAR0_REG + 2, 0, &u32::to_le_bytes(0x84));
+
+        // Trying to reprogram the upper bits directly (without first touching the lower bits)
+        // should trigger a reprogramming
+        assert_eq!(
+            pci_config.detect_bar_reprogramming(BAR0_REG + 2, &u32::to_le_bytes(0x1312)),
+            Some(BarReprogrammingParams {
+                old_base: 0x84_4200_0000,
+                new_base: 0x1312_4200_0000,
+                len: 0x8000,
+                region_type: PciBarRegionType::Memory64BitRegion
+            })
+        );
+        pci_config.write_config_register(BAR0_REG + 2, 0, &u32::to_le_bytes(0x1312));
+
+        // Attempting to reprogram the BAR with the same address should not have any effect
+        assert!(pci_config
+            .detect_bar_reprogramming(BAR0_REG + 1, &u32::to_le_bytes(0x4200_0000))
+            .is_none());
+        assert!(pci_config
+            .detect_bar_reprogramming(BAR0_REG + 2, &u32::to_le_bytes(0x1312))
+            .is_none());
     }
 }
