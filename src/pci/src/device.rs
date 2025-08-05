@@ -25,7 +25,7 @@ pub enum Error {
 }
 pub type Result<T> = std::result::Result<T, Error>;
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct BarReprogrammingParams {
     pub old_base: u64,
     pub new_base: u64,
