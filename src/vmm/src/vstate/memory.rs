@@ -64,6 +64,8 @@ pub enum MemoryError {
     Unaligned,
     /// Error protecting memory slot: {0}
     Mprotect(std::io::Error),
+    /// Error calling mmap: {0}
+    Mmap(std::io::Error),
 }
 
 /// Type of the guest region
