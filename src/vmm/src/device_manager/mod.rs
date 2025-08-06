@@ -555,7 +555,7 @@ pub(crate) mod tests {
         #[cfg(target_arch = "x86_64")]
         let legacy_devices = PortIODeviceManager::new(
             Arc::new(Mutex::new(
-                SerialDevice::new(None, SerialOut::Sink(std::io::sink())).unwrap(),
+                SerialDevice::new(None, SerialOut::Sink).unwrap(),
             )),
             Arc::new(Mutex::new(
                 I8042Device::new(EventFd::new(libc::EFD_NONBLOCK).unwrap()).unwrap(),

@@ -127,19 +127,19 @@ impl SerialEvents for SerialEventsWrapper {
 
 #[derive(Debug)]
 pub enum SerialOut {
-    Sink(std::io::Sink),
+    Sink,
     Stdout(std::io::Stdout),
 }
 impl std::io::Write for SerialOut {
     fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
         match self {
-            Self::Sink(sink) => sink.write(buf),
+            Self::Sink => Ok(buf.len()),
             Self::Stdout(stdout) => stdout.write(buf),
         }
     }
     fn flush(&mut self) -> std::io::Result<()> {
         match self {
-            Self::Sink(sink) => sink.flush(),
+            Self::Sink => Ok(()),
             Self::Stdout(stdout) => stdout.flush(),
         }
     }
@@ -407,7 +407,7 @@ mod tests {
                 SerialEventsWrapper {
                     buffer_ready_event_fd: None,
                 },
-                SerialOut::Sink(std::io::sink()),
+                SerialOut::Sink,
             ),
             input: None::<std::io::Stdin>,
         };
