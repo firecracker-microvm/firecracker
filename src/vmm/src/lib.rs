@@ -768,13 +768,10 @@ impl Vmm {
                 match result {
                     Ok(fault_reply) => {
                         let vcpu = fault_reply.vcpu.expect("vCPU must be set");
-
                         self.vm
                             .as_kvm()
                             .expect("Userfault handling is only supported for KVM VMs")
-                            .vcpus_handles()
-                            .get(vcpu as usize)
-                            .expect("Invalid vcpu index")
+                            .vcpus_handles()[vcpu as usize]
                             .send_userfault_resolved();
 
                         total_consumed = parser.byte_offset();
