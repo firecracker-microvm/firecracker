@@ -170,7 +170,12 @@ pub fn build_microvm_for_boot(
     let (mut vcpus, vcpus_exit_evt) = vm.create_vcpus(vm_resources.machine_config.vcpu_count)?;
     vm.register_memory_regions(guest_memory)?;
 
-    let mut device_manager = DeviceManager::new(event_manager, &vcpus_exit_evt, &vm)?;
+    let mut device_manager = DeviceManager::new(
+        event_manager,
+        &vcpus_exit_evt,
+        &vm,
+        vm_resources.serial_out_path.as_ref(),
+    )?;
 
     let vm = Arc::new(vm);
 
@@ -248,7 +253,12 @@ pub fn build_microvm_for_boot(
     }
 
     #[cfg(target_arch = "aarch64")]
-    device_manager.attach_legacy_devices_aarch64(&vm, event_manager, &mut boot_cmdline)?;
+    device_manager.attach_legacy_devices_aarch64(
+        &vm,
+        event_manager,
+        &mut boot_cmdline,
+        vm_resources.serial_out_path.as_ref(),
+    )?;
 
     device_manager.attach_vmgenid_device(vm.guest_memory(), &vm)?;
 

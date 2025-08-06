@@ -7,6 +7,7 @@
 
 //! Implements a wrapper over an UART serial device.
 use std::fmt::Debug;
+use std::fs::File;
 use std::io::{self, Read, Stdin, Write};
 use std::os::unix::io::{AsRawFd, RawFd};
 use std::sync::{Arc, Barrier};
@@ -129,18 +130,21 @@ impl SerialEvents for SerialEventsWrapper {
 pub enum SerialOut {
     Sink,
     Stdout(std::io::Stdout),
+    File(File),
 }
 impl std::io::Write for SerialOut {
     fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
         match self {
             Self::Sink => Ok(buf.len()),
             Self::Stdout(stdout) => stdout.write(buf),
+            Self::File(file) => file.write(buf),
         }
     }
     fn flush(&mut self) -> std::io::Result<()> {
         match self {
             Self::Sink => Ok(()),
             Self::Stdout(stdout) => stdout.flush(),
+            Self::File(file) => file.flush(),
         }
     }
 }
