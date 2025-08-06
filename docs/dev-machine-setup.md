@@ -44,6 +44,9 @@ virtualization. This is but one example of that setup:
 1. Check the **Enable hypervisor applications in this virtual machine** option,
    close the settings window, open the **Virtual Machine** menu, and select
    **Start Up**.
+1. Network adapter setting for the VM must use auto-detect bridged networking.
+   Go to Virtual Machine, Settings, Network Adapter, select Autodetect under
+   Bridged Networking.
 1. If you receive a **Cannot connect the virtual device sata0:1 because no
    corresponding device is available on the host.** error, you can respond
    **No** to the prompt.
