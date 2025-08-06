@@ -356,8 +356,10 @@ impl<'a> Persist<'a> for MMIODeviceManager {
         {
             for state in &state.legacy_devices {
                 if state.type_ == DeviceType::Serial {
-                    let serial =
-                        crate::DeviceManager::setup_serial_device(constructor_args.event_manager)?;
+                    let serial = crate::DeviceManager::setup_serial_device(
+                        constructor_args.event_manager,
+                        constructor_args.vm_resources.serial_out_path.as_ref(),
+                    )?;
 
                     dev_manager.register_mmio_serial(vm, serial, Some(state.device_info))?;
                 }
