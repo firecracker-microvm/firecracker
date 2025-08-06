@@ -762,6 +762,7 @@ impl Vmm {
                             break;
                         }
                     }
+                    Err(e) if e.kind() == io::ErrorKind::Interrupted => continue,
                     Err(e) => panic!("Read error: {}", e),
                 }
             }
