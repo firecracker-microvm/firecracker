@@ -57,7 +57,7 @@ use crate::vmm_config::instance_info::InstanceInfo;
 use crate::vmm_config::machine_config::MachineConfigError;
 use crate::vmm_config::snapshot::{LoadSnapshotParams, MemBackendType};
 use crate::vstate::kvm::{Kvm, KvmError};
-use crate::vstate::memory::{MaybeBounce, create_memfd, MemoryError};
+use crate::vstate::memory::{MaybeBounce, MemoryError, create_memfd};
 #[cfg(target_arch = "aarch64")]
 use crate::vstate::resources::ResourceAllocator;
 use crate::vstate::vcpu::VcpuError;

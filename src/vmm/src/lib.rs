@@ -776,11 +776,7 @@ impl Vmm {
                 match result {
                     Ok(fault_reply) => {
                         let vcpu = fault_reply.vcpu.expect("vCPU must be set");
-
-                        self.vcpus_handles
-                            .get(vcpu as usize)
-                            .expect("Invalid vcpu index")
-                            .send_userfault_resolved();
+                        self.vcpus_handles[vcpu as usize].send_userfault_resolved();
 
                         total_consumed = parser.byte_offset();
                     }
