@@ -35,6 +35,10 @@ and this project adheres to
   requests to `/mmds/config` to enforce MMDS to always respond plain text
   contents in the IMDS format regardless of the `Accept` header in requests.
   Users need to regenerate snapshots.
+- [#5350](https://github.com/firecracker-microvm/firecracker/pull/5350): Added a
+  `--serial-out-path` CLI option and a `serial_out_path` field to `PUT /logger`,
+  which allows specifying a file into which Firecracker should redirect guest
+  serial console output instead of stdout.
 
 ### Changed
 

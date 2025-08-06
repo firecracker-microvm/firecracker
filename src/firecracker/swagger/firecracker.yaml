@@ -1022,6 +1022,11 @@ definitions:
         type: string
         description: The module path to filter log messages by.
         example: api_server::request
+      serial_out_path:
+        type: string
+        description:
+          Path to the named pipe of file for guest serial console output. If not specified,
+          serial console output will be printed to stdout.
 
   MachineConfiguration:
     type: object

@@ -28,6 +28,7 @@ pub static INSTANCE_ID: OnceLock<String> = OnceLock::new();
 /// Default values matching the swagger specification (`src/firecracker/swagger/firecracker.yaml`).
 pub static LOGGER: Logger = Logger(Mutex::new(LoggerConfiguration {
     target: None,
+    serial_out_path: None,
     filter: LogFilter { module: None },
     format: LogFormat {
         show_level: false,
@@ -71,6 +72,10 @@ impl Logger {
             guard.target = Some(file);
         };
 
+        if let Some(serial_out_path) = config.serial_out_path {
+            guard.serial_out_path = Some(serial_out_path);
+        }
+
         if let Some(show_level) = config.show_level {
             guard.format.show_level = show_level;
         }
@@ -103,6 +108,7 @@ pub struct LogFormat {
 #[derive(Debug)]
 pub struct LoggerConfiguration {
     pub target: Option<std::fs::File>,
+    pub serial_out_path: Option<PathBuf>,
     pub filter: LogFilter,
     pub format: LogFormat,
 }
@@ -185,6 +191,8 @@ impl Log for Logger {
 pub struct LoggerConfig {
     /// Named pipe or file used as output for logs.
     pub log_path: Option<PathBuf>,
+    /// Named pipe of file used as output for guest serial console.
+    pub serial_out_path: Option<PathBuf>,
     /// The level of the Logger.
     pub level: Option<LevelFilter>,
     /// Whether to show the log level in the log.
@@ -365,6 +373,7 @@ mod tests {
         // Create logger.
         let logger = Logger(Mutex::new(LoggerConfiguration {
             target: Some(target),
+            serial_out_path: None,
             filter: LogFilter {
                 module: Some(String::from("module")),
             },

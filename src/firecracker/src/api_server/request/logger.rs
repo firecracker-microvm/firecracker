@@ -36,6 +36,7 @@ mod tests {
 
         let expected_config = LoggerConfig {
             log_path: Some(PathBuf::from("log")),
+            serial_out_path: None,
             level: Some(LevelFilter::Warn),
             show_level: Some(false),
             show_log_origin: Some(false),
@@ -55,6 +56,7 @@ mod tests {
 
         let expected_config = LoggerConfig {
             log_path: Some(PathBuf::from("log")),
+            serial_out_path: None,
             level: Some(LevelFilter::Debug),
             show_level: Some(false),
             show_log_origin: Some(false),

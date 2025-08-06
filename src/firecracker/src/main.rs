@@ -209,6 +209,11 @@ fn main_exec() -> Result<(), MainError> {
                     .help("Path to a fifo or a file used for configuring the logger on startup."),
             )
             .arg(
+                Argument::new("serial-out-path")
+                    .takes_value(true)
+                    .help("Path to a fifo or a file used for serial output."),
+            )
+            .arg(
                 Argument::new("level")
                     .takes_value(true)
                     .help("Set the logger level."),
@@ -300,6 +305,7 @@ fn main_exec() -> Result<(), MainError> {
         .set(String::from(instance_id))
         .unwrap();
     let log_path = arguments.single_value("log-path").map(PathBuf::from);
+    let serial_out_path = arguments.single_value("serial-out-path").map(PathBuf::from);
     let level = arguments
         .single_value("level")
         .map(|s| vmm::logger::LevelFilter::from_str(s))
@@ -311,6 +317,7 @@ fn main_exec() -> Result<(), MainError> {
     LOGGER
         .update(LoggerConfig {
             log_path,
+            serial_out_path,
             level,
             show_level,
             show_log_origin,

@@ -7,6 +7,7 @@
 
 use std::convert::Infallible;
 use std::fmt::Debug;
+use std::os::unix::prelude::OpenOptionsExt;
 use std::sync::{Arc, Mutex};
 
 use acpi::ACPIDeviceManager;
@@ -32,6 +33,7 @@ use crate::devices::legacy::{IER_RDA_BIT, IER_RDA_OFFSET, SerialDevice};
 use crate::devices::pseudo::BootTimer;
 use crate::devices::virtio::device::VirtioDevice;
 use crate::devices::virtio::transport::mmio::{IrqTrigger, MmioTransport};
+use crate::logger::LOGGER;
 use crate::resources::VmResources;
 use crate::snapshot::Persist;
 use crate::vstate::memory::GuestMemoryMmap;
@@ -126,12 +128,24 @@ impl DeviceManager {
     fn setup_serial_device(
         event_manager: &mut EventManager,
     ) -> Result<Arc<Mutex<SerialDevice>>, std::io::Error> {
-        Self::set_stdout_nonblocking();
+        let (serial_in, serial_out) =
+            match LOGGER.0.lock().expect("logger poisoned").serial_out_path {
+                Some(ref path) => (
+                    None,
+                    std::fs::OpenOptions::new()
+                        .custom_flags(libc::O_NONBLOCK)
+                        .write(true)
+                        .open(path)
+                        .map(SerialOut::File)?,
+                ),
+                None => {
+                    Self::set_stdout_nonblocking();
 
-        let serial = Arc::new(Mutex::new(SerialDevice::new(
-            Some(std::io::stdin()),
-            SerialOut::Stdout(std::io::stdout()),
-        )?));
+                    (Some(std::io::stdin()), SerialOut::Stdout(std::io::stdout()))
+                }
+            };
+
+        let serial = Arc::new(Mutex::new(SerialDevice::new(serial_in, serial_out)?));
         event_manager.add_subscriber(serial.clone());
         Ok(serial)
     }
