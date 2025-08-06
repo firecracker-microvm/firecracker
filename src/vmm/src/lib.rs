@@ -654,21 +654,11 @@ impl Vmm {
         let fault_request_json =
             serde_json::to_string(&fault_request).expect("Failed to serialize fault request");
 
-        let written = self
-            .uffd_socket
+        self.uffd_socket
             .as_ref()
             .expect("Uffd socket is not set")
-            .write(fault_request_json.as_bytes())
+            .write_all(fault_request_json.as_bytes())
             .expect("Failed to write to uffd socket");
-
-        if written != fault_request_json.len() {
-            panic!(
-                "Failed to write the entire fault request to the uffd socket: expected {}, \
-                 written {}",
-                fault_request_json.len(),
-                written
-            );
-        }
     }
 
     fn active_event_in_uffd_socket(&self, source: RawFd, event_set: EventSet) -> bool {
