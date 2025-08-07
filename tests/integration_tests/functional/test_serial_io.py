@@ -11,38 +11,8 @@ import time
 
 from framework import utils
 from framework.microvm import Serial
-from framework.state_machine import TestState
 
 PLATFORM = platform.machine()
-
-
-class WaitTerminal(TestState):
-    """Initial state when we wait for the login prompt."""
-
-    def handle_input(self, serial, input_char) -> TestState:
-        """Handle input and return next state."""
-        if self.match(input_char):
-            serial.tx("id")
-            return WaitIDResult("uid=0(root) gid=0(root) groups=0(root)")
-        return self
-
-
-class WaitIDResult(TestState):
-    """Wait for the console to show the result of the 'id' shell command."""
-
-    def handle_input(self, unused_serial, input_char) -> TestState:
-        """Handle input and return next state."""
-        if self.match(input_char):
-            return TestFinished()
-        return self
-
-
-class TestFinished(TestState):
-    """Test complete and successful."""
-
-    def handle_input(self, unused_serial, _) -> TestState:
-        """Return self since the test is about to end."""
-        return self
 
 
 def test_serial_after_snapshot(uvm_plain, microvm_factory):
@@ -104,11 +74,9 @@ def test_serial_console_login(uvm_plain_any):
 
     serial = Serial(microvm)
     serial.open()
-    current_state = WaitTerminal("ubuntu-fc-uvm:")
-
-    while not isinstance(current_state, TestFinished):
-        output_char = serial.rx_char()
-        current_state = current_state.handle_input(serial, output_char)
+    serial.rx("ubuntu-fc-uvm:")
+    serial.tx("id")
+    serial.rx("uid=0(root) gid=0(root) groups=0(root)")
 
 
 def get_total_mem_size(pid):
