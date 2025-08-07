@@ -1053,6 +1053,7 @@ dependencies = [
  "vm-allocator",
  "vm-device",
  "vm-memory",
+ "vmm-sys-util",
 ]
 
 [[package]]

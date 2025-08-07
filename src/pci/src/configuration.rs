@@ -843,11 +843,14 @@ impl PciConfiguration {
         if let Some(msix_cap_reg_idx) = self.msix_cap_reg_idx {
             if let Some(msix_config) = &self.msix_config {
                 if msix_cap_reg_idx == reg_idx && offset == 2 && data.len() == 2 {
+                    // 2-bytes write in the Message Control field
                     msix_config
                         .lock()
                         .unwrap()
                         .set_msg_ctl(LittleEndian::read_u16(data));
                 } else if msix_cap_reg_idx == reg_idx && offset == 0 && data.len() == 4 {
+                    // 4 bytes write at the beginning. Ignore the first 2 bytes which are the
+                    // capability id and next capability pointer
                     msix_config
                         .lock()
                         .unwrap()
