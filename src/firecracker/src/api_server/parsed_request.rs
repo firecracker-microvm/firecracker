@@ -27,6 +27,7 @@ use super::request::net::{parse_patch_net, parse_put_net};
 use super::request::snapshot::{parse_patch_vm_state, parse_put_snapshot};
 use super::request::version::parse_get_version;
 use super::request::vsock::parse_put_vsock;
+use crate::api_server::request::hotplug::parse_hotplug;
 
 #[derive(Debug)]
 pub(crate) enum RequestAction {
@@ -109,6 +110,7 @@ impl TryFrom<&Request> for ParsedRequest {
             }
             (Method::Patch, "vm", Some(body)) => parse_patch_vm_state(body),
             (Method::Patch, _, None) => method_to_error(Method::Patch),
+            (method, "hotplug", body) => parse_hotplug(method, path_tokens.next(), body),
             (method, unknown_uri, _) => Err(RequestError::InvalidPathMethod(
                 unknown_uri.to_string(),
                 method,
