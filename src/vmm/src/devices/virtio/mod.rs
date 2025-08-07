@@ -79,6 +79,8 @@ pub enum ActivateError {
 // Errors triggered when resetting a VirtioDevice.
 #[derive(Debug, thiserror::Error, displaydoc::Display)]
 pub enum ResetError {
+    /// Error when creating RX buffers
+    RxBuffer,
     /// Reset is not implemented for the device.
     NotImplemented,
 }
