@@ -57,6 +57,13 @@ pub struct NetworkOverride {
     pub host_dev_name: String,
 }
 
+/// Allows for changing the host UDS of the vsock backend during snapshot restore
+#[derive(Debug, PartialEq, Eq, Deserialize)]
+pub struct VsockOverride {
+    /// The path to the UDS that will be used for the vsock interface
+    pub uds_path: String,
+}
+
 /// Stores the configuration that will be used for loading a snapshot.
 #[derive(Debug, PartialEq, Eq)]
 pub struct LoadSnapshotParams {
@@ -72,6 +79,8 @@ pub struct LoadSnapshotParams {
     pub resume_vm: bool,
     /// The network devices to override on load.
     pub network_overrides: Vec<NetworkOverride>,
+    /// When set, the vsock backend UDS path will be overridden
+    pub vsock_override: Option<VsockOverride>,
 }
 
 /// Stores the configuration for loading a snapshot that is provided by the user.
@@ -101,6 +110,9 @@ pub struct LoadSnapshotConfig {
     /// The network devices to override on load.
     #[serde(default)]
     pub network_overrides: Vec<NetworkOverride>,
+    /// Whether or not to override the vsock backend UDS path.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub vsock_override: Option<VsockOverride>,
 }
 
 /// Stores the configuration used for managing snapshot memory.

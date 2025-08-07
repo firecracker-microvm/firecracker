@@ -26,6 +26,7 @@ use crate::cpu_config::x86_64::cpuid::CpuidTrait;
 #[cfg(target_arch = "x86_64")]
 use crate::cpu_config::x86_64::cpuid::common::get_vendor_id_from_host;
 use crate::device_manager::persist::{ACPIDeviceManagerState, DevicePersistError, DeviceStates};
+use crate::devices::virtio::vsock::persist::{VsockBackendState, VsockUdsState};
 use crate::logger::{info, warn};
 use crate::resources::VmResources;
 use crate::seccomp::BpfThreadMap;
@@ -347,6 +348,17 @@ pub fn restore_from_snapshot(
             return Err(SnapshotStateFromFileError::UnknownNetworkDevice.into());
         }
     }
+
+    if let Some(vsock_override) = &params.vsock_override {
+        if let Some(vsock_device) = microvm_state.device_states.vsock_device.as_mut() {
+            vsock_device.device_state.backend = VsockBackendState::Uds(VsockUdsState {
+                path: vsock_override.uds_path.clone(),
+            });
+        } else {
+            return Err(SnapshotStateFromFileError::UnknownVsockDevice.into());
+        }
+    }
+
     let track_dirty_pages = params.track_dirty_pages;
 
     let vcpu_count = microvm_state
@@ -420,6 +432,8 @@ pub enum SnapshotStateFromFileError {
     Load(#[from] crate::snapshot::SnapshotError),
     /// Unknown Network Device.
     UnknownNetworkDevice,
+    /// Unknown Vsock Device.
+    UnknownVsockDevice,
 }
 
 fn snapshot_state_from_file(
