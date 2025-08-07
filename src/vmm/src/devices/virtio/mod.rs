@@ -18,6 +18,7 @@ pub mod device;
 pub mod generated;
 mod iov_deque;
 pub mod iovec;
+pub mod mem;
 pub mod net;
 pub mod persist;
 pub mod pmem;
