@@ -16,9 +16,7 @@ use super::mmio::*;
 use crate::arch::DeviceType;
 use crate::devices::acpi::vmgenid::{VMGenIDState, VMGenIdConstructorArgs, VmGenId, VmGenIdError};
 #[cfg(target_arch = "aarch64")]
-use crate::devices::legacy::serial::SerialOut;
-#[cfg(target_arch = "aarch64")]
-use crate::devices::legacy::{RTCDevice, SerialDevice};
+use crate::devices::legacy::RTCDevice;
 use crate::devices::virtio::balloon::persist::{BalloonConstructorArgs, BalloonState};
 use crate::devices::virtio::balloon::{Balloon, BalloonError};
 use crate::devices::virtio::block::BlockError;
@@ -358,13 +356,8 @@ impl<'a> Persist<'a> for MMIODeviceManager {
         {
             for state in &state.legacy_devices {
                 if state.type_ == DeviceType::Serial {
-                    let serial = Arc::new(Mutex::new(SerialDevice::new(
-                        Some(std::io::stdin()),
-                        SerialOut::Stdout(std::io::stdout()),
-                    )?));
-                    constructor_args
-                        .event_manager
-                        .add_subscriber(serial.clone());
+                    let serial =
+                        crate::DeviceManager::setup_serial_device(constructor_args.event_manager)?;
 
                     dev_manager.register_mmio_serial(vm, serial, Some(state.device_info))?;
                 }
