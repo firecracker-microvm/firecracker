@@ -981,6 +981,31 @@ def test_api_entropy(uvm_plain):
         test_microvm.api.entropy.put()
 
 
+def test_api_memory_hotplug(uvm_plain):
+    """
+    Test hotplug related API commands.
+    """
+    test_microvm = uvm_plain
+    test_microvm.spawn()
+    test_microvm.basic_config()
+
+    # Adding hotplug memory region should be OK.
+    test_microvm.api.memory_hotplug.put(
+        total_size_mib=1024, block_size_mib=128, slot_size_mib=1024
+    )
+
+    # Overwriting an existing should be OK.
+    # Omitting optional values should be ok
+    test_microvm.api.memory_hotplug.put(total_size_mib=1024)
+
+    # Start the microvm
+    test_microvm.start()
+
+    # API should be rejected after boot
+    with pytest.raises(RuntimeError):
+        test_microvm.api.memory_hotplug.put(total_size_mib=1024)
+
+
 def test_api_balloon(uvm_nano):
     """
     Test balloon related API commands.
@@ -1302,8 +1327,13 @@ def test_get_full_config(uvm_plain):
     response = test_microvm.api.vsock.put(guest_cid=15, uds_path="vsock.sock")
     expected_cfg["vsock"] = {"guest_cid": 15, "uds_path": "vsock.sock"}
 
-    # TODO Add hot-pluggable memory.
-    expected_cfg["memory-hotplug"] = None
+    # Add hot-pluggable memory.
+    expected_cfg["memory-hotplug"] = {
+        "total_size_mib": 1024,
+        "block_size_mib": 128,
+        "slot_size_mib": 1024,
+    }
+    test_microvm.api.memory_hotplug.put(**expected_cfg["memory-hotplug"])
 
     # Add a net device.
     iface_id = "1"
