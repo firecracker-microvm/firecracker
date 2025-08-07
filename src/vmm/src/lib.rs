@@ -140,6 +140,7 @@ use vstate::vcpu::{self, StartThreadedError, VcpuSendEventError};
 use crate::cpu_config::templates::CpuConfiguration;
 use crate::devices::virtio::balloon::{BALLOON_DEV_ID, Balloon, BalloonConfig, BalloonStats};
 use crate::devices::virtio::block::device::Block;
+use crate::devices::virtio::mem::VirtioMemError;
 use crate::devices::virtio::net::Net;
 use crate::logger::{METRICS, MetricsError, error, info, warn};
 use crate::persist::{MicrovmState, MicrovmStateError, VmInfo};
@@ -250,6 +251,8 @@ pub enum VmmError {
     VMGenID(#[from] VmGenIdError),
     /// Failed perform action on device: {0}
     FindDeviceError(#[from] device_manager::FindDeviceError),
+    /// Failed to create memory hotplug device: {0}
+    VirtioMem(#[from] VirtioMemError),
 }
 
 /// Shorthand type for KVM dirty page bitmap.
