@@ -64,7 +64,6 @@ impl Logger {
         if let Some(log_path) = config.log_path {
             let file = std::fs::OpenOptions::new()
                 .custom_flags(libc::O_NONBLOCK)
-                .read(true)
                 .write(true)
                 .open(log_path)
                 .map_err(LoggerUpdateError)?;
