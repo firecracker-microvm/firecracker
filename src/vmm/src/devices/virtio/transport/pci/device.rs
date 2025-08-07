@@ -783,7 +783,7 @@ impl VirtioInterrupt for VirtioInterruptMsix {
         // device should not inject the interrupt.
         // Instead, the Pending Bit Array table is updated to reflect there
         // is a pending interrupt for this specific vector.
-        if config.masked() || entry.masked() {
+        if config.masked || entry.masked() {
             config.set_pba_bit(vector, false);
             return Ok(());
         }
