@@ -204,8 +204,12 @@ impl MmioTransport {
                     let mut device_status = self.device_status;
                     let reset_result = self.locked_device().reset();
                     match reset_result {
-                        Some((_interrupt_evt, mut _queue_evts)) => {}
-                        None => {
+                        Ok(_) => {
+                            // The device MUST initialize device status to 0 upon reset.
+                            device_status = INIT;
+                        }
+                        Err(e) => {
+                            warn!("failed to reset virtio device: {:?}", e);
                             device_status |= FAILED;
                         }
                     }
@@ -471,7 +475,7 @@ pub(crate) mod tests {
         let m = single_region_mem(0x1000);
         let mut dummy = DummyDevice::new();
         // Validate reset is no-op.
-        assert!(dummy.reset().is_none());
+        assert!(dummy.reset().is_err());
         let mut d = MmioTransport::new(m, Arc::new(Mutex::new(dummy)), false);
 
         // We just make sure here that the implementation of a mmio device behaves as we expect,

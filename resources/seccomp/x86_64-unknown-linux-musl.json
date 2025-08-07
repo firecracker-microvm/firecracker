@@ -800,6 +800,12 @@
                 "comment": "sigaltstack is used by Rust stdlib to remove alternative signal stack during thread teardown."
             },
             {
+                "syscall": "fcntl"
+            },
+            {
+                "syscall": "ftruncate"
+            },
+            {
                 "syscall": "futex",
                 "comment": "Used for synchronization (during thread teardown when joining multiple vcpu threads at once)",
                 "args": [
@@ -887,6 +893,56 @@
                         "op": "eq",
                         "val": 8,
                         "comment": "libc::MADV_FREE"
+                    }
+                ]
+            },
+            {
+                "syscall": "memfd_create"
+            },
+            {
+                "syscall": "mmap",
+                "comment": "Used to recreate TX/RX queues in VirtIO net device",
+                "args": [
+                    {
+                        "index": 3,
+                        "type": "dword",
+                        "op": "eq",
+                        "val": 34,
+                        "comment": "libc::MAP_ANONYMOUS|libc::MAP_PRIVATE"
+                    },
+                    {
+                        "index": 2,
+                        "type": "dword",
+                        "op": "eq",
+                        "val": 0,
+                        "comment": "libc::PROT_NONE"
+                    }
+                ]
+            },
+            {
+                "syscall": "mmap",
+                "comment": "Used to recreate TX/RX queues in VirtIO net device",
+                "args": [
+                    {
+                        "index": 4,
+                        "type": "dword",
+                        "op": "eq",
+                        "val": 5,
+                        "comment": "file descriptor"
+                    },
+                    {
+                        "index": 3,
+                        "type": "dword",
+                        "op": "eq",
+                        "val": 17,
+                        "comment": "libc::MAP_SHARED|libc::MAP_FIXED"
+                    },
+                    {
+                        "index": 2,
+                        "type": "dword",
+                        "op": "eq",
+                        "val": 3,
+                        "comment": "libc::PROT_READ|libc::PROT_WRITE"
                     }
                 ]
             },
