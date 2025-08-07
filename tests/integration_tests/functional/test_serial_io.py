@@ -228,3 +228,10 @@ def test_no_serial_fd_error_when_daemonized(uvm_plain):
     test_microvm.start()
 
     assert REGISTER_FAILED_WARNING not in test_microvm.log_data
+
+
+def test_serial_file_output(uvm_any):
+    """Test that redirecting serial console output to a file works for booted and restored VMs"""
+    uvm_any.ssh.check_output("echo 'hello' > /dev/ttyS0")
+
+    assert b"hello" in uvm_any.serial_out_path.read_bytes()
