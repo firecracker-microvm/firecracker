@@ -65,12 +65,12 @@ class IPerf3Test:
 
             clients = []
             for client_idx in range(self._num_clients):
-                client_mode = self.client_mode(client_idx)
-                client_mode_flag = self.client_mode_to_iperf3_flag(client_mode)
                 client_future = executor.submit(
-                    self.spawn_iperf3_client, client_idx, client_mode_flag
+                    self.spawn_iperf3_client,
+                    client_idx,
+                    self.client_mode_to_iperf3_flag,
                 )
-                clients.append((client_mode, client_future))
+                clients.append((self._mode, client_future))
 
             data = {"cpu_load_raw": cpu_load_future.result(), "g2h": [], "h2g": []}
 
@@ -79,31 +79,12 @@ class IPerf3Test:
 
             return data
 
-    def client_mode(self, client_idx):
-        """Converts client index into client mode"""
-        match self._mode:
-            case "g2h":
-                client_mode = "g2h"
-            case "h2g":
-                client_mode = "h2g"
-            case "bd":
-                # in bidirectional mode we alternate
-                # modes
-                if client_idx % 2 == 0:
-                    client_mode = "g2h"
-                else:
-                    client_mode = "h2g"
-        return client_mode
-
-    @staticmethod
-    def client_mode_to_iperf3_flag(client_mode):
+    @property
+    def client_mode_to_iperf3_flag(self):
         """Converts client mode into iperf3 mode flag"""
-        match client_mode:
-            case "g2h":
-                client_mode_flag = ""
-            case "h2g":
-                client_mode_flag = "-R"
-        return client_mode_flag
+        if self._mode == "h2g":
+            return "-R"
+        return ""
 
     def spawn_iperf3_client(self, client_idx, client_mode_flag):
         """

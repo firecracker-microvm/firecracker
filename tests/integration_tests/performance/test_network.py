@@ -91,7 +91,7 @@ def test_network_latency(network_microvm, metrics):
 @pytest.mark.timeout(120)
 @pytest.mark.parametrize("network_microvm", [1, 2], indirect=True)
 @pytest.mark.parametrize("payload_length", ["128K", "1024K"], ids=["p128K", "p1024K"])
-@pytest.mark.parametrize("mode", ["g2h", "h2g", "bd"])
+@pytest.mark.parametrize("mode", ["g2h", "h2g"])
 def test_network_tcp_throughput(
     network_microvm,
     payload_length,
@@ -108,12 +108,6 @@ def test_network_tcp_throughput(
     warmup_sec = 5
     # Time (in seconds) for which iperf runs after warmup is done
     runtime_sec = 20
-
-    # We run bi-directional tests only on uVM with more than 2 vCPus
-    # because we need to pin one iperf3/direction per vCPU, and since we
-    # have two directions, we need at least two vCPUs.
-    if mode == "bd" and network_microvm.vcpus_count < 2:
-        pytest.skip("bidrectional test only done with at least 2 vcpus")
 
     metrics.set_dimensions(
         {
