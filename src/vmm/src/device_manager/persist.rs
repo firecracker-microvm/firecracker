@@ -723,6 +723,7 @@ mod tests {
         let _restored_dev_manager =
             MMIODeviceManager::restore(restore_args, &device_manager_state.mmio_state).unwrap();
 
+        // TODO(virtio-mem): add memory-hotplug device when snapshot-restore is implemented
         let expected_vm_resources = format!(
             r#"{{
   "balloon": {{
@@ -789,7 +790,8 @@ mod tests {
       "root_device": true,
       "read_only": true
     }}
-  ]
+  ],
+  "memory-hotplug": null
 }}"#,
             _block_files.last().unwrap().as_path().to_str().unwrap(),
             tmp_sock_file.as_path().to_str().unwrap(),

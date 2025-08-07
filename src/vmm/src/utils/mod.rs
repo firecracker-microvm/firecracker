@@ -59,6 +59,11 @@ pub const fn mib_to_bytes(mib: usize) -> usize {
     mib << MIB_TO_BYTES_SHIFT
 }
 
+/// Converts Bytes to MiB, truncating any remainder
+pub const fn bytes_to_mib(bytes: usize) -> usize {
+    bytes >> MIB_TO_BYTES_SHIFT
+}
+
 /// Align address up to the aligment.
 pub const fn align_up(addr: u64, align: u64) -> u64 {
     debug_assert!(align != 0);

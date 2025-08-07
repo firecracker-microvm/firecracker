@@ -32,5 +32,6 @@
   "metrics": null,
   "mmds-config": null,
   "entropy": null,
-  "pmem": []
+  "pmem": [],
+  "memory-hotplug": null
 }
