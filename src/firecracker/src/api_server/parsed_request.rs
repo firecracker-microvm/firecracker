@@ -28,6 +28,7 @@ use super::request::pmem::parse_put_pmem;
 use super::request::snapshot::{parse_patch_vm_state, parse_put_snapshot};
 use super::request::version::parse_get_version;
 use super::request::vsock::parse_put_vsock;
+use crate::api_server::request::hotplug::memory::parse_put_memory_hotplug;
 use crate::api_server::request::serial::parse_put_serial;
 
 #[derive(Debug)]
@@ -103,6 +104,9 @@ impl TryFrom<&Request> for ParsedRequest {
             (Method::Put, "snapshot", Some(body)) => parse_put_snapshot(body, path_tokens.next()),
             (Method::Put, "vsock", Some(body)) => parse_put_vsock(body),
             (Method::Put, "entropy", Some(body)) => parse_put_entropy(body),
+            (Method::Put, "hotplug", Some(body)) if path_tokens.next() == Some("memory") => {
+                parse_put_memory_hotplug(body)
+            }
             (Method::Put, _, None) => method_to_error(Method::Put),
             (Method::Patch, "balloon", Some(body)) => parse_patch_balloon(body, path_tokens.next()),
             (Method::Patch, "drives", Some(body)) => parse_patch_drive(body, path_tokens.next()),
