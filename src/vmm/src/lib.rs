@@ -141,6 +141,7 @@ use crate::devices::virtio::balloon::{
 };
 use crate::devices::virtio::block::BlockError;
 use crate::devices::virtio::block::device::Block;
+use crate::devices::virtio::mem::VirtioMemError;
 use crate::devices::virtio::net::Net;
 use crate::logger::{METRICS, MetricsError, error, info, warn};
 use crate::persist::{MicrovmState, MicrovmStateError, VmInfo};
@@ -255,6 +256,8 @@ pub enum VmmError {
     Block(#[from] BlockError),
     /// Balloon: {0}
     Balloon(#[from] BalloonError),
+    /// Failed to create memory hotplug device: {0}
+    VirtioMem(#[from] VirtioMemError),
 }
 
 /// Shorthand type for KVM dirty page bitmap.
