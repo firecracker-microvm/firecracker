@@ -1173,6 +1173,9 @@ def test_get_full_config_after_restoring_snapshot(microvm_factory, uvm_nano):
     uvm_nano.api.vsock.put(guest_cid=15, uds_path="vsock.sock")
     setup_cfg["vsock"] = {"guest_cid": 15, "uds_path": "vsock.sock"}
 
+    # TODO(virtio-mem): add memory hotplug when snapshot support is added.
+    setup_cfg["memory-hotplug"] = None
+
     setup_cfg["logger"] = None
     setup_cfg["metrics"] = None
     setup_cfg["mmds-config"] = {
@@ -1298,6 +1301,9 @@ def test_get_full_config(uvm_plain):
     # Add a vsock device.
     response = test_microvm.api.vsock.put(guest_cid=15, uds_path="vsock.sock")
     expected_cfg["vsock"] = {"guest_cid": 15, "uds_path": "vsock.sock"}
+
+    # TODO Add hot-pluggable memory.
+    expected_cfg["memory-hotplug"] = None
 
     # Add a net device.
     iface_id = "1"
