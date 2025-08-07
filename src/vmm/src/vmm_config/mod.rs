@@ -20,6 +20,8 @@ pub mod entropy;
 pub mod instance_info;
 /// Wrapper for configuring the memory and CPU of the microVM.
 pub mod machine_config;
+/// Wrapper for configuring memory hotplug.
+pub mod memory_hotplug;
 /// Wrapper for configuring the metrics.
 pub mod metrics;
 /// Wrapper for configuring the MMDS.
