@@ -133,3 +133,4 @@ class Api:
         self.cpu_config = Resource(self, "/cpu-config")
         self.entropy = Resource(self, "/entropy")
         self.serial = Resource(self, "/serial")
+        self.memory_hotplug = Resource(self, "/hotplug/memory")
