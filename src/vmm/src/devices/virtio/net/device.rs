@@ -1036,6 +1036,18 @@ impl VirtioDevice for Net {
         self.rx_frame_buf = [0u8; MAX_BUFFER_SIZE];
         self.acked_features = 0;
         self.metrics.device_resets.inc();
+        let mut queues = Vec::new();
+        for size in NET_QUEUE_SIZES {
+            queues.push(Queue::new(size));
+        }
+        self.tx_buffer = Default::default();
+        self.rx_buffer = match RxBuffers::new() {
+            Ok(rx_buffer) => rx_buffer,
+            Err(err) => {
+                error!("Failed to reset RX buffers: {:?}", err);
+                return Err(ResetError::RxBuffer);
+            }
+        };
         Ok(())
     }
 }
