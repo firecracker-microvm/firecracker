@@ -419,6 +419,10 @@ pub struct PutRequestsMetrics {
     pub serial_count: SharedIncMetric,
     /// Number of failed PUTs to /serial
     pub serial_fails: SharedIncMetric,
+    /// Number of PUTs to /hotplug/memory
+    pub hotplug_memory_count: SharedIncMetric,
+    /// Number of failed PUTs to /hotplug/memory
+    pub hotplug_memory_fails: SharedIncMetric,
 }
 impl PutRequestsMetrics {
     /// Const default construction.
@@ -446,6 +450,8 @@ impl PutRequestsMetrics {
             vsock_fails: SharedIncMetric::new(),
             serial_count: SharedIncMetric::new(),
             serial_fails: SharedIncMetric::new(),
+            hotplug_memory_count: SharedIncMetric::new(),
+            hotplug_memory_fails: SharedIncMetric::new(),
         }
     }
 }

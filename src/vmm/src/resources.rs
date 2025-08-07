@@ -26,6 +26,7 @@ use crate::vmm_config::instance_info::InstanceInfo;
 use crate::vmm_config::machine_config::{
     HugePageConfig, MachineConfig, MachineConfigError, MachineConfigUpdate,
 };
+use crate::vmm_config::memory_hotplug::{MemoryHotplugConfig, MemoryHotplugConfigError};
 use crate::vmm_config::metrics::{MetricsConfig, MetricsConfigError, init_metrics};
 use crate::vmm_config::mmds::{MmdsConfig, MmdsConfigError};
 use crate::vmm_config::net::*;
@@ -63,6 +64,8 @@ pub enum ResourcesError {
     VsockDevice(#[from] VsockConfigError),
     /// Entropy device error: {0}
     EntropyDevice(#[from] EntropyDeviceError),
+    /// Memory hotplug config error: {0}
+    MemoryHotplugConfig(#[from] MemoryHotplugConfigError),
 }
 
 #[derive(Serialize, Deserialize, PartialEq, Eq, Debug)]
@@ -90,6 +93,7 @@ pub struct VmmConfig {
     entropy: Option<EntropyDeviceConfig>,
     #[serde(skip)]
     serial_config: Option<SerialConfig>,
+    memory_hotplug: Option<MemoryHotplugConfig>,
 }
 
 /// A data structure that encapsulates the device configurations
@@ -110,6 +114,8 @@ pub struct VmResources {
     pub net_builder: NetBuilder,
     /// The entropy device builder.
     pub entropy: EntropyDeviceBuilder,
+    /// The memory hotplug configuration.
+    pub memory_hotplug: Option<MemoryHotplugConfig>,
     /// The optional Mmds data store.
     // This is initialised on demand (if ever used), so that we don't allocate it unless it's
     // actually used.
@@ -201,6 +207,10 @@ impl VmResources {
 
         if let Some(serial_cfg) = vmm_config.serial_config {
             resources.serial_out_path = serial_cfg.serial_out_path;
+        }
+
+        if let Some(memory_hotplug_config) = vmm_config.memory_hotplug {
+            resources.set_memory_hotplug_config(memory_hotplug_config)?;
         }
 
         Ok(resources)
@@ -390,6 +400,16 @@ impl VmResources {
         self.entropy.insert(body)
     }
 
+    /// Sets the memory hotplug configuration.
+    pub fn set_memory_hotplug_config(
+        &mut self,
+        config: MemoryHotplugConfig,
+    ) -> Result<(), MemoryHotplugConfigError> {
+        config.validate()?;
+        self.memory_hotplug = Some(config);
+        Ok(())
+    }
+
     /// Setter for mmds config.
     pub fn set_mmds_config(
         &mut self,
@@ -526,6 +546,7 @@ impl From<&VmResources> for VmmConfig {
             entropy: resources.entropy.config(),
             // serial_config is marked serde(skip) so that it doesnt end up in snapshots.
             serial_config: None,
+            memory_hotplug: resources.memory_hotplug.clone(),
         }
     }
 }
@@ -638,6 +659,7 @@ mod tests {
             entropy: Default::default(),
             pci_enabled: false,
             serial_out_path: None,
+            memory_hotplug: Default::default(),
         }
     }
 
