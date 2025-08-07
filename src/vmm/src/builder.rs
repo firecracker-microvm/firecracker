@@ -13,7 +13,7 @@ use event_manager::SubscriberOps;
 use linux_loader::cmdline::Cmdline as LoaderKernelCmdline;
 use userfaultfd::Uffd;
 use utils::time::TimestampUs;
-#[cfg(target_arch = "aarch64")]
+use vm_allocator::AllocPolicy;
 use vm_memory::GuestAddress;
 
 #[cfg(target_arch = "aarch64")]
@@ -31,6 +31,7 @@ use crate::device_manager::{
 };
 use crate::devices::virtio::balloon::Balloon;
 use crate::devices::virtio::block::device::Block;
+use crate::devices::virtio::mem::{VIRTIO_MEM_DEFAULT_SLOT_SIZE, VirtioMem};
 use crate::devices::virtio::net::Net;
 use crate::devices::virtio::pmem::device::Pmem;
 use crate::devices::virtio::rng::Entropy;
@@ -43,8 +44,10 @@ use crate::persist::{MicrovmState, MicrovmStateError};
 use crate::resources::VmResources;
 use crate::seccomp::BpfThreadMap;
 use crate::snapshot::Persist;
+use crate::utils::mib_to_bytes;
 use crate::vmm_config::instance_info::InstanceInfo;
 use crate::vmm_config::machine_config::MachineConfigError;
+use crate::vmm_config::memory_hotplug::MemoryHotplugConfig;
 use crate::vstate::kvm::{Kvm, KvmError};
 use crate::vstate::memory::GuestRegionMmap;
 #[cfg(target_arch = "aarch64")]
@@ -243,6 +246,17 @@ pub fn build_microvm_for_boot(
             &vm,
             &mut boot_cmdline,
             entropy,
+            event_manager,
+        )?;
+    }
+
+    // Attach virtio-mem device if configured
+    if let Some(memory_hotplug) = &vm_resources.memory_hotplug {
+        attach_virtio_mem_device(
+            &mut device_manager,
+            &vm,
+            &mut boot_cmdline,
+            memory_hotplug,
             event_manager,
         )?;
     }
@@ -571,6 +585,39 @@ fn attach_entropy_device(
 
     event_manager.add_subscriber(entropy_device.clone());
     device_manager.attach_virtio_device(vm, id, entropy_device.clone(), cmdline, false)
+}
+
+fn attach_virtio_mem_device(
+    device_manager: &mut DeviceManager,
+    vm: &Arc<Vm>,
+    cmdline: &mut LoaderKernelCmdline,
+    config: &MemoryHotplugConfig,
+    event_manager: &mut EventManager,
+) -> Result<(), StartMicrovmError> {
+    let addr = vm
+        .resource_allocator()
+        .past_mmio64_memory
+        .allocate(
+            mib_to_bytes(config.total_size_mib) as u64,
+            VIRTIO_MEM_DEFAULT_SLOT_SIZE as u64,
+            AllocPolicy::FirstMatch,
+        )?
+        .start();
+    let virtio_mem = Arc::new(Mutex::new(
+        VirtioMem::new(
+            Arc::clone(vm),
+            GuestAddress(addr),
+            config.total_size_mib,
+            config.block_size_mib,
+            config.slot_size_mib,
+        )
+        .map_err(|e| StartMicrovmError::Internal(VmmError::VirtioMem(e)))?,
+    ));
+
+    let id = virtio_mem.lock().expect("Poisoned lock").id().to_string();
+    event_manager.add_subscriber(virtio_mem.clone());
+    device_manager.attach_virtio_device(vm, id, virtio_mem.clone(), cmdline, false)?;
+    Ok(())
 }
 
 fn attach_block_devices<'a, I: Iterator<Item = &'a Arc<Mutex<Block>>> + Debug>(
@@ -1273,6 +1320,44 @@ pub(crate) mod tests {
 
         let mut cmdline = default_kernel_cmdline();
         insert_vsock_device(&mut vmm, &mut cmdline, &mut event_manager, vsock_config);
+        // Check if the vsock device is described in kernel_cmdline.
+        #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+        assert!(cmdline_contains(
+            &cmdline,
+            "virtio_mmio.device=4K@0xc0001000:5"
+        ));
+    }
+
+    pub(crate) fn insert_virtio_mem_device(
+        vmm: &mut Vmm,
+        cmdline: &mut Cmdline,
+        event_manager: &mut EventManager,
+        config: MemoryHotplugConfig,
+    ) {
+        attach_virtio_mem_device(
+            &mut vmm.device_manager,
+            &vmm.vm,
+            cmdline,
+            &config,
+            event_manager,
+        )
+        .unwrap();
+    }
+
+    #[test]
+    fn test_attach_virtio_mem_device() {
+        let mut event_manager = EventManager::new().expect("Unable to create EventManager");
+        let mut vmm = default_vmm();
+
+        let config = MemoryHotplugConfig {
+            total_size_mib: 1024,
+            block_size_mib: 2,
+            slot_size_mib: 128,
+        };
+
+        let mut cmdline = default_kernel_cmdline();
+        insert_virtio_mem_device(&mut vmm, &mut cmdline, &mut event_manager, config);
+
         // Check if the vsock device is described in kernel_cmdline.
         #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
         assert!(cmdline_contains(
