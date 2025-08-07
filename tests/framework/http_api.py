@@ -134,3 +134,4 @@ class Api:
         self.entropy = Resource(self, "/entropy")
         self.pmem = Resource(self, "/pmem", "id")
         self.serial = Resource(self, "/serial")
+        self.memory_hotplug = Resource(self, "/hotplug/memory")
