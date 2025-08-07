@@ -126,6 +126,8 @@ impl DeviceManager {
     fn setup_serial_device(
         event_manager: &mut EventManager,
     ) -> Result<Arc<Mutex<SerialDevice>>, std::io::Error> {
+        Self::set_stdout_nonblocking();
+
         let serial = Arc::new(Mutex::new(SerialDevice::new(
             Some(std::io::stdin()),
             SerialOut::Stdout(std::io::stdout()),
@@ -140,8 +142,6 @@ impl DeviceManager {
         vcpus_exit_evt: &EventFd,
         vm: &Vm,
     ) -> Result<PortIODeviceManager, DeviceManagerCreateError> {
-        Self::set_stdout_nonblocking();
-
         // Create serial device
         let serial = Self::setup_serial_device(event_manager)?;
         let reset_evt = vcpus_exit_evt
@@ -253,8 +253,6 @@ impl DeviceManager {
             .contains("console=");
 
         if cmdline_contains_console {
-            // Make stdout non-blocking.
-            Self::set_stdout_nonblocking();
             let serial = Self::setup_serial_device(event_manager)?;
             self.mmio_devices.register_mmio_serial(vm, serial, None)?;
             self.mmio_devices.add_mmio_serial_to_cmdline(cmdline)?;
