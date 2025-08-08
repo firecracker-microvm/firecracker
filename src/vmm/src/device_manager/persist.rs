@@ -28,6 +28,10 @@ use crate::devices::virtio::block::device::Block;
 use crate::devices::virtio::block::persist::{BlockConstructorArgs, BlockState};
 use crate::devices::virtio::device::VirtioDevice;
 use crate::devices::virtio::generated::virtio_ids;
+use crate::devices::virtio::mem::VirtioMem;
+use crate::devices::virtio::mem::persist::{
+    VirtioMemConstructorArgs, VirtioMemPersistError, VirtioMemState,
+};
 use crate::devices::virtio::net::Net;
 use crate::devices::virtio::net::persist::{
     NetConstructorArgs, NetPersistError as NetError, NetState,
@@ -49,6 +53,7 @@ use crate::devices::virtio::vsock::{Vsock, VsockError, VsockUnixBackend, VsockUn
 use crate::mmds::data_store::MmdsVersion;
 use crate::resources::VmResources;
 use crate::snapshot::Persist;
+use crate::vmm_config::memory_hotplug::MemoryHotplugConfig;
 use crate::vmm_config::mmds::MmdsConfigError;
 use crate::vstate::bus::BusError;
 use crate::vstate::memory::GuestMemoryMmap;
@@ -82,6 +87,8 @@ pub enum DevicePersistError {
     Entropy(#[from] EntropyError),
     /// Pmem: {0}
     Pmem(#[from] PmemError),
+    /// virtio-mem: {0}
+    VirtioMem(#[from] VirtioMemPersistError),
     /// Could not activate device: {0}
     DeviceActivation(#[from] ActivateError),
 }
@@ -135,6 +142,8 @@ pub struct DeviceStates {
     pub entropy_device: Option<VirtioDeviceState<EntropyState>>,
     /// Pmem device states.
     pub pmem_devices: Vec<VirtioDeviceState<PmemState>>,
+    /// Memory device state.
+    pub memory_device: Option<VirtioDeviceState<VirtioMemState>>,
 }
 
 pub struct MMIODevManagerConstructorArgs<'a> {
@@ -327,6 +336,20 @@ impl<'a> Persist<'a> for MMIODeviceManager {
                         transport_state,
                         device_info,
                     })
+                }
+                virtio_ids::VIRTIO_ID_MEM => {
+                    let mem = locked_device
+                        .as_mut_any()
+                        .downcast_mut::<VirtioMem>()
+                        .unwrap();
+                    let device_state = mem.save();
+
+                    states.memory_device = Some(VirtioDeviceState {
+                        device_id,
+                        device_state,
+                        transport_state,
+                        device_info,
+                    });
                 }
                 _ => unreachable!(),
             };
@@ -570,6 +593,30 @@ impl<'a> Persist<'a> for MMIODeviceManager {
             )?;
         }
 
+        if let Some(memory_state) = &state.memory_device {
+            let ctor_args = VirtioMemConstructorArgs::new(Arc::clone(vm));
+            let device = VirtioMem::restore(ctor_args, &memory_state.device_state).unwrap();
+
+            constructor_args.vm_resources.memory_hotplug = Some(MemoryHotplugConfig {
+                total_size_mib: device.total_size_mib(),
+                block_size_mib: device.block_size_mib(),
+                slot_size_mib: device.slot_size_mib(),
+            });
+
+            let arcd_device = Arc::new(Mutex::new(device));
+
+            restore_helper(
+                arcd_device.clone(),
+                memory_state.device_state.virtio_state.activated,
+                false,
+                arcd_device,
+                &memory_state.device_id,
+                &memory_state.transport_state,
+                &memory_state.device_info,
+                constructor_args.event_manager,
+            )?;
+        }
+
         Ok(dev_manager)
     }
 }
@@ -586,6 +633,7 @@ mod tests {
     use crate::snapshot::Snapshot;
     use crate::vmm_config::balloon::BalloonDeviceConfig;
     use crate::vmm_config::entropy::EntropyDeviceConfig;
+    use crate::vmm_config::memory_hotplug::MemoryHotplugConfig;
     use crate::vmm_config::net::NetworkInterfaceConfig;
     use crate::vmm_config::pmem::PmemConfig;
     use crate::vmm_config::vsock::VsockDeviceConfig;
@@ -604,6 +652,7 @@ mod tests {
                 && self.net_devices == other.net_devices
                 && self.vsock_device == other.vsock_device
                 && self.entropy_device == other.entropy_device
+                && self.memory_device == other.memory_device
         }
     }
 
@@ -699,6 +748,18 @@ mod tests {
             _pmem_files =
                 insert_pmem_devices(&mut vmm, &mut cmdline, &mut event_manager, pmem_configs);
 
+            let memory_hotplug_config = MemoryHotplugConfig {
+                total_size_mib: 1024,
+                block_size_mib: 2,
+                slot_size_mib: 128,
+            };
+            insert_virtio_mem_device(
+                &mut vmm,
+                &mut cmdline,
+                &mut event_manager,
+                memory_hotplug_config,
+            );
+
             Snapshot::new(vmm.device_manager.save())
                 .save(&mut buf.as_mut_slice())
                 .unwrap();
@@ -723,7 +784,6 @@ mod tests {
         let _restored_dev_manager =
             MMIODeviceManager::restore(restore_args, &device_manager_state.mmio_state).unwrap();
 
-        // TODO(virtio-mem): add memory-hotplug device when snapshot-restore is implemented
         let expected_vm_resources = format!(
             r#"{{
   "balloon": {{
@@ -791,7 +851,11 @@ mod tests {
       "read_only": true
     }}
   ],
-  "memory-hotplug": null
+  "memory-hotplug": {{
+    "total_size_mib": 1024,
+    "block_size_mib": 2,
+    "slot_size_mib": 128
+  }}
 }}"#,
             _block_files.last().unwrap().as_path().to_str().unwrap(),
             tmp_sock_file.as_path().to_str().unwrap(),
