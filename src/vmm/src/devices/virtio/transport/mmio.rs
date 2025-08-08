@@ -179,12 +179,12 @@ impl MmioTransport {
             }
             DRIVER_OK if self.device_status == (ACKNOWLEDGE | DRIVER | FEATURES_OK) => {
                 self.device_status = status;
-                let device_activated = self.locked_device().is_activated();
+                let mut locked_device = self.device.lock().expect("Poisoned lock");
+                let device_activated = locked_device.is_activated();
                 if !device_activated {
                     // temporary variable needed for borrow checker
-                    let activate_result = self
-                        .locked_device()
-                        .activate(self.mem.clone(), self.interrupt.clone());
+                    let activate_result =
+                        locked_device.activate(self.mem.clone(), self.interrupt.clone());
                     if let Err(err) = activate_result {
                         self.device_status |= DEVICE_NEEDS_RESET;
 
@@ -201,16 +201,19 @@ impl MmioTransport {
                 self.device_status |= FAILED;
             }
             _ if status == 0 => {
-                if self.locked_device().is_activated() {
-                    let mut device_status = self.device_status;
-                    let reset_result = self.locked_device().reset();
-                    match reset_result {
-                        Some((_interrupt_evt, mut _queue_evts)) => {}
-                        None => {
-                            device_status |= FAILED;
+                {
+                    let mut locked_device = self.device.lock().expect("Poisoned lock");
+                    if locked_device.is_activated() {
+                        let mut device_status = self.device_status;
+                        let reset_result = locked_device.reset();
+                        match reset_result {
+                            Some((_interrupt_evt, mut _queue_evts)) => {}
+                            None => {
+                                device_status |= FAILED;
+                            }
                         }
+                        self.device_status = device_status;
                     }
-                    self.device_status = device_status;
                 }
 
                 // If the backend device driver doesn't support reset,
