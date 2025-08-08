@@ -272,7 +272,6 @@ pub fn build_microvm_for_boot(
     )?;
 
     let vmm = Vmm {
-        events_observer: Some(std::io::stdin()),
         instance_info: instance_info.clone(),
         shutdown_exit_code: None,
         kvm,
@@ -473,7 +472,6 @@ pub fn build_microvm_from_snapshot(
         DeviceManager::restore(device_ctor_args, &microvm_state.device_states)?;
 
     let mut vmm = Vmm {
-        events_observer: Some(std::io::stdin()),
         instance_info: instance_info.clone(),
         shutdown_exit_code: None,
         kvm,
@@ -722,7 +720,6 @@ pub(crate) mod tests {
         let (_, vcpus_exit_evt) = vm.create_vcpus(1).unwrap();
 
         Vmm {
-            events_observer: Some(std::io::stdin()),
             instance_info: InstanceInfo::default(),
             shutdown_exit_code: None,
             kvm,

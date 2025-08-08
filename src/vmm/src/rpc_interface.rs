@@ -1185,6 +1185,7 @@ mod tests {
         )));
         check_unsupported(runtime_request(VmmAction::ConfigureLogger(LoggerConfig {
             log_path: Some(PathBuf::new()),
+            serial_out_path: None,
             level: Some(crate::logger::LevelFilter::Debug),
             show_level: Some(false),
             show_log_origin: Some(false),

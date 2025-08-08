@@ -211,6 +211,7 @@ def microvm_factory_a(record_property):
     bin_dir = git_clone(Path("../build") / revision_a, revision_a).resolve()
     record_property("firecracker_bin", str(bin_dir / "firecracker"))
     uvm_factory = MicroVMFactory(bin_dir)
+    uvm_factory.hack_no_serial = True
     yield uvm_factory
     uvm_factory.kill()
 
