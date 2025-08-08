@@ -7,7 +7,7 @@ use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
 
-use crate::devices::virtio::TYPE_RNG;
+use crate::devices::virtio::generated::virtio_ids::VIRTIO_ID_RNG;
 use crate::devices::virtio::persist::{PersistError as VirtioStateError, VirtioDeviceState};
 use crate::devices::virtio::queue::FIRECRACKER_MAX_QUEUE_SIZE;
 use crate::devices::virtio::rng::{Entropy, EntropyError, RNG_NUM_QUEUES};
@@ -56,7 +56,7 @@ impl Persist<'_> for Entropy {
     ) -> Result<Self, Self::Error> {
         let queues = state.virtio_state.build_queues_checked(
             &constructor_args.mem,
-            TYPE_RNG,
+            VIRTIO_ID_RNG,
             RNG_NUM_QUEUES,
             FIRECRACKER_MAX_QUEUE_SIZE,
         )?;
@@ -96,7 +96,7 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(restored.device_type(), TYPE_RNG);
+        assert_eq!(restored.device_type(), VIRTIO_ID_RNG);
         assert_eq!(restored.id(), ENTROPY_DEV_ID);
         assert!(!restored.is_activated());
         assert!(!entropy.is_activated());
