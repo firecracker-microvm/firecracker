@@ -1130,8 +1130,12 @@ def test_get_full_config_after_restoring_snapshot(microvm_factory, uvm_nano):
     uvm_nano.api.vsock.put(guest_cid=15, uds_path="vsock.sock")
     setup_cfg["vsock"] = {"guest_cid": 15, "uds_path": "vsock.sock"}
 
-    # TODO(virtio-mem): add memory hotplug when snapshot support is added.
-    setup_cfg["memory-hotplug"] = None
+    setup_cfg["memory-hotplug"] = {
+        "total_size_mib": 1024,
+        "block_size_mib": 128,
+        "slot_size_mib": 1024,
+    }
+    uvm_nano.api.memory_hotplug.put(**setup_cfg["memory-hotplug"])
 
     setup_cfg["logger"] = None
     setup_cfg["metrics"] = None
