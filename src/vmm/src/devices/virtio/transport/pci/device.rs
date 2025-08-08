@@ -1029,15 +1029,22 @@ impl PciDevice for VirtioPciDevice {
         // Try and activate the device if the driver status has changed
         if self.needs_activation() {
             debug!("Activating device");
-            self.virtio_device()
+            let interrupt = Arc::clone(self.virtio_interrupt.as_ref().unwrap());
+            match self
+                .virtio_device()
                 .lock()
                 .unwrap()
-                .activate(
-                    self.memory.clone(),
-                    Arc::clone(self.virtio_interrupt.as_ref().unwrap()),
-                )
-                .unwrap_or_else(|err| error!("Error activating device: {err:?}"));
-            self.device_activated.store(true, Ordering::SeqCst);
+                .activate(self.memory.clone(), interrupt.clone())
+            {
+                Ok(()) => self.device_activated.store(true, Ordering::SeqCst),
+                Err(err) => {
+                    error!("Error activating device: {err:?}");
+
+                    // Section 2.1.2 of the specification states that we need to send a device
+                    // configuration change interrupt
+                    let _ = interrupt.trigger(VirtioInterruptType::Config);
+                }
+            }
         } else {
             debug!("Device doesn't need activation");
         }
