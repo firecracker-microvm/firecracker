@@ -15,6 +15,7 @@ use std::sync::{Arc, Mutex};
 use crate::devices::virtio::net::Net;
 #[cfg(test)]
 use crate::devices::virtio::net::device::vnet_hdr_len;
+use crate::devices::virtio::net::generated::net_device_flags;
 use crate::devices::virtio::net::tap::{IfReqBuilder, Tap};
 use crate::devices::virtio::queue::Queue;
 use crate::devices::virtio::test_utils::VirtQueue;
@@ -236,9 +237,9 @@ pub fn enable(tap: &Tap) {
     IfReqBuilder::new()
         .if_name(&tap.if_name)
         .flags(
-            (crate::devices::virtio::net::generated::net_device_flags_IFF_UP
-                | crate::devices::virtio::net::generated::net_device_flags_IFF_RUNNING
-                | crate::devices::virtio::net::generated::net_device_flags_IFF_NOARP)
+            (net_device_flags::IFF_UP
+                | net_device_flags::IFF_RUNNING
+                | net_device_flags::IFF_NOARP)
                 .try_into()
                 .unwrap(),
         )

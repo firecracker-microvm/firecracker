@@ -12,7 +12,8 @@
     clippy::undocumented_unsafe_blocks,
     missing_debug_implementations,
     clippy::tests_outside_test_module,
-    unsafe_op_in_unsafe_fn
+    unsafe_op_in_unsafe_fn,
+    clippy::redundant_static_lifetimes
 )]
 
 pub const HV_X64_MSR_GUEST_OS_ID: u32 = 0x40000000;
@@ -49,6 +50,12 @@ pub const HV_X64_MSR_SINT12: u32 = 0x4000009c;
 pub const HV_X64_MSR_SINT13: u32 = 0x4000009d;
 pub const HV_X64_MSR_SINT14: u32 = 0x4000009e;
 pub const HV_X64_MSR_SINT15: u32 = 0x4000009f;
+pub const HV_X64_MSR_NESTED_SCONTROL: u32 = 0x40001080;
+pub const HV_X64_MSR_NESTED_SVERSION: u32 = 0x40001081;
+pub const HV_X64_MSR_NESTED_SIEFP: u32 = 0x40001082;
+pub const HV_X64_MSR_NESTED_SIMP: u32 = 0x40001083;
+pub const HV_X64_MSR_NESTED_EOM: u32 = 0x40001084;
+pub const HV_X64_MSR_NESTED_SINT0: u32 = 0x40001090;
 pub const HV_X64_MSR_STIMER0_CONFIG: u32 = 0x400000b0;
 pub const HV_X64_MSR_STIMER0_COUNT: u32 = 0x400000b1;
 pub const HV_X64_MSR_STIMER1_CONFIG: u32 = 0x400000b2;

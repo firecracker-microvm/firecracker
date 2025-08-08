@@ -12,7 +12,9 @@
 
 use std::convert::From;
 
-use crate::io_uring::generated;
+use crate::io_uring::generated::{
+    io_uring_register_restriction_op, io_uring_restriction, io_uring_sqe_flags_bit,
+};
 use crate::io_uring::operation::OpCode;
 
 /// Adds support for restricting the operations allowed by io_uring.
@@ -24,7 +26,7 @@ pub enum Restriction {
     RequireFixedFds,
 }
 
-impl From<&Restriction> for generated::io_uring_restriction {
+impl From<&Restriction> for io_uring_restriction {
     fn from(restriction: &Restriction) -> Self {
         use Restriction::*;
 
@@ -33,13 +35,18 @@ impl From<&Restriction> for generated::io_uring_restriction {
 
         match restriction {
             AllowOpCode(opcode) => {
-                instance.opcode = u16::try_from(generated::IORING_RESTRICTION_SQE_OP).unwrap();
+                instance.opcode =
+                    u16::try_from(io_uring_register_restriction_op::IORING_RESTRICTION_SQE_OP)
+                        .unwrap();
                 instance.__bindgen_anon_1.sqe_op = *opcode as u8;
             }
             RequireFixedFds => {
-                instance.opcode =
-                    u16::try_from(generated::IORING_RESTRICTION_SQE_FLAGS_REQUIRED).unwrap();
-                instance.__bindgen_anon_1.sqe_flags = 1 << generated::IOSQE_FIXED_FILE_BIT;
+                instance.opcode = u16::try_from(
+                    io_uring_register_restriction_op::IORING_RESTRICTION_SQE_FLAGS_REQUIRED,
+                )
+                .unwrap();
+                instance.__bindgen_anon_1.sqe_flags =
+                    1 << io_uring_sqe_flags_bit::IOSQE_FIXED_FILE_BIT;
             }
         };
 

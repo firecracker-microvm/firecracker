@@ -23,6 +23,8 @@ use queue::submission::SubmissionQueue;
 use restriction::Restriction;
 use vmm_sys_util::syscall::SyscallReturnCode;
 
+use crate::io_uring::generated::io_uring_register_op;
+
 // IO_uring operations that we require to be supported by the host kernel.
 const REQUIRED_OPS: [OpCode; 2] = [OpCode::Read, OpCode::Write];
 // Taken from linux/fs/io_uring.c
@@ -247,7 +249,7 @@ impl<T: Debug> IoUring<T> {
             libc::syscall(
                 libc::SYS_io_uring_register,
                 self.fd.as_raw_fd(),
-                generated::IORING_REGISTER_ENABLE_RINGS,
+                io_uring_register_op::IORING_REGISTER_ENABLE_RINGS,
                 std::ptr::null::<libc::c_void>(),
                 0,
             )
@@ -272,7 +274,7 @@ impl<T: Debug> IoUring<T> {
             libc::syscall(
                 libc::SYS_io_uring_register,
                 self.fd.as_raw_fd(),
-                generated::IORING_REGISTER_FILES,
+                io_uring_register_op::IORING_REGISTER_FILES,
                 files
                     .iter()
                     .map(|f| f.as_raw_fd())
@@ -296,7 +298,7 @@ impl<T: Debug> IoUring<T> {
             libc::syscall(
                 libc::SYS_io_uring_register,
                 self.fd.as_raw_fd(),
-                generated::IORING_REGISTER_EVENTFD,
+                io_uring_register_op::IORING_REGISTER_EVENTFD,
                 (&fd) as *const _,
                 1,
             )
@@ -315,7 +317,7 @@ impl<T: Debug> IoUring<T> {
             libc::syscall(
                 libc::SYS_io_uring_register,
                 self.fd.as_raw_fd(),
-                generated::IORING_REGISTER_RESTRICTIONS,
+                io_uring_register_op::IORING_REGISTER_RESTRICTIONS,
                 restrictions
                     .iter()
                     .map(generated::io_uring_restriction::from)
@@ -351,7 +353,7 @@ impl<T: Debug> IoUring<T> {
             libc::syscall(
                 libc::SYS_io_uring_register,
                 self.fd.as_raw_fd(),
-                generated::IORING_REGISTER_PROBE,
+                io_uring_register_op::IORING_REGISTER_PROBE,
                 probes.as_mut_fam_struct_ptr(),
                 PROBE_LEN,
             )

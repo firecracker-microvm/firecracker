@@ -1,0 +1,42 @@
+diff --git a/src/vmm/src/io_uring/generated.rs b/src/vmm/src/io_uring/generated.rs
+--- a/src/vmm/src/io_uring/generated.rs
++++ b/src/vmm/src/io_uring/generated.rs
+@@ -206,6 +206,7 @@
+         [::std::mem::offset_of!(__kernel_timespec, tv_nsec) - 8usize];
+ };
+ #[repr(C)]
++#[derive(Copy, Clone)]
+ pub struct io_uring_sqe {
+     pub opcode: __u8,
+     pub flags: __u8,
+@@ -472,6 +473,7 @@
+     }
+ }
+ #[repr(C)]
++#[derive(Copy, Clone)]
+ pub struct io_uring_sqe__bindgen_ty_6 {
+     pub __bindgen_anon_1: __BindgenUnionField<io_uring_sqe__bindgen_ty_6__bindgen_ty_1>,
+     pub optval: __BindgenUnionField<__u64>,
+@@ -618,12 +620,11 @@
+     pub const IORING_MSG_SEND_FD: Type = 1;
+ }
+ #[repr(C)]
+-#[derive(Debug, Default)]
++#[derive(Clone, Copy, Debug, Default)]
+ pub struct io_uring_cqe {
+     pub user_data: __u64,
+     pub res: __s32,
+     pub flags: __u32,
+-    pub big_cqe: __IncompleteArrayField<__u64>,
+ }
+ #[allow(clippy::unnecessary_operation, clippy::identity_op)]
+ const _: () = {
+@@ -633,8 +634,6 @@
+         [::std::mem::offset_of!(io_uring_cqe, user_data) - 0usize];
+     ["Offset of field: io_uring_cqe::res"][::std::mem::offset_of!(io_uring_cqe, res) - 8usize];
+     ["Offset of field: io_uring_cqe::flags"][::std::mem::offset_of!(io_uring_cqe, flags) - 12usize];
+-    ["Offset of field: io_uring_cqe::big_cqe"]
+-        [::std::mem::offset_of!(io_uring_cqe, big_cqe) - 16usize];
+ };
+ #[repr(C)]
+ #[derive(Debug, Default, Copy, Clone, PartialEq)]
