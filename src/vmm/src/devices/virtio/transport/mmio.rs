@@ -190,10 +190,7 @@ impl MmioTransport {
 
                         // Section 2.1.2 of the specification states that we need to send a device
                         // configuration change interrupt
-                        let _ = self
-                            .locked_device()
-                            .interrupt_trigger()
-                            .trigger(VirtioInterruptType::Config);
+                        let _ = self.interrupt.trigger(VirtioInterruptType::Config);
 
                         error!("Failed to activate virtio device: {}", err)
                     }
