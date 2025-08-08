@@ -105,6 +105,12 @@ fc-bindgen \
     --allowlist-var "VIRTIO_ID.*" \
     "$INCLUDE/linux/virtio_ids.h" >src/vmm/src/devices/virtio/generated/virtio_ids.rs
 
+info "BINDGEN virtio_mem.h"
+fc-bindgen \
+    --allowlist-var "VIRTIO_MEM.*" \
+    --allowlist-type "virtio_mem.*" \
+    "$INCLUDE/linux/virtio_mem.h" >src/vmm/src/devices/virtio/generated/virtio_mem.rs
+
 info "BINDGEN prctl.h"
 fc-bindgen \
     --allowlist-var "PR_.*" \
