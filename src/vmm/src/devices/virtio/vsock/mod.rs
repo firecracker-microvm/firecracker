@@ -26,7 +26,6 @@ use vm_memory::GuestMemoryError;
 use vmm_sys_util::epoll::EventSet;
 
 pub use self::defs::VSOCK_DEV_ID;
-pub use self::defs::uapi::VIRTIO_ID_VSOCK as TYPE_VSOCK;
 pub use self::device::Vsock;
 use self::packet::{VsockPacketRx, VsockPacketTx};
 pub use self::unix::{VsockUnixBackend, VsockUnixBackendError};
@@ -56,11 +55,6 @@ mod defs {
     pub const MAX_PKT_BUF_SIZE: u32 = 64 * 1024;
 
     pub mod uapi {
-
-        /// Virtio vsock device ID.
-        /// Defined in `include/uapi/linux/virtio_ids.h`.
-        pub const VIRTIO_ID_VSOCK: u32 = 19;
-
         /// Vsock packet operation IDs.
         /// Defined in `/include/uapi/linux/virtio_vsock.h`.
         ///

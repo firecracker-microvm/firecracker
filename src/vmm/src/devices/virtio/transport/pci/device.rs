@@ -33,12 +33,12 @@ use vmm_sys_util::eventfd::EventFd;
 
 use crate::Vm;
 use crate::devices::virtio::device::VirtioDevice;
+use crate::devices::virtio::generated::virtio_ids;
 use crate::devices::virtio::queue::Queue;
 use crate::devices::virtio::transport::pci::common_config::{
     VirtioPciCommonConfig, VirtioPciCommonConfigState,
 };
 use crate::devices::virtio::transport::{VirtioInterrupt, VirtioInterruptType};
-use crate::devices::virtio::{TYPE_BLOCK, TYPE_NET};
 use crate::logger::{debug, error};
 use crate::snapshot::Persist;
 use crate::utils::u64_to_usize;
@@ -372,11 +372,11 @@ impl VirtioPciDevice {
     ) -> PciConfiguration {
         let pci_device_id = VIRTIO_PCI_DEVICE_ID_BASE + u16::try_from(virtio_device_type).unwrap();
         let (class, subclass) = match virtio_device_type {
-            TYPE_NET => (
+            virtio_ids::VIRTIO_ID_NET => (
                 PciClassCode::NetworkController,
                 &PciNetworkControllerSubclass::EthernetController as &dyn PciSubclass,
             ),
-            TYPE_BLOCK => (
+            virtio_ids::VIRTIO_ID_BLOCK => (
                 PciClassCode::MassStorage,
                 &PciMassStorageSubclass::MassStorage as &dyn PciSubclass,
             ),

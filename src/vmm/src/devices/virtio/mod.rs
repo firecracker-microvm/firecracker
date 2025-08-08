@@ -46,17 +46,6 @@ mod device_status {
     pub const DEVICE_NEEDS_RESET: u32 = 64;
 }
 
-/// Types taken from linux/virtio_ids.h.
-/// Type 0 is not used by virtio. Use it as wildcard for non-virtio devices
-/// Virtio net device ID.
-pub const TYPE_NET: u32 = 1;
-/// Virtio block device ID.
-pub const TYPE_BLOCK: u32 = 2;
-/// Virtio rng device ID.
-pub const TYPE_RNG: u32 = 4;
-/// Virtio balloon device ID.
-pub const TYPE_BALLOON: u32 = 5;
-
 /// Offset from the base MMIO address of a virtio device used by the guest to notify the device of
 /// queue events.
 pub const NOTIFY_REG_OFFSET: u32 = 0x50;
