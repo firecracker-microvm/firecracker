@@ -10,9 +10,9 @@ use serde::Serialize;
 use timerfd::{ClockId, SetTimeFlags, TimerFd, TimerState};
 use vmm_sys_util::eventfd::EventFd;
 
+use super::super::ActivateError;
 use super::super::device::{DeviceState, VirtioDevice};
 use super::super::queue::Queue;
-use super::super::{ActivateError, TYPE_BALLOON};
 use super::metrics::METRICS;
 use super::util::{compact_page_frame_numbers, remove_range};
 use super::{
@@ -27,6 +27,7 @@ use super::{
 use crate::devices::virtio::balloon::BalloonError;
 use crate::devices::virtio::device::ActiveState;
 use crate::devices::virtio::generated::virtio_config::VIRTIO_F_VERSION_1;
+use crate::devices::virtio::generated::virtio_ids::VIRTIO_ID_BALLOON;
 use crate::devices::virtio::queue::InvalidAvailIdx;
 use crate::devices::virtio::transport::{VirtioInterrupt, VirtioInterruptType};
 use crate::logger::IncMetric;
@@ -547,7 +548,7 @@ impl VirtioDevice for Balloon {
     }
 
     fn device_type(&self) -> u32 {
-        TYPE_BALLOON
+        VIRTIO_ID_BALLOON
     }
 
     fn queues(&self) -> &[Queue] {
@@ -732,7 +733,7 @@ pub(crate) mod tests {
         for deflate_on_oom in [true, false].iter() {
             for stats_interval in [0, 1].iter() {
                 let mut balloon = Balloon::new(0, *deflate_on_oom, *stats_interval, false).unwrap();
-                assert_eq!(balloon.device_type(), TYPE_BALLOON);
+                assert_eq!(balloon.device_type(), VIRTIO_ID_BALLOON);
 
                 let features: u64 = (1u64 << VIRTIO_F_VERSION_1)
                     | (u64::from(*deflate_on_oom) << VIRTIO_BALLOON_F_DEFLATE_ON_OOM)

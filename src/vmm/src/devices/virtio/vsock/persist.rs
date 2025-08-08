@@ -10,10 +10,10 @@ use serde::{Deserialize, Serialize};
 
 use super::*;
 use crate::devices::virtio::device::{ActiveState, DeviceState};
+use crate::devices::virtio::generated::virtio_ids::{self, VIRTIO_ID_VSOCK};
 use crate::devices::virtio::persist::VirtioDeviceState;
 use crate::devices::virtio::queue::FIRECRACKER_MAX_QUEUE_SIZE;
 use crate::devices::virtio::transport::VirtioInterrupt;
-use crate::devices::virtio::vsock::TYPE_VSOCK;
 use crate::snapshot::Persist;
 use crate::vstate::memory::GuestMemoryMmap;
 
@@ -112,7 +112,7 @@ where
             .virtio_state
             .build_queues_checked(
                 &constructor_args.mem,
-                TYPE_VSOCK,
+                VIRTIO_ID_VSOCK,
                 defs::VSOCK_NUM_QUEUES,
                 FIRECRACKER_MAX_QUEUE_SIZE,
             )
@@ -195,7 +195,7 @@ pub(crate) mod tests {
         )
         .unwrap();
 
-        assert_eq!(restored_device.device_type(), uapi::VIRTIO_ID_VSOCK);
+        assert_eq!(restored_device.device_type(), VIRTIO_ID_VSOCK);
         assert_eq!(restored_device.avail_features_by_page(0), device_pages[0]);
         assert_eq!(restored_device.avail_features_by_page(1), device_pages[1]);
         assert_eq!(restored_device.avail_features_by_page(2), 0);
