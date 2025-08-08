@@ -19,12 +19,14 @@ use crate::devices::acpi::vmgenid::{VMGenIDState, VMGenIdConstructorArgs, VmGenI
 use crate::devices::legacy::serial::SerialOut;
 #[cfg(target_arch = "aarch64")]
 use crate::devices::legacy::{RTCDevice, SerialDevice};
+use crate::devices::virtio::ActivateError;
 use crate::devices::virtio::balloon::persist::{BalloonConstructorArgs, BalloonState};
 use crate::devices::virtio::balloon::{Balloon, BalloonError};
 use crate::devices::virtio::block::BlockError;
 use crate::devices::virtio::block::device::Block;
 use crate::devices::virtio::block::persist::{BlockConstructorArgs, BlockState};
 use crate::devices::virtio::device::VirtioDevice;
+use crate::devices::virtio::generated::virtio_ids;
 use crate::devices::virtio::net::Net;
 use crate::devices::virtio::net::persist::{
     NetConstructorArgs, NetPersistError as NetError, NetState,
@@ -38,10 +40,7 @@ use crate::devices::virtio::transport::mmio::{IrqTrigger, MmioTransport};
 use crate::devices::virtio::vsock::persist::{
     VsockConstructorArgs, VsockState, VsockUdsConstructorArgs,
 };
-use crate::devices::virtio::vsock::{
-    TYPE_VSOCK, Vsock, VsockError, VsockUnixBackend, VsockUnixBackendError,
-};
-use crate::devices::virtio::{ActivateError, TYPE_BALLOON, TYPE_BLOCK, TYPE_NET, TYPE_RNG};
+use crate::devices::virtio::vsock::{Vsock, VsockError, VsockUnixBackend, VsockUnixBackendError};
 use crate::mmds::data_store::MmdsVersion;
 use crate::resources::{ResourcesError, VmResources};
 use crate::snapshot::Persist;
@@ -244,7 +243,7 @@ impl<'a> Persist<'a> for MMIODeviceManager {
 
             let mut locked_device = mmio_transport_locked.locked_device();
             match locked_device.device_type() {
-                TYPE_BALLOON => {
+                virtio_ids::VIRTIO_ID_BALLOON => {
                     let device_state = locked_device
                         .as_any()
                         .downcast_ref::<Balloon>()
@@ -258,7 +257,7 @@ impl<'a> Persist<'a> for MMIODeviceManager {
                     });
                 }
                 // Both virtio-block and vhost-user-block share same device type.
-                TYPE_BLOCK => {
+                virtio_ids::VIRTIO_ID_BLOCK => {
                     let block = locked_device.as_mut_any().downcast_mut::<Block>().unwrap();
                     if block.is_vhost_user() {
                         warn!(
@@ -276,7 +275,7 @@ impl<'a> Persist<'a> for MMIODeviceManager {
                         });
                     }
                 }
-                TYPE_NET => {
+                virtio_ids::VIRTIO_ID_NET => {
                     let net = locked_device.as_mut_any().downcast_mut::<Net>().unwrap();
                     if let (Some(mmds_ns), None) = (net.mmds_ns.as_ref(), states.mmds.as_ref()) {
                         let mmds_guard = mmds_ns.mmds.lock().expect("Poisoned lock");
@@ -295,7 +294,7 @@ impl<'a> Persist<'a> for MMIODeviceManager {
                         device_info,
                     });
                 }
-                TYPE_VSOCK => {
+                virtio_ids::VIRTIO_ID_VSOCK => {
                     let vsock = locked_device
                         .as_mut_any()
                         // Currently, VsockUnixBackend is the only implementation of VsockBackend.
@@ -324,7 +323,7 @@ impl<'a> Persist<'a> for MMIODeviceManager {
                         device_info,
                     });
                 }
-                TYPE_RNG => {
+                virtio_ids::VIRTIO_ID_RNG => {
                     let entropy = locked_device
                         .as_mut_any()
                         .downcast_mut::<Entropy>()

@@ -17,8 +17,10 @@ use log::{error, info};
 use vmm_sys_util::eventfd::EventFd;
 
 use super::NET_QUEUE_MAX_SIZE;
+use crate::devices::virtio::ActivateError;
 use crate::devices::virtio::device::{ActiveState, DeviceState, VirtioDevice};
 use crate::devices::virtio::generated::virtio_config::VIRTIO_F_VERSION_1;
+use crate::devices::virtio::generated::virtio_ids::VIRTIO_ID_NET;
 use crate::devices::virtio::generated::virtio_net::{
     VIRTIO_NET_F_CSUM, VIRTIO_NET_F_GUEST_CSUM, VIRTIO_NET_F_GUEST_TSO4, VIRTIO_NET_F_GUEST_TSO6,
     VIRTIO_NET_F_GUEST_UFO, VIRTIO_NET_F_HOST_TSO4, VIRTIO_NET_F_HOST_TSO6, VIRTIO_NET_F_HOST_UFO,
@@ -35,7 +37,6 @@ use crate::devices::virtio::net::{
 };
 use crate::devices::virtio::queue::{DescriptorChain, InvalidAvailIdx, Queue};
 use crate::devices::virtio::transport::{VirtioInterrupt, VirtioInterruptType};
-use crate::devices::virtio::{ActivateError, TYPE_NET};
 use crate::devices::{DeviceError, report_net_event_fail};
 use crate::dumbo::pdu::arp::ETH_IPV4_FRAME_LEN;
 use crate::dumbo::pdu::ethernet::{EthernetFrame, PAYLOAD_OFFSET};
@@ -973,7 +974,7 @@ impl VirtioDevice for Net {
     }
 
     fn device_type(&self) -> u32 {
-        TYPE_NET
+        VIRTIO_ID_NET
     }
 
     fn queues(&self) -> &[Queue] {
@@ -1154,7 +1155,7 @@ pub mod tests {
     fn test_virtio_device_type() {
         let mut net = default_net();
         set_mac(&mut net, MacAddr::from_str("11:22:33:44:55:66").unwrap());
-        assert_eq!(net.device_type(), TYPE_NET);
+        assert_eq!(net.device_type(), VIRTIO_ID_NET);
     }
 
     #[test]
