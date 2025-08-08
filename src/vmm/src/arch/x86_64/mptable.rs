@@ -229,7 +229,7 @@ pub fn setup_mptable(
         let size = mem::size_of::<mpspec::mpc_intsrc>() as u64;
         let mpc_intsrc = mpspec::mpc_intsrc {
             type_: mpspec::MP_INTSRC.try_into().unwrap(),
-            irqtype: mpspec::mp_irq_source_types_mp_INT.try_into().unwrap(),
+            irqtype: mpspec::mp_irq_source_types::mp_INT.try_into().unwrap(),
             irqflag: mpspec::MP_IRQPOL_DEFAULT.try_into().unwrap(),
             srcbus: 0,
             srcbusirq: i,
@@ -246,7 +246,7 @@ pub fn setup_mptable(
         let size = mem::size_of::<mpspec::mpc_lintsrc>() as u64;
         let mpc_lintsrc = mpspec::mpc_lintsrc {
             type_: mpspec::MP_LINTSRC.try_into().unwrap(),
-            irqtype: mpspec::mp_irq_source_types_mp_ExtINT.try_into().unwrap(),
+            irqtype: mpspec::mp_irq_source_types::mp_ExtINT.try_into().unwrap(),
             irqflag: mpspec::MP_IRQPOL_DEFAULT.try_into().unwrap(),
             srcbusid: 0,
             srcbusirq: 0,
@@ -263,7 +263,7 @@ pub fn setup_mptable(
         let size = mem::size_of::<mpspec::mpc_lintsrc>() as u64;
         let mpc_lintsrc = mpspec::mpc_lintsrc {
             type_: mpspec::MP_LINTSRC.try_into().unwrap(),
-            irqtype: mpspec::mp_irq_source_types_mp_NMI.try_into().unwrap(),
+            irqtype: mpspec::mp_irq_source_types::mp_NMI.try_into().unwrap(),
             irqflag: mpspec::MP_IRQPOL_DEFAULT.try_into().unwrap(),
             srcbusid: 0,
             srcbusirq: 0,

@@ -12,7 +12,8 @@
     clippy::undocumented_unsafe_blocks,
     missing_debug_implementations,
     clippy::tests_outside_test_module,
-    unsafe_op_in_unsafe_fn
+    unsafe_op_in_unsafe_fn,
+    clippy::redundant_static_lifetimes
 )]
 
 pub const PR_SET_PDEATHSIG: u32 = 1;
@@ -179,3 +180,20 @@ pub const PR_RISCV_V_VSTATE_CTRL_INHERIT: u32 = 16;
 pub const PR_RISCV_V_VSTATE_CTRL_CUR_MASK: u32 = 3;
 pub const PR_RISCV_V_VSTATE_CTRL_NEXT_MASK: u32 = 12;
 pub const PR_RISCV_V_VSTATE_CTRL_MASK: u32 = 31;
+pub const PR_RISCV_SET_ICACHE_FLUSH_CTX: u32 = 71;
+pub const PR_RISCV_CTX_SW_FENCEI_ON: u32 = 0;
+pub const PR_RISCV_CTX_SW_FENCEI_OFF: u32 = 1;
+pub const PR_RISCV_SCOPE_PER_PROCESS: u32 = 0;
+pub const PR_RISCV_SCOPE_PER_THREAD: u32 = 1;
+pub const PR_PPC_GET_DEXCR: u32 = 72;
+pub const PR_PPC_SET_DEXCR: u32 = 73;
+pub const PR_PPC_DEXCR_SBHE: u32 = 0;
+pub const PR_PPC_DEXCR_IBRTPD: u32 = 1;
+pub const PR_PPC_DEXCR_SRAPD: u32 = 2;
+pub const PR_PPC_DEXCR_NPHIE: u32 = 3;
+pub const PR_PPC_DEXCR_CTRL_EDITABLE: u32 = 1;
+pub const PR_PPC_DEXCR_CTRL_SET: u32 = 2;
+pub const PR_PPC_DEXCR_CTRL_CLEAR: u32 = 4;
+pub const PR_PPC_DEXCR_CTRL_SET_ONEXEC: u32 = 8;
+pub const PR_PPC_DEXCR_CTRL_CLEAR_ONEXEC: u32 = 16;
+pub const PR_PPC_DEXCR_CTRL_MASK: u32 = 31;
