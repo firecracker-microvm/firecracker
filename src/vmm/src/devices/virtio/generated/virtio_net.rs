@@ -12,7 +12,8 @@
     clippy::undocumented_unsafe_blocks,
     missing_debug_implementations,
     clippy::tests_outside_test_module,
-    unsafe_op_in_unsafe_fn
+    unsafe_op_in_unsafe_fn,
+    clippy::redundant_static_lifetimes
 )]
 
 pub const VIRTIO_NET_F_CSUM: u32 = 0;
@@ -37,6 +38,7 @@ pub const VIRTIO_NET_F_CTRL_RX_EXTRA: u32 = 20;
 pub const VIRTIO_NET_F_GUEST_ANNOUNCE: u32 = 21;
 pub const VIRTIO_NET_F_MQ: u32 = 22;
 pub const VIRTIO_NET_F_CTRL_MAC_ADDR: u32 = 23;
+pub const VIRTIO_NET_F_DEVICE_STATS: u32 = 50;
 pub const VIRTIO_NET_F_VQ_NOTF_COAL: u32 = 52;
 pub const VIRTIO_NET_F_NOTF_COAL: u32 = 53;
 pub const VIRTIO_NET_F_GUEST_USO4: u32 = 54;

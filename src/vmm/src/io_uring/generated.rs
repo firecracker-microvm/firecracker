@@ -12,7 +12,8 @@
     clippy::undocumented_unsafe_blocks,
     missing_debug_implementations,
     clippy::tests_outside_test_module,
-    unsafe_op_in_unsafe_fn
+    unsafe_op_in_unsafe_fn,
+    clippy::redundant_static_lifetimes
 )]
 
 #[repr(C)]
@@ -45,6 +46,50 @@ impl<T> ::std::fmt::Debug for __IncompleteArrayField<T> {
         fmt.write_str("__IncompleteArrayField")
     }
 }
+#[repr(C)]
+pub struct __BindgenUnionField<T>(::std::marker::PhantomData<T>);
+impl<T> __BindgenUnionField<T> {
+    #[inline]
+    pub const fn new() -> Self {
+        __BindgenUnionField(::std::marker::PhantomData)
+    }
+    #[inline]
+    pub unsafe fn as_ref(&self) -> &T {
+        ::std::mem::transmute(self)
+    }
+    #[inline]
+    pub unsafe fn as_mut(&mut self) -> &mut T {
+        ::std::mem::transmute(self)
+    }
+}
+impl<T> ::std::default::Default for __BindgenUnionField<T> {
+    #[inline]
+    fn default() -> Self {
+        Self::new()
+    }
+}
+impl<T> ::std::clone::Clone for __BindgenUnionField<T> {
+    #[inline]
+    fn clone(&self) -> Self {
+        *self
+    }
+}
+impl<T> ::std::marker::Copy for __BindgenUnionField<T> {}
+impl<T> ::std::fmt::Debug for __BindgenUnionField<T> {
+    fn fmt(&self, fmt: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+        fmt.write_str("__BindgenUnionField")
+    }
+}
+impl<T> ::std::hash::Hash for __BindgenUnionField<T> {
+    fn hash<H: ::std::hash::Hasher>(&self, _state: &mut H) {}
+}
+impl<T> ::std::cmp::PartialEq for __BindgenUnionField<T> {
+    fn eq(&self, _other: &__BindgenUnionField<T>) -> bool {
+        true
+    }
+}
+impl<T> ::std::cmp::Eq for __BindgenUnionField<T> {}
+pub const IORING_FILE_INDEX_ALLOC: i32 = -1;
 pub const IORING_SETUP_IOPOLL: u32 = 1;
 pub const IORING_SETUP_SQPOLL: u32 = 2;
 pub const IORING_SETUP_SQ_AFF: u32 = 4;
@@ -52,29 +97,73 @@ pub const IORING_SETUP_CQSIZE: u32 = 8;
 pub const IORING_SETUP_CLAMP: u32 = 16;
 pub const IORING_SETUP_ATTACH_WQ: u32 = 32;
 pub const IORING_SETUP_R_DISABLED: u32 = 64;
+pub const IORING_SETUP_SUBMIT_ALL: u32 = 128;
+pub const IORING_SETUP_COOP_TASKRUN: u32 = 256;
+pub const IORING_SETUP_TASKRUN_FLAG: u32 = 512;
+pub const IORING_SETUP_SQE128: u32 = 1024;
+pub const IORING_SETUP_CQE32: u32 = 2048;
+pub const IORING_SETUP_SINGLE_ISSUER: u32 = 4096;
+pub const IORING_SETUP_DEFER_TASKRUN: u32 = 8192;
+pub const IORING_SETUP_NO_MMAP: u32 = 16384;
+pub const IORING_SETUP_REGISTERED_FD_ONLY: u32 = 32768;
+pub const IORING_SETUP_NO_SQARRAY: u32 = 65536;
+pub const IORING_URING_CMD_FIXED: u32 = 1;
+pub const IORING_URING_CMD_MASK: u32 = 1;
 pub const IORING_FSYNC_DATASYNC: u32 = 1;
 pub const IORING_TIMEOUT_ABS: u32 = 1;
 pub const IORING_TIMEOUT_UPDATE: u32 = 2;
 pub const IORING_TIMEOUT_BOOTTIME: u32 = 4;
 pub const IORING_TIMEOUT_REALTIME: u32 = 8;
 pub const IORING_LINK_TIMEOUT_UPDATE: u32 = 16;
+pub const IORING_TIMEOUT_ETIME_SUCCESS: u32 = 32;
+pub const IORING_TIMEOUT_MULTISHOT: u32 = 64;
 pub const IORING_TIMEOUT_CLOCK_MASK: u32 = 12;
 pub const IORING_TIMEOUT_UPDATE_MASK: u32 = 18;
 pub const IORING_POLL_ADD_MULTI: u32 = 1;
 pub const IORING_POLL_UPDATE_EVENTS: u32 = 2;
 pub const IORING_POLL_UPDATE_USER_DATA: u32 = 4;
+pub const IORING_POLL_ADD_LEVEL: u32 = 8;
+pub const IORING_ASYNC_CANCEL_ALL: u32 = 1;
+pub const IORING_ASYNC_CANCEL_FD: u32 = 2;
+pub const IORING_ASYNC_CANCEL_ANY: u32 = 4;
+pub const IORING_ASYNC_CANCEL_FD_FIXED: u32 = 8;
+pub const IORING_ASYNC_CANCEL_USERDATA: u32 = 16;
+pub const IORING_ASYNC_CANCEL_OP: u32 = 32;
+pub const IORING_RECVSEND_POLL_FIRST: u32 = 1;
+pub const IORING_RECV_MULTISHOT: u32 = 2;
+pub const IORING_RECVSEND_FIXED_BUF: u32 = 4;
+pub const IORING_SEND_ZC_REPORT_USAGE: u32 = 8;
+pub const IORING_RECVSEND_BUNDLE: u32 = 16;
+pub const IORING_NOTIF_USAGE_ZC_COPIED: u32 = 2147483648;
+pub const IORING_ACCEPT_MULTISHOT: u32 = 1;
+pub const IORING_ACCEPT_DONTWAIT: u32 = 2;
+pub const IORING_ACCEPT_POLL_FIRST: u32 = 4;
+pub const IORING_MSG_RING_CQE_SKIP: u32 = 1;
+pub const IORING_MSG_RING_FLAGS_PASS: u32 = 2;
+pub const IORING_FIXED_FD_NO_CLOEXEC: u32 = 1;
+pub const IORING_NOP_INJECT_RESULT: u32 = 1;
 pub const IORING_CQE_F_BUFFER: u32 = 1;
 pub const IORING_CQE_F_MORE: u32 = 2;
+pub const IORING_CQE_F_SOCK_NONEMPTY: u32 = 4;
+pub const IORING_CQE_F_NOTIF: u32 = 8;
+pub const IORING_CQE_F_BUF_MORE: u32 = 16;
+pub const IORING_CQE_BUFFER_SHIFT: u32 = 16;
 pub const IORING_OFF_SQ_RING: u32 = 0;
 pub const IORING_OFF_CQ_RING: u32 = 134217728;
 pub const IORING_OFF_SQES: u32 = 268435456;
+pub const IORING_OFF_PBUF_RING: u32 = 2147483648;
+pub const IORING_OFF_PBUF_SHIFT: u32 = 16;
+pub const IORING_OFF_MMAP_MASK: u32 = 4160749568;
 pub const IORING_SQ_NEED_WAKEUP: u32 = 1;
 pub const IORING_SQ_CQ_OVERFLOW: u32 = 2;
+pub const IORING_SQ_TASKRUN: u32 = 4;
 pub const IORING_CQ_EVENTFD_DISABLED: u32 = 1;
 pub const IORING_ENTER_GETEVENTS: u32 = 1;
 pub const IORING_ENTER_SQ_WAKEUP: u32 = 2;
 pub const IORING_ENTER_SQ_WAIT: u32 = 4;
 pub const IORING_ENTER_EXT_ARG: u32 = 8;
+pub const IORING_ENTER_REGISTERED_RING: u32 = 16;
+pub const IORING_ENTER_ABS_TIMER: u32 = 32;
 pub const IORING_FEAT_SINGLE_MMAP: u32 = 1;
 pub const IORING_FEAT_NODROP: u32 = 2;
 pub const IORING_FEAT_SUBMIT_STABLE: u32 = 4;
@@ -86,6 +175,12 @@ pub const IORING_FEAT_SQPOLL_NONFIXED: u32 = 128;
 pub const IORING_FEAT_EXT_ARG: u32 = 256;
 pub const IORING_FEAT_NATIVE_WORKERS: u32 = 512;
 pub const IORING_FEAT_RSRC_TAGS: u32 = 1024;
+pub const IORING_FEAT_CQE_SKIP: u32 = 2048;
+pub const IORING_FEAT_LINKED_FILE: u32 = 4096;
+pub const IORING_FEAT_REG_REG_RING: u32 = 8192;
+pub const IORING_FEAT_RECVSEND_BUNDLE: u32 = 16384;
+pub const IORING_FEAT_MIN_TIMEOUT: u32 = 32768;
+pub const IORING_RSRC_REGISTER_SPARSE: u32 = 1;
 pub const IORING_REGISTER_FILES_SKIP: i32 = -2;
 pub const IO_URING_OP_SUPPORTED: u32 = 1;
 pub type __u8 = ::std::os::raw::c_uchar;
@@ -93,7 +188,23 @@ pub type __u16 = ::std::os::raw::c_ushort;
 pub type __s32 = ::std::os::raw::c_int;
 pub type __u32 = ::std::os::raw::c_uint;
 pub type __u64 = ::std::os::raw::c_ulonglong;
+pub type __kernel_time64_t = ::std::os::raw::c_longlong;
 pub type __kernel_rwf_t = ::std::os::raw::c_int;
+#[repr(C)]
+#[derive(Debug, Default, Copy, Clone, PartialEq)]
+pub struct __kernel_timespec {
+    pub tv_sec: __kernel_time64_t,
+    pub tv_nsec: ::std::os::raw::c_longlong,
+}
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    ["Size of __kernel_timespec"][::std::mem::size_of::<__kernel_timespec>() - 16usize];
+    ["Alignment of __kernel_timespec"][::std::mem::align_of::<__kernel_timespec>() - 8usize];
+    ["Offset of field: __kernel_timespec::tv_sec"]
+        [::std::mem::offset_of!(__kernel_timespec, tv_sec) - 0usize];
+    ["Offset of field: __kernel_timespec::tv_nsec"]
+        [::std::mem::offset_of!(__kernel_timespec, tv_nsec) - 8usize];
+};
 #[repr(C)]
 #[derive(Copy, Clone)]
 pub struct io_uring_sqe {
@@ -109,14 +220,32 @@ pub struct io_uring_sqe {
     pub __bindgen_anon_4: io_uring_sqe__bindgen_ty_4,
     pub personality: __u16,
     pub __bindgen_anon_5: io_uring_sqe__bindgen_ty_5,
-    pub __pad2: [__u64; 2usize],
+    pub __bindgen_anon_6: io_uring_sqe__bindgen_ty_6,
 }
 #[repr(C)]
 #[derive(Copy, Clone)]
 pub union io_uring_sqe__bindgen_ty_1 {
     pub off: __u64,
     pub addr2: __u64,
+    pub __bindgen_anon_1: io_uring_sqe__bindgen_ty_1__bindgen_ty_1,
 }
+#[repr(C)]
+#[derive(Debug, Default, Copy, Clone, PartialEq)]
+pub struct io_uring_sqe__bindgen_ty_1__bindgen_ty_1 {
+    pub cmd_op: __u32,
+    pub __pad1: __u32,
+}
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    ["Size of io_uring_sqe__bindgen_ty_1__bindgen_ty_1"]
+        [::std::mem::size_of::<io_uring_sqe__bindgen_ty_1__bindgen_ty_1>() - 8usize];
+    ["Alignment of io_uring_sqe__bindgen_ty_1__bindgen_ty_1"]
+        [::std::mem::align_of::<io_uring_sqe__bindgen_ty_1__bindgen_ty_1>() - 4usize];
+    ["Offset of field: io_uring_sqe__bindgen_ty_1__bindgen_ty_1::cmd_op"]
+        [::std::mem::offset_of!(io_uring_sqe__bindgen_ty_1__bindgen_ty_1, cmd_op) - 0usize];
+    ["Offset of field: io_uring_sqe__bindgen_ty_1__bindgen_ty_1::__pad1"]
+        [::std::mem::offset_of!(io_uring_sqe__bindgen_ty_1__bindgen_ty_1, __pad1) - 4usize];
+};
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     ["Size of io_uring_sqe__bindgen_ty_1"]
@@ -142,7 +271,25 @@ impl Default for io_uring_sqe__bindgen_ty_1 {
 pub union io_uring_sqe__bindgen_ty_2 {
     pub addr: __u64,
     pub splice_off_in: __u64,
+    pub __bindgen_anon_1: io_uring_sqe__bindgen_ty_2__bindgen_ty_1,
 }
+#[repr(C)]
+#[derive(Debug, Default, Copy, Clone, PartialEq)]
+pub struct io_uring_sqe__bindgen_ty_2__bindgen_ty_1 {
+    pub level: __u32,
+    pub optname: __u32,
+}
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    ["Size of io_uring_sqe__bindgen_ty_2__bindgen_ty_1"]
+        [::std::mem::size_of::<io_uring_sqe__bindgen_ty_2__bindgen_ty_1>() - 8usize];
+    ["Alignment of io_uring_sqe__bindgen_ty_2__bindgen_ty_1"]
+        [::std::mem::align_of::<io_uring_sqe__bindgen_ty_2__bindgen_ty_1>() - 4usize];
+    ["Offset of field: io_uring_sqe__bindgen_ty_2__bindgen_ty_1::level"]
+        [::std::mem::offset_of!(io_uring_sqe__bindgen_ty_2__bindgen_ty_1, level) - 0usize];
+    ["Offset of field: io_uring_sqe__bindgen_ty_2__bindgen_ty_1::optname"]
+        [::std::mem::offset_of!(io_uring_sqe__bindgen_ty_2__bindgen_ty_1, optname) - 4usize];
+};
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     ["Size of io_uring_sqe__bindgen_ty_2"]
@@ -182,6 +329,13 @@ pub union io_uring_sqe__bindgen_ty_3 {
     pub rename_flags: __u32,
     pub unlink_flags: __u32,
     pub hardlink_flags: __u32,
+    pub xattr_flags: __u32,
+    pub msg_ring_flags: __u32,
+    pub uring_cmd_flags: __u32,
+    pub waitid_flags: __u32,
+    pub futex_flags: __u32,
+    pub install_fd_flags: __u32,
+    pub nop_flags: __u32,
 }
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
@@ -221,6 +375,20 @@ const _: () = {
         [::std::mem::offset_of!(io_uring_sqe__bindgen_ty_3, unlink_flags) - 0usize];
     ["Offset of field: io_uring_sqe__bindgen_ty_3::hardlink_flags"]
         [::std::mem::offset_of!(io_uring_sqe__bindgen_ty_3, hardlink_flags) - 0usize];
+    ["Offset of field: io_uring_sqe__bindgen_ty_3::xattr_flags"]
+        [::std::mem::offset_of!(io_uring_sqe__bindgen_ty_3, xattr_flags) - 0usize];
+    ["Offset of field: io_uring_sqe__bindgen_ty_3::msg_ring_flags"]
+        [::std::mem::offset_of!(io_uring_sqe__bindgen_ty_3, msg_ring_flags) - 0usize];
+    ["Offset of field: io_uring_sqe__bindgen_ty_3::uring_cmd_flags"]
+        [::std::mem::offset_of!(io_uring_sqe__bindgen_ty_3, uring_cmd_flags) - 0usize];
+    ["Offset of field: io_uring_sqe__bindgen_ty_3::waitid_flags"]
+        [::std::mem::offset_of!(io_uring_sqe__bindgen_ty_3, waitid_flags) - 0usize];
+    ["Offset of field: io_uring_sqe__bindgen_ty_3::futex_flags"]
+        [::std::mem::offset_of!(io_uring_sqe__bindgen_ty_3, futex_flags) - 0usize];
+    ["Offset of field: io_uring_sqe__bindgen_ty_3::install_fd_flags"]
+        [::std::mem::offset_of!(io_uring_sqe__bindgen_ty_3, install_fd_flags) - 0usize];
+    ["Offset of field: io_uring_sqe__bindgen_ty_3::nop_flags"]
+        [::std::mem::offset_of!(io_uring_sqe__bindgen_ty_3, nop_flags) - 0usize];
 };
 impl Default for io_uring_sqe__bindgen_ty_3 {
     fn default() -> Self {
@@ -262,7 +430,26 @@ impl Default for io_uring_sqe__bindgen_ty_4 {
 pub union io_uring_sqe__bindgen_ty_5 {
     pub splice_fd_in: __s32,
     pub file_index: __u32,
+    pub optlen: __u32,
+    pub __bindgen_anon_1: io_uring_sqe__bindgen_ty_5__bindgen_ty_1,
 }
+#[repr(C)]
+#[derive(Debug, Default, Copy, Clone, PartialEq)]
+pub struct io_uring_sqe__bindgen_ty_5__bindgen_ty_1 {
+    pub addr_len: __u16,
+    pub __pad3: [__u16; 1usize],
+}
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    ["Size of io_uring_sqe__bindgen_ty_5__bindgen_ty_1"]
+        [::std::mem::size_of::<io_uring_sqe__bindgen_ty_5__bindgen_ty_1>() - 4usize];
+    ["Alignment of io_uring_sqe__bindgen_ty_5__bindgen_ty_1"]
+        [::std::mem::align_of::<io_uring_sqe__bindgen_ty_5__bindgen_ty_1>() - 2usize];
+    ["Offset of field: io_uring_sqe__bindgen_ty_5__bindgen_ty_1::addr_len"]
+        [::std::mem::offset_of!(io_uring_sqe__bindgen_ty_5__bindgen_ty_1, addr_len) - 0usize];
+    ["Offset of field: io_uring_sqe__bindgen_ty_5__bindgen_ty_1::__pad3"]
+        [::std::mem::offset_of!(io_uring_sqe__bindgen_ty_5__bindgen_ty_1, __pad3) - 2usize];
+};
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     ["Size of io_uring_sqe__bindgen_ty_5"]
@@ -273,8 +460,55 @@ const _: () = {
         [::std::mem::offset_of!(io_uring_sqe__bindgen_ty_5, splice_fd_in) - 0usize];
     ["Offset of field: io_uring_sqe__bindgen_ty_5::file_index"]
         [::std::mem::offset_of!(io_uring_sqe__bindgen_ty_5, file_index) - 0usize];
+    ["Offset of field: io_uring_sqe__bindgen_ty_5::optlen"]
+        [::std::mem::offset_of!(io_uring_sqe__bindgen_ty_5, optlen) - 0usize];
 };
 impl Default for io_uring_sqe__bindgen_ty_5 {
+    fn default() -> Self {
+        let mut s = ::std::mem::MaybeUninit::<Self>::uninit();
+        unsafe {
+            ::std::ptr::write_bytes(s.as_mut_ptr(), 0, 1);
+            s.assume_init()
+        }
+    }
+}
+#[repr(C)]
+#[derive(Copy, Clone)]
+pub struct io_uring_sqe__bindgen_ty_6 {
+    pub __bindgen_anon_1: __BindgenUnionField<io_uring_sqe__bindgen_ty_6__bindgen_ty_1>,
+    pub optval: __BindgenUnionField<__u64>,
+    pub cmd: __BindgenUnionField<[__u8; 0usize]>,
+    pub bindgen_union_field: [u64; 2usize],
+}
+#[repr(C)]
+#[derive(Debug, Default, Copy, Clone, PartialEq)]
+pub struct io_uring_sqe__bindgen_ty_6__bindgen_ty_1 {
+    pub addr3: __u64,
+    pub __pad2: [__u64; 1usize],
+}
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    ["Size of io_uring_sqe__bindgen_ty_6__bindgen_ty_1"]
+        [::std::mem::size_of::<io_uring_sqe__bindgen_ty_6__bindgen_ty_1>() - 16usize];
+    ["Alignment of io_uring_sqe__bindgen_ty_6__bindgen_ty_1"]
+        [::std::mem::align_of::<io_uring_sqe__bindgen_ty_6__bindgen_ty_1>() - 8usize];
+    ["Offset of field: io_uring_sqe__bindgen_ty_6__bindgen_ty_1::addr3"]
+        [::std::mem::offset_of!(io_uring_sqe__bindgen_ty_6__bindgen_ty_1, addr3) - 0usize];
+    ["Offset of field: io_uring_sqe__bindgen_ty_6__bindgen_ty_1::__pad2"]
+        [::std::mem::offset_of!(io_uring_sqe__bindgen_ty_6__bindgen_ty_1, __pad2) - 8usize];
+};
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    ["Size of io_uring_sqe__bindgen_ty_6"]
+        [::std::mem::size_of::<io_uring_sqe__bindgen_ty_6>() - 16usize];
+    ["Alignment of io_uring_sqe__bindgen_ty_6"]
+        [::std::mem::align_of::<io_uring_sqe__bindgen_ty_6>() - 8usize];
+    ["Offset of field: io_uring_sqe__bindgen_ty_6::optval"]
+        [::std::mem::offset_of!(io_uring_sqe__bindgen_ty_6, optval) - 0usize];
+    ["Offset of field: io_uring_sqe__bindgen_ty_6::cmd"]
+        [::std::mem::offset_of!(io_uring_sqe__bindgen_ty_6, cmd) - 0usize];
+};
+impl Default for io_uring_sqe__bindgen_ty_6 {
     fn default() -> Self {
         let mut s = ::std::mem::MaybeUninit::<Self>::uninit();
         unsafe {
@@ -298,8 +532,6 @@ const _: () = {
         [::std::mem::offset_of!(io_uring_sqe, user_data) - 32usize];
     ["Offset of field: io_uring_sqe::personality"]
         [::std::mem::offset_of!(io_uring_sqe, personality) - 42usize];
-    ["Offset of field: io_uring_sqe::__pad2"]
-        [::std::mem::offset_of!(io_uring_sqe, __pad2) - 48usize];
 };
 impl Default for io_uring_sqe {
     fn default() -> Self {
@@ -310,54 +542,85 @@ impl Default for io_uring_sqe {
         }
     }
 }
-pub const IOSQE_FIXED_FILE_BIT: _bindgen_ty_1 = 0;
-pub const IOSQE_IO_DRAIN_BIT: _bindgen_ty_1 = 1;
-pub const IOSQE_IO_LINK_BIT: _bindgen_ty_1 = 2;
-pub const IOSQE_IO_HARDLINK_BIT: _bindgen_ty_1 = 3;
-pub const IOSQE_ASYNC_BIT: _bindgen_ty_1 = 4;
-pub const IOSQE_BUFFER_SELECT_BIT: _bindgen_ty_1 = 5;
-pub type _bindgen_ty_1 = ::std::os::raw::c_uint;
-pub const IORING_OP_NOP: _bindgen_ty_2 = 0;
-pub const IORING_OP_READV: _bindgen_ty_2 = 1;
-pub const IORING_OP_WRITEV: _bindgen_ty_2 = 2;
-pub const IORING_OP_FSYNC: _bindgen_ty_2 = 3;
-pub const IORING_OP_READ_FIXED: _bindgen_ty_2 = 4;
-pub const IORING_OP_WRITE_FIXED: _bindgen_ty_2 = 5;
-pub const IORING_OP_POLL_ADD: _bindgen_ty_2 = 6;
-pub const IORING_OP_POLL_REMOVE: _bindgen_ty_2 = 7;
-pub const IORING_OP_SYNC_FILE_RANGE: _bindgen_ty_2 = 8;
-pub const IORING_OP_SENDMSG: _bindgen_ty_2 = 9;
-pub const IORING_OP_RECVMSG: _bindgen_ty_2 = 10;
-pub const IORING_OP_TIMEOUT: _bindgen_ty_2 = 11;
-pub const IORING_OP_TIMEOUT_REMOVE: _bindgen_ty_2 = 12;
-pub const IORING_OP_ACCEPT: _bindgen_ty_2 = 13;
-pub const IORING_OP_ASYNC_CANCEL: _bindgen_ty_2 = 14;
-pub const IORING_OP_LINK_TIMEOUT: _bindgen_ty_2 = 15;
-pub const IORING_OP_CONNECT: _bindgen_ty_2 = 16;
-pub const IORING_OP_FALLOCATE: _bindgen_ty_2 = 17;
-pub const IORING_OP_OPENAT: _bindgen_ty_2 = 18;
-pub const IORING_OP_CLOSE: _bindgen_ty_2 = 19;
-pub const IORING_OP_FILES_UPDATE: _bindgen_ty_2 = 20;
-pub const IORING_OP_STATX: _bindgen_ty_2 = 21;
-pub const IORING_OP_READ: _bindgen_ty_2 = 22;
-pub const IORING_OP_WRITE: _bindgen_ty_2 = 23;
-pub const IORING_OP_FADVISE: _bindgen_ty_2 = 24;
-pub const IORING_OP_MADVISE: _bindgen_ty_2 = 25;
-pub const IORING_OP_SEND: _bindgen_ty_2 = 26;
-pub const IORING_OP_RECV: _bindgen_ty_2 = 27;
-pub const IORING_OP_OPENAT2: _bindgen_ty_2 = 28;
-pub const IORING_OP_EPOLL_CTL: _bindgen_ty_2 = 29;
-pub const IORING_OP_SPLICE: _bindgen_ty_2 = 30;
-pub const IORING_OP_PROVIDE_BUFFERS: _bindgen_ty_2 = 31;
-pub const IORING_OP_REMOVE_BUFFERS: _bindgen_ty_2 = 32;
-pub const IORING_OP_TEE: _bindgen_ty_2 = 33;
-pub const IORING_OP_SHUTDOWN: _bindgen_ty_2 = 34;
-pub const IORING_OP_RENAMEAT: _bindgen_ty_2 = 35;
-pub const IORING_OP_UNLINKAT: _bindgen_ty_2 = 36;
-pub const IORING_OP_LAST: _bindgen_ty_2 = 37;
-pub type _bindgen_ty_2 = ::std::os::raw::c_uint;
+pub mod io_uring_sqe_flags_bit {
+    pub type Type = ::std::os::raw::c_uint;
+    pub const IOSQE_FIXED_FILE_BIT: Type = 0;
+    pub const IOSQE_IO_DRAIN_BIT: Type = 1;
+    pub const IOSQE_IO_LINK_BIT: Type = 2;
+    pub const IOSQE_IO_HARDLINK_BIT: Type = 3;
+    pub const IOSQE_ASYNC_BIT: Type = 4;
+    pub const IOSQE_BUFFER_SELECT_BIT: Type = 5;
+    pub const IOSQE_CQE_SKIP_SUCCESS_BIT: Type = 6;
+}
+pub mod io_uring_op {
+    pub type Type = ::std::os::raw::c_uint;
+    pub const IORING_OP_NOP: Type = 0;
+    pub const IORING_OP_READV: Type = 1;
+    pub const IORING_OP_WRITEV: Type = 2;
+    pub const IORING_OP_FSYNC: Type = 3;
+    pub const IORING_OP_READ_FIXED: Type = 4;
+    pub const IORING_OP_WRITE_FIXED: Type = 5;
+    pub const IORING_OP_POLL_ADD: Type = 6;
+    pub const IORING_OP_POLL_REMOVE: Type = 7;
+    pub const IORING_OP_SYNC_FILE_RANGE: Type = 8;
+    pub const IORING_OP_SENDMSG: Type = 9;
+    pub const IORING_OP_RECVMSG: Type = 10;
+    pub const IORING_OP_TIMEOUT: Type = 11;
+    pub const IORING_OP_TIMEOUT_REMOVE: Type = 12;
+    pub const IORING_OP_ACCEPT: Type = 13;
+    pub const IORING_OP_ASYNC_CANCEL: Type = 14;
+    pub const IORING_OP_LINK_TIMEOUT: Type = 15;
+    pub const IORING_OP_CONNECT: Type = 16;
+    pub const IORING_OP_FALLOCATE: Type = 17;
+    pub const IORING_OP_OPENAT: Type = 18;
+    pub const IORING_OP_CLOSE: Type = 19;
+    pub const IORING_OP_FILES_UPDATE: Type = 20;
+    pub const IORING_OP_STATX: Type = 21;
+    pub const IORING_OP_READ: Type = 22;
+    pub const IORING_OP_WRITE: Type = 23;
+    pub const IORING_OP_FADVISE: Type = 24;
+    pub const IORING_OP_MADVISE: Type = 25;
+    pub const IORING_OP_SEND: Type = 26;
+    pub const IORING_OP_RECV: Type = 27;
+    pub const IORING_OP_OPENAT2: Type = 28;
+    pub const IORING_OP_EPOLL_CTL: Type = 29;
+    pub const IORING_OP_SPLICE: Type = 30;
+    pub const IORING_OP_PROVIDE_BUFFERS: Type = 31;
+    pub const IORING_OP_REMOVE_BUFFERS: Type = 32;
+    pub const IORING_OP_TEE: Type = 33;
+    pub const IORING_OP_SHUTDOWN: Type = 34;
+    pub const IORING_OP_RENAMEAT: Type = 35;
+    pub const IORING_OP_UNLINKAT: Type = 36;
+    pub const IORING_OP_MKDIRAT: Type = 37;
+    pub const IORING_OP_SYMLINKAT: Type = 38;
+    pub const IORING_OP_LINKAT: Type = 39;
+    pub const IORING_OP_MSG_RING: Type = 40;
+    pub const IORING_OP_FSETXATTR: Type = 41;
+    pub const IORING_OP_SETXATTR: Type = 42;
+    pub const IORING_OP_FGETXATTR: Type = 43;
+    pub const IORING_OP_GETXATTR: Type = 44;
+    pub const IORING_OP_SOCKET: Type = 45;
+    pub const IORING_OP_URING_CMD: Type = 46;
+    pub const IORING_OP_SEND_ZC: Type = 47;
+    pub const IORING_OP_SENDMSG_ZC: Type = 48;
+    pub const IORING_OP_READ_MULTISHOT: Type = 49;
+    pub const IORING_OP_WAITID: Type = 50;
+    pub const IORING_OP_FUTEX_WAIT: Type = 51;
+    pub const IORING_OP_FUTEX_WAKE: Type = 52;
+    pub const IORING_OP_FUTEX_WAITV: Type = 53;
+    pub const IORING_OP_FIXED_FD_INSTALL: Type = 54;
+    pub const IORING_OP_FTRUNCATE: Type = 55;
+    pub const IORING_OP_BIND: Type = 56;
+    pub const IORING_OP_LISTEN: Type = 57;
+    pub const IORING_OP_LAST: Type = 58;
+}
+pub mod io_uring_msg_ring_flags {
+    pub type Type = ::std::os::raw::c_uint;
+    pub const IORING_MSG_DATA: Type = 0;
+    pub const IORING_MSG_SEND_FD: Type = 1;
+}
 #[repr(C)]
-#[derive(Debug, Default, Copy, Clone, PartialEq)]
+#[derive(Clone, Copy, Debug, Default)]
 pub struct io_uring_cqe {
     pub user_data: __u64,
     pub res: __s32,
@@ -372,8 +635,6 @@ const _: () = {
     ["Offset of field: io_uring_cqe::res"][::std::mem::offset_of!(io_uring_cqe, res) - 8usize];
     ["Offset of field: io_uring_cqe::flags"][::std::mem::offset_of!(io_uring_cqe, flags) - 12usize];
 };
-pub const IORING_CQE_BUFFER_SHIFT: _bindgen_ty_3 = 16;
-pub type _bindgen_ty_3 = ::std::os::raw::c_uint;
 #[repr(C)]
 #[derive(Debug, Default, Copy, Clone, PartialEq)]
 pub struct io_sqring_offsets {
@@ -385,7 +646,7 @@ pub struct io_sqring_offsets {
     pub dropped: __u32,
     pub array: __u32,
     pub resv1: __u32,
-    pub resv2: __u64,
+    pub user_addr: __u64,
 }
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
@@ -407,8 +668,8 @@ const _: () = {
         [::std::mem::offset_of!(io_sqring_offsets, array) - 24usize];
     ["Offset of field: io_sqring_offsets::resv1"]
         [::std::mem::offset_of!(io_sqring_offsets, resv1) - 28usize];
-    ["Offset of field: io_sqring_offsets::resv2"]
-        [::std::mem::offset_of!(io_sqring_offsets, resv2) - 32usize];
+    ["Offset of field: io_sqring_offsets::user_addr"]
+        [::std::mem::offset_of!(io_sqring_offsets, user_addr) - 32usize];
 };
 #[repr(C)]
 #[derive(Debug, Default, Copy, Clone, PartialEq)]
@@ -421,7 +682,7 @@ pub struct io_cqring_offsets {
     pub cqes: __u32,
     pub flags: __u32,
     pub resv1: __u32,
-    pub resv2: __u64,
+    pub user_addr: __u64,
 }
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
@@ -443,8 +704,8 @@ const _: () = {
         [::std::mem::offset_of!(io_cqring_offsets, flags) - 24usize];
     ["Offset of field: io_cqring_offsets::resv1"]
         [::std::mem::offset_of!(io_cqring_offsets, resv1) - 28usize];
-    ["Offset of field: io_cqring_offsets::resv2"]
-        [::std::mem::offset_of!(io_cqring_offsets, resv2) - 32usize];
+    ["Offset of field: io_cqring_offsets::user_addr"]
+        [::std::mem::offset_of!(io_cqring_offsets, user_addr) - 32usize];
 };
 #[repr(C)]
 #[derive(Debug, Default, Copy, Clone, PartialEq)]
@@ -485,28 +746,42 @@ const _: () = {
     ["Offset of field: io_uring_params::cq_off"]
         [::std::mem::offset_of!(io_uring_params, cq_off) - 80usize];
 };
-pub const IORING_REGISTER_BUFFERS: _bindgen_ty_4 = 0;
-pub const IORING_UNREGISTER_BUFFERS: _bindgen_ty_4 = 1;
-pub const IORING_REGISTER_FILES: _bindgen_ty_4 = 2;
-pub const IORING_UNREGISTER_FILES: _bindgen_ty_4 = 3;
-pub const IORING_REGISTER_EVENTFD: _bindgen_ty_4 = 4;
-pub const IORING_UNREGISTER_EVENTFD: _bindgen_ty_4 = 5;
-pub const IORING_REGISTER_FILES_UPDATE: _bindgen_ty_4 = 6;
-pub const IORING_REGISTER_EVENTFD_ASYNC: _bindgen_ty_4 = 7;
-pub const IORING_REGISTER_PROBE: _bindgen_ty_4 = 8;
-pub const IORING_REGISTER_PERSONALITY: _bindgen_ty_4 = 9;
-pub const IORING_UNREGISTER_PERSONALITY: _bindgen_ty_4 = 10;
-pub const IORING_REGISTER_RESTRICTIONS: _bindgen_ty_4 = 11;
-pub const IORING_REGISTER_ENABLE_RINGS: _bindgen_ty_4 = 12;
-pub const IORING_REGISTER_FILES2: _bindgen_ty_4 = 13;
-pub const IORING_REGISTER_FILES_UPDATE2: _bindgen_ty_4 = 14;
-pub const IORING_REGISTER_BUFFERS2: _bindgen_ty_4 = 15;
-pub const IORING_REGISTER_BUFFERS_UPDATE: _bindgen_ty_4 = 16;
-pub const IORING_REGISTER_IOWQ_AFF: _bindgen_ty_4 = 17;
-pub const IORING_UNREGISTER_IOWQ_AFF: _bindgen_ty_4 = 18;
-pub const IORING_REGISTER_IOWQ_MAX_WORKERS: _bindgen_ty_4 = 19;
-pub const IORING_REGISTER_LAST: _bindgen_ty_4 = 20;
-pub type _bindgen_ty_4 = ::std::os::raw::c_uint;
+pub mod io_uring_register_op {
+    pub type Type = ::std::os::raw::c_uint;
+    pub const IORING_REGISTER_BUFFERS: Type = 0;
+    pub const IORING_UNREGISTER_BUFFERS: Type = 1;
+    pub const IORING_REGISTER_FILES: Type = 2;
+    pub const IORING_UNREGISTER_FILES: Type = 3;
+    pub const IORING_REGISTER_EVENTFD: Type = 4;
+    pub const IORING_UNREGISTER_EVENTFD: Type = 5;
+    pub const IORING_REGISTER_FILES_UPDATE: Type = 6;
+    pub const IORING_REGISTER_EVENTFD_ASYNC: Type = 7;
+    pub const IORING_REGISTER_PROBE: Type = 8;
+    pub const IORING_REGISTER_PERSONALITY: Type = 9;
+    pub const IORING_UNREGISTER_PERSONALITY: Type = 10;
+    pub const IORING_REGISTER_RESTRICTIONS: Type = 11;
+    pub const IORING_REGISTER_ENABLE_RINGS: Type = 12;
+    pub const IORING_REGISTER_FILES2: Type = 13;
+    pub const IORING_REGISTER_FILES_UPDATE2: Type = 14;
+    pub const IORING_REGISTER_BUFFERS2: Type = 15;
+    pub const IORING_REGISTER_BUFFERS_UPDATE: Type = 16;
+    pub const IORING_REGISTER_IOWQ_AFF: Type = 17;
+    pub const IORING_UNREGISTER_IOWQ_AFF: Type = 18;
+    pub const IORING_REGISTER_IOWQ_MAX_WORKERS: Type = 19;
+    pub const IORING_REGISTER_RING_FDS: Type = 20;
+    pub const IORING_UNREGISTER_RING_FDS: Type = 21;
+    pub const IORING_REGISTER_PBUF_RING: Type = 22;
+    pub const IORING_UNREGISTER_PBUF_RING: Type = 23;
+    pub const IORING_REGISTER_SYNC_CANCEL: Type = 24;
+    pub const IORING_REGISTER_FILE_ALLOC_RANGE: Type = 25;
+    pub const IORING_REGISTER_PBUF_STATUS: Type = 26;
+    pub const IORING_REGISTER_NAPI: Type = 27;
+    pub const IORING_UNREGISTER_NAPI: Type = 28;
+    pub const IORING_REGISTER_CLOCK: Type = 29;
+    pub const IORING_REGISTER_CLONE_BUFFERS: Type = 30;
+    pub const IORING_REGISTER_LAST: Type = 31;
+    pub const IORING_REGISTER_USE_REGISTERED_RING: Type = 2147483648;
+}
 #[repr(C)]
 #[derive(Debug, Default, Copy, Clone, PartialEq)]
 pub struct io_uring_files_update {
@@ -530,7 +805,7 @@ const _: () = {
 #[derive(Debug, Default, Copy, Clone, PartialEq)]
 pub struct io_uring_rsrc_register {
     pub nr: __u32,
-    pub resv: __u32,
+    pub flags: __u32,
     pub resv2: __u64,
     pub data: __u64,
     pub tags: __u64,
@@ -542,8 +817,8 @@ const _: () = {
         [::std::mem::align_of::<io_uring_rsrc_register>() - 8usize];
     ["Offset of field: io_uring_rsrc_register::nr"]
         [::std::mem::offset_of!(io_uring_rsrc_register, nr) - 0usize];
-    ["Offset of field: io_uring_rsrc_register::resv"]
-        [::std::mem::offset_of!(io_uring_rsrc_register, resv) - 4usize];
+    ["Offset of field: io_uring_rsrc_register::flags"]
+        [::std::mem::offset_of!(io_uring_rsrc_register, flags) - 4usize];
     ["Offset of field: io_uring_rsrc_register::resv2"]
         [::std::mem::offset_of!(io_uring_rsrc_register, resv2) - 8usize];
     ["Offset of field: io_uring_rsrc_register::data"]
@@ -698,18 +973,236 @@ impl Default for io_uring_restriction {
         }
     }
 }
-pub const IORING_RESTRICTION_REGISTER_OP: _bindgen_ty_6 = 0;
-pub const IORING_RESTRICTION_SQE_OP: _bindgen_ty_6 = 1;
-pub const IORING_RESTRICTION_SQE_FLAGS_ALLOWED: _bindgen_ty_6 = 2;
-pub const IORING_RESTRICTION_SQE_FLAGS_REQUIRED: _bindgen_ty_6 = 3;
-pub const IORING_RESTRICTION_LAST: _bindgen_ty_6 = 4;
-pub type _bindgen_ty_6 = ::std::os::raw::c_uint;
+#[repr(C)]
+#[derive(Debug, Default, Copy, Clone, PartialEq)]
+pub struct io_uring_clock_register {
+    pub clockid: __u32,
+    pub __resv: [__u32; 3usize],
+}
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    ["Size of io_uring_clock_register"][::std::mem::size_of::<io_uring_clock_register>() - 16usize];
+    ["Alignment of io_uring_clock_register"]
+        [::std::mem::align_of::<io_uring_clock_register>() - 4usize];
+    ["Offset of field: io_uring_clock_register::clockid"]
+        [::std::mem::offset_of!(io_uring_clock_register, clockid) - 0usize];
+    ["Offset of field: io_uring_clock_register::__resv"]
+        [::std::mem::offset_of!(io_uring_clock_register, __resv) - 4usize];
+};
+pub mod _bindgen_ty_1 {
+    pub type Type = ::std::os::raw::c_uint;
+    pub const IORING_REGISTER_SRC_REGISTERED: Type = 1;
+}
+#[repr(C)]
+#[derive(Debug, Default, Copy, Clone, PartialEq)]
+pub struct io_uring_clone_buffers {
+    pub src_fd: __u32,
+    pub flags: __u32,
+    pub pad: [__u32; 6usize],
+}
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    ["Size of io_uring_clone_buffers"][::std::mem::size_of::<io_uring_clone_buffers>() - 32usize];
+    ["Alignment of io_uring_clone_buffers"]
+        [::std::mem::align_of::<io_uring_clone_buffers>() - 4usize];
+    ["Offset of field: io_uring_clone_buffers::src_fd"]
+        [::std::mem::offset_of!(io_uring_clone_buffers, src_fd) - 0usize];
+    ["Offset of field: io_uring_clone_buffers::flags"]
+        [::std::mem::offset_of!(io_uring_clone_buffers, flags) - 4usize];
+    ["Offset of field: io_uring_clone_buffers::pad"]
+        [::std::mem::offset_of!(io_uring_clone_buffers, pad) - 8usize];
+};
+#[repr(C)]
+#[derive(Debug, Default, Copy, Clone, PartialEq)]
+pub struct io_uring_buf {
+    pub addr: __u64,
+    pub len: __u32,
+    pub bid: __u16,
+    pub resv: __u16,
+}
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    ["Size of io_uring_buf"][::std::mem::size_of::<io_uring_buf>() - 16usize];
+    ["Alignment of io_uring_buf"][::std::mem::align_of::<io_uring_buf>() - 8usize];
+    ["Offset of field: io_uring_buf::addr"][::std::mem::offset_of!(io_uring_buf, addr) - 0usize];
+    ["Offset of field: io_uring_buf::len"][::std::mem::offset_of!(io_uring_buf, len) - 8usize];
+    ["Offset of field: io_uring_buf::bid"][::std::mem::offset_of!(io_uring_buf, bid) - 12usize];
+    ["Offset of field: io_uring_buf::resv"][::std::mem::offset_of!(io_uring_buf, resv) - 14usize];
+};
+#[repr(C)]
+pub struct io_uring_buf_ring {
+    pub __bindgen_anon_1: io_uring_buf_ring__bindgen_ty_1,
+}
+#[repr(C)]
+pub struct io_uring_buf_ring__bindgen_ty_1 {
+    pub __bindgen_anon_1: __BindgenUnionField<io_uring_buf_ring__bindgen_ty_1__bindgen_ty_1>,
+    pub __bindgen_anon_2: __BindgenUnionField<io_uring_buf_ring__bindgen_ty_1__bindgen_ty_2>,
+    pub bindgen_union_field: [u64; 2usize],
+}
+#[repr(C)]
+#[derive(Debug, Default, Copy, Clone, PartialEq)]
+pub struct io_uring_buf_ring__bindgen_ty_1__bindgen_ty_1 {
+    pub resv1: __u64,
+    pub resv2: __u32,
+    pub resv3: __u16,
+    pub tail: __u16,
+}
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    ["Size of io_uring_buf_ring__bindgen_ty_1__bindgen_ty_1"]
+        [::std::mem::size_of::<io_uring_buf_ring__bindgen_ty_1__bindgen_ty_1>() - 16usize];
+    ["Alignment of io_uring_buf_ring__bindgen_ty_1__bindgen_ty_1"]
+        [::std::mem::align_of::<io_uring_buf_ring__bindgen_ty_1__bindgen_ty_1>() - 8usize];
+    ["Offset of field: io_uring_buf_ring__bindgen_ty_1__bindgen_ty_1::resv1"]
+        [::std::mem::offset_of!(io_uring_buf_ring__bindgen_ty_1__bindgen_ty_1, resv1) - 0usize];
+    ["Offset of field: io_uring_buf_ring__bindgen_ty_1__bindgen_ty_1::resv2"]
+        [::std::mem::offset_of!(io_uring_buf_ring__bindgen_ty_1__bindgen_ty_1, resv2) - 8usize];
+    ["Offset of field: io_uring_buf_ring__bindgen_ty_1__bindgen_ty_1::resv3"]
+        [::std::mem::offset_of!(io_uring_buf_ring__bindgen_ty_1__bindgen_ty_1, resv3) - 12usize];
+    ["Offset of field: io_uring_buf_ring__bindgen_ty_1__bindgen_ty_1::tail"]
+        [::std::mem::offset_of!(io_uring_buf_ring__bindgen_ty_1__bindgen_ty_1, tail) - 14usize];
+};
+#[repr(C)]
+#[derive(Debug, Default)]
+pub struct io_uring_buf_ring__bindgen_ty_1__bindgen_ty_2 {
+    pub __empty_bufs: io_uring_buf_ring__bindgen_ty_1__bindgen_ty_2__bindgen_ty_1,
+    pub bufs: __IncompleteArrayField<io_uring_buf>,
+}
+#[repr(C)]
+#[derive(Debug, Default, Copy, Clone, PartialEq)]
+pub struct io_uring_buf_ring__bindgen_ty_1__bindgen_ty_2__bindgen_ty_1 {}
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    ["Size of io_uring_buf_ring__bindgen_ty_1__bindgen_ty_2__bindgen_ty_1"][::std::mem::size_of::<
+        io_uring_buf_ring__bindgen_ty_1__bindgen_ty_2__bindgen_ty_1,
+    >() - 0usize];
+    ["Alignment of io_uring_buf_ring__bindgen_ty_1__bindgen_ty_2__bindgen_ty_1"]
+        [::std::mem::align_of::<io_uring_buf_ring__bindgen_ty_1__bindgen_ty_2__bindgen_ty_1>()
+            - 1usize];
+};
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    ["Size of io_uring_buf_ring__bindgen_ty_1__bindgen_ty_2"]
+        [::std::mem::size_of::<io_uring_buf_ring__bindgen_ty_1__bindgen_ty_2>() - 0usize];
+    ["Alignment of io_uring_buf_ring__bindgen_ty_1__bindgen_ty_2"]
+        [::std::mem::align_of::<io_uring_buf_ring__bindgen_ty_1__bindgen_ty_2>() - 8usize];
+    ["Offset of field: io_uring_buf_ring__bindgen_ty_1__bindgen_ty_2::__empty_bufs"][::std::mem::offset_of!(
+        io_uring_buf_ring__bindgen_ty_1__bindgen_ty_2,
+        __empty_bufs
+    ) - 0usize];
+    ["Offset of field: io_uring_buf_ring__bindgen_ty_1__bindgen_ty_2::bufs"]
+        [::std::mem::offset_of!(io_uring_buf_ring__bindgen_ty_1__bindgen_ty_2, bufs) - 0usize];
+};
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    ["Size of io_uring_buf_ring__bindgen_ty_1"]
+        [::std::mem::size_of::<io_uring_buf_ring__bindgen_ty_1>() - 16usize];
+    ["Alignment of io_uring_buf_ring__bindgen_ty_1"]
+        [::std::mem::align_of::<io_uring_buf_ring__bindgen_ty_1>() - 8usize];
+};
+impl Default for io_uring_buf_ring__bindgen_ty_1 {
+    fn default() -> Self {
+        let mut s = ::std::mem::MaybeUninit::<Self>::uninit();
+        unsafe {
+            ::std::ptr::write_bytes(s.as_mut_ptr(), 0, 1);
+            s.assume_init()
+        }
+    }
+}
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    ["Size of io_uring_buf_ring"][::std::mem::size_of::<io_uring_buf_ring>() - 16usize];
+    ["Alignment of io_uring_buf_ring"][::std::mem::align_of::<io_uring_buf_ring>() - 8usize];
+};
+impl Default for io_uring_buf_ring {
+    fn default() -> Self {
+        let mut s = ::std::mem::MaybeUninit::<Self>::uninit();
+        unsafe {
+            ::std::ptr::write_bytes(s.as_mut_ptr(), 0, 1);
+            s.assume_init()
+        }
+    }
+}
+pub mod io_uring_register_pbuf_ring_flags {
+    pub type Type = ::std::os::raw::c_uint;
+    pub const IOU_PBUF_RING_MMAP: Type = 1;
+    pub const IOU_PBUF_RING_INC: Type = 2;
+}
+#[repr(C)]
+#[derive(Debug, Default, Copy, Clone, PartialEq)]
+pub struct io_uring_buf_reg {
+    pub ring_addr: __u64,
+    pub ring_entries: __u32,
+    pub bgid: __u16,
+    pub flags: __u16,
+    pub resv: [__u64; 3usize],
+}
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    ["Size of io_uring_buf_reg"][::std::mem::size_of::<io_uring_buf_reg>() - 40usize];
+    ["Alignment of io_uring_buf_reg"][::std::mem::align_of::<io_uring_buf_reg>() - 8usize];
+    ["Offset of field: io_uring_buf_reg::ring_addr"]
+        [::std::mem::offset_of!(io_uring_buf_reg, ring_addr) - 0usize];
+    ["Offset of field: io_uring_buf_reg::ring_entries"]
+        [::std::mem::offset_of!(io_uring_buf_reg, ring_entries) - 8usize];
+    ["Offset of field: io_uring_buf_reg::bgid"]
+        [::std::mem::offset_of!(io_uring_buf_reg, bgid) - 12usize];
+    ["Offset of field: io_uring_buf_reg::flags"]
+        [::std::mem::offset_of!(io_uring_buf_reg, flags) - 14usize];
+    ["Offset of field: io_uring_buf_reg::resv"]
+        [::std::mem::offset_of!(io_uring_buf_reg, resv) - 16usize];
+};
+#[repr(C)]
+#[derive(Debug, Default, Copy, Clone, PartialEq)]
+pub struct io_uring_buf_status {
+    pub buf_group: __u32,
+    pub head: __u32,
+    pub resv: [__u32; 8usize],
+}
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    ["Size of io_uring_buf_status"][::std::mem::size_of::<io_uring_buf_status>() - 40usize];
+    ["Alignment of io_uring_buf_status"][::std::mem::align_of::<io_uring_buf_status>() - 4usize];
+    ["Offset of field: io_uring_buf_status::buf_group"]
+        [::std::mem::offset_of!(io_uring_buf_status, buf_group) - 0usize];
+    ["Offset of field: io_uring_buf_status::head"]
+        [::std::mem::offset_of!(io_uring_buf_status, head) - 4usize];
+    ["Offset of field: io_uring_buf_status::resv"]
+        [::std::mem::offset_of!(io_uring_buf_status, resv) - 8usize];
+};
+#[repr(C)]
+#[derive(Debug, Default, Copy, Clone, PartialEq)]
+pub struct io_uring_napi {
+    pub busy_poll_to: __u32,
+    pub prefer_busy_poll: __u8,
+    pub pad: [__u8; 3usize],
+    pub resv: __u64,
+}
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    ["Size of io_uring_napi"][::std::mem::size_of::<io_uring_napi>() - 16usize];
+    ["Alignment of io_uring_napi"][::std::mem::align_of::<io_uring_napi>() - 8usize];
+    ["Offset of field: io_uring_napi::busy_poll_to"]
+        [::std::mem::offset_of!(io_uring_napi, busy_poll_to) - 0usize];
+    ["Offset of field: io_uring_napi::prefer_busy_poll"]
+        [::std::mem::offset_of!(io_uring_napi, prefer_busy_poll) - 4usize];
+    ["Offset of field: io_uring_napi::pad"][::std::mem::offset_of!(io_uring_napi, pad) - 5usize];
+    ["Offset of field: io_uring_napi::resv"][::std::mem::offset_of!(io_uring_napi, resv) - 8usize];
+};
+pub mod io_uring_register_restriction_op {
+    pub type Type = ::std::os::raw::c_uint;
+    pub const IORING_RESTRICTION_REGISTER_OP: Type = 0;
+    pub const IORING_RESTRICTION_SQE_OP: Type = 1;
+    pub const IORING_RESTRICTION_SQE_FLAGS_ALLOWED: Type = 2;
+    pub const IORING_RESTRICTION_SQE_FLAGS_REQUIRED: Type = 3;
+    pub const IORING_RESTRICTION_LAST: Type = 4;
+}
 #[repr(C)]
 #[derive(Debug, Default, Copy, Clone, PartialEq)]
 pub struct io_uring_getevents_arg {
     pub sigmask: __u64,
     pub sigmask_sz: __u32,
-    pub pad: __u32,
+    pub min_wait_usec: __u32,
     pub ts: __u64,
 }
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
@@ -721,8 +1214,88 @@ const _: () = {
         [::std::mem::offset_of!(io_uring_getevents_arg, sigmask) - 0usize];
     ["Offset of field: io_uring_getevents_arg::sigmask_sz"]
         [::std::mem::offset_of!(io_uring_getevents_arg, sigmask_sz) - 8usize];
-    ["Offset of field: io_uring_getevents_arg::pad"]
-        [::std::mem::offset_of!(io_uring_getevents_arg, pad) - 12usize];
+    ["Offset of field: io_uring_getevents_arg::min_wait_usec"]
+        [::std::mem::offset_of!(io_uring_getevents_arg, min_wait_usec) - 12usize];
     ["Offset of field: io_uring_getevents_arg::ts"]
         [::std::mem::offset_of!(io_uring_getevents_arg, ts) - 16usize];
 };
+#[repr(C)]
+#[derive(Debug, Default, Copy, Clone, PartialEq)]
+pub struct io_uring_sync_cancel_reg {
+    pub addr: __u64,
+    pub fd: __s32,
+    pub flags: __u32,
+    pub timeout: __kernel_timespec,
+    pub opcode: __u8,
+    pub pad: [__u8; 7usize],
+    pub pad2: [__u64; 3usize],
+}
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    ["Size of io_uring_sync_cancel_reg"]
+        [::std::mem::size_of::<io_uring_sync_cancel_reg>() - 64usize];
+    ["Alignment of io_uring_sync_cancel_reg"]
+        [::std::mem::align_of::<io_uring_sync_cancel_reg>() - 8usize];
+    ["Offset of field: io_uring_sync_cancel_reg::addr"]
+        [::std::mem::offset_of!(io_uring_sync_cancel_reg, addr) - 0usize];
+    ["Offset of field: io_uring_sync_cancel_reg::fd"]
+        [::std::mem::offset_of!(io_uring_sync_cancel_reg, fd) - 8usize];
+    ["Offset of field: io_uring_sync_cancel_reg::flags"]
+        [::std::mem::offset_of!(io_uring_sync_cancel_reg, flags) - 12usize];
+    ["Offset of field: io_uring_sync_cancel_reg::timeout"]
+        [::std::mem::offset_of!(io_uring_sync_cancel_reg, timeout) - 16usize];
+    ["Offset of field: io_uring_sync_cancel_reg::opcode"]
+        [::std::mem::offset_of!(io_uring_sync_cancel_reg, opcode) - 32usize];
+    ["Offset of field: io_uring_sync_cancel_reg::pad"]
+        [::std::mem::offset_of!(io_uring_sync_cancel_reg, pad) - 33usize];
+    ["Offset of field: io_uring_sync_cancel_reg::pad2"]
+        [::std::mem::offset_of!(io_uring_sync_cancel_reg, pad2) - 40usize];
+};
+#[repr(C)]
+#[derive(Debug, Default, Copy, Clone, PartialEq)]
+pub struct io_uring_file_index_range {
+    pub off: __u32,
+    pub len: __u32,
+    pub resv: __u64,
+}
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    ["Size of io_uring_file_index_range"]
+        [::std::mem::size_of::<io_uring_file_index_range>() - 16usize];
+    ["Alignment of io_uring_file_index_range"]
+        [::std::mem::align_of::<io_uring_file_index_range>() - 8usize];
+    ["Offset of field: io_uring_file_index_range::off"]
+        [::std::mem::offset_of!(io_uring_file_index_range, off) - 0usize];
+    ["Offset of field: io_uring_file_index_range::len"]
+        [::std::mem::offset_of!(io_uring_file_index_range, len) - 4usize];
+    ["Offset of field: io_uring_file_index_range::resv"]
+        [::std::mem::offset_of!(io_uring_file_index_range, resv) - 8usize];
+};
+#[repr(C)]
+#[derive(Debug, Default, Copy, Clone, PartialEq)]
+pub struct io_uring_recvmsg_out {
+    pub namelen: __u32,
+    pub controllen: __u32,
+    pub payloadlen: __u32,
+    pub flags: __u32,
+}
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    ["Size of io_uring_recvmsg_out"][::std::mem::size_of::<io_uring_recvmsg_out>() - 16usize];
+    ["Alignment of io_uring_recvmsg_out"][::std::mem::align_of::<io_uring_recvmsg_out>() - 4usize];
+    ["Offset of field: io_uring_recvmsg_out::namelen"]
+        [::std::mem::offset_of!(io_uring_recvmsg_out, namelen) - 0usize];
+    ["Offset of field: io_uring_recvmsg_out::controllen"]
+        [::std::mem::offset_of!(io_uring_recvmsg_out, controllen) - 4usize];
+    ["Offset of field: io_uring_recvmsg_out::payloadlen"]
+        [::std::mem::offset_of!(io_uring_recvmsg_out, payloadlen) - 8usize];
+    ["Offset of field: io_uring_recvmsg_out::flags"]
+        [::std::mem::offset_of!(io_uring_recvmsg_out, flags) - 12usize];
+};
+pub mod io_uring_socket_op {
+    pub type Type = ::std::os::raw::c_uint;
+    pub const SOCKET_URING_OP_SIOCINQ: Type = 0;
+    pub const SOCKET_URING_OP_SIOCOUTQ: Type = 1;
+    pub const SOCKET_URING_OP_GETSOCKOPT: Type = 2;
+    pub const SOCKET_URING_OP_SETSOCKOPT: Type = 3;
+}

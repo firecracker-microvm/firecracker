@@ -35,20 +35,33 @@ function fc-bindgen {
     clippy::undocumented_unsafe_blocks,
     missing_debug_implementations,
     clippy::tests_outside_test_module,
-    unsafe_op_in_unsafe_fn
+    unsafe_op_in_unsafe_fn,
+    clippy::redundant_static_lifetimes
 )]
 
 EOF
-    bindgen --no-doc-comments --disable-header-comment --constified-enum '*' --with-derive-default --with-derive-partialeq $@
+    bindgen --no-doc-comments --disable-header-comment --constified-enum-module '.*' --with-derive-default --with-derive-partialeq $@
 }
 
-KERNEL_HEADERS_HOME="/usr"
+KERNEL_BRANCH="linux-6.12.y"
+KERNEL_DIR="./$KERNEL_BRANCH"
+HEADERS_DIR=$(realpath "./linux-headers")
+# https://www.kernel.org/doc/Documentation/kbuild/headers_install.txt
+# The Linux repo is huge. Just copy what we need.
+[ -d $KERNEL_DIR ] || git clone --branch $KERNEL_BRANCH --depth 1 https://github.com/amazonlinux/linux $KERNEL_DIR
+
+(rm -rf $HEADERS_DIR && cd $KERNEL_DIR && make headers_install ARCH=x86_64 INSTALL_HDR_PATH=$HEADERS_DIR)
+
+INCLUDE="$HEADERS_DIR/include/"
+ARCH_X86_INCLUDE="$KERNEL_DIR/arch/x86/include"
+
+export BINDGEN_EXTRA_CLANG_ARGS="-I$INCLUDE -I$ARCH_X86_INCLUDE"
 
 info "BINDGEN sockios.h"
-fc-bindgen "$KERNEL_HEADERS_HOME/include/linux/sockios.h" |replace_linux_int_types >src/vmm/src/devices/virtio/net/generated/sockios.rs
+fc-bindgen "$INCLUDE/linux/sockios.h" |replace_linux_int_types >src/vmm/src/devices/virtio/net/generated/sockios.rs
 
 info "BINDGEN if.h"
-fc-bindgen "$KERNEL_HEADERS_HOME/include/linux/if.h" \
+fc-bindgen "$INCLUDE/linux/if.h" \
            --allowlist-var='IF.*' \
            --allowlist-type='if.*' \
            --allowlist-type="net_device.*" \
@@ -64,79 +77,70 @@ fc-bindgen \
     --allowlist-var='IFF_VNET_HDR' \
     --allowlist-var='ETH_.*' \
     --allowlist-type='ifreq' \
-   "$KERNEL_HEADERS_HOME/include/linux/if_tun.h" >src/vmm/src/devices/virtio/net/generated/if_tun.rs
+   "$INCLUDE/linux/if_tun.h" >src/vmm/src/devices/virtio/net/generated/if_tun.rs
 
 info "BINDGEN virtio_ring.h"
 fc-bindgen \
     --allowlist-var "VIRTIO_RING_F_EVENT_IDX" \
-    "$KERNEL_HEADERS_HOME/include/linux/virtio_ring.h" >src/vmm/src/devices/virtio/generated/virtio_ring.rs
+    "$INCLUDE/linux/virtio_ring.h" >src/vmm/src/devices/virtio/generated/virtio_ring.rs
 
 info "BINDGEN virtio_config.h"
 fc-bindgen \
     --allowlist-var "VIRTIO_F_.*" \
-    "$KERNEL_HEADERS_HOME/include/linux/virtio_config.h" >src/vmm/src/devices/virtio/generated/virtio_config.rs
+    "$INCLUDE/linux/virtio_config.h" >src/vmm/src/devices/virtio/generated/virtio_config.rs
 
 info "BINDGEN virtio_blk.h"
 fc-bindgen \
     --allowlist-var "VIRTIO_BLK_.*" \
-    "$KERNEL_HEADERS_HOME/include/linux/virtio_blk.h" >src/vmm/src/devices/virtio/generated/virtio_blk.rs
+    "$INCLUDE/linux/virtio_blk.h" >src/vmm/src/devices/virtio/generated/virtio_blk.rs
 
 info "BINDGEN virtio_net.h"
 fc-bindgen \
     --allowlist-var "VIRTIO_NET_F_.*" \
     --allowlist-type "virtio_net_hdr_v1" \
-    "$KERNEL_HEADERS_HOME/include/linux/virtio_net.h" >src/vmm/src/devices/virtio/generated/virtio_net.rs
+    "$INCLUDE/linux/virtio_net.h" >src/vmm/src/devices/virtio/generated/virtio_net.rs
 
 info "BINDGEN prctl.h"
 fc-bindgen \
     --allowlist-var "PR_.*" \
-    "$KERNEL_HEADERS_HOME/include/linux/prctl.h" >src/firecracker/src/generated/prctl.rs
+    "$INCLUDE/linux/prctl.h" >src/firecracker/src/generated/prctl.rs
 sed -i '/PR_SET_SPECULATION_CTRL/s/u32/i32/g' src/firecracker/src/generated/prctl.rs
 
-# https://www.kernel.org/doc/Documentation/kbuild/headers_install.txt
-# The Linux repo is huge. Just copy what we need.
-# git clone --branch v5.10 --depth 1 https://github.com/torvalds/linux.git linux
-git clone --branch linux-5.10.y --depth 1 https://github.com/amazonlinux/linux amazonlinux-v5.10.y
-
 info "BINDGEN mpspec_def.h"
-fc-bindgen amazonlinux-v5.10.y/arch/x86/include/asm/mpspec_def.h \
+fc-bindgen $ARCH_X86_INCLUDE/asm/mpspec_def.h \
            >src/vmm/src/arch/x86_64/generated/mpspec.rs
 # https://github.com/rust-lang/rust-bindgen/issues/1274
 
 info "BINDGEN msr-index.h"
-cp -r amazonlinux-v5.10.y/include/asm-generic amazonlinux-v5.10.y/include/asm
-sed -i -E 's/__no_(sanitize|kasan)_or_inline//g' amazonlinux-v5.10.y/include/asm/rwonce.h
-fc-bindgen amazonlinux-v5.10.y/arch/x86/include/asm/msr-index.h \
+fc-bindgen $ARCH_X86_INCLUDE/asm/msr-index.h \
     --allowlist-var "^MSR_.*$" \
     -- \
-    -Iamazonlinux-v5.10.y/include/ \
-    -Iamazonlinux-v5.10.y/arch/x86/include/ \
     -Wno-macro-redefined \
     >src/vmm/src/arch/x86_64/generated/msr_index.rs
 perl -i -pe 's/= (\d+);/sprintf("= 0x%x;",$1)/eg' src/vmm/src/arch/x86_64/generated/msr_index.rs
 
 info "BINDGEN perf_event.h"
-grep "MSR_ARCH_PERFMON_" amazonlinux-v5.10.y/arch/x86/include/asm/perf_event.h \
-    >amazonlinux-v5.10.y/arch/x86/include/asm/perf_event_msr.h
-fc-bindgen amazonlinux-v5.10.y/arch/x86/include/asm/perf_event_msr.h \
+grep "MSR_ARCH_PERFMON_" $ARCH_X86_INCLUDE/asm/perf_event.h \
+    >$ARCH_X86_INCLUDE/asm/perf_event_msr.h
+fc-bindgen $ARCH_X86_INCLUDE/asm/perf_event_msr.h \
     --allowlist-var "^MSR_ARCH_PERFMON_.*$" \
     -- \
     >src/vmm/src/arch/x86_64/generated/perf_event.rs
 perl -i -pe 's/= (\d+);/sprintf("= 0x%x;",$1)/eg' src/vmm/src/arch/x86_64/generated/perf_event.rs
 
 info "BINDGEN hyperv.h"
-grep "HV_X64_MSR_" amazonlinux-v5.10.y/arch/x86/kvm/hyperv.h \
-    >amazonlinux-v5.10.y/arch/x86/kvm/hyperv_msr.h
-fc-bindgen amazonlinux-v5.10.y/arch/x86/kvm/hyperv_msr.h \
+grep "#define HV_X64_MSR_" $KERNEL_DIR/arch/x86/kvm/hyperv.h \
+    >$KERNEL_DIR/arch/x86/kvm/hyperv_msr.h
+fc-bindgen $KERNEL_DIR/arch/x86/kvm/hyperv_msr.h \
     --allowlist-var "^HV_X64_MSR_.*$" \
     -- \
     >src/vmm/src/arch/x86_64/generated/hyperv.rs
 perl -i -pe 's/= (\d+);/sprintf("= 0x%x;",$1)/eg' src/vmm/src/arch/x86_64/generated/hyperv.rs
 
 info "BINDGEN hyperv-tlfs.h"
-grep "HV_X64_MSR_" amazonlinux-v5.10.y/arch/x86/include/asm/hyperv-tlfs.h \
-    >amazonlinux-v5.10.y/arch/x86/include/asm/hyperv-tlfs_msr.h
-fc-bindgen amazonlinux-v5.10.y/arch/x86/include/asm/hyperv-tlfs_msr.h \
+grep "HV_X64_MSR_" $ARCH_X86_INCLUDE/asm/hyperv-tlfs.h \
+    >$ARCH_X86_INCLUDE/asm/hyperv-tlfs_msr.h
+fc-bindgen $ARCH_X86_INCLUDE/asm/hyperv-tlfs_msr.h \
     --allowlist-var "^HV_X64_MSR_.*$" \
     -- \
     >src/vmm/src/arch/x86_64/generated/hyperv_tlfs.rs
@@ -149,17 +153,13 @@ fc-bindgen \
     --allowlist-var "IOSQE_.+" \
     --allowlist-type "io_uring_.+" \
     --allowlist-type "io_.qring_offsets" \
-    "amazonlinux-v5.10.y/include/uapi/linux/io_uring.h" \
+    "$INCLUDE/linux/io_uring.h" \
     >src/vmm/src/io_uring/generated.rs
-
-# Latest upstream kernel
-KERNEL_SRC_DIR="linux"
-[ -d ${KERNEL_SRC_DIR} ] || git clone --depth 1 https://github.com/amazonlinux/linux ${KERNEL_SRC_DIR}
 
 info "BINDGEN asm/prctl.h"
 fc-bindgen \
     --allowlist-var "ARCH_.*" \
-    "${KERNEL_SRC_DIR}/arch/x86/include/uapi/asm/prctl.h" >src/vmm/src/arch/x86_64/generated/arch_prctl.rs
+    "$ARCH_X86_INCLUDE/uapi/asm/prctl.h" >src/vmm/src/arch/x86_64/generated/arch_prctl.rs
 
 # Apply any patches
 info "Apply patches"
