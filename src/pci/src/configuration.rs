@@ -190,7 +190,7 @@ pub trait PciProgrammingInterface {
 }
 
 /// Types of PCI capabilities.
-#[derive(PartialEq, Eq, Copy, Clone)]
+#[derive(Debug, PartialEq, Eq, Copy, Clone)]
 #[allow(dead_code)]
 #[allow(non_camel_case_types)]
 #[repr(u8)]
@@ -474,8 +474,6 @@ pub enum Error {
     BarInvalid(usize),
     BarInvalid64(usize),
     BarSizeInvalid(u64),
-    CapabilityEmpty,
-    CapabilityLengthInvalid(usize),
     CapabilitySpaceFull(usize),
     Decode32BarSize,
     Decode64BarSize,
@@ -505,8 +503,6 @@ impl Display for Error {
                 NUM_BAR_REGS - 1
             ),
             BarSizeInvalid(s) => write!(f, "bar address {s} not a power of two"),
-            CapabilityEmpty => write!(f, "empty capabilities are invalid"),
-            CapabilityLengthInvalid(l) => write!(f, "Invalid capability length {l}"),
             CapabilitySpaceFull(s) => write!(f, "capability of size {s} doesn't fit"),
             Decode32BarSize => write!(f, "failed to decode 32 bits BAR size"),
             Decode64BarSize => write!(f, "failed to decode 64 bits BAR size"),
@@ -706,16 +702,16 @@ impl PciConfiguration {
         let bar_idx = config.idx;
         let reg_idx = BAR0_REG + bar_idx;
 
+        if bar_idx >= NUM_BAR_REGS {
+            return Err(Error::BarInvalid(bar_idx));
+        }
+
         if self.bars[bar_idx].used {
             return Err(Error::BarInUse(bar_idx));
         }
 
         if !config.size.is_power_of_two() {
             return Err(Error::BarSizeInvalid(config.size));
-        }
-
-        if bar_idx >= NUM_BAR_REGS {
-            return Err(Error::BarInvalid(bar_idx));
         }
 
         let end_addr = config
@@ -739,7 +735,7 @@ impl PciConfiguration {
                 }
 
                 if self.bars[bar_idx + 1].used {
-                    return Err(Error::BarInUse64(bar_idx));
+                    return Err(Error::BarInUse64(bar_idx + 1));
                 }
 
                 // Encode the BAR size as expected by the software running in
@@ -789,15 +785,12 @@ impl PciConfiguration {
     }
 
     /// Adds the capability `cap_data` to the list of capabilities.
-    /// `cap_data` should include the two-byte PCI capability header (type, next),
-    /// but not populate it. Correct values will be generated automatically based
-    /// on `cap_data.id()`.
+    ///
+    /// `cap_data` should not include the two-byte PCI capability header (type, next).
+    /// Correct values will be generated automatically based on `cap_data.id()` and
+    /// `cap_data.len()`.
     pub fn add_capability(&mut self, cap_data: &dyn PciCapability) -> Result<usize> {
-        let total_len = cap_data.bytes().len();
-        // Check that the length is valid.
-        if cap_data.bytes().is_empty() {
-            return Err(Error::CapabilityEmpty);
-        }
+        let total_len = cap_data.bytes().len() + 2;
         let (cap_offset, tail_offset) = match self.last_capability {
             Some((offset, len)) => (Self::next_dword(offset, len), offset + 1),
             None => (FIRST_CAPABILITY_OFFSET, CAPABILITY_LIST_HEAD_OFFSET),
@@ -838,6 +831,10 @@ impl PciConfiguration {
     }
 
     pub fn write_config_register(&mut self, reg_idx: usize, offset: u64, data: &[u8]) {
+        if reg_idx >= NUM_CONFIGURATION_REGISTERS {
+            return;
+        }
+
         if offset as usize + data.len() > 4 {
             return;
         }
@@ -846,11 +843,14 @@ impl PciConfiguration {
         if let Some(msix_cap_reg_idx) = self.msix_cap_reg_idx {
             if let Some(msix_config) = &self.msix_config {
                 if msix_cap_reg_idx == reg_idx && offset == 2 && data.len() == 2 {
+                    // 2-bytes write in the Message Control field
                     msix_config
                         .lock()
                         .unwrap()
                         .set_msg_ctl(LittleEndian::read_u16(data));
                 } else if msix_cap_reg_idx == reg_idx && offset == 0 && data.len() == 4 {
+                    // 4 bytes write at the beginning. Ignore the first 2 bytes which are the
+                    // capability id and next capability pointer
                     msix_config
                         .lock()
                         .unwrap()
@@ -927,9 +927,15 @@ impl PciConfiguration {
                     region_type,
                 });
             } else if (reg_idx > BAR0_REG)
-                && ((self.registers[reg_idx - 1] & self.writable_bits[reg_idx - 1])
-                    != (self.bars[bar_idx - 1].addr & self.writable_bits[reg_idx - 1])
-                    || (value & mask) != (self.bars[bar_idx].addr & mask))
+                && (
+                    // The lower BAR (of this 64bit BAR) has been reprogrammed to a different value
+                    // than it used to be
+                    (self.registers[reg_idx - 1] & self.writable_bits[reg_idx - 1])
+                    != (self.bars[bar_idx - 1].addr & self.writable_bits[reg_idx - 1]) ||
+                    // Or the lower BAR hasn't been changed but the upper one is being reprogrammed
+                    // now to a different value
+                    (value & mask) != (self.bars[bar_idx].addr & mask)
+                )
             {
                 info!(
                     "Detected BAR reprogramming: (BAR {}) 0x{:x}->0x{:x}",
@@ -1002,9 +1008,11 @@ impl Default for PciBarConfiguration {
 
 #[cfg(test)]
 mod tests {
+
     use vm_memory::ByteValued;
 
     use super::*;
+    use crate::MsixCap;
 
     #[repr(C, packed)]
     #[derive(Clone, Copy, Default)]
@@ -1027,6 +1035,28 @@ mod tests {
         }
     }
 
+    struct BadCap {
+        data: Vec<u8>,
+    }
+
+    impl BadCap {
+        fn new(len: u8) -> Self {
+            Self {
+                data: (0..len).collect(),
+            }
+        }
+    }
+
+    impl PciCapability for BadCap {
+        fn bytes(&self) -> &[u8] {
+            &self.data
+        }
+
+        fn id(&self) -> PciCapabilityId {
+            PciCapabilityId::VendorSpecific
+        }
+    }
+
     #[test]
     fn add_capability() {
         let mut cfg = PciConfiguration::new(
@@ -1042,6 +1072,20 @@ mod tests {
             None,
             None,
         );
+
+        // Bad size capabilities
+        assert!(matches!(
+            cfg.add_capability(&BadCap::new(127)),
+            Err(Error::CapabilitySpaceFull(129))
+        ));
+        cfg.add_capability(&BadCap::new(62)).unwrap();
+        cfg.add_capability(&BadCap::new(62)).unwrap();
+        assert!(matches!(
+            cfg.add_capability(&BadCap::new(0)),
+            Err(Error::CapabilitySpaceFull(2))
+        ));
+        // Reset capabilities
+        cfg.last_capability = None;
 
         // Add two capabilities with different contents.
         let cap1 = TestCap { len: 4, foo: 0xAA };
@@ -1071,6 +1115,107 @@ mod tests {
         assert_eq!((cap2_data >> 8) & 0xFF, 0x00); // next capability pointer
         assert_eq!((cap2_data >> 16) & 0xFF, 0x04); // cap2.len
         assert_eq!((cap2_data >> 24) & 0xFF, 0x55); // cap2.foo
+    }
+
+    #[test]
+    fn test_msix_capability() {
+        let mut cfg = PciConfiguration::new(
+            0x1234,
+            0x5678,
+            0x1,
+            PciClassCode::MultimediaController,
+            &PciMultimediaSubclass::AudioController,
+            None,
+            PciHeaderType::Device,
+            0xABCD,
+            0x2468,
+            None,
+            None,
+        );
+
+        // Information about the MSI-X capability layout: https://wiki.osdev.org/PCI#Enabling_MSI-X
+        let msix_cap = MsixCap::new(
+            3,      // Using BAR3 for message control table
+            1024,   // 1024 MSI-X vectors
+            0x4000, // Offset of message control table inside the BAR
+            4,      // BAR4 used for pending control bit
+            0x420,  // Offset of pending bit array (PBA) inside BAR
+        );
+        cfg.add_capability(&msix_cap).unwrap();
+
+        let cap_reg = FIRST_CAPABILITY_OFFSET / 4;
+        let reg = cfg.read_reg(cap_reg);
+        // Capability ID is MSI-X
+        assert_eq!(
+            PciCapabilityId::from((reg & 0xff) as u8),
+            PciCapabilityId::MsiX
+        );
+        // We only have one capability, so `next` should be 0
+        assert_eq!(((reg >> 8) & 0xff) as u8, 0);
+        let msg_ctl = (reg >> 16) as u16;
+
+        // MSI-X is enabled
+        assert_eq!(msg_ctl & 0x8000, 0x8000);
+        // Vectors are not masked
+        assert_eq!(msg_ctl & 0x4000, 0x0);
+        // Reserved bits are 0
+        assert_eq!(msg_ctl & 0x3800, 0x0);
+        // We've got 1024 vectors (Table size is N-1 encoded)
+        assert_eq!((msg_ctl & 0x7ff) + 1, 1024);
+
+        let reg = cfg.read_reg(cap_reg + 1);
+        // We are using BAR3
+        assert_eq!(reg & 0x7, 3);
+        // Message Control Table is located in offset 0x4000 inside the BAR
+        // We don't need to shift. Offset needs to be 8-byte aligned - so BIR
+        // is stored in its last 3 bits (which we need to mask out).
+        assert_eq!(reg & 0xffff_fff8, 0x4000);
+
+        let reg = cfg.read_reg(cap_reg + 2);
+        // PBA is 0x420 bytes inside BAR4
+        assert_eq!(reg & 0x7, 4);
+        assert_eq!(reg & 0xffff_fff8, 0x420);
+
+        // Check read/write mask
+        // Capability Id of MSI-X is 0x11
+        cfg.write_config_register(cap_reg, 0, &[0x0]);
+        assert_eq!(
+            PciCapabilityId::from((cfg.read_reg(cap_reg) & 0xff) as u8),
+            PciCapabilityId::MsiX
+        );
+        // Cannot override next capability pointer
+        cfg.write_config_register(cap_reg, 1, &[0x42]);
+        assert_eq!((cfg.read_reg(cap_reg) >> 8) & 0xff, 0);
+
+        // We are writing this:
+        //
+        // meaning: | MSI enabled | Vectors Masked | Reserved | Table size |
+        // bit:     |     15      |       14       |  13 - 11 |   0 - 10   |
+        // R/W:     |     R/W     |       R/W      |     R    |     R      |
+        let msg_ctl = (cfg.read_reg(cap_reg) >> 16) as u16;
+        // Try to flip all bits
+        cfg.write_config_register(cap_reg, 2, &u16::to_le_bytes(!msg_ctl));
+        let msg_ctl = (cfg.read_reg(cap_reg) >> 16) as u16;
+        // MSI enabled and Vectors masked should be flipped (MSI disabled and vectors masked)
+        assert_eq!(msg_ctl & 0xc000, 0x4000);
+        // Reserved bits should still be 0
+        assert_eq!(msg_ctl & 0x3800, 0);
+        // Table size should not have changed
+        assert_eq!((msg_ctl & 0x07ff) + 1, 1024);
+
+        // Table offset is read only
+        let table_offset = cfg.read_reg(cap_reg + 1);
+        // Try to flip all bits
+        cfg.write_config_register(cap_reg + 1, 0, &u32::to_le_bytes(!table_offset));
+        // None should be flipped
+        assert_eq!(cfg.read_reg(cap_reg + 1), table_offset);
+
+        // PBA offset also
+        let pba_offset = cfg.read_reg(cap_reg + 2);
+        // Try to flip all bits
+        cfg.write_config_register(cap_reg + 2, 0, &u32::to_le_bytes(!pba_offset));
+        // None should be flipped
+        assert_eq!(cfg.read_reg(cap_reg + 2), pba_offset);
     }
 
     #[derive(Copy, Clone)]
@@ -1107,5 +1252,342 @@ mod tests {
         assert_eq!(class_code, 0x04);
         assert_eq!(subclass, 0x01);
         assert_eq!(prog_if, 0x5a);
+    }
+
+    #[test]
+    fn test_bar_size_encoding() {
+        assert!(encode_32_bits_bar_size(0).is_none());
+        assert!(decode_32_bits_bar_size(0).is_none());
+        assert!(encode_64_bits_bar_size(0).is_none());
+        assert!(decode_64_bits_bar_size(0, 0).is_none());
+
+        // According to OSDev wiki (https://wiki.osdev.org/PCI#Address_and_size_of_the_BAR):
+        //
+        // > To determine the amount of address space needed by a PCI device, you must save the
+        // > original value of the BAR, write a value of all 1's to the register, then read it back.
+        // > The amount of memory can then be determined by masking the information bits, performing
+        // > a bitwise NOT ('~' in C), and incrementing the value by 1. The original value of the
+        // BAR > should then be restored. The BAR register is naturally aligned and as such you can
+        // only > modify the bits that are set. For example, if a device utilizes 16 MB it will
+        // have BAR0 > filled with 0xFF000000 (0x1000000 after decoding) and you can only modify
+        // the upper > 8-bits.
+        //
+        // So we should be encoding an address like this: `addr` -> `!(addr - 1)`
+        let encoded = encode_32_bits_bar_size(0x0101_0101).unwrap();
+        assert_eq!(encoded, 0xfefe_feff);
+        assert_eq!(decode_32_bits_bar_size(encoded), Some(0x0101_0101));
+
+        // Similarly we encode a 64 bits size and then store it as a 2 32bit addresses (we use
+        // two BARs).
+        let (hi, lo) = encode_64_bits_bar_size(0xffff_ffff_ffff_fff0).unwrap();
+        assert_eq!(hi, 0);
+        assert_eq!(lo, 0x0000_0010);
+        assert_eq!(decode_64_bits_bar_size(hi, lo), Some(0xffff_ffff_ffff_fff0));
+    }
+
+    #[test]
+    fn test_add_pci_bar() {
+        let mut pci_config = PciConfiguration::new(
+            0x42,
+            0x0,
+            0x0,
+            PciClassCode::MassStorage,
+            &PciMassStorageSubclass::SerialScsiController,
+            None,
+            PciHeaderType::Device,
+            0x13,
+            0x12,
+            None,
+            None,
+        );
+
+        // BAR size can only be a power of 2
+        assert!(matches!(
+            pci_config.add_pci_bar(&PciBarConfiguration {
+                addr: 0x1000,
+                size: 0x1001,
+                idx: 0,
+                region_type: PciBarRegionType::Memory32BitRegion,
+                prefetchable: PciBarPrefetchable::Prefetchable,
+            }),
+            Err(Error::BarSizeInvalid(0x1001))
+        ));
+
+        // Invalid BAR index
+        assert!(matches!(
+            pci_config.add_pci_bar(&PciBarConfiguration {
+                addr: 0x1000,
+                size: 0x1000,
+                idx: NUM_BAR_REGS,
+                region_type: PciBarRegionType::Memory32BitRegion,
+                prefetchable: PciBarPrefetchable::Prefetchable
+            }),
+            Err(Error::BarInvalid(NUM_BAR_REGS))
+        ));
+        // 64bit BARs need 2 BAR slots actually
+        assert!(matches!(
+            pci_config.add_pci_bar(&PciBarConfiguration {
+                addr: 0x1000,
+                size: 0x1000,
+                idx: NUM_BAR_REGS - 1,
+                region_type: PciBarRegionType::Memory64BitRegion,
+                prefetchable: PciBarPrefetchable::Prefetchable
+            }),
+            Err(Error::BarInvalid64(_))
+        ));
+
+        // Check for valid addresses
+        // Can't have an address that exceeds 32 bits for a 32bit BAR
+        assert!(matches!(
+            pci_config.add_pci_bar(&PciBarConfiguration {
+                addr: 0x1000_0000_0000_0000,
+                size: 0x1000,
+                idx: 0,
+                region_type: PciBarRegionType::Memory32BitRegion,
+                prefetchable: PciBarPrefetchable::Prefetchable
+            }),
+            Err(Error::BarAddressInvalid(0x1000_0000_0000_0000, 0x1000))
+        ));
+        // Ensure that we handle properly overflows in 64bit BAR ranges
+        assert!(matches!(
+            pci_config.add_pci_bar(&PciBarConfiguration {
+                addr: u64::MAX,
+                size: 0x2,
+                idx: 0,
+                region_type: PciBarRegionType::Memory64BitRegion,
+                prefetchable: PciBarPrefetchable::Prefetchable
+            }),
+            Err(Error::BarAddressInvalid(u64::MAX, 2))
+        ));
+
+        // We can't reuse a BAR slot
+        pci_config
+            .add_pci_bar(&PciBarConfiguration {
+                addr: 0x1000,
+                size: 0x1000,
+                idx: 0,
+                region_type: PciBarRegionType::Memory32BitRegion,
+                prefetchable: PciBarPrefetchable::Prefetchable,
+            })
+            .unwrap();
+        assert!(matches!(
+            pci_config.add_pci_bar(&PciBarConfiguration {
+                addr: 0x1000,
+                size: 0x1000,
+                idx: 0,
+                region_type: PciBarRegionType::Memory32BitRegion,
+                prefetchable: PciBarPrefetchable::Prefetchable,
+            }),
+            Err(Error::BarInUse(0))
+        ));
+        pci_config
+            .add_pci_bar(&PciBarConfiguration {
+                addr: 0x0000_0001_0000_0000,
+                size: 0x2000,
+                idx: 2,
+                region_type: PciBarRegionType::Memory64BitRegion,
+                prefetchable: PciBarPrefetchable::Prefetchable,
+            })
+            .unwrap();
+        // For 64bit BARs two BARs are used (in this case BARs 1 and 2)
+        assert!(matches!(
+            pci_config.add_pci_bar(&PciBarConfiguration {
+                addr: 0x0000_0001_0000_0000,
+                size: 0x1000,
+                idx: 2,
+                region_type: PciBarRegionType::Memory64BitRegion,
+                prefetchable: PciBarPrefetchable::Prefetchable,
+            }),
+            Err(Error::BarInUse(2))
+        ));
+        assert!(matches!(
+            pci_config.add_pci_bar(&PciBarConfiguration {
+                addr: 0x0000_0001_0000_0000,
+                size: 0x1000,
+                idx: 1,
+                region_type: PciBarRegionType::Memory64BitRegion,
+                prefetchable: PciBarPrefetchable::Prefetchable,
+            }),
+            Err(Error::BarInUse64(2))
+        ));
+
+        assert_eq!(pci_config.get_bar_addr(0), 0x1000);
+        assert_eq!(pci_config.get_bar_addr(2), 0x1_0000_0000);
+    }
+
+    #[test]
+    fn test_access_invalid_reg() {
+        let mut pci_config = PciConfiguration::new(
+            0x42,
+            0x0,
+            0x0,
+            PciClassCode::MassStorage,
+            &PciMassStorageSubclass::SerialScsiController,
+            None,
+            PciHeaderType::Device,
+            0x13,
+            0x12,
+            None,
+            None,
+        );
+
+        // Can't read past the end of the configuration space
+        assert_eq!(
+            pci_config.read_reg(NUM_CONFIGURATION_REGISTERS),
+            0xffff_ffff
+        );
+
+        // Read out all of configuration space
+        let config_space: Vec<u32> = (0..NUM_CONFIGURATION_REGISTERS)
+            .map(|reg_idx| pci_config.read_reg(reg_idx))
+            .collect();
+
+        // Various invalid write accesses
+
+        // Past the end of config space
+        pci_config.write_config_register(NUM_CONFIGURATION_REGISTERS, 0, &[0x42]);
+        pci_config.write_config_register(NUM_CONFIGURATION_REGISTERS, 0, &[0x42, 0x42]);
+        pci_config.write_config_register(NUM_CONFIGURATION_REGISTERS, 0, &[0x42, 0x42, 0x42, 0x42]);
+
+        // Past register boundaries
+        pci_config.write_config_register(NUM_CONFIGURATION_REGISTERS, 1, &[0x42, 0x42, 0x42, 0x42]);
+        pci_config.write_config_register(NUM_CONFIGURATION_REGISTERS, 2, &[0x42, 0x42, 0x42]);
+        pci_config.write_config_register(NUM_CONFIGURATION_REGISTERS, 3, &[0x42, 0x42]);
+        pci_config.write_config_register(NUM_CONFIGURATION_REGISTERS, 4, &[0x42]);
+        pci_config.write_config_register(NUM_CONFIGURATION_REGISTERS, 5, &[]);
+
+        for (reg_idx, reg) in config_space.iter().enumerate() {
+            assert_eq!(*reg, pci_config.read_reg(reg_idx));
+        }
+    }
+
+    #[test]
+    fn test_detect_bar_reprogramming() {
+        let mut pci_config = PciConfiguration::new(
+            0x42,
+            0x0,
+            0x0,
+            PciClassCode::MassStorage,
+            &PciMassStorageSubclass::SerialScsiController,
+            None,
+            PciHeaderType::Device,
+            0x13,
+            0x12,
+            None,
+            None,
+        );
+
+        // Trying to reprogram with something less than 4 bytes (length of the address) should fail
+        assert!(pci_config
+            .detect_bar_reprogramming(BAR0_REG, &[0x13])
+            .is_none());
+        assert!(pci_config
+            .detect_bar_reprogramming(BAR0_REG, &[0x13, 0x12])
+            .is_none());
+        assert!(pci_config
+            .detect_bar_reprogramming(BAR0_REG, &[0x13, 0x12])
+            .is_none());
+        assert!(pci_config
+            .detect_bar_reprogramming(BAR0_REG, &[0x13, 0x12, 0x16])
+            .is_none());
+
+        // Writing all 1s is a special case where we're actually asking for the size of the BAR
+        assert!(pci_config
+            .detect_bar_reprogramming(BAR0_REG, &u32::to_le_bytes(0xffff_ffff))
+            .is_none());
+
+        // Trying to reprogram a BAR that hasn't be initialized does nothing
+        for reg_idx in BAR0_REG..BAR0_REG + NUM_BAR_REGS {
+            assert!(pci_config
+                .detect_bar_reprogramming(reg_idx, &u32::to_le_bytes(0x1312_4243))
+                .is_none());
+        }
+
+        // Reprogramming of a 32bit BAR
+        pci_config
+            .add_pci_bar(&PciBarConfiguration {
+                addr: 0x1000,
+                size: 0x1000,
+                idx: 0,
+                region_type: PciBarRegionType::Memory32BitRegion,
+                prefetchable: PciBarPrefetchable::Prefetchable,
+            })
+            .unwrap();
+
+        assert_eq!(
+            pci_config.detect_bar_reprogramming(BAR0_REG, &u32::to_le_bytes(0x2000)),
+            Some(BarReprogrammingParams {
+                old_base: 0x1000,
+                new_base: 0x2000,
+                len: 0x1000,
+                region_type: PciBarRegionType::Memory32BitRegion
+            })
+        );
+
+        pci_config.write_config_register(BAR0_REG, 0, &u32::to_le_bytes(0x2000));
+        assert_eq!(pci_config.read_reg(BAR0_REG) & 0xffff_fff0, 0x2000);
+
+        // Attempting to reprogram the BAR with the same address should not have any effect
+        assert!(pci_config
+            .detect_bar_reprogramming(BAR0_REG, &u32::to_le_bytes(0x2000))
+            .is_none());
+
+        // Reprogramming of a 64bit BAR
+        pci_config
+            .add_pci_bar(&PciBarConfiguration {
+                addr: 0x13_1200_0000,
+                size: 0x8000,
+                idx: 1,
+                region_type: PciBarRegionType::Memory64BitRegion,
+                prefetchable: PciBarPrefetchable::Prefetchable,
+            })
+            .unwrap();
+
+        assert_eq!(pci_config.read_reg(BAR0_REG + 1) & 0xffff_fff0, 0x1200_0000);
+        assert_eq!(
+            pci_config.bars[1].r#type,
+            Some(PciBarRegionType::Memory64BitRegion)
+        );
+        assert_eq!(pci_config.read_reg(BAR0_REG + 2), 0x13);
+        assert!(pci_config.bars[2].r#type.is_none());
+
+        // First we write the lower 32 bits and this shouldn't cause any reprogramming
+        assert!(pci_config
+            .detect_bar_reprogramming(BAR0_REG + 1, &u32::to_le_bytes(0x4200_0000))
+            .is_none());
+        pci_config.write_config_register(BAR0_REG + 1, 0, &u32::to_le_bytes(0x4200_0000));
+
+        // Writing the upper 32 bits should trigger the reprogramming
+        assert_eq!(
+            pci_config.detect_bar_reprogramming(BAR0_REG + 2, &u32::to_le_bytes(0x84)),
+            Some(BarReprogrammingParams {
+                old_base: 0x13_1200_0000,
+                new_base: 0x84_4200_0000,
+                len: 0x8000,
+                region_type: PciBarRegionType::Memory64BitRegion
+            })
+        );
+        pci_config.write_config_register(BAR0_REG + 2, 0, &u32::to_le_bytes(0x84));
+
+        // Trying to reprogram the upper bits directly (without first touching the lower bits)
+        // should trigger a reprogramming
+        assert_eq!(
+            pci_config.detect_bar_reprogramming(BAR0_REG + 2, &u32::to_le_bytes(0x1312)),
+            Some(BarReprogrammingParams {
+                old_base: 0x84_4200_0000,
+                new_base: 0x1312_4200_0000,
+                len: 0x8000,
+                region_type: PciBarRegionType::Memory64BitRegion
+            })
+        );
+        pci_config.write_config_register(BAR0_REG + 2, 0, &u32::to_le_bytes(0x1312));
+
+        // Attempting to reprogram the BAR with the same address should not have any effect
+        assert!(pci_config
+            .detect_bar_reprogramming(BAR0_REG + 1, &u32::to_le_bytes(0x4200_0000))
+            .is_none());
+        assert!(pci_config
+            .detect_bar_reprogramming(BAR0_REG + 2, &u32::to_le_bytes(0x1312))
+            .is_none());
     }
 }
