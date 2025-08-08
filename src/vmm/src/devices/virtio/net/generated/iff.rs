@@ -12,7 +12,8 @@
     clippy::undocumented_unsafe_blocks,
     missing_debug_implementations,
     clippy::tests_outside_test_module,
-    unsafe_op_in_unsafe_fn
+    unsafe_op_in_unsafe_fn,
+    clippy::redundant_static_lifetimes
 )]
 
 pub const IFNAMSIZ: u32 = 16;
@@ -195,38 +196,44 @@ const _: () = {
     ["Offset of field: x25_hdlc_proto::t2"][::std::mem::offset_of!(x25_hdlc_proto, t2) - 16usize];
     ["Offset of field: x25_hdlc_proto::n2"][::std::mem::offset_of!(x25_hdlc_proto, n2) - 20usize];
 };
-pub const net_device_flags_IFF_UP: net_device_flags = 1;
-pub const net_device_flags_IFF_BROADCAST: net_device_flags = 2;
-pub const net_device_flags_IFF_DEBUG: net_device_flags = 4;
-pub const net_device_flags_IFF_LOOPBACK: net_device_flags = 8;
-pub const net_device_flags_IFF_POINTOPOINT: net_device_flags = 16;
-pub const net_device_flags_IFF_NOTRAILERS: net_device_flags = 32;
-pub const net_device_flags_IFF_RUNNING: net_device_flags = 64;
-pub const net_device_flags_IFF_NOARP: net_device_flags = 128;
-pub const net_device_flags_IFF_PROMISC: net_device_flags = 256;
-pub const net_device_flags_IFF_ALLMULTI: net_device_flags = 512;
-pub const net_device_flags_IFF_MASTER: net_device_flags = 1024;
-pub const net_device_flags_IFF_SLAVE: net_device_flags = 2048;
-pub const net_device_flags_IFF_MULTICAST: net_device_flags = 4096;
-pub const net_device_flags_IFF_PORTSEL: net_device_flags = 8192;
-pub const net_device_flags_IFF_AUTOMEDIA: net_device_flags = 16384;
-pub const net_device_flags_IFF_DYNAMIC: net_device_flags = 32768;
-pub const net_device_flags_IFF_LOWER_UP: net_device_flags = 65536;
-pub const net_device_flags_IFF_DORMANT: net_device_flags = 131072;
-pub const net_device_flags_IFF_ECHO: net_device_flags = 262144;
-pub type net_device_flags = ::std::os::raw::c_uint;
-pub const IF_OPER_UNKNOWN: _bindgen_ty_4 = 0;
-pub const IF_OPER_NOTPRESENT: _bindgen_ty_4 = 1;
-pub const IF_OPER_DOWN: _bindgen_ty_4 = 2;
-pub const IF_OPER_LOWERLAYERDOWN: _bindgen_ty_4 = 3;
-pub const IF_OPER_TESTING: _bindgen_ty_4 = 4;
-pub const IF_OPER_DORMANT: _bindgen_ty_4 = 5;
-pub const IF_OPER_UP: _bindgen_ty_4 = 6;
-pub type _bindgen_ty_4 = ::std::os::raw::c_uint;
-pub const IF_LINK_MODE_DEFAULT: _bindgen_ty_5 = 0;
-pub const IF_LINK_MODE_DORMANT: _bindgen_ty_5 = 1;
-pub const IF_LINK_MODE_TESTING: _bindgen_ty_5 = 2;
-pub type _bindgen_ty_5 = ::std::os::raw::c_uint;
+pub mod net_device_flags {
+    pub type Type = ::std::os::raw::c_uint;
+    pub const IFF_UP: Type = 1;
+    pub const IFF_BROADCAST: Type = 2;
+    pub const IFF_DEBUG: Type = 4;
+    pub const IFF_LOOPBACK: Type = 8;
+    pub const IFF_POINTOPOINT: Type = 16;
+    pub const IFF_NOTRAILERS: Type = 32;
+    pub const IFF_RUNNING: Type = 64;
+    pub const IFF_NOARP: Type = 128;
+    pub const IFF_PROMISC: Type = 256;
+    pub const IFF_ALLMULTI: Type = 512;
+    pub const IFF_MASTER: Type = 1024;
+    pub const IFF_SLAVE: Type = 2048;
+    pub const IFF_MULTICAST: Type = 4096;
+    pub const IFF_PORTSEL: Type = 8192;
+    pub const IFF_AUTOMEDIA: Type = 16384;
+    pub const IFF_DYNAMIC: Type = 32768;
+    pub const IFF_LOWER_UP: Type = 65536;
+    pub const IFF_DORMANT: Type = 131072;
+    pub const IFF_ECHO: Type = 262144;
+}
+pub mod _bindgen_ty_4 {
+    pub type Type = ::std::os::raw::c_uint;
+    pub const IF_OPER_UNKNOWN: Type = 0;
+    pub const IF_OPER_NOTPRESENT: Type = 1;
+    pub const IF_OPER_DOWN: Type = 2;
+    pub const IF_OPER_LOWERLAYERDOWN: Type = 3;
+    pub const IF_OPER_TESTING: Type = 4;
+    pub const IF_OPER_DORMANT: Type = 5;
+    pub const IF_OPER_UP: Type = 6;
+}
+pub mod _bindgen_ty_5 {
+    pub type Type = ::std::os::raw::c_uint;
+    pub const IF_LINK_MODE_DEFAULT: Type = 0;
+    pub const IF_LINK_MODE_DORMANT: Type = 1;
+    pub const IF_LINK_MODE_TESTING: Type = 2;
+}
 #[repr(C)]
 #[derive(Debug, Default, Copy, Clone, PartialEq)]
 pub struct ifmap {
