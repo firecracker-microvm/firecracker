@@ -43,7 +43,7 @@ where
     for (key, template_value_filter) in template {
         let config_value_filter = config
             .get(&key)
-            .ok_or(VerifyError::KeyNotFound(key.to_string()))?;
+            .ok_or_else(|| VerifyError::KeyNotFound(key.to_string()))?;
 
         let template_value = template_value_filter.value & template_value_filter.filter;
         let config_value = config_value_filter.value & template_value_filter.filter;

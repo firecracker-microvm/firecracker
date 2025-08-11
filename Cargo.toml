@@ -29,6 +29,7 @@ exit = "warn"
 tests_outside_test_module = "warn"
 assertions_on_result_states = "warn"
 error_impl_error = "warn"
+or_fun_call = "warn"
 
 [profile.dev]
 panic = "abort"
