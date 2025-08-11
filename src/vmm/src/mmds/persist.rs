@@ -62,11 +62,13 @@ mod tests {
 
         let mut mem = vec![0; 4096];
 
-        Snapshot::serialize(&mut mem.as_mut_slice(), &ns.save()).unwrap();
+        Snapshot::new(ns.save())
+            .save(&mut mem.as_mut_slice())
+            .unwrap();
 
         let restored_ns = MmdsNetworkStack::restore(
             Arc::new(Mutex::new(Mmds::default())),
-            &Snapshot::deserialize(&mut mem.as_slice()).unwrap(),
+            &Snapshot::load(&mut mem.as_slice()).unwrap().data,
         )
         .unwrap();
 

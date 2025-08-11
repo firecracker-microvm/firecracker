@@ -358,14 +358,16 @@ mod tests {
 
         let mut bytes = vec![0; 4096];
 
-        Snapshot::serialize(&mut bytes.as_mut_slice(), &queue.save()).unwrap();
+        Snapshot::new(queue.save())
+            .save(&mut bytes.as_mut_slice())
+            .unwrap();
 
         let ca = QueueConstructorArgs {
             mem,
             is_activated: true,
         };
         let restored_queue =
-            Queue::restore(ca, &Snapshot::deserialize(&mut bytes.as_slice()).unwrap()).unwrap();
+            Queue::restore(ca, &Snapshot::load(&mut bytes.as_slice()).unwrap().data).unwrap();
 
         assert_eq!(restored_queue, queue);
     }
@@ -376,9 +378,9 @@ mod tests {
         let mut mem = vec![0; 4096];
 
         let state = VirtioDeviceState::from_device(&dummy);
-        Snapshot::serialize(&mut mem.as_mut_slice(), &state).unwrap();
+        Snapshot::new(&state).save(&mut mem.as_mut_slice()).unwrap();
 
-        let restored_state: VirtioDeviceState = Snapshot::deserialize(&mut mem.as_slice()).unwrap();
+        let restored_state: VirtioDeviceState = Snapshot::load(&mut mem.as_slice()).unwrap().data;
         assert_eq!(restored_state, state);
     }
 
@@ -405,7 +407,9 @@ mod tests {
     ) {
         let mut buf = vec![0; 4096];
 
-        Snapshot::serialize(&mut buf.as_mut_slice(), &mmio_transport.save()).unwrap();
+        Snapshot::new(mmio_transport.save())
+            .save(&mut buf.as_mut_slice())
+            .unwrap();
 
         let restore_args = MmioTransportConstructorArgs {
             mem,
@@ -415,7 +419,7 @@ mod tests {
         };
         let restored_mmio_transport = MmioTransport::restore(
             restore_args,
-            &Snapshot::deserialize(&mut buf.as_slice()).unwrap(),
+            &Snapshot::load(&mut buf.as_slice()).unwrap().data,
         )
         .unwrap();
 

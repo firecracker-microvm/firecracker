@@ -116,10 +116,12 @@ mod tests {
 
         // Test serialization.
         let mut mem = vec![0; 4096];
-        Snapshot::serialize(&mut mem.as_mut_slice(), &tb.save()).unwrap();
+        Snapshot::new(tb.save())
+            .save(&mut mem.as_mut_slice())
+            .unwrap();
 
         let restored_tb =
-            TokenBucket::restore((), &Snapshot::deserialize(&mut mem.as_slice()).unwrap()).unwrap();
+            TokenBucket::restore((), &Snapshot::load(&mut mem.as_slice()).unwrap().data).unwrap();
         assert!(tb.partial_eq(&restored_tb));
     }
 
@@ -192,9 +194,11 @@ mod tests {
 
         // Test serialization.
         let mut mem = vec![0; 4096];
-        Snapshot::serialize(&mut mem.as_mut_slice(), &rate_limiter.save()).unwrap();
+        Snapshot::new(rate_limiter.save())
+            .save(&mut mem.as_mut_slice())
+            .unwrap();
         let restored_rate_limiter =
-            RateLimiter::restore((), &Snapshot::deserialize(&mut mem.as_slice()).unwrap()).unwrap();
+            RateLimiter::restore((), &Snapshot::load(&mut mem.as_slice()).unwrap().data).unwrap();
 
         assert!(
             rate_limiter

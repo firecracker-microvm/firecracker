@@ -187,7 +187,9 @@ mod tests {
         // Create and save the balloon device.
         let balloon = Balloon::new(0x42, false, 2, false).unwrap();
 
-        Snapshot::serialize(&mut mem.as_mut_slice(), &balloon.save()).unwrap();
+        Snapshot::new(balloon.save())
+            .save(&mut mem.as_mut_slice())
+            .unwrap();
 
         // Deserialize and restore the balloon device.
         let restored_balloon = Balloon::restore(
@@ -195,7 +197,7 @@ mod tests {
                 mem: guest_mem,
                 restored_from_file: true,
             },
-            &Snapshot::deserialize(&mut mem.as_slice()).unwrap(),
+            &Snapshot::load(&mut mem.as_slice()).unwrap().data,
         )
         .unwrap();
 

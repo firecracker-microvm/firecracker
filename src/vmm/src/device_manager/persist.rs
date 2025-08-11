@@ -676,7 +676,9 @@ mod tests {
             let entropy_config = EntropyDeviceConfig::default();
             insert_entropy_device(&mut vmm, &mut cmdline, &mut event_manager, entropy_config);
 
-            Snapshot::serialize(&mut buf.as_mut_slice(), &vmm.device_manager.save()).unwrap();
+            Snapshot::new(vmm.device_manager.save())
+                .save(&mut buf.as_mut_slice())
+                .unwrap();
         }
 
         tmp_sock_file.remove().unwrap();
@@ -684,7 +686,7 @@ mod tests {
         let mut event_manager = EventManager::new().expect("Unable to create EventManager");
         let vmm = default_vmm();
         let device_manager_state: device_manager::DevicesState =
-            Snapshot::deserialize(&mut buf.as_slice()).unwrap();
+            Snapshot::load(&mut buf.as_slice()).unwrap().data;
         let vm_resources = &mut VmResources::default();
         let restore_args = MMIODevManagerConstructorArgs {
             mem: vmm.vm.guest_memory(),

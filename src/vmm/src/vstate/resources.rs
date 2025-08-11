@@ -280,8 +280,10 @@ mod tests {
 
     fn clone_allocator(allocator: &ResourceAllocator) -> ResourceAllocator {
         let mut buf = vec![0u8; 1024];
-        Snapshot::serialize(&mut buf.as_mut_slice(), &allocator.save()).unwrap();
-        let restored_state: ResourceAllocator = Snapshot::deserialize(&mut buf.as_slice()).unwrap();
+        Snapshot::new(allocator.save())
+            .save(&mut buf.as_mut_slice())
+            .unwrap();
+        let restored_state: ResourceAllocator = Snapshot::load(&mut buf.as_slice()).unwrap().data;
         ResourceAllocator::restore((), &restored_state).unwrap()
     }
 
