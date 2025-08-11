@@ -184,8 +184,8 @@ fn snapshot_state_to_file(
         .open(snapshot_path)
         .map_err(|err| SnapshotBackingFile("open", err))?;
 
-    let snapshot = Snapshot::new(SNAPSHOT_VERSION);
-    snapshot.save(&mut snapshot_file, microvm_state)?;
+    let snapshot = Snapshot::new(microvm_state);
+    snapshot.save(&mut snapshot_file)?;
     snapshot_file
         .flush()
         .map_err(|err| SnapshotBackingFile("flush", err))?;
@@ -405,9 +405,7 @@ pub fn restore_from_snapshot(
 #[derive(Debug, thiserror::Error, displaydoc::Display)]
 pub enum SnapshotStateFromFileError {
     /// Failed to open snapshot file: {0}
-    Open(std::io::Error),
-    /// Failed to read snapshot file metadata: {0}
-    Meta(std::io::Error),
+    Open(#[from] std::io::Error),
     /// Failed to load snapshot state from file: {0}
     Load(#[from] crate::snapshot::SnapshotError),
     /// Unknown Network Device.
@@ -417,15 +415,10 @@ pub enum SnapshotStateFromFileError {
 fn snapshot_state_from_file(
     snapshot_path: &Path,
 ) -> Result<MicrovmState, SnapshotStateFromFileError> {
-    let snapshot = Snapshot::new(SNAPSHOT_VERSION);
-    let mut snapshot_reader =
-        File::open(snapshot_path).map_err(SnapshotStateFromFileError::Open)?;
-    let metadata = std::fs::metadata(snapshot_path).map_err(SnapshotStateFromFileError::Meta)?;
-    let snapshot_len = u64_to_usize(metadata.len());
-    let state: MicrovmState = snapshot
-        .load_with_version_check(&mut snapshot_reader, snapshot_len)
-        .map_err(SnapshotStateFromFileError::Load)?;
-    Ok(state)
+    let mut snapshot_reader = File::open(snapshot_path)?;
+    let snapshot = Snapshot::load(&mut snapshot_reader)?;
+
+    Ok(snapshot.data)
 }
 
 /// Error type for [`guest_memory_from_file`].
@@ -679,10 +672,12 @@ mod tests {
         };
 
         let mut buf = vec![0; 10000];
-        Snapshot::serialize(&mut buf.as_mut_slice(), &microvm_state).unwrap();
+        Snapshot::new(&microvm_state)
+            .save(&mut buf.as_mut_slice())
+            .unwrap();
 
         let restored_microvm_state: MicrovmState =
-            Snapshot::deserialize(&mut buf.as_slice()).unwrap();
+            Snapshot::load(&mut buf.as_slice()).unwrap().data;
 
         assert_eq!(restored_microvm_state.vm_info, microvm_state.vm_info);
         assert_eq!(

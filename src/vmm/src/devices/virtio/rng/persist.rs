@@ -85,12 +85,14 @@ mod tests {
         let mut mem = vec![0u8; 4096];
         let entropy = Entropy::new(RateLimiter::default()).unwrap();
 
-        Snapshot::serialize(&mut mem.as_mut_slice(), &entropy.save()).unwrap();
+        Snapshot::new(entropy.save())
+            .save(&mut mem.as_mut_slice())
+            .unwrap();
 
         let guest_mem = create_virtio_mem();
         let restored = Entropy::restore(
             EntropyConstructorArgs { mem: guest_mem },
-            &Snapshot::deserialize(&mut mem.as_slice()).unwrap(),
+            &Snapshot::load(&mut mem.as_slice()).unwrap().data,
         )
         .unwrap();
 

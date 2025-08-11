@@ -28,7 +28,8 @@ use crc64::crc64;
 /// ```
 #[derive(Debug)]
 pub struct CRC64Reader<T> {
-    reader: T,
+    /// The underlying raw reader. Using this directly will bypass CRC computation!
+    pub reader: T,
     crc64: u64,
 }
 
@@ -77,7 +78,8 @@ where
 /// ```
 #[derive(Debug)]
 pub struct CRC64Writer<T> {
-    writer: T,
+    /// The underlying raw writer. Using this directly will bypass CRC computation!
+    pub writer: T,
     crc64: u64,
 }
 

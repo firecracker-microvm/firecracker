@@ -235,11 +235,8 @@ fn verify_create_snapshot(is_diff: bool, pci_enabled: bool) -> (TempFile, TempFi
     vmm.lock().unwrap().stop(FcExitCode::Ok);
 
     // Check that we can deserialize the microVM state from `snapshot_file`.
-    let snapshot_path = snapshot_file.as_path().to_path_buf();
-    let snapshot_file_metadata = std::fs::metadata(snapshot_path).unwrap();
-    let snapshot_len = snapshot_file_metadata.len().try_into().unwrap();
-    let (restored_microvm_state, _) =
-        Snapshot::load::<_, MicrovmState>(&mut snapshot_file.as_file(), snapshot_len).unwrap();
+    let restored_microvm_state: MicrovmState =
+        Snapshot::load(&mut snapshot_file.as_file()).unwrap().data;
 
     assert_eq!(restored_microvm_state.vm_info, vm_info);
 
@@ -344,11 +341,8 @@ fn get_microvm_state_from_snapshot(pci_enabled: bool) -> MicrovmState {
     let (snapshot_file, _) = verify_create_snapshot(true, pci_enabled);
 
     // Deserialize the microVM state.
-    let snapshot_file_metadata = snapshot_file.as_file().metadata().unwrap();
-    let snapshot_len = snapshot_file_metadata.len() as usize;
     snapshot_file.as_file().seek(SeekFrom::Start(0)).unwrap();
-    let (state, _) = Snapshot::load(&mut snapshot_file.as_file(), snapshot_len).unwrap();
-    state
+    Snapshot::load(&mut snapshot_file.as_file()).unwrap().data
 }
 
 fn verify_load_snap_disallowed_after_boot_resources(res: VmmAction, res_name: &str) {

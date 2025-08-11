@@ -171,7 +171,9 @@ mod tests {
         // Save the block device.
         let mut mem = vec![0; 4096];
 
-        Snapshot::serialize(&mut mem.as_mut_slice(), &block.save()).unwrap();
+        Snapshot::new(block.save())
+            .save(&mut mem.as_mut_slice())
+            .unwrap();
     }
 
     #[test]
@@ -214,12 +216,14 @@ mod tests {
         // Save the block device.
         let mut mem = vec![0; 4096];
 
-        Snapshot::serialize(&mut mem.as_mut_slice(), &block.save()).unwrap();
+        Snapshot::new(block.save())
+            .save(&mut mem.as_mut_slice())
+            .unwrap();
 
         // Restore the block device.
         let restored_block = VirtioBlock::restore(
             BlockConstructorArgs { mem: guest_mem },
-            &Snapshot::deserialize(&mut mem.as_slice()).unwrap(),
+            &Snapshot::load(&mut mem.as_slice()).unwrap().data,
         )
         .unwrap();
 
