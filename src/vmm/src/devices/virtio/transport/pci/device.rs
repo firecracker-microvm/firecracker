@@ -11,7 +11,7 @@ use std::any::Any;
 use std::cmp;
 use std::collections::HashMap;
 use std::fmt::{Debug, Formatter};
-use std::io::Write;
+use std::io::{ErrorKind, Write};
 use std::sync::atomic::{AtomicBool, AtomicU16, AtomicU32, AtomicUsize, Ordering};
 use std::sync::{Arc, Barrier, Mutex};
 
@@ -65,7 +65,7 @@ const VIRTIO_F_SR_IOV: u32 = 37;
 const VIRTIO_F_NOTIFICATION_DATA: u32 = 38;
 
 /// Vector value used to disable MSI for a queue.
-const VIRTQ_MSI_NO_VECTOR: u16 = 0xffff;
+pub const VIRTQ_MSI_NO_VECTOR: u16 = 0xffff;
 
 /// BAR index we are using for VirtIO configuration
 const VIRTIO_BAR_INDEX: u8 = 0;
@@ -765,9 +765,12 @@ impl VirtioInterrupt for VirtioInterruptMsix {
     fn trigger(&self, int_type: VirtioInterruptType) -> std::result::Result<(), std::io::Error> {
         let vector = match int_type {
             VirtioInterruptType::Config => self.config_vector.load(Ordering::Acquire),
-            VirtioInterruptType::Queue(queue_index) => {
-                self.queues_vectors.lock().unwrap()[queue_index as usize]
-            }
+            VirtioInterruptType::Queue(queue_index) => *self
+                .queues_vectors
+                .lock()
+                .unwrap()
+                .get(queue_index as usize)
+                .ok_or(ErrorKind::InvalidInput)?,
         };
 
         if vector == VIRTQ_MSI_NO_VECTOR {
@@ -793,9 +796,11 @@ impl VirtioInterrupt for VirtioInterruptMsix {
     fn notifier(&self, int_type: VirtioInterruptType) -> Option<&EventFd> {
         let vector = match int_type {
             VirtioInterruptType::Config => self.config_vector.load(Ordering::Acquire),
-            VirtioInterruptType::Queue(queue_index) => {
-                self.queues_vectors.lock().unwrap()[queue_index as usize]
-            }
+            VirtioInterruptType::Queue(queue_index) => *self
+                .queues_vectors
+                .lock()
+                .unwrap()
+                .get(queue_index as usize)?,
         };
 
         self.interrupt_source_group
