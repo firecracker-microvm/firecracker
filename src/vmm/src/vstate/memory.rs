@@ -433,8 +433,10 @@ mod tests {
     fn check_serde(guest_memory: &GuestMemoryMmap) {
         let mut snapshot_data = vec![0u8; 10000];
         let original_state = guest_memory.describe();
-        Snapshot::serialize(&mut snapshot_data.as_mut_slice(), &original_state).unwrap();
-        let restored_state = Snapshot::deserialize(&mut snapshot_data.as_slice()).unwrap();
+        Snapshot::new(&original_state)
+            .save(&mut snapshot_data.as_mut_slice())
+            .unwrap();
+        let restored_state = Snapshot::load(&mut snapshot_data.as_slice()).unwrap().data;
         assert_eq!(original_state, restored_state);
     }
 

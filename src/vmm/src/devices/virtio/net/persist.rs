@@ -153,7 +153,9 @@ mod tests {
 
         // Create and save the net device.
         {
-            Snapshot::serialize(&mut mem.as_mut_slice(), &net.save()).unwrap();
+            Snapshot::new(net.save())
+                .save(&mut mem.as_mut_slice())
+                .unwrap();
 
             // Save some fields that we want to check later.
             id = net.id.clone();
@@ -173,7 +175,7 @@ mod tests {
                     mem: guest_mem,
                     mmds: mmds_ds,
                 },
-                &Snapshot::deserialize(&mut mem.as_slice()).unwrap(),
+                &Snapshot::load(&mut mem.as_slice()).unwrap().data,
             ) {
                 Ok(restored_net) => {
                     // Test that virtio specific fields are the same.
