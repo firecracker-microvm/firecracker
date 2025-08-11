@@ -5,7 +5,7 @@ use std::fs::{File, OpenOptions};
 use std::path::PathBuf;
 
 use semver::Version;
-use vmm::persist::MicrovmState;
+use vmm::persist::{MicrovmState, SNAPSHOT_VERSION};
 use vmm::snapshot::Snapshot;
 use vmm::utils::u64_to_usize;
 
@@ -35,18 +35,14 @@ pub fn open_vmstate(snapshot_path: &PathBuf) -> Result<(MicrovmState, Version), 
 
 // This method is used only in aarch64 code so far
 #[allow(unused)]
-pub fn save_vmstate(
-    microvm_state: MicrovmState,
-    output_path: &PathBuf,
-    version: Version,
-) -> Result<(), UtilsError> {
+pub fn save_vmstate(microvm_state: MicrovmState, output_path: &PathBuf) -> Result<(), UtilsError> {
     let mut output_file = OpenOptions::new()
         .create(true)
         .write(true)
         .truncate(true)
         .open(output_path)
         .map_err(UtilsError::OutputFileOpen)?;
-    let mut snapshot = Snapshot::new(version);
+    let mut snapshot = Snapshot::new(SNAPSHOT_VERSION);
     snapshot
         .save(&mut output_file, &microvm_state)
         .map_err(UtilsError::VmStateSave)?;
