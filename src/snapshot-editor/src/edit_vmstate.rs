@@ -78,7 +78,7 @@ fn remove_regs(
         }
         vcpu_state.regs = new_regs;
         for (reg, removed) in remove_regs.iter().zip(removed.iter()) {
-            print!("Regsiter {reg:#x}: ");
+            print!("Register {reg:#x}: ");
             match removed {
                 true => println!("removed"),
                 false => println!("not present"),
