@@ -170,9 +170,9 @@ impl InterruptSourceGroup for MsiVectorGroup {
 
     fn trigger(&self, index: InterruptIndex) -> vm_device::interrupt::Result<()> {
         self.notifier(index)
-            .ok_or_else(|| std::io::Error::other(format!(
-                "trigger: invalid interrupt index {index}"
-            )))?
+            .ok_or_else(|| {
+                std::io::Error::other(format!("trigger: invalid interrupt index {index}"))
+            })?
             .write(1)
     }
 
