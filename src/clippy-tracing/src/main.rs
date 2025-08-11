@@ -260,7 +260,7 @@ impl Error for ExecError {}
 fn exec() -> Result<Option<(PathBuf, usize, usize)>, ExecError> {
     let args = CommandLineArgs::parse();
 
-    let path = args.path.unwrap_or(PathBuf::from("."));
+    let path = args.path.unwrap_or_else(|| PathBuf::from("."));
     for entry_res in WalkDir::new(path).follow_links(true) {
         let entry = entry_res.map_err(ExecError::Entry)?;
         let entry_path = entry.into_path();
