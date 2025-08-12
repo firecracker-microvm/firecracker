@@ -1,15 +1,19 @@
 // Copyright 2023 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
+use std::sync::Arc;
+
 use event_manager::{EventOps, Events, MutEventSubscriber};
+use log::info;
 use vmm_sys_util::eventfd::EventFd;
 
 use super::BlockError;
 use super::persist::{BlockConstructorArgs, BlockState};
 use super::vhost_user::device::{VhostUserBlock, VhostUserBlockConfig};
 use super::virtio::device::{VirtioBlock, VirtioBlockConfig};
-use crate::devices::virtio::device::{IrqTrigger, VirtioDevice};
+use crate::devices::virtio::device::VirtioDevice;
 use crate::devices::virtio::queue::{InvalidAvailIdx, Queue};
+use crate::devices::virtio::transport::VirtioInterrupt;
 use crate::devices::virtio::{ActivateError, TYPE_BLOCK};
 use crate::rate_limiter::BucketUpdate;
 use crate::snapshot::Persist;
@@ -173,10 +177,10 @@ impl VirtioDevice for Block {
         }
     }
 
-    fn interrupt_trigger(&self) -> &IrqTrigger {
+    fn interrupt_trigger(&self) -> &dyn VirtioInterrupt {
         match self {
-            Self::Virtio(b) => &b.irq_trigger,
-            Self::VhostUser(b) => &b.irq_trigger,
+            Self::Virtio(b) => b.interrupt_trigger(),
+            Self::VhostUser(b) => b.interrupt_trigger(),
         }
     }
 
@@ -194,10 +198,14 @@ impl VirtioDevice for Block {
         }
     }
 
-    fn activate(&mut self, mem: GuestMemoryMmap) -> Result<(), ActivateError> {
+    fn activate(
+        &mut self,
+        mem: GuestMemoryMmap,
+        interrupt: Arc<dyn VirtioInterrupt>,
+    ) -> Result<(), ActivateError> {
         match self {
-            Self::Virtio(b) => b.activate(mem),
-            Self::VhostUser(b) => b.activate(mem),
+            Self::Virtio(b) => b.activate(mem, interrupt),
+            Self::VhostUser(b) => b.activate(mem, interrupt),
         }
     }
 
@@ -205,6 +213,18 @@ impl VirtioDevice for Block {
         match self {
             Self::Virtio(b) => b.device_state.is_activated(),
             Self::VhostUser(b) => b.device_state.is_activated(),
+        }
+    }
+
+    fn kick(&mut self) {
+        // If device is activated, kick the block queue(s) to make up for any
+        // pending or in-flight epoll events we may have not captured in
+        // snapshot. No need to kick Ratelimiters
+        // because they are restored 'unblocked' so
+        // any inflight `timer_fd` events can be safely discarded.
+        if self.is_activated() {
+            info!("kick block {}.", self.id());
+            self.process_virtio_queues();
         }
     }
 }

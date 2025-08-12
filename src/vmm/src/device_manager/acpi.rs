@@ -2,11 +2,11 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use acpi_tables::{Aml, aml};
-use kvm_ioctls::VmFd;
 
+use crate::Vm;
 use crate::devices::acpi::vmgenid::VmGenId;
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct ACPIDeviceManager {
     /// VMGenID device
     pub vmgenid: Option<VmGenId>,
@@ -15,18 +15,14 @@ pub struct ACPIDeviceManager {
 impl ACPIDeviceManager {
     /// Create a new ACPIDeviceManager object
     pub fn new() -> Self {
-        Self { vmgenid: None }
+        Default::default()
     }
 
     /// Attach a new VMGenID device to the microVM
     ///
     /// This will register the device's interrupt with KVM
-    pub fn attach_vmgenid(
-        &mut self,
-        vmgenid: VmGenId,
-        vm_fd: &VmFd,
-    ) -> Result<(), kvm_ioctls::Error> {
-        vm_fd.register_irqfd(&vmgenid.interrupt_evt, vmgenid.gsi)?;
+    pub fn attach_vmgenid(&mut self, vmgenid: VmGenId, vm: &Vm) -> Result<(), kvm_ioctls::Error> {
+        vm.register_irq(&vmgenid.interrupt_evt, vmgenid.gsi)?;
         self.vmgenid = Some(vmgenid);
         Ok(())
     }
@@ -68,7 +64,7 @@ impl Aml for ACPIDeviceManager {
                                 // We know that the maximum IRQ number fits in a u8. We have up to
                                 // 32 IRQs in x86 and up to 128 in
                                 // ARM (look into
-                                // `vmm::crate::arch::layout::IRQ_MAX`)
+                                // `vmm::crate::arch::layout::GSI_LEGACY_END`)
                                 #[allow(clippy::cast_possible_truncation)]
                                 &aml::Equal::new(&aml::Arg(0), &(vmgenid.gsi as u8)),
                                 vec![&aml::Notify::new(

@@ -3,45 +3,63 @@
 
 mod dist_regs;
 mod icc_regs;
+pub mod its_regs;
 mod redist_regs;
 
+use its_regs::{ItsRegisterState, its_save_tables};
 use kvm_ioctls::DeviceFd;
 
 use crate::arch::aarch64::gic::GicError;
 use crate::arch::aarch64::gic::regs::{GicState, GicVcpuState};
 
 /// Save the state of the GIC device.
-pub fn save_state(fd: &DeviceFd, mpidrs: &[u64]) -> Result<GicState, GicError> {
+pub fn save_state(
+    gic_device: &DeviceFd,
+    its_device: &DeviceFd,
+    mpidrs: &[u64],
+) -> Result<GicState, GicError> {
     // Flush redistributors pending tables to guest RAM.
-    super::save_pending_tables(fd)?;
+    super::save_pending_tables(gic_device)?;
+    // Flush ITS tables into guest memory.
+    its_save_tables(its_device)?;
 
     let mut vcpu_states = Vec::with_capacity(mpidrs.len());
     for mpidr in mpidrs {
         vcpu_states.push(GicVcpuState {
-            rdist: redist_regs::get_redist_regs(fd, *mpidr)?,
-            icc: icc_regs::get_icc_regs(fd, *mpidr)?,
+            rdist: redist_regs::get_redist_regs(gic_device, *mpidr)?,
+            icc: icc_regs::get_icc_regs(gic_device, *mpidr)?,
         })
     }
 
+    let its_state = ItsRegisterState::save(its_device)?;
+
     Ok(GicState {
-        dist: dist_regs::get_dist_regs(fd)?,
+        dist: dist_regs::get_dist_regs(gic_device)?,
         gic_vcpu_states: vcpu_states,
+        its_state: Some(its_state),
     })
 }
 
 /// Restore the state of the GIC device.
-pub fn restore_state(fd: &DeviceFd, mpidrs: &[u64], state: &GicState) -> Result<(), GicError> {
-    dist_regs::set_dist_regs(fd, &state.dist)?;
+pub fn restore_state(
+    gic_device: &DeviceFd,
+    its_device: &DeviceFd,
+    mpidrs: &[u64],
+    state: &GicState,
+) -> Result<(), GicError> {
+    dist_regs::set_dist_regs(gic_device, &state.dist)?;
 
     if mpidrs.len() != state.gic_vcpu_states.len() {
         return Err(GicError::InconsistentVcpuCount);
     }
     for (mpidr, vcpu_state) in mpidrs.iter().zip(&state.gic_vcpu_states) {
-        redist_regs::set_redist_regs(fd, *mpidr, &vcpu_state.rdist)?;
-        icc_regs::set_icc_regs(fd, *mpidr, &vcpu_state.icc)?;
+        redist_regs::set_redist_regs(gic_device, *mpidr, &vcpu_state.rdist)?;
+        icc_regs::set_icc_regs(gic_device, *mpidr, &vcpu_state.icc)?;
     }
 
-    Ok(())
+    // Safe to unwrap here, as we know we support an ITS device, so `its_state.is_some()` is always
+    // `true`.
+    state.its_state.as_ref().unwrap().restore(its_device)
 }
 
 #[cfg(test)]
@@ -59,9 +77,10 @@ mod tests {
         let vm = kvm.create_vm().unwrap();
         let gic = create_gic(&vm, 1, Some(GICVersion::GICV3)).expect("Cannot create gic");
         let gic_fd = gic.device_fd();
+        let its_fd = gic.its_fd().unwrap();
 
         let mpidr = vec![1];
-        let res = save_state(gic_fd, &mpidr);
+        let res = save_state(gic_fd, its_fd, &mpidr);
         // We will receive an error if trying to call before creating vcpu.
         assert_eq!(
             format!("{:?}", res.unwrap_err()),
@@ -73,8 +92,9 @@ mod tests {
         let _vcpu = vm.create_vcpu(0).unwrap();
         let gic = create_gic(&vm, 1, Some(GICVersion::GICV3)).expect("Cannot create gic");
         let gic_fd = gic.device_fd();
+        let its_fd = gic.its_fd().unwrap();
 
-        let vm_state = save_state(gic_fd, &mpidr).unwrap();
+        let vm_state = save_state(gic_fd, its_fd, &mpidr).unwrap();
         let val: u32 = 0;
         let gicd_statusr_off = 0x0010u64;
         let mut gic_dist_attr = kvm_bindings::kvm_device_attr {
@@ -94,7 +114,7 @@ mod tests {
 
         assert_eq!(gicd_statusr.chunks[0], val);
         assert_eq!(vm_state.dist.len(), 12);
-        restore_state(gic_fd, &mpidr, &vm_state).unwrap();
-        restore_state(gic_fd, &[1, 2], &vm_state).unwrap_err();
+        restore_state(gic_fd, its_fd, &mpidr, &vm_state).unwrap();
+        restore_state(gic_fd, its_fd, &[1, 2], &vm_state).unwrap_err();
     }
 }

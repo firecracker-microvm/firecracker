@@ -13,12 +13,12 @@ use libc::c_char;
 use log::debug;
 use vm_allocator::AllocPolicy;
 
-use crate::arch::IRQ_MAX;
+use crate::arch::GSI_LEGACY_END;
 use crate::arch::x86_64::generated::mpspec;
-use crate::device_manager::resources::ResourceAllocator;
 use crate::vstate::memory::{
     Address, ByteValued, Bytes, GuestAddress, GuestMemory, GuestMemoryMmap,
 };
+use crate::vstate::resources::ResourceAllocator;
 
 // These `mpspec` wrapper types are only data, reading them from data is a safe initialization.
 // SAFETY: POD
@@ -109,7 +109,7 @@ fn compute_mp_size(num_cpus: u8) -> usize {
         + mem::size_of::<mpspec::mpc_cpu>() * (num_cpus as usize)
         + mem::size_of::<mpspec::mpc_ioapic>()
         + mem::size_of::<mpspec::mpc_bus>()
-        + mem::size_of::<mpspec::mpc_intsrc>() * (IRQ_MAX as usize + 1)
+        + mem::size_of::<mpspec::mpc_intsrc>() * (GSI_LEGACY_END as usize + 1)
         + mem::size_of::<mpspec::mpc_lintsrc>() * 2
 }
 
@@ -225,7 +225,7 @@ pub fn setup_mptable(
         mp_num_entries += 1;
     }
     // Per kvm_setup_default_irq_routing() in kernel
-    for i in 0..=u8::try_from(IRQ_MAX).map_err(|_| MptableError::TooManyIrqs)? {
+    for i in 0..=u8::try_from(GSI_LEGACY_END).map_err(|_| MptableError::TooManyIrqs)? {
         let size = mem::size_of::<mpspec::mpc_intsrc>() as u64;
         let mpc_intsrc = mpspec::mpc_intsrc {
             type_: mpspec::MP_INTSRC.try_into().unwrap(),
@@ -334,7 +334,7 @@ mod tests {
     fn bounds_check() {
         let num_cpus = 4;
         let mem = single_region_mem_at(SYSTEM_MEM_START, compute_mp_size(num_cpus));
-        let mut resource_allocator = ResourceAllocator::new().unwrap();
+        let mut resource_allocator = ResourceAllocator::new();
 
         setup_mptable(&mem, &mut resource_allocator, num_cpus).unwrap();
     }
@@ -343,7 +343,7 @@ mod tests {
     fn bounds_check_fails() {
         let num_cpus = 4;
         let mem = single_region_mem_at(SYSTEM_MEM_START, compute_mp_size(num_cpus) - 1);
-        let mut resource_allocator = ResourceAllocator::new().unwrap();
+        let mut resource_allocator = ResourceAllocator::new();
 
         setup_mptable(&mem, &mut resource_allocator, num_cpus).unwrap_err();
     }
@@ -352,7 +352,7 @@ mod tests {
     fn mpf_intel_checksum() {
         let num_cpus = 1;
         let mem = single_region_mem_at(SYSTEM_MEM_START, compute_mp_size(num_cpus));
-        let mut resource_allocator = ResourceAllocator::new().unwrap();
+        let mut resource_allocator = ResourceAllocator::new();
 
         setup_mptable(&mem, &mut resource_allocator, num_cpus).unwrap();
 
@@ -365,7 +365,7 @@ mod tests {
     fn mpc_table_checksum() {
         let num_cpus = 4;
         let mem = single_region_mem_at(SYSTEM_MEM_START, compute_mp_size(num_cpus));
-        let mut resource_allocator = ResourceAllocator::new().unwrap();
+        let mut resource_allocator = ResourceAllocator::new();
 
         setup_mptable(&mem, &mut resource_allocator, num_cpus).unwrap();
 
@@ -388,7 +388,7 @@ mod tests {
     fn mpc_entry_count() {
         let num_cpus = 1;
         let mem = single_region_mem_at(SYSTEM_MEM_START, compute_mp_size(num_cpus));
-        let mut resource_allocator = ResourceAllocator::new().unwrap();
+        let mut resource_allocator = ResourceAllocator::new();
 
         setup_mptable(&mem, &mut resource_allocator, num_cpus).unwrap();
 
@@ -406,7 +406,7 @@ mod tests {
             // ISA Bus
             + 1
             // IRQ
-            + u16::try_from(IRQ_MAX).unwrap() + 1
+            + u16::try_from(GSI_LEGACY_END).unwrap() + 1
             // Interrupt source ExtINT
             + 1
             // Interrupt source NMI
@@ -419,7 +419,8 @@ mod tests {
         let mem = single_region_mem_at(SYSTEM_MEM_START, compute_mp_size(MAX_SUPPORTED_CPUS));
 
         for i in 0..MAX_SUPPORTED_CPUS {
-            let mut resource_allocator = ResourceAllocator::new().unwrap();
+            let mut resource_allocator = ResourceAllocator::new();
+
             setup_mptable(&mem, &mut resource_allocator, i).unwrap();
 
             let mpf_intel: mpspec::mpf_intel =
@@ -450,7 +451,7 @@ mod tests {
     fn cpu_entry_count_max() {
         let cpus = MAX_SUPPORTED_CPUS + 1;
         let mem = single_region_mem_at(SYSTEM_MEM_START, compute_mp_size(cpus));
-        let mut resource_allocator = ResourceAllocator::new().unwrap();
+        let mut resource_allocator = ResourceAllocator::new();
 
         let result = setup_mptable(&mem, &mut resource_allocator, cpus).unwrap_err();
         assert_eq!(result, MptableError::TooManyCpus);

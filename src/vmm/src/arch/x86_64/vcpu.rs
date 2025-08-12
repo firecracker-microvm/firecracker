@@ -7,6 +7,7 @@
 
 use std::collections::BTreeMap;
 use std::fmt::Debug;
+use std::sync::Arc;
 
 use kvm_bindings::{
     CpuId, KVM_MAX_CPUID_ENTRIES, KVM_MAX_MSR_ENTRIES, Msrs, Xsave, kvm_debugregs, kvm_lapic_state,
@@ -159,9 +160,9 @@ pub struct KvmVcpu {
 #[derive(Default, Debug)]
 pub struct Peripherals {
     /// Pio bus.
-    pub pio_bus: Option<crate::devices::Bus>,
+    pub pio_bus: Option<Arc<vm_device::Bus>>,
     /// Mmio bus.
-    pub mmio_bus: Option<crate::devices::Bus>,
+    pub mmio_bus: Option<Arc<vm_device::Bus>>,
 }
 
 impl KvmVcpu {
@@ -266,7 +267,7 @@ impl KvmVcpu {
     }
 
     /// Sets a Port Mapped IO bus for this vcpu.
-    pub fn set_pio_bus(&mut self, pio_bus: crate::devices::Bus) {
+    pub fn set_pio_bus(&mut self, pio_bus: Arc<vm_device::Bus>) {
         self.peripherals.pio_bus = Some(pio_bus);
     }
 
@@ -710,7 +711,9 @@ impl Peripherals {
             VcpuExit::IoIn(addr, data) => {
                 if let Some(pio_bus) = &self.pio_bus {
                     let _metric = METRICS.vcpu.exit_io_in_agg.record_latency_metrics();
-                    pio_bus.read(u64::from(addr), data);
+                    if let Err(err) = pio_bus.read(u64::from(addr), data) {
+                        warn!("vcpu: IO read @ {addr:#x}:{:#x} failed: {err}", data.len());
+                    }
                     METRICS.vcpu.exit_io_in.inc();
                 }
                 Ok(VcpuEmulation::Handled)
@@ -718,7 +721,9 @@ impl Peripherals {
             VcpuExit::IoOut(addr, data) => {
                 if let Some(pio_bus) = &self.pio_bus {
                     let _metric = METRICS.vcpu.exit_io_out_agg.record_latency_metrics();
-                    pio_bus.write(u64::from(addr), data);
+                    if let Err(err) = pio_bus.write(u64::from(addr), data) {
+                        warn!("vcpu: IO write @ {addr:#x}:{:#x} failed: {err}", data.len());
+                    }
                     METRICS.vcpu.exit_io_out.inc();
                 }
                 Ok(VcpuEmulation::Handled)

@@ -25,7 +25,7 @@ def test_enosys_error_code(uvm_plain):
     vm.memory_monitor = None
     vm.basic_config(
         vcpu_count=1,
-        boot_args="reboot=k panic=1 pci=off init=/usr/local/bin/devmemread",
+        boot_args="reboot=k panic=1 swiotlb=noforce init=/usr/local/bin/devmemread",
     )
     vm.start()
 

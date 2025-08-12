@@ -20,7 +20,7 @@ pub(super) const FIRECRACKER_MAX_QUEUE_SIZE: u16 = 256;
 
 // GuestMemoryMmap::read_obj_from_addr() will be used to fetch the descriptor,
 // which has an explicit constraint that the entire descriptor doesn't
-// cross the page boundary. Otherwise the descriptor may be splitted into
+// cross the page boundary. Otherwise the descriptor may be split into
 // two mmap regions which causes failure of GuestMemoryMmap::read_obj_from_addr().
 //
 // The Virtio Spec 1.0 defines the alignment of VirtIO descriptor is 16 bytes,
@@ -280,7 +280,7 @@ impl Queue {
     pub fn new(max_size: u16) -> Queue {
         Queue {
             max_size,
-            size: 0,
+            size: max_size,
             ready: false,
             desc_table_address: GuestAddress(0),
             avail_ring_address: GuestAddress(0),
@@ -668,6 +668,19 @@ impl Queue {
         self.num_added = Wrapping(0);
 
         new - used_event - Wrapping(1) < new - old
+    }
+
+    /// Resets the Virtio Queue
+    pub(crate) fn reset(&mut self) {
+        self.ready = false;
+        self.size = self.max_size;
+        self.desc_table_address = GuestAddress(0);
+        self.avail_ring_address = GuestAddress(0);
+        self.used_ring_address = GuestAddress(0);
+        self.next_avail = Wrapping(0);
+        self.next_used = Wrapping(0);
+        self.num_added = Wrapping(0);
+        self.uses_notif_suppression = false;
     }
 }
 

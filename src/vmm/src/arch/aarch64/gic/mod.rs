@@ -21,8 +21,14 @@ pub struct GIC {
     /// GIC device properties, to be used for setting up the fdt entry
     properties: [u64; 4],
 
+    /// MSI properties of the GIC device
+    msi_properties: Option<[u64; 2]>,
+
     /// Number of CPUs handled by the device
     vcpu_count: u64,
+
+    /// ITS device
+    its_device: Option<DeviceFd>,
 }
 impl GIC {
     /// Returns the file descriptor of the GIC device
@@ -80,11 +86,27 @@ impl GICDevice {
         }
     }
 
+    /// Returns the file descriptor of the ITS device, if any
+    pub fn its_fd(&self) -> Option<&DeviceFd> {
+        match self {
+            Self::V2(_) => None,
+            Self::V3(x) => x.its_device.as_ref(),
+        }
+    }
+
     /// Returns an array with GIC device properties
     pub fn device_properties(&self) -> &[u64] {
         match self {
             Self::V2(x) => x.device_properties(),
             Self::V3(x) => x.device_properties(),
+        }
+    }
+
+    /// Returns an array with MSI properties if GIC supports it
+    pub fn msi_properties(&self) -> Option<&[u64; 2]> {
+        match self {
+            Self::V2(x) => x.msi_properties.as_ref(),
+            Self::V3(x) => x.msi_properties.as_ref(),
         }
     }
 

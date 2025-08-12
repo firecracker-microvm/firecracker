@@ -331,18 +331,16 @@ impl<'a> PrebootApiController<'a> {
         to_api: &std::sync::mpsc::Sender<ApiResponse>,
         api_event_fd: &vmm_sys_util::eventfd::EventFd,
         boot_timer_enabled: bool,
+        pci_enabled: bool,
         mmds_size_limit: usize,
         metadata_json: Option<&str>,
     ) -> Result<(VmResources, Arc<Mutex<Vmm>>), BuildMicrovmFromRequestsError> {
-        let mut vm_resources = VmResources::default();
-        // Silence false clippy warning. Clippy suggests using
-        // VmResources { boot_timer: boot_timer_enabled, ..Default::default() }; but this will
-        // generate build errors because VmResources contains private fields.
-        #[allow(clippy::field_reassign_with_default)]
-        {
-            vm_resources.mmds_size_limit = mmds_size_limit;
-            vm_resources.boot_timer = boot_timer_enabled;
-        }
+        let mut vm_resources = VmResources {
+            boot_timer: boot_timer_enabled,
+            mmds_size_limit,
+            pci_enabled,
+            ..Default::default()
+        };
 
         // Init the data store from file, if present.
         if let Some(data) = metadata_json {

@@ -4,6 +4,7 @@
 use std::convert::TryInto;
 
 use serde::Serialize;
+use vm_superio::Rtc;
 use vm_superio::rtc_pl031::RtcEvents;
 
 use crate::logger::{IncMetric, SharedIncMetric, warn};
@@ -59,7 +60,19 @@ pub static METRICS: RTCDeviceMetrics = RTCDeviceMetrics::new();
 
 /// Wrapper over vm_superio's RTC implementation.
 #[derive(Debug)]
-pub struct RTCDevice(pub vm_superio::Rtc<&'static RTCDeviceMetrics>);
+pub struct RTCDevice(vm_superio::Rtc<&'static RTCDeviceMetrics>);
+
+impl Default for RTCDevice {
+    fn default() -> Self {
+        RTCDevice(Rtc::with_events(&METRICS))
+    }
+}
+
+impl RTCDevice {
+    pub fn new() -> RTCDevice {
+        Default::default()
+    }
+}
 
 impl std::ops::Deref for RTCDevice {
     type Target = vm_superio::Rtc<&'static RTCDeviceMetrics>;
@@ -80,7 +93,7 @@ impl RTCDevice {
     pub fn bus_read(&mut self, offset: u64, data: &mut [u8]) {
         if let (Ok(offset), 4) = (u16::try_from(offset), data.len()) {
             // read() function from RTC implementation expects a slice of
-            // len 4, and we just validated that this is the data lengt
+            // len 4, and we just validated that this is the data length
             self.read(offset, data.try_into().unwrap())
         } else {
             warn!(
@@ -105,6 +118,23 @@ impl RTCDevice {
             );
             METRICS.error_count.inc();
         }
+    }
+}
+
+#[cfg(target_arch = "aarch64")]
+impl vm_device::BusDevice for RTCDevice {
+    fn read(&mut self, _base: u64, offset: u64, data: &mut [u8]) {
+        self.bus_read(offset, data)
+    }
+
+    fn write(
+        &mut self,
+        _base: u64,
+        offset: u64,
+        data: &[u8],
+    ) -> Option<std::sync::Arc<std::sync::Barrier>> {
+        self.bus_write(offset, data);
+        None
     }
 }
 
