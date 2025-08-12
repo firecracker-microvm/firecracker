@@ -21,8 +21,7 @@ def test_init_params(uvm_plain):
     # Ubuntu version from the /etc/issue file.
     vm.basic_config(
         vcpu_count=1,
-        boot_args="console=ttyS0 reboot=k panic=1 pci=off"
-        " init=/bin/cat -- /etc/issue",
+        boot_args="console=ttyS0 reboot=k panic=1 swiotlb=noforce init=/bin/cat -- /etc/issue",
     )
 
     vm.start()

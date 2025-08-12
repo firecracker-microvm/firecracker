@@ -6,7 +6,7 @@
 // found in the THIRD-PARTY file.
 
 //! This is the `VirtioDevice` implementation for our vsock device. It handles the virtio-level
-//! device logic: feature negociation, device configuration, and device activation.
+//! device logic: feature negotiation, device configuration, and device activation.
 //!
 //! We aim to conform to the VirtIO v1.1 spec:
 //! https://docs.oasis-open.org/virtio/virtio/v1.1/virtio-v1.1.html
@@ -21,8 +21,10 @@
 //! - a backend FD.
 
 use std::fmt::Debug;
+use std::ops::Deref;
+use std::sync::Arc;
 
-use log::{error, warn};
+use log::{error, info, warn};
 use vmm_sys_util::eventfd::EventFd;
 
 use super::super::super::DeviceError;
@@ -30,9 +32,10 @@ use super::defs::uapi;
 use super::packet::{VSOCK_PKT_HDR_SIZE, VsockPacketRx, VsockPacketTx};
 use super::{VsockBackend, defs};
 use crate::devices::virtio::ActivateError;
-use crate::devices::virtio::device::{DeviceState, IrqTrigger, IrqType, VirtioDevice};
+use crate::devices::virtio::device::{ActiveState, DeviceState, VirtioDevice};
 use crate::devices::virtio::generated::virtio_config::{VIRTIO_F_IN_ORDER, VIRTIO_F_VERSION_1};
 use crate::devices::virtio::queue::{InvalidAvailIdx, Queue as VirtQueue};
+use crate::devices::virtio::transport::{VirtioInterrupt, VirtioInterruptType};
 use crate::devices::virtio::vsock::VsockError;
 use crate::devices::virtio::vsock::metrics::METRICS;
 use crate::logger::IncMetric;
@@ -61,7 +64,6 @@ pub struct Vsock<B> {
     pub(crate) backend: B,
     pub(crate) avail_features: u64,
     pub(crate) acked_features: u64,
-    pub(crate) irq_trigger: IrqTrigger,
     // This EventFd is the only one initially registered for a vsock device, and is used to convert
     // a VirtioDevice::activate call into an EventHandler read event which allows the other events
     // (queue and backend related) to be registered post virtio device activation. That's
@@ -102,7 +104,6 @@ where
             backend,
             avail_features: AVAIL_FEATURES,
             acked_features: 0,
-            irq_trigger: IrqTrigger::new().map_err(VsockError::EventFd)?,
             activate_evt: EventFd::new(libc::EFD_NONBLOCK).map_err(VsockError::EventFd)?,
             device_state: DeviceState::Inactive,
             rx_packet: VsockPacketRx::new()?,
@@ -136,9 +137,24 @@ where
 
     /// Signal the guest driver that we've used some virtio buffers that it had previously made
     /// available.
-    pub fn signal_used_queue(&self) -> Result<(), DeviceError> {
-        self.irq_trigger
-            .trigger_irq(IrqType::Vring)
+    pub fn signal_used_queue(&self, qidx: usize) -> Result<(), DeviceError> {
+        self.device_state
+            .active_state()
+            .expect("Device is not initialized")
+            .interrupt
+            .trigger(VirtioInterruptType::Queue(qidx.try_into().unwrap_or_else(
+                |_| panic!("vsock: invalid queue index: {qidx}"),
+            )))
+            .map_err(DeviceError::FailedSignalingIrq)
+    }
+
+    /// Signal the guest which queues are ready to be consumed
+    pub fn signal_used_queues(&self, used_queues: &[u16]) -> Result<(), DeviceError> {
+        self.device_state
+            .active_state()
+            .expect("Device is not initialized")
+            .interrupt
+            .trigger_queues(used_queues)
             .map_err(DeviceError::FailedSignalingIrq)
     }
 
@@ -147,7 +163,7 @@ where
     /// otherwise.
     pub fn process_rx(&mut self) -> Result<bool, InvalidAvailIdx> {
         // This is safe since we checked in the event handler that the device is activated.
-        let mem = self.device_state.mem().unwrap();
+        let mem = &self.device_state.active_state().unwrap().mem;
 
         let queue = &mut self.queues[RXQ_INDEX];
         let mut have_used = false;
@@ -200,7 +216,7 @@ where
     /// ring, and `false` otherwise.
     pub fn process_tx(&mut self) -> Result<bool, InvalidAvailIdx> {
         // This is safe since we checked in the event handler that the device is activated.
-        let mem = self.device_state.mem().unwrap();
+        let mem = &self.device_state.active_state().unwrap().mem;
 
         let queue = &mut self.queues[TXQ_INDEX];
         let mut have_used = false;
@@ -240,7 +256,7 @@ where
     // remain but their CID is updated to reflect the current guest_cid.
     pub fn send_transport_reset_event(&mut self) -> Result<(), DeviceError> {
         // This is safe since we checked in the caller function that the device is activated.
-        let mem = self.device_state.mem().unwrap();
+        let mem = &self.device_state.active_state().unwrap().mem;
 
         let queue = &mut self.queues[EVQ_INDEX];
         let head = queue.pop()?.ok_or_else(|| {
@@ -256,7 +272,7 @@ where
         });
         queue.advance_used_ring_idx();
 
-        self.signal_used_queue()?;
+        self.signal_used_queue(EVQ_INDEX)?;
 
         Ok(())
     }
@@ -294,8 +310,12 @@ where
         &self.queue_events
     }
 
-    fn interrupt_trigger(&self) -> &IrqTrigger {
-        &self.irq_trigger
+    fn interrupt_trigger(&self) -> &dyn VirtioInterrupt {
+        self.device_state
+            .active_state()
+            .expect("Device is not initialized")
+            .interrupt
+            .deref()
     }
 
     fn read_config(&self, offset: u64, data: &mut [u8]) {
@@ -327,7 +347,11 @@ where
         );
     }
 
-    fn activate(&mut self, mem: GuestMemoryMmap) -> Result<(), ActivateError> {
+    fn activate(
+        &mut self,
+        mem: GuestMemoryMmap,
+        interrupt: Arc<dyn VirtioInterrupt>,
+    ) -> Result<(), ActivateError> {
         for q in self.queues.iter_mut() {
             q.initialize(&mem)
                 .map_err(ActivateError::QueueMemoryError)?;
@@ -346,13 +370,26 @@ where
             return Err(ActivateError::EventFd);
         }
 
-        self.device_state = DeviceState::Activated(mem);
+        self.device_state = DeviceState::Activated(ActiveState { mem, interrupt });
 
         Ok(())
     }
 
     fn is_activated(&self) -> bool {
         self.device_state.is_activated()
+    }
+
+    fn kick(&mut self) {
+        // Vsock has complicated protocol that isn't resilient to any packet loss,
+        // so for Vsock we don't support connection persistence through snapshot.
+        // Any in-flight packets or events are simply lost.
+        // Vsock is restored 'empty'.
+        // The only reason we still `kick` it is to make guest process
+        // `TRANSPORT_RESET_EVENT` event we sent during snapshot creation.
+        if self.is_activated() {
+            info!("kick vsock {}.", self.id());
+            self.signal_used_queue(EVQ_INDEX).unwrap();
+        }
     }
 }
 
@@ -429,6 +466,8 @@ mod tests {
         // }
 
         // Test a correct activation.
-        ctx.device.activate(ctx.mem.clone()).unwrap();
+        ctx.device
+            .activate(ctx.mem.clone(), ctx.interrupt.clone())
+            .unwrap();
     }
 }

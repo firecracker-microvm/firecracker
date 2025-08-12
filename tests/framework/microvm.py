@@ -206,6 +206,7 @@ class Microvm:
         jailer_kwargs: Optional[dict] = None,
         numa_node=None,
         custom_cpu_template: Path = None,
+        pci: bool = False,
     ):
         """Set up microVM attributes, paths, and data structures."""
         # pylint: disable=too-many-statements
@@ -235,6 +236,10 @@ class Microvm:
             new_pid_ns=True,
             **jailer_kwargs,
         )
+
+        self.pci_enabled = pci
+        if pci:
+            self.jailer.extra_args["enable-pci"] = None
 
         # Copy the /etc/localtime file in the jailer root
         self.jailer.jailed_path("/etc/localtime", subdir="etc")
@@ -503,6 +508,7 @@ class Microvm:
             "rootfs": self.rootfs_file.name,
             "vcpus": str(self.vcpus_count),
             "guest_memory": f"{self.mem_size_bytes / (1024 * 1024)}MB",
+            "pci": f"{self.pci_enabled}",
         }
 
     @property
@@ -800,8 +806,10 @@ class Microvm:
         the response is within the interval [200, 300).
 
         If boot_args is None, the default boot_args in Firecracker is
-            reboot=k panic=1 pci=off nomodule 8250.nr_uarts=0
-            i8042.noaux i8042.nomux i8042.nopnp i8042.dumbkbd
+            reboot=k panic=1 nomodule 8250.nr_uarts=0 i8042.noaux i8042.nomux
+            i8042.nopnp i8042.dumbkbd swiotlb=noforce
+
+        if PCI is disabled, Firecracker also passes to the guest pci=off
 
         Reference: file:../../src/vmm/src/vmm_config/boot_source.rs::DEFAULT_KERNEL_CMDLINE
         """

@@ -114,6 +114,8 @@ pub struct VmResources {
     pub mmds_size_limit: usize,
     /// Whether or not to load boot timer device.
     pub boot_timer: bool,
+    /// Whether or not to use PCIe transport for VirtIO devices.
+    pub pci_enabled: bool,
 }
 
 impl VmResources {
@@ -473,7 +475,7 @@ impl VmResources {
         // a single way of backing guest memory for vhost-user and non-vhost-user cases,
         // that would not be worth the effort.
         let regions =
-            crate::arch::arch_memory_regions(0, mib_to_bytes(self.machine_config.mem_size_mib));
+            crate::arch::arch_memory_regions(mib_to_bytes(self.machine_config.mem_size_mib));
         if vhost_user_device_used {
             memory::memfd_backed(
                 regions.as_ref(),
@@ -614,6 +616,7 @@ mod tests {
             boot_timer: false,
             mmds_size_limit: HTTP_MAX_PAYLOAD_SIZE,
             entropy: Default::default(),
+            pci_enabled: false,
         }
     }
 

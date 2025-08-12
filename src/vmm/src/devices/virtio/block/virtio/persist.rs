@@ -3,9 +3,6 @@
 
 //! Defines the structures needed for saving/restoring block devices.
 
-use std::sync::Arc;
-use std::sync::atomic::AtomicU32;
-
 use device::ConfigSpace;
 use serde::{Deserialize, Serialize};
 use vmm_sys_util::eventfd::EventFd;
@@ -16,7 +13,7 @@ use crate::devices::virtio::TYPE_BLOCK;
 use crate::devices::virtio::block::persist::BlockConstructorArgs;
 use crate::devices::virtio::block::virtio::device::FileEngineType;
 use crate::devices::virtio::block::virtio::metrics::BlockMetricsPerDevice;
-use crate::devices::virtio::device::{DeviceState, IrqTrigger};
+use crate::devices::virtio::device::{ActiveState, DeviceState};
 use crate::devices::virtio::generated::virtio_blk::VIRTIO_BLK_F_RO;
 use crate::devices::virtio::persist::VirtioDeviceState;
 use crate::rate_limiter::RateLimiter;
@@ -61,7 +58,7 @@ pub struct VirtioBlockState {
     cache_type: CacheType,
     root_device: bool,
     disk_path: String,
-    virtio_state: VirtioDeviceState,
+    pub virtio_state: VirtioDeviceState,
     rate_limiter_state: RateLimiterState,
     file_engine_type: FileEngineTypeState,
 }
@@ -111,17 +108,8 @@ impl Persist<'_> for VirtioBlock {
             )
             .map_err(VirtioBlockError::Persist)?;
 
-        let mut irq_trigger = IrqTrigger::new().map_err(VirtioBlockError::IrqTrigger)?;
-        irq_trigger.irq_status = Arc::new(AtomicU32::new(state.virtio_state.interrupt_status));
-
         let avail_features = state.virtio_state.avail_features;
         let acked_features = state.virtio_state.acked_features;
-
-        let device_state = if state.virtio_state.activated {
-            DeviceState::Activated(constructor_args.mem)
-        } else {
-            DeviceState::Inactive
-        };
 
         let config_space = ConfigSpace {
             capacity: disk_properties.nsectors.to_le(),
@@ -135,8 +123,7 @@ impl Persist<'_> for VirtioBlock {
 
             queues,
             queue_evts,
-            device_state,
-            irq_trigger,
+            device_state: DeviceState::Inactive,
 
             id: state.id.clone(),
             partuuid: state.partuuid.clone(),
@@ -154,14 +141,12 @@ impl Persist<'_> for VirtioBlock {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::atomic::Ordering;
-
     use vmm_sys_util::tempfile::TempFile;
 
     use super::*;
     use crate::devices::virtio::block::virtio::device::VirtioBlockConfig;
     use crate::devices::virtio::device::VirtioDevice;
-    use crate::devices::virtio::test_utils::default_mem;
+    use crate::devices::virtio::test_utils::{default_interrupt, default_mem};
     use crate::snapshot::Snapshot;
 
     #[test]
@@ -243,11 +228,8 @@ mod tests {
         assert_eq!(restored_block.avail_features(), block.avail_features());
         assert_eq!(restored_block.acked_features(), block.acked_features());
         assert_eq!(restored_block.queues(), block.queues());
-        assert_eq!(
-            restored_block.interrupt_status().load(Ordering::Relaxed),
-            block.interrupt_status().load(Ordering::Relaxed)
-        );
-        assert_eq!(restored_block.is_activated(), block.is_activated());
+        assert!(!block.is_activated());
+        assert!(!restored_block.is_activated());
 
         // Test that block specific fields are the same.
         assert_eq!(restored_block.disk.file_path, block.disk.file_path);

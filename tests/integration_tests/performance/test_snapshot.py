@@ -44,12 +44,13 @@ class SnapshotRestoreTest:
         """Computes a unique id for this test instance"""
         return "all_dev" if self.all_devices else f"{self.vcpus}vcpu_{self.mem}mb"
 
-    def boot_vm(self, microvm_factory, guest_kernel, rootfs) -> Microvm:
+    def boot_vm(self, microvm_factory, guest_kernel, rootfs, pci_enabled) -> Microvm:
         """Creates the initial snapshot that will be loaded repeatedly to sample latencies"""
         vm = microvm_factory.build(
             guest_kernel,
             rootfs,
             monitor_memory=False,
+            pci=pci_enabled,
         )
         vm.spawn(log_level="Info", emit_metrics=True)
         vm.time_api_requests = False
@@ -96,7 +97,7 @@ class SnapshotRestoreTest:
     ids=lambda x: x.id,
 )
 def test_restore_latency(
-    microvm_factory, rootfs, guest_kernel_linux_5_10, test_setup, metrics
+    microvm_factory, guest_kernel_linux_5_10, rootfs, pci_enabled, test_setup, metrics
 ):
     """
     Restores snapshots with vcpu/memory configuration, roughly scaling according to mem = (vcpus - 1) * 2048MB,
@@ -105,7 +106,9 @@ def test_restore_latency(
 
     We only test a single guest kernel, as the guest kernel does not "participate" in snapshot restore.
     """
-    vm = test_setup.boot_vm(microvm_factory, guest_kernel_linux_5_10, rootfs)
+    vm = test_setup.boot_vm(
+        microvm_factory, guest_kernel_linux_5_10, rootfs, pci_enabled
+    )
 
     metrics.set_dimensions(
         {
@@ -147,6 +150,7 @@ def test_post_restore_latency(
     microvm_factory,
     rootfs,
     guest_kernel_linux_5_10,
+    pci_enabled,
     metrics,
     uffd_handler,
     huge_pages,
@@ -156,7 +160,9 @@ def test_post_restore_latency(
         pytest.skip("huge page snapshots can only be restored using uffd")
 
     test_setup = SnapshotRestoreTest(mem=1024, vcpus=2, huge_pages=huge_pages)
-    vm = test_setup.boot_vm(microvm_factory, guest_kernel_linux_5_10, rootfs)
+    vm = test_setup.boot_vm(
+        microvm_factory, guest_kernel_linux_5_10, rootfs, pci_enabled
+    )
 
     metrics.set_dimensions(
         {
@@ -204,6 +210,7 @@ def test_population_latency(
     microvm_factory,
     rootfs,
     guest_kernel_linux_5_10,
+    pci_enabled,
     metrics,
     huge_pages,
     vcpus,
@@ -211,7 +218,9 @@ def test_population_latency(
 ):
     """Collects population latency metrics (e.g. how long it takes UFFD handler to fault in all memory)"""
     test_setup = SnapshotRestoreTest(mem=mem, vcpus=vcpus, huge_pages=huge_pages)
-    vm = test_setup.boot_vm(microvm_factory, guest_kernel_linux_5_10, rootfs)
+    vm = test_setup.boot_vm(
+        microvm_factory, guest_kernel_linux_5_10, rootfs, pci_enabled
+    )
 
     metrics.set_dimensions(
         {
@@ -255,15 +264,13 @@ def test_population_latency(
 
 @pytest.mark.nonci
 def test_snapshot_create_latency(
-    microvm_factory,
-    guest_kernel_linux_5_10,
-    rootfs,
+    uvm_plain,
     metrics,
     snapshot_type,
 ):
     """Measure the latency of creating a Full snapshot"""
 
-    vm = microvm_factory.build(guest_kernel_linux_5_10, rootfs, monitor_memory=False)
+    vm = uvm_plain
     vm.spawn()
     vm.basic_config(
         vcpu_count=2,

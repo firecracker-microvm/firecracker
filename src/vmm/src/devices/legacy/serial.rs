@@ -7,16 +7,18 @@
 
 //! Implements a wrapper over an UART serial device.
 use std::fmt::Debug;
-use std::io;
-use std::io::{Read, Write};
+use std::io::{self, Read, Stdin, Write};
 use std::os::unix::io::{AsRawFd, RawFd};
+use std::sync::{Arc, Barrier};
 
 use event_manager::{EventOps, Events, MutEventSubscriber};
+use libc::EFD_NONBLOCK;
 use log::{error, warn};
 use serde::Serialize;
 use vm_superio::serial::{Error as SerialError, SerialEvents};
 use vm_superio::{Serial, Trigger};
 use vmm_sys_util::epoll::EventSet;
+use vmm_sys_util::eventfd::EventFd;
 
 use crate::devices::legacy::EventFdTrigger;
 use crate::logger::{IncMetric, SharedIncMetric};
@@ -220,7 +222,27 @@ impl<I: Read + AsRawFd + Send + Debug> SerialWrapper<EventFdTrigger, SerialEvent
 }
 
 /// Type for representing a serial device.
-pub type SerialDevice<I> = SerialWrapper<EventFdTrigger, SerialEventsWrapper, I>;
+pub type SerialDevice = SerialWrapper<EventFdTrigger, SerialEventsWrapper, Stdin>;
+
+impl SerialDevice {
+    pub fn new(serial_in: Option<Stdin>, serial_out: SerialOut) -> Result<Self, std::io::Error> {
+        let interrupt_evt = EventFdTrigger::new(EventFd::new(EFD_NONBLOCK)?);
+        let buffer_read_event_fd = EventFdTrigger::new(EventFd::new(EFD_NONBLOCK)?);
+
+        let serial = Serial::with_events(
+            interrupt_evt,
+            SerialEventsWrapper {
+                buffer_ready_event_fd: Some(buffer_read_event_fd),
+            },
+            serial_out,
+        );
+
+        Ok(SerialDevice {
+            serial,
+            input: serial_in,
+        })
+    }
+}
 
 impl<I: Read + AsRawFd + Send + Debug> MutEventSubscriber
     for SerialWrapper<EventFdTrigger, SerialEventsWrapper, I>
@@ -337,10 +359,11 @@ fn is_fifo(fd: RawFd) -> bool {
     (stat.st_mode & libc::S_IFIFO) != 0
 }
 
-impl<I: Read + AsRawFd + Send + Debug + 'static>
-    SerialWrapper<EventFdTrigger, SerialEventsWrapper, I>
+impl<I> vm_device::BusDevice for SerialWrapper<EventFdTrigger, SerialEventsWrapper, I>
+where
+    I: Read + AsRawFd + Send,
 {
-    pub fn bus_read(&mut self, offset: u64, data: &mut [u8]) {
+    fn read(&mut self, _base: u64, offset: u64, data: &mut [u8]) {
         if let (Ok(offset), 1) = (u8::try_from(offset), data.len()) {
             data[0] = self.serial.read(offset);
         } else {
@@ -348,7 +371,7 @@ impl<I: Read + AsRawFd + Send + Debug + 'static>
         }
     }
 
-    pub fn bus_write(&mut self, offset: u64, data: &[u8]) {
+    fn write(&mut self, _base: u64, offset: u64, data: &[u8]) -> Option<Arc<Barrier>> {
         if let (Ok(offset), 1) = (u8::try_from(offset), data.len()) {
             if let Err(err) = self.serial.write(offset, data[0]) {
                 // Counter incremented for any handle_write() error.
@@ -358,6 +381,7 @@ impl<I: Read + AsRawFd + Send + Debug + 'static>
         } else {
             METRICS.missed_write_count.inc();
         }
+        None
     }
 }
 
@@ -365,6 +389,7 @@ impl<I: Read + AsRawFd + Send + Debug + 'static>
 mod tests {
     #![allow(clippy::undocumented_unsafe_blocks)]
 
+    use vm_device::BusDevice;
     use vmm_sys_util::eventfd::EventFd;
 
     use super::*;
@@ -390,13 +415,13 @@ mod tests {
 
         let invalid_reads_before = metrics.missed_read_count.count();
         let mut v = [0x00; 2];
-        serial.bus_read(0u64, &mut v);
+        serial.read(0x0, 0u64, &mut v);
 
         let invalid_reads_after = metrics.missed_read_count.count();
         assert_eq!(invalid_reads_before + 1, invalid_reads_after);
 
         let mut v = [0x00; 1];
-        serial.bus_read(0u64, &mut v);
+        serial.read(0x0, 0u64, &mut v);
         assert_eq!(v[0], b'a');
 
         let invalid_reads_after_2 = metrics.missed_read_count.count();

@@ -121,11 +121,11 @@ use std::sync::mpsc::RecvTimeoutError;
 use std::sync::{Arc, Barrier, Mutex};
 use std::time::Duration;
 
-use device_manager::acpi::ACPIDeviceManager;
-use device_manager::resources::ResourceAllocator;
+use device_manager::DeviceManager;
 use devices::acpi::vmgenid::VmGenIdError;
 use event_manager::{EventManager as BaseEventManager, EventOps, Events, MutEventSubscriber};
 use seccomp::BpfProgram;
+use snapshot::Persist;
 use userfaultfd::Uffd;
 use vmm_sys_util::epoll::EventSet;
 use vmm_sys_util::eventfd::EventFd;
@@ -133,12 +133,7 @@ use vmm_sys_util::terminal::Terminal;
 use vstate::kvm::Kvm;
 use vstate::vcpu::{self, StartThreadedError, VcpuSendEventError};
 
-use crate::arch::DeviceType;
 use crate::cpu_config::templates::CpuConfiguration;
-#[cfg(target_arch = "x86_64")]
-use crate::device_manager::legacy::PortIODeviceManager;
-use crate::device_manager::mmio::MMIODeviceManager;
-use crate::devices::legacy::{IER_RDA_BIT, IER_RDA_OFFSET};
 use crate::devices::virtio::balloon::{
     BALLOON_DEV_ID, Balloon, BalloonConfig, BalloonError, BalloonStats,
 };
@@ -148,7 +143,6 @@ use crate::devices::virtio::{TYPE_BALLOON, TYPE_BLOCK, TYPE_NET};
 use crate::logger::{METRICS, MetricsError, error, info, warn};
 use crate::persist::{MicrovmState, MicrovmStateError, VmInfo};
 use crate::rate_limiter::BucketUpdate;
-use crate::snapshot::Persist;
 use crate::vmm_config::instance_info::{InstanceInfo, VmState};
 use crate::vstate::memory::{GuestMemory, GuestMemoryMmap, GuestMemoryRegion};
 use crate::vstate::vcpu::VcpuState;
@@ -205,17 +199,15 @@ pub const HTTP_MAX_PAYLOAD_SIZE: usize = 51200;
 /// have permissions to open the KVM fd).
 #[derive(Debug, thiserror::Error, displaydoc::Display)]
 pub enum VmmError {
-    /// Failed to allocate guest resource: {0}
-    AllocateResources(#[from] vm_allocator::Error),
     #[cfg(target_arch = "aarch64")]
     /// Invalid command line error.
     Cmdline,
     /// Device manager error: {0}
-    DeviceManager(device_manager::mmio::MmioError),
+    DeviceManager(#[from] device_manager::DeviceManagerCreateError),
+    /// MMIO Device manager error: {0}
+    MmioDeviceManager(device_manager::mmio::MmioError),
     /// Error getting the KVM dirty bitmap. {0}
     DirtyBitmap(kvm_ioctls::Error),
-    /// Event fd error: {0}
-    EventFd(io::Error),
     /// I8042 error: {0}
     I8042Error(devices::legacy::I8042DeviceError),
     #[cfg(target_arch = "x86_64")]
@@ -259,6 +251,8 @@ pub enum VmmError {
     VmmObserverTeardown(vmm_sys_util::errno::Error),
     /// VMGenID error: {0}
     VMGenID(#[from] VmGenIdError),
+    /// Failed perform action on device: {0}
+    FindDeviceError(#[from] device_manager::FindDeviceError),
 }
 
 /// Shorthand type for KVM dirty page bitmap.
@@ -307,20 +301,15 @@ pub struct Vmm {
     // Guest VM core resources.
     kvm: Kvm,
     /// VM object
-    pub vm: Vm,
+    pub vm: Arc<Vm>,
     // Save UFFD in order to keep it open in the Firecracker process, as well.
+    #[allow(unused)]
     uffd: Option<Uffd>,
     vcpus_handles: Vec<VcpuHandle>,
     // Used by Vcpus and devices to initiate teardown; Vmm should never write here.
     vcpus_exit_evt: EventFd,
-
-    // Allocator for guest resources
-    resource_allocator: ResourceAllocator,
-    // Guest VM devices.
-    mmio_device_manager: MMIODeviceManager,
-    #[cfg(target_arch = "x86_64")]
-    pio_device_manager: PortIODeviceManager,
-    acpi_device_manager: ACPIDeviceManager,
+    // Device manager
+    device_manager: DeviceManager,
 }
 
 impl Vmm {
@@ -337,15 +326,6 @@ impl Vmm {
     /// Provides the Vmm shutdown exit code if there is one.
     pub fn shutdown_exit_code(&self) -> Option<FcExitCode> {
         self.shutdown_exit_code
-    }
-
-    /// Gets the specified bus device.
-    pub fn get_bus_device(
-        &self,
-        device_type: DeviceType,
-        device_id: &str,
-    ) -> Option<&Mutex<devices::bus::BusDevice>> {
-        self.mmio_device_manager.get_device(device_type, device_id)
     }
 
     /// Starts the microVM vcpus.
@@ -378,10 +358,9 @@ impl Vmm {
         self.vcpus_handles.reserve(vcpu_count);
 
         for mut vcpu in vcpus.drain(..) {
-            vcpu.set_mmio_bus(self.mmio_device_manager.bus.clone());
+            vcpu.set_mmio_bus(self.vm.common.mmio_bus.clone());
             #[cfg(target_arch = "x86_64")]
-            vcpu.kvm_vcpu
-                .set_pio_bus(self.pio_device_manager.io_bus.clone());
+            vcpu.kvm_vcpu.set_pio_bus(self.vm.pio_bus.clone());
 
             self.vcpus_handles
                 .push(vcpu.start_threaded(vcpu_seccomp_filter.clone(), barrier.clone())?);
@@ -395,7 +374,7 @@ impl Vmm {
 
     /// Sends a resume command to the vCPUs.
     pub fn resume_vm(&mut self) -> Result<(), VmmError> {
-        self.mmio_device_manager.kick_devices();
+        self.device_manager.kick_virtio_devices();
 
         // Send the events.
         self.vcpus_handles
@@ -439,60 +418,14 @@ impl Vmm {
         Ok(())
     }
 
-    /// Sets RDA bit in serial console
-    pub fn emulate_serial_init(&self) -> Result<(), EmulateSerialInitError> {
-        // When restoring from a previously saved state, there is no serial
-        // driver initialization, therefore the RDA (Received Data Available)
-        // interrupt is not enabled. Because of that, the driver won't get
-        // notified of any bytes that we send to the guest. The clean solution
-        // would be to save the whole serial device state when we do the vm
-        // serialization. For now we set that bit manually
-
-        #[cfg(target_arch = "aarch64")]
-        {
-            let serial_bus_device = self.get_bus_device(DeviceType::Serial, "Serial");
-            if serial_bus_device.is_none() {
-                return Ok(());
-            }
-            let mut serial_device_locked =
-                serial_bus_device.unwrap().lock().expect("Poisoned lock");
-            let serial = serial_device_locked
-                .serial_mut()
-                .expect("Unexpected BusDeviceType");
-
-            serial
-                .serial
-                .write(IER_RDA_OFFSET, IER_RDA_BIT)
-                .map_err(|_| EmulateSerialInitError(std::io::Error::last_os_error()))?;
-            Ok(())
-        }
-
-        #[cfg(target_arch = "x86_64")]
-        {
-            let mut guard = self
-                .pio_device_manager
-                .stdio_serial
-                .lock()
-                .expect("Poisoned lock");
-            let serial = guard.serial_mut().unwrap();
-
-            serial
-                .serial
-                .write(IER_RDA_OFFSET, IER_RDA_BIT)
-                .map_err(|_| EmulateSerialInitError(std::io::Error::last_os_error()))?;
-            Ok(())
-        }
-    }
-
     /// Injects CTRL+ALT+DEL keystroke combo in the i8042 device.
     #[cfg(target_arch = "x86_64")]
     pub fn send_ctrl_alt_del(&mut self) -> Result<(), VmmError> {
-        self.pio_device_manager
+        self.device_manager
+            .legacy_devices
             .i8042
             .lock()
             .expect("i8042 lock was poisoned")
-            .i8042_device_mut()
-            .unwrap()
             .trigger_ctrl_alt_del()
             .map_err(VmmError::I8042Error)
     }
@@ -514,9 +447,7 @@ impl Vmm {
                 self.vm.save_state(&mpidrs).map_err(SaveVmState)?
             }
         };
-        let device_states = self.mmio_device_manager.save();
-
-        let acpi_dev_state = self.acpi_device_manager.save();
+        let device_states = self.device_manager.save();
 
         Ok(MicrovmState {
             vm_info: vm_info.clone(),
@@ -524,7 +455,6 @@ impl Vmm {
             vm_state,
             vcpu_states,
             device_states,
-            acpi_dev_state,
         })
     }
 
@@ -591,13 +521,13 @@ impl Vmm {
         drive_id: &str,
         path_on_host: String,
     ) -> Result<(), VmmError> {
-        self.mmio_device_manager
+        self.device_manager
             .with_virtio_device_with_id(TYPE_BLOCK, drive_id, |block: &mut Block| {
                 block
                     .update_disk_image(path_on_host)
                     .map_err(|err| err.to_string())
             })
-            .map_err(VmmError::DeviceManager)
+            .map_err(VmmError::FindDeviceError)
     }
 
     /// Updates the rate limiter parameters for block device with `drive_id` id.
@@ -607,22 +537,22 @@ impl Vmm {
         rl_bytes: BucketUpdate,
         rl_ops: BucketUpdate,
     ) -> Result<(), VmmError> {
-        self.mmio_device_manager
+        self.device_manager
             .with_virtio_device_with_id(TYPE_BLOCK, drive_id, |block: &mut Block| {
                 block
                     .update_rate_limiter(rl_bytes, rl_ops)
                     .map_err(|err| err.to_string())
             })
-            .map_err(VmmError::DeviceManager)
+            .map_err(VmmError::FindDeviceError)
     }
 
     /// Updates the rate limiter parameters for block device with `drive_id` id.
     pub fn update_vhost_user_block_config(&mut self, drive_id: &str) -> Result<(), VmmError> {
-        self.mmio_device_manager
+        self.device_manager
             .with_virtio_device_with_id(TYPE_BLOCK, drive_id, |block: &mut Block| {
                 block.update_config().map_err(|err| err.to_string())
             })
-            .map_err(VmmError::DeviceManager)
+            .map_err(VmmError::FindDeviceError)
     }
 
     /// Updates the rate limiter parameters for net device with `net_id` id.
@@ -634,25 +564,20 @@ impl Vmm {
         tx_bytes: BucketUpdate,
         tx_ops: BucketUpdate,
     ) -> Result<(), VmmError> {
-        self.mmio_device_manager
+        self.device_manager
             .with_virtio_device_with_id(TYPE_NET, net_id, |net: &mut Net| {
                 net.patch_rate_limiters(rx_bytes, rx_ops, tx_bytes, tx_ops);
                 Ok(())
             })
-            .map_err(VmmError::DeviceManager)
+            .map_err(VmmError::FindDeviceError)
     }
 
     /// Returns a reference to the balloon device if present.
     pub fn balloon_config(&self) -> Result<BalloonConfig, BalloonError> {
-        if let Some(busdev) = self.get_bus_device(DeviceType::Virtio(TYPE_BALLOON), BALLOON_DEV_ID)
+        if let Some(virtio_device) = self
+            .device_manager
+            .get_virtio_device(TYPE_BALLOON, BALLOON_DEV_ID)
         {
-            let virtio_device = busdev
-                .lock()
-                .expect("Poisoned lock")
-                .mmio_transport_ref()
-                .expect("Unexpected device type")
-                .device();
-
             let config = virtio_device
                 .lock()
                 .expect("Poisoned lock")
@@ -669,15 +594,10 @@ impl Vmm {
 
     /// Returns the latest balloon statistics if they are enabled.
     pub fn latest_balloon_stats(&self) -> Result<BalloonStats, BalloonError> {
-        if let Some(busdev) = self.get_bus_device(DeviceType::Virtio(TYPE_BALLOON), BALLOON_DEV_ID)
+        if let Some(virtio_device) = self
+            .device_manager
+            .get_virtio_device(TYPE_BALLOON, BALLOON_DEV_ID)
         {
-            let virtio_device = busdev
-                .lock()
-                .expect("Poisoned lock")
-                .mmio_transport_ref()
-                .expect("Unexpected device type")
-                .device();
-
             let latest_stats = virtio_device
                 .lock()
                 .expect("Poisoned lock")
@@ -702,16 +622,11 @@ impl Vmm {
             return Err(BalloonError::TooManyPagesRequested);
         }
 
-        if let Some(busdev) = self.get_bus_device(DeviceType::Virtio(TYPE_BALLOON), BALLOON_DEV_ID)
+        if let Some(virtio_device) = self
+            .device_manager
+            .get_virtio_device(TYPE_BALLOON, BALLOON_DEV_ID)
         {
             {
-                let virtio_device = busdev
-                    .lock()
-                    .expect("Poisoned lock")
-                    .mmio_transport_ref()
-                    .expect("Unexpected device type")
-                    .device();
-
                 virtio_device
                     .lock()
                     .expect("Poisoned lock")
@@ -732,16 +647,11 @@ impl Vmm {
         &mut self,
         stats_polling_interval_s: u16,
     ) -> Result<(), BalloonError> {
-        if let Some(busdev) = self.get_bus_device(DeviceType::Virtio(TYPE_BALLOON), BALLOON_DEV_ID)
+        if let Some(virtio_device) = self
+            .device_manager
+            .get_virtio_device(TYPE_BALLOON, BALLOON_DEV_ID)
         {
             {
-                let virtio_device = busdev
-                    .lock()
-                    .expect("Poisoned lock")
-                    .mmio_transport_ref()
-                    .expect("Unexpected device type")
-                    .device();
-
                 virtio_device
                     .lock()
                     .expect("Poisoned lock")

@@ -10,10 +10,11 @@ use std::sync::{Arc, Mutex};
 use serde::{Deserialize, Serialize};
 
 use super::queue::{InvalidAvailIdx, QueueError};
+use super::transport::mmio::IrqTrigger;
 use crate::devices::virtio::device::VirtioDevice;
 use crate::devices::virtio::generated::virtio_ring::VIRTIO_RING_F_EVENT_IDX;
-use crate::devices::virtio::mmio::MmioTransport;
 use crate::devices::virtio::queue::Queue;
+use crate::devices::virtio::transport::mmio::MmioTransport;
 use crate::snapshot::Persist;
 use crate::vstate::memory::{GuestAddress, GuestMemoryMmap};
 
@@ -123,8 +124,6 @@ pub struct VirtioDeviceState {
     pub acked_features: u64,
     /// List of queues.
     pub queues: Vec<QueueState>,
-    /// The MMIO interrupt status.
-    pub interrupt_status: u32,
     /// Flag for activated status.
     pub activated: bool,
 }
@@ -137,7 +136,6 @@ impl VirtioDeviceState {
             avail_features: device.avail_features(),
             acked_features: device.acked_features(),
             queues: device.queues().iter().map(Persist::save).collect(),
-            interrupt_status: device.interrupt_status().load(Ordering::Relaxed),
             activated: device.is_activated(),
         }
     }
@@ -202,6 +200,7 @@ pub struct MmioTransportState {
     queue_select: u32,
     device_status: u32,
     config_generation: u32,
+    interrupt_status: u32,
 }
 
 /// Auxiliary structure for initializing the transport when resuming from a snapshot.
@@ -209,6 +208,8 @@ pub struct MmioTransportState {
 pub struct MmioTransportConstructorArgs {
     /// Pointer to guest memory.
     pub mem: GuestMemoryMmap,
+    /// Interrupt to use for the device
+    pub interrupt: Arc<IrqTrigger>,
     /// Device associated with the current MMIO state.
     pub device: Arc<Mutex<dyn VirtioDevice>>,
     /// Is device backed by vhost-user.
@@ -227,6 +228,7 @@ impl Persist<'_> for MmioTransport {
             queue_select: self.queue_select,
             device_status: self.device_status,
             config_generation: self.config_generation,
+            interrupt_status: self.interrupt.irq_status.load(Ordering::SeqCst),
         }
     }
 
@@ -236,6 +238,7 @@ impl Persist<'_> for MmioTransport {
     ) -> Result<Self, Self::Error> {
         let mut transport = MmioTransport::new(
             constructor_args.mem,
+            constructor_args.interrupt,
             constructor_args.device,
             constructor_args.is_vhost_user,
         );
@@ -244,6 +247,10 @@ impl Persist<'_> for MmioTransport {
         transport.queue_select = state.queue_select;
         transport.device_status = state.device_status;
         transport.config_generation = state.config_generation;
+        transport
+            .interrupt
+            .irq_status
+            .store(state.interrupt_status, Ordering::SeqCst);
         Ok(transport)
     }
 }
@@ -256,10 +263,10 @@ mod tests {
     use crate::devices::virtio::block::virtio::VirtioBlock;
     use crate::devices::virtio::block::virtio::device::FileEngineType;
     use crate::devices::virtio::block::virtio::test_utils::default_block_with_path;
-    use crate::devices::virtio::mmio::tests::DummyDevice;
     use crate::devices::virtio::net::Net;
     use crate::devices::virtio::net::test_utils::default_net;
     use crate::devices::virtio::test_utils::default_mem;
+    use crate::devices::virtio::transport::mmio::tests::DummyDevice;
     use crate::devices::virtio::vsock::{Vsock, VsockUnixBackend};
     use crate::snapshot::Snapshot;
 
@@ -383,7 +390,7 @@ mod tests {
                 self.queue_select == other.queue_select &&
                 self.device_status == other.device_status &&
                 self.config_generation == other.config_generation &&
-                self.interrupt_status.load(Ordering::SeqCst) == other.interrupt_status.load(Ordering::SeqCst) &&
+                self.interrupt.irq_status.load(Ordering::SeqCst) == other.interrupt.irq_status.load(Ordering::SeqCst) &&
                 // Only checking equality of device type, actual device (de)ser is tested by that
                 // device's tests.
                 self_dev_type == other.device().lock().unwrap().device_type()
@@ -392,6 +399,7 @@ mod tests {
 
     fn generic_mmiotransport_persistence_test(
         mmio_transport: MmioTransport,
+        interrupt: Arc<IrqTrigger>,
         mem: GuestMemoryMmap,
         device: Arc<Mutex<dyn VirtioDevice>>,
     ) {
@@ -401,6 +409,7 @@ mod tests {
 
         let restore_args = MmioTransportConstructorArgs {
             mem,
+            interrupt,
             device,
             is_vhost_user: false,
         };
@@ -413,8 +422,14 @@ mod tests {
         assert_eq!(restored_mmio_transport, mmio_transport);
     }
 
-    fn create_default_block() -> (MmioTransport, GuestMemoryMmap, Arc<Mutex<VirtioBlock>>) {
+    fn create_default_block() -> (
+        MmioTransport,
+        Arc<IrqTrigger>,
+        GuestMemoryMmap,
+        Arc<Mutex<VirtioBlock>>,
+    ) {
         let mem = default_mem();
+        let interrupt = Arc::new(IrqTrigger::new());
 
         // Create backing file.
         let f = TempFile::new().unwrap();
@@ -424,25 +439,34 @@ mod tests {
             FileEngineType::default(),
         );
         let block = Arc::new(Mutex::new(block));
-        let mmio_transport = MmioTransport::new(mem.clone(), block.clone(), false);
+        let mmio_transport =
+            MmioTransport::new(mem.clone(), interrupt.clone(), block.clone(), false);
 
-        (mmio_transport, mem, block)
+        (mmio_transport, interrupt, mem, block)
     }
 
-    fn create_default_net() -> (MmioTransport, GuestMemoryMmap, Arc<Mutex<Net>>) {
+    fn create_default_net() -> (
+        MmioTransport,
+        Arc<IrqTrigger>,
+        GuestMemoryMmap,
+        Arc<Mutex<Net>>,
+    ) {
         let mem = default_mem();
+        let interrupt = Arc::new(IrqTrigger::new());
         let net = Arc::new(Mutex::new(default_net()));
-        let mmio_transport = MmioTransport::new(mem.clone(), net.clone(), false);
+        let mmio_transport = MmioTransport::new(mem.clone(), interrupt.clone(), net.clone(), false);
 
-        (mmio_transport, mem, net)
+        (mmio_transport, interrupt, mem, net)
     }
 
     fn default_vsock() -> (
         MmioTransport,
+        Arc<IrqTrigger>,
         GuestMemoryMmap,
         Arc<Mutex<Vsock<VsockUnixBackend>>>,
     ) {
         let mem = default_mem();
+        let interrupt = Arc::new(IrqTrigger::new());
 
         let guest_cid = 52;
         let mut temp_uds_path = TempFile::new().unwrap();
@@ -452,26 +476,27 @@ mod tests {
         let backend = VsockUnixBackend::new(guest_cid, uds_path).unwrap();
         let vsock = Vsock::new(guest_cid, backend).unwrap();
         let vsock = Arc::new(Mutex::new(vsock));
-        let mmio_transport = MmioTransport::new(mem.clone(), vsock.clone(), false);
+        let mmio_transport =
+            MmioTransport::new(mem.clone(), interrupt.clone(), vsock.clone(), false);
 
-        (mmio_transport, mem, vsock)
+        (mmio_transport, interrupt, mem, vsock)
     }
 
     #[test]
     fn test_block_over_mmiotransport_persistence() {
-        let (mmio_transport, mem, block) = create_default_block();
-        generic_mmiotransport_persistence_test(mmio_transport, mem, block);
+        let (mmio_transport, interrupt, mem, block) = create_default_block();
+        generic_mmiotransport_persistence_test(mmio_transport, interrupt, mem, block);
     }
 
     #[test]
     fn test_net_over_mmiotransport_persistence() {
-        let (mmio_transport, mem, net) = create_default_net();
-        generic_mmiotransport_persistence_test(mmio_transport, mem, net);
+        let (mmio_transport, interrupt, mem, net) = create_default_net();
+        generic_mmiotransport_persistence_test(mmio_transport, interrupt, mem, net);
     }
 
     #[test]
     fn test_vsock_over_mmiotransport_persistence() {
-        let (mmio_transport, mem, vsock) = default_vsock();
-        generic_mmiotransport_persistence_test(mmio_transport, mem, vsock);
+        let (mmio_transport, interrupt, mem, vsock) = default_vsock();
+        generic_mmiotransport_persistence_test(mmio_transport, interrupt, mem, vsock);
     }
 }

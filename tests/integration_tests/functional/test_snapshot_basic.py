@@ -115,9 +115,8 @@ def test_snapshot_current_version(uvm_nano):
 def test_cycled_snapshot_restore(
     bin_vsock_path,
     tmp_path,
+    uvm_plain_any,
     microvm_factory,
-    guest_kernel,
-    rootfs,
     snapshot_type,
     use_snapshot_editor,
     cpu_template_any,
@@ -132,7 +131,7 @@ def test_cycled_snapshot_restore(
 
     logger = logging.getLogger("snapshot_sequence")
 
-    vm = microvm_factory.build(guest_kernel, rootfs)
+    vm = uvm_plain_any
     vm.spawn()
     vm.basic_config(
         vcpu_count=2,
@@ -248,7 +247,7 @@ def test_load_snapshot_failure_handling(uvm_plain):
     vm.mark_killed()
 
 
-def test_cmp_full_and_first_diff_mem(microvm_factory, guest_kernel, rootfs):
+def test_cmp_full_and_first_diff_mem(uvm_plain_any):
     """
     Compare memory of 2 consecutive full and diff snapshots.
 
@@ -259,7 +258,7 @@ def test_cmp_full_and_first_diff_mem(microvm_factory, guest_kernel, rootfs):
     """
     logger = logging.getLogger("snapshot_sequence")
 
-    vm = microvm_factory.build(guest_kernel, rootfs)
+    vm = uvm_plain_any
     vm.spawn()
     vm.basic_config(
         vcpu_count=2,
@@ -414,12 +413,12 @@ def test_create_large_diff_snapshot(uvm_plain):
     # process would have been taken down.
 
 
-def test_diff_snapshot_overlay(guest_kernel, rootfs, microvm_factory):
+def test_diff_snapshot_overlay(uvm_plain_any, microvm_factory):
     """
     Tests that if we take a diff snapshot and direct firecracker to write it on
     top of an existing snapshot file, it will successfully merge them.
     """
-    basevm = microvm_factory.build(guest_kernel, rootfs)
+    basevm = uvm_plain_any
     basevm.spawn()
     basevm.basic_config(track_dirty_pages=True)
     basevm.add_net_iface()
@@ -451,7 +450,7 @@ def test_diff_snapshot_overlay(guest_kernel, rootfs, microvm_factory):
     # Check that the restored VM works
 
 
-def test_snapshot_overwrite_self(guest_kernel, rootfs, microvm_factory):
+def test_snapshot_overwrite_self(uvm_plain_any, microvm_factory):
     """Tests that if we try to take a snapshot that would overwrite the
     very file from which the current VM is stored, nothing happens.
 
@@ -459,7 +458,7 @@ def test_snapshot_overwrite_self(guest_kernel, rootfs, microvm_factory):
     of mmap does not specify what should happen if the file is changed after being
     mmap'd (https://man7.org/linux/man-pages/man2/mmap.2.html). It seems that
     these changes can propagate to the mmap'd memory region."""
-    base_vm = microvm_factory.build(guest_kernel, rootfs)
+    base_vm = uvm_plain_any
     base_vm.spawn()
     base_vm.basic_config()
     base_vm.add_net_iface()
@@ -483,11 +482,11 @@ def test_snapshot_overwrite_self(guest_kernel, rootfs, microvm_factory):
     # restored, with a new snapshot of this vm, does not break the VM
 
 
-def test_vmgenid(guest_kernel_linux_6_1, rootfs, microvm_factory, snapshot_type):
+def test_vmgenid(uvm_plain_6_1, microvm_factory, snapshot_type):
     """
     Test VMGenID device upon snapshot resume
     """
-    base_vm = microvm_factory.build(guest_kernel_linux_6_1, rootfs)
+    base_vm = uvm_plain_6_1
     base_vm.spawn()
     base_vm.basic_config(track_dirty_pages=True)
     base_vm.add_net_iface()

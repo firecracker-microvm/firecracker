@@ -1,11 +1,14 @@
 // Copyright 2025 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
+use std::sync::Mutex;
+
 use serde::{Deserialize, Serialize};
 
 use crate::Kvm;
 use crate::arch::aarch64::gic::GicState;
 use crate::vstate::memory::{GuestMemoryExtension, GuestMemoryState};
+use crate::vstate::resources::ResourceAllocator;
 use crate::vstate::vm::{VmCommon, VmError};
 
 /// Structure representing the current architecture's understand of what a "virtual machine" is.
@@ -74,6 +77,7 @@ impl ArchVm {
                 .get_irqchip()
                 .save_device(mpidrs)
                 .map_err(ArchVmError::SaveGic)?,
+            resource_allocator: self.resource_allocator().clone(),
         })
     }
 
@@ -86,6 +90,7 @@ impl ArchVm {
         self.get_irqchip()
             .restore_device(mpidrs, &state.gic)
             .map_err(ArchVmError::RestoreGic)?;
+        self.common.resource_allocator = Mutex::new(state.resource_allocator.clone());
 
         Ok(())
     }
@@ -98,4 +103,6 @@ pub struct VmState {
     pub memory: GuestMemoryState,
     /// GIC state.
     pub gic: GicState,
+    /// resource allocator
+    pub resource_allocator: ResourceAllocator,
 }

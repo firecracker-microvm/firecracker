@@ -7,15 +7,16 @@
 
 //! Emulates virtual and hardware devices.
 
+#![allow(unused)]
+
 use std::io;
 
 pub mod acpi;
-pub mod bus;
 pub mod legacy;
+pub mod pci;
 pub mod pseudo;
 pub mod virtio;
 
-pub use bus::{Bus, BusDevice, BusError};
 use log::error;
 
 use crate::devices::virtio::net::metrics::NetDeviceMetrics;

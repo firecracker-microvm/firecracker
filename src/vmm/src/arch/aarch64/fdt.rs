@@ -5,17 +5,21 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the THIRD-PARTY file.
 
-use std::collections::HashMap;
 use std::ffi::CString;
 use std::fmt::Debug;
 
 use vm_fdt::{Error as VmFdtError, FdtWriter, FdtWriterNode};
 use vm_memory::GuestMemoryError;
 
-use super::super::DeviceType;
 use super::cache_info::{CacheEntry, read_cache_config};
 use super::gic::GICDevice;
+use crate::arch::{
+    MEM_32BIT_DEVICES_SIZE, MEM_32BIT_DEVICES_START, MEM_64BIT_DEVICES_SIZE,
+    MEM_64BIT_DEVICES_START, PCI_MMIO_CONFIG_SIZE_PER_SEGMENT,
+};
+use crate::device_manager::DeviceManager;
 use crate::device_manager::mmio::MMIODeviceInfo;
+use crate::device_manager::pci_mngr::PciDevices;
 use crate::devices::acpi::vmgenid::{VMGENID_MEM_SIZE, VmGenId};
 use crate::initrd::InitrdConfig;
 use crate::vstate::memory::{Address, GuestMemory, GuestMemoryMmap};
@@ -24,6 +28,8 @@ use crate::vstate::memory::{Address, GuestMemory, GuestMemoryMmap};
 const GIC_PHANDLE: u32 = 1;
 // This is a value for uniquely identifying the FDT node containing the clock definition.
 const CLOCK_PHANDLE: u32 = 2;
+// This is a value for uniquely identifying the FDT node declaring the MSI controller.
+const MSI_PHANDLE: u32 = 3;
 // You may be wondering why this big value?
 // This phandle is used to uniquely identify the FDT nodes containing cache information. Each cpu
 // can have a variable number of caches, some of these caches may be shared with other cpus.
@@ -55,14 +61,14 @@ pub enum FdtError {
     WriteFdtToMemory(#[from] GuestMemoryError),
 }
 
+#[allow(clippy::too_many_arguments)]
 /// Creates the flattened device tree for this aarch64 microVM.
 pub fn create_fdt(
     guest_mem: &GuestMemoryMmap,
     vcpu_mpidr: Vec<u64>,
     cmdline: CString,
-    device_info: &HashMap<(DeviceType, String), MMIODeviceInfo>,
+    device_manager: &DeviceManager,
     gic_device: &GICDevice,
-    vmgenid: &Option<VmGenId>,
     initrd: &Option<InitrdConfig>,
 ) -> Result<Vec<u8>, FdtError> {
     // Allocate stuff necessary for storing the blob.
@@ -89,8 +95,9 @@ pub fn create_fdt(
     create_timer_node(&mut fdt_writer)?;
     create_clock_node(&mut fdt_writer)?;
     create_psci_node(&mut fdt_writer)?;
-    create_devices_node(&mut fdt_writer, device_info)?;
-    create_vmgenid_node(&mut fdt_writer, vmgenid)?;
+    create_devices_node(&mut fdt_writer, device_manager)?;
+    create_vmgenid_node(&mut fdt_writer, &device_manager.acpi_devices.vmgenid)?;
+    create_pci_nodes(&mut fdt_writer, &device_manager.pci_devices)?;
 
     // End Header node.
     fdt_writer.end_node(root)?;
@@ -297,6 +304,16 @@ fn create_gic_node(fdt: &mut FdtWriter, gic_device: &GICDevice) -> Result<(), Fd
     ];
 
     fdt.property_array_u32("interrupts", &gic_intr)?;
+
+    if let Some(msi_properties) = gic_device.msi_properties() {
+        let msic_node = fdt.begin_node("msic")?;
+        fdt.property_string("compatible", "arm,gic-v3-its")?;
+        fdt.property_null("msi-controller")?;
+        fdt.property_u32("phandle", MSI_PHANDLE)?;
+        fdt.property_array_u64("reg", msi_properties)?;
+        fdt.end_node(msic_node)?;
+    }
+
     fdt.end_node(interrupt)?;
 
     Ok(())
@@ -362,7 +379,7 @@ fn create_virtio_node(fdt: &mut FdtWriter, dev_info: &MMIODeviceInfo) -> Result<
         "interrupts",
         &[
             GIC_FDT_IRQ_TYPE_SPI,
-            dev_info.irq.unwrap(),
+            dev_info.gsi.unwrap(),
             IRQ_TYPE_EDGE_RISING,
         ],
     )?;
@@ -383,7 +400,7 @@ fn create_serial_node(fdt: &mut FdtWriter, dev_info: &MMIODeviceInfo) -> Result<
         "interrupts",
         &[
             GIC_FDT_IRQ_TYPE_SPI,
-            dev_info.irq.unwrap(),
+            dev_info.gsi.unwrap(),
             IRQ_TYPE_EDGE_RISING,
         ],
     )?;
@@ -411,45 +428,117 @@ fn create_rtc_node(fdt: &mut FdtWriter, dev_info: &MMIODeviceInfo) -> Result<(),
 
 fn create_devices_node(
     fdt: &mut FdtWriter,
-    dev_info: &HashMap<(DeviceType, String), MMIODeviceInfo>,
+    device_manager: &DeviceManager,
 ) -> Result<(), FdtError> {
-    // Create one temp Vec to store all virtio devices
-    let mut ordered_virtio_device: Vec<&MMIODeviceInfo> = Vec::new();
-
-    for ((device_type, _device_id), info) in dev_info {
-        match device_type {
-            DeviceType::BootTimer => (), // since it's not a real device
-            DeviceType::Rtc => create_rtc_node(fdt, info)?,
-            DeviceType::Serial => create_serial_node(fdt, info)?,
-            DeviceType::Virtio(_) => {
-                ordered_virtio_device.push(info);
-            }
-        }
+    if let Some(rtc_info) = device_manager.mmio_devices.rtc_device_info() {
+        create_rtc_node(fdt, rtc_info)?;
     }
 
+    if let Some(serial_info) = device_manager.mmio_devices.serial_device_info() {
+        create_serial_node(fdt, serial_info)?;
+    }
+
+    let mut virtio_mmio = device_manager.mmio_devices.virtio_device_info();
+
     // Sort out virtio devices by address from low to high and insert them into fdt table.
-    ordered_virtio_device.sort_by_key(|a| a.addr);
-    for ordered_device_info in ordered_virtio_device.drain(..) {
+    virtio_mmio.sort_by_key(|a| a.addr);
+    for ordered_device_info in virtio_mmio.drain(..) {
         create_virtio_node(fdt, ordered_device_info)?;
     }
 
     Ok(())
 }
 
+fn create_pci_nodes(fdt: &mut FdtWriter, pci_devices: &PciDevices) -> Result<(), FdtError> {
+    if pci_devices.pci_segment.is_none() {
+        return Ok(());
+    }
+
+    // Fine to unwrap here, we just checked it's not `None`.
+    let segment = pci_devices.pci_segment.as_ref().unwrap();
+
+    let pci_node_name = format!("pci@{:x}", segment.mmio_config_address);
+    // Each range here is a thruple of `(PCI address, CPU address, PCI size)`.
+    //
+    // More info about the format can be found here:
+    // https://elinux.org/Device_Tree_Usage#PCI_Address_Translation
+    let ranges = [
+        // 32bit addresses
+        0x200_0000u32,
+        (MEM_32BIT_DEVICES_START >> 32) as u32, // PCI address
+        (MEM_32BIT_DEVICES_START & 0xffff_ffff) as u32,
+        (MEM_32BIT_DEVICES_START >> 32) as u32, // CPU address
+        (MEM_32BIT_DEVICES_START & 0xffff_ffff) as u32,
+        (MEM_32BIT_DEVICES_SIZE >> 32) as u32, // Range size
+        (MEM_32BIT_DEVICES_SIZE & 0xffff_ffff) as u32,
+        // 64bit addresses
+        0x300_0000u32,
+        // PCI address
+        (MEM_64BIT_DEVICES_START >> 32) as u32, // PCI address
+        (MEM_64BIT_DEVICES_START & 0xffff_ffff) as u32,
+        // CPU address
+        (MEM_64BIT_DEVICES_START >> 32) as u32, // CPU address
+        (MEM_64BIT_DEVICES_START & 0xffff_ffff) as u32,
+        // Range size
+        (MEM_64BIT_DEVICES_SIZE >> 32) as u32, // Range size
+        ((MEM_64BIT_DEVICES_SIZE & 0xffff_ffff) >> 32) as u32,
+    ];
+
+    // See kernel document Documentation/devicetree/bindings/pci/pci-msi.txt
+    let msi_map = [
+        // rid-base: A single cell describing the first RID matched by the entry.
+        0x0,
+        // msi-controller: A single phandle to an MSI controller.
+        MSI_PHANDLE,
+        // msi-base: An msi-specifier describing the msi-specifier produced for the
+        // first RID matched by the entry.
+        segment.id as u32,
+        // length: A single cell describing how many consecutive RIDs are matched
+        // following the rid-base.
+        0x100,
+    ];
+
+    let pci_node = fdt.begin_node(&pci_node_name)?;
+
+    fdt.property_string("compatible", "pci-host-ecam-generic")?;
+    fdt.property_string("device_type", "pci")?;
+    fdt.property_array_u32("ranges", &ranges)?;
+    fdt.property_array_u32("bus-range", &[0, 0])?;
+    fdt.property_u32("linux,pci-domain", segment.id.into())?;
+    fdt.property_u32("#address-cells", 3)?;
+    fdt.property_u32("#size-cells", 2)?;
+    fdt.property_array_u64(
+        "reg",
+        &[
+            segment.mmio_config_address,
+            PCI_MMIO_CONFIG_SIZE_PER_SEGMENT,
+        ],
+    )?;
+    fdt.property_u32("#interrupt-cells", 1)?;
+    fdt.property_null("interrupt-map")?;
+    fdt.property_null("interrupt-map-mask")?;
+    fdt.property_null("dma-coherent")?;
+    fdt.property_array_u32("msi-map", &msi_map)?;
+    fdt.property_u32("msi-parent", MSI_PHANDLE)?;
+
+    Ok(fdt.end_node(pci_node)?)
+}
+
 #[cfg(test)]
 mod tests {
     use std::ffi::CString;
+    use std::sync::{Arc, Mutex};
 
-    use kvm_ioctls::Kvm;
+    use linux_loader::cmdline as kernel_cmdline;
 
     use super::*;
     use crate::arch::aarch64::gic::create_gic;
     use crate::arch::aarch64::layout;
-    use crate::device_manager::resources::ResourceAllocator;
+    use crate::device_manager::mmio::tests::DummyDevice;
+    use crate::device_manager::tests::default_device_manager;
     use crate::test_utils::arch_mem;
     use crate::vstate::memory::GuestAddress;
-
-    const LEN: u64 = 4096;
+    use crate::{EventManager, Kvm, Vm};
 
     // The `load` function from the `device_tree` will mistakenly check the actual size
     // of the buffer with the allocated size. This works around that.
@@ -463,46 +552,29 @@ mod tests {
     #[test]
     fn test_create_fdt_with_devices() {
         let mem = arch_mem(layout::FDT_MAX_SIZE + 0x1000);
+        let mut event_manager = EventManager::new().unwrap();
+        let mut device_manager = default_device_manager();
+        let kvm = Kvm::new(vec![]).unwrap();
+        let vm = Vm::new(&kvm).unwrap();
+        let gic = create_gic(vm.fd(), 1, None).unwrap();
+        let mut cmdline = kernel_cmdline::Cmdline::new(4096).unwrap();
+        cmdline.insert("console", "/dev/tty0").unwrap();
 
-        let dev_info: HashMap<(DeviceType, std::string::String), MMIODeviceInfo> = [
-            (
-                (DeviceType::Serial, DeviceType::Serial.to_string()),
-                MMIODeviceInfo {
-                    addr: 0x00,
-                    irq: Some(1u32),
-                    len: LEN,
-                },
-            ),
-            (
-                (DeviceType::Virtio(1), "virtio".to_string()),
-                MMIODeviceInfo {
-                    addr: LEN,
-                    irq: Some(2u32),
-                    len: LEN,
-                },
-            ),
-            (
-                (DeviceType::Rtc, "rtc".to_string()),
-                MMIODeviceInfo {
-                    addr: 2 * LEN,
-                    irq: Some(3u32),
-                    len: LEN,
-                },
-            ),
-        ]
-        .iter()
-        .cloned()
-        .collect();
-        let kvm = Kvm::new().unwrap();
-        let vm = kvm.create_vm().unwrap();
-        let gic = create_gic(&vm, 1, None).unwrap();
+        device_manager
+            .attach_legacy_devices_aarch64(&vm, &mut event_manager, &mut cmdline)
+            .unwrap();
+        let dummy = Arc::new(Mutex::new(DummyDevice::new()));
+        device_manager
+            .mmio_devices
+            .register_virtio_test_device(&vm, mem.clone(), dummy, &mut cmdline, "dummy")
+            .unwrap();
+
         create_fdt(
             &mem,
             vec![0],
-            CString::new("console=tty0").unwrap(),
-            &dev_info,
+            cmdline.as_cstring().unwrap(),
+            &device_manager,
             &gic,
-            &None,
             &None,
         )
         .unwrap();
@@ -511,18 +583,21 @@ mod tests {
     #[test]
     fn test_create_fdt_with_vmgenid() {
         let mem = arch_mem(layout::FDT_MAX_SIZE + 0x1000);
-        let mut resource_allocator = ResourceAllocator::new().unwrap();
-        let vmgenid = VmGenId::new(&mem, &mut resource_allocator).unwrap();
-        let kvm = Kvm::new().unwrap();
-        let vm = kvm.create_vm().unwrap();
-        let gic = create_gic(&vm, 1, None).unwrap();
+        let mut device_manager = default_device_manager();
+        let kvm = Kvm::new(vec![]).unwrap();
+        let vm = Vm::new(&kvm).unwrap();
+        let gic = create_gic(vm.fd(), 1, None).unwrap();
+        let mut cmdline = kernel_cmdline::Cmdline::new(4096).unwrap();
+        cmdline.insert("console", "/dev/tty0").unwrap();
+
+        device_manager.attach_vmgenid_device(&mem, &vm).unwrap();
+
         create_fdt(
             &mem,
             vec![0],
             CString::new("console=tty0").unwrap(),
-            &HashMap::<(DeviceType, std::string::String), MMIODeviceInfo>::new(),
+            &device_manager,
             &gic,
-            &Some(vmgenid),
             &None,
         )
         .unwrap();
@@ -531,9 +606,10 @@ mod tests {
     #[test]
     fn test_create_fdt() {
         let mem = arch_mem(layout::FDT_MAX_SIZE + 0x1000);
-        let kvm = Kvm::new().unwrap();
-        let vm = kvm.create_vm().unwrap();
-        let gic = create_gic(&vm, 1, None).unwrap();
+        let device_manager = default_device_manager();
+        let kvm = Kvm::new(vec![]).unwrap();
+        let vm = Vm::new(&kvm).unwrap();
+        let gic = create_gic(vm.fd(), 1, None).unwrap();
 
         let saved_dtb_bytes = match gic.fdt_compatibility() {
             "arm,gic-v3" => include_bytes!("output_GICv3.dtb"),
@@ -545,9 +621,8 @@ mod tests {
             &mem,
             vec![0],
             CString::new("console=tty0").unwrap(),
-            &HashMap::<(DeviceType, std::string::String), MMIODeviceInfo>::new(),
+            &device_manager,
             &gic,
-            &None,
             &None,
         )
         .unwrap();
@@ -588,9 +663,10 @@ mod tests {
     #[test]
     fn test_create_fdt_with_initrd() {
         let mem = arch_mem(layout::FDT_MAX_SIZE + 0x1000);
-        let kvm = Kvm::new().unwrap();
-        let vm = kvm.create_vm().unwrap();
-        let gic = create_gic(&vm, 1, None).unwrap();
+        let device_manager = default_device_manager();
+        let kvm = Kvm::new(vec![]).unwrap();
+        let vm = Vm::new(&kvm).unwrap();
+        let gic = create_gic(vm.fd(), 1, None).unwrap();
 
         let saved_dtb_bytes = match gic.fdt_compatibility() {
             "arm,gic-v3" => include_bytes!("output_initrd_GICv3.dtb"),
@@ -607,9 +683,8 @@ mod tests {
             &mem,
             vec![0],
             CString::new("console=tty0").unwrap(),
-            &HashMap::<(DeviceType, std::string::String), MMIODeviceInfo>::new(),
+            &device_manager,
             &gic,
-            &None,
             &Some(initrd),
         )
         .unwrap();

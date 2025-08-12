@@ -103,7 +103,7 @@ impl TapTrafficSimulator {
 
         let send_addr_ptr = &mut storage as *mut libc::sockaddr_storage;
 
-        // SAFETY: `sock_addr` is a valid pointer and safe to derference.
+        // SAFETY: `sock_addr` is a valid pointer and safe to dereference.
         unsafe {
             let sock_addr: *mut libc::sockaddr_ll = send_addr_ptr.cast::<libc::sockaddr_ll>();
             (*sock_addr).sll_family = libc::sa_family_t::try_from(libc::AF_PACKET).unwrap();
@@ -222,7 +222,7 @@ pub fn if_index(tap: &Tap) -> i32 {
 
 /// Enable the tap interface.
 pub fn enable(tap: &Tap) {
-    // Disable IPv6 router advertisment requests
+    // Disable IPv6 router advertisement requests
     Command::new("sh")
         .arg("-c")
         .arg(format!(
@@ -291,7 +291,7 @@ pub mod test {
     use event_manager::{EventManager, SubscriberId, SubscriberOps};
 
     use crate::check_metric_after_block;
-    use crate::devices::virtio::device::{IrqType, VirtioDevice};
+    use crate::devices::virtio::device::VirtioDevice;
     use crate::devices::virtio::net::device::vnet_hdr_len;
     use crate::devices::virtio::net::generated::ETH_HLEN;
     use crate::devices::virtio::net::test_utils::{
@@ -299,7 +299,8 @@ pub mod test {
     };
     use crate::devices::virtio::net::{MAX_BUFFER_SIZE, Net, RX_INDEX, TX_INDEX};
     use crate::devices::virtio::queue::{VIRTQ_DESC_F_NEXT, VIRTQ_DESC_F_WRITE};
-    use crate::devices::virtio::test_utils::{VirtQueue, VirtqDesc};
+    use crate::devices::virtio::test_utils::{VirtQueue, VirtqDesc, default_interrupt};
+    use crate::devices::virtio::transport::VirtioInterruptType;
     use crate::logger::IncMetric;
     use crate::vstate::memory::{Address, Bytes, GuestAddress, GuestMemoryMmap};
 
@@ -358,7 +359,12 @@ pub mod test {
         }
 
         pub fn activate_net(&mut self) {
-            self.net.lock().unwrap().activate(self.mem.clone()).unwrap();
+            let interrupt = default_interrupt();
+            self.net
+                .lock()
+                .unwrap()
+                .activate(self.mem.clone(), interrupt)
+                .unwrap();
             // Process the activate event.
             let ev_count = self.event_manager.run_with_timeout(100).unwrap();
             assert_eq!(ev_count, 1);
@@ -435,7 +441,11 @@ pub mod test {
                 old_used_descriptors + 1
             );
 
-            assert!(&self.net().irq_trigger.has_pending_irq(IrqType::Vring));
+            assert!(
+                self.net()
+                    .interrupt_trigger()
+                    .has_pending_interrupt(VirtioInterruptType::Queue(RX_INDEX as u16))
+            );
 
             frame
         }
@@ -461,7 +471,11 @@ pub mod test {
             );
             // Check that the expected frame was sent to the Rx queue eventually.
             assert_eq!(self.rxq.used.idx.get(), used_idx + 1);
-            assert!(&self.net().irq_trigger.has_pending_irq(IrqType::Vring));
+            assert!(
+                self.net()
+                    .interrupt_trigger()
+                    .has_pending_interrupt(VirtioInterruptType::Queue(RX_INDEX as u16))
+            );
             self.rxq
                 .check_used_elem(used_idx, 0, expected_frame.len().try_into().unwrap());
             self.rxq.dtable[0].check_data(expected_frame);

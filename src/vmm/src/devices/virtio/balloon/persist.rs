@@ -4,7 +4,6 @@
 //! Defines the structures needed for saving/restoring balloon devices.
 
 use std::sync::Arc;
-use std::sync::atomic::AtomicU32;
 use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
@@ -13,9 +12,10 @@ use timerfd::{SetTimeFlags, TimerState};
 use super::*;
 use crate::devices::virtio::TYPE_BALLOON;
 use crate::devices::virtio::balloon::device::{BalloonStats, ConfigSpace};
-use crate::devices::virtio::device::DeviceState;
+use crate::devices::virtio::device::{ActiveState, DeviceState};
 use crate::devices::virtio::persist::VirtioDeviceState;
 use crate::devices::virtio::queue::FIRECRACKER_MAX_QUEUE_SIZE;
+use crate::devices::virtio::transport::VirtioInterrupt;
 use crate::snapshot::Persist;
 use crate::vstate::memory::GuestMemoryMmap;
 
@@ -87,7 +87,7 @@ pub struct BalloonState {
     stats_desc_index: Option<u16>,
     latest_stats: BalloonStatsState,
     config_space: BalloonConfigSpaceState,
-    virtio_state: VirtioDeviceState,
+    pub virtio_state: VirtioDeviceState,
 }
 
 /// Auxiliary structure for creating a device when resuming from a snapshot.
@@ -144,8 +144,6 @@ impl Persist<'_> for Balloon {
                 FIRECRACKER_MAX_QUEUE_SIZE,
             )
             .map_err(|_| Self::Error::QueueRestoreError)?;
-        balloon.irq_trigger.irq_status =
-            Arc::new(AtomicU32::new(state.virtio_state.interrupt_status));
         balloon.avail_features = state.virtio_state.avail_features;
         balloon.acked_features = state.virtio_state.acked_features;
         balloon.latest_stats = state.latest_stats.create_stats();
@@ -154,22 +152,18 @@ impl Persist<'_> for Balloon {
             actual_pages: state.config_space.actual_pages,
         };
 
-        if state.virtio_state.activated {
-            balloon.device_state = DeviceState::Activated(constructor_args.mem);
+        if state.virtio_state.activated && balloon.stats_enabled() {
+            // Restore the stats descriptor.
+            balloon.set_stats_desc_index(state.stats_desc_index);
 
-            if balloon.stats_enabled() {
-                // Restore the stats descriptor.
-                balloon.set_stats_desc_index(state.stats_desc_index);
-
-                // Restart timer if needed.
-                let timer_state = TimerState::Periodic {
-                    current: Duration::from_secs(u64::from(state.stats_polling_interval_s)),
-                    interval: Duration::from_secs(u64::from(state.stats_polling_interval_s)),
-                };
-                balloon
-                    .stats_timer
-                    .set_state(timer_state, SetTimeFlags::Default);
-            }
+            // Restart timer if needed.
+            let timer_state = TimerState::Periodic {
+                current: Duration::from_secs(u64::from(state.stats_polling_interval_s)),
+                interval: Duration::from_secs(u64::from(state.stats_polling_interval_s)),
+            };
+            balloon
+                .stats_timer
+                .set_state(timer_state, SetTimeFlags::Default);
         }
 
         Ok(balloon)
@@ -178,12 +172,11 @@ impl Persist<'_> for Balloon {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::atomic::Ordering;
 
     use super::*;
     use crate::devices::virtio::TYPE_BALLOON;
     use crate::devices::virtio::device::VirtioDevice;
-    use crate::devices::virtio::test_utils::default_mem;
+    use crate::devices::virtio::test_utils::{default_interrupt, default_mem};
     use crate::snapshot::Snapshot;
 
     #[test]
@@ -213,11 +206,8 @@ mod tests {
         assert_eq!(restored_balloon.avail_features, balloon.avail_features);
         assert_eq!(restored_balloon.config_space, balloon.config_space);
         assert_eq!(restored_balloon.queues(), balloon.queues());
-        assert_eq!(
-            restored_balloon.interrupt_status().load(Ordering::Relaxed),
-            balloon.interrupt_status().load(Ordering::Relaxed)
-        );
-        assert_eq!(restored_balloon.is_activated(), balloon.is_activated());
+        assert!(!restored_balloon.is_activated());
+        assert!(!balloon.is_activated());
 
         assert_eq!(
             restored_balloon.stats_polling_interval_s,

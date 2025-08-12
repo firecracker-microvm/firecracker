@@ -1,7 +1,7 @@
 {
   "boot-source": {
     "kernel_image_path": "vmlinux.bin",
-    "boot_args": "console=ttyS0 reboot=k panic=1 pci=off"
+    "boot_args": "console=ttyS0 reboot=k panic=1 swiotlb=noforce"
   },
   "drives": [
     {

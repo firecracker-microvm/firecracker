@@ -11,9 +11,9 @@ use vm_superio::Trigger;
 use vmm_sys_util::eventfd::EventFd;
 
 use super::super::legacy::EventFdTrigger;
-use crate::device_manager::resources::ResourceAllocator;
 use crate::snapshot::Persist;
 use crate::vstate::memory::{Bytes, GuestMemoryMmap};
+use crate::vstate::resources::ResourceAllocator;
 
 /// Bytes of memory we allocate for VMGenID device
 pub const VMGENID_MEM_SIZE: u64 = 16;
@@ -88,7 +88,7 @@ impl VmGenId {
         mem: &GuestMemoryMmap,
         resource_allocator: &mut ResourceAllocator,
     ) -> Result<Self, VmGenIdError> {
-        let gsi = resource_allocator.allocate_gsi(1)?;
+        let gsi = resource_allocator.allocate_gsi_legacy(1)?;
         // The generation ID needs to live in an 8-byte aligned buffer
         let addr = resource_allocator.allocate_system_memory(
             VMGENID_MEM_SIZE,
@@ -152,11 +152,6 @@ impl<'a> Persist<'a> for VmGenId {
         constructor_args: Self::ConstructorArgs,
         state: &Self::State,
     ) -> std::result::Result<Self, Self::Error> {
-        constructor_args.resource_allocator.allocate_system_memory(
-            VMGENID_MEM_SIZE,
-            8,
-            vm_allocator::AllocPolicy::ExactMatch(state.addr),
-        )?;
         Self::from_parts(GuestAddress(state.addr), state.gsi, constructor_args.mem)
     }
 }

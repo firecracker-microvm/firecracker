@@ -5,6 +5,7 @@
 #![doc(hidden)]
 
 use std::os::unix::io::{AsRawFd, RawFd};
+use std::sync::Arc;
 
 use vmm_sys_util::epoll::EventSet;
 use vmm_sys_util::eventfd::EventFd;
@@ -12,7 +13,8 @@ use vmm_sys_util::eventfd::EventFd;
 use super::packet::{VsockPacketRx, VsockPacketTx};
 use crate::devices::virtio::device::VirtioDevice;
 use crate::devices::virtio::queue::{VIRTQ_DESC_F_NEXT, VIRTQ_DESC_F_WRITE};
-use crate::devices::virtio::test_utils::VirtQueue as GuestQ;
+use crate::devices::virtio::test_utils::{VirtQueue as GuestQ, default_interrupt};
+use crate::devices::virtio::transport::VirtioInterrupt;
 use crate::devices::virtio::vsock::device::{RXQ_INDEX, TXQ_INDEX};
 use crate::devices::virtio::vsock::packet::VSOCK_PKT_HDR_SIZE;
 use crate::devices::virtio::vsock::{
@@ -117,6 +119,7 @@ impl VsockBackend for TestBackend {}
 pub struct TestContext {
     pub cid: u64,
     pub mem: GuestMemoryMmap,
+    pub interrupt: Arc<dyn VirtioInterrupt>,
     pub mem_size: usize,
     pub device: Vsock<TestBackend>,
 }
@@ -134,6 +137,7 @@ impl TestContext {
         Self {
             cid: CID,
             mem,
+            interrupt: default_interrupt(),
             mem_size: MEM_SIZE,
             device,
         }
@@ -196,9 +200,9 @@ pub struct EventHandlerContext<'a> {
 }
 
 impl EventHandlerContext<'_> {
-    pub fn mock_activate(&mut self, mem: GuestMemoryMmap) {
+    pub fn mock_activate(&mut self, mem: GuestMemoryMmap, interrupt: Arc<dyn VirtioInterrupt>) {
         // Artificially activate the device.
-        self.device.activate(mem).unwrap();
+        self.device.activate(mem, interrupt).unwrap();
     }
 
     pub fn signal_txq_event(&mut self) {

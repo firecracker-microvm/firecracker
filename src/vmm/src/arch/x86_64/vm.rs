@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use std::fmt;
+use std::sync::{Arc, Mutex};
 
 use kvm_bindings::{
     KVM_CLOCK_TSC_STABLE, KVM_IRQCHIP_IOAPIC, KVM_IRQCHIP_PIC_MASTER, KVM_IRQCHIP_PIC_SLAVE,
@@ -11,8 +12,10 @@ use kvm_ioctls::Cap;
 use serde::{Deserialize, Serialize};
 
 use crate::arch::x86_64::msr::MsrError;
+use crate::snapshot::Persist;
 use crate::utils::u64_to_usize;
 use crate::vstate::memory::{GuestMemoryExtension, GuestMemoryState};
+use crate::vstate::resources::ResourceAllocator;
 use crate::vstate::vm::{VmCommon, VmError};
 
 /// Error type for [`Vm::restore_state`]
@@ -56,6 +59,8 @@ pub struct ArchVm {
     ///
     /// `None` if `KVM_CAP_XSAVE2` not supported.
     xsave2_size: Option<usize>,
+    /// Port IO bus
+    pub pio_bus: Arc<vm_device::Bus>,
 }
 
 impl ArchVm {
@@ -90,10 +95,13 @@ impl ArchVm {
             .set_tss_address(u64_to_usize(crate::arch::x86_64::layout::KVM_TSS_ADDRESS))
             .map_err(ArchVmError::SetTssAddress)?;
 
+        let pio_bus = Arc::new(vm_device::Bus::new());
+
         Ok(ArchVm {
             common,
             msrs_to_save,
             xsave2_size,
+            pio_bus,
         })
     }
 
@@ -134,6 +142,7 @@ impl ArchVm {
         self.fd()
             .set_irqchip(&state.ioapic)
             .map_err(ArchVmError::SetIrqChipIoAPIC)?;
+        self.common.resource_allocator = Mutex::new(state.resource_allocator.clone());
         Ok(())
     }
 
@@ -187,6 +196,7 @@ impl ArchVm {
 
         Ok(VmState {
             memory: self.common.guest_memory.describe(),
+            resource_allocator: self.resource_allocator().save(),
             pitstate,
             clock,
             pic_master,
@@ -211,6 +221,8 @@ impl ArchVm {
 pub struct VmState {
     /// guest memory state
     pub memory: GuestMemoryState,
+    /// resource allocator
+    pub resource_allocator: ResourceAllocator,
     pitstate: kvm_pit_state2,
     clock: kvm_clock_data,
     // TODO: rename this field to adopt inclusive language once Linux updates it, too.

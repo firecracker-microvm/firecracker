@@ -772,7 +772,7 @@ def test_send_ctrl_alt_del(uvm_plain_any):
 def _drive_patch(test_microvm, io_engine):
     """Exercise drive patch test scenarios."""
     # Patches without mandatory fields for virtio block are not allowed.
-    expected_msg = "Unable to patch the block device: Device manager error: Running method expected different backend. Please verify the request arguments"
+    expected_msg = "Running method expected different backend."
     with pytest.raises(RuntimeError, match=expected_msg):
         test_microvm.api.drive.patch(drive_id="scratch")
 
@@ -814,7 +814,7 @@ def _drive_patch(test_microvm, io_engine):
         )
 
     # Updates to `path_on_host` with an invalid path are not allowed.
-    expected_msg = f"Unable to patch the block device: Device manager error: Virtio backend error: Error manipulating the backing file: No such file or directory (os error 2) {drive_path} Please verify the request arguments"
+    expected_msg = f"Error manipulating the backing file: No such file or directory (os error 2) {drive_path}"
     with pytest.raises(RuntimeError, match=re.escape(expected_msg)):
         test_microvm.api.drive.patch(drive_id="scratch", path_on_host=drive_path)
 
