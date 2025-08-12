@@ -132,6 +132,8 @@ pub enum VmmAction {
 pub enum VmmActionError {
     /// Balloon config error: {0}
     BalloonConfig(#[from] BalloonConfigError),
+    /// Balloon update error: {0}
+    BalloonUpdate(VmmError),
     /// Boot source error: {0}
     BootSource(#[from] BootSourceConfigError),
     /// Create snapshot error: {0}
@@ -647,14 +649,14 @@ impl RuntimeApiController {
                 .expect("Poisoned lock")
                 .balloon_config()
                 .map(|state| VmmData::BalloonConfig(BalloonDeviceConfig::from(state)))
-                .map_err(|err| VmmActionError::BalloonConfig(BalloonConfigError::from(err))),
+                .map_err(VmmActionError::InternalVmm),
             GetBalloonStats => self
                 .vmm
                 .lock()
                 .expect("Poisoned lock")
                 .latest_balloon_stats()
                 .map(VmmData::BalloonStats)
-                .map_err(|err| VmmActionError::BalloonConfig(BalloonConfigError::from(err))),
+                .map_err(VmmActionError::InternalVmm),
             GetFullVmConfig => Ok(VmmData::FullVmConfig((&self.vm_resources).into())),
             GetMMDS => self.get_mmds(),
             GetVmMachineConfig => Ok(VmmData::MachineConfiguration(
@@ -678,14 +680,14 @@ impl RuntimeApiController {
                 .expect("Poisoned lock")
                 .update_balloon_config(balloon_update.amount_mib)
                 .map(|_| VmmData::Empty)
-                .map_err(|err| VmmActionError::BalloonConfig(BalloonConfigError::from(err))),
+                .map_err(VmmActionError::BalloonUpdate),
             UpdateBalloonStatistics(balloon_stats_update) => self
                 .vmm
                 .lock()
                 .expect("Poisoned lock")
                 .update_balloon_stats_config(balloon_stats_update.stats_polling_interval_s)
                 .map(|_| VmmData::Empty)
-                .map_err(|err| VmmActionError::BalloonConfig(BalloonConfigError::from(err))),
+                .map_err(VmmActionError::BalloonUpdate),
             UpdateBlockDevice(new_cfg) => self.update_block_device(new_cfg),
             UpdateNetworkInterface(netif_update) => self.update_net_rate_limiters(netif_update),
 
