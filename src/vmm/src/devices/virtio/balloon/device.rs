@@ -31,6 +31,7 @@ use crate::devices::virtio::generated::virtio_ids::VIRTIO_ID_BALLOON;
 use crate::devices::virtio::queue::InvalidAvailIdx;
 use crate::devices::virtio::transport::{VirtioInterrupt, VirtioInterruptType};
 use crate::logger::IncMetric;
+use crate::mem_size_mib;
 use crate::utils::u64_to_usize;
 use crate::vstate::memory::{Address, ByteValued, Bytes, GuestAddress, GuestMemoryMmap};
 
@@ -450,6 +451,12 @@ impl Balloon {
     /// Update the target size of the balloon.
     pub fn update_size(&mut self, amount_mib: u32) -> Result<(), BalloonError> {
         if self.is_activated() {
+            let mem = &self.device_state.active_state().unwrap().mem;
+            // The balloon cannot have a target size greater than the size of
+            // the guest memory.
+            if u64::from(amount_mib) > mem_size_mib(mem) {
+                return Err(BalloonError::TooManyPagesRequested);
+            }
             self.config_space.num_pages = mib_to_pages(amount_mib)?;
             self.interrupt_trigger()
                 .trigger(VirtioInterruptType::Config)
@@ -504,15 +511,15 @@ impl Balloon {
     }
 
     /// Retrieve latest stats for the balloon device.
-    pub fn latest_stats(&mut self) -> Option<&BalloonStats> {
+    pub fn latest_stats(&mut self) -> Result<&BalloonStats, BalloonError> {
         if self.stats_enabled() {
             self.latest_stats.target_pages = self.config_space.num_pages;
             self.latest_stats.actual_pages = self.config_space.actual_pages;
             self.latest_stats.target_mib = pages_to_mib(self.latest_stats.target_pages);
             self.latest_stats.actual_mib = pages_to_mib(self.latest_stats.actual_pages);
-            Some(&self.latest_stats)
+            Ok(&self.latest_stats)
         } else {
-            None
+            Err(BalloonError::StatisticsDisabled)
         }
     }
 
@@ -1150,7 +1157,7 @@ pub(crate) mod tests {
         let mut balloon = Balloon::new(0, true, 0, false).unwrap();
         // Switch the state to active.
         balloon.device_state = DeviceState::Activated(ActiveState {
-            mem: single_region_mem(0x1),
+            mem: single_region_mem(32 << 20),
             interrupt: default_interrupt(),
         });
 
