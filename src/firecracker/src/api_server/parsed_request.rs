@@ -28,7 +28,9 @@ use super::request::pmem::parse_put_pmem;
 use super::request::snapshot::{parse_patch_vm_state, parse_put_snapshot};
 use super::request::version::parse_get_version;
 use super::request::vsock::parse_put_vsock;
-use crate::api_server::request::hotplug::memory::parse_put_memory_hotplug;
+use crate::api_server::request::hotplug::memory::{
+    parse_get_memory_hotplug, parse_put_memory_hotplug,
+};
 use crate::api_server::request::serial::parse_put_serial;
 
 #[derive(Debug)]
@@ -86,6 +88,9 @@ impl TryFrom<&Request> for ParsedRequest {
             }
             (Method::Get, "machine-config", None) => parse_get_machine_config(),
             (Method::Get, "mmds", None) => parse_get_mmds(),
+            (Method::Get, "hotplug", None) if path_tokens.next() == Some("memory") => {
+                parse_get_memory_hotplug()
+            }
             (Method::Get, _, Some(_)) => method_to_error(Method::Get),
             (Method::Put, "actions", Some(body)) => parse_put_actions(body),
             (Method::Put, "balloon", Some(body)) => parse_put_balloon(body),
@@ -179,6 +184,7 @@ impl ParsedRequest {
                     Self::success_response_with_data(balloon_config)
                 }
                 VmmData::BalloonStats(stats) => Self::success_response_with_data(stats),
+                VmmData::VirtioMemStatus(data) => Self::success_response_with_data(data),
                 VmmData::InstanceInformation(info) => Self::success_response_with_data(info),
                 VmmData::VmmVersion(version) => Self::success_response_with_data(
                     &serde_json::json!({ "firecracker_version": version.as_str() }),
@@ -562,6 +568,9 @@ pub mod tests {
                 }
                 VmmData::BalloonStats(stats) => {
                     http_response(&serde_json::to_string(stats).unwrap(), 200)
+                }
+                VmmData::VirtioMemStatus(data) => {
+                    http_response(&serde_json::to_string(data).unwrap(), 200)
                 }
                 VmmData::Empty => http_response("", 204),
                 VmmData::FullVmConfig(cfg) => {
