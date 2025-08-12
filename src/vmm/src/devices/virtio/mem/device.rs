@@ -62,6 +62,22 @@ pub struct VirtioMem {
     vm: Arc<Vm>,
 }
 
+/// Memory hotplug device status information.
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct VirtioMemStatus {
+    /// Block size in MiB.
+    pub block_size_mib: usize,
+    /// Total memory size in MiB that can be hotplugged.
+    pub total_size_mib: usize,
+    /// Size of the KVM slots in MiB.
+    pub slot_size_mib: usize,
+    /// Currently plugged memory size in MiB.
+    pub plugged_size_mib: usize,
+    /// Requested memory size in MiB.
+    pub requested_size_mib: usize,
+}
+
 impl VirtioMem {
     pub fn new(
         vm: Arc<Vm>,
@@ -131,6 +147,16 @@ impl VirtioMem {
     /// Gets the requested size
     pub fn requested_size_mib(&self) -> usize {
         bytes_to_mib(self.config.requested_size.try_into().unwrap())
+    }
+
+    pub fn status(&self) -> VirtioMemStatus {
+        VirtioMemStatus {
+            block_size_mib: self.block_size_mib(),
+            total_size_mib: self.total_size_mib(),
+            slot_size_mib: self.slot_size_mib(),
+            plugged_size_mib: self.plugged_size_mib(),
+            requested_size_mib: self.requested_size_mib(),
+        }
     }
 
     fn signal_used_queue(&self) -> Result<(), VirtioMemError> {
@@ -387,5 +413,21 @@ mod tests {
         assert_eq!(mem.avail_features(), 123);
         mem.set_acked_features(456);
         assert_eq!(mem.acked_features(), 456);
+    }
+
+    #[test]
+    fn test_status() {
+        let mut mem = default_virtio_mem();
+        let status = mem.status();
+        assert_eq!(
+            status,
+            VirtioMemStatus {
+                block_size_mib: 2,
+                total_size_mib: 1024,
+                slot_size_mib: 128,
+                plugged_size_mib: 0,
+                requested_size_mib: 0,
+            }
+        );
     }
 }
