@@ -14,6 +14,7 @@ use super::{Vmm, VmmError};
 use crate::EventManager;
 use crate::builder::StartMicrovmError;
 use crate::cpu_config::templates::{CustomCpuTemplate, GuestConfigError};
+use crate::devices::virtio::mem::VirtioMemStatus;
 use crate::logger::{LoggerConfig, info, warn, *};
 use crate::mmds::data_store::{self, Mmds};
 use crate::persist::{CreateSnapshotError, RestoreFromSnapshotError, VmInfo};
@@ -110,6 +111,8 @@ pub enum VmmAction {
     /// Set the entropy device using `EntropyDeviceConfig` as input. This action can only be called
     /// before the microVM has booted.
     SetEntropyDevice(EntropyDeviceConfig),
+    /// Get the memory hotplug device configuration and status.
+    GetMemoryHotplugStatus,
     /// Set the memory hotplug device using `MemoryHotplugConfig` as input. This action can only be
     /// called before the microVM has booted.
     SetMemoryHotplugDevice(MemoryHotplugConfig),
@@ -207,6 +210,8 @@ pub enum VmmData {
     InstanceInformation(InstanceInfo),
     /// The microVM version.
     VmmVersion(String),
+    /// The status of the memory hotplug device.
+    VirtioMemStatus(VirtioMemStatus),
 }
 
 /// Trait used for deduplicating the MMDS request handling across the two ApiControllers.
@@ -466,6 +471,7 @@ impl<'a> PrebootApiController<'a> {
             | Pause
             | Resume
             | GetBalloonStats
+            | GetMemoryHotplugStatus
             | UpdateBalloon(_)
             | UpdateBalloonStatistics(_)
             | UpdateBlockDevice(_)
@@ -678,6 +684,13 @@ impl RuntimeApiController {
                 .map(VmmData::BalloonStats)
                 .map_err(VmmActionError::InternalVmm),
             GetFullVmConfig => Ok(VmmData::FullVmConfig((&self.vm_resources).into())),
+            GetMemoryHotplugStatus => self
+                .vmm
+                .lock()
+                .expect("Poisoned lock")
+                .memory_hotplug_status()
+                .map(VmmData::VirtioMemStatus)
+                .map_err(VmmActionError::InternalVmm),
             GetMMDS => self.get_mmds(),
             GetVmMachineConfig => Ok(VmmData::MachineConfiguration(
                 self.vm_resources.machine_config.clone(),
