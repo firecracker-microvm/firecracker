@@ -365,6 +365,8 @@ pub struct GetRequestsMetrics {
     pub mmds_count: SharedIncMetric,
     /// Number of GETs for getting the VMM version.
     pub vmm_version_count: SharedIncMetric,
+    /// Number of GETs for getting hotpluggable memory status.
+    pub hotplug_memory_count: SharedIncMetric,
 }
 impl GetRequestsMetrics {
     /// Const default construction.
@@ -374,6 +376,7 @@ impl GetRequestsMetrics {
             machine_cfg_count: SharedIncMetric::new(),
             mmds_count: SharedIncMetric::new(),
             vmm_version_count: SharedIncMetric::new(),
+            hotplug_memory_count: SharedIncMetric::new(),
         }
     }
 }
