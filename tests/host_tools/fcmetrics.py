@@ -153,6 +153,7 @@ def validate_fc_metrics(metrics):
             "machine_cfg_count",
             "mmds_count",
             "vmm_version_count",
+            "hotplug_memory_count",
         ],
         "i8042": [
             "error_count",
