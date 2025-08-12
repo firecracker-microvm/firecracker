@@ -33,7 +33,11 @@ pub mod generated;
 
 use std::fs::File;
 
-use layout::CMDLINE_START;
+use kvm::Kvm;
+use layout::{
+    CMDLINE_START, FIRST_ADDR_PAST_32BITS, FIRST_ADDR_PAST_64BITS_MMIO, MMIO32_MEM_SIZE,
+    MMIO32_MEM_START, MMIO64_MEM_SIZE, MMIO64_MEM_START, PCI_MMCONFIG_SIZE, PCI_MMCONFIG_START,
+};
 use linux_loader::configurator::linux::LinuxBootConfigurator;
 use linux_loader::configurator::pvh::PvhBootConfigurator;
 use linux_loader::configurator::{BootConfigurator, BootParams};
@@ -47,17 +51,18 @@ use log::debug;
 
 use super::EntryPoint;
 use crate::acpi::create_acpi_tables;
-use crate::arch::{BootProtocol, SYSTEM_MEM_SIZE, SYSTEM_MEM_START};
+use crate::arch::{BootProtocol, SYSTEM_MEM_SIZE, SYSTEM_MEM_START, arch_memory_regions_with_gap};
 use crate::cpu_config::templates::{CustomCpuTemplate, GuestConfigError};
 use crate::cpu_config::x86_64::CpuConfiguration;
+use crate::device_manager::DeviceManager;
 use crate::initrd::InitrdConfig;
-use crate::utils::{align_down, mib_to_bytes, u64_to_usize, usize_to_u64};
+use crate::utils::{align_down, u64_to_usize, usize_to_u64};
 use crate::vmm_config::machine_config::MachineConfig;
 use crate::vstate::memory::{
     Address, GuestAddress, GuestMemory, GuestMemoryMmap, GuestMemoryRegion,
 };
 use crate::vstate::vcpu::KvmVcpuConfigureError;
-use crate::{Vcpu, VcpuConfig, Vmm};
+use crate::{Vcpu, VcpuConfig, Vm, logger};
 
 // Value taken from https://elixir.bootlin.com/linux/v5.10.68/source/arch/x86/include/uapi/asm/e820.h#L31
 // Usable normal RAM
@@ -96,48 +101,53 @@ pub enum ConfigurationError {
     Acpi(#[from] crate::acpi::AcpiError),
 }
 
-/// First address that cannot be addressed using 32 bit anymore.
-pub const FIRST_ADDR_PAST_32BITS: u64 = 1 << 32;
-
-/// Size of MMIO gap at top of 32-bit address space.
-pub const MEM_32BIT_GAP_SIZE: u64 = mib_to_bytes(768) as u64;
-/// The start of the memory area reserved for MMIO devices.
-pub const MMIO_MEM_START: u64 = FIRST_ADDR_PAST_32BITS - MEM_32BIT_GAP_SIZE;
-/// The size of the memory area reserved for MMIO devices.
-pub const MMIO_MEM_SIZE: u64 = MEM_32BIT_GAP_SIZE;
-
 /// Returns a Vec of the valid memory addresses.
 /// These should be used to configure the GuestMemoryMmap structure for the platform.
-/// For x86_64 all addresses are valid from the start of the kernel except a
-/// carve out at the end of 32bit address space.
-pub fn arch_memory_regions(offset: usize, size: usize) -> Vec<(GuestAddress, usize)> {
+/// For x86_64 all addresses are valid from the start of the kernel except an 1GB
+/// carve out at the end of 32bit address space and a second 256GB one at the 256GB limit.
+pub fn arch_memory_regions(size: usize) -> Vec<(GuestAddress, usize)> {
     // If we get here with size == 0 something has seriously gone wrong. Firecracker should never
     // try to allocate guest memory of size 0
     assert!(size > 0, "Attempt to allocate guest memory of length 0");
-    assert!(
-        offset.checked_add(size).is_some(),
-        "Attempt to allocate guest memory such that the address space would wrap around"
+
+    let dram_size = std::cmp::min(
+        usize::MAX - u64_to_usize(MMIO32_MEM_SIZE) - u64_to_usize(MMIO64_MEM_SIZE),
+        size,
     );
 
-    // It's safe to cast MMIO_MEM_START to usize because it fits in a u32 variable
-    // (It points to an address in the 32 bit space).
-    match (size + offset).checked_sub(u64_to_usize(MMIO_MEM_START)) {
-        // case1: guest memory fits before the gap
-        None | Some(0) => vec![(GuestAddress(offset as u64), size)],
-        // case2: starts before the gap, but doesn't completely fit
-        Some(remaining) if (offset as u64) < MMIO_MEM_START => vec![
-            (
-                GuestAddress(offset as u64),
-                u64_to_usize(MMIO_MEM_START) - offset,
-            ),
-            (GuestAddress(FIRST_ADDR_PAST_32BITS), remaining),
-        ],
-        // case3: guest memory start after the gap
-        Some(_) => vec![(
-            GuestAddress(FIRST_ADDR_PAST_32BITS.max(offset as u64)),
+    if dram_size != size {
+        logger::warn!(
+            "Requested memory size {} exceeds architectural maximum (1022GiB). Size has been \
+             truncated to {}",
             size,
-        )],
+            dram_size
+        );
     }
+
+    let mut regions = vec![];
+
+    if let Some((start_past_32bit_gap, remaining_past_32bit_gap)) = arch_memory_regions_with_gap(
+        &mut regions,
+        0,
+        dram_size,
+        u64_to_usize(MMIO32_MEM_START),
+        u64_to_usize(MMIO32_MEM_SIZE),
+    ) {
+        if let Some((start_past_64bit_gap, remaining_past_64bit_gap)) = arch_memory_regions_with_gap(
+            &mut regions,
+            start_past_32bit_gap,
+            remaining_past_32bit_gap,
+            u64_to_usize(MMIO64_MEM_START),
+            u64_to_usize(MMIO64_MEM_SIZE),
+        ) {
+            regions.push((
+                GuestAddress(start_past_64bit_gap as u64),
+                remaining_past_64bit_gap,
+            ));
+        }
+    }
+
+    regions
 }
 
 /// Returns the memory address where the kernel could be loaded.
@@ -161,8 +171,11 @@ pub fn initrd_load_addr(guest_mem: &GuestMemoryMmap, initrd_size: usize) -> Opti
 }
 
 /// Configures the system for booting Linux.
+#[allow(clippy::too_many_arguments)]
 pub fn configure_system_for_boot(
-    vmm: &mut Vmm,
+    kvm: &Kvm,
+    vm: &Vm,
+    device_manager: &mut DeviceManager,
     vcpus: &mut [Vcpu],
     machine_config: &MachineConfig,
     cpu_template: &CustomCpuTemplate,
@@ -171,8 +184,7 @@ pub fn configure_system_for_boot(
     boot_cmdline: Cmdline,
 ) -> Result<(), ConfigurationError> {
     // Construct the base CpuConfiguration to apply CPU template onto.
-    let cpu_config =
-        CpuConfiguration::new(vmm.kvm.supported_cpuid.clone(), cpu_template, &vcpus[0])?;
+    let cpu_config = CpuConfiguration::new(kvm.supported_cpuid.clone(), cpu_template, &vcpus[0])?;
     // Apply CPU template to the base CpuConfiguration.
     let cpu_config = CpuConfiguration::apply_template(cpu_config, cpu_template)?;
 
@@ -185,7 +197,7 @@ pub fn configure_system_for_boot(
     // Configure vCPUs with normalizing and setting the generated CPU configuration.
     for vcpu in vcpus.iter_mut() {
         vcpu.kvm_vcpu
-            .configure(vmm.vm.guest_memory(), entry_point, &vcpu_config)?;
+            .configure(vm.guest_memory(), entry_point, &vcpu_config)?;
     }
 
     // Write the kernel command line to guest memory. This is x86_64 specific, since on
@@ -196,7 +208,7 @@ pub fn configure_system_for_boot(
         .expect("Cannot create cstring from cmdline string");
 
     load_cmdline(
-        vmm.vm.guest_memory(),
+        vm.guest_memory(),
         GuestAddress(crate::arch::x86_64::layout::CMDLINE_START),
         &boot_cmdline,
     )
@@ -204,19 +216,19 @@ pub fn configure_system_for_boot(
 
     // Note that this puts the mptable at the last 1k of Linux's 640k base RAM
     mptable::setup_mptable(
-        vmm.vm.guest_memory(),
-        &mut vmm.resource_allocator,
+        vm.guest_memory(),
+        &mut vm.resource_allocator(),
         vcpu_config.vcpu_count,
     )
     .map_err(ConfigurationError::MpTableSetup)?;
 
     match entry_point.protocol {
         BootProtocol::PvhBoot => {
-            configure_pvh(vmm.vm.guest_memory(), GuestAddress(CMDLINE_START), initrd)?;
+            configure_pvh(vm.guest_memory(), GuestAddress(CMDLINE_START), initrd)?;
         }
         BootProtocol::LinuxBoot => {
             configure_64bit_boot(
-                vmm.vm.guest_memory(),
+                vm.guest_memory(),
                 GuestAddress(CMDLINE_START),
                 cmdline_size,
                 initrd,
@@ -227,10 +239,9 @@ pub fn configure_system_for_boot(
     // Create ACPI tables and write them in guest memory
     // For the time being we only support ACPI in x86_64
     create_acpi_tables(
-        vmm.vm.guest_memory(),
-        &mut vmm.resource_allocator,
-        &vmm.mmio_device_manager,
-        &vmm.acpi_device_manager,
+        vm.guest_memory(),
+        device_manager,
+        &mut vm.resource_allocator(),
         vcpus,
     )?;
     Ok(())
@@ -243,7 +254,9 @@ fn configure_pvh(
 ) -> Result<(), ConfigurationError> {
     const XEN_HVM_START_MAGIC_VALUE: u32 = 0x336e_c578;
     let first_addr_past_32bits = GuestAddress(FIRST_ADDR_PAST_32BITS);
-    let end_32bit_gap_start = GuestAddress(MMIO_MEM_START);
+    let end_32bit_gap_start = GuestAddress(MMIO32_MEM_START);
+    let first_addr_past_64bits = GuestAddress(FIRST_ADDR_PAST_64BITS_MMIO);
+    let end_64bit_gap_start = GuestAddress(MMIO64_MEM_START);
     let himem_start = GuestAddress(layout::HIMEM_START);
 
     // Vector to hold modules (currently either empty or holding initrd).
@@ -275,31 +288,41 @@ fn configure_pvh(
         type_: E820_RESERVED,
         ..Default::default()
     });
+    memmap.push(hvm_memmap_table_entry {
+        addr: PCI_MMCONFIG_START,
+        size: PCI_MMCONFIG_SIZE,
+        type_: E820_RESERVED,
+        ..Default::default()
+    });
     let last_addr = guest_mem.last_addr();
-    if last_addr < end_32bit_gap_start {
-        memmap.push(hvm_memmap_table_entry {
-            addr: himem_start.raw_value(),
-            size: last_addr.unchecked_offset_from(himem_start) + 1,
-            type_: MEMMAP_TYPE_RAM,
-            ..Default::default()
-        });
-    } else {
-        memmap.push(hvm_memmap_table_entry {
-            addr: himem_start.raw_value(),
-            size: end_32bit_gap_start.unchecked_offset_from(himem_start),
-            type_: MEMMAP_TYPE_RAM,
-            ..Default::default()
-        });
 
-        if last_addr > first_addr_past_32bits {
-            memmap.push(hvm_memmap_table_entry {
-                addr: first_addr_past_32bits.raw_value(),
-                size: last_addr.unchecked_offset_from(first_addr_past_32bits) + 1,
-                type_: MEMMAP_TYPE_RAM,
-                ..Default::default()
-            });
-        }
+    if last_addr > first_addr_past_64bits {
+        memmap.push(hvm_memmap_table_entry {
+            addr: first_addr_past_64bits.raw_value(),
+            size: last_addr.unchecked_offset_from(first_addr_past_64bits) + 1,
+            type_: MEMMAP_TYPE_RAM,
+            ..Default::default()
+        });
     }
+
+    if last_addr > first_addr_past_32bits {
+        memmap.push(hvm_memmap_table_entry {
+            addr: first_addr_past_32bits.raw_value(),
+            size: (end_64bit_gap_start.unchecked_offset_from(first_addr_past_32bits))
+                .min(last_addr.unchecked_offset_from(first_addr_past_32bits) + 1),
+            type_: MEMMAP_TYPE_RAM,
+            ..Default::default()
+        });
+    }
+
+    memmap.push(hvm_memmap_table_entry {
+        addr: himem_start.raw_value(),
+        size: end_32bit_gap_start
+            .unchecked_offset_from(himem_start)
+            .min(last_addr.unchecked_offset_from(himem_start) + 1),
+        type_: MEMMAP_TYPE_RAM,
+        ..Default::default()
+    });
 
     // Construct the hvm_start_info structure and serialize it into
     // boot_params.  This will be stored at PVH_INFO_START address, and %rbx
@@ -346,7 +369,9 @@ fn configure_64bit_boot(
     const KERNEL_LOADER_OTHER: u8 = 0xff;
     const KERNEL_MIN_ALIGNMENT_BYTES: u32 = 0x0100_0000; // Must be non-zero.
     let first_addr_past_32bits = GuestAddress(FIRST_ADDR_PAST_32BITS);
-    let end_32bit_gap_start = GuestAddress(MMIO_MEM_START);
+    let end_32bit_gap_start = GuestAddress(MMIO32_MEM_START);
+    let first_addr_past_64bits = GuestAddress(FIRST_ADDR_PAST_64BITS_MMIO);
+    let end_64bit_gap_start = GuestAddress(MMIO64_MEM_START);
 
     let himem_start = GuestAddress(layout::HIMEM_START);
 
@@ -377,38 +402,41 @@ fn configure_64bit_boot(
         layout::SYSTEM_MEM_SIZE,
         E820_RESERVED,
     )?;
+    add_e820_entry(
+        &mut params,
+        PCI_MMCONFIG_START,
+        PCI_MMCONFIG_SIZE,
+        E820_RESERVED,
+    )?;
 
     let last_addr = guest_mem.last_addr();
-    if last_addr < end_32bit_gap_start {
-        add_e820_entry(
-            &mut params,
-            himem_start.raw_value(),
-            // it's safe to use unchecked_offset_from because
-            // mem_end > himem_start
-            last_addr.unchecked_offset_from(himem_start) + 1,
-            E820_RAM,
-        )?;
-    } else {
-        add_e820_entry(
-            &mut params,
-            himem_start.raw_value(),
-            // it's safe to use unchecked_offset_from because
-            // end_32bit_gap_start > himem_start
-            end_32bit_gap_start.unchecked_offset_from(himem_start),
-            E820_RAM,
-        )?;
 
-        if last_addr > first_addr_past_32bits {
-            add_e820_entry(
-                &mut params,
-                first_addr_past_32bits.raw_value(),
-                // it's safe to use unchecked_offset_from because
-                // mem_end > first_addr_past_32bits
-                last_addr.unchecked_offset_from(first_addr_past_32bits) + 1,
-                E820_RAM,
-            )?;
-        }
+    if last_addr > first_addr_past_64bits {
+        add_e820_entry(
+            &mut params,
+            first_addr_past_64bits.raw_value(),
+            last_addr.unchecked_offset_from(first_addr_past_64bits) + 1,
+            E820_RAM,
+        )?;
     }
+
+    if last_addr > first_addr_past_32bits {
+        add_e820_entry(
+            &mut params,
+            first_addr_past_32bits.raw_value(),
+            (end_64bit_gap_start.unchecked_offset_from(first_addr_past_32bits))
+                .min(last_addr.unchecked_offset_from(first_addr_past_32bits) + 1),
+            E820_RAM,
+        )?;
+    }
+
+    add_e820_entry(
+        &mut params,
+        himem_start.raw_value(),
+        (last_addr.unchecked_offset_from(himem_start) + 1)
+            .min(end_32bit_gap_start.unchecked_offset_from(himem_start)),
+        E820_RAM,
+    )?;
 
     LinuxBootConfigurator::write_bootparams(
         &BootParams::new(&params, GuestAddress(layout::ZERO_PAGE_START)),
@@ -474,50 +502,68 @@ pub fn load_kernel(
 
 #[cfg(kani)]
 mod verification {
-    use crate::arch::x86_64::FIRST_ADDR_PAST_32BITS;
-    use crate::arch::{MMIO_MEM_START, arch_memory_regions};
+
+    use crate::arch::arch_memory_regions;
+    use crate::arch::x86_64::layout::{
+        FIRST_ADDR_PAST_32BITS, FIRST_ADDR_PAST_64BITS_MMIO, MMIO32_MEM_SIZE, MMIO32_MEM_START,
+        MMIO64_MEM_SIZE, MMIO64_MEM_START,
+    };
+    use crate::utils::u64_to_usize;
 
     #[kani::proof]
-    #[kani::unwind(3)]
+    #[kani::unwind(4)]
     fn verify_arch_memory_regions() {
-        let offset: u64 = kani::any::<u64>();
         let len: u64 = kani::any::<u64>();
 
         kani::assume(len > 0);
-        kani::assume(offset.checked_add(len).is_some());
 
-        let regions = arch_memory_regions(offset as usize, len as usize);
+        let regions = arch_memory_regions(len as usize);
 
-        // There's only one MMIO gap, so we can get either 1 or 2 regions
-        assert!(regions.len() <= 2);
+        // There are two MMIO gaps, so we can get either 1, 2 or 3 regions
+        assert!(regions.len() <= 3);
         assert!(regions.len() >= 1);
 
+        // The first address is always 0
+        assert_eq!(regions[0].0.0, 0);
+
         // The total length of all regions is what we requested
-        assert_eq!(
-            regions.iter().map(|&(_, len)| len).sum::<usize>(),
-            len as usize
-        );
+        let actual_size = regions.iter().map(|&(_, len)| len).sum::<usize>();
+        assert!(actual_size <= len as usize);
+        if actual_size < u64_to_usize(len) {
+            assert_eq!(
+                actual_size,
+                usize::MAX - u64_to_usize(MMIO32_MEM_SIZE) - u64_to_usize(MMIO64_MEM_SIZE)
+            );
+        }
 
         // No region overlaps the MMIO gap
         assert!(
             regions
                 .iter()
-                .all(|&(start, len)| start.0 >= FIRST_ADDR_PAST_32BITS
-                    || start.0 + len as u64 <= MMIO_MEM_START)
+                .all(|&(start, len)| (start.0 >= FIRST_ADDR_PAST_32BITS
+                    || start.0 + len as u64 <= MMIO32_MEM_START)
+                    && (start.0 >= FIRST_ADDR_PAST_64BITS_MMIO
+                        || start.0 + len as u64 <= MMIO64_MEM_START))
         );
-
-        // All regions start after our specified offset
-        assert!(regions.iter().all(|&(start, _)| start.0 >= offset as u64));
 
         // All regions have non-zero length
         assert!(regions.iter().all(|&(_, len)| len > 0));
 
-        // If there's two regions, they perfectly snuggle up to the MMIO gap
-        if regions.len() == 2 {
+        // If there's at least two regions, they perfectly snuggle up to one of the two MMIO gaps
+        if regions.len() >= 2 {
             kani::cover!();
 
-            assert_eq!(regions[0].0.0 + regions[0].1 as u64, MMIO_MEM_START);
+            assert_eq!(regions[0].0.0 + regions[0].1 as u64, MMIO32_MEM_START);
             assert_eq!(regions[1].0.0, FIRST_ADDR_PAST_32BITS);
+        }
+
+        // If there are three regions, the last two perfectly snuggle up to the 64bit
+        // MMIO gap
+        if regions.len() == 3 {
+            kani::cover!();
+
+            assert_eq!(regions[1].0.0 + regions[1].1 as u64, MMIO64_MEM_START);
+            assert_eq!(regions[2].0.0, FIRST_ADDR_PAST_64BITS_MMIO);
         }
     }
 }
@@ -527,39 +573,27 @@ mod tests {
     use linux_loader::loader::bootparam::boot_e820_entry;
 
     use super::*;
-    use crate::device_manager::resources::ResourceAllocator;
     use crate::test_utils::{arch_mem, single_region_mem};
+    use crate::utils::mib_to_bytes;
+    use crate::vstate::resources::ResourceAllocator;
 
     #[test]
     fn regions_lt_4gb() {
-        let regions = arch_memory_regions(0, 1usize << 29);
+        let regions = arch_memory_regions(1usize << 29);
         assert_eq!(1, regions.len());
         assert_eq!(GuestAddress(0), regions[0].0);
         assert_eq!(1usize << 29, regions[0].1);
-
-        let regions = arch_memory_regions(1 << 28, 1 << 29);
-        assert_eq!(1, regions.len());
-        assert_eq!(regions[0], (GuestAddress(1 << 28), 1 << 29));
     }
 
     #[test]
     fn regions_gt_4gb() {
         const MEMORY_SIZE: usize = (1 << 32) + 0x8000;
 
-        let regions = arch_memory_regions(0, MEMORY_SIZE);
+        let regions = arch_memory_regions(MEMORY_SIZE);
         assert_eq!(2, regions.len());
         assert_eq!(GuestAddress(0), regions[0].0);
         assert_eq!(GuestAddress(1u64 << 32), regions[1].0);
 
-        let regions = arch_memory_regions(1 << 31, MEMORY_SIZE);
-        assert_eq!(2, regions.len());
-        assert_eq!(
-            regions[0],
-            (
-                GuestAddress(1 << 31),
-                u64_to_usize(MMIO_MEM_START) - (1 << 31)
-            )
-        );
         assert_eq!(
             regions[1],
             (
@@ -573,7 +607,7 @@ mod tests {
     fn test_system_configuration() {
         let no_vcpus = 4;
         let gm = single_region_mem(0x10000);
-        let mut resource_allocator = ResourceAllocator::new().unwrap();
+        let mut resource_allocator = ResourceAllocator::new();
         let err = mptable::setup_mptable(&gm, &mut resource_allocator, 1);
         assert!(matches!(
             err.unwrap_err(),
@@ -583,7 +617,7 @@ mod tests {
         // Now assigning some memory that falls before the 32bit memory hole.
         let mem_size = mib_to_bytes(128);
         let gm = arch_mem(mem_size);
-        let mut resource_allocator = ResourceAllocator::new().unwrap();
+        let mut resource_allocator = ResourceAllocator::new();
         mptable::setup_mptable(&gm, &mut resource_allocator, no_vcpus).unwrap();
         configure_64bit_boot(&gm, GuestAddress(0), 0, &None).unwrap();
         configure_pvh(&gm, GuestAddress(0), &None).unwrap();
@@ -591,7 +625,7 @@ mod tests {
         // Now assigning some memory that is equal to the start of the 32bit memory hole.
         let mem_size = mib_to_bytes(3328);
         let gm = arch_mem(mem_size);
-        let mut resource_allocator = ResourceAllocator::new().unwrap();
+        let mut resource_allocator = ResourceAllocator::new();
         mptable::setup_mptable(&gm, &mut resource_allocator, no_vcpus).unwrap();
         configure_64bit_boot(&gm, GuestAddress(0), 0, &None).unwrap();
         configure_pvh(&gm, GuestAddress(0), &None).unwrap();
@@ -599,7 +633,7 @@ mod tests {
         // Now assigning some memory that falls after the 32bit memory hole.
         let mem_size = mib_to_bytes(3330);
         let gm = arch_mem(mem_size);
-        let mut resource_allocator = ResourceAllocator::new().unwrap();
+        let mut resource_allocator = ResourceAllocator::new();
         mptable::setup_mptable(&gm, &mut resource_allocator, no_vcpus).unwrap();
         configure_64bit_boot(&gm, GuestAddress(0), 0, &None).unwrap();
         configure_pvh(&gm, GuestAddress(0), &None).unwrap();

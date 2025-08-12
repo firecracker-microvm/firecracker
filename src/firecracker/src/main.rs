@@ -260,6 +260,11 @@ fn main_exec() -> Result<(), MainError> {
                 Argument::new("mmds-size-limit")
                     .takes_value(true)
                     .help("Mmds data store limit, in bytes."),
+            )
+            .arg(
+                Argument::new("enable-pci")
+                    .takes_value(false)
+                    .help("Enables PCIe support."),
             );
 
     arg_parser.parse_from_cmdline()?;
@@ -369,6 +374,7 @@ fn main_exec() -> Result<(), MainError> {
         .map(|x| x.expect("Unable to open or read from the mmds content file"));
 
     let boot_timer_enabled = arguments.flag_present("boot-timer");
+    let pci_enabled = arguments.flag_present("enable-pci");
     let api_enabled = !arguments.flag_present("no-api");
     let api_payload_limit = arg_parser
         .arguments()
@@ -422,6 +428,7 @@ fn main_exec() -> Result<(), MainError> {
             instance_info,
             process_time_reporter,
             boot_timer_enabled,
+            pci_enabled,
             api_payload_limit,
             mmds_size_limit,
             metadata_json.as_deref(),
@@ -437,6 +444,7 @@ fn main_exec() -> Result<(), MainError> {
             vmm_config_json,
             instance_info,
             boot_timer_enabled,
+            pci_enabled,
             mmds_size_limit,
             metadata_json.as_deref(),
         )
@@ -449,7 +457,7 @@ fn main_exec() -> Result<(), MainError> {
 /// the default the jailer would set).
 ///
 /// We do this resizing because the kernel default is 64, with a reallocation happening whenever
-/// the tabel fills up. This was happening for some larger microVMs, and reallocating the
+/// the table fills up. This was happening for some larger microVMs, and reallocating the
 /// fdtable while a lot of file descriptors are active (due to being eventfds/timerfds registered
 /// to epoll) incurs a penalty of 30ms-70ms on the snapshot restore path.
 fn resize_fdtable() -> Result<(), ResizeFdTableError> {
@@ -554,12 +562,14 @@ pub enum BuildFromJsonError {
 }
 
 // Configure and start a microVM as described by the command-line JSON.
+#[allow(clippy::too_many_arguments)]
 fn build_microvm_from_json(
     seccomp_filters: &BpfThreadMap,
     event_manager: &mut EventManager,
     config_json: String,
     instance_info: InstanceInfo,
     boot_timer_enabled: bool,
+    pci_enabled: bool,
     mmds_size_limit: usize,
     metadata_json: Option<&str>,
 ) -> Result<(VmResources, Arc<Mutex<vmm::Vmm>>), BuildFromJsonError> {
@@ -567,6 +577,7 @@ fn build_microvm_from_json(
         VmResources::from_json(&config_json, &instance_info, mmds_size_limit, metadata_json)
             .map_err(BuildFromJsonError::ParseFromJson)?;
     vm_resources.boot_timer = boot_timer_enabled;
+    vm_resources.pci_enabled = pci_enabled;
     let vmm = vmm::builder::build_and_boot_microvm(
         &instance_info,
         &vm_resources,
@@ -593,6 +604,7 @@ fn run_without_api(
     config_json: Option<String>,
     instance_info: InstanceInfo,
     bool_timer_enabled: bool,
+    pci_enabled: bool,
     mmds_size_limit: usize,
     metadata_json: Option<&str>,
 ) -> Result<(), RunWithoutApiError> {
@@ -610,6 +622,7 @@ fn run_without_api(
         config_json.unwrap(),
         instance_info,
         bool_timer_enabled,
+        pci_enabled,
         mmds_size_limit,
         metadata_json,
     )

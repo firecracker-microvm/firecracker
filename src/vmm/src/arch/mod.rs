@@ -20,10 +20,15 @@ pub use aarch64::vcpu::*;
 pub use aarch64::vm::{ArchVm, ArchVmError, VmState};
 #[cfg(target_arch = "aarch64")]
 pub use aarch64::{
-    ConfigurationError, MMIO_MEM_SIZE, MMIO_MEM_START, arch_memory_regions,
-    configure_system_for_boot, get_kernel_start, initrd_load_addr, layout::CMDLINE_MAX_SIZE,
-    layout::GSI_BASE, layout::GSI_MAX, layout::IRQ_BASE, layout::IRQ_MAX, layout::SYSTEM_MEM_SIZE,
-    layout::SYSTEM_MEM_START, load_kernel,
+    ConfigurationError, arch_memory_regions, configure_system_for_boot, get_kernel_start,
+    initrd_load_addr, layout::BOOT_DEVICE_MEM_START, layout::CMDLINE_MAX_SIZE,
+    layout::GSI_LEGACY_END, layout::GSI_LEGACY_NUM, layout::GSI_LEGACY_START, layout::GSI_MSI_END,
+    layout::GSI_MSI_NUM, layout::GSI_MSI_START, layout::MEM_32BIT_DEVICES_SIZE,
+    layout::MEM_32BIT_DEVICES_START, layout::MEM_64BIT_DEVICES_SIZE,
+    layout::MEM_64BIT_DEVICES_START, layout::MMIO32_MEM_SIZE, layout::MMIO32_MEM_START,
+    layout::PCI_MMCONFIG_SIZE, layout::PCI_MMCONFIG_START,
+    layout::PCI_MMIO_CONFIG_SIZE_PER_SEGMENT, layout::RTC_MEM_START, layout::SERIAL_MEM_START,
+    layout::SPI_START, layout::SYSTEM_MEM_SIZE, layout::SYSTEM_MEM_START, load_kernel,
 };
 
 /// Module for x86_64 related functionality.
@@ -39,10 +44,14 @@ pub use x86_64::vm::{ArchVm, ArchVmError, VmState};
 
 #[cfg(target_arch = "x86_64")]
 pub use crate::arch::x86_64::{
-    ConfigurationError, MMIO_MEM_SIZE, MMIO_MEM_START, arch_memory_regions,
-    configure_system_for_boot, get_kernel_start, initrd_load_addr, layout::APIC_ADDR,
-    layout::CMDLINE_MAX_SIZE, layout::GSI_BASE, layout::GSI_MAX, layout::IOAPIC_ADDR,
-    layout::IRQ_BASE, layout::IRQ_MAX, layout::SYSTEM_MEM_SIZE, layout::SYSTEM_MEM_START,
+    ConfigurationError, arch_memory_regions, configure_system_for_boot, get_kernel_start,
+    initrd_load_addr, layout::APIC_ADDR, layout::BOOT_DEVICE_MEM_START, layout::CMDLINE_MAX_SIZE,
+    layout::GSI_LEGACY_END, layout::GSI_LEGACY_NUM, layout::GSI_LEGACY_START, layout::GSI_MSI_END,
+    layout::GSI_MSI_NUM, layout::GSI_MSI_START, layout::IOAPIC_ADDR,
+    layout::MEM_32BIT_DEVICES_SIZE, layout::MEM_32BIT_DEVICES_START,
+    layout::MEM_64BIT_DEVICES_SIZE, layout::MEM_64BIT_DEVICES_START, layout::MMIO32_MEM_SIZE,
+    layout::MMIO32_MEM_START, layout::PCI_MMCONFIG_SIZE, layout::PCI_MMCONFIG_START,
+    layout::PCI_MMIO_CONFIG_SIZE_PER_SEGMENT, layout::SYSTEM_MEM_SIZE, layout::SYSTEM_MEM_START,
     load_kernel,
 };
 
@@ -114,4 +123,33 @@ pub struct EntryPoint {
     pub entry_addr: GuestAddress,
     /// Specifies which boot protocol to use
     pub protocol: BootProtocol,
+}
+
+/// Adds in [`regions`] the valid memory regions suitable for RAM taking into account a gap in the
+/// available address space and returns the remaining region (if any) past this gap
+fn arch_memory_regions_with_gap(
+    regions: &mut Vec<(GuestAddress, usize)>,
+    region_start: usize,
+    region_size: usize,
+    gap_start: usize,
+    gap_size: usize,
+) -> Option<(usize, usize)> {
+    // 0-sized gaps don't really make sense. We should never receive such a gap.
+    assert!(gap_size > 0);
+
+    let first_addr_past_gap = gap_start + gap_size;
+    match (region_start + region_size).checked_sub(gap_start) {
+        // case0: region fits all before gap
+        None | Some(0) => {
+            regions.push((GuestAddress(region_start as u64), region_size));
+            None
+        }
+        // case1: region starts before the gap and goes past it
+        Some(remaining) if region_start < gap_start => {
+            regions.push((GuestAddress(region_start as u64), gap_start - region_start));
+            Some((first_addr_past_gap, remaining))
+        }
+        // case2: region starts past the gap
+        Some(_) => Some((first_addr_past_gap.max(region_start), region_size)),
+    }
 }

@@ -4,7 +4,6 @@
 //! Defines the structures needed for saving/restoring net devices.
 
 use std::io;
-use std::sync::atomic::AtomicU32;
 use std::sync::{Arc, Mutex};
 
 use serde::{Deserialize, Serialize};
@@ -12,8 +11,9 @@ use serde::{Deserialize, Serialize};
 use super::device::{Net, RxBuffers};
 use super::{NET_NUM_QUEUES, NET_QUEUE_MAX_SIZE, RX_INDEX, TapError};
 use crate::devices::virtio::TYPE_NET;
-use crate::devices::virtio::device::DeviceState;
+use crate::devices::virtio::device::{ActiveState, DeviceState};
 use crate::devices::virtio::persist::{PersistError as VirtioStateError, VirtioDeviceState};
+use crate::devices::virtio::transport::VirtioInterrupt;
 use crate::mmds::data_store::Mmds;
 use crate::mmds::ns::MmdsNetworkStack;
 use crate::mmds::persist::MmdsNetworkStackState;
@@ -30,27 +30,6 @@ pub struct NetConfigSpaceState {
     guest_mac: Option<MacAddr>,
 }
 
-/// Information about the parsed RX buffers
-#[derive(Debug, Default, Clone, Serialize, Deserialize)]
-pub struct RxBufferState {
-    // Number of iovecs we have parsed from the guest
-    parsed_descriptor_chains_nr: u16,
-    // Number of used descriptors
-    used_descriptors: u16,
-    // Number of used bytes
-    used_bytes: u32,
-}
-
-impl RxBufferState {
-    fn from_rx_buffers(rx_buffer: &RxBuffers) -> Self {
-        RxBufferState {
-            parsed_descriptor_chains_nr: rx_buffer.parsed_descriptors.len().try_into().unwrap(),
-            used_descriptors: rx_buffer.used_descriptors,
-            used_bytes: rx_buffer.used_bytes,
-        }
-    }
-}
-
 /// Information about the network device that are saved
 /// at snapshot.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -62,8 +41,7 @@ pub struct NetState {
     /// The associated MMDS network stack.
     pub mmds_ns: Option<MmdsNetworkStackState>,
     config_space: NetConfigSpaceState,
-    virtio_state: VirtioDeviceState,
-    rx_buffers_state: RxBufferState,
+    pub virtio_state: VirtioDeviceState,
 }
 
 /// Auxiliary structure for creating a device when resuming from a snapshot.
@@ -106,7 +84,6 @@ impl Persist<'_> for Net {
                 guest_mac: self.guest_mac,
             },
             virtio_state: VirtioDeviceState::from_device(self),
-            rx_buffers_state: RxBufferState::from_rx_buffers(&self.rx_buffer),
         }
     }
 
@@ -148,26 +125,8 @@ impl Persist<'_> for Net {
             NET_NUM_QUEUES,
             NET_QUEUE_MAX_SIZE,
         )?;
-        net.irq_trigger.irq_status = Arc::new(AtomicU32::new(state.virtio_state.interrupt_status));
         net.avail_features = state.virtio_state.avail_features;
         net.acked_features = state.virtio_state.acked_features;
-
-        if state.virtio_state.activated {
-            let supported_flags: u32 = Net::build_tap_offload_features(net.acked_features);
-            net.tap
-                .set_offload(supported_flags)
-                .map_err(NetPersistError::TapSetOffload)?;
-
-            net.device_state = DeviceState::Activated(constructor_args.mem);
-
-            // Recreate `Net::rx_buffer`. We do it by re-parsing the RX queue. We're temporarily
-            // rolling back `next_avail` in the RX queue and call `parse_rx_descriptors`.
-            net.queues[RX_INDEX].next_avail -= state.rx_buffers_state.parsed_descriptor_chains_nr;
-            net.parse_rx_descriptors()
-                .map_err(|e| NetPersistError::VirtioState(VirtioStateError::InvalidAvailIdx(e)))?;
-            net.rx_buffer.used_descriptors = state.rx_buffers_state.used_descriptors;
-            net.rx_buffer.used_bytes = state.rx_buffers_state.used_bytes;
-        }
 
         Ok(net)
     }
@@ -175,12 +134,11 @@ impl Persist<'_> for Net {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::atomic::Ordering;
 
     use super::*;
     use crate::devices::virtio::device::VirtioDevice;
     use crate::devices::virtio::net::test_utils::{default_net, default_net_no_mmds};
-    use crate::devices::virtio::test_utils::default_mem;
+    use crate::devices::virtio::test_utils::{default_interrupt, default_mem};
     use crate::snapshot::Snapshot;
 
     fn validate_save_and_restore(net: Net, mmds_ds: Option<Arc<Mutex<Mmds>>>) {
@@ -222,10 +180,6 @@ mod tests {
                     assert_eq!(restored_net.device_type(), TYPE_NET);
                     assert_eq!(restored_net.avail_features(), virtio_state.avail_features);
                     assert_eq!(restored_net.acked_features(), virtio_state.acked_features);
-                    assert_eq!(
-                        restored_net.interrupt_status().load(Ordering::Relaxed),
-                        virtio_state.interrupt_status
-                    );
                     assert_eq!(restored_net.is_activated(), virtio_state.activated);
 
                     // Test that net specific fields are the same.

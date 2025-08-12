@@ -11,7 +11,7 @@ PS4='+\t '
 
 cp -ruv $rootfs/* /
 
-packages="udev systemd-sysv openssh-server iproute2 curl socat python3-minimal iperf3 iputils-ping fio kmod tmux hwloc-nox vim-tiny trace-cmd linuxptp strace python3-boto3"
+packages="udev systemd-sysv openssh-server iproute2 curl socat python3-minimal iperf3 iputils-ping fio kmod tmux hwloc-nox vim-tiny trace-cmd linuxptp strace python3-boto3 pciutils"
 
 # msr-tools is only supported on x86-64.
 arch=$(uname -m)
@@ -63,6 +63,10 @@ rm -vf /etc/systemd/system/timers.target.wants/*
 # /lib/systemd/system/systemd-random-seed.service
 
 systemctl enable var-lib-systemd.mount
+
+# disable Predictable Network Interface Names to keep ethN names
+# even with PCI enabled
+ln -s /dev/null /etc/systemd/network/99-default.link
 
 #### trim image https://wiki.ubuntu.com/ReducingDiskFootprint
 # this does not save much, but oh well

@@ -7,23 +7,30 @@
 
 use std::fmt;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicU32, Ordering};
+use std::sync::atomic::AtomicU32;
 
 use vmm_sys_util::eventfd::EventFd;
 
 use super::ActivateError;
-use super::mmio::{VIRTIO_MMIO_INT_CONFIG, VIRTIO_MMIO_INT_VRING};
 use super::queue::{Queue, QueueError};
+use super::transport::VirtioInterrupt;
 use crate::devices::virtio::AsAny;
-use crate::logger::{error, warn};
+use crate::logger::warn;
 use crate::vstate::memory::GuestMemoryMmap;
+
+/// State of an active VirtIO device
+#[derive(Debug, Clone)]
+pub struct ActiveState {
+    pub mem: GuestMemoryMmap,
+    pub interrupt: Arc<dyn VirtioInterrupt>,
+}
 
 /// Enum that indicates if a VirtioDevice is inactive or has been activated
 /// and memory attached to it.
 #[derive(Debug)]
 pub enum DeviceState {
     Inactive,
-    Activated(GuestMemoryMmap),
+    Activated(ActiveState),
 }
 
 impl DeviceState {
@@ -35,52 +42,12 @@ impl DeviceState {
         }
     }
 
-    /// Gets the memory attached to the device if it is activated.
-    pub fn mem(&self) -> Option<&GuestMemoryMmap> {
+    /// Gets the memory and interrupt attached to the device if it is activated.
+    pub fn active_state(&self) -> Option<&ActiveState> {
         match self {
-            DeviceState::Activated(mem) => Some(mem),
+            DeviceState::Activated(state) => Some(state),
             DeviceState::Inactive => None,
         }
-    }
-}
-
-/// The 2 types of interrupt sources in MMIO transport.
-#[derive(Debug)]
-pub enum IrqType {
-    /// Interrupt triggered by change in config.
-    Config,
-    /// Interrupt triggered by used vring buffers.
-    Vring,
-}
-
-/// Helper struct that is responsible for triggering guest IRQs
-#[derive(Debug)]
-pub struct IrqTrigger {
-    pub(crate) irq_status: Arc<AtomicU32>,
-    pub(crate) irq_evt: EventFd,
-}
-
-impl IrqTrigger {
-    pub fn new() -> std::io::Result<Self> {
-        Ok(Self {
-            irq_status: Arc::new(AtomicU32::new(0)),
-            irq_evt: EventFd::new(libc::EFD_NONBLOCK)?,
-        })
-    }
-
-    pub fn trigger_irq(&self, irq_type: IrqType) -> Result<(), std::io::Error> {
-        let irq = match irq_type {
-            IrqType::Config => VIRTIO_MMIO_INT_CONFIG,
-            IrqType::Vring => VIRTIO_MMIO_INT_VRING,
-        };
-        self.irq_status.fetch_or(irq, Ordering::SeqCst);
-
-        self.irq_evt.write(1).map_err(|err| {
-            error!("Failed to send irq to the guest: {:?}", err);
-            err
-        })?;
-
-        Ok(())
     }
 }
 
@@ -121,10 +88,10 @@ pub trait VirtioDevice: AsAny + Send {
 
     /// Returns the current device interrupt status.
     fn interrupt_status(&self) -> Arc<AtomicU32> {
-        Arc::clone(&self.interrupt_trigger().irq_status)
+        self.interrupt_trigger().status()
     }
 
-    fn interrupt_trigger(&self) -> &IrqTrigger;
+    fn interrupt_trigger(&self) -> &dyn VirtioInterrupt;
 
     /// The set of feature bits shifted by `page * 32`.
     fn avail_features_by_page(&self, page: u32) -> u32 {
@@ -170,14 +137,18 @@ pub trait VirtioDevice: AsAny + Send {
     fn write_config(&mut self, offset: u64, data: &[u8]);
 
     /// Performs the formal activation for a device, which can be verified also with `is_activated`.
-    fn activate(&mut self, mem: GuestMemoryMmap) -> Result<(), ActivateError>;
+    fn activate(
+        &mut self,
+        mem: GuestMemoryMmap,
+        interrupt: Arc<dyn VirtioInterrupt>,
+    ) -> Result<(), ActivateError>;
 
     /// Checks if the resources of this device are activated.
     fn is_activated(&self) -> bool;
 
     /// Optionally deactivates this device and returns ownership of the guest memory map, interrupt
     /// event, and queue events.
-    fn reset(&mut self) -> Option<(EventFd, Vec<EventFd>)> {
+    fn reset(&mut self) -> Option<(Arc<dyn VirtioInterrupt>, Vec<EventFd>)> {
         None
     }
 
@@ -188,6 +159,9 @@ pub trait VirtioDevice: AsAny + Send {
         }
         Ok(())
     }
+
+    /// Kick the device, as if it had received external events.
+    fn kick(&mut self) {}
 }
 
 impl fmt::Debug for dyn VirtioDevice {
@@ -199,47 +173,6 @@ impl fmt::Debug for dyn VirtioDevice {
 #[cfg(test)]
 pub(crate) mod tests {
     use super::*;
-
-    impl IrqTrigger {
-        pub fn has_pending_irq(&self, irq_type: IrqType) -> bool {
-            if let Ok(num_irqs) = self.irq_evt.read() {
-                if num_irqs == 0 {
-                    return false;
-                }
-
-                let irq_status = self.irq_status.load(Ordering::SeqCst);
-                return matches!(
-                    (irq_status, irq_type),
-                    (VIRTIO_MMIO_INT_CONFIG, IrqType::Config)
-                        | (VIRTIO_MMIO_INT_VRING, IrqType::Vring)
-                );
-            }
-
-            false
-        }
-    }
-
-    #[test]
-    fn irq_trigger() {
-        let irq_trigger = IrqTrigger::new().unwrap();
-        assert_eq!(irq_trigger.irq_status.load(Ordering::SeqCst), 0);
-
-        // Check that there are no pending irqs.
-        assert!(!irq_trigger.has_pending_irq(IrqType::Config));
-        assert!(!irq_trigger.has_pending_irq(IrqType::Vring));
-
-        // Check that trigger_irq() correctly generates irqs.
-        irq_trigger.trigger_irq(IrqType::Config).unwrap();
-        assert!(irq_trigger.has_pending_irq(IrqType::Config));
-        irq_trigger.irq_status.store(0, Ordering::SeqCst);
-        irq_trigger.trigger_irq(IrqType::Vring).unwrap();
-        assert!(irq_trigger.has_pending_irq(IrqType::Vring));
-
-        // Check trigger_irq() failure case (irq_evt is full).
-        irq_trigger.irq_evt.write(u64::MAX - 1).unwrap();
-        irq_trigger.trigger_irq(IrqType::Config).unwrap_err();
-        irq_trigger.trigger_irq(IrqType::Vring).unwrap_err();
-    }
 
     #[derive(Debug)]
     struct MockVirtioDevice {
@@ -275,7 +208,7 @@ pub(crate) mod tests {
             todo!()
         }
 
-        fn interrupt_trigger(&self) -> &IrqTrigger {
+        fn interrupt_trigger(&self) -> &dyn VirtioInterrupt {
             todo!()
         }
 
@@ -287,7 +220,11 @@ pub(crate) mod tests {
             todo!()
         }
 
-        fn activate(&mut self, _mem: GuestMemoryMmap) -> Result<(), ActivateError> {
+        fn activate(
+            &mut self,
+            _mem: GuestMemoryMmap,
+            _interrupt: Arc<dyn VirtioInterrupt>,
+        ) -> Result<(), ActivateError> {
             todo!()
         }
 

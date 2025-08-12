@@ -4,6 +4,7 @@
 #![allow(clippy::cast_possible_truncation, clippy::tests_outside_test_module)]
 
 use std::io::{Seek, SeekFrom};
+use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
 
@@ -17,7 +18,9 @@ use vmm::rpc_interface::{
 use vmm::seccomp::get_empty_filters;
 use vmm::snapshot::Snapshot;
 use vmm::test_utils::mock_resources::{MockVmResources, NOISY_KERNEL_IMAGE};
-use vmm::test_utils::{create_vmm, default_vmm, default_vmm_no_boot};
+use vmm::test_utils::{
+    create_vmm, default_vmm, default_vmm_no_boot, default_vmm_pci, default_vmm_pci_no_boot,
+};
 use vmm::vmm_config::balloon::BalloonDeviceConfig;
 use vmm::vmm_config::boot_source::BootSourceConfig;
 use vmm::vmm_config::drive::BlockDeviceConfig;
@@ -28,8 +31,23 @@ use vmm::vmm_config::snapshot::{
     CreateSnapshotParams, LoadSnapshotParams, MemBackendConfig, MemBackendType, SnapshotType,
 };
 use vmm::vmm_config::vsock::VsockDeviceConfig;
-use vmm::{DumpCpuConfigError, EventManager, FcExitCode};
+use vmm::{DumpCpuConfigError, EventManager, FcExitCode, Vmm};
 use vmm_sys_util::tempfile::TempFile;
+
+#[allow(unused_mut, unused_variables)]
+fn check_booted_microvm(vmm: Arc<Mutex<Vmm>>, mut evmgr: EventManager) {
+    // On x86_64, the vmm should exit once its workload completes and signals the exit event.
+    // On aarch64, the test kernel doesn't exit, so the vmm is force-stopped.
+    #[cfg(target_arch = "x86_64")]
+    evmgr.run_with_timeout(500).unwrap();
+    #[cfg(target_arch = "aarch64")]
+    vmm.lock().unwrap().stop(FcExitCode::Ok);
+
+    assert_eq!(
+        vmm.lock().unwrap().shutdown_exit_code(),
+        Some(FcExitCode::Ok)
+    );
+}
 
 #[test]
 fn test_build_and_boot_microvm() {
@@ -49,15 +67,27 @@ fn test_build_and_boot_microvm() {
     }
 
     // Success case.
-    let (vmm, mut _evmgr) = default_vmm(None);
+    let (vmm, evmgr) = default_vmm(None);
+    check_booted_microvm(vmm, evmgr);
 
+    // microVM with PCI
+    let (vmm, evmgr) = default_vmm_pci(None);
+    check_booted_microvm(vmm, evmgr);
+}
+
+#[allow(unused_mut, unused_variables)]
+fn check_build_microvm(vmm: Arc<Mutex<Vmm>>, mut evmgr: EventManager) {
+    // The built microVM should be in the `VmState::Paused` state here.
+    assert_eq!(vmm.lock().unwrap().instance_info().state, VmState::Paused);
+
+    // The microVM should be able to resume and exit successfully.
     // On x86_64, the vmm should exit once its workload completes and signals the exit event.
     // On aarch64, the test kernel doesn't exit, so the vmm is force-stopped.
+    vmm.lock().unwrap().resume_vm().unwrap();
     #[cfg(target_arch = "x86_64")]
-    _evmgr.run_with_timeout(500).unwrap();
+    evmgr.run_with_timeout(500).unwrap();
     #[cfg(target_arch = "aarch64")]
     vmm.lock().unwrap().stop(FcExitCode::Ok);
-
     assert_eq!(
         vmm.lock().unwrap().shutdown_exit_code(),
         Some(FcExitCode::Ok)
@@ -66,29 +96,13 @@ fn test_build_and_boot_microvm() {
 
 #[test]
 fn test_build_microvm() {
-    // The built microVM should be in the `VmState::Paused` state here.
-    let (vmm, mut _evtmgr) = default_vmm_no_boot(None);
-    assert_eq!(vmm.lock().unwrap().instance_info().state, VmState::Paused);
-
-    // The microVM should be able to resume and exit successfully.
-    // On x86_64, the vmm should exit once its workload completes and signals the exit event.
-    // On aarch64, the test kernel doesn't exit, so the vmm is force-stopped.
-    vmm.lock().unwrap().resume_vm().unwrap();
-    #[cfg(target_arch = "x86_64")]
-    _evtmgr.run_with_timeout(500).unwrap();
-    #[cfg(target_arch = "aarch64")]
-    vmm.lock().unwrap().stop(FcExitCode::Ok);
-    assert_eq!(
-        vmm.lock().unwrap().shutdown_exit_code(),
-        Some(FcExitCode::Ok)
-    );
+    let (vmm, evtmgr) = default_vmm_no_boot(None);
+    check_build_microvm(vmm, evtmgr);
+    let (vmm, evtmgr) = default_vmm_pci_no_boot(None);
+    check_build_microvm(vmm, evtmgr);
 }
 
-#[test]
-fn test_pause_resume_microvm() {
-    // Tests that pausing and resuming a microVM work as expected.
-    let (vmm, _) = default_vmm(None);
-
+fn pause_resume_microvm(vmm: Arc<Mutex<Vmm>>) {
     let mut api_controller = RuntimeApiController::new(VmResources::default(), vmm.clone());
 
     // There's a race between this thread and the vcpu thread, but this thread
@@ -100,6 +114,17 @@ fn test_pause_resume_microvm() {
     api_controller.handle_request(VmmAction::Resume).unwrap();
 
     vmm.lock().unwrap().stop(FcExitCode::Ok);
+}
+
+#[test]
+fn test_pause_resume_microvm() {
+    // Tests that pausing and resuming a microVM work as expected.
+    let (vmm, _) = default_vmm(None);
+
+    pause_resume_microvm(vmm);
+
+    let (vmm, _) = default_vmm_pci(None);
+    pause_resume_microvm(vmm);
 }
 
 #[test]
@@ -170,11 +195,11 @@ fn test_disallow_dump_cpu_config_without_pausing() {
     vmm.lock().unwrap().stop(FcExitCode::Ok);
 }
 
-fn verify_create_snapshot(is_diff: bool) -> (TempFile, TempFile) {
+fn verify_create_snapshot(is_diff: bool, pci_enabled: bool) -> (TempFile, TempFile) {
     let snapshot_file = TempFile::new().unwrap();
     let memory_file = TempFile::new().unwrap();
 
-    let (vmm, _) = create_vmm(Some(NOISY_KERNEL_IMAGE), is_diff, true);
+    let (vmm, _) = create_vmm(Some(NOISY_KERNEL_IMAGE), is_diff, true, pci_enabled);
     let resources = VmResources {
         machine_config: MachineConfig {
             mem_size_mib: 1,
@@ -212,7 +237,7 @@ fn verify_create_snapshot(is_diff: bool) -> (TempFile, TempFile) {
     // Check that we can deserialize the microVM state from `snapshot_file`.
     let snapshot_path = snapshot_file.as_path().to_path_buf();
     let snapshot_file_metadata = std::fs::metadata(snapshot_path).unwrap();
-    let snapshot_len = snapshot_file_metadata.len() as usize;
+    let snapshot_len = snapshot_file_metadata.len().try_into().unwrap();
     let (restored_microvm_state, _) =
         Snapshot::load::<_, MicrovmState>(&mut snapshot_file.as_file(), snapshot_len).unwrap();
 
@@ -220,9 +245,29 @@ fn verify_create_snapshot(is_diff: bool) -> (TempFile, TempFile) {
 
     // Verify deserialized data.
     // The default vmm has no devices and one vCPU.
-    assert_eq!(restored_microvm_state.device_states.block_devices.len(), 0);
-    assert_eq!(restored_microvm_state.device_states.net_devices.len(), 0);
-    assert!(restored_microvm_state.device_states.vsock_device.is_none());
+    assert_eq!(
+        restored_microvm_state
+            .device_states
+            .mmio_state
+            .block_devices
+            .len(),
+        0
+    );
+    assert_eq!(
+        restored_microvm_state
+            .device_states
+            .mmio_state
+            .net_devices
+            .len(),
+        0
+    );
+    assert!(
+        restored_microvm_state
+            .device_states
+            .mmio_state
+            .vsock_device
+            .is_none()
+    );
     assert_eq!(restored_microvm_state.vcpu_states.len(), 1);
 
     (snapshot_file, memory_file)
@@ -261,29 +306,27 @@ fn verify_load_snapshot(snapshot_file: TempFile, memory_file: TempFile) {
 
 #[test]
 fn test_create_and_load_snapshot() {
-    // Create diff snapshot.
-    let (snapshot_file, memory_file) = verify_create_snapshot(true);
-    // Create a new microVm from snapshot. This only tests code-level logic; it verifies
-    // that a microVM can be built with no errors from given snapshot.
-    // It does _not_ verify that the guest is actually restored properly. We're using
-    // python integration tests for that.
-    verify_load_snapshot(snapshot_file, memory_file);
-
-    // Create full snapshot.
-    let (snapshot_file, memory_file) = verify_create_snapshot(false);
-    // Create a new microVm from snapshot. This only tests code-level logic; it verifies
-    // that a microVM can be built with no errors from given snapshot.
-    // It does _not_ verify that the guest is actually restored properly. We're using
-    // python integration tests for that.
-    verify_load_snapshot(snapshot_file, memory_file);
+    for (diff_snap, pci_enabled) in [(false, false), (false, true), (true, false), (true, true)] {
+        // Create snapshot.
+        let (snapshot_file, memory_file) = verify_create_snapshot(diff_snap, pci_enabled);
+        // Create a new microVm from snapshot. This only tests code-level logic; it verifies
+        // that a microVM can be built with no errors from given snapshot.
+        // It does _not_ verify that the guest is actually restored properly. We're using
+        // python integration tests for that.
+        verify_load_snapshot(snapshot_file, memory_file);
+    }
 }
 
 #[test]
 fn test_snapshot_load_sanity_checks() {
+    let microvm_state = get_microvm_state_from_snapshot(false);
+    check_snapshot(microvm_state);
+    let microvm_state = get_microvm_state_from_snapshot(true);
+    check_snapshot(microvm_state);
+}
+
+fn check_snapshot(mut microvm_state: MicrovmState) {
     use vmm::persist::SnapShotStateSanityCheckError;
-
-    let mut microvm_state = get_microvm_state_from_snapshot();
-
     snapshot_state_sanity_check(&microvm_state).unwrap();
 
     // Remove memory regions.
@@ -296,9 +339,9 @@ fn test_snapshot_load_sanity_checks() {
     );
 }
 
-fn get_microvm_state_from_snapshot() -> MicrovmState {
+fn get_microvm_state_from_snapshot(pci_enabled: bool) -> MicrovmState {
     // Create a diff snapshot
-    let (snapshot_file, _) = verify_create_snapshot(true);
+    let (snapshot_file, _) = verify_create_snapshot(true, pci_enabled);
 
     // Deserialize the microVM state.
     let snapshot_file_metadata = snapshot_file.as_file().metadata().unwrap();
@@ -309,7 +352,7 @@ fn get_microvm_state_from_snapshot() -> MicrovmState {
 }
 
 fn verify_load_snap_disallowed_after_boot_resources(res: VmmAction, res_name: &str) {
-    let (snapshot_file, memory_file) = verify_create_snapshot(false);
+    let (snapshot_file, memory_file) = verify_create_snapshot(false, false);
 
     let mut event_manager = EventManager::new().unwrap();
     let empty_seccomp_filters = get_empty_filters();

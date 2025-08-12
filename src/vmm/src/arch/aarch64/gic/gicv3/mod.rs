@@ -1,7 +1,7 @@
 // Copyright 2019 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-mod regs;
+pub mod regs;
 
 use kvm_ioctls::{DeviceFd, VmFd};
 
@@ -18,19 +18,26 @@ impl std::ops::Deref for GICv3 {
     }
 }
 
+impl std::ops::DerefMut for GICv3 {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
+    }
+}
+
 impl GICv3 {
     // Unfortunately bindgen omits defines that are based on other defines.
     // See arch/arm64/include/uapi/asm/kvm.h file from the linux kernel.
     const SZ_64K: u64 = 0x0001_0000;
     const KVM_VGIC_V3_DIST_SIZE: u64 = GICv3::SZ_64K;
     const KVM_VGIC_V3_REDIST_SIZE: u64 = (2 * GICv3::SZ_64K);
+    const GIC_V3_ITS_SIZE: u64 = 0x2_0000;
 
     // Device trees specific constants
     const ARCH_GIC_V3_MAINT_IRQ: u32 = 9;
 
     /// Get the address of the GIC distributor.
     fn get_dist_addr() -> u64 {
-        super::layout::MAPPED_IO_START - GICv3::KVM_VGIC_V3_DIST_SIZE
+        super::layout::MMIO32_MEM_START - GICv3::KVM_VGIC_V3_DIST_SIZE
     }
 
     /// Get the size of the GIC distributor.
@@ -48,6 +55,16 @@ impl GICv3 {
         vcpu_count * GICv3::KVM_VGIC_V3_REDIST_SIZE
     }
 
+    /// Get the MSI address
+    fn get_msi_address(vcpu_count: u64) -> u64 {
+        Self::get_redists_addr(vcpu_count) - GICv3::GIC_V3_ITS_SIZE
+    }
+
+    /// Get the MSI size
+    const fn get_msi_size() -> u64 {
+        GICv3::GIC_V3_ITS_SIZE
+    }
+
     pub const VERSION: u32 = kvm_bindings::kvm_device_type_KVM_DEV_TYPE_ARM_VGIC_V3;
 
     pub fn fdt_compatibility(&self) -> &str {
@@ -59,30 +76,43 @@ impl GICv3 {
     }
 
     /// Create the GIC device object
-    pub fn create_device(fd: DeviceFd, vcpu_count: u64) -> Self {
-        GICv3(super::GIC {
-            fd,
+    pub fn create_device(vm: &VmFd, vcpu_count: u64) -> Result<Self, GicError> {
+        // Create the GIC device
+        let mut gic_device = kvm_bindings::kvm_create_device {
+            type_: Self::VERSION,
+            fd: 0,
+            flags: 0,
+        };
+
+        let gic_fd = vm
+            .create_device(&mut gic_device)
+            .map_err(GicError::CreateGIC)?;
+
+        Ok(GICv3(super::GIC {
+            fd: gic_fd,
             properties: [
                 GICv3::get_dist_addr(),
                 GICv3::get_dist_size(),
                 GICv3::get_redists_addr(vcpu_count),
                 GICv3::get_redists_size(vcpu_count),
             ],
+            msi_properties: Some([GICv3::get_msi_address(vcpu_count), GICv3::get_msi_size()]),
             vcpu_count,
-        })
+            its_device: None,
+        }))
     }
 
     pub fn save_device(&self, mpidrs: &[u64]) -> Result<GicState, GicError> {
-        regs::save_state(&self.fd, mpidrs)
+        regs::save_state(&self.fd, self.its_device.as_ref().unwrap(), mpidrs)
     }
 
     pub fn restore_device(&self, mpidrs: &[u64], state: &GicState) -> Result<(), GicError> {
-        regs::restore_state(&self.fd, mpidrs, state)
+        regs::restore_state(&self.fd, self.its_device.as_ref().unwrap(), mpidrs, state)
     }
 
     pub fn init_device_attributes(gic_device: &Self) -> Result<(), GicError> {
         // Setting up the distributor attribute.
-        // We are placing the GIC below 1GB so we need to substract the size of the distributor.
+        // We are placing the GIC below 1GB so we need to subtract the size of the distributor.
         Self::set_device_attribute(
             gic_device.device_fd(),
             kvm_bindings::KVM_DEV_ARM_VGIC_GRP_ADDR,
@@ -104,25 +134,45 @@ impl GICv3 {
         Ok(())
     }
 
-    /// Initialize a GIC device
-    pub fn init_device(vm: &VmFd) -> Result<DeviceFd, GicError> {
-        let mut gic_device = kvm_bindings::kvm_create_device {
-            type_: Self::VERSION,
+    fn init_its(vm: &VmFd, gic_device: &mut Self) -> Result<(), GicError> {
+        // ITS part attributes
+        let mut its_device = kvm_bindings::kvm_create_device {
+            type_: kvm_bindings::kvm_device_type_KVM_DEV_TYPE_ARM_VGIC_ITS,
             fd: 0,
             flags: 0,
         };
 
-        vm.create_device(&mut gic_device)
-            .map_err(GicError::CreateGIC)
+        let its_fd = vm
+            .create_device(&mut its_device)
+            .map_err(GicError::CreateGIC)?;
+
+        // Setting up the ITS attributes
+        Self::set_device_attribute(
+            &its_fd,
+            kvm_bindings::KVM_DEV_ARM_VGIC_GRP_ADDR,
+            u64::from(kvm_bindings::KVM_VGIC_ITS_ADDR_TYPE),
+            &Self::get_msi_address(gic_device.vcpu_count()) as *const u64 as u64,
+            0,
+        )?;
+
+        Self::set_device_attribute(
+            &its_fd,
+            kvm_bindings::KVM_DEV_ARM_VGIC_GRP_CTRL,
+            u64::from(kvm_bindings::KVM_DEV_ARM_VGIC_CTRL_INIT),
+            0,
+            0,
+        )?;
+
+        gic_device.its_device = Some(its_fd);
+        Ok(())
     }
 
     /// Method to initialize the GIC device
     pub fn create(vm: &VmFd, vcpu_count: u64) -> Result<Self, GicError> {
-        let vgic_fd = Self::init_device(vm)?;
-
-        let device = Self::create_device(vgic_fd, vcpu_count);
+        let mut device = Self::create_device(vm, vcpu_count)?;
 
         Self::init_device_attributes(&device)?;
+        Self::init_its(vm, &mut device)?;
 
         Self::finalize_device(&device)?;
 
@@ -134,9 +184,9 @@ impl GICv3 {
         // On arm there are 3 types of interrupts: SGI (0-15), PPI (16-31), SPI (32-1020).
         // SPIs are used to signal interrupts from various peripherals accessible across
         // the whole system so these are the ones that we increment when adding a new virtio device.
-        // KVM_DEV_ARM_VGIC_GRP_NR_IRQS sets the highest SPI number. Consequently, we will have a
-        // total of `super::layout::IRQ_MAX - 32` usable SPIs in our microVM.
-        let nr_irqs: u32 = super::layout::IRQ_MAX;
+        // KVM_DEV_ARM_VGIC_GRP_NR_IRQS sets the number of interrupts (SGI, PPI, and SPI).
+        // Consequently, we need to add 32 to the number of SPIs ("legacy GSI").
+        let nr_irqs: u32 = crate::arch::GSI_LEGACY_NUM + super::layout::SPI_START;
         let nr_irqs_ptr = &nr_irqs as *const u32;
         Self::set_device_attribute(
             gic_device.device_fd(),
@@ -184,14 +234,14 @@ impl GICv3 {
 /// RDIST pending tables into guest RAM.
 ///
 /// The tables get flushed to guest RAM whenever the VM gets stopped.
-fn save_pending_tables(fd: &DeviceFd) -> Result<(), GicError> {
+fn save_pending_tables(gic_device: &DeviceFd) -> Result<(), GicError> {
     let init_gic_attr = kvm_bindings::kvm_device_attr {
         group: kvm_bindings::KVM_DEV_ARM_VGIC_GRP_CTRL,
         attr: u64::from(kvm_bindings::KVM_DEV_ARM_VGIC_SAVE_PENDING_TABLES),
         addr: 0,
         flags: 0,
     };
-    fd.set_device_attr(&init_gic_attr).map_err(|err| {
+    gic_device.set_device_attr(&init_gic_attr).map_err(|err| {
         GicError::DeviceAttribute(err, true, kvm_bindings::KVM_DEV_ARM_VGIC_GRP_CTRL)
     })
 }

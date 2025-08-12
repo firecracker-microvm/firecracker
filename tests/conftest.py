@@ -509,9 +509,21 @@ def rootfs_rw():
 
 
 @pytest.fixture
-def uvm_plain(microvm_factory, guest_kernel_linux_5_10, rootfs):
+def uvm_plain(microvm_factory, guest_kernel_linux_5_10, rootfs, pci_enabled):
     """Create a vanilla VM, non-parametrized"""
-    return microvm_factory.build(guest_kernel_linux_5_10, rootfs)
+    return microvm_factory.build(guest_kernel_linux_5_10, rootfs, pci=pci_enabled)
+
+
+@pytest.fixture
+def uvm_plain_6_1(microvm_factory, guest_kernel_linux_6_1, rootfs, pci_enabled):
+    """Create a vanilla VM, non-parametrized"""
+    return microvm_factory.build(guest_kernel_linux_6_1, rootfs, pci=pci_enabled)
+
+
+@pytest.fixture
+def uvm_plain_acpi(microvm_factory, guest_kernel_acpi, rootfs, pci_enabled):
+    """Create a vanilla VM, non-parametrized"""
+    return microvm_factory.build(guest_kernel_acpi, rootfs, pci=pci_enabled)
 
 
 @pytest.fixture
@@ -537,12 +549,12 @@ def artifact_dir():
 
 
 @pytest.fixture
-def uvm_plain_any(microvm_factory, guest_kernel, rootfs):
+def uvm_plain_any(microvm_factory, guest_kernel, rootfs, pci_enabled):
     """All guest kernels
     kernel: all
     rootfs: Ubuntu 24.04
     """
-    return microvm_factory.build(guest_kernel, rootfs)
+    return microvm_factory.build(guest_kernel, rootfs, pci=pci_enabled)
 
 
 guest_kernel_6_1_debug = pytest.fixture(
@@ -569,11 +581,23 @@ def mem_size_mib():
     return 256
 
 
+@pytest.fixture(params=[True, False])
+def pci_enabled(request):
+    """Fixture that allows configuring whether a microVM will have PCI enabled or not"""
+    yield request.param
+
+
 def uvm_booted(
-    microvm_factory, guest_kernel, rootfs, cpu_template, vcpu_count=2, mem_size_mib=256
+    microvm_factory,
+    guest_kernel,
+    rootfs,
+    cpu_template,
+    pci_enabled,
+    vcpu_count=2,
+    mem_size_mib=256,
 ):
     """Return a booted uvm"""
-    uvm = microvm_factory.build(guest_kernel, rootfs)
+    uvm = microvm_factory.build(guest_kernel, rootfs, pci=pci_enabled)
     uvm.spawn()
     uvm.basic_config(vcpu_count=vcpu_count, mem_size_mib=mem_size_mib)
     uvm.set_cpu_template(cpu_template)
@@ -582,9 +606,13 @@ def uvm_booted(
     return uvm
 
 
-def uvm_restored(microvm_factory, guest_kernel, rootfs, cpu_template, **kwargs):
+def uvm_restored(
+    microvm_factory, guest_kernel, rootfs, cpu_template, pci_enabled, **kwargs
+):
     """Return a restored uvm"""
-    uvm = uvm_booted(microvm_factory, guest_kernel, rootfs, cpu_template, **kwargs)
+    uvm = uvm_booted(
+        microvm_factory, guest_kernel, rootfs, cpu_template, pci_enabled, **kwargs
+    )
     snapshot = uvm.snapshot_full()
     uvm.kill()
     uvm2 = microvm_factory.build_from_snapshot(snapshot)
@@ -605,6 +633,7 @@ def uvm_any(
     guest_kernel,
     rootfs,
     cpu_template_any,
+    pci_enabled,
     vcpu_count,
     mem_size_mib,
 ):
@@ -614,6 +643,7 @@ def uvm_any(
         guest_kernel,
         rootfs,
         cpu_template_any,
+        pci_enabled,
         vcpu_count=vcpu_count,
         mem_size_mib=mem_size_mib,
     )
@@ -621,7 +651,13 @@ def uvm_any(
 
 @pytest.fixture
 def uvm_any_booted(
-    microvm_factory, guest_kernel, rootfs, cpu_template_any, vcpu_count, mem_size_mib
+    microvm_factory,
+    guest_kernel,
+    rootfs,
+    cpu_template_any,
+    pci_enabled,
+    vcpu_count,
+    mem_size_mib,
 ):
     """Return booted uvms"""
     return uvm_booted(
@@ -629,6 +665,51 @@ def uvm_any_booted(
         guest_kernel,
         rootfs,
         cpu_template_any,
+        pci_enabled,
+        vcpu_count=vcpu_count,
+        mem_size_mib=mem_size_mib,
+    )
+
+
+@pytest.fixture
+def uvm_any_with_pci(
+    uvm_ctor,
+    microvm_factory,
+    guest_kernel_acpi,
+    rootfs,
+    cpu_template_any,
+    vcpu_count,
+    mem_size_mib,
+):
+    """Return booted uvms with PCI enabled"""
+    return uvm_ctor(
+        microvm_factory,
+        guest_kernel_acpi,
+        rootfs,
+        cpu_template_any,
+        True,
+        vcpu_count=vcpu_count,
+        mem_size_mib=mem_size_mib,
+    )
+
+
+@pytest.fixture
+def uvm_any_without_pci(
+    uvm_ctor,
+    microvm_factory,
+    guest_kernel,
+    rootfs,
+    cpu_template_any,
+    vcpu_count,
+    mem_size_mib,
+):
+    """Return booted uvms with PCI disabled"""
+    return uvm_ctor(
+        microvm_factory,
+        guest_kernel,
+        rootfs,
+        cpu_template_any,
+        False,
         vcpu_count=vcpu_count,
         mem_size_mib=mem_size_mib,
     )

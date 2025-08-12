@@ -1,0 +1,30 @@
+[package]
+authors = ["Samuel Ortiz <sameo@linux.intel.com>"]
+edition = "2021"
+name = "pci"
+version = "0.1.0"
+license = "Apache-2.0 AND BSD-3-Clause"
+
+[lib]
+bench = false
+
+[features]
+default = []
+
+[dependencies]
+byteorder = "1.5.0"
+displaydoc = "0.2.5"
+libc = "0.2.172"
+log = "0.4.27"
+serde = { version = "1.0.219", features = ["derive"] }
+thiserror = "2.0.12"
+vm-allocator = "0.1.3"
+vm-device = { path = "../vm-device" }
+vm-memory = { version = "0.16.1", features = [
+  "backend-mmap",
+  "backend-bitmap",
+] }
+
+[dev-dependencies]
+serde_test = "1.0.177"
+vmm-sys-util = "0.14.0"

@@ -5,26 +5,235 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the THIRD-PARTY file.
 
+use std::collections::HashMap;
 use std::fs::OpenOptions;
 use std::io::Write;
 use std::path::Path;
-use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex, MutexGuard};
 
-use kvm_bindings::{KVM_MEM_LOG_DIRTY_PAGES, kvm_userspace_memory_region};
+#[cfg(target_arch = "x86_64")]
+use kvm_bindings::KVM_IRQCHIP_IOAPIC;
+use kvm_bindings::{
+    KVM_IRQ_ROUTING_IRQCHIP, KVM_IRQ_ROUTING_MSI, KVM_MEM_LOG_DIRTY_PAGES, KVM_MSI_VALID_DEVID,
+    KvmIrqRouting, kvm_irq_routing_entry, kvm_userspace_memory_region,
+};
 use kvm_ioctls::VmFd;
+use log::{debug, error};
+use pci::DeviceRelocation;
+use serde::{Deserialize, Serialize};
+use vm_device::interrupt::{
+    InterruptIndex, InterruptSourceConfig, InterruptSourceGroup, MsiIrqSourceConfig,
+};
+use vmm_sys_util::errno;
 use vmm_sys_util::eventfd::EventFd;
 
-use crate::arch::host_page_size;
 pub use crate::arch::{ArchVm as Vm, ArchVmError, VmState};
+use crate::arch::{GSI_MSI_END, host_page_size};
 use crate::logger::info;
 use crate::persist::CreateSnapshotError;
+use crate::snapshot::Persist;
 use crate::utils::u64_to_usize;
 use crate::vmm_config::snapshot::SnapshotType;
 use crate::vstate::memory::{
     Address, GuestMemory, GuestMemoryExtension, GuestMemoryMmap, GuestMemoryRegion, GuestRegionMmap,
 };
+use crate::vstate::resources::ResourceAllocator;
 use crate::vstate::vcpu::VcpuError;
 use crate::{DirtyBitmap, Vcpu, mem_size_mib};
+
+#[derive(Debug, thiserror::Error, displaydoc::Display)]
+/// Errors related with Firecracker interrupts
+pub enum InterruptError {
+    /// Error allocating resources: {0}
+    Allocator(#[from] vm_allocator::Error),
+    /// EventFd error: {0}
+    EventFd(std::io::Error),
+    /// FamStruct error: {0}
+    FamStruct(#[from] vmm_sys_util::fam::Error),
+    /// KVM error: {0}
+    Kvm(#[from] kvm_ioctls::Error),
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+/// A struct representing an interrupt line used by some device of the microVM
+pub struct RoutingEntry {
+    entry: kvm_irq_routing_entry,
+    masked: bool,
+}
+
+/// Type that describes an allocated interrupt
+#[derive(Debug)]
+pub struct MsiVector {
+    /// GSI used for this vector
+    pub gsi: u32,
+    /// EventFd used for this vector
+    pub event_fd: EventFd,
+    /// Flag determining whether the vector is enabled
+    pub enabled: AtomicBool,
+}
+
+impl MsiVector {
+    /// Create a new [`MsiVector`] of a particular type
+    pub fn new(gsi: u32, enabled: bool) -> Result<MsiVector, InterruptError> {
+        Ok(MsiVector {
+            gsi,
+            event_fd: EventFd::new(libc::EFD_NONBLOCK).map_err(InterruptError::EventFd)?,
+            enabled: AtomicBool::new(enabled),
+        })
+    }
+}
+
+impl MsiVector {
+    /// Enable vector
+    fn enable(&self, vmfd: &VmFd) -> Result<(), errno::Error> {
+        if !self.enabled.load(Ordering::Acquire) {
+            vmfd.register_irqfd(&self.event_fd, self.gsi)?;
+            self.enabled.store(true, Ordering::Release);
+        }
+
+        Ok(())
+    }
+
+    /// Disable vector
+    fn disable(&self, vmfd: &VmFd) -> Result<(), errno::Error> {
+        if self.enabled.load(Ordering::Acquire) {
+            vmfd.unregister_irqfd(&self.event_fd, self.gsi)?;
+            self.enabled.store(false, Ordering::Release);
+        }
+
+        Ok(())
+    }
+}
+
+#[derive(Debug)]
+/// MSI interrupts created for a VirtIO device
+pub struct MsiVectorGroup {
+    vm: Arc<Vm>,
+    irq_routes: Vec<MsiVector>,
+}
+
+impl MsiVectorGroup {
+    /// Returns the number of vectors in this group
+    pub fn num_vectors(&self) -> u16 {
+        // It is safe to unwrap here. We are creating `MsiVectorGroup` objects through the
+        // `Vm::create_msix_group` where the argument for the number of `irq_routes` is a `u16`.
+        u16::try_from(self.irq_routes.len()).unwrap()
+    }
+}
+
+impl<'a> Persist<'a> for MsiVectorGroup {
+    type State = Vec<u32>;
+    type ConstructorArgs = Arc<Vm>;
+    type Error = InterruptError;
+
+    fn save(&self) -> Self::State {
+        // We don't save the "enabled" state of the MSI interrupt. PCI devices store the MSI-X
+        // configuration and make sure that the vector is enabled during the restore path if it was
+        // initially enabled
+        self.irq_routes.iter().map(|route| route.gsi).collect()
+    }
+
+    fn restore(
+        constructor_args: Self::ConstructorArgs,
+        state: &Self::State,
+    ) -> std::result::Result<Self, Self::Error> {
+        let mut irq_routes = Vec::with_capacity(state.len());
+
+        for gsi in state {
+            irq_routes.push(MsiVector::new(*gsi, false)?);
+        }
+
+        Ok(MsiVectorGroup {
+            vm: constructor_args,
+            irq_routes,
+        })
+    }
+}
+
+impl InterruptSourceGroup for MsiVectorGroup {
+    fn enable(&self) -> vm_device::interrupt::Result<()> {
+        for route in &self.irq_routes {
+            route.enable(&self.vm.common.fd)?;
+        }
+
+        Ok(())
+    }
+
+    fn disable(&self) -> vm_device::interrupt::Result<()> {
+        for route in &self.irq_routes {
+            route.disable(&self.vm.common.fd)?;
+        }
+
+        Ok(())
+    }
+
+    fn trigger(&self, index: InterruptIndex) -> vm_device::interrupt::Result<()> {
+        self.notifier(index)
+            .ok_or_else(|| {
+                std::io::Error::other(format!("trigger: invalid interrupt index {index}"))
+            })?
+            .write(1)
+    }
+
+    fn notifier(&self, index: InterruptIndex) -> Option<&EventFd> {
+        self.irq_routes
+            .get(index as usize)
+            .map(|route| &route.event_fd)
+    }
+
+    fn update(
+        &self,
+        index: InterruptIndex,
+        config: InterruptSourceConfig,
+        masked: bool,
+        set_gsi: bool,
+    ) -> vm_device::interrupt::Result<()> {
+        let msi_config = match config {
+            InterruptSourceConfig::LegacyIrq(_) => {
+                return Err(std::io::Error::other(
+                    "MSI-x update: invalid configuration type",
+                ));
+            }
+            InterruptSourceConfig::MsiIrq(config) => config,
+        };
+
+        if let Some(route) = self.irq_routes.get(index as usize) {
+            // When an interrupt is masked the GSI will not be passed to KVM through
+            // KVM_SET_GSI_ROUTING. So, call [`disable()`] to unregister the interrupt file
+            // descriptor before passing the interrupt routes to KVM
+            if masked {
+                route.disable(&self.vm.common.fd)?;
+            }
+
+            self.vm.register_msi(route, masked, msi_config)?;
+            if set_gsi {
+                self.vm
+                    .set_gsi_routes()
+                    .map_err(|err| std::io::Error::other(format!("MSI-X update: {err}")))?
+            }
+
+            // Assign KVM_IRQFD after KVM_SET_GSI_ROUTING to avoid
+            // panic on kernel which does not have commit a80ced6ea514
+            // (KVM: SVM: fix panic on out-of-bounds guest IRQ).
+            if !masked {
+                route.enable(&self.vm.common.fd)?;
+            }
+
+            return Ok(());
+        }
+
+        Err(std::io::Error::other(format!(
+            "MSI-X update: invalid vector index {index}"
+        )))
+    }
+
+    fn set_gsi(&self) -> vm_device::interrupt::Result<()> {
+        self.vm
+            .set_gsi_routes()
+            .map_err(|err| std::io::Error::other(format!("MSI-X update: {err}")))
+    }
+}
 
 /// Architecture independent parts of a VM.
 #[derive(Debug)]
@@ -34,6 +243,12 @@ pub struct VmCommon {
     max_memslots: u32,
     /// The guest memory of this Vm.
     pub guest_memory: GuestMemoryMmap,
+    /// Interrupts used by Vm's devices
+    pub interrupts: Mutex<HashMap<u32, RoutingEntry>>,
+    /// Allocator for VM resources
+    pub resource_allocator: Mutex<ResourceAllocator>,
+    /// MMIO bus
+    pub mmio_bus: Arc<vm_device::Bus>,
 }
 
 /// Errors associated with the wrappers over KVM ioctls.
@@ -59,6 +274,8 @@ pub enum VmError {
     VmMemory(#[from] vm_memory::Error),
     /// Error calling mincore: {0}
     Mincore(vmm_sys_util::errno::Error),
+    /// ResourceAllocator error: {0}
+    ResourceAllocator(#[from] vm_allocator::Error)
 }
 
 /// Contains Vm functions that are usable across CPU architectures
@@ -105,6 +322,9 @@ impl Vm {
             fd,
             max_memslots: kvm.max_nr_memslots(),
             guest_memory: GuestMemoryMmap::default(),
+            interrupts: Mutex::new(HashMap::with_capacity(GSI_MSI_END as usize + 1)),
+            resource_allocator: Mutex::new(ResourceAllocator::new()),
+            mmio_bus: Arc::new(vm_device::Bus::new()),
         })
     }
 
@@ -187,6 +407,14 @@ impl Vm {
     /// Gets a reference to this [`Vm`]'s [`GuestMemoryMmap`] object
     pub fn guest_memory(&self) -> &GuestMemoryMmap {
         &self.common.guest_memory
+    }
+
+    /// Gets a mutable reference to this [`Vm`]'s [`ResourceAllocator`] object
+    pub fn resource_allocator(&self) -> MutexGuard<ResourceAllocator> {
+        self.common
+            .resource_allocator
+            .lock()
+            .expect("Poisoned lock")
     }
 
     /// Resets the KVM dirty bitmap for each of the guest's memory regions.
@@ -284,6 +512,113 @@ impl Vm {
         file.sync_all()
             .map_err(|err| MemoryBackingFile("sync_all", err))
     }
+
+    /// Register a device IRQ
+    pub fn register_irq(&self, fd: &EventFd, gsi: u32) -> Result<(), errno::Error> {
+        self.common.fd.register_irqfd(fd, gsi)?;
+
+        let mut entry = kvm_irq_routing_entry {
+            gsi,
+            type_: KVM_IRQ_ROUTING_IRQCHIP,
+            ..Default::default()
+        };
+        #[cfg(target_arch = "x86_64")]
+        {
+            entry.u.irqchip.irqchip = KVM_IRQCHIP_IOAPIC;
+        }
+        #[cfg(target_arch = "aarch64")]
+        {
+            entry.u.irqchip.irqchip = 0;
+        }
+        entry.u.irqchip.pin = gsi;
+
+        self.common
+            .interrupts
+            .lock()
+            .expect("Poisoned lock")
+            .insert(
+                gsi,
+                RoutingEntry {
+                    entry,
+                    masked: false,
+                },
+            );
+        Ok(())
+    }
+
+    /// Register an MSI device interrupt
+    pub fn register_msi(
+        &self,
+        route: &MsiVector,
+        masked: bool,
+        config: MsiIrqSourceConfig,
+    ) -> Result<(), errno::Error> {
+        let mut entry = kvm_irq_routing_entry {
+            gsi: route.gsi,
+            type_: KVM_IRQ_ROUTING_MSI,
+            ..Default::default()
+        };
+        entry.u.msi.address_lo = config.low_addr;
+        entry.u.msi.address_hi = config.high_addr;
+        entry.u.msi.data = config.data;
+
+        if self.common.fd.check_extension(kvm_ioctls::Cap::MsiDevid) {
+            // According to KVM documentation:
+            // https://docs.kernel.org/virt/kvm/api.html#kvm-set-gsi-routing
+            //
+            // if the capability is set, we need to set the flag and provide a valid unique device
+            // ID. "For PCI, this is usually a BDF identifier in the lower 16 bits".
+            //
+            // The layout of `config.devid` is:
+            //
+            // |---- 16 bits ----|-- 8 bits --|-- 5 bits --|-- 3 bits --|
+            // |      segment    |     bus    |   device   |  function  |
+            //
+            // For the time being, we are using a single PCI segment and a single bus per segment
+            // so just passing config.devid should be fine.
+            entry.flags = KVM_MSI_VALID_DEVID;
+            entry.u.msi.__bindgen_anon_1.devid = config.devid;
+        }
+
+        self.common
+            .interrupts
+            .lock()
+            .expect("Poisoned lock")
+            .insert(route.gsi, RoutingEntry { entry, masked });
+
+        Ok(())
+    }
+
+    /// Create a group of MSI-X interrupts
+    pub fn create_msix_group(vm: Arc<Vm>, count: u16) -> Result<MsiVectorGroup, InterruptError> {
+        debug!("Creating new MSI group with {count} vectors");
+        let mut irq_routes = Vec::with_capacity(count as usize);
+        for gsi in vm
+            .resource_allocator()
+            .allocate_gsi_msi(count as u32)?
+            .iter()
+        {
+            irq_routes.push(MsiVector::new(*gsi, false)?);
+        }
+
+        Ok(MsiVectorGroup { vm, irq_routes })
+    }
+
+    /// Set GSI routes to KVM
+    pub fn set_gsi_routes(&self) -> Result<(), InterruptError> {
+        let entries = self.common.interrupts.lock().expect("Poisoned lock");
+        let mut routes = KvmIrqRouting::new(0)?;
+
+        for entry in entries.values() {
+            if entry.masked {
+                continue;
+            }
+            routes.push(entry.entry)?;
+        }
+
+        self.common.fd.set_gsi_routing(&routes)?;
+        Ok(())
+    }
 }
 
 /// Use `mincore(2)` to overapproximate the dirty bitmap for the given memslot. To be used
@@ -327,12 +662,29 @@ fn mincore_bitmap(region: &GuestRegionMmap) -> Result<Vec<u64>, VmError> {
     Ok(bitmap)
 }
 
+impl DeviceRelocation for Vm {
+    fn move_bar(
+        &self,
+        _old_base: u64,
+        _new_base: u64,
+        _len: u64,
+        _pci_dev: &mut dyn pci::PciDevice,
+        _region_type: pci::PciBarRegionType,
+    ) -> Result<(), std::io::Error> {
+        error!("pci: device relocation not supported");
+        Err(std::io::Error::from(std::io::ErrorKind::Unsupported))
+    }
+}
+
 #[cfg(test)]
 pub(crate) mod tests {
+    use vm_device::interrupt::{InterruptSourceConfig, LegacyIrqSourceConfig};
     use vm_memory::GuestAddress;
     use vm_memory::mmap::MmapRegionBuilder;
 
     use super::*;
+    #[cfg(target_arch = "x86_64")]
+    use crate::snapshot::Snapshot;
     use crate::test_utils::single_region_mem_raw;
     use crate::utils::mib_to_bytes;
     use crate::vstate::kvm::Kvm;
@@ -438,5 +790,275 @@ pub(crate) mod tests {
         let (vcpu_vec, _) = vm.create_vcpus(vcpu_count).unwrap();
 
         assert_eq!(vcpu_vec.len(), vcpu_count as usize);
+    }
+
+    fn enable_irqchip(vm: &mut Vm) {
+        #[cfg(target_arch = "x86_64")]
+        vm.setup_irqchip().unwrap();
+        #[cfg(target_arch = "aarch64")]
+        vm.setup_irqchip(1).unwrap();
+    }
+
+    fn create_msix_group(vm: &Arc<Vm>) -> MsiVectorGroup {
+        Vm::create_msix_group(vm.clone(), 4).unwrap()
+    }
+
+    #[test]
+    fn test_msi_vector_group_new() {
+        let (_, vm) = setup_vm_with_memory(mib_to_bytes(128));
+        let vm = Arc::new(vm);
+        let msix_group = create_msix_group(&vm);
+        assert_eq!(msix_group.num_vectors(), 4);
+    }
+
+    #[test]
+    fn test_msi_vector_group_enable_disable() {
+        let (_, mut vm) = setup_vm_with_memory(mib_to_bytes(128));
+        enable_irqchip(&mut vm);
+        let vm = Arc::new(vm);
+        let msix_group = create_msix_group(&vm);
+
+        // Initially all vectors are disabled
+        for route in &msix_group.irq_routes {
+            assert!(!route.enabled.load(Ordering::Acquire))
+        }
+
+        // Enable works
+        msix_group.enable().unwrap();
+        for route in &msix_group.irq_routes {
+            assert!(route.enabled.load(Ordering::Acquire));
+        }
+        // Enabling an enabled group doesn't error out
+        msix_group.enable().unwrap();
+
+        // Disable works
+        msix_group.disable().unwrap();
+        for route in &msix_group.irq_routes {
+            assert!(!route.enabled.load(Ordering::Acquire))
+        }
+        // Disabling a disabled group doesn't error out
+    }
+
+    #[test]
+    fn test_msi_vector_group_trigger() {
+        let (_, mut vm) = setup_vm_with_memory(mib_to_bytes(128));
+        enable_irqchip(&mut vm);
+
+        let vm = Arc::new(vm);
+        let msix_group = create_msix_group(&vm);
+
+        // We can now trigger all vectors
+        for i in 0..4 {
+            msix_group.trigger(i).unwrap()
+        }
+
+        // We can't trigger an invalid vector
+        msix_group.trigger(4).unwrap_err();
+    }
+
+    #[test]
+    fn test_msi_vector_group_notifier() {
+        let (_, vm) = setup_vm_with_memory(mib_to_bytes(128));
+        let vm = Arc::new(vm);
+        let msix_group = create_msix_group(&vm);
+
+        for i in 0..4 {
+            assert!(msix_group.notifier(i).is_some());
+        }
+
+        assert!(msix_group.notifier(4).is_none());
+    }
+
+    #[test]
+    fn test_msi_vector_group_update_wrong_config() {
+        let (_, vm) = setup_vm_with_memory(mib_to_bytes(128));
+        let vm = Arc::new(vm);
+        let msix_group = create_msix_group(&vm);
+        let irq_config = LegacyIrqSourceConfig { irqchip: 0, pin: 0 };
+        msix_group
+            .update(0, InterruptSourceConfig::LegacyIrq(irq_config), true, true)
+            .unwrap_err();
+    }
+
+    #[test]
+    fn test_msi_vector_group_update_invalid_vector() {
+        let (_, mut vm) = setup_vm_with_memory(mib_to_bytes(128));
+        enable_irqchip(&mut vm);
+        let vm = Arc::new(vm);
+        let msix_group = create_msix_group(&vm);
+        let config = InterruptSourceConfig::MsiIrq(MsiIrqSourceConfig {
+            high_addr: 0x42,
+            low_addr: 0x12,
+            data: 0x12,
+            devid: 0xafa,
+        });
+        msix_group.update(0, config, true, true).unwrap();
+        msix_group.update(4, config, true, true).unwrap_err();
+    }
+
+    #[test]
+    fn test_msi_vector_group_update() {
+        let (_, mut vm) = setup_vm_with_memory(mib_to_bytes(128));
+        enable_irqchip(&mut vm);
+        let vm = Arc::new(vm);
+        assert!(vm.common.interrupts.lock().unwrap().is_empty());
+        let msix_group = create_msix_group(&vm);
+
+        // Set some configuration for the vectors. Initially all are masked
+        let mut config = MsiIrqSourceConfig {
+            high_addr: 0x42,
+            low_addr: 0x13,
+            data: 0x12,
+            devid: 0xafa,
+        };
+        for i in 0..4 {
+            config.data = 0x12 * i;
+            msix_group
+                .update(i, InterruptSourceConfig::MsiIrq(config), true, false)
+                .unwrap();
+        }
+
+        // All vectors should be disabled
+        for vector in &msix_group.irq_routes {
+            assert!(!vector.enabled.load(Ordering::Acquire));
+        }
+
+        for i in 0..4 {
+            let gsi = crate::arch::GSI_MSI_START + i;
+            let interrupts = vm.common.interrupts.lock().unwrap();
+            let kvm_route = interrupts.get(&gsi).unwrap();
+            assert!(kvm_route.masked);
+            assert_eq!(kvm_route.entry.gsi, gsi);
+            assert_eq!(kvm_route.entry.type_, KVM_IRQ_ROUTING_MSI);
+            // SAFETY: because we know we setup MSI routes.
+            unsafe {
+                assert_eq!(kvm_route.entry.u.msi.address_hi, 0x42);
+                assert_eq!(kvm_route.entry.u.msi.address_lo, 0x13);
+                assert_eq!(kvm_route.entry.u.msi.data, 0x12 * i);
+            }
+        }
+
+        // Simply enabling the vectors should not update the registered IRQ routes
+        msix_group.enable().unwrap();
+        for i in 0..4 {
+            let gsi = crate::arch::GSI_MSI_START + i;
+            let interrupts = vm.common.interrupts.lock().unwrap();
+            let kvm_route = interrupts.get(&gsi).unwrap();
+            assert!(kvm_route.masked);
+            assert_eq!(kvm_route.entry.gsi, gsi);
+            assert_eq!(kvm_route.entry.type_, KVM_IRQ_ROUTING_MSI);
+            // SAFETY: because we know we setup MSI routes.
+            unsafe {
+                assert_eq!(kvm_route.entry.u.msi.address_hi, 0x42);
+                assert_eq!(kvm_route.entry.u.msi.address_lo, 0x13);
+                assert_eq!(kvm_route.entry.u.msi.data, 0x12 * i);
+            }
+        }
+
+        // Updating the config of a vector should enable its route (and only its route)
+        config.data = 0;
+        msix_group
+            .update(0, InterruptSourceConfig::MsiIrq(config), false, true)
+            .unwrap();
+        for i in 0..4 {
+            let gsi = crate::arch::GSI_MSI_START + i;
+            let interrupts = vm.common.interrupts.lock().unwrap();
+            let kvm_route = interrupts.get(&gsi).unwrap();
+            assert_eq!(kvm_route.masked, i != 0);
+            assert_eq!(kvm_route.entry.gsi, gsi);
+            assert_eq!(kvm_route.entry.type_, KVM_IRQ_ROUTING_MSI);
+            // SAFETY: because we know we setup MSI routes.
+            unsafe {
+                assert_eq!(kvm_route.entry.u.msi.address_hi, 0x42);
+                assert_eq!(kvm_route.entry.u.msi.address_lo, 0x13);
+                assert_eq!(kvm_route.entry.u.msi.data, 0x12 * i);
+            }
+        }
+    }
+
+    #[cfg(target_arch = "x86_64")]
+    #[test]
+    fn test_msi_vector_group_set_gsi_without_ioapic() {
+        // Setting GSI routes without IOAPIC setup should fail on x86. Apparently, it doesn't fail
+        // on Aarch64
+        let (_, vm) = setup_vm_with_memory(mib_to_bytes(128));
+        let vm = Arc::new(vm);
+        let msix_group = create_msix_group(&vm);
+        let err = msix_group.set_gsi().unwrap_err();
+        assert_eq!(
+            format!("{err}"),
+            "MSI-X update: KVM error: Invalid argument (os error 22)"
+        );
+    }
+
+    #[test]
+    fn test_msi_vector_group_set_gsi() {
+        let (_, mut vm) = setup_vm_with_memory(mib_to_bytes(128));
+        enable_irqchip(&mut vm);
+        let vm = Arc::new(vm);
+        let msix_group = create_msix_group(&vm);
+
+        msix_group.set_gsi().unwrap();
+    }
+
+    #[test]
+    fn test_msi_vector_group_persistence() {
+        let (_, mut vm) = setup_vm_with_memory(mib_to_bytes(128));
+        enable_irqchip(&mut vm);
+        let vm = Arc::new(vm);
+        let msix_group = create_msix_group(&vm);
+
+        msix_group.enable().unwrap();
+        let state = msix_group.save();
+        let restored_group = MsiVectorGroup::restore(vm, &state).unwrap();
+
+        assert_eq!(msix_group.num_vectors(), restored_group.num_vectors());
+        // Even if an MSI group is enabled, we don't save it as such. During restoration, the PCI
+        // transport will make sure the correct config is set for the vectors and enable them
+        // accordingly.
+        for (id, vector) in msix_group.irq_routes.iter().enumerate() {
+            let new_vector = &restored_group.irq_routes[id];
+            assert_eq!(vector.gsi, new_vector.gsi);
+            assert!(!new_vector.enabled.load(Ordering::Acquire));
+        }
+    }
+
+    #[cfg(target_arch = "x86_64")]
+    #[test]
+    fn test_restore_state_resource_allocator() {
+        use vm_allocator::AllocPolicy;
+
+        let mut snapshot_data = vec![0u8; 10000];
+        let (_, mut vm) = setup_vm_with_memory(0x1000);
+        vm.setup_irqchip().unwrap();
+
+        // Allocate a GSI and some memory and make sure they are still allocated after restore
+        let (gsi, range) = {
+            let mut resource_allocator = vm.resource_allocator();
+
+            let gsi = resource_allocator.allocate_gsi_msi(1).unwrap()[0];
+            let range = resource_allocator
+                .allocate_32bit_mmio_memory(1024, 1024, AllocPolicy::FirstMatch)
+                .unwrap();
+            (gsi, range)
+        };
+
+        let state = vm.save_state().unwrap();
+        Snapshot::serialize(&mut snapshot_data.as_mut_slice(), &state).unwrap();
+
+        let restored_state: VmState = Snapshot::deserialize(&mut snapshot_data.as_slice()).unwrap();
+        vm.restore_state(&restored_state).unwrap();
+
+        let mut resource_allocator = vm.resource_allocator();
+        let gsi_new = resource_allocator.allocate_gsi_msi(1).unwrap()[0];
+        assert_eq!(gsi + 1, gsi_new);
+
+        resource_allocator
+            .allocate_32bit_mmio_memory(1024, 1024, AllocPolicy::ExactMatch(range))
+            .unwrap_err();
+        let range_new = resource_allocator
+            .allocate_32bit_mmio_memory(1024, 1024, AllocPolicy::FirstMatch)
+            .unwrap();
+        assert_eq!(range + 1024, range_new);
     }
 }

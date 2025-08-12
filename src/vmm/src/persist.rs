@@ -25,7 +25,7 @@ use crate::cpu_config::templates::StaticCpuTemplate;
 use crate::cpu_config::x86_64::cpuid::CpuidTrait;
 #[cfg(target_arch = "x86_64")]
 use crate::cpu_config::x86_64::cpuid::common::get_vendor_id_from_host;
-use crate::device_manager::persist::{ACPIDeviceManagerState, DevicePersistError, DeviceStates};
+use crate::device_manager::{DevicePersistError, DevicesState};
 use crate::logger::{info, warn};
 use crate::resources::VmResources;
 use crate::seccomp::BpfThreadMap;
@@ -69,7 +69,7 @@ impl From<&VmResources> for VmInfo {
     }
 }
 
-/// Contains the necesary state for saving/restoring a microVM.
+/// Contains the necessary state for saving/restoring a microVM.
 #[derive(Debug, Default, Serialize, Deserialize)]
 pub struct MicrovmState {
     /// Miscellaneous VM info.
@@ -81,9 +81,7 @@ pub struct MicrovmState {
     /// Vcpu states.
     pub vcpu_states: Vec<VcpuState>,
     /// Device states.
-    pub device_states: DeviceStates,
-    /// ACPI devices state.
-    pub acpi_dev_state: ACPIDeviceManagerState,
+    pub device_states: DevicesState,
 }
 
 /// This describes the mapping between Firecracker base virtual address and
@@ -118,7 +116,7 @@ pub enum MicrovmStateError {
     /// Operation not allowed: {0}
     NotAllowed(String),
     /// Cannot restore devices: {0}
-    RestoreDevices(DevicePersistError),
+    RestoreDevices(#[from] DevicePersistError),
     /// Cannot save Vcpu state: {0}
     SaveVcpuState(vstate::vcpu::VcpuError),
     /// Cannot save Vm state: {0}
@@ -168,19 +166,8 @@ pub fn create_snapshot(
     // We need to mark queues as dirty again for all activated devices. The reason we
     // do it here is that we don't mark pages as dirty during runtime
     // for queue objects.
-    // SAFETY:
-    // This should never fail as we only mark pages only if device has already been activated,
-    // and the address validation was already performed on device activation.
-    vmm.mmio_device_manager
-        .for_each_virtio_device(|_, _, _, dev| {
-            let mut d = dev.lock().unwrap();
-            if d.is_activated() {
-                d.mark_queue_memory_dirty(vmm.vm.guest_memory())
-            } else {
-                Ok(())
-            }
-        })
-        .unwrap();
+    vmm.device_manager
+        .mark_virtio_queue_memory_dirty(vmm.vm.guest_memory());
 
     Ok(())
 }
@@ -334,18 +321,23 @@ pub fn restore_from_snapshot(
 ) -> Result<Arc<Mutex<Vmm>>, RestoreFromSnapshotError> {
     let mut microvm_state = snapshot_state_from_file(&params.snapshot_path)?;
     for entry in &params.network_overrides {
-        let net_devices = &mut microvm_state.device_states.net_devices;
-        if let Some(device) = net_devices
+        microvm_state
+            .device_states
+            .mmio_state
+            .net_devices
             .iter_mut()
-            .find(|x| x.device_state.id == entry.iface_id)
-        {
-            device
-                .device_state
-                .tap_if_name
-                .clone_from(&entry.host_dev_name);
-        } else {
-            return Err(SnapshotStateFromFileError::UnknownNetworkDevice.into());
-        }
+            .map(|device| &mut device.device_state)
+            .chain(
+                microvm_state
+                    .device_states
+                    .pci_state
+                    .net_devices
+                    .iter_mut()
+                    .map(|device| &mut device.device_state),
+            )
+            .find(|x| x.id == entry.iface_id)
+            .map(|device_state| device_state.tap_if_name.clone_from(&entry.host_dev_name))
+            .ok_or(SnapshotStateFromFileError::UnknownNetworkDevice)?;
     }
     let track_dirty_pages = params.track_dirty_pages;
 
@@ -660,14 +652,14 @@ mod tests {
     #[test]
     fn test_microvm_state_snapshot() {
         let vmm = default_vmm_with_devices();
-        let states = vmm.mmio_device_manager.save();
+        let states = vmm.device_manager.save();
 
         // Only checking that all devices are saved, actual device state
         // is tested by that device's tests.
-        assert_eq!(states.block_devices.len(), 1);
-        assert_eq!(states.net_devices.len(), 1);
-        assert!(states.vsock_device.is_some());
-        assert!(states.balloon_device.is_some());
+        assert_eq!(states.mmio_state.block_devices.len(), 1);
+        assert_eq!(states.mmio_state.net_devices.len(), 1);
+        assert!(states.mmio_state.vsock_device.is_some());
+        assert!(states.mmio_state.balloon_device.is_some());
 
         let vcpu_states = vec![VcpuState::default()];
         #[cfg(target_arch = "aarch64")]
@@ -684,7 +676,6 @@ mod tests {
             vm_state: vmm.vm.save_state(&mpidrs).unwrap(),
             #[cfg(target_arch = "x86_64")]
             vm_state: vmm.vm.save_state().unwrap(),
-            acpi_dev_state: vmm.acpi_device_manager.save(),
         };
 
         let mut buf = vec![0; 10000];
@@ -695,8 +686,8 @@ mod tests {
 
         assert_eq!(restored_microvm_state.vm_info, microvm_state.vm_info);
         assert_eq!(
-            restored_microvm_state.device_states,
-            microvm_state.device_states
+            restored_microvm_state.device_states.mmio_state,
+            microvm_state.device_states.mmio_state
         )
     }
 

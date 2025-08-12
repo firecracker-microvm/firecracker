@@ -5,14 +5,14 @@
 
 use std::fmt::Debug;
 use std::sync::Arc;
-use std::sync::atomic::AtomicU32;
 
 use serde::{Deserialize, Serialize};
 
 use super::*;
-use crate::devices::virtio::device::DeviceState;
+use crate::devices::virtio::device::{ActiveState, DeviceState};
 use crate::devices::virtio::persist::VirtioDeviceState;
 use crate::devices::virtio::queue::FIRECRACKER_MAX_QUEUE_SIZE;
+use crate::devices::virtio::transport::VirtioInterrupt;
 use crate::devices::virtio::vsock::TYPE_VSOCK;
 use crate::snapshot::Persist;
 use crate::vstate::memory::GuestMemoryMmap;
@@ -29,9 +29,9 @@ pub struct VsockState {
 /// The Vsock frontend serializable state.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct VsockFrontendState {
-    /// Context IDentifier.
+    /// Context Identifier.
     pub cid: u64,
-    virtio_state: VirtioDeviceState,
+    pub virtio_state: VirtioDeviceState,
 }
 
 /// An enum for the serializable backend state types.
@@ -121,13 +121,7 @@ where
 
         vsock.acked_features = state.virtio_state.acked_features;
         vsock.avail_features = state.virtio_state.avail_features;
-        vsock.irq_trigger.irq_status =
-            Arc::new(AtomicU32::new(state.virtio_state.interrupt_status));
-        vsock.device_state = if state.virtio_state.activated {
-            DeviceState::Activated(constructor_args.mem)
-        } else {
-            DeviceState::Inactive
-        };
+        vsock.device_state = DeviceState::Inactive;
         Ok(vsock)
     }
 }
@@ -137,6 +131,7 @@ pub(crate) mod tests {
     use super::device::AVAIL_FEATURES;
     use super::*;
     use crate::devices::virtio::device::VirtioDevice;
+    use crate::devices::virtio::test_utils::default_interrupt;
     use crate::devices::virtio::vsock::defs::uapi;
     use crate::devices::virtio::vsock::test_utils::{TestBackend, TestContext};
     use crate::snapshot::Snapshot;

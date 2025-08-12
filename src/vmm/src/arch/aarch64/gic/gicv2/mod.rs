@@ -30,7 +30,7 @@ impl GICv2 {
 
     /// Get the address of the GICv2 distributor.
     const fn get_dist_addr() -> u64 {
-        super::layout::MAPPED_IO_START - GICv2::KVM_VGIC_V2_DIST_SIZE
+        super::layout::MMIO32_MEM_START - GICv2::KVM_VGIC_V2_DIST_SIZE
     }
 
     /// Get the size of the GIC_v2 distributor.
@@ -68,7 +68,9 @@ impl GICv2 {
                 GICv2::get_cpu_addr(),
                 GICv2::get_cpu_size(),
             ],
+            msi_properties: None,
             vcpu_count,
+            its_device: None,
         })
     }
 
@@ -82,7 +84,7 @@ impl GICv2 {
 
     pub fn init_device_attributes(gic_device: &Self) -> Result<(), GicError> {
         // Setting up the distributor attribute.
-        // We are placing the GIC below 1GB so we need to substract the size of the distributor.
+        // We are placing the GIC below 1GB so we need to subtract the size of the distributor.
         Self::set_device_attribute(
             gic_device.device_fd(),
             kvm_bindings::KVM_DEV_ARM_VGIC_GRP_ADDR,
@@ -133,9 +135,9 @@ impl GICv2 {
         // On arm there are 3 types of interrupts: SGI (0-15), PPI (16-31), SPI (32-1020).
         // SPIs are used to signal interrupts from various peripherals accessible across
         // the whole system so these are the ones that we increment when adding a new virtio device.
-        // KVM_DEV_ARM_VGIC_GRP_NR_IRQS sets the highest SPI number. Consequently, we will have a
-        // total of `super::layout::IRQ_MAX - 32` usable SPIs in our microVM.
-        let nr_irqs: u32 = super::layout::IRQ_MAX;
+        // KVM_DEV_ARM_VGIC_GRP_NR_IRQS sets the number of interrupts (SGI, PPI, and SPI).
+        // Consequently, we need to add 32 to the number of SPIs ("legacy GSI").
+        let nr_irqs: u32 = crate::arch::GSI_LEGACY_NUM + super::layout::SPI_START;
         let nr_irqs_ptr = &nr_irqs as *const u32;
         Self::set_device_attribute(
             gic_device.device_fd(),

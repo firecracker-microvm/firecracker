@@ -6,9 +6,12 @@
 use std::fmt::Debug;
 use std::marker::PhantomData;
 use std::mem;
+use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 use crate::devices::virtio::queue::Queue;
+use crate::devices::virtio::transport::VirtioInterrupt;
+use crate::devices::virtio::transport::mmio::IrqTrigger;
 use crate::test_utils::single_region_mem;
 use crate::utils::{align_up, u64_to_usize};
 use crate::vstate::memory::{Address, Bytes, GuestAddress, GuestMemoryMmap};
@@ -26,6 +29,11 @@ macro_rules! check_metric_after_block {
 /// guest physical address 0
 pub fn default_mem() -> GuestMemoryMmap {
     single_region_mem(0x10000)
+}
+
+/// Creates a default ['IrqTrigger'] interrupt for a VirtIO device.
+pub fn default_interrupt() -> Arc<dyn VirtioInterrupt> {
+    Arc::new(IrqTrigger::new())
 }
 
 #[derive(Debug)]
@@ -323,7 +331,7 @@ pub(crate) mod test {
     use crate::devices::virtio::device::VirtioDevice;
     use crate::devices::virtio::net::MAX_BUFFER_SIZE;
     use crate::devices::virtio::queue::{Queue, VIRTQ_DESC_F_NEXT};
-    use crate::devices::virtio::test_utils::{VirtQueue, VirtqDesc};
+    use crate::devices::virtio::test_utils::{VirtQueue, VirtqDesc, default_interrupt};
     use crate::test_utils::single_region_mem;
     use crate::vstate::memory::{Address, GuestAddress, GuestMemoryMmap};
 
@@ -414,7 +422,12 @@ pub(crate) mod test {
 
         /// Activate the device
         pub fn activate_device(&mut self, mem: &'a GuestMemoryMmap) {
-            self.device.lock().unwrap().activate(mem.clone()).unwrap();
+            let interrupt = default_interrupt();
+            self.device
+                .lock()
+                .unwrap()
+                .activate(mem.clone(), interrupt)
+                .unwrap();
             // Process the activate event
             let ev_count = self.event_manager.run_with_timeout(100).unwrap();
             assert_eq!(ev_count, 1);

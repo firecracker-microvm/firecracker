@@ -34,6 +34,7 @@ use super::VsockBackend;
 use super::device::{EVQ_INDEX, RXQ_INDEX, TXQ_INDEX, Vsock};
 use crate::devices::virtio::device::VirtioDevice;
 use crate::devices::virtio::queue::InvalidAvailIdx;
+use crate::devices::virtio::vsock::defs::VSOCK_NUM_QUEUES;
 use crate::devices::virtio::vsock::metrics::METRICS;
 use crate::logger::IncMetric;
 
@@ -47,81 +48,82 @@ where
     const PROCESS_EVQ: u32 = 3;
     const PROCESS_NOTIFY_BACKEND: u32 = 4;
 
-    pub fn handle_rxq_event(&mut self, evset: EventSet) -> bool {
+    pub fn handle_rxq_event(&mut self, evset: EventSet) -> Vec<u16> {
+        let mut used_queues = Vec::new();
         if evset != EventSet::IN {
             warn!("vsock: rxq unexpected event {:?}", evset);
             METRICS.rx_queue_event_fails.inc();
-            return false;
+            return used_queues;
         }
 
-        let mut raise_irq = false;
         if let Err(err) = self.queue_events[RXQ_INDEX].read() {
             error!("Failed to get vsock rx queue event: {:?}", err);
             METRICS.rx_queue_event_fails.inc();
         } else if self.backend.has_pending_rx() {
-            // OK to unwrap: Only QueueError::InvalidAvailIdx is returned, and we explicitly
-            // want to panic on that one.
-            raise_irq |= self.process_rx().unwrap();
+            if self.process_rx().unwrap() {
+                used_queues.push(RXQ_INDEX.try_into().unwrap());
+            }
             METRICS.rx_queue_event_count.inc();
         }
-        raise_irq
+        used_queues
     }
 
-    pub fn handle_txq_event(&mut self, evset: EventSet) -> bool {
+    pub fn handle_txq_event(&mut self, evset: EventSet) -> Vec<u16> {
+        let mut used_queues = Vec::new();
         if evset != EventSet::IN {
             warn!("vsock: txq unexpected event {:?}", evset);
             METRICS.tx_queue_event_fails.inc();
-            return false;
+            return used_queues;
         }
 
-        let mut raise_irq = false;
         if let Err(err) = self.queue_events[TXQ_INDEX].read() {
             error!("Failed to get vsock tx queue event: {:?}", err);
             METRICS.tx_queue_event_fails.inc();
         } else {
-            // OK to unwrap: Only QueueError::InvalidAvailIdx is returned, and we explicitly
-            // want to panic on that one.
-            raise_irq |= self.process_tx().unwrap();
+            if self.process_tx().unwrap() {
+                used_queues.push(TXQ_INDEX.try_into().unwrap());
+            }
             METRICS.tx_queue_event_count.inc();
             // The backend may have queued up responses to the packets we sent during
             // TX queue processing. If that happened, we need to fetch those responses
             // and place them into RX buffers.
-            if self.backend.has_pending_rx() {
-                raise_irq |= self.process_rx().unwrap();
+            if self.backend.has_pending_rx() && self.process_rx().unwrap() {
+                used_queues.push(RXQ_INDEX.try_into().unwrap());
             }
         }
-        raise_irq
+        used_queues
     }
 
-    pub fn handle_evq_event(&mut self, evset: EventSet) -> bool {
+    pub fn handle_evq_event(&mut self, evset: EventSet) {
         if evset != EventSet::IN {
             warn!("vsock: evq unexpected event {:?}", evset);
             METRICS.ev_queue_event_fails.inc();
-            return false;
+            return;
         }
 
         if let Err(err) = self.queue_events[EVQ_INDEX].read() {
             error!("Failed to consume vsock evq event: {:?}", err);
             METRICS.ev_queue_event_fails.inc();
         }
-        false
     }
 
     /// Notify backend of new events.
-    pub fn notify_backend(&mut self, evset: EventSet) -> Result<bool, InvalidAvailIdx> {
+    pub fn notify_backend(&mut self, evset: EventSet) -> Result<Vec<u16>, InvalidAvailIdx> {
+        let mut used_queues = Vec::new();
         self.backend.notify(evset);
         // After the backend has been kicked, it might've freed up some resources, so we
         // can attempt to send it more data to process.
         // In particular, if `self.backend.send_pkt()` halted the TX queue processing (by
         // returning an error) at some point in the past, now is the time to try walking the
         // TX queue again.
-        // OK to unwrap: Only QueueError::InvalidAvailIdx is returned, and we explicitly
-        // want to panic on that one.
-        let mut raise_irq = self.process_tx()?;
-        if self.backend.has_pending_rx() {
-            raise_irq |= self.process_rx()?;
+        if self.process_tx()? {
+            used_queues.push(TXQ_INDEX.try_into().unwrap());
         }
-        Ok(raise_irq)
+        if self.backend.has_pending_rx() && self.process_rx()? {
+            used_queues.push(RXQ_INDEX.try_into().unwrap())
+        }
+
+        Ok(used_queues)
     }
 
     fn register_runtime_events(&self, ops: &mut EventOps) {
@@ -189,18 +191,25 @@ where
         let evset = event.event_set();
 
         if self.is_activated() {
-            let mut raise_irq = false;
-            match source {
-                Self::PROCESS_ACTIVATE => self.handle_activate_event(ops),
-                Self::PROCESS_RXQ => raise_irq = self.handle_rxq_event(evset),
-                Self::PROCESS_TXQ => raise_irq = self.handle_txq_event(evset),
-                Self::PROCESS_EVQ => raise_irq = self.handle_evq_event(evset),
-                Self::PROCESS_NOTIFY_BACKEND => raise_irq = self.notify_backend(evset).unwrap(),
-                _ => warn!("Unexpected vsock event received: {:?}", source),
-            }
-            if raise_irq {
-                self.signal_used_queue().unwrap_or_default();
-            }
+            let used_queues = match source {
+                Self::PROCESS_ACTIVATE => {
+                    self.handle_activate_event(ops);
+                    Vec::new()
+                }
+                Self::PROCESS_RXQ => self.handle_rxq_event(evset),
+                Self::PROCESS_TXQ => self.handle_txq_event(evset),
+                Self::PROCESS_EVQ => {
+                    self.handle_evq_event(evset);
+                    Vec::new()
+                }
+                Self::PROCESS_NOTIFY_BACKEND => self.notify_backend(evset).unwrap(),
+                _ => {
+                    warn!("Unexpected vsock event received: {:?}", source);
+                    Vec::new()
+                }
+            };
+            self.signal_used_queues(&used_queues)
+                .expect("vsock: Could not trigger device interrupt");
         } else {
             warn!(
                 "Vsock: The device is not yet activated. Spurious event received: {:?}",
@@ -240,7 +249,7 @@ mod tests {
         {
             let test_ctx = TestContext::new();
             let mut ctx = test_ctx.create_event_handler_context();
-            ctx.mock_activate(test_ctx.mem.clone());
+            ctx.mock_activate(test_ctx.mem.clone(), test_ctx.interrupt.clone());
 
             ctx.device.backend.set_pending_rx(false);
             ctx.signal_txq_event();
@@ -257,7 +266,7 @@ mod tests {
         {
             let test_ctx = TestContext::new();
             let mut ctx = test_ctx.create_event_handler_context();
-            ctx.mock_activate(test_ctx.mem.clone());
+            ctx.mock_activate(test_ctx.mem.clone(), test_ctx.interrupt.clone());
 
             ctx.device.backend.set_pending_rx(true);
             ctx.signal_txq_event();
@@ -273,7 +282,7 @@ mod tests {
         {
             let test_ctx = TestContext::new();
             let mut ctx = test_ctx.create_event_handler_context();
-            ctx.mock_activate(test_ctx.mem.clone());
+            ctx.mock_activate(test_ctx.mem.clone(), test_ctx.interrupt.clone());
 
             ctx.device.backend.set_pending_rx(false);
             ctx.device.backend.set_tx_err(Some(VsockError::NoData));
@@ -289,7 +298,7 @@ mod tests {
         {
             let test_ctx = TestContext::new();
             let mut ctx = test_ctx.create_event_handler_context();
-            ctx.mock_activate(test_ctx.mem.clone());
+            ctx.mock_activate(test_ctx.mem.clone(), test_ctx.interrupt.clone());
 
             // Invalidate the descriptor chain, by setting its length to 0.
             ctx.guest_txvq.dtable[0].len.set(0);
@@ -306,9 +315,11 @@ mod tests {
         {
             let test_ctx = TestContext::new();
             let mut ctx = test_ctx.create_event_handler_context();
-            ctx.mock_activate(test_ctx.mem.clone());
+            ctx.mock_activate(test_ctx.mem.clone(), test_ctx.interrupt.clone());
 
-            assert!(!ctx.device.handle_txq_event(EventSet::IN));
+            let metric_before = METRICS.tx_queue_event_fails.count();
+            ctx.device.handle_txq_event(EventSet::IN);
+            assert_eq!(metric_before + 1, METRICS.tx_queue_event_fails.count());
         }
     }
 
@@ -321,7 +332,7 @@ mod tests {
         {
             let test_ctx = TestContext::new();
             let mut ctx = test_ctx.create_event_handler_context();
-            ctx.mock_activate(test_ctx.mem.clone());
+            ctx.mock_activate(test_ctx.mem.clone(), test_ctx.interrupt.clone());
 
             ctx.device.backend.set_pending_rx(true);
             ctx.device.backend.set_rx_err(Some(VsockError::NoData));
@@ -338,7 +349,7 @@ mod tests {
         {
             let test_ctx = TestContext::new();
             let mut ctx = test_ctx.create_event_handler_context();
-            ctx.mock_activate(test_ctx.mem.clone());
+            ctx.mock_activate(test_ctx.mem.clone(), test_ctx.interrupt.clone());
 
             ctx.device.backend.set_pending_rx(true);
             ctx.signal_rxq_event();
@@ -351,7 +362,7 @@ mod tests {
         {
             let test_ctx = TestContext::new();
             let mut ctx = test_ctx.create_event_handler_context();
-            ctx.mock_activate(test_ctx.mem.clone());
+            ctx.mock_activate(test_ctx.mem.clone(), test_ctx.interrupt.clone());
 
             // Invalidate the descriptor chain, by setting its length to 0.
             ctx.guest_rxvq.dtable[0].len.set(0);
@@ -367,9 +378,11 @@ mod tests {
         {
             let test_ctx = TestContext::new();
             let mut ctx = test_ctx.create_event_handler_context();
-            ctx.mock_activate(test_ctx.mem.clone());
+            ctx.mock_activate(test_ctx.mem.clone(), test_ctx.interrupt.clone());
             ctx.device.backend.set_pending_rx(false);
-            assert!(!ctx.device.handle_rxq_event(EventSet::IN));
+            let metric_before = METRICS.rx_queue_event_fails.count();
+            ctx.device.handle_rxq_event(EventSet::IN);
+            assert_eq!(metric_before + 1, METRICS.rx_queue_event_fails.count());
         }
     }
 
@@ -380,7 +393,9 @@ mod tests {
             let test_ctx = TestContext::new();
             let mut ctx = test_ctx.create_event_handler_context();
             ctx.device.backend.set_pending_rx(false);
-            assert!(!ctx.device.handle_evq_event(EventSet::IN));
+            let metric_before = METRICS.ev_queue_event_fails.count();
+            ctx.device.handle_evq_event(EventSet::IN);
+            assert_eq!(metric_before + 1, METRICS.ev_queue_event_fails.count());
         }
     }
 
@@ -392,7 +407,7 @@ mod tests {
         {
             let test_ctx = TestContext::new();
             let mut ctx = test_ctx.create_event_handler_context();
-            ctx.mock_activate(test_ctx.mem.clone());
+            ctx.mock_activate(test_ctx.mem.clone(), test_ctx.interrupt.clone());
 
             ctx.device.backend.set_pending_rx(true);
             ctx.device.notify_backend(EventSet::IN).unwrap();
@@ -411,7 +426,7 @@ mod tests {
         {
             let test_ctx = TestContext::new();
             let mut ctx = test_ctx.create_event_handler_context();
-            ctx.mock_activate(test_ctx.mem.clone());
+            ctx.mock_activate(test_ctx.mem.clone(), test_ctx.interrupt.clone());
 
             ctx.device.backend.set_pending_rx(false);
             ctx.device.notify_backend(EventSet::IN).unwrap();
@@ -454,7 +469,7 @@ mod tests {
         {
             let mut ctx = test_ctx.create_event_handler_context();
 
-            // When modifiyng the buffer descriptor, make sure the len field is altered in the
+            // When modifying the buffer descriptor, make sure the len field is altered in the
             // vsock packet header descriptor as well.
             if desc_idx == 1 {
                 // The vsock packet len field has offset 24 in the header.
@@ -480,8 +495,8 @@ mod tests {
     #[cfg(target_arch = "x86_64")]
     #[allow(clippy::cast_possible_truncation)] /* casting of constants we know fit into u32 */
     fn test_vsock_bof() {
-        use crate::arch::MMIO_MEM_START;
-        use crate::arch::x86_64::{FIRST_ADDR_PAST_32BITS, MEM_32BIT_GAP_SIZE};
+        use crate::arch::x86_64::layout::FIRST_ADDR_PAST_32BITS;
+        use crate::arch::{MMIO32_MEM_SIZE, MMIO32_MEM_START};
         use crate::devices::virtio::vsock::packet::VSOCK_PKT_HDR_SIZE;
         use crate::test_utils::multi_region_mem;
         use crate::utils::mib_to_bytes;
@@ -492,7 +507,7 @@ mod tests {
         let mut test_ctx = TestContext::new();
         test_ctx.mem = multi_region_mem(&[
             (GuestAddress(0), 8 * MIB),
-            (GuestAddress(MMIO_MEM_START - MIB as u64), MIB),
+            (GuestAddress(MMIO32_MEM_START - MIB as u64), MIB),
             (GuestAddress(FIRST_ADDR_PAST_32BITS), MIB),
         ]);
 
@@ -515,15 +530,15 @@ mod tests {
         }
 
         // Let's check what happens when the header descriptor is right before the gap.
-        vsock_bof_helper(&mut test_ctx, 0, MMIO_MEM_START - 1, VSOCK_PKT_HDR_SIZE);
+        vsock_bof_helper(&mut test_ctx, 0, MMIO32_MEM_START - 1, VSOCK_PKT_HDR_SIZE);
 
         // Let's check what happens when the buffer descriptor crosses into the gap, but does
         // not go past its right edge.
         vsock_bof_helper(
             &mut test_ctx,
             1,
-            MMIO_MEM_START - 4,
-            MEM_32BIT_GAP_SIZE as u32 + 4,
+            MMIO32_MEM_START - 4,
+            MMIO32_MEM_SIZE as u32 + 4,
         );
 
         // Let's modify the buffer descriptor addr and len such that it crosses over the MMIO gap,
@@ -531,8 +546,8 @@ mod tests {
         vsock_bof_helper(
             &mut test_ctx,
             1,
-            MMIO_MEM_START - 4,
-            MEM_32BIT_GAP_SIZE as u32 + 100,
+            MMIO32_MEM_START - 4,
+            MMIO32_MEM_SIZE as u32 + 100,
         );
     }
 
@@ -582,7 +597,7 @@ mod tests {
         vsock
             .lock()
             .unwrap()
-            .activate(test_ctx.mem.clone())
+            .activate(test_ctx.mem.clone(), test_ctx.interrupt.clone())
             .unwrap();
         // Process the activate event.
         let ev_count = event_manager.run_with_timeout(50).unwrap();

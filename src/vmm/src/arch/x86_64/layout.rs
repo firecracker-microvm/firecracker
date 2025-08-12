@@ -7,6 +7,9 @@
 
 //! Magic addresses externally used to lay out x86_64 VMs.
 
+use crate::device_manager::mmio::MMIO_LEN;
+use crate::utils::mib_to_bytes;
+
 /// Initial stack for the boot CPU.
 pub const BOOT_STACK_POINTER: u64 = 0x8ff0;
 
@@ -18,17 +21,21 @@ pub const CMDLINE_MAX_SIZE: usize = 2048;
 /// Start of the high memory.
 pub const HIMEM_START: u64 = 0x0010_0000; // 1 MB.
 
-// Typically, on x86 systems 24 IRQs are used (0-23).
-/// First usable IRQ ID for virtio device interrupts on x86_64.
-pub const IRQ_BASE: u32 = 5;
-/// Last usable IRQ ID for virtio device interrupts on x86_64.
-pub const IRQ_MAX: u32 = 23;
-
-/// The first usable GSI on x86_64 is the same as the first usable IRQ ID.
-pub const GSI_BASE: u32 = IRQ_BASE;
-
-/// The maximum usable GSI on x86_64 is the same as the last usable IRQ ID.
-pub const GSI_MAX: u32 = IRQ_MAX;
+// Typically, on x86 systems 24 IRQs are used for legacy devices (0-23).
+// However, the first 5 are reserved.
+// We allocate the remaining GSIs to MSIs.
+/// First usable GSI for legacy interrupts (IRQ) on x86_64.
+pub const GSI_LEGACY_START: u32 = 5;
+/// Last usable GSI for legacy interrupts (IRQ) on x86_64.
+pub const GSI_LEGACY_END: u32 = 23;
+/// Number of legacy GSI (IRQ) available on x86_64.
+pub const GSI_LEGACY_NUM: u32 = GSI_LEGACY_END - GSI_LEGACY_START + 1;
+/// First GSI used by MSI after legacy GSI.
+pub const GSI_MSI_START: u32 = GSI_LEGACY_END + 1;
+/// The highest available GSI in KVM (KVM_MAX_IRQ_ROUTES=4096).
+pub const GSI_MSI_END: u32 = 4095;
+/// Number of GSI available for MSI.
+pub const GSI_MSI_NUM: u32 = GSI_MSI_END - GSI_MSI_START + 1;
 
 /// Address for the TSS setup.
 pub const KVM_TSS_ADDRESS: u64 = 0xfffb_d000;
@@ -83,3 +90,45 @@ pub const SYSTEM_MEM_START: u64 = 0x9fc00;
 /// 257KiB is more than we need, however we reserve this space for potential future use of
 /// ACPI features (new tables and/or devices).
 pub const SYSTEM_MEM_SIZE: u64 = RSDP_ADDR - SYSTEM_MEM_START;
+
+/// First address that cannot be addressed using 32 bit anymore.
+pub const FIRST_ADDR_PAST_32BITS: u64 = 1 << 32;
+
+/// The size of the memory area reserved for MMIO 32-bit accesses.
+pub const MMIO32_MEM_SIZE: u64 = mib_to_bytes(1024) as u64;
+/// The start of the memory area reserved for MMIO 32-bit accesses.
+pub const MMIO32_MEM_START: u64 = FIRST_ADDR_PAST_32BITS - MMIO32_MEM_SIZE;
+
+// We dedicate the last 256 MiB of the 32-bit MMIO address space PCIe for memory-mapped access to
+// configuration.
+/// Size of MMIO region for PCIe configuration accesses.
+pub const PCI_MMCONFIG_SIZE: u64 = 256 << 20;
+/// Start of MMIO region for PCIe configuration accesses.
+pub const PCI_MMCONFIG_START: u64 = IOAPIC_ADDR as u64 - PCI_MMCONFIG_SIZE;
+/// MMIO space per PCIe segment
+pub const PCI_MMIO_CONFIG_SIZE_PER_SEGMENT: u64 = 4096 * 256;
+
+// We reserve 768 MiB for devices at the beginning of the MMIO region. This includes space both for
+// pure MMIO and PCIe devices.
+
+/// Memory region start for boot device.
+pub const BOOT_DEVICE_MEM_START: u64 = MMIO32_MEM_START;
+
+/// Beginning of memory region for device MMIO 32-bit accesses
+pub const MEM_32BIT_DEVICES_START: u64 = BOOT_DEVICE_MEM_START + MMIO_LEN;
+/// Size of memory region for device MMIO 32-bit accesses
+pub const MEM_32BIT_DEVICES_SIZE: u64 = PCI_MMCONFIG_START - MEM_32BIT_DEVICES_START;
+
+// 64-bits region for MMIO accesses
+/// The start of the memory area reserved for MMIO 64-bit accesses.
+pub const MMIO64_MEM_START: u64 = 256 << 30;
+/// The size of the memory area reserved for MMIO 64-bit accesses.
+pub const MMIO64_MEM_SIZE: u64 = 256 << 30;
+
+// At the moment, all of this region goes to devices
+/// Beginning of memory region for device MMIO 64-bit accesses
+pub const MEM_64BIT_DEVICES_START: u64 = MMIO64_MEM_START;
+/// Size of memory region for device MMIO 32-bit accesses
+pub const MEM_64BIT_DEVICES_SIZE: u64 = MMIO64_MEM_SIZE;
+/// First address past the 64-bit MMIO gap
+pub const FIRST_ADDR_PAST_64BITS_MMIO: u64 = MMIO64_MEM_START + MMIO64_MEM_SIZE;

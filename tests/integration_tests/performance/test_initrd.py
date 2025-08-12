@@ -9,13 +9,15 @@ INITRD_FILESYSTEM = "rootfs"
 
 
 @pytest.fixture
-def uvm_with_initrd(microvm_factory, guest_kernel, record_property, artifact_dir):
+def uvm_with_initrd(
+    microvm_factory, guest_kernel, pci_enabled, record_property, artifact_dir
+):
     """
     See file:../docs/initrd.md
     """
     fs = artifact_dir / "initramfs.cpio"
     record_property("rootfs", fs.name)
-    uvm = microvm_factory.build(guest_kernel)
+    uvm = microvm_factory.build(guest_kernel, pci=pci_enabled)
     uvm.initrd_file = fs
     yield uvm
 
@@ -33,7 +35,7 @@ def test_microvm_initrd_with_serial(uvm_with_initrd, huge_pages):
     vm.basic_config(
         add_root_device=False,
         vcpu_count=1,
-        boot_args="console=ttyS0 reboot=k panic=1 pci=off",
+        boot_args="console=ttyS0 reboot=k panic=1 swiotlb=noforce",
         use_initrd=True,
         huge_pages=huge_pages,
     )

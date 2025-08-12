@@ -127,7 +127,7 @@ class MicrovmHelpers:
             raise RuntimeError(".spawn already called, too late to enable the console")
         if self.vm.boot_args is None:
             self.vm.boot_args = ""
-        self.vm.boot_args += "console=ttyS0 reboot=k panic=1"
+        self.vm.boot_args += "console=ttyS0 reboot=k panic=1 swiotlb=noforce"
         self.vm.jailer.daemonize = False
         self.vm.jailer.new_pid_ns = False
 

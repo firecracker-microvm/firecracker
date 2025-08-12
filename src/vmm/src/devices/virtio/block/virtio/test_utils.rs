@@ -17,9 +17,11 @@ use crate::devices::virtio::block::virtio::device::FileEngineType;
 use crate::devices::virtio::block::virtio::io::FileEngine;
 use crate::devices::virtio::block::virtio::{CacheType, VirtioBlock};
 #[cfg(test)]
-use crate::devices::virtio::device::IrqType;
+use crate::devices::virtio::device::VirtioDevice;
 use crate::devices::virtio::queue::{Queue, VIRTQ_DESC_F_NEXT, VIRTQ_DESC_F_WRITE};
 use crate::devices::virtio::test_utils::{VirtQueue, VirtqDesc};
+#[cfg(test)]
+use crate::devices::virtio::transport::VirtioInterruptType;
 use crate::rate_limiter::RateLimiter;
 use crate::vmm_config::{RateLimiterConfig, TokenBucketConfig};
 use crate::vstate::memory::{Bytes, GuestAddress};
@@ -77,12 +79,17 @@ pub fn rate_limiter(blk: &mut VirtioBlock) -> &RateLimiter {
 #[cfg(test)]
 pub fn simulate_queue_event(b: &mut VirtioBlock, maybe_expected_irq: Option<bool>) {
     // Trigger the queue event.
+
     b.queue_evts[0].write(1).unwrap();
     // Handle event.
     b.process_queue_event();
     // Validate the queue operation finished successfully.
     if let Some(expected_irq) = maybe_expected_irq {
-        assert_eq!(b.irq_trigger.has_pending_irq(IrqType::Vring), expected_irq);
+        assert_eq!(
+            b.interrupt_trigger()
+                .has_pending_interrupt(VirtioInterruptType::Queue(0)),
+            expected_irq
+        );
     }
 }
 
@@ -98,7 +105,11 @@ pub fn simulate_async_completion_event(b: &mut VirtioBlock, expected_irq: bool) 
     }
 
     // Validate if there are pending IRQs.
-    assert_eq!(b.irq_trigger.has_pending_irq(IrqType::Vring), expected_irq);
+    assert_eq!(
+        b.interrupt_trigger()
+            .has_pending_interrupt(VirtioInterruptType::Queue(0)),
+        expected_irq
+    );
 }
 
 #[cfg(test)]
