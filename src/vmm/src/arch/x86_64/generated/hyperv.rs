@@ -12,7 +12,8 @@
     clippy::undocumented_unsafe_blocks,
     missing_debug_implementations,
     clippy::tests_outside_test_module,
-    unsafe_op_in_unsafe_fn
+    unsafe_op_in_unsafe_fn,
+    clippy::redundant_static_lifetimes
 )]
 
 pub const HV_X64_MSR_SYNDBG_CONTROL: u32 = 0x400000f1;

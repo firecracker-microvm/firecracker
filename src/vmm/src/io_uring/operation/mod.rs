@@ -12,7 +12,7 @@ use std::fmt::{self, Debug};
 pub use cqe::Cqe;
 pub(crate) use sqe::Sqe;
 
-use crate::io_uring::generated::{self, IOSQE_FIXED_FILE_BIT, io_uring_sqe};
+use crate::io_uring::generated::{io_uring_op, io_uring_sqe, io_uring_sqe_flags_bit};
 
 /// The index of a registered fd.
 pub type FixedFd = u32;
@@ -24,11 +24,11 @@ pub type FixedFd = u32;
 /// Supported operation types.
 pub enum OpCode {
     /// Read operation.
-    Read = generated::IORING_OP_READ as u8,
+    Read = io_uring_op::IORING_OP_READ as u8,
     /// Write operation.
-    Write = generated::IORING_OP_WRITE as u8,
+    Write = io_uring_op::IORING_OP_WRITE as u8,
     /// Fsync operation.
-    Fsync = generated::IORING_OP_FSYNC as u8,
+    Fsync = io_uring_op::IORING_OP_FSYNC as u8,
 }
 
 // Useful for outputting errors.
@@ -120,7 +120,7 @@ impl<T: Debug> Operation<T> {
     // Needed for proptesting.
     #[cfg(test)]
     pub(crate) fn set_linked(&mut self) {
-        self.flags |= 1 << generated::IOSQE_IO_LINK_BIT;
+        self.flags |= 1 << io_uring_sqe_flags_bit::IOSQE_IO_LINK_BIT;
     }
 
     /// Transform the operation into an `Sqe`.
@@ -133,7 +133,7 @@ impl<T: Debug> Operation<T> {
         inner.opcode = self.opcode as u8;
         inner.fd = i32::try_from(self.fd).unwrap();
         // Simplifying assumption that we only used pre-registered FDs.
-        inner.flags = self.flags | (1 << IOSQE_FIXED_FILE_BIT);
+        inner.flags = self.flags | (1 << io_uring_sqe_flags_bit::IOSQE_FIXED_FILE_BIT);
 
         if let Some(addr) = self.addr {
             inner.__bindgen_anon_2.addr = addr as u64;

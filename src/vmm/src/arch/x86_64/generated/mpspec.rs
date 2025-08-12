@@ -12,7 +12,8 @@
     clippy::undocumented_unsafe_blocks,
     missing_debug_implementations,
     clippy::tests_outside_test_module,
-    unsafe_op_in_unsafe_fn
+    unsafe_op_in_unsafe_fn,
+    clippy::redundant_static_lifetimes
 )]
 
 pub const MPC_SIGNATURE: &[u8; 5] = b"PCMP\0";
@@ -205,11 +206,13 @@ const _: () = {
     ["Offset of field: mpc_intsrc::dstapic"][::std::mem::offset_of!(mpc_intsrc, dstapic) - 6usize];
     ["Offset of field: mpc_intsrc::dstirq"][::std::mem::offset_of!(mpc_intsrc, dstirq) - 7usize];
 };
-pub const mp_irq_source_types_mp_INT: mp_irq_source_types = 0;
-pub const mp_irq_source_types_mp_NMI: mp_irq_source_types = 1;
-pub const mp_irq_source_types_mp_SMI: mp_irq_source_types = 2;
-pub const mp_irq_source_types_mp_ExtINT: mp_irq_source_types = 3;
-pub type mp_irq_source_types = ::std::os::raw::c_uint;
+pub mod mp_irq_source_types {
+    pub type Type = ::std::os::raw::c_uint;
+    pub const mp_INT: Type = 0;
+    pub const mp_NMI: Type = 1;
+    pub const mp_SMI: Type = 2;
+    pub const mp_ExtINT: Type = 3;
+}
 #[repr(C)]
 #[derive(Debug, Default, Copy, Clone, PartialEq)]
 pub struct mpc_lintsrc {
@@ -261,7 +264,9 @@ const _: () = {
         [::std::mem::offset_of!(mpc_oemtable, checksum) - 7usize];
     ["Offset of field: mpc_oemtable::mpc"][::std::mem::offset_of!(mpc_oemtable, mpc) - 8usize];
 };
-pub const mp_bustype_MP_BUS_ISA: mp_bustype = 1;
-pub const mp_bustype_MP_BUS_EISA: mp_bustype = 2;
-pub const mp_bustype_MP_BUS_PCI: mp_bustype = 3;
-pub type mp_bustype = ::std::os::raw::c_uint;
+pub mod mp_bustype {
+    pub type Type = ::std::os::raw::c_uint;
+    pub const MP_BUS_ISA: Type = 1;
+    pub const MP_BUS_EISA: Type = 2;
+    pub const MP_BUS_PCI: Type = 3;
+}

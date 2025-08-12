@@ -67,8 +67,6 @@ const VIRTIO_BALLOON_S_HTLB_PGFAIL: u16 = 9;
 /// Balloon device related errors.
 #[derive(Debug, thiserror::Error, displaydoc::Display)]
 pub enum BalloonError {
-    /// No balloon device found.
-    DeviceNotFound,
     /// Device not activated yet.
     DeviceNotActive,
     /// EventFd error: {0}

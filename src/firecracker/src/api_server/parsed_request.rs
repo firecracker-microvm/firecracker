@@ -27,6 +27,7 @@ use super::request::net::{parse_patch_net, parse_put_net};
 use super::request::snapshot::{parse_patch_vm_state, parse_put_snapshot};
 use super::request::version::parse_get_version;
 use super::request::vsock::parse_put_vsock;
+use crate::api_server::request::hotplug::parse_hotplug;
 
 #[derive(Debug)]
 pub(crate) enum RequestAction {
@@ -109,6 +110,7 @@ impl TryFrom<&Request> for ParsedRequest {
             }
             (Method::Patch, "vm", Some(body)) => parse_patch_vm_state(body),
             (Method::Patch, _, None) => method_to_error(Method::Patch),
+            (method, "hotplug", body) => parse_hotplug(method, path_tokens.next(), body),
             (method, unknown_uri, _) => Err(RequestError::InvalidPathMethod(
                 unknown_uri.to_string(),
                 method,
@@ -171,6 +173,7 @@ impl ParsedRequest {
                     Self::success_response_with_data(balloon_config)
                 }
                 VmmData::BalloonStats(stats) => Self::success_response_with_data(stats),
+                VmmData::VirtioMemStatus(data) => Self::success_response_with_data(data),
                 VmmData::InstanceInformation(info) => Self::success_response_with_data(info),
                 VmmData::VmmVersion(version) => Self::success_response_with_data(
                     &serde_json::json!({ "firecracker_version": version.as_str() }),
@@ -554,6 +557,9 @@ pub mod tests {
                 }
                 VmmData::BalloonStats(stats) => {
                     http_response(&serde_json::to_string(stats).unwrap(), 200)
+                }
+                VmmData::VirtioMemStatus(data) => {
+                    http_response(&serde_json::to_string(data).unwrap(), 200)
                 }
                 VmmData::Empty => http_response("", 204),
                 VmmData::FullVmConfig(cfg) => {
