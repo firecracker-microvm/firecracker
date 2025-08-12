@@ -6,7 +6,9 @@ mod memory;
 use micro_http::{Body, Method};
 
 use crate::api_server::parsed_request::{ParsedRequest, RequestError};
-use crate::api_server::request::hotplug::memory::parse_put_memory_hotplug;
+use crate::api_server::request::hotplug::memory::{
+    parse_get_memory_hotplug, parse_put_memory_hotplug,
+};
 
 pub(crate) fn parse_hotplug(
     method: Method,
@@ -16,6 +18,7 @@ pub(crate) fn parse_hotplug(
     let token =
         token.ok_or_else(|| RequestError::InvalidPathMethod("hotplug".to_string(), method))?;
     match (method, token, body) {
+        (Method::Get, "memory", None) => parse_get_memory_hotplug(),
         (Method::Put, "memory", Some(body)) => parse_put_memory_hotplug(body),
         (method, unknown_uri, _) => Err(RequestError::InvalidPathMethod(
             unknown_uri.to_string(),

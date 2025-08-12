@@ -6,7 +6,7 @@ mod event_handler;
 
 use vm_memory::GuestAddress;
 
-pub use self::device::{VirtioMem, VirtioMemError};
+pub use self::device::{VirtioMem, VirtioMemError, VirtioMemStatus};
 use crate::arch::FIRST_ADDR_PAST_64BITS_MMIO;
 
 pub(crate) const MEM_NUM_QUEUES: usize = 1;

@@ -998,12 +998,20 @@ def test_api_memory_hotplug(uvm_plain):
     # Omitting optional values should be ok
     test_microvm.api.memory_hotplug.put(total_size_mib=1024)
 
+    # Get API should be rejected before boot
+    with pytest.raises(AssertionError):
+        test_microvm.api.memory_hotplug.get()
+
     # Start the microvm
     test_microvm.start()
 
-    # API should be rejected after boot
+    # Put API should be rejected after boot
     with pytest.raises(RuntimeError):
         test_microvm.api.memory_hotplug.put(total_size_mib=1024)
+
+    # Get API should work after boot
+    status = test_microvm.api.memory_hotplug.get().json()
+    assert status["total_size_mib"] == 1024
 
 
 def test_api_balloon(uvm_nano):

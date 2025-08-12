@@ -137,7 +137,7 @@ use crate::cpu_config::templates::CpuConfiguration;
 use crate::devices::virtio::balloon::{BALLOON_DEV_ID, Balloon, BalloonConfig, BalloonStats};
 use crate::devices::virtio::block::device::Block;
 use crate::devices::virtio::generated::virtio_ids;
-use crate::devices::virtio::mem::VirtioMemError;
+use crate::devices::virtio::mem::{VIRTIO_MEM_DEV_ID, VirtioMem, VirtioMemError, VirtioMemStatus};
 use crate::devices::virtio::net::Net;
 use crate::logger::{METRICS, MetricsError, error, info, warn};
 use crate::persist::{MicrovmState, MicrovmStateError, VmInfo};
@@ -617,6 +617,17 @@ impl Vmm {
                 virtio_ids::VIRTIO_ID_BALLOON,
                 BALLOON_DEV_ID,
                 |dev: &mut Balloon| dev.update_stats_polling_interval(stats_polling_interval_s),
+            )
+            .map_err(VmmError::FindDeviceError)
+    }
+
+    /// Returns the current state of the memory hotplug device.
+    pub fn memory_hotplug_status(&self) -> Result<VirtioMemStatus, VmmError> {
+        self.device_manager
+            .with_virtio_device_with_id(
+                virtio_ids::VIRTIO_ID_MEM,
+                VIRTIO_MEM_DEV_ID,
+                |dev: &mut VirtioMem| dev.status(),
             )
             .map_err(VmmError::FindDeviceError)
     }

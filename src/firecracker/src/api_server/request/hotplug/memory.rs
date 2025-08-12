@@ -13,6 +13,10 @@ pub(crate) fn parse_put_memory_hotplug(body: &Body) -> Result<ParsedRequest, Req
     )))
 }
 
+pub(crate) fn parse_get_memory_hotplug() -> Result<ParsedRequest, RequestError> {
+    Ok(ParsedRequest::new_sync(VmmAction::GetMemoryHotplugStatus))
+}
+
 #[cfg(test)]
 mod tests {
     use vmm::devices::virtio::mem::{VIRTIO_MEM_DEFAULT_BLOCK_SIZE, VIRTIO_MEM_DEFAULT_SLOT_SIZE};
@@ -59,6 +63,14 @@ mod tests {
         assert_eq!(
             vmm_action_from_request(parse_put_memory_hotplug(&Body::new(body)).unwrap()),
             VmmAction::SetMemoryHotplugDevice(expected_config)
+        );
+    }
+
+    #[test]
+    fn test_parse_parse_get_memory_hotplug_request() {
+        assert_eq!(
+            vmm_action_from_request(parse_get_memory_hotplug().unwrap()),
+            VmmAction::GetMemoryHotplugStatus
         );
     }
 }
