@@ -59,7 +59,7 @@ vm-memory = { version = "0.16.2", features = [
   "backend-bitmap",
 ] }
 vm-superio = "0.8.0"
-vmm-sys-util = { version = "0.14.0", features = ["with-serde"] }
+vmm-sys-util = { version = "0.15.0", features = ["with-serde"] }
 zerocopy = { version = "0.8.26" }
 
 [target.'cfg(target_arch = "aarch64")'.dependencies]
