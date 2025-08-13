@@ -1,6 +1,6 @@
 [package]
 name = "cpu-template-helper"
-version = "1.13.0-dev"
+version = "1.14.0-dev"
 authors = ["Amazon Firecracker team <firecracker-devel@amazon.com>"]
 edition = "2024"
 license = "Apache-2.0"
@@ -13,13 +13,13 @@ bench = false
 tracing = ["log-instrument", "vmm/tracing"]
 
 [dependencies]
-clap = { version = "4.5.42", features = ["derive", "string"] }
+clap = { version = "4.5.45", features = ["derive", "string"] }
 displaydoc = "0.2.5"
-libc = "0.2.174"
+libc = "0.2.175"
 log-instrument = { path = "../log-instrument", optional = true }
 serde = { version = "1.0.219", features = ["derive"] }
 serde_json = "1.0.142"
-thiserror = "2.0.12"
+thiserror = "2.0.14"
 
 vmm = { path = "../vmm" }
 vmm-sys-util = "0.14.0"
