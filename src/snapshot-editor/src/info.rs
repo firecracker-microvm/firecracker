@@ -4,8 +4,8 @@
 use std::path::PathBuf;
 
 use clap::Subcommand;
-use semver::Version;
 use vmm::persist::MicrovmState;
+use vmm::snapshot::Snapshot;
 
 use crate::utils::*;
 
@@ -50,27 +50,27 @@ pub fn info_vmstate_command(command: InfoVmStateSubCommand) -> Result<(), InfoVm
 
 fn info(
     vmstate_path: &PathBuf,
-    f: impl Fn(&MicrovmState, Version) -> Result<(), InfoVmStateError>,
+    f: impl Fn(&Snapshot<MicrovmState>) -> Result<(), InfoVmStateError>,
 ) -> Result<(), InfoVmStateError> {
-    let (vmstate, version) = open_vmstate(vmstate_path)?;
-    f(&vmstate, version)?;
+    let snapshot = open_vmstate(vmstate_path)?;
+    f(&snapshot)?;
     Ok(())
 }
 
-fn info_version(_: &MicrovmState, version: Version) -> Result<(), InfoVmStateError> {
-    println!("v{version}");
+fn info_version(snapshot: &Snapshot<MicrovmState>) -> Result<(), InfoVmStateError> {
+    println!("v{}", snapshot.version());
     Ok(())
 }
 
-fn info_vcpu_states(state: &MicrovmState, _: Version) -> Result<(), InfoVmStateError> {
-    for (i, state) in state.vcpu_states.iter().enumerate() {
+fn info_vcpu_states(snapshot: &Snapshot<MicrovmState>) -> Result<(), InfoVmStateError> {
+    for (i, state) in snapshot.data.vcpu_states.iter().enumerate() {
         println!("vcpu {i}:");
         println!("{state:#?}");
     }
     Ok(())
 }
 
-fn info_vmstate(vmstate: &MicrovmState, _version: Version) -> Result<(), InfoVmStateError> {
-    println!("{vmstate:#?}");
+fn info_vmstate(snapshot: &Snapshot<MicrovmState>) -> Result<(), InfoVmStateError> {
+    println!("{:#?}", snapshot.data);
     Ok(())
 }

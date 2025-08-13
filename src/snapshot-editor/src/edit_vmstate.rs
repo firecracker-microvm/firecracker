@@ -51,9 +51,9 @@ fn edit(
     output_path: &PathBuf,
     f: impl Fn(MicrovmState) -> Result<MicrovmState, EditVmStateError>,
 ) -> Result<(), EditVmStateError> {
-    let (microvm_state, version) = open_vmstate(vmstate_path)?;
-    let microvm_state = f(microvm_state)?;
-    save_vmstate(microvm_state, output_path, version)?;
+    let snapshot = open_vmstate(vmstate_path)?;
+    let microvm_state = f(snapshot.data)?;
+    save_vmstate(microvm_state, output_path)?;
     Ok(())
 }
 
@@ -78,7 +78,7 @@ fn remove_regs(
         }
         vcpu_state.regs = new_regs;
         for (reg, removed) in remove_regs.iter().zip(removed.iter()) {
-            print!("Regsiter {reg:#x}: ");
+            print!("Register {reg:#x}: ");
             match removed {
                 true => println!("removed"),
                 false => println!("not present"),

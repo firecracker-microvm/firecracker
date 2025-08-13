@@ -28,7 +28,7 @@ use vmm::persist::SNAPSHOT_VERSION;
 use vmm::resources::VmResources;
 use vmm::seccomp::BpfThreadMap;
 use vmm::signal_handler::register_signal_handlers;
-use vmm::snapshot::{Snapshot, SnapshotError};
+use vmm::snapshot::{SnapshotError, get_format_version};
 use vmm::vmm_config::instance_info::{InstanceInfo, VmState};
 use vmm::vmm_config::metrics::{MetricsConfig, MetricsConfigError, init_metrics};
 use vmm::{EventManager, FcExitCode, HTTP_MAX_PAYLOAD_SIZE};
@@ -546,8 +546,8 @@ fn print_snapshot_data_format(snapshot_path: &str) -> Result<(), SnapshotVersion
     let mut snapshot_reader =
         File::open(snapshot_path).map_err(SnapshotVersionError::OpenSnapshot)?;
 
-    let data_format_version = Snapshot::get_format_version(&mut snapshot_reader)
-        .map_err(SnapshotVersionError::SnapshotVersion)?;
+    let data_format_version =
+        get_format_version(&mut snapshot_reader).map_err(SnapshotVersionError::SnapshotVersion)?;
 
     println!("v{}", data_format_version);
     Ok(())
