@@ -10,6 +10,18 @@ and this project adheres to
 
 ### Added
 
+### Changed
+
+### Deprecated
+
+### Removed
+
+### Fixed
+
+## [1.13.0]
+
+### Added
+
 - [#5139](https://github.com/firecracker-microvm/firecracker/pull/5139): Added
   support for [PVTime](https://docs.kernel.org/virt/kvm/arm/pvtime.html). This
   is used to support steal time on ARM machines.
