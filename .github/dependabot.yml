@@ -7,7 +7,6 @@ updates:
       day: "monday"
     allow:
       - dependency-type: "all"
-    open-pull-requests-limit: 100
     groups:
       rust-vmm:
         patterns:
