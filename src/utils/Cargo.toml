@@ -13,9 +13,9 @@ tracing = ["log-instrument"]
 
 [dependencies]
 displaydoc = "0.2.5"
-libc = "0.2.174"
+libc = "0.2.175"
 log-instrument = { path = "../log-instrument", optional = true }
-thiserror = "2.0.12"
+thiserror = "2.0.14"
 
 [lints]
 workspace = true
