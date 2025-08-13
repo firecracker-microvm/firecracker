@@ -11,7 +11,6 @@ import platform
 import re
 import shutil
 import sys
-import time
 from difflib import unified_diff
 from pathlib import Path
 
@@ -421,11 +420,6 @@ def test_cpu_wrmsr_snapshot(
     msrs_before_fname = snapshot_artifacts_dir / shared_names["msrs_before_fname"]
 
     dump_msr_state_to_file(msr_reader_bin, msrs_before_fname, vm.ssh)
-    # On T2A, the restore test fails with error "cannot allocate memory" so,
-    # adding delay below as a workaround to unblock the tests for now.
-    # TODO: Debug the issue and remove this delay. Create below issue to track this:
-    # https://github.com/firecracker-microvm/firecracker/issues/3453
-    time.sleep(0.25)
 
     # Take a snapshot
     snapshot = vm.snapshot_diff()
