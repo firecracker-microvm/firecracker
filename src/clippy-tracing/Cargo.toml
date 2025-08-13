@@ -10,15 +10,15 @@ name = "clippy-tracing"
 bench = false
 
 [dependencies]
-clap = { version = "4.5.42", features = ["derive"] }
+clap = { version = "4.5.45", features = ["derive"] }
 itertools = "0.14.0"
-proc-macro2 = { version = "1.0.95", features = ["span-locations"] }
+proc-macro2 = { version = "1.0.97", features = ["span-locations"] }
 quote = "1.0.40"
 syn = { version = "2.0.104", features = ["full", "extra-traits", "visit", "visit-mut", "printing"] } 
 walkdir = "2.5.0"
 
 [dev-dependencies]
-uuid = { version = "1.17.0", features = ["v4"] }
+uuid = { version = "1.18.0", features = ["v4"] }
 
 [lints]
 workspace = true

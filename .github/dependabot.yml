@@ -7,8 +7,28 @@ updates:
       day: "monday"
     allow:
       - dependency-type: "all"
-    open-pull-requests-limit: 100
     groups:
+      rust-vmm:
+        patterns:
+          - "vmm-sys-util"
+          - "kvm-bindings"
+          - "kvm-ioctls"
+          - "vm-memory"
+          - "vhost"
+          - "linux-loader"
+          - "vm-allocator"
+          - "event-manager"
+          - "vm-superio"
       firecracker:
         patterns:
           - "*"
+        exclude-patterns:
+          - "vmm-sys-util"
+          - "kvm-bindings"
+          - "kvm-ioctls"
+          - "vm-memory"
+          - "vhost"
+          - "linux-loader"
+          - "vm-allocator"
+          - "event-manager"
+          - "vm-superio"
