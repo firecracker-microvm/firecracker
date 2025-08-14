@@ -279,6 +279,14 @@ Note: default value for `<api-sock>` is `/run/firecracker.socket`.
 
 ### Known limitations
 
+- The time it takes to create a jail depends on the number of mount points in
+  the system and the number of jailers starting at the same time. Due to the
+  number of mount points playing a bigger role in jailer slowdown, it is
+  recommended to keep the number of mount points in a system to a minimum. The
+  approximate slowdown of the jail creation time is:
+  - 2x when 10 jails are created in parallel with 0 mount points in the system
+  - 10x when 10 jails are created in parallel with 500 mount points in the
+    system.
 - When passing the --daemonize option to Firecracker without the --new-ns-pid
   option, the Firecracker process will have a different PID than the Jailer
   process and killing the Jailer will not kill the Firecracker process. As a
