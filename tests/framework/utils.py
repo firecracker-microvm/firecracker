@@ -14,7 +14,6 @@ import time
 import typing
 from collections import defaultdict, namedtuple
 from contextlib import contextmanager
-from pathlib import Path
 from typing import Dict
 
 import psutil
@@ -56,34 +55,29 @@ def set_cpu_affinity(pid: int, cpulist: list) -> list:
     return psutil.Process(pid).cpu_affinity(real_cpulist)
 
 
-def get_thread_name(pid: int, tid: int) -> str:
-    """Return thread name from pid and tid pair."""
-    try:
-        return (
-            Path("/proc", str(pid), "task", str(tid), "comm").read_text("utf-8").strip()
-        )
-    except FileNotFoundError as exc:
-        raise psutil.NoSuchProcess(tid) from exc
-
-
 CpuTimes = namedtuple("CpuTimes", ["user", "system"])
 
 
-def get_cpu_times(pid: int) -> Dict[str, CpuTimes]:
+def get_cpu_times(process: psutil.Process) -> Dict[str, CpuTimes]:
     """Return a dict mapping thread name to CPU usage (in seconds) since start."""
+    # We're consciously ignoring whatever erorr is returned by psutil and returning
+    # empty {} as result in case of any error retrieving the process threads
+    # information
+    # pylint: disable=locally-disabled, broad-exception-caught
+
     threads = []
     try:
-        threads = psutil.Process(pid).threads()
-    except psutil.NoSuchProcess as exc:
-        logging.warning("Process %d does not exist", pid, exc_info=exc)
+        threads = process.threads()
+    except Exception as exc:
+        logging.warning("Process %d does not exist", process.pid, exc_info=exc)
         return {}
 
     cpu_times = {}
     for thread in threads:
         try:
-            thread_name = get_thread_name(pid, thread.id)
+            thread_name = psutil.Process(thread.id).name()
             cpu_times[thread_name] = CpuTimes(thread.user_time, thread.system_time)
-        except psutil.NoSuchProcess as exc:
+        except Exception as exc:
             logging.warning("Thread %d no longer exists", thread.id, exc_info=exc)
             continue
 
@@ -91,15 +85,15 @@ def get_cpu_times(pid: int) -> Dict[str, CpuTimes]:
 
 
 def get_cpu_utilization(
-    pid: int,
+    process: psutil.Process,
     interval: int = 1,
     split_user_system: bool = False,
 ) -> Dict[str, float | CpuTimes]:
     """Return current process per thread CPU utilization over the interval (seconds)."""
     cpu_utilization = {}
-    cpu_times_before = get_cpu_times(pid)
+    cpu_times_before = get_cpu_times(process)
     time.sleep(interval)
-    cpu_times_after = get_cpu_times(pid)
+    cpu_times_after = get_cpu_times(process)
     threads = set(cpu_times_before.keys()) & set(cpu_times_after.keys())
     for thread_name in threads:
         before = cpu_times_before[thread_name]
@@ -125,8 +119,9 @@ def track_cpu_utilization(
     time.sleep(omit)
 
     cpu_utilization = defaultdict(list)
+    process = psutil.Process(pid)
     for _ in range(iterations):
-        current_cpu_utilization = get_cpu_utilization(pid)
+        current_cpu_utilization = get_cpu_utilization(process)
         assert len(current_cpu_utilization) > 0
 
         for thread_name, value in current_cpu_utilization.items():

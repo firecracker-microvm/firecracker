@@ -4,6 +4,8 @@
 import time
 from threading import Thread
 
+import psutil
+
 from framework import utils
 
 
@@ -61,8 +63,9 @@ class CpuLoadMonitor(Thread):
 
         It is up to the caller to check the queue.
         """
+        process = psutil.Process(self._process_pid)
         while not self._should_stop:
-            utilization = utils.get_cpu_utilization(self._process_pid)
+            utilization = utils.get_cpu_utilization(process)
 
             try:
                 fc_thread_util = utilization["firecracker"]
