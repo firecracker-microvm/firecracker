@@ -58,7 +58,12 @@ def set_cpu_affinity(pid: int, cpulist: list) -> list:
 
 def get_thread_name(pid: int, tid: int) -> str:
     """Return thread name from pid and tid pair."""
-    return Path("/proc", str(pid), "task", str(tid), "comm").read_text("utf-8").strip()
+    try:
+        return (
+            Path("/proc", str(pid), "task", str(tid), "comm").read_text("utf-8").strip()
+        )
+    except FileNotFoundError as exc:
+        raise psutil.NoSuchProcess(tid) from exc
 
 
 CpuTimes = namedtuple("CpuTimes", ["user", "system"])
@@ -66,10 +71,22 @@ CpuTimes = namedtuple("CpuTimes", ["user", "system"])
 
 def get_cpu_times(pid: int) -> Dict[str, CpuTimes]:
     """Return a dict mapping thread name to CPU usage (in seconds) since start."""
+    threads = []
+    try:
+        threads = psutil.Process(pid).threads()
+    except psutil.NoSuchProcess as exc:
+        logging.warning("Process %d does not exist", pid, exc_info=exc)
+        return {}
+
     cpu_times = {}
-    for thread in psutil.Process(pid).threads():
-        thread_name = get_thread_name(pid, thread.id)
-        cpu_times[thread_name] = CpuTimes(thread.user_time, thread.system_time)
+    for thread in threads:
+        try:
+            thread_name = get_thread_name(pid, thread.id)
+            cpu_times[thread_name] = CpuTimes(thread.user_time, thread.system_time)
+        except psutil.NoSuchProcess as exc:
+            logging.warning("Thread %d no longer exists", thread.id, exc_info=exc)
+            continue
+
     return cpu_times
 
 
