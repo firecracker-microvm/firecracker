@@ -133,7 +133,7 @@ fi
 
 say "Building version=$VERSION, profile=$PROFILE, target=$CARGO_TARGET, Rust toolchain=${RUST_TOOLCHAIN}..."
 # shellcheck disable=SC2086
-cargo build --target "$CARGO_TARGET" $CARGO_OPTS --workspace --bins --examples
+RUSTFLAGS="-C target-feature=+retpoline-indirect-branches,+retpoline-indirect-calls" cargo build --target "$CARGO_TARGET" $CARGO_OPTS --workspace --bins --examples
 
 # Only strip in release mode
 if [ "$PROFILE" = "release" ]; then
