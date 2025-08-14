@@ -41,7 +41,9 @@ const SIZE_OF_STAT: usize = std::mem::size_of::<BalloonStat>();
 fn mib_to_pages(amount_mib: u32) -> Result<u32, BalloonError> {
     amount_mib
         .checked_mul(MIB_TO_4K_PAGES)
-        .ok_or(BalloonError::TooManyPagesRequested)
+        .ok_or(BalloonError::TooMuchMemoryRequested(
+            u32::MAX / MIB_TO_4K_PAGES,
+        ))
 }
 
 fn pages_to_mib(amount_pages: u32) -> u32 {
@@ -455,7 +457,7 @@ impl Balloon {
             // The balloon cannot have a target size greater than the size of
             // the guest memory.
             if u64::from(amount_mib) > mem_size_mib(mem) {
-                return Err(BalloonError::TooManyPagesRequested);
+                return Err(BalloonError::TooMuchMemoryRequested(amount_mib));
             }
             self.config_space.num_pages = mib_to_pages(amount_mib)?;
             self.interrupt_trigger()
