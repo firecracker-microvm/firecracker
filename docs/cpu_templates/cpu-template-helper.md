@@ -38,14 +38,17 @@ process as Firecacker and capturing them in the state just before booting a
 guest. More details about the preboot process can be found
 [here](boot-protocol.md) and [here](cpuid-normalization.md).
 
-> **Note** Some MSRs and ARM registers are not included in the output, since
-> they are not reasonable to modify with CPU templates. The full list of them
-> can be found in [Appendix](#appendix).
+> [!NOTE]
+>
+> Some MSRs and ARM registers are not included in the output, since they are not
+> reasonable to modify with CPU templates. The full list of them can be found in
+> [Appendix](#appendix).
 
-> **Note** Since the output depends on underlying hardware and software stack
-> (BIOS, CPU, kernel, Firecracker), it is required to dump guest CPU
-> configuration on each combination when creating a custom CPU template
-> targetting them all.
+> [!NOTE]
+>
+> Since the output depends on underlying hardware and software stack (BIOS, CPU,
+> kernel, Firecracker), it is required to dump guest CPU configuration on each
+> combination when creating a custom CPU template targeting them all.
 
 #### Strip command
 
@@ -85,9 +88,11 @@ When a template is specified both through `--template` and in Firecracker
 configuration file provided via `--config`, the template specified with
 `--template` takes precedence.
 
-> **Note** This command does not ensure that the contents of the template are
-> sensible. Thus, users need to make sure that the template does not have any
-> inconsistent entries and does not crash guests.
+> [!NOTE]
+>
+> This command does not ensure that the contents of the template are sensible.
+> Thus, users need to make sure that the template does not have any inconsistent
+> entries and does not crash guests.
 
 ### Fingerprint-related commands
 
@@ -177,9 +182,11 @@ CPU features to a heterogeneous fleet consisting of multiple CPU models.
    revisions to the CPU template, and replace the fingerprint file with the new
    one.
 
-> **Note** It is recommended to review the update process of the underlying
-> stack on your infrastructure. This can help identify points that may require
-> the above validation check.
+> [!NOTE]
+>
+> It is recommended to review the update process of the underlying stack on your
+> infrastructure. This can help identify points that may require the above
+> validation check.
 
 ## Appendix
 
