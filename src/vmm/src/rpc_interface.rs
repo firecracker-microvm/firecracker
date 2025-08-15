@@ -33,6 +33,7 @@ use crate::vmm_config::mmds::{MmdsConfig, MmdsConfigError};
 use crate::vmm_config::net::{
     NetworkInterfaceConfig, NetworkInterfaceError, NetworkInterfaceUpdateConfig,
 };
+use crate::vmm_config::serial::SerialConfig;
 use crate::vmm_config::snapshot::{CreateSnapshotParams, LoadSnapshotParams, SnapshotType};
 use crate::vmm_config::vsock::{VsockConfigError, VsockDeviceConfig};
 use crate::vmm_config::{self, RateLimiterUpdate};
@@ -50,6 +51,8 @@ pub enum VmmAction {
     /// Configure the metrics using as input the `MetricsConfig`. This action can only be called
     /// before the microVM has booted.
     ConfigureMetrics(MetricsConfig),
+    /// Configure the serial device. This action can only be called before the microVM has booted.
+    ConfigureSerial(SerialConfig),
     /// Create a snapshot using as input the `CreateSnapshotParams`. This action can only be called
     /// after the microVM has booted and only when the microVM is in `Paused` state.
     CreateSnapshot(CreateSnapshotParams),
@@ -408,6 +411,10 @@ impl<'a> PrebootApiController<'a> {
             ConfigureMetrics(metrics_cfg) => vmm_config::metrics::init_metrics(metrics_cfg)
                 .map(|()| VmmData::Empty)
                 .map_err(VmmActionError::Metrics),
+            ConfigureSerial(serial_cfg) => {
+                self.vm_resources.serial_out_path = serial_cfg.serial_out_path;
+                Ok(VmmData::Empty)
+            }
             GetBalloonConfig => self.balloon_config(),
             GetFullVmConfig => {
                 warn!(
@@ -676,6 +683,7 @@ impl RuntimeApiController {
             ConfigureBootSource(_)
             | ConfigureLogger(_)
             | ConfigureMetrics(_)
+            | ConfigureSerial(_)
             | InsertBlockDevice(_)
             | InsertNetworkDevice(_)
             | LoadSnapshot(_)

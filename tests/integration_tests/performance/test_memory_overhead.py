@@ -47,7 +47,7 @@ def test_memory_overhead(
         microvm = microvm_factory.build(
             guest_kernel_acpi, rootfs, pci=pci_enabled, monitor_memory=False
         )
-        microvm.spawn(emit_metrics=True)
+        microvm.spawn(emit_metrics=True, serial_out_path=None)
         microvm.basic_config(vcpu_count=vcpu_count, mem_size_mib=mem_size_mib)
         microvm.add_net_iface()
         microvm.start()

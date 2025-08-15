@@ -259,6 +259,7 @@ class Microvm:
 
         self.api = None
         self.log_file = None
+        self.serial_out_path = None
         self.metrics_file = None
         self._spawned = False
         self._killed = False
@@ -464,16 +465,6 @@ class Microvm:
         return self.log_file.read_text()
 
     @property
-    def console_data(self):
-        """Return the output of microVM's console"""
-        if self.screen_log is None:
-            return None
-        file = Path(self.screen_log)
-        if not file.exists():
-            return None
-        return file.read_text(encoding="utf-8")
-
-    @property
     def state(self):
         """Get the InstanceInfo property and return the state field."""
         return self.api.describe.get().json()["state"]
@@ -634,6 +625,7 @@ class Microvm:
     def spawn(
         self,
         log_file="fc.log",
+        serial_out_path="serial.log",
         log_level="Debug",
         log_show_level=False,
         log_show_origin=False,
@@ -663,6 +655,11 @@ class Microvm:
                 self.jailer.extra_args["show-level"] = None
             if log_show_origin:
                 self.jailer.extra_args["show-log-origin"] = None
+
+        if serial_out_path is not None:
+            self.serial_out_path = Path(self.path) / serial_out_path
+            self.serial_out_path.touch()
+            self.create_jailed_resource(self.serial_out_path)
 
         if metrics_path is not None:
             self.metrics_file = Path(self.path) / metrics_path
@@ -728,13 +725,18 @@ class Microvm:
         # Firecracker process itself at least came up by checking
         # for the startup log message. Otherwise, you're on your own kid.
         if "config-file" in self.jailer.extra_args and self.iface:
+            assert not serial_out_path
             self.wait_for_ssh_up()
         elif "no-api" not in self.jailer.extra_args:
             if self.log_file and log_level in ("Trace", "Debug", "Info"):
                 self.check_log_message("API server started.")
             else:
                 self._wait_for_api_socket()
+
+            if serial_out_path is not None:
+                self.api.serial.put(serial_out_path=serial_out_path)
         elif self.log_file and log_level in ("Trace", "Debug", "Info"):
+            assert not serial_out_path
             self.check_log_message("Running Firecracker")
 
     @retry(wait=wait_fixed(0.2), stop=stop_after_attempt(5), reraise=True)
@@ -805,12 +807,9 @@ class Microvm:
         The function checks the response status code and asserts that
         the response is within the interval [200, 300).
 
-        If boot_args is None, the default boot_args in Firecracker is
-            reboot=k panic=1 nomodule 8250.nr_uarts=0 i8042.noaux i8042.nomux
-            i8042.nopnp i8042.dumbkbd swiotlb=noforce
-
-        if PCI is disabled, Firecracker also passes to the guest pci=off
-
+        If boot_args is None, the default boot_args used in tests is
+            reboot=k panic=1 nomodule swiotlb=noforce console=ttyS0 [pci=off]
+        which differs from Firecracker's default only in the enabling of the serial console.
         Reference: file:../../src/vmm/src/vmm_config/boot_source.rs::DEFAULT_KERNEL_CMDLINE
         """
         self.api.machine_config.put(
@@ -834,6 +833,10 @@ class Microvm:
 
         if boot_args is not None:
             self.boot_args = boot_args
+        else:
+            self.boot_args = "reboot=k panic=1 nomodule swiotlb=noforce console=ttyS0"
+            if not self.pci_enabled:
+                self.boot_args += " pci=off"
         boot_source_args = {
             "kernel_image_path": self.create_jailed_resource(self.kernel_file),
             "boot_args": self.boot_args,
@@ -1228,7 +1231,10 @@ class MicroVMFactory:
     def build_from_snapshot(self, snapshot: Snapshot):
         """Build a microvm from a snapshot"""
         vm = self.build()
-        vm.spawn()
+        if getattr(self, "hack_no_serial", False):
+            vm.spawn(serial_out_path=None)
+        else:
+            vm.spawn()
         vm.restore_from_snapshot(snapshot, resume=True)
         return vm
 
@@ -1323,9 +1329,9 @@ class Serial:
             time.sleep(0.2)
             attempt += 1
 
-        screen_log_fd = os.open(self._vm.screen_log, os.O_RDONLY)
+        serial_log_fd = os.open(self._vm.screen_log, os.O_RDONLY)
         self._poller = select.poll()
-        self._poller.register(screen_log_fd, select.POLLIN | select.POLLHUP)
+        self._poller.register(serial_log_fd, select.POLLIN | select.POLLHUP)
 
     def tx(self, input_string, end="\n"):
         # pylint: disable=invalid-name

@@ -378,12 +378,22 @@ def microvm_factory(request, record_property, results_dir, netns_factory):
                 uvm.flush_metrics()
             except:  # pylint: disable=bare-except
                 pass
+
+            try:
+                uvm.snapshot_full(
+                    mem_path="post_failure.mem", vmstate_path="post_failure.vmstate"
+                )
+            except:  # pylint: disable=bare-except
+                pass
+
             uvm_data = results_dir / uvm.id
             uvm_data.mkdir()
             uvm_data.joinpath("host-dmesg.log").write_text(
                 utils.run_cmd(["dmesg", "-dPx"]).stdout
             )
             shutil.copy(f"/firecracker/build/img/{platform.machine()}/id_rsa", uvm_data)
+            if Path(uvm.screen_log).exists():
+                shutil.copy(uvm.screen_log, uvm_data)
 
             uvm_root = Path(uvm.chroot())
             for item in os.listdir(uvm_root):
@@ -392,9 +402,6 @@ def microvm_factory(request, record_property, results_dir, netns_factory):
                     continue
                 dst = uvm_data / item
                 shutil.copy(src, dst)
-                console_data = uvm.console_data
-                if console_data:
-                    uvm_data.joinpath("guest-console.log").write_text(console_data)
 
     uvm_factory.kill()
 
@@ -598,7 +605,10 @@ def uvm_booted(
 ):
     """Return a booted uvm"""
     uvm = microvm_factory.build(guest_kernel, rootfs, pci=pci_enabled)
-    uvm.spawn()
+    if getattr(microvm_factory, "hack_no_serial", False):
+        uvm.spawn(serial_out_path=None)
+    else:
+        uvm.spawn()
     uvm.basic_config(vcpu_count=vcpu_count, mem_size_mib=mem_size_mib)
     uvm.set_cpu_template(cpu_template)
     uvm.add_net_iface()

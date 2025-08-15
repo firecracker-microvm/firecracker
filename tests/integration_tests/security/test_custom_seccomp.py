@@ -123,7 +123,7 @@ def test_invalid_bpf(uvm_plain):
     test_microvm.create_jailed_resource(bpf_path)
     test_microvm.jailer.extra_args.update({"seccomp-filter": bpf_path.name})
 
-    test_microvm.spawn()
+    test_microvm.spawn(serial_out_path=None)
     # give time for the process to get killed
     time.sleep(1)
     assert "Seccomp error: Filter deserialization failed" in test_microvm.log_data

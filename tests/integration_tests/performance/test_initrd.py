@@ -29,7 +29,7 @@ def test_microvm_initrd_with_serial(uvm_with_initrd, huge_pages):
     """
     vm = uvm_with_initrd
     vm.help.enable_console()
-    vm.spawn()
+    vm.spawn(serial_out_path=None)
     vm.memory_monitor = None
 
     vm.basic_config(

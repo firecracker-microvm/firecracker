@@ -28,6 +28,7 @@ use crate::vmm_config::machine_config::{
 use crate::vmm_config::metrics::{MetricsConfig, MetricsConfigError, init_metrics};
 use crate::vmm_config::mmds::{MmdsConfig, MmdsConfigError};
 use crate::vmm_config::net::*;
+use crate::vmm_config::serial::SerialConfig;
 use crate::vmm_config::vsock::*;
 use crate::vstate::memory;
 use crate::vstate::memory::{GuestRegionMmap, MemoryError};
@@ -86,6 +87,8 @@ pub struct VmmConfig {
     network_interfaces: Vec<NetworkInterfaceConfig>,
     vsock: Option<VsockDeviceConfig>,
     entropy: Option<EntropyDeviceConfig>,
+    #[serde(skip)]
+    serial_config: Option<SerialConfig>,
 }
 
 /// A data structure that encapsulates the device configurations
@@ -116,6 +119,8 @@ pub struct VmResources {
     pub boot_timer: bool,
     /// Whether or not to use PCIe transport for VirtIO devices.
     pub pci_enabled: bool,
+    /// Where serial console output should be written to
+    pub serial_out_path: Option<PathBuf>,
 }
 
 impl VmResources {
@@ -191,6 +196,10 @@ impl VmResources {
 
         if let Some(entropy_device_config) = vmm_config.entropy {
             resources.build_entropy_device(entropy_device_config)?;
+        }
+
+        if let Some(serial_cfg) = vmm_config.serial_config {
+            resources.serial_out_path = serial_cfg.serial_out_path;
         }
 
         Ok(resources)
@@ -506,6 +515,8 @@ impl From<&VmResources> for VmmConfig {
             network_interfaces: resources.net_builder.configs(),
             vsock: resources.vsock.config(),
             entropy: resources.entropy.config(),
+            // serial_config is marked serde(skip) so that it doesnt end up in snapshots.
+            serial_config: None,
         }
     }
 }
@@ -617,6 +628,7 @@ mod tests {
             mmds_size_limit: HTTP_MAX_PAYLOAD_SIZE,
             entropy: Default::default(),
             pci_enabled: false,
+            serial_out_path: None,
         }
     }
 

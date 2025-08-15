@@ -11,38 +11,8 @@ import time
 
 from framework import utils
 from framework.microvm import Serial
-from framework.state_machine import TestState
 
 PLATFORM = platform.machine()
-
-
-class WaitTerminal(TestState):
-    """Initial state when we wait for the login prompt."""
-
-    def handle_input(self, serial, input_char) -> TestState:
-        """Handle input and return next state."""
-        if self.match(input_char):
-            serial.tx("id")
-            return WaitIDResult("uid=0(root) gid=0(root) groups=0(root)")
-        return self
-
-
-class WaitIDResult(TestState):
-    """Wait for the console to show the result of the 'id' shell command."""
-
-    def handle_input(self, unused_serial, input_char) -> TestState:
-        """Handle input and return next state."""
-        if self.match(input_char):
-            return TestFinished()
-        return self
-
-
-class TestFinished(TestState):
-    """Test complete and successful."""
-
-    def handle_input(self, unused_serial, _) -> TestState:
-        """Return self since the test is about to end."""
-        return self
 
 
 def test_serial_after_snapshot(uvm_plain, microvm_factory):
@@ -51,11 +21,10 @@ def test_serial_after_snapshot(uvm_plain, microvm_factory):
     """
     microvm = uvm_plain
     microvm.help.enable_console()
-    microvm.spawn()
+    microvm.spawn(serial_out_path=None)
     microvm.basic_config(
         vcpu_count=2,
         mem_size_mib=256,
-        boot_args="console=ttyS0 reboot=k panic=1 swiotlb=noforce",
     )
     serial = Serial(microvm)
     serial.open()
@@ -72,7 +41,7 @@ def test_serial_after_snapshot(uvm_plain, microvm_factory):
     # Load microVM clone from snapshot.
     vm = microvm_factory.build()
     vm.help.enable_console()
-    vm.spawn()
+    vm.spawn(serial_out_path=None)
     vm.restore_from_snapshot(snapshot, resume=True)
     serial = Serial(vm)
     serial.open()
@@ -92,26 +61,22 @@ def test_serial_console_login(uvm_plain_any):
     """
     microvm = uvm_plain_any
     microvm.help.enable_console()
-    microvm.spawn()
+    microvm.spawn(serial_out_path=None)
 
     # We don't need to monitor the memory for this test because we are
     # just rebooting and the process dies before pmap gets the RSS.
     microvm.memory_monitor = None
 
     # Set up the microVM with 1 vCPU and a serial console.
-    microvm.basic_config(
-        vcpu_count=1, boot_args="console=ttyS0 reboot=k panic=1 swiotlb=noforce"
-    )
+    microvm.basic_config(vcpu_count=1)
 
     microvm.start()
 
     serial = Serial(microvm)
     serial.open()
-    current_state = WaitTerminal("ubuntu-fc-uvm:")
-
-    while not isinstance(current_state, TestFinished):
-        output_char = serial.rx_char()
-        current_state = current_state.handle_input(serial, output_char)
+    serial.rx("ubuntu-fc-uvm:")
+    serial.tx("id")
+    serial.rx("uid=0(root) gid=0(root) groups=0(root)")
 
 
 def get_total_mem_size(pid):
@@ -146,7 +111,6 @@ def test_serial_dos(uvm_plain_any):
     # Set up the microVM with 1 vCPU and a serial console.
     microvm.basic_config(
         vcpu_count=1,
-        boot_args="console=ttyS0 reboot=k panic=1 swiotlb=noforce",
     )
     microvm.add_net_iface()
     microvm.start()
@@ -174,13 +138,12 @@ def test_serial_block(uvm_plain_any):
     """
     test_microvm = uvm_plain_any
     test_microvm.help.enable_console()
-    test_microvm.spawn()
+    test_microvm.spawn(serial_out_path=None)
     # Set up the microVM with 1 vCPU so we make sure the vCPU thread
     # responsible for the SSH connection will also run the serial.
     test_microvm.basic_config(
         vcpu_count=1,
         mem_size_mib=512,
-        boot_args="console=ttyS0 reboot=k panic=1 swiotlb=noforce",
     )
     test_microvm.add_net_iface()
     test_microvm.start()
@@ -233,3 +196,10 @@ def test_no_serial_fd_error_when_daemonized(uvm_plain):
     test_microvm.start()
 
     assert REGISTER_FAILED_WARNING not in test_microvm.log_data
+
+
+def test_serial_file_output(uvm_any):
+    """Test that redirecting serial console output to a file works for booted and restored VMs"""
+    uvm_any.ssh.check_output("echo 'hello' > /dev/ttyS0")
+
+    assert b"hello" in uvm_any.serial_out_path.read_bytes()

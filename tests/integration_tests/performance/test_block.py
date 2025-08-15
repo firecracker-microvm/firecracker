@@ -174,7 +174,7 @@ def test_block_performance(
     Execute block device emulation benchmarking scenarios.
     """
     vm = uvm_plain_acpi
-    vm.spawn(log_level="Info", emit_metrics=True)
+    vm.spawn(log_level="Info", emit_metrics=True, serial_out_path=None)
     vm.basic_config(vcpu_count=vcpus, mem_size_mib=GUEST_MEM_MIB)
     vm.add_net_iface()
     # Add a secondary block device for benchmark tests.
@@ -223,7 +223,7 @@ def test_block_vhost_user_performance(
     """
 
     vm = uvm_plain_acpi
-    vm.spawn(log_level="Info", emit_metrics=True)
+    vm.spawn(log_level="Info", emit_metrics=True, serial_out_path=None)
     vm.basic_config(vcpu_count=vcpus, mem_size_mib=GUEST_MEM_MIB)
     vm.add_net_iface()
 

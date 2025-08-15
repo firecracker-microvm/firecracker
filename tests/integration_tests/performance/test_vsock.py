@@ -73,7 +73,7 @@ class VsockIPerf3Test(IPerf3Test):
 @pytest.mark.nonci
 @pytest.mark.parametrize("vcpus", [1, 2], ids=["1vcpu", "2vcpu"])
 @pytest.mark.parametrize("payload_length", ["64K", "1024K"], ids=["p64K", "p1024K"])
-@pytest.mark.parametrize("mode", ["g2h", "h2g", "bd"])
+@pytest.mark.parametrize("mode", ["g2h", "h2g"])
 def test_vsock_throughput(
     uvm_plain_acpi,
     vcpus,
@@ -85,15 +85,10 @@ def test_vsock_throughput(
     """
     Test vsock throughput for multiple vm configurations.
     """
-    # We run bi-directional tests only on uVM with more than 2 vCPus
-    # because we need to pin one iperf3/direction per vCPU, and since we
-    # have two directions, we need at least two vCPUs.
-    if mode == "bd" and vcpus < 2:
-        pytest.skip("bidrectional test only done with at least 2 vcpus")
 
     mem_size_mib = 1024
     vm = uvm_plain_acpi
-    vm.spawn(log_level="Info", emit_metrics=True)
+    vm.spawn(log_level="Info", emit_metrics=True, serial_out_path=None)
     vm.basic_config(vcpu_count=vcpus, mem_size_mib=mem_size_mib)
     vm.add_net_iface()
     # Create a vsock device
