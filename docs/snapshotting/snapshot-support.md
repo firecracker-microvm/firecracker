@@ -257,9 +257,11 @@ curl --unix-socket /tmp/firecracker.socket -i \
 Details about the required and optional fields can be found in the
 [swagger definition](../../src/firecracker/swagger/firecracker.yaml).
 
-*Note*: If the files indicated by `snapshot_path` and `mem_file_path` don't
-exist at the specified paths, then they will be created right before generating
-the snapshot. If they exist, the files will be truncated and overwritten.
+> [!NOTE]
+>
+> If the files indicated by `snapshot_path` and `mem_file_path` don't exist at
+> the specified paths, then they will be created right before generating the
+> snapshot. If they exist, the files will be truncated and overwritten.
 
 **Prerequisites**: The microVM is `Paused`.
 
@@ -293,19 +295,21 @@ the snapshot. If they exist, the files will be truncated and overwritten.
 For creating a diff snapshot, you should use the same API command, but with
 `snapshot_type` field set to `Diff`.
 
-*Note*: If not specified, `snapshot_type` is by default `Full`.
-
-```bash
-curl --unix-socket /tmp/firecracker.socket -i \
-    -X PUT 'http://localhost/snapshot/create' \
-    -H  'Accept: application/json' \
-    -H  'Content-Type: application/json' \
-    -d '{
-            "snapshot_type": "Diff",
-            "snapshot_path": "./snapshot_file",
-            "mem_file_path": "./mem_file",
-    }'
-```
+> [!NOTE]
+>
+> If not specified, `snapshot_type` is by default `Full`.
+>
+> ```bash
+> curl --unix-socket /tmp/firecracker.socket -i \
+>     -X PUT 'http://localhost/snapshot/create' \
+>     -H  'Accept: application/json' \
+>     -H  'Content-Type: application/json' \
+>     -d '{
+>             "snapshot_type": "Diff",
+>             "snapshot_path": "./snapshot_file",
+>             "mem_file_path": "./mem_file",
+>     }'
+> ```
 
 **Prerequisites**: The microVM is `Paused`.
 
@@ -321,8 +325,10 @@ to swap to be "in core". This potentially results in bigger memory files
 (although they are still sparse), but avoids the runtime overhead of dirty page
 logging.
 
-*Note*: Dirty page tracking negates most of the benefits of
-[huge pages](../hugepages.md#known-limitations).
+> [!NOTE]
+>
+> Dirty page tracking negates most of the benefits of
+> [huge pages](../hugepages.md#known-limitations).
 
 **Effects**:
 
@@ -337,20 +343,22 @@ logging.
     full snapshots** section apply here.
 - _on failure_: no side-effects.
 
-*Note*: This is an example of an API command that enables dirty page tracking:
-
-```bash
-curl --unix-socket /tmp/firecracker.socket -i  \
-    -X PUT 'http://localhost/machine-config' \
-    -H 'Accept: application/json'            \
-    -H 'Content-Type: application/json'      \
-    -d '{
-            "vcpu_count": 2,
-            "mem_size_mib": 1024,
-            "smt": false,
-            "track_dirty_pages": true
-    }'
-```
+> [!NOTE]
+>
+> This is an example of an API command that enables dirty page tracking:
+>
+> ```bash
+> curl --unix-socket /tmp/firecracker.socket -i  \
+>     -X PUT 'http://localhost/machine-config' \
+>     -H 'Accept: application/json'            \
+>     -H 'Content-Type: application/json'      \
+>     -d '{
+>             "vcpu_count": 2,
+>             "mem_size_mib": 1024,
+>             "smt": false,
+>             "track_dirty_pages": true
+>     }'
+> ```
 
 Enabling this support enables KVM dirty page tracking, so it comes at a cost
 (which consists of CPU cycles spent by KVM accounting for dirtied pages); it

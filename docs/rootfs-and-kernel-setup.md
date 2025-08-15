@@ -33,8 +33,10 @@ can boot:
    make menuconfig
    ```
 
-   *Note*: there are many ways of building a kernel config file, other than
-   `menuconfig`. You are free to use whichever one you choose.
+> [!NOTE]
+>
+> There are many ways of building a kernel config file, other than `menuconfig`.
+> You are free to use whichever one you choose.
 
 1. Build the kernel image:
 
