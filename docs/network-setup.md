@@ -107,9 +107,6 @@ sudo iptables-nft -A FORWARD -i tap0 -o eth0 -j ACCEPT
 
 ## Setting Up Firecracker
 
-Before starting the guest, configure the network interface using Firecracker's
-API:
-
 **Note:** If you use the rootfs from the
 [getting started guide](getting-started.md), you need to use a specific `MAC`
 address like `06:00:AC:10:00:02`. In this `MAC` address, the last 4 bytes
@@ -118,13 +115,27 @@ it is `172.16.0.2`. Otherwise, you can skip the `guest_mac` field for network
 configuration. This way, the guest will generate a random MAC address on
 startup.
 
+**Note:** The `iface_id` used during VM configuration is internal to Firecracker
+and only used for management purposes. The name of the network interface in the
+guest is determined by the guest itself. In this example we assume the guest
+will name the network interface `eth0`.
+
+> [!NOTE]
+> Firecracker cannot guarantee that the network interfaces in the guest will be
+> initialized in the guest in the same order as API calls used to set them up.
+> At the same time most kernels/distributions do initialize devices in the API 
+> defined order.
+
+Before starting the guest, configure the network interface using Firecracker's
+API:
+
 ```bash
 curl --unix-socket /tmp/firecracker.socket -i \
-  -X PUT 'http://localhost/network-interfaces/eth0' \
+  -X PUT 'http://localhost/network-interfaces/my_network0' \
   -H 'Accept: application/json' \
   -H 'Content-Type: application/json' \
   -d '{
-      "iface_id": "eth0",
+      "iface_id": "my_network0",
       "guest_mac": "06:00:AC:10:00:02",
       "host_dev_name": "tap0"
     }'
@@ -136,7 +147,7 @@ configuration file like this:
 ```json
 "network-interfaces": [
   {
-    "iface_id": "eth0",
+    "iface_id": "my_network0",
     "guest_mac": "06:00:AC:10:00:02",
     "host_dev_name": "tap0"
   }
@@ -147,9 +158,6 @@ Alternatively, if you are using firectl, add
 `--tap-device=tap0/06:00:AC:10:00:02\` to your command line.
 
 ## In The Guest
-
-Once you have booted the guest, it will have its networking interface with the
-name specified by `iface_id` in the Firecracker configuration.
 
 You'll now need to assign the guest its IP, activate the guest's networking
 interface and set up the `tap` IP as the guest's gateway address, so that
