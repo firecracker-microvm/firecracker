@@ -648,9 +648,9 @@ pub(crate) mod tests {
     use super::*;
     use crate::device_manager::tests::default_device_manager;
     use crate::devices::virtio::block::CacheType;
+    use crate::devices::virtio::generated::virtio_ids;
     use crate::devices::virtio::rng::device::ENTROPY_DEV_ID;
-    use crate::devices::virtio::vsock::{TYPE_VSOCK, VSOCK_DEV_ID};
-    use crate::devices::virtio::{TYPE_BALLOON, TYPE_BLOCK, TYPE_RNG};
+    use crate::devices::virtio::vsock::VSOCK_DEV_ID;
     use crate::mmds::data_store::{Mmds, MmdsVersion};
     use crate::mmds::ns::MmdsNetworkStack;
     use crate::utils::mib_to_bytes;
@@ -848,7 +848,7 @@ pub(crate) mod tests {
 
         assert!(
             vmm.device_manager
-                .get_virtio_device(TYPE_VSOCK, &vsock_dev_id)
+                .get_virtio_device(virtio_ids::VIRTIO_ID_VSOCK, &vsock_dev_id)
                 .is_some()
         );
     }
@@ -873,7 +873,7 @@ pub(crate) mod tests {
 
         assert!(
             vmm.device_manager
-                .get_virtio_device(TYPE_RNG, ENTROPY_DEV_ID)
+                .get_virtio_device(virtio_ids::VIRTIO_ID_RNG, ENTROPY_DEV_ID)
                 .is_some()
         );
     }
@@ -907,7 +907,7 @@ pub(crate) mod tests {
 
         assert!(
             vmm.device_manager
-                .get_virtio_device(TYPE_BALLOON, BALLOON_DEV_ID)
+                .get_virtio_device(virtio_ids::VIRTIO_ID_BALLOON, BALLOON_DEV_ID)
                 .is_some()
         );
     }
@@ -958,7 +958,7 @@ pub(crate) mod tests {
             assert!(cmdline_contains(&cmdline, "root=/dev/vda ro"));
             assert!(
                 vmm.device_manager
-                    .get_virtio_device(TYPE_BLOCK, drive_id.as_str())
+                    .get_virtio_device(virtio_ids::VIRTIO_ID_BLOCK, drive_id.as_str())
                     .is_some()
             );
         }
@@ -979,7 +979,7 @@ pub(crate) mod tests {
             assert!(cmdline_contains(&cmdline, "root=PARTUUID=0eaa91a0-01 rw"));
             assert!(
                 vmm.device_manager
-                    .get_virtio_device(TYPE_BLOCK, drive_id.as_str())
+                    .get_virtio_device(virtio_ids::VIRTIO_ID_BLOCK, drive_id.as_str())
                     .is_some()
             );
         }
@@ -1001,7 +1001,7 @@ pub(crate) mod tests {
             assert!(!cmdline_contains(&cmdline, "root=/dev/vda"));
             assert!(
                 vmm.device_manager
-                    .get_virtio_device(TYPE_BLOCK, drive_id.as_str())
+                    .get_virtio_device(virtio_ids::VIRTIO_ID_BLOCK, drive_id.as_str())
                     .is_some()
             );
         }
@@ -1038,17 +1038,17 @@ pub(crate) mod tests {
             assert!(cmdline_contains(&cmdline, "root=PARTUUID=0eaa91a0-01 rw"));
             assert!(
                 vmm.device_manager
-                    .get_virtio_device(TYPE_BLOCK, "root")
+                    .get_virtio_device(virtio_ids::VIRTIO_ID_BLOCK, "root")
                     .is_some()
             );
             assert!(
                 vmm.device_manager
-                    .get_virtio_device(TYPE_BLOCK, "secondary")
+                    .get_virtio_device(virtio_ids::VIRTIO_ID_BLOCK, "secondary")
                     .is_some()
             );
             assert!(
                 vmm.device_manager
-                    .get_virtio_device(TYPE_BLOCK, "third")
+                    .get_virtio_device(virtio_ids::VIRTIO_ID_BLOCK, "third")
                     .is_some()
             );
 
@@ -1077,7 +1077,7 @@ pub(crate) mod tests {
             assert!(cmdline_contains(&cmdline, "root=/dev/vda rw"));
             assert!(
                 vmm.device_manager
-                    .get_virtio_device(TYPE_BLOCK, drive_id.as_str())
+                    .get_virtio_device(virtio_ids::VIRTIO_ID_BLOCK, drive_id.as_str())
                     .is_some()
             );
         }
@@ -1098,7 +1098,7 @@ pub(crate) mod tests {
             assert!(cmdline_contains(&cmdline, "root=PARTUUID=0eaa91a0-01 ro"));
             assert!(
                 vmm.device_manager
-                    .get_virtio_device(TYPE_BLOCK, drive_id.as_str())
+                    .get_virtio_device(virtio_ids::VIRTIO_ID_BLOCK, drive_id.as_str())
                     .is_some()
             );
         }
@@ -1119,7 +1119,7 @@ pub(crate) mod tests {
             assert!(cmdline_contains(&cmdline, "root=/dev/vda rw"));
             assert!(
                 vmm.device_manager
-                    .get_virtio_device(TYPE_BLOCK, drive_id.as_str())
+                    .get_virtio_device(virtio_ids::VIRTIO_ID_BLOCK, drive_id.as_str())
                     .is_some()
             );
         }
