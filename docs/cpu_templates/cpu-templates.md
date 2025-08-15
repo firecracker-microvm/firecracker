@@ -16,13 +16,17 @@ guest. A real world use case for this is representing a heterogeneous fleet (a
 fleet consisting of multiple CPU models) as a homogeneous fleet, so the guests
 will experience a consistent feature set supported by the host.
 
-> **Note** Representing one CPU vendor as another CPU vendor is not supported.
+> [!NOTE]
+>
+> Representing one CPU vendor as another CPU vendor is not supported.
 
-> **Note** CPU templates shall not be used as a security protection against
-> malicious guests. Disabling a feature in a CPU template does not generally
-> make it completely unavailable to the guest. For example, disabling a feature
-> related to an instruction set will indicate to the guest that the feature is
-> not supported, but the guest may still be able to execute corresponding
+> [!NOTE]
+>
+> CPU templates shall not be used as a security protection against malicious
+> guests. Disabling a feature in a CPU template does not generally make it
+> completely unavailable to the guest. For example, disabling a feature related
+> to an instruction set will indicate to the guest that the feature is not
+> supported, but the guest may still be able to execute corresponding
 > instructions if it does not obey the feature bit.
 
 Firecracker supports two types of CPU templates:
@@ -32,15 +36,19 @@ Firecracker supports two types of CPU templates:
 - Custom CPU templates - users can create their own CPU templates in json format
   and pass them to Firecracker
 
-> **Note** Static CPU templates are deprecated starting from v1.5.0 and will be
-> removed in accordance with our deprecation policy. Even after the removal,
-> custom CPU templates are available as an improved iteration of static CPU
-> templates. For more information about the transition from static CPU templates
-> to custom CPU templates, please refer to
+> [!NOTE]
+>
+> Static CPU templates are deprecated starting from v1.5.0 and will be removed
+> in accordance with our deprecation policy. Even after the removal, custom CPU
+> templates are available as an improved iteration of static CPU templates. For
+> more information about the transition from static CPU templates to custom CPU
+> templates, please refer to
 > [this GitHub discussion](https://github.com/firecracker-microvm/firecracker/discussions/4135).
 
-> **Note** CPU templates for ARM (both static and custom) require the following
-> patch to be available in the host kernel:
+> [!NOTE]
+>
+> CPU templates for ARM (both static and custom) require the following patch to
+> be available in the host kernel:
 > [Support writable CPU ID registers from userspace](https://lore.kernel.org/kvm/20230212215830.2975485-1-jingzhangos@google.com/#t).
 > Otherwise KVM will fail to write to the ARM registers.
 
@@ -104,21 +112,27 @@ curl --unix-socket /tmp/firecracker.socket -i  \
 Users can create their own CPU templates by creating a json file containing
 modifiers for CPUID, MSRs or ARM registers.
 
-> **Note** Creating custom CPU templates requires expert knowledge of CPU
-> architectures. Custom CPU templates must be tested thoroughly before use in
-> production. An inappropriate configuration may lead to guest crashes or making
-> guests vulnerable to security attacks. For example, if a CPU template signals
-> a hardware vulnerability mitigation to the guest while the mitigation is in
-> fact not supported by the hardware, the guest may decide to disable
-> corresponding software mitigations which will make the guest vulnerable.
+> [!NOTE]
+>
+> Creating custom CPU templates requires expert knowledge of CPU architectures.
+> Custom CPU templates must be tested thoroughly before use in production. An
+> inappropriate configuration may lead to guest crashes or making guests
+> vulnerable to security attacks. For example, if a CPU template signals a
+> hardware vulnerability mitigation to the guest while the mitigation is in fact
+> not supported by the hardware, the guest may decide to disable corresponding
+> software mitigations which will make the guest vulnerable.
 
-> **Note** Having MSRs or ARM registers in the custom CPU template does not
-> affect access permissions that guests will have to those registers. The access
-> control is handled by KVM and is not influenced by CPU templates.
+> [!NOTE]
+>
+> Having MSRs or ARM registers in the custom CPU template does not affect access
+> permissions that guests will have to those registers. The access control is
+> handled by KVM and is not influenced by CPU templates.
 
-> **Note** When setting guest configuration, KVM may reject setting some bits
-> quietly. This is user's responsibility to make sure that their custom CPU
-> template is applied as expected even if Firecracker does not report an error.
+> [!NOTE]
+>
+> When setting guest configuration, KVM may reject setting some bits quietly.
+> This is user's responsibility to make sure that their custom CPU template is
+> applied as expected even if Firecracker does not report an error.
 
 In order to assist with creation and usage of CPU templates, there exists a CPU
 template helper tool. More details can be found [here](cpu-template-helper.md).
@@ -216,8 +230,10 @@ the
 The full description of the custom CPU templates language can be found
 [here](schema.json).
 
-> **Note** You can also use `_` to visually separate parts of a bitmap. So
-> instead of writing: `0b0000xxxx`, it can be `0b0000_xxxx`.
+> [!NOTE]
+>
+> You can also use `_` to visually separate parts of a bitmap. So instead of
+> writing: `0b0000xxxx`, it can be `0b0000_xxxx`.
 
 #### Expansion of contracted bitmaps
 
