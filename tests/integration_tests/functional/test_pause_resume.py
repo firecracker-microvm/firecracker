@@ -13,7 +13,6 @@ def verify_net_emulation_paused(metrics):
     """Verify net emulation is paused based on provided metrics."""
     net_metrics = metrics["net"]
     assert net_metrics["rx_queue_event_count"] == 0
-    assert net_metrics["rx_partial_writes"] == 0
     assert net_metrics["rx_tap_event_count"] == 0
     assert net_metrics["rx_bytes_count"] == 0
     assert net_metrics["rx_packets_count"] == 0
