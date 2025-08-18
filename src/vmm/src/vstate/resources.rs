@@ -283,7 +283,9 @@ mod tests {
         Snapshot::new(allocator.save())
             .save(&mut buf.as_mut_slice())
             .unwrap();
-        let restored_state: ResourceAllocator = Snapshot::load(&mut buf.as_slice()).unwrap().data;
+        let restored_state: ResourceAllocator = Snapshot::load_without_crc_check(buf.as_slice())
+            .unwrap()
+            .data;
         ResourceAllocator::restore((), &restored_state).unwrap()
     }
 

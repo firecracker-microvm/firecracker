@@ -659,7 +659,9 @@ mod tests {
         // object and calling default_vmm() is the easiest way to create one.
         let vmm = default_vmm();
         let device_manager_state: device_manager::DevicesState =
-            Snapshot::load(&mut buf.as_slice()).unwrap().data;
+            Snapshot::load_without_crc_check(buf.as_slice())
+                .unwrap()
+                .data;
         let vm_resources = &mut VmResources::default();
         let restore_args = PciDevicesConstructorArgs {
             vm: vmm.vm.clone(),

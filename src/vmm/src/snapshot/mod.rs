@@ -26,7 +26,7 @@
 pub mod crc;
 mod persist;
 use std::fmt::Debug;
-use std::io::{Read, Write};
+use std::io::{Read, Seek, SeekFrom, Write};
 
 use bincode::config;
 use bincode::config::{Configuration, Fixint, Limit, LittleEndian};
@@ -38,7 +38,7 @@ use serde::{Deserialize, Serialize};
 use crate::persist::SNAPSHOT_VERSION;
 use crate::snapshot::crc::{CRC64Reader, CRC64Writer};
 pub use crate::snapshot::persist::Persist;
-use crate::utils::mib_to_bytes;
+use crate::utils::{mib_to_bytes, u64_to_usize};
 
 #[cfg(target_arch = "x86_64")]
 const SNAPSHOT_MAGIC_ID: u64 = 0x0710_1984_8664_0000u64;
@@ -64,10 +64,14 @@ pub enum SnapshotError {
     InvalidFormatVersion(Version),
     /// Magic value does not match arch: {0}
     InvalidMagic(u64),
+    /// Snapshot file is not long enough to even contain the CRC
+    TooShort,
     /// An error occured during bincode encoding: {0}
     Encode(#[from] EncodeError),
     /// An error occured during bincode decoding: {0}
     Decode(#[from] DecodeError),
+    /// IO Error: {0}
+    Io(#[from] std::io::Error),
 }
 
 fn serialize<S: Serialize, W: Write>(data: &S, write: &mut W) -> Result<(), SnapshotError> {
@@ -86,8 +90,8 @@ struct SnapshotHdr {
 }
 
 impl SnapshotHdr {
-    fn load<R: Read>(reader: &mut R) -> Result<Self, SnapshotError> {
-        let hdr: SnapshotHdr = bincode::serde::decode_from_std_read(reader, BINCODE_CONFIG)?;
+    fn load(buf: &mut &[u8]) -> Result<Self, SnapshotError> {
+        let (hdr, bytes_read) = bincode::serde::decode_from_slice::<Self, _>(buf, BINCODE_CONFIG)?;
 
         if hdr.magic != SNAPSHOT_MAGIC_ID {
             return Err(SnapshotError::InvalidMagic(hdr.magic));
@@ -97,6 +101,8 @@ impl SnapshotHdr {
         {
             return Err(SnapshotError::InvalidFormatVersion(hdr.version));
         }
+
+        *buf = &buf[bytes_read..];
 
         Ok(hdr)
     }
@@ -138,17 +144,27 @@ impl<Data> Snapshot<Data> {
 }
 
 impl<Data: DeserializeOwned> Snapshot<Data> {
-    fn load_without_crc_check<R: Read>(reader: &mut R) -> Result<Self, SnapshotError> {
-        let header = SnapshotHdr::load(reader)?;
-        let data = bincode::serde::decode_from_std_read(reader, BINCODE_CONFIG)?;
+    pub(crate) fn load_without_crc_check(mut buf: &[u8]) -> Result<Self, SnapshotError> {
+        let header = SnapshotHdr::load(&mut buf)?;
+        let data = bincode::serde::decode_from_slice(buf, BINCODE_CONFIG)?.0;
         Ok(Self { header, data })
     }
 
     /// Loads a snapshot from the given [`Read`] instance, performing all validations
     /// (CRC, snapshot magic value, snapshot version).
-    pub fn load<R: Read>(reader: &mut R) -> Result<Self, SnapshotError> {
+    pub fn load<R: Read + Seek>(reader: &mut R) -> Result<Self, SnapshotError> {
+        let snapshot_size = reader.seek(SeekFrom::End(0))?;
+        reader.seek(SeekFrom::Start(0))?;
+        // dont read the CRC yet.
+        let mut buf = vec![
+            0;
+            u64_to_usize(snapshot_size)
+                .checked_sub(size_of::<u64>())
+                .ok_or(SnapshotError::TooShort)?
+        ];
         let mut crc_reader = CRC64Reader::new(reader);
-        let snapshot = Self::load_without_crc_check(&mut crc_reader)?;
+        crc_reader.read_exact(buf.as_mut_slice())?;
+        let snapshot = Self::load_without_crc_check(buf.as_slice())?;
         let computed_checksum = crc_reader.checksum();
         let stored_checksum: u64 =
             bincode::serde::decode_from_std_read(&mut crc_reader.reader, BINCODE_CONFIG)?;
@@ -199,10 +215,16 @@ mod tests {
             }
         }
 
+        impl Seek for BadReader {
+            fn seek(&mut self, _pos: SeekFrom) -> std::io::Result<u64> {
+                Ok(9) // needs to be long enough to prevent to have a CRC
+            }
+        }
+
         let mut reader = BadReader {};
 
         assert!(
-            matches!(Snapshot::<()>::load(&mut reader), Err(SnapshotError::Decode(DecodeError::Io {inner, ..})) if inner.kind() == std::io::ErrorKind::InvalidInput)
+            matches!(Snapshot::<()>::load(&mut reader), Err(SnapshotError::Io(inner)) if inner.kind() == std::io::ErrorKind::InvalidInput)
         );
     }
 
@@ -239,7 +261,7 @@ mod tests {
         serialize(&snapshot, &mut data.as_mut_slice()).unwrap();
 
         assert!(matches!(
-            Snapshot::<()>::load(&mut data.as_slice()),
+            Snapshot::<()>::load(&mut std::io::Cursor::new(data.as_slice())),
             Err(SnapshotError::Crc64(_))
         ));
     }
@@ -254,7 +276,7 @@ mod tests {
         snapshot.save(&mut data.as_mut_slice()).unwrap();
 
         assert!(matches!(
-            Snapshot::<()>::load(&mut data.as_slice()),
+            Snapshot::<()>::load_without_crc_check(data.as_slice()),
             Err(SnapshotError::InvalidFormatVersion(v)) if v.major == SNAPSHOT_VERSION.major + 1
         ));
 
@@ -263,7 +285,7 @@ mod tests {
         snapshot.header.version.minor = SNAPSHOT_VERSION.minor + 1;
         snapshot.save(&mut data.as_mut_slice()).unwrap();
         assert!(matches!(
-            Snapshot::<()>::load(&mut data.as_slice()),
+            Snapshot::<()>::load_without_crc_check(data.as_slice()),
             Err(SnapshotError::InvalidFormatVersion(v)) if v.minor == SNAPSHOT_VERSION.minor + 1
         ));
 
@@ -271,28 +293,28 @@ mod tests {
         // all patch versions within our supported major.minor version.
         let snapshot = Snapshot::new(());
         snapshot.save(&mut data.as_mut_slice()).unwrap();
-        Snapshot::<()>::load(&mut data.as_slice()).unwrap();
+        Snapshot::<()>::load_without_crc_check(data.as_slice()).unwrap();
 
         if SNAPSHOT_VERSION.minor != 0 {
             let mut snapshot = Snapshot::new(());
             snapshot.header.version.minor = SNAPSHOT_VERSION.minor - 1;
             snapshot.save(&mut data.as_mut_slice()).unwrap();
-            Snapshot::<()>::load(&mut data.as_slice()).unwrap();
+            Snapshot::<()>::load_without_crc_check(data.as_slice()).unwrap();
         }
 
         let mut snapshot = Snapshot::new(());
         snapshot.header.version.patch = 0;
         snapshot.save(&mut data.as_mut_slice()).unwrap();
-        Snapshot::<()>::load(&mut data.as_slice()).unwrap();
+        Snapshot::<()>::load_without_crc_check(data.as_slice()).unwrap();
 
         let mut snapshot = Snapshot::new(());
         snapshot.header.version.patch = SNAPSHOT_VERSION.patch + 1;
         snapshot.save(&mut data.as_mut_slice()).unwrap();
-        Snapshot::<()>::load(&mut data.as_slice()).unwrap();
+        Snapshot::<()>::load_without_crc_check(data.as_slice()).unwrap();
 
         let mut snapshot = Snapshot::new(());
         snapshot.header.version.patch = 1024;
         snapshot.save(&mut data.as_mut_slice()).unwrap();
-        Snapshot::<()>::load(&mut data.as_slice()).unwrap();
+        Snapshot::<()>::load_without_crc_check(data.as_slice()).unwrap();
     }
 }

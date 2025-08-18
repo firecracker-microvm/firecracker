@@ -680,7 +680,9 @@ mod tests {
         let mut event_manager = EventManager::new().expect("Unable to create EventManager");
         let vmm = default_vmm();
         let device_manager_state: device_manager::DevicesState =
-            Snapshot::load(&mut buf.as_slice()).unwrap().data;
+            Snapshot::load_without_crc_check(buf.as_slice())
+                .unwrap()
+                .data;
         let vm_resources = &mut VmResources::default();
         let restore_args = MMIODevManagerConstructorArgs {
             mem: vmm.vm.guest_memory(),

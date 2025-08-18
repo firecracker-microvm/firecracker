@@ -1048,7 +1048,9 @@ pub(crate) mod tests {
             .save(&mut snapshot_data.as_mut_slice())
             .unwrap();
 
-        let restored_state: VmState = Snapshot::load(&mut snapshot_data.as_slice()).unwrap().data;
+        let restored_state: VmState = Snapshot::load_without_crc_check(snapshot_data.as_slice())
+            .unwrap()
+            .data;
         vm.restore_state(&restored_state).unwrap();
 
         let mut resource_allocator = vm.resource_allocator();
