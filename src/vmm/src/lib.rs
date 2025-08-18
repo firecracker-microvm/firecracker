@@ -582,7 +582,7 @@ impl Vmm {
             .try_with_virtio_device_with_id(
                 virtio_ids::VIRTIO_ID_BALLOON,
                 BALLOON_DEV_ID,
-                |dev: &mut Balloon| dev.latest_stats().cloned(),
+                |dev: &mut Balloon| dev.latest_stats(),
             )
             .map_err(VmmError::FindDeviceError)
     }

@@ -84,7 +84,7 @@ pub struct BalloonConfig {
 }
 
 /// BalloonStats holds statistics returned from the stats_queue.
-#[derive(Clone, Default, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Copy, Default, Debug, PartialEq, Eq, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct BalloonStats {
     /// The target size of the balloon, in 4K pages.
@@ -513,13 +513,13 @@ impl Balloon {
     }
 
     /// Retrieve latest stats for the balloon device.
-    pub fn latest_stats(&mut self) -> Result<&BalloonStats, BalloonError> {
+    pub fn latest_stats(&mut self) -> Result<BalloonStats, BalloonError> {
         if self.stats_enabled() {
             self.latest_stats.target_pages = self.config_space.num_pages;
             self.latest_stats.actual_pages = self.config_space.actual_pages;
             self.latest_stats.target_mib = pages_to_mib(self.latest_stats.target_pages);
             self.latest_stats.actual_mib = pages_to_mib(self.latest_stats.actual_pages);
-            Ok(&self.latest_stats)
+            Ok(self.latest_stats)
         } else {
             Err(BalloonError::StatisticsDisabled)
         }
@@ -1082,7 +1082,7 @@ pub(crate) mod tests {
                 free_memory: Some(0x5678),
                 ..BalloonStats::default()
             };
-            assert_eq!(stats, &expected_stats);
+            assert_eq!(stats, expected_stats);
 
             // Wait for the timer to expire, although as it is non-blocking
             // we could just process the timer event and it would not
