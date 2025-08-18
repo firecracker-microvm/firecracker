@@ -10,13 +10,10 @@
 mod uffd_utils;
 
 use std::fs::File;
-use std::os::fd::AsRawFd;
 use std::os::unix::net::UnixListener;
 
 use uffd_utils::{Runtime, UffdHandler};
 use utils::time::{ClockType, get_time_us};
-
-use crate::uffd_utils::uffd_continue;
 
 fn main() {
     let mut args = std::env::args();
@@ -57,12 +54,10 @@ fn main() {
                     // TODO: we currently ignore the result as we may attempt to
                     // populate the page that is already present as we may receive
                     // multiple minor fault events per page.
-                    let _ = uffd_continue(
-                        uffd_handler.uffd.as_raw_fd(),
-                        addr as _,
-                        uffd_handler.page_size as u64,
-                    )
-                    .inspect_err(|err| println!("Error during uffdio_continue: {:?}", err));
+                    _ = uffd_handler
+                        .uffd
+                        .r#continue(addr, uffd_handler.page_size, true)
+                        .inspect_err(|err| println!("Error during uffdio_continue: {:?}", err));
                 } else {
                     fault_all(uffd_handler, addr);
                 }
