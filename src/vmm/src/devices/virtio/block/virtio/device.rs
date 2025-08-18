@@ -34,6 +34,7 @@ use crate::devices::virtio::generated::virtio_ids::VIRTIO_ID_BLOCK;
 use crate::devices::virtio::generated::virtio_ring::VIRTIO_RING_F_EVENT_IDX;
 use crate::devices::virtio::queue::{InvalidAvailIdx, Queue};
 use crate::devices::virtio::transport::{VirtioInterrupt, VirtioInterruptType};
+use crate::impl_device_type;
 use crate::logger::{IncMetric, error, warn};
 use crate::rate_limiter::{BucketUpdate, RateLimiter};
 use crate::utils::u64_to_usize;
@@ -582,6 +583,8 @@ impl VirtioBlock {
 }
 
 impl VirtioDevice for VirtioBlock {
+    impl_device_type!(VIRTIO_ID_BLOCK);
+
     fn avail_features(&self) -> u64 {
         self.avail_features
     }
@@ -592,10 +595,6 @@ impl VirtioDevice for VirtioBlock {
 
     fn set_acked_features(&mut self, acked_features: u64) {
         self.acked_features = acked_features;
-    }
-
-    fn device_type(&self) -> u32 {
-        VIRTIO_ID_BLOCK
     }
 
     fn queues(&self) -> &[Queue] {

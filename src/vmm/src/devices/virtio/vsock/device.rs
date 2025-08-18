@@ -39,6 +39,7 @@ use crate::devices::virtio::queue::{InvalidAvailIdx, Queue as VirtQueue};
 use crate::devices::virtio::transport::{VirtioInterrupt, VirtioInterruptType};
 use crate::devices::virtio::vsock::VsockError;
 use crate::devices::virtio::vsock::metrics::METRICS;
+use crate::impl_device_type;
 use crate::logger::IncMetric;
 use crate::utils::byte_order;
 use crate::vstate::memory::{Bytes, GuestMemoryMmap};
@@ -283,6 +284,8 @@ impl<B> VirtioDevice for Vsock<B>
 where
     B: VsockBackend + Debug + 'static,
 {
+    impl_device_type!(VIRTIO_ID_VSOCK);
+
     fn avail_features(&self) -> u64 {
         self.avail_features
     }
@@ -293,10 +296,6 @@ where
 
     fn set_acked_features(&mut self, acked_features: u64) {
         self.acked_features = acked_features
-    }
-
-    fn device_type(&self) -> u32 {
-        VIRTIO_ID_VSOCK
     }
 
     fn queues(&self) -> &[VirtQueue] {

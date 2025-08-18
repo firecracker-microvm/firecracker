@@ -16,6 +16,7 @@ use crate::devices::virtio::device::VirtioDevice;
 use crate::devices::virtio::generated::virtio_ids::VIRTIO_ID_BLOCK;
 use crate::devices::virtio::queue::{InvalidAvailIdx, Queue};
 use crate::devices::virtio::transport::VirtioInterrupt;
+use crate::impl_device_type;
 use crate::rate_limiter::BucketUpdate;
 use crate::snapshot::Persist;
 use crate::vmm_config::drive::BlockDeviceConfig;
@@ -132,6 +133,8 @@ impl Block {
 }
 
 impl VirtioDevice for Block {
+    impl_device_type!(VIRTIO_ID_BLOCK);
+
     fn avail_features(&self) -> u64 {
         match self {
             Self::Virtio(b) => b.avail_features,
@@ -151,10 +154,6 @@ impl VirtioDevice for Block {
             Self::Virtio(b) => b.acked_features = acked_features,
             Self::VhostUser(b) => b.acked_features = acked_features,
         }
-    }
-
-    fn device_type(&self) -> u32 {
-        VIRTIO_ID_BLOCK
     }
 
     fn queues(&self) -> &[Queue] {

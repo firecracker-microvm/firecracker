@@ -74,7 +74,14 @@ pub trait VirtioDevice: AsAny + Send {
         (self.acked_features() & (1 << feature)) != 0
     }
 
+    /// The virtio device type (as a constant of the struct).
+    fn const_device_type() -> u32
+    where
+        Self: Sized;
+
     /// The virtio device type.
+    ///
+    /// It should be the same as returned by Self::const_device_type().
     fn device_type(&self) -> u32;
 
     /// Returns the device queues.
@@ -170,6 +177,20 @@ impl fmt::Debug for dyn VirtioDevice {
     }
 }
 
+/// Utility to define both const_device_type and device_type with a u32 constant
+#[macro_export]
+macro_rules! impl_device_type {
+    ($const_type:expr) => {
+        fn const_device_type() -> u32 {
+            $const_type
+        }
+
+        fn device_type(&self) -> u32 {
+            Self::const_device_type()
+        }
+    };
+}
+
 #[cfg(test)]
 pub(crate) mod tests {
     use super::*;
@@ -180,6 +201,8 @@ pub(crate) mod tests {
     }
 
     impl VirtioDevice for MockVirtioDevice {
+        impl_device_type!(0);
+
         fn avail_features(&self) -> u64 {
             todo!()
         }
@@ -189,10 +212,6 @@ pub(crate) mod tests {
         }
 
         fn set_acked_features(&mut self, _acked_features: u64) {
-            todo!()
-        }
-
-        fn device_type(&self) -> u32 {
             todo!()
         }
 
