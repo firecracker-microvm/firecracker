@@ -100,7 +100,7 @@ def launch_vm_with_boot_timer(
     """Launches a microVM with guest-timer and returns the reported metrics for it"""
     vm = microvm_factory.build(guest_kernel_acpi, rootfs_rw, pci=pci_enabled)
     vm.jailer.extra_args.update({"boot-timer": None})
-    vm.spawn(serial_out_path=None)
+    vm.spawn()
     vm.basic_config(
         vcpu_count=vcpu_count,
         mem_size_mib=mem_size_mib,
