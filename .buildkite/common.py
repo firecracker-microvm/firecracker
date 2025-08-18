@@ -126,7 +126,7 @@ def run_all_tests(changed_files):
     return not changed_files or any(
         x.suffix != ".md"
         and not (x.parts[0] == ".github" and x.suffix == ".yml")
-        and x.parts[1] != "hiding_ci"
+        and (len(x.parts) < 2 or x.parts[1] != "hiding_ci")
         for x in changed_files
     )
 
