@@ -31,9 +31,9 @@ use crate::devices::virtio::generated::virtio_ids::VIRTIO_ID_BALLOON;
 use crate::devices::virtio::queue::InvalidAvailIdx;
 use crate::devices::virtio::transport::{VirtioInterrupt, VirtioInterruptType};
 use crate::logger::IncMetric;
-use crate::mem_size_mib;
 use crate::utils::u64_to_usize;
 use crate::vstate::memory::{Address, ByteValued, Bytes, GuestAddress, GuestMemoryMmap};
+use crate::{impl_device_type, mem_size_mib};
 
 const SIZE_OF_U32: usize = std::mem::size_of::<u32>();
 const SIZE_OF_STAT: usize = std::mem::size_of::<BalloonStat>();
@@ -544,6 +544,8 @@ impl Balloon {
 }
 
 impl VirtioDevice for Balloon {
+    impl_device_type!(VIRTIO_ID_BALLOON);
+
     fn avail_features(&self) -> u64 {
         self.avail_features
     }
@@ -554,10 +556,6 @@ impl VirtioDevice for Balloon {
 
     fn set_acked_features(&mut self, acked_features: u64) {
         self.acked_features = acked_features;
-    }
-
-    fn device_type(&self) -> u32 {
-        VIRTIO_ID_BALLOON
     }
 
     fn queues(&self) -> &[Queue] {
