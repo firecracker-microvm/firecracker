@@ -245,10 +245,6 @@ pub enum VmmError {
     Vm(#[from] vstate::vm::VmError),
     /// Kvm error: {0}
     Kvm(#[from] vstate::kvm::KvmError),
-    /// Error thrown by observer object on Vmm initialization: {0}
-    VmmObserverInit(vmm_sys_util::errno::Error),
-    /// Error thrown by observer object on Vmm teardown: {0}
-    VmmObserverTeardown(vmm_sys_util::errno::Error),
     /// VMGenID error: {0}
     VMGenID(#[from] VmGenIdError),
     /// Failed perform action on device: {0}
@@ -293,7 +289,6 @@ pub enum DumpCpuConfigError {
 /// Contains the state and associated methods required for the Firecracker VMM.
 #[derive(Debug)]
 pub struct Vmm {
-    events_observer: Option<std::io::Stdin>,
     /// The [`InstanceInfo`] state of this [`Vmm`].
     pub instance_info: InstanceInfo,
     shutdown_exit_code: Option<FcExitCode>,
@@ -343,17 +338,16 @@ impl Vmm {
         let vcpu_count = vcpus.len();
         let barrier = Arc::new(Barrier::new(vcpu_count + 1));
 
-        if let Some(stdin) = self.events_observer.as_mut() {
-            // Set raw mode for stdin.
-            stdin.lock().set_raw_mode().inspect_err(|&err| {
-                warn!("Cannot set raw mode for the terminal. {:?}", err);
-            })?;
+        let stdin = std::io::stdin().lock();
+        // Set raw mode for stdin.
+        stdin.set_raw_mode().inspect_err(|&err| {
+            warn!("Cannot set raw mode for the terminal. {:?}", err);
+        })?;
 
-            // Set non blocking stdin.
-            stdin.lock().set_non_block(true).inspect_err(|&err| {
-                warn!("Cannot set non block for the terminal. {:?}", err);
-            })?;
-        }
+        // Set non blocking stdin.
+        stdin.set_non_block(true).inspect_err(|&err| {
+            warn!("Cannot set non block for the terminal. {:?}", err);
+        })?;
 
         self.vcpus_handles.reserve(vcpu_count);
 
@@ -760,13 +754,8 @@ impl Drop for Vmm {
         // has already been stopped by the event manager at this point.
         self.stop(self.shutdown_exit_code.unwrap_or(FcExitCode::Ok));
 
-        if let Some(observer) = self.events_observer.as_mut() {
-            let res = observer.lock().set_canon_mode().inspect_err(|&err| {
-                warn!("Cannot set canonical mode for the terminal. {:?}", err);
-            });
-            if let Err(err) = res {
-                warn!("{}", VmmError::VmmObserverTeardown(err));
-            }
+        if let Err(err) = std::io::stdin().lock().set_canon_mode() {
+            warn!("Cannot set canonical mode for the terminal. {:?}", err);
         }
 
         // Write the metrics before exiting.

@@ -318,8 +318,10 @@ mod tests {
         let (_, mut vm) = setup_vm_with_memory(0x1000);
         vm.setup_irqchip().unwrap();
         let state = vm.save_state().unwrap();
-        Snapshot::serialize(&mut snapshot_data.as_mut_slice(), &state).unwrap();
-        let restored_state: VmState = Snapshot::deserialize(&mut snapshot_data.as_slice()).unwrap();
+        Snapshot::new(state)
+            .save(&mut snapshot_data.as_mut_slice())
+            .unwrap();
+        let restored_state: VmState = Snapshot::load(&mut snapshot_data.as_slice()).unwrap().data;
 
         vm.restore_state(&restored_state).unwrap();
     }

@@ -29,7 +29,7 @@ def test_describe_snapshot_all_versions(
         jailer_binary_path=firecracker_release.jailer,
     )
     # FIXME: Once only FC versions >= 1.12 are supported, drop log_level="warn"
-    vm.spawn(log_level="warn")
+    vm.spawn(log_level="warn", serial_out_path=None)
     vm.basic_config(track_dirty_pages=True)
     vm.start()
     snapshot = vm.snapshot_diff()

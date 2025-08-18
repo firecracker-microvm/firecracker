@@ -1044,9 +1044,11 @@ pub(crate) mod tests {
         };
 
         let state = vm.save_state().unwrap();
-        Snapshot::serialize(&mut snapshot_data.as_mut_slice(), &state).unwrap();
+        Snapshot::new(state)
+            .save(&mut snapshot_data.as_mut_slice())
+            .unwrap();
 
-        let restored_state: VmState = Snapshot::deserialize(&mut snapshot_data.as_slice()).unwrap();
+        let restored_state: VmState = Snapshot::load(&mut snapshot_data.as_slice()).unwrap().data;
         vm.restore_state(&restored_state).unwrap();
 
         let mut resource_allocator = vm.resource_allocator();

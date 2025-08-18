@@ -13,6 +13,7 @@ pub mod machine_configuration;
 pub mod metrics;
 pub mod mmds;
 pub mod net;
+pub mod serial;
 pub mod snapshot;
 pub mod version;
 pub mod vsock;

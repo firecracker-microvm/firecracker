@@ -506,6 +506,27 @@ paths:
           schema:
             $ref: "#/definitions/Error"
 
+  /serial:
+    put:
+      summary: Configures the serial console
+      operationId: putSerialDevice
+      description:
+        Configure the serial console, which the guest can write its kernel logs to. Has no effect if
+        the serial console is not also enabled on the guest kernel command line
+      parameters:
+        - name: body
+          in: body
+          description: Serial console properties
+          required: true
+          schema:
+            $ref: "#/definitions/SerialDevice"
+      responses:
+        204:
+          description: Serial device configured
+        default:
+          description: Internal server error
+          schema:
+            $ref: "#/definitions/Error"
 
   /network-interfaces/{iface_id}:
     put:
@@ -1333,6 +1354,15 @@ definitions:
     properties:
       rate_limiter:
         $ref: "#/definitions/RateLimiter"
+
+  SerialDevice:
+    type: object
+    description:
+      The configuration of the serial device
+    properties:
+      output_path:
+        type: string
+        description: Path to a file or named pipe on the host to which serial output should be written.
 
   FirecrackerVersion:
     type: object

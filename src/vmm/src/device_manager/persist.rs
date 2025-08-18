@@ -16,9 +16,7 @@ use super::mmio::*;
 use crate::arch::DeviceType;
 use crate::devices::acpi::vmgenid::{VMGenIDState, VMGenIdConstructorArgs, VmGenId, VmGenIdError};
 #[cfg(target_arch = "aarch64")]
-use crate::devices::legacy::serial::SerialOut;
-#[cfg(target_arch = "aarch64")]
-use crate::devices::legacy::{RTCDevice, SerialDevice};
+use crate::devices::legacy::RTCDevice;
 use crate::devices::virtio::balloon::persist::{BalloonConstructorArgs, BalloonState};
 use crate::devices::virtio::balloon::{Balloon, BalloonError};
 use crate::devices::virtio::block::BlockError;
@@ -358,13 +356,10 @@ impl<'a> Persist<'a> for MMIODeviceManager {
         {
             for state in &state.legacy_devices {
                 if state.type_ == DeviceType::Serial {
-                    let serial = Arc::new(Mutex::new(SerialDevice::new(
-                        Some(std::io::stdin()),
-                        SerialOut::Stdout(std::io::stdout()),
-                    )?));
-                    constructor_args
-                        .event_manager
-                        .add_subscriber(serial.clone());
+                    let serial = crate::DeviceManager::setup_serial_device(
+                        constructor_args.event_manager,
+                        constructor_args.vm_resources.serial_out_path.as_ref(),
+                    )?;
 
                     dev_manager.register_mmio_serial(vm, serial, Some(state.device_info))?;
                 }
@@ -676,7 +671,9 @@ mod tests {
             let entropy_config = EntropyDeviceConfig::default();
             insert_entropy_device(&mut vmm, &mut cmdline, &mut event_manager, entropy_config);
 
-            Snapshot::serialize(&mut buf.as_mut_slice(), &vmm.device_manager.save()).unwrap();
+            Snapshot::new(vmm.device_manager.save())
+                .save(&mut buf.as_mut_slice())
+                .unwrap();
         }
 
         tmp_sock_file.remove().unwrap();
@@ -684,7 +681,7 @@ mod tests {
         let mut event_manager = EventManager::new().expect("Unable to create EventManager");
         let vmm = default_vmm();
         let device_manager_state: device_manager::DevicesState =
-            Snapshot::deserialize(&mut buf.as_slice()).unwrap();
+            Snapshot::load(&mut buf.as_slice()).unwrap().data;
         let vm_resources = &mut VmResources::default();
         let restore_args = MMIODevManagerConstructorArgs {
             mem: vmm.vm.guest_memory(),

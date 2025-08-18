@@ -546,8 +546,8 @@ mod tests {
 
         let mut buf = vec![0; 10000];
 
-        Snapshot::serialize(&mut buf.as_mut_slice(), &v).unwrap();
-        let restored: Aarch64RegisterVec = Snapshot::deserialize(&mut buf.as_slice()).unwrap();
+        Snapshot::new(&v).save(&mut buf.as_mut_slice()).unwrap();
+        let restored: Aarch64RegisterVec = Snapshot::load(&mut buf.as_slice()).unwrap().data;
 
         for (old, new) in v.iter().zip(restored.iter()) {
             assert_eq!(old, new);
@@ -572,11 +572,11 @@ mod tests {
 
         let mut buf = vec![0; 10000];
 
-        Snapshot::serialize(&mut buf.as_mut_slice(), &v).unwrap();
+        Snapshot::new(&v).save(&mut buf.as_mut_slice()).unwrap();
 
         // Total size of registers according IDs are 16 + 16 = 32,
         // but actual data size is 8 + 16 = 24.
-        Snapshot::deserialize::<_, Aarch64RegisterVec>(&mut buf.as_slice()).unwrap_err();
+        Snapshot::<Aarch64RegisterVec>::load(&mut buf.as_slice()).unwrap_err();
     }
 
     #[test]
@@ -595,10 +595,10 @@ mod tests {
 
         let mut buf = vec![0; 10000];
 
-        Snapshot::serialize(&mut buf.as_mut_slice(), &v).unwrap();
+        Snapshot::new(v).save(&mut buf.as_mut_slice()).unwrap();
 
         // 4096 bit wide registers are not supported.
-        Snapshot::deserialize::<_, Aarch64RegisterVec>(&mut buf.as_slice()).unwrap_err();
+        Snapshot::<Aarch64RegisterVec>::load(&mut buf.as_slice()).unwrap_err();
     }
 
     #[test]

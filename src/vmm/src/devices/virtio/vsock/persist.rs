@@ -178,9 +178,9 @@ pub(crate) mod tests {
             frontend: ctx.device.save(),
         };
 
-        Snapshot::serialize(&mut mem.as_mut_slice(), &state).unwrap();
+        Snapshot::new(&state).save(&mut mem.as_mut_slice()).unwrap();
 
-        let restored_state: VsockState = Snapshot::deserialize(&mut mem.as_slice()).unwrap();
+        let restored_state: VsockState = Snapshot::load(&mut mem.as_slice()).unwrap().data;
         let mut restored_device = Vsock::restore(
             VsockConstructorArgs {
                 mem: ctx.mem.clone(),

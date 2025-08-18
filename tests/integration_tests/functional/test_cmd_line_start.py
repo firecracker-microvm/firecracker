@@ -117,7 +117,7 @@ def test_config_start_with_api(uvm_plain, vm_config_file):
     """
     test_microvm = uvm_plain
     vm_config = _configure_vm_from_json(test_microvm, vm_config_file)
-    test_microvm.spawn()
+    test_microvm.spawn(serial_out_path=None)
 
     assert test_microvm.state == "Running"
 
@@ -134,7 +134,7 @@ def test_config_start_no_api(uvm_plain, vm_config_file):
     test_microvm = uvm_plain
     _configure_vm_from_json(test_microvm, vm_config_file)
     test_microvm.jailer.extra_args.update({"no-api": None})
-    test_microvm.spawn()
+    test_microvm.spawn(serial_out_path=None)
 
     # Get names of threads in Firecracker.
     cmd = f"ps -T --no-headers -p {test_microvm.firecracker_pid} | awk '{{print $5}}'"
@@ -165,7 +165,7 @@ def test_config_start_no_api_exit(uvm_plain, vm_config_file):
     _configure_network_interface(test_microvm)
     test_microvm.jailer.extra_args.update({"no-api": None})
 
-    test_microvm.spawn()  # Start Firecracker and MicroVM
+    test_microvm.spawn(serial_out_path=None)  # Start Firecracker and MicroVM
     test_microvm.ssh.run("reboot")  # Exit
 
     test_microvm.mark_killed()  # waits for process to terminate
@@ -189,7 +189,7 @@ def test_config_bad_machine_config(uvm_plain, vm_config_file):
     test_microvm = uvm_plain
     _configure_vm_from_json(test_microvm, vm_config_file)
     test_microvm.jailer.extra_args.update({"no-api": None})
-    test_microvm.spawn()
+    test_microvm.spawn(serial_out_path=None)
     test_microvm.check_log_message("Configuration for VMM from one single json failed")
 
     test_microvm.mark_killed()
@@ -215,7 +215,7 @@ def test_config_machine_config_params(uvm_plain, test_config):
     _configure_vm_from_json(test_microvm, vm_config_file)
     test_microvm.jailer.extra_args.update({"no-api": None})
 
-    test_microvm.spawn()
+    test_microvm.spawn(serial_out_path=None)
 
     should_fail = False
     if cpu_template_used and "C3" not in SUPPORTED_CPU_TEMPLATES:
@@ -247,7 +247,7 @@ def test_config_start_with_limit(uvm_plain, vm_config_file):
 
     _configure_vm_from_json(test_microvm, vm_config_file)
     test_microvm.jailer.extra_args.update({"http-api-max-payload-size": "250"})
-    test_microvm.spawn()
+    test_microvm.spawn(serial_out_path=None)
 
     assert test_microvm.state == "Running"
 
@@ -277,7 +277,7 @@ def test_config_with_default_limit(uvm_plain, vm_config_file):
     test_microvm = uvm_plain
 
     _configure_vm_from_json(test_microvm, vm_config_file)
-    test_microvm.spawn()
+    test_microvm.spawn(serial_out_path=None)
 
     assert test_microvm.state == "Running"
 
@@ -311,7 +311,7 @@ def test_start_with_metadata(uvm_plain):
     metadata_file = DIR / "metadata.json"
     _add_metadata_file(test_microvm, metadata_file)
 
-    test_microvm.spawn()
+    test_microvm.spawn(serial_out_path=None)
 
     test_microvm.check_log_message("Successfully added metadata to mmds from file")
 
@@ -332,7 +332,7 @@ def test_start_with_metadata_limit(uvm_plain):
     metadata_file = DIR / "metadata.json"
     _add_metadata_file(test_microvm, metadata_file)
 
-    test_microvm.spawn()
+    test_microvm.spawn(serial_out_path=None)
 
     test_microvm.check_log_message(
         "Populating MMDS from file failed: The MMDS patch request doesn't fit."
@@ -352,7 +352,7 @@ def test_start_with_metadata_default_limit(uvm_plain):
 
     _add_metadata_file(test_microvm, metadata_file)
 
-    test_microvm.spawn()
+    test_microvm.spawn(serial_out_path=None)
 
     test_microvm.check_log_message(
         "Populating MMDS from file failed: The MMDS patch request doesn't fit."
@@ -372,7 +372,7 @@ def test_start_with_missing_metadata(uvm_plain):
     test_microvm.metadata_file = vm_metadata_path
 
     try:
-        test_microvm.spawn()
+        test_microvm.spawn(serial_out_path=None)
     except:  # pylint: disable=bare-except
         pass
     finally:
@@ -395,7 +395,7 @@ def test_start_with_invalid_metadata(uvm_plain):
     test_microvm.metadata_file = vm_metadata_path
 
     try:
-        test_microvm.spawn()
+        test_microvm.spawn(serial_out_path=None)
     except:  # pylint: disable=bare-except
         pass
     finally:
@@ -418,7 +418,7 @@ def test_config_start_and_mmds_with_api(uvm_plain, vm_config_file):
     _configure_network_interface(test_microvm)
 
     # Network namespace has already been created.
-    test_microvm.spawn()
+    test_microvm.spawn(serial_out_path=None)
 
     data_store = {
         "latest": {
@@ -480,7 +480,7 @@ def test_with_config_and_metadata_no_api(uvm_plain, vm_config_file, metadata_fil
     _add_metadata_file(test_microvm, metadata_file)
     _configure_network_interface(test_microvm)
     test_microvm.jailer.extra_args.update({"no-api": None})
-    test_microvm.spawn()
+    test_microvm.spawn(serial_out_path=None)
 
     # Get MMDS version and IPv4 address configured from the file.
     version, ipv4_address, imds_compat = _get_optional_fields_from_file(vm_config_file)
