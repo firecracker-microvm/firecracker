@@ -40,6 +40,7 @@ use crate::devices::virtio::transport::{VirtioInterrupt, VirtioInterruptType};
 use crate::devices::{DeviceError, report_net_event_fail};
 use crate::dumbo::pdu::arp::ETH_IPV4_FRAME_LEN;
 use crate::dumbo::pdu::ethernet::{EthernetFrame, PAYLOAD_OFFSET};
+use crate::impl_device_type;
 use crate::logger::{IncMetric, METRICS};
 use crate::mmds::data_store::Mmds;
 use crate::mmds::ns::MmdsNetworkStack;
@@ -961,6 +962,8 @@ impl Net {
 }
 
 impl VirtioDevice for Net {
+    impl_device_type!(VIRTIO_ID_NET);
+
     fn avail_features(&self) -> u64 {
         self.avail_features
     }
@@ -971,10 +974,6 @@ impl VirtioDevice for Net {
 
     fn set_acked_features(&mut self, acked_features: u64) {
         self.acked_features = acked_features;
-    }
-
-    fn device_type(&self) -> u32 {
-        VIRTIO_ID_NET
     }
 
     fn queues(&self) -> &[Queue] {
