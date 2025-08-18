@@ -504,9 +504,6 @@ pub enum GuestMemoryFromUffdError {
     HugetlbfsSnapshot,
 }
 
-// TODO remove these when the UFFD crate supports minor faults for guest_memfd
-const UFFDIO_REGISTER_MODE_MINOR: u64 = 1 << 2;
-
 type GuestMemoryResult =
     Result<(Vec<GuestRegionMmap>, Option<Uffd>, Option<UnixStream>), GuestMemoryFromUffdError>;
 
@@ -542,7 +539,7 @@ pub fn guest_memory_from_uffd(
     let mut fds = vec![uffd.as_raw_fd()];
 
     if let Some(gmem) = guest_memfd_fd {
-        mode = RegisterMode::from_bits_retain(UFFDIO_REGISTER_MODE_MINOR);
+        mode = RegisterMode::MINOR;
         fds.push(gmem);
         fds.push(
             userfault_bitmap_memfd
