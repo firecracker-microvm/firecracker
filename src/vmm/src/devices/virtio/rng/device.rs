@@ -21,6 +21,7 @@ use crate::devices::virtio::iov_deque::IovDequeError;
 use crate::devices::virtio::iovec::IoVecBufferMut;
 use crate::devices::virtio::queue::{FIRECRACKER_MAX_QUEUE_SIZE, InvalidAvailIdx, Queue};
 use crate::devices::virtio::transport::{VirtioInterrupt, VirtioInterruptType};
+use crate::impl_device_type;
 use crate::logger::{IncMetric, debug, error};
 use crate::rate_limiter::{RateLimiter, TokenType};
 use crate::vstate::memory::GuestMemoryMmap;
@@ -253,9 +254,7 @@ impl Entropy {
 }
 
 impl VirtioDevice for Entropy {
-    fn device_type(&self) -> u32 {
-        VIRTIO_ID_RNG
-    }
+    impl_device_type!(VIRTIO_ID_RNG);
 
     fn queues(&self) -> &[Queue] {
         &self.queues

@@ -476,6 +476,7 @@ pub(crate) mod tests {
     use super::*;
     use crate::devices::virtio::ActivateError;
     use crate::devices::virtio::device_status::DEVICE_NEEDS_RESET;
+    use crate::impl_device_type;
     use crate::test_utils::single_region_mem;
     use crate::utils::byte_order::{read_le_u32, write_le_u32};
     use crate::utils::u64_to_usize;
@@ -516,6 +517,8 @@ pub(crate) mod tests {
     }
 
     impl VirtioDevice for DummyDevice {
+        impl_device_type!(123);
+
         fn avail_features(&self) -> u64 {
             self.avail_features
         }
@@ -526,10 +529,6 @@ pub(crate) mod tests {
 
         fn set_acked_features(&mut self, acked_features: u64) {
             self.acked_features = acked_features;
-        }
-
-        fn device_type(&self) -> u32 {
-            123
         }
 
         fn queues(&self) -> &[Queue] {

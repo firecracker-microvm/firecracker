@@ -373,7 +373,6 @@ impl DeviceManager {
     /// Run fn `f()` for the virtio device matching `virtio_type` and `id`.
     pub fn try_with_virtio_device_with_id<T, F, R, E>(
         &self,
-        virtio_type: u32,
         id: &str,
         f: F,
     ) -> Result<R, FindDeviceError>
@@ -382,7 +381,7 @@ impl DeviceManager {
         E: std::error::Error + 'static + Send + Sync,
         F: FnOnce(&mut T) -> Result<R, E>,
     {
-        if let Some(device) = self.get_virtio_device(virtio_type, id) {
+        if let Some(device) = self.get_virtio_device(T::const_device_type(), id) {
             let mut dev = device.lock().expect("Poisoned lock");
             f(dev
                 .as_mut_any()
@@ -395,19 +394,12 @@ impl DeviceManager {
     }
 
     /// Run fn `f()` for the virtio device matching `virtio_type` and `id`.
-    pub fn with_virtio_device_with_id<T, F, R>(
-        &self,
-        virtio_type: u32,
-        id: &str,
-        f: F,
-    ) -> Result<R, FindDeviceError>
+    pub fn with_virtio_device_with_id<T, F, R>(&self, id: &str, f: F) -> Result<R, FindDeviceError>
     where
         T: VirtioDevice + 'static + Debug,
         F: FnOnce(&mut T) -> R,
     {
-        self.try_with_virtio_device_with_id(virtio_type, id, |dev: &mut T| {
-            Ok::<R, FindDeviceError>(f(dev))
-        })
+        self.try_with_virtio_device_with_id(id, |dev: &mut T| Ok::<R, FindDeviceError>(f(dev)))
     }
 }
 

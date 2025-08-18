@@ -27,6 +27,7 @@ use crate::devices::virtio::vhost_user::{VhostUserHandleBackend, VhostUserHandle
 use crate::devices::virtio::vhost_user_metrics::{
     VhostUserDeviceMetrics, VhostUserMetricsPerDevice,
 };
+use crate::impl_device_type;
 use crate::logger::{IncMetric, StoreMetric, log_dev_preview_warning};
 use crate::utils::u64_to_usize;
 use crate::vmm_config::drive::BlockDeviceConfig;
@@ -287,6 +288,8 @@ impl<T: VhostUserHandleBackend> VhostUserBlockImpl<T> {
 }
 
 impl<T: VhostUserHandleBackend + Send + 'static> VirtioDevice for VhostUserBlockImpl<T> {
+    impl_device_type!(VIRTIO_ID_BLOCK);
+
     fn avail_features(&self) -> u64 {
         self.avail_features
     }
@@ -297,10 +300,6 @@ impl<T: VhostUserHandleBackend + Send + 'static> VirtioDevice for VhostUserBlock
 
     fn set_acked_features(&mut self, acked_features: u64) {
         self.acked_features = acked_features;
-    }
-
-    fn device_type(&self) -> u32 {
-        VIRTIO_ID_BLOCK
     }
 
     fn queues(&self) -> &[Queue] {
