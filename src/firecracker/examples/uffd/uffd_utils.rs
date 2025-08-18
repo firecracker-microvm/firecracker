@@ -18,7 +18,6 @@ use std::ffi::c_void;
 use std::fs::File;
 use std::io::{Read, Write};
 use std::num::NonZero;
-use std::os::fd::RawFd;
 use std::os::unix::io::{AsRawFd, FromRawFd, IntoRawFd};
 use std::os::unix::net::UnixStream;
 use std::ptr;
@@ -28,46 +27,9 @@ use std::time::Duration;
 use serde::{Deserialize, Serialize};
 use serde_json::{Deserializer, StreamDeserializer};
 use userfaultfd::{Error, Event, Uffd};
-use vmm_sys_util::ioctl::ioctl_with_mut_ref;
-use vmm_sys_util::ioctl_iowr_nr;
 use vmm_sys_util::sock_ctrl_msg::ScmSocket;
 
 use crate::uffd_utils::userfault_bitmap::UserfaultBitmap;
-
-// TODO: remove when UFFDIO_CONTINUE for guest_memfd is available in the crate
-#[repr(C)]
-struct uffdio_continue {
-    range: uffdio_range,
-    mode: u64,
-    mapped: u64,
-}
-
-ioctl_iowr_nr!(UFFDIO_CONTINUE, 0xAA, 0x7, uffdio_continue);
-
-#[repr(C)]
-struct uffdio_range {
-    start: u64,
-    len: u64,
-}
-
-pub fn uffd_continue(uffd: RawFd, fault_addr: u64, len: u64) -> std::io::Result<()> {
-    let mut cont = uffdio_continue {
-        range: uffdio_range {
-            start: fault_addr,
-            len,
-        },
-        mode: 0, // Normal continuation mode
-        mapped: 0,
-    };
-
-    let ret = unsafe { ioctl_with_mut_ref(&uffd, UFFDIO_CONTINUE(), &mut cont) };
-
-    if ret == -1 {
-        return Err(std::io::Error::last_os_error());
-    }
-
-    Ok(())
-}
 
 // This is the same with the one used in src/vmm.
 /// This describes the mapping between Firecracker base virtual address and offset in the
@@ -440,7 +402,9 @@ impl UffdHandler {
             .unwrap()
             .reset_addr_range(offset, len);
 
-        uffd_continue(self.uffd.as_raw_fd(), dst, len as u64).expect("uffd_continue");
+        self.uffd
+            .r#continue(dst as _, len, true)
+            .expect("uffd_continue");
 
         true
     }

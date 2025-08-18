@@ -10,12 +10,9 @@
 mod uffd_utils;
 
 use std::fs::File;
-use std::os::fd::AsRawFd;
 use std::os::unix::net::UnixListener;
 
 use uffd_utils::{Runtime, UffdHandler};
-
-use crate::uffd_utils::uffd_continue;
 
 fn main() {
     let mut args = std::env::args();
@@ -112,14 +109,12 @@ fn main() {
                                     // TODO: we currently ignore the result as we may attempt to
                                     // populate the page that is already present as we may receive
                                     // multiple minor fault events per page.
-                                    let _ = uffd_continue(
-                                        uffd_handler.uffd.as_raw_fd(),
-                                        addr as _,
-                                        uffd_handler.page_size as u64,
-                                    )
-                                    .inspect_err(|err| {
-                                        println!("uffdio_continue error: {:?}", err)
-                                    });
+                                    let _ = uffd_handler
+                                        .uffd
+                                        .r#continue(addr.cast(), uffd_handler.page_size, true)
+                                        .inspect_err(|err| {
+                                            println!("uffdio_continue error: {:?}", err)
+                                        });
                                 }
                             } else if !uffd_handler.serve_pf(addr.cast(), uffd_handler.page_size) {
                                 deferred_events.push(event);
