@@ -366,8 +366,13 @@ mod tests {
             mem,
             is_activated: true,
         };
-        let restored_queue =
-            Queue::restore(ca, &Snapshot::load(&mut bytes.as_slice()).unwrap().data).unwrap();
+        let restored_queue = Queue::restore(
+            ca,
+            &Snapshot::load_without_crc_check(bytes.as_slice())
+                .unwrap()
+                .data,
+        )
+        .unwrap();
 
         assert_eq!(restored_queue, queue);
     }
@@ -380,7 +385,9 @@ mod tests {
         let state = VirtioDeviceState::from_device(&dummy);
         Snapshot::new(&state).save(&mut mem.as_mut_slice()).unwrap();
 
-        let restored_state: VirtioDeviceState = Snapshot::load(&mut mem.as_slice()).unwrap().data;
+        let restored_state: VirtioDeviceState = Snapshot::load_without_crc_check(mem.as_slice())
+            .unwrap()
+            .data;
         assert_eq!(restored_state, state);
     }
 
@@ -419,7 +426,9 @@ mod tests {
         };
         let restored_mmio_transport = MmioTransport::restore(
             restore_args,
-            &Snapshot::load(&mut buf.as_slice()).unwrap().data,
+            &Snapshot::load_without_crc_check(buf.as_slice())
+                .unwrap()
+                .data,
         )
         .unwrap();
 

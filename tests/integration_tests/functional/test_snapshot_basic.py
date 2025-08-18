@@ -236,8 +236,9 @@ def test_load_snapshot_failure_handling(uvm_plain):
     jailed_vmstate = vm.create_jailed_resource(snapshot_vmstate)
 
     # Load the snapshot
-    expected_msg = 'An error occured during bincode decoding: Io { inner: Error { kind: UnexpectedEof, message: "failed to fill whole buffer" }'
-    with pytest.raises(RuntimeError, match=expected_msg):
+    with pytest.raises(
+        RuntimeError, match="Snapshot file is not long enough to even contain the CRC"
+    ):
         vm.api.snapshot_load.put(mem_file_path=jailed_mem, snapshot_path=jailed_vmstate)
 
     vm.mark_killed()

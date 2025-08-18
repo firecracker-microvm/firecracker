@@ -175,7 +175,9 @@ mod tests {
                     mem: guest_mem,
                     mmds: mmds_ds,
                 },
-                &Snapshot::load(&mut mem.as_slice()).unwrap().data,
+                &Snapshot::load_without_crc_check(mem.as_slice())
+                    .unwrap()
+                    .data,
             ) {
                 Ok(restored_net) => {
                     // Test that virtio specific fields are the same.
