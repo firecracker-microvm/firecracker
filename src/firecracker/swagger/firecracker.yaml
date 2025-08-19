@@ -560,6 +560,43 @@ paths:
           schema:
             $ref: "#/definitions/Error"
 
+  /hotplug/memory:
+    put:
+      summary: Configures the hotpluggable memory
+      operationId: putMemoryHotplug
+      description:
+        Configure the hotpluggable memory, which is a virtio-mem device, with an associated memory area
+        that can be hot(un)plugged in the guest on demand using the PATCH API.
+      parameters:
+        - name: body
+          in: body
+          description: Hotpluggable memory configuration
+          required: true
+          schema:
+            $ref: "#/definitions/MemoryHotplugConfig"
+      responses:
+        204:
+          description: Hotpluggable memory configured
+        default:
+          description: Internal server error
+          schema:
+            $ref: "#/definitions/Error"
+    get:
+      summary: Retrieves the status of the hotpluggable memory
+      operationId: getMemoryHotplug
+      description:
+        Reuturn the status of the hotpluggable memory. This can be used to follow the progress of the guest
+        after a PATCH API.
+      responses:
+        200:
+          description: OK
+          schema:
+            $ref: "#/definitions/MemoryHotplugStatus"
+        default:
+          description: Internal server error
+          schema:
+            $ref: "#/definitions/Error"
+
   /network-interfaces/{iface_id}:
     put:
       summary: Creates a network interface. Pre-boot only.
@@ -1419,6 +1456,48 @@ definitions:
       output_path:
         type: string
         description: Path to a file or named pipe on the host to which serial output should be written.
+
+  MemoryHotplugConfig:
+    type: object
+    description:
+      The configuration of the hotpluggable memory device (virtio-mem)
+    properties:
+      total_size_mib:
+        type: integer
+        description: Total size of the hotpluggable memory in MiB.
+      slot_size_mib:
+        type: integer
+        default: 128
+        minimum: 128
+        description: Slot size for the hotpluggable memory in MiB. This will determine the granularity of
+          hot-plug memory from the host. Refer to the device documentation on how to tune this value.
+      block_size_mib:
+        type: integer
+        default: 2
+        minimum: 2
+        description: (Logical) Block size for the hotpluggable memory in MiB. This will determine the logical
+          granularity of hot-plug memory for the guest. Refer to the device documentation on how to tune this value.
+
+  MemoryHotplugStatus:
+    type: object
+    description:
+      The status of the hotpluggable memory device (virtio-mem)
+    properties:
+      total_size_mib:
+        type: integer
+        description: Total size of the hotpluggable memory in MiB.
+      slot_size_mib:
+        type: integer
+        description: Slot size for the hotpluggable memory in MiB.
+      block_size_mib:
+        type: integer
+        description: (Logical) Block size for the hotpluggable memory in MiB.
+      plugged_size_mib:
+        type: integer
+        description: Plugged size for the hotpluggable memory in MiB.
+      requested_size_mib:
+        type: integer
+        description: Requested size for the hotpluggable memory in MiB.
 
   FirecrackerVersion:
     type: object
