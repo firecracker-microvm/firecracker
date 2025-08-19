@@ -187,7 +187,20 @@ impl<Data: Serialize> Snapshot<Data> {
 
 #[cfg(test)]
 mod tests {
+    use vmm_sys_util::tempfile::TempFile;
+
     use super::*;
+    use crate::persist::MicrovmState;
+
+    #[test]
+    fn test_snapshot_restore() {
+        let state = MicrovmState::default();
+        let file = TempFile::new().unwrap();
+
+        Snapshot::new(state).save(&mut file.as_file()).unwrap();
+        file.as_file().seek(SeekFrom::Start(0)).unwrap();
+        Snapshot::<MicrovmState>::load(&mut file.as_file()).unwrap();
+    }
 
     #[test]
     fn test_parse_version_from_file() {
