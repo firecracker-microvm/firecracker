@@ -19,7 +19,7 @@ libc = "0.2.175"
 log-instrument = { path = "../log-instrument", optional = true }
 serde = { version = "1.0.219", features = ["derive"] }
 serde_json = "1.0.142"
-thiserror = "2.0.14"
+thiserror = "2.0.15"
 
 vmm = { path = "../vmm" }
 vmm-sys-util = "0.14.0"
