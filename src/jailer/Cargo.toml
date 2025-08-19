@@ -18,7 +18,7 @@ tracing = ["log-instrument", "utils/tracing"]
 libc = "0.2.175"
 log-instrument = { path = "../log-instrument", optional = true }
 regex = { version = "1.11.1", default-features = false, features = ["std"] }
-thiserror = "2.0.14"
+thiserror = "2.0.15"
 vmm-sys-util = "0.14.0"
 
 utils = { path = "../utils" }
