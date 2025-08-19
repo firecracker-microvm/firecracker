@@ -46,7 +46,7 @@ def network_microvm(request, uvm_plain_acpi):
     guest_vcpus = request.param
 
     vm = uvm_plain_acpi
-    vm.spawn(log_level="Info", emit_metrics=True, serial_out_path=None)
+    vm.spawn(log_level="Info", emit_metrics=True)
     vm.basic_config(vcpu_count=guest_vcpus, mem_size_mib=guest_mem_mib)
     vm.add_net_iface()
     vm.start()

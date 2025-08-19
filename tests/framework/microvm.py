@@ -1231,10 +1231,7 @@ class MicroVMFactory:
     def build_from_snapshot(self, snapshot: Snapshot):
         """Build a microvm from a snapshot"""
         vm = self.build()
-        if getattr(self, "hack_no_serial", False):
-            vm.spawn(serial_out_path=None)
-        else:
-            vm.spawn()
+        vm.spawn()
         vm.restore_from_snapshot(snapshot, resume=True)
         return vm
 
