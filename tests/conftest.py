@@ -605,10 +605,7 @@ def uvm_booted(
 ):
     """Return a booted uvm"""
     uvm = microvm_factory.build(guest_kernel, rootfs, pci=pci_enabled)
-    if getattr(microvm_factory, "hack_no_serial", False):
-        uvm.spawn(serial_out_path=None)
-    else:
-        uvm.spawn()
+    uvm.spawn()
     uvm.basic_config(vcpu_count=vcpu_count, mem_size_mib=mem_size_mib)
     uvm.set_cpu_template(cpu_template)
     uvm.add_net_iface()

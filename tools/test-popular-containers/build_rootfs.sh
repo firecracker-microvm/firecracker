@@ -52,7 +52,7 @@ case \$ID in
 ubuntu)
     export DEBIAN_FRONTEND=noninteractive
     apt update
-    apt install -y openssh-server iproute2
+    apt install -y openssh-server iproute2 udev
     ;;
 alpine)
     apk add openssh openrc
@@ -62,7 +62,7 @@ alpine)
     ;;
 amzn)
     dnf update
-    dnf install -y openssh-server iproute passwd
+    dnf install -y openssh-server iproute passwd systemd-udev
     # re-do this
     ln -svf /etc/systemd/system/fcnet.service /etc/systemd/system/sysinit.target.wants/fcnet.service
     rm -fv /etc/systemd/system/getty.target.wants/getty@tty1.service

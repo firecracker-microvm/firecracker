@@ -52,7 +52,7 @@ class SnapshotRestoreTest:
             monitor_memory=False,
             pci=pci_enabled,
         )
-        vm.spawn(log_level="Info", emit_metrics=True, serial_out_path=None)
+        vm.spawn(log_level="Info", emit_metrics=True)
         vm.time_api_requests = False
         vm.basic_config(
             vcpu_count=self.vcpus,
@@ -271,7 +271,7 @@ def test_snapshot_create_latency(
     """Measure the latency of creating a Full snapshot"""
 
     vm = uvm_plain
-    vm.spawn(serial_out_path=None)
+    vm.spawn()
     vm.basic_config(
         vcpu_count=2,
         mem_size_mib=512,
