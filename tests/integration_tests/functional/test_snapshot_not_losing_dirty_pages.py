@@ -37,6 +37,7 @@ def test_diff_snapshot_works_after_error(
     )
 
     vm_mem_size = 128
+    uvm.time_api_requests = False  # The log may be incomplete due to lack of space
     uvm.spawn()
     uvm.basic_config(mem_size_mib=vm_mem_size, track_dirty_pages=True)
     uvm.add_net_iface()
