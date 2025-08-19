@@ -34,10 +34,12 @@ use super::{VsockBackend, defs};
 use crate::devices::virtio::ActivateError;
 use crate::devices::virtio::device::{ActiveState, DeviceState, VirtioDevice};
 use crate::devices::virtio::generated::virtio_config::{VIRTIO_F_IN_ORDER, VIRTIO_F_VERSION_1};
+use crate::devices::virtio::generated::virtio_ids::VIRTIO_ID_VSOCK;
 use crate::devices::virtio::queue::{InvalidAvailIdx, Queue as VirtQueue};
 use crate::devices::virtio::transport::{VirtioInterrupt, VirtioInterruptType};
 use crate::devices::virtio::vsock::VsockError;
 use crate::devices::virtio::vsock::metrics::METRICS;
+use crate::impl_device_type;
 use crate::logger::IncMetric;
 use crate::utils::byte_order;
 use crate::vstate::memory::{Bytes, GuestMemoryMmap};
@@ -282,6 +284,8 @@ impl<B> VirtioDevice for Vsock<B>
 where
     B: VsockBackend + Debug + 'static,
 {
+    impl_device_type!(VIRTIO_ID_VSOCK);
+
     fn avail_features(&self) -> u64 {
         self.avail_features
     }
@@ -292,10 +296,6 @@ where
 
     fn set_acked_features(&mut self, acked_features: u64) {
         self.acked_features = acked_features
-    }
-
-    fn device_type(&self) -> u32 {
-        uapi::VIRTIO_ID_VSOCK
     }
 
     fn queues(&self) -> &[VirtQueue] {
@@ -412,7 +412,7 @@ mod tests {
             (driver_features & 0xffff_ffff) as u32,
             (driver_features >> 32) as u32,
         ];
-        assert_eq!(ctx.device.device_type(), uapi::VIRTIO_ID_VSOCK);
+        assert_eq!(ctx.device.device_type(), VIRTIO_ID_VSOCK);
         assert_eq!(ctx.device.avail_features_by_page(0), device_pages[0]);
         assert_eq!(ctx.device.avail_features_by_page(1), device_pages[1]);
         assert_eq!(ctx.device.avail_features_by_page(2), 0);

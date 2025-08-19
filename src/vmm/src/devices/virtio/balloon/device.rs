@@ -10,9 +10,9 @@ use serde::Serialize;
 use timerfd::{ClockId, SetTimeFlags, TimerFd, TimerState};
 use vmm_sys_util::eventfd::EventFd;
 
+use super::super::ActivateError;
 use super::super::device::{DeviceState, VirtioDevice};
 use super::super::queue::Queue;
-use super::super::{ActivateError, TYPE_BALLOON};
 use super::metrics::METRICS;
 use super::util::{compact_page_frame_numbers, remove_range};
 use super::{
@@ -27,11 +27,13 @@ use super::{
 use crate::devices::virtio::balloon::BalloonError;
 use crate::devices::virtio::device::ActiveState;
 use crate::devices::virtio::generated::virtio_config::VIRTIO_F_VERSION_1;
+use crate::devices::virtio::generated::virtio_ids::VIRTIO_ID_BALLOON;
 use crate::devices::virtio::queue::InvalidAvailIdx;
 use crate::devices::virtio::transport::{VirtioInterrupt, VirtioInterruptType};
 use crate::logger::IncMetric;
 use crate::utils::u64_to_usize;
 use crate::vstate::memory::{Address, ByteValued, Bytes, GuestAddress, GuestMemoryMmap};
+use crate::{impl_device_type, mem_size_mib};
 
 const SIZE_OF_U32: usize = std::mem::size_of::<u32>();
 const SIZE_OF_STAT: usize = std::mem::size_of::<BalloonStat>();
@@ -39,7 +41,9 @@ const SIZE_OF_STAT: usize = std::mem::size_of::<BalloonStat>();
 fn mib_to_pages(amount_mib: u32) -> Result<u32, BalloonError> {
     amount_mib
         .checked_mul(MIB_TO_4K_PAGES)
-        .ok_or(BalloonError::TooManyPagesRequested)
+        .ok_or(BalloonError::TooMuchMemoryRequested(
+            u32::MAX / MIB_TO_4K_PAGES,
+        ))
 }
 
 fn pages_to_mib(amount_pages: u32) -> u32 {
@@ -80,7 +84,7 @@ pub struct BalloonConfig {
 }
 
 /// BalloonStats holds statistics returned from the stats_queue.
-#[derive(Clone, Default, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Copy, Default, Debug, PartialEq, Eq, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct BalloonStats {
     /// The target size of the balloon, in 4K pages.
@@ -449,6 +453,12 @@ impl Balloon {
     /// Update the target size of the balloon.
     pub fn update_size(&mut self, amount_mib: u32) -> Result<(), BalloonError> {
         if self.is_activated() {
+            let mem = &self.device_state.active_state().unwrap().mem;
+            // The balloon cannot have a target size greater than the size of
+            // the guest memory.
+            if u64::from(amount_mib) > mem_size_mib(mem) {
+                return Err(BalloonError::TooMuchMemoryRequested(amount_mib));
+            }
             self.config_space.num_pages = mib_to_pages(amount_mib)?;
             self.interrupt_trigger()
                 .trigger(VirtioInterruptType::Config)
@@ -503,15 +513,15 @@ impl Balloon {
     }
 
     /// Retrieve latest stats for the balloon device.
-    pub fn latest_stats(&mut self) -> Option<&BalloonStats> {
+    pub fn latest_stats(&mut self) -> Result<BalloonStats, BalloonError> {
         if self.stats_enabled() {
             self.latest_stats.target_pages = self.config_space.num_pages;
             self.latest_stats.actual_pages = self.config_space.actual_pages;
             self.latest_stats.target_mib = pages_to_mib(self.latest_stats.target_pages);
             self.latest_stats.actual_mib = pages_to_mib(self.latest_stats.actual_pages);
-            Some(&self.latest_stats)
+            Ok(self.latest_stats)
         } else {
-            None
+            Err(BalloonError::StatisticsDisabled)
         }
     }
 
@@ -534,6 +544,8 @@ impl Balloon {
 }
 
 impl VirtioDevice for Balloon {
+    impl_device_type!(VIRTIO_ID_BALLOON);
+
     fn avail_features(&self) -> u64 {
         self.avail_features
     }
@@ -544,10 +556,6 @@ impl VirtioDevice for Balloon {
 
     fn set_acked_features(&mut self, acked_features: u64) {
         self.acked_features = acked_features;
-    }
-
-    fn device_type(&self) -> u32 {
-        TYPE_BALLOON
     }
 
     fn queues(&self) -> &[Queue] {
@@ -732,7 +740,7 @@ pub(crate) mod tests {
         for deflate_on_oom in [true, false].iter() {
             for stats_interval in [0, 1].iter() {
                 let mut balloon = Balloon::new(0, *deflate_on_oom, *stats_interval, false).unwrap();
-                assert_eq!(balloon.device_type(), TYPE_BALLOON);
+                assert_eq!(balloon.device_type(), VIRTIO_ID_BALLOON);
 
                 let features: u64 = (1u64 << VIRTIO_F_VERSION_1)
                     | (u64::from(*deflate_on_oom) << VIRTIO_BALLOON_F_DEFLATE_ON_OOM)
@@ -1072,7 +1080,7 @@ pub(crate) mod tests {
                 free_memory: Some(0x5678),
                 ..BalloonStats::default()
             };
-            assert_eq!(stats, &expected_stats);
+            assert_eq!(stats, expected_stats);
 
             // Wait for the timer to expire, although as it is non-blocking
             // we could just process the timer event and it would not
@@ -1149,7 +1157,7 @@ pub(crate) mod tests {
         let mut balloon = Balloon::new(0, true, 0, false).unwrap();
         // Switch the state to active.
         balloon.device_state = DeviceState::Activated(ActiveState {
-            mem: single_region_mem(0x1),
+            mem: single_region_mem(32 << 20),
             interrupt: default_interrupt(),
         });
 

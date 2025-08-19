@@ -67,8 +67,6 @@ const VIRTIO_BALLOON_S_HTLB_PGFAIL: u16 = 9;
 /// Balloon device related errors.
 #[derive(Debug, thiserror::Error, displaydoc::Display)]
 pub enum BalloonError {
-    /// No balloon device found.
-    DeviceNotFound,
     /// Device not activated yet.
     DeviceNotActive,
     /// EventFd error: {0}
@@ -85,8 +83,8 @@ pub enum BalloonError {
     StatisticsDisabled,
     /// Statistics cannot be enabled/disabled after activation.
     StatisticsStateChange,
-    /// Amount of pages requested cannot fit in `u32`.
-    TooManyPagesRequested,
+    /// Requested memory should be less than {0}MiB
+    TooMuchMemoryRequested(u32),
     /// Error while processing the virt queues: {0}
     Queue(#[from] QueueError),
     /// {0}
