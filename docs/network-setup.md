@@ -4,8 +4,10 @@ This is a simple quick-start guide to getting one or more Firecracker microVMs
 connected to the Internet via the host. If you run a production setup, you
 should consider modifying this setup to accommodate your specific needs.
 
-**Note:** Currently, Firecracker supports only a TUN/TAP network backend with no
-multi queue support.
+> [!NOTE]
+>
+> Currently, Firecracker supports only a TUN/TAP network backend with no multi
+> queue support.
 
 The steps in this guide assume `eth0` to be your Internet-facing network
 interface on the host. If `eth0` isn't your main network interface, you should
@@ -58,8 +60,10 @@ sudo ip addr add 172.16.0.1/30 dev tap0
 sudo ip link set tap0 up
 ```
 
-**Note:** The IP of the TAP device should be chosen such that it's not in the
-same subnet as the IP address of the host.
+> [!NOTE]
+>
+> The IP of the TAP device should be chosen such that it's not in the same
+> subnet as the IP address of the host.
 
 We'll need to enable IPv4 forwarding on the system.
 
@@ -107,24 +111,39 @@ sudo iptables-nft -A FORWARD -i tap0 -o eth0 -j ACCEPT
 
 ## Setting Up Firecracker
 
+> [!NOTE]
+>
+> If you use the rootfs from the [getting started guide](getting-started.md),
+> you need to use a specific `MAC` address like `06:00:AC:10:00:02`. In this
+> `MAC` address, the last 4 bytes (`AC:10:00:02`) will represent the IP address
+> of the guest. In the default case, it is `172.16.0.2`. Otherwise, you can skip
+> the `guest_mac` field for network configuration. This way, the guest will
+> generate a random MAC address on startup.
+
+> [!NOTE]
+>
+> The `iface_id` used during VM configuration is internal to Firecracker and
+> only used for management purposes. The name of the network interface in the
+> guest is determined by the guest itself. In this example we assume the guest
+> will name the network interface `eth0`.
+
+> [!NOTE]
+>
+> Firecracker cannot guarantee that the network interfaces in the guest will be
+> initialized in the guest in the same order as API calls used to set them up.
+> At the same time most kernels/distributions do initialize devices in the API
+> defined order.
+
 Before starting the guest, configure the network interface using Firecracker's
 API:
 
-**Note:** If you use the rootfs from the
-[getting started guide](getting-started.md), you need to use a specific `MAC`
-address like `06:00:AC:10:00:02`. In this `MAC` address, the last 4 bytes
-(`AC:10:00:02`) will represent the IP address of the guest. In the default case,
-it is `172.16.0.2`. Otherwise, you can skip the `guest_mac` field for network
-configuration. This way, the guest will generate a random MAC address on
-startup.
-
 ```bash
 curl --unix-socket /tmp/firecracker.socket -i \
-  -X PUT 'http://localhost/network-interfaces/eth0' \
+  -X PUT 'http://localhost/network-interfaces/my_network0' \
   -H 'Accept: application/json' \
   -H 'Content-Type: application/json' \
   -d '{
-      "iface_id": "eth0",
+      "iface_id": "my_network0",
       "guest_mac": "06:00:AC:10:00:02",
       "host_dev_name": "tap0"
     }'
@@ -136,7 +155,7 @@ configuration file like this:
 ```json
 "network-interfaces": [
   {
-    "iface_id": "eth0",
+    "iface_id": "my_network0",
     "guest_mac": "06:00:AC:10:00:02",
     "host_dev_name": "tap0"
   }
@@ -147,9 +166,6 @@ Alternatively, if you are using firectl, add
 `--tap-device=tap0/06:00:AC:10:00:02\` to your command line.
 
 ## In The Guest
-
-Once you have booted the guest, it will have its networking interface with the
-name specified by `iface_id` in the Firecracker configuration.
 
 You'll now need to assign the guest its IP, activate the guest's networking
 interface and set up the `tap` IP as the guest's gateway address, so that
@@ -172,10 +188,13 @@ your environment. For testing, you can add a public DNS server to
 nameserver 8.8.8.8
 ```
 
-**Note:** Sometimes, it's undesirable to have `iproute2` (providing the `ip`
-command) installed on your guest OS, or you simply want to have these steps be
-performed automatically. To do this, check out the _Advanced: Guest network
-configuration using kernel command line_ section.
+> [!NOTE]
+>
+> Sometimes, it's undesirable to have `iproute2` (providing the `ip` command)
+> installed on your guest OS, or you simply want to have these steps be
+> performed automatically. To do this, check out the
+> [Advanced: Guest network configuration using kernel command line](#advanced-guest-network-configuration-using-kernel-command-line)
+> section.
 
 ## Cleaning up
 
@@ -304,33 +323,36 @@ ip link set eth0 up
 ip route add default via 172.16.0.5 dev eth0
 ```
 
-Or, you can use the setup from _Advanced: Guest network configuration at kernel
-level_ by simply changing the G and T variables, i.e. the guest IP and `tap` IP.
+Or, you can use the setup from
+[Advanced: Guest network configuration](#advanced-guest-network-configuration-using-kernel-command-line)
+by simply changing the G and T variables, i.e. the guest IP and `tap` IP.
 
-**Note:** if you'd like to calculate the guest and `tap` IPs using the
-sequential subnet allocation method that has been used here, you can use the
-following formulas specific to IPv4 addresses:
-
-`tap` IP = `172.16.[(A*O+1)/256].[(A*O+1)%256]`.
-
-Guest IP = `172.16.[(A*O+2)/256].[(A*O+2)%256]`.
-
-Round down the division and replace `A` with the amount of IP addresses inside
-your subnet (for a /30 subnet, that will be 4 addresses, for example) and
-replace `O` with the sequential number of your microVM, starting at 0. You can
-replace `172.16` with any other values that fit between between 1 and 255 as
-usual with an IPv4 address.
-
-For example, let's calculate the addresses of the 1000-th microVM with a /30
-subnet in the `172.16.0.0/16` range:
-
-`tap` IP = `172.16.[(4*999+1)/256].[(4*999+1)%256]` = `172.16.15.157`.
-
-Guest IP = `172.16.[(4*999+2)/256].[(4*999+2)%256]` = `172.16.15.158`.
-
-This allocation setup has been used successfully in the `firecracker-demo`
-project for launching several thousand microVMs on the same host:
-[relevant lines](https://github.com/firecracker-microvm/firecracker-demo/blob/63717c6e7fbd277bdec8e26a5533d53544a760bb/start-firecracker.sh#L45).
+> [!NOTE]
+>
+> If you'd like to calculate the guest and `tap` IPs using the sequential subnet
+> allocation method that has been used here, you can use the following formulas
+> specific to IPv4 addresses:
+>
+> `tap` IP = `172.16.[(A*O+1)/256].[(A*O+1)%256]`.
+>
+> Guest IP = `172.16.[(A*O+2)/256].[(A*O+2)%256]`.
+>
+> Round down the division and replace `A` with the amount of IP addresses inside
+> your subnet (for a /30 subnet, that will be 4 addresses, for example) and
+> replace `O` with the sequential number of your microVM, starting at 0. You can
+> replace `172.16` with any other values that fit between between 1 and 255 as
+> usual with an IPv4 address.
+>
+> For example, let's calculate the addresses of the 1000-th microVM with a /30
+> subnet in the `172.16.0.0/16` range:
+>
+> `tap` IP = `172.16.[(4*999+1)/256].[(4*999+1)%256]` = `172.16.15.157`.
+>
+> Guest IP = `172.16.[(4*999+2)/256].[(4*999+2)%256]` = `172.16.15.158`.
+>
+> This allocation setup has been used successfully in the `firecracker-demo`
+> project for launching several thousand microVMs on the same host:
+> [relevant lines](https://github.com/firecracker-microvm/firecracker-demo/blob/63717c6e7fbd277bdec8e26a5533d53544a760bb/start-firecracker.sh#L45).
 
 ## Advanced: Bridge-based routing
 
