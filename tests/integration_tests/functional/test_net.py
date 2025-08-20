@@ -127,3 +127,38 @@ def test_tap_offload(uvm_any):
         with attempt:
             ret = vm.ssh.check_output(f"sync; cat {out_filename}")
             assert ret.stdout == message, f"{ret.stdout=} {ret.stderr=}"
+
+def test_reset(uvm_plain_any):
+    """
+    Verify that we can reset a net device in the guest
+    """
+    vm = uvm_plain_any
+    vm.spawn()
+    vm.basic_config()
+
+    # eth0/virtio1
+    vm.add_net_iface()
+    # eth1/virtio2
+    vm.add_net_iface()
+    guest_ip_eth1 = vm.iface["eth1"]["iface"].guest_ip
+
+    vm.start()
+
+    # Check eth1
+    vm.ssh.check_output("ping -I eth1 192.168.0.1 -c 1 -W 1")
+
+    # Trigger reset of eth1 in the guest
+    vm.ssh.check_output("echo virtio2 > /sys/bus/virtio/devices/virtio2/driver/unbind")
+
+    exitcode, _, _ = vm.ssh.run("ping -I eth1 192.168.0.1 -c 1 -W 1")
+    assert exitcode != 0, "Ping should fail after resetting the net device"
+
+    # Bring eth1 back up
+    vm.ssh.check_output(f"""
+    echo virtio2 > /sys/bus/virtio/drivers/virtio_net/bind;
+    ip addr add {guest_ip_eth1}/30 dev eth1;
+    ip link set eth1 up;
+    ip route add default via 192.168.0.1;
+    """)
+
+    vm.ssh.check_output("ping -I eth1 192.168.0.1 -c 1 -W 1")
