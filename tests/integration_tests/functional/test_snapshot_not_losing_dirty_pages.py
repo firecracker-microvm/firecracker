@@ -37,6 +37,7 @@ def test_diff_snapshot_works_after_error(
     )
 
     vm_mem_size = 128
+    uvm.time_api_requests = False  # The log may be incomplete due to lack of space
     uvm.spawn()
     uvm.basic_config(mem_size_mib=vm_mem_size, track_dirty_pages=True)
     uvm.add_net_iface()
@@ -51,13 +52,8 @@ def test_diff_snapshot_works_after_error(
 
     subprocess.check_call(f"fallocate -l {target_size} {fill}", shell=True)
 
-    try:
+    with pytest.raises(RuntimeError, match="No space left on device"):
         uvm.snapshot_diff()
-    except RuntimeError:
-        msg = "No space left on device"
-        uvm.check_log_message(msg)
-    else:
-        assert False, "This should fail"
 
     fill.unlink()
 
