@@ -53,16 +53,6 @@ const DEVICE_DRIVER_OK: u8 = 0x04;
 const DEVICE_FEATURES_OK: u8 = 0x08;
 const DEVICE_FAILED: u8 = 0x80;
 
-const VIRTIO_F_RING_INDIRECT_DESC: u32 = 28;
-const VIRTIO_F_RING_EVENT_IDX: u32 = 29;
-const VIRTIO_F_VERSION_1: u32 = 32;
-const VIRTIO_F_IOMMU_PLATFORM: u32 = 33;
-const VIRTIO_F_IN_ORDER: u32 = 35;
-const VIRTIO_F_ORDER_PLATFORM: u32 = 36;
-#[allow(dead_code)]
-const VIRTIO_F_SR_IOV: u32 = 37;
-const VIRTIO_F_NOTIFICATION_DATA: u32 = 38;
-
 /// Vector value used to disable MSI for a queue.
 pub const VIRTQ_MSI_NO_VECTOR: u16 = 0xffff;
 
@@ -83,7 +73,6 @@ enum PciCapabilityType {
 // fields cap_vndr (1 byte) and cap_next (1 byte) defined in the virtio spec.
 const VIRTIO_PCI_CAP_OFFSET: usize = 2;
 
-#[allow(dead_code)]
 #[repr(C, packed)]
 #[derive(Debug, Clone, Copy, Default)]
 struct VirtioPciCap {
@@ -126,7 +115,6 @@ impl VirtioPciCap {
     }
 }
 
-#[allow(dead_code)]
 #[repr(C, packed)]
 #[derive(Clone, Copy, Default)]
 struct VirtioPciNotifyCap {
@@ -164,47 +152,6 @@ impl VirtioPciNotifyCap {
     }
 }
 
-#[allow(dead_code)]
-#[repr(C, packed)]
-#[derive(Clone, Copy, Default)]
-struct VirtioPciCap64 {
-    cap: VirtioPciCap,
-    offset_hi: Le32,
-    length_hi: Le32,
-}
-// SAFETY: All members are simple numbers and any value is valid.
-unsafe impl ByteValued for VirtioPciCap64 {}
-
-impl PciCapability for VirtioPciCap64 {
-    fn bytes(&self) -> &[u8] {
-        self.as_slice()
-    }
-
-    fn id(&self) -> PciCapabilityId {
-        PciCapabilityId::VendorSpecific
-    }
-}
-
-impl VirtioPciCap64 {
-    pub fn new(cfg_type: PciCapabilityType, pci_bar: u8, id: u8, offset: u64, length: u64) -> Self {
-        VirtioPciCap64 {
-            cap: VirtioPciCap {
-                cap_len: u8::try_from(std::mem::size_of::<VirtioPciCap64>()).unwrap()
-                    + VIRTIO_PCI_CAP_LEN_OFFSET,
-                cfg_type: cfg_type as u8,
-                pci_bar,
-                id,
-                padding: [0; 2],
-                offset: Le32::from((offset & 0xffff_ffff) as u32),
-                length: Le32::from((length & 0xffff_ffff) as u32),
-            },
-            offset_hi: Le32::from((offset >> 32) as u32),
-            length_hi: Le32::from((length >> 32) as u32),
-        }
-    }
-}
-
-#[allow(dead_code)]
 #[repr(C, packed)]
 #[derive(Debug, Clone, Copy, Default)]
 struct VirtioPciCfgCap {
@@ -239,7 +186,6 @@ struct VirtioPciCfgCapInfo {
     cap: VirtioPciCfgCap,
 }
 
-#[allow(dead_code)]
 #[derive(Debug, Copy, Clone)]
 pub enum PciVirtioSubclass {
     NonTransitionalBase = 0xff,
@@ -280,16 +226,6 @@ const NOTIFY_OFF_MULTIPLIER: u32 = 4; // A dword per notification address.
 
 const VIRTIO_PCI_VENDOR_ID: u16 = 0x1af4;
 const VIRTIO_PCI_DEVICE_ID_BASE: u16 = 0x1040; // Add to device type to get device ID.
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct QueueState {
-    max_size: u16,
-    size: u16,
-    ready: bool,
-    desc_table: u64,
-    avail_ring: u64,
-    used_ring: u64,
-}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct VirtioPciDeviceState {
@@ -678,29 +614,6 @@ impl VirtioPciDevice {
             let io_addr =
                 IoEventAddress::Mmio(notify_base + i as u64 * NOTIFY_OFF_MULTIPLIER as u64);
             vm.fd().register_ioevent(queue_evt, &io_addr, NoDatamatch)?;
-        }
-        Ok(())
-    }
-
-    /// Unregister the IoEvent notification for a VirtIO device
-    pub fn unregister_notification_ioevent(
-        &self,
-        vm: &Vm,
-    ) -> std::result::Result<(), errno::Error> {
-        let bar_addr = self.config_bar_addr();
-        for (i, queue_evt) in self
-            .device
-            .lock()
-            .expect("Poisoned lock")
-            .queue_events()
-            .iter()
-            .enumerate()
-        {
-            let notify_base = bar_addr + NOTIFICATION_BAR_OFFSET;
-            let io_addr =
-                IoEventAddress::Mmio(notify_base + i as u64 * NOTIFY_OFF_MULTIPLIER as u64);
-            vm.fd()
-                .unregister_ioevent(queue_evt, &io_addr, NoDatamatch)?;
         }
         Ok(())
     }
