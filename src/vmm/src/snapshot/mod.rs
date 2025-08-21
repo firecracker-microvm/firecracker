@@ -26,19 +26,20 @@
 pub mod crc;
 mod persist;
 use std::fmt::Debug;
-use std::io::{Read, Seek, SeekFrom, Write};
+use std::io::{Read, Write};
 
 use bincode::config;
 use bincode::config::{Configuration, Fixint, Limit, LittleEndian};
 use bincode::error::{DecodeError, EncodeError};
+use crc64::crc64;
 use semver::Version;
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 
 use crate::persist::SNAPSHOT_VERSION;
-use crate::snapshot::crc::{CRC64Reader, CRC64Writer};
+use crate::snapshot::crc::CRC64Writer;
 pub use crate::snapshot::persist::Persist;
-use crate::utils::{mib_to_bytes, u64_to_usize};
+use crate::utils::mib_to_bytes;
 
 #[cfg(target_arch = "x86_64")]
 const SNAPSHOT_MAGIC_ID: u64 = 0x0710_1984_8664_0000u64;
@@ -58,14 +59,12 @@ const SNAPSHOT_MAGIC_ID: u64 = 0x0710_1984_AAAA_0000u64;
 /// Error definitions for the Snapshot API.
 #[derive(Debug, thiserror::Error, displaydoc::Display)]
 pub enum SnapshotError {
-    /// CRC64 validation failed: {0}
-    Crc64(u64),
+    /// CRC64 validation failed
+    Crc64,
     /// Invalid data version: {0}
     InvalidFormatVersion(Version),
     /// Magic value does not match arch: {0}
     InvalidMagic(u64),
-    /// Snapshot file is not long enough to even contain the CRC
-    TooShort,
     /// An error occured during bincode encoding: {0}
     Encode(#[from] EncodeError),
     /// An error occured during bincode decoding: {0}
@@ -152,24 +151,18 @@ impl<Data: DeserializeOwned> Snapshot<Data> {
 
     /// Loads a snapshot from the given [`Read`] instance, performing all validations
     /// (CRC, snapshot magic value, snapshot version).
-    pub fn load<R: Read + Seek>(reader: &mut R) -> Result<Self, SnapshotError> {
-        let snapshot_size = reader.seek(SeekFrom::End(0))?;
-        reader.seek(SeekFrom::Start(0))?;
-        // dont read the CRC yet.
-        let mut buf = vec![
-            0;
-            u64_to_usize(snapshot_size)
-                .checked_sub(size_of::<u64>())
-                .ok_or(SnapshotError::TooShort)?
-        ];
-        let mut crc_reader = CRC64Reader::new(reader);
-        crc_reader.read_exact(buf.as_mut_slice())?;
+    pub fn load<R: Read>(reader: &mut R) -> Result<Self, SnapshotError> {
+        // read_to_end internally right-sizes the buffer, so no reallocations due to growing buffers
+        // will happen.
+        let mut buf = Vec::new();
+        reader.read_to_end(&mut buf)?;
         let snapshot = Self::load_without_crc_check(buf.as_slice())?;
-        let computed_checksum = crc_reader.checksum();
-        let stored_checksum: u64 =
-            bincode::serde::decode_from_std_read(&mut crc_reader.reader, BINCODE_CONFIG)?;
-        if computed_checksum != stored_checksum {
-            return Err(SnapshotError::Crc64(computed_checksum));
+        let computed_checksum = crc64(0, buf.as_slice());
+        // When we read the entire file, we also read the checksum into the buffer. The CRC has the
+        // property that crc(0, buf.as_slice()) == 0 iff the last 8 bytes of buf are the checksum
+        // of all the preceeding bytes, and this is the property we are using here.
+        if computed_checksum != 0 {
+            return Err(SnapshotError::Crc64);
         }
         Ok(snapshot)
     }
@@ -187,19 +180,16 @@ impl<Data: Serialize> Snapshot<Data> {
 
 #[cfg(test)]
 mod tests {
-    use vmm_sys_util::tempfile::TempFile;
-
     use super::*;
     use crate::persist::MicrovmState;
 
     #[test]
     fn test_snapshot_restore() {
         let state = MicrovmState::default();
-        let file = TempFile::new().unwrap();
+        let mut buf = Vec::new();
 
-        Snapshot::new(state).save(&mut file.as_file()).unwrap();
-        file.as_file().seek(SeekFrom::Start(0)).unwrap();
-        Snapshot::<MicrovmState>::load(&mut file.as_file()).unwrap();
+        Snapshot::new(state).save(&mut buf).unwrap();
+        Snapshot::<MicrovmState>::load(&mut buf.as_slice()).unwrap();
     }
 
     #[test]
@@ -225,12 +215,6 @@ mod tests {
         impl Read for BadReader {
             fn read(&mut self, _buf: &mut [u8]) -> std::io::Result<usize> {
                 Err(std::io::ErrorKind::InvalidInput.into())
-            }
-        }
-
-        impl Seek for BadReader {
-            fn seek(&mut self, _pos: SeekFrom) -> std::io::Result<u64> {
-                Ok(9) // needs to be long enough to prevent to have a CRC
             }
         }
 
@@ -275,7 +259,7 @@ mod tests {
 
         assert!(matches!(
             Snapshot::<()>::load(&mut std::io::Cursor::new(data.as_slice())),
-            Err(SnapshotError::Crc64(_))
+            Err(SnapshotError::Crc64)
         ));
     }
 
