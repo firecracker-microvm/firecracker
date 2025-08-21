@@ -237,7 +237,7 @@ def test_load_snapshot_failure_handling(uvm_plain):
 
     # Load the snapshot
     with pytest.raises(
-        RuntimeError, match="Snapshot file is not long enough to even contain the CRC"
+        RuntimeError, match="An error occured during bincode decoding: UnexpectedEnd"
     ):
         vm.api.snapshot_load.put(mem_file_path=jailed_mem, snapshot_path=jailed_vmstate)
 
