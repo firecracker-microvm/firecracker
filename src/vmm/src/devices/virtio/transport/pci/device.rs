@@ -16,6 +16,7 @@ use std::sync::{Arc, Barrier, Mutex};
 
 use anyhow::anyhow;
 use kvm_ioctls::{IoEventAddress, NoDatamatch};
+use log::warn;
 use pci::{
     BarReprogrammingParams, MsixCap, MsixConfig, MsixConfigState, PciBarConfiguration,
     PciBarRegionType, PciBdf, PciCapability, PciCapabilityId, PciClassCode, PciConfiguration,
@@ -239,7 +240,6 @@ const VIRTIO_PCI_DEVICE_ID_BASE: u16 = 0x1040; // Add to device type to get devi
 pub struct VirtioPciDeviceState {
     pub pci_device_bdf: PciBdf,
     pub device_activated: bool,
-    pub interrupt_status: usize,
     pub cap_pci_cfg_offset: usize,
     pub cap_pci_cfg: Vec<u8>,
     pub pci_configuration_state: PciConfigurationState,
@@ -281,7 +281,6 @@ pub struct VirtioPciDevice {
     device_activated: Arc<AtomicBool>,
 
     // PCI interrupts.
-    interrupt_status: Arc<AtomicUsize>,
     virtio_interrupt: Option<Arc<dyn VirtioInterrupt>>,
     interrupt_source_group: Arc<MsiVectorGroup>,
 
@@ -402,7 +401,6 @@ impl VirtioPciDevice {
             msix_num: msi_vectors.num_vectors(),
             device,
             device_activated: Arc::new(AtomicBool::new(false)),
-            interrupt_status: Arc::new(AtomicUsize::new(0)),
             virtio_interrupt: Some(interrupt),
             memory,
             interrupt_source_group: msi_vectors,
@@ -453,7 +451,6 @@ impl VirtioPciDevice {
             msix_num: msi_vectors.num_vectors(),
             device,
             device_activated: Arc::new(AtomicBool::new(state.device_activated)),
-            interrupt_status: Arc::new(AtomicUsize::new(state.interrupt_status)),
             virtio_interrupt: Some(interrupt),
             memory: memory.clone(),
             interrupt_source_group: msi_vectors,
@@ -640,7 +637,6 @@ impl VirtioPciDevice {
         VirtioPciDeviceState {
             pci_device_bdf: self.pci_device_bdf,
             device_activated: self.device_activated.load(Ordering::Acquire),
-            interrupt_status: self.interrupt_status.load(Ordering::Acquire),
             cap_pci_cfg_offset: self.cap_pci_cfg_info.offset,
             cap_pci_cfg: self.cap_pci_cfg_info.cap.bytes().to_vec(),
             pci_configuration_state: self.configuration.state(),
@@ -864,14 +860,9 @@ impl PciDevice for VirtioPciDevice {
                     .read(o - COMMON_CONFIG_BAR_OFFSET, data, self.device.clone())
             }
             o if (ISR_CONFIG_BAR_OFFSET..ISR_CONFIG_BAR_OFFSET + ISR_CONFIG_SIZE).contains(&o) => {
-                if let Some(v) = data.get_mut(0) {
-                    // Reading this register resets it to 0.
-                    *v = self
-                        .interrupt_status
-                        .swap(0, Ordering::AcqRel)
-                        .try_into()
-                        .unwrap();
-                }
+                // We don't actually support legacy INT#x interrupts for VirtIO PCI devices
+                warn!("pci: read access to unsupported ISR status field");
+                data.fill(0);
             }
             o if (DEVICE_CONFIG_BAR_OFFSET..DEVICE_CONFIG_BAR_OFFSET + DEVICE_CONFIG_SIZE)
                 .contains(&o) =>
@@ -911,10 +902,8 @@ impl PciDevice for VirtioPciDevice {
                     .write(o - COMMON_CONFIG_BAR_OFFSET, data, self.device.clone())
             }
             o if (ISR_CONFIG_BAR_OFFSET..ISR_CONFIG_BAR_OFFSET + ISR_CONFIG_SIZE).contains(&o) => {
-                if let Some(v) = data.first() {
-                    self.interrupt_status
-                        .fetch_and(!(*v as usize), Ordering::AcqRel);
-                }
+                // We don't actually support legacy INT#x interrupts for VirtIO PCI devices
+                warn!("pci: access to unsupported ISR status field");
             }
             o if (DEVICE_CONFIG_BAR_OFFSET..DEVICE_CONFIG_BAR_OFFSET + DEVICE_CONFIG_SIZE)
                 .contains(&o) =>
@@ -1459,5 +1448,28 @@ mod tests {
             cap_pci_cfg_read(&mut locked_virtio_pci_device, bar_offset, 1),
             0x42
         );
+    }
+
+    fn isr_status_read(device: &mut VirtioPciDevice) -> u32 {
+        let mut data = 0u32;
+        device.read_bar(0, ISR_CONFIG_BAR_OFFSET, data.as_mut_slice());
+        data
+    }
+
+    fn isr_status_write(device: &mut VirtioPciDevice, data: u32) {
+        device.write_bar(0, ISR_CONFIG_BAR_OFFSET, data.as_slice());
+    }
+
+    #[test]
+    fn test_isr_capability() {
+        let mut vmm = create_vmm_with_virtio_pci_device();
+        let device = get_virtio_device(&vmm);
+        let mut locked_virtio_pci_device = device.lock().unwrap();
+
+        // We don't support legacy interrupts so reads to ISR BAR should always return 0s and
+        // writes to it should not have any effect
+        assert_eq!(isr_status_read(&mut locked_virtio_pci_device), 0);
+        isr_status_write(&mut locked_virtio_pci_device, 0x1312);
+        assert_eq!(isr_status_read(&mut locked_virtio_pci_device), 0);
     }
 }
