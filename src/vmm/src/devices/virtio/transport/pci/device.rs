@@ -79,7 +79,7 @@ struct VirtioPciCap {
     cap_len: u8,      // Generic PCI field: capability length
     cfg_type: u8,     // Identifies the structure.
     pci_bar: u8,      // Where to find it.
-    id: u8,           // Multiple capabilities of the same type
+    id: u8,           // Multiple capabilities of the same type.
     padding: [u8; 2], // Pad to full dword.
     offset: Le32,     // Offset within bar.
     length: Le32,     // Length of the structure, in bytes.
@@ -174,7 +174,15 @@ impl PciCapability for VirtioPciCfgCap {
 impl VirtioPciCfgCap {
     fn new() -> Self {
         VirtioPciCfgCap {
-            cap: VirtioPciCap::new(PciCapabilityType::Pci, 0, 0),
+            cap: VirtioPciCap {
+                cap_len: u8::try_from(size_of::<Self>()).unwrap() + VIRTIO_PCI_CAP_LEN_OFFSET,
+                cfg_type: PciCapabilityType::Pci as u8,
+                pci_bar: VIRTIO_BAR_INDEX,
+                id: 0,
+                padding: [0; 2],
+                offset: Le32::from(0),
+                length: Le32::from(0),
+            },
             ..Default::default()
         }
     }
