@@ -874,6 +874,7 @@ impl PciDevice for VirtioPciDevice {
                 .contains(&o) =>
             {
                 // Handled with ioeventfds.
+                warn!("pci: unexpected read to notification BAR. Offset {o:#x}");
             }
             o if (MSIX_TABLE_BAR_OFFSET..MSIX_TABLE_BAR_OFFSET + MSIX_TABLE_SIZE).contains(&o) => {
                 if let Some(msix_config) = &self.msix_config {
@@ -915,7 +916,7 @@ impl PciDevice for VirtioPciDevice {
                 .contains(&o) =>
             {
                 // Handled with ioeventfds.
-                error!("Unexpected write to notification BAR: offset = 0x{:x}", o);
+                warn!("pci: unexpected write to notification BAR. Offset {o:#x}");
             }
             o if (MSIX_TABLE_BAR_OFFSET..MSIX_TABLE_BAR_OFFSET + MSIX_TABLE_SIZE).contains(&o) => {
                 if let Some(msix_config) = &self.msix_config {
@@ -1024,6 +1025,7 @@ mod tests {
         VirtioPciNotifyCap,
     };
     use crate::rate_limiter::RateLimiter;
+    use crate::utils::u64_to_usize;
     use crate::{Vm, Vmm};
 
     fn create_vmm_with_virtio_pci_device() -> Vmm {
@@ -1471,5 +1473,44 @@ mod tests {
         assert_eq!(isr_status_read(&mut locked_virtio_pci_device), 0);
         isr_status_write(&mut locked_virtio_pci_device, 0x1312);
         assert_eq!(isr_status_read(&mut locked_virtio_pci_device), 0);
+    }
+
+    #[test]
+    fn test_notification_capability() {
+        let mut vmm = create_vmm_with_virtio_pci_device();
+        let device = get_virtio_device(&vmm);
+        let mut locked_virtio_pci_device = device.lock().unwrap();
+
+        let notification_cap_offset = (capabilities_start(&mut locked_virtio_pci_device) as usize
+            + 3 * (size_of::<VirtioPciCap>() + 2))
+            .try_into()
+            .unwrap();
+
+        let (_, _, notify_cap) =
+            read_virtio_notification_cap(&mut locked_virtio_pci_device, notification_cap_offset);
+
+        // We do not offer `VIRTIO_F_NOTIFICATION_DATA` so:
+        // * `cap.offset` MUST by 2-byte aligned
+        assert_eq!(u32::from(notify_cap.cap.offset) & 0x3, 0);
+        // * The device MUST either present notify_off_multiplier as an even power of 2, or present
+        //   notify_off_multiplier as 0.
+        let multiplier = u32::from(notify_cap.notify_off_multiplier);
+        assert!(multiplier.is_power_of_two() && multiplier.trailing_zeros() % 2 == 0);
+        // * For all queues, the value cap.length presented by the device MUST satisfy:
+        //
+        //   `cap.length >= queue_notify_off * notify_off_multiplier + 2`
+        //
+        // The spec allows for up to 65536 queues, but in reality the device we are using with most
+        // queues is vsock (3). Let's check here for 16, projecting for future devices and
+        // use-cases such as multiple queue pairs in network devices
+        assert!(u32::from(notify_cap.cap.length) >= 15 * multiplier + 2);
+
+        // Reads and writes to the notification region of the BAR are handled by IoEvent file
+        // descriptors. Any such accesses should have no effects.
+        let data = [0x42u8; u64_to_usize(NOTIFICATION_SIZE)];
+        locked_virtio_pci_device.write_bar(0, NOTIFICATION_BAR_OFFSET, &data);
+        let mut buffer = [0x0; u64_to_usize(NOTIFICATION_SIZE)];
+        locked_virtio_pci_device.read_bar(0, NOTIFICATION_BAR_OFFSET, &mut buffer);
+        assert_eq!(buffer, [0u8; u64_to_usize(NOTIFICATION_SIZE)]);
     }
 }
