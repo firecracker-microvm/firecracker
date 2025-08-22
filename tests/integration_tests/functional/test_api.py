@@ -1006,7 +1006,7 @@ def test_api_memory_hotplug(uvm_plain):
     test_microvm.start()
 
     # Put API should be rejected after boot
-    with pytest.raises(RuntimeError):
+    with pytest.raises(RuntimeError, match=NOT_SUPPORTED_AFTER_START):
         test_microvm.api.memory_hotplug.put(total_size_mib=1024)
 
     # Get API should work after boot
