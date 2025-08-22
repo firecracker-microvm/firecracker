@@ -235,7 +235,7 @@ impl VirtioDevice for VirtioMem {
     }
 
     fn read_config(&self, offset: u64, data: &mut [u8]) {
-        let offset: usize = u64_to_usize(offset);
+        let offset = u64_to_usize(offset);
         self.config
             .as_slice()
             .get(offset..offset + data.len())
