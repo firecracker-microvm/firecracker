@@ -25,8 +25,9 @@ pub(crate) fn parse_get_memory_hotplug() -> Result<ParsedRequest, RequestError> 
 
 #[cfg(test)]
 mod tests {
-    use vmm::devices::virtio::mem::{VIRTIO_MEM_DEFAULT_BLOCK_SIZE, VIRTIO_MEM_DEFAULT_SLOT_SIZE};
-    use vmm::utils::bytes_to_mib;
+    use vmm::devices::virtio::mem::{
+        VIRTIO_MEM_DEFAULT_BLOCK_SIZE_MIB, VIRTIO_MEM_DEFAULT_SLOT_SIZE_MIB,
+    };
 
     use super::*;
     use crate::api_server::parsed_request::tests::vmm_action_from_request;
@@ -47,8 +48,8 @@ mod tests {
         }"#;
         let expected_config = MemoryHotplugConfig {
             total_size_mib: 2048,
-            block_size_mib: bytes_to_mib(VIRTIO_MEM_DEFAULT_BLOCK_SIZE),
-            slot_size_mib: bytes_to_mib(VIRTIO_MEM_DEFAULT_SLOT_SIZE),
+            block_size_mib: VIRTIO_MEM_DEFAULT_BLOCK_SIZE_MIB,
+            slot_size_mib: VIRTIO_MEM_DEFAULT_SLOT_SIZE_MIB,
         };
         assert_eq!(
             vmm_action_from_request(parse_put_memory_hotplug(&Body::new(body)).unwrap()),
