@@ -511,7 +511,7 @@ pub(crate) mod tests {
             }
         }
 
-        fn set_avail_features(&mut self, avail_features: u64) {
+        pub fn set_avail_features(&mut self, avail_features: u64) {
             self.avail_features = avail_features;
         }
     }

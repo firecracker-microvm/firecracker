@@ -180,7 +180,9 @@ pub(crate) mod tests {
 
         Snapshot::new(&state).save(&mut mem.as_mut_slice()).unwrap();
 
-        let restored_state: VsockState = Snapshot::load(&mut mem.as_slice()).unwrap().data;
+        let restored_state: VsockState = Snapshot::load_without_crc_check(mem.as_slice())
+            .unwrap()
+            .data;
         let mut restored_device = Vsock::restore(
             VsockConstructorArgs {
                 mem: ctx.mem.clone(),

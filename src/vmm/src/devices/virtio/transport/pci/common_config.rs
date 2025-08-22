@@ -17,7 +17,8 @@ use vm_memory::GuestAddress;
 use crate::devices::virtio::device::VirtioDevice;
 use crate::devices::virtio::queue::Queue;
 use crate::devices::virtio::transport::pci::device::VIRTQ_MSI_NO_VECTOR;
-use crate::logger::{debug, error, info, trace, warn};
+use crate::logger::warn;
+
 pub const VIRTIO_PCI_COMMON_CONFIG_ID: &str = "virtio_pci_common_config";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -29,72 +30,6 @@ pub struct VirtioPciCommonConfigState {
     pub queue_select: u16,
     pub msix_config: u16,
     pub msix_queues: Vec<u16>,
-}
-
-// The standard layout for the ring is a continuous chunk of memory which looks
-// like this.  We assume num is a power of 2.
-//
-// struct vring
-// {
-// 	// The actual descriptors (16 bytes each)
-// 	struct vring_desc desc[num];
-//
-// 	// A ring of available descriptor heads with free-running index.
-// 	__virtio16 avail_flags;
-// 	__virtio16 avail_idx;
-// 	__virtio16 available[num];
-// 	__virtio16 used_event_idx;
-//
-// 	// Padding to the next align boundary.
-// 	char pad[];
-//
-// 	// A ring of used descriptor heads with free-running index.
-// 	__virtio16 used_flags;
-// 	__virtio16 used_idx;
-// 	struct vring_used_elem used[num];
-// 	__virtio16 avail_event_idx;
-// };
-// struct vring_desc {
-// 	__virtio64 addr;
-// 	__virtio32 len;
-// 	__virtio16 flags;
-// 	__virtio16 next;
-// };
-//
-// struct vring_avail {
-// 	__virtio16 flags;
-// 	__virtio16 idx;
-// 	__virtio16 ring[];
-// };
-//
-// // u32 is used here for ids for padding reasons.
-// struct vring_used_elem {
-// 	// Index of start of used descriptor chain.
-// 	__virtio32 id;
-// 	// Total length of the descriptor chain which was used (written to)
-// 	__virtio32 len;
-// };
-//
-// Kernel header used for this reference: include/uapi/linux/virtio_ring.h
-// Virtio Spec: https://docs.oasis-open.org/virtio/virtio/v1.2/csd01/virtio-v1.2-csd01.html
-//
-const VRING_DESC_ELEMENT_SIZE: usize = 16;
-const VRING_AVAIL_ELEMENT_SIZE: usize = 2;
-const VRING_USED_ELEMENT_SIZE: usize = 8;
-#[derive(Debug)]
-pub enum VringType {
-    Desc,
-    Avail,
-    Used,
-}
-
-pub fn get_vring_size(t: VringType, queue_size: u16) -> u64 {
-    let (length_except_ring, element_size) = match t {
-        VringType::Desc => (0, VRING_DESC_ELEMENT_SIZE),
-        VringType::Avail => (6, VRING_AVAIL_ELEMENT_SIZE),
-        VringType::Used => (6, VRING_USED_ELEMENT_SIZE),
-    };
-    (length_except_ring + element_size * queue_size as usize) as u64
 }
 
 /// Contains the data for reading and writing the common configuration structure of a virtio PCI
@@ -173,11 +108,10 @@ impl VirtioPciCommonConfig {
                 let v = self.read_common_config_dword(offset, device);
                 LittleEndian::write_u32(data, v);
             }
-            8 => {
-                let v = self.read_common_config_qword(offset);
-                LittleEndian::write_u64(data, v);
-            }
-            _ => error!("invalid data length for virtio read: len {}", data.len()),
+            _ => warn!(
+                "pci: invalid data length for virtio read: len {}",
+                data.len()
+            ),
         }
     }
 
@@ -192,40 +126,35 @@ impl VirtioPciCommonConfig {
                 device.lock().unwrap().queues_mut(),
             ),
             4 => self.write_common_config_dword(offset, LittleEndian::read_u32(data), device),
-            8 => self.write_common_config_qword(
-                offset,
-                LittleEndian::read_u64(data),
-                device.lock().unwrap().queues_mut(),
+            _ => warn!(
+                "pci: invalid data length for virtio write: len {}",
+                data.len()
             ),
-            _ => error!("invalid data length for virtio write: len {}", data.len()),
         }
     }
 
     fn read_common_config_byte(&self, offset: u64) -> u8 {
-        debug!("read_common_config_byte: offset 0x{:x}", offset);
         // The driver is only allowed to do aligned, properly sized access.
         match offset {
             0x14 => self.driver_status,
             0x15 => self.config_generation,
             _ => {
-                warn!("invalid virtio config byte read: 0x{:x}", offset);
+                warn!("pci: invalid virtio config byte read: 0x{:x}", offset);
                 0
             }
         }
     }
 
     fn write_common_config_byte(&mut self, offset: u64, value: u8) {
-        debug!("write_common_config_byte: offset 0x{offset:x}: {value:x}");
         match offset {
             0x14 => self.driver_status = value,
             _ => {
-                warn!("invalid virtio config byte write: 0x{:x}", offset);
+                warn!("pci: invalid virtio config byte write: 0x{:x}", offset);
             }
         }
     }
 
     fn read_common_config_word(&self, offset: u64, queues: &[Queue]) -> u16 {
-        debug!("read_common_config_word: offset 0x{:x}", offset);
         match offset {
             0x10 => self.msix_config.load(Ordering::Acquire),
             0x12 => queues.len().try_into().unwrap(), // num_queues
@@ -247,14 +176,13 @@ impl VirtioPciCommonConfig {
             0x1c => u16::from(self.with_queue(queues, |q| q.ready).unwrap_or(false)),
             0x1e => self.queue_select, // notify_off
             _ => {
-                warn!("invalid virtio register word read: 0x{:x}", offset);
+                warn!("pci: invalid virtio register word read: 0x{:x}", offset);
                 0
             }
         }
     }
 
     fn write_common_config_word(&mut self, offset: u64, value: u16, queues: &mut [Queue]) {
-        debug!("write_common_config_word: offset 0x{:x}", offset);
         match offset {
             0x10 => {
                 // Make sure that the guest doesn't select an invalid vector. We are offering
@@ -289,16 +217,17 @@ impl VirtioPciCommonConfig {
                 }
             }
             0x1c => self.with_queue_mut(queues, |q| {
-                q.ready = value == 1;
+                if value != 0 {
+                    q.ready = value == 1;
+                }
             }),
             _ => {
-                warn!("invalid virtio register word write: 0x{:x}", offset);
+                warn!("pci: invalid virtio register word write: 0x{:x}", offset);
             }
         }
     }
 
     fn read_common_config_dword(&self, offset: u64, device: Arc<Mutex<dyn VirtioDevice>>) -> u32 {
-        debug!("read_common_config_dword: offset 0x{:x}", offset);
         match offset {
             0x00 => self.device_feature_select,
             0x04 => {
@@ -313,8 +242,50 @@ impl VirtioPciCommonConfig {
                 }
             }
             0x08 => self.driver_feature_select,
+            0x20 => {
+                let locked_device = device.lock().unwrap();
+                self.with_queue(locked_device.queues(), |q| {
+                    (q.desc_table_address.0 & 0xffff_ffff) as u32
+                })
+                .unwrap_or_default()
+            }
+            0x24 => {
+                let locked_device = device.lock().unwrap();
+                self.with_queue(locked_device.queues(), |q| {
+                    (q.desc_table_address.0 >> 32) as u32
+                })
+                .unwrap_or_default()
+            }
+            0x28 => {
+                let locked_device = device.lock().unwrap();
+                self.with_queue(locked_device.queues(), |q| {
+                    (q.avail_ring_address.0 & 0xffff_ffff) as u32
+                })
+                .unwrap_or_default()
+            }
+            0x2c => {
+                let locked_device = device.lock().unwrap();
+                self.with_queue(locked_device.queues(), |q| {
+                    (q.avail_ring_address.0 >> 32) as u32
+                })
+                .unwrap_or_default()
+            }
+            0x30 => {
+                let locked_device = device.lock().unwrap();
+                self.with_queue(locked_device.queues(), |q| {
+                    (q.used_ring_address.0 & 0xffff_ffff) as u32
+                })
+                .unwrap_or_default()
+            }
+            0x34 => {
+                let locked_device = device.lock().unwrap();
+                self.with_queue(locked_device.queues(), |q| {
+                    (q.used_ring_address.0 >> 32) as u32
+                })
+                .unwrap_or_default()
+            }
             _ => {
-                warn!("invalid virtio register dword read: 0x{:x}", offset);
+                warn!("pci: invalid virtio register dword read: 0x{:x}", offset);
                 0
             }
         }
@@ -326,7 +297,6 @@ impl VirtioPciCommonConfig {
         value: u32,
         device: Arc<Mutex<dyn VirtioDevice>>,
     ) {
-        debug!("write_common_config_dword: offset 0x{:x}", offset);
         fn hi(v: &mut GuestAddress, x: u32) {
             *v = (*v & 0xffff_ffff) | (u64::from(x) << 32)
         }
@@ -360,28 +330,7 @@ impl VirtioPciCommonConfig {
                 hi(&mut q.used_ring_address, value)
             }),
             _ => {
-                warn!("invalid virtio register dword write: 0x{:x}", offset);
-            }
-        }
-    }
-
-    fn read_common_config_qword(&self, _offset: u64) -> u64 {
-        debug!("read_common_config_qword: offset 0x{:x}", _offset);
-        0 // Assume the guest has no reason to read write-only registers.
-    }
-
-    fn write_common_config_qword(&mut self, offset: u64, value: u64, queues: &mut [Queue]) {
-        debug!("write_common_config_qword: offset 0x{:x}", offset);
-
-        let low = Some((value & 0xffff_ffff) as u32);
-        let high = Some((value >> 32) as u32);
-
-        match offset {
-            0x20 => self.with_queue_mut(queues, |q| q.desc_table_address.0 = value),
-            0x28 => self.with_queue_mut(queues, |q| q.avail_ring_address.0 = value),
-            0x30 => self.with_queue_mut(queues, |q| q.used_ring_address.0 = value),
-            _ => {
-                warn!("invalid virtio register qword write: 0x{:x}", offset);
+                warn!("pci: invalid virtio register dword write: 0x{:x}", offset);
             }
         }
     }
@@ -402,8 +351,26 @@ impl VirtioPciCommonConfig {
 
 #[cfg(test)]
 mod tests {
+    use vm_memory::ByteValued;
+
     use super::*;
     use crate::devices::virtio::transport::mmio::tests::DummyDevice;
+
+    fn default_device() -> Arc<Mutex<DummyDevice>> {
+        Arc::new(Mutex::new(DummyDevice::new()))
+    }
+
+    fn default_pci_common_config() -> VirtioPciCommonConfig {
+        VirtioPciCommonConfig {
+            driver_status: 0,
+            config_generation: 0,
+            device_feature_select: 0,
+            driver_feature_select: 0,
+            queue_select: 0,
+            msix_config: Arc::new(AtomicU16::new(0)),
+            msix_queues: Arc::new(Mutex::new(vec![0u16; 2])),
+        }
+    }
 
     #[test]
     fn write_base_regs() {
@@ -467,5 +434,314 @@ mod tests {
         regs.write(0x1a, &[0x1, 0x0], dev.clone());
         regs.read(0x1a, &mut read_back, dev);
         assert_eq!(LittleEndian::read_u16(&read_back[..2]), 0x1);
+    }
+
+    #[test]
+    fn test_device_feature() {
+        let mut config = default_pci_common_config();
+        let mut device = default_device();
+        let mut features = 0u32;
+
+        device
+            .lock()
+            .unwrap()
+            .set_avail_features(0x0000_1312_0000_1110);
+
+        config.read(0x04, features.as_mut_slice(), device.clone());
+        assert_eq!(features, 0x1110);
+        // select second page
+        config.write(0x0, 1u32.as_slice(), device.clone());
+        config.read(0x04, features.as_mut_slice(), device.clone());
+        assert_eq!(features, 0x1312);
+        // Try a third page. It doesn't exist so we should get all 0s
+        config.write(0x0, 2u32.as_slice(), device.clone());
+        config.read(0x04, features.as_mut_slice(), device.clone());
+        assert_eq!(features, 0x0);
+    }
+
+    #[test]
+    fn test_driver_feature() {
+        let mut config = default_pci_common_config();
+        let mut device = default_device();
+        device
+            .lock()
+            .unwrap()
+            .set_avail_features(0x0000_1312_0000_1110);
+
+        // ACK some features of the first page
+        config.write(0x0c, 0x1100u32.as_slice(), device.clone());
+        assert_eq!(device.lock().unwrap().acked_features(), 0x1100);
+        // ACK some features of the second page
+        config.write(0x08, 1u32.as_slice(), device.clone());
+        config.write(0x0c, 0x0000_1310u32.as_slice(), device.clone());
+        assert_eq!(
+            device.lock().unwrap().acked_features(),
+            0x0000_1310_0000_1100
+        );
+    }
+
+    #[test]
+    fn test_num_queues() {
+        let mut config = default_pci_common_config();
+        let mut device = default_device();
+        let mut num_queues = 0u16;
+
+        config.read(0x12, num_queues.as_mut_slice(), device.clone());
+        assert_eq!(num_queues, 2);
+        // `num_queues` is read-only
+        config.write(0x12, 4u16.as_slice(), device.clone());
+        config.read(0x12, num_queues.as_mut_slice(), device.clone());
+        assert_eq!(num_queues, 2);
+    }
+
+    #[test]
+    fn test_device_status() {
+        let mut config = default_pci_common_config();
+        let mut device = default_device();
+        let mut status = 0u8;
+
+        config.read(0x14, status.as_mut_slice(), device.clone());
+        assert_eq!(status, 0);
+        config.write(0x14, 0x42u8.as_slice(), device.clone());
+        config.read(0x14, status.as_mut_slice(), device.clone());
+        assert_eq!(status, 0x42);
+    }
+
+    #[test]
+    fn test_config_msix_vector() {
+        let mut config = default_pci_common_config();
+        let device = default_device();
+        let mut vector: u16 = 0;
+
+        // Our device has 2 queues, so we should be using 3 vectors in total.
+        // Trying to set a vector bigger than that should fail. Observing the
+        // failure happens through a subsequent read that should return NO_VECTOR.
+        config.write(0x10, 3u16.as_slice(), device.clone());
+        config.read(0x10, vector.as_mut_slice(), device.clone());
+        assert_eq!(vector, VIRTQ_MSI_NO_VECTOR);
+
+        // Any of the 3 valid values should work
+        for i in 0u16..3 {
+            config.write(0x10, i.as_slice(), device.clone());
+            config.read(0x10, vector.as_mut_slice(), device.clone());
+            assert_eq!(vector, i);
+        }
+    }
+
+    #[test]
+    fn test_queue_size() {
+        let mut config = default_pci_common_config();
+        let device = default_device();
+        let mut len = 0u16;
+        let mut max_size = [0u16; 2];
+
+        for queue_id in 0u16..2 {
+            config.write(0x16, queue_id.as_slice(), device.clone());
+            config.read(0x18, len.as_mut_slice(), device.clone());
+            assert_eq!(
+                len,
+                device.lock().unwrap().queues()[queue_id as usize].max_size
+            );
+            max_size[queue_id as usize] = len;
+        }
+
+        config.write(0x16, 2u16.as_slice(), device.clone());
+        config.read(0x18, len.as_mut_slice(), device.clone());
+        assert_eq!(len, 0);
+
+        // Setup size smaller than what is the maximum offered
+        for queue_id in 0u16..2 {
+            config.write(0x16, queue_id.as_slice(), device.clone());
+            config.write(
+                0x18,
+                (max_size[queue_id as usize] - 1).as_slice(),
+                device.clone(),
+            );
+            config.read(0x18, len.as_mut_slice(), device.clone());
+            assert_eq!(len, max_size[queue_id as usize] - 1);
+        }
+    }
+
+    #[test]
+    fn test_queue_msix_vector() {
+        let mut config = default_pci_common_config();
+        let device = default_device();
+        let mut vector = 0u16;
+
+        // Our device has 2 queues, so we should be using 3 vectors in total.
+        // Trying to set a vector bigger than that should fail. Observing the
+        // failure happens through a subsequent read that should return NO_VECTOR.
+        for queue_id in 0u16..2 {
+            // Select queue
+            config.write(0x16, queue_id.as_slice(), device.clone());
+
+            config.write(0x1a, 3u16.as_slice(), device.clone());
+            config.read(0x1a, vector.as_mut_slice(), device.clone());
+            assert_eq!(vector, VIRTQ_MSI_NO_VECTOR);
+
+            // Any of the 3 valid values should work
+            for vector_id in 0u16..3 {
+                config.write(0x1a, vector_id.as_slice(), device.clone());
+                config.read(0x1a, vector.as_mut_slice(), device.clone());
+                assert_eq!(vector, vector_id);
+            }
+        }
+    }
+
+    #[test]
+    fn test_queue_enable() {
+        let mut config = default_pci_common_config();
+        let device = default_device();
+        let mut enabled = 0u16;
+
+        for queue_id in 0u16..2 {
+            config.write(0x16, queue_id.as_slice(), device.clone());
+
+            // Initially queue should be disabled
+            config.read(0x1c, enabled.as_mut_slice(), device.clone());
+            assert_eq!(enabled, 0);
+
+            // Enable queue
+            config.write(0x1c, 1u16.as_slice(), device.clone());
+            config.read(0x1c, enabled.as_mut_slice(), device.clone());
+            assert_eq!(enabled, 1);
+
+            // According to the specification "The driver MUST NOT write a 0 to queue_enable."
+            config.write(0x1c, 0u16.as_slice(), device.clone());
+            config.read(0x1c, enabled.as_mut_slice(), device.clone());
+            assert_eq!(enabled, 1);
+        }
+    }
+
+    #[test]
+    fn test_queue_notify_off() {
+        let mut config = default_pci_common_config();
+        let device = default_device();
+        let mut offset = 0u16;
+
+        // `queue_notify_off` is an offset (index not bytes) from the notification structure
+        // that helps locate the address of the queue notify within the device's BAR. This is
+        // a field setup by the device and should be read-only for the driver
+
+        for queue_id in 0u16..2 {
+            config.write(0x16, queue_id.as_slice(), device.clone());
+            config.read(0x1e, offset.as_mut_slice(), device.clone());
+            assert_eq!(offset, queue_id);
+
+            // Writing to it should not have any effect
+            config.write(0x1e, 0x42.as_slice(), device.clone());
+            config.read(0x1e, offset.as_mut_slice(), device.clone());
+            assert_eq!(offset, queue_id);
+        }
+    }
+
+    fn write_64bit_field(
+        config: &mut VirtioPciCommonConfig,
+        device: Arc<Mutex<DummyDevice>>,
+        offset: u64,
+        value: u64,
+    ) {
+        let lo32 = (value & 0xffff_ffff) as u32;
+        let hi32 = (value >> 32) as u32;
+
+        config.write(offset, lo32.as_slice(), device.clone());
+        config.write(offset + 4, hi32.as_slice(), device.clone());
+    }
+
+    fn read_64bit_field(
+        config: &mut VirtioPciCommonConfig,
+        device: Arc<Mutex<DummyDevice>>,
+        offset: u64,
+    ) -> u64 {
+        let mut lo32 = 0u32;
+        let mut hi32 = 0u32;
+
+        config.read(offset, lo32.as_mut_slice(), device.clone());
+        config.read(offset + 4, hi32.as_mut_slice(), device.clone());
+
+        (lo32 as u64) | ((hi32 as u64) << 32)
+    }
+
+    #[test]
+    fn test_queue_addresses() {
+        let mut config = default_pci_common_config();
+        let device = default_device();
+        let mut reg64bit = 0;
+
+        for queue_id in 0u16..2 {
+            config.write(0x16, queue_id.as_slice(), device.clone());
+
+            for offset in [0x20, 0x28, 0x30] {
+                write_64bit_field(&mut config, device.clone(), offset, 0x0000_1312_0000_1110);
+                assert_eq!(
+                    read_64bit_field(&mut config, device.clone(), offset),
+                    0x0000_1312_0000_1110
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn test_bad_width_reads() {
+        let mut config = default_pci_common_config();
+        let mut device = default_device();
+
+        // According to the VirtIO specification (section 4.1.3.1)
+        //
+        // > For device configuration access, the driver MUST use 8-bit wide accesses for 8-bit
+        // > wide fields, 16-bit wide and aligned accesses for 16-bit wide fields and 32-bit wide
+        // > and aligned accesses for 32-bit and 64-bit wide fields. For 64-bit fields, the driver
+        // > MAY access each of the high and low 32-bit parts of the field independently.
+
+        // 64-bit fields
+        device.lock().unwrap().queues_mut()[0].desc_table_address =
+            GuestAddress(0x0000_1312_0000_1110);
+        let mut buffer = [0u8; 8];
+        config.read(0x20, &mut buffer[..1], device.clone());
+        assert_eq!(buffer, [0u8; 8]);
+        config.read(0x20, &mut buffer[..2], device.clone());
+        assert_eq!(buffer, [0u8; 8]);
+        config.read(0x20, &mut buffer[..8], device.clone());
+        assert_eq!(buffer, [0u8; 8]);
+        config.read(0x20, &mut buffer[..4], device.clone());
+        assert_eq!(LittleEndian::read_u32(&buffer[..4]), 0x1110);
+        config.read(0x24, &mut buffer[..4], device.clone());
+        assert_eq!(LittleEndian::read_u32(&buffer[..4]), 0x1312);
+
+        // 32-bit fields
+        config.device_feature_select = 0x42;
+        let mut buffer = [0u8; 8];
+        config.read(0, &mut buffer[..1], device.clone());
+        assert_eq!(buffer, [0u8; 8]);
+        config.read(0, &mut buffer[..2], device.clone());
+        assert_eq!(buffer, [0u8; 8]);
+        config.read(0, &mut buffer[..8], device.clone());
+        assert_eq!(buffer, [0u8; 8]);
+        config.read(0, &mut buffer[..4], device.clone());
+        assert_eq!(LittleEndian::read_u32(&buffer[..4]), 0x42);
+
+        // 16-bit fields
+        let mut buffer = [0u8; 8];
+        config.queue_select = 0x42;
+        config.read(0x16, &mut buffer[..1], device.clone());
+        assert_eq!(buffer, [0u8; 8]);
+        config.read(0x16, &mut buffer[..4], device.clone());
+        assert_eq!(buffer, [0u8; 8]);
+        config.read(0x16, &mut buffer[..8], device.clone());
+        assert_eq!(buffer, [0u8; 8]);
+        config.read(0x16, &mut buffer[..2], device.clone());
+        assert_eq!(LittleEndian::read_u16(&buffer[..2]), 0x42);
+
+        // 8-bit fields
+        let mut buffer = [0u8; 8];
+        config.driver_status = 0x42;
+        config.read(0x14, &mut buffer[..2], device.clone());
+        assert_eq!(buffer, [0u8; 8]);
+        config.read(0x14, &mut buffer[..4], device.clone());
+        assert_eq!(buffer, [0u8; 8]);
+        config.read(0x14, &mut buffer[..8], device.clone());
+        assert_eq!(buffer, [0u8; 8]);
+        config.read(0x14, &mut buffer[..1], device.clone());
+        assert_eq!(buffer[0], 0x42);
     }
 }
