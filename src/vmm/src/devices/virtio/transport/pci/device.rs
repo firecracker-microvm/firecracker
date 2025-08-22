@@ -1016,6 +1016,8 @@ mod tests {
     use crate::arch::MEM_64BIT_DEVICES_START;
     use crate::builder::tests::default_vmm;
     use crate::devices::virtio::device::VirtioDevice;
+    use crate::devices::virtio::device_status::{ACKNOWLEDGE, DRIVER, DRIVER_OK, FEATURES_OK};
+    use crate::devices::virtio::generated::virtio_config::VIRTIO_F_VERSION_1;
     use crate::devices::virtio::generated::virtio_ids;
     use crate::devices::virtio::rng::Entropy;
     use crate::devices::virtio::transport::pci::device::{
@@ -1512,5 +1514,139 @@ mod tests {
         let mut buffer = [0x0; u64_to_usize(NOTIFICATION_SIZE)];
         locked_virtio_pci_device.read_bar(0, NOTIFICATION_BAR_OFFSET, &mut buffer);
         assert_eq!(buffer, [0u8; u64_to_usize(NOTIFICATION_SIZE)]);
+    }
+
+    fn write_driver_status(device: &mut VirtioPciDevice, status: u8) {
+        device.write_bar(0, COMMON_CONFIG_BAR_OFFSET + 0x14, status.as_slice());
+    }
+
+    fn read_driver_status(device: &mut VirtioPciDevice) -> u8 {
+        let mut status = 0u8;
+        device.read_bar(0, COMMON_CONFIG_BAR_OFFSET + 0x14, status.as_mut_slice());
+        status
+    }
+
+    fn read_device_features(device: &mut VirtioPciDevice) -> u64 {
+        let mut features_lo = 0u32;
+        device.write_bar(0, COMMON_CONFIG_BAR_OFFSET, 0u32.as_slice());
+        device.read_bar(
+            0,
+            COMMON_CONFIG_BAR_OFFSET + 0x4,
+            features_lo.as_mut_slice(),
+        );
+        let mut features_hi = 0u32;
+        device.write_bar(0, COMMON_CONFIG_BAR_OFFSET, 1u32.as_slice());
+        device.read_bar(
+            0,
+            COMMON_CONFIG_BAR_OFFSET + 0x4,
+            features_hi.as_mut_slice(),
+        );
+
+        features_lo as u64 | ((features_hi as u64) << 32)
+    }
+
+    fn write_driver_features(device: &mut VirtioPciDevice, features: u64) {
+        device.write_bar(0, COMMON_CONFIG_BAR_OFFSET + 0x8, 0u32.as_slice());
+        device.write_bar(
+            0,
+            COMMON_CONFIG_BAR_OFFSET + 0xc,
+            ((features & 0xffff_ffff) as u32).as_slice(),
+        );
+        device.write_bar(0, COMMON_CONFIG_BAR_OFFSET + 0x8, 1u32.as_slice());
+        device.write_bar(
+            0,
+            COMMON_CONFIG_BAR_OFFSET + 0xc,
+            (((features >> 32) & 0xffff_ffff) as u32).as_slice(),
+        );
+    }
+
+    fn setup_queues(device: &mut VirtioPciDevice) {
+        device.write_bar(
+            0,
+            COMMON_CONFIG_BAR_OFFSET + 0x20,
+            0x8000_0000u64.as_slice(),
+        );
+        device.write_bar(
+            0,
+            COMMON_CONFIG_BAR_OFFSET + 0x28,
+            0x8000_1000u64.as_slice(),
+        );
+        device.write_bar(
+            0,
+            COMMON_CONFIG_BAR_OFFSET + 0x30,
+            0x8000_2000u64.as_slice(),
+        );
+        device.write_bar(0, COMMON_CONFIG_BAR_OFFSET + 0x1c, 1u16.as_slice());
+    }
+
+    #[test]
+    fn test_device_initialization() {
+        let mut vmm = create_vmm_with_virtio_pci_device();
+        let device = get_virtio_device(&vmm);
+        let mut locked_virtio_pci_device = device.lock().unwrap();
+
+        assert!(locked_virtio_pci_device.is_driver_init());
+        assert!(!locked_virtio_pci_device.is_driver_ready());
+        assert!(
+            !locked_virtio_pci_device
+                .device_activated
+                .load(std::sync::atomic::Ordering::SeqCst)
+        );
+
+        write_driver_status(
+            &mut locked_virtio_pci_device,
+            ACKNOWLEDGE.try_into().unwrap(),
+        );
+        write_driver_status(
+            &mut locked_virtio_pci_device,
+            (ACKNOWLEDGE | DRIVER).try_into().unwrap(),
+        );
+        assert!(!locked_virtio_pci_device.is_driver_init());
+        assert!(!locked_virtio_pci_device.is_driver_ready());
+        assert!(
+            !locked_virtio_pci_device
+                .device_activated
+                .load(std::sync::atomic::Ordering::SeqCst)
+        );
+
+        let status = read_driver_status(&mut locked_virtio_pci_device);
+        assert_eq!(status as u32, ACKNOWLEDGE | DRIVER);
+
+        // Entropy device just offers VIRTIO_F_VERSION_1
+        let offered_features = read_device_features(&mut locked_virtio_pci_device);
+        assert_eq!(offered_features, 1 << VIRTIO_F_VERSION_1);
+        // ACK features
+        write_driver_features(&mut locked_virtio_pci_device, offered_features);
+        write_driver_status(
+            &mut locked_virtio_pci_device,
+            (ACKNOWLEDGE | DRIVER | FEATURES_OK).try_into().unwrap(),
+        );
+        let status = read_driver_status(&mut locked_virtio_pci_device);
+        assert!((status & u8::try_from(FEATURES_OK).unwrap()) != 0);
+
+        assert!(!locked_virtio_pci_device.is_driver_init());
+        assert!(!locked_virtio_pci_device.is_driver_ready());
+        assert!(
+            !locked_virtio_pci_device
+                .device_activated
+                .load(std::sync::atomic::Ordering::SeqCst)
+        );
+
+        setup_queues(&mut locked_virtio_pci_device);
+
+        write_driver_status(
+            &mut locked_virtio_pci_device,
+            (ACKNOWLEDGE | DRIVER | FEATURES_OK | DRIVER_OK)
+                .try_into()
+                .unwrap(),
+        );
+
+        assert!(!locked_virtio_pci_device.is_driver_init());
+        assert!(locked_virtio_pci_device.is_driver_ready());
+        assert!(
+            locked_virtio_pci_device
+                .device_activated
+                .load(std::sync::atomic::Ordering::SeqCst)
+        );
     }
 }
