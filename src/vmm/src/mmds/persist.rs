@@ -68,7 +68,9 @@ mod tests {
 
         let restored_ns = MmdsNetworkStack::restore(
             Arc::new(Mutex::new(Mmds::default())),
-            &Snapshot::load(&mut mem.as_slice()).unwrap().data,
+            &Snapshot::load_without_crc_check(mem.as_slice())
+                .unwrap()
+                .data,
         )
         .unwrap();
 

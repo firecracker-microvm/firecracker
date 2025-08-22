@@ -132,7 +132,9 @@ pub(crate) mod tests {
         Snapshot::new(&boot_src_cfg)
             .save(&mut snapshot_data.as_mut_slice())
             .unwrap();
-        let restored_boot_cfg = Snapshot::load(&mut snapshot_data.as_slice()).unwrap().data;
+        let restored_boot_cfg = Snapshot::load_without_crc_check(snapshot_data.as_slice())
+            .unwrap()
+            .data;
         assert_eq!(boot_src_cfg, restored_boot_cfg);
     }
 }

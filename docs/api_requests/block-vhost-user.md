@@ -154,9 +154,11 @@ potential for the guest to exercise issues in the backend codebase to trigger
 undesired behaviours. Users should consider running their backend in a jailer or
 applying other adequate security measures to restrict it.
 
-**Note** [Firecracker jailer](../jailer.md) is currently only capable of running
-Firecracker as the binary. Vhost-user block device users are expected to use
-another jailer to run the backend.
+> [!NOTE]
+>
+> [Firecracker jailer](../jailer.md) is currently only capable of running
+> Firecracker as the binary. Vhost-user block device users are expected to use
+> another jailer to run the backend.
 
 It is also recommended to use proactive security measures like running a
 Virtio-level fuzzer in the guest during testing to make sure that the backend
@@ -221,12 +223,16 @@ curl --unix-socket ${fc_socket} -i \
          }"
 ```
 
-**Note** Unlike Virtio block device, there is no way to configure a `readonly`
-vhost-user drive on the Firecracker side. Instead, this configuration belongs to
-the backend. Whenever the backend advertises the `VIRTIO_BLK_F_RO` feature,
-Firecracker will accept it, and the device will act as readonly.
+> [!NOTE]
+>
+> Unlike Virtio block device, there is no way to configure a `readonly`
+> vhost-user drive on the Firecracker side. Instead, this configuration belongs
+> to the backend. Whenever the backend advertises the `VIRTIO_BLK_F_RO` feature,
+> Firecracker will accept it, and the device will act as readonly.
 
-**Note** Whenever a `PUT` request is sent to the `/drives` endpoint for a
-vhost-user device with the `id` that already exists, Firecracker will close the
-existing connection to the backend and will open a new one. Users may need to
-restart their backend if they do so.
+> [!NOTE]
+>
+> Whenever a `PUT` request is sent to the `/drives` endpoint for a vhost-user
+> device with the `id` that already exists, Firecracker will close the existing
+> connection to the backend and will open a new one. Users may need to restart
+> their backend if they do so.

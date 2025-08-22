@@ -178,22 +178,6 @@ them according to your needs.
 The relatively high FD usage is expected and correct. Firecracker heavily relies
 on event file descriptors to drive device emulation.
 
-### How does network interface numbering work?
-
-There is no relation between the numbering of the `/network-interface` API calls
-and the number of the network interface in the guest. Rather, it is usually the
-order of network interface creation that determines the number in the guest (but
-this depends on the distribution).
-
-For example, when you create two network interfaces by calling
-`/network-interfaces/1` and then `/network-interfaces/0`, it may result in this
-mapping:
-
-```console
-/network-interfaces/1 -> eth0
-/network-interfaces/0 -> eth1
-```
-
 ### How can I gracefully reboot the guest? How can I gracefully poweroff the guest?
 
 Firecracker does not virtualize guest power management, therefore operations

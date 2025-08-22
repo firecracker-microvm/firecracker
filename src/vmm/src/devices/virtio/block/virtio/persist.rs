@@ -223,7 +223,9 @@ mod tests {
         // Restore the block device.
         let restored_block = VirtioBlock::restore(
             BlockConstructorArgs { mem: guest_mem },
-            &Snapshot::load(&mut mem.as_slice()).unwrap().data,
+            &Snapshot::load_without_crc_check(mem.as_slice())
+                .unwrap()
+                .data,
         )
         .unwrap();
 

@@ -120,8 +120,13 @@ mod tests {
             .save(&mut mem.as_mut_slice())
             .unwrap();
 
-        let restored_tb =
-            TokenBucket::restore((), &Snapshot::load(&mut mem.as_slice()).unwrap().data).unwrap();
+        let restored_tb = TokenBucket::restore(
+            (),
+            &Snapshot::load_without_crc_check(mem.as_slice())
+                .unwrap()
+                .data,
+        )
+        .unwrap();
         assert!(tb.partial_eq(&restored_tb));
     }
 
@@ -197,8 +202,13 @@ mod tests {
         Snapshot::new(rate_limiter.save())
             .save(&mut mem.as_mut_slice())
             .unwrap();
-        let restored_rate_limiter =
-            RateLimiter::restore((), &Snapshot::load(&mut mem.as_slice()).unwrap().data).unwrap();
+        let restored_rate_limiter = RateLimiter::restore(
+            (),
+            &Snapshot::load_without_crc_check(mem.as_slice())
+                .unwrap()
+                .data,
+        )
+        .unwrap();
 
         assert!(
             rate_limiter

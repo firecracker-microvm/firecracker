@@ -196,7 +196,9 @@ mod tests {
                 mem: guest_mem,
                 restored_from_file: true,
             },
-            &Snapshot::load(&mut mem.as_slice()).unwrap().data,
+            &Snapshot::load_without_crc_check(mem.as_slice())
+                .unwrap()
+                .data,
         )
         .unwrap();
 
