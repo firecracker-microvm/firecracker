@@ -31,7 +31,7 @@ use crate::device_manager::{
 };
 use crate::devices::virtio::balloon::Balloon;
 use crate::devices::virtio::block::device::Block;
-use crate::devices::virtio::mem::{VIRTIO_MEM_DEFAULT_SLOT_SIZE, VirtioMem};
+use crate::devices::virtio::mem::{VIRTIO_MEM_DEFAULT_SLOT_SIZE_MIB, VirtioMem};
 use crate::devices::virtio::net::Net;
 use crate::devices::virtio::pmem::device::Pmem;
 use crate::devices::virtio::rng::Entropy;
@@ -599,7 +599,7 @@ fn attach_virtio_mem_device(
         .past_mmio64_memory
         .allocate(
             mib_to_bytes(config.total_size_mib) as u64,
-            VIRTIO_MEM_DEFAULT_SLOT_SIZE as u64,
+            mib_to_bytes(VIRTIO_MEM_DEFAULT_SLOT_SIZE_MIB) as u64,
             AllocPolicy::FirstMatch,
         )?
         .start();
