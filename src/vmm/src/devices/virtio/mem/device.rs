@@ -126,12 +126,12 @@ impl VirtioMem {
 
     /// Gets the total hotpluggable size.
     pub fn total_size_mib(&self) -> usize {
-        bytes_to_mib(self.config.region_size.try_into().unwrap())
+        bytes_to_mib(u64_to_usize(self.config.region_size))
     }
 
     /// Gets the block size.
     pub fn block_size_mib(&self) -> usize {
-        bytes_to_mib(self.config.block_size.try_into().unwrap())
+        bytes_to_mib(u64_to_usize(self.config.block_size))
     }
 
     /// Gets the block size.
@@ -141,12 +141,12 @@ impl VirtioMem {
 
     /// Gets the total size of the plugged memory blocks.
     pub fn plugged_size_mib(&self) -> usize {
-        bytes_to_mib(self.config.plugged_size.try_into().unwrap())
+        bytes_to_mib(u64_to_usize(self.config.plugged_size))
     }
 
     /// Gets the requested size
     pub fn requested_size_mib(&self) -> usize {
-        bytes_to_mib(self.config.requested_size.try_into().unwrap())
+        bytes_to_mib(u64_to_usize(self.config.requested_size))
     }
 
     pub fn status(&self) -> VirtioMemStatus {
