@@ -13,8 +13,8 @@ pub(crate) const MEM_NUM_QUEUES: usize = 1;
 
 pub(crate) const MEM_QUEUE: usize = 0;
 
-pub const VIRTIO_MEM_DEFAULT_BLOCK_SIZE: usize = 2 << 20; // 2MiB
-pub const VIRTIO_MEM_DEFAULT_SLOT_SIZE: usize = 128 << 20; // 128 MiB
+pub const VIRTIO_MEM_DEFAULT_BLOCK_SIZE_MIB: usize = 2;
+pub const VIRTIO_MEM_DEFAULT_SLOT_SIZE_MIB: usize = 128;
 pub const VIRTIO_MEM_GUEST_ADDRESS: GuestAddress = GuestAddress(FIRST_ADDR_PAST_64BITS_MMIO); // 512GiB
 
 pub const VIRTIO_MEM_DEV_ID: &str = "mem";
