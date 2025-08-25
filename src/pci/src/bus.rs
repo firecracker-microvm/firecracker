@@ -161,6 +161,9 @@ impl PciConfigIo {
             return 0xffff_ffff;
         }
 
+        // NOTE: Potential contention among vCPU threads on this lock. This should not
+        // be a problem currently, since we mainly access this when we are setting up devices.
+        // We might want to do some profiling to ensure this does not become a bottleneck.
         self.pci_bus
             .as_ref()
             .lock()
@@ -195,6 +198,9 @@ impl PciConfigIo {
             return None;
         }
 
+        // NOTE: Potential contention among vCPU threads on this lock. This should not
+        // be a problem currently, since we mainly access this when we are setting up devices.
+        // We might want to do some profiling to ensure this does not become a bottleneck.
         let pci_bus = self.pci_bus.as_ref().lock().unwrap();
         if let Some(d) = pci_bus.devices.get(&(device as u32)) {
             let mut device = d.lock().unwrap();
