@@ -53,6 +53,12 @@ and this project adheres to
   guest's serial console. Not configuring it means Firecracker will continue to
   print serial output to stdout. Similarly to the logger, this configuration is
   not persisted across snapshots.
+- [#5364](https://github.com/firecracker-microvm/firecracker/pull/5364): Added
+  PCI support in Firecracker. PCI support is optional. Users can enable it
+  passing the `--enable-pci` flag when launching the Firecracker process. When
+  Firecracker process is launched with PCI support, it will create all VirtIO
+  devices using a PCI VirtIO transport. If not enabled, Firecracker will use the
+  MMIO transport instead.
 
 ### Changed
 
