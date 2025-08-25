@@ -129,7 +129,7 @@ Example of a kernel valid command line that enables the serial console (which
 goes in the `boot_args` field of the `/boot-source` Firecracker API resource):
 
 ```console
-console=ttyS0 reboot=k panic=1 pci=off nomodule
+console=ttyS0 reboot=k panic=1 nomodule
 ```
 
 ### How can I configure multiple Ethernet devices through the kernel command line?
