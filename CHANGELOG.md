@@ -35,6 +35,12 @@ and this project adheres to
   requests to `/mmds/config` to enforce MMDS to always respond plain text
   contents in the IMDS format regardless of the `Accept` header in requests.
   Users need to regenerate snapshots.
+- [#5364](https://github.com/firecracker-microvm/firecracker/pull/5364): Added
+  PCI support in Firecracker. PCI support is optional. Users can enable it
+  passing the `--enable-pci` flag when launching the Firecracker process. When
+  Firecracker process is launched with PCI support, it will create all VirtIO
+  devices using a PCI VirtIO transport. If not enabled, Firecracker will use the
+  MMIO transport instead.
 
 ### Changed
 
