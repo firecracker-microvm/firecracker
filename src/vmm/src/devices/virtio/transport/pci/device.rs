@@ -599,6 +599,7 @@ impl VirtioPciDevice {
             // offset is pointing to. So, do some check that the `length` has a meaningful value
             // and only use the part of the buffer we actually need.
             if len <= 4 {
+                let len = len.min(data.len());
                 self.write_bar(0, bar_offset as u64, &data[..len])
             } else {
                 None
@@ -1400,7 +1401,7 @@ mod tests {
         device.read_config_register(data_register)
     }
 
-    fn cap_pci_cfg_write(device: &mut VirtioPciDevice, bar_offset: u32, length: u32, data: u32) {
+    fn cap_pci_cfg_write(device: &mut VirtioPciDevice, bar_offset: u32, length: u32, data: &[u8]) {
         let pci_config_cap_offset = capabilities_start(device) as usize
             + 3 * (size_of::<VirtioPciCap>() + 2)
             + (size_of::<VirtioPciNotifyCap>() + 2);
@@ -1415,7 +1416,7 @@ mod tests {
 
         device.write_config_register(offset_register, 0, bar_offset.as_slice());
         device.write_config_register(length_register, 0, length.as_slice());
-        device.write_config_register(data_register, 0, data.as_slice());
+        device.write_config_register(data_register, 0, data);
     }
 
     #[test]
@@ -1437,7 +1438,12 @@ mod tests {
         let len = 1u32;
         let device_status = cap_pci_cfg_read(&mut locked_virtio_pci_device, bar_offset, len);
         assert_eq!(device_status, 0);
-        cap_pci_cfg_write(&mut locked_virtio_pci_device, bar_offset, len, 0x42);
+        cap_pci_cfg_write(
+            &mut locked_virtio_pci_device,
+            bar_offset,
+            len,
+            0x42u32.as_slice(),
+        );
         let device_status = cap_pci_cfg_read(&mut locked_virtio_pci_device, bar_offset, len);
         assert_eq!(device_status, 0x42);
 
@@ -1447,10 +1453,23 @@ mod tests {
             0
         );
         // writes out-of-bounds lengths should have no effect
-        cap_pci_cfg_write(&mut locked_virtio_pci_device, bar_offset, 8, 0x84);
+        cap_pci_cfg_write(
+            &mut locked_virtio_pci_device,
+            bar_offset,
+            8,
+            0x84u32.as_slice(),
+        );
         assert_eq!(
             cap_pci_cfg_read(&mut locked_virtio_pci_device, bar_offset, 1),
             0x42
+        );
+        // Make sure that we handle properly from/to a BAR where the access length doesn't match
+        // what we've set in the capability's length
+        cap_pci_cfg_write(
+            &mut locked_virtio_pci_device,
+            bar_offset,
+            2,
+            0x42u8.as_slice(),
         );
     }
 
