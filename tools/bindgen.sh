@@ -87,6 +87,11 @@ fc-bindgen \
     --allowlist-type "virtio_net_hdr_v1" \
     "$KERNEL_HEADERS_HOME/include/linux/virtio_net.h" >src/vmm/src/devices/virtio/generated/virtio_net.rs
 
+info "BINDGEN virtio_ids.h"
+fc-bindgen \
+    --allowlist-var "VIRTIO_ID.*" \
+    "$INCLUDE/linux/virtio_ids.h" >src/vmm/src/devices/virtio/generated/virtio_ids.rs
+
 info "BINDGEN prctl.h"
 fc-bindgen \
     --allowlist-var "PR_.*" \

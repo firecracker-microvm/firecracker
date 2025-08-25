@@ -13,13 +13,15 @@ use vmm_sys_util::eventfd::EventFd;
 use super::metrics::METRICS;
 use super::{RNG_NUM_QUEUES, RNG_QUEUE};
 use crate::devices::DeviceError;
+use crate::devices::virtio::ActivateError;
 use crate::devices::virtio::device::{ActiveState, DeviceState, VirtioDevice};
 use crate::devices::virtio::generated::virtio_config::VIRTIO_F_VERSION_1;
+use crate::devices::virtio::generated::virtio_ids::VIRTIO_ID_RNG;
 use crate::devices::virtio::iov_deque::IovDequeError;
 use crate::devices::virtio::iovec::IoVecBufferMut;
 use crate::devices::virtio::queue::{FIRECRACKER_MAX_QUEUE_SIZE, InvalidAvailIdx, Queue};
 use crate::devices::virtio::transport::{VirtioInterrupt, VirtioInterruptType};
-use crate::devices::virtio::{ActivateError, TYPE_RNG};
+use crate::impl_device_type;
 use crate::logger::{IncMetric, debug, error};
 use crate::rate_limiter::{RateLimiter, TokenType};
 use crate::vstate::memory::GuestMemoryMmap;
@@ -252,9 +254,7 @@ impl Entropy {
 }
 
 impl VirtioDevice for Entropy {
-    fn device_type(&self) -> u32 {
-        TYPE_RNG
-    }
+    impl_device_type!(VIRTIO_ID_RNG);
 
     fn queues(&self) -> &[Queue] {
         &self.queues
@@ -366,7 +366,7 @@ mod tests {
     #[test]
     fn test_device_type() {
         let entropy_dev = default_entropy();
-        assert_eq!(entropy_dev.device_type(), TYPE_RNG);
+        assert_eq!(entropy_dev.device_type(), VIRTIO_ID_RNG);
     }
 
     #[test]

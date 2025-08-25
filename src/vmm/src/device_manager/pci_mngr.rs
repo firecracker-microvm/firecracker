@@ -19,6 +19,7 @@ use crate::devices::virtio::balloon::persist::{BalloonConstructorArgs, BalloonSt
 use crate::devices::virtio::block::device::Block;
 use crate::devices::virtio::block::persist::{BlockConstructorArgs, BlockState};
 use crate::devices::virtio::device::VirtioDevice;
+use crate::devices::virtio::generated::virtio_ids;
 use crate::devices::virtio::net::Net;
 use crate::devices::virtio::net::persist::{NetConstructorArgs, NetState};
 use crate::devices::virtio::rng::Entropy;
@@ -29,8 +30,7 @@ use crate::devices::virtio::transport::pci::device::{
 use crate::devices::virtio::vsock::persist::{
     VsockConstructorArgs, VsockState, VsockUdsConstructorArgs,
 };
-use crate::devices::virtio::vsock::{TYPE_VSOCK, Vsock, VsockUnixBackend};
-use crate::devices::virtio::{TYPE_BALLOON, TYPE_BLOCK, TYPE_NET, TYPE_RNG};
+use crate::devices::virtio::vsock::{Vsock, VsockUnixBackend};
 use crate::resources::VmResources;
 use crate::snapshot::Persist;
 use crate::vmm_config::mmds::MmdsConfigError;
@@ -285,7 +285,7 @@ impl<'a> Persist<'a> for PciDevices {
             let pci_device_bdf = transport_state.pci_device_bdf.into();
 
             match locked_virtio_dev.device_type() {
-                TYPE_BALLOON => {
+                virtio_ids::VIRTIO_ID_BALLOON => {
                     let balloon_device = locked_virtio_dev
                         .as_any()
                         .downcast_ref::<Balloon>()
@@ -300,7 +300,7 @@ impl<'a> Persist<'a> for PciDevices {
                         transport_state,
                     });
                 }
-                TYPE_BLOCK => {
+                virtio_ids::VIRTIO_ID_BLOCK => {
                     let block_dev = locked_virtio_dev
                         .as_mut_any()
                         .downcast_mut::<Block>()
@@ -321,7 +321,7 @@ impl<'a> Persist<'a> for PciDevices {
                         });
                     }
                 }
-                TYPE_NET => {
+                virtio_ids::VIRTIO_ID_NET => {
                     let net_dev = locked_virtio_dev
                         .as_mut_any()
                         .downcast_mut::<Net>()
@@ -343,7 +343,7 @@ impl<'a> Persist<'a> for PciDevices {
                         transport_state,
                     })
                 }
-                TYPE_VSOCK => {
+                virtio_ids::VIRTIO_ID_VSOCK => {
                     let vsock_dev = locked_virtio_dev
                         .as_mut_any()
                         // Currently, VsockUnixBackend is the only implementation of VsockBackend.
@@ -374,7 +374,7 @@ impl<'a> Persist<'a> for PciDevices {
                         transport_state,
                     });
                 }
-                TYPE_RNG => {
+                virtio_ids::VIRTIO_ID_RNG => {
                     let rng_dev = locked_virtio_dev
                         .as_mut_any()
                         .downcast_mut::<Entropy>()

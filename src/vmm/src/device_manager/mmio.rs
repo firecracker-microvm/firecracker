@@ -468,7 +468,7 @@ pub(crate) mod tests {
     use crate::test_utils::multi_region_mem_raw;
     use crate::vstate::kvm::Kvm;
     use crate::vstate::memory::{GuestAddress, GuestMemoryMmap};
-    use crate::{Vm, arch};
+    use crate::{Vm, arch, impl_device_type};
 
     const QUEUE_SIZES: &[u16] = &[64];
 
@@ -522,6 +522,8 @@ pub(crate) mod tests {
     }
 
     impl VirtioDevice for DummyDevice {
+        impl_device_type!(0);
+
         fn avail_features(&self) -> u64 {
             0
         }
@@ -531,10 +533,6 @@ pub(crate) mod tests {
         }
 
         fn set_acked_features(&mut self, _: u64) {}
-
-        fn device_type(&self) -> u32 {
-            0
-        }
 
         fn queues(&self) -> &[Queue] {
             &self.queues

@@ -16,18 +16,10 @@ type MutexBalloon = Arc<Mutex<Balloon>>;
 pub enum BalloonConfigError {
     /// No balloon device found.
     DeviceNotFound,
-    /// Device is inactive, check if balloon driver is enabled in guest kernel.
-    DeviceNotActive,
-    /// Cannot enable/disable the statistics after boot.
-    InvalidStatsUpdate,
     /// Amount of pages requested is too large.
     TooManyPagesRequested,
-    /// Statistics for the balloon device are not enabled
-    StatsNotFound,
     /// Error creating the balloon device: {0}
     CreateFailure(crate::devices::virtio::balloon::BalloonError),
-    /// Error updating the balloon device configuration: {0}
-    UpdateFailure(std::io::Error),
     /// Firecracker's huge pages support is incompatible with memory ballooning.
     HugePages,
 }
