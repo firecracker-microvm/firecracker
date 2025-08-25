@@ -194,8 +194,15 @@ API_SOCKET="/tmp/firecracker.socket"
 sudo rm -f $API_SOCKET
 
 # Run firecracker
-sudo ./firecracker --api-sock "${API_SOCKET}"
+sudo ./firecracker --api-sock "${API_SOCKET} --enable-pci"
 ```
+
+The `--enable-pci` flag instructs Firecracker to create all VirtIO devices using
+a PCI VirtIO transport. This flag is optional. If not passed, Firecracker will
+create devices using the legacy MMIO transport. We suggest that users enable the
+PCI transport, as it yields higher throughput and lower latency for VirtIO
+devices. For more information regarding guest kernel requirements for using PCI
+look at our [kernel policy documentation](./kernel-policy.md).
 
 In a new terminal (do not close the 1st one):
 
@@ -240,7 +247,7 @@ sudo curl -X PUT --unix-socket "${API_SOCKET}" \
     "http://localhost/logger"
 
 KERNEL="./$(ls vmlinux* | tail -1)"
-KERNEL_BOOT_ARGS="console=ttyS0 reboot=k panic=1 pci=off"
+KERNEL_BOOT_ARGS="console=ttyS0 reboot=k panic=1"
 
 ARCH=$(uname -m)
 
