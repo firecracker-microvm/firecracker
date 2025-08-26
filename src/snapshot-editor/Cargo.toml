@@ -20,7 +20,7 @@ fc_utils = { package = "utils", path = "../utils" }
 libc = "0.2.175"
 log-instrument = { path = "../log-instrument", optional = true }
 semver = "1.0.26"
-thiserror = "2.0.15"
+thiserror = "2.0.16"
 vmm = { path = "../vmm" }
 vmm-sys-util = "0.14.0"
 
