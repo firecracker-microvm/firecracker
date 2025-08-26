@@ -272,6 +272,19 @@ impl KvmVcpu {
         self.peripherals.pio_bus = Some(pio_bus);
     }
 
+    /// Calls KVM_KVMCLOCK_CTRL to avoid guest soft lockup watchdog panics on resume.
+    /// See https://docs.kernel.org/virt/kvm/api.html .
+    pub fn kvmclock_ctrl(&self) {
+        // We do not want to fail if the call is not successful, because that may be acceptable
+        // depending on the workload. For example, EINVAL is returned if kvm-clock is not
+        // activated (e.g., no-kvmclock is specified in the guest kernel parameter).
+        // https://elixir.bootlin.com/linux/v6.17.5/source/arch/x86/kvm/x86.c#L5736-L5737
+        if let Err(err) = self.fd.kvmclock_ctrl() {
+            METRICS.vcpu.kvmclock_ctrl_fails.inc();
+            warn!("KVM_KVMCLOCK_CTRL call failed {}", err);
+        }
+    }
+
     /// Get the current XSAVE state for this vCPU.
     ///
     /// The C `kvm_xsave` struct was extended by adding a flexible array member (FAM) in the end
@@ -699,6 +712,8 @@ impl KvmVcpu {
         self.fd
             .set_vcpu_events(&state.vcpu_events)
             .map_err(KvmVcpuError::VcpuSetVcpuEvents)?;
+
+        self.kvmclock_ctrl();
         Ok(())
     }
 }
