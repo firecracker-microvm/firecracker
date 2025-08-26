@@ -140,7 +140,7 @@ pub enum SharedDeviceType {
 
 pub struct MMIODevManagerConstructorArgs<'a> {
     pub mem: &'a GuestMemoryMmap,
-    pub vm: &'a Vm,
+    pub vm: &'a Arc<Vm>,
     pub event_manager: &'a mut EventManager,
     pub vm_resources: &'a mut VmResources,
     pub instance_id: &'a str,
@@ -364,11 +364,7 @@ impl<'a> Persist<'a> for MMIODeviceManager {
                 }
                 if state.type_ == DeviceType::Rtc {
                     let rtc = Arc::new(Mutex::new(RTCDevice::new()));
-                    dev_manager.register_mmio_rtc(
-                        constructor_args.vm,
-                        rtc,
-                        Some(state.device_info),
-                    )?;
+                    dev_manager.register_mmio_rtc(vm, rtc, Some(state.device_info))?;
                 }
             }
         }
@@ -680,7 +676,9 @@ mod tests {
         let mut event_manager = EventManager::new().expect("Unable to create EventManager");
         let vmm = default_vmm();
         let device_manager_state: device_manager::DevicesState =
-            Snapshot::load(&mut buf.as_slice()).unwrap().data;
+            Snapshot::load_without_crc_check(buf.as_slice())
+                .unwrap()
+                .data;
         let vm_resources = &mut VmResources::default();
         let restore_args = MMIODevManagerConstructorArgs {
             mem: vmm.vm.guest_memory(),

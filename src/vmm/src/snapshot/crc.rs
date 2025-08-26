@@ -4,59 +4,9 @@
 //! Implements readers and writers that compute the CRC64 checksum of the bytes
 //! read/written.
 
-use std::io::{Read, Write};
+use std::io::Write;
 
 use crc64::crc64;
-
-/// Computes the CRC64 checksum of the read bytes.
-///
-/// ```
-/// use std::io::Read;
-///
-/// use vmm::snapshot::crc::CRC64Reader;
-///
-/// let buf = vec![1, 2, 3, 4, 5];
-/// let mut read_buf = Vec::new();
-/// let mut slice = buf.as_slice();
-///
-/// // Create a reader from a slice.
-/// let mut crc_reader = CRC64Reader::new(&mut slice);
-///
-/// let count = crc_reader.read_to_end(&mut read_buf).unwrap();
-/// assert_eq!(crc_reader.checksum(), 0xFB04_60DE_0638_3654);
-/// assert_eq!(read_buf, buf);
-/// ```
-#[derive(Debug)]
-pub struct CRC64Reader<T> {
-    /// The underlying raw reader. Using this directly will bypass CRC computation!
-    pub reader: T,
-    crc64: u64,
-}
-
-impl<T> CRC64Reader<T>
-where
-    T: Read,
-{
-    /// Create a new reader.
-    pub fn new(reader: T) -> Self {
-        CRC64Reader { crc64: 0, reader }
-    }
-    /// Returns the current checksum value.
-    pub fn checksum(&self) -> u64 {
-        self.crc64
-    }
-}
-
-impl<T> Read for CRC64Reader<T>
-where
-    T: Read,
-{
-    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
-        let bytes_read = self.reader.read(buf)?;
-        self.crc64 = crc64(self.crc64, &buf[..bytes_read]);
-        Ok(bytes_read)
-    }
-}
 
 /// Computes the CRC64 checksum of the written bytes.
 ///
@@ -115,35 +65,16 @@ where
 
 #[cfg(test)]
 mod tests {
-    use super::{CRC64Reader, CRC64Writer, Read, Write};
+    use super::{CRC64Writer, Write};
 
     #[test]
     fn test_crc_new() {
-        let buf = vec![1; 5];
-        let mut slice = buf.as_slice();
-        let crc_reader = CRC64Reader::new(&mut slice);
-        assert_eq!(crc_reader.crc64, 0);
-        assert_eq!(crc_reader.reader, &[1; 5]);
-        assert_eq!(crc_reader.checksum(), 0);
-
         let mut buf = vec![0; 5];
         let mut slice = buf.as_mut_slice();
         let crc_writer = CRC64Writer::new(&mut slice);
         assert_eq!(crc_writer.crc64, 0);
         assert_eq!(crc_writer.writer, &[0; 5]);
         assert_eq!(crc_writer.checksum(), 0);
-    }
-
-    #[test]
-    fn test_crc_read() {
-        let buf = vec![1, 2, 3, 4, 5];
-        let mut read_buf = vec![0; 16];
-
-        let mut slice = buf.as_slice();
-        let mut crc_reader = CRC64Reader::new(&mut slice);
-        crc_reader.read_to_end(&mut read_buf).unwrap();
-        assert_eq!(crc_reader.checksum(), 0xFB04_60DE_0638_3654);
-        assert_eq!(crc_reader.checksum(), crc_reader.crc64);
     }
 
     #[test]

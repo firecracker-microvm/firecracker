@@ -16,6 +16,7 @@ use std::sync::{Arc, Barrier, Mutex};
 
 use anyhow::anyhow;
 use kvm_ioctls::{IoEventAddress, NoDatamatch};
+use log::warn;
 use pci::{
     BarReprogrammingParams, MsixCap, MsixConfig, MsixConfigState, PciBarConfiguration,
     PciBarRegionType, PciBdf, PciCapability, PciCapabilityId, PciClassCode, PciConfiguration,
@@ -53,16 +54,6 @@ const DEVICE_DRIVER_OK: u8 = 0x04;
 const DEVICE_FEATURES_OK: u8 = 0x08;
 const DEVICE_FAILED: u8 = 0x80;
 
-const VIRTIO_F_RING_INDIRECT_DESC: u32 = 28;
-const VIRTIO_F_RING_EVENT_IDX: u32 = 29;
-const VIRTIO_F_VERSION_1: u32 = 32;
-const VIRTIO_F_IOMMU_PLATFORM: u32 = 33;
-const VIRTIO_F_IN_ORDER: u32 = 35;
-const VIRTIO_F_ORDER_PLATFORM: u32 = 36;
-#[allow(dead_code)]
-const VIRTIO_F_SR_IOV: u32 = 37;
-const VIRTIO_F_NOTIFICATION_DATA: u32 = 38;
-
 /// Vector value used to disable MSI for a queue.
 pub const VIRTQ_MSI_NO_VECTOR: u16 = 0xffff;
 
@@ -83,14 +74,13 @@ enum PciCapabilityType {
 // fields cap_vndr (1 byte) and cap_next (1 byte) defined in the virtio spec.
 const VIRTIO_PCI_CAP_OFFSET: usize = 2;
 
-#[allow(dead_code)]
 #[repr(C, packed)]
-#[derive(Debug, Clone, Copy, Default)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 struct VirtioPciCap {
     cap_len: u8,      // Generic PCI field: capability length
     cfg_type: u8,     // Identifies the structure.
     pci_bar: u8,      // Where to find it.
-    id: u8,           // Multiple capabilities of the same type
+    id: u8,           // Multiple capabilities of the same type.
     padding: [u8; 2], // Pad to full dword.
     offset: Le32,     // Offset within bar.
     length: Le32,     // Length of the structure, in bytes.
@@ -126,7 +116,6 @@ impl VirtioPciCap {
     }
 }
 
-#[allow(dead_code)]
 #[repr(C, packed)]
 #[derive(Clone, Copy, Default)]
 struct VirtioPciNotifyCap {
@@ -164,49 +153,8 @@ impl VirtioPciNotifyCap {
     }
 }
 
-#[allow(dead_code)]
 #[repr(C, packed)]
-#[derive(Clone, Copy, Default)]
-struct VirtioPciCap64 {
-    cap: VirtioPciCap,
-    offset_hi: Le32,
-    length_hi: Le32,
-}
-// SAFETY: All members are simple numbers and any value is valid.
-unsafe impl ByteValued for VirtioPciCap64 {}
-
-impl PciCapability for VirtioPciCap64 {
-    fn bytes(&self) -> &[u8] {
-        self.as_slice()
-    }
-
-    fn id(&self) -> PciCapabilityId {
-        PciCapabilityId::VendorSpecific
-    }
-}
-
-impl VirtioPciCap64 {
-    pub fn new(cfg_type: PciCapabilityType, pci_bar: u8, id: u8, offset: u64, length: u64) -> Self {
-        VirtioPciCap64 {
-            cap: VirtioPciCap {
-                cap_len: u8::try_from(std::mem::size_of::<VirtioPciCap64>()).unwrap()
-                    + VIRTIO_PCI_CAP_LEN_OFFSET,
-                cfg_type: cfg_type as u8,
-                pci_bar,
-                id,
-                padding: [0; 2],
-                offset: Le32::from((offset & 0xffff_ffff) as u32),
-                length: Le32::from((length & 0xffff_ffff) as u32),
-            },
-            offset_hi: Le32::from((offset >> 32) as u32),
-            length_hi: Le32::from((length >> 32) as u32),
-        }
-    }
-}
-
-#[allow(dead_code)]
-#[repr(C, packed)]
-#[derive(Debug, Clone, Copy, Default)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 struct VirtioPciCfgCap {
     cap: VirtioPciCap,
     pci_cfg_data: [u8; 4],
@@ -227,7 +175,15 @@ impl PciCapability for VirtioPciCfgCap {
 impl VirtioPciCfgCap {
     fn new() -> Self {
         VirtioPciCfgCap {
-            cap: VirtioPciCap::new(PciCapabilityType::Pci, 0, 0),
+            cap: VirtioPciCap {
+                cap_len: u8::try_from(size_of::<Self>()).unwrap() + VIRTIO_PCI_CAP_LEN_OFFSET,
+                cfg_type: PciCapabilityType::Pci as u8,
+                pci_bar: VIRTIO_BAR_INDEX,
+                id: 0,
+                padding: [0; 2],
+                offset: Le32::from(0),
+                length: Le32::from(0),
+            },
             ..Default::default()
         }
     }
@@ -239,7 +195,6 @@ struct VirtioPciCfgCapInfo {
     cap: VirtioPciCfgCap,
 }
 
-#[allow(dead_code)]
 #[derive(Debug, Copy, Clone)]
 pub enum PciVirtioSubclass {
     NonTransitionalBase = 0xff,
@@ -282,20 +237,9 @@ const VIRTIO_PCI_VENDOR_ID: u16 = 0x1af4;
 const VIRTIO_PCI_DEVICE_ID_BASE: u16 = 0x1040; // Add to device type to get device ID.
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct QueueState {
-    max_size: u16,
-    size: u16,
-    ready: bool,
-    desc_table: u64,
-    avail_ring: u64,
-    used_ring: u64,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct VirtioPciDeviceState {
     pub pci_device_bdf: PciBdf,
     pub device_activated: bool,
-    pub interrupt_status: usize,
     pub cap_pci_cfg_offset: usize,
     pub cap_pci_cfg: Vec<u8>,
     pub pci_configuration_state: PciConfigurationState,
@@ -337,7 +281,6 @@ pub struct VirtioPciDevice {
     device_activated: Arc<AtomicBool>,
 
     // PCI interrupts.
-    interrupt_status: Arc<AtomicUsize>,
     virtio_interrupt: Option<Arc<dyn VirtioInterrupt>>,
     interrupt_source_group: Arc<MsiVectorGroup>,
 
@@ -458,7 +401,6 @@ impl VirtioPciDevice {
             msix_num: msi_vectors.num_vectors(),
             device,
             device_activated: Arc::new(AtomicBool::new(false)),
-            interrupt_status: Arc::new(AtomicUsize::new(0)),
             virtio_interrupt: Some(interrupt),
             memory,
             interrupt_source_group: msi_vectors,
@@ -509,7 +451,6 @@ impl VirtioPciDevice {
             msix_num: msi_vectors.num_vectors(),
             device,
             device_activated: Arc::new(AtomicBool::new(state.device_activated)),
-            interrupt_status: Arc::new(AtomicUsize::new(state.interrupt_status)),
             virtio_interrupt: Some(interrupt),
             memory: memory.clone(),
             interrupt_source_group: msi_vectors,
@@ -627,10 +568,14 @@ impl VirtioPciDevice {
                     .unwrap();
             }
         } else {
-            let bar_offset: u32 =
-                // SAFETY: we know self.cap_pci_cfg_info.cap.cap.offset is 32bits long.
-                unsafe { std::mem::transmute(self.cap_pci_cfg_info.cap.cap.offset) };
-            self.read_bar(0, bar_offset as u64, data)
+            let bar_offset: u32 = self.cap_pci_cfg_info.cap.cap.offset.into();
+            let len = u32::from(self.cap_pci_cfg_info.cap.cap.length) as usize;
+            // BAR reads expect that the buffer has the exact size of the field that
+            // offset is pointing to. So, do some check that the `length` has a meaningful value
+            // and only use the part of the buffer we actually need.
+            if len <= 4 {
+                self.read_bar(0, bar_offset as u64, &mut data[..len]);
+            }
         }
     }
 
@@ -648,10 +593,17 @@ impl VirtioPciDevice {
             right[..data_len].copy_from_slice(data);
             None
         } else {
-            let bar_offset: u32 =
-                // SAFETY: we know self.cap_pci_cfg_info.cap.cap.offset is 32bits long.
-                unsafe { std::mem::transmute(self.cap_pci_cfg_info.cap.cap.offset) };
-            self.write_bar(0, bar_offset as u64, data)
+            let bar_offset: u32 = self.cap_pci_cfg_info.cap.cap.offset.into();
+            let len = u32::from(self.cap_pci_cfg_info.cap.cap.length) as usize;
+            // BAR writes expect that the buffer has the exact size of the field that
+            // offset is pointing to. So, do some check that the `length` has a meaningful value
+            // and only use the part of the buffer we actually need.
+            if len <= 4 {
+                let len = len.min(data.len());
+                self.write_bar(0, bar_offset as u64, &data[..len])
+            } else {
+                None
+            }
         }
     }
 
@@ -682,34 +634,10 @@ impl VirtioPciDevice {
         Ok(())
     }
 
-    /// Unregister the IoEvent notification for a VirtIO device
-    pub fn unregister_notification_ioevent(
-        &self,
-        vm: &Vm,
-    ) -> std::result::Result<(), errno::Error> {
-        let bar_addr = self.config_bar_addr();
-        for (i, queue_evt) in self
-            .device
-            .lock()
-            .expect("Poisoned lock")
-            .queue_events()
-            .iter()
-            .enumerate()
-        {
-            let notify_base = bar_addr + NOTIFICATION_BAR_OFFSET;
-            let io_addr =
-                IoEventAddress::Mmio(notify_base + i as u64 * NOTIFY_OFF_MULTIPLIER as u64);
-            vm.fd()
-                .unregister_ioevent(queue_evt, &io_addr, NoDatamatch)?;
-        }
-        Ok(())
-    }
-
     pub fn state(&self) -> VirtioPciDeviceState {
         VirtioPciDeviceState {
             pci_device_bdf: self.pci_device_bdf,
             device_activated: self.device_activated.load(Ordering::Acquire),
-            interrupt_status: self.interrupt_status.load(Ordering::Acquire),
             cap_pci_cfg_offset: self.cap_pci_cfg_info.offset,
             cap_pci_cfg: self.cap_pci_cfg_info.cap.bytes().to_vec(),
             pci_configuration_state: self.configuration.state(),
@@ -850,8 +778,13 @@ impl PciDevice for VirtioPciDevice {
         {
             let offset = base - self.cap_pci_cfg_info.offset;
             let mut data = [0u8; 4];
-            self.read_cap_pci_cfg(offset, &mut data);
-            u32::from_le_bytes(data)
+            let len = u32::from(self.cap_pci_cfg_info.cap.cap.length) as usize;
+            if len <= 4 {
+                self.read_cap_pci_cfg(offset, &mut data[..len]);
+                u32::from_le_bytes(data)
+            } else {
+                0
+            }
         } else {
             self.configuration.read_reg(reg_idx)
         }
@@ -928,14 +861,9 @@ impl PciDevice for VirtioPciDevice {
                     .read(o - COMMON_CONFIG_BAR_OFFSET, data, self.device.clone())
             }
             o if (ISR_CONFIG_BAR_OFFSET..ISR_CONFIG_BAR_OFFSET + ISR_CONFIG_SIZE).contains(&o) => {
-                if let Some(v) = data.get_mut(0) {
-                    // Reading this register resets it to 0.
-                    *v = self
-                        .interrupt_status
-                        .swap(0, Ordering::AcqRel)
-                        .try_into()
-                        .unwrap();
-                }
+                // We don't actually support legacy INT#x interrupts for VirtIO PCI devices
+                warn!("pci: read access to unsupported ISR status field");
+                data.fill(0);
             }
             o if (DEVICE_CONFIG_BAR_OFFSET..DEVICE_CONFIG_BAR_OFFSET + DEVICE_CONFIG_SIZE)
                 .contains(&o) =>
@@ -947,6 +875,7 @@ impl PciDevice for VirtioPciDevice {
                 .contains(&o) =>
             {
                 // Handled with ioeventfds.
+                warn!("pci: unexpected read to notification BAR. Offset {o:#x}");
             }
             o if (MSIX_TABLE_BAR_OFFSET..MSIX_TABLE_BAR_OFFSET + MSIX_TABLE_SIZE).contains(&o) => {
                 if let Some(msix_config) = &self.msix_config {
@@ -975,10 +904,8 @@ impl PciDevice for VirtioPciDevice {
                     .write(o - COMMON_CONFIG_BAR_OFFSET, data, self.device.clone())
             }
             o if (ISR_CONFIG_BAR_OFFSET..ISR_CONFIG_BAR_OFFSET + ISR_CONFIG_SIZE).contains(&o) => {
-                if let Some(v) = data.first() {
-                    self.interrupt_status
-                        .fetch_and(!(*v as usize), Ordering::AcqRel);
-                }
+                // We don't actually support legacy INT#x interrupts for VirtIO PCI devices
+                warn!("pci: access to unsupported ISR status field");
             }
             o if (DEVICE_CONFIG_BAR_OFFSET..DEVICE_CONFIG_BAR_OFFSET + DEVICE_CONFIG_SIZE)
                 .contains(&o) =>
@@ -990,7 +917,7 @@ impl PciDevice for VirtioPciDevice {
                 .contains(&o) =>
             {
                 // Handled with ioeventfds.
-                error!("Unexpected write to notification BAR: offset = 0x{:x}", o);
+                warn!("pci: unexpected write to notification BAR. Offset {o:#x}");
             }
             o if (MSIX_TABLE_BAR_OFFSET..MSIX_TABLE_BAR_OFFSET + MSIX_TABLE_SIZE).contains(&o) => {
                 if let Some(msix_config) = &self.msix_config {
@@ -1081,19 +1008,30 @@ mod tests {
 
     use event_manager::MutEventSubscriber;
     use linux_loader::loader::Cmdline;
-    use pci::{PciBdf, PciClassCode, PciDevice, PciSubclass};
+    use pci::{
+        MsixCap, PciBdf, PciCapability, PciCapabilityId, PciClassCode, PciDevice, PciSubclass,
+    };
+    use vm_memory::{ByteValued, Le32};
 
-    use super::VirtioPciDevice;
-    use crate::Vm;
+    use super::{PciCapabilityType, VirtioPciDevice};
     use crate::arch::MEM_64BIT_DEVICES_START;
     use crate::builder::tests::default_vmm;
     use crate::devices::virtio::device::VirtioDevice;
+    use crate::devices::virtio::device_status::{ACKNOWLEDGE, DRIVER, DRIVER_OK, FEATURES_OK};
+    use crate::devices::virtio::generated::virtio_config::VIRTIO_F_VERSION_1;
+    use crate::devices::virtio::generated::virtio_ids;
     use crate::devices::virtio::rng::Entropy;
-    use crate::devices::virtio::transport::pci::device::PciVirtioSubclass;
+    use crate::devices::virtio::transport::pci::device::{
+        COMMON_CONFIG_BAR_OFFSET, COMMON_CONFIG_SIZE, DEVICE_CONFIG_BAR_OFFSET, DEVICE_CONFIG_SIZE,
+        ISR_CONFIG_BAR_OFFSET, ISR_CONFIG_SIZE, NOTIFICATION_BAR_OFFSET, NOTIFICATION_SIZE,
+        NOTIFY_OFF_MULTIPLIER, PciVirtioSubclass, VirtioPciCap, VirtioPciCfgCap,
+        VirtioPciNotifyCap,
+    };
     use crate::rate_limiter::RateLimiter;
+    use crate::utils::u64_to_usize;
+    use crate::{Vm, Vmm};
 
-    #[test]
-    fn test_pci_device_config() {
+    fn create_vmm_with_virtio_pci_device() -> Vmm {
         let mut vmm = default_vmm();
         vmm.device_manager.enable_pci(&vmm.vm);
         let entropy = Arc::new(Mutex::new(Entropy::new(RateLimiter::default()).unwrap()));
@@ -1106,13 +1044,21 @@ mod tests {
                 false,
             )
             .unwrap();
+        vmm
+    }
 
-        let device = vmm
-            .device_manager
+    fn get_virtio_device(vmm: &Vmm) -> Arc<Mutex<VirtioPciDevice>> {
+        vmm.device_manager
             .pci_devices
-            .get_virtio_device(entropy.lock().unwrap().device_type(), "rng")
-            .unwrap();
+            .get_virtio_device(virtio_ids::VIRTIO_ID_RNG, "rng")
+            .unwrap()
+            .clone()
+    }
 
+    #[test]
+    fn test_pci_device_config() {
+        let mut vmm = create_vmm_with_virtio_pci_device();
+        let device = get_virtio_device(&vmm);
         let mut locked_virtio_pci_device = device.lock().unwrap();
 
         // For more information for the values we are checking here look into the VirtIO spec here:
@@ -1212,25 +1158,8 @@ mod tests {
 
     #[test]
     fn test_reading_bars() {
-        let mut vmm = default_vmm();
-        vmm.device_manager.enable_pci(&vmm.vm);
-        let entropy = Arc::new(Mutex::new(Entropy::new(RateLimiter::default()).unwrap()));
-        vmm.device_manager
-            .attach_virtio_device(
-                &vmm.vm,
-                "rng".to_string(),
-                entropy.clone(),
-                &mut Cmdline::new(1024).unwrap(),
-                false,
-            )
-            .unwrap();
-
-        let device = vmm
-            .device_manager
-            .pci_devices
-            .get_virtio_device(entropy.lock().unwrap().device_type(), "rng")
-            .unwrap();
-
+        let mut vmm = create_vmm_with_virtio_pci_device();
+        let device = get_virtio_device(&vmm);
         let mut locked_virtio_pci_device = device.lock().unwrap();
 
         // According to OSdev wiki (https://wiki.osdev.org/PCI#Configuration_Space):
@@ -1282,5 +1211,461 @@ mod tests {
 
         // We create a capabilities BAR region of 0x80000 bytes
         assert_eq!(bar_size, 0x80000);
+    }
+
+    fn read_virtio_pci_cap(
+        device: &mut VirtioPciDevice,
+        offset: u32,
+    ) -> (PciCapabilityId, u8, VirtioPciCap) {
+        let word1 = device.read_config_register((offset >> 2) as usize);
+        let word2 = device.read_config_register((offset >> 2) as usize + 1);
+        let word3 = device.read_config_register((offset >> 2) as usize + 2);
+        let word4 = device.read_config_register((offset >> 2) as usize + 3);
+
+        let id = PciCapabilityId::from((word1 & 0xff) as u8);
+        let next = ((word1 >> 8) & 0xff) as u8;
+
+        let cap = VirtioPciCap {
+            cap_len: ((word1 >> 16) & 0xff) as u8,
+            cfg_type: ((word1 >> 24) & 0xff) as u8,
+            pci_bar: (word2 & 0xff) as u8,
+            id: ((word2 >> 8) & 0xff) as u8,
+            padding: [0u8; 2],
+            offset: Le32::from(word3),
+            length: Le32::from(word4),
+        };
+
+        // We only ever set a single capability of a type. It's ID is 0.
+        assert_eq!(cap.id, 0);
+
+        (id, next, cap)
+    }
+
+    fn read_virtio_notification_cap(
+        device: &mut VirtioPciDevice,
+        offset: u32,
+    ) -> (PciCapabilityId, u8, VirtioPciNotifyCap) {
+        let (id, next, cap) = read_virtio_pci_cap(device, offset);
+        let word5 = device.read_config_register((offset >> 2) as usize + 4);
+
+        let notification_cap = VirtioPciNotifyCap {
+            cap,
+            notify_off_multiplier: Le32::from(word5),
+        };
+
+        (id, next, notification_cap)
+    }
+
+    fn read_virtio_pci_config_cap(
+        device: &mut VirtioPciDevice,
+        offset: u32,
+    ) -> (PciCapabilityId, u8, VirtioPciCfgCap) {
+        let (id, next, cap) = read_virtio_pci_cap(device, offset);
+        let word5 = device.read_config_register((offset >> 2) as usize + 4);
+
+        let pci_cfg_cap = VirtioPciCfgCap {
+            cap,
+            pci_cfg_data: word5.as_slice().try_into().unwrap(),
+        };
+
+        (id, next, pci_cfg_cap)
+    }
+
+    fn read_msix_cap(device: &mut VirtioPciDevice, offset: u32) -> (PciCapabilityId, u8, MsixCap) {
+        let word1 = device.read_config_register((offset >> 2) as usize);
+        let table = device.read_config_register((offset >> 2) as usize + 1);
+        let pba = device.read_config_register((offset >> 2) as usize + 2);
+
+        let id = PciCapabilityId::from((word1 & 0xff) as u8);
+        let next = ((word1 >> 8) & 0xff) as u8;
+
+        let cap = MsixCap {
+            msg_ctl: (word1 & 0xffff) as u16,
+            table,
+            pba,
+        };
+
+        (id, next, cap)
+    }
+
+    fn capabilities_start(device: &mut VirtioPciDevice) -> u32 {
+        device.read_config_register(0xd) & 0xfc
+    }
+
+    #[test]
+    fn test_capabilities() {
+        let mut vmm = create_vmm_with_virtio_pci_device();
+        let device = get_virtio_device(&vmm);
+        let mut locked_virtio_pci_device = device.lock().unwrap();
+
+        // VirtIO devices need to expose a set of mandatory capabilities:
+        // * Common configuration
+        // * Notifications
+        // * ISR status
+        // * PCI configuration access
+        //
+        // and, optionally, a device-specific configuration area for those devices that need it.
+        //
+        // We always expose all 5 capabilities, so check that the capabilities are present
+
+        // Common config
+        let common_config_cap_offset = capabilities_start(&mut locked_virtio_pci_device);
+        let (id, next, cap) =
+            read_virtio_pci_cap(&mut locked_virtio_pci_device, common_config_cap_offset);
+        assert_eq!(id, PciCapabilityId::VendorSpecific);
+        assert_eq!(cap.cap_len as usize, size_of::<VirtioPciCap>() + 2);
+        assert_eq!(cap.cfg_type, PciCapabilityType::Common as u8);
+        assert_eq!(cap.pci_bar, 0);
+        assert_eq!(u32::from(cap.offset) as u64, COMMON_CONFIG_BAR_OFFSET);
+        assert_eq!(u32::from(cap.length) as u64, COMMON_CONFIG_SIZE);
+        assert_eq!(next as u32, common_config_cap_offset + cap.cap_len as u32);
+
+        // ISR
+        let isr_cap_offset = next as u32;
+        let (id, next, cap) = read_virtio_pci_cap(&mut locked_virtio_pci_device, isr_cap_offset);
+        assert_eq!(id, PciCapabilityId::VendorSpecific);
+        assert_eq!(cap.cap_len as usize, size_of::<VirtioPciCap>() + 2);
+        assert_eq!(cap.cfg_type, PciCapabilityType::Isr as u8);
+        assert_eq!(cap.pci_bar, 0);
+        assert_eq!(u32::from(cap.offset) as u64, ISR_CONFIG_BAR_OFFSET);
+        assert_eq!(u32::from(cap.length) as u64, ISR_CONFIG_SIZE);
+        assert_eq!(next as u32, isr_cap_offset + cap.cap_len as u32);
+
+        // Device config
+        let device_config_cap_offset = next as u32;
+        let (id, next, cap) =
+            read_virtio_pci_cap(&mut locked_virtio_pci_device, device_config_cap_offset);
+        assert_eq!(id, PciCapabilityId::VendorSpecific);
+        assert_eq!(cap.cap_len as usize, size_of::<VirtioPciCap>() + 2);
+        assert_eq!(cap.cfg_type, PciCapabilityType::Device as u8);
+        assert_eq!(cap.pci_bar, 0);
+        assert_eq!(u32::from(cap.offset) as u64, DEVICE_CONFIG_BAR_OFFSET);
+        assert_eq!(u32::from(cap.length) as u64, DEVICE_CONFIG_SIZE);
+        assert_eq!(next as u32, device_config_cap_offset + cap.cap_len as u32);
+
+        let notification_cap_offset = next as u32;
+        let (id, next, cap) =
+            read_virtio_notification_cap(&mut locked_virtio_pci_device, notification_cap_offset);
+        assert_eq!(id, PciCapabilityId::VendorSpecific);
+        assert_eq!(
+            cap.cap.cap_len as usize,
+            size_of::<VirtioPciNotifyCap>() + 2
+        );
+        assert_eq!(cap.cap.cfg_type, PciCapabilityType::Notify as u8);
+        assert_eq!(cap.cap.pci_bar, 0);
+        assert_eq!(u32::from(cap.cap.offset) as u64, NOTIFICATION_BAR_OFFSET);
+        assert_eq!(u32::from(cap.cap.length) as u64, NOTIFICATION_SIZE);
+        assert_eq!(
+            next as u32,
+            notification_cap_offset + cap.cap.cap_len as u32
+        );
+        assert_eq!(u32::from(cap.notify_off_multiplier), NOTIFY_OFF_MULTIPLIER);
+
+        let pci_config_cap_offset = next as u32;
+        let (id, next, cap) =
+            read_virtio_pci_config_cap(&mut locked_virtio_pci_device, pci_config_cap_offset);
+        assert_eq!(id, PciCapabilityId::VendorSpecific);
+        assert_eq!(cap.cap.cap_len as usize, size_of::<VirtioPciCfgCap>() + 2);
+        assert_eq!(cap.cap.cfg_type, PciCapabilityType::Pci as u8);
+        assert_eq!(cap.cap.pci_bar, 0);
+        assert_eq!(u32::from(cap.cap.offset) as u64, 0);
+        assert_eq!(u32::from(cap.cap.length) as u64, 0);
+        assert_eq!(
+            locked_virtio_pci_device.cap_pci_cfg_info.offset,
+            pci_config_cap_offset as usize + 2
+        );
+        assert_eq!(locked_virtio_pci_device.cap_pci_cfg_info.cap, cap);
+        assert_eq!(next as u32, pci_config_cap_offset + cap.cap.cap_len as u32);
+
+        let msix_cap_offset = next as u32;
+        let (id, next, cap) = read_msix_cap(&mut locked_virtio_pci_device, msix_cap_offset);
+        assert_eq!(id, PciCapabilityId::MsiX);
+        assert_eq!(next, 0);
+    }
+
+    fn cap_pci_cfg_read(device: &mut VirtioPciDevice, bar_offset: u32, length: u32) -> u32 {
+        let pci_config_cap_offset = capabilities_start(device) as usize
+            + 3 * (size_of::<VirtioPciCap>() + 2)
+            + (size_of::<VirtioPciNotifyCap>() + 2);
+
+        // To program the access through the PCI config capability mechanism, we need to write the
+        // bar offset and read length in the `VirtioPciCfgCap::cap.offset` and
+        // `VirtioPciCfgCap::length` fields. These are the third and fourth word respectively
+        // within the capability. The fifth word of the capability should contain the data
+        let offset_register = (pci_config_cap_offset + 8) >> 2;
+        let length_register = (pci_config_cap_offset + 12) >> 2;
+        let data_register = (pci_config_cap_offset + 16) >> 2;
+
+        device.write_config_register(offset_register, 0, bar_offset.as_slice());
+        device.write_config_register(length_register, 0, length.as_slice());
+        device.read_config_register(data_register)
+    }
+
+    fn cap_pci_cfg_write(device: &mut VirtioPciDevice, bar_offset: u32, length: u32, data: &[u8]) {
+        let pci_config_cap_offset = capabilities_start(device) as usize
+            + 3 * (size_of::<VirtioPciCap>() + 2)
+            + (size_of::<VirtioPciNotifyCap>() + 2);
+
+        // To program the access through the PCI config capability mechanism, we need to write the
+        // bar offset and read length in the `VirtioPciCfgCap::cap.offset` and
+        // `VirtioPciCfgCap::length` fields. These are the third and fourth word respectively
+        // within the capability. The fifth word of the capability should contain the data
+        let offset_register = (pci_config_cap_offset + 8) >> 2;
+        let length_register = (pci_config_cap_offset + 12) >> 2;
+        let data_register = (pci_config_cap_offset + 16) >> 2;
+
+        device.write_config_register(offset_register, 0, bar_offset.as_slice());
+        device.write_config_register(length_register, 0, length.as_slice());
+        device.write_config_register(data_register, 0, data);
+    }
+
+    #[test]
+    fn test_pci_configuration_cap() {
+        let mut vmm = create_vmm_with_virtio_pci_device();
+        let device = get_virtio_device(&vmm);
+        let mut locked_virtio_pci_device = device.lock().unwrap();
+
+        // Let's read the number of queues of the entropy device
+        // That information is located at offset 0x12 past the BAR region belonging to the common
+        // config capability.
+        let bar_offset = u32::try_from(COMMON_CONFIG_BAR_OFFSET).unwrap() + 0x12;
+        let len = 2u32;
+        let num_queues = cap_pci_cfg_read(&mut locked_virtio_pci_device, bar_offset, len);
+        assert_eq!(num_queues, 1);
+
+        // Let's update the driver features and see if that takes effect
+        let bar_offset = u32::try_from(COMMON_CONFIG_BAR_OFFSET).unwrap() + 0x14;
+        let len = 1u32;
+        let device_status = cap_pci_cfg_read(&mut locked_virtio_pci_device, bar_offset, len);
+        assert_eq!(device_status, 0);
+        cap_pci_cfg_write(
+            &mut locked_virtio_pci_device,
+            bar_offset,
+            len,
+            0x42u32.as_slice(),
+        );
+        let device_status = cap_pci_cfg_read(&mut locked_virtio_pci_device, bar_offset, len);
+        assert_eq!(device_status, 0x42);
+
+        // reads with out-of-bounds lengths should return 0s
+        assert_eq!(
+            cap_pci_cfg_read(&mut locked_virtio_pci_device, bar_offset, 8),
+            0
+        );
+        // writes out-of-bounds lengths should have no effect
+        cap_pci_cfg_write(
+            &mut locked_virtio_pci_device,
+            bar_offset,
+            8,
+            0x84u32.as_slice(),
+        );
+        assert_eq!(
+            cap_pci_cfg_read(&mut locked_virtio_pci_device, bar_offset, 1),
+            0x42
+        );
+        // Make sure that we handle properly from/to a BAR where the access length doesn't match
+        // what we've set in the capability's length
+        cap_pci_cfg_write(
+            &mut locked_virtio_pci_device,
+            bar_offset,
+            2,
+            0x42u8.as_slice(),
+        );
+    }
+
+    fn isr_status_read(device: &mut VirtioPciDevice) -> u32 {
+        let mut data = 0u32;
+        device.read_bar(0, ISR_CONFIG_BAR_OFFSET, data.as_mut_slice());
+        data
+    }
+
+    fn isr_status_write(device: &mut VirtioPciDevice, data: u32) {
+        device.write_bar(0, ISR_CONFIG_BAR_OFFSET, data.as_slice());
+    }
+
+    #[test]
+    fn test_isr_capability() {
+        let mut vmm = create_vmm_with_virtio_pci_device();
+        let device = get_virtio_device(&vmm);
+        let mut locked_virtio_pci_device = device.lock().unwrap();
+
+        // We don't support legacy interrupts so reads to ISR BAR should always return 0s and
+        // writes to it should not have any effect
+        assert_eq!(isr_status_read(&mut locked_virtio_pci_device), 0);
+        isr_status_write(&mut locked_virtio_pci_device, 0x1312);
+        assert_eq!(isr_status_read(&mut locked_virtio_pci_device), 0);
+    }
+
+    #[test]
+    fn test_notification_capability() {
+        let mut vmm = create_vmm_with_virtio_pci_device();
+        let device = get_virtio_device(&vmm);
+        let mut locked_virtio_pci_device = device.lock().unwrap();
+
+        let notification_cap_offset = (capabilities_start(&mut locked_virtio_pci_device) as usize
+            + 3 * (size_of::<VirtioPciCap>() + 2))
+            .try_into()
+            .unwrap();
+
+        let (_, _, notify_cap) =
+            read_virtio_notification_cap(&mut locked_virtio_pci_device, notification_cap_offset);
+
+        // We do not offer `VIRTIO_F_NOTIFICATION_DATA` so:
+        // * `cap.offset` MUST by 2-byte aligned
+        assert_eq!(u32::from(notify_cap.cap.offset) & 0x3, 0);
+        // * The device MUST either present notify_off_multiplier as an even power of 2, or present
+        //   notify_off_multiplier as 0.
+        let multiplier = u32::from(notify_cap.notify_off_multiplier);
+        assert!(multiplier.is_power_of_two() && multiplier.trailing_zeros() % 2 == 0);
+        // * For all queues, the value cap.length presented by the device MUST satisfy:
+        //
+        //   `cap.length >= queue_notify_off * notify_off_multiplier + 2`
+        //
+        // The spec allows for up to 65536 queues, but in reality the device we are using with most
+        // queues is vsock (3). Let's check here for 16, projecting for future devices and
+        // use-cases such as multiple queue pairs in network devices
+        assert!(u32::from(notify_cap.cap.length) >= 15 * multiplier + 2);
+
+        // Reads and writes to the notification region of the BAR are handled by IoEvent file
+        // descriptors. Any such accesses should have no effects.
+        let data = [0x42u8; u64_to_usize(NOTIFICATION_SIZE)];
+        locked_virtio_pci_device.write_bar(0, NOTIFICATION_BAR_OFFSET, &data);
+        let mut buffer = [0x0; u64_to_usize(NOTIFICATION_SIZE)];
+        locked_virtio_pci_device.read_bar(0, NOTIFICATION_BAR_OFFSET, &mut buffer);
+        assert_eq!(buffer, [0u8; u64_to_usize(NOTIFICATION_SIZE)]);
+    }
+
+    fn write_driver_status(device: &mut VirtioPciDevice, status: u8) {
+        device.write_bar(0, COMMON_CONFIG_BAR_OFFSET + 0x14, status.as_slice());
+    }
+
+    fn read_driver_status(device: &mut VirtioPciDevice) -> u8 {
+        let mut status = 0u8;
+        device.read_bar(0, COMMON_CONFIG_BAR_OFFSET + 0x14, status.as_mut_slice());
+        status
+    }
+
+    fn read_device_features(device: &mut VirtioPciDevice) -> u64 {
+        let mut features_lo = 0u32;
+        device.write_bar(0, COMMON_CONFIG_BAR_OFFSET, 0u32.as_slice());
+        device.read_bar(
+            0,
+            COMMON_CONFIG_BAR_OFFSET + 0x4,
+            features_lo.as_mut_slice(),
+        );
+        let mut features_hi = 0u32;
+        device.write_bar(0, COMMON_CONFIG_BAR_OFFSET, 1u32.as_slice());
+        device.read_bar(
+            0,
+            COMMON_CONFIG_BAR_OFFSET + 0x4,
+            features_hi.as_mut_slice(),
+        );
+
+        features_lo as u64 | ((features_hi as u64) << 32)
+    }
+
+    fn write_driver_features(device: &mut VirtioPciDevice, features: u64) {
+        device.write_bar(0, COMMON_CONFIG_BAR_OFFSET + 0x8, 0u32.as_slice());
+        device.write_bar(
+            0,
+            COMMON_CONFIG_BAR_OFFSET + 0xc,
+            ((features & 0xffff_ffff) as u32).as_slice(),
+        );
+        device.write_bar(0, COMMON_CONFIG_BAR_OFFSET + 0x8, 1u32.as_slice());
+        device.write_bar(
+            0,
+            COMMON_CONFIG_BAR_OFFSET + 0xc,
+            (((features >> 32) & 0xffff_ffff) as u32).as_slice(),
+        );
+    }
+
+    fn setup_queues(device: &mut VirtioPciDevice) {
+        device.write_bar(
+            0,
+            COMMON_CONFIG_BAR_OFFSET + 0x20,
+            0x8000_0000u64.as_slice(),
+        );
+        device.write_bar(
+            0,
+            COMMON_CONFIG_BAR_OFFSET + 0x28,
+            0x8000_1000u64.as_slice(),
+        );
+        device.write_bar(
+            0,
+            COMMON_CONFIG_BAR_OFFSET + 0x30,
+            0x8000_2000u64.as_slice(),
+        );
+        device.write_bar(0, COMMON_CONFIG_BAR_OFFSET + 0x1c, 1u16.as_slice());
+    }
+
+    #[test]
+    fn test_device_initialization() {
+        let mut vmm = create_vmm_with_virtio_pci_device();
+        let device = get_virtio_device(&vmm);
+        let mut locked_virtio_pci_device = device.lock().unwrap();
+
+        assert!(locked_virtio_pci_device.is_driver_init());
+        assert!(!locked_virtio_pci_device.is_driver_ready());
+        assert!(
+            !locked_virtio_pci_device
+                .device_activated
+                .load(std::sync::atomic::Ordering::SeqCst)
+        );
+
+        write_driver_status(
+            &mut locked_virtio_pci_device,
+            ACKNOWLEDGE.try_into().unwrap(),
+        );
+        write_driver_status(
+            &mut locked_virtio_pci_device,
+            (ACKNOWLEDGE | DRIVER).try_into().unwrap(),
+        );
+        assert!(!locked_virtio_pci_device.is_driver_init());
+        assert!(!locked_virtio_pci_device.is_driver_ready());
+        assert!(
+            !locked_virtio_pci_device
+                .device_activated
+                .load(std::sync::atomic::Ordering::SeqCst)
+        );
+
+        let status = read_driver_status(&mut locked_virtio_pci_device);
+        assert_eq!(status as u32, ACKNOWLEDGE | DRIVER);
+
+        // Entropy device just offers VIRTIO_F_VERSION_1
+        let offered_features = read_device_features(&mut locked_virtio_pci_device);
+        assert_eq!(offered_features, 1 << VIRTIO_F_VERSION_1);
+        // ACK features
+        write_driver_features(&mut locked_virtio_pci_device, offered_features);
+        write_driver_status(
+            &mut locked_virtio_pci_device,
+            (ACKNOWLEDGE | DRIVER | FEATURES_OK).try_into().unwrap(),
+        );
+        let status = read_driver_status(&mut locked_virtio_pci_device);
+        assert!((status & u8::try_from(FEATURES_OK).unwrap()) != 0);
+
+        assert!(!locked_virtio_pci_device.is_driver_init());
+        assert!(!locked_virtio_pci_device.is_driver_ready());
+        assert!(
+            !locked_virtio_pci_device
+                .device_activated
+                .load(std::sync::atomic::Ordering::SeqCst)
+        );
+
+        setup_queues(&mut locked_virtio_pci_device);
+
+        write_driver_status(
+            &mut locked_virtio_pci_device,
+            (ACKNOWLEDGE | DRIVER | FEATURES_OK | DRIVER_OK)
+                .try_into()
+                .unwrap(),
+        );
+
+        assert!(!locked_virtio_pci_device.is_driver_init());
+        assert!(locked_virtio_pci_device.is_driver_ready());
+        assert!(
+            locked_virtio_pci_device
+                .device_activated
+                .load(std::sync::atomic::Ordering::SeqCst)
+        );
     }
 }

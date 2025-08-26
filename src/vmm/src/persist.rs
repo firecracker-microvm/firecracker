@@ -676,8 +676,9 @@ mod tests {
             .save(&mut buf.as_mut_slice())
             .unwrap();
 
-        let restored_microvm_state: MicrovmState =
-            Snapshot::load(&mut buf.as_slice()).unwrap().data;
+        let restored_microvm_state: MicrovmState = Snapshot::load_without_crc_check(buf.as_slice())
+            .unwrap()
+            .data;
 
         assert_eq!(restored_microvm_state.vm_info, microvm_state.vm_info);
         assert_eq!(

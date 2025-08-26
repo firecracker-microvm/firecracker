@@ -14,10 +14,12 @@ years**. At least 2 major guest and host versions will be supported at any time.
 When support is added for a third kernel version, the oldest will be deprecated
 and removed in a following release, after its minimum end of support date.
 
-**Note** While other versions and other kernel configs might work, they are not
-periodically validated in our test suite, and using them might result in
-unexpected behaviour. Starting with release `v1.0` each major and minor release
-will specify the supported kernel versions.
+> [!NOTE]
+>
+> While other versions and other kernel configs might work, they are not
+> periodically validated in our test suite, and using them might result in
+> unexpected behaviour. Starting with release `v1.0` each major and minor
+> release will specify the supported kernel versions.
 
 ### Host Kernel
 
@@ -116,8 +118,10 @@ configurations for the guest kernel are:
 - `CONFIG_ACPI=y`
 - `CONFIG_PCI=y`
 
-Please note that Firecracker does not support PCI devices. The `CONFIG_PCI`
-option is needed for ACPI initialization inside the guest.
+> [!NOTE]
+>
+> Firecracker does not support PCI devices. The `CONFIG_PCI` option is needed
+> for ACPI initialization inside the guest.
 
 ACPI supersedes the legacy way of booting a microVM, i.e. via MPTable and
 command line parameters for VirtIO devices.

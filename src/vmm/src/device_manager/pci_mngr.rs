@@ -243,7 +243,7 @@ pub struct PciDevicesState {
 }
 
 pub struct PciDevicesConstructorArgs<'a> {
-    pub vm: Arc<Vm>,
+    pub vm: &'a Arc<Vm>,
     pub mem: &'a GuestMemoryMmap,
     pub vm_resources: &'a mut VmResources,
     pub instance_id: &'a str,
@@ -405,7 +405,7 @@ impl<'a> Persist<'a> for PciDevices {
             return Ok(pci_devices);
         }
 
-        pci_devices.attach_pci_segment(&constructor_args.vm)?;
+        pci_devices.attach_pci_segment(constructor_args.vm)?;
 
         if let Some(balloon_state) = &state.balloon_device {
             let device = Arc::new(Mutex::new(
@@ -426,7 +426,7 @@ impl<'a> Persist<'a> for PciDevices {
 
             pci_devices
                 .restore_pci_device(
-                    &constructor_args.vm,
+                    constructor_args.vm,
                     device,
                     &balloon_state.device_id,
                     &balloon_state.transport_state,
@@ -451,7 +451,7 @@ impl<'a> Persist<'a> for PciDevices {
 
             pci_devices
                 .restore_pci_device(
-                    &constructor_args.vm,
+                    constructor_args.vm,
                     device,
                     &block_state.device_id,
                     &block_state.transport_state,
@@ -501,7 +501,7 @@ impl<'a> Persist<'a> for PciDevices {
 
             pci_devices
                 .restore_pci_device(
-                    &constructor_args.vm,
+                    constructor_args.vm,
                     device,
                     &net_state.device_id,
                     &net_state.transport_state,
@@ -534,7 +534,7 @@ impl<'a> Persist<'a> for PciDevices {
 
             pci_devices
                 .restore_pci_device(
-                    &constructor_args.vm,
+                    constructor_args.vm,
                     device,
                     &vsock_state.device_id,
                     &vsock_state.transport_state,
@@ -557,7 +557,7 @@ impl<'a> Persist<'a> for PciDevices {
 
             pci_devices
                 .restore_pci_device(
-                    &constructor_args.vm,
+                    constructor_args.vm,
                     device,
                     &entropy_state.device_id,
                     &entropy_state.transport_state,
@@ -659,10 +659,12 @@ mod tests {
         // object and calling default_vmm() is the easiest way to create one.
         let vmm = default_vmm();
         let device_manager_state: device_manager::DevicesState =
-            Snapshot::load(&mut buf.as_slice()).unwrap().data;
+            Snapshot::load_without_crc_check(buf.as_slice())
+                .unwrap()
+                .data;
         let vm_resources = &mut VmResources::default();
         let restore_args = PciDevicesConstructorArgs {
-            vm: vmm.vm.clone(),
+            vm: &vmm.vm,
             mem: vmm.vm.guest_memory(),
             vm_resources,
             instance_id: "microvm-id",

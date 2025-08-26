@@ -92,7 +92,9 @@ mod tests {
         let guest_mem = create_virtio_mem();
         let restored = Entropy::restore(
             EntropyConstructorArgs { mem: guest_mem },
-            &Snapshot::load(&mut mem.as_slice()).unwrap().data,
+            &Snapshot::load_without_crc_check(mem.as_slice())
+                .unwrap()
+                .data,
         )
         .unwrap();
 

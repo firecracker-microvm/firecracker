@@ -21,8 +21,8 @@ clap = { version = "4.5.45", features = ["derive", "string"] }
 displaydoc = "0.2.5"
 libc = "0.2.175"
 serde = { version = "1.0.219", features = ["derive"] }
-serde_json = "1.0.142"
-thiserror = "2.0.15"
+serde_json = "1.0.143"
+thiserror = "2.0.16"
 zerocopy = { version = "0.8.26" }
 
 [lints]

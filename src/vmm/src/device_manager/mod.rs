@@ -501,7 +501,7 @@ impl<'a> Persist<'a> for DeviceManager {
 
         // Restore PCI devices
         let pci_ctor_args = PciDevicesConstructorArgs {
-            vm: constructor_args.vm.clone(),
+            vm: constructor_args.vm,
             mem: constructor_args.mem,
             vm_resources: constructor_args.vm_resources,
             instance_id: constructor_args.instance_id,

@@ -25,8 +25,10 @@ with the `io_engine` field taking two possible values:
 The `Sync` variant is the default, in order to provide backwards compatibility
 with older Firecracker versions.
 
-**Note** [vhost-user block device](./block-vhost-user.md) is another option for
-block IO that requires an external backend process.
+> [!NOTE]
+>
+> [vhost-user block device](./block-vhost-user.md) is another option for block
+> IO that requires an external backend process.
 
 ## Example configuration
 
