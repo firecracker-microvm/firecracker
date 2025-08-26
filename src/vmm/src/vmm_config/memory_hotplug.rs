@@ -3,8 +3,9 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::devices::virtio::mem::{VIRTIO_MEM_DEFAULT_BLOCK_SIZE, VIRTIO_MEM_DEFAULT_SLOT_SIZE};
-use crate::utils::bytes_to_mib;
+use crate::devices::virtio::mem::{
+    VIRTIO_MEM_DEFAULT_BLOCK_SIZE_MIB, VIRTIO_MEM_DEFAULT_SLOT_SIZE_MIB,
+};
 
 /// Errors associated with memory hotplug configuration.
 #[derive(Debug, thiserror::Error, displaydoc::Display)]
@@ -24,11 +25,11 @@ pub enum MemoryHotplugConfigError {
 }
 
 fn default_block_size_mib() -> usize {
-    bytes_to_mib(VIRTIO_MEM_DEFAULT_BLOCK_SIZE)
+    VIRTIO_MEM_DEFAULT_BLOCK_SIZE_MIB
 }
 
 fn default_slot_size_mib() -> usize {
-    bytes_to_mib(VIRTIO_MEM_DEFAULT_SLOT_SIZE)
+    VIRTIO_MEM_DEFAULT_SLOT_SIZE_MIB
 }
 
 /// Configuration for memory hotplug device.
@@ -48,7 +49,7 @@ pub struct MemoryHotplugConfig {
 impl MemoryHotplugConfig {
     /// Validates the configuration.
     pub fn validate(&self) -> Result<(), MemoryHotplugConfigError> {
-        let min_block_size_mib = bytes_to_mib(VIRTIO_MEM_DEFAULT_BLOCK_SIZE);
+        let min_block_size_mib = VIRTIO_MEM_DEFAULT_BLOCK_SIZE_MIB;
         if self.block_size_mib < min_block_size_mib {
             return Err(MemoryHotplugConfigError::BlockSizeTooSmall(
                 min_block_size_mib,
@@ -58,7 +59,7 @@ impl MemoryHotplugConfig {
             return Err(MemoryHotplugConfigError::BlockSizeNotPowerOfTwo);
         }
 
-        let min_slot_size_mib = bytes_to_mib(VIRTIO_MEM_DEFAULT_SLOT_SIZE);
+        let min_slot_size_mib = VIRTIO_MEM_DEFAULT_SLOT_SIZE_MIB;
         if self.slot_size_mib < min_slot_size_mib {
             return Err(MemoryHotplugConfigError::SlotSizeTooSmall(
                 min_slot_size_mib,

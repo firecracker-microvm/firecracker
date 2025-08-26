@@ -257,6 +257,14 @@ impl VmResources {
             SharedDeviceType::Entropy(entropy) => {
                 self.entropy.set_device(entropy);
             }
+            SharedDeviceType::VirtioMem(mem) => {
+                let mem = mem.lock().unwrap();
+                self.memory_hotplug = Some(MemoryHotplugConfig {
+                    total_size_mib: mem.total_size_mib(),
+                    block_size_mib: mem.block_size_mib(),
+                    slot_size_mib: mem.slot_size_mib(),
+                })
+            }
         }
 
         Ok(())
