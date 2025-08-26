@@ -15,7 +15,7 @@ tracing = ["log-instrument"]
 displaydoc = "0.2.5"
 libc = "0.2.175"
 log-instrument = { path = "../log-instrument", optional = true }
-thiserror = "2.0.15"
+thiserror = "2.0.16"
 
 [lints]
 workspace = true
