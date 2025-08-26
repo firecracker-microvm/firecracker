@@ -304,6 +304,11 @@ def validate_fc_metrics(metrics):
             "event_fails",
             "queue_event_count",
         ],
+        "memory_hotplug": [
+            "activate_fails",
+            "queue_event_fails",
+            "queue_event_count",
+        ],
     }
 
     # validate timestamp before jsonschema validation which some more time
