@@ -23,6 +23,7 @@ use crate::devices::virtio::generated::virtio_mem::{
     VIRTIO_MEM_F_UNPLUGGED_INACCESSIBLE, virtio_mem_config,
 };
 use crate::devices::virtio::iov_deque::IovDequeError;
+use crate::devices::virtio::mem::metrics::METRICS;
 use crate::devices::virtio::mem::{VIRTIO_MEM_DEV_ID, VIRTIO_MEM_GUEST_ADDRESS};
 use crate::devices::virtio::queue::{FIRECRACKER_MAX_QUEUE_SIZE, InvalidAvailIdx, Queue};
 use crate::devices::virtio::transport::{VirtioInterrupt, VirtioInterruptType};
@@ -170,12 +171,15 @@ impl VirtioMem {
     }
 
     pub(crate) fn process_mem_queue_event(&mut self) {
+        METRICS.queue_event_count.inc();
         if let Err(err) = self.queue_events[MEM_QUEUE].read() {
+            METRICS.queue_event_fails.inc();
             error!("Failed to read mem queue event: {err}");
             return;
         }
 
         if let Err(err) = self.process_mem_queue() {
+            METRICS.queue_event_fails.inc();
             error!("virtio-mem: Failed to process queue: {err}");
         }
     }
@@ -263,7 +267,7 @@ impl VirtioDevice for VirtioMem {
             error!(
                 "virtio-mem: VIRTIO_MEM_F_UNPLUGGED_INACCESSIBLE feature not acknowledged by guest"
             );
-            // TODO(virtio-mem): activation failed metric
+            METRICS.activate_fails.inc();
             return Err(ActivateError::RequiredFeatureNotAcked(
                 "VIRTIO_MEM_F_UNPLUGGED_INACCESSIBLE",
             ));
@@ -276,7 +280,7 @@ impl VirtioDevice for VirtioMem {
 
         self.device_state = DeviceState::Activated(ActiveState { mem, interrupt });
         if self.activate_event.write(1).is_err() {
-            // TODO(virtio-mem): activation failed metric
+            METRICS.activate_fails.inc();
             self.device_state = DeviceState::Inactive;
             return Err(ActivateError::EventFd);
         }
