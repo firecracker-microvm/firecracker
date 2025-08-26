@@ -74,6 +74,7 @@ use super::FcLineWriter;
 use crate::devices::legacy;
 use crate::devices::virtio::balloon::metrics as balloon_metrics;
 use crate::devices::virtio::block::virtio::metrics as block_metrics;
+use crate::devices::virtio::mem::metrics as virtio_mem_metrics;
 use crate::devices::virtio::net::metrics as net_metrics;
 use crate::devices::virtio::pmem::metrics as pmem_metrics;
 use crate::devices::virtio::rng::metrics as entropy_metrics;
@@ -885,6 +886,7 @@ create_serialize_proxy!(EntropyMetricsSerializeProxy, entropy_metrics);
 create_serialize_proxy!(VsockMetricsSerializeProxy, vsock_metrics);
 create_serialize_proxy!(PmemMetricsSerializeProxy, pmem_metrics);
 create_serialize_proxy!(LegacyDevMetricsSerializeProxy, legacy);
+create_serialize_proxy!(MemoryHotplugSerializeProxy, virtio_mem_metrics);
 
 /// Structure storing all metrics while enforcing serialization support on them.
 #[derive(Debug, Default, Serialize)]
@@ -940,6 +942,9 @@ pub struct FirecrackerMetrics {
     pub vhost_user_ser: VhostUserMetricsSerializeProxy,
     /// Interrupt related metrics
     pub interrupts: InterruptMetrics,
+    #[serde(flatten)]
+    /// Virtio-mem device related metrics (memory hotplugging)
+    pub memory_hotplug_ser: MemoryHotplugSerializeProxy,
 }
 impl FirecrackerMetrics {
     /// Const default construction.
@@ -967,6 +972,7 @@ impl FirecrackerMetrics {
             pmem_ser: PmemMetricsSerializeProxy {},
             vhost_user_ser: VhostUserMetricsSerializeProxy {},
             interrupts: InterruptMetrics::new(),
+            memory_hotplug_ser: MemoryHotplugSerializeProxy {},
         }
     }
 }
