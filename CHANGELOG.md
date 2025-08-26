@@ -43,6 +43,9 @@ and this project adheres to
   bug causing a read/write from an iovec to be duplicated when receiving an
   error on an iovec other than the first. This caused a data corruption issue in
   the vsock device starting from guest kernel 6.17.
+- [#5494](https://github.com/firecracker-microvm/firecracker/pull/5494): Fixed a
+  watchdog soft lockup bug on microVMs restored from snapshots by calling
+  KVM_KVMCLOCK_CTRL ioctl before resuming.
 
 ## [1.13.0]
 
