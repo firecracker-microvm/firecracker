@@ -386,7 +386,7 @@ mod tests {
             eth_unsized.with_payload_len_unchecked(packet_len).len()
         }
 
-        fn next_frame_as_ipv4_packet<'a>(&mut self, buf: &'a mut [u8]) -> IPv4Packet<&'a [u8]> {
+        fn next_frame_as_ipv4_packet<'a>(&mut self, buf: &'a mut [u8]) -> IPv4Packet<'_, &'a [u8]> {
             let len = self.write_next_frame(buf).unwrap().get();
             let eth = EthernetFrame::from_bytes(&buf[..len]).unwrap();
             IPv4Packet::from_bytes(&buf[eth.payload_offset()..len], true).unwrap()

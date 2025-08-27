@@ -199,7 +199,7 @@ pub fn create_socket() -> File {
 }
 
 // Returns handles to virtio queues creation/activation and manipulation.
-pub fn virtqueues(mem: &GuestMemoryMmap) -> (VirtQueue, VirtQueue) {
+pub fn virtqueues(mem: &GuestMemoryMmap) -> (VirtQueue<'_>, VirtQueue<'_>) {
     let rxq = VirtQueue::new(GuestAddress(0), mem, 16);
     let txq = VirtQueue::new(GuestAddress(0x1000), mem, 16);
     assert!(rxq.end().0 < txq.start().0);
@@ -355,7 +355,7 @@ pub mod test {
             }
         }
 
-        pub fn net(&mut self) -> MutexGuard<Net> {
+        pub fn net(&mut self) -> MutexGuard<'_, Net> {
             self.net.lock().unwrap()
         }
 

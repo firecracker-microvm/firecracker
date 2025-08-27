@@ -525,23 +525,23 @@ impl Net {
             net_metrics.tx_malformed_frames.inc();
         })?;
 
-        if let Some(ns) = mmds_ns {
-            if ns.is_mmds_frame(headers) {
-                let mut frame = vec![0u8; frame_iovec.len() as usize - vnet_hdr_len()];
-                // Ok to unwrap here, because we are passing a buffer that has the exact size
-                // of the `IoVecBuffer` minus the VNET headers.
-                frame_iovec
-                    .read_exact_volatile_at(&mut frame, vnet_hdr_len())
-                    .unwrap();
-                let _ = ns.detour_frame(&frame);
-                METRICS.mmds.rx_accepted.inc();
+        if let Some(ns) = mmds_ns
+            && ns.is_mmds_frame(headers)
+        {
+            let mut frame = vec![0u8; frame_iovec.len() as usize - vnet_hdr_len()];
+            // Ok to unwrap here, because we are passing a buffer that has the exact size
+            // of the `IoVecBuffer` minus the VNET headers.
+            frame_iovec
+                .read_exact_volatile_at(&mut frame, vnet_hdr_len())
+                .unwrap();
+            let _ = ns.detour_frame(&frame);
+            METRICS.mmds.rx_accepted.inc();
 
-                // MMDS frames are not accounted by the rate limiter.
-                Self::rate_limiter_replenish_op(rate_limiter, u64::from(frame_iovec.len()));
+            // MMDS frames are not accounted by the rate limiter.
+            Self::rate_limiter_replenish_op(rate_limiter, u64::from(frame_iovec.len()));
 
-                // MMDS consumed the frame.
-                return Ok(true);
-            }
+            // MMDS consumed the frame.
+            return Ok(true);
         }
 
         // This frame goes to the TAP.
@@ -588,31 +588,30 @@ impl Net {
             }
         }
 
-        if let Some(ns) = self.mmds_ns.as_mut() {
-            if let Some(len) =
+        if let Some(ns) = self.mmds_ns.as_mut()
+            && let Some(len) =
                 ns.write_next_frame(frame_bytes_from_buf_mut(&mut self.rx_frame_buf)?)
-            {
-                let len = len.get();
-                METRICS.mmds.tx_frames.inc();
-                METRICS.mmds.tx_bytes.add(len as u64);
-                init_vnet_hdr(&mut self.rx_frame_buf);
-                self.rx_buffer
-                    .iovec
-                    .write_all_volatile_at(&self.rx_frame_buf[..vnet_hdr_len() + len], 0)?;
-                // SAFETY:
-                // * len will never be bigger that u32::MAX because mmds is bound
-                // by the size of `self.rx_frame_buf` which is MAX_BUFFER_SIZE size.
-                let len: u32 = (vnet_hdr_len() + len).try_into().unwrap();
+        {
+            let len = len.get();
+            METRICS.mmds.tx_frames.inc();
+            METRICS.mmds.tx_bytes.add(len as u64);
+            init_vnet_hdr(&mut self.rx_frame_buf);
+            self.rx_buffer
+                .iovec
+                .write_all_volatile_at(&self.rx_frame_buf[..vnet_hdr_len() + len], 0)?;
+            // SAFETY:
+            // * len will never be bigger that u32::MAX because mmds is bound
+            // by the size of `self.rx_frame_buf` which is MAX_BUFFER_SIZE size.
+            let len: u32 = (vnet_hdr_len() + len).try_into().unwrap();
 
-                // SAFETY:
-                // * We checked that `rx_buffer` includes at least one `DescriptorChain`
-                // * `rx_frame_buf` has size of `MAX_BUFFER_SIZE` and all `DescriptorChain` objects
-                //   are at least that big.
-                unsafe {
-                    self.rx_buffer.mark_used(len, &mut self.queues[RX_INDEX]);
-                }
-                return Ok(Some(len));
+            // SAFETY:
+            // * We checked that `rx_buffer` includes at least one `DescriptorChain`
+            // * `rx_frame_buf` has size of `MAX_BUFFER_SIZE` and all `DescriptorChain` objects are
+            //   at least that big.
+            unsafe {
+                self.rx_buffer.mark_used(len, &mut self.queues[RX_INDEX]);
             }
+            return Ok(Some(len));
         }
 
         // SAFETY:

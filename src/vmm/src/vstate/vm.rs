@@ -410,7 +410,7 @@ impl Vm {
     }
 
     /// Gets a mutable reference to this [`Vm`]'s [`ResourceAllocator`] object
-    pub fn resource_allocator(&self) -> MutexGuard<ResourceAllocator> {
+    pub fn resource_allocator(&self) -> MutexGuard<'_, ResourceAllocator> {
         self.common
             .resource_allocator
             .lock()

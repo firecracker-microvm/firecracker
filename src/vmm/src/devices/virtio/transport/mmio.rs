@@ -84,7 +84,7 @@ impl MmioTransport {
     }
 
     /// Gets the encapsulated locked VirtioDevice.
-    pub fn locked_device(&self) -> MutexGuard<dyn VirtioDevice + 'static> {
+    pub fn locked_device(&self) -> MutexGuard<'_, dyn VirtioDevice + 'static> {
         self.device.lock().expect("Poisoned lock")
     }
 

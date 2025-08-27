@@ -243,7 +243,7 @@ impl Aarch64RegisterVec {
     }
 
     /// Returns an iterator over stored registers.
-    pub fn iter(&self) -> impl Iterator<Item = Aarch64RegisterRef> {
+    pub fn iter(&self) -> impl Iterator<Item = Aarch64RegisterRef<'_>> {
         Aarch64RegisterVecIterator {
             index: 0,
             offset: 0,
@@ -253,7 +253,7 @@ impl Aarch64RegisterVec {
     }
 
     /// Returns an iterator over stored registers that allows register modifications.
-    pub fn iter_mut(&mut self) -> impl Iterator<Item = Aarch64RegisterRefMut> {
+    pub fn iter_mut(&mut self) -> impl Iterator<Item = Aarch64RegisterRefMut<'_>> {
         Aarch64RegisterVecIteratorMut {
             index: 0,
             offset: 0,

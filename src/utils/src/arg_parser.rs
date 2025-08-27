@@ -77,7 +77,7 @@ impl<'a> ArgParser<'a> {
     }
 
     /// Return a reference to `arguments` field.
-    pub fn arguments(&self) -> &Arguments {
+    pub fn arguments(&self) -> &Arguments<'_> {
         &self.arguments
     }
 
@@ -368,10 +368,10 @@ impl<'a> Arguments<'a> {
             if argument.user_value.is_some() {
                 // For the arguments that require a specific argument to be also present in the list
                 // of arguments provided by user, search for that argument.
-                if let Some(arg_name) = argument.requires {
-                    if !args.contains(&(format!("--{}", arg_name))) {
-                        return Err(UtilsArgParserError::MissingArgument(arg_name.to_string()));
-                    }
+                if let Some(arg_name) = argument.requires
+                    && !args.contains(&(format!("--{}", arg_name)))
+                {
+                    return Err(UtilsArgParserError::MissingArgument(arg_name.to_string()));
                 }
                 // Check the user-provided list for potential forbidden arguments.
                 for arg_name in argument.forbids.iter() {

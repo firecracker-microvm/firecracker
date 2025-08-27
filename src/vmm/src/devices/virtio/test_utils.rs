@@ -416,7 +416,7 @@ pub(crate) mod test {
         }
 
         /// Get a (locked) reference to the device
-        pub fn device(&mut self) -> MutexGuard<T> {
+        pub fn device(&mut self) -> MutexGuard<'_, T> {
             self.device.lock().unwrap()
         }
 

@@ -455,10 +455,10 @@ impl VirtioBlock {
                 });
         }
 
-        if let FileEngine::Async(ref mut engine) = self.disk.file_engine {
-            if let Err(err) = engine.kick_submission_queue() {
-                error!("BlockError submitting pending block requests: {:?}", err);
-            }
+        if let FileEngine::Async(ref mut engine) = self.disk.file_engine
+            && let Err(err) = engine.kick_submission_queue()
+        {
+            error!("BlockError submitting pending block requests: {:?}", err);
         }
 
         if !used_any {
