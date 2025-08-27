@@ -24,6 +24,7 @@ function make_rootfs {
         ssh-keygen -f id_rsa -N ""
     fi
     cp id_rsa $rootfs.id_rsa
+    chmod a+r $rootfs.id_rsa
 
     truncate -s "$SIZE" "$IMG"
     mkfs.ext4 -F "$IMG" -d $LABEL

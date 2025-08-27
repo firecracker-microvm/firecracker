@@ -78,6 +78,10 @@ def group(label, command, instances, platforms, **kwargs):
     """
     # Use the 1st character of the group name (should be an emoji)
     label1 = label[0]
+    # if the emoji is in the form ":emoji:", pick the entire slug
+    if label.startswith(":") and ":" in label[1:]:
+        label1 = label[: label.index(":", 1) + 1]
+
     steps = []
     commands = command
     if isinstance(command, str):
@@ -275,7 +279,7 @@ class BKPipeline:
         if with_build_step:
             build_cmds, self.shared_build = shared_build()
             self.build_group_per_arch(
-                "🏗️ Build", build_cmds, depends_on_build=False, set_key=True
+                "🏗️ Build", build_cmds, depends_on_build=False, set_key=self.shared_build
             )
         else:
             self.shared_build = None
@@ -313,9 +317,25 @@ class BKPipeline:
         for step in group["steps"]:
             step["command"] = prepend + step["command"]
             if self.shared_build is not None:
-                step["depends_on"] = self.build_key(
-                    get_arch_for_instance(step["agents"]["instance"])
-                )
+                if "depends_on" not in step:
+                    step["depends_on"] = []
+                elif isinstance(step["depends_on"], str):
+                    step["depends_on"] = [step["depends_on"]]
+                elif isinstance(step["depends_on"], list):
+                    pass
+                else:
+                    raise ValueError(
+                        f"depends_on should be a string or a list but is {type(step['depends_on'])}"
+                    )
+
+                step["depends_on"].append(self.shared_build)
+                step["depends_on"] = [
+                    self.build_key(
+                        dep, get_arch_for_instance(step["agents"]["instance"])
+                    )
+                    for dep in step["depends_on"]
+                ]
+
         return group
 
     def build_group(self, *args, **kwargs):
@@ -331,9 +351,9 @@ class BKPipeline:
             group(*args, **combined), depends_on_build=depends_on_build
         )
 
-    def build_key(self, arch):
+    def build_key(self, key, arch):
         """Return the Buildkite key for the build step, for the specified arch"""
-        return self.shared_build.replace("$(uname -m)", arch).replace(".tar.gz", "")
+        return key.replace("$(uname -m)", arch).replace(".tar.gz", "")
 
     def build_group_per_arch(self, label, *args, **kwargs):
         """
@@ -341,7 +361,7 @@ class BKPipeline:
 
         kwargs consumed by this method and not passed down to `group`:
         - `depends_on_build` (default: `True`): Whether the steps in this group depend on the artifacts from the shared compilation steps
-        - `set_key`: If True, causes the generated steps to have a "key" field
+        - `set_key`: If a string, causes the generated steps to have a "key" field replacing "$(uname -m)" with arch and removing trailing tar.gz
         """
         depends_on_build = kwargs.pop("depends_on_build", True)
         set_key = kwargs.pop("set_key", None)
@@ -350,7 +370,7 @@ class BKPipeline:
         if set_key:
             for step in grp["steps"]:
                 step["key"] = self.build_key(
-                    get_arch_for_instance(step["agents"]["instance"])
+                    set_key, get_arch_for_instance(step["agents"]["instance"])
                 )
         return self.add_step(grp, depends_on_build=depends_on_build)
 
