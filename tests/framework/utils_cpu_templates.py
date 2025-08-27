@@ -25,8 +25,6 @@ def get_supported_cpu_templates():
     """Return the list of static CPU templates supported by the platform."""
     host_linux = global_props.host_linux_version_tpl
     match get_cpu_vendor(), global_props.cpu_codename:
-        case CpuVendor.INTEL, CpuModel.INTEL_SKYLAKE:
-            return sorted(set(INTEL_TEMPLATES) - {"T2CL"})
         case CpuVendor.INTEL, CpuModel.INTEL_CASCADELAKE:
             return INTEL_TEMPLATES
         case CpuVendor.INTEL, CpuModel.INTEL_ICELAKE:
@@ -46,8 +44,6 @@ def get_supported_custom_cpu_templates():
     """Return the list of custom CPU templates supported by the platform."""
     host_linux = global_props.host_linux_version_tpl
     match get_cpu_vendor(), global_props.cpu_codename:
-        case CpuVendor.INTEL, CpuModel.INTEL_SKYLAKE:
-            return set(INTEL_TEMPLATES) - {"T2CL"}
         case CpuVendor.INTEL, CpuModel.INTEL_CASCADELAKE:
             return INTEL_TEMPLATES
         case CpuVendor.INTEL, CpuModel.INTEL_ICELAKE:
