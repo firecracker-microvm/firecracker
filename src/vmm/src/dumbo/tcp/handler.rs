@@ -315,10 +315,10 @@ impl TcpIPv4Handler {
         tuple: ConnectionTuple,
         status: NextSegmentStatus,
     ) -> bool {
-        if let Some((_, timeout_tuple)) = self.next_timeout {
-            if tuple == timeout_tuple {
-                self.find_next_timeout();
-            }
+        if let Some((_, timeout_tuple)) = self.next_timeout
+            && tuple == timeout_tuple
+        {
+            self.find_next_timeout();
         }
         match status {
             NextSegmentStatus::Available => {
@@ -342,10 +342,10 @@ impl TcpIPv4Handler {
         self.active_connections.remove(&tuple);
         self.connections.remove(&tuple);
 
-        if let Some((_, timeout_tuple)) = self.next_timeout {
-            if timeout_tuple == tuple {
-                self.find_next_timeout();
-            }
+        if let Some((_, timeout_tuple)) = self.next_timeout
+            && timeout_tuple == tuple
+        {
+            self.find_next_timeout();
         }
     }
 

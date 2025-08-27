@@ -174,12 +174,12 @@ impl ApiServer {
         let vmm_outcome = *(self.vmm_response_receiver.recv().expect("VMM disconnected"));
         let response = ParsedRequest::convert_to_response(&vmm_outcome);
 
-        if vmm_outcome.is_ok() {
-            if let Some((metric, action)) = metric_with_action {
-                let elapsed_time_us =
-                    update_metric_with_elapsed_time(metric, request_processing_start_us);
-                info!("'{}' API request took {} us.", action, elapsed_time_us);
-            }
+        if vmm_outcome.is_ok()
+            && let Some((metric, action)) = metric_with_action
+        {
+            let elapsed_time_us =
+                update_metric_with_elapsed_time(metric, request_processing_start_us);
+            info!("'{}' API request took {} us.", action, elapsed_time_us);
         }
         response
     }

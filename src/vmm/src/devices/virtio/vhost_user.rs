@@ -307,17 +307,16 @@ impl<T: VhostUserHandleBackend> VhostUserHandleImpl<T> {
         acked_features: u64,
         acked_protocol_features: u64,
     ) -> Result<(), VhostUserError> {
-        if acked_features & VhostUserVirtioFeatures::PROTOCOL_FEATURES.bits() != 0 {
-            if let Some(acked_protocol_features) =
+        if acked_features & VhostUserVirtioFeatures::PROTOCOL_FEATURES.bits() != 0
+            && let Some(acked_protocol_features) =
                 VhostUserProtocolFeatures::from_bits(acked_protocol_features)
-            {
-                self.vu
-                    .set_protocol_features(acked_protocol_features)
-                    .map_err(VhostUserError::VhostUserSetProtocolFeatures)?;
+        {
+            self.vu
+                .set_protocol_features(acked_protocol_features)
+                .map_err(VhostUserError::VhostUserSetProtocolFeatures)?;
 
-                if acked_protocol_features.contains(VhostUserProtocolFeatures::REPLY_ACK) {
-                    self.vu.set_hdr_flags(VhostUserHeaderFlag::NEED_REPLY);
-                }
+            if acked_protocol_features.contains(VhostUserProtocolFeatures::REPLY_ACK) {
+                self.vu.set_hdr_flags(VhostUserHeaderFlag::NEED_REPLY);
             }
         }
 
@@ -861,22 +860,22 @@ pub(crate) mod tests {
                 queue_index: usize,
                 config_data: &VringConfigData,
             ) -> Result<(), vhost::Error> {
-                unsafe { (*self.vrings.get())[queue_index].config = *config_data };
+                unsafe { (&mut (*self.vrings.get()))[queue_index].config = *config_data };
                 Ok(())
             }
 
             fn set_vring_base(&self, queue_index: usize, base: u16) -> Result<(), vhost::Error> {
-                unsafe { (*self.vrings.get())[queue_index].base = base };
+                unsafe { (&mut (*self.vrings.get()))[queue_index].base = base };
                 Ok(())
             }
 
             fn set_vring_call(&self, queue_index: usize, fd: &EventFd) -> Result<(), vhost::Error> {
-                unsafe { (*self.vrings.get())[queue_index].call = fd.as_raw_fd() };
+                unsafe { (&mut (*self.vrings.get()))[queue_index].call = fd.as_raw_fd() };
                 Ok(())
             }
 
             fn set_vring_kick(&self, queue_index: usize, fd: &EventFd) -> Result<(), vhost::Error> {
-                unsafe { (*self.vrings.get())[queue_index].kick = fd.as_raw_fd() };
+                unsafe { (&mut (*self.vrings.get()))[queue_index].kick = fd.as_raw_fd() };
                 Ok(())
             }
 

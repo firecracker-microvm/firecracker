@@ -654,13 +654,13 @@ impl Connection {
         let mut enqueue_ack = if payload_len > 0 {
             let data_end_seq = seq + wrapping_payload_len;
 
-            if let Some(fin_seq) = self.fin_received {
-                if !seq_at_or_after(fin_seq, data_end_seq) {
-                    // TODO: This is a strange situation, because the other endpoint is sending data
-                    // after it initially closed its half of the connection. We simply ignore the
-                    // segment for now.
-                    return Ok((None, recv_status_flags | RecvStatusFlags::DATA_BEYOND_FIN));
-                }
+            if let Some(fin_seq) = self.fin_received
+                && !seq_at_or_after(fin_seq, data_end_seq)
+            {
+                // TODO: This is a strange situation, because the other endpoint is sending data
+                // after it initially closed its half of the connection. We simply ignore the
+                // segment for now.
+                return Ok((None, recv_status_flags | RecvStatusFlags::DATA_BEYOND_FIN));
             }
 
             if !seq_at_or_after(self.local_rwnd_edge, data_end_seq) {
@@ -890,14 +890,14 @@ impl Connection {
                         return self.write_next_segment(buf, mss_reserved, payload_src, now);
                     }
 
-                    if let Some(fin_seq) = self.send_fin {
-                        if self.highest_ack_received == fin_seq {
-                            // We're in the relatively unlikely situation where our FIN got lost.
-                            // Simply calling write_control_segment() will retransmit it.
-                            let segment = self.write_control_segment::<R>(buf, mss_reserved)?;
-                            self.rto_start = now;
-                            return Ok(Some(segment));
-                        }
+                    if let Some(fin_seq) = self.send_fin
+                        && self.highest_ack_received == fin_seq
+                    {
+                        // We're in the relatively unlikely situation where our FIN got lost.
+                        // Simply calling write_control_segment() will retransmit it.
+                        let segment = self.write_control_segment::<R>(buf, mss_reserved)?;
+                        self.rto_start = now;
+                        return Ok(Some(segment));
                     }
 
                     // We have to remember this is a retransmission for later.
@@ -929,10 +929,10 @@ impl Connection {
 
             // Make sure we're not trying to send data past the FIN sequence we previously
             // announced.
-            if let Some(fin_seq) = self.send_fin {
-                if seq_after(actual_end, fin_seq) {
-                    return Err(WriteNextError::DataAfterFin);
-                }
+            if let Some(fin_seq) = self.send_fin
+                && seq_after(actual_end, fin_seq)
+            {
+                return Err(WriteNextError::DataAfterFin);
             }
 
             // We only proceed with writing a data segment if the previously computed bounds
@@ -960,21 +960,21 @@ impl Connection {
                 let payload_len = segment.inner().payload_len();
                 let mut first_seq_after = seq_to_send + Wrapping(u32::from(payload_len));
 
-                if let Some(fin_seq) = self.send_fin {
-                    if first_seq_after == fin_seq {
-                        // This segment contains the last bytes of data we're going to send, so
-                        // we should also set the FIN flag.
-                        segment
-                            .inner_mut()
-                            .set_flags_after_ns(tcp_flags | TcpFlags::FIN);
+                if let Some(fin_seq) = self.send_fin
+                    && first_seq_after == fin_seq
+                {
+                    // This segment contains the last bytes of data we're going to send, so
+                    // we should also set the FIN flag.
+                    segment
+                        .inner_mut()
+                        .set_flags_after_ns(tcp_flags | TcpFlags::FIN);
 
-                        // The FIN takes up 1 sequence number.
-                        first_seq_after += Wrapping(1);
-                        // The main purpose of knowing we sent at least one FIN is to signal that
-                        // we already added 1 to self.first_not_sent, to account for its sequence
-                        // number.
-                        self.set_flags(ConnStatusFlags::FIN_SENT);
-                    }
+                    // The FIN takes up 1 sequence number.
+                    first_seq_after += Wrapping(1);
+                    // The main purpose of knowing we sent at least one FIN is to signal that
+                    // we already added 1 to self.first_not_sent, to account for its sequence
+                    // number.
+                    self.set_flags(ConnStatusFlags::FIN_SENT);
                 }
 
                 if rto_triggered || self.first_not_sent == self.highest_ack_received {
@@ -1122,7 +1122,7 @@ pub(crate) mod tests {
             &mut self,
             c: &mut Connection,
             payload_src: Option<(&[u8], Wrapping<u32>)>,
-        ) -> Result<Option<TcpSegment<&mut [u8]>>, WriteNextError> {
+        ) -> Result<Option<TcpSegment<'_, &mut [u8]>>, WriteNextError> {
             let src_port = self.src_port;
             let dst_port = self.dst_port;
             c.write_next_segment(self.buf.as_mut(), self.mss_reserved, payload_src, self.now)

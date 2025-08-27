@@ -19,7 +19,7 @@ use crate::cpu_config::x86_64::static_cpu_templates::{StaticCpuTemplate, c3, t2,
 use crate::logger::warn;
 
 impl GetCpuTemplate for Option<CpuTemplateType> {
-    fn get_cpu_template(&self) -> Result<Cow<CustomCpuTemplate>, GetCpuTemplateError> {
+    fn get_cpu_template(&self) -> Result<Cow<'_, CustomCpuTemplate>, GetCpuTemplateError> {
         use GetCpuTemplateError::*;
 
         match self {

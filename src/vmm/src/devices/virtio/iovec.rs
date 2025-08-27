@@ -569,7 +569,7 @@ mod tests {
         ])
     }
 
-    fn chain(m: &GuestMemoryMmap, is_write_only: bool) -> (Queue, VirtQueue) {
+    fn chain(m: &GuestMemoryMmap, is_write_only: bool) -> (Queue, VirtQueue<'_>) {
         let vq = VirtQueue::new(GuestAddress(0), m, 16);
 
         let mut q = vq.create_queue();
@@ -593,14 +593,14 @@ mod tests {
         (q, vq)
     }
 
-    fn read_only_chain(mem: &GuestMemoryMmap) -> (Queue, VirtQueue) {
+    fn read_only_chain(mem: &GuestMemoryMmap) -> (Queue, VirtQueue<'_>) {
         let v: Vec<u8> = (0..=255).collect();
         mem.write_slice(&v, GuestAddress(0x20000)).unwrap();
 
         chain(mem, false)
     }
 
-    fn write_only_chain(mem: &GuestMemoryMmap) -> (Queue, VirtQueue) {
+    fn write_only_chain(mem: &GuestMemoryMmap) -> (Queue, VirtQueue<'_>) {
         let v = vec![0; 256];
         mem.write_slice(&v, GuestAddress(0x20000)).unwrap();
 

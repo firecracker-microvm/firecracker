@@ -29,14 +29,14 @@ impl VirtioBlock {
         )) {
             error!("Failed to register ratelimiter event: {}", err);
         }
-        if let FileEngine::Async(ref engine) = self.disk.file_engine {
-            if let Err(err) = ops.add(Events::with_data(
+        if let FileEngine::Async(ref engine) = self.disk.file_engine
+            && let Err(err) = ops.add(Events::with_data(
                 engine.completion_evt(),
                 Self::PROCESS_ASYNC_COMPLETION,
                 EventSet::IN,
-            )) {
-                error!("Failed to register IO engine completion event: {}", err);
-            }
+            ))
+        {
+            error!("Failed to register IO engine completion event: {}", err);
         }
     }
 

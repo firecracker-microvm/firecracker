@@ -746,7 +746,7 @@ impl LatencyAggregateMetrics {
     /// 1st for start_time_us = get_time_us()
     /// 2nd for delta_time_us = get_time_us() - start_time; and metrics.store(delta_time_us)
     /// we have just `_m = metrics.record_latency_metrics()`
-    pub fn record_latency_metrics(&self) -> LatencyMetricsRecorder {
+    pub fn record_latency_metrics(&self) -> LatencyMetricsRecorder<'_> {
         LatencyMetricsRecorder::new(self)
     }
 }
