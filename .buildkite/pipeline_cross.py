@@ -19,7 +19,6 @@ if __name__ == "__main__":
     per_instance.pop("instances")
     per_instance.pop("platforms")
     instances_x86_64 = [
-        "c5n.metal",
         "m5n.metal",
         "m6i.metal",
         "m7i.metal-24xl",
@@ -49,9 +48,8 @@ if __name__ == "__main__":
     # allow-list of what instances can be restores on what other instances (in
     # addition to itself)
     supported = {
-        "c5n.metal": ["m5n.metal", "m6i.metal"],
-        "m5n.metal": ["c5n.metal", "m6i.metal"],
-        "m6i.metal": ["c5n.metal", "m5n.metal"],
+        "m5n.metal": ["m6i.metal"],
+        "m6i.metal": ["m5n.metal"],
     }
 
     # https://github.com/firecracker-microvm/firecracker/blob/main/docs/kernel-policy.md#experimental-snapshot-compatibility-across-kernel-versions
@@ -82,7 +80,6 @@ if __name__ == "__main__":
             continue
 
         pytest_keyword_for_instance = {
-            "c5n.metal": "-k 'not None'",
             "m5n.metal": "-k 'not None'",
             "m6i.metal": "-k 'not None'",
             "m6a.metal": "",
