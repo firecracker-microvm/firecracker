@@ -132,19 +132,19 @@ pub fn arch_memory_regions(size: usize) -> Vec<(GuestAddress, usize)> {
         dram_size,
         u64_to_usize(MMIO32_MEM_START),
         u64_to_usize(MMIO32_MEM_SIZE),
-    ) {
-        if let Some((start_past_64bit_gap, remaining_past_64bit_gap)) = arch_memory_regions_with_gap(
+    ) && let Some((start_past_64bit_gap, remaining_past_64bit_gap)) =
+        arch_memory_regions_with_gap(
             &mut regions,
             start_past_32bit_gap,
             remaining_past_32bit_gap,
             u64_to_usize(MMIO64_MEM_START),
             u64_to_usize(MMIO64_MEM_SIZE),
-        ) {
-            regions.push((
-                GuestAddress(start_past_64bit_gap as u64),
-                remaining_past_64bit_gap,
-            ));
-        }
+        )
+    {
+        regions.push((
+            GuestAddress(start_past_64bit_gap as u64),
+            remaining_past_64bit_gap,
+        ));
     }
 
     regions

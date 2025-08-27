@@ -41,7 +41,7 @@ impl Block {
                 VhostUserBlock::new(config).map_err(BlockError::VhostUserBackend)?,
             ))
         } else {
-            return Err(BlockError::InvalidBlockConfig);
+            Err(BlockError::InvalidBlockConfig)
         }
     }
 

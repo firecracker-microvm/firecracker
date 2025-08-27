@@ -568,7 +568,7 @@ mod tests {
 
         // Using a helper function here instead of a closure because it's hard (impossible?) to
         // specify lifetime bounds for closure arguments.
-        fn p(buf: &mut [u8]) -> IPv4Packet<&mut [u8]> {
+        fn p(buf: &mut [u8]) -> IPv4Packet<'_, &mut [u8]> {
             IPv4Packet::from_bytes_unchecked(buf)
         }
 

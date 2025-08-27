@@ -230,11 +230,10 @@ impl vm_device::BusDevice for I8042Device {
                 // Check if we still have data in the internal buffer. If so, we need to trigger
                 // another interrupt, to let the guest know they need to issue another read from
                 // port 0x60.
-                if (self.status & SB_OUT_DATA_AVAIL) != 0 {
-                    if let Err(I8042Error::KbdInterruptFailure(err)) = self.trigger_kbd_interrupt()
-                    {
-                        warn!("Failed to trigger i8042 kbd interrupt {:?}", err);
-                    }
+                if (self.status & SB_OUT_DATA_AVAIL) != 0
+                    && let Err(I8042Error::KbdInterruptFailure(err)) = self.trigger_kbd_interrupt()
+                {
+                    warn!("Failed to trigger i8042 kbd interrupt {:?}", err);
                 }
             }
             _ => read_ok = false,

@@ -451,7 +451,7 @@ impl VmResources {
         // Create `MmdsNetworkStack` and configure the IPv4 address for
         // existing built network devices whose names are defined in the
         // network interface ID list.
-        for net_device in self.net_builder.iter_mut() {
+        for net_device in self.net_builder.iter() {
             let mut net_device_lock = net_device.lock().expect("Poisoned lock");
             if network_interfaces.contains(net_device_lock.id()) {
                 net_device_lock.configure_mmds_network_stack(ipv4_addr, mmds.clone());
