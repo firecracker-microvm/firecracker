@@ -147,7 +147,7 @@ def get_vuln_files_exception_dict(template):
     # Exception for mmio_stale_data
     # =============================
     #
-    # Guests on Intel Skylake or with T2S template
+    # Guests with T2S template
     # --------------------------------------------
     # Whether mmio_stale_data is marked as "Vulnerable" or not is determined by the code here.
     # https://elixir.bootlin.com/linux/v6.1.46/source/arch/x86/kernel/cpu/bugs.c#L431
@@ -155,30 +155,17 @@ def get_vuln_files_exception_dict(template):
     # has been passed through to guests only since kernel v6.4.
     # https://github.com/torvalds/linux/commit/da3db168fb671f15e393b227f5c312c698ecb6ea
     # Thus, since the FLUSH_L1D bit is masked off prior to kernel v6.4, guests with
-    # IA32_ARCH_CAPABILITIES.FB_CLEAR (bit 17) = 0 (like guests on Intel Skylake and guests with
-    # T2S template) fall onto the second hand of the condition and fail the test. The value is
-    # "Vulnerable: Clear CPU buffers attempted, no microcode" on guests on Intel Skylake and guests
-    # with T2S template but "Mitigation: Clear CPU buffers; SMT Host state unknown" on kernel v6.4
-    # or later. In any case, the kernel attempts to clear CPU buffers using VERW instruction and it
+    # IA32_ARCH_CAPABILITIES.FB_CLEAR (bit 17) = 0 (like guests with T2S template which presents
+    # an Intel Skylake CPU) fall into the MMIO_MITIGATION_UCODE_NEEDED branch, marking the
+    # system as vulnerable to MMIO Stale Data.
+    # The value is "Vulnerable: Clear CPU buffers attempted, no microcode" on guests on Intel
+    # Skylake and guests with T2S template but "Mitigation: Clear CPU buffers; SMT Host state
+    # unknown" on kernel v6.4 or later.
+    # In any case, the kernel attempts to clear CPU buffers using VERW instruction and it
     # is safe to ingore the "Vulnerable" message if the host has the microcode update applied
     # correctly. Here we expect the common string "Clear CPU buffers" to cover both cases.
-    #
-    # Guest on Intel Skylake with C3 template
-    # ---------------------------------------
-    # If the processor does not enumerate IA32_ARCH_CAPABILITIES.{FBSDP_NO,PSDP_NO,SBDR_SSDP_NO},
-    # the kernel checks its lists of affected/unaffected processors and determines whether the
-    # mitigation is required, and if the processor is not included in the lists, the sysfs is marked
-    # as "Unknown".
-    # https://elixir.bootlin.com/linux/v6.1.50/source/arch/x86/kernel/cpu/common.c#L1387
-    # The behavior for "Unknown" state was added in the following commit and older processors that
-    # are no longer serviced are not listed up.
-    # https://github.com/torvalds/linux/commit/7df548840c496b0141fb2404b889c346380c2b22
-    # Since those bits are not set on Intel Skylake and C3 template makes guests pretend to be AWS
-    # C3 instance (quite old processor now) by overwriting CPUID.1H:EAX, it is impossible to avoid
-    # this "Unknown" state.
-    if global_props.cpu_codename == "INTEL_SKYLAKE" and template == "C3":
-        exception_dict["mmio_stale_data"] = "Unknown: No mitigations"
-    elif global_props.cpu_codename == "INTEL_SKYLAKE" or template == "T2S":
+
+    if template == "T2S":
         exception_dict["mmio_stale_data"] = "Clear CPU buffers"
 
     return exception_dict

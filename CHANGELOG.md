@@ -84,6 +84,11 @@ and this project adheres to
 
 ### Removed
 
+- [#5411](https://github.com/firecracker-microvm/firecracker/pull/5411): Removed
+  official support for Intel Skylake instances. Firecracker will continue to
+  work on those instances, but we will no longer perform automated testing on
+  them.
+
 ### Fixed
 
 - [#5222](https://github.com/firecracker-microvm/firecracker/pull/5222): Fixed
