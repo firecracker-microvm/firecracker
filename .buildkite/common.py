@@ -16,9 +16,8 @@ from pathlib import Path
 
 # fmt: off
 DEFAULT_INSTANCES = [
-    "c5n.metal",      # Intel Skylake
     "m5n.metal",      # Intel Cascade Lake
-    "m6i.metal",      # Intel Icelake
+    "m6i.metal",      # Intel Ice Lake
     "m7i.metal-24xl", # Intel Sapphire Rapids
     "m7i.metal-48xl", # Intel Sapphire Rapids
     "m6a.metal",      # AMD Milan

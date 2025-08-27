@@ -180,10 +180,6 @@ def test_host_vs_guest_cpu_features(uvm_plain_any):
 
             assert guest_feats - host_feats == AMD_GUEST_ONLY_FEATS
 
-        case CpuModel.INTEL_SKYLAKE:
-            assert host_feats - guest_feats == INTEL_HOST_ONLY_FEATS
-            assert guest_feats - host_feats == INTEL_GUEST_ONLY_FEATS
-
         case CpuModel.INTEL_CASCADELAKE:
             expected_host_minus_guest = INTEL_HOST_ONLY_FEATS
             expected_guest_minus_host = INTEL_GUEST_ONLY_FEATS
