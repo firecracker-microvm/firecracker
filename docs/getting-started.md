@@ -194,7 +194,7 @@ API_SOCKET="/tmp/firecracker.socket"
 sudo rm -f $API_SOCKET
 
 # Run firecracker
-sudo ./firecracker --api-sock "${API_SOCKET} --enable-pci"
+sudo ./firecracker --api-sock "${API_SOCKET}" --enable-pci
 ```
 
 The `--enable-pci` flag instructs Firecracker to create all VirtIO devices using
