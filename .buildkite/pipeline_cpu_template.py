@@ -27,7 +27,6 @@ cpu_template_test = {
         ],
         BkStep.LABEL: "📖 rdmsr",
         "instances": [
-            "c5n.metal",
             "m5n.metal",
             "m6i.metal",
             "m7i.metal-24xl",
@@ -63,12 +62,10 @@ cpu_template_test = {
             BkStep.TIMEOUT: 30,
         },
         "cross_instances": {
-            "m5n.metal": ["c5n.metal", "m6i.metal"],
-            "c5n.metal": ["m5n.metal", "m6i.metal"],
-            "m6i.metal": ["m5n.metal", "c5n.metal"],
+            "m5n.metal": ["m6i.metal"],
+            "m6i.metal": ["m5n.metal"],
         },
         "instances": [
-            "c5n.metal",
             "m5n.metal",
             "m6i.metal",
             "m7i.metal-24xl",
