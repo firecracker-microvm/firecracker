@@ -6,6 +6,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.13.1]
+
+### Fixed
+
+- [#5418](https://github.com/firecracker-microvm/firecracker/pull/5418): Fixed
+  typo in Swagger definition of `MmdsConfig`, where the property `imds_compat`
+  was spelled as `imds_comat`. This caused auto-generated client to create bad
+  requests.
+
 ## [1.13.0]
 
 ### Added
