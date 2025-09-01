@@ -575,7 +575,7 @@ paths:
       parameters:
         - name: body
           in: body
-          description: The configuration used for creating a snaphot.
+          description: The configuration used for creating a snapshot.
           required: true
           schema:
             $ref: "#/definitions/SnapshotCreateParams"
@@ -602,7 +602,7 @@ paths:
       parameters:
         - name: body
           in: body
-          description: The configuration used for loading a snaphot.
+          description: The configuration used for loading a snapshot.
           required: true
           schema:
             $ref: "#/definitions/SnapshotLoadParams"
@@ -1128,7 +1128,7 @@ definitions:
       imds_compat:
         type: boolean
         description:
-          MMDS operates compatibly with EC2 IMDS (i.e. reponds "text/plain"
+          MMDS operates compatibly with EC2 IMDS (i.e. responds "text/plain"
           content regardless of Accept header in requests).
         default: false
 
