@@ -18,6 +18,11 @@ and this project adheres to
 
 ### Fixed
 
+- [#5418](https://github.com/firecracker-microvm/firecracker/pull/5418): Fixed
+  typo in Swagger definition of `MmdsConfig`, where the property `imds_compat`
+  was spelled as `imds_comat`. This caused auto-generated clients to create bad
+  requests.
+
 ## [1.13.0]
 
 ### Added
