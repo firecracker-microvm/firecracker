@@ -1146,7 +1146,7 @@ definitions:
         format: "169.254.([1-9]|[1-9][0-9]|1[0-9][0-9]|2[0-4][0-9]|25[0-4]).([0-9]|[1-9][0-9]|1[0-9][0-9]|2[0-4][0-9]|25[0-5])"
         default: "169.254.169.254"
         description: A valid IPv4 link-local address.
-      imds_comat:
+      imds_compat:
         type: boolean
         description:
           MMDS operates compatibly with EC2 IMDS (i.e. reponds "text/plain"
