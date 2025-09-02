@@ -8,8 +8,6 @@
 use std::sync::{Arc, Barrier};
 use std::{io, result};
 
-use vm_allocator::AddressAllocator;
-
 use crate::configuration::{self, PciBarRegionType};
 
 #[derive(Debug, thiserror::Error, displaydoc::Display)]
@@ -23,7 +21,6 @@ pub enum Error {
     /// Expected resource not found.
     MissingResource,
 }
-pub type Result<T> = std::result::Result<T, Error>;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct BarReprogrammingParams {
@@ -34,25 +31,6 @@ pub struct BarReprogrammingParams {
 }
 
 pub trait PciDevice: Send {
-    /// Allocates the needed PCI BARs space using the `allocate` function which takes a size and
-    /// returns an address. Returns a Vec of (GuestAddress, GuestUsize) tuples.
-    fn allocate_bars(
-        &mut self,
-        _mmio32_allocator: &mut AddressAllocator,
-        _mmio64_allocator: &mut AddressAllocator,
-    ) -> Result<()> {
-        Ok(())
-    }
-
-    /// Frees the PCI BARs previously allocated with a call to allocate_bars().
-    fn free_bars(
-        &mut self,
-        _mmio32_allocator: &mut AddressAllocator,
-        _mmio64_allocator: &mut AddressAllocator,
-    ) -> Result<()> {
-        Ok(())
-    }
-
     /// Sets a register in the configuration space.
     /// * `reg_idx` - The index of the config register to modify.
     /// * `offset` - Offset into the register.

@@ -8,7 +8,7 @@ use std::sync::{Arc, Mutex};
 
 use event_manager::{MutEventSubscriber, SubscriberOps};
 use log::{debug, error, warn};
-use pci::{PciBarRegionType, PciDevice, PciDeviceError, PciRootError};
+use pci::{PciBarRegionType, PciDeviceError, PciRootError};
 use serde::{Deserialize, Serialize};
 use vm_device::BusError;
 
@@ -130,10 +130,7 @@ impl PciDevices {
         let mut resource_allocator_lock = vm.resource_allocator();
         let resource_allocator = resource_allocator_lock.deref_mut();
 
-        virtio_device.allocate_bars(
-            &mut resource_allocator.mmio32_memory,
-            &mut resource_allocator.mmio64_memory,
-        )?;
+        virtio_device.allocate_bars(&mut resource_allocator.mmio64_memory)?;
 
         let virtio_device = Arc::new(Mutex::new(virtio_device));
         pci_segment
