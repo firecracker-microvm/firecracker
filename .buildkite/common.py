@@ -275,8 +275,8 @@ class BKPipeline:
         self.per_arch["instances"] = ["m6i.metal", "m7g.metal"]
         self.per_arch["platforms"] = [("al2023", "linux_6.1")]
         self.binary_dir = args.binary_dir
-        # Build sharing
-        if with_build_step:
+        # Build sharing, if a binary dir wasn't already supplied
+        if not args.binary_dir and with_build_step:
             build_cmds, self.shared_build = shared_build()
             self.build_group_per_arch(
                 "🏗️ Build", build_cmds, depends_on_build=False, set_key=self.shared_build
