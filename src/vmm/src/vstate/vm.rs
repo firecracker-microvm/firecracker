@@ -669,7 +669,6 @@ impl DeviceRelocation for Vm {
         _new_base: u64,
         _len: u64,
         _pci_dev: &mut dyn pci::PciDevice,
-        _region_type: pci::PciBarRegionType,
     ) -> Result<(), std::io::Error> {
         error!("pci: device relocation not supported");
         Err(std::io::Error::from(std::io::ErrorKind::Unsupported))

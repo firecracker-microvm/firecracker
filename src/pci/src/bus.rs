@@ -213,7 +213,6 @@ impl PciConfigIo {
                     params.new_base,
                     params.len,
                     device.deref_mut(),
-                    params.region_type,
                 ) {
                     error!(
                         "Failed moving device BAR: {}: 0x{:x}->0x{:x}(0x{:x})",
@@ -348,7 +347,6 @@ impl PciConfigMmio {
                     params.new_base,
                     params.len,
                     device.deref_mut(),
-                    params.region_type,
                 ) {
                     error!(
                         "Failed moving device BAR: {}: 0x{:x}->0x{:x}(0x{:x})",
@@ -445,8 +443,8 @@ mod tests {
     use super::{PciBus, PciConfigIo, PciConfigMmio, PciRoot};
     use crate::bus::{DEVICE_ID_INTEL_VIRT_PCIE_HOST, VENDOR_ID_INTEL};
     use crate::{
-        DeviceRelocation, PciBarConfiguration, PciBarPrefetchable, PciBarRegionType, PciClassCode,
-        PciConfiguration, PciDevice, PciHeaderType, PciMassStorageSubclass,
+        DeviceRelocation, PciClassCode, PciConfiguration, PciDevice, PciHeaderType,
+        PciMassStorageSubclass,
     };
 
     #[derive(Debug, Default)]
@@ -467,7 +465,6 @@ mod tests {
             _new_base: u64,
             _len: u64,
             _pci_dev: &mut dyn crate::PciDevice,
-            _region_type: crate::PciBarRegionType,
         ) -> std::result::Result<(), std::io::Error> {
             self.reloc_cnt
                 .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
@@ -493,15 +490,7 @@ mod tests {
                 None,
             );
 
-            config
-                .add_pci_bar(&PciBarConfiguration {
-                    addr: 0x1000,
-                    size: 0x1000,
-                    idx: 0,
-                    region_type: PciBarRegionType::Memory32BitRegion,
-                    prefetchable: PciBarPrefetchable::Prefetchable,
-                })
-                .unwrap();
+            config.add_pci_bar(0, 0x1000, 0x1000);
 
             PciDevMock(config)
         }
@@ -920,6 +909,8 @@ mod tests {
         read_mmio_config(&mut mmio_config, 0, 1, 0, 0x4, 0, &mut buffer);
         let old_addr = u32::from_le_bytes(buffer) & 0xffff_fff0;
         assert_eq!(old_addr, 0x1000);
+
+        // Writing the lower 32bits first should not trigger any reprogramming
         write_mmio_config(
             &mut mmio_config,
             0,
@@ -927,16 +918,23 @@ mod tests {
             0,
             0x4,
             0,
-            &u32::to_le_bytes(0x1312_1110),
+            &u32::to_le_bytes(0x1312_0000),
         );
 
         read_mmio_config(&mut mmio_config, 0, 1, 0, 0x4, 0, &mut buffer);
         let new_addr = u32::from_le_bytes(buffer) & 0xffff_fff0;
-        assert_eq!(new_addr, 0x1312_1110);
+        assert_eq!(new_addr, 0x1312_0000);
+        assert_eq!(mock.cnt(), 0);
+
+        // Writing the upper 32bits first should now trigger the reprogramming logic
+        write_mmio_config(&mut mmio_config, 0, 1, 0, 0x5, 0, &u32::to_le_bytes(0x1110));
+        read_mmio_config(&mut mmio_config, 0, 1, 0, 0x5, 0, &mut buffer);
+        let new_addr = u32::from_le_bytes(buffer);
+        assert_eq!(new_addr, 0x1110);
         assert_eq!(mock.cnt(), 1);
 
-        // BAR1 should not be used, so reading its address should return all 0s
-        read_mmio_config(&mut mmio_config, 0, 1, 0, 0x5, 0, &mut buffer);
+        // BAR2 should not be used, so reading its address should return all 0s
+        read_mmio_config(&mut mmio_config, 0, 1, 0, 0x6, 0, &mut buffer);
         assert_eq!(buffer, [0x0, 0x0, 0x0, 0x0]);
 
         // and reprogramming shouldn't have any effect
@@ -950,7 +948,7 @@ mod tests {
             &u32::to_le_bytes(0x1312_1110),
         );
 
-        read_mmio_config(&mut mmio_config, 0, 1, 0, 0x5, 0, &mut buffer);
+        read_mmio_config(&mut mmio_config, 0, 1, 0, 0x6, 0, &mut buffer);
         assert_eq!(buffer, [0x0, 0x0, 0x0, 0x0]);
     }
 }
