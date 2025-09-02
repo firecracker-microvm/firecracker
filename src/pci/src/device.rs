@@ -8,16 +8,10 @@
 use std::sync::{Arc, Barrier};
 use std::{io, result};
 
-use crate::configuration::{self, PciBarRegionType};
-
 #[derive(Debug, thiserror::Error, displaydoc::Display)]
 pub enum Error {
-    /// Setup of the device capabilities failed: {0}.
-    CapabilitiesSetup(configuration::Error),
     /// Allocating space for an IO BAR failed, size={0}.
     IoAllocationFailed(u64),
-    /// Registering an IO BAR at address {0} failed: {1}
-    IoRegistrationFailed(u64, configuration::Error),
     /// Expected resource not found.
     MissingResource,
 }
@@ -27,7 +21,6 @@ pub struct BarReprogrammingParams {
     pub old_base: u64,
     pub new_base: u64,
     pub len: u64,
-    pub region_type: PciBarRegionType,
 }
 
 pub trait PciDevice: Send {
@@ -78,6 +71,5 @@ pub trait DeviceRelocation: Send + Sync {
         new_base: u64,
         len: u64,
         pci_dev: &mut dyn PciDevice,
-        region_type: PciBarRegionType,
     ) -> result::Result<(), io::Error>;
 }
