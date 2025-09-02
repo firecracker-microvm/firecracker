@@ -12,8 +12,8 @@ pub mod persist;
 #[derive(Debug, thiserror::Error, displaydoc::Display)]
 /// Describes the errors that may occur while handling rate limiter events.
 pub enum RateLimiterError {
-    /// The event handler was called spuriously: {0}
-    SpuriousRateLimiterEvent(&'static str),
+    /// Rate limiter event handler called without a present timer
+    SpuriousRateLimiterEvent,
 }
 
 // Interval at which the refill timer will run when limiter is at capacity.
@@ -470,9 +470,7 @@ impl RateLimiter {
     /// If the rate limiter is disabled or is not blocked, an error is returned.
     pub fn event_handler(&mut self) -> Result<(), RateLimiterError> {
         match self.timer_fd.read() {
-            0 => Err(RateLimiterError::SpuriousRateLimiterEvent(
-                "Rate limiter event handler called without a present timer",
-            )),
+            0 => Err(RateLimiterError::SpuriousRateLimiterEvent),
             _ => {
                 self.timer_active = false;
                 Ok(())
@@ -950,11 +948,11 @@ pub(crate) mod tests {
         assert!(l.consume(u64::MAX, TokenType::Ops));
         assert!(l.consume(u64::MAX, TokenType::Bytes));
         // calling the handler without there having been an event should error
-        l.event_handler().unwrap_err();
-        assert_eq!(
-            format!("{:?}", l.event_handler().err().unwrap()),
-            "SpuriousRateLimiterEvent(\"Rate limiter event handler called without a present \
-             timer\")"
+        let err = l.event_handler().unwrap_err();
+        assert!(
+            matches!(err, RateLimiterError::SpuriousRateLimiterEvent),
+            "{:?}",
+            err
         );
     }
 
