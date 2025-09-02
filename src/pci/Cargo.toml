@@ -18,7 +18,6 @@ libc = "0.2.175"
 log = "0.4.28"
 serde = { version = "1.0.219", features = ["derive"] }
 thiserror = "2.0.16"
-vm-allocator = "0.1.3"
 vm-device = { path = "../vm-device" }
 vm-memory = { version = "0.16.1", features = [
   "backend-mmap",

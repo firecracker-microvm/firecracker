@@ -359,6 +359,47 @@ impl VirtioPciDevice {
         Ok(msix_config)
     }
 
+    pub fn allocate_bars(
+        &mut self,
+        mmio64_allocator: &mut AddressAllocator,
+    ) -> std::result::Result<(), PciDeviceError> {
+        let device_clone = self.device.clone();
+        let device = device_clone.lock().unwrap();
+
+        // Allocate the virtio-pci capability BAR.
+        // See http://docs.oasis-open.org/virtio/virtio/v1.0/cs04/virtio-v1.0-cs04.html#x1-740004
+        let virtio_pci_bar_addr = mmio64_allocator
+            .allocate(
+                CAPABILITY_BAR_SIZE,
+                CAPABILITY_BAR_SIZE,
+                AllocPolicy::FirstMatch,
+            )
+            .unwrap()
+            .start();
+
+        let bar = PciBarConfiguration {
+            addr: virtio_pci_bar_addr,
+            size: CAPABILITY_BAR_SIZE,
+            idx: VIRTIO_COMMON_BAR_INDEX,
+            region_type: PciBarRegionType::Memory64BitRegion,
+            prefetchable: pci::PciBarPrefetchable::NotPrefetchable,
+        };
+
+        // The creation of the PCI BAR and its associated capabilities must
+        // happen only during the creation of a brand new VM. When a VM is
+        // restored from a known state, the BARs are already created with the
+        // right content, therefore we don't need to go through this codepath.
+        self.configuration
+            .add_pci_bar(&bar)
+            .map_err(|e| PciDeviceError::IoRegistrationFailed(virtio_pci_bar_addr, e))?;
+
+        // Once the BARs are allocated, the capabilities can be added to the PCI configuration.
+        self.add_pci_capabilities()?;
+        self.bar_region = bar;
+
+        Ok(())
+    }
+
     /// Constructs a new PCI transport for the given virtio device.
     pub fn new(
         id: String,
@@ -796,48 +837,6 @@ impl PciDevice for VirtioPciDevice {
         data: &[u8],
     ) -> Option<BarReprogrammingParams> {
         self.configuration.detect_bar_reprogramming(reg_idx, data)
-    }
-
-    fn allocate_bars(
-        &mut self,
-        mmio32_allocator: &mut AddressAllocator,
-        mmio64_allocator: &mut AddressAllocator,
-    ) -> std::result::Result<(), PciDeviceError> {
-        let device_clone = self.device.clone();
-        let device = device_clone.lock().unwrap();
-
-        // Allocate the virtio-pci capability BAR.
-        // See http://docs.oasis-open.org/virtio/virtio/v1.0/cs04/virtio-v1.0-cs04.html#x1-740004
-        let virtio_pci_bar_addr = mmio64_allocator
-            .allocate(
-                CAPABILITY_BAR_SIZE,
-                CAPABILITY_BAR_SIZE,
-                AllocPolicy::FirstMatch,
-            )
-            .unwrap()
-            .start();
-
-        let bar = PciBarConfiguration {
-            addr: virtio_pci_bar_addr,
-            size: CAPABILITY_BAR_SIZE,
-            idx: VIRTIO_COMMON_BAR_INDEX,
-            region_type: PciBarRegionType::Memory64BitRegion,
-            prefetchable: pci::PciBarPrefetchable::NotPrefetchable,
-        };
-
-        // The creation of the PCI BAR and its associated capabilities must
-        // happen only during the creation of a brand new VM. When a VM is
-        // restored from a known state, the BARs are already created with the
-        // right content, therefore we don't need to go through this codepath.
-        self.configuration
-            .add_pci_bar(&bar)
-            .map_err(|e| PciDeviceError::IoRegistrationFailed(virtio_pci_bar_addr, e))?;
-
-        // Once the BARs are allocated, the capabilities can be added to the PCI configuration.
-        self.add_pci_capabilities()?;
-        self.bar_region = bar;
-
-        Ok(())
     }
 
     fn move_bar(

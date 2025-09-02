@@ -1043,7 +1043,6 @@ dependencies = [
  "serde",
  "serde_test",
  "thiserror 2.0.16",
- "vm-allocator",
  "vm-device",
  "vm-memory",
  "vmm-sys-util",
