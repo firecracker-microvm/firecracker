@@ -39,7 +39,7 @@ libc = "0.2.175"
 linux-loader = "0.13.0"
 log = { version = "0.4.27", features = ["std", "serde"] }
 log-instrument = { path = "../log-instrument", optional = true }
-memfd = "0.6.3"
+memfd = "0.6.5"
 micro_http = { git = "https://github.com/firecracker-microvm/micro-http" }
 pci = { path = "../pci" }
 semver = { version = "1.0.26", features = ["serde"] }
