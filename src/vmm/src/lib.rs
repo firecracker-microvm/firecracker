@@ -224,8 +224,6 @@ pub enum VmmError {
     SeccompFilters(seccomp::InstallationError),
     /// Error writing to the serial console: {0}
     Serial(io::Error),
-    /// Error creating timer fd: {0}
-    TimerFd(io::Error),
     /// Error creating the vcpu: {0}
     VcpuCreate(vstate::vcpu::VcpuError),
     /// Cannot send event to vCPU. {0}

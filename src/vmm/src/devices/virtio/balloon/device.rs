@@ -7,7 +7,7 @@ use std::time::Duration;
 
 use log::{error, info, warn};
 use serde::{Deserialize, Serialize};
-use timerfd::{ClockId, SetTimeFlags, TimerFd, TimerState};
+use utils::time::TimerFd;
 use vmm_sys_util::eventfd::EventFd;
 
 use super::super::ActivateError;
@@ -304,8 +304,7 @@ impl Balloon {
             .map(|_| EventFd::new(libc::EFD_NONBLOCK).map_err(BalloonError::EventFd))
             .collect::<Result<Vec<_>, _>>()?;
 
-        let stats_timer =
-            TimerFd::new_custom(ClockId::Monotonic, true, true).map_err(BalloonError::Timer)?;
+        let stats_timer = TimerFd::new();
 
         Ok(Balloon {
             avail_features,
@@ -350,7 +349,7 @@ impl Balloon {
     }
 
     pub(crate) fn process_stats_timer_event(&mut self) -> Result<(), BalloonError> {
-        self.stats_timer.read();
+        _ = self.stats_timer.read();
         self.trigger_stats_update()
     }
 
@@ -760,12 +759,8 @@ impl Balloon {
     }
 
     pub fn update_timer_state(&mut self) {
-        let timer_state = TimerState::Periodic {
-            current: Duration::from_secs(u64::from(self.stats_polling_interval_s)),
-            interval: Duration::from_secs(u64::from(self.stats_polling_interval_s)),
-        };
-        self.stats_timer
-            .set_state(timer_state, SetTimeFlags::Default);
+        let duration = Duration::from_secs(self.stats_polling_interval_s as u64);
+        self.stats_timer.arm(duration, Some(duration));
     }
 
     /// Obtain the number of 4K pages the device is currently holding.

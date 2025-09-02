@@ -100,8 +100,6 @@ pub enum BalloonError {
     Queue(#[from] QueueError),
     /// {0}
     InvalidAvailIdx(#[from] InvalidAvailIdx),
-    /// Error creating the statistics timer: {0}
-    Timer(std::io::Error),
 }
 
 #[derive(Debug, thiserror::Error, displaydoc::Display)]
