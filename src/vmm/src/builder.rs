@@ -291,7 +291,6 @@ pub fn build_microvm_for_boot(
         vcpus_exit_evt,
         device_manager,
     };
-
     let vmm = Arc::new(Mutex::new(vmm));
 
     #[cfg(feature = "gdb")]
