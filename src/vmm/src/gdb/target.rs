@@ -27,7 +27,6 @@ use gdbstub_arch::aarch64::reg::AArch64CoreRegs as CoreRegs;
 use gdbstub_arch::x86::X86_64_SSE as GdbArch;
 #[cfg(target_arch = "x86_64")]
 use gdbstub_arch::x86::reg::X86_64CoreRegs as CoreRegs;
-use kvm_ioctls::VcpuFd;
 use vm_memory::{Bytes, GuestAddress, GuestMemoryError};
 
 use super::arch;
@@ -39,37 +38,17 @@ use crate::utils::u64_to_usize;
 use crate::vstate::vcpu::VcpuSendEventError;
 use crate::{FcExitCode, VcpuEvent, VcpuResponse, Vmm};
 
-#[derive(Debug)]
+#[derive(Debug, Default, Clone, Copy)]
 /// Stores the current state of a Vcpu with a copy of the Vcpu file descriptor
 struct VcpuState {
     single_step: bool,
     paused: bool,
-    vcpu_fd: VcpuFd,
 }
 
 impl VcpuState {
-    /// Constructs a new instance of a VcpuState from a VcpuFd
-    fn from_vcpu_fd(vcpu_fd: VcpuFd) -> Self {
-        Self {
-            single_step: false,
-            paused: false,
-            vcpu_fd,
-        }
-    }
-
     /// Disables single stepping on the Vcpu state
     fn reset_vcpu_state(&mut self) {
         self.single_step = false;
-    }
-
-    /// Updates the kvm debug flags set against the Vcpu with a check
-    fn update_kvm_debug(&self, hw_breakpoints: &[GuestAddress]) -> Result<(), GdbTargetError> {
-        if !self.paused {
-            info!("Attempted to update kvm debug on a non paused Vcpu");
-            return Ok(());
-        }
-
-        arch::vcpu_set_debug(&self.vcpu_fd, hw_breakpoints, self.single_step)
     }
 }
 
@@ -179,13 +158,8 @@ impl FirecrackerTarget {
     /// Creates a new Target for GDB stub. This is used as the layer between GDB and the VMM it
     /// will handle requests from GDB and perform the appropriate actions, while also updating GDB
     /// with the state of the VMM / Vcpu's as we hit debug events
-    pub fn new(
-        vmm: Arc<Mutex<Vmm>>,
-        vcpu_fds: Vec<VcpuFd>,
-        gdb_event: Receiver<usize>,
-        entry_addr: GuestAddress,
-    ) -> Self {
-        let mut vcpu_state: Vec<_> = vcpu_fds.into_iter().map(VcpuState::from_vcpu_fd).collect();
+    pub fn new(vmm: Arc<Mutex<Vmm>>, gdb_event: Receiver<usize>, entry_addr: GuestAddress) -> Self {
+        let mut vcpu_state = vec![VcpuState::default(); vmm.lock().unwrap().vcpus_handles.len()];
         // By default vcpu 1 will be paused at the entry point
         vcpu_state[0].paused = true;
 
@@ -202,16 +176,37 @@ impl FirecrackerTarget {
         }
     }
 
+    // Update KVM debug info for a specific vcpu index.
+    fn update_vcpu_kvm_debug(
+        &self,
+        vcpu_idx: usize,
+        hw_breakpoints: &[GuestAddress],
+    ) -> Result<(), GdbTargetError> {
+        let state = &self.vcpu_state[vcpu_idx];
+        if !state.paused {
+            info!("Attempted to update kvm debug on a non paused Vcpu");
+            return Ok(());
+        }
+
+        let vcpu_fd = &self.vmm.lock().unwrap().vcpus_handles[vcpu_idx].vcpu_fd;
+        arch::vcpu_set_debug(vcpu_fd, hw_breakpoints, state.single_step)
+    }
+
+    /// Translate guest virtual address to guest pysical address.
+    fn translate_gva(&self, vcpu_idx: usize, addr: u64) -> Result<u64, GdbTargetError> {
+        let vmm = self.vmm.lock().unwrap();
+        let vcpu_fd = &vmm.vcpus_handles[vcpu_idx].vcpu_fd;
+        arch::translate_gva(vcpu_fd, addr, &vmm)
+    }
+
     /// Retrieves the currently paused Vcpu id returns an error if there is no currently paused Vcpu
     fn get_paused_vcpu_id(&self) -> Result<Tid, GdbTargetError> {
         self.paused_vcpu.ok_or(GdbTargetError::NoPausedVcpu)
     }
 
-    /// Retrieves the currently paused Vcpu state returns an error if there is no currently paused
-    /// Vcpu
-    fn get_paused_vcpu(&self) -> Result<&VcpuState, GdbTargetError> {
-        let vcpu_index = tid_to_vcpuid(self.get_paused_vcpu_id()?);
-        Ok(&self.vcpu_state[vcpu_index])
+    /// Returns the index of the paused vcpu.
+    fn get_paused_vcpu_idx(&self) -> Result<usize, GdbTargetError> {
+        Ok(tid_to_vcpuid(self.get_paused_vcpu_id()?))
     }
 
     /// Updates state to reference the currently paused Vcpu and store that the cpu is currently
@@ -224,9 +219,9 @@ impl FirecrackerTarget {
     /// Resumes execution of all paused Vcpus, update them with current kvm debug info
     /// and resumes
     fn resume_all_vcpus(&mut self) -> Result<(), GdbTargetError> {
-        self.vcpu_state
-            .iter()
-            .try_for_each(|state| state.update_kvm_debug(&self.hw_breakpoints))?;
+        for idx in 0..self.vcpu_state.len() {
+            self.update_vcpu_kvm_debug(idx, &self.hw_breakpoints)?;
+        }
 
         for cpu_id in 0..self.vcpu_state.len() {
             let tid = vcpuid_to_tid(cpu_id)?;
@@ -263,7 +258,7 @@ impl FirecrackerTarget {
             return Ok(());
         }
 
-        let cpu_handle = &self.vmm.lock()?.vcpus_handles[tid_to_vcpuid(tid)];
+        let cpu_handle = &mut self.vmm.lock()?.vcpus_handles[tid_to_vcpuid(tid)];
 
         cpu_handle.send_event(VcpuEvent::Pause)?;
         let _ = cpu_handle.response_receiver().recv()?;
@@ -274,8 +269,10 @@ impl FirecrackerTarget {
 
     /// A helper function to allow the event loop to inject this breakpoint back into the Vcpu
     pub fn inject_bp_to_guest(&mut self, tid: Tid) -> Result<(), GdbTargetError> {
-        let vcpu_state = &mut self.vcpu_state[tid_to_vcpuid(tid)];
-        arch::vcpu_inject_bp(&vcpu_state.vcpu_fd, &self.hw_breakpoints, false)
+        let vmm = self.vmm.lock().unwrap();
+        let vcpu_idx = tid_to_vcpuid(tid);
+        let vcpu_fd = &vmm.vcpus_handles[vcpu_idx].vcpu_fd;
+        arch::vcpu_inject_bp(vcpu_fd, &self.hw_breakpoints, false)
     }
 
     /// Resumes the Vcpu, will return early if the Vcpu is already running
@@ -288,7 +285,7 @@ impl FirecrackerTarget {
             return Ok(());
         }
 
-        let cpu_handle = &self.vmm.lock()?.vcpus_handles[tid_to_vcpuid(tid)];
+        let cpu_handle = &mut self.vmm.lock()?.vcpus_handles[tid_to_vcpuid(tid)];
         cpu_handle.send_event(VcpuEvent::Resume)?;
 
         let response = cpu_handle.response_receiver().recv()?;
@@ -307,7 +304,8 @@ impl FirecrackerTarget {
         &self,
         tid: Tid,
     ) -> Result<Option<BaseStopReason<Tid, u64>>, GdbTargetError> {
-        let vcpu_state = &self.vcpu_state[tid_to_vcpuid(tid)];
+        let vcpu_idx = tid_to_vcpuid(tid);
+        let vcpu_state = &self.vcpu_state[vcpu_idx];
         if vcpu_state.single_step {
             return Ok(Some(MultiThreadStopReason::SignalWithThread {
                 tid,
@@ -315,13 +313,15 @@ impl FirecrackerTarget {
             }));
         }
 
-        let Ok(ip) = arch::get_instruction_pointer(&vcpu_state.vcpu_fd) else {
+        let vmm = self.vmm.lock().unwrap();
+        let vcpu_fd = &vmm.vcpus_handles[vcpu_idx].vcpu_fd;
+        let Ok(ip) = arch::get_instruction_pointer(vcpu_fd) else {
             // If we error here we return an arbitrary Software Breakpoint, GDB will handle
             // this gracefully
             return Ok(Some(MultiThreadStopReason::SwBreak(tid)));
         };
 
-        let gpa = arch::translate_gva(&vcpu_state.vcpu_fd, ip, &self.vmm.lock().unwrap())?;
+        let gpa = arch::translate_gva(vcpu_fd, ip, &vmm)?;
         if self.sw_breakpoints.contains_key(&gpa) {
             return Ok(Some(MultiThreadStopReason::SwBreak(tid)));
         }
@@ -364,14 +364,20 @@ impl Target for FirecrackerTarget {
 impl MultiThreadBase for FirecrackerTarget {
     /// Reads the registers for the Vcpu
     fn read_registers(&mut self, regs: &mut CoreRegs, tid: Tid) -> TargetResult<(), Self> {
-        arch::read_registers(&self.vcpu_state[tid_to_vcpuid(tid)].vcpu_fd, regs)?;
+        let vmm = self.vmm.lock().unwrap();
+        let vcpu_idx = tid_to_vcpuid(tid);
+        let vcpu_fd = &vmm.vcpus_handles[vcpu_idx].vcpu_fd;
+        arch::read_registers(vcpu_fd, regs)?;
 
         Ok(())
     }
 
     /// Writes to the registers for the Vcpu
     fn write_registers(&mut self, regs: &CoreRegs, tid: Tid) -> TargetResult<(), Self> {
-        arch::write_registers(&self.vcpu_state[tid_to_vcpuid(tid)].vcpu_fd, regs)?;
+        let vmm = self.vmm.lock().unwrap();
+        let vcpu_idx = tid_to_vcpuid(tid);
+        let vcpu_fd = &vmm.vcpus_handles[vcpu_idx].vcpu_fd;
+        arch::write_registers(vcpu_fd, regs)?;
 
         Ok(())
     }
@@ -384,12 +390,14 @@ impl MultiThreadBase for FirecrackerTarget {
         tid: Tid,
     ) -> TargetResult<usize, Self> {
         let data_len = data.len();
-        let vcpu_state = &self.vcpu_state[tid_to_vcpuid(tid)];
+        let vmm = self.vmm.lock().unwrap();
+        let vcpu_idx = tid_to_vcpuid(tid);
+        let vcpu_fd = &vmm.vcpus_handles[vcpu_idx].vcpu_fd;
 
         let vmm = &self.vmm.lock().expect("Error locking vmm in read addr");
 
         while !data.is_empty() {
-            let gpa = arch::translate_gva(&vcpu_state.vcpu_fd, gva, &vmm).map_err(|e| {
+            let gpa = arch::translate_gva(vcpu_fd, gva, &vmm).map_err(|e| {
                 error!("Error {e:?} translating gva on read address: {gva:#X}");
             })?;
 
@@ -420,11 +428,12 @@ impl MultiThreadBase for FirecrackerTarget {
         mut data: &[u8],
         tid: Tid,
     ) -> TargetResult<(), Self> {
-        let vcpu_state = &self.vcpu_state[tid_to_vcpuid(tid)];
-        let vmm = &self.vmm.lock().expect("Error locking vmm in write addr");
+        let vmm = self.vmm.lock().unwrap();
+        let vcpu_idx = tid_to_vcpuid(tid);
+        let vcpu_fd = &vmm.vcpus_handles[vcpu_idx].vcpu_fd;
 
         while !data.is_empty() {
-            let gpa = arch::translate_gva(&vcpu_state.vcpu_fd, gva, &vmm).map_err(|e| {
+            let gpa = arch::translate_gva(vcpu_fd, gva, &vmm).map_err(|e| {
                 error!("Error {e:?} translating gva on read address: {gva:#X}");
             })?;
 
@@ -546,8 +555,8 @@ impl HwBreakpoint for FirecrackerTarget {
             return Ok(false);
         }
 
-        let state = self.get_paused_vcpu()?;
-        state.update_kvm_debug(&self.hw_breakpoints)?;
+        let vcpu_idx = self.get_paused_vcpu_idx()?;
+        self.update_vcpu_kvm_debug(vcpu_idx, &self.hw_breakpoints)?;
 
         Ok(true)
     }
@@ -563,8 +572,8 @@ impl HwBreakpoint for FirecrackerTarget {
             Some(pos) => self.hw_breakpoints.remove(pos),
         };
 
-        let state = self.get_paused_vcpu()?;
-        state.update_kvm_debug(&self.hw_breakpoints)?;
+        let vcpu_idx = self.get_paused_vcpu_idx()?;
+        self.update_vcpu_kvm_debug(vcpu_idx, &self.hw_breakpoints)?;
 
         Ok(true)
     }
@@ -580,11 +589,8 @@ impl SwBreakpoint for FirecrackerTarget {
         addr: <Self::Arch as Arch>::Usize,
         _kind: <Self::Arch as Arch>::BreakpointKind,
     ) -> TargetResult<bool, Self> {
-        let gpa = arch::translate_gva(
-            &self.get_paused_vcpu()?.vcpu_fd,
-            addr,
-            &self.vmm.lock().unwrap(),
-        )?;
+        let vcpu_idx = self.get_paused_vcpu_idx()?;
+        let gpa = self.translate_gva(vcpu_idx, addr)?;
 
         if self.sw_breakpoints.contains_key(&gpa) {
             return Ok(true);
@@ -608,11 +614,8 @@ impl SwBreakpoint for FirecrackerTarget {
         addr: <Self::Arch as Arch>::Usize,
         _kind: <Self::Arch as Arch>::BreakpointKind,
     ) -> TargetResult<bool, Self> {
-        let gpa = arch::translate_gva(
-            &self.get_paused_vcpu()?.vcpu_fd,
-            addr,
-            &self.vmm.lock().unwrap(),
-        )?;
+        let vcpu_idx = self.get_paused_vcpu_idx()?;
+        let gpa = self.translate_gva(vcpu_idx, addr)?;
 
         if let Some(removed) = self.sw_breakpoints.remove(&gpa) {
             self.write_addrs(addr, &removed, self.get_paused_vcpu_id()?)?;
