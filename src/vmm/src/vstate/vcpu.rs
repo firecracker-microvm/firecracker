@@ -601,9 +601,10 @@ impl fmt::Debug for VcpuResponse {
 pub struct VcpuHandle {
     event_sender: Sender<VcpuEvent>,
     response_receiver: Receiver<VcpuResponse>,
+    /// VcpuFd
+    pub vcpu_fd: VcpuFd,
     // Rust JoinHandles have to be wrapped in Option if you ever plan on 'join()'ing them.
     // We want to be able to join these threads in tests.
-    vcpu_fd: VcpuFd,
     vcpu_thread: Option<thread::JoinHandle<()>>,
 }
 
