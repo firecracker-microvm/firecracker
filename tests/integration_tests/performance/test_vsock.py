@@ -41,6 +41,11 @@ class VsockIPerf3Test(IPerf3Test):
             iperf="/usr/local/bin/iperf3-vsock",
             payload_length=payload_length,
         )
+        # The rootfs does not have iperf3-vsock
+        iperf3_guest = "/tmp/iperf3-vsock"
+
+        self._microvm.ssh.scp_put(self._iperf, iperf3_guest)
+        self._guest_iperf = iperf3_guest
 
     def host_command(self, port_offset):
         return (
@@ -58,11 +63,6 @@ class VsockIPerf3Test(IPerf3Test):
                 make_host_port_path(VSOCK_UDS_PATH, self._base_port + client_idx),
             )
         )
-        # The rootfs does not have iperf3-vsock
-        iperf3_guest = "/tmp/iperf3-vsock"
-
-        self._microvm.ssh.scp_put(self._iperf, iperf3_guest)
-        self._guest_iperf = iperf3_guest
         return super().spawn_iperf3_client(client_idx, client_mode_flag)
 
     def guest_command(self, port_offset):
