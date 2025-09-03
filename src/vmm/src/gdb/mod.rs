@@ -15,7 +15,6 @@ use std::sync::{Arc, Mutex};
 
 use arch::vcpu_set_debug;
 use event_loop::event_loop;
-use kvm_ioctls::VcpuFd;
 use target::GdbTargetError;
 use vm_memory::GuestAddress;
 
@@ -35,7 +34,6 @@ use crate::logger::trace;
 /// communcation to the GDB server
 pub fn gdb_thread(
     vmm: Arc<Mutex<Vmm>>,
-    vcpu_fds: Vec<VcpuFd>,
     gdb_event_receiver: Receiver<usize>,
     entry_addr: GuestAddress,
     socket_addr: &str,
@@ -44,10 +42,12 @@ pub fn gdb_thread(
     // to be stopped as it connects. This also allows us to set breakpoints before kernel starts.
     // This entry adddress is automatically used as it is not tracked inside the target state, so
     // when resumed will be removed
-    vcpu_set_debug(&vcpu_fds[0], &[entry_addr], false)?;
-
-    for vcpu_fd in &vcpu_fds[1..] {
-        vcpu_set_debug(vcpu_fd, &[], false)?;
+    {
+        let vmm = vmm.lock().unwrap();
+        vcpu_set_debug(&vmm.vcpus_handles[0].vcpu_fd, &[entry_addr], false)?;
+        for handle in &vmm.vcpus_handles[1..] {
+            vcpu_set_debug(&handle.vcpu_fd, &[], false)?;
+        }
     }
 
     let path = Path::new(socket_addr);
@@ -59,7 +59,7 @@ pub fn gdb_thread(
 
     std::thread::Builder::new()
         .name("gdb".into())
-        .spawn(move || event_loop(connection, vmm, vcpu_fds, gdb_event_receiver, entry_addr))
+        .spawn(move || event_loop(connection, vmm, gdb_event_receiver, entry_addr))
         .map_err(|_| GdbTargetError::GdbThreadError)?;
 
     Ok(())
