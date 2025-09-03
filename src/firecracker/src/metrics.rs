@@ -5,9 +5,9 @@ use std::os::unix::io::AsRawFd;
 use std::time::Duration;
 
 use event_manager::{EventOps, Events, MutEventSubscriber};
-use timerfd::{ClockId, SetTimeFlags, TimerFd, TimerState};
 use vmm::logger::{IncMetric, METRICS, error, warn};
 use vmm_sys_util::epoll::EventSet;
+use vmm_sys_util::timerfd::{TimerFd, TimerFdFlag};
 
 /// Metrics reporting period.
 pub(crate) const WRITE_METRICS_PERIOD_MS: u64 = 60000;
@@ -23,7 +23,7 @@ pub(crate) struct PeriodicMetrics {
 impl PeriodicMetrics {
     /// PeriodicMetrics constructor. Can panic on `TimerFd` creation failure.
     pub fn new() -> Self {
-        let write_metrics_event_fd = TimerFd::new_custom(ClockId::Monotonic, true, true)
+        let write_metrics_event_fd = TimerFd::new_with_flags(TimerFdFlag::NONBLOCK)
             .expect("Cannot create the metrics timer fd.");
         PeriodicMetrics {
             write_metrics_event_fd,
@@ -35,12 +35,10 @@ impl PeriodicMetrics {
     /// Start the periodic metrics engine which will flush metrics every `interval_ms` millisecs.
     pub(crate) fn start(&mut self, interval_ms: u64) {
         // Arm the log write timer.
-        let timer_state = TimerState::Periodic {
-            current: Duration::from_millis(interval_ms),
-            interval: Duration::from_millis(interval_ms),
-        };
+        let duration = Duration::from_millis(interval_ms);
         self.write_metrics_event_fd
-            .set_state(timer_state, SetTimeFlags::Default);
+            .reset(duration, Some(duration))
+            .expect("failed to arm metrics write timer");
 
         // Write the metrics straight away to check the process startup time.
         self.write_metrics();
@@ -77,7 +75,9 @@ impl MutEventSubscriber for PeriodicMetrics {
         }
 
         if source == self.write_metrics_event_fd.as_raw_fd() {
-            self.write_metrics_event_fd.read();
+            self.write_metrics_event_fd
+                .wait()
+                .expect("failed to read metrics timer");
             self.write_metrics();
         } else {
             error!("Spurious METRICS event!");

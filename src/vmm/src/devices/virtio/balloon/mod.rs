@@ -90,7 +90,7 @@ pub enum BalloonError {
     /// {0}
     InvalidAvailIdx(#[from] InvalidAvailIdx),
     /// Error creating the statistics timer: {0}
-    Timer(std::io::Error),
+    Timer(#[from] vmm_sys_util::errno::Error),
 }
 
 #[derive(Debug, thiserror::Error, displaydoc::Display)]
