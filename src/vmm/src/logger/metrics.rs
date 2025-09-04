@@ -337,10 +337,6 @@ pub struct ApiServerMetrics {
     pub process_startup_time_us: SharedStoreMetric,
     /// Measures the cpu's startup time in microseconds.
     pub process_startup_time_cpu_us: SharedStoreMetric,
-    /// Number of failures on API requests triggered by internal errors.
-    pub sync_response_fails: SharedIncMetric,
-    /// Number of timeouts during communication with the VMM.
-    pub sync_vmm_send_timeout_count: SharedIncMetric,
 }
 impl ApiServerMetrics {
     /// Const default construction.
@@ -348,8 +344,6 @@ impl ApiServerMetrics {
         Self {
             process_startup_time_us: SharedStoreMetric::new(),
             process_startup_time_cpu_us: SharedStoreMetric::new(),
-            sync_response_fails: SharedIncMetric::new(),
-            sync_vmm_send_timeout_count: SharedIncMetric::new(),
         }
     }
 }
@@ -497,15 +491,12 @@ impl PatchRequestsMetrics {
 pub struct DeprecatedApiMetrics {
     /// Total number of calls to deprecated HTTP endpoints.
     pub deprecated_http_api_calls: SharedIncMetric,
-    /// Total number of calls to deprecated CMD line parameters.
-    pub deprecated_cmd_line_api_calls: SharedIncMetric,
 }
 impl DeprecatedApiMetrics {
     /// Const default construction.
     pub const fn new() -> Self {
         Self {
             deprecated_http_api_calls: SharedIncMetric::new(),
-            deprecated_cmd_line_api_calls: SharedIncMetric::new(),
         }
     }
 }
@@ -519,8 +510,6 @@ pub struct LoggerSystemMetrics {
     pub metrics_fails: SharedIncMetric,
     /// Number of misses on logging human readable content.
     pub missed_log_count: SharedIncMetric,
-    /// Number of errors while trying to log human readable content.
-    pub log_fails: SharedIncMetric,
 }
 impl LoggerSystemMetrics {
     /// Const default construction.
@@ -529,7 +518,6 @@ impl LoggerSystemMetrics {
             missed_metrics_count: SharedIncMetric::new(),
             metrics_fails: SharedIncMetric::new(),
             missed_log_count: SharedIncMetric::new(),
-            log_fails: SharedIncMetric::new(),
         }
     }
 }
@@ -806,8 +794,6 @@ impl VcpuMetrics {
 /// Metrics specific to the machine manager as a whole.
 #[derive(Debug, Default, Serialize)]
 pub struct VmmMetrics {
-    /// Number of device related events received for a VM.
-    pub device_events: SharedIncMetric,
     /// Metric for signaling a panic has occurred.
     pub panic_count: SharedStoreMetric,
 }
@@ -815,7 +801,6 @@ impl VmmMetrics {
     /// Const default construction.
     pub const fn new() -> Self {
         Self {
-            device_events: SharedIncMetric::new(),
             panic_count: SharedStoreMetric::new(),
         }
     }
