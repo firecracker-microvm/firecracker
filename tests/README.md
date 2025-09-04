@@ -340,6 +340,8 @@ which tests are run in which context:
   in separate pipelines according to various cron schedules.
 - Tests marked as `no_block_pr` are run in the "optional" PR CI pipeline. This
   pipeline is not required to pass for merging a PR.
+- Tests marked as `secret_hiding` are secret hiding specifc tests. They don't
+  run by default.
 
 All tests without markers are run for every pull request, and are required to
 pass for the PR to be merged.

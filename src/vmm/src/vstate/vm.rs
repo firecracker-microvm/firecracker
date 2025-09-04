@@ -6,27 +6,30 @@
 // found in the THIRD-PARTY file.
 
 use std::collections::HashMap;
-use std::fs::OpenOptions;
+use std::fs::{File, OpenOptions};
 use std::io::Write;
+use std::os::fd::{AsFd, AsRawFd, FromRawFd};
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex, MutexGuard};
+use std::sync::{Arc, Condvar, Mutex, MutexGuard};
 
 #[cfg(target_arch = "x86_64")]
 use kvm_bindings::KVM_IRQCHIP_IOAPIC;
 use kvm_bindings::{
-    KVM_IRQ_ROUTING_IRQCHIP, KVM_IRQ_ROUTING_MSI, KVM_MEM_LOG_DIRTY_PAGES, KVM_MSI_VALID_DEVID,
-    KvmIrqRouting, kvm_irq_routing_entry, kvm_userspace_memory_region,
+    KVM_IRQ_ROUTING_IRQCHIP, KVM_IRQ_ROUTING_MSI, KVM_MEM_GUEST_MEMFD, KVM_MEM_LOG_DIRTY_PAGES,
+    KVM_MSI_VALID_DEVID, KVMIO, KvmIrqRouting, kvm_create_guest_memfd, kvm_irq_routing_entry,
+    kvm_userspace_memory_region,
 };
-use kvm_ioctls::VmFd;
+use kvm_ioctls::{Cap, VmFd};
 use log::{debug, error};
 use pci::DeviceRelocation;
 use serde::{Deserialize, Serialize};
 use vm_device::interrupt::{
     InterruptIndex, InterruptSourceConfig, InterruptSourceGroup, MsiIrqSourceConfig,
 };
-use vmm_sys_util::errno;
 use vmm_sys_util::eventfd::EventFd;
+use vmm_sys_util::ioctl::ioctl_with_ref;
+use vmm_sys_util::{errno, ioctl_iow_nr};
 
 pub use crate::arch::{ArchVm as Vm, ArchVmError, VmState};
 use crate::arch::{GSI_MSI_END, host_page_size};
@@ -36,11 +39,26 @@ use crate::snapshot::Persist;
 use crate::utils::u64_to_usize;
 use crate::vmm_config::snapshot::SnapshotType;
 use crate::vstate::memory::{
-    Address, GuestMemory, GuestMemoryExtension, GuestMemoryMmap, GuestMemoryRegion, GuestRegionMmap,
+    Address, GuestMemory, GuestMemoryExtension, GuestMemoryMmap, GuestMemoryRegion,
+    GuestRegionMmap, MaybeBounce,
 };
 use crate::vstate::resources::ResourceAllocator;
 use crate::vstate::vcpu::VcpuError;
 use crate::{DirtyBitmap, Vcpu, mem_size_mib};
+
+pub(crate) const GUEST_MEMFD_FLAG_MMAP: u64 = 1;
+pub(crate) const GUEST_MEMFD_FLAG_NO_DIRECT_MAP: u64 = 2;
+
+/// KVM userfault information
+#[derive(Copy, Clone, Default, Eq, PartialEq, Debug)]
+pub struct UserfaultData {
+    /// Flags
+    pub flags: u64,
+    /// Guest physical address
+    pub gpa: u64,
+    /// Size
+    pub size: u64,
+}
 
 #[derive(Debug, thiserror::Error, displaydoc::Display)]
 /// Errors related with Firecracker interrupts
@@ -249,6 +267,7 @@ pub struct VmCommon {
     pub resource_allocator: Mutex<ResourceAllocator>,
     /// MMIO bus
     pub mmio_bus: Arc<vm_device::Bus>,
+    secret_free: bool,
 }
 
 /// Errors associated with the wrappers over KVM ioctls.
@@ -275,13 +294,42 @@ pub enum VmError {
     /// Error calling mincore: {0}
     Mincore(vmm_sys_util::errno::Error),
     /// ResourceAllocator error: {0}
-    ResourceAllocator(#[from] vm_allocator::Error)
+    ResourceAllocator(#[from] vm_allocator::Error),
+    /// Failure to create guest_memfd: {0}
+    GuestMemfd(kvm_ioctls::Error),
+    /// guest_memfd is not supported on this host kernel.
+    GuestMemfdNotSupported,
+}
+
+// Upstream `kvm_userspace_memory_region2` definition does not include `userfault_bitmap` field yet.
+// TODO: revert to `kvm_userspace_memory_region2` from kvm-bindings
+#[allow(non_camel_case_types)]
+#[repr(C)]
+#[derive(Debug, Default, Copy, Clone, PartialEq)]
+struct kvm_userspace_memory_region2 {
+    slot: u32,
+    flags: u32,
+    guest_phys_addr: u64,
+    memory_size: u64,
+    userspace_addr: u64,
+    guest_memfd_offset: u64,
+    guest_memfd: u32,
+    pad1: u32,
+    userfault_bitmap: u64,
+    pad2: [u64; 13],
 }
 
 /// Contains Vm functions that are usable across CPU architectures
 impl Vm {
     /// Create a KVM VM
-    pub fn create_common(kvm: &crate::vstate::kvm::Kvm) -> Result<VmCommon, VmError> {
+    pub fn create_common(
+        kvm: &crate::vstate::kvm::Kvm,
+        secret_free: bool,
+    ) -> Result<VmCommon, VmError> {
+        if secret_free && !kvm.fd.check_extension(Cap::GuestMemfd) {
+            return Err(VmError::GuestMemfdNotSupported);
+        }
+
         // It is known that KVM_CREATE_VM occasionally fails with EINTR on heavily loaded machines
         // with many VMs.
         //
@@ -305,7 +353,9 @@ impl Vm {
         const MAX_ATTEMPTS: u32 = 5;
         let mut attempt = 1;
         let fd = loop {
-            match kvm.fd.create_vm() {
+            let create_result = kvm.fd.create_vm();
+
+            match create_result {
                 Ok(fd) => break fd,
                 Err(e) if e.errno() == libc::EINTR && attempt < MAX_ATTEMPTS => {
                     info!("Attempt #{attempt} of KVM_CREATE_VM returned EINTR");
@@ -325,13 +375,18 @@ impl Vm {
             interrupts: Mutex::new(HashMap::with_capacity(GSI_MSI_END as usize + 1)),
             resource_allocator: Mutex::new(ResourceAllocator::new()),
             mmio_bus: Arc::new(vm_device::Bus::new()),
+            secret_free,
         })
     }
 
     /// Creates the specified number of [`Vcpu`]s.
     ///
     /// The returned [`EventFd`] is written to whenever any of the vcpus exit.
-    pub fn create_vcpus(&mut self, vcpu_count: u8) -> Result<(Vec<Vcpu>, EventFd), VmError> {
+    pub fn create_vcpus(
+        &mut self,
+        vcpu_count: u8,
+        secret_free: bool,
+    ) -> Result<(Vec<Vcpu>, EventFd), VmError> {
         self.arch_pre_create_vcpus(vcpu_count)?;
 
         let exit_evt = EventFd::new(libc::EFD_NONBLOCK).map_err(VmError::EventFd)?;
@@ -339,7 +394,14 @@ impl Vm {
         let mut vcpus = Vec::with_capacity(vcpu_count as usize);
         for cpu_idx in 0..vcpu_count {
             let exit_evt = exit_evt.try_clone().map_err(VmError::EventFd)?;
-            let vcpu = Vcpu::new(cpu_idx, self, exit_evt).map_err(VmError::CreateVcpu)?;
+            let userfault_resolved = if secret_free {
+                Some(Arc::new((Mutex::new(false), Condvar::new())))
+            } else {
+                None
+            };
+
+            let vcpu = Vcpu::new(cpu_idx, self, exit_evt, userfault_resolved)
+                .map_err(VmError::CreateVcpu)?;
             vcpus.push(vcpu);
         }
 
@@ -348,20 +410,87 @@ impl Vm {
         Ok((vcpus, exit_evt))
     }
 
+    /// Create a guest_memfd of the specified size
+    pub fn create_guest_memfd(&self, size: usize, flags: u64) -> Result<File, VmError> {
+        assert_eq!(
+            size & (host_page_size() - 1),
+            0,
+            "guest_memfd size must be page aligned"
+        );
+
+        let kvm_gmem = kvm_create_guest_memfd {
+            size: size as u64,
+            flags,
+            ..Default::default()
+        };
+
+        self.fd()
+            .create_guest_memfd(kvm_gmem)
+            .map_err(VmError::GuestMemfd)
+            // SAFETY: We know rawfd is a valid fd because create_guest_memfd didn't return an
+            // error.
+            .map(|rawfd| unsafe { File::from_raw_fd(rawfd) })
+    }
+
     /// Register a list of new memory regions to this [`Vm`].
     pub fn register_memory_regions(
         &mut self,
         regions: Vec<GuestRegionMmap>,
+        mut userfault_bitmap: Option<&mut [u8]>,
     ) -> Result<(), VmError> {
         for region in regions {
-            self.register_memory_region(region)?
+            let bitmap_slice = if let Some(remaining) = userfault_bitmap {
+                let region_len = u64_to_usize(region.len());
+                // Firecracker does not allow sub-MB granularity when allocating guest memory
+                assert_eq!(region_len % (host_page_size() * u8::BITS as usize), 0);
+                let bitmap_len = region_len / host_page_size() / (u8::BITS as usize);
+                let (head, tail) = remaining.split_at_mut(bitmap_len);
+                userfault_bitmap = Some(tail);
+                Some(head)
+            } else {
+                None
+            };
+            self.register_memory_region(region, bitmap_slice)?
         }
-
         Ok(())
     }
 
+    // TODO: remove when userfault support is merged upstream
+    fn set_user_memory_region2(
+        &self,
+        user_memory_region2: kvm_userspace_memory_region2,
+    ) -> Result<(), VmError> {
+        ioctl_iow_nr!(
+            KVM_SET_USER_MEMORY_REGION2,
+            KVMIO,
+            0x49,
+            kvm_userspace_memory_region2
+        );
+
+        #[allow(clippy::undocumented_unsafe_blocks)]
+        let ret = unsafe {
+            ioctl_with_ref(
+                self.fd(),
+                KVM_SET_USER_MEMORY_REGION2(),
+                &user_memory_region2,
+            )
+        };
+        if ret == 0 {
+            Ok(())
+        } else {
+            Err(VmError::SetUserMemoryRegion(kvm_ioctls::Error::last()))
+        }
+    }
+
     /// Register a new memory region to this [`Vm`].
-    pub fn register_memory_region(&mut self, region: GuestRegionMmap) -> Result<(), VmError> {
+    pub fn register_memory_region(
+        &mut self,
+        region: GuestRegionMmap,
+        userfault_bitmap: Option<&mut [u8]>,
+    ) -> Result<(), VmError> {
+        // TODO: take it from kvm-bindings when merged upstream
+        const KVM_MEM_USERFAULT: u32 = 1 << 3;
+
         let next_slot = self
             .guest_memory()
             .num_regions()
@@ -371,32 +500,79 @@ impl Vm {
             return Err(VmError::NotEnoughMemorySlots(self.common.max_memslots));
         }
 
-        let flags = if region.bitmap().is_some() {
-            KVM_MEM_LOG_DIRTY_PAGES
+        let mut flags = 0;
+        if region.bitmap().is_some() {
+            flags |= KVM_MEM_LOG_DIRTY_PAGES;
+        }
+
+        #[allow(clippy::cast_sign_loss)]
+        let (guest_memfd, guest_memfd_offset) = if self.secret_free() {
+            flags |= KVM_MEM_GUEST_MEMFD;
+
+            let fo = region
+                .file_offset()
+                .expect("secret hidden VMs must mmap guest_memfd for memslots");
+
+            (fo.file().as_raw_fd() as u32, fo.start())
         } else {
-            0
+            (0, 0)
         };
 
-        let memory_region = kvm_userspace_memory_region {
+        let userfault_bitmap = match userfault_bitmap {
+            Some(addr) => {
+                flags |= KVM_MEM_USERFAULT;
+                addr.as_ptr() as u64
+            }
+            None => 0,
+        };
+
+        let memory_region = kvm_userspace_memory_region2 {
             slot: next_slot,
             guest_phys_addr: region.start_addr().raw_value(),
             memory_size: region.len(),
             userspace_addr: region.as_ptr() as u64,
             flags,
+            guest_memfd,
+            guest_memfd_offset,
+            userfault_bitmap,
+            ..Default::default()
         };
 
         let new_guest_memory = self.common.guest_memory.insert_region(Arc::new(region))?;
 
-        // SAFETY: Safe because the fd is a valid KVM file descriptor.
-        unsafe {
-            self.fd()
-                .set_user_memory_region(memory_region)
-                .map_err(VmError::SetUserMemoryRegion)?;
+        if self.fd().check_extension(Cap::UserMemory2) {
+            self.set_user_memory_region2(memory_region)?;
+        } else {
+            // Something is seriously wrong if we manage to set these fields on a host that doesn't
+            // even allow creation of guest_memfds!
+            assert_eq!(memory_region.guest_memfd, 0);
+            assert_eq!(memory_region.guest_memfd_offset, 0);
+            assert_eq!(memory_region.userfault_bitmap, 0);
+            assert_eq!(memory_region.flags & KVM_MEM_GUEST_MEMFD, 0);
+            assert_eq!(memory_region.flags & KVM_MEM_USERFAULT, 0);
+
+            // SAFETY: We are passing a valid memory region and operate on a valid KVM FD.
+            unsafe {
+                self.fd()
+                    .set_user_memory_region(kvm_userspace_memory_region {
+                        slot: memory_region.slot,
+                        flags: memory_region.flags,
+                        guest_phys_addr: memory_region.guest_phys_addr,
+                        memory_size: memory_region.memory_size,
+                        userspace_addr: memory_region.userspace_addr,
+                    })
+                    .map_err(VmError::SetUserMemoryRegion)?;
+            }
         }
 
         self.common.guest_memory = new_guest_memory;
 
         Ok(())
+    }
+
+    /// Whether this VM is secret free
+    pub fn secret_free(&self) -> bool {
+        self.common.secret_free
     }
 
     /// Gets a reference to the kvm file descriptor owned by this VM.
@@ -501,7 +677,11 @@ impl Vm {
                 self.guest_memory().dump_dirty(&mut file, &dirty_bitmap)?;
             }
             SnapshotType::Full => {
-                self.guest_memory().dump(&mut file)?;
+                self.guest_memory()
+                    .dump(&mut MaybeBounce::<_, 4096>::new_persistent(
+                        file.as_fd(),
+                        self.secret_free(),
+                    ))?;
                 self.reset_dirty_bitmap();
                 self.guest_memory().reset_dirty();
             }
@@ -693,7 +873,7 @@ pub(crate) mod tests {
     // Auxiliary function being used throughout the tests.
     pub(crate) fn setup_vm() -> (Kvm, Vm) {
         let kvm = Kvm::new(vec![]).expect("Cannot create Kvm");
-        let vm = Vm::new(&kvm).expect("Cannot create new vm");
+        let vm = Vm::new(&kvm, false).expect("Cannot create new vm");
         (kvm, vm)
     }
 
@@ -701,7 +881,7 @@ pub(crate) mod tests {
     pub(crate) fn setup_vm_with_memory(mem_size: usize) -> (Kvm, Vm) {
         let (kvm, mut vm) = setup_vm();
         let gm = single_region_mem_raw(mem_size);
-        vm.register_memory_regions(gm).unwrap();
+        vm.register_memory_regions(gm, None).unwrap();
         (kvm, vm)
     }
 
@@ -709,7 +889,19 @@ pub(crate) mod tests {
     fn test_new() {
         // Testing with a valid /dev/kvm descriptor.
         let kvm = Kvm::new(vec![]).expect("Cannot create Kvm");
-        Vm::new(&kvm).unwrap();
+        Vm::new(&kvm, false).unwrap();
+    }
+
+    #[test]
+    fn test_new_secret_free() {
+        let kvm = Kvm::new(vec![]).unwrap();
+
+        if !kvm.fd.check_extension(Cap::GuestMemfd) {
+            return;
+        }
+
+        Vm::new(&kvm, true)
+            .expect("should be able to create secret free VMs if guest_memfd is supported");
     }
 
     #[test]
@@ -719,14 +911,14 @@ pub(crate) mod tests {
         // Trying to set a memory region with a size that is not a multiple of GUEST_PAGE_SIZE
         // will result in error.
         let gm = single_region_mem_raw(0x10);
-        let res = vm.register_memory_regions(gm);
+        let res = vm.register_memory_regions(gm, None);
         assert_eq!(
             res.unwrap_err().to_string(),
             "Cannot set the memory regions: Invalid argument (os error 22)"
         );
 
         let gm = single_region_mem_raw(0x1000);
-        let res = vm.register_memory_regions(gm);
+        let res = vm.register_memory_regions(gm, None);
         res.unwrap();
     }
 
@@ -761,7 +953,7 @@ pub(crate) mod tests {
 
             let region = GuestRegionMmap::new(region, GuestAddress(i as u64 * 0x1000)).unwrap();
 
-            let res = vm.register_memory_region(region);
+            let res = vm.register_memory_region(region, None);
 
             if max_nr_regions <= i {
                 assert!(
@@ -787,7 +979,7 @@ pub(crate) mod tests {
         let vcpu_count = 2;
         let (_, mut vm) = setup_vm_with_memory(mib_to_bytes(128));
 
-        let (vcpu_vec, _) = vm.create_vcpus(vcpu_count).unwrap();
+        let (vcpu_vec, _) = vm.create_vcpus(vcpu_count, false).unwrap();
 
         assert_eq!(vcpu_vec.len(), vcpu_count as usize);
     }

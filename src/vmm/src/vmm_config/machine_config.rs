@@ -27,10 +27,8 @@ pub enum MachineConfigError {
     /// Enabling simultaneous multithreading is not supported on aarch64.
     #[cfg(target_arch = "aarch64")]
     SmtNotSupported,
-    /// Could not determine host kernel version when checking hugetlbfs compatibility
-    KernelVersion,
-    /// Firecracker's huge pages support is incompatible with memory ballooning.
-    BalloonAndHugePages,
+    /// '{0}' and '{1}' are mutually exclusive and cannot be used together.
+    Incompatible(&'static str, &'static str)
 }
 
 /// Describes the possible (huge)page configurations for a microVM's memory.
@@ -97,6 +95,11 @@ pub struct MachineConfig {
     pub vcpu_count: u8,
     /// The memory size in MiB.
     pub mem_size_mib: usize,
+    /// Whether guest_memfd should be used to back normal guest memory. If this is enabled
+    /// and any devices are attached to the VM, userspace bounce buffers will be used
+    /// as I/O into secret free memory is not possible.
+    #[serde(default)]
+    pub secret_free: bool,
     /// Enables or disabled SMT.
     #[serde(default)]
     pub smt: bool,
@@ -153,6 +156,7 @@ impl Default for MachineConfig {
         Self {
             vcpu_count: 1,
             mem_size_mib: DEFAULT_MEM_SIZE_MIB,
+            secret_free: false,
             smt: false,
             cpu_template: None,
             track_dirty_pages: false,
@@ -178,6 +182,9 @@ pub struct MachineConfigUpdate {
     /// The memory size in MiB.
     #[serde(default)]
     pub mem_size_mib: Option<usize>,
+    /// Whether secret freedom should be enabled
+    #[serde(default)]
+    pub secret_free: Option<bool>,
     /// Enables or disabled SMT.
     #[serde(default)]
     pub smt: Option<bool>,
@@ -210,6 +217,7 @@ impl From<MachineConfig> for MachineConfigUpdate {
         MachineConfigUpdate {
             vcpu_count: Some(cfg.vcpu_count),
             mem_size_mib: Some(cfg.mem_size_mib),
+            secret_free: Some(cfg.secret_free),
             smt: Some(cfg.smt),
             cpu_template: cfg.static_template(),
             track_dirty_pages: Some(cfg.track_dirty_pages),
@@ -263,9 +271,25 @@ impl MachineConfig {
 
         let mem_size_mib = update.mem_size_mib.unwrap_or(self.mem_size_mib);
         let page_config = update.huge_pages.unwrap_or(self.huge_pages);
+        let secret_free = update.secret_free.unwrap_or(self.secret_free);
+        let track_dirty_pages = update.track_dirty_pages.unwrap_or(self.track_dirty_pages);
 
         if mem_size_mib == 0 || !page_config.is_valid_mem_size(mem_size_mib) {
             return Err(MachineConfigError::InvalidMemorySize);
+        }
+
+        if secret_free && page_config != HugePageConfig::None {
+            return Err(MachineConfigError::Incompatible(
+                "secret freedom",
+                "huge pages",
+            ));
+        }
+
+        if secret_free && track_dirty_pages {
+            return Err(MachineConfigError::Incompatible(
+                "secret freedom",
+                "diff snapshots",
+            ));
         }
 
         let cpu_template = match update.cpu_template {
@@ -277,9 +301,10 @@ impl MachineConfig {
         Ok(MachineConfig {
             vcpu_count,
             mem_size_mib,
+            secret_free,
             smt,
             cpu_template,
-            track_dirty_pages: update.track_dirty_pages.unwrap_or(self.track_dirty_pages),
+            track_dirty_pages,
             huge_pages: page_config,
             #[cfg(feature = "gdb")]
             gdb_socket_path: update.gdb_socket_path.clone(),
@@ -290,7 +315,126 @@ impl MachineConfig {
 #[cfg(test)]
 mod tests {
     use crate::cpu_config::templates::{CpuTemplateType, CustomCpuTemplate, StaticCpuTemplate};
-    use crate::vmm_config::machine_config::MachineConfig;
+    use crate::vmm_config::machine_config::{
+        HugePageConfig, MachineConfig, MachineConfigError, MachineConfigUpdate,
+    };
+
+    #[test]
+    #[allow(unused)] // some assertions exist only on specific architectures.
+    fn test_machine_config_update() {
+        let mconf = MachineConfig::default();
+
+        // Assert that the default machine config is valid
+        assert_eq!(
+            mconf
+                .update(&MachineConfigUpdate::from(mconf.clone()))
+                .unwrap(),
+            mconf
+        );
+
+        // Invalid vCPU counts
+        let res = mconf.update(&MachineConfigUpdate {
+            vcpu_count: Some(0),
+            ..Default::default()
+        });
+        assert_eq!(res, Err(MachineConfigError::InvalidVcpuCount));
+
+        let res = mconf.update(&MachineConfigUpdate {
+            vcpu_count: Some(33),
+            ..Default::default()
+        });
+        assert_eq!(res, Err(MachineConfigError::InvalidVcpuCount));
+
+        // Invalid memory size
+        let res = mconf.update(&MachineConfigUpdate {
+            mem_size_mib: Some(0),
+            ..Default::default()
+        });
+        assert_eq!(res, Err(MachineConfigError::InvalidMemorySize));
+
+        // Memory Size incompatible with huge page configuration
+        let res = mconf.update(&MachineConfigUpdate {
+            mem_size_mib: Some(31),
+            huge_pages: Some(HugePageConfig::Hugetlbfs2M),
+            ..Default::default()
+        });
+        assert_eq!(res, Err(MachineConfigError::InvalidMemorySize));
+
+        // works if the memory size is a multiple of huge page size indeed
+        let updated = mconf
+            .update(&MachineConfigUpdate {
+                mem_size_mib: Some(32),
+                huge_pages: Some(HugePageConfig::Hugetlbfs2M),
+                ..Default::default()
+            })
+            .unwrap();
+        assert_eq!(updated.huge_pages, HugePageConfig::Hugetlbfs2M);
+        assert_eq!(updated.mem_size_mib, 32);
+
+        let res = mconf.update(&MachineConfigUpdate {
+            huge_pages: Some(HugePageConfig::Hugetlbfs2M),
+            secret_free: Some(true),
+            ..Default::default()
+        });
+        assert_eq!(
+            res,
+            Err(MachineConfigError::Incompatible(
+                "secret freedom",
+                "huge pages"
+            ))
+        );
+
+        let res = mconf.update(&MachineConfigUpdate {
+            track_dirty_pages: Some(true),
+            secret_free: Some(true),
+            ..Default::default()
+        });
+        assert_eq!(
+            res,
+            Err(MachineConfigError::Incompatible(
+                "secret freedom",
+                "diff snapshots"
+            ))
+        );
+    }
+
+    #[test]
+    #[cfg(target_arch = "aarch64")]
+    fn test_machine_config_update_aarch64() {
+        let mconf = MachineConfig::default();
+
+        // Check that SMT is not supported on aarch64
+        let res = mconf.update(&MachineConfigUpdate {
+            smt: Some(true),
+            ..Default::default()
+        });
+        assert_eq!(res, Err(MachineConfigError::SmtNotSupported));
+    }
+
+    #[test]
+    #[cfg(target_arch = "x86_64")]
+    fn test_machine_config_update_x86_64() {
+        let mconf = MachineConfig::default();
+
+        // Test that SMT requires an even vcpu count
+        let res = mconf.update(&MachineConfigUpdate {
+            vcpu_count: Some(3),
+            smt: Some(true),
+            ..Default::default()
+        });
+        assert_eq!(res, Err(MachineConfigError::InvalidVcpuCount));
+
+        // Works if the vcpu count is even indeed
+        let updated = mconf
+            .update(&MachineConfigUpdate {
+                vcpu_count: Some(32),
+                smt: Some(true),
+                ..Default::default()
+            })
+            .unwrap();
+        assert_eq!(updated.vcpu_count, 32);
+        assert!(updated.smt);
+    }
 
     // Ensure the special (de)serialization logic for the cpu_template field works:
     // only static cpu templates can be specified via the machine-config endpoint, but

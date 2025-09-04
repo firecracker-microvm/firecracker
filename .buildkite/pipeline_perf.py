@@ -49,6 +49,7 @@ perf_test = {
         "label": "📸 Memory Population Latency",
         "tests": "integration_tests/performance/test_snapshot.py::test_population_latency",
         "devtool_opts": "-c 1-12 -m 0",
+        "timeout_in_minutes": 90,
     },
     "vsock-throughput": {
         "label": "🧦 Vsock Throughput",

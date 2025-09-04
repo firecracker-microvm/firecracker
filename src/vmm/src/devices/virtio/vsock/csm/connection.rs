@@ -95,6 +95,7 @@ use crate::devices::virtio::vsock::metrics::METRICS;
 use crate::devices::virtio::vsock::packet::{VsockPacketHeader, VsockPacketRx, VsockPacketTx};
 use crate::logger::IncMetric;
 use crate::utils::wrap_usize_to_u32;
+use crate::vstate::memory::MaybeBounce;
 
 /// Trait that vsock connection backends need to implement.
 ///
@@ -118,7 +119,7 @@ pub struct VsockConnection<S: VsockConnectionBackend> {
     /// The peer (guest) port.
     peer_port: u32,
     /// The (connected) host-side stream.
-    stream: S,
+    pub(crate) stream: MaybeBounce<S, { u16::MAX as usize }>,
     /// The TX buffer for this connection.
     tx_buf: TxBuf,
     /// Total number of bytes that have been successfully written to `self.stream`, either
@@ -414,7 +415,7 @@ where
     /// The connection is interested in being notified about EPOLLIN / EPOLLOUT events on the
     /// host stream.
     fn as_raw_fd(&self) -> RawFd {
-        self.stream.as_raw_fd()
+        self.stream.target.as_raw_fd()
     }
 }
 
@@ -509,13 +510,14 @@ where
         local_port: u32,
         peer_port: u32,
         peer_buf_alloc: u32,
+        bounce: bool,
     ) -> Self {
         Self {
             local_cid,
             peer_cid,
             local_port,
             peer_port,
-            stream,
+            stream: MaybeBounce::new_persistent(stream, bounce),
             state: ConnState::PeerInit,
             tx_buf: TxBuf::new(),
             fwd_cnt: Wrapping(0),
@@ -535,13 +537,14 @@ where
         peer_cid: u64,
         local_port: u32,
         peer_port: u32,
+        bounce: bool,
     ) -> Self {
         Self {
             local_cid,
             peer_cid,
             local_port,
             peer_port,
-            stream,
+            stream: MaybeBounce::new_persistent(stream, bounce),
             state: ConnState::LocalInit,
             tx_buf: TxBuf::new(),
             fwd_cnt: Wrapping(0),
@@ -882,9 +885,10 @@ mod tests {
                     LOCAL_PORT,
                     PEER_PORT,
                     PEER_BUF_ALLOC,
+                    false,
                 ),
                 ConnState::LocalInit => VsockConnection::<TestStream>::new_local_init(
-                    stream, LOCAL_CID, PEER_CID, LOCAL_PORT, PEER_PORT,
+                    stream, LOCAL_CID, PEER_CID, LOCAL_PORT, PEER_PORT, false,
                 ),
                 ConnState::Established => {
                     let mut conn = VsockConnection::<TestStream>::new_peer_init(
@@ -894,6 +898,7 @@ mod tests {
                         LOCAL_PORT,
                         PEER_PORT,
                         PEER_BUF_ALLOC,
+                        false,
                     );
                     assert!(conn.has_pending_rx());
                     conn.recv_pkt(&mut rx_pkt).unwrap();
@@ -912,7 +917,7 @@ mod tests {
         }
 
         fn set_stream(&mut self, stream: TestStream) {
-            self.conn.stream = stream;
+            self.conn.stream = MaybeBounce::new_persistent(stream, false);
         }
 
         fn set_peer_credit(&mut self, credit: u32) {
@@ -1014,7 +1019,7 @@ mod tests {
         let mut ctx = CsmTestContext::new_established();
         let data = &[1, 2, 3, 4];
         ctx.set_stream(TestStream::new_with_read_buf(data));
-        assert_eq!(ctx.conn.as_raw_fd(), ctx.conn.stream.as_raw_fd());
+        assert_eq!(ctx.conn.as_raw_fd(), ctx.conn.stream.target.as_raw_fd());
         ctx.notify_epollin();
         ctx.recv();
         assert_eq!(ctx.rx_pkt.hdr.op(), uapi::VSOCK_OP_RW);
@@ -1098,7 +1103,7 @@ mod tests {
 
             ctx.init_data_tx_pkt(data);
             ctx.send();
-            assert_eq!(ctx.conn.stream.write_buf.len(), 0);
+            assert_eq!(ctx.conn.stream.target.write_buf.len(), 0);
             assert!(ctx.conn.tx_buf.is_empty());
         }
 
@@ -1113,7 +1118,7 @@ mod tests {
             let data = &[1, 2, 3, 4];
             ctx.init_data_tx_pkt(data);
             ctx.send();
-            assert_eq!(ctx.conn.stream.write_buf, data.to_vec());
+            assert_eq!(ctx.conn.stream.target.write_buf, data.to_vec());
 
             ctx.notify_epollin();
             ctx.recv();
@@ -1233,7 +1238,7 @@ mod tests {
             ctx.set_stream(TestStream::new());
             ctx.conn.notify(EventSet::OUT);
             assert!(ctx.conn.tx_buf.is_empty());
-            assert_eq!(ctx.conn.stream.write_buf, data);
+            assert_eq!(ctx.conn.stream.target.write_buf, data);
         }
     }
 

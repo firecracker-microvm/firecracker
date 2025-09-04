@@ -6,7 +6,7 @@
 use std::fmt::Debug;
 use std::fs::{File, OpenOptions};
 use std::io::{self, Write};
-use std::mem::forget;
+use std::os::fd::RawFd;
 use std::os::unix::io::AsRawFd;
 use std::os::unix::net::UnixStream;
 use std::path::Path;
@@ -14,7 +14,7 @@ use std::sync::{Arc, Mutex};
 
 use semver::Version;
 use serde::{Deserialize, Serialize};
-use userfaultfd::{FeatureFlags, Uffd, UffdBuilder};
+use userfaultfd::{FeatureFlags, RegisterMode, Uffd, UffdBuilder};
 use vmm_sys_util::sock_ctrl_msg::ScmSocket;
 
 #[cfg(target_arch = "aarch64")]
@@ -47,6 +47,8 @@ use crate::{EventManager, Vmm, vstate};
 pub struct VmInfo {
     /// Guest memory size.
     pub mem_size_mib: u64,
+    /// Memory config
+    pub secret_free: bool,
     /// smt information
     pub smt: bool,
     /// CPU template type
@@ -61,6 +63,7 @@ impl From<&VmResources> for VmInfo {
     fn from(value: &VmResources) -> Self {
         Self {
             mem_size_mib: value.machine_config.mem_size_mib as u64,
+            secret_free: value.machine_config.secret_free,
             smt: value.machine_config.smt,
             cpu_template: StaticCpuTemplate::from(&value.machine_config.cpu_template),
             boot_source: value.boot_source.config.clone(),
@@ -108,6 +111,54 @@ pub struct GuestRegionUffdMapping {
     /// to be removed in 2.0.
     #[deprecated]
     pub page_size_kib: usize,
+}
+
+/// FaultRequest
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+pub struct FaultRequest {
+    /// vCPU that encountered the fault
+    pub vcpu: u32,
+    /// Offset in guest_memfd where the fault occured
+    pub offset: u64,
+    /// Flags
+    pub flags: u64,
+    /// Async PF token
+    pub token: Option<u32>,
+}
+
+/// FaultReply
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+pub struct FaultReply {
+    /// vCPU that encountered the fault, from `FaultRequest` (if present, otherwise 0)
+    pub vcpu: Option<u32>,
+    /// Offset in guest_memfd where population started
+    pub offset: u64,
+    /// Length of populated area
+    pub len: u64,
+    /// Flags, must be copied from `FaultRequest`, otherwise 0
+    pub flags: u64,
+    /// Async PF token, must be copied from `FaultRequest`, otherwise None
+    pub token: Option<u32>,
+    /// Whether the populated pages are zero pages
+    pub zero: bool,
+}
+
+/// UffdMsgFromFirecracker
+#[derive(Serialize, Deserialize, Debug)]
+#[serde(untagged)]
+pub enum UffdMsgFromFirecracker {
+    /// Mappings
+    Mappings(Vec<GuestRegionUffdMapping>),
+    /// FaultReq
+    FaultReq(FaultRequest),
+}
+
+/// UffdMsgToFirecracker
+#[derive(Serialize, Deserialize, Debug)]
+#[serde(untagged)]
+pub enum UffdMsgToFirecracker {
+    /// FaultRep
+    FaultRep(FaultReply),
 }
 
 /// Errors related to saving and restoring Microvm state.
@@ -320,6 +371,17 @@ pub fn restore_from_snapshot(
     vm_resources: &mut VmResources,
 ) -> Result<Arc<Mutex<Vmm>>, RestoreFromSnapshotError> {
     let mut microvm_state = snapshot_state_from_file(&params.snapshot_path)?;
+
+    if microvm_state.vm_info.secret_free && params.mem_backend.backend_type == MemBackendType::File
+    {
+        return Err(RestoreFromSnapshotError::Build(
+            BuildMicrovmFromSnapshotError::VmUpdateConfig(MachineConfigError::Incompatible(
+                "secret freedom",
+                "file memory backend",
+            )),
+        ));
+    }
+
     for entry in &params.network_overrides {
         microvm_state
             .device_states
@@ -352,6 +414,7 @@ pub fn restore_from_snapshot(
         .update_machine_config(&MachineConfigUpdate {
             vcpu_count: Some(vcpu_count),
             mem_size_mib: Some(u64_to_usize(microvm_state.vm_info.mem_size_mib)),
+            secret_free: Some(microvm_state.vm_info.secret_free),
             smt: Some(microvm_state.vm_info.smt),
             cpu_template: Some(microvm_state.vm_info.cpu_template),
             track_dirty_pages: Some(track_dirty_pages),
@@ -364,38 +427,12 @@ pub fn restore_from_snapshot(
     // Some sanity checks before building the microvm.
     snapshot_state_sanity_check(&microvm_state)?;
 
-    let mem_backend_path = &params.mem_backend.backend_path;
-    let mem_state = &microvm_state.vm_state.memory;
-
-    let (guest_memory, uffd) = match params.mem_backend.backend_type {
-        MemBackendType::File => {
-            if vm_resources.machine_config.huge_pages.is_hugetlbfs() {
-                return Err(RestoreFromSnapshotGuestMemoryError::File(
-                    GuestMemoryFromFileError::HugetlbfsSnapshot,
-                )
-                .into());
-            }
-            (
-                guest_memory_from_file(mem_backend_path, mem_state, track_dirty_pages)
-                    .map_err(RestoreFromSnapshotGuestMemoryError::File)?,
-                None,
-            )
-        }
-        MemBackendType::Uffd => guest_memory_from_uffd(
-            mem_backend_path,
-            mem_state,
-            track_dirty_pages,
-            vm_resources.machine_config.huge_pages,
-        )
-        .map_err(RestoreFromSnapshotGuestMemoryError::Uffd)?,
-    };
     builder::build_microvm_from_snapshot(
         instance_info,
         event_manager,
         microvm_state,
-        guest_memory,
-        uffd,
         seccomp_filters,
+        params,
         vm_resources,
     )
     .map_err(RestoreFromSnapshotError::Build)
@@ -432,13 +469,14 @@ pub enum GuestMemoryFromFileError {
     HugetlbfsSnapshot,
 }
 
-fn guest_memory_from_file(
+/// Creates guest memory from a file.
+pub fn guest_memory_from_file(
     mem_file_path: &Path,
     mem_state: &GuestMemoryState,
     track_dirty_pages: bool,
 ) -> Result<Vec<GuestRegionMmap>, GuestMemoryFromFileError> {
     let mem_file = File::open(mem_file_path)?;
-    let guest_mem = memory::snapshot_file(mem_file, mem_state.regions(), track_dirty_pages)?;
+    let guest_mem = memory::file_private(mem_file, mem_state.regions(), track_dirty_pages)?;
     Ok(guest_mem)
 }
 
@@ -455,16 +493,25 @@ pub enum GuestMemoryFromUffdError {
     Connect(#[from] std::io::Error),
     /// Failed to sends file descriptor: {0}
     Send(#[from] vmm_sys_util::errno::Error),
+    /// Cannot restore hugetlbfs backed snapshot when using Secret Freedom.
+    HugetlbfsSnapshot,
 }
 
-fn guest_memory_from_uffd(
+type GuestMemoryResult =
+    Result<(Vec<GuestRegionMmap>, Option<Uffd>, Option<UnixStream>), GuestMemoryFromUffdError>;
+
+/// Creates guest memory using a UDS socket provided by a UFFD handler.
+pub fn guest_memory_from_uffd(
     mem_uds_path: &Path,
     mem_state: &GuestMemoryState,
     track_dirty_pages: bool,
     huge_pages: HugePageConfig,
-) -> Result<(Vec<GuestRegionMmap>, Option<Uffd>), GuestMemoryFromUffdError> {
+    guest_memfd: Option<File>,
+    userfault_bitmap_memfd: Option<&File>,
+) -> GuestMemoryResult {
+    let guest_memfd_fd = guest_memfd.as_ref().map(|f| f.as_raw_fd());
     let (guest_memory, backend_mappings) =
-        create_guest_memory(mem_state, track_dirty_pages, huge_pages)?;
+        create_guest_memory(mem_state, track_dirty_pages, huge_pages, guest_memfd)?;
 
     let mut uffd_builder = UffdBuilder::new();
 
@@ -481,22 +528,42 @@ fn guest_memory_from_uffd(
         .create()
         .map_err(GuestMemoryFromUffdError::Create)?;
 
+    let mut mode = RegisterMode::MISSING;
+    let mut fds = vec![uffd.as_raw_fd()];
+
+    if let Some(gmem) = guest_memfd_fd {
+        mode = RegisterMode::MINOR;
+        fds.push(gmem);
+        fds.push(
+            userfault_bitmap_memfd
+                .expect("memfd is not present")
+                .as_raw_fd(),
+        );
+    }
+
     for mem_region in guest_memory.iter() {
-        uffd.register(mem_region.as_ptr().cast(), mem_region.size() as _)
+        uffd.register_with_mode(mem_region.as_ptr().cast(), mem_region.size() as _, mode)
             .map_err(GuestMemoryFromUffdError::Register)?;
     }
 
-    send_uffd_handshake(mem_uds_path, &backend_mappings, &uffd)?;
+    let socket = send_uffd_handshake(mem_uds_path, &backend_mappings, fds)?;
 
-    Ok((guest_memory, Some(uffd)))
+    Ok((guest_memory, Some(uffd), Some(socket)))
 }
 
 fn create_guest_memory(
     mem_state: &GuestMemoryState,
     track_dirty_pages: bool,
     huge_pages: HugePageConfig,
+    guest_memfd: Option<File>,
 ) -> Result<(Vec<GuestRegionMmap>, Vec<GuestRegionUffdMapping>), GuestMemoryFromUffdError> {
-    let guest_memory = memory::anonymous(mem_state.regions(), track_dirty_pages, huge_pages)?;
+    let guest_memory = match guest_memfd {
+        Some(file) => {
+            memory::file_shared(file, mem_state.regions(), track_dirty_pages, huge_pages)?
+        }
+        None => memory::anonymous(mem_state.regions(), track_dirty_pages, huge_pages)?,
+    };
+
     let mut backend_mappings = Vec::with_capacity(guest_memory.len());
     let mut offset = 0;
     for mem_region in guest_memory.iter() {
@@ -517,15 +584,17 @@ fn create_guest_memory(
 fn send_uffd_handshake(
     mem_uds_path: &Path,
     backend_mappings: &[GuestRegionUffdMapping],
-    uffd: &impl AsRawFd,
-) -> Result<(), GuestMemoryFromUffdError> {
+    fds: Vec<RawFd>,
+) -> Result<UnixStream, GuestMemoryFromUffdError> {
     // This is safe to unwrap() because we control the contents of the vector
     // (i.e GuestRegionUffdMapping entries).
     let backend_mappings = serde_json::to_string(backend_mappings).unwrap();
 
     let socket = UnixStream::connect(mem_uds_path)?;
-    socket.send_with_fd(
-        backend_mappings.as_bytes(),
+    socket.set_nonblocking(true)?;
+
+    socket.send_with_fds(
+        &[backend_mappings.as_bytes()],
         // In the happy case we can close the fd since the other process has it open and is
         // using it to serve us pages.
         //
@@ -556,15 +625,10 @@ fn send_uffd_handshake(
         // Moreover, Firecracker holds a copy of the UFFD fd as well, so that even if the
         // page fault handler process does not tear down Firecracker when necessary, the
         // uffd will still be alive but with no one to serve faults, leading to guest freeze.
-        uffd.as_raw_fd(),
+        &fds,
     )?;
 
-    // We prevent Rust from closing the socket file descriptor to avoid a potential race condition
-    // between the mappings message and the connection shutdown. If the latter arrives at the UFFD
-    // handler first, the handler never sees the mappings.
-    forget(socket);
-
-    Ok(())
+    Ok(socket)
 }
 
 #[cfg(test)]
@@ -697,7 +761,7 @@ mod tests {
         };
 
         let (_, uffd_regions) =
-            create_guest_memory(&mem_state, false, HugePageConfig::None).unwrap();
+            create_guest_memory(&mem_state, false, HugePageConfig::None, None).unwrap();
 
         assert_eq!(uffd_regions.len(), 1);
         assert_eq!(uffd_regions[0].size, 0x20000);
@@ -731,7 +795,7 @@ mod tests {
 
         let listener = UnixListener::bind(uds_path).expect("Cannot bind to socket path");
 
-        send_uffd_handshake(uds_path, &uffd_regions, &std::io::stdin()).unwrap();
+        send_uffd_handshake(uds_path, &uffd_regions, vec![std::io::stdin().as_raw_fd()]).unwrap();
 
         let (stream, _) = listener.accept().expect("Cannot listen on UDS socket");
 

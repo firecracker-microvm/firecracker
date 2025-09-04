@@ -24,6 +24,8 @@ pub enum DriveError {
     DeviceUpdate(VmmError),
     /// A root block device already exists!
     RootBlockDeviceAlreadyAdded,
+    /// {0} is incompatible with secret freedom.
+    IncompatibleWithSecretFreedom(&'static str),
 }
 
 /// Use this structure to set up the Block Device before booting the kernel.

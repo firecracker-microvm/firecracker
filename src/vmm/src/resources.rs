@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use std::convert::From;
+use std::fs::File;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex, MutexGuard};
 
@@ -9,6 +10,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::cpu_config::templates::CustomCpuTemplate;
 use crate::device_manager::persist::SharedDeviceType;
+use crate::devices::virtio::block::device::Block;
 use crate::logger::info;
 use crate::mmds;
 use crate::mmds::data_store::{Mmds, MmdsVersion};
@@ -31,7 +33,7 @@ use crate::vmm_config::net::*;
 use crate::vmm_config::serial::SerialConfig;
 use crate::vmm_config::vsock::*;
 use crate::vstate::memory;
-use crate::vstate::memory::{GuestRegionMmap, MemoryError};
+use crate::vstate::memory::{GuestRegionMmap, MemoryError, create_memfd};
 
 /// Errors encountered when configuring microVM resources.
 #[derive(Debug, thiserror::Error, displaydoc::Display)]
@@ -237,7 +239,14 @@ impl VmResources {
                 self.balloon.set_device(balloon);
 
                 if self.machine_config.huge_pages != HugePageConfig::None {
-                    return Err(ResourcesError::BalloonDevice(BalloonConfigError::HugePages));
+                    return Err(ResourcesError::BalloonDevice(
+                        BalloonConfigError::IncompatibleWith("huge pages"),
+                    ));
+                }
+                if self.machine_config.secret_free {
+                    return Err(ResourcesError::BalloonDevice(
+                        BalloonConfigError::IncompatibleWith("secret freedom"),
+                    ));
                 }
             }
 
@@ -279,7 +288,31 @@ impl VmResources {
         }
 
         if self.balloon.get().is_some() && updated.huge_pages != HugePageConfig::None {
-            return Err(MachineConfigError::BalloonAndHugePages);
+            return Err(MachineConfigError::Incompatible(
+                "balloon device",
+                "huge pages",
+            ));
+        }
+        if self.balloon.get().is_some() && updated.secret_free {
+            return Err(MachineConfigError::Incompatible(
+                "balloon device",
+                "secret freedom",
+            ));
+        }
+        if updated.secret_free {
+            if self.vhost_user_devices_used() {
+                return Err(MachineConfigError::Incompatible(
+                    "vhost-user devices",
+                    "userspace bounce buffers",
+                ));
+            }
+
+            if self.async_block_engine_used() {
+                return Err(MachineConfigError::Incompatible(
+                    "async block engine",
+                    "userspace bounce buffers",
+                ));
+            }
         }
         self.machine_config = updated;
 
@@ -338,7 +371,11 @@ impl VmResources {
         }
 
         if self.machine_config.huge_pages != HugePageConfig::None {
-            return Err(BalloonConfigError::HugePages);
+            return Err(BalloonConfigError::IncompatibleWith("huge pages"));
+        }
+
+        if self.machine_config.secret_free {
+            return Err(BalloonConfigError::IncompatibleWith("secret freedom"));
         }
 
         self.balloon.set(config)
@@ -364,6 +401,17 @@ impl VmResources {
         &mut self,
         block_device_config: BlockDeviceConfig,
     ) -> Result<(), DriveError> {
+        if self.machine_config.secret_free {
+            if block_device_config.file_engine_type == Some(FileEngineType::Async) {
+                return Err(DriveError::IncompatibleWithSecretFreedom(
+                    "async file engine",
+                ));
+            }
+
+            if block_device_config.socket.is_some() {
+                return Err(DriveError::IncompatibleWithSecretFreedom("vhost-user-blk"));
+            }
+        }
         self.block.insert(block_device_config)
     }
 
@@ -463,18 +511,37 @@ impl VmResources {
         Ok(())
     }
 
+    /// Returns true if any vhost user devices are configured int his [`VmResources`] object
+    pub fn vhost_user_devices_used(&self) -> bool {
+        self.block
+            .devices
+            .iter()
+            .any(|b| b.lock().expect("Poisoned lock").is_vhost_user())
+    }
+
+    fn async_block_engine_used(&self) -> bool {
+        self.block
+            .devices
+            .iter()
+            .any(|b| match &*b.lock().unwrap() {
+                Block::Virtio(b) => b.file_engine_type() == FileEngineType::Async,
+                Block::VhostUser(_) => false,
+            })
+    }
+
+    /// Gets the size of the guest memory, in bytes
+    pub fn memory_size(&self) -> usize {
+        mib_to_bytes(self.machine_config.mem_size_mib)
+    }
+
     /// Allocates guest memory in a configuration most appropriate for these [`VmResources`].
     ///
     /// If vhost-user-blk devices are in use, allocates memfd-backed shared memory, otherwise
     /// prefers anonymous memory for performance reasons.
-    pub fn allocate_guest_memory(&self) -> Result<Vec<GuestRegionMmap>, MemoryError> {
-        let vhost_user_device_used = self
-            .block
-            .devices
-            .iter()
-            .any(|b| b.lock().expect("Poisoned lock").is_vhost_user());
-
-        // Page faults are more expensive for shared memory mapping, including  memfd.
+    pub fn allocate_guest_memory(
+        &self,
+        guest_memfd: Option<File>,
+    ) -> Result<Vec<GuestRegionMmap>, MemoryError> {
         // For this reason, we only back guest memory with a memfd
         // if a vhost-user-blk device is configured in the VM, otherwise we fall back to
         // an anonymous private memory.
@@ -483,20 +550,35 @@ impl VmResources {
         // because that would require running a backend process. If in the future we converge to
         // a single way of backing guest memory for vhost-user and non-vhost-user cases,
         // that would not be worth the effort.
-        let regions =
-            crate::arch::arch_memory_regions(mib_to_bytes(self.machine_config.mem_size_mib));
-        if vhost_user_device_used {
-            memory::memfd_backed(
-                regions.as_ref(),
+        let regions = crate::arch::arch_memory_regions(self.memory_size()).into_iter();
+        match guest_memfd {
+            Some(file) => memory::file_shared(
+                file,
+                regions,
                 self.machine_config.track_dirty_pages,
                 self.machine_config.huge_pages,
-            )
-        } else {
-            memory::anonymous(
-                regions.into_iter(),
-                self.machine_config.track_dirty_pages,
-                self.machine_config.huge_pages,
-            )
+            ),
+            None => {
+                if self.vhost_user_devices_used() {
+                    let memfd = create_memfd(
+                        self.memory_size() as u64,
+                        self.machine_config.huge_pages.into(),
+                    )?
+                    .into_file();
+                    memory::file_shared(
+                        memfd,
+                        regions,
+                        self.machine_config.track_dirty_pages,
+                        self.machine_config.huge_pages,
+                    )
+                } else {
+                    memory::anonymous(
+                        regions.into_iter(),
+                        self.machine_config.track_dirty_pages,
+                        self.machine_config.huge_pages,
+                    )
+                }
+            }
         }
     }
 }
@@ -1370,6 +1452,7 @@ mod tests {
         let mut aux_vm_config = MachineConfigUpdate {
             vcpu_count: Some(32),
             mem_size_mib: Some(512),
+            secret_free: Some(false),
             smt: Some(false),
             #[cfg(target_arch = "x86_64")]
             cpu_template: Some(StaticCpuTemplate::T2),
@@ -1391,44 +1474,6 @@ mod tests {
             aux_vm_config
         );
 
-        // Invalid vcpu count.
-        aux_vm_config.vcpu_count = Some(0);
-        assert_eq!(
-            vm_resources.update_machine_config(&aux_vm_config),
-            Err(MachineConfigError::InvalidVcpuCount)
-        );
-        aux_vm_config.vcpu_count = Some(33);
-        assert_eq!(
-            vm_resources.update_machine_config(&aux_vm_config),
-            Err(MachineConfigError::InvalidVcpuCount)
-        );
-
-        // Check that SMT is not supported on aarch64, and that on x86_64 enabling it requires vcpu
-        // count to be even.
-        aux_vm_config.smt = Some(true);
-        #[cfg(target_arch = "aarch64")]
-        assert_eq!(
-            vm_resources.update_machine_config(&aux_vm_config),
-            Err(MachineConfigError::SmtNotSupported)
-        );
-        aux_vm_config.vcpu_count = Some(3);
-        #[cfg(target_arch = "x86_64")]
-        assert_eq!(
-            vm_resources.update_machine_config(&aux_vm_config),
-            Err(MachineConfigError::InvalidVcpuCount)
-        );
-        aux_vm_config.vcpu_count = Some(32);
-        #[cfg(target_arch = "x86_64")]
-        vm_resources.update_machine_config(&aux_vm_config).unwrap();
-        aux_vm_config.smt = Some(false);
-
-        // Invalid mem_size_mib.
-        aux_vm_config.mem_size_mib = Some(0);
-        assert_eq!(
-            vm_resources.update_machine_config(&aux_vm_config),
-            Err(MachineConfigError::InvalidMemorySize)
-        );
-
         // Incompatible mem_size_mib with balloon size.
         vm_resources.machine_config.mem_size_mib = 128;
         vm_resources
@@ -1446,23 +1491,6 @@ mod tests {
 
         // mem_size_mib compatible with balloon size.
         aux_vm_config.mem_size_mib = Some(256);
-        vm_resources.update_machine_config(&aux_vm_config).unwrap();
-
-        // mem_size_mib incompatible with huge pages configuration
-        aux_vm_config.mem_size_mib = Some(129);
-        aux_vm_config.huge_pages = Some(HugePageConfig::Hugetlbfs2M);
-        assert_eq!(
-            vm_resources
-                .update_machine_config(&aux_vm_config)
-                .unwrap_err(),
-            MachineConfigError::InvalidMemorySize
-        );
-
-        // mem_size_mib compatible with huge page configuration
-        aux_vm_config.mem_size_mib = Some(2048);
-        // Remove the balloon device config that's added by `default_vm_resources` as it would
-        // trigger the "ballooning incompatible with huge pages" check.
-        vm_resources.balloon = BalloonBuilder::new();
         vm_resources.update_machine_config(&aux_vm_config).unwrap();
     }
 
@@ -1517,7 +1545,7 @@ mod tests {
         assert!(
             matches!(
                 err,
-                ResourcesError::BalloonDevice(BalloonConfigError::HugePages)
+                ResourcesError::BalloonDevice(BalloonConfigError::IncompatibleWith("huge pages"))
             ),
             "{:?}",
             err

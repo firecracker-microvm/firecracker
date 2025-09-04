@@ -320,6 +320,14 @@ impl VirtioDevice for Entropy {
             self.process_virtio_queues();
         }
     }
+
+    fn force_userspace_bounce_buffers(&mut self) {
+        // rng device works with only userspace accesses
+    }
+
+    fn userspace_bounce_buffers(&self) -> bool {
+        false
+    }
 }
 
 #[cfg(test)]

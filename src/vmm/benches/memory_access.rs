@@ -11,7 +11,7 @@ fn bench_single_page_fault(c: &mut Criterion, configuration: VmResources) {
     c.bench_function("page_fault", |b| {
         b.iter_batched(
             || {
-                let memory = configuration.allocate_guest_memory().unwrap();
+                let memory = configuration.allocate_guest_memory(None).unwrap();
                 // Get a pointer to the first memory region (cannot do `.get_slice(GuestAddress(0),
                 // 1)`, because on ARM64 guest memory does not start at physical
                 // address 0).

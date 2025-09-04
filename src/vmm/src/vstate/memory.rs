@@ -6,7 +6,9 @@
 // found in the THIRD-PARTY file.
 
 use std::fs::File;
-use std::io::SeekFrom;
+use std::io::{Read, Seek, SeekFrom, Write};
+use std::os::fd::AsRawFd;
+use std::ptr::null_mut;
 use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
@@ -17,7 +19,10 @@ pub use vm_memory::{
     Address, ByteValued, Bytes, FileOffset, GuestAddress, GuestMemory, GuestMemoryRegion,
     GuestUsize, MemoryRegionAddress, MmapRegion, address,
 };
-use vm_memory::{Error as VmMemoryError, GuestMemoryError, WriteVolatile};
+use vm_memory::{
+    Error as VmMemoryError, GuestMemoryError, ReadVolatile, VolatileMemoryError, VolatileSlice,
+    WriteVolatile,
+};
 use vmm_sys_util::errno;
 
 use crate::DirtyBitmap;
@@ -48,6 +53,144 @@ pub enum MemoryError {
     MemfdSetLen(std::io::Error),
     /// Total sum of memory regions exceeds largest possible file offset
     OffsetTooLarge,
+    /// Error calling mmap: {0}
+    Mmap(std::io::Error),
+}
+
+/// Newtype that implements [`ReadVolatile`] and [`WriteVolatile`] if `T` implements `Read` or
+/// `Write` respectively, by reading/writing using a bounce buffer, and memcpy-ing into the
+/// [`VolatileSlice`].
+///
+/// Bounce buffers are allocated on the heap, as on-stack bounce buffers could cause stack
+/// overflows. If `N == 0` then bounce buffers will be allocated on demand.
+#[derive(Debug)]
+pub struct MaybeBounce<T, const N: usize = 0> {
+    pub(crate) target: T,
+    persistent_buffer: Option<Box<[u8; N]>>,
+}
+
+impl<T> MaybeBounce<T, 0> {
+    /// Creates a new `MaybeBounce` that always allocates a bounce
+    /// buffer on-demand
+    pub fn new(target: T, should_bounce: bool) -> Self {
+        MaybeBounce::new_persistent(target, should_bounce)
+    }
+}
+
+impl<T, const N: usize> MaybeBounce<T, N> {
+    /// Creates a new `MaybeBounce` that uses a persistent, fixed size bounce buffer
+    /// of size `N`. If a read/write request exceeds the size of this bounce buffer, it
+    /// is split into multiple, `<= N`-size read/writes.
+    pub fn new_persistent(target: T, should_bounce: bool) -> Self {
+        let mut bounce = MaybeBounce {
+            target,
+            persistent_buffer: None,
+        };
+
+        if should_bounce {
+            bounce.activate()
+        }
+
+        bounce
+    }
+
+    /// Activates this [`MaybeBounce`] to start doing reads/writes via a bounce buffer,
+    /// which is allocated on the heap by this function (e.g. if `activate()` is never called,
+    /// no bounce buffer is ever allocated).
+    pub fn activate(&mut self) {
+        self.persistent_buffer = Some(vec![0u8; N].into_boxed_slice().try_into().unwrap())
+    }
+
+    /// Returns `true` if this `MaybeBounce` is actually bouncing buffers.
+    pub fn is_activated(&self) -> bool {
+        self.persistent_buffer.is_some()
+    }
+}
+
+impl<T: ReadVolatile, const N: usize> ReadVolatile for MaybeBounce<T, N> {
+    fn read_volatile<B: BitmapSlice>(
+        &mut self,
+        buf: &mut VolatileSlice<B>,
+    ) -> Result<usize, VolatileMemoryError> {
+        if let Some(ref mut persistent) = self.persistent_buffer {
+            let mut bbuf = (N == 0).then(|| vec![0u8; buf.len()]);
+            let bbuf = bbuf.as_deref_mut().unwrap_or(persistent.as_mut_slice());
+
+            let mut buf = buf.offset(0)?;
+            let mut total = 0;
+            while !buf.is_empty() {
+                let how_much = buf.len().min(bbuf.len());
+                let n = self
+                    .target
+                    .read_volatile(&mut VolatileSlice::from(&mut bbuf[..how_much]))?;
+                buf.copy_from(&bbuf[..n]);
+
+                buf = buf.offset(n)?;
+                total += n;
+
+                if n < how_much {
+                    break;
+                }
+            }
+
+            Ok(total)
+        } else {
+            self.target.read_volatile(buf)
+        }
+    }
+}
+
+impl<T: WriteVolatile, const N: usize> WriteVolatile for MaybeBounce<T, N> {
+    fn write_volatile<B: BitmapSlice>(
+        &mut self,
+        buf: &VolatileSlice<B>,
+    ) -> Result<usize, VolatileMemoryError> {
+        if let Some(ref mut persistent) = self.persistent_buffer {
+            let mut bbuf = (N == 0).then(|| vec![0u8; buf.len()]);
+            let bbuf = bbuf.as_deref_mut().unwrap_or(persistent.as_mut_slice());
+
+            let mut buf = buf.offset(0)?;
+            let mut total = 0;
+            while !buf.is_empty() {
+                let how_much = buf.copy_to(bbuf);
+                let n = self
+                    .target
+                    .write_volatile(&VolatileSlice::from(&mut bbuf[..how_much]))?;
+                buf = buf.offset(n)?;
+                total += n;
+
+                if n < how_much {
+                    break;
+                }
+            }
+
+            Ok(total)
+        } else {
+            self.target.write_volatile(buf)
+        }
+    }
+}
+
+impl<R: Read, const N: usize> Read for MaybeBounce<R, N> {
+    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+        self.target.read(buf)
+    }
+}
+
+impl<W: Write, const N: usize> Write for MaybeBounce<W, N> {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        self.target.write(buf)
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        self.target.flush()
+    }
+}
+
+impl<S: Seek, const N: usize> Seek for MaybeBounce<S, N> {
+    fn seek(&mut self, pos: SeekFrom) -> std::io::Result<u64> {
+        self.target.seek(pos)
+    }
 }
 
 /// Creates a `Vec` of `GuestRegionMmap` with the given configuration
@@ -64,15 +207,39 @@ pub fn create(
             let mut builder = MmapRegionBuilder::new_with_bitmap(
                 size,
                 track_dirty_pages.then(|| AtomicBitmap::with_len(size)),
-            )
-            .with_mmap_prot(libc::PROT_READ | libc::PROT_WRITE)
-            .with_mmap_flags(libc::MAP_NORESERVE | mmap_flags);
+            );
 
-            if let Some(ref file) = file {
+            // when computing offset below we ensure it fits into i64
+            #[allow(clippy::cast_possible_wrap)]
+            let (fd, fd_off) = if let Some(ref file) = file {
                 let file_offset = FileOffset::from_arc(Arc::clone(file), offset);
 
                 builder = builder.with_file_offset(file_offset);
+
+                (file.as_raw_fd(), offset as libc::off_t)
+            } else {
+                (-1, 0)
+            };
+
+            // SAFETY: the arguments to mmap cannot cause any memory unsafety in the rust sense
+            let ptr = unsafe {
+                libc::mmap(
+                    null_mut(),
+                    size,
+                    libc::PROT_READ | libc::PROT_WRITE,
+                    libc::MAP_NORESERVE | mmap_flags,
+                    fd,
+                    fd_off,
+                )
+            };
+
+            if ptr == libc::MAP_FAILED {
+                return Err(MemoryError::Mmap(std::io::Error::last_os_error()));
             }
+
+            // SAFETY: we check above that mmap succeeded, and the size we passed to builder is the
+            // same as the size of the mmap area.
+            let builder = unsafe { builder.with_raw_mmap_pointer(ptr.cast()) };
 
             offset = match offset.checked_add(size as u64) {
                 None => return Err(MemoryError::OffsetTooLarge),
@@ -92,18 +259,16 @@ pub fn create(
 }
 
 /// Creates a GuestMemoryMmap with `size` in MiB backed by a memfd.
-pub fn memfd_backed(
-    regions: &[(GuestAddress, usize)],
+pub fn file_shared(
+    file: File,
+    regions: impl Iterator<Item = (GuestAddress, usize)>,
     track_dirty_pages: bool,
     huge_pages: HugePageConfig,
 ) -> Result<Vec<GuestRegionMmap>, MemoryError> {
-    let size = regions.iter().map(|&(_, size)| size as u64).sum();
-    let memfd_file = create_memfd(size, huge_pages.into())?.into_file();
-
     create(
-        regions.iter().copied(),
+        regions,
         libc::MAP_SHARED | huge_pages.mmap_flags(),
-        Some(memfd_file),
+        Some(file),
         track_dirty_pages,
     )
 }
@@ -124,7 +289,7 @@ pub fn anonymous(
 
 /// Creates a GuestMemoryMmap given a `file` containing the data
 /// and a `state` containing mapping information.
-pub fn snapshot_file(
+pub fn file_private(
     file: File,
     regions: impl Iterator<Item = (GuestAddress, usize)>,
     track_dirty_pages: bool,
@@ -158,6 +323,12 @@ where
 
     /// Store the dirty bitmap in internal store
     fn store_dirty_bitmap(&self, dirty_bitmap: &DirtyBitmap, page_size: usize);
+
+    /// Convert guest physical address to file offset
+    fn gpa_to_offset(&self, gpa: GuestAddress) -> Option<u64>;
+
+    /// Convert file offset to guest physical address
+    fn offset_to_gpa(&self, offset: u64) -> Option<GuestAddress>;
 }
 
 /// State of a guest memory region saved to file/buffer.
@@ -308,9 +479,38 @@ impl GuestMemoryExtension for GuestMemoryMmap {
             }
         });
     }
+
+    /// Convert guest physical address to file offset
+    fn gpa_to_offset(&self, gpa: GuestAddress) -> Option<u64> {
+        self.find_region(gpa).and_then(|r| {
+            r.file_offset()
+                .map(|file_offset| gpa.0 - r.start_addr().0 + file_offset.start())
+        })
+    }
+
+    /// Convert file offset to guest physical address
+    fn offset_to_gpa(&self, offset: u64) -> Option<GuestAddress> {
+        self.iter().find_map(|region| {
+            if let Some(reg_offset) = region.file_offset() {
+                let region_start = reg_offset.start();
+                let region_size = region.size();
+
+                if offset >= region_start && offset < region_start + region_size as u64 {
+                    Some(GuestAddress(
+                        region.start_addr().0 + (offset - region_start),
+                    ))
+                } else {
+                    None
+                }
+            } else {
+                None
+            }
+        })
+    }
 }
 
-fn create_memfd(
+/// Creates a memfd of the given size and huge pages configuration
+pub fn create_memfd(
     mem_size: u64,
     hugetlb_size: Option<memfd::HugetlbSize>,
 ) -> Result<memfd::Memfd, MemoryError> {
@@ -346,6 +546,7 @@ mod tests {
 
     use std::collections::HashMap;
     use std::io::{Read, Seek};
+    use std::os::fd::AsFd;
 
     use vmm_sys_util::tempfile::TempFile;
 
@@ -567,7 +768,7 @@ mod tests {
         guest_memory.dump(&mut memory_file).unwrap();
 
         let restored_guest_memory = GuestMemoryMmap::from_regions(
-            snapshot_file(memory_file, memory_state.regions(), false).unwrap(),
+            file_private(memory_file, memory_state.regions(), false).unwrap(),
         )
         .unwrap();
 
@@ -629,7 +830,7 @@ mod tests {
 
         // We can restore from this because this is the first dirty dump.
         let restored_guest_memory = GuestMemoryMmap::from_regions(
-            snapshot_file(file, memory_state.regions(), false).unwrap(),
+            file_private(file, memory_state.regions(), false).unwrap(),
         )
         .unwrap();
 
@@ -725,5 +926,51 @@ mod tests {
         let mut seals = memfd::SealsHashSet::new();
         seals.insert(memfd::FileSeal::SealGrow);
         memfd.add_seals(&seals).unwrap_err();
+    }
+
+    #[test]
+    fn test_bounce() {
+        let file_direct = TempFile::new().unwrap();
+        let file_bounced = TempFile::new().unwrap();
+        let file_persistent_bounced = TempFile::new().unwrap();
+
+        let mut data = (0..=255).collect::<Vec<_>>();
+
+        MaybeBounce::new(file_direct.as_file().as_fd(), false)
+            .write_all_volatile(&VolatileSlice::from(data.as_mut_slice()))
+            .unwrap();
+        MaybeBounce::new(file_bounced.as_file().as_fd(), true)
+            .write_all_volatile(&VolatileSlice::from(data.as_mut_slice()))
+            .unwrap();
+        MaybeBounce::<_, 7>::new_persistent(file_persistent_bounced.as_file().as_fd(), true)
+            .write_all_volatile(&VolatileSlice::from(data.as_mut_slice()))
+            .unwrap();
+
+        let mut data_direct = vec![0u8; 256];
+        let mut data_bounced = vec![0u8; 256];
+        let mut data_persistent_bounced = vec![0u8; 256];
+
+        file_direct.as_file().seek(SeekFrom::Start(0)).unwrap();
+        file_bounced.as_file().seek(SeekFrom::Start(0)).unwrap();
+        file_persistent_bounced
+            .as_file()
+            .seek(SeekFrom::Start(0))
+            .unwrap();
+
+        MaybeBounce::new(file_direct.as_file().as_fd(), false)
+            .read_exact_volatile(&mut VolatileSlice::from(data_direct.as_mut_slice()))
+            .unwrap();
+        MaybeBounce::new(file_bounced.as_file().as_fd(), true)
+            .read_exact_volatile(&mut VolatileSlice::from(data_bounced.as_mut_slice()))
+            .unwrap();
+        MaybeBounce::<_, 7>::new_persistent(file_persistent_bounced.as_file().as_fd(), true)
+            .read_exact_volatile(&mut VolatileSlice::from(
+                data_persistent_bounced.as_mut_slice(),
+            ))
+            .unwrap();
+
+        assert_eq!(data_direct, data_bounced);
+        assert_eq!(data_direct, data);
+        assert_eq!(data_persistent_bounced, data);
     }
 }

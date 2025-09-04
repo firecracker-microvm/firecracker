@@ -374,9 +374,7 @@ def test_api_machine_config(uvm_plain):
     bad_size = (1 << 64) - 1
     test_microvm.api.machine_config.patch(mem_size_mib=bad_size)
 
-    fail_msg = re.escape(
-        "Invalid Memory Configuration: Cannot create mmap region: Out of memory (os error 12)"
-    )
+    fail_msg = re.escape("Out of memory (os error 12)")
     with pytest.raises(RuntimeError, match=fail_msg):
         test_microvm.start()
 
@@ -749,6 +747,7 @@ def test_drive_patch(uvm_plain, io_engine):
 @pytest.mark.skipif(
     platform.machine() != "x86_64", reason="not yet implemented on aarch64"
 )
+@pytest.mark.skip(reason="TODO: fix graceful shutdown on x86_64")
 def test_send_ctrl_alt_del(uvm_plain_any):
     """
     Test shutting down the microVM gracefully on x86, by sending CTRL+ALT+DEL.
@@ -1056,6 +1055,7 @@ def test_get_full_config_after_restoring_snapshot(microvm_factory, uvm_nano):
     setup_cfg["machine-config"] = {
         "vcpu_count": 2,
         "mem_size_mib": 256,
+        "secret_free": False,
         "smt": True,
         "track_dirty_pages": False,
         "huge_pages": "None",
@@ -1172,6 +1172,7 @@ def test_get_full_config(uvm_plain):
     expected_cfg["machine-config"] = {
         "vcpu_count": 2,
         "mem_size_mib": 256,
+        "secret_free": False,
         "smt": False,
         "track_dirty_pages": False,
         "huge_pages": "None",

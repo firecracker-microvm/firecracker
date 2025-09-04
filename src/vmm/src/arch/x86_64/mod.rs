@@ -31,7 +31,7 @@ pub mod xstate;
 #[allow(missing_docs)]
 pub mod generated;
 
-use std::fs::File;
+use std::io::{Read, Seek};
 
 use kvm::Kvm;
 use layout::{
@@ -48,6 +48,7 @@ use linux_loader::loader::elf::start_info::{
 };
 use linux_loader::loader::{Cmdline, KernelLoader, PvhBootCapability, load_cmdline};
 use log::debug;
+use vm_memory::ReadVolatile;
 
 use super::EntryPoint;
 use crate::acpi::create_acpi_tables;
@@ -466,20 +467,14 @@ fn add_e820_entry(
 }
 
 /// Load linux kernel into guest memory.
-pub fn load_kernel(
-    kernel: &File,
+pub fn load_kernel<R: Read + ReadVolatile + Seek>(
+    mut kernel: R,
     guest_memory: &GuestMemoryMmap,
 ) -> Result<EntryPoint, ConfigurationError> {
-    // Need to clone the File because reading from it
-    // mutates it.
-    let mut kernel_file = kernel
-        .try_clone()
-        .map_err(|_| ConfigurationError::KernelFile)?;
-
     let entry_addr = Loader::load(
         guest_memory,
         None,
-        &mut kernel_file,
+        &mut kernel,
         Some(GuestAddress(get_kernel_start())),
     )
     .map_err(ConfigurationError::KernelLoader)?;

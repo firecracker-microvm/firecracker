@@ -139,7 +139,7 @@ def pytest_runtest_logreport(report):
             "test": report.nodeid,
             "instance": global_props.instance,
             "cpu_model": global_props.cpu_model,
-            "host_kernel": "linux-" + global_props.host_linux_version,
+            "host_kernel": "linux-" + global_props.host_linux_version_metrics,
             "phase": report.when,
         },
         # per test
@@ -147,7 +147,7 @@ def pytest_runtest_logreport(report):
             "test": report.nodeid,
             "instance": global_props.instance,
             "cpu_model": global_props.cpu_model,
-            "host_kernel": "linux-" + global_props.host_linux_version,
+            "host_kernel": "linux-" + global_props.host_linux_version_metrics,
         },
         # per coarse-grained test name, dropping parameters and other dimensions to reduce metric count for dashboard
         # Note: noideid is formatted as below
@@ -159,7 +159,7 @@ def pytest_runtest_logreport(report):
         # per phase
         {"phase": report.when},
         # per host kernel
-        {"host_kernel": "linux-" + global_props.host_linux_version},
+        {"host_kernel": "linux-" + global_props.host_linux_version_metrics},
         # per CPU
         {"cpu_model": global_props.cpu_model},
         # and global
@@ -439,6 +439,20 @@ def io_engine(request):
 )
 def snapshot_type(request):
     """All possible snapshot types"""
+    return request.param
+
+
+secret_free_test_cases = [False]
+if (
+    global_props.host_linux_version_metrics == "next"
+    and global_props.instance != "m6g.metal"
+):
+    secret_free_test_cases.append(True)
+
+
+@pytest.fixture(params=secret_free_test_cases)
+def secret_free(request):
+    """Supported secret hiding configuration, based on hardware"""
     return request.param
 
 

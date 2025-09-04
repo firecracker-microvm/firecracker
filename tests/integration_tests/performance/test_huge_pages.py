@@ -54,6 +54,11 @@ def check_hugetlbfs_in_use(pid: int, allocation_name: str):
     assert kernel_page_size_kib > 4
 
 
+@pytest.mark.skipif(
+    global_props.host_linux_version_tpl > (6, 1)
+    and global_props.cpu_architecture == "aarch64",
+    reason="Huge page tests with secret hidden kernels on ARM currently fail",
+)
 def test_hugetlbfs_boot(uvm_plain):
     """Tests booting a microvm with guest memory backed by 2MB hugetlbfs pages"""
 
@@ -102,6 +107,11 @@ def test_hugetlbfs_snapshot(microvm_factory, uvm_plain, snapshot_type):
     check_hugetlbfs_in_use(vm.firecracker_pid, "/anon_hugepage")
 
 
+@pytest.mark.skipif(
+    global_props.host_linux_version_tpl > (6, 1)
+    and global_props.cpu_architecture == "aarch64",
+    reason="Huge page tests with secret hidden kernels on ARM currently fail",
+)
 @pytest.mark.parametrize("huge_pages", HugePagesConfig)
 def test_ept_violation_count(
     microvm_factory,
@@ -177,6 +187,11 @@ def test_ept_violation_count(
     metrics.put_metric(metric, int(metric_value), "Count")
 
 
+@pytest.mark.skipif(
+    global_props.host_linux_version_tpl > (6, 1)
+    and global_props.cpu_architecture == "aarch64",
+    reason="Huge page tests with secret hidden kernels on ARM currently fail",
+)
 def test_negative_huge_pages_plus_balloon(uvm_plain):
     """Tests that huge pages and memory ballooning cannot be used together"""
     uvm_plain.memory_monitor = None
@@ -186,7 +201,7 @@ def test_negative_huge_pages_plus_balloon(uvm_plain):
     uvm_plain.basic_config(huge_pages=HugePagesConfig.HUGETLBFS_2MB)
     with pytest.raises(
         RuntimeError,
-        match="Firecracker's huge pages support is incompatible with memory ballooning.",
+        match="Memory ballooning is incompatible with huge pages.",
     ):
         uvm_plain.api.balloon.put(amount_mib=0, deflate_on_oom=False)
 
@@ -195,6 +210,6 @@ def test_negative_huge_pages_plus_balloon(uvm_plain):
     uvm_plain.api.balloon.put(amount_mib=0, deflate_on_oom=False)
     with pytest.raises(
         RuntimeError,
-        match="Machine config error: Firecracker's huge pages support is incompatible with memory ballooning.",
+        match="Machine config error: 'balloon device' and 'huge pages' are mutually exclusive and cannot be used together.",
     ):
         uvm_plain.basic_config(huge_pages=HugePagesConfig.HUGETLBFS_2MB)

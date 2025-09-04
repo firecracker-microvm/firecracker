@@ -18,11 +18,11 @@ pub mod vm;
 
 use std::cmp::min;
 use std::fmt::Debug;
-use std::fs::File;
+use std::io::{Read, Seek};
 
 use linux_loader::loader::pe::PE as Loader;
 use linux_loader::loader::{Cmdline, KernelLoader};
-use vm_memory::GuestMemoryError;
+use vm_memory::{GuestMemoryError, ReadVolatile};
 
 use crate::arch::{BootProtocol, EntryPoint, arch_memory_regions_with_gap};
 use crate::cpu_config::aarch64::{CpuConfiguration, CpuConfigurationError};
@@ -179,16 +179,10 @@ fn get_fdt_addr(mem: &GuestMemoryMmap) -> u64 {
 }
 
 /// Load linux kernel into guest memory.
-pub fn load_kernel(
-    kernel: &File,
+pub fn load_kernel<R: ReadVolatile + Read + Seek>(
+    mut kernel_file: R,
     guest_memory: &GuestMemoryMmap,
 ) -> Result<EntryPoint, ConfigurationError> {
-    // Need to clone the File because reading from it
-    // mutates it.
-    let mut kernel_file = kernel
-        .try_clone()
-        .map_err(|_| ConfigurationError::KernelFile)?;
-
     let entry_addr = Loader::load(
         guest_memory,
         Some(GuestAddress(get_kernel_start())),

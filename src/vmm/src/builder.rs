@@ -4,27 +4,33 @@
 //! Enables pre-boot setup, instantiation and booting of a Firecracker VMM.
 
 use std::fmt::Debug;
-use std::io;
+use std::fs::File;
+use std::io::{self};
+use std::os::fd::{AsFd, AsRawFd};
+use std::os::unix::fs::MetadataExt;
 #[cfg(feature = "gdb")]
 use std::sync::mpsc;
 use std::sync::{Arc, Mutex};
 
 use event_manager::SubscriberOps;
+use kvm_ioctls::Cap;
 use linux_loader::cmdline::Cmdline as LoaderKernelCmdline;
-use userfaultfd::Uffd;
 use utils::time::TimestampUs;
 #[cfg(target_arch = "aarch64")]
 use vm_memory::GuestAddress;
 
 #[cfg(target_arch = "aarch64")]
 use crate::Vcpu;
-use crate::arch::{ConfigurationError, configure_system_for_boot, load_kernel};
+use crate::arch::{ConfigurationError, configure_system_for_boot, host_page_size, load_kernel};
 #[cfg(target_arch = "aarch64")]
 use crate::construct_kvm_mpidrs;
-use crate::cpu_config::templates::{GetCpuTemplate, GetCpuTemplateError, GuestConfigError};
+use crate::cpu_config::templates::{
+    GetCpuTemplate, GetCpuTemplateError, GuestConfigError, KvmCapability,
+};
 #[cfg(target_arch = "x86_64")]
 use crate::device_manager;
 use crate::device_manager::pci_mngr::PciManagerError;
+use crate::device_manager::persist::ACPIDeviceManagerRestoreError;
 use crate::device_manager::{
     AttachDeviceError, DeviceManager, DeviceManagerCreateError, DevicePersistError,
     DeviceRestoreArgs,
@@ -39,18 +45,23 @@ use crate::devices::virtio::vsock::{Vsock, VsockUnixBackend};
 use crate::gdb;
 use crate::initrd::{InitrdConfig, InitrdError};
 use crate::logger::debug;
-use crate::persist::{MicrovmState, MicrovmStateError};
+use crate::persist::{
+    GuestMemoryFromFileError, GuestMemoryFromUffdError, MicrovmState, MicrovmStateError,
+    guest_memory_from_file, guest_memory_from_uffd,
+};
 use crate::resources::VmResources;
 use crate::seccomp::BpfThreadMap;
 use crate::snapshot::Persist;
+use crate::utils::u64_to_usize;
 use crate::vmm_config::instance_info::InstanceInfo;
 use crate::vmm_config::machine_config::MachineConfigError;
+use crate::vmm_config::snapshot::{LoadSnapshotParams, MemBackendType};
 use crate::vstate::kvm::{Kvm, KvmError};
-use crate::vstate::memory::GuestRegionMmap;
+use crate::vstate::memory::{MaybeBounce, MemoryError, create_memfd};
 #[cfg(target_arch = "aarch64")]
 use crate::vstate::resources::ResourceAllocator;
 use crate::vstate::vcpu::VcpuError;
-use crate::vstate::vm::{Vm, VmError};
+use crate::vstate::vm::{GUEST_MEMFD_FLAG_MMAP, GUEST_MEMFD_FLAG_NO_DIRECT_MAP, Vm, VmError};
 use crate::{EventManager, Vmm, VmmError};
 
 /// Errors associated with starting the instance.
@@ -130,6 +141,9 @@ impl std::convert::From<linux_loader::cmdline::Error> for StartMicrovmError {
     }
 }
 
+const KVM_CAP_GUEST_MEMFD_MMAP: u32 = 243;
+const KVM_CAP_GUEST_MEMFD_NO_DIRECT_MAP: u32 = 244;
+
 /// Builds and starts a microVM based on the current Firecracker VmResources configuration.
 ///
 /// The built microVM and all the created vCPUs start off in the paused state.
@@ -150,10 +164,6 @@ pub fn build_microvm_for_boot(
         .as_ref()
         .ok_or(StartMicrovmError::MissingKernelConfig)?;
 
-    let guest_memory = vm_resources
-        .allocate_guest_memory()
-        .map_err(StartMicrovmError::GuestMemory)?;
-
     // Clone the command-line so that a failed boot doesn't pollute the original.
     #[allow(unused_mut)]
     let mut boot_cmdline = boot_config.cmdline.clone();
@@ -163,12 +173,40 @@ pub fn build_microvm_for_boot(
         .cpu_template
         .get_cpu_template()?;
 
-    let kvm = Kvm::new(cpu_template.kvm_capabilities.clone())?;
+    let secret_free = vm_resources.machine_config.secret_free;
+
+    let mut kvm_capabilities = cpu_template.kvm_capabilities.clone();
+
+    if secret_free {
+        kvm_capabilities.push(KvmCapability::Add(Cap::GuestMemfd as u32));
+        kvm_capabilities.push(KvmCapability::Add(KVM_CAP_GUEST_MEMFD_MMAP));
+        kvm_capabilities.push(KvmCapability::Add(KVM_CAP_GUEST_MEMFD_NO_DIRECT_MAP));
+    }
+
+    let kvm = Kvm::new(kvm_capabilities)?;
     // Set up Kvm Vm and register memory regions.
     // Build custom CPU config if a custom template is provided.
-    let mut vm = Vm::new(&kvm)?;
-    let (mut vcpus, vcpus_exit_evt) = vm.create_vcpus(vm_resources.machine_config.vcpu_count)?;
-    vm.register_memory_regions(guest_memory)?;
+    let mut vm = Vm::new(&kvm, secret_free)?;
+    let (mut vcpus, vcpus_exit_evt) =
+        vm.create_vcpus(vm_resources.machine_config.vcpu_count, secret_free)?;
+
+    let guest_memfd = match secret_free {
+        true => Some(
+            vm.create_guest_memfd(
+                vm_resources.memory_size(),
+                GUEST_MEMFD_FLAG_MMAP | GUEST_MEMFD_FLAG_NO_DIRECT_MAP,
+            )
+            .map_err(VmmError::Vm)?,
+        ),
+        false => None,
+    };
+
+    let guest_memory = vm_resources
+        .allocate_guest_memory(guest_memfd)
+        .map_err(StartMicrovmError::GuestMemory)?;
+
+    vm.register_memory_regions(guest_memory, None)
+        .map_err(VmmError::Vm)?;
 
     let mut device_manager = DeviceManager::new(
         event_manager,
@@ -179,8 +217,28 @@ pub fn build_microvm_for_boot(
 
     let vm = Arc::new(vm);
 
-    let entry_point = load_kernel(&boot_config.kernel_file, vm.guest_memory())?;
-    let initrd = InitrdConfig::from_config(boot_config, vm.guest_memory())?;
+    let entry_point = load_kernel(
+        MaybeBounce::<_, 4096>::new_persistent(
+            boot_config.kernel_file.try_clone().unwrap(),
+            secret_free,
+        ),
+        vm.guest_memory(),
+    )?;
+    let initrd = match &boot_config.initrd_file {
+        Some(initrd_file) => {
+            let size = initrd_file
+                .metadata()
+                .map_err(InitrdError::Metadata)?
+                .size();
+
+            Some(InitrdConfig::from_reader(
+                vm.guest_memory(),
+                MaybeBounce::<_, 4096>::new_persistent(initrd_file.as_fd(), secret_free),
+                u64_to_usize(size),
+            )?)
+        }
+        None => None,
+    };
 
     #[cfg(feature = "gdb")]
     let (gdb_tx, gdb_rx) = mpsc::channel();
@@ -214,6 +272,7 @@ pub fn build_microvm_for_boot(
             &mut boot_cmdline,
             balloon,
             event_manager,
+            vm_resources.machine_config.secret_free,
         )?;
     }
 
@@ -223,6 +282,7 @@ pub fn build_microvm_for_boot(
         &mut boot_cmdline,
         vm_resources.block.devices.iter(),
         event_manager,
+        vm_resources.machine_config.secret_free,
     )?;
     attach_net_devices(
         &mut device_manager,
@@ -230,6 +290,7 @@ pub fn build_microvm_for_boot(
         &mut boot_cmdline,
         vm_resources.net_builder.iter(),
         event_manager,
+        vm_resources.machine_config.secret_free,
     )?;
 
     if let Some(unix_vsock) = vm_resources.vsock.get() {
@@ -239,6 +300,7 @@ pub fn build_microvm_for_boot(
             &mut boot_cmdline,
             unix_vsock,
             event_manager,
+            vm_resources.machine_config.secret_free,
         )?;
     }
 
@@ -249,6 +311,7 @@ pub fn build_microvm_for_boot(
             &mut boot_cmdline,
             entropy,
             event_manager,
+            vm_resources.machine_config.secret_free,
         )?;
     }
 
@@ -287,6 +350,7 @@ pub fn build_microvm_for_boot(
         kvm,
         vm,
         uffd: None,
+        uffd_socket: None,
         vcpus_handles: Vec::new(),
         vcpus_exit_evt,
         device_manager,
@@ -359,6 +423,17 @@ pub fn build_and_boot_microvm(
     Ok(vmm)
 }
 
+/// Sub-Error type for [`build_microvm_from_snapshot`] to contain either
+/// [`GuestMemoryFromFileError`] or [`GuestMemoryFromUffdError`] within
+/// [`BuildMicrovmFromSnapshotError`].
+#[derive(Debug, thiserror::Error, displaydoc::Display)]
+pub enum BuildMicrovmFromSnapshotErrorGuestMemoryError {
+    /// Error creating guest memory from file: {0}
+    File(#[from] GuestMemoryFromFileError),
+    /// Error creating guest memory from uffd: {0}
+    Uffd(#[from] GuestMemoryFromUffdError),
+}
+
 /// Error type for [`build_microvm_from_snapshot`].
 #[derive(Debug, thiserror::Error, displaydoc::Display)]
 pub enum BuildMicrovmFromSnapshotError {
@@ -394,7 +469,53 @@ pub enum BuildMicrovmFromSnapshotError {
     SeccompFiltersInternal(#[from] crate::seccomp::InstallationError),
     /// Failed to restore devices: {0}
     RestoreDevices(#[from] DevicePersistError),
+    /// Failed to restore ACPI device manager: {0}
+    ACPIDeviManager(#[from] ACPIDeviceManagerRestoreError),
+    /// VMGenID update failed: {0}
+    VMGenIDUpdate(std::io::Error),
+    /// Internal error while restoring microVM: {0}
+    Internal(#[from] VmmError),
+    /// Failed to load guest memory: {0}
+    GuestMemory(#[from] BuildMicrovmFromSnapshotErrorGuestMemoryError),
+    /// Userfault bitmap memfd error: {0}
+    UserfaultBitmapMemfd(#[from] MemoryError),
 }
+
+fn memfd_to_slice(memfd: &Option<File>) -> Result<Option<&mut [u8]>, MemoryError> {
+    if let Some(bitmap_file) = memfd {
+        let len = u64_to_usize(
+            bitmap_file
+                .metadata()
+                .expect("Failed to get metadata")
+                .len(),
+        );
+
+        // SAFETY: the arguments to mmap cannot cause any memory unsafety in the rust sense
+        let bitmap_addr = unsafe {
+            libc::mmap(
+                std::ptr::null_mut(),
+                len,
+                libc::PROT_WRITE,
+                libc::MAP_SHARED,
+                bitmap_file.as_raw_fd(),
+                0,
+            )
+        };
+
+        if bitmap_addr == libc::MAP_FAILED {
+            return Err(MemoryError::Mmap(std::io::Error::last_os_error()));
+        }
+
+        // SAFETY: `bitmap_addr` is a valid memory address returned by `mmap`.
+        Ok(Some(unsafe {
+            std::slice::from_raw_parts_mut(bitmap_addr.cast(), len)
+        }))
+    } else {
+        Ok(None)
+    }
+}
+// TODO: take it from kvm-bindings when userfault support is merged upstream
+const KVM_CAP_USERFAULT: u32 = 245;
 
 /// Builds and starts a microVM based on the provided MicrovmState.
 ///
@@ -405,25 +526,96 @@ pub fn build_microvm_from_snapshot(
     instance_info: &InstanceInfo,
     event_manager: &mut EventManager,
     microvm_state: MicrovmState,
-    guest_memory: Vec<GuestRegionMmap>,
-    uffd: Option<Uffd>,
     seccomp_filters: &BpfThreadMap,
+    params: &LoadSnapshotParams,
     vm_resources: &mut VmResources,
 ) -> Result<Arc<Mutex<Vmm>>, BuildMicrovmFromSnapshotError> {
     // Build Vmm.
     debug!("event_start: build microvm from snapshot");
 
-    let kvm = Kvm::new(microvm_state.kvm_state.kvm_cap_modifiers.clone())
-        .map_err(StartMicrovmError::Kvm)?;
+    let secret_free = vm_resources.machine_config.secret_free;
+    let mut kvm_capabilities = microvm_state.kvm_state.kvm_cap_modifiers.clone();
+    if secret_free {
+        kvm_capabilities.push(KvmCapability::Add(Cap::GuestMemfd as u32));
+        kvm_capabilities.push(KvmCapability::Add(KVM_CAP_GUEST_MEMFD_MMAP));
+        kvm_capabilities.push(KvmCapability::Add(KVM_CAP_GUEST_MEMFD_NO_DIRECT_MAP));
+        kvm_capabilities.push(KvmCapability::Add(KVM_CAP_USERFAULT));
+    }
+
+    let kvm = Kvm::new(kvm_capabilities).map_err(StartMicrovmError::Kvm)?;
     // Set up Kvm Vm and register memory regions.
     // Build custom CPU config if a custom template is provided.
-    let mut vm = Vm::new(&kvm).map_err(StartMicrovmError::Vm)?;
+    let mut vm = Vm::new(&kvm, secret_free).map_err(StartMicrovmError::Vm)?;
 
     let (mut vcpus, vcpus_exit_evt) = vm
-        .create_vcpus(vm_resources.machine_config.vcpu_count)
+        .create_vcpus(vm_resources.machine_config.vcpu_count, secret_free)
         .map_err(StartMicrovmError::Vm)?;
 
-    vm.register_memory_regions(guest_memory)
+    let guest_memfd = match secret_free {
+        true => Some(
+            vm.create_guest_memfd(
+                vm_resources.memory_size(),
+                GUEST_MEMFD_FLAG_MMAP | GUEST_MEMFD_FLAG_NO_DIRECT_MAP,
+            )
+            .map_err(VmmError::Vm)?,
+        ),
+        false => None,
+    };
+
+    let userfault_bitmap_memfd = if secret_free {
+        let bitmap_size = vm_resources.memory_size() / host_page_size() / u8::BITS as usize;
+        let bitmap_file = create_memfd(bitmap_size as u64, None)?;
+
+        Some(bitmap_file.into_file())
+    } else {
+        None
+    };
+
+    let mem_backend_path = &params.mem_backend.backend_path;
+    let mem_state = &microvm_state.vm_state.memory;
+    let track_dirty_pages = params.track_dirty_pages;
+
+    let (guest_memory, uffd, uffd_socket) = match params.mem_backend.backend_type {
+        MemBackendType::File => {
+            if vm_resources.machine_config.huge_pages.is_hugetlbfs() {
+                return Err(BuildMicrovmFromSnapshotErrorGuestMemoryError::File(
+                    GuestMemoryFromFileError::HugetlbfsSnapshot,
+                )
+                .into());
+            }
+            (
+                guest_memory_from_file(mem_backend_path, mem_state, track_dirty_pages)
+                    .map_err(BuildMicrovmFromSnapshotErrorGuestMemoryError::File)?,
+                None,
+                None,
+            )
+        }
+        MemBackendType::Uffd => {
+            if vm_resources.machine_config.huge_pages.is_hugetlbfs() && guest_memfd.is_some() {
+                return Err(BuildMicrovmFromSnapshotErrorGuestMemoryError::Uffd(
+                    GuestMemoryFromUffdError::HugetlbfsSnapshot,
+                )
+                .into());
+            }
+            guest_memory_from_uffd(
+                mem_backend_path,
+                mem_state,
+                track_dirty_pages,
+                vm_resources.machine_config.huge_pages,
+                guest_memfd,
+                userfault_bitmap_memfd.as_ref(),
+            )
+            .map_err(BuildMicrovmFromSnapshotErrorGuestMemoryError::Uffd)?
+        }
+    };
+
+    let mut userfault_bitmap = memfd_to_slice(&userfault_bitmap_memfd)?;
+    if let Some(ref mut slice) = userfault_bitmap {
+        // Set all bits so a fault on any page will cause a VM exit
+        slice.fill(0xffu8);
+    }
+
+    vm.register_memory_regions(guest_memory, userfault_bitmap)
         .map_err(StartMicrovmError::Vm)?;
 
     #[cfg(target_arch = "x86_64")]
@@ -487,6 +679,7 @@ pub fn build_microvm_from_snapshot(
         kvm,
         vm,
         uffd,
+        uffd_socket,
         vcpus_handles: Vec::new(),
         vcpus_exit_evt,
         device_manager,
@@ -565,6 +758,7 @@ fn attach_entropy_device(
     cmdline: &mut LoaderKernelCmdline,
     entropy_device: &Arc<Mutex<Entropy>>,
     event_manager: &mut EventManager,
+    secret_free: bool,
 ) -> Result<(), AttachDeviceError> {
     let id = entropy_device
         .lock()
@@ -573,7 +767,7 @@ fn attach_entropy_device(
         .to_string();
 
     event_manager.add_subscriber(entropy_device.clone());
-    device_manager.attach_virtio_device(vm, id, entropy_device.clone(), cmdline, false)
+    device_manager.attach_virtio_device(vm, id, entropy_device.clone(), cmdline, false, secret_free)
 }
 
 fn attach_block_devices<'a, I: Iterator<Item = &'a Arc<Mutex<Block>>> + Debug>(
@@ -582,6 +776,7 @@ fn attach_block_devices<'a, I: Iterator<Item = &'a Arc<Mutex<Block>>> + Debug>(
     cmdline: &mut LoaderKernelCmdline,
     blocks: I,
     event_manager: &mut EventManager,
+    secret_free: bool,
 ) -> Result<(), StartMicrovmError> {
     for block in blocks {
         let (id, is_vhost_user) = {
@@ -600,7 +795,14 @@ fn attach_block_devices<'a, I: Iterator<Item = &'a Arc<Mutex<Block>>> + Debug>(
         };
         // The device mutex mustn't be locked here otherwise it will deadlock.
         event_manager.add_subscriber(block.clone());
-        device_manager.attach_virtio_device(vm, id, block.clone(), cmdline, is_vhost_user)?;
+        device_manager.attach_virtio_device(
+            vm,
+            id,
+            block.clone(),
+            cmdline,
+            is_vhost_user,
+            secret_free,
+        )?;
     }
     Ok(())
 }
@@ -611,12 +813,20 @@ fn attach_net_devices<'a, I: Iterator<Item = &'a Arc<Mutex<Net>>> + Debug>(
     cmdline: &mut LoaderKernelCmdline,
     net_devices: I,
     event_manager: &mut EventManager,
+    secret_free: bool,
 ) -> Result<(), StartMicrovmError> {
     for net_device in net_devices {
         let id = net_device.lock().expect("Poisoned lock").id().clone();
         event_manager.add_subscriber(net_device.clone());
         // The device mutex mustn't be locked here otherwise it will deadlock.
-        device_manager.attach_virtio_device(vm, id, net_device.clone(), cmdline, false)?;
+        device_manager.attach_virtio_device(
+            vm,
+            id,
+            net_device.clone(),
+            cmdline,
+            false,
+            secret_free,
+        )?;
     }
     Ok(())
 }
@@ -627,11 +837,12 @@ fn attach_unixsock_vsock_device(
     cmdline: &mut LoaderKernelCmdline,
     unix_vsock: &Arc<Mutex<Vsock<VsockUnixBackend>>>,
     event_manager: &mut EventManager,
+    secret_free: bool,
 ) -> Result<(), AttachDeviceError> {
     let id = String::from(unix_vsock.lock().expect("Poisoned lock").id());
     event_manager.add_subscriber(unix_vsock.clone());
     // The device mutex mustn't be locked here otherwise it will deadlock.
-    device_manager.attach_virtio_device(vm, id, unix_vsock.clone(), cmdline, false)
+    device_manager.attach_virtio_device(vm, id, unix_vsock.clone(), cmdline, false, secret_free)
 }
 
 fn attach_balloon_device(
@@ -640,11 +851,12 @@ fn attach_balloon_device(
     cmdline: &mut LoaderKernelCmdline,
     balloon: &Arc<Mutex<Balloon>>,
     event_manager: &mut EventManager,
+    secret_free: bool,
 ) -> Result<(), AttachDeviceError> {
     let id = String::from(balloon.lock().expect("Poisoned lock").id());
     event_manager.add_subscriber(balloon.clone());
     // The device mutex mustn't be locked here otherwise it will deadlock.
-    device_manager.attach_virtio_device(vm, id, balloon.clone(), cmdline, false)
+    device_manager.attach_virtio_device(vm, id, balloon.clone(), cmdline, false, secret_free)
 }
 
 #[cfg(test)]
@@ -727,7 +939,7 @@ pub(crate) mod tests {
     pub(crate) fn default_vmm() -> Vmm {
         let (kvm, mut vm) = setup_vm_with_memory(mib_to_bytes(128));
 
-        let (_, vcpus_exit_evt) = vm.create_vcpus(1).unwrap();
+        let (_, vcpus_exit_evt) = vm.create_vcpus(1, false).unwrap();
 
         Vmm {
             instance_info: InstanceInfo::default(),
@@ -735,6 +947,7 @@ pub(crate) mod tests {
             kvm,
             vm: Arc::new(vm),
             uffd: None,
+            uffd_socket: None,
             vcpus_handles: Vec::new(),
             vcpus_exit_evt,
             device_manager: default_device_manager(),
@@ -783,6 +996,7 @@ pub(crate) mod tests {
             cmdline,
             block_dev_configs.devices.iter(),
             event_manager,
+            false,
         )
         .unwrap();
         block_files
@@ -803,6 +1017,7 @@ pub(crate) mod tests {
             cmdline,
             net_builder.iter(),
             event_manager,
+            false,
         );
         res.unwrap();
     }
@@ -830,6 +1045,7 @@ pub(crate) mod tests {
             cmdline,
             net_builder.iter(),
             event_manager,
+            false,
         )
         .unwrap();
     }
@@ -850,6 +1066,7 @@ pub(crate) mod tests {
             cmdline,
             &vsock,
             event_manager,
+            false,
         )
         .unwrap();
 
@@ -875,6 +1092,7 @@ pub(crate) mod tests {
             cmdline,
             &entropy,
             event_manager,
+            false,
         )
         .unwrap();
 
@@ -909,6 +1127,7 @@ pub(crate) mod tests {
             cmdline,
             balloon,
             event_manager,
+            false,
         )
         .unwrap();
 

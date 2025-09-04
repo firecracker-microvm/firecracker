@@ -220,7 +220,12 @@ impl DeviceManager {
         device: Arc<Mutex<T>>,
         cmdline: &mut Cmdline,
         is_vhost_user: bool,
+        secret_free: bool,
     ) -> Result<(), AttachDeviceError> {
+        if secret_free {
+            device.lock().unwrap().force_userspace_bounce_buffers()
+        }
+
         if self.pci_devices.pci_segment.is_some() {
             self.pci_devices.attach_pci_virtio_device(vm, id, device)?;
         } else {

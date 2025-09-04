@@ -65,8 +65,8 @@ pub struct ArchVm {
 
 impl ArchVm {
     /// Create a new `Vm` struct.
-    pub fn new(kvm: &crate::vstate::kvm::Kvm) -> Result<ArchVm, VmError> {
-        let common = Self::create_common(kvm)?;
+    pub fn new(kvm: &crate::vstate::kvm::Kvm, secret_free: bool) -> Result<ArchVm, VmError> {
+        let common = Self::create_common(kvm, secret_free)?;
 
         let msrs_to_save = kvm.msrs_to_save().map_err(ArchVmError::GetMsrsToSave)?;
 
