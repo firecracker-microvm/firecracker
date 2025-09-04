@@ -182,18 +182,6 @@ pub fn build_microvm_for_boot(
     let entry_point = load_kernel(&boot_config.kernel_file, vm.guest_memory())?;
     let initrd = InitrdConfig::from_config(boot_config, vm.guest_memory())?;
 
-    #[cfg(feature = "gdb")]
-    let (gdb_tx, gdb_rx) = mpsc::channel();
-    #[cfg(feature = "gdb")]
-    vcpus
-        .iter_mut()
-        .for_each(|vcpu| vcpu.attach_debug_info(gdb_tx.clone()));
-    #[cfg(feature = "gdb")]
-    let vcpu_fds = vcpus
-        .iter()
-        .map(|vcpu| vcpu.copy_kvm_vcpu_fd(&vm))
-        .collect::<Result<Vec<_>, _>>()?;
-
     if vm_resources.pci_enabled {
         device_manager.enable_pci(&vm)?;
     } else {
@@ -291,21 +279,21 @@ pub fn build_microvm_for_boot(
         vcpus_exit_evt,
         device_manager,
     };
-
     let vmm = Arc::new(Mutex::new(vmm));
 
     #[cfg(feature = "gdb")]
-    if let Some(gdb_socket_path) = &vm_resources.machine_config.gdb_socket_path {
-        gdb::gdb_thread(
-            vmm.clone(),
-            vcpu_fds,
-            gdb_rx,
-            entry_point.entry_addr,
-            gdb_socket_path,
-        )
-        .map_err(StartMicrovmError::GdbServer)?;
-    } else {
-        debug!("No GDB socket provided not starting gdb server.");
+    {
+        let (gdb_tx, gdb_rx) = mpsc::channel();
+        vcpus
+            .iter_mut()
+            .for_each(|vcpu| vcpu.attach_debug_info(gdb_tx.clone()));
+
+        if let Some(gdb_socket_path) = &vm_resources.machine_config.gdb_socket_path {
+            gdb::gdb_thread(vmm.clone(), gdb_rx, entry_point.entry_addr, gdb_socket_path)
+                .map_err(StartMicrovmError::GdbServer)?;
+        } else {
+            debug!("No GDB socket provided not starting gdb server.");
+        }
     }
 
     // Move vcpus to their own threads and start their state machine in the 'Paused' state.
