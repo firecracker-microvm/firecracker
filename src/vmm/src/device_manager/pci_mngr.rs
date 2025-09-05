@@ -8,7 +8,7 @@ use std::sync::{Arc, Mutex};
 
 use event_manager::{MutEventSubscriber, SubscriberOps};
 use log::{debug, error, warn};
-use pci::{PciBarRegionType, PciDevice, PciDeviceError, PciRootError};
+use pci::{PciDeviceError, PciRootError};
 use serde::{Deserialize, Serialize};
 use vm_device::BusError;
 
@@ -25,7 +25,7 @@ use crate::devices::virtio::net::persist::{NetConstructorArgs, NetState};
 use crate::devices::virtio::rng::Entropy;
 use crate::devices::virtio::rng::persist::{EntropyConstructorArgs, EntropyState};
 use crate::devices::virtio::transport::pci::device::{
-    VirtioPciDevice, VirtioPciDeviceError, VirtioPciDeviceState,
+    CAPABILITY_BAR_SIZE, VirtioPciDevice, VirtioPciDeviceError, VirtioPciDeviceState,
 };
 use crate::devices::virtio::vsock::persist::{
     VsockConstructorArgs, VsockState, VsockUdsConstructorArgs,
@@ -89,13 +89,16 @@ impl PciDevices {
         virtio_device: &Arc<Mutex<VirtioPciDevice>>,
     ) -> Result<(), PciManagerError> {
         let virtio_device_locked = virtio_device.lock().expect("Poisoned lock");
-        let bar = &virtio_device_locked.bar_region;
-        assert_eq!(bar.region_type, PciBarRegionType::Memory64BitRegion);
 
-        debug!("Inserting MMIO BAR region: {:#x}:{:#x}", bar.addr, bar.size);
-        vm.common
-            .mmio_bus
-            .insert(virtio_device.clone(), bar.addr, bar.size)?;
+        debug!(
+            "Inserting MMIO BAR region: {:#x}:{:#x}",
+            virtio_device_locked.bar_address, CAPABILITY_BAR_SIZE
+        );
+        vm.common.mmio_bus.insert(
+            virtio_device.clone(),
+            virtio_device_locked.bar_address,
+            CAPABILITY_BAR_SIZE,
+        )?;
 
         Ok(())
     }
@@ -130,10 +133,7 @@ impl PciDevices {
         let mut resource_allocator_lock = vm.resource_allocator();
         let resource_allocator = resource_allocator_lock.deref_mut();
 
-        virtio_device.allocate_bars(
-            &mut resource_allocator.mmio32_memory,
-            &mut resource_allocator.mmio64_memory,
-        )?;
+        virtio_device.allocate_bars(&mut resource_allocator.mmio64_memory)?;
 
         let virtio_device = Arc::new(Mutex::new(virtio_device));
         pci_segment
