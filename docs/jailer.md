@@ -18,9 +18,9 @@ jailer --id <id> \
        --exec-file <exec_file> \
        --uid <uid> \
        --gid <gid> \
-       [--parent-cgroup <parent_cgroup>] \
        [--cgroup-version <cgroup_version>] \
        [--cgroup <cgroup>] \
+       [--parent-cgroup <parent_cgroup>] \
        [--chroot-base-dir <chroot_base>] \
        [--netns <netns>] \
        [--resource-limit <resource=value>] \
@@ -38,19 +38,6 @@ jailer --id <id> \
   specific.
 - `--uid` and `--gid` specify the uid and gid the jailer switches to as it execs
   the target binary.
-- `--parent-cgroup` is used to allow the placement of microvm cgroups in custom
-  nested hierarchies. By specifying this parameter, the jailer will create a new
-  cgroup named `<id>` for the microvm in the `<cgroup_base>/<parent_cgroup>`
-  subfolder. `<cgroup_base>` is the cgroup controller root for `cgroup v1` (e.g.
-  `/sys/fs/cgroup/cpu`) or the unified controller hierarchy for `cgroup v2`
-  (e.g. `/sys/fs/cgroup/unified`). `<parent_cgroup>` is a relative path within
-  that hierarchy. For example, if `--parent-cgroup all_uvms/external_uvms` is
-  specified, the jailer will write all cgroup parameters specified through
-  `--cgroup` in `/sys/fs/cgroup/<controller_name>/all_uvms/external_uvms/<id>`.
-  By default, the parent cgroup is the filename of `<exec_file>`, which will be
-  henceforth referred to as `<exec_file_name>`. If there are no `--cgroup`
-  parameters specified and `--group-version=2` was passed, then the jailer will
-  move the process to the specified cgroup.
 - `--cgroup-version` is used to select which type of cgroup hierarchy to use for
   the creation of cgroups. The default value is "1" which means that cgroups
   specified with `--cgroup` will be created within a v1 hierarchy. Supported
@@ -64,6 +51,19 @@ jailer --id <id> \
   Firecracker process cgroups before the VM starts running, with no need to
   create the entire cgroup hierarchy manually (which requires privileged
   permissions).
+- `--parent-cgroup` is used to allow the placement of microvm cgroups in custom
+  nested hierarchies. By specifying this parameter, the jailer will create a new
+  cgroup named `<id>` for the microvm in the `<cgroup_base>/<parent_cgroup>`
+  subfolder. `<cgroup_base>` is the cgroup controller root for `cgroup v1` (e.g.
+  `/sys/fs/cgroup/cpu`) or the unified controller hierarchy for `cgroup v2`
+  (e.g. `/sys/fs/cgroup/unified`). `<parent_cgroup>` is a relative path within
+  that hierarchy. For example, if `--parent-cgroup all_uvms/external_uvms` is
+  specified, the jailer will write all cgroup parameters specified through
+  `--cgroup` in `/sys/fs/cgroup/<controller_name>/all_uvms/external_uvms/<id>`.
+  By default, the parent cgroup is the filename of `<exec_file>`, which will be
+  henceforth referred to as `<exec_file_name>`. If there are no `--cgroup`
+  parameters specified and `--group-version=2` was passed, then the jailer will
+  move the process to the specified cgroup.
 - `--chroot-base-dir` specifies the base folder where chroot jails are built.
   The default is `/srv/jailer`.
 - `--netns` specifies the path to a network namespace handle. If present, the
