@@ -18,7 +18,7 @@ jailer --id <id> \
        --exec-file <exec_file> \
        --uid <uid> \
        --gid <gid> \
-       [--parent-cgroup <relative_path>] \
+       [--parent-cgroup <parent_cgroup>] \
        [--cgroup-version <cgroup_version>] \
        [--cgroup <cgroup>] \
        [--chroot-base-dir <chroot_base>] \
@@ -29,31 +29,34 @@ jailer --id <id> \
        [--...extra arguments for Firecracker]
 ```
 
-- `id` is the unique VM identification string, which may contain alphanumeric
-  characters and hyphens. The maximum `id` length is currently 64 characters.
-- `exec_file` is the path to the Firecracker binary that will be exec-ed by the
-  jailer. The filename must include the string `firecracker`. This is enforced
-  because the interaction with the jailer is Firecracker specific.
-- `uid` and `gid` are the uid and gid the jailer switches to as it execs the
-  target binary.
-- `parent-cgroup` is used to allow the placement of microvm cgroups in custom
+- `--id` specifies the unique VM identification string, which may contain
+  alphanumeric characters and hyphens. The maximum length is currently 64
+  characters.
+- `--exec-file` specifies the path to the Firecracker binary that will be
+  exec-ed by the jailer. The filename must include the string `firecracker`.
+  This is enforced because the interaction with the jailer is Firecracker
+  specific.
+- `--uid` and `--gid` specify the uid and gid the jailer switches to as it execs
+  the target binary.
+- `--parent-cgroup` is used to allow the placement of microvm cgroups in custom
   nested hierarchies. By specifying this parameter, the jailer will create a new
-  cgroup named `id` for the microvm in the `<cgroup_base>/<parent_cgroup>`
-  subfolder. `cgroup_base` is the cgroup controller root for `cgroup v1` (e.g.
+  cgroup named `<id>` for the microvm in the `<cgroup_base>/<parent_cgroup>`
+  subfolder. `<cgroup_base>` is the cgroup controller root for `cgroup v1` (e.g.
   `/sys/fs/cgroup/cpu`) or the unified controller hierarchy for `cgroup v2`
   (e.g. `/sys/fs/cgroup/unified`). `<parent_cgroup>` is a relative path within
   that hierarchy. For example, if `--parent-cgroup all_uvms/external_uvms` is
   specified, the jailer will write all cgroup parameters specified through
   `--cgroup` in `/sys/fs/cgroup/<controller_name>/all_uvms/external_uvms/<id>`.
-  By default, the parent cgroup is `exec-file`. If there are no `--cgroup`
+  By default, the parent cgroup is the filename of `<exec_file>`, which will be
+  henceforth referred to as `<exec_file_name>`. If there are no `--cgroup`
   parameters specified and `--group-version=2` was passed, then the jailer will
   move the process to the specified cgroup.
-- `cgroup-version` is used to select which type of cgroup hierarchy to use for
+- `--cgroup-version` is used to select which type of cgroup hierarchy to use for
   the creation of cgroups. The default value is "1" which means that cgroups
-  specified with the `cgroup` argument will be created within a v1 hierarchy.
-  Supported options are "1" for cgroup-v1 and "2" for cgroup-v2.
-- `cgroup` cgroups can be passed to the jailer to let it set the values when the
-  microVM process is spawned. The `--cgroup` argument must follow this format:
+  specified with `--cgroup` will be created within a v1 hierarchy. Supported
+  options are "1" for cgroup-v1 and "2" for cgroup-v2.
+- `--cgroup` can be passed to the jailer to let it set the values when the
+  microVM process is spawned. The argument must follow this format:
   `<cgroup_file>=<value>` (e.g `cpuset.cpus=0`). This argument can be used
   multiple times to set multiple cgroups. This is useful to avoid providing
   privileged permissions to another process for setting the cgroups before or
@@ -61,15 +64,15 @@ jailer --id <id> \
   Firecracker process cgroups before the VM starts running, with no need to
   create the entire cgroup hierarchy manually (which requires privileged
   permissions).
-- `chroot_base` represents the base folder where chroot jails are built. The
-  default is `/srv/jailer`.
-- `netns` represents the path to a network namespace handle. If present, the
+- `--chroot-base-dir` specifies the base folder where chroot jails are built.
+  The default is `/srv/jailer`.
+- `--netns` specifies the path to a network namespace handle. If present, the
   jailer will use this to join the associated network namespace.
-- For extra security and control over resource usage, `resource-limit` can be
-  used to set bounds to the process resources. The `--resource-limit` argument
-  must follow this format: `<resource>=<value>` (e.g `no-file=1024`) and can be
-  used multiple times to set multiple bounds. Current available resources that
-  can be limited using this argument are:
+- For extra security and control over resource usage, `--resource-limit` can be
+  used to set bounds to the process resources. The argument must follow this
+  format: `<resource>=<value>` (e.g `no-file=1024`) and can be used multiple
+  times to set multiple bounds. Current available resources that can be limited
+  using this argument are:
   - `fsize`: The maximum size in bytes for files created by the process.
   - `no-file`: Specifies a value one greater than the maximum file descriptor
     number that can be opened by this process.
@@ -80,13 +83,13 @@ Here is an example on how to set multiple resource limits using this argument:
 --resource-limit fsize=250000000 --resource-limit no-file=1024
 ```
 
-- When present, the `--daemonize` flag causes the jailer to call `setsid()` and
-  redirect all three standard I/O file descriptors to `/dev/null`.
-- When present, the `--new-pid-ns` flag causes the jailer to spawn the provided
-  binary into a new PID namespace. It makes use of the libc `clone()` function
-  with the `CLONE_NEWPID` flag. As a result, the jailer and the process running
-  the exec file have different PIDs. The PID of the child process is stored in
-  the jail root directory inside `<exec_file_name>.pid`.
+- When present, `--daemonize` causes the jailer to call `setsid()` and redirect
+  all three standard I/O file descriptors to `/dev/null`.
+- When present, `--new-pid-ns` causes the jailer to spawn the provided binary
+  into a new PID namespace. It makes use of the libc `clone()` function with the
+  `CLONE_NEWPID` flag. As a result, the jailer and the process running the exec
+  file have different PIDs. The PID of the child process is stored in the jail
+  root directory inside `<exec_file_name>.pid`.
 - The jailer adheres to the "end of command options" convention, meaning all
   parameters specified after `--` are forwarded to Firecracker. For example,
   this can be paired with the `--config-file` Firecracker argument to specify a
@@ -99,23 +102,21 @@ Here is an example on how to set multiple resource limits using this argument:
 
 After starting, the Jailer goes through the following operations:
 
-- Validate **all provided paths** and the VM `id`.
+- Validate **all provided paths** and the VM ID.
 - Close all open file descriptors based on `/proc/<jailer-pid>/fd` except input,
   output and error.
 - Cleanup all environment variables received from the parent process.
 - Create the `<chroot_base>/<exec_file_name>/<id>/root` folder, which will be
-  henceforth referred to as `chroot_dir`. `exec_file_name` is the last path
-  component of `exec_file` (for example, that would be `firecracker` for
-  `/usr/bin/firecracker`). Nothing is done if the path already exists (it should
-  not, since `id` is supposed to be unique).
-- Copy `exec_file` to
-  `<chroot_base>/<exec_file_name>/<id>/root/<exec_file_name>`. This ensures the
-  new process will not share memory with any other Firecracker process.
+  henceforth referred to as `<chroot_dir>`. Nothing is done if the path already
+  exists (it should not, since `<id>` is supposed to be unique).
+- Copy the file specified with `--exec-file` to `<chroot_dir>/<exec_file_name>`.
+  This ensures the new process will not share memory with any other Firecracker
+  process.
 - Set resource bounds for current process and its children through
   `--resource-limit` argument, by calling `setrlimit()` system call with the
   specific resource argument. If no limits are provided, the jailer bounds
   `no-file` to a maximum default value of 2048.
-- Create the `cgroup` sub-folders. The jailer can use either `cgroup v1` or
+- Create the cgroup sub-folders. The jailer can use either `cgroup v1` or
   `cgroup v2`. On most systems, this is mounted by default in `/sys/fs/cgroup`
   (should be mounted by the user otherwise). The jailer will parse
   `/proc/mounts` to detect where each of the controllers required in `--cgroup`
@@ -125,14 +126,14 @@ After starting, the Jailer goes through the following operations:
   `<cgroup_base>/<parent_cgroup>/<id>/tasks`. Also, the value passed for each
   `<cgroup_file>` is written to the file.
 - Call `unshare()` into a new mount namespace, use `pivot_root()` to switch the
-  old system root mount point with a new one base in `chroot_dir`, switch the
+  old system root mount point with a new one base in `<chroot_dir>`, switch the
   current working directory to the new root, unmount the old root mount point,
   and call `chroot` into the current directory.
 - Use `mknod` to create a `/dev/net/tun` equivalent inside the jail.
 - Use `mknod` to create a `/dev/kvm` equivalent inside the jail.
-- Use `chown` to change ownership of the `chroot_dir` (root path `/` as seen by
-  the jailed firecracker), `/dev/net/tun`, `/dev/kvm`. The ownership is changed
-  to the provided `uid:gid`.
+- Use `chown` to change ownership of the `<chroot_dir>` (root path `/` as seen
+  by the jailed firecracker), `/dev/net/tun`, `/dev/kvm`. The ownership is
+  changed to the provided `<uid>:<gid>`.
 - If `--netns <netns>` is present, attempt to join the specified network
   namespace.
 - If `--daemonize` is specified, call `setsid()` and redirect `STDIN`, `STDOUT`,
@@ -147,8 +148,8 @@ After starting, the Jailer goes through the following operations:
   `<exec_file_name> --id=<id> --start-time-us=<opaque> --start-time-cpu-us=<opaque>`
   (and also forward any extra arguments provided to the jailer after `--`, as
   mentioned in the **Jailer Usage** section), where:
-  - `id`: (`string`) - The `id` argument provided to jailer.
-  - `opaque`: (`number`) time calculated by the jailer that it spent doing its
+  - `<id>`: (`string`) - The `<id>` argument provided to jailer.
+  - `<opaque>`: (`number`) time calculated by the jailer that it spent doing its
     work.
 
 ## Example Run and Notes
@@ -191,7 +192,7 @@ It’s worth noting that, whenever a folder already exists, nothing will be done
 and we move on to the next directory that needs to be created. This should only
 happen for the common `firecracker` subfolder (but, as for creating the chroot
 path before, we do not issue an error if folders directly associated with the
-supposedly unique `id` already exist).
+supposedly unique `<id>` already exist).
 
 The jailer then writes the current pid to
 `/sys/fs/cgroup/cpuset/firecracker/551e7604-e35c-42b3-b825-416853441234/tasks`,
@@ -228,8 +229,8 @@ call `chown(“/dev/net/tun”, 123, 100)`, so Firecracker can use it after drop
 privileges. This is required to use multiple TAP interfaces when running jailed.
 Do the same for `/dev/kvm`.
 
-Change ownership of `<chroot_dir>` to `uid:gid` so that Firecracker can create
-its API socket there.
+Change ownership of `<chroot_dir>` to `<uid>:<gid>` so that Firecracker can
+create its API socket there.
 
 Since the `--daemonize` flag is present, call `setsid()` to join a new session,
 a new process group, and to detach from the controlling terminal. Then, redirect
@@ -237,7 +238,7 @@ standard file descriptors to `/dev/null` by calling `dup2(dev_null_fd, STDIN)`,
 `dup2(dev_null_fd, STDOUT)`, and `dup2(dev_null_fd, STDERR)`. Close
 `dev_null_fd`, because it is no longer necessary.
 
-Finally, the jailer switches the `uid` to `123`, and `gid` to `100`, and execs
+Finally, the jailer switches the uid to `123`, and gid to `100`, and execs
 
 ```console
 ./firecracker \
