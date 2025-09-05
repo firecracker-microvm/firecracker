@@ -19,7 +19,7 @@ jailer --id <id> \
        --uid <uid> \
        --gid <gid> \
        [--parent-cgroup <relative_path>] \
-       [--cgroup-version <cgroup-version>] \
+       [--cgroup-version <cgroup_version>] \
        [--cgroup <cgroup>] \
        [--chroot-base-dir <chroot_base>] \
        [--netns <netns>] \
