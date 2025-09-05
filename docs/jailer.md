@@ -123,8 +123,7 @@ After starting, the Jailer goes through the following operations:
   identified location (referred to as `<cgroup_base>`), the jailer creates the
   `<cgroup_base>/<parent_cgroup>/<id>` subfolder, and writes the current pid to
   `<cgroup_base>/<parent_cgroup>/<id>/tasks`. Also, the value passed for each
-  `<cgroup_file>` is written to the file. If `--node` is used the corresponding
-  values are written to the appropriate `cpuset.mems` and `cpuset.cpus` files.
+  `<cgroup_file>` is written to the file.
 - Call `unshare()` into a new mount namespace, use `pivot_root()` to switch the
   old system root mount point with a new one base in `chroot_dir`, switch the
   current working directory to the new root, unmount the old root mount point,
