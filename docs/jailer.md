@@ -17,15 +17,15 @@ The jailer is invoked in this manner:
 jailer --id <id> \
        --exec-file <exec_file> \
        --uid <uid> \
-       --gid <gid>
-       [--parent-cgroup <relative_path>]
-       [--cgroup-version <cgroup-version>]
-       [--cgroup <cgroup>]
-       [--chroot-base-dir <chroot_base>]
-       [--netns <netns>]
-       [--resource-limit <resource=value>]
-       [--daemonize]
-       [--new-pid-ns]
+       --gid <gid> \
+       [--parent-cgroup <relative_path>] \
+       [--cgroup-version <cgroup-version>] \
+       [--cgroup <cgroup>] \
+       [--chroot-base-dir <chroot_base>] \
+       [--netns <netns>] \
+       [--resource-limit <resource=value>] \
+       [--daemonize] \
+       [--new-pid-ns] \
        [--...extra arguments for Firecracker]
 ```
 
