@@ -52,18 +52,28 @@ jailer --id <id> \
   create the entire cgroup hierarchy manually (which requires privileged
   permissions).
 - `--parent-cgroup` is used to allow the placement of microvm cgroups in custom
-  nested hierarchies. By specifying this parameter, the jailer will create a new
-  cgroup named `<id>` for the microvm in the `<cgroup_base>/<parent_cgroup>`
-  subfolder. `<cgroup_base>` is the cgroup controller root for `cgroup v1` (e.g.
-  `/sys/fs/cgroup/cpu`) or the unified controller hierarchy for `cgroup v2`
-  (e.g. `/sys/fs/cgroup/unified`). `<parent_cgroup>` is a relative path within
-  that hierarchy. For example, if `--parent-cgroup all_uvms/external_uvms` is
-  specified, the jailer will write all cgroup parameters specified through
-  `--cgroup` in `/sys/fs/cgroup/<controller_name>/all_uvms/external_uvms/<id>`.
-  By default, the parent cgroup is the filename of `<exec_file>`, which will be
-  henceforth referred to as `<exec_file_name>`. If there are no `--cgroup`
-  parameters specified and `--group-version=2` was passed, then the jailer will
-  move the process to the specified cgroup.
+  nested hierarchies. The default value is the filename of `<exec_file>`, which
+  will be henceforth referred to as `<exec_file_name>`. The behavior of this
+  parameter depends on the following condition:
+  - If either any `--cgroup` parameter is specifed or `--cgroup-version=1` is
+    passed, the jailer will create a new cgroup named `<id>` for the microvm in
+    the `<cgroup_base>/<parent_cgroup>` subfolder. `<cgroup_base>` is the cgroup
+    controller root for cgroup v1 (e.g. `/sys/fs/cgroup/cpu`) or the unified
+    controller hierarchy for cgroup v2 (e.g. `/sys/fs/cgroup/unified`).
+    `<parent_cgroup>` is a relative path within that hierarchy. For example, if
+    `--parent-cgroup all_uvms/external_uvms` is specified, the jailer will write
+    all cgroup parameters specified through `--cgroup` in
+    `/sys/fs/cgroup/<controller_name>/all_uvms/external_uvms/<id>`.
+  - If no `--cgroup` parameters are specified and `--cgroup-version=2` is
+    passed, the jailer will not create a new cgroup. If the cgroup specified
+    with `--parent-cgroup` exists, the jailer will move the process to the
+    specified cgroup, contrary to its name. This behavior can be used when users
+    want to configure a cgroup beforehand by themselves and move the process to
+    the configured cgroup. Note that, if the specified cgroup has domain
+    controllers (e.g. memory) enabled in `cgroup.subtree_control`, the move
+    fails due to ["no internal process constraint"][1] and jailer exits with an
+    error. If the cgroup spcified with `--parent-cgroup` does not exist, the
+    jailer does not move the process to any cgroup and proceeds without error.
 - `--chroot-base-dir` specifies the base folder where chroot jails are built.
   The default is `/srv/jailer`.
 - `--netns` specifies the path to a network namespace handle. If present, the
@@ -301,3 +311,5 @@ Note: default value for `<api-sock>` is `/run/firecracker.socket`.
 - If all the cgroup controllers are bunched up on a single mount point using the
   "all" option, our current program logic will complain it cannot detect
   individual controller mount points.
+
+[1]: https://docs.kernel.org/admin-guide/cgroup-v2.html#no-internal-process-constraint
