@@ -40,8 +40,8 @@ jailer --id <id> \
   nested hierarchies. By specifying this parameter, the jailer will create a new
   cgroup named `id` for the microvm in the `<cgroup_base>/<parent_cgroup>`
   subfolder. `cgroup_base` is the cgroup controller root for `cgroup v1` (e.g.
-  `/sys/fs/cgroup/cpu`) or the unified controller hierarchy for `cgroup v2` (
-  e.g. `/sys/fs/cgroup/unified`. `<parent_cgroup>` is a relative path within
+  `/sys/fs/cgroup/cpu`) or the unified controller hierarchy for `cgroup v2`
+  (e.g. `/sys/fs/cgroup/unified`). `<parent_cgroup>` is a relative path within
   that hierarchy. For example, if `--parent-cgroup all_uvms/external_uvms` is
   specified, the jailer will write all cgroup parameters specified through
   `--cgroup` in `/sys/fs/cgroup/<controller_name>/all_uvms/external_uvms/<id>`.
