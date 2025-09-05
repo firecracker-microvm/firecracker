@@ -32,7 +32,7 @@ const CAPABILITY_MAX_OFFSET: usize = 192;
 pub const PCI_CONFIGURATION_ID: &str = "pci_configuration";
 
 /// Represents the types of PCI headers allowed in the configuration registers.
-#[derive(Copy, Clone)]
+#[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub enum PciHeaderType {
     Device,
     Bridge,
@@ -483,17 +483,11 @@ impl PciConfiguration {
                     | (u32::from(pi) << 8)
                     | u32::from(revision_id);
                 writable_bits[3] = 0x0000_00ff; // Cacheline size (r/w)
-                match header_type {
-                    PciHeaderType::Device => {
-                        registers[3] = 0x0000_0000; // Header type 0 (device)
-                        writable_bits[15] = 0x0000_00ff; // IRQ line (r/w)
-                    }
-                    PciHeaderType::Bridge => {
-                        registers[3] = 0x0001_0000; // Header type 1 (bridge)
-                        writable_bits[9] = 0xfff0_fff0; // Memory base and limit
-                        writable_bits[15] = 0xffff_00ff; // Bridge control (r/w), IRQ line (r/w)
-                    }
-                };
+
+                // We only every create device types. No bridges used at the moment
+                assert_eq!(header_type, PciHeaderType::Device);
+                registers[3] = 0x0000_0000; // Header type 0 (device)
+                writable_bits[15] = 0x0000_00ff; // IRQ line (r/w)
                 registers[11] = (u32::from(subsystem_id) << 16) | u32::from(subsystem_vendor_id);
 
                 (
