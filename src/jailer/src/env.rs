@@ -218,7 +218,7 @@ impl Env {
             let cg_parent_procs = cg_parent.join("cgroup.procs");
             if cg_parent.exists() {
                 fs::write(cg_parent_procs, std::process::id().to_string())
-                    .map_err(|_| JailerError::CgroupWrite(io::Error::last_os_error()))?;
+                    .map_err(|_| JailerError::CgroupMove(cg_parent, io::Error::last_os_error()))?;
             }
         }
 

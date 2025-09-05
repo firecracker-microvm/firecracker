@@ -43,8 +43,11 @@ pub enum JailerError {
     CgroupInvalidVersion(String),
     #[error("Parent cgroup path is invalid. Path should not be absolute or contain '..' or '.'")]
     CgroupInvalidParentPath(),
-    #[error("Failed to write to cgroups file: {0}")]
-    CgroupWrite(io::Error),
+    #[error(
+        "Failed to move process to cgroup ({0}): {1}.\nHint: If you intended to create a child \
+         cgroup under {0}, pass any --cgroup parameters."
+    )]
+    CgroupMove(PathBuf, io::Error),
     #[error("Failed to change owner for {0}: {1}")]
     ChangeFileOwner(PathBuf, io::Error),
     #[error("Failed to chdir into chroot directory: {0}")]
