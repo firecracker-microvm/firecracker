@@ -194,6 +194,20 @@ class Cgroups:
         cg_pids = self.root.joinpath(f"{cgname}/cgroup.procs")
         cg_pids.write_text(f"{pid}\n", encoding="ascii")
 
+    def enable_controller_in_subtree(self, cgname, controller):
+        """Enable a controller in subtree_control of a cgroup and its ancestors"""
+        # Enable the controller in all ancestors if not already enabled.
+        parent_cg = self.root.joinpath(cgname).parent
+        parent_subtree_control = parent_cg.joinpath("cgroup.subtree_control")
+        if controller not in parent_subtree_control.read_text(encoding="ascii"):
+            self.enable_controller_in_subtree(
+                parent_cg.relative_to(self.root), controller
+            )
+
+        subtree_control = self.root.joinpath(f"{cgname}/cgroup.subtree_control")
+        subtree_control.write_text(f"+{controller}", encoding="ascii")
+        assert controller in subtree_control.read_text(encoding="ascii")
+
 
 @pytest.fixture(scope="session", autouse=True)
 def cgroups_info():
@@ -230,11 +244,7 @@ def check_cgroups_v2(vm):
     cg_parent = cg.root / parent_cgroup
     cg_jail = cg_parent / vm.jailer.jailer_id
 
-    # if no cgroups were specified, then the jailer should move the FC process
-    # to the parent group
-    if len(vm.jailer.cgroups) == 0:
-        procs = cg_parent.joinpath("cgroup.procs").read_text().splitlines()
-        assert str(vm.firecracker_pid) in procs
+    assert len(vm.jailer.cgroups) > 0
 
     for cgroup in vm.jailer.cgroups:
         controller = cgroup.split(".")[0]
@@ -393,11 +403,23 @@ def test_v1_default_cgroups(uvm_plain, cgroups_info):
     check_cgroups_v1(test_microvm.jailer.cgroups, test_microvm.jailer.jailer_id)
 
 
-def test_cgroups_custom_parent_move(uvm_plain, cgroups_info):
+@pytest.mark.parametrize(
+    "parent_exists,domain_controller_in_subtree",
+    [(True, False), (True, True), (False, None)],
+)
+def test_cgroups_parent_cgroup_but_no_cgroup(
+    uvm_plain, cgroups_info, parent_exists, domain_controller_in_subtree
+):
     """
-    Test cgroups when a custom parent cgroup is used and no cgroups are specified
+    Test cgroups when `--parent-cgroup` is used but no `--cgroup` are specified.
 
-    In this case we just want to move under the parent cgroup
+    If the cgroup specified with `--parent-cgroup` exists, the jailer should
+    move to the specified cgroup instead of creating a new cgroup under it.
+    However, if the specified cgroup has domain controllers (e.g. `memory`)
+    enabled in `cgroup.subtree_control`, the move should fail.
+
+    If the specified cgroup does not exist, the jailer does not move the process
+    to any cgroup and proceeds without error.
     """
     if cgroups_info.version != 2:
         pytest.skip("cgroupsv2 only")
@@ -407,9 +429,44 @@ def test_cgroups_custom_parent_move(uvm_plain, cgroups_info):
     parent_cgroup = f"custom_cgroup/{test_microvm.id[:8]}"
     test_microvm.jailer.parent_cgroup = parent_cgroup
 
-    cgroups_info.new_cgroup(parent_cgroup)
-    test_microvm.spawn()
-    check_cgroups_v2(test_microvm)
+    if parent_exists:
+        # Create the parent cgroup.
+        cgroups_info.new_cgroup(parent_cgroup)
+        if domain_controller_in_subtree:
+            # Enable "memory" controller in cgroup.subtree_control of the parent.
+            cgroups_info.enable_controller_in_subtree(parent_cgroup, "memory")
+
+    # Check no --cgroups are specified just in case.
+    assert len(test_microvm.jailer.cgroups) == 0
+
+    cg_parent = cgroups_info.root / parent_cgroup
+
+    if parent_exists:
+        if domain_controller_in_subtree:
+            # The jailer should have failed to move to the `parent_cgroup`
+            # since it has domain controllers enabled in
+            # `cgroup.subtree_control` due to the no internal process
+            # constraint.
+            # https://docs.kernel.org/admin-guide/cgroup-v2.html#no-internal-process-constraint
+            with pytest.raises(
+                ChildProcessError,
+                match=(
+                    rf"Failed to move process to cgroup \({cg_parent}\): "
+                    r"Resource busy \(os error 16\)"
+                ),
+            ):
+                test_microvm.spawn()
+        else:
+            # The jailer should have moved to the `parent_cgroup` instead of
+            # creating a new cgroup under it and move to the new cgroup.
+            test_microvm.spawn()
+            procs = cg_parent.joinpath("cgroup.procs").read_text().splitlines()
+            assert str(test_microvm.firecracker_pid) in procs
+    else:
+        # The jailer should not have moved to any cgroup and the parent
+        # still does not exist.
+        test_microvm.spawn()
+        assert not cg_parent.exists()
 
 
 def test_args_default_resource_limits(uvm_plain):
