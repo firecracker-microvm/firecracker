@@ -41,3 +41,6 @@ strip = "none"
 
 [profile.bench]
 strip = "debuginfo"
+
+[patch.crates-io]
+vmm-sys-util = { git = "https://github.com/roypat/vmm-sys-util", branch = "timerfd-nonblock-0.14" }
