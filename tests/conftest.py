@@ -677,6 +677,9 @@ def uvm_booted(uvm_configured):
 @pytest.fixture
 def uvm_restored(uvm_booted, microvm_factory):
     """Booted microVM, snapshotted, restored from the snapshot."""
+    # The booted VM is a throwaway used only to take a snapshot; it is invisible to the
+    # test, so disable its memory monitor to avoid spurious, unrecoverable failures.
+    uvm_booted.memory_monitor = None
     snapshot = uvm_booted.snapshot_full()
     uvm_booted.kill()
     restored = microvm_factory.build_from_snapshot(snapshot)
