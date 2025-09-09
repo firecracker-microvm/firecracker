@@ -170,7 +170,5 @@ class MemoryMonitor(Thread):
     def __exit__(self, _type, _value, _traceback):
         """Exit context"""
 
-        if self.is_alive():
-            self.signal_stop()
-            self.join(timeout=1)
+        self.stop()
         self.check_samples()
