@@ -130,19 +130,18 @@ The **API endpoint** can be used to:
 
 We test all combinations of:
 
-| Instance       | Host OS & Kernel | Guest Rootfs | Guest Kernel |
-| :------------- | :--------------- | :----------- | :----------- |
-| c5n.metal      | al2 linux_5.10   | ubuntu 24.04 | linux_5.10   |
-| m5n.metal      | al2023 linux_6.1 |              | linux_6.1    |
-| m6i.metal      |                  |              |              |
-| m7i.metal-24xl |                  |              |              |
-| m7i.metal-48xl |                  |              |              |
-| m6a.metal      |                  |              |              |
-| m7a.metal-48xl |                  |              |              |
-| m6g.metal      |                  |              |              |
-| m7g.metal      |                  |              |              |
-| m8g.metal-24xl |                  |              |              |
-| m8g.metal-48xl |                  |              |              |
+| Instance                               | Host OS & Kernel | Guest Rootfs | Guest Kernel |
+| :------------------------------------- | :--------------- | :----------- | :----------- |
+| m5n.metal (Intel Cascade Lake)         | al2 linux_5.10   | ubuntu 24.04 | linux_5.10   |
+| m6i.metal (Intel Ice Lake)             | al2023 linux_6.1 |              | linux_6.1    |
+| m7i.metal-24xl (Intel Sapphire Rapids) |                  |              |              |
+| m7i.metal-48xl (Intel Sapphire Rapids) |                  |              |              |
+| m6a.metal (AMD Milan)                  |                  |              |              |
+| m7a.metal-48xl (AMD Genoa)             |                  |              |              |
+| m6g.metal (Graviton 2)                 |                  |              |              |
+| m7g.metal (Graviton 3)                 |                  |              |              |
+| m8g.metal-24xl (Graviton 4)            |                  |              |              |
+| m8g.metal-48xl (Graviton 4)            |                  |              |              |
 
 ## Known issues and Limitations
 

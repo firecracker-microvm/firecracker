@@ -17,8 +17,8 @@ class MemoryUsageExceededError(Exception):
     def __init__(self, usage, threshold, *args):
         """Compose the error message containing the memory consumption."""
         super().__init__(
-            f"Memory usage ({usage / 1 << 20:.2f} MiB) exceeded maximum threshold "
-            f"({threshold / 1 << 20} MiB)",
+            f"Memory usage ({usage / (1 << 20):.2f} MiB) exceeded maximum threshold "
+            f"({threshold / (1 << 20)} MiB)",
             *args,
         )
 

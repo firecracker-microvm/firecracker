@@ -69,6 +69,15 @@ The configuration items that may be relevant for Firecracker are:
   - use CPU RNG instructions (if present) to initialize RNG. Available for >=
     5.10
 - ACPI support - `CONFIG_ACPI` and `CONFIG_PCI`
+- PCI support:
+  - `CONFIG_BLK_MQ_PCI`
+  - `CONFIG_PCI`
+  - `CONFIG_PCI_MMCONFIG`
+  - `CONFIG_PCI_MSI`
+  - `CONFIG_PCIEPORTBUS`
+  - `CONFIG_VIRTIO_PCI`
+  - `CONFIG_PCI_HOST_COMMON`
+  - `CONFIG_PCI_HOST_GENERIC`
 
 There are also guest config options which are dependant on the platform on which
 Firecracker is run:
@@ -141,6 +150,63 @@ following configurations:
 - Only ACPI
 - Only legacy mechanisms
 - Both ACPI and legacy mechanisms
+
+##### Booting with PCI:
+
+Firecracker supports booting guest microVMs with PCI support. This option is
+enabled using the `--enable-pci` flag when launching the Firecracker process.
+With PCI enabled, Firecracker will create all VirtIO devices using a PCI VirtIO
+transport. The PCI transport typically achieves higher throughput and lower
+latency for VirtIO devices. No further, per device, configuration is needed to
+enable the PCI transport.
+
+PCI support is optional; if it is not enabled Firecracker will create VirtIO
+devices using the MMIO transport.
+
+For Firecracker microVMs to boot properly with PCI support, use a guest kernel
+built with PCI support. See the relevant Kconfig flags in our list of
+[relevant Kconfig options](#guest-kernel-configuration-items):
+
+> [!IMPORTANT]
+>
+> Make sure that the kernel command line **does NOT** include the `pci=off`
+> slug, which disables PCI support during boot time within the guest. When PCI
+> is disabled, Firecracker will add this slug in the command line to instruct
+> the guest kernel to skip useless PCI checks. For more info, look into the
+> section for [Kernel command line parameters](#kernel-command-line-parameters).
+
+> [!NOTE]
+>
+> On x86_64 systems, `CONFIG_PCI` Kconfig option is needed even when booting
+> microVMs without PCI support in case users want to use ACPI to boot. See
+> [here](#booting-with-acpi-x86_64-only) for more info.
+
+## Kernel command line parameters
+
+By default, Firecracker will boot a guest microVM passing the following command
+line parameters to the kernel:
+
+`reboot=k panic=1 nomodule 8250.nr_uarts=0 i8042.noaux i8042.nomux i8042.dumbkbd swiotlb=noforce`.
+
+- `reboot=k` shut down the guest on reboot, instead of rebooting
+- `panic=1` on panic, reboot after 1 second
+- `nomodule` disable loadable kernel module support
+- `8250.nr_uarts=0` disable 8250 serial interface
+- `i8042.noaux` do not probe the i8042 controller for an attached mouse (save
+  boot time)
+- `i8042.nomux` do not probe i8042 for a multiplexing controller (save boot
+  time)
+- `i8042.dumbkbd` do not attempt to control kbd state via the i8042 (save boot
+  time)
+- `swiotlb=noforce` disable software bounce buffers (SWIOTLB)
+
+When running without [PCI support](#booting-with-pci), Firecracker will also
+append `pci=off` to the above list. This option instructs the guest kernel to
+avoid PCI probing.
+
+Users can provide their own command line parameters through the `boot_args`
+field of the `/boot-source`
+[Firecracker API](../src/firecracker/swagger/firecracker.yaml).
 
 ## Caveats
 

@@ -17,7 +17,7 @@ use crate::cpu_config::templates::{
 use crate::cpu_config::templates_serde::*;
 
 impl GetCpuTemplate for Option<CpuTemplateType> {
-    fn get_cpu_template(&self) -> Result<Cow<CustomCpuTemplate>, GetCpuTemplateError> {
+    fn get_cpu_template(&self) -> Result<Cow<'_, CustomCpuTemplate>, GetCpuTemplateError> {
         match self {
             Some(template_type) => match template_type {
                 CpuTemplateType::Custom(template) => Ok(Cow::Borrowed(template)),

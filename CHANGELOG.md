@@ -18,6 +18,11 @@ and this project adheres to
 
 ### Fixed
 
+- [#5418](https://github.com/firecracker-microvm/firecracker/pull/5418): Fixed
+  typo in Swagger definition of `MmdsConfig`, where the property `imds_compat`
+  was spelled as `imds_comat`. This caused auto-generated clients to create bad
+  requests.
+
 ## [1.13.0]
 
 ### Added
@@ -53,6 +58,12 @@ and this project adheres to
   guest's serial console. Not configuring it means Firecracker will continue to
   print serial output to stdout. Similarly to the logger, this configuration is
   not persisted across snapshots.
+- [#5364](https://github.com/firecracker-microvm/firecracker/pull/5364): Added
+  PCI support in Firecracker. PCI support is optional. Users can enable it
+  passing the `--enable-pci` flag when launching the Firecracker process. When
+  Firecracker process is launched with PCI support, it will create all VirtIO
+  devices using a PCI VirtIO transport. If not enabled, Firecracker will use the
+  MMIO transport instead.
 
 ### Changed
 
@@ -77,6 +88,11 @@ and this project adheres to
   Use `track_dirty_pages` instead.
 
 ### Removed
+
+- [#5411](https://github.com/firecracker-microvm/firecracker/pull/5411): Removed
+  official support for Intel Skylake instances. Firecracker will continue to
+  work on those instances, but we will no longer perform automated testing on
+  them.
 
 ### Fixed
 

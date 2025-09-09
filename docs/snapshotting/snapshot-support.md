@@ -625,10 +625,11 @@ the compatibility table reported below:
 
 | .metal instance type | taken on host kernel | restored on host kernel |
 | -------------------- | -------------------- | ----------------------- |
-| {c5n,m5n,m6i,m6a}    | 5.10                 | 6.1                     |
+| {m5n,m6i,m6a}        | 5.10                 | 6.1                     |
 
-For example, a snapshot taken on a m6i.metal host running a 5.10 host kernel can
-be restored on a different m6i.metal host running a 6.1 host kernel (but not
-vice versa), but could not be restored on a c5n.metal host.
+For example, a snapshot taken on a m6i.metal host (Intel Ice Lake) running a
+5.10 host kernel can be restored on a different m6i.metal host running a 6.1
+host kernel (but not vice versa), but could not be restored on a m5n.metal host
+(Intel Cascade Lake).
 
 [man mincore]: https://man7.org/linux/man-pages/man2/mincore.2.html

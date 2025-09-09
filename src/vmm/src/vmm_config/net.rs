@@ -89,13 +89,8 @@ impl NetBuilder {
     }
 
     /// Returns a immutable iterator over the network devices.
-    pub fn iter(&self) -> ::std::slice::Iter<Arc<Mutex<Net>>> {
+    pub fn iter(&self) -> ::std::slice::Iter<'_, Arc<Mutex<Net>>> {
         self.net_devices.iter()
-    }
-
-    /// Returns a mutable iterator over the network devices.
-    pub fn iter_mut(&mut self) -> ::std::slice::IterMut<Arc<Mutex<Net>>> {
-        self.net_devices.iter_mut()
     }
 
     /// Adds an existing network device in the builder.

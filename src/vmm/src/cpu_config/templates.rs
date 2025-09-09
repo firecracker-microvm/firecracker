@@ -49,7 +49,7 @@ pub enum GetCpuTemplateError {
 /// custom CPU templates and handle static CPU template and custom CPU template in a same manner.
 pub trait GetCpuTemplate {
     /// Get CPU template
-    fn get_cpu_template(&self) -> Result<Cow<CustomCpuTemplate>, GetCpuTemplateError>;
+    fn get_cpu_template(&self) -> Result<Cow<'_, CustomCpuTemplate>, GetCpuTemplateError>;
 }
 
 /// Enum that represents types of cpu templates available.

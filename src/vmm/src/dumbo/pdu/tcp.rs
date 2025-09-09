@@ -304,10 +304,10 @@ impl<T: NetworkBytes + Debug> TcpSegment<'_, T> {
             return Err(TcpError::HeaderLen);
         }
 
-        if let Some((src_addr, dst_addr)) = verify_checksum {
-            if segment.compute_checksum(src_addr, dst_addr) != 0 {
-                return Err(TcpError::Checksum);
-            }
+        if let Some((src_addr, dst_addr)) = verify_checksum
+            && segment.compute_checksum(src_addr, dst_addr) != 0
+        {
+            return Err(TcpError::Checksum);
         }
 
         Ok(segment)
@@ -739,7 +739,7 @@ mod tests {
 
         // Using a helper function here instead of a closure because it's hard (impossible?) to
         // specify lifetime bounds for closure arguments.
-        fn p(buf: &mut [u8]) -> TcpSegment<&mut [u8]> {
+        fn p(buf: &mut [u8]) -> TcpSegment<'_, &mut [u8]> {
             TcpSegment::from_bytes_unchecked(buf)
         }
 

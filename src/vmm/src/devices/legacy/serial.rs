@@ -333,10 +333,10 @@ impl<I: Read + AsRawFd + Send + Debug> MutEventSubscriber
             // Therefore, only try to register stdin to epoll if it is a terminal or a FIFO pipe.
             // SAFETY: isatty has no invariants that need to be upheld. If serial_fd is an invalid
             // argument, it will return 0 and set errno to EBADF.
-            if unsafe { libc::isatty(serial_fd) } == 1 || is_fifo(serial_fd) {
-                if let Err(err) = ops.add(Events::new(&serial_fd, EventSet::IN)) {
-                    warn!("Failed to register serial input fd: {}", err);
-                }
+            if (unsafe { libc::isatty(serial_fd) } == 1 || is_fifo(serial_fd))
+                && let Err(err) = ops.add(Events::new(&serial_fd, EventSet::IN))
+            {
+                warn!("Failed to register serial input fd: {}", err);
             }
             if let Err(err) = ops.add(Events::new(&buf_ready_evt, EventSet::IN)) {
                 warn!("Failed to register serial buffer ready event: {}", err);
