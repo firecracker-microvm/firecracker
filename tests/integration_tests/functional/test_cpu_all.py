@@ -18,6 +18,7 @@ MAX_VCPUS = 32
 @pytest.mark.parametrize("vcpu_count", [MAX_VCPUS])
 def test_all_vcpus_online(uvm_any):
     """Check all vCPUs are online inside guest"""
+    uvm_any.memory_monitor = None
     assert (
         uvm_any.ssh.check_output("cat /sys/devices/system/cpu/online").stdout.strip()
         == f"0-{uvm_any.vcpus_count - 1}"
@@ -37,6 +38,7 @@ def test_all_vcpus_have_same_features(uvm_any):
     only test the equivalence of all CPUs in the same guest.
     """
     # Get a feature set for each CPU and deduplicate them.
+    uvm_any.memory_monitor = None
     unique_feature_lists = uvm_any.ssh.check_output(
         'grep -E "^(flags|Features)" /proc/cpuinfo | uniq'
     ).stdout.splitlines()
