@@ -33,9 +33,7 @@ jailer --id <id> \
   alphanumeric characters and hyphens. The maximum length is currently 64
   characters.
 - `--exec-file` specifies the path to the Firecracker binary that will be
-  exec-ed by the jailer. The filename must include the string `firecracker`.
-  This is enforced because the interaction with the jailer is Firecracker
-  specific.
+  exec-ed by the jailer.
 - `--uid` and `--gid` specify the uid and gid the jailer switches to as it execs
   the target binary.
 - `--cgroup-version` is used to select which type of cgroup hierarchy to use for
