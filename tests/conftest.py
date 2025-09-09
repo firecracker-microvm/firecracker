@@ -651,6 +651,7 @@ def uvm_restored(
     uvm = uvm_booted(
         microvm_factory, guest_kernel, rootfs, cpu_template, pci_enabled, **kwargs
     )
+    uvm.memory_monitor = None
     snapshot = uvm.snapshot_full()
     uvm.kill()
     uvm2 = microvm_factory.build_from_snapshot(snapshot)
