@@ -588,7 +588,7 @@ def mem_size_mib():
     return 256
 
 
-@pytest.fixture(params=[True, False])
+@pytest.fixture(params=[True, False], ids=["PCI_ON", "PCI_OFF"])
 def pci_enabled(request):
     """Fixture that allows configuring whether a microVM will have PCI enabled or not"""
     yield request.param
