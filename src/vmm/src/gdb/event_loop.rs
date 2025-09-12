@@ -11,7 +11,6 @@ use gdbstub::conn::{Connection, ConnectionExt};
 use gdbstub::stub::run_blocking::{self, WaitForStopReasonError};
 use gdbstub::stub::{DisconnectReason, GdbStub, MultiThreadStopReason};
 use gdbstub::target::Target;
-use kvm_ioctls::VcpuFd;
 use vm_memory::GuestAddress;
 
 use super::target::{FirecrackerTarget, GdbTargetError, vcpuid_to_tid};
@@ -22,11 +21,10 @@ use crate::logger::{error, trace};
 pub fn event_loop(
     connection: UnixStream,
     vmm: Arc<Mutex<Vmm>>,
-    vcpu_fds: Vec<VcpuFd>,
     gdb_event_receiver: Receiver<usize>,
     entry_addr: GuestAddress,
 ) {
-    let target = FirecrackerTarget::new(vmm, vcpu_fds, gdb_event_receiver, entry_addr);
+    let target = FirecrackerTarget::new(vmm, gdb_event_receiver, entry_addr);
     let connection: Box<dyn ConnectionExt<Error = std::io::Error>> = { Box::new(connection) };
     let debugger = GdbStub::new(connection);
 

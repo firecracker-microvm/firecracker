@@ -297,7 +297,8 @@ pub struct Vmm {
     // Save UFFD in order to keep it open in the Firecracker process, as well.
     #[allow(unused)]
     uffd: Option<Uffd>,
-    vcpus_handles: Vec<VcpuHandle>,
+    /// Handles to the vcpu threads with vcpu_fds inside them.
+    pub vcpus_handles: Vec<VcpuHandle>,
     // Used by Vcpus and devices to initiate teardown; Vmm should never write here.
     vcpus_exit_evt: EventFd,
     // Device manager
@@ -353,8 +354,11 @@ impl Vmm {
             #[cfg(target_arch = "x86_64")]
             vcpu.kvm_vcpu.set_pio_bus(self.vm.pio_bus.clone());
 
-            self.vcpus_handles
-                .push(vcpu.start_threaded(vcpu_seccomp_filter.clone(), barrier.clone())?);
+            self.vcpus_handles.push(vcpu.start_threaded(
+                &self.vm,
+                vcpu_seccomp_filter.clone(),
+                barrier.clone(),
+            )?);
         }
         self.instance_info.state = VmState::Paused;
         // Wait for vCPUs to initialize their TLS before moving forward.
@@ -369,7 +373,7 @@ impl Vmm {
 
         // Send the events.
         self.vcpus_handles
-            .iter()
+            .iter_mut()
             .try_for_each(|handle| handle.send_event(VcpuEvent::Resume))
             .map_err(|_| VmmError::VcpuMessage)?;
 
@@ -391,7 +395,7 @@ impl Vmm {
     pub fn pause_vm(&mut self) -> Result<(), VmmError> {
         // Send the events.
         self.vcpus_handles
-            .iter()
+            .iter_mut()
             .try_for_each(|handle| handle.send_event(VcpuEvent::Pause))
             .map_err(|_| VmmError::VcpuMessage)?;
 
@@ -450,7 +454,7 @@ impl Vmm {
     }
 
     fn save_vcpu_states(&mut self) -> Result<Vec<VcpuState>, MicrovmStateError> {
-        for handle in self.vcpus_handles.iter() {
+        for handle in self.vcpus_handles.iter_mut() {
             handle
                 .send_event(VcpuEvent::SaveState)
                 .map_err(MicrovmStateError::SignalVcpu)?;
@@ -479,7 +483,7 @@ impl Vmm {
 
     /// Dumps CPU configuration.
     pub fn dump_cpu_config(&mut self) -> Result<Vec<CpuConfiguration>, DumpCpuConfigError> {
-        for handle in self.vcpus_handles.iter() {
+        for handle in self.vcpus_handles.iter_mut() {
             handle
                 .send_event(VcpuEvent::DumpCpuConfig)
                 .map_err(DumpCpuConfigError::SendEvent)?;
@@ -615,7 +619,7 @@ impl Vmm {
         // We send a "Finish" event.  If a VCPU has already exited, this is the only
         // message it will accept... but running and paused will take it as well.
         // It breaks out of the state machine loop so that the thread can be joined.
-        for (idx, handle) in self.vcpus_handles.iter().enumerate() {
+        for (idx, handle) in self.vcpus_handles.iter_mut().enumerate() {
             if let Err(err) = handle.send_event(VcpuEvent::Finish) {
                 error!("Failed to send VcpuEvent::Finish to vCPU {}: {}", idx, err);
             }

@@ -5,8 +5,6 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the THIRD-PARTY file.
 
-use std::cell::RefCell;
-#[cfg(feature = "gdb")]
 use std::os::fd::AsRawFd;
 use std::sync::atomic::{Ordering, fence};
 use std::sync::mpsc::{Receiver, Sender, TryRecvError, channel};
@@ -14,9 +12,7 @@ use std::sync::{Arc, Barrier};
 use std::{fmt, io, thread};
 
 use kvm_bindings::{KVM_SYSTEM_EVENT_RESET, KVM_SYSTEM_EVENT_SHUTDOWN};
-#[cfg(feature = "gdb")]
-use kvm_ioctls::VcpuFd;
-use kvm_ioctls::{KvmRunWrapper, VcpuExit};
+use kvm_ioctls::{VcpuExit, VcpuFd};
 use libc::{c_int, c_void, siginfo_t};
 use log::{error, info, warn};
 use vmm_sys_util::errno;
@@ -70,25 +66,22 @@ pub struct VcpuConfig {
 }
 
 /// Error type for [`Vcpu::start_threaded`].
-#[derive(Debug, derive_more::From, thiserror::Error)]
-#[error("Failed to spawn vCPU thread: {0}")]
-pub struct StartThreadedError(std::io::Error);
+#[derive(Debug, thiserror::Error, displaydoc::Display)]
+pub enum StartThreadedError {
+    /// Failed to spawn vCPU thread: {0}
+    Spawn(std::io::Error),
+    /// Failed to clone kvm Vcpu fd: {0}
+    CopyFd(CopyKvmFdError),
+}
 
 /// Error type for [`Vcpu::copy_kvm_vcpu_fd`].
-#[cfg(feature = "gdb")]
-#[derive(Debug, thiserror::Error)]
-#[error("Failed to clone kvm Vcpu fd: {0}")]
+#[derive(Debug, thiserror::Error, displaydoc::Display)]
 pub enum CopyKvmFdError {
     /// Error with libc dup of kvm Vcpu fd
     DupError(#[from] std::io::Error),
     /// Error creating the Vcpu from the duplicated Vcpu fd
     CreateVcpuError(#[from] kvm_ioctls::Error),
 }
-
-// Stores the mmap region of `kvm_run` struct for the current Vcpu. This allows for the
-// signal handler to safely access the `kvm_run` even when Vcpu is dropped and vcpu fd
-// is closed.
-thread_local!(static TLS_VCPU_PTR: RefCell<Option<KvmRunWrapper>> = const { RefCell::new(None) });
 
 /// A wrapper around creating and using a vcpu.
 #[derive(Debug)]
@@ -112,39 +105,14 @@ pub struct Vcpu {
 }
 
 impl Vcpu {
-    /// Associates `self` with the current thread.
-    ///
-    /// It is a prerequisite to successfully run `init_thread_local_data()` before using
-    /// `run_on_thread_local()` on the current thread.
-    /// This function will panic if there already is a `Vcpu` present in the TLS.
-    fn init_thread_local_data(&mut self) {
-        // Use of `kvm_run` size here is safe because we only
-        // care about `immediate_exit` field which is at byte offset of 2.
-        let kvm_run_ptr = KvmRunWrapper::mmap_from_fd(
-            &self.kvm_vcpu.fd,
-            std::mem::size_of::<kvm_bindings::kvm_run>(),
-        )
-        .unwrap();
-        TLS_VCPU_PTR.with(|cell| {
-            assert!(cell.borrow().is_none());
-            *cell.borrow_mut() = Some(kvm_run_ptr);
-        })
-    }
-
-    /// Registers a signal handler which makes use of TLS and kvm immediate exit to
-    /// kick the vcpu running on the current thread, if there is one.
+    /// Registers a signal handler which kicks the vcpu running on the current thread, if there is
+    /// one.
     fn register_kick_signal_handler(&mut self) {
-        self.init_thread_local_data();
-
         extern "C" fn handle_signal(_: c_int, _: *mut siginfo_t, _: *mut c_void) {
-            TLS_VCPU_PTR.with(|cell| {
-                if let Some(kvm_run_ptr) = &mut *cell.borrow_mut() {
-                    kvm_run_ptr.as_mut_ref().immediate_exit = 1;
-                    fence(Ordering::Release);
-                }
-            })
+            // We write to the immediate_exit from other thread, so make sure the read in the
+            // KVM_RUN sees the up to date value
+            fence(Ordering::Acquire);
         }
-
         register_signal_handler(sigrtmin() + VCPU_RTSIG_OFFSET, handle_signal)
             .expect("Failed to register vcpu signal handler");
     }
@@ -185,7 +153,6 @@ impl Vcpu {
     }
 
     /// Obtains a copy of the VcpuFd
-    #[cfg(feature = "gdb")]
     pub fn copy_kvm_vcpu_fd(&self, vm: &Vm) -> Result<VcpuFd, CopyKvmFdError> {
         // SAFETY: We own this fd so it is considered safe to clone
         let r = unsafe { libc::dup(self.kvm_vcpu.fd.as_raw_fd()) };
@@ -200,11 +167,15 @@ impl Vcpu {
     /// The handle can be used to control the remote vcpu.
     pub fn start_threaded(
         mut self,
+        vm: &Vm,
         seccomp_filter: Arc<BpfProgram>,
         barrier: Arc<Barrier>,
     ) -> Result<VcpuHandle, StartThreadedError> {
         let event_sender = self.event_sender.take().expect("vCPU already started");
         let response_receiver = self.response_receiver.take().unwrap();
+        let vcpu_fd = self
+            .copy_kvm_vcpu_fd(vm)
+            .map_err(StartThreadedError::CopyFd)?;
         let vcpu_thread = thread::Builder::new()
             .name(format!("fc_vcpu {}", self.kvm_vcpu.index))
             .spawn(move || {
@@ -213,11 +184,13 @@ impl Vcpu {
                 // Synchronization to make sure thread local data is initialized.
                 barrier.wait();
                 self.run(filter);
-            })?;
+            })
+            .map_err(StartThreadedError::Spawn)?;
 
         Ok(VcpuHandle::new(
             event_sender,
             response_receiver,
+            vcpu_fd,
             vcpu_thread,
         ))
     }
@@ -628,6 +601,8 @@ impl fmt::Debug for VcpuResponse {
 pub struct VcpuHandle {
     event_sender: Sender<VcpuEvent>,
     response_receiver: Receiver<VcpuResponse>,
+    /// VcpuFd
+    pub vcpu_fd: VcpuFd,
     // Rust JoinHandles have to be wrapped in Option if you ever plan on 'join()'ing them.
     // We want to be able to join these threads in tests.
     vcpu_thread: Option<thread::JoinHandle<()>>,
@@ -648,11 +623,13 @@ impl VcpuHandle {
     pub fn new(
         event_sender: Sender<VcpuEvent>,
         response_receiver: Receiver<VcpuResponse>,
+        vcpu_fd: VcpuFd,
         vcpu_thread: thread::JoinHandle<()>,
     ) -> Self {
         Self {
             event_sender,
             response_receiver,
+            vcpu_fd,
             vcpu_thread: Some(vcpu_thread),
         }
     }
@@ -661,12 +638,15 @@ impl VcpuHandle {
     /// # Errors
     ///
     /// When [`vmm_sys_util::linux::signal::Killable::kill`] errors.
-    pub fn send_event(&self, event: VcpuEvent) -> Result<(), VcpuSendEventError> {
+    pub fn send_event(&mut self, event: VcpuEvent) -> Result<(), VcpuSendEventError> {
         // Use expect() to crash if the other thread closed this channel.
         self.event_sender
             .send(event)
             .expect("event sender channel closed on vcpu end.");
         // Kick the vcpu so it picks up the message.
+        // Add a fence to ensure the write is visible to the vpu thread
+        self.vcpu_fd.set_kvm_immediate_exit(1);
+        fence(Ordering::Release);
         self.vcpu_thread
             .as_ref()
             // Safe to unwrap since constructor make this 'Some'.
@@ -715,6 +695,7 @@ pub(crate) mod tests {
 
     #[cfg(target_arch = "x86_64")]
     use std::collections::BTreeMap;
+    use std::sync::atomic::Ordering;
     use std::sync::{Arc, Barrier, Mutex};
 
     use linux_loader::loader::KernelLoader;
@@ -968,7 +949,11 @@ pub(crate) mod tests {
         let mut seccomp_filters = get_empty_filters();
         let barrier = Arc::new(Barrier::new(2));
         let vcpu_handle = vcpu
-            .start_threaded(seccomp_filters.remove("vcpu").unwrap(), barrier.clone())
+            .start_threaded(
+                &vm,
+                seccomp_filters.remove("vcpu").unwrap(),
+                barrier.clone(),
+            )
             .expect("failed to start vcpu");
         // Wait for vCPUs to initialize their TLS before moving forward.
         barrier.wait();
@@ -985,18 +970,13 @@ pub(crate) mod tests {
     }
 
     #[test]
-    #[should_panic]
-    fn test_tls_double_init() {
-        let (_, _, mut vcpu) = setup_vcpu(0x1000);
-        vcpu.init_thread_local_data();
-        vcpu.init_thread_local_data();
-    }
-
-    #[test]
     fn test_vcpu_kick() {
         let (_, vm, mut vcpu) = setup_vcpu(0x1000);
 
         let mut kvm_run =
+            kvm_ioctls::KvmRunWrapper::mmap_from_fd(&vcpu.kvm_vcpu.fd, vm.fd().run_size())
+                .expect("cannot mmap kvm-run");
+        let vcpu_kvm_run =
             kvm_ioctls::KvmRunWrapper::mmap_from_fd(&vcpu.kvm_vcpu.fd, vm.fd().run_size())
                 .expect("cannot mmap kvm-run");
         let success = Arc::new(std::sync::atomic::AtomicBool::new(false));
@@ -1012,7 +992,7 @@ pub(crate) mod tests {
                 vcpu_barrier.wait();
                 // Loop for max 1 second to check if the signal handler has run.
                 for _ in 0..10 {
-                    if kvm_run.as_mut_ref().immediate_exit == 1 {
+                    if vcpu_kvm_run.as_ref().immediate_exit == 1 {
                         // Signal handler has run and set immediate_exit to 1.
                         vcpu_success.store(true, Ordering::Release);
                         break;
@@ -1021,10 +1001,10 @@ pub(crate) mod tests {
                 }
             })
             .expect("cannot start thread");
-
-        // Wait for the vcpu to initialize its TLS.
         barrier.wait();
-        // Kick the Vcpu using the custom signal.
+
+        // Set immediate_exit and kick the Vcpu using the custom signal.
+        kvm_run.as_mut_ref().immediate_exit = 1;
         handle
             .kill(sigrtmin() + VCPU_RTSIG_OFFSET)
             .expect("failed to signal thread");
@@ -1034,7 +1014,11 @@ pub(crate) mod tests {
     }
 
     // Sends an event to a vcpu and expects a particular response.
-    fn queue_event_expect_response(handle: &VcpuHandle, event: VcpuEvent, response: VcpuResponse) {
+    fn queue_event_expect_response(
+        handle: &mut VcpuHandle,
+        event: VcpuEvent,
+        response: VcpuResponse,
+    ) {
         handle
             .send_event(event)
             .expect("failed to send event to vcpu");
@@ -1074,52 +1058,52 @@ pub(crate) mod tests {
 
     #[test]
     fn test_vcpu_pause_resume() {
-        let (_vm, vcpu_handle, vcpu_exit_evt) = vcpu_configured_for_boot();
+        let (_vm, mut vcpu_handle, vcpu_exit_evt) = vcpu_configured_for_boot();
 
         // Queue a Resume event, expect a response.
-        queue_event_expect_response(&vcpu_handle, VcpuEvent::Resume, VcpuResponse::Resumed);
+        queue_event_expect_response(&mut vcpu_handle, VcpuEvent::Resume, VcpuResponse::Resumed);
 
         // Queue a Pause event, expect a response.
-        queue_event_expect_response(&vcpu_handle, VcpuEvent::Pause, VcpuResponse::Paused);
+        queue_event_expect_response(&mut vcpu_handle, VcpuEvent::Pause, VcpuResponse::Paused);
 
         // Validate vcpu handled the EINTR gracefully and didn't exit.
         let err = vcpu_exit_evt.read().unwrap_err();
         assert_eq!(err.raw_os_error().unwrap(), libc::EAGAIN);
 
         // Queue another Pause event, expect a response.
-        queue_event_expect_response(&vcpu_handle, VcpuEvent::Pause, VcpuResponse::Paused);
+        queue_event_expect_response(&mut vcpu_handle, VcpuEvent::Pause, VcpuResponse::Paused);
 
         // Queue a Resume event, expect a response.
-        queue_event_expect_response(&vcpu_handle, VcpuEvent::Resume, VcpuResponse::Resumed);
+        queue_event_expect_response(&mut vcpu_handle, VcpuEvent::Resume, VcpuResponse::Resumed);
 
         // Queue another Resume event, expect a response.
-        queue_event_expect_response(&vcpu_handle, VcpuEvent::Resume, VcpuResponse::Resumed);
+        queue_event_expect_response(&mut vcpu_handle, VcpuEvent::Resume, VcpuResponse::Resumed);
 
         // Queue another Pause event, expect a response.
-        queue_event_expect_response(&vcpu_handle, VcpuEvent::Pause, VcpuResponse::Paused);
+        queue_event_expect_response(&mut vcpu_handle, VcpuEvent::Pause, VcpuResponse::Paused);
 
         // Queue a Resume event, expect a response.
-        queue_event_expect_response(&vcpu_handle, VcpuEvent::Resume, VcpuResponse::Resumed);
+        queue_event_expect_response(&mut vcpu_handle, VcpuEvent::Resume, VcpuResponse::Resumed);
 
         vcpu_handle.send_event(VcpuEvent::Finish).unwrap();
     }
 
     #[test]
     fn test_vcpu_save_state_events() {
-        let (_vm, vcpu_handle, _vcpu_exit_evt) = vcpu_configured_for_boot();
+        let (_vm, mut vcpu_handle, _vcpu_exit_evt) = vcpu_configured_for_boot();
 
         // Queue a Resume event, expect a response.
-        queue_event_expect_response(&vcpu_handle, VcpuEvent::Resume, VcpuResponse::Resumed);
+        queue_event_expect_response(&mut vcpu_handle, VcpuEvent::Resume, VcpuResponse::Resumed);
 
         // Queue a SaveState event, expect a response.
         queue_event_expect_response(
-            &vcpu_handle,
+            &mut vcpu_handle,
             VcpuEvent::SaveState,
             VcpuResponse::NotAllowed(String::new()),
         );
 
         // Queue another Pause event, expect a response.
-        queue_event_expect_response(&vcpu_handle, VcpuEvent::Pause, VcpuResponse::Paused);
+        queue_event_expect_response(&mut vcpu_handle, VcpuEvent::Pause, VcpuResponse::Paused);
 
         // Queue a SaveState event, get the response.
         vcpu_handle
@@ -1139,7 +1123,7 @@ pub(crate) mod tests {
 
     #[test]
     fn test_vcpu_dump_cpu_config() {
-        let (_vm, vcpu_handle, _) = vcpu_configured_for_boot();
+        let (_vm, mut vcpu_handle, _) = vcpu_configured_for_boot();
 
         // Queue a DumpCpuConfig event, expect a DumpedCpuConfig response.
         vcpu_handle
@@ -1156,12 +1140,12 @@ pub(crate) mod tests {
         }
 
         // Queue a Resume event, expect a response.
-        queue_event_expect_response(&vcpu_handle, VcpuEvent::Resume, VcpuResponse::Resumed);
+        queue_event_expect_response(&mut vcpu_handle, VcpuEvent::Resume, VcpuResponse::Resumed);
 
         // Queue a DumpCpuConfig event, expect a NotAllowed respoonse.
         // The DumpCpuConfig event is only allowed while paused.
         queue_event_expect_response(
-            &vcpu_handle,
+            &mut vcpu_handle,
             VcpuEvent::DumpCpuConfig,
             VcpuResponse::NotAllowed(String::new()),
         );
