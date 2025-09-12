@@ -157,7 +157,7 @@ def _check_tx_rate_limiting(test_microvm):
 
     # Sanity check that bandwidth with no rate limiting is at least double
     # than the one expected when rate limiting is in place.
-    assert _get_percentage_difference(rate_no_limit_kbps, expected_kbps) > 100
+    assert _diff(rate_no_limit_kbps, expected_kbps) > 100
 
     # Second step: check bandwidth when rate limiting is on.
     print("Run guest TX iperf for rate limiting without burst")
@@ -176,7 +176,7 @@ def _check_tx_rate_limiting(test_microvm):
     _, burst_kbps = _process_iperf_output(iperf_out)
     print("TX burst_kbps: {}".format(burst_kbps))
     # Test that the burst bandwidth is at least as two times the rate limit.
-    assert _get_percentage_difference(burst_kbps, expected_kbps) > 100
+    assert _diff(burst_kbps, expected_kbps) > 100
 
     # Since the burst should be consumed, check rate limit is in place.
     _check_tx_bandwidth(test_microvm, eth2.host_ip, expected_kbps)
@@ -203,7 +203,7 @@ def _check_rx_rate_limiting(test_microvm):
 
     # Sanity check that bandwidth with no rate limiting is at least double
     # than the one expected when rate limiting is in place.
-    assert _get_percentage_difference(rate_no_limit_kbps, expected_kbps) > 100
+    assert _diff(rate_no_limit_kbps, expected_kbps) > 100
 
     # Second step: check bandwidth when rate limiting is on.
     print("Run guest RX iperf for rate limiting without burst")
@@ -225,7 +225,7 @@ def _check_rx_rate_limiting(test_microvm):
     _, burst_kbps = _process_iperf_output(iperf_out)
     print("RX burst_kbps: {}".format(burst_kbps))
     # Test that the burst bandwidth is at least as two times the rate limit.
-    assert _get_percentage_difference(burst_kbps, expected_kbps) > 100
+    assert _diff(burst_kbps, expected_kbps) > 100
 
     # Since the burst should be consumed, check rate limit is in place.
     _check_rx_bandwidth(test_microvm, eth2.guest_ip, expected_kbps)
@@ -254,7 +254,7 @@ def _check_tx_rate_limit_patch(test_microvm):
     )
     # Check that bandwidth when rate-limit disabled is at least 1.5x larger
     # than the one when rate limiting was enabled.
-    assert _get_percentage_difference(rate_no_limit_kbps, expected_kbps) > 50
+    assert _diff(rate_no_limit_kbps, expected_kbps) > 50
 
 
 def _check_rx_rate_limit_patch(test_microvm):
@@ -280,7 +280,7 @@ def _check_rx_rate_limit_patch(test_microvm):
     )
     # Check that bandwidth when rate-limit disabled is at least 1.5x larger
     # than the one when rate limiting was enabled.
-    assert _get_percentage_difference(rate_no_limit_kbps, expected_kbps) > 50
+    assert _diff(rate_no_limit_kbps, expected_kbps) > 50
 
 
 def _check_tx_bandwidth(test_microvm, ip, expected_kbps):
@@ -288,7 +288,7 @@ def _check_tx_bandwidth(test_microvm, ip, expected_kbps):
     observed_kbps = _get_tx_bandwidth_with_duration(
         test_microvm, ip, IPERF_TRANSMIT_TIME
     )
-    diff_pc = _get_percentage_difference(observed_kbps, expected_kbps)
+    diff_pc = _diff(observed_kbps, expected_kbps)
     assert diff_pc < MAX_BYTES_DIFF_PERCENTAGE
 
 
@@ -311,7 +311,7 @@ def _check_rx_bandwidth(test_microvm, ip, expected_kbps):
     observed_kbps = _get_rx_bandwidth_with_duration(
         test_microvm, ip, IPERF_TRANSMIT_TIME
     )
-    diff_pc = _get_percentage_difference(observed_kbps, expected_kbps)
+    diff_pc = _diff(observed_kbps, expected_kbps)
     assert diff_pc < MAX_BYTES_DIFF_PERCENTAGE
 
 
@@ -395,7 +395,7 @@ def _run_iperf_on_host(iperf_cmd, test_microvm):
     return stdout
 
 
-def _get_percentage_difference(measured, base):
+def _diff(measured, base):
     """Return the percentage delta between the arguments."""
     assert base != 0
     return (abs(measured - base) / base) * 100.0
