@@ -16,6 +16,11 @@ and this project adheres to
 
 ### Removed
 
+- [#5439](https://github.com/firecracker-microvm/firecracker/pull/5439): Removed
+  the `rx_partial_writes`, `tx_partial_reads`, `sync_response_fails`,
+  `sync_vmm_send_timeout_count`, `deprecated_cmd_line_api_calls`, `log_fails`
+  and `device_events` metrics, as they were never incremented.
+
 ### Fixed
 
 - [#5418](https://github.com/firecracker-microvm/firecracker/pull/5418): Fixed
