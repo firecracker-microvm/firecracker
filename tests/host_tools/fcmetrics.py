@@ -18,7 +18,9 @@ from threading import Thread
 import jsonschema
 import pytest
 
+from framework import utils
 from framework.properties import global_props
+from framework.utils_repo import git_repo_files
 from host_tools.metrics import get_metrics_logger
 
 
@@ -105,7 +107,6 @@ def validate_fc_metrics(metrics):
         "event_fails",
         "rx_queue_event_count",
         "rx_event_rate_limiter_count",
-        "rx_partial_writes",
         "rx_rate_limiter_throttled",
         "rx_tap_event_count",
         "rx_bytes_count",
@@ -119,7 +120,6 @@ def validate_fc_metrics(metrics):
         "tx_fails",
         "tx_count",
         "tx_packets_count",
-        "tx_partial_reads",
         "tx_queue_event_count",
         "tx_rate_limiter_event_count",
         "tx_rate_limiter_throttled",
@@ -132,8 +132,6 @@ def validate_fc_metrics(metrics):
         "api_server": [
             "process_startup_time_us",
             "process_startup_time_cpu_us",
-            "sync_response_fails",
-            "sync_vmm_send_timeout_count",
         ],
         "balloon": [
             "activate_fails",
@@ -146,7 +144,6 @@ def validate_fc_metrics(metrics):
         "block": block_metrics,
         "deprecated_api": [
             "deprecated_http_api_calls",
-            "deprecated_cmd_line_api_calls",
         ],
         "get_api_requests": [
             "instance_info_count",
@@ -178,7 +175,6 @@ def validate_fc_metrics(metrics):
             "missed_metrics_count",
             "metrics_fails",
             "missed_log_count",
-            "log_fails",
         ],
         "mmds": [
             "rx_accepted",
@@ -246,7 +242,6 @@ def validate_fc_metrics(metrics):
             {"exit_mmio_write_agg": latency_agg_metrics_fields},
         ],
         "vmm": [
-            "device_events",
             "panic_count",
         ],
         "uart": [
@@ -570,3 +565,61 @@ class FCMetricsMonitor(Thread):
                 time.sleep(1)
                 if self.running is False:
                     break
+
+
+def find_metrics_files():
+    """Gets a list of all Firecracker sources files ending with 'metrics.rs'"""
+    return list(git_repo_files(root="..", glob="*metrics.rs"))
+
+
+def extract_fields(file_path):
+    """Gets a list of all metrics defined in the given file, in the form tuples (name, type)"""
+    fields = utils.run_cmd(
+        rf'grep -Po "(?<=pub )(\w+): (Shared(?:Inc|Store)Metric|LatencyAggregateMetrics)" {file_path}'
+    ).stdout.strip()
+
+    return [field.split(": ", maxsplit=1) for field in fields.splitlines()]
+
+
+def is_file_production(filepath):
+    """Returns True iff accesses to metric fields in the given file should cause the metric be considered 'used in production code'. Excludes, for example, files in which the metrics are defined, where accesses happen as part of copy constructors, etc."""
+    path = filepath.lower()
+    return (
+        "/test/" in path
+        or "/tests/" in path
+        or path.endswith("_test.rs")
+        or "test_" in path
+        or "tests.rs" in path
+        or ("metrics.rs" in path and "vmm" in path)
+    )
+
+
+KNOWN_FALSE_POSITIVES = [
+    "min_us",
+    "max_us",
+    "sum_us",
+    "process_startup_time_us",
+    "process_startup_time_cpu_us",
+]
+
+
+def is_metric_used(field, field_type):
+    """Returns True iff the given metric has a production use in the firecracker codebase"""
+    if field in KNOWN_FALSE_POSITIVES:
+        return True
+
+    if field_type in ("SharedIncMetric", "SharedStoreMetric"):
+        pattern = rf"{field}\s*\.\s*store|{field}\s*\.\s*inc|{field}\s*\.\s*add|{field}\s*\.\s*fetch|METRICS.*{field}"
+    elif field_type == "LatencyAggregateMetrics":
+        pattern = rf"{field}\s*\.\s*record_latency_metrics"
+    else:
+        raise RuntimeError(f"Unknown metric type: {field_type}")
+
+    result = utils.run_cmd(f'grep -RPzo "{pattern}" ../src')
+
+    for line in result.stdout.strip().split("\0"):
+        if not line:
+            continue
+        if not is_file_production(line.split(":", maxsplit=1)[0]):
+            return True
+    return False
