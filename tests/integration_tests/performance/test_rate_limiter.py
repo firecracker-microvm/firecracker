@@ -139,9 +139,6 @@ def _check_tx_rate_limiting(test_microvm):
     eth1 = test_microvm.iface["eth1"]["iface"]
     eth2 = test_microvm.iface["eth2"]["iface"]
 
-    # Start iperf server on the host as this is the tx rate limiting test.
-    _start_iperf_server_on_host(test_microvm.netns.cmd_prefix())
-
     # First step: get the transfer rate when no rate limiting is enabled.
     # We are receiving the result in KBytes from iperf.
     print("Run guest TX iperf for no rate limiting")
@@ -286,6 +283,8 @@ def _check_rx_rate_limit_patch(test_microvm):
 def _get_tx_bandwidth(test_microvm, host_ip):
     """Check that the rate-limited TX bandwidth is close to what we expect."""
 
+    _start_iperf_server_on_host(test_microvm.netns.cmd_prefix())
+
     iperf_cmd = "{} -c {} -t {} -f KBytes -w {} -N".format(
         IPERF_BINARY, host_ip, IPERF_TRANSMIT_TIME, IPERF_TCP_WINDOW
     )
@@ -350,14 +349,10 @@ def _run_iperf_on_guest(test_microvm, iperf_cmd):
 
 def _start_iperf_server_on_host(netns_cmd_prefix):
     """Start iperf in server mode after killing any leftover iperf daemon."""
-    iperf_cmd = "pkill {}\n".format(IPERF_BINARY)
-
-    # Don't check the result of this command because it can fail if no iperf
-    # is running.
-    utils.run_cmd(iperf_cmd)
+    kill_cmd = f"pkill {IPERF_BINARY}"
+    utils.run_cmd(kill_cmd)
 
     iperf_cmd = "{} {} -sD -f KBytes\n".format(netns_cmd_prefix, IPERF_BINARY)
-
     utils.check_output(iperf_cmd)
 
     # Wait for the iperf daemon to start.
