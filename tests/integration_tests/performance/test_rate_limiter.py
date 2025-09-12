@@ -428,13 +428,8 @@ def _run_iperf_on_host(iperf_cmd, test_microvm):
 
 def _get_percentage_difference(measured, base):
     """Return the percentage delta between the arguments."""
-    if measured == base:
-        return 0
-    try:
-        return (abs(measured - base) / base) * 100.0
-    except ZeroDivisionError:
-        # It means base and only base is 0.
-        return 100.0
+    assert base != 0
+    return (abs(measured - base) / base) * 100.0
 
 
 def _process_iperf_line(line):
