@@ -145,9 +145,7 @@ def _check_tx_rate_limiting(test_microvm):
     # First step: get the transfer rate when no rate limiting is enabled.
     # We are receiving the result in KBytes from iperf.
     print("Run guest TX iperf for no rate limiting")
-    rate_no_limit_kbps = _get_tx_bandwidth_with_duration(
-        test_microvm, eth0.host_ip, IPERF_TRANSMIT_TIME
-    )
+    rate_no_limit_kbps = _get_tx_bandwidth(test_microvm, eth0.host_ip)
     print("TX rate_no_limit_kbps: {}".format(rate_no_limit_kbps))
 
     # Calculate the number of bytes that are expected to be sent
@@ -161,9 +159,7 @@ def _check_tx_rate_limiting(test_microvm):
 
     # Second step: check bandwidth when rate limiting is on.
     print("Run guest TX iperf for rate limiting without burst")
-    observed_kbps = _get_tx_bandwidth_with_duration(
-        test_microvm, eth1.host_ip, IPERF_TRANSMIT_TIME
-    )
+    observed_kbps = _get_tx_bandwidth(test_microvm, eth1.host_ip)
     assert _diff(observed_kbps, expected_kbps) < MAX_BYTES_DIFF_PERCENTAGE
 
     # Third step: get the number of bytes when rate limiting is on and there is
@@ -182,9 +178,7 @@ def _check_tx_rate_limiting(test_microvm):
     assert _diff(burst_kbps, expected_kbps) > 100
 
     # Since the burst should be consumed, check rate limit is in place.
-    observed_kbps = _get_tx_bandwidth_with_duration(
-        test_microvm, eth2.host_ip, IPERF_TRANSMIT_TIME
-    )
+    observed_kbps = _get_tx_bandwidth(test_microvm, eth2.host_ip)
     assert _diff(observed_kbps, expected_kbps) < MAX_BYTES_DIFF_PERCENTAGE
 
 
@@ -247,23 +241,17 @@ def _check_tx_rate_limit_patch(test_microvm):
     # Check that a TX rate limiter can be applied to a previously unlimited
     # interface.
     _patch_iface_bw(test_microvm, "eth0", "TX", bucket_size, REFILL_TIME_MS)
-    observed_kbps = _get_tx_bandwidth_with_duration(
-        test_microvm, eth0.host_ip, IPERF_TRANSMIT_TIME
-    )
+    observed_kbps = _get_tx_bandwidth(test_microvm, eth0.host_ip)
     assert _diff(observed_kbps, expected_kbps) < MAX_BYTES_DIFF_PERCENTAGE
 
     # Check that a TX rate limiter can be updated.
     _patch_iface_bw(test_microvm, "eth1", "TX", bucket_size, REFILL_TIME_MS)
-    observed_kbps = _get_tx_bandwidth_with_duration(
-        test_microvm, eth1.host_ip, IPERF_TRANSMIT_TIME
-    )
+    observed_kbps = _get_tx_bandwidth(test_microvm, eth1.host_ip)
     assert _diff(observed_kbps, expected_kbps) < MAX_BYTES_DIFF_PERCENTAGE
 
     # Check that a TX rate limiter can be removed.
     _patch_iface_bw(test_microvm, "eth0", "TX", 0, 0)
-    rate_no_limit_kbps = _get_tx_bandwidth_with_duration(
-        test_microvm, eth0.host_ip, IPERF_TRANSMIT_TIME
-    )
+    rate_no_limit_kbps = _get_tx_bandwidth(test_microvm, eth0.host_ip)
     # Check that bandwidth when rate-limit disabled is at least 1.5x larger
     # than the one when rate limiting was enabled.
     assert _diff(rate_no_limit_kbps, expected_kbps) > 50
@@ -295,11 +283,11 @@ def _check_rx_rate_limit_patch(test_microvm):
     assert _diff(rate_no_limit_kbps, expected_kbps) > 50
 
 
-def _get_tx_bandwidth_with_duration(test_microvm, host_ip, duration):
+def _get_tx_bandwidth(test_microvm, host_ip):
     """Check that the rate-limited TX bandwidth is close to what we expect."""
 
     iperf_cmd = "{} -c {} -t {} -f KBytes -w {} -N".format(
-        IPERF_BINARY, host_ip, duration, IPERF_TCP_WINDOW
+        IPERF_BINARY, host_ip, IPERF_TRANSMIT_TIME, IPERF_TCP_WINDOW
     )
     iperf_out = _run_iperf_on_guest(test_microvm, iperf_cmd)
     print(iperf_out)
