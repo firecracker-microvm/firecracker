@@ -188,9 +188,6 @@ def _check_rx_rate_limiting(test_microvm):
     eth1 = test_microvm.iface["eth1"]["iface"]
     eth2 = test_microvm.iface["eth2"]["iface"]
 
-    # Start iperf server on guest.
-    _start_iperf_server_on_guest(test_microvm)
-
     # First step: get the transfer rate when no rate limiting is enabled.
     # We are receiving the result in KBytes from iperf.
     print("Run guest RX iperf with no rate limiting")
@@ -297,10 +294,10 @@ def _check_tx_bandwidth(test_microvm, ip, expected_kbps):
 
 def _get_tx_bandwidth_with_duration(test_microvm, host_ip, duration):
     """Check that the rate-limited TX bandwidth is close to what we expect."""
+
     iperf_cmd = "{} -c {} -t {} -f KBytes -w {} -N".format(
         IPERF_BINARY, host_ip, duration, IPERF_TCP_WINDOW
     )
-
     iperf_out = _run_iperf_on_guest(test_microvm, iperf_cmd)
     print(iperf_out)
 
@@ -320,6 +317,9 @@ def _check_rx_bandwidth(test_microvm, ip, expected_kbps):
 
 def _get_rx_bandwidth_with_duration(test_microvm, guest_ip, duration):
     """Check that the rate-limited RX bandwidth is close to what we expect."""
+
+    _start_iperf_server_on_guest(test_microvm)
+
     iperf_cmd = "{} {} -c {} -t {} -f KBytes -w {} -N".format(
         test_microvm.netns.cmd_prefix(),
         IPERF_BINARY,
@@ -351,10 +351,13 @@ def _patch_iface_bw(test_microvm, iface_id, rx_or_tx, new_bucket_size, new_refil
 
 def _start_iperf_server_on_guest(test_microvm):
     """Start iperf in server mode through an SSH connection."""
+    kill_cmd = f"pkill {IPERF_BINARY}"
+    test_microvm.ssh.run(kill_cmd)
+
     iperf_cmd = f"{IPERF_BINARY} -sD -f KBytes --logfile {GUEST_IPERF_SERVER_LOG}"
     test_microvm.ssh.run(iperf_cmd)
 
-    # Wait for the iperf daemon to start.
+    # Wait for the iperf to start.
     time.sleep(1)
 
 
