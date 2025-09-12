@@ -287,29 +287,12 @@ def _check_rx_rate_limit_patch(test_microvm):
 
 
 def _check_tx_bandwidth(test_microvm, ip, expected_kbps):
-    """Check that the rate-limited TX bandwidth is close to what we expect.
-
-    At this point, a daemonized iperf3 server is expected to be running on
-    the host.
-    """
-    print("Check guest TX rate-limit; expected kbps {}".format(expected_kbps))
+    """Check that the rate-limited TX bandwidth is close to what we expect."""
     observed_kbps = _get_tx_bandwidth_with_duration(
         test_microvm, ip, IPERF_TRANSMIT_TIME
     )
-
     diff_pc = _get_percentage_difference(observed_kbps, expected_kbps)
-    print("TX calculated diff percentage: {}\n".format(diff_pc))
-
-    if diff_pc >= MAX_BYTES_DIFF_PERCENTAGE:
-        print("Short duration test failed. Try another run with 10x duration.")
-
-        observed_kbps = _get_tx_bandwidth_with_duration(
-            test_microvm, ip, 10 * IPERF_TRANSMIT_TIME
-        )
-        diff_pc = _get_percentage_difference(observed_kbps, expected_kbps)
-        print("TX calculated diff percentage: {}\n".format(diff_pc))
-
-        assert diff_pc < MAX_BYTES_DIFF_PERCENTAGE
+    assert diff_pc < MAX_BYTES_DIFF_PERCENTAGE
 
 
 def _get_tx_bandwidth_with_duration(test_microvm, host_ip, duration):
@@ -327,29 +310,12 @@ def _get_tx_bandwidth_with_duration(test_microvm, host_ip, duration):
 
 
 def _check_rx_bandwidth(test_microvm, ip, expected_kbps):
-    """Check that the rate-limited RX bandwidth is close to what we expect.
-
-    At this point, a daemonized iperf3 server is expected to be running on
-    the guest.
-    """
-    print("Check guest RX rate-limit; expected kbps {}".format(expected_kbps))
+    """Check that the rate-limited RX bandwidth is close to what we expect."""
     observed_kbps = _get_rx_bandwidth_with_duration(
         test_microvm, ip, IPERF_TRANSMIT_TIME
     )
-
     diff_pc = _get_percentage_difference(observed_kbps, expected_kbps)
-    print("RX calculated diff percentage: {}\n".format(diff_pc))
-
-    if diff_pc >= MAX_BYTES_DIFF_PERCENTAGE:
-        print("Short duration test failed. Try another run with 10x duration.")
-
-        observed_kbps = _get_rx_bandwidth_with_duration(
-            test_microvm, ip, 10 * IPERF_TRANSMIT_TIME
-        )
-        diff_pc = _get_percentage_difference(observed_kbps, expected_kbps)
-        print("TX calculated diff percentage: {}\n".format(diff_pc))
-
-        assert diff_pc < MAX_BYTES_DIFF_PERCENTAGE
+    assert diff_pc < MAX_BYTES_DIFF_PERCENTAGE
 
 
 def _get_rx_bandwidth_with_duration(test_microvm, guest_ip, duration):
