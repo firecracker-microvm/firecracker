@@ -8,51 +8,22 @@
 use std::sync::{Arc, Barrier};
 use std::{io, result};
 
-use vm_allocator::AddressAllocator;
-
-use crate::configuration::{self, PciBarRegionType};
-
 #[derive(Debug, thiserror::Error, displaydoc::Display)]
 pub enum Error {
-    /// Setup of the device capabilities failed: {0}.
-    CapabilitiesSetup(configuration::Error),
     /// Allocating space for an IO BAR failed, size={0}.
     IoAllocationFailed(u64),
-    /// Registering an IO BAR at address {0} failed: {1}
-    IoRegistrationFailed(u64, configuration::Error),
     /// Expected resource not found.
     MissingResource,
 }
-pub type Result<T> = std::result::Result<T, Error>;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct BarReprogrammingParams {
     pub old_base: u64,
     pub new_base: u64,
     pub len: u64,
-    pub region_type: PciBarRegionType,
 }
 
 pub trait PciDevice: Send {
-    /// Allocates the needed PCI BARs space using the `allocate` function which takes a size and
-    /// returns an address. Returns a Vec of (GuestAddress, GuestUsize) tuples.
-    fn allocate_bars(
-        &mut self,
-        _mmio32_allocator: &mut AddressAllocator,
-        _mmio64_allocator: &mut AddressAllocator,
-    ) -> Result<()> {
-        Ok(())
-    }
-
-    /// Frees the PCI BARs previously allocated with a call to allocate_bars().
-    fn free_bars(
-        &mut self,
-        _mmio32_allocator: &mut AddressAllocator,
-        _mmio64_allocator: &mut AddressAllocator,
-    ) -> Result<()> {
-        Ok(())
-    }
-
     /// Sets a register in the configuration space.
     /// * `reg_idx` - The index of the config register to modify.
     /// * `offset` - Offset into the register.
@@ -100,6 +71,5 @@ pub trait DeviceRelocation: Send + Sync {
         new_base: u64,
         len: u64,
         pci_dev: &mut dyn PciDevice,
-        region_type: PciBarRegionType,
     ) -> result::Result<(), io::Error>;
 }
