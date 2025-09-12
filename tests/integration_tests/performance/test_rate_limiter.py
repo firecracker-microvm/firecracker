@@ -191,9 +191,7 @@ def _check_rx_rate_limiting(test_microvm):
     # First step: get the transfer rate when no rate limiting is enabled.
     # We are receiving the result in KBytes from iperf.
     print("Run guest RX iperf with no rate limiting")
-    rate_no_limit_kbps = _get_rx_bandwidth_with_duration(
-        test_microvm, eth0.guest_ip, IPERF_TRANSMIT_TIME
-    )
+    rate_no_limit_kbps = _get_rx_bandwidth(test_microvm, eth0.guest_ip)
     print("RX rate_no_limit_kbps: {}".format(rate_no_limit_kbps))
 
     # Calculate the number of bytes that are expected to be sent
@@ -207,9 +205,7 @@ def _check_rx_rate_limiting(test_microvm):
 
     # Second step: check bandwidth when rate limiting is on.
     print("Run guest RX iperf for rate limiting without burst")
-    observed_kbps = _get_rx_bandwidth_with_duration(
-        test_microvm, eth1.guest_ip, IPERF_TRANSMIT_TIME
-    )
+    observed_kbps = _get_rx_bandwidth(test_microvm, eth1.guest_ip)
     assert _diff(observed_kbps, expected_kbps) < MAX_BYTES_DIFF_PERCENTAGE
 
     # Third step: get the number of bytes when rate limiting is on and there is
@@ -231,9 +227,7 @@ def _check_rx_rate_limiting(test_microvm):
     assert _diff(burst_kbps, expected_kbps) > 100
 
     # Since the burst should be consumed, check rate limit is in place.
-    observed_kbps = _get_rx_bandwidth_with_duration(
-        test_microvm, eth2.guest_ip, IPERF_TRANSMIT_TIME
-    )
+    observed_kbps = _get_rx_bandwidth(test_microvm, eth2.guest_ip)
     assert _diff(observed_kbps, expected_kbps) < MAX_BYTES_DIFF_PERCENTAGE
 
 
@@ -273,23 +267,17 @@ def _check_rx_rate_limit_patch(test_microvm):
     # Check that an RX rate limiter can be applied to a previously unlimited
     # interface.
     _patch_iface_bw(test_microvm, "eth0", "RX", bucket_size, REFILL_TIME_MS)
-    observed_kbps = _get_rx_bandwidth_with_duration(
-        test_microvm, eth0.guest_ip, IPERF_TRANSMIT_TIME
-    )
+    observed_kbps = _get_rx_bandwidth(test_microvm, eth0.guest_ip)
     assert _diff(observed_kbps, expected_kbps) < MAX_BYTES_DIFF_PERCENTAGE
 
     # Check that an RX rate limiter can be updated.
     _patch_iface_bw(test_microvm, "eth1", "RX", bucket_size, REFILL_TIME_MS)
-    observed_kbps = _get_rx_bandwidth_with_duration(
-        test_microvm, eth1.guest_ip, IPERF_TRANSMIT_TIME
-    )
+    observed_kbps = _get_rx_bandwidth(test_microvm, eth1.guest_ip)
     assert _diff(observed_kbps, expected_kbps) < MAX_BYTES_DIFF_PERCENTAGE
 
     # Check that an RX rate limiter can be removed.
     _patch_iface_bw(test_microvm, "eth0", "RX", 0, 0)
-    rate_no_limit_kbps = _get_rx_bandwidth_with_duration(
-        test_microvm, eth0.guest_ip, IPERF_TRANSMIT_TIME
-    )
+    rate_no_limit_kbps = _get_rx_bandwidth(test_microvm, eth0.guest_ip)
     # Check that bandwidth when rate-limit disabled is at least 1.5x larger
     # than the one when rate limiting was enabled.
     assert _diff(rate_no_limit_kbps, expected_kbps) > 50
@@ -318,7 +306,7 @@ def _get_tx_bandwidth_with_duration(test_microvm, host_ip, duration):
     return observed_kbps
 
 
-def _get_rx_bandwidth_with_duration(test_microvm, guest_ip, duration):
+def _get_rx_bandwidth(test_microvm, guest_ip):
     """Check that the rate-limited RX bandwidth is close to what we expect."""
 
     _start_iperf_server_on_guest(test_microvm)
@@ -327,7 +315,7 @@ def _get_rx_bandwidth_with_duration(test_microvm, guest_ip, duration):
         test_microvm.netns.cmd_prefix(),
         IPERF_BINARY,
         guest_ip,
-        duration,
+        IPERF_TRANSMIT_TIME,
         IPERF_TCP_WINDOW,
     )
     iperf_out = _run_iperf_on_host(iperf_cmd, test_microvm)
