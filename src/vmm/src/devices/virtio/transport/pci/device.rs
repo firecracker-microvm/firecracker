@@ -938,8 +938,6 @@ impl PciDevice for VirtioPciDevice {
                     let _ = interrupt.trigger(VirtioInterruptType::Config);
                 }
             }
-        } else {
-            debug!("Device doesn't need activation");
         }
 
         // Device has been reset by the driver
