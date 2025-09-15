@@ -41,7 +41,7 @@ RATE_LIMITER_WITH_BURST = {
 
 # Deltas that are accepted between expected values and achieved
 # values throughout the tests
-MAX_BYTES_DIFF_PERCENTAGE = 10
+MAX_RELATIVE_KBPS_CHANGE = 0.1
 MAX_TIME_DIFF = 25
 
 
@@ -152,12 +152,12 @@ def _check_tx_rate_limiting(test_microvm):
 
     # Sanity check that bandwidth with no rate limiting is at least double
     # than the one expected when rate limiting is in place.
-    assert _diff(rate_no_limit_kbps, expected_kbps) > 100
+    assert _relative_change(rate_no_limit_kbps, expected_kbps) > 1.0
 
     # Second step: check bandwidth when rate limiting is on.
     print("Run guest TX iperf for rate limiting without burst")
     observed_kbps = _get_tx_bandwidth(test_microvm, eth1.host_ip)
-    assert _diff(observed_kbps, expected_kbps) < MAX_BYTES_DIFF_PERCENTAGE
+    assert _relative_change(observed_kbps, expected_kbps) < MAX_RELATIVE_KBPS_CHANGE
 
     # Third step: get the number of bytes when rate limiting is on and there is
     # an initial burst size from where to consume.
@@ -172,11 +172,11 @@ def _check_tx_rate_limiting(test_microvm):
     _, burst_kbps = _process_iperf_output(iperf_out)
     print("TX burst_kbps: {}".format(burst_kbps))
     # Test that the burst bandwidth is at least as two times the rate limit.
-    assert _diff(burst_kbps, expected_kbps) > 100
+    assert _relative_change(burst_kbps, expected_kbps) > 1.0
 
     # Since the burst should be consumed, check rate limit is in place.
     observed_kbps = _get_tx_bandwidth(test_microvm, eth2.host_ip)
-    assert _diff(observed_kbps, expected_kbps) < MAX_BYTES_DIFF_PERCENTAGE
+    assert _relative_change(observed_kbps, expected_kbps) < MAX_RELATIVE_KBPS_CHANGE
 
 
 def _check_rx_rate_limiting(test_microvm):
@@ -198,12 +198,12 @@ def _check_rx_rate_limiting(test_microvm):
 
     # Sanity check that bandwidth with no rate limiting is at least double
     # than the one expected when rate limiting is in place.
-    assert _diff(rate_no_limit_kbps, expected_kbps) > 100
+    assert _relative_change(rate_no_limit_kbps, expected_kbps) > 1.0
 
     # Second step: check bandwidth when rate limiting is on.
     print("Run guest RX iperf for rate limiting without burst")
     observed_kbps = _get_rx_bandwidth(test_microvm, eth1.guest_ip)
-    assert _diff(observed_kbps, expected_kbps) < MAX_BYTES_DIFF_PERCENTAGE
+    assert _relative_change(observed_kbps, expected_kbps) < MAX_RELATIVE_KBPS_CHANGE
 
     # Third step: get the number of bytes when rate limiting is on and there is
     # an initial burst size from where to consume.
@@ -221,11 +221,11 @@ def _check_rx_rate_limiting(test_microvm):
     _, burst_kbps = _process_iperf_output(iperf_out)
     print("RX burst_kbps: {}".format(burst_kbps))
     # Test that the burst bandwidth is at least as two times the rate limit.
-    assert _diff(burst_kbps, expected_kbps) > 100
+    assert _relative_change(burst_kbps, expected_kbps) > 1.0
 
     # Since the burst should be consumed, check rate limit is in place.
     observed_kbps = _get_rx_bandwidth(test_microvm, eth2.guest_ip)
-    assert _diff(observed_kbps, expected_kbps) < MAX_BYTES_DIFF_PERCENTAGE
+    assert _relative_change(observed_kbps, expected_kbps) < MAX_RELATIVE_KBPS_CHANGE
 
 
 def _check_tx_rate_limit_patch(test_microvm):
@@ -239,19 +239,19 @@ def _check_tx_rate_limit_patch(test_microvm):
     # interface.
     _patch_iface_bw(test_microvm, "eth0", "TX", bucket_size, REFILL_TIME_MS)
     observed_kbps = _get_tx_bandwidth(test_microvm, eth0.host_ip)
-    assert _diff(observed_kbps, expected_kbps) < MAX_BYTES_DIFF_PERCENTAGE
+    assert _relative_change(observed_kbps, expected_kbps) < MAX_RELATIVE_KBPS_CHANGE
 
     # Check that a TX rate limiter can be updated.
     _patch_iface_bw(test_microvm, "eth1", "TX", bucket_size, REFILL_TIME_MS)
     observed_kbps = _get_tx_bandwidth(test_microvm, eth1.host_ip)
-    assert _diff(observed_kbps, expected_kbps) < MAX_BYTES_DIFF_PERCENTAGE
+    assert _relative_change(observed_kbps, expected_kbps) < MAX_RELATIVE_KBPS_CHANGE
 
     # Check that a TX rate limiter can be removed.
     _patch_iface_bw(test_microvm, "eth0", "TX", 0, 0)
     rate_no_limit_kbps = _get_tx_bandwidth(test_microvm, eth0.host_ip)
     # Check that bandwidth when rate-limit disabled is at least 1.5x larger
     # than the one when rate limiting was enabled.
-    assert _diff(rate_no_limit_kbps, expected_kbps) > 50
+    assert _relative_change(rate_no_limit_kbps, expected_kbps) > 0.5
 
 
 def _check_rx_rate_limit_patch(test_microvm):
@@ -265,19 +265,19 @@ def _check_rx_rate_limit_patch(test_microvm):
     # interface.
     _patch_iface_bw(test_microvm, "eth0", "RX", bucket_size, REFILL_TIME_MS)
     observed_kbps = _get_rx_bandwidth(test_microvm, eth0.guest_ip)
-    assert _diff(observed_kbps, expected_kbps) < MAX_BYTES_DIFF_PERCENTAGE
+    assert _relative_change(observed_kbps, expected_kbps) < MAX_RELATIVE_KBPS_CHANGE
 
     # Check that an RX rate limiter can be updated.
     _patch_iface_bw(test_microvm, "eth1", "RX", bucket_size, REFILL_TIME_MS)
     observed_kbps = _get_rx_bandwidth(test_microvm, eth1.guest_ip)
-    assert _diff(observed_kbps, expected_kbps) < MAX_BYTES_DIFF_PERCENTAGE
+    assert _relative_change(observed_kbps, expected_kbps) < MAX_RELATIVE_KBPS_CHANGE
 
     # Check that an RX rate limiter can be removed.
     _patch_iface_bw(test_microvm, "eth0", "RX", 0, 0)
     rate_no_limit_kbps = _get_rx_bandwidth(test_microvm, eth0.guest_ip)
     # Check that bandwidth when rate-limit disabled is at least 1.5x larger
     # than the one when rate limiting was enabled.
-    assert _diff(rate_no_limit_kbps, expected_kbps) > 50
+    assert _relative_change(rate_no_limit_kbps, expected_kbps) > 0.5
 
 
 def _get_tx_bandwidth(test_microvm, host_ip):
@@ -372,10 +372,10 @@ def _run_iperf_on_host(iperf_cmd, test_microvm):
     return stdout
 
 
-def _diff(measured, base):
+def _relative_change(measured, base):
     """Return the percentage delta between the arguments."""
     assert base != 0
-    return (abs(measured - base) / base) * 100.0
+    return abs(measured - base) / base
 
 
 def _process_iperf_line(line):
