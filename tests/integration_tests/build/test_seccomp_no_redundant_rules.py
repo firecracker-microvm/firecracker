@@ -13,6 +13,9 @@ from framework.static_analysis import (
     load_seccomp_rules,
 )
 
+# Make sure we don't override the Firecracker binary used from other tests
+TMP_BUILD_DIR = "../redundant_seccomp_rules_build"
+
 
 def test_redundant_seccomp_rules():
     """Test that fails if static analysis determines redundant seccomp rules"""
@@ -24,11 +27,11 @@ def test_redundant_seccomp_rules():
     target = f"{arch}-unknown-linux-musl"
 
     utils.check_output(
-        f'RUSTFLAGS="-C relocation-model=static -C link-args=-no-pie" cargo +{nightly_toolchain} -Zbuild-std=panic_abort,std build --release --target {target} -p firecracker'
+        f'CARGO_TARGET_DIR={TMP_BUILD_DIR} RUSTFLAGS="-C relocation-model=static -C link-args=-no-pie" cargo +{nightly_toolchain} -Zbuild-std=panic_abort,std build --release --target {target} -p firecracker'
     )
 
     found_syscalls = find_syscalls_in_binary(
-        Path(f"../build/cargo_target/{target}/release/firecracker")
+        Path(f"{TMP_BUILD_DIR}/{target}/release/firecracker")
     )
 
     seccomp_rules = load_seccomp_rules(Path(f"../resources/seccomp/{target}.json"))
