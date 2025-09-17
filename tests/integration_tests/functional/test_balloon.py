@@ -228,6 +228,9 @@ def test_deflate_on_oom(uvm_plain_any, deflate_on_oom):
             assert balloon_size_after < balloon_size_before, "Balloon did not deflate"
         else:
             assert balloon_size_after >= balloon_size_before, "Balloon deflated"
+            # Kill it here, letting the infrastructure know that the process might
+            # be dead already.
+            test_microvm.kill(might_be_dead=True)
 
 
 # pylint: disable=C0103
