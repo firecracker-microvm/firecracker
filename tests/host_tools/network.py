@@ -145,11 +145,21 @@ class SSHConnection:
                 self.close()
             raise
 
-    def _check_liveness(self) -> int:
-        """Checks whether the ControlPersist connection is still alive"""
+    def _check_liveness(self, strict=True) -> int | None:
+        """Checks whether the ControlPersist connection is still alive
+
+        It will return the pid of the ControlMaster if it is still running,
+        otherwise None
+        """
         check_cmd = ["ssh", "-O", "check", *self.options, self.user_host]
 
-        _, _, stderr = self._exec(check_cmd, check=True)
+        try:
+            _, _, stderr = self._exec(check_cmd, check=True)
+        except ChildProcessError:
+            if strict:
+                raise
+
+            return None
 
         pid_match = re.match(r"Master running \(pid=(\d+)\)", stderr)
 
@@ -157,9 +167,11 @@ class SSHConnection:
 
         return int(pid_match.group(1))
 
-    def close(self):
+    def close(self, strict=True):
         """Closes the ControlPersist connection"""
-        master_pid = self._check_liveness()
+        master_pid = self._check_liveness(strict)
+        if master_pid is None:
+            return
 
         stop_cmd = ["ssh", "-O", "stop", *self.options, self.user_host]
 
@@ -182,7 +194,7 @@ class SSHConnection:
 
         If `debug` is set, pass `-vvv` to `ssh`. Note that this will clobber stderr.
         """
-        self._check_liveness()
+        self._check_liveness(True)
 
         command = ["ssh", *self.options, self.user_host, cmd_string]
 

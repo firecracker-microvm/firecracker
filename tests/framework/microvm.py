@@ -301,7 +301,7 @@ class Microvm:
 
         self._killed = True
 
-    def kill(self):
+    def kill(self, might_be_dead=False):
         """All clean up associated with this microVM should go here."""
         # pylint: disable=subprocess-run-check
         # if it was already killed, return
@@ -314,7 +314,7 @@ class Microvm:
 
         # Kill all background SSH connections
         for connection in self._connections:
-            connection.close()
+            connection.close(strict=not might_be_dead)
 
         # We start with vhost-user backends,
         # because if we stop Firecracker first, the backend will want
@@ -325,8 +325,10 @@ class Microvm:
 
         assert (
             "Shutting down VM after intercepting signal" not in self.log_data
+            or might_be_dead
         ), self.log_data
 
+        # pylint: disable=bare-except
         try:
             if self.firecracker_pid:
                 os.kill(self.firecracker_pid, signal.SIGKILL)
@@ -334,15 +336,16 @@ class Microvm:
             if self.screen_pid:
                 os.kill(self.screen_pid, signal.SIGKILL)
         except:
-            msg = (
-                "Failed to kill Firecracker Process. Did it already die (or did the UFFD handler process die and take it down)?"
-                if self.uffd_handler
-                else "Failed to kill Firecracker Process. Did it already die?"
-            )
+            if not might_be_dead:
+                msg = (
+                    "Failed to kill Firecracker Process. Did it already die (or did the UFFD handler process die and take it down)?"
+                    if self.uffd_handler
+                    else "Failed to kill Firecracker Process. Did it already die?"
+                )
 
-            self._dump_debug_information(msg)
+                self._dump_debug_information(msg)
 
-            raise
+                raise
 
         # if microvm was spawned then check if it gets killed
         if self._spawned:
