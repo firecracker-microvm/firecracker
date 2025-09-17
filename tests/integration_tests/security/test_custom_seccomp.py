@@ -6,8 +6,6 @@ import platform
 import time
 from pathlib import Path
 
-import requests
-
 from framework import utils
 
 
@@ -76,9 +74,10 @@ def test_failing_filter(uvm_plain, seccompiler):
     test_microvm.basic_config(vcpu_count=1)
 
     # Try to start the VM with error checking off, because it will fail.
+    # pylint: disable=bare-except
     try:
         test_microvm.start()
-    except requests.exceptions.ConnectionError:
+    except:
         pass
 
     # Give time for the process to get killed
