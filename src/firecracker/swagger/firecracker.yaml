@@ -282,6 +282,38 @@ paths:
           schema:
             $ref: "#/definitions/Error"
 
+  /pmem/{id}:
+    put:
+      summary: Creates or updates a pmem device. Pre-boot only.
+      description:
+        Creates new pmem device with ID specified by id parameter.
+        If a pmem device with the specified ID already exists, updates its state based on new input.
+        Will fail if update is not possible.
+      operationId: putGuestPmemByID
+      parameters:
+        - name: id
+          in: path
+          description: The id of the guest pmem device
+          required: true
+          type: string
+        - name: body
+          in: body
+          description: Guest pmem device properties
+          required: true
+          schema:
+            $ref: "#/definitions/Pmem"
+      responses:
+        204:
+          description: Pmem device is created/updated
+        400:
+          description: Pmem device cannot be created/updated due to bad input
+          schema:
+            $ref: "#/definitions/Error"
+        default:
+          description: Internal server error.
+          schema:
+            $ref: "#/definitions/Error"
+
   /logger:
     put:
       summary: Initializes the logger by specifying a named pipe or a file for the logs output.
@@ -933,6 +965,30 @@ definitions:
         description:
           Path to the socket of vhost-user-block backend.
           This field is required for vhost-user-block config should be omitted for virtio-block configuration.
+
+  Pmem:
+    type: object
+    required:
+      - id
+      - path_on_host
+    properties:
+      id:
+        type: string
+        description:
+          Identificator for this device.
+      path_on_host:
+        type: string
+        description:
+          Host level path for the virtio-pmem device to use as a backing file.
+      root_device:
+        type: boolean
+        description:
+          Flag to make this device be the root device for VM boot.
+          Setting this flag will fail if there is another device configured to be a root device already.
+      read_only:
+        type: boolean
+        description:
+          Flag to map backing file in read-only mode.
 
   Error:
     type: object
