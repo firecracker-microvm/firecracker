@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/bash
 # Copyright 2023 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 # SPDX-License-Identifier: Apache-2.0
 
@@ -14,29 +14,189 @@ OUTPUT_DIR=$PWD/$ARCH
 GIT_ROOT_DIR=$(git rev-parse --show-toplevel)
 source "$GIT_ROOT_DIR/tools/functions"
 
-# Make sure we have all the needed tools
-function install_dependencies {
-    apt update
-    apt install -y bc flex bison gcc make libelf-dev libssl-dev squashfs-tools busybox-static tree cpio curl patch docker.io
-
-    # Install Go
-    version=$(curl -s https://go.dev/VERSION?m=text | head -n 1)
-    case $ARCH in
-        x86_64) archive="${version}.linux-amd64.tar.gz" ;;
-        aarch64) archive="${version}.linux-arm64.tar.gz" ;;
-    esac
-    curl -LO http://go.dev/dl/${archive}
-    tar -C /usr/local -xzf $archive
-    export PATH=$PATH:/usr/local/go/bin
-    go version
-    rm $archive
+# Container runtime detection (Docker or Podman)
+detect_container_runtime() {
+    if command -v docker &>/dev/null && docker info &>/dev/null; then
+        echo "docker"
+    elif command -v podman &>/dev/null; then
+        echo "podman"
+    else
+        echo ""
+    fi
 }
 
-function prepare_docker {
-    nohup /usr/bin/dockerd --host=unix:///var/run/docker.sock --host=tcp://127.0.0.1:2375 &
+# Detect the host OS
+detect_os() {
+    if [ -f /etc/os-release ]; then
+        . /etc/os-release
+        echo $ID
+    else
+        echo $(uname -s | tr '[:upper:]' '[:lower:]')
+    fi
+}
 
-    # Wait for Docker socket to be created
-    timeout 15 sh -c "until docker info; do echo .; sleep 1; done"
+# Get container runtime
+CONTAINER_RUNTIME=$(detect_container_runtime)
+if [ -z "$CONTAINER_RUNTIME" ]; then
+    say "Warning: Neither Docker nor Podman found. Some features may not work."
+fi
+
+# Generate an incremental name for directories/files to avoid conflicts
+function getIncName {
+    local base_name="$1"
+    local counter=0
+    local name="$base_name"
+    
+    while [ -e "$name" ]; do
+        counter=$((counter + 1))
+        name="${base_name}_${counter}"
+    done
+    
+    echo "$name"
+}
+
+# Check if we can use fakeroot to reduce sudo usage
+function check_fakeroot_support {
+    if command -v fakeroot &>/dev/null; then
+        echo "fakeroot"
+    else
+        echo ""
+    fi
+}
+
+# Create ext4 image from directory (more robust than the previous version)
+function dir2ext4img {
+    local DIR=$1
+    local IMG=$2
+    local SIZE="${3}M"  # Append M to the size, to specify the size in MB
+    local TMP_MNT=$(mktemp -d)
+
+    # Create the image file
+    truncate -s "$SIZE" "$IMG"
+    mkfs.ext4 -F "$IMG"
+    
+    # SUDO NEEDED: Only root can mount filesystems
+    sudo mount "$IMG" "$TMP_MNT"
+    # SUDO NEEDED: Copy files preserving ownership (container files are root-owned)
+    sudo tar c -C "$DIR" . | sudo tar x -C "$TMP_MNT"
+    # SUDO NEEDED: Only root can unmount filesystems
+    sudo umount "$TMP_MNT"
+    rmdir "$TMP_MNT"
+    
+    # SUDO NEEDED: Fix ownership of the created image file
+    sudo chown $USER: "$IMG"
+    
+    say "Created ext4 image: $IMG (${SIZE})"
+}
+
+# Make sure we have all the needed tools
+function install_dependencies {
+    # Check if we're already inside nix-shell (like rebuild-kernal.sh does)
+    if [ -n "${IN_NIX_SHELL:-}" ]; then
+        say "Already inside nix-shell, skipping dependency installation"
+        return
+    fi
+    
+    # Detect OS for package manager selection
+    local os=$(detect_os)
+    
+    case $os in
+        ubuntu|debian)
+            apt update
+            apt install -y bc flex bison gcc make libelf-dev libssl-dev squashfs-tools busybox-static tree cpio curl patch
+            
+            # Install container runtime if not present
+            if [ -z "$CONTAINER_RUNTIME" ]; then
+                say "Installing Docker as no container runtime was found"
+                apt install -y docker.io
+                CONTAINER_RUNTIME="docker"
+            fi
+            ;;
+        fedora|centos)
+            if command -v dnf &>/dev/null; then
+                dnf install -y bc flex bison gcc make elfutils-libelf-devel openssl-devel squashfs-tools busybox tree cpio curl patch
+                if [ -z "$CONTAINER_RUNTIME" ]; then
+                    dnf install -y docker
+                    CONTAINER_RUNTIME="docker"
+                fi
+            else
+                yum install -y bc flex bison gcc make elfutils-libelf-devel openssl-devel squashfs-tools busybox tree cpio curl patch
+                if [ -z "$CONTAINER_RUNTIME" ]; then
+                    yum install -y docker
+                    CONTAINER_RUNTIME="docker"
+                fi
+            fi
+            ;;
+        arch)
+            # Arch Linux package installation
+            say "Installing dependencies for Arch Linux"
+            pacman -Sy --noconfirm bc flex bison gcc make libelf openssl squashfs-tools busybox tree cpio curl patch
+            
+            # Install container runtime if not present
+            if [ -z "$CONTAINER_RUNTIME" ]; then
+                say "Installing Docker as no container runtime was found"
+                pacman -S --noconfirm docker
+                systemctl enable docker
+                systemctl start docker
+                CONTAINER_RUNTIME="docker"
+            fi
+            ;;
+        nixos)
+            # NixOS package installation - use the same approach as rebuild-kernal.sh
+            say "Installing dependencies for NixOS"
+            # Create a temporary nix expression
+            NIX_TEMP=$(mktemp)
+            trap 'rm -f "$NIX_TEMP"' EXIT
+            
+            cat > "$NIX_TEMP" <<'EOF'
+with import <nixpkgs> {};
+mkShell {
+  buildInputs = [
+    bc flex bison gcc gnumake elfutils openssl
+    squashfsTools busybox tree cpio curl docker
+  ];
+}
+EOF
+            # Execute nix-shell with our temporary expression
+            exec nix-shell "$NIX_TEMP" --run "exec $0 $*"
+            ;;
+        *)
+            say "Warning: Unknown OS '$os'. Please install dependencies manually:"
+            say "Required packages: bc flex bison gcc make libelf-dev openssl-dev squashfs-tools busybox tree cpio curl patch docker"
+            say "Try installing these packages using your system's package manager."
+            die "Unsupported OS '$os'. Please install dependencies manually and re-run the script."
+            ;;
+    esac
+
+    # Install Go if not present
+    if ! command -v go &>/dev/null; then
+        say "Installing Go"
+        version=$(curl -s https://go.dev/VERSION?m=text | head -n 1)
+        case $ARCH in
+            x86_64) archive="${version}.linux-amd64.tar.gz" ;;
+            aarch64) archive="${version}.linux-arm64.tar.gz" ;;
+        esac
+        curl -LO http://go.dev/dl/${archive}
+        tar -C /usr/local -xzf $archive
+        export PATH=$PATH:/usr/local/go/bin
+        go version
+        rm $archive
+    else
+        say "Go already installed: $(go version)"
+    fi
+}
+
+function prepare_container_runtime {
+    if [ "$CONTAINER_RUNTIME" = "docker" ]; then
+        nohup /usr/bin/dockerd --host=unix:///var/run/docker.sock --host=tcp://127.0.0.1:2375 &
+        # Wait for Docker socket to be created
+        timeout 15 sh -c "until docker info; do echo .; sleep 1; done"
+    elif [ "$CONTAINER_RUNTIME" = "podman" ]; then
+        # Podman doesn't need a daemon, but ensure it's working
+        podman info >/dev/null || die "Podman is not working properly"
+    else
+        die "No container runtime available. Please install Docker or Podman."
+    fi
 }
 
 function compile_and_install {
@@ -57,14 +217,30 @@ function compile_and_install {
 
 # Build a rootfs
 function build_rootfs {
-    local ROOTFS_NAME=$1
-    local flavour=${2}
-    local FROM_CTR=public.ecr.aws/ubuntu/ubuntu:$flavour
-    local rootfs="tmp_rootfs"
+    local ROOTFS_NAME=${1:-"ubuntu-24.04"}
+    local flavour=${2:-"noble"}
+    local format=${3:-"squashfs"}  # squashfs or ext4
+    local filesize_mb=${4:-2048}   # Default 2GB for ext4
+    local custom_output_dir=${5:-""}
+    
+    # Support both docker.io/library/ and public.ecr.aws formats
+    local FROM_CTR
+    if [[ "$flavour" =~ ^[0-9]+$ ]]; then
+        # Numeric version, use docker.io format
+        FROM_CTR="docker.io/library/ubuntu:$flavour"
+    else
+        # Named version, use ECR format
+        FROM_CTR="public.ecr.aws/ubuntu/ubuntu:$flavour"
+    fi
+    
+    local rootfs=$(getIncName "tmp_rootfs")
+    local actual_output_dir=${custom_output_dir:-$OUTPUT_DIR}
+    
     mkdir -pv "$rootfs"
+    mkdir -pv "$actual_output_dir"
 
-    # Launch Docker
-    prepare_docker
+    # Launch container runtime
+    prepare_container_runtime
 
     cp -rvf overlay/* $rootfs
 
@@ -73,7 +249,9 @@ function build_rootfs {
     # TBD use systemd-nspawn instead of Docker
     #   sudo tar xaf ubuntu-22.04-minimal-cloudimg-amd64-root.tar.xz -C $rootfs
     #   sudo systemd-nspawn --resolv-conf=bind-uplink -D $rootfs
-    docker run --env rootfs=$rootfs --privileged --rm -i -v "$PWD:/work" -w /work "$FROM_CTR" bash -s <<'EOF'
+
+    # Use detected container runtime
+    $CONTAINER_RUNTIME run --env rootfs=$rootfs --privileged --rm -i -v "$PWD:/work" -w /work "$FROM_CTR" bash -s <<'EOF'
 
 ./chroot.sh
 
@@ -83,18 +261,63 @@ for d in $dirs; do tar c "/$d" | tar x -C $rootfs; done
 
 # Make mountpoints
 mkdir -pv $rootfs/{dev,proc,sys,run,tmp,var/lib/systemd}
-# So apt works
-mkdir -pv $rootfs/var/lib/dpkg/
 EOF
 
     # TBD what abt /etc/hosts?
-    echo | tee $rootfs/etc/resolv.conf
+    echo | tee $rootfs/etc/resolv.conf >/dev/null
 
-    rootfs_img="$OUTPUT_DIR/$ROOTFS_NAME.squashfs"
-    mv $rootfs/root/manifest $OUTPUT_DIR/$ROOTFS_NAME.manifest
-    mksquashfs $rootfs $rootfs_img -all-root -noappend -comp zstd
-    rm -rf $rootfs
+    # Generate SSH key for root access from host
+    if [ ! -s id_rsa ]; then
+        say "Generating SSH key for root access"
+        ssh-keygen -f id_rsa -N "" -C "firecracker-rootfs-$(date +%Y%m%d)"
+    fi
+    
+    # Create SSH directory and setup keys (minimize sudo usage)
+    mkdir -p "$rootfs/root/.ssh/"
+    cp id_rsa.pub "$rootfs/root/.ssh/authorized_keys"
+    chmod 700 "$rootfs/root/.ssh/"
+    chmod 600 "$rootfs/root/.ssh/authorized_keys"
+    
+    # Copy SSH private key to output directory (no sudo needed initially)
+    local id_rsa_output="$actual_output_dir/$ROOTFS_NAME.id_rsa"
+    cp id_rsa "$id_rsa_output"
+    chmod 600 "$id_rsa_output"
+    say "SSH private key saved: $id_rsa_output"
+
+    # Move manifest if it exists (no sudo needed for move)
+    if [ -f "$rootfs/root/manifest" ]; then
+        mv "$rootfs/root/manifest" "$actual_output_dir/$ROOTFS_NAME.manifest"
+    else
+        say "Warning: Manifest file not found at $rootfs/root/manifest"
+    fi
+
+    if [ "$format" = "ext4" ]; then
+        # Create ext4 image using the improved function (sudo only where needed)
+        rootfs_img="$actual_output_dir/$ROOTFS_NAME.ext4"
+        dir2ext4img "$rootfs" "$rootfs_img" "$filesize_mb"
+    else
+        # Create squashfs image (sudo only for mksquashfs)
+        rootfs_img="$actual_output_dir/$ROOTFS_NAME.squashfs"
+        
+        # SUDO NEEDED: mksquashfs with -all-root requires root privileges to set 
+        # correct file ownership in the guest filesystem image
+        local MKSQUASHFS=$(which mksquashfs)
+        sudo "$MKSQUASHFS" "$rootfs" "$rootfs_img" -all-root -noappend -comp zstd
+        say "Created squashfs rootfs: $rootfs_img"
+        
+        # SUDO NEEDED: Fix ownership of the image file created by root
+        sudo chown $USER: "$rootfs_img"
+    fi
+    
+    # SUDO NEEDED: Remove container-created files which are owned by root
+    # (Docker/Podman containers run as root and create root-owned files)
+    sudo rm -rf "$rootfs"
     rm -f nohup.out
+    
+    # SUDO NEEDED: Fix ownership of any files that might have been created with root ownership
+    if [ -f "$actual_output_dir/$ROOTFS_NAME.manifest" ]; then
+        sudo chown $USER: "$actual_output_dir/$ROOTFS_NAME.manifest" 2>/dev/null || true
+    fi
 }
 
 
@@ -198,6 +421,13 @@ function build_al_kernel {
 }
 
 function prepare_and_build_rootfs {
+    local rootfs_name=${1:-"ubuntu-24.04"}
+    local distro=${2:-"ubuntu"}
+    local version=${3:-"noble"}
+    local format=${4:-"squashfs"}
+    local filesize_mb=${5:-2048}
+    local custom_output_dir=${6:-""}
+    
     BIN_DIR=overlay/usr/local/bin
 
     SRCS=(init.c fillmem.c fast_page_fault_helper.c readmem.c go_sdk_cred_provider.go go_sdk_cred_provider_with_custom_endpoint.go)
@@ -209,8 +439,12 @@ function prepare_and_build_rootfs {
         compile_and_install $BIN_DIR/$SRC
     done
 
-    build_rootfs ubuntu-24.04 noble
-    build_initramfs
+    build_rootfs "$rootfs_name" "$version" "$format" "$filesize_mb" "$custom_output_dir"
+    
+    # Only build initramfs for default builds
+    if [ -z "$custom_output_dir" ]; then
+        build_initramfs
+    fi
 
     for SRC in ${SRCS[@]}; do
         BIN="${SRC%.*}"
@@ -289,8 +523,18 @@ Available commands:
         resources/guest_configs/patches.
         This is the default command, if no command is chosen.
 
-    rootfs
-        Builds only the CI rootfs.
+    rootfs [name] [distro] [version] [format] [size_mb] [output_dir]
+        Builds only the CI rootfs with optional customization.
+        
+        name:       Rootfs name (default: ubuntu-24.04)
+        distro:     Distribution (default: ubuntu)
+        version:    Version/codename (default: noble)
+        format:     Output format: squashfs or ext4 (default: squashfs)
+        size_mb:    Size in MB for ext4 format (default: 2048)
+        output_dir: Custom output directory (default: current/arch)
+        
+        Note: Automatically generates SSH key for root access and avoids
+              naming conflicts using incremental naming.
 
     kernels [version]
         Builds our the currently supported CI kernels.
@@ -300,6 +544,22 @@ Available commands:
 
     help
         Displays the help message and exits.
+
+Examples:
+    $(basename $0)                                          # Build everything (default)
+    $(basename $0) rootfs                                   # Build default rootfs only
+    $(basename $0) rootfs myapp ubuntu noble ext4 4096     # Custom ext4 rootfs (4GB)
+    $(basename $0) kernels 6.1                            # Build only 6.1 kernel
+
+Container Runtime:
+    Automatically detects and uses Docker or Podman.
+    Current runtime: ${CONTAINER_RUNTIME:-"none detected"}
+
+Supported Operating Systems:
+    - Ubuntu/Debian (apt)
+    - Fedora/RHEL/CentOS (dnf/yum)
+    - Arch Linux (pacman)
+    - NixOS (nix-env/nix profile)
 EOF
 }
 
@@ -308,7 +568,37 @@ function main {
         local MODE="all"
     else
         case $1 in
-            all|rootfs|kernels)
+            all)
+                local MODE=$1
+                shift
+                ;;
+            rootfs)
+                local MODE=$1
+                shift
+                # Parse optional rootfs arguments
+                local ROOTFS_NAME=${1:-"ubuntu-24.04"}
+                local DISTRO=${2:-"ubuntu"}
+                local VERSION=${3:-"noble"}
+                local FORMAT=${4:-"squashfs"}
+                local SIZE_MB=${5:-2048}
+                local CUSTOM_OUTPUT_DIR=${6:-""}
+                
+                # Validate format
+                if [[ "$FORMAT" != "squashfs" && "$FORMAT" != "ext4" ]]; then
+                    die "Invalid format '$FORMAT'. Supported formats: squashfs, ext4"
+                fi
+                
+                # Validate size for ext4
+                if [[ "$FORMAT" == "ext4" && ! "$SIZE_MB" =~ ^[0-9]+$ ]]; then
+                    die "Invalid size '$SIZE_MB'. Size must be a number (MB)"
+                fi
+                
+                # Validate size minimum
+                if [[ "$FORMAT" == "ext4" && "$SIZE_MB" -lt 100 ]]; then
+                    die "Size too small: ${SIZE_MB}MB. Minimum size for ext4 is 100MB"
+                fi
+                ;;
+            kernels)
                 local MODE=$1
                 shift
                 ;;
@@ -330,7 +620,13 @@ function main {
 
     if [[ "$MODE" =~ (all|rootfs) ]]; then
         say "Building rootfs"
-        prepare_and_build_rootfs
+        if [ "$MODE" = "rootfs" ]; then
+            # Custom rootfs build with parameters
+            prepare_and_build_rootfs "$ROOTFS_NAME" "$DISTRO" "$VERSION" "$FORMAT" "$SIZE_MB" "$CUSTOM_OUTPUT_DIR"
+        else
+            # Default all build
+            prepare_and_build_rootfs
+        fi
     fi
 
     if [[ "$MODE" =~ (all|kernels) ]]; then
@@ -338,7 +634,12 @@ function main {
         build_al_kernels "$@"
     fi
 
-    tree -h $OUTPUT_DIR
+    if [ -z "$CUSTOM_OUTPUT_DIR" ]; then
+        tree -h $OUTPUT_DIR
+    else
+        tree -h "$CUSTOM_OUTPUT_DIR"
+        tree -h $OUTPUT_DIR
+    fi
 }
 
 main "$@"
