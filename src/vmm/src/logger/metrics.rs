@@ -415,6 +415,10 @@ pub struct PutRequestsMetrics {
     pub vsock_count: SharedIncMetric,
     /// Number of failures in creating a vsock device.
     pub vsock_fails: SharedIncMetric,
+    /// Number of PUTs triggering a pmem attach.
+    pub pmem_count: SharedIncMetric,
+    /// Number of failures in attaching a pmem device.
+    pub pmem_fails: SharedIncMetric,
     /// Number of PUTs to /serial
     pub serial_count: SharedIncMetric,
     /// Number of failed PUTs to /serial
@@ -444,6 +448,8 @@ impl PutRequestsMetrics {
             mmds_fails: SharedIncMetric::new(),
             vsock_count: SharedIncMetric::new(),
             vsock_fails: SharedIncMetric::new(),
+            pmem_count: SharedIncMetric::new(),
+            pmem_fails: SharedIncMetric::new(),
             serial_count: SharedIncMetric::new(),
             serial_fails: SharedIncMetric::new(),
         }
