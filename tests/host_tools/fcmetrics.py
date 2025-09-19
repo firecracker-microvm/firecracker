@@ -223,6 +223,8 @@ def validate_fc_metrics(metrics):
             "mmds_fails",
             "vsock_count",
             "vsock_fails",
+            "pmem_count",
+            "pmem_fails",
             "serial_count",
             "serial_fails",
         ],
