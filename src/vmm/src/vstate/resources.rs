@@ -50,6 +50,8 @@ pub struct ResourceAllocator {
     pub mmio32_memory: AddressAllocator,
     /// Allocator for memory in the 64-bit MMIO address space
     pub mmio64_memory: AddressAllocator,
+    /// Allocator for memory after the 64-bit MMIO address space
+    pub past_mmio64_memory: AddressAllocator,
     /// Memory allocator for system data
     pub system_memory: AddressAllocator,
 }
@@ -77,6 +79,11 @@ impl ResourceAllocator {
             mmio64_memory: AddressAllocator::new(
                 arch::MEM_64BIT_DEVICES_START,
                 arch::MEM_64BIT_DEVICES_SIZE,
+            )
+            .unwrap(),
+            past_mmio64_memory: AddressAllocator::new(
+                arch::FIRST_ADDR_PAST_64BITS_MMIO,
+                arch::PAST_64BITS_MMIO_SIZE,
             )
             .unwrap(),
             system_memory: AddressAllocator::new(arch::SYSTEM_MEM_START, arch::SYSTEM_MEM_SIZE)

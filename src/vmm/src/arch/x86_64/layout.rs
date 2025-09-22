@@ -132,3 +132,5 @@ pub const MEM_64BIT_DEVICES_START: u64 = MMIO64_MEM_START;
 pub const MEM_64BIT_DEVICES_SIZE: u64 = MMIO64_MEM_SIZE;
 /// First address past the 64-bit MMIO gap
 pub const FIRST_ADDR_PAST_64BITS_MMIO: u64 = MMIO64_MEM_START + MMIO64_MEM_SIZE;
+/// Size of the memory past 64-bit MMIO gap
+pub const PAST_64BITS_MMIO_SIZE: u64 = 512 << 30;
