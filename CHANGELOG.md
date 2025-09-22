@@ -27,6 +27,10 @@ and this project adheres to
   typo in Swagger definition of `MmdsConfig`, where the property `imds_compat`
   was spelled as `imds_comat`. This caused auto-generated clients to create bad
   requests.
+- [#5447](https://github.com/firecracker-microvm/firecracker/pull/5447): Fixed
+  Intel AMX enabling for kernels that support dynamic XSTATE features for
+  userspace applications but not for KVM guests (e.g. kernel versions >= 5.16
+  and < 5.17).
 
 ## [1.13.0]
 
