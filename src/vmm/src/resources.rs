@@ -375,7 +375,8 @@ impl VmResources {
         &mut self,
         block_device_config: BlockDeviceConfig,
     ) -> Result<(), DriveError> {
-        self.block.insert(block_device_config)
+        let has_pmem_root = self.pmem.has_root_device();
+        self.block.insert(block_device_config, has_pmem_root)
     }
 
     /// Builds a network device to be attached when the VM starts.
@@ -402,7 +403,8 @@ impl VmResources {
 
     /// Builds a pmem device to be attached when the VM starts.
     pub fn build_pmem_device(&mut self, body: PmemConfig) -> Result<(), PmemConfigError> {
-        self.pmem.build(body)
+        let has_block_root = self.block.has_root_device();
+        self.pmem.build(body, has_block_root)
     }
 
     /// Setter for mmds config.
@@ -614,7 +616,7 @@ mod tests {
     fn default_blocks() -> BlockBuilder {
         let mut blocks = BlockBuilder::new();
         let (cfg, _file) = default_block_cfg();
-        blocks.insert(cfg).unwrap();
+        blocks.insert(cfg, false).unwrap();
         blocks
     }
 

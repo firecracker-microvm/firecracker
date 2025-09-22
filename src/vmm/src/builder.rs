@@ -762,7 +762,9 @@ pub(crate) mod tests {
                 socket: None,
             };
 
-            block_dev_configs.insert(block_device_config).unwrap();
+            block_dev_configs
+                .insert(block_device_config, false)
+                .unwrap();
         }
 
         attach_block_devices(
