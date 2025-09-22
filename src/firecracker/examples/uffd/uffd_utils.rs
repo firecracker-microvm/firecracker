@@ -225,7 +225,7 @@ impl Runtime {
                 ptr::null_mut(),
                 backing_memory_size,
                 libc::PROT_READ,
-                libc::MAP_PRIVATE,
+                libc::MAP_PRIVATE | libc::MAP_POPULATE,
                 backing_file.as_raw_fd(),
                 0,
             )
