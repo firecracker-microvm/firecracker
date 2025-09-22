@@ -10,6 +10,8 @@ use crate::devices::virtio::pmem::device::{Pmem, PmemError};
 /// Errors associated wit the operations allowed on a pmem device
 #[derive(Debug, thiserror::Error, displaydoc::Display)]
 pub enum PmemConfigError {
+    /// Attempt to add pmem as a root device while the root device defined as a block device
+    AddingSecondRootDevice,
     /// A root pmem device already exist
     RootPmemDeviceAlreadyExist,
     /// Unable to create the virtio-pmem device: {0}
@@ -50,7 +52,14 @@ impl PmemBuilder {
     }
 
     /// Build a device from the config
-    pub fn build(&mut self, config: PmemConfig) -> Result<(), PmemConfigError> {
+    pub fn build(
+        &mut self,
+        config: PmemConfig,
+        has_block_root: bool,
+    ) -> Result<(), PmemConfigError> {
+        if config.root_device && has_block_root {
+            return Err(PmemConfigError::AddingSecondRootDevice);
+        }
         let position = self
             .devices
             .iter()
@@ -111,19 +120,19 @@ mod tests {
             root_device: true,
             read_only: false,
         };
-        builder.build(config.clone()).unwrap();
+        builder.build(config.clone(), false).unwrap();
         assert_eq!(builder.devices.len(), 1);
         assert!(builder.has_root_device());
 
         // First device got replaced with new one
         config.root_device = false;
-        builder.build(config).unwrap();
+        builder.build(config, false).unwrap();
         assert_eq!(builder.devices.len(), 1);
         assert!(!builder.has_root_device());
     }
 
     #[test]
-    fn test_pmem_builder_build_second_root() {
+    fn test_pmem_builder_build_seconde_root() {
         let mut builder = PmemBuilder::default();
 
         let dummy_file = TempFile::new().unwrap();
@@ -135,12 +144,31 @@ mod tests {
             root_device: true,
             read_only: false,
         };
-        builder.build(config.clone()).unwrap();
+        builder.build(config.clone(), false).unwrap();
 
         config.id = "2".into();
         assert!(matches!(
-            builder.build(config.clone()).unwrap_err(),
+            builder.build(config.clone(), false).unwrap_err(),
             PmemConfigError::RootPmemDeviceAlreadyExist,
+        ));
+    }
+
+    #[test]
+    fn test_pmem_builder_build_root_with_block_already_a_root() {
+        let mut builder = PmemBuilder::default();
+
+        let dummy_file = TempFile::new().unwrap();
+        dummy_file.as_file().set_len(Pmem::ALIGNMENT).unwrap();
+        let dummy_path = dummy_file.as_path().to_str().unwrap().to_string();
+        let config = PmemConfig {
+            id: "1".into(),
+            path_on_host: dummy_path,
+            root_device: true,
+            read_only: false,
+        };
+        assert!(matches!(
+            builder.build(config, true).unwrap_err(),
+            PmemConfigError::AddingSecondRootDevice,
         ));
     }
 }
