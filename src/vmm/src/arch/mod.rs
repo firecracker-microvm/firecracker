@@ -21,14 +21,7 @@ pub use aarch64::vm::{ArchVm, ArchVmError, VmState};
 #[cfg(target_arch = "aarch64")]
 pub use aarch64::{
     ConfigurationError, arch_memory_regions, configure_system_for_boot, get_kernel_start,
-    initrd_load_addr, layout::BOOT_DEVICE_MEM_START, layout::CMDLINE_MAX_SIZE,
-    layout::GSI_LEGACY_END, layout::GSI_LEGACY_NUM, layout::GSI_LEGACY_START, layout::GSI_MSI_END,
-    layout::GSI_MSI_NUM, layout::GSI_MSI_START, layout::MEM_32BIT_DEVICES_SIZE,
-    layout::MEM_32BIT_DEVICES_START, layout::MEM_64BIT_DEVICES_SIZE,
-    layout::MEM_64BIT_DEVICES_START, layout::MMIO32_MEM_SIZE, layout::MMIO32_MEM_START,
-    layout::PCI_MMCONFIG_SIZE, layout::PCI_MMCONFIG_START,
-    layout::PCI_MMIO_CONFIG_SIZE_PER_SEGMENT, layout::RTC_MEM_START, layout::SERIAL_MEM_START,
-    layout::SPI_START, layout::SYSTEM_MEM_SIZE, layout::SYSTEM_MEM_START, load_kernel,
+    initrd_load_addr, layout::*, load_kernel,
 };
 
 /// Module for x86_64 related functionality.
@@ -45,14 +38,7 @@ pub use x86_64::vm::{ArchVm, ArchVmError, VmState};
 #[cfg(target_arch = "x86_64")]
 pub use crate::arch::x86_64::{
     ConfigurationError, arch_memory_regions, configure_system_for_boot, get_kernel_start,
-    initrd_load_addr, layout::APIC_ADDR, layout::BOOT_DEVICE_MEM_START, layout::CMDLINE_MAX_SIZE,
-    layout::GSI_LEGACY_END, layout::GSI_LEGACY_NUM, layout::GSI_LEGACY_START, layout::GSI_MSI_END,
-    layout::GSI_MSI_NUM, layout::GSI_MSI_START, layout::IOAPIC_ADDR,
-    layout::MEM_32BIT_DEVICES_SIZE, layout::MEM_32BIT_DEVICES_START,
-    layout::MEM_64BIT_DEVICES_SIZE, layout::MEM_64BIT_DEVICES_START, layout::MMIO32_MEM_SIZE,
-    layout::MMIO32_MEM_START, layout::PCI_MMCONFIG_SIZE, layout::PCI_MMCONFIG_START,
-    layout::PCI_MMIO_CONFIG_SIZE_PER_SEGMENT, layout::SYSTEM_MEM_SIZE, layout::SYSTEM_MEM_START,
-    load_kernel,
+    initrd_load_addr, layout::*, load_kernel,
 };
 
 /// Types of devices that can get attached to this platform.
