@@ -72,7 +72,7 @@ fn get_supported_xfeatures() -> Result<Option<u64>, std::io::Error> {
         Ok(()) => Ok(Some(supported_xfeatures)),
         // EINVAL is returned if the dynamic XSTATE feature enabling is not supported (e.g. kernel
         // version prior to v5.17).
-        // https://github.com/torvalds/linux/commit/980fe2fddcff21937c93532b4597c8ea450346c1
+        // https://github.com/torvalds/linux/commit/db8268df0983adc2bb1fb48c9e5f7bfbb5f617f3
         Err(err) if err.raw_os_error() == Some(libc::EINVAL) => Ok(None),
         Err(err) => Err(err),
     }
