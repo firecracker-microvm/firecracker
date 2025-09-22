@@ -60,7 +60,7 @@ const VIRTIO_PMEM_REQ_TYPE_FLUSH: u32 = 0;
 const SUCCESS: i32 = 0;
 const FAILURE: i32 = -1;
 
-#[derive(Debug, Default, Copy, Clone)]
+#[derive(Debug, Default, Copy, Clone, Serialize, Deserialize)]
 #[repr(C)]
 pub struct ConfigSpace {
     // Physical address of the first byte of the persistent memory region.
