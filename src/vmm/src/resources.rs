@@ -28,6 +28,7 @@ use crate::vmm_config::machine_config::{
 use crate::vmm_config::metrics::{MetricsConfig, MetricsConfigError, init_metrics};
 use crate::vmm_config::mmds::{MmdsConfig, MmdsConfigError};
 use crate::vmm_config::net::*;
+use crate::vmm_config::pmem::{PmemBuilder, PmemConfig, PmemConfigError};
 use crate::vmm_config::serial::SerialConfig;
 use crate::vmm_config::vsock::*;
 use crate::vstate::memory;
@@ -62,6 +63,8 @@ pub enum ResourcesError {
     VsockDevice(#[from] VsockConfigError),
     /// Entropy device error: {0}
     EntropyDevice(#[from] EntropyDeviceError),
+    /// Pmem device error: {0}
+    PmemDevice(#[from] PmemConfigError),
 }
 
 #[derive(Serialize, Deserialize, PartialEq, Eq, Debug)]
@@ -87,6 +90,8 @@ pub struct VmmConfig {
     network_interfaces: Vec<NetworkInterfaceConfig>,
     vsock: Option<VsockDeviceConfig>,
     entropy: Option<EntropyDeviceConfig>,
+    #[serde(default, rename = "pmem")]
+    pmem_devices: Vec<PmemConfig>,
     #[serde(skip)]
     serial_config: Option<SerialConfig>,
 }
@@ -109,6 +114,8 @@ pub struct VmResources {
     pub net_builder: NetBuilder,
     /// The entropy device builder.
     pub entropy: EntropyDeviceBuilder,
+    /// The pmem devices.
+    pub pmem: PmemBuilder,
     /// The optional Mmds data store.
     // This is initialised on demand (if ever used), so that we don't allocate it unless it's
     // actually used.
@@ -196,6 +203,10 @@ impl VmResources {
 
         if let Some(entropy_device_config) = vmm_config.entropy {
             resources.build_entropy_device(entropy_device_config)?;
+        }
+
+        for pmem_config in vmm_config.pmem_devices.into_iter() {
+            resources.build_pmem_device(pmem_config)?;
         }
 
         if let Some(serial_cfg) = vmm_config.serial_config {
@@ -389,6 +400,11 @@ impl VmResources {
         self.entropy.insert(body)
     }
 
+    /// Builds a pmem device to be attached when the VM starts.
+    pub fn build_pmem_device(&mut self, body: PmemConfig) -> Result<(), PmemConfigError> {
+        self.pmem.build(body)
+    }
+
     /// Setter for mmds config.
     pub fn set_mmds_config(
         &mut self,
@@ -515,6 +531,7 @@ impl From<&VmResources> for VmmConfig {
             network_interfaces: resources.net_builder.configs(),
             vsock: resources.vsock.config(),
             entropy: resources.entropy.config(),
+            pmem_devices: resources.pmem.configs(),
             // serial_config is marked serde(skip) so that it doesnt end up in snapshots.
             serial_config: None,
         }
@@ -627,6 +644,7 @@ mod tests {
             boot_timer: false,
             mmds_size_limit: HTTP_MAX_PAYLOAD_SIZE,
             entropy: Default::default(),
+            pmem: Default::default(),
             pci_enabled: false,
             serial_out_path: None,
         }
