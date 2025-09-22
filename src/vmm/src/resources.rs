@@ -239,11 +239,9 @@ impl VmResources {
             SharedDeviceType::VirtioBlock(block) => {
                 self.block.add_virtio_device(block);
             }
-
             SharedDeviceType::Network(network) => {
                 self.net_builder.add_device(network);
             }
-
             SharedDeviceType::Balloon(balloon) => {
                 self.balloon.set_device(balloon);
 
@@ -251,12 +249,14 @@ impl VmResources {
                     return Err(ResourcesError::BalloonDevice(BalloonConfigError::HugePages));
                 }
             }
-
             SharedDeviceType::Vsock(vsock) => {
                 self.vsock.set_device(vsock);
             }
             SharedDeviceType::Entropy(entropy) => {
                 self.entropy.set_device(entropy);
+            }
+            SharedDeviceType::Pmem(pmem) => {
+                self.pmem.add_device(pmem);
             }
         }
 
