@@ -86,7 +86,7 @@ fn get_supported_xfeatures() -> Result<Option<u64>, std::io::Error> {
 fn request_xfeature_permission(xfeature: u32) -> Result<(), std::io::Error> {
     // SAFETY: Safe because the third input (`addr`) is a valid `c_ulong` value.
     // https://man7.org/linux/man-pages/man2/arch_prctl.2.html
-    SyscallReturnCode(unsafe {
+    match SyscallReturnCode(unsafe {
         libc::syscall(
             libc::SYS_arch_prctl,
             arch_prctl::ARCH_REQ_XCOMP_GUEST_PERM as libc::c_ulong,
@@ -94,6 +94,15 @@ fn request_xfeature_permission(xfeature: u32) -> Result<(), std::io::Error> {
         )
     })
     .into_empty_result()
+    {
+        Ok(()) => Ok(()),
+        // EINVAL is returned if the dynamic XSTATE feature enabling for "guest" is not supported
+        // although that for "userspace application" is supported (e.g. kernel versions >= 5.16 and
+        // < 5.17).
+        // https://github.com/torvalds/linux/commit/980fe2fddcff21937c93532b4597c8ea450346c1
+        Err(err) if err.raw_os_error() == Some(libc::EINVAL) => Ok(()),
+        Err(err) => Err(err),
+    }
 }
 
 #[cfg(test)]
