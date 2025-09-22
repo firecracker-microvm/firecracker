@@ -176,17 +176,6 @@ impl PciSubclass for PciNetworkControllerSubclass {
     }
 }
 
-/// Trait to define a PCI class programming interface
-///
-/// Each combination of `PciClassCode` and `PciSubclass` can specify a
-/// set of register-level programming interfaces.
-/// This trait is implemented by each programming interface.
-/// It allows use of a trait object to generate configurations.
-pub trait PciProgrammingInterface {
-    /// Convert this programming interface to the value used in the PCI specification.
-    fn get_register_value(&self) -> u8;
-}
-
 /// Types of PCI capabilities.
 #[derive(Debug, PartialEq, Eq, Copy, Clone)]
 #[allow(dead_code)]
@@ -451,7 +440,6 @@ impl PciConfiguration {
         revision_id: u8,
         class_code: PciClassCode,
         subclass: &dyn PciSubclass,
-        programming_interface: Option<&dyn PciProgrammingInterface>,
         header_type: PciHeaderType,
         subsystem_vendor_id: u16,
         subsystem_id: u16,
@@ -473,14 +461,8 @@ impl PciConfiguration {
                 registers[0] = (u32::from(device_id) << 16) | u32::from(vendor_id);
                 // TODO(dverkamp): Status should be write-1-to-clear
                 writable_bits[1] = 0x0000_ffff; // Status (r/o), command (r/w)
-                let pi = if let Some(pi) = programming_interface {
-                    pi.get_register_value()
-                } else {
-                    0
-                };
                 registers[2] = (u32::from(class_code.get_register_value()) << 24)
                     | (u32::from(subclass.get_register_value()) << 16)
-                    | (u32::from(pi) << 8)
                     | u32::from(revision_id);
                 writable_bits[3] = 0x0000_00ff; // Cacheline size (r/w)
 
@@ -1016,17 +998,6 @@ mod tests {
         assert_eq!(cfg.read_reg(cap_reg + 2), pba_offset);
     }
 
-    #[derive(Copy, Clone)]
-    enum TestPi {
-        Test = 0x5a,
-    }
-
-    impl PciProgrammingInterface for TestPi {
-        fn get_register_value(&self) -> u8 {
-            *self as u8
-        }
-    }
-
     #[test]
     fn class_code() {
         let cfg = PciConfiguration::new(
@@ -1035,7 +1006,6 @@ mod tests {
             0x1,
             PciClassCode::MultimediaController,
             &PciMultimediaSubclass::AudioController,
-            Some(&TestPi::Test),
             PciHeaderType::Device,
             0xABCD,
             0x2468,
@@ -1049,7 +1019,7 @@ mod tests {
         let prog_if = (class_reg >> 8) & 0xFF;
         assert_eq!(class_code, 0x04);
         assert_eq!(subclass, 0x01);
-        assert_eq!(prog_if, 0x5a);
+        assert_eq!(prog_if, 0x0);
     }
 
     #[test]
@@ -1092,7 +1062,6 @@ mod tests {
             0x0,
             PciClassCode::MassStorage,
             &PciMassStorageSubclass::SerialScsiController,
-            None,
             PciHeaderType::Device,
             0x13,
             0x12,
@@ -1174,7 +1143,6 @@ mod tests {
             0x0,
             PciClassCode::MassStorage,
             &PciMassStorageSubclass::SerialScsiController,
-            None,
             PciHeaderType::Device,
             0x13,
             0x12,
@@ -1220,7 +1188,6 @@ mod tests {
             0x0,
             PciClassCode::MassStorage,
             &PciMassStorageSubclass::SerialScsiController,
-            None,
             PciHeaderType::Device,
             0x13,
             0x12,

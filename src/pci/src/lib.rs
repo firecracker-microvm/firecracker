@@ -24,8 +24,8 @@ pub use self::bus::{PciBus, PciConfigIo, PciConfigMmio, PciRoot, PciRootError};
 pub use self::configuration::{
     PciBarConfiguration, PciBarPrefetchable, PciBarRegionType, PciCapability, PciCapabilityId,
     PciClassCode, PciConfiguration, PciConfigurationState, PciExpressCapabilityId, PciHeaderType,
-    PciMassStorageSubclass, PciNetworkControllerSubclass, PciProgrammingInterface,
-    PciSerialBusSubClass, PciSubclass, PCI_CONFIGURATION_ID,
+    PciMassStorageSubclass, PciNetworkControllerSubclass, PciSerialBusSubClass, PciSubclass,
+    PCI_CONFIGURATION_ID,
 };
 pub use self::device::{
     BarReprogrammingParams, DeviceRelocation, Error as PciDeviceError, PciDevice,

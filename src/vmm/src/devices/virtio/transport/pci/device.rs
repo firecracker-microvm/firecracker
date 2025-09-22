@@ -335,7 +335,6 @@ impl VirtioPciDevice {
             0x1, // For modern virtio-PCI devices
             class,
             subclass,
-            None,
             PciHeaderType::Device,
             VIRTIO_PCI_VENDOR_ID,
             pci_device_id,
