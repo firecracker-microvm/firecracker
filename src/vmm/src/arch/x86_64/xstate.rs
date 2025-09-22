@@ -43,6 +43,7 @@ pub fn request_dynamic_xstate_features() -> Result<(), XstateError> {
     // causes guest crash during boot because a guest calls XSETBV instruction with all
     // XSAVE feature bits enumerated on CPUID and XSETBV only accepts either of both Intel
     // AMX bits enabled or disabled; otherwise resulting in general protection fault.
+    // https://lore.kernel.org/all/20230405004520.421768-1-seanjc@google.com/
     if supported_xfeatures & INTEL_AMX_MASK == INTEL_AMX_MASK {
         request_xfeature_permission(arch_prctl::ARCH_XCOMP_TILEDATA).map_err(|err| {
             XstateError::RequestFeaturePermission(arch_prctl::ARCH_XCOMP_TILEDATA, err)
