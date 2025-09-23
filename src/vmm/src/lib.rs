@@ -108,6 +108,8 @@ pub mod snapshot;
 pub mod test_utils;
 /// Utility functions and struct
 pub mod utils;
+/// Vendored vm memory (vm-memory#312)
+pub mod vm_memory_vendored;
 /// Wrappers over structures used to configure the VMM.
 pub mod vmm_config;
 /// Module with virtual state structs.
