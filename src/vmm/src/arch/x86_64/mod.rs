@@ -31,12 +31,13 @@ pub mod xstate;
 #[allow(missing_docs)]
 pub mod generated;
 
+use std::cmp::max;
 use std::fs::File;
 
 use kvm::Kvm;
 use layout::{
-    CMDLINE_START, FIRST_ADDR_PAST_32BITS, FIRST_ADDR_PAST_64BITS_MMIO, MMIO32_MEM_SIZE,
-    MMIO32_MEM_START, MMIO64_MEM_SIZE, MMIO64_MEM_START, PCI_MMCONFIG_SIZE, PCI_MMCONFIG_START,
+    CMDLINE_START, MMIO32_MEM_SIZE, MMIO32_MEM_START, MMIO64_MEM_SIZE, MMIO64_MEM_START,
+    PCI_MMCONFIG_SIZE, PCI_MMCONFIG_START,
 };
 use linux_loader::configurator::linux::LinuxBootConfigurator;
 use linux_loader::configurator::pvh::PvhBootConfigurator;
@@ -59,7 +60,7 @@ use crate::initrd::InitrdConfig;
 use crate::utils::{align_down, u64_to_usize, usize_to_u64};
 use crate::vmm_config::machine_config::MachineConfig;
 use crate::vstate::memory::{
-    Address, GuestAddress, GuestMemory, GuestMemoryMmap, GuestMemoryRegion,
+    Address, GuestAddress, GuestMemory, GuestMemoryMmap, GuestMemoryRegion, GuestRegionType,
 };
 use crate::vstate::vcpu::KvmVcpuConfigureError;
 use crate::{Vcpu, VcpuConfig, Vm, logger};
@@ -253,10 +254,6 @@ fn configure_pvh(
     initrd: &Option<InitrdConfig>,
 ) -> Result<(), ConfigurationError> {
     const XEN_HVM_START_MAGIC_VALUE: u32 = 0x336e_c578;
-    let first_addr_past_32bits = GuestAddress(FIRST_ADDR_PAST_32BITS);
-    let end_32bit_gap_start = GuestAddress(MMIO32_MEM_START);
-    let first_addr_past_64bits = GuestAddress(FIRST_ADDR_PAST_64BITS_MMIO);
-    let end_64bit_gap_start = GuestAddress(MMIO64_MEM_START);
     let himem_start = GuestAddress(layout::HIMEM_START);
 
     // Vector to hold modules (currently either empty or holding initrd).
@@ -294,35 +291,20 @@ fn configure_pvh(
         type_: E820_RESERVED,
         ..Default::default()
     });
-    let last_addr = guest_mem.last_addr();
 
-    if last_addr > first_addr_past_64bits {
+    for region in guest_mem
+        .iter()
+        .filter(|region| region.region_type == GuestRegionType::Dram)
+    {
+        // the first 1MB is reserved for the kernel
+        let addr = max(himem_start, region.start_addr());
         memmap.push(hvm_memmap_table_entry {
-            addr: first_addr_past_64bits.raw_value(),
-            size: last_addr.unchecked_offset_from(first_addr_past_64bits) + 1,
+            addr: addr.raw_value(),
+            size: region.last_addr().unchecked_offset_from(addr) + 1,
             type_: MEMMAP_TYPE_RAM,
             ..Default::default()
         });
     }
-
-    if last_addr > first_addr_past_32bits {
-        memmap.push(hvm_memmap_table_entry {
-            addr: first_addr_past_32bits.raw_value(),
-            size: (end_64bit_gap_start.unchecked_offset_from(first_addr_past_32bits))
-                .min(last_addr.unchecked_offset_from(first_addr_past_32bits) + 1),
-            type_: MEMMAP_TYPE_RAM,
-            ..Default::default()
-        });
-    }
-
-    memmap.push(hvm_memmap_table_entry {
-        addr: himem_start.raw_value(),
-        size: end_32bit_gap_start
-            .unchecked_offset_from(himem_start)
-            .min(last_addr.unchecked_offset_from(himem_start) + 1),
-        type_: MEMMAP_TYPE_RAM,
-        ..Default::default()
-    });
 
     // Construct the hvm_start_info structure and serialize it into
     // boot_params.  This will be stored at PVH_INFO_START address, and %rbx
@@ -368,10 +350,6 @@ fn configure_64bit_boot(
     const KERNEL_HDR_MAGIC: u32 = 0x5372_6448;
     const KERNEL_LOADER_OTHER: u8 = 0xff;
     const KERNEL_MIN_ALIGNMENT_BYTES: u32 = 0x0100_0000; // Must be non-zero.
-    let first_addr_past_32bits = GuestAddress(FIRST_ADDR_PAST_32BITS);
-    let end_32bit_gap_start = GuestAddress(MMIO32_MEM_START);
-    let first_addr_past_64bits = GuestAddress(FIRST_ADDR_PAST_64BITS_MMIO);
-    let end_64bit_gap_start = GuestAddress(MMIO64_MEM_START);
 
     let himem_start = GuestAddress(layout::HIMEM_START);
 
@@ -409,34 +387,19 @@ fn configure_64bit_boot(
         E820_RESERVED,
     )?;
 
-    let last_addr = guest_mem.last_addr();
-
-    if last_addr > first_addr_past_64bits {
+    for region in guest_mem
+        .iter()
+        .filter(|region| region.region_type == GuestRegionType::Dram)
+    {
+        // the first 1MB is reserved for the kernel
+        let addr = max(himem_start, region.start_addr());
         add_e820_entry(
             &mut params,
-            first_addr_past_64bits.raw_value(),
-            last_addr.unchecked_offset_from(first_addr_past_64bits) + 1,
+            addr.raw_value(),
+            region.last_addr().unchecked_offset_from(addr) + 1,
             E820_RAM,
         )?;
     }
-
-    if last_addr > first_addr_past_32bits {
-        add_e820_entry(
-            &mut params,
-            first_addr_past_32bits.raw_value(),
-            (end_64bit_gap_start.unchecked_offset_from(first_addr_past_32bits))
-                .min(last_addr.unchecked_offset_from(first_addr_past_32bits) + 1),
-            E820_RAM,
-        )?;
-    }
-
-    add_e820_entry(
-        &mut params,
-        himem_start.raw_value(),
-        (last_addr.unchecked_offset_from(himem_start) + 1)
-            .min(end_32bit_gap_start.unchecked_offset_from(himem_start)),
-        E820_RAM,
-    )?;
 
     LinuxBootConfigurator::write_bootparams(
         &BootParams::new(&params, GuestAddress(layout::ZERO_PAGE_START)),
@@ -573,6 +536,7 @@ mod tests {
     use linux_loader::loader::bootparam::boot_e820_entry;
 
     use super::*;
+    use crate::arch::x86_64::layout::FIRST_ADDR_PAST_32BITS;
     use crate::test_utils::{arch_mem, single_region_mem};
     use crate::utils::mib_to_bytes;
     use crate::vstate::resources::ResourceAllocator;
