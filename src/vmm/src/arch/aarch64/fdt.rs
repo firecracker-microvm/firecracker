@@ -9,7 +9,7 @@ use std::ffi::CString;
 use std::fmt::Debug;
 
 use vm_fdt::{Error as VmFdtError, FdtWriter, FdtWriterNode};
-use vm_memory::GuestMemoryError;
+use vm_memory::{GuestMemoryError, GuestMemoryRegion};
 
 use super::cache_info::{CacheEntry, read_cache_config};
 use super::gic::GICDevice;
@@ -22,7 +22,7 @@ use crate::device_manager::mmio::MMIODeviceInfo;
 use crate::device_manager::pci_mngr::PciDevices;
 use crate::devices::acpi::vmgenid::{VMGENID_MEM_SIZE, VmGenId};
 use crate::initrd::InitrdConfig;
-use crate::vstate::memory::{Address, GuestMemory, GuestMemoryMmap};
+use crate::vstate::memory::{Address, GuestMemory, GuestMemoryMmap, GuestRegionType};
 
 // This is a value for uniquely identifying the FDT node declaring the interrupt controller.
 const GIC_PHANDLE: u32 = 1;
@@ -227,14 +227,20 @@ fn create_memory_node(fdt: &mut FdtWriter, guest_mem: &GuestMemoryMmap) -> Resul
     // The reason we do this is that Linux does not allow remapping system memory. However, without
     // remap, kernel drivers cannot get virtual addresses to read data from device memory. Leaving
     // this memory region out allows Linux kernel modules to remap and thus read this region.
-    let mem_size = guest_mem.last_addr().raw_value()
-        - super::layout::DRAM_MEM_START
-        - super::layout::SYSTEM_MEM_SIZE
-        + 1;
-    let mem_reg_prop = &[
-        super::layout::DRAM_MEM_START + super::layout::SYSTEM_MEM_SIZE,
-        mem_size,
-    ];
+
+    // Pick the first (and only) memory region
+    let dram_region = guest_mem
+        .iter()
+        .find(|region| region.region_type == GuestRegionType::Dram)
+        .unwrap();
+    // Find the start of memory after the system memory region
+    let start_addr = dram_region
+        .start_addr()
+        .unchecked_add(super::layout::SYSTEM_MEM_SIZE);
+    // Size of the memory is the region size minus the system memory size
+    let mem_size = dram_region.len() - super::layout::SYSTEM_MEM_SIZE;
+
+    let mem_reg_prop = &[start_addr.raw_value(), mem_size];
     let mem = fdt.begin_node("memory@ram")?;
     fdt.property_string("device_type", "memory")?;
     fdt.property_array_u64("reg", mem_reg_prop)?;
