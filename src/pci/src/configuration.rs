@@ -423,15 +423,6 @@ impl From<PciBarPrefetchable> for bool {
     }
 }
 
-#[derive(Debug, Copy, Clone, Serialize, Deserialize)]
-pub struct PciBarConfiguration {
-    pub addr: u64,
-    pub size: u64,
-    pub idx: usize,
-    pub region_type: PciBarRegionType,
-    pub prefetchable: PciBarPrefetchable,
-}
-
 impl PciConfiguration {
     #[allow(clippy::too_many_arguments)]
     pub fn new(
@@ -790,18 +781,6 @@ impl PciConfiguration {
         }
 
         None
-    }
-}
-
-impl Default for PciBarConfiguration {
-    fn default() -> Self {
-        PciBarConfiguration {
-            idx: 0,
-            addr: 0,
-            size: 0,
-            region_type: PciBarRegionType::Memory64BitRegion,
-            prefetchable: PciBarPrefetchable::NotPrefetchable,
-        }
     }
 }
 
