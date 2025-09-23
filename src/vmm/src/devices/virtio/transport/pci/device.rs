@@ -18,10 +18,10 @@ use anyhow::anyhow;
 use kvm_ioctls::{IoEventAddress, NoDatamatch};
 use log::warn;
 use pci::{
-    BarReprogrammingParams, MsixCap, MsixConfig, MsixConfigState, PciBarConfiguration,
-    PciBarRegionType, PciBdf, PciCapability, PciCapabilityId, PciClassCode, PciConfiguration,
-    PciConfigurationState, PciDevice, PciDeviceError, PciHeaderType, PciMassStorageSubclass,
-    PciNetworkControllerSubclass, PciSubclass,
+    BarReprogrammingParams, MsixCap, MsixConfig, MsixConfigState, PciBarRegionType, PciBdf,
+    PciCapability, PciCapabilityId, PciClassCode, PciConfiguration, PciConfigurationState,
+    PciDevice, PciDeviceError, PciHeaderType, PciMassStorageSubclass, PciNetworkControllerSubclass,
+    PciSubclass,
 };
 use serde::{Deserialize, Serialize};
 use thiserror::Error;

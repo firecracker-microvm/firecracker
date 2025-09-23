@@ -22,8 +22,8 @@ use serde::de::Visitor;
 
 pub use self::bus::{PciBus, PciConfigIo, PciConfigMmio, PciRoot, PciRootError};
 pub use self::configuration::{
-    PciBarConfiguration, PciBarPrefetchable, PciBarRegionType, PciCapability, PciCapabilityId,
-    PciClassCode, PciConfiguration, PciConfigurationState, PciExpressCapabilityId, PciHeaderType,
+    PciBarPrefetchable, PciBarRegionType, PciCapability, PciCapabilityId, PciClassCode,
+    PciConfiguration, PciConfigurationState, PciExpressCapabilityId, PciHeaderType,
     PciMassStorageSubclass, PciNetworkControllerSubclass, PciSerialBusSubClass, PciSubclass,
     PCI_CONFIGURATION_ID,
 };
