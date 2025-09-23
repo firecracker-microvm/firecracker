@@ -110,11 +110,6 @@ def download_spectre_meltdown_checker(tmp_path_factory):
     global_props.buildkite_pr,
     reason="Test depends solely on factors external to GitHub repository",
 )
-# Temporary suppression for Ubuntu 6.14 kernel
-@pytest.mark.skipif(
-    "Ubuntu" in global_props.os and global_props.host_linux_version == "6.14",
-    reason="Ubuntu does not enable CONFIG_MITIGATION_GDS on 6.14 kernel",
-)
 def test_spectre_meltdown_checker_on_host(spectre_meltdown_checker):
     """Test with the spectre / meltdown checker on host."""
     report = spectre_meltdown_checker.get_report_for_host()
@@ -125,11 +120,6 @@ def test_spectre_meltdown_checker_on_host(spectre_meltdown_checker):
 @pytest.mark.skipif(
     global_props.buildkite_pr,
     reason="Test depends solely on factors external to GitHub repository",
-)
-# Temporary suppression for Ubuntu 6.14 kernel
-@pytest.mark.skipif(
-    "Ubuntu" in global_props.os and global_props.host_linux_version == "6.14",
-    reason="Ubuntu does not enable CONFIG_MITIGATION_GDS on 6.14 kernel",
 )
 def test_vulnerabilities_on_host():
     """Test vulnerability files on host."""
