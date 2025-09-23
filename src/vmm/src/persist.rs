@@ -588,7 +588,7 @@ mod tests {
     use crate::vmm_config::balloon::BalloonDeviceConfig;
     use crate::vmm_config::net::NetworkInterfaceConfig;
     use crate::vmm_config::vsock::tests::default_config;
-    use crate::vstate::memory::GuestMemoryRegionState;
+    use crate::vstate::memory::{GuestMemoryRegionState, GuestRegionType};
 
     fn default_vmm_with_devices() -> Vmm {
         let mut event_manager = EventManager::new().expect("Cannot create EventManager");
@@ -693,6 +693,7 @@ mod tests {
             regions: vec![GuestMemoryRegionState {
                 base_address: 0,
                 size: 0x20000,
+                region_type: GuestRegionType::Dram,
             }],
         };
 
