@@ -179,6 +179,7 @@ pub mod tests {
     #![allow(clippy::undocumented_unsafe_blocks)]
     use std::os::unix::ffi::OsStrExt;
 
+    use vm_memory::GuestMemoryRegion;
     use vmm_sys_util::tempfile::TempFile;
 
     use super::*;
@@ -186,7 +187,7 @@ pub mod tests {
     use crate::utils::u64_to_usize;
     use crate::vmm_config::machine_config::HugePageConfig;
     use crate::vstate::memory;
-    use crate::vstate::memory::{Bitmap, Bytes, GuestMemory};
+    use crate::vstate::memory::{Bitmap, Bytes, GuestMemory, GuestRegionMmapExt};
 
     const FILE_LEN: u32 = 1024;
     // 2 pages of memory should be enough to test read/write ops and also dirty tracking.
@@ -227,20 +228,23 @@ pub mod tests {
                 true,
                 HugePageConfig::None,
             )
-            .unwrap(),
+            .unwrap()
+            .into_iter()
+            .map(|region| GuestRegionMmapExt::dram_from_mmap_region(region, 0))
+            .collect(),
         )
         .unwrap()
     }
 
     fn check_dirty_mem(mem: &GuestMemoryMmap, addr: GuestAddress, len: u32) {
-        let bitmap = mem.find_region(addr).unwrap().bitmap().as_ref().unwrap();
+        let bitmap = mem.find_region(addr).unwrap().bitmap();
         for offset in addr.0..addr.0 + u64::from(len) {
             assert!(bitmap.dirty_at(u64_to_usize(offset)));
         }
     }
 
     fn check_clean_mem(mem: &GuestMemoryMmap, addr: GuestAddress, len: u32) {
-        let bitmap = mem.find_region(addr).unwrap().bitmap().as_ref().unwrap();
+        let bitmap = mem.find_region(addr).unwrap().bitmap();
         for offset in addr.0..addr.0 + u64::from(len) {
             assert!(!bitmap.dirty_at(u64_to_usize(offset)));
         }

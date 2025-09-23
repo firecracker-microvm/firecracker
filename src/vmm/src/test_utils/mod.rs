@@ -5,7 +5,7 @@
 
 use std::sync::{Arc, Mutex};
 
-use vm_memory::GuestAddress;
+use vm_memory::{GuestAddress, GuestRegionCollection};
 use vmm_sys_util::tempdir::TempDir;
 
 use crate::builder::build_microvm_for_boot;
@@ -16,7 +16,7 @@ use crate::vmm_config::boot_source::BootSourceConfig;
 use crate::vmm_config::instance_info::InstanceInfo;
 use crate::vmm_config::machine_config::HugePageConfig;
 use crate::vstate::memory;
-use crate::vstate::memory::{GuestMemoryMmap, GuestRegionMmap};
+use crate::vstate::memory::{GuestMemoryMmap, GuestRegionMmap, GuestRegionMmapExt};
 use crate::{EventManager, Vmm};
 
 pub mod mock_resources;
@@ -43,9 +43,12 @@ pub fn single_region_mem_at_raw(at: u64, size: usize) -> Vec<GuestRegionMmap> {
 
 /// Creates a [`GuestMemoryMmap`] with multiple regions and without dirty page tracking.
 pub fn multi_region_mem(regions: &[(GuestAddress, usize)]) -> GuestMemoryMmap {
-    GuestMemoryMmap::from_regions(
+    GuestRegionCollection::from_regions(
         memory::anonymous(regions.iter().copied(), false, HugePageConfig::None)
-            .expect("Cannot initialize memory"),
+            .expect("Cannot initialize memory")
+            .into_iter()
+            .map(|region| GuestRegionMmapExt::dram_from_mmap_region(region, 0))
+            .collect(),
     )
     .unwrap()
 }
