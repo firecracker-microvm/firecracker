@@ -168,7 +168,7 @@ pub fn build_microvm_for_boot(
     // Build custom CPU config if a custom template is provided.
     let mut vm = Vm::new(&kvm)?;
     let (mut vcpus, vcpus_exit_evt) = vm.create_vcpus(vm_resources.machine_config.vcpu_count)?;
-    vm.register_memory_regions(guest_memory)?;
+    vm.register_dram_memory_regions(guest_memory)?;
 
     let mut device_manager = DeviceManager::new(
         event_manager,
@@ -411,7 +411,7 @@ pub fn build_microvm_from_snapshot(
         .create_vcpus(vm_resources.machine_config.vcpu_count)
         .map_err(StartMicrovmError::Vm)?;
 
-    vm.register_memory_regions(guest_memory)
+    vm.restore_memory_regions(guest_memory, &microvm_state.vm_state.memory)
         .map_err(StartMicrovmError::Vm)?;
 
     #[cfg(target_arch = "x86_64")]
