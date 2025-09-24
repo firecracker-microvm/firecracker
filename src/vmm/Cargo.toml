@@ -21,6 +21,7 @@ aws-lc-rs = { version = "1.14.1", features = ["bindgen"] }
 base64 = "0.22.1"
 bincode = { version = "2.0.1", features = ["serde"] }
 bitflags = "2.10.0"
+bitvec = { version = "1.0.1", features = ["atomic", "serde"] }
 byteorder = "1.5.0"
 crc64 = "2.0.0"
 derive_more = { version = "2.0.1", default-features = false, features = [
