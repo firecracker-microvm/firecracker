@@ -115,43 +115,52 @@ impl GuestRegionMmapExt {
     ) -> Result<usize, GuestMemoryError> {
         let phys_address = self.get_host_address(caddr)?;
 
-        // If and only if we are resuming from a snapshot file, we have a file and it's mapped
-        // private
-        if self.inner.file_offset().is_some() && self.inner.flags() & libc::MAP_PRIVATE != 0 {
-            // Mmap a new anonymous region over the present one in order to create a hole
-            // with zero pages.
-            // This workaround is (only) needed after resuming from a snapshot file because the
-            // guest memory is mmaped from file as private. In this case, MADV_DONTNEED on the
-            // file only drops any anonymous pages in range, but subsequent accesses would read
-            // whatever page is stored on the backing file. Mmapping anonymous pages ensures it's
-            // zeroed.
-            // SAFETY: The address and length are known to be valid.
-            let ret = unsafe {
-                libc::mmap(
-                    phys_address.cast(),
-                    len,
-                    libc::PROT_READ | libc::PROT_WRITE,
-                    libc::MAP_FIXED | libc::MAP_ANONYMOUS | libc::MAP_PRIVATE,
-                    -1,
-                    0,
-                )
-            };
-            if ret == libc::MAP_FAILED {
-                let os_error = std::io::Error::last_os_error();
-                error!("discard_range: mmap failed: {:?}", os_error);
-                return Err(GuestMemoryError::IOError(os_error));
+        match (self.inner.file_offset(), self.inner.flags()) {
+            // If and only if we are resuming from a snapshot file, we have a file and it's mapped
+            // private
+            (Some(_), flags) if flags & libc::MAP_PRIVATE != 0 => {
+                // Mmap a new anonymous region over the present one in order to create a hole
+                // with zero pages.
+                // This workaround is (only) needed after resuming from a snapshot file because the
+                // guest memory is mmaped from file as private. In this case, MADV_DONTNEED on the
+                // file only drops any anonymous pages in range, but subsequent accesses would read
+                // whatever page is stored on the backing file. Mmapping anonymous pages ensures
+                // it's zeroed.
+                // SAFETY: The address and length are known to be valid.
+                let ret = unsafe {
+                    libc::mmap(
+                        phys_address.cast(),
+                        len,
+                        libc::PROT_READ | libc::PROT_WRITE,
+                        libc::MAP_FIXED | libc::MAP_ANONYMOUS | libc::MAP_PRIVATE,
+                        -1,
+                        0,
+                    )
+                };
+                if ret == libc::MAP_FAILED {
+                    let os_error = std::io::Error::last_os_error();
+                    error!("discard_range: mmap failed: {:?}", os_error);
+                    Err(GuestMemoryError::IOError(os_error))
+                } else {
+                    Ok(len)
+                }
             }
-        }
-
-        // Madvise the region in order to mark it as not used.
-        // SAFETY: The address and length are known to be valid.
-        let ret = unsafe { libc::madvise(phys_address.cast(), len, libc::MADV_DONTNEED) };
-        if ret < 0 {
-            let os_error = std::io::Error::last_os_error();
-            error!("discard_range: madvise failed: {:?}", os_error);
-            Err(GuestMemoryError::IOError(os_error))
-        } else {
-            Ok(len)
+            // TODO: madvise(MADV_DONTNEED) doesn't actually work with memfd
+            // (or in general MAP_SHARED of a fd). In those cases we should use
+            // fallocate64(FALLOC_FL_PUNCH_HOLE|FALLOC_FL_KEEP_SIZE).
+            // We keep falling to the madvise branch to keep the previous behaviour.
+            (None, _) | (Some(_), _) => {
+                // Madvise the region in order to mark it as not used.
+                // SAFETY: The address and length are known to be valid.
+                let ret = unsafe { libc::madvise(phys_address.cast(), len, libc::MADV_DONTNEED) };
+                if ret < 0 {
+                    let os_error = std::io::Error::last_os_error();
+                    error!("discard_range: madvise failed: {:?}", os_error);
+                    Err(GuestMemoryError::IOError(os_error))
+                } else {
+                    Ok(len)
+                }
+            }
         }
     }
 }
