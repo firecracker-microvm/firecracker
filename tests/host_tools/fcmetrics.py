@@ -202,6 +202,8 @@ def validate_fc_metrics(metrics):
             "machine_cfg_fails",
             "mmds_count",
             "mmds_fails",
+            "hotplug_memory_count",
+            "hotplug_memory_fails",
         ],
         "put_api_requests": [
             "actions_count",

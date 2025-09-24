@@ -981,13 +981,14 @@ def test_api_entropy(uvm_plain):
         test_microvm.api.entropy.put()
 
 
-def test_api_memory_hotplug(uvm_plain):
+def test_api_memory_hotplug(uvm_plain_6_1):
     """
     Test hotplug related API commands.
     """
-    test_microvm = uvm_plain
+    test_microvm = uvm_plain_6_1
     test_microvm.spawn()
     test_microvm.basic_config()
+    test_microvm.add_net_iface()
 
     # Adding hotplug memory region should be OK.
     test_microvm.api.memory_hotplug.put(
@@ -1002,6 +1003,10 @@ def test_api_memory_hotplug(uvm_plain):
     with pytest.raises(AssertionError):
         test_microvm.api.memory_hotplug.get()
 
+    # Patch API should be rejected before boot
+    with pytest.raises(RuntimeError, match=NOT_SUPPORTED_BEFORE_START):
+        test_microvm.api.memory_hotplug.patch(requested_size_mib=512)
+
     # Start the microvm
     test_microvm.start()
 
@@ -1012,6 +1017,11 @@ def test_api_memory_hotplug(uvm_plain):
     # Get API should work after boot
     status = test_microvm.api.memory_hotplug.get().json()
     assert status["total_size_mib"] == 1024
+
+    # Patch API should work after boot
+    test_microvm.api.memory_hotplug.patch(requested_size_mib=512)
+    status = test_microvm.api.memory_hotplug.get().json()
+    assert status["requested_size_mib"] == 512
 
 
 def test_api_balloon(uvm_nano):
