@@ -161,8 +161,6 @@ pub struct NetDeviceMetrics {
     pub rx_queue_event_count: SharedIncMetric,
     /// Number of events associated with the rate limiter installed on the receiving path.
     pub rx_event_rate_limiter_count: SharedIncMetric,
-    /// Number of RX partial writes to guest.
-    pub rx_partial_writes: SharedIncMetric,
     /// Number of RX rate limiter throttling events.
     pub rx_rate_limiter_throttled: SharedIncMetric,
     /// Number of events received on the associated tap.
@@ -191,8 +189,6 @@ pub struct NetDeviceMetrics {
     pub tx_count: SharedIncMetric,
     /// Number of transmitted packets.
     pub tx_packets_count: SharedIncMetric,
-    /// Number of TX partial reads from guest.
-    pub tx_partial_reads: SharedIncMetric,
     /// Number of events associated with the transmitting queue.
     pub tx_queue_event_count: SharedIncMetric,
     /// Number of events associated with the rate limiter installed on the transmitting path.
@@ -233,8 +229,6 @@ impl NetDeviceMetrics {
             .add(other.rx_queue_event_count.fetch_diff());
         self.rx_event_rate_limiter_count
             .add(other.rx_event_rate_limiter_count.fetch_diff());
-        self.rx_partial_writes
-            .add(other.rx_partial_writes.fetch_diff());
         self.rx_rate_limiter_throttled
             .add(other.rx_rate_limiter_throttled.fetch_diff());
         self.rx_tap_event_count
@@ -256,8 +250,6 @@ impl NetDeviceMetrics {
         self.tx_count.add(other.tx_count.fetch_diff());
         self.tx_packets_count
             .add(other.tx_packets_count.fetch_diff());
-        self.tx_partial_reads
-            .add(other.tx_partial_reads.fetch_diff());
         self.tx_queue_event_count
             .add(other.tx_queue_event_count.fetch_diff());
         self.tx_rate_limiter_event_count
