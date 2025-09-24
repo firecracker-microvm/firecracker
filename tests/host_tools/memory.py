@@ -99,7 +99,7 @@ class MemoryMonitor(Thread):
         Checks if a region is a guest memory region based on
         x86_64 physical memory layout
         """
-        return size in (
+        return size >= guest_mem_bytes or size in (
             # memory fits before the first gap
             guest_mem_bytes,
             # guest memory spans at least two regions & memory fits before the second gap
@@ -121,7 +121,7 @@ class MemoryMonitor(Thread):
         Checks if a region is a guest memory region based on
         ARM64 physical memory layout
         """
-        return size in (
+        return size >= guest_mem_bytes or size in (
             # guest memory fits before the gap
             guest_mem_bytes,
             # guest memory fills the space before the gap
