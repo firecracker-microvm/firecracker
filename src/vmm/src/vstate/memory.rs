@@ -60,6 +60,8 @@ pub enum MemoryError {
 pub enum GuestRegionType {
     /// Guest DRAM
     Dram,
+    /// Hotpluggable memory
+    Hotpluggable,
 }
 
 /// An extension to GuestMemoryRegion that stores the type of region, and the KVM slot
@@ -79,6 +81,14 @@ impl GuestRegionMmapExt {
         GuestRegionMmapExt {
             inner: region,
             region_type: GuestRegionType::Dram,
+            slot,
+        }
+    }
+
+    pub(crate) fn hotpluggable_from_mmap_region(region: GuestRegionMmap, slot: u32) -> Self {
+        GuestRegionMmapExt {
+            inner: region,
+            region_type: GuestRegionType::Hotpluggable,
             slot,
         }
     }

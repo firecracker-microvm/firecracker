@@ -173,6 +173,19 @@ pub fn build_microvm_for_boot(
     let (mut vcpus, vcpus_exit_evt) = vm.create_vcpus(vm_resources.machine_config.vcpu_count)?;
     vm.register_dram_memory_regions(guest_memory)?;
 
+    // Allocate memory as soon as possible to make hotpluggable memory available to all consumers,
+    // before they clone the GuestMemoryMmap object
+    let virtio_mem_addr = if let Some(memory_hotplug) = &vm_resources.memory_hotplug {
+        let addr = allocate_virtio_mem_address(&vm, memory_hotplug.total_size_mib)?;
+        let hotplug_memory_region = vm_resources
+            .allocate_memory_region(addr, mib_to_bytes(memory_hotplug.total_size_mib))
+            .map_err(StartMicrovmError::GuestMemory)?;
+        vm.register_hotpluggable_memory_region(hotplug_memory_region)?;
+        Some(addr)
+    } else {
+        None
+    };
+
     let mut device_manager = DeviceManager::new(
         event_manager,
         &vcpus_exit_evt,
@@ -258,6 +271,7 @@ pub fn build_microvm_for_boot(
             &mut boot_cmdline,
             memory_hotplug,
             event_manager,
+            virtio_mem_addr.expect("address should be allocated"),
         )?;
     }
 
@@ -587,26 +601,34 @@ fn attach_entropy_device(
     device_manager.attach_virtio_device(vm, id, entropy_device.clone(), cmdline, false)
 }
 
+fn allocate_virtio_mem_address(
+    vm: &Vm,
+    total_size_mib: usize,
+) -> Result<GuestAddress, StartMicrovmError> {
+    let addr = vm
+        .resource_allocator()
+        .past_mmio64_memory
+        .allocate(
+            mib_to_bytes(total_size_mib) as u64,
+            mib_to_bytes(VIRTIO_MEM_DEFAULT_SLOT_SIZE_MIB) as u64,
+            AllocPolicy::FirstMatch,
+        )?
+        .start();
+    Ok(GuestAddress(addr))
+}
+
 fn attach_virtio_mem_device(
     device_manager: &mut DeviceManager,
     vm: &Arc<Vm>,
     cmdline: &mut LoaderKernelCmdline,
     config: &MemoryHotplugConfig,
     event_manager: &mut EventManager,
+    addr: GuestAddress,
 ) -> Result<(), StartMicrovmError> {
-    let addr = vm
-        .resource_allocator()
-        .past_mmio64_memory
-        .allocate(
-            mib_to_bytes(config.total_size_mib) as u64,
-            mib_to_bytes(VIRTIO_MEM_DEFAULT_SLOT_SIZE_MIB) as u64,
-            AllocPolicy::FirstMatch,
-        )?
-        .start();
     let virtio_mem = Arc::new(Mutex::new(
         VirtioMem::new(
             Arc::clone(vm),
-            GuestAddress(addr),
+            addr,
             config.total_size_mib,
             config.block_size_mib,
             config.slot_size_mib,
@@ -1340,6 +1362,7 @@ pub(crate) mod tests {
             cmdline,
             &config,
             event_manager,
+            GuestAddress(512 << 30),
         )
         .unwrap();
     }
