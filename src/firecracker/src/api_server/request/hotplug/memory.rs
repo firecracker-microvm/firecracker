@@ -4,7 +4,7 @@
 use micro_http::Body;
 use vmm::logger::{IncMetric, METRICS};
 use vmm::rpc_interface::VmmAction;
-use vmm::vmm_config::memory_hotplug::MemoryHotplugConfig;
+use vmm::vmm_config::memory_hotplug::{MemoryHotplugConfig, MemoryHotplugSizeUpdate};
 
 use crate::api_server::parsed_request::{ParsedRequest, RequestError};
 
@@ -23,11 +23,23 @@ pub(crate) fn parse_get_memory_hotplug() -> Result<ParsedRequest, RequestError> 
     Ok(ParsedRequest::new_sync(VmmAction::GetMemoryHotplugStatus))
 }
 
+pub(crate) fn parse_patch_memory_hotplug(body: &Body) -> Result<ParsedRequest, RequestError> {
+    METRICS.patch_api_requests.hotplug_memory_count.inc();
+    let config =
+        serde_json::from_slice::<MemoryHotplugSizeUpdate>(body.raw()).inspect_err(|_| {
+            METRICS.patch_api_requests.hotplug_memory_fails.inc();
+        })?;
+    Ok(ParsedRequest::new_sync(VmmAction::UpdateMemoryHotplugSize(
+        config,
+    )))
+}
+
 #[cfg(test)]
 mod tests {
     use vmm::devices::virtio::mem::{
         VIRTIO_MEM_DEFAULT_BLOCK_SIZE_MIB, VIRTIO_MEM_DEFAULT_SLOT_SIZE_MIB,
     };
+    use vmm::vmm_config::memory_hotplug::MemoryHotplugSizeUpdate;
 
     use super::*;
     use crate::api_server::parsed_request::tests::vmm_action_from_request;
@@ -78,6 +90,29 @@ mod tests {
         assert_eq!(
             vmm_action_from_request(parse_get_memory_hotplug().unwrap()),
             VmmAction::GetMemoryHotplugStatus
+        );
+    }
+
+    #[test]
+    fn test_parse_patch_memory_hotplug_request() {
+        parse_patch_memory_hotplug(&Body::new("invalid_payload")).unwrap_err();
+
+        // PATCH with invalid fields.
+        let body = r#"{
+            "requested_size_mib": "bar"
+        }"#;
+        parse_patch_memory_hotplug(&Body::new(body)).unwrap_err();
+
+        // PATCH with valid input fields.
+        let body = r#"{
+            "requested_size_mib": 2048
+        }"#;
+        let expected_config = MemoryHotplugSizeUpdate {
+            requested_size_mib: 2048,
+        };
+        assert_eq!(
+            vmm_action_from_request(parse_patch_memory_hotplug(&Body::new(body)).unwrap()),
+            VmmAction::UpdateMemoryHotplugSize(expected_config)
         );
     }
 }
