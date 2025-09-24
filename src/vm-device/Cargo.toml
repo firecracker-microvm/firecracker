@@ -13,4 +13,4 @@ default = []
 
 [dependencies]
 serde = { version = "1.0.224", features = ["derive", "rc"] }
-vmm-sys-util = { version = "0.14.0", features = ["with-serde"] }
+vmm-sys-util = { version = "0.15.0", features = ["with-serde"] }
