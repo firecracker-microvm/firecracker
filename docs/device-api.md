@@ -109,6 +109,7 @@ specification:
 | `MemoryHotplugConfig`     | total_size_mib     |    O     |       O        |      O       |        O         |     O      |      O       |     O      |      O      |   **R**    |
 |                           | slot_size_mib      |    O     |       O        |      O       |        O         |     O      |      O       |     O      |      O      |   **R**    |
 |                           | block_size_mi      |    O     |       O        |      O       |        O         |     O      |      O       |     O      |      O      |   **R**    |
+| `MemoryHotplugSizeUpdate` | requested_size_mib |    O     |       O        |      O       |        O         |     O      |      O       |     O      |      O      |   **R**    |
 
 \* `Drive`'s `drive_id`, `is_root_device` and `partuuid` can be configured by
 either virtio-block or vhost-user-block devices.
