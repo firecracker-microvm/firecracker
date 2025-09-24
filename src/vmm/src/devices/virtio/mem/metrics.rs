@@ -45,6 +45,22 @@ pub(super) struct VirtioMemDeviceMetrics {
     pub queue_event_fails: SharedIncMetric,
     /// Number of queue events handled
     pub queue_event_count: SharedIncMetric,
+    /// Latency of Plug operations
+    pub plug_agg: LatencyAggregateMetrics,
+    /// Number of Plug operations
+    pub plug_count: SharedIncMetric,
+    /// Latency of Unplug operations
+    pub unplug_agg: LatencyAggregateMetrics,
+    /// Number of Unplug operations
+    pub unplug_count: SharedIncMetric,
+    /// Latency of UnplugAll operations
+    pub unplug_all_agg: LatencyAggregateMetrics,
+    /// Number of UnplugAll operations
+    pub unplug_all_count: SharedIncMetric,
+    /// Latency of State operations
+    pub state_agg: LatencyAggregateMetrics,
+    /// Number of State operations
+    pub state_count: SharedIncMetric,
 }
 
 impl VirtioMemDeviceMetrics {
@@ -54,6 +70,14 @@ impl VirtioMemDeviceMetrics {
             activate_fails: SharedIncMetric::new(),
             queue_event_fails: SharedIncMetric::new(),
             queue_event_count: SharedIncMetric::new(),
+            plug_agg: LatencyAggregateMetrics::new(),
+            plug_count: SharedIncMetric::new(),
+            unplug_agg: LatencyAggregateMetrics::new(),
+            unplug_count: SharedIncMetric::new(),
+            unplug_all_agg: LatencyAggregateMetrics::new(),
+            unplug_all_count: SharedIncMetric::new(),
+            state_agg: LatencyAggregateMetrics::new(),
+            state_count: SharedIncMetric::new(),
         }
     }
 }
