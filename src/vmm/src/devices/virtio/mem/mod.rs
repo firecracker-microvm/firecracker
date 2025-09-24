@@ -5,6 +5,7 @@ mod device;
 mod event_handler;
 pub mod metrics;
 pub mod persist;
+mod request;
 
 use vm_memory::GuestAddress;
 
