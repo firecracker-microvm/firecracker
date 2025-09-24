@@ -119,7 +119,7 @@ impl Response {
 
     pub(crate) fn ack_with_state(state: BlockRangeState) -> Self {
         Response {
-            resp_type: ResponseType::Error,
+            resp_type: ResponseType::Ack,
             state: Some(state),
         }
     }
