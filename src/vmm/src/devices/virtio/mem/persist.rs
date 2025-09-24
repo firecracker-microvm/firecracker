@@ -5,6 +5,7 @@
 
 use std::sync::Arc;
 
+use bitvec::vec::BitVec;
 use serde::{Deserialize, Serialize};
 use vm_memory::Address;
 
@@ -15,6 +16,7 @@ use crate::devices::virtio::mem::{MEM_NUM_QUEUES, VirtioMem, VirtioMemError};
 use crate::devices::virtio::persist::{PersistError as VirtioStateError, VirtioDeviceState};
 use crate::devices::virtio::queue::FIRECRACKER_MAX_QUEUE_SIZE;
 use crate::snapshot::Persist;
+use crate::utils::usize_to_u64;
 use crate::vstate::memory::{GuestMemoryMmap, GuestRegionMmap};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -24,9 +26,9 @@ pub struct VirtioMemState {
     region_size: u64,
     block_size: u64,
     usable_region_size: u64,
-    plugged_size: u64,
     requested_size: u64,
     slot_size: usize,
+    plugged_blocks: BitVec,
 }
 
 #[derive(Debug)]
@@ -60,7 +62,7 @@ impl Persist<'_> for VirtioMem {
             region_size: self.config.region_size,
             block_size: self.config.block_size,
             usable_region_size: self.config.usable_region_size,
-            plugged_size: self.config.plugged_size,
+            plugged_blocks: self.plugged_blocks.clone(),
             requested_size: self.config.requested_size,
             slot_size: self.slot_size,
         }
@@ -82,13 +84,18 @@ impl Persist<'_> for VirtioMem {
             region_size: state.region_size,
             block_size: state.block_size,
             usable_region_size: state.usable_region_size,
-            plugged_size: state.plugged_size,
+            plugged_size: usize_to_u64(state.plugged_blocks.count_ones()) * state.block_size,
             requested_size: state.requested_size,
             ..Default::default()
         };
 
-        let mut virtio_mem =
-            VirtioMem::from_state(constructor_args.vm, queues, config, state.slot_size)?;
+        let mut virtio_mem = VirtioMem::from_state(
+            constructor_args.vm,
+            queues,
+            config,
+            state.slot_size,
+            state.plugged_blocks.clone(),
+        )?;
         virtio_mem.set_avail_features(state.virtio_state.avail_features);
         virtio_mem.set_acked_features(state.virtio_state.acked_features);
 
@@ -112,7 +119,7 @@ mod tests {
         assert_eq!(state.region_size, dev.config.region_size);
         assert_eq!(state.block_size, dev.config.block_size);
         assert_eq!(state.usable_region_size, dev.config.usable_region_size);
-        assert_eq!(state.plugged_size, dev.config.plugged_size);
+        assert_eq!(state.plugged_blocks, dev.plugged_blocks);
         assert_eq!(state.requested_size, dev.config.requested_size);
         assert_eq!(state.slot_size, dev.slot_size);
     }
