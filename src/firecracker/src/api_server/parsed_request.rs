@@ -28,7 +28,7 @@ use super::request::snapshot::{parse_patch_vm_state, parse_put_snapshot};
 use super::request::version::parse_get_version;
 use super::request::vsock::parse_put_vsock;
 use crate::api_server::request::hotplug::memory::{
-    parse_get_memory_hotplug, parse_put_memory_hotplug,
+    parse_get_memory_hotplug, parse_patch_memory_hotplug, parse_put_memory_hotplug,
 };
 use crate::api_server::request::serial::parse_put_serial;
 
@@ -119,6 +119,9 @@ impl TryFrom<&Request> for ParsedRequest {
                 parse_patch_net(body, path_tokens.next())
             }
             (Method::Patch, "vm", Some(body)) => parse_patch_vm_state(body),
+            (Method::Patch, "hotplug", Some(body)) if path_tokens.next() == Some("memory") => {
+                parse_patch_memory_hotplug(body)
+            }
             (Method::Patch, _, None) => method_to_error(Method::Patch),
             (method, unknown_uri, _) => Err(RequestError::InvalidPathMethod(
                 unknown_uri.to_string(),

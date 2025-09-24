@@ -43,6 +43,10 @@ pub enum VirtioMemError {
     EventFd(#[from] io::Error),
     /// Received error while sending an interrupt: {0}
     InterruptError(#[from] InterruptError),
+    /// Size {0} is invalid: it must be a multiple of block size and less than the total size
+    InvalidSize(u64),
+    /// Device is not active
+    DeviceNotActive,
 }
 
 #[derive(Debug)]
@@ -199,6 +203,48 @@ impl VirtioMem {
 
     pub(crate) fn activate_event(&self) -> &EventFd {
         &self.activate_event
+    }
+
+    /// Updates the requested size of the virtio-mem device.
+    pub fn update_requested_size(
+        &mut self,
+        requested_size_mib: usize,
+    ) -> Result<(), VirtioMemError> {
+        let requested_size = usize_to_u64(mib_to_bytes(requested_size_mib));
+        if !self.is_activated() {
+            return Err(VirtioMemError::DeviceNotActive);
+        }
+
+        if requested_size % self.config.block_size != 0 {
+            return Err(VirtioMemError::InvalidSize(requested_size));
+        }
+        if requested_size > self.config.region_size {
+            return Err(VirtioMemError::InvalidSize(requested_size));
+        }
+
+        // Increase the usable_region_size if it's not enough for the guest to plug new
+        // memory blocks.
+        // The device cannot decrease the usable_region_size unless the guest requests
+        // to reset it with an UNPLUG_ALL request.
+        if self.config.usable_region_size < requested_size {
+            self.config.usable_region_size =
+                requested_size.next_multiple_of(usize_to_u64(self.slot_size));
+            debug!(
+                "virtio-mem: Updated usable size to {} bytes",
+                self.config.usable_region_size
+            );
+        }
+
+        self.config.requested_size = requested_size;
+        debug!(
+            "virtio-mem: Updated requested size to {} bytes",
+            requested_size
+        );
+        // TODO(virtio-mem): trigger interrupt once we add handling for the requests
+        // self.interrupt_trigger()
+        //     .trigger(VirtioInterruptType::Config)
+        //     .map_err(VirtioMemError::InterruptError)
+        Ok(())
     }
 }
 
