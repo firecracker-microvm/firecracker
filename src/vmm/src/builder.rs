@@ -462,7 +462,6 @@ pub fn build_microvm_from_snapshot(
         event_manager,
         vm_resources,
         instance_id: &instance_info.id,
-        restored_from_file: uffd.is_none(),
         vcpus_exit_evt: &vcpus_exit_evt,
     };
     #[allow(unused_mut)]
