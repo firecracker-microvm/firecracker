@@ -14,7 +14,7 @@ use super::super::ActivateError;
 use super::super::device::{DeviceState, VirtioDevice};
 use super::super::queue::Queue;
 use super::metrics::METRICS;
-use super::util::{compact_page_frame_numbers, remove_range};
+use super::util::compact_page_frame_numbers;
 use super::{
     BALLOON_DEV_ID, BALLOON_NUM_QUEUES, BALLOON_QUEUE_SIZES, DEFLATE_INDEX, INFLATE_INDEX,
     MAX_PAGE_COMPACT_BUFFER, MAX_PAGES_IN_DESC, MIB_TO_4K_PAGES, STATS_INDEX,
@@ -32,7 +32,9 @@ use crate::devices::virtio::queue::InvalidAvailIdx;
 use crate::devices::virtio::transport::{VirtioInterrupt, VirtioInterruptType};
 use crate::logger::IncMetric;
 use crate::utils::u64_to_usize;
-use crate::vstate::memory::{Address, ByteValued, Bytes, GuestAddress, GuestMemoryMmap};
+use crate::vstate::memory::{
+    Address, ByteValued, Bytes, GuestAddress, GuestMemoryExtension, GuestMemoryMmap,
+};
 use crate::{impl_device_type, mem_size_mib};
 
 const SIZE_OF_U32: usize = std::mem::size_of::<u32>();
@@ -335,10 +337,9 @@ impl Balloon {
                 let guest_addr =
                     GuestAddress(u64::from(page_frame_number) << VIRTIO_BALLOON_PFN_SHIFT);
 
-                if let Err(err) = remove_range(
-                    mem,
-                    (guest_addr, u64::from(range_len) << VIRTIO_BALLOON_PFN_SHIFT),
-                    self.restored_from_file,
+                if let Err(err) = mem.discard_range(
+                    guest_addr,
+                    usize::try_from(range_len).unwrap() << VIRTIO_BALLOON_PFN_SHIFT,
                 ) {
                     error!("Error removing memory range: {:?}", err);
                 }
