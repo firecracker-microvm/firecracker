@@ -29,7 +29,9 @@ use crate::vmm_config::drive::{BlockDeviceConfig, BlockDeviceUpdateConfig, Drive
 use crate::vmm_config::entropy::{EntropyDeviceConfig, EntropyDeviceError};
 use crate::vmm_config::instance_info::InstanceInfo;
 use crate::vmm_config::machine_config::{MachineConfig, MachineConfigError, MachineConfigUpdate};
-use crate::vmm_config::memory_hotplug::{MemoryHotplugConfig, MemoryHotplugConfigError};
+use crate::vmm_config::memory_hotplug::{
+    MemoryHotplugConfig, MemoryHotplugConfigError, MemoryHotplugSizeUpdate,
+};
 use crate::vmm_config::metrics::{MetricsConfig, MetricsConfigError};
 use crate::vmm_config::mmds::{MmdsConfig, MmdsConfigError};
 use crate::vmm_config::net::{
@@ -116,6 +118,9 @@ pub enum VmmAction {
     /// Set the memory hotplug device using `MemoryHotplugConfig` as input. This action can only be
     /// called before the microVM has booted.
     SetMemoryHotplugDevice(MemoryHotplugConfig),
+    /// Updates the memory hotplug device using `MemoryHotplugConfigUpdate` as input. This action
+    /// can only be called after the microVM has booted.
+    UpdateMemoryHotplugSize(MemoryHotplugSizeUpdate),
     /// Launch the microVM. This action can only be called before the microVM has booted.
     StartMicroVm,
     /// Send CTRL+ALT+DEL to the microVM, using the i8042 keyboard function. If an AT-keyboard
@@ -157,6 +162,8 @@ pub enum VmmActionError {
     PmemDevice(#[from] PmemConfigError),
     /// Memory hotplug config error: {0}
     MemoryHotplugConfig(#[from] MemoryHotplugConfigError),
+    /// Memory hotplug update error: {0}
+    MemoryHotplugUpdate(VmmError),
     /// Internal VMM error: {0}
     InternalVmm(#[from] VmmError),
     /// Load snapshot error: {0}
@@ -475,6 +482,7 @@ impl<'a> PrebootApiController<'a> {
             | UpdateBalloon(_)
             | UpdateBalloonStatistics(_)
             | UpdateBlockDevice(_)
+            | UpdateMemoryHotplugSize(_)
             | UpdateNetworkInterface(_) => Err(VmmActionError::OperationNotSupportedPreBoot),
             #[cfg(target_arch = "x86_64")]
             SendCtrlAltDel => Err(VmmActionError::OperationNotSupportedPreBoot),
@@ -723,7 +731,13 @@ impl RuntimeApiController {
                 .map_err(VmmActionError::BalloonUpdate),
             UpdateBlockDevice(new_cfg) => self.update_block_device(new_cfg),
             UpdateNetworkInterface(netif_update) => self.update_net_rate_limiters(netif_update),
-
+            UpdateMemoryHotplugSize(cfg) => self
+                .vmm
+                .lock()
+                .expect("Poisoned lock")
+                .update_memory_hotplug_size(cfg.requested_size_mib)
+                .map(|_| VmmData::Empty)
+                .map_err(VmmActionError::MemoryHotplugUpdate),
             // Operations not allowed post-boot.
             ConfigureBootSource(_)
             | ConfigureLogger(_)
@@ -1196,6 +1210,11 @@ mod tests {
         )));
         #[cfg(target_arch = "x86_64")]
         check_unsupported(preboot_request(VmmAction::SendCtrlAltDel));
+        check_unsupported(preboot_request(VmmAction::UpdateMemoryHotplugSize(
+            MemoryHotplugSizeUpdate {
+                requested_size_mib: 0,
+            },
+        )));
     }
 
     fn runtime_request(request: VmmAction) -> Result<VmmData, VmmActionError> {

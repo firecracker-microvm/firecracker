@@ -86,6 +86,14 @@ impl MemoryHotplugConfig {
     }
 }
 
+/// Configuration for memory hotplug device.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct MemoryHotplugSizeUpdate {
+    /// Requested size in MiB to resize the hotpluggable memory to.
+    pub requested_size_mib: usize,
+}
+
 #[cfg(test)]
 mod tests {
     use serde_json;
