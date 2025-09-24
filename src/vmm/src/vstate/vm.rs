@@ -222,6 +222,19 @@ impl Vm {
         Ok(())
     }
 
+    /// Register a new hotpluggable region to this [`Vm`].
+    pub fn register_hotpluggable_memory_region(
+        &mut self,
+        region: GuestRegionMmap,
+    ) -> Result<(), VmError> {
+        let arcd_region = Arc::new(GuestRegionMmapExt::hotpluggable_from_mmap_region(
+            region,
+            self.allocate_slot_ids(1)?,
+        ));
+
+        self._register_memory_region(arcd_region)
+    }
+
     /// Register a list of new memory regions to this [`Vm`].
     ///
     /// Note: regions and state.regions need to be in the same order.
