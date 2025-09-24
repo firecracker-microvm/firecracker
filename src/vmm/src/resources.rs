@@ -536,6 +536,18 @@ impl VmResources {
             crate::arch::arch_memory_regions(mib_to_bytes(self.machine_config.mem_size_mib));
         self.allocate_memory_regions(&regions)
     }
+
+    /// Allocates a single guest memory region.
+    pub fn allocate_memory_region(
+        &self,
+        start: GuestAddress,
+        size: usize,
+    ) -> Result<GuestRegionMmap, MemoryError> {
+        Ok(self
+            .allocate_memory_regions(&[(start, size)])?
+            .pop()
+            .unwrap())
+    }
 }
 
 impl From<&VmResources> for VmmConfig {
