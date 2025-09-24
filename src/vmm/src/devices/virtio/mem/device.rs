@@ -2,10 +2,11 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use std::io;
-use std::ops::Deref;
+use std::ops::{Deref, Range};
 use std::sync::Arc;
 use std::sync::atomic::AtomicU32;
 
+use bitvec::vec::BitVec;
 use log::info;
 use serde::{Deserialize, Serialize};
 use vm_memory::{
@@ -14,7 +15,6 @@ use vm_memory::{
 use vmm_sys_util::eventfd::EventFd;
 
 use super::{MEM_NUM_QUEUES, MEM_QUEUE};
-use crate::devices::DeviceError;
 use crate::devices::virtio::ActivateError;
 use crate::devices::virtio::device::{ActiveState, DeviceState, VirtioDevice};
 use crate::devices::virtio::generated::virtio_config::VIRTIO_F_VERSION_1;
@@ -33,7 +33,7 @@ use crate::devices::virtio::transport::{VirtioInterrupt, VirtioInterruptType};
 use crate::logger::{IncMetric, debug, error};
 use crate::utils::{bytes_to_mib, mib_to_bytes, u64_to_usize, usize_to_u64};
 use crate::vstate::interrupts::InterruptError;
-use crate::vstate::memory::{ByteValued, GuestMemoryMmap, GuestRegionMmap};
+use crate::vstate::memory::{ByteValued, GuestMemoryExtension, GuestMemoryMmap, GuestRegionMmap};
 use crate::vstate::vm::VmError;
 use crate::{Vm, impl_device_type};
 
@@ -68,6 +68,14 @@ pub enum VirtioMemError {
     InvalidAvailIdx(#[from] InvalidAvailIdx),
     /// Error adding used queue: {0}
     QueueError(#[from] QueueError),
+    /// Invalid requested range: {0:?}.
+    InvalidRange(RequestedRange),
+    /// The requested range cannot be plugged because it's {0:?}.
+    PlugRequestBlockStateInvalid(BlockRangeState),
+    /// Plug request rejected as plugged_size would be greater than requested_size
+    PlugRequestIsTooBig,
+    /// The requested range cannot be unplugged because it's {0:?}.
+    UnplugRequestBlockStateInvalid(BlockRangeState),
 }
 
 #[derive(Debug)]
@@ -85,6 +93,8 @@ pub struct VirtioMem {
     // Device specific fields
     pub(crate) config: virtio_mem_config,
     pub(crate) slot_size: usize,
+    // Bitmap to track which blocks are plugged
+    pub(crate) plugged_blocks: BitVec,
     vm: Arc<Vm>,
 }
 
@@ -119,8 +129,15 @@ impl VirtioMem {
             block_size: mib_to_bytes(block_size_mib) as u64,
             ..Default::default()
         };
+        let plugged_blocks = BitVec::repeat(false, total_size_mib / block_size_mib);
 
-        Self::from_state(vm, queues, config, mib_to_bytes(slot_size_mib))
+        Self::from_state(
+            vm,
+            queues,
+            config,
+            mib_to_bytes(slot_size_mib),
+            plugged_blocks,
+        )
     }
 
     pub fn from_state(
@@ -128,6 +145,7 @@ impl VirtioMem {
         queues: Vec<Queue>,
         config: virtio_mem_config,
         slot_size: usize,
+        plugged_blocks: BitVec,
     ) -> Result<Self, VirtioMemError> {
         let activate_event = EventFd::new(libc::EFD_NONBLOCK)?;
         let queue_events = (0..MEM_NUM_QUEUES)
@@ -144,11 +162,16 @@ impl VirtioMem {
             config,
             vm,
             slot_size,
+            plugged_blocks,
         })
     }
 
     pub fn id(&self) -> &str {
         VIRTIO_MEM_DEV_ID
+    }
+
+    pub fn guest_address(&self) -> GuestAddress {
+        GuestAddress(self.config.addr)
     }
 
     /// Gets the total hotpluggable size.
@@ -194,6 +217,24 @@ impl VirtioMem {
 
     fn guest_memory(&self) -> &GuestMemoryMmap {
         &self.device_state.active_state().unwrap().mem
+    }
+
+    fn nb_blocks_to_len(&self, nb_blocks: usize) -> usize {
+        nb_blocks * u64_to_usize(self.config.block_size)
+    }
+
+    /// Returns the state of all the blocks in the given range.
+    ///
+    /// Note: the range passed to this function must be within the device memory to avoid
+    /// out-of-bound panics.
+    fn range_state(&self, range: &RequestedRange) -> BlockRangeState {
+        let plugged_count = self.plugged_blocks[self.unchecked_block_range(range)].count_ones();
+
+        match plugged_count {
+            nb_blocks if nb_blocks == range.nb_blocks => BlockRangeState::Plugged,
+            0 => BlockRangeState::Unplugged,
+            _ => BlockRangeState::Mixed,
+        }
     }
 
     fn parse_request(
@@ -249,6 +290,59 @@ impl VirtioMem {
             .map_err(VirtioMemError::QueueError)
     }
 
+    /// Checks that the range provided by the driver is within the usable memory region
+    fn validate_range(&self, range: &RequestedRange) -> Result<(), VirtioMemError> {
+        // Ensure the range is aligned
+        if !range
+            .addr
+            .raw_value()
+            .is_multiple_of(self.config.block_size)
+        {
+            return Err(VirtioMemError::InvalidRange(*range));
+        }
+
+        if range.nb_blocks == 0 {
+            return Err(VirtioMemError::InvalidRange(*range));
+        }
+
+        // Ensure the start addr is within the usable region
+        let start_off = range
+            .addr
+            .checked_offset_from(self.guest_address())
+            .filter(|&off| off < self.config.usable_region_size)
+            .ok_or(VirtioMemError::InvalidRange(*range))?;
+
+        // Ensure the end offset (exclusive) is within the usable region
+        let end_off = start_off
+            .checked_add(usize_to_u64(self.nb_blocks_to_len(range.nb_blocks)))
+            .filter(|&end_off| end_off <= self.config.usable_region_size)
+            .ok_or(VirtioMemError::InvalidRange(*range))?;
+
+        Ok(())
+    }
+
+    fn unchecked_block_range(&self, range: &RequestedRange) -> Range<usize> {
+        let start_block = u64_to_usize((range.addr.0 - self.config.addr) / self.config.block_size);
+
+        start_block..(start_block + range.nb_blocks)
+    }
+
+    fn process_plug_request(&mut self, range: &RequestedRange) -> Result<(), VirtioMemError> {
+        self.validate_range(range)?;
+
+        if self.config.plugged_size + usize_to_u64(self.nb_blocks_to_len(range.nb_blocks))
+            > self.config.requested_size
+        {
+            return Err(VirtioMemError::PlugRequestIsTooBig);
+        }
+
+        match self.range_state(range) {
+            // the range was validated
+            BlockRangeState::Unplugged => self.update_range(range, true),
+            state => Err(VirtioMemError::PlugRequestBlockStateInvalid(state)),
+        }
+    }
+
     fn handle_plug_request(
         &mut self,
         range: &RequestedRange,
@@ -258,9 +352,30 @@ impl VirtioMem {
         METRICS.plug_count.inc();
         let _metric = METRICS.plug_agg.record_latency_metrics();
 
-        // TODO: implement PLUG request
-        let response = Response::ack();
+        let response = match self.process_plug_request(range) {
+            Err(err) => {
+                METRICS.plug_fails.inc();
+                error!("virtio-mem: Failed to plug range: {}", err);
+                Response::error()
+            }
+            Ok(_) => {
+                METRICS
+                    .plug_bytes
+                    .add(usize_to_u64(self.nb_blocks_to_len(range.nb_blocks)));
+                Response::ack()
+            }
+        };
         self.write_response(response, resp_addr, used_idx)
+    }
+
+    fn process_unplug_request(&mut self, range: &RequestedRange) -> Result<(), VirtioMemError> {
+        self.validate_range(range)?;
+
+        match self.range_state(range) {
+            // the range was validated
+            BlockRangeState::Plugged => self.update_range(range, false),
+            state => Err(VirtioMemError::UnplugRequestBlockStateInvalid(state)),
+        }
     }
 
     fn handle_unplug_request(
@@ -271,9 +386,19 @@ impl VirtioMem {
     ) -> Result<(), VirtioMemError> {
         METRICS.unplug_count.inc();
         let _metric = METRICS.unplug_agg.record_latency_metrics();
-
-        // TODO: implement UNPLUG request
-        let response = Response::ack();
+        let response = match self.process_unplug_request(range) {
+            Err(err) => {
+                METRICS.unplug_fails.inc();
+                error!("virtio-mem: Failed to unplug range: {}", err);
+                Response::error()
+            }
+            Ok(_) => {
+                METRICS
+                    .unplug_bytes
+                    .add(usize_to_u64(self.nb_blocks_to_len(range.nb_blocks)));
+                Response::ack()
+            }
+        };
         self.write_response(response, resp_addr, used_idx)
     }
 
@@ -284,9 +409,21 @@ impl VirtioMem {
     ) -> Result<(), VirtioMemError> {
         METRICS.unplug_all_count.inc();
         let _metric = METRICS.unplug_all_agg.record_latency_metrics();
-
-        // TODO: implement UNPLUG ALL request
-        let response = Response::ack();
+        let range = RequestedRange {
+            addr: self.guest_address(),
+            nb_blocks: self.plugged_blocks.len(),
+        };
+        let response = match self.update_range(&range, false) {
+            Err(err) => {
+                METRICS.unplug_all_fails.inc();
+                error!("virtio-mem: Failed to unplug all: {}", err);
+                Response::error()
+            }
+            Ok(_) => {
+                self.config.usable_region_size = 0;
+                Response::ack()
+            }
+        };
         self.write_response(response, resp_addr, used_idx)
     }
 
@@ -298,9 +435,15 @@ impl VirtioMem {
     ) -> Result<(), VirtioMemError> {
         METRICS.state_count.inc();
         let _metric = METRICS.state_agg.record_latency_metrics();
-
-        // TODO: implement STATE request
-        let response = Response::ack_with_state(BlockRangeState::Mixed);
+        let response = match self.validate_range(range) {
+            Err(err) => {
+                METRICS.state_fails.inc();
+                error!("virtio-mem: Failed to retrieve state of range: {}", err);
+                Response::error()
+            }
+            // the range was validated
+            Ok(_) => Response::ack_with_state(self.range_state(range)),
+        };
         self.write_response(response, resp_addr, used_idx)
     }
 
@@ -356,6 +499,37 @@ impl VirtioMem {
 
     pub(crate) fn activate_event(&self) -> &EventFd {
         &self.activate_event
+    }
+
+    /// Plugs/unplugs the given range
+    ///
+    /// Note: the range passed to this function must be within the device memory to avoid
+    /// out-of-bound panics.
+    fn update_range(&mut self, range: &RequestedRange, plug: bool) -> Result<(), VirtioMemError> {
+        // Update internal state
+        let block_range = self.unchecked_block_range(range);
+        let plugged_blocks_slice = &mut self.plugged_blocks[block_range];
+        let plugged_before = plugged_blocks_slice.count_ones();
+        plugged_blocks_slice.fill(plug);
+        let plugged_after = plugged_blocks_slice.count_ones();
+        self.config.plugged_size -= usize_to_u64(self.nb_blocks_to_len(plugged_before));
+        self.config.plugged_size += usize_to_u64(self.nb_blocks_to_len(plugged_after));
+
+        // If unplugging, discard the range
+        if !plug {
+            self.guest_memory()
+                .discard_range(range.addr, self.nb_blocks_to_len(range.nb_blocks))
+                .inspect_err(|err| {
+                    // Failure to discard is not fatal and is not reported to the driver. It only
+                    // gets logged.
+                    METRICS.unplug_discard_fails.inc();
+                    error!("virtio-mem: Failed to discard memory range: {}", err);
+                });
+        }
+
+        // TODO: update KVM slots to plug/unplug them
+
+        Ok(())
     }
 
     /// Updates the requested size of the virtio-mem device.
@@ -549,7 +723,18 @@ mod tests {
             usable_region_size,
             ..Default::default()
         };
-        let mem = VirtioMem::from_state(vm, queues, config, mib_to_bytes(slot_size_mib)).unwrap();
+        let plugged_blocks = BitVec::repeat(
+            false,
+            mib_to_bytes(region_size_mib) / mib_to_bytes(block_size_mib),
+        );
+        let mem = VirtioMem::from_state(
+            vm,
+            queues,
+            config,
+            mib_to_bytes(slot_size_mib),
+            plugged_blocks,
+        )
+        .unwrap();
         assert_eq!(mem.config.addr, addr);
         assert_eq!(mem.total_size_mib(), region_size_mib);
         assert_eq!(mem.block_size_mib(), block_size_mib);
