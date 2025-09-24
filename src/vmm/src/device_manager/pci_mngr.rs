@@ -249,7 +249,6 @@ pub struct PciDevicesConstructorArgs<'a> {
     pub mem: &'a GuestMemoryMmap,
     pub vm_resources: &'a mut VmResources,
     pub instance_id: &'a str,
-    pub restored_from_file: bool,
     pub event_manager: &'a mut EventManager,
 }
 
@@ -260,7 +259,6 @@ impl<'a> Debug for PciDevicesConstructorArgs<'a> {
             .field("mem", &self.mem)
             .field("vm_resources", &self.vm_resources)
             .field("instance_id", &self.instance_id)
-            .field("restored_from_file", &self.restored_from_file)
             .finish()
     }
 }
@@ -425,10 +423,7 @@ impl<'a> Persist<'a> for PciDevices {
         if let Some(balloon_state) = &state.balloon_device {
             let device = Arc::new(Mutex::new(
                 Balloon::restore(
-                    BalloonConstructorArgs {
-                        mem: mem.clone(),
-                        restored_from_file: constructor_args.restored_from_file,
-                    },
+                    BalloonConstructorArgs { mem: mem.clone() },
                     &balloon_state.device_state,
                 )
                 .unwrap(),
@@ -723,7 +718,6 @@ mod tests {
             mem: vmm.vm.guest_memory(),
             vm_resources,
             instance_id: "microvm-id",
-            restored_from_file: true,
             event_manager: &mut event_manager,
         };
         let _restored_dev_manager =
