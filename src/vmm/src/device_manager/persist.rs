@@ -154,7 +154,6 @@ pub struct MMIODevManagerConstructorArgs<'a> {
     pub event_manager: &'a mut EventManager,
     pub vm_resources: &'a mut VmResources,
     pub instance_id: &'a str,
-    pub restored_from_file: bool,
 }
 impl fmt::Debug for MMIODevManagerConstructorArgs<'_> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -432,10 +431,7 @@ impl<'a> Persist<'a> for MMIODeviceManager {
 
         if let Some(balloon_state) = &state.balloon_device {
             let device = Arc::new(Mutex::new(Balloon::restore(
-                BalloonConstructorArgs {
-                    mem: mem.clone(),
-                    restored_from_file: constructor_args.restored_from_file,
-                },
+                BalloonConstructorArgs { mem: mem.clone() },
                 &balloon_state.device_state,
             )?));
 
@@ -743,7 +739,6 @@ mod tests {
             event_manager: &mut event_manager,
             vm_resources,
             instance_id: "microvm-id",
-            restored_from_file: true,
         };
         let _restored_dev_manager =
             MMIODeviceManager::restore(restore_args, &device_manager_state.mmio_state).unwrap();

@@ -142,7 +142,7 @@ pub mod tests {
     #[test]
     fn test_event_handler() {
         let mut event_manager = EventManager::new().unwrap();
-        let mut balloon = Balloon::new(0, true, 10, false).unwrap();
+        let mut balloon = Balloon::new(0, true, 10).unwrap();
         let mem = default_mem();
         let interrupt = default_interrupt();
         let infq = VirtQueue::new(GuestAddress(0), &mem, 16);

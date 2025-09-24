@@ -88,9 +88,6 @@ impl BalloonBuilder {
             cfg.amount_mib,
             cfg.deflate_on_oom,
             cfg.stats_polling_interval_s,
-            // `restored` flag is false because this code path
-            // is never called by snapshot restore functionality.
-            false,
         )?)));
 
         Ok(())
@@ -178,7 +175,7 @@ pub(crate) mod tests {
     #[test]
     fn test_set_device() {
         let mut builder = BalloonBuilder::new();
-        let balloon = Balloon::new(0, true, 0, true).unwrap();
+        let balloon = Balloon::new(0, true, 0).unwrap();
         builder.set_device(Arc::new(Mutex::new(balloon)));
         assert!(builder.inner.is_some());
     }
