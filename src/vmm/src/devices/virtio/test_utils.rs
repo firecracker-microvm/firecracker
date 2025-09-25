@@ -442,6 +442,11 @@ pub(crate) mod test {
             self.virtqueues.last().unwrap().end().raw_value()
         }
 
+        /// Get the address of a descriptor
+        pub fn desc_address(&self, queue: usize, index: usize) -> GuestAddress {
+            GuestAddress(self.virtqueues[queue].dtable[index].addr.get())
+        }
+
         /// Add a new Descriptor in one of the device's queues
         ///
         /// This function adds in one of the queues of the device a DescriptorChain at some offset
