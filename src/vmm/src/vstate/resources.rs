@@ -178,7 +178,7 @@ impl<'a> Persist<'a> for ResourceAllocator {
     fn restore(
         _constructor_args: Self::ConstructorArgs,
         state: &Self::State,
-    ) -> std::result::Result<Self, Self::Error> {
+    ) -> Result<Self, Self::Error> {
         Ok(state.clone())
     }
 }

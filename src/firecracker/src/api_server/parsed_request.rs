@@ -157,7 +157,7 @@ impl ParsedRequest {
     }
 
     pub(crate) fn convert_to_response(
-        request_outcome: &std::result::Result<VmmData, VmmActionError>,
+        request_outcome: &Result<VmmData, VmmActionError>,
     ) -> Response {
         match request_outcome {
             Ok(vmm_data) => match vmm_data {

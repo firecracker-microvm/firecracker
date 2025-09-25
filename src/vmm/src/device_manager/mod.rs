@@ -471,7 +471,7 @@ impl<'a> Persist<'a> for DeviceManager {
     fn restore(
         constructor_args: Self::ConstructorArgs,
         state: &Self::State,
-    ) -> std::result::Result<Self, Self::Error> {
+    ) -> Result<Self, Self::Error> {
         // Setup legacy devices in case of x86
         #[cfg(target_arch = "x86_64")]
         let legacy_devices = Self::create_legacy_devices(
