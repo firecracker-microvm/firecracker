@@ -5,24 +5,28 @@
 //
 // SPDX-License-Identifier: Apache-2.0 AND BSD-3-Clause
 
-use std::sync::{Arc, Barrier};
-use std::{io, result};
+/// PCI bus logic
+pub mod bus;
+/// PCI configuration space handling
+pub mod configuration;
+/// MSI-X logic
+pub mod msix;
 
-#[derive(Debug, thiserror::Error, displaydoc::Display)]
-pub enum Error {
-    /// Allocating space for an IO BAR failed, size={0}.
-    IoAllocationFailed(u64),
-    /// Expected resource not found.
-    MissingResource,
-}
+use std::fmt::Debug;
+use std::sync::{Arc, Barrier};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+/// Parameters for performing a BAR reprogramming operation
 pub struct BarReprogrammingParams {
+    /// Previous address of the BAR
     pub old_base: u64,
+    /// New address of the BAR
     pub new_base: u64,
+    /// Size of the BAR
     pub len: u64,
 }
 
+/// Common logic of all PCI devices
 pub trait PciDevice: Send {
     /// Sets a register in the configuration space.
     /// * `reg_idx` - The index of the config register to modify.
@@ -55,7 +59,7 @@ pub trait PciDevice: Send {
         None
     }
     /// Relocates the BAR to a different address in guest address space.
-    fn move_bar(&mut self, _old_base: u64, _new_base: u64) -> result::Result<(), io::Error> {
+    fn move_bar(&mut self, _old_base: u64, _new_base: u64) -> Result<(), anyhow::Error> {
         Ok(())
     }
 }
@@ -71,5 +75,5 @@ pub trait DeviceRelocation: Send + Sync {
         new_base: u64,
         len: u64,
         pci_dev: &mut dyn PciDevice,
-    ) -> result::Result<(), io::Error>;
+    ) -> Result<(), anyhow::Error>;
 }

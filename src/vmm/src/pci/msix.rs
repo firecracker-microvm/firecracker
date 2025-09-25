@@ -1,19 +1,20 @@
+// Copyright 2025 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // Copyright © 2019 Intel Corporation
 //
 // SPDX-License-Identifier: Apache-2.0 OR BSD-3-Clause
 //
 
+use std::io;
 use std::sync::Arc;
-use std::{io, result};
 
 use byteorder::{ByteOrder, LittleEndian};
+use pci::PciCapabilityId;
 use serde::{Deserialize, Serialize};
-use vm_device::interrupt::{
-    InterruptIndex, InterruptSourceConfig, InterruptSourceGroup, MsiIrqSourceConfig,
-};
+use vm_device::interrupt::{InterruptSourceConfig, InterruptSourceGroup, MsiIrqSourceConfig};
 use vm_memory::ByteValued;
 
-use crate::{PciCapability, PciCapabilityId};
+use crate::logger::{debug, error, warn};
+use crate::pci::configuration::PciCapability;
 
 const MAX_MSIX_VECTORS_PER_DEVICE: u16 = 2048;
 const MSIX_TABLE_ENTRIES_MODULO: u64 = 16;
@@ -23,7 +24,8 @@ const FUNCTION_MASK_BIT: u8 = 14;
 const MSIX_ENABLE_BIT: u8 = 15;
 
 #[derive(Debug, thiserror::Error, displaydoc::Display)]
-pub enum Error {
+/// Error during handling of MSI-X interrupts
+pub enum MsixError {
     /// Failed enabling the interrupt route.
     EnableInterruptRoute(io::Error),
     /// Failed updating the interrupt route.
@@ -31,14 +33,20 @@ pub enum Error {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]
+/// MSI-X table entries
 pub struct MsixTableEntry {
+    /// Lower 32 bits of the vector address
     pub msg_addr_lo: u32,
+    /// Upper 32 bits of the vector address
     pub msg_addr_hi: u32,
+    /// Vector data
     pub msg_data: u32,
+    /// Enable/Disable and (un)masking control
     pub vector_ctl: u32,
 }
 
 impl MsixTableEntry {
+    /// Returns `true` if the vector is masked
     pub fn masked(&self) -> bool {
         self.vector_ctl & 0x1 == 0x1
     }
@@ -56,6 +64,7 @@ impl Default for MsixTableEntry {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+/// State for (de)serializing MSI-X configuration
 pub struct MsixConfigState {
     table_entries: Vec<MsixTableEntry>,
     pba_entries: Vec<u64>,
@@ -63,12 +72,19 @@ pub struct MsixConfigState {
     enabled: bool,
 }
 
+/// MSI-X configuration
 pub struct MsixConfig {
+    /// Vector table entries
     pub table_entries: Vec<MsixTableEntry>,
+    /// Pending bit array
     pub pba_entries: Vec<u64>,
+    /// Id of the device using this set of vectors
     pub devid: u32,
+    /// Interrupts used to drive this set of vectors
     pub interrupt_source_group: Arc<dyn InterruptSourceGroup>,
+    /// Whether vectors are masked
     pub masked: bool,
+    /// Whether vectors are enabled
     pub enabled: bool,
 }
 
@@ -85,12 +101,13 @@ impl std::fmt::Debug for MsixConfig {
 }
 
 impl MsixConfig {
+    /// Create a new MSI-X configuration
     pub fn new(
         msix_vectors: u16,
         interrupt_source_group: Arc<dyn InterruptSourceGroup>,
         devid: u32,
         state: Option<MsixConfigState>,
-    ) -> result::Result<Self, Error> {
+    ) -> Result<Self, MsixError> {
         assert!(msix_vectors <= MAX_MSIX_VECTORS_PER_DEVICE);
 
         let (table_entries, pba_entries, masked, enabled) = if let Some(state) = state {
@@ -109,16 +126,16 @@ impl MsixConfig {
 
                     interrupt_source_group
                         .update(
-                            idx as InterruptIndex,
+                            idx.try_into().unwrap(),
                             InterruptSourceConfig::MsiIrq(config),
                             state.masked,
                             true,
                         )
-                        .map_err(Error::UpdateInterruptRoute)?;
+                        .map_err(MsixError::UpdateInterruptRoute)?;
 
                     interrupt_source_group
                         .enable()
-                        .map_err(Error::EnableInterruptRoute)?;
+                        .map_err(MsixError::EnableInterruptRoute)?;
                 }
             }
 
@@ -148,6 +165,7 @@ impl MsixConfig {
         })
     }
 
+    /// Create the state object for serializing MSI-X vectors
     pub fn state(&self) -> MsixConfigState {
         MsixConfigState {
             table_entries: self.table_entries.clone(),
@@ -157,6 +175,7 @@ impl MsixConfig {
         }
     }
 
+    /// Set the MSI-X control message (enable/disable, (un)mask)
     pub fn set_msg_ctl(&mut self, reg: u16) {
         let old_masked = self.masked;
         let old_enabled = self.enabled;
@@ -177,7 +196,7 @@ impl MsixConfig {
                     };
 
                     if let Err(e) = self.interrupt_source_group.update(
-                        idx as InterruptIndex,
+                        idx.try_into().unwrap(),
                         InterruptSourceConfig::MsiIrq(config),
                         table_entry.masked(),
                         true,
@@ -199,13 +218,14 @@ impl MsixConfig {
         // masked.
         if old_masked && !self.masked {
             for (index, entry) in self.table_entries.clone().iter().enumerate() {
-                if !entry.masked() && self.get_pba_bit(index as u16) == 1 {
+                if !entry.masked() && self.get_pba_bit(index.try_into().unwrap()) == 1 {
                     self.inject_msix_and_clear_pba(index);
                 }
             }
         }
     }
 
+    /// Read an MSI-X table entry
     pub fn read_table(&self, offset: u64, data: &mut [u8]) {
         assert!(data.len() <= 8);
 
@@ -258,6 +278,7 @@ impl MsixConfig {
         }
     }
 
+    /// Write an MSI-X table entry
     pub fn write_table(&mut self, offset: u64, data: &[u8]) {
         assert!(data.len() <= 8);
 
@@ -322,7 +343,7 @@ impl MsixConfig {
             };
 
             if let Err(e) = self.interrupt_source_group.update(
-                index as InterruptIndex,
+                index.try_into().unwrap(),
                 InterruptSourceConfig::MsiIrq(config),
                 table_entry.masked(),
                 true,
@@ -344,12 +365,13 @@ impl MsixConfig {
             && self.enabled
             && old_entry.masked()
             && !table_entry.masked()
-            && self.get_pba_bit(index as u16) == 1
+            && self.get_pba_bit(index.try_into().unwrap()) == 1
         {
             self.inject_msix_and_clear_pba(index);
         }
     }
 
+    /// Read a pending bit array entry
     pub fn read_pba(&self, offset: u64, data: &mut [u8]) {
         let index: usize = (offset / MSIX_PBA_ENTRIES_MODULO) as usize;
         let modulo_offset = offset % MSIX_PBA_ENTRIES_MODULO;
@@ -391,10 +413,12 @@ impl MsixConfig {
         }
     }
 
+    /// Write a pending bit array entry
     pub fn write_pba(&mut self, _offset: u64, _data: &[u8]) {
         error!("Pending Bit Array is read only");
     }
 
+    /// Set PBA bit for a vector
     pub fn set_pba_bit(&mut self, vector: u16, reset: bool) {
         assert!(vector < MAX_MSIX_VECTORS_PER_DEVICE);
 
@@ -414,6 +438,7 @@ impl MsixConfig {
         }
     }
 
+    /// Get the PBA bit for a vector
     fn get_pba_bit(&self, vector: u16) -> u8 {
         assert!(vector < MAX_MSIX_VECTORS_PER_DEVICE);
 
@@ -427,38 +452,39 @@ impl MsixConfig {
         ((self.pba_entries[index] >> shift) & 0x0000_0001u64) as u8
     }
 
+    /// Inject an MSI-X interrupt and clear the PBA bit for a vector
     fn inject_msix_and_clear_pba(&mut self, vector: usize) {
         // Inject the MSI message
         match self
             .interrupt_source_group
-            .trigger(vector as InterruptIndex)
+            .trigger(vector.try_into().unwrap())
         {
             Ok(_) => debug!("MSI-X injected on vector control flip"),
             Err(e) => error!("failed to inject MSI-X: {}", e),
         }
 
         // Clear the bit from PBA
-        self.set_pba_bit(vector as u16, true);
+        self.set_pba_bit(vector.try_into().unwrap(), true);
     }
 }
 
-#[allow(dead_code)]
 #[repr(C, packed)]
-#[derive(Clone, Copy, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize)]
+/// MSI-X PCI capability
 pub struct MsixCap {
-    // Message Control Register
-    //   10-0:  MSI-X Table size
-    //   13-11: Reserved
-    //   14:    Mask. Mask all MSI-X when set.
-    //   15:    Enable. Enable all MSI-X when set.
+    /// Message Control Register
+    ///   10-0:  MSI-X Table size
+    ///   13-11: Reserved
+    ///   14:    Mask. Mask all MSI-X when set.
+    ///   15:    Enable. Enable all MSI-X when set.
     pub msg_ctl: u16,
-    // Table. Contains the offset and the BAR indicator (BIR)
-    //   2-0:  Table BAR indicator (BIR). Can be 0 to 5.
-    //   31-3: Table offset in the BAR pointed by the BIR.
+    /// Table. Contains the offset and the BAR indicator (BIR)
+    ///   2-0:  Table BAR indicator (BIR). Can be 0 to 5.
+    ///   31-3: Table offset in the BAR pointed by the BIR.
     pub table: u32,
-    // Pending Bit Array. Contains the offset and the BAR indicator (BIR)
-    //   2-0:  PBA BAR indicator (BIR). Can be 0 to 5.
-    //   31-3: PBA offset in the BAR pointed by the BIR.
+    /// Pending Bit Array. Contains the offset and the BAR indicator (BIR)
+    ///   2-0:  PBA BAR indicator (BIR). Can be 0 to 5.
+    ///   31-3: PBA offset in the BAR pointed by the BIR.
     pub pba: u32,
 }
 
@@ -476,6 +502,7 @@ impl PciCapability for MsixCap {
 }
 
 impl MsixCap {
+    /// Create a new MSI-X capability object
     pub fn new(
         table_pci_bar: u8,
         table_size: u16,
@@ -500,6 +527,7 @@ impl MsixCap {
 mod tests {
     use std::sync::atomic::{AtomicUsize, Ordering};
 
+    use vm_device::interrupt::InterruptIndex;
     use vmm_sys_util::eventfd::EventFd;
 
     use super::*;

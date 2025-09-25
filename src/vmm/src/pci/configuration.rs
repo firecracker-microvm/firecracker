@@ -8,10 +8,13 @@
 use std::sync::{Arc, Mutex};
 
 use byteorder::{ByteOrder, LittleEndian};
+use pci::{PciCapabilityId, PciClassCode, PciSubclass};
 use serde::{Deserialize, Serialize};
 
-use crate::device::BarReprogrammingParams;
-use crate::MsixConfig;
+use super::BarReprogrammingParams;
+use super::msix::MsixConfig;
+use crate::logger::{info, warn};
+use crate::utils::u64_to_usize;
 
 // The number of 32bit registers in the config space, 4096 bytes.
 const NUM_CONFIGURATION_REGISTERS: usize = 1024;
@@ -29,326 +32,11 @@ const CAPABILITY_LIST_HEAD_OFFSET: usize = 0x34;
 const FIRST_CAPABILITY_OFFSET: usize = 0x40;
 const CAPABILITY_MAX_OFFSET: usize = 192;
 
-pub const PCI_CONFIGURATION_ID: &str = "pci_configuration";
-
-/// Represents the types of PCI headers allowed in the configuration registers.
-#[derive(Debug, Copy, Clone, Eq, PartialEq)]
-pub enum PciHeaderType {
-    Device,
-    Bridge,
-}
-
-/// Classes of PCI nodes.
-#[allow(dead_code)]
-#[derive(Copy, Clone)]
-pub enum PciClassCode {
-    TooOld,
-    MassStorage,
-    NetworkController,
-    DisplayController,
-    MultimediaController,
-    MemoryController,
-    BridgeDevice,
-    SimpleCommunicationController,
-    BaseSystemPeripheral,
-    InputDevice,
-    DockingStation,
-    Processor,
-    SerialBusController,
-    WirelessController,
-    IntelligentIoController,
-    EncryptionController,
-    DataAcquisitionSignalProcessing,
-    Other = 0xff,
-}
-
-impl PciClassCode {
-    pub fn get_register_value(self) -> u8 {
-        self as u8
-    }
-}
-
-/// A PCI subclass. Each class in `PciClassCode` can specify a unique set of subclasses. This trait
-/// is implemented by each subclass. It allows use of a trait object to generate configurations.
-pub trait PciSubclass {
-    /// Convert this subclass to the value used in the PCI specification.
-    fn get_register_value(&self) -> u8;
-}
-
-/// Subclasses of the MultimediaController class.
-#[allow(dead_code)]
-#[derive(Copy, Clone)]
-pub enum PciMultimediaSubclass {
-    VideoController = 0x00,
-    AudioController = 0x01,
-    TelephonyDevice = 0x02,
-    AudioDevice = 0x03,
-    Other = 0x80,
-}
-
-impl PciSubclass for PciMultimediaSubclass {
-    fn get_register_value(&self) -> u8 {
-        *self as u8
-    }
-}
-
-/// Subclasses of the BridgeDevice
-#[allow(dead_code)]
-#[derive(Copy, Clone)]
-pub enum PciBridgeSubclass {
-    HostBridge = 0x00,
-    IsaBridge = 0x01,
-    EisaBridge = 0x02,
-    McaBridge = 0x03,
-    PciToPciBridge = 0x04,
-    PcmciaBridge = 0x05,
-    NuBusBridge = 0x06,
-    CardBusBridge = 0x07,
-    RacEwayBridge = 0x08,
-    PciToPciSemiTransparentBridge = 0x09,
-    InfiniBrandToPciHostBridge = 0x0a,
-    OtherBridgeDevice = 0x80,
-}
-
-impl PciSubclass for PciBridgeSubclass {
-    fn get_register_value(&self) -> u8 {
-        *self as u8
-    }
-}
-
-/// Subclass of the SerialBus
-#[allow(dead_code)]
-#[derive(Copy, Clone)]
-pub enum PciSerialBusSubClass {
-    Firewire = 0x00,
-    Accessbus = 0x01,
-    Ssa = 0x02,
-    Usb = 0x03,
-}
-
-impl PciSubclass for PciSerialBusSubClass {
-    fn get_register_value(&self) -> u8 {
-        *self as u8
-    }
-}
-
-/// Mass Storage Sub Classes
-#[allow(dead_code)]
-#[derive(Copy, Clone)]
-pub enum PciMassStorageSubclass {
-    ScsiStorage = 0x00,
-    IdeInterface = 0x01,
-    FloppyController = 0x02,
-    IpiController = 0x03,
-    RaidController = 0x04,
-    AtaController = 0x05,
-    SataController = 0x06,
-    SerialScsiController = 0x07,
-    NvmController = 0x08,
-    MassStorage = 0x80,
-}
-
-impl PciSubclass for PciMassStorageSubclass {
-    fn get_register_value(&self) -> u8 {
-        *self as u8
-    }
-}
-
-/// Network Controller Sub Classes
-#[allow(dead_code)]
-#[derive(Copy, Clone)]
-pub enum PciNetworkControllerSubclass {
-    EthernetController = 0x00,
-    TokenRingController = 0x01,
-    FddiController = 0x02,
-    AtmController = 0x03,
-    IsdnController = 0x04,
-    WorldFipController = 0x05,
-    PicmgController = 0x06,
-    InfinibandController = 0x07,
-    FabricController = 0x08,
-    NetworkController = 0x80,
-}
-
-impl PciSubclass for PciNetworkControllerSubclass {
-    fn get_register_value(&self) -> u8 {
-        *self as u8
-    }
-}
-
-/// Types of PCI capabilities.
-#[derive(Debug, PartialEq, Eq, Copy, Clone)]
-#[allow(dead_code)]
-#[allow(non_camel_case_types)]
-#[repr(u8)]
-pub enum PciCapabilityId {
-    ListId = 0,
-    PowerManagement = 0x01,
-    AcceleratedGraphicsPort = 0x02,
-    VitalProductData = 0x03,
-    SlotIdentification = 0x04,
-    MessageSignalledInterrupts = 0x05,
-    CompactPciHotSwap = 0x06,
-    PciX = 0x07,
-    HyperTransport = 0x08,
-    VendorSpecific = 0x09,
-    Debugport = 0x0A,
-    CompactPciCentralResourceControl = 0x0B,
-    PciStandardHotPlugController = 0x0C,
-    BridgeSubsystemVendorDeviceId = 0x0D,
-    AgpTargetPciPcibridge = 0x0E,
-    SecureDevice = 0x0F,
-    PciExpress = 0x10,
-    MsiX = 0x11,
-    SataDataIndexConf = 0x12,
-    PciAdvancedFeatures = 0x13,
-    PciEnhancedAllocation = 0x14,
-}
-
-impl From<u8> for PciCapabilityId {
-    fn from(c: u8) -> Self {
-        match c {
-            0 => PciCapabilityId::ListId,
-            0x01 => PciCapabilityId::PowerManagement,
-            0x02 => PciCapabilityId::AcceleratedGraphicsPort,
-            0x03 => PciCapabilityId::VitalProductData,
-            0x04 => PciCapabilityId::SlotIdentification,
-            0x05 => PciCapabilityId::MessageSignalledInterrupts,
-            0x06 => PciCapabilityId::CompactPciHotSwap,
-            0x07 => PciCapabilityId::PciX,
-            0x08 => PciCapabilityId::HyperTransport,
-            0x09 => PciCapabilityId::VendorSpecific,
-            0x0A => PciCapabilityId::Debugport,
-            0x0B => PciCapabilityId::CompactPciCentralResourceControl,
-            0x0C => PciCapabilityId::PciStandardHotPlugController,
-            0x0D => PciCapabilityId::BridgeSubsystemVendorDeviceId,
-            0x0E => PciCapabilityId::AgpTargetPciPcibridge,
-            0x0F => PciCapabilityId::SecureDevice,
-            0x10 => PciCapabilityId::PciExpress,
-            0x11 => PciCapabilityId::MsiX,
-            0x12 => PciCapabilityId::SataDataIndexConf,
-            0x13 => PciCapabilityId::PciAdvancedFeatures,
-            0x14 => PciCapabilityId::PciEnhancedAllocation,
-            _ => PciCapabilityId::ListId,
-        }
-    }
-}
-
-/// Types of PCI Express capabilities.
-#[derive(PartialEq, Eq, Copy, Clone, Debug)]
-#[allow(dead_code)]
-#[repr(u16)]
-pub enum PciExpressCapabilityId {
-    NullCapability = 0x0000,
-    AdvancedErrorReporting = 0x0001,
-    VirtualChannelMultiFunctionVirtualChannelNotPresent = 0x0002,
-    DeviceSerialNumber = 0x0003,
-    PowerBudgeting = 0x0004,
-    RootComplexLinkDeclaration = 0x0005,
-    RootComplexInternalLinkControl = 0x0006,
-    RootComplexEventCollectorEndpointAssociation = 0x0007,
-    MultiFunctionVirtualChannel = 0x0008,
-    VirtualChannelMultiFunctionVirtualChannelPresent = 0x0009,
-    RootComplexRegisterBlock = 0x000a,
-    VendorSpecificExtendedCapability = 0x000b,
-    ConfigurationAccessCorrelation = 0x000c,
-    AccessControlServices = 0x000d,
-    AlternativeRoutingIdentificationInterpretation = 0x000e,
-    AddressTranslationServices = 0x000f,
-    SingleRootIoVirtualization = 0x0010,
-    DeprecatedMultiRootIoVirtualization = 0x0011,
-    Multicast = 0x0012,
-    PageRequestInterface = 0x0013,
-    ReservedForAmd = 0x0014,
-    ResizeableBar = 0x0015,
-    DynamicPowerAllocation = 0x0016,
-    ThpRequester = 0x0017,
-    LatencyToleranceReporting = 0x0018,
-    SecondaryPciExpress = 0x0019,
-    ProtocolMultiplexing = 0x001a,
-    ProcessAddressSpaceId = 0x001b,
-    LnRequester = 0x001c,
-    DownstreamPortContainment = 0x001d,
-    L1PmSubstates = 0x001e,
-    PrecisionTimeMeasurement = 0x001f,
-    PciExpressOverMphy = 0x0020,
-    FRSQueueing = 0x0021,
-    ReadinessTimeReporting = 0x0022,
-    DesignatedVendorSpecificExtendedCapability = 0x0023,
-    VfResizeableBar = 0x0024,
-    DataLinkFeature = 0x0025,
-    PhysicalLayerSixteenGts = 0x0026,
-    LaneMarginingAtTheReceiver = 0x0027,
-    HierarchyId = 0x0028,
-    NativePcieEnclosureManagement = 0x0029,
-    PhysicalLayerThirtyTwoGts = 0x002a,
-    AlternateProtocol = 0x002b,
-    SystemFirmwareIntermediary = 0x002c,
-    ShadowFunctions = 0x002d,
-    DataObjectExchange = 0x002e,
-    Reserved = 0x002f,
-    ExtendedCapabilitiesAbsence = 0xffff,
-}
-
-impl From<u16> for PciExpressCapabilityId {
-    fn from(c: u16) -> Self {
-        match c {
-            0x0000 => PciExpressCapabilityId::NullCapability,
-            0x0001 => PciExpressCapabilityId::AdvancedErrorReporting,
-            0x0002 => PciExpressCapabilityId::VirtualChannelMultiFunctionVirtualChannelNotPresent,
-            0x0003 => PciExpressCapabilityId::DeviceSerialNumber,
-            0x0004 => PciExpressCapabilityId::PowerBudgeting,
-            0x0005 => PciExpressCapabilityId::RootComplexLinkDeclaration,
-            0x0006 => PciExpressCapabilityId::RootComplexInternalLinkControl,
-            0x0007 => PciExpressCapabilityId::RootComplexEventCollectorEndpointAssociation,
-            0x0008 => PciExpressCapabilityId::MultiFunctionVirtualChannel,
-            0x0009 => PciExpressCapabilityId::VirtualChannelMultiFunctionVirtualChannelPresent,
-            0x000a => PciExpressCapabilityId::RootComplexRegisterBlock,
-            0x000b => PciExpressCapabilityId::VendorSpecificExtendedCapability,
-            0x000c => PciExpressCapabilityId::ConfigurationAccessCorrelation,
-            0x000d => PciExpressCapabilityId::AccessControlServices,
-            0x000e => PciExpressCapabilityId::AlternativeRoutingIdentificationInterpretation,
-            0x000f => PciExpressCapabilityId::AddressTranslationServices,
-            0x0010 => PciExpressCapabilityId::SingleRootIoVirtualization,
-            0x0011 => PciExpressCapabilityId::DeprecatedMultiRootIoVirtualization,
-            0x0012 => PciExpressCapabilityId::Multicast,
-            0x0013 => PciExpressCapabilityId::PageRequestInterface,
-            0x0014 => PciExpressCapabilityId::ReservedForAmd,
-            0x0015 => PciExpressCapabilityId::ResizeableBar,
-            0x0016 => PciExpressCapabilityId::DynamicPowerAllocation,
-            0x0017 => PciExpressCapabilityId::ThpRequester,
-            0x0018 => PciExpressCapabilityId::LatencyToleranceReporting,
-            0x0019 => PciExpressCapabilityId::SecondaryPciExpress,
-            0x001a => PciExpressCapabilityId::ProtocolMultiplexing,
-            0x001b => PciExpressCapabilityId::ProcessAddressSpaceId,
-            0x001c => PciExpressCapabilityId::LnRequester,
-            0x001d => PciExpressCapabilityId::DownstreamPortContainment,
-            0x001e => PciExpressCapabilityId::L1PmSubstates,
-            0x001f => PciExpressCapabilityId::PrecisionTimeMeasurement,
-            0x0020 => PciExpressCapabilityId::PciExpressOverMphy,
-            0x0021 => PciExpressCapabilityId::FRSQueueing,
-            0x0022 => PciExpressCapabilityId::ReadinessTimeReporting,
-            0x0023 => PciExpressCapabilityId::DesignatedVendorSpecificExtendedCapability,
-            0x0024 => PciExpressCapabilityId::VfResizeableBar,
-            0x0025 => PciExpressCapabilityId::DataLinkFeature,
-            0x0026 => PciExpressCapabilityId::PhysicalLayerSixteenGts,
-            0x0027 => PciExpressCapabilityId::LaneMarginingAtTheReceiver,
-            0x0028 => PciExpressCapabilityId::HierarchyId,
-            0x0029 => PciExpressCapabilityId::NativePcieEnclosureManagement,
-            0x002a => PciExpressCapabilityId::PhysicalLayerThirtyTwoGts,
-            0x002b => PciExpressCapabilityId::AlternateProtocol,
-            0x002c => PciExpressCapabilityId::SystemFirmwareIntermediary,
-            0x002d => PciExpressCapabilityId::ShadowFunctions,
-            0x002e => PciExpressCapabilityId::DataObjectExchange,
-            0xffff => PciExpressCapabilityId::ExtendedCapabilitiesAbsence,
-            _ => PciExpressCapabilityId::Reserved,
-        }
-    }
-}
-
 /// A PCI capability list. Devices can optionally specify capabilities in their configuration space.
 pub trait PciCapability {
+    /// Bytes of the PCI capability
     fn bytes(&self) -> &[u8];
+    /// Id of the PCI capability
     fn id(&self) -> PciCapabilityId;
 }
 
@@ -377,6 +65,7 @@ struct PciBar {
     used: bool,
 }
 
+/// PCI configuration space state for (de)serialization
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PciConfigurationState {
     registers: Vec<u32>,
@@ -386,6 +75,7 @@ pub struct PciConfigurationState {
     msix_cap_reg_idx: Option<usize>,
 }
 
+#[derive(Debug)]
 /// Contains the configuration space of a PCI node.
 ///
 /// See the [specification](https://en.wikipedia.org/wiki/PCI_configuration_space).
@@ -400,38 +90,15 @@ pub struct PciConfiguration {
     msix_config: Option<Arc<Mutex<MsixConfig>>>,
 }
 
-/// See pci_regs.h in kernel
-#[derive(Copy, Clone, PartialEq, Eq, Serialize, Deserialize, Debug)]
-pub enum PciBarRegionType {
-    Memory32BitRegion = 0,
-    IoRegion = 0x01,
-    Memory64BitRegion = 0x04,
-}
-
-#[derive(Debug, Copy, Clone, Serialize, Deserialize)]
-pub enum PciBarPrefetchable {
-    NotPrefetchable = 0,
-    Prefetchable = 0x08,
-}
-
-impl From<PciBarPrefetchable> for bool {
-    fn from(val: PciBarPrefetchable) -> Self {
-        match val {
-            PciBarPrefetchable::NotPrefetchable => false,
-            PciBarPrefetchable::Prefetchable => true,
-        }
-    }
-}
-
 impl PciConfiguration {
     #[allow(clippy::too_many_arguments)]
-    pub fn new(
+    /// Create a new type 0 PCI configuration
+    pub fn new_type0(
         vendor_id: u16,
         device_id: u16,
         revision_id: u8,
         class_code: PciClassCode,
         subclass: &dyn PciSubclass,
-        header_type: PciHeaderType,
         subsystem_vendor_id: u16,
         subsystem_id: u16,
         msix_config: Option<Arc<Mutex<MsixConfig>>>,
@@ -456,9 +123,6 @@ impl PciConfiguration {
                     | (u32::from(subclass.get_register_value()) << 16)
                     | u32::from(revision_id);
                 writable_bits[3] = 0x0000_00ff; // Cacheline size (r/w)
-
-                // We only every create device types. No bridges used at the moment
-                assert_eq!(header_type, PciHeaderType::Device);
                 registers[3] = 0x0000_0000; // Header type 0 (device)
                 writable_bits[15] = 0x0000_00ff; // IRQ line (r/w)
                 registers[11] = (u32::from(subsystem_id) << 16) | u32::from(subsystem_vendor_id);
@@ -482,6 +146,7 @@ impl PciConfiguration {
         }
     }
 
+    /// Create PCI configuration space state
     pub fn state(&self) -> PciConfigurationState {
         PciConfigurationState {
             registers: self.registers.to_vec(),
@@ -611,9 +276,9 @@ impl PciConfiguration {
         //
         // |    Bit 3     | Bits 2-1 |  Bit 0   |
         // | Prefetchable |   type   | Always 0 |
-        self.registers[reg_idx] = (((addr & 0xffff_ffff) as u32) & BAR_MEM_ADDR_MASK)
-            | (PciBarPrefetchable::NotPrefetchable as u32)
-            | (PciBarRegionType::Memory64BitRegion as u32);
+        //
+        // Non-prefetchable, 64 bits BAR region
+        self.registers[reg_idx] = (((addr & 0xffff_ffff) as u32) & BAR_MEM_ADDR_MASK) | 4u32;
         self.writable_bits[reg_idx] = BAR_MEM_ADDR_MASK;
         self.bars[bar_idx].addr = self.registers[reg_idx];
         self.bars[bar_idx].used = true;
@@ -649,7 +314,7 @@ impl PciConfiguration {
         let end_offset = cap_offset.checked_add(total_len).unwrap();
         assert!(end_offset <= CAPABILITY_MAX_OFFSET);
         self.registers[STATUS_REG] |= STATUS_REG_CAPABILITIES_USED_MASK;
-        self.write_byte_internal(tail_offset, cap_offset as u8, false);
+        self.write_byte_internal(tail_offset, cap_offset.try_into().unwrap(), false);
         self.write_byte_internal(cap_offset, cap_data.id() as u8, false);
         self.write_byte_internal(cap_offset + 1, 0, false); // Next pointer.
         for (i, byte) in cap_data.bytes().iter().enumerate() {
@@ -677,39 +342,40 @@ impl PciConfiguration {
         (next + 3) & !3
     }
 
+    /// Write a PCI configuration register
     pub fn write_config_register(&mut self, reg_idx: usize, offset: u64, data: &[u8]) {
         if reg_idx >= NUM_CONFIGURATION_REGISTERS {
             return;
         }
 
-        if offset as usize + data.len() > 4 {
+        if u64_to_usize(offset) + data.len() > 4 {
             return;
         }
 
         // Handle potential write to MSI-X message control register
-        if let Some(msix_cap_reg_idx) = self.msix_cap_reg_idx {
-            if let Some(msix_config) = &self.msix_config {
-                if msix_cap_reg_idx == reg_idx && offset == 2 && data.len() == 2 {
-                    // 2-bytes write in the Message Control field
-                    msix_config
-                        .lock()
-                        .unwrap()
-                        .set_msg_ctl(LittleEndian::read_u16(data));
-                } else if msix_cap_reg_idx == reg_idx && offset == 0 && data.len() == 4 {
-                    // 4 bytes write at the beginning. Ignore the first 2 bytes which are the
-                    // capability id and next capability pointer
-                    msix_config
-                        .lock()
-                        .unwrap()
-                        .set_msg_ctl((LittleEndian::read_u32(data) >> 16) as u16);
-                }
+        if let Some(msix_cap_reg_idx) = self.msix_cap_reg_idx
+            && let Some(msix_config) = &self.msix_config
+        {
+            if msix_cap_reg_idx == reg_idx && offset == 2 && data.len() == 2 {
+                // 2-bytes write in the Message Control field
+                msix_config
+                    .lock()
+                    .unwrap()
+                    .set_msg_ctl(LittleEndian::read_u16(data));
+            } else if msix_cap_reg_idx == reg_idx && offset == 0 && data.len() == 4 {
+                // 4 bytes write at the beginning. Ignore the first 2 bytes which are the
+                // capability id and next capability pointer
+                msix_config
+                    .lock()
+                    .unwrap()
+                    .set_msg_ctl((LittleEndian::read_u32(data) >> 16) as u16);
             }
         }
 
         match data.len() {
-            1 => self.write_byte(reg_idx * 4 + offset as usize, data[0]),
+            1 => self.write_byte(reg_idx * 4 + u64_to_usize(offset), data[0]),
             2 => self.write_word(
-                reg_idx * 4 + offset as usize,
+                reg_idx * 4 + u64_to_usize(offset),
                 u16::from(data[0]) | (u16::from(data[1]) << 8),
             ),
             4 => self.write_reg(reg_idx, LittleEndian::read_u32(data)),
@@ -717,6 +383,7 @@ impl PciConfiguration {
         }
     }
 
+    /// Detect whether the guest wants to reprogram the address of a BAR
     pub fn detect_bar_reprogramming(
         &mut self,
         reg_idx: usize,
@@ -786,11 +453,11 @@ impl PciConfiguration {
 
 #[cfg(test)]
 mod tests {
-
+    use pci::PciMultimediaSubclass;
     use vm_memory::ByteValued;
 
     use super::*;
-    use crate::MsixCap;
+    use crate::pci::msix::MsixCap;
 
     #[repr(C, packed)]
     #[derive(Clone, Copy, Default)]
@@ -838,14 +505,14 @@ mod tests {
     #[test]
     #[should_panic]
     fn test_too_big_capability() {
-        let mut cfg = default_config();
+        let mut cfg = default_pci_config();
         cfg.add_capability(&BadCap::new(127));
     }
 
     #[test]
     #[should_panic]
     fn test_capability_space_overflow() {
-        let mut cfg = default_config();
+        let mut cfg = default_pci_config();
         cfg.add_capability(&BadCap::new(62));
         cfg.add_capability(&BadCap::new(62));
         cfg.add_capability(&BadCap::new(0));
@@ -853,7 +520,7 @@ mod tests {
 
     #[test]
     fn test_add_capability() {
-        let mut cfg = default_config();
+        let mut cfg = default_pci_config();
 
         // Reset capabilities
         cfg.last_capability = None;
@@ -877,7 +544,7 @@ mod tests {
         // Verify the contents of the capabilities.
         let cap1_data = cfg.read_reg(cap1_offset / 4);
         assert_eq!(cap1_data & 0xFF, 0x09); // capability ID
-        assert_eq!((cap1_data >> 8) & 0xFF, cap2_offset as u32); // next capability pointer
+        assert_eq!((cap1_data >> 8) & 0xFF, u32::try_from(cap2_offset).unwrap()); // next capability pointer
         assert_eq!((cap1_data >> 16) & 0xFF, 0x04); // cap1.len
         assert_eq!((cap1_data >> 24) & 0xFF, 0xAA); // cap1.foo
 
@@ -890,7 +557,7 @@ mod tests {
 
     #[test]
     fn test_msix_capability() {
-        let mut cfg = default_config();
+        let mut cfg = default_pci_config();
 
         // Information about the MSI-X capability layout: https://wiki.osdev.org/PCI#Enabling_MSI-X
         let msix_cap = MsixCap::new(
@@ -977,21 +644,23 @@ mod tests {
         assert_eq!(cfg.read_reg(cap_reg + 2), pba_offset);
     }
 
-    #[test]
-    fn class_code() {
-        let cfg = PciConfiguration::new(
+    fn default_pci_config() -> PciConfiguration {
+        PciConfiguration::new_type0(
             0x1234,
             0x5678,
             0x1,
             PciClassCode::MultimediaController,
             &PciMultimediaSubclass::AudioController,
-            PciHeaderType::Device,
             0xABCD,
             0x2468,
             None,
             None,
-        );
+        )
+    }
 
+    #[test]
+    fn class_code() {
+        let cfg = default_pci_config();
         let class_reg = cfg.read_reg(2);
         let class_code = (class_reg >> 24) & 0xFF;
         let subclass = (class_reg >> 16) & 0xFF;
@@ -1034,53 +703,38 @@ mod tests {
         assert_eq!(decode_64_bits_bar_size(hi, lo), 0xffff_ffff_ffff_fff0);
     }
 
-    fn default_config() -> PciConfiguration {
-        PciConfiguration::new(
-            0x42,
-            0x0,
-            0x0,
-            PciClassCode::MassStorage,
-            &PciMassStorageSubclass::SerialScsiController,
-            PciHeaderType::Device,
-            0x13,
-            0x12,
-            None,
-            None,
-        )
-    }
-
     #[test]
     #[should_panic]
     fn test_bar_size_no_power_of_two() {
-        let mut pci_config = default_config();
+        let mut pci_config = default_pci_config();
         pci_config.add_pci_bar(0, 0x1000, 0x1001);
     }
 
     #[test]
     #[should_panic]
     fn test_bad_bar_index() {
-        let mut pci_config = default_config();
+        let mut pci_config = default_pci_config();
         pci_config.add_pci_bar(NUM_BAR_REGS, 0x1000, 0x1000);
     }
 
     #[test]
     #[should_panic]
     fn test_bad_64bit_bar_index() {
-        let mut pci_config = default_config();
+        let mut pci_config = default_pci_config();
         pci_config.add_pci_bar(NUM_BAR_REGS - 1, 0x1000, 0x1000);
     }
 
     #[test]
     #[should_panic]
     fn test_bar_size_overflows() {
-        let mut pci_config = default_config();
+        let mut pci_config = default_pci_config();
         pci_config.add_pci_bar(0, u64::MAX, 0x2);
     }
 
     #[test]
     #[should_panic]
     fn test_lower_bar_free_upper_used() {
-        let mut pci_config = default_config();
+        let mut pci_config = default_pci_config();
         pci_config.add_pci_bar(1, 0x1000, 0x1000);
         pci_config.add_pci_bar(0, 0x1000, 0x1000);
     }
@@ -1088,7 +742,7 @@ mod tests {
     #[test]
     #[should_panic]
     fn test_lower_bar_used() {
-        let mut pci_config = default_config();
+        let mut pci_config = default_pci_config();
         pci_config.add_pci_bar(0, 0x1000, 0x1000);
         pci_config.add_pci_bar(0, 0x1000, 0x1000);
     }
@@ -1096,14 +750,14 @@ mod tests {
     #[test]
     #[should_panic]
     fn test_upper_bar_used() {
-        let mut pci_config = default_config();
+        let mut pci_config = default_pci_config();
         pci_config.add_pci_bar(0, 0x1000, 0x1000);
         pci_config.add_pci_bar(1, 0x1000, 0x1000);
     }
 
     #[test]
     fn test_add_pci_bar() {
-        let mut pci_config = default_config();
+        let mut pci_config = default_pci_config();
 
         pci_config.add_pci_bar(0, 0x1_0000_0000, 0x1000);
 
@@ -1116,18 +770,7 @@ mod tests {
 
     #[test]
     fn test_access_invalid_reg() {
-        let mut pci_config = PciConfiguration::new(
-            0x42,
-            0x0,
-            0x0,
-            PciClassCode::MassStorage,
-            &PciMassStorageSubclass::SerialScsiController,
-            PciHeaderType::Device,
-            0x13,
-            0x12,
-            None,
-            None,
-        );
+        let mut pci_config = default_pci_config();
 
         // Can't read past the end of the configuration space
         assert_eq!(
@@ -1161,52 +804,55 @@ mod tests {
 
     #[test]
     fn test_detect_bar_reprogramming() {
-        let mut pci_config = PciConfiguration::new(
-            0x42,
-            0x0,
-            0x0,
-            PciClassCode::MassStorage,
-            &PciMassStorageSubclass::SerialScsiController,
-            PciHeaderType::Device,
-            0x13,
-            0x12,
-            None,
-            None,
-        );
+        let mut pci_config = default_pci_config();
 
         // Trying to reprogram with something less than 4 bytes (length of the address) should fail
-        assert!(pci_config
-            .detect_bar_reprogramming(BAR0_REG, &[0x13])
-            .is_none());
-        assert!(pci_config
-            .detect_bar_reprogramming(BAR0_REG, &[0x13, 0x12])
-            .is_none());
-        assert!(pci_config
-            .detect_bar_reprogramming(BAR0_REG, &[0x13, 0x12])
-            .is_none());
-        assert!(pci_config
-            .detect_bar_reprogramming(BAR0_REG, &[0x13, 0x12, 0x16])
-            .is_none());
+        assert!(
+            pci_config
+                .detect_bar_reprogramming(BAR0_REG, &[0x13])
+                .is_none()
+        );
+        assert!(
+            pci_config
+                .detect_bar_reprogramming(BAR0_REG, &[0x13, 0x12])
+                .is_none()
+        );
+        assert!(
+            pci_config
+                .detect_bar_reprogramming(BAR0_REG, &[0x13, 0x12])
+                .is_none()
+        );
+        assert!(
+            pci_config
+                .detect_bar_reprogramming(BAR0_REG, &[0x13, 0x12, 0x16])
+                .is_none()
+        );
 
         // Writing all 1s is a special case where we're actually asking for the size of the BAR
-        assert!(pci_config
-            .detect_bar_reprogramming(BAR0_REG, &u32::to_le_bytes(0xffff_ffff))
-            .is_none());
+        assert!(
+            pci_config
+                .detect_bar_reprogramming(BAR0_REG, &u32::to_le_bytes(0xffff_ffff))
+                .is_none()
+        );
 
         // Trying to reprogram a BAR that hasn't be initialized does nothing
         for reg_idx in BAR0_REG..BAR0_REG + NUM_BAR_REGS {
-            assert!(pci_config
-                .detect_bar_reprogramming(reg_idx, &u32::to_le_bytes(0x1312_4243))
-                .is_none());
+            assert!(
+                pci_config
+                    .detect_bar_reprogramming(reg_idx, &u32::to_le_bytes(0x1312_4243))
+                    .is_none()
+            );
         }
 
         // Reprogramming of a 64bit BAR
         pci_config.add_pci_bar(0, 0x13_1200_0000, 0x8000);
 
         // First we write the lower 32 bits and this shouldn't cause any reprogramming
-        assert!(pci_config
-            .detect_bar_reprogramming(BAR0_REG, &u32::to_le_bytes(0x4200_0000))
-            .is_none());
+        assert!(
+            pci_config
+                .detect_bar_reprogramming(BAR0_REG, &u32::to_le_bytes(0x4200_0000))
+                .is_none()
+        );
         pci_config.write_config_register(BAR0_REG, 0, &u32::to_le_bytes(0x4200_0000));
 
         // Writing the upper 32 bits should trigger the reprogramming
@@ -1233,17 +879,21 @@ mod tests {
         pci_config.write_config_register(BAR0_REG + 1, 0, &u32::to_le_bytes(0x1312));
 
         // Attempting to reprogram the BAR with the same address should not have any effect
-        assert!(pci_config
-            .detect_bar_reprogramming(BAR0_REG, &u32::to_le_bytes(0x4200_0000))
-            .is_none());
-        assert!(pci_config
-            .detect_bar_reprogramming(BAR0_REG + 1, &u32::to_le_bytes(0x1312))
-            .is_none());
+        assert!(
+            pci_config
+                .detect_bar_reprogramming(BAR0_REG, &u32::to_le_bytes(0x4200_0000))
+                .is_none()
+        );
+        assert!(
+            pci_config
+                .detect_bar_reprogramming(BAR0_REG + 1, &u32::to_le_bytes(0x1312))
+                .is_none()
+        );
     }
 
     #[test]
     fn test_rom_bar() {
-        let mut pci_config = default_config();
+        let mut pci_config = default_pci_config();
 
         // ROM BAR address should always be 0 and writes to it shouldn't do anything
         assert_eq!(pci_config.read_reg(ROM_BAR_REG), 0);

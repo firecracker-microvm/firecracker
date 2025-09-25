@@ -18,9 +18,7 @@ use anyhow::anyhow;
 use kvm_ioctls::{IoEventAddress, NoDatamatch};
 use log::warn;
 use pci::{
-    BarReprogrammingParams, MsixCap, MsixConfig, MsixConfigState, PciBarRegionType, PciBdf,
-    PciCapability, PciCapabilityId, PciClassCode, PciConfiguration, PciConfigurationState,
-    PciDevice, PciDeviceError, PciHeaderType, PciMassStorageSubclass, PciNetworkControllerSubclass,
+    PciBdf, PciCapabilityId, PciClassCode, PciMassStorageSubclass, PciNetworkControllerSubclass,
     PciSubclass,
 };
 use serde::{Deserialize, Serialize};
@@ -41,6 +39,9 @@ use crate::devices::virtio::transport::pci::common_config::{
 };
 use crate::devices::virtio::transport::{VirtioInterrupt, VirtioInterruptType};
 use crate::logger::{debug, error};
+use crate::pci::configuration::{PciCapability, PciConfiguration, PciConfigurationState};
+use crate::pci::msix::{MsixCap, MsixConfig, MsixConfigState, MsixError};
+use crate::pci::{BarReprogrammingParams, PciDevice};
 use crate::snapshot::Persist;
 use crate::utils::u64_to_usize;
 use crate::vstate::memory::GuestMemoryMmap;
@@ -254,7 +255,7 @@ pub enum VirtioPciDeviceError {
     /// Failed creating VirtioPciDevice: {0}
     CreateVirtioPciDevice(#[from] anyhow::Error),
     /// Error creating MSI configuration: {0}
-    Msi(#[from] pci::MsixError),
+    Msi(#[from] MsixError),
 }
 pub type Result<T> = std::result::Result<T, VirtioPciDeviceError>;
 
@@ -329,13 +330,12 @@ impl VirtioPciDevice {
             ),
         };
 
-        PciConfiguration::new(
+        PciConfiguration::new_type0(
             VIRTIO_PCI_VENDOR_ID,
             pci_device_id,
             0x1, // For modern virtio-PCI devices
             class,
             subclass,
-            PciHeaderType::Device,
             VIRTIO_PCI_VENDOR_ID,
             pci_device_id,
             Some(msix_config.clone()),
@@ -363,10 +363,7 @@ impl VirtioPciDevice {
     /// This must happen only during the creation of a brand new VM. When a VM is restored from a
     /// known state, the BARs are already created with the right content, therefore we don't need
     /// to go through this codepath.
-    pub fn allocate_bars(
-        &mut self,
-        mmio64_allocator: &mut AddressAllocator,
-    ) -> std::result::Result<(), PciDeviceError> {
+    pub fn allocate_bars(&mut self, mmio64_allocator: &mut AddressAllocator) {
         let device_clone = self.device.clone();
         let device = device_clone.lock().unwrap();
 
@@ -388,10 +385,8 @@ impl VirtioPciDevice {
         );
 
         // Once the BARs are allocated, the capabilities can be added to the PCI configuration.
-        self.add_pci_capabilities()?;
+        self.add_pci_capabilities();
         self.bar_address = virtio_pci_bar_addr;
-
-        Ok(())
     }
 
     /// Constructs a new PCI transport for the given virtio device.
@@ -523,7 +518,7 @@ impl VirtioPciDevice {
         self.configuration.get_bar_addr(VIRTIO_BAR_INDEX as usize)
     }
 
-    fn add_pci_capabilities(&mut self) -> std::result::Result<(), PciDeviceError> {
+    fn add_pci_capabilities(&mut self) {
         // Add pointers to the different configuration structures from the PCI capabilities.
         let common_cap = VirtioPciCap::new(
             PciCapabilityType::Common,
@@ -570,8 +565,6 @@ impl VirtioPciDevice {
             );
             self.configuration.add_capability(&msix_cap);
         }
-
-        Ok(())
     }
 
     fn read_cap_pci_cfg(&mut self, offset: usize, mut data: &mut [u8]) {
@@ -820,11 +813,7 @@ impl PciDevice for VirtioPciDevice {
         self.configuration.detect_bar_reprogramming(reg_idx, data)
     }
 
-    fn move_bar(
-        &mut self,
-        old_base: u64,
-        new_base: u64,
-    ) -> std::result::Result<(), std::io::Error> {
+    fn move_bar(&mut self, old_base: u64, new_base: u64) -> std::result::Result<(), anyhow::Error> {
         // We only update our idea of the bar in order to support free_bars() above.
         // The majority of the reallocation is done inside DeviceManager.
         if self.bar_address == old_base {
@@ -987,9 +976,7 @@ mod tests {
 
     use event_manager::MutEventSubscriber;
     use linux_loader::loader::Cmdline;
-    use pci::{
-        MsixCap, PciBdf, PciCapability, PciCapabilityId, PciClassCode, PciDevice, PciSubclass,
-    };
+    use pci::{PciCapabilityId, PciClassCode, PciSubclass};
     use vm_memory::{ByteValued, Le32};
 
     use super::{PciCapabilityType, VirtioPciDevice};
@@ -1006,6 +993,8 @@ mod tests {
         NOTIFY_OFF_MULTIPLIER, PciVirtioSubclass, VirtioPciCap, VirtioPciCfgCap,
         VirtioPciNotifyCap,
     };
+    use crate::pci::PciDevice;
+    use crate::pci::msix::MsixCap;
     use crate::rate_limiter::RateLimiter;
     use crate::utils::u64_to_usize;
     use crate::{Vm, Vmm};
