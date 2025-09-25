@@ -14,14 +14,16 @@ use std::sync::{Arc, Mutex};
 #[cfg(target_arch = "x86_64")]
 use acpi_tables::{Aml, aml};
 use log::info;
+use pci::PciBdf;
 #[cfg(target_arch = "x86_64")]
-use pci::{PCI_CONFIG_IO_PORT, PCI_CONFIG_IO_PORT_SIZE, PciConfigIo};
-use pci::{PciBdf, PciBus, PciConfigMmio, PciRoot, PciRootError};
 use uuid::Uuid;
 use vm_allocator::AddressAllocator;
 use vm_device::{BusDeviceSync, BusError};
 
 use crate::arch::{ArchVm as Vm, PCI_MMCONFIG_START, PCI_MMIO_CONFIG_SIZE_PER_SEGMENT};
+#[cfg(target_arch = "x86_64")]
+use crate::pci::bus::{PCI_CONFIG_IO_PORT, PCI_CONFIG_IO_PORT_SIZE};
+use crate::pci::bus::{PciBus, PciConfigIo, PciConfigMmio, PciRoot, PciRootError};
 use crate::vstate::resources::ResourceAllocator;
 
 pub struct PciSegment {

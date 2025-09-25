@@ -12,6 +12,7 @@ use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
 
+use anyhow::anyhow;
 #[cfg(target_arch = "x86_64")]
 use kvm_bindings::KVM_IRQCHIP_IOAPIC;
 use kvm_bindings::{
@@ -19,8 +20,7 @@ use kvm_bindings::{
     KvmIrqRouting, kvm_irq_routing_entry, kvm_userspace_memory_region,
 };
 use kvm_ioctls::VmFd;
-use log::{debug, error};
-use pci::DeviceRelocation;
+use log::debug;
 use serde::{Deserialize, Serialize};
 use vm_device::interrupt::{
     InterruptIndex, InterruptSourceConfig, InterruptSourceGroup, MsiIrqSourceConfig,
@@ -31,6 +31,7 @@ use vmm_sys_util::eventfd::EventFd;
 pub use crate::arch::{ArchVm as Vm, ArchVmError, VmState};
 use crate::arch::{GSI_MSI_END, host_page_size};
 use crate::logger::info;
+use crate::pci::{DeviceRelocation, PciDevice};
 use crate::persist::CreateSnapshotError;
 use crate::snapshot::Persist;
 use crate::utils::u64_to_usize;
@@ -668,10 +669,9 @@ impl DeviceRelocation for Vm {
         _old_base: u64,
         _new_base: u64,
         _len: u64,
-        _pci_dev: &mut dyn pci::PciDevice,
-    ) -> Result<(), std::io::Error> {
-        error!("pci: device relocation not supported");
-        Err(std::io::Error::from(std::io::ErrorKind::Unsupported))
+        _pci_dev: &mut dyn PciDevice,
+    ) -> Result<(), anyhow::Error> {
+        Err(anyhow!("pci: device relocation not supported"))
     }
 }
 

@@ -90,6 +90,8 @@ pub mod gdb;
 pub mod logger;
 /// microVM Metadata Service MMDS
 pub mod mmds;
+/// PCI specific emulation code.
+pub mod pci;
 /// Save/restore utilities.
 pub mod persist;
 /// Resource store for configured microVM resources.
