@@ -1044,6 +1044,67 @@ def test_api_balloon(uvm_nano):
         test_microvm.api.balloon.patch(amount_mib=33554432)
 
 
+def test_pmem_api(uvm_plain_any, rootfs):
+    """
+    Test virtio-pmem API commands
+    """
+
+    vm = uvm_plain_any
+    vm.spawn()
+    vm.basic_config(add_root_device=False)
+
+    invalid_pmem_path_on_host = os.path.join(vm.fsfiles, "invalid_scratch")
+    utils.check_output(f"touch {invalid_pmem_path_on_host}")
+    invalid_pmem_file_path = vm.create_jailed_resource(str(invalid_pmem_path_on_host))
+
+    pmem_size_mb = 2
+    pmem_path_on_host = drive_tools.FilesystemFile(
+        os.path.join(vm.fsfiles, "scratch"), size=pmem_size_mb
+    )
+    pmem_file_path = vm.create_jailed_resource(pmem_path_on_host.path)
+
+    # Try to add pmem without setting `path_on_host`
+    expected_msg = re.escape(
+        "An error occurred when deserializing the json body of a request: missing field `path_on_host`"
+    )
+    with pytest.raises(RuntimeError, match=expected_msg):
+        vm.api.pmem.put(id="pmem")
+
+    # Try to add pmem with 0 sized backing file
+    expected_msg = re.escape("Error backing file size is 0")
+    with pytest.raises(RuntimeError, match=expected_msg):
+        vm.api.pmem.put(id="pmem", path_on_host=invalid_pmem_file_path)
+
+    # Try to add pmem as root while block is set as root
+    vm.api.drive.put(drive_id="drive", path_on_host=pmem_file_path, is_root_device=True)
+    expected_msg = re.escape(
+        "Attempt to add pmem as a root device while the root device defined as a block device"
+    )
+    with pytest.raises(RuntimeError, match=expected_msg):
+        vm.api.pmem.put(id="pmem", path_on_host=pmem_file_path, root_device=True)
+
+    # Reset block from being root
+    vm.api.drive.put(
+        drive_id="drive", path_on_host=pmem_file_path, is_root_device=False
+    )
+
+    # Try to add pmem as root twice
+    vm.api.pmem.put(id="pmem", path_on_host=pmem_file_path, root_device=True)
+    expected_msg = re.escape("A root pmem device already exist")
+    with pytest.raises(RuntimeError, match=expected_msg):
+        vm.api.pmem.put(id="pmem2", path_on_host=pmem_file_path, root_device=True)
+
+    # Reset pmem from being root
+    vm.api.pmem.put(id="pmem", path_on_host=pmem_file_path, root_device=False)
+
+    # Add a rootfs to boot a vm
+    vm.add_pmem("rootfs", rootfs, True, True)
+
+    # No post boot API calls to pmem
+    with pytest.raises(RuntimeError):
+        vm.api.pmem.put(id="pmem")
+
+
 def test_get_full_config_after_restoring_snapshot(microvm_factory, uvm_nano):
     """
     Test the configuration of a microVM after restoring from a snapshot.
@@ -1082,6 +1143,21 @@ def test_get_full_config_after_restoring_snapshot(microvm_factory, uvm_nano):
             "rate_limiter": None,
             "io_engine": "Sync",
             "socket": None,
+        }
+    ]
+
+    uvm_nano.api.pmem.put(
+        id="pmem",
+        path_on_host="/" + uvm_nano.rootfs_file.name,
+        root_device=False,
+        read_only=False,
+    )
+    setup_cfg["pmem"] = [
+        {
+            "id": "pmem",
+            "path_on_host": "/" + uvm_nano.rootfs_file.name,
+            "root_device": False,
+            "read_only": False,
         }
     ]
 
@@ -1193,6 +1269,21 @@ def test_get_full_config(uvm_plain):
             "rate_limiter": None,
             "io_engine": "Sync",
             "socket": None,
+        }
+    ]
+
+    test_microvm.api.pmem.put(
+        id="pmem",
+        path_on_host="/" + test_microvm.rootfs_file.name,
+        root_device=False,
+        read_only=False,
+    )
+    expected_cfg["pmem"] = [
+        {
+            "id": "pmem",
+            "path_on_host": "/" + test_microvm.rootfs_file.name,
+            "root_device": False,
+            "read_only": False,
         }
     ]
 
