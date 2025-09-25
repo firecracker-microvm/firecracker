@@ -106,62 +106,66 @@ impl MsixConfig {
         msix_vectors: u16,
         interrupt_source_group: Arc<dyn InterruptSourceGroup>,
         devid: u32,
-        state: Option<MsixConfigState>,
     ) -> Result<Self, MsixError> {
         assert!(msix_vectors <= MAX_MSIX_VECTORS_PER_DEVICE);
 
-        let (table_entries, pba_entries, masked, enabled) = if let Some(state) = state {
-            if state.enabled && !state.masked {
-                for (idx, table_entry) in state.table_entries.iter().enumerate() {
-                    if table_entry.masked() {
-                        continue;
-                    }
-
-                    let config = MsiIrqSourceConfig {
-                        high_addr: table_entry.msg_addr_hi,
-                        low_addr: table_entry.msg_addr_lo,
-                        data: table_entry.msg_data,
-                        devid,
-                    };
-
-                    interrupt_source_group
-                        .update(
-                            idx.try_into().unwrap(),
-                            InterruptSourceConfig::MsiIrq(config),
-                            state.masked,
-                            true,
-                        )
-                        .map_err(MsixError::UpdateInterruptRoute)?;
-
-                    interrupt_source_group
-                        .enable()
-                        .map_err(MsixError::EnableInterruptRoute)?;
-                }
-            }
-
-            (
-                state.table_entries,
-                state.pba_entries,
-                state.masked,
-                state.enabled,
-            )
-        } else {
-            let mut table_entries: Vec<MsixTableEntry> = Vec::new();
-            table_entries.resize_with(msix_vectors as usize, Default::default);
-            let mut pba_entries: Vec<u64> = Vec::new();
-            let num_pba_entries: usize = (msix_vectors as usize).div_ceil(BITS_PER_PBA_ENTRY);
-            pba_entries.resize_with(num_pba_entries, Default::default);
-
-            (table_entries, pba_entries, true, false)
-        };
+        let mut table_entries: Vec<MsixTableEntry> = Vec::new();
+        table_entries.resize_with(msix_vectors as usize, Default::default);
+        let mut pba_entries: Vec<u64> = Vec::new();
+        let num_pba_entries: usize = (msix_vectors as usize).div_ceil(BITS_PER_PBA_ENTRY);
+        pba_entries.resize_with(num_pba_entries, Default::default);
 
         Ok(MsixConfig {
             table_entries,
             pba_entries,
             devid,
             interrupt_source_group,
-            masked,
-            enabled,
+            masked: true,
+            enabled: false,
+        })
+    }
+
+    /// Create an MSI-X configuration from snapshot state
+    pub fn from_state(
+        state: MsixConfigState,
+        devid: u32,
+        interrupt_source_group: Arc<dyn InterruptSourceGroup>,
+    ) -> Result<Self, MsixError> {
+        if state.enabled && !state.masked {
+            for (idx, table_entry) in state.table_entries.iter().enumerate() {
+                if table_entry.masked() {
+                    continue;
+                }
+
+                let config = MsiIrqSourceConfig {
+                    high_addr: table_entry.msg_addr_hi,
+                    low_addr: table_entry.msg_addr_lo,
+                    data: table_entry.msg_data,
+                    devid,
+                };
+
+                interrupt_source_group
+                    .update(
+                        idx.try_into().unwrap(),
+                        InterruptSourceConfig::MsiIrq(config),
+                        state.masked,
+                        true,
+                    )
+                    .map_err(MsixError::UpdateInterruptRoute)?;
+
+                interrupt_source_group
+                    .enable()
+                    .map_err(MsixError::EnableInterruptRoute)?;
+            }
+        }
+
+        Ok(MsixConfig {
+            table_entries: state.table_entries,
+            pba_entries: state.pba_entries,
+            devid,
+            interrupt_source_group,
+            masked: state.masked,
+            enabled: state.enabled,
         })
     }
 
@@ -589,13 +593,13 @@ mod tests {
     #[test]
     #[should_panic]
     fn test_too_many_vectors() {
-        MsixConfig::new(2049, Arc::new(MockInterrupt::new()), 0x42, None).unwrap();
+        MsixConfig::new(2049, Arc::new(MockInterrupt::new()), 0x42).unwrap();
     }
 
     #[test]
     fn test_new_msix_config() {
         let vectors = Arc::new(MockInterrupt::new());
-        let config = MsixConfig::new(2, vectors.clone(), 0x42, None).unwrap();
+        let config = MsixConfig::new(2, vectors.clone(), 0x42).unwrap();
         assert_eq!(config.devid, 0x42);
         assert!(config.masked);
         assert!(!config.enabled);
@@ -606,7 +610,7 @@ mod tests {
     #[test]
     fn test_enable_msix_vectors() {
         let vectors = Arc::new(MockInterrupt::new());
-        let mut config = MsixConfig::new(2, vectors.clone(), 0x42, None).unwrap();
+        let mut config = MsixConfig::new(2, vectors.clone(), 0x42).unwrap();
 
         assert!(!config.enabled);
         assert!(config.masked);
@@ -634,7 +638,7 @@ mod tests {
     #[should_panic]
     fn test_table_access_read_too_big() {
         let vectors = Arc::new(MockInterrupt::new());
-        let config = MsixConfig::new(2, vectors.clone(), 0x42, None).unwrap();
+        let config = MsixConfig::new(2, vectors.clone(), 0x42).unwrap();
         let mut buffer = [0u8; 16];
 
         config.read_table(0, &mut buffer);
@@ -643,7 +647,7 @@ mod tests {
     #[test]
     fn test_read_table_past_end() {
         let vectors = Arc::new(MockInterrupt::new());
-        let config = MsixConfig::new(2, vectors.clone(), 0x42, None).unwrap();
+        let config = MsixConfig::new(2, vectors.clone(), 0x42).unwrap();
         let mut buffer = [0u8; 8];
 
         // We have 2 vectors (16 bytes each), so we should be able to read up to 32 bytes.
@@ -655,7 +659,7 @@ mod tests {
     #[test]
     fn test_read_table_bad_length() {
         let vectors = Arc::new(MockInterrupt::new());
-        let config = MsixConfig::new(2, vectors.clone(), 0x42, None).unwrap();
+        let config = MsixConfig::new(2, vectors.clone(), 0x42).unwrap();
         let mut buffer = [0u8; 8];
 
         // We can either read 4 or 8 bytes
@@ -682,7 +686,7 @@ mod tests {
     #[test]
     fn test_access_table() {
         let vectors = Arc::new(MockInterrupt::new());
-        let mut config = MsixConfig::new(2, vectors.clone(), 0x42, None).unwrap();
+        let mut config = MsixConfig::new(2, vectors.clone(), 0x42).unwrap();
         // enabled and not masked
         config.set_msg_ctl(0x8000);
         assert_eq!(vectors.update_cnt(0), 1);
@@ -788,7 +792,7 @@ mod tests {
     #[should_panic]
     fn test_table_access_write_too_big() {
         let vectors = Arc::new(MockInterrupt::new());
-        let mut config = MsixConfig::new(2, vectors.clone(), 0x42, None).unwrap();
+        let mut config = MsixConfig::new(2, vectors.clone(), 0x42).unwrap();
         let buffer = [0u8; 16];
 
         config.write_table(0, &buffer);
@@ -797,7 +801,7 @@ mod tests {
     #[test]
     fn test_pba_read_too_big() {
         let vectors = Arc::new(MockInterrupt::new());
-        let config = MsixConfig::new(2, vectors.clone(), 0x42, None).unwrap();
+        let config = MsixConfig::new(2, vectors.clone(), 0x42).unwrap();
         let mut buffer = [0u8; 16];
 
         config.read_pba(0, &mut buffer);
@@ -807,7 +811,7 @@ mod tests {
     #[test]
     fn test_pba_invalid_offset() {
         let vectors = Arc::new(MockInterrupt::new());
-        let config = MsixConfig::new(2, vectors.clone(), 0x42, None).unwrap();
+        let config = MsixConfig::new(2, vectors.clone(), 0x42).unwrap();
         let mut buffer = [0u8; 8];
 
         // Past the end of the PBA array
@@ -826,7 +830,7 @@ mod tests {
     #[should_panic]
     fn test_set_pba_bit_vector_too_big() {
         let vectors = Arc::new(MockInterrupt::new());
-        let mut config = MsixConfig::new(2, vectors.clone(), 0x42, None).unwrap();
+        let mut config = MsixConfig::new(2, vectors.clone(), 0x42).unwrap();
 
         config.set_pba_bit(2048, false);
     }
@@ -835,7 +839,7 @@ mod tests {
     #[should_panic]
     fn test_get_pba_bit_vector_too_big() {
         let vectors = Arc::new(MockInterrupt::new());
-        let config = MsixConfig::new(2, vectors.clone(), 0x42, None).unwrap();
+        let config = MsixConfig::new(2, vectors.clone(), 0x42).unwrap();
 
         config.get_pba_bit(2048);
     }
@@ -843,7 +847,7 @@ mod tests {
     #[test]
     fn test_pba_bit_invalid_vector() {
         let vectors = Arc::new(MockInterrupt::new());
-        let mut config = MsixConfig::new(2, vectors.clone(), 0x42, None).unwrap();
+        let mut config = MsixConfig::new(2, vectors.clone(), 0x42).unwrap();
 
         // We have two vectors, so setting the pending bit for the third one
         // should be ignored
@@ -857,7 +861,7 @@ mod tests {
     #[test]
     fn test_pba_read() {
         let vectors = Arc::new(MockInterrupt::new());
-        let mut config = MsixConfig::new(128, vectors.clone(), 0x42, None).unwrap();
+        let mut config = MsixConfig::new(128, vectors.clone(), 0x42).unwrap();
         let mut buffer = [0u8; 8];
 
         config.set_pba_bit(1, false);
@@ -879,7 +883,7 @@ mod tests {
     #[test]
     fn test_pending_interrupt() {
         let vectors = Arc::new(MockInterrupt::new());
-        let mut config = MsixConfig::new(2, vectors.clone(), 0x42, None).unwrap();
+        let mut config = MsixConfig::new(2, vectors.clone(), 0x42).unwrap();
         config.set_pba_bit(1, false);
         assert_eq!(config.get_pba_bit(1), 1);
         // Enable MSI-X vector and unmask interrupts

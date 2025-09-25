@@ -312,7 +312,6 @@ impl VirtioPciDevice {
     fn pci_configuration(
         virtio_device_type: u32,
         msix_config: &Arc<Mutex<MsixConfig>>,
-        pci_config_state: Option<PciConfigurationState>,
     ) -> PciConfiguration {
         let pci_device_id = VIRTIO_PCI_DEVICE_ID_BASE + u16::try_from(virtio_device_type).unwrap();
         let (class, subclass) = match virtio_device_type {
@@ -339,23 +338,7 @@ impl VirtioPciDevice {
             VIRTIO_PCI_VENDOR_ID,
             pci_device_id,
             Some(msix_config.clone()),
-            pci_config_state,
         )
-    }
-
-    fn msix_config(
-        pci_device_bdf: u32,
-        msix_vectors: Arc<MsiVectorGroup>,
-        msix_config_state: Option<MsixConfigState>,
-    ) -> Result<Arc<Mutex<MsixConfig>>> {
-        let msix_config = Arc::new(Mutex::new(MsixConfig::new(
-            msix_vectors.num_vectors(),
-            msix_vectors,
-            pci_device_bdf,
-            msix_config_state,
-        )?));
-
-        Ok(msix_config)
     }
 
     /// Allocate the PCI BAR for the VirtIO device and its associated capabilities.
@@ -399,11 +382,14 @@ impl VirtioPciDevice {
     ) -> Result<Self> {
         let num_queues = device.lock().expect("Poisoned lock").queues().len();
 
-        let msix_config = Self::msix_config(pci_device_bdf, msi_vectors.clone(), None)?;
+        let msix_config = Arc::new(Mutex::new(MsixConfig::new(
+            msi_vectors.num_vectors(),
+            msi_vectors.clone(),
+            pci_device_bdf,
+        )?));
         let pci_config = Self::pci_configuration(
             device.lock().expect("Poisoned lock").device_type(),
             &msix_config,
-            None,
         );
 
         let virtio_common_config = VirtioPciCommonConfig::new(VirtioPciCommonConfigState {
@@ -448,16 +434,15 @@ impl VirtioPciDevice {
         msi_vectors: Arc<MsiVectorGroup>,
         state: VirtioPciDeviceState,
     ) -> Result<Self> {
-        let msix_config = Self::msix_config(
+        let msix_config = Arc::new(Mutex::new(MsixConfig::from_state(
+            state.msix_state,
             state.pci_device_bdf.into(),
             msi_vectors.clone(),
-            Some(state.msix_state),
-        )?;
+        )?));
 
-        let pci_config = Self::pci_configuration(
-            device.lock().expect("Poisoned lock").device_type(),
-            &msix_config,
-            Some(state.pci_configuration_state),
+        let pci_config = PciConfiguration::type0_from_state(
+            state.pci_configuration_state,
+            Some(msix_config.clone()),
         );
         let virtio_common_config = VirtioPciCommonConfig::new(state.pci_dev_state);
         let cap_pci_cfg_info = VirtioPciCfgCapInfo {
