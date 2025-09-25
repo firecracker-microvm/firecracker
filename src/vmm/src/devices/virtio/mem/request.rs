@@ -1,7 +1,7 @@
 // Copyright 2025 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-use vm_memory::{ByteValued, GuestAddress};
+use vm_memory::{Address, ByteValued, GuestAddress};
 
 use crate::devices::virtio::generated::virtio_mem;
 
@@ -53,7 +53,7 @@ impl From<virtio_mem::virtio_mem_req> for Request {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
 pub enum ResponseType {
     Ack,
     Nack,
@@ -74,7 +74,7 @@ impl From<ResponseType> for u16 {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
 pub enum BlockRangeState {
     Plugged,
     Unplugged,
@@ -95,7 +95,7 @@ impl From<BlockRangeState> for virtio_mem::virtio_mem_resp_state {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Eq, PartialEq)]
 pub struct Response {
     pub resp_type: ResponseType,
     // Only for State requests
@@ -123,6 +123,14 @@ impl Response {
             state: Some(state),
         }
     }
+
+    pub(crate) fn is_ack(&self) -> bool {
+        self.resp_type == ResponseType::Ack
+    }
+
+    pub(crate) fn is_error(&self) -> bool {
+        self.resp_type == ResponseType::Error
+    }
 }
 
 // SAFETY: Plain data structures
@@ -138,5 +146,85 @@ impl From<Response> for virtio_mem::virtio_mem_resp {
             out.u.state = state.into();
         }
         out
+    }
+}
+
+#[cfg(test)]
+mod test_util {
+    use super::*;
+
+    // Implement the reverse conversions to use in test code.
+
+    impl From<Request> for virtio_mem::virtio_mem_req {
+        fn from(req: Request) -> virtio_mem::virtio_mem_req {
+            match req {
+                Request::Plug(r) => virtio_mem::virtio_mem_req {
+                    type_: virtio_mem::VIRTIO_MEM_REQ_PLUG.try_into().unwrap(),
+                    u: virtio_mem::virtio_mem_req__bindgen_ty_1 {
+                        plug: virtio_mem::virtio_mem_req_plug {
+                            addr: r.addr.raw_value(),
+                            nb_blocks: r.nb_blocks.try_into().unwrap(),
+                            ..Default::default()
+                        },
+                    },
+                    ..Default::default()
+                },
+                Request::Unplug(r) => virtio_mem::virtio_mem_req {
+                    type_: virtio_mem::VIRTIO_MEM_REQ_UNPLUG.try_into().unwrap(),
+                    u: virtio_mem::virtio_mem_req__bindgen_ty_1 {
+                        unplug: virtio_mem::virtio_mem_req_unplug {
+                            addr: r.addr.raw_value(),
+                            nb_blocks: r.nb_blocks.try_into().unwrap(),
+                            ..Default::default()
+                        },
+                    },
+                    ..Default::default()
+                },
+                Request::UnplugAll => virtio_mem::virtio_mem_req {
+                    type_: virtio_mem::VIRTIO_MEM_REQ_UNPLUG_ALL.try_into().unwrap(),
+                    ..Default::default()
+                },
+                Request::State(r) => virtio_mem::virtio_mem_req {
+                    type_: virtio_mem::VIRTIO_MEM_REQ_STATE.try_into().unwrap(),
+                    u: virtio_mem::virtio_mem_req__bindgen_ty_1 {
+                        state: virtio_mem::virtio_mem_req_state {
+                            addr: r.addr.raw_value(),
+                            nb_blocks: r.nb_blocks.try_into().unwrap(),
+                            ..Default::default()
+                        },
+                    },
+                    ..Default::default()
+                },
+                Request::Unsupported(t) => virtio_mem::virtio_mem_req {
+                    type_: t.try_into().unwrap(),
+                    ..Default::default()
+                },
+            }
+        }
+    }
+
+    impl From<virtio_mem::virtio_mem_resp> for Response {
+        fn from(resp: virtio_mem::virtio_mem_resp) -> Self {
+            Response {
+                resp_type: match resp.type_.into() {
+                    virtio_mem::VIRTIO_MEM_RESP_ACK => ResponseType::Ack,
+                    virtio_mem::VIRTIO_MEM_RESP_NACK => ResponseType::Nack,
+                    virtio_mem::VIRTIO_MEM_RESP_BUSY => ResponseType::Busy,
+                    virtio_mem::VIRTIO_MEM_RESP_ERROR => ResponseType::Error,
+                    t => panic!("Invalid response type: {:?}", t),
+                },
+                // There is no way to know whether this is present or not as it depends on the
+                // request types. Callers should ignore this value if the request wasn't STATE
+                /// SAFETY: test code only. Uninitialized values are 0 and recognized as PLUGGED.
+                state: Some(unsafe {
+                    match resp.u.state.state.into() {
+                        virtio_mem::VIRTIO_MEM_STATE_PLUGGED => BlockRangeState::Plugged,
+                        virtio_mem::VIRTIO_MEM_STATE_UNPLUGGED => BlockRangeState::Unplugged,
+                        virtio_mem::VIRTIO_MEM_STATE_MIXED => BlockRangeState::Mixed,
+                        t => panic!("Invalid state: {:?}", t),
+                    }
+                }),
+            }
+        }
     }
 }

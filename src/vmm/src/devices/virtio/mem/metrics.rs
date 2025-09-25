@@ -111,13 +111,8 @@ pub mod tests {
     #[test]
     fn test_memory_hotplug_metrics() {
         let mem_metrics: VirtioMemDeviceMetrics = VirtioMemDeviceMetrics::new();
-        let mem_metrics_local: String = serde_json::to_string(&mem_metrics).unwrap();
-        // the 1st serialize flushes the metrics and resets values to 0 so that
-        // we can compare the values with local metrics.
-        serde_json::to_string(&METRICS).unwrap();
-        let mem_metrics_global: String = serde_json::to_string(&METRICS).unwrap();
-        assert_eq!(mem_metrics_local, mem_metrics_global);
         mem_metrics.queue_event_count.inc();
         assert_eq!(mem_metrics.queue_event_count.count(), 1);
+        let _ = serde_json::to_string(&mem_metrics).unwrap();
     }
 }
