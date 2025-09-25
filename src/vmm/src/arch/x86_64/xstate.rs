@@ -43,6 +43,7 @@ pub fn request_dynamic_xstate_features() -> Result<(), XstateError> {
     // causes guest crash during boot because a guest calls XSETBV instruction with all
     // XSAVE feature bits enumerated on CPUID and XSETBV only accepts either of both Intel
     // AMX bits enabled or disabled; otherwise resulting in general protection fault.
+    // https://lore.kernel.org/all/20230405004520.421768-1-seanjc@google.com/
     if supported_xfeatures & INTEL_AMX_MASK == INTEL_AMX_MASK {
         request_xfeature_permission(arch_prctl::ARCH_XCOMP_TILEDATA).map_err(|err| {
             XstateError::RequestFeaturePermission(arch_prctl::ARCH_XCOMP_TILEDATA, err)
@@ -72,7 +73,7 @@ fn get_supported_xfeatures() -> Result<Option<u64>, std::io::Error> {
         Ok(()) => Ok(Some(supported_xfeatures)),
         // EINVAL is returned if the dynamic XSTATE feature enabling is not supported (e.g. kernel
         // version prior to v5.17).
-        // https://github.com/torvalds/linux/commit/980fe2fddcff21937c93532b4597c8ea450346c1
+        // https://github.com/torvalds/linux/commit/db8268df0983adc2bb1fb48c9e5f7bfbb5f617f3
         Err(err) if err.raw_os_error() == Some(libc::EINVAL) => Ok(None),
         Err(err) => Err(err),
     }
@@ -85,7 +86,7 @@ fn get_supported_xfeatures() -> Result<Option<u64>, std::io::Error> {
 fn request_xfeature_permission(xfeature: u32) -> Result<(), std::io::Error> {
     // SAFETY: Safe because the third input (`addr`) is a valid `c_ulong` value.
     // https://man7.org/linux/man-pages/man2/arch_prctl.2.html
-    SyscallReturnCode(unsafe {
+    match SyscallReturnCode(unsafe {
         libc::syscall(
             libc::SYS_arch_prctl,
             arch_prctl::ARCH_REQ_XCOMP_GUEST_PERM as libc::c_ulong,
@@ -93,6 +94,15 @@ fn request_xfeature_permission(xfeature: u32) -> Result<(), std::io::Error> {
         )
     })
     .into_empty_result()
+    {
+        Ok(()) => Ok(()),
+        // EINVAL is returned if the dynamic XSTATE feature enabling for "guest" is not supported
+        // although that for "userspace application" is supported (e.g. kernel versions >= 5.16 and
+        // < 5.17).
+        // https://github.com/torvalds/linux/commit/980fe2fddcff21937c93532b4597c8ea450346c1
+        Err(err) if err.raw_os_error() == Some(libc::EINVAL) => Ok(()),
+        Err(err) => Err(err),
+    }
 }
 
 #[cfg(test)]
