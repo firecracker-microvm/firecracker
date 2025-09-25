@@ -8,7 +8,6 @@ use std::sync::{Arc, Mutex};
 
 use event_manager::{MutEventSubscriber, SubscriberOps};
 use log::{debug, error, warn};
-use pci::{PciDeviceError, PciRootError};
 use serde::{Deserialize, Serialize};
 use vm_device::BusError;
 
@@ -31,6 +30,7 @@ use crate::devices::virtio::vsock::persist::{
     VsockConstructorArgs, VsockState, VsockUdsConstructorArgs,
 };
 use crate::devices::virtio::vsock::{Vsock, VsockUnixBackend};
+use crate::pci::bus::PciRootError;
 use crate::resources::VmResources;
 use crate::snapshot::Persist;
 use crate::vmm_config::mmds::MmdsConfigError;
@@ -58,8 +58,6 @@ pub enum PciManagerError {
     Msi(#[from] InterruptError),
     /// VirtIO PCI device error: {0}
     VirtioPciDevice(#[from] VirtioPciDeviceError),
-    /// PCI device error: {0}
-    PciDeviceError(#[from] PciDeviceError),
     /// KVM error: {0}
     Kvm(#[from] vmm_sys_util::errno::Error),
     /// MMDS error: {0}
@@ -133,14 +131,14 @@ impl PciDevices {
         let mut resource_allocator_lock = vm.resource_allocator();
         let resource_allocator = resource_allocator_lock.deref_mut();
 
-        virtio_device.allocate_bars(&mut resource_allocator.mmio64_memory)?;
+        virtio_device.allocate_bars(&mut resource_allocator.mmio64_memory);
 
         let virtio_device = Arc::new(Mutex::new(virtio_device));
         pci_segment
             .pci_bus
             .lock()
             .expect("Poisoned lock")
-            .add_device(pci_device_bdf.device() as u32, virtio_device.clone())?;
+            .add_device(pci_device_bdf.device() as u32, virtio_device.clone());
 
         self.virtio_devices
             .insert((device_type, id.clone()), virtio_device.clone());
@@ -185,7 +183,7 @@ impl PciDevices {
             .add_device(
                 transport_state.pci_device_bdf.device() as u32,
                 virtio_device.clone(),
-            )?;
+            );
 
         self.virtio_devices
             .insert((device_type, device_id.to_string()), virtio_device.clone());
