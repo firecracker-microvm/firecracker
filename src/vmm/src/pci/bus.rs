@@ -53,7 +53,6 @@ impl PciRoot {
                     0,
                     0,
                     None,
-                    None,
                 ),
             }
         }
@@ -499,7 +498,6 @@ mod tests {
                 &PciMassStorageSubclass::SerialScsiController,
                 0x13,
                 0x12,
-                None,
                 None,
             );
 

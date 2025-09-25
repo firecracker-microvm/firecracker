@@ -102,46 +102,41 @@ impl PciConfiguration {
         subsystem_vendor_id: u16,
         subsystem_id: u16,
         msix_config: Option<Arc<Mutex<MsixConfig>>>,
-        state: Option<PciConfigurationState>,
     ) -> Self {
-        let (registers, writable_bits, bars, last_capability, msix_cap_reg_idx) =
-            if let Some(state) = state {
-                (
-                    state.registers.try_into().unwrap(),
-                    state.writable_bits.try_into().unwrap(),
-                    state.bars.try_into().unwrap(),
-                    state.last_capability,
-                    state.msix_cap_reg_idx,
-                )
-            } else {
-                let mut registers = [0u32; NUM_CONFIGURATION_REGISTERS];
-                let mut writable_bits = [0u32; NUM_CONFIGURATION_REGISTERS];
-                registers[0] = (u32::from(device_id) << 16) | u32::from(vendor_id);
-                // TODO(dverkamp): Status should be write-1-to-clear
-                writable_bits[1] = 0x0000_ffff; // Status (r/o), command (r/w)
-                registers[2] = (u32::from(class_code.get_register_value()) << 24)
-                    | (u32::from(subclass.get_register_value()) << 16)
-                    | u32::from(revision_id);
-                writable_bits[3] = 0x0000_00ff; // Cacheline size (r/w)
-                registers[3] = 0x0000_0000; // Header type 0 (device)
-                writable_bits[15] = 0x0000_00ff; // IRQ line (r/w)
-                registers[11] = (u32::from(subsystem_id) << 16) | u32::from(subsystem_vendor_id);
-
-                (
-                    registers,
-                    writable_bits,
-                    [PciBar::default(); NUM_BAR_REGS],
-                    None,
-                    None,
-                )
-            };
+        let mut registers = [0u32; NUM_CONFIGURATION_REGISTERS];
+        let mut writable_bits = [0u32; NUM_CONFIGURATION_REGISTERS];
+        registers[0] = (u32::from(device_id) << 16) | u32::from(vendor_id);
+        // TODO(dverkamp): Status should be write-1-to-clear
+        writable_bits[1] = 0x0000_ffff; // Status (r/o), command (r/w)
+        registers[2] = (u32::from(class_code.get_register_value()) << 24)
+            | (u32::from(subclass.get_register_value()) << 16)
+            | u32::from(revision_id);
+        writable_bits[3] = 0x0000_00ff; // Cacheline size (r/w)
+        registers[3] = 0x0000_0000; // Header type 0 (device)
+        writable_bits[15] = 0x0000_00ff; // IRQ line (r/w)
+        registers[11] = (u32::from(subsystem_id) << 16) | u32::from(subsystem_vendor_id);
 
         PciConfiguration {
             registers,
             writable_bits,
-            bars,
-            last_capability,
-            msix_cap_reg_idx,
+            bars: [PciBar::default(); NUM_BAR_REGS],
+            last_capability: None,
+            msix_cap_reg_idx: None,
+            msix_config,
+        }
+    }
+
+    /// Create a type 0 PCI configuration from snapshot state
+    pub fn type0_from_state(
+        state: PciConfigurationState,
+        msix_config: Option<Arc<Mutex<MsixConfig>>>,
+    ) -> Self {
+        PciConfiguration {
+            registers: state.registers.try_into().unwrap(),
+            writable_bits: state.writable_bits.try_into().unwrap(),
+            bars: state.bars.try_into().unwrap(),
+            last_capability: state.last_capability,
+            msix_cap_reg_idx: state.msix_cap_reg_idx,
             msix_config,
         }
     }
@@ -653,7 +648,6 @@ mod tests {
             &PciMultimediaSubclass::AudioController,
             0xABCD,
             0x2468,
-            None,
             None,
         )
     }
