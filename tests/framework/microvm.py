@@ -973,6 +973,24 @@ class Microvm:
 
         return iface
 
+    def add_pmem(
+        self,
+        pmem_id,
+        path_on_host,
+        root_device=False,
+        read_only=False,
+    ):
+        """Add a pmem device."""
+
+        path_on_jail = self.create_jailed_resource(path_on_host)
+        self.api.pmem.put(
+            id=pmem_id,
+            path_on_host=path_on_jail,
+            root_device=root_device,
+            read_only=read_only,
+        )
+        self.disks[pmem_id] = path_on_host
+
     def start(self):
         """Start the microvm.
 
