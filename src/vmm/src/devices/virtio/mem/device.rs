@@ -663,10 +663,34 @@ impl VirtioDevice for VirtioMem {
 #[cfg(test)]
 pub(crate) mod test_utils {
     use super::*;
+    use crate::devices::virtio::test_utils::test::VirtioTestDevice;
+    use crate::test_utils::single_region_mem;
+    use crate::vmm_config::machine_config::HugePageConfig;
+    use crate::vstate::memory;
     use crate::vstate::vm::tests::setup_vm_with_memory;
 
+    impl VirtioTestDevice for VirtioMem {
+        fn set_queues(&mut self, queues: Vec<Queue>) {
+            self.queues = queues;
+        }
+
+        fn num_queues() -> usize {
+            MEM_NUM_QUEUES
+        }
+    }
+
     pub(crate) fn default_virtio_mem() -> VirtioMem {
-        let (_, vm) = setup_vm_with_memory(0x1000);
+        let (_, mut vm) = setup_vm_with_memory(0x1000);
+        vm.register_hotpluggable_memory_region(
+            memory::anonymous(
+                std::iter::once((VIRTIO_MEM_GUEST_ADDRESS, mib_to_bytes(1024))),
+                false,
+                HugePageConfig::None,
+            )
+            .unwrap()
+            .pop()
+            .unwrap(),
+        );
         let vm = Arc::new(vm);
         VirtioMem::new(vm, 1024, 2, 128).unwrap()
     }
@@ -676,11 +700,15 @@ pub(crate) mod test_utils {
 mod tests {
     use std::ptr::null_mut;
 
+    use serde_json::de;
+    use vm_memory::guest_memory;
     use vm_memory::mmap::MmapRegionBuilder;
 
     use super::*;
     use crate::devices::virtio::device::VirtioDevice;
     use crate::devices::virtio::mem::device::test_utils::default_virtio_mem;
+    use crate::devices::virtio::queue::VIRTQ_DESC_F_WRITE;
+    use crate::devices::virtio::test_utils::test::VirtioTestHelper;
     use crate::vstate::vm::tests::setup_vm_with_memory;
 
     #[test]
@@ -814,5 +842,479 @@ mod tests {
                 requested_size_mib: 0,
             }
         );
+    }
+
+    #[allow(clippy::cast_possible_truncation)]
+    const REQ_SIZE: u32 = std::mem::size_of::<virtio_mem::virtio_mem_req>() as u32;
+    #[allow(clippy::cast_possible_truncation)]
+    const RESP_SIZE: u32 = std::mem::size_of::<virtio_mem::virtio_mem_resp>() as u32;
+
+    fn test_helper<'a>(
+        mut dev: VirtioMem,
+        mem: &'a GuestMemoryMmap,
+    ) -> VirtioTestHelper<'a, VirtioMem> {
+        dev.set_acked_features(dev.avail_features);
+
+        let mut th = VirtioTestHelper::<VirtioMem>::new(mem, dev);
+        th.activate_device(mem);
+        th
+    }
+
+    fn emulate_request(
+        th: &mut VirtioTestHelper<VirtioMem>,
+        mem: &GuestMemoryMmap,
+        req: Request,
+    ) -> Response {
+        th.add_desc_chain(
+            MEM_QUEUE,
+            0,
+            &[(0, REQ_SIZE, 0), (1, RESP_SIZE, VIRTQ_DESC_F_WRITE)],
+        );
+        mem.write_obj(
+            virtio_mem::virtio_mem_req::from(req),
+            th.desc_address(MEM_QUEUE, 0),
+        )
+        .unwrap();
+        assert_eq!(th.emulate_for_msec(100).unwrap(), 1);
+        mem.read_obj::<virtio_mem::virtio_mem_resp>(th.desc_address(MEM_QUEUE, 1))
+            .unwrap()
+            .into()
+    }
+
+    #[test]
+    fn test_event_fail_descriptor_chain_too_short() {
+        let mut mem_dev = default_virtio_mem();
+        let guest_mem = mem_dev.vm.guest_memory().clone();
+        let mut th = test_helper(mem_dev, &guest_mem);
+
+        let queue_event_count = METRICS.queue_event_count.count();
+        let queue_event_fails = METRICS.queue_event_fails.count();
+
+        th.add_desc_chain(MEM_QUEUE, 0, &[(0, REQ_SIZE, 0)]);
+        assert_eq!(th.emulate_for_msec(100).unwrap(), 1);
+
+        assert_eq!(METRICS.queue_event_count.count(), queue_event_count + 1);
+        assert_eq!(METRICS.queue_event_fails.count(), queue_event_fails + 1);
+    }
+
+    #[test]
+    fn test_event_fail_descriptor_length_too_small() {
+        let mut mem_dev = default_virtio_mem();
+        let guest_mem = mem_dev.vm.guest_memory().clone();
+        let mut th = test_helper(mem_dev, &guest_mem);
+
+        let queue_event_count = METRICS.queue_event_count.count();
+        let queue_event_fails = METRICS.queue_event_fails.count();
+
+        th.add_desc_chain(MEM_QUEUE, 0, &[(0, 1, 0)]);
+        assert_eq!(th.emulate_for_msec(100).unwrap(), 1);
+
+        assert_eq!(METRICS.queue_event_count.count(), queue_event_count + 1);
+        assert_eq!(METRICS.queue_event_fails.count(), queue_event_fails + 1);
+    }
+
+    #[test]
+    fn test_event_fail_unexpected_writeonly_descriptor() {
+        let mut mem_dev = default_virtio_mem();
+        let guest_mem = mem_dev.vm.guest_memory().clone();
+        let mut th = test_helper(mem_dev, &guest_mem);
+
+        let queue_event_count = METRICS.queue_event_count.count();
+        let queue_event_fails = METRICS.queue_event_fails.count();
+
+        th.add_desc_chain(MEM_QUEUE, 0, &[(0, REQ_SIZE, VIRTQ_DESC_F_WRITE)]);
+        assert_eq!(th.emulate_for_msec(100).unwrap(), 1);
+
+        assert_eq!(METRICS.queue_event_count.count(), queue_event_count + 1);
+        assert_eq!(METRICS.queue_event_fails.count(), queue_event_fails + 1);
+    }
+
+    #[test]
+    fn test_event_fail_unexpected_readonly_descriptor() {
+        let mut mem_dev = default_virtio_mem();
+        let guest_mem = mem_dev.vm.guest_memory().clone();
+        let mut th = test_helper(mem_dev, &guest_mem);
+
+        let queue_event_count = METRICS.queue_event_count.count();
+        let queue_event_fails = METRICS.queue_event_fails.count();
+
+        th.add_desc_chain(MEM_QUEUE, 0, &[(0, REQ_SIZE, 0), (1, RESP_SIZE, 0)]);
+        assert_eq!(th.emulate_for_msec(100).unwrap(), 1);
+
+        assert_eq!(METRICS.queue_event_count.count(), queue_event_count + 1);
+        assert_eq!(METRICS.queue_event_fails.count(), queue_event_fails + 1);
+    }
+
+    #[test]
+    fn test_event_fail_response_descriptor_length_too_small() {
+        let mut mem_dev = default_virtio_mem();
+        let guest_mem = mem_dev.vm.guest_memory().clone();
+        let mut th = test_helper(mem_dev, &guest_mem);
+
+        let queue_event_count = METRICS.queue_event_count.count();
+        let queue_event_fails = METRICS.queue_event_fails.count();
+
+        th.add_desc_chain(
+            MEM_QUEUE,
+            0,
+            &[(0, REQ_SIZE, 0), (1, 1, VIRTQ_DESC_F_WRITE)],
+        );
+        assert_eq!(th.emulate_for_msec(100).unwrap(), 1);
+
+        assert_eq!(METRICS.queue_event_count.count(), queue_event_count + 1);
+        assert_eq!(METRICS.queue_event_fails.count(), queue_event_fails + 1);
+    }
+
+    #[test]
+    fn test_update_requested_size_device_not_active() {
+        let mut mem_dev = default_virtio_mem();
+        let result = mem_dev.update_requested_size(512);
+        assert!(matches!(result, Err(VirtioMemError::DeviceNotActive)));
+    }
+
+    #[test]
+    fn test_update_requested_size_invalid_size() {
+        let mut mem_dev = default_virtio_mem();
+        let guest_mem = mem_dev.vm.guest_memory().clone();
+        let mut th = test_helper(mem_dev, &guest_mem);
+
+        // Size not multiple of block size
+        let result = th.device().update_requested_size(3);
+        assert!(matches!(result, Err(VirtioMemError::InvalidSize(_))));
+
+        // Size too large
+        let result = th.device().update_requested_size(2048);
+        assert!(matches!(result, Err(VirtioMemError::InvalidSize(_))));
+    }
+
+    #[test]
+    fn test_update_requested_size_success() {
+        let mut mem_dev = default_virtio_mem();
+        let guest_mem = mem_dev.vm.guest_memory().clone();
+        let mut th = test_helper(mem_dev, &guest_mem);
+
+        th.device().update_requested_size(512).unwrap();
+        assert_eq!(th.device().requested_size_mib(), 512);
+    }
+
+    #[test]
+    fn test_plug_request_success() {
+        let mut mem_dev = default_virtio_mem();
+        let guest_mem = mem_dev.vm.guest_memory().clone();
+        let mut th = test_helper(mem_dev, &guest_mem);
+        th.device().update_requested_size(1024);
+        let addr = th.device().guest_address();
+
+        let queue_event_count = METRICS.queue_event_count.count();
+        let queue_event_fails = METRICS.queue_event_fails.count();
+        let plug_count = METRICS.plug_count.count();
+        let plug_bytes = METRICS.plug_bytes.count();
+        let plug_fails = METRICS.plug_fails.count();
+
+        let resp = emulate_request(
+            &mut th,
+            &guest_mem,
+            Request::Plug(RequestedRange { addr, nb_blocks: 1 }),
+        );
+        assert!(resp.is_ack());
+        assert_eq!(th.device().plugged_size_mib(), 2);
+
+        assert_eq!(METRICS.queue_event_count.count(), queue_event_count + 1);
+        assert_eq!(METRICS.queue_event_fails.count(), queue_event_fails);
+        assert_eq!(METRICS.plug_count.count(), plug_count + 1);
+        assert_eq!(METRICS.plug_bytes.count(), plug_bytes + (2 << 20));
+        assert_eq!(METRICS.plug_fails.count(), plug_fails);
+    }
+
+    #[test]
+    fn test_plug_request_too_big() {
+        let mut mem_dev = default_virtio_mem();
+        let guest_mem = mem_dev.vm.guest_memory().clone();
+        let mut th = test_helper(mem_dev, &guest_mem);
+        th.device().update_requested_size(2);
+        let addr = th.device().guest_address();
+
+        let plug_count = METRICS.plug_count.count();
+        let plug_bytes = METRICS.plug_bytes.count();
+        let plug_fails = METRICS.plug_fails.count();
+
+        let resp = emulate_request(
+            &mut th,
+            &guest_mem,
+            Request::Plug(RequestedRange { addr, nb_blocks: 2 }),
+        );
+        assert!(resp.is_error());
+
+        assert_eq!(METRICS.plug_count.count(), plug_count + 1);
+        assert_eq!(METRICS.plug_bytes.count(), plug_bytes);
+        assert_eq!(METRICS.plug_fails.count(), plug_fails + 1);
+    }
+
+    #[test]
+    fn test_plug_request_already_plugged() {
+        let mut mem_dev = default_virtio_mem();
+        let guest_mem = mem_dev.vm.guest_memory().clone();
+        let mut th = test_helper(mem_dev, &guest_mem);
+        th.device().update_requested_size(1024);
+        let addr = th.device().guest_address();
+
+        // First plug succeeds
+        let resp = emulate_request(
+            &mut th,
+            &guest_mem,
+            Request::Plug(RequestedRange { addr, nb_blocks: 1 }),
+        );
+        assert!(resp.is_ack());
+
+        // Second plug fails
+        let resp = emulate_request(
+            &mut th,
+            &guest_mem,
+            Request::Plug(RequestedRange { addr, nb_blocks: 1 }),
+        );
+        assert!(resp.is_error());
+    }
+
+    #[test]
+    fn test_unplug_request_success() {
+        let mut mem_dev = default_virtio_mem();
+        let guest_mem = mem_dev.vm.guest_memory().clone();
+        let mut th = test_helper(mem_dev, &guest_mem);
+        th.device().update_requested_size(1024);
+        let addr = th.device().guest_address();
+
+        let unplug_count = METRICS.unplug_count.count();
+        let unplug_bytes = METRICS.unplug_bytes.count();
+        let unplug_fails = METRICS.unplug_fails.count();
+
+        // First plug
+        let resp = emulate_request(
+            &mut th,
+            &guest_mem,
+            Request::Plug(RequestedRange { addr, nb_blocks: 1 }),
+        );
+        assert!(resp.is_ack());
+        assert_eq!(th.device().plugged_size_mib(), 2);
+
+        // Then unplug
+        let resp = emulate_request(
+            &mut th,
+            &guest_mem,
+            Request::Unplug(RequestedRange { addr, nb_blocks: 1 }),
+        );
+        assert!(resp.is_ack());
+        assert_eq!(th.device().plugged_size_mib(), 0);
+
+        assert_eq!(METRICS.unplug_count.count(), unplug_count + 1);
+        assert_eq!(METRICS.unplug_bytes.count(), unplug_bytes + (2 << 20));
+        assert_eq!(METRICS.unplug_fails.count(), unplug_fails);
+    }
+
+    #[test]
+    fn test_unplug_request_not_plugged() {
+        let mut mem_dev = default_virtio_mem();
+        let guest_mem = mem_dev.vm.guest_memory().clone();
+        let mut th = test_helper(mem_dev, &guest_mem);
+        th.device().update_requested_size(1024);
+        let addr = th.device().guest_address();
+
+        let unplug_count = METRICS.unplug_count.count();
+        let unplug_bytes = METRICS.unplug_bytes.count();
+        let unplug_fails = METRICS.unplug_fails.count();
+
+        let resp = emulate_request(
+            &mut th,
+            &guest_mem,
+            Request::Unplug(RequestedRange { addr, nb_blocks: 1 }),
+        );
+        assert!(resp.is_error());
+
+        assert_eq!(METRICS.unplug_count.count(), unplug_count + 1);
+        assert_eq!(METRICS.unplug_bytes.count(), unplug_bytes);
+        assert_eq!(METRICS.unplug_fails.count(), unplug_fails + 1);
+    }
+
+    #[test]
+    fn test_unplug_all_request() {
+        let mut mem_dev = default_virtio_mem();
+        let guest_mem = mem_dev.vm.guest_memory().clone();
+        let mut th = test_helper(mem_dev, &guest_mem);
+        th.device().update_requested_size(1024);
+        let addr = th.device().guest_address();
+
+        let unplug_all_count = METRICS.unplug_all_count.count();
+        let unplug_all_fails = METRICS.unplug_all_fails.count();
+
+        // Plug some blocks
+        let resp = emulate_request(
+            &mut th,
+            &guest_mem,
+            Request::Plug(RequestedRange { addr, nb_blocks: 2 }),
+        );
+        assert!(resp.is_ack());
+        assert_eq!(th.device().plugged_size_mib(), 4);
+
+        // Unplug all
+        let resp = emulate_request(&mut th, &guest_mem, Request::UnplugAll);
+        assert!(resp.is_ack());
+        assert_eq!(th.device().plugged_size_mib(), 0);
+
+        assert_eq!(METRICS.unplug_all_count.count(), unplug_all_count + 1);
+        assert_eq!(METRICS.unplug_all_fails.count(), unplug_all_fails);
+    }
+
+    #[test]
+    fn test_state_request_unplugged() {
+        let mut mem_dev = default_virtio_mem();
+        let guest_mem = mem_dev.vm.guest_memory().clone();
+        let mut th = test_helper(mem_dev, &guest_mem);
+        th.device().update_requested_size(1024);
+        let addr = th.device().guest_address();
+
+        let state_count = METRICS.state_count.count();
+        let state_fails = METRICS.state_fails.count();
+
+        let resp = emulate_request(
+            &mut th,
+            &guest_mem,
+            Request::State(RequestedRange { addr, nb_blocks: 1 }),
+        );
+        assert_eq!(resp, Response::ack_with_state(BlockRangeState::Unplugged));
+
+        assert_eq!(METRICS.state_count.count(), state_count + 1);
+        assert_eq!(METRICS.state_fails.count(), state_fails);
+    }
+
+    #[test]
+    fn test_state_request_plugged() {
+        let mut mem_dev = default_virtio_mem();
+        let guest_mem = mem_dev.vm.guest_memory().clone();
+        let mut th = test_helper(mem_dev, &guest_mem);
+        th.device().update_requested_size(1024);
+        let addr = th.device().guest_address();
+
+        // Plug first
+        let resp = emulate_request(
+            &mut th,
+            &guest_mem,
+            Request::Plug(RequestedRange { addr, nb_blocks: 1 }),
+        );
+        assert!(resp.is_ack());
+
+        // Check state
+        let resp = emulate_request(
+            &mut th,
+            &guest_mem,
+            Request::State(RequestedRange { addr, nb_blocks: 1 }),
+        );
+        assert_eq!(resp, Response::ack_with_state(BlockRangeState::Plugged));
+    }
+
+    #[test]
+    fn test_state_request_mixed() {
+        let mut mem_dev = default_virtio_mem();
+        let guest_mem = mem_dev.vm.guest_memory().clone();
+        let mut th = test_helper(mem_dev, &guest_mem);
+        th.device().update_requested_size(1024);
+        let addr = th.device().guest_address();
+
+        // Plug first block only
+        let resp = emulate_request(
+            &mut th,
+            &guest_mem,
+            Request::Plug(RequestedRange { addr, nb_blocks: 1 }),
+        );
+        assert!(resp.is_ack());
+
+        // Check state of 2 blocks (one plugged, one unplugged)
+        let resp = emulate_request(
+            &mut th,
+            &guest_mem,
+            Request::State(RequestedRange { addr, nb_blocks: 2 }),
+        );
+        assert_eq!(resp, Response::ack_with_state(BlockRangeState::Mixed));
+    }
+
+    #[test]
+    fn test_invalid_range_unaligned() {
+        let mut mem_dev = default_virtio_mem();
+        let guest_mem = mem_dev.vm.guest_memory().clone();
+        let mut th = test_helper(mem_dev, &guest_mem);
+        th.device().update_requested_size(1024);
+        let addr = th.device().guest_address().unchecked_add(1);
+
+        let state_count = METRICS.state_count.count();
+        let state_fails = METRICS.state_fails.count();
+
+        let resp = emulate_request(
+            &mut th,
+            &guest_mem,
+            Request::State(RequestedRange { addr, nb_blocks: 1 }),
+        );
+        assert!(resp.is_error());
+
+        assert_eq!(METRICS.state_count.count(), state_count + 1);
+        assert_eq!(METRICS.state_fails.count(), state_fails + 1);
+    }
+
+    #[test]
+    fn test_invalid_range_zero_blocks() {
+        let mut mem_dev = default_virtio_mem();
+        let guest_mem = mem_dev.vm.guest_memory().clone();
+        let mut th = test_helper(mem_dev, &guest_mem);
+        th.device().update_requested_size(1024);
+        let addr = th.device().guest_address();
+
+        let resp = emulate_request(
+            &mut th,
+            &guest_mem,
+            Request::State(RequestedRange { addr, nb_blocks: 0 }),
+        );
+        assert!(resp.is_error());
+    }
+
+    #[test]
+    fn test_invalid_range_out_of_bounds() {
+        let mut mem_dev = default_virtio_mem();
+        let guest_mem = mem_dev.vm.guest_memory().clone();
+        let mut th = test_helper(mem_dev, &guest_mem);
+        th.device().update_requested_size(4);
+        let addr = th.device().guest_address();
+
+        let resp = emulate_request(
+            &mut th,
+            &guest_mem,
+            Request::State(RequestedRange {
+                addr,
+                nb_blocks: 1024,
+            }),
+        );
+        assert!(resp.is_error());
+    }
+
+    #[test]
+    fn test_unsupported_request() {
+        let mut mem_dev = default_virtio_mem();
+        let guest_mem = mem_dev.vm.guest_memory().clone();
+        let mut th = test_helper(mem_dev, &guest_mem);
+
+        let queue_event_count = METRICS.queue_event_count.count();
+        let queue_event_fails = METRICS.queue_event_fails.count();
+
+        th.add_desc_chain(
+            MEM_QUEUE,
+            0,
+            &[(0, REQ_SIZE, 0), (1, RESP_SIZE, VIRTQ_DESC_F_WRITE)],
+        );
+        guest_mem
+            .write_obj(
+                virtio_mem::virtio_mem_req::from(Request::Unsupported(999)),
+                th.desc_address(MEM_QUEUE, 0),
+            )
+            .unwrap();
+        assert_eq!(th.emulate_for_msec(100).unwrap(), 1);
+
+        assert_eq!(METRICS.queue_event_count.count(), queue_event_count + 1);
+        assert_eq!(METRICS.queue_event_fails.count(), queue_event_fails + 1);
     }
 }
