@@ -11,7 +11,6 @@
 //! [here]: https://en.wikipedia.org/wiki/MAC_address
 
 use std::fmt;
-use std::result::Result;
 use std::str::FromStr;
 
 use serde::de::{Deserialize, Deserializer, Error};

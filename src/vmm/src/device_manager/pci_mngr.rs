@@ -396,7 +396,7 @@ impl<'a> Persist<'a> for PciDevices {
     fn restore(
         constructor_args: Self::ConstructorArgs,
         state: &Self::State,
-    ) -> std::result::Result<Self, Self::Error> {
+    ) -> Result<Self, Self::Error> {
         let mem = constructor_args.mem;
         let mut pci_devices = PciDevices::new();
         if !state.pci_enabled {

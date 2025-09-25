@@ -193,7 +193,7 @@ impl<'a> Persist<'a> for ACPIDeviceManager {
     fn restore(
         constructor_args: Self::ConstructorArgs,
         state: &Self::State,
-    ) -> std::result::Result<Self, Self::Error> {
+    ) -> Result<Self, Self::Error> {
         let mut dev_manager = ACPIDeviceManager::new();
         if let Some(vmgenid_args) = &state.vmgenid {
             let vmgenid = VmGenId::restore(

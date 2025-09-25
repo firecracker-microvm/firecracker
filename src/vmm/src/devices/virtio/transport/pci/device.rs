@@ -255,7 +255,6 @@ pub enum VirtioPciDeviceError {
     /// Error creating MSI configuration: {0}
     Msi(#[from] InterruptError),
 }
-pub type Result<T> = std::result::Result<T, VirtioPciDeviceError>;
 
 pub struct VirtioPciDevice {
     id: String,
@@ -370,7 +369,7 @@ impl VirtioPciDevice {
         device: Arc<Mutex<dyn VirtioDevice>>,
         msix_vectors: Arc<MsixVectorGroup>,
         pci_device_bdf: u32,
-    ) -> Result<Self> {
+    ) -> Result<Self, VirtioPciDeviceError> {
         let num_queues = device.lock().expect("Poisoned lock").queues().len();
 
         let msix_config = Arc::new(Mutex::new(MsixConfig::new(
@@ -419,7 +418,7 @@ impl VirtioPciDevice {
         vm: &Arc<Vm>,
         device: Arc<Mutex<dyn VirtioDevice>>,
         state: VirtioPciDeviceState,
-    ) -> Result<Self> {
+    ) -> Result<Self, VirtioPciDeviceError> {
         let msix_config =
             MsixConfig::from_state(state.msix_state, vm.clone(), state.pci_device_bdf.into())?;
         let vectors = msix_config.vectors.clone();
@@ -603,7 +602,7 @@ impl VirtioPciDevice {
     }
 
     /// Register the IoEvent notification for a VirtIO device
-    pub fn register_notification_ioevent(&self, vm: &Vm) -> std::result::Result<(), errno::Error> {
+    pub fn register_notification_ioevent(&self, vm: &Vm) -> Result<(), errno::Error> {
         let bar_addr = self.config_bar_addr();
         for (i, queue_evt) in self
             .device
@@ -676,7 +675,7 @@ impl VirtioInterruptMsix {
 }
 
 impl VirtioInterrupt for VirtioInterruptMsix {
-    fn trigger(&self, int_type: VirtioInterruptType) -> std::result::Result<(), InterruptError> {
+    fn trigger(&self, int_type: VirtioInterruptType) -> Result<(), InterruptError> {
         let vector = match int_type {
             VirtioInterruptType::Config => self.config_vector.load(Ordering::Acquire),
             VirtioInterruptType::Queue(queue_index) => *self
@@ -783,7 +782,7 @@ impl PciDevice for VirtioPciDevice {
         self.configuration.detect_bar_reprogramming(reg_idx, data)
     }
 
-    fn move_bar(&mut self, old_base: u64, new_base: u64) -> std::result::Result<(), anyhow::Error> {
+    fn move_bar(&mut self, old_base: u64, new_base: u64) -> Result<(), anyhow::Error> {
         // We only update our idea of the bar in order to support free_bars() above.
         // The majority of the reallocation is done inside DeviceManager.
         if self.bar_address == old_base {

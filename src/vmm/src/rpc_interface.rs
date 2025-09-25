@@ -290,7 +290,7 @@ pub enum LoadSnapshotError {
 /// Shorthand type for a request containing a boxed VmmAction.
 pub type ApiRequest = Box<VmmAction>;
 /// Shorthand type for a response containing a boxed Result.
-pub type ApiResponse = Box<std::result::Result<VmmData, VmmActionError>>;
+pub type ApiResponse = Box<Result<VmmData, VmmActionError>>;
 
 /// Error type for `PrebootApiController::build_microvm_from_requests`.
 #[derive(Debug, thiserror::Error, displaydoc::Display)]

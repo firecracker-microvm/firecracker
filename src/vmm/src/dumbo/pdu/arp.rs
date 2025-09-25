@@ -10,7 +10,6 @@
 use std::convert::From;
 use std::fmt::Debug;
 use std::net::Ipv4Addr;
-use std::result::Result;
 
 use super::bytes::{InnerBytes, NetworkBytes, NetworkBytesMut};
 use super::ethernet::{self, ETHERTYPE_IPV4};

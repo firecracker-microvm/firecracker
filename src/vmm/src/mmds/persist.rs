@@ -37,10 +37,7 @@ impl Persist<'_> for MmdsNetworkStack {
         }
     }
 
-    fn restore(
-        mmds: Self::ConstructorArgs,
-        state: &Self::State,
-    ) -> std::result::Result<Self, Self::Error> {
+    fn restore(mmds: Self::ConstructorArgs, state: &Self::State) -> Result<Self, Self::Error> {
         Ok(MmdsNetworkStack::new(
             MacAddr::from_bytes_unchecked(&state.mac_addr),
             Ipv4Addr::from(state.ipv4_addr),

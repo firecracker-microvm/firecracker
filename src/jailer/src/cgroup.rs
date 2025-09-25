@@ -522,7 +522,7 @@ pub mod test_util {
         pub fn create_file_with_contents<P: AsRef<Path> + Debug>(
             filename: P,
             contents: &str,
-        ) -> std::result::Result<(), std::io::Error> {
+        ) -> Result<(), std::io::Error> {
             let mut file = OpenOptions::new()
                 .read(true)
                 .write(true)
@@ -534,7 +534,7 @@ pub mod test_util {
             Ok(())
         }
 
-        pub fn new() -> std::result::Result<MockCgroupFs, std::io::Error> {
+        pub fn new() -> Result<MockCgroupFs, std::io::Error> {
             let mock_jailer_dir = TempDir::new().unwrap();
             let mock_proc_mounts = mock_jailer_dir.as_path().join("proc/mounts");
             let mock_sys_cgroups = mock_jailer_dir.as_path().join("sys_cgroup");
@@ -557,7 +557,7 @@ pub mod test_util {
 
         // Populate the mocked proc/mounts file with cgroupv2 entries
         // Also create a directory structure that simulates cgroupsv2 layout
-        pub fn add_v2_mounts(&mut self) -> std::result::Result<(), std::io::Error> {
+        pub fn add_v2_mounts(&mut self) -> Result<(), std::io::Error> {
             writeln!(
                 self.mounts_file,
                 "cgroupv2 {}/unified cgroup2 rw,nosuid,nodev,noexec,relatime,nsdelegate 0 0",
@@ -574,7 +574,7 @@ pub mod test_util {
         }
 
         // Populate the mocked proc/mounts file with cgroupv1 entries
-        pub fn add_v1_mounts(&mut self) -> std::result::Result<(), std::io::Error> {
+        pub fn add_v1_mounts(&mut self) -> Result<(), std::io::Error> {
             let controllers = vec![
                 "memory",
                 "net_cls,net_prio",
@@ -610,7 +610,7 @@ mod tests {
     use crate::cgroup::test_util::MockCgroupFs;
 
     // Utility function to read the first line in a file
-    fn read_first_line<P>(filename: P) -> std::result::Result<String, std::io::Error>
+    fn read_first_line<P>(filename: P) -> Result<String, std::io::Error>
     where
         P: AsRef<Path> + Debug,
     {

@@ -5,7 +5,6 @@
 //! 802.1Q tags.
 
 use std::fmt::Debug;
-use std::result::Result;
 
 use super::Incomplete;
 use super::bytes::{InnerBytes, NetworkBytes, NetworkBytesMut};

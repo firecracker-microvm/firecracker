@@ -151,7 +151,7 @@ impl<'a> Persist<'a> for VmGenId {
     fn restore(
         constructor_args: Self::ConstructorArgs,
         state: &Self::State,
-    ) -> std::result::Result<Self, Self::Error> {
+    ) -> Result<Self, Self::Error> {
         Self::from_parts(GuestAddress(state.addr), state.gsi, constructor_args.mem)
     }
 }
