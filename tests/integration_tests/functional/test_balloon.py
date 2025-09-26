@@ -9,7 +9,8 @@ from subprocess import TimeoutExpired
 import pytest
 import requests
 
-from framework.utils import get_free_mem_ssh, get_resident_memory
+from framework.guest_stats import MeminfoGuest
+from framework.utils import get_resident_memory
 
 STATS_POLLING_INTERVAL_S = 1
 
@@ -142,9 +143,10 @@ def test_inflate_reduces_free(uvm_plain_any):
 
     # Start the microvm
     test_microvm.start()
+    meminfo = MeminfoGuest(test_microvm)
 
     # Get the free memory before ballooning.
-    available_mem_deflated = get_free_mem_ssh(test_microvm.ssh)
+    available_mem_deflated = meminfo.get().mem_free.kib()
 
     # Inflate 64 MB == 16384 page balloon.
     test_microvm.api.balloon.patch(amount_mib=64)
@@ -152,7 +154,7 @@ def test_inflate_reduces_free(uvm_plain_any):
     _ = get_stable_rss_mem(test_microvm)
 
     # Get the free memory after ballooning.
-    available_mem_inflated = get_free_mem_ssh(test_microvm.ssh)
+    available_mem_inflated = meminfo.get().mem_free.kib()
 
     # Assert that ballooning reclaimed about 64 MB of memory.
     assert available_mem_inflated <= available_mem_deflated - 85 * 64000 / 100
