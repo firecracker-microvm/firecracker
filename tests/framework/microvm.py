@@ -1204,6 +1204,22 @@ class Microvm:
         # run commands. The actual connection retry loop happens in SSHConnection._init_connection
         _ = self.ssh_iface(0)
 
+    def hotplug_memory(
+        self, requested_size_mib: int, timeout: int = 60, poll: float = 0.1
+    ):
+        """Send a hot(un)plug request and wait up to timeout seconds for completion polling every poll seconds"""
+        self.api.memory_hotplug.patch(requested_size_mib=requested_size_mib)
+        # Wait for the hotplug to complete
+        deadline = time.time() + timeout
+        while time.time() < deadline:
+            if (
+                self.api.memory_hotplug.get().json()["plugged_size_mib"]
+                == requested_size_mib
+            ):
+                return
+            time.sleep(poll)
+        raise TimeoutError(f"Hotplug did not complete within {timeout} seconds")
+
 
 class MicroVMFactory:
     """MicroVM factory"""
@@ -1317,6 +1333,18 @@ class MicroVMFactory:
         if last_snapshot is not None and not last_snapshot.snapshot_type.needs_rebase:
             last_snapshot.delete()
         current_snapshot.delete()
+
+    def clone_uvm(self, uvm, uffd_handler_name=None):
+        """
+        Clone the given VM and start it.
+        """
+        snapshot = uvm.snapshot_full()
+        restored_vm = self.build()
+        restored_vm.spawn()
+        restored_vm.restore_from_snapshot(
+            snapshot, resume=True, uffd_handler_name=uffd_handler_name
+        )
+        return restored_vm
 
     def kill(self):
         """Clean up all built VMs"""
