@@ -216,6 +216,19 @@
                 "comment": "Used by the VirtIO balloon device and by musl for some customer workloads. It is also used by aws-lc during random number generation. They setup a memory page that mark with MADV_WIPEONFORK to be able to detect forks. They also call it with -1 to see if madvise is supported in certain platforms."
             },
             {
+                "syscall": "msync",
+                "comment": "Used by the VirtIO pmem device to sync the file content with the backing file.",
+                "args": [
+                    {
+                        "index": 2,
+                        "type": "dword",
+                        "op": "eq",
+                        "val": 4,
+                        "comment": "libc::MS_SYNC"
+                    }
+                ]
+            },
+            {
                 "syscall": "mmap",
                 "comment": "Used by the VirtIO balloon device",
                 "args": [
