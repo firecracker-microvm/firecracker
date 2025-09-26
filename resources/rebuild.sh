@@ -248,15 +248,17 @@ function build_al_kernels {
 
     CI_CONFIG="$PWD/guest_configs/ci.config"
     PCIE_CONFIG="$PWD/guest_configs/pcie.config"
+    PMEM_CONFIG="$PWD/guest_configs/virtio-pmem.config"
+    MEM_CONFIG="$PWD/guest_configs/virtio-mem.config"
 
     if [[ "$KERNEL_VERSION" == @(all|5.10) ]]; then
-        build_al_kernel $PWD/guest_configs/microvm-kernel-ci-$ARCH-5.10.config "$CI_CONFIG" "$PCIE_CONFIG"
+        build_al_kernel $PWD/guest_configs/microvm-kernel-ci-$ARCH-5.10.config "$CI_CONFIG" "$PCIE_CONFIG" "$PMEM_CONFIG" "$MEM_CONFIG"
     fi
     if [[ $ARCH == "x86_64" && "$KERNEL_VERSION" == @(all|5.10-no-acpi) ]]; then
-        build_al_kernel $PWD/guest_configs/microvm-kernel-ci-$ARCH-5.10-no-acpi.config "$CI_CONFIG" "$PCIE_CONFIG"
+        build_al_kernel $PWD/guest_configs/microvm-kernel-ci-$ARCH-5.10-no-acpi.config "$CI_CONFIG" "$PCIE_CONFIG" "$PMEM_CONFIG" "$MEM_CONFIG"
     fi
     if [[ "$KERNEL_VERSION" == @(all|6.1) ]]; then
-        build_al_kernel $PWD/guest_configs/microvm-kernel-ci-$ARCH-6.1.config "$CI_CONFIG" "$PCIE_CONFIG"
+        build_al_kernel $PWD/guest_configs/microvm-kernel-ci-$ARCH-6.1.config "$CI_CONFIG" "$PCIE_CONFIG" "$PMEM_CONFIG" "$MEM_CONFIG"
     fi
 
     # Build debug kernels
@@ -265,11 +267,11 @@ function build_al_kernels {
     OUTPUT_DIR=$OUTPUT_DIR/debug
     mkdir -pv $OUTPUT_DIR
     if [[ "$KERNEL_VERSION" == @(all|5.10) ]]; then
-        build_al_kernel "$PWD/guest_configs/microvm-kernel-ci-$ARCH-5.10.config" "$CI_CONFIG" "$PCIE_CONFIG" "$FTRACE_CONFIG" "$DEBUG_CONFIG"
+        build_al_kernel "$PWD/guest_configs/microvm-kernel-ci-$ARCH-5.10.config" "$CI_CONFIG" "$PCIE_CONFIG" "$PMEM_CONFIG" "$MEM_CONFIG" "$FTRACE_CONFIG" "$DEBUG_CONFIG"
         vmlinux_split_debuginfo $OUTPUT_DIR/vmlinux-5.10.*
     fi
     if [[ "$KERNEL_VERSION" == @(all|6.1) ]]; then
-        build_al_kernel "$PWD/guest_configs/microvm-kernel-ci-$ARCH-6.1.config" "$CI_CONFIG" "$PCIE_CONFIG" "$FTRACE_CONFIG" "$DEBUG_CONFIG"
+        build_al_kernel "$PWD/guest_configs/microvm-kernel-ci-$ARCH-6.1.config" "$CI_CONFIG" "$PCIE_CONFIG" "$PMEM_CONFIG" "$MEM_CONFIG" "$FTRACE_CONFIG" "$DEBUG_CONFIG"
         vmlinux_split_debuginfo $OUTPUT_DIR/vmlinux-6.1.*
     fi
 }
