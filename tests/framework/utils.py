@@ -14,6 +14,7 @@ import time
 import typing
 from collections import defaultdict, namedtuple
 from contextlib import contextmanager
+from pathlib import Path
 from typing import Dict
 
 import psutil
@@ -127,6 +128,19 @@ def track_cpu_utilization(
         for thread_name, value in current_cpu_utilization.items():
             cpu_utilization[thread_name].append(value)
     return cpu_utilization
+
+
+def get_resident_memory(process: psutil.Process):
+    """Returns current memory utilization in KiB, including used HugeTLBFS"""
+
+    proc_status = Path("/proc", str(process.pid), "status").read_text("utf-8")
+    for line in proc_status.splitlines():
+        if line.startswith("HugetlbPages:"):  # entry is in KiB
+            hugetlbfs_usage = int(line.split()[1])
+            break
+    else:
+        assert False, f"HugetlbPages not found in {str(proc_status)}"
+    return hugetlbfs_usage + process.memory_info().rss // 1024
 
 
 @contextmanager
