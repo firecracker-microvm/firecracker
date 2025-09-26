@@ -23,10 +23,11 @@ import uuid
 from collections import namedtuple
 from dataclasses import dataclass
 from enum import Enum, auto
-from functools import lru_cache
+from functools import cached_property, lru_cache
 from pathlib import Path
 from typing import Optional
 
+import psutil
 from tenacity import Retrying, retry, stop_after_attempt, wait_fixed
 
 import host_tools.cargo_build as build_tools
@@ -472,7 +473,7 @@ class Microvm:
         """Get the InstanceInfo property and return the state field."""
         return self.api.describe.get().json()["state"]
 
-    @property
+    @cached_property
     def firecracker_pid(self):
         """Return Firecracker's PID
 
@@ -490,6 +491,11 @@ class Microvm:
         ):
             with attempt:
                 return int(self.jailer.pid_file.read_text(encoding="ascii"))
+
+    @cached_property
+    def ps(self):
+        """Returns a handle to the psutil.Process for this VM"""
+        return psutil.Process(self.firecracker_pid)
 
     @property
     def dimensions(self):
