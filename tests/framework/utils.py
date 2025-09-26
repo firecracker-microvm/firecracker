@@ -254,25 +254,6 @@ def search_output_from_cmd(cmd: str, find_regex: typing.Pattern) -> typing.Match
     )
 
 
-def get_free_mem_ssh(ssh_connection):
-    """
-    Get how much free memory in kB a guest sees, over ssh.
-
-    :param ssh_connection: connection to the guest
-    :return: available mem column output of 'free'
-    """
-    _, stdout, stderr = ssh_connection.run("cat /proc/meminfo | grep MemAvailable")
-    assert stderr == ""
-
-    # Split "MemAvailable:   123456 kB" and validate it
-    meminfo_data = stdout.split()
-    if len(meminfo_data) == 3:
-        # Return the middle element in the array
-        return int(meminfo_data[1])
-
-    raise Exception("Available memory not found in `/proc/meminfo")
-
-
 def _format_output_message(proc, stdout, stderr):
     output_message = f"\n[{proc.pid}] Command:\n{proc.args}"
     # Append stdout/stderr to the output message
