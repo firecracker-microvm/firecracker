@@ -25,6 +25,7 @@ use crate::arch::x86_64::msr::{MsrError, create_boot_msr_entries};
 use crate::arch::x86_64::regs::{SetupFpuError, SetupRegistersError, SetupSpecialRegistersError};
 use crate::cpu_config::x86_64::{CpuConfiguration, cpuid};
 use crate::logger::{IncMetric, METRICS};
+use crate::vstate::bus::Bus;
 use crate::vstate::memory::GuestMemoryMmap;
 use crate::vstate::vcpu::{VcpuConfig, VcpuEmulation, VcpuError};
 use crate::vstate::vm::Vm;
@@ -160,9 +161,9 @@ pub struct KvmVcpu {
 #[derive(Default, Debug)]
 pub struct Peripherals {
     /// Pio bus.
-    pub pio_bus: Option<Arc<vm_device::Bus>>,
+    pub pio_bus: Option<Arc<Bus>>,
     /// Mmio bus.
-    pub mmio_bus: Option<Arc<vm_device::Bus>>,
+    pub mmio_bus: Option<Arc<Bus>>,
 }
 
 impl KvmVcpu {
@@ -267,7 +268,7 @@ impl KvmVcpu {
     }
 
     /// Sets a Port Mapped IO bus for this vcpu.
-    pub fn set_pio_bus(&mut self, pio_bus: Arc<vm_device::Bus>) {
+    pub fn set_pio_bus(&mut self, pio_bus: Arc<Bus>) {
         self.peripherals.pio_bus = Some(pio_bus);
     }
 

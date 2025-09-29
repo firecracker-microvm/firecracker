@@ -14,6 +14,7 @@ use serde::{Deserialize, Serialize};
 use crate::arch::x86_64::msr::MsrError;
 use crate::snapshot::Persist;
 use crate::utils::u64_to_usize;
+use crate::vstate::bus::Bus;
 use crate::vstate::memory::{GuestMemoryExtension, GuestMemoryState};
 use crate::vstate::resources::ResourceAllocator;
 use crate::vstate::vm::{VmCommon, VmError};
@@ -60,7 +61,7 @@ pub struct ArchVm {
     /// `None` if `KVM_CAP_XSAVE2` not supported.
     xsave2_size: Option<usize>,
     /// Port IO bus
-    pub pio_bus: Arc<vm_device::Bus>,
+    pub pio_bus: Arc<Bus>,
 }
 
 impl ArchVm {
@@ -95,7 +96,7 @@ impl ArchVm {
             .set_tss_address(u64_to_usize(crate::arch::x86_64::layout::KVM_TSS_ADDRESS))
             .map_err(ArchVmError::SetTssAddress)?;
 
-        let pio_bus = Arc::new(vm_device::Bus::new());
+        let pio_bus = Arc::new(Bus::new());
 
         Ok(ArchVm {
             common,

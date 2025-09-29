@@ -27,6 +27,7 @@ use crate::devices::legacy::{RTCDevice, SerialDevice};
 use crate::devices::pseudo::BootTimer;
 use crate::devices::virtio::device::VirtioDevice;
 use crate::devices::virtio::transport::mmio::MmioTransport;
+use crate::vstate::bus::{Bus, BusError};
 #[cfg(target_arch = "x86_64")]
 use crate::vstate::memory::GuestAddress;
 use crate::vstate::resources::ResourceAllocator;
@@ -37,7 +38,7 @@ pub enum MmioError {
     /// Failed to allocate requested resource: {0}
     Allocator(#[from] vm_allocator::Error),
     /// Failed to insert device on the bus: {0}
-    BusInsert(#[from] vm_device::BusError),
+    BusInsert(#[from] BusError),
     /// Failed to allocate requested resourc: {0}
     Cmdline(#[from] linux_loader::cmdline::Error),
     /// Failed to find the device on the bus.
@@ -360,7 +361,7 @@ impl MMIODeviceManager {
     /// Register a boot timer device.
     pub fn register_mmio_boot_timer(
         &mut self,
-        mmio_bus: &vm_device::Bus,
+        mmio_bus: &Bus,
         boot_timer: Arc<Mutex<BootTimer>>,
     ) -> Result<(), MmioError> {
         // Attach a new boot timer device.

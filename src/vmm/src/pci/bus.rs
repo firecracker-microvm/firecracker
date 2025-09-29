@@ -12,12 +12,12 @@ use std::sync::{Arc, Barrier, Mutex};
 
 use byteorder::{ByteOrder, LittleEndian};
 use pci::{PciBridgeSubclass, PciClassCode};
-use vm_device::BusDevice;
 
 use crate::logger::error;
 use crate::pci::configuration::PciConfiguration;
 use crate::pci::{DeviceRelocation, PciDevice};
 use crate::utils::u64_to_usize;
+use crate::vstate::bus::BusDevice;
 
 /// Errors for device manager.
 #[derive(Debug, thiserror::Error, displaydoc::Display)]
@@ -454,12 +454,12 @@ mod tests {
     use std::sync::{Arc, Mutex};
 
     use pci::{PciClassCode, PciMassStorageSubclass};
-    use vm_device::BusDevice;
 
     use super::{PciBus, PciConfigIo, PciConfigMmio, PciRoot};
     use crate::pci::bus::{DEVICE_ID_INTEL_VIRT_PCIE_HOST, VENDOR_ID_INTEL};
     use crate::pci::configuration::PciConfiguration;
     use crate::pci::{BarReprogrammingParams, DeviceRelocation, PciDevice};
+    use crate::vstate::bus::BusDevice;
 
     #[derive(Debug, Default)]
     struct RelocationMock {

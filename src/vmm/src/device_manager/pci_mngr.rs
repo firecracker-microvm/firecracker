@@ -9,7 +9,6 @@ use std::sync::{Arc, Mutex};
 use event_manager::{MutEventSubscriber, SubscriberOps};
 use log::{debug, error, warn};
 use serde::{Deserialize, Serialize};
-use vm_device::BusError;
 
 use super::persist::{MmdsState, SharedDeviceType};
 use crate::devices::pci::PciSegment;
@@ -34,6 +33,7 @@ use crate::pci::bus::PciRootError;
 use crate::resources::VmResources;
 use crate::snapshot::Persist;
 use crate::vmm_config::mmds::MmdsConfigError;
+use crate::vstate::bus::BusError;
 use crate::vstate::interrupts::InterruptError;
 use crate::vstate::memory::GuestMemoryMmap;
 use crate::{EventManager, Vm};

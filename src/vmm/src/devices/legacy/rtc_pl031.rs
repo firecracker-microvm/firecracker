@@ -122,7 +122,7 @@ impl RTCDevice {
 }
 
 #[cfg(target_arch = "aarch64")]
-impl vm_device::BusDevice for RTCDevice {
+impl crate::vstate::bus::BusDevice for RTCDevice {
     fn read(&mut self, _base: u64, offset: u64, data: &mut [u8]) {
         self.bus_read(offset, data)
     }

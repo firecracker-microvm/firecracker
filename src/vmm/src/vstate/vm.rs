@@ -31,6 +31,7 @@ use crate::pci::{DeviceRelocation, PciDevice};
 use crate::persist::CreateSnapshotError;
 use crate::utils::u64_to_usize;
 use crate::vmm_config::snapshot::SnapshotType;
+use crate::vstate::bus::Bus;
 use crate::vstate::interrupts::{InterruptError, MsixVector, MsixVectorConfig, MsixVectorGroup};
 use crate::vstate::memory::{
     Address, GuestMemory, GuestMemoryExtension, GuestMemoryMmap, GuestMemoryRegion, GuestRegionMmap,
@@ -59,7 +60,7 @@ pub struct VmCommon {
     /// Allocator for VM resources
     pub resource_allocator: Mutex<ResourceAllocator>,
     /// MMIO bus
-    pub mmio_bus: Arc<vm_device::Bus>,
+    pub mmio_bus: Arc<Bus>,
 }
 
 /// Errors associated with the wrappers over KVM ioctls.
@@ -135,7 +136,7 @@ impl Vm {
             guest_memory: GuestMemoryMmap::default(),
             interrupts: Mutex::new(HashMap::with_capacity(GSI_MSI_END as usize + 1)),
             resource_allocator: Mutex::new(ResourceAllocator::new()),
-            mmio_bus: Arc::new(vm_device::Bus::new()),
+            mmio_bus: Arc::new(Bus::new()),
         })
     }
 

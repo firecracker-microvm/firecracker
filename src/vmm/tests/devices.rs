@@ -12,10 +12,10 @@ use std::sync::{Arc, Mutex};
 
 use event_manager::{EventManager, SubscriberOps};
 use libc::EFD_NONBLOCK;
-use vm_device::BusDevice;
 use vm_superio::Serial;
 use vmm::devices::legacy::serial::SerialOut;
 use vmm::devices::legacy::{EventFdTrigger, SerialEventsWrapper, SerialWrapper};
+use vmm::vstate::bus::BusDevice;
 use vmm_sys_util::eventfd::EventFd;
 
 fn create_serial(

@@ -18,12 +18,13 @@ use vmm_sys_util::eventfd::EventFd;
 use crate::Vm;
 use crate::devices::legacy::serial::SerialOut;
 use crate::devices::legacy::{EventFdTrigger, I8042Device, SerialDevice, SerialEventsWrapper};
+use crate::vstate::bus::BusError;
 
 /// Errors corresponding to the `PortIODeviceManager`.
 #[derive(Debug, derive_more::From, thiserror::Error, displaydoc::Display)]
 pub enum LegacyDeviceError {
     /// Failed to add legacy device to Bus: {0}
-    BusError(vm_device::BusError),
+    BusError(BusError),
     /// Failed to create EventFd: {0}
     EventFd(std::io::Error),
 }

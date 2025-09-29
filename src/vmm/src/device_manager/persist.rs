@@ -43,6 +43,7 @@ use crate::mmds::data_store::MmdsVersion;
 use crate::resources::{ResourcesError, VmResources};
 use crate::snapshot::Persist;
 use crate::vmm_config::mmds::MmdsConfigError;
+use crate::vstate::bus::BusError;
 use crate::vstate::memory::GuestMemoryMmap;
 use crate::{EventManager, Vm};
 
@@ -58,7 +59,7 @@ pub enum DevicePersistError {
     /// Mmio transport
     MmioTransport,
     /// Bus error: {0}
-    Bus(#[from] vm_device::BusError),
+    Bus(#[from] BusError),
     #[cfg(target_arch = "aarch64")]
     /// Legacy: {0}
     Legacy(#[from] std::io::Error),
