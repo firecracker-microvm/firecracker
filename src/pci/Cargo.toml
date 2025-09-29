@@ -14,10 +14,10 @@ default = []
 [dependencies]
 byteorder = "1.5.0"
 displaydoc = "0.2.5"
-libc = "0.2.175"
+libc = "0.2.176"
 log = "0.4.28"
-serde = { version = "1.0.226", features = ["derive"] }
-thiserror = "2.0.16"
+serde = { version = "1.0.228", features = ["derive"] }
+thiserror = "2.0.17"
 vm-device = { path = "../vm-device" }
 vm-memory = { version = "0.16.1", features = [
   "backend-mmap",

@@ -15,10 +15,10 @@ bench = false
 tracing = ["log-instrument", "utils/tracing"]
 
 [dependencies]
-libc = "0.2.175"
+libc = "0.2.176"
 log-instrument = { path = "../log-instrument", optional = true }
-regex = { version = "1.11.2", default-features = false, features = ["std"] }
-thiserror = "2.0.16"
+regex = { version = "1.11.3", default-features = false, features = ["std"] }
+thiserror = "2.0.17"
 vmm-sys-util = "0.14.0"
 
 utils = { path = "../utils" }

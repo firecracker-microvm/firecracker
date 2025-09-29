@@ -17,10 +17,10 @@ clap = { version = "4.5.48", features = ["derive", "string"] }
 displaydoc = "0.2.5"
 
 fc_utils = { package = "utils", path = "../utils" }
-libc = "0.2.175"
+libc = "0.2.176"
 log-instrument = { path = "../log-instrument", optional = true }
 semver = "1.0.27"
-thiserror = "2.0.16"
+thiserror = "2.0.17"
 vmm = { path = "../vmm" }
 vmm-sys-util = "0.14.0"
 
