@@ -791,6 +791,25 @@ impl VcpuMetrics {
     }
 }
 
+/// MicroVM interrupt-related metrics
+#[derive(Debug, Default, Serialize)]
+pub struct InterruptMetrics {
+    /// Number of interrupt triggers
+    pub triggers: SharedIncMetric,
+    /// Configuration updates
+    pub config_updates: SharedIncMetric,
+}
+
+impl InterruptMetrics {
+    /// Const default construction.
+    pub const fn new() -> Self {
+        Self {
+            triggers: SharedIncMetric::new(),
+            config_updates: SharedIncMetric::new(),
+        }
+    }
+}
+
 /// Metrics specific to the machine manager as a whole.
 #[derive(Debug, Default, Serialize)]
 pub struct VmmMetrics {
@@ -899,6 +918,8 @@ pub struct FirecrackerMetrics {
     #[serde(flatten)]
     /// Vhost-user device related metrics.
     pub vhost_user_ser: VhostUserMetricsSerializeProxy,
+    /// Interrupt related metrics
+    pub interrupts: InterruptMetrics,
 }
 impl FirecrackerMetrics {
     /// Const default construction.
@@ -924,6 +945,7 @@ impl FirecrackerMetrics {
             vsock_ser: VsockMetricsSerializeProxy {},
             entropy_ser: EntropyMetricsSerializeProxy {},
             vhost_user_ser: VhostUserMetricsSerializeProxy {},
+            interrupts: InterruptMetrics::new(),
         }
     }
 }

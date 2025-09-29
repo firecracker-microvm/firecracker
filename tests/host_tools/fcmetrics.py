@@ -292,6 +292,7 @@ def validate_fc_metrics(metrics):
             "entropy_rate_limiter_throttled",
             "rate_limiter_event_count",
         ],
+        "interrupts": ["triggers", "config_updates"],
     }
 
     # validate timestamp before jsonschema validation which some more time

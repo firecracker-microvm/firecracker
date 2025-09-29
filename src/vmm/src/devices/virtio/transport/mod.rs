@@ -6,6 +6,8 @@ use std::sync::atomic::AtomicU32;
 
 use vmm_sys_util::eventfd::EventFd;
 
+use crate::vstate::interrupts::InterruptError;
+
 /// MMIO transport for VirtIO devices
 pub mod mmio;
 /// PCI transport for VirtIO devices
@@ -23,7 +25,7 @@ pub enum VirtioInterruptType {
 /// API of interrupt types used by VirtIO devices
 pub trait VirtioInterrupt: std::fmt::Debug + Send + Sync {
     /// Trigger a VirtIO interrupt.
-    fn trigger(&self, interrupt_type: VirtioInterruptType) -> Result<(), std::io::Error>;
+    fn trigger(&self, interrupt_type: VirtioInterruptType) -> Result<(), InterruptError>;
 
     /// Trigger multiple Virtio interrupts for selected queues.
     /// The caller needs to ensure that [`queues`] does not include duplicate entries to
@@ -31,7 +33,7 @@ pub trait VirtioInterrupt: std::fmt::Debug + Send + Sync {
     /// This is to allow sending a single interrupt for implementations that don't
     /// distinguish different queues, like IrqTrigger, instead of sending multiple same
     /// interrupts.
-    fn trigger_queues(&self, queues: &[u16]) -> Result<(), std::io::Error> {
+    fn trigger_queues(&self, queues: &[u16]) -> Result<(), InterruptError> {
         queues
             .iter()
             .try_for_each(|&qidx| self.trigger(VirtioInterruptType::Queue(qidx)))

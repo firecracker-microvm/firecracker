@@ -17,6 +17,7 @@ use super::queue::{InvalidAvailIdx, QueueError};
 use crate::devices::virtio::balloon::metrics::METRICS;
 use crate::devices::virtio::queue::FIRECRACKER_MAX_QUEUE_SIZE;
 use crate::logger::IncMetric;
+use crate::vstate::interrupts::InterruptError;
 
 /// Device ID used in MMIO device identification.
 /// Because Balloon is unique per-vm, this ID can be hardcoded.
@@ -72,7 +73,7 @@ pub enum BalloonError {
     /// EventFd error: {0}
     EventFd(std::io::Error),
     /// Received error while sending an interrupt: {0}
-    InterruptError(std::io::Error),
+    InterruptError(InterruptError),
     /// Guest gave us a malformed descriptor.
     MalformedDescriptor,
     /// Guest gave us a malformed payload.
