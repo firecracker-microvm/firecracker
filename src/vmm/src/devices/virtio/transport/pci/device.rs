@@ -40,13 +40,13 @@ use crate::devices::virtio::transport::pci::common_config::{
 use crate::devices::virtio::transport::{VirtioInterrupt, VirtioInterruptType};
 use crate::logger::{debug, error};
 use crate::pci::configuration::{PciCapability, PciConfiguration, PciConfigurationState};
-use crate::pci::msix::{MsixCap, MsixConfig, MsixConfigState, MsixError};
+use crate::pci::msix::{MsixCap, MsixConfig, MsixConfigState};
 use crate::pci::{BarReprogrammingParams, PciDevice};
 use crate::snapshot::Persist;
 use crate::utils::u64_to_usize;
+use crate::vstate::interrupts::{InterruptError, MsixVectorGroup};
 use crate::vstate::memory::GuestMemoryMmap;
 use crate::vstate::resources::ResourceAllocator;
-use crate::vstate::vm::{InterruptError, MsiVectorGroup};
 
 const DEVICE_INIT: u8 = 0x00;
 const DEVICE_ACKNOWLEDGE: u8 = 0x01;
@@ -246,7 +246,6 @@ pub struct VirtioPciDeviceState {
     pub pci_configuration_state: PciConfigurationState,
     pub pci_dev_state: VirtioPciCommonConfigState,
     pub msix_state: MsixConfigState,
-    pub msi_vector_group: Vec<u32>,
     pub bar_address: u64,
 }
 
@@ -255,7 +254,7 @@ pub enum VirtioPciDeviceError {
     /// Failed creating VirtioPciDevice: {0}
     CreateVirtioPciDevice(#[from] anyhow::Error),
     /// Error creating MSI configuration: {0}
-    Msi(#[from] MsixError),
+    Msi(#[from] InterruptError),
 }
 pub type Result<T> = std::result::Result<T, VirtioPciDeviceError>;
 
@@ -271,19 +270,12 @@ pub struct VirtioPciDevice {
     // virtio PCI common configuration
     common_config: VirtioPciCommonConfig,
 
-    // MSI-X config
-    msix_config: Option<Arc<Mutex<MsixConfig>>>,
-
-    // Number of MSI-X vectors
-    msix_num: u16,
-
     // Virtio device reference and status
     device: Arc<Mutex<dyn VirtioDevice>>,
     device_activated: Arc<AtomicBool>,
 
     // PCI interrupts.
-    virtio_interrupt: Option<Arc<dyn VirtioInterrupt>>,
-    interrupt_source_group: Arc<MsiVectorGroup>,
+    virtio_interrupt: Option<Arc<VirtioInterruptMsix>>,
 
     // Guest memory
     memory: GuestMemoryMmap,
@@ -377,16 +369,15 @@ impl VirtioPciDevice {
         id: String,
         memory: GuestMemoryMmap,
         device: Arc<Mutex<dyn VirtioDevice>>,
-        msi_vectors: Arc<MsiVectorGroup>,
+        msix_vectors: Arc<MsixVectorGroup>,
         pci_device_bdf: u32,
     ) -> Result<Self> {
         let num_queues = device.lock().expect("Poisoned lock").queues().len();
 
         let msix_config = Arc::new(Mutex::new(MsixConfig::new(
-            msi_vectors.num_vectors(),
-            msi_vectors.clone(),
+            msix_vectors.clone(),
             pci_device_bdf,
-        )?));
+        )));
         let pci_config = Self::pci_configuration(
             device.lock().expect("Poisoned lock").device_type(),
             &msix_config,
@@ -405,7 +396,7 @@ impl VirtioPciDevice {
             msix_config.clone(),
             virtio_common_config.msix_config.clone(),
             virtio_common_config.msix_queues.clone(),
-            msi_vectors.clone(),
+            msix_vectors,
         ));
 
         let virtio_pci_device = VirtioPciDevice {
@@ -413,13 +404,10 @@ impl VirtioPciDevice {
             pci_device_bdf: pci_device_bdf.into(),
             configuration: pci_config,
             common_config: virtio_common_config,
-            msix_config: Some(msix_config),
-            msix_num: msi_vectors.num_vectors(),
             device,
             device_activated: Arc::new(AtomicBool::new(false)),
             virtio_interrupt: Some(interrupt),
             memory,
-            interrupt_source_group: msi_vectors,
             cap_pci_cfg_info: VirtioPciCfgCapInfo::default(),
             bar_address: 0,
         };
@@ -429,16 +417,14 @@ impl VirtioPciDevice {
 
     pub fn new_from_state(
         id: String,
-        memory: GuestMemoryMmap,
+        vm: &Arc<Vm>,
         device: Arc<Mutex<dyn VirtioDevice>>,
-        msi_vectors: Arc<MsiVectorGroup>,
         state: VirtioPciDeviceState,
     ) -> Result<Self> {
-        let msix_config = Arc::new(Mutex::new(MsixConfig::from_state(
-            state.msix_state,
-            state.pci_device_bdf.into(),
-            msi_vectors.clone(),
-        )?));
+        let msix_config =
+            MsixConfig::from_state(state.msix_state, vm.clone(), state.pci_device_bdf.into())?;
+        let vectors = msix_config.vectors.clone();
+        let msix_config = Arc::new(Mutex::new(msix_config));
 
         let pci_config = PciConfiguration::type0_from_state(
             state.pci_configuration_state,
@@ -454,7 +440,7 @@ impl VirtioPciDevice {
             msix_config.clone(),
             virtio_common_config.msix_config.clone(),
             virtio_common_config.msix_queues.clone(),
-            msi_vectors.clone(),
+            vectors,
         ));
 
         let virtio_pci_device = VirtioPciDevice {
@@ -462,13 +448,10 @@ impl VirtioPciDevice {
             pci_device_bdf: state.pci_device_bdf,
             configuration: pci_config,
             common_config: virtio_common_config,
-            msix_config: Some(msix_config),
-            msix_num: msi_vectors.num_vectors(),
             device,
             device_activated: Arc::new(AtomicBool::new(state.device_activated)),
             virtio_interrupt: Some(interrupt),
-            memory: memory.clone(),
-            interrupt_source_group: msi_vectors,
+            memory: vm.guest_memory().clone(),
             cap_pci_cfg_info,
             bar_address: state.bar_address,
         };
@@ -479,7 +462,7 @@ impl VirtioPciDevice {
                 .lock()
                 .expect("Poisoned lock")
                 .activate(
-                    memory,
+                    virtio_pci_device.memory.clone(),
                     virtio_pci_device.virtio_interrupt.as_ref().unwrap().clone(),
                 );
         }
@@ -540,10 +523,15 @@ impl VirtioPciDevice {
             self.configuration.add_capability(&configuration_cap) + VIRTIO_PCI_CAP_OFFSET;
         self.cap_pci_cfg_info.cap = configuration_cap;
 
-        if self.msix_config.is_some() {
+        if let Some(interrupt) = &self.virtio_interrupt {
             let msix_cap = MsixCap::new(
                 VIRTIO_BAR_INDEX,
-                self.msix_num,
+                interrupt
+                    .msix_config
+                    .lock()
+                    .expect("Poisoned lock")
+                    .vectors
+                    .num_vectors(),
                 MSIX_TABLE_BAR_OFFSET.try_into().unwrap(),
                 VIRTIO_BAR_INDEX,
                 MSIX_PBA_BAR_OFFSET.try_into().unwrap(),
@@ -643,13 +631,13 @@ impl VirtioPciDevice {
             pci_configuration_state: self.configuration.state(),
             pci_dev_state: self.common_config.state(),
             msix_state: self
-                .msix_config
+                .virtio_interrupt
                 .as_ref()
                 .unwrap()
+                .msix_config
                 .lock()
                 .expect("Poisoned lock")
                 .state(),
-            msi_vector_group: self.interrupt_source_group.save(),
             bar_address: self.bar_address,
         }
     }
@@ -659,7 +647,7 @@ pub struct VirtioInterruptMsix {
     msix_config: Arc<Mutex<MsixConfig>>,
     config_vector: Arc<AtomicU16>,
     queues_vectors: Arc<Mutex<Vec<u16>>>,
-    interrupt_source_group: Arc<dyn InterruptSourceGroup>,
+    vectors: Arc<MsixVectorGroup>,
 }
 
 impl std::fmt::Debug for VirtioInterruptMsix {
@@ -677,19 +665,19 @@ impl VirtioInterruptMsix {
         msix_config: Arc<Mutex<MsixConfig>>,
         config_vector: Arc<AtomicU16>,
         queues_vectors: Arc<Mutex<Vec<u16>>>,
-        interrupt_source_group: Arc<dyn InterruptSourceGroup>,
+        vectors: Arc<MsixVectorGroup>,
     ) -> Self {
         VirtioInterruptMsix {
             msix_config,
             config_vector,
             queues_vectors,
-            interrupt_source_group,
+            vectors,
         }
     }
 }
 
 impl VirtioInterrupt for VirtioInterruptMsix {
-    fn trigger(&self, int_type: VirtioInterruptType) -> std::result::Result<(), std::io::Error> {
+    fn trigger(&self, int_type: VirtioInterruptType) -> std::result::Result<(), InterruptError> {
         let vector = match int_type {
             VirtioInterruptType::Config => self.config_vector.load(Ordering::Acquire),
             VirtioInterruptType::Queue(queue_index) => *self
@@ -697,7 +685,7 @@ impl VirtioInterrupt for VirtioInterruptMsix {
                 .lock()
                 .unwrap()
                 .get(queue_index as usize)
-                .ok_or(ErrorKind::InvalidInput)?,
+                .ok_or(InterruptError::InvalidVectorIndex(queue_index as usize))?,
         };
 
         if vector == VIRTQ_MSI_NO_VECTOR {
@@ -716,8 +704,7 @@ impl VirtioInterrupt for VirtioInterruptMsix {
             return Ok(());
         }
 
-        self.interrupt_source_group
-            .trigger(vector as InterruptIndex)
+        self.vectors.trigger(vector as usize)
     }
 
     fn notifier(&self, int_type: VirtioInterruptType) -> Option<&EventFd> {
@@ -730,8 +717,7 @@ impl VirtioInterrupt for VirtioInterruptMsix {
                 .get(queue_index as usize)?,
         };
 
-        self.interrupt_source_group
-            .notifier(vector as InterruptIndex)
+        self.vectors.notifier(vector as usize)
     }
 
     fn status(&self) -> Arc<AtomicU32> {
@@ -832,16 +818,18 @@ impl PciDevice for VirtioPciDevice {
                 warn!("pci: unexpected read to notification BAR. Offset {o:#x}");
             }
             o if (MSIX_TABLE_BAR_OFFSET..MSIX_TABLE_BAR_OFFSET + MSIX_TABLE_SIZE).contains(&o) => {
-                if let Some(msix_config) = &self.msix_config {
-                    msix_config
+                if let Some(interrupt) = &self.virtio_interrupt {
+                    interrupt
+                        .msix_config
                         .lock()
                         .unwrap()
                         .read_table(o - MSIX_TABLE_BAR_OFFSET, data);
                 }
             }
             o if (MSIX_PBA_BAR_OFFSET..MSIX_PBA_BAR_OFFSET + MSIX_PBA_SIZE).contains(&o) => {
-                if let Some(msix_config) = &self.msix_config {
-                    msix_config
+                if let Some(interrupt) = &self.virtio_interrupt {
+                    interrupt
+                        .msix_config
                         .lock()
                         .unwrap()
                         .read_pba(o - MSIX_PBA_BAR_OFFSET, data);
@@ -874,16 +862,18 @@ impl PciDevice for VirtioPciDevice {
                 warn!("pci: unexpected write to notification BAR. Offset {o:#x}");
             }
             o if (MSIX_TABLE_BAR_OFFSET..MSIX_TABLE_BAR_OFFSET + MSIX_TABLE_SIZE).contains(&o) => {
-                if let Some(msix_config) = &self.msix_config {
-                    msix_config
+                if let Some(interrupt) = &self.virtio_interrupt {
+                    interrupt
+                        .msix_config
                         .lock()
                         .unwrap()
                         .write_table(o - MSIX_TABLE_BAR_OFFSET, data);
                 }
             }
             o if (MSIX_PBA_BAR_OFFSET..MSIX_PBA_BAR_OFFSET + MSIX_PBA_SIZE).contains(&o) => {
-                if let Some(msix_config) = &self.msix_config {
-                    msix_config
+                if let Some(interrupt) = &self.virtio_interrupt {
+                    interrupt
+                        .msix_config
                         .lock()
                         .unwrap()
                         .write_pba(o - MSIX_PBA_BAR_OFFSET, data);
@@ -918,9 +908,9 @@ impl PciDevice for VirtioPciDevice {
             let mut device = self.device.lock().unwrap();
             let reset_result = device.reset();
             match reset_result {
-                Some((virtio_interrupt, mut _queue_evts)) => {
+                Some(_) => {
                     // Upon reset the device returns its interrupt EventFD
-                    self.virtio_interrupt = Some(virtio_interrupt);
+                    self.virtio_interrupt = None;
                     self.device_activated.store(false, Ordering::SeqCst);
 
                     // Reset queue readiness (changes queue_enable), queue sizes

@@ -34,8 +34,8 @@ use crate::pci::bus::PciRootError;
 use crate::resources::VmResources;
 use crate::snapshot::Persist;
 use crate::vmm_config::mmds::MmdsConfigError;
+use crate::vstate::interrupts::InterruptError;
 use crate::vstate::memory::GuestMemoryMmap;
-use crate::vstate::vm::{InterruptError, MsiVectorGroup};
 use crate::{EventManager, Vm};
 
 #[derive(Debug, Default)]
@@ -121,11 +121,16 @@ impl PciDevices {
         let msix_num =
             u16::try_from(device.lock().expect("Poisoned lock").queues().len() + 1).unwrap();
 
-        let msix_vectors = Arc::new(Vm::create_msix_group(vm.clone(), msix_num)?);
+        let msix_vectors = Vm::create_msix_group(vm.clone(), msix_num)?;
 
         // Create the transport
-        let mut virtio_device =
-            VirtioPciDevice::new(id.clone(), mem, device, msix_vectors, pci_device_bdf.into())?;
+        let mut virtio_device = VirtioPciDevice::new(
+            id.clone(),
+            mem,
+            device,
+            Arc::new(msix_vectors),
+            pci_device_bdf.into(),
+        )?;
 
         // Allocate bars
         let mut resource_allocator_lock = vm.resource_allocator();
@@ -162,17 +167,12 @@ impl PciDevices {
     ) -> Result<(), PciManagerError> {
         // We should only be reaching this point if PCI is enabled
         let pci_segment = self.pci_segment.as_ref().unwrap();
-        let msi_vector_group = Arc::new(MsiVectorGroup::restore(
-            vm.clone(),
-            &transport_state.msi_vector_group,
-        )?);
         let device_type: u32 = device.lock().expect("Poisoned lock").device_type();
 
         let virtio_device = Arc::new(Mutex::new(VirtioPciDevice::new_from_state(
             device_id.to_string(),
-            vm.guest_memory().clone(),
+            vm,
             device.clone(),
-            msi_vector_group,
             transport_state.clone(),
         )?));
 

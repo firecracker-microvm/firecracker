@@ -7,6 +7,7 @@ pub mod persist;
 
 use self::device::VhostUserBlock;
 use crate::devices::virtio::vhost_user::VhostUserError;
+use crate::vstate::interrupts::InterruptError;
 
 /// Number of queues for the vhost-user block device.
 pub const NUM_QUEUES: u64 = 1;
@@ -28,5 +29,5 @@ pub enum VhostUserBlockError {
     /// Error opening eventfd: {0}
     EventFd(std::io::Error),
     /// Error creating irqfd: {0}
-    Interrupt(std::io::Error),
+    Interrupt(InterruptError),
 }
