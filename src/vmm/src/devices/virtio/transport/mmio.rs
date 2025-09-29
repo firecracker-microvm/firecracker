@@ -17,6 +17,7 @@ use crate::devices::virtio::device_status;
 use crate::devices::virtio::queue::Queue;
 use crate::logger::{IncMetric, METRICS, error, warn};
 use crate::utils::byte_order;
+use crate::vstate::bus::BusDevice;
 use crate::vstate::interrupts::InterruptError;
 use crate::vstate::memory::{GuestAddress, GuestMemoryMmap};
 
@@ -233,7 +234,7 @@ impl MmioTransport {
     }
 }
 
-impl vm_device::BusDevice for MmioTransport {
+impl BusDevice for MmioTransport {
     fn read(&mut self, base: u64, offset: u64, data: &mut [u8]) {
         match offset {
             0x00..=0xff if data.len() == 4 => {
@@ -473,7 +474,6 @@ pub(crate) mod tests {
 
     use std::ops::Deref;
 
-    use vm_device::BusDevice;
     use vmm_sys_util::eventfd::EventFd;
 
     use super::*;

@@ -10,7 +10,7 @@
 use std::cmp::Ordering;
 use std::collections::btree_map::BTreeMap;
 use std::sync::{Arc, Barrier, Mutex, RwLock, Weak};
-use std::{convert, error, fmt, io, result};
+use std::{error, fmt, result};
 
 /// Trait for devices that respond to reads or writes in an arbitrary address space.
 ///
@@ -26,6 +26,7 @@ pub trait BusDevice: Send {
     }
 }
 
+/// Trait similar to [`BusDevice`] with the extra requirement that a device is `Send` and `Sync`.
 #[allow(unused_variables)]
 pub trait BusDeviceSync: Send + Sync {
     /// Reads at `offset` from this device
@@ -51,8 +52,9 @@ impl<B: BusDevice> BusDeviceSync for Mutex<B> {
     }
 }
 
+/// Error type for [`Bus`]-related operations.
 #[derive(Debug)]
-pub enum Error {
+pub enum BusError {
     /// The insertion failed because the new device overlapped with an old device.
     Overlap,
     /// Failed to operate on zero sized range.
@@ -61,21 +63,16 @@ pub enum Error {
     MissingAddressRange,
 }
 
-pub type Result<T> = result::Result<T, Error>;
+/// Result type for [`Bus`]-related operations.
+pub type Result<T> = result::Result<T, BusError>;
 
-impl fmt::Display for Error {
+impl fmt::Display for BusError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "bus_error: {self:?}")
     }
 }
 
-impl error::Error for Error {}
-
-impl convert::From<Error> for io::Error {
-    fn from(e: Error) -> Self {
-        io::Error::other(e)
-    }
-}
+impl error::Error for BusError {}
 
 /// Holds a base and length representing the address space occupied by a `BusDevice`.
 ///
@@ -83,7 +80,9 @@ impl convert::From<Error> for io::Error {
 /// * len - The length of the range in bytes.
 #[derive(Debug, Copy, Clone)]
 pub struct BusRange {
+    /// base address of a range within a [`Bus`]
     pub base: u64,
+    /// length of a range within a [`Bus`]
     pub len: u64,
 }
 
@@ -140,6 +139,7 @@ impl Bus {
     }
 
     #[allow(clippy::type_complexity)]
+    /// Get a reference to a device residing inside the bus at address [`addr`].
     pub fn resolve(&self, addr: u64) -> Option<(u64, u64, Arc<dyn BusDeviceSync>)> {
         if let Some((range, dev)) = self.first_before(addr) {
             let offset = addr - range.base;
@@ -150,9 +150,10 @@ impl Bus {
         None
     }
 
+    /// Insert a device into the [`Bus`] in the range [`addr`, `addr` + `len`].
     pub fn insert(&self, device: Arc<dyn BusDeviceSync>, base: u64, len: u64) -> Result<()> {
         if len == 0 {
-            return Err(Error::ZeroSizedRange);
+            return Err(BusError::ZeroSizedRange);
         }
 
         // Reject all cases where the new device's range overlaps with an existing device.
@@ -163,7 +164,7 @@ impl Bus {
             .iter()
             .any(|(range, _dev)| range.overlaps(base, len))
         {
-            return Err(Error::Overlap);
+            return Err(BusError::Overlap);
         }
 
         if self
@@ -173,7 +174,7 @@ impl Bus {
             .insert(BusRange { base, len }, Arc::downgrade(&device))
             .is_some()
         {
-            return Err(Error::Overlap);
+            return Err(BusError::Overlap);
         }
 
         Ok(())
@@ -182,13 +183,13 @@ impl Bus {
     /// Removes the device at the given address space range.
     pub fn remove(&self, base: u64, len: u64) -> Result<()> {
         if len == 0 {
-            return Err(Error::ZeroSizedRange);
+            return Err(BusError::ZeroSizedRange);
         }
 
         let bus_range = BusRange { base, len };
 
         if self.devices.write().unwrap().remove(&bus_range).is_none() {
-            return Err(Error::MissingAddressRange);
+            return Err(BusError::MissingAddressRange);
         }
 
         Ok(())
@@ -224,7 +225,7 @@ impl Bus {
         let device = if let Some((_, _, dev)) = self.resolve(old_base) {
             dev.clone()
         } else {
-            return Err(Error::MissingAddressRange);
+            return Err(BusError::MissingAddressRange);
         };
 
         // Remove the old address range
@@ -243,7 +244,7 @@ impl Bus {
             dev.read(base, offset, data);
             Ok(())
         } else {
-            Err(Error::MissingAddressRange)
+            Err(BusError::MissingAddressRange)
         }
     }
 
@@ -255,7 +256,7 @@ impl Bus {
             // OK to unwrap as lock() failing is a serious error condition and should panic.
             Ok(dev.write(base, offset, data))
         } else {
-            Err(Error::MissingAddressRange)
+            Err(BusError::MissingAddressRange)
         }
     }
 }
@@ -269,12 +270,14 @@ mod tests {
 
     struct ConstantDevice;
     impl BusDeviceSync for ConstantDevice {
+        #[allow(clippy::cast_possible_truncation)]
         fn read(&self, _base: u64, offset: u64, data: &mut [u8]) {
             for (i, v) in data.iter_mut().enumerate() {
                 *v = (offset as u8) + (i as u8);
             }
         }
 
+        #[allow(clippy::cast_possible_truncation)]
         fn write(&self, _base: u64, offset: u64, data: &[u8]) -> Option<Arc<Barrier>> {
             for (i, v) in data.iter().enumerate() {
                 assert_eq!(*v, (offset as u8) + (i as u8))

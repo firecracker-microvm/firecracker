@@ -23,6 +23,7 @@ use vmm_sys_util::eventfd::EventFd;
 
 use crate::devices::legacy::EventFdTrigger;
 use crate::logger::{IncMetric, SharedIncMetric};
+use crate::vstate::bus::BusDevice;
 
 /// Received Data Available interrupt - for letting the driver know that
 /// there is some pending data to be processed.
@@ -363,7 +364,7 @@ fn is_fifo(fd: RawFd) -> bool {
     (stat.st_mode & libc::S_IFIFO) != 0
 }
 
-impl<I> vm_device::BusDevice for SerialWrapper<EventFdTrigger, SerialEventsWrapper, I>
+impl<I> BusDevice for SerialWrapper<EventFdTrigger, SerialEventsWrapper, I>
 where
     I: Read + AsRawFd + Send,
 {
@@ -393,7 +394,6 @@ where
 mod tests {
     #![allow(clippy::undocumented_unsafe_blocks)]
 
-    use vm_device::BusDevice;
     use vmm_sys_util::eventfd::EventFd;
 
     use super::*;

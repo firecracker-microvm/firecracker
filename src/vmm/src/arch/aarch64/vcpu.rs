@@ -23,6 +23,7 @@ use crate::cpu_config::aarch64::custom_cpu_template::VcpuFeatures;
 use crate::cpu_config::templates::CpuConfiguration;
 use crate::logger::{IncMetric, METRICS, error};
 use crate::vcpu::{VcpuConfig, VcpuError};
+use crate::vstate::bus::Bus;
 use crate::vstate::memory::{Address, GuestMemoryMmap};
 use crate::vstate::vcpu::VcpuEmulation;
 use crate::vstate::vm::Vm;
@@ -120,7 +121,7 @@ pub struct KvmVcpu {
 #[derive(Default, Debug)]
 pub struct Peripherals {
     /// mmio bus.
-    pub mmio_bus: Option<Arc<vm_device::Bus>>,
+    pub mmio_bus: Option<Arc<Bus>>,
 }
 
 impl KvmVcpu {

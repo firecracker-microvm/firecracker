@@ -24,8 +24,6 @@ use pci::{
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use vm_allocator::{AddressAllocator, AllocPolicy, RangeInclusive};
-use vm_device::interrupt::{InterruptIndex, InterruptSourceGroup, MsiIrqGroupConfig};
-use vm_device::{BusDevice, PciBarType};
 use vm_memory::{Address, ByteValued, GuestAddress, Le32};
 use vmm_sys_util::errno;
 use vmm_sys_util::eventfd::EventFd;
@@ -44,6 +42,7 @@ use crate::pci::msix::{MsixCap, MsixConfig, MsixConfigState};
 use crate::pci::{BarReprogrammingParams, PciDevice};
 use crate::snapshot::Persist;
 use crate::utils::u64_to_usize;
+use crate::vstate::bus::BusDevice;
 use crate::vstate::interrupts::{InterruptError, MsixVectorGroup};
 use crate::vstate::memory::GuestMemoryMmap;
 use crate::vstate::resources::ResourceAllocator;

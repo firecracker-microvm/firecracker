@@ -27,6 +27,7 @@ use crate::logger::{IncMetric, METRICS};
 use crate::seccomp::{BpfProgram, BpfProgramRef};
 use crate::utils::signal::{Killable, register_signal_handler, sigrtmin};
 use crate::utils::sm::StateMachine;
+use crate::vstate::bus::Bus;
 use crate::vstate::vm::Vm;
 
 /// Signal number (SIGRTMIN) used to kick Vcpus.
@@ -142,7 +143,7 @@ impl Vcpu {
     }
 
     /// Sets a MMIO bus for this vcpu.
-    pub fn set_mmio_bus(&mut self, mmio_bus: Arc<vm_device::Bus>) {
+    pub fn set_mmio_bus(&mut self, mmio_bus: Arc<Bus>) {
         self.kvm_vcpu.peripherals.mmio_bus = Some(mmio_bus);
     }
 
@@ -699,7 +700,6 @@ pub(crate) mod tests {
     use std::sync::{Arc, Barrier, Mutex};
 
     use linux_loader::loader::KernelLoader;
-    use vm_device::BusDevice;
     use vmm_sys_util::errno;
 
     use super::*;
@@ -708,6 +708,7 @@ pub(crate) mod tests {
     use crate::seccomp::get_empty_filters;
     use crate::utils::mib_to_bytes;
     use crate::utils::signal::validate_signal_num;
+    use crate::vstate::bus::BusDevice;
     use crate::vstate::kvm::Kvm;
     use crate::vstate::memory::{GuestAddress, GuestMemoryMmap};
     use crate::vstate::vcpu::VcpuError as EmulationError;
@@ -818,7 +819,7 @@ pub(crate) mod tests {
             )
         );
 
-        let bus = Arc::new(vm_device::Bus::new());
+        let bus = Arc::new(Bus::new());
         let dummy = Arc::new(Mutex::new(DummyDevice));
         bus.insert(dummy, 0x10, 0x10).unwrap();
         vcpu.set_mmio_bus(bus);
@@ -965,7 +966,7 @@ pub(crate) mod tests {
     fn test_set_mmio_bus() {
         let (_, _, mut vcpu) = setup_vcpu(0x1000);
         assert!(vcpu.kvm_vcpu.peripherals.mmio_bus.is_none());
-        vcpu.set_mmio_bus(Arc::new(vm_device::Bus::new()));
+        vcpu.set_mmio_bus(Arc::new(Bus::new()));
         assert!(vcpu.kvm_vcpu.peripherals.mmio_bus.is_some());
     }
 

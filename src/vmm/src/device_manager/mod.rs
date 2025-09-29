@@ -36,6 +36,7 @@ use crate::devices::virtio::device::VirtioDevice;
 use crate::devices::virtio::transport::mmio::{IrqTrigger, MmioTransport};
 use crate::resources::VmResources;
 use crate::snapshot::Persist;
+use crate::vstate::bus::BusError;
 use crate::vstate::memory::GuestMemoryMmap;
 use crate::{EmulateSerialInitError, EventManager, Vm};
 
@@ -68,7 +69,7 @@ pub enum AttachDeviceError {
     /// MMIO transport error: {0}
     MmioTransport(#[from] MmioError),
     /// Error inserting device in bus: {0}
-    Bus(#[from] vm_device::BusError),
+    Bus(#[from] BusError),
     /// Error creating VMGenID device: {0}
     CreateVmGenID(#[from] VmGenIdError),
     /// Error while registering VMGenID with KVM: {0}
@@ -427,7 +428,7 @@ pub enum DevicePersistError {
     /// Error resetting serial console: {0}
     SerialRestore(#[from] EmulateSerialInitError),
     /// Error inserting device in bus: {0}
-    Bus(#[from] vm_device::BusError),
+    Bus(#[from] BusError),
     /// Error creating DeviceManager: {0}
     DeviceManager(#[from] DeviceManagerCreateError),
 }
