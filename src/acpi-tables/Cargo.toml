@@ -14,7 +14,7 @@ bench = false
 
 [dependencies]
 displaydoc = "0.2.5"
-thiserror = "2.0.16"
+thiserror = "2.0.17"
 vm-memory = { version = "0.16.2", features = ["backend-mmap", "backend-bitmap"] }
 zerocopy = { version = "0.8.27", features = ["derive"] }
 
