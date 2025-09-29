@@ -962,11 +962,12 @@ impl PciDevice for VirtioPciDevice {
                 }
                 None => {
                     error!("Attempt to reset device when not implemented in underlying device");
-                    self.common_config.driver_status = DEVICE_FAILED;
+                    // TODO: currently we don't support device resetting, but we still
+                    // follow the spec and set the status field to 0.
+                    self.common_config.driver_status = DEVICE_INIT;
                 }
             }
         }
-
         None
     }
 }
