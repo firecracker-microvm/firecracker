@@ -75,6 +75,7 @@ use crate::devices::legacy;
 use crate::devices::virtio::balloon::metrics as balloon_metrics;
 use crate::devices::virtio::block::virtio::metrics as block_metrics;
 use crate::devices::virtio::net::metrics as net_metrics;
+use crate::devices::virtio::pmem::metrics as pmem_metrics;
 use crate::devices::virtio::rng::metrics as entropy_metrics;
 use crate::devices::virtio::vhost_user_metrics;
 use crate::devices::virtio::vsock::metrics as vsock_metrics;
@@ -873,6 +874,7 @@ create_serialize_proxy!(VhostUserMetricsSerializeProxy, vhost_user_metrics);
 create_serialize_proxy!(BalloonMetricsSerializeProxy, balloon_metrics);
 create_serialize_proxy!(EntropyMetricsSerializeProxy, entropy_metrics);
 create_serialize_proxy!(VsockMetricsSerializeProxy, vsock_metrics);
+create_serialize_proxy!(PmemMetricsSerializeProxy, pmem_metrics);
 create_serialize_proxy!(LegacyDevMetricsSerializeProxy, legacy);
 
 /// Structure storing all metrics while enforcing serialization support on them.
@@ -922,6 +924,9 @@ pub struct FirecrackerMetrics {
     /// Metrics related to virtio-rng entropy device.
     pub entropy_ser: EntropyMetricsSerializeProxy,
     #[serde(flatten)]
+    /// Metrics related to virtio-pmem entropy device.
+    pub pmem_ser: PmemMetricsSerializeProxy,
+    #[serde(flatten)]
     /// Vhost-user device related metrics.
     pub vhost_user_ser: VhostUserMetricsSerializeProxy,
     /// Interrupt related metrics
@@ -950,6 +955,7 @@ impl FirecrackerMetrics {
             signals: SignalMetrics::new(),
             vsock_ser: VsockMetricsSerializeProxy {},
             entropy_ser: EntropyMetricsSerializeProxy {},
+            pmem_ser: PmemMetricsSerializeProxy {},
             vhost_user_ser: VhostUserMetricsSerializeProxy {},
             interrupts: InterruptMetrics::new(),
         }
