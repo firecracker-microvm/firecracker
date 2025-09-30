@@ -1146,6 +1146,21 @@ def test_get_full_config_after_restoring_snapshot(microvm_factory, uvm_nano):
         }
     ]
 
+    uvm_nano.api.pmem.put(
+        id="pmem",
+        path_on_host="/" + uvm_nano.rootfs_file.name,
+        root_device=False,
+        read_only=False,
+    )
+    setup_cfg["pmem"] = [
+        {
+            "id": "pmem",
+            "path_on_host": "/" + uvm_nano.rootfs_file.name,
+            "root_device": False,
+            "read_only": False,
+        }
+    ]
+
     # Add a memory balloon device.
     uvm_nano.api.balloon.put(amount_mib=1, deflate_on_oom=True)
     setup_cfg["balloon"] = {
@@ -1254,6 +1269,21 @@ def test_get_full_config(uvm_plain):
             "rate_limiter": None,
             "io_engine": "Sync",
             "socket": None,
+        }
+    ]
+
+    test_microvm.api.pmem.put(
+        id="pmem",
+        path_on_host="/" + test_microvm.rootfs_file.name,
+        root_device=False,
+        read_only=False,
+    )
+    expected_cfg["pmem"] = [
+        {
+            "id": "pmem",
+            "path_on_host": "/" + test_microvm.rootfs_file.name,
+            "root_device": False,
+            "read_only": False,
         }
     ]
 

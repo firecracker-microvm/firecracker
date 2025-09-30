@@ -989,7 +989,7 @@ class Microvm:
             root_device=root_device,
             read_only=read_only,
         )
-        self.disks[id] = path_on_host
+        self.disks[pmem_id] = path_on_host
 
     def start(self):
         """Start the microvm.

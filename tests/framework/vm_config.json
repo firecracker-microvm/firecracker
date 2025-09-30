@@ -31,5 +31,6 @@
   "logger": null,
   "metrics": null,
   "mmds-config": null,
-  "entropy": null
+  "entropy": null,
+  "pmem": []
 }
