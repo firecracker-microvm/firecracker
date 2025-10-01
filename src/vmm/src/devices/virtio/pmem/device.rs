@@ -2,11 +2,14 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use std::fs::{File, OpenOptions};
-use std::ops::Deref;
+use std::ops::{Deref, DerefMut};
 use std::os::fd::AsRawFd;
 use std::sync::{Arc, Mutex};
 
+use kvm_bindings::{KVM_MEM_READONLY, kvm_userspace_memory_region};
 use kvm_ioctls::VmFd;
+use serde::{Deserialize, Serialize};
+use vm_allocator::AllocPolicy;
 use vm_memory::mmap::{MmapRegionBuilder, MmapRegionError};
 use vm_memory::{GuestAddress, GuestMemoryError};
 use vmm_sys_util::eventfd::EventFd;
@@ -15,19 +18,22 @@ use crate::devices::virtio::ActivateError;
 use crate::devices::virtio::device::{ActiveState, DeviceState, VirtioDevice};
 use crate::devices::virtio::generated::virtio_config::VIRTIO_F_VERSION_1;
 use crate::devices::virtio::generated::virtio_ids::VIRTIO_ID_PMEM;
+use crate::devices::virtio::pmem::PMEM_QUEUE_SIZE;
 use crate::devices::virtio::pmem::metrics::{PmemMetrics, PmemMetricsPerDevice};
 use crate::devices::virtio::queue::{DescriptorChain, InvalidAvailIdx, Queue, QueueError};
 use crate::devices::virtio::transport::{VirtioInterrupt, VirtioInterruptType};
-use crate::impl_device_type;
 use crate::logger::{IncMetric, error};
 use crate::utils::{align_up, u64_to_usize};
 use crate::vmm_config::pmem::PmemConfig;
 use crate::vstate::memory::{ByteValued, Bytes, GuestMemoryMmap, GuestMmapRegion};
-
-pub const PMEM_QUEUE_SIZE: u16 = 256;
+use crate::{Vm, impl_device_type};
 
 #[derive(Debug, thiserror::Error, displaydoc::Display)]
 pub enum PmemError {
+    /// Cannot set the memory regions: {0}
+    SetUserMemoryRegion(kvm_ioctls::Error),
+    /// Unablet to allocate a KVM slot for the device
+    NoKvmSlotAvailable,
     /// Error accessing backing file: {0}
     BackingFile(std::io::Error),
     /// Error backing file size is 0
@@ -196,6 +202,45 @@ impl Pmem {
             }
         };
         Ok((file, file_len, mmap_ptr as u64, mmap_len))
+    }
+
+    /// Allocate memory in past_mmio64 memory region
+    pub fn alloc_region(&mut self, vm: &Vm) {
+        let mut resource_allocator_lock = vm.resource_allocator();
+        let resource_allocator = resource_allocator_lock.deref_mut();
+        let addr = resource_allocator
+            .past_mmio64_memory
+            .allocate(
+                self.config_space.size,
+                Pmem::ALIGNMENT,
+                AllocPolicy::FirstMatch,
+            )
+            .unwrap();
+        self.config_space.start = addr.start();
+    }
+
+    /// Set user memory region in KVM
+    pub fn set_mem_region(&mut self, vm: &Vm) -> Result<(), PmemError> {
+        let next_slot = vm.next_kvm_slot().ok_or(PmemError::NoKvmSlotAvailable)?;
+        let memory_region = kvm_userspace_memory_region {
+            slot: next_slot,
+            guest_phys_addr: self.config_space.start,
+            memory_size: self.config_space.size,
+            userspace_addr: self.mmap_ptr,
+            flags: if self.config.read_only {
+                KVM_MEM_READONLY
+            } else {
+                0
+            },
+        };
+        // SAFETY: The fd is a valid VM file descriptor and all fields in the
+        // `memory_region` struct are valid.
+        unsafe {
+            vm.fd()
+                .set_user_memory_region(memory_region)
+                .map_err(PmemError::SetUserMemoryRegion)?;
+        }
+        Ok(())
     }
 
     fn handle_queue(&mut self) -> Result<(), PmemError> {
