@@ -7,6 +7,8 @@ updates:
       day: "monday"
     allow:
       - dependency-type: "all"
+    ignore:
+      - dependency-name: "aws-lc-rs"
     groups:
       rust-vmm:
         patterns:
