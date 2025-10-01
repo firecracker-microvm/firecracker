@@ -9,7 +9,7 @@ use std::collections::HashMap;
 use std::fs::OpenOptions;
 use std::io::Write;
 use std::path::Path;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
 
 #[cfg(target_arch = "x86_64")]
@@ -243,6 +243,7 @@ pub struct VmCommon {
     max_memslots: u32,
     /// The guest memory of this Vm.
     pub guest_memory: GuestMemoryMmap,
+    next_kvm_slot: AtomicU32,
     /// Interrupts used by Vm's devices
     pub interrupts: Mutex<HashMap<u32, RoutingEntry>>,
     /// Allocator for VM resources
@@ -322,6 +323,7 @@ impl Vm {
             fd,
             max_memslots: kvm.max_nr_memslots(),
             guest_memory: GuestMemoryMmap::default(),
+            next_kvm_slot: AtomicU32::new(0),
             interrupts: Mutex::new(HashMap::with_capacity(GSI_MSI_END as usize + 1)),
             resource_allocator: Mutex::new(ResourceAllocator::new()),
             mmio_bus: Arc::new(vm_device::Bus::new()),
@@ -348,6 +350,17 @@ impl Vm {
         Ok((vcpus, exit_evt))
     }
 
+    /// Obtain the next free kvm slot id
+    pub fn next_kvm_slot(&self) -> Option<u32> {
+        let next = self.common.next_kvm_slot.load(Ordering::Relaxed);
+        if next == self.common.max_memslots {
+            None
+        } else {
+            self.common.next_kvm_slot.store(next + 1, Ordering::Relaxed);
+            Some(next)
+        }
+    }
+
     /// Register a list of new memory regions to this [`Vm`].
     pub fn register_memory_regions(
         &mut self,
@@ -363,13 +376,8 @@ impl Vm {
     /// Register a new memory region to this [`Vm`].
     pub fn register_memory_region(&mut self, region: GuestRegionMmap) -> Result<(), VmError> {
         let next_slot = self
-            .guest_memory()
-            .num_regions()
-            .try_into()
-            .expect("Number of existing memory regions exceeds u32::MAX");
-        if self.common.max_memslots <= next_slot {
-            return Err(VmError::NotEnoughMemorySlots(self.common.max_memslots));
-        }
+            .next_kvm_slot()
+            .ok_or(VmError::NotEnoughMemorySlots(self.common.max_memslots))?;
 
         let flags = if region.bitmap().is_some() {
             KVM_MEM_LOG_DIRTY_PAGES
