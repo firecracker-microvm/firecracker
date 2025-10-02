@@ -4,6 +4,7 @@
 use vmm_sys_util::syscall::SyscallReturnCode;
 
 use crate::arch::x86_64::generated::arch_prctl;
+use crate::logger::info;
 
 const INTEL_AMX_MASK: u64 = 1u64 << arch_prctl::ARCH_XCOMP_TILEDATA;
 
@@ -43,6 +44,7 @@ pub fn request_dynamic_xstate_features() -> Result<(), XstateError> {
     // causes guest crash during boot because a guest calls XSETBV instruction with all
     // XSAVE feature bits enumerated on CPUID and XSETBV only accepts either of both Intel
     // AMX bits enabled or disabled; otherwise resulting in general protection fault.
+    // https://lore.kernel.org/all/20230405004520.421768-1-seanjc@google.com/
     if supported_xfeatures & INTEL_AMX_MASK == INTEL_AMX_MASK {
         request_xfeature_permission(arch_prctl::ARCH_XCOMP_TILEDATA).map_err(|err| {
             XstateError::RequestFeaturePermission(arch_prctl::ARCH_XCOMP_TILEDATA, err)
@@ -71,21 +73,27 @@ fn get_supported_xfeatures() -> Result<Option<u64>, std::io::Error> {
     {
         Ok(()) => Ok(Some(supported_xfeatures)),
         // EINVAL is returned if the dynamic XSTATE feature enabling is not supported (e.g. kernel
-        // version prior to v5.17).
-        // https://github.com/torvalds/linux/commit/980fe2fddcff21937c93532b4597c8ea450346c1
-        Err(err) if err.raw_os_error() == Some(libc::EINVAL) => Ok(None),
+        // version prior to v5.16).
+        // https://github.com/torvalds/linux/commit/db8268df0983adc2bb1fb48c9e5f7bfbb5f617f3
+        Err(err) if err.raw_os_error() == Some(libc::EINVAL) => {
+            info!("Dynamic XSTATE feature enabling is not supported.");
+            Ok(None)
+        }
         Err(err) => Err(err),
     }
 }
 
 /// Request permission for a dynamic XSTATE feature.
 ///
-/// This should be called after `get_supported_xfeatures()` that also checks that dynamic XSTATE
-/// feature enabling is supported.
+/// This should be called after `get_supported_xfeatures()` that retrieves supported dynamic XSTATE
+/// features.
+///
+/// Returns Ok(()) if the permission request succeeded or dynamic XSTATE feature enabling for
+/// "guest" is not supported.
 fn request_xfeature_permission(xfeature: u32) -> Result<(), std::io::Error> {
     // SAFETY: Safe because the third input (`addr`) is a valid `c_ulong` value.
     // https://man7.org/linux/man-pages/man2/arch_prctl.2.html
-    SyscallReturnCode(unsafe {
+    match SyscallReturnCode(unsafe {
         libc::syscall(
             libc::SYS_arch_prctl,
             arch_prctl::ARCH_REQ_XCOMP_GUEST_PERM as libc::c_ulong,
@@ -93,6 +101,27 @@ fn request_xfeature_permission(xfeature: u32) -> Result<(), std::io::Error> {
         )
     })
     .into_empty_result()
+    {
+        Ok(()) => Ok(()),
+        // EINVAL is returned if the dynamic XSTATE feature enabling for "guest" is not supported
+        // although that for "userspace application" is supported (e.g. kernel versions >= 5.16 and
+        // < 5.17).
+        // https://github.com/torvalds/linux/commit/980fe2fddcff21937c93532b4597c8ea450346c1
+        //
+        // Note that XFEATURE_MASK_XTILE (= XFEATURE_MASK_XTILE_DATA | XFEATURE_MASK_XTILE_CFG) was
+        // also added to KVM_SUPPORTED_XCR0 in kernel v5.17. KVM_SUPPORTED_XCR0 is used to
+        // initialize the guest-supported XCR0. Thus, KVM_GET_SUPPORTED_CPUID doesn't
+        // return AMX-half-enabled state, where XTILE_CFG is set but XTILE_DATA is unset, on such
+        // kernels.
+        // https://github.com/torvalds/linux/commit/86aff7a4799286635efd94dab17b513544703cad
+        // https://github.com/torvalds/linux/blame/f443e374ae131c168a065ea1748feac6b2e76613/arch/x86/kvm/x86.c#L8850-L8853
+        // https://github.com/firecracker-microvm/firecracker/pull/5065
+        Err(err) if err.raw_os_error() == Some(libc::EINVAL) => {
+            info!("Dynamic XSTATE feature enabling is not supported for guest.");
+            Ok(())
+        }
+        Err(err) => Err(err),
+    }
 }
 
 #[cfg(test)]
