@@ -1,7 +1,12 @@
 # Copyright 2025 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-"""Tests for verifying the virtio-mem is working correctly"""
+"""
+Tests for verifying the virtio-mem is working correctly
+
+This file also contains functional tests for virtio-mem because they need to be
+run on an ag=1 host due to the use of HugePages.
+"""
 
 import pytest
 from packaging import version
