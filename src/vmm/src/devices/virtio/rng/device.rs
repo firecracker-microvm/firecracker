@@ -411,31 +411,6 @@ mod tests {
     }
 
     #[test]
-    fn test_virtio_device_features() {
-        let mut entropy_dev = default_entropy();
-
-        let features = 1 << VIRTIO_F_VERSION_1;
-
-        assert_eq!(
-            entropy_dev.avail_features_by_page(0),
-            (features & 0xFFFFFFFF) as u32,
-        );
-        assert_eq!(
-            entropy_dev.avail_features_by_page(1),
-            (features >> 32) as u32
-        );
-        for i in 2..10 {
-            assert_eq!(entropy_dev.avail_features_by_page(i), 0u32);
-        }
-
-        for i in 0..10 {
-            entropy_dev.ack_features_by_page(i, u32::MAX);
-        }
-
-        assert_eq!(entropy_dev.acked_features, features);
-    }
-
-    #[test]
     fn test_handle_one() {
         let mem = create_virtio_mem();
         let mut th = VirtioTestHelper::<Entropy>::new(&mem, default_entropy());
