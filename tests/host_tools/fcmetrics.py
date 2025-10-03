@@ -479,7 +479,10 @@ def flush_fc_metrics_to_cw(fc_metrics, metrics):
     failure_metrics = {
         key: value
         for key, value in flattened_metrics.items()
-        if "err" in key or "fail" in key or "panic" in key or "num_faults" in key
+        if "err" in key.split(".")[-1]
+        or "fail" in key.split(".")[-1]
+        or "panic" in key.split(".")[-1]
+        or "num_faults" in key.split(".")[-1]
         if value
         if key not in ignored_failure_metrics
     }
