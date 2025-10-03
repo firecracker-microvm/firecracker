@@ -197,6 +197,7 @@ pub(crate) mod tests {
 
     #[derive(Debug)]
     struct MockVirtioDevice {
+        avail_features: u64,
         acked_features: u64,
     }
 
@@ -204,15 +205,15 @@ pub(crate) mod tests {
         impl_device_type!(0);
 
         fn avail_features(&self) -> u64 {
-            todo!()
+            self.avail_features
         }
 
         fn acked_features(&self) -> u64 {
             self.acked_features
         }
 
-        fn set_acked_features(&mut self, _acked_features: u64) {
-            todo!()
+        fn set_acked_features(&mut self, acked_features: u64) {
+            self.acked_features = acked_features
         }
 
         fn queues(&self) -> &[Queue] {
@@ -254,7 +255,10 @@ pub(crate) mod tests {
 
     #[test]
     fn test_has_feature() {
-        let mut device = MockVirtioDevice { acked_features: 0 };
+        let mut device = MockVirtioDevice {
+            avail_features: 0,
+            acked_features: 0,
+        };
 
         let mock_feature_1 = 1u64;
         assert!(!device.has_feature(mock_feature_1));
@@ -266,5 +270,30 @@ pub(crate) mod tests {
         device.acked_features = (1 << mock_feature_1) | (1 << mock_feature_2);
         assert!(device.has_feature(mock_feature_1));
         assert!(device.has_feature(mock_feature_2));
+    }
+
+    #[test]
+    fn test_features() {
+        let features: u64 = 0x11223344_55667788;
+
+        let mut device = MockVirtioDevice {
+            avail_features: features,
+            acked_features: 0,
+        };
+
+        assert_eq!(
+            device.avail_features_by_page(0),
+            (features & 0xFFFFFFFF) as u32,
+        );
+        assert_eq!(device.avail_features_by_page(1), (features >> 32) as u32);
+        for i in 2..10 {
+            assert_eq!(device.avail_features_by_page(i), 0u32);
+        }
+
+        for i in 0..10 {
+            device.ack_features_by_page(i, u32::MAX);
+        }
+
+        assert_eq!(device.acked_features, features);
     }
 }

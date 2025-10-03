@@ -1157,41 +1157,6 @@ pub mod tests {
     }
 
     #[test]
-    fn test_virtio_device_features() {
-        let mut net = default_net();
-        set_mac(&mut net, MacAddr::from_str("11:22:33:44:55:66").unwrap());
-
-        // Test `features()` and `ack_features()`.
-        let features = (1 << VIRTIO_NET_F_GUEST_CSUM)
-            | (1 << VIRTIO_NET_F_CSUM)
-            | (1 << VIRTIO_NET_F_GUEST_TSO4)
-            | (1 << VIRTIO_NET_F_GUEST_TSO6)
-            | (1 << VIRTIO_NET_F_MAC)
-            | (1 << VIRTIO_NET_F_GUEST_UFO)
-            | (1 << VIRTIO_NET_F_HOST_TSO4)
-            | (1 << VIRTIO_NET_F_HOST_TSO6)
-            | (1 << VIRTIO_NET_F_HOST_UFO)
-            | (1 << VIRTIO_F_VERSION_1)
-            | (1 << VIRTIO_NET_F_MRG_RXBUF)
-            | (1 << VIRTIO_RING_F_EVENT_IDX);
-
-        assert_eq!(
-            net.avail_features_by_page(0),
-            (features & 0xFFFFFFFF) as u32,
-        );
-        assert_eq!(net.avail_features_by_page(1), (features >> 32) as u32);
-        for i in 2..10 {
-            assert_eq!(net.avail_features_by_page(i), 0u32);
-        }
-
-        for i in 0..10 {
-            net.ack_features_by_page(i, u32::MAX);
-        }
-
-        assert_eq!(net.acked_features, features);
-    }
-
-    #[test]
     // Test that `Net::build_tap_offload_features` creates the TAP offload features that we expect
     // it to do, based on the available guest features
     fn test_build_tap_offload_features_all() {
