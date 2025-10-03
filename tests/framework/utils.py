@@ -14,6 +14,7 @@ import time
 import typing
 from collections import defaultdict, namedtuple
 from contextlib import contextmanager
+from pathlib import Path
 from typing import Dict
 
 import psutil
@@ -129,6 +130,19 @@ def track_cpu_utilization(
     return cpu_utilization
 
 
+def get_resident_memory(process: psutil.Process):
+    """Returns current memory utilization in KiB, including used HugeTLBFS"""
+
+    proc_status = Path("/proc", str(process.pid), "status").read_text("utf-8")
+    for line in proc_status.splitlines():
+        if line.startswith("HugetlbPages:"):  # entry is in KiB
+            hugetlbfs_usage = int(line.split()[1])
+            break
+    else:
+        assert False, f"HugetlbPages not found in {str(proc_status)}"
+    return hugetlbfs_usage + process.memory_info().rss // 1024
+
+
 @contextmanager
 def chroot(path):
     """
@@ -238,25 +252,6 @@ def search_output_from_cmd(cmd: str, find_regex: typing.Pattern) -> typing.Match
     raise RuntimeError(
         "Could not find '%s' in output for '%s'" % (find_regex.pattern, cmd)
     )
-
-
-def get_free_mem_ssh(ssh_connection):
-    """
-    Get how much free memory in kB a guest sees, over ssh.
-
-    :param ssh_connection: connection to the guest
-    :return: available mem column output of 'free'
-    """
-    _, stdout, stderr = ssh_connection.run("cat /proc/meminfo | grep MemAvailable")
-    assert stderr == ""
-
-    # Split "MemAvailable:   123456 kB" and validate it
-    meminfo_data = stdout.split()
-    if len(meminfo_data) == 3:
-        # Return the middle element in the array
-        return int(meminfo_data[1])
-
-    raise Exception("Available memory not found in `/proc/meminfo")
 
 
 def _format_output_message(proc, stdout, stderr):

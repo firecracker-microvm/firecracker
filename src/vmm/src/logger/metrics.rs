@@ -479,6 +479,10 @@ pub struct PatchRequestsMetrics {
     pub mmds_count: SharedIncMetric,
     /// Number of failures in PATCHing an mmds.
     pub mmds_fails: SharedIncMetric,
+    /// Number of PATCHes to /hotplug/memory
+    pub hotplug_memory_count: SharedIncMetric,
+    /// Number of failed PATCHes to /hotplug/memory
+    pub hotplug_memory_fails: SharedIncMetric,
 }
 impl PatchRequestsMetrics {
     /// Const default construction.
@@ -492,6 +496,8 @@ impl PatchRequestsMetrics {
             machine_cfg_fails: SharedIncMetric::new(),
             mmds_count: SharedIncMetric::new(),
             mmds_fails: SharedIncMetric::new(),
+            hotplug_memory_count: SharedIncMetric::new(),
+            hotplug_memory_fails: SharedIncMetric::new(),
         }
     }
 }

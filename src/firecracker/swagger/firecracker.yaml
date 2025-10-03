@@ -549,6 +549,26 @@ paths:
           description: Internal server error
           schema:
             $ref: "#/definitions/Error"
+    patch:
+      summary: Updates the size of the hotpluggable memory region
+      operationId: patchMemoryHotplug
+      description:
+        Updates the size of the hotpluggable memory region. The guest will plug and unplug memory to
+        hit the requested memory.
+      parameters:
+        - name: body
+          in: body
+          description: Hotpluggable memory size update
+          required: true
+          schema:
+            $ref: "#/definitions/MemoryHotplugSizeUpdate"
+      responses:
+        204:
+          description: Hotpluggable memory configured
+        default:
+          description: Internal server error
+          schema:
+            $ref: "#/definitions/Error"
     get:
       summary: Retrieves the status of the hotpluggable memory
       operationId: getMemoryHotplug
@@ -1421,6 +1441,15 @@ definitions:
         minimum: 2
         description: (Logical) Block size for the hotpluggable memory in MiB. This will determine the logical
           granularity of hot-plug memory for the guest. Refer to the device documentation on how to tune this value.
+
+  MemoryHotplugSizeUpdate:
+    type: object
+    description:
+      An update to the size of the hotpluggable memory region.
+    properties:
+      requested_size_mib:
+        type: integer
+        description: New target region size.
 
   MemoryHotplugStatus:
     type: object

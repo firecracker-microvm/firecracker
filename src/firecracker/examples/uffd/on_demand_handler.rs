@@ -87,7 +87,7 @@ fn main() {
                         }
                     }
                     userfaultfd::Event::Remove { start, end } => {
-                        uffd_handler.mark_range_removed(start as u64, end as u64)
+                        uffd_handler.unregister_range(start, end)
                     }
                     _ => panic!("Unexpected event on userfaultfd"),
                 }
