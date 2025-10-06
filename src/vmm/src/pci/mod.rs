@@ -59,9 +59,16 @@ pub trait PciDevice: Send {
         None
     }
     /// Relocates the BAR to a different address in guest address space.
-    fn move_bar(&mut self, _old_base: u64, _new_base: u64) -> Result<(), anyhow::Error> {
+    fn move_bar(&mut self, _old_base: u64, _new_base: u64) -> Result<(), DeviceRelocationError> {
         Ok(())
     }
+}
+
+/// Errors for device manager.
+#[derive(Debug, thiserror::Error, displaydoc::Display)]
+pub enum DeviceRelocationError {
+    /// Device relocation not supported.
+    NotSupported,
 }
 
 /// This trait defines a set of functions which can be triggered whenever a
@@ -75,5 +82,5 @@ pub trait DeviceRelocation: Send + Sync {
         new_base: u64,
         len: u64,
         pci_dev: &mut dyn PciDevice,
-    ) -> Result<(), anyhow::Error>;
+    ) -> Result<(), DeviceRelocationError>;
 }

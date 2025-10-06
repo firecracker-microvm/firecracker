@@ -11,7 +11,6 @@ use std::io::Write;
 use std::path::Path;
 use std::sync::{Arc, Mutex, MutexGuard};
 
-use anyhow::anyhow;
 #[cfg(target_arch = "x86_64")]
 use kvm_bindings::KVM_IRQCHIP_IOAPIC;
 use kvm_bindings::{
@@ -27,7 +26,7 @@ use vmm_sys_util::eventfd::EventFd;
 pub use crate::arch::{ArchVm as Vm, ArchVmError, VmState};
 use crate::arch::{GSI_MSI_END, host_page_size};
 use crate::logger::info;
-use crate::pci::{DeviceRelocation, PciDevice};
+use crate::pci::{DeviceRelocation, DeviceRelocationError, PciDevice};
 use crate::persist::CreateSnapshotError;
 use crate::utils::u64_to_usize;
 use crate::vmm_config::snapshot::SnapshotType;
@@ -481,8 +480,8 @@ impl DeviceRelocation for Vm {
         _new_base: u64,
         _len: u64,
         _pci_dev: &mut dyn PciDevice,
-    ) -> Result<(), anyhow::Error> {
-        Err(anyhow!("pci: device relocation not supported"))
+    ) -> Result<(), DeviceRelocationError> {
+        Err(DeviceRelocationError::NotSupported)
     }
 }
 

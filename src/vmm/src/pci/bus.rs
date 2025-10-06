@@ -458,7 +458,7 @@ mod tests {
     use super::{PciBus, PciConfigIo, PciConfigMmio, PciRoot};
     use crate::pci::bus::{DEVICE_ID_INTEL_VIRT_PCIE_HOST, VENDOR_ID_INTEL};
     use crate::pci::configuration::PciConfiguration;
-    use crate::pci::{BarReprogrammingParams, DeviceRelocation, PciDevice};
+    use crate::pci::{BarReprogrammingParams, DeviceRelocation, DeviceRelocationError, PciDevice};
     use crate::vstate::bus::BusDevice;
 
     #[derive(Debug, Default)]
@@ -479,7 +479,7 @@ mod tests {
             _new_base: u64,
             _len: u64,
             _pci_dev: &mut dyn PciDevice,
-        ) -> Result<(), anyhow::Error> {
+        ) -> Result<(), DeviceRelocationError> {
             self.reloc_cnt
                 .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
             Ok(())
