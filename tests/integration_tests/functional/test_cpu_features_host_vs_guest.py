@@ -49,6 +49,7 @@ INTEL_HOST_ONLY_FEATS = {
     "hwp_act_window",
     "hwp_epp",
     "hwp_pkg_req",
+    "ibpb_exit_to_user",
     "ida",
     "intel_ppin",
     "intel_pt",
@@ -93,6 +94,7 @@ AMD_MILAN_HOST_ONLY_FEATS = {
     "extapic",
     "flushbyasid",
     "hw_pstate",
+    "ibpb_exit_to_user",
     "ibs",
     "irperf",
     "lbrv",
@@ -206,7 +208,14 @@ def test_host_vs_guest_cpu_features(uvm_plain_any):
             assert guest_feats - host_feats == expected_guest_minus_host
 
         case CpuModel.INTEL_ICELAKE:
-            host_guest_diff_5_10 = INTEL_HOST_ONLY_FEATS - {"cdp_l3"} | {
+            expected_host_minus_guest = INTEL_HOST_ONLY_FEATS
+
+            # As long as BHB clearing software mitigation is enabled, Intel Ice Lake is not
+            # vulnerable to VMScape and "IBPB before exit to userspace" is not needed.
+            # https://docs.kernel.org/admin-guide/hw-vuln/vmscape.html#affected-processors
+            expected_host_minus_guest -= {"ibpb_exit_to_user"}
+
+            host_guest_diff_5_10 = expected_host_minus_guest - {"cdp_l3"} | {
                 "pconfig",
                 "tme",
                 "split_lock_detect",
