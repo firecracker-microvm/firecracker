@@ -14,7 +14,6 @@ use std::io::{ErrorKind, Write};
 use std::sync::atomic::{AtomicBool, AtomicU16, AtomicU32, AtomicUsize, Ordering};
 use std::sync::{Arc, Barrier, Mutex};
 
-use anyhow::anyhow;
 use kvm_ioctls::{IoEventAddress, NoDatamatch};
 use log::warn;
 use pci::{
@@ -39,7 +38,7 @@ use crate::devices::virtio::transport::{VirtioInterrupt, VirtioInterruptType};
 use crate::logger::{debug, error};
 use crate::pci::configuration::{PciCapability, PciConfiguration, PciConfigurationState};
 use crate::pci::msix::{MsixCap, MsixConfig, MsixConfigState};
-use crate::pci::{BarReprogrammingParams, PciDevice};
+use crate::pci::{BarReprogrammingParams, DeviceRelocationError, PciDevice};
 use crate::snapshot::Persist;
 use crate::utils::u64_to_usize;
 use crate::vstate::bus::BusDevice;
@@ -251,7 +250,7 @@ pub struct VirtioPciDeviceState {
 #[derive(Debug, thiserror::Error, displaydoc::Display)]
 pub enum VirtioPciDeviceError {
     /// Failed creating VirtioPciDevice: {0}
-    CreateVirtioPciDevice(#[from] anyhow::Error),
+    CreateVirtioPciDevice(#[from] DeviceRelocationError),
     /// Error creating MSI configuration: {0}
     Msi(#[from] InterruptError),
 }
@@ -782,7 +781,7 @@ impl PciDevice for VirtioPciDevice {
         self.configuration.detect_bar_reprogramming(reg_idx, data)
     }
 
-    fn move_bar(&mut self, old_base: u64, new_base: u64) -> Result<(), anyhow::Error> {
+    fn move_bar(&mut self, old_base: u64, new_base: u64) -> Result<(), DeviceRelocationError> {
         // We only update our idea of the bar in order to support free_bars() above.
         // The majority of the reallocation is done inside DeviceManager.
         if self.bar_address == old_base {
