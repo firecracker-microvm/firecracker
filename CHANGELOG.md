@@ -10,6 +10,10 @@ and this project adheres to
 
 ### Added
 
+- [#5463](https://github.com/firecracker-microvm/firecracker/pull/5463): Added
+  support for `virtio-pmem` devices. See [documentation](docs/pmem.md) for more
+  information.
+
 ### Changed
 
 ### Deprecated
