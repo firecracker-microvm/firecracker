@@ -91,8 +91,6 @@ pub enum FindDeviceError {
     InvalidDeviceType,
     /// Device not found
     DeviceNotFound,
-    /// Internal Device error: {0}
-    InternalDeviceError(anyhow::Error),
 }
 
 #[derive(Debug)]
@@ -376,7 +374,7 @@ impl DeviceManager {
         &self,
         id: &str,
         f: F,
-    ) -> Result<R, FindDeviceError>
+    ) -> Result<Result<R, E>, FindDeviceError>
     where
         T: VirtioDevice + 'static + Debug,
         E: std::error::Error + 'static + Send + Sync,
@@ -384,11 +382,10 @@ impl DeviceManager {
     {
         if let Some(device) = self.get_virtio_device(T::const_device_type(), id) {
             let mut dev = device.lock().expect("Poisoned lock");
-            f(dev
+            Ok(f(dev
                 .as_mut_any()
                 .downcast_mut::<T>()
-                .ok_or(FindDeviceError::InvalidDeviceType)?)
-            .map_err(|e| FindDeviceError::InternalDeviceError(e.into()))
+                .ok_or(FindDeviceError::InvalidDeviceType)?))
         } else {
             Err(FindDeviceError::DeviceNotFound)
         }
@@ -400,7 +397,7 @@ impl DeviceManager {
         T: VirtioDevice + 'static + Debug,
         F: FnOnce(&mut T) -> R,
     {
-        self.try_with_virtio_device_with_id(id, |dev: &mut T| Ok::<R, FindDeviceError>(f(dev)))
+        self.try_with_virtio_device_with_id(id, |dev: &mut T| Ok::<R, FindDeviceError>(f(dev)))?
     }
 }
 
