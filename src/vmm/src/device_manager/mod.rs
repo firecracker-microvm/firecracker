@@ -87,8 +87,6 @@ pub enum AttachDeviceError {
 #[derive(Debug, thiserror::Error, displaydoc::Display)]
 /// Error while searching for a VirtIO device
 pub enum FindDeviceError {
-    /// Device type is invalid
-    InvalidDeviceType,
     /// Device not found
     DeviceNotFound,
 }
@@ -385,7 +383,7 @@ impl DeviceManager {
             Ok(f(dev
                 .as_mut_any()
                 .downcast_mut::<T>()
-                .ok_or(FindDeviceError::InvalidDeviceType)?))
+                .expect("Invalid device for a given device type")))
         } else {
             Err(FindDeviceError::DeviceNotFound)
         }
