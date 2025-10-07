@@ -136,7 +136,10 @@ use vstate::kvm::Kvm;
 use vstate::vcpu::{self, StartThreadedError, VcpuSendEventError};
 
 use crate::cpu_config::templates::CpuConfiguration;
-use crate::devices::virtio::balloon::{BALLOON_DEV_ID, Balloon, BalloonConfig, BalloonStats};
+use crate::devices::virtio::balloon::{
+    BALLOON_DEV_ID, Balloon, BalloonConfig, BalloonError, BalloonStats,
+};
+use crate::devices::virtio::block::BlockError;
 use crate::devices::virtio::block::device::Block;
 use crate::devices::virtio::net::Net;
 use crate::logger::{METRICS, MetricsError, error, info, warn};
@@ -248,6 +251,10 @@ pub enum VmmError {
     VMGenID(#[from] VmGenIdError),
     /// Failed perform action on device: {0}
     FindDeviceError(#[from] device_manager::FindDeviceError),
+    /// Block: {0}
+    Block(#[from] BlockError),
+    /// Balloon: {0}
+    Balloon(#[from] BalloonError),
 }
 
 /// Shorthand type for KVM dirty page bitmap.
@@ -522,7 +529,8 @@ impl Vmm {
             .try_with_virtio_device_with_id(drive_id, |block: &mut Block| {
                 block.update_disk_image(path_on_host)
             })
-            .map_err(VmmError::FindDeviceError)
+            .map_err(VmmError::FindDeviceError)??;
+        Ok(())
     }
 
     /// Updates the rate limiter parameters for block device with `drive_id` id.
@@ -536,14 +544,16 @@ impl Vmm {
             .try_with_virtio_device_with_id(drive_id, |block: &mut Block| {
                 block.update_rate_limiter(rl_bytes, rl_ops)
             })
-            .map_err(VmmError::FindDeviceError)
+            .map_err(VmmError::FindDeviceError)??;
+        Ok(())
     }
 
     /// Updates the rate limiter parameters for block device with `drive_id` id.
     pub fn update_vhost_user_block_config(&mut self, drive_id: &str) -> Result<(), VmmError> {
         self.device_manager
             .try_with_virtio_device_with_id(drive_id, |block: &mut Block| block.update_config())
-            .map_err(VmmError::FindDeviceError)
+            .map_err(VmmError::FindDeviceError)??;
+        Ok(())
     }
 
     /// Updates the rate limiter parameters for net device with `net_id` id.
@@ -571,9 +581,11 @@ impl Vmm {
 
     /// Returns the latest balloon statistics if they are enabled.
     pub fn latest_balloon_stats(&self) -> Result<BalloonStats, VmmError> {
-        self.device_manager
+        let stats = self
+            .device_manager
             .try_with_virtio_device_with_id(BALLOON_DEV_ID, |dev: &mut Balloon| dev.latest_stats())
-            .map_err(VmmError::FindDeviceError)
+            .map_err(VmmError::FindDeviceError)??;
+        Ok(stats)
     }
 
     /// Updates configuration for the balloon device target size.
@@ -582,7 +594,8 @@ impl Vmm {
             .try_with_virtio_device_with_id(BALLOON_DEV_ID, |dev: &mut Balloon| {
                 dev.update_size(amount_mib)
             })
-            .map_err(VmmError::FindDeviceError)
+            .map_err(VmmError::FindDeviceError)??;
+        Ok(())
     }
 
     /// Updates configuration for the balloon device as described in `balloon_stats_update`.
@@ -594,7 +607,8 @@ impl Vmm {
             .try_with_virtio_device_with_id(BALLOON_DEV_ID, |dev: &mut Balloon| {
                 dev.update_stats_polling_interval(stats_polling_interval_s)
             })
-            .map_err(VmmError::FindDeviceError)
+            .map_err(VmmError::FindDeviceError)??;
+        Ok(())
     }
 
     /// Signals Vmm to stop and exit.
