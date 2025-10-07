@@ -87,8 +87,6 @@ pub enum AttachDeviceError {
 #[derive(Debug, thiserror::Error, displaydoc::Display)]
 /// Error while searching for a VirtIO device
 pub enum FindDeviceError {
-    /// Device type is invalid
-    InvalidDeviceType,
     /// Device not found
     DeviceNotFound,
 }
@@ -385,7 +383,7 @@ impl DeviceManager {
             Ok(f(dev
                 .as_mut_any()
                 .downcast_mut::<T>()
-                .ok_or(FindDeviceError::InvalidDeviceType)?))
+                .expect("Invalid device for a given device type")))
         } else {
             Err(FindDeviceError::DeviceNotFound)
         }
@@ -468,7 +466,7 @@ impl<'a> Persist<'a> for DeviceManager {
     fn restore(
         constructor_args: Self::ConstructorArgs,
         state: &Self::State,
-    ) -> Result<Self, Self::Error> {
+    ) -> std::result::Result<Self, Self::Error> {
         // Setup legacy devices in case of x86
         #[cfg(target_arch = "x86_64")]
         let legacy_devices = Self::create_legacy_devices(
