@@ -186,6 +186,12 @@ def test_host_vs_guest_cpu_features(uvm_plain_any):
             expected_host_minus_guest = INTEL_HOST_ONLY_FEATS
             expected_guest_minus_host = INTEL_GUEST_ONLY_FEATS
 
+            # Ubuntu hasn't backported the patch for VMScape yet.
+            # This is only requried for Intel Cascade Lake since we only run
+            # tests on Intel Cascade Lake for Ubuntu.
+            if "amzn" not in global_props.host_os:
+                expected_host_minus_guest -= {"ibpb_exit_to_user"}
+
             # Linux kernel v6.4+ passes through the CPUID bit for "flush_l1d" to guests.
             # https://github.com/torvalds/linux/commit/45cf86f26148e549c5ba4a8ab32a390e4bde216e
             #
