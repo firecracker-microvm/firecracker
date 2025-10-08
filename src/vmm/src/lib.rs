@@ -526,7 +526,7 @@ impl Vmm {
         path_on_host: String,
     ) -> Result<(), VmmError> {
         self.device_manager
-            .try_with_virtio_device_with_id(drive_id, |block: &mut Block| {
+            .with_virtio_device(drive_id, |block: &mut Block| {
                 block.update_disk_image(path_on_host)
             })
             .map_err(VmmError::FindDeviceError)??;
@@ -541,7 +541,7 @@ impl Vmm {
         rl_ops: BucketUpdate,
     ) -> Result<(), VmmError> {
         self.device_manager
-            .try_with_virtio_device_with_id(drive_id, |block: &mut Block| {
+            .with_virtio_device(drive_id, |block: &mut Block| {
                 block.update_rate_limiter(rl_bytes, rl_ops)
             })
             .map_err(VmmError::FindDeviceError)??;
@@ -551,7 +551,7 @@ impl Vmm {
     /// Updates the rate limiter parameters for block device with `drive_id` id.
     pub fn update_vhost_user_block_config(&mut self, drive_id: &str) -> Result<(), VmmError> {
         self.device_manager
-            .try_with_virtio_device_with_id(drive_id, |block: &mut Block| block.update_config())
+            .with_virtio_device(drive_id, |block: &mut Block| block.update_config())
             .map_err(VmmError::FindDeviceError)??;
         Ok(())
     }
@@ -566,7 +566,7 @@ impl Vmm {
         tx_ops: BucketUpdate,
     ) -> Result<(), VmmError> {
         self.device_manager
-            .with_virtio_device_with_id(net_id, |net: &mut Net| {
+            .with_virtio_device(net_id, |net: &mut Net| {
                 net.patch_rate_limiters(rx_bytes, rx_ops, tx_bytes, tx_ops)
             })
             .map_err(VmmError::FindDeviceError)
@@ -575,7 +575,7 @@ impl Vmm {
     /// Returns a reference to the balloon device if present.
     pub fn balloon_config(&self) -> Result<BalloonConfig, VmmError> {
         self.device_manager
-            .with_virtio_device_with_id(BALLOON_DEV_ID, |dev: &mut Balloon| dev.config())
+            .with_virtio_device(BALLOON_DEV_ID, |dev: &mut Balloon| dev.config())
             .map_err(VmmError::FindDeviceError)
     }
 
@@ -583,7 +583,7 @@ impl Vmm {
     pub fn latest_balloon_stats(&self) -> Result<BalloonStats, VmmError> {
         let stats = self
             .device_manager
-            .try_with_virtio_device_with_id(BALLOON_DEV_ID, |dev: &mut Balloon| dev.latest_stats())
+            .with_virtio_device(BALLOON_DEV_ID, |dev: &mut Balloon| dev.latest_stats())
             .map_err(VmmError::FindDeviceError)??;
         Ok(stats)
     }
@@ -591,7 +591,7 @@ impl Vmm {
     /// Updates configuration for the balloon device target size.
     pub fn update_balloon_config(&mut self, amount_mib: u32) -> Result<(), VmmError> {
         self.device_manager
-            .try_with_virtio_device_with_id(BALLOON_DEV_ID, |dev: &mut Balloon| {
+            .with_virtio_device(BALLOON_DEV_ID, |dev: &mut Balloon| {
                 dev.update_size(amount_mib)
             })
             .map_err(VmmError::FindDeviceError)??;
@@ -604,7 +604,7 @@ impl Vmm {
         stats_polling_interval_s: u16,
     ) -> Result<(), VmmError> {
         self.device_manager
-            .try_with_virtio_device_with_id(BALLOON_DEV_ID, |dev: &mut Balloon| {
+            .with_virtio_device(BALLOON_DEV_ID, |dev: &mut Balloon| {
                 dev.update_stats_polling_interval(stats_polling_interval_s)
             })
             .map_err(VmmError::FindDeviceError)??;
