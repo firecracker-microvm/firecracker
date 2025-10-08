@@ -11,13 +11,11 @@ from pathlib import Path
 
 import pytest
 import requests
-from packaging import version
 
 from framework import utils
 from framework.ab_test import git_clone
 from framework.microvm import MicroVMFactory
 from framework.properties import global_props
-from framework.utils_cpuid import CpuVendor, get_cpu_vendor
 
 CHECKER_URL = "https://raw.githubusercontent.com/speed47/spectre-meltdown-checker/master/spectre-meltdown-checker.sh"
 CHECKER_FILENAME = "spectre-meltdown-checker.sh"
@@ -134,31 +132,7 @@ def get_vuln_files_exception_dict(template):
     """
     Returns a dictionary of expected values for vulnerability files requiring special treatment.
     """
-    host_kernel_version = version.parse(utils.get_kernel_version())
-    cpu_vendor = get_cpu_vendor()
     exception_dict = {}
-
-    # Exception for tsa
-    # =============================
-    #
-    # AMD guests on 6.1 hosts before 6.1.153
-    # --------------------------------------------
-    # On 6.1 kernels before 6.1.153 [1], KVM doesn't tell the guest that the microcode with the TSA
-    # mitigation has been applied by setting CPUID.(EAX=0x80000021,ECX=0):EAX[5 (CLEAR_VERW)].
-    # The guest applies the mitigation anyways, but flags it as possibly vulnerable as it cannot
-    # verify that the microcode update has been applied correctly.
-    # Note that this doesn't affect the T2A template (deprecated) as the presented CPU is older
-    # and not recognised as being affected by TSA.
-    # [1]: https://github.com/amazonlinux/linux/commit/8d1e0db16431610b5b35737d88595bdd7a08e271
-
-    if (
-        cpu_vendor == CpuVendor.AMD
-        and template == "None"
-        and host_kernel_version.major == 6
-        and host_kernel_version.minor == 1
-        and host_kernel_version.micro < 153
-    ):
-        exception_dict["tsa"] = "Vulnerable: Clear CPU buffers attempted, no microcode"
 
     # Exception for mmio_stale_data
     # =============================
