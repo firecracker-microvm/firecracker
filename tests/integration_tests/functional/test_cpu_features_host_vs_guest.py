@@ -195,14 +195,14 @@ def test_host_vs_guest_cpu_features(uvm_plain_any):
             # Linux kernel v6.4+ passes through the CPUID bit for "flush_l1d" to guests.
             # https://github.com/torvalds/linux/commit/45cf86f26148e549c5ba4a8ab32a390e4bde216e
             #
-            # Our test ubuntu host kernel is v6.8 and has the commit.
+            # Our test ubuntu host kernel is v6.14 and has the commit.
             if global_props.host_linux_version_tpl >= (6, 4):
                 expected_host_minus_guest -= {"flush_l1d"}
 
             # Linux kernel v6.6+ drops the "invpcid_single" synthetic feature bit.
             # https://github.com/torvalds/linux/commit/54e3d9434ef61b97fd3263c141b928dc5635e50d
             #
-            # Our test ubuntu host kernel is v6.8 and has the commit.
+            # Our test ubuntu host kernel is v6.14 and has the commit.
             host_has_invpcid_single = global_props.host_linux_version_tpl < (6, 6)
             guest_has_invpcid_single = vm.guest_kernel_version < (6, 6)
             if host_has_invpcid_single and not guest_has_invpcid_single:
