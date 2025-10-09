@@ -1,9 +1,9 @@
 {
-  "firecracker_version": "1.13.0-dev",
-  "kernel_version": "5.10.238-234.956.amzn2.x86_64",
-  "microcode_version": "0xa101154",
+  "firecracker_version": "1.14.0-dev",
+  "kernel_version": "5.10.244-240.965.amzn2.x86_64",
+  "microcode_version": "0xa101156",
   "bios_version": "1.0",
-  "bios_revision": "2.21",
+  "bios_revision": "2.23",
   "guest_cpu_config": {
     "kvm_capabilities": [],
     "cpuid_modifiers": [
@@ -1494,7 +1494,7 @@
           },
           {
             "register": "ecx",
-            "bitmap": "0b00000000000000000010000000000000"
+            "bitmap": "0b00000000000000000110000000000000"
           },
           {
             "register": "edx",
@@ -1502,7 +1502,6 @@
           }
         ]
       }
-
     ],
     "msr_modifiers": [
       {
