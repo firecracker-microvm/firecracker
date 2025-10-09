@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 """File containing utility methods for fio-based performance tests"""
 
+import json
 import os
 from enum import Enum
 from pathlib import Path
@@ -46,13 +47,14 @@ class Engine(str, Enum):
 
 def build_cmd(
     file_path: str,
-    file_size_mb: str,
+    file_size_mb: str | None,
     block_size: int,
     mode: Mode,
     num_jobs: int,
     io_engine: Engine,
-    runtime: int = DEFAULT_RUNTIME_SEC,
-    warmup_time: int = DEFAULT_WARMUP_SEC,
+    runtime: int | None = DEFAULT_RUNTIME_SEC,
+    warmup_time: int | None = DEFAULT_WARMUP_SEC,
+    write_logs: bool = True,
 ) -> str:
     """Build fio cmd"""
 
@@ -60,12 +62,22 @@ def build_cmd(
         CmdBuilder("fio")
         .with_arg(f"--name={mode.value}-{block_size}")
         .with_arg(f"--filename={file_path}")
-        .with_arg(f"--size={file_size_mb}M")
-        .with_arg(f"--bs={block_size}")
-        .with_arg("--time_based=1")
-        .with_arg(f"--runtime={runtime}")
-        .with_arg(f"--ramp_time={warmup_time}")
-        .with_arg(f"--rw={mode.value}")
+    )
+
+    if file_size_mb:
+        cmd = cmd.with_arg(f"--size={file_size_mb}M")
+
+    cmd = cmd.with_arg(f"--bs={block_size}")
+
+    if runtime and warmup_time:
+        cmd = (
+            cmd.with_arg("--time_based=1")
+            .with_arg(f"--runtime={runtime}")
+            .with_arg(f"--ramp_time={warmup_time}")
+        )
+
+    cmd = (
+        cmd.with_arg(f"--rw={mode.value}")
         .with_arg("--direct=1")
         .with_arg("--randrepeat=0")
         .with_arg(f"--ioengine={io_engine.value}")
@@ -76,15 +88,17 @@ def build_cmd(
         .with_arg(f"--cpus_allowed={','.join(str(i) for i in range(num_jobs))}")
         # Instruct fio to pin one worker per vcpu
         .with_arg("--cpus_allowed_policy=split")
-        .with_arg("--log_avg_msec=1000")
-        .with_arg(f"--write_bw_log={mode.value}")
         .with_arg("--output-format=json+")
         .with_arg("--output=./fio.json")
     )
 
-    # Latency measurements only make sence for psync engine
-    if io_engine == Engine.PSYNC:
-        cmd = cmd.with_arg(f"--write_lat_log={mode}")
+    if write_logs:
+        cmd = cmd.with_arg("--log_avg_msec=1000").with_arg(
+            f"--write_bw_log={mode.value}"
+        )
+        # Latency measurements only make sence for psync engine
+        if io_engine == Engine.PSYNC:
+            cmd = cmd.with_arg(f"--write_lat_log={mode}")
 
     return cmd.build()
 
@@ -157,3 +171,30 @@ def process_log_files(root_dir: str, log_type: LogType) -> ([[str]], [[str]]):
         reads.append(read_values)
         writes.append(write_values)
     return reads, writes
+
+
+def process_json_files(root_dir: str) -> ([[int]], [[int]]):
+    """
+    Reads `bw_bytes` values from fio*.json files and
+    packs them into 2 arrays of bw_reads and bw_writes.
+    Each entrly is an array in itself of `jobs` per file.
+    """
+    paths = []
+    for item in os.listdir(root_dir):
+        if item.endswith(".json") and "fio" in item:
+            paths.append(Path(root_dir / item))
+
+    bw_reads = []
+    bw_writes = []
+    for path in sorted(paths):
+        data = json.loads(path.read_text("UTF-8"))
+        reads = []
+        writes = []
+        for job in data["jobs"]:
+            if "read" in job:
+                reads.append(job["read"]["bw_bytes"])
+            if "write" in job:
+                writes.append(job["write"]["bw_bytes"])
+        bw_reads.append(reads)
+        bw_writes.append(writes)
+    return bw_reads, bw_writes
