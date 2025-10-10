@@ -472,6 +472,10 @@
             {
                 "syscall": "restart_syscall",
                 "comment": "automatically issued by the kernel when specific timing-related syscalls (e.g. nanosleep) get interrupted by SIGSTOP"
+            },
+            {
+                "syscall": "mprotect",
+                "comment": "Used by memory hotplug to protect access to underlying host memory"
             }
         ]
     },
