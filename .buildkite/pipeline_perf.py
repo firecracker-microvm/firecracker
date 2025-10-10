@@ -80,6 +80,11 @@ perf_test = {
         "tests": "integration_tests/performance/test_mmds.py",
         "devtool_opts": "-c 1-10 -m 0",
     },
+    "memory-hotplug": {
+        "label": "memory-hotplug",
+        "tests": "integration_tests/performance/test_hotplug_memory.py",
+        "devtool_opts": "-c 1-10 -m 0",
+    },
 }
 
 REVISION_A = os.environ.get("REVISION_A")
