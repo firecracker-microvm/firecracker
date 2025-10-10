@@ -180,7 +180,10 @@ pub fn build_microvm_for_boot(
         let hotplug_memory_region = vm_resources
             .allocate_memory_region(addr, mib_to_bytes(memory_hotplug.total_size_mib))
             .map_err(StartMicrovmError::GuestMemory)?;
-        vm.register_hotpluggable_memory_region(hotplug_memory_region)?;
+        vm.register_hotpluggable_memory_region(
+            hotplug_memory_region,
+            mib_to_bytes(memory_hotplug.slot_size_mib),
+        )?;
         Some(addr)
     } else {
         None
