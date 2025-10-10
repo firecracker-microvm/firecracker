@@ -33,6 +33,7 @@ use crate::vmm_config::mmds::{MmdsConfig, MmdsConfigError};
 use crate::vmm_config::net::{
     NetworkInterfaceConfig, NetworkInterfaceError, NetworkInterfaceUpdateConfig,
 };
+use crate::vmm_config::pmem::{PmemConfig, PmemConfigError};
 use crate::vmm_config::serial::SerialConfig;
 use crate::vmm_config::snapshot::{CreateSnapshotParams, LoadSnapshotParams, SnapshotType};
 use crate::vmm_config::vsock::{VsockConfigError, VsockDeviceConfig};
@@ -75,6 +76,8 @@ pub enum VmmAction {
     /// Add a new block device or update one that already exists using the `BlockDeviceConfig` as
     /// input. This action can only be called before the microVM has booted.
     InsertBlockDevice(BlockDeviceConfig),
+    /// Add a virtio-pmem device.
+    InsertPmemDevice(PmemConfig),
     /// Add a new network interface config or update one that already exists using the
     /// `NetworkInterfaceConfig` as input. This action can only be called before the microVM has
     /// booted.
@@ -143,6 +146,8 @@ pub enum VmmActionError {
     DriveConfig(#[from] DriveError),
     /// Entropy device error: {0}
     EntropyDevice(#[from] EntropyDeviceError),
+    /// Pmem device error: {0}
+    PmemDevice(#[from] PmemConfigError),
     /// Internal VMM error: {0}
     InternalVmm(#[from] VmmError),
     /// Load snapshot error: {0}
@@ -432,6 +437,7 @@ impl<'a> PrebootApiController<'a> {
             GetVmInstanceInfo => Ok(VmmData::InstanceInformation(self.instance_info.clone())),
             GetVmmVersion => Ok(VmmData::VmmVersion(self.instance_info.vmm_version.clone())),
             InsertBlockDevice(config) => self.insert_block_device(config),
+            InsertPmemDevice(config) => self.insert_pmem_device(config),
             InsertNetworkDevice(config) => self.insert_net_device(config),
             LoadSnapshot(config) => self
                 .load_snapshot(&config)
@@ -487,6 +493,14 @@ impl<'a> PrebootApiController<'a> {
             .build_net_device(cfg)
             .map(|()| VmmData::Empty)
             .map_err(VmmActionError::NetworkConfig)
+    }
+
+    fn insert_pmem_device(&mut self, cfg: PmemConfig) -> Result<VmmData, VmmActionError> {
+        self.boot_path = true;
+        self.vm_resources
+            .build_pmem_device(cfg)
+            .map(|()| VmmData::Empty)
+            .map_err(VmmActionError::PmemDevice)
     }
 
     fn set_balloon_device(&mut self, cfg: BalloonDeviceConfig) -> Result<VmmData, VmmActionError> {
@@ -687,6 +701,7 @@ impl RuntimeApiController {
             | ConfigureMetrics(_)
             | ConfigureSerial(_)
             | InsertBlockDevice(_)
+            | InsertPmemDevice(_)
             | InsertNetworkDevice(_)
             | LoadSnapshot(_)
             | PutCpuConfiguration(_)
@@ -1272,5 +1287,11 @@ mod tests {
         check_unsupported(runtime_request(VmmAction::SetEntropyDevice(
             EntropyDeviceConfig::default(),
         )));
+        check_unsupported(runtime_request(VmmAction::InsertPmemDevice(PmemConfig {
+            id: String::new(),
+            path_on_host: String::new(),
+            root_device: false,
+            read_only: false,
+        })));
     }
 }

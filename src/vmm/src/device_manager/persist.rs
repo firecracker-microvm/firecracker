@@ -30,6 +30,10 @@ use crate::devices::virtio::net::persist::{
     NetConstructorArgs, NetPersistError as NetError, NetState,
 };
 use crate::devices::virtio::persist::{MmioTransportConstructorArgs, MmioTransportState};
+use crate::devices::virtio::pmem::device::Pmem;
+use crate::devices::virtio::pmem::persist::{
+    PmemConstructorArgs, PmemPersistError as PmemError, PmemState,
+};
 use crate::devices::virtio::rng::Entropy;
 use crate::devices::virtio::rng::persist::{
     EntropyConstructorArgs, EntropyPersistError as EntropyError, EntropyState,
@@ -73,6 +77,8 @@ pub enum DevicePersistError {
     MmdsConfig(#[from] MmdsConfigError),
     /// Entropy: {0}
     Entropy(#[from] EntropyError),
+    /// Pmem: {0}
+    Pmem(#[from] PmemError),
     /// Resource misconfiguration: {0}. Is the snapshot file corrupted?
     ResourcesError(#[from] ResourcesError),
     /// Could not activate device: {0}
@@ -126,6 +132,8 @@ pub struct DeviceStates {
     pub mmds: Option<MmdsState>,
     /// Entropy device state.
     pub entropy_device: Option<VirtioDeviceState<EntropyState>>,
+    /// Pmem device states.
+    pub pmem_devices: Vec<VirtioDeviceState<PmemState>>,
 }
 
 /// A type used to extract the concrete `Arc<Mutex<T>>` for each of the device
@@ -137,6 +145,7 @@ pub enum SharedDeviceType {
     Balloon(Arc<Mutex<Balloon>>),
     Vsock(Arc<Mutex<Vsock<VsockUnixBackend>>>),
     Entropy(Arc<Mutex<Entropy>>),
+    Pmem(Arc<Mutex<Pmem>>),
 }
 
 pub struct MMIODevManagerConstructorArgs<'a> {
@@ -335,6 +344,16 @@ impl<'a> Persist<'a> for MMIODeviceManager {
                         transport_state,
                         device_info,
                     });
+                }
+                virtio_ids::VIRTIO_ID_PMEM => {
+                    let pmem = locked_device.as_mut_any().downcast_mut::<Pmem>().unwrap();
+                    let device_state = pmem.save();
+                    states.pmem_devices.push(VirtioDeviceState {
+                        device_id,
+                        device_state,
+                        transport_state,
+                        device_info,
+                    })
                 }
                 _ => unreachable!(),
             };
@@ -550,6 +569,31 @@ impl<'a> Persist<'a> for MMIODeviceManager {
             )?;
         }
 
+        for pmem_state in &state.pmem_devices {
+            let device = Arc::new(Mutex::new(Pmem::restore(
+                PmemConstructorArgs {
+                    mem,
+                    vm: vm.as_ref(),
+                },
+                &pmem_state.device_state,
+            )?));
+
+            constructor_args
+                .vm_resources
+                .update_from_restored_device(SharedDeviceType::Pmem(device.clone()))?;
+
+            restore_helper(
+                device.clone(),
+                pmem_state.device_state.virtio_state.activated,
+                false,
+                device,
+                &pmem_state.device_id,
+                &pmem_state.transport_state,
+                &pmem_state.device_info,
+                constructor_args.event_manager,
+            )?;
+        }
+
         Ok(dev_manager)
     }
 }
@@ -567,6 +611,7 @@ mod tests {
     use crate::vmm_config::balloon::BalloonDeviceConfig;
     use crate::vmm_config::entropy::EntropyDeviceConfig;
     use crate::vmm_config::net::NetworkInterfaceConfig;
+    use crate::vmm_config::pmem::PmemConfig;
     use crate::vmm_config::vsock::VsockDeviceConfig;
 
     impl<T> PartialEq for VirtioDeviceState<T> {
@@ -614,6 +659,7 @@ mod tests {
         let mut buf = vec![0; 65536];
         // These need to survive so the restored blocks find them.
         let _block_files;
+        let _pmem_files;
         let mut tmp_sock_file = TempFile::new().unwrap();
         tmp_sock_file.remove().unwrap();
         // Set up a vmm with one of each device, and get the serialized DeviceStates.
@@ -666,6 +712,16 @@ mod tests {
             // Add an entropy device.
             let entropy_config = EntropyDeviceConfig::default();
             insert_entropy_device(&mut vmm, &mut cmdline, &mut event_manager, entropy_config);
+            // Add a pmem device.
+            let pmem_id = String::from("pmem");
+            let pmem_configs = vec![PmemConfig {
+                id: pmem_id,
+                path_on_host: "".into(),
+                root_device: true,
+                read_only: true,
+            }];
+            _pmem_files =
+                insert_pmem_devices(&mut vmm, &mut cmdline, &mut event_manager, pmem_configs);
 
             Snapshot::new(vmm.device_manager.save())
                 .save(&mut buf.as_mut_slice())
@@ -750,10 +806,19 @@ mod tests {
   }},
   "entropy": {{
     "rate_limiter": null
-  }}
+  }},
+  "pmem": [
+    {{
+      "id": "pmem",
+      "path_on_host": "{}",
+      "root_device": true,
+      "read_only": true
+    }}
+  ]
 }}"#,
             _block_files.last().unwrap().as_path().to_str().unwrap(),
-            tmp_sock_file.as_path().to_str().unwrap()
+            tmp_sock_file.as_path().to_str().unwrap(),
+            _pmem_files.last().unwrap().as_path().to_str().unwrap(),
         );
 
         assert_eq!(

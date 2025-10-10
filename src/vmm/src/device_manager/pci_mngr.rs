@@ -20,6 +20,8 @@ use crate::devices::virtio::device::VirtioDevice;
 use crate::devices::virtio::generated::virtio_ids;
 use crate::devices::virtio::net::Net;
 use crate::devices::virtio::net::persist::{NetConstructorArgs, NetState};
+use crate::devices::virtio::pmem::device::Pmem;
+use crate::devices::virtio::pmem::persist::{PmemConstructorArgs, PmemState};
 use crate::devices::virtio::rng::Entropy;
 use crate::devices::virtio::rng::persist::{EntropyConstructorArgs, EntropyState};
 use crate::devices::virtio::transport::pci::device::{
@@ -238,6 +240,8 @@ pub struct PciDevicesState {
     pub mmds: Option<MmdsState>,
     /// Entropy device state.
     pub entropy_device: Option<VirtioDeviceState<EntropyState>>,
+    /// Pmem device states.
+    pub pmem_devices: Vec<VirtioDeviceState<PmemState>>,
 }
 
 pub struct PciDevicesConstructorArgs<'a> {
@@ -385,6 +389,19 @@ impl<'a> Persist<'a> for PciDevices {
                         device_state,
                         transport_state,
                     })
+                }
+                virtio_ids::VIRTIO_ID_PMEM => {
+                    let pmem_dev = locked_virtio_dev
+                        .as_mut_any()
+                        .downcast_mut::<Pmem>()
+                        .unwrap();
+                    let device_state = pmem_dev.save();
+                    state.pmem_devices.push(VirtioDeviceState {
+                        device_id: pmem_dev.config.id.clone(),
+                        pci_device_bdf,
+                        device_state,
+                        transport_state,
+                    });
                 }
                 _ => unreachable!(),
             }
@@ -564,6 +581,34 @@ impl<'a> Persist<'a> for PciDevices {
                 .unwrap()
         }
 
+        for pmem_state in &state.pmem_devices {
+            let device = Arc::new(Mutex::new(
+                Pmem::restore(
+                    PmemConstructorArgs {
+                        mem,
+                        vm: constructor_args.vm.as_ref(),
+                    },
+                    &pmem_state.device_state,
+                )
+                .unwrap(),
+            ));
+
+            constructor_args
+                .vm_resources
+                .update_from_restored_device(SharedDeviceType::Pmem(device.clone()))
+                .unwrap();
+
+            pci_devices
+                .restore_pci_device(
+                    constructor_args.vm,
+                    device,
+                    &pmem_state.device_id,
+                    &pmem_state.transport_state,
+                    constructor_args.event_manager,
+                )
+                .unwrap()
+        }
+
         Ok(pci_devices)
     }
 }
@@ -582,6 +627,7 @@ mod tests {
     use crate::vmm_config::balloon::BalloonDeviceConfig;
     use crate::vmm_config::entropy::EntropyDeviceConfig;
     use crate::vmm_config::net::NetworkInterfaceConfig;
+    use crate::vmm_config::pmem::PmemConfig;
     use crate::vmm_config::vsock::VsockDeviceConfig;
 
     #[test]
@@ -589,6 +635,7 @@ mod tests {
         let mut buf = vec![0; 65536];
         // These need to survive so the restored blocks find them.
         let _block_files;
+        let _pmem_files;
         let mut tmp_sock_file = TempFile::new().unwrap();
         tmp_sock_file.remove().unwrap();
         // Set up a vmm with one of each device, and get the serialized DeviceStates.
@@ -642,6 +689,16 @@ mod tests {
             // Add an entropy device.
             let entropy_config = EntropyDeviceConfig::default();
             insert_entropy_device(&mut vmm, &mut cmdline, &mut event_manager, entropy_config);
+            // Add a pmem device.
+            let pmem_id = String::from("pmem");
+            let pmem_configs = vec![PmemConfig {
+                id: pmem_id,
+                path_on_host: "".into(),
+                root_device: true,
+                read_only: true,
+            }];
+            _pmem_files =
+                insert_pmem_devices(&mut vmm, &mut cmdline, &mut event_manager, pmem_configs);
 
             Snapshot::new(vmm.device_manager.save())
                 .save(&mut buf.as_mut_slice())
@@ -730,10 +787,19 @@ mod tests {
   }},
   "entropy": {{
     "rate_limiter": null
-  }}
+  }},
+  "pmem": [
+    {{
+      "id": "pmem",
+      "path_on_host": "{}",
+      "root_device": true,
+      "read_only": true
+    }}
+  ]
 }}"#,
             _block_files.last().unwrap().as_path().to_str().unwrap(),
-            tmp_sock_file.as_path().to_str().unwrap()
+            tmp_sock_file.as_path().to_str().unwrap(),
+            _pmem_files.last().unwrap().as_path().to_str().unwrap(),
         );
 
         assert_eq!(

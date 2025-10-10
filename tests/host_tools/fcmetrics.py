@@ -223,6 +223,8 @@ def validate_fc_metrics(metrics):
             "mmds_fails",
             "vsock_count",
             "vsock_fails",
+            "pmem_count",
+            "pmem_fails",
             "serial_count",
             "serial_fails",
         ],
@@ -293,6 +295,12 @@ def validate_fc_metrics(metrics):
             "rate_limiter_event_count",
         ],
         "interrupts": ["triggers", "config_updates"],
+        "pmem": [
+            "activate_fails",
+            "cfg_fails",
+            "event_fails",
+            "queue_event_count",
+        ],
     }
 
     # validate timestamp before jsonschema validation which some more time
