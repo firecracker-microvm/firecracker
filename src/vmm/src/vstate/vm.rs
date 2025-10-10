@@ -81,8 +81,8 @@ pub enum VmError {
     CreateVcpu(VcpuError),
     /// The number of configured slots is bigger than the maximum reported by KVM: {0}
     NotEnoughMemorySlots(u32),
-    /// Memory Error: {0}
-    VmMemory(#[from] vm_memory::Error),
+    /// Failed to add a memory region: {0}
+    InsertRegion(#[from] vm_memory::GuestRegionCollectionError),
     /// Error calling mincore: {0}
     Mincore(vmm_sys_util::errno::Error),
     /// ResourceAllocator error: {0}
