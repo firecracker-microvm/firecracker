@@ -10,7 +10,7 @@ use event_manager::{MutEventSubscriber, SubscriberOps};
 use log::{debug, error, warn};
 use serde::{Deserialize, Serialize};
 
-use super::persist::{MmdsState, SharedDeviceType};
+use super::persist::MmdsState;
 use crate::devices::pci::PciSegment;
 use crate::devices::virtio::balloon::Balloon;
 use crate::devices::virtio::balloon::persist::{BalloonConstructorArgs, BalloonState};
@@ -419,8 +419,8 @@ impl<'a> Persist<'a> for PciDevices {
 
             constructor_args
                 .vm_resources
-                .update_from_restored_device(SharedDeviceType::Balloon(device.clone()))
-                .unwrap();
+                .balloon
+                .set_device(device.clone());
 
             pci_devices
                 .restore_pci_device(
@@ -444,8 +444,8 @@ impl<'a> Persist<'a> for PciDevices {
 
             constructor_args
                 .vm_resources
-                .update_from_restored_device(SharedDeviceType::VirtioBlock(device.clone()))
-                .unwrap();
+                .block
+                .add_virtio_device(device.clone());
 
             pci_devices
                 .restore_pci_device(
@@ -494,8 +494,8 @@ impl<'a> Persist<'a> for PciDevices {
 
             constructor_args
                 .vm_resources
-                .update_from_restored_device(SharedDeviceType::Network(device.clone()))
-                .unwrap();
+                .net_builder
+                .add_device(device.clone());
 
             pci_devices
                 .restore_pci_device(
@@ -527,8 +527,8 @@ impl<'a> Persist<'a> for PciDevices {
 
             constructor_args
                 .vm_resources
-                .update_from_restored_device(SharedDeviceType::Vsock(device.clone()))
-                .unwrap();
+                .vsock
+                .set_device(device.clone());
 
             pci_devices
                 .restore_pci_device(
@@ -550,8 +550,8 @@ impl<'a> Persist<'a> for PciDevices {
 
             constructor_args
                 .vm_resources
-                .update_from_restored_device(SharedDeviceType::Entropy(device.clone()))
-                .unwrap();
+                .entropy
+                .set_device(device.clone());
 
             pci_devices
                 .restore_pci_device(

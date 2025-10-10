@@ -8,7 +8,6 @@ use std::sync::{Arc, Mutex, MutexGuard};
 use serde::{Deserialize, Serialize};
 
 use crate::cpu_config::templates::CustomCpuTemplate;
-use crate::device_manager::persist::SharedDeviceType;
 use crate::logger::info;
 use crate::mmds;
 use crate::mmds::data_store::{Mmds, MmdsVersion};
@@ -216,40 +215,6 @@ impl VmResources {
     pub fn locked_mmds_or_default(&mut self) -> Result<MutexGuard<'_, Mmds>, MmdsConfigError> {
         let mmds = self.mmds_or_default()?;
         Ok(mmds.lock().expect("Poisoned lock"))
-    }
-
-    /// Updates the resources from a restored device (used for configuring resources when
-    /// restoring from a snapshot).
-    pub fn update_from_restored_device(
-        &mut self,
-        device: SharedDeviceType,
-    ) -> Result<(), ResourcesError> {
-        match device {
-            SharedDeviceType::VirtioBlock(block) => {
-                self.block.add_virtio_device(block);
-            }
-
-            SharedDeviceType::Network(network) => {
-                self.net_builder.add_device(network);
-            }
-
-            SharedDeviceType::Balloon(balloon) => {
-                self.balloon.set_device(balloon);
-
-                if self.machine_config.huge_pages != HugePageConfig::None {
-                    return Err(ResourcesError::BalloonDevice(BalloonConfigError::HugePages));
-                }
-            }
-
-            SharedDeviceType::Vsock(vsock) => {
-                self.vsock.set_device(vsock);
-            }
-            SharedDeviceType::Entropy(entropy) => {
-                self.entropy.set_device(entropy);
-            }
-        }
-
-        Ok(())
     }
 
     /// Add a custom CPU template to the VM resources
@@ -1497,31 +1462,6 @@ mod tests {
         vm_resources
             .set_balloon_device(new_balloon_cfg)
             .unwrap_err();
-    }
-
-    #[test]
-    fn test_negative_restore_balloon_device_with_huge_pages() {
-        let mut vm_resources = default_vm_resources();
-        vm_resources.balloon = BalloonBuilder::new();
-        vm_resources
-            .update_machine_config(&MachineConfigUpdate {
-                huge_pages: Some(HugePageConfig::Hugetlbfs2M),
-                ..Default::default()
-            })
-            .unwrap();
-        let err = vm_resources
-            .update_from_restored_device(SharedDeviceType::Balloon(Arc::new(Mutex::new(
-                Balloon::new(128, false, 0, true).unwrap(),
-            ))))
-            .unwrap_err();
-        assert!(
-            matches!(
-                err,
-                ResourcesError::BalloonDevice(BalloonConfigError::HugePages)
-            ),
-            "{:?}",
-            err
-        );
     }
 
     #[test]
