@@ -14,6 +14,7 @@ from tenacity import Retrying, retry_if_exception_type, stop_after_delay, wait_f
 
 from framework.guest_stats import MeminfoGuest
 from framework.microvm import HugePagesConfig
+from framework.properties import global_props
 from framework.utils import get_kernel_version, get_resident_memory
 
 MEMHP_BOOTARGS = "console=ttyS0 reboot=k panic=1 memhp_default_state=online_movable"
@@ -290,3 +291,76 @@ def test_snapshot_restore_persistence(uvm_plain_6_1, microvm_factory):
     assert checksum_before == checksum_after, "Checksums didn't match"
 
     validate_metrics(restored_vm)
+
+
+def timed_memory_hotplug(uvm, size, metrics, metric_prefix, fc_metric_name):
+    """Wait for all memory hotplug events to be processed"""
+
+    uvm.flush_metrics()
+
+    api_time, total_time = uvm.hotplug_memory(size)
+
+    fc_metrics = uvm.flush_metrics()
+
+    metrics.put_metric(
+        f"{metric_prefix}_api_time",
+        api_time,
+        unit="Seconds",
+    )
+    metrics.put_metric(
+        f"{metric_prefix}_total_time",
+        total_time,
+        unit="Seconds",
+    )
+    metrics.put_metric(
+        f"{metric_prefix}_fc_time",
+        fc_metrics["memory_hotplug"][fc_metric_name]["sum_us"],
+        unit="Microseconds",
+    )
+
+
+@pytest.mark.nonci
+@pytest.mark.parametrize(
+    "hotplug_size",
+    [
+        1024,
+        2048,
+        4096,
+        8192,
+        16384,
+    ],
+)
+@pytest.mark.parametrize(
+    "huge_pages",
+    [HugePagesConfig.NONE, HugePagesConfig.HUGETLBFS_2MB],
+)
+def test_memory_hotplug_latency(
+    microvm_factory, guest_kernel_linux_6_1, rootfs, hotplug_size, huge_pages, metrics
+):
+    """Test the latency of hotplugging memory"""
+
+    for i in range(20):
+        config = {
+            "total_size_mib": hotplug_size,
+            "slot_size_mib": 128,
+            "block_size_mib": 2,
+        }
+        uvm_plain_6_1 = microvm_factory.build(guest_kernel_linux_6_1, rootfs, pci=True)
+        uvm = uvm_booted_memhp(uvm_plain_6_1, None, None, False, config, None, None)
+
+        if i == 0:
+            metrics.set_dimensions(
+                {
+                    "instance": global_props.instance,
+                    "cpu_model": global_props.cpu_model,
+                    "host_kernel": f"linux-{global_props.host_linux_version}",
+                    "performance_test": "test_memory_hotplug_latency",
+                    "hotplug_size": str(hotplug_size),
+                    "huge_pages": huge_pages,
+                    **uvm.dimensions,
+                }
+            )
+
+        timed_memory_hotplug(uvm, hotplug_size, metrics, "hotplug", "plug_agg")
+        timed_memory_hotplug(uvm, 0, metrics, "hotunplug", "unplug_agg")
+        timed_memory_hotplug(uvm, hotplug_size, metrics, "hotplug_2nd", "plug_agg")
