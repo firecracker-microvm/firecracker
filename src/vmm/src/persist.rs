@@ -571,6 +571,7 @@ fn send_uffd_handshake(
 mod tests {
     use std::os::unix::net::UnixListener;
 
+    use bitvec::vec::BitVec;
     use vmm_sys_util::tempfile::TempFile;
 
     use super::*;
@@ -698,6 +699,7 @@ mod tests {
                 base_address: 0,
                 size: 0x20000,
                 region_type: GuestRegionType::Dram,
+                plugged: BitVec::repeat(true, 1),
             }],
         };
 
