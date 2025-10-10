@@ -44,7 +44,7 @@ use crate::devices::virtio::vsock::persist::{
 };
 use crate::devices::virtio::vsock::{Vsock, VsockError, VsockUnixBackend, VsockUnixBackendError};
 use crate::mmds::data_store::MmdsVersion;
-use crate::resources::{ResourcesError, VmResources};
+use crate::resources::VmResources;
 use crate::snapshot::Persist;
 use crate::vmm_config::mmds::MmdsConfigError;
 use crate::vstate::bus::BusError;
@@ -79,8 +79,6 @@ pub enum DevicePersistError {
     Entropy(#[from] EntropyError),
     /// Pmem: {0}
     Pmem(#[from] PmemError),
-    /// Resource misconfiguration: {0}. Is the snapshot file corrupted?
-    ResourcesError(#[from] ResourcesError),
     /// Could not activate device: {0}
     DeviceActivation(#[from] ActivateError),
 }
@@ -134,18 +132,6 @@ pub struct DeviceStates {
     pub entropy_device: Option<VirtioDeviceState<EntropyState>>,
     /// Pmem device states.
     pub pmem_devices: Vec<VirtioDeviceState<PmemState>>,
-}
-
-/// A type used to extract the concrete `Arc<Mutex<T>>` for each of the device
-/// types when restoring from a snapshot.
-#[derive(Debug)]
-pub enum SharedDeviceType {
-    VirtioBlock(Arc<Mutex<Block>>),
-    Network(Arc<Mutex<Net>>),
-    Balloon(Arc<Mutex<Balloon>>),
-    Vsock(Arc<Mutex<Vsock<VsockUnixBackend>>>),
-    Entropy(Arc<Mutex<Entropy>>),
-    Pmem(Arc<Mutex<Pmem>>),
 }
 
 pub struct MMIODevManagerConstructorArgs<'a> {
@@ -437,7 +423,8 @@ impl<'a> Persist<'a> for MMIODeviceManager {
 
             constructor_args
                 .vm_resources
-                .update_from_restored_device(SharedDeviceType::Balloon(device.clone()))?;
+                .balloon
+                .set_device(device.clone());
 
             restore_helper(
                 device.clone(),
@@ -459,7 +446,8 @@ impl<'a> Persist<'a> for MMIODeviceManager {
 
             constructor_args
                 .vm_resources
-                .update_from_restored_device(SharedDeviceType::VirtioBlock(device.clone()))?;
+                .block
+                .add_virtio_device(device.clone());
 
             restore_helper(
                 device.clone(),
@@ -498,7 +486,8 @@ impl<'a> Persist<'a> for MMIODeviceManager {
 
             constructor_args
                 .vm_resources
-                .update_from_restored_device(SharedDeviceType::Network(device.clone()))?;
+                .net_builder
+                .add_device(device.clone());
 
             restore_helper(
                 device.clone(),
@@ -527,7 +516,8 @@ impl<'a> Persist<'a> for MMIODeviceManager {
 
             constructor_args
                 .vm_resources
-                .update_from_restored_device(SharedDeviceType::Vsock(device.clone()))?;
+                .vsock
+                .set_device(device.clone());
 
             restore_helper(
                 device.clone(),
@@ -551,7 +541,8 @@ impl<'a> Persist<'a> for MMIODeviceManager {
 
             constructor_args
                 .vm_resources
-                .update_from_restored_device(SharedDeviceType::Entropy(device.clone()))?;
+                .entropy
+                .set_device(device.clone());
 
             restore_helper(
                 device.clone(),
@@ -576,7 +567,8 @@ impl<'a> Persist<'a> for MMIODeviceManager {
 
             constructor_args
                 .vm_resources
-                .update_from_restored_device(SharedDeviceType::Pmem(device.clone()))?;
+                .pmem
+                .add_device(device.clone());
 
             restore_helper(
                 device.clone(),
