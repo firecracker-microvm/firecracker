@@ -17,17 +17,17 @@ pub use vm_memory::{
     Address, ByteValued, Bytes, FileOffset, GuestAddress, GuestMemory, GuestMemoryRegion,
     GuestUsize, MemoryRegionAddress, MmapRegion, address,
 };
-use vm_memory::{Error as VmMemoryError, GuestMemoryError, WriteVolatile};
+use vm_memory::{GuestMemoryError, WriteVolatile};
 use vmm_sys_util::errno;
 
 use crate::DirtyBitmap;
 use crate::utils::{get_page_size, u64_to_usize};
 use crate::vmm_config::machine_config::HugePageConfig;
 
-/// Type of GuestMemoryMmap.
-pub type GuestMemoryMmap = vm_memory::GuestMemoryMmap<Option<AtomicBitmap>>;
 /// Type of GuestRegionMmap.
 pub type GuestRegionMmap = vm_memory::GuestRegionMmap<Option<AtomicBitmap>>;
+/// Type of GuestMemoryMmap.
+pub type GuestMemoryMmap = vm_memory::GuestRegionCollection<GuestRegionMmap>;
 /// Type of GuestMmapRegion.
 pub type GuestMmapRegion = vm_memory::MmapRegion<Option<AtomicBitmap>>;
 
@@ -40,8 +40,8 @@ pub enum MemoryError {
     WriteMemory(GuestMemoryError),
     /// Cannot create mmap region: {0}
     MmapRegionError(MmapRegionError),
-    /// Cannot create guest memory: {0}
-    VmMemoryError(VmMemoryError),
+    /// Cannot create guest memory
+    VmMemoryError,
     /// Cannot create memfd: {0}
     Memfd(memfd::Error),
     /// Cannot resize memfd file: {0}
@@ -86,7 +86,7 @@ pub fn create(
                 builder.build().map_err(MemoryError::MmapRegionError)?,
                 start,
             )
-            .map_err(MemoryError::VmMemoryError)
+            .ok_or(MemoryError::VmMemoryError)
         })
         .collect::<Result<Vec<_>, _>>()
 }
@@ -203,12 +203,10 @@ impl GuestMemoryExtension for GuestMemoryMmap {
 
     /// Mark memory range as dirty
     fn mark_dirty(&self, addr: GuestAddress, len: usize) {
-        let _ = self.try_access(len, addr, |_total, count, caddr, region| {
-            if let Some(bitmap) = region.bitmap() {
-                bitmap.mark_dirty(u64_to_usize(caddr.0), count);
-            }
-            Ok(count)
-        });
+        // ignore invalid ranges using .flatten()
+        for slice in self.get_slices(addr, len).flatten() {
+            slice.bitmap().mark_dirty(0, slice.len());
+        }
     }
 
     /// Dumps all contents of GuestMemoryMmap to a writer.
@@ -283,7 +281,7 @@ impl GuestMemoryExtension for GuestMemoryMmap {
     /// Resets all the memory region bitmaps
     fn reset_dirty(&self) {
         self.iter().for_each(|region| {
-            if let Some(bitmap) = region.bitmap() {
+            if let Some(bitmap) = (**region).bitmap() {
                 bitmap.reset();
             }
         })
@@ -413,20 +411,14 @@ mod tests {
 
         // Check that the dirty memory was set correctly
         for (addr, len, dirty) in &dirty_map {
-            guest_memory
-                .try_access(
-                    *len,
-                    GuestAddress(*addr as u64),
-                    |_total, count, caddr, region| {
-                        let offset = usize::try_from(caddr.0).unwrap();
-                        let bitmap = region.bitmap().as_ref().unwrap();
-                        for i in offset..offset + count {
-                            assert_eq!(bitmap.dirty_at(i), *dirty);
-                        }
-                        Ok(count)
-                    },
-                )
-                .unwrap();
+            for slice in guest_memory
+                .get_slices(GuestAddress(*addr as u64), *len)
+                .flatten()
+            {
+                for i in 0..slice.len() {
+                    assert_eq!(slice.bitmap().dirty_at(i), *dirty);
+                }
+            }
         }
     }
 
