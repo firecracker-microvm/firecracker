@@ -24,9 +24,10 @@ pub use vm_memory::{
 use vm_memory::{GuestMemoryError, GuestMemoryRegionBytes, VolatileSlice, WriteVolatile};
 use vmm_sys_util::errno;
 
-use crate::DirtyBitmap;
 use crate::utils::{get_page_size, u64_to_usize};
 use crate::vmm_config::machine_config::HugePageConfig;
+use crate::vstate::vm::VmError;
+use crate::{DirtyBitmap, Vm};
 
 /// Type of GuestRegionMmap.
 pub type GuestRegionMmap = vm_memory::GuestRegionMmap<Option<AtomicBitmap>>;
@@ -162,6 +163,14 @@ impl<'a> GuestMemorySlot<'a> {
     }
 }
 
+fn addr_in_range(addr: GuestAddress, start: GuestAddress, len: usize) -> bool {
+    if let Some(end) = start.checked_add(len as u64) {
+        addr >= start && addr < end
+    } else {
+        false
+    }
+}
+
 impl GuestRegionMmapExt {
     /// Adds a DRAM region which only contains a single plugged slot
     pub(crate) fn dram_from_mmap_region(region: GuestRegionMmap, slot: u32) -> Self {
@@ -188,8 +197,7 @@ impl GuestRegionMmapExt {
             region_type: GuestRegionType::Hotpluggable,
             slot_from,
             slot_size,
-            // TODO(virtio-mem): these should start unplugged when dynamic slots are implemented
-            plugged: Mutex::new(BitVec::repeat(true, slot_cnt)),
+            plugged: Mutex::new(BitVec::repeat(false, slot_cnt)),
         }
     }
 
@@ -257,6 +265,43 @@ impl GuestRegionMmapExt {
         self.slots()
             .filter(|(_, plugged)| *plugged)
             .map(|(slot, _)| slot)
+    }
+
+    pub(crate) fn slots_intersecting_range(
+        &self,
+        from: GuestAddress,
+        len: usize,
+    ) -> impl Iterator<Item = GuestMemorySlot<'_>> {
+        self.slots().map(|(slot, _)| slot).filter(move |slot| {
+            if let Some(slot_end) = slot.guest_addr.checked_add(slot.slice.len() as u64) {
+                addr_in_range(slot.guest_addr, from, len) || addr_in_range(slot_end, from, len)
+            } else {
+                false
+            }
+        })
+    }
+
+    /// (un)plug a slot from an Hotpluggable memory region
+    pub(crate) fn update_slot(
+        &self,
+        vm: &Vm,
+        mem_slot: &GuestMemorySlot<'_>,
+        plug: bool,
+    ) -> Result<(), VmError> {
+        // This function can only be called on hotpluggable regions!
+        assert!(self.region_type == GuestRegionType::Hotpluggable);
+
+        let mut bitmap_guard = self.plugged.lock().unwrap();
+        let prev = bitmap_guard.replace((mem_slot.slot - self.slot_from) as usize, plug);
+        // do not do anything if the state is what we're trying to set
+        if prev == plug {
+            return Ok(());
+        }
+        let mut kvm_region = kvm_userspace_memory_region::from(mem_slot);
+        if !plug {
+            kvm_region.memory_size = 0;
+        }
+        vm.set_user_memory_region(kvm_region)
     }
 
     pub(crate) fn discard_range(
