@@ -57,6 +57,8 @@ pub enum MemoryError {
     FileMetadata(std::io::Error),
     /// Memory region is not aligned
     Unaligned,
+    /// Error protecting memory slot: {0}
+    Mprotect(std::io::Error),
 }
 
 /// Type of the guest region
@@ -160,6 +162,28 @@ impl<'a> GuestMemorySlot<'a> {
         }
 
         Ok(())
+    }
+
+    /// Makes the slot host memory PROT_NONE (true) or PROT_READ|PROT_WRITE (false)
+    pub(crate) fn protect(&self, protected: bool) -> Result<(), MemoryError> {
+        let prot = if protected {
+            libc::PROT_NONE
+        } else {
+            libc::PROT_READ | libc::PROT_WRITE
+        };
+        // SAFETY: Parameters refer to an existing host memory region
+        let ret = unsafe {
+            libc::mprotect(
+                self.slice.ptr_guard_mut().as_ptr().cast(),
+                self.slice.len(),
+                prot,
+            )
+        };
+        if ret != 0 {
+            Err(MemoryError::Mprotect(std::io::Error::last_os_error()))
+        } else {
+            Ok(())
+        }
     }
 }
 
@@ -297,11 +321,20 @@ impl GuestRegionMmapExt {
         if prev == plug {
             return Ok(());
         }
+
         let mut kvm_region = kvm_userspace_memory_region::from(mem_slot);
-        if !plug {
+        if plug {
+            // make it accessible _before_ adding it to KVM
+            mem_slot.protect(false)?;
+            vm.set_user_memory_region(kvm_region)?;
+        } else {
+            // to remove it we need to pass a size of zero
             kvm_region.memory_size = 0;
+            vm.set_user_memory_region(kvm_region)?;
+            // make it protected _after_ removing it from KVM
+            mem_slot.protect(true)?;
         }
-        vm.set_user_memory_region(kvm_region)
+        Ok(())
     }
 
     pub(crate) fn discard_range(
