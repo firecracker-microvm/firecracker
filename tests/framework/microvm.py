@@ -1207,8 +1207,13 @@ class Microvm:
     def hotplug_memory(
         self, requested_size_mib: int, timeout: int = 60, poll: float = 0.1
     ):
-        """Send a hot(un)plug request and wait up to timeout seconds for completion polling every poll seconds"""
+        """Send a hot(un)plug request and wait up to timeout seconds for completion polling every poll seconds
+
+        Returns: api latency (secs), total latency (secs)
+        """
+        api_start = time.time()
         self.api.memory_hotplug.patch(requested_size_mib=requested_size_mib)
+        api_end = time.time()
         # Wait for the hotplug to complete
         deadline = time.time() + timeout
         while time.time() < deadline:
@@ -1216,7 +1221,8 @@ class Microvm:
                 self.api.memory_hotplug.get().json()["plugged_size_mib"]
                 == requested_size_mib
             ):
-                return
+                plug_end = time.time()
+                return api_end - api_start, plug_end - api_start
             time.sleep(poll)
         raise TimeoutError(f"Hotplug did not complete within {timeout} seconds")
 
