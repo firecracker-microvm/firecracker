@@ -14,7 +14,7 @@ use super::super::ActivateError;
 use super::super::device::{DeviceState, VirtioDevice};
 use super::super::queue::Queue;
 use super::metrics::METRICS;
-use super::util::{compact_page_frame_numbers, remove_range};
+use super::util::compact_page_frame_numbers;
 use super::{
     BALLOON_DEV_ID, BALLOON_NUM_QUEUES, BALLOON_QUEUE_SIZES, DEFLATE_INDEX, INFLATE_INDEX,
     MAX_PAGE_COMPACT_BUFFER, MAX_PAGES_IN_DESC, MIB_TO_4K_PAGES, STATS_INDEX,
@@ -32,7 +32,9 @@ use crate::devices::virtio::queue::InvalidAvailIdx;
 use crate::devices::virtio::transport::{VirtioInterrupt, VirtioInterruptType};
 use crate::logger::IncMetric;
 use crate::utils::u64_to_usize;
-use crate::vstate::memory::{Address, ByteValued, Bytes, GuestAddress, GuestMemoryMmap};
+use crate::vstate::memory::{
+    Address, ByteValued, Bytes, GuestAddress, GuestMemoryExtension, GuestMemoryMmap,
+};
 use crate::{impl_device_type, mem_size_mib};
 
 const SIZE_OF_U32: usize = std::mem::size_of::<u32>();
@@ -171,7 +173,6 @@ pub struct Balloon {
     pub(crate) device_state: DeviceState,
 
     // Implementation specific fields.
-    pub(crate) restored_from_file: bool,
     pub(crate) stats_polling_interval_s: u16,
     pub(crate) stats_timer: TimerFd,
     // The index of the previous stats descriptor is saved because
@@ -188,7 +189,6 @@ impl Balloon {
         amount_mib: u32,
         deflate_on_oom: bool,
         stats_polling_interval_s: u16,
-        restored_from_file: bool,
     ) -> Result<Balloon, BalloonError> {
         let mut avail_features = 1u64 << VIRTIO_F_VERSION_1;
 
@@ -228,7 +228,6 @@ impl Balloon {
             queues,
             device_state: DeviceState::Inactive,
             activate_evt: EventFd::new(libc::EFD_NONBLOCK).map_err(BalloonError::EventFd)?,
-            restored_from_file,
             stats_polling_interval_s,
             stats_timer,
             stats_desc_index: None,
@@ -335,10 +334,9 @@ impl Balloon {
                 let guest_addr =
                     GuestAddress(u64::from(page_frame_number) << VIRTIO_BALLOON_PFN_SHIFT);
 
-                if let Err(err) = remove_range(
-                    mem,
-                    (guest_addr, u64::from(range_len) << VIRTIO_BALLOON_PFN_SHIFT),
-                    self.restored_from_file,
+                if let Err(err) = mem.discard_range(
+                    guest_addr,
+                    usize::try_from(range_len).unwrap() << VIRTIO_BALLOON_PFN_SHIFT,
                 ) {
                     error!("Error removing memory range: {:?}", err);
                 }
@@ -739,7 +737,7 @@ pub(crate) mod tests {
         // Test all feature combinations.
         for deflate_on_oom in [true, false].iter() {
             for stats_interval in [0, 1].iter() {
-                let mut balloon = Balloon::new(0, *deflate_on_oom, *stats_interval, false).unwrap();
+                let mut balloon = Balloon::new(0, *deflate_on_oom, *stats_interval).unwrap();
                 assert_eq!(balloon.device_type(), VIRTIO_ID_BALLOON);
 
                 let features: u64 = (1u64 << VIRTIO_F_VERSION_1)
@@ -766,7 +764,7 @@ pub(crate) mod tests {
 
     #[test]
     fn test_virtio_read_config() {
-        let balloon = Balloon::new(0x10, true, 0, false).unwrap();
+        let balloon = Balloon::new(0x10, true, 0).unwrap();
 
         let cfg = BalloonConfig {
             amount_mib: 16,
@@ -800,7 +798,7 @@ pub(crate) mod tests {
 
     #[test]
     fn test_virtio_write_config() {
-        let mut balloon = Balloon::new(0, true, 0, false).unwrap();
+        let mut balloon = Balloon::new(0, true, 0).unwrap();
 
         let expected_config_space: [u8; BALLOON_CONFIG_SPACE_SIZE] =
             [0x00, 0x50, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00];
@@ -826,7 +824,7 @@ pub(crate) mod tests {
 
     #[test]
     fn test_invalid_request() {
-        let mut balloon = Balloon::new(0, true, 0, false).unwrap();
+        let mut balloon = Balloon::new(0, true, 0).unwrap();
         let mem = default_mem();
         let interrupt = default_interrupt();
         // Only initialize the inflate queue to demonstrate invalid request handling.
@@ -887,7 +885,7 @@ pub(crate) mod tests {
 
     #[test]
     fn test_inflate() {
-        let mut balloon = Balloon::new(0, true, 0, false).unwrap();
+        let mut balloon = Balloon::new(0, true, 0).unwrap();
         let mem = default_mem();
         let interrupt = default_interrupt();
         let infq = VirtQueue::new(GuestAddress(0), &mem, 16);
@@ -959,7 +957,7 @@ pub(crate) mod tests {
 
     #[test]
     fn test_deflate() {
-        let mut balloon = Balloon::new(0, true, 0, false).unwrap();
+        let mut balloon = Balloon::new(0, true, 0).unwrap();
         let mem = default_mem();
         let interrupt = default_interrupt();
         let defq = VirtQueue::new(GuestAddress(0), &mem, 16);
@@ -1009,7 +1007,7 @@ pub(crate) mod tests {
 
     #[test]
     fn test_stats() {
-        let mut balloon = Balloon::new(0, true, 1, false).unwrap();
+        let mut balloon = Balloon::new(0, true, 1).unwrap();
         let mem = default_mem();
         let interrupt = default_interrupt();
         let statsq = VirtQueue::new(GuestAddress(0), &mem, 16);
@@ -1101,7 +1099,7 @@ pub(crate) mod tests {
 
     #[test]
     fn test_process_balloon_queues() {
-        let mut balloon = Balloon::new(0x10, true, 0, false).unwrap();
+        let mut balloon = Balloon::new(0x10, true, 0).unwrap();
         let mem = default_mem();
         let interrupt = default_interrupt();
         let infq = VirtQueue::new(GuestAddress(0), &mem, 16);
@@ -1116,7 +1114,7 @@ pub(crate) mod tests {
 
     #[test]
     fn test_update_stats_interval() {
-        let mut balloon = Balloon::new(0, true, 0, false).unwrap();
+        let mut balloon = Balloon::new(0, true, 0).unwrap();
         let mem = default_mem();
         let q = VirtQueue::new(GuestAddress(0), &mem, 16);
         balloon.set_queue(INFLATE_INDEX, q.create_queue());
@@ -1129,7 +1127,7 @@ pub(crate) mod tests {
         );
         balloon.update_stats_polling_interval(0).unwrap();
 
-        let mut balloon = Balloon::new(0, true, 1, false).unwrap();
+        let mut balloon = Balloon::new(0, true, 1).unwrap();
         let mem = default_mem();
         let q = VirtQueue::new(GuestAddress(0), &mem, 16);
         balloon.set_queue(INFLATE_INDEX, q.create_queue());
@@ -1147,14 +1145,14 @@ pub(crate) mod tests {
 
     #[test]
     fn test_cannot_update_inactive_device() {
-        let mut balloon = Balloon::new(0, true, 0, false).unwrap();
+        let mut balloon = Balloon::new(0, true, 0).unwrap();
         // Assert that we can't update an inactive device.
         balloon.update_size(1).unwrap_err();
     }
 
     #[test]
     fn test_num_pages() {
-        let mut balloon = Balloon::new(0, true, 0, false).unwrap();
+        let mut balloon = Balloon::new(0, true, 0).unwrap();
         // Switch the state to active.
         balloon.device_state = DeviceState::Activated(ActiveState {
             mem: single_region_mem(32 << 20),

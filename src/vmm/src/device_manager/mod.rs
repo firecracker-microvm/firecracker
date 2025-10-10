@@ -440,7 +440,6 @@ pub struct DeviceRestoreArgs<'a> {
     pub vcpus_exit_evt: &'a EventFd,
     pub vm_resources: &'a mut VmResources,
     pub instance_id: &'a str,
-    pub restored_from_file: bool,
 }
 
 impl std::fmt::Debug for DeviceRestoreArgs<'_> {
@@ -450,7 +449,6 @@ impl std::fmt::Debug for DeviceRestoreArgs<'_> {
             .field("vm", &self.vm)
             .field("vm_resources", &self.vm_resources)
             .field("instance_id", &self.instance_id)
-            .field("restored_from_file", &self.restored_from_file)
             .finish()
     }
 }
@@ -488,7 +486,6 @@ impl<'a> Persist<'a> for DeviceManager {
             event_manager: constructor_args.event_manager,
             vm_resources: constructor_args.vm_resources,
             instance_id: constructor_args.instance_id,
-            restored_from_file: constructor_args.restored_from_file,
         };
         let mmio_devices = MMIODeviceManager::restore(mmio_ctor_args, &state.mmio_state)?;
 
@@ -506,7 +503,6 @@ impl<'a> Persist<'a> for DeviceManager {
             mem: constructor_args.mem,
             vm_resources: constructor_args.vm_resources,
             instance_id: constructor_args.instance_id,
-            restored_from_file: constructor_args.restored_from_file,
             event_manager: constructor_args.event_manager,
         };
         let pci_devices = PciDevices::restore(pci_ctor_args, &state.pci_state)?;
