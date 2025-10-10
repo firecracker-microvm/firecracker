@@ -29,7 +29,6 @@ use crate::arch::{GSI_MSI_END, host_page_size};
 use crate::logger::info;
 use crate::pci::{DeviceRelocation, DeviceRelocationError, PciDevice};
 use crate::persist::CreateSnapshotError;
-use crate::utils::u64_to_usize;
 use crate::vmm_config::snapshot::SnapshotType;
 use crate::vstate::bus::Bus;
 use crate::vstate::interrupts::{InterruptError, MsixVector, MsixVectorConfig, MsixVectorGroup};
@@ -196,7 +195,9 @@ impl Vm {
             .guest_memory
             .insert_region(Arc::clone(&region))?;
 
-        self.set_user_memory_region(region.kvm_userspace_memory_region())?;
+        region
+            .plugged_slots()
+            .try_for_each(|ref slot| self.set_user_memory_region(slot.into()))?;
 
         self.common.guest_memory = new_guest_memory;
 
@@ -226,13 +227,18 @@ impl Vm {
     pub fn register_hotpluggable_memory_region(
         &mut self,
         region: GuestRegionMmap,
+        slot_size: usize,
     ) -> Result<(), VmError> {
-        let next_slot = self
-            .next_kvm_slot(1)
+        // caller should ensure the slot size divides the region length.
+        assert!(region.len().is_multiple_of(slot_size as u64));
+        let slot_cnt = (region.len() / (slot_size as u64))
+            .try_into()
+            .map_err(|_| VmError::NotEnoughMemorySlots(self.common.max_memslots))?;
+        let slot_from = self
+            .next_kvm_slot(slot_cnt)
             .ok_or(VmError::NotEnoughMemorySlots(self.common.max_memslots))?;
-
         let arcd_region = Arc::new(GuestRegionMmapExt::hotpluggable_from_mmap_region(
-            region, next_slot,
+            region, slot_from, slot_size,
         ));
 
         self.register_memory_region(arcd_region)
@@ -247,8 +253,14 @@ impl Vm {
         state: &GuestMemoryState,
     ) -> Result<(), VmError> {
         for (region, state) in regions.into_iter().zip(state.regions.iter()) {
+            let slot_cnt = state
+                .plugged
+                .len()
+                .try_into()
+                .map_err(|_| VmError::NotEnoughMemorySlots(self.common.max_memslots))?;
+
             let next_slot = self
-                .next_kvm_slot(1)
+                .next_kvm_slot(slot_cnt)
                 .ok_or(VmError::NotEnoughMemorySlots(self.common.max_memslots))?;
 
             let arcd_region = Arc::new(GuestRegionMmapExt::from_state(region, state, next_slot)?);
@@ -279,26 +291,31 @@ impl Vm {
 
     /// Resets the KVM dirty bitmap for each of the guest's memory regions.
     pub fn reset_dirty_bitmap(&self) {
-        self.guest_memory().iter().for_each(|region| {
-            let _ = self
-                .fd()
-                .get_dirty_log(region.slot, u64_to_usize(region.len()));
-        });
+        self.guest_memory()
+            .iter()
+            .flat_map(|region| region.plugged_slots())
+            .for_each(|mem_slot| {
+                let _ = self.fd().get_dirty_log(mem_slot.slot, mem_slot.slice.len());
+            });
     }
 
     /// Retrieves the KVM dirty bitmap for each of the guest's memory regions.
     pub fn get_dirty_bitmap(&self) -> Result<DirtyBitmap, VmError> {
         self.guest_memory()
             .iter()
-            .map(|region| {
-                let bitmap = match region.bitmap() {
+            .flat_map(|region| region.plugged_slots())
+            .map(|mem_slot| {
+                let bitmap = match mem_slot.slice.bitmap() {
                     Some(_) => self
                         .fd()
-                        .get_dirty_log(region.slot, u64_to_usize(region.len()))
+                        .get_dirty_log(mem_slot.slot, mem_slot.slice.len())
                         .map_err(VmError::GetDirtyLog)?,
-                    None => mincore_bitmap(region.as_ptr(), u64_to_usize(region.len()))?,
+                    None => mincore_bitmap(
+                        mem_slot.slice.ptr_guard_mut().as_ptr(),
+                        mem_slot.slice.len(),
+                    )?,
                 };
-                Ok((region.slot, bitmap))
+                Ok((mem_slot.slot, bitmap))
             })
             .collect()
     }
