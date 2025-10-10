@@ -196,8 +196,13 @@ impl Vm {
             .insert_region(Arc::clone(&region))?;
 
         region
-            .plugged_slots()
-            .try_for_each(|ref slot| self.set_user_memory_region(slot.into()))?;
+            .slots()
+            .try_for_each(|(ref slot, plugged)| match plugged {
+                // if the slot is plugged, add it to kvm user memory regions
+                true => self.set_user_memory_region(slot.into()),
+                // if the slot is not plugged, protect accesses to it
+                false => slot.protect(true).map_err(VmError::MemoryError),
+            })?;
 
         self.common.guest_memory = new_guest_memory;
 
