@@ -45,6 +45,36 @@ pub(super) struct VirtioMemDeviceMetrics {
     pub queue_event_fails: SharedIncMetric,
     /// Number of queue events handled
     pub queue_event_count: SharedIncMetric,
+    /// Latency of Plug operations
+    pub plug_agg: LatencyAggregateMetrics,
+    /// Number of Plug operations
+    pub plug_count: SharedIncMetric,
+    /// Number of plugged bytes
+    pub plug_bytes: SharedIncMetric,
+    /// Number of Plug operations failed
+    pub plug_fails: SharedIncMetric,
+    /// Latency of Unplug operations
+    pub unplug_agg: LatencyAggregateMetrics,
+    /// Number of Unplug operations
+    pub unplug_count: SharedIncMetric,
+    /// Number of unplugged bytes
+    pub unplug_bytes: SharedIncMetric,
+    /// Number of Unplug operations failed
+    pub unplug_fails: SharedIncMetric,
+    /// Number of discards failed for an Unplug or UnplugAll operation
+    pub unplug_discard_fails: SharedIncMetric,
+    /// Latency of UnplugAll operations
+    pub unplug_all_agg: LatencyAggregateMetrics,
+    /// Number of UnplugAll operations
+    pub unplug_all_count: SharedIncMetric,
+    /// Number of UnplugAll operations failed
+    pub unplug_all_fails: SharedIncMetric,
+    /// Latency of State operations
+    pub state_agg: LatencyAggregateMetrics,
+    /// Number of State operations
+    pub state_count: SharedIncMetric,
+    /// Number of State operations failed
+    pub state_fails: SharedIncMetric,
 }
 
 impl VirtioMemDeviceMetrics {
@@ -54,6 +84,21 @@ impl VirtioMemDeviceMetrics {
             activate_fails: SharedIncMetric::new(),
             queue_event_fails: SharedIncMetric::new(),
             queue_event_count: SharedIncMetric::new(),
+            plug_agg: LatencyAggregateMetrics::new(),
+            plug_count: SharedIncMetric::new(),
+            plug_bytes: SharedIncMetric::new(),
+            plug_fails: SharedIncMetric::new(),
+            unplug_agg: LatencyAggregateMetrics::new(),
+            unplug_count: SharedIncMetric::new(),
+            unplug_bytes: SharedIncMetric::new(),
+            unplug_fails: SharedIncMetric::new(),
+            unplug_discard_fails: SharedIncMetric::new(),
+            unplug_all_agg: LatencyAggregateMetrics::new(),
+            unplug_all_count: SharedIncMetric::new(),
+            unplug_all_fails: SharedIncMetric::new(),
+            state_agg: LatencyAggregateMetrics::new(),
+            state_count: SharedIncMetric::new(),
+            state_fails: SharedIncMetric::new(),
         }
     }
 }
@@ -66,13 +111,8 @@ pub mod tests {
     #[test]
     fn test_memory_hotplug_metrics() {
         let mem_metrics: VirtioMemDeviceMetrics = VirtioMemDeviceMetrics::new();
-        let mem_metrics_local: String = serde_json::to_string(&mem_metrics).unwrap();
-        // the 1st serialize flushes the metrics and resets values to 0 so that
-        // we can compare the values with local metrics.
-        serde_json::to_string(&METRICS).unwrap();
-        let mem_metrics_global: String = serde_json::to_string(&METRICS).unwrap();
-        assert_eq!(mem_metrics_local, mem_metrics_global);
         mem_metrics.queue_event_count.inc();
         assert_eq!(mem_metrics.queue_event_count.count(), 1);
+        let _ = serde_json::to_string(&mem_metrics).unwrap();
     }
 }

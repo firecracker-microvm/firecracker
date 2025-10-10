@@ -18,9 +18,7 @@ use vmm::rpc_interface::{
 use vmm::seccomp::get_empty_filters;
 use vmm::snapshot::Snapshot;
 use vmm::test_utils::mock_resources::{MockVmResources, NOISY_KERNEL_IMAGE};
-use vmm::test_utils::{
-    create_vmm, default_vmm, default_vmm_no_boot, default_vmm_pci, default_vmm_pci_no_boot,
-};
+use vmm::test_utils::{create_vmm, default_vmm, default_vmm_no_boot};
 use vmm::vmm_config::balloon::BalloonDeviceConfig;
 use vmm::vmm_config::boot_source::BootSourceConfig;
 use vmm::vmm_config::drive::BlockDeviceConfig;
@@ -66,13 +64,12 @@ fn test_build_and_boot_microvm() {
         assert_eq!(format!("{:?}", vmm_ret.err()), "Some(MissingKernelConfig)");
     }
 
-    // Success case.
-    let (vmm, evmgr) = default_vmm(None);
-    check_booted_microvm(vmm, evmgr);
-
-    // microVM with PCI
-    let (vmm, evmgr) = default_vmm_pci(None);
-    check_booted_microvm(vmm, evmgr);
+    for pci_enabled in [false, true] {
+        for memory_hotplug in [false, true] {
+            let (vmm, evmgr) = create_vmm(None, false, true, pci_enabled, memory_hotplug);
+            check_booted_microvm(vmm, evmgr);
+        }
+    }
 }
 
 #[allow(unused_mut, unused_variables)]
@@ -96,10 +93,12 @@ fn check_build_microvm(vmm: Arc<Mutex<Vmm>>, mut evmgr: EventManager) {
 
 #[test]
 fn test_build_microvm() {
-    let (vmm, evtmgr) = default_vmm_no_boot(None);
-    check_build_microvm(vmm, evtmgr);
-    let (vmm, evtmgr) = default_vmm_pci_no_boot(None);
-    check_build_microvm(vmm, evtmgr);
+    for pci_enabled in [false, true] {
+        for memory_hotplug in [false, true] {
+            let (vmm, evmgr) = create_vmm(None, false, false, pci_enabled, memory_hotplug);
+            check_build_microvm(vmm, evmgr);
+        }
+    }
 }
 
 fn pause_resume_microvm(vmm: Arc<Mutex<Vmm>>) {
@@ -118,13 +117,14 @@ fn pause_resume_microvm(vmm: Arc<Mutex<Vmm>>) {
 
 #[test]
 fn test_pause_resume_microvm() {
-    // Tests that pausing and resuming a microVM work as expected.
-    let (vmm, _) = default_vmm(None);
+    for pci_enabled in [false, true] {
+        for memory_hotplug in [false, true] {
+            // Tests that pausing and resuming a microVM work as expected.
+            let (vmm, _) = create_vmm(None, false, true, pci_enabled, memory_hotplug);
 
-    pause_resume_microvm(vmm);
-
-    let (vmm, _) = default_vmm_pci(None);
-    pause_resume_microvm(vmm);
+            pause_resume_microvm(vmm);
+        }
+    }
 }
 
 #[test]
@@ -195,11 +195,21 @@ fn test_disallow_dump_cpu_config_without_pausing() {
     vmm.lock().unwrap().stop(FcExitCode::Ok);
 }
 
-fn verify_create_snapshot(is_diff: bool, pci_enabled: bool) -> (TempFile, TempFile) {
+fn verify_create_snapshot(
+    is_diff: bool,
+    pci_enabled: bool,
+    memory_hotplug: bool,
+) -> (TempFile, TempFile) {
     let snapshot_file = TempFile::new().unwrap();
     let memory_file = TempFile::new().unwrap();
 
-    let (vmm, _) = create_vmm(Some(NOISY_KERNEL_IMAGE), is_diff, true, pci_enabled);
+    let (vmm, _) = create_vmm(
+        Some(NOISY_KERNEL_IMAGE),
+        is_diff,
+        true,
+        pci_enabled,
+        memory_hotplug,
+    );
     let resources = VmResources {
         machine_config: MachineConfig {
             mem_size_mib: 1,
@@ -303,14 +313,19 @@ fn verify_load_snapshot(snapshot_file: TempFile, memory_file: TempFile) {
 
 #[test]
 fn test_create_and_load_snapshot() {
-    for (diff_snap, pci_enabled) in [(false, false), (false, true), (true, false), (true, true)] {
-        // Create snapshot.
-        let (snapshot_file, memory_file) = verify_create_snapshot(diff_snap, pci_enabled);
-        // Create a new microVm from snapshot. This only tests code-level logic; it verifies
-        // that a microVM can be built with no errors from given snapshot.
-        // It does _not_ verify that the guest is actually restored properly. We're using
-        // python integration tests for that.
-        verify_load_snapshot(snapshot_file, memory_file);
+    for diff_snap in [false, true] {
+        for pci_enabled in [false, true] {
+            for memory_hotplug in [false, true] {
+                // Create snapshot.
+                let (snapshot_file, memory_file) =
+                    verify_create_snapshot(diff_snap, pci_enabled, memory_hotplug);
+                // Create a new microVm from snapshot. This only tests code-level logic; it verifies
+                // that a microVM can be built with no errors from given snapshot.
+                // It does _not_ verify that the guest is actually restored properly. We're using
+                // python integration tests for that.
+                verify_load_snapshot(snapshot_file, memory_file);
+            }
+        }
     }
 }
 
@@ -338,7 +353,7 @@ fn check_snapshot(mut microvm_state: MicrovmState) {
 
 fn get_microvm_state_from_snapshot(pci_enabled: bool) -> MicrovmState {
     // Create a diff snapshot
-    let (snapshot_file, _) = verify_create_snapshot(true, pci_enabled);
+    let (snapshot_file, _) = verify_create_snapshot(true, pci_enabled, false);
 
     // Deserialize the microVM state.
     snapshot_file.as_file().seek(SeekFrom::Start(0)).unwrap();
@@ -346,7 +361,7 @@ fn get_microvm_state_from_snapshot(pci_enabled: bool) -> MicrovmState {
 }
 
 fn verify_load_snap_disallowed_after_boot_resources(res: VmmAction, res_name: &str) {
-    let (snapshot_file, memory_file) = verify_create_snapshot(false, false);
+    let (snapshot_file, memory_file) = verify_create_snapshot(false, false, false);
 
     let mut event_manager = EventManager::new().unwrap();
     let empty_seccomp_filters = get_empty_filters();

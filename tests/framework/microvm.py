@@ -23,10 +23,11 @@ import uuid
 from collections import namedtuple
 from dataclasses import dataclass
 from enum import Enum, auto
-from functools import lru_cache
+from functools import cached_property, lru_cache
 from pathlib import Path
 from typing import Optional
 
+import psutil
 from tenacity import Retrying, retry, stop_after_attempt, wait_fixed
 
 import host_tools.cargo_build as build_tools
@@ -472,7 +473,7 @@ class Microvm:
         """Get the InstanceInfo property and return the state field."""
         return self.api.describe.get().json()["state"]
 
-    @property
+    @cached_property
     def firecracker_pid(self):
         """Return Firecracker's PID
 
@@ -490,6 +491,11 @@ class Microvm:
         ):
             with attempt:
                 return int(self.jailer.pid_file.read_text(encoding="ascii"))
+
+    @cached_property
+    def ps(self):
+        """Returns a handle to the psutil.Process for this VM"""
+        return psutil.Process(self.firecracker_pid)
 
     @property
     def dimensions(self):
@@ -1180,6 +1186,22 @@ class Microvm:
         # run commands. The actual connection retry loop happens in SSHConnection._init_connection
         _ = self.ssh_iface(0)
 
+    def hotplug_memory(
+        self, requested_size_mib: int, timeout: int = 60, poll: float = 0.1
+    ):
+        """Send a hot(un)plug request and wait up to timeout seconds for completion polling every poll seconds"""
+        self.api.memory_hotplug.patch(requested_size_mib=requested_size_mib)
+        # Wait for the hotplug to complete
+        deadline = time.time() + timeout
+        while time.time() < deadline:
+            if (
+                self.api.memory_hotplug.get().json()["plugged_size_mib"]
+                == requested_size_mib
+            ):
+                return
+            time.sleep(poll)
+        raise TimeoutError(f"Hotplug did not complete within {timeout} seconds")
+
 
 class MicroVMFactory:
     """MicroVM factory"""
@@ -1293,6 +1315,18 @@ class MicroVMFactory:
         if last_snapshot is not None and not last_snapshot.snapshot_type.needs_rebase:
             last_snapshot.delete()
         current_snapshot.delete()
+
+    def clone_uvm(self, uvm, uffd_handler_name=None):
+        """
+        Clone the given VM and start it.
+        """
+        snapshot = uvm.snapshot_full()
+        restored_vm = self.build()
+        restored_vm.spawn()
+        restored_vm.restore_from_snapshot(
+            snapshot, resume=True, uffd_handler_name=uffd_handler_name
+        )
+        return restored_vm
 
     def kill(self):
         """Clean up all built VMs"""

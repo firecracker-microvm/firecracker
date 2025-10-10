@@ -32,7 +32,7 @@ use crate::device_manager::{
 use crate::devices::acpi::vmgenid::VmGenIdError;
 use crate::devices::virtio::balloon::Balloon;
 use crate::devices::virtio::block::device::Block;
-use crate::devices::virtio::mem::VirtioMem;
+use crate::devices::virtio::mem::{VIRTIO_MEM_GUEST_ADDRESS, VirtioMem};
 use crate::devices::virtio::net::Net;
 use crate::devices::virtio::rng::Entropy;
 use crate::devices::virtio::vsock::{Vsock, VsockUnixBackend};
@@ -44,6 +44,7 @@ use crate::persist::{MicrovmState, MicrovmStateError};
 use crate::resources::VmResources;
 use crate::seccomp::BpfThreadMap;
 use crate::snapshot::Persist;
+use crate::utils::mib_to_bytes;
 use crate::vmm_config::instance_info::InstanceInfo;
 use crate::vmm_config::machine_config::MachineConfigError;
 use crate::vmm_config::memory_hotplug::MemoryHotplugConfig;
@@ -171,6 +172,18 @@ pub fn build_microvm_for_boot(
     let mut vm = Vm::new(&kvm)?;
     let (mut vcpus, vcpus_exit_evt) = vm.create_vcpus(vm_resources.machine_config.vcpu_count)?;
     vm.register_dram_memory_regions(guest_memory)?;
+
+    // Allocate memory as soon as possible to make hotpluggable memory available to all consumers,
+    // before they clone the GuestMemoryMmap object
+    if let Some(memory_hotplug) = &vm_resources.memory_hotplug {
+        let hotplug_memory_region = vm_resources
+            .allocate_memory_region(
+                VIRTIO_MEM_GUEST_ADDRESS,
+                mib_to_bytes(memory_hotplug.total_size_mib),
+            )
+            .map_err(StartMicrovmError::GuestMemory)?;
+        vm.register_hotpluggable_memory_region(hotplug_memory_region)?;
+    }
 
     let mut device_manager = DeviceManager::new(
         event_manager,

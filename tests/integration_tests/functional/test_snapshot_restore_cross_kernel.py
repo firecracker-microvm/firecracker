@@ -20,7 +20,7 @@ from framework.utils import (
 from framework.utils_cpu_templates import get_supported_cpu_templates
 from framework.utils_vsock import check_vsock_device
 from integration_tests.functional.test_balloon import (
-    get_stable_rss_mem_by_pid,
+    get_stable_rss_mem,
     make_guest_dirty_memory,
 )
 
@@ -28,21 +28,18 @@ pytestmark = pytest.mark.nonci
 
 
 def _test_balloon(microvm):
-    # Get the firecracker pid.
-    firecracker_pid = microvm.firecracker_pid
-
     # Check memory usage.
-    first_reading = get_stable_rss_mem_by_pid(firecracker_pid)
+    first_reading = get_stable_rss_mem(microvm)
     # Dirty 300MB of pages.
     make_guest_dirty_memory(microvm.ssh, amount_mib=300)
     # Check memory usage again.
-    second_reading = get_stable_rss_mem_by_pid(firecracker_pid)
+    second_reading = get_stable_rss_mem(microvm)
     assert second_reading > first_reading
 
     # Inflate the balloon. Get back 200MB.
     microvm.api.balloon.patch(amount_mib=200)
 
-    third_reading = get_stable_rss_mem_by_pid(firecracker_pid)
+    third_reading = get_stable_rss_mem(microvm)
     # Ensure that there is a reduction in RSS.
     assert second_reading > third_reading
 

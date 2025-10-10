@@ -16,6 +16,7 @@ use crate::vm_memory_vendored::GuestRegionCollection;
 use crate::vmm_config::boot_source::BootSourceConfig;
 use crate::vmm_config::instance_info::InstanceInfo;
 use crate::vmm_config::machine_config::HugePageConfig;
+use crate::vmm_config::memory_hotplug::MemoryHotplugConfig;
 use crate::vstate::memory::{self, GuestMemoryMmap, GuestRegionMmap, GuestRegionMmapExt};
 use crate::{EventManager, Vmm};
 
@@ -73,6 +74,7 @@ pub fn create_vmm(
     is_diff: bool,
     boot_microvm: bool,
     pci_enabled: bool,
+    memory_hotplug_enabled: bool,
 ) -> (Arc<Mutex<Vmm>>, EventManager) {
     let mut event_manager = EventManager::new().unwrap();
     let empty_seccomp_filters = get_empty_filters();
@@ -96,6 +98,14 @@ pub fn create_vmm(
 
     resources.pci_enabled = pci_enabled;
 
+    if memory_hotplug_enabled {
+        resources.memory_hotplug = Some(MemoryHotplugConfig {
+            total_size_mib: 1024,
+            block_size_mib: 2,
+            slot_size_mib: 128,
+        });
+    }
+
     let vmm = build_microvm_for_boot(
         &InstanceInfo::default(),
         &resources,
@@ -112,23 +122,15 @@ pub fn create_vmm(
 }
 
 pub fn default_vmm(kernel_image: Option<&str>) -> (Arc<Mutex<Vmm>>, EventManager) {
-    create_vmm(kernel_image, false, true, false)
+    create_vmm(kernel_image, false, true, false, false)
 }
 
 pub fn default_vmm_no_boot(kernel_image: Option<&str>) -> (Arc<Mutex<Vmm>>, EventManager) {
-    create_vmm(kernel_image, false, false, false)
-}
-
-pub fn default_vmm_pci_no_boot(kernel_image: Option<&str>) -> (Arc<Mutex<Vmm>>, EventManager) {
-    create_vmm(kernel_image, false, false, true)
+    create_vmm(kernel_image, false, false, false, false)
 }
 
 pub fn dirty_tracking_vmm(kernel_image: Option<&str>) -> (Arc<Mutex<Vmm>>, EventManager) {
-    create_vmm(kernel_image, true, true, false)
-}
-
-pub fn default_vmm_pci(kernel_image: Option<&str>) -> (Arc<Mutex<Vmm>>, EventManager) {
-    create_vmm(kernel_image, false, true, false)
+    create_vmm(kernel_image, true, true, false, false)
 }
 
 #[allow(clippy::undocumented_unsafe_blocks)]
