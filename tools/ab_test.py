@@ -6,20 +6,17 @@ Script for running A/B-Tests
 
 The script takes two git revisions and a pytest integration test. It utilizes
 our integration test frameworks --binary-dir parameter to execute the given
-test using binaries compiled from each revision, and captures the EMF logs
-output. It the searches for list-valued properties/metrics in the EMF, and runs a
-regression test comparing these lists for the two runs.
+test using binaries compiled from each revision, and runs a regression test
+comparing resulting metrics between runs.
 
 It performs the A/B-test as follows:
-For each EMF log message output, look at the dimensions. The script assumes that
-dimensions are unique across all log messages output from a single test run. In
-each log message, then look for all properties that have lists assigned to them,
-and collect them. For both runs of the test, the set of distinct dimensions
-collected this way must be the same. Then, we match corresponding dimensions
-between the two runs, performing statistical regression test across all the list-
-valued properties collected.
+For both A and B runs, collect all `metrics.json` files and read all dimentions
+from them. Script assumes all dimentions are unique within single run and both
+A and B runs result in the same dimentions. After collection is done, perform
+statistical regression test across all the list-valued properties collected.
 """
 
+import glob
 import argparse
 import json
 import os
@@ -36,7 +33,6 @@ sys.path.append(str(Path(__file__).parent.parent / "tests"))
 from framework.ab_test import binary_ab_test, check_regression
 from framework.properties import global_props
 from host_tools.metrics import (
-    emit_raw_emf,
     format_with_reduced_unit,
     get_metrics_logger,
 )
@@ -69,106 +65,37 @@ def is_ignored(dimensions) -> bool:
     return False
 
 
-def extract_dimensions(emf):
-    """Extracts the cloudwatch dimensions from an EMF log message"""
-    if not emf["_aws"]["CloudWatchMetrics"][0]["Dimensions"]:
-        # Skipped tests emit a duration metric, but have no dimensions set
-        return {}
+def load_data_series(data_path: Path):
+    """Recursively collects `metrics.json` files in provided path"""
+    data = {}
+    for name in glob.glob(f"{data_path}/**/metrics.json", recursive=True):
+        with open(name, encoding="utf-8") as f:
+            j = json.load(f)
 
-    dimension_list = [
-        dim
-        for dimensions in emf["_aws"]["CloudWatchMetrics"][0]["Dimensions"]
-        for dim in dimensions
-    ]
-    return {key: emf[key] for key in emf if key in dimension_list}
+        metrics = j["metrics"]
+        dimentions = frozenset(j["dimensions"].items())
+
+        data[dimentions] = {}
+        for m in metrics:
+            # Ignore certain metrics as we know them to be volatile
+            if "cpu_utilization" in m:
+                continue
+            mm = metrics[m]
+            unit = mm["unit"]
+            values = mm["values"]
+            data[dimentions][m] = (values, unit)
+
+    return data
 
 
-def process_log_entry(emf: dict):
-    """Parses the given EMF log entry
-
-    Returns the entries dimensions and its list-valued properties/metrics, together with their units
+def uninteresting_dimensions(data):
     """
-    result = {
-        key: (value, find_unit(emf, key))
-        for key, value in emf.items()
-        if (
-            "fc_metrics" not in key
-            and "cpu_utilization" not in key
-            and isinstance(value, list)
-        )
-    }
-    # Since we don't consider metrics having fc_metrics in key
-    # result could be empty so, return empty dimensions as well
-    if not result:
-        return {}, {}
-
-    return extract_dimensions(emf), result
-
-
-def find_unit(emf: dict, metric: str):
-    """Determines the unit of the given metric"""
-    metrics = {
-        y["Name"]: y["Unit"] for y in emf["_aws"]["CloudWatchMetrics"][0]["Metrics"]
-    }
-    return metrics.get(metric, "None")
-
-
-def load_data_series(report_path: Path, tag=None, *, reemit: bool = False):
-    """Loads the data series relevant for A/B-testing from test_results/test-report.json
-    into a dictionary mapping each message's cloudwatch dimensions to a dictionary of
-    its list-valued properties/metrics.
-
-    If `reemit` is True, it also reemits all EMF logs to a local EMF agent,
-    overwriting the attached "git_commit_id" field with the given revision."""
-    # Dictionary mapping EMF dimensions to A/B-testable metrics/properties
-    processed_emf = {}
-
-    report = json.loads(report_path.read_text("UTF-8"))
-    for test in report["tests"]:
-        for line in test["teardown"]["stdout"].splitlines():
-            # Only look at EMF log messages. If we ever have other stdout that starts with braces,
-            # we will need to rethink this heuristic.
-            if line.startswith("{"):
-                emf = json.loads(line)
-
-                if reemit:
-                    assert tag is not None
-
-                    emf["git_commit_id"] = str(tag)
-                    emit_raw_emf(emf)
-
-                dimensions, result = process_log_entry(emf)
-
-                if not dimensions:
-                    continue
-
-                dimension_set = frozenset(dimensions.items())
-
-                if dimension_set not in processed_emf:
-                    processed_emf[dimension_set] = result
-                else:
-                    # If there are many data points for a metric, they will be split across
-                    # multiple EMF log messages. We need to reassemble :(
-                    assert (
-                        processed_emf[dimension_set].keys() == result.keys()
-                    ), f"Found incompatible metrics associated with dimension set {dimension_set}: {processed_emf[dimension_set].keys()} in one EMF message, but {result.keys()} in another."
-
-                    for metric, (values, unit) in processed_emf[dimension_set].items():
-                        assert result[metric][1] == unit
-
-                        values.extend(result[metric][0])
-
-    return processed_emf
-
-
-def uninteresting_dimensions(processed_emf):
-    """
-    Computes the set of cloudwatch dimensions that only ever take on a
+    Computes the set of dimensions that only ever take on a
     single value across the entire dataset.
     """
     values_per_dimension = defaultdict(set)
 
-    for dimension_set in processed_emf:
+    for dimension_set in data:
         for dimension, value in dimension_set:
             values_per_dimension[dimension].add(value)
 
@@ -189,7 +116,8 @@ def collect_data(tag: str, binary_dir: Path, pytest_opts: str):
     binary_dir = binary_dir.resolve()
 
     print(f"Collecting samples with {binary_dir}")
-    test_report_path = f"test_results/{tag}/test-report.json"
+    test_path = f"test_results/{tag}"
+    test_report_path = f"{test_path}/test-report.json"
     subprocess.run(
         f"./tools/test.sh --binary-dir={binary_dir} {pytest_opts} -m '' --json-report-file=../{test_report_path}",
         env=os.environ
@@ -201,12 +129,12 @@ def collect_data(tag: str, binary_dir: Path, pytest_opts: str):
         shell=True,
     )
 
-    return load_data_series(Path(test_report_path), binary_dir, reemit=True)
+    return load_data_series(Path(test_path))
 
 
 def analyze_data(
-    processed_emf_a,
-    processed_emf_b,
+    data_a,
+    data_b,
     p_thresh,
     strength_abs_thresh,
     noise_threshold,
@@ -219,8 +147,8 @@ def analyze_data(
 
     Returns a mapping of dimensions and properties/metrics to the result of their regression test.
     """
-    assert set(processed_emf_a.keys()) == set(
-        processed_emf_b.keys()
+    assert set(data_a.keys()) == set(
+        data_b.keys()
     ), "A and B run produced incomparable data. This is a bug in the test!"
 
     results = {}
@@ -230,9 +158,9 @@ def analyze_data(
     for prop_name, prop_val in global_props.__dict__.items():
         metrics_logger.set_property(prop_name, prop_val)
 
-    for dimension_set in processed_emf_a:
-        metrics_a = processed_emf_a[dimension_set]
-        metrics_b = processed_emf_b[dimension_set]
+    for dimension_set in data_a:
+        metrics_a = data_a[dimension_set]
+        metrics_b = data_b[dimension_set]
 
         assert set(metrics_a.keys()) == set(
             metrics_b.keys()
@@ -296,7 +224,7 @@ def analyze_data(
 
         print(f"Doing A/B-test for dimensions {dimension_set} and property {metric}")
 
-        values_a = processed_emf_a[dimension_set][metric][0]
+        values_a = data_a[dimension_set][metric][0]
         baseline_mean = statistics.mean(values_a)
 
         relative_changes_by_metric[metric].append(result.statistic / baseline_mean)
@@ -309,7 +237,7 @@ def analyze_data(
             )
 
     messages = []
-    do_not_print_list = uninteresting_dimensions(processed_emf_a)
+    do_not_print_list = uninteresting_dimensions(data_a)
     for dimension_set, metric, result, unit in failures:
         # Sanity check as described above
         if abs(statistics.mean(relative_changes_by_metric[metric])) <= noise_threshold:
@@ -321,8 +249,8 @@ def analyze_data(
 
         # The significant data points themselves are above the noise threshold
         if abs(statistics.mean(relative_changes_significant[metric])) > noise_threshold:
-            old_mean = statistics.mean(processed_emf_a[dimension_set][metric][0])
-            new_mean = statistics.mean(processed_emf_b[dimension_set][metric][0])
+            old_mean = statistics.mean(data_a[dimension_set][metric][0])
+            new_mean = statistics.mean(data_b[dimension_set][metric][0])
 
             msg = (
                 f"\033[0;32m[Firecracker A/B-Test Runner]\033[0m A/B-testing shows a change of "
@@ -393,13 +321,13 @@ if __name__ == "__main__":
         help="Analyze the results of two manually ran tests based on their test-report.json files",
     )
     analyze_parser.add_argument(
-        "report_a",
-        help="The path to the test-report.json file of the baseline run",
+        "path_a",
+        help="The path to the directlry with A run",
         type=Path,
     )
     analyze_parser.add_argument(
-        "report_b",
-        help="The path to the test-report.json file of the run whose performance we want to compare against report_a",
+        "path_b",
+        help="The path to the directlry with B run",
         type=Path,
     )
     parser.add_argument(
@@ -432,8 +360,8 @@ if __name__ == "__main__":
             args.noise_threshold,
         )
     else:
-        data_a = load_data_series(args.report_a)
-        data_b = load_data_series(args.report_b)
+        data_a = load_data_series(args.path_a)
+        data_b = load_data_series(args.path_b)
 
         analyze_data(
             data_a,
