@@ -22,19 +22,11 @@ import json
 import os
 import statistics
 import subprocess
-import sys
 from collections import defaultdict
 from pathlib import Path
 from typing import Callable, List, TypeVar
 
 import scipy
-
-# Hack to be able to use our test framework code
-sys.path.append(str(Path(__file__).parent.parent / "tests"))
-
-# pylint:disable=wrong-import-position
-from framework.properties import global_props
-from host_tools.metrics import get_metrics_logger
 
 UNIT_REDUCTIONS = {
     "Microseconds": "Milliseconds",
@@ -264,11 +256,6 @@ def analyze_data(
 
     results = {}
 
-    metrics_logger = get_metrics_logger()
-
-    for prop_name, prop_val in global_props.__dict__.items():
-        metrics_logger.set_property(prop_name, prop_val)
-
     for dimension_set in data_a:
         metrics_a = data_a[dimension_set]
         metrics_b = data_b[dimension_set]
@@ -281,14 +268,6 @@ def analyze_data(
             result = check_regression(
                 values_a, metrics_b[metric][0], n_resamples=n_resamples
             )
-
-            metrics_logger.set_dimensions({"metric": metric, **dict(dimension_set)})
-            metrics_logger.put_metric("p_value", float(result.pvalue), "None")
-            metrics_logger.put_metric("mean_difference", float(result.statistic), unit)
-            metrics_logger.set_property("data_a", values_a)
-            metrics_logger.set_property("data_b", metrics_b[metric][0])
-            metrics_logger.flush()
-
             results[dimension_set, metric] = (result, unit)
 
     # We sort our A/B-Testing results keyed by metric here. The resulting lists of values
