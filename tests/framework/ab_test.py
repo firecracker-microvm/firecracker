@@ -26,11 +26,9 @@ from tempfile import TemporaryDirectory
 from typing import Callable, Optional, TypeVar
 
 from framework import utils
-from framework.defs import FC_WORKSPACE_DIR
 from framework.properties import global_props
 from framework.utils import CommandReturn
 from framework.with_filelock import with_filelock
-from host_tools.cargo_build import DEFAULT_TARGET_DIR
 
 # Locally, this will always compare against main, even if we try to merge into, say, a feature branch.
 # We might want to do a more sophisticated way to determine a "parent" branch here.
@@ -93,27 +91,6 @@ def git_ab_test(
 
         comparison = comparator(result_a, result_b)
         return result_a, result_b, comparison
-
-
-DEFAULT_A_DIRECTORY = FC_WORKSPACE_DIR / "build" / "main"
-DEFAULT_B_DIRECTORY = FC_WORKSPACE_DIR / "build" / "cargo_target" / DEFAULT_TARGET_DIR
-
-
-def binary_ab_test(
-    test_runner: Callable[[Path, bool], T],
-    comparator: Callable[[T, T], U] = default_comparator,
-    *,
-    a_directory: Path = DEFAULT_A_DIRECTORY,
-    b_directory: Path = DEFAULT_B_DIRECTORY,
-):
-    """
-    Similar to `git_ab_test`, but instead of locally checking out different revisions, it operates on
-    directories containing firecracker/jailer binaries
-    """
-    result_a = test_runner(a_directory, True)
-    result_b = test_runner(b_directory, False)
-
-    return result_a, result_b, comparator(result_a, result_b)
 
 
 def git_ab_test_host_command_if_pr(
