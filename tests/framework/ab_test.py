@@ -21,12 +21,9 @@ while still preventing the latter: We run cargo audit twice, once on main HEAD, 
 of both invocations is the same, the test passes (with us being alerted to this situtation via a special pipeline that
 does not block PRs). If not, it fails, preventing PRs from introducing new vulnerable dependencies.
 """
-import statistics
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from typing import Callable, List, Optional, TypeVar
-
-import scipy
+from typing import Callable, Optional, TypeVar
 
 from framework import utils
 from framework.defs import FC_WORKSPACE_DIR
@@ -167,32 +164,6 @@ def set_did_not_grow_comparator(
     """
     return lambda output_a, output_b: set_generator(output_b).issubset(
         set_generator(output_a)
-    )
-
-
-def check_regression(
-    a_samples: List[float], b_samples: List[float], *, n_resamples: int = 9999
-):
-    """Checks for a regression by performing a permutation test. A permutation test is a non-parametric test that takes
-    three parameters: Two populations (sets of samples) and a function computing a "statistic" based on two populations.
-    First, the test computes the statistic for the initial populations. It then randomly
-    permutes the two populations (e.g. merges them and then randomly splits them again). For each such permuted
-    population, the statistic is computed. Then, all the statistics are sorted, and the percentile of the statistic for the
-    initial populations is computed. We then look at the fraction of statistics that are larger/smaller than that of the
-    initial populations. The minimum of these two fractions will then become the p-value.
-
-    The idea is that if the two populations are indeed drawn from the same distribution (e.g. if performance did not
-    change), then permuting will not affect the statistic (indeed, it should be approximately normal-distributed, and
-    the statistic for the initial populations will be somewhere "in the middle").
-
-    Useful for performance tests.
-    """
-    return scipy.stats.permutation_test(
-        (a_samples, b_samples),
-        # Compute the difference of means, such that a positive different indicates potential for regression.
-        lambda x, y: statistics.mean(y) - statistics.mean(x),
-        vectorized=False,
-        n_resamples=n_resamples,
     )
 
 
