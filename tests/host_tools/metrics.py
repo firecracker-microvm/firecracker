@@ -45,11 +45,8 @@ You can override the destination of the metrics to stdout with:
 import asyncio
 import json
 import os
-import socket
 from pathlib import Path
-from urllib.parse import urlparse
 
-from aws_embedded_metrics.constants import DEFAULT_NAMESPACE
 from aws_embedded_metrics.logger.metrics_logger_factory import create_metrics_logger
 
 
@@ -112,24 +109,3 @@ def get_metrics_logger():
     else:
         logger = None
     return MetricsWrapper(logger)
-
-
-def emit_raw_emf(emf_msg: dict):
-    """Emites a raw EMF log message to the local cloudwatch agent"""
-    if "AWS_EMF_AGENT_ENDPOINT" not in os.environ:
-        return
-
-    namespace = os.environ.get("AWS_EMF_NAMESPACE", DEFAULT_NAMESPACE)
-    emf_msg["_aws"]["LogGroupName"] = os.environ.get(
-        "AWS_EMF_LOG_GROUP_NAME", f"{namespace}-metrics"
-    )
-    emf_msg["_aws"]["LogStreamName"] = os.environ.get("AWS_EMF_LOG_STREAM_NAME", "")
-    for metrics in emf_msg["_aws"]["CloudWatchMetrics"]:
-        metrics["Namespace"] = namespace
-
-    emf_endpoint = urlparse(os.environ["AWS_EMF_AGENT_ENDPOINT"])
-    with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
-        sock.sendto(
-            (json.dumps(emf_msg) + "\n").encode("utf-8"),
-            (emf_endpoint.hostname, emf_endpoint.port),
-        )
