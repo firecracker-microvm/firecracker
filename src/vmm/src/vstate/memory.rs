@@ -48,6 +48,8 @@ pub enum MemoryError {
     MemfdSetLen(std::io::Error),
     /// Total sum of memory regions exceeds largest possible file offset
     OffsetTooLarge,
+    /// Cannot retrieve snapshot file metadata: {0}
+    FileMetadata(std::io::Error),
 }
 
 /// Creates a `Vec` of `GuestRegionMmap` with the given configuration
@@ -129,7 +131,22 @@ pub fn snapshot_file(
     regions: impl Iterator<Item = (GuestAddress, usize)>,
     track_dirty_pages: bool,
 ) -> Result<Vec<GuestRegionMmap>, MemoryError> {
-    create(regions, libc::MAP_PRIVATE, Some(file), track_dirty_pages)
+    let regions: Vec<_> = regions.collect();
+    let memory_size: u64 = regions.iter().map(|(_, size)| *size as u64).sum();
+    let file_size = file.metadata().map_err(MemoryError::FileMetadata)?.len();
+
+    // ensure we do not mmap beyond EOF. The kernel would allow that but a SIGBUS is triggered
+    // on an attempted access to a page of the buffer that lies beyond the end of the mapped file.
+    if memory_size > file_size {
+        return Err(MemoryError::OffsetTooLarge);
+    }
+
+    create(
+        regions.into_iter(),
+        libc::MAP_PRIVATE,
+        Some(file),
+        track_dirty_pages,
+    )
 }
 
 /// Defines the interface for snapshotting memory.
@@ -343,7 +360,7 @@ mod tests {
     #![allow(clippy::undocumented_unsafe_blocks)]
 
     use std::collections::HashMap;
-    use std::io::{Read, Seek};
+    use std::io::{Read, Seek, Write};
 
     use vmm_sys_util::tempfile::TempFile;
 
@@ -372,6 +389,53 @@ mod tests {
                 assert_eq!(region.bitmap().is_some(), dirty_page_tracking);
             });
         }
+    }
+
+    #[test]
+    fn test_snapshot_file_success() {
+        for dirty_page_tracking in [true, false] {
+            let page_size = 0x1000;
+            let mut file = TempFile::new().unwrap().into_file();
+            file.set_len(page_size as u64).unwrap();
+            file.write_all(&vec![0x42u8; page_size]).unwrap();
+
+            let regions = vec![(GuestAddress(0), page_size)];
+            let guest_regions =
+                snapshot_file(file, regions.into_iter(), dirty_page_tracking).unwrap();
+            assert_eq!(guest_regions.len(), 1);
+            guest_regions.iter().for_each(|region| {
+                assert_eq!(region.bitmap().is_some(), dirty_page_tracking);
+            });
+        }
+    }
+
+    #[test]
+    fn test_snapshot_file_multiple_regions() {
+        let page_size = 0x1000;
+        let total_size = 3 * page_size;
+        let mut file = TempFile::new().unwrap().into_file();
+        file.set_len(total_size as u64).unwrap();
+        file.write_all(&vec![0x42u8; total_size]).unwrap();
+
+        let regions = vec![
+            (GuestAddress(0), page_size),
+            (GuestAddress(0x10000), page_size),
+            (GuestAddress(0x20000), page_size),
+        ];
+        let guest_regions = snapshot_file(file, regions.into_iter(), false).unwrap();
+        assert_eq!(guest_regions.len(), 3);
+    }
+
+    #[test]
+    fn test_snapshot_file_offset_too_large() {
+        let page_size = 0x1000;
+        let mut file = TempFile::new().unwrap().into_file();
+        file.set_len(page_size as u64).unwrap();
+        file.write_all(&vec![0x42u8; page_size]).unwrap();
+
+        let regions = vec![(GuestAddress(0), 2 * page_size)];
+        let result = snapshot_file(file, regions.into_iter(), false);
+        assert!(matches!(result.unwrap_err(), MemoryError::OffsetTooLarge));
     }
 
     #[test]
