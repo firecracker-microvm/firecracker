@@ -25,7 +25,7 @@ import subprocess
 import sys
 from collections import defaultdict
 from pathlib import Path
-from typing import List
+from typing import Callable, List, TypeVar
 
 import scipy
 
@@ -33,7 +33,6 @@ import scipy
 sys.path.append(str(Path(__file__).parent.parent / "tests"))
 
 # pylint:disable=wrong-import-position
-from framework.ab_test import binary_ab_test
 from framework.properties import global_props
 from host_tools.metrics import get_metrics_logger
 
@@ -377,6 +376,27 @@ def analyze_data(
 
     assert not messages, "\n" + "\n".join(messages)
     print("No regressions detected!")
+
+
+T = TypeVar("T")
+U = TypeVar("U")
+
+
+def binary_ab_test(
+    test_runner: Callable[[Path, bool], T],
+    comparator: Callable[[T, T], U],
+    *,
+    a_directory: Path,
+    b_directory: Path,
+):
+    """
+    Similar to `git_ab_test`, but instead of locally checking out different revisions, it operates on
+    directories containing firecracker/jailer binaries
+    """
+    result_a = test_runner(a_directory, True)
+    result_b = test_runner(b_directory, False)
+
+    return result_a, result_b, comparator(result_a, result_b)
 
 
 def ab_performance_test(
