@@ -16,8 +16,8 @@ A and B runs result in the same dimentions. After collection is done, perform
 statistical regression test across all the list-valued properties collected.
 """
 
-import glob
 import argparse
+import glob
 import json
 import os
 import statistics
@@ -32,10 +32,93 @@ sys.path.append(str(Path(__file__).parent.parent / "tests"))
 # pylint:disable=wrong-import-position
 from framework.ab_test import binary_ab_test, check_regression
 from framework.properties import global_props
-from host_tools.metrics import (
-    format_with_reduced_unit,
-    get_metrics_logger,
-)
+from host_tools.metrics import get_metrics_logger
+
+UNIT_REDUCTIONS = {
+    "Microseconds": "Milliseconds",
+    "Milliseconds": "Seconds",
+    "Bytes": "Kilobytes",
+    "Kilobytes": "Megabytes",
+    "Megabytes": "Gigabytes",
+    "Gigabytes": "Terabytes",
+    "Bits": "Kilobits",
+    "Kilobits": "Megabits",
+    "Megabits": "Gigabits",
+    "Gigabits": "Terabit",
+    "Bytes/Second": "Kilobytes/Second",
+    "Kilobytes/Second": "Megabytes/Second",
+    "Megabytes/Second": "Gigabytes/Second",
+    "Gigabytes/Second": "Terabytes/Second",
+    "Bits/Second": "Kilobits/Second",
+    "Kilobits/Second": "Megabits/Second",
+    "Megabits/Second": "Gigabits/Second",
+    "Gigabits/Second": "Terabits/Second",
+}
+INV_UNIT_REDUCTIONS = {v: k for k, v in UNIT_REDUCTIONS.items()}
+
+
+UNIT_SHORTHANDS = {
+    "Seconds": "s",
+    "Microseconds": "μs",
+    "Milliseconds": "ms",
+    "Bytes": "B",
+    "Kilobytes": "KB",
+    "Megabytes": "MB",
+    "Gigabytes": "GB",
+    "Terabytes": "TB",
+    "Bits": "Bit",
+    "Kilobits": "KBit",
+    "Megabits": "MBit",
+    "Gigabits": "GBit",
+    "Terabits": "TBit",
+    "Percent": "%",
+    "Count": "",
+    "Bytes/Second": "B/s",
+    "Kilobytes/Second": "KB/s",
+    "Megabytes/Second": "MB/s",
+    "Gigabytes/Second": "GB/s",
+    "Terabytes/Second": "TB/s",
+    "Bits/Second": "Bit/s",
+    "Kilobits/Second": "KBit/s",
+    "Megabits/Second": "MBit/s",
+    "Gigabits/Second": "GBit/s",
+    "Terabits/Second": "TBit/s",
+    "Count/Second": "Hz",
+    "None": "",
+}
+
+
+def reduce_value(value, unit):
+    """
+    Utility function for expressing a value in the largest possible unit in which it would still be >= 1
+
+    For example, `reduce_value(1_000_000, Bytes)` would return (1, Megabytes)
+    """
+    # Could do this recursively, but I am worried about infinite recursion
+    # due to precision problems (e.g. infinite loop of dividing/multiplying by 1000, alternating
+    # between values < 1 and >= 1000).
+    while abs(value) < 1 and unit in INV_UNIT_REDUCTIONS:
+        value *= 1000
+        unit = INV_UNIT_REDUCTIONS[unit]
+    while abs(value) >= 1000 and unit in UNIT_REDUCTIONS:
+        value /= 1000
+        unit = UNIT_REDUCTIONS[unit]
+
+    return value, unit
+
+
+def format_with_reduced_unit(value, unit):
+    """
+    Utility function for pretty printing a given value by choosing a unit as large as possible,
+    and then outputting its shorthand.
+
+    For example, `format_with_reduced_unit(1_000_000, Bytes)` would return "1MB".
+    """
+    reduced_value, reduced_unit = reduce_value(value, unit)
+    formatted_unit = UNIT_SHORTHANDS.get(reduced_unit, reduced_unit)
+
+    return f"{reduced_value:.2f}{formatted_unit}"
+
 
 # Performance tests that are known to be unstable and exhibit variances of up to 60% of the mean
 IGNORED = [
