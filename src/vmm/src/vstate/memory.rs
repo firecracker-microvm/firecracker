@@ -297,7 +297,10 @@ pub fn snapshot_file(
     track_dirty_pages: bool,
 ) -> Result<Vec<GuestRegionMmap>, MemoryError> {
     let regions: Vec<_> = regions.collect();
-    let memory_size: u64 = regions.iter().map(|(_, size)| *size as u64).sum();
+    let memory_size = regions
+        .iter()
+        .try_fold(0u64, |acc, (_, size)| acc.checked_add(*size as u64))
+        .ok_or(MemoryError::OffsetTooLarge)?;
     let file_size = file.metadata().map_err(MemoryError::FileMetadata)?.len();
 
     // ensure we do not mmap beyond EOF. The kernel would allow that but a SIGBUS is triggered
