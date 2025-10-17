@@ -73,9 +73,9 @@ passwd -d root
 EOF
 }
 
+make_rootfs amazonlinux:2023
 make_rootfs alpine:latest
 make_rootfs ubuntu:22.04
 make_rootfs ubuntu:24.04
 make_rootfs ubuntu:25.04
 make_rootfs ubuntu:latest
-make_rootfs amazonlinux:2023
