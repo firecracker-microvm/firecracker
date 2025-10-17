@@ -22,7 +22,7 @@ gdb = ["vmm/gdb"]
 [dependencies]
 displaydoc = "0.2.5"
 event-manager = "0.4.1"
-libc = "0.2.176"
+libc = "0.2.177"
 log-instrument = { path = "../log-instrument", optional = true }
 micro_http = { git = "https://github.com/firecracker-microvm/micro-http" }
 serde = { version = "1.0.228", features = ["derive"] }
@@ -41,8 +41,8 @@ serde_json = "1.0.145"
 
 [dev-dependencies]
 cargo_toml = "0.22.3"
-libc = "0.2.176"
-regex = { version = "1.11.3", default-features = false, features = [
+libc = "0.2.177"
+regex = { version = "1.12.2", default-features = false, features = [
   "std",
   "unicode-perl",
 ] }
