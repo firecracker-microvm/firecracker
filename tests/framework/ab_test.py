@@ -21,19 +21,14 @@ while still preventing the latter: We run cargo audit twice, once on main HEAD, 
 of both invocations is the same, the test passes (with us being alerted to this situtation via a special pipeline that
 does not block PRs). If not, it fails, preventing PRs from introducing new vulnerable dependencies.
 """
-import statistics
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from typing import Callable, List, Optional, TypeVar
-
-import scipy
+from typing import Callable, Optional, TypeVar
 
 from framework import utils
-from framework.defs import FC_WORKSPACE_DIR
 from framework.properties import global_props
 from framework.utils import CommandReturn
 from framework.with_filelock import with_filelock
-from host_tools.cargo_build import DEFAULT_TARGET_DIR
 
 # Locally, this will always compare against main, even if we try to merge into, say, a feature branch.
 # We might want to do a more sophisticated way to determine a "parent" branch here.
@@ -98,27 +93,6 @@ def git_ab_test(
         return result_a, result_b, comparison
 
 
-DEFAULT_A_DIRECTORY = FC_WORKSPACE_DIR / "build" / "main"
-DEFAULT_B_DIRECTORY = FC_WORKSPACE_DIR / "build" / "cargo_target" / DEFAULT_TARGET_DIR
-
-
-def binary_ab_test(
-    test_runner: Callable[[Path, bool], T],
-    comparator: Callable[[T, T], U] = default_comparator,
-    *,
-    a_directory: Path = DEFAULT_A_DIRECTORY,
-    b_directory: Path = DEFAULT_B_DIRECTORY,
-):
-    """
-    Similar to `git_ab_test`, but instead of locally checking out different revisions, it operates on
-    directories containing firecracker/jailer binaries
-    """
-    result_a = test_runner(a_directory, True)
-    result_b = test_runner(b_directory, False)
-
-    return result_a, result_b, comparator(result_a, result_b)
-
-
 def git_ab_test_host_command_if_pr(
     command: str,
     *,
@@ -167,32 +141,6 @@ def set_did_not_grow_comparator(
     """
     return lambda output_a, output_b: set_generator(output_b).issubset(
         set_generator(output_a)
-    )
-
-
-def check_regression(
-    a_samples: List[float], b_samples: List[float], *, n_resamples: int = 9999
-):
-    """Checks for a regression by performing a permutation test. A permutation test is a non-parametric test that takes
-    three parameters: Two populations (sets of samples) and a function computing a "statistic" based on two populations.
-    First, the test computes the statistic for the initial populations. It then randomly
-    permutes the two populations (e.g. merges them and then randomly splits them again). For each such permuted
-    population, the statistic is computed. Then, all the statistics are sorted, and the percentile of the statistic for the
-    initial populations is computed. We then look at the fraction of statistics that are larger/smaller than that of the
-    initial populations. The minimum of these two fractions will then become the p-value.
-
-    The idea is that if the two populations are indeed drawn from the same distribution (e.g. if performance did not
-    change), then permuting will not affect the statistic (indeed, it should be approximately normal-distributed, and
-    the statistic for the initial populations will be somewhere "in the middle").
-
-    Useful for performance tests.
-    """
-    return scipy.stats.permutation_test(
-        (a_samples, b_samples),
-        # Compute the difference of means, such that a positive different indicates potential for regression.
-        lambda x, y: statistics.mean(y) - statistics.mean(x),
-        vectorized=False,
-        n_resamples=n_resamples,
     )
 
 
