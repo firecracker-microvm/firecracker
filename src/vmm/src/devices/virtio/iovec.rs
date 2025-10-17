@@ -192,23 +192,25 @@ impl IoVecBuffer {
                 slice = slice.subslice(0, len)?;
             }
 
-            let bytes_read = loop {
+            match loop {
                 match dst.write_volatile(&slice) {
                     Err(VolatileMemoryError::IOError(err))
-                        if err.kind() == ErrorKind::Interrupted =>
-                    {
-                        continue;
-                    }
-                    Ok(bytes_read) => break bytes_read,
-                    Err(volatile_memory_error) => return Err(volatile_memory_error),
+                        if err.kind() == ErrorKind::Interrupted => {}
+                    result => break result,
                 }
-            };
-            total_bytes_read += bytes_read;
+            } {
+                Ok(bytes_read) => {
+                    total_bytes_read += bytes_read;
 
-            if bytes_read < slice.len() {
-                break;
+                    if bytes_read < slice.len() {
+                        break;
+                    }
+                    len -= bytes_read;
+                }
+                // exit successfully if we previously managed to write some bytes
+                Err(_) if total_bytes_read > 0 => break,
+                Err(err) => return Err(err),
             }
-            len -= bytes_read;
         }
 
         Ok(total_bytes_read)
@@ -457,23 +459,25 @@ impl<const L: u16> IoVecBufferMut<L> {
                 slice = slice.subslice(0, len)?;
             }
 
-            let bytes_read = loop {
+            match loop {
                 match src.read_volatile(&mut slice) {
                     Err(VolatileMemoryError::IOError(err))
-                        if err.kind() == ErrorKind::Interrupted =>
-                    {
-                        continue;
-                    }
-                    Ok(bytes_read) => break bytes_read,
-                    Err(volatile_memory_error) => return Err(volatile_memory_error),
+                        if err.kind() == ErrorKind::Interrupted => {}
+                    result => break result,
                 }
-            };
-            total_bytes_read += bytes_read;
+            } {
+                Ok(bytes_read) => {
+                    total_bytes_read += bytes_read;
 
-            if bytes_read < slice.len() {
-                break;
+                    if bytes_read < slice.len() {
+                        break;
+                    }
+                    len -= bytes_read;
+                }
+                // exit successfully if we previously managed to read some bytes
+                Err(_) if total_bytes_read > 0 => break,
+                Err(err) => return Err(err),
             }
-            len -= bytes_read;
         }
 
         Ok(total_bytes_read)
