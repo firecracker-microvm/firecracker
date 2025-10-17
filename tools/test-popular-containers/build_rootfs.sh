@@ -73,9 +73,13 @@ passwd -d root
 EOF
 }
 
+# FIXME: The AL image build procedure is known for keeping changing the ext4 file
+# even after the systemd-nspawn command exits, for unknown reason, causing
+# the subsequent tar command to fail.  Placing it first as a mitigation gives it
+# more time to converge to a stable state.
+make_rootfs amazonlinux:2023
 make_rootfs alpine:latest
 make_rootfs ubuntu:22.04
 make_rootfs ubuntu:24.04
 make_rootfs ubuntu:25.04
 make_rootfs ubuntu:latest
-make_rootfs amazonlinux:2023
