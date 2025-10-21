@@ -22,9 +22,9 @@ def max_devices(uvm):
             # at the same time is 93.
             return 93
         case "x86_64":
-            # IRQs are available from 5 to 23. We always use one IRQ for VMGenID device, so
-            # the maximum number of devices supported at the same time is 18.
-            return 18
+            # IRQs are available from 5 to 23. We always use one IRQ for VMGenID and VMClock
+            # devices, so the maximum number of devices supported at the same time is 17.
+            return 17
         case _:
             raise ValueError("Unknown platform")
 
