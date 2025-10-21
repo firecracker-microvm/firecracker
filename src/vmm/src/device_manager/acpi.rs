@@ -5,6 +5,8 @@ use acpi_tables::{Aml, aml};
 use vm_memory::GuestMemoryError;
 
 use crate::Vm;
+#[cfg(target_arch = "x86_64")]
+use crate::devices::acpi::vmclock::VmClock;
 use crate::devices::acpi::vmgenid::VmGenId;
 use crate::vstate::resources::ResourceAllocator;
 
@@ -20,18 +22,30 @@ pub enum ACPIDeviceError {
 pub struct ACPIDeviceManager {
     /// VMGenID device
     pub vmgenid: VmGenId,
+    /// VMclock device
+    #[cfg(target_arch = "x86_64")]
+    pub vmclock: VmClock,
 }
 
 impl ACPIDeviceManager {
     /// Create a new ACPIDeviceManager object
     pub fn new(resource_allocator: &mut ResourceAllocator) -> Self {
-        let vmgenid = VmGenId::new(resource_allocator);
-        ACPIDeviceManager { vmgenid }
+        ACPIDeviceManager {
+            vmgenid: VmGenId::new(resource_allocator),
+            #[cfg(target_arch = "x86_64")]
+            vmclock: VmClock::new(resource_allocator),
+        }
     }
 
     pub fn attach_vmgenid(&self, vm: &Vm) -> Result<(), ACPIDeviceError> {
         vm.register_irq(&self.vmgenid.interrupt_evt, self.vmgenid.gsi)?;
         self.vmgenid.activate(vm.guest_memory())?;
+        Ok(())
+    }
+
+    #[cfg(target_arch = "x86_64")]
+    pub fn attach_vmclock(&self, vm: &Vm) -> Result<(), ACPIDeviceError> {
+        self.vmclock.activate(vm.guest_memory())?;
         Ok(())
     }
 }
@@ -40,6 +54,9 @@ impl Aml for ACPIDeviceManager {
     fn append_aml_bytes(&self, v: &mut Vec<u8>) -> Result<(), aml::AmlError> {
         // AML for [`VmGenId`] device.
         self.vmgenid.append_aml_bytes(v)?;
+        // AML for [`VmClock`] device.
+        #[cfg(target_arch = "x86_64")]
+        self.vmclock.append_aml_bytes(v)?;
 
         // Create the AML for the GED interrupt handler
         aml::Device::new(
