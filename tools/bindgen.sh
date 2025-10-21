@@ -166,6 +166,10 @@ fc-bindgen \
     --allowlist-var "ARCH_.*" \
     "$ARCH_X86_INCLUDE/uapi/asm/prctl.h" >src/vmm/src/arch/x86_64/generated/arch_prctl.rs
 
+info "BINDGEN include/uapi/linux/vmclock-abi.h"
+fc-bindgen \
+    "$KERNEL_DIR/include/uapi/linux/vmclock-abi.h" > src/vmm/src/devices/acpi/generated/vmclock_abi.rs
+
 # Apply any patches
 info "Apply patches"
 for PATCH in $(dirname $0)/bindgen-patches/*.patch; do
