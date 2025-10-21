@@ -1140,6 +1140,13 @@ definitions:
           - None
           - 2M
         description: Which huge pages configuration (if any) should be used to back guest memory.
+      enable_thp:
+        type: boolean
+        description: >-
+          Enable transparent huge pages via madvise(MADV_HUGEPAGE) for guest memory.
+          Effective only for anonymous memory (non-memfd) and when not using explicit hugetlbfs pages.
+          If guest memory is memfd-backed (e.g., due to vhost-user-blk), setting this will cause an error.
+        default: false
 
   MemoryBackend:
     type: object

@@ -489,7 +489,38 @@ impl VmResources {
     pub fn allocate_guest_memory(&self) -> Result<Vec<GuestRegionMmap>, MemoryError> {
         let regions =
             crate::arch::arch_memory_regions(mib_to_bytes(self.machine_config.mem_size_mib));
-        self.allocate_memory_regions(&regions)
+
+        // Determine whether memfd-backed memory would be used.
+        let vhost_user_device_used = self
+            .block
+            .devices
+            .iter()
+            .any(|b| b.lock().expect("Poisoned lock").is_vhost_user());
+
+        // If THP is requested but guest memory would be memfd-backed, return an error.
+        if self.machine_config.enable_thp && vhost_user_device_used {
+            return Err(MemoryError::ThpUnsupportedMemfd);
+        }
+
+        let mut guest_regions = self.allocate_memory_regions(&regions)?;
+
+        // If requested, enable transparent hugepages via madvise on anonymous memory only
+        // (skip if using explicit hugetlbfs pages).
+        if self.machine_config.enable_thp && self.machine_config.huge_pages == HugePageConfig::None
+        {
+            for region in &guest_regions {
+                // SAFETY: Address and size refer to a valid guest memory mapping we created.
+                #[allow(deprecated)]
+                let ret = unsafe {
+                    libc::madvise(region.as_ptr().cast(), region.size() as usize, libc::MADV_HUGEPAGE)
+                };
+                if ret != 0 {
+                    return Err(MemoryError::Madvise(std::io::Error::last_os_error()));
+                }
+            }
+        }
+
+        Ok(guest_regions)
     }
 }
 
@@ -1381,6 +1412,7 @@ mod tests {
             cpu_template: Some(StaticCpuTemplate::V1N1),
             track_dirty_pages: Some(false),
             huge_pages: Some(HugePageConfig::None),
+            enable_thp: Some(false),
             #[cfg(feature = "gdb")]
             gdb_socket_path: None,
         };
