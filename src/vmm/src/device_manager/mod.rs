@@ -465,6 +465,10 @@ impl<'a> Persist<'a> for DeviceManager {
         // Restore ACPI devices
         let mut acpi_devices = ACPIDeviceManager::restore(constructor_args.vm, &state.acpi_state)?;
         acpi_devices.vmgenid.notify_guest()?;
+        #[cfg(target_arch = "x86_64")]
+        acpi_devices
+            .vmclock
+            .post_load_update(constructor_args.vm.guest_memory());
 
         // Restore PCI devices
         let pci_ctor_args = PciDevicesConstructorArgs {

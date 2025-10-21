@@ -192,8 +192,14 @@ impl<'a> Persist<'a> for ACPIDeviceManager {
             vmgenid: VmGenId::restore((), &state.vmgenid).unwrap(),
             // Safe to unwrap() here, this will never return an error.
             #[cfg(target_arch = "x86_64")]
-            vmclock: VmClock::restore(vm.guest_memory(), &state.vmclock).unwrap(),
+            vmclock: VmClock::restore((), &state.vmclock).unwrap(),
         };
+
+        #[cfg(target_arch = "x86_64")]
+        vm.register_irq(
+            &acpi_devices.vmclock.interrupt_evt,
+            acpi_devices.vmclock.gsi,
+        )?;
 
         acpi_devices.attach_vmgenid(vm)?;
         Ok(acpi_devices)
