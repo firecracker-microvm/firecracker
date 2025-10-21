@@ -43,7 +43,7 @@ EOF
     bindgen --no-doc-comments --disable-header-comment --constified-enum-module '.*' --with-derive-default --with-derive-partialeq $@
 }
 
-KERNEL_BRANCH="linux-6.12.y"
+KERNEL_BRANCH="linux-6.13.y"
 KERNEL_DIR="./$KERNEL_BRANCH"
 HEADERS_DIR=$(realpath "./linux-headers")
 # https://www.kernel.org/doc/Documentation/kbuild/headers_install.txt
