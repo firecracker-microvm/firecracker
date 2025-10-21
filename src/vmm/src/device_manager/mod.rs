@@ -237,6 +237,12 @@ impl DeviceManager {
         Ok(())
     }
 
+    #[cfg(target_arch = "x86_64")]
+    pub(crate) fn attach_vmclock_device(&mut self, vm: &Vm) -> Result<(), AttachDeviceError> {
+        self.acpi_devices.attach_vmclock(vm)?;
+        Ok(())
+    }
+
     #[cfg(target_arch = "aarch64")]
     pub(crate) fn attach_legacy_devices_aarch64(
         &mut self,

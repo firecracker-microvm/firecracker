@@ -256,6 +256,8 @@ pub fn build_microvm_for_boot(
     )?;
 
     device_manager.attach_vmgenid_device(&vm)?;
+    #[cfg(target_arch = "x86_64")]
+    device_manager.attach_vmclock_device(&vm)?;
 
     #[cfg(target_arch = "aarch64")]
     if vcpus[0].kvm_vcpu.supports_pvtime() {
@@ -942,6 +944,11 @@ pub(crate) mod tests {
     #[cfg(target_arch = "x86_64")]
     pub(crate) fn insert_vmgenid_device(vmm: &mut Vmm) {
         vmm.device_manager.attach_vmgenid_device(&vmm.vm).unwrap();
+    }
+
+    #[cfg(target_arch = "x86_64")]
+    pub(crate) fn insert_vmclock_device(vmm: &mut Vmm) {
+        vmm.device_manager.attach_vmclock_device(&vmm.vm).unwrap();
     }
 
     pub(crate) fn insert_balloon_device(
