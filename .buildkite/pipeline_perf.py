@@ -68,6 +68,10 @@ perf_test = {
     "pmem": {
         "label": "💿 Pmem Performance",
         "tests": "integration_tests/performance/test_pmem.py",
+    },
+    "mmds": {
+        "label": ":information_source: MMDS",
+        "tests": "integration_tests/performance/test_mmds.py",
         "devtool_opts": "-c 1-10 -m 0",
     },
 }
