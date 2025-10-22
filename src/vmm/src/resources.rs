@@ -1474,6 +1474,7 @@ mod tests {
                 amount_mib: 100,
                 deflate_on_oom: false,
                 stats_polling_interval_s: 0,
+                free_page_hinting: false,
                 free_page_reporting: false,
             })
             .unwrap();
@@ -1513,6 +1514,7 @@ mod tests {
             amount_mib: 100,
             deflate_on_oom: false,
             stats_polling_interval_s: 0,
+            free_page_hinting: false,
             free_page_reporting: false,
         };
         assert!(vm_resources.balloon.get().is_none());

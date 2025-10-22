@@ -11,7 +11,7 @@ use crate::devices::virtio::test_utils::VirtQueue;
 
 #[cfg(test)]
 /// Max number of virtio queues.
-const BALLOON_MAX_NUM_QUEUES: usize = 4;
+const BALLOON_MAX_NUM_QUEUES: usize = 5;
 
 #[cfg(test)]
 pub fn invoke_handler_for_queue_event(b: &mut Balloon, queue_index: usize) {

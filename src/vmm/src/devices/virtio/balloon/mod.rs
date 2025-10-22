@@ -23,7 +23,7 @@ use crate::vstate::interrupts::InterruptError;
 /// Because Balloon is unique per-vm, this ID can be hardcoded.
 pub const BALLOON_DEV_ID: &str = "balloon";
 /// The size of the config space.
-pub const BALLOON_CONFIG_SPACE_SIZE: usize = 8;
+pub const BALLOON_CONFIG_SPACE_SIZE: usize = 12;
 /// Min number of virtio queues.
 pub const BALLOON_MIN_NUM_QUEUES: usize = 2;
 /// Virtio queue size, in number of descriptor chain heads.
@@ -44,9 +44,15 @@ pub const DEFLATE_INDEX: usize = 1;
 /// The index of the stats queue from Balloon device queues/queues_evts vector.
 pub const STATS_INDEX: usize = 2;
 
+/// Command used in free page hinting to indicate the guest has finished
+pub const FREE_PAGE_HINT_STOP: u32 = 0;
+/// Command used in free page hinting to indicate to the guest to release pages
+pub const FREE_PAGE_HINT_DONE: u32 = 1;
+
 // The feature bitmap for virtio balloon.
 const VIRTIO_BALLOON_F_STATS_VQ: u32 = 1; // Enable statistics.
 const VIRTIO_BALLOON_F_DEFLATE_ON_OOM: u32 = 2; // Deflate balloon on OOM.
+const VIRTIO_BALLOON_F_FREE_PAGE_HINTING: u32 = 3; // Enable free page hinting
 const VIRTIO_BALLOON_F_FREE_PAGE_REPORTING: u32 = 5; // Enable free page reporting
 
 // The statistics tags.
@@ -66,6 +72,8 @@ const VIRTIO_BALLOON_S_HTLB_PGFAIL: u16 = 9;
 pub enum BalloonError {
     /// Device not activated yet.
     DeviceNotActive,
+    /// Attempting to use hinting when not enabled
+    HintingNotEnabled,
     /// EventFd error: {0}
     EventFd(std::io::Error),
     /// Received error while sending an interrupt: {0}

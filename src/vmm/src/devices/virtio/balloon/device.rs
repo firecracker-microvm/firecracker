@@ -5,8 +5,8 @@ use std::ops::Deref;
 use std::sync::Arc;
 use std::time::Duration;
 
-use log::{error, info};
-use serde::Serialize;
+use log::{error, info, warn};
+use serde::{Deserialize, Serialize};
 use timerfd::{ClockId, SetTimeFlags, TimerFd, TimerState};
 use vmm_sys_util::eventfd::EventFd;
 
@@ -16,9 +16,10 @@ use super::super::queue::Queue;
 use super::metrics::METRICS;
 use super::util::compact_page_frame_numbers;
 use super::{
-    BALLOON_DEV_ID, BALLOON_MIN_NUM_QUEUES, BALLOON_QUEUE_SIZE, DEFLATE_INDEX, INFLATE_INDEX,
-    MAX_PAGE_COMPACT_BUFFER, MAX_PAGES_IN_DESC, MIB_TO_4K_PAGES, STATS_INDEX,
-    VIRTIO_BALLOON_F_DEFLATE_ON_OOM, VIRTIO_BALLOON_F_FREE_PAGE_REPORTING,
+    BALLOON_DEV_ID, BALLOON_MIN_NUM_QUEUES, BALLOON_QUEUE_SIZE, DEFLATE_INDEX, FREE_PAGE_HINT_DONE,
+    FREE_PAGE_HINT_STOP, INFLATE_INDEX, MAX_PAGE_COMPACT_BUFFER, MAX_PAGES_IN_DESC,
+    MIB_TO_4K_PAGES, STATS_INDEX, VIRTIO_BALLOON_F_DEFLATE_ON_OOM,
+    VIRTIO_BALLOON_F_FREE_PAGE_HINTING, VIRTIO_BALLOON_F_FREE_PAGE_REPORTING,
     VIRTIO_BALLOON_F_STATS_VQ, VIRTIO_BALLOON_PFN_SHIFT, VIRTIO_BALLOON_S_AVAIL,
     VIRTIO_BALLOON_S_CACHES, VIRTIO_BALLOON_S_HTLB_PGALLOC, VIRTIO_BALLOON_S_HTLB_PGFAIL,
     VIRTIO_BALLOON_S_MAJFLT, VIRTIO_BALLOON_S_MEMFREE, VIRTIO_BALLOON_S_MEMTOT,
@@ -30,7 +31,7 @@ use crate::devices::virtio::generated::virtio_config::VIRTIO_F_VERSION_1;
 use crate::devices::virtio::generated::virtio_ids::VIRTIO_ID_BALLOON;
 use crate::devices::virtio::queue::InvalidAvailIdx;
 use crate::devices::virtio::transport::{VirtioInterrupt, VirtioInterruptType};
-use crate::logger::IncMetric;
+use crate::logger::{IncMetric, log_dev_preview_warning};
 use crate::utils::u64_to_usize;
 use crate::vstate::memory::{
     Address, ByteValued, Bytes, GuestAddress, GuestMemoryExtension, GuestMemoryMmap,
@@ -57,10 +58,46 @@ fn pages_to_mib(amount_pages: u32) -> u32 {
 pub(crate) struct ConfigSpace {
     pub num_pages: u32,
     pub actual_pages: u32,
+    pub free_page_hint_cmd_id: u32,
 }
 
 // SAFETY: Safe because ConfigSpace only contains plain data.
 unsafe impl ByteValued for ConfigSpace {}
+
+/// Holds state of the free page hinting run
+#[derive(Copy, Clone, Debug, Default, Serialize, Deserialize)]
+pub(crate) struct HintingState {
+    /// The command requested by us. Set to STOP by default.
+    pub host_cmd: u32,
+    /// The last command supplied by guest.
+    pub last_cmd_id: u32,
+    /// The command supplied by guest.
+    pub guest_cmd: Option<u32>,
+    /// Whether or not to automatically ack on STOP.
+    pub acknowledge_on_finish: bool,
+}
+
+/// By default hinting will ack on stop
+fn default_ack_on_stop() -> bool {
+    true
+}
+
+/// Command recieved from the API to start a hinting run
+#[derive(Copy, Clone, Debug, Eq, PartialEq, Default, Deserialize)]
+pub struct StartHintingCmd {
+    /// If we should automatically acknowledge end of the run after stop.
+    #[serde(default = "default_ack_on_stop")]
+    pub acknowledge_on_stop: bool,
+}
+
+/// Returned to the API for get hinting status
+#[derive(Copy, Clone, Debug, Eq, PartialEq, Default, Serialize)]
+pub struct HintingStatus {
+    /// The command requested by us. Set to STOP by default.
+    pub host_cmd: u32,
+    /// The command supplied by guest.
+    pub guest_cmd: Option<u32>,
+}
 
 // This structure needs the `packed` attribute, otherwise Rust will assume
 // the size to be 16 bytes.
@@ -83,6 +120,9 @@ pub struct BalloonConfig {
     pub deflate_on_oom: bool,
     /// Interval of time in seconds at which the balloon statistics are updated.
     pub stats_polling_interval_s: u16,
+    /// Free page hinting enabled
+    #[serde(default)]
+    pub free_page_hinting: bool,
     /// Free page reporting enabled
     #[serde(default)]
     pub free_page_reporting: bool,
@@ -184,6 +224,9 @@ pub struct Balloon {
     pub(crate) latest_stats: BalloonStats,
     // A buffer used as pfn accumulator during descriptor processing.
     pub(crate) pfn_buffer: [u32; MAX_PAGE_COMPACT_BUFFER],
+
+    // Holds state for free page hinting
+    pub(crate) hinting_state: HintingState,
 }
 
 impl Balloon {
@@ -192,6 +235,7 @@ impl Balloon {
         amount_mib: u32,
         deflate_on_oom: bool,
         stats_polling_interval_s: u16,
+        free_page_hinting: bool,
         free_page_reporting: bool,
     ) -> Result<Balloon, BalloonError> {
         let mut avail_features = 1u64 << VIRTIO_F_VERSION_1;
@@ -205,6 +249,12 @@ impl Balloon {
         let mut queue_count = BALLOON_MIN_NUM_QUEUES;
         if stats_polling_interval_s > 0 {
             avail_features |= 1u64 << VIRTIO_BALLOON_F_STATS_VQ;
+            queue_count += 1;
+        }
+
+        if free_page_hinting {
+            log_dev_preview_warning("Free Page Hinting", None);
+            avail_features |= 1u64 << VIRTIO_BALLOON_F_FREE_PAGE_HINTING;
             queue_count += 1;
         }
 
@@ -229,6 +279,7 @@ impl Balloon {
             config_space: ConfigSpace {
                 num_pages: mib_to_pages(amount_mib)?,
                 actual_pages: 0,
+                free_page_hint_cmd_id: FREE_PAGE_HINT_STOP,
             },
             queue_evts,
             queues,
@@ -239,6 +290,7 @@ impl Balloon {
             stats_desc_index: None,
             latest_stats: BalloonStats::default(),
             pfn_buffer: [0u32; MAX_PAGE_COMPACT_BUFFER],
+            hinting_state: Default::default(),
         })
     }
 
@@ -266,6 +318,13 @@ impl Balloon {
     pub(crate) fn process_stats_timer_event(&mut self) -> Result<(), BalloonError> {
         self.stats_timer.read();
         self.trigger_stats_update()
+    }
+
+    pub(crate) fn process_free_page_hinting_queue_event(&mut self) -> Result<(), BalloonError> {
+        self.queue_evts[self.free_page_hinting_idx()]
+            .read()
+            .map_err(BalloonError::EventFd)?;
+        self.process_free_page_hinting_queue()
     }
 
     pub(crate) fn process_free_page_reporting_queue_event(&mut self) -> Result<(), BalloonError> {
@@ -423,8 +482,90 @@ impl Balloon {
         Ok(())
     }
 
+    pub(crate) fn process_free_page_hinting_queue(&mut self) -> Result<(), BalloonError> {
+        let mem = &self
+            .device_state
+            .active_state()
+            .ok_or(BalloonError::DeviceNotActive)?
+            .mem;
+
+        let idx = self.free_page_hinting_idx();
+        let queue = &mut self.queues[idx];
+        let host_cmd = self.hinting_state.host_cmd;
+        let mut needs_interrupt = false;
+        let mut complete = false;
+
+        while let Some(head) = queue.pop()? {
+            let head_index = head.index;
+
+            let mut last_desc = Some(head);
+            while let Some(desc) = last_desc {
+                last_desc = desc.next_descriptor();
+
+                // Updated cmd_ids are always of length 4
+                if desc.len == 4 {
+                    complete = false;
+
+                    let cmd = mem
+                        .read_obj::<u32>(desc.addr)
+                        .map_err(|_| BalloonError::MalformedDescriptor)?;
+                    self.hinting_state.guest_cmd = Some(cmd);
+                    if cmd == FREE_PAGE_HINT_STOP {
+                        complete = true;
+                    }
+
+                    // We don't expect this from the driver, but lets treat as a stop
+                    if cmd == FREE_PAGE_HINT_DONE {
+                        warn!("balloon hinting: Unexpected cmd from guest: {cmd}");
+                        complete = true;
+                    }
+
+                    continue;
+                }
+
+                // If we've requested done we have to discard any in-flight hints
+                if host_cmd == FREE_PAGE_HINT_DONE || host_cmd == FREE_PAGE_HINT_STOP {
+                    continue;
+                }
+
+                let Some(chain_cmd) = self.hinting_state.guest_cmd else {
+                    warn!("balloon hinting: received range with no command id.");
+                    continue;
+                };
+
+                if chain_cmd != host_cmd {
+                    info!("balloon hinting: Received chain from previous command ignoring.");
+                    continue;
+                }
+
+                if let Err(err) = mem.discard_range(desc.addr, desc.len as usize) {
+                    error!("balloon hinting: failed to remove range: {err:?}");
+                }
+            }
+
+            queue.add_used(head.index, 0)?;
+            needs_interrupt = true;
+        }
+
+        queue.advance_used_ring_idx();
+
+        if needs_interrupt {
+            self.signal_used_queue(idx)?;
+        }
+
+        if complete && self.hinting_state.acknowledge_on_finish {
+            self.update_free_page_hint_cmd(FREE_PAGE_HINT_DONE);
+        }
+
+        Ok(())
+    }
+
     pub(crate) fn process_free_page_reporting_queue(&mut self) -> Result<(), BalloonError> {
-        let mem = &self.device_state.active_state().unwrap().mem;
+        let mem = &self
+            .device_state
+            .active_state()
+            .ok_or(BalloonError::DeviceNotActive)?
+            .mem;
 
         let idx = self.free_page_reporting_idx();
         let queue = &mut self.queues[idx];
@@ -475,6 +616,12 @@ impl Balloon {
             return Err(err);
         }
 
+        if self.free_page_hinting()
+            && let Err(BalloonError::InvalidAvailIdx(err)) = self.process_free_page_hinting_queue()
+        {
+            return Err(err);
+        }
+
         if self.free_page_reporting()
             && let Err(BalloonError::InvalidAvailIdx(err)) =
                 self.process_free_page_reporting_queue()
@@ -521,6 +668,20 @@ impl Balloon {
         }
     }
 
+    pub fn free_page_hinting(&self) -> bool {
+        self.avail_features & (1u64 << VIRTIO_BALLOON_F_FREE_PAGE_HINTING) != 0
+    }
+
+    pub fn free_page_hinting_idx(&self) -> usize {
+        let mut idx = BALLOON_MIN_NUM_QUEUES;
+
+        if self.stats_polling_interval_s > 0 {
+            idx += 1;
+        }
+
+        idx
+    }
+
     pub fn free_page_reporting(&self) -> bool {
         self.avail_features & (1u64 << VIRTIO_BALLOON_F_FREE_PAGE_REPORTING) != 0
     }
@@ -529,6 +690,10 @@ impl Balloon {
         let mut idx = BALLOON_MIN_NUM_QUEUES;
 
         if self.stats_polling_interval_s > 0 {
+            idx += 1;
+        }
+
+        if self.free_page_hinting() {
             idx += 1;
         }
 
@@ -592,12 +757,65 @@ impl Balloon {
         }
     }
 
+    /// Update the free page hinting cmd
+    pub fn update_free_page_hint_cmd(&mut self, cmd_id: u32) -> Result<(), BalloonError> {
+        if !self.is_activated() {
+            return Err(BalloonError::DeviceNotActive);
+        }
+
+        self.hinting_state.host_cmd = cmd_id;
+        self.config_space.free_page_hint_cmd_id = cmd_id;
+        self.interrupt_trigger()
+            .trigger(VirtioInterruptType::Config)
+            .map_err(BalloonError::InterruptError)
+    }
+
+    /// Starts a hinting run by setting the cmd_id to a new value.
+    pub(crate) fn start_hinting(&mut self, cmd: StartHintingCmd) -> Result<(), BalloonError> {
+        if !self.free_page_hinting() {
+            return Err(BalloonError::HintingNotEnabled);
+        }
+
+        let mut cmd_id = self.hinting_state.last_cmd_id.wrapping_add(1);
+        // 0 and 1 are reserved and cannot be used to start a hinting run
+        if cmd_id <= 1 {
+            cmd_id = 2;
+        }
+
+        self.hinting_state.acknowledge_on_finish = cmd.acknowledge_on_stop;
+        self.hinting_state.last_cmd_id = cmd_id;
+        self.update_free_page_hint_cmd(cmd_id)
+    }
+
+    /// Return the status of the hinting including the last command we sent to the driver
+    /// and the last cmd sent from the driver
+    pub(crate) fn get_hinting_status(&self) -> Result<HintingStatus, BalloonError> {
+        if !self.free_page_hinting() {
+            return Err(BalloonError::HintingNotEnabled);
+        }
+
+        Ok(HintingStatus {
+            host_cmd: self.hinting_state.host_cmd,
+            guest_cmd: self.hinting_state.guest_cmd,
+        })
+    }
+
+    /// Stops the hinting run allowing the guest to reclaim hinted pages
+    pub(crate) fn stop_hinting(&mut self) -> Result<(), BalloonError> {
+        if !self.free_page_hinting() {
+            Err(BalloonError::HintingNotEnabled)
+        } else {
+            self.update_free_page_hint_cmd(FREE_PAGE_HINT_DONE)
+        }
+    }
+
     /// Return the config of the balloon device.
     pub fn config(&self) -> BalloonConfig {
         BalloonConfig {
             amount_mib: self.size_mb(),
             deflate_on_oom: self.deflate_on_oom(),
             stats_polling_interval_s: self.stats_polling_interval_s(),
+            free_page_hinting: self.free_page_hinting(),
             free_page_reporting: self.free_page_reporting(),
         }
     }
@@ -689,6 +907,12 @@ impl VirtioDevice for Balloon {
 
         if self.stats_enabled() {
             self.update_timer_state();
+        }
+
+        // On activate ensure hint cmd is reset to FREE_PAGE_HINT_DONE
+        if self.is_activated() && self.free_page_hinting() {
+            self.update_free_page_hint_cmd(FREE_PAGE_HINT_DONE)
+                .map_err(|_| ActivateError::EventFd)?;
         }
 
         Ok(())
@@ -807,7 +1031,8 @@ pub(crate) mod tests {
         // Test all feature combinations.
         for deflate_on_oom in [true, false].iter() {
             for stats_interval in [0, 1].iter() {
-                let mut balloon = Balloon::new(0, *deflate_on_oom, *stats_interval, false).unwrap();
+                let mut balloon =
+                    Balloon::new(0, *deflate_on_oom, *stats_interval, false, false).unwrap();
                 assert_eq!(balloon.device_type(), VIRTIO_ID_BALLOON);
 
                 let features: u64 = (1u64 << VIRTIO_F_VERSION_1)
@@ -834,12 +1059,13 @@ pub(crate) mod tests {
 
     #[test]
     fn test_virtio_read_config() {
-        let balloon = Balloon::new(0x10, true, 0, false).unwrap();
+        let balloon = Balloon::new(0x10, true, 0, false, false).unwrap();
 
         let cfg = BalloonConfig {
             amount_mib: 16,
             deflate_on_oom: true,
             stats_polling_interval_s: 0,
+            free_page_hinting: false,
             free_page_reporting: false,
         };
         assert_eq!(balloon.config(), cfg);
@@ -850,13 +1076,15 @@ pub(crate) mod tests {
         // The config space is little endian.
         // 0x10 MB in the constructor corresponds to 0x1000 pages in the
         // config space.
-        let expected_config_space: [u8; BALLOON_CONFIG_SPACE_SIZE] =
-            [0x00, 0x10, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00];
+        let expected_config_space: [u8; BALLOON_CONFIG_SPACE_SIZE] = [
+            0x00, 0x10, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        ];
         assert_eq!(actual_config_space, expected_config_space);
 
         // Invalid read.
-        let expected_config_space: [u8; BALLOON_CONFIG_SPACE_SIZE] =
-            [0xd, 0xe, 0xa, 0xd, 0xb, 0xe, 0xe, 0xf];
+        let expected_config_space: [u8; BALLOON_CONFIG_SPACE_SIZE] = [
+            0xd, 0xe, 0xa, 0xd, 0xb, 0xe, 0xe, 0xf, 0x00, 0x00, 0x00, 0x00,
+        ];
         actual_config_space = expected_config_space;
         balloon.read_config(
             BALLOON_CONFIG_SPACE_SIZE as u64 + 1,
@@ -869,10 +1097,11 @@ pub(crate) mod tests {
 
     #[test]
     fn test_virtio_write_config() {
-        let mut balloon = Balloon::new(0, true, 0, false).unwrap();
+        let mut balloon = Balloon::new(0, true, 0, false, false).unwrap();
 
-        let expected_config_space: [u8; BALLOON_CONFIG_SPACE_SIZE] =
-            [0x00, 0x50, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00];
+        let expected_config_space: [u8; BALLOON_CONFIG_SPACE_SIZE] = [
+            0x00, 0x50, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        ];
         balloon.write_config(0, &expected_config_space);
 
         let mut actual_config_space = [0u8; BALLOON_CONFIG_SPACE_SIZE];
@@ -880,7 +1109,9 @@ pub(crate) mod tests {
         assert_eq!(actual_config_space, expected_config_space);
 
         // Invalid write.
-        let new_config_space = [0xd, 0xe, 0xa, 0xd, 0xb, 0xe, 0xe, 0xf];
+        let new_config_space = [
+            0xd, 0xe, 0xa, 0xd, 0xb, 0xe, 0xe, 0xf, 0x00, 0x00, 0x00, 0x00,
+        ];
         balloon.write_config(5, &new_config_space);
         // Make sure nothing got written.
         balloon.read_config(0, &mut actual_config_space);
@@ -895,7 +1126,7 @@ pub(crate) mod tests {
 
     #[test]
     fn test_invalid_request() {
-        let mut balloon = Balloon::new(0, true, 0, false).unwrap();
+        let mut balloon = Balloon::new(0, true, 0, false, false).unwrap();
         let mem = default_mem();
         let interrupt = default_interrupt();
         // Only initialize the inflate queue to demonstrate invalid request handling.
@@ -956,7 +1187,7 @@ pub(crate) mod tests {
 
     #[test]
     fn test_inflate() {
-        let mut balloon = Balloon::new(0, true, 0, false).unwrap();
+        let mut balloon = Balloon::new(0, true, 0, false, false).unwrap();
         let mem = default_mem();
         let interrupt = default_interrupt();
         let infq = VirtQueue::new(GuestAddress(0), &mem, 16);
@@ -1028,7 +1259,7 @@ pub(crate) mod tests {
 
     #[test]
     fn test_deflate() {
-        let mut balloon = Balloon::new(0, true, 0, false).unwrap();
+        let mut balloon = Balloon::new(0, true, 0, false, false).unwrap();
         let mem = default_mem();
         let interrupt = default_interrupt();
         let defq = VirtQueue::new(GuestAddress(0), &mem, 16);
@@ -1078,7 +1309,7 @@ pub(crate) mod tests {
 
     #[test]
     fn test_stats() {
-        let mut balloon = Balloon::new(0, true, 1, false).unwrap();
+        let mut balloon = Balloon::new(0, true, 1, false, false).unwrap();
         let mem = default_mem();
         let interrupt = default_interrupt();
         let statsq = VirtQueue::new(GuestAddress(0), &mem, 16);
@@ -1170,7 +1401,7 @@ pub(crate) mod tests {
 
     #[test]
     fn test_process_balloon_queues() {
-        let mut balloon = Balloon::new(0x10, true, 0, false).unwrap();
+        let mut balloon = Balloon::new(0x10, true, 0, false, false).unwrap();
         let mem = default_mem();
         let interrupt = default_interrupt();
         let infq = VirtQueue::new(GuestAddress(0), &mem, 16);
@@ -1185,7 +1416,7 @@ pub(crate) mod tests {
 
     #[test]
     fn test_update_stats_interval() {
-        let mut balloon = Balloon::new(0, true, 0, false).unwrap();
+        let mut balloon = Balloon::new(0, true, 0, false, false).unwrap();
         let mem = default_mem();
         let q = VirtQueue::new(GuestAddress(0), &mem, 16);
         balloon.set_queue(INFLATE_INDEX, q.create_queue());
@@ -1198,7 +1429,7 @@ pub(crate) mod tests {
         );
         balloon.update_stats_polling_interval(0).unwrap();
 
-        let mut balloon = Balloon::new(0, true, 1, false).unwrap();
+        let mut balloon = Balloon::new(0, true, 1, false, false).unwrap();
         let mem = default_mem();
         let q = VirtQueue::new(GuestAddress(0), &mem, 16);
         balloon.set_queue(INFLATE_INDEX, q.create_queue());
@@ -1216,14 +1447,14 @@ pub(crate) mod tests {
 
     #[test]
     fn test_cannot_update_inactive_device() {
-        let mut balloon = Balloon::new(0, true, 0, false).unwrap();
+        let mut balloon = Balloon::new(0, true, 0, false, false).unwrap();
         // Assert that we can't update an inactive device.
         balloon.update_size(1).unwrap_err();
     }
 
     #[test]
     fn test_num_pages() {
-        let mut balloon = Balloon::new(0, true, 0, false).unwrap();
+        let mut balloon = Balloon::new(0, true, 0, false, false).unwrap();
         // Switch the state to active.
         balloon.device_state = DeviceState::Activated(ActiveState {
             mem: single_region_mem(32 << 20),
@@ -1241,13 +1472,16 @@ pub(crate) mod tests {
 
         let mut actual_config = vec![0; BALLOON_CONFIG_SPACE_SIZE];
         balloon.read_config(0, &mut actual_config);
-        assert_eq!(actual_config, vec![0x0, 0x10, 0x0, 0x0, 0x34, 0x12, 0, 0]);
+        assert_eq!(
+            actual_config,
+            vec![0x0, 0x10, 0x0, 0x0, 0x34, 0x12, 0, 0, 0, 0, 0, 0]
+        );
         assert_eq!(balloon.num_pages(), 0x1000);
         assert_eq!(balloon.actual_pages(), 0x1234);
         assert_eq!(balloon.size_mb(), 16);
 
         // Update fields through the config space.
-        let expected_config = vec![0x44, 0x33, 0x22, 0x11, 0x78, 0x56, 0x34, 0x12];
+        let expected_config = vec![0x44, 0x33, 0x22, 0x11, 0x78, 0x56, 0x34, 0x12, 0, 0, 0, 0];
         balloon.write_config(0, &expected_config);
         assert_eq!(balloon.num_pages(), 0x1122_3344);
         assert_eq!(balloon.actual_pages(), 0x1234_5678);
