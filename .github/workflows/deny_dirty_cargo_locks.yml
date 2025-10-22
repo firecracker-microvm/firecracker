@@ -2,6 +2,10 @@ name: Check no Cargo.lock files are dirty
 
 on: pull_request
 
+
+permissions:
+  contents: read
+
 jobs:
   no_dirty_cargo_locks_check:
     runs-on: ubuntu-latest
