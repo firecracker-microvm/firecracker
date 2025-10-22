@@ -1210,6 +1210,7 @@ def test_get_full_config_after_restoring_snapshot(microvm_factory, uvm_nano):
         "amount_mib": 1,
         "deflate_on_oom": True,
         "stats_polling_interval_s": 0,
+        "free_page_reporting": False,
     }
 
     # Add a vsock device.
@@ -1343,6 +1344,7 @@ def test_get_full_config(uvm_plain):
         "amount_mib": 1,
         "deflate_on_oom": True,
         "stats_polling_interval_s": 0,
+        "free_page_reporting": False,
     }
 
     # Add a vsock device.
