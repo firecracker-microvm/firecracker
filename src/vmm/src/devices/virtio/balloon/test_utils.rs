@@ -4,17 +4,21 @@
 #![doc(hidden)]
 
 #[cfg(test)]
+use crate::devices::virtio::balloon::Balloon;
+#[cfg(test)]
 use crate::devices::virtio::device::VirtioDevice;
 use crate::devices::virtio::test_utils::VirtQueue;
+
 #[cfg(test)]
-use crate::devices::virtio::{balloon::BALLOON_NUM_QUEUES, balloon::Balloon};
+/// Max number of virtio queues.
+const BALLOON_MAX_NUM_QUEUES: usize = 4;
 
 #[cfg(test)]
 pub fn invoke_handler_for_queue_event(b: &mut Balloon, queue_index: usize) {
     use crate::devices::virtio::balloon::{DEFLATE_INDEX, INFLATE_INDEX, STATS_INDEX};
     use crate::devices::virtio::transport::VirtioInterruptType;
 
-    assert!(queue_index < BALLOON_NUM_QUEUES);
+    assert!(queue_index < BALLOON_MAX_NUM_QUEUES);
     // Trigger the queue event.
     b.queue_evts[queue_index].write(1).unwrap();
     // Handle event.

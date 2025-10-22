@@ -1474,6 +1474,7 @@ mod tests {
                 amount_mib: 100,
                 deflate_on_oom: false,
                 stats_polling_interval_s: 0,
+                free_page_reporting: false,
             })
             .unwrap();
         aux_vm_config.mem_size_mib = Some(90);
@@ -1512,6 +1513,7 @@ mod tests {
             amount_mib: 100,
             deflate_on_oom: false,
             stats_polling_interval_s: 0,
+            free_page_reporting: false,
         };
         assert!(vm_resources.balloon.get().is_none());
         vm_resources

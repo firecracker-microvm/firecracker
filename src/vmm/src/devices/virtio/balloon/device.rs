@@ -16,13 +16,13 @@ use super::super::queue::Queue;
 use super::metrics::METRICS;
 use super::util::compact_page_frame_numbers;
 use super::{
-    BALLOON_DEV_ID, BALLOON_NUM_QUEUES, BALLOON_QUEUE_SIZES, DEFLATE_INDEX, INFLATE_INDEX,
+    BALLOON_DEV_ID, BALLOON_MIN_NUM_QUEUES, BALLOON_QUEUE_SIZE, DEFLATE_INDEX, INFLATE_INDEX,
     MAX_PAGE_COMPACT_BUFFER, MAX_PAGES_IN_DESC, MIB_TO_4K_PAGES, STATS_INDEX,
-    VIRTIO_BALLOON_F_DEFLATE_ON_OOM, VIRTIO_BALLOON_F_STATS_VQ, VIRTIO_BALLOON_PFN_SHIFT,
-    VIRTIO_BALLOON_S_AVAIL, VIRTIO_BALLOON_S_CACHES, VIRTIO_BALLOON_S_HTLB_PGALLOC,
-    VIRTIO_BALLOON_S_HTLB_PGFAIL, VIRTIO_BALLOON_S_MAJFLT, VIRTIO_BALLOON_S_MEMFREE,
-    VIRTIO_BALLOON_S_MEMTOT, VIRTIO_BALLOON_S_MINFLT, VIRTIO_BALLOON_S_SWAP_IN,
-    VIRTIO_BALLOON_S_SWAP_OUT,
+    VIRTIO_BALLOON_F_DEFLATE_ON_OOM, VIRTIO_BALLOON_F_FREE_PAGE_REPORTING,
+    VIRTIO_BALLOON_F_STATS_VQ, VIRTIO_BALLOON_PFN_SHIFT, VIRTIO_BALLOON_S_AVAIL,
+    VIRTIO_BALLOON_S_CACHES, VIRTIO_BALLOON_S_HTLB_PGALLOC, VIRTIO_BALLOON_S_HTLB_PGFAIL,
+    VIRTIO_BALLOON_S_MAJFLT, VIRTIO_BALLOON_S_MEMFREE, VIRTIO_BALLOON_S_MEMTOT,
+    VIRTIO_BALLOON_S_MINFLT, VIRTIO_BALLOON_S_SWAP_IN, VIRTIO_BALLOON_S_SWAP_OUT,
 };
 use crate::devices::virtio::balloon::BalloonError;
 use crate::devices::virtio::device::ActiveState;
@@ -83,6 +83,9 @@ pub struct BalloonConfig {
     pub deflate_on_oom: bool,
     /// Interval of time in seconds at which the balloon statistics are updated.
     pub stats_polling_interval_s: u16,
+    /// Free page reporting enabled
+    #[serde(default)]
+    pub free_page_reporting: bool,
 }
 
 /// BalloonStats holds statistics returned from the stats_queue.
@@ -169,7 +172,7 @@ pub struct Balloon {
 
     // Transport related fields.
     pub(crate) queues: Vec<Queue>,
-    pub(crate) queue_evts: [EventFd; BALLOON_NUM_QUEUES],
+    pub(crate) queue_evts: Vec<EventFd>,
     pub(crate) device_state: DeviceState,
 
     // Implementation specific fields.
@@ -189,6 +192,7 @@ impl Balloon {
         amount_mib: u32,
         deflate_on_oom: bool,
         stats_polling_interval_s: u16,
+        free_page_reporting: bool,
     ) -> Result<Balloon, BalloonError> {
         let mut avail_features = 1u64 << VIRTIO_F_VERSION_1;
 
@@ -196,23 +200,25 @@ impl Balloon {
             avail_features |= 1u64 << VIRTIO_BALLOON_F_DEFLATE_ON_OOM;
         };
 
-        if stats_polling_interval_s > 0 {
-            avail_features |= 1u64 << VIRTIO_BALLOON_F_STATS_VQ;
-        }
-
-        let queue_evts = [
-            EventFd::new(libc::EFD_NONBLOCK).map_err(BalloonError::EventFd)?,
-            EventFd::new(libc::EFD_NONBLOCK).map_err(BalloonError::EventFd)?,
-            EventFd::new(libc::EFD_NONBLOCK).map_err(BalloonError::EventFd)?,
-        ];
-
-        let mut queues: Vec<Queue> = BALLOON_QUEUE_SIZES.iter().map(|&s| Queue::new(s)).collect();
-
         // The VirtIO specification states that the statistics queue should
         // not be present at all if the statistics are not enabled.
-        if stats_polling_interval_s == 0 {
-            let _ = queues.remove(STATS_INDEX);
+        let mut queue_count = BALLOON_MIN_NUM_QUEUES;
+        if stats_polling_interval_s > 0 {
+            avail_features |= 1u64 << VIRTIO_BALLOON_F_STATS_VQ;
+            queue_count += 1;
         }
+
+        if free_page_reporting {
+            avail_features |= 1u64 << VIRTIO_BALLOON_F_FREE_PAGE_REPORTING;
+            queue_count += 1;
+        }
+
+        let queues: Vec<Queue> = (0..queue_count)
+            .map(|_| Queue::new(BALLOON_QUEUE_SIZE))
+            .collect();
+        let queue_evts = (0..queue_count)
+            .map(|_| EventFd::new(libc::EFD_NONBLOCK).map_err(BalloonError::EventFd))
+            .collect::<Result<Vec<_>, _>>()?;
 
         let stats_timer =
             TimerFd::new_custom(ClockId::Monotonic, true, true).map_err(BalloonError::Timer)?;
@@ -262,9 +268,20 @@ impl Balloon {
         self.trigger_stats_update()
     }
 
+    pub(crate) fn process_free_page_reporting_queue_event(&mut self) -> Result<(), BalloonError> {
+        self.queue_evts[self.free_page_reporting_idx()]
+            .read()
+            .map_err(BalloonError::EventFd)?;
+        self.process_free_page_reporting_queue()
+    }
+
     pub(crate) fn process_inflate(&mut self) -> Result<(), BalloonError> {
         // This is safe since we checked in the event handler that the device is activated.
-        let mem = &self.device_state.active_state().unwrap().mem;
+        let mem = &self
+            .device_state
+            .active_state()
+            .ok_or(BalloonError::DeviceNotActive)?
+            .mem;
         METRICS.inflate_count.inc();
 
         let queue = &mut self.queues[INFLATE_INDEX];
@@ -406,6 +423,37 @@ impl Balloon {
         Ok(())
     }
 
+    pub(crate) fn process_free_page_reporting_queue(&mut self) -> Result<(), BalloonError> {
+        let mem = &self.device_state.active_state().unwrap().mem;
+
+        let idx = self.free_page_reporting_idx();
+        let queue = &mut self.queues[idx];
+        let mut needs_interrupt = false;
+
+        while let Some(head) = queue.pop()? {
+            let head_index = head.index;
+
+            let mut last_desc = Some(head);
+            while let Some(desc) = last_desc {
+                if let Err(err) = mem.discard_range(desc.addr, desc.len as usize) {
+                    error!("balloon: failed to remove range: {err:?}");
+                }
+                last_desc = desc.next_descriptor();
+            }
+
+            queue.add_used(head.index, 0)?;
+            needs_interrupt = true;
+        }
+
+        queue.advance_used_ring_idx();
+
+        if needs_interrupt {
+            self.signal_used_queue(idx)?;
+        }
+
+        Ok(())
+    }
+
     pub(crate) fn signal_used_queue(&self, qidx: usize) -> Result<(), BalloonError> {
         self.interrupt_trigger()
             .trigger(VirtioInterruptType::Queue(
@@ -424,6 +472,13 @@ impl Balloon {
             return Err(err);
         }
         if let Err(BalloonError::InvalidAvailIdx(err)) = self.process_deflate_queue() {
+            return Err(err);
+        }
+
+        if self.free_page_reporting()
+            && let Err(BalloonError::InvalidAvailIdx(err)) =
+                self.process_free_page_reporting_queue()
+        {
             return Err(err);
         }
 
@@ -464,6 +519,20 @@ impl Balloon {
         } else {
             Err(BalloonError::DeviceNotActive)
         }
+    }
+
+    pub fn free_page_reporting(&self) -> bool {
+        self.avail_features & (1u64 << VIRTIO_BALLOON_F_FREE_PAGE_REPORTING) != 0
+    }
+
+    pub fn free_page_reporting_idx(&self) -> usize {
+        let mut idx = BALLOON_MIN_NUM_QUEUES;
+
+        if self.stats_polling_interval_s > 0 {
+            idx += 1;
+        }
+
+        idx
     }
 
     /// Update the statistics polling interval.
@@ -529,6 +598,7 @@ impl Balloon {
             amount_mib: self.size_mb(),
             deflate_on_oom: self.deflate_on_oom(),
             stats_polling_interval_s: self.stats_polling_interval_s(),
+            free_page_reporting: self.free_page_reporting(),
         }
     }
 
@@ -737,7 +807,7 @@ pub(crate) mod tests {
         // Test all feature combinations.
         for deflate_on_oom in [true, false].iter() {
             for stats_interval in [0, 1].iter() {
-                let mut balloon = Balloon::new(0, *deflate_on_oom, *stats_interval).unwrap();
+                let mut balloon = Balloon::new(0, *deflate_on_oom, *stats_interval, false).unwrap();
                 assert_eq!(balloon.device_type(), VIRTIO_ID_BALLOON);
 
                 let features: u64 = (1u64 << VIRTIO_F_VERSION_1)
@@ -764,12 +834,13 @@ pub(crate) mod tests {
 
     #[test]
     fn test_virtio_read_config() {
-        let balloon = Balloon::new(0x10, true, 0).unwrap();
+        let balloon = Balloon::new(0x10, true, 0, false).unwrap();
 
         let cfg = BalloonConfig {
             amount_mib: 16,
             deflate_on_oom: true,
             stats_polling_interval_s: 0,
+            free_page_reporting: false,
         };
         assert_eq!(balloon.config(), cfg);
 
@@ -798,7 +869,7 @@ pub(crate) mod tests {
 
     #[test]
     fn test_virtio_write_config() {
-        let mut balloon = Balloon::new(0, true, 0).unwrap();
+        let mut balloon = Balloon::new(0, true, 0, false).unwrap();
 
         let expected_config_space: [u8; BALLOON_CONFIG_SPACE_SIZE] =
             [0x00, 0x50, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00];
@@ -824,7 +895,7 @@ pub(crate) mod tests {
 
     #[test]
     fn test_invalid_request() {
-        let mut balloon = Balloon::new(0, true, 0).unwrap();
+        let mut balloon = Balloon::new(0, true, 0, false).unwrap();
         let mem = default_mem();
         let interrupt = default_interrupt();
         // Only initialize the inflate queue to demonstrate invalid request handling.
@@ -885,7 +956,7 @@ pub(crate) mod tests {
 
     #[test]
     fn test_inflate() {
-        let mut balloon = Balloon::new(0, true, 0).unwrap();
+        let mut balloon = Balloon::new(0, true, 0, false).unwrap();
         let mem = default_mem();
         let interrupt = default_interrupt();
         let infq = VirtQueue::new(GuestAddress(0), &mem, 16);
@@ -957,7 +1028,7 @@ pub(crate) mod tests {
 
     #[test]
     fn test_deflate() {
-        let mut balloon = Balloon::new(0, true, 0).unwrap();
+        let mut balloon = Balloon::new(0, true, 0, false).unwrap();
         let mem = default_mem();
         let interrupt = default_interrupt();
         let defq = VirtQueue::new(GuestAddress(0), &mem, 16);
@@ -1007,7 +1078,7 @@ pub(crate) mod tests {
 
     #[test]
     fn test_stats() {
-        let mut balloon = Balloon::new(0, true, 1).unwrap();
+        let mut balloon = Balloon::new(0, true, 1, false).unwrap();
         let mem = default_mem();
         let interrupt = default_interrupt();
         let statsq = VirtQueue::new(GuestAddress(0), &mem, 16);
@@ -1099,7 +1170,7 @@ pub(crate) mod tests {
 
     #[test]
     fn test_process_balloon_queues() {
-        let mut balloon = Balloon::new(0x10, true, 0).unwrap();
+        let mut balloon = Balloon::new(0x10, true, 0, false).unwrap();
         let mem = default_mem();
         let interrupt = default_interrupt();
         let infq = VirtQueue::new(GuestAddress(0), &mem, 16);
@@ -1114,7 +1185,7 @@ pub(crate) mod tests {
 
     #[test]
     fn test_update_stats_interval() {
-        let mut balloon = Balloon::new(0, true, 0).unwrap();
+        let mut balloon = Balloon::new(0, true, 0, false).unwrap();
         let mem = default_mem();
         let q = VirtQueue::new(GuestAddress(0), &mem, 16);
         balloon.set_queue(INFLATE_INDEX, q.create_queue());
@@ -1127,7 +1198,7 @@ pub(crate) mod tests {
         );
         balloon.update_stats_polling_interval(0).unwrap();
 
-        let mut balloon = Balloon::new(0, true, 1).unwrap();
+        let mut balloon = Balloon::new(0, true, 1, false).unwrap();
         let mem = default_mem();
         let q = VirtQueue::new(GuestAddress(0), &mem, 16);
         balloon.set_queue(INFLATE_INDEX, q.create_queue());
@@ -1145,14 +1216,14 @@ pub(crate) mod tests {
 
     #[test]
     fn test_cannot_update_inactive_device() {
-        let mut balloon = Balloon::new(0, true, 0).unwrap();
+        let mut balloon = Balloon::new(0, true, 0, false).unwrap();
         // Assert that we can't update an inactive device.
         balloon.update_size(1).unwrap_err();
     }
 
     #[test]
     fn test_num_pages() {
-        let mut balloon = Balloon::new(0, true, 0).unwrap();
+        let mut balloon = Balloon::new(0, true, 0, false).unwrap();
         // Switch the state to active.
         balloon.device_state = DeviceState::Activated(ActiveState {
             mem: single_region_mem(32 << 20),
