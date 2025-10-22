@@ -36,6 +36,9 @@ pub struct BalloonDeviceConfig {
     /// Interval in seconds between refreshing statistics.
     #[serde(default)]
     pub stats_polling_interval_s: u16,
+    /// Free page hinting enabled
+    #[serde(default)]
+    pub free_page_hinting: bool,
     /// Free page reporting enabled
     #[serde(default)]
     pub free_page_reporting: bool,
@@ -47,6 +50,7 @@ impl From<BalloonConfig> for BalloonDeviceConfig {
             amount_mib: state.amount_mib,
             deflate_on_oom: state.deflate_on_oom,
             stats_polling_interval_s: state.stats_polling_interval_s,
+            free_page_hinting: state.free_page_hinting,
             free_page_reporting: state.free_page_reporting,
         }
     }
@@ -92,6 +96,7 @@ impl BalloonBuilder {
             cfg.amount_mib,
             cfg.deflate_on_oom,
             cfg.stats_polling_interval_s,
+            cfg.free_page_hinting,
             cfg.free_page_reporting,
         )?)));
 
@@ -135,6 +140,7 @@ pub(crate) mod tests {
             amount_mib: 0,
             deflate_on_oom: false,
             stats_polling_interval_s: 0,
+            free_page_hinting: false,
             free_page_reporting: false,
         }
     }
@@ -146,6 +152,7 @@ pub(crate) mod tests {
             amount_mib: 0,
             deflate_on_oom: false,
             stats_polling_interval_s: 0,
+            free_page_hinting: false,
             free_page_reporting: false,
         };
         assert_eq!(default_balloon_config, balloon_config);
@@ -168,6 +175,7 @@ pub(crate) mod tests {
             amount_mib: 5,
             deflate_on_oom: false,
             stats_polling_interval_s: 3,
+            free_page_hinting: false,
             free_page_reporting: false,
         };
 
@@ -175,6 +183,7 @@ pub(crate) mod tests {
             amount_mib: 5,
             deflate_on_oom: false,
             stats_polling_interval_s: 3,
+            free_page_hinting: false,
             free_page_reporting: false,
         });
 
@@ -184,7 +193,7 @@ pub(crate) mod tests {
     #[test]
     fn test_set_device() {
         let mut builder = BalloonBuilder::new();
-        let balloon = Balloon::new(0, true, 0, false).unwrap();
+        let balloon = Balloon::new(0, true, 0, false, false).unwrap();
         builder.set_device(Arc::new(Mutex::new(balloon)));
         assert!(builder.inner.is_some());
     }
