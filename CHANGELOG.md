@@ -35,6 +35,10 @@ and this project adheres to
   Intel AMX enabling for kernels that support dynamic XSTATE features for
   userspace applications but not for KVM guests (e.g. kernel versions >= 5.16
   and < 5.17).
+- [#5485](https://github.com/firecracker-microvm/firecracker/pull/5485): Fixed a
+  bug causing a read/write from an iovec to be duplicated when receiving an
+  error on an iovec other than the first. This caused a data corruption issue in
+  the vsock device starting from guest kernel 6.17.
 
 ## [1.13.0]
 

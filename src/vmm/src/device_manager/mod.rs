@@ -87,12 +87,8 @@ pub enum AttachDeviceError {
 #[derive(Debug, thiserror::Error, displaydoc::Display)]
 /// Error while searching for a VirtIO device
 pub enum FindDeviceError {
-    /// Device type is invalid
-    InvalidDeviceType,
     /// Device not found
     DeviceNotFound,
-    /// Internal Device error: {0}
-    InternalDeviceError(anyhow::Error),
 }
 
 #[derive(Debug)]
@@ -372,35 +368,20 @@ impl DeviceManager {
     }
 
     /// Run fn `f()` for the virtio device matching `virtio_type` and `id`.
-    pub fn try_with_virtio_device_with_id<T, F, R, E>(
-        &self,
-        id: &str,
-        f: F,
-    ) -> Result<R, FindDeviceError>
-    where
-        T: VirtioDevice + 'static + Debug,
-        E: std::error::Error + 'static + Send + Sync,
-        F: FnOnce(&mut T) -> Result<R, E>,
-    {
-        if let Some(device) = self.get_virtio_device(T::const_device_type(), id) {
-            let mut dev = device.lock().expect("Poisoned lock");
-            f(dev
-                .as_mut_any()
-                .downcast_mut::<T>()
-                .ok_or(FindDeviceError::InvalidDeviceType)?)
-            .map_err(|e| FindDeviceError::InternalDeviceError(e.into()))
-        } else {
-            Err(FindDeviceError::DeviceNotFound)
-        }
-    }
-
-    /// Run fn `f()` for the virtio device matching `virtio_type` and `id`.
-    pub fn with_virtio_device_with_id<T, F, R>(&self, id: &str, f: F) -> Result<R, FindDeviceError>
+    pub fn with_virtio_device<T, F, R>(&self, id: &str, f: F) -> Result<R, FindDeviceError>
     where
         T: VirtioDevice + 'static + Debug,
         F: FnOnce(&mut T) -> R,
     {
-        self.try_with_virtio_device_with_id(id, |dev: &mut T| Ok::<R, FindDeviceError>(f(dev)))
+        if let Some(device) = self.get_virtio_device(T::const_device_type(), id) {
+            let mut dev = device.lock().expect("Poisoned lock");
+            Ok(f(dev
+                .as_mut_any()
+                .downcast_mut::<T>()
+                .expect("Invalid device for a given device type")))
+        } else {
+            Err(FindDeviceError::DeviceNotFound)
+        }
     }
 }
 
