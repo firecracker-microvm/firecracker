@@ -26,12 +26,13 @@ use crate::logger::{IncMetric, error};
 use crate::utils::{align_up, u64_to_usize};
 use crate::vmm_config::pmem::PmemConfig;
 use crate::vstate::memory::{ByteValued, Bytes, GuestMemoryMmap, GuestMmapRegion};
+use crate::vstate::vm::VmError;
 use crate::{Vm, impl_device_type};
 
 #[derive(Debug, thiserror::Error, displaydoc::Display)]
 pub enum PmemError {
     /// Cannot set the memory regions: {0}
-    SetUserMemoryRegion(kvm_ioctls::Error),
+    SetUserMemoryRegion(VmError),
     /// Unablet to allocate a KVM slot for the device
     NoKvmSlotAvailable,
     /// Error accessing backing file: {0}
@@ -233,14 +234,9 @@ impl Pmem {
                 0
             },
         };
-        // SAFETY: The fd is a valid VM file descriptor and all fields in the
-        // `memory_region` struct are valid.
-        unsafe {
-            vm.fd()
-                .set_user_memory_region(memory_region)
-                .map_err(PmemError::SetUserMemoryRegion)?;
-        }
-        Ok(())
+
+        vm.set_user_memory_region(memory_region)
+            .map_err(PmemError::SetUserMemoryRegion)
     }
 
     fn handle_queue(&mut self) -> Result<(), PmemError> {
