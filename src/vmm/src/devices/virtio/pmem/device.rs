@@ -221,7 +221,7 @@ impl Pmem {
 
     /// Set user memory region in KVM
     pub fn set_mem_region(&mut self, vm: &Vm) -> Result<(), PmemError> {
-        let next_slot = vm.next_kvm_slot().ok_or(PmemError::NoKvmSlotAvailable)?;
+        let next_slot = vm.next_kvm_slot(1).ok_or(PmemError::NoKvmSlotAvailable)?;
         let memory_region = kvm_userspace_memory_region {
             slot: next_slot,
             guest_phys_addr: self.config_space.start,
