@@ -665,7 +665,6 @@ def test_memory_scrub(uvm_plain_any, method):
         # Reporting can take up to 2 seconds to complete
         time.sleep(2)
 
-
     # Wait for the inflate to complete.
     _ = get_stable_rss_mem(microvm)
 
