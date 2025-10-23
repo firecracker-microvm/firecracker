@@ -115,6 +115,7 @@ mod tests {
         parse_get_balloon(["statistics"].into_iter()).unwrap();
 
         parse_get_balloon(["hinting", "status"].into_iter()).unwrap();
+        parse_get_balloon(["hinting", "unrelated"].into_iter()).unwrap_err();
         parse_get_balloon(["hinting"].into_iter()).unwrap_err();
     }
 

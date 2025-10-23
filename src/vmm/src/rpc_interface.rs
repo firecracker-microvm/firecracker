@@ -1219,6 +1219,11 @@ mod tests {
         check_unsupported(preboot_request(VmmAction::UpdateBalloon(
             BalloonUpdateConfig { amount_mib: 0 },
         )));
+        check_unsupported(preboot_request(VmmAction::StartFreePageHinting(
+            Default::default(),
+        )));
+        check_unsupported(preboot_request(VmmAction::GetFreePageHintingStatus));
+        check_unsupported(preboot_request(VmmAction::StopFreePageHinting));
         check_unsupported(preboot_request(VmmAction::UpdateBalloonStatistics(
             BalloonUpdateStatsConfig {
                 stats_polling_interval_s: 0,

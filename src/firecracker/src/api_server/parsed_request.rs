@@ -341,6 +341,7 @@ pub mod tests {
     use micro_http::HttpConnection;
     use vmm::builder::StartMicrovmError;
     use vmm::cpu_config::templates::test_utils::build_test_template;
+    use vmm::devices::virtio::balloon::device::HintingStatus;
     use vmm::resources::VmmConfig;
     use vmm::rpc_interface::VmmActionError;
     use vmm::vmm_config::balloon::{BalloonDeviceConfig, BalloonStats};
@@ -619,6 +620,9 @@ pub mod tests {
         verify_ok_response_with(VmmData::BalloonStats(BalloonStats {
             swap_in: Some(1),
             swap_out: Some(1),
+            ..Default::default()
+        }));
+        verify_ok_response_with(VmmData::HintingStatus(HintingStatus {
             ..Default::default()
         }));
         verify_ok_response_with(VmmData::Empty);
