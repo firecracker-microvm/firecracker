@@ -725,6 +725,11 @@ impl VirtioInterrupt for VirtioInterruptMsix {
     fn has_pending_interrupt(&self, interrupt_type: VirtioInterruptType) -> bool {
         false
     }
+
+    #[cfg(test)]
+    fn ack_interrupt(&self, interrupt_type: VirtioInterruptType) {
+        // Do nothing here
+    }
 }
 
 impl PciDevice for VirtioPciDevice {
