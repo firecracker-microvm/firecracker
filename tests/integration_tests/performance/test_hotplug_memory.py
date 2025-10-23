@@ -347,6 +347,59 @@ def test_snapshot_restore_persistence(uvm_plain_6_1, microvm_factory, snapshot_t
     validate_metrics(restored_vm)
 
 
+def test_snapshot_restore_incremental(uvm_plain_6_1, microvm_factory):
+    """
+    Check that hptplugged memory is persisted across snapshot/restore.
+    """
+    if not uvm_plain_6_1.pci_enabled:
+        pytest.skip(
+            "Skip tests on MMIO transport to save time as we don't expect any difference."
+        )
+
+    uvm = uvm_booted_memhp(
+        uvm_plain_6_1, None, microvm_factory, False, DEFAULT_CONFIG, None, None, None
+    )
+
+    snapshot = uvm.snapshot_full()
+
+    hotplug_count = 16
+    hp_mem_mib_per_cycle = 1024 // hotplug_count
+    checksums = []
+    for i, uvm in enumerate(
+        microvm_factory.build_n_from_snapshot(
+            snapshot,
+            hotplug_count + 1,
+            incremental=True,
+            use_snapshot_editor=True,
+        )
+    ):
+        # check checksums of previous cycles
+        for j in range(i):
+            _, checksum, _ = uvm.ssh.check_output(f"sha256sum /dev/shm/mem_hp_test_{j}")
+            assert checksum == checksums[j], f"Checksums didn't match for i={i} j={j}"
+
+        # we run hotplug_count+1 uvms to check all the checksums at the end
+        if i >= hotplug_count:
+            continue
+
+        total_hp_mem_mib = hp_mem_mib_per_cycle * (i + 1)
+        uvm.hotplug_memory(total_hp_mem_mib)
+
+        # Increase /dev/shm size as it defaults to half of the boot memory
+        uvm.ssh.check_output(
+            f"mount -o remount,size={total_hp_mem_mib}M -t tmpfs tmpfs /dev/shm"
+        )
+
+        uvm.ssh.check_output(
+            f"dd if=/dev/urandom of=/dev/shm/mem_hp_test_{i} bs=1M count={hp_mem_mib_per_cycle}"
+        )
+
+        _, checksum, _ = uvm.ssh.check_output(f"sha256sum /dev/shm/mem_hp_test_{i}")
+        checksums.append(checksum)
+
+        validate_metrics(uvm)
+
+
 def timed_memory_hotplug(uvm, size, metrics, metric_prefix, fc_metric_name):
     """Wait for all memory hotplug events to be processed"""
 
