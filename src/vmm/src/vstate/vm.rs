@@ -165,9 +165,12 @@ impl Vm {
         Ok((vcpus, exit_evt))
     }
 
-    /// Obtain the next free kvm slot id
-    pub fn next_kvm_slot(&self) -> Option<u32> {
-        let next = self.common.next_kvm_slot.fetch_add(1, Ordering::Relaxed);
+    /// Reserves the next `slot_cnt` contiguous kvm slot ids and returns the first one
+    pub fn next_kvm_slot(&self, slot_cnt: u32) -> Option<u32> {
+        let next = self
+            .common
+            .next_kvm_slot
+            .fetch_add(slot_cnt, Ordering::Relaxed);
         if self.common.max_memslots <= next {
             None
         } else {
@@ -200,7 +203,7 @@ impl Vm {
     ) -> Result<(), VmError> {
         for region in regions {
             let next_slot = self
-                .next_kvm_slot()
+                .next_kvm_slot(1)
                 .ok_or(VmError::NotEnoughMemorySlots(self.common.max_memslots))?;
 
             let arcd_region =
@@ -218,7 +221,7 @@ impl Vm {
         region: GuestRegionMmap,
     ) -> Result<(), VmError> {
         let next_slot = self
-            .next_kvm_slot()
+            .next_kvm_slot(1)
             .ok_or(VmError::NotEnoughMemorySlots(self.common.max_memslots))?;
 
         let arcd_region = Arc::new(GuestRegionMmapExt::hotpluggable_from_mmap_region(
@@ -238,7 +241,7 @@ impl Vm {
     ) -> Result<(), VmError> {
         for (region, state) in regions.into_iter().zip(state.regions.iter()) {
             let next_slot = self
-                .next_kvm_slot()
+                .next_kvm_slot(1)
                 .ok_or(VmError::NotEnoughMemorySlots(self.common.max_memslots))?;
 
             let arcd_region = Arc::new(GuestRegionMmapExt::from_state(region, state, next_slot)?);
