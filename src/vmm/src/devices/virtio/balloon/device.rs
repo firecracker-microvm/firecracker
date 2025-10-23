@@ -538,8 +538,12 @@ impl Balloon {
                     continue;
                 }
 
+                METRICS.free_page_hint_count.inc();
                 if let Err(err) = mem.discard_range(desc.addr, desc.len as usize) {
+                    METRICS.free_page_hint_fails.inc();
                     error!("balloon hinting: failed to remove range: {err:?}");
+                } else {
+                    METRICS.free_page_hint_freed.add(desc.len as u64);
                 }
             }
 
@@ -576,8 +580,12 @@ impl Balloon {
 
             let mut last_desc = Some(head);
             while let Some(desc) = last_desc {
+                METRICS.free_page_report_count.inc();
                 if let Err(err) = mem.discard_range(desc.addr, desc.len as usize) {
+                    METRICS.free_page_report_fails.inc();
                     error!("balloon: failed to remove range: {err:?}");
+                } else {
+                    METRICS.free_page_report_freed.add(desc.len as u64);
                 }
                 last_desc = desc.next_descriptor();
             }
