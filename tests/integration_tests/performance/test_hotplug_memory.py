@@ -65,7 +65,8 @@ def uvm_resumed_memhp(
     uvm = uvm_booted_memhp(
         uvm_plain, rootfs, microvm_factory, vhost_user, memhp_config, huge_pages, None
     )
-    return microvm_factory.clone_uvm(uvm, uffd_handler_name=uffd_handler)
+    snapshot = uvm.snapshot_full()
+    return microvm_factory.build_from_snapshot(snapshot, uffd_handler_name=uffd_handler)
 
 
 @pytest.fixture(
@@ -282,7 +283,8 @@ def test_snapshot_restore_persistence(uvm_plain_6_1, microvm_factory):
 
     _, checksum_before, _ = uvm.ssh.check_output("sha256sum /dev/shm/mem_hp_test")
 
-    restored_vm = microvm_factory.clone_uvm(uvm)
+    snapshot = uvm.make_snapshot(snapshot_type)
+    restored_vm = microvm_factory.build_from_snapshot(snapshot)
 
     _, checksum_after, _ = restored_vm.ssh.check_output(
         "sha256sum /dev/shm/mem_hp_test"
