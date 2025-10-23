@@ -16,7 +16,7 @@ use std::sync::{Arc, Mutex, MutexGuard};
 use kvm_bindings::KVM_IRQCHIP_IOAPIC;
 use kvm_bindings::{
     KVM_IRQ_ROUTING_IRQCHIP, KVM_IRQ_ROUTING_MSI, KVM_MSI_VALID_DEVID, KvmIrqRouting,
-    kvm_irq_routing_entry,
+    kvm_irq_routing_entry, kvm_userspace_memory_region,
 };
 use kvm_ioctls::VmFd;
 use log::debug;
@@ -178,18 +178,25 @@ impl Vm {
         }
     }
 
+    pub(crate) fn set_user_memory_region(
+        &self,
+        region: kvm_userspace_memory_region,
+    ) -> Result<(), VmError> {
+        // SAFETY: Safe because the fd is a valid KVM file descriptor.
+        unsafe {
+            self.fd()
+                .set_user_memory_region(region)
+                .map_err(VmError::SetUserMemoryRegion)
+        }
+    }
+
     fn register_memory_region(&mut self, region: Arc<GuestRegionMmapExt>) -> Result<(), VmError> {
         let new_guest_memory = self
             .common
             .guest_memory
             .insert_region(Arc::clone(&region))?;
 
-        // SAFETY: Safe because the fd is a valid KVM file descriptor.
-        unsafe {
-            self.fd()
-                .set_user_memory_region(region.kvm_userspace_memory_region())
-                .map_err(VmError::SetUserMemoryRegion)?;
-        }
+        self.set_user_memory_region(region.kvm_userspace_memory_region())?;
 
         self.common.guest_memory = new_guest_memory;
 
