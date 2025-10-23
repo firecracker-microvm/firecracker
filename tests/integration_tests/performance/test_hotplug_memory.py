@@ -13,7 +13,7 @@ from packaging import version
 from tenacity import Retrying, retry_if_exception_type, stop_after_delay, wait_fixed
 
 from framework.guest_stats import MeminfoGuest
-from framework.microvm import HugePagesConfig
+from framework.microvm import HugePagesConfig, SnapshotType
 from framework.properties import global_props
 from framework.utils import get_kernel_version, get_resident_memory
 
@@ -22,7 +22,14 @@ DEFAULT_CONFIG = {"total_size_mib": 1024, "slot_size_mib": 128, "block_size_mib"
 
 
 def uvm_booted_memhp(
-    uvm, rootfs, _microvm_factory, vhost_user, memhp_config, huge_pages, _uffd_handler
+    uvm,
+    rootfs,
+    _microvm_factory,
+    vhost_user,
+    memhp_config,
+    huge_pages,
+    _uffd_handler,
+    snapshot_type,
 ):
     """Boots a VM with the given memory hotplugging config"""
 
@@ -34,7 +41,12 @@ def uvm_booted_memhp(
         ssh_key = rootfs.with_suffix(".id_rsa")
         uvm.ssh_key = ssh_key
         uvm.basic_config(
-            boot_args=MEMHP_BOOTARGS, add_root_device=False, huge_pages=huge_pages
+            boot_args=MEMHP_BOOTARGS,
+            add_root_device=False,
+            huge_pages=huge_pages,
+            track_dirty_pages=(
+                snapshot_type.needs_dirty_page_tracking if snapshot_type else False
+            ),
         )
         uvm.add_vhost_user_drive(
             "rootfs", rootfs, is_root_device=True, is_read_only=True
@@ -56,6 +68,7 @@ def uvm_resumed_memhp(
     memhp_config,
     huge_pages,
     uffd_handler,
+    snapshot_type,
 ):
     """Restores a VM with the given memory hotplugging config after booting and snapshotting"""
     if vhost_user:
@@ -63,33 +76,62 @@ def uvm_resumed_memhp(
     if huge_pages and huge_pages != HugePagesConfig.NONE and not uffd_handler:
         pytest.skip("Hugepages requires a UFFD handler")
     uvm = uvm_booted_memhp(
-        uvm_plain, rootfs, microvm_factory, vhost_user, memhp_config, huge_pages, None
+        uvm_plain,
+        rootfs,
+        microvm_factory,
+        vhost_user,
+        memhp_config,
+        huge_pages,
+        None,
+        snapshot_type,
     )
-    snapshot = uvm.snapshot_full()
+    snapshot = uvm.make_snapshot(snapshot_type)
     return microvm_factory.build_from_snapshot(snapshot, uffd_handler_name=uffd_handler)
 
 
 @pytest.fixture(
     params=[
-        (uvm_booted_memhp, False, HugePagesConfig.NONE, None),
-        (uvm_booted_memhp, False, HugePagesConfig.HUGETLBFS_2MB, None),
-        (uvm_booted_memhp, True, HugePagesConfig.NONE, None),
-        (uvm_resumed_memhp, False, HugePagesConfig.NONE, None),
-        (uvm_resumed_memhp, False, HugePagesConfig.NONE, "on_demand"),
-        (uvm_resumed_memhp, False, HugePagesConfig.HUGETLBFS_2MB, "on_demand"),
+        (uvm_booted_memhp, False, HugePagesConfig.NONE, None, None),
+        (uvm_booted_memhp, False, HugePagesConfig.HUGETLBFS_2MB, None, None),
+        (uvm_booted_memhp, True, HugePagesConfig.NONE, None, None),
+        (uvm_resumed_memhp, False, HugePagesConfig.NONE, None, SnapshotType.FULL),
+        (uvm_resumed_memhp, False, HugePagesConfig.NONE, None, SnapshotType.DIFF),
+        (
+            uvm_resumed_memhp,
+            False,
+            HugePagesConfig.NONE,
+            None,
+            SnapshotType.DIFF_MINCORE,
+        ),
+        (
+            uvm_resumed_memhp,
+            False,
+            HugePagesConfig.NONE,
+            "on_demand",
+            SnapshotType.FULL,
+        ),
+        (
+            uvm_resumed_memhp,
+            False,
+            HugePagesConfig.HUGETLBFS_2MB,
+            "on_demand",
+            SnapshotType.FULL,
+        ),
     ],
     ids=[
         "booted",
         "booted-huge-pages",
         "booted-vhost-user",
         "resumed",
+        "resumed-diff",
+        "resumed-mincore",
         "resumed-uffd",
         "resumed-uffd-huge-pages",
     ],
 )
 def uvm_any_memhp(request, uvm_plain_6_1, rootfs, microvm_factory):
     """Fixture that yields a booted or resumed VM with memory hotplugging"""
-    ctor, vhost_user, huge_pages, uffd_handler = request.param
+    ctor, vhost_user, huge_pages, uffd_handler, snapshot_type = request.param
     yield ctor(
         uvm_plain_6_1,
         rootfs,
@@ -98,6 +140,7 @@ def uvm_any_memhp(request, uvm_plain_6_1, rootfs, microvm_factory):
         DEFAULT_CONFIG,
         huge_pages,
         uffd_handler,
+        snapshot_type,
     )
 
 
@@ -237,7 +280,9 @@ def test_virtio_mem_configs(uvm_plain_6_1, memhp_config):
     """
     Check that the virtio mem device is working as expected for different configs
     """
-    uvm = uvm_booted_memhp(uvm_plain_6_1, None, None, False, memhp_config, None, None)
+    uvm = uvm_booted_memhp(
+        uvm_plain_6_1, None, None, False, memhp_config, None, None, None
+    )
     if not uvm.pci_enabled:
         pytest.skip(
             "Skip tests on MMIO transport to save time as we don't expect any difference."
@@ -262,7 +307,7 @@ def test_virtio_mem_configs(uvm_plain_6_1, memhp_config):
     validate_metrics(uvm)
 
 
-def test_snapshot_restore_persistence(uvm_plain_6_1, microvm_factory):
+def test_snapshot_restore_persistence(uvm_plain_6_1, microvm_factory, snapshot_type):
     """
     Check that hptplugged memory is persisted across snapshot/restore.
     """
@@ -271,7 +316,14 @@ def test_snapshot_restore_persistence(uvm_plain_6_1, microvm_factory):
             "Skip tests on MMIO transport to save time as we don't expect any difference."
         )
     uvm = uvm_booted_memhp(
-        uvm_plain_6_1, None, microvm_factory, False, DEFAULT_CONFIG, None, None
+        uvm_plain_6_1,
+        None,
+        microvm_factory,
+        False,
+        DEFAULT_CONFIG,
+        None,
+        None,
+        snapshot_type,
     )
 
     uvm.hotplug_memory(1024)
@@ -348,7 +400,9 @@ def test_memory_hotplug_latency(
             "block_size_mib": 2,
         }
         uvm_plain_6_1 = microvm_factory.build(guest_kernel_linux_6_1, rootfs, pci=True)
-        uvm = uvm_booted_memhp(uvm_plain_6_1, None, None, False, config, None, None)
+        uvm = uvm_booted_memhp(
+            uvm_plain_6_1, None, None, False, config, None, None, None
+        )
 
         if i == 0:
             metrics.set_dimensions(
