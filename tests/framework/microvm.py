@@ -1277,11 +1277,13 @@ class MicroVMFactory:
             vm.ssh_key = ssh_key
         return vm
 
-    def build_from_snapshot(self, snapshot: Snapshot):
+    def build_from_snapshot(self, snapshot: Snapshot, uffd_handler_name=None):
         """Build a microvm from a snapshot"""
         vm = self.build()
         vm.spawn()
-        vm.restore_from_snapshot(snapshot, resume=True)
+        vm.restore_from_snapshot(
+            snapshot, resume=True, uffd_handler_name=uffd_handler_name
+        )
         return vm
 
     def build_n_from_snapshot(
@@ -1339,18 +1341,6 @@ class MicroVMFactory:
         if last_snapshot is not None and not last_snapshot.snapshot_type.needs_rebase:
             last_snapshot.delete()
         current_snapshot.delete()
-
-    def clone_uvm(self, uvm, uffd_handler_name=None):
-        """
-        Clone the given VM and start it.
-        """
-        snapshot = uvm.snapshot_full()
-        restored_vm = self.build()
-        restored_vm.spawn()
-        restored_vm.restore_from_snapshot(
-            snapshot, resume=True, uffd_handler_name=uffd_handler_name
-        )
-        return restored_vm
 
     def kill(self):
         """Clean up all built VMs"""
