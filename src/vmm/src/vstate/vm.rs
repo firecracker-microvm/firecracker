@@ -296,7 +296,7 @@ impl Vm {
                         .fd()
                         .get_dirty_log(region.slot, u64_to_usize(region.len()))
                         .map_err(VmError::GetDirtyLog)?,
-                    None => mincore_bitmap(&region.inner)?,
+                    None => mincore_bitmap(region.as_ptr(), u64_to_usize(region.len()))?,
                 };
                 Ok((region.slot, bitmap))
             })
@@ -481,7 +481,7 @@ impl Vm {
 
 /// Use `mincore(2)` to overapproximate the dirty bitmap for the given memslot. To be used
 /// if a diff snapshot is requested, but dirty page tracking wasn't enabled.
-fn mincore_bitmap(region: &GuestRegionMmap) -> Result<Vec<u64>, VmError> {
+fn mincore_bitmap(addr: *mut u8, len: usize) -> Result<Vec<u64>, VmError> {
     // TODO: Once Host 5.10 goes out of support, we can make this more robust and work on
     // swap-enabled systems, by doing mlock2(MLOCK_ONFAULT)/munlock() in this function (to
     // force swapped-out pages to get paged in, so that mincore will consider them incore).
@@ -492,8 +492,8 @@ fn mincore_bitmap(region: &GuestRegionMmap) -> Result<Vec<u64>, VmError> {
     // is a hugetlbfs VMA (e.g. to report a single hugepage as "present", mincore will
     // give us 512 4k markers with the lowest bit set).
     let page_size = host_page_size();
-    let mut mincore_bitmap = vec![0u8; u64_to_usize(region.len()) / page_size];
-    let mut bitmap = vec![0u64; (u64_to_usize(region.len()) / page_size).div_ceil(64)];
+    let mut mincore_bitmap = vec![0u8; len / page_size];
+    let mut bitmap = vec![0u64; (len / page_size).div_ceil(64)];
 
     // SAFETY: The safety invariants of GuestRegionMmap ensure that region.as_ptr() is a valid
     // userspace mapping of size region.len() bytes. The bitmap has exactly one byte for each
@@ -501,13 +501,7 @@ fn mincore_bitmap(region: &GuestRegionMmap) -> Result<Vec<u64>, VmError> {
     // KVM_MEM_LOG_DIRTY_PAGES, but rather it uses 8 bits per page (e.g. 1 byte), setting the
     // least significant bit to 1 if the page corresponding to a byte is in core (available in
     // the page cache and resolvable via just a minor page fault).
-    let r = unsafe {
-        libc::mincore(
-            region.as_ptr().cast::<libc::c_void>(),
-            u64_to_usize(region.len()),
-            mincore_bitmap.as_mut_ptr(),
-        )
-    };
+    let r = unsafe { libc::mincore(addr.cast(), len, mincore_bitmap.as_mut_ptr()) };
 
     if r != 0 {
         return Err(VmError::Mincore(vmm_sys_util::errno::Error::last()));
