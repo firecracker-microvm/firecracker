@@ -2,12 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use std::convert::{From, TryInto};
-use std::fs::{File, OpenOptions};
 use std::io;
-use std::os::unix::fs::OpenOptionsExt;
-use std::path::Path;
 
-use libc::O_NONBLOCK;
 use serde::{Deserialize, Serialize};
 
 use crate::rate_limiter::{BucketUpdate, RateLimiter, TokenBucket};
@@ -165,18 +161,6 @@ impl RateLimiterConfig {
             None
         }
     }
-}
-
-/// Create and opens a File for writing to it.
-/// In case we open a FIFO, in order to not block the instance if nobody is consuming the message
-/// that is flushed to the two pipes, we are opening it with `O_NONBLOCK` flag.
-/// In this case, writing to a pipe will start failing when reaching 64K of unconsumed content.
-fn open_file_nonblock(path: &Path) -> Result<File, std::io::Error> {
-    OpenOptions::new()
-        .custom_flags(O_NONBLOCK)
-        .read(true)
-        .write(true)
-        .open(path)
 }
 
 #[cfg(test)]
