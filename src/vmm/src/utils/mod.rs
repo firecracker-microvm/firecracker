@@ -10,7 +10,13 @@ pub mod signal;
 /// Module with state machine
 pub mod sm;
 
+use std::fs::{File, OpenOptions};
 use std::num::Wrapping;
+use std::os::unix::fs::OpenOptionsExt;
+use std::path::Path;
+use std::result::Result;
+
+use libc::O_NONBLOCK;
 
 /// How many bits to left-shift by to convert MiB to bytes
 const MIB_TO_BYTES_SHIFT: usize = 20;
@@ -63,4 +69,16 @@ pub const fn align_up(addr: u64, align: u64) -> u64 {
 pub const fn align_down(addr: u64, align: u64) -> u64 {
     debug_assert!(align != 0);
     addr & !(align - 1)
+}
+
+/// Create and open a File for writing to it.
+/// In case we open a FIFO, in order to not block the instance if nobody is consuming the message
+/// that is flushed to it, we are opening it with `O_NONBLOCK` flag.
+/// In this case, writing to a pipe will start failing when reaching 64K of unconsumed content.
+pub fn open_file_write_nonblock(path: &Path) -> Result<File, std::io::Error> {
+    OpenOptions::new()
+        .custom_flags(O_NONBLOCK)
+        .create(true)
+        .write(true)
+        .open(path)
 }
