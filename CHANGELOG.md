@@ -16,6 +16,10 @@ and this project adheres to
 
 ### Changed
 
+- [#4028](https://github.com/firecracker-microvm/firecracker/pull/4028):
+  Firecracker now creates the log and metrics files if they do not exist,
+  simplifying the launch of Firecracker by removing a manual step.
+
 ### Deprecated
 
 ### Removed
