@@ -239,9 +239,6 @@ sudo iptables -t nat -A POSTROUTING -o "$HOST_IFACE" -j MASQUERADE
 API_SOCKET="/tmp/firecracker.socket"
 LOGFILE="./firecracker.log"
 
-# Create log file
-touch $LOGFILE
-
 # Set log file
 sudo curl -X PUT --unix-socket "${API_SOCKET}" \
     --data "{
