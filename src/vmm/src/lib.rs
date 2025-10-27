@@ -124,7 +124,6 @@ use std::sync::{Arc, Barrier, Mutex};
 use std::time::Duration;
 
 use device_manager::DeviceManager;
-use devices::acpi::vmgenid::VmGenIdError;
 use event_manager::{EventManager as BaseEventManager, EventOps, Events, MutEventSubscriber};
 use seccomp::BpfProgram;
 use snapshot::Persist;
@@ -247,8 +246,6 @@ pub enum VmmError {
     Vm(#[from] vstate::vm::VmError),
     /// Kvm error: {0}
     Kvm(#[from] vstate::kvm::KvmError),
-    /// VMGenID error: {0}
-    VMGenID(#[from] VmGenIdError),
     /// Failed perform action on device: {0}
     FindDeviceError(#[from] device_manager::FindDeviceError),
     /// Block: {0}
