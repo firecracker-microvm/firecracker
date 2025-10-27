@@ -14,7 +14,8 @@ use super::acpi::ACPIDeviceManager;
 use super::mmio::*;
 #[cfg(target_arch = "aarch64")]
 use crate::arch::DeviceType;
-use crate::devices::acpi::vmgenid::{VMGenIDState, VMGenIdConstructorArgs, VmGenId, VmGenIdError};
+use crate::device_manager::acpi::ACPIDeviceError;
+use crate::devices::acpi::vmgenid::{VMGenIDState, VmGenId};
 #[cfg(target_arch = "aarch64")]
 use crate::devices::legacy::RTCDevice;
 use crate::devices::virtio::ActivateError;
@@ -156,50 +157,28 @@ impl fmt::Debug for MMIODevManagerConstructorArgs<'_> {
 
 #[derive(Default, Debug, Clone, Serialize, Deserialize)]
 pub struct ACPIDeviceManagerState {
-    vmgenid: Option<VMGenIDState>,
-}
-
-#[derive(Debug)]
-pub struct ACPIDeviceManagerConstructorArgs<'a> {
-    pub mem: &'a GuestMemoryMmap,
-    pub vm: &'a Vm,
-}
-
-#[derive(Debug, thiserror::Error, displaydoc::Display)]
-pub enum ACPIDeviceManagerRestoreError {
-    /// Could not register device: {0}
-    Interrupt(#[from] kvm_ioctls::Error),
-    /// Could not create VMGenID device: {0}
-    VMGenID(#[from] VmGenIdError),
+    vmgenid: VMGenIDState,
 }
 
 impl<'a> Persist<'a> for ACPIDeviceManager {
     type State = ACPIDeviceManagerState;
-    type ConstructorArgs = ACPIDeviceManagerConstructorArgs<'a>;
-    type Error = ACPIDeviceManagerRestoreError;
+    type ConstructorArgs = &'a Vm;
+    type Error = ACPIDeviceError;
 
     fn save(&self) -> Self::State {
         ACPIDeviceManagerState {
-            vmgenid: self.vmgenid.as_ref().map(|dev| dev.save()),
+            vmgenid: self.vmgenid.save(),
         }
     }
 
-    fn restore(
-        constructor_args: Self::ConstructorArgs,
-        state: &Self::State,
-    ) -> Result<Self, Self::Error> {
-        let mut dev_manager = ACPIDeviceManager::new();
-        if let Some(vmgenid_args) = &state.vmgenid {
-            let vmgenid = VmGenId::restore(
-                VMGenIdConstructorArgs {
-                    mem: constructor_args.mem,
-                    resource_allocator: &mut constructor_args.vm.resource_allocator(),
-                },
-                vmgenid_args,
-            )?;
-            dev_manager.attach_vmgenid(vmgenid, constructor_args.vm)?;
-        }
-        Ok(dev_manager)
+    fn restore(vm: Self::ConstructorArgs, state: &Self::State) -> Result<Self, Self::Error> {
+        let acpi_devices = ACPIDeviceManager {
+            // Safe to unwrap() here, this will never return an error.
+            vmgenid: VmGenId::restore((), &state.vmgenid).unwrap(),
+        };
+
+        acpi_devices.attach_vmgenid(vm)?;
+        Ok(acpi_devices)
     }
 }
 

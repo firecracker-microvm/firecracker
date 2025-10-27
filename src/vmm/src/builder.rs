@@ -29,7 +29,6 @@ use crate::device_manager::{
     AttachDeviceError, DeviceManager, DeviceManagerCreateError, DevicePersistError,
     DeviceRestoreArgs,
 };
-use crate::devices::acpi::vmgenid::VmGenIdError;
 use crate::devices::virtio::balloon::Balloon;
 use crate::devices::virtio::block::device::Block;
 use crate::devices::virtio::net::Net;
@@ -76,8 +75,6 @@ pub enum StartMicrovmError {
     /// Error creating legacy device: {0}
     #[cfg(target_arch = "x86_64")]
     CreateLegacyDevice(device_manager::legacy::LegacyDeviceError),
-    /// Error creating VMGenID device: {0}
-    CreateVMGenID(VmGenIdError),
     /// Error enabling PCIe support: {0}
     EnablePciDevices(#[from] PciManagerError),
     /// Error enabling pvtime on vcpu: {0}
@@ -258,7 +255,7 @@ pub fn build_microvm_for_boot(
         vm_resources.serial_out_path.as_ref(),
     )?;
 
-    device_manager.attach_vmgenid_device(vm.guest_memory(), &vm)?;
+    device_manager.attach_vmgenid_device(&vm)?;
 
     #[cfg(target_arch = "aarch64")]
     if vcpus[0].kvm_vcpu.supports_pvtime() {
@@ -943,10 +940,7 @@ pub(crate) mod tests {
 
     #[cfg(target_arch = "x86_64")]
     pub(crate) fn insert_vmgenid_device(vmm: &mut Vmm) {
-        vmm.device_manager
-            .attach_vmgenid_device(vmm.vm.guest_memory(), &vmm.vm)
-            .unwrap();
-        assert!(vmm.device_manager.acpi_devices.vmgenid.is_some());
+        vmm.device_manager.attach_vmgenid_device(&vmm.vm).unwrap();
     }
 
     pub(crate) fn insert_balloon_device(
