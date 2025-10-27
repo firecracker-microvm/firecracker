@@ -38,6 +38,8 @@ pub const VMCLOCK_FLAG_PERIOD_MAXERROR_VALID: u64 = 16;
 pub const VMCLOCK_FLAG_TIME_ESTERROR_VALID: u64 = 32;
 pub const VMCLOCK_FLAG_TIME_MAXERROR_VALID: u64 = 64;
 pub const VMCLOCK_FLAG_TIME_MONOTONIC: u64 = 128;
+pub const VMCLOCK_FLAG_VM_GEN_COUNTER_PRESENT: u64 = 256;
+pub const VMCLOCK_FLAG_NOTIFICATION_PRESENT: u64 = 512;
 pub const VMCLOCK_STATUS_UNKNOWN: u8 = 0;
 pub const VMCLOCK_STATUS_INITIALIZING: u8 = 1;
 pub const VMCLOCK_STATUS_SYNCHRONIZED: u8 = 2;
@@ -153,10 +155,11 @@ pub struct vmclock_abi {
     pub time_frac_sec: __le64,
     pub time_esterror_nanosec: __le64,
     pub time_maxerror_nanosec: __le64,
+    pub vm_generation_counter: __le64,
 }
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
-    ["Size of vmclock_abi"][::std::mem::size_of::<vmclock_abi>() - 104usize];
+    ["Size of vmclock_abi"][::std::mem::size_of::<vmclock_abi>() - 112usize];
     ["Alignment of vmclock_abi"][::std::mem::align_of::<vmclock_abi>() - 8usize];
     ["Offset of field: vmclock_abi::magic"][::std::mem::offset_of!(vmclock_abi, magic) - 0usize];
     ["Offset of field: vmclock_abi::size"][::std::mem::offset_of!(vmclock_abi, size) - 4usize];
@@ -198,4 +201,6 @@ const _: () = {
         [::std::mem::offset_of!(vmclock_abi, time_esterror_nanosec) - 88usize];
     ["Offset of field: vmclock_abi::time_maxerror_nanosec"]
         [::std::mem::offset_of!(vmclock_abi, time_maxerror_nanosec) - 96usize];
+    ["Offset of field: vmclock_abi::vm_generation_counter"]
+        [::std::mem::offset_of!(vmclock_abi, vm_generation_counter) - 104usize];
 };
