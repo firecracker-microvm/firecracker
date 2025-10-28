@@ -1207,8 +1207,13 @@ class Microvm:
     def hotplug_memory(
         self, requested_size_mib: int, timeout: int = 60, poll: float = 0.1
     ):
-        """Send a hot(un)plug request and wait up to timeout seconds for completion polling every poll seconds"""
+        """Send a hot(un)plug request and wait up to timeout seconds for completion polling every poll seconds
+
+        Returns: api latency (secs), total latency (secs)
+        """
+        api_start = time.time()
         self.api.memory_hotplug.patch(requested_size_mib=requested_size_mib)
+        api_end = time.time()
         # Wait for the hotplug to complete
         deadline = time.time() + timeout
         while time.time() < deadline:
@@ -1216,7 +1221,8 @@ class Microvm:
                 self.api.memory_hotplug.get().json()["plugged_size_mib"]
                 == requested_size_mib
             ):
-                return
+                plug_end = time.time()
+                return api_end - api_start, plug_end - api_start
             time.sleep(poll)
         raise TimeoutError(f"Hotplug did not complete within {timeout} seconds")
 
@@ -1271,11 +1277,13 @@ class MicroVMFactory:
             vm.ssh_key = ssh_key
         return vm
 
-    def build_from_snapshot(self, snapshot: Snapshot):
+    def build_from_snapshot(self, snapshot: Snapshot, uffd_handler_name=None):
         """Build a microvm from a snapshot"""
         vm = self.build()
         vm.spawn()
-        vm.restore_from_snapshot(snapshot, resume=True)
+        vm.restore_from_snapshot(
+            snapshot, resume=True, uffd_handler_name=uffd_handler_name
+        )
         return vm
 
     def build_n_from_snapshot(
@@ -1333,18 +1341,6 @@ class MicroVMFactory:
         if last_snapshot is not None and not last_snapshot.snapshot_type.needs_rebase:
             last_snapshot.delete()
         current_snapshot.delete()
-
-    def clone_uvm(self, uvm, uffd_handler_name=None):
-        """
-        Clone the given VM and start it.
-        """
-        snapshot = uvm.snapshot_full()
-        restored_vm = self.build()
-        restored_vm.spawn()
-        restored_vm.restore_from_snapshot(
-            snapshot, resume=True, uffd_handler_name=uffd_handler_name
-        )
-        return restored_vm
 
     def kill(self):
         """Clean up all built VMs"""
