@@ -2,6 +2,10 @@ name: Check no dependencies were modified
 
 on: pull_request
 
+
+permissions:
+  contents: read
+
 jobs:
   dependency_changed_check:
     runs-on: ubuntu-latest
