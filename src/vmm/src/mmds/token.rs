@@ -2,13 +2,10 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use std::convert::TryInto;
-use std::fs::File;
-use std::io::Read;
+use std::fmt;
 use std::ops::Add;
-use std::path::Path;
-use std::{fmt, io};
 
-use aes_gcm::{AeadInPlace, Aes256Gcm, Key, KeyInit, Nonce};
+use aws_lc_rs::aead::{AES_256_GCM, Aad, Nonce, RandomizedNonceKey};
 use base64::Engine;
 use bincode::config;
 use bincode::config::{Configuration, Fixint, Limit, LittleEndian};
@@ -34,8 +31,6 @@ pub const MAX_TOKEN_TTL_SECONDS: u32 = 21600;
 
 /// Path to token.
 pub const PATH_TO_TOKEN: &str = "/latest/api/token";
-/// Randomness pool file path.
-const RANDOMNESS_POOL: &str = "/dev/urandom";
 
 /// Token length limit to ensure we don't bother decrypting huge character
 /// sequences. Tokens larger than this are automatically rejected. The value
@@ -55,8 +50,8 @@ const BINCODE_CONFIG: Configuration<LittleEndian, Fixint, Limit<DESERIALIZATION_
 #[rustfmt::skip]
 #[derive(Debug, thiserror::Error, displaydoc::Display)]
 pub enum MmdsTokenError {
-    /// Failed to extract entropy from /dev/urandom entropy pool: {0}.
-    EntropyPool(#[from] io::Error),
+    /// Failed to generate a key
+    KeyGeneration,
     /// Failed to extract expiry value from token.
     ExpiryExtraction,
     /// Invalid time to live value provided for token: {0}. Please provide a value between {MIN_TOKEN_TTL_SECONDS:} and {MAX_TOKEN_TTL_SECONDS:}.
@@ -68,11 +63,9 @@ pub enum MmdsTokenError {
 }
 
 pub struct TokenAuthority {
-    cipher: aes_gcm::Aes256Gcm,
+    cipher: RandomizedNonceKey,
     // Number of tokens encrypted under the current key.
     num_encrypted_tokens: u32,
-    // Source of entropy.
-    entropy_pool: File,
     // Additional Authentication Data used for encryption and decryption.
     aad: String,
 }
@@ -82,7 +75,6 @@ impl fmt::Debug for TokenAuthority {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("TokenAuthority")
             .field("num_encrypted_tokens", &self.num_encrypted_tokens)
-            .field("entropy_pool", &self.entropy_pool)
             .field("aad", &self.aad)
             .finish()
     }
@@ -91,12 +83,9 @@ impl fmt::Debug for TokenAuthority {
 impl TokenAuthority {
     /// Create a new token authority entity.
     pub fn try_new() -> Result<TokenAuthority, MmdsTokenError> {
-        let mut file = File::open(Path::new(RANDOMNESS_POOL))?;
-
         Ok(TokenAuthority {
-            cipher: TokenAuthority::create_cipher(&mut file)?,
+            cipher: TokenAuthority::create_cipher()?,
             num_encrypted_tokens: 0,
-            entropy_pool: file,
             aad: "".to_string(),
         })
     }
@@ -130,41 +119,30 @@ impl TokenAuthority {
             return Err(MmdsTokenError::InvalidTtlValue(ttl_seconds));
         }
 
-        // Generate 12-byte random nonce.
-        let mut iv = [0u8; IV_LEN];
-        self.entropy_pool.read_exact(&mut iv)?;
-
         // Compute expiration time in milliseconds from ttl.
         let expiry = TokenAuthority::compute_expiry(ttl_seconds);
-        // Encrypt expiry using the nonce.
-        let (payload, tag) = self.encrypt_expiry(expiry, iv.as_ref())?;
-
-        Ok(Token::new(iv, payload, tag))
+        // Encrypt expiry (RandomizedNonceKey generates nonce automatically).
+        self.encrypt_expiry(expiry)
     }
 
-    /// Encrypt expiry using AES-GCM block cipher and return payload and tag obtained.
-    fn encrypt_expiry(
-        &self,
-        expiry: u64,
-        iv: &[u8],
-    ) -> Result<([u8; PAYLOAD_LEN], [u8; TAG_LEN]), MmdsTokenError> {
-        // Create Nonce object from initialization vector.
-        let nonce = Nonce::from_slice(iv);
+    /// Encrypt expiry using AES-GCM block cipher and return token obtained.
+    fn encrypt_expiry(&self, expiry: u64) -> Result<Token, MmdsTokenError> {
         // Convert expiry u64 value into bytes.
         let mut expiry_as_bytes = expiry.to_le_bytes();
+        let aad = Aad::from(self.aad.as_bytes());
 
-        let tag = self
+        let (nonce, tag) = self
             .cipher
-            .encrypt_in_place_detached(nonce, self.aad.as_bytes(), &mut expiry_as_bytes)
+            .seal_in_place_separate_tag(aad, &mut expiry_as_bytes)
             .map_err(|_| MmdsTokenError::TokenEncryption)?;
 
         // Tag must be of size `TAG_LEN`.
         let tag_as_bytes: [u8; TAG_LEN] = tag
-            .as_slice()
+            .as_ref()
             .try_into()
             .map_err(|_| MmdsTokenError::TokenEncryption)?;
 
-        Ok((expiry_as_bytes, tag_as_bytes))
+        Ok(Token::new(*nonce.as_ref(), expiry_as_bytes, tag_as_bytes))
     }
 
     /// Attempts to decrypt expiry value within token sequence. Returns false if expiry
@@ -177,13 +155,13 @@ impl TokenAuthority {
         }
 
         // Decode token struct from base64.
-        let mut token = match Token::base64_decode(encoded_token) {
+        let token = match Token::base64_decode(encoded_token) {
             Ok(token) => token,
             Err(_) => return false,
         };
 
         // Decrypt ttl using AES-GCM block cipher.
-        let expiry = match self.decrypt_expiry(&mut token.payload, &token.tag, &token.iv) {
+        let expiry = match self.decrypt_expiry(&token) {
             Ok(expiry) => expiry,
             Err(_) => return false,
         };
@@ -193,24 +171,23 @@ impl TokenAuthority {
     }
 
     /// Decrypt ciphertext composed of payload and tag to obtain the expiry value.
-    fn decrypt_expiry(
-        &self,
-        payload: &mut [u8; PAYLOAD_LEN],
-        tag: &[u8],
-        iv: &[u8],
-    ) -> Result<u64, MmdsTokenError> {
+    fn decrypt_expiry(&self, token: &Token) -> Result<u64, MmdsTokenError> {
         // Create Nonce object from initialization vector.
-        let nonce = Nonce::from_slice(iv);
-        // Decrypt expiry as vector of bytes from ciphertext.
-        self.cipher
-            .decrypt_in_place_detached(
-                nonce,
-                self.aad.as_bytes(),
-                payload,
-                aes_gcm::Tag::from_slice(tag),
-            )
+        let nonce = Nonce::assume_unique_for_key(token.iv);
+        let aad = Aad::from(self.aad.as_bytes());
+
+        // Combine payload and tag for aws-lc-rs
+        let mut ciphertext_and_tag = [0; PAYLOAD_LEN + TAG_LEN];
+        ciphertext_and_tag[..PAYLOAD_LEN].copy_from_slice(&token.payload);
+        ciphertext_and_tag[PAYLOAD_LEN..].copy_from_slice(&token.tag);
+
+        // Decrypt in place
+        let plaintext = self
+            .cipher
+            .open_in_place(nonce, aad, &mut ciphertext_and_tag)
             .map_err(|_| MmdsTokenError::ExpiryExtraction)?;
-        let expiry_as_bytes = payload[..]
+
+        let expiry_as_bytes: [u8; PAYLOAD_LEN] = plaintext
             .try_into()
             .map_err(|_| MmdsTokenError::ExpiryExtraction)?;
 
@@ -219,13 +196,13 @@ impl TokenAuthority {
     }
 
     /// Create a new AES-GCM cipher entity.
-    fn create_cipher(entropy_pool: &mut File) -> Result<Aes256Gcm, MmdsTokenError> {
+    fn create_cipher() -> Result<RandomizedNonceKey, MmdsTokenError> {
         // Randomly generate a 256-bit key to be used for encryption/decryption purposes.
         let mut key = [0u8; KEY_LEN];
-        entropy_pool.read_exact(&mut key)?;
+        aws_lc_rs::rand::fill(&mut key).map_err(|_| MmdsTokenError::KeyGeneration)?;
 
         // Create cipher entity to handle encryption/decryption.
-        Ok(Aes256Gcm::new(Key::<Aes256Gcm>::from_slice(&key)))
+        RandomizedNonceKey::new(&AES_256_GCM, &key).map_err(|_| MmdsTokenError::KeyGeneration)
     }
 
     /// Make sure to reinitialize the cipher under a new key before reaching
@@ -241,7 +218,7 @@ impl TokenAuthority {
             // healthy interactions with MMDS. However, if it happens, we expect the
             // customer code to have a retry mechanism in place and regenerate the
             // session token if the previous ones become invalid.
-            self.cipher = TokenAuthority::create_cipher(&mut self.entropy_pool)?;
+            self.cipher = TokenAuthority::create_cipher()?;
             // Reset encrypted tokens count.
             self.num_encrypted_tokens = 0;
             crate::logger::warn!(
@@ -274,7 +251,7 @@ impl TokenAuthority {
 }
 
 /// Structure for token information.
-#[derive(Debug, Deserialize, PartialEq, Serialize)]
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 struct Token {
     // Nonce or Initialization Vector.
     iv: [u8; IV_LEN],
@@ -383,50 +360,35 @@ mod tests {
     #[test]
     fn test_encrypt_decrypt() {
         let mut token_authority = TokenAuthority::try_new().unwrap();
-        let mut file = File::open(Path::new(RANDOMNESS_POOL)).unwrap();
-        let mut iv = [0u8; IV_LEN];
-        file.read_exact(&mut iv).unwrap();
         let expiry = TokenAuthority::compute_expiry(10);
 
         // Test valid ciphertext.
-        let (mut payload, mut tag) = token_authority.encrypt_expiry(expiry, &iv).unwrap();
-        let decrypted_expiry = token_authority
-            .decrypt_expiry(&mut payload, &tag, iv.as_mut())
-            .unwrap();
+        let token = token_authority.encrypt_expiry(expiry).unwrap();
+        let decrypted_expiry = token_authority.decrypt_expiry(&token).unwrap();
         assert_eq!(expiry, decrypted_expiry);
+
+        // Test ciphertext with corrupted payload.
+        let mut bad_token = token.clone();
+        bad_token.payload[0] = u8::MAX - bad_token.payload[0];
+        assert!(matches!(
+            token_authority.decrypt_expiry(&bad_token).unwrap_err(),
+            MmdsTokenError::ExpiryExtraction
+        ));
+
+        // Test ciphertext with corrupted tag.
+        let mut bad_token = token.clone();
+        bad_token.tag[0] = u8::MAX - bad_token.tag[0];
+        assert!(matches!(
+            token_authority.decrypt_expiry(&bad_token).unwrap_err(),
+            MmdsTokenError::ExpiryExtraction
+        ));
 
         // Test decrypting expiry under a different AAD than it was encrypted with.
         token_authority.set_aad("foo");
-        assert_eq!(
-            token_authority
-                .decrypt_expiry(&mut payload, &tag, iv.as_mut())
-                .unwrap_err()
-                .to_string(),
-            MmdsTokenError::ExpiryExtraction.to_string()
-        );
-
-        // Test ciphertext with corrupted payload.
-        payload[0] = u8::MAX - payload[0];
-        assert_eq!(
-            token_authority
-                .decrypt_expiry(&mut payload, &tag, iv.as_mut())
-                .unwrap_err()
-                .to_string(),
-            MmdsTokenError::ExpiryExtraction.to_string()
-        );
-
-        // Test ciphertext with corrupted tag.
-        tag[0] = u8::MAX - tag[0];
-        let mut ciphertext = vec![];
-        ciphertext.extend_from_slice(&payload);
-        ciphertext.extend_from_slice(&tag);
-        assert_eq!(
-            token_authority
-                .decrypt_expiry(&mut payload, &tag, iv.as_mut())
-                .unwrap_err()
-                .to_string(),
-            MmdsTokenError::ExpiryExtraction.to_string()
-        );
+        assert!(matches!(
+            token_authority.decrypt_expiry(&token).unwrap_err(),
+            MmdsTokenError::ExpiryExtraction
+        ));
     }
 
     #[test]
