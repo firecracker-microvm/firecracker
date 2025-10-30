@@ -6,9 +6,11 @@ import platform
 import subprocess
 
 import pytest
+from packaging import version
 
 import framework.utils_cpuid as utils
 from framework.properties import global_props
+from framework.utils import get_kernel_version
 
 TOPOLOGY_STR = {1: "0", 2: "0,1", 16: "0-15"}
 PLATFORM = platform.machine()
@@ -198,6 +200,12 @@ def test_cpu_topology(uvm_plain_any, num_vcpus, htt):
     """
     if htt and PLATFORM == "aarch64":
         pytest.skip("SMT is configurable only on x86.")
+
+    # TODO:Remove (or adapt) this once we unify the way we expose the CPU cache hierarchy on
+    # Aarch64 systems.
+    if version.parse(get_kernel_version()) >= version.parse("6.14"):
+        pytest.skip("Starting on 6.14 KVM exposes a different CPU cache hierarchy")
+
     vm = uvm_plain_any
     vm.spawn()
     vm.basic_config(vcpu_count=num_vcpus, smt=htt)
