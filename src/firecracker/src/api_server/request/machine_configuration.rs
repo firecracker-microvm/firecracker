@@ -123,6 +123,7 @@ mod tests {
                 cpu_template: None,
                 track_dirty_pages: Some(false),
                 huge_pages: Some(expected),
+                enable_thp: Some(false),
                 #[cfg(feature = "gdb")]
                 gdb_socket_path: None,
             };
@@ -144,6 +145,7 @@ mod tests {
             cpu_template: Some(StaticCpuTemplate::None),
             track_dirty_pages: Some(false),
             huge_pages: Some(HugePageConfig::None),
+            enable_thp: Some(false),
             #[cfg(feature = "gdb")]
             gdb_socket_path: None,
         };
@@ -165,6 +167,7 @@ mod tests {
             cpu_template: None,
             track_dirty_pages: Some(true),
             huge_pages: Some(HugePageConfig::None),
+            enable_thp: Some(false),
             #[cfg(feature = "gdb")]
             gdb_socket_path: None,
         };
@@ -190,6 +193,7 @@ mod tests {
                 cpu_template: Some(StaticCpuTemplate::T2),
                 track_dirty_pages: Some(true),
                 huge_pages: Some(HugePageConfig::None),
+                enable_thp: Some(false),
                 #[cfg(feature = "gdb")]
                 gdb_socket_path: None,
             };
@@ -217,6 +221,7 @@ mod tests {
             cpu_template: None,
             track_dirty_pages: Some(true),
             huge_pages: Some(HugePageConfig::None),
+            enable_thp: Some(false),
             #[cfg(feature = "gdb")]
             gdb_socket_path: None,
         };
