@@ -240,7 +240,7 @@ impl GuestRegionMmapExt {
             slot_size,
             region_type: state.region_type,
             slot_from,
-            plugged: Mutex::new(state.plugged.clone()),
+            plugged: Mutex::new(BitVec::from_iter(state.plugged.iter())),
         })
     }
 
@@ -596,7 +596,7 @@ pub struct GuestMemoryRegionState {
     /// Region type
     pub region_type: GuestRegionType,
     /// Plugged/unplugged status of each slot
-    pub plugged: BitVec,
+    pub plugged: Vec<bool>,
 }
 
 /// Describes guest memory regions and their snapshot file mappings.
@@ -625,7 +625,7 @@ impl GuestMemoryExtension for GuestMemoryMmap {
                 base_address: region.start_addr().0,
                 size: u64_to_usize(region.len()),
                 region_type: region.region_type,
-                plugged: region.plugged.lock().unwrap().clone(),
+                plugged: region.plugged.lock().unwrap().iter().by_vals().collect(),
             });
         });
         guest_memory_state
@@ -997,13 +997,13 @@ mod tests {
                     base_address: 0,
                     size: page_size,
                     region_type: GuestRegionType::Dram,
-                    plugged: BitVec::repeat(true, 1),
+                    plugged: vec![true],
                 },
                 GuestMemoryRegionState {
                     base_address: page_size as u64 * 2,
                     size: page_size,
                     region_type: GuestRegionType::Dram,
-                    plugged: BitVec::repeat(true, 1),
+                    plugged: vec![true],
                 },
             ],
         };
@@ -1026,13 +1026,13 @@ mod tests {
                     base_address: 0,
                     size: page_size * 3,
                     region_type: GuestRegionType::Dram,
-                    plugged: BitVec::repeat(true, 1),
+                    plugged: vec![true],
                 },
                 GuestMemoryRegionState {
                     base_address: page_size as u64 * 4,
                     size: page_size * 3,
                     region_type: GuestRegionType::Dram,
-                    plugged: BitVec::repeat(true, 1),
+                    plugged: vec![true],
                 },
             ],
         };

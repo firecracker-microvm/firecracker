@@ -28,7 +28,7 @@ pub struct VirtioMemState {
     usable_region_size: u64,
     requested_size: u64,
     slot_size: usize,
-    plugged_blocks: BitVec,
+    plugged_blocks: Vec<bool>,
 }
 
 #[derive(Debug)]
@@ -62,7 +62,7 @@ impl Persist<'_> for VirtioMem {
             region_size: self.config.region_size,
             block_size: self.config.block_size,
             usable_region_size: self.config.usable_region_size,
-            plugged_blocks: self.plugged_blocks.clone(),
+            plugged_blocks: self.plugged_blocks.iter().by_vals().collect(),
             requested_size: self.config.requested_size,
             slot_size: self.slot_size,
         }
@@ -79,12 +79,14 @@ impl Persist<'_> for VirtioMem {
             FIRECRACKER_MAX_QUEUE_SIZE,
         )?;
 
+        let plugged_blocks = BitVec::from_iter(state.plugged_blocks.iter());
+
         let config = virtio_mem_config {
             addr: state.addr,
             region_size: state.region_size,
             block_size: state.block_size,
             usable_region_size: state.usable_region_size,
-            plugged_size: usize_to_u64(state.plugged_blocks.count_ones()) * state.block_size,
+            plugged_size: usize_to_u64(plugged_blocks.count_ones()) * state.block_size,
             requested_size: state.requested_size,
             ..Default::default()
         };
@@ -94,7 +96,7 @@ impl Persist<'_> for VirtioMem {
             queues,
             config,
             state.slot_size,
-            state.plugged_blocks.clone(),
+            plugged_blocks,
         )?;
         virtio_mem.set_avail_features(state.virtio_state.avail_features);
         virtio_mem.set_acked_features(state.virtio_state.acked_features);
@@ -119,7 +121,10 @@ mod tests {
         assert_eq!(state.region_size, dev.config.region_size);
         assert_eq!(state.block_size, dev.config.block_size);
         assert_eq!(state.usable_region_size, dev.config.usable_region_size);
-        assert_eq!(state.plugged_blocks, dev.plugged_blocks);
+        assert_eq!(
+            state.plugged_blocks.iter().collect::<BitVec>(),
+            dev.plugged_blocks
+        );
         assert_eq!(state.requested_size, dev.config.requested_size);
         assert_eq!(state.slot_size, dev.slot_size);
     }
