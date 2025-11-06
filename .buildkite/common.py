@@ -76,12 +76,6 @@ def group(label, command, instances, platforms, **kwargs):
 
     https://buildkite.com/docs/pipelines/group-step
     """
-    # Use the 1st character of the group name (should be an emoji)
-    label1 = label[0]
-    # if the emoji is in the form ":emoji:", pick the entire slug
-    if label.startswith(":") and ":" in label[1:]:
-        label1 = label[: label.index(":", 1) + 1]
-
     steps = []
     commands = command
     if isinstance(command, str):
@@ -92,7 +86,7 @@ def group(label, command, instances, platforms, **kwargs):
             args = {"instance": instance, "os": os_, "kv": kv}
             step = {
                 "command": [cmd.format(**args) for cmd in commands],
-                "label": f"{label1} {instance} {os_} {kv}",
+                "label": f"{label}-{instance}-{os_}-{kv}",
                 "agents": args,
             }
             step_kwargs = dict_fmt(kwargs, args)
