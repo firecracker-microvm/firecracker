@@ -20,7 +20,7 @@ arrayvec = { version = "0.7.6", optional = true }
 aws-lc-rs = { version = "1.14.1", features = ["bindgen"] }
 base64 = "0.22.1"
 bincode = { version = "2.0.1", features = ["serde"] }
-bitflags = "2.9.4"
+bitflags = "2.10.0"
 byteorder = "1.5.0"
 crc64 = "2.0.0"
 derive_more = { version = "2.0.1", default-features = false, features = [
@@ -29,11 +29,11 @@ derive_more = { version = "2.0.1", default-features = false, features = [
 ] }
 displaydoc = "0.2.5"
 event-manager = "0.4.1"
-gdbstub = { version = "0.7.7", optional = true }
+gdbstub = { version = "0.7.8", optional = true }
 gdbstub_arch = { version = "0.3.2", optional = true }
 kvm-bindings = { version = "0.14.0", features = ["fam-wrappers", "serde"] }
 kvm-ioctls = "0.24.0"
-libc = "0.2.176"
+libc = "0.2.177"
 linux-loader = "0.13.1"
 log = { version = "0.4.28", features = ["std", "serde"] }
 log-instrument = { path = "../log-instrument", optional = true }
@@ -66,7 +66,7 @@ vm-fdt = "0.3.0"
 criterion = { version = "0.7.0", default-features = false }
 device_tree = "1.1.0"
 itertools = "0.14.0"
-proptest = { version = "1.8.0", default-features = false, features = ["std"] }
+proptest = { version = "1.9.0", default-features = false, features = ["std"] }
 
 [[bench]]
 name = "cpu_templates"
