@@ -595,7 +595,7 @@ impl<'a> Persist<'a> for MMIODeviceManager {
 
         if let Some(memory_state) = &state.memory_device {
             let ctor_args = VirtioMemConstructorArgs::new(Arc::clone(vm));
-            let device = VirtioMem::restore(ctor_args, &memory_state.device_state).unwrap();
+            let device = VirtioMem::restore(ctor_args, &memory_state.device_state)?;
 
             constructor_args.vm_resources.memory_hotplug = Some(MemoryHotplugConfig {
                 total_size_mib: device.total_size_mib(),
