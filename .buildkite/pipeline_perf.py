@@ -65,6 +65,16 @@ perf_test = {
         "tests": "integration_tests/performance/test_jailer.py",
         "devtool_opts": "-c 1-10 -m 0",
     },
+    "pmem": {
+        "label": "💿 Pmem Performance",
+        "tests": "integration_tests/performance/test_pmem.py",
+        "devtool_opts": "-c 1-10 -m 0",
+    },
+    "mmds": {
+        "label": ":information_source: MMDS",
+        "tests": "integration_tests/performance/test_mmds.py",
+        "devtool_opts": "-c 1-10 -m 0",
+    },
 }
 
 REVISION_A = os.environ.get("REVISION_A")
