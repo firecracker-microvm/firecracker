@@ -55,9 +55,14 @@ perf_test = {
         "tests": "integration_tests/performance/test_vsock.py",
         "devtool_opts": "-c 1-10 -m 0",
     },
-    "memory-overhead-and-boottime": {
-        "label": "memory-overhead-and-boottime",
-        "tests": "integration_tests/performance/test_memory_overhead.py integration_tests/performance/test_boottime.py::test_boottime",
+    "memory-overhead": {
+        "label": "memory-overhead",
+        "tests": "integration_tests/performance/test_memory_overhead.py",
+        "devtool_opts": "-c 1-10 -m 0",
+    },
+    "boottime": {
+        "label": "boottime",
+        "tests": "integration_tests/performance/test_boottime.py::test_boottime",
         "devtool_opts": "-c 1-10 -m 0",
     },
     "jailer": {
