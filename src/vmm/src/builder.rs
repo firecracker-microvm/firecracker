@@ -57,7 +57,7 @@ use crate::devices::virtio::mmio::MmioTransport;
 use crate::devices::virtio::net::Net;
 #[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
 use crate::devices::virtio::rng::Entropy;
-#[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
+// #[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
 use crate::devices::virtio::vsock::{Vsock, VsockUnixBackend};
 #[cfg(feature = "gdb")]
 use crate::gdb;
@@ -297,7 +297,7 @@ pub fn build_microvm_for_boot(
         event_manager,
     )?;
 
-    #[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
+    // #[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
     if let Some(unix_vsock) = vm_resources.vsock.get() {
         attach_unixsock_vsock_device(&mut vmm, &mut boot_cmdline, unix_vsock, event_manager)?;
     }
@@ -859,7 +859,7 @@ fn attach_net_devices<'a, I: Iterator<Item = &'a Arc<Mutex<Net>>> + Debug>(
     Ok(())
 }
 
-#[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
+// #[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
 fn attach_unixsock_vsock_device(
     vmm: &mut Vmm,
     cmdline: &mut LoaderKernelCmdline,
