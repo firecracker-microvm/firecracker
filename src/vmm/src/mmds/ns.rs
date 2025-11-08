@@ -25,7 +25,8 @@ use crate::dumbo::pdu::ipv4::{
 use crate::dumbo::pdu::tcp::TcpError as TcpSegmentError;
 use crate::dumbo::tcp::NextSegmentStatus;
 use crate::dumbo::tcp::handler::{RecvEvent, TcpIPv4Handler, WriteEvent, WriteNextError};
-use crate::logger::{IncMetric, METRICS};
+use crate::logger::METRICS;
+use crate::metrics::IncMetric;
 use crate::mmds::data_store::Mmds;
 use crate::utils::net::mac::MacAddr;
 

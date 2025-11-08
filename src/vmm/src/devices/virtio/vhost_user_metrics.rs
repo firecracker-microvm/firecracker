@@ -79,7 +79,7 @@ use std::sync::{Arc, RwLock};
 use serde::ser::SerializeMap;
 use serde::{Serialize, Serializer};
 
-use crate::logger::{SharedIncMetric, SharedStoreMetric};
+use crate::metrics::{SharedIncMetric, SharedStoreMetric};
 
 /// map of vhost_user drive id and metrics
 /// this should be protected by a lock before accessing.

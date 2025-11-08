@@ -22,7 +22,8 @@ use crate::devices::virtio::iovec::IoVecBufferMut;
 use crate::devices::virtio::queue::{FIRECRACKER_MAX_QUEUE_SIZE, InvalidAvailIdx, Queue};
 use crate::devices::virtio::transport::{VirtioInterrupt, VirtioInterruptType};
 use crate::impl_device_type;
-use crate::logger::{IncMetric, debug, error};
+use crate::logger::{debug, error};
+use crate::metrics::IncMetric;
 use crate::rate_limiter::{RateLimiter, TokenType};
 use crate::vstate::memory::GuestMemoryMmap;
 

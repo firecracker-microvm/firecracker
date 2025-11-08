@@ -17,7 +17,8 @@ pub use crate::devices::virtio::generated::virtio_blk::{
     VIRTIO_BLK_T_FLUSH, VIRTIO_BLK_T_GET_ID, VIRTIO_BLK_T_IN, VIRTIO_BLK_T_OUT,
 };
 use crate::devices::virtio::queue::DescriptorChain;
-use crate::logger::{IncMetric, error};
+use crate::logger::error;
+use crate::metrics::IncMetric;
 use crate::rate_limiter::{RateLimiter, TokenType};
 use crate::vstate::memory::{ByteValued, Bytes, GuestAddress, GuestMemoryMmap};
 

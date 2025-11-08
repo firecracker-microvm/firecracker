@@ -36,7 +36,7 @@
 use serde::ser::SerializeMap;
 use serde::{Serialize, Serializer};
 
-use crate::logger::SharedIncMetric;
+use crate::metrics::SharedIncMetric;
 
 /// Stores aggregated balloon metrics
 pub(super) static METRICS: BalloonDeviceMetrics = BalloonDeviceMetrics::new();

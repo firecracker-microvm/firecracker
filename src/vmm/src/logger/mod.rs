@@ -12,10 +12,11 @@ pub use logging::{
     DEFAULT_INSTANCE_ID, DEFAULT_LEVEL, INSTANCE_ID, LOGGER, LevelFilter, LevelFilterFromStrError,
     LoggerConfig, LoggerInitError, LoggerUpdateError,
 };
-pub use metrics::{
-    IncMetric, LatencyAggregateMetrics, METRICS, MetricsError, ProcessTimeReporter,
-    SharedIncMetric, SharedStoreMetric, StoreMetric,
+// Re-export metric traits and implementations from the metrics module for backward compatibility
+pub use crate::metrics::{
+    IncMetric, LatencyAggregateMetrics, SharedIncMetric, SharedStoreMetric, StoreMetric,
 };
+pub use metrics::{METRICS, MetricsError, ProcessTimeReporter};
 use utils::time::{ClockType, get_time_us};
 
 /// Alias for `std::io::LineWriter<std::fs::File>`.

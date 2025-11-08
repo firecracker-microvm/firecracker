@@ -7,7 +7,8 @@ use vmm_sys_util::epoll::EventSet;
 use crate::devices::virtio::device::VirtioDevice;
 use crate::devices::virtio::net::device::Net;
 use crate::devices::virtio::net::{RX_INDEX, TX_INDEX};
-use crate::logger::{IncMetric, error, warn};
+use crate::logger::{error, warn};
+use crate::metrics::IncMetric;
 
 impl Net {
     const PROCESS_ACTIVATE: u32 = 0;

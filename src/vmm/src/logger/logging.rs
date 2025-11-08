@@ -12,7 +12,8 @@ use log::{Log, Metadata, Record};
 use serde::{Deserialize, Deserializer, Serialize};
 use utils::time::LocalTime;
 
-use super::metrics::{IncMetric, METRICS};
+use super::metrics::METRICS;
+use crate::metrics::IncMetric;
 use crate::utils::open_file_write_nonblock;
 
 /// Default level filter for logger matching the swagger specification

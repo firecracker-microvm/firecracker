@@ -7,7 +7,8 @@ use libc::{
 use log::error;
 
 use crate::FcExitCode;
-use crate::logger::{IncMetric, METRICS, StoreMetric};
+use crate::logger::METRICS;
+use crate::metrics::{IncMetric, StoreMetric};
 use crate::utils::signal::register_signal_handler;
 
 // The offset of `si_syscall` (offending syscall identifier) within the siginfo structure

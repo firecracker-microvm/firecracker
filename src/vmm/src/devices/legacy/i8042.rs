@@ -13,7 +13,8 @@ use log::warn;
 use serde::Serialize;
 use vmm_sys_util::eventfd::EventFd;
 
-use crate::logger::{IncMetric, SharedIncMetric, error};
+use crate::logger::error;
+use crate::metrics::{IncMetric, SharedIncMetric};
 use crate::vstate::bus::BusDevice;
 
 /// Errors thrown by the i8042 device.

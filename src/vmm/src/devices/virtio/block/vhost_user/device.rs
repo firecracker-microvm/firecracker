@@ -28,7 +28,8 @@ use crate::devices::virtio::vhost_user_metrics::{
     VhostUserDeviceMetrics, VhostUserMetricsPerDevice,
 };
 use crate::impl_device_type;
-use crate::logger::{IncMetric, StoreMetric, log_dev_preview_warning};
+use crate::logger::log_dev_preview_warning;
+use crate::metrics::{IncMetric, StoreMetric};
 use crate::utils::u64_to_usize;
 use crate::vmm_config::drive::BlockDeviceConfig;
 use crate::vstate::memory::GuestMemoryMmap;

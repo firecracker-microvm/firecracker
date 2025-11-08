@@ -39,7 +39,7 @@
 use serde::ser::SerializeMap;
 use serde::{Serialize, Serializer};
 
-use crate::logger::SharedIncMetric;
+use crate::metrics::SharedIncMetric;
 
 /// Stores aggregate metrics of all Vsock connections/actions
 pub(super) static METRICS: VsockDeviceMetrics = VsockDeviceMetrics::new();

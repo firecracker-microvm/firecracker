@@ -7,7 +7,8 @@ use serde::Serialize;
 use vm_superio::Rtc;
 use vm_superio::rtc_pl031::RtcEvents;
 
-use crate::logger::{IncMetric, SharedIncMetric, warn};
+use crate::logger::warn;
+use crate::metrics::{IncMetric, SharedIncMetric};
 
 /// Metrics specific to the RTC device.
 #[derive(Debug, Serialize, Default)]

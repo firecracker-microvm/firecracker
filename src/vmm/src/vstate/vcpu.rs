@@ -23,7 +23,8 @@ pub use crate::arch::{KvmVcpu, KvmVcpuConfigureError, KvmVcpuError, Peripherals,
 use crate::cpu_config::templates::{CpuConfiguration, GuestConfigError};
 #[cfg(feature = "gdb")]
 use crate::gdb::target::{GdbTargetError, get_raw_tid};
-use crate::logger::{IncMetric, METRICS};
+use crate::logger::METRICS;
+use crate::metrics::IncMetric;
 use crate::seccomp::{BpfProgram, BpfProgramRef};
 use crate::utils::signal::{Killable, register_signal_handler, sigrtmin};
 use crate::utils::sm::StateMachine;

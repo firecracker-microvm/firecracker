@@ -88,6 +88,8 @@ pub mod dumbo;
 pub mod gdb;
 /// Logger
 pub mod logger;
+/// Component-defined metrics traits and implementations
+pub mod metrics;
 /// microVM Metadata Service MMDS
 pub mod mmds;
 /// PCI specific emulation code.

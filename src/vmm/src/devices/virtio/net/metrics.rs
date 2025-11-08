@@ -86,7 +86,7 @@ use std::sync::{Arc, RwLock};
 use serde::ser::SerializeMap;
 use serde::{Serialize, Serializer};
 
-use crate::logger::{IncMetric, LatencyAggregateMetrics, SharedIncMetric};
+use crate::metrics::{IncMetric, LatencyAggregateMetrics, SharedIncMetric};
 
 /// map of network interface id and metrics
 /// this should be protected by a lock before accessing.

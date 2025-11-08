@@ -22,7 +22,7 @@ use vmm_sys_util::epoll::EventSet;
 use vmm_sys_util::eventfd::EventFd;
 
 use crate::devices::legacy::EventFdTrigger;
-use crate::logger::{IncMetric, SharedIncMetric};
+use crate::metrics::{IncMetric, SharedIncMetric};
 use crate::vstate::bus::BusDevice;
 
 /// Received Data Available interrupt - for letting the driver know that

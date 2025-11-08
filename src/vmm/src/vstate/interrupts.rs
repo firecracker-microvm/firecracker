@@ -8,7 +8,8 @@ use kvm_ioctls::VmFd;
 use vmm_sys_util::eventfd::EventFd;
 
 use crate::Vm;
-use crate::logger::{IncMetric, METRICS};
+use crate::logger::METRICS;
+use crate::metrics::IncMetric;
 use crate::snapshot::Persist;
 
 #[derive(Debug, thiserror::Error, displaydoc::Display)]

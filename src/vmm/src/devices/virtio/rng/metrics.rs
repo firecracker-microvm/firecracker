@@ -36,7 +36,7 @@
 use serde::ser::SerializeMap;
 use serde::{Serialize, Serializer};
 
-use crate::logger::SharedIncMetric;
+use crate::metrics::SharedIncMetric;
 
 /// Stores aggregated entropy metrics
 pub(super) static METRICS: EntropyDeviceMetrics = EntropyDeviceMetrics::new();
