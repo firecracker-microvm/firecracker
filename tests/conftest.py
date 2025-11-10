@@ -238,6 +238,14 @@ def bin_vsock_path(test_fc_session_root_path):
 
 
 @pytest.fixture(scope="session")
+def bin_vmclock_path(test_fc_session_root_path):
+    """Build a simple util for test VMclock device"""
+    vmclock_helper_bin_path = os.path.join(test_fc_session_root_path, "vmclock")
+    build_tools.gcc_compile("host_tools/vmclock.c", vmclock_helper_bin_path)
+    yield vmclock_helper_bin_path
+
+
+@pytest.fixture(scope="session")
 def change_net_config_space_bin(test_fc_session_root_path):
     """Build a binary that changes the MMIO config space."""
     change_net_config_space_bin = os.path.join(
