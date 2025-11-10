@@ -439,6 +439,36 @@ def test_negative_machine_config_api(uvm_plain):
     )
 
 
+def test_machine_config_enable_thp(uvm_plain):
+    """
+    Enabling transparent huge pages via machine-config should succeed.
+    """
+    vm = uvm_plain
+    vm.spawn()
+    vm.basic_config(enable_thp=True)
+    vm.start()
+
+    vm_config = vm.api.vm_config.get().json()
+    assert vm_config["machine-config"]["enable_thp"] is True
+
+
+def test_machine_config_enable_thp_with_vhost_user_fails(
+    uvm_vhost_user_plain_any, rootfs
+):
+    """
+    Enabling THP alongside memfd-backed memory (vhost-user block) should fail.
+    """
+    vm = uvm_vhost_user_plain_any
+    vm.ssh_key = rootfs.with_suffix(".id_rsa")
+    vm.spawn()
+    vm.basic_config(add_root_device=False, enable_thp=True)
+    vm.add_vhost_user_drive("rootfs", rootfs, is_root_device=True, is_read_only=True)
+
+    err_msg = "Transparent huge pages are unsupported for memfd-backed guest memory"
+    with pytest.raises(RuntimeError, match=err_msg):
+        vm.start()
+
+
 def test_api_cpu_config(uvm_plain, custom_cpu_template):
     """
     Test /cpu-config PUT scenarios.
@@ -1120,6 +1150,7 @@ def test_get_full_config_after_restoring_snapshot(microvm_factory, uvm_nano):
         "smt": True,
         "track_dirty_pages": False,
         "huge_pages": "None",
+        "enable_thp": False,
     }
 
     if cpu_vendor == utils_cpuid.CpuVendor.ARM:
@@ -1251,6 +1282,7 @@ def test_get_full_config(uvm_plain):
         "smt": False,
         "track_dirty_pages": False,
         "huge_pages": "None",
+        "enable_thp": False,
     }
     expected_cfg["cpu-config"] = None
     expected_cfg["boot-source"] = {

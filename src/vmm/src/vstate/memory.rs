@@ -53,6 +53,10 @@ pub enum MemoryError {
     OffsetTooLarge,
     /// Cannot retrieve snapshot file metadata: {0}
     FileMetadata(std::io::Error),
+    /// Cannot apply madvise: {0}
+    Madvise(std::io::Error),
+    /// Transparent huge pages are unsupported for memfd-backed guest memory
+    ThpUnsupportedMemfd,
 }
 
 /// Type of the guest region
