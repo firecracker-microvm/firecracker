@@ -22,7 +22,7 @@ log-instrument = { path = "../log-instrument", optional = true }
 semver = "1.0.27"
 thiserror = "2.0.17"
 vmm = { path = "../vmm" }
-vmm-sys-util = "0.14.0"
+vmm-sys-util = "0.15.0"
 
 [target.'cfg(target_arch = "aarch64")'.dependencies]
 clap-num = "1.2.0"

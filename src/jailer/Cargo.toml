@@ -19,7 +19,7 @@ libc = "0.2.177"
 log-instrument = { path = "../log-instrument", optional = true }
 regex = { version = "1.12.2", default-features = false, features = ["std"] }
 thiserror = "2.0.17"
-vmm-sys-util = "0.14.0"
+vmm-sys-util = "0.15.0"
 
 utils = { path = "../utils" }
 
