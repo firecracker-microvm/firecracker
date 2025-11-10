@@ -9,13 +9,12 @@ run on an ag=1 host due to the use of HugePages.
 """
 
 import pytest
-from packaging import version
 from tenacity import Retrying, retry_if_exception_type, stop_after_delay, wait_fixed
 
 from framework.guest_stats import MeminfoGuest
 from framework.microvm import HugePagesConfig, SnapshotType
 from framework.properties import global_props
-from framework.utils import get_kernel_version, get_resident_memory
+from framework.utils import get_resident_memory, supports_hugetlbfs_discard
 
 MEMHP_BOOTARGS = "console=ttyS0 reboot=k panic=1 memhp_default_state=online_movable"
 DEFAULT_CONFIG = {"total_size_mib": 1024, "slot_size_mib": 128, "block_size_mib": 2}
@@ -147,11 +146,6 @@ def uvm_any_memhp(request, uvm_plain_6_1, rootfs, microvm_factory):
         uffd_handler,
         snapshot_type,
     )
-
-
-def supports_hugetlbfs_discard():
-    """Returns True if the kernel supports hugetlbfs discard"""
-    return version.parse(get_kernel_version()) >= version.parse("5.18.0")
 
 
 def validate_metrics(uvm):
