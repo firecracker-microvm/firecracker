@@ -140,6 +140,12 @@ def validate_fc_metrics(metrics):
             "stats_update_fails",
             "deflate_count",
             "event_fails",
+            "free_page_report_count",
+            "free_page_report_freed",
+            "free_page_report_fails",
+            "free_page_hint_count",
+            "free_page_hint_freed",
+            "free_page_hint_fails",
         ],
         "block": block_metrics,
         "deprecated_api": [

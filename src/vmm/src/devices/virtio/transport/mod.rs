@@ -50,4 +50,8 @@ pub trait VirtioInterrupt: std::fmt::Debug + Send + Sync {
     /// Returns true if there is any pending interrupt
     #[cfg(test)]
     fn has_pending_interrupt(&self, interrupt_type: VirtioInterruptType) -> bool;
+
+    /// Used to acknowledge an interrupt
+    #[cfg(test)]
+    fn ack_interrupt(&self, interrupt_type: VirtioInterruptType);
 }

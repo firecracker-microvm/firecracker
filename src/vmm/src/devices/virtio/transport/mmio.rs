@@ -439,8 +439,16 @@ impl VirtioInterrupt for IrqTrigger {
                 (VIRTIO_MMIO_INT_CONFIG, IrqType::Config) | (VIRTIO_MMIO_INT_VRING, IrqType::Vring)
             );
         }
-
         false
+    }
+
+    #[cfg(test)]
+    fn ack_interrupt(&self, interrupt_type: VirtioInterruptType) {
+        let irq = match interrupt_type {
+            VirtioInterruptType::Config => VIRTIO_MMIO_INT_CONFIG,
+            VirtioInterruptType::Queue(_) => VIRTIO_MMIO_INT_VRING,
+        };
+        self.irq_status.fetch_and(!irq, Ordering::SeqCst);
     }
 }
 

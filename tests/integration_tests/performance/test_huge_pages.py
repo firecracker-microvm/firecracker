@@ -175,26 +175,3 @@ def test_ept_violation_count(
         )
 
     metrics.put_metric(metric, int(metric_value), "Count")
-
-
-def test_negative_huge_pages_plus_balloon(uvm_plain):
-    """Tests that huge pages and memory ballooning cannot be used together"""
-    uvm_plain.memory_monitor = None
-    uvm_plain.spawn()
-
-    # Ensure setting huge pages and then adding a balloon device doesn't work
-    uvm_plain.basic_config(huge_pages=HugePagesConfig.HUGETLBFS_2MB)
-    with pytest.raises(
-        RuntimeError,
-        match="Firecracker's huge pages support is incompatible with memory ballooning.",
-    ):
-        uvm_plain.api.balloon.put(amount_mib=0, deflate_on_oom=False)
-
-    # Ensure adding a balloon device and then setting huge pages doesn't work
-    uvm_plain.basic_config(huge_pages=HugePagesConfig.NONE)
-    uvm_plain.api.balloon.put(amount_mib=0, deflate_on_oom=False)
-    with pytest.raises(
-        RuntimeError,
-        match="Machine config error: Firecracker's huge pages support is incompatible with memory ballooning.",
-    ):
-        uvm_plain.basic_config(huge_pages=HugePagesConfig.HUGETLBFS_2MB)

@@ -29,8 +29,6 @@ pub enum MachineConfigError {
     SmtNotSupported,
     /// Could not determine host kernel version when checking hugetlbfs compatibility
     KernelVersion,
-    /// Firecracker's huge pages support is incompatible with memory ballooning.
-    BalloonAndHugePages,
 }
 
 /// Describes the possible (huge)page configurations for a microVM's memory.

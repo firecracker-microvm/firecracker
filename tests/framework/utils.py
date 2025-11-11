@@ -14,10 +14,12 @@ import time
 import typing
 from collections import defaultdict, namedtuple
 from contextlib import contextmanager
+from pathlib import Path
 from typing import Dict
 
 import psutil
 import semver
+from packaging import version
 from tenacity import (
     Retrying,
     retry,
@@ -259,6 +261,48 @@ def get_free_mem_ssh(ssh_connection):
     raise Exception("Available memory not found in `/proc/meminfo")
 
 
+def get_stable_rss_mem_by_pid(process, percentage_delta=1):
+    """
+    Get the RSS memory that a guest uses, given the pid of the guest.
+
+    Wait till the fluctuations in RSS drop below percentage_delta.
+    Or print a warning if this does not happen.
+    """
+
+    # All values are reported as KiB
+
+    def get_rss_from_pmap():
+        """Returns current memory utilization in KiB, including used HugeTLBFS"""
+
+        proc_status = Path("/proc", str(process.pid), "status").read_text("utf-8")
+        for line in proc_status.splitlines():
+            if line.startswith("HugetlbPages:"):  # entry is in KiB
+                hugetlbfs_usage = int(line.split()[1])
+                break
+        else:
+            assert False, f"HugetlbPages not found in {str(proc_status)}"
+        return hugetlbfs_usage + process.memory_info().rss // 1024
+
+    first_rss = 0
+    second_rss = 0
+    for _ in range(5):
+        first_rss = get_rss_from_pmap()
+        time.sleep(1)
+        second_rss = get_rss_from_pmap()
+        abs_diff = abs(first_rss - second_rss)
+        abs_delta = abs_diff / first_rss * 100
+        print(
+            f"RSS readings: old: {first_rss} new: {second_rss} abs_diff: {abs_diff} abs_delta: {abs_delta}"
+        )
+        if abs_delta < percentage_delta:
+            return second_rss
+
+        time.sleep(1)
+
+    print("WARNING: RSS readings did not stabilize")
+    return second_rss
+
+
 def _format_output_message(proc, stdout, stderr):
     output_message = f"\n[{proc.pid}] Command:\n{proc.args}"
     # Append stdout/stderr to the output message
@@ -415,6 +459,11 @@ def get_kernel_version(level=2):
             linux_version = linux_version[0:idx]
             break
     return linux_version
+
+
+def supports_hugetlbfs_discard():
+    """Returns True if the kernel supports hugetlbfs discard"""
+    return version.parse(get_kernel_version()) >= version.parse("5.18.0")
 
 
 def generate_mmds_session_token(
