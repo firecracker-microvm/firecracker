@@ -9,17 +9,19 @@ use std::convert::From;
 
 use vm_memory::GuestMemoryError;
 
+use super::io::{BlockIoError, SyncIoError};
 use super::{SECTOR_SHIFT, SECTOR_SIZE, VirtioBlockError, io as block_io};
 use crate::devices::virtio::block::virtio::device::DiskProperties;
 use crate::devices::virtio::block::virtio::metrics::BlockDeviceMetrics;
 pub use crate::devices::virtio::generated::virtio_blk::{
     VIRTIO_BLK_ID_BYTES, VIRTIO_BLK_S_IOERR, VIRTIO_BLK_S_OK, VIRTIO_BLK_S_UNSUPP,
     VIRTIO_BLK_T_FLUSH, VIRTIO_BLK_T_GET_ID, VIRTIO_BLK_T_IN, VIRTIO_BLK_T_OUT,
+    VIRTIO_BLK_T_DISCARD
 };
 use crate::devices::virtio::queue::DescriptorChain;
 use crate::logger::{IncMetric, error};
 use crate::rate_limiter::{RateLimiter, TokenType};
-use crate::vstate::memory::{ByteValued, Bytes, GuestAddress, GuestMemoryMmap};
+use crate::vstate::memory::{ByteValued, Bytes, GuestAddress, GuestMemoryMmap, Address};
 
 #[derive(Debug, derive_more::From)]
 pub enum IoErr {
@@ -34,6 +36,7 @@ pub enum RequestType {
     Out,
     Flush,
     GetDeviceID,
+    Discard,
     Unsupported(u32),
 }
 
@@ -44,6 +47,7 @@ impl From<u32> for RequestType {
             VIRTIO_BLK_T_OUT => RequestType::Out,
             VIRTIO_BLK_T_FLUSH => RequestType::Flush,
             VIRTIO_BLK_T_GET_ID => RequestType::GetDeviceID,
+            VIRTIO_BLK_T_DISCARD => RequestType::Discard,
             t => RequestType::Unsupported(t),
         }
     }
@@ -176,6 +180,12 @@ impl PendingRequest {
             (Ok(transferred_data_len), RequestType::GetDeviceID) => {
                 Status::from_data(self.data_len, transferred_data_len, true)
             }
+            (Ok(_), RequestType::Discard) => {
+                block_metrics.discard_count.inc();
+                Status::Ok {
+                    num_bytes_to_mem: 0,
+                }
+            }
             (_, RequestType::Unsupported(op)) => Status::Unsupported { op },
             (Err(err), _) => Status::IoErr {
                 num_bytes_to_mem: 0,
@@ -231,6 +241,16 @@ impl RequestHeader {
     }
 }
 
+// For this, please see VirtIO v1.2. This struct mimics that of the implementation in Virtio.
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[repr(C)]
+pub struct DiscardSegment {
+    sector: u64,
+    num_sectors: u32,
+    flags: u32,
+}
+unsafe impl ByteValued for DiscardSegment {}
+
 #[derive(Debug, PartialEq, Eq)]
 pub struct Request {
     pub r#type: RequestType,
@@ -238,6 +258,7 @@ pub struct Request {
     pub status_addr: GuestAddress,
     sector: u64,
     data_addr: GuestAddress,
+    discard_segments: Option<Vec<DiscardSegment>>,
 }
 
 impl Request {
@@ -258,10 +279,11 @@ impl Request {
             data_addr: GuestAddress(0),
             data_len: 0,
             status_addr: GuestAddress(0),
+            discard_segments: None
         };
 
         let data_desc;
-        let status_desc;
+        let mut status_desc;
         let desc = avail_desc
             .next_descriptor()
             .ok_or(VirtioBlockError::DescriptorChainTooShort)?;
@@ -272,6 +294,7 @@ impl Request {
             if req.r#type != RequestType::Flush {
                 return Err(VirtioBlockError::DescriptorChainTooShort);
             }
+            data_desc = desc;
         } else {
             data_desc = desc;
             status_desc = data_desc
@@ -286,6 +309,9 @@ impl Request {
             }
             if !data_desc.is_write_only() && req.r#type == RequestType::GetDeviceID {
                 return Err(VirtioBlockError::UnexpectedReadOnlyDescriptor);
+            }
+            if data_desc.is_write_only() && req.r#type == RequestType::Discard {
+                return Err(VirtioBlockError::UnexpectedWriteOnlyDescriptor);
             }
 
             req.data_addr = data_desc.addr;
@@ -311,6 +337,45 @@ impl Request {
             RequestType::GetDeviceID => {
                 if req.data_len < VIRTIO_BLK_ID_BYTES {
                     return Err(VirtioBlockError::InvalidDataLength);
+                }
+            }
+            RequestType::Discard => {
+                // Validate data length
+                let segment_size = std::mem::size_of::<DiscardSegment>() as u32;
+                if data_desc.len % segment_size != 0 {
+                    return Err(VirtioBlockError::InvalidDataLength);
+                }
+
+                // Calculate number of segments
+                let num_segments = data_desc.len / segment_size;
+                if num_segments == 0 {
+                    return Err(VirtioBlockError::InvalidDiscardRequest);
+                }
+                let mut segments = Vec::with_capacity(num_segments as usize);
+
+                // Populate DiscardSegments vector
+                for i in 0..num_segments {
+                    let offset = i * segment_size;
+                    let segment: DiscardSegment = mem.read_obj(data_desc.addr.unchecked_add(offset as u64))
+                        .map_err(VirtioBlockError::GuestMemory)?;
+                    if segment.flags & !0x1 != 0 {
+                        return Err(VirtioBlockError::InvalidDiscardFlags);
+                    }
+                    let end_sector = segment.sector.checked_add(segment.num_sectors as u64)
+                        .ok_or(VirtioBlockError::SectorOverflow)?;
+                    if end_sector > num_disk_sectors {
+                        return Err(VirtioBlockError::BeyondDiskSize);
+                    }
+                    segments.push(segment);
+                }
+
+                // Assign to req.discard_segments
+                req.discard_segments = Some(segments);
+                req.data_len = data_desc.len;
+                status_desc = data_desc.next_descriptor()
+                    .ok_or(VirtioBlockError::DescriptorChainTooShort)?;
+                if !status_desc.is_write_only() {
+                    return Err(VirtioBlockError::UnexpectedReadOnlyDescriptor);
                 }
             }
             _ => {}
@@ -389,6 +454,11 @@ impl Request {
                     .map(|_| VIRTIO_BLK_ID_BYTES)
                     .map_err(IoErr::GetId);
                 return ProcessingResult::Executed(pending.finish(mem, res, block_metrics));
+            }
+            RequestType::Discard => {
+                let _metric = block_metrics.write_agg.record_latency_metrics();
+                disk.file_engine
+                    .discard(self.offset(), self.data_len, pending)
             }
             RequestType::Unsupported(_) => {
                 return ProcessingResult::Executed(pending.finish(mem, Ok(0), block_metrics));
@@ -731,6 +801,7 @@ mod tests {
                 RequestType::Out => VIRTIO_BLK_T_OUT,
                 RequestType::Flush => VIRTIO_BLK_T_FLUSH,
                 RequestType::GetDeviceID => VIRTIO_BLK_T_GET_ID,
+                RequestType::Discard => VIRTIO_BLK_T_DISCARD,
                 RequestType::Unsupported(id) => id,
             }
         }
@@ -743,6 +814,7 @@ mod tests {
             RequestType::Out => VIRTQ_DESC_F_NEXT,
             RequestType::Flush => VIRTQ_DESC_F_NEXT,
             RequestType::GetDeviceID => VIRTQ_DESC_F_NEXT | VIRTQ_DESC_F_WRITE,
+            RequestType::Discard => VIRTQ_DESC_F_NEXT,
             RequestType::Unsupported(_) => VIRTQ_DESC_F_NEXT,
         }
     }
@@ -833,6 +905,7 @@ mod tests {
             data_len: valid_data_len,
             status_addr,
             sector: sector & (NUM_DISK_SECTORS - sectors_len),
+            discard_segments: None,
             data_addr,
         };
         let mut request_header = RequestHeader::new(virtio_request_id, request.sector);

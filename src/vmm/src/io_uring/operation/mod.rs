@@ -29,6 +29,8 @@ pub enum OpCode {
     Write = io_uring_op::IORING_OP_WRITE as u8,
     /// Fsync operation.
     Fsync = io_uring_op::IORING_OP_FSYNC as u8,
+    /// Fallocate operation.
+    Fallocate = io_uring_op::IORING_OP_FALLOCATE as u8,
 }
 
 // Useful for outputting errors.
@@ -38,6 +40,7 @@ impl From<OpCode> for &'static str {
             OpCode::Read => "read",
             OpCode::Write => "write",
             OpCode::Fsync => "fsync",
+            OpCode::Fallocate => "fallocate",
         }
     }
 }
@@ -113,6 +116,18 @@ impl<T: Debug> Operation<T> {
         }
     }
 
+    pub fn fallocate(fd: FixedFd, len: u32, offset: u64, user_data: T) -> Self {
+        Self {
+            fd,
+            opcode: OpCode::Fallocate,
+            addr: None,
+            len: Some(len),
+            flags: 0,
+            offset: Some(offset),
+            user_data,
+        }
+    }
+    
     pub(crate) fn fd(&self) -> FixedFd {
         self.fd
     }
