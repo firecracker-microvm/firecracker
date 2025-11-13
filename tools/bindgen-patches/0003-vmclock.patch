@@ -1,0 +1,86 @@
+diff --git a/src/vmm/src/devices/acpi/generated/vmclock_abi.rs b/src/vmm/src/devices/acpi/generated/vmclock_abi.rs
+index e841ca111..134c8393f 100644
+--- a/src/vmm/src/devices/acpi/generated/vmclock_abi.rs
++++ b/src/vmm/src/devices/acpi/generated/vmclock_abi.rs
+@@ -16,40 +16,42 @@
+     clippy::redundant_static_lifetimes
+ )]
+ 
++use serde::{Deserialize, Serialize};
++
+ pub const __BITS_PER_LONG: u32 = 64;
+ pub const __BITS_PER_LONG_LONG: u32 = 64;
+ pub const __FD_SETSIZE: u32 = 1024;
+ pub const VMCLOCK_MAGIC: u32 = 1263289174;
+-pub const VMCLOCK_COUNTER_ARM_VCNT: u32 = 0;
+-pub const VMCLOCK_COUNTER_X86_TSC: u32 = 1;
+-pub const VMCLOCK_COUNTER_INVALID: u32 = 255;
+-pub const VMCLOCK_TIME_UTC: u32 = 0;
+-pub const VMCLOCK_TIME_TAI: u32 = 1;
+-pub const VMCLOCK_TIME_MONOTONIC: u32 = 2;
+-pub const VMCLOCK_TIME_INVALID_SMEARED: u32 = 3;
+-pub const VMCLOCK_TIME_INVALID_MAYBE_SMEARED: u32 = 4;
+-pub const VMCLOCK_FLAG_TAI_OFFSET_VALID: u32 = 1;
+-pub const VMCLOCK_FLAG_DISRUPTION_SOON: u32 = 2;
+-pub const VMCLOCK_FLAG_DISRUPTION_IMMINENT: u32 = 4;
+-pub const VMCLOCK_FLAG_PERIOD_ESTERROR_VALID: u32 = 8;
+-pub const VMCLOCK_FLAG_PERIOD_MAXERROR_VALID: u32 = 16;
+-pub const VMCLOCK_FLAG_TIME_ESTERROR_VALID: u32 = 32;
+-pub const VMCLOCK_FLAG_TIME_MAXERROR_VALID: u32 = 64;
+-pub const VMCLOCK_FLAG_TIME_MONOTONIC: u32 = 128;
+-pub const VMCLOCK_STATUS_UNKNOWN: u32 = 0;
+-pub const VMCLOCK_STATUS_INITIALIZING: u32 = 1;
+-pub const VMCLOCK_STATUS_SYNCHRONIZED: u32 = 2;
+-pub const VMCLOCK_STATUS_FREERUNNING: u32 = 3;
+-pub const VMCLOCK_STATUS_UNRELIABLE: u32 = 4;
+-pub const VMCLOCK_SMEARING_STRICT: u32 = 0;
+-pub const VMCLOCK_SMEARING_NOON_LINEAR: u32 = 1;
+-pub const VMCLOCK_SMEARING_UTC_SLS: u32 = 2;
+-pub const VMCLOCK_LEAP_NONE: u32 = 0;
+-pub const VMCLOCK_LEAP_PRE_POS: u32 = 1;
+-pub const VMCLOCK_LEAP_PRE_NEG: u32 = 2;
+-pub const VMCLOCK_LEAP_POS: u32 = 3;
+-pub const VMCLOCK_LEAP_POST_POS: u32 = 4;
+-pub const VMCLOCK_LEAP_POST_NEG: u32 = 5;
++pub const VMCLOCK_COUNTER_ARM_VCNT: u8 = 0;
++pub const VMCLOCK_COUNTER_X86_TSC: u8 = 1;
++pub const VMCLOCK_COUNTER_INVALID: u8 = 255;
++pub const VMCLOCK_TIME_UTC: u8 = 0;
++pub const VMCLOCK_TIME_TAI: u8 = 1;
++pub const VMCLOCK_TIME_MONOTONIC: u8 = 2;
++pub const VMCLOCK_TIME_INVALID_SMEARED: u8 = 3;
++pub const VMCLOCK_TIME_INVALID_MAYBE_SMEARED: u8 = 4;
++pub const VMCLOCK_FLAG_TAI_OFFSET_VALID: u64 = 1;
++pub const VMCLOCK_FLAG_DISRUPTION_SOON: u64 = 2;
++pub const VMCLOCK_FLAG_DISRUPTION_IMMINENT: u64 = 4;
++pub const VMCLOCK_FLAG_PERIOD_ESTERROR_VALID: u64 = 8;
++pub const VMCLOCK_FLAG_PERIOD_MAXERROR_VALID: u64 = 16;
++pub const VMCLOCK_FLAG_TIME_ESTERROR_VALID: u64 = 32;
++pub const VMCLOCK_FLAG_TIME_MAXERROR_VALID: u64 = 64;
++pub const VMCLOCK_FLAG_TIME_MONOTONIC: u64 = 128;
++pub const VMCLOCK_STATUS_UNKNOWN: u8 = 0;
++pub const VMCLOCK_STATUS_INITIALIZING: u8 = 1;
++pub const VMCLOCK_STATUS_SYNCHRONIZED: u8 = 2;
++pub const VMCLOCK_STATUS_FREERUNNING: u8 = 3;
++pub const VMCLOCK_STATUS_UNRELIABLE: u8 = 4;
++pub const VMCLOCK_SMEARING_STRICT: u8 = 0;
++pub const VMCLOCK_SMEARING_NOON_LINEAR: u8 = 1;
++pub const VMCLOCK_SMEARING_UTC_SLS: u8 = 2;
++pub const VMCLOCK_LEAP_NONE: u8 = 0;
++pub const VMCLOCK_LEAP_PRE_POS: u8 = 1;
++pub const VMCLOCK_LEAP_PRE_NEG: u8 = 2;
++pub const VMCLOCK_LEAP_POS: u8 = 3;
++pub const VMCLOCK_LEAP_POST_POS: u8 = 4;
++pub const VMCLOCK_LEAP_POST_NEG: u8 = 5;
+ pub type __s8 = ::std::os::raw::c_schar;
+ pub type __u8 = ::std::os::raw::c_uchar;
+ pub type __s16 = ::std::os::raw::c_short;
+@@ -127,7 +129,7 @@ pub type __sum16 = __u16;
+ pub type __wsum = __u32;
+ pub type __poll_t = ::std::os::raw::c_uint;
+ #[repr(C)]
+-#[derive(Debug, Default, Copy, Clone, PartialEq)]
++#[derive(Debug, Default, Copy, Clone, PartialEq, Serialize, Deserialize)]
+ pub struct vmclock_abi {
+     pub magic: __le32,
+     pub size: __le32,

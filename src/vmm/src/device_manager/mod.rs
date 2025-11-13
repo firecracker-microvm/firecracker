@@ -18,12 +18,12 @@ use linux_loader::loader::Cmdline;
 use log::{error, info};
 use mmio::{MMIODeviceManager, MmioError};
 use pci_mngr::{PciDevices, PciDevicesConstructorArgs, PciManagerError};
-use persist::{ACPIDeviceManagerConstructorArgs, MMIODevManagerConstructorArgs};
+use persist::MMIODevManagerConstructorArgs;
 use serde::{Deserialize, Serialize};
 use utils::time::TimestampUs;
 use vmm_sys_util::eventfd::EventFd;
 
-use crate::devices::acpi::vmgenid::{VmGenId, VmGenIdError};
+use crate::device_manager::acpi::ACPIDeviceError;
 #[cfg(target_arch = "x86_64")]
 use crate::devices::legacy::I8042Device;
 #[cfg(target_arch = "aarch64")]
@@ -70,10 +70,8 @@ pub enum AttachDeviceError {
     MmioTransport(#[from] MmioError),
     /// Error inserting device in bus: {0}
     Bus(#[from] BusError),
-    /// Error creating VMGenID device: {0}
-    CreateVmGenID(#[from] VmGenIdError),
-    /// Error while registering VMGenID with KVM: {0}
-    AttachVmGenID(#[from] kvm_ioctls::Error),
+    /// Error while registering ACPI with KVM: {0}
+    AttachAcpiDevice(#[from] ACPIDeviceError),
     #[cfg(target_arch = "aarch64")]
     /// Cmdline error
     Cmdline,
@@ -176,7 +174,7 @@ impl DeviceManager {
             mmio_devices: MMIODeviceManager::new(),
             #[cfg(target_arch = "x86_64")]
             legacy_devices,
-            acpi_devices: ACPIDeviceManager::new(),
+            acpi_devices: ACPIDeviceManager::new(&mut vm.resource_allocator()),
             pci_devices: PciDevices::new(),
         })
     }
@@ -234,13 +232,14 @@ impl DeviceManager {
         Ok(())
     }
 
-    pub(crate) fn attach_vmgenid_device(
-        &mut self,
-        mem: &GuestMemoryMmap,
-        vm: &Vm,
-    ) -> Result<(), AttachDeviceError> {
-        let vmgenid = VmGenId::new(mem, &mut vm.resource_allocator())?;
-        self.acpi_devices.attach_vmgenid(vmgenid, vm)?;
+    pub(crate) fn attach_vmgenid_device(&mut self, vm: &Vm) -> Result<(), AttachDeviceError> {
+        self.acpi_devices.attach_vmgenid(vm)?;
+        Ok(())
+    }
+
+    #[cfg(target_arch = "x86_64")]
+    pub(crate) fn attach_vmclock_device(&mut self, vm: &Vm) -> Result<(), AttachDeviceError> {
+        self.acpi_devices.attach_vmclock(vm)?;
         Ok(())
     }
 
@@ -394,7 +393,7 @@ pub enum DevicePersistError {
     /// Error restoring MMIO devices: {0}
     MmioRestore(#[from] persist::DevicePersistError),
     /// Error restoring ACPI devices: {0}
-    AcpiRestore(#[from] persist::ACPIDeviceManagerRestoreError),
+    AcpiRestore(#[from] ACPIDeviceError),
     /// Error restoring PCI devices: {0}
     PciRestore(#[from] PciManagerError),
     /// Error notifying VMGenID device: {0}
@@ -464,12 +463,8 @@ impl<'a> Persist<'a> for DeviceManager {
         let mmio_devices = MMIODeviceManager::restore(mmio_ctor_args, &state.mmio_state)?;
 
         // Restore ACPI devices
-        let acpi_ctor_args = ACPIDeviceManagerConstructorArgs {
-            mem: constructor_args.mem,
-            vm: constructor_args.vm,
-        };
-        let mut acpi_devices = ACPIDeviceManager::restore(acpi_ctor_args, &state.acpi_state)?;
-        acpi_devices.notify_vmgenid()?;
+        let mut acpi_devices = ACPIDeviceManager::restore(constructor_args.vm, &state.acpi_state)?;
+        acpi_devices.vmgenid.notify_guest()?;
 
         // Restore PCI devices
         let pci_ctor_args = PciDevicesConstructorArgs {
@@ -542,10 +537,12 @@ pub(crate) mod tests {
     use super::*;
     #[cfg(target_arch = "aarch64")]
     use crate::builder::tests::default_vmm;
+    use crate::vstate::resources::ResourceAllocator;
 
     pub(crate) fn default_device_manager() -> DeviceManager {
+        let mut resource_allocator = ResourceAllocator::new();
         let mmio_devices = MMIODeviceManager::new();
-        let acpi_devices = ACPIDeviceManager::new();
+        let acpi_devices = ACPIDeviceManager::new(&mut resource_allocator);
         let pci_devices = PciDevices::new();
 
         #[cfg(target_arch = "x86_64")]

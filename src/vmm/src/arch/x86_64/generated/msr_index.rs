@@ -237,7 +237,6 @@ pub const MSR_AMD64_OSVW_ID_LENGTH: u32 = 0xc0010140;
 pub const MSR_AMD64_OSVW_STATUS: u32 = 0xc0010141;
 pub const MSR_AMD_PPIN_CTL: u32 = 0xc00102f0;
 pub const MSR_AMD_PPIN: u32 = 0xc00102f1;
-pub const MSR_AMD64_CPUID_FN_7: u32 = 0xc0011002;
 pub const MSR_AMD64_CPUID_FN_1: u32 = 0xc0011004;
 pub const MSR_AMD64_LS_CFG: u32 = 0xc0011020;
 pub const MSR_AMD64_DC_CFG: u32 = 0xc0011022;

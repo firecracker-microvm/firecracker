@@ -2,84 +2,96 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use acpi_tables::{Aml, aml};
+use vm_memory::GuestMemoryError;
 
 use crate::Vm;
+#[cfg(target_arch = "x86_64")]
+use crate::devices::acpi::vmclock::VmClock;
 use crate::devices::acpi::vmgenid::VmGenId;
+use crate::vstate::resources::ResourceAllocator;
 
-#[derive(Debug, Default)]
+#[derive(Debug, thiserror::Error, displaydoc::Display)]
+pub enum ACPIDeviceError {
+    /// Could not register GSI with KVM: {0}
+    RegisterIrq(#[from] kvm_ioctls::Error),
+    /// Could not write to guest memory: {0}
+    WriteGuestMemory(#[from] GuestMemoryError),
+}
+
+#[derive(Debug)]
 pub struct ACPIDeviceManager {
     /// VMGenID device
-    pub vmgenid: Option<VmGenId>,
+    pub vmgenid: VmGenId,
+    /// VMclock device
+    #[cfg(target_arch = "x86_64")]
+    pub vmclock: VmClock,
 }
 
 impl ACPIDeviceManager {
     /// Create a new ACPIDeviceManager object
-    pub fn new() -> Self {
-        Default::default()
+    pub fn new(resource_allocator: &mut ResourceAllocator) -> Self {
+        ACPIDeviceManager {
+            vmgenid: VmGenId::new(resource_allocator),
+            #[cfg(target_arch = "x86_64")]
+            vmclock: VmClock::new(resource_allocator),
+        }
     }
 
-    /// Attach a new VMGenID device to the microVM
-    ///
-    /// This will register the device's interrupt with KVM
-    pub fn attach_vmgenid(&mut self, vmgenid: VmGenId, vm: &Vm) -> Result<(), kvm_ioctls::Error> {
-        vm.register_irq(&vmgenid.interrupt_evt, vmgenid.gsi)?;
-        self.vmgenid = Some(vmgenid);
+    pub fn attach_vmgenid(&self, vm: &Vm) -> Result<(), ACPIDeviceError> {
+        vm.register_irq(&self.vmgenid.interrupt_evt, self.vmgenid.gsi)?;
+        self.vmgenid.activate(vm.guest_memory())?;
         Ok(())
     }
 
-    /// If it exists, notify guest VMGenID device that we have resumed from a snapshot.
-    pub fn notify_vmgenid(&mut self) -> Result<(), std::io::Error> {
-        if let Some(vmgenid) = &mut self.vmgenid {
-            vmgenid.notify_guest()?;
-        }
+    #[cfg(target_arch = "x86_64")]
+    pub fn attach_vmclock(&self, vm: &Vm) -> Result<(), ACPIDeviceError> {
+        self.vmclock.activate(vm.guest_memory())?;
         Ok(())
     }
 }
 
 impl Aml for ACPIDeviceManager {
     fn append_aml_bytes(&self, v: &mut Vec<u8>) -> Result<(), aml::AmlError> {
-        // If we have a VMGenID device, create the AML for the device and GED interrupt handler
-        match self.vmgenid.as_ref() {
-            Some(vmgenid) => {
-                // AML for GED
-                aml::Device::new(
-                    "_SB_.GED_".try_into()?,
-                    vec![
-                        &aml::Name::new("_HID".try_into()?, &"ACPI0013")?,
-                        &aml::Name::new(
-                            "_CRS".try_into()?,
-                            &aml::ResourceTemplate::new(vec![&aml::Interrupt::new(
-                                true,
-                                true,
-                                false,
-                                false,
-                                vmgenid.gsi,
-                            )]),
-                        )?,
-                        &aml::Method::new(
-                            "_EVT".try_into()?,
-                            1,
-                            true,
-                            vec![&aml::If::new(
-                                // We know that the maximum IRQ number fits in a u8. We have up to
-                                // 32 IRQs in x86 and up to 128 in
-                                // ARM (look into
-                                // `vmm::crate::arch::layout::GSI_LEGACY_END`)
-                                #[allow(clippy::cast_possible_truncation)]
-                                &aml::Equal::new(&aml::Arg(0), &(vmgenid.gsi as u8)),
-                                vec![&aml::Notify::new(
-                                    &aml::Path::new("\\_SB_.VGEN")?,
-                                    &0x80usize,
-                                )],
-                            )],
-                        ),
-                    ],
-                )
-                .append_aml_bytes(v)?;
-                // AML for VMGenID itself.
-                vmgenid.append_aml_bytes(v)
-            }
-            None => Ok(()),
-        }
+        // AML for [`VmGenId`] device.
+        self.vmgenid.append_aml_bytes(v)?;
+        // AML for [`VmClock`] device.
+        #[cfg(target_arch = "x86_64")]
+        self.vmclock.append_aml_bytes(v)?;
+
+        // Create the AML for the GED interrupt handler
+        aml::Device::new(
+            "_SB_.GED_".try_into()?,
+            vec![
+                &aml::Name::new("_HID".try_into()?, &"ACPI0013")?,
+                &aml::Name::new(
+                    "_CRS".try_into()?,
+                    &aml::ResourceTemplate::new(vec![&aml::Interrupt::new(
+                        true,
+                        true,
+                        false,
+                        false,
+                        self.vmgenid.gsi,
+                    )]),
+                )?,
+                &aml::Method::new(
+                    "_EVT".try_into()?,
+                    1,
+                    true,
+                    vec![&aml::If::new(
+                        // We know that the maximum IRQ number fits in a u8. We have up to
+                        // 32 IRQs in x86 and up to 128 in
+                        // ARM (look into
+                        // `vmm::crate::arch::layout::GSI_LEGACY_END`)
+                        #[allow(clippy::cast_possible_truncation)]
+                        &aml::Equal::new(&aml::Arg(0), &(self.vmgenid.gsi as u8)),
+                        vec![&aml::Notify::new(
+                            &aml::Path::new("\\_SB_.VGEN")?,
+                            &0x80usize,
+                        )],
+                    )],
+                ),
+            ],
+        )
+        .append_aml_bytes(v)
     }
 }
