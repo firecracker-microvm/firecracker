@@ -110,7 +110,6 @@ impl AsyncFileEngine {
         Ok(())
     }
 
-    #[cfg(test)]
     pub fn file(&self) -> &File {
         &self.file
     }
@@ -228,6 +227,22 @@ impl AsyncFileEngine {
         self.file.sync_all().map_err(AsyncIoError::SyncAll)?;
 
         Ok(())
+    }
+
+    pub fn push_discard(
+        &mut self,
+        offset: u64,
+        len: u32,
+        req: PendingRequest,
+    ) -> Result<(), RequestError<AsyncIoError>> {
+        let wrapped_user_data = WrappedRequest::new(req);
+
+        self.ring
+            .push(Operation::fallocate(0, len, offset, wrapped_user_data))
+            .map_err(|(io_uring_error, data)| RequestError {
+                req: data.req,
+                error: AsyncIoError::IoUring(io_uring_error),
+            })
     }
 
     fn do_pop(&mut self) -> Result<Option<Cqe<WrappedRequest>>, AsyncIoError> {
