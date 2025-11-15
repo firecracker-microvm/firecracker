@@ -15,13 +15,13 @@ use crate::devices::virtio::block::virtio::device::DiskProperties;
 use crate::devices::virtio::block::virtio::metrics::BlockDeviceMetrics;
 pub use crate::devices::virtio::generated::virtio_blk::{
     VIRTIO_BLK_ID_BYTES, VIRTIO_BLK_S_IOERR, VIRTIO_BLK_S_OK, VIRTIO_BLK_S_UNSUPP,
-    VIRTIO_BLK_T_FLUSH, VIRTIO_BLK_T_GET_ID, VIRTIO_BLK_T_IN, VIRTIO_BLK_T_OUT,
-    VIRTIO_BLK_T_DISCARD
+    VIRTIO_BLK_T_DISCARD, VIRTIO_BLK_T_FLUSH, VIRTIO_BLK_T_GET_ID, VIRTIO_BLK_T_IN,
+    VIRTIO_BLK_T_OUT,
 };
 use crate::devices::virtio::queue::DescriptorChain;
 use crate::logger::{IncMetric, error};
 use crate::rate_limiter::{RateLimiter, TokenType};
-use crate::vstate::memory::{ByteValued, Bytes, GuestAddress, GuestMemoryMmap, Address};
+use crate::vstate::memory::{Address, ByteValued, Bytes, GuestAddress, GuestMemoryMmap};
 
 #[derive(Debug, derive_more::From)]
 pub enum IoErr {
@@ -249,6 +249,8 @@ pub struct DiscardSegment {
     num_sectors: u32,
     flags: u32,
 }
+// SAFETY: Safe because `DiscardSegment` only contains plain data (POD) with no padding-dependent
+// invariants.
 unsafe impl ByteValued for DiscardSegment {}
 
 #[derive(Debug, PartialEq, Eq)]
@@ -279,7 +281,7 @@ impl Request {
             data_addr: GuestAddress(0),
             data_len: 0,
             status_addr: GuestAddress(0),
-            discard_segments: None
+            discard_segments: None,
         };
 
         let data_desc;
@@ -341,27 +343,30 @@ impl Request {
             }
             RequestType::Discard => {
                 // Validate data length
-                let segment_size = std::mem::size_of::<DiscardSegment>() as u32;
-                if data_desc.len % segment_size != 0 {
+                let segment_size = std::mem::size_of::<DiscardSegment>();
+                if (data_desc.len as usize) % segment_size != 0 {
                     return Err(VirtioBlockError::InvalidDataLength);
                 }
 
                 // Calculate number of segments
-                let num_segments = data_desc.len / segment_size;
+                let num_segments = (data_desc.len as usize) / segment_size;
                 if num_segments == 0 {
                     return Err(VirtioBlockError::InvalidDiscardRequest);
                 }
-                let mut segments = Vec::with_capacity(num_segments as usize);
+                let mut segments = Vec::with_capacity(num_segments);
 
                 // Populate DiscardSegments vector
                 for i in 0..num_segments {
                     let offset = i * segment_size;
-                    let segment: DiscardSegment = mem.read_obj(data_desc.addr.unchecked_add(offset as u64))
+                    let segment: DiscardSegment = mem
+                        .read_obj(data_desc.addr.unchecked_add(offset as u64))
                         .map_err(VirtioBlockError::GuestMemory)?;
                     if segment.flags & !0x1 != 0 {
                         return Err(VirtioBlockError::InvalidDiscardFlags);
                     }
-                    let end_sector = segment.sector.checked_add(segment.num_sectors as u64)
+                    let end_sector = segment
+                        .sector
+                        .checked_add(segment.num_sectors as u64)
                         .ok_or(VirtioBlockError::SectorOverflow)?;
                     if end_sector > num_disk_sectors {
                         return Err(VirtioBlockError::BeyondDiskSize);
@@ -372,7 +377,8 @@ impl Request {
                 // Assign to req.discard_segments
                 req.discard_segments = Some(segments);
                 req.data_len = data_desc.len;
-                status_desc = data_desc.next_descriptor()
+                status_desc = data_desc
+                    .next_descriptor()
                     .ok_or(VirtioBlockError::DescriptorChainTooShort)?;
                 if !status_desc.is_write_only() {
                     return Err(VirtioBlockError::UnexpectedReadOnlyDescriptor);

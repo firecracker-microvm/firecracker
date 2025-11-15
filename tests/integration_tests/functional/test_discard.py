@@ -1,5 +1,10 @@
-import pytest
+# ...existing code...
+# Copyright 2025 Amazon.com, Inc. or its affiliates. All Rights Reserved.
+# SPDX-License-Identifier: Apache-2.0
+"""Integration test for discard (VIRTIO_BLK_T_DISCARD)."""
+
 import os
+
 import host_tools.drive as drive_tools
 
 
@@ -30,7 +35,9 @@ def test_discard_support(uvm_plain_rw):
 
     vm.ssh.run("mount -o remount,discard /")
     exit_code, stdout, _ = vm.ssh.run("mount | grep /dev/vda")
-    assert exit_code == 0, f"Failed to remount root filesystem with discard option: {stdout}"
+    assert (
+        exit_code == 0
+    ), f"Failed to remount root filesystem with discard option: {stdout}"
 
     exit_code, stdout, _ = vm.ssh.run("fstrim -v /")
     assert exit_code == 0, f"fstrim -v failed: {stdout}"

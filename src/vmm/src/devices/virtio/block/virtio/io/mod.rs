@@ -6,8 +6,9 @@ pub mod sync_io;
 
 use std::fmt::Debug;
 use std::fs::File;
-use libc::{c_int, off64_t, FALLOC_FL_KEEP_SIZE, FALLOC_FL_PUNCH_HOLE};
 use std::os::unix::io::AsRawFd;
+
+use libc::{FALLOC_FL_KEEP_SIZE, FALLOC_FL_PUNCH_HOLE, c_int, off64_t};
 
 pub use self::async_io::{AsyncFileEngine, AsyncIoError};
 pub use self::sync_io::{SyncFileEngine, SyncIoError};
@@ -77,7 +78,6 @@ impl FileEngine {
 
         Ok(())
     }
-
 
     pub fn file(&self) -> &File {
         match self {
@@ -182,7 +182,6 @@ impl FileEngine {
         count: u32,
         req: PendingRequest,
     ) -> Result<FileEngineOk, RequestError<BlockIoError>> {
-
         match self {
             FileEngine::Async(engine) => match engine.push_discard(offset, count, req) {
                 Ok(_) => Ok(FileEngineOk::Submitted),
@@ -191,7 +190,7 @@ impl FileEngine {
                     error: BlockIoError::Async(err.error),
                 }),
             },
-            FileEngine::Sync(engine) => match engine.discard(offset,count) {
+            FileEngine::Sync(engine) => match engine.discard(offset, count) {
                 Ok(count) => Ok(FileEngineOk::Executed(RequestOk { req, count })),
                 Err(err) => Err(RequestError {
                     req,
