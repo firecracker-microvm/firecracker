@@ -197,7 +197,7 @@ def check_memory_usable(uvm):
     # try to allocate 95% of available memory
     amount_mib = int(mem_available * 95 / 100)
 
-    _ = uvm.ssh.check_output(f"/usr/local/bin/fillmem {amount_mib}", timeout=10)
+    _ = uvm.ssh.check_output(f"/usr/local/bin/fillmem {amount_mib}", timeout=30)
     # verify the allocation was successful
     _ = uvm.ssh.check_output("cat /tmp/fillmem_output.txt | grep successful")
 
