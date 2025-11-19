@@ -115,7 +115,7 @@ pub enum StartMicrovmError {
     CreateEntropyDevice(crate::devices::virtio::rng::EntropyError),
     /// Failed to allocate guest resource: {0}
     AllocateResources(#[from] vm_allocator::Error),
-    /// Error starting GDB debug session
+    /// Error starting GDB debug session: {0}
     #[cfg(feature = "gdb")]
     GdbServer(gdb::target::GdbTargetError),
     /// Error cloning Vcpu fds
@@ -292,19 +292,12 @@ pub fn build_microvm_for_boot(
     let vmm = Arc::new(Mutex::new(vmm));
 
     #[cfg(feature = "gdb")]
-    {
-        let (gdb_tx, gdb_rx) = mpsc::channel();
-        vcpus
-            .iter_mut()
-            .for_each(|vcpu| vcpu.attach_debug_info(gdb_tx.clone()));
+    let (gdb_tx, gdb_rx) = mpsc::channel();
 
-        if let Some(gdb_socket_path) = &vm_resources.machine_config.gdb_socket_path {
-            gdb::gdb_thread(vmm.clone(), gdb_rx, entry_point.entry_addr, gdb_socket_path)
-                .map_err(StartMicrovmError::GdbServer)?;
-        } else {
-            debug!("No GDB socket provided not starting gdb server.");
-        }
-    }
+    #[cfg(feature = "gdb")]
+    vcpus
+        .iter_mut()
+        .for_each(|vcpu| vcpu.attach_debug_info(gdb_tx.clone()));
 
     // Move vcpus to their own threads and start their state machine in the 'Paused' state.
     vmm.lock()
@@ -317,6 +310,14 @@ pub fn build_microvm_for_boot(
                 .clone(),
         )
         .map_err(VmmError::VcpuStart)?;
+
+    #[cfg(feature = "gdb")]
+    if let Some(gdb_socket_path) = &vm_resources.machine_config.gdb_socket_path {
+        gdb::gdb_thread(vmm.clone(), gdb_rx, entry_point.entry_addr, gdb_socket_path)
+            .map_err(StartMicrovmError::GdbServer)?;
+    } else {
+        debug!("No GDB socket provided not starting gdb server.");
+    }
 
     // Load seccomp filters for the VMM thread.
     // Execution panics if filters cannot be loaded, use --no-seccomp if skipping filters
