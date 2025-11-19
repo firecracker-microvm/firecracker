@@ -26,6 +26,9 @@ and this project adheres to
 - [#4028](https://github.com/firecracker-microvm/firecracker/pull/4028):
   Firecracker now creates the log and metrics files if they do not exist,
   simplifying the launch of Firecracker by removing a manual step.
+- [#5516](https://github.com/firecracker-microvm/firecracker/pull/5516): Balloon
+  stats now supports guest kernel >= 6.12, adding metrics on guest OOM kills,
+  memory allocation stalls, and memory scan/reclaim info.
 - [#5526](https://github.com/firecracker-microvm/firecracker/pull/5526): Specify
   IA32_MTRRdefType MSR on VM boot to allow it to set page attributes for memory
   regions.

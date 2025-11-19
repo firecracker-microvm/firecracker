@@ -41,6 +41,12 @@ pub struct BalloonStatsState {
     disk_caches: Option<u64>,
     hugetlb_allocations: Option<u64>,
     hugetlb_failures: Option<u64>,
+    oom_kill: Option<u64>,
+    alloc_stall: Option<u64>,
+    async_scan: Option<u64>,
+    direct_scan: Option<u64>,
+    async_reclaim: Option<u64>,
+    direct_reclaim: Option<u64>,
 }
 
 impl BalloonStatsState {
@@ -56,6 +62,12 @@ impl BalloonStatsState {
             disk_caches: stats.disk_caches,
             hugetlb_allocations: stats.hugetlb_allocations,
             hugetlb_failures: stats.hugetlb_failures,
+            oom_kill: stats.oom_kill,
+            alloc_stall: stats.alloc_stall,
+            async_scan: stats.async_scan,
+            direct_scan: stats.direct_scan,
+            async_reclaim: stats.async_reclaim,
+            direct_reclaim: stats.direct_reclaim,
         }
     }
 
@@ -75,6 +87,12 @@ impl BalloonStatsState {
             disk_caches: self.disk_caches,
             hugetlb_allocations: self.hugetlb_allocations,
             hugetlb_failures: self.hugetlb_failures,
+            oom_kill: self.oom_kill,
+            alloc_stall: self.alloc_stall,
+            async_scan: self.async_scan,
+            direct_scan: self.direct_scan,
+            async_reclaim: self.async_reclaim,
+            direct_reclaim: self.direct_reclaim,
         }
     }
 }
@@ -192,7 +210,6 @@ impl Persist<'_> for Balloon {
 
 #[cfg(test)]
 mod tests {
-
     use super::*;
     use crate::devices::virtio::device::VirtioDevice;
     use crate::devices::virtio::test_utils::{default_interrupt, default_mem};

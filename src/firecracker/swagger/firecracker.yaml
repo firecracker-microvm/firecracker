@@ -967,6 +967,30 @@ definitions:
         description: The number of failed hugetlb page allocations in the guest.
         type: integer
         format: int64
+      oom_kill:
+        description: OOM killer invocations, indicating critical memory pressure.
+        type: integer
+        format: int64
+      alloc_stall:
+        description: Counter of Allocation enter a slow path to gain more memory page. The reclaim/scan metrics can reveal what is actually happening.
+        type: integer
+        format: int64
+      async_scan:
+        description: Amount of memory scanned asynchronously.
+        type: integer
+        format: int64
+      direct_scan:
+        description: Amount of memory scanned directly.
+        type: integer
+        format: int64
+      async_reclaim:
+        description: Amount of memory reclaimed asynchronously.
+        type: integer
+        format: int64
+      direct_reclaim:
+        description: Amount of memory reclaimed directly.
+        type: integer
+        format: int64
 
   BalloonStartCmd:
     type: object
