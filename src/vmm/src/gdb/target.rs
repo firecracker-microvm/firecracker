@@ -65,8 +65,8 @@ pub enum GdbTargetError {
     NoPausedVcpu,
     /// Error when setting Vcpu debug flags
     VcpuKvmError,
-    /// Server socket Error
-    ServerSocketError,
+    /// Server socket Error: {0}
+    ServerSocketError(std::io::Error),
     /// Error with creating GDB thread
     GdbThreadError,
     /// VMM locking error
@@ -393,8 +393,6 @@ impl MultiThreadBase for FirecrackerTarget {
         let vmm = self.vmm.lock().unwrap();
         let vcpu_idx = tid_to_vcpuid(tid);
         let vcpu_fd = &vmm.vcpus_handles[vcpu_idx].vcpu_fd;
-
-        let vmm = &self.vmm.lock().expect("Error locking vmm in read addr");
 
         while !data.is_empty() {
             let gpa = arch::translate_gva(vcpu_fd, gva, &vmm).map_err(|e| {
