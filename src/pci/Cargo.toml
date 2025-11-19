@@ -21,4 +21,4 @@ thiserror = "2.0.17"
 
 [dev-dependencies]
 serde_test = "1.0.177"
-vmm-sys-util = "0.14.0"
+vmm-sys-util = "0.15.0"
