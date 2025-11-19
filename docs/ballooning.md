@@ -196,6 +196,11 @@ curl --unix-socket $socket_location -i \
 This will update the target size of the balloon to `amount_mib` and the
 statistics polling interval to `polling_interval`.
 
+> [!NOTE] Balloon inflation instructs the guest to reclaim memory which may
+> cause performance issues in the guest. The balloon statistics defined
+> [below](#virtio-balloon-statistics) can be used to decide whether it's
+> necessary to reclaim memory.
+
 ## Virtio balloon statistics
 
 The statistics are enabled by setting the `stats_polling_interval_s` field in
@@ -248,6 +253,30 @@ device has support for the following statistics:
   allocations in the guest.
 - `VIRTIO_BALLOON_S_HTLB_PGFAIL`: The number of failed hugetlb page allocations
   in the guest.
+
+Since linux v6.12, following metrics added(omitted in < v6.12):
+
+- `VIRTIO_BALLOON_S_OOM_KILL`: OOM killer invocations, indicating critical
+  memory pressure.
+- `VIRTIO_BALLOON_S_ALLOC_STALL`: Counter of Allocation enter a slow path to
+  gain more memory page. The reclaim/scan metrics can reveal what is actually
+  happening.
+- `VIRTIO_BALLOON_S_ASYNC_SCAN`: Amount of memory scanned asynchronously.
+- `VIRTIO_BALLOON_S_DIRECT_SCAN`: Amount of memory scanned directly.
+- `VIRTIO_BALLOON_S_ASYNC_RECLAIM`: Amount of memory reclaimed asynchronously.
+- `VIRTIO_BALLOON_S_DIRECT_RECLAIM`: Amount of memory reclaimed directly.
+
+When the pages_high watermark is reached, Linux `kswapd` performs asynchronous
+page reclaim, which increases ASYNC_SCAN and ASYNC_RECLAIM.
+
+When a process allocates more memory than the kernel can provide, the process is
+stalled while pages are reclaimed directly, which increases DIRECT_SCAN and
+DIRECT_RECLAIM.
+
+> `man sar`: %vmeff Calculated as pgsteal(RECLAIM) / pgscan(SCAN), this is a
+> metric of the efficiency of page reclaim. If it is near 100% then almost every
+> page coming off the tail of the inactive list is being reaped. If it gets too
+> low (e.g. less than 30%) then the virtual memory is having some difficulty.
 
 The driver is queried for updated statistics every time the amount of time
 specified in that field passes. The driver may not provide all the statistics

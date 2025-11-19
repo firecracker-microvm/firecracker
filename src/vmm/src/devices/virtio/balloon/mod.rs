@@ -55,7 +55,7 @@ const VIRTIO_BALLOON_F_DEFLATE_ON_OOM: u32 = 2; // Deflate balloon on OOM.
 const VIRTIO_BALLOON_F_FREE_PAGE_HINTING: u32 = 3; // Enable free page hinting
 const VIRTIO_BALLOON_F_FREE_PAGE_REPORTING: u32 = 5; // Enable free page reporting
 
-// The statistics tags.
+// The statistics tags. defined in linux "include/uapi/linux/virtio_balloon.h".
 const VIRTIO_BALLOON_S_SWAP_IN: u16 = 0;
 const VIRTIO_BALLOON_S_SWAP_OUT: u16 = 1;
 const VIRTIO_BALLOON_S_MAJFLT: u16 = 2;
@@ -66,6 +66,12 @@ const VIRTIO_BALLOON_S_AVAIL: u16 = 6;
 const VIRTIO_BALLOON_S_CACHES: u16 = 7;
 const VIRTIO_BALLOON_S_HTLB_PGALLOC: u16 = 8;
 const VIRTIO_BALLOON_S_HTLB_PGFAIL: u16 = 9;
+const VIRTIO_BALLOON_S_OOM_KILL: u16 = 10;
+const VIRTIO_BALLOON_S_ALLOC_STALL: u16 = 11;
+const VIRTIO_BALLOON_S_ASYNC_SCAN: u16 = 12;
+const VIRTIO_BALLOON_S_DIRECT_SCAN: u16 = 13;
+const VIRTIO_BALLOON_S_ASYNC_RECLAIM: u16 = 14;
+const VIRTIO_BALLOON_S_DIRECT_RECLAIM: u16 = 15;
 
 /// Balloon device related errors.
 #[derive(Debug, thiserror::Error, displaydoc::Display)]

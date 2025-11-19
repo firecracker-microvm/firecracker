@@ -20,10 +20,12 @@ use super::{
     FREE_PAGE_HINT_STOP, INFLATE_INDEX, MAX_PAGE_COMPACT_BUFFER, MAX_PAGES_IN_DESC,
     MIB_TO_4K_PAGES, STATS_INDEX, VIRTIO_BALLOON_F_DEFLATE_ON_OOM,
     VIRTIO_BALLOON_F_FREE_PAGE_HINTING, VIRTIO_BALLOON_F_FREE_PAGE_REPORTING,
-    VIRTIO_BALLOON_F_STATS_VQ, VIRTIO_BALLOON_PFN_SHIFT, VIRTIO_BALLOON_S_AVAIL,
-    VIRTIO_BALLOON_S_CACHES, VIRTIO_BALLOON_S_HTLB_PGALLOC, VIRTIO_BALLOON_S_HTLB_PGFAIL,
-    VIRTIO_BALLOON_S_MAJFLT, VIRTIO_BALLOON_S_MEMFREE, VIRTIO_BALLOON_S_MEMTOT,
-    VIRTIO_BALLOON_S_MINFLT, VIRTIO_BALLOON_S_SWAP_IN, VIRTIO_BALLOON_S_SWAP_OUT,
+    VIRTIO_BALLOON_F_STATS_VQ, VIRTIO_BALLOON_PFN_SHIFT, VIRTIO_BALLOON_S_ALLOC_STALL,
+    VIRTIO_BALLOON_S_ASYNC_RECLAIM, VIRTIO_BALLOON_S_ASYNC_SCAN, VIRTIO_BALLOON_S_AVAIL,
+    VIRTIO_BALLOON_S_CACHES, VIRTIO_BALLOON_S_DIRECT_RECLAIM, VIRTIO_BALLOON_S_DIRECT_SCAN,
+    VIRTIO_BALLOON_S_HTLB_PGALLOC, VIRTIO_BALLOON_S_HTLB_PGFAIL, VIRTIO_BALLOON_S_MAJFLT,
+    VIRTIO_BALLOON_S_MEMFREE, VIRTIO_BALLOON_S_MEMTOT, VIRTIO_BALLOON_S_MINFLT,
+    VIRTIO_BALLOON_S_OOM_KILL, VIRTIO_BALLOON_S_SWAP_IN, VIRTIO_BALLOON_S_SWAP_OUT,
 };
 use crate::devices::virtio::balloon::BalloonError;
 use crate::devices::virtio::device::ActiveState;
@@ -184,6 +186,24 @@ pub struct BalloonStats {
     /// in the guest.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub hugetlb_failures: Option<u64>,
+    /// OOM killer invocations. since linux v6.12.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub oom_kill: Option<u64>,
+    /// Stall count of memory allocatoin. since linux v6.12.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub alloc_stall: Option<u64>,
+    /// Amount of memory scanned asynchronously. since linux v6.12.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub async_scan: Option<u64>,
+    /// Amount of memory scanned directly. since linux v6.12.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub direct_scan: Option<u64>,
+    /// Amount of memory reclaimed asynchronously. since linux v6.12.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub async_reclaim: Option<u64>,
+    /// Amount of memory reclaimed directly. since linux v6.12.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub direct_reclaim: Option<u64>,
 }
 
 impl BalloonStats {
@@ -200,6 +220,12 @@ impl BalloonStats {
             VIRTIO_BALLOON_S_CACHES => self.disk_caches = val,
             VIRTIO_BALLOON_S_HTLB_PGALLOC => self.hugetlb_allocations = val,
             VIRTIO_BALLOON_S_HTLB_PGFAIL => self.hugetlb_failures = val,
+            VIRTIO_BALLOON_S_OOM_KILL => self.oom_kill = val,
+            VIRTIO_BALLOON_S_ALLOC_STALL => self.alloc_stall = val,
+            VIRTIO_BALLOON_S_ASYNC_SCAN => self.async_scan = val,
+            VIRTIO_BALLOON_S_DIRECT_SCAN => self.direct_scan = val,
+            VIRTIO_BALLOON_S_ASYNC_RECLAIM => self.async_reclaim = val,
+            VIRTIO_BALLOON_S_DIRECT_RECLAIM => self.direct_reclaim = val,
             _ => {
                 return Err(BalloonError::MalformedPayload);
             }
@@ -1035,6 +1061,12 @@ pub(crate) mod tests {
             disk_caches: Some(0),
             hugetlb_allocations: Some(0),
             hugetlb_failures: Some(0),
+            oom_kill: None,
+            alloc_stall: None,
+            async_scan: None,
+            direct_scan: None,
+            async_reclaim: None,
+            direct_reclaim: None,
         };
 
         let mut stat = BalloonStat {
@@ -1071,6 +1103,24 @@ pub(crate) mod tests {
         stat.tag = VIRTIO_BALLOON_S_HTLB_PGFAIL;
         stats.update_with_stat(&stat).unwrap();
         assert_eq!(stats.hugetlb_failures, Some(1));
+        stat.tag = VIRTIO_BALLOON_S_OOM_KILL;
+        stats.update_with_stat(&stat).unwrap();
+        assert_eq!(stats.oom_kill, Some(1));
+        stat.tag = VIRTIO_BALLOON_S_ALLOC_STALL;
+        stats.update_with_stat(&stat).unwrap();
+        assert_eq!(stats.alloc_stall, Some(1));
+        stat.tag = VIRTIO_BALLOON_S_ASYNC_SCAN;
+        stats.update_with_stat(&stat).unwrap();
+        assert_eq!(stats.async_scan, Some(1));
+        stat.tag = VIRTIO_BALLOON_S_DIRECT_SCAN;
+        stats.update_with_stat(&stat).unwrap();
+        assert_eq!(stats.direct_scan, Some(1));
+        stat.tag = VIRTIO_BALLOON_S_ASYNC_RECLAIM;
+        stats.update_with_stat(&stat).unwrap();
+        assert_eq!(stats.async_reclaim, Some(1));
+        stat.tag = VIRTIO_BALLOON_S_DIRECT_RECLAIM;
+        stats.update_with_stat(&stat).unwrap();
+        assert_eq!(stats.direct_reclaim, Some(1));
     }
 
     #[test]
