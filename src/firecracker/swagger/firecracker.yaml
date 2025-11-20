@@ -1480,7 +1480,7 @@ definitions:
     description:
       The configuration of the serial device
     properties:
-      output_path:
+      serial_out_path:
         type: string
         description: Path to a file or named pipe on the host to which serial output should be written.
 
