@@ -22,7 +22,7 @@ serde_json = "1.0.145"
 thiserror = "2.0.17"
 
 vmm = { path = "../vmm" }
-vmm-sys-util = "0.14.0"
+vmm-sys-util = "0.15.0"
 
 [lints]
 workspace = true
