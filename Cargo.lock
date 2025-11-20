@@ -388,7 +388,7 @@ dependencies = [
  "serde_json",
  "thiserror 2.0.17",
  "vmm",
- "vmm-sys-util 0.15.0",
+ "vmm-sys-util",
 ]
 
 [[package]]
@@ -530,7 +530,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "13bdac971eb2efaceffca0976058ab80c715945cc565c8a4aa1ed3bb0dc8d0e4"
 dependencies = [
  "libc",
- "vmm-sys-util 0.15.0",
+ "vmm-sys-util",
 ]
 
 [[package]]
@@ -559,7 +559,7 @@ dependencies = [
  "userfaultfd",
  "utils",
  "vmm",
- "vmm-sys-util 0.15.0",
+ "vmm-sys-util",
 ]
 
 [[package]]
@@ -691,7 +691,7 @@ dependencies = [
  "regex",
  "thiserror 2.0.17",
  "utils",
- "vmm-sys-util 0.15.0",
+ "vmm-sys-util",
 ]
 
 [[package]]
@@ -745,7 +745,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4b3c06ff73c7ce03e780887ec2389d62d2a2a9ddf471ab05c2ff69207cd3f3b4"
 dependencies = [
  "serde",
- "vmm-sys-util 0.15.0",
+ "vmm-sys-util",
  "zerocopy",
 ]
 
@@ -758,7 +758,7 @@ dependencies = [
  "bitflags 2.10.0",
  "kvm-bindings",
  "libc",
- "vmm-sys-util 0.15.0",
+ "vmm-sys-util",
 ]
 
 [[package]]
@@ -861,10 +861,10 @@ dependencies = [
 [[package]]
 name = "micro_http"
 version = "0.1.0"
-source = "git+https://github.com/firecracker-microvm/micro-http#936b18fce64ad834b1ae68d72ce0477665fe66f3"
+source = "git+https://github.com/firecracker-microvm/micro-http#5c2254d6cf4f32a668d0d8e57ba20bebad9d4fba"
 dependencies = [
  "libc",
- "vmm-sys-util 0.14.0",
+ "vmm-sys-util",
 ]
 
 [[package]]
@@ -937,7 +937,7 @@ dependencies = [
  "serde",
  "serde_test",
  "thiserror 2.0.17",
- "vmm-sys-util 0.15.0",
+ "vmm-sys-util",
 ]
 
 [[package]]
@@ -1060,7 +1060,7 @@ dependencies = [
  "log-instrument",
  "thiserror 2.0.17",
  "utils",
- "vmm-sys-util 0.15.0",
+ "vmm-sys-util",
 ]
 
 [[package]]
@@ -1261,7 +1261,7 @@ dependencies = [
  "thiserror 2.0.17",
  "utils",
  "vmm",
- "vmm-sys-util 0.15.0",
+ "vmm-sys-util",
 ]
 
 [[package]]
@@ -1472,7 +1472,7 @@ dependencies = [
  "libc",
  "uuid",
  "vm-memory",
- "vmm-sys-util 0.15.0",
+ "vmm-sys-util",
 ]
 
 [[package]]
@@ -1559,18 +1559,8 @@ dependencies = [
  "vm-fdt",
  "vm-memory",
  "vm-superio",
- "vmm-sys-util 0.15.0",
+ "vmm-sys-util",
  "zerocopy",
-]
-
-[[package]]
-name = "vmm-sys-util"
-version = "0.14.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d21f366bf22bfba3e868349978766a965cbe628c323d58e026be80b8357ab789"
-dependencies = [
- "bitflags 1.3.2",
- "libc",
 ]
 
 [[package]]
