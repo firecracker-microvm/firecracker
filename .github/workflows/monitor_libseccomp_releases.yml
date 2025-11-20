@@ -1,0 +1,69 @@
+name: Monitor libseccomp Releases
+
+on:
+  schedule:
+    - cron: '0 0 * * *'  # Daily at midnight UTC
+  workflow_dispatch:  # Allow manual trigger
+
+permissions:
+  issues: write
+  contents: read
+
+jobs:
+  check-release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+          
+      - name: Get current libseccomp version from Dockerfile
+        id: current
+        run: |
+          CURRENT=$(grep 'LIBSECCOMP_VER' tools/devctr/Dockerfile | grep -oP "v[0-9.]+")
+          echo "version=$CURRENT" >> $GITHUB_OUTPUT
+          
+      - name: Check for new libseccomp release
+        id: latest
+        run: |
+          LATEST=$(curl -s https://api.github.com/repos/seccomp/libseccomp/releases/latest | jq -r '.tag_name')
+          echo "version=$LATEST" >> $GITHUB_OUTPUT
+
+      - name: Check latest version is newer
+        id: semver_check
+        run: |
+          CURRENT=$(echo ${{ steps.current.outputs.version }} | grep -oP "[0-9.]+")
+          LATEST=$(echo ${{ steps.latest.outputs.version }} | grep -oP "[0-9.]+") 
+          if ! printf '%s\n%s' "$LATEST" "$CURRENT" | sort -VC && [ "$CURRENT" != "$LATEST" ]; then
+            echo "is_newer=true" >> $GITHUB_OUTPUT;
+          else
+            echo "is_newer=false" >> $GITHUB_OUTPUT;
+          fi
+ 
+      - name: Check if issue exists
+        if: steps.semver_check.outputs.is_newer == 'true' # New release has higher semantic version
+        id: issue_check
+        run: |
+          ISSUES=$(curl -s -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+            "https://api.github.com/repos/${{ github.repository }}/issues?state=open&labels=dependencies" | \
+          jq -r --arg tag "${{ steps.latest.outputs.version }}" '[.[] | select(.title | contains("chore(deps): update libseccomp to \($tag)"))] | length')
+          echo "exists=$ISSUES" >> $GITHUB_OUTPUT
+
+      - name: Create issue for new release
+        id: create_issue
+        if: steps.semver_check.outputs.is_newer == 'true' && steps.issue_check.outputs.exists == '0' # No existing issue for new version
+        run: |
+          gh issue create \
+            --title "chore(deps): update libseccomp to ${{ steps.latest.outputs.version }}" \
+            --body "$(cat <<EOF
+          A new version of libseccomp has been released: **${{ steps.latest.outputs.version }}**
+
+          Current version in Dockerfile: **${{ steps.current.outputs.version }}**
+
+          Repository: https://github.com/seccomp/libseccomp/releases/tag/${{ steps.latest.outputs.version }}
+
+          Please review and consider updating Firecracker's dependency in \`tools/devctr/Dockerfile\`.
+          EOF
+          )" \
+            --label "dependencies"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
