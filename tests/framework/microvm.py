@@ -640,6 +640,7 @@ class Microvm:
         log_show_origin=False,
         metrics_path="fc.ndjson",
         emit_metrics: bool = False,
+        validate_api: bool = True,
     ):
         """Start a microVM as a daemon or in a screen session."""
         # pylint: disable=subprocess-run-check
@@ -647,6 +648,7 @@ class Microvm:
         self.jailer.setup()
         self.api = Api(
             self.jailer.api_socket_path(),
+            validate=validate_api,
             on_error=lambda verb, uri, err_msg: self._dump_debug_information(
                 f"Error during {verb} {uri}: {err_msg}"
             ),

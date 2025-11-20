@@ -9,6 +9,8 @@ from http import HTTPStatus
 import requests
 from requests_unixsocket import DEFAULT_SCHEME, UnixAdapter
 
+from framework.swagger_validator import SwaggerValidator, ValidationError
+
 
 class Session(requests.Session):
     """An HTTP over UNIX sockets Session
@@ -65,6 +67,21 @@ class Resource:
                 self._api.error_callback("GET", self.resource, str(e))
             raise
         assert res.status_code == HTTPStatus.OK, res.json()
+
+        # Validate response against Swagger specification
+        # only validate successful requests
+        if self._api.validator and res.status_code == HTTPStatus.OK:
+            try:
+                response_body = res.json()
+                self._api.validator.validate_response(
+                    "GET", self.resource, 200, response_body
+                )
+            except ValidationError as e:
+                # Re-raise with more context
+                raise ValidationError(
+                    f"Response validation failed for GET {self.resource}: {e.message}"
+                ) from e
+
         return res
 
     def request(self, method, path, **kwargs):
@@ -85,6 +102,32 @@ class Resource:
             elif "error" in json:
                 msg = json["error"]
             raise RuntimeError(msg, json, res)
+
+        # Validate request against Swagger specification
+        # do this after the actual request as we only want to validate successful
+        # requests as the tests may be trying to pass bad requests and assert an
+        # error is raised.
+        if self._api.validator:
+            if kwargs:
+                try:
+                    self._api.validator.validate_request(method, path, kwargs)
+                except ValidationError as e:
+                    # Re-raise with more context
+                    raise ValidationError(
+                        f"Request validation failed for {method} {path}: {e.message}"
+                    ) from e
+
+            if res.status_code == HTTPStatus.OK:
+                try:
+                    response_body = res.json()
+                    self._api.validator.validate_response(
+                        method, path, 200, response_body
+                    )
+                except ValidationError as e:
+                    # Re-raise with more context
+                    raise ValidationError(
+                        f"Response validation failed for {method} {path}: {e.message}"
+                    ) from e
         return res
 
     def put(self, **kwargs):
@@ -105,12 +148,15 @@ class Resource:
 class Api:
     """A simple HTTP client for the Firecracker API"""
 
-    def __init__(self, api_usocket_full_name, *, on_error=None):
+    def __init__(self, api_usocket_full_name, *, validate=True, on_error=None):
         self.error_callback = on_error
         self.socket = api_usocket_full_name
         url_encoded_path = urllib.parse.quote_plus(api_usocket_full_name)
         self.endpoint = DEFAULT_SCHEME + url_encoded_path
         self.session = Session()
+
+        # Initialize the swagger validator
+        self.validator = SwaggerValidator() if validate else None
 
         self.describe = Resource(self, "/")
         self.vm = Resource(self, "/vm")
