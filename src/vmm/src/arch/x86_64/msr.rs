@@ -419,6 +419,15 @@ pub fn create_boot_msr_entries() -> Vec<kvm_msr_entry> {
             data: u64::from(MSR_IA32_MISC_ENABLE_FAST_STRING),
             ..Default::default()
         },
+        // set default memory type for physical memory outside configured
+        // memory ranges to write-back by setting MTRR enable bit (11) and
+        // setting memory type to write-back (value 6).
+        // https://wiki.osdev.org/MTRR
+        kvm_msr_entry {
+            index: MSR_MTRRdefType,
+            data: (1 << 11) | 0x6,
+            ..Default::default()
+        },
     ]
 }
 
