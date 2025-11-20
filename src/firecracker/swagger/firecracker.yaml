@@ -1075,6 +1075,8 @@ definitions:
         $ref: "#/definitions/MachineConfiguration"
       metrics:
         $ref: "#/definitions/Metrics"
+      memory-hotplug:
+        $ref: "#/definitions/MemoryHotplugConfig"
       mmds-config:
         $ref: "#/definitions/MmdsConfig"
       network-interfaces:
@@ -1082,6 +1084,11 @@ definitions:
         description: Configurations for all net devices.
         items:
           $ref: "#/definitions/NetworkInterface"
+      pmem:
+        type: array
+        description: Configurations for all pmem devices.
+        items:
+          $ref: "#/definitions/Pmem"
       vsock:
         $ref: "#/definitions/Vsock"
       entropy:
