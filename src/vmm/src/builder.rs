@@ -26,7 +26,7 @@ use crate::cpu_config::templates::{GetCpuTemplate, GetCpuTemplateError, GuestCon
 use crate::device_manager;
 use crate::device_manager::pci_mngr::PciManagerError;
 use crate::device_manager::{
-    AttachDeviceError, DeviceManager, DeviceManagerCreateError, DevicePersistError,
+    AttachDeviceError, DeviceManager, DeviceManagerCreateError, DeviceManagerPersistError,
     DeviceRestoreArgs,
 };
 use crate::devices::virtio::balloon::Balloon;
@@ -422,7 +422,7 @@ pub enum BuildMicrovmFromSnapshotError {
     /// Failed to apply VMM secccomp filter: {0}
     SeccompFiltersInternal(#[from] crate::seccomp::InstallationError),
     /// Failed to restore devices: {0}
-    RestoreDevices(#[from] DevicePersistError),
+    RestoreDevices(#[from] DeviceManagerPersistError),
 }
 
 /// Builds and starts a microVM based on the provided MicrovmState.

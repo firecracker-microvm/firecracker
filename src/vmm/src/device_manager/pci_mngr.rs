@@ -11,6 +11,7 @@ use log::{debug, error, warn};
 use serde::{Deserialize, Serialize};
 
 use super::persist::MmdsState;
+use crate::device_manager::DevicePersistError;
 use crate::devices::pci::PciSegment;
 use crate::devices::virtio::balloon::Balloon;
 use crate::devices::virtio::balloon::persist::{BalloonConstructorArgs, BalloonState};
@@ -37,7 +38,6 @@ use crate::pci::bus::PciRootError;
 use crate::resources::VmResources;
 use crate::snapshot::Persist;
 use crate::vmm_config::memory_hotplug::MemoryHotplugConfig;
-use crate::vmm_config::mmds::MmdsConfigError;
 use crate::vstate::bus::BusError;
 use crate::vstate::interrupts::InterruptError;
 use crate::vstate::memory::GuestMemoryMmap;
@@ -65,8 +65,6 @@ pub enum PciManagerError {
     VirtioPciDevice(#[from] VirtioPciDeviceError),
     /// KVM error: {0}
     Kvm(#[from] vmm_sys_util::errno::Error),
-    /// MMDS error: {0}
-    Mmds(#[from] MmdsConfigError),
 }
 
 impl PciDevices {
@@ -271,7 +269,7 @@ impl<'a> Debug for PciDevicesConstructorArgs<'a> {
 impl<'a> Persist<'a> for PciDevices {
     type State = PciDevicesState;
     type ConstructorArgs = PciDevicesConstructorArgs<'a>;
-    type Error = PciManagerError;
+    type Error = DevicePersistError;
 
     fn save(&self) -> Self::State {
         let mut state = PciDevicesState::default();
@@ -440,61 +438,52 @@ impl<'a> Persist<'a> for PciDevices {
         pci_devices.attach_pci_segment(constructor_args.vm)?;
 
         if let Some(balloon_state) = &state.balloon_device {
-            let device = Arc::new(Mutex::new(
-                Balloon::restore(
-                    BalloonConstructorArgs { mem: mem.clone() },
-                    &balloon_state.device_state,
-                )
-                .unwrap(),
-            ));
+            let device = Arc::new(Mutex::new(Balloon::restore(
+                BalloonConstructorArgs { mem: mem.clone() },
+                &balloon_state.device_state,
+            )?));
 
             constructor_args
                 .vm_resources
                 .balloon
                 .set_device(device.clone());
 
-            pci_devices
-                .restore_pci_device(
-                    constructor_args.vm,
-                    device,
-                    &balloon_state.device_id,
-                    &balloon_state.transport_state,
-                    constructor_args.event_manager,
-                )
-                .unwrap()
+            pci_devices.restore_pci_device(
+                constructor_args.vm,
+                device,
+                &balloon_state.device_id,
+                &balloon_state.transport_state,
+                constructor_args.event_manager,
+            )?
         }
 
         for block_state in &state.block_devices {
-            let device = Arc::new(Mutex::new(
-                Block::restore(
-                    BlockConstructorArgs { mem: mem.clone() },
-                    &block_state.device_state,
-                )
-                .unwrap(),
-            ));
+            let device = Arc::new(Mutex::new(Block::restore(
+                BlockConstructorArgs { mem: mem.clone() },
+                &block_state.device_state,
+            )?));
 
             constructor_args
                 .vm_resources
                 .block
                 .add_virtio_device(device.clone());
 
-            pci_devices
-                .restore_pci_device(
-                    constructor_args.vm,
-                    device,
-                    &block_state.device_id,
-                    &block_state.transport_state,
-                    constructor_args.event_manager,
-                )
-                .unwrap()
+            pci_devices.restore_pci_device(
+                constructor_args.vm,
+                device,
+                &block_state.device_id,
+                &block_state.transport_state,
+                constructor_args.event_manager,
+            )?
         }
 
         // Initialize MMDS if MMDS state is included.
         if let Some(mmds) = &state.mmds {
-            constructor_args
-                .vm_resources
-                .set_mmds_basic_config(mmds.version, mmds.imds_compat, constructor_args.instance_id)
-                .unwrap();
+            constructor_args.vm_resources.set_mmds_basic_config(
+                mmds.version,
+                mmds.imds_compat,
+                constructor_args.instance_id,
+            )?;
         } else if state
             .net_devices
             .iter()
@@ -507,125 +496,108 @@ impl<'a> Persist<'a> for PciDevices {
         }
 
         for net_state in &state.net_devices {
-            let device = Arc::new(Mutex::new(
-                Net::restore(
-                    NetConstructorArgs {
-                        mem: mem.clone(),
-                        mmds: constructor_args
-                            .vm_resources
-                            .mmds
-                            .as_ref()
-                            // Clone the Arc reference.
-                            .cloned(),
-                    },
-                    &net_state.device_state,
-                )
-                .unwrap(),
-            ));
+            let device = Arc::new(Mutex::new(Net::restore(
+                NetConstructorArgs {
+                    mem: mem.clone(),
+                    mmds: constructor_args
+                        .vm_resources
+                        .mmds
+                        .as_ref()
+                        // Clone the Arc reference.
+                        .cloned(),
+                },
+                &net_state.device_state,
+            )?));
 
             constructor_args
                 .vm_resources
                 .net_builder
                 .add_device(device.clone());
 
-            pci_devices
-                .restore_pci_device(
-                    constructor_args.vm,
-                    device,
-                    &net_state.device_id,
-                    &net_state.transport_state,
-                    constructor_args.event_manager,
-                )
-                .unwrap()
+            pci_devices.restore_pci_device(
+                constructor_args.vm,
+                device,
+                &net_state.device_id,
+                &net_state.transport_state,
+                constructor_args.event_manager,
+            )?
         }
 
         if let Some(vsock_state) = &state.vsock_device {
             let ctor_args = VsockUdsConstructorArgs {
                 cid: vsock_state.device_state.frontend.cid,
             };
-            let backend =
-                VsockUnixBackend::restore(ctor_args, &vsock_state.device_state.backend).unwrap();
-            let device = Arc::new(Mutex::new(
-                Vsock::restore(
-                    VsockConstructorArgs {
-                        mem: mem.clone(),
-                        backend,
-                    },
-                    &vsock_state.device_state.frontend,
-                )
-                .unwrap(),
-            ));
+            let backend = VsockUnixBackend::restore(ctor_args, &vsock_state.device_state.backend)?;
+            let device = Arc::new(Mutex::new(Vsock::restore(
+                VsockConstructorArgs {
+                    mem: mem.clone(),
+                    backend,
+                },
+                &vsock_state.device_state.frontend,
+            )?));
 
             constructor_args
                 .vm_resources
                 .vsock
                 .set_device(device.clone());
 
-            pci_devices
-                .restore_pci_device(
-                    constructor_args.vm,
-                    device,
-                    &vsock_state.device_id,
-                    &vsock_state.transport_state,
-                    constructor_args.event_manager,
-                )
-                .unwrap()
+            pci_devices.restore_pci_device(
+                constructor_args.vm,
+                device,
+                &vsock_state.device_id,
+                &vsock_state.transport_state,
+                constructor_args.event_manager,
+            )?
         }
 
         if let Some(entropy_state) = &state.entropy_device {
             let ctor_args = EntropyConstructorArgs { mem: mem.clone() };
 
-            let device = Arc::new(Mutex::new(
-                Entropy::restore(ctor_args, &entropy_state.device_state).unwrap(),
-            ));
+            let device = Arc::new(Mutex::new(Entropy::restore(
+                ctor_args,
+                &entropy_state.device_state,
+            )?));
 
             constructor_args
                 .vm_resources
                 .entropy
                 .set_device(device.clone());
 
-            pci_devices
-                .restore_pci_device(
-                    constructor_args.vm,
-                    device,
-                    &entropy_state.device_id,
-                    &entropy_state.transport_state,
-                    constructor_args.event_manager,
-                )
-                .unwrap()
+            pci_devices.restore_pci_device(
+                constructor_args.vm,
+                device,
+                &entropy_state.device_id,
+                &entropy_state.transport_state,
+                constructor_args.event_manager,
+            )?
         }
 
         for pmem_state in &state.pmem_devices {
-            let device = Arc::new(Mutex::new(
-                Pmem::restore(
-                    PmemConstructorArgs {
-                        mem,
-                        vm: constructor_args.vm.as_ref(),
-                    },
-                    &pmem_state.device_state,
-                )
-                .unwrap(),
-            ));
+            let device = Arc::new(Mutex::new(Pmem::restore(
+                PmemConstructorArgs {
+                    mem,
+                    vm: constructor_args.vm.as_ref(),
+                },
+                &pmem_state.device_state,
+            )?));
 
             constructor_args
                 .vm_resources
                 .pmem
                 .add_device(device.clone());
 
-            pci_devices
-                .restore_pci_device(
-                    constructor_args.vm,
-                    device,
-                    &pmem_state.device_id,
-                    &pmem_state.transport_state,
-                    constructor_args.event_manager,
-                )
-                .unwrap()
+            pci_devices.restore_pci_device(
+                constructor_args.vm,
+                device,
+                &pmem_state.device_id,
+                &pmem_state.transport_state,
+                constructor_args.event_manager,
+            )?
         }
 
         if let Some(memory_device) = &state.memory_device {
             let ctor_args = VirtioMemConstructorArgs::new(Arc::clone(constructor_args.vm));
-            let device = VirtioMem::restore(ctor_args, &memory_device.device_state).unwrap();
+            let device = VirtioMem::restore(ctor_args, &memory_device.device_state)?;
 
             constructor_args.vm_resources.memory_hotplug = Some(MemoryHotplugConfig {
                 total_size_mib: device.total_size_mib(),
@@ -634,15 +606,13 @@ impl<'a> Persist<'a> for PciDevices {
             });
 
             let arcd_device = Arc::new(Mutex::new(device));
-            pci_devices
-                .restore_pci_device(
-                    constructor_args.vm,
-                    arcd_device,
-                    &memory_device.device_id,
-                    &memory_device.transport_state,
-                    constructor_args.event_manager,
-                )
-                .unwrap()
+            pci_devices.restore_pci_device(
+                constructor_args.vm,
+                arcd_device,
+                &memory_device.device_id,
+                &memory_device.transport_state,
+                constructor_args.event_manager,
+            )?
         }
 
         Ok(pci_devices)
