@@ -288,6 +288,8 @@ class Microvm:
 
         self.help = MicrovmHelpers(self)
 
+        self.gdb_socket = None
+
     def __repr__(self):
         return f"<Microvm id={self.id}>"
 
@@ -1205,6 +1207,11 @@ class Microvm:
         # Ensure that we have an initialized SSH connection to the guest that can
         # run commands. The actual connection retry loop happens in SSHConnection._init_connection
         _ = self.ssh_iface(0)
+
+    def enable_gdb(self):
+        """Enables GDB debugging"""
+        self.gdb_socket = "gdb.socket"
+        self.api.machine_config.patch(gdb_socket_path=self.gdb_socket)
 
     def hotplug_memory(
         self, requested_size_mib: int, timeout: int = 60, poll: float = 0.1
