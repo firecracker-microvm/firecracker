@@ -40,6 +40,17 @@ The device can be configured with the following options:
   the virtio balloon statistics and otherwise represents the interval of time in
   seconds at which the balloon statistics are updated.
 
+The device has two optional features which can be enabled with the following
+options:
+
+- `free_page_reporting`: A mechanism for the guest to continually report ranges
+  of memory which the guest is not using and can be reclaimed.
+  [Read more here](#virtio-balloon-free-page-reporting)
+- [(Developer Preview)](../docs/RELEASE_POLICY.md#developer-preview-features)
+  `free_page_hinting`: A mechanism to reclaim memory from the guest, this is
+  instead triggered from the host.
+  [Read more here](#virtio-balloon-free-page-hinting)
+
 ## Security disclaimer
 
 **The balloon device is a paravirtualized virtio device that requires
@@ -162,7 +173,7 @@ curl --unix-socket $socket_location -i \
 On success, this request returns a JSON object of the same structure as the one
 used to configure the device (via a PUT request on "/balloon").
 
-## Operating the balloon device
+## Operating the traditional balloon device
 
 After it has been installed, the balloon device can only be operated via the API
 through the following command:
@@ -238,9 +249,9 @@ device has support for the following statistics:
 - `VIRTIO_BALLOON_S_HTLB_PGFAIL`: The number of failed hugetlb page allocations
   in the guest.
 
-The driver is querried for updated statistics every time the amount of time
+The driver is queried for updated statistics every time the amount of time
 specified in that field passes. The driver may not provide all the statistics
-when querried, in which case the old values of the missing statistics are
+when queried, in which case the old values of the missing statistics are
 preserved.
 
 To change the statistics polling interval, users can sent a PATCH request on
@@ -264,19 +275,61 @@ Furthermore, if the balloon was configured with statistics pre-boot through a
 non-zero `stats_polling_interval_s` value, the statistics cannot be disabled
 through a `polling_interval` value of zero post-boot.
 
+## Virtio balloon free page reporting
+
+Free page reporting is a virtio balloon feature which allows the guest OS to
+report ranges of memory which are not being used. In Firecracker, the balloon
+device will `madvise` the range with the `MADV_DONTNEED` flag, reducing the RSS
+of the guest. Reporting can only be enabled pre-boot and will run continually
+with no option to stop it running. The feature also requires the guest to have
+the Linux kernel config option `PAGE_REPORTING` enabled.
+
+To enable free page reporting when creating the balloon device, the
+`free_page_reporting` attribute should be set in the JSON object.
+
+An example of how to configure the device to enable free page reporting:
+
+```console
+socket_location=...
+amount_mib=...
+deflate_on_oom=...
+polling_interval=...
+
+curl --unix-socket $socket_location -i \
+    -X PUT 'http://localhost/balloon' \
+    -H 'Accept: application/json' \
+    -H 'Content-Type: application/json' \
+    -d "{
+        \"amount_mib\": $amount_mib, \
+        \"deflate_on_oom\": $deflate_on_oom, \
+        \"stats_polling_interval_s\": $polling_interval, \
+        \"free_page_reporting\": true \
+    }"
+```
+
+The Linux driver uses a hook in the free page path to trigger the reporting
+process, which will begin after a short delay (~2 seconds) and report the
+ranges. The runtime impact of this feature is heavily workload dependent. The
+driver gets ranges from the buddy allocator with a minimum page order. This page
+order dictates the minimum size of ranges reported and can be configured with
+the `page_reporting_order` module parameter in the guest kernel. The page order
+comes with trade-offs between performance and memory reclaimed; a good target to
+maximise memory reclaim is to have the reported ranges match the backing page
+size.
+
 ## Balloon Caveats
 
 - Firecracker has no control over the speed of inflation or deflation; this is
   dictated by the guest kernel driver.
 
-- The balloon will continually attempt to reach its target size, which can be a
-  CPU-intensive process. It is therefore recommended to set realistic targets
-  or, after a period of stagnation in the inflation, update the target size to
-  be close to the inflated size.
+- The traditional balloon will continually attempt to reach its target size,
+  which can be a CPU-intensive process. It is therefore recommended to set
+  realistic targets or, after a period of stagnation in the inflation, update
+  the target size to be close to the inflated size.
 
 - The `deflate_on_oom` flag is a mechanism to prevent the guest from crashing or
   terminating processes; it is not meant to be used continually to free memory.
-  Doing this will be a CPU-intensive process, as the balloon driver is designed
-  to deflate and release memory slowly. This is also compounded if the balloon
-  has yet to reach its target size, as it will attempt to inflate while also
-  deflating.
+  Doing this will be a CPU-intensive process, as the traditional balloon driver
+  is designed to deflate and release memory slowly. This is also compounded if
+  the balloon has yet to reach its target size, as it will attempt to inflate
+  while also deflating.
