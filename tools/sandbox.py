@@ -13,6 +13,7 @@ import json
 import re
 from pathlib import Path
 
+import host_tools.cargo_build as build_tools
 from framework.artifacts import disks, kernels
 from framework.defs import DEFAULT_BINARY_DIR
 from framework.microvm import MicroVMFactory
@@ -58,12 +59,23 @@ parser.add_argument(
 parser.add_argument("--rootfs-size", type=parse_byte_size, default=1 * 2**30)  # 1GB
 parser.add_argument("--binary-dir", help="Path to the firecracker binaries")
 parser.add_argument("--cpu-template-path", help="CPU template to use", type=Path)
+parser.add_argument(
+    "--debug", action="store_true", default=False, help="Use debug kernel"
+)
+parser.add_argument(
+    "--gdb", action="store_true", default=False, help="Connect to Firecracker guest GDB"
+)
 args = parser.parse_args()
 print(args)
 
 binary_dir = None
 if args.binary_dir:
     binary_dir = Path(args.binary_dir).resolve()
+elif args.gdb:
+    # Build Firecracker with GDB feature if needed
+    print("Building Firecracker with GDB feature...")
+    binary_dir = build_tools.build_gdb()
+    print("Build complete!")
 else:
     binary_dir = DEFAULT_BINARY_DIR
 
@@ -72,28 +84,26 @@ if args.cpu_template_path is not None:
     cpu_template = json.loads(args.cpu_template_path.read_text())
 vmfcty = MicroVMFactory(binary_dir)
 
-print(f"uvm with kernel {args.kernel} ...")
-uvm = vmfcty.build(args.kernel, args.rootfs)
+if args.debug or args.gdb:
+    kernel = args.kernel.parent / "debug" / args.kernel.name
+else:
+    kernel = args.kernel
+
+print(f"uvm with kernel {kernel} ...")
+uvm = vmfcty.build(kernel, args.rootfs)
 uvm.help.enable_console()
 uvm.help.resize_disk(uvm.rootfs_file, args.rootfs_size)
-uvm.spawn(log_show_level=True)
+uvm.spawn(log_show_level=True, validate_api=False)
 uvm.help.print_log()
 uvm.add_net_iface()
 uvm.basic_config(vcpu_count=args.vcpus, mem_size_mib=args.guest_mem_size // 2**20)
 if cpu_template is not None:
     uvm.api.cpu_config.put(**cpu_template)
     print(cpu_template)
+
+if args.gdb:
+    uvm.enable_gdb()
+    uvm.help.tmux_gdb()
+
 uvm.start()
 uvm.get_all_metrics()
-
-kernel_dbg_dir = args.kernel.parent / "debug"
-kernel_dbg = kernel_dbg_dir / args.kernel.name
-print(f"uvm2 with kernel {kernel_dbg} ...")
-uvm2 = vmfcty.build(kernel_dbg, args.rootfs)
-uvm2.spawn()
-uvm2.add_net_iface()
-uvm2.basic_config(vcpu_count=args.vcpus, mem_size_mib=args.guest_mem_size // 2**20)
-uvm2.start()
-# trace-cmd needs this (DNS resolution?)
-uvm2.help.enable_ip_forwarding()
-files = uvm2.help.trace_cmd_guest(["-l", "read_msr"], cmd="sleep 5")
