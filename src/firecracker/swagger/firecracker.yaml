@@ -955,21 +955,119 @@ definitions:
       The CPU configuration template defines a set of bit maps as modifiers of flags accessed by register
       to be disabled/enabled for the microvm.
     properties:
-      cpuid_modifiers:
-        type: object
-        description: A collection of CPUIDs to be modified. (x86_64)
-      msr_modifiers:
-        type: object
-        description: A collection of model specific registers to be modified. (x86_64)
-      reg_modifiers:
-        type: object
-        description: A collection of registers to be modified. (aarch64)
-      vcpu_features:
-        type: object
-        description: A collection of vcpu features to be modified. (aarch64)
       kvm_capabilities:
-        type: object
-        description: A collection of kvm capabilities to be modified. (aarch64)
+        type: array
+        description: A collection of KVM capabilities to be added or removed (both x86_64 and aarch64)
+        items:
+          type: string
+          description: KVM capability as a numeric string. Prefix with '!' to remove capability. Example "121" (add) or "!121" (remove)
+      cpuid_modifiers:
+        type: array
+        description: A collection of CPUID leaf modifiers (x86_64 only)
+        items:
+          $ref: "#/definitions/CpuidLeafModifier"
+      msr_modifiers:
+        type: array
+        description: A collection of model specific register modifiers (x86_64 only)
+        items:
+          $ref: "#/definitions/MsrModifier"
+      reg_modifiers:
+        type: array
+        description: A collection of register modifiers (aarch64 only)
+        items:
+          $ref: "#/definitions/ArmRegisterModifier"
+      vcpu_features:
+        type: array
+        description: A collection of vCPU features to be modified (aarch64 only)
+        items:
+          $ref: "#/definitions/VcpuFeatures"
+
+  CpuidLeafModifier:
+    type: object
+    description: Modifier for a CPUID leaf and subleaf (x86_64)
+    required:
+      - leaf
+      - subleaf
+      - flags
+      - modifiers
+    properties:
+      leaf:
+        type: string
+        description: CPUID leaf index as hex, binary, or decimal string (e.g., "0x0", "0b0", "0"))
+      subleaf:
+        type: string
+        description: CPUID subleaf index as hex, binary, or decimal string (e.g., "0x0", "0b0", "0")
+      flags:
+        type: integer
+        format: int32
+        description: KVM feature flags for this leaf-subleaf
+      modifiers:
+        type: array
+        description: Register modifiers for this CPUID leaf
+        items:
+          $ref: "#/definitions/CpuidRegisterModifier"
+
+  CpuidRegisterModifier:
+    type: object
+    description: Modifier for a specific CPUID register within a leaf (x86_64)
+    required:
+      - register
+      - bitmap
+    properties:
+      register:
+        type: string
+        description: Target CPUID register name
+        enum:
+          - eax
+          - ebx
+          - ecx
+          - edx
+      bitmap:
+        type: string
+        description: 32-bit bitmap string defining which bits to modify. Format is "0b" followed by 32 characters where '0' = clear bit, '1' = set bit, 'x' = don't modify. Example "0b00000000000000000000000000000001" or "0bxxxxxxxxxxxxxxxxxxxxxxxxxxxx0001"
+
+  MsrModifier:
+    type: object
+    description: Modifier for a model specific register (x86_64)
+    required:
+      - addr
+      - bitmap
+    properties:
+      addr:
+        type: string
+        description: 32-bit MSR address as hex, binary, or decimal string (e.g., "0x10a", "0b100001010", "266")
+      bitmap:
+        type: string
+        description: 64-bit bitmap string defining which bits to modify. Format is "0b" followed by 64 characters where '0' = clear bit, '1' = set bit, 'x' = don't modify. Underscores can be used for readability. Example "0b0000000000000000000000000000000000000000000000000000000000000001"
+
+  ArmRegisterModifier:
+    type: object
+    description: Modifier for an ARM register (aarch64)
+    required:
+      - addr
+      - bitmap
+    properties:
+      addr:
+        type: string
+        description: 64-bit register address as hex, binary, or decimal string (e.g., "0x0", "0b0", "0")
+      bitmap:
+        type: string
+        description: 128-bit bitmap string defining which bits to modify. Format is "0b" followed by up to 128 characters where '0' = clear bit, '1' = set bit, 'x' = don't modify. Underscores can be used for readability. Example "0b0000000000000000000000000000000000000000000000000000000000000001"
+
+  VcpuFeatures:
+    type: object
+    description: vCPU feature modifier (aarch64)
+    required:
+      - index
+      - bitmap
+    properties:
+      index:
+        type: integer
+        format: int32
+        description: Index in the kvm_vcpu_init.features array
+      bitmap:
+        type: string
+        description: 32-bit bitmap string defining which bits to modify. Format is "0b" followed by 32 characters where '0' = clear bit, '1' = set bit, 'x' = don't modify. Example "0b00000000000000000000000001100000"
 
   Drive:
     type: object
