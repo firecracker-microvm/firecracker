@@ -205,6 +205,8 @@ MSR_EXCEPTION_LIST = [
     # features are temporarily disabled. Guest OS disables TILEDATA by default
     # using the MSR.
     0x1C4,
+    # IA32_PAT_MSR is R/W MSR for guest OS to control memory page attributes.
+    0x277,
     # MSR_IA32_TSC_DEADLINE specifies the time at which a timer interrupt
     # should occur and depends on the elapsed time.
     0x6E0,
