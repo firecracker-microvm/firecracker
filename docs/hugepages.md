@@ -33,15 +33,15 @@ described in our documentation on
 
 ## Known Limitations
 
-Currently, hugetlbfs support is mutually exclusive with the following
-Firecracker features:
+Enabling dirty page tracking for hugepage memory negates the performance
+benefits of using huge pages. This is because KVM will unconditionally establish
+guest page tables at 4K granularity if dirty page tracking is enabled, even if
+the host uses huge mappings.
 
-- Memory Ballooning via the [Balloon Device](./ballooning.md)
-
-Furthermore, enabling dirty page tracking for hugepage memory negates the
-performance benefits of using huge pages. This is because KVM will
-unconditionally establish guest page tables at 4K granularity if dirty page
-tracking is enabled, even if the host users huge mappings.
+The traditional balloon device reports free pages at 4k granularity, this means
+the device is unable to reclaim the hugepage backing of the guest and drop RSS.
+However, the balloon can still be inflated and used to restrict memory usage in
+the guest.
 
 ## FAQ
 
