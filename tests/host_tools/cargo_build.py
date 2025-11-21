@@ -7,7 +7,7 @@ import platform
 from pathlib import Path
 
 from framework import defs, utils
-from framework.defs import DEFAULT_BINARY_DIR
+from framework.defs import DEFAULT_BINARY_DIR, LOCAL_BUILD_PATH
 from framework.with_filelock import with_filelock
 
 DEFAULT_TARGET = f"{platform.machine()}-unknown-linux-musl"
@@ -121,3 +121,15 @@ def gcc_compile(src_file, output_file, extra_flags="-static -O3"):
     if not output_file.exists():
         compile_cmd = f"gcc {src_file} -o {output_file} {extra_flags}"
         utils.check_output(compile_cmd)
+
+
+def build_gdb():
+    """Builds Firecracker with GDB feature enabled. Returns the binary dir"""
+    build_path = LOCAL_BUILD_PATH / "gdb"
+    cargo(
+        "build",
+        f"--features gdb --target {DEFAULT_TARGET} --all",
+        env={"CARGO_TARGET_DIR": build_path},
+    )
+
+    return build_path / DEFAULT_TARGET / "debug"

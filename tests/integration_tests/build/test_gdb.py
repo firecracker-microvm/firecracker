@@ -2,15 +2,10 @@
 # SPDX-License-Identifier: Apache-2.0
 """A test that ensures that firecracker builds with GDB feature enabled at integration time."""
 
-import platform
-
-import host_tools.cargo_build as host
-
-MACHINE = platform.machine()
-TARGET = "{}-unknown-linux-musl".format(MACHINE)
+import host_tools.cargo_build
 
 
 def test_gdb_compiles():
     """Checks that Firecracker compiles with GDB enabled"""
 
-    host.cargo("build", f"--features gdb --target {TARGET}")
+    host_tools.cargo_build.build_gdb()
