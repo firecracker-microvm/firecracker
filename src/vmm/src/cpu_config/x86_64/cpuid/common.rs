@@ -2,6 +2,13 @@
 // SPDX-License-Identifier: Apache-2.0
 #![allow(clippy::restriction)]
 
+use crate::arch::x86_64::generated::msr_index::{
+    MSR_IA32_BNDCFGS, MSR_IA32_CR_PAT, MSR_MTRRdefType, MSR_MTRRfix4K_C0000, MSR_MTRRfix4K_C8000,
+    MSR_MTRRfix4K_D0000, MSR_MTRRfix4K_D8000, MSR_MTRRfix4K_E0000, MSR_MTRRfix4K_E8000,
+    MSR_MTRRfix4K_F0000, MSR_MTRRfix4K_F8000, MSR_MTRRfix16K_80000, MSR_MTRRfix16K_A0000,
+    MSR_MTRRfix64K_00000,
+};
+
 /// Error type for [`get_cpuid`].
 #[derive(Debug, thiserror::Error, displaydoc::Display, PartialEq, Eq)]
 pub enum GetCpuidError {
@@ -93,13 +100,7 @@ pub(crate) fn msrs_to_save_by_cpuid(cpuid: &kvm_bindings::CpuId) -> Vec<u32> {
     }
 
     // TODO: Add more dependencies.
-    cpuid_msr_dep!(
-        0x7,
-        0,
-        ebx,
-        MPX_BITINDEX,
-        [crate::arch::x86_64::generated::msr_index::MSR_IA32_BNDCFGS]
-    );
+    cpuid_msr_dep!(0x7, 0, ebx, MPX_BITINDEX, [MSR_IA32_BNDCFGS]);
 
     // IA32_MTRR_PHYSBASEn, IA32_MTRR_PHYSMASKn
     cpuid_msr_dep!(0x1, 0, edx, MTRR_BITINDEX, 0x200..0x210);
@@ -111,19 +112,19 @@ pub(crate) fn msrs_to_save_by_cpuid(cpuid: &kvm_bindings::CpuId) -> Vec<u32> {
         edx,
         MTRR_BITINDEX,
         [
-            0x250, // IA32_MTRR_FIX64K_00000
-            0x258, // IA32_MTRR_FIX16K_80000
-            0x259, // IA32_MTRR_FIX16K_A0000
-            0x268, // IA32_MTRR_FIX4K_C0000
-            0x269, // IA32_MTRR_FIX4K_C8000
-            0x26a, // IA32_MTRR_FIX4K_D0000
-            0x26b, // IA32_MTRR_FIX4K_D8000
-            0x26c, // IA32_MTRR_FIX4K_E0000
-            0x26d, // IA32_MTRR_FIX4K_E8000
-            0x26e, // IA32_MTRR_FIX4K_F0000
-            0x26f, // IA32_MTRR_FIX4K_F8000
-            0x277, // IA32_PAT
-            0x2ff  // IA32_MTRR_DEF_TYPE
+            MSR_MTRRfix64K_00000,
+            MSR_MTRRfix16K_80000,
+            MSR_MTRRfix16K_A0000,
+            MSR_MTRRfix4K_C0000,
+            MSR_MTRRfix4K_C8000,
+            MSR_MTRRfix4K_D0000,
+            MSR_MTRRfix4K_D8000,
+            MSR_MTRRfix4K_E0000,
+            MSR_MTRRfix4K_E8000,
+            MSR_MTRRfix4K_F0000,
+            MSR_MTRRfix4K_F8000,
+            MSR_IA32_CR_PAT,
+            MSR_MTRRdefType,
         ]
     );
 
