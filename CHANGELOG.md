@@ -19,6 +19,9 @@ and this project adheres to
 - [#4028](https://github.com/firecracker-microvm/firecracker/pull/4028):
   Firecracker now creates the log and metrics files if they do not exist,
   simplifying the launch of Firecracker by removing a manual step.
+- [#5526](https://github.com/firecracker-microvm/firecracker/pull/5526): Specify
+  IA32_MTRRdefType MSR on VM boot to allow it to set page attributes for memory
+  regions.
 
 ### Deprecated
 
