@@ -317,6 +317,125 @@ comes with trade-offs between performance and memory reclaimed; a good target to
 maximise memory reclaim is to have the reported ranges match the backing page
 size.
 
+## Virtio balloon free page hinting
+
+Free page hinting is a
+[developer-preview](../docs/RELEASE_POLICY.md#developer-preview-features)
+feature, which allows the guest driver to report ranges of memory which are not
+being used. In Firecracker, the balloon device will `madvise` the range with the
+`MADV_DONTNEED` flag, reducing the RSS of the guest. Free page hinting differs
+from reporting as this is instead initiated from the host side, giving more
+flexibility on when to reclaim memory.
+
+To enable free page hinting when creating the balloon device, the
+`free_page_hinting` attribute should be set in the JSON object.
+
+An example of how to configure the device to enable free page hinting:
+
+```console
+socket_location=...
+amount_mib=...
+deflate_on_oom=...
+polling_interval=...
+
+curl --unix-socket $socket_location -i \
+    -X PUT 'http://localhost/balloon' \
+    -H 'Accept: application/json' \
+    -H 'Content-Type: application/json' \
+    -d "{
+        \"amount_mib\": $amount_mib, \
+        \"deflate_on_oom\": $deflate_on_oom, \
+        \"stats_polling_interval_s\": $polling_interval, \
+        \"free_page_hinting\": true \
+    }"
+```
+
+Free page hinting is initiated and managed by Firecracker, the core mechanism to
+control the run is with the `cmd_id`. When Firecracker sets the `cmd_id` to a
+new number, the driver will acknowledge this and start reporting ranges, which
+Firecracker will free. Once the device has reported all the ranges it can find,
+it will update the `cmd_id` to reflect this. The device will then hold these
+ranges until Firecracker sends the stop command which allows the guest driver to
+reclaim the memory. The time required for the guest to complete a hinting run is
+dependant on a multitude of different factors and is mostly dictated by the
+guest, however, in testing the average time is ~200 milliseconds for a 1GB VM.
+
+This control mechanism in Firecracker is managed through three separate
+endpoints `/balloon/hinting/start`, `/balloon/hinting/status` and
+`/balloon/hinting/stop`. For simple operation, call the start endpoint with
+`acknowledge_on_stop = true`, which will automatically send the stop command
+once the driver has finished.
+
+An example of sending this command:
+
+```console
+curl --unix-socket $socket_location -i \
+    -X POST 'http://localhost/balloon/hinting/start' \
+    -H 'Accept: application/json' \
+    -H 'Content-Type: application/json' \
+    -d "{
+        \"acknowledge_on_stop\": true \
+    }"
+```
+
+For fine-grained control, using `acknowledge_on_stop = false`, Firecracker will
+not send the acknowledge message. This can be used to get the guest to hold onto
+more memory. Using the `/status` endpoint, you can get information about the
+last `cmd_id` sent by Firecracker and the last update from the guest.
+
+An example of the status request and response:
+
+```console
+curl --unix-socket $socket_location -i \
+    -X GET 'http://localhost/balloon/hinting/status' \
+    -H 'Accept: application/json' \
+    -H 'Content-Type: application/json'
+```
+
+Response:
+
+```json
+{
+  "host_cmd": 1,
+  "guest_cmd": 2
+}
+```
+
+An example of the stop endpoint:
+
+```console
+curl --unix-socket $socket_location -i \
+    -X POST 'http://localhost/balloon/hinting/stop' \
+    -H 'Accept: application/json' \
+    -H 'Content-Type: application/json' \
+    -d "{}"
+```
+
+On snapshot restore, the `cmd_id` is **always** set to the stop `cmd_id` to
+allow the guest to reclaim the memory. If you have a particular use-case which
+requires this not to be the case, please raise an issue with a description of
+your scenario.
+
+> [!WARNING]
+>
+> Free page hinting was primarily designed for live migration, because of this
+> there is a caveat to the device spec which means the guest is able to reclaim
+> memory before Firecracker even receives the range to free. This can lead to a
+> scenario where the device frees memory that has been reclaimed in the guest,
+> potentially corrupting memory. The chances of this race happening are low, but
+> not impossible; hence the developer-preview status.
+>
+> We are currently working with the kernel community on a feature that will
+> eliminate this race. Once this has been resolved, we will update the device.
+>
+> One way to safely use this feature when using UFFD is:
+>
+> 1. Enable `WRITEPROTECT` on the VM memory before starting a hinting run.
+> 1. Track ranges that are written to.
+> 1. Skip these ranges when Firecracker reports them for freeing.
+>
+> This will prevent ranges which have been reclaimed from being freed.
+
 ## Balloon Caveats
 
 - Firecracker has no control over the speed of inflation or deflation; this is
