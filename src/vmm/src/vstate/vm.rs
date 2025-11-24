@@ -16,27 +16,28 @@ use std::sync::{Arc, Mutex, MutexGuard};
 #[cfg(target_arch = "x86_64")]
 use kvm_bindings::KVM_IRQCHIP_IOAPIC;
 use kvm_bindings::{
-    KVM_IRQ_ROUTING_IRQCHIP, KVM_IRQ_ROUTING_MSI, KVM_MSI_VALID_DEVID, KvmIrqRouting,
+    KVM_IRQ_ROUTING_IRQCHIP, KVM_IRQ_ROUTING_MSI, KVM_MSI_VALID_DEVID, KVMIO, KvmIrqRouting,
     kvm_create_guest_memfd, kvm_irq_routing_entry, kvm_userspace_memory_region,
-    kvm_userspace_memory_region2,
 };
 use kvm_ioctls::{Cap, VmFd};
 use log::debug;
 use serde::{Deserialize, Serialize};
-use vmm_sys_util::errno;
 use vmm_sys_util::eventfd::EventFd;
+use vmm_sys_util::ioctl::ioctl_with_ref;
+use vmm_sys_util::{errno, ioctl_iow_nr};
 
 pub use crate::arch::{ArchVm as Vm, ArchVmError, VmState};
 use crate::arch::{GSI_MSI_END, host_page_size};
 use crate::logger::info;
 use crate::pci::{DeviceRelocation, DeviceRelocationError, PciDevice};
 use crate::persist::CreateSnapshotError;
+use crate::utils::u64_to_usize;
 use crate::vmm_config::snapshot::SnapshotType;
 use crate::vstate::bus::Bus;
 use crate::vstate::interrupts::{InterruptError, MsixVector, MsixVectorConfig, MsixVectorGroup};
 use crate::vstate::memory::{
     GuestMemory, GuestMemoryExtension, GuestMemoryMmap, GuestMemoryRegion, GuestMemorySlot,
-    GuestMemoryState, GuestRegionMmap, GuestRegionMmapExt, MaybeBounce, MemoryError,
+    GuestMemoryState, GuestRegionMmap, GuestRegionMmapExt, MaybeBounce, MemoryError, bitmap_size,
 };
 use crate::vstate::resources::ResourceAllocator;
 use crate::vstate::vcpu::VcpuError;
@@ -103,6 +104,24 @@ pub enum VmError {
     GuestMemfdNotSupported,
     /// UserMemory2 is not supported on this host kernel.
     UserMemory2NotSupported,
+}
+
+// Upstream `kvm_userspace_memory_region2` definition does not include `userfault_bitmap` field yet.
+// TODO: revert to `kvm_userspace_memory_region2` from kvm-bindings
+#[allow(non_camel_case_types, missing_docs)]
+#[repr(C)]
+#[derive(Debug, Default, Copy, Clone, PartialEq)]
+pub struct kvm_userspace_memory_region2 {
+    pub slot: u32,
+    pub flags: u32,
+    pub guest_phys_addr: u64,
+    pub memory_size: u64,
+    pub userspace_addr: u64,
+    pub guest_memfd_offset: u64,
+    pub guest_memfd: u32,
+    pub pad1: u32,
+    pub userfault_bitmap: u64,
+    pub pad2: [u64; 13],
 }
 
 /// Contains Vm functions that are usable across CPU architectures
@@ -233,15 +252,30 @@ impl Vm {
         }
     }
 
-    pub(crate) fn set_user_memory_region2(
+    // TODO: remove when userfault support is merged upstream
+    fn set_user_memory_region2(
         &self,
-        region: kvm_userspace_memory_region2,
+        user_memory_region2: kvm_userspace_memory_region2,
     ) -> Result<(), VmError> {
-        // SAFETY: Safe because the fd is a valid KVM file descriptor.
-        unsafe {
-            self.fd()
-                .set_user_memory_region2(region)
-                .map_err(VmError::SetUserMemoryRegion)
+        ioctl_iow_nr!(
+            KVM_SET_USER_MEMORY_REGION2,
+            KVMIO,
+            0x49,
+            kvm_userspace_memory_region2
+        );
+
+        #[allow(clippy::undocumented_unsafe_blocks)]
+        let ret = unsafe {
+            ioctl_with_ref(
+                self.fd(),
+                KVM_SET_USER_MEMORY_REGION2(),
+                &user_memory_region2,
+            )
+        };
+        if ret == 0 {
+            Ok(())
+        } else {
+            Err(VmError::SetUserMemoryRegion(kvm_ioctls::Error::last()))
         }
     }
 
@@ -331,6 +365,7 @@ impl Vm {
         &mut self,
         regions: Vec<GuestRegionMmap>,
         state: &GuestMemoryState,
+        mut userfault_bitmap: Option<u64>,
     ) -> Result<(), VmError> {
         for (region, state) in regions.into_iter().zip(state.regions.iter()) {
             let slot_cnt = state
@@ -343,7 +378,19 @@ impl Vm {
                 .next_kvm_slot(slot_cnt)
                 .ok_or(VmError::NotEnoughMemorySlots(self.common.max_memslots))?;
 
-            let arcd_region = Arc::new(GuestRegionMmapExt::from_state(region, state, next_slot)?);
+            let bitmap = if let Some(remaining) = userfault_bitmap {
+                let region_len = u64_to_usize(region.len());
+                // Firecracker does not allow sub-MB granularity when allocating guest memory
+                assert_eq!(region_len % (host_page_size() * u8::BITS as usize), 0);
+                let bitmap_len = bitmap_size(region_len as u64);
+                userfault_bitmap = Some(remaining + bitmap_len);
+                Some(remaining)
+            } else {
+                None
+            };
+            let arcd_region = Arc::new(GuestRegionMmapExt::from_state(
+                region, state, next_slot, bitmap,
+            )?);
 
             self.register_memory_region(arcd_region)?
         }
