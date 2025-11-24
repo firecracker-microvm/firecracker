@@ -519,7 +519,7 @@ pub fn build_microvm_from_snapshot(
         .create_vcpus(vm_resources.machine_config.vcpu_count)
         .map_err(StartMicrovmError::Vm)?;
 
-    vm.restore_memory_regions(guest_memory, &microvm_state.vm_state.memory)
+    vm.restore_memory_regions(guest_memory, &microvm_state.vm_state.memory, None)
         .map_err(StartMicrovmError::Vm)?;
 
     #[cfg(target_arch = "x86_64")]
