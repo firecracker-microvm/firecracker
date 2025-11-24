@@ -119,6 +119,7 @@ pub mod initrd;
 use std::collections::HashMap;
 use std::io;
 use std::os::unix::io::AsRawFd;
+use std::os::unix::net::UnixStream;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -306,6 +307,8 @@ pub struct Vmm {
 
     /// VM object.
     pub vm: Vm,
+    // Used for userfault communication with the UFFD handler when secret freedom is enabled
+    uffd_socket: Option<UnixStream>,
     // Device manager
     device_manager: DeviceManager,
 }
