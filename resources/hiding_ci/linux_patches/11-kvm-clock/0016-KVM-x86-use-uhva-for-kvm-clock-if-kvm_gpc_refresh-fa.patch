@@ -1,7 +1,7 @@
-From 0a04094c8b7e292fcb7bdf8528d70baddbfff379 Mon Sep 17 00:00:00 2001
+From 1549daf2eceae5ffeef137a52ac4e05edd13e53a Mon Sep 17 00:00:00 2001
 From: Patrick Roy <roypat@amazon.co.uk>
 Date: Fri, 18 Jul 2025 15:59:39 +0100
-Subject: [PATCH 01/15] KVM: x86: use uhva for kvm-clock if kvm_gpc_refresh()
+Subject: [PATCH 16/30] KVM: x86: use uhva for kvm-clock if kvm_gpc_refresh()
  fails
 
 kvm-clock uses a gfn_to_pfn_cache to avoid repeated gpa->pfn
@@ -42,10 +42,10 @@ Signed-off-by: Patrick Roy <roypat@amazon.co.uk>
  1 file changed, 37 insertions(+), 1 deletion(-)
 
 diff --git a/arch/x86/kvm/x86.c b/arch/x86/kvm/x86.c
-index 33fba801b205..c8fd35c1bbda 100644
+index 0c6d899d53dd..3f176c5ed614 100644
 --- a/arch/x86/kvm/x86.c
 +++ b/arch/x86/kvm/x86.c
-@@ -3149,6 +3149,40 @@ u64 get_kvmclock_ns(struct kvm *kvm)
+@@ -3248,6 +3248,40 @@ u64 get_kvmclock_ns(struct kvm *kvm)
  	return data.clock;
  }
  
@@ -86,7 +86,7 @@ index 33fba801b205..c8fd35c1bbda 100644
  static void kvm_setup_guest_pvclock(struct pvclock_vcpu_time_info *ref_hv_clock,
  				    struct kvm_vcpu *vcpu,
  				    struct gfn_to_pfn_cache *gpc,
-@@ -3164,8 +3198,10 @@ static void kvm_setup_guest_pvclock(struct pvclock_vcpu_time_info *ref_hv_clock,
+@@ -3263,8 +3297,10 @@ static void kvm_setup_guest_pvclock(struct pvclock_vcpu_time_info *ref_hv_clock,
  	while (!kvm_gpc_check(gpc, offset + sizeof(*guest_hv_clock))) {
  		read_unlock_irqrestore(&gpc->lock, flags);
  
@@ -99,5 +99,5 @@ index 33fba801b205..c8fd35c1bbda 100644
  		read_lock_irqsave(&gpc->lock, flags);
  	}
 -- 
-2.51.0
+2.50.1
 

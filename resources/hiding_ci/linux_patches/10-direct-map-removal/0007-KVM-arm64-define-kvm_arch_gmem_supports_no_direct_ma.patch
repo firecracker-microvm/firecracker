@@ -1,0 +1,64 @@
+From 95b2faea26fed1c2bb64eb1825f4b15eefba6811 Mon Sep 17 00:00:00 2001
+From: Patrick Roy <patrick.roy@linux.dev>
+Date: Sun, 23 Nov 2025 18:44:34 +0100
+Subject: [PATCH 07/30] KVM: arm64: define
+ kvm_arch_gmem_supports_no_direct_map()
+
+Support for GUEST_MEMFD_FLAG_NO_DIRECT_MAP on arm64 depends on 1) direct
+map manipulations at 4k granularity being possible, and 2) FEAT_S2FWB.
+
+1) is met whenever the direct map is set up at 4k granularity (e.g. not
+ with huge/gigantic pages) at boottime, as due to ARM's
+break-before-make semantics, breaking huge mappings into 4k mappings in
+the direct map is not possible (BBM would require temporary invalidation
+of the entire huge mapping, even if only a 4k subrange should be zapped,
+which will probably crash the kernel). However, current defconfigs
+select for example CONFIG_RO_DATA_FULL_DEFAULT_ENABLED, which forces a 4k
+direct map.
+
+2) is required to allow KVM to elide cache coherency operations when
+installing stage 2 page tables, which require the direct map to be
+entry for the newly mapped memory to be present (which it will not be,
+as guest_memfd would have removed direct map entries in
+kvm_gmem_get_pfn()).
+
+Cc: Will Deacon <will@kernel.org>
+Signed-off-by: Patrick Roy <patrick.roy@linux.dev>
+Signed-off-by: Nikita Kalyazin <kalyazin@amazon.com>
+---
+ arch/arm64/include/asm/kvm_host.h | 13 +++++++++++++
+ 1 file changed, 13 insertions(+)
+
+diff --git a/arch/arm64/include/asm/kvm_host.h b/arch/arm64/include/asm/kvm_host.h
+index ac7f970c7883..d431ca7d4fc9 100644
+--- a/arch/arm64/include/asm/kvm_host.h
++++ b/arch/arm64/include/asm/kvm_host.h
+@@ -19,6 +19,7 @@
+ #include <linux/maple_tree.h>
+ #include <linux/percpu.h>
+ #include <linux/psci.h>
++#include <linux/set_memory.h>
+ #include <asm/arch_gicv3.h>
+ #include <asm/barrier.h>
+ #include <asm/cpufeature.h>
+@@ -1654,5 +1655,17 @@ static __always_inline enum fgt_group_id __fgt_reg_to_group_id(enum vcpu_sysreg
+ 									\
+ 		p;							\
+ 	})
++#ifdef CONFIG_KVM_GUEST_MEMFD
++static inline bool kvm_arch_gmem_supports_no_direct_map(void)
++{
++	/*
++	 * Without FWB, direct map access is needed in kvm_pgtable_stage2_map(),
++	 * as it calls dcache_clean_inval_poc().
++	 */
++	return can_set_direct_map() && cpus_have_final_cap(ARM64_HAS_STAGE2_FWB);
++}
++#define kvm_arch_gmem_supports_no_direct_map kvm_arch_gmem_supports_no_direct_map
++#endif /* CONFIG_KVM_GUEST_MEMFD */
++
+ 
+ #endif /* __ARM64_KVM_HOST_H__ */
+-- 
+2.50.1
+

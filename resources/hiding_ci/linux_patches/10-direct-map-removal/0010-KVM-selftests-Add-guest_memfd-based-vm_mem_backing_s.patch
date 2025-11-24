@@ -1,7 +1,7 @@
-From 87fbe3433945bd5dfb9965d9ede56cdbad587040 Mon Sep 17 00:00:00 2001
-From: Patrick Roy <roypat@amazon.co.uk>
-Date: Thu, 20 Feb 2025 11:08:22 +0000
-Subject: [PATCH 07/10] KVM: selftests: Add guest_memfd based
+From ffcf201e1fd9b1d8f4978fb71c76d71cb0e50fba Mon Sep 17 00:00:00 2001
+From: Patrick Roy <patrick.roy@linux.dev>
+Date: Sun, 23 Nov 2025 18:44:35 +0100
+Subject: [PATCH 10/30] KVM: selftests: Add guest_memfd based
  vm_mem_backing_src_types
 
 Allow selftests to configure their memslots such that userspace_addr is
@@ -14,19 +14,20 @@ functionality such as MMIO emulation on x86.
 Add backing types for normal guest_memfd, as well as direct map removed
 guest_memfd.
 
-Signed-off-by: Patrick Roy <roypat@amazon.co.uk>
+Signed-off-by: Patrick Roy <patrick.roy@linux.dev>
+Signed-off-by: Nikita Kalyazin <kalyazin@amazon.com>
 ---
  .../testing/selftests/kvm/include/kvm_util.h  | 18 ++++++
  .../testing/selftests/kvm/include/test_util.h |  7 +++
- tools/testing/selftests/kvm/lib/kvm_util.c    | 63 ++++++++++---------
+ tools/testing/selftests/kvm/lib/kvm_util.c    | 61 ++++++++++---------
  tools/testing/selftests/kvm/lib/test_util.c   |  8 +++
- 4 files changed, 66 insertions(+), 30 deletions(-)
+ 4 files changed, 65 insertions(+), 29 deletions(-)
 
 diff --git a/tools/testing/selftests/kvm/include/kvm_util.h b/tools/testing/selftests/kvm/include/kvm_util.h
-index 23a506d7eca3..5204a0a18a7f 100644
+index 81f4355ff28a..6689b43810c1 100644
 --- a/tools/testing/selftests/kvm/include/kvm_util.h
 +++ b/tools/testing/selftests/kvm/include/kvm_util.h
-@@ -635,6 +635,24 @@ static inline bool is_smt_on(void)
+@@ -641,6 +641,24 @@ static inline bool is_smt_on(void)
  
  void vm_create_irqchip(struct kvm_vm *vm);
  
@@ -35,11 +36,11 @@ index 23a506d7eca3..5204a0a18a7f 100644
 +	uint32_t flags = 0;
 +
 +	switch (t) {
-+	case VM_MEM_SRC_GUEST_MEMFD:
-+		flags |= GUEST_MEMFD_FLAG_MMAP;
-+		fallthrough;
 +	case VM_MEM_SRC_GUEST_MEMFD_NO_DIRECT_MAP:
 +		flags |= GUEST_MEMFD_FLAG_NO_DIRECT_MAP;
++		fallthrough;
++	case VM_MEM_SRC_GUEST_MEMFD:
++		flags |= GUEST_MEMFD_FLAG_MMAP | GUEST_MEMFD_FLAG_INIT_SHARED;
 +		break;
 +	default:
 +		break;
@@ -52,10 +53,10 @@ index 23a506d7eca3..5204a0a18a7f 100644
  					uint64_t flags)
  {
 diff --git a/tools/testing/selftests/kvm/include/test_util.h b/tools/testing/selftests/kvm/include/test_util.h
-index 0409b7b96c94..a56e53fc7b39 100644
+index 8140e59b59e5..ea6de20ce8ef 100644
 --- a/tools/testing/selftests/kvm/include/test_util.h
 +++ b/tools/testing/selftests/kvm/include/test_util.h
-@@ -133,6 +133,8 @@ enum vm_mem_backing_src_type {
+@@ -152,6 +152,8 @@ enum vm_mem_backing_src_type {
  	VM_MEM_SRC_ANONYMOUS_HUGETLB_16GB,
  	VM_MEM_SRC_SHMEM,
  	VM_MEM_SRC_SHARED_HUGETLB,
@@ -64,7 +65,7 @@ index 0409b7b96c94..a56e53fc7b39 100644
  	NUM_SRC_TYPES,
  };
  
-@@ -165,6 +167,11 @@ static inline bool backing_src_is_shared(enum vm_mem_backing_src_type t)
+@@ -184,6 +186,11 @@ static inline bool backing_src_is_shared(enum vm_mem_backing_src_type t)
  	return vm_mem_backing_src_alias(t)->flag & MAP_SHARED;
  }
  
@@ -77,10 +78,10 @@ index 0409b7b96c94..a56e53fc7b39 100644
  {
  	return t != VM_MEM_SRC_ANONYMOUS && t != VM_MEM_SRC_SHMEM;
 diff --git a/tools/testing/selftests/kvm/lib/kvm_util.c b/tools/testing/selftests/kvm/lib/kvm_util.c
-index cc67dfecbf65..a81089f7c83f 100644
+index 56ddbca91850..28ee51253909 100644
 --- a/tools/testing/selftests/kvm/lib/kvm_util.c
 +++ b/tools/testing/selftests/kvm/lib/kvm_util.c
-@@ -1060,6 +1060,34 @@ void vm_mem_add(struct kvm_vm *vm, enum vm_mem_backing_src_type src_type,
+@@ -1013,6 +1013,33 @@ void vm_mem_add(struct kvm_vm *vm, enum vm_mem_backing_src_type src_type,
  	alignment = 1;
  #endif
  
@@ -99,8 +100,7 @@ index cc67dfecbf65..a81089f7c83f 100644
 +		 * needing to track if the fd is owned by the framework
 +		 * or by the caller.
 +		 */
-+		guest_memfd = dup(guest_memfd);
-+		TEST_ASSERT(guest_memfd >= 0, __KVM_SYSCALL_ERROR("dup()", guest_memfd));
++		guest_memfd = kvm_dup(guest_memfd);
 +	}
 +
 +	if (guest_memfd > 0) {
@@ -115,7 +115,7 @@ index cc67dfecbf65..a81089f7c83f 100644
  	/*
  	 * When using THP mmap is not guaranteed to returned a hugepage aligned
  	 * address so we have to pad the mmap. Padding is not needed for HugeTLB
-@@ -1075,10 +1103,13 @@ void vm_mem_add(struct kvm_vm *vm, enum vm_mem_backing_src_type src_type,
+@@ -1028,10 +1055,13 @@ void vm_mem_add(struct kvm_vm *vm, enum vm_mem_backing_src_type src_type,
  	if (alignment > 1)
  		region->mmap_size += alignment;
  
@@ -129,9 +129,9 @@ index cc67dfecbf65..a81089f7c83f 100644
 +	else
 +		region->fd = -1;
  
- 	region->mmap_start = mmap(NULL, region->mmap_size,
- 				  PROT_READ | PROT_WRITE,
-@@ -1106,34 +1137,6 @@ void vm_mem_add(struct kvm_vm *vm, enum vm_mem_backing_src_type src_type,
+ 	region->mmap_start = kvm_mmap(region->mmap_size, PROT_READ | PROT_WRITE,
+ 				      vm_mem_backing_src_alias(src_type)->flag,
+@@ -1056,33 +1086,6 @@ void vm_mem_add(struct kvm_vm *vm, enum vm_mem_backing_src_type src_type,
  	}
  
  	region->backing_src_type = src_type;
@@ -150,8 +150,7 @@ index cc67dfecbf65..a81089f7c83f 100644
 -		 * needing to track if the fd is owned by the framework
 -		 * or by the caller.
 -		 */
--		guest_memfd = dup(guest_memfd);
--		TEST_ASSERT(guest_memfd >= 0, __KVM_SYSCALL_ERROR("dup()", guest_memfd));
+-		guest_memfd = kvm_dup(guest_memfd);
 -	}
 -
 -	if (guest_memfd > 0) {
@@ -167,10 +166,10 @@ index cc67dfecbf65..a81089f7c83f 100644
  	if (vm_arch_has_protected_memory(vm))
  		region->protected_phy_pages = sparsebit_alloc();
 diff --git a/tools/testing/selftests/kvm/lib/test_util.c b/tools/testing/selftests/kvm/lib/test_util.c
-index 03eb99af9b8d..b2baee680083 100644
+index 8a1848586a85..ce9fe0271515 100644
 --- a/tools/testing/selftests/kvm/lib/test_util.c
 +++ b/tools/testing/selftests/kvm/lib/test_util.c
-@@ -299,6 +299,14 @@ const struct vm_mem_backing_src_alias *vm_mem_backing_src_alias(uint32_t i)
+@@ -306,6 +306,14 @@ const struct vm_mem_backing_src_alias *vm_mem_backing_src_alias(uint32_t i)
  			 */
  			.flag = MAP_SHARED,
  		},
@@ -186,5 +185,5 @@ index 03eb99af9b8d..b2baee680083 100644
  	_Static_assert(ARRAY_SIZE(aliases) == NUM_SRC_TYPES,
  		       "Missing new backing src types?");
 -- 
-2.51.0
+2.50.1
 

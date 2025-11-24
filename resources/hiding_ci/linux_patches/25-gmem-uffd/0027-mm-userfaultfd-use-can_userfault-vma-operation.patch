@@ -1,7 +1,7 @@
-From e9accab53147174d96494d30428f9deec7f078e2 Mon Sep 17 00:00:00 2001
+From 1f3d24acfa96bf10387b517f8641325bfd7014a1 Mon Sep 17 00:00:00 2001
 From: Nikita Kalyazin <kalyazin@amazon.com>
 Date: Fri, 4 Apr 2025 14:16:49 +0000
-Subject: [PATCH 12/15] mm: userfaultfd: use can_userfault vma operation
+Subject: [PATCH 27/30] mm: userfaultfd: use can_userfault vma operation
 
 Signed-off-by: Nikita Kalyazin <kalyazin@amazon.com>
 ---
@@ -46,7 +46,7 @@ index c0e716aec26a..47d40cec69c7 100644
  
  static inline bool vma_has_uffd_without_event_remap(struct vm_area_struct *vma)
 diff --git a/mm/userfaultfd.c b/mm/userfaultfd.c
-index c43e4c8893b7..daf3b93e4d22 100644
+index eaf350c6116d..ff5d92ff15f3 100644
 --- a/mm/userfaultfd.c
 +++ b/mm/userfaultfd.c
 @@ -724,6 +724,7 @@ static __always_inline ssize_t mfill_atomic(struct userfaultfd_ctx *ctx,
@@ -75,5 +75,5 @@ index c43e4c8893b7..daf3b93e4d22 100644
  
  	while (src_addr < src_start + len) {
 -- 
-2.51.0
+2.50.1
 

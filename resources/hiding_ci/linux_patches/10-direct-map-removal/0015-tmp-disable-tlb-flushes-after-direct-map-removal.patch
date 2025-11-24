@@ -1,0 +1,32 @@
+From 49f8b907da89ec436e3bc7ed1fcfe5ab73230060 Mon Sep 17 00:00:00 2001
+From: Nikita Kalyazin <kalyazin@amazon.com>
+Date: Fri, 5 Dec 2025 17:43:48 +0000
+Subject: [PATCH 15/30] tmp: disable tlb flushes after direct map removal
+
+---
+ virt/kvm/guest_memfd.c | 2 --
+ 1 file changed, 2 deletions(-)
+
+diff --git a/virt/kvm/guest_memfd.c b/virt/kvm/guest_memfd.c
+index cc271cd3698a..f2f9ccbf3b7a 100644
+--- a/virt/kvm/guest_memfd.c
++++ b/virt/kvm/guest_memfd.c
+@@ -89,7 +89,6 @@ static bool kvm_gmem_folio_no_direct_map(struct folio *folio)
+ static int kvm_gmem_folio_zap_direct_map(struct folio *folio)
+ {
+ 	int r = 0;
+-	unsigned long addr = (unsigned long) folio_address(folio);
+ 	u64 gmem_flags = GMEM_I(folio_inode(folio))->flags;
+ 
+ 	if (kvm_gmem_folio_no_direct_map(folio) || !(gmem_flags & GUEST_MEMFD_FLAG_NO_DIRECT_MAP))
+@@ -102,7 +101,6 @@ static int kvm_gmem_folio_zap_direct_map(struct folio *folio)
+ 		goto out;
+ 
+ 	folio->private = (void *)((u64)folio->private | KVM_GMEM_FOLIO_NO_DIRECT_MAP);
+-	flush_tlb_kernel_range(addr, addr + folio_size(folio));
+ 
+ out:
+ 	return r;
+-- 
+2.50.1
+

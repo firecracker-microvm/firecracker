@@ -1,0 +1,39 @@
+From 834273c20f2d12648d49370505d6e8e4ddbc78ab Mon Sep 17 00:00:00 2001
+From: Nikita Kalyazin <kalyazin@amazon.com>
+Date: Mon, 8 Dec 2025 17:21:56 +0000
+Subject: [PATCH 14/30] fixup for direct map removal: restore
+ KVM_GMEM_FOLIO_NO_DIRECT_MAP flag
+
+---
+ virt/kvm/guest_memfd.c | 6 ++++--
+ 1 file changed, 4 insertions(+), 2 deletions(-)
+
+diff --git a/virt/kvm/guest_memfd.c b/virt/kvm/guest_memfd.c
+index ec4966a47d5e..cc271cd3698a 100644
+--- a/virt/kvm/guest_memfd.c
++++ b/virt/kvm/guest_memfd.c
+@@ -101,7 +101,7 @@ static int kvm_gmem_folio_zap_direct_map(struct folio *folio)
+ 	if (r)
+ 		goto out;
+ 
+-	folio->private = (void *) KVM_GMEM_FOLIO_NO_DIRECT_MAP;
++	folio->private = (void *)((u64)folio->private | KVM_GMEM_FOLIO_NO_DIRECT_MAP);
+ 	flush_tlb_kernel_range(addr, addr + folio_size(folio));
+ 
+ out:
+@@ -117,9 +117,11 @@ static void kvm_gmem_folio_restore_direct_map(struct folio *folio)
+ 	 * happened in set_direct_map_invalid_noflush() in kvm_gmem_folio_zap_direct_map().
+ 	 * Thus set_direct_map_valid_noflush() here only updates prot bits.
+ 	 */
+-	if (kvm_gmem_folio_no_direct_map(folio))
++	if (kvm_gmem_folio_no_direct_map(folio)) {
+ 		set_direct_map_valid_noflush(folio_page(folio, 0), folio_nr_pages(folio),
+ 					 true);
++		folio->private = (void *)((u64)folio->private & ~KVM_GMEM_FOLIO_NO_DIRECT_MAP);
++	}
+ }
+ 
+ static inline void kvm_gmem_mark_prepared(struct folio *folio)
+-- 
+2.50.1
+

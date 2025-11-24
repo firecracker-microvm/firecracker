@@ -1,7 +1,7 @@
-From 9375ae487ca8c7bbb3dbc57760915d742eecbf37 Mon Sep 17 00:00:00 2001
+From 76a393eda721f74604ed7eca38367e5f722f2b4d Mon Sep 17 00:00:00 2001
 From: James Houghton <jthoughton@google.com>
 Date: Thu, 9 Jan 2025 20:49:19 +0000
-Subject: [PATCH 04/15] KVM: Allow late setting of KVM_MEM_USERFAULT on
+Subject: [PATCH 19/30] KVM: Allow late setting of KVM_MEM_USERFAULT on
  guest_memfd memslot
 
 Currently guest_memfd memslots can only be deleted. Slightly change the
@@ -14,10 +14,10 @@ Signed-off-by: James Houghton <jthoughton@google.com>
  1 file changed, 11 insertions(+), 4 deletions(-)
 
 diff --git a/virt/kvm/kvm_main.c b/virt/kvm/kvm_main.c
-index 6ab616527cf7..f43a8f40b94b 100644
+index da03e620c8e6..790e9c6a526c 100644
 --- a/virt/kvm/kvm_main.c
 +++ b/virt/kvm/kvm_main.c
-@@ -2081,9 +2081,6 @@ static int kvm_set_memory_region(struct kvm *kvm,
+@@ -2089,9 +2089,6 @@ static int kvm_set_memory_region(struct kvm *kvm,
  		if ((kvm->nr_memslot_pages + npages) < kvm->nr_memslot_pages)
  			return -EINVAL;
  	} else { /* Modify an existing slot. */
@@ -27,7 +27,7 @@ index 6ab616527cf7..f43a8f40b94b 100644
  		if ((mem->userspace_addr != old->userspace_addr) ||
  		    (npages != old->npages) ||
  		    ((mem->flags ^ old->flags) & KVM_MEM_READONLY))
-@@ -2097,6 +2094,16 @@ static int kvm_set_memory_region(struct kvm *kvm,
+@@ -2105,6 +2102,16 @@ static int kvm_set_memory_region(struct kvm *kvm,
  			return 0;
  	}
  
@@ -44,7 +44,7 @@ index 6ab616527cf7..f43a8f40b94b 100644
  	if ((change == KVM_MR_CREATE || change == KVM_MR_MOVE) &&
  	    kvm_check_memslot_overlap(slots, id, base_gfn, base_gfn + npages))
  		return -EEXIST;
-@@ -2112,7 +2119,7 @@ static int kvm_set_memory_region(struct kvm *kvm,
+@@ -2120,7 +2127,7 @@ static int kvm_set_memory_region(struct kvm *kvm,
  	new->npages = npages;
  	new->flags = mem->flags;
  	new->userspace_addr = mem->userspace_addr;
@@ -54,5 +54,5 @@ index 6ab616527cf7..f43a8f40b94b 100644
  		if (r)
  			goto out;
 -- 
-2.51.0
+2.50.1
 

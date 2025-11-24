@@ -1,7 +1,7 @@
-From 27c849319c2eb4ba66b64478709a880fc12e93e4 Mon Sep 17 00:00:00 2001
-From: Patrick Roy <roypat@amazon.co.uk>
-Date: Thu, 20 Feb 2025 14:56:20 +0000
-Subject: [PATCH 06/10] KVM: selftests: set KVM_MEM_GUEST_MEMFD in vm_mem_add()
+From 25b63d9d905e1255e63bb6990f67de0539f07b2d Mon Sep 17 00:00:00 2001
+From: Patrick Roy <patrick.roy@linux.dev>
+Date: Sun, 23 Nov 2025 18:44:34 +0100
+Subject: [PATCH 09/30] KVM: selftests: set KVM_MEM_GUEST_MEMFD in vm_mem_add()
  if guest_memfd != -1
 
 Have vm_mem_add() always set KVM_MEM_GUEST_MEMFD in the memslot flags if
@@ -19,16 +19,17 @@ GUEST_MEMFD_FLAG_MMAP) if requested via a special
 vm_mem_backing_src_type, at which point having to make sure the src_type
 and flags are in-sync becomes cumbersome.
 
-Signed-off-by: Patrick Roy <roypat@amazon.co.uk>
+Signed-off-by: Patrick Roy <patrick.roy@linux.dev>
+Signed-off-by: Nikita Kalyazin <kalyazin@amazon.com>
 ---
- tools/testing/selftests/kvm/lib/kvm_util.c | 26 +++++++++++++---------
- 1 file changed, 15 insertions(+), 11 deletions(-)
+ tools/testing/selftests/kvm/lib/kvm_util.c | 24 +++++++++++++---------
+ 1 file changed, 14 insertions(+), 10 deletions(-)
 
 diff --git a/tools/testing/selftests/kvm/lib/kvm_util.c b/tools/testing/selftests/kvm/lib/kvm_util.c
-index c3f5142b0a54..cc67dfecbf65 100644
+index 8279b6ced8d2..56ddbca91850 100644
 --- a/tools/testing/selftests/kvm/lib/kvm_util.c
 +++ b/tools/testing/selftests/kvm/lib/kvm_util.c
-@@ -1107,22 +1107,26 @@ void vm_mem_add(struct kvm_vm *vm, enum vm_mem_backing_src_type src_type,
+@@ -1057,21 +1057,25 @@ void vm_mem_add(struct kvm_vm *vm, enum vm_mem_backing_src_type src_type,
  
  	region->backing_src_type = src_type;
  
@@ -47,8 +48,7 @@ index c3f5142b0a54..cc67dfecbf65 100644
 -			 * needing to track if the fd is owned by the framework
 -			 * or by the caller.
 -			 */
--			guest_memfd = dup(guest_memfd);
--			TEST_ASSERT(guest_memfd >= 0, __KVM_SYSCALL_ERROR("dup()", guest_memfd));
+-			guest_memfd = kvm_dup(guest_memfd);
  		}
 +	} else {
 +		/*
@@ -57,8 +57,7 @@ index c3f5142b0a54..cc67dfecbf65 100644
 +		 * needing to track if the fd is owned by the framework
 +		 * or by the caller.
 +		 */
-+		guest_memfd = dup(guest_memfd);
-+		TEST_ASSERT(guest_memfd >= 0, __KVM_SYSCALL_ERROR("dup()", guest_memfd));
++		guest_memfd = kvm_dup(guest_memfd);
 +	}
 +
 +	if (guest_memfd > 0) {
@@ -67,5 +66,5 @@ index c3f5142b0a54..cc67dfecbf65 100644
  		region->region.guest_memfd = guest_memfd;
  		region->region.guest_memfd_offset = guest_memfd_offset;
 -- 
-2.51.0
+2.50.1
 

@@ -1,7 +1,7 @@
-From 5a633437724f636327a58eef48b1ef0595108b37 Mon Sep 17 00:00:00 2001
-From: Patrick Roy <roypat@amazon.co.uk>
-Date: Fri, 21 Feb 2025 08:18:24 +0000
-Subject: [PATCH 10/10] KVM: selftests: Test guest execution from direct map
+From 5adbd34b84a8e2d665f2bba7376ccd9662f98d16 Mon Sep 17 00:00:00 2001
+From: Patrick Roy <patrick.roy@linux.dev>
+Date: Sun, 23 Nov 2025 18:44:36 +0100
+Subject: [PATCH 13/30] KVM: selftests: Test guest execution from direct map
  removed gmem
 
 Add a selftest that loads itself into guest_memfd (via
@@ -13,16 +13,17 @@ table walks + instruction fetch) correctly accesses gmem through the VMA
 that's been reflected into the memslot's userspace_addr field (instead
 of trying to do direct map accesses).
 
-Signed-off-by: Patrick Roy <roypat@amazon.co.uk>
+Signed-off-by: Patrick Roy <patrick.roy@linux.dev>
+Signed-off-by: Nikita Kalyazin <kalyazin@amazon.com>
 ---
- .../selftests/kvm/set_memory_region_test.c    | 50 +++++++++++++++++--
- 1 file changed, 46 insertions(+), 4 deletions(-)
+ .../selftests/kvm/set_memory_region_test.c    | 52 +++++++++++++++++--
+ 1 file changed, 48 insertions(+), 4 deletions(-)
 
 diff --git a/tools/testing/selftests/kvm/set_memory_region_test.c b/tools/testing/selftests/kvm/set_memory_region_test.c
-index ce3ac0fd6dfb..cb3bc642d376 100644
+index 7fe427ff9b38..6c57fb036b20 100644
 --- a/tools/testing/selftests/kvm/set_memory_region_test.c
 +++ b/tools/testing/selftests/kvm/set_memory_region_test.c
-@@ -603,6 +603,41 @@ static void test_mmio_during_vectoring(void)
+@@ -602,6 +602,41 @@ static void test_mmio_during_vectoring(void)
  
  	kvm_vm_free(vm);
  }
@@ -64,7 +65,7 @@ index ce3ac0fd6dfb..cb3bc642d376 100644
  #endif
  
  int main(int argc, char *argv[])
-@@ -626,10 +661,17 @@ int main(int argc, char *argv[])
+@@ -625,10 +660,19 @@ int main(int argc, char *argv[])
  	test_add_max_memory_regions();
  
  #ifdef __x86_64__
@@ -73,19 +74,21 @@ index ce3ac0fd6dfb..cb3bc642d376 100644
 -		test_add_private_memory_region();
 -		test_add_overlapping_private_memory_regions();
 +	if (kvm_has_cap(KVM_CAP_GUEST_MEMFD)) {
++		uint64_t valid_flags = kvm_check_cap(KVM_CAP_GUEST_MEMFD_FLAGS);
++
 +		if (kvm_check_cap(KVM_CAP_VM_TYPES) & BIT(KVM_X86_SW_PROTECTED_VM)) {
 +			test_add_private_memory_region();
 +			test_add_overlapping_private_memory_regions();
 +		}
 +
-+		if (kvm_has_cap(KVM_CAP_GUEST_MEMFD_MMAP) &&
-+			kvm_has_cap(KVM_CAP_GUEST_MEMFD_NO_DIRECT_MAP))
++		if ((valid_flags & GUEST_MEMFD_FLAG_MMAP)
++			&& (valid_flags & GUEST_MEMFD_FLAG_NO_DIRECT_MAP))
 +			test_guest_memfd_mmio();
 +		else
-+			pr_info("Skipping tests requiring KVM_CAP_GUEST_MEMFD_MMAP | KVM_CAP_GUEST_MEMFD_NO_DIRECT_MAP");
++			pr_info("Skipping tests requiring GUEST_MEMFD_FLAG_MMAP | GUEST_MEMFD_FLAG_NO_DIRECT_MAP");
  	} else {
  		pr_info("Skipping tests for KVM_MEM_GUEST_MEMFD memory regions\n");
  	}
 -- 
-2.51.0
+2.50.1
 

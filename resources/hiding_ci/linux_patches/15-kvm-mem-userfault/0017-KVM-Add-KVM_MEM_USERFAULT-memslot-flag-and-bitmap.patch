@@ -1,7 +1,7 @@
-From b987ad3e2757479b136abe917bde7ab0030810a2 Mon Sep 17 00:00:00 2001
+From 02fd3848acaa2d23089b31ba28c39a1345afab50 Mon Sep 17 00:00:00 2001
 From: James Houghton <jthoughton@google.com>
 Date: Thu, 9 Jan 2025 20:49:17 +0000
-Subject: [PATCH 02/15] KVM: Add KVM_MEM_USERFAULT memslot flag and bitmap
+Subject: [PATCH 17/30] KVM: Add KVM_MEM_USERFAULT memslot flag and bitmap
 
 Use one of the 14 reserved u64s in struct kvm_userspace_memory_region2
 for the user to provide `userfault_bitmap`.
@@ -20,7 +20,7 @@ Signed-off-by: James Houghton <jthoughton@google.com>
  4 files changed, 55 insertions(+), 1 deletion(-)
 
 diff --git a/include/linux/kvm_host.h b/include/linux/kvm_host.h
-index a9468bce55f2..7911e7648dec 100644
+index d4d5306075bf..bb8a3380307a 100644
 --- a/include/linux/kvm_host.h
 +++ b/include/linux/kvm_host.h
 @@ -600,6 +600,7 @@ struct kvm_memory_slot {
@@ -31,7 +31,7 @@ index a9468bce55f2..7911e7648dec 100644
  	u32 flags;
  	short id;
  	u16 as_id;
-@@ -745,6 +746,11 @@ static inline bool kvm_arch_has_readonly_mem(struct kvm *kvm)
+@@ -761,6 +762,11 @@ static inline bool kvm_arch_has_readonly_mem(struct kvm *kvm)
  }
  #endif
  
@@ -43,7 +43,7 @@ index a9468bce55f2..7911e7648dec 100644
  struct kvm_memslots {
  	u64 generation;
  	atomic_long_t last_used_slot;
-@@ -2597,4 +2603,12 @@ static inline int kvm_enable_virtualization(void) { return 0; }
+@@ -2618,4 +2624,12 @@ static inline int kvm_enable_virtualization(void) { return 0; }
  static inline void kvm_disable_virtualization(void) { }
  #endif
  
@@ -57,7 +57,7 @@ index a9468bce55f2..7911e7648dec 100644
 +
  #endif
 diff --git a/include/uapi/linux/kvm.h b/include/uapi/linux/kvm.h
-index 33c8e8946019..641622739a71 100644
+index 60341e1ba1be..27c151c2e735 100644
 --- a/include/uapi/linux/kvm.h
 +++ b/include/uapi/linux/kvm.h
 @@ -40,7 +40,8 @@ struct kvm_userspace_memory_region2 {
@@ -79,10 +79,10 @@ index 33c8e8946019..641622739a71 100644
  /* for KVM_IRQ_LINE */
  struct kvm_irq_level {
 diff --git a/virt/kvm/Kconfig b/virt/kvm/Kconfig
-index 1b7d5be0b6c4..1ba90f2af313 100644
+index 267c7369c765..86ceac73b5e0 100644
 --- a/virt/kvm/Kconfig
 +++ b/virt/kvm/Kconfig
-@@ -127,3 +127,6 @@ config HAVE_KVM_ARCH_GMEM_INVALIDATE
+@@ -125,3 +125,6 @@ config HAVE_KVM_ARCH_GMEM_INVALIDATE
  config HAVE_KVM_ARCH_GMEM_POPULATE
         bool
         depends on KVM_GUEST_MEMFD
@@ -90,10 +90,10 @@ index 1b7d5be0b6c4..1ba90f2af313 100644
 +config HAVE_KVM_USERFAULT
 +       bool
 diff --git a/virt/kvm/kvm_main.c b/virt/kvm/kvm_main.c
-index 6133bab21ab8..6ab616527cf7 100644
+index 74e1afd67b44..da03e620c8e6 100644
 --- a/virt/kvm/kvm_main.c
 +++ b/virt/kvm/kvm_main.c
-@@ -1605,6 +1605,9 @@ static int check_memory_region_flags(struct kvm *kvm,
+@@ -1613,6 +1613,9 @@ static int check_memory_region_flags(struct kvm *kvm,
  	    !(mem->flags & KVM_MEM_GUEST_MEMFD))
  		valid_flags |= KVM_MEM_READONLY;
  
@@ -103,7 +103,7 @@ index 6133bab21ab8..6ab616527cf7 100644
  	if (mem->flags & ~valid_flags)
  		return -EINVAL;
  
-@@ -2040,6 +2043,12 @@ static int kvm_set_memory_region(struct kvm *kvm,
+@@ -2048,6 +2051,12 @@ static int kvm_set_memory_region(struct kvm *kvm,
  	if (id < KVM_USER_MEM_SLOTS &&
  	    (mem->memory_size >> PAGE_SHIFT) > KVM_MEM_MAX_NR_PAGES)
  		return -EINVAL;
@@ -116,7 +116,7 @@ index 6133bab21ab8..6ab616527cf7 100644
  
  	slots = __kvm_memslots(kvm, as_id);
  
-@@ -2108,6 +2117,9 @@ static int kvm_set_memory_region(struct kvm *kvm,
+@@ -2116,6 +2125,9 @@ static int kvm_set_memory_region(struct kvm *kvm,
  		if (r)
  			goto out;
  	}
@@ -126,10 +126,10 @@ index 6133bab21ab8..6ab616527cf7 100644
  
  	r = kvm_set_memslot(kvm, old, new, change);
  	if (r)
-@@ -6551,3 +6563,26 @@ void kvm_exit(void)
+@@ -6579,3 +6591,26 @@ void kvm_exit(void)
  	kvm_irqfd_exit();
  }
- EXPORT_SYMBOL_GPL(kvm_exit);
+ EXPORT_SYMBOL_FOR_KVM_INTERNAL(kvm_exit);
 +
 +int kvm_gfn_userfault(struct kvm *kvm, struct kvm_memory_slot *memslot,
 +		       gfn_t gfn)
@@ -154,5 +154,5 @@ index 6133bab21ab8..6ab616527cf7 100644
 +	return !!(bitmap_chunk & (1ul << (offset % BITS_PER_LONG)));
 +}
 -- 
-2.51.0
+2.50.1
 

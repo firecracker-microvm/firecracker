@@ -1,7 +1,7 @@
-From c0abd503fb650d6f99b1d2f247fc94fb392242bd Mon Sep 17 00:00:00 2001
-From: Patrick Roy <roypat@amazon.co.uk>
-Date: Thu, 20 Feb 2025 13:46:01 +0000
-Subject: [PATCH 08/10] KVM: selftests: stuff vm_mem_backing_src_type into
+From 8078bdbcb9e3157c195506cb914735c0407b8104 Mon Sep 17 00:00:00 2001
+From: Patrick Roy <patrick.roy@linux.dev>
+Date: Sun, 23 Nov 2025 18:44:35 +0100
+Subject: [PATCH 12/30] KVM: selftests: stuff vm_mem_backing_src_type into
  vm_shape
 
 Use one of the padding fields in struct vm_shape to carry an enum
@@ -11,7 +11,8 @@ default of VM_MEM_SRC_ANONYMOUS in __vm_create().
 Overwriting this default will allow tests to create VMs where the test
 code is backed by mmap'd guest_memfd instead of anonymous memory.
 
-Signed-off-by: Patrick Roy <roypat@amazon.co.uk>
+Signed-off-by: Patrick Roy <patrick.roy@linux.dev>
+Signed-off-by: Nikita Kalyazin <kalyazin@amazon.com>
 ---
  .../testing/selftests/kvm/include/kvm_util.h  | 19 ++++++++++---------
  tools/testing/selftests/kvm/lib/kvm_util.c    |  2 +-
@@ -20,10 +21,10 @@ Signed-off-by: Patrick Roy <roypat@amazon.co.uk>
  4 files changed, 13 insertions(+), 10 deletions(-)
 
 diff --git a/tools/testing/selftests/kvm/include/kvm_util.h b/tools/testing/selftests/kvm/include/kvm_util.h
-index 5204a0a18a7f..8baa0bbacd09 100644
+index 6689b43810c1..4bc4af9a40cf 100644
 --- a/tools/testing/selftests/kvm/include/kvm_util.h
 +++ b/tools/testing/selftests/kvm/include/kvm_util.h
-@@ -188,7 +188,7 @@ enum vm_guest_mode {
+@@ -192,7 +192,7 @@ enum vm_guest_mode {
  struct vm_shape {
  	uint32_t type;
  	uint8_t  mode;
@@ -32,7 +33,7 @@ index 5204a0a18a7f..8baa0bbacd09 100644
  	uint16_t pad1;
  };
  
-@@ -196,14 +196,15 @@ kvm_static_assert(sizeof(struct vm_shape) == sizeof(uint64_t));
+@@ -200,14 +200,15 @@ kvm_static_assert(sizeof(struct vm_shape) == sizeof(uint64_t));
  
  #define VM_TYPE_DEFAULT			0
  
@@ -57,10 +58,10 @@ index 5204a0a18a7f..8baa0bbacd09 100644
  
  #if defined(__aarch64__)
 diff --git a/tools/testing/selftests/kvm/lib/kvm_util.c b/tools/testing/selftests/kvm/lib/kvm_util.c
-index a81089f7c83f..3a22794bd959 100644
+index 28ee51253909..268a4520633b 100644
 --- a/tools/testing/selftests/kvm/lib/kvm_util.c
 +++ b/tools/testing/selftests/kvm/lib/kvm_util.c
-@@ -495,7 +495,7 @@ struct kvm_vm *__vm_create(struct vm_shape shape, uint32_t nr_runnable_vcpus,
+@@ -467,7 +467,7 @@ struct kvm_vm *__vm_create(struct vm_shape shape, uint32_t nr_runnable_vcpus,
  	if (is_guest_memfd_required(shape))
  		flags |= KVM_MEM_GUEST_MEMFD;
  
@@ -82,10 +83,10 @@ index c3a9838f4806..d920880e4fc0 100644
  	struct kvm_vm *vm;
  	struct kvm_vcpu *cpus[1];
 diff --git a/tools/testing/selftests/kvm/pre_fault_memory_test.c b/tools/testing/selftests/kvm/pre_fault_memory_test.c
-index 0350a8896a2f..d403f8d2f26f 100644
+index 93e603d91311..8a4d5af53fab 100644
 --- a/tools/testing/selftests/kvm/pre_fault_memory_test.c
 +++ b/tools/testing/selftests/kvm/pre_fault_memory_test.c
-@@ -68,6 +68,7 @@ static void __test_pre_fault_memory(unsigned long vm_type, bool private)
+@@ -165,6 +165,7 @@ static void __test_pre_fault_memory(unsigned long vm_type, bool private)
  	const struct vm_shape shape = {
  		.mode = VM_MODE_DEFAULT,
  		.type = vm_type,
@@ -94,5 +95,5 @@ index 0350a8896a2f..d403f8d2f26f 100644
  	struct kvm_vcpu *vcpu;
  	struct kvm_run *run;
 -- 
-2.51.0
+2.50.1
 

@@ -1,0 +1,165 @@
+From 1c41f8f3676c0599ba3547260e0947a1ef253b78 Mon Sep 17 00:00:00 2001
+From: Nikita Kalyazin <kalyazin@amazon.com>
+Date: Fri, 14 Nov 2025 11:34:23 +0000
+Subject: [PATCH 23/30] KVM: guest_memfd: add generic population via write
+
+From: Nikita Kalyazin <kalyazin@amazon.com>
+
+On systems that support shared guest memory, write() is useful, for
+example, for population of the initial image.  Even though the same can
+also be achieved via userspace mapping and memcpying from userspace,
+write() provides a more performant option because it does not need to
+set user page tables and it does not cause a page fault for every page
+like memcpy would.  Note that memcpy cannot be accelerated via
+MADV_POPULATE_WRITE as it is not supported by guest_memfd and relies on
+GUP.
+
+Populating 512MiB of guest_memfd on a x86 machine:
+ - via memcpy: 436 ms
+ - via write:  202 ms (-54%)
+
+Only PAGE_ALIGNED offset and len are allowed.  Even though non-aligned
+writes are technically possible, when in-place conversion support is
+implemented [1], the restriction makes handling of mixed shared/private
+huge pages simpler.  write() will only be allowed to populate shared
+pages.
+
+When direct map removal is implemented [2]
+ - write() will not be allowed to access pages that have already been
+   removed from direct map
+ - on completion, write() will remove the populated pages from direct
+   map
+
+While it is technically possible to implement read() syscall on systems
+with shared guest memory, it is not supported as there is currently no
+use case for it.
+
+[1] https://lore.kernel.org/kvm/cover.1760731772.git.ackerleytng@google.com
+[2] https://lore.kernel.org/kvm/20250924151101.2225820-1-patrick.roy@campus.lmu.de
+
+Signed-off-by: Nikita Kalyazin <kalyazin@amazon.com>
+---
+ Documentation/virt/kvm/api.rst |  2 ++
+ include/linux/kvm_host.h       |  2 +-
+ include/uapi/linux/kvm.h       |  1 +
+ virt/kvm/guest_memfd.c         | 50 ++++++++++++++++++++++++++++++++++
+ 4 files changed, 54 insertions(+), 1 deletion(-)
+
+diff --git a/Documentation/virt/kvm/api.rst b/Documentation/virt/kvm/api.rst
+index c5f54f1370c8..a019fe5f75aa 100644
+--- a/Documentation/virt/kvm/api.rst
++++ b/Documentation/virt/kvm/api.rst
+@@ -6452,6 +6452,8 @@ specified via KVM_CREATE_GUEST_MEMFD.  Currently defined flags:
+                                  to memfd_secret, and unmaps the memory backing
+                                  it from the kernel's address space before
+                                  being passed off to userspace or the guest.
++  GUEST_MEMFD_FLAG_WRITE         Enable using write() on the guest_memfd file
++                                 descriptor.
+   ============================== ================================================
+ 
+ When the KVM MMU performs a PFN lookup to service a guest fault and the backing
+diff --git a/include/linux/kvm_host.h b/include/linux/kvm_host.h
+index 4c757535f475..4c30eecd9af1 100644
+--- a/include/linux/kvm_host.h
++++ b/include/linux/kvm_host.h
+@@ -737,7 +737,7 @@ static inline u64 kvm_gmem_get_supported_flags(struct kvm *kvm)
+ 	u64 flags = GUEST_MEMFD_FLAG_MMAP;
+ 
+ 	if (!kvm || kvm_arch_supports_gmem_init_shared(kvm))
+-		flags |= GUEST_MEMFD_FLAG_INIT_SHARED;
++		flags |= GUEST_MEMFD_FLAG_INIT_SHARED | GUEST_MEMFD_FLAG_WRITE;
+ 
+ 	if (kvm_arch_gmem_supports_no_direct_map())
+ 		flags |= GUEST_MEMFD_FLAG_NO_DIRECT_MAP;
+diff --git a/include/uapi/linux/kvm.h b/include/uapi/linux/kvm.h
+index e14fd2fd891e..4d9ffbde341f 100644
+--- a/include/uapi/linux/kvm.h
++++ b/include/uapi/linux/kvm.h
+@@ -1617,6 +1617,7 @@ struct kvm_memory_attributes {
+ #define GUEST_MEMFD_FLAG_MMAP		(1ULL << 0)
+ #define GUEST_MEMFD_FLAG_INIT_SHARED	(1ULL << 1)
+ #define GUEST_MEMFD_FLAG_NO_DIRECT_MAP	(1ULL << 2)
++#define GUEST_MEMFD_FLAG_WRITE		(1ULL << 3)
+ 
+ struct kvm_create_guest_memfd {
+ 	__u64 size;
+diff --git a/virt/kvm/guest_memfd.c b/virt/kvm/guest_memfd.c
+index f2f9ccbf3b7a..d5ad181ad919 100644
+--- a/virt/kvm/guest_memfd.c
++++ b/virt/kvm/guest_memfd.c
+@@ -540,6 +540,8 @@ static int kvm_gmem_mmap(struct file *file, struct vm_area_struct *vma)
+ 
+ static struct file_operations kvm_gmem_fops = {
+ 	.mmap		= kvm_gmem_mmap,
++	.llseek		= default_llseek,
++	.write_iter     = generic_perform_write,
+ 	.open		= generic_file_open,
+ 	.release	= kvm_gmem_release,
+ 	.fallocate	= kvm_gmem_fallocate,
+@@ -591,8 +593,55 @@ static void kvm_gmem_free_folio(struct folio *folio)
+ 	kvm_arch_gmem_invalidate(pfn, pfn + (1ul << order));
+ }
+ 
++static bool kvm_gmem_supports_write(struct inode *inode)
++{
++	return GMEM_I(inode)->flags & GUEST_MEMFD_FLAG_WRITE;
++}
++
++static int kvm_gmem_write_begin(const struct kiocb *kiocb,
++				struct address_space *mapping,
++				loff_t pos, unsigned int len,
++				struct folio **folio, void **fsdata)
++{
++	struct inode *inode = file_inode(kiocb->ki_filp);
++
++	if (!kvm_gmem_supports_write(inode))
++		return -ENODEV;
++
++	if (pos + len > i_size_read(inode))
++		return -EINVAL;
++
++	if (!IS_ALIGNED(pos, PAGE_SIZE) || !IS_ALIGNED(len, PAGE_SIZE))
++		return -EINVAL;
++
++	*folio = kvm_gmem_get_folio(inode, pos >> PAGE_SHIFT);
++	if (IS_ERR(*folio))
++		return PTR_ERR(*folio);
++
++	return 0;
++}
++
++static int kvm_gmem_write_end(const struct kiocb *kiocb,
++			      struct address_space *mapping,
++			      loff_t pos, unsigned int len,
++			      unsigned int copied,
++			      struct folio *folio, void *fsdata)
++{
++	if (!folio_test_uptodate(folio)) {
++		folio_zero_range(folio, copied, len - copied);
++		folio_mark_uptodate(folio);
++	}
++
++	folio_unlock(folio);
++	folio_put(folio);
++
++	return copied;
++}
++
+ static const struct address_space_operations kvm_gmem_aops = {
+ 	.dirty_folio = noop_dirty_folio,
++	.write_begin = kvm_gmem_write_begin,
++	.write_end = kvm_gmem_write_end,
+ 	.migrate_folio	= kvm_gmem_migrate_folio,
+ 	.error_remove_folio = kvm_gmem_error_folio,
+ 	.free_folio = kvm_gmem_free_folio,
+@@ -663,6 +712,7 @@ static int __kvm_gmem_create(struct kvm *kvm, loff_t size, u64 flags)
+ 	}
+ 
+ 	file->f_flags |= O_LARGEFILE;
++	file->f_mode |= FMODE_LSEEK | FMODE_PWRITE;
+ 	file->private_data = f;
+ 
+ 	kvm_get_kvm(kvm);
+-- 
+2.50.1
+

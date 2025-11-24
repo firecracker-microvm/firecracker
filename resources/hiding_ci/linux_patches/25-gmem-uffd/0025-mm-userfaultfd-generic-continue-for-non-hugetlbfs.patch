@@ -1,7 +1,7 @@
-From 4a772023aa544182d6bb94a091aacf4f39b8dabd Mon Sep 17 00:00:00 2001
+From 6a948ad1952d7859ec46eff019ffd6ad10179c93 Mon Sep 17 00:00:00 2001
 From: Nikita Kalyazin <kalyazin@amazon.com>
 Date: Mon, 31 Mar 2025 10:15:35 +0000
-Subject: [PATCH 10/15] mm: userfaultfd: generic continue for non hugetlbfs
+Subject: [PATCH 25/30] mm: userfaultfd: generic continue for non hugetlbfs
 
 Remove shmem-specific code from UFFDIO_CONTINUE implementation for
 non-huge pages by calling vm_ops->fault().  A new VMF flag,
@@ -18,10 +18,10 @@ Signed-off-by: Nikita Kalyazin <kalyazin@amazon.com>
  4 files changed, 38 insertions(+), 14 deletions(-)
 
 diff --git a/include/linux/mm_types.h b/include/linux/mm_types.h
-index 08bc2442db93..06619c07b6d3 100644
+index 90e5790c318f..6978d4a6b7c8 100644
 --- a/include/linux/mm_types.h
 +++ b/include/linux/mm_types.h
-@@ -1569,6 +1569,9 @@ enum tlb_flush_reason {
+@@ -1620,6 +1620,9 @@ enum tlb_flush_reason {
   * @FAULT_FLAG_ORIG_PTE_VALID: whether the fault has vmf->orig_pte cached.
   *                        We should only access orig_pte if this flag set.
   * @FAULT_FLAG_VMA_LOCK: The fault is handled under VMA lock.
@@ -31,7 +31,7 @@ index 08bc2442db93..06619c07b6d3 100644
   *
   * About @FAULT_FLAG_ALLOW_RETRY and @FAULT_FLAG_TRIED: we can specify
   * whether we would allow page faults to retry by specifying these two
-@@ -1607,6 +1610,7 @@ enum fault_flag {
+@@ -1658,6 +1661,7 @@ enum fault_flag {
  	FAULT_FLAG_UNSHARE =		1 << 10,
  	FAULT_FLAG_ORIG_PTE_VALID =	1 << 11,
  	FAULT_FLAG_VMA_LOCK =		1 << 12,
@@ -40,10 +40,10 @@ index 08bc2442db93..06619c07b6d3 100644
  
  typedef unsigned int __bitwise zap_flags_t;
 diff --git a/mm/hugetlb.c b/mm/hugetlb.c
-index 753f99b4c718..7efeb52f62b9 100644
+index 0455119716ec..5ba29f2d9412 100644
 --- a/mm/hugetlb.c
 +++ b/mm/hugetlb.c
-@@ -6531,7 +6531,7 @@ static vm_fault_t hugetlb_no_page(struct address_space *mapping,
+@@ -6543,7 +6543,7 @@ static vm_fault_t hugetlb_no_page(struct address_space *mapping,
  		}
  
  		/* Check for page in userfault range. */
@@ -53,10 +53,10 @@ index 753f99b4c718..7efeb52f62b9 100644
  			folio_put(folio);
  			/* See comment in userfaultfd_missing() block above */
 diff --git a/mm/shmem.c b/mm/shmem.c
-index e2c76a30802b..5bea7a10e176 100644
+index 5a3f0f754dc0..a6e16d783ed1 100644
 --- a/mm/shmem.c
 +++ b/mm/shmem.c
-@@ -2519,7 +2519,8 @@ static int shmem_get_folio_gfp(struct inode *inode, pgoff_t index,
+@@ -2457,7 +2457,8 @@ static int shmem_get_folio_gfp(struct inode *inode, pgoff_t index,
  	fault_mm = vma ? vma->vm_mm : NULL;
  
  	folio = filemap_get_entry(inode->i_mapping, index);
@@ -66,7 +66,7 @@ index e2c76a30802b..5bea7a10e176 100644
  		if (!xa_is_value(folio))
  			folio_put(folio);
  		*fault_type = handle_userfault(vmf, VM_UFFD_MINOR);
-@@ -2779,6 +2780,8 @@ static vm_fault_t shmem_falloc_wait(struct vm_fault *vmf, struct inode *inode)
+@@ -2717,6 +2718,8 @@ static vm_fault_t shmem_falloc_wait(struct vm_fault *vmf, struct inode *inode)
  static vm_fault_t shmem_fault(struct vm_fault *vmf)
  {
  	struct inode *inode = file_inode(vmf->vma->vm_file);
@@ -75,7 +75,7 @@ index e2c76a30802b..5bea7a10e176 100644
  	gfp_t gfp = mapping_gfp_mask(inode->i_mapping);
  	struct folio *folio = NULL;
  	vm_fault_t ret = 0;
-@@ -2795,8 +2798,8 @@ static vm_fault_t shmem_fault(struct vm_fault *vmf)
+@@ -2733,8 +2736,8 @@ static vm_fault_t shmem_fault(struct vm_fault *vmf)
  	}
  
  	WARN_ON_ONCE(vmf->page != NULL);
@@ -87,7 +87,7 @@ index e2c76a30802b..5bea7a10e176 100644
  		return vmf_error(err);
  	if (folio) {
 diff --git a/mm/userfaultfd.c b/mm/userfaultfd.c
-index 45e6290e2e8b..c43e4c8893b7 100644
+index af61b95c89e4..eaf350c6116d 100644
 --- a/mm/userfaultfd.c
 +++ b/mm/userfaultfd.c
 @@ -376,30 +376,47 @@ static int mfill_atomic_pte_zeropage(pmd_t *dst_pmd,
@@ -149,5 +149,5 @@ index 45e6290e2e8b..c43e4c8893b7 100644
  		ret = -EIO;
  		goto out_release;
 -- 
-2.51.0
+2.50.1
 

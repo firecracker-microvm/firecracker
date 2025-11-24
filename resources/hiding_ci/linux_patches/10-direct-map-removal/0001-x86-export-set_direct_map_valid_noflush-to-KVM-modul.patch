@@ -1,0 +1,39 @@
+From f364fe26a370b1a5d7509ce21db69d3857ca9f77 Mon Sep 17 00:00:00 2001
+From: Patrick Roy <patrick.roy@linux.dev>
+Date: Fri, 12 Sep 2025 09:17:32 +0000
+Subject: [PATCH 01/30] x86: export set_direct_map_valid_noflush to KVM module
+
+Use the per-module export functionality to allow KVM (and only KVM)
+access to set_direct_map_valid_noflush(). This allows guest_memfd to
+remove its memory from the direct map, even if KVM is built as a module.
+
+Only do this on x86, as only x86 and arm64 support guest_memfd, and
+arm64 does not support building KVM as a module.
+
+Direct map removal gives guest_memfd the same protection that
+memfd_secret enjoys, such as hardening against Spectre-like attacks
+through in-kernel gadgets.
+
+Signed-off-by: Patrick Roy <patrick.roy@linux.dev>
+Signed-off-by: Nikita Kalyazin <kalyazin@amazon.com>
+---
+ arch/x86/mm/pat/set_memory.c | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/arch/x86/mm/pat/set_memory.c b/arch/x86/mm/pat/set_memory.c
+index 970981893c9b..a7a88b598d99 100644
+--- a/arch/x86/mm/pat/set_memory.c
++++ b/arch/x86/mm/pat/set_memory.c
+@@ -2655,6 +2655,7 @@ int set_direct_map_valid_noflush(struct page *page, unsigned nr, bool valid)
+ 
+ 	return __set_pages_np(page, nr);
+ }
++EXPORT_SYMBOL_FOR_MODULES(set_direct_map_valid_noflush, "kvm");
+ 
+ #ifdef CONFIG_DEBUG_PAGEALLOC
+ void __kernel_map_pages(struct page *page, int numpages, int enable)
+
+base-commit: e0c26d47def7382d7dbd9cad58bc653aed75737a
+-- 
+2.50.1
+

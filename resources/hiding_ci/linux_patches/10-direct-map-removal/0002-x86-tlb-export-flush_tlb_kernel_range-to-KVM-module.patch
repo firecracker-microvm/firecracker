@@ -1,0 +1,56 @@
+From 758a63900778cc1aa2bfe349bd1b41ed92192deb Mon Sep 17 00:00:00 2001
+From: Patrick Roy <patrick.roy@linux.dev>
+Date: Sun, 23 Nov 2025 18:44:32 +0100
+Subject: [PATCH 02/30] x86/tlb: export flush_tlb_kernel_range to KVM module
+
+After direct map removal, a TLB flush must be done to ensure that the
+just-unmapped memory cannot be accessed through stale TLB entries.
+
+This export is only needed on x86, as arm64 (the only other architecture
+supporting guest_memfd currently) does not allow building KVM as a
+module.
+
+Cc: Thomas Gleixner <tglx@linutronix.de>
+Signed-off-by: Patrick Roy <patrick.roy@linux.dev>
+Signed-off-by: Nikita Kalyazin <kalyazin@amazon.com>
+---
+ arch/x86/include/asm/tlbflush.h | 3 ++-
+ arch/x86/mm/tlb.c               | 1 +
+ 2 files changed, 3 insertions(+), 1 deletion(-)
+
+diff --git a/arch/x86/include/asm/tlbflush.h b/arch/x86/include/asm/tlbflush.h
+index 00daedfefc1b..6f57f7eb621b 100644
+--- a/arch/x86/include/asm/tlbflush.h
++++ b/arch/x86/include/asm/tlbflush.h
+@@ -317,7 +317,6 @@ extern void flush_tlb_all(void);
+ extern void flush_tlb_mm_range(struct mm_struct *mm, unsigned long start,
+ 				unsigned long end, unsigned int stride_shift,
+ 				bool freed_tables);
+-extern void flush_tlb_kernel_range(unsigned long start, unsigned long end);
+ 
+ static inline void flush_tlb_page(struct vm_area_struct *vma, unsigned long a)
+ {
+@@ -483,6 +482,8 @@ static inline void cpu_tlbstate_update_lam(unsigned long lam, u64 untag_mask)
+ #endif
+ #endif /* !MODULE */
+ 
++extern void flush_tlb_kernel_range(unsigned long start, unsigned long end);
++
+ static inline void __native_tlb_flush_global(unsigned long cr4)
+ {
+ 	native_write_cr4(cr4 ^ X86_CR4_PGE);
+diff --git a/arch/x86/mm/tlb.c b/arch/x86/mm/tlb.c
+index 5d221709353e..cce591d26e4c 100644
+--- a/arch/x86/mm/tlb.c
++++ b/arch/x86/mm/tlb.c
+@@ -1561,6 +1561,7 @@ void flush_tlb_kernel_range(unsigned long start, unsigned long end)
+ 
+ 	put_flush_tlb_info();
+ }
++EXPORT_SYMBOL_FOR_MODULES(flush_tlb_kernel_range, "kvm");
+ 
+ /*
+  * This can be used from process context to figure out what the value of
+-- 
+2.50.1
+
