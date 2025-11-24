@@ -869,6 +869,12 @@ where
     /// Check whether the given guest address range falls entirely within plugged memory.
     /// Returns Err if the address is not in any region or is in an unplugged slot.
     fn check_range_plugged(&self, addr: GuestAddress, len: usize) -> Result<(), GuestMemoryError>;
+
+    /// Convert guest physical address to file offset
+    fn gpa_to_offset(&self, gpa: GuestAddress) -> Option<u64>;
+
+    /// Convert file offset to guest physical address
+    fn offset_to_gpa(&self, offset: u64) -> Option<GuestAddress>;
 }
 
 /// State of a guest memory region saved to file/buffer.
@@ -1055,6 +1061,33 @@ impl GuestMemoryExtension for GuestMemoryMmap {
     fn check_range_plugged(&self, addr: GuestAddress, len: usize) -> Result<(), GuestMemoryError> {
         self.try_for_each_region_in_range(addr, len, |region, offset, chunk_len| {
             region.check_range_plugged(offset, chunk_len)
+        })
+    }
+
+    /// Convert guest physical address to file offset
+    fn gpa_to_offset(&self, gpa: GuestAddress) -> Option<u64> {
+        self.find_region(gpa).map(|r| {
+            gpa.0 - r.start_addr().0 + r.file_offset().expect("File offset is None").start()
+        })
+    }
+
+    /// Convert file offset to guest physical address
+    fn offset_to_gpa(&self, offset: u64) -> Option<GuestAddress> {
+        self.iter().find_map(|region| {
+            if let Some(reg_offset) = region.file_offset() {
+                let region_start = reg_offset.start();
+                let region_size = region.size();
+
+                if offset >= region_start && offset < region_start + region_size as u64 {
+                    Some(GuestAddress(
+                        region.start_addr().0 + (offset - region_start),
+                    ))
+                } else {
+                    None
+                }
+            } else {
+                None
+            }
         })
     }
 }
