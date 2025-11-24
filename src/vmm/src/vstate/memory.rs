@@ -14,10 +14,7 @@ use std::os::fd::AsRawFd;
 use std::sync::{Arc, Mutex};
 
 use bitvec::vec::BitVec;
-use kvm_bindings::{
-    KVM_MEM_GUEST_MEMFD, KVM_MEM_LOG_DIRTY_PAGES, kvm_userspace_memory_region,
-    kvm_userspace_memory_region2,
-};
+use kvm_bindings::{KVM_MEM_GUEST_MEMFD, KVM_MEM_LOG_DIRTY_PAGES, kvm_userspace_memory_region};
 use serde::{Deserialize, Serialize};
 pub use vm_memory::bitmap::{AtomicBitmap, BS, Bitmap, BitmapSlice};
 pub use vm_memory::mmap::MmapRegionBuilder;
@@ -35,7 +32,7 @@ use crate::arch::host_page_size;
 use crate::logger::error;
 use crate::utils::{mib_to_bytes, u64_to_usize};
 use crate::vmm_config::machine_config::HugePageConfig;
-use crate::vstate::vm::{KvmVm, VmError};
+use crate::vstate::vm::{KvmVm, VmError, kvm_userspace_memory_region2};
 use crate::{DirtyBitmap, align_up, warn_unrestricted};
 
 /// Type of GuestMemoryMmap.
@@ -517,6 +514,8 @@ pub struct GuestRegionMmapExt {
     pub slot_size: usize,
     /// a bitvec indicating whether slot `i` is plugged into KVM (1) or not (0)
     pub plugged: Mutex<BitVec>,
+    /// userfault bitmap slice
+    pub userfault_bitmap: Option<u64>,
 }
 
 /// A guest memory slot, which is a slice of a guest memory region
@@ -530,6 +529,8 @@ pub struct GuestMemorySlot<'a> {
     pub(crate) slice: VolatileSlice<'a, BS<'a, Option<AtomicBitmap>>>,
     /// guest_memfd file offset
     pub(crate) guest_memfd_file_offset: Option<FileOffset>,
+    /// userfault bitmap slice
+    pub(crate) userfault_bitmap: Option<u64>,
 }
 
 impl From<&GuestMemorySlot<'_>> for kvm_userspace_memory_region {
@@ -551,6 +552,9 @@ impl From<&GuestMemorySlot<'_>> for kvm_userspace_memory_region {
 
 impl From<&GuestMemorySlot<'_>> for kvm_userspace_memory_region2 {
     fn from(mem_slot: &GuestMemorySlot) -> Self {
+        // TODO: take it from kvm-bindings when merged upstream
+        const KVM_MEM_USERFAULT: u32 = 1 << 3;
+
         let mut flags = if mem_slot.slice.bitmap().is_some() {
             KVM_MEM_LOG_DIRTY_PAGES
         } else {
@@ -567,6 +571,13 @@ impl From<&GuestMemorySlot<'_>> for kvm_userspace_memory_region2 {
                 (0, 0)
             };
 
+        let userfault_bitmap = if let Some(ref addr) = mem_slot.userfault_bitmap {
+            flags |= KVM_MEM_USERFAULT;
+            *addr
+        } else {
+            0
+        };
+
         kvm_userspace_memory_region2 {
             flags,
             slot: mem_slot.slot,
@@ -575,6 +586,7 @@ impl From<&GuestMemorySlot<'_>> for kvm_userspace_memory_region2 {
             userspace_addr: mem_slot.slice.ptr_guard().as_ptr() as u64,
             guest_memfd,
             guest_memfd_offset,
+            userfault_bitmap,
             ..Default::default()
         }
     }
@@ -683,6 +695,11 @@ impl<'a> GuestMemorySlot<'a> {
     }
 }
 
+/// Calculate the size of the bitmap in bytes to represent memory of size mem_size (in bytes)
+pub fn bitmap_size(mem_size: u64) -> u64 {
+    mem_size / host_page_size() as u64 / u8::BITS as u64
+}
+
 impl GuestRegionMmapExt {
     /// Adds a DRAM region which only contains a single plugged slot
     pub(crate) fn dram_from_mmap_region(region: GuestRegionMmap, slot: u32) -> Self {
@@ -693,6 +710,7 @@ impl GuestRegionMmapExt {
             slot_from: slot,
             slot_size,
             plugged: Mutex::new(BitVec::repeat(true, 1)),
+            userfault_bitmap: None,
         }
     }
 
@@ -710,6 +728,7 @@ impl GuestRegionMmapExt {
             slot_from,
             slot_size,
             plugged: Mutex::new(BitVec::repeat(false, slot_cnt)),
+            userfault_bitmap: None,
         }
     }
 
@@ -717,6 +736,7 @@ impl GuestRegionMmapExt {
         region: GuestRegionMmap,
         state: &GuestMemoryRegionState,
         slot_from: u32,
+        userfault_bitmap: Option<u64>,
     ) -> Result<Self, MemoryError> {
         let slot_cnt = state.plugged.len();
         let region_len = u64_to_usize(region.len());
@@ -736,6 +756,7 @@ impl GuestRegionMmapExt {
             region_type: state.region_type,
             slot_from,
             plugged: Mutex::new(BitVec::from_iter(state.plugged.iter())),
+            userfault_bitmap,
         })
     }
 
@@ -781,6 +802,9 @@ impl GuestRegionMmapExt {
                 .file_offset()
                 .cloned()
                 .map(|fo| FileOffset::from_arc(Arc::clone(fo.arc()), fo.start() + offset)),
+            userfault_bitmap: self
+                .userfault_bitmap
+                .map(|v| v.wrapping_add(bitmap_size(offset))),
         }
     }
 
@@ -2512,6 +2536,7 @@ mod tests {
                     mmap_regions.into_iter().next().unwrap(),
                     &state,
                     slot_from,
+                    None,
                 )
                 .unwrap();
 
@@ -2655,7 +2680,7 @@ mod tests {
             plugged: vec![true, true, false, true],
         };
 
-        let ext = GuestRegionMmapExt::from_state(region, &state, 0).unwrap();
+        let ext = GuestRegionMmapExt::from_state(region, &state, 0, None).unwrap();
 
         // Slot 0 (offset 0..0x1000): plugged
         ext.check_range_plugged(MemoryRegionAddress(0), 0x100)
