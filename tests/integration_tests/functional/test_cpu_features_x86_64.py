@@ -253,7 +253,7 @@ MSR_SUPPORTED_TEMPLATES = ["T2A", "T2CL", "T2S", "SPR_TO_T2_5.10", "SPR_TO_T2_6.
 
 
 @pytest.mark.timeout(900)
-@pytest.mark.nonci
+@pytest.mark.no_block_pr
 def test_cpu_rdmsr(
     msr_reader_bin, microvm_factory, cpu_template_any, guest_kernel, rootfs, results_dir
 ):
