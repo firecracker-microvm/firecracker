@@ -13,11 +13,14 @@ use std::time::Duration;
 use userfaultfd::{Event, FeatureFlags, UffdBuilder};
 use vm_memory::GuestMemoryBackend;
 use vmm::arch::host_page_size;
-use vmm::builder::build_and_boot_microvm;
+use vmm::builder::{
+    BuildMicrovmFromSnapshotError, BuildMicrovmFromSnapshotErrorGuestMemoryError,
+    build_and_boot_microvm,
+};
 use vmm::devices::virtio::block::CacheType;
 use vmm::persist::{
     GuestMemoryFromFileError, MicrovmState, MicrovmStateError, RestoreFromSnapshotError,
-    RestoreFromSnapshotGuestMemoryError, VirtioDevicesState, VmInfo, snapshot_state_sanity_check,
+    VirtioDevicesState, VmInfo, snapshot_state_sanity_check,
 };
 use vmm::resources::VmResources;
 use vmm::rpc_interface::{
@@ -464,14 +467,19 @@ fn test_load_snapshot_rejects_hugetlbfs_with_file_backend() {
         }))
         .unwrap_err();
 
-    assert!(matches!(
-        error,
-        VmmActionError::LoadSnapshot(LoadSnapshotError::RestoreFromSnapshot(
-            RestoreFromSnapshotError::GuestMemory(RestoreFromSnapshotGuestMemoryError::File(
-                GuestMemoryFromFileError::HugetlbfsSnapshot
+    assert!(
+        matches!(
+            error,
+            VmmActionError::LoadSnapshot(LoadSnapshotError::RestoreFromSnapshot(
+                RestoreFromSnapshotError::Build(BuildMicrovmFromSnapshotError::GuestMemory(
+                    BuildMicrovmFromSnapshotErrorGuestMemoryError::File(
+                        GuestMemoryFromFileError::HugetlbfsSnapshot
+                    )
+                ))
             ))
-        ))
-    ));
+        ),
+        "unexpected snapshot load error: {error:?}"
+    );
 }
 
 #[test]
