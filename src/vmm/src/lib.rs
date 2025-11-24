@@ -119,6 +119,7 @@ pub mod initrd;
 use std::collections::HashMap;
 use std::io;
 use std::os::unix::io::AsRawFd;
+use std::os::unix::net::UnixStream;
 use std::sync::mpsc::RecvTimeoutError;
 use std::sync::{Arc, Barrier, Mutex};
 use std::time::Duration;
@@ -307,6 +308,8 @@ pub struct Vmm {
     // Save UFFD in order to keep it open in the Firecracker process, as well.
     #[allow(unused)]
     uffd: Option<Uffd>,
+    // Used for userfault communication with the UFFD handler when secret freedom is enabled
+    uffd_socket: Option<UnixStream>,
     /// Handles to the vcpu threads with vcpu_fds inside them.
     pub vcpus_handles: Vec<VcpuHandle>,
     // Used by Vcpus and devices to initiate teardown; Vmm should never write here.
