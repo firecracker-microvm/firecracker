@@ -55,8 +55,8 @@ pub enum MemoryError {
     OffsetTooLarge,
     /// Cannot retrieve snapshot file metadata: {0}
     FileMetadata(std::io::Error),
-    /// Memory region state is invalid: {0}
-    InvalidRegionState(&'static str),
+    /// Memory region is not aligned
+    Unaligned,
     /// Error protecting memory slot: {0}
     Mprotect(std::io::Error),
 }
@@ -231,23 +231,9 @@ impl GuestRegionMmapExt {
         slot_from: u32,
     ) -> Result<Self, MemoryError> {
         let slot_cnt = state.plugged.len();
-        let slot_size = u64_to_usize(region.len()).checked_div(slot_cnt).ok_or(
-            MemoryError::InvalidRegionState("memory region should be aligned to the slot size"),
-        )?;
-
-        // validate the region state to avoid spurious crashes when resuming from an invalid state
-        if state.region_type == GuestRegionType::Dram {
-            if slot_cnt != 1 {
-                return Err(MemoryError::InvalidRegionState(
-                    "DRAM region should contain only one slot",
-                ));
-            }
-            if !state.plugged[0] {
-                return Err(MemoryError::InvalidRegionState(
-                    "DRAM region should be plugged",
-                ));
-            }
-        }
+        let slot_size = u64_to_usize(region.len())
+            .checked_div(slot_cnt)
+            .ok_or(MemoryError::Unaligned)?;
 
         Ok(GuestRegionMmapExt {
             inner: region,
