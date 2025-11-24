@@ -13,7 +13,7 @@ bench = false
 tracing = ["log-instrument", "vmm/tracing"]
 
 [dependencies]
-clap = { version = "4.5.51", features = ["derive", "string"] }
+clap = { version = "4.5.53", features = ["derive", "string"] }
 displaydoc = "0.2.5"
 libc = "0.2.177"
 log-instrument = { path = "../log-instrument", optional = true }
