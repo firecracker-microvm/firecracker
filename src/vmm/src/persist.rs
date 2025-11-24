@@ -36,8 +36,9 @@ use crate::vmm_config::instance_info::InstanceInfo;
 use crate::vmm_config::machine_config::{HugePageConfig, MachineConfigError, MachineConfigUpdate};
 use crate::vmm_config::snapshot::{CreateSnapshotParams, LoadSnapshotParams, MemBackendType};
 use crate::vstate::kvm::KvmState;
-use crate::vstate::memory;
-use crate::vstate::memory::{GuestMemoryState, GuestRegionMmap, MemoryError};
+use crate::vstate::memory::{
+    self, GuestMemoryState, GuestRegionMmap, GuestRegionType, MemoryError,
+};
 use crate::vstate::vcpu::{VcpuSendEventError, VcpuState};
 use crate::vstate::vm::{VmError, VmState};
 use crate::{EventManager, Vmm, vstate};
@@ -268,17 +269,46 @@ pub fn validate_cpu_manufacturer_id(microvm_state: &MicrovmState) {
 pub enum SnapShotStateSanityCheckError {
     /// No memory region defined.
     NoMemory,
+    /// No DRAM memory region defined.
+    NoDramMemory,
+    /// DRAM memory has more than a single slot.
+    DramMemoryTooManySlots,
+    /// DRAM memory is unplugged.
+    DramMemoryUnplugged,
 }
 
 /// Performs sanity checks against the state file and returns specific errors.
 pub fn snapshot_state_sanity_check(
     microvm_state: &MicrovmState,
 ) -> Result<(), SnapShotStateSanityCheckError> {
-    // Check if the snapshot contains at least 1 mem region.
+    // Check that the snapshot contains at least 1 mem region, that at least one is Dram,
+    // and that Dram region contains a single plugged slot.
     // Upper bound check will be done when creating guest memory by comparing against
     // KVM max supported value kvm_context.max_memslots().
-    if microvm_state.vm_state.memory.regions.is_empty() {
+    let regions = &microvm_state.vm_state.memory.regions;
+
+    if regions.is_empty() {
         return Err(SnapShotStateSanityCheckError::NoMemory);
+    }
+
+    if !regions
+        .iter()
+        .any(|r| r.region_type == GuestRegionType::Dram)
+    {
+        return Err(SnapShotStateSanityCheckError::NoDramMemory);
+    }
+
+    for dram_region in regions
+        .iter()
+        .filter(|r| r.region_type == GuestRegionType::Dram)
+    {
+        if dram_region.plugged.len() != 1 {
+            return Err(SnapShotStateSanityCheckError::DramMemoryTooManySlots);
+        }
+
+        if !dram_region.plugged[0] {
+            return Err(SnapShotStateSanityCheckError::DramMemoryUnplugged);
+        }
     }
 
     #[cfg(target_arch = "x86_64")]
