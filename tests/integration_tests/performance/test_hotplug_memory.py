@@ -410,7 +410,8 @@ def timed_memory_hotplug(uvm, size, metrics, metric_prefix, fc_metric_name):
 
     uvm.flush_metrics()
 
-    api_time, total_time = uvm.hotplug_memory(size)
+    # poll every 5ms to check completion as the fastest hotplug is around 30ms
+    api_time, total_time = uvm.hotplug_memory(size, poll=0.005)
 
     fc_metrics = uvm.flush_metrics()
 
