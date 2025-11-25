@@ -69,6 +69,8 @@ specification:
 |                           | show_level         |    O     |       O        |      O       |        O         |     O      |      O       |     O      |      O      |
 |                           | show_log_origin    |    O     |       O        |      O       |        O         |     O      |      O       |     O      |      O      |
 | `MachineConfiguration`    | cpu_template       |    O     |       O        |      O       |        O         |     O      |      O       |     O      |      O      |
+|                           | huge_pages         |    O     |       O        |      O       |        O         |     O      |      O       |     O      |      O      |
+|                           | enable_thp         |    O     |       O        |      O       |        O         |     O      |      O       |     O      |      O      |
 |                           | smt                |    O     |       O        |      O       |        O         |     O      |      O       |     O      |      O      |
 |                           | mem_size_mib       |    O     |       O        |      O       |        O         |     O      |      O       |     O      |      O      |
 |                           | track_dirty_pages  |    O     |       O        |      O       |        O         |     O      |      O       |     O      |      O      |

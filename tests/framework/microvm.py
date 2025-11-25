@@ -798,6 +798,7 @@ class Microvm:
         rootfs_io_engine=None,
         cpu_template: Optional[str] = None,
         enable_entropy_device=False,
+        enable_thp: Optional[bool] = None,
     ):
         """Shortcut for quickly configuring a microVM.
 
@@ -821,6 +822,7 @@ class Microvm:
             mem_size_mib=mem_size_mib,
             track_dirty_pages=track_dirty_pages,
             huge_pages=huge_pages,
+            enable_thp=enable_thp,
         )
         self.vcpus_count = vcpu_count
         self.mem_size_bytes = mem_size_mib * 2**20

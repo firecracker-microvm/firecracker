@@ -31,6 +31,24 @@ size (in KiB) for each memory region as part of the initial handshake, as
 described in our documentation on
 [UFFD-assisted snapshot-restore](snapshotting/handling-page-faults-on-snapshot-resume.md).
 
+## Transparent huge pages (THP)
+
+Firecracker supports enabling transparent huge pages on guest memory via the
+`enable_thp` field under `/machine-config`. When `enable_thp` is set to `true`,
+Firecracker uses `madvise(MADV_HUGEPAGE)` to request THP for the guest memory
+regions it allocates.
+
+Limitations:
+- THP is only attempted for explicit hugetlbfs pages (i.e., `huge_pages` is
+  `None`).
+- THP is not supported for memfd-backed guest memory (e.g., when using
+  vhost-user-blk); in this case Firecracker will return an error if
+  `enable_thp` is set.
+- THP does not integrate with UFFD; no transparent huge pages will be
+  allocated during userfault-handling while resuming from a snapshot.
+
+Please refer to the [Linux Documentation][thp_docs] for more information.
+
 ## Known Limitations
 
 Currently, hugetlbfs support is mutually exclusive with the following
@@ -42,16 +60,6 @@ Furthermore, enabling dirty page tracking for hugepage memory negates the
 performance benefits of using huge pages. This is because KVM will
 unconditionally establish guest page tables at 4K granularity if dirty page
 tracking is enabled, even if the host users huge mappings.
-
-## FAQ
-
-### Why does Firecracker not offer a transparent huge pages (THP) setting?
-
-Firecracker's guest memory can be memfd based. Linux (as of 6.1) does not offer
-a way to dynamically enable THP for such memory regions. Additionally, UFFD does
-not integrate with THP (no transparent huge pages will be allocated during
-userfaulting). Please refer to the [Linux Documentation][thp_docs] for more
-information.
 
 [hugetlbfs_docs]: https://docs.kernel.org/admin-guide/mm/hugetlbpage.html
 [thp_docs]: https://www.kernel.org/doc/html/next/admin-guide/mm/transhuge.html#hugepages-in-tmpfs-shmem
