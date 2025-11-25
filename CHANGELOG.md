@@ -13,6 +13,9 @@ and this project adheres to
 - [#5463](https://github.com/firecracker-microvm/firecracker/pull/5463): Added
   support for `virtio-pmem` devices. See [documentation](docs/pmem.md) for more
   information.
+- [#5534](https://github.com/firecracker-microvm/firecracker/pull/5534): Added
+  support for memory hot-plugging through the `virtio-mem` device. See
+  [documentation](docs/memory-hotplug.md) for more information.
 
 ### Changed
 
