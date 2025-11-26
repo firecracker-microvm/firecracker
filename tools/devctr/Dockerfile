@@ -17,7 +17,7 @@ ENV LC_ALL=C.UTF-8
 ENV QEMU_VER="8.1.1"
 ENV CROSVM_VER="9d542e6dafa3a85acd1fb6cd6f1adfa1331c4e96"
 ENV CROSVM_TOOLCHAIN_VER="1.68.2"
-ENV LIBSECCOMP_VER="v2.5.5"
+ENV LIBSECCOMP_VER="v2.6.0"
 
 # Build and install Qemu vhost-user-blk backend
 #
