@@ -52,6 +52,9 @@ and this project adheres to
 - [#5494](https://github.com/firecracker-microvm/firecracker/pull/5494): Fixed a
   watchdog soft lockup bug on microVMs restored from snapshots by calling
   KVM_KVMCLOCK_CTRL ioctl before resuming.
+- [#5538](https://github.com/firecracker-microvm/firecracker/pull/5538): Fixed a
+  cache coherency issue on non-FWB aarch64 platforms by adding `dma-coherent`
+  property to virtio-mmio nodes in the FDT.
 
 ## [1.13.0]
 
