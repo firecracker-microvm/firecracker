@@ -88,6 +88,7 @@ def test_pmem_performance(
     fio_engine,
     metrics,
     results_dir,
+    secret_free,
 ):
     """
     Measure performance of pmem device
@@ -95,7 +96,9 @@ def test_pmem_performance(
     vm = uvm
     vm.memory_monitor = None
     vm.spawn()
-    vm.basic_config(vcpu_count=vcpus, mem_size_mib=GUEST_MEM_MIB)
+    vm.basic_config(
+        vcpu_count=vcpus, mem_size_mib=GUEST_MEM_MIB, secret_free=secret_free
+    )
     vm.add_net_iface()
     # Add a secondary block device for benchmark tests.
     fs = drive_tools.FilesystemFile(
@@ -168,6 +171,7 @@ def test_pmem_first_read(
     fio_block_size,
     metrics,
     results_dir,
+    secret_free,
 ):
     """
     Measure performance of a first full read from the pmem device.
@@ -179,7 +183,7 @@ def test_pmem_first_read(
     for i in range(10):
         vm = microvm_factory.build(guest_kernel, rootfs, pci=True, monitor_memory=False)
         vm.spawn()
-        vm.basic_config(mem_size_mib=GUEST_MEM_MIB)
+        vm.basic_config(mem_size_mib=GUEST_MEM_MIB, secret_free=secret_free)
         vm.add_net_iface()
 
         fs = drive_tools.FilesystemFile(

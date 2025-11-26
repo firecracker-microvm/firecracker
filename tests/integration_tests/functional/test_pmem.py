@@ -21,6 +21,23 @@ pytestmark = pytest.mark.parametrize(
 ALIGNMENT = 2 << 20
 
 
+@pytest.fixture(autouse=True)
+def skip_secret_free_with_huge_pages(request):
+    """Skip cases combining secret freedom with huge pages.
+
+    Secret free VMs are backed by guest_memfd, which cannot be combined with huge
+    pages, so /machine-config rejects the combination. The `huge_pages` and
+    `secret_free` fixtures are independent, so their product includes pairs that
+    are invalid by construction rather than broken.
+    """
+    if "secret_free" not in request.fixturenames:
+        return
+    if request.getfixturevalue("secret_free") and (
+        request.getfixturevalue("huge_pages") != HugePagesConfig.NONE
+    ):
+        pytest.skip("secret freedom and huge pages are mutually exclusive")
+
+
 def align(size: int) -> int:
     """
     Align the value to ALIGNMENT
@@ -75,7 +92,7 @@ def test_pmem_zero_size_backing_file(uvm, huge_pages):
         vm.start()
 
 
-def test_pmem_add(uvm, huge_pages, microvm_factory):
+def test_pmem_add(uvm, huge_pages, microvm_factory, secret_free):
     """
     Test addition of pmem devices to the VM and
     writes persistance
@@ -83,7 +100,9 @@ def test_pmem_add(uvm, huge_pages, microvm_factory):
 
     vm = uvm
     vm.spawn()
-    vm.basic_config(add_root_device=True, huge_pages=huge_pages)
+    vm.basic_config(
+        add_root_device=True, huge_pages=huge_pages, secret_free=secret_free
+    )
     vm.add_net_iface()
 
     # Pmem should work with non 2MB aligned files as well
@@ -103,6 +122,9 @@ def test_pmem_add(uvm, huge_pages, microvm_factory):
     # the aligment
     check_pmem_exist(vm, 0, False, False, align(pmem_size_mb_1 << 20), "ext4")
     check_pmem_exist(vm, 1, False, True, align(pmem_size_mb_2 << 20), "ext4")
+
+    if secret_free:
+        return
 
     # Write something to the pmem0 to see that it is indeed saved to
     # underlying file when VM shots down
@@ -127,7 +149,7 @@ def test_pmem_add(uvm, huge_pages, microvm_factory):
 
 
 @pin_rootfs_mode("rw")
-def test_pmem_add_as_root_rw(uvm, huge_pages, rootfs, microvm_factory):
+def test_pmem_add_as_root_rw(uvm, huge_pages, rootfs, microvm_factory, secret_free):
     """
     Test addition of a single root pmem device in read-write mode
     """
@@ -136,7 +158,9 @@ def test_pmem_add_as_root_rw(uvm, huge_pages, rootfs, microvm_factory):
     vm.memory_monitor = None
     vm.monitors = []
     vm.spawn()
-    vm.basic_config(add_root_device=False, huge_pages=huge_pages)
+    vm.basic_config(
+        add_root_device=False, huge_pages=huge_pages, secret_free=secret_free
+    )
     vm.add_net_iface()
 
     rootfs_size = os.path.getsize(rootfs)
@@ -145,12 +169,15 @@ def test_pmem_add_as_root_rw(uvm, huge_pages, rootfs, microvm_factory):
 
     check_pmem_exist(vm, 0, True, False, align(rootfs_size), "ext4")
 
+    if secret_free:
+        return
+
     snapshot = vm.snapshot_full()
     restored_vm = microvm_factory.build_from_snapshot(snapshot)
     check_pmem_exist(restored_vm, 0, True, False, align(rootfs_size), "ext4")
 
 
-def test_pmem_add_as_root_ro(uvm, huge_pages, rootfs, microvm_factory):
+def test_pmem_add_as_root_ro(uvm, huge_pages, rootfs, microvm_factory, secret_free):
     """
     Test addition of a single root pmem device in read-only mode
     """
@@ -159,7 +186,9 @@ def test_pmem_add_as_root_ro(uvm, huge_pages, rootfs, microvm_factory):
     vm.memory_monitor = None
     vm.monitors = []
     vm.spawn()
-    vm.basic_config(add_root_device=False, huge_pages=huge_pages)
+    vm.basic_config(
+        add_root_device=False, huge_pages=huge_pages, secret_free=secret_free
+    )
     vm.add_net_iface()
 
     rootfs_size = os.path.getsize(rootfs)
@@ -167,6 +196,9 @@ def test_pmem_add_as_root_ro(uvm, huge_pages, rootfs, microvm_factory):
     vm.start()
 
     check_pmem_exist(vm, 0, True, True, align(rootfs_size), "squashfs")
+
+    if secret_free:
+        return
 
     snapshot = vm.snapshot_full()
     restored_vm = microvm_factory.build_from_snapshot(snapshot)
