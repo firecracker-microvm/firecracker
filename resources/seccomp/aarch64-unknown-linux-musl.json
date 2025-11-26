@@ -458,6 +458,18 @@
                 ]
             },
             {
+                "syscall": "ioctl",
+                "args": [
+                    {
+                        "index": 1,
+                        "type": "dword",
+                        "op": "eq",
+                        "val": 1084272201,
+                        "comment": "KVM_SET_USER_MEMORY_REGION2, used to (un)plug memory for the virtio-mem device"
+                    }
+                ]
+            },
+            {
                 "syscall": "sched_yield",
                 "comment": "Used by the rust standard library in std::sync::mpmc. Firecracker uses mpsc channels from this module for inter-thread communication"
             },
