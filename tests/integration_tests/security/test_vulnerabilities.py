@@ -12,6 +12,7 @@ from pathlib import Path
 import pytest
 import requests
 
+import framework.utils_cpuid as cpuid_utils
 from framework import utils
 from framework.ab_test import git_clone
 from framework.microvm import MicroVMFactory
@@ -120,6 +121,10 @@ def test_spectre_meltdown_checker_on_host(spectre_meltdown_checker):
 @pytest.mark.skipif(
     global_props.buildkite_pr,
     reason="Test depends solely on factors external to GitHub repository",
+)
+@pytest.mark.skipif(
+    cpuid_utils.get_cpu_codename() == "INTEL_SAPPHIRE_RAPIDS",
+    reason="Reporting old microcode for unknown reason",
 )
 def test_vulnerabilities_on_host():
     """Test vulnerability files on host."""
