@@ -29,6 +29,7 @@ def uvm_booted_memhp(
     huge_pages,
     _uffd_handler,
     snapshot_type,
+    secret_free,
 ):
     """Boots a VM with the given memory hotplugging config"""
 
@@ -39,6 +40,7 @@ def uvm_booted_memhp(
         "huge_pages": huge_pages,
         # we need enough memory to be able to hotplug up to 16GB
         "mem_size_mib": 512,
+        "secret_free": secret_free,
     }
     if vhost_user:
         # We need to setup ssh keys manually because we did not specify rootfs
@@ -73,6 +75,7 @@ def uvm_resumed_memhp(
     huge_pages,
     uffd_handler,
     snapshot_type,
+    secret_free,
 ):
     """Restores a VM with the given memory hotplugging config after booting and snapshotting"""
     if vhost_user:
@@ -88,6 +91,7 @@ def uvm_resumed_memhp(
         huge_pages,
         None,
         snapshot_type,
+        secret_free,
     )
     snapshot = uvm.make_snapshot(snapshot_type)
     return microvm_factory.build_from_snapshot(snapshot, uffd_handler_name=uffd_handler)
@@ -95,17 +99,33 @@ def uvm_resumed_memhp(
 
 @pytest.fixture(
     params=[
-        (uvm_booted_memhp, False, HugePagesConfig.NONE, None, None),
-        (uvm_booted_memhp, False, HugePagesConfig.HUGETLBFS_2MB, None, None),
-        (uvm_booted_memhp, True, HugePagesConfig.NONE, None, None),
-        (uvm_resumed_memhp, False, HugePagesConfig.NONE, None, SnapshotType.FULL),
-        (uvm_resumed_memhp, False, HugePagesConfig.NONE, None, SnapshotType.DIFF),
+        (uvm_booted_memhp, False, HugePagesConfig.NONE, None, None, False),
+        (uvm_booted_memhp, False, HugePagesConfig.HUGETLBFS_2MB, None, None, False),
+        (uvm_booted_memhp, True, HugePagesConfig.NONE, None, None, False),
+        (uvm_booted_memhp, False, HugePagesConfig.NONE, None, None, True),
+        (
+            uvm_resumed_memhp,
+            False,
+            HugePagesConfig.NONE,
+            None,
+            SnapshotType.FULL,
+            False,
+        ),
+        (
+            uvm_resumed_memhp,
+            False,
+            HugePagesConfig.NONE,
+            None,
+            SnapshotType.DIFF,
+            False,
+        ),
         (
             uvm_resumed_memhp,
             False,
             HugePagesConfig.NONE,
             None,
             SnapshotType.DIFF_MINCORE,
+            False,
         ),
         (
             uvm_resumed_memhp,
@@ -113,6 +133,7 @@ def uvm_resumed_memhp(
             HugePagesConfig.NONE,
             "on_demand",
             SnapshotType.FULL,
+            False,
         ),
         (
             uvm_resumed_memhp,
@@ -120,22 +141,42 @@ def uvm_resumed_memhp(
             HugePagesConfig.HUGETLBFS_2MB,
             "on_demand",
             SnapshotType.FULL,
+            False,
+        ),
+        (
+            uvm_resumed_memhp,
+            False,
+            HugePagesConfig.NONE,
+            "on_demand",
+            SnapshotType.FULL,
+            True,
         ),
     ],
     ids=[
         "booted",
         "booted-huge-pages",
         "booted-vhost-user",
+        "booted-secret-free",
         "resumed",
         "resumed-diff",
         "resumed-mincore",
         "resumed-uffd",
         "resumed-uffd-huge-pages",
+        "resumed-uffd-secret-free",
     ],
 )
 def uvm_any_memhp(request, uvm_plain_6_1, rootfs, microvm_factory):
     """Fixture that yields a booted or resumed VM with memory hotplugging"""
-    ctor, vhost_user, huge_pages, uffd_handler, snapshot_type = request.param
+    ctor, vhost_user, huge_pages, uffd_handler, snapshot_type, secret_free = (
+        request.param
+    )
+
+    if secret_free is True and global_props.host_linux_version_metrics != "next":
+        pytest.skip("Secret Freedom isn't supported by this host kernel")
+
+    if secret_free is True and global_props.instance == "m6g.metal":
+        pytest.skip("Secret Freedom isn't supported on Graviton2")
+
     yield ctor(
         uvm_plain_6_1,
         rootfs,
@@ -145,6 +186,7 @@ def uvm_any_memhp(request, uvm_plain_6_1, rootfs, microvm_factory):
         huge_pages,
         uffd_handler,
         snapshot_type,
+        secret_free,
     )
 
 
@@ -251,6 +293,7 @@ def test_virtio_mem_hotplug_hotunplug(uvm_any_memhp):
     Check that memory can be hotplugged into the VM.
     """
     uvm = uvm_any_memhp
+
     check_device_detected(uvm)
 
     check_hotplug(uvm, 1024)
@@ -275,12 +318,12 @@ def test_virtio_mem_hotplug_hotunplug(uvm_any_memhp):
     ],
     ids=["all_different", "slot_sized_block", "single_slot", "single_block"],
 )
-def test_virtio_mem_configs(uvm_plain_6_1, memhp_config):
+def test_virtio_mem_configs(uvm_plain_6_1, memhp_config, secret_free):
     """
     Check that the virtio mem device is working as expected for different configs
     """
     uvm = uvm_booted_memhp(
-        uvm_plain_6_1, None, None, False, memhp_config, None, None, None
+        uvm_plain_6_1, None, None, False, memhp_config, None, None, None, secret_free
     )
     if not uvm.pci_enabled:
         pytest.skip(
@@ -323,6 +366,7 @@ def test_snapshot_restore_persistence(uvm_plain_6_1, microvm_factory, snapshot_t
         None,
         None,
         snapshot_type,
+        False,
     )
 
     uvm.hotplug_memory(1024)
@@ -356,7 +400,15 @@ def test_snapshot_restore_incremental(uvm_plain_6_1, microvm_factory):
         )
 
     uvm = uvm_booted_memhp(
-        uvm_plain_6_1, None, microvm_factory, False, DEFAULT_CONFIG, None, None, None
+        uvm_plain_6_1,
+        None,
+        microvm_factory,
+        False,
+        DEFAULT_CONFIG,
+        None,
+        None,
+        None,
+        False,
     )
 
     snapshot = uvm.snapshot_full()
@@ -442,7 +494,13 @@ def timed_memory_hotplug(uvm, size, metrics, metric_prefix, fc_metric_name):
     [HugePagesConfig.NONE, HugePagesConfig.HUGETLBFS_2MB],
 )
 def test_memory_hotplug_latency(
-    microvm_factory, guest_kernel_linux_6_1, rootfs, hotplug_size, huge_pages, metrics
+    microvm_factory,
+    guest_kernel_linux_6_1,
+    rootfs,
+    hotplug_size,
+    huge_pages,
+    metrics,
+    secret_free,
 ):
     """Test the latency of hotplugging memory"""
 
@@ -454,7 +512,7 @@ def test_memory_hotplug_latency(
         }
         uvm_plain_6_1 = microvm_factory.build(guest_kernel_linux_6_1, rootfs, pci=True)
         uvm = uvm_booted_memhp(
-            uvm_plain_6_1, None, None, False, config, None, None, None
+            uvm_plain_6_1, None, None, False, config, None, None, None, secret_free
         )
 
         if i == 0:
