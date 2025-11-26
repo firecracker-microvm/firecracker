@@ -458,7 +458,16 @@ if (
     secret_free_test_cases.append(True)
 
 
-@pytest.fixture(params=secret_free_test_cases)
+secret_free_ids = {
+    False: "SF_OFF",
+    True: "SF_ON",
+}
+
+
+@pytest.fixture(
+    params=secret_free_test_cases,
+    ids=list(map(lambda v: secret_free_ids[v], secret_free_test_cases)),
+)
 def secret_free(request):
     """Supported secret hiding configuration, based on hardware"""
     return request.param
