@@ -1016,13 +1016,13 @@ def test_api_entropy(uvm):
 
 
 @pin_guest_kernel(GUEST_KERNEL_DEFAULT)
-def test_api_memory_hotplug(uvm):
+def test_api_memory_hotplug(uvm, secret_free):
     """
     Test hotplug related API commands.
     """
     test_microvm = uvm
     test_microvm.spawn()
-    test_microvm.basic_config()
+    test_microvm.basic_config(secret_free=secret_free)
     test_microvm.add_net_iface()
 
     # Adding hotplug memory region should be OK.
