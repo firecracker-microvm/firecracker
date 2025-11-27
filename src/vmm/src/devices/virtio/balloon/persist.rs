@@ -10,7 +10,7 @@ use serde::{Deserialize, Serialize};
 use timerfd::{SetTimeFlags, TimerState};
 
 use super::*;
-use crate::devices::virtio::balloon::device::{BalloonStats, ConfigSpace};
+use crate::devices::virtio::balloon::device::{BalloonStats, ConfigSpace, HintingState};
 use crate::devices::virtio::device::{ActiveState, DeviceState};
 use crate::devices::virtio::generated::virtio_ids::VIRTIO_ID_BALLOON;
 use crate::devices::virtio::persist::VirtioDeviceState;
@@ -87,6 +87,7 @@ pub struct BalloonState {
     stats_desc_index: Option<u16>,
     latest_stats: BalloonStatsState,
     config_space: BalloonConfigSpaceState,
+    hinting_state: HintingState,
     pub virtio_state: VirtioDeviceState,
 }
 
@@ -107,6 +108,7 @@ impl Persist<'_> for Balloon {
             stats_polling_interval_s: self.stats_polling_interval_s,
             stats_desc_index: self.stats_desc_index,
             latest_stats: BalloonStatsState::from_stats(&self.latest_stats),
+            hinting_state: self.hinting_state,
             config_space: BalloonConfigSpaceState {
                 num_pages: self.config_space.num_pages,
                 actual_pages: self.config_space.actual_pages,
@@ -119,16 +121,37 @@ impl Persist<'_> for Balloon {
         constructor_args: Self::ConstructorArgs,
         state: &Self::State,
     ) -> Result<Self, Self::Error> {
+        let free_page_hinting =
+            state.virtio_state.avail_features & (1u64 << VIRTIO_BALLOON_F_FREE_PAGE_HINTING) != 0;
+
+        let free_page_reporting =
+            state.virtio_state.avail_features & (1u64 << VIRTIO_BALLOON_F_FREE_PAGE_REPORTING) != 0;
+
         // We can safely create the balloon with arbitrary flags and
         // num_pages because we will overwrite them after.
-        let mut balloon = Balloon::new(0, false, state.stats_polling_interval_s)?;
+        let mut balloon = Balloon::new(
+            0,
+            false,
+            state.stats_polling_interval_s,
+            free_page_hinting,
+            free_page_reporting,
+        )?;
 
-        let mut num_queues = BALLOON_NUM_QUEUES;
+        let mut num_queues = BALLOON_MIN_NUM_QUEUES;
         // As per the virtio 1.1 specification, the statistics queue
         // should not exist if the statistics are not enabled.
-        if state.stats_polling_interval_s == 0 {
-            num_queues -= 1;
+        if state.stats_polling_interval_s > 0 {
+            num_queues += 1;
         }
+
+        if free_page_hinting {
+            num_queues += 1;
+        }
+
+        if free_page_reporting {
+            num_queues += 1;
+        }
+
         balloon.queues = state
             .virtio_state
             .build_queues_checked(
@@ -144,7 +167,10 @@ impl Persist<'_> for Balloon {
         balloon.config_space = ConfigSpace {
             num_pages: state.config_space.num_pages,
             actual_pages: state.config_space.actual_pages,
+            // On restore allow the guest to reclaim pages
+            free_page_hint_cmd_id: FREE_PAGE_HINT_DONE,
         };
+        balloon.hinting_state = state.hinting_state;
 
         if state.virtio_state.activated && balloon.stats_enabled() {
             // Restore the stats descriptor.
@@ -178,7 +204,7 @@ mod tests {
         let mut mem = vec![0; 4096];
 
         // Create and save the balloon device.
-        let balloon = Balloon::new(0x42, false, 2).unwrap();
+        let balloon = Balloon::new(0x42, false, 2, false, false).unwrap();
 
         Snapshot::new(balloon.save())
             .save(&mut mem.as_mut_slice())
@@ -197,7 +223,18 @@ mod tests {
 
         assert_eq!(restored_balloon.acked_features, balloon.acked_features);
         assert_eq!(restored_balloon.avail_features, balloon.avail_features);
-        assert_eq!(restored_balloon.config_space, balloon.config_space);
+        assert_eq!(
+            restored_balloon.config_space.num_pages,
+            balloon.config_space.num_pages
+        );
+        assert_eq!(
+            restored_balloon.config_space.actual_pages,
+            balloon.config_space.actual_pages
+        );
+        assert_eq!(
+            restored_balloon.config_space.free_page_hint_cmd_id,
+            FREE_PAGE_HINT_DONE
+        );
         assert_eq!(restored_balloon.queues(), balloon.queues());
         assert!(!restored_balloon.is_activated());
         assert!(!balloon.is_activated());

@@ -14,6 +14,7 @@ use super::{Vmm, VmmError};
 use crate::EventManager;
 use crate::builder::StartMicrovmError;
 use crate::cpu_config::templates::{CustomCpuTemplate, GuestConfigError};
+use crate::devices::virtio::balloon::device::{HintingStatus, StartHintingCmd};
 use crate::devices::virtio::mem::VirtioMemStatus;
 use crate::logger::{LoggerConfig, info, warn, *};
 use crate::mmds::data_store::{self, Mmds};
@@ -131,6 +132,12 @@ pub enum VmmAction {
     UpdateBalloon(BalloonUpdateConfig),
     /// Update the balloon statistics polling interval, after microVM start.
     UpdateBalloonStatistics(BalloonUpdateStatsConfig),
+    /// Start a free page hinting run
+    StartFreePageHinting(StartHintingCmd),
+    /// Retrieve the status of the hinting run
+    GetFreePageHintingStatus,
+    /// Stops a free page hinting run
+    StopFreePageHinting,
     /// Update existing block device properties such as `path_on_host` or `rate_limiter`.
     UpdateBlockDevice(BlockDeviceUpdateConfig),
     /// Update a network interface, after microVM start. Currently, the only updatable properties
@@ -219,6 +226,8 @@ pub enum VmmData {
     VmmVersion(String),
     /// The status of the memory hotplug device.
     VirtioMemStatus(VirtioMemStatus),
+    /// The status of the virtio-balloon hinting run
+    HintingStatus(HintingStatus),
 }
 
 /// Trait used for deduplicating the MMDS request handling across the two ApiControllers.
@@ -483,7 +492,10 @@ impl<'a> PrebootApiController<'a> {
             | UpdateBalloonStatistics(_)
             | UpdateBlockDevice(_)
             | UpdateMemoryHotplugSize(_)
-            | UpdateNetworkInterface(_) => Err(VmmActionError::OperationNotSupportedPreBoot),
+            | UpdateNetworkInterface(_)
+            | StartFreePageHinting(_)
+            | GetFreePageHintingStatus
+            | StopFreePageHinting => Err(VmmActionError::OperationNotSupportedPreBoot),
             #[cfg(target_arch = "x86_64")]
             SendCtrlAltDel => Err(VmmActionError::OperationNotSupportedPreBoot),
         }
@@ -727,6 +739,27 @@ impl RuntimeApiController {
                 .lock()
                 .expect("Poisoned lock")
                 .update_balloon_stats_config(balloon_stats_update.stats_polling_interval_s)
+                .map(|_| VmmData::Empty)
+                .map_err(VmmActionError::BalloonUpdate),
+            StartFreePageHinting(cmd) => self
+                .vmm
+                .lock()
+                .expect("Poisoned lock")
+                .start_balloon_hinting(cmd)
+                .map(|_| VmmData::Empty)
+                .map_err(VmmActionError::BalloonUpdate),
+            GetFreePageHintingStatus => self
+                .vmm
+                .lock()
+                .expect("Poisoned lock")
+                .get_balloon_hinting_status()
+                .map(VmmData::HintingStatus)
+                .map_err(VmmActionError::BalloonUpdate),
+            StopFreePageHinting => self
+                .vmm
+                .lock()
+                .expect("Poisoned lock")
+                .stop_balloon_hinting()
                 .map(|_| VmmData::Empty)
                 .map_err(VmmActionError::BalloonUpdate),
             UpdateBlockDevice(new_cfg) => self.update_block_device(new_cfg),
@@ -1186,6 +1219,11 @@ mod tests {
         check_unsupported(preboot_request(VmmAction::UpdateBalloon(
             BalloonUpdateConfig { amount_mib: 0 },
         )));
+        check_unsupported(preboot_request(VmmAction::StartFreePageHinting(
+            Default::default(),
+        )));
+        check_unsupported(preboot_request(VmmAction::GetFreePageHintingStatus));
+        check_unsupported(preboot_request(VmmAction::StopFreePageHinting));
         check_unsupported(preboot_request(VmmAction::UpdateBalloonStatistics(
             BalloonUpdateStatsConfig {
                 stats_polling_interval_s: 0,

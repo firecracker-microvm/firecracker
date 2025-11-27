@@ -16,6 +16,10 @@ and this project adheres to
 - [#5534](https://github.com/firecracker-microvm/firecracker/pull/5534): Added
   support for memory hot-plugging through the `virtio-mem` device. See
   [documentation](docs/memory-hotplug.md) for more information.
+- [#5491](https://github.com/firecracker-microvm/firecracker/pull/5491): Added
+  support for `virtio-balloon` free page reporting and hinting. Free page
+  reporting is a developer preview not for production feature. See
+  [documentation](docs/ballooning.md) for more information.
 
 ### Changed
 

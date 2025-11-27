@@ -339,7 +339,7 @@ mod tests {
             self.queues = queues;
         }
 
-        fn num_queues() -> usize {
+        fn num_queues(&self) -> usize {
             RNG_NUM_QUEUES
         }
     }

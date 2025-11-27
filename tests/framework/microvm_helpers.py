@@ -7,6 +7,7 @@ import ipaddress
 import os
 import platform
 import subprocess
+import tempfile
 from pathlib import Path
 
 
@@ -245,3 +246,30 @@ class MicrovmHelpers:
             f"trace-cmd record -N {host_ip}:{port} -p function {' '.join(fns)} {cmd}"
         )
         return list(Path(".").glob("trace.*.dat"))
+
+    def tmux_gdb(self):
+        """Run GDB on a new tmux window"""
+        chroot_gdb_socket = Path(self.vm.jailer.chroot_path(), self.vm.gdb_socket)
+
+        with tempfile.NamedTemporaryFile(
+            mode="w", suffix=".gdb", delete=False, prefix="fc_gdb_"
+        ) as f:
+            f.write(
+                f"""
+                target remote {chroot_gdb_socket}
+                directory resources/linux
+                hbreak start_kernel
+                continue
+            """
+            )
+            gdb_script = f.name
+
+        self.tmux_neww(
+            f"""
+            until [ -S {chroot_gdb_socket} ]; do
+                echo 'waiting for {chroot_gdb_socket}';
+                sleep 1;
+            done;
+            gdb {self.vm.kernel_file} -x {gdb_script}
+            """
+        )
