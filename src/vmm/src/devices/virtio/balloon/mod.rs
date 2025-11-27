@@ -23,16 +23,11 @@ use crate::vstate::interrupts::InterruptError;
 /// Because Balloon is unique per-vm, this ID can be hardcoded.
 pub const BALLOON_DEV_ID: &str = "balloon";
 /// The size of the config space.
-pub const BALLOON_CONFIG_SPACE_SIZE: usize = 8;
-/// Number of virtio queues.
-pub const BALLOON_NUM_QUEUES: usize = 3;
-/// Virtio queue sizes, in number of descriptor chain heads.
-//  There are 3 queues for a virtio device (in this order): RX, TX, Event
-pub const BALLOON_QUEUE_SIZES: [u16; BALLOON_NUM_QUEUES] = [
-    FIRECRACKER_MAX_QUEUE_SIZE,
-    FIRECRACKER_MAX_QUEUE_SIZE,
-    FIRECRACKER_MAX_QUEUE_SIZE,
-];
+pub const BALLOON_CONFIG_SPACE_SIZE: usize = 12;
+/// Min number of virtio queues.
+pub const BALLOON_MIN_NUM_QUEUES: usize = 2;
+/// Virtio queue size, in number of descriptor chain heads.
+pub const BALLOON_QUEUE_SIZE: u16 = FIRECRACKER_MAX_QUEUE_SIZE;
 // Number of 4K pages in a MiB.
 pub const MIB_TO_4K_PAGES: u32 = 256;
 /// The maximum number of pages that can be received in a single descriptor.
@@ -42,16 +37,23 @@ pub const MAX_PAGES_IN_DESC: usize = 256;
 pub const MAX_PAGE_COMPACT_BUFFER: usize = 2048;
 /// The addresses given by the driver are divided by 4096.
 pub const VIRTIO_BALLOON_PFN_SHIFT: u32 = 12;
-/// The index of the deflate queue from Balloon device queues/queues_evts vector.
+/// The index of the inflate queue from Balloon device queues/queues_evts vector.
 pub const INFLATE_INDEX: usize = 0;
 /// The index of the deflate queue from Balloon device queues/queues_evts vector.
 pub const DEFLATE_INDEX: usize = 1;
-/// The index of the deflate queue from Balloon device queues/queues_evts vector.
+/// The index of the stats queue from Balloon device queues/queues_evts vector.
 pub const STATS_INDEX: usize = 2;
+
+/// Command used in free page hinting to indicate the guest has finished
+pub const FREE_PAGE_HINT_STOP: u32 = 0;
+/// Command used in free page hinting to indicate to the guest to release pages
+pub const FREE_PAGE_HINT_DONE: u32 = 1;
 
 // The feature bitmap for virtio balloon.
 const VIRTIO_BALLOON_F_STATS_VQ: u32 = 1; // Enable statistics.
 const VIRTIO_BALLOON_F_DEFLATE_ON_OOM: u32 = 2; // Deflate balloon on OOM.
+const VIRTIO_BALLOON_F_FREE_PAGE_HINTING: u32 = 3; // Enable free page hinting
+const VIRTIO_BALLOON_F_FREE_PAGE_REPORTING: u32 = 5; // Enable free page reporting
 
 // The statistics tags.
 const VIRTIO_BALLOON_S_SWAP_IN: u16 = 0;
@@ -70,6 +72,8 @@ const VIRTIO_BALLOON_S_HTLB_PGFAIL: u16 = 9;
 pub enum BalloonError {
     /// Device not activated yet.
     DeviceNotActive,
+    /// Attempting to use hinting when not enabled
+    HintingNotEnabled,
     /// EventFd error: {0}
     EventFd(std::io::Error),
     /// Received error while sending an interrupt: {0}

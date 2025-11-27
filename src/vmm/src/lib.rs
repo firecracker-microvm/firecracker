@@ -135,6 +135,7 @@ use vstate::kvm::Kvm;
 use vstate::vcpu::{self, StartThreadedError, VcpuSendEventError};
 
 use crate::cpu_config::templates::CpuConfiguration;
+use crate::devices::virtio::balloon::device::{HintingStatus, StartHintingCmd};
 use crate::devices::virtio::balloon::{
     BALLOON_DEV_ID, Balloon, BalloonConfig, BalloonError, BalloonStats,
 };
@@ -620,6 +621,28 @@ impl Vmm {
                 dev.update_requested_size(requested_size_mib)
             })
             .map_err(VmmError::FindDeviceError)??;
+        Ok(())
+    }
+
+    /// Starts the balloon free page hinting run
+    pub fn start_balloon_hinting(&mut self, cmd: StartHintingCmd) -> Result<(), VmmError> {
+        self.device_manager
+            .with_virtio_device(BALLOON_DEV_ID, |dev: &mut Balloon| dev.start_hinting(cmd))??;
+        Ok(())
+    }
+
+    /// Retrieves the status of the balloon hinting run
+    pub fn get_balloon_hinting_status(&mut self) -> Result<HintingStatus, VmmError> {
+        let status = self
+            .device_manager
+            .with_virtio_device(BALLOON_DEV_ID, |dev: &mut Balloon| dev.get_hinting_status())??;
+        Ok(status)
+    }
+
+    /// Stops the balloon free page hinting run
+    pub fn stop_balloon_hinting(&mut self) -> Result<(), VmmError> {
+        self.device_manager
+            .with_virtio_device(BALLOON_DEV_ID, |dev: &mut Balloon| dev.stop_hinting())??;
         Ok(())
     }
 

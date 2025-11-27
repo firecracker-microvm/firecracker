@@ -21,7 +21,7 @@ macro_rules! check_metric_after_block {
     ($metric:expr, $delta:expr, $block:expr) => {{
         let before = $metric.count();
         let _ = $block;
-        assert_eq!($metric.count(), before + $delta, "unexpected metric value");
+        assert_eq!($metric.count() - before, $delta, "unexpected metric value");
     }};
 }
 
@@ -345,7 +345,7 @@ pub(crate) mod test {
         /// Replace the queues used by the device
         fn set_queues(&mut self, queues: Vec<Queue>);
         /// Number of queues this device supports
-        fn num_queues() -> usize;
+        fn num_queues(&self) -> usize;
     }
 
     /// A helper type to allow testing VirtIO devices
@@ -401,7 +401,7 @@ pub(crate) mod test {
         pub fn new(mem: &'a GuestMemoryMmap, mut device: T) -> VirtioTestHelper<'a, T> {
             let mut event_manager = EventManager::new().unwrap();
 
-            let virtqueues = Self::create_virtqueues(mem, T::num_queues());
+            let virtqueues = Self::create_virtqueues(mem, device.num_queues());
             let queues = virtqueues.iter().map(|vq| vq.create_queue()).collect();
             device.set_queues(queues);
             let device = Arc::new(Mutex::new(device));
@@ -440,6 +440,52 @@ pub(crate) mod test {
         /// used by the device
         pub fn data_address(&self) -> u64 {
             self.virtqueues.last().unwrap().end().raw_value()
+        }
+
+        /// Add a new Descriptor in one of the device's queues in the form of scatter gather
+        ///
+        /// This function adds in one of the queues of the device a DescriptorChain at some offset
+        /// in the "data range" of the guest memory. The number of descriptors to create is passed
+        /// as a list of descriptors (a tuple of (index, addr, length, flags)).
+        ///
+        /// The total size of the buffer is the sum of all lengths of this list of descriptors.
+        /// The fist descriptor will be stored at `self.data_address() + addr_offset`. Subsequent
+        /// descriptors will be placed at random addresses after that.
+        ///
+        /// # Arguments
+        ///
+        /// * `queue` - The index of the device queue to use
+        /// * `addr_offset` - Offset within the data region where to put the first descriptor
+        /// * `desc_list` - List of descriptors to create in the chain
+        pub fn add_scatter_gather(
+            &mut self,
+            queue: usize,
+            addr_offset: u64,
+            desc_list: &[(u16, u64, u32, u16)],
+        ) {
+            let device = self.device.lock().unwrap();
+
+            let event_fd = &device.queue_events()[queue];
+            let vq = &self.virtqueues[queue];
+
+            // Create the descriptor chain
+            let mut iter = desc_list.iter().peekable();
+            while let Some(&(index, addr, len, flags)) = iter.next() {
+                let desc = &vq.dtable[index as usize];
+                desc.set(addr, len, flags, 0);
+                if let Some(&&(next_index, _, _, _)) = iter.peek() {
+                    desc.flags.set(flags | VIRTQ_DESC_F_NEXT);
+                    desc.next.set(next_index);
+                }
+            }
+
+            // Mark the chain as available.
+            if let Some(&(index, _, _, _)) = desc_list.first() {
+                let ring_index = vq.avail.idx.get();
+                vq.avail.ring[ring_index as usize].set(index);
+                vq.avail.idx.set(ring_index + 1);
+            }
+            event_fd.write(1).unwrap();
         }
 
         /// Get the address of a descriptor

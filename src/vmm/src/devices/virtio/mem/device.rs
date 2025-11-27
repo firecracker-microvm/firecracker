@@ -703,7 +703,7 @@ pub(crate) mod test_utils {
             self.queues = queues;
         }
 
-        fn num_queues() -> usize {
+        fn num_queues(&self) -> usize {
             MEM_NUM_QUEUES
         }
     }
