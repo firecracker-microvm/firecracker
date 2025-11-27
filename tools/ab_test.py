@@ -128,6 +128,15 @@ IGNORED = [
     # block throughput on m8g
     {"fio_engine": "libaio", "vcpus": "2", "instance": "m8g.metal-24xl"},
     {"fio_engine": "libaio", "vcpus": "2", "instance": "m8g.metal-48xl"},
+    # memory hotplug metrics: ignore api_time and fc_time metrics, keeping only total_time.
+    *[
+        {
+            "performance_test": "test_memory_hotplug_latency",
+            "metric": f"{prefix}_{metric}",
+        }
+        for prefix in ["hotplug", "hotunplug", "hotplug_2nd"]
+        for metric in ["api_time", "fc_time"]
+    ],
 ]
 
 
