@@ -632,6 +632,8 @@ mod tests {
             amount_mib: 0,
             deflate_on_oom: false,
             stats_polling_interval_s: 0,
+            free_page_hinting: false,
+            free_page_reporting: false,
         };
         insert_balloon_device(&mut vmm, &mut cmdline, &mut event_manager, balloon_config);
 

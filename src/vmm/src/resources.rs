@@ -22,9 +22,7 @@ use crate::vmm_config::boot_source::{
 use crate::vmm_config::drive::*;
 use crate::vmm_config::entropy::*;
 use crate::vmm_config::instance_info::InstanceInfo;
-use crate::vmm_config::machine_config::{
-    HugePageConfig, MachineConfig, MachineConfigError, MachineConfigUpdate,
-};
+use crate::vmm_config::machine_config::{MachineConfig, MachineConfigError, MachineConfigUpdate};
 use crate::vmm_config::memory_hotplug::{MemoryHotplugConfig, MemoryHotplugConfigError};
 use crate::vmm_config::metrics::{MetricsConfig, MetricsConfigError, init_metrics};
 use crate::vmm_config::mmds::{MmdsConfig, MmdsConfigError};
@@ -265,9 +263,6 @@ impl VmResources {
             return Err(MachineConfigError::IncompatibleBalloonSize);
         }
 
-        if self.balloon.get().is_some() && updated.huge_pages != HugePageConfig::None {
-            return Err(MachineConfigError::BalloonAndHugePages);
-        }
         self.machine_config = updated;
 
         Ok(())
@@ -322,10 +317,6 @@ impl VmResources {
         // the guest memory.
         if config.amount_mib as usize > self.machine_config.mem_size_mib {
             return Err(BalloonConfigError::TooManyPagesRequested);
-        }
-
-        if self.machine_config.huge_pages != HugePageConfig::None {
-            return Err(BalloonConfigError::HugePages);
         }
 
         self.balloon.set(config)
@@ -1474,6 +1465,8 @@ mod tests {
                 amount_mib: 100,
                 deflate_on_oom: false,
                 stats_polling_interval_s: 0,
+                free_page_hinting: false,
+                free_page_reporting: false,
             })
             .unwrap();
         aux_vm_config.mem_size_mib = Some(90);
@@ -1512,6 +1505,8 @@ mod tests {
             amount_mib: 100,
             deflate_on_oom: false,
             stats_polling_interval_s: 0,
+            free_page_hinting: false,
+            free_page_reporting: false,
         };
         assert!(vm_resources.balloon.get().is_none());
         vm_resources
