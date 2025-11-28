@@ -29,7 +29,7 @@ void touch_memory(void *mem, size_t size, char val) {
     }
 }
 
-int main() {
+int main(int argc, char *argv[]) {
     sigset_t set;
     int signal, character;
     void *ptr;
@@ -37,7 +37,6 @@ int main() {
     long duration_nanos;
     FILE *out_file;
 
-    char *options = 0;
     int longindex = 0;
     int signal_wait = 1;
 
