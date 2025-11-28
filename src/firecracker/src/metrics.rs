@@ -5,7 +5,7 @@ use std::os::unix::io::AsRawFd;
 use std::time::Duration;
 
 use event_manager::{EventOps, Events, MutEventSubscriber};
-use timerfd::{ClockId, SetTimeFlags, TimerFd, TimerState};
+use utils::time::TimerFd;
 use vmm::logger::{IncMetric, METRICS, error, warn};
 use vmm_sys_util::epoll::EventSet;
 
@@ -23,8 +23,7 @@ pub(crate) struct PeriodicMetrics {
 impl PeriodicMetrics {
     /// PeriodicMetrics constructor. Can panic on `TimerFd` creation failure.
     pub fn new() -> Self {
-        let write_metrics_event_fd = TimerFd::new_custom(ClockId::Monotonic, true, true)
-            .expect("Cannot create the metrics timer fd.");
+        let write_metrics_event_fd = TimerFd::new();
         PeriodicMetrics {
             write_metrics_event_fd,
             #[cfg(test)]
@@ -35,12 +34,8 @@ impl PeriodicMetrics {
     /// Start the periodic metrics engine which will flush metrics every `interval_ms` millisecs.
     pub(crate) fn start(&mut self, interval_ms: u64) {
         // Arm the log write timer.
-        let timer_state = TimerState::Periodic {
-            current: Duration::from_millis(interval_ms),
-            interval: Duration::from_millis(interval_ms),
-        };
-        self.write_metrics_event_fd
-            .set_state(timer_state, SetTimeFlags::Default);
+        let duration = Duration::from_millis(interval_ms);
+        self.write_metrics_event_fd.arm(duration, Some(duration));
 
         // Write the metrics straight away to check the process startup time.
         self.write_metrics();

@@ -7,7 +7,6 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
-use timerfd::{SetTimeFlags, TimerState};
 
 use super::*;
 use crate::devices::virtio::balloon::device::{BalloonStats, ConfigSpace, HintingState};
@@ -195,13 +194,8 @@ impl Persist<'_> for Balloon {
             balloon.set_stats_desc_index(state.stats_desc_index);
 
             // Restart timer if needed.
-            let timer_state = TimerState::Periodic {
-                current: Duration::from_secs(u64::from(state.stats_polling_interval_s)),
-                interval: Duration::from_secs(u64::from(state.stats_polling_interval_s)),
-            };
-            balloon
-                .stats_timer
-                .set_state(timer_state, SetTimeFlags::Default);
+            let duration = Duration::from_secs(state.stats_polling_interval_s as u64);
+            balloon.stats_timer.arm(duration, Some(duration));
         }
 
         Ok(balloon)

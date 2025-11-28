@@ -1,7 +1,11 @@
 // Copyright 2019 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-use std::fmt;
+use std::fs::File;
+use std::io::{ErrorKind, Read};
+use std::os::unix::io::{AsRawFd, FromRawFd, RawFd};
+use std::time::Duration;
+use std::{fmt, ptr};
 
 /// Constant to convert seconds to nanoseconds.
 pub const NANOS_PER_SECOND: u64 = 1_000_000_000;
@@ -182,6 +186,92 @@ pub fn get_time_ms(clock_type: ClockType) -> u64 {
 /// * `value` - Timestamp in seconds.
 pub fn seconds_to_nanoseconds(value: i64) -> Option<i64> {
     value.checked_mul(i64::try_from(NANOS_PER_SECOND).unwrap())
+}
+
+/// Wrapper for timerfd
+#[derive(Debug)]
+pub struct TimerFd(File);
+
+#[allow(clippy::new_without_default)]
+impl TimerFd {
+    /// Creates new MONOTONIC and NONBLOCK timerfd
+    pub fn new() -> Self {
+        // SAFETY: all arguments are valid constants
+        let fd = unsafe {
+            libc::timerfd_create(
+                libc::CLOCK_MONOTONIC,
+                libc::TFD_NONBLOCK | libc::TFD_CLOEXEC,
+            )
+        };
+        assert!(
+            0 <= fd,
+            "TimerFd creation failed: {:#}",
+            std::io::Error::last_os_error()
+        );
+        // SAFETY: we just created valid fd
+        TimerFd(unsafe { File::from_raw_fd(fd) })
+    }
+
+    /// Arm the timer to be triggered after `duration` and then
+    /// at optional `interval`
+    pub fn arm(&mut self, duration: Duration, interval: Option<Duration>) {
+        #[allow(clippy::cast_possible_wrap)]
+        let spec = libc::itimerspec {
+            it_value: libc::timespec {
+                tv_sec: duration.as_secs() as i64,
+                tv_nsec: duration.subsec_nanos() as i64,
+            },
+            it_interval: if let Some(interval) = interval {
+                libc::timespec {
+                    tv_sec: interval.as_secs() as i64,
+                    tv_nsec: interval.subsec_nanos() as i64,
+                }
+            } else {
+                libc::timespec {
+                    tv_sec: 0,
+                    tv_nsec: 0,
+                }
+            },
+        };
+        // SAFETY: Safe because this doesn't modify any memory and we check the return value.
+        let ret = unsafe { libc::timerfd_settime(self.as_raw_fd(), 0, &spec, ptr::null_mut()) };
+        assert!(
+            0 <= ret,
+            "TimerFd arm failed: {:#}",
+            std::io::Error::last_os_error()
+        );
+    }
+
+    /// Read the value from the timerfd. Since it is always created with NONBLOCK flag,
+    /// this function does not block.
+    pub fn read(&mut self) -> u64 {
+        let mut buf = [0u8; size_of::<u64>()];
+        match self.0.read(buf.as_mut_slice()) {
+            Ok(_) => u64::from_ne_bytes(buf),
+            Err(inner) if inner.kind() == ErrorKind::WouldBlock => 0,
+            Err(err) => panic!("TimerFd read failed: {err:#}"),
+        }
+    }
+
+    /// Tell if the timer is currently armed.
+    pub fn is_armed(&self) -> bool {
+        // SAFETY: Zero init of a PDO type.
+        let mut spec: libc::itimerspec = unsafe { std::mem::zeroed() };
+        // SAFETY: Safe because timerfd_gettime is trusted to only modify `spec`.
+        let ret = unsafe { libc::timerfd_gettime(self.as_raw_fd(), &mut spec) };
+        assert!(
+            0 <= ret,
+            "TimerFd arm failed: {:#}",
+            std::io::Error::last_os_error()
+        );
+        spec.it_value.tv_sec != 0 || spec.it_value.tv_nsec != 0
+    }
+}
+
+impl AsRawFd for TimerFd {
+    fn as_raw_fd(&self) -> RawFd {
+        self.0.as_raw_fd()
+    }
 }
 
 #[cfg(test)]

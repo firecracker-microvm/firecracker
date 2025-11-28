@@ -5,21 +5,19 @@ use std::os::unix::io::{AsRawFd, RawFd};
 use std::time::{Duration, Instant};
 use std::{fmt, io};
 
-use timerfd::{ClockId, SetTimeFlags, TimerFd, TimerState};
+use utils::time::TimerFd;
 
 pub mod persist;
 
 #[derive(Debug, thiserror::Error, displaydoc::Display)]
 /// Describes the errors that may occur while handling rate limiter events.
 pub enum RateLimiterError {
-    /// The event handler was called spuriously: {0}
-    SpuriousRateLimiterEvent(&'static str),
+    /// Rate limiter event handler called without a present timer
+    SpuriousRateLimiterEvent,
 }
 
 // Interval at which the refill timer will run when limiter is at capacity.
-const REFILL_TIMER_INTERVAL_MS: u64 = 100;
-const TIMER_REFILL_STATE: TimerState =
-    TimerState::Oneshot(Duration::from_millis(REFILL_TIMER_INTERVAL_MS));
+const REFILL_TIMER_DURATION: Duration = Duration::from_millis(100);
 
 const NANOSEC_IN_ONE_MILLISEC: u64 = 1_000_000;
 
@@ -367,7 +365,7 @@ impl RateLimiter {
         // We'll need a timer_fd, even if our current config effectively disables rate limiting,
         // because `Self::update_buckets()` might re-enable it later, and we might be
         // seccomp-blocked from creating the timer_fd at that time.
-        let timer_fd = TimerFd::new_custom(ClockId::Monotonic, true, true)?;
+        let timer_fd = TimerFd::new();
 
         Ok(RateLimiter {
             bandwidth: bytes_token_bucket,
@@ -378,9 +376,9 @@ impl RateLimiter {
     }
 
     // Arm the timer of the rate limiter with the provided `TimerState`.
-    fn activate_timer(&mut self, timer_state: TimerState) {
+    fn activate_timer(&mut self, one_shot_duration: Duration) {
         // Register the timer; don't care about its previous state
-        self.timer_fd.set_state(timer_state, SetTimeFlags::Default);
+        self.timer_fd.arm(one_shot_duration, None);
         self.timer_active = true;
     }
 
@@ -407,7 +405,7 @@ impl RateLimiter {
                 // make sure there is only one running timer for this limiter.
                 BucketReduction::Failure => {
                     if !self.timer_active {
-                        self.activate_timer(TIMER_REFILL_STATE);
+                        self.activate_timer(REFILL_TIMER_DURATION);
                     }
                     false
                 }
@@ -424,9 +422,7 @@ impl RateLimiter {
                     // `ratio * refill_time` milliseconds.
                     // The conversion should be safe because the ratio is positive.
                     #[allow(clippy::cast_sign_loss, clippy::cast_possible_truncation)]
-                    self.activate_timer(TimerState::Oneshot(Duration::from_millis(
-                        (ratio * refill_time as f64) as u64,
-                    )));
+                    self.activate_timer(Duration::from_millis((ratio * refill_time as f64) as u64));
                     true
                 }
             }
@@ -470,9 +466,7 @@ impl RateLimiter {
     /// If the rate limiter is disabled or is not blocked, an error is returned.
     pub fn event_handler(&mut self) -> Result<(), RateLimiterError> {
         match self.timer_fd.read() {
-            0 => Err(RateLimiterError::SpuriousRateLimiterEvent(
-                "Rate limiter event handler called without a present timer",
-            )),
+            0 => Err(RateLimiterError::SpuriousRateLimiterEvent),
             _ => {
                 self.timer_active = false;
                 Ok(())
@@ -779,7 +773,7 @@ pub(crate) mod tests {
     // second wait will always result in the limiter being refilled. Otherwise
     // there is a chance for a race condition between limiter refilling and limiter
     // checking.
-    const TEST_REFILL_TIMER_INTERVAL_MS: u64 = REFILL_TIMER_INTERVAL_MS + 10;
+    const TEST_REFILL_TIMER_DURATION: Duration = Duration::from_millis(110);
 
     impl TokenBucket {
         // Resets the token bucket: budget set to max capacity and last-updated set to now.
@@ -950,11 +944,11 @@ pub(crate) mod tests {
         assert!(l.consume(u64::MAX, TokenType::Ops));
         assert!(l.consume(u64::MAX, TokenType::Bytes));
         // calling the handler without there having been an event should error
-        l.event_handler().unwrap_err();
-        assert_eq!(
-            format!("{:?}", l.event_handler().err().unwrap()),
-            "SpuriousRateLimiterEvent(\"Rate limiter event handler called without a present \
-             timer\")"
+        let err = l.event_handler().unwrap_err();
+        assert!(
+            matches!(err, RateLimiterError::SpuriousRateLimiterEvent),
+            "{:?}",
+            err
         );
     }
 
@@ -1016,11 +1010,11 @@ pub(crate) mod tests {
         // since consume failed, limiter should be blocked now
         assert!(l.is_blocked());
         // wait half the timer period
-        thread::sleep(Duration::from_millis(TEST_REFILL_TIMER_INTERVAL_MS / 2));
+        thread::sleep(TEST_REFILL_TIMER_DURATION / 2);
         // limiter should still be blocked
         assert!(l.is_blocked());
         // wait the other half of the timer period
-        thread::sleep(Duration::from_millis(TEST_REFILL_TIMER_INTERVAL_MS / 2));
+        thread::sleep(TEST_REFILL_TIMER_DURATION / 2);
         // the timer_fd should have an event on it by now
         l.event_handler().unwrap();
         // limiter should now be unblocked
@@ -1049,11 +1043,11 @@ pub(crate) mod tests {
         // since consume failed, limiter should be blocked now
         assert!(l.is_blocked());
         // wait half the timer period
-        thread::sleep(Duration::from_millis(TEST_REFILL_TIMER_INTERVAL_MS / 2));
+        thread::sleep(TEST_REFILL_TIMER_DURATION / 2);
         // limiter should still be blocked
         assert!(l.is_blocked());
         // wait the other half of the timer period
-        thread::sleep(Duration::from_millis(TEST_REFILL_TIMER_INTERVAL_MS / 2));
+        thread::sleep(TEST_REFILL_TIMER_DURATION / 2);
         // the timer_fd should have an event on it by now
         l.event_handler().unwrap();
         // limiter should now be unblocked
@@ -1083,11 +1077,11 @@ pub(crate) mod tests {
         // since consume failed, limiter should be blocked now
         assert!(l.is_blocked());
         // wait half the timer period
-        thread::sleep(Duration::from_millis(TEST_REFILL_TIMER_INTERVAL_MS / 2));
+        thread::sleep(TEST_REFILL_TIMER_DURATION / 2);
         // limiter should still be blocked
         assert!(l.is_blocked());
         // wait the other half of the timer period
-        thread::sleep(Duration::from_millis(TEST_REFILL_TIMER_INTERVAL_MS / 2));
+        thread::sleep(TEST_REFILL_TIMER_DURATION / 2);
         // the timer_fd should have an event on it by now
         l.event_handler().unwrap();
         // limiter should now be unblocked
