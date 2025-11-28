@@ -377,6 +377,10 @@ fn create_psci_node(fdt: &mut FdtWriter) -> Result<(), FdtError> {
 fn create_virtio_node(fdt: &mut FdtWriter, dev_info: &MMIODeviceInfo) -> Result<(), FdtError> {
     let virtio_mmio = fdt.begin_node(&format!("virtio_mmio@{:x}", dev_info.addr))?;
 
+    // Adding the dma-coherent property ensures that the guest driver allocates the virtio
+    // queue with the Write-Back attribute, maintaining cache coherency with Firecracker's
+    // accesses to the virtio queue.
+    fdt.property_null("dma-coherent")?;
     fdt.property_string("compatible", "virtio,mmio")?;
     fdt.property_array_u64("reg", &[dev_info.addr, dev_info.len])?;
     fdt.property_array_u32(
