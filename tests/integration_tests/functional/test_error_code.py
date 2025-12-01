@@ -7,12 +7,17 @@ import platform
 import pytest
 
 from framework.artifacts import GUEST_KERNEL_DEFAULT, pin_guest_kernel
+from framework.properties import global_props
 
 
 @pytest.mark.skipif(
     platform.machine() != "aarch64",
     reason="The error code returned on aarch64 will not be returned on x86 "
     "under the same conditions.",
+)
+@pytest.mark.skipif(
+    global_props.host_linux_version_metrics == "next",
+    reason="The test is known to be flaky on Linux next",
 )
 @pin_guest_kernel(GUEST_KERNEL_DEFAULT)
 def test_enosys_error_code(uvm):
