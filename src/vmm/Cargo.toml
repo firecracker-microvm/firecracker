@@ -57,13 +57,13 @@ vm-memory = { version = "0.17.1", features = [
 ] }
 vm-superio = "0.8.1"
 vmm-sys-util = { version = "0.15.0", features = ["with-serde"] }
-zerocopy = { version = "0.8.28" }
+zerocopy = { version = "0.8.31" }
 
 [target.'cfg(target_arch = "aarch64")'.dependencies]
 vm-fdt = "0.3.0"
 
 [dev-dependencies]
-criterion = { version = "0.7.0", default-features = false }
+criterion = { version = "0.8.0", default-features = false }
 device_tree = "1.1.0"
 itertools = "0.14.0"
 proptest = { version = "1.9.0", default-features = false, features = ["std"] }
