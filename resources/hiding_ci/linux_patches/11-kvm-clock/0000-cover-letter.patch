@@ -1,0 +1,70 @@
+From 363385a3c2cd4f7fe445ed71329e55d190cb14d5 Mon Sep 17 00:00:00 2001
+From: Takahiro Itazuri <itazur@amazon.com>
+Date: Tue, 2 Dec 2025 12:15:49 +0000
+Subject: [RFC PATCH 0/2] KVM: pfncache: Support guest_memfd without direct map
+
+[ based on kvm/next with [1] ]
+
+Recent work on guest_memfd [1] is introducing support for removing guest
+memory from the kernel direct map (Note that it hasn't been merged yet,
+and that is why this patch series is labelled RFC). The feature is
+useful for non-CoCo VMs to prevent the host kernel from accidentally or
+speculatively accessing guest memory as a general safety improvement.
+Pages for guest_memfd created with GUEST_MEMFD_FLAG_NO_DIRECT_MAP have
+their direct-map PTEs explicitly disabled, and thus cannot rely on the
+direct map.
+
+This breaks the facilities that use gfn_to_pfn_cache, including
+kvm-clock.  gfn_to_pfn_cache caches the pfn and kernel host virtual
+address (khva) for a given gfn so that KVM can repeatedly read or write
+the corresponding guest page.  The cached khva may be later dereferenced
+from atomic contexts in some cases.  Such contexts cannot tolerate
+sleeping or page faults, and therefore cannot use the userspace mapping
+(uhva), as those mappings may fault at any time. As a result,
+gfn_to_pfn_cache requires a stable, fault-free kernel virtual address
+for the backing pages, independent of the userspace page.
+
+This small patch series enables gfn_to_pfn_cache to work correctly when
+a memslot is backed by guest_memfd with GUEST_MEMFD_FLAG_NO_DIRECT_MAP.
+The first patch teaches gfn_to_pfn_cache to obtain pfn for guest_memfd-
+backed memslots via kvm_gmem_get_pfn() instead of GUP (hva_to_pfn()).
+The second patch makes gfn_to_pfn_cache use vmap()/vunmap() to create a
+fault-free kernel address for such pages.  We believe that establishing
+such mapping for paravirtual guest/host communication is acceptable
+since such pages do not contain sensitive data.
+
+Another considered idea was to use memremap() instead of vmap(), since
+gpc_map() already falls back to memremap() if pfn_valid() is false.
+However, vmap() was chosen for the following reason.  memremap() with
+MEMREMAP_WB first attempts to use the direct map via try_ram_remap(),
+and then falls back to arch_memremap_wb(), which explicitly refuses to
+map system RAM.  It would be possible to relax this restriction, but the
+side effects are unclear because memremap() is widely used throughout
+the kernel.  Changing memremap() to support system RAM without the
+direct map solely for gfn_to_pfn_cache feels disproportionate. If
+additional users appear that need to map system RAM without the direct
+map, revisiting and generalizing memremap() might make sense. For now,
+vmap()/vunmap() provides a contained and predictable solution.
+
+A possible approach in the future is to use the "ephmap" (or proclocal)
+proposed in [2], but it is not yet clear when that work will be merged.
+In constrast, the changes in this patch series are small and
+self-contained, yet immediately allow gfn_to_pfn_cache (including
+kvm-clock) to operate correctly with direct map-removed guest_memfd.
+Once ephmap eventually is merged, gfn_to_pfn_cache can be updated to
+make use of it as appropriate.
+
+[1]: https://lore.kernel.org/all/20250924151101.2225820-1-patrick.roy@campus.lmu.de/
+[2]: https://lore.kernel.org/all/20250812173109.295750-1-jackmanb@google.com/
+
+Takahiro Itazuri (2):
+  KVM: pfncache: Use kvm_gmem_get_pfn() for guest_memfd-backed memslots
+  KVM: pfncache: Use vmap() for guest_memfd pages without direct map
+
+ include/linux/kvm_host.h |  7 ++++++
+ virt/kvm/pfncache.c      | 52 +++++++++++++++++++++++++++++-----------
+ 2 files changed, 45 insertions(+), 14 deletions(-)
+
+--
+2.50.1
+
