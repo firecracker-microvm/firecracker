@@ -1,0 +1,99 @@
+From bebfd5914aae9d2eaec6b90b6408875f2aa40610 Mon Sep 17 00:00:00 2001
+From: Takahiro Itazuri <itazur@amazon.com>
+Date: Mon, 1 Dec 2025 14:58:44 +0000
+Subject: [RFC PATCH 1/2] KVM: pfncache: Use kvm_gmem_get_pfn() for guest_memfd-backed memslots
+
+gfn_to_pfn_cache currently relies on hva_to_pfn(), which resolves PFNs
+through GUP.  GUP assumes that the page has a valid direct-map PTE,
+which is not true for guest_memfd created with
+GUEST_MEMFD_FLAG_NO_DIRECT_MAP, because their direct-map PTEs are
+explicitly removed via set_direct_map_valid_noflush().
+
+Introduce a helper function, gpc_to_pfn(), that routes PFN lookup to
+kvm_gmem_get_pfn() for guest_memfd-backed memslots (regardless of
+whether GUEST_MEMFD_FLAG_NO_DIRECT_MAP is set), and otherwise falls
+back to the existing hva_to_pfn() path. Rename hva_to_pfn_retry() to
+gpc_to_pfn_retry() accordingly.
+
+Signed-off-by: Takahiro Itazuri <itazur@amazon.com>
+---
+ virt/kvm/pfncache.c | 34 +++++++++++++++++++++++-----------
+ 1 file changed, 23 insertions(+), 11 deletions(-)
+
+diff --git a/virt/kvm/pfncache.c b/virt/kvm/pfncache.c
+index 728d2c1b488a..bf8d6090e283 100644
+--- a/virt/kvm/pfncache.c
++++ b/virt/kvm/pfncache.c
+@@ -152,22 +152,34 @@ static inline bool mmu_notifier_retry_cache(struct kvm *kvm, unsigned long mmu_s
+ 	return kvm->mmu_invalidate_seq != mmu_seq;
+ }
+ 
+-static kvm_pfn_t hva_to_pfn_retry(struct gfn_to_pfn_cache *gpc)
++static kvm_pfn_t gpc_to_pfn(struct gfn_to_pfn_cache *gpc, struct page **page)
+ {
+-	/* Note, the new page offset may be different than the old! */
+-	void *old_khva = (void *)PAGE_ALIGN_DOWN((uintptr_t)gpc->khva);
+-	kvm_pfn_t new_pfn = KVM_PFN_ERR_FAULT;
+-	void *new_khva = NULL;
+-	unsigned long mmu_seq;
+-	struct page *page;
++	if (kvm_slot_has_gmem(gpc->memslot)) {
++		kvm_pfn_t pfn;
++
++		kvm_gmem_get_pfn(gpc->kvm, gpc->memslot, gpa_to_gfn(gpc->gpa),
++				 &pfn, page, NULL);
++		return pfn;
++	}
+ 
+ 	struct kvm_follow_pfn kfp = {
+ 		.slot = gpc->memslot,
+ 		.gfn = gpa_to_gfn(gpc->gpa),
+ 		.flags = FOLL_WRITE,
+ 		.hva = gpc->uhva,
+-		.refcounted_page = &page,
++		.refcounted_page = page,
+ 	};
++	return hva_to_pfn(&kfp);
++}
++
++static kvm_pfn_t gpc_to_pfn_retry(struct gfn_to_pfn_cache *gpc)
++{
++	/* Note, the new page offset may be different than the old! */
++	void *old_khva = (void *)PAGE_ALIGN_DOWN((uintptr_t)gpc->khva);
++	kvm_pfn_t new_pfn = KVM_PFN_ERR_FAULT;
++	void *new_khva = NULL;
++	unsigned long mmu_seq;
++	struct page *page;
+ 
+ 	lockdep_assert_held(&gpc->refresh_lock);
+ 
+@@ -206,7 +218,7 @@ static kvm_pfn_t hva_to_pfn_retry(struct gfn_to_pfn_cache *gpc)
+ 			cond_resched();
+ 		}
+ 
+-		new_pfn = hva_to_pfn(&kfp);
++		new_pfn = gpc_to_pfn(gpc, &page);
+ 		if (is_error_noslot_pfn(new_pfn))
+ 			goto out_error;
+ 
+@@ -319,7 +331,7 @@ static int __kvm_gpc_refresh(struct gfn_to_pfn_cache *gpc, gpa_t gpa, unsigned l
+ 		}
+ 	}
+ 
+-	/* Note: the offset must be correct before calling hva_to_pfn_retry() */
++	/* Note: the offset must be correct before calling gpc_to_pfn_retry() */
+ 	gpc->uhva += page_offset;
+ 
+ 	/*
+@@ -327,7 +339,7 @@ static int __kvm_gpc_refresh(struct gfn_to_pfn_cache *gpc, gpa_t gpa, unsigned l
+ 	 * drop the lock and do the HVA to PFN lookup again.
+ 	 */
+ 	if (!gpc->valid || hva_change) {
+-		ret = hva_to_pfn_retry(gpc);
++		ret = gpc_to_pfn_retry(gpc);
+ 	} else {
+ 		/*
+ 		 * If the HVA→PFN mapping was already valid, don't unmap it.
+-- 
+2.50.1
+
