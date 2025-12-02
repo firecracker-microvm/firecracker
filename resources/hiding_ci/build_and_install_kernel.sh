@@ -79,7 +79,7 @@ confirm() {
 apply_patch_file() {
   echo "Applying patch:" $(basename $1)
 
-  git apply $1
+  git apply --allow-empty $1
 }
 
 apply_patch_or_series() {
