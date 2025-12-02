@@ -95,6 +95,17 @@ pub struct Pmem {
     pub config: PmemConfig,
 }
 
+impl Drop for Pmem {
+    fn drop(&mut self) {
+        let mmap_len = align_up(self.file_len, Self::ALIGNMENT);
+        // SAFETY: `mmap_ptr` is a valid pointer since Pmem can only be created with `new*` methods.
+        //         Mapping size calculation is same for original mmap call.
+        unsafe {
+            _ = libc::munmap(self.mmap_ptr as *mut libc::c_void, u64_to_usize(mmap_len));
+        }
+    }
+}
+
 impl Pmem {
     // Pmem devices need to have address and size to be
     // a multiple of 2MB
@@ -130,10 +141,7 @@ impl Pmem {
         })
     }
 
-    pub fn mmap_backing_file(
-        path: &str,
-        read_only: bool,
-    ) -> Result<(File, u64, u64, u64), PmemError> {
+    fn mmap_backing_file(path: &str, read_only: bool) -> Result<(File, u64, u64, u64), PmemError> {
         let file = OpenOptions::new()
             .read(true)
             .write(!read_only)
