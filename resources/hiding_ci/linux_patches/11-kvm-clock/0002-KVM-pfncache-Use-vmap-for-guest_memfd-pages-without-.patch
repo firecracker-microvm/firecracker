@@ -1,0 +1,115 @@
+From 6c90c75b15ba48cc5e0a1e74224c041c3c45668b Mon Sep 17 00:00:00 2001
+From: Takahiro Itazuri <itazur@amazon.com>
+Date: Mon, 1 Dec 2025 16:47:05 +0000
+Subject: [RFC PATCH 2/2] KVM: pfncache: Use vmap() for guest_memfd pages without direct map
+
+gfn_to_pfn_cache currently maps RAM PFNs with kmap(), which relies on
+the direct map.  guest_memfd created with GUEST_MEMFD_FLAG_NO_DIRECT_MAP
+disable their direct-map PTEs via set_direct_map_valid_noflush(), so the
+linear address returned by kmap()/page_address() will fault if
+dereferenced.
+
+In some cases, gfn_to_pfn_cache dereferences the cached kernel address
+(khva) from atomic contexts where page faults cannot be tolerated.
+Therefore khva must always refer to a fault-free kernel mapping.  Since
+mapping and unmapping happen exclusively in the refresh path, which may
+sleep, using vmap()/vunmap() for these pages is safe and sufficient.
+
+Introduce kvm_slot_no_direct_map() to detect guest_memfd slots without
+the direct map, and make gpc_map()/gpc_unmap() use vmap()/vunmap() for
+such pages.
+
+This allows the facilities based on gfn_to_pfn_cache (e.g. kvm-clock) to
+work correctly with guest_memfd regardless of whether its direct-map
+PTEs are valid.
+
+Signed-off-by: Takahiro Itazuri <itazur@amazon.com>
+---
+ include/linux/kvm_host.h |  7 +++++++
+ virt/kvm/pfncache.c      | 26 ++++++++++++++++++++------
+ 2 files changed, 27 insertions(+), 6 deletions(-)
+
+diff --git a/include/linux/kvm_host.h b/include/linux/kvm_host.h
+index 70e6a5210ceb..793d98f97928 100644
+--- a/include/linux/kvm_host.h
++++ b/include/linux/kvm_host.h
+@@ -15,6 +15,7 @@
+ #include <linux/minmax.h>
+ #include <linux/mm.h>
+ #include <linux/mmu_notifier.h>
++#include <linux/pagemap.h>
+ #include <linux/preempt.h>
+ #include <linux/msi.h>
+ #include <linux/slab.h>
+@@ -628,6 +629,12 @@ static inline bool kvm_slot_dirty_track_enabled(const struct kvm_memory_slot *sl
+ 	return slot->flags & KVM_MEM_LOG_DIRTY_PAGES;
+ }
+ 
++static inline bool kvm_slot_no_direct_map(const struct kvm_memory_slot *slot)
++{
++	return slot && kvm_slot_has_gmem(slot) &&
++	       mapping_no_direct_map(slot->gmem.file->f_mapping);
++}
++
+ static inline unsigned long kvm_dirty_bitmap_bytes(struct kvm_memory_slot *memslot)
+ {
+ 	return ALIGN(memslot->npages, BITS_PER_LONG) / 8;
+diff --git a/virt/kvm/pfncache.c b/virt/kvm/pfncache.c
+index bf8d6090e283..ae6d8699e536 100644
+--- a/virt/kvm/pfncache.c
++++ b/virt/kvm/pfncache.c
+@@ -96,10 +96,16 @@ bool kvm_gpc_check(struct gfn_to_pfn_cache *gpc, unsigned long len)
+ 	return true;
+ }
+ 
+-static void *gpc_map(kvm_pfn_t pfn)
++static void *gpc_map(struct gfn_to_pfn_cache *gpc, kvm_pfn_t pfn)
+ {
+-	if (pfn_valid(pfn))
+-		return kmap(pfn_to_page(pfn));
++	if (pfn_valid(pfn)) {
++		struct page *page = pfn_to_page(pfn);
++
++		if (kvm_slot_no_direct_map(gpc->memslot))
++			return vmap(&page, 1, VM_MAP, PAGE_KERNEL);
++
++		return kmap(page);
++	}
+ 
+ #ifdef CONFIG_HAS_IOMEM
+ 	return memremap(pfn_to_hpa(pfn), PAGE_SIZE, MEMREMAP_WB);
+@@ -115,6 +121,11 @@ static void gpc_unmap(kvm_pfn_t pfn, void *khva)
+ 		return;
+ 
+ 	if (pfn_valid(pfn)) {
++		if (is_vmalloc_addr(khva)) {
++			vunmap(khva);
++			return;
++		}
++
+ 		kunmap(pfn_to_page(pfn));
+ 		return;
+ 	}
+@@ -224,13 +235,16 @@ static kvm_pfn_t gpc_to_pfn_retry(struct gfn_to_pfn_cache *gpc)
+ 
+ 		/*
+ 		 * Obtain a new kernel mapping if KVM itself will access the
+-		 * pfn.  Note, kmap() and memremap() can both sleep, so this
+-		 * too must be done outside of gpc->lock!
++		 * pfn.  Note, kmap(), vmap() and memremap() can sleep, so this
++		 * too must be done outside of gpc->lock! Note that even though
++		 * the rwlock is dropped, it's still fine to access gpc->pfn and
++		 * other fields because gpc->fresh_lock mutex prevents those
++		 * from being changed.
+ 		 */
+ 		if (new_pfn == gpc->pfn)
+ 			new_khva = old_khva;
+ 		else
+-			new_khva = gpc_map(new_pfn);
++			new_khva = gpc_map(gpc, new_pfn);
+ 
+ 		if (!new_khva) {
+ 			kvm_release_page_unused(page);
+-- 
+2.50.1
+
