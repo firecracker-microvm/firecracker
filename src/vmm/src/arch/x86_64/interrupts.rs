@@ -111,7 +111,7 @@ mod tests {
 
         v.iter_mut()
             .for_each(|x| *x = set_apic_delivery_mode(*x, 2));
-        let after: Vec<u32> = v.iter().map(|x| ((*x & !0x700) | ((2) << 8))).collect();
+        let after: Vec<u32> = v.iter().map(|x| (*x & !0x700) | ((2) << 8)).collect();
         assert_eq!(v, after);
     }
 
