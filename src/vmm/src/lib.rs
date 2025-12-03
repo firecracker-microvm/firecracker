@@ -124,7 +124,6 @@ use std::sync::{Arc, Barrier, Mutex};
 use std::time::Duration;
 
 use device_manager::DeviceManager;
-use devices::acpi::vmgenid::VmGenIdError;
 use event_manager::{EventManager as BaseEventManager, EventOps, Events, MutEventSubscriber};
 use seccomp::BpfProgram;
 use snapshot::Persist;
@@ -136,8 +135,13 @@ use vstate::kvm::Kvm;
 use vstate::vcpu::{self, StartThreadedError, VcpuSendEventError};
 
 use crate::cpu_config::templates::CpuConfiguration;
-use crate::devices::virtio::balloon::{BALLOON_DEV_ID, Balloon, BalloonConfig, BalloonStats};
+use crate::devices::virtio::balloon::device::{HintingStatus, StartHintingCmd};
+use crate::devices::virtio::balloon::{
+    BALLOON_DEV_ID, Balloon, BalloonConfig, BalloonError, BalloonStats,
+};
+use crate::devices::virtio::block::BlockError;
 use crate::devices::virtio::block::device::Block;
+use crate::devices::virtio::mem::{VIRTIO_MEM_DEV_ID, VirtioMem, VirtioMemError, VirtioMemStatus};
 use crate::devices::virtio::net::Net;
 use crate::logger::{METRICS, MetricsError, error, info, warn};
 use crate::persist::{MicrovmState, MicrovmStateError, VmInfo};
@@ -220,8 +224,6 @@ pub enum VmmError {
     SeccompFilters(seccomp::InstallationError),
     /// Error writing to the serial console: {0}
     Serial(io::Error),
-    /// Error creating timer fd: {0}
-    TimerFd(io::Error),
     /// Error creating the vcpu: {0}
     VcpuCreate(vstate::vcpu::VcpuError),
     /// Cannot send event to vCPU. {0}
@@ -244,10 +246,14 @@ pub enum VmmError {
     Vm(#[from] vstate::vm::VmError),
     /// Kvm error: {0}
     Kvm(#[from] vstate::kvm::KvmError),
-    /// VMGenID error: {0}
-    VMGenID(#[from] VmGenIdError),
     /// Failed perform action on device: {0}
     FindDeviceError(#[from] device_manager::FindDeviceError),
+    /// Block: {0}
+    Block(#[from] BlockError),
+    /// Balloon: {0}
+    Balloon(#[from] BalloonError),
+    /// Failed to create memory hotplug device: {0}
+    VirtioMem(#[from] VirtioMemError),
 }
 
 /// Shorthand type for KVM dirty page bitmap.
@@ -519,10 +525,10 @@ impl Vmm {
         path_on_host: String,
     ) -> Result<(), VmmError> {
         self.device_manager
-            .try_with_virtio_device_with_id(drive_id, |block: &mut Block| {
+            .with_virtio_device(drive_id, |block: &mut Block| {
                 block.update_disk_image(path_on_host)
-            })
-            .map_err(VmmError::FindDeviceError)
+            })??;
+        Ok(())
     }
 
     /// Updates the rate limiter parameters for block device with `drive_id` id.
@@ -533,17 +539,17 @@ impl Vmm {
         rl_ops: BucketUpdate,
     ) -> Result<(), VmmError> {
         self.device_manager
-            .try_with_virtio_device_with_id(drive_id, |block: &mut Block| {
+            .with_virtio_device(drive_id, |block: &mut Block| {
                 block.update_rate_limiter(rl_bytes, rl_ops)
-            })
-            .map_err(VmmError::FindDeviceError)
+            })??;
+        Ok(())
     }
 
     /// Updates the rate limiter parameters for block device with `drive_id` id.
     pub fn update_vhost_user_block_config(&mut self, drive_id: &str) -> Result<(), VmmError> {
         self.device_manager
-            .try_with_virtio_device_with_id(drive_id, |block: &mut Block| block.update_config())
-            .map_err(VmmError::FindDeviceError)
+            .with_virtio_device(drive_id, |block: &mut Block| block.update_config())??;
+        Ok(())
     }
 
     /// Updates the rate limiter parameters for net device with `net_id` id.
@@ -556,33 +562,35 @@ impl Vmm {
         tx_ops: BucketUpdate,
     ) -> Result<(), VmmError> {
         self.device_manager
-            .with_virtio_device_with_id(net_id, |net: &mut Net| {
+            .with_virtio_device(net_id, |net: &mut Net| {
                 net.patch_rate_limiters(rx_bytes, rx_ops, tx_bytes, tx_ops)
-            })
-            .map_err(VmmError::FindDeviceError)
+            })?;
+        Ok(())
     }
 
     /// Returns a reference to the balloon device if present.
     pub fn balloon_config(&self) -> Result<BalloonConfig, VmmError> {
-        self.device_manager
-            .with_virtio_device_with_id(BALLOON_DEV_ID, |dev: &mut Balloon| dev.config())
-            .map_err(VmmError::FindDeviceError)
+        let config = self
+            .device_manager
+            .with_virtio_device(BALLOON_DEV_ID, |dev: &mut Balloon| dev.config())?;
+        Ok(config)
     }
 
     /// Returns the latest balloon statistics if they are enabled.
     pub fn latest_balloon_stats(&self) -> Result<BalloonStats, VmmError> {
-        self.device_manager
-            .try_with_virtio_device_with_id(BALLOON_DEV_ID, |dev: &mut Balloon| dev.latest_stats())
-            .map_err(VmmError::FindDeviceError)
+        let stats = self
+            .device_manager
+            .with_virtio_device(BALLOON_DEV_ID, |dev: &mut Balloon| dev.latest_stats())??;
+        Ok(stats)
     }
 
     /// Updates configuration for the balloon device target size.
     pub fn update_balloon_config(&mut self, amount_mib: u32) -> Result<(), VmmError> {
         self.device_manager
-            .try_with_virtio_device_with_id(BALLOON_DEV_ID, |dev: &mut Balloon| {
+            .with_virtio_device(BALLOON_DEV_ID, |dev: &mut Balloon| {
                 dev.update_size(amount_mib)
-            })
-            .map_err(VmmError::FindDeviceError)
+            })??;
+        Ok(())
     }
 
     /// Updates configuration for the balloon device as described in `balloon_stats_update`.
@@ -591,10 +599,49 @@ impl Vmm {
         stats_polling_interval_s: u16,
     ) -> Result<(), VmmError> {
         self.device_manager
-            .try_with_virtio_device_with_id(BALLOON_DEV_ID, |dev: &mut Balloon| {
+            .with_virtio_device(BALLOON_DEV_ID, |dev: &mut Balloon| {
                 dev.update_stats_polling_interval(stats_polling_interval_s)
-            })
+            })??;
+        Ok(())
+    }
+
+    /// Returns the current state of the memory hotplug device.
+    pub fn memory_hotplug_status(&self) -> Result<VirtioMemStatus, VmmError> {
+        self.device_manager
+            .with_virtio_device(VIRTIO_MEM_DEV_ID, |dev: &mut VirtioMem| dev.status())
             .map_err(VmmError::FindDeviceError)
+    }
+
+    /// Returns the current state of the memory hotplug device.
+    pub fn update_memory_hotplug_size(&self, requested_size_mib: usize) -> Result<(), VmmError> {
+        self.device_manager
+            .with_virtio_device(VIRTIO_MEM_DEV_ID, |dev: &mut VirtioMem| {
+                dev.update_requested_size(requested_size_mib)
+            })
+            .map_err(VmmError::FindDeviceError)??;
+        Ok(())
+    }
+
+    /// Starts the balloon free page hinting run
+    pub fn start_balloon_hinting(&mut self, cmd: StartHintingCmd) -> Result<(), VmmError> {
+        self.device_manager
+            .with_virtio_device(BALLOON_DEV_ID, |dev: &mut Balloon| dev.start_hinting(cmd))??;
+        Ok(())
+    }
+
+    /// Retrieves the status of the balloon hinting run
+    pub fn get_balloon_hinting_status(&mut self) -> Result<HintingStatus, VmmError> {
+        let status = self
+            .device_manager
+            .with_virtio_device(BALLOON_DEV_ID, |dev: &mut Balloon| dev.get_hinting_status())??;
+        Ok(status)
+    }
+
+    /// Stops the balloon free page hinting run
+    pub fn stop_balloon_hinting(&mut self) -> Result<(), VmmError> {
+        self.device_manager
+            .with_virtio_device(BALLOON_DEV_ID, |dev: &mut Balloon| dev.stop_hinting())??;
+        Ok(())
     }
 
     /// Signals Vmm to stop and exit.

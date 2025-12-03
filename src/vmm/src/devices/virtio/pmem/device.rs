@@ -22,16 +22,17 @@ use crate::devices::virtio::pmem::PMEM_QUEUE_SIZE;
 use crate::devices::virtio::pmem::metrics::{PmemMetrics, PmemMetricsPerDevice};
 use crate::devices::virtio::queue::{DescriptorChain, InvalidAvailIdx, Queue, QueueError};
 use crate::devices::virtio::transport::{VirtioInterrupt, VirtioInterruptType};
-use crate::logger::{IncMetric, error};
+use crate::logger::{IncMetric, error, info};
 use crate::utils::{align_up, u64_to_usize};
 use crate::vmm_config::pmem::PmemConfig;
 use crate::vstate::memory::{ByteValued, Bytes, GuestMemoryMmap, GuestMmapRegion};
+use crate::vstate::vm::VmError;
 use crate::{Vm, impl_device_type};
 
 #[derive(Debug, thiserror::Error, displaydoc::Display)]
 pub enum PmemError {
     /// Cannot set the memory regions: {0}
-    SetUserMemoryRegion(kvm_ioctls::Error),
+    SetUserMemoryRegion(VmError),
     /// Unablet to allocate a KVM slot for the device
     NoKvmSlotAvailable,
     /// Error accessing backing file: {0}
@@ -94,6 +95,17 @@ pub struct Pmem {
     pub config: PmemConfig,
 }
 
+impl Drop for Pmem {
+    fn drop(&mut self) {
+        let mmap_len = align_up(self.file_len, Self::ALIGNMENT);
+        // SAFETY: `mmap_ptr` is a valid pointer since Pmem can only be created with `new*` methods.
+        //         Mapping size calculation is same for original mmap call.
+        unsafe {
+            _ = libc::munmap(self.mmap_ptr as *mut libc::c_void, u64_to_usize(mmap_len));
+        }
+    }
+}
+
 impl Pmem {
     // Pmem devices need to have address and size to be
     // a multiple of 2MB
@@ -129,10 +141,7 @@ impl Pmem {
         })
     }
 
-    pub fn mmap_backing_file(
-        path: &str,
-        read_only: bool,
-    ) -> Result<(File, u64, u64, u64), PmemError> {
+    fn mmap_backing_file(path: &str, read_only: bool) -> Result<(File, u64, u64, u64), PmemError> {
         let file = OpenOptions::new()
             .read(true)
             .write(!read_only)
@@ -221,7 +230,7 @@ impl Pmem {
 
     /// Set user memory region in KVM
     pub fn set_mem_region(&mut self, vm: &Vm) -> Result<(), PmemError> {
-        let next_slot = vm.next_kvm_slot().ok_or(PmemError::NoKvmSlotAvailable)?;
+        let next_slot = vm.next_kvm_slot(1).ok_or(PmemError::NoKvmSlotAvailable)?;
         let memory_region = kvm_userspace_memory_region {
             slot: next_slot,
             guest_phys_addr: self.config_space.start,
@@ -233,17 +242,12 @@ impl Pmem {
                 0
             },
         };
-        // SAFETY: The fd is a valid VM file descriptor and all fields in the
-        // `memory_region` struct are valid.
-        unsafe {
-            vm.fd()
-                .set_user_memory_region(memory_region)
-                .map_err(PmemError::SetUserMemoryRegion)?;
-        }
-        Ok(())
+
+        vm.set_user_memory_region(memory_region)
+            .map_err(PmemError::SetUserMemoryRegion)
     }
 
-    fn handle_queue(&mut self) -> Result<(), PmemError> {
+    pub fn handle_queue(&mut self) -> Result<(), PmemError> {
         // This is safe since we checked in the event handler that the device is activated.
         let active_state = self.device_state.active_state().unwrap();
 
@@ -393,6 +397,13 @@ impl VirtioDevice for Pmem {
 
     fn is_activated(&self) -> bool {
         self.device_state.is_activated()
+    }
+
+    fn kick(&mut self) {
+        if self.is_activated() {
+            info!("kick pmem {}.", self.config.id);
+            self.handle_queue();
+        }
     }
 }
 

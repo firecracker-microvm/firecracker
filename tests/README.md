@@ -251,6 +251,26 @@ schedule an A/B-Test in buildkite, the `REVISION_A` and `REVISION_B` environment
 variables need to be set in the "Environment Variables" field under "Options" in
 buildkite's "New Build" modal.
 
+### A/B visualization
+
+To create visualization of A/B runs use `tools/ab_plot.py` script. It supports
+creating `pdf` and `table` outputs with multiple directories as inputs. Example
+usage:
+
+```sh
+ ./tools/ab_plot.py a_path b_path --output_type pdf
+```
+
+Alternatively using `devtool` running the script in the dev container with
+pre-installed dependencies.
+
+```sh
+ ./tools/devtool sh ./tools/ab_plot.py a_path b_path --output_type pdf
+```
+
+> [!NOTE] Generating `pdf` output may take some time for tests with a lot of
+> permutations.
+
 ### Beyond commit comparisons
 
 While our automated A/B-Testing suite only supports A/B-Tests across commit

@@ -74,6 +74,7 @@ use super::FcLineWriter;
 use crate::devices::legacy;
 use crate::devices::virtio::balloon::metrics as balloon_metrics;
 use crate::devices::virtio::block::virtio::metrics as block_metrics;
+use crate::devices::virtio::mem::metrics as virtio_mem_metrics;
 use crate::devices::virtio::net::metrics as net_metrics;
 use crate::devices::virtio::pmem::metrics as pmem_metrics;
 use crate::devices::virtio::rng::metrics as entropy_metrics;
@@ -360,6 +361,8 @@ pub struct GetRequestsMetrics {
     pub mmds_count: SharedIncMetric,
     /// Number of GETs for getting the VMM version.
     pub vmm_version_count: SharedIncMetric,
+    /// Number of GETs for getting hotpluggable memory status.
+    pub hotplug_memory_count: SharedIncMetric,
 }
 impl GetRequestsMetrics {
     /// Const default construction.
@@ -369,6 +372,7 @@ impl GetRequestsMetrics {
             machine_cfg_count: SharedIncMetric::new(),
             mmds_count: SharedIncMetric::new(),
             vmm_version_count: SharedIncMetric::new(),
+            hotplug_memory_count: SharedIncMetric::new(),
         }
     }
 }
@@ -424,6 +428,10 @@ pub struct PutRequestsMetrics {
     pub serial_count: SharedIncMetric,
     /// Number of failed PUTs to /serial
     pub serial_fails: SharedIncMetric,
+    /// Number of PUTs to /hotplug/memory
+    pub hotplug_memory_count: SharedIncMetric,
+    /// Number of failed PUTs to /hotplug/memory
+    pub hotplug_memory_fails: SharedIncMetric,
 }
 impl PutRequestsMetrics {
     /// Const default construction.
@@ -453,6 +461,8 @@ impl PutRequestsMetrics {
             pmem_fails: SharedIncMetric::new(),
             serial_count: SharedIncMetric::new(),
             serial_fails: SharedIncMetric::new(),
+            hotplug_memory_count: SharedIncMetric::new(),
+            hotplug_memory_fails: SharedIncMetric::new(),
         }
     }
 }
@@ -476,6 +486,10 @@ pub struct PatchRequestsMetrics {
     pub mmds_count: SharedIncMetric,
     /// Number of failures in PATCHing an mmds.
     pub mmds_fails: SharedIncMetric,
+    /// Number of PATCHes to /hotplug/memory
+    pub hotplug_memory_count: SharedIncMetric,
+    /// Number of failed PATCHes to /hotplug/memory
+    pub hotplug_memory_fails: SharedIncMetric,
 }
 impl PatchRequestsMetrics {
     /// Const default construction.
@@ -489,6 +503,8 @@ impl PatchRequestsMetrics {
             machine_cfg_fails: SharedIncMetric::new(),
             mmds_count: SharedIncMetric::new(),
             mmds_fails: SharedIncMetric::new(),
+            hotplug_memory_count: SharedIncMetric::new(),
+            hotplug_memory_fails: SharedIncMetric::new(),
         }
     }
 }
@@ -876,6 +892,7 @@ create_serialize_proxy!(EntropyMetricsSerializeProxy, entropy_metrics);
 create_serialize_proxy!(VsockMetricsSerializeProxy, vsock_metrics);
 create_serialize_proxy!(PmemMetricsSerializeProxy, pmem_metrics);
 create_serialize_proxy!(LegacyDevMetricsSerializeProxy, legacy);
+create_serialize_proxy!(MemoryHotplugSerializeProxy, virtio_mem_metrics);
 
 /// Structure storing all metrics while enforcing serialization support on them.
 #[derive(Debug, Default, Serialize)]
@@ -931,6 +948,9 @@ pub struct FirecrackerMetrics {
     pub vhost_user_ser: VhostUserMetricsSerializeProxy,
     /// Interrupt related metrics
     pub interrupts: InterruptMetrics,
+    #[serde(flatten)]
+    /// Virtio-mem device related metrics (memory hotplugging)
+    pub memory_hotplug_ser: MemoryHotplugSerializeProxy,
 }
 impl FirecrackerMetrics {
     /// Const default construction.
@@ -958,6 +978,7 @@ impl FirecrackerMetrics {
             pmem_ser: PmemMetricsSerializeProxy {},
             vhost_user_ser: VhostUserMetricsSerializeProxy {},
             interrupts: InterruptMetrics::new(),
+            memory_hotplug_ser: MemoryHotplugSerializeProxy {},
         }
     }
 }

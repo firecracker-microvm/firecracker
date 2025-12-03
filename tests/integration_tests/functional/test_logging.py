@@ -71,27 +71,6 @@ def check_log_message_format(log_str, instance_id, level, show_level, show_origi
         assert tag_level_no <= configured_level_no
 
 
-def test_log_config_failure(uvm_plain):
-    """
-    Check passing invalid FIFOs is detected and reported as an error.
-    """
-    microvm = uvm_plain
-    microvm.spawn(log_file=None)
-    microvm.basic_config()
-
-    # only works if log level is Debug
-    microvm.time_api_requests = False
-
-    expected_msg = re.escape("No such file or directory (os error 2)")
-    with pytest.raises(RuntimeError, match=expected_msg):
-        microvm.api.logger.put(
-            log_path="invalid log file",
-            level="Info",
-            show_level=True,
-            show_log_origin=True,
-        )
-
-
 def test_api_requests_logs(uvm_plain):
     """
     Test that API requests are logged.

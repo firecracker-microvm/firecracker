@@ -68,7 +68,7 @@
 DEVCTR_IMAGE_NO_TAG="public.ecr.aws/firecracker/fcuvm"
 
 # Development container tag
-DEVCTR_IMAGE_TAG=${DEVCTR_IMAGE_TAG:-v84}
+DEVCTR_IMAGE_TAG=${DEVCTR_IMAGE_TAG:-v86}
 
 # Development container image (name:tag)
 # This should be updated whenever we upgrade the development container.
@@ -944,7 +944,7 @@ cmd_test_debug() {
 cmd_fmt() {
     cmd_sh "cargo fmt --all -- --config $(tr '\n' ',' <tests/fmt.toml)"
     cmd_sh "cargo sort"
-    cmd_sh "cd tests; black . ../tools ../.buildkite"
+    cmd_sh "cd tests; black --config pyproject.toml . ../tools ../.buildkite"
     cmd_sh "cd tests; isort . ../tools ../.buildkite"
     cmd_sh "mdformat $(git ls-files '*.md' | tr '\n' ' ')"
 }

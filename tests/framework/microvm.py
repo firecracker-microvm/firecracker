@@ -23,10 +23,11 @@ import uuid
 from collections import namedtuple
 from dataclasses import dataclass
 from enum import Enum, auto
-from functools import lru_cache
+from functools import cached_property, lru_cache
 from pathlib import Path
 from typing import Optional
 
+import psutil
 from tenacity import Retrying, retry, stop_after_attempt, wait_fixed
 
 import host_tools.cargo_build as build_tools
@@ -287,6 +288,8 @@ class Microvm:
 
         self.help = MicrovmHelpers(self)
 
+        self.gdb_socket = None
+
     def __repr__(self):
         return f"<Microvm id={self.id}>"
 
@@ -472,7 +475,7 @@ class Microvm:
         """Get the InstanceInfo property and return the state field."""
         return self.api.describe.get().json()["state"]
 
-    @property
+    @cached_property
     def firecracker_pid(self):
         """Return Firecracker's PID
 
@@ -490,6 +493,11 @@ class Microvm:
         ):
             with attempt:
                 return int(self.jailer.pid_file.read_text(encoding="ascii"))
+
+    @cached_property
+    def ps(self):
+        """Returns a handle to the psutil.Process for this VM"""
+        return psutil.Process(self.firecracker_pid)
 
     @property
     def dimensions(self):
@@ -634,6 +642,7 @@ class Microvm:
         log_show_origin=False,
         metrics_path="fc.ndjson",
         emit_metrics: bool = False,
+        validate_api: bool = True,
     ):
         """Start a microVM as a daemon or in a screen session."""
         # pylint: disable=subprocess-run-check
@@ -641,6 +650,7 @@ class Microvm:
         self.jailer.setup()
         self.api = Api(
             self.jailer.api_socket_path(),
+            validate=validate_api,
             on_error=lambda verb, uri, err_msg: self._dump_debug_information(
                 f"Error during {verb} {uri}: {err_msg}"
             ),
@@ -1198,6 +1208,33 @@ class Microvm:
         # run commands. The actual connection retry loop happens in SSHConnection._init_connection
         _ = self.ssh_iface(0)
 
+    def enable_gdb(self):
+        """Enables GDB debugging"""
+        self.gdb_socket = "gdb.socket"
+        self.api.machine_config.patch(gdb_socket_path=self.gdb_socket)
+
+    def hotplug_memory(
+        self, requested_size_mib: int, timeout: int = 60, poll: float = 0.1
+    ):
+        """Send a hot(un)plug request and wait up to timeout seconds for completion polling every poll seconds
+
+        Returns: api latency (secs), total latency (secs)
+        """
+        api_start = time.time()
+        self.api.memory_hotplug.patch(requested_size_mib=requested_size_mib)
+        api_end = time.time()
+        # Wait for the hotplug to complete
+        deadline = time.time() + timeout
+        while time.time() < deadline:
+            if (
+                self.api.memory_hotplug.get().json()["plugged_size_mib"]
+                == requested_size_mib
+            ):
+                plug_end = time.time()
+                return api_end - api_start, plug_end - api_start
+            time.sleep(poll)
+        raise TimeoutError(f"Hotplug did not complete within {timeout} seconds")
+
 
 class MicroVMFactory:
     """MicroVM factory"""
@@ -1249,11 +1286,13 @@ class MicroVMFactory:
             vm.ssh_key = ssh_key
         return vm
 
-    def build_from_snapshot(self, snapshot: Snapshot):
+    def build_from_snapshot(self, snapshot: Snapshot, uffd_handler_name=None):
         """Build a microvm from a snapshot"""
         vm = self.build()
         vm.spawn()
-        vm.restore_from_snapshot(snapshot, resume=True)
+        vm.restore_from_snapshot(
+            snapshot, resume=True, uffd_handler_name=uffd_handler_name
+        )
         return vm
 
     def build_n_from_snapshot(

@@ -5,7 +5,7 @@ info:
     The API is accessible through HTTP calls on specific URLs
     carrying JSON modeled data.
     The transport medium is a Unix Domain Socket.
-  version: 1.14.0-dev
+  version: 1.15.0-dev
   termsOfService: ""
   contact:
     email: "firecracker-maintainers@amazon.com"
@@ -166,6 +166,63 @@ paths:
             $ref: "#/definitions/Error"
         default:
           description: Internal server error
+          schema:
+            $ref: "#/definitions/Error"
+
+  /balloon/hinting/start:
+    patch:
+      summary: Starts a free page hinting run only if enabled pre-boot.
+      operationId: startBalloonHinting
+      parameters:
+        - name: body
+          in: body
+          description: When the device completes the hinting whether we should automatically ack this.
+          required: false
+          schema:
+            $ref: "#/definitions/BalloonStartCmd"
+      responses:
+        200:
+          description: Free page hinting run started.
+        400:
+          description: The balloon free hinting was not enabled when the device was configured.
+          schema:
+            $ref: "#/definitions/Error"
+        default:
+          description: Internal Server Error
+          schema:
+            $ref: "#/definitions/Error"
+
+  /balloon/hinting/status:
+    get:
+      summary: Returns the balloon hinting statistics, only if enabled pre-boot.
+      operationId: describeBalloonHinting
+      responses:
+        200:
+          description: The balloon free page hinting statistics
+          schema:
+            $ref: "#/definitions/BalloonHintingStatus"
+        400:
+          description: The balloon free hinting was not enabled when the device was configured.
+          schema:
+            $ref: "#/definitions/Error"
+        default:
+          description: Internal Server Error
+          schema:
+            $ref: "#/definitions/Error"
+
+  /balloon/hinting/stop:
+    patch:
+      summary: Stops a free page hinting run only if enabled pre-boot.
+      operationId: stopBalloonHinting
+      responses:
+        200:
+          description: Free page hinting run stopped.
+        400:
+          description: The balloon free hinting was not enabled when the device was configured.
+          schema:
+            $ref: "#/definitions/Error"
+        default:
+          description: Internal Server Error
           schema:
             $ref: "#/definitions/Error"
 
@@ -482,6 +539,7 @@ paths:
           description: The MMDS data store JSON.
           schema:
             type: object
+            additionalProperties: true
         404:
           description: The MMDS data store content can not be found.
           schema:
@@ -555,6 +613,63 @@ paths:
       responses:
         204:
           description: Serial device configured
+        default:
+          description: Internal server error
+          schema:
+            $ref: "#/definitions/Error"
+
+  /hotplug/memory:
+    put:
+      summary: Configures the hotpluggable memory
+      operationId: putMemoryHotplug
+      description:
+        Configure the hotpluggable memory, which is a virtio-mem device, with an associated memory area
+        that can be hot(un)plugged in the guest on demand using the PATCH API.
+      parameters:
+        - name: body
+          in: body
+          description: Hotpluggable memory configuration
+          required: true
+          schema:
+            $ref: "#/definitions/MemoryHotplugConfig"
+      responses:
+        204:
+          description: Hotpluggable memory configured
+        default:
+          description: Internal server error
+          schema:
+            $ref: "#/definitions/Error"
+    patch:
+      summary: Updates the size of the hotpluggable memory region
+      operationId: patchMemoryHotplug
+      description:
+        Updates the size of the hotpluggable memory region. The guest will plug and unplug memory to
+        hit the requested memory.
+      parameters:
+        - name: body
+          in: body
+          description: Hotpluggable memory size update
+          required: true
+          schema:
+            $ref: "#/definitions/MemoryHotplugSizeUpdate"
+      responses:
+        204:
+          description: Hotpluggable memory configured
+        default:
+          description: Internal server error
+          schema:
+            $ref: "#/definitions/Error"
+    get:
+      summary: Retrieves the status of the hotpluggable memory
+      operationId: getMemoryHotplug
+      description:
+        Reuturn the status of the hotpluggable memory. This can be used to follow the progress of the guest
+        after a PATCH API.
+      responses:
+        200:
+          description: OK
+          schema:
+            $ref: "#/definitions/MemoryHotplugStatus"
         default:
           description: Internal server error
           schema:
@@ -772,6 +887,12 @@ definitions:
       stats_polling_interval_s:
         type: integer
         description: Interval in seconds between refreshing statistics. A non-zero value will enable the statistics. Defaults to 0.
+      free_page_hinting:
+        type: boolean
+        description: Whether the free page hinting feature is enabled.
+      free_page_reporting:
+        type: boolean
+        description: Whether the free page reporting feature is enabled.
 
   BalloonUpdate:
     type: object
@@ -846,6 +967,53 @@ definitions:
         description: The number of failed hugetlb page allocations in the guest.
         type: integer
         format: int64
+      oom_kill:
+        description: OOM killer invocations, indicating critical memory pressure.
+        type: integer
+        format: int64
+      alloc_stall:
+        description: Counter of Allocation enter a slow path to gain more memory page. The reclaim/scan metrics can reveal what is actually happening.
+        type: integer
+        format: int64
+      async_scan:
+        description: Amount of memory scanned asynchronously.
+        type: integer
+        format: int64
+      direct_scan:
+        description: Amount of memory scanned directly.
+        type: integer
+        format: int64
+      async_reclaim:
+        description: Amount of memory reclaimed asynchronously.
+        type: integer
+        format: int64
+      direct_reclaim:
+        description: Amount of memory reclaimed directly.
+        type: integer
+        format: int64
+
+  BalloonStartCmd:
+    type: object
+    description:
+      Command used to start a free page hinting run.
+    properties:
+      acknowledge_on_stop:
+        description: If Firecracker should automatically acknowledge when the guest submits a done cmd.
+        type: boolean
+
+  BalloonHintingStatus:
+    type: object
+    description:
+      Describes the free page hinting status.
+    required:
+      - host_cmd
+    properties:
+      host_cmd:
+        description: The last command issued by the host.
+        type: integer
+      guest_cmd:
+        description: The last command provided by the guest.
+        type: integer
 
   BalloonStatsUpdate:
     type: object
@@ -898,21 +1066,119 @@ definitions:
       The CPU configuration template defines a set of bit maps as modifiers of flags accessed by register
       to be disabled/enabled for the microvm.
     properties:
-      cpuid_modifiers:
-        type: object
-        description: A collection of CPUIDs to be modified. (x86_64)
-      msr_modifiers:
-        type: object
-        description: A collection of model specific registers to be modified. (x86_64)
-      reg_modifiers:
-        type: object
-        description: A collection of registers to be modified. (aarch64)
-      vcpu_features:
-        type: object
-        description: A collection of vcpu features to be modified. (aarch64)
       kvm_capabilities:
-        type: object
-        description: A collection of kvm capabilities to be modified. (aarch64)
+        type: array
+        description: A collection of KVM capabilities to be added or removed (both x86_64 and aarch64)
+        items:
+          type: string
+          description: KVM capability as a numeric string. Prefix with '!' to remove capability. Example "121" (add) or "!121" (remove)
+      cpuid_modifiers:
+        type: array
+        description: A collection of CPUID leaf modifiers (x86_64 only)
+        items:
+          $ref: "#/definitions/CpuidLeafModifier"
+      msr_modifiers:
+        type: array
+        description: A collection of model specific register modifiers (x86_64 only)
+        items:
+          $ref: "#/definitions/MsrModifier"
+      reg_modifiers:
+        type: array
+        description: A collection of register modifiers (aarch64 only)
+        items:
+          $ref: "#/definitions/ArmRegisterModifier"
+      vcpu_features:
+        type: array
+        description: A collection of vCPU features to be modified (aarch64 only)
+        items:
+          $ref: "#/definitions/VcpuFeatures"
+
+  CpuidLeafModifier:
+    type: object
+    description: Modifier for a CPUID leaf and subleaf (x86_64)
+    required:
+      - leaf
+      - subleaf
+      - flags
+      - modifiers
+    properties:
+      leaf:
+        type: string
+        description: CPUID leaf index as hex, binary, or decimal string (e.g., "0x0", "0b0", "0"))
+      subleaf:
+        type: string
+        description: CPUID subleaf index as hex, binary, or decimal string (e.g., "0x0", "0b0", "0")
+      flags:
+        type: integer
+        format: int32
+        description: KVM feature flags for this leaf-subleaf
+      modifiers:
+        type: array
+        description: Register modifiers for this CPUID leaf
+        items:
+          $ref: "#/definitions/CpuidRegisterModifier"
+
+  CpuidRegisterModifier:
+    type: object
+    description: Modifier for a specific CPUID register within a leaf (x86_64)
+    required:
+      - register
+      - bitmap
+    properties:
+      register:
+        type: string
+        description: Target CPUID register name
+        enum:
+          - eax
+          - ebx
+          - ecx
+          - edx
+      bitmap:
+        type: string
+        description: 32-bit bitmap string defining which bits to modify. Format is "0b" followed by 32 characters where '0' = clear bit, '1' = set bit, 'x' = don't modify. Example "0b00000000000000000000000000000001" or "0bxxxxxxxxxxxxxxxxxxxxxxxxxxxx0001"
+
+  MsrModifier:
+    type: object
+    description: Modifier for a model specific register (x86_64)
+    required:
+      - addr
+      - bitmap
+    properties:
+      addr:
+        type: string
+        description: 32-bit MSR address as hex, binary, or decimal string (e.g., "0x10a", "0b100001010", "266")
+      bitmap:
+        type: string
+        description: 64-bit bitmap string defining which bits to modify. Format is "0b" followed by 64 characters where '0' = clear bit, '1' = set bit, 'x' = don't modify. Underscores can be used for readability. Example "0b0000000000000000000000000000000000000000000000000000000000000001"
+
+  ArmRegisterModifier:
+    type: object
+    description: Modifier for an ARM register (aarch64)
+    required:
+      - addr
+      - bitmap
+    properties:
+      addr:
+        type: string
+        description: 64-bit register address as hex, binary, or decimal string (e.g., "0x0", "0b0", "0")
+      bitmap:
+        type: string
+        description: 128-bit bitmap string defining which bits to modify. Format is "0b" followed by up to 128 characters where '0' = clear bit, '1' = set bit, 'x' = don't modify. Underscores can be used for readability. Example "0b0000000000000000000000000000000000000000000000000000000000000001"
+
+  VcpuFeatures:
+    type: object
+    description: vCPU feature modifier (aarch64)
+    required:
+      - index
+      - bitmap
+    properties:
+      index:
+        type: integer
+        format: int32
+        description: Index in the kvm_vcpu_init.features array
+      bitmap:
+        type: string
+        description: 32-bit bitmap string defining which bits to modify. Format is "0b" followed by 32 characters where '0' = clear bit, '1' = set bit, 'x' = don't modify. Example "0b00000000000000000000000001100000"
 
   Drive:
     type: object
@@ -1018,6 +1284,8 @@ definitions:
         $ref: "#/definitions/MachineConfiguration"
       metrics:
         $ref: "#/definitions/Metrics"
+      memory-hotplug:
+        $ref: "#/definitions/MemoryHotplugConfig"
       mmds-config:
         $ref: "#/definitions/MmdsConfig"
       network-interfaces:
@@ -1025,6 +1293,11 @@ definitions:
         description: Configurations for all net devices.
         items:
           $ref: "#/definitions/NetworkInterface"
+      pmem:
+        type: array
+        description: Configurations for all pmem devices.
+        items:
+          $ref: "#/definitions/Pmem"
       vsock:
         $ref: "#/definitions/Vsock"
       entropy:
@@ -1213,6 +1486,7 @@ definitions:
     type: object
     description:
       Describes the contents of MMDS in JSON format.
+    additionalProperties: true
 
   NetworkInterface:
     type: object
@@ -1416,9 +1690,60 @@ definitions:
     description:
       The configuration of the serial device
     properties:
-      output_path:
+      serial_out_path:
         type: string
         description: Path to a file or named pipe on the host to which serial output should be written.
+
+  MemoryHotplugConfig:
+    type: object
+    description:
+      The configuration of the hotpluggable memory device (virtio-mem)
+    properties:
+      total_size_mib:
+        type: integer
+        description: Total size of the hotpluggable memory in MiB.
+      slot_size_mib:
+        type: integer
+        default: 128
+        minimum: 128
+        description: Slot size for the hotpluggable memory in MiB. This will determine the granularity of
+          hot-plug memory from the host. Refer to the device documentation on how to tune this value.
+      block_size_mib:
+        type: integer
+        default: 2
+        minimum: 2
+        description: (Logical) Block size for the hotpluggable memory in MiB. This will determine the logical
+          granularity of hot-plug memory for the guest. Refer to the device documentation on how to tune this value.
+
+  MemoryHotplugSizeUpdate:
+    type: object
+    description:
+      An update to the size of the hotpluggable memory region.
+    properties:
+      requested_size_mib:
+        type: integer
+        description: New target region size.
+
+  MemoryHotplugStatus:
+    type: object
+    description:
+      The status of the hotpluggable memory device (virtio-mem)
+    properties:
+      total_size_mib:
+        type: integer
+        description: Total size of the hotpluggable memory in MiB.
+      slot_size_mib:
+        type: integer
+        description: Slot size for the hotpluggable memory in MiB.
+      block_size_mib:
+        type: integer
+        description: (Logical) Block size for the hotpluggable memory in MiB.
+      plugged_size_mib:
+        type: integer
+        description: Plugged size for the hotpluggable memory in MiB.
+      requested_size_mib:
+        type: integer
+        description: Requested size for the hotpluggable memory in MiB.
 
   FirecrackerVersion:
     type: object

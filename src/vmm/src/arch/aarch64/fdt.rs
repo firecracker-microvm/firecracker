@@ -275,17 +275,15 @@ fn create_chosen_node(
     Ok(())
 }
 
-fn create_vmgenid_node(fdt: &mut FdtWriter, vmgenid: &Option<VmGenId>) -> Result<(), FdtError> {
-    if let Some(vmgenid_info) = vmgenid {
-        let vmgenid = fdt.begin_node("vmgenid")?;
-        fdt.property_string("compatible", "microsoft,vmgenid")?;
-        fdt.property_array_u64("reg", &[vmgenid_info.guest_address.0, VMGENID_MEM_SIZE])?;
-        fdt.property_array_u32(
-            "interrupts",
-            &[GIC_FDT_IRQ_TYPE_SPI, vmgenid_info.gsi, IRQ_TYPE_EDGE_RISING],
-        )?;
-        fdt.end_node(vmgenid)?;
-    }
+fn create_vmgenid_node(fdt: &mut FdtWriter, vmgenid: &VmGenId) -> Result<(), FdtError> {
+    let vmgenid_node = fdt.begin_node("vmgenid")?;
+    fdt.property_string("compatible", "microsoft,vmgenid")?;
+    fdt.property_array_u64("reg", &[vmgenid.guest_address.0, VMGENID_MEM_SIZE])?;
+    fdt.property_array_u32(
+        "interrupts",
+        &[GIC_FDT_IRQ_TYPE_SPI, vmgenid.gsi, IRQ_TYPE_EDGE_RISING],
+    )?;
+    fdt.end_node(vmgenid_node)?;
     Ok(())
 }
 
@@ -379,6 +377,10 @@ fn create_psci_node(fdt: &mut FdtWriter) -> Result<(), FdtError> {
 fn create_virtio_node(fdt: &mut FdtWriter, dev_info: &MMIODeviceInfo) -> Result<(), FdtError> {
     let virtio_mmio = fdt.begin_node(&format!("virtio_mmio@{:x}", dev_info.addr))?;
 
+    // Adding the dma-coherent property ensures that the guest driver allocates the virtio
+    // queue with the Write-Back attribute, maintaining cache coherency with Firecracker's
+    // accesses to the virtio queue.
+    fdt.property_null("dma-coherent")?;
     fdt.property_string("compatible", "virtio,mmio")?;
     fdt.property_array_u64("reg", &[dev_info.addr, dev_info.len])?;
     fdt.property_array_u32(
@@ -579,29 +581,6 @@ mod tests {
             &mem,
             vec![0],
             cmdline.as_cstring().unwrap(),
-            &device_manager,
-            &gic,
-            &None,
-        )
-        .unwrap();
-    }
-
-    #[test]
-    fn test_create_fdt_with_vmgenid() {
-        let mem = arch_mem(layout::FDT_MAX_SIZE + 0x1000);
-        let mut device_manager = default_device_manager();
-        let kvm = Kvm::new(vec![]).unwrap();
-        let vm = Vm::new(&kvm).unwrap();
-        let gic = create_gic(vm.fd(), 1, None).unwrap();
-        let mut cmdline = kernel_cmdline::Cmdline::new(4096).unwrap();
-        cmdline.insert("console", "/dev/tty0").unwrap();
-
-        device_manager.attach_vmgenid_device(&mem, &vm).unwrap();
-
-        create_fdt(
-            &mem,
-            vec![0],
-            CString::new("console=tty0").unwrap(),
             &device_manager,
             &gic,
             &None,

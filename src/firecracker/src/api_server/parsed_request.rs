@@ -28,6 +28,9 @@ use super::request::pmem::parse_put_pmem;
 use super::request::snapshot::{parse_patch_vm_state, parse_put_snapshot};
 use super::request::version::parse_get_version;
 use super::request::vsock::parse_put_vsock;
+use crate::api_server::request::hotplug::memory::{
+    parse_get_memory_hotplug, parse_patch_memory_hotplug, parse_put_memory_hotplug,
+};
 use crate::api_server::request::serial::parse_put_serial;
 
 #[derive(Debug)]
@@ -78,13 +81,16 @@ impl TryFrom<&Request> for ParsedRequest {
 
         match (request.method(), path, request.body.as_ref()) {
             (Method::Get, "", None) => parse_get_instance_info(),
-            (Method::Get, "balloon", None) => parse_get_balloon(path_tokens.next()),
+            (Method::Get, "balloon", None) => parse_get_balloon(path_tokens),
             (Method::Get, "version", None) => parse_get_version(),
             (Method::Get, "vm", None) if path_tokens.next() == Some("config") => {
                 Ok(ParsedRequest::new_sync(VmmAction::GetFullVmConfig))
             }
             (Method::Get, "machine-config", None) => parse_get_machine_config(),
             (Method::Get, "mmds", None) => parse_get_mmds(),
+            (Method::Get, "hotplug", None) if path_tokens.next() == Some("memory") => {
+                parse_get_memory_hotplug()
+            }
             (Method::Get, _, Some(_)) => method_to_error(Method::Get),
             (Method::Put, "actions", Some(body)) => parse_put_actions(body),
             (Method::Put, "balloon", Some(body)) => parse_put_balloon(body),
@@ -103,8 +109,11 @@ impl TryFrom<&Request> for ParsedRequest {
             (Method::Put, "snapshot", Some(body)) => parse_put_snapshot(body, path_tokens.next()),
             (Method::Put, "vsock", Some(body)) => parse_put_vsock(body),
             (Method::Put, "entropy", Some(body)) => parse_put_entropy(body),
+            (Method::Put, "hotplug", Some(body)) if path_tokens.next() == Some("memory") => {
+                parse_put_memory_hotplug(body)
+            }
             (Method::Put, _, None) => method_to_error(Method::Put),
-            (Method::Patch, "balloon", Some(body)) => parse_patch_balloon(body, path_tokens.next()),
+            (Method::Patch, "balloon", body) => parse_patch_balloon(body, path_tokens),
             (Method::Patch, "drives", Some(body)) => parse_patch_drive(body, path_tokens.next()),
             (Method::Patch, "machine-config", Some(body)) => parse_patch_machine_config(body),
             (Method::Patch, "mmds", Some(body)) => parse_patch_mmds(body),
@@ -112,6 +121,9 @@ impl TryFrom<&Request> for ParsedRequest {
                 parse_patch_net(body, path_tokens.next())
             }
             (Method::Patch, "vm", Some(body)) => parse_patch_vm_state(body),
+            (Method::Patch, "hotplug", Some(body)) if path_tokens.next() == Some("memory") => {
+                parse_patch_memory_hotplug(body)
+            }
             (Method::Patch, _, None) => method_to_error(Method::Patch),
             (method, unknown_uri, _) => Err(RequestError::InvalidPathMethod(
                 unknown_uri.to_string(),
@@ -175,6 +187,10 @@ impl ParsedRequest {
                     Self::success_response_with_data(balloon_config)
                 }
                 VmmData::BalloonStats(stats) => Self::success_response_with_data(stats),
+                VmmData::VirtioMemStatus(data) => Self::success_response_with_data(data),
+                VmmData::HintingStatus(hinting_status) => {
+                    Self::success_response_with_data(hinting_status)
+                }
                 VmmData::InstanceInformation(info) => Self::success_response_with_data(info),
                 VmmData::VmmVersion(version) => Self::success_response_with_data(
                     &serde_json::json!({ "firecracker_version": version.as_str() }),
@@ -325,6 +341,7 @@ pub mod tests {
     use micro_http::HttpConnection;
     use vmm::builder::StartMicrovmError;
     use vmm::cpu_config::templates::test_utils::build_test_template;
+    use vmm::devices::virtio::balloon::device::HintingStatus;
     use vmm::resources::VmmConfig;
     use vmm::rpc_interface::VmmActionError;
     use vmm::vmm_config::balloon::{BalloonDeviceConfig, BalloonStats};
@@ -474,6 +491,17 @@ pub mod tests {
             &parsed_request,
             Err(RequestError::Generic(StatusCode::BadRequest, s)) if s == "Empty PATCH request.",
         ));
+
+        sender
+            .write_all(http_request("PATCH", "/balloon", None).as_bytes())
+            .unwrap();
+        connection.try_read().unwrap();
+        let req = connection.pop_parsed_request().unwrap();
+        let parsed_request = ParsedRequest::try_from(&req);
+        assert!(matches!(
+            &parsed_request,
+            Err(RequestError::Generic(StatusCode::BadRequest, s)) if s == "Empty PATCH request.",
+        ));
     }
 
     #[test]
@@ -559,6 +587,12 @@ pub mod tests {
                 VmmData::BalloonStats(stats) => {
                     http_response(&serde_json::to_string(stats).unwrap(), 200)
                 }
+                VmmData::VirtioMemStatus(data) => {
+                    http_response(&serde_json::to_string(data).unwrap(), 200)
+                }
+                VmmData::HintingStatus(status) => {
+                    http_response(&serde_json::to_string(status).unwrap(), 200)
+                }
                 VmmData::Empty => http_response("", 204),
                 VmmData::FullVmConfig(cfg) => {
                     http_response(&serde_json::to_string(cfg).unwrap(), 200)
@@ -586,6 +620,9 @@ pub mod tests {
         verify_ok_response_with(VmmData::BalloonStats(BalloonStats {
             swap_in: Some(1),
             swap_out: Some(1),
+            ..Default::default()
+        }));
+        verify_ok_response_with(VmmData::HintingStatus(HintingStatus {
             ..Default::default()
         }));
         verify_ok_response_with(VmmData::Empty);
@@ -636,6 +673,18 @@ pub mod tests {
         let mut connection = HttpConnection::new(receiver);
         sender
             .write_all(http_request("GET", "/balloon/statistics", None).as_bytes())
+            .unwrap();
+        connection.try_read().unwrap();
+        let req = connection.pop_parsed_request().unwrap();
+        ParsedRequest::try_from(&req).unwrap();
+    }
+
+    #[test]
+    fn test_try_from_get_balloon_hinting() {
+        let (mut sender, receiver) = UnixStream::pair().unwrap();
+        let mut connection = HttpConnection::new(receiver);
+        sender
+            .write_all(http_request("GET", "/balloon/hinting/status", None).as_bytes())
             .unwrap();
         connection.try_read().unwrap();
         let req = connection.pop_parsed_request().unwrap();
@@ -910,9 +959,48 @@ pub mod tests {
         connection.try_read().unwrap();
         let req = connection.pop_parsed_request().unwrap();
         ParsedRequest::try_from(&req).unwrap();
+
         let body = "{ \"stats_polling_interval_s\": 1 }";
         sender
             .write_all(http_request("PATCH", "/balloon/statistics", Some(body)).as_bytes())
+            .unwrap();
+        connection.try_read().unwrap();
+        let req = connection.pop_parsed_request().unwrap();
+        ParsedRequest::try_from(&req).unwrap();
+
+        let body = "{ \"acknowledge_on_stop\": true }";
+        sender
+            .write_all(http_request("PATCH", "/balloon/hinting/start", Some(body)).as_bytes())
+            .unwrap();
+        connection.try_read().unwrap();
+        let req = connection.pop_parsed_request().unwrap();
+        ParsedRequest::try_from(&req).unwrap();
+
+        let body = "{}";
+        sender
+            .write_all(http_request("PATCH", "/balloon/hinting/start", Some(body)).as_bytes())
+            .unwrap();
+        connection.try_read().unwrap();
+        let req = connection.pop_parsed_request().unwrap();
+        ParsedRequest::try_from(&req).unwrap();
+
+        sender
+            .write_all(http_request("PATCH", "/balloon/hinting/start", None).as_bytes())
+            .unwrap();
+        connection.try_read().unwrap();
+        let req = connection.pop_parsed_request().unwrap();
+        ParsedRequest::try_from(&req).unwrap();
+
+        let body = "";
+        sender
+            .write_all(http_request("PATCH", "/balloon/hinting/stop", Some(body)).as_bytes())
+            .unwrap();
+        connection.try_read().unwrap();
+        let req = connection.pop_parsed_request().unwrap();
+        ParsedRequest::try_from(&req).unwrap();
+
+        sender
+            .write_all(http_request("PATCH", "/balloon/hinting/stop", None).as_bytes())
             .unwrap();
         connection.try_read().unwrap();
         let req = connection.pop_parsed_request().unwrap();

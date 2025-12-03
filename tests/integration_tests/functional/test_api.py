@@ -981,6 +981,49 @@ def test_api_entropy(uvm_plain):
         test_microvm.api.entropy.put()
 
 
+def test_api_memory_hotplug(uvm_plain_6_1):
+    """
+    Test hotplug related API commands.
+    """
+    test_microvm = uvm_plain_6_1
+    test_microvm.spawn()
+    test_microvm.basic_config()
+    test_microvm.add_net_iface()
+
+    # Adding hotplug memory region should be OK.
+    test_microvm.api.memory_hotplug.put(
+        total_size_mib=1024, block_size_mib=128, slot_size_mib=1024
+    )
+
+    # Overwriting an existing should be OK.
+    # Omitting optional values should be ok
+    test_microvm.api.memory_hotplug.put(total_size_mib=1024)
+
+    # Get API should be rejected before boot
+    with pytest.raises(AssertionError):
+        test_microvm.api.memory_hotplug.get()
+
+    # Patch API should be rejected before boot
+    with pytest.raises(RuntimeError, match=NOT_SUPPORTED_BEFORE_START):
+        test_microvm.api.memory_hotplug.patch(requested_size_mib=512)
+
+    # Start the microvm
+    test_microvm.start()
+
+    # Put API should be rejected after boot
+    with pytest.raises(RuntimeError, match=NOT_SUPPORTED_AFTER_START):
+        test_microvm.api.memory_hotplug.put(total_size_mib=1024)
+
+    # Get API should work after boot
+    status = test_microvm.api.memory_hotplug.get().json()
+    assert status["total_size_mib"] == 1024
+
+    # Patch API should work after boot
+    test_microvm.api.memory_hotplug.patch(requested_size_mib=512)
+    status = test_microvm.api.memory_hotplug.get().json()
+    assert status["requested_size_mib"] == 512
+
+
 def test_api_balloon(uvm_nano):
     """
     Test balloon related API commands.
@@ -1167,11 +1210,20 @@ def test_get_full_config_after_restoring_snapshot(microvm_factory, uvm_nano):
         "amount_mib": 1,
         "deflate_on_oom": True,
         "stats_polling_interval_s": 0,
+        "free_page_reporting": False,
+        "free_page_hinting": False,
     }
 
     # Add a vsock device.
     uvm_nano.api.vsock.put(guest_cid=15, uds_path="vsock.sock")
     setup_cfg["vsock"] = {"guest_cid": 15, "uds_path": "vsock.sock"}
+
+    setup_cfg["memory-hotplug"] = {
+        "total_size_mib": 1024,
+        "block_size_mib": 128,
+        "slot_size_mib": 1024,
+    }
+    uvm_nano.api.memory_hotplug.put(**setup_cfg["memory-hotplug"])
 
     setup_cfg["logger"] = None
     setup_cfg["metrics"] = None
@@ -1293,11 +1345,21 @@ def test_get_full_config(uvm_plain):
         "amount_mib": 1,
         "deflate_on_oom": True,
         "stats_polling_interval_s": 0,
+        "free_page_reporting": False,
+        "free_page_hinting": False,
     }
 
     # Add a vsock device.
     response = test_microvm.api.vsock.put(guest_cid=15, uds_path="vsock.sock")
     expected_cfg["vsock"] = {"guest_cid": 15, "uds_path": "vsock.sock"}
+
+    # Add hot-pluggable memory.
+    expected_cfg["memory-hotplug"] = {
+        "total_size_mib": 1024,
+        "block_size_mib": 128,
+        "slot_size_mib": 1024,
+    }
+    test_microvm.api.memory_hotplug.put(**expected_cfg["memory-hotplug"])
 
     # Add a net device.
     iface_id = "1"

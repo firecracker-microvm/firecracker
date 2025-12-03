@@ -40,6 +40,17 @@ The device can be configured with the following options:
   the virtio balloon statistics and otherwise represents the interval of time in
   seconds at which the balloon statistics are updated.
 
+The device has two optional features which can be enabled with the following
+options:
+
+- `free_page_reporting`: A mechanism for the guest to continually report ranges
+  of memory which the guest is not using and can be reclaimed.
+  [Read more here](#virtio-balloon-free-page-reporting)
+- [(Developer Preview)](../docs/RELEASE_POLICY.md#developer-preview-features)
+  `free_page_hinting`: A mechanism to reclaim memory from the guest, this is
+  instead triggered from the host.
+  [Read more here](#virtio-balloon-free-page-hinting)
+
 ## Security disclaimer
 
 **The balloon device is a paravirtualized virtio device that requires
@@ -162,7 +173,7 @@ curl --unix-socket $socket_location -i \
 On success, this request returns a JSON object of the same structure as the one
 used to configure the device (via a PUT request on "/balloon").
 
-## Operating the balloon device
+## Operating the traditional balloon device
 
 After it has been installed, the balloon device can only be operated via the API
 through the following command:
@@ -184,6 +195,11 @@ curl --unix-socket $socket_location -i \
 
 This will update the target size of the balloon to `amount_mib` and the
 statistics polling interval to `polling_interval`.
+
+> [!NOTE] Balloon inflation instructs the guest to reclaim memory which may
+> cause performance issues in the guest. The balloon statistics defined
+> [below](#virtio-balloon-statistics) can be used to decide whether it's
+> necessary to reclaim memory.
 
 ## Virtio balloon statistics
 
@@ -238,9 +254,33 @@ device has support for the following statistics:
 - `VIRTIO_BALLOON_S_HTLB_PGFAIL`: The number of failed hugetlb page allocations
   in the guest.
 
-The driver is querried for updated statistics every time the amount of time
+Since linux v6.12, following metrics added(omitted in < v6.12):
+
+- `VIRTIO_BALLOON_S_OOM_KILL`: OOM killer invocations, indicating critical
+  memory pressure.
+- `VIRTIO_BALLOON_S_ALLOC_STALL`: Counter of Allocation enter a slow path to
+  gain more memory page. The reclaim/scan metrics can reveal what is actually
+  happening.
+- `VIRTIO_BALLOON_S_ASYNC_SCAN`: Amount of memory scanned asynchronously.
+- `VIRTIO_BALLOON_S_DIRECT_SCAN`: Amount of memory scanned directly.
+- `VIRTIO_BALLOON_S_ASYNC_RECLAIM`: Amount of memory reclaimed asynchronously.
+- `VIRTIO_BALLOON_S_DIRECT_RECLAIM`: Amount of memory reclaimed directly.
+
+When the pages_high watermark is reached, Linux `kswapd` performs asynchronous
+page reclaim, which increases ASYNC_SCAN and ASYNC_RECLAIM.
+
+When a process allocates more memory than the kernel can provide, the process is
+stalled while pages are reclaimed directly, which increases DIRECT_SCAN and
+DIRECT_RECLAIM.
+
+> `man sar`: %vmeff Calculated as pgsteal(RECLAIM) / pgscan(SCAN), this is a
+> metric of the efficiency of page reclaim. If it is near 100% then almost every
+> page coming off the tail of the inactive list is being reaped. If it gets too
+> low (e.g. less than 30%) then the virtual memory is having some difficulty.
+
+The driver is queried for updated statistics every time the amount of time
 specified in that field passes. The driver may not provide all the statistics
-when querried, in which case the old values of the missing statistics are
+when queried, in which case the old values of the missing statistics are
 preserved.
 
 To change the statistics polling interval, users can sent a PATCH request on
@@ -264,19 +304,180 @@ Furthermore, if the balloon was configured with statistics pre-boot through a
 non-zero `stats_polling_interval_s` value, the statistics cannot be disabled
 through a `polling_interval` value of zero post-boot.
 
+## Virtio balloon free page reporting
+
+Free page reporting is a virtio balloon feature which allows the guest OS to
+report ranges of memory which are not being used. In Firecracker, the balloon
+device will `madvise` the range with the `MADV_DONTNEED` flag, reducing the RSS
+of the guest. Reporting can only be enabled pre-boot and will run continually
+with no option to stop it running. The feature also requires the guest to have
+the Linux kernel config option `PAGE_REPORTING` enabled.
+
+To enable free page reporting when creating the balloon device, the
+`free_page_reporting` attribute should be set in the JSON object.
+
+An example of how to configure the device to enable free page reporting:
+
+```console
+socket_location=...
+amount_mib=...
+deflate_on_oom=...
+polling_interval=...
+
+curl --unix-socket $socket_location -i \
+    -X PUT 'http://localhost/balloon' \
+    -H 'Accept: application/json' \
+    -H 'Content-Type: application/json' \
+    -d "{
+        \"amount_mib\": $amount_mib, \
+        \"deflate_on_oom\": $deflate_on_oom, \
+        \"stats_polling_interval_s\": $polling_interval, \
+        \"free_page_reporting\": true \
+    }"
+```
+
+The Linux driver uses a hook in the free page path to trigger the reporting
+process, which will begin after a short delay (~2 seconds) and report the
+ranges. The runtime impact of this feature is heavily workload dependent. The
+driver gets ranges from the buddy allocator with a minimum page order. This page
+order dictates the minimum size of ranges reported and can be configured with
+the `page_reporting_order` module parameter in the guest kernel. The page order
+comes with trade-offs between performance and memory reclaimed; a good target to
+maximise memory reclaim is to have the reported ranges match the backing page
+size.
+
+## Virtio balloon free page hinting
+
+Free page hinting is a
+[developer-preview](../docs/RELEASE_POLICY.md#developer-preview-features)
+feature, which allows the guest driver to report ranges of memory which are not
+being used. In Firecracker, the balloon device will `madvise` the range with the
+`MADV_DONTNEED` flag, reducing the RSS of the guest. Free page hinting differs
+from reporting as this is instead initiated from the host side, giving more
+flexibility on when to reclaim memory.
+
+To enable free page hinting when creating the balloon device, the
+`free_page_hinting` attribute should be set in the JSON object.
+
+An example of how to configure the device to enable free page hinting:
+
+```console
+socket_location=...
+amount_mib=...
+deflate_on_oom=...
+polling_interval=...
+
+curl --unix-socket $socket_location -i \
+    -X PUT 'http://localhost/balloon' \
+    -H 'Accept: application/json' \
+    -H 'Content-Type: application/json' \
+    -d "{
+        \"amount_mib\": $amount_mib, \
+        \"deflate_on_oom\": $deflate_on_oom, \
+        \"stats_polling_interval_s\": $polling_interval, \
+        \"free_page_hinting\": true \
+    }"
+```
+
+Free page hinting is initiated and managed by Firecracker, the core mechanism to
+control the run is with the `cmd_id`. When Firecracker sets the `cmd_id` to a
+new number, the driver will acknowledge this and start reporting ranges, which
+Firecracker will free. Once the device has reported all the ranges it can find,
+it will update the `cmd_id` to reflect this. The device will then hold these
+ranges until Firecracker sends the stop command which allows the guest driver to
+reclaim the memory. The time required for the guest to complete a hinting run is
+dependant on a multitude of different factors and is mostly dictated by the
+guest, however, in testing the average time is ~200 milliseconds for a 1GB VM.
+
+This control mechanism in Firecracker is managed through three separate
+endpoints `/balloon/hinting/start`, `/balloon/hinting/status` and
+`/balloon/hinting/stop`. For simple operation, call the start endpoint with
+`acknowledge_on_stop = true`, which will automatically send the stop command
+once the driver has finished.
+
+An example of sending this command:
+
+```console
+curl --unix-socket $socket_location -i \
+    -X POST 'http://localhost/balloon/hinting/start' \
+    -H 'Accept: application/json' \
+    -H 'Content-Type: application/json' \
+    -d "{
+        \"acknowledge_on_stop\": true \
+    }"
+```
+
+For fine-grained control, using `acknowledge_on_stop = false`, Firecracker will
+not send the acknowledge message. This can be used to get the guest to hold onto
+more memory. Using the `/status` endpoint, you can get information about the
+last `cmd_id` sent by Firecracker and the last update from the guest.
+
+An example of the status request and response:
+
+```console
+curl --unix-socket $socket_location -i \
+    -X GET 'http://localhost/balloon/hinting/status' \
+    -H 'Accept: application/json' \
+    -H 'Content-Type: application/json'
+```
+
+Response:
+
+```json
+{
+  "host_cmd": 1,
+  "guest_cmd": 2
+}
+```
+
+An example of the stop endpoint:
+
+```console
+curl --unix-socket $socket_location -i \
+    -X POST 'http://localhost/balloon/hinting/stop' \
+    -H 'Accept: application/json' \
+    -H 'Content-Type: application/json' \
+    -d "{}"
+```
+
+On snapshot restore, the `cmd_id` is **always** set to the stop `cmd_id` to
+allow the guest to reclaim the memory. If you have a particular use-case which
+requires this not to be the case, please raise an issue with a description of
+your scenario.
+
+> [!WARNING]
+>
+> Free page hinting was primarily designed for live migration, because of this
+> there is a caveat to the device spec which means the guest is able to reclaim
+> memory before Firecracker even receives the range to free. This can lead to a
+> scenario where the device frees memory that has been reclaimed in the guest,
+> potentially corrupting memory. The chances of this race happening are low, but
+> not impossible; hence the developer-preview status.
+>
+> We are currently working with the kernel community on a feature that will
+> eliminate this race. Once this has been resolved, we will update the device.
+>
+> One way to safely use this feature when using UFFD is:
+>
+> 1. Enable `WRITEPROTECT` on the VM memory before starting a hinting run.
+> 1. Track ranges that are written to.
+> 1. Skip these ranges when Firecracker reports them for freeing.
+>
+> This will prevent ranges which have been reclaimed from being freed.
+
 ## Balloon Caveats
 
 - Firecracker has no control over the speed of inflation or deflation; this is
   dictated by the guest kernel driver.
 
-- The balloon will continually attempt to reach its target size, which can be a
-  CPU-intensive process. It is therefore recommended to set realistic targets
-  or, after a period of stagnation in the inflation, update the target size to
-  be close to the inflated size.
+- The traditional balloon will continually attempt to reach its target size,
+  which can be a CPU-intensive process. It is therefore recommended to set
+  realistic targets or, after a period of stagnation in the inflation, update
+  the target size to be close to the inflated size.
 
 - The `deflate_on_oom` flag is a mechanism to prevent the guest from crashing or
   terminating processes; it is not meant to be used continually to free memory.
-  Doing this will be a CPU-intensive process, as the balloon driver is designed
-  to deflate and release memory slowly. This is also compounded if the balloon
-  has yet to reach its target size, as it will attempt to inflate while also
-  deflating.
+  Doing this will be a CPU-intensive process, as the traditional balloon driver
+  is designed to deflate and release memory slowly. This is also compounded if
+  the balloon has yet to reach its target size, as it will attempt to inflate
+  while also deflating.

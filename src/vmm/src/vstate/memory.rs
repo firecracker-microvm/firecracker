@@ -8,8 +8,9 @@
 use std::fs::File;
 use std::io::SeekFrom;
 use std::ops::Deref;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
+use bitvec::vec::BitVec;
 use kvm_bindings::{KVM_MEM_LOG_DIRTY_PAGES, kvm_userspace_memory_region};
 use log::error;
 use serde::{Deserialize, Serialize};
@@ -23,9 +24,10 @@ pub use vm_memory::{
 use vm_memory::{GuestMemoryError, GuestMemoryRegionBytes, VolatileSlice, WriteVolatile};
 use vmm_sys_util::errno;
 
-use crate::DirtyBitmap;
 use crate::utils::{get_page_size, u64_to_usize};
 use crate::vmm_config::machine_config::HugePageConfig;
+use crate::vstate::vm::VmError;
+use crate::{DirtyBitmap, Vm};
 
 /// Type of GuestRegionMmap.
 pub type GuestRegionMmap = vm_memory::GuestRegionMmap<Option<AtomicBitmap>>;
@@ -53,6 +55,10 @@ pub enum MemoryError {
     OffsetTooLarge,
     /// Cannot retrieve snapshot file metadata: {0}
     FileMetadata(std::io::Error),
+    /// Memory region is not aligned
+    Unaligned,
+    /// Error protecting memory slot: {0}
+    Mprotect(std::io::Error),
 }
 
 /// Type of the guest region
@@ -60,55 +66,275 @@ pub enum MemoryError {
 pub enum GuestRegionType {
     /// Guest DRAM
     Dram,
+    /// Hotpluggable memory
+    Hotpluggable,
 }
 
-/// An extension to GuestMemoryRegion that stores the type of region, and the KVM slot
-/// number.
+/// An extension to GuestMemoryRegion that can be split into multiple KVM slots of
+/// the same slot_size, and stores the type of region, and the starting KVM slot number.
 #[derive(Debug)]
 pub struct GuestRegionMmapExt {
     /// the wrapped GuestRegionMmap
     pub inner: GuestRegionMmap,
     /// the type of region
     pub region_type: GuestRegionType,
-    /// the KVM slot number assigned to this region
-    pub slot: u32,
+    /// the starting KVM slot number assigned to this region
+    pub slot_from: u32,
+    /// the size of the slots of this region
+    pub slot_size: usize,
+    /// a bitvec indicating whether slot `i` is plugged into KVM (1) or not (0)
+    pub plugged: Mutex<BitVec>,
+}
+
+/// A guest memory slot, which is a slice of a guest memory region
+#[derive(Debug)]
+pub struct GuestMemorySlot<'a> {
+    /// KVM memory slot number
+    pub(crate) slot: u32,
+    /// Start guest address of the slot
+    pub(crate) guest_addr: GuestAddress,
+    /// Corresponding slice in host memory
+    pub(crate) slice: VolatileSlice<'a, BS<'a, Option<AtomicBitmap>>>,
+}
+
+impl From<&GuestMemorySlot<'_>> for kvm_userspace_memory_region {
+    fn from(mem_slot: &GuestMemorySlot) -> Self {
+        let flags = if mem_slot.slice.bitmap().is_some() {
+            KVM_MEM_LOG_DIRTY_PAGES
+        } else {
+            0
+        };
+        kvm_userspace_memory_region {
+            flags,
+            slot: mem_slot.slot,
+            guest_phys_addr: mem_slot.guest_addr.raw_value(),
+            memory_size: mem_slot.slice.len() as u64,
+            userspace_addr: mem_slot.slice.ptr_guard().as_ptr() as u64,
+        }
+    }
+}
+
+impl<'a> GuestMemorySlot<'a> {
+    /// Dumps the dirty pages in this slot onto the writer
+    pub(crate) fn dump_dirty<T: WriteVolatile + std::io::Seek>(
+        &self,
+        writer: &mut T,
+        kvm_bitmap: &[u64],
+        page_size: usize,
+    ) -> Result<(), GuestMemoryError> {
+        let firecracker_bitmap = self.slice.bitmap();
+        let mut write_size = 0;
+        let mut skip_size = 0;
+        let mut dirty_batch_start = 0;
+
+        for (i, v) in kvm_bitmap.iter().enumerate() {
+            for j in 0..64 {
+                let is_kvm_page_dirty = ((v >> j) & 1u64) != 0u64;
+                let page_offset = ((i * 64) + j) * page_size;
+                let is_firecracker_page_dirty = firecracker_bitmap.dirty_at(page_offset);
+
+                if is_kvm_page_dirty || is_firecracker_page_dirty {
+                    // We are at the start of a new batch of dirty pages.
+                    if skip_size > 0 {
+                        // Seek forward over the unmodified pages.
+                        writer
+                            .seek(SeekFrom::Current(skip_size.try_into().unwrap()))
+                            .unwrap();
+                        dirty_batch_start = page_offset;
+                        skip_size = 0;
+                    }
+                    write_size += page_size;
+                } else {
+                    // We are at the end of a batch of dirty pages.
+                    if write_size > 0 {
+                        // Dump the dirty pages.
+                        let slice = &self.slice.subslice(dirty_batch_start, write_size)?;
+                        writer.write_all_volatile(slice)?;
+                        write_size = 0;
+                    }
+                    skip_size += page_size;
+                }
+            }
+        }
+
+        if write_size > 0 {
+            writer.write_all_volatile(&self.slice.subslice(dirty_batch_start, write_size)?)?;
+        }
+
+        Ok(())
+    }
+
+    /// Makes the slot host memory PROT_NONE (true) or PROT_READ|PROT_WRITE (false)
+    pub(crate) fn protect(&self, protected: bool) -> Result<(), MemoryError> {
+        let prot = if protected {
+            libc::PROT_NONE
+        } else {
+            libc::PROT_READ | libc::PROT_WRITE
+        };
+        // SAFETY: Parameters refer to an existing host memory region
+        let ret = unsafe {
+            libc::mprotect(
+                self.slice.ptr_guard_mut().as_ptr().cast(),
+                self.slice.len(),
+                prot,
+            )
+        };
+        if ret != 0 {
+            Err(MemoryError::Mprotect(std::io::Error::last_os_error()))
+        } else {
+            Ok(())
+        }
+    }
+}
+
+fn addr_in_range(addr: GuestAddress, start: GuestAddress, len: usize) -> bool {
+    if let Some(end) = start.checked_add(len as u64) {
+        addr >= start && addr < end
+    } else {
+        false
+    }
 }
 
 impl GuestRegionMmapExt {
+    /// Adds a DRAM region which only contains a single plugged slot
     pub(crate) fn dram_from_mmap_region(region: GuestRegionMmap, slot: u32) -> Self {
+        let slot_size = u64_to_usize(region.len());
         GuestRegionMmapExt {
             inner: region,
             region_type: GuestRegionType::Dram,
-            slot,
+            slot_from: slot,
+            slot_size,
+            plugged: Mutex::new(BitVec::repeat(true, 1)),
+        }
+    }
+
+    /// Adds an hotpluggable region which can contain multiple slots and is initially unplugged
+    pub(crate) fn hotpluggable_from_mmap_region(
+        region: GuestRegionMmap,
+        slot_from: u32,
+        slot_size: usize,
+    ) -> Self {
+        let slot_cnt = (u64_to_usize(region.len())) / slot_size;
+
+        GuestRegionMmapExt {
+            inner: region,
+            region_type: GuestRegionType::Hotpluggable,
+            slot_from,
+            slot_size,
+            plugged: Mutex::new(BitVec::repeat(false, slot_cnt)),
         }
     }
 
     pub(crate) fn from_state(
         region: GuestRegionMmap,
         state: &GuestMemoryRegionState,
-        slot: u32,
+        slot_from: u32,
     ) -> Result<Self, MemoryError> {
+        let slot_cnt = state.plugged.len();
+        let slot_size = u64_to_usize(region.len())
+            .checked_div(slot_cnt)
+            .ok_or(MemoryError::Unaligned)?;
+
         Ok(GuestRegionMmapExt {
             inner: region,
+            slot_size,
             region_type: state.region_type,
-            slot,
+            slot_from,
+            plugged: Mutex::new(BitVec::from_iter(state.plugged.iter())),
         })
     }
 
-    pub(crate) fn kvm_userspace_memory_region(&self) -> kvm_userspace_memory_region {
-        let flags = if self.inner.bitmap().is_some() {
-            KVM_MEM_LOG_DIRTY_PAGES
-        } else {
-            0
-        };
+    pub(crate) fn slot_cnt(&self) -> u32 {
+        u32::try_from(u64_to_usize(self.len()) / self.slot_size).unwrap()
+    }
 
-        kvm_userspace_memory_region {
-            flags,
-            slot: self.slot,
-            guest_phys_addr: self.inner.start_addr().raw_value(),
-            memory_size: self.inner.len(),
-            userspace_addr: self.inner.as_ptr() as u64,
+    pub(crate) fn mem_slot(&self, slot: u32) -> GuestMemorySlot<'_> {
+        assert!(slot >= self.slot_from && slot < self.slot_from + self.slot_cnt());
+
+        let offset = ((slot - self.slot_from) as u64) * (self.slot_size as u64);
+
+        GuestMemorySlot {
+            slot,
+            guest_addr: self.start_addr().unchecked_add(offset),
+            slice: self
+                .inner
+                .get_slice(MemoryRegionAddress(offset), self.slot_size)
+                .expect("slot range should be valid"),
         }
+    }
+
+    /// Returns a snapshot of the slots and their state at the time of calling
+    ///
+    /// Note: to avoid TOCTOU races use only within VMM thread.
+    pub(crate) fn slots(&self) -> impl Iterator<Item = (GuestMemorySlot<'_>, bool)> {
+        self.plugged
+            .lock()
+            .unwrap()
+            .iter()
+            .enumerate()
+            .map(|(i, b)| {
+                (
+                    self.mem_slot(self.slot_from + u32::try_from(i).unwrap()),
+                    *b,
+                )
+            })
+            .collect::<Vec<_>>()
+            .into_iter()
+    }
+
+    /// Returns a snapshot of the plugged slots at the time of calling
+    ///
+    /// Note: to avoid TOCTOU races use only within VMM thread.
+    pub(crate) fn plugged_slots(&self) -> impl Iterator<Item = GuestMemorySlot<'_>> {
+        self.slots()
+            .filter(|(_, plugged)| *plugged)
+            .map(|(slot, _)| slot)
+    }
+
+    pub(crate) fn slots_intersecting_range(
+        &self,
+        from: GuestAddress,
+        len: usize,
+    ) -> impl Iterator<Item = GuestMemorySlot<'_>> {
+        self.slots().map(|(slot, _)| slot).filter(move |slot| {
+            if let Some(slot_end) = slot.guest_addr.checked_add(slot.slice.len() as u64) {
+                addr_in_range(slot.guest_addr, from, len) || addr_in_range(slot_end, from, len)
+            } else {
+                false
+            }
+        })
+    }
+
+    /// (un)plug a slot from an Hotpluggable memory region
+    pub(crate) fn update_slot(
+        &self,
+        vm: &Vm,
+        mem_slot: &GuestMemorySlot<'_>,
+        plug: bool,
+    ) -> Result<(), VmError> {
+        // This function can only be called on hotpluggable regions!
+        assert!(self.region_type == GuestRegionType::Hotpluggable);
+
+        let mut bitmap_guard = self.plugged.lock().unwrap();
+        let prev = bitmap_guard.replace((mem_slot.slot - self.slot_from) as usize, plug);
+        // do not do anything if the state is what we're trying to set
+        if prev == plug {
+            return Ok(());
+        }
+
+        let mut kvm_region = kvm_userspace_memory_region::from(mem_slot);
+        if plug {
+            // make it accessible _before_ adding it to KVM
+            mem_slot.protect(false)?;
+            vm.set_user_memory_region(kvm_region)?;
+        } else {
+            // to remove it we need to pass a size of zero
+            kvm_region.memory_size = 0;
+            vm.set_user_memory_region(kvm_region)?;
+            // make it protected _after_ removing it from KVM
+            mem_slot.protect(true)?;
+        }
+        Ok(())
     }
 
     pub(crate) fn discard_range(
@@ -329,7 +555,7 @@ where
     fn mark_dirty(&self, addr: GuestAddress, len: usize);
 
     /// Dumps all contents of GuestMemoryMmap to a writer.
-    fn dump<T: WriteVolatile>(&self, writer: &mut T) -> Result<(), MemoryError>;
+    fn dump<T: WriteVolatile + std::io::Seek>(&self, writer: &mut T) -> Result<(), MemoryError>;
 
     /// Dumps all pages of GuestMemoryMmap present in `dirty_bitmap` to a writer.
     fn dump_dirty<T: WriteVolatile + std::io::Seek>(
@@ -369,6 +595,8 @@ pub struct GuestMemoryRegionState {
     pub size: usize,
     /// Region type
     pub region_type: GuestRegionType,
+    /// Plugged/unplugged status of each slot
+    pub plugged: Vec<bool>,
 }
 
 /// Describes guest memory regions and their snapshot file mappings.
@@ -397,6 +625,7 @@ impl GuestMemoryExtension for GuestMemoryMmap {
                 base_address: region.start_addr().0,
                 size: u64_to_usize(region.len()),
                 region_type: region.region_type,
+                plugged: region.plugged.lock().unwrap().iter().by_vals().collect(),
             });
         });
         guest_memory_state
@@ -411,9 +640,18 @@ impl GuestMemoryExtension for GuestMemoryMmap {
     }
 
     /// Dumps all contents of GuestMemoryMmap to a writer.
-    fn dump<T: WriteVolatile>(&self, writer: &mut T) -> Result<(), MemoryError> {
+    fn dump<T: WriteVolatile + std::io::Seek>(&self, writer: &mut T) -> Result<(), MemoryError> {
         self.iter()
-            .try_for_each(|region| Ok(writer.write_all_volatile(&region.as_volatile_slice()?)?))
+            .flat_map(|region| region.slots())
+            .try_for_each(|(mem_slot, plugged)| {
+                if !plugged {
+                    let ilen = i64::try_from(mem_slot.slice.len()).unwrap();
+                    writer.seek(SeekFrom::Current(ilen)).unwrap();
+                } else {
+                    writer.write_all_volatile(&mem_slot.slice)?;
+                }
+                Ok(())
+            })
             .map_err(MemoryError::WriteMemory)
     }
 
@@ -423,52 +661,21 @@ impl GuestMemoryExtension for GuestMemoryMmap {
         writer: &mut T,
         dirty_bitmap: &DirtyBitmap,
     ) -> Result<(), MemoryError> {
-        let mut writer_offset = 0;
         let page_size = get_page_size().map_err(MemoryError::PageSize)?;
 
-        let write_result = self.iter().try_for_each(|region| {
-            let kvm_bitmap = dirty_bitmap.get(&region.slot).unwrap();
-            let firecracker_bitmap = region.bitmap();
-            let mut write_size = 0;
-            let mut dirty_batch_start: u64 = 0;
-
-            for (i, v) in kvm_bitmap.iter().enumerate() {
-                for j in 0..64 {
-                    let is_kvm_page_dirty = ((v >> j) & 1u64) != 0u64;
-                    let page_offset = ((i * 64) + j) * page_size;
-                    let is_firecracker_page_dirty = firecracker_bitmap.dirty_at(page_offset);
-
-                    if is_kvm_page_dirty || is_firecracker_page_dirty {
-                        // We are at the start of a new batch of dirty pages.
-                        if write_size == 0 {
-                            // Seek forward over the unmodified pages.
-                            writer
-                                .seek(SeekFrom::Start(writer_offset + page_offset as u64))
-                                .unwrap();
-                            dirty_batch_start = page_offset as u64;
-                        }
-                        write_size += page_size;
-                    } else if write_size > 0 {
-                        // We are at the end of a batch of dirty pages.
-                        writer.write_all_volatile(
-                            &region
-                                .get_slice(MemoryRegionAddress(dirty_batch_start), write_size)?,
-                        )?;
-
-                        write_size = 0;
+        let write_result =
+            self.iter()
+                .flat_map(|region| region.slots())
+                .try_for_each(|(mem_slot, plugged)| {
+                    if !plugged {
+                        let ilen = i64::try_from(mem_slot.slice.len()).unwrap();
+                        writer.seek(SeekFrom::Current(ilen)).unwrap();
+                    } else {
+                        let kvm_bitmap = dirty_bitmap.get(&mem_slot.slot).unwrap();
+                        mem_slot.dump_dirty(writer, kvm_bitmap, page_size)?;
                     }
-                }
-            }
-
-            if write_size > 0 {
-                writer.write_all_volatile(
-                    &region.get_slice(MemoryRegionAddress(dirty_batch_start), write_size)?,
-                )?;
-            }
-            writer_offset += region.len();
-
-            Ok(())
-        });
+                    Ok(())
+                });
 
         if write_result.is_err() {
             self.store_dirty_bitmap(dirty_bitmap, page_size);
@@ -490,22 +697,24 @@ impl GuestMemoryExtension for GuestMemoryMmap {
 
     /// Stores the dirty bitmap inside into the internal bitmap
     fn store_dirty_bitmap(&self, dirty_bitmap: &DirtyBitmap, page_size: usize) {
-        self.iter().for_each(|region| {
-            let kvm_bitmap = dirty_bitmap.get(&region.slot).unwrap();
-            let firecracker_bitmap = region.bitmap();
+        self.iter()
+            .flat_map(|region| region.plugged_slots())
+            .for_each(|mem_slot| {
+                let kvm_bitmap = dirty_bitmap.get(&mem_slot.slot).unwrap();
+                let firecracker_bitmap = mem_slot.slice.bitmap();
 
-            for (i, v) in kvm_bitmap.iter().enumerate() {
-                for j in 0..64 {
-                    let is_kvm_page_dirty = ((v >> j) & 1u64) != 0u64;
+                for (i, v) in kvm_bitmap.iter().enumerate() {
+                    for j in 0..64 {
+                        let is_kvm_page_dirty = ((v >> j) & 1u64) != 0u64;
 
-                    if is_kvm_page_dirty {
-                        let page_offset = ((i * 64) + j) * page_size;
+                        if is_kvm_page_dirty {
+                            let page_offset = ((i * 64) + j) * page_size;
 
-                        firecracker_bitmap.mark_dirty(page_offset, 1)
+                            firecracker_bitmap.mark_dirty(page_offset, 1)
+                        }
                     }
                 }
-            }
-        });
+            });
     }
 
     fn try_for_each_region_in_range<F>(
@@ -788,11 +997,13 @@ mod tests {
                     base_address: 0,
                     size: page_size,
                     region_type: GuestRegionType::Dram,
+                    plugged: vec![true],
                 },
                 GuestMemoryRegionState {
                     base_address: page_size as u64 * 2,
                     size: page_size,
                     region_type: GuestRegionType::Dram,
+                    plugged: vec![true],
                 },
             ],
         };
@@ -815,11 +1026,13 @@ mod tests {
                     base_address: 0,
                     size: page_size * 3,
                     region_type: GuestRegionType::Dram,
+                    plugged: vec![true],
                 },
                 GuestMemoryRegionState {
                     base_address: page_size as u64 * 4,
                     size: page_size * 3,
                     region_type: GuestRegionType::Dram,
+                    plugged: vec![true],
                 },
             ],
         };

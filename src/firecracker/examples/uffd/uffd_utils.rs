@@ -9,7 +9,7 @@
     dead_code
 )]
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::ffi::c_void;
 use std::fs::File;
 use std::os::unix::io::{AsRawFd, FromRawFd, IntoRawFd};
@@ -54,7 +54,6 @@ pub struct UffdHandler {
     pub page_size: usize,
     backing_buffer: *const u8,
     uffd: Uffd,
-    removed_pages: HashSet<u64>,
 }
 
 impl UffdHandler {
@@ -125,7 +124,6 @@ impl UffdHandler {
             page_size,
             backing_buffer,
             uffd,
-            removed_pages: HashSet::new(),
         }
     }
 
@@ -133,24 +131,23 @@ impl UffdHandler {
         self.uffd.read_event()
     }
 
-    pub fn mark_range_removed(&mut self, start: u64, end: u64) {
-        let pfn_start = start / self.page_size as u64;
-        let pfn_end = end / self.page_size as u64;
-
-        for pfn in pfn_start..pfn_end {
-            self.removed_pages.insert(pfn);
-        }
+    pub fn unregister_range(&mut self, start: *mut c_void, end: *mut c_void) {
+        assert!(
+            (start as usize).is_multiple_of(self.page_size)
+                && (end as usize).is_multiple_of(self.page_size)
+                && end > start
+        );
+        // SAFETY: start and end are valid and provided by UFFD
+        let len = unsafe { end.offset_from_unsigned(start) };
+        self.uffd
+            .unregister(start, len)
+            .expect("range should be valid");
     }
 
     pub fn serve_pf(&mut self, addr: *mut u8, len: usize) -> bool {
         // Find the start of the page that the current faulting address belongs to.
         let dst = (addr as usize & !(self.page_size - 1)) as *mut libc::c_void;
         let fault_page_addr = dst as u64;
-        let fault_pfn = fault_page_addr / self.page_size as u64;
-
-        if self.removed_pages.contains(&fault_pfn) {
-            return self.zero_out(fault_page_addr);
-        }
 
         for region in self.mem_regions.iter() {
             if region.contains(fault_page_addr) {
@@ -192,14 +189,6 @@ impl UffdHandler {
         };
 
         true
-    }
-
-    fn zero_out(&mut self, addr: u64) -> bool {
-        match unsafe { self.uffd.zeropage(addr as *mut _, self.page_size, true) } {
-            Ok(_) => true,
-            Err(Error::ZeropageFailed(error)) if error as i32 == libc::EAGAIN => false,
-            r => panic!("Unexpected zeropage result: {:?}", r),
-        }
     }
 }
 

@@ -34,7 +34,7 @@ import host_tools.cargo_build as build_tools
 from framework import defs, utils
 from framework.artifacts import disks, kernel_params
 from framework.defs import DEFAULT_BINARY_DIR
-from framework.microvm import MicroVMFactory, SnapshotType
+from framework.microvm import HugePagesConfig, MicroVMFactory, SnapshotType
 from framework.properties import global_props
 from framework.utils_cpu_templates import (
     custom_cpu_templates_params,
@@ -235,6 +235,14 @@ def bin_vsock_path(test_fc_session_root_path):
     vsock_helper_bin_path = os.path.join(test_fc_session_root_path, "vsock_helper")
     build_tools.gcc_compile("host_tools/vsock_helper.c", vsock_helper_bin_path)
     yield vsock_helper_bin_path
+
+
+@pytest.fixture(scope="session")
+def bin_vmclock_path(test_fc_session_root_path):
+    """Build a simple util for test VMclock device"""
+    vmclock_helper_bin_path = os.path.join(test_fc_session_root_path, "vmclock")
+    build_tools.gcc_compile("host_tools/vmclock.c", vmclock_helper_bin_path)
+    yield vmclock_helper_bin_path
 
 
 @pytest.fixture(scope="session")
@@ -591,6 +599,15 @@ def mem_size_mib():
 @pytest.fixture(params=[True, False], ids=["PCI_ON", "PCI_OFF"])
 def pci_enabled(request):
     """Fixture that allows configuring whether a microVM will have PCI enabled or not"""
+    yield request.param
+
+
+@pytest.fixture(
+    params=[HugePagesConfig.NONE, HugePagesConfig.HUGETLBFS_2MB],
+    ids=["NO_HUGE_PAGES", "2M_HUGE_PAGES"],
+)
+def huge_pages(request):
+    """Fixture that allows configuring whether a microVM will have huge pages enabled or not"""
     yield request.param
 
 

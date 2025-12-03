@@ -16,13 +16,12 @@ gdb = ["arrayvec", "gdbstub", "gdbstub_arch"]
 [dependencies]
 
 acpi_tables = { path = "../acpi-tables" }
-aes-gcm = { version = "0.10.1", default-features = false, features = ["aes"] }
-anyhow = "1.0.100"
 arrayvec = { version = "0.7.6", optional = true }
-aws-lc-rs = { version = "1.14.1", features = ["bindgen"] }
+aws-lc-rs = "1.15.1"
 base64 = "0.22.1"
 bincode = { version = "2.0.1", features = ["serde"] }
-bitflags = "2.9.4"
+bitflags = "2.10.0"
+bitvec = { version = "1.0.1", features = ["atomic", "serde"] }
 byteorder = "1.5.0"
 crc64 = "2.0.0"
 derive_more = { version = "2.0.1", default-features = false, features = [
@@ -30,13 +29,13 @@ derive_more = { version = "2.0.1", default-features = false, features = [
   "display",
 ] }
 displaydoc = "0.2.5"
-event-manager = "0.4.1"
-gdbstub = { version = "0.7.7", optional = true }
+event-manager = "0.4.2"
+gdbstub = { version = "0.7.8", optional = true }
 gdbstub_arch = { version = "0.3.2", optional = true }
 kvm-bindings = { version = "0.14.0", features = ["fam-wrappers", "serde"] }
 kvm-ioctls = "0.24.0"
-libc = "0.2.176"
-linux-loader = "0.13.1"
+libc = "0.2.177"
+linux-loader = "0.13.2"
 log = { version = "0.4.28", features = ["std", "serde"] }
 log-instrument = { path = "../log-instrument", optional = true }
 memfd = "0.6.5"
@@ -47,28 +46,27 @@ serde = { version = "1.0.228", features = ["derive", "rc"] }
 serde_json = "1.0.145"
 slab = "0.4.11"
 thiserror = "2.0.17"
-timerfd = "1.5.0"
 userfaultfd = "0.9.0"
 utils = { path = "../utils" }
 uuid = "1.18.1"
-vhost = { version = "0.14.0", features = ["vhost-user-frontend"] }
+vhost = { version = "0.15.0", features = ["vhost-user-frontend"] }
 vm-allocator = { version = "0.1.3", features = ["serde"] }
-vm-memory = { version = "0.17.0", features = [
+vm-memory = { version = "0.17.1", features = [
   "backend-mmap",
   "backend-bitmap",
 ] }
 vm-superio = "0.8.1"
-vmm-sys-util = { version = "0.14.0", features = ["with-serde"] }
-zerocopy = { version = "0.8.27" }
+vmm-sys-util = { version = "0.15.0", features = ["with-serde"] }
+zerocopy = { version = "0.8.31" }
 
 [target.'cfg(target_arch = "aarch64")'.dependencies]
 vm-fdt = "0.3.0"
 
 [dev-dependencies]
-criterion = { version = "0.7.0", default-features = false }
+criterion = { version = "0.8.0", default-features = false }
 device_tree = "1.1.0"
 itertools = "0.14.0"
-proptest = { version = "1.8.0", default-features = false, features = ["std"] }
+proptest = { version = "1.9.0", default-features = false, features = ["std"] }
 
 [[bench]]
 name = "cpu_templates"

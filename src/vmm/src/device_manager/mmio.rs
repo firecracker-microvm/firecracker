@@ -25,7 +25,6 @@ use crate::arch::{RTC_MEM_START, SERIAL_MEM_START};
 #[cfg(target_arch = "aarch64")]
 use crate::devices::legacy::{RTCDevice, SerialDevice};
 use crate::devices::pseudo::BootTimer;
-use crate::devices::virtio::device::VirtioDevice;
 use crate::devices::virtio::transport::mmio::MmioTransport;
 use crate::vstate::bus::{Bus, BusError};
 #[cfg(target_arch = "x86_64")]
@@ -41,12 +40,6 @@ pub enum MmioError {
     BusInsert(#[from] BusError),
     /// Failed to allocate requested resourc: {0}
     Cmdline(#[from] linux_loader::cmdline::Error),
-    /// Failed to find the device on the bus.
-    DeviceNotFound,
-    /// Invalid device type found on the MMIO bus.
-    InvalidDeviceType,
-    /// {0}
-    InternalDeviceError(String),
     /// Could not create IRQ for MMIO device: {0}
     CreateIrq(#[from] std::io::Error),
     /// Invalid MMIO IRQ configuration.
@@ -403,31 +396,6 @@ impl MMIODeviceManager {
     {
         for ((virtio_type, device_id), mmio_device) in &self.virtio_devices {
             f(virtio_type, device_id, mmio_device)?;
-        }
-        Ok(())
-    }
-
-    /// Run fn `f()` for the virtio device matching `virtio_type` and `id`.
-    pub fn with_virtio_device_with_id<T, F>(
-        &self,
-        virtio_type: u32,
-        id: &str,
-        f: F,
-    ) -> Result<(), MmioError>
-    where
-        T: VirtioDevice + 'static + Debug,
-        F: FnOnce(&mut T) -> Result<(), String>,
-    {
-        if let Some(device) = self.get_virtio_device(virtio_type, id) {
-            let virtio_device = device.inner.lock().expect("Poisoned lock").device();
-            let mut dev = virtio_device.lock().expect("Poisoned lock");
-            f(dev
-                .as_mut_any()
-                .downcast_mut::<T>()
-                .ok_or(MmioError::InvalidDeviceType)?)
-            .map_err(MmioError::InternalDeviceError)?;
-        } else {
-            return Err(MmioError::DeviceNotFound);
         }
         Ok(())
     }

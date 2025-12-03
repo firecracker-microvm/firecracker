@@ -18,6 +18,7 @@ pub mod device;
 pub mod generated;
 mod iov_deque;
 pub mod iovec;
+pub mod mem;
 pub mod net;
 pub mod persist;
 pub mod pmem;
@@ -64,6 +65,8 @@ pub enum ActivateError {
     TapSetOffload(TapError),
     /// Error setting pointers in the queue: (0)
     QueueMemoryError(QueueError),
+    /// The driver didn't acknowledge a required feature: {0}
+    RequiredFeatureNotAcked(&'static str),
 }
 
 /// Trait that helps in upcasting an object to Any

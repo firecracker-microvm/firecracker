@@ -51,11 +51,11 @@ pub fn gdb_thread(
     }
 
     let path = Path::new(socket_addr);
-    let listener = UnixListener::bind(path).map_err(|_| GdbTargetError::ServerSocketError)?;
+    let listener = UnixListener::bind(path).map_err(GdbTargetError::ServerSocketError)?;
     trace!("Waiting for GDB server connection on {}...", path.display());
     let (connection, _addr) = listener
         .accept()
-        .map_err(|_| GdbTargetError::ServerSocketError)?;
+        .map_err(GdbTargetError::ServerSocketError)?;
 
     std::thread::Builder::new()
         .name("gdb".into())

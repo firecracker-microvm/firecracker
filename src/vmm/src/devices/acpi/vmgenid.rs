@@ -1,6 +1,8 @@
 // Copyright 2024 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
+use std::convert::Infallible;
+
 use acpi_tables::{Aml, aml};
 use aws_lc_rs::error::Unspecified as RandError;
 use aws_lc_rs::rand;
@@ -38,73 +40,48 @@ pub struct VmGenId {
     pub gsi: u32,
 }
 
-#[derive(Debug, thiserror::Error, displaydoc::Display)]
-pub enum VmGenIdError {
-    /// Error with VMGenID interrupt: {0}
-    Interrupt(#[from] std::io::Error),
-    /// Error accessing VMGenID memory: {0}
-    GuestMemory(#[from] GuestMemoryError),
-    /// Create generation ID error: {0}
-    GenerationId(#[from] RandError),
-    /// Failed to allocate requested resource: {0}
-    Allocator(#[from] vm_allocator::Error),
-}
-
 impl VmGenId {
     /// Create a new Vm Generation Id device using an address in the guest for writing the
     /// generation ID and a GSI for sending device notifications.
-    pub fn from_parts(
-        guest_address: GuestAddress,
-        gsi: u32,
-        mem: &GuestMemoryMmap,
-    ) -> Result<Self, VmGenIdError> {
+    pub fn from_parts(guest_address: GuestAddress, gsi: u32) -> Self {
         debug!(
             "vmgenid: building VMGenID device. Address: {:#010x}. IRQ: {}",
             guest_address.0, gsi
         );
-        let interrupt_evt = EventFdTrigger::new(EventFd::new(libc::EFD_NONBLOCK)?);
-        let gen_id = Self::make_genid()?;
-
-        // Write generation ID in guest memory
-        debug!(
-            "vmgenid: writing new generation ID to guest: {:#034x}",
-            gen_id
+        let interrupt_evt = EventFdTrigger::new(
+            EventFd::new(libc::EFD_NONBLOCK)
+                .expect("vmgenid: Could not create EventFd for VMGenID device"),
         );
-        mem.write_slice(&gen_id.to_le_bytes(), guest_address)
-            .inspect_err(|err| error!("vmgenid: could not write generation ID to guest: {err}"))?;
+        let gen_id = Self::make_genid();
 
-        Ok(Self {
+        Self {
             gen_id,
             interrupt_evt,
             guest_address,
             gsi,
-        })
+        }
     }
 
     /// Create a new VMGenID device
     ///
     /// Allocate memory and a GSI for sending notifications and build the device
-    pub fn new(
-        mem: &GuestMemoryMmap,
-        resource_allocator: &mut ResourceAllocator,
-    ) -> Result<Self, VmGenIdError> {
-        let gsi = resource_allocator.allocate_gsi_legacy(1)?;
+    pub fn new(resource_allocator: &mut ResourceAllocator) -> Self {
+        let gsi = resource_allocator
+            .allocate_gsi_legacy(1)
+            .expect("vmgenid: Could not allocate GSI for VMGenID");
         // The generation ID needs to live in an 8-byte aligned buffer
-        let addr = resource_allocator.allocate_system_memory(
-            VMGENID_MEM_SIZE,
-            8,
-            vm_allocator::AllocPolicy::LastMatch,
-        )?;
+        let addr = resource_allocator
+            .allocate_system_memory(VMGENID_MEM_SIZE, 8, vm_allocator::AllocPolicy::LastMatch)
+            .expect("vmgenid: Could not allocate guest RAM for VMGenID");
 
-        Self::from_parts(GuestAddress(addr), gsi[0], mem)
+        Self::from_parts(GuestAddress(addr), gsi[0])
     }
 
     // Create a 16-bytes random number
-    fn make_genid() -> Result<u128, RandError> {
+    fn make_genid() -> u128 {
         let mut gen_id_bytes = [0u8; 16];
-        rand::fill(&mut gen_id_bytes)
-            .inspect_err(|err| error!("vmgenid: could not create new generation ID: {err}"))?;
-        Ok(u128::from_le_bytes(gen_id_bytes))
+        rand::fill(&mut gen_id_bytes).expect("vmgenid: could not create new generation ID");
+        u128::from_le_bytes(gen_id_bytes)
     }
 
     /// Send an ACPI notification to guest device.
@@ -116,6 +93,18 @@ impl VmGenId {
             .trigger()
             .inspect_err(|err| error!("vmgenid: could not send guest notification: {err}"))?;
         debug!("vmgenid: notifying guest about new generation ID");
+        Ok(())
+    }
+
+    /// Attach the [`VmGenId`] device
+    pub fn activate(&self, mem: &GuestMemoryMmap) -> Result<(), GuestMemoryError> {
+        debug!(
+            "vmgenid: writing new generation ID to guest: {:#034x}",
+            self.gen_id
+        );
+        mem.write_slice(&self.gen_id.to_le_bytes(), self.guest_address)
+            .inspect_err(|err| error!("vmgenid: could not write generation ID to guest: {err}"))?;
+
         Ok(())
     }
 }
@@ -130,16 +119,10 @@ pub struct VMGenIDState {
     pub addr: u64,
 }
 
-#[derive(Debug)]
-pub struct VMGenIdConstructorArgs<'a> {
-    pub mem: &'a GuestMemoryMmap,
-    pub resource_allocator: &'a mut ResourceAllocator,
-}
-
 impl<'a> Persist<'a> for VmGenId {
     type State = VMGenIDState;
-    type ConstructorArgs = VMGenIdConstructorArgs<'a>;
-    type Error = VmGenIdError;
+    type ConstructorArgs = ();
+    type Error = Infallible;
 
     fn save(&self) -> Self::State {
         VMGenIDState {
@@ -148,11 +131,8 @@ impl<'a> Persist<'a> for VmGenId {
         }
     }
 
-    fn restore(
-        constructor_args: Self::ConstructorArgs,
-        state: &Self::State,
-    ) -> Result<Self, Self::Error> {
-        Self::from_parts(GuestAddress(state.addr), state.gsi, constructor_args.mem)
+    fn restore(_: Self::ConstructorArgs, state: &Self::State) -> Result<Self, Self::Error> {
+        Ok(Self::from_parts(GuestAddress(state.addr), state.gsi))
     }
 }
 

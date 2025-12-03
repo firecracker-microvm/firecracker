@@ -13,7 +13,7 @@ use event_manager::SubscriberOps;
 use linux_loader::cmdline::Cmdline as LoaderKernelCmdline;
 use userfaultfd::Uffd;
 use utils::time::TimestampUs;
-#[cfg(target_arch = "aarch64")]
+use vm_allocator::AllocPolicy;
 use vm_memory::GuestAddress;
 
 #[cfg(target_arch = "aarch64")]
@@ -29,9 +29,9 @@ use crate::device_manager::{
     AttachDeviceError, DeviceManager, DeviceManagerCreateError, DevicePersistError,
     DeviceRestoreArgs,
 };
-use crate::devices::acpi::vmgenid::VmGenIdError;
 use crate::devices::virtio::balloon::Balloon;
 use crate::devices::virtio::block::device::Block;
+use crate::devices::virtio::mem::{VIRTIO_MEM_DEFAULT_SLOT_SIZE_MIB, VirtioMem};
 use crate::devices::virtio::net::Net;
 use crate::devices::virtio::pmem::device::Pmem;
 use crate::devices::virtio::rng::Entropy;
@@ -44,8 +44,10 @@ use crate::persist::{MicrovmState, MicrovmStateError};
 use crate::resources::VmResources;
 use crate::seccomp::BpfThreadMap;
 use crate::snapshot::Persist;
+use crate::utils::mib_to_bytes;
 use crate::vmm_config::instance_info::InstanceInfo;
 use crate::vmm_config::machine_config::MachineConfigError;
+use crate::vmm_config::memory_hotplug::MemoryHotplugConfig;
 use crate::vstate::kvm::{Kvm, KvmError};
 use crate::vstate::memory::GuestRegionMmap;
 #[cfg(target_arch = "aarch64")]
@@ -76,8 +78,6 @@ pub enum StartMicrovmError {
     /// Error creating legacy device: {0}
     #[cfg(target_arch = "x86_64")]
     CreateLegacyDevice(device_manager::legacy::LegacyDeviceError),
-    /// Error creating VMGenID device: {0}
-    CreateVMGenID(VmGenIdError),
     /// Error enabling PCIe support: {0}
     EnablePciDevices(#[from] PciManagerError),
     /// Error enabling pvtime on vcpu: {0}
@@ -115,7 +115,7 @@ pub enum StartMicrovmError {
     CreateEntropyDevice(crate::devices::virtio::rng::EntropyError),
     /// Failed to allocate guest resource: {0}
     AllocateResources(#[from] vm_allocator::Error),
-    /// Error starting GDB debug session
+    /// Error starting GDB debug session: {0}
     #[cfg(feature = "gdb")]
     GdbServer(gdb::target::GdbTargetError),
     /// Error cloning Vcpu fds
@@ -172,6 +172,22 @@ pub fn build_microvm_for_boot(
     let mut vm = Vm::new(&kvm)?;
     let (mut vcpus, vcpus_exit_evt) = vm.create_vcpus(vm_resources.machine_config.vcpu_count)?;
     vm.register_dram_memory_regions(guest_memory)?;
+
+    // Allocate memory as soon as possible to make hotpluggable memory available to all consumers,
+    // before they clone the GuestMemoryMmap object
+    let virtio_mem_addr = if let Some(memory_hotplug) = &vm_resources.memory_hotplug {
+        let addr = allocate_virtio_mem_address(&vm, memory_hotplug.total_size_mib)?;
+        let hotplug_memory_region = vm_resources
+            .allocate_memory_region(addr, mib_to_bytes(memory_hotplug.total_size_mib))
+            .map_err(StartMicrovmError::GuestMemory)?;
+        vm.register_hotpluggable_memory_region(
+            hotplug_memory_region,
+            mib_to_bytes(memory_hotplug.slot_size_mib),
+        )?;
+        Some(addr)
+    } else {
+        None
+    };
 
     let mut device_manager = DeviceManager::new(
         event_manager,
@@ -250,6 +266,18 @@ pub fn build_microvm_for_boot(
         )?;
     }
 
+    // Attach virtio-mem device if configured
+    if let Some(memory_hotplug) = &vm_resources.memory_hotplug {
+        attach_virtio_mem_device(
+            &mut device_manager,
+            &vm,
+            &mut boot_cmdline,
+            memory_hotplug,
+            event_manager,
+            virtio_mem_addr.expect("address should be allocated"),
+        )?;
+    }
+
     #[cfg(target_arch = "aarch64")]
     device_manager.attach_legacy_devices_aarch64(
         &vm,
@@ -258,7 +286,9 @@ pub fn build_microvm_for_boot(
         vm_resources.serial_out_path.as_ref(),
     )?;
 
-    device_manager.attach_vmgenid_device(vm.guest_memory(), &vm)?;
+    device_manager.attach_vmgenid_device(&vm)?;
+    #[cfg(target_arch = "x86_64")]
+    device_manager.attach_vmclock_device(&vm)?;
 
     #[cfg(target_arch = "aarch64")]
     if vcpus[0].kvm_vcpu.supports_pvtime() {
@@ -292,19 +322,12 @@ pub fn build_microvm_for_boot(
     let vmm = Arc::new(Mutex::new(vmm));
 
     #[cfg(feature = "gdb")]
-    {
-        let (gdb_tx, gdb_rx) = mpsc::channel();
-        vcpus
-            .iter_mut()
-            .for_each(|vcpu| vcpu.attach_debug_info(gdb_tx.clone()));
+    let (gdb_tx, gdb_rx) = mpsc::channel();
 
-        if let Some(gdb_socket_path) = &vm_resources.machine_config.gdb_socket_path {
-            gdb::gdb_thread(vmm.clone(), gdb_rx, entry_point.entry_addr, gdb_socket_path)
-                .map_err(StartMicrovmError::GdbServer)?;
-        } else {
-            debug!("No GDB socket provided not starting gdb server.");
-        }
-    }
+    #[cfg(feature = "gdb")]
+    vcpus
+        .iter_mut()
+        .for_each(|vcpu| vcpu.attach_debug_info(gdb_tx.clone()));
 
     // Move vcpus to their own threads and start their state machine in the 'Paused' state.
     vmm.lock()
@@ -317,6 +340,14 @@ pub fn build_microvm_for_boot(
                 .clone(),
         )
         .map_err(VmmError::VcpuStart)?;
+
+    #[cfg(feature = "gdb")]
+    if let Some(gdb_socket_path) = &vm_resources.machine_config.gdb_socket_path {
+        gdb::gdb_thread(vmm.clone(), gdb_rx, entry_point.entry_addr, gdb_socket_path)
+            .map_err(StartMicrovmError::GdbServer)?;
+    } else {
+        debug!("No GDB socket provided not starting gdb server.");
+    }
 
     // Load seccomp filters for the VMM thread.
     // Execution panics if filters cannot be loaded, use --no-seccomp if skipping filters
@@ -571,6 +602,47 @@ fn attach_entropy_device(
 
     event_manager.add_subscriber(entropy_device.clone());
     device_manager.attach_virtio_device(vm, id, entropy_device.clone(), cmdline, false)
+}
+
+fn allocate_virtio_mem_address(
+    vm: &Vm,
+    total_size_mib: usize,
+) -> Result<GuestAddress, StartMicrovmError> {
+    let addr = vm
+        .resource_allocator()
+        .past_mmio64_memory
+        .allocate(
+            mib_to_bytes(total_size_mib) as u64,
+            mib_to_bytes(VIRTIO_MEM_DEFAULT_SLOT_SIZE_MIB) as u64,
+            AllocPolicy::FirstMatch,
+        )?
+        .start();
+    Ok(GuestAddress(addr))
+}
+
+fn attach_virtio_mem_device(
+    device_manager: &mut DeviceManager,
+    vm: &Arc<Vm>,
+    cmdline: &mut LoaderKernelCmdline,
+    config: &MemoryHotplugConfig,
+    event_manager: &mut EventManager,
+    addr: GuestAddress,
+) -> Result<(), StartMicrovmError> {
+    let virtio_mem = Arc::new(Mutex::new(
+        VirtioMem::new(
+            Arc::clone(vm),
+            addr,
+            config.total_size_mib,
+            config.block_size_mib,
+            config.slot_size_mib,
+        )
+        .map_err(|e| StartMicrovmError::Internal(VmmError::VirtioMem(e)))?,
+    ));
+
+    let id = virtio_mem.lock().expect("Poisoned lock").id().to_string();
+    event_manager.add_subscriber(virtio_mem.clone());
+    device_manager.attach_virtio_device(vm, id, virtio_mem.clone(), cmdline, false)?;
+    Ok(())
 }
 
 fn attach_block_devices<'a, I: Iterator<Item = &'a Arc<Mutex<Block>>> + Debug>(
@@ -943,10 +1015,12 @@ pub(crate) mod tests {
 
     #[cfg(target_arch = "x86_64")]
     pub(crate) fn insert_vmgenid_device(vmm: &mut Vmm) {
-        vmm.device_manager
-            .attach_vmgenid_device(vmm.vm.guest_memory(), &vmm.vm)
-            .unwrap();
-        assert!(vmm.device_manager.acpi_devices.vmgenid.is_some());
+        vmm.device_manager.attach_vmgenid_device(&vmm.vm).unwrap();
+    }
+
+    #[cfg(target_arch = "x86_64")]
+    pub(crate) fn insert_vmclock_device(vmm: &mut Vmm) {
+        vmm.device_manager.attach_vmclock_device(&vmm.vm).unwrap();
     }
 
     pub(crate) fn insert_balloon_device(
@@ -1231,6 +1305,8 @@ pub(crate) mod tests {
             amount_mib: 0,
             deflate_on_oom: false,
             stats_polling_interval_s: 0,
+            free_page_hinting: false,
+            free_page_reporting: false,
         };
 
         let mut cmdline = default_kernel_cmdline();
@@ -1271,6 +1347,45 @@ pub(crate) mod tests {
 
         let mut cmdline = default_kernel_cmdline();
         insert_vsock_device(&mut vmm, &mut cmdline, &mut event_manager, vsock_config);
+        // Check if the vsock device is described in kernel_cmdline.
+        #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+        assert!(cmdline_contains(
+            &cmdline,
+            "virtio_mmio.device=4K@0xc0001000:5"
+        ));
+    }
+
+    pub(crate) fn insert_virtio_mem_device(
+        vmm: &mut Vmm,
+        cmdline: &mut Cmdline,
+        event_manager: &mut EventManager,
+        config: MemoryHotplugConfig,
+    ) {
+        attach_virtio_mem_device(
+            &mut vmm.device_manager,
+            &vmm.vm,
+            cmdline,
+            &config,
+            event_manager,
+            GuestAddress(512 << 30),
+        )
+        .unwrap();
+    }
+
+    #[test]
+    fn test_attach_virtio_mem_device() {
+        let mut event_manager = EventManager::new().expect("Unable to create EventManager");
+        let mut vmm = default_vmm();
+
+        let config = MemoryHotplugConfig {
+            total_size_mib: 1024,
+            block_size_mib: 2,
+            slot_size_mib: 128,
+        };
+
+        let mut cmdline = default_kernel_cmdline();
+        insert_virtio_mem_device(&mut vmm, &mut cmdline, &mut event_manager, config);
+
         // Check if the vsock device is described in kernel_cmdline.
         #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
         assert!(cmdline_contains(

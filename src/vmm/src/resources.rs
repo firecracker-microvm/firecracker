@@ -9,7 +9,6 @@ use serde::{Deserialize, Serialize};
 use vm_memory::GuestAddress;
 
 use crate::cpu_config::templates::CustomCpuTemplate;
-use crate::device_manager::persist::SharedDeviceType;
 use crate::logger::info;
 use crate::mmds;
 use crate::mmds::data_store::{Mmds, MmdsVersion};
@@ -23,9 +22,8 @@ use crate::vmm_config::boot_source::{
 use crate::vmm_config::drive::*;
 use crate::vmm_config::entropy::*;
 use crate::vmm_config::instance_info::InstanceInfo;
-use crate::vmm_config::machine_config::{
-    HugePageConfig, MachineConfig, MachineConfigError, MachineConfigUpdate,
-};
+use crate::vmm_config::machine_config::{MachineConfig, MachineConfigError, MachineConfigUpdate};
+use crate::vmm_config::memory_hotplug::{MemoryHotplugConfig, MemoryHotplugConfigError};
 use crate::vmm_config::metrics::{MetricsConfig, MetricsConfigError, init_metrics};
 use crate::vmm_config::mmds::{MmdsConfig, MmdsConfigError};
 use crate::vmm_config::net::*;
@@ -66,6 +64,8 @@ pub enum ResourcesError {
     EntropyDevice(#[from] EntropyDeviceError),
     /// Pmem device error: {0}
     PmemDevice(#[from] PmemConfigError),
+    /// Memory hotplug config error: {0}
+    MemoryHotplugConfig(#[from] MemoryHotplugConfigError),
 }
 
 #[derive(Serialize, Deserialize, PartialEq, Eq, Debug)]
@@ -95,6 +95,7 @@ pub struct VmmConfig {
     pmem_devices: Vec<PmemConfig>,
     #[serde(skip)]
     serial_config: Option<SerialConfig>,
+    memory_hotplug: Option<MemoryHotplugConfig>,
 }
 
 /// A data structure that encapsulates the device configurations
@@ -117,6 +118,8 @@ pub struct VmResources {
     pub entropy: EntropyDeviceBuilder,
     /// The pmem devices.
     pub pmem: PmemBuilder,
+    /// The memory hotplug configuration.
+    pub memory_hotplug: Option<MemoryHotplugConfig>,
     /// The optional Mmds data store.
     // This is initialised on demand (if ever used), so that we don't allocate it unless it's
     // actually used.
@@ -214,6 +217,10 @@ impl VmResources {
             resources.serial_out_path = serial_cfg.serial_out_path;
         }
 
+        if let Some(memory_hotplug_config) = vmm_config.memory_hotplug {
+            resources.set_memory_hotplug_config(memory_hotplug_config)?;
+        }
+
         Ok(resources)
     }
 
@@ -228,40 +235,6 @@ impl VmResources {
     pub fn locked_mmds_or_default(&mut self) -> Result<MutexGuard<'_, Mmds>, MmdsConfigError> {
         let mmds = self.mmds_or_default()?;
         Ok(mmds.lock().expect("Poisoned lock"))
-    }
-
-    /// Updates the resources from a restored device (used for configuring resources when
-    /// restoring from a snapshot).
-    pub fn update_from_restored_device(
-        &mut self,
-        device: SharedDeviceType,
-    ) -> Result<(), ResourcesError> {
-        match device {
-            SharedDeviceType::VirtioBlock(block) => {
-                self.block.add_virtio_device(block);
-            }
-            SharedDeviceType::Network(network) => {
-                self.net_builder.add_device(network);
-            }
-            SharedDeviceType::Balloon(balloon) => {
-                self.balloon.set_device(balloon);
-
-                if self.machine_config.huge_pages != HugePageConfig::None {
-                    return Err(ResourcesError::BalloonDevice(BalloonConfigError::HugePages));
-                }
-            }
-            SharedDeviceType::Vsock(vsock) => {
-                self.vsock.set_device(vsock);
-            }
-            SharedDeviceType::Entropy(entropy) => {
-                self.entropy.set_device(entropy);
-            }
-            SharedDeviceType::Pmem(pmem) => {
-                self.pmem.add_device(pmem);
-            }
-        }
-
-        Ok(())
     }
 
     /// Add a custom CPU template to the VM resources
@@ -290,9 +263,6 @@ impl VmResources {
             return Err(MachineConfigError::IncompatibleBalloonSize);
         }
 
-        if self.balloon.get().is_some() && updated.huge_pages != HugePageConfig::None {
-            return Err(MachineConfigError::BalloonAndHugePages);
-        }
         self.machine_config = updated;
 
         Ok(())
@@ -349,10 +319,6 @@ impl VmResources {
             return Err(BalloonConfigError::TooManyPagesRequested);
         }
 
-        if self.machine_config.huge_pages != HugePageConfig::None {
-            return Err(BalloonConfigError::HugePages);
-        }
-
         self.balloon.set(config)
     }
 
@@ -406,6 +372,16 @@ impl VmResources {
     pub fn build_pmem_device(&mut self, body: PmemConfig) -> Result<(), PmemConfigError> {
         let has_block_root = self.block.has_root_device();
         self.pmem.build(body, has_block_root)
+    }
+
+    /// Sets the memory hotplug configuration.
+    pub fn set_memory_hotplug_config(
+        &mut self,
+        config: MemoryHotplugConfig,
+    ) -> Result<(), MemoryHotplugConfigError> {
+        config.validate()?;
+        self.memory_hotplug = Some(config);
+        Ok(())
     }
 
     /// Setter for mmds config.
@@ -526,6 +502,18 @@ impl VmResources {
             crate::arch::arch_memory_regions(mib_to_bytes(self.machine_config.mem_size_mib));
         self.allocate_memory_regions(&regions)
     }
+
+    /// Allocates a single guest memory region.
+    pub fn allocate_memory_region(
+        &self,
+        start: GuestAddress,
+        size: usize,
+    ) -> Result<GuestRegionMmap, MemoryError> {
+        Ok(self
+            .allocate_memory_regions(&[(start, size)])?
+            .pop()
+            .unwrap())
+    }
 }
 
 impl From<&VmResources> for VmmConfig {
@@ -545,6 +533,7 @@ impl From<&VmResources> for VmmConfig {
             pmem_devices: resources.pmem.configs(),
             // serial_config is marked serde(skip) so that it doesnt end up in snapshots.
             serial_config: None,
+            memory_hotplug: resources.memory_hotplug.clone(),
         }
     }
 }
@@ -563,7 +552,6 @@ mod tests {
     use crate::HTTP_MAX_PAYLOAD_SIZE;
     use crate::cpu_config::templates::test_utils::TEST_TEMPLATE_JSON;
     use crate::cpu_config::templates::{CpuTemplateType, StaticCpuTemplate};
-    use crate::devices::virtio::balloon::Balloon;
     use crate::devices::virtio::block::virtio::VirtioBlockError;
     use crate::devices::virtio::block::{BlockError, CacheType};
     use crate::devices::virtio::vsock::VSOCK_DEV_ID;
@@ -658,6 +646,7 @@ mod tests {
             pmem: Default::default(),
             pci_enabled: false,
             serial_out_path: None,
+            memory_hotplug: Default::default(),
         }
     }
 
@@ -1476,6 +1465,8 @@ mod tests {
                 amount_mib: 100,
                 deflate_on_oom: false,
                 stats_polling_interval_s: 0,
+                free_page_hinting: false,
+                free_page_reporting: false,
             })
             .unwrap();
         aux_vm_config.mem_size_mib = Some(90);
@@ -1514,6 +1505,8 @@ mod tests {
             amount_mib: 100,
             deflate_on_oom: false,
             stats_polling_interval_s: 0,
+            free_page_hinting: false,
+            free_page_reporting: false,
         };
         assert!(vm_resources.balloon.get().is_none());
         vm_resources
@@ -1537,31 +1530,6 @@ mod tests {
         vm_resources
             .set_balloon_device(new_balloon_cfg)
             .unwrap_err();
-    }
-
-    #[test]
-    fn test_negative_restore_balloon_device_with_huge_pages() {
-        let mut vm_resources = default_vm_resources();
-        vm_resources.balloon = BalloonBuilder::new();
-        vm_resources
-            .update_machine_config(&MachineConfigUpdate {
-                huge_pages: Some(HugePageConfig::Hugetlbfs2M),
-                ..Default::default()
-            })
-            .unwrap();
-        let err = vm_resources
-            .update_from_restored_device(SharedDeviceType::Balloon(Arc::new(Mutex::new(
-                Balloon::new(128, false, 0).unwrap(),
-            ))))
-            .unwrap_err();
-        assert!(
-            matches!(
-                err,
-                ResourcesError::BalloonDevice(BalloonConfigError::HugePages)
-            ),
-            "{:?}",
-            err
-        );
     }
 
     #[test]

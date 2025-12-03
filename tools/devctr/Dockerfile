@@ -17,6 +17,7 @@ ENV LC_ALL=C.UTF-8
 ENV QEMU_VER="8.1.1"
 ENV CROSVM_VER="9d542e6dafa3a85acd1fb6cd6f1adfa1331c4e96"
 ENV CROSVM_TOOLCHAIN_VER="1.68.2"
+ENV LIBSECCOMP_VER="v2.6.0"
 
 # Build and install Qemu vhost-user-blk backend
 #
@@ -71,7 +72,7 @@ RUN apt-get update \
         iptables \
         openssh-client \
         pkgconf \
-        python3 python3-dev python3-pip \
+        python3 python3-dev python3-pip python3-venv \
         screen tmux \
         tzdata \
         tini \
@@ -85,14 +86,16 @@ RUN apt-get update \
         libcap2 \
         # for debugging
         gdb strace trace-cmd \
-    && rm -rf /var/lib/apt/lists/* \
-    && pip3 install --upgrade poetry
+    && rm -rf /var/lib/apt/lists/*
+
+RUN curl -sSL https://install.python-poetry.org | python3 -
+ENV PATH="/root/.local/bin:$PATH"
 
 ARG VENV="/opt/venv"
 COPY tools/devctr/poetry.lock /tmp/poetry/
 COPY tools/devctr/pyproject.toml /tmp/poetry/
 RUN cd /tmp/poetry \
-    && virtualenv $VENV \
+    && python3 -m venv $VENV \
     && . $VENV/bin/activate \
     && poetry install --only main --no-directory --no-interaction \
     && rm -rf ~/.local/share/virtualenv/ ~/.cache /tmp/poetry \
@@ -168,7 +171,7 @@ RUN apt-get update \
         libtool gperf \
     && git clone https://github.com/seccomp/libseccomp /tmp/libseccomp \
     && cd /tmp/libseccomp \
-    && git checkout tags/v2.5.5 \
+    && git checkout tags/${LIBSECCOMP_VER} \
     && ./autogen.sh \
     && CC="musl-gcc -static" ./configure --enable-static=yes --enable-shared=false \
     && make install \

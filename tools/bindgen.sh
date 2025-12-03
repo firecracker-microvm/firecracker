@@ -43,7 +43,7 @@ EOF
     bindgen --no-doc-comments --disable-header-comment --constified-enum-module '.*' --with-derive-default --with-derive-partialeq $@
 }
 
-KERNEL_BRANCH="linux-6.12.y"
+KERNEL_BRANCH="linux-6.13.y"
 KERNEL_DIR="./$KERNEL_BRANCH"
 HEADERS_DIR=$(realpath "./linux-headers")
 # https://www.kernel.org/doc/Documentation/kbuild/headers_install.txt
@@ -105,6 +105,12 @@ fc-bindgen \
     --allowlist-var "VIRTIO_ID.*" \
     "$INCLUDE/linux/virtio_ids.h" >src/vmm/src/devices/virtio/generated/virtio_ids.rs
 
+info "BINDGEN virtio_mem.h"
+fc-bindgen \
+    --allowlist-var "VIRTIO_MEM.*" \
+    --allowlist-type "virtio_mem.*" \
+    "$INCLUDE/linux/virtio_mem.h" >src/vmm/src/devices/virtio/generated/virtio_mem.rs
+
 info "BINDGEN prctl.h"
 fc-bindgen \
     --allowlist-var "PR_.*" \
@@ -165,6 +171,10 @@ info "BINDGEN asm/prctl.h"
 fc-bindgen \
     --allowlist-var "ARCH_.*" \
     "$ARCH_X86_INCLUDE/uapi/asm/prctl.h" >src/vmm/src/arch/x86_64/generated/arch_prctl.rs
+
+info "BINDGEN include/uapi/linux/vmclock-abi.h"
+fc-bindgen \
+    "$KERNEL_DIR/include/uapi/linux/vmclock-abi.h" > src/vmm/src/devices/acpi/generated/vmclock_abi.rs
 
 # Apply any patches
 info "Apply patches"

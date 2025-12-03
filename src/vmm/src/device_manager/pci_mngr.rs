@@ -10,7 +10,7 @@ use event_manager::{MutEventSubscriber, SubscriberOps};
 use log::{debug, error, warn};
 use serde::{Deserialize, Serialize};
 
-use super::persist::{MmdsState, SharedDeviceType};
+use super::persist::MmdsState;
 use crate::devices::pci::PciSegment;
 use crate::devices::virtio::balloon::Balloon;
 use crate::devices::virtio::balloon::persist::{BalloonConstructorArgs, BalloonState};
@@ -18,6 +18,8 @@ use crate::devices::virtio::block::device::Block;
 use crate::devices::virtio::block::persist::{BlockConstructorArgs, BlockState};
 use crate::devices::virtio::device::VirtioDevice;
 use crate::devices::virtio::generated::virtio_ids;
+use crate::devices::virtio::mem::VirtioMem;
+use crate::devices::virtio::mem::persist::{VirtioMemConstructorArgs, VirtioMemState};
 use crate::devices::virtio::net::Net;
 use crate::devices::virtio::net::persist::{NetConstructorArgs, NetState};
 use crate::devices::virtio::pmem::device::Pmem;
@@ -34,6 +36,7 @@ use crate::devices::virtio::vsock::{Vsock, VsockUnixBackend};
 use crate::pci::bus::PciRootError;
 use crate::resources::VmResources;
 use crate::snapshot::Persist;
+use crate::vmm_config::memory_hotplug::MemoryHotplugConfig;
 use crate::vmm_config::mmds::MmdsConfigError;
 use crate::vstate::bus::BusError;
 use crate::vstate::interrupts::InterruptError;
@@ -242,6 +245,8 @@ pub struct PciDevicesState {
     pub entropy_device: Option<VirtioDeviceState<EntropyState>>,
     /// Pmem device states.
     pub pmem_devices: Vec<VirtioDeviceState<PmemState>>,
+    /// Memory device state.
+    pub memory_device: Option<VirtioDeviceState<VirtioMemState>>,
 }
 
 pub struct PciDevicesConstructorArgs<'a> {
@@ -401,6 +406,20 @@ impl<'a> Persist<'a> for PciDevices {
                         transport_state,
                     });
                 }
+                virtio_ids::VIRTIO_ID_MEM => {
+                    let mem_dev = locked_virtio_dev
+                        .as_mut_any()
+                        .downcast_mut::<VirtioMem>()
+                        .unwrap();
+                    let device_state = mem_dev.save();
+
+                    state.memory_device = Some(VirtioDeviceState {
+                        device_id: mem_dev.id().to_string(),
+                        pci_device_bdf,
+                        device_state,
+                        transport_state,
+                    })
+                }
                 _ => unreachable!(),
             }
         }
@@ -431,8 +450,8 @@ impl<'a> Persist<'a> for PciDevices {
 
             constructor_args
                 .vm_resources
-                .update_from_restored_device(SharedDeviceType::Balloon(device.clone()))
-                .unwrap();
+                .balloon
+                .set_device(device.clone());
 
             pci_devices
                 .restore_pci_device(
@@ -456,8 +475,8 @@ impl<'a> Persist<'a> for PciDevices {
 
             constructor_args
                 .vm_resources
-                .update_from_restored_device(SharedDeviceType::VirtioBlock(device.clone()))
-                .unwrap();
+                .block
+                .add_virtio_device(device.clone());
 
             pci_devices
                 .restore_pci_device(
@@ -506,8 +525,8 @@ impl<'a> Persist<'a> for PciDevices {
 
             constructor_args
                 .vm_resources
-                .update_from_restored_device(SharedDeviceType::Network(device.clone()))
-                .unwrap();
+                .net_builder
+                .add_device(device.clone());
 
             pci_devices
                 .restore_pci_device(
@@ -539,8 +558,8 @@ impl<'a> Persist<'a> for PciDevices {
 
             constructor_args
                 .vm_resources
-                .update_from_restored_device(SharedDeviceType::Vsock(device.clone()))
-                .unwrap();
+                .vsock
+                .set_device(device.clone());
 
             pci_devices
                 .restore_pci_device(
@@ -562,8 +581,8 @@ impl<'a> Persist<'a> for PciDevices {
 
             constructor_args
                 .vm_resources
-                .update_from_restored_device(SharedDeviceType::Entropy(device.clone()))
-                .unwrap();
+                .entropy
+                .set_device(device.clone());
 
             pci_devices
                 .restore_pci_device(
@@ -590,8 +609,8 @@ impl<'a> Persist<'a> for PciDevices {
 
             constructor_args
                 .vm_resources
-                .update_from_restored_device(SharedDeviceType::Pmem(device.clone()))
-                .unwrap();
+                .pmem
+                .add_device(device.clone());
 
             pci_devices
                 .restore_pci_device(
@@ -599,6 +618,28 @@ impl<'a> Persist<'a> for PciDevices {
                     device,
                     &pmem_state.device_id,
                     &pmem_state.transport_state,
+                    constructor_args.event_manager,
+                )
+                .unwrap()
+        }
+
+        if let Some(memory_device) = &state.memory_device {
+            let ctor_args = VirtioMemConstructorArgs::new(Arc::clone(constructor_args.vm));
+            let device = VirtioMem::restore(ctor_args, &memory_device.device_state).unwrap();
+
+            constructor_args.vm_resources.memory_hotplug = Some(MemoryHotplugConfig {
+                total_size_mib: device.total_size_mib(),
+                block_size_mib: device.block_size_mib(),
+                slot_size_mib: device.slot_size_mib(),
+            });
+
+            let arcd_device = Arc::new(Mutex::new(device));
+            pci_devices
+                .restore_pci_device(
+                    constructor_args.vm,
+                    arcd_device,
+                    &memory_device.device_id,
+                    &memory_device.transport_state,
                     constructor_args.event_manager,
                 )
                 .unwrap()
@@ -621,6 +662,7 @@ mod tests {
     use crate::snapshot::Snapshot;
     use crate::vmm_config::balloon::BalloonDeviceConfig;
     use crate::vmm_config::entropy::EntropyDeviceConfig;
+    use crate::vmm_config::memory_hotplug::MemoryHotplugConfig;
     use crate::vmm_config::net::NetworkInterfaceConfig;
     use crate::vmm_config::pmem::PmemConfig;
     use crate::vmm_config::vsock::VsockDeviceConfig;
@@ -645,6 +687,8 @@ mod tests {
                 amount_mib: 123,
                 deflate_on_oom: false,
                 stats_polling_interval_s: 1,
+                free_page_hinting: false,
+                free_page_reporting: false,
             };
             insert_balloon_device(&mut vmm, &mut cmdline, &mut event_manager, balloon_cfg);
             // Add a block device.
@@ -695,6 +739,18 @@ mod tests {
             _pmem_files =
                 insert_pmem_devices(&mut vmm, &mut cmdline, &mut event_manager, pmem_configs);
 
+            let memory_hotplug_config = MemoryHotplugConfig {
+                total_size_mib: 1024,
+                block_size_mib: 2,
+                slot_size_mib: 128,
+            };
+            insert_virtio_mem_device(
+                &mut vmm,
+                &mut cmdline,
+                &mut event_manager,
+                memory_hotplug_config,
+            );
+
             Snapshot::new(vmm.device_manager.save())
                 .save(&mut buf.as_mut_slice())
                 .unwrap();
@@ -728,7 +784,9 @@ mod tests {
   "balloon": {{
     "amount_mib": 123,
     "deflate_on_oom": false,
-    "stats_polling_interval_s": 1
+    "stats_polling_interval_s": 1,
+    "free_page_hinting": false,
+    "free_page_reporting": false
   }},
   "drives": [
     {{
@@ -789,7 +847,12 @@ mod tests {
       "root_device": true,
       "read_only": true
     }}
-  ]
+  ],
+  "memory-hotplug": {{
+    "total_size_mib": 1024,
+    "block_size_mib": 2,
+    "slot_size_mib": 128
+  }}
 }}"#,
             _block_files.last().unwrap().as_path().to_str().unwrap(),
             tmp_sock_file.as_path().to_str().unwrap(),

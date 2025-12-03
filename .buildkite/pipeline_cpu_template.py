@@ -23,7 +23,7 @@ class BkStep(str, Enum):
 cpu_template_test = {
     "rdmsr": {
         BkStep.COMMAND: [
-            "tools/devtool -y test --no-build -- -m nonci -n4 --dist worksteal integration_tests/functional/test_cpu_features_x86_64.py -k 'test_cpu_rdmsr' "
+            "tools/devtool -y test --no-build -- -m no_block_pr -n4 --dist worksteal integration_tests/functional/test_cpu_features_x86_64.py -k 'test_cpu_rdmsr' "
         ],
         BkStep.LABEL: "📖 rdmsr",
         "instances": [
