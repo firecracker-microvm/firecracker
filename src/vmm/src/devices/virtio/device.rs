@@ -17,7 +17,7 @@ use super::queue::{Queue, QueueError};
 use super::transport::VirtioInterrupt;
 use crate::devices::virtio::AsAny;
 use crate::devices::virtio::generated::virtio_ids;
-use crate::logger::warn;
+use crate::logger::{error, info, warn};
 use crate::vstate::memory::GuestMemoryMmap;
 
 /// State of an active VirtIO device
@@ -188,8 +188,28 @@ pub trait VirtioDevice: AsAny + Send {
         Ok(())
     }
 
+    /// Notify all queues by writing to the eventfds.
+    fn notify_queue_events(&mut self) {
+        info!("[{:?}:{}] notifying queues", self.device_type(), self.id());
+        for (i, eventfd) in self.queue_events().iter().enumerate() {
+            if let Err(err) = eventfd.write(1) {
+                error!(
+                    "[{:?}:{}] error notifying queue {}: {}",
+                    self.device_type(),
+                    self.id(),
+                    i,
+                    err
+                );
+            }
+        }
+    }
+
     /// Kick the device, as if it had received external events.
-    fn kick(&mut self) {}
+    fn kick(&mut self) {
+        if self.is_activated() {
+            self.notify_queue_events();
+        }
+    }
 
     /// Prepare the device for saving its state
     fn prepare_save(&mut self) {}
