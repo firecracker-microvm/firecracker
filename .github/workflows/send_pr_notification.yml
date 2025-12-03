@@ -4,6 +4,9 @@ on:
   pull_request_target:
     types: [labeled]
 
+
+permissions: {}
+
 jobs:
   send_notification:
     runs-on: ubuntu-latest
