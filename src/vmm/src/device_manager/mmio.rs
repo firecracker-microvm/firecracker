@@ -494,6 +494,10 @@ pub(crate) mod tests {
     impl VirtioDevice for DummyDevice {
         impl_device_type!(VirtioDeviceType::Net);
 
+        fn id(&self) -> &str {
+            "dummy"
+        }
+
         fn avail_features(&self) -> u64 {
             0
         }
