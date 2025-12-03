@@ -74,7 +74,7 @@ impl Persist<'_> for Net {
 
     fn save(&self) -> Self::State {
         NetState {
-            id: self.id().clone(),
+            id: self.id.clone(),
             tap_if_name: self.iface_name(),
             rx_rate_limiter_state: self.rx_rate_limiter.save(),
             tx_rate_limiter_state: self.tx_rate_limiter.save(),

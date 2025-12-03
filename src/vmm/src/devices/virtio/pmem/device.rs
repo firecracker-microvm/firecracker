@@ -332,6 +332,10 @@ impl Pmem {
 impl VirtioDevice for Pmem {
     impl_device_type!(VirtioDeviceType::Pmem);
 
+    fn id(&self) -> &str {
+        &self.config.id
+    }
+
     fn avail_features(&self) -> u64 {
         self.avail_features
     }
