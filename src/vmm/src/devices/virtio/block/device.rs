@@ -214,18 +214,6 @@ impl VirtioDevice for Block {
             Self::VhostUser(b) => b.device_state.is_activated(),
         }
     }
-
-    fn kick(&mut self) {
-        // If device is activated, kick the block queue(s) to make up for any
-        // pending or in-flight epoll events we may have not captured in
-        // snapshot. No need to kick Ratelimiters
-        // because they are restored 'unblocked' so
-        // any inflight `timer_fd` events can be safely discarded.
-        if self.is_activated() {
-            info!("kick block {}.", self.id());
-            self.process_virtio_queues();
-        }
-    }
 }
 
 impl MutEventSubscriber for Block {
