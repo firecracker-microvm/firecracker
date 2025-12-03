@@ -18,11 +18,8 @@ def test_rust_order():
 
 def test_rust_style():
     """Test that rust code passes style checks."""
-
-    #  ../src/io_uring/src/bindings.rs
-    config = open("fmt.toml", encoding="utf-8").read().replace("\n", ",")
     # Check that the output is empty.
-    _, stdout, _ = utils.check_output(f"cargo fmt --all -- --check --config {config}")
+    _, stdout, _ = utils.check_output("cargo fmt --all -- --check")
 
     # rustfmt prepends `"Diff in"` to the reported output.
     assert "Diff in" not in stdout

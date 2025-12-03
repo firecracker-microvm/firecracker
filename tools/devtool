@@ -942,7 +942,7 @@ cmd_test_debug() {
 # Example: `devtool fmt`
 #
 cmd_fmt() {
-    cmd_sh "cargo fmt --all -- --config $(tr '\n' ',' <tests/fmt.toml)"
+    cmd_sh "cargo fmt --all"
     cmd_sh "cargo sort"
     cmd_sh "cd tests; black --config pyproject.toml . ../tools ../.buildkite"
     cmd_sh "cd tests; isort . ../tools ../.buildkite"
