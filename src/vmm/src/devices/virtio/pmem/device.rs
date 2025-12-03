@@ -247,7 +247,7 @@ impl Pmem {
             .map_err(PmemError::SetUserMemoryRegion)
     }
 
-    fn handle_queue(&mut self) -> Result<(), PmemError> {
+    pub fn handle_queue(&mut self) -> Result<(), PmemError> {
         // This is safe since we checked in the event handler that the device is activated.
         let active_state = self.device_state.active_state().unwrap();
 
