@@ -9,6 +9,7 @@ use serde::{Deserialize, Serialize};
 use vm_memory::GuestAddress;
 
 use crate::cpu_config::templates::CustomCpuTemplate;
+use crate::devices::virtio::device::VirtioDevice;
 use crate::logger::info;
 use crate::mmds;
 use crate::mmds::data_store::{Mmds, MmdsVersion};
@@ -293,7 +294,9 @@ impl VmResources {
 
             for net_dev in net_devs_with_mmds {
                 let net = net_dev.lock().unwrap();
-                inner_mmds_config.network_interfaces.push(net.id().clone());
+                inner_mmds_config
+                    .network_interfaces
+                    .push(net.id().to_string());
                 // Only need to get one ip address, as they will all be equal.
                 if inner_mmds_config.ipv4_address.is_none() {
                     // Safe to unwrap the mmds_ns as the filter() explicitly checks for
@@ -434,8 +437,7 @@ impl VmResources {
         if !network_interfaces.iter().all(|id| {
             self.net_builder
                 .iter()
-                .map(|device| device.lock().expect("Poisoned lock").id().clone())
-                .any(|x| &x == id)
+                .any(|device| device.lock().expect("Poisoned lock").id() == id)
         }) {
             return Err(MmdsConfigError::InvalidNetworkInterfaceId);
         }
@@ -448,7 +450,7 @@ impl VmResources {
         // network interface ID list.
         for net_device in self.net_builder.iter() {
             let mut net_device_lock = net_device.lock().expect("Poisoned lock");
-            if network_interfaces.contains(net_device_lock.id()) {
+            if network_interfaces.contains(&net_device_lock.id) {
                 net_device_lock.configure_mmds_network_stack(ipv4_addr, mmds.clone());
             } else {
                 net_device_lock.disable_mmds_network_stack();
@@ -554,6 +556,7 @@ mod tests {
     use crate::cpu_config::templates::{CpuTemplateType, StaticCpuTemplate};
     use crate::devices::virtio::block::virtio::VirtioBlockError;
     use crate::devices::virtio::block::{BlockError, CacheType};
+    use crate::devices::virtio::device::VirtioDevice;
     use crate::devices::virtio::vsock::VSOCK_DEV_ID;
     use crate::resources::VmResources;
     use crate::utils::net::mac::MacAddr;

@@ -121,11 +121,6 @@ where
         Self::with_queues(cid, backend, queues)
     }
 
-    /// Provides the ID of this vsock device as used in MMIO device identification.
-    pub fn id(&self) -> &str {
-        defs::VSOCK_DEV_ID
-    }
-
     /// Retrieve the cid associated with this vsock device.
     pub fn cid(&self) -> u64 {
         self.cid
@@ -284,6 +279,10 @@ where
     B: VsockBackend + Debug + 'static,
 {
     impl_device_type!(VirtioDeviceType::Vsock);
+
+    fn id(&self) -> &str {
+        defs::VSOCK_DEV_ID
+    }
 
     fn avail_features(&self) -> u64 {
         self.avail_features

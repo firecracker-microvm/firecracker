@@ -9,6 +9,7 @@ use serde::{Deserialize, Serialize};
 
 use super::RateLimiterConfig;
 use crate::VmmError;
+use crate::devices::virtio::device::VirtioDevice;
 use crate::devices::virtio::net::{Net, TapError};
 use crate::utils::net::mac::MacAddr;
 
@@ -34,7 +35,7 @@ impl From<&Net> for NetworkInterfaceConfig {
         let rx_rl: RateLimiterConfig = net.rx_rate_limiter().into();
         let tx_rl: RateLimiterConfig = net.tx_rate_limiter().into();
         NetworkInterfaceConfig {
-            iface_id: net.id().clone(),
+            iface_id: net.id().to_string(),
             host_dev_name: net.iface_name(),
             guest_mac: net.guest_mac().copied(),
             rx_rate_limiter: rx_rl.into_option(),
@@ -108,7 +109,7 @@ impl NetBuilder {
             let mac_conflict = |net: &Arc<Mutex<Net>>| {
                 let net = net.lock().expect("Poisoned lock");
                 // Check if another net dev has same MAC.
-                Some(mac_address) == net.guest_mac() && &netif_config.iface_id != net.id()
+                Some(mac_address) == net.guest_mac() && netif_config.iface_id != net.id()
             };
             // Validate there is no Mac conflict.
             // No need to validate host_dev_name conflict. In such a case,
@@ -124,7 +125,7 @@ impl NetBuilder {
         if let Some(index) = self
             .net_devices
             .iter()
-            .position(|net| net.lock().expect("Poisoned lock").id() == &netif_config.iface_id)
+            .position(|net| net.lock().expect("Poisoned lock").id() == netif_config.iface_id)
         {
             self.net_devices.swap_remove(index);
         }

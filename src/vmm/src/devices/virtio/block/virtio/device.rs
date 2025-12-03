@@ -584,6 +584,10 @@ impl VirtioBlock {
 impl VirtioDevice for VirtioBlock {
     impl_device_type!(VirtioDeviceType::Block);
 
+    fn id(&self) -> &str {
+        &self.id
+    }
+
     fn avail_features(&self) -> u64 {
         self.avail_features
     }
