@@ -16,10 +16,9 @@ use vmm_sys_util::eventfd::EventFd;
 use super::{NUM_QUEUES, QUEUE_SIZE, VhostUserBlockError};
 use crate::devices::virtio::ActivateError;
 use crate::devices::virtio::block::CacheType;
-use crate::devices::virtio::device::{ActiveState, DeviceState, VirtioDevice};
+use crate::devices::virtio::device::{ActiveState, DeviceState, VirtioDevice, VirtioDeviceType};
 use crate::devices::virtio::generated::virtio_blk::{VIRTIO_BLK_F_FLUSH, VIRTIO_BLK_F_RO};
 use crate::devices::virtio::generated::virtio_config::VIRTIO_F_VERSION_1;
-use crate::devices::virtio::generated::virtio_ids::VIRTIO_ID_BLOCK;
 use crate::devices::virtio::generated::virtio_ring::VIRTIO_RING_F_EVENT_IDX;
 use crate::devices::virtio::queue::Queue;
 use crate::devices::virtio::transport::{VirtioInterrupt, VirtioInterruptType};
@@ -289,7 +288,7 @@ impl<T: VhostUserHandleBackend> VhostUserBlockImpl<T> {
 }
 
 impl<T: VhostUserHandleBackend + Send + 'static> VirtioDevice for VhostUserBlockImpl<T> {
-    impl_device_type!(VIRTIO_ID_BLOCK);
+    impl_device_type!(VirtioDeviceType::Block);
 
     fn avail_features(&self) -> u64 {
         self.avail_features

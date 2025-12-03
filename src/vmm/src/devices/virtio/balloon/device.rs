@@ -28,9 +28,8 @@ use super::{
     VIRTIO_BALLOON_S_OOM_KILL, VIRTIO_BALLOON_S_SWAP_IN, VIRTIO_BALLOON_S_SWAP_OUT,
 };
 use crate::devices::virtio::balloon::BalloonError;
-use crate::devices::virtio::device::ActiveState;
+use crate::devices::virtio::device::{ActiveState, VirtioDeviceType};
 use crate::devices::virtio::generated::virtio_config::VIRTIO_F_VERSION_1;
-use crate::devices::virtio::generated::virtio_ids::VIRTIO_ID_BALLOON;
 use crate::devices::virtio::queue::InvalidAvailIdx;
 use crate::devices::virtio::transport::{VirtioInterrupt, VirtioInterruptType};
 use crate::logger::{IncMetric, log_dev_preview_warning};
@@ -863,7 +862,7 @@ impl Balloon {
 }
 
 impl VirtioDevice for Balloon {
-    impl_device_type!(VIRTIO_ID_BALLOON);
+    impl_device_type!(VirtioDeviceType::Balloon);
 
     fn avail_features(&self) -> u64 {
         self.avail_features
@@ -1125,7 +1124,7 @@ pub(crate) mod tests {
         for (reporting, hinting, deflate_on_oom, stats_interval) in combinations {
             let mut balloon =
                 Balloon::new(0, *deflate_on_oom, *stats_interval, *hinting, *reporting).unwrap();
-            assert_eq!(balloon.device_type(), VIRTIO_ID_BALLOON);
+            assert_eq!(balloon.device_type(), VirtioDeviceType::Balloon);
 
             let features: u64 = (1u64 << VIRTIO_F_VERSION_1)
                 | (u64::from(*deflate_on_oom) << VIRTIO_BALLOON_F_DEFLATE_ON_OOM)

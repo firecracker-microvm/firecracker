@@ -11,7 +11,7 @@ use serde::{Deserialize, Serialize};
 
 use super::queue::{InvalidAvailIdx, QueueError};
 use super::transport::mmio::IrqTrigger;
-use crate::devices::virtio::device::VirtioDevice;
+use crate::devices::virtio::device::{VirtioDevice, VirtioDeviceType};
 use crate::devices::virtio::generated::virtio_ring::VIRTIO_RING_F_EVENT_IDX;
 use crate::devices::virtio::queue::Queue;
 use crate::devices::virtio::transport::mmio::MmioTransport;
@@ -114,10 +114,10 @@ impl Persist<'_> for Queue {
 }
 
 /// State of a VirtioDevice.
-#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct VirtioDeviceState {
     /// Device type.
-    pub device_type: u32,
+    pub device_type: VirtioDeviceType,
     /// Available virtio features.
     pub avail_features: u64,
     /// Negotiated virtio features.
@@ -145,7 +145,7 @@ impl VirtioDeviceState {
     pub fn build_queues_checked(
         &self,
         mem: &GuestMemoryMmap,
-        expected_device_type: u32,
+        expected_device_type: VirtioDeviceType,
         expected_num_queues: usize,
         expected_queue_max_size: u16,
     ) -> Result<Vec<Queue>, PersistError> {
@@ -290,31 +290,45 @@ mod tests {
     #[test]
     fn test_virtiodev_sanity_checks() {
         let max_size = DEFAULT_QUEUE_MAX_SIZE;
-        let mut state = VirtioDeviceState::default();
+        let mut state = VirtioDeviceState {
+            device_type: VirtioDeviceType::Net,
+            avail_features: 0,
+            acked_features: 0,
+            queues: vec![],
+            activated: false,
+        };
         let mem = default_mem();
         // Valid checks.
-        state.build_queues_checked(&mem, 0, 0, max_size).unwrap();
+        state
+            .build_queues_checked(&mem, VirtioDeviceType::Net, 0, max_size)
+            .unwrap();
         // Invalid dev-type.
         state
-            .build_queues_checked(&mem, 1, 0, max_size)
+            .build_queues_checked(&mem, VirtioDeviceType::Block, 0, max_size)
             .unwrap_err();
         // Invalid num-queues.
         state
-            .build_queues_checked(&mem, 0, 1, max_size)
+            .build_queues_checked(&mem, VirtioDeviceType::Net, 1, max_size)
             .unwrap_err();
         // Unavailable features acked.
         state.acked_features = 1;
         state
-            .build_queues_checked(&mem, 0, 0, max_size)
+            .build_queues_checked(&mem, VirtioDeviceType::Net, 0, max_size)
             .unwrap_err();
 
         // Validate queue sanity checks.
-        let mut state = VirtioDeviceState::default();
+        let mut state = VirtioDeviceState {
+            device_type: VirtioDeviceType::Net,
+            avail_features: 0,
+            acked_features: 0,
+            queues: vec![],
+            activated: false,
+        };
         let good_q = QueueState::default();
         state.queues = vec![good_q];
         // Valid.
         state
-            .build_queues_checked(&mem, 0, state.queues.len(), max_size)
+            .build_queues_checked(&mem, VirtioDeviceType::Net, state.queues.len(), max_size)
             .unwrap();
 
         // Invalid max queue size.
@@ -324,7 +338,7 @@ mod tests {
         };
         state.queues = vec![bad_q];
         state
-            .build_queues_checked(&mem, 0, state.queues.len(), max_size)
+            .build_queues_checked(&mem, VirtioDeviceType::Net, state.queues.len(), max_size)
             .unwrap_err();
 
         // Invalid: size > max.
@@ -335,7 +349,7 @@ mod tests {
         state.queues = vec![bad_q];
         state.activated = true;
         state
-            .build_queues_checked(&mem, 0, state.queues.len(), max_size)
+            .build_queues_checked(&mem, VirtioDeviceType::Net, state.queues.len(), max_size)
             .unwrap_err();
 
         // activated && !q.is_valid()
@@ -343,7 +357,7 @@ mod tests {
         state.queues = vec![bad_q];
         state.activated = true;
         state
-            .build_queues_checked(&mem, 0, state.queues.len(), max_size)
+            .build_queues_checked(&mem, VirtioDeviceType::Net, state.queues.len(), max_size)
             .unwrap_err();
     }
 
