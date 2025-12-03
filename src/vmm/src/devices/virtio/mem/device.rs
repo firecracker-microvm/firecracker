@@ -687,6 +687,13 @@ impl VirtioDevice for VirtioMem {
 
         Ok(())
     }
+
+    fn kick(&mut self) {
+        if self.is_activated() {
+            info!("kick mem {}.", self.id());
+            self.process_virtio_queues();
+        }
+    }
 }
 
 #[cfg(test)]
