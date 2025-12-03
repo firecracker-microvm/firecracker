@@ -169,10 +169,6 @@ impl VirtioMem {
         })
     }
 
-    pub fn id(&self) -> &str {
-        VIRTIO_MEM_DEV_ID
-    }
-
     pub fn guest_address(&self) -> GuestAddress {
         GuestAddress(self.config.addr)
     }
@@ -602,6 +598,10 @@ impl VirtioMem {
 
 impl VirtioDevice for VirtioMem {
     impl_device_type!(VirtioDeviceType::Mem);
+
+    fn id(&self) -> &str {
+        VIRTIO_MEM_DEV_ID
+    }
 
     fn queues(&self) -> &[Queue] {
         &self.queues

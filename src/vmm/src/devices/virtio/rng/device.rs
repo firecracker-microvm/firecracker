@@ -84,10 +84,6 @@ impl Entropy {
         })
     }
 
-    pub fn id(&self) -> &str {
-        ENTROPY_DEV_ID
-    }
-
     fn signal_used_queue(&self) -> Result<(), DeviceError> {
         self.interrupt_trigger()
             .trigger(VirtioInterruptType::Queue(RNG_QUEUE.try_into().unwrap()))
@@ -254,6 +250,10 @@ impl Entropy {
 
 impl VirtioDevice for Entropy {
     impl_device_type!(VirtioDeviceType::Rng);
+
+    fn id(&self) -> &str {
+        ENTROPY_DEV_ID
+    }
 
     fn queues(&self) -> &[Queue] {
         &self.queues
