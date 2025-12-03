@@ -570,7 +570,7 @@ impl VirtioMem {
             return Err(VirtioMemError::DeviceNotActive);
         }
 
-        if requested_size % self.config.block_size != 0 {
+        if !requested_size.is_multiple_of(self.config.block_size) {
             return Err(VirtioMemError::InvalidSize(requested_size));
         }
         if requested_size > self.config.region_size {

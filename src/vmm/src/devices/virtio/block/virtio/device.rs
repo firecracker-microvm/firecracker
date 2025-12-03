@@ -204,7 +204,7 @@ impl TryFrom<&BlockDeviceConfig> for VirtioBlockConfig {
     type Error = VirtioBlockError;
 
     fn try_from(value: &BlockDeviceConfig) -> Result<Self, Self::Error> {
-        if value.path_on_host.is_some() && value.socket.is_none() {
+        if let (Some(path_on_host), None) = (&value.path_on_host, &value.socket) {
             Ok(Self {
                 drive_id: value.drive_id.clone(),
                 partuuid: value.partuuid.clone(),
@@ -212,7 +212,7 @@ impl TryFrom<&BlockDeviceConfig> for VirtioBlockConfig {
                 cache_type: value.cache_type,
 
                 is_read_only: value.is_read_only.unwrap_or(false),
-                path_on_host: value.path_on_host.as_ref().unwrap().clone(),
+                path_on_host: path_on_host.clone(),
                 rate_limiter: value.rate_limiter,
                 file_engine_type: value.file_engine_type.unwrap_or_default(),
             })
