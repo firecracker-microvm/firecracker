@@ -22,7 +22,7 @@ use crate::devices::virtio::pmem::PMEM_QUEUE_SIZE;
 use crate::devices::virtio::pmem::metrics::{PmemMetrics, PmemMetricsPerDevice};
 use crate::devices::virtio::queue::{DescriptorChain, InvalidAvailIdx, Queue, QueueError};
 use crate::devices::virtio::transport::{VirtioInterrupt, VirtioInterruptType};
-use crate::logger::{IncMetric, error};
+use crate::logger::{IncMetric, error, info};
 use crate::utils::{align_up, u64_to_usize};
 use crate::vmm_config::pmem::PmemConfig;
 use crate::vstate::memory::{ByteValued, Bytes, GuestMemoryMmap, GuestMmapRegion};
@@ -397,6 +397,13 @@ impl VirtioDevice for Pmem {
 
     fn is_activated(&self) -> bool {
         self.device_state.is_activated()
+    }
+
+    fn kick(&mut self) {
+        if self.is_activated() {
+            info!("kick pmem {}.", self.config.id);
+            self.handle_queue();
+        }
     }
 }
 
