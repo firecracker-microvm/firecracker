@@ -32,9 +32,8 @@ use super::defs::uapi;
 use super::packet::{VSOCK_PKT_HDR_SIZE, VsockPacketRx, VsockPacketTx};
 use super::{VsockBackend, defs};
 use crate::devices::virtio::ActivateError;
-use crate::devices::virtio::device::{ActiveState, DeviceState, VirtioDevice};
+use crate::devices::virtio::device::{ActiveState, DeviceState, VirtioDevice, VirtioDeviceType};
 use crate::devices::virtio::generated::virtio_config::{VIRTIO_F_IN_ORDER, VIRTIO_F_VERSION_1};
-use crate::devices::virtio::generated::virtio_ids::VIRTIO_ID_VSOCK;
 use crate::devices::virtio::queue::{InvalidAvailIdx, Queue as VirtQueue};
 use crate::devices::virtio::transport::{VirtioInterrupt, VirtioInterruptType};
 use crate::devices::virtio::vsock::VsockError;
@@ -284,7 +283,7 @@ impl<B> VirtioDevice for Vsock<B>
 where
     B: VsockBackend + Debug + 'static,
 {
-    impl_device_type!(VIRTIO_ID_VSOCK);
+    impl_device_type!(VirtioDeviceType::Vsock);
 
     fn avail_features(&self) -> u64 {
         self.avail_features
@@ -412,7 +411,7 @@ mod tests {
             (driver_features & 0xffff_ffff) as u32,
             (driver_features >> 32) as u32,
         ];
-        assert_eq!(ctx.device.device_type(), VIRTIO_ID_VSOCK);
+        assert_eq!(ctx.device.device_type(), VirtioDeviceType::Vsock);
         assert_eq!(ctx.device.avail_features_by_page(0), device_pages[0]);
         assert_eq!(ctx.device.avail_features_by_page(1), device_pages[1]);
         assert_eq!(ctx.device.avail_features_by_page(2), 0);

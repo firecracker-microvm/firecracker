@@ -18,9 +18,8 @@ use vmm_sys_util::eventfd::EventFd;
 
 use super::NET_QUEUE_MAX_SIZE;
 use crate::devices::virtio::ActivateError;
-use crate::devices::virtio::device::{ActiveState, DeviceState, VirtioDevice};
+use crate::devices::virtio::device::{ActiveState, DeviceState, VirtioDevice, VirtioDeviceType};
 use crate::devices::virtio::generated::virtio_config::VIRTIO_F_VERSION_1;
-use crate::devices::virtio::generated::virtio_ids::VIRTIO_ID_NET;
 use crate::devices::virtio::generated::virtio_net::{
     VIRTIO_NET_F_CSUM, VIRTIO_NET_F_GUEST_CSUM, VIRTIO_NET_F_GUEST_TSO4, VIRTIO_NET_F_GUEST_TSO6,
     VIRTIO_NET_F_GUEST_UFO, VIRTIO_NET_F_HOST_TSO4, VIRTIO_NET_F_HOST_TSO6, VIRTIO_NET_F_HOST_UFO,
@@ -941,7 +940,7 @@ impl Net {
 }
 
 impl VirtioDevice for Net {
-    impl_device_type!(VIRTIO_ID_NET);
+    impl_device_type!(VirtioDeviceType::Net);
 
     fn avail_features(&self) -> u64 {
         self.avail_features
@@ -1153,7 +1152,7 @@ pub mod tests {
     fn test_virtio_device_type() {
         let mut net = default_net();
         set_mac(&mut net, MacAddr::from_str("11:22:33:44:55:66").unwrap());
-        assert_eq!(net.device_type(), VIRTIO_ID_NET);
+        assert_eq!(net.device_type(), VirtioDeviceType::Net);
     }
 
     #[test]

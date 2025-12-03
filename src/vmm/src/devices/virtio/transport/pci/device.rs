@@ -28,7 +28,7 @@ use vmm_sys_util::errno;
 use vmm_sys_util::eventfd::EventFd;
 
 use crate::Vm;
-use crate::devices::virtio::device::VirtioDevice;
+use crate::devices::virtio::device::{VirtioDevice, VirtioDeviceType};
 use crate::devices::virtio::generated::virtio_ids;
 use crate::devices::virtio::queue::Queue;
 use crate::devices::virtio::transport::pci::common_config::{
@@ -299,16 +299,16 @@ impl Debug for VirtioPciDevice {
 
 impl VirtioPciDevice {
     fn pci_configuration(
-        virtio_device_type: u32,
+        device_type: VirtioDeviceType,
         msix_config: &Arc<Mutex<MsixConfig>>,
     ) -> PciConfiguration {
-        let pci_device_id = VIRTIO_PCI_DEVICE_ID_BASE + u16::try_from(virtio_device_type).unwrap();
-        let (class, subclass) = match virtio_device_type {
-            virtio_ids::VIRTIO_ID_NET => (
+        let pci_device_id = VIRTIO_PCI_DEVICE_ID_BASE + device_type as u16;
+        let (class, subclass) = match device_type {
+            VirtioDeviceType::Net => (
                 PciClassCode::NetworkController,
                 &PciNetworkControllerSubclass::EthernetController as &dyn PciSubclass,
             ),
-            virtio_ids::VIRTIO_ID_BLOCK => (
+            VirtioDeviceType::Block => (
                 PciClassCode::MassStorage,
                 &PciMassStorageSubclass::MassStorage as &dyn PciSubclass,
             ),
@@ -959,10 +959,9 @@ mod tests {
     use super::{PciCapabilityType, VirtioPciDevice};
     use crate::arch::MEM_64BIT_DEVICES_START;
     use crate::builder::tests::default_vmm;
-    use crate::devices::virtio::device::VirtioDevice;
+    use crate::devices::virtio::device::{VirtioDevice, VirtioDeviceType};
     use crate::devices::virtio::device_status::{ACKNOWLEDGE, DRIVER, DRIVER_OK, FEATURES_OK};
     use crate::devices::virtio::generated::virtio_config::VIRTIO_F_VERSION_1;
-    use crate::devices::virtio::generated::virtio_ids;
     use crate::devices::virtio::rng::Entropy;
     use crate::devices::virtio::transport::pci::device::{
         COMMON_CONFIG_BAR_OFFSET, COMMON_CONFIG_SIZE, DEVICE_CONFIG_BAR_OFFSET, DEVICE_CONFIG_SIZE,
@@ -995,7 +994,7 @@ mod tests {
     fn get_virtio_device(vmm: &Vmm) -> Arc<Mutex<VirtioPciDevice>> {
         vmm.device_manager
             .pci_devices
-            .get_virtio_device(virtio_ids::VIRTIO_ID_RNG, "rng")
+            .get_virtio_device(VirtioDeviceType::Rng, "rng")
             .unwrap()
             .clone()
     }

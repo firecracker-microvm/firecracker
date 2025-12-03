@@ -9,12 +9,14 @@ use std::fmt;
 use std::sync::Arc;
 use std::sync::atomic::AtomicU32;
 
+use serde::{Deserialize, Serialize};
 use vmm_sys_util::eventfd::EventFd;
 
 use super::ActivateError;
 use super::queue::{Queue, QueueError};
 use super::transport::VirtioInterrupt;
 use crate::devices::virtio::AsAny;
+use crate::devices::virtio::generated::virtio_ids;
 use crate::logger::warn;
 use crate::vstate::memory::GuestMemoryMmap;
 
@@ -51,6 +53,22 @@ impl DeviceState {
     }
 }
 
+/// Type of a virtio device
+/// Represent it as u8 to give it a known size.
+/// All used types fit in u8.
+#[allow(clippy::cast_possible_truncation)]
+#[repr(u8)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum VirtioDeviceType {
+    Net = virtio_ids::VIRTIO_ID_NET as u8,
+    Block = virtio_ids::VIRTIO_ID_BLOCK as u8,
+    Rng = virtio_ids::VIRTIO_ID_RNG as u8,
+    Balloon = virtio_ids::VIRTIO_ID_BALLOON as u8,
+    Vsock = virtio_ids::VIRTIO_ID_VSOCK as u8,
+    Mem = virtio_ids::VIRTIO_ID_MEM as u8,
+    Pmem = virtio_ids::VIRTIO_ID_PMEM as u8,
+}
+
 /// Trait for virtio devices to be driven by a virtio transport.
 ///
 /// The lifecycle of a virtio device is to be moved to a virtio transport, which will then query the
@@ -75,14 +93,14 @@ pub trait VirtioDevice: AsAny + Send {
     }
 
     /// The virtio device type (as a constant of the struct).
-    fn const_device_type() -> u32
+    fn const_device_type() -> VirtioDeviceType
     where
         Self: Sized;
 
     /// The virtio device type.
     ///
     /// It should be the same as returned by Self::const_device_type().
-    fn device_type(&self) -> u32;
+    fn device_type(&self) -> VirtioDeviceType;
 
     /// Returns the device queues.
     fn queues(&self) -> &[Queue];
@@ -176,7 +194,7 @@ pub trait VirtioDevice: AsAny + Send {
 
 impl fmt::Debug for dyn VirtioDevice {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "VirtioDevice type {}", self.device_type())
+        write!(f, "VirtioDevice type {:?}", self.device_type())
     }
 }
 
@@ -184,11 +202,11 @@ impl fmt::Debug for dyn VirtioDevice {
 #[macro_export]
 macro_rules! impl_device_type {
     ($const_type:expr) => {
-        fn const_device_type() -> u32 {
+        fn const_device_type() -> VirtioDeviceType {
             $const_type
         }
 
-        fn device_type(&self) -> u32 {
+        fn device_type(&self) -> VirtioDeviceType {
             Self::const_device_type()
         }
     };
@@ -205,7 +223,7 @@ pub(crate) mod tests {
     }
 
     impl VirtioDevice for MockVirtioDevice {
-        impl_device_type!(0);
+        impl_device_type!(VirtioDeviceType::Net);
 
         fn avail_features(&self) -> u64 {
             self.avail_features
