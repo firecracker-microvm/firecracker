@@ -10,6 +10,7 @@ use serde::{Deserialize, Serialize};
 use vm_memory::Address;
 
 use crate::Vm;
+use crate::devices::virtio::device::VirtioDeviceType;
 use crate::devices::virtio::generated::virtio_ids::VIRTIO_ID_MEM;
 use crate::devices::virtio::generated::virtio_mem::virtio_mem_config;
 use crate::devices::virtio::mem::{MEM_NUM_QUEUES, VirtioMem, VirtioMemError};
@@ -74,7 +75,7 @@ impl Persist<'_> for VirtioMem {
     ) -> Result<Self, Self::Error> {
         let queues = state.virtio_state.build_queues_checked(
             constructor_args.vm.guest_memory(),
-            VIRTIO_ID_MEM,
+            VirtioDeviceType::Mem,
             MEM_NUM_QUEUES,
             FIRECRACKER_MAX_QUEUE_SIZE,
         )?;
