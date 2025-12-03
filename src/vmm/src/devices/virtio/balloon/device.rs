@@ -392,7 +392,7 @@ impl Balloon {
                 let max_len = MAX_PAGES_IN_DESC * SIZE_OF_U32;
                 valid_descs_found = true;
 
-                if !head.is_write_only() && len % SIZE_OF_U32 == 0 {
+                if !head.is_write_only() && len.is_multiple_of(SIZE_OF_U32) {
                     // Check descriptor pfn count.
                     if len > max_len {
                         error!(
