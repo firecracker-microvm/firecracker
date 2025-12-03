@@ -17,7 +17,7 @@ use super::queue::{Queue, QueueError};
 use super::transport::VirtioInterrupt;
 use crate::devices::virtio::AsAny;
 use crate::devices::virtio::generated::virtio_ids;
-use crate::logger::warn;
+use crate::logger::{error, info, warn};
 use crate::vstate::memory::GuestMemoryMmap;
 
 /// State of an active VirtIO device
@@ -189,7 +189,22 @@ pub trait VirtioDevice: AsAny + Send {
     }
 
     /// Kick the device, as if it had received external events.
-    fn kick(&mut self) {}
+    fn kick(&mut self) {
+        if self.is_activated() {
+            info!("[{:?}:{}] kicking queues", self.device_type(), self.id());
+            for (i, eventfd) in self.queue_events().iter().enumerate() {
+                if let Err(err) = eventfd.write(1) {
+                    error!(
+                        "[{:?}:{}] error kicking queue {}: {}",
+                        self.device_type(),
+                        self.id(),
+                        i,
+                        err
+                    );
+                }
+            }
+        }
+    }
 }
 
 impl fmt::Debug for dyn VirtioDevice {

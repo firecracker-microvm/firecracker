@@ -952,16 +952,27 @@ impl VirtioDevice for Balloon {
     }
 
     fn kick(&mut self) {
-        // If device is activated, kick the balloon queue(s) to make up for any
-        // pending or in-flight epoll events we may have not captured in snapshot.
-        // Stats queue doesn't need kicking as it is notified via a `timer_fd`.
         if self.is_activated() {
-            info!("kick balloon {}.", self.id());
+            info!("[{:?}:{}] kicking queues", self.device_type(), self.id());
             if self.free_page_hinting() {
-                // On restore we reset back to DONE to ensure everythign is freed
+                info!(
+                    "[{:?}:{}] resetting free page hinting to DONE",
+                    self.device_type(),
+                    self.id()
+                );
                 self.update_free_page_hint_cmd(FREE_PAGE_HINT_DONE);
             }
-            self.process_virtio_queues();
+            for (i, eventfd) in self.queue_events().iter().enumerate() {
+                if let Err(err) = eventfd.write(1) {
+                    error!(
+                        "[{:?}:{}] error kicking queue {}: {}",
+                        self.device_type(),
+                        self.id(),
+                        i,
+                        err
+                    );
+                }
+            }
         }
     }
 }
