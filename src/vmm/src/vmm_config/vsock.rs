@@ -115,6 +115,7 @@ pub(crate) mod tests {
     use vmm_sys_util::tempfile::TempFile;
 
     use super::*;
+    use crate::devices::virtio::device::VirtioDevice;
     use crate::devices::virtio::vsock::VSOCK_DEV_ID;
 
     pub(crate) fn default_config(tmp_sock_file: &TempFile) -> VsockDeviceConfig {

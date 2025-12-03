@@ -343,11 +343,6 @@ impl Net {
         Self::new_with_tap(id, tap, guest_mac, rx_rate_limiter, tx_rate_limiter)
     }
 
-    /// Provides the ID of this net device.
-    pub fn id(&self) -> &String {
-        &self.id
-    }
-
     /// Provides the MAC of this net device.
     pub fn guest_mac(&self) -> Option<&MacAddr> {
         self.guest_mac.as_ref()
@@ -941,6 +936,10 @@ impl Net {
 
 impl VirtioDevice for Net {
     impl_device_type!(VirtioDeviceType::Net);
+
+    fn id(&self) -> &str {
+        &self.id
+    }
 
     fn avail_features(&self) -> u64 {
         self.avail_features

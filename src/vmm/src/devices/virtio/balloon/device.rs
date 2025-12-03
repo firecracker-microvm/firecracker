@@ -668,11 +668,6 @@ impl Balloon {
         Ok(())
     }
 
-    /// Provides the ID of this balloon device.
-    pub fn id(&self) -> &str {
-        BALLOON_DEV_ID
-    }
-
     fn trigger_stats_update(&mut self) -> Result<(), BalloonError> {
         // The communication is driven by the device by using the buffer
         // and sending a used buffer notification
@@ -863,6 +858,10 @@ impl Balloon {
 
 impl VirtioDevice for Balloon {
     impl_device_type!(VirtioDeviceType::Balloon);
+
+    fn id(&self) -> &str {
+        BALLOON_DEV_ID
+    }
 
     fn avail_features(&self) -> u64 {
         self.avail_features

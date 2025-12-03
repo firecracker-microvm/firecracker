@@ -88,13 +88,6 @@ impl Block {
         }
     }
 
-    pub fn id(&self) -> &str {
-        match self {
-            Self::Virtio(b) => &b.id,
-            Self::VhostUser(b) => &b.id,
-        }
-    }
-
     pub fn root_device(&self) -> bool {
         match self {
             Self::Virtio(b) => b.root_device,
@@ -126,6 +119,13 @@ impl Block {
 
 impl VirtioDevice for Block {
     impl_device_type!(VirtioDeviceType::Block);
+
+    fn id(&self) -> &str {
+        match self {
+            Self::Virtio(b) => b.id(),
+            Self::VhostUser(b) => b.id(),
+        }
+    }
 
     fn avail_features(&self) -> u64 {
         match self {

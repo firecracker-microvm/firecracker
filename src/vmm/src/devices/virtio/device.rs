@@ -102,6 +102,9 @@ pub trait VirtioDevice: AsAny + Send {
     /// It should be the same as returned by Self::const_device_type().
     fn device_type(&self) -> VirtioDeviceType;
 
+    /// Returns unique device id
+    fn id(&self) -> &str;
+
     /// Returns the device queues.
     fn queues(&self) -> &[Queue];
 
@@ -224,6 +227,10 @@ pub(crate) mod tests {
 
     impl VirtioDevice for MockVirtioDevice {
         impl_device_type!(VirtioDeviceType::Net);
+
+        fn id(&self) -> &str {
+            "mock"
+        }
 
         fn avail_features(&self) -> u64 {
             self.avail_features
