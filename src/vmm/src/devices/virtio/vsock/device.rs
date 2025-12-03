@@ -385,7 +385,11 @@ where
         // The only reason we still `kick` it is to make guest process
         // `TRANSPORT_RESET_EVENT` event we sent during snapshot creation.
         if self.is_activated() {
-            info!("kick vsock {}.", self.id());
+            info!(
+                "[{:?}:{}] signaling event queue",
+                self.device_type(),
+                self.id()
+            );
             self.signal_used_queue(EVQ_INDEX).unwrap();
         }
     }
