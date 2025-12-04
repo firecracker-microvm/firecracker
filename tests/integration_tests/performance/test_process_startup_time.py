@@ -44,18 +44,17 @@ def test_startup_time_custom_seccomp(
 
 
 def _test_startup_time(microvm, metrics, test_suffix: str):
+    test_start_time = time.time()
     microvm.spawn()
     microvm.basic_config(vcpu_count=2, mem_size_mib=1024)
     metrics.set_dimensions(
         {**microvm.dimensions, "performance_test": f"test_startup_time_{test_suffix}"}
     )
-    test_start_time = time.time()
     microvm.start()
-    time.sleep(0.4)
-
-    # The metrics should be at index 1.
-    # Since metrics are flushed at InstanceStart, the first line will suffice.
     datapoints = microvm.get_all_metrics()
+
+    # The metrics should be at index 0.
+    # Since metrics are flushed at InstanceStart, the first line will suffice.
     test_end_time = time.time()
     fc_metrics = datapoints[0]
     startup_time_us = fc_metrics["api_server"]["process_startup_time_us"]
@@ -68,7 +67,7 @@ def _test_startup_time(microvm, metrics, test_suffix: str):
     )
 
     assert cpu_startup_time_us > 0
-    # Check that startup time is not a huge value
+    # Check that startup time is not a huge value (overflow)
     # This is to catch issues like the ones introduced in PR
     # https://github.com/firecracker-microvm/firecracker/pull/4305
     test_time_delta_us = (test_end_time - test_start_time) * 1000 * 1000
