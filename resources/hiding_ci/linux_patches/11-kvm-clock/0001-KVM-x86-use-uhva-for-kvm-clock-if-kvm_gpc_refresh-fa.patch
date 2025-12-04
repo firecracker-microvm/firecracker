@@ -1,0 +1,103 @@
+From 0a04094c8b7e292fcb7bdf8528d70baddbfff379 Mon Sep 17 00:00:00 2001
+From: Patrick Roy <roypat@amazon.co.uk>
+Date: Fri, 18 Jul 2025 15:59:39 +0100
+Subject: [PATCH 01/15] KVM: x86: use uhva for kvm-clock if kvm_gpc_refresh()
+ fails
+
+kvm-clock uses a gfn_to_pfn_cache to avoid repeated gpa->pfn
+computations, relying on mmu notifiers to determine when the translation
+needs to be redone.
+
+If the guest places the kvm-clock for some vcpu into memory that is
+backed by a KVM_MEMSLOT_GMEM_ONLY memslot, and the guest_memfd instance
+has GUEST_MEMFD_FLAG_NO_DIRECT_MAP set, this does not work:
+gfn_to_pfn_cache internally uses GUP to resolve uhva->pfn, which
+returned -EFAULT for direct map removed memory. But even if this pfn
+computation were to work, the subsequent attempts to access guest memory
+through the direct map would obviously fail.
+
+For this scenario, all other parts of kvm fall back to instead accessing
+guest memory through userspace mapping of guest_memfd, which is stored
+in the memslots userspace_addr. Have kvm-clock do the same by handling
+failures in kvm_gpc_refresh() with a fallback to a pvclock update
+routine that operates on userspace mappings. This looses the
+optimization of gfn_to_pfn_cache for these VMs, but on modern hardawre
+kvm-clock update requests should be rare enough for this to not matter
+(and guest_memfd is not support for Xen VMs, where speed of pvclock
+accesses is more relevant).
+
+Alternatively, it would be possible to team gfn_to_pfn_cache about
+(direct map removed) guest_memfd, however the combination of on-demand
+direct map reinsertion (and its induced ref-counting) and hooking
+gfn_to_pfn_caches up to gmem invalidations has proven significantly more
+complex [1], and hence simply falling back to userspace mappings was
+suggested by Sean at one of the guest_memfd upstream calls.
+
+[1]: https://lore.kernel.org/kvm/20240910163038.1298452-9-roypat@amazon.co.uk/
+     https://lore.kernel.org/kvm/20240910163038.1298452-10-roypat@amazon.co.uk/
+
+Signed-off-by: Patrick Roy <roypat@amazon.co.uk>
+---
+ arch/x86/kvm/x86.c | 38 +++++++++++++++++++++++++++++++++++++-
+ 1 file changed, 37 insertions(+), 1 deletion(-)
+
+diff --git a/arch/x86/kvm/x86.c b/arch/x86/kvm/x86.c
+index 33fba801b205..c8fd35c1bbda 100644
+--- a/arch/x86/kvm/x86.c
++++ b/arch/x86/kvm/x86.c
+@@ -3149,6 +3149,40 @@ u64 get_kvmclock_ns(struct kvm *kvm)
+ 	return data.clock;
+ }
+ 
++static void kvm_setup_guest_pvclock_slow(struct pvclock_vcpu_time_info *ref_hv_clock,
++					 struct kvm_vcpu *vcpu,
++					 gpa_t gpa)
++{
++	struct pvclock_vcpu_time_info guest_hv_clock;
++	struct pvclock_vcpu_time_info hv_clock;
++
++	memcpy(&hv_clock, ref_hv_clock, sizeof(hv_clock));
++
++	kvm_read_guest(vcpu->kvm, gpa, &guest_hv_clock, sizeof(struct pvclock_vcpu_time_info));
++
++	/*
++	 * This VCPU is paused, but it's legal for a guest to read another
++	 * VCPU's kvmclock, so we really have to follow the specification where
++	 * it says that version is odd if data is being modified, and even after
++	 * it is consistent.
++	 */
++
++	guest_hv_clock.version = hv_clock.version = (guest_hv_clock.version + 1) | 1;
++	smp_wmb();
++
++	/* retain PVCLOCK_GUEST_STOPPED if set in guest copy */
++	hv_clock.flags |= (guest_hv_clock.flags & PVCLOCK_GUEST_STOPPED);
++
++	kvm_write_guest(vcpu->kvm, gpa, &hv_clock, sizeof(struct pvclock_vcpu_time_info));
++
++	smp_wmb();
++
++	++hv_clock.version;
++	kvm_write_guest(vcpu->kvm, gpa + offsetof(struct pvclock_vcpu_time_info, version), &hv_clock.version, sizeof(hv_clock.version));
++
++	trace_kvm_pvclock_update(vcpu->vcpu_id, &hv_clock);
++}
++
+ static void kvm_setup_guest_pvclock(struct pvclock_vcpu_time_info *ref_hv_clock,
+ 				    struct kvm_vcpu *vcpu,
+ 				    struct gfn_to_pfn_cache *gpc,
+@@ -3164,8 +3198,10 @@ static void kvm_setup_guest_pvclock(struct pvclock_vcpu_time_info *ref_hv_clock,
+ 	while (!kvm_gpc_check(gpc, offset + sizeof(*guest_hv_clock))) {
+ 		read_unlock_irqrestore(&gpc->lock, flags);
+ 
+-		if (kvm_gpc_refresh(gpc, offset + sizeof(*guest_hv_clock)))
++		if (kvm_gpc_refresh(gpc, offset + sizeof(*guest_hv_clock))) {
++			kvm_setup_guest_pvclock_slow(ref_hv_clock, vcpu, gpc->gpa + offset);
+ 			return;
++		}
+ 
+ 		read_lock_irqsave(&gpc->lock, flags);
+ 	}
+-- 
+2.51.0
+
