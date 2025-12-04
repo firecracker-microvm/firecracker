@@ -520,7 +520,7 @@ def test_memory_hotplug_latency(
                 {
                     "instance": global_props.instance,
                     "cpu_model": global_props.cpu_model,
-                    "host_kernel": f"linux-{global_props.host_linux_version}",
+                    "host_kernel": f"linux-{global_props.host_linux_version_metrics}",
                     "performance_test": "test_memory_hotplug_latency",
                     "hotplug_size": str(hotplug_size),
                     "huge_pages": huge_pages,
