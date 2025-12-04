@@ -946,12 +946,6 @@ impl VirtioDevice for Balloon {
             self.update_timer_state();
         }
 
-        // On activate ensure hint cmd is reset to FREE_PAGE_HINT_DONE
-        if self.is_activated() && self.free_page_hinting() {
-            self.update_free_page_hint_cmd(FREE_PAGE_HINT_DONE)
-                .map_err(|_| ActivateError::EventFd)?;
-        }
-
         Ok(())
     }
 
@@ -965,6 +959,10 @@ impl VirtioDevice for Balloon {
         // Stats queue doesn't need kicking as it is notified via a `timer_fd`.
         if self.is_activated() {
             info!("kick balloon {}.", self.id());
+            if self.free_page_hinting() {
+                // On restore we reset back to DONE to ensure everythign is freed
+                self.update_free_page_hint_cmd(FREE_PAGE_HINT_DONE);
+            }
             self.process_virtio_queues();
         }
     }
