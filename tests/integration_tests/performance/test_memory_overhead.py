@@ -20,8 +20,8 @@ from pathlib import Path
 import psutil
 import pytest
 
-# If guest memory is >3328MB, it is split in a 2nd region
-X86_MEMORY_GAP_START = 3328 * 2**20
+# If guest memory is >3072MB, it is split in a 2nd region
+X86_MEMORY_GAP_START = 3072 * 2**20
 
 
 @pytest.mark.parametrize(
