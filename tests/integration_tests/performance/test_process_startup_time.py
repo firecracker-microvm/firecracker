@@ -74,7 +74,8 @@ def _test_startup_time(microvm, metrics, test_suffix: str):
     assert startup_time_us < test_time_delta_us
     assert cpu_startup_time_us < test_time_delta_us
 
-    metrics.put_metric("startup_time", cpu_startup_time_us, unit="Microseconds")
+    metrics.put_metric("startup_cpu_time", cpu_startup_time_us, unit="Microseconds")
+    metrics.put_metric("startup_time", startup_time_us, unit="Microseconds")
 
 
 def _custom_filter_setup(test_microvm):
