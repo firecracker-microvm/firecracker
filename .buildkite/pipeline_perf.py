@@ -65,6 +65,11 @@ perf_test = {
         "tests": "integration_tests/performance/test_boottime.py::test_boottime",
         "devtool_opts": "-c 1-10 -m 0",
     },
+    "process-startup": {
+        "label": "process-startup",
+        "tests": "integration_tests/performance/test_process_startup_time.py",
+        "devtool_opts": "-c 1-10 -m 0",
+    },
     "jailer": {
         "label": "jailer",
         "tests": "integration_tests/performance/test_jailer.py",
