@@ -6,7 +6,6 @@ use acpi_tables::{Aml, aml};
 use vm_memory::GuestMemoryError;
 
 use crate::Vm;
-#[cfg(target_arch = "x86_64")]
 use crate::devices::acpi::vmclock::VmClock;
 use crate::devices::acpi::vmgenid::VmGenId;
 use crate::vstate::resources::ResourceAllocator;
@@ -24,7 +23,6 @@ pub struct ACPIDeviceManager {
     /// VMGenID device
     pub vmgenid: VmGenId,
     /// VMclock device
-    #[cfg(target_arch = "x86_64")]
     pub vmclock: VmClock,
 }
 
@@ -33,7 +31,6 @@ impl ACPIDeviceManager {
     pub fn new(resource_allocator: &mut ResourceAllocator) -> Self {
         ACPIDeviceManager {
             vmgenid: VmGenId::new(resource_allocator),
-            #[cfg(target_arch = "x86_64")]
             vmclock: VmClock::new(resource_allocator),
         }
     }
@@ -44,7 +41,6 @@ impl ACPIDeviceManager {
         Ok(())
     }
 
-    #[cfg(target_arch = "x86_64")]
     pub fn attach_vmclock(&self, vm: &Vm) -> Result<(), ACPIDeviceError> {
         vm.register_irq(&self.vmclock.interrupt_evt, self.vmclock.gsi)?;
         self.vmclock.activate(vm.guest_memory())?;
