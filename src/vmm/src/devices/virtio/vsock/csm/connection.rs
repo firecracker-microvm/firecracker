@@ -117,6 +117,8 @@ pub struct VsockConnection<S: VsockConnectionBackend> {
     local_port: u32,
     /// The peer (guest) port.
     peer_port: u32,
+    /// The socket type for this connection (STREAM or SEQPACKET).
+    socket_type: u16,
     /// The (connected) host-side stream.
     stream: S,
     /// The TX buffer for this connection.
@@ -509,12 +511,14 @@ where
         local_port: u32,
         peer_port: u32,
         peer_buf_alloc: u32,
+        socket_type: u16,
     ) -> Self {
         Self {
             local_cid,
             peer_cid,
             local_port,
             peer_port,
+            socket_type,
             stream,
             state: ConnState::PeerInit,
             tx_buf: TxBuf::new(),
@@ -535,12 +539,14 @@ where
         peer_cid: u64,
         local_port: u32,
         peer_port: u32,
+        socket_type: u16,
     ) -> Self {
         Self {
             local_cid,
             peer_cid,
             local_port,
             peer_port,
+            socket_type,
             stream,
             state: ConnState::LocalInit,
             tx_buf: TxBuf::new(),
@@ -671,9 +677,14 @@ where
             .set_dst_cid(self.peer_cid)
             .set_src_port(self.local_port)
             .set_dst_port(self.peer_port)
-            .set_type(uapi::VSOCK_TYPE_STREAM)
+            .set_type(self.socket_type)
             .set_buf_alloc(defs::CONN_TX_BUF_SIZE)
             .set_fwd_cnt(self.fwd_cnt.0);
+    }
+
+    /// Get the socket type for this connection.
+    pub fn socket_type(&self) -> u16 {
+        self.socket_type
     }
 }
 
@@ -882,9 +893,15 @@ mod tests {
                     LOCAL_PORT,
                     PEER_PORT,
                     PEER_BUF_ALLOC,
+                    uapi::VSOCK_TYPE_STREAM,
                 ),
                 ConnState::LocalInit => VsockConnection::<TestStream>::new_local_init(
-                    stream, LOCAL_CID, PEER_CID, LOCAL_PORT, PEER_PORT,
+                    stream,
+                    LOCAL_CID,
+                    PEER_CID,
+                    LOCAL_PORT,
+                    PEER_PORT,
+                    uapi::VSOCK_TYPE_STREAM,
                 ),
                 ConnState::Established => {
                     let mut conn = VsockConnection::<TestStream>::new_peer_init(
@@ -894,6 +911,7 @@ mod tests {
                         LOCAL_PORT,
                         PEER_PORT,
                         PEER_BUF_ALLOC,
+                        uapi::VSOCK_TYPE_STREAM,
                     );
                     assert!(conn.has_pending_rx());
                     conn.recv_pkt(&mut rx_pkt).unwrap();
