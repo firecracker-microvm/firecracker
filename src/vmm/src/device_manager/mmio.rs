@@ -25,6 +25,7 @@ use crate::arch::{RTC_MEM_START, SERIAL_MEM_START};
 #[cfg(target_arch = "aarch64")]
 use crate::devices::legacy::{RTCDevice, SerialDevice};
 use crate::devices::pseudo::BootTimer;
+use crate::devices::virtio::device::VirtioDeviceType;
 use crate::devices::virtio::transport::mmio::MmioTransport;
 use crate::vstate::bus::{Bus, BusError};
 #[cfg(target_arch = "x86_64")]
@@ -118,7 +119,7 @@ pub struct MMIODevice<T> {
 #[derive(Debug, Default)]
 pub struct MMIODeviceManager {
     /// VirtIO devices using an MMIO transport layer
-    pub(crate) virtio_devices: HashMap<(u32, String), MMIODevice<MmioTransport>>,
+    pub(crate) virtio_devices: HashMap<(VirtioDeviceType, String), MMIODevice<MmioTransport>>,
     /// Boot timer device
     pub(crate) boot_timer: Option<MMIODevice<BootTimer>>,
     #[cfg(target_arch = "aarch64")]
@@ -382,20 +383,20 @@ impl MMIODeviceManager {
     /// Gets the specified device.
     pub fn get_virtio_device(
         &self,
-        virtio_type: u32,
+        device_type: VirtioDeviceType,
         device_id: &str,
     ) -> Option<&MMIODevice<MmioTransport>> {
         self.virtio_devices
-            .get(&(virtio_type, device_id.to_string()))
+            .get(&(device_type, device_id.to_string()))
     }
 
     /// Run fn for each registered virtio device.
     pub fn for_each_virtio_device<F, E: Debug>(&self, mut f: F) -> Result<(), E>
     where
-        F: FnMut(&u32, &String, &MMIODevice<MmioTransport>) -> Result<(), E>,
+        F: FnMut(&VirtioDeviceType, &String, &MMIODevice<MmioTransport>) -> Result<(), E>,
     {
-        for ((virtio_type, device_id), mmio_device) in &self.virtio_devices {
-            f(virtio_type, device_id, mmio_device)?;
+        for ((device_type, device_id), mmio_device) in &self.virtio_devices {
+            f(device_type, device_id, mmio_device)?;
         }
         Ok(())
     }
@@ -430,7 +431,7 @@ pub(crate) mod tests {
 
     use super::*;
     use crate::devices::virtio::ActivateError;
-    use crate::devices::virtio::device::VirtioDevice;
+    use crate::devices::virtio::device::{VirtioDevice, VirtioDeviceType};
     use crate::devices::virtio::queue::Queue;
     use crate::devices::virtio::transport::VirtioInterrupt;
     use crate::devices::virtio::transport::mmio::IrqTrigger;
@@ -491,7 +492,11 @@ pub(crate) mod tests {
     }
 
     impl VirtioDevice for DummyDevice {
-        impl_device_type!(0);
+        impl_device_type!(VirtioDeviceType::Net);
+
+        fn id(&self) -> &str {
+            "dummy"
+        }
 
         fn avail_features(&self) -> u64 {
             0
@@ -575,15 +580,21 @@ pub(crate) mod tests {
             )
             .unwrap();
 
-        assert!(device_manager.get_virtio_device(0, "foo").is_none());
-        let dev = device_manager.get_virtio_device(0, "dummy").unwrap();
+        assert!(
+            device_manager
+                .get_virtio_device(VirtioDeviceType::Net, "foo")
+                .is_none()
+        );
+        let dev = device_manager
+            .get_virtio_device(VirtioDeviceType::Net, "dummy")
+            .unwrap();
         assert_eq!(dev.resources.addr, arch::MEM_32BIT_DEVICES_START);
         assert_eq!(dev.resources.len, MMIO_LEN);
         assert_eq!(dev.resources.gsi, Some(arch::GSI_LEGACY_START));
 
         device_manager
-            .for_each_virtio_device(|virtio_type, device_id, mmio_device| {
-                assert_eq!(*virtio_type, 0);
+            .for_each_virtio_device(|device_type, device_id, mmio_device| {
+                assert_eq!(*device_type, VirtioDeviceType::Net);
                 assert_eq!(device_id, "dummy");
                 assert_eq!(mmio_device.resources.addr, arch::MEM_32BIT_DEVICES_START);
                 assert_eq!(mmio_device.resources.len, MMIO_LEN);
@@ -642,7 +653,7 @@ pub(crate) mod tests {
     #[test]
     fn test_dummy_device() {
         let dummy = DummyDevice::new();
-        assert_eq!(dummy.device_type(), 0);
+        assert_eq!(dummy.device_type(), VirtioDeviceType::Net);
         assert_eq!(dummy.queues().len(), QUEUE_SIZES.len());
     }
 

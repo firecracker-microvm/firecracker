@@ -32,9 +32,8 @@ use super::defs::uapi;
 use super::packet::{VSOCK_PKT_HDR_SIZE, VsockPacketRx, VsockPacketTx};
 use super::{VsockBackend, defs};
 use crate::devices::virtio::ActivateError;
-use crate::devices::virtio::device::{ActiveState, DeviceState, VirtioDevice};
+use crate::devices::virtio::device::{ActiveState, DeviceState, VirtioDevice, VirtioDeviceType};
 use crate::devices::virtio::generated::virtio_config::{VIRTIO_F_IN_ORDER, VIRTIO_F_VERSION_1};
-use crate::devices::virtio::generated::virtio_ids::VIRTIO_ID_VSOCK;
 use crate::devices::virtio::queue::{InvalidAvailIdx, Queue as VirtQueue};
 use crate::devices::virtio::transport::{VirtioInterrupt, VirtioInterruptType};
 use crate::devices::virtio::vsock::VsockError;
@@ -120,11 +119,6 @@ where
             .map(|&max_size| VirtQueue::new(max_size))
             .collect();
         Self::with_queues(cid, backend, queues)
-    }
-
-    /// Provides the ID of this vsock device as used in MMIO device identification.
-    pub fn id(&self) -> &str {
-        defs::VSOCK_DEV_ID
     }
 
     /// Retrieve the cid associated with this vsock device.
@@ -284,7 +278,11 @@ impl<B> VirtioDevice for Vsock<B>
 where
     B: VsockBackend + Debug + 'static,
 {
-    impl_device_type!(VIRTIO_ID_VSOCK);
+    impl_device_type!(VirtioDeviceType::Vsock);
+
+    fn id(&self) -> &str {
+        defs::VSOCK_DEV_ID
+    }
 
     fn avail_features(&self) -> u64 {
         self.avail_features
@@ -387,7 +385,11 @@ where
         // The only reason we still `kick` it is to make guest process
         // `TRANSPORT_RESET_EVENT` event we sent during snapshot creation.
         if self.is_activated() {
-            info!("kick vsock {}.", self.id());
+            info!(
+                "[{:?}:{}] signaling event queue",
+                self.device_type(),
+                self.id()
+            );
             self.signal_used_queue(EVQ_INDEX).unwrap();
         }
     }
@@ -412,7 +414,7 @@ mod tests {
             (driver_features & 0xffff_ffff) as u32,
             (driver_features >> 32) as u32,
         ];
-        assert_eq!(ctx.device.device_type(), VIRTIO_ID_VSOCK);
+        assert_eq!(ctx.device.device_type(), VirtioDeviceType::Vsock);
         assert_eq!(ctx.device.avail_features_by_page(0), device_pages[0]);
         assert_eq!(ctx.device.avail_features_by_page(1), device_pages[1]);
         assert_eq!(ctx.device.avail_features_by_page(2), 0);

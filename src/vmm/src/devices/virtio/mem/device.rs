@@ -16,9 +16,8 @@ use vmm_sys_util::eventfd::EventFd;
 
 use super::{MEM_NUM_QUEUES, MEM_QUEUE};
 use crate::devices::virtio::ActivateError;
-use crate::devices::virtio::device::{ActiveState, DeviceState, VirtioDevice};
+use crate::devices::virtio::device::{ActiveState, DeviceState, VirtioDevice, VirtioDeviceType};
 use crate::devices::virtio::generated::virtio_config::VIRTIO_F_VERSION_1;
-use crate::devices::virtio::generated::virtio_ids::VIRTIO_ID_MEM;
 use crate::devices::virtio::generated::virtio_mem::{
     self, VIRTIO_MEM_F_UNPLUGGED_INACCESSIBLE, virtio_mem_config,
 };
@@ -168,10 +167,6 @@ impl VirtioMem {
             slot_size,
             plugged_blocks,
         })
-    }
-
-    pub fn id(&self) -> &str {
-        VIRTIO_MEM_DEV_ID
     }
 
     pub fn guest_address(&self) -> GuestAddress {
@@ -570,7 +565,7 @@ impl VirtioMem {
             return Err(VirtioMemError::DeviceNotActive);
         }
 
-        if requested_size % self.config.block_size != 0 {
+        if !requested_size.is_multiple_of(self.config.block_size) {
             return Err(VirtioMemError::InvalidSize(requested_size));
         }
         if requested_size > self.config.region_size {
@@ -602,7 +597,11 @@ impl VirtioMem {
 }
 
 impl VirtioDevice for VirtioMem {
-    impl_device_type!(VIRTIO_ID_MEM);
+    impl_device_type!(VirtioDeviceType::Mem);
+
+    fn id(&self) -> &str {
+        VIRTIO_MEM_DEV_ID
+    }
 
     fn queues(&self) -> &[Queue] {
         &self.queues
@@ -743,7 +742,7 @@ mod tests {
     use vm_memory::mmap::MmapRegionBuilder;
 
     use super::*;
-    use crate::devices::virtio::device::VirtioDevice;
+    use crate::devices::virtio::device::{VirtioDevice, VirtioDeviceType};
     use crate::devices::virtio::mem::device::test_utils::default_virtio_mem;
     use crate::devices::virtio::queue::VIRTQ_DESC_F_WRITE;
     use crate::devices::virtio::test_utils::test::VirtioTestHelper;
@@ -757,7 +756,7 @@ mod tests {
         assert_eq!(mem.block_size_mib(), 2);
         assert_eq!(mem.plugged_size_mib(), 0);
         assert_eq!(mem.id(), VIRTIO_MEM_DEV_ID);
-        assert_eq!(mem.device_type(), VIRTIO_ID_MEM);
+        assert_eq!(mem.device_type(), VirtioDeviceType::Mem);
 
         let features = (1 << VIRTIO_F_VERSION_1) | (1 << VIRTIO_MEM_F_UNPLUGGED_INACCESSIBLE);
         assert_eq!(mem.avail_features(), features);

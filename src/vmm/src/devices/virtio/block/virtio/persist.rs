@@ -12,9 +12,8 @@ use super::*;
 use crate::devices::virtio::block::persist::BlockConstructorArgs;
 use crate::devices::virtio::block::virtio::device::FileEngineType;
 use crate::devices::virtio::block::virtio::metrics::BlockMetricsPerDevice;
-use crate::devices::virtio::device::{ActiveState, DeviceState};
+use crate::devices::virtio::device::{ActiveState, DeviceState, VirtioDeviceType};
 use crate::devices::virtio::generated::virtio_blk::VIRTIO_BLK_F_RO;
-use crate::devices::virtio::generated::virtio_ids::VIRTIO_ID_BLOCK;
 use crate::devices::virtio::persist::VirtioDeviceState;
 use crate::rate_limiter::RateLimiter;
 use crate::rate_limiter::persist::RateLimiterState;
@@ -102,7 +101,7 @@ impl Persist<'_> for VirtioBlock {
             .virtio_state
             .build_queues_checked(
                 &constructor_args.mem,
-                VIRTIO_ID_BLOCK,
+                VirtioDeviceType::Block,
                 BLOCK_NUM_QUEUES,
                 FIRECRACKER_MAX_QUEUE_SIZE,
             )
@@ -230,7 +229,7 @@ mod tests {
         .unwrap();
 
         // Test that virtio specific fields are the same.
-        assert_eq!(restored_block.device_type(), VIRTIO_ID_BLOCK);
+        assert_eq!(restored_block.device_type(), VirtioDeviceType::Block);
         assert_eq!(restored_block.avail_features(), block.avail_features());
         assert_eq!(restored_block.acked_features(), block.acked_features());
         assert_eq!(restored_block.queues(), block.queues());

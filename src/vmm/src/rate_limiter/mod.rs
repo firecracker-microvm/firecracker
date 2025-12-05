@@ -152,7 +152,7 @@ impl TokenBucket {
             // we would allow some fraction of a nano second to be used twice, allowing
             // for the generation of one extra token in extreme circumstances).
             let mut time_adjustment = tokens * processed_refill_time / processed_capacity;
-            if tokens * processed_refill_time % processed_capacity != 0 {
+            if !(tokens * processed_refill_time).is_multiple_of(processed_capacity) {
                 time_adjustment += 1;
             }
 

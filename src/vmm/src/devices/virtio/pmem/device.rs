@@ -15,9 +15,8 @@ use vm_memory::{GuestAddress, GuestMemoryError};
 use vmm_sys_util::eventfd::EventFd;
 
 use crate::devices::virtio::ActivateError;
-use crate::devices::virtio::device::{ActiveState, DeviceState, VirtioDevice};
+use crate::devices::virtio::device::{ActiveState, DeviceState, VirtioDevice, VirtioDeviceType};
 use crate::devices::virtio::generated::virtio_config::VIRTIO_F_VERSION_1;
-use crate::devices::virtio::generated::virtio_ids::VIRTIO_ID_PMEM;
 use crate::devices::virtio::pmem::PMEM_QUEUE_SIZE;
 use crate::devices::virtio::pmem::metrics::{PmemMetrics, PmemMetricsPerDevice};
 use crate::devices::virtio::queue::{DescriptorChain, InvalidAvailIdx, Queue, QueueError};
@@ -331,7 +330,11 @@ impl Pmem {
 }
 
 impl VirtioDevice for Pmem {
-    impl_device_type!(VIRTIO_ID_PMEM);
+    impl_device_type!(VirtioDeviceType::Pmem);
+
+    fn id(&self) -> &str {
+        &self.config.id
+    }
 
     fn avail_features(&self) -> u64 {
         self.avail_features
