@@ -20,6 +20,7 @@ use crate::arch::{
 use crate::device_manager::DeviceManager;
 use crate::device_manager::mmio::MMIODeviceInfo;
 use crate::device_manager::pci_mngr::PciDevices;
+use crate::devices::acpi::vmclock::{VMCLOCK_SIZE, VmClock};
 use crate::devices::acpi::vmgenid::{VMGENID_MEM_SIZE, VmGenId};
 use crate::initrd::InitrdConfig;
 use crate::vstate::memory::{Address, GuestMemory, GuestMemoryMmap, GuestRegionType};
@@ -97,6 +98,7 @@ pub fn create_fdt(
     create_psci_node(&mut fdt_writer)?;
     create_devices_node(&mut fdt_writer, device_manager)?;
     create_vmgenid_node(&mut fdt_writer, &device_manager.acpi_devices.vmgenid)?;
+    create_vmclock_node(&mut fdt_writer, &device_manager.acpi_devices.vmclock)?;
     create_pci_nodes(&mut fdt_writer, &device_manager.pci_devices)?;
 
     // End Header node.
@@ -284,6 +286,18 @@ fn create_vmgenid_node(fdt: &mut FdtWriter, vmgenid: &VmGenId) -> Result<(), Fdt
         &[GIC_FDT_IRQ_TYPE_SPI, vmgenid.gsi, IRQ_TYPE_EDGE_RISING],
     )?;
     fdt.end_node(vmgenid_node)?;
+    Ok(())
+}
+
+fn create_vmclock_node(fdt: &mut FdtWriter, vmclock: &VmClock) -> Result<(), FdtError> {
+    let vmclock_node = fdt.begin_node(&format!("ptp@{}", vmclock.guest_address.0))?;
+    fdt.property_string("compatible", "amazon,vmclock")?;
+    fdt.property_array_u64("reg", &[vmclock.guest_address.0, VMCLOCK_SIZE as u64])?;
+    fdt.property_array_u32(
+        "interrupts",
+        &[GIC_FDT_IRQ_TYPE_SPI, vmclock.gsi, IRQ_TYPE_EDGE_RISING],
+    )?;
+    fdt.end_node(vmclock_node)?;
     Ok(())
 }
 

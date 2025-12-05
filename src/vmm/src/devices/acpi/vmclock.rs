@@ -27,7 +27,7 @@ use crate::vstate::resources::ResourceAllocator;
 unsafe impl ByteValued for vmclock_abi {}
 
 // We are reserving a physical page to expose the [`VmClock`] data
-const VMCLOCK_SIZE: u32 = 0x1000;
+pub const VMCLOCK_SIZE: u32 = 0x1000;
 
 // Write a value in `vmclock_abi` both in the Firecracker-managed state
 // and inside guest memory address that corresponds to it.
