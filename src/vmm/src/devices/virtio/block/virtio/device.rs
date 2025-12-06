@@ -468,12 +468,13 @@ impl VirtioBlock {
         Ok(())
     }
 
-    fn process_async_completion_queue(&mut self) {
+    fn process_async_completion_queue(&mut self, force_signal: bool) {
         let engine = unwrap_async_file_engine_or_return!(&mut self.disk.file_engine);
 
         // This is safe since we checked in the event handler that the device is activated.
         let active_state = self.device_state.active_state().unwrap();
         let queue = &mut self.queues[0];
+        let mut used_any = false;
 
         loop {
             match engine.pop(&active_state.mem) {
@@ -504,12 +505,13 @@ impl VirtioBlock {
                                 finished.desc_idx, err
                             )
                         });
+                    used_any = true;
                 }
             }
         }
         queue.advance_used_ring_idx();
 
-        if queue.prepare_kick() {
+        if (force_signal && used_any) || queue.prepare_kick() {
             active_state
                 .interrupt
                 .trigger(VirtioInterruptType::Queue(0))
@@ -525,7 +527,7 @@ impl VirtioBlock {
         if let Err(err) = engine.completion_evt().read() {
             error!("Failed to get async completion event: {:?}", err);
         } else {
-            self.process_async_completion_queue();
+            self.process_async_completion_queue(false);
 
             if self.is_io_engine_throttled {
                 self.is_io_engine_throttled = false;
@@ -577,7 +579,7 @@ impl VirtioBlock {
 
         self.drain_and_flush(false);
         if let FileEngine::Async(ref _engine) = self.disk.file_engine {
-            self.process_async_completion_queue();
+            self.process_async_completion_queue(true);
         }
     }
 }
