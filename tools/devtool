@@ -133,6 +133,28 @@ TARGET_PREFIX="$(uname -m)-unknown-linux-"
 # Container path to directory where we store built CI artifacts.
 CTR_CI_ARTIFACTS_PATH="${CTR_FC_ROOT_DIR}/resources/$(uname -m)"
 
+DEFAULT_ARTIFACTS_S3_BUCKET=s3://spec.ccfc.min/firecracker-ci
+
+# Query default S3 bucket with artifacts and return the most recient path
+get_newest_s3_artifacts() {
+  local bucket="spec.ccfc.min"
+  local base_prefix="firecracker-ci/"
+
+  # Query all files in the `firecracker-ci` directory, sort them by the `LastModified` date
+  # and return the first one.
+  # Reasons for such complex operation:
+  # - since S3 does not store `LastModified` info for directories, the next best approach of
+  #   determining the `newest` directory is to check which directory contains the most recently
+  #   modified file
+  # - also awscli is paginated, so the command bellow can return multiple values, one for each page.
+  #   The very first entry though should be the correct one
+  # - the end of the command filters out directory out of the output
+  local newest_dir=$(aws s3api list-objects-v2 --bucket "$bucket" --prefix "$base_prefix" --no-sign-request --query 'reverse(sort_by(Contents, &LastModified))[0].Key' --output text | head -1 | sed "s|^$base_prefix||" | cut -d'/' -f1)
+
+  echo "$DEFAULT_ARTIFACTS_S3_BUCKET/$newest_dir"
+}
+
+
 # Check if Docker is available and exit if it's not.
 # Upon returning from this call, the caller can be certain Docker is available.
 #
@@ -571,9 +593,8 @@ ensure_ci_artifacts() {
     fi
 
     # Fetch all the artifacts so they are local
-    say "Fetching CI artifacts from S3"
-    FC_VERSION=$(cmd_sh "cd src/firecracker/src; cargo pkgid | cut -d# -f2 | cut -d. -f1-2")
-    S3_URL=s3://spec.ccfc.min/firecracker-ci/v$FC_VERSION/$(uname -m)
+    S3_URL=$(get_newest_s3_artifacts)/$(uname -m)
+    say "Fetching CI artifacts from S3: " $S3_URL
     ARTIFACTS=$MICROVM_IMAGES_DIR/$(uname -m)
     if [ ! -d "$ARTIFACTS" ]; then
         mkdir -pv $ARTIFACTS
