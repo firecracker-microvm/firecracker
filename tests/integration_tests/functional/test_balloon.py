@@ -320,6 +320,9 @@ def test_stats(uvm_plain_any):
     # Get another reading of the stats after the polling interval has passed.
     deflated_stats = test_microvm.api.balloon_stats.get().json()
 
+    # Ensure that stats don't have unknown balloon stats fields
+    assert "balloon: unknown stats update tag:" not in test_microvm.log_data
+
     # Ensure the stats reflect deflating the balloon.
     assert inflated_stats["free_memory"] < deflated_stats["free_memory"]
     assert inflated_stats["available_memory"] < deflated_stats["available_memory"]
@@ -371,6 +374,9 @@ def test_stats_update(uvm_plain_any):
     # The polling interval change should update the stats.
     final_stats = test_microvm.api.balloon_stats.get().json()
     assert next_stats["available_memory"] != final_stats["available_memory"]
+
+    # Ensure that stats don't have unknown balloon stats fields
+    assert "balloon: unknown stats update tag:" not in test_microvm.log_data
 
 
 def test_balloon_snapshot(uvm_plain_any, microvm_factory):
