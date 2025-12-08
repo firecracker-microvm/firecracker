@@ -10,7 +10,7 @@ license = "Apache-2.0"
 bench = false
 
 [dependencies]
-log = "0.4.28"
+log = "0.4.29"
 log-instrument-macros = { path = "../log-instrument-macros" }
 
 [dev-dependencies]
