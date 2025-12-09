@@ -273,7 +273,7 @@ class BKPipeline:
         if not args.binary_dir and with_build_step:
             build_cmds, self.shared_build = shared_build()
             self.build_group_per_arch(
-                "🏗️ Build", build_cmds, depends_on_build=False, set_key=self.shared_build
+                "build", build_cmds, depends_on_build=False, set_key=self.shared_build
             )
         else:
             self.shared_build = None

@@ -9,7 +9,7 @@ from common import BKPipeline
 pipeline = BKPipeline(with_build_step=False)
 
 pipeline.build_group(
-    ":coverage: Coverage",
+    "coverage",
     pipeline.devtool_test(
         devtool_opts="--no-build",
         pytest_opts="integration_tests/build/test_coverage.py",
