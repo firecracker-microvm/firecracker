@@ -5,6 +5,10 @@ on:
       - firecracker-v*
       - feature/*
 
+
+permissions:
+  contents: read
+
 jobs:
   trigger_ab_test:
     runs-on: ubuntu-latest

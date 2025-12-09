@@ -69,7 +69,12 @@ def get_example(name, *args, package="firecracker", **kwargs):
     return get_binary(package, *args, **kwargs, example=name)
 
 
-def run_seccompiler_bin(bpf_path, json_path=defs.SECCOMP_JSON_DIR, basic=False):
+def run_seccompiler_bin(
+    bpf_path,
+    json_path=defs.SECCOMP_JSON_DIR,
+    basic=False,
+    binary_dir=DEFAULT_BINARY_DIR,
+):
     """
     Run seccompiler-bin.
 
@@ -85,7 +90,7 @@ def run_seccompiler_bin(bpf_path, json_path=defs.SECCOMP_JSON_DIR, basic=False):
     if basic:
         seccompiler_args += " --basic"
 
-    seccompiler = get_binary("seccompiler-bin")
+    seccompiler = get_binary("seccompiler-bin", binary_dir=binary_dir)
     utils.check_output(f"{seccompiler} {seccompiler_args}")
 
 
