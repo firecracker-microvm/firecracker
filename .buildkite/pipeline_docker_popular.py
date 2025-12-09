@@ -13,7 +13,7 @@ pipeline = BKPipeline()
 ROOTFS_TAR = f"rootfs_$(uname -m)_{random_str(k=8)}.tar.gz"
 
 pipeline.build_group_per_arch(
-    ":ship: Rootfs build",
+    "rootfs-build",
     [
         "sudo yum install -y systemd-container",
         "cd tools/test-popular-containers",
@@ -26,7 +26,7 @@ pipeline.build_group_per_arch(
 )
 
 pipeline.build_group(
-    ":whale: Docker Popular Containers",
+    "docker-popular-containers",
     [
         "./tools/devtool download_ci_artifacts",
         f'buildkite-agent artifact download "{ROOTFS_TAR}" .',
