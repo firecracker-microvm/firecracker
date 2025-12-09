@@ -36,7 +36,7 @@ if __name__ == "__main__":
         "tar cSvf snapshots/{instance}_{kv}.tar snapshot_artifacts",
     ]
     pipeline.build_group(
-        "📸 create snapshots",
+        "snapshot-create",
         commands,
         timeout=30,
         artifact_paths="snapshots/**/*",
@@ -93,13 +93,13 @@ if __name__ == "__main__":
                     pytest_opts=f"-m nonci -n8 --dist worksteal {k_val} integration_tests/functional/test_snapshot_restore_cross_kernel.py",
                 ),
             ],
-            "label": f"🎬 {src_instance} {src_kv} ➡️ {dst_instance} {dst_kv}",
+            "label": f"snapshot-restore-src-{src_instance}-{src_kv}-dst-{dst_instance}-{dst_kv}",
             "timeout": 30,
             "agents": {"instance": dst_instance, "kv": dst_kv, "os": dst_os},
             **per_instance,
         }
         steps.append(step)
     pipeline.add_step(
-        {"group": "🎬 restore across instances and kernels", "steps": steps}
+        {"group": "snapshot-restore-across-instances-and-kernels", "steps": steps}
     )
     print(pipeline.to_json())

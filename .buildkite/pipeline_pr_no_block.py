@@ -19,7 +19,7 @@ pipeline = BKPipeline(
 )
 
 pipeline.build_group(
-    "❓ Optional",
+    "optional",
     pipeline.devtool_test(
         devtool_opts="--performance -c 1-10 -m 0",
         pytest_opts="integration_tests/ -m no_block_pr --log-cli-level=INFO",
