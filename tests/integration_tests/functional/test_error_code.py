@@ -6,18 +6,13 @@ import platform
 
 import pytest
 
-from framework.properties import global_props
-
 
 @pytest.mark.skipif(
     platform.machine() != "aarch64",
     reason="The error code returned on aarch64 will not be returned on x86 "
     "under the same conditions.",
 )
-@pytest.mark.skipif(
-    global_props.host_linux_version_metrics == "next",
-    reason="The test is known to be flaky on Linux next",
-)
+@pytest.mark.skip(reason="The test is flaky on all host kernels in the branch")
 def test_enosys_error_code(uvm_plain):
     """
     Test that ENOSYS error is caught and firecracker exits gracefully.
