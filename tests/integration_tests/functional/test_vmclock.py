@@ -2,8 +2,6 @@
 # SPDX-License-Identifier: Apache-2.0
 """Test VMclock device emulation"""
 
-import platform
-
 import pytest
 
 
@@ -50,10 +48,6 @@ def parse_vmclock_from_poll(vm, expected_notifications):
     return dict(item.split(": ") for item in fields if item.startswith("VMCLOCK"))
 
 
-@pytest.mark.skipif(
-    platform.machine() != "x86_64",
-    reason="VMClock device is currently supported only on x86 systems",
-)
 @pytest.mark.parametrize("use_mmap", [False, True], ids=["read()", "mmap()"])
 def test_vmclock_read_fields(vm_with_vmclock, use_mmap):
     """Make sure that we expose the expected values in the VMclock struct"""
@@ -71,10 +65,6 @@ def test_vmclock_read_fields(vm_with_vmclock, use_mmap):
     assert vmclock["VMCLOCK_VM_GENERATION_COUNTER"] == "0"
 
 
-@pytest.mark.skipif(
-    platform.machine() != "x86_64",
-    reason="VMClock device is currently supported only on x86 systems",
-)
 @pytest.mark.parametrize("use_mmap", [False, True], ids=["read()", "mmap()"])
 def test_snapshot_update(vm_with_vmclock, microvm_factory, snapshot_type, use_mmap):
     """Test that `disruption_marker` and `vm_generation_counter` are updated
@@ -98,10 +88,6 @@ def test_snapshot_update(vm_with_vmclock, microvm_factory, snapshot_type, use_mm
         assert vmclock["VMCLOCK_VM_GENERATION_COUNTER"] == f"{i+1}"
 
 
-# TODO: remove this skip when we backport VMClock snapshot safety patches to 5.10 and 6.1
-@pytest.mark.skip(
-    reason="Skip until we get guest microVM kernels with support for the notification mechanism",
-)
 def test_vmclock_notifications(vm_with_vmclock, microvm_factory, snapshot_type):
     """Test that Firecracker will send a notification on snapshot load"""
     basevm = vm_with_vmclock
