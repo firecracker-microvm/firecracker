@@ -17,7 +17,7 @@ clap = { version = "4.5.53", features = ["derive", "string"] }
 displaydoc = "0.2.5"
 
 fc_utils = { package = "utils", path = "../utils" }
-libc = "0.2.177"
+libc = "0.2.178"
 log-instrument = { path = "../log-instrument", optional = true }
 semver = "1.0.27"
 thiserror = "2.0.17"
