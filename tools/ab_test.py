@@ -206,11 +206,7 @@ def collect_data(tag: str, binary_dir: Path, pytest_opts: str):
     test_report_path = f"{test_path}/test-report.json"
     subprocess.run(
         f"./tools/test.sh --binary-dir={binary_dir} {pytest_opts} -m '' --json-report-file=../{test_report_path}",
-        env=os.environ
-        | {
-            "AWS_EMF_ENVIRONMENT": "local",
-            "AWS_EMF_NAMESPACE": "local",
-        },
+        env=os.environ,
         check=True,
         shell=True,
     )
