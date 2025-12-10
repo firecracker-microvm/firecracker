@@ -1,6 +1,8 @@
 // Copyright 2023 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
+#![allow(clippy::as_conversions)]
+
 use std::ffi::OsString;
 use std::fmt::Display;
 use std::fs::read_to_string;

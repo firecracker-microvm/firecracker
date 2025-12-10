@@ -1,6 +1,8 @@
 // Copyright 2024 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
+#![allow(clippy::as_conversions)]
+
 //! Provides functionality for a userspace page fault handler
 //! which loads the whole region from the backing memory file
 //! when a page fault occurs.

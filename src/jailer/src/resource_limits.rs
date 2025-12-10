@@ -27,13 +27,13 @@ impl From<Resource> for u32 {
     fn from(resource: Resource) -> u32 {
         match resource {
             #[allow(clippy::unnecessary_cast)]
-            #[allow(clippy::cast_possible_wrap)]
+            #[allow(clippy::cast_possible_wrap, clippy::as_conversions)]
             // Definition of libc::RLIMIT_FSIZE depends on the target_env:
             //      * when equals to "musl" -> libc::RLIMIT_FSIZE is a c_int (which is an i32)
             //      * when equals to "gnu" -> libc::RLIMIT_FSIZE is __rlimit_resource_t which is a
             //        c_uint (which is an u32)
             Resource::RlimitFsize => libc::RLIMIT_FSIZE as u32,
-            #[allow(clippy::unnecessary_cast)]
+            #[allow(clippy::unnecessary_cast, clippy::as_conversions)]
             #[allow(clippy::cast_possible_wrap)]
             // Definition of libc::RLIMIT_NOFILE depends on the target_env:
             //      * when equals to "musl" -> libc::RLIMIT_NOFILE is a c_int (which is an i32)
@@ -47,14 +47,14 @@ impl From<Resource> for u32 {
 impl From<Resource> for i32 {
     fn from(resource: Resource) -> i32 {
         match resource {
-            #[allow(clippy::unnecessary_cast)]
+            #[allow(clippy::unnecessary_cast, clippy::as_conversions)]
             #[allow(clippy::cast_possible_wrap)]
             // Definition of libc::RLIMIT_FSIZE depends on the target_env:
             //      * when equals to "musl" -> libc::RLIMIT_FSIZE is a c_int (which is an i32)
             //      * when equals to "gnu" -> libc::RLIMIT_FSIZE is __rlimit_resource_t which is a
             //        c_uint (which is an u32)
             Resource::RlimitFsize => libc::RLIMIT_FSIZE as i32,
-            #[allow(clippy::unnecessary_cast)]
+            #[allow(clippy::unnecessary_cast, clippy::as_conversions)]
             #[allow(clippy::cast_possible_wrap)]
             // Definition of libc::RLIMIT_NOFILE depends on the target_env:
             //      * when equals to "musl" -> libc::RLIMIT_NOFILE is a c_int (which is an i32)
@@ -129,7 +129,7 @@ mod tests {
     use super::*;
 
     #[test]
-    #[allow(clippy::unnecessary_cast)]
+    #[allow(clippy::unnecessary_cast, clippy::as_conversions)]
     fn test_from_resource() {
         assert_eq!(u32::from(Resource::RlimitFsize), libc::RLIMIT_FSIZE as u32);
         assert_eq!(

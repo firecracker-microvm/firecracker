@@ -64,7 +64,7 @@ impl Sdt for Xsdt {
     fn write_to_guest<M: GuestMemory>(&mut self, mem: &M, address: GuestAddress) -> Result<()> {
         mem.write_slice(self.header.as_bytes(), address)?;
         let address = address
-            .checked_add(size_of::<SdtHeader>() as u64)
+            .checked_add(u64::try_from(size_of::<SdtHeader>()).unwrap())
             .ok_or(AcpiError::InvalidGuestAddress)?;
         mem.write_slice(self.tables.as_slice(), address)?;
         Ok(())

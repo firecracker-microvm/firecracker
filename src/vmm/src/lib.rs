@@ -11,6 +11,7 @@
 #![warn(missing_docs)]
 #![warn(clippy::undocumented_unsafe_blocks)]
 #![allow(clippy::blanket_clippy_restriction_lints)]
+#![allow(clippy::as_conversions)]
 
 /// Implements platform specific functionality.
 /// Supported platforms: x86_64 and aarch64.
