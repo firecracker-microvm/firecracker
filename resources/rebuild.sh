@@ -165,7 +165,18 @@ function build_al_kernel {
     # fails immediately after clone because nothing is checked out
     make distclean || true
 
-    git checkout $(get_tag $KERNEL_VERSION)
+    TAG=$(get_tag $KERNEL_VERSION)
+
+    git checkout $TAG
+    # Create a temporary branch where we can apply patches and then
+    # easily discard them
+    git checkout -B tmp-$TAG
+
+    # Apply any patchset we have for our kernels
+    for patchset in ../patches/*; do
+        echo "Applying patchset ${patchset}/${KERNEL_VERSION}"
+        git apply ${patchset}/${KERNEL_VERSION}/*.patch
+    done
 
     arch=$(uname -m)
     if [ "$arch" = "x86_64" ]; then
@@ -193,6 +204,12 @@ function build_al_kernel {
     OUTPUT_FILE=$OUTPUT_DIR/vmlinux-$normalized_version$flavour
     cp -v $binary_path $OUTPUT_FILE
     cp -v .config $OUTPUT_FILE.config
+
+    # Undo any patches previsouly applied, so that we can build the same kernel with different
+    # configs, e.g. no-acpi
+    git reset --hard HEAD
+    git clean -f -d
+    git checkout -
 
     popd &>/dev/null
 }

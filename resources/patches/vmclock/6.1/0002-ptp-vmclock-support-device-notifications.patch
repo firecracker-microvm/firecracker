@@ -1,0 +1,257 @@
+From d0a6bf47dd6cd2a9ed17dbdc32dd34a6ba0f5b5f Mon Sep 17 00:00:00 2001
+From: Babis Chalios <bchalios@amazon.es>
+Date: Tue, 2 Dec 2025 20:11:44 +0000
+Subject: [PATCH 2/4] ptp: vmclock: support device notifications
+
+Add optional support for device notifications in VMClock. When
+supported, the hypervisor will send a device notification every time it
+updates the seq_count to a new even value.
+
+Moreover, add support for poll() in VMClock as a means to propagate this
+notification to user space. poll() will return a POLLIN event to
+listeners every time seq_count changes to a value different than the one
+last seen (since open() or last read()/pread()). This means that when
+poll() returns a POLLIN event, listeners need to use read() to observe
+what has changed and update the reader's view of seq_count. In other
+words, after a poll() returned, all subsequent calls to poll() will
+immediately return with a POLLIN event until the listener calls read().
+
+The device advertises support for the notification mechanism by setting
+flag VMCLOCK_FLAG_NOTIFICATION_PRESENT in vmclock_abi flags field. If
+the flag is not present the driver won't setup the ACPI notification
+handler and poll() will always immediately return POLLHUP.
+
+Signed-off-by: Babis Chalios <bchalios@amazon.es>
+---
+ drivers/ptp/ptp_vmclock.c        | 130 ++++++++++++++++++++++++++++---
+ include/uapi/linux/vmclock-abi.h |   5 ++
+ 2 files changed, 126 insertions(+), 9 deletions(-)
+
+diff --git a/drivers/ptp/ptp_vmclock.c b/drivers/ptp/ptp_vmclock.c
+index 1ce69eada4b2..4673915c43e7 100644
+--- a/drivers/ptp/ptp_vmclock.c
++++ b/drivers/ptp/ptp_vmclock.c
+@@ -5,6 +5,9 @@
+  * Copyright © 2024 Amazon.com, Inc. or its affiliates.
+  */
+ 
++#include "linux/poll.h"
++#include "linux/types.h"
++#include "linux/wait.h"
+ #include <linux/acpi.h>
+ #include <linux/device.h>
+ #include <linux/err.h>
+@@ -37,6 +40,7 @@ struct vmclock_state {
+ 	struct resource res;
+ 	struct vmclock_abi *clk;
+ 	struct miscdevice miscdev;
++	wait_queue_head_t disrupt_wait;
+ 	struct ptp_clock_info ptp_clock_info;
+ 	struct ptp_clock *ptp_clock;
+ 	enum clocksource_ids cs_id, sys_cs_id;
+@@ -311,10 +315,15 @@ static const struct ptp_clock_info ptp_vmclock_info = {
+ 	.getcrosststamp = ptp_vmclock_getcrosststamp,
+ };
+ 
++struct vmclock_file_state {
++	struct vmclock_state *st;
++	atomic_t seq;
++};
++
+ static int vmclock_miscdev_mmap(struct file *fp, struct vm_area_struct *vma)
+ {
+-	struct vmclock_state *st = container_of(fp->private_data,
+-						struct vmclock_state, miscdev);
++	struct vmclock_file_state *fst = fp->private_data;
++	struct vmclock_state *st = fst->st;
+ 
+ 	if ((vma->vm_flags & (VM_READ|VM_WRITE)) != VM_READ)
+ 		return -EROFS;
+@@ -333,11 +342,12 @@ static int vmclock_miscdev_mmap(struct file *fp, struct vm_area_struct *vma)
+ static ssize_t vmclock_miscdev_read(struct file *fp, char __user *buf,
+ 				    size_t count, loff_t *ppos)
+ {
+-	struct vmclock_state *st = container_of(fp->private_data,
+-						struct vmclock_state, miscdev);
++	struct vmclock_file_state *fst = fp->private_data;
++	struct vmclock_state *st = fst->st;
++
+ 	ktime_t deadline = ktime_add(ktime_get(), VMCLOCK_MAX_WAIT);
+ 	size_t max_count;
+-	int32_t seq;
++	int32_t seq, old_seq;
+ 
+ 	if (*ppos >= PAGE_SIZE)
+ 		return 0;
+@@ -346,6 +356,7 @@ static ssize_t vmclock_miscdev_read(struct file *fp, char __user *buf,
+ 	if (count > max_count)
+ 		count = max_count;
+ 
++	old_seq = atomic_read(&fst->seq);
+ 	while (1) {
+ 		seq = st->clk->seq_count & ~1ULL;
+ 		virt_rmb();
+@@ -354,8 +365,16 @@ static ssize_t vmclock_miscdev_read(struct file *fp, char __user *buf,
+ 			return -EFAULT;
+ 
+ 		virt_rmb();
+-		if (seq == st->clk->seq_count)
+-			break;
++		if (seq == st->clk->seq_count) {
++			/*
++			 * Either we updated fst->seq to seq (the latest version we observed)
++			 * or someone else did (old_seq == seq), so we can break.
++			 */
++			if (atomic_try_cmpxchg(&fst->seq, &old_seq, seq) ||
++			    old_seq == seq) {
++				break;
++			}
++		}
+ 
+ 		if (ktime_after(ktime_get(), deadline))
+ 			return -ETIMEDOUT;
+@@ -365,9 +384,57 @@ static ssize_t vmclock_miscdev_read(struct file *fp, char __user *buf,
+ 	return count;
+ }
+ 
++static __poll_t vmclock_miscdev_poll(struct file *fp, poll_table *wait)
++{
++	struct vmclock_file_state *fst = fp->private_data;
++	struct vmclock_state *st = fst->st;
++	uint32_t seq;
++
++	/*
++	 * Hypervisor will not send us any notifications, so fail immediately
++	 * to avoid having caller sleeping for ever.
++	 */
++	if (!(st->clk->flags & VMCLOCK_FLAG_NOTIFICATION_PRESENT))
++		return POLLHUP;
++
++	poll_wait(fp, &st->disrupt_wait, wait);
++
++	seq = st->clk->seq_count;
++	if (atomic_read(&fst->seq) != seq)
++		return POLLIN | POLLRDNORM;
++
++	return 0;
++}
++
++static int vmclock_miscdev_open(struct inode *inode, struct file *fp)
++{
++	struct vmclock_state *st = container_of(fp->private_data,
++						struct vmclock_state, miscdev);
++	struct vmclock_file_state *fst = kzalloc(sizeof(*fst), GFP_KERNEL);
++
++	if (!fst)
++		return -ENOMEM;
++
++	fst->st = st;
++	atomic_set(&fst->seq, 0);
++
++	fp->private_data = fst;
++
++	return 0;
++}
++
++static int vmclock_miscdev_release(struct inode *inode, struct file *fp)
++{
++	kfree(fp->private_data);
++	return 0;
++}
++
+ static const struct file_operations vmclock_miscdev_fops = {
+-        .mmap = vmclock_miscdev_mmap,
+-        .read = vmclock_miscdev_read,
++	.open = vmclock_miscdev_open,
++	.release = vmclock_miscdev_release,
++	.mmap = vmclock_miscdev_mmap,
++	.read = vmclock_miscdev_read,
++	.poll = vmclock_miscdev_poll,
+ };
+ 
+ /* module operations */
+@@ -413,6 +480,44 @@ static acpi_status vmclock_acpi_resources(struct acpi_resource *ares, void *data
+ 	return AE_ERROR;
+ }
+ 
++static void
++vmclock_acpi_notification_handler(acpi_handle __always_unused handle,
++				  u32 __always_unused event, void *dev)
++{
++	struct device *device = dev;
++	struct vmclock_state *st = device->driver_data;
++
++	wake_up_interruptible(&st->disrupt_wait);
++}
++
++static int vmclock_setup_notification(struct device *dev, struct vmclock_state *st)
++{
++	struct acpi_device *adev = ACPI_COMPANION(dev);
++	acpi_status status;
++
++	/*
++	 * This should never happen as this function is only called when
++	 * has_acpi_companion(dev) is true, but the logic is sufficiently
++	 * complex that Coverity can't see the tautology.
++	 */
++	if (!adev)
++		return -ENODEV;
++
++	/* The device does not support notifications. Nothing else to do */
++	if (!(st->clk->flags & VMCLOCK_FLAG_NOTIFICATION_PRESENT))
++		return 0;
++
++	status = acpi_install_notify_handler(adev->handle, ACPI_DEVICE_NOTIFY,
++					     vmclock_acpi_notification_handler,
++					     dev);
++	if (ACPI_FAILURE(status)) {
++		dev_err(dev, "failed to install notification handler");
++		return -ENODEV;
++	}
++
++	return 0;
++}
++
+ static int vmclock_probe_acpi(struct device *dev, struct vmclock_state *st)
+ {
+ 	struct acpi_device *adev = ACPI_COMPANION(dev);
+@@ -495,6 +600,11 @@ static int vmclock_probe(struct platform_device *pdev)
+ 		goto out;
+ 	}
+ 
++	init_waitqueue_head(&st->disrupt_wait);
++	ret = vmclock_setup_notification(dev, st);
++	if (ret)
++		return ret;
++
+ 	/* If the structure is big enough, it can be mapped to userspace */
+ 	if (st->clk->size >= PAGE_SIZE) {
+ 		st->miscdev.minor = MISC_DYNAMIC_MINOR;
+@@ -544,6 +654,8 @@ static int vmclock_probe(struct platform_device *pdev)
+ 		goto out;
+ 	}
+ 
++	dev->driver_data = st;
++
+ 	dev_info(dev, "%s: registered %s%s%s\n", st->name,
+ 		 st->miscdev.minor ? "miscdev" : "",
+ 		 (st->miscdev.minor && st->ptp_clock) ? ", " : "",
+diff --git a/include/uapi/linux/vmclock-abi.h b/include/uapi/linux/vmclock-abi.h
+index 75deb6ae2b27..4b7cd2b8532c 100644
+--- a/include/uapi/linux/vmclock-abi.h
++++ b/include/uapi/linux/vmclock-abi.h
+@@ -125,6 +125,11 @@ struct vmclock_abi {
+ 	 * loaded from some save state (restored from a snapshot).
+ 	 */
+ #define VMCLOCK_FLAG_VM_GEN_COUNTER_PRESENT     (1 << 8)
++	/*
++	 * If the NOTIFICATION_PRESENT flag is set, the hypervisor will send
++	 * a notification every time it updates seq_count to a new even number.
++	 */
++#define VMCLOCK_FLAG_NOTIFICATION_PRESENT       (1 << 9)
+ 
+ 	uint8_t pad[2];
+ 	uint8_t clock_status;
+-- 
+2.34.1
+
