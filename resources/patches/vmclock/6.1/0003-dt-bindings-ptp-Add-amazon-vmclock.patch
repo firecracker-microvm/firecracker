@@ -1,0 +1,76 @@
+From d594b01069fb6fabb068379b59bd26e59dbd6661 Mon Sep 17 00:00:00 2001
+From: David Woodhouse <dwmw@amazon.co.uk>
+Date: Tue, 2 Dec 2025 20:11:55 +0000
+Subject: [PATCH 3/4] dt-bindings: ptp: Add amazon,vmclock
+
+The vmclock device provides a PTP clock source and precise timekeeping
+across live migration and snapshot/restore operations.
+
+The binding has a required memory region containing the vmclock_abi
+structure and an optional interrupt for clock disruption notifications.
+
+The full specification is at https://david.woodhou.se/VMClock.pdf
+
+Signed-off-by: David Woodhouse <dwmw@amazon.co.uk>
+Signed-off-by: Babis Chalios <bchalios@amazon.es>
+Reviewed-by: Krzysztof Kozlowski <krzysztof.kozlowski@oss.qualcomm.com>
+---
+ .../bindings/ptp/amazon,vmclock.yaml          | 46 +++++++++++++++++++
+ 1 file changed, 46 insertions(+)
+ create mode 100644 Documentation/devicetree/bindings/ptp/amazon,vmclock.yaml
+
+diff --git a/Documentation/devicetree/bindings/ptp/amazon,vmclock.yaml b/Documentation/devicetree/bindings/ptp/amazon,vmclock.yaml
+new file mode 100644
+index 000000000000..b98fee20ce5f
+--- /dev/null
++++ b/Documentation/devicetree/bindings/ptp/amazon,vmclock.yaml
+@@ -0,0 +1,46 @@
++# SPDX-License-Identifier: (GPL-2.0-only OR BSD-2-Clause)
++%YAML 1.2
++---
++$id: http://devicetree.org/schemas/ptp/amazon,vmclock.yaml#
++$schema: http://devicetree.org/meta-schemas/core.yaml#
++
++title: Virtual Machine Clock
++
++maintainers:
++  - David Woodhouse <dwmw2@infradead.org>
++
++description:
++  The vmclock device provides a precise clock source and allows for
++  accurate timekeeping across live migration and snapshot/restore
++  operations. The full specification of the shared data structure
++  is available at https://david.woodhou.se/VMClock.pdf
++
++properties:
++  compatible:
++    const: amazon,vmclock
++
++  reg:
++    description:
++      Specifies the shared memory region containing the vmclock_abi structure.
++    maxItems: 1
++
++  interrupts:
++    description:
++      Interrupt used to notify when the contents of the vmclock_abi structure
++      have been updated.
++    maxItems: 1
++
++required:
++  - compatible
++  - reg
++
++additionalProperties: false
++
++examples:
++  - |
++    #include <dt-bindings/interrupt-controller/arm-gic.h>
++    ptp@80000000 {
++      compatible = "amazon,vmclock";
++      reg = <0x80000000 0x1000>;
++      interrupts = <GIC_SPI 36 IRQ_TYPE_EDGE_RISING>;
++    };
+-- 
+2.34.1
+
