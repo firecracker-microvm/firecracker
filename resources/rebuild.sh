@@ -205,7 +205,7 @@ function build_al_kernel {
     cp -v $binary_path $OUTPUT_FILE
     cp -v .config $OUTPUT_FILE.config
 
-    # Undo any patches previsouly applied, so that we can build the same kernel with different
+    # Undo any patches previously applied, so that we can build the same kernel with different
     # configs, e.g. no-acpi
     git reset --hard HEAD
     git clean -f -d
@@ -270,10 +270,10 @@ function build_al_kernels {
     VMCLOCK_CONFIG="$PWD/guest_configs/vmclock.config"
 
     if [[ "$KERNEL_VERSION" == @(all|5.10) ]]; then
-        build_al_kernel $PWD/guest_configs/microvm-kernel-ci-$ARCH-5.10.config "$CI_CONFIG" "$PCIE_CONFIG" "$PMEM_CONFIG" "$MEM_CONFIG"
+        build_al_kernel $PWD/guest_configs/microvm-kernel-ci-$ARCH-5.10.config "$CI_CONFIG" "$PCIE_CONFIG" "$PMEM_CONFIG" "$MEM_CONFIG" "$VMCLOCK_CONFIG"
     fi
     if [[ $ARCH == "x86_64" && "$KERNEL_VERSION" == @(all|5.10-no-acpi) ]]; then
-        build_al_kernel $PWD/guest_configs/microvm-kernel-ci-$ARCH-5.10-no-acpi.config "$CI_CONFIG" "$PCIE_CONFIG" "$PMEM_CONFIG" "$MEM_CONFIG"
+        build_al_kernel $PWD/guest_configs/microvm-kernel-ci-$ARCH-5.10-no-acpi.config "$CI_CONFIG" "$PCIE_CONFIG" "$PMEM_CONFIG" "$MEM_CONFIG" "$VMCLOCK_CONFIG"
     fi
     if [[ "$KERNEL_VERSION" == @(all|6.1) ]]; then
         build_al_kernel $PWD/guest_configs/microvm-kernel-ci-$ARCH-6.1.config "$CI_CONFIG" "$PCIE_CONFIG" "$PMEM_CONFIG" "$MEM_CONFIG" "$VMCLOCK_CONFIG"
@@ -285,7 +285,7 @@ function build_al_kernels {
     OUTPUT_DIR=$OUTPUT_DIR/debug
     mkdir -pv $OUTPUT_DIR
     if [[ "$KERNEL_VERSION" == @(all|5.10) ]]; then
-        build_al_kernel "$PWD/guest_configs/microvm-kernel-ci-$ARCH-5.10.config" "$CI_CONFIG" "$PCIE_CONFIG" "$PMEM_CONFIG" "$MEM_CONFIG" "$FTRACE_CONFIG" "$DEBUG_CONFIG"
+        build_al_kernel "$PWD/guest_configs/microvm-kernel-ci-$ARCH-5.10.config" "$CI_CONFIG" "$PCIE_CONFIG" "$PMEM_CONFIG" "$MEM_CONFIG" "$FTRACE_CONFIG" "$DEBUG_CONFIG" "$VMCLOCK_CONFIG"
         vmlinux_split_debuginfo $OUTPUT_DIR/vmlinux-5.10.*
     fi
     if [[ "$KERNEL_VERSION" == @(all|6.1) ]]; then
