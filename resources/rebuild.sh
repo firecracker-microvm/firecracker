@@ -167,6 +167,12 @@ function build_al_kernel {
 
     git checkout $(get_tag $KERNEL_VERSION)
 
+    # Apply any patchset we have for our kernels
+    for patchset in ../patches/*; do
+        echo "Applying patchset ${patchset}/${KERNEL_VERSION}"
+        git apply ${patchset}/${KERNEL_VERSION}/*.patch
+    done
+
     arch=$(uname -m)
     if [ "$arch" = "x86_64" ]; then
         format="elf"
@@ -193,6 +199,11 @@ function build_al_kernel {
     OUTPUT_FILE=$OUTPUT_DIR/vmlinux-$normalized_version$flavour
     cp -v $binary_path $OUTPUT_FILE
     cp -v .config $OUTPUT_FILE.config
+
+    # Undo any patches previsouly applied, so that we can build the same kernel with different
+    # configs, e.g. no-acpi
+    git reset --hard $(get_tag $KERNEL_VERSION)
+    git clean -f -d
 
     popd &>/dev/null
 }
