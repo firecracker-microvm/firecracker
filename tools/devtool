@@ -686,6 +686,8 @@ cmd_test() {
     do_build=1
     do_archive=1
     do_kvm_check=1
+    do_build_dir_check=1
+    do_ci_artifacts_check=1
     # Parse any command line args.
     while [ $# -gt 0 ]; do
         case "$1" in
@@ -713,6 +715,12 @@ cmd_test() {
             "--no-kvm-check")
                 do_kvm_check=0
                 ;;
+            "--no-build-dir-check")
+                do_build_dir_check=0
+                ;;
+            "--no-ci-artifacts-check")
+                do_ci_artifacts_check=0
+                ;;
             "--")               { shift; break;     } ;;
             *)
                 die "Unknown argument: $1. Please use --help for help."
@@ -724,8 +732,8 @@ cmd_test() {
     # Check prerequisites.
     [ $do_kvm_check != 0 ] && ensure_kvm
     ensure_devctr
-    ensure_build_dir
-    ensure_ci_artifacts
+    [ $do_build_dir_check != 0 ] && ensure_build_dir
+    [ $do_ci_artifacts_check != 0 ] && ensure_ci_artifacts
     if [ $do_build != 0 ]; then
       cmd_build --release
       if [ -n "$BUILDKITE_PULL_REQUEST_BASE_BRANCH" ]; then
@@ -958,8 +966,8 @@ cmd_checkstyle() {
       cmd_sh "git-secrets --register-aws && git-secrets --scan"
     fi
 
-    cmd_test --no-build --no-kvm-check -- -n 4 --dist worksteal integration_tests/style || exit 1
-    cmd_test --no-build --no-kvm-check -- -n 4 --doctest-modules framework || exit 1
+    cmd_test --no-build --no-kvm-check --no-build-dir-check --no-ci-artifacts-check -- -n 4 --dist worksteal integration_tests/style || exit 1
+    cmd_test --no-build --no-kvm-check --no-build-dir-check --no-ci-artifacts-check -- -n 4 --doctest-modules framework || exit 1
 }
 
 cmd_checkbuild() {
