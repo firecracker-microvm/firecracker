@@ -27,5 +27,8 @@ vmm-sys-util = "0.15.0"
 [target.'cfg(target_arch = "aarch64")'.dependencies]
 clap-num = "1.2.0"
 
+[target.'cfg(target_arch = "x86_64")'.dependencies]
+kvm-ioctls = "0.19.1"
+
 [lints]
 workspace = true
