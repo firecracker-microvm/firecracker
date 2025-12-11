@@ -27,16 +27,17 @@ pub fn open_vmstate(snapshot_path: &PathBuf) -> Result<Snapshot<MicrovmState>, U
     Snapshot::load(&mut snapshot_reader).map_err(UtilsError::VmStateLoad)
 }
 
-// This method is used only in aarch64 code so far
 #[allow(unused)]
-pub fn save_vmstate(microvm_state: MicrovmState, output_path: &PathBuf) -> Result<(), UtilsError> {
+pub fn save_vmstate(
+    snapshot: &Snapshot<MicrovmState>,
+    output_path: &PathBuf,
+) -> Result<(), UtilsError> {
     let mut output_file = OpenOptions::new()
         .create(true)
         .write(true)
         .truncate(true)
         .open(output_path)
         .map_err(UtilsError::OutputFileOpen)?;
-    let mut snapshot = Snapshot::new(microvm_state);
     snapshot
         .save(&mut output_file)
         .map_err(UtilsError::VmStateSave)?;
