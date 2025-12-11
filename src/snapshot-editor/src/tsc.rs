@@ -5,7 +5,7 @@ use std::path::PathBuf;
 
 use clap::{Args, Subcommand};
 
-use crate::utils::{open_vmstate, save_vmstate, UtilsError};
+use crate::utils::{UtilsError, open_vmstate, save_vmstate};
 
 #[derive(Debug, thiserror::Error)]
 pub enum TscCommandError {
@@ -40,9 +40,6 @@ pub struct SetTscArgs {
     /// Path to the vmstate file to update.
     #[arg(long)]
     pub vmstate_path: PathBuf,
-    /// Optional output path; defaults to overwriting the input file.
-    #[arg(long)]
-    pub output_path: Option<PathBuf>,
     /// TSC frequency in kHz to embed in the vmstate snapshot.
     #[arg(long, value_parser = clap::value_parser!(u32))]
     pub tsc_khz: Option<u32>,
@@ -53,9 +50,6 @@ pub struct ClearTscArgs {
     /// Path to the vmstate file to update.
     #[arg(long)]
     pub vmstate_path: PathBuf,
-    /// Optional output path; defaults to overwriting the input file.
-    #[arg(long)]
-    pub output_path: Option<PathBuf>,
 }
 
 pub fn tsc_command(command: TscSubCommand) -> Result<(), TscCommandError> {
@@ -74,16 +68,11 @@ fn set_tsc(args: SetTscArgs) -> Result<(), TscCommandError> {
     #[cfg(not(target_arch = "x86_64"))]
     let freq = args.tsc_khz.ok_or(TscCommandError::MissingFrequency)?;
 
-    let output_path = args
-        .output_path
-        .clone()
-        .unwrap_or(args.vmstate_path.clone());
-
     let mut snapshot = open_vmstate(&args.vmstate_path)?;
     for vcpu in &mut snapshot.data.vcpu_states {
         vcpu.tsc_khz = Some(freq);
     }
-    save_vmstate(&snapshot, &output_path)?;
+    save_vmstate(&snapshot, &args.vmstate_path)?;
     Ok(())
 }
 
@@ -100,15 +89,10 @@ fn detect_host_tsc_khz() -> Result<u32, TscCommandError> {
 }
 
 fn clear_tsc(args: ClearTscArgs) -> Result<(), TscCommandError> {
-    let output_path = args
-        .output_path
-        .clone()
-        .unwrap_or(args.vmstate_path.clone());
-
     let mut snapshot = open_vmstate(&args.vmstate_path)?;
     for vcpu in &mut snapshot.data.vcpu_states {
         vcpu.tsc_khz = None;
     }
-    save_vmstate(&snapshot, &output_path)?;
+    save_vmstate(&snapshot, &args.vmstate_path)?;
     Ok(())
 }

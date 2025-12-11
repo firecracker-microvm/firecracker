@@ -146,7 +146,6 @@ Firecracker snapshot consists of 2 files:
 > Arguments:
 >
 > - `VMSTATE_PATH` - path to the `vmstate` file
-> - `OUTPUT_PATH` - optional output path; defaults to overwriting the input file
 > - `--tsc-khz` - explicit TSC frequency (required on non-x86_64); on x86_64 it
 >   is auto-detected from the host if omitted
 >
@@ -155,7 +154,6 @@ Firecracker snapshot consists of 2 files:
 > ```bash
 > snapshot-editor tsc set \
 >     --vmstate-path ./vmstate_file \
->     --output-path ./new_vmstate_file \
 >     --tsc-khz 2500000
 > ```
 
@@ -166,12 +164,10 @@ Firecracker snapshot consists of 2 files:
 > Arguments:
 >
 > - `VMSTATE_PATH` - path to the `vmstate` file
-> - `OUTPUT_PATH` - optional output path; defaults to overwriting the input file
 >
 > Usage:
 >
 > ```bash
 > snapshot-editor tsc clear \
->     --vmstate-path ./vmstate_file \
->     --output-path ./new_vmstate_file
+>     --vmstate-path ./vmstate_file
 > ```

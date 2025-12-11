@@ -10,7 +10,7 @@ and this project adheres to
 
 ### Added
 - Added snapshot-editor `tsc set/clear` commands to stamp or remove TSC
-  frequencies in vmstate snapshots (auto-detects host TSC on x86_64).
+  frequencies in vmstate snapshots in place (auto-detects host TSC on x86_64).
 
 ### Changed
 
