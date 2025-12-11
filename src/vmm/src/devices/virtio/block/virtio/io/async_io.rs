@@ -14,7 +14,7 @@ use crate::devices::virtio::block::virtio::{IO_URING_NUM_ENTRIES, PendingRequest
 use crate::io_uring::operation::{Cqe, OpCode, Operation};
 use crate::io_uring::restriction::Restriction;
 use crate::io_uring::{IoUring, IoUringError};
-use crate::logger::log_dev_preview_warning;
+use crate::logger::{debug, log_dev_preview_warning};
 use crate::vstate::memory::{GuestAddress, GuestMemory, GuestMemoryExtension, GuestMemoryMmap};
 
 #[derive(Debug, thiserror::Error, displaydoc::Display)]
@@ -220,6 +220,13 @@ impl AsyncFileEngine {
     }
 
     pub fn drain_and_flush(&mut self, discard_cqes: bool) -> Result<(), AsyncIoError> {
+        // LCOV_EXCL_START
+        debug!(
+            "drain_and_flush draining: pending_ops={} discard_cqes={}",
+            self.ring.num_ops(),
+            discard_cqes
+        );
+        // LCOV_EXCL_STOP
         self.drain(discard_cqes)?;
 
         // Sync data out to physical media on host.
