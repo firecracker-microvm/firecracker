@@ -289,9 +289,8 @@ def test_host_vs_guest_cpu_features(uvm_plain_any):
                 # MSR address 0x33 (MSR_MEMORY_CTRL in Intel SDM, MSR_TEST_CTRL in Linux kernel).
                 expected_host_minus_guest |= {"split_lock_detect"}
 
-            elif CPU_MODEL == CpuModel.INTEL_GRANITE_RAPIDS:
-                # VMScape mitigation. Granite Rapids CPUs are not affected, and therefore do not need
-                # this feature.
+            # FIX: VMScape mitigation has not yet been backported to 5.10.
+            elif host_version < (6, 1) and CPU_MODEL == CpuModel.INTEL_GRANITE_RAPIDS:
                 expected_host_minus_guest -= {
                     "ibpb_exit_to_user",
                 }
