@@ -25,12 +25,11 @@ use super::{BLOCK_QUEUE_SIZES, SECTOR_SHIFT, SECTOR_SIZE, VirtioBlockError, io a
 use crate::devices::virtio::ActivateError;
 use crate::devices::virtio::block::CacheType;
 use crate::devices::virtio::block::virtio::metrics::{BlockDeviceMetrics, BlockMetricsPerDevice};
-use crate::devices::virtio::device::{ActiveState, DeviceState, VirtioDevice};
+use crate::devices::virtio::device::{ActiveState, DeviceState, VirtioDevice, VirtioDeviceType};
 use crate::devices::virtio::generated::virtio_blk::{
     VIRTIO_BLK_F_FLUSH, VIRTIO_BLK_F_RO, VIRTIO_BLK_ID_BYTES,
 };
 use crate::devices::virtio::generated::virtio_config::VIRTIO_F_VERSION_1;
-use crate::devices::virtio::generated::virtio_ids::VIRTIO_ID_BLOCK;
 use crate::devices::virtio::generated::virtio_ring::VIRTIO_RING_F_EVENT_IDX;
 use crate::devices::virtio::queue::{InvalidAvailIdx, Queue};
 use crate::devices::virtio::transport::{VirtioInterrupt, VirtioInterruptType};
@@ -204,7 +203,7 @@ impl TryFrom<&BlockDeviceConfig> for VirtioBlockConfig {
     type Error = VirtioBlockError;
 
     fn try_from(value: &BlockDeviceConfig) -> Result<Self, Self::Error> {
-        if value.path_on_host.is_some() && value.socket.is_none() {
+        if let (Some(path_on_host), None) = (&value.path_on_host, &value.socket) {
             Ok(Self {
                 drive_id: value.drive_id.clone(),
                 partuuid: value.partuuid.clone(),
@@ -212,7 +211,7 @@ impl TryFrom<&BlockDeviceConfig> for VirtioBlockConfig {
                 cache_type: value.cache_type,
 
                 is_read_only: value.is_read_only.unwrap_or(false),
-                path_on_host: value.path_on_host.as_ref().unwrap().clone(),
+                path_on_host: path_on_host.clone(),
                 rate_limiter: value.rate_limiter,
                 file_engine_type: value.file_engine_type.unwrap_or_default(),
             })
@@ -583,7 +582,11 @@ impl VirtioBlock {
 }
 
 impl VirtioDevice for VirtioBlock {
-    impl_device_type!(VIRTIO_ID_BLOCK);
+    impl_device_type!(VirtioDeviceType::Block);
+
+    fn id(&self) -> &str {
+        &self.id
+    }
 
     fn avail_features(&self) -> u64 {
         self.avail_features
@@ -790,7 +793,7 @@ mod tests {
         for engine in [FileEngineType::Sync, FileEngineType::Async] {
             let mut block = default_block(engine);
 
-            assert_eq!(block.device_type(), VIRTIO_ID_BLOCK);
+            assert_eq!(block.device_type(), VirtioDeviceType::Block);
 
             let features: u64 = (1u64 << VIRTIO_F_VERSION_1) | (1u64 << VIRTIO_RING_F_EVENT_IDX);
 

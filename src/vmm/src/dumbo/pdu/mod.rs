@@ -96,7 +96,7 @@ fn compute_checksum<T: NetworkBytes + Debug>(
         sum += usize::from(bytes.ntohs_unchecked(i * 2));
     }
 
-    if len % 2 != 0 {
+    if !len.is_multiple_of(2) {
         sum += usize::from(bytes[len - 1]) << 8;
     }
 

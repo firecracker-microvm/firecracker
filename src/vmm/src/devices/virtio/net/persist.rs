@@ -10,8 +10,7 @@ use serde::{Deserialize, Serialize};
 
 use super::device::{Net, RxBuffers};
 use super::{NET_NUM_QUEUES, NET_QUEUE_MAX_SIZE, RX_INDEX, TapError};
-use crate::devices::virtio::device::{ActiveState, DeviceState};
-use crate::devices::virtio::generated::virtio_ids::VIRTIO_ID_NET;
+use crate::devices::virtio::device::{ActiveState, DeviceState, VirtioDeviceType};
 use crate::devices::virtio::persist::{PersistError as VirtioStateError, VirtioDeviceState};
 use crate::devices::virtio::transport::VirtioInterrupt;
 use crate::mmds::data_store::Mmds;
@@ -75,7 +74,7 @@ impl Persist<'_> for Net {
 
     fn save(&self) -> Self::State {
         NetState {
-            id: self.id().clone(),
+            id: self.id.clone(),
             tap_if_name: self.iface_name(),
             rx_rate_limiter_state: self.rx_rate_limiter.save(),
             tx_rate_limiter_state: self.tx_rate_limiter.save(),
@@ -121,7 +120,7 @@ impl Persist<'_> for Net {
 
         net.queues = state.virtio_state.build_queues_checked(
             &constructor_args.mem,
-            VIRTIO_ID_NET,
+            VirtioDeviceType::Net,
             NET_NUM_QUEUES,
             NET_QUEUE_MAX_SIZE,
         )?;
@@ -181,7 +180,7 @@ mod tests {
             ) {
                 Ok(restored_net) => {
                     // Test that virtio specific fields are the same.
-                    assert_eq!(restored_net.device_type(), VIRTIO_ID_NET);
+                    assert_eq!(restored_net.device_type(), VirtioDeviceType::Net);
                     assert_eq!(restored_net.avail_features(), virtio_state.avail_features);
                     assert_eq!(restored_net.acked_features(), virtio_state.acked_features);
                     assert_eq!(restored_net.is_activated(), virtio_state.activated);
