@@ -32,7 +32,7 @@ if [ -f $CGROUP/cgroup.controllers -a -e $CGROUP/cgroup.type ]; then
 fi
 
 say "Copy CI artifacts to /srv, so hardlinks work"
-cp -ruvf build/img /srv
+cp -ruvfL $(cat build/current_artifacts) /srv/current_artifacts
 
 cd tests
 export PYTEST_ADDOPTS="${PYTEST_ADDOPTS:-} --pdbcls=IPython.terminal.debugger:TerminalPdb"
