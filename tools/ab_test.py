@@ -418,14 +418,16 @@ if __name__ == "__main__":
         help="Run an specific test of our test suite as an A/B-test across two specified commits",
     )
     run_parser.add_argument(
-        "a_revision",
+        "--binaries-a",
         help="Directory containing firecracker and jailer binaries to be considered the performance baseline",
         type=Path,
+        required=True,
     )
     run_parser.add_argument(
-        "b_revision",
-        help="Directory containing firecracker and jailer binaries whose performance we want to compare against the results from a_revision",
+        "--binaries-b",
+        help="Directory containing firecracker and jailer binaries whose performance we want to compare against the results from binaries-a",
         type=Path,
+        required=True,
     )
     run_parser.add_argument(
         "--pytest-opts",
@@ -468,8 +470,8 @@ if __name__ == "__main__":
 
     if args.command == "run":
         ab_performance_test(
-            args.a_revision,
-            args.b_revision,
+            args.binaries_a,
+            args.binaries_b,
             args.pytest_opts,
             args.significance,
             args.absolute_strength,
