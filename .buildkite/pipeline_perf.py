@@ -134,7 +134,7 @@ for test in tests:
     test_script_opts = ""
     if REVISION_A:
         devtool_opts += " --ab"
-        test_script_opts = f'{ab_opts} run build/{REVISION_A}/ build/{REVISION_B} --pytest-opts "{test_selector}"'
+        test_script_opts = f'{ab_opts} run --binaries-a build/{REVISION_A}/ --binaries-b build/{REVISION_B} --pytest-opts "{test_selector}"'
     else:
         # Passing `-m ''` below instructs pytest to collect tests regardless of
         # their markers (e.g. it will collect both tests marked as nonci, and

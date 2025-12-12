@@ -184,7 +184,7 @@ function to [`.buildkite/pipeline_perf.py`](../.buildkite/pipeline_perf.py). To
 manually run an A/B-Test, use
 
 ```sh
-tools/devtool -y test --ab [optional arguments to ab_test.py] run <dir A> <dir B> --pytest-opts <test specification>
+tools/devtool -y test --ab [optional arguments to ab_test.py] run --binaries-a <dir A> --binaries-b <dir B> --pytest-opts <test specification>
 ```
 
 Here, _dir A_ and _dir B_ are directories containing firecracker and jailer
