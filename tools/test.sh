@@ -31,11 +31,11 @@ if [ -f $CGROUP/cgroup.controllers -a -e $CGROUP/cgroup.type ]; then
         > $CGROUP/cgroup.subtree_control
 fi
 
-say "Copy CI artifacts to /srv, so hardlinks work"
-if [ -d build/img ]; then
-  cp -ruvf build/img /srv
+say "Copy artifacts to /srv, so hardlinks work"
+if [ -f build/current_artifacts ]; then
+  cp -ruvfL $(cat build/current_artifacts) /srv/current_artifacts
 else
-  say_warn "No build/img detected. Some tests might break"
+  say_warn "No current artifacts are set. Some tests might break"
 fi
 
 cd tests
