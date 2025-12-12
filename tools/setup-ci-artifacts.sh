@@ -9,7 +9,7 @@ TOOLS_DIR=$(dirname $0)
 source "$TOOLS_DIR/functions"
 
 say "Setup CI artifacts"
-cd build/img/$(uname -m)
+cd $1
 
 say "Generate SSH key to connect from host"
 if [ ! -s id_rsa ]; then

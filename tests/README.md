@@ -443,9 +443,9 @@ there. `pytest` will bring them into scope for all your tests.
 
 `Q4:` *I want to use more/other microvm test images, but I don't want to add
 them to the common s3 bucket.*\
-`A4:` Add your custom images to the `build/img` subdirectory in the Firecracker
-source tree. This directory is bind-mounted in the container and used as a local
-image cache.
+`A4:` Add your custom images to the `build/artifacts` subdirectory in the
+Firecracker source tree. This directory is bind-mounted in the container and
+used as a local image cache.
 
 `Q5:` *How can I get live logger output from the tests?*\
 `A5:` Accessing **pytest.ini** will allow you to modify logger settings.
