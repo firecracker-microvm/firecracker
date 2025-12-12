@@ -133,7 +133,7 @@ impl Sdt for Madt {
     fn write_to_guest<M: GuestMemory>(&mut self, mem: &M, address: GuestAddress) -> Result<()> {
         mem.write_slice(self.header.as_bytes(), address)?;
         let address = address
-            .checked_add(size_of::<MadtHeader>() as u64)
+            .checked_add(u64::try_from(size_of::<MadtHeader>()).unwrap())
             .ok_or(AcpiError::InvalidGuestAddress)?;
         mem.write_slice(self.interrupt_controllers.as_bytes(), address)?;
 

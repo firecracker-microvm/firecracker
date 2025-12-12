@@ -296,7 +296,7 @@ impl Aml for Usize {
             TryInto::<u16>::try_into(*self)
                 .unwrap()
                 .append_aml_bytes(bytes)
-        } else if *self <= u32::MAX as usize {
+        } else if *self <= u32::MAX.try_into().unwrap_or(usize::MAX) {
             TryInto::<u32>::try_into(*self)
                 .unwrap()
                 .append_aml_bytes(bytes)
@@ -407,12 +407,33 @@ enum AddressSpaceType {
     BusNumber,
 }
 
+impl From<AddressSpaceType> for u8 {
+    fn from(val: AddressSpaceType) -> u8 {
+        match val {
+            AddressSpaceType::Memory => 0,
+            AddressSpaceType::Io => 1,
+            AddressSpaceType::BusNumber => 2,
+        }
+    }
+}
+
 #[derive(Copy, Clone)]
 pub enum AddressSpaceCacheable {
     NotCacheable,
     Cacheable,
     WriteCombining,
     PreFetchable,
+}
+
+impl From<AddressSpaceCacheable> for u8 {
+    fn from(val: AddressSpaceCacheable) -> u8 {
+        match val {
+            AddressSpaceCacheable::NotCacheable => 0,
+            AddressSpaceCacheable::Cacheable => 1,
+            AddressSpaceCacheable::WriteCombining => 2,
+            AddressSpaceCacheable::PreFetchable => 3,
+        }
+    }
 }
 
 pub struct AddressSpace<T> {
@@ -439,7 +460,7 @@ where
             r#type: AddressSpaceType::Memory,
             min,
             max,
-            type_flags: ((cacheable as u8) << 1) | u8::from(read_write),
+            type_flags: ((u8::from(cacheable)) << 1) | u8::from(read_write),
         })
     }
 
@@ -470,7 +491,7 @@ where
     fn push_header(&self, bytes: &mut Vec<u8>, descriptor: u8, length: usize) {
         bytes.push(descriptor); // Word Address Space Descriptor
         bytes.extend_from_slice(&(TryInto::<u16>::try_into(length).unwrap()).to_le_bytes());
-        bytes.push(self.r#type as u8); // type
+        bytes.push(u8::from(self.r#type)); // type
         let generic_flags = (1 << 2) /* Min Fixed */ | (1 << 3); // Max Fixed
         bytes.push(generic_flags);
         bytes.push(self.type_flags);
@@ -725,11 +746,33 @@ pub enum FieldAccessType {
     Buffer,
 }
 
+impl From<FieldAccessType> for u8 {
+    fn from(val: FieldAccessType) -> u8 {
+        match val {
+            FieldAccessType::Any => 0,
+            FieldAccessType::Byte => 1,
+            FieldAccessType::Word => 2,
+            FieldAccessType::DWord => 3,
+            FieldAccessType::QWord => 4,
+            FieldAccessType::Buffer => 5,
+        }
+    }
+}
+
 #[derive(Clone, Copy)]
 pub enum FieldUpdateRule {
     Preserve = 0,
     WriteAsOnes = 1,
     WriteAsZeroes = 2,
+}
+
+impl From<FieldUpdateRule> for u8 {
+    fn from(val: FieldUpdateRule) -> u8 {
+        #[allow(clippy::as_conversions)]
+        {
+            val as u8
+        }
+    }
 }
 
 pub enum FieldEntry {
@@ -766,7 +809,7 @@ impl Aml for Field {
         let mut tmp = Vec::new();
         self.path.append_aml_bytes(&mut tmp)?;
 
-        let flags: u8 = self.access_type as u8 | ((self.update_rule as u8) << 5);
+        let flags: u8 = u8::from(self.access_type) | ((u8::from(self.update_rule)) << 5);
         tmp.push(flags);
 
         for field in self.fields.iter() {
@@ -806,6 +849,23 @@ pub enum OpRegionSpace {
     GenericSerialBus,
 }
 
+impl From<OpRegionSpace> for u8 {
+    fn from(val: OpRegionSpace) -> u8 {
+        match val {
+            OpRegionSpace::SystemMemory => 0,
+            OpRegionSpace::SystemIo => 1,
+            OpRegionSpace::PConfig => 2,
+            OpRegionSpace::EmbeddedControl => 3,
+            OpRegionSpace::Smbus => 4,
+            OpRegionSpace::SystemCmos => 5,
+            OpRegionSpace::PciBarTarget => 6,
+            OpRegionSpace::Ipmi => 7,
+            OpRegionSpace::GeneralPurposeIo => 8,
+            OpRegionSpace::GenericSerialBus => 9,
+        }
+    }
+}
+
 pub struct OpRegion {
     path: Path,
     space: OpRegionSpace,
@@ -829,7 +889,7 @@ impl Aml for OpRegion {
         bytes.push(0x5b); // ExtOpPrefix
         bytes.push(0x80); // OpRegionOp
         self.path.append_aml_bytes(bytes)?;
-        bytes.push(self.space as u8);
+        bytes.push(u8::from(self.space));
         self.offset.append_aml_bytes(bytes)?; // RegionOffset
         self.length.append_aml_bytes(bytes)?; // RegionLen
         Ok(())
@@ -1500,7 +1560,7 @@ mod tests {
         assert_eq!(
             create_pkg_length(&[0u8; 4096], true),
             vec![
-                (2 << 6) | (4099 & 0xf) as u8,
+                u8::try_from((2 << 6) | (4099 & 0xf)).unwrap(),
                 ((4099 >> 4) & 0xff).try_into().unwrap(),
                 ((4099 >> 12) & 0xff).try_into().unwrap()
             ]
@@ -1535,28 +1595,18 @@ mod tests {
     }
     #[test]
     fn test_name_path() {
+        let path: &Path = &"_SB_".try_into().unwrap();
+        assert_eq!(path.to_aml_bytes().unwrap(), [0x5Fu8, 0x53, 0x42, 0x5F]);
+        let path: &Path = &"\\_SB_".try_into().unwrap();
+        assert_eq!(path.to_aml_bytes().unwrap(), [0x5C, 0x5F, 0x53, 0x42, 0x5F]);
+        let path: &Path = &"_SB_.COM1".try_into().unwrap();
         assert_eq!(
-            (&"_SB_".try_into().unwrap() as &Path)
-                .to_aml_bytes()
-                .unwrap(),
-            [0x5Fu8, 0x53, 0x42, 0x5F]
-        );
-        assert_eq!(
-            (&"\\_SB_".try_into().unwrap() as &Path)
-                .to_aml_bytes()
-                .unwrap(),
-            [0x5C, 0x5F, 0x53, 0x42, 0x5F]
-        );
-        assert_eq!(
-            (&"_SB_.COM1".try_into().unwrap() as &Path)
-                .to_aml_bytes()
-                .unwrap(),
+            path.to_aml_bytes().unwrap(),
             [0x2E, 0x5F, 0x53, 0x42, 0x5F, 0x43, 0x4F, 0x4D, 0x31]
         );
+        let path: &Path = &"_SB_.PCI0._HID".try_into().unwrap();
         assert_eq!(
-            (&"_SB_.PCI0._HID".try_into().unwrap() as &Path)
-                .to_aml_bytes()
-                .unwrap(),
+            path.to_aml_bytes().unwrap(),
             [
                 0x2F, 0x03, 0x5F, 0x53, 0x42, 0x5F, 0x50, 0x43, 0x49, 0x30, 0x5F, 0x48, 0x49, 0x44
             ]
@@ -1599,10 +1649,8 @@ mod tests {
 
     #[test]
     fn test_string() {
-        assert_eq!(
-            (&"ACPI" as &dyn Aml).to_aml_bytes().unwrap(),
-            [0x0d, b'A', b'C', b'P', b'I', 0]
-        );
+        let s: &dyn Aml = &"ACPI";
+        assert_eq!(s.to_aml_bytes().unwrap(), [0x0d, b'A', b'C', b'P', b'I', 0]);
         assert_eq!(
             "ACPI".to_owned().to_aml_bytes().unwrap(),
             [0x0d, b'A', b'C', b'P', b'I', 0]
