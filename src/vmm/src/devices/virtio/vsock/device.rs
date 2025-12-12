@@ -50,12 +50,17 @@ pub(crate) const EVQ_INDEX: usize = 2;
 
 pub(crate) const VIRTIO_VSOCK_EVENT_TRANSPORT_RESET: u32 = 0;
 
+/// Virtio vsock feature bits
+/// Feature bit for SEQPACKET socket support (virtio v1.2+)
+pub(crate) const VIRTIO_VSOCK_F_SEQPACKET: u64 = 1;
+
 /// The virtio features supported by our vsock device:
 /// - VIRTIO_F_VERSION_1: the device conforms to at least version 1.0 of the VirtIO spec.
 /// - VIRTIO_F_IN_ORDER: the device returns used buffers in the same order that the driver makes
 ///   them available.
+/// - VIRTIO_VSOCK_F_SEQPACKET: the device supports SEQPACKET socket type.
 pub(crate) const AVAIL_FEATURES: u64 =
-    (1 << VIRTIO_F_VERSION_1 as u64) | (1 << VIRTIO_F_IN_ORDER as u64);
+    (1 << VIRTIO_F_VERSION_1 as u64) | (1 << VIRTIO_F_IN_ORDER as u64) | (1 << VIRTIO_VSOCK_F_SEQPACKET);
 
 /// Structure representing the vsock device.
 #[derive(Debug)]
