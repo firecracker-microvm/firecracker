@@ -96,3 +96,69 @@ fn clear_tsc(args: ClearTscArgs) -> Result<(), TscCommandError> {
     save_vmstate(&snapshot, &args.vmstate_path)?;
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    use vmm::persist::MicrovmState;
+    use vmm::snapshot::Snapshot;
+
+    use super::*;
+    use crate::utils::save_vmstate;
+
+    fn temp_vmstate_path() -> PathBuf {
+        let mut path = std::env::temp_dir();
+        let nanos = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        path.push(format!(
+            "snapshot-editor-tsc-{}-{}.bin",
+            std::process::id(),
+            nanos
+        ));
+        path
+    }
+
+    #[test]
+    fn test_tsc_set_and_clear_in_place() {
+        let vmstate_path = temp_vmstate_path();
+
+        // Start from a valid vmstate snapshot.
+        let snapshot = Snapshot::new(MicrovmState::default());
+        save_vmstate(&snapshot, &vmstate_path).expect("save initial vmstate");
+
+        let set_freq = 123_456u32;
+        set_tsc(SetTscArgs {
+            vmstate_path: vmstate_path.clone(),
+            tsc_khz: Some(set_freq),
+        })
+        .expect("tsc set should succeed");
+
+        let snapshot = open_vmstate(&vmstate_path).expect("vmstate after set");
+        assert!(
+            snapshot
+                .data
+                .vcpu_states
+                .iter()
+                .all(|vcpu| vcpu.tsc_khz == Some(set_freq))
+        );
+
+        clear_tsc(ClearTscArgs {
+            vmstate_path: vmstate_path.clone(),
+        })
+        .expect("tsc clear should succeed");
+
+        let snapshot = open_vmstate(&vmstate_path).expect("vmstate after clear");
+        assert!(
+            snapshot
+                .data
+                .vcpu_states
+                .iter()
+                .all(|vcpu| vcpu.tsc_khz.is_none())
+        );
+
+        let _ = std::fs::remove_file(vmstate_path);
+    }
+}
