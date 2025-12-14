@@ -11,6 +11,7 @@ use crate::utils::{UtilsError, open_vmstate, save_vmstate};
 pub enum TscCommandError {
     #[error("{0}")]
     Utils(#[from] UtilsError),
+    #[cfg_attr(target_arch = "x86_64", allow(dead_code))]
     #[error("Missing --tsc-khz value; provide a target frequency in kHz.")]
     MissingFrequency,
     #[cfg(target_arch = "x86_64")]
