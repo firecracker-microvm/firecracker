@@ -238,8 +238,7 @@ def test_host_vs_guest_cpu_features(uvm_plain_any):
             else:
                 assert host_feats - guest_feats == host_guest_diff_6_1
             assert guest_feats - host_feats == INTEL_GUEST_ONLY_FEATS - {"umip"}
-
-        case CpuModel.INTEL_SAPPHIRE_RAPIDS:
+        case CpuModel.INTEL_SAPPHIRE_RAPIDS | CpuModel.INTEL_GRANITE_RAPIDS:
             expected_host_minus_guest = INTEL_HOST_ONLY_FEATS.copy()
             expected_guest_minus_host = INTEL_GUEST_ONLY_FEATS.copy()
 
@@ -275,31 +274,56 @@ def test_host_vs_guest_cpu_features(uvm_plain_any):
                 # L3 variants are listed in INTEL_HOST_ONLY_FEATS.
                 "cat_l2",
                 "cdp_l2",
-                # This is a synthesized bit for split lock detection that raise an Alignment Check
-                # (#AC) exception if an operand of an atomic operation crosses two cache lines. It
-                # is not enumerated on CPUID, instead detected by actually attempting to read from
-                # MSR address 0x33 (MSR_MEMORY_CTRL in Intel SDM, MSR_TEST_CTRL in Linux kernel).
-                "split_lock_detect",
                 # Firecracker disables WAITPKG in CPUID normalization.
                 # https://github.com/firecracker-microvm/firecracker/pull/5118
                 "waitpkg",
             }
 
+            # FIX: Split lock detection should be enabled on Granite Rapids too. This is a temporary patch
+            # to prevent recurrent, known test failures. Once addressed, split lock detection will be enabled
+            # on both Sapphire and Granite Rapids.
+            if CPU_MODEL == CpuModel.INTEL_SAPPHIRE_RAPIDS:
+                # This is a synthesized bit for split lock detection that raise an Alignment Check
+                # (#AC) exception if an operand of an atomic operation crosses two cache lines. It
+                # is not enumerated on CPUID, instead detected by actually attempting to read from
+                # MSR address 0x33 (MSR_MEMORY_CTRL in Intel SDM, MSR_TEST_CTRL in Linux kernel).
+                expected_host_minus_guest |= {"split_lock_detect"}
+
+            # FIX: VMScape mitigation has not yet been backported to 5.10.
+            elif host_version < (6, 1) and CPU_MODEL == CpuModel.INTEL_GRANITE_RAPIDS:
+                expected_host_minus_guest -= {
+                    "ibpb_exit_to_user",
+                }
+
             # The following features are also not virtualized by KVM yet but are only supported on
             # newer kernel versions.
             if host_version >= (5, 18):
                 expected_host_minus_guest |= {
-                    # Hardware Feedback Interface (HFI) is a feature that gives OSes a performance
-                    # and energy efficiency capability data for each CPU that can be used to
-                    # influence task placement decisions.
-                    # https://github.com/torvalds/linux/commit/7b8f40b3de75c971a4e5f9308b06deb59118dbac
-                    "hfi",
                     # Indirect Brach Tracking (IBT) is a feature where the CPU ensures that indirect
                     # branch targets start with ENDBRANCH instruction (`endbr32` or `endbr64`),
                     # which executes as a no-op; if anything else is found, a control-protection
                     # (#CP) fault will be raised.
                     # https://github.com/torvalds/linux/commit/991625f3dd2cbc4b787deb0213e2bcf8fa264b21
                     "ibt",
+                }
+
+                if CPU_MODEL == CpuModel.INTEL_SAPPHIRE_RAPIDS:
+                    expected_host_minus_guest |= {
+                        # Hardware Feedback Interface (HFI) is a feature that gives OSes a performance
+                        # and energy efficiency capability data for each CPU that can be used to
+                        # influence task placement decisions. Only available on Sapphire Rapids.
+                        # https://github.com/torvalds/linux/commit/7b8f40b3de75c971a4e5f9308b06deb59118dbac
+                        "hfi",
+                    }
+
+            # FIX: This should also be backported to 5.10. Lower priority than split_lock_detect
+            # though.
+            elif host_version < (5, 19) and CPU_MODEL == CpuModel.INTEL_GRANITE_RAPIDS:
+                expected_host_minus_guest -= {
+                    # From v5.19 onwards, PPIN is detected by reading MSRs. On versions before,
+                    # a static list of architectures is enumerated. As of now, Granite Rapids has
+                    # not been backported to this list, and hence PPIN is not enabled.
+                    "intel_ppin",
                 }
 
             # AVX512 FP16 is supported and passed through on v5.11+.
@@ -337,7 +361,6 @@ def test_host_vs_guest_cpu_features(uvm_plain_any):
 
             assert host_feats - guest_feats == expected_host_minus_guest
             assert guest_feats - host_feats == expected_guest_minus_host
-
         case CpuModel.ARM_NEOVERSE_N1:
             expected_guest_minus_host = set()
             expected_host_minus_guest = set()
