@@ -82,13 +82,6 @@ impl Block {
         }
     }
 
-    pub fn prepare_save(&mut self) {
-        match self {
-            Self::Virtio(b) => b.prepare_save(),
-            Self::VhostUser(b) => b.prepare_save(),
-        }
-    }
-
     pub fn process_virtio_queues(&mut self) -> Result<(), InvalidAvailIdx> {
         match self {
             Self::Virtio(b) => b.process_virtio_queues(),
@@ -225,6 +218,13 @@ impl VirtioDevice for Block {
         if self.is_activated() {
             info!("kick block {}.", self.id());
             self.process_virtio_queues();
+        }
+    }
+
+    fn prepare_save(&mut self) {
+        match self {
+            Self::Virtio(b) => b.prepare_save(),
+            Self::VhostUser(b) => b.prepare_save(),
         }
     }
 }

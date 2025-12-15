@@ -169,6 +169,9 @@ pub trait VirtioDevice: AsAny + Send {
 
     /// Kick the device, as if it had received external events.
     fn kick(&mut self) {}
+
+    /// Prepare the device for saving its state
+    fn prepare_save(&mut self) {}
 }
 
 impl fmt::Debug for dyn VirtioDevice {
