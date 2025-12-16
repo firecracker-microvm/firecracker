@@ -32,7 +32,7 @@ import pytest
 import host_tools.cargo_build as build_tools
 from framework import defs, utils
 from framework.artifacts import disks, kernel_params
-from framework.defs import DEFAULT_BINARY_DIR, ARTIFACT_DIR
+from framework.defs import ARTIFACT_DIR, DEFAULT_BINARY_DIR
 from framework.microvm import HugePagesConfig, MicroVMFactory, SnapshotType
 from framework.properties import global_props
 from framework.utils_cpu_templates import (

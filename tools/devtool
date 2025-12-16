@@ -440,9 +440,17 @@ cmd_help() {
     echo "        Builds the rootfs and guest kernel artifacts we use for our CI."
     echo "        Run './tools/devtool build_ci_artifacts help' for more details about the available commands."
     echo ""
-    echo "    download_ci_artifacts [--force]"
-    echo "        Downloads the CI artifacts used for testing from our S3 bucket. If --force is passed, purges any existing"
-    echo "        artifacts first. Useful for refreshing local artifacts after an update, or if something got messed up."
+    echo "    download_ci_artifacts [--force] [s3_uri_1, s3_uri_2 ...]"
+    echo "        Downloads artifacts from provided S3 URI (like s3://spec.ccfc.min/firecracker-ci/my_artifacts)"
+    echo "        and runs ./tools/setup-ci-artifacts.sh. for each of them."
+    echo "        If no arguments are provided, pulls newest artifacts from $DEFAULT_ARTIFACTS_S3_BUCKET"
+    echo "        If `--force` is specified, removes previous artifacts with same name"
+    echo ""
+    echo "    set_current_artifacts s3_uri/directory name"
+    echo "        Sets the $LOCAL_ARTIFACTS_CURRENT_DIR_FILE to contain a local path where the artifacts should be."
+    echo "        Accepts some name used to generate the final directory name. Mainly used with S3 URI"
+    echo "        like `download_ci_artifacts` cmd. Alternatively it is possible to manually write local "
+    echo "        path to artifacts directory into $LOCAL_ARTIFACTS_CURRENT_DIR_FILE file"
     echo ""
 
     cat <<EOF
@@ -592,9 +600,29 @@ cmd_distclean() {
 
 cmd_download_ci_artifacts() {
     if [ "$1" = "--force" ]; then
-        rm -rf $LOCAL_ARTIFACTS_DIR
+      FORCE_ARTIFACT_DOWNLOAD=1
+      shift 1
     fi
-    download_ci_artifacts
+    local artifacts=$@
+
+    if [[ -z ${artifacts[@]} ]]; then
+      download_ci_artifacts
+    else
+      for artifact in ${artifacts[@]}; do
+        download_ci_artifacts $artifact
+      done
+    fi
+}
+
+cmd_set_current_artifacts() {
+    local artifacts=$1
+    if [ -z $artifacts ]; then
+      say "No artifacts were specified"
+    else
+      local local_artifacts_path=$(get_local_artifacts_path $artifacts)/$(uname -m)
+      echo $local_artifacts_path > $LOCAL_ARTIFACTS_CURRENT_DIR_FILE
+      say "Current artifacts setup at " $local_artifacts_path
+    fi
 }
 
 ensure_current_artifacts_are_set_up() {
@@ -608,23 +636,31 @@ ensure_current_artifacts_are_set_up() {
 }
 
 download_ci_artifacts() {
-    if ! command -v aws >/dev/null; then
-      die "AWS CLI not installed, which is required for downloading artifacts for integration tests."
+    local artifacts=$1
+
+    if [ -z $artifacts ]; then
+        local default_artifacts=$(get_newest_s3_artifacts)
+        say "No specific artifacts are defined. Using default artifacts: " $default_artifacts
+        artifacts=$default_artifacts
     fi
 
     # Fetch all the artifacts so they are local
-    local artifacts_s3_url=$(get_newest_s3_artifacts)
-    local artifacts_s3_url_arch=$artifacts_s3_url/$(uname -m)
-    local local_artifacts_path=$(get_local_artifacts_path $artifacts_s3_url)/$(uname -m)
+    local artifacts_arch=$artifacts/$(uname -m)
+    local local_artifacts_path=$(get_local_artifacts_path $artifacts)/$(uname -m)
+
+    if [ ! -z $FORCE_ARTIFACT_DOWNLOAD ]; then
+      say "Removing " $local_artifacts_path
+      rm -rf $local_artifacts_path
+    fi
 
     if [ ! -d "$local_artifacts_path" ]; then
-        say "Fetching artifacts from S3: " $artifacts_s3_url_arch " into: " $local_artifacts_path
+        say "Fetching artifacts from S3: " $artifacts_arch " into: " $local_artifacts_path
         mkdir -pv $local_artifacts_path
-        aws s3 sync --no-sign-request "$artifacts_s3_url_arch" "$local_artifacts_path"
+        aws s3 sync --no-sign-request "$artifacts_arch" "$local_artifacts_path"
         ok_or_die "Failed to download artifacts using awscli!"
         cmd_sh "./tools/setup-ci-artifacts.sh" $local_artifacts_path
     else
-        say "Found existing artifacts " $artifacts_s3_url_arch " at: " $local_artifacts_path
+        say "Found existing artifacts " $artifacts_arch " at: " $local_artifacts_path
     fi
 
     LOCAL_ARTIFACTS_PATH=$local_artifacts_path
