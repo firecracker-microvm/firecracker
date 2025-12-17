@@ -97,6 +97,7 @@ Contributors to the Firecracker repository:
 - Derek Manwaring <derekmn@amazon.com>
 - Diana Popa <dpopa@amazon.com>
 - Dmitrii <dmitrii.ustiugov@epfl.ch>
+- DontPanicO <dontpanic.call0@gmail.com>
 - Echo-Head-Wall <101990236+Echo-Head-Wall@users.noreply.github.com>
 - Eddie Cazares <Ecazares15@utexas.edu>
 - Eduard Kyvenko <eduard.kyvenko@gmail.com>
@@ -195,6 +196,7 @@ Contributors to the Firecracker repository:
 - moricho <ikeda.morito@gmail.com>
 - Muki Kiboigo <muki@kiboigo.com>
 - Muskaan Singla <msinglaa@amazon.com>
+- mzh <1113584652@qq.com>
 - Narek Galstyan <narekg@berkeley.edu>
 - Nathan Hoang <nathanhoang5@gmail.com>
 - Nathan Sizemore <nathanrsizemore@gmail.com>
@@ -287,3 +289,4 @@ Contributors to the Firecracker repository:
 - Zi Shen Lim <zlim.lnx@gmail.com>
 - Zicklag <zicklag@katharostech.com>
 - Дамјан Георгиевски <gdamjan@gmail.com>
+- 刘顺钰 <shunyu.liu@chaitin.com>

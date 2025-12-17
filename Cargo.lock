@@ -391,7 +391,7 @@ checksum = "b05b61dc5112cbb17e4b6cd61790d9845d13888356391624cbe7e41efeac1e75"
 
 [[package]]
 name = "cpu-template-helper"
-version = "1.14.0-dev"
+version = "1.14.0"
 dependencies = [
  "clap",
  "displaydoc",
@@ -554,7 +554,7 @@ checksum = "3a3076410a55c90011c298b04d0cfa770b00fa04e1e3c97d3f6c9de105a03844"
 
 [[package]]
 name = "firecracker"
-version = "1.14.0-dev"
+version = "1.14.0"
 dependencies = [
  "cargo_toml",
  "displaydoc",
@@ -703,7 +703,7 @@ checksum = "4a5f13b858c8d314ee3e8f639011f7ccefe71f97f96e50151fb991f267928e2c"
 
 [[package]]
 name = "jailer"
-version = "1.14.0-dev"
+version = "1.14.0"
 dependencies = [
  "libc",
  "log-instrument",
@@ -1078,7 +1078,7 @@ dependencies = [
 
 [[package]]
 name = "rebase-snap"
-version = "1.14.0-dev"
+version = "1.14.0"
 dependencies = [
  "displaydoc",
  "libc",
@@ -1178,7 +1178,7 @@ dependencies = [
 
 [[package]]
 name = "seccompiler"
-version = "1.14.0-dev"
+version = "1.14.0"
 dependencies = [
  "bincode",
  "clap",
@@ -1275,7 +1275,7 @@ checksum = "7a2ae44ef20feb57a68b23d846850f861394c2e02dc425a50098ae8c90267589"
 
 [[package]]
 name = "snapshot-editor"
-version = "1.14.0-dev"
+version = "1.14.0"
 dependencies = [
  "clap",
  "clap-num",
