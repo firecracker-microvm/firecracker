@@ -184,22 +184,29 @@ function to [`.buildkite/pipeline_perf.py`](../.buildkite/pipeline_perf.py). To
 manually run an A/B-Test, use
 
 ```sh
-tools/devtool -y test --ab [optional arguments to ab_test.py] run --binaries-a <dir A> --binaries-b <dir B> --pytest-opts <test specification>
+tools/devtool -y test --ab [optional arguments to ab_test.py] run --binaries-a <dir A> --binaries-b <dir B> [optional --artifacts-a <name A> --artifacts-b <name B>] --pytest-opts <test specification>
 ```
 
-Here, _dir A_ and _dir B_ are directories containing firecracker and jailer
-binaries whose performance characteristics you wish to compare. You can use
-`./tools/devtool build --rev <revision> --release` to compile binaries from an
-arbitrary git object (commit SHAs, branches, tags etc.). This will create
-sub-directories in `build` containing the binaries. For example, to compare
-boottime of microVMs between Firecracker binaries compiled from the `main`
-branch and the `HEAD` of your current branch, run
+- _dir A_ and _dir B_ are directories containing firecracker and jailer binaries
+  whose performance characteristics you wish to compare
+- _name A_ and _name B_ are names of artifacts A and B run will to use
+  respectively
+
+You can use `./tools/devtool build --rev <revision> --release` to compile
+binaries from an arbitrary git object (commit SHAs, branches, tags etc.). This
+will create sub-directories in `build` containing the binaries. For example, to
+compare boottime of microVMs between Firecracker binaries compiled from the
+`main` branch and the `HEAD` of your current branch, run
 
 ```sh
 tools/devtool -y build --rev main --release
 tools/devtool -y build --rev HEAD --release
 tools/devtool -y test --no-build --ab -- run build/main build/HEAD --pytest-opts integration_tests/performance/test_boottime.py::test_boottime
 ```
+
+To download custom artifacts use
+`./tools/devtool download_ci_artifacts <S3 URI>...`. This will place artifacts
+into `build/artifacts` directory.
 
 #### How to Write an A/B-Compatible Test and Common Pitfalls
 
