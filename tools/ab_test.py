@@ -24,7 +24,7 @@ import statistics
 import subprocess
 from collections import defaultdict
 from pathlib import Path
-from typing import Callable, List, TypeVar
+from typing import Callable, List, Optional, TypeVar
 
 import scipy
 
@@ -194,16 +194,31 @@ def uninteresting_dimensions(data):
     return uninteresting
 
 
-def collect_data(tag: str, binary_dir: Path, pytest_opts: str):
+def collect_data(
+    tag: str, binary_dir: Path, artifacts: Optional[Path], pytest_opts: str
+):
     """
     Executes the specified test using the provided firecracker binaries and
     stores results into the `test_results/tag` directory
     """
     binary_dir = binary_dir.resolve()
 
-    print(f"Collecting samples with {binary_dir}")
+    print(
+        f"Collecting samples | binaries path: {binary_dir}"
+        + f" | artifacts path: {artifacts}"
+        if artifacts
+        else ""
+    )
     test_path = f"test_results/{tag}"
     test_report_path = f"{test_path}/test-report.json"
+
+    # It is not possible to just download them here this script is usually run inside docker
+    # and artifacts downloading does not work inside it.
+    if artifacts:
+        subprocess.run(
+            f"./tools/devtool set_current_artifacts {artifacts}", check=True, shell=True
+        )
+
     subprocess.run(
         f"./tools/test.sh --binary-dir={binary_dir} {pytest_opts} -m '' --json-report-file=../{test_report_path}",
         env=os.environ,
@@ -367,25 +382,29 @@ U = TypeVar("U")
 
 
 def binary_ab_test(
-    test_runner: Callable[[Path, bool], T],
+    test_runner: Callable[[Path, Optional[Path], bool], T],
     comparator: Callable[[T, T], U],
     *,
     a_directory: Path,
     b_directory: Path,
+    a_artifacts: Optional[Path],
+    b_artifacts: Optional[Path],
 ):
     """
     Similar to `git_ab_test`, but instead of locally checking out different revisions, it operates on
     directories containing firecracker/jailer binaries
     """
-    result_a = test_runner(a_directory, True)
-    result_b = test_runner(b_directory, False)
+    result_a = test_runner(a_directory, a_artifacts, True)
+    result_b = test_runner(b_directory, b_artifacts, False)
 
     return result_a, result_b, comparator(result_a, result_b)
 
 
 def ab_performance_test(
-    a_revision: Path,
-    b_revision: Path,
+    a_directory: Path,
+    b_directory: Path,
+    a_artifacts: Optional[Path],
+    b_artifacts: Optional[Path],
     pytest_opts,
     p_thresh,
     strength_abs_thresh,
@@ -394,7 +413,9 @@ def ab_performance_test(
     """Does an A/B-test of the specified test with the given firecracker/jailer binaries"""
 
     return binary_ab_test(
-        lambda bin_dir, is_a: collect_data(is_a and "A" or "B", bin_dir, pytest_opts),
+        lambda bin_dir, art_dir, is_a: collect_data(
+            is_a and "A" or "B", bin_dir, art_dir, pytest_opts
+        ),
         lambda ah, be: analyze_data(
             ah,
             be,
@@ -403,8 +424,10 @@ def ab_performance_test(
             noise_threshold,
             n_resamples=int(100 / p_thresh),
         ),
-        a_directory=a_revision,
-        b_directory=b_revision,
+        a_directory=a_directory,
+        b_directory=b_directory,
+        a_artifacts=a_artifacts,
+        b_artifacts=b_artifacts,
     )
 
 
@@ -430,6 +453,22 @@ if __name__ == "__main__":
         required=True,
     )
     run_parser.add_argument(
+        "--artifacts-a",
+        help="Name of the artifacts directory in the build/artifacts to use for revision A test. If the directory does not exist, the name will be treated as S3 path and artifacts will be downloaded from there.",
+        # Type is string since it can be an s3 path which if passed to `Path` constructor
+        # will be incorrectly modified
+        type=str,
+        required=False,
+    )
+    run_parser.add_argument(
+        "--artifacts-b",
+        help="Name of the artifacts directory in the build/artifacts to use for revision B test. If the directory does not exist, the name will be treated as S3 path and artifacts will be downloaded from there.",
+        # Type is string since it can be an s3 path which if passed to `Path` constructor
+        # will be incorrectly modified
+        type=str,
+        required=False,
+    )
+    run_parser.add_argument(
         "--pytest-opts",
         help="Parameters to pass through to pytest, for example for test selection",
         required=True,
@@ -440,12 +479,12 @@ if __name__ == "__main__":
     )
     analyze_parser.add_argument(
         "path_a",
-        help="The path to the directlry with A run",
+        help="The path to the directory with A run",
         type=Path,
     )
     analyze_parser.add_argument(
         "path_b",
-        help="The path to the directlry with B run",
+        help="The path to the directory with B run",
         type=Path,
     )
     parser.add_argument(
@@ -472,6 +511,8 @@ if __name__ == "__main__":
         ab_performance_test(
             args.binaries_a,
             args.binaries_b,
+            args.artifacts_a,
+            args.artifacts_b,
             args.pytest_opts,
             args.significance,
             args.absolute_strength,
