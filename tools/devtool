@@ -594,11 +594,20 @@ cmd_download_ci_artifacts() {
     if [ "$1" = "--force" ]; then
         rm -rf $LOCAL_ARTIFACTS_DIR
     fi
-
-    ensure_ci_artifacts
+    download_ci_artifacts
 }
 
-ensure_ci_artifacts() {
+ensure_current_artifacts_are_set_up() {
+  if [ -f $LOCAL_ARTIFACTS_CURRENT_DIR_FILE ]; then
+    say "Current artifacts already setup at " $(cat $LOCAL_ARTIFACTS_CURRENT_DIR_FILE)
+  else
+    download_ci_artifacts
+    echo $LOCAL_ARTIFACTS_PATH > $LOCAL_ARTIFACTS_CURRENT_DIR_FILE
+    say "Current artifacts downloaded and setup at " $LOCAL_ARTIFACTS_PATH
+  fi
+}
+
+download_ci_artifacts() {
     if ! command -v aws >/dev/null; then
       die "AWS CLI not installed, which is required for downloading artifacts for integration tests."
     fi
@@ -606,19 +615,19 @@ ensure_ci_artifacts() {
     # Fetch all the artifacts so they are local
     local artifacts_s3_url=$(get_newest_s3_artifacts)
     local artifacts_s3_url_arch=$artifacts_s3_url/$(uname -m)
-    local artifacts_local_path=$(get_local_artifacts_path $artifacts_s3_url)/$(uname -m)
+    local local_artifacts_path=$(get_local_artifacts_path $artifacts_s3_url)/$(uname -m)
 
-    if [ ! -d "$artifacts_local_path" ]; then
-        say "Fetching artifacts from S3: " $artifacts_s3_url_arch " into: " $artifacts_local_path
-        mkdir -pv $artifacts_local_path
-        aws s3 sync --no-sign-request "$artifacts_s3_url_arch" "$artifacts_local_path"
+    if [ ! -d "$local_artifacts_path" ]; then
+        say "Fetching artifacts from S3: " $artifacts_s3_url_arch " into: " $local_artifacts_path
+        mkdir -pv $local_artifacts_path
+        aws s3 sync --no-sign-request "$artifacts_s3_url_arch" "$local_artifacts_path"
         ok_or_die "Failed to download artifacts using awscli!"
-        cmd_sh "./tools/setup-ci-artifacts.sh" $artifacts_local_path
+        cmd_sh "./tools/setup-ci-artifacts.sh" $local_artifacts_path
     else
-        say "Found existing artifacts " $artifacts_s3_url_arch " at: " $artifacts_local_path
+        say "Found existing artifacts " $artifacts_s3_url_arch " at: " $local_artifacts_path
     fi
 
-    echo $artifacts_local_path > $LOCAL_ARTIFACTS_CURRENT_DIR_FILE
+    LOCAL_ARTIFACTS_PATH=$local_artifacts_path
 }
 
 apply_linux_61_tweaks() {
@@ -725,7 +734,7 @@ cmd_test() {
     do_archive=1
     do_kvm_check=1
     do_build_dir_check=1
-    do_ci_artifacts_check=1
+    do_artifacts_check=1
     # Parse any command line args.
     while [ $# -gt 0 ]; do
         case "$1" in
@@ -756,8 +765,8 @@ cmd_test() {
             "--no-build-dir-check")
                 do_build_dir_check=0
                 ;;
-            "--no-ci-artifacts-check")
-                do_ci_artifacts_check=0
+            "--no-artifacts-check")
+                do_artifacts_check=0
                 ;;
             "--")               { shift; break;     } ;;
             *)
@@ -771,7 +780,8 @@ cmd_test() {
     [ $do_kvm_check != 0 ] && ensure_kvm
     ensure_devctr
     [ $do_build_dir_check != 0 ] && ensure_build_dir
-    [ $do_ci_artifacts_check != 0 ] && ensure_ci_artifacts
+    [ $do_artifacts_check != 0 ] && ensure_current_artifacts_are_set_up
+
     if [ $do_build != 0 ]; then
       cmd_build --release
       if [ -n "$BUILDKITE_PULL_REQUEST_BASE_BRANCH" ]; then
@@ -952,7 +962,7 @@ cmd_sh() {
 
 cmd_sandbox() {
     cmd_build --release
-    ensure_ci_artifacts
+    ensure_current_artifacts_are_set_up
     cmd_sh "tmux new env PYTEST_ADDOPTS=--pdbcls=IPython.terminal.debugger:TerminalPdb PYTHONPATH=tests IPYTHONDIR=\$PWD/.ipython ipython -i ./tools/sandbox.py $@"
     cmd_fix_perms ".ipython"
 }
@@ -974,12 +984,12 @@ cmd_sandbox_native() {
     pip3.11 install ipython requests requests_unixsocket2 psutil tenacity filelock
     pip3.11 install jsonschema aws_embedded_metrics
     pip3.11 install packaging pytest
-    ensure_ci_artifacts
+    ensure_current_artifacts_are_set_up
     tmux neww sudo --preserve-env=HOME,PATH,TMUX env PYTHONPATH=tests IPYTHONDIR=\$PWD/.ipython ipython -i ./tools/sandbox.py $@
 }
 
 cmd_test_debug() {
-    ensure_ci_artifacts
+    ensure_current_artifacts_are_set_up
     cmd_sh "tmux new ./tools/test.sh --pdb $@"
 }
 
@@ -1004,8 +1014,8 @@ cmd_checkstyle() {
       cmd_sh "git-secrets --register-aws && git-secrets --scan"
     fi
 
-    cmd_test --no-build --no-kvm-check --no-build-dir-check --no-ci-artifacts-check -- -n 4 --dist worksteal integration_tests/style || exit 1
-    cmd_test --no-build --no-kvm-check --no-build-dir-check --no-ci-artifacts-check -- -n 4 --doctest-modules framework || exit 1
+    cmd_test --no-build --no-kvm-check --no-build-dir-check --no-artifacts-check -- -n 4 --dist worksteal integration_tests/style || exit 1
+    cmd_test --no-build --no-kvm-check --no-build-dir-check --no-artifacts-check -- -n 4 --doctest-modules framework || exit 1
 }
 
 cmd_checkbuild() {
