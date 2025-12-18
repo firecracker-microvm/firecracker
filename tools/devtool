@@ -768,6 +768,7 @@ cmd_test() {
     do_build=1
     do_archive=1
     do_kvm_check=1
+    do_artifacts_check=1
     # Parse any command line args.
     while [ $# -gt 0 ]; do
         case "$1" in
@@ -795,6 +796,9 @@ cmd_test() {
             "--no-kvm-check")
                 do_kvm_check=0
                 ;;
+            "--no-artifacts-check")
+                do_artifacts_check=0
+                ;;
             "--")               { shift; break;     } ;;
             *)
                 die "Unknown argument: $1. Please use --help for help."
@@ -807,7 +811,7 @@ cmd_test() {
     [ $do_kvm_check != 0 ] && ensure_kvm
     ensure_devctr
     ensure_build_dir
-    ensure_current_artifacts_are_set_up
+    [ $do_artifacts_check != 0 ] && ensure_current_artifacts_are_set_up
 
     if [ $do_build != 0 ]; then
       cmd_build --release
@@ -1041,8 +1045,8 @@ cmd_checkstyle() {
       cmd_sh "git-secrets --register-aws && git-secrets --scan"
     fi
 
-    cmd_test --no-build --no-kvm-check -- -n 4 --dist worksteal integration_tests/style || exit 1
-    cmd_test --no-build --no-kvm-check -- -n 4 --doctest-modules framework || exit 1
+    cmd_test --no-build --no-kvm-check --no-artifacts-check -- -n 4 --dist worksteal integration_tests/style || exit 1
+    cmd_test --no-build --no-kvm-check --no-artifacts-check -- -n 4 --doctest-modules framework || exit 1
 }
 
 cmd_checkbuild() {
