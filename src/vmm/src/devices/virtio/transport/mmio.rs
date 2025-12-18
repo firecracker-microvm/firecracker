@@ -241,7 +241,7 @@ impl BusDevice for MmioTransport {
                 let v = match offset {
                     0x0 => MMIO_MAGIC_VALUE,
                     0x04 => MMIO_VERSION,
-                    0x08 => self.locked_device().device_type(),
+                    0x08 => self.locked_device().device_type() as u32,
                     0x0c => VENDOR_ID, // vendor id
                     0x10 => {
                         let mut features = self
@@ -486,6 +486,7 @@ pub(crate) mod tests {
 
     use super::*;
     use crate::devices::virtio::ActivateError;
+    use crate::devices::virtio::device::{VirtioDevice, VirtioDeviceType};
     use crate::devices::virtio::device_status::DEVICE_NEEDS_RESET;
     use crate::impl_device_type;
     use crate::test_utils::single_region_mem;
@@ -528,7 +529,11 @@ pub(crate) mod tests {
     }
 
     impl VirtioDevice for DummyDevice {
-        impl_device_type!(123);
+        impl_device_type!(VirtioDeviceType::Rng);
+
+        fn id(&self) -> &str {
+            "dummy"
+        }
 
         fn avail_features(&self) -> u64 {
             self.avail_features
@@ -656,7 +661,10 @@ pub(crate) mod tests {
         assert_eq!(read_le_u32(&buf[..]), MMIO_VERSION);
 
         d.read(0x0, 0x08, &mut buf[..]);
-        assert_eq!(read_le_u32(&buf[..]), d.locked_device().device_type());
+        assert_eq!(
+            read_le_u32(&buf[..]),
+            d.locked_device().device_type() as u32,
+        );
 
         d.read(0x0, 0x0c, &mut buf[..]);
         assert_eq!(read_le_u32(&buf[..]), VENDOR_ID);

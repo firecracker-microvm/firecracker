@@ -28,9 +28,8 @@ use super::{
     VIRTIO_BALLOON_S_OOM_KILL, VIRTIO_BALLOON_S_SWAP_IN, VIRTIO_BALLOON_S_SWAP_OUT,
 };
 use crate::devices::virtio::balloon::BalloonError;
-use crate::devices::virtio::device::ActiveState;
+use crate::devices::virtio::device::{ActiveState, VirtioDeviceType};
 use crate::devices::virtio::generated::virtio_config::VIRTIO_F_VERSION_1;
-use crate::devices::virtio::generated::virtio_ids::VIRTIO_ID_BALLOON;
 use crate::devices::virtio::queue::InvalidAvailIdx;
 use crate::devices::virtio::transport::{VirtioInterrupt, VirtioInterruptType};
 use crate::logger::{IncMetric, log_dev_preview_warning};
@@ -392,7 +391,7 @@ impl Balloon {
                 let max_len = MAX_PAGES_IN_DESC * SIZE_OF_U32;
                 valid_descs_found = true;
 
-                if !head.is_write_only() && len % SIZE_OF_U32 == 0 {
+                if !head.is_write_only() && len.is_multiple_of(SIZE_OF_U32) {
                     // Check descriptor pfn count.
                     if len > max_len {
                         error!(
@@ -669,11 +668,6 @@ impl Balloon {
         Ok(())
     }
 
-    /// Provides the ID of this balloon device.
-    pub fn id(&self) -> &str {
-        BALLOON_DEV_ID
-    }
-
     fn trigger_stats_update(&mut self) -> Result<(), BalloonError> {
         // The communication is driven by the device by using the buffer
         // and sending a used buffer notification
@@ -863,7 +857,11 @@ impl Balloon {
 }
 
 impl VirtioDevice for Balloon {
-    impl_device_type!(VIRTIO_ID_BALLOON);
+    impl_device_type!(VirtioDeviceType::Balloon);
+
+    fn id(&self) -> &str {
+        BALLOON_DEV_ID
+    }
 
     fn avail_features(&self) -> u64 {
         self.avail_features
@@ -950,16 +948,16 @@ impl VirtioDevice for Balloon {
     }
 
     fn kick(&mut self) {
-        // If device is activated, kick the balloon queue(s) to make up for any
-        // pending or in-flight epoll events we may have not captured in snapshot.
-        // Stats queue doesn't need kicking as it is notified via a `timer_fd`.
         if self.is_activated() {
-            info!("kick balloon {}.", self.id());
             if self.free_page_hinting() {
-                // On restore we reset back to DONE to ensure everythign is freed
+                info!(
+                    "[{:?}:{}] resetting free page hinting to DONE",
+                    self.device_type(),
+                    self.id()
+                );
                 self.update_free_page_hint_cmd(FREE_PAGE_HINT_DONE);
             }
-            self.process_virtio_queues();
+            self.notify_queue_events();
         }
     }
 }
@@ -1125,7 +1123,7 @@ pub(crate) mod tests {
         for (reporting, hinting, deflate_on_oom, stats_interval) in combinations {
             let mut balloon =
                 Balloon::new(0, *deflate_on_oom, *stats_interval, *hinting, *reporting).unwrap();
-            assert_eq!(balloon.device_type(), VIRTIO_ID_BALLOON);
+            assert_eq!(balloon.device_type(), VirtioDeviceType::Balloon);
 
             let features: u64 = (1u64 << VIRTIO_F_VERSION_1)
                 | (u64::from(*deflate_on_oom) << VIRTIO_BALLOON_F_DEFLATE_ON_OOM)

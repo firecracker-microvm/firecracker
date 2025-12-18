@@ -25,7 +25,7 @@ cpu_template_test = {
         BkStep.COMMAND: [
             "tools/devtool -y test --no-build -- -m no_block_pr -n4 --dist worksteal integration_tests/functional/test_cpu_features_x86_64.py -k 'test_cpu_rdmsr' "
         ],
-        BkStep.LABEL: "📖 rdmsr",
+        BkStep.LABEL: "rdmsr",
         "instances": [
             "m5n.metal",
             "m6i.metal",
@@ -39,7 +39,7 @@ cpu_template_test = {
         BkStep.COMMAND: [
             "tools/devtool -y test --no-build -- -m no_block_pr integration_tests/functional/test_cpu_template_helper.py -k test_guest_cpu_config_change",
         ],
-        BkStep.LABEL: "🖐️ fingerprint",
+        BkStep.LABEL: "fingerprint",
     },
     "cpuid_wrmsr": {
         "snapshot": {
@@ -48,7 +48,7 @@ cpu_template_test = {
                 "mkdir -pv tests/snapshot_artifacts_upload/{instance}_{os}_{kv}",
                 "sudo mv tests/snapshot_artifacts/* tests/snapshot_artifacts_upload/{instance}_{os}_{kv}",
             ],
-            BkStep.LABEL: "📸 create snapshots",
+            BkStep.LABEL: "snapshot-create",
             BkStep.ARTIFACTS: "tests/snapshot_artifacts_upload/**/*",
             BkStep.TIMEOUT: 30,
         },
@@ -58,7 +58,7 @@ cpu_template_test = {
                 "mv tests/snapshot_artifacts_upload/{instance}_{os}_{kv} tests/snapshot_artifacts",
                 "tools/devtool -y test --no-build -- -m nonci -n4 --dist worksteal integration_tests/functional/test_cpu_features_x86_64.py -k 'test_cpu_wrmsr_restore or test_cpu_cpuid_restore'",
             ],
-            BkStep.LABEL: "📸 load snapshot artifacts created on {instance} {snapshot_os} {snapshot_kv} to {restore_instance} {restore_os} {restore_kv}",
+            BkStep.LABEL: "snapshot-restore-src-{instance}-{snapshot_os}-{snapshot_kv}-dst-{restore_instance}-{restore_os}-{restore_kv}",
             BkStep.TIMEOUT: 30,
         },
         "cross_instances": {
@@ -137,7 +137,7 @@ def group_snapshot_restore(test_step):
         )
 
     groups.append(
-        {"group": "📸 restores snapshots", "steps": steps, "depends_on": "snapshot"}
+        {"group": "snapshot-restore", "steps": steps, "depends_on": "snapshot"}
     )
     return groups
 

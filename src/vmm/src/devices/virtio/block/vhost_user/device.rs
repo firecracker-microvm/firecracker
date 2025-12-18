@@ -16,10 +16,9 @@ use vmm_sys_util::eventfd::EventFd;
 use super::{NUM_QUEUES, QUEUE_SIZE, VhostUserBlockError};
 use crate::devices::virtio::ActivateError;
 use crate::devices::virtio::block::CacheType;
-use crate::devices::virtio::device::{ActiveState, DeviceState, VirtioDevice};
+use crate::devices::virtio::device::{ActiveState, DeviceState, VirtioDevice, VirtioDeviceType};
 use crate::devices::virtio::generated::virtio_blk::{VIRTIO_BLK_F_FLUSH, VIRTIO_BLK_F_RO};
 use crate::devices::virtio::generated::virtio_config::VIRTIO_F_VERSION_1;
-use crate::devices::virtio::generated::virtio_ids::VIRTIO_ID_BLOCK;
 use crate::devices::virtio::generated::virtio_ring::VIRTIO_RING_F_EVENT_IDX;
 use crate::devices::virtio::queue::Queue;
 use crate::devices::virtio::transport::{VirtioInterrupt, VirtioInterruptType};
@@ -69,19 +68,20 @@ impl TryFrom<&BlockDeviceConfig> for VhostUserBlockConfig {
     type Error = VhostUserBlockError;
 
     fn try_from(value: &BlockDeviceConfig) -> Result<Self, Self::Error> {
-        if value.socket.is_some()
-            && value.is_read_only.is_none()
-            && value.path_on_host.is_none()
-            && value.rate_limiter.is_none()
-            && value.file_engine_type.is_none()
-        {
+        if let (Some(socket), None, None, None, None) = (
+            &value.socket,
+            &value.is_read_only,
+            &value.path_on_host,
+            &value.rate_limiter,
+            &value.file_engine_type,
+        ) {
             Ok(Self {
                 drive_id: value.drive_id.clone(),
                 partuuid: value.partuuid.clone(),
                 is_root_device: value.is_root_device,
                 cache_type: value.cache_type,
 
-                socket: value.socket.as_ref().unwrap().clone(),
+                socket: socket.clone(),
             })
         } else {
             Err(VhostUserBlockError::Config)
@@ -288,7 +288,11 @@ impl<T: VhostUserHandleBackend> VhostUserBlockImpl<T> {
 }
 
 impl<T: VhostUserHandleBackend + Send + 'static> VirtioDevice for VhostUserBlockImpl<T> {
-    impl_device_type!(VIRTIO_ID_BLOCK);
+    impl_device_type!(VirtioDeviceType::Block);
+
+    fn id(&self) -> &str {
+        &self.id
+    }
 
     fn avail_features(&self) -> u64 {
         self.avail_features

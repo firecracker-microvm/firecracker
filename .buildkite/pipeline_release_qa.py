@@ -14,7 +14,7 @@ pipeline = BKPipeline(with_build_step=False)
 
 pipeline.add_step(
     {
-        "label": "Download release",
+        "label": "download-release",
         "if": 'build.env("VERSION") != "dev"',
         "command": [
             "aws s3 sync --no-sign-request s3://spec.ccfc.min/firecracker-ci/firecracker/$$VERSION release-$$VERSION",
@@ -25,7 +25,7 @@ pipeline.add_step(
 )
 
 pipeline.build_group_per_arch(
-    ":building_construction: Make release",
+    "make-release",
     # if is a keyword for python, so we need this workaround to expand it as a kwarg
     **{"if": 'build.env("VERSION") == "dev"'},
     command=[
@@ -48,7 +48,7 @@ pipeline.build_group_per_arch(
 # The devtool expects the examples to be in the same folder as the binaries to run some tests
 # (for example, uffd handler tests). Build them and upload them in the same folder.
 pipeline.build_group_per_arch(
-    ":hammer_and_wrench: Build examples",
+    "build-examples",
     command=[
         "CARGO_TARGET=$$(uname -m)-unknown-linux-musl",
         "./tools/devtool -y sh cargo build --target $$CARGO_TARGET --release --examples",
@@ -63,7 +63,7 @@ pipeline.add_step("wait", depends_on_build=False)
 
 pipeline.add_step(
     {
-        "label": ":pipeline: PR",
+        "label": "run-pr-pipeline",
         "command": (
             ".buildkite/pipeline_pr.py --binary-dir release-$$VERSION "
             "| jq '(..|select(.priority? != null).priority) += 100' "
