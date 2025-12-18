@@ -115,6 +115,17 @@ struct vmclock_abi {
 	 * bit again after the update, using the about-to-be-valid fields.
 	 */
 #define VMCLOCK_FLAG_TIME_MONOTONIC		(1 << 7)
+	/*
+	 * If the VM_GEN_COUNTER_PRESENT flag is set, the hypervisor will
+	 * bump the vm_generation_counter field every time the guest is
+	 * loaded from some save state (restored from a snapshot).
+	 */
+#define VMCLOCK_FLAG_VM_GEN_COUNTER_PRESENT     (1 << 8)
+	/*
+	 * If the NOTIFICATION_PRESENT flag is set, the hypervisor will send
+	 * a notification every time it updates seq_count to a new even number.
+	 */
+#define VMCLOCK_FLAG_NOTIFICATION_PRESENT       (1 << 9)
 
 	__u8 pad[2];
 	__u8 clock_status;
@@ -177,6 +188,19 @@ struct vmclock_abi {
 	__le64 time_frac_sec;		/* Units of 1/2^64 of a second */
 	__le64 time_esterror_nanosec;
 	__le64 time_maxerror_nanosec;
+
+	/*
+	 * This field changes to another non-repeating value when the VM
+	 * is loaded from a snapshot. This event, typically, represents a
+	 * "jump" forward in time. As a result, in this case as well, the
+	 * guest needs to discard any calibrarion against external sources.
+	 * Loading a snapshot in a VM has different semantics than other VM
+	 * events such as live migration, i.e. apart from re-adjusting guest
+	 * clocks a guest user space might want to discard UUIDs, reset
+	 * network connections or reseed entropy, etc. As a result, we
+	 * use a dedicated marker for such events.
+	 */
+	__le64 vm_generation_counter;
 };
 
 #endif /*  __VMCLOCK_ABI_H__ */
