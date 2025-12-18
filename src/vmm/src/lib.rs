@@ -436,6 +436,12 @@ impl Vmm {
     /// Saves the state of a paused Microvm.
     pub fn save_state(&mut self, vm_info: &VmInfo) -> Result<MicrovmState, MicrovmStateError> {
         use self::MicrovmStateError::SaveVmState;
+        // We need to save device state before saving KVM state.
+        // Some devices, (at the time of writing this comment block device with async engine)
+        // might modify the VirtIO transport and send an interrupt to the guest. If we save KVM
+        // state before we save device state, that interrupt will never be delivered to the guest
+        // upon resuming from the snapshot.
+        let device_states = self.device_manager.save();
         let vcpu_states = self.save_vcpu_states()?;
         let kvm_state = self.kvm.save_state();
         let vm_state = {
@@ -450,7 +456,6 @@ impl Vmm {
                 self.vm.save_state(&mpidrs).map_err(SaveVmState)?
             }
         };
-        let device_states = self.device_manager.save();
 
         Ok(MicrovmState {
             vm_info: vm_info.clone(),
