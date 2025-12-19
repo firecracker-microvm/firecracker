@@ -184,7 +184,7 @@ function to [`.buildkite/pipeline_perf.py`](../.buildkite/pipeline_perf.py). To
 manually run an A/B-Test, use
 
 ```sh
-tools/devtool -y test --ab [optional arguments to ab_test.py] run <dir A> <dir B> --pytest-opts <test specification>
+tools/devtool -y test --ab [optional arguments to ab_test.py] run --binaries-a <dir A> --binaries-b <dir B> --pytest-opts <test specification>
 ```
 
 Here, _dir A_ and _dir B_ are directories containing firecracker and jailer
@@ -452,9 +452,9 @@ there. `pytest` will bring them into scope for all your tests.
 
 `Q4:` *I want to use more/other microvm test images, but I don't want to add
 them to the common s3 bucket.*\
-`A4:` Add your custom images to the `build/img` subdirectory in the Firecracker
-source tree. This directory is bind-mounted in the container and used as a local
-image cache.
+`A4:` Add your custom images to the `build/artifacts` subdirectory in the
+Firecracker source tree. This directory is bind-mounted in the container and
+used as a local image cache.
 
 `Q5:` *How can I get live logger output from the tests?*\
 `A5:` Accessing **pytest.ini** will allow you to modify logger settings.

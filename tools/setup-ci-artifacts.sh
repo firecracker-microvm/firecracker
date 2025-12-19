@@ -9,7 +9,7 @@ TOOLS_DIR=$(dirname $0)
 source "$TOOLS_DIR/functions"
 
 say "Setup CI artifacts"
-cd build/img/$(uname -m)
+cd $1
 
 say "Fix executable permissions"
 find "firecracker" -type f |xargs chmod -c 755

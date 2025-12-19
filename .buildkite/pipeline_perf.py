@@ -94,11 +94,16 @@ perf_test = {
 
 REVISION_A = os.environ.get("REVISION_A")
 REVISION_B = os.environ.get("REVISION_B")
+REVISION_A_ARTIFACTS = os.environ.get("REVISION_A_ARTIFACTS")
+REVISION_B_ARTIFACTS = os.environ.get("REVISION_B_ARTIFACTS")
 
 # Either both are specified or neither. Only doing either is a bug. If you want to
 # run performance tests _on_ a specific commit, specify neither and put your commit
 # into buildkite's "commit" field.
 assert (REVISION_A and REVISION_B) or (not REVISION_A and not REVISION_B)
+assert (REVISION_A_ARTIFACTS and REVISION_B_ARTIFACTS) or (
+    not REVISION_A_ARTIFACTS and not REVISION_B_ARTIFACTS
+)
 
 BKPipeline.parser.add_argument(
     "--test",
@@ -132,17 +137,26 @@ for test in tests:
     ab_opts = test.pop("ab_opts", "")
     devtool_opts += " --performance"
     test_script_opts = ""
+    artifacts = []
     if REVISION_A:
         devtool_opts += " --ab"
-        test_script_opts = f'{ab_opts} run build/{REVISION_A}/ build/{REVISION_B} --pytest-opts "{test_selector}"'
+        test_script_opts = f'{ab_opts} run --binaries-a build/{REVISION_A}/ --binaries-b build/{REVISION_B} --pytest-opts "{test_selector}"'
+        if REVISION_A_ARTIFACTS:
+            artifacts.append(REVISION_A_ARTIFACTS)
+            artifacts.append(REVISION_B_ARTIFACTS)
+            test_script_opts += f" --artifacts-a {REVISION_A_ARTIFACTS} --artifacts-b {REVISION_B_ARTIFACTS}"
     else:
         # Passing `-m ''` below instructs pytest to collect tests regardless of
         # their markers (e.g. it will collect both tests marked as nonci, and
         # tests without any markers).
         test_script_opts += f" -m '' {test_selector}"
 
+    command = []
+    if artifacts:
+        command.append(pipeline.devtool_download_artifacts(artifacts))
+    command.extend(pipeline.devtool_test(devtool_opts, test_script_opts))
     pipeline.build_group(
-        command=pipeline.devtool_test(devtool_opts, test_script_opts),
+        command=command,
         # and the rest can be command arguments
         **test,
     )

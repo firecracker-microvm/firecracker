@@ -22,7 +22,6 @@ designed with the following goals in mind:
 import inspect
 import json
 import os
-import platform
 import shutil
 import sys
 import tempfile
@@ -33,7 +32,7 @@ import pytest
 import host_tools.cargo_build as build_tools
 from framework import defs, utils
 from framework.artifacts import disks, kernel_params
-from framework.defs import DEFAULT_BINARY_DIR
+from framework.defs import ARTIFACT_DIR, DEFAULT_BINARY_DIR
 from framework.microvm import HugePagesConfig, MicroVMFactory, SnapshotType
 from framework.properties import global_props
 from framework.utils_cpu_templates import (
@@ -399,7 +398,7 @@ def microvm_factory(request, record_property, results_dir, netns_factory):
             uvm_data.joinpath("host-dmesg.log").write_text(
                 utils.run_cmd(["dmesg", "-dPx"]).stdout
             )
-            shutil.copy(f"/firecracker/build/img/{platform.machine()}/id_rsa", uvm_data)
+            shutil.copy(ARTIFACT_DIR / "id_rsa", uvm_data)
             if Path(uvm.screen_log).exists():
                 shutil.copy(uvm.screen_log, uvm_data)
 

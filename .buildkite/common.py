@@ -376,6 +376,12 @@ class BKPipeline:
         """Serialize the pipeline to JSON"""
         return json.dumps(self.to_dict(), indent=4, sort_keys=True, ensure_ascii=False)
 
+    def devtool_download_artifacts(self, artifacts):
+        """Generate a `devtool download_ci_artifacts` command"""
+        parts = ["./tools/devtool -y download_ci_artifacts"]
+        parts += artifacts
+        return " ".join(parts)
+
     def devtool_test(self, devtool_opts=None, pytest_opts=None):
         """Generate a `devtool test` command"""
         cmds = []
