@@ -84,8 +84,6 @@ impl MacAddr {
     /// * `src` - slice from which to copy MAC address content.
     #[inline]
     pub fn from_bytes_unchecked(src: &[u8]) -> MacAddr {
-        // TODO: using something like std::mem::uninitialized could avoid the extra initialization,
-        // if this ever becomes a performance bottleneck.
         let mut bytes = [0u8; MAC_ADDR_LEN as usize];
         bytes[..].copy_from_slice(src);
 

@@ -586,10 +586,6 @@ impl VsockMuxer {
 
     /// Allocate a host-side port to be assigned to a new host-initiated connection.
     fn allocate_local_port(&mut self) -> u32 {
-        // TODO: this doesn't seem very space-efficient.
-        // Mybe rewrite this to limit port range and use a bitmap?
-        //
-
         loop {
             self.local_port_last = (self.local_port_last + 1) & !(1 << 31) | (1 << 30);
             if self.local_port_set.insert(self.local_port_last) {
