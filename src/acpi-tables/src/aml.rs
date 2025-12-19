@@ -160,8 +160,6 @@ pub struct Name {
 
 impl Aml for Name {
     fn append_aml_bytes(&self, bytes: &mut Vec<u8>) -> Result<(), AmlError> {
-        // TODO: Refactor this to make more efficient but there are
-        // lifetime/ownership challenges.
         bytes.extend_from_slice(&self.bytes);
         Ok(())
     }

@@ -18,6 +18,11 @@ and this project adheres to
 
 ### Fixed
 
+- [#5594](https://github.com/firecracker-microvm/firecracker/pull/5594): Fixed
+  rate limiter bucket updates to preserve budget and one-time burst state
+  (capped at new bucket limits if smaller) instead of resetting to full
+  capacity.
+
 ## [v1.14.0]
 
 ### Added
