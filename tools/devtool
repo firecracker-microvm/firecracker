@@ -460,6 +460,10 @@ cmd_help() {
     echo "        like `download_ci_artifacts` cmd. Alternatively it is possible to manually write local "
     echo "        path to artifacts directory into $LOCAL_ARTIFACTS_CURRENT_DIR_FILE file"
     echo ""
+    echo "    ensure_current_artifacts_are_set_up"
+    echo "        Makes sure there are some artifacts setup as current ones. If no current artifacts are setup"
+    echo "        downloads latest artifacts and sets them up as current."
+    echo ""
 
     cat <<EOF
     test_debug [-- [<pytest args>]]
@@ -633,7 +637,7 @@ cmd_set_current_artifacts() {
     fi
 }
 
-ensure_current_artifacts_are_set_up() {
+cmd_ensure_current_artifacts_are_set_up() {
   if [ -f $LOCAL_ARTIFACTS_CURRENT_DIR_FILE ]; then
     say "Current artifacts already setup at " $(cat $LOCAL_ARTIFACTS_CURRENT_DIR_FILE)
   else
@@ -824,7 +828,7 @@ cmd_test() {
     [ $do_kvm_check != 0 ] && ensure_kvm
     ensure_devctr
     [ $do_build_dir_check != 0 ] && ensure_build_dir
-    [ $do_artifacts_check != 0 ] && ensure_current_artifacts_are_set_up
+    [ $do_artifacts_check != 0 ] && cmd_ensure_current_artifacts_are_set_up
 
     if [ $do_build != 0 ]; then
       cmd_build --release
@@ -1006,7 +1010,7 @@ cmd_sh() {
 
 cmd_sandbox() {
     cmd_build --release
-    ensure_current_artifacts_are_set_up
+    cmd_ensure_current_artifacts_are_set_up
     cmd_sh "tmux new env PYTEST_ADDOPTS=--pdbcls=IPython.terminal.debugger:TerminalPdb PYTHONPATH=tests IPYTHONDIR=\$PWD/.ipython ipython -i ./tools/sandbox.py $@"
     cmd_fix_perms ".ipython"
 }
@@ -1028,12 +1032,12 @@ cmd_sandbox_native() {
     pip3.11 install ipython requests requests_unixsocket2 psutil tenacity filelock
     pip3.11 install jsonschema aws_embedded_metrics
     pip3.11 install packaging pytest
-    ensure_current_artifacts_are_set_up
+    cmd_ensure_current_artifacts_are_set_up
     tmux neww sudo --preserve-env=HOME,PATH,TMUX env PYTHONPATH=tests IPYTHONDIR=\$PWD/.ipython ipython -i ./tools/sandbox.py $@
 }
 
 cmd_test_debug() {
-    ensure_current_artifacts_are_set_up
+    cmd_ensure_current_artifacts_are_set_up
     cmd_sh "tmux new ./tools/test.sh --pdb $@"
 }
 
