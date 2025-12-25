@@ -18,8 +18,10 @@
 use std::collections::{HashMap, VecDeque};
 
 use super::super::VsockChannel;
+use super::defs;
 use super::muxer::{ConnMapKey, MuxerRx};
-use super::{MuxerConnection, defs};
+use crate::devices::virtio::vsock::csm::{VsockConnection, VsockConnectionBackend};
+use crate::devices::virtio::vsock::unix::MuxerConn;
 
 /// The muxer RX queue.
 #[derive(Debug)]
@@ -45,7 +47,7 @@ impl MuxerRxQ {
     /// Note: the resulting queue may still be desynchronized, if there are too many connections
     ///       that have pending RX data. In that case, the muxer will first drain this queue, and
     ///       then try again to build a synchronized one.
-    pub fn from_conn_map(conn_map: &HashMap<ConnMapKey, MuxerConnection>) -> Self {
+    pub fn from_conn_map(conn_map: &HashMap<ConnMapKey, MuxerConn>) -> Self {
         let mut q = VecDeque::new();
         let mut synced = true;
 

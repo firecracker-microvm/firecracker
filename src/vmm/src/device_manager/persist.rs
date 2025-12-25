@@ -636,7 +636,7 @@ mod tests {
     use crate::vmm_config::memory_hotplug::MemoryHotplugConfig;
     use crate::vmm_config::net::NetworkInterfaceConfig;
     use crate::vmm_config::pmem::PmemConfig;
-    use crate::vmm_config::vsock::VsockDeviceConfig;
+    use crate::vmm_config::vsock::{VsockDeviceConfig, VsockType};
 
     impl<T> PartialEq for VirtioDeviceState<T> {
         fn eq(&self, other: &VirtioDeviceState<T>) -> bool {
@@ -734,6 +734,7 @@ mod tests {
                 vsock_id: Some(vsock_dev_id.to_string()),
                 guest_cid: 3,
                 uds_path: tmp_sock_file.as_path().to_str().unwrap().to_string(),
+                vsock_type: VsockType::Stream,
             };
             insert_vsock_device(&mut vmm, &mut cmdline, &mut event_manager, vsock_config);
             // Add an entropy device.

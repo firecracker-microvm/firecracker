@@ -10,10 +10,20 @@
 mod muxer;
 mod muxer_killq;
 mod muxer_rxq;
+mod seqpacket;
+use std::os::fd::AsRawFd as _;
+use std::os::unix::net::UnixStream;
+use std::time::Instant;
 
 pub use muxer::VsockMuxer as VsockUnixBackend;
+use vm_memory::io::{ReadVolatile, WriteVolatile};
+use vmm_sys_util::epoll::EventSet;
 
-use crate::devices::virtio::vsock::csm::VsockConnectionBackend;
+use crate::devices::VsockError;
+use crate::devices::virtio::vsock::csm::{ConnState, VsockConnectionBackend, VsockCsmError};
+use crate::devices::virtio::vsock::packet::{VsockPacketRx, VsockPacketTx};
+use crate::devices::virtio::vsock::unix::seqpacket::SeqpacketConn;
+use crate::devices::virtio::vsock::{VsockChannel as _, VsockEpollListener};
 
 mod defs {
     /// Maximum number of established connections that we can handle.
@@ -47,6 +57,85 @@ pub enum VsockUnixBackendError {
     TooManyConnections,
 }
 
-type MuxerConnection = super::csm::VsockConnection<std::os::unix::net::UnixStream>;
+type MuxerStreamConnection = super::csm::VsockConnection<UnixStream>;
+type MuxerSeqpacketConnetion = super::csm::VsockConnection<SeqpacketConn>;
 
-impl VsockConnectionBackend for std::os::unix::net::UnixStream {}
+#[derive(Debug)]
+enum MuxerConn {
+    Stream(MuxerStreamConnection),
+    Seqpacket(MuxerSeqpacketConnetion),
+}
+
+macro_rules! forward_to_inner {
+    ($self:ident, $method:ident $(, $args:expr )* ) => {
+        match $self {
+            MuxerConn::Stream(inner) => inner.$method($($args),*),
+            MuxerConn::Seqpacket(inner) => inner.$method($($args),*),
+        }
+    };
+}
+
+impl MuxerConn {
+    fn has_pending_rx(&self) -> bool {
+        forward_to_inner!(self, has_pending_rx)
+    }
+
+    fn as_raw_fd(&self) -> i32 {
+        forward_to_inner!(self, as_raw_fd)
+    }
+
+    fn kill(&mut self) {
+        forward_to_inner!(self, kill)
+    }
+
+    fn get_polled_evset(&self) -> EventSet {
+        forward_to_inner!(self, get_polled_evset)
+    }
+
+    fn will_expire(&self) -> bool {
+        forward_to_inner!(self, will_expire)
+    }
+
+    fn has_expired(&self) -> bool {
+        forward_to_inner!(self, has_expired)
+    }
+
+    fn send_bytes_raw(&mut self, buf: &[u8]) -> Result<usize, VsockCsmError> {
+        forward_to_inner!(self, send_bytes_raw, buf)
+    }
+
+    fn state(&self) -> ConnState {
+        forward_to_inner!(self, state)
+    }
+
+    fn expiry(&self) -> Option<Instant> {
+        forward_to_inner!(self, expiry)
+    }
+
+    fn recv_pkt(&mut self, pkt: &mut VsockPacketRx) -> Result<(), VsockError> {
+        forward_to_inner!(self, recv_pkt, pkt)
+    }
+
+    fn send_pkt(&mut self, pkt: &VsockPacketTx) -> Result<(), VsockError> {
+        forward_to_inner!(self, send_pkt, pkt)
+    }
+
+    fn notify(&mut self, evset: EventSet) {
+        forward_to_inner!(self, notify, evset)
+    }
+}
+
+#[cfg(test)]
+impl MuxerConn {
+    pub(crate) fn fwd_cnt(&self) -> std::num::Wrapping<u32> {
+        forward_to_inner!(self, fwd_cnt)
+    }
+
+    pub(crate) fn insert_credit_update(&mut self) {
+        forward_to_inner!(self, insert_credit_update)
+    }
+}
+
+impl VsockConnectionBackend for UnixStream {}
+
+impl VsockConnectionBackend for SeqpacketConn {}

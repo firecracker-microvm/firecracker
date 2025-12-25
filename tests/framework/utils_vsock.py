@@ -31,14 +31,15 @@ class HostEchoWorker(Thread):
     contents of `blob_path`.
     """
 
-    def __init__(self, uds_path, blob_path):
+    def __init__(self, uds_path, blob_path, type=SOCK_STREAM):
         """."""
         super().__init__()
         self.uds_path = uds_path
         self.blob_path = blob_path
         self.hash = None
+        self.type = type
         self.error = None
-        self.sock = _vsock_connect_to_guest(self.uds_path, ECHO_SERVER_PORT)
+        self.sock = _vsock_connect_to_guest(self.uds_path, ECHO_SERVER_PORT, self.type)
 
     def run(self):
         """Thread code payload.
@@ -202,9 +203,9 @@ def make_host_port_path(uds_path, port):
     return "{}_{}".format(uds_path, port)
 
 
-def _vsock_connect_to_guest(uds_path, port):
+def _vsock_connect_to_guest(uds_path, port, type):
     """Return a Unix socket, connected to the guest vsock port `port`."""
-    sock = socket(AF_UNIX, SOCK_STREAM)
+    sock = socket(AF_UNIX, type)
     sock.connect(uds_path)
 
     buf = bytearray("CONNECT {}\n".format(port).encode("utf-8"))
