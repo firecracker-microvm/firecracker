@@ -3,7 +3,7 @@
 
 use std::io;
 use std::io::{ErrorKind, Read, Write};
-use std::os::fd::{AsRawFd, IntoRawFd, RawFd};
+use std::os::fd::{AsRawFd, FromRawFd, IntoRawFd, OwnedFd, RawFd};
 use std::os::unix::net::UnixListener;
 
 use libc::{
@@ -14,13 +14,13 @@ use libc::{
 use uds::{UnixSeqpacketConn, UnixSeqpacketListener};
 use vm_memory::{ReadVolatile, VolatileMemoryError, WriteVolatile};
 
-use crate::devices::virtio::vsock::csm::VsockConnectionBackend;
+use crate::devices::virtio::vsock::unix::ConnBackend;
 
 #[derive(Debug)]
-pub struct SeqpacketConn(std::os::fd::RawFd);
+pub struct SeqpacketConn(std::os::fd::OwnedFd);
 
 impl SeqpacketConn {
-    pub fn new(fd: RawFd) -> Self {
+    pub fn new(fd: OwnedFd) -> Self {
         SeqpacketConn(fd)
     }
 }
@@ -50,7 +50,8 @@ impl AsRawFd for SeqpacketConn {
 impl Read for SeqpacketConn {
     fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
         let ptr = buf.as_mut_ptr().cast::<c_void>();
-        // SAFETY: The file descriptor is valid and open. The buffer pointer is valid for writing `buf.len()` bytes.
+        // SAFETY: The file descriptor is valid and open. The buffer pointer is valid for writing
+        // `buf.len()` bytes.
         let received = cvt_r!(unsafe { recv(self.0.as_raw_fd(), ptr, buf.len(), MSG_NOSIGNAL) })?;
         Ok(received.try_into().unwrap())
     }
@@ -60,7 +61,8 @@ impl Write for SeqpacketConn {
     fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
         let ptr = buf.as_ptr().cast::<c_void>();
         let flags = MSG_NOSIGNAL | MSG_EOR;
-        // SAFETY: The file descriptor is valid and open. The buffer pointer is valid for reading `buf.len()` bytes.
+        // SAFETY: The file descriptor is valid and open. The buffer pointer is valid for reading
+        // `buf.len()` bytes.
         let sent = cvt_r!(unsafe { send(self.0.as_raw_fd(), ptr, buf.len(), flags) })?;
         Ok(sent.try_into().unwrap())
     }
@@ -137,21 +139,25 @@ impl AsRawFd for SeqpacketListener {
 }
 
 pub trait Socket: AsRawFd + std::fmt::Debug {
-    fn accept(&self) -> Result<RawFd, io::Error>;
+    fn accept(&self) -> Result<ConnBackend, io::Error>;
 }
 
 impl Socket for SeqpacketListener {
-    fn accept(&self) -> Result<RawFd, io::Error> {
+    fn accept(&self) -> Result<ConnBackend, io::Error> {
         let (sock, _) = self.0.accept_unix_addr()?;
         sock.set_nonblocking(true);
-        Ok(sock.into_raw_fd())
+        // SAFETY: There's no way this file descriptor is invalid or closed
+        // because we only created it in the above line
+        Ok(ConnBackend::Seqpacket(SeqpacketConn::new(unsafe {
+            OwnedFd::from_raw_fd(sock.as_raw_fd())
+        })))
     }
 }
 
 impl Socket for UnixListener {
-    fn accept(&self) -> Result<RawFd, io::Error> {
+    fn accept(&self) -> Result<ConnBackend, io::Error> {
         let (conn, _) = self.accept()?;
         conn.set_nonblocking(true);
-        Ok(conn.into_raw_fd())
+        Ok(ConnBackend::Stream(conn))
     }
 }

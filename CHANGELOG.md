@@ -12,9 +12,9 @@ and this project adheres to
 
 ### Changed
 
-- [#5595](https://github.com/firecracker-microvm/firecracker/pull/5595): Added `vsock_type` 
-field to the vsock device API to denote the type of the underlying socket. Can be `stream`
-or `seqpacket`
+- [#5595](https://github.com/firecracker-microvm/firecracker/pull/5595): Added
+  `vsock_type` field to the vsock device API to denote the type of the
+  underlying socket. Can be `stream` or `seqpacket`
 
 ### Deprecated
 

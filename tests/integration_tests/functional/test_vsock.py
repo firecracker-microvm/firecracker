@@ -205,10 +205,9 @@ def test_vsock_transport_reset_h2g(
             # it shouldn't receive anything.
             worker.sock.settimeout(0.25)
             response = worker.sock.recv(32)
-            assert response == b"", (
-                f"Connection not closed: response received '{response.decode('utf-8')}'"
-            )
-
+            assert (
+                response == b""
+            ), f"Connection not closed: response received '{response.decode('utf-8')}'"
         except (SocketTimeout, ConnectionResetError, BrokenPipeError):
             pass
 

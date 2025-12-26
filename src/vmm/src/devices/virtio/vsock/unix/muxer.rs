@@ -46,12 +46,12 @@ use super::super::defs::uapi;
 use super::super::{VsockBackend, VsockChannel, VsockEpollListener, VsockError};
 use super::muxer_killq::MuxerKillQ;
 use super::muxer_rxq::MuxerRxQ;
-use super::{MuxerStreamConnection, VsockUnixBackendError, defs};
-use crate::devices::virtio::vsock::csm::{VsockConnection, VsockConnectionBackend};
+use super::{VsockUnixBackendError, defs};
+use crate::devices::virtio::vsock::csm::VsockConnection;
 use crate::devices::virtio::vsock::defs::uapi::{VSOCK_TYPE_SEQPACKET, VSOCK_TYPE_STREAM};
 use crate::devices::virtio::vsock::metrics::METRICS;
 use crate::devices::virtio::vsock::packet::{VsockPacketRx, VsockPacketTx};
-use crate::devices::virtio::vsock::unix::MuxerConn;
+use crate::devices::virtio::vsock::unix::ConnBackend;
 use crate::devices::virtio::vsock::unix::seqpacket::{SeqpacketConn, SeqpacketListener, Socket};
 use crate::logger::IncMetric;
 use crate::vmm_config::vsock::VsockType;
@@ -84,7 +84,7 @@ enum EpollListener {
     HostSock,
     /// A listener interested in reading host `connect <port>` commands from a freshly
     /// connected host socket.
-    LocalStream(RawFd),
+    LocalStream(ConnBackend),
 }
 
 /// The vsock connection multiplexer.
@@ -93,7 +93,7 @@ pub struct VsockMuxer {
     /// Guest CID.
     cid: u64,
     /// A hash map used to store the active connections.
-    conn_map: HashMap<ConnMapKey, MuxerConn>,
+    conn_map: HashMap<ConnMapKey, VsockConnection<ConnBackend>>,
     /// the underlying host socket file descriptor type wrapper
     host_sock: Box<dyn Socket>,
     /// A hash map used to store epoll event listeners / handlers.
@@ -403,7 +403,7 @@ impl VsockMuxer {
                     self.host_sock.accept().map(|_| 0).unwrap_or(0);
                     return;
                 }
-                self.host_sock // calling accept on this file descriptor errors?
+                self.host_sock
                     .accept()
                     .map_err(VsockUnixBackendError::UnixAccept)
                     .and_then(|stream| {
@@ -411,10 +411,7 @@ impl VsockMuxer {
                         // the guest side, we need to know the destination port. We'll read
                         // that port from a "connect" command received on this socket, so the
                         // next step is to ask to be notified the moment we can read from it.
-                        self.add_listener(
-                            stream.as_raw_fd(),
-                            EpollListener::LocalStream(stream.as_raw_fd()),
-                        )
+                        self.add_listener(stream.as_raw_fd(), EpollListener::LocalStream(stream))
                     })
                     .unwrap_or_else(|err| {
                         warn!("vsock: unable to accept local connection: {:?}", err);
@@ -424,62 +421,28 @@ impl VsockMuxer {
             // Data is ready to be read from a host-initiated connection. That would be the
             // "connect" command that we're expecting.
             Some(EpollListener::LocalStream(_)) => {
-                if let Some(EpollListener::LocalStream(fd)) = self.remove_listener(fd) {
-                    match self.vsock_type {
-                        VsockType::Stream => {
-                            // SAFETY: Safe because the fd is valid and we own it (removed from listener_map).
-                            let mut stream = unsafe { UnixStream::from_raw_fd(fd) };
-                            Self::read_local_stream_port(&mut stream)
-                                .map(|peer_port| (self.allocate_local_port(), peer_port))
-                                .and_then(|(local_port, peer_port)| {
-                                    self.add_connection(
-                                        ConnMapKey {
-                                            local_port,
-                                            peer_port,
-                                        },
-                                        MuxerConn::Stream(
-                                            VsockConnection::<UnixStream>::new_local_init(
-                                                stream,
-                                                uapi::VSOCK_HOST_CID,
-                                                self.cid,
-                                                local_port,
-                                                peer_port,
-                                                VsockType::Stream,
-                                            ),
-                                        ),
-                                    )
-                                })
-                                .unwrap_or_else(|err| {
-                                    info!("vsock: error adding local-init connection: {:?}", err);
-                                })
-                        }
-                        VsockType::Seqpacket => {
-                            let mut stream = SeqpacketConn::new(fd);
-                            Self::read_local_stream_port(&mut stream)
-                                .map(|peer_port| (self.allocate_local_port(), peer_port))
-                                .and_then(|(local_port, peer_port)| {
-                                    self.add_connection(
-                                        ConnMapKey {
-                                            local_port,
-                                            peer_port,
-                                        },
-                                        MuxerConn::Seqpacket(
-                                            VsockConnection::<SeqpacketConn>::new_local_init(
-                                                stream,
-                                                uapi::VSOCK_HOST_CID,
-                                                self.cid,
-                                                local_port,
-                                                peer_port,
-                                                VsockType::Seqpacket,
-                                            ),
-                                        ),
-                                    )
-                                })
-                                .unwrap_or_else(|err| {
-                                    info!("vsock: error adding local-init connection: {:?}", err);
-                                })
-                        }
-                    };
+                if let Some(EpollListener::LocalStream(mut stream)) = self.remove_listener(fd) {
+                    Self::read_local_stream_port(&mut stream)
+                        .map(|peer_port| (self.allocate_local_port(), peer_port))
+                        .and_then(|(local_port, peer_port)| {
+                            self.add_connection(
+                                ConnMapKey {
+                                    local_port,
+                                    peer_port,
+                                },
+                                VsockConnection::new_local_init(
+                                    stream,
+                                    uapi::VSOCK_HOST_CID,
+                                    self.cid,
+                                    local_port,
+                                    peer_port,
+                                    self.vsock_type.clone(),
+                                ),
+                            )
+                        })
+                        .unwrap_or_else(|err| {
+                            info!("vsock: error adding local-init connection: {:?}", err);
+                        });
                 }
             }
 
@@ -547,7 +510,7 @@ impl VsockMuxer {
     fn add_connection(
         &mut self,
         key: ConnMapKey,
-        conn: MuxerConn,
+        conn: VsockConnection<ConnBackend>,
     ) -> Result<(), VsockUnixBackendError> {
         // We might need to make room for this new connection, so let's sweep the kill queue
         // first.  It's fine to do this here because:
@@ -695,15 +658,15 @@ impl VsockMuxer {
                                 local_port: pkt.hdr.dst_port(),
                                 peer_port: pkt.hdr.src_port(),
                             },
-                            MuxerConn::Stream(VsockConnection::<UnixStream>::new_peer_init(
-                                stream,
+                            VsockConnection::<ConnBackend>::new_peer_init(
+                                ConnBackend::Stream(stream),
                                 uapi::VSOCK_HOST_CID,
                                 self.cid,
                                 pkt.hdr.dst_port(),
                                 pkt.hdr.src_port(),
                                 pkt.hdr.buf_alloc(),
                                 VsockType::Stream,
-                            )),
+                            ),
                         )
                     })
                     .unwrap_or_else(|_| self.enq_rst(pkt.hdr.dst_port(), pkt.hdr.src_port()));
@@ -718,15 +681,19 @@ impl VsockMuxer {
                                 local_port: pkt.hdr.dst_port(),
                                 peer_port: pkt.hdr.src_port(),
                             },
-                            MuxerConn::Seqpacket(VsockConnection::<SeqpacketConn>::new_peer_init(
-                                SeqpacketConn::new(stream.into_raw_fd()),
+                            VsockConnection::<ConnBackend>::new_peer_init(
+                                // SAFETY: There's no way this file descriptor is invalid or closed
+                                // because we only created it in the above line
+                                ConnBackend::Seqpacket(SeqpacketConn::new(unsafe {
+                                    OwnedFd::from_raw_fd(stream.into_raw_fd())
+                                })),
                                 uapi::VSOCK_HOST_CID,
                                 self.cid,
                                 pkt.hdr.dst_port(),
                                 pkt.hdr.src_port(),
                                 pkt.hdr.buf_alloc(),
                                 VsockType::Seqpacket,
-                            )),
+                            ),
                         )
                     })
                     .unwrap_or_else(|_| self.enq_rst(pkt.hdr.dst_port(), pkt.hdr.src_port()));
@@ -743,7 +710,7 @@ impl VsockMuxer {
     /// - kill the connection if an unrecoverable error occurs.
     fn apply_conn_mutation<F>(&mut self, key: ConnMapKey, mut_fn: F)
     where
-        F: FnOnce(&mut MuxerConn),
+        F: FnOnce(&mut VsockConnection<ConnBackend>),
     {
         if let Some(conn) = self.conn_map.get_mut(&key) {
             let had_rx = conn.has_pending_rx();

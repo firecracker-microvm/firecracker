@@ -11,7 +11,8 @@ mod muxer;
 mod muxer_killq;
 mod muxer_rxq;
 mod seqpacket;
-use std::os::fd::AsRawFd as _;
+use std::io::{self, Read, Write};
+use std::os::fd::AsRawFd;
 use std::os::unix::net::UnixStream;
 use std::time::Instant;
 
@@ -57,85 +58,58 @@ pub enum VsockUnixBackendError {
     TooManyConnections,
 }
 
-type MuxerStreamConnection = super::csm::VsockConnection<UnixStream>;
-type MuxerSeqpacketConnetion = super::csm::VsockConnection<SeqpacketConn>;
-
 #[derive(Debug)]
-enum MuxerConn {
-    Stream(MuxerStreamConnection),
-    Seqpacket(MuxerSeqpacketConnetion),
+pub enum ConnBackend {
+    Stream(UnixStream),
+    Seqpacket(SeqpacketConn),
 }
-
+// can we make vsockconnection instead of being generic, hold an enum ?
 macro_rules! forward_to_inner {
     ($self:ident, $method:ident $(, $args:expr )* ) => {
         match $self {
-            MuxerConn::Stream(inner) => inner.$method($($args),*),
-            MuxerConn::Seqpacket(inner) => inner.$method($($args),*),
+            ConnBackend::Stream(inner) => inner.$method($($args),*),
+            ConnBackend::Seqpacket(inner) => inner.$method($($args),*),
         }
     };
 }
 
-impl MuxerConn {
-    fn has_pending_rx(&self) -> bool {
-        forward_to_inner!(self, has_pending_rx)
+impl Read for ConnBackend {
+    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+        forward_to_inner!(self, read, buf)
     }
+}
 
+impl AsRawFd for ConnBackend {
     fn as_raw_fd(&self) -> i32 {
         forward_to_inner!(self, as_raw_fd)
     }
+}
 
-    fn kill(&mut self) {
-        forward_to_inner!(self, kill)
-    }
-
-    fn get_polled_evset(&self) -> EventSet {
-        forward_to_inner!(self, get_polled_evset)
-    }
-
-    fn will_expire(&self) -> bool {
-        forward_to_inner!(self, will_expire)
-    }
-
-    fn has_expired(&self) -> bool {
-        forward_to_inner!(self, has_expired)
-    }
-
-    fn send_bytes_raw(&mut self, buf: &[u8]) -> Result<usize, VsockCsmError> {
-        forward_to_inner!(self, send_bytes_raw, buf)
-    }
-
-    fn state(&self) -> ConnState {
-        forward_to_inner!(self, state)
-    }
-
-    fn expiry(&self) -> Option<Instant> {
-        forward_to_inner!(self, expiry)
-    }
-
-    fn recv_pkt(&mut self, pkt: &mut VsockPacketRx) -> Result<(), VsockError> {
-        forward_to_inner!(self, recv_pkt, pkt)
-    }
-
-    fn send_pkt(&mut self, pkt: &VsockPacketTx) -> Result<(), VsockError> {
-        forward_to_inner!(self, send_pkt, pkt)
-    }
-
-    fn notify(&mut self, evset: EventSet) {
-        forward_to_inner!(self, notify, evset)
+impl ReadVolatile for ConnBackend {
+    fn read_volatile<B: vm_memory::bitmap::BitmapSlice>(
+        &mut self,
+        buf: &mut vm_memory::VolatileSlice<B>,
+    ) -> Result<usize, vm_memory::VolatileMemoryError> {
+        forward_to_inner!(self, read_volatile, buf)
     }
 }
 
-#[cfg(test)]
-impl MuxerConn {
-    pub(crate) fn fwd_cnt(&self) -> std::num::Wrapping<u32> {
-        forward_to_inner!(self, fwd_cnt)
-    }
-
-    pub(crate) fn insert_credit_update(&mut self) {
-        forward_to_inner!(self, insert_credit_update)
+impl WriteVolatile for ConnBackend {
+    fn write_volatile<B: vm_memory::bitmap::BitmapSlice>(
+        &mut self,
+        buf: &vm_memory::VolatileSlice<B>,
+    ) -> Result<usize, vm_memory::VolatileMemoryError> {
+        forward_to_inner!(self, write_volatile, buf)
     }
 }
 
-impl VsockConnectionBackend for UnixStream {}
+impl Write for ConnBackend {
+    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+        forward_to_inner!(self, write, buf)
+    }
+    fn flush(&mut self) -> io::Result<()> {
+        Ok(())
+    }
+}
 
-impl VsockConnectionBackend for SeqpacketConn {}
+impl VsockConnectionBackend for ConnBackend {}

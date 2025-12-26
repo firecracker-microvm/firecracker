@@ -140,7 +140,7 @@ pub struct VsockConnection<S: VsockConnectionBackend> {
     /// Instant when this connection should be scheduled for immediate termination, due to some
     /// timeout condition having been fulfilled.
     expiry: Option<Instant>,
-    /// Vsock type (stream or seqpacket)
+    /// The type of the underlying socket connection
     vsock_type: VsockType,
 }
 
