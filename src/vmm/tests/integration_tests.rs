@@ -28,7 +28,7 @@ use vmm::vmm_config::net::NetworkInterfaceConfig;
 use vmm::vmm_config::snapshot::{
     CreateSnapshotParams, LoadSnapshotParams, MemBackendConfig, MemBackendType, SnapshotType,
 };
-use vmm::vmm_config::vsock::VsockDeviceConfig;
+use vmm::vmm_config::vsock::{VsockDeviceConfig, VsockType};
 use vmm::{DumpCpuConfigError, EventManager, FcExitCode, Vmm};
 use vmm_sys_util::tempfile::TempFile;
 
@@ -442,6 +442,7 @@ fn test_preboot_load_snap_disallowed_after_boot_resources() {
         vsock_id: Some(String::new()),
         guest_cid: 0,
         uds_path: String::new(),
+        vsock_type: VsockType::Stream,
     });
     verify_load_snap_disallowed_after_boot_resources(req, "SetVsockDevice");
 

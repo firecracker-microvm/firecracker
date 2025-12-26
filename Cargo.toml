@@ -33,6 +33,7 @@ or_fun_call = "warn"
 
 [profile.dev]
 panic = "abort"
+incremental = true
 
 [profile.release]
 panic = "abort"
