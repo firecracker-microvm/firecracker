@@ -754,11 +754,12 @@ impl From<FieldAccessType> for u8 {
     }
 }
 
+#[repr(u8)]
 #[derive(Clone, Copy)]
 pub enum FieldUpdateRule {
-    Preserve = 0,
-    WriteAsOnes = 1,
-    WriteAsZeroes = 2,
+Preserve = 0,
+WriteAsOnes = 1,
+WriteAsZeroes = 2,
 }
 
 impl From<FieldUpdateRule> for u8 {
