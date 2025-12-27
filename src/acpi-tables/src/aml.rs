@@ -746,15 +746,10 @@ pub enum FieldAccessType {
     Buffer,
 }
 
+#[allow(clippy::as_conversions)]
 impl From<FieldAccessType> for u8 {
     fn from(val: FieldAccessType) -> u8 {
-        match val {
-            FieldAccessType::Any => 0,
-            FieldAccessType::Byte => 1,
-            FieldAccessType::Word => 2,
-            FieldAccessType::DWord => 3,
-            FieldAccessType::QWord => 4,
-            FieldAccessType::Buffer => 5,
+        val as u8
         }
     }
 }
