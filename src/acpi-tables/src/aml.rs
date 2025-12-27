@@ -844,20 +844,10 @@ pub enum OpRegionSpace {
     GenericSerialBus,
 }
 
+#[allow(clippy::as_conversions)]
 impl From<OpRegionSpace> for u8 {
     fn from(val: OpRegionSpace) -> u8 {
-        match val {
-            OpRegionSpace::SystemMemory => 0,
-            OpRegionSpace::SystemIo => 1,
-            OpRegionSpace::PConfig => 2,
-            OpRegionSpace::EmbeddedControl => 3,
-            OpRegionSpace::Smbus => 4,
-            OpRegionSpace::SystemCmos => 5,
-            OpRegionSpace::PciBarTarget => 6,
-            OpRegionSpace::Ipmi => 7,
-            OpRegionSpace::GeneralPurposeIo => 8,
-            OpRegionSpace::GenericSerialBus => 9,
-        }
+        val as u8
     }
 }
 
