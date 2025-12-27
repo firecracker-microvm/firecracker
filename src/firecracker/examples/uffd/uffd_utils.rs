@@ -5,6 +5,7 @@
     clippy::cast_possible_truncation,
     clippy::cast_sign_loss,
     clippy::undocumented_unsafe_blocks,
+    clippy::as_conversions,
     // Not everything is used by both binaries
     dead_code
 )]

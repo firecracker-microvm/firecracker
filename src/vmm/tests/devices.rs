@@ -4,7 +4,8 @@
 #![allow(
     clippy::cast_possible_truncation,
     clippy::tests_outside_test_module,
-    clippy::undocumented_unsafe_blocks
+    clippy::undocumented_unsafe_blocks,
+    clippy::as_conversions
 )]
 use std::os::raw::{c_int, c_void};
 use std::os::unix::io::{AsRawFd, RawFd};
