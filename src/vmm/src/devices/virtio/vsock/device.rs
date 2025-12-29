@@ -38,7 +38,7 @@ use crate::devices::virtio::generated::virtio_ids::VIRTIO_ID_VSOCK;
 use crate::devices::virtio::queue::{InvalidAvailIdx, Queue as VirtQueue};
 use crate::devices::virtio::transport::{VirtioInterrupt, VirtioInterruptType};
 use crate::devices::virtio::vsock::VsockError;
-use crate::devices::virtio::vsock::metrics::METRICS;
+use crate::devices::virtio::vsock::metrics::{METRICS, VsockDeviceMetrics, VsockMetricsPerDevice};
 use crate::impl_device_type;
 use crate::logger::IncMetric;
 use crate::utils::byte_order;
@@ -73,6 +73,7 @@ pub struct Vsock<B> {
     // continuous triggers from happening before the device gets activated.
     pub(crate) activate_evt: EventFd,
     pub(crate) device_state: DeviceState,
+    pub(crate) metrics: Arc<VsockDeviceMetrics>,
 
     pub rx_packet: VsockPacketRx,
     pub tx_packet: VsockPacketTx,
@@ -110,6 +111,7 @@ where
             device_state: DeviceState::Inactive,
             rx_packet: VsockPacketRx::new()?,
             tx_packet: VsockPacketTx::default(),
+            metrics: VsockMetricsPerDevice::alloc(cid),
         })
     }
 
@@ -262,7 +264,7 @@ where
 
         let queue = &mut self.queues[EVQ_INDEX];
         let head = queue.pop()?.ok_or_else(|| {
-            METRICS.ev_queue_event_fails.inc();
+            self.metrics.ev_queue_event_fails.inc();
             DeviceError::VsockError(VsockError::EmptyQueue)
         })?;
 
@@ -328,7 +330,7 @@ where
                 byte_order::write_le_u32(data, ((self.cid() >> 32) & 0xffff_ffff) as u32)
             }
             _ => {
-                METRICS.cfg_fails.inc();
+                self.metrics.cfg_fails.inc();
                 warn!(
                     "vsock: virtio-vsock received invalid read request of {} bytes at offset {}",
                     data.len(),
@@ -339,7 +341,7 @@ where
     }
 
     fn write_config(&mut self, offset: u64, data: &[u8]) {
-        METRICS.cfg_fails.inc();
+        self.metrics.cfg_fails.inc();
         warn!(
             "vsock: guest driver attempted to write device config (offset={:#x}, len={:#x})",
             offset,
@@ -358,7 +360,7 @@ where
         }
 
         if self.queues.len() != defs::VSOCK_NUM_QUEUES {
-            METRICS.activate_fails.inc();
+            self.metrics.activate_fails.inc();
             return Err(ActivateError::QueueMismatch {
                 expected: defs::VSOCK_NUM_QUEUES,
                 got: self.queues.len(),
@@ -366,7 +368,7 @@ where
         }
 
         if self.activate_evt.write(1).is_err() {
-            METRICS.activate_fails.inc();
+            self.metrics.activate_fails.inc();
             return Err(ActivateError::EventFd);
         }
 

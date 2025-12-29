@@ -7,10 +7,11 @@ use std::sync::Arc;
 
 use aws_lc_rs::rand;
 use log::info;
+use uuid::Uuid;
 use vm_memory::GuestMemoryError;
 use vmm_sys_util::eventfd::EventFd;
 
-use super::metrics::METRICS;
+use super::metrics::EntropyMetricsPerDevice;
 use super::{RNG_NUM_QUEUES, RNG_QUEUE};
 use crate::devices::DeviceError;
 use crate::devices::virtio::ActivateError;
@@ -20,6 +21,7 @@ use crate::devices::virtio::generated::virtio_ids::VIRTIO_ID_RNG;
 use crate::devices::virtio::iov_deque::IovDequeError;
 use crate::devices::virtio::iovec::IoVecBufferMut;
 use crate::devices::virtio::queue::{FIRECRACKER_MAX_QUEUE_SIZE, InvalidAvailIdx, Queue};
+use crate::devices::virtio::rng::metrics::EntropyDeviceMetrics;
 use crate::devices::virtio::transport::{VirtioInterrupt, VirtioInterruptType};
 use crate::impl_device_type;
 use crate::logger::{IncMetric, debug, error};
@@ -42,6 +44,8 @@ pub enum EntropyError {
 
 #[derive(Debug)]
 pub struct Entropy {
+    // The device identifier in the metrics map
+    dev_id: String,
     // VirtIO fields
     avail_features: u64,
     acked_features: u64,
@@ -56,6 +60,7 @@ pub struct Entropy {
     rate_limiter: RateLimiter,
 
     buffer: IoVecBufferMut,
+    metrics: Arc<EntropyDeviceMetrics>,
 }
 
 impl Entropy {
@@ -72,8 +77,11 @@ impl Entropy {
         let queue_events = (0..RNG_NUM_QUEUES)
             .map(|_| EventFd::new(libc::EFD_NONBLOCK))
             .collect::<Result<Vec<EventFd>, io::Error>>()?;
+        // generate a random ID for the device to identify it in the metrics map
+        let dev_id = Uuid::new_v4().to_string();
 
         Ok(Self {
+            dev_id: dev_id.clone(),
             avail_features: 1 << VIRTIO_F_VERSION_1,
             acked_features: 0u64,
             activate_event,
@@ -82,6 +90,7 @@ impl Entropy {
             queue_events,
             rate_limiter,
             buffer: IoVecBufferMut::new()?,
+            metrics: EntropyMetricsPerDevice::alloc(dev_id),
         })
     }
 
@@ -121,7 +130,7 @@ impl Entropy {
 
         let mut rand_bytes = vec![0; self.buffer.len() as usize];
         rand::fill(&mut rand_bytes).inspect_err(|_| {
-            METRICS.host_rng_fails.inc();
+            self.metrics.host_rng_fails.inc();
         })?;
 
         // It is ok to unwrap here. We are writing `iovec.len()` bytes at offset 0.
@@ -135,7 +144,7 @@ impl Entropy {
             // This is safe since we checked in the event handler that the device is activated.
             let mem = &self.device_state.active_state().unwrap().mem;
             let index = desc.index;
-            METRICS.entropy_event_count.inc();
+            self.metrics.entropy_event_count.inc();
 
             // SAFETY: This descriptor chain points to a single `DescriptorChain` memory buffer,
             // no other `IoVecBufferMut` object points to the same `DescriptorChain` at the same
@@ -152,20 +161,20 @@ impl Entropy {
                     // to handle once we do have budget.
                     if !self.rate_limit_request(u64::from(self.buffer.len())) {
                         debug!("entropy: throttling entropy queue");
-                        METRICS.entropy_rate_limiter_throttled.inc();
+                        self.metrics.entropy_rate_limiter_throttled.inc();
                         self.queues[RNG_QUEUE].undo_pop();
                         break;
                     }
 
                     self.handle_one().unwrap_or_else(|err| {
                         error!("entropy: {err}");
-                        METRICS.entropy_event_fails.inc();
+                        self.metrics.entropy_event_fails.inc();
                         0
                     })
                 }
                 Err(err) => {
                     error!("entropy: Could not parse descriptor chain: {err}");
-                    METRICS.entropy_event_fails.inc();
+                    self.metrics.entropy_event_fails.inc();
                     0
                 }
             };
@@ -173,12 +182,12 @@ impl Entropy {
             match self.queues[RNG_QUEUE].add_used(index, bytes) {
                 Ok(_) => {
                     used_any = true;
-                    METRICS.entropy_bytes.add(bytes.into());
+                    self.metrics.entropy_bytes.add(bytes.into());
                 }
                 Err(err) => {
                     error!("entropy: Could not add used descriptor to queue: {err}");
                     Self::rate_limit_replenish_request(&mut self.rate_limiter, bytes.into());
-                    METRICS.entropy_event_fails.inc();
+                    self.metrics.entropy_event_fails.inc();
                     // If we are not able to add a buffer to the used queue, something
                     // is probably seriously wrong, so just stop processing additional
                     // buffers
@@ -191,7 +200,7 @@ impl Entropy {
         if used_any {
             self.signal_used_queue().unwrap_or_else(|err| {
                 error!("entropy: {err:?}");
-                METRICS.entropy_event_fails.inc()
+                self.metrics.entropy_event_fails.inc()
             });
         }
 
@@ -201,17 +210,17 @@ impl Entropy {
     pub(crate) fn process_entropy_queue_event(&mut self) {
         if let Err(err) = self.queue_events[RNG_QUEUE].read() {
             error!("Failed to read entropy queue event: {err}");
-            METRICS.entropy_event_fails.inc();
+            self.metrics.entropy_event_fails.inc();
         } else if !self.rate_limiter.is_blocked() {
             // We are not throttled, handle the entropy queue
             self.process_entropy_queue().unwrap()
         } else {
-            METRICS.rate_limiter_event_count.inc();
+            self.metrics.rate_limiter_event_count.inc();
         }
     }
 
     pub(crate) fn process_rate_limiter_event(&mut self) {
-        METRICS.rate_limiter_event_count.inc();
+        self.metrics.rate_limiter_event_count.inc();
         match self.rate_limiter.event_handler() {
             Ok(_) => {
                 // There might be enough budget now to process entropy requests.
@@ -219,7 +228,7 @@ impl Entropy {
             }
             Err(err) => {
                 error!("entropy: Failed to handle rate-limiter event: {err:?}");
-                METRICS.entropy_event_fails.inc();
+                self.metrics.entropy_event_fails.inc();
             }
         }
     }
@@ -307,7 +316,7 @@ impl VirtioDevice for Entropy {
         }
 
         self.activate_event.write(1).map_err(|_| {
-            METRICS.activate_fails.inc();
+            self.metrics.activate_fails.inc();
             ActivateError::EventFd
         })?;
         self.device_state = DeviceState::Activated(ActiveState { mem, interrupt });
@@ -454,29 +463,44 @@ mod tests {
         // Add a read-only descriptor (this should fail)
         th.add_desc_chain(RNG_QUEUE, 0, &[(0, 64, 0)]);
 
-        let entropy_event_fails = METRICS.entropy_event_fails.count();
-        let entropy_event_count = METRICS.entropy_event_count.count();
-        let entropy_bytes = METRICS.entropy_bytes.count();
-        let host_rng_fails = METRICS.host_rng_fails.count();
+        let entropy_event_fails = th.device().metrics.entropy_event_fails.count();
+        let entropy_event_count = th.device().metrics.entropy_event_count.count();
+        let entropy_bytes = th.device().metrics.entropy_bytes.count();
+        let host_rng_fails = th.device().metrics.host_rng_fails.count();
         assert_eq!(th.emulate_for_msec(100).unwrap(), 1);
-        assert_eq!(METRICS.entropy_event_fails.count(), entropy_event_fails + 1);
-        assert_eq!(METRICS.entropy_event_count.count(), entropy_event_count + 1);
-        assert_eq!(METRICS.entropy_bytes.count(), entropy_bytes);
-        assert_eq!(METRICS.host_rng_fails.count(), host_rng_fails);
+        assert_eq!(
+            th.device().metrics.entropy_event_fails.count(),
+            entropy_event_fails + 1
+        );
+        assert_eq!(
+            th.device().metrics.entropy_event_count.count(),
+            entropy_event_count + 1
+        );
+        assert_eq!(th.device().metrics.entropy_bytes.count(), entropy_bytes);
+        assert_eq!(th.device().metrics.host_rng_fails.count(), host_rng_fails);
 
         // Add two good descriptors
         th.add_desc_chain(RNG_QUEUE, 0, &[(1, 10, VIRTQ_DESC_F_WRITE)]);
         th.add_desc_chain(RNG_QUEUE, 100, &[(2, 20, VIRTQ_DESC_F_WRITE)]);
 
-        let entropy_event_fails = METRICS.entropy_event_fails.count();
-        let entropy_event_count = METRICS.entropy_event_count.count();
-        let entropy_bytes = METRICS.entropy_bytes.count();
-        let host_rng_fails = METRICS.host_rng_fails.count();
+        let entropy_event_fails = th.device().metrics.entropy_event_fails.count();
+        let entropy_event_count = th.device().metrics.entropy_event_count.count();
+        let entropy_bytes = th.device().metrics.entropy_bytes.count();
+        let host_rng_fails = th.device().metrics.host_rng_fails.count();
         assert_eq!(th.emulate_for_msec(100).unwrap(), 1);
-        assert_eq!(METRICS.entropy_event_fails.count(), entropy_event_fails);
-        assert_eq!(METRICS.entropy_event_count.count(), entropy_event_count + 2);
-        assert_eq!(METRICS.entropy_bytes.count(), entropy_bytes + 30);
-        assert_eq!(METRICS.host_rng_fails.count(), host_rng_fails);
+        assert_eq!(
+            th.device().metrics.entropy_event_fails.count(),
+            entropy_event_fails
+        );
+        assert_eq!(
+            th.device().metrics.entropy_event_count.count(),
+            entropy_event_count + 2
+        );
+        assert_eq!(
+            th.device().metrics.entropy_bytes.count(),
+            entropy_bytes + 30
+        );
+        assert_eq!(th.device().metrics.host_rng_fails.count(), host_rng_fails);
 
         th.add_desc_chain(
             RNG_QUEUE,
@@ -488,19 +512,29 @@ mod tests {
             ],
         );
 
-        let entropy_event_fails = METRICS.entropy_event_fails.count();
-        let entropy_event_count = METRICS.entropy_event_count.count();
-        let entropy_bytes = METRICS.entropy_bytes.count();
-        let host_rng_fails = METRICS.host_rng_fails.count();
+        let entropy_event_fails = th.device().metrics.entropy_event_fails.count();
+        let entropy_event_count = th.device().metrics.entropy_event_count.count();
+        let entropy_bytes = th.device().metrics.entropy_bytes.count();
+        let host_rng_fails = th.device().metrics.host_rng_fails.count();
         assert_eq!(th.emulate_for_msec(100).unwrap(), 1);
-        assert_eq!(METRICS.entropy_event_fails.count(), entropy_event_fails);
-        assert_eq!(METRICS.entropy_event_count.count(), entropy_event_count + 1);
-        assert_eq!(METRICS.entropy_bytes.count(), entropy_bytes + 512);
-        assert_eq!(METRICS.host_rng_fails.count(), host_rng_fails);
+        assert_eq!(
+            th.device().metrics.entropy_event_fails.count(),
+            entropy_event_fails
+        );
+        assert_eq!(
+            th.device().metrics.entropy_event_count.count(),
+            entropy_event_count + 1
+        );
+        assert_eq!(
+            th.device().metrics.entropy_bytes.count(),
+            entropy_bytes + 512
+        );
+        assert_eq!(th.device().metrics.host_rng_fails.count(), host_rng_fails);
     }
 
     #[test]
     fn test_bad_rate_limiter_event() {
+        let global = EntropyMetricsPerDevice::alloc("global".to_string());
         let mem = create_virtio_mem();
         let mut th = VirtioTestHelper::<Entropy>::new(&mem, default_entropy());
 
@@ -508,7 +542,7 @@ mod tests {
         let mut dev = th.device();
 
         check_metric_after_block!(
-            &METRICS.entropy_event_fails,
+            &dev.metrics.entropy_event_fails,
             1,
             dev.process_rate_limiter_event()
         );
@@ -516,6 +550,7 @@ mod tests {
 
     #[test]
     fn test_bandwidth_rate_limiter() {
+        let global = EntropyMetricsPerDevice::alloc("global".to_string());
         let mem = create_virtio_mem();
         // Rate Limiter with 4000 bytes / sec allowance and no initial burst allowance
         let device = Entropy::new(RateLimiter::new(4000, 0, 1000, 0, 0, 0).unwrap()).unwrap();
@@ -527,7 +562,7 @@ mod tests {
         // buffer should be processed normally
         th.add_desc_chain(RNG_QUEUE, 0, &[(0, 4000, VIRTQ_DESC_F_WRITE)]);
         check_metric_after_block!(
-            METRICS.entropy_bytes,
+            th.device().metrics.entropy_bytes,
             4000,
             th.device().process_entropy_queue()
         );
@@ -543,12 +578,12 @@ mod tests {
         th.add_desc_chain(RNG_QUEUE, 0, &[(0, 4000, VIRTQ_DESC_F_WRITE)]);
         th.add_desc_chain(RNG_QUEUE, 1, &[(1, 1000, VIRTQ_DESC_F_WRITE)]);
         check_metric_after_block!(
-            METRICS.entropy_bytes,
+            th.device().metrics.entropy_bytes,
             4000,
             th.device().process_entropy_queue()
         );
         check_metric_after_block!(
-            METRICS.entropy_rate_limiter_throttled,
+            th.device().metrics.entropy_rate_limiter_throttled,
             1,
             th.device().process_entropy_queue()
         );
@@ -557,7 +592,11 @@ mod tests {
         // 250 msec should give enough time for replenishing 1000 bytes worth of tokens.
         // Give it an extra 100 ms just to be sure the timer event reaches us from the kernel.
         std::thread::sleep(Duration::from_millis(350));
-        check_metric_after_block!(METRICS.entropy_bytes, 1000, th.emulate_for_msec(100));
+        check_metric_after_block!(
+            th.device().metrics.entropy_bytes,
+            1000,
+            th.emulate_for_msec(100)
+        );
         assert!(!th.device().rate_limiter().is_blocked());
     }
 
@@ -575,7 +614,7 @@ mod tests {
         // so this should succeed.
         th.add_desc_chain(RNG_QUEUE, 0, &[(0, 4000, VIRTQ_DESC_F_WRITE)]);
         check_metric_after_block!(
-            METRICS.entropy_bytes,
+            th.device().metrics.entropy_bytes,
             4000,
             th.device().process_entropy_queue()
         );
@@ -585,30 +624,43 @@ mod tests {
         std::thread::sleep(Duration::from_millis(1000));
 
         // First one should succeed
-        let entropy_bytes = METRICS.entropy_bytes.count();
+        let entropy_bytes = th.device().metrics.entropy_bytes.count();
         th.add_desc_chain(RNG_QUEUE, 0, &[(0, 64, VIRTQ_DESC_F_WRITE)]);
-        check_metric_after_block!(METRICS.entropy_bytes, 64, th.emulate_for_msec(100));
-        assert_eq!(METRICS.entropy_bytes.count(), entropy_bytes + 64);
+        check_metric_after_block!(
+            th.device().metrics.entropy_bytes,
+            64,
+            th.emulate_for_msec(100)
+        );
+        assert_eq!(
+            th.device().metrics.entropy_bytes.count(),
+            entropy_bytes + 64
+        );
         // The rate limiter is not blocked yet.
         assert!(!th.device().rate_limiter().is_blocked());
         // But immediately asking another operation should block it because we have 1 op every 100
         // msec.
         th.add_desc_chain(RNG_QUEUE, 0, &[(0, 64, VIRTQ_DESC_F_WRITE)]);
         check_metric_after_block!(
-            METRICS.entropy_rate_limiter_throttled,
+            th.device().metrics.entropy_rate_limiter_throttled,
             1,
             th.emulate_for_msec(50)
         );
         // Entropy bytes count should not have increased.
-        assert_eq!(METRICS.entropy_bytes.count(), entropy_bytes + 64);
+        assert_eq!(
+            th.device().metrics.entropy_bytes.count(),
+            entropy_bytes + 64
+        );
         // After 100 msec (plus 50 msec for ensuring the event reaches us from the kernel), the
         // timer of the rate limiter should fire saying that there's now more tokens available
         check_metric_after_block!(
-            METRICS.rate_limiter_event_count,
+            th.device().metrics.rate_limiter_event_count,
             1,
             th.emulate_for_msec(150)
         );
         // The rate limiter event should have processed the pending buffer as well
-        assert_eq!(METRICS.entropy_bytes.count(), entropy_bytes + 128);
+        assert_eq!(
+            th.device().metrics.entropy_bytes.count(),
+            entropy_bytes + 128
+        );
     }
 }
