@@ -158,6 +158,15 @@ impl MmioTransport {
         }
     }
 
+    fn drain_eventfds(interrupt: &Arc<dyn VirtioInterrupt>, queue_evts: &mut [EventFd]) {
+        if let Some(evt) = interrupt.notifier(VirtioInterruptType::Config) {
+            evt.read();
+        }
+        for evt in queue_evts {
+            evt.read();
+        }
+    }
+
     /// Update device status according to the state machine defined by VirtIO Spec 1.0.
     /// Please refer to VirtIO Spec 1.0, section 2.1.1 and 3.1.1.
     ///
@@ -199,7 +208,13 @@ impl MmioTransport {
                 }
             }
             _ if (status & FAILED) != 0 => {
-                // TODO: notify backend driver to stop the device
+                let mut locked_device = self.device.lock().expect("Poisoned lock");
+                if locked_device.is_activated()
+                    && let Some((interrupt_evt, mut queue_evts)) = locked_device.reset()
+                {
+                    Self::drain_eventfds(&interrupt_evt, &mut queue_evts)
+                }
+
                 self.device_status |= FAILED;
             }
             _ if status == 0 => {
@@ -209,10 +224,10 @@ impl MmioTransport {
                         let mut device_status = self.device_status;
                         let reset_result = locked_device.reset();
                         match reset_result {
-                            Some((_interrupt_evt, mut _queue_evts)) => {}
-                            None => {
-                                device_status |= FAILED;
+                            Some((interrupt_evt, mut queue_evts)) => {
+                                Self::drain_eventfds(&interrupt_evt, &mut queue_evts)
                             }
+                            None => device_status |= FAILED,
                         }
                         self.device_status = device_status;
                     }
@@ -587,6 +602,20 @@ pub(crate) mod tests {
 
         fn is_activated(&self) -> bool {
             self.device_activated
+        }
+
+        fn reset(&mut self) -> Option<(Arc<dyn VirtioInterrupt>, Vec<EventFd>)> {
+            if !self.device_activated {
+                return None
+            }
+            let interrupt = self.interrupt_trigger.as_ref()?.clone();
+            let mut queue_evts = Vec::with_capacity(self.queue_evts.len());
+            for evt in &self.queue_evts {
+                queue_evts.push(evt.try_clone().ok()?)
+            }
+            self.device_activated = false;
+            self.interrupt_trigger = None;
+            Some((interrupt, queue_evts))
         }
     }
 
@@ -1070,23 +1099,20 @@ pub(crate) mod tests {
             Arc::new(Mutex::new(DummyDevice::new())),
             false,
         );
-        let mut buf = [0; 4];
 
         assert!(!d.locked_device().is_activated());
         assert_eq!(d.device_status, 0);
         activate_device(&mut d);
 
-        // Marking device as FAILED should not affect device_activated state
-        write_le_u32(&mut buf[..], 0x8f);
-        d.write(0x0, 0x70, &buf[..]);
+        // Marking device as FAILED deactivates the device but keeps the FAILED bit set.
+        set_device_status(&mut d, 0x8f);
         assert_eq!(d.device_status, 0x8f);
-        assert!(d.locked_device().is_activated());
+        assert!(!d.locked_device().is_activated());
 
-        // Nothing happens when backend driver doesn't support reset
-        write_le_u32(&mut buf[..], 0x0);
-        d.write(0x0, 0x70, &buf[..]);
+        // Reset keeps the FAILED bit set.
+        set_device_status(&mut d, 0);
         assert_eq!(d.device_status, 0x8f);
-        assert!(d.locked_device().is_activated());
+        assert!(!d.locked_device().is_activated());
     }
 
     #[test]

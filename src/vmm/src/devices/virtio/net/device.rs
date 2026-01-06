@@ -1039,6 +1039,16 @@ impl VirtioDevice for Net {
         self.device_state.is_activated()
     }
 
+    fn reset(&mut self) -> Option<(Arc<dyn VirtioInterrupt>, Vec<EventFd>)> {
+        let interrupt = self.device_state.active_state()?.interrupt.clone();
+        let mut queue_evts = Vec::with_capacity(self.queue_evts.len());
+        for evt in &self.queue_evts {
+            queue_evts.push(evt.try_clone().ok()?)
+        }
+        self.device_state = DeviceState::Inactive;
+        Some((interrupt, queue_evts))
+    }
+
     fn kick(&mut self) {
         // If device is activated, kick the net queue(s) to make up for any
         // pending or in-flight epoll events we may have not captured in snapshot.

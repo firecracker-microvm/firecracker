@@ -296,6 +296,16 @@ impl VirtioDevice for Entropy {
         self.device_state.is_activated()
     }
 
+    fn reset(&mut self) -> Option<(Arc<dyn VirtioInterrupt>, Vec<EventFd>)> {
+        let interrupt = self.device_state.active_state()?.interrupt.clone();
+        let mut queue_evts = Vec::with_capacity(self.queue_events.len());
+        for evt in &self.queue_events {
+            queue_evts.push(evt.try_clone().ok()?)
+        }
+        self.device_state = DeviceState::Inactive;
+        Some((interrupt, queue_evts))
+    }
+
     fn activate(
         &mut self,
         mem: GuestMemoryMmap,
