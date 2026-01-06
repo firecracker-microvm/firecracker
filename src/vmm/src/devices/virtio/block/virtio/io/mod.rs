@@ -6,9 +6,12 @@ pub mod sync_io;
 
 use std::fmt::Debug;
 use std::fs::File;
+use libc::{c_int, off64_t, FALLOC_FL_KEEP_SIZE, FALLOC_FL_PUNCH_HOLE};
+use std::os::unix::io::AsRawFd;
 
 pub use self::async_io::{AsyncFileEngine, AsyncIoError};
 pub use self::sync_io::{SyncFileEngine, SyncIoError};
+use crate::device_manager::mmio::MMIO_LEN;
 use crate::devices::virtio::block::virtio::PendingRequest;
 use crate::devices::virtio::block::virtio::device::FileEngineType;
 use crate::vstate::memory::{GuestAddress, GuestMemoryMmap};
@@ -75,7 +78,7 @@ impl FileEngine {
         Ok(())
     }
 
-    #[cfg(test)]
+
     pub fn file(&self) -> &File {
         match self {
             FileEngine::Async(engine) => engine.file(),
@@ -170,6 +173,31 @@ impl FileEngine {
                 engine.drain_and_flush(discard).map_err(BlockIoError::Async)
             }
             FileEngine::Sync(engine) => engine.flush().map_err(BlockIoError::Sync),
+        }
+    }
+
+    pub fn discard(
+        &mut self,
+        offset: u64,
+        count: u32,
+        req: PendingRequest,
+    ) -> Result<FileEngineOk, RequestError<BlockIoError>> {
+
+        match self {
+            FileEngine::Async(engine) => match engine.push_discard(offset, count, req) {
+                Ok(_) => Ok(FileEngineOk::Submitted),
+                Err(err) => Err(RequestError {
+                    req: err.req,
+                    error: BlockIoError::Async(err.error),
+                }),
+            },
+            FileEngine::Sync(engine) => match engine.discard(offset,count) {
+                Ok(count) => Ok(FileEngineOk::Executed(RequestOk { req, count })),
+                Err(err) => Err(RequestError {
+                    req,
+                    error: BlockIoError::Sync(err),
+                }),
+            },
         }
     }
 }
