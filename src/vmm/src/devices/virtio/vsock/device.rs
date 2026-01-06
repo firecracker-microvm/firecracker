@@ -76,12 +76,8 @@ pub struct Vsock<B> {
 
     pub rx_packet: VsockPacketRx,
     pub tx_packet: VsockPacketTx,
+    rx_queue_stalled: bool,
 }
-
-// TODO: Detect / handle queue deadlock:
-// 1. If the driver halts RX queue processing, we'll need to notify `self.backend`, so that it can
-//    unregister any EPOLLIN listeners, since otherwise it will keep spinning, unable to consume its
-//    EPOLLIN events.
 
 impl<B> Vsock<B>
 where
@@ -110,6 +106,7 @@ where
             device_state: DeviceState::Inactive,
             rx_packet: VsockPacketRx::new()?,
             tx_packet: VsockPacketTx::default(),
+            rx_queue_stalled: false,
         })
     }
 
@@ -209,6 +206,12 @@ where
             });
         }
         queue.advance_used_ring_idx();
+
+        let stalled = queue.is_empty() && self.backend.has_pending_rx();
+        if stalled != self.rx_queue_stalled {
+            self.rx_queue_stalled = stalled;
+            self.backend.notify_rxq(!stalled);
+        }
 
         Ok(have_used)
     }
