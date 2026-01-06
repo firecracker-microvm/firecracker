@@ -58,12 +58,12 @@ pub struct NetworkOverride {
 }
 
 /// Stores the configuration that will be used for loading a snapshot.
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Deserialize)]
 pub struct LoadSnapshotParams {
     /// Path to the file that contains the microVM state to be loaded.
     pub snapshot_path: PathBuf,
     /// Specifies guest memory backend configuration.
-    pub mem_backend: MemBackendConfig,
+    pub mem_backend: MemBackendSpec,
     /// Whether KVM dirty page tracking should be enabled, to space optimization
     /// of differential snapshots.
     pub track_dirty_pages: bool,
@@ -77,7 +77,7 @@ pub struct LoadSnapshotParams {
 /// Stores the configuration for loading a snapshot that is provided by the user.
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct LoadSnapshotConfig {
+pub struct LoadSnapshotSpec {
     /// Path to the file that contains the microVM state to be loaded.
     pub snapshot_path: PathBuf,
     /// Path to the file that contains the guest memory to be loaded. To be used only if
@@ -87,7 +87,7 @@ pub struct LoadSnapshotConfig {
     /// Guest memory backend configuration. Is not to be used in conjunction with `mem_file_path`.
     /// None value is allowed only if `mem_file_path` is present.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub mem_backend: Option<MemBackendConfig>,
+    pub mem_backend: Option<MemBackendSpec>,
     /// Whether or not to enable KVM dirty page tracking.
     #[serde(default)]
     #[deprecated]
@@ -106,7 +106,7 @@ pub struct LoadSnapshotConfig {
 /// Stores the configuration used for managing snapshot memory.
 #[derive(Debug, PartialEq, Eq, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct MemBackendConfig {
+pub struct MemBackendSpec {
     /// Path to the backend used to handle the guest memory.
     pub backend_path: PathBuf,
     /// Specifies the guest memory backend type.

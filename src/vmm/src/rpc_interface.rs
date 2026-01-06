@@ -19,29 +19,28 @@ use crate::devices::virtio::mem::VirtioMemStatus;
 use crate::logger::{LoggerConfig, info, warn, *};
 use crate::mmds::data_store::{self, Mmds};
 use crate::persist::{CreateSnapshotError, RestoreFromSnapshotError, VmInfo};
-use crate::resources::VmmConfig;
+use crate::resources::VmmSpec;
 use crate::seccomp::BpfThreadMap;
 use crate::vmm_config::balloon::{
-    BalloonConfigError, BalloonDeviceConfig, BalloonStats, BalloonUpdateConfig,
-    BalloonUpdateStatsConfig,
+    BalloonDeviceSpec, BalloonSpecError, BalloonStats, BalloonUpdateSpec, BalloonUpdateStatsSpec,
 };
-use crate::vmm_config::boot_source::{BootSourceConfig, BootSourceConfigError};
-use crate::vmm_config::drive::{BlockDeviceConfig, BlockDeviceUpdateConfig, DriveError};
-use crate::vmm_config::entropy::{EntropyDeviceConfig, EntropyDeviceError};
+use crate::vmm_config::boot_source::{BootSourceSpec, BootSourceSpecError};
+use crate::vmm_config::drive::{BlockDeviceSpec, BlockDeviceUpdateSpec, DriveError};
+use crate::vmm_config::entropy::{EntropyDeviceError, EntropyDeviceSpec};
 use crate::vmm_config::instance_info::InstanceInfo;
-use crate::vmm_config::machine_config::{MachineConfig, MachineConfigError, MachineConfigUpdate};
+use crate::vmm_config::machine_config::{MachineSpec, MachineSpecError, MachineSpecUpdate};
 use crate::vmm_config::memory_hotplug::{
-    MemoryHotplugConfig, MemoryHotplugConfigError, MemoryHotplugSizeUpdate,
+    MemoryHotplugSizeUpdate, MemoryHotplugSpec, MemoryHotplugSpecError,
 };
-use crate::vmm_config::metrics::{MetricsConfig, MetricsConfigError};
-use crate::vmm_config::mmds::{MmdsConfig, MmdsConfigError};
+use crate::vmm_config::metrics::{MetricsSpec, MetricsSpecError};
+use crate::vmm_config::mmds::{MmdsSpec, MmdsSpecError};
 use crate::vmm_config::net::{
-    NetworkInterfaceConfig, NetworkInterfaceError, NetworkInterfaceUpdateConfig,
+    NetworkInterfaceError, NetworkInterfaceSpec, NetworkInterfaceUpdateSpec,
 };
-use crate::vmm_config::pmem::{PmemConfig, PmemConfigError};
-use crate::vmm_config::serial::SerialConfig;
+use crate::vmm_config::pmem::{PmemSpec, PmemSpecError};
+use crate::vmm_config::serial::SerialSpec;
 use crate::vmm_config::snapshot::{CreateSnapshotParams, LoadSnapshotParams, SnapshotType};
-use crate::vmm_config::vsock::{VsockConfigError, VsockDeviceConfig};
+use crate::vmm_config::vsock::{VsockDeviceSpec, VsockSpecError};
 use crate::vmm_config::{self, RateLimiterUpdate};
 
 /// This enum represents the public interface of the VMM. Each action contains various
@@ -50,43 +49,43 @@ use crate::vmm_config::{self, RateLimiterUpdate};
 pub enum VmmAction {
     /// Configure the boot source of the microVM using as input the `ConfigureBootSource`. This
     /// action can only be called before the microVM has booted.
-    ConfigureBootSource(BootSourceConfig),
+    ConfigureBootSource(BootSourceSpec),
     /// Configure the logger using as input the `LoggerConfig`. This action can only be called
     /// before the microVM has booted.
     ConfigureLogger(LoggerConfig),
-    /// Configure the metrics using as input the `MetricsConfig`. This action can only be called
+    /// Configure the metrics using as input the `MetricsSpec`. This action can only be called
     /// before the microVM has booted.
-    ConfigureMetrics(MetricsConfig),
+    ConfigureMetrics(MetricsSpec),
     /// Configure the serial device. This action can only be called before the microVM has booted.
-    ConfigureSerial(SerialConfig),
+    ConfigureSerial(SerialSpec),
     /// Create a snapshot using as input the `CreateSnapshotParams`. This action can only be called
     /// after the microVM has booted and only when the microVM is in `Paused` state.
     CreateSnapshot(CreateSnapshotParams),
-    /// Get the balloon device configuration.
-    GetBalloonConfig,
+    /// Get the balloon device specification.
+    GetBalloonSpec,
     /// Get the ballon device latest statistics.
     GetBalloonStats,
-    /// Get complete microVM configuration in JSON format.
-    GetFullVmConfig,
+    /// Get complete microVM specification in JSON format.
+    GetFullVmSpec,
     /// Get MMDS contents.
     GetMMDS,
-    /// Get the machine configuration of the microVM.
-    GetVmMachineConfig,
+    /// Get the machine specification of the microVM.
+    GetVmMachineSpec,
     /// Get microVM instance information.
     GetVmInstanceInfo,
     /// Get microVM version.
     GetVmmVersion,
     /// Flush the metrics. This action can only be called after the logger has been configured.
     FlushMetrics,
-    /// Add a new block device or update one that already exists using the `BlockDeviceConfig` as
+    /// Add a new block device or update one that already exists using the `BlockDeviceSpec` as
     /// input. This action can only be called before the microVM has booted.
-    InsertBlockDevice(BlockDeviceConfig),
+    InsertBlockDevice(BlockDeviceSpec),
     /// Add a virtio-pmem device.
-    InsertPmemDevice(PmemConfig),
+    InsertPmemDevice(PmemSpec),
     /// Add a new network interface config or update one that already exists using the
-    /// `NetworkInterfaceConfig` as input. This action can only be called before the microVM has
+    /// `NetworkInterfaceSpec` as input. This action can only be called before the microVM has
     /// booted.
-    InsertNetworkDevice(NetworkInterfaceConfig),
+    InsertNetworkDevice(NetworkInterfaceSpec),
     /// Load the microVM state using as input the `LoadSnapshotParams`. This action can only be
     /// called before the microVM has booted. If this action is successful, the loaded microVM will
     /// be in `Paused` state. Should change this state to `Resumed` for the microVM to run.
@@ -102,23 +101,23 @@ pub enum VmmAction {
     /// Resume the guest, by resuming the microVM VCPUs.
     Resume,
     /// Set the balloon device or update the one that already exists using the
-    /// `BalloonDeviceConfig` as input. This action can only be called before the microVM
+    /// `BalloonDeviceSpec` as input. This action can only be called before the microVM
     /// has booted.
-    SetBalloonDevice(BalloonDeviceConfig),
-    /// Set the MMDS configuration.
-    SetMmdsConfiguration(MmdsConfig),
+    SetBalloonDevice(BalloonDeviceSpec),
+    /// Set the MMDS specification.
+    SetMmdsSpec(MmdsSpec),
     /// Set the vsock device or update the one that already exists using the
-    /// `VsockDeviceConfig` as input. This action can only be called before the microVM has
+    /// `VsockDeviceSpec` as input. This action can only be called before the microVM has
     /// booted.
-    SetVsockDevice(VsockDeviceConfig),
-    /// Set the entropy device using `EntropyDeviceConfig` as input. This action can only be called
+    SetVsockDevice(VsockDeviceSpec),
+    /// Set the entropy device using `EntropyDeviceSpec` as input. This action can only be called
     /// before the microVM has booted.
-    SetEntropyDevice(EntropyDeviceConfig),
-    /// Get the memory hotplug device configuration and status.
+    SetEntropyDevice(EntropyDeviceSpec),
+    /// Get the memory hotplug device specification and status.
     GetMemoryHotplugStatus,
-    /// Set the memory hotplug device using `MemoryHotplugConfig` as input. This action can only be
+    /// Set the memory hotplug device using `MemoryHotplugSpec` as input. This action can only be
     /// called before the microVM has booted.
-    SetMemoryHotplugDevice(MemoryHotplugConfig),
+    SetMemoryHotplugDevice(MemoryHotplugSpec),
     /// Updates the memory hotplug device using `MemoryHotplugConfigUpdate` as input. This action
     /// can only be called after the microVM has booted.
     UpdateMemoryHotplugSize(MemoryHotplugSizeUpdate),
@@ -129,9 +128,9 @@ pub enum VmmAction {
     #[cfg(target_arch = "x86_64")]
     SendCtrlAltDel,
     /// Update the balloon size, after microVM start.
-    UpdateBalloon(BalloonUpdateConfig),
+    UpdateBalloon(BalloonUpdateSpec),
     /// Update the balloon statistics polling interval, after microVM start.
-    UpdateBalloonStatistics(BalloonUpdateStatsConfig),
+    UpdateBalloonStatistics(BalloonUpdateStatsSpec),
     /// Start a free page hinting run
     StartFreePageHinting(StartHintingCmd),
     /// Retrieve the status of the hinting run
@@ -139,36 +138,46 @@ pub enum VmmAction {
     /// Stops a free page hinting run
     StopFreePageHinting,
     /// Update existing block device properties such as `path_on_host` or `rate_limiter`.
-    UpdateBlockDevice(BlockDeviceUpdateConfig),
+    UpdateBlockDevice(BlockDeviceUpdateSpec),
     /// Update a network interface, after microVM start. Currently, the only updatable properties
     /// are the RX and TX rate limiters.
-    UpdateNetworkInterface(NetworkInterfaceUpdateConfig),
+    UpdateNetworkInterface(NetworkInterfaceUpdateSpec),
     /// Update the microVM configuration (memory & vcpu) using `VmUpdateConfig` as input. This
     /// action can only be called before the microVM has booted.
-    UpdateMachineConfiguration(MachineConfigUpdate),
+    UpdateMachineSpec(MachineSpecUpdate),
+}
+
+impl<F, A> From<vmm_config::VmmActionPayload<F, A>> for VmmAction
+where
+    F: FnOnce(A) -> VmmAction,
+    A: vmm_config::StatelessArgs,
+{
+    fn from(payload: vmm_config::VmmActionPayload<F, A>) -> Self {
+        payload.dispatch()
+    }
 }
 
 /// Wrapper for all errors associated with VMM actions.
 #[derive(Debug, thiserror::Error, displaydoc::Display)]
 pub enum VmmActionError {
-    /// Balloon config error: {0}
-    BalloonConfig(#[from] BalloonConfigError),
+    /// Balloon spec error: {0}
+    BalloonSpec(#[from] BalloonSpecError),
     /// Balloon update error: {0}
     BalloonUpdate(VmmError),
     /// Boot source error: {0}
-    BootSource(#[from] BootSourceConfigError),
+    BootSource(#[from] BootSourceSpecError),
     /// Create snapshot error: {0}
     CreateSnapshot(#[from] CreateSnapshotError),
     /// Configure CPU error: {0}
     ConfigureCpu(#[from] GuestConfigError),
-    /// Drive config error: {0}
-    DriveConfig(#[from] DriveError),
+    /// Drive spec error: {0}
+    DriveSpec(#[from] DriveError),
     /// Entropy device error: {0}
     EntropyDevice(#[from] EntropyDeviceError),
     /// Pmem device error: {0}
-    PmemDevice(#[from] PmemConfigError),
-    /// Memory hotplug config error: {0}
-    MemoryHotplugConfig(#[from] MemoryHotplugConfigError),
+    PmemDevice(#[from] PmemSpecError),
+    /// Memory hotplug spec error: {0}
+    MemoryHotplugSpec(#[from] MemoryHotplugSpecError),
     /// Memory hotplug update error: {0}
     MemoryHotplugUpdate(VmmError),
     /// Internal VMM error: {0}
@@ -177,20 +186,20 @@ pub enum VmmActionError {
     LoadSnapshot(#[from] LoadSnapshotError),
     /// Logger error: {0}
     Logger(#[from] crate::logger::LoggerUpdateError),
-    /// Machine config error: {0}
-    MachineConfig(#[from] MachineConfigError),
+    /// Machine spec error: {0}
+    MachineSpec(#[from] MachineSpecError),
     /// Metrics error: {0}
-    Metrics(#[from] MetricsConfigError),
+    Metrics(#[from] MetricsSpecError),
     #[from(ignore)]
     /// MMDS error: {0}
     Mmds(#[from] data_store::MmdsDatastoreError),
-    /// MMMDS config error: {0}
-    MmdsConfig(#[from] MmdsConfigError),
+    /// MMDS spec error: {0}
+    MmdsSpec(#[from] MmdsSpecError),
     #[from(ignore)]
     /// MMDS limit exceeded error: {0}
     MmdsLimitExceeded(data_store::MmdsDatastoreError),
-    /// Network config error: {0}
-    NetworkConfig(#[from] NetworkInterfaceError),
+    /// Network spec error: {0}
+    NetworkSpec(#[from] NetworkInterfaceError),
     /// The requested operation is not supported: {0}
     NotSupported(String),
     /// The requested operation is not supported after starting the microVM.
@@ -199,8 +208,8 @@ pub enum VmmActionError {
     OperationNotSupportedPreBoot,
     /// Start microvm error: {0}
     StartMicrovm(#[from] StartMicrovmError),
-    /// Vsock config error: {0}
-    VsockConfig(#[from] VsockConfigError),
+    /// Vsock spec error: {0}
+    VsockSpec(#[from] VsockSpecError),
 }
 
 /// The enum represents the response sent by the VMM in case of success. The response is either
@@ -208,16 +217,16 @@ pub enum VmmActionError {
 #[allow(clippy::large_enum_variant)]
 #[derive(Debug, PartialEq, Eq)]
 pub enum VmmData {
-    /// The balloon device configuration.
-    BalloonConfig(BalloonDeviceConfig),
+    /// The balloon device specification.
+    BalloonSpec(BalloonDeviceSpec),
     /// The latest balloon device statistics.
     BalloonStats(BalloonStats),
     /// No data is sent on the channel.
     Empty,
-    /// The complete microVM configuration in JSON format.
-    FullVmConfig(VmmConfig),
-    /// The microVM configuration represented by `VmConfig`.
-    MachineConfiguration(MachineConfig),
+    /// The complete microVM specification in JSON format.
+    FullVmSpec(VmmSpec),
+    /// The microVM specification represented by `MachineSpec`.
+    MachineSpec(MachineSpec),
     /// Mmds contents.
     MmdsValue(serde_json::Value),
     /// The microVM instance information.
@@ -304,7 +313,7 @@ impl MmdsRequestHandler for PrebootApiController<'_> {
     fn mmds(&mut self) -> Result<MutexGuard<'_, Mmds>, VmmActionError> {
         self.vm_resources
             .locked_mmds_or_default()
-            .map_err(VmmActionError::MmdsConfig)
+            .map_err(VmmActionError::MmdsSpec)
     }
 }
 
@@ -328,7 +337,7 @@ pub type ApiResponse = Box<Result<VmmData, VmmActionError>>;
 #[derive(Debug, thiserror::Error, displaydoc::Display)]
 pub enum BuildMicrovmFromRequestsError {
     /// Configuring MMDS failed: {0}.
-    ConfigureMmds(#[from] MmdsConfigError),
+    ConfigureMmds(#[from] MmdsSpecError),
     /// Populating MMDS from file failed: {0}.
     PopulateMmds(#[from] data_store::MmdsDatastoreError),
     /// Loading snapshot failed.
@@ -437,50 +446,48 @@ impl<'a> PrebootApiController<'a> {
 
         match request {
             // Supported operations allowed pre-boot.
-            ConfigureBootSource(config) => self.set_boot_source(config),
-            ConfigureLogger(logger_cfg) => crate::logger::LOGGER
-                .update(logger_cfg)
+            ConfigureBootSource(spec) => self.set_boot_source(spec),
+            ConfigureLogger(spec) => crate::logger::LOGGER
+                .update(spec)
                 .map(|()| VmmData::Empty)
                 .map_err(VmmActionError::Logger),
-            ConfigureMetrics(metrics_cfg) => vmm_config::metrics::init_metrics(metrics_cfg)
+            ConfigureMetrics(spec) => vmm_config::metrics::init_metrics(spec)
                 .map(|()| VmmData::Empty)
                 .map_err(VmmActionError::Metrics),
-            ConfigureSerial(serial_cfg) => {
-                self.vm_resources.serial_out_path = serial_cfg.serial_out_path;
+            ConfigureSerial(spec) => {
+                self.vm_resources.serial_out_path = spec.serial_out_path;
                 Ok(VmmData::Empty)
             }
-            GetBalloonConfig => self.balloon_config(),
-            GetFullVmConfig => {
+            GetBalloonSpec => self.balloon_config(),
+            GetFullVmSpec => {
                 warn!(
                     "If the VM was restored from snapshot, boot-source, machine-config.smt, and \
                      machine-config.cpu_template will all be empty."
                 );
-                Ok(VmmData::FullVmConfig((&*self.vm_resources).into()))
+                Ok(VmmData::FullVmSpec((&*self.vm_resources).into()))
             }
             GetMMDS => self.get_mmds(),
-            GetVmMachineConfig => Ok(VmmData::MachineConfiguration(
-                self.vm_resources.machine_config.clone(),
-            )),
+            GetVmMachineSpec => Ok(VmmData::MachineSpec(self.vm_resources.machine_spec.clone())),
             GetVmInstanceInfo => Ok(VmmData::InstanceInformation(self.instance_info.clone())),
             GetVmmVersion => Ok(VmmData::VmmVersion(self.instance_info.vmm_version.clone())),
-            InsertBlockDevice(config) => self.insert_block_device(config),
-            InsertPmemDevice(config) => self.insert_pmem_device(config),
-            InsertNetworkDevice(config) => self.insert_net_device(config),
-            LoadSnapshot(config) => self
-                .load_snapshot(&config)
+            InsertBlockDevice(spec) => self.insert_block_device(spec),
+            InsertPmemDevice(spec) => self.insert_pmem_device(spec),
+            InsertNetworkDevice(spec) => self.insert_net_device(spec),
+            LoadSnapshot(load_params) => self
+                .load_snapshot(&load_params)
                 .map_err(VmmActionError::LoadSnapshot),
             PatchMMDS(value) => self.patch_mmds(value),
             PutCpuConfiguration(custom_cpu_template) => {
                 self.set_custom_cpu_template(custom_cpu_template)
             }
             PutMMDS(value) => self.put_mmds(value),
-            SetBalloonDevice(config) => self.set_balloon_device(config),
-            SetVsockDevice(config) => self.set_vsock_device(config),
-            SetMmdsConfiguration(config) => self.set_mmds_config(config),
+            SetBalloonDevice(spec) => self.set_balloon_device(spec),
+            SetVsockDevice(spec) => self.set_vsock_device(spec),
+            SetMmdsSpec(spec) => self.set_mmds_config(spec),
             StartMicroVm => self.start_microvm(),
-            UpdateMachineConfiguration(config) => self.update_machine_config(config),
-            SetEntropyDevice(config) => self.set_entropy_device(config),
-            SetMemoryHotplugDevice(config) => self.set_memory_hotplug_device(config),
+            UpdateMachineSpec(spec_update) => self.update_machine_spec(spec_update),
+            SetEntropyDevice(spec) => self.set_entropy_device(spec),
+            SetMemoryHotplugDevice(spec) => self.set_memory_hotplug_device(spec),
             // Operations not allowed pre-boot.
             CreateSnapshot(_)
             | FlushMetrics
@@ -505,70 +512,67 @@ impl<'a> PrebootApiController<'a> {
         self.vm_resources
             .balloon
             .get_config()
-            .map(VmmData::BalloonConfig)
-            .map_err(VmmActionError::BalloonConfig)
+            .map(VmmData::BalloonSpec)
+            .map_err(VmmActionError::BalloonSpec)
     }
 
-    fn insert_block_device(&mut self, cfg: BlockDeviceConfig) -> Result<VmmData, VmmActionError> {
+    fn insert_block_device(&mut self, spec: BlockDeviceSpec) -> Result<VmmData, VmmActionError> {
         self.boot_path = true;
         self.vm_resources
-            .set_block_device(cfg)
+            .set_block_device(spec)
             .map(|()| VmmData::Empty)
-            .map_err(VmmActionError::DriveConfig)
+            .map_err(VmmActionError::DriveSpec)
     }
 
-    fn insert_net_device(
-        &mut self,
-        cfg: NetworkInterfaceConfig,
-    ) -> Result<VmmData, VmmActionError> {
+    fn insert_net_device(&mut self, spec: NetworkInterfaceSpec) -> Result<VmmData, VmmActionError> {
         self.boot_path = true;
         self.vm_resources
-            .build_net_device(cfg)
+            .build_net_device(spec)
             .map(|()| VmmData::Empty)
-            .map_err(VmmActionError::NetworkConfig)
+            .map_err(VmmActionError::NetworkSpec)
     }
 
-    fn insert_pmem_device(&mut self, cfg: PmemConfig) -> Result<VmmData, VmmActionError> {
+    fn insert_pmem_device(&mut self, spec: PmemSpec) -> Result<VmmData, VmmActionError> {
         self.boot_path = true;
         self.vm_resources
-            .build_pmem_device(cfg)
+            .build_pmem_device(spec)
             .map(|()| VmmData::Empty)
             .map_err(VmmActionError::PmemDevice)
     }
 
-    fn set_balloon_device(&mut self, cfg: BalloonDeviceConfig) -> Result<VmmData, VmmActionError> {
+    fn set_balloon_device(&mut self, spec: BalloonDeviceSpec) -> Result<VmmData, VmmActionError> {
         self.boot_path = true;
         self.vm_resources
-            .set_balloon_device(cfg)
+            .set_balloon_device(spec)
             .map(|()| VmmData::Empty)
-            .map_err(VmmActionError::BalloonConfig)
+            .map_err(VmmActionError::BalloonSpec)
     }
 
-    fn set_boot_source(&mut self, cfg: BootSourceConfig) -> Result<VmmData, VmmActionError> {
+    fn set_boot_source(&mut self, spec: BootSourceSpec) -> Result<VmmData, VmmActionError> {
         self.boot_path = true;
         self.vm_resources
-            .build_boot_source(cfg)
+            .build_boot_source(spec)
             .map(|()| VmmData::Empty)
             .map_err(VmmActionError::BootSource)
     }
 
-    fn set_mmds_config(&mut self, cfg: MmdsConfig) -> Result<VmmData, VmmActionError> {
+    fn set_mmds_config(&mut self, spec: MmdsSpec) -> Result<VmmData, VmmActionError> {
         self.boot_path = true;
         self.vm_resources
-            .set_mmds_config(cfg, &self.instance_info.id)
+            .set_mmds_config(spec, &self.instance_info.id)
             .map(|()| VmmData::Empty)
-            .map_err(VmmActionError::MmdsConfig)
+            .map_err(VmmActionError::MmdsSpec)
     }
 
-    fn update_machine_config(
+    fn update_machine_spec(
         &mut self,
-        cfg: MachineConfigUpdate,
+        update: MachineSpecUpdate,
     ) -> Result<VmmData, VmmActionError> {
         self.boot_path = true;
         self.vm_resources
-            .update_machine_config(&cfg)
+            .update_machine_spec(&update)
             .map(|()| VmmData::Empty)
-            .map_err(VmmActionError::MachineConfig)
+            .map_err(VmmActionError::MachineSpec)
     }
 
     fn set_custom_cpu_template(
@@ -579,26 +583,26 @@ impl<'a> PrebootApiController<'a> {
         Ok(VmmData::Empty)
     }
 
-    fn set_vsock_device(&mut self, cfg: VsockDeviceConfig) -> Result<VmmData, VmmActionError> {
+    fn set_vsock_device(&mut self, spec: VsockDeviceSpec) -> Result<VmmData, VmmActionError> {
         self.boot_path = true;
         self.vm_resources
-            .set_vsock_device(cfg)
+            .set_vsock_device(spec)
             .map(|()| VmmData::Empty)
-            .map_err(VmmActionError::VsockConfig)
+            .map_err(VmmActionError::VsockSpec)
     }
 
-    fn set_entropy_device(&mut self, cfg: EntropyDeviceConfig) -> Result<VmmData, VmmActionError> {
+    fn set_entropy_device(&mut self, spec: EntropyDeviceSpec) -> Result<VmmData, VmmActionError> {
         self.boot_path = true;
-        self.vm_resources.build_entropy_device(cfg)?;
+        self.vm_resources.build_entropy_device(spec)?;
         Ok(VmmData::Empty)
     }
 
     fn set_memory_hotplug_device(
         &mut self,
-        cfg: MemoryHotplugConfig,
+        spec: MemoryHotplugSpec,
     ) -> Result<VmmData, VmmActionError> {
         self.boot_path = true;
-        self.vm_resources.set_memory_hotplug_config(cfg)?;
+        self.vm_resources.set_memory_hotplug_config(spec)?;
         Ok(VmmData::Empty)
     }
 
@@ -677,7 +681,7 @@ impl MmdsRequestHandler for RuntimeApiController {
     fn mmds(&mut self) -> Result<MutexGuard<'_, Mmds>, VmmActionError> {
         self.vm_resources
             .locked_mmds_or_default()
-            .map_err(VmmActionError::MmdsConfig)
+            .map_err(VmmActionError::MmdsSpec)
     }
 }
 
@@ -689,12 +693,12 @@ impl RuntimeApiController {
             // Supported operations allowed post-boot.
             CreateSnapshot(snapshot_create_cfg) => self.create_snapshot(&snapshot_create_cfg),
             FlushMetrics => self.flush_metrics(),
-            GetBalloonConfig => self
+            GetBalloonSpec => self
                 .vmm
                 .lock()
                 .expect("Poisoned lock")
                 .balloon_config()
-                .map(|state| VmmData::BalloonConfig(BalloonDeviceConfig::from(state)))
+                .map(|state| VmmData::BalloonSpec(BalloonDeviceSpec::from(state)))
                 .map_err(VmmActionError::InternalVmm),
             GetBalloonStats => self
                 .vmm
@@ -703,7 +707,7 @@ impl RuntimeApiController {
                 .latest_balloon_stats()
                 .map(VmmData::BalloonStats)
                 .map_err(VmmActionError::InternalVmm),
-            GetFullVmConfig => Ok(VmmData::FullVmConfig((&self.vm_resources).into())),
+            GetFullVmSpec => Ok(VmmData::FullVmSpec((&self.vm_resources).into())),
             GetMemoryHotplugStatus => self
                 .vmm
                 .lock()
@@ -712,9 +716,7 @@ impl RuntimeApiController {
                 .map(VmmData::VirtioMemStatus)
                 .map_err(VmmActionError::InternalVmm),
             GetMMDS => self.get_mmds(),
-            GetVmMachineConfig => Ok(VmmData::MachineConfiguration(
-                self.vm_resources.machine_config.clone(),
-            )),
+            GetVmMachineSpec => Ok(VmmData::MachineSpec(self.vm_resources.machine_spec.clone())),
             GetVmInstanceInfo => Ok(VmmData::InstanceInformation(
                 self.vmm.lock().expect("Poisoned lock").instance_info(),
             )),
@@ -762,7 +764,7 @@ impl RuntimeApiController {
                 .stop_balloon_hinting()
                 .map(|_| VmmData::Empty)
                 .map_err(VmmActionError::BalloonUpdate),
-            UpdateBlockDevice(new_cfg) => self.update_block_device(new_cfg),
+            UpdateBlockDevice(new_spec) => self.update_block_device(new_spec),
             UpdateNetworkInterface(netif_update) => self.update_net_rate_limiters(netif_update),
             UpdateMemoryHotplugSize(cfg) => self
                 .vmm
@@ -783,11 +785,11 @@ impl RuntimeApiController {
             | PutCpuConfiguration(_)
             | SetBalloonDevice(_)
             | SetVsockDevice(_)
-            | SetMmdsConfiguration(_)
+            | SetMmdsSpec(_)
             | SetEntropyDevice(_)
             | SetMemoryHotplugDevice(_)
             | StartMicroVm
-            | UpdateMachineConfiguration(_) => Err(VmmActionError::OperationNotSupportedPostBoot),
+            | UpdateMachineSpec(_) => Err(VmmActionError::OperationNotSupportedPostBoot),
         }
     }
 
@@ -892,50 +894,50 @@ impl RuntimeApiController {
     ///  - rate limiter configuration.
     fn update_block_device(
         &mut self,
-        new_cfg: BlockDeviceUpdateConfig,
+        new_spec: BlockDeviceUpdateSpec,
     ) -> Result<VmmData, VmmActionError> {
         let mut vmm = self.vmm.lock().expect("Poisoned lock");
 
         // vhost-user-block updates
-        if new_cfg.path_on_host.is_none() && new_cfg.rate_limiter.is_none() {
-            vmm.update_vhost_user_block_config(&new_cfg.drive_id)
+        if new_spec.path_on_host.is_none() && new_spec.rate_limiter.is_none() {
+            vmm.update_vhost_user_block_config(&new_spec.drive_id)
                 .map_err(DriveError::DeviceUpdate)?;
         }
 
         // virtio-block updates
-        if let Some(new_path) = new_cfg.path_on_host {
-            vmm.update_block_device_path(&new_cfg.drive_id, new_path)
+        if let Some(new_path) = new_spec.path_on_host {
+            vmm.update_block_device_path(&new_spec.drive_id, new_path)
                 .map_err(DriveError::DeviceUpdate)?;
         }
-        if new_cfg.rate_limiter.is_some() {
+        if new_spec.rate_limiter.is_some() {
             vmm.update_block_rate_limiter(
-                &new_cfg.drive_id,
-                RateLimiterUpdate::from(new_cfg.rate_limiter).bandwidth,
-                RateLimiterUpdate::from(new_cfg.rate_limiter).ops,
+                &new_spec.drive_id,
+                RateLimiterUpdate::from(new_spec.rate_limiter).bandwidth,
+                RateLimiterUpdate::from(new_spec.rate_limiter).ops,
             )
             .map_err(DriveError::DeviceUpdate)?;
         }
         Ok(VmmData::Empty)
     }
 
-    /// Updates configuration for an emulated net device as described in `new_cfg`.
+    /// Updates configuration for an emulated net device as described in `new_spec`.
     fn update_net_rate_limiters(
         &mut self,
-        new_cfg: NetworkInterfaceUpdateConfig,
+        new_spec: NetworkInterfaceUpdateSpec,
     ) -> Result<VmmData, VmmActionError> {
         self.vmm
             .lock()
             .expect("Poisoned lock")
             .update_net_rate_limiters(
-                &new_cfg.iface_id,
-                RateLimiterUpdate::from(new_cfg.rx_rate_limiter).bandwidth,
-                RateLimiterUpdate::from(new_cfg.rx_rate_limiter).ops,
-                RateLimiterUpdate::from(new_cfg.tx_rate_limiter).bandwidth,
-                RateLimiterUpdate::from(new_cfg.tx_rate_limiter).ops,
+                &new_spec.iface_id,
+                RateLimiterUpdate::from(new_spec.rx_rate_limiter).bandwidth,
+                RateLimiterUpdate::from(new_spec.rx_rate_limiter).ops,
+                RateLimiterUpdate::from(new_spec.tx_rate_limiter).bandwidth,
+                RateLimiterUpdate::from(new_spec.tx_rate_limiter).ops,
             )
             .map(|()| VmmData::Empty)
             .map_err(NetworkInterfaceError::DeviceUpdate)
-            .map_err(VmmActionError::NetworkConfig)
+            .map_err(VmmActionError::NetworkSpec)
     }
 }
 
@@ -949,7 +951,7 @@ mod tests {
     use crate::devices::virtio::block::CacheType;
     use crate::mmds::data_store::MmdsVersion;
     use crate::seccomp::BpfThreadMap;
-    use crate::vmm_config::snapshot::{MemBackendConfig, MemBackendType};
+    use crate::vmm_config::snapshot::{MemBackendSpec, MemBackendType};
 
     fn default_preboot<'a>(
         vm_resources: &'a mut VmResources,
@@ -986,8 +988,8 @@ mod tests {
     #[test]
     fn test_preboot_get_vm_config() {
         assert_eq!(
-            preboot_request(VmmAction::GetVmMachineConfig).unwrap(),
-            VmmData::MachineConfiguration(MachineConfig::default())
+            preboot_request(VmmAction::GetVmMachineSpec).unwrap(),
+            VmmData::MachineSpec(MachineSpec::default())
         );
     }
 
@@ -1217,7 +1219,7 @@ mod tests {
         check_unsupported(preboot_request(VmmAction::Resume));
         check_unsupported(preboot_request(VmmAction::GetBalloonStats));
         check_unsupported(preboot_request(VmmAction::UpdateBalloon(
-            BalloonUpdateConfig { amount_mib: 0 },
+            BalloonUpdateSpec { amount_mib: 0 },
         )));
         check_unsupported(preboot_request(VmmAction::StartFreePageHinting(
             Default::default(),
@@ -1225,15 +1227,15 @@ mod tests {
         check_unsupported(preboot_request(VmmAction::GetFreePageHintingStatus));
         check_unsupported(preboot_request(VmmAction::StopFreePageHinting));
         check_unsupported(preboot_request(VmmAction::UpdateBalloonStatistics(
-            BalloonUpdateStatsConfig {
+            BalloonUpdateStatsSpec {
                 stats_polling_interval_s: 0,
             },
         )));
         check_unsupported(preboot_request(VmmAction::UpdateBlockDevice(
-            BlockDeviceUpdateConfig::default(),
+            BlockDeviceUpdateSpec::default(),
         )));
         check_unsupported(preboot_request(VmmAction::UpdateNetworkInterface(
-            NetworkInterfaceUpdateConfig {
+            NetworkInterfaceUpdateSpec {
                 iface_id: String::new(),
                 rx_rate_limiter: None,
                 tx_rate_limiter: None,
@@ -1277,8 +1279,8 @@ mod tests {
     #[test]
     fn test_runtime_get_vm_config() {
         assert_eq!(
-            runtime_request(VmmAction::GetVmMachineConfig).unwrap(),
-            VmmData::MachineConfiguration(MachineConfig::default())
+            runtime_request(VmmAction::GetVmMachineSpec).unwrap(),
+            VmmData::MachineSpec(MachineSpec::default())
         );
     }
 
@@ -1293,7 +1295,7 @@ mod tests {
         }
 
         check_unsupported(runtime_request(VmmAction::ConfigureBootSource(
-            BootSourceConfig::default(),
+            BootSourceSpec::default(),
         )));
         check_unsupported(runtime_request(VmmAction::ConfigureLogger(LoggerConfig {
             log_path: Some(PathBuf::new()),
@@ -1302,13 +1304,11 @@ mod tests {
             show_log_origin: Some(false),
             module: None,
         })));
-        check_unsupported(runtime_request(VmmAction::ConfigureMetrics(
-            MetricsConfig {
-                metrics_path: PathBuf::new(),
-            },
-        )));
+        check_unsupported(runtime_request(VmmAction::ConfigureMetrics(MetricsSpec {
+            metrics_path: PathBuf::new(),
+        })));
         check_unsupported(runtime_request(VmmAction::InsertBlockDevice(
-            BlockDeviceConfig {
+            BlockDeviceSpec {
                 drive_id: String::new(),
                 partuuid: None,
                 is_root_device: false,
@@ -1323,7 +1323,7 @@ mod tests {
             },
         )));
         check_unsupported(runtime_request(VmmAction::InsertNetworkDevice(
-            NetworkInterfaceConfig {
+            NetworkInterfaceSpec {
                 iface_id: String::new(),
                 host_dev_name: String::new(),
                 guest_mac: None,
@@ -1332,37 +1332,35 @@ mod tests {
             },
         )));
         check_unsupported(runtime_request(VmmAction::SetVsockDevice(
-            VsockDeviceConfig {
+            VsockDeviceSpec {
                 vsock_id: Some(String::new()),
                 guest_cid: 0,
                 uds_path: String::new(),
             },
         )));
         check_unsupported(runtime_request(VmmAction::SetBalloonDevice(
-            BalloonDeviceConfig::default(),
+            BalloonDeviceSpec::default(),
         )));
         check_unsupported(runtime_request(VmmAction::SetVsockDevice(
-            VsockDeviceConfig {
+            VsockDeviceSpec {
                 vsock_id: Some(String::new()),
                 guest_cid: 0,
                 uds_path: String::new(),
             },
         )));
-        check_unsupported(runtime_request(VmmAction::SetMmdsConfiguration(
-            MmdsConfig {
-                ipv4_address: None,
-                version: MmdsVersion::default(),
-                network_interfaces: Vec::new(),
-                imds_compat: false,
-            },
-        )));
-        check_unsupported(runtime_request(VmmAction::UpdateMachineConfiguration(
-            MachineConfigUpdate::from(MachineConfig::default()),
+        check_unsupported(runtime_request(VmmAction::SetMmdsSpec(MmdsSpec {
+            ipv4_address: None,
+            version: MmdsVersion::default(),
+            network_interfaces: Vec::new(),
+            imds_compat: false,
+        })));
+        check_unsupported(runtime_request(VmmAction::UpdateMachineSpec(
+            MachineSpecUpdate::from(MachineSpec::default()),
         )));
         check_unsupported(runtime_request(VmmAction::LoadSnapshot(
             LoadSnapshotParams {
                 snapshot_path: PathBuf::new(),
-                mem_backend: MemBackendConfig {
+                mem_backend: MemBackendSpec {
                     backend_type: MemBackendType::File,
                     backend_path: PathBuf::new(),
                 },
@@ -1372,16 +1370,16 @@ mod tests {
             },
         )));
         check_unsupported(runtime_request(VmmAction::SetEntropyDevice(
-            EntropyDeviceConfig::default(),
+            EntropyDeviceSpec::default(),
         )));
-        check_unsupported(runtime_request(VmmAction::InsertPmemDevice(PmemConfig {
+        check_unsupported(runtime_request(VmmAction::InsertPmemDevice(PmemSpec {
             id: String::new(),
             path_on_host: String::new(),
             root_device: false,
             read_only: false,
         })));
         check_unsupported(runtime_request(VmmAction::SetMemoryHotplugDevice(
-            MemoryHotplugConfig::default(),
+            MemoryHotplugSpec::default(),
         )));
     }
 }

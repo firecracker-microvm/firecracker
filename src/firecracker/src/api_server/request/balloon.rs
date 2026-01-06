@@ -3,9 +3,7 @@
 
 use micro_http::{Method, StatusCode};
 use vmm::rpc_interface::VmmAction;
-use vmm::vmm_config::balloon::{
-    BalloonDeviceConfig, BalloonUpdateConfig, BalloonUpdateStatsConfig,
-};
+use vmm::vmm_config::balloon::{BalloonDeviceSpec, BalloonUpdateSpec, BalloonUpdateStatsSpec};
 
 use super::super::parsed_request::{ParsedRequest, RequestError};
 use super::Body;
@@ -39,14 +37,15 @@ where
             StatusCode::BadRequest,
             format!("Unrecognized GET request path `{}`.", stats_path),
         )),
-        None => Ok(ParsedRequest::new_sync(VmmAction::GetBalloonConfig)),
+        None => Ok(ParsedRequest::new_sync(VmmAction::GetBalloonSpec)),
     }
 }
 
 pub(crate) fn parse_put_balloon(body: &Body) -> Result<ParsedRequest, RequestError> {
-    Ok(ParsedRequest::new_sync(VmmAction::SetBalloonDevice(
-        serde_json::from_slice::<BalloonDeviceConfig>(body.raw())?,
-    )))
+    Ok(ParsedRequest::new_stateless(
+        VmmAction::SetBalloonDevice,
+        serde_json::from_slice::<BalloonDeviceSpec>(body.raw())?,
+    ))
 }
 
 fn parse_patch_hinting<'a, T>(
@@ -64,9 +63,10 @@ where
                 Some(b) => serde_json::from_slice(b.raw())?,
             };
 
-            Ok(ParsedRequest::new_sync(VmmAction::StartFreePageHinting(
+            Ok(ParsedRequest::new_stateless(
+                VmmAction::StartFreePageHinting,
                 cmd,
-            )))
+            ))
         }
         Some("stop") => Ok(ParsedRequest::new_sync(VmmAction::StopFreePageHinting)),
         Some(stats_path) => Err(RequestError::Generic(
@@ -88,15 +88,15 @@ where
     T: Iterator<Item = &'a str>,
 {
     match (path_tokens.next(), body) {
-        (Some("statistics"), Some(body)) => {
-            Ok(ParsedRequest::new_sync(VmmAction::UpdateBalloonStatistics(
-                serde_json::from_slice::<BalloonUpdateStatsConfig>(body.raw())?,
-            )))
-        }
+        (Some("statistics"), Some(body)) => Ok(ParsedRequest::new_stateless(
+            VmmAction::UpdateBalloonStatistics,
+            serde_json::from_slice::<BalloonUpdateStatsSpec>(body.raw())?,
+        )),
         (Some("hinting"), body) => parse_patch_hinting(body, path_tokens),
-        (_, Some(body)) => Ok(ParsedRequest::new_sync(VmmAction::UpdateBalloon(
-            serde_json::from_slice::<BalloonUpdateConfig>(body.raw())?,
-        ))),
+        (_, Some(body)) => Ok(ParsedRequest::new_stateless(
+            VmmAction::UpdateBalloon,
+            serde_json::from_slice::<BalloonUpdateSpec>(body.raw())?,
+        )),
         (_, None) => method_to_error(Method::Patch),
     }
 }
@@ -183,25 +183,25 @@ mod tests {
         let body = r#"{
             "amount_mib": 1
         }"#;
-        let expected_config = BalloonUpdateConfig { amount_mib: 1 };
+        let expected_spec = BalloonUpdateSpec { amount_mib: 1 };
         assert_eq!(
             vmm_action_from_request(
                 parse_patch_balloon(Some(&Body::new(body)), [].into_iter()).unwrap()
             ),
-            VmmAction::UpdateBalloon(expected_config)
+            VmmAction::UpdateBalloon(expected_spec)
         );
 
         let body = r#"{
             "stats_polling_interval_s": 1
         }"#;
-        let expected_config = BalloonUpdateStatsConfig {
+        let expected_spec = BalloonUpdateStatsSpec {
             stats_polling_interval_s: 1,
         };
         assert_eq!(
             vmm_action_from_request(
                 parse_patch_balloon(Some(&Body::new(body)), ["statistics"].into_iter()).unwrap()
             ),
-            VmmAction::UpdateBalloonStatistics(expected_config)
+            VmmAction::UpdateBalloonStatistics(expected_spec)
         );
 
         // PATCH start hinting run valid data

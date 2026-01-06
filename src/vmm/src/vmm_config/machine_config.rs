@@ -15,7 +15,7 @@ pub const MAX_SUPPORTED_VCPUS: u8 = 32;
 /// Errors associated with configuring the microVM.
 #[rustfmt::skip]
 #[derive(Debug, thiserror::Error, displaydoc::Display, PartialEq, Eq)]
-pub enum MachineConfigError {
+pub enum MachineSpecError {
     /// The memory size (MiB) is smaller than the previously set balloon device target size.
     IncompatibleBalloonSize,
     /// The memory size (MiB) is either 0, or not a multiple of the configured page size.
@@ -90,7 +90,7 @@ impl From<HugePageConfig> for Option<memfd::HugetlbSize> {
 /// Struct used in PUT `/machine-config` API call.
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
-pub struct MachineConfig {
+pub struct MachineSpec {
     /// Number of vcpu to start.
     pub vcpu_count: u8,
     /// The memory size in MiB.
@@ -146,7 +146,7 @@ where
     template.serialize(serializer)
 }
 
-impl Default for MachineConfig {
+impl Default for MachineSpec {
     fn default() -> Self {
         Self {
             vcpu_count: 1,
@@ -162,14 +162,14 @@ impl Default for MachineConfig {
 }
 
 /// Struct used in PATCH `/machine-config` API call.
-/// Used to update `MachineConfig` in `VmResources`.
-/// This struct mirrors all the fields in `MachineConfig`.
+/// Used to update `MachineSpec` in `VmResources`.
+/// This struct mirrors all the fields in `MachineSpec`.
 /// All fields are optional, but at least one needs to be specified.
 /// If a field is `Some(value)` then we assume an update is requested
 /// for that field.
 #[derive(Clone, Default, Debug, PartialEq, Eq, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct MachineConfigUpdate {
+pub struct MachineSpecUpdate {
     /// Number of vcpu to start.
     #[serde(default)]
     pub vcpu_count: Option<u8>,
@@ -194,7 +194,7 @@ pub struct MachineConfigUpdate {
     pub gdb_socket_path: Option<String>,
 }
 
-impl MachineConfigUpdate {
+impl MachineSpecUpdate {
     /// Checks if the update request contains any data.
     /// Returns `true` if all fields are set to `None` which means that there is nothing
     /// to be updated.
@@ -203,22 +203,22 @@ impl MachineConfigUpdate {
     }
 }
 
-impl From<MachineConfig> for MachineConfigUpdate {
-    fn from(cfg: MachineConfig) -> Self {
-        MachineConfigUpdate {
-            vcpu_count: Some(cfg.vcpu_count),
-            mem_size_mib: Some(cfg.mem_size_mib),
-            smt: Some(cfg.smt),
-            cpu_template: cfg.static_template(),
-            track_dirty_pages: Some(cfg.track_dirty_pages),
-            huge_pages: Some(cfg.huge_pages),
+impl From<MachineSpec> for MachineSpecUpdate {
+    fn from(spec: MachineSpec) -> Self {
+        MachineSpecUpdate {
+            vcpu_count: Some(spec.vcpu_count),
+            mem_size_mib: Some(spec.mem_size_mib),
+            smt: Some(spec.smt),
+            cpu_template: spec.static_template(),
+            track_dirty_pages: Some(spec.track_dirty_pages),
+            huge_pages: Some(spec.huge_pages),
             #[cfg(feature = "gdb")]
-            gdb_socket_path: cfg.gdb_socket_path,
+            gdb_socket_path: spec.gdb_socket_path,
         }
     }
 }
 
-impl MachineConfig {
+impl MachineSpec {
     /// Sets cpu tempalte field to `CpuTemplateType::Custom(cpu_template)`.
     pub fn set_custom_cpu_template(&mut self, cpu_template: CustomCpuTemplate) {
         self.cpu_template = Some(CpuTemplateType::Custom(cpu_template));
@@ -231,39 +231,36 @@ impl MachineConfig {
         }
     }
 
-    /// Updates [`MachineConfig`] with [`MachineConfigUpdate`].
+    /// Updates [`MachineSpec`] with [`MachineSpecUpdate`].
     /// Mapping for cpu template update:
     /// StaticCpuTemplate::None -> None
     /// StaticCpuTemplate::Other -> Some(CustomCpuTemplate::Static(Other)),
-    /// Returns the updated `MachineConfig` object.
-    pub fn update(
-        &self,
-        update: &MachineConfigUpdate,
-    ) -> Result<MachineConfig, MachineConfigError> {
+    /// Returns the updated `MachineSpec` object.
+    pub fn update(&self, update: &MachineSpecUpdate) -> Result<MachineSpec, MachineSpecError> {
         let vcpu_count = update.vcpu_count.unwrap_or(self.vcpu_count);
 
         let smt = update.smt.unwrap_or(self.smt);
 
         #[cfg(target_arch = "aarch64")]
         if smt {
-            return Err(MachineConfigError::SmtNotSupported);
+            return Err(MachineSpecError::SmtNotSupported);
         }
 
         if vcpu_count == 0 || vcpu_count > MAX_SUPPORTED_VCPUS {
-            return Err(MachineConfigError::InvalidVcpuCount);
+            return Err(MachineSpecError::InvalidVcpuCount);
         }
 
         // If SMT is enabled or is to be enabled in this call
         // only allow vcpu count to be 1 or even.
         if smt && vcpu_count > 1 && vcpu_count % 2 == 1 {
-            return Err(MachineConfigError::InvalidVcpuCount);
+            return Err(MachineSpecError::InvalidVcpuCount);
         }
 
         let mem_size_mib = update.mem_size_mib.unwrap_or(self.mem_size_mib);
         let page_config = update.huge_pages.unwrap_or(self.huge_pages);
 
         if mem_size_mib == 0 || !page_config.is_valid_mem_size(mem_size_mib) {
-            return Err(MachineConfigError::InvalidMemorySize);
+            return Err(MachineSpecError::InvalidMemorySize);
         }
 
         let cpu_template = match update.cpu_template {
@@ -272,7 +269,7 @@ impl MachineConfig {
             Some(other) => Some(CpuTemplateType::Static(other)),
         };
 
-        Ok(MachineConfig {
+        Ok(MachineSpec {
             vcpu_count,
             mem_size_mib,
             smt,
@@ -288,11 +285,11 @@ impl MachineConfig {
 #[cfg(test)]
 mod tests {
     use crate::cpu_config::templates::{CpuTemplateType, CustomCpuTemplate, StaticCpuTemplate};
-    use crate::vmm_config::machine_config::MachineConfig;
+    use crate::vmm_config::machine_config::MachineSpec;
 
     // Ensure the special (de)serialization logic for the cpu_template field works:
     // only static cpu templates can be specified via the machine-config endpoint, but
-    // we still cram custom cpu templates into the MachineConfig struct if they're set otherwise
+    // we still cram custom cpu templates into the MachineSpec struct if they're set otherwise
     // Ensure that during (de)serialization we preserve static templates, but we set custom
     // templates to None
     #[test]
@@ -302,36 +299,36 @@ mod tests {
         #[cfg(target_arch = "x86_64")]
         const TEMPLATE: StaticCpuTemplate = StaticCpuTemplate::T2S;
 
-        let mconfig = MachineConfig {
+        let mspec = MachineSpec {
             cpu_template: None,
             ..Default::default()
         };
 
-        let serialized = serde_json::to_string(&mconfig).unwrap();
-        let deserialized = serde_json::from_str::<MachineConfig>(&serialized).unwrap();
+        let serialized = serde_json::to_string(&mspec).unwrap();
+        let deserialized = serde_json::from_str::<MachineSpec>(&serialized).unwrap();
 
         assert!(deserialized.cpu_template.is_none());
 
-        let mconfig = MachineConfig {
+        let mspec = MachineSpec {
             cpu_template: Some(CpuTemplateType::Static(TEMPLATE)),
             ..Default::default()
         };
 
-        let serialized = serde_json::to_string(&mconfig).unwrap();
-        let deserialized = serde_json::from_str::<MachineConfig>(&serialized).unwrap();
+        let serialized = serde_json::to_string(&mspec).unwrap();
+        let deserialized = serde_json::from_str::<MachineSpec>(&serialized).unwrap();
 
         assert_eq!(
             deserialized.cpu_template,
             Some(CpuTemplateType::Static(TEMPLATE))
         );
 
-        let mconfig = MachineConfig {
+        let mspec = MachineSpec {
             cpu_template: Some(CpuTemplateType::Custom(CustomCpuTemplate::default())),
             ..Default::default()
         };
 
-        let serialized = serde_json::to_string(&mconfig).unwrap();
-        let deserialized = serde_json::from_str::<MachineConfig>(&serialized).unwrap();
+        let serialized = serde_json::to_string(&mspec).unwrap();
+        let deserialized = serde_json::from_str::<MachineSpec>(&serialized).unwrap();
 
         assert!(deserialized.cpu_template.is_none());
     }

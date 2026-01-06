@@ -7,9 +7,9 @@ use serde::{Deserialize, Serialize};
 
 use crate::devices::virtio::pmem::device::{Pmem, PmemError};
 
-/// Errors associated wit the operations allowed on a pmem device
+/// Errors associated with the operations allowed on a pmem device
 #[derive(Debug, thiserror::Error, displaydoc::Display)]
-pub enum PmemConfigError {
+pub enum PmemSpecError {
     /// Attempt to add pmem as a root device while the root device defined as a block device
     AddingSecondRootDevice,
     /// A root pmem device already exist
@@ -23,7 +23,7 @@ pub enum PmemConfigError {
 /// Use this structure to setup a Pmem device before boothing the kernel.
 #[derive(Debug, Default, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct PmemConfig {
+pub struct PmemSpec {
     /// Unique identifier of the device.
     pub id: String,
     /// Path of the drive.
@@ -48,37 +48,33 @@ impl PmemBuilder {
     pub fn has_root_device(&self) -> bool {
         self.devices
             .iter()
-            .any(|d| d.lock().unwrap().config.root_device)
+            .any(|d| d.lock().unwrap().spec.root_device)
     }
 
     /// Build a device from the config
-    pub fn build(
-        &mut self,
-        config: PmemConfig,
-        has_block_root: bool,
-    ) -> Result<(), PmemConfigError> {
-        if config.root_device && has_block_root {
-            return Err(PmemConfigError::AddingSecondRootDevice);
+    pub fn build(&mut self, spec: PmemSpec, has_block_root: bool) -> Result<(), PmemSpecError> {
+        if spec.root_device && has_block_root {
+            return Err(PmemSpecError::AddingSecondRootDevice);
         }
         let position = self
             .devices
             .iter()
-            .position(|d| d.lock().unwrap().config.id == config.id);
+            .position(|d| d.lock().unwrap().spec.id == spec.id);
         if let Some(index) = position {
-            if !self.devices[index].lock().unwrap().config.root_device
-                && config.root_device
+            if !self.devices[index].lock().unwrap().spec.root_device
+                && spec.root_device
                 && self.has_root_device()
             {
-                return Err(PmemConfigError::RootPmemDeviceAlreadyExist);
+                return Err(PmemSpecError::RootPmemDeviceAlreadyExist);
             }
-            let pmem = Pmem::new(config)?;
+            let pmem = Pmem::new(spec)?;
             let pmem = Arc::new(Mutex::new(pmem));
             self.devices[index] = pmem;
         } else {
-            if config.root_device && self.has_root_device() {
-                return Err(PmemConfigError::RootPmemDeviceAlreadyExist);
+            if spec.root_device && self.has_root_device() {
+                return Err(PmemSpecError::RootPmemDeviceAlreadyExist);
             }
-            let pmem = Pmem::new(config)?;
+            let pmem = Pmem::new(spec)?;
             let pmem = Arc::new(Mutex::new(pmem));
             self.devices.push(pmem);
         }
@@ -93,10 +89,10 @@ impl PmemBuilder {
     }
 
     /// Returns a vec with the structures used to configure the devices.
-    pub fn configs(&self) -> Vec<PmemConfig> {
+    pub fn configs(&self) -> Vec<PmemSpec> {
         self.devices
             .iter()
-            .map(|b| b.lock().unwrap().config.clone())
+            .map(|b| b.lock().unwrap().spec.clone())
             .collect()
     }
 }
@@ -114,19 +110,19 @@ mod tests {
         let dummy_file = TempFile::new().unwrap();
         dummy_file.as_file().set_len(Pmem::ALIGNMENT).unwrap();
         let dummy_path = dummy_file.as_path().to_str().unwrap().to_string();
-        let mut config = PmemConfig {
+        let mut spec = PmemSpec {
             id: "1".into(),
             path_on_host: dummy_path,
             root_device: true,
             read_only: false,
         };
-        builder.build(config.clone(), false).unwrap();
+        builder.build(spec.clone(), false).unwrap();
         assert_eq!(builder.devices.len(), 1);
         assert!(builder.has_root_device());
 
         // First device got replaced with new one
-        config.root_device = false;
-        builder.build(config, false).unwrap();
+        spec.root_device = false;
+        builder.build(spec, false).unwrap();
         assert_eq!(builder.devices.len(), 1);
         assert!(!builder.has_root_device());
     }
@@ -138,18 +134,18 @@ mod tests {
         let dummy_file = TempFile::new().unwrap();
         dummy_file.as_file().set_len(Pmem::ALIGNMENT).unwrap();
         let dummy_path = dummy_file.as_path().to_str().unwrap().to_string();
-        let mut config = PmemConfig {
+        let mut spec = PmemSpec {
             id: "1".into(),
             path_on_host: dummy_path,
             root_device: true,
             read_only: false,
         };
-        builder.build(config.clone(), false).unwrap();
+        builder.build(spec.clone(), false).unwrap();
 
-        config.id = "2".into();
+        spec.id = "2".into();
         assert!(matches!(
-            builder.build(config.clone(), false).unwrap_err(),
-            PmemConfigError::RootPmemDeviceAlreadyExist,
+            builder.build(spec.clone(), false).unwrap_err(),
+            PmemSpecError::RootPmemDeviceAlreadyExist,
         ));
     }
 
@@ -160,15 +156,15 @@ mod tests {
         let dummy_file = TempFile::new().unwrap();
         dummy_file.as_file().set_len(Pmem::ALIGNMENT).unwrap();
         let dummy_path = dummy_file.as_path().to_str().unwrap().to_string();
-        let config = PmemConfig {
+        let spec = PmemSpec {
             id: "1".into(),
             path_on_host: dummy_path,
             root_device: true,
             read_only: false,
         };
         assert!(matches!(
-            builder.build(config, true).unwrap_err(),
-            PmemConfigError::AddingSecondRootDevice,
+            builder.build(spec, true).unwrap_err(),
+            PmemSpecError::AddingSecondRootDevice,
         ));
     }
 }

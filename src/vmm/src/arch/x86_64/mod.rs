@@ -58,7 +58,7 @@ use crate::cpu_config::x86_64::CpuConfiguration;
 use crate::device_manager::DeviceManager;
 use crate::initrd::InitrdConfig;
 use crate::utils::{align_down, u64_to_usize, usize_to_u64};
-use crate::vmm_config::machine_config::MachineConfig;
+use crate::vmm_config::machine_config::MachineSpec;
 use crate::vstate::memory::{
     Address, GuestAddress, GuestMemory, GuestMemoryMmap, GuestMemoryRegion, GuestRegionType,
 };
@@ -178,7 +178,7 @@ pub fn configure_system_for_boot(
     vm: &Vm,
     device_manager: &mut DeviceManager,
     vcpus: &mut [Vcpu],
-    machine_config: &MachineConfig,
+    machine_spec: &MachineSpec,
     cpu_template: &CustomCpuTemplate,
     entry_point: EntryPoint,
     initrd: &Option<InitrdConfig>,
@@ -190,8 +190,8 @@ pub fn configure_system_for_boot(
     let cpu_config = CpuConfiguration::apply_template(cpu_config, cpu_template)?;
 
     let vcpu_config = VcpuConfig {
-        vcpu_count: machine_config.vcpu_count,
-        smt: machine_config.smt,
+        vcpu_count: machine_spec.vcpu_count,
+        smt: machine_spec.smt,
         cpu_config,
     };
 

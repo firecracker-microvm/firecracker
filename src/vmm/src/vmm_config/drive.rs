@@ -7,7 +7,7 @@ use std::sync::{Arc, Mutex};
 
 use serde::{Deserialize, Serialize};
 
-use super::RateLimiterConfig;
+use super::RateLimiterSpec;
 use crate::VmmError;
 use crate::devices::virtio::block::device::Block;
 pub use crate::devices::virtio::block::virtio::device::FileEngineType;
@@ -31,7 +31,7 @@ pub enum DriveError {
 /// Use this structure to set up the Block Device before booting the kernel.
 #[derive(Debug, Default, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
-pub struct BlockDeviceConfig {
+pub struct BlockDeviceSpec {
     /// Unique identifier of the drive.
     pub drive_id: String,
     /// Part-UUID. Represents the unique id of the boot partition of this device. It is
@@ -53,7 +53,7 @@ pub struct BlockDeviceConfig {
     /// Path of the drive.
     pub path_on_host: Option<String>,
     /// Rate Limiter for I/O operations.
-    pub rate_limiter: Option<RateLimiterConfig>,
+    pub rate_limiter: Option<RateLimiterSpec>,
     /// The type of IO engine used by the device.
     // #[serde(default)]
     // #[serde(rename = "io_engine")]
@@ -70,7 +70,7 @@ pub struct BlockDeviceConfig {
 /// are missing, they will not be updated.
 #[derive(Debug, Default, PartialEq, Eq, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct BlockDeviceUpdateConfig {
+pub struct BlockDeviceUpdateSpec {
     /// The drive ID, as provided by the user at creation time.
     pub drive_id: String,
 
@@ -78,7 +78,7 @@ pub struct BlockDeviceUpdateConfig {
     /// New block file path on the host. Only provided data will be updated.
     pub path_on_host: Option<String>,
     /// New rate limiter config.
-    pub rate_limiter: Option<RateLimiterConfig>,
+    pub rate_limiter: Option<RateLimiterSpec>,
 }
 
 /// Wrapper for the collection that holds all the Block Devices
@@ -129,14 +129,10 @@ impl BlockBuilder {
     /// Inserts a `Block` in the block devices list using the specified configuration.
     /// If a block with the same id already exists, it will overwrite it.
     /// Inserting a secondary root block device will fail.
-    pub fn insert(
-        &mut self,
-        config: BlockDeviceConfig,
-        has_pmem_root: bool,
-    ) -> Result<(), DriveError> {
-        let position = self.get_index_of_drive_id(&config.drive_id);
+    pub fn insert(&mut self, spec: BlockDeviceSpec, has_pmem_root: bool) -> Result<(), DriveError> {
+        let position = self.get_index_of_drive_id(&spec.drive_id);
         let has_root_device = self.has_root_device();
-        let configured_as_root = config.is_root_device;
+        let configured_as_root = spec.is_root_device;
 
         if configured_as_root && has_pmem_root {
             return Err(DriveError::AddingSecondRootDevice);
@@ -149,7 +145,7 @@ impl BlockBuilder {
         }
 
         let block_dev = Arc::new(Mutex::new(
-            Block::new(config).map_err(DriveError::CreateBlockDevice)?,
+            Block::new(spec).map_err(DriveError::CreateBlockDevice)?,
         ));
 
         // If the id of the drive already exists in the list, the operation is update/overwrite.
@@ -177,7 +173,7 @@ impl BlockBuilder {
     }
 
     /// Returns a vec with the structures used to configure the devices.
-    pub fn configs(&self) -> Vec<BlockDeviceConfig> {
+    pub fn configs(&self) -> Vec<BlockDeviceSpec> {
         self.devices
             .iter()
             .map(|b| b.lock().unwrap().config())
@@ -200,9 +196,9 @@ mod tests {
 
     // This implementation is used only in tests.
     // We cannot directly derive clone because RateLimiter does not implement clone.
-    impl Clone for BlockDeviceConfig {
+    impl Clone for BlockDeviceSpec {
         fn clone(&self) -> Self {
-            BlockDeviceConfig {
+            BlockDeviceSpec {
                 drive_id: self.drive_id.clone(),
                 partuuid: self.partuuid.clone(),
                 is_root_device: self.is_root_device,
@@ -229,7 +225,7 @@ mod tests {
         let dummy_file = TempFile::new().unwrap();
         let dummy_path = dummy_file.as_path().to_str().unwrap().to_string();
         let dummy_id = String::from("1");
-        let dummy_block_device = BlockDeviceConfig {
+        let dummy_block_device = BlockDeviceSpec {
             drive_id: dummy_id.clone(),
             partuuid: None,
             is_root_device: false,
@@ -263,7 +259,7 @@ mod tests {
         let dummy_file = TempFile::new().unwrap();
         let dummy_path = dummy_file.as_path().to_str().unwrap().to_string();
 
-        let dummy_block_device = BlockDeviceConfig {
+        let dummy_block_device = BlockDeviceSpec {
             drive_id: String::from("1"),
             partuuid: None,
             is_root_device: true,
@@ -295,7 +291,7 @@ mod tests {
         let dummy_file = TempFile::new().unwrap();
         let dummy_path = dummy_file.as_path().to_str().unwrap().to_string();
 
-        let dummy_block_device = BlockDeviceConfig {
+        let dummy_block_device = BlockDeviceSpec {
             drive_id: String::from("1"),
             partuuid: None,
             is_root_device: true,
@@ -324,7 +320,7 @@ mod tests {
     fn test_add_two_root_block_devs() {
         let dummy_file_1 = TempFile::new().unwrap();
         let dummy_path_1 = dummy_file_1.as_path().to_str().unwrap().to_string();
-        let root_block_device_1 = BlockDeviceConfig {
+        let root_block_device_1 = BlockDeviceSpec {
             drive_id: String::from("1"),
             partuuid: None,
             is_root_device: true,
@@ -340,7 +336,7 @@ mod tests {
 
         let dummy_file_2 = TempFile::new().unwrap();
         let dummy_path_2 = dummy_file_2.as_path().to_str().unwrap().to_string();
-        let root_block_device_2 = BlockDeviceConfig {
+        let root_block_device_2 = BlockDeviceSpec {
             drive_id: String::from("2"),
             partuuid: None,
             is_root_device: true,
@@ -367,7 +363,7 @@ mod tests {
     fn test_add_root_block_device_first() {
         let dummy_file_1 = TempFile::new().unwrap();
         let dummy_path_1 = dummy_file_1.as_path().to_str().unwrap().to_string();
-        let root_block_device = BlockDeviceConfig {
+        let root_block_device = BlockDeviceSpec {
             drive_id: String::from("1"),
             partuuid: None,
             is_root_device: true,
@@ -383,7 +379,7 @@ mod tests {
 
         let dummy_file_2 = TempFile::new().unwrap();
         let dummy_path_2 = dummy_file_2.as_path().to_str().unwrap().to_string();
-        let dummy_block_dev_2 = BlockDeviceConfig {
+        let dummy_block_dev_2 = BlockDeviceSpec {
             drive_id: String::from("2"),
             partuuid: None,
             is_root_device: false,
@@ -399,7 +395,7 @@ mod tests {
 
         let dummy_file_3 = TempFile::new().unwrap();
         let dummy_path_3 = dummy_file_3.as_path().to_str().unwrap().to_string();
-        let dummy_block_dev_3 = BlockDeviceConfig {
+        let dummy_block_dev_3 = BlockDeviceSpec {
             drive_id: String::from("3"),
             partuuid: None,
             is_root_device: false,
@@ -440,7 +436,7 @@ mod tests {
     fn test_root_block_device_add_last() {
         let dummy_file_1 = TempFile::new().unwrap();
         let dummy_path_1 = dummy_file_1.as_path().to_str().unwrap().to_string();
-        let root_block_device = BlockDeviceConfig {
+        let root_block_device = BlockDeviceSpec {
             drive_id: String::from("1"),
             partuuid: None,
             is_root_device: true,
@@ -456,7 +452,7 @@ mod tests {
 
         let dummy_file_2 = TempFile::new().unwrap();
         let dummy_path_2 = dummy_file_2.as_path().to_str().unwrap().to_string();
-        let dummy_block_dev_2 = BlockDeviceConfig {
+        let dummy_block_dev_2 = BlockDeviceSpec {
             drive_id: String::from("2"),
             partuuid: None,
             is_root_device: false,
@@ -472,7 +468,7 @@ mod tests {
 
         let dummy_file_3 = TempFile::new().unwrap();
         let dummy_path_3 = dummy_file_3.as_path().to_str().unwrap().to_string();
-        let dummy_block_dev_3 = BlockDeviceConfig {
+        let dummy_block_dev_3 = BlockDeviceSpec {
             drive_id: String::from("3"),
             partuuid: None,
             is_root_device: false,
@@ -514,7 +510,7 @@ mod tests {
     fn test_update() {
         let dummy_file_1 = TempFile::new().unwrap();
         let dummy_path_1 = dummy_file_1.as_path().to_str().unwrap().to_string();
-        let root_block_device = BlockDeviceConfig {
+        let root_block_device = BlockDeviceSpec {
             drive_id: String::from("1"),
             partuuid: None,
             is_root_device: true,
@@ -530,7 +526,7 @@ mod tests {
 
         let dummy_file_2 = TempFile::new().unwrap();
         let dummy_path_2 = dummy_file_2.as_path().to_str().unwrap().to_string();
-        let mut dummy_block_device_2 = BlockDeviceConfig {
+        let mut dummy_block_device_2 = BlockDeviceSpec {
             drive_id: String::from("2"),
             partuuid: None,
             is_root_device: false,
@@ -602,7 +598,7 @@ mod tests {
             Err(DriveError::RootBlockDeviceAlreadyAdded)
         );
 
-        let root_block_device = BlockDeviceConfig {
+        let root_block_device = BlockDeviceSpec {
             drive_id: String::from("1"),
             partuuid: None,
             is_root_device: true,
@@ -618,7 +614,7 @@ mod tests {
         // Switch roots and add a PARTUUID for the new one.
         let mut root_block_device_old = root_block_device;
         root_block_device_old.is_root_device = false;
-        let root_block_device_new = BlockDeviceConfig {
+        let root_block_device_new = BlockDeviceSpec {
             drive_id: String::from("2"),
             partuuid: Some("0eaa91a0-01".to_string()),
             is_root_device: true,
@@ -644,7 +640,7 @@ mod tests {
     fn test_block_config() {
         let dummy_file = TempFile::new().unwrap();
 
-        let dummy_block_device = BlockDeviceConfig {
+        let dummy_block_device = BlockDeviceSpec {
             drive_id: String::from("1"),
             partuuid: None,
             is_root_device: true,
@@ -674,7 +670,7 @@ mod tests {
         let backing_file = TempFile::new().unwrap();
 
         let block_id = "test_id";
-        let config = BlockDeviceConfig {
+        let spec = BlockDeviceSpec {
             drive_id: block_id.to_string(),
             partuuid: None,
             is_root_device: true,
@@ -688,7 +684,7 @@ mod tests {
             socket: None,
         };
 
-        let block = Block::new(config).unwrap();
+        let block = Block::new(spec).unwrap();
 
         block_devs.add_virtio_device(Arc::new(Mutex::new(block)));
         assert_eq!(block_devs.devices.len(), 1);

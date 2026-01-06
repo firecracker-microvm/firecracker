@@ -5,8 +5,8 @@ use serde::de::Error as DeserializeError;
 use vmm::logger::{IncMetric, METRICS};
 use vmm::rpc_interface::VmmAction;
 use vmm::vmm_config::snapshot::{
-    CreateSnapshotParams, LoadSnapshotConfig, LoadSnapshotParams, MemBackendConfig, MemBackendType,
-    Vm, VmState,
+    CreateSnapshotParams, LoadSnapshotParams, LoadSnapshotSpec, MemBackendSpec, MemBackendType, Vm,
+    VmState,
 };
 
 use super::super::parsed_request::{ParsedRequest, RequestError};
@@ -53,16 +53,17 @@ pub(crate) fn parse_patch_vm_state(body: &Body) -> Result<ParsedRequest, Request
 }
 
 fn parse_put_snapshot_create(body: &Body) -> Result<ParsedRequest, RequestError> {
-    let snapshot_config = serde_json::from_slice::<CreateSnapshotParams>(body.raw())?;
-    Ok(ParsedRequest::new_sync(VmmAction::CreateSnapshot(
-        snapshot_config,
-    )))
+    let snapshot_params = serde_json::from_slice::<CreateSnapshotParams>(body.raw())?;
+    Ok(ParsedRequest::new_stateless(
+        VmmAction::CreateSnapshot,
+        snapshot_params,
+    ))
 }
 
 fn parse_put_snapshot_load(body: &Body) -> Result<ParsedRequest, RequestError> {
-    let snapshot_config = serde_json::from_slice::<LoadSnapshotConfig>(body.raw())?;
+    let snapshot_spec = serde_json::from_slice::<LoadSnapshotSpec>(body.raw())?;
 
-    match (&snapshot_config.mem_backend, &snapshot_config.mem_file_path) {
+    match (&snapshot_spec.mem_backend, &snapshot_spec.mem_file_path) {
         // Ensure `mem_file_path` and `mem_backend` fields are not present at the same time.
         (Some(_), Some(_)) => {
             return Err(RequestError::SerdeJson(serde_json::Error::custom(
@@ -82,38 +83,37 @@ fn parse_put_snapshot_load(body: &Body) -> Result<ParsedRequest, RequestError> {
     // deprecation message if found.
     let mut deprecation_message = None;
     #[allow(deprecated)]
-    if snapshot_config.mem_file_path.is_some() || snapshot_config.enable_diff_snapshots {
+    if snapshot_spec.mem_file_path.is_some() || snapshot_spec.enable_diff_snapshots {
         // `mem_file_path` field in request is deprecated.
         METRICS.deprecated_api.deprecated_http_api_calls.inc();
         deprecation_message = Some(LOAD_DEPRECATION_MESSAGE);
     }
 
     // If `mem_file_path` is specified instead of `mem_backend`, we construct the
-    // `MemBackendConfig` object from the path specified, with `File` as backend type.
-    let mem_backend = match snapshot_config.mem_backend {
-        Some(backend_cfg) => backend_cfg,
+    // `MemBackendSpec` object from the path specified, with `File` as backend type.
+    let mem_backend = match snapshot_spec.mem_backend {
+        Some(backend_spec) => backend_spec,
         None => {
-            MemBackendConfig {
+            MemBackendSpec {
                 // This is safe to unwrap() because we ensure above that one of the two:
                 // either `mem_file_path` or `mem_backend` field is always specified.
-                backend_path: snapshot_config.mem_file_path.unwrap(),
+                backend_path: snapshot_spec.mem_file_path.unwrap(),
                 backend_type: MemBackendType::File,
             }
         }
     };
 
     let snapshot_params = LoadSnapshotParams {
-        snapshot_path: snapshot_config.snapshot_path,
+        snapshot_path: snapshot_spec.snapshot_path,
         mem_backend,
         #[allow(deprecated)]
-        track_dirty_pages: snapshot_config.enable_diff_snapshots
-            || snapshot_config.track_dirty_pages,
-        resume_vm: snapshot_config.resume_vm,
-        network_overrides: snapshot_config.network_overrides,
+        track_dirty_pages: snapshot_spec.enable_diff_snapshots || snapshot_spec.track_dirty_pages,
+        resume_vm: snapshot_spec.resume_vm,
+        network_overrides: snapshot_spec.network_overrides,
     };
 
     // Construct the `ParsedRequest` object.
-    let mut parsed_req = ParsedRequest::new_sync(VmmAction::LoadSnapshot(snapshot_params));
+    let mut parsed_req = ParsedRequest::new_stateless(VmmAction::LoadSnapshot, snapshot_params);
 
     // If `mem_file_path` was present, set the deprecation message in `parsing_info`.
     if let Some(msg) = deprecation_message {
@@ -125,7 +125,7 @@ fn parse_put_snapshot_load(body: &Body) -> Result<ParsedRequest, RequestError> {
 
 #[cfg(test)]
 mod tests {
-    use vmm::vmm_config::snapshot::{MemBackendConfig, MemBackendType, NetworkOverride};
+    use vmm::vmm_config::snapshot::{MemBackendSpec, MemBackendType, NetworkOverride};
 
     use super::*;
     use crate::api_server::parsed_request::tests::{depr_action_from_req, vmm_action_from_request};
@@ -180,7 +180,7 @@ mod tests {
         }"#;
         let expected_config = LoadSnapshotParams {
             snapshot_path: PathBuf::from("foo"),
-            mem_backend: MemBackendConfig {
+            mem_backend: MemBackendSpec {
                 backend_path: PathBuf::from("bar"),
                 backend_type: MemBackendType::File,
             },
@@ -210,7 +210,7 @@ mod tests {
         }"#;
         let expected_config = LoadSnapshotParams {
             snapshot_path: PathBuf::from("foo"),
-            mem_backend: MemBackendConfig {
+            mem_backend: MemBackendSpec {
                 backend_path: PathBuf::from("bar"),
                 backend_type: MemBackendType::File,
             },
@@ -240,7 +240,7 @@ mod tests {
         }"#;
         let expected_config = LoadSnapshotParams {
             snapshot_path: PathBuf::from("foo"),
-            mem_backend: MemBackendConfig {
+            mem_backend: MemBackendSpec {
                 backend_path: PathBuf::from("bar"),
                 backend_type: MemBackendType::Uffd,
             },
@@ -276,7 +276,7 @@ mod tests {
         }"#;
         let expected_config = LoadSnapshotParams {
             snapshot_path: PathBuf::from("foo"),
-            mem_backend: MemBackendConfig {
+            mem_backend: MemBackendSpec {
                 backend_path: PathBuf::from("bar"),
                 backend_type: MemBackendType::Uffd,
             },
@@ -306,7 +306,7 @@ mod tests {
         }"#;
         let expected_config = LoadSnapshotParams {
             snapshot_path: PathBuf::from("foo"),
-            mem_backend: MemBackendConfig {
+            mem_backend: MemBackendSpec {
                 backend_path: PathBuf::from("bar"),
                 backend_type: MemBackendType::File,
             },

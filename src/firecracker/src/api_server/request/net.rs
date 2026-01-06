@@ -3,7 +3,7 @@
 
 use vmm::logger::{IncMetric, METRICS};
 use vmm::rpc_interface::VmmAction;
-use vmm::vmm_config::net::{NetworkInterfaceConfig, NetworkInterfaceUpdateConfig};
+use vmm::vmm_config::net::{NetworkInterfaceSpec, NetworkInterfaceUpdateSpec};
 
 use super::super::parsed_request::{ParsedRequest, RequestError, checked_id};
 use super::{Body, StatusCode};
@@ -20,7 +20,7 @@ pub(crate) fn parse_put_net(
         return Err(RequestError::EmptyID);
     };
 
-    let netif = serde_json::from_slice::<NetworkInterfaceConfig>(body.raw()).inspect_err(|_| {
+    let netif = serde_json::from_slice::<NetworkInterfaceSpec>(body.raw()).inspect_err(|_| {
         METRICS.put_api_requests.network_fails.inc();
     })?;
     if id != netif.iface_id.as_str() {
@@ -34,9 +34,10 @@ pub(crate) fn parse_put_net(
             ),
         ));
     }
-    Ok(ParsedRequest::new_sync(VmmAction::InsertNetworkDevice(
+    Ok(ParsedRequest::new_stateless(
+        VmmAction::InsertNetworkDevice,
         netif,
-    )))
+    ))
 }
 
 pub(crate) fn parse_patch_net(
@@ -52,7 +53,7 @@ pub(crate) fn parse_patch_net(
     };
 
     let netif =
-        serde_json::from_slice::<NetworkInterfaceUpdateConfig>(body.raw()).inspect_err(|_| {
+        serde_json::from_slice::<NetworkInterfaceUpdateSpec>(body.raw()).inspect_err(|_| {
             METRICS.patch_api_requests.network_fails.inc();
         })?;
     if id != netif.iface_id {
@@ -66,9 +67,10 @@ pub(crate) fn parse_patch_net(
             ),
         ));
     }
-    Ok(ParsedRequest::new_sync(VmmAction::UpdateNetworkInterface(
+    Ok(ParsedRequest::new_stateless(
+        VmmAction::UpdateNetworkInterface,
         netif,
-    )))
+    ))
 }
 
 #[cfg(test)]
@@ -89,10 +91,10 @@ mod tests {
         parse_put_net(&Body::new(body), None).unwrap_err();
 
         // 3. Success case.
-        let expected_config = serde_json::from_str::<NetworkInterfaceConfig>(body).unwrap();
+        let expected_spec = serde_json::from_str::<NetworkInterfaceSpec>(body).unwrap();
         assert_eq!(
             vmm_action_from_request(parse_put_net(&Body::new(body), Some("foo")).unwrap()),
-            VmmAction::InsertNetworkDevice(expected_config)
+            VmmAction::InsertNetworkDevice(expected_spec)
         );
 
         // 4. Serde error for invalid field (bytes instead of bandwidth).
@@ -127,10 +129,10 @@ mod tests {
         parse_patch_net(&Body::new(body), None).unwrap_err();
 
         // 3. Success case.
-        let expected_config = serde_json::from_str::<NetworkInterfaceUpdateConfig>(body).unwrap();
+        let expected_spec = serde_json::from_str::<NetworkInterfaceUpdateSpec>(body).unwrap();
         assert_eq!(
             vmm_action_from_request(parse_patch_net(&Body::new(body), Some("foo")).unwrap()),
-            VmmAction::UpdateNetworkInterface(expected_config)
+            VmmAction::UpdateNetworkInterface(expected_spec)
         );
 
         // 4. Serde error for invalid field (bytes instead of bandwidth).

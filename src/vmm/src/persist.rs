@@ -31,9 +31,9 @@ use crate::resources::VmResources;
 use crate::seccomp::BpfThreadMap;
 use crate::snapshot::Snapshot;
 use crate::utils::u64_to_usize;
-use crate::vmm_config::boot_source::BootSourceConfig;
+use crate::vmm_config::boot_source::BootSourceSpec;
 use crate::vmm_config::instance_info::InstanceInfo;
-use crate::vmm_config::machine_config::{HugePageConfig, MachineConfigError, MachineConfigUpdate};
+use crate::vmm_config::machine_config::{HugePageConfig, MachineSpecError, MachineSpecUpdate};
 use crate::vmm_config::snapshot::{CreateSnapshotParams, LoadSnapshotParams, MemBackendType};
 use crate::vstate::kvm::KvmState;
 use crate::vstate::memory::{
@@ -53,7 +53,7 @@ pub struct VmInfo {
     /// CPU template type
     pub cpu_template: StaticCpuTemplate,
     /// Boot source information.
-    pub boot_source: BootSourceConfig,
+    pub boot_source: BootSourceSpec,
     /// Huge page configuration
     pub huge_pages: HugePageConfig,
 }
@@ -61,11 +61,11 @@ pub struct VmInfo {
 impl From<&VmResources> for VmInfo {
     fn from(value: &VmResources) -> Self {
         Self {
-            mem_size_mib: value.machine_config.mem_size_mib as u64,
-            smt: value.machine_config.smt,
-            cpu_template: StaticCpuTemplate::from(&value.machine_config.cpu_template),
-            boot_source: value.boot_source.config.clone(),
-            huge_pages: value.machine_config.huge_pages,
+            mem_size_mib: value.machine_spec.mem_size_mib as u64,
+            smt: value.machine_spec.smt,
+            cpu_template: StaticCpuTemplate::from(&value.machine_spec.cpu_template),
+            boot_source: value.boot_source.spec.clone(),
+            huge_pages: value.machine_spec.huge_pages,
         }
     }
 }
@@ -375,11 +375,11 @@ pub fn restore_from_snapshot(
         .vcpu_states
         .len()
         .try_into()
-        .map_err(|_| MachineConfigError::InvalidVcpuCount)
+        .map_err(|_| MachineSpecError::InvalidVcpuCount)
         .map_err(BuildMicrovmFromSnapshotError::VmUpdateConfig)?;
 
     vm_resources
-        .update_machine_config(&MachineConfigUpdate {
+        .update_machine_spec(&MachineSpecUpdate {
             vcpu_count: Some(vcpu_count),
             mem_size_mib: Some(u64_to_usize(microvm_state.vm_info.mem_size_mib)),
             smt: Some(microvm_state.vm_info.smt),
@@ -399,7 +399,7 @@ pub fn restore_from_snapshot(
 
     let (guest_memory, uffd) = match params.mem_backend.backend_type {
         MemBackendType::File => {
-            if vm_resources.machine_config.huge_pages.is_hugetlbfs() {
+            if vm_resources.machine_spec.huge_pages.is_hugetlbfs() {
                 return Err(RestoreFromSnapshotGuestMemoryError::File(
                     GuestMemoryFromFileError::HugetlbfsSnapshot,
                 )
@@ -415,7 +415,7 @@ pub fn restore_from_snapshot(
             mem_backend_path,
             mem_state,
             track_dirty_pages,
-            vm_resources.machine_config.huge_pages,
+            vm_resources.machine_spec.huge_pages,
         )
         .map_err(RestoreFromSnapshotGuestMemoryError::Uffd)?,
     };
@@ -617,9 +617,9 @@ mod tests {
     use crate::construct_kvm_mpidrs;
     use crate::devices::virtio::block::CacheType;
     use crate::snapshot::Persist;
-    use crate::vmm_config::balloon::BalloonDeviceConfig;
-    use crate::vmm_config::net::NetworkInterfaceConfig;
-    use crate::vmm_config::vsock::tests::default_config;
+    use crate::vmm_config::balloon::BalloonDeviceSpec;
+    use crate::vmm_config::net::NetworkInterfaceSpec;
+    use crate::vmm_config::vsock::tests::default_spec;
     use crate::vstate::memory::{GuestMemoryRegionState, GuestRegionType};
 
     fn default_vmm_with_devices() -> Vmm {
@@ -628,14 +628,14 @@ mod tests {
         let mut cmdline = default_kernel_cmdline();
 
         // Add a balloon device.
-        let balloon_config = BalloonDeviceConfig {
+        let balloon_spec = BalloonDeviceSpec {
             amount_mib: 0,
             deflate_on_oom: false,
             stats_polling_interval_s: 0,
             free_page_hinting: false,
             free_page_reporting: false,
         };
-        insert_balloon_device(&mut vmm, &mut cmdline, &mut event_manager, balloon_config);
+        insert_balloon_device(&mut vmm, &mut cmdline, &mut event_manager, balloon_spec);
 
         // Add a block device.
         let drive_id = String::from("root");
@@ -649,7 +649,7 @@ mod tests {
         insert_block_devices(&mut vmm, &mut cmdline, &mut event_manager, block_configs);
 
         // Add net device.
-        let network_interface = NetworkInterfaceConfig {
+        let network_interface_spec = NetworkInterfaceSpec {
             iface_id: String::from("netif"),
             host_dev_name: String::from("hostname"),
             guest_mac: None,
@@ -660,15 +660,15 @@ mod tests {
             &mut vmm,
             &mut cmdline,
             &mut event_manager,
-            network_interface,
+            network_interface_spec,
         );
 
         // Add vsock device.
         let mut tmp_sock_file = TempFile::new().unwrap();
         tmp_sock_file.remove().unwrap();
-        let vsock_config = default_config(&tmp_sock_file);
+        let vsock_spec = default_spec(&tmp_sock_file);
 
-        insert_vsock_device(&mut vmm, &mut cmdline, &mut event_manager, vsock_config);
+        insert_vsock_device(&mut vmm, &mut cmdline, &mut event_manager, vsock_spec);
 
         #[cfg(target_arch = "x86_64")]
         insert_vmgenid_device(&mut vmm);

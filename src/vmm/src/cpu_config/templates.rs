@@ -72,7 +72,7 @@ impl From<&Option<CpuTemplateType>> for StaticCpuTemplate {
     }
 }
 
-// This conversion is used when converting `&VmConfig` to `MachineConfig` to
+// This conversion is used when converting `&VmConfig` to `MachineSpec` to
 // respond `GET /machine-config` and `GET /vm`.
 impl From<&CpuTemplateType> for StaticCpuTemplate {
     fn from(value: &CpuTemplateType) -> Self {
