@@ -460,9 +460,10 @@ cmd_help() {
     echo "        like `download_ci_artifacts` cmd. Alternatively it is possible to manually write local "
     echo "        path to artifacts directory into $LOCAL_ARTIFACTS_CURRENT_DIR_FILE file"
     echo ""
-    echo "    ensure_current_artifacts_are_set_up"
-    echo "        Makes sure there are some artifacts setup as current ones. If no current artifacts are setup"
-    echo "        downloads latest artifacts and sets them up as current."
+    echo "    ensure_current_artifacts_are_set_up s3_uri/directory name"
+    echo "        Makes sure the $LOCAL_ARTIFACTS_CURRENT_DIR_FILE file contains a path to current artifacts."
+    echo "        If file already exist, change it to point to specified artifacts. If file does not exist,"
+    echo "        try to download artifacts from S3 and sets them as current."
     echo ""
 
     cat <<EOF
@@ -638,10 +639,26 @@ cmd_set_current_artifacts() {
 }
 
 cmd_ensure_current_artifacts_are_set_up() {
+  local artifacts=$1
   if [ -f $LOCAL_ARTIFACTS_CURRENT_DIR_FILE ]; then
-    say "Current artifacts already setup at " $(cat $LOCAL_ARTIFACTS_CURRENT_DIR_FILE)
+    local current_local_artifacts_path=$(cat $LOCAL_ARTIFACTS_CURRENT_DIR_FILE)
+    if [ -z $artifacts ]; then
+      say "Current artifacts already setup at " $current_local_artifacts_path
+    else
+      local local_artifacts_path=$(get_local_artifacts_path $artifacts)/$(uname -m)
+      if [ $current_local_artifacts_path == $local_artifacts_path ]; then
+        say "Current artifacts already setup at " $current_local_artifacts_path
+      else
+        echo $local_artifacts_path > $LOCAL_ARTIFACTS_CURRENT_DIR_FILE
+        say "Current artifacts setup at " $local_artifacts_path
+      fi
+    fi
   else
-    download_ci_artifacts
+    if [ -z $artifacts ]; then
+      download_ci_artifacts
+    else
+      download_ci_artifacts $artifacts
+    fi
     echo $LOCAL_ARTIFACTS_PATH > $LOCAL_ARTIFACTS_CURRENT_DIR_FILE
     say "Current artifacts downloaded and setup at " $LOCAL_ARTIFACTS_PATH
   fi
@@ -795,6 +812,10 @@ cmd_test() {
                 shift
                 local cpuset_mems="$1"
                 ;;
+            "--artifacts")
+                shift
+                local artifacts="$1"
+                ;;
             "--performance")
                 local performance_tweaks=1;
                 ;;
@@ -828,7 +849,13 @@ cmd_test() {
     [ $do_kvm_check != 0 ] && ensure_kvm
     ensure_devctr
     [ $do_build_dir_check != 0 ] && ensure_build_dir
-    [ $do_artifacts_check != 0 ] && cmd_ensure_current_artifacts_are_set_up
+    if [ $do_artifacts_check != 0 ]; then
+      if [ -z $artifacts ]; then
+        cmd_ensure_current_artifacts_are_set_up
+      else
+        cmd_ensure_current_artifacts_are_set_up $artifacts
+      fi
+    fi
 
     if [ $do_build != 0 ]; then
       cmd_build --release
