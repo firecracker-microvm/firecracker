@@ -432,7 +432,7 @@ cmd_help() {
     echo "        The Firecracker testing system is based on pytest. All arguments after --"
     echo "        will be passed through to pytest."
     echo ""
-    echo "        Args for the `test` itself:"
+    echo "        Args for the 'test' itself:"
     echo "        -h, --help                   Print help"
     echo "        -c, --cpuset-cpus cpulist    Set a dedicated cpulist to be used by the tests."
     echo "        -m, --cpuset-mems memlist    Set a dedicated memlist to be used by the tests."
@@ -440,8 +440,8 @@ cmd_help() {
     echo "                                     to achieve consistent performance. Used for running performance tests in CI."
     echo "        --ab                         Run A/B test."
     echo "        --no-build                   Skip building step."
-    echo "        --no-archive                 Skip archiving of `test_result` after the test is done."
-    echo "        --no-kvm-check               Skip checking for `/dev/kvm` presence."
+    echo "        --no-archive                 Skip archiving of 'test_result' after the test is done."
+    echo "        --no-kvm-check               Skip checking for '/dev/kvm' presence."
     echo "        --no-artifacts-check         Skip checking existing artifacts."
     echo ""
     echo "    build_ci_artifacts [all|rootfs|kernels]"
@@ -452,18 +452,17 @@ cmd_help() {
     echo "        Downloads artifacts from provided S3 URI (like s3://spec.ccfc.min/firecracker-ci/my_artifacts)"
     echo "        and runs ./tools/setup-ci-artifacts.sh. for each of them."
     echo "        If no arguments are provided, pulls newest artifacts from $DEFAULT_ARTIFACTS_S3_BUCKET"
-    echo "        If `--force` is specified, removes previous artifacts with same name"
+    echo "        If '--force' is specified, removes previous artifacts with same name"
     echo ""
-    echo "    set_current_artifacts s3_uri/directory name"
+    echo "    set_current_artifacts [s3_uri/directory name]"
     echo "        Sets the $LOCAL_ARTIFACTS_CURRENT_DIR_FILE to contain a local path where the artifacts should be."
     echo "        Accepts some name used to generate the final directory name. Mainly used with S3 URI"
-    echo "        like `download_ci_artifacts` cmd. Alternatively it is possible to manually write local "
+    echo "        like 'download_ci_artifacts'. Alternatively it is possible to manually write local "
     echo "        path to artifacts directory into $LOCAL_ARTIFACTS_CURRENT_DIR_FILE file"
     echo ""
-    echo "    ensure_current_artifacts_are_set_up s3_uri/directory name"
+    echo "    ensure_current_artifacts [s3_uri/directory name]"
     echo "        Makes sure the $LOCAL_ARTIFACTS_CURRENT_DIR_FILE file contains a path to current artifacts."
-    echo "        If file already exist, change it to point to specified artifacts. If file does not exist,"
-    echo "        try to download artifacts from S3 and sets them as current."
+    echo "        If an optional path/URI is provided, try to set it as current artifacts."
     echo ""
 
     cat <<EOF
@@ -616,13 +615,13 @@ cmd_download_ci_artifacts() {
       FORCE_ARTIFACT_DOWNLOAD=1
       shift 1
     fi
-    local artifacts=$@
+    local artifacts_list=$@
 
-    if [[ -z ${artifacts[@]} ]]; then
+    if [[ -z ${artifacts_list[@]} ]]; then
       download_ci_artifacts
     else
-      for artifact in ${artifacts[@]}; do
-        download_ci_artifacts $artifact
+      for artifacts in ${artifacts_list[@]}; do
+        download_ci_artifacts $artifacts
       done
     fi
 }
@@ -634,24 +633,19 @@ cmd_set_current_artifacts() {
     else
       local local_artifacts_path=$(get_local_artifacts_path $artifacts)/$(uname -m)
       echo $local_artifacts_path > $LOCAL_ARTIFACTS_CURRENT_DIR_FILE
-      say "Current artifacts setup at " $local_artifacts_path
+      say "Current artifacts path: " $local_artifacts_path
     fi
 }
 
-cmd_ensure_current_artifacts_are_set_up() {
+cmd_ensure_current_artifacts() {
   local artifacts=$1
   if [ -f $LOCAL_ARTIFACTS_CURRENT_DIR_FILE ]; then
-    local current_local_artifacts_path=$(cat $LOCAL_ARTIFACTS_CURRENT_DIR_FILE)
     if [ -z $artifacts ]; then
-      say "Current artifacts already setup at " $current_local_artifacts_path
+      local current_local_artifacts_path=$(cat $LOCAL_ARTIFACTS_CURRENT_DIR_FILE)
+      say "Current artifacts path: " $current_local_artifacts_path
     else
       local local_artifacts_path=$(get_local_artifacts_path $artifacts)/$(uname -m)
-      if [ $current_local_artifacts_path == $local_artifacts_path ]; then
-        say "Current artifacts already setup at " $current_local_artifacts_path
-      else
-        echo $local_artifacts_path > $LOCAL_ARTIFACTS_CURRENT_DIR_FILE
-        say "Current artifacts setup at " $local_artifacts_path
-      fi
+      say "Current artifacts path: " $local_artifacts_path
     fi
   else
     if [ -z $artifacts ]; then
@@ -660,7 +654,7 @@ cmd_ensure_current_artifacts_are_set_up() {
       download_ci_artifacts $artifacts
     fi
     echo $LOCAL_ARTIFACTS_PATH > $LOCAL_ARTIFACTS_CURRENT_DIR_FILE
-    say "Current artifacts downloaded and setup at " $LOCAL_ARTIFACTS_PATH
+    say "Current artifacts path: " $LOCAL_ARTIFACTS_PATH
   fi
 }
 
@@ -689,7 +683,7 @@ download_ci_artifacts() {
         ok_or_die "Failed to download artifacts using awscli!"
         cmd_sh "./tools/setup-ci-artifacts.sh" $local_artifacts_path
     else
-        say "Found existing artifacts " $artifacts_arch " at: " $local_artifacts_path
+        say "Found existing artifacts: " $artifacts_arch " at: " $local_artifacts_path
     fi
 
     LOCAL_ARTIFACTS_PATH=$local_artifacts_path
@@ -851,9 +845,9 @@ cmd_test() {
     [ $do_build_dir_check != 0 ] && ensure_build_dir
     if [ $do_artifacts_check != 0 ]; then
       if [ -z $artifacts ]; then
-        cmd_ensure_current_artifacts_are_set_up
+        cmd_ensure_current_artifacts
       else
-        cmd_ensure_current_artifacts_are_set_up $artifacts
+        cmd_ensure_current_artifacts $artifacts
       fi
     fi
 
@@ -1037,7 +1031,7 @@ cmd_sh() {
 
 cmd_sandbox() {
     cmd_build --release
-    cmd_ensure_current_artifacts_are_set_up
+    cmd_ensure_current_artifacts
     cmd_sh "tmux new env PYTEST_ADDOPTS=--pdbcls=IPython.terminal.debugger:TerminalPdb PYTHONPATH=tests IPYTHONDIR=\$PWD/.ipython ipython -i ./tools/sandbox.py $@"
     cmd_fix_perms ".ipython"
 }
@@ -1059,12 +1053,12 @@ cmd_sandbox_native() {
     pip3.11 install ipython requests requests_unixsocket2 psutil tenacity filelock
     pip3.11 install jsonschema aws_embedded_metrics
     pip3.11 install packaging pytest
-    cmd_ensure_current_artifacts_are_set_up
+    cmd_ensure_current_artifacts
     tmux neww sudo --preserve-env=HOME,PATH,TMUX env PYTHONPATH=tests IPYTHONDIR=\$PWD/.ipython ipython -i ./tools/sandbox.py $@
 }
 
 cmd_test_debug() {
-    cmd_ensure_current_artifacts_are_set_up
+    cmd_ensure_current_artifacts
     cmd_sh "tmux new ./tools/test.sh --pdb $@"
 }
 
