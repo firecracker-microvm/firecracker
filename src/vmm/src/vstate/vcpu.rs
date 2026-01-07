@@ -226,10 +226,9 @@ impl Vcpu {
                 Ok(VcpuEmulation::Handled) => (),
                 // Emulation was interrupted, check external events.
                 Ok(VcpuEmulation::Interrupted) => break,
-                // If the guest was rebooted or halted:
-                // - vCPU0 will always exit out of `KVM_RUN` with KVM_EXIT_SHUTDOWN or KVM_EXIT_HLT.
-                // - the other vCPUs won't ever exit out of `KVM_RUN`, but they won't consume CPU.
-                // So we pause vCPU0 and send a signal to the emulation thread to stop the VMM.
+                // The guest requested a SHUTDOWN or RESET. This is ARM
+                // specific. On x86 the i8042 emulation signals the main thread
+                // directly without calling Vcpu::exit().
                 Ok(VcpuEmulation::Stopped) => return self.exit(FcExitCode::Ok),
                 // If the emulation requests a pause lets do this
                 #[cfg(feature = "gdb")]
@@ -439,14 +438,6 @@ fn handle_kvm_exit(
                     METRICS.vcpu.exit_mmio_write.inc();
                 }
                 Ok(VcpuEmulation::Handled)
-            }
-            VcpuExit::Hlt => {
-                info!("Received KVM_EXIT_HLT signal");
-                Ok(VcpuEmulation::Stopped)
-            }
-            VcpuExit::Shutdown => {
-                info!("Received KVM_EXIT_SHUTDOWN signal");
-                Ok(VcpuEmulation::Stopped)
             }
             // Documentation specifies that below kvm exits are considered
             // errors.
@@ -697,10 +688,16 @@ pub(crate) mod tests {
     fn test_handle_kvm_exit() {
         let (_, _, mut vcpu) = setup_vcpu(0x1000);
         let res = handle_kvm_exit(&mut vcpu.kvm_vcpu.peripherals, Ok(VcpuExit::Hlt));
-        assert_eq!(res.unwrap(), VcpuEmulation::Stopped);
+        assert!(matches!(
+            res,
+            Err(EmulationError::UnhandledKvmExit(s)) if s == "Hlt",
+        ));
 
         let res = handle_kvm_exit(&mut vcpu.kvm_vcpu.peripherals, Ok(VcpuExit::Shutdown));
-        assert_eq!(res.unwrap(), VcpuEmulation::Stopped);
+        assert!(matches!(
+            res,
+            Err(EmulationError::UnhandledKvmExit(s)) if s == "Shutdown",
+        ));
 
         let res = handle_kvm_exit(
             &mut vcpu.kvm_vcpu.peripherals,
