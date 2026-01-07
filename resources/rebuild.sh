@@ -27,7 +27,7 @@ function install_dependencies {
     esac
     curl -LO http://go.dev/dl/${archive}
     tar -C /usr/local -xzf $archive
-    export PATH=$PATH:/usr/local/go/bin
+    export PATH=/usr/local/go/bin:$PATH
     go version
     rm $archive
 }
