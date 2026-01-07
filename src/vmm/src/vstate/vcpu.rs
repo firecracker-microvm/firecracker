@@ -362,25 +362,9 @@ impl Vcpu {
     }
 
     // Transition to the exited state and finish on command.
+    // Note that this function isn't called when the guest asks for a CPU
+    // reset via the i8042 controller on x86.
     fn exit(&mut self, exit_code: FcExitCode) -> StateMachine<Self> {
-        // To avoid cycles, all teardown paths take the following route:
-        //   +------------------------+----------------------------+------------------------+
-        //   |        Vmm             |           Action           |           Vcpu         |
-        //   +------------------------+----------------------------+------------------------+
-        // 1 |                        |                            | vcpu.exit(exit_code)   |
-        // 2 |                        |                            | vcpu.exit_evt.write(1) |
-        // 3 |                        | <--- EventFd::exit_evt --- |                        |
-        // 4 | vmm.stop()             |                            |                        |
-        // 5 |                        | --- VcpuEvent::Finish ---> |                        |
-        // 6 |                        |                            | StateMachine::finish() |
-        // 7 | VcpuHandle::join()     |                            |                        |
-        // 8 | vmm.shutdown_exit_code becomes Some(exit_code) breaking the main event loop  |
-        //   +------------------------+----------------------------+------------------------+
-        // Vcpu initiated teardown starts from `fn Vcpu::exit()` (step 1).
-        // Vmm initiated teardown starts from `pub fn Vmm::stop()` (step 4).
-        // Once `vmm.shutdown_exit_code` becomes `Some(exit_code)`, it is the upper layer's
-        // responsibility to break main event loop and propagate the exit code value.
-        // Signal Vmm of Vcpu exit.
         if let Err(err) = self.exit_evt.write(1) {
             METRICS.vcpu.failures.inc();
             error!("Failed signaling vcpu exit event: {}", err);

@@ -651,38 +651,7 @@ impl Vmm {
 
     /// Signals Vmm to stop and exit.
     pub fn stop(&mut self, exit_code: FcExitCode) {
-        // To avoid cycles, all teardown paths take the following route:
-        //   +------------------------+----------------------------+------------------------+
-        //   |        Vmm             |           Action           |           Vcpu         |
-        //   +------------------------+----------------------------+------------------------+
-        // 1 |                        |                            | vcpu.exit(exit_code)   |
-        // 2 |                        |                            | vcpu.exit_evt.write(1) |
-        // 3 |                        | <--- EventFd::exit_evt --- |                        |
-        // 4 | vmm.stop()             |                            |                        |
-        // 5 |                        | --- VcpuEvent::Finish ---> |                        |
-        // 6 |                        |                            | StateMachine::finish() |
-        // 7 | VcpuHandle::join()     |                            |                        |
-        // 8 | vmm.shutdown_exit_code becomes Some(exit_code) breaking the main event loop  |
-        //   +------------------------+----------------------------+------------------------+
-        // Vcpu initiated teardown starts from `fn Vcpu::exit()` (step 1).
-        // Vmm initiated teardown starts from `pub fn Vmm::stop()` (step 4).
-        // Once `vmm.shutdown_exit_code` becomes `Some(exit_code)`, it is the upper layer's
-        // responsibility to break main event loop and propagate the exit code value.
         info!("Vmm is stopping.");
-
-        // We send a "Finish" event.  If a VCPU has already exited, this is the only
-        // message it will accept... but running and paused will take it as well.
-        // It breaks out of the state machine loop so that the thread can be joined.
-        for (idx, handle) in self.vcpus_handles.iter_mut().enumerate() {
-            if let Err(err) = handle.send_event(VcpuEvent::Finish) {
-                error!("Failed to send VcpuEvent::Finish to vCPU {}: {}", idx, err);
-            }
-        }
-        // The actual thread::join() that runs to release the thread's resource is done in
-        // the VcpuHandle's Drop trait.  We can trigger that to happen now by clearing the
-        // list of handles. Do it here instead of Vmm::Drop to avoid dependency cycles.
-        // (Vmm's Drop will also check if this list is empty).
-        self.vcpus_handles.clear();
 
         // Break the main event loop, propagating the Vmm exit-code.
         self.shutdown_exit_code = Some(exit_code);
@@ -722,26 +691,17 @@ fn construct_kvm_mpidrs(vcpu_states: &[VcpuState]) -> Vec<u64> {
 
 impl Drop for Vmm {
     fn drop(&mut self) {
-        // There are two cases when `drop()` is called:
-        // 1) before the Vmm has been mutexed and subscribed to the event manager, or
-        // 2) after the Vmm has been registered as a subscriber to the event manager.
-        //
-        // The first scenario is bound to happen if an error is raised during
-        // Vmm creation (for example, during snapshot load), before the Vmm has
-        // been subscribed to the event manager. If that happens, the `drop()`
-        // function is called right before propagating the error. In order to
-        // be able to gracefully exit Firecracker with the correct fault
-        // message, we need to prepare the Vmm contents for the tear down
-        // (join the vcpu threads). Explicitly calling `stop()` allows the
-        // Vmm to be successfully dropped and firecracker to propagate the
-        // error.
-        //
-        // In the second case, before dropping the Vmm object, the event
-        // manager calls `stop()`, which sends a `Finish` event to the vcpus
-        // and joins the vcpu threads. The Vmm is dropped after everything is
-        // ready to be teared down. The line below is a no-op, because the Vmm
-        // has already been stopped by the event manager at this point.
-        self.stop(self.shutdown_exit_code.unwrap_or(FcExitCode::Ok));
+        info!("Killing vCPU threads");
+
+        // Send a "Finish" event to the vCPU threads so that they terminate.
+        for (idx, handle) in self.vcpus_handles.iter_mut().enumerate() {
+            if let Err(err) = handle.send_event(VcpuEvent::Finish) {
+                error!("Failed to send VcpuEvent::Finish to vCPU {}: {}", idx, err);
+            }
+        }
+
+        // Join the vCPU threads by running VcpuHandle::drop().
+        self.vcpus_handles.clear();
 
         if let Err(err) = std::io::stdin().lock().set_canon_mode() {
             warn!("Cannot set canonical mode for the terminal. {:?}", err);
