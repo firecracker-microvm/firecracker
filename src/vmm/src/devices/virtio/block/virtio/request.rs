@@ -361,15 +361,14 @@ impl Request {
                     let segment: DiscardSegment = mem
                         .read_obj(data_desc.addr.unchecked_add(offset as u64))
                         .map_err(VirtioBlockError::GuestMemory)?;
-                    if segment.flags & !0x1 != 0 {
-                        return Err(VirtioBlockError::InvalidDiscardFlags);
-                    }
-                    let end_sector = segment
-                        .sector
-                        .checked_add(segment.num_sectors as u64)
-                        .ok_or(VirtioBlockError::SectorOverflow)?;
+                    let end_sector = segment.sector + segment.num_sectors as u64;
                     if end_sector > num_disk_sectors {
-                        return Err(VirtioBlockError::BeyondDiskSize);
+                        error!(
+                            "Discard request out of bounds: sector={} num_sectors={} \
+                             end_sector={} disk_sectors={}",
+                            segment.sector, segment.num_sectors, end_sector, num_disk_sectors
+                        );
+                        continue;
                     }
                     segments.push(segment);
                 }

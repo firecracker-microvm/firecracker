@@ -79,6 +79,7 @@ impl FileEngine {
         Ok(())
     }
 
+    #[cfg(test)]
     pub fn file(&self) -> &File {
         match self {
             FileEngine::Async(engine) => engine.file(),

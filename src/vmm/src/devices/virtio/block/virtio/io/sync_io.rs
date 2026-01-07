@@ -37,6 +37,7 @@ impl SyncFileEngine {
         SyncFileEngine { file }
     }
 
+    #[cfg(test)]
     pub fn file(&self) -> &File {
         &self.file
     }
@@ -96,7 +97,7 @@ impl SyncFileEngine {
 
         let len_i64: i64 = len.into();
 
-        // SAFETY: calling libc::fallocate is safe here because:
+        // # Safety: calling libc::fallocate is safe here because:
         // - `self.file.as_raw_fd()` is a valid file descriptor owned by this struct,
         // - `off_i64` and `len_i64` are validated copies of the incoming unsigned values converted
         //   to the C `off64_t` type, and
@@ -109,25 +110,15 @@ impl SyncFileEngine {
                 len_i64,
             );
             if ret != 0 {
-                return Err(SyncIoError::Discard(std::io::Error::last_os_error()));
+                error!(
+                    "DISCARD fallocate failed (offset={}, len={}): {:?}",
+                    offset,
+                    len,
+                    std::io::Error::last_os_error()
+                );
+                return Ok(len);
             }
         }
         Ok(len)
-    }
-
-    pub fn fallocate(
-        fd: c_int,
-        mode: i32,
-        offset: off64_t,
-        len: off64_t,
-    ) -> Result<(), std::io::Error> {
-        // SAFETY: calling libc::fallocate is safe because we're passing plain C-compatible
-        // integer types (fd, mode, offset, len) and we check the integer return value.
-        let ret: i32 = unsafe { libc::fallocate(fd, mode, offset, len) };
-        if ret == 0 {
-            Ok(())
-        } else {
-            Err(std::io::Error::last_os_error())
-        }
     }
 }

@@ -110,6 +110,7 @@ impl AsyncFileEngine {
         Ok(())
     }
 
+    #[cfg(test)]
     pub fn file(&self) -> &File {
         &self.file
     }
@@ -237,12 +238,18 @@ impl AsyncFileEngine {
     ) -> Result<(), RequestError<AsyncIoError>> {
         let wrapped_user_data = WrappedRequest::new(req);
 
-        self.ring
-            .push(Operation::fallocate(0, len, offset, wrapped_user_data))
-            .map_err(|(io_uring_error, data)| RequestError {
-                req: data.req,
-                error: AsyncIoError::IoUring(io_uring_error),
-            })
+        if let Err((io_uring_error, data)) =
+            self.ring
+                .push(Operation::fallocate(0, len, offset, wrapped_user_data))
+        {
+            error!(
+                "DISCARD fallocate failed (offset={}, len={}): {:?}",
+                offset, len, io_uring_error
+            );
+            return Ok(());
+        }
+
+        Ok(())
     }
 
     fn do_pop(&mut self) -> Result<Option<Cqe<WrappedRequest>>, AsyncIoError> {
