@@ -750,9 +750,9 @@ pub enum FieldAccessType {
 impl From<FieldAccessType> for u8 {
     fn from(val: FieldAccessType) -> u8 {
         val as u8
-        }
     }
 }
+
 
 #[repr(u8)]
 #[derive(Clone, Copy)]
