@@ -165,7 +165,7 @@ pub fn add_suffix(path: &Path, suffix: &str) -> PathBuf {
 pub mod tests {
     use std::fmt::Display;
 
-    use vmm::resources::VmmConfig;
+    use vmm::resources::VmmSpec;
 
     use super::*;
 
@@ -217,8 +217,8 @@ pub mod tests {
             assert!(kernel.as_file().metadata().unwrap().len() > 0);
             // Ensure the rootfs exists and it is empty.
             assert_eq!(rootfs.as_file().metadata().unwrap().len(), 0);
-            // Ensure the generated config is valid as `VmmConfig`.
-            serde_json::from_str::<VmmConfig>(&config).unwrap();
+            // Ensure the generated config is valid as `VmmSpec`.
+            serde_json::from_str::<VmmSpec>(&config).unwrap();
         }
         // Ensure the temporary mock resources are deleted.
         assert!(!kernel_path.exists());

@@ -24,7 +24,7 @@ use crate::devices::virtio::queue::{DescriptorChain, InvalidAvailIdx, Queue, Que
 use crate::devices::virtio::transport::{VirtioInterrupt, VirtioInterruptType};
 use crate::logger::{IncMetric, error, info};
 use crate::utils::{align_up, u64_to_usize};
-use crate::vmm_config::pmem::PmemConfig;
+use crate::vmm_config::pmem::PmemSpec;
 use crate::vstate::memory::{ByteValued, Bytes, GuestMemoryMmap, GuestMmapRegion};
 use crate::vstate::vm::VmError;
 use crate::{Vm, impl_device_type};
@@ -92,7 +92,7 @@ pub struct Pmem {
     pub mmap_ptr: u64,
     pub metrics: Arc<PmemMetrics>,
 
-    pub config: PmemConfig,
+    pub spec: PmemSpec,
 }
 
 impl Drop for Pmem {
@@ -112,15 +112,15 @@ impl Pmem {
     pub const ALIGNMENT: u64 = 2 * 1024 * 1024;
 
     /// Create a new Pmem device with a backing file at `disk_image_path` path.
-    pub fn new(config: PmemConfig) -> Result<Self, PmemError> {
-        Self::new_with_queues(config, vec![Queue::new(PMEM_QUEUE_SIZE)])
+    pub fn new(spec: PmemSpec) -> Result<Self, PmemError> {
+        Self::new_with_queues(spec, vec![Queue::new(PMEM_QUEUE_SIZE)])
     }
 
     /// Create a new Pmem device with a backing file at `disk_image_path` path using a pre-created
     /// set of queues.
-    pub fn new_with_queues(config: PmemConfig, queues: Vec<Queue>) -> Result<Self, PmemError> {
+    pub fn new_with_queues(spec: PmemSpec, queues: Vec<Queue>) -> Result<Self, PmemError> {
         let (file, file_len, mmap_ptr, mmap_len) =
-            Self::mmap_backing_file(&config.path_on_host, config.read_only)?;
+            Self::mmap_backing_file(&spec.path_on_host, spec.read_only)?;
 
         Ok(Self {
             avail_features: 1u64 << VIRTIO_F_VERSION_1,
@@ -136,8 +136,8 @@ impl Pmem {
             file,
             file_len,
             mmap_ptr,
-            metrics: PmemMetricsPerDevice::alloc(config.id.clone()),
-            config,
+            metrics: PmemMetricsPerDevice::alloc(spec.id.clone()),
+            spec,
         })
     }
 
@@ -236,7 +236,7 @@ impl Pmem {
             guest_phys_addr: self.config_space.start,
             memory_size: self.config_space.size,
             userspace_addr: self.mmap_ptr,
-            flags: if self.config.read_only {
+            flags: if self.spec.read_only {
                 KVM_MEM_READONLY
             } else {
                 0
@@ -401,7 +401,7 @@ impl VirtioDevice for Pmem {
 
     fn kick(&mut self) {
         if self.is_activated() {
-            info!("kick pmem {}.", self.config.id);
+            info!("kick pmem {}.", self.spec.id);
             self.handle_queue();
         }
     }
@@ -417,38 +417,38 @@ mod tests {
 
     #[test]
     fn test_from_config() {
-        let config = PmemConfig {
+        let spec = PmemSpec {
             id: "1".into(),
             path_on_host: "not_a_path".into(),
             root_device: true,
             read_only: false,
         };
         assert!(matches!(
-            Pmem::new(config).unwrap_err(),
+            Pmem::new(spec).unwrap_err(),
             PmemError::BackingFile(_),
         ));
 
         let dummy_file = TempFile::new().unwrap();
         let dummy_path = dummy_file.as_path().to_str().unwrap().to_string();
-        let config = PmemConfig {
+        let spec = PmemSpec {
             id: "1".into(),
             path_on_host: dummy_path.clone(),
             root_device: true,
             read_only: false,
         };
         assert!(matches!(
-            Pmem::new(config).unwrap_err(),
+            Pmem::new(spec).unwrap_err(),
             PmemError::BackingFileZeroSize,
         ));
 
         dummy_file.as_file().set_len(0x20_0000);
-        let config = PmemConfig {
+        let spec = PmemSpec {
             id: "1".into(),
             path_on_host: dummy_path,
             root_device: true,
             read_only: false,
         };
-        Pmem::new(config).unwrap();
+        Pmem::new(spec).unwrap();
     }
 
     #[test]
@@ -456,13 +456,13 @@ mod tests {
         let dummy_file = TempFile::new().unwrap();
         dummy_file.as_file().set_len(0x20_0000);
         let dummy_path = dummy_file.as_path().to_str().unwrap().to_string();
-        let config = PmemConfig {
+        let spec = PmemSpec {
             id: "1".into(),
             path_on_host: dummy_path,
             root_device: true,
             read_only: false,
         };
-        let mut pmem = Pmem::new(config).unwrap();
+        let mut pmem = Pmem::new(spec).unwrap();
 
         let mem = default_mem();
         let interrupt = default_interrupt();

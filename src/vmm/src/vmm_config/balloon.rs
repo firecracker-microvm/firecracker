@@ -13,7 +13,7 @@ type MutexBalloon = Arc<Mutex<Balloon>>;
 
 /// Errors associated with the operations allowed on the balloon.
 #[derive(Debug, derive_more::From, thiserror::Error, displaydoc::Display)]
-pub enum BalloonConfigError {
+pub enum BalloonSpecError {
     /// No balloon device found.
     DeviceNotFound,
     /// Amount of pages requested is too large.
@@ -26,7 +26,7 @@ pub enum BalloonConfigError {
 /// from balloon related requests.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
-pub struct BalloonDeviceConfig {
+pub struct BalloonDeviceSpec {
     /// Target balloon size in MiB.
     pub amount_mib: u32,
     /// Option to deflate the balloon in case the guest is out of memory.
@@ -42,9 +42,9 @@ pub struct BalloonDeviceConfig {
     pub free_page_reporting: bool,
 }
 
-impl From<BalloonConfig> for BalloonDeviceConfig {
+impl From<BalloonConfig> for BalloonDeviceSpec {
     fn from(state: BalloonConfig) -> Self {
-        BalloonDeviceConfig {
+        BalloonDeviceSpec {
             amount_mib: state.amount_mib,
             deflate_on_oom: state.deflate_on_oom,
             stats_polling_interval_s: state.stats_polling_interval_s,
@@ -58,7 +58,7 @@ impl From<BalloonConfig> for BalloonDeviceConfig {
 /// of pages and the stats polling interval can be updated.
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
-pub struct BalloonUpdateConfig {
+pub struct BalloonUpdateSpec {
     /// Target balloon size in MiB.
     pub amount_mib: u32,
 }
@@ -69,12 +69,12 @@ pub struct BalloonUpdateConfig {
 /// if the statistics were activated in the device configuration.
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
-pub struct BalloonUpdateStatsConfig {
+pub struct BalloonUpdateStatsSpec {
     /// Interval in seconds between refreshing statistics.
     pub stats_polling_interval_s: u16,
 }
 
-/// A builder for `Balloon` devices from 'BalloonDeviceConfig'.
+/// A builder for `Balloon` devices from 'BalloonDeviceSpec'.
 #[cfg_attr(not(test), derive(Default))]
 #[derive(Debug)]
 pub struct BalloonBuilder {
@@ -89,13 +89,13 @@ impl BalloonBuilder {
 
     /// Inserts a Balloon device in the store.
     /// If an entry already exists, it will overwrite it.
-    pub fn set(&mut self, cfg: BalloonDeviceConfig) -> Result<(), BalloonConfigError> {
+    pub fn set(&mut self, spec: BalloonDeviceSpec) -> Result<(), BalloonSpecError> {
         self.inner = Some(Arc::new(Mutex::new(Balloon::new(
-            cfg.amount_mib,
-            cfg.deflate_on_oom,
-            cfg.stats_polling_interval_s,
-            cfg.free_page_hinting,
-            cfg.free_page_reporting,
+            spec.amount_mib,
+            spec.deflate_on_oom,
+            spec.stats_polling_interval_s,
+            spec.free_page_hinting,
+            spec.free_page_reporting,
         )?)));
 
         Ok(())
@@ -112,11 +112,11 @@ impl BalloonBuilder {
     }
 
     /// Returns the same structure that was used to configure the device.
-    pub fn get_config(&self) -> Result<BalloonDeviceConfig, BalloonConfigError> {
+    pub fn get_config(&self) -> Result<BalloonDeviceSpec, BalloonSpecError> {
         self.get()
-            .ok_or(BalloonConfigError::DeviceNotFound)
+            .ok_or(BalloonSpecError::DeviceNotFound)
             .map(|balloon_mutex| balloon_mutex.lock().expect("Poisoned lock").config())
-            .map(BalloonDeviceConfig::from)
+            .map(BalloonDeviceSpec::from)
     }
 }
 
@@ -124,7 +124,7 @@ impl BalloonBuilder {
 impl Default for BalloonBuilder {
     fn default() -> BalloonBuilder {
         let mut balloon = BalloonBuilder::new();
-        balloon.set(BalloonDeviceConfig::default()).unwrap();
+        balloon.set(BalloonDeviceSpec::default()).unwrap();
         balloon
     }
 }
@@ -133,8 +133,8 @@ impl Default for BalloonBuilder {
 pub(crate) mod tests {
     use super::*;
 
-    pub(crate) fn default_config() -> BalloonDeviceConfig {
-        BalloonDeviceConfig {
+    pub(crate) fn default_config() -> BalloonDeviceSpec {
+        BalloonDeviceSpec {
             amount_mib: 0,
             deflate_on_oom: false,
             stats_polling_interval_s: 0,
@@ -145,31 +145,31 @@ pub(crate) mod tests {
 
     #[test]
     fn test_balloon_create() {
-        let default_balloon_config = default_config();
-        let balloon_config = BalloonDeviceConfig {
+        let default_balloon_spec = default_config();
+        let balloon_spec = BalloonDeviceSpec {
             amount_mib: 0,
             deflate_on_oom: false,
             stats_polling_interval_s: 0,
             free_page_hinting: false,
             free_page_reporting: false,
         };
-        assert_eq!(default_balloon_config, balloon_config);
+        assert_eq!(default_balloon_spec, balloon_spec);
         let mut builder = BalloonBuilder::new();
         assert!(builder.get().is_none());
 
-        builder.set(balloon_config).unwrap();
+        builder.set(balloon_spec).unwrap();
         assert_eq!(builder.get().unwrap().lock().unwrap().num_pages(), 0);
-        assert_eq!(builder.get_config().unwrap(), default_balloon_config);
+        assert_eq!(builder.get_config().unwrap(), default_balloon_spec);
 
-        let _update_config = BalloonUpdateConfig { amount_mib: 5 };
-        let _stats_update_config = BalloonUpdateStatsConfig {
+        let _update_spec = BalloonUpdateSpec { amount_mib: 5 };
+        let _stats_update_spec = BalloonUpdateStatsSpec {
             stats_polling_interval_s: 5,
         };
     }
 
     #[test]
     fn test_from_balloon_state() {
-        let expected_balloon_config = BalloonDeviceConfig {
+        let expected_balloon_spec = BalloonDeviceSpec {
             amount_mib: 5,
             deflate_on_oom: false,
             stats_polling_interval_s: 3,
@@ -177,7 +177,7 @@ pub(crate) mod tests {
             free_page_reporting: false,
         };
 
-        let actual_balloon_config = BalloonDeviceConfig::from(BalloonConfig {
+        let actual_balloon_spec = BalloonDeviceSpec::from(BalloonConfig {
             amount_mib: 5,
             deflate_on_oom: false,
             stats_polling_interval_s: 3,
@@ -185,7 +185,7 @@ pub(crate) mod tests {
             free_page_reporting: false,
         });
 
-        assert_eq!(expected_balloon_config, actual_balloon_config);
+        assert_eq!(expected_balloon_spec, actual_balloon_spec);
     }
 
     #[test]

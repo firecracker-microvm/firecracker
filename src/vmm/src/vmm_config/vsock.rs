@@ -10,9 +10,9 @@ use crate::devices::virtio::vsock::{Vsock, VsockError, VsockUnixBackend, VsockUn
 
 type MutexVsockUnix = Arc<Mutex<Vsock<VsockUnixBackend>>>;
 
-/// Errors associated with `NetworkInterfaceConfig`.
+/// Errors associated with `VsockDeviceSpec`.
 #[derive(Debug, derive_more::From, thiserror::Error, displaydoc::Display)]
-pub enum VsockConfigError {
+pub enum VsockSpecError {
     /// Cannot create backend for vsock device: {0}
     CreateVsockBackend(VsockUnixBackendError),
     /// Cannot create vsock device: {0}
@@ -23,7 +23,7 @@ pub enum VsockConfigError {
 /// from vsock related requests.
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
-pub struct VsockDeviceConfig {
+pub struct VsockDeviceSpec {
     #[serde(default)]
     #[serde(skip_serializing_if = "Option::is_none")]
     /// ID of the vsock device.
@@ -40,10 +40,10 @@ struct VsockAndUnixPath {
     uds_path: String,
 }
 
-impl From<&VsockAndUnixPath> for VsockDeviceConfig {
+impl From<&VsockAndUnixPath> for VsockDeviceSpec {
     fn from(vsock: &VsockAndUnixPath) -> Self {
         let vsock_lock = vsock.vsock.lock().unwrap();
-        VsockDeviceConfig {
+        VsockDeviceSpec {
             vsock_id: None,
             guest_cid: u32::try_from(vsock_lock.cid()).unwrap(),
             uds_path: vsock.uds_path.clone(),
@@ -51,7 +51,7 @@ impl From<&VsockAndUnixPath> for VsockDeviceConfig {
     }
 }
 
-/// A builder of Vsock with Unix backend from 'VsockDeviceConfig'.
+/// A builder of Vsock with Unix backend from 'VsockDeviceSpec'.
 #[derive(Debug, Default)]
 pub struct VsockBuilder {
     inner: Option<VsockAndUnixPath>,
@@ -78,14 +78,14 @@ impl VsockBuilder {
 
     /// Inserts a Unix backend Vsock in the store.
     /// If an entry already exists, it will overwrite it.
-    pub fn insert(&mut self, cfg: VsockDeviceConfig) -> Result<(), VsockConfigError> {
+    pub fn insert(&mut self, spec: VsockDeviceSpec) -> Result<(), VsockSpecError> {
         // Make sure to drop the old one and remove the socket before creating a new one.
         if let Some(existing) = self.inner.take() {
             std::fs::remove_file(existing.uds_path).map_err(VsockUnixBackendError::UnixBind)?;
         }
         self.inner = Some(VsockAndUnixPath {
-            uds_path: cfg.uds_path.clone(),
-            vsock: Arc::new(Mutex::new(Self::create_unixsock_vsock(cfg)?)),
+            uds_path: spec.uds_path.clone(),
+            vsock: Arc::new(Mutex::new(Self::create_unixsock_vsock(spec)?)),
         });
         Ok(())
     }
@@ -95,18 +95,18 @@ impl VsockBuilder {
         self.inner.as_ref().map(|pair| &pair.vsock)
     }
 
-    /// Creates a Vsock device from a VsockDeviceConfig.
+    /// Creates a Vsock device from a VsockDeviceSpec.
     pub fn create_unixsock_vsock(
-        cfg: VsockDeviceConfig,
-    ) -> Result<Vsock<VsockUnixBackend>, VsockConfigError> {
-        let backend = VsockUnixBackend::new(u64::from(cfg.guest_cid), cfg.uds_path)?;
+        spec: VsockDeviceSpec,
+    ) -> Result<Vsock<VsockUnixBackend>, VsockSpecError> {
+        let backend = VsockUnixBackend::new(u64::from(spec.guest_cid), spec.uds_path)?;
 
-        Vsock::new(u64::from(cfg.guest_cid), backend).map_err(VsockConfigError::CreateVsockDevice)
+        Vsock::new(u64::from(spec.guest_cid), backend).map_err(VsockSpecError::CreateVsockDevice)
     }
 
-    /// Returns the structure used to configure the vsock device.
-    pub fn config(&self) -> Option<VsockDeviceConfig> {
-        self.inner.as_ref().map(VsockDeviceConfig::from)
+    /// Returns the structure used to specify the vsock device.
+    pub fn spec(&self) -> Option<VsockDeviceSpec> {
+        self.inner.as_ref().map(VsockDeviceSpec::from)
     }
 }
 
@@ -117,8 +117,8 @@ pub(crate) mod tests {
     use super::*;
     use crate::devices::virtio::vsock::VSOCK_DEV_ID;
 
-    pub(crate) fn default_config(tmp_sock_file: &TempFile) -> VsockDeviceConfig {
-        VsockDeviceConfig {
+    pub(crate) fn default_spec(tmp_sock_file: &TempFile) -> VsockDeviceSpec {
+        VsockDeviceSpec {
             vsock_id: None,
             guest_cid: 3,
             uds_path: tmp_sock_file.as_path().to_str().unwrap().to_string(),
@@ -129,8 +129,8 @@ pub(crate) mod tests {
     fn test_vsock_create() {
         let mut tmp_sock_file = TempFile::new().unwrap();
         tmp_sock_file.remove().unwrap();
-        let vsock_config = default_config(&tmp_sock_file);
-        VsockBuilder::create_unixsock_vsock(vsock_config).unwrap();
+        let vsock_spec = default_spec(&tmp_sock_file);
+        VsockBuilder::create_unixsock_vsock(vsock_spec).unwrap();
     }
 
     #[test]
@@ -138,30 +138,30 @@ pub(crate) mod tests {
         let mut store = VsockBuilder::new();
         let mut tmp_sock_file = TempFile::new().unwrap();
         tmp_sock_file.remove().unwrap();
-        let mut vsock_config = default_config(&tmp_sock_file);
+        let mut vsock_spec = default_spec(&tmp_sock_file);
 
-        store.insert(vsock_config.clone()).unwrap();
+        store.insert(vsock_spec.clone()).unwrap();
         let vsock = store.get().unwrap();
         assert_eq!(vsock.lock().unwrap().id(), VSOCK_DEV_ID);
 
-        let new_cid = vsock_config.guest_cid + 1;
-        vsock_config.guest_cid = new_cid;
-        store.insert(vsock_config).unwrap();
+        let new_cid = vsock_spec.guest_cid + 1;
+        vsock_spec.guest_cid = new_cid;
+        store.insert(vsock_spec).unwrap();
         let vsock = store.get().unwrap();
         assert_eq!(vsock.lock().unwrap().cid(), u64::from(new_cid));
     }
 
     #[test]
-    fn test_vsock_config() {
+    fn test_vsock_spec() {
         let mut vsock_builder = VsockBuilder::new();
         let mut tmp_sock_file = TempFile::new().unwrap();
         tmp_sock_file.remove().unwrap();
-        let vsock_config = default_config(&tmp_sock_file);
-        vsock_builder.insert(vsock_config.clone()).unwrap();
+        let vsock_spec = default_spec(&tmp_sock_file);
+        vsock_builder.insert(vsock_spec.clone()).unwrap();
 
-        let config = vsock_builder.config();
-        assert!(config.is_some());
-        assert_eq!(config.unwrap(), vsock_config);
+        let spec = vsock_builder.spec();
+        assert!(spec.is_some());
+        assert_eq!(spec.unwrap(), vsock_spec);
     }
 
     #[test]

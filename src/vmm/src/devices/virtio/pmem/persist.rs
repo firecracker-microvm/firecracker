@@ -11,7 +11,7 @@ use crate::devices::virtio::generated::virtio_ids::VIRTIO_ID_PMEM;
 use crate::devices::virtio::persist::{PersistError as VirtioStateError, VirtioDeviceState};
 use crate::devices::virtio::pmem::{PMEM_NUM_QUEUES, PMEM_QUEUE_SIZE};
 use crate::snapshot::Persist;
-use crate::vmm_config::pmem::PmemConfig;
+use crate::vmm_config::pmem::PmemSpec;
 use crate::vstate::memory::{GuestMemoryMmap, GuestRegionMmap};
 use crate::vstate::vm::VmError;
 
@@ -19,7 +19,7 @@ use crate::vstate::vm::VmError;
 pub struct PmemState {
     pub virtio_state: VirtioDeviceState,
     pub config_space: ConfigSpace,
-    pub config: PmemConfig,
+    pub spec: PmemSpec,
 }
 
 #[derive(Debug)]
@@ -47,7 +47,7 @@ impl<'a> Persist<'a> for Pmem {
         PmemState {
             virtio_state: VirtioDeviceState::from_device(self),
             config_space: self.config_space,
-            config: self.config.clone(),
+            spec: self.spec.clone(),
         }
     }
 
@@ -62,7 +62,7 @@ impl<'a> Persist<'a> for Pmem {
             PMEM_QUEUE_SIZE,
         )?;
 
-        let mut pmem = Pmem::new_with_queues(state.config.clone(), queues)?;
+        let mut pmem = Pmem::new_with_queues(state.spec.clone(), queues)?;
         pmem.config_space = state.config_space;
         pmem.avail_features = state.virtio_state.avail_features;
         pmem.acked_features = state.virtio_state.acked_features;
@@ -89,13 +89,13 @@ mod tests {
         let dummy_file = TempFile::new().unwrap();
         dummy_file.as_file().set_len(0x20_0000);
         let dummy_path = dummy_file.as_path().to_str().unwrap().to_string();
-        let config = PmemConfig {
+        let spec = PmemSpec {
             id: "1".into(),
             path_on_host: dummy_path,
             root_device: true,
             read_only: false,
         };
-        let pmem = Pmem::new(config).unwrap();
+        let pmem = Pmem::new(spec).unwrap();
         let guest_mem = default_mem();
         let kvm = Kvm::new(vec![]).unwrap();
         let vm = Vm::new(&kvm).unwrap();
@@ -126,6 +126,6 @@ mod tests {
         assert_eq!(restored_pmem.queues(), pmem.queues());
         assert!(!pmem.is_activated());
         assert!(!restored_pmem.is_activated());
-        assert_eq!(restored_pmem.config, pmem.config);
+        assert_eq!(restored_pmem.spec, pmem.spec);
     }
 }

@@ -5,7 +5,7 @@ use micro_http::StatusCode;
 use vmm::logger::{IncMetric, METRICS};
 use vmm::mmds::data_store::MmdsVersion;
 use vmm::rpc_interface::VmmAction;
-use vmm::vmm_config::mmds::MmdsConfig;
+use vmm::vmm_config::mmds::MmdsSpec;
 
 use super::super::parsed_request::{ParsedRequest, RequestError};
 use super::Body;
@@ -16,12 +16,12 @@ pub(crate) fn parse_get_mmds() -> Result<ParsedRequest, RequestError> {
 }
 
 fn parse_put_mmds_config(body: &Body) -> Result<ParsedRequest, RequestError> {
-    let config: MmdsConfig = serde_json::from_slice(body.raw()).inspect_err(|_| {
+    let spec: MmdsSpec = serde_json::from_slice(body.raw()).inspect_err(|_| {
         METRICS.put_api_requests.mmds_fails.inc();
     })?;
     // Construct the `ParsedRequest` object.
-    let version = config.version;
-    let mut parsed_request = ParsedRequest::new_sync(VmmAction::SetMmdsConfiguration(config));
+    let version = spec.version;
+    let mut parsed_request = ParsedRequest::new_stateless(VmmAction::SetMmdsSpec, spec);
 
     // MmdsV1 is deprecated.
     if version == MmdsVersion::V1 {
@@ -40,11 +40,12 @@ pub(crate) fn parse_put_mmds(
 ) -> Result<ParsedRequest, RequestError> {
     METRICS.put_api_requests.mmds_count.inc();
     match path_second_token {
-        None => Ok(ParsedRequest::new_sync(VmmAction::PutMMDS(
+        None => Ok(ParsedRequest::new_stateless(
+            VmmAction::PutMMDS,
             serde_json::from_slice(body.raw()).inspect_err(|_| {
                 METRICS.put_api_requests.mmds_fails.inc();
             })?,
-        ))),
+        )),
         Some("config") => parse_put_mmds_config(body),
         Some(unrecognized) => {
             METRICS.put_api_requests.mmds_fails.inc();
@@ -58,11 +59,12 @@ pub(crate) fn parse_put_mmds(
 
 pub(crate) fn parse_patch_mmds(body: &Body) -> Result<ParsedRequest, RequestError> {
     METRICS.patch_api_requests.mmds_count.inc();
-    Ok(ParsedRequest::new_sync(VmmAction::PatchMMDS(
+    Ok(ParsedRequest::new_stateless(
+        VmmAction::PatchMMDS,
         serde_json::from_slice(body.raw()).inspect_err(|_| {
             METRICS.patch_api_requests.mmds_fails.inc();
         })?,
-    )))
+    ))
 }
 
 #[cfg(test)]

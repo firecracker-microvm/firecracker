@@ -9,7 +9,7 @@ use crate::devices::virtio::mem::{
 
 /// Errors associated with memory hotplug configuration.
 #[derive(Debug, thiserror::Error, displaydoc::Display)]
-pub enum MemoryHotplugConfigError {
+pub enum MemoryHotplugSpecError {
     /// Block size must not be lower than {0} MiB
     BlockSizeTooSmall(usize),
     /// Block size must be a power of 2
@@ -35,7 +35,7 @@ fn default_slot_size_mib() -> usize {
 /// Configuration for memory hotplug device.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
-pub struct MemoryHotplugConfig {
+pub struct MemoryHotplugSpec {
     /// Total memory size in MiB that can be hotplugged.
     pub total_size_mib: usize,
     /// Block size in MiB. A block is the smallest unit the guest can hot(un)plug
@@ -46,38 +46,36 @@ pub struct MemoryHotplugConfig {
     pub slot_size_mib: usize,
 }
 
-impl MemoryHotplugConfig {
+impl MemoryHotplugSpec {
     /// Validates the configuration.
-    pub fn validate(&self) -> Result<(), MemoryHotplugConfigError> {
+    pub fn validate(&self) -> Result<(), MemoryHotplugSpecError> {
         let min_block_size_mib = VIRTIO_MEM_DEFAULT_BLOCK_SIZE_MIB;
         if self.block_size_mib < min_block_size_mib {
-            return Err(MemoryHotplugConfigError::BlockSizeTooSmall(
+            return Err(MemoryHotplugSpecError::BlockSizeTooSmall(
                 min_block_size_mib,
             ));
         }
         if !self.block_size_mib.is_power_of_two() {
-            return Err(MemoryHotplugConfigError::BlockSizeNotPowerOfTwo);
+            return Err(MemoryHotplugSpecError::BlockSizeNotPowerOfTwo);
         }
 
         let min_slot_size_mib = VIRTIO_MEM_DEFAULT_SLOT_SIZE_MIB;
         if self.slot_size_mib < min_slot_size_mib {
-            return Err(MemoryHotplugConfigError::SlotSizeTooSmall(
-                min_slot_size_mib,
-            ));
+            return Err(MemoryHotplugSpecError::SlotSizeTooSmall(min_slot_size_mib));
         }
         if !self.slot_size_mib.is_multiple_of(self.block_size_mib) {
-            return Err(MemoryHotplugConfigError::SlotSizeNotMultipleOfBlockSize(
+            return Err(MemoryHotplugSpecError::SlotSizeNotMultipleOfBlockSize(
                 self.block_size_mib,
             ));
         }
 
         if self.total_size_mib < self.slot_size_mib {
-            return Err(MemoryHotplugConfigError::TotalSizeTooSmall(
+            return Err(MemoryHotplugSpecError::TotalSizeTooSmall(
                 self.slot_size_mib,
             ));
         }
         if !self.total_size_mib.is_multiple_of(self.slot_size_mib) {
-            return Err(MemoryHotplugConfigError::TotalSizeNotMultipleOfSlotSize(
+            return Err(MemoryHotplugSpecError::TotalSizeNotMultipleOfSlotSize(
                 self.slot_size_mib,
             ));
         }
@@ -102,62 +100,62 @@ mod tests {
 
     #[test]
     fn test_valid_config() {
-        let config = MemoryHotplugConfig {
+        let spec = MemoryHotplugSpec {
             total_size_mib: 1024,
             block_size_mib: 2,
             slot_size_mib: 128,
         };
-        config.validate().unwrap();
+        spec.validate().unwrap();
     }
 
     #[test]
     fn test_block_size_too_small() {
-        let config = MemoryHotplugConfig {
+        let spec = MemoryHotplugSpec {
             total_size_mib: 1024,
             block_size_mib: 1,
             slot_size_mib: 128,
         };
-        match config.validate() {
-            Err(MemoryHotplugConfigError::BlockSizeTooSmall(min)) => assert_eq!(min, 2),
+        match spec.validate() {
+            Err(MemoryHotplugSpecError::BlockSizeTooSmall(min)) => assert_eq!(min, 2),
             _ => panic!("Expected InvalidBlockSizeTooSmall error"),
         }
     }
 
     #[test]
     fn test_block_size_not_power_of_two() {
-        let config = MemoryHotplugConfig {
+        let spec = MemoryHotplugSpec {
             total_size_mib: 1024,
             block_size_mib: 3,
             slot_size_mib: 128,
         };
-        match config.validate() {
-            Err(MemoryHotplugConfigError::BlockSizeNotPowerOfTwo) => {}
+        match spec.validate() {
+            Err(MemoryHotplugSpecError::BlockSizeNotPowerOfTwo) => {}
             _ => panic!("Expected InvalidBlockSizePowerOfTwo error"),
         }
     }
 
     #[test]
     fn test_slot_size_too_small() {
-        let config = MemoryHotplugConfig {
+        let spec = MemoryHotplugSpec {
             total_size_mib: 1024,
             block_size_mib: 2,
             slot_size_mib: 1,
         };
-        match config.validate() {
-            Err(MemoryHotplugConfigError::SlotSizeTooSmall(min)) => assert_eq!(min, 128),
+        match spec.validate() {
+            Err(MemoryHotplugSpecError::SlotSizeTooSmall(min)) => assert_eq!(min, 128),
             _ => panic!("Expected InvalidSlotSizeTooSmall error"),
         }
     }
 
     #[test]
     fn test_slot_size_not_multiple_of_block_size() {
-        let config = MemoryHotplugConfig {
+        let spec = MemoryHotplugSpec {
             total_size_mib: 1024,
             block_size_mib: 4,
             slot_size_mib: 130,
         };
-        match config.validate() {
-            Err(MemoryHotplugConfigError::SlotSizeNotMultipleOfBlockSize(block_size)) => {
+        match spec.validate() {
+            Err(MemoryHotplugSpecError::SlotSizeNotMultipleOfBlockSize(block_size)) => {
                 assert_eq!(block_size, 4)
             }
             _ => panic!("Expected InvalidSlotSizeMultiple error"),
@@ -166,13 +164,13 @@ mod tests {
 
     #[test]
     fn test_total_size_too_small() {
-        let config = MemoryHotplugConfig {
+        let spec = MemoryHotplugSpec {
             total_size_mib: 64,
             block_size_mib: 2,
             slot_size_mib: 128,
         };
-        match config.validate() {
-            Err(MemoryHotplugConfigError::TotalSizeTooSmall(slot_size)) => {
+        match spec.validate() {
+            Err(MemoryHotplugSpecError::TotalSizeTooSmall(slot_size)) => {
                 assert_eq!(slot_size, 128)
             }
             _ => panic!("Expected InvalidTotalSizeTooSmall error"),
@@ -181,13 +179,13 @@ mod tests {
 
     #[test]
     fn test_total_size_not_multiple_of_slot_size() {
-        let config = MemoryHotplugConfig {
+        let spec = MemoryHotplugSpec {
             total_size_mib: 1000,
             block_size_mib: 2,
             slot_size_mib: 128,
         };
-        match config.validate() {
-            Err(MemoryHotplugConfigError::TotalSizeNotMultipleOfSlotSize(slot_size)) => {
+        match spec.validate() {
+            Err(MemoryHotplugSpecError::TotalSizeNotMultipleOfSlotSize(slot_size)) => {
                 assert_eq!(slot_size, 128)
             }
             _ => panic!("Expected InvalidTotalSizeMultiple error"),
@@ -202,10 +200,10 @@ mod tests {
         let json = r#"{
             "total_size_mib": 1024
         }"#;
-        let deserialized: MemoryHotplugConfig = serde_json::from_str(json).unwrap();
+        let deserialized: MemoryHotplugSpec = serde_json::from_str(json).unwrap();
         assert_eq!(
             deserialized,
-            MemoryHotplugConfig {
+            MemoryHotplugSpec {
                 total_size_mib: 1024,
                 block_size_mib: 2,
                 slot_size_mib: 128,
@@ -215,13 +213,13 @@ mod tests {
 
     #[test]
     fn test_serde() {
-        let config = MemoryHotplugConfig {
+        let spec = MemoryHotplugSpec {
             total_size_mib: 1024,
             block_size_mib: 4,
             slot_size_mib: 256,
         };
-        let json = serde_json::to_string(&config).unwrap();
-        let deserialized: MemoryHotplugConfig = serde_json::from_str(&json).unwrap();
-        assert_eq!(config, deserialized);
+        let json = serde_json::to_string(&spec).unwrap();
+        let deserialized: MemoryHotplugSpec = serde_json::from_str(&json).unwrap();
+        assert_eq!(spec, deserialized);
     }
 }

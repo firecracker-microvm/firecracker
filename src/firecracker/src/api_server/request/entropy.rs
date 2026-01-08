@@ -2,14 +2,17 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use vmm::rpc_interface::VmmAction;
-use vmm::vmm_config::entropy::EntropyDeviceConfig;
+use vmm::vmm_config::entropy::EntropyDeviceSpec;
 
 use super::super::parsed_request::{ParsedRequest, RequestError};
 use super::Body;
 
 pub(crate) fn parse_put_entropy(body: &Body) -> Result<ParsedRequest, RequestError> {
-    let cfg = serde_json::from_slice::<EntropyDeviceConfig>(body.raw())?;
-    Ok(ParsedRequest::new_sync(VmmAction::SetEntropyDevice(cfg)))
+    let spec = serde_json::from_slice::<EntropyDeviceSpec>(body.raw())?;
+    Ok(ParsedRequest::new_stateless(
+        VmmAction::SetEntropyDevice,
+        spec,
+    ))
 }
 
 #[cfg(test)]

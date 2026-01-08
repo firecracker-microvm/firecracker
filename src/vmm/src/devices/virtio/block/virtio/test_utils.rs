@@ -23,7 +23,7 @@ use crate::devices::virtio::test_utils::{VirtQueue, VirtqDesc};
 #[cfg(test)]
 use crate::devices::virtio::transport::VirtioInterruptType;
 use crate::rate_limiter::RateLimiter;
-use crate::vmm_config::{RateLimiterConfig, TokenBucketConfig};
+use crate::vmm_config::{RateLimiterSpec, TokenBucketSpec};
 use crate::vstate::memory::{Bytes, GuestAddress};
 
 /// Create a default Block instance to be used in tests.
@@ -45,13 +45,13 @@ pub fn default_block_with_path(path: String, file_engine_type: FileEngineType) -
         is_read_only: false,
         cache_type: CacheType::Unsafe,
         // Rate limiting is enabled but with a high operation rate (10 million ops/s).
-        rate_limiter: Some(RateLimiterConfig {
-            bandwidth: Some(TokenBucketConfig {
+        rate_limiter: Some(RateLimiterSpec {
+            bandwidth: Some(TokenBucketSpec {
                 size: 0,
                 one_time_burst: Some(0),
                 refill_time: 0,
             }),
-            ops: Some(TokenBucketConfig {
+            ops: Some(TokenBucketSpec {
                 size: 100_000,
                 one_time_burst: Some(0),
                 refill_time: 10,

@@ -8,7 +8,7 @@ use serde::Deserialize;
 /// The body of a PUT /serial request.
 #[derive(Debug, PartialEq, Eq, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct SerialConfig {
+pub struct SerialSpec {
     /// Named pipe or file used as output for guest serial console.
     pub serial_out_path: Option<PathBuf>,
 }

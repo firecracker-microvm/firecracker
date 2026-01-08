@@ -38,8 +38,8 @@ use crate::impl_device_type;
 use crate::logger::{IncMetric, error, warn};
 use crate::rate_limiter::{BucketUpdate, RateLimiter};
 use crate::utils::u64_to_usize;
-use crate::vmm_config::RateLimiterConfig;
-use crate::vmm_config::drive::BlockDeviceConfig;
+use crate::vmm_config::RateLimiterSpec;
+use crate::vmm_config::drive::BlockDeviceSpec;
 use crate::vstate::memory::GuestMemoryMmap;
 
 /// The engine file type, either Sync or Async (through io_uring).
@@ -193,17 +193,17 @@ pub struct VirtioBlockConfig {
     /// Path of the backing file on the host
     pub path_on_host: String,
     /// Rate Limiter for I/O operations.
-    pub rate_limiter: Option<RateLimiterConfig>,
+    pub rate_limiter: Option<RateLimiterSpec>,
     /// The type of IO engine used by the device.
     #[serde(default)]
     #[serde(rename = "io_engine")]
     pub file_engine_type: FileEngineType,
 }
 
-impl TryFrom<&BlockDeviceConfig> for VirtioBlockConfig {
+impl TryFrom<&BlockDeviceSpec> for VirtioBlockConfig {
     type Error = VirtioBlockError;
 
-    fn try_from(value: &BlockDeviceConfig) -> Result<Self, Self::Error> {
+    fn try_from(value: &BlockDeviceSpec) -> Result<Self, Self::Error> {
         if value.path_on_host.is_some() && value.socket.is_none() {
             Ok(Self {
                 drive_id: value.drive_id.clone(),
@@ -222,7 +222,7 @@ impl TryFrom<&BlockDeviceConfig> for VirtioBlockConfig {
     }
 }
 
-impl From<VirtioBlockConfig> for BlockDeviceConfig {
+impl From<VirtioBlockConfig> for BlockDeviceSpec {
     fn from(value: VirtioBlockConfig) -> Self {
         Self {
             drive_id: value.drive_id,
@@ -293,7 +293,7 @@ impl VirtioBlock {
 
         let rate_limiter = config
             .rate_limiter
-            .map(RateLimiterConfig::try_into)
+            .map(RateLimiterSpec::try_into)
             .transpose()
             .map_err(VirtioBlockError::RateLimiter)?
             .unwrap_or_default();
@@ -341,7 +341,7 @@ impl VirtioBlock {
 
     /// Returns a copy of a device config
     pub fn config(&self) -> VirtioBlockConfig {
-        let rl: RateLimiterConfig = (&self.rate_limiter).into();
+        let rl: RateLimiterSpec = (&self.rate_limiter).into();
         VirtioBlockConfig {
             drive_id: self.id.clone(),
             path_on_host: self.disk.file_path.clone(),
@@ -713,7 +713,7 @@ mod tests {
 
     #[test]
     fn test_from_config() {
-        let block_config = BlockDeviceConfig {
+        let block_spec = BlockDeviceSpec {
             drive_id: "".to_string(),
             partuuid: None,
             is_root_device: false,
@@ -726,9 +726,9 @@ mod tests {
 
             socket: None,
         };
-        VirtioBlockConfig::try_from(&block_config).unwrap();
+        VirtioBlockConfig::try_from(&block_spec).unwrap();
 
-        let block_config = BlockDeviceConfig {
+        let block_spec = BlockDeviceSpec {
             drive_id: "".to_string(),
             partuuid: None,
             is_root_device: false,
@@ -741,9 +741,9 @@ mod tests {
 
             socket: Some("sock".to_string()),
         };
-        VirtioBlockConfig::try_from(&block_config).unwrap_err();
+        VirtioBlockConfig::try_from(&block_spec).unwrap_err();
 
-        let block_config = BlockDeviceConfig {
+        let block_spec = BlockDeviceSpec {
             drive_id: "".to_string(),
             partuuid: None,
             is_root_device: false,
@@ -756,7 +756,7 @@ mod tests {
 
             socket: Some("sock".to_string()),
         };
-        VirtioBlockConfig::try_from(&block_config).unwrap_err();
+        VirtioBlockConfig::try_from(&block_spec).unwrap_err();
     }
 
     #[test]

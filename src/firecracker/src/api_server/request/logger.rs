@@ -13,7 +13,10 @@ pub(crate) fn parse_put_logger(body: &Body) -> Result<ParsedRequest, RequestErro
     let config = res.inspect_err(|_| {
         METRICS.put_api_requests.logger_fails.inc();
     })?;
-    Ok(ParsedRequest::new_sync(VmmAction::ConfigureLogger(config)))
+    Ok(ParsedRequest::new_stateless(
+        VmmAction::ConfigureLogger,
+        config,
+    ))
 }
 
 #[cfg(test)]

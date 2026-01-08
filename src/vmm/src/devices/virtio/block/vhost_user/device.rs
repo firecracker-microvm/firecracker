@@ -30,7 +30,7 @@ use crate::devices::virtio::vhost_user_metrics::{
 use crate::impl_device_type;
 use crate::logger::{IncMetric, StoreMetric, log_dev_preview_warning};
 use crate::utils::u64_to_usize;
-use crate::vmm_config::drive::BlockDeviceConfig;
+use crate::vmm_config::drive::BlockDeviceSpec;
 use crate::vstate::memory::GuestMemoryMmap;
 
 /// Block device config space size in bytes.
@@ -65,10 +65,10 @@ pub struct VhostUserBlockConfig {
     pub socket: String,
 }
 
-impl TryFrom<&BlockDeviceConfig> for VhostUserBlockConfig {
+impl TryFrom<&BlockDeviceSpec> for VhostUserBlockConfig {
     type Error = VhostUserBlockError;
 
-    fn try_from(value: &BlockDeviceConfig) -> Result<Self, Self::Error> {
+    fn try_from(value: &BlockDeviceSpec) -> Result<Self, Self::Error> {
         if value.socket.is_some()
             && value.is_read_only.is_none()
             && value.path_on_host.is_none()
@@ -89,7 +89,7 @@ impl TryFrom<&BlockDeviceConfig> for VhostUserBlockConfig {
     }
 }
 
-impl From<VhostUserBlockConfig> for BlockDeviceConfig {
+impl From<VhostUserBlockConfig> for BlockDeviceSpec {
     fn from(value: VhostUserBlockConfig) -> Self {
         Self {
             drive_id: value.drive_id,
@@ -395,7 +395,7 @@ mod tests {
 
     #[test]
     fn test_from_config() {
-        let block_config = BlockDeviceConfig {
+        let block_spec = BlockDeviceSpec {
             drive_id: "".to_string(),
             partuuid: None,
             is_root_device: false,
@@ -408,9 +408,9 @@ mod tests {
 
             socket: Some("sock".to_string()),
         };
-        VhostUserBlockConfig::try_from(&block_config).unwrap();
+        VhostUserBlockConfig::try_from(&block_spec).unwrap();
 
-        let block_config = BlockDeviceConfig {
+        let block_spec = BlockDeviceSpec {
             drive_id: "".to_string(),
             partuuid: None,
             is_root_device: false,
@@ -423,9 +423,9 @@ mod tests {
 
             socket: None,
         };
-        VhostUserBlockConfig::try_from(&block_config).unwrap_err();
+        VhostUserBlockConfig::try_from(&block_spec).unwrap_err();
 
-        let block_config = BlockDeviceConfig {
+        let block_spec = BlockDeviceSpec {
             drive_id: "".to_string(),
             partuuid: None,
             is_root_device: false,
@@ -438,7 +438,7 @@ mod tests {
 
             socket: Some("sock".to_string()),
         };
-        VhostUserBlockConfig::try_from(&block_config).unwrap_err();
+        VhostUserBlockConfig::try_from(&block_spec).unwrap_err();
     }
 
     #[test]

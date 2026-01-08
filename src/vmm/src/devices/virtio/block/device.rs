@@ -19,7 +19,7 @@ use crate::devices::virtio::transport::VirtioInterrupt;
 use crate::impl_device_type;
 use crate::rate_limiter::BucketUpdate;
 use crate::snapshot::Persist;
-use crate::vmm_config::drive::BlockDeviceConfig;
+use crate::vmm_config::drive::BlockDeviceSpec;
 use crate::vstate::memory::GuestMemoryMmap;
 
 // Clippy thinks that values of the enum are too different in size.
@@ -31,12 +31,12 @@ pub enum Block {
 }
 
 impl Block {
-    pub fn new(config: BlockDeviceConfig) -> Result<Block, BlockError> {
-        if let Ok(config) = VirtioBlockConfig::try_from(&config) {
+    pub fn new(spec: BlockDeviceSpec) -> Result<Block, BlockError> {
+        if let Ok(config) = VirtioBlockConfig::try_from(&spec) {
             Ok(Self::Virtio(
                 VirtioBlock::new(config).map_err(BlockError::VirtioBackend)?,
             ))
-        } else if let Ok(config) = VhostUserBlockConfig::try_from(&config) {
+        } else if let Ok(config) = VhostUserBlockConfig::try_from(&spec) {
             Ok(Self::VhostUser(
                 VhostUserBlock::new(config).map_err(BlockError::VhostUserBackend)?,
             ))
@@ -45,7 +45,7 @@ impl Block {
         }
     }
 
-    pub fn config(&self) -> BlockDeviceConfig {
+    pub fn config(&self) -> BlockDeviceSpec {
         match self {
             Self::Virtio(b) => b.config().into(),
             Self::VhostUser(b) => b.config().into(),

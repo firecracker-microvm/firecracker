@@ -4,6 +4,7 @@
 use std::convert::{From, TryInto};
 use std::io;
 
+use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 
 use crate::rate_limiter::{BucketUpdate, RateLimiter, TokenBucket};
@@ -36,19 +37,45 @@ pub mod snapshot;
 /// Wrapper for configuring the vsock devices attached to the microVM.
 pub mod vsock;
 
-// TODO: Migrate the VMM public-facing code (i.e. interface) to use stateless structures,
-// for receiving data/args, such as the below `RateLimiterConfig` and `TokenBucketConfig`.
-// Also todo: find a better suffix than `Config`; it should illustrate the static nature
-// of the enclosed data.
-// Currently, data is passed around using live/stateful objects. Switching to static/stateless
-// objects will simplify both the ownership model and serialization.
-// Public access would then be more tightly regulated via `VmmAction`s, consisting of tuples like
-// (entry-point-into-VMM-logic, stateless-args-structure).
+/// Marker trait for stateless payloads that can be sent through the VMM API without
+/// carrying live state.
+pub trait StatelessArgs: DeserializeOwned + Send + Sync + 'static {}
+
+impl<T> StatelessArgs for T where T: DeserializeOwned + Send + Sync + 'static {}
+
+/// Tuple-like wrapper pairing a VMM entrypoint with stateless arguments.
+#[derive(Debug)]
+pub struct VmmActionPayload<F, A> {
+    /// Function/closure that acts as the VMM entrypoint.
+    pub entrypoint: F,
+    /// Stateless arguments forwarded to the entrypoint.
+    pub args: A,
+}
+
+impl<F, A> VmmActionPayload<F, A> {
+    /// Creates a new payload pairing an entrypoint with its arguments.
+    #[inline]
+    pub fn new(entrypoint: F, args: A) -> Self {
+        Self { entrypoint, args }
+    }
+}
+
+impl<F, A, R> VmmActionPayload<F, A>
+where
+    F: FnOnce(A) -> R,
+    A: StatelessArgs,
+{
+    /// Dispatches the entrypoint with the provided stateless arguments.
+    #[inline]
+    pub fn dispatch(self) -> R {
+        (self.entrypoint)(self.args)
+    }
+}
 
 /// A public-facing, stateless structure, holding all the data we need to create a TokenBucket
 /// (live) object.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Deserialize, Serialize)]
-pub struct TokenBucketConfig {
+pub struct TokenBucketSpec {
     /// See TokenBucket::size.
     pub size: u64,
     /// See TokenBucket::one_time_burst.
@@ -57,13 +84,13 @@ pub struct TokenBucketConfig {
     pub refill_time: u64,
 }
 
-impl From<&TokenBucket> for TokenBucketConfig {
+impl From<&TokenBucket> for TokenBucketSpec {
     fn from(tb: &TokenBucket) -> Self {
         let one_time_burst = match tb.initial_one_time_burst() {
             0 => None,
             v => Some(v),
         };
-        TokenBucketConfig {
+        TokenBucketSpec {
             size: tb.capacity(),
             one_time_burst,
             refill_time: tb.refill_time_ms(),
@@ -75,11 +102,11 @@ impl From<&TokenBucket> for TokenBucketConfig {
 /// (live) object.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
-pub struct RateLimiterConfig {
+pub struct RateLimiterSpec {
     /// Data used to initialize the RateLimiter::bandwidth bucket.
-    pub bandwidth: Option<TokenBucketConfig>,
+    pub bandwidth: Option<TokenBucketSpec>,
     /// Data used to initialize the RateLimiter::ops bucket.
-    pub ops: Option<TokenBucketConfig>,
+    pub ops: Option<TokenBucketSpec>,
 }
 
 /// A public-facing, stateless structure, specifying RateLimiter properties updates.
@@ -91,14 +118,14 @@ pub struct RateLimiterUpdate {
     pub ops: BucketUpdate,
 }
 
-fn get_bucket_update(tb_cfg: &Option<TokenBucketConfig>) -> BucketUpdate {
-    match tb_cfg {
+fn get_bucket_update(tb_spec: &Option<TokenBucketSpec>) -> BucketUpdate {
+    match tb_spec {
         // There is data to update.
-        Some(tb_cfg) => {
+        Some(tb_spec) => {
             TokenBucket::new(
-                tb_cfg.size,
-                tb_cfg.one_time_burst.unwrap_or(0),
-                tb_cfg.refill_time,
+                tb_spec.size,
+                tb_spec.one_time_burst.unwrap_or(0),
+                tb_spec.refill_time,
             )
             // Updated active rate-limiter.
             .map(BucketUpdate::Update)
@@ -110,12 +137,12 @@ fn get_bucket_update(tb_cfg: &Option<TokenBucketConfig>) -> BucketUpdate {
     }
 }
 
-impl From<Option<RateLimiterConfig>> for RateLimiterUpdate {
-    fn from(cfg: Option<RateLimiterConfig>) -> Self {
-        if let Some(cfg) = cfg {
+impl From<Option<RateLimiterSpec>> for RateLimiterUpdate {
+    fn from(spec: Option<RateLimiterSpec>) -> Self {
+        if let Some(spec) = spec {
             RateLimiterUpdate {
-                bandwidth: get_bucket_update(&cfg.bandwidth),
-                ops: get_bucket_update(&cfg.ops),
+                bandwidth: get_bucket_update(&spec.bandwidth),
+                ops: get_bucket_update(&spec.ops),
             }
         } else {
             // No update to the rate-limiter.
@@ -127,7 +154,7 @@ impl From<Option<RateLimiterConfig>> for RateLimiterUpdate {
     }
 }
 
-impl TryInto<RateLimiter> for RateLimiterConfig {
+impl TryInto<RateLimiter> for RateLimiterSpec {
     type Error = io::Error;
 
     fn try_into(self) -> Result<RateLimiter, Self::Error> {
@@ -144,19 +171,19 @@ impl TryInto<RateLimiter> for RateLimiterConfig {
     }
 }
 
-impl From<&RateLimiter> for RateLimiterConfig {
+impl From<&RateLimiter> for RateLimiterSpec {
     fn from(rl: &RateLimiter) -> Self {
-        RateLimiterConfig {
-            bandwidth: rl.bandwidth().map(TokenBucketConfig::from),
-            ops: rl.ops().map(TokenBucketConfig::from),
+        RateLimiterSpec {
+            bandwidth: rl.bandwidth().map(TokenBucketSpec::from),
+            ops: rl.ops().map(TokenBucketSpec::from),
         }
     }
 }
 
-impl RateLimiterConfig {
+impl RateLimiterSpec {
     /// [`Option<T>`] already implements [`From<T>`] so we have to use a custom
     /// one.
-    pub fn into_option(self) -> Option<RateLimiterConfig> {
+    pub fn into_option(self) -> Option<RateLimiterSpec> {
         if self.bandwidth.is_some() || self.ops.is_some() {
             Some(self)
         } else {
@@ -175,19 +202,19 @@ mod tests {
 
     #[test]
     fn test_rate_limiter_configs() {
-        let rlconf = RateLimiterConfig {
-            bandwidth: Some(TokenBucketConfig {
+        let rl_spec = RateLimiterSpec {
+            bandwidth: Some(TokenBucketSpec {
                 size: SIZE,
                 one_time_burst: Some(ONE_TIME_BURST),
                 refill_time: REFILL_TIME,
             }),
-            ops: Some(TokenBucketConfig {
+            ops: Some(TokenBucketSpec {
                 size: SIZE * 2,
                 one_time_burst: None,
                 refill_time: REFILL_TIME * 2,
             }),
         };
-        let rl: RateLimiter = rlconf.try_into().unwrap();
+        let rl: RateLimiter = rl_spec.try_into().unwrap();
         assert_eq!(rl.bandwidth().unwrap().capacity(), SIZE);
         assert_eq!(rl.bandwidth().unwrap().one_time_burst(), ONE_TIME_BURST);
         assert_eq!(rl.bandwidth().unwrap().refill_time_ms(), REFILL_TIME);
@@ -198,22 +225,22 @@ mod tests {
 
     #[test]
     fn test_generate_configs() {
-        let bw_tb_cfg = TokenBucketConfig {
+        let bw_tb_spec = TokenBucketSpec {
             size: SIZE,
             one_time_burst: Some(ONE_TIME_BURST),
             refill_time: REFILL_TIME,
         };
         let bw_tb = TokenBucket::new(SIZE, ONE_TIME_BURST, REFILL_TIME).unwrap();
-        let generated_bw_tb_cfg = TokenBucketConfig::from(&bw_tb);
-        assert_eq!(generated_bw_tb_cfg, bw_tb_cfg);
+        let generated_bw_tb_spec = TokenBucketSpec::from(&bw_tb);
+        assert_eq!(generated_bw_tb_spec, bw_tb_spec);
 
-        let rl_conf = RateLimiterConfig {
-            bandwidth: Some(bw_tb_cfg),
+        let rl_spec = RateLimiterSpec {
+            bandwidth: Some(bw_tb_spec),
             ops: None,
         };
-        let rl: RateLimiter = rl_conf.try_into().unwrap();
-        let generated_rl_conf = RateLimiterConfig::from(&rl);
-        assert_eq!(generated_rl_conf, rl_conf);
-        assert_eq!(generated_rl_conf.into_option(), Some(rl_conf));
+        let rl: RateLimiter = rl_spec.try_into().unwrap();
+        let generated_rl_spec = RateLimiterSpec::from(&rl);
+        assert_eq!(generated_rl_spec, rl_spec);
+        assert_eq!(generated_rl_spec.into_option(), Some(rl_spec));
     }
 }

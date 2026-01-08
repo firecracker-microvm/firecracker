@@ -4,18 +4,19 @@
 use micro_http::Body;
 use vmm::logger::{IncMetric, METRICS};
 use vmm::rpc_interface::VmmAction;
-use vmm::vmm_config::memory_hotplug::{MemoryHotplugConfig, MemoryHotplugSizeUpdate};
+use vmm::vmm_config::memory_hotplug::{MemoryHotplugSizeUpdate, MemoryHotplugSpec};
 
 use crate::api_server::parsed_request::{ParsedRequest, RequestError};
 
 pub(crate) fn parse_put_memory_hotplug(body: &Body) -> Result<ParsedRequest, RequestError> {
     METRICS.put_api_requests.hotplug_memory_count.inc();
-    let config = serde_json::from_slice::<MemoryHotplugConfig>(body.raw()).inspect_err(|_| {
+    let spec = serde_json::from_slice::<MemoryHotplugSpec>(body.raw()).inspect_err(|_| {
         METRICS.put_api_requests.hotplug_memory_fails.inc();
     })?;
-    Ok(ParsedRequest::new_sync(VmmAction::SetMemoryHotplugDevice(
-        config,
-    )))
+    Ok(ParsedRequest::new_stateless(
+        VmmAction::SetMemoryHotplugDevice,
+        spec,
+    ))
 }
 
 pub(crate) fn parse_get_memory_hotplug() -> Result<ParsedRequest, RequestError> {
@@ -29,9 +30,10 @@ pub(crate) fn parse_patch_memory_hotplug(body: &Body) -> Result<ParsedRequest, R
         serde_json::from_slice::<MemoryHotplugSizeUpdate>(body.raw()).inspect_err(|_| {
             METRICS.patch_api_requests.hotplug_memory_fails.inc();
         })?;
-    Ok(ParsedRequest::new_sync(VmmAction::UpdateMemoryHotplugSize(
+    Ok(ParsedRequest::new_stateless(
+        VmmAction::UpdateMemoryHotplugSize,
         config,
-    )))
+    ))
 }
 
 #[cfg(test)]
@@ -58,14 +60,14 @@ mod tests {
         let body = r#"{
             "total_size_mib": 2048
         }"#;
-        let expected_config = MemoryHotplugConfig {
+        let expected_spec = MemoryHotplugSpec {
             total_size_mib: 2048,
             block_size_mib: VIRTIO_MEM_DEFAULT_BLOCK_SIZE_MIB,
             slot_size_mib: VIRTIO_MEM_DEFAULT_SLOT_SIZE_MIB,
         };
         assert_eq!(
             vmm_action_from_request(parse_put_memory_hotplug(&Body::new(body)).unwrap()),
-            VmmAction::SetMemoryHotplugDevice(expected_config)
+            VmmAction::SetMemoryHotplugDevice(expected_spec)
         );
 
         // PUT with valid input fields.
@@ -74,14 +76,14 @@ mod tests {
             "block_size_mib": 64,
             "slot_size_mib": 64
         }"#;
-        let expected_config = MemoryHotplugConfig {
+        let expected_spec = MemoryHotplugSpec {
             total_size_mib: 2048,
             block_size_mib: 64,
             slot_size_mib: 64,
         };
         assert_eq!(
             vmm_action_from_request(parse_put_memory_hotplug(&Body::new(body)).unwrap()),
-            VmmAction::SetMemoryHotplugDevice(expected_config)
+            VmmAction::SetMemoryHotplugDevice(expected_spec)
         );
     }
 

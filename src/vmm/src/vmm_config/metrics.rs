@@ -11,27 +11,27 @@ use crate::utils::open_file_write_nonblock;
 
 /// Strongly typed structure used to describe the metrics system.
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
-pub struct MetricsConfig {
+pub struct MetricsSpec {
     /// Named pipe or file used as output for metrics.
     pub metrics_path: PathBuf,
 }
 
-/// Errors associated with actions on the `MetricsConfig`.
+/// Errors associated with actions on the `MetricsSpec`.
 #[derive(Debug, thiserror::Error, displaydoc::Display)]
-pub enum MetricsConfigError {
+pub enum MetricsSpecError {
     /// Cannot initialize the metrics system due to bad user input: {0}
     InitializationFailure(String),
 }
 
-/// Configures the metrics as described in `metrics_cfg`.
-pub fn init_metrics(metrics_cfg: MetricsConfig) -> Result<(), MetricsConfigError> {
+/// Configures the metrics as described in `metrics_spec`.
+pub fn init_metrics(metrics_spec: MetricsSpec) -> Result<(), MetricsSpecError> {
     let writer = FcLineWriter::new(
-        open_file_write_nonblock(&metrics_cfg.metrics_path)
-            .map_err(|err| MetricsConfigError::InitializationFailure(err.to_string()))?,
+        open_file_write_nonblock(&metrics_spec.metrics_path)
+            .map_err(|err| MetricsSpecError::InitializationFailure(err.to_string()))?,
     );
     METRICS
         .init(writer)
-        .map_err(|err| MetricsConfigError::InitializationFailure(err.to_string()))
+        .map_err(|err| MetricsSpecError::InitializationFailure(err.to_string()))
 }
 
 #[cfg(test)]
@@ -44,7 +44,7 @@ mod tests {
     fn test_init_metrics() {
         // Initializing metrics with valid pipe is ok.
         let metrics_file = TempFile::new().unwrap();
-        let desc = MetricsConfig {
+        let desc = MetricsSpec {
             metrics_path: metrics_file.as_path().to_path_buf(),
         };
 

@@ -30,7 +30,7 @@ use vmm::seccomp::BpfThreadMap;
 use vmm::signal_handler::register_signal_handlers;
 use vmm::snapshot::{SnapshotError, get_format_version};
 use vmm::vmm_config::instance_info::{InstanceInfo, VmState};
-use vmm::vmm_config::metrics::{MetricsConfig, MetricsConfigError, init_metrics};
+use vmm::vmm_config::metrics::{MetricsSpec, MetricsSpecError, init_metrics};
 use vmm::{EventManager, FcExitCode, HTTP_MAX_PAYLOAD_SIZE};
 use vmm_sys_util::terminal::Terminal;
 
@@ -58,7 +58,7 @@ enum MainError {
     /// Could not initialize logger: {0}
     LoggerInitialization(vmm::logger::LoggerUpdateError),
     /// Could not initialize metrics: {0}
-    MetricsInitialization(MetricsConfigError),
+    MetricsInitialization(MetricsSpecError),
     /// Seccomp error: {0}
     SeccompFilter(FilterError),
     /// Failed to resize fd table: {0}
@@ -350,10 +350,10 @@ fn main_exec() -> Result<(), MainError> {
     };
 
     if let Some(metrics_path) = arguments.single_value("metrics-path") {
-        let metrics_config = MetricsConfig {
+        let metrics_spec = MetricsSpec {
             metrics_path: PathBuf::from(metrics_path),
         };
-        init_metrics(metrics_config).map_err(MainError::MetricsInitialization)?;
+        init_metrics(metrics_spec).map_err(MainError::MetricsInitialization)?;
     }
 
     let mut seccomp_filters: BpfThreadMap = SeccompConfig::from_args(

@@ -7,7 +7,7 @@ use std::sync::{Arc, Mutex};
 
 use serde::{Deserialize, Serialize};
 
-use super::RateLimiterConfig;
+use super::RateLimiterSpec;
 use crate::VmmError;
 use crate::devices::virtio::net::{Net, TapError};
 use crate::utils::net::mac::MacAddr;
@@ -16,7 +16,7 @@ use crate::utils::net::mac::MacAddr;
 /// related requests.
 #[derive(Debug, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
-pub struct NetworkInterfaceConfig {
+pub struct NetworkInterfaceSpec {
     /// ID of the guest network interface.
     pub iface_id: String,
     /// Host level path for the guest network interface.
@@ -24,16 +24,16 @@ pub struct NetworkInterfaceConfig {
     /// Guest MAC address.
     pub guest_mac: Option<MacAddr>,
     /// Rate Limiter for received packages.
-    pub rx_rate_limiter: Option<RateLimiterConfig>,
+    pub rx_rate_limiter: Option<RateLimiterSpec>,
     /// Rate Limiter for transmitted packages.
-    pub tx_rate_limiter: Option<RateLimiterConfig>,
+    pub tx_rate_limiter: Option<RateLimiterSpec>,
 }
 
-impl From<&Net> for NetworkInterfaceConfig {
+impl From<&Net> for NetworkInterfaceSpec {
     fn from(net: &Net) -> Self {
-        let rx_rl: RateLimiterConfig = net.rx_rate_limiter().into();
-        let tx_rl: RateLimiterConfig = net.tx_rate_limiter().into();
-        NetworkInterfaceConfig {
+        let rx_rl: RateLimiterSpec = net.rx_rate_limiter().into();
+        let tx_rl: RateLimiterSpec = net.tx_rate_limiter().into();
+        NetworkInterfaceSpec {
             iface_id: net.id().clone(),
             host_dev_name: net.iface_name(),
             guest_mac: net.guest_mac().copied(),
@@ -47,15 +47,15 @@ impl From<&Net> for NetworkInterfaceConfig {
 /// can be updated.
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct NetworkInterfaceUpdateConfig {
+pub struct NetworkInterfaceUpdateSpec {
     /// The net iface ID, as provided by the user at iface creation time.
     pub iface_id: String,
     /// New RX rate limiter config. Only provided data will be updated. I.e. if any optional data
     /// is missing, it will not be nullified, but left unchanged.
-    pub rx_rate_limiter: Option<RateLimiterConfig>,
+    pub rx_rate_limiter: Option<RateLimiterSpec>,
     /// New TX rate limiter config. Only provided data will be updated. I.e. if any optional data
     /// is missing, it will not be nullified, but left unchanged.
-    pub tx_rate_limiter: Option<RateLimiterConfig>,
+    pub tx_rate_limiter: Option<RateLimiterSpec>,
 }
 
 /// Errors associated with the operations allowed on a net device.
@@ -102,13 +102,13 @@ impl NetBuilder {
     /// in the builder's internal list.
     pub fn build(
         &mut self,
-        netif_config: NetworkInterfaceConfig,
+        netif_spec: NetworkInterfaceSpec,
     ) -> Result<Arc<Mutex<Net>>, NetworkInterfaceError> {
-        if let Some(ref mac_address) = netif_config.guest_mac {
+        if let Some(ref mac_address) = netif_spec.guest_mac {
             let mac_conflict = |net: &Arc<Mutex<Net>>| {
                 let net = net.lock().expect("Poisoned lock");
                 // Check if another net dev has same MAC.
-                Some(mac_address) == net.guest_mac() && &netif_config.iface_id != net.id()
+                Some(mac_address) == net.guest_mac() && &netif_spec.iface_id != net.id()
             };
             // Validate there is no Mac conflict.
             // No need to validate host_dev_name conflict. In such a case,
@@ -124,36 +124,36 @@ impl NetBuilder {
         if let Some(index) = self
             .net_devices
             .iter()
-            .position(|net| net.lock().expect("Poisoned lock").id() == &netif_config.iface_id)
+            .position(|net| net.lock().expect("Poisoned lock").id() == &netif_spec.iface_id)
         {
             self.net_devices.swap_remove(index);
         }
 
         // Add new device.
-        let net = Arc::new(Mutex::new(Self::create_net(netif_config)?));
+        let net = Arc::new(Mutex::new(Self::create_net(netif_spec)?));
         self.net_devices.push(net.clone());
 
         Ok(net)
     }
 
-    /// Creates a Net device from a NetworkInterfaceConfig.
-    pub fn create_net(cfg: NetworkInterfaceConfig) -> Result<Net, NetworkInterfaceError> {
-        let rx_rate_limiter = cfg
+    /// Creates a Net device from a NetworkInterfaceSpec.
+    pub fn create_net(spec: NetworkInterfaceSpec) -> Result<Net, NetworkInterfaceError> {
+        let rx_rate_limiter = spec
             .rx_rate_limiter
-            .map(super::RateLimiterConfig::try_into)
+            .map(super::RateLimiterSpec::try_into)
             .transpose()
             .map_err(NetworkInterfaceError::CreateRateLimiter)?;
-        let tx_rate_limiter = cfg
+        let tx_rate_limiter = spec
             .tx_rate_limiter
-            .map(super::RateLimiterConfig::try_into)
+            .map(super::RateLimiterSpec::try_into)
             .transpose()
             .map_err(NetworkInterfaceError::CreateRateLimiter)?;
 
         // Create and return the Net device
         crate::devices::virtio::net::Net::new(
-            cfg.iface_id,
-            &cfg.host_dev_name,
-            cfg.guest_mac,
+            spec.iface_id,
+            &spec.host_dev_name,
+            spec.guest_mac,
             rx_rate_limiter.unwrap_or_default(),
             tx_rate_limiter.unwrap_or_default(),
         )
@@ -161,10 +161,10 @@ impl NetBuilder {
     }
 
     /// Returns a vec with the structures used to configure the net devices.
-    pub fn configs(&self) -> Vec<NetworkInterfaceConfig> {
+    pub fn configs(&self) -> Vec<NetworkInterfaceSpec> {
         let mut ret = vec![];
         for net in &self.net_devices {
-            ret.push(NetworkInterfaceConfig::from(net.lock().unwrap().deref()));
+            ret.push(NetworkInterfaceSpec::from(net.lock().unwrap().deref()));
         }
         ret
     }
@@ -183,19 +183,19 @@ mod tests {
         }
     }
 
-    fn create_netif(id: &str, name: &str, mac: &str) -> NetworkInterfaceConfig {
-        NetworkInterfaceConfig {
+    fn create_netif(id: &str, name: &str, mac: &str) -> NetworkInterfaceSpec {
+        NetworkInterfaceSpec {
             iface_id: String::from(id),
             host_dev_name: String::from(name),
             guest_mac: Some(MacAddr::from_str(mac).unwrap()),
-            rx_rate_limiter: RateLimiterConfig::default().into_option(),
-            tx_rate_limiter: RateLimiterConfig::default().into_option(),
+            rx_rate_limiter: RateLimiterSpec::default().into_option(),
+            tx_rate_limiter: RateLimiterSpec::default().into_option(),
         }
     }
 
-    impl Clone for NetworkInterfaceConfig {
+    impl Clone for NetworkInterfaceSpec {
         fn clone(&self) -> Self {
-            NetworkInterfaceConfig {
+            NetworkInterfaceSpec {
                 iface_id: self.iface_id.clone(),
                 host_dev_name: self.host_dev_name.clone(),
                 guest_mac: self.guest_mac,
@@ -305,19 +305,19 @@ mod tests {
         let host_dev_name = "dev";
         let guest_mac = "01:23:45:67:89:0b";
 
-        let net_if_cfg = create_netif(net_id, host_dev_name, guest_mac);
+        let net_if_spec = create_netif(net_id, host_dev_name, guest_mac);
         assert_eq!(
-            net_if_cfg.guest_mac.unwrap(),
+            net_if_spec.guest_mac.unwrap(),
             MacAddr::from_str(guest_mac).unwrap()
         );
 
         let mut net_builder = NetBuilder::new();
-        net_builder.build(net_if_cfg.clone()).unwrap();
+        net_builder.build(net_if_spec.clone()).unwrap();
         assert_eq!(net_builder.net_devices.len(), 1);
 
         let configs = net_builder.configs();
         assert_eq!(configs.len(), 1);
-        assert_eq!(configs.first().unwrap(), &net_if_cfg);
+        assert_eq!(configs.first().unwrap(), &net_if_spec);
     }
 
     #[test]

@@ -22,7 +22,7 @@ pub const DEFAULT_KERNEL_CMDLINE: &str = "reboot=k panic=1 nomodule 8250.nr_uart
 /// microvm.
 #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(deny_unknown_fields)]
-pub struct BootSourceConfig {
+pub struct BootSourceSpec {
     /// Path of the kernel image.
     pub kernel_image_path: String,
     /// Path of the initrd, if there is one.
@@ -32,9 +32,9 @@ pub struct BootSourceConfig {
     pub boot_args: Option<String>,
 }
 
-/// Errors associated with actions on `BootSourceConfig`.
+/// Errors associated with actions on `BootSourceSpec`.
 #[derive(Debug, thiserror::Error, displaydoc::Display)]
-pub enum BootSourceConfigError {
+pub enum BootSourceSpecError {
     /// The kernel file cannot be opened: {0}
     InvalidKernelPath(io::Error),
     /// The initrd file cannot be opened due to invalid path or invalid permissions. {0}
@@ -46,14 +46,14 @@ pub enum BootSourceConfigError {
 /// Holds the kernel specification (both configuration as well as runtime details).
 #[derive(Debug, Default)]
 pub struct BootSource {
-    /// The boot source configuration.
-    pub config: BootSourceConfig,
+    /// The boot source specification.
+    pub spec: BootSourceSpec,
     /// The boot source builder (a boot source allocated and validated).
     /// It is an option cause a resumed microVM does not need it.
     pub builder: Option<BootConfig>,
 }
 
-/// Holds the kernel builder (created and validates based on BootSourceConfig).
+/// Holds the kernel builder (created and validates based on BootSourceSpec).
 #[derive(Debug)]
 pub struct BootConfig {
     /// The commandline validated against correctness.
@@ -65,20 +65,20 @@ pub struct BootConfig {
 }
 
 impl BootConfig {
-    /// Creates the BootConfig based on a given configuration.
-    pub fn new(cfg: &BootSourceConfig) -> Result<Self, BootSourceConfigError> {
-        use self::BootSourceConfigError::{
+    /// Creates the BootSpec based on a given configuration.
+    pub fn new(spec: &BootSourceSpec) -> Result<Self, BootSourceSpecError> {
+        use self::BootSourceSpecError::{
             InvalidInitrdPath, InvalidKernelCommandLine, InvalidKernelPath,
         };
 
         // Validate boot source config.
-        let kernel_file = File::open(&cfg.kernel_image_path).map_err(InvalidKernelPath)?;
-        let initrd_file: Option<File> = match &cfg.initrd_path {
+        let kernel_file = File::open(&spec.kernel_image_path).map_err(InvalidKernelPath)?;
+        let initrd_file: Option<File> = match &spec.initrd_path {
             Some(path) => Some(File::open(path).map_err(InvalidInitrdPath)?),
             None => None,
         };
 
-        let cmdline_str = match cfg.boot_args.as_ref() {
+        let cmdline_str = match spec.boot_args.as_ref() {
             None => DEFAULT_KERNEL_CMDLINE,
             Some(str) => str.as_str(),
         };
@@ -106,13 +106,13 @@ pub(crate) mod tests {
         let kernel_file = TempFile::new().unwrap();
         let kernel_path = kernel_file.as_path().to_str().unwrap().to_string();
 
-        let boot_src_cfg = BootSourceConfig {
+        let boot_src_spec = BootSourceSpec {
             boot_args: None,
             initrd_path: None,
             kernel_image_path: kernel_path,
         };
 
-        let boot_cfg = BootConfig::new(&boot_src_cfg).unwrap();
+        let boot_cfg = BootConfig::new(&boot_src_spec).unwrap();
         assert!(boot_cfg.initrd_file.is_none());
         assert_eq!(
             boot_cfg.cmdline.as_cstring().unwrap().as_bytes_with_nul(),
@@ -122,19 +122,19 @@ pub(crate) mod tests {
 
     #[test]
     fn test_serde() {
-        let boot_src_cfg = BootSourceConfig {
+        let boot_src_spec = BootSourceSpec {
             boot_args: Some(DEFAULT_KERNEL_CMDLINE.to_string()),
             initrd_path: Some("/tmp/initrd".to_string()),
             kernel_image_path: "./vmlinux.bin".to_string(),
         };
 
         let mut snapshot_data = vec![0u8; 1000];
-        Snapshot::new(&boot_src_cfg)
+        Snapshot::new(&boot_src_spec)
             .save(&mut snapshot_data.as_mut_slice())
             .unwrap();
         let restored_boot_cfg = Snapshot::load_without_crc_check(snapshot_data.as_slice())
             .unwrap()
             .data;
-        assert_eq!(boot_src_cfg, restored_boot_cfg);
+        assert_eq!(boot_src_spec, restored_boot_cfg);
     }
 }

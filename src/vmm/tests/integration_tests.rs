@@ -19,16 +19,16 @@ use vmm::seccomp::get_empty_filters;
 use vmm::snapshot::Snapshot;
 use vmm::test_utils::mock_resources::{MockVmResources, NOISY_KERNEL_IMAGE};
 use vmm::test_utils::{create_vmm, default_vmm, default_vmm_no_boot};
-use vmm::vmm_config::balloon::BalloonDeviceConfig;
-use vmm::vmm_config::boot_source::BootSourceConfig;
-use vmm::vmm_config::drive::BlockDeviceConfig;
+use vmm::vmm_config::balloon::BalloonDeviceSpec;
+use vmm::vmm_config::boot_source::BootSourceSpec;
+use vmm::vmm_config::drive::BlockDeviceSpec;
 use vmm::vmm_config::instance_info::{InstanceInfo, VmState};
-use vmm::vmm_config::machine_config::{MachineConfig, MachineConfigUpdate};
-use vmm::vmm_config::net::NetworkInterfaceConfig;
+use vmm::vmm_config::machine_config::{MachineSpec, MachineSpecUpdate};
+use vmm::vmm_config::net::NetworkInterfaceSpec;
 use vmm::vmm_config::snapshot::{
-    CreateSnapshotParams, LoadSnapshotParams, MemBackendConfig, MemBackendType, SnapshotType,
+    CreateSnapshotParams, LoadSnapshotParams, MemBackendSpec, MemBackendType, SnapshotType,
 };
-use vmm::vmm_config::vsock::VsockDeviceConfig;
+use vmm::vmm_config::vsock::VsockDeviceSpec;
 use vmm::{DumpCpuConfigError, EventManager, FcExitCode, Vmm};
 use vmm_sys_util::tempfile::TempFile;
 
@@ -211,7 +211,7 @@ fn verify_create_snapshot(
         memory_hotplug,
     );
     let resources = VmResources {
-        machine_config: MachineConfig {
+        machine_spec: MachineSpec {
             mem_size_mib: 1,
             track_dirty_pages: is_diff,
             ..Default::default()
@@ -295,7 +295,7 @@ fn verify_load_snapshot(snapshot_file: TempFile, memory_file: TempFile) {
     preboot_api_controller
         .handle_preboot_request(VmmAction::LoadSnapshot(LoadSnapshotParams {
             snapshot_path: snapshot_file.as_path().to_path_buf(),
-            mem_backend: MemBackendConfig {
+            mem_backend: MemBackendSpec {
                 backend_path: memory_file.as_path().to_path_buf(),
                 backend_type: MemBackendType::File,
             },
@@ -379,7 +379,7 @@ fn verify_load_snap_disallowed_after_boot_resources(res: VmmAction, res_name: &s
     // Load snapshot should no longer be allowed.
     let req = VmmAction::LoadSnapshot(LoadSnapshotParams {
         snapshot_path: snapshot_file.as_path().to_path_buf(),
-        mem_backend: MemBackendConfig {
+        mem_backend: MemBackendSpec {
             backend_path: memory_file.as_path().to_path_buf(),
             backend_type: MemBackendType::File,
         },
@@ -403,13 +403,13 @@ fn test_preboot_load_snap_disallowed_after_boot_resources() {
     let tmp_file = TempFile::new().unwrap();
     let tmp_file = tmp_file.as_path().to_str().unwrap().to_string();
     // Verify LoadSnapshot not allowed after configuring various boot-specific resources.
-    let req = VmmAction::ConfigureBootSource(BootSourceConfig {
+    let req = VmmAction::ConfigureBootSource(BootSourceSpec {
         kernel_image_path: tmp_file.clone(),
         ..Default::default()
     });
     verify_load_snap_disallowed_after_boot_resources(req, "ConfigureBootSource");
 
-    let config = BlockDeviceConfig {
+    let spec = BlockDeviceSpec {
         drive_id: String::new(),
         partuuid: None,
         is_root_device: false,
@@ -423,10 +423,10 @@ fn test_preboot_load_snap_disallowed_after_boot_resources() {
         socket: None,
     };
 
-    let req = VmmAction::InsertBlockDevice(config);
+    let req = VmmAction::InsertBlockDevice(spec);
     verify_load_snap_disallowed_after_boot_resources(req, "InsertBlockDevice");
 
-    let req = VmmAction::InsertNetworkDevice(NetworkInterfaceConfig {
+    let req = VmmAction::InsertNetworkDevice(NetworkInterfaceSpec {
         iface_id: String::new(),
         host_dev_name: String::new(),
         guest_mac: None,
@@ -435,17 +435,16 @@ fn test_preboot_load_snap_disallowed_after_boot_resources() {
     });
     verify_load_snap_disallowed_after_boot_resources(req, "InsertNetworkDevice");
 
-    let req = VmmAction::SetBalloonDevice(BalloonDeviceConfig::default());
+    let req = VmmAction::SetBalloonDevice(BalloonDeviceSpec::default());
     verify_load_snap_disallowed_after_boot_resources(req, "SetBalloonDevice");
 
-    let req = VmmAction::SetVsockDevice(VsockDeviceConfig {
+    let req = VmmAction::SetVsockDevice(VsockDeviceSpec {
         vsock_id: Some(String::new()),
         guest_cid: 0,
         uds_path: String::new(),
     });
     verify_load_snap_disallowed_after_boot_resources(req, "SetVsockDevice");
 
-    let req =
-        VmmAction::UpdateMachineConfiguration(MachineConfigUpdate::from(MachineConfig::default()));
+    let req = VmmAction::UpdateMachineSpec(MachineSpecUpdate::from(MachineSpec::default()));
     verify_load_snap_disallowed_after_boot_resources(req, "SetVmConfiguration");
 }

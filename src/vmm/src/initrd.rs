@@ -38,10 +38,10 @@ pub struct InitrdConfig {
 impl InitrdConfig {
     /// Load initrd into guest memory based on the boot config.
     pub fn from_config(
-        boot_cfg: &BootConfig,
+        boot_spec: &BootConfig,
         vm_memory: &GuestMemoryMmap,
     ) -> Result<Option<Self>, InitrdError> {
-        Ok(match &boot_cfg.initrd_file {
+        Ok(match &boot_spec.initrd_file {
             Some(f) => {
                 let f = f.try_clone().map_err(InitrdError::CloneFd)?;
                 Some(Self::from_file(vm_memory, f)?)

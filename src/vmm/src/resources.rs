@@ -16,19 +16,17 @@ use crate::mmds::ns::MmdsNetworkStack;
 use crate::utils::mib_to_bytes;
 use crate::utils::net::ipv4addr::is_link_local_valid;
 use crate::vmm_config::balloon::*;
-use crate::vmm_config::boot_source::{
-    BootConfig, BootSource, BootSourceConfig, BootSourceConfigError,
-};
+use crate::vmm_config::boot_source::{BootConfig, BootSource, BootSourceSpec, BootSourceSpecError};
 use crate::vmm_config::drive::*;
 use crate::vmm_config::entropy::*;
 use crate::vmm_config::instance_info::InstanceInfo;
-use crate::vmm_config::machine_config::{MachineConfig, MachineConfigError, MachineConfigUpdate};
-use crate::vmm_config::memory_hotplug::{MemoryHotplugConfig, MemoryHotplugConfigError};
-use crate::vmm_config::metrics::{MetricsConfig, MetricsConfigError, init_metrics};
-use crate::vmm_config::mmds::{MmdsConfig, MmdsConfigError};
+use crate::vmm_config::machine_config::{MachineSpec, MachineSpecError, MachineSpecUpdate};
+use crate::vmm_config::memory_hotplug::{MemoryHotplugSpec, MemoryHotplugSpecError};
+use crate::vmm_config::metrics::{MetricsSpec, MetricsSpecError, init_metrics};
+use crate::vmm_config::mmds::{MmdsSpec, MmdsSpecError};
 use crate::vmm_config::net::*;
-use crate::vmm_config::pmem::{PmemBuilder, PmemConfig, PmemConfigError};
-use crate::vmm_config::serial::SerialConfig;
+use crate::vmm_config::pmem::{PmemBuilder, PmemSpec, PmemSpecError};
+use crate::vmm_config::serial::SerialSpec;
 use crate::vmm_config::vsock::*;
 use crate::vstate::memory;
 use crate::vstate::memory::{GuestRegionMmap, MemoryError};
@@ -37,11 +35,11 @@ use crate::vstate::memory::{GuestRegionMmap, MemoryError};
 #[derive(Debug, thiserror::Error, displaydoc::Display)]
 pub enum ResourcesError {
     /// Balloon device error: {0}
-    BalloonDevice(#[from] BalloonConfigError),
+    BalloonDevice(#[from] BalloonSpecError),
     /// Block device error: {0}
     BlockDevice(#[from] DriveError),
     /// Boot source error: {0}
-    BootSource(#[from] BootSourceConfigError),
+    BootSource(#[from] BootSourceSpecError),
     /// File operation error: {0}
     File(#[from] std::io::Error),
     /// Invalid JSON: {0}
@@ -49,23 +47,23 @@ pub enum ResourcesError {
     /// Logger error: {0}
     Logger(#[from] crate::logger::LoggerUpdateError),
     /// Metrics error: {0}
-    Metrics(#[from] MetricsConfigError),
+    Metrics(#[from] MetricsSpecError),
     /// MMDS error: {0}
     Mmds(#[from] mmds::data_store::MmdsDatastoreError),
-    /// MMDS config error: {0}
-    MmdsConfig(#[from] MmdsConfigError),
+    /// MMDS spec error: {0}
+    MmdsSpec(#[from] MmdsSpecError),
     /// Network device error: {0}
     NetDevice(#[from] NetworkInterfaceError),
-    /// VM config error: {0}
-    MachineConfig(#[from] MachineConfigError),
+    /// VM spec error: {0}
+    MachineSpec(#[from] MachineSpecError),
     /// Vsock device error: {0}
-    VsockDevice(#[from] VsockConfigError),
+    VsockDevice(#[from] VsockSpecError),
     /// Entropy device error: {0}
     EntropyDevice(#[from] EntropyDeviceError),
     /// Pmem device error: {0}
-    PmemDevice(#[from] PmemConfigError),
-    /// Memory hotplug config error: {0}
-    MemoryHotplugConfig(#[from] MemoryHotplugConfigError),
+    PmemDevice(#[from] PmemSpecError),
+    /// Memory hotplug spec error: {0}
+    MemoryHotplugSpec(#[from] MemoryHotplugSpecError),
 }
 
 #[derive(Serialize, Deserialize, PartialEq, Eq, Debug)]
@@ -78,33 +76,33 @@ enum CustomCpuTemplateOrPath {
 /// Used for configuring a vmm from one single json passed to the Firecracker process.
 #[derive(Debug, Default, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "kebab-case")]
-pub struct VmmConfig {
-    balloon: Option<BalloonDeviceConfig>,
-    drives: Vec<BlockDeviceConfig>,
-    boot_source: BootSourceConfig,
+pub struct VmmSpec {
+    balloon: Option<BalloonDeviceSpec>,
+    drives: Vec<BlockDeviceSpec>,
+    boot_source: BootSourceSpec,
     cpu_config: Option<CustomCpuTemplateOrPath>,
     logger: Option<crate::logger::LoggerConfig>,
-    machine_config: Option<MachineConfig>,
-    metrics: Option<MetricsConfig>,
-    mmds_config: Option<MmdsConfig>,
+    machine_spec: Option<MachineSpec>,
+    metrics: Option<MetricsSpec>,
+    mmds_spec: Option<MmdsSpec>,
     #[serde(default)]
-    network_interfaces: Vec<NetworkInterfaceConfig>,
-    vsock: Option<VsockDeviceConfig>,
-    entropy: Option<EntropyDeviceConfig>,
+    network_interfaces: Vec<NetworkInterfaceSpec>,
+    vsock: Option<VsockDeviceSpec>,
+    entropy: Option<EntropyDeviceSpec>,
     #[serde(default, rename = "pmem")]
-    pmem_devices: Vec<PmemConfig>,
+    pmem_devices: Vec<PmemSpec>,
     #[serde(skip)]
-    serial_config: Option<SerialConfig>,
-    memory_hotplug: Option<MemoryHotplugConfig>,
+    serial_spec: Option<SerialSpec>,
+    memory_hotplug: Option<MemoryHotplugSpec>,
 }
 
 /// A data structure that encapsulates the device configurations
 /// held in the Vmm.
 #[derive(Debug, Default)]
 pub struct VmResources {
-    /// The vCpu and memory configuration for this microVM.
-    pub machine_config: MachineConfig,
-    /// The boot source spec (contains both config and builder) for this microVM.
+    /// The vCpu and memory specification for this microVM.
+    pub machine_spec: MachineSpec,
+    /// The boot source (contains both spec and builder) for this microVM.
     pub boot_source: BootSource,
     /// The block devices.
     pub block: BlockBuilder,
@@ -118,8 +116,8 @@ pub struct VmResources {
     pub entropy: EntropyDeviceBuilder,
     /// The pmem devices.
     pub pmem: PmemBuilder,
-    /// The memory hotplug configuration.
-    pub memory_hotplug: Option<MemoryHotplugConfig>,
+    /// The memory hotplug specification.
+    pub memory_hotplug: Option<MemoryHotplugSpec>,
     /// The optional Mmds data store.
     // This is initialised on demand (if ever used), so that we don't allocate it unless it's
     // actually used.
@@ -142,13 +140,13 @@ impl VmResources {
         mmds_size_limit: usize,
         metadata_json: Option<&str>,
     ) -> Result<Self, ResourcesError> {
-        let vmm_config = serde_json::from_str::<VmmConfig>(config_json)?;
+        let vmm_spec = serde_json::from_str::<VmmSpec>(config_json)?;
 
-        if let Some(logger_config) = vmm_config.logger {
+        if let Some(logger_config) = vmm_spec.logger {
             crate::logger::LOGGER.update(logger_config)?;
         }
 
-        if let Some(metrics) = vmm_config.metrics {
+        if let Some(metrics) = vmm_spec.metrics {
             init_metrics(metrics)?;
         }
 
@@ -156,12 +154,12 @@ impl VmResources {
             mmds_size_limit,
             ..Default::default()
         };
-        if let Some(machine_config) = vmm_config.machine_config {
-            let machine_config = MachineConfigUpdate::from(machine_config);
-            resources.update_machine_config(&machine_config)?;
+        if let Some(machine_spec) = vmm_spec.machine_spec {
+            let machine_spec_update = MachineSpecUpdate::from(machine_spec);
+            resources.update_machine_spec(&machine_spec_update)?;
         }
 
-        if let Some(either) = vmm_config.cpu_config {
+        if let Some(either) = vmm_spec.cpu_config {
             match either {
                 CustomCpuTemplateOrPath::Path(path) => {
                     let cpu_config_json =
@@ -175,22 +173,22 @@ impl VmResources {
             }
         }
 
-        resources.build_boot_source(vmm_config.boot_source)?;
+        resources.build_boot_source(vmm_spec.boot_source)?;
 
-        for drive_config in vmm_config.drives.into_iter() {
-            resources.set_block_device(drive_config)?;
+        for drive_spec in vmm_spec.drives.into_iter() {
+            resources.set_block_device(drive_spec)?;
         }
 
-        for net_config in vmm_config.network_interfaces.into_iter() {
-            resources.build_net_device(net_config)?;
+        for net_spec in vmm_spec.network_interfaces.into_iter() {
+            resources.build_net_device(net_spec)?;
         }
 
-        if let Some(vsock_config) = vmm_config.vsock {
-            resources.set_vsock_device(vsock_config)?;
+        if let Some(vsock_spec) = vmm_spec.vsock {
+            resources.set_vsock_device(vsock_spec)?;
         }
 
-        if let Some(balloon_config) = vmm_config.balloon {
-            resources.set_balloon_device(balloon_config)?;
+        if let Some(balloon_spec) = vmm_spec.balloon {
+            resources.set_balloon_device(balloon_spec)?;
         }
 
         // Init the data store from file, if present.
@@ -201,38 +199,38 @@ impl VmResources {
             info!("Successfully added metadata to mmds from file");
         }
 
-        if let Some(mmds_config) = vmm_config.mmds_config {
-            resources.set_mmds_config(mmds_config, &instance_info.id)?;
+        if let Some(mmds_spec) = vmm_spec.mmds_spec {
+            resources.set_mmds_config(mmds_spec, &instance_info.id)?;
         }
 
-        if let Some(entropy_device_config) = vmm_config.entropy {
-            resources.build_entropy_device(entropy_device_config)?;
+        if let Some(entropy_device_spec) = vmm_spec.entropy {
+            resources.build_entropy_device(entropy_device_spec)?;
         }
 
-        for pmem_config in vmm_config.pmem_devices.into_iter() {
-            resources.build_pmem_device(pmem_config)?;
+        for pmem_spec in vmm_spec.pmem_devices.into_iter() {
+            resources.build_pmem_device(pmem_spec)?;
         }
 
-        if let Some(serial_cfg) = vmm_config.serial_config {
-            resources.serial_out_path = serial_cfg.serial_out_path;
+        if let Some(serial_spec) = vmm_spec.serial_spec {
+            resources.serial_out_path = serial_spec.serial_out_path;
         }
 
-        if let Some(memory_hotplug_config) = vmm_config.memory_hotplug {
-            resources.set_memory_hotplug_config(memory_hotplug_config)?;
+        if let Some(memory_hotplug_spec) = vmm_spec.memory_hotplug {
+            resources.set_memory_hotplug_config(memory_hotplug_spec)?;
         }
 
         Ok(resources)
     }
 
     /// If not initialised, create the mmds data store with the default config.
-    pub fn mmds_or_default(&mut self) -> Result<&Arc<Mutex<Mmds>>, MmdsConfigError> {
+    pub fn mmds_or_default(&mut self) -> Result<&Arc<Mutex<Mmds>>, MmdsSpecError> {
         Ok(self
             .mmds
             .get_or_insert(Arc::new(Mutex::new(Mmds::try_new(self.mmds_size_limit)?))))
     }
 
     /// If not initialised, create the mmds data store with the default config.
-    pub fn locked_mmds_or_default(&mut self) -> Result<MutexGuard<'_, Mmds>, MmdsConfigError> {
+    pub fn locked_mmds_or_default(&mut self) -> Result<MutexGuard<'_, Mmds>, MmdsSpecError> {
         let mmds = self.mmds_or_default()?;
         Ok(mmds.lock().expect("Poisoned lock"))
     }
@@ -240,15 +238,15 @@ impl VmResources {
     /// Add a custom CPU template to the VM resources
     /// to configure vCPUs.
     pub fn set_custom_cpu_template(&mut self, cpu_template: CustomCpuTemplate) {
-        self.machine_config.set_custom_cpu_template(cpu_template);
+        self.machine_spec.set_custom_cpu_template(cpu_template);
     }
 
-    /// Updates the configuration of the microVM.
-    pub fn update_machine_config(
+    /// Updates the specification of the microVM.
+    pub fn update_machine_spec(
         &mut self,
-        update: &MachineConfigUpdate,
-    ) -> Result<(), MachineConfigError> {
-        let updated = self.machine_config.update(update)?;
+        update: &MachineSpecUpdate,
+    ) -> Result<(), MachineSpecError> {
+        let updated = self.machine_spec.update(update)?;
 
         // The VM cannot have a memory size smaller than the target size
         // of the balloon device, if present.
@@ -257,25 +255,25 @@ impl VmResources {
                 < self
                     .balloon
                     .get_config()
-                    .map_err(|_| MachineConfigError::InvalidVmState)?
+                    .map_err(|_| MachineSpecError::InvalidVmState)?
                     .amount_mib as usize
         {
-            return Err(MachineConfigError::IncompatibleBalloonSize);
+            return Err(MachineSpecError::IncompatibleBalloonSize);
         }
 
-        self.machine_config = updated;
+        self.machine_spec = updated;
 
         Ok(())
     }
 
-    // Repopulate the MmdsConfig based on information from the data store
+    // Repopulate the MmdsSpec based on information from the data store
     // and the associated net devices.
-    fn mmds_config(&self) -> Option<MmdsConfig> {
+    fn mmds_spec(&self) -> Option<MmdsSpec> {
         // If the data store is not initialised, we can be sure that the user did not configure
         // mmds.
         let mmds = self.mmds.as_ref()?;
 
-        let mut mmds_config = None;
+        let mut mmds_spec = None;
         let net_devs_with_mmds: Vec<_> = self
             .net_builder
             .iter()
@@ -284,7 +282,7 @@ impl VmResources {
 
         if !net_devs_with_mmds.is_empty() {
             let mmds_guard = mmds.lock().expect("Poisoned lock");
-            let mut inner_mmds_config = MmdsConfig {
+            let mut inner_mmds_spec = MmdsSpec {
                 version: mmds_guard.version(),
                 network_interfaces: vec![],
                 ipv4_address: None,
@@ -293,43 +291,40 @@ impl VmResources {
 
             for net_dev in net_devs_with_mmds {
                 let net = net_dev.lock().unwrap();
-                inner_mmds_config.network_interfaces.push(net.id().clone());
+                inner_mmds_spec.network_interfaces.push(net.id().clone());
                 // Only need to get one ip address, as they will all be equal.
-                if inner_mmds_config.ipv4_address.is_none() {
+                if inner_mmds_spec.ipv4_address.is_none() {
                     // Safe to unwrap the mmds_ns as the filter() explicitly checks for
                     // its existence.
-                    inner_mmds_config.ipv4_address = Some(net.mmds_ns().unwrap().ipv4_addr());
+                    inner_mmds_spec.ipv4_address = Some(net.mmds_ns().unwrap().ipv4_addr());
                 }
             }
 
-            mmds_config = Some(inner_mmds_config);
+            mmds_spec = Some(inner_mmds_spec);
         }
 
-        mmds_config
+        mmds_spec
     }
 
     /// Sets a balloon device to be attached when the VM starts.
-    pub fn set_balloon_device(
-        &mut self,
-        config: BalloonDeviceConfig,
-    ) -> Result<(), BalloonConfigError> {
+    pub fn set_balloon_device(&mut self, spec: BalloonDeviceSpec) -> Result<(), BalloonSpecError> {
         // The balloon cannot have a target size greater than the size of
         // the guest memory.
-        if config.amount_mib as usize > self.machine_config.mem_size_mib {
-            return Err(BalloonConfigError::TooManyPagesRequested);
+        if spec.amount_mib as usize > self.machine_spec.mem_size_mib {
+            return Err(BalloonSpecError::TooManyPagesRequested);
         }
 
-        self.balloon.set(config)
+        self.balloon.set(spec)
     }
 
     /// Obtains the boot source hooks (kernel fd, command line creation and validation).
     pub fn build_boot_source(
         &mut self,
-        boot_source_cfg: BootSourceConfig,
-    ) -> Result<(), BootSourceConfigError> {
+        boot_source_spec: BootSourceSpec,
+    ) -> Result<(), BootSourceSpecError> {
         self.boot_source = BootSource {
-            builder: Some(BootConfig::new(&boot_source_cfg)?),
-            config: boot_source_cfg,
+            builder: Some(BootConfig::new(&boot_source_spec)?),
+            spec: boot_source_spec,
         };
 
         Ok(())
@@ -340,58 +335,58 @@ impl VmResources {
     // If the drive_id does not exist, a new Block Device Config is added to the list.
     pub fn set_block_device(
         &mut self,
-        block_device_config: BlockDeviceConfig,
+        block_device_spec: BlockDeviceSpec,
     ) -> Result<(), DriveError> {
         let has_pmem_root = self.pmem.has_root_device();
-        self.block.insert(block_device_config, has_pmem_root)
+        self.block.insert(block_device_spec, has_pmem_root)
     }
 
     /// Builds a network device to be attached when the VM starts.
     pub fn build_net_device(
         &mut self,
-        body: NetworkInterfaceConfig,
+        body: NetworkInterfaceSpec,
     ) -> Result<(), NetworkInterfaceError> {
         let _ = self.net_builder.build(body)?;
         Ok(())
     }
 
     /// Sets a vsock device to be attached when the VM starts.
-    pub fn set_vsock_device(&mut self, config: VsockDeviceConfig) -> Result<(), VsockConfigError> {
-        self.vsock.insert(config)
+    pub fn set_vsock_device(&mut self, spec: VsockDeviceSpec) -> Result<(), VsockSpecError> {
+        self.vsock.insert(spec)
     }
 
     /// Builds an entropy device to be attached when the VM starts.
     pub fn build_entropy_device(
         &mut self,
-        body: EntropyDeviceConfig,
+        entropy_spec: EntropyDeviceSpec,
     ) -> Result<(), EntropyDeviceError> {
-        self.entropy.insert(body)
+        self.entropy.insert(entropy_spec)
     }
 
     /// Builds a pmem device to be attached when the VM starts.
-    pub fn build_pmem_device(&mut self, body: PmemConfig) -> Result<(), PmemConfigError> {
+    pub fn build_pmem_device(&mut self, pmem_spec: PmemSpec) -> Result<(), PmemSpecError> {
         let has_block_root = self.block.has_root_device();
-        self.pmem.build(body, has_block_root)
+        self.pmem.build(pmem_spec, has_block_root)
     }
 
     /// Sets the memory hotplug configuration.
     pub fn set_memory_hotplug_config(
         &mut self,
-        config: MemoryHotplugConfig,
-    ) -> Result<(), MemoryHotplugConfigError> {
-        config.validate()?;
-        self.memory_hotplug = Some(config);
+        spec: MemoryHotplugSpec,
+    ) -> Result<(), MemoryHotplugSpecError> {
+        spec.validate()?;
+        self.memory_hotplug = Some(spec);
         Ok(())
     }
 
     /// Setter for mmds config.
     pub fn set_mmds_config(
         &mut self,
-        config: MmdsConfig,
+        spec: MmdsSpec,
         instance_id: &str,
-    ) -> Result<(), MmdsConfigError> {
-        self.set_mmds_network_stack_config(&config)?;
-        self.set_mmds_basic_config(config.version, config.imds_compat, instance_id)?;
+    ) -> Result<(), MmdsSpecError> {
+        self.set_mmds_network_stack_config(&spec)?;
+        self.set_mmds_basic_config(spec.version, spec.imds_compat, instance_id)?;
 
         Ok(())
     }
@@ -402,7 +397,7 @@ impl VmResources {
         version: MmdsVersion,
         imds_compat: bool,
         instance_id: &str,
-    ) -> Result<(), MmdsConfigError> {
+    ) -> Result<(), MmdsSpecError> {
         let mut mmds_guard = self.locked_mmds_or_default()?;
         mmds_guard.set_version(version);
         mmds_guard.set_imds_compat(imds_compat);
@@ -413,21 +408,18 @@ impl VmResources {
 
     // Updates MMDS Network Stack for network interfaces to allow forwarding
     // requests to MMDS (or not).
-    fn set_mmds_network_stack_config(
-        &mut self,
-        config: &MmdsConfig,
-    ) -> Result<(), MmdsConfigError> {
+    fn set_mmds_network_stack_config(&mut self, spec: &MmdsSpec) -> Result<(), MmdsSpecError> {
         // Check IPv4 address validity.
-        let ipv4_addr = match config.ipv4_addr() {
+        let ipv4_addr = match spec.ipv4_addr() {
             Some(ipv4_addr) if is_link_local_valid(ipv4_addr) => Ok(ipv4_addr),
             None => Ok(MmdsNetworkStack::default_ipv4_addr()),
-            _ => Err(MmdsConfigError::InvalidIpv4Addr),
+            _ => Err(MmdsSpecError::InvalidIpv4Addr),
         }?;
 
-        let network_interfaces = config.network_interfaces();
+        let network_interfaces = spec.network_interfaces();
         // Ensure that at least one network ID is specified.
         if network_interfaces.is_empty() {
-            return Err(MmdsConfigError::EmptyNetworkIfaceList);
+            return Err(MmdsSpecError::EmptyNetworkIfaceList);
         }
 
         // Ensure all interface IDs specified correspond to existing net devices.
@@ -437,7 +429,7 @@ impl VmResources {
                 .map(|device| device.lock().expect("Poisoned lock").id().clone())
                 .any(|x| &x == id)
         }) {
-            return Err(MmdsConfigError::InvalidNetworkInterfaceId);
+            return Err(MmdsSpecError::InvalidNetworkInterfaceId);
         }
 
         // Safe to unwrap because we've just made sure that it's initialised.
@@ -484,14 +476,14 @@ impl VmResources {
         if vhost_user_device_used {
             memory::memfd_backed(
                 regions,
-                self.machine_config.track_dirty_pages,
-                self.machine_config.huge_pages,
+                self.machine_spec.track_dirty_pages,
+                self.machine_spec.huge_pages,
             )
         } else {
             memory::anonymous(
                 regions.iter().copied(),
-                self.machine_config.track_dirty_pages,
-                self.machine_config.huge_pages,
+                self.machine_spec.track_dirty_pages,
+                self.machine_spec.huge_pages,
             )
         }
     }
@@ -499,7 +491,7 @@ impl VmResources {
     /// Allocates guest memory in a configuration most appropriate for these [`VmResources`].
     pub fn allocate_guest_memory(&self) -> Result<Vec<GuestRegionMmap>, MemoryError> {
         let regions =
-            crate::arch::arch_memory_regions(mib_to_bytes(self.machine_config.mem_size_mib));
+            crate::arch::arch_memory_regions(mib_to_bytes(self.machine_spec.mem_size_mib));
         self.allocate_memory_regions(&regions)
     }
 
@@ -516,23 +508,23 @@ impl VmResources {
     }
 }
 
-impl From<&VmResources> for VmmConfig {
+impl From<&VmResources> for VmmSpec {
     fn from(resources: &VmResources) -> Self {
-        VmmConfig {
+        VmmSpec {
             balloon: resources.balloon.get_config().ok(),
             drives: resources.block.configs(),
-            boot_source: resources.boot_source.config.clone(),
+            boot_source: resources.boot_source.spec.clone(),
             cpu_config: None,
             logger: None,
-            machine_config: Some(resources.machine_config.clone()),
+            machine_spec: Some(resources.machine_spec.clone()),
             metrics: None,
-            mmds_config: resources.mmds_config(),
+            mmds_spec: resources.mmds_spec(),
             network_interfaces: resources.net_builder.configs(),
-            vsock: resources.vsock.config(),
+            vsock: resources.vsock.spec(),
             entropy: resources.entropy.config(),
             pmem_devices: resources.pmem.configs(),
-            // serial_config is marked serde(skip) so that it doesnt end up in snapshots.
-            serial_config: None,
+            // serial_spec is marked serde(skip) so that it doesnt end up in snapshots.
+            serial_spec: None,
             memory_hotplug: resources.memory_hotplug.clone(),
         }
     }
@@ -557,17 +549,17 @@ mod tests {
     use crate::devices::virtio::vsock::VSOCK_DEV_ID;
     use crate::resources::VmResources;
     use crate::utils::net::mac::MacAddr;
-    use crate::vmm_config::RateLimiterConfig;
+    use crate::vmm_config::RateLimiterSpec;
     use crate::vmm_config::boot_source::{
-        BootConfig, BootSource, BootSourceConfig, DEFAULT_KERNEL_CMDLINE,
+        BootConfig, BootSource, BootSourceSpec, DEFAULT_KERNEL_CMDLINE,
     };
-    use crate::vmm_config::drive::{BlockBuilder, BlockDeviceConfig};
-    use crate::vmm_config::machine_config::{HugePageConfig, MachineConfig, MachineConfigError};
-    use crate::vmm_config::net::{NetBuilder, NetworkInterfaceConfig};
-    use crate::vmm_config::vsock::tests::default_config;
+    use crate::vmm_config::drive::{BlockBuilder, BlockDeviceSpec};
+    use crate::vmm_config::machine_config::{HugePageConfig, MachineSpec, MachineSpecError};
+    use crate::vmm_config::net::{NetBuilder, NetworkInterfaceSpec};
+    use crate::vmm_config::vsock::tests::default_spec;
 
-    fn default_net_cfg() -> NetworkInterfaceConfig {
-        NetworkInterfaceConfig {
+    fn default_net_spec() -> NetworkInterfaceSpec {
+        NetworkInterfaceSpec {
             iface_id: "net_if1".to_string(),
             // TempFile::new_with_prefix("") generates a random file name used as random net_if
             // name.
@@ -578,22 +570,22 @@ mod tests {
                 .unwrap()
                 .to_string(),
             guest_mac: Some(MacAddr::from_str("01:23:45:67:89:0a").unwrap()),
-            rx_rate_limiter: Some(RateLimiterConfig::default()),
-            tx_rate_limiter: Some(RateLimiterConfig::default()),
+            rx_rate_limiter: Some(RateLimiterSpec::default()),
+            tx_rate_limiter: Some(RateLimiterSpec::default()),
         }
     }
 
     fn default_net_builder() -> NetBuilder {
         let mut net_builder = NetBuilder::new();
-        net_builder.build(default_net_cfg()).unwrap();
+        net_builder.build(default_net_spec()).unwrap();
 
         net_builder
     }
 
-    fn default_block_cfg() -> (BlockDeviceConfig, TempFile) {
+    fn default_block_spec() -> (BlockDeviceSpec, TempFile) {
         let tmp_file = TempFile::new().unwrap();
         (
-            BlockDeviceConfig {
+            BlockDeviceSpec {
                 drive_id: "block1".to_string(),
                 partuuid: Some("0eaa91a0-01".to_string()),
                 is_root_device: false,
@@ -601,7 +593,7 @@ mod tests {
 
                 is_read_only: Some(false),
                 path_on_host: Some(tmp_file.as_path().to_str().unwrap().to_string()),
-                rate_limiter: Some(RateLimiterConfig::default()),
+                rate_limiter: Some(RateLimiterSpec::default()),
                 file_engine_type: None,
 
                 socket: None,
@@ -612,8 +604,8 @@ mod tests {
 
     fn default_blocks() -> BlockBuilder {
         let mut blocks = BlockBuilder::new();
-        let (cfg, _file) = default_block_cfg();
-        blocks.insert(cfg, false).unwrap();
+        let (spec, _file) = default_block_spec();
+        blocks.insert(spec, false).unwrap();
         blocks
     }
 
@@ -622,7 +614,7 @@ mod tests {
             linux_loader::cmdline::Cmdline::try_from(DEFAULT_KERNEL_CMDLINE, 4096).unwrap();
         let tmp_file = TempFile::new().unwrap();
         BootSource {
-            config: BootSourceConfig::default(),
+            spec: BootSourceSpec::default(),
             builder: Some(BootConfig {
                 cmdline: kernel_cmdline,
                 kernel_file: File::open(tmp_file.as_path()).unwrap(),
@@ -633,7 +625,7 @@ mod tests {
 
     fn default_vm_resources() -> VmResources {
         VmResources {
-            machine_config: MachineConfig::default(),
+            machine_spec: MachineSpec::default(),
             boot_source: default_boot_cfg(),
             block: default_blocks(),
             vsock: Default::default(),
@@ -713,7 +705,7 @@ mod tests {
         assert!(
             matches!(
                 error,
-                ResourcesError::BootSource(BootSourceConfigError::InvalidKernelPath(_))
+                ResourcesError::BootSource(BootSourceSpecError::InvalidKernelPath(_))
             ),
             "{:?}",
             error
@@ -830,7 +822,7 @@ mod tests {
         assert!(
             matches!(
                 error,
-                ResourcesError::MachineConfig(MachineConfigError::InvalidMemorySize)
+                ResourcesError::MachineSpec(MachineSpecError::InvalidMemorySize)
             ),
             "{:?}",
             error
@@ -908,7 +900,7 @@ mod tests {
         assert!(
             matches!(
                 error,
-                ResourcesError::Metrics(MetricsConfigError::InitializationFailure { .. })
+                ResourcesError::Metrics(MetricsSpecError::InitializationFailure { .. })
             ),
             "{:?}",
             error
@@ -1190,7 +1182,7 @@ mod tests {
         )
         .unwrap();
         assert_eq!(
-            vm_resources.machine_config.cpu_template,
+            vm_resources.machine_spec.cpu_template,
             Some(CpuTemplateType::Custom(CustomCpuTemplate::default()))
         );
     }
@@ -1251,9 +1243,9 @@ mod tests {
                 )
                 .unwrap();
 
-                let initial_vmm_config = serde_json::from_str::<VmmConfig>(&json).unwrap();
-                let vmm_config: VmmConfig = (&resources).into();
-                assert_eq!(initial_vmm_config, vmm_config);
+                let initial_vmm_spec = serde_json::from_str::<VmmSpec>(&json).unwrap();
+                let vmm_spec: VmmSpec = (&resources).into();
+                assert_eq!(initial_vmm_spec, vmm_spec);
             }
 
             {
@@ -1266,9 +1258,9 @@ mod tests {
                 )
                 .unwrap();
 
-                let initial_vmm_config = serde_json::from_str::<VmmConfig>(&json).unwrap();
-                let vmm_config: VmmConfig = (&resources).into();
-                assert_eq!(initial_vmm_config, vmm_config);
+                let initial_vmm_spec = serde_json::from_str::<VmmSpec>(&json).unwrap();
+                let vmm_spec: VmmSpec = (&resources).into();
+                assert_eq!(initial_vmm_spec, vmm_spec);
             }
         }
 
@@ -1327,9 +1319,9 @@ mod tests {
             )
             .unwrap();
 
-            let initial_vmm_config = serde_json::from_str::<VmmConfig>(&json).unwrap();
-            let vmm_config: VmmConfig = (&resources).into();
-            assert_eq!(initial_vmm_config, vmm_config);
+            let initial_vmm_spec = serde_json::from_str::<VmmSpec>(&json).unwrap();
+            let vmm_spec: VmmSpec = (&resources).into();
+            assert_eq!(initial_vmm_spec, vmm_spec);
         }
 
         // Multiple interfaces configured for MMDS.
@@ -1387,16 +1379,16 @@ mod tests {
             )
             .unwrap();
 
-            let initial_vmm_config = serde_json::from_str::<VmmConfig>(&json).unwrap();
-            let vmm_config: VmmConfig = (&resources).into();
-            assert_eq!(initial_vmm_config, vmm_config);
+            let initial_vmm_spec = serde_json::from_str::<VmmSpec>(&json).unwrap();
+            let vmm_spec: VmmSpec = (&resources).into();
+            assert_eq!(initial_vmm_spec, vmm_spec);
         }
     }
 
     #[test]
     fn test_update_machine_config() {
         let mut vm_resources = default_vm_resources();
-        let mut aux_vm_config = MachineConfigUpdate {
+        let mut aux_vm_spec_update = MachineSpecUpdate {
             vcpu_count: Some(32),
             mem_size_mib: Some(512),
             smt: Some(false),
@@ -1411,57 +1403,61 @@ mod tests {
         };
 
         assert_ne!(
-            MachineConfigUpdate::from(vm_resources.machine_config.clone()),
-            aux_vm_config
+            MachineSpecUpdate::from(vm_resources.machine_spec.clone()),
+            aux_vm_spec_update
         );
-        vm_resources.update_machine_config(&aux_vm_config).unwrap();
+        vm_resources
+            .update_machine_spec(&aux_vm_spec_update)
+            .unwrap();
         assert_eq!(
-            MachineConfigUpdate::from(vm_resources.machine_config.clone()),
-            aux_vm_config
+            MachineSpecUpdate::from(vm_resources.machine_spec.clone()),
+            aux_vm_spec_update
         );
 
         // Invalid vcpu count.
-        aux_vm_config.vcpu_count = Some(0);
+        aux_vm_spec_update.vcpu_count = Some(0);
         assert_eq!(
-            vm_resources.update_machine_config(&aux_vm_config),
-            Err(MachineConfigError::InvalidVcpuCount)
+            vm_resources.update_machine_spec(&aux_vm_spec_update),
+            Err(MachineSpecError::InvalidVcpuCount)
         );
-        aux_vm_config.vcpu_count = Some(33);
+        aux_vm_spec_update.vcpu_count = Some(33);
         assert_eq!(
-            vm_resources.update_machine_config(&aux_vm_config),
-            Err(MachineConfigError::InvalidVcpuCount)
+            vm_resources.update_machine_spec(&aux_vm_spec_update),
+            Err(MachineSpecError::InvalidVcpuCount)
         );
 
         // Check that SMT is not supported on aarch64, and that on x86_64 enabling it requires vcpu
         // count to be even.
-        aux_vm_config.smt = Some(true);
+        aux_vm_spec_update.smt = Some(true);
         #[cfg(target_arch = "aarch64")]
         assert_eq!(
-            vm_resources.update_machine_config(&aux_vm_config),
-            Err(MachineConfigError::SmtNotSupported)
+            vm_resources.update_machine_spec(&aux_vm_spec_update),
+            Err(MachineSpecError::SmtNotSupported)
         );
-        aux_vm_config.vcpu_count = Some(3);
+        aux_vm_spec_update.vcpu_count = Some(3);
         #[cfg(target_arch = "x86_64")]
         assert_eq!(
-            vm_resources.update_machine_config(&aux_vm_config),
-            Err(MachineConfigError::InvalidVcpuCount)
+            vm_resources.update_machine_spec(&aux_vm_spec_update),
+            Err(MachineSpecError::InvalidVcpuCount)
         );
-        aux_vm_config.vcpu_count = Some(32);
+        aux_vm_spec_update.vcpu_count = Some(32);
         #[cfg(target_arch = "x86_64")]
-        vm_resources.update_machine_config(&aux_vm_config).unwrap();
-        aux_vm_config.smt = Some(false);
+        vm_resources
+            .update_machine_spec(&aux_vm_spec_update)
+            .unwrap();
+        aux_vm_spec_update.smt = Some(false);
 
         // Invalid mem_size_mib.
-        aux_vm_config.mem_size_mib = Some(0);
+        aux_vm_spec_update.mem_size_mib = Some(0);
         assert_eq!(
-            vm_resources.update_machine_config(&aux_vm_config),
-            Err(MachineConfigError::InvalidMemorySize)
+            vm_resources.update_machine_spec(&aux_vm_spec_update),
+            Err(MachineSpecError::InvalidMemorySize)
         );
 
         // Incompatible mem_size_mib with balloon size.
-        vm_resources.machine_config.mem_size_mib = 128;
+        vm_resources.machine_spec.mem_size_mib = 128;
         vm_resources
-            .set_balloon_device(BalloonDeviceConfig {
+            .set_balloon_device(BalloonDeviceSpec {
                 amount_mib: 100,
                 deflate_on_oom: false,
                 stats_polling_interval_s: 0,
@@ -1469,39 +1465,43 @@ mod tests {
                 free_page_reporting: false,
             })
             .unwrap();
-        aux_vm_config.mem_size_mib = Some(90);
+        aux_vm_spec_update.mem_size_mib = Some(90);
         assert_eq!(
-            vm_resources.update_machine_config(&aux_vm_config),
-            Err(MachineConfigError::IncompatibleBalloonSize)
+            vm_resources.update_machine_spec(&aux_vm_spec_update),
+            Err(MachineSpecError::IncompatibleBalloonSize)
         );
 
         // mem_size_mib compatible with balloon size.
-        aux_vm_config.mem_size_mib = Some(256);
-        vm_resources.update_machine_config(&aux_vm_config).unwrap();
+        aux_vm_spec_update.mem_size_mib = Some(256);
+        vm_resources
+            .update_machine_spec(&aux_vm_spec_update)
+            .unwrap();
 
         // mem_size_mib incompatible with huge pages configuration
-        aux_vm_config.mem_size_mib = Some(129);
-        aux_vm_config.huge_pages = Some(HugePageConfig::Hugetlbfs2M);
+        aux_vm_spec_update.mem_size_mib = Some(129);
+        aux_vm_spec_update.huge_pages = Some(HugePageConfig::Hugetlbfs2M);
         assert_eq!(
             vm_resources
-                .update_machine_config(&aux_vm_config)
+                .update_machine_spec(&aux_vm_spec_update)
                 .unwrap_err(),
-            MachineConfigError::InvalidMemorySize
+            MachineSpecError::InvalidMemorySize
         );
 
         // mem_size_mib compatible with huge page configuration
-        aux_vm_config.mem_size_mib = Some(2048);
+        aux_vm_spec_update.mem_size_mib = Some(2048);
         // Remove the balloon device config that's added by `default_vm_resources` as it would
         // trigger the "ballooning incompatible with huge pages" check.
         vm_resources.balloon = BalloonBuilder::new();
-        vm_resources.update_machine_config(&aux_vm_config).unwrap();
+        vm_resources
+            .update_machine_spec(&aux_vm_spec_update)
+            .unwrap();
     }
 
     #[test]
     fn test_set_balloon_device() {
         let mut vm_resources = default_vm_resources();
         vm_resources.balloon = BalloonBuilder::new();
-        let mut new_balloon_cfg = BalloonDeviceConfig {
+        let mut new_balloon_spec = BalloonDeviceSpec {
             amount_mib: 100,
             deflate_on_oom: false,
             stats_polling_interval_s: 0,
@@ -1510,25 +1510,25 @@ mod tests {
         };
         assert!(vm_resources.balloon.get().is_none());
         vm_resources
-            .set_balloon_device(new_balloon_cfg.clone())
+            .set_balloon_device(new_balloon_spec.clone())
             .unwrap();
 
-        let actual_balloon_cfg = vm_resources.balloon.get_config().unwrap();
-        assert_eq!(actual_balloon_cfg.amount_mib, new_balloon_cfg.amount_mib);
+        let actual_balloon_spec = vm_resources.balloon.get_config().unwrap();
+        assert_eq!(actual_balloon_spec.amount_mib, new_balloon_spec.amount_mib);
         assert_eq!(
-            actual_balloon_cfg.deflate_on_oom,
-            new_balloon_cfg.deflate_on_oom
+            actual_balloon_spec.deflate_on_oom,
+            new_balloon_spec.deflate_on_oom
         );
         assert_eq!(
-            actual_balloon_cfg.stats_polling_interval_s,
-            new_balloon_cfg.stats_polling_interval_s
+            actual_balloon_spec.stats_polling_interval_s,
+            new_balloon_spec.stats_polling_interval_s
         );
 
         let mut vm_resources = default_vm_resources();
         vm_resources.balloon = BalloonBuilder::new();
-        new_balloon_cfg.amount_mib = 256;
+        new_balloon_spec.amount_mib = 256;
         vm_resources
-            .set_balloon_device(new_balloon_cfg)
+            .set_balloon_device(new_balloon_spec)
             .unwrap_err();
     }
 
@@ -1536,22 +1536,22 @@ mod tests {
     fn test_set_entropy_device() {
         let mut vm_resources = default_vm_resources();
         vm_resources.entropy = EntropyDeviceBuilder::new();
-        let entropy_device_cfg = EntropyDeviceConfig::default();
+        let entropy_device_spec = EntropyDeviceSpec::default();
 
         assert!(vm_resources.entropy.get().is_none());
         vm_resources
-            .build_entropy_device(entropy_device_cfg.clone())
+            .build_entropy_device(entropy_device_spec.clone())
             .unwrap();
 
-        let actual_entropy_cfg = vm_resources.entropy.config().unwrap();
-        assert_eq!(actual_entropy_cfg, entropy_device_cfg);
+        let actual_entropy_spec = vm_resources.entropy.config().unwrap();
+        assert_eq!(actual_entropy_spec, entropy_device_spec);
     }
 
     #[test]
     fn test_set_boot_source() {
         let tmp_file = TempFile::new().unwrap();
         let cmdline = "reboot=k panic=1 pci=off nomodule 8250.nr_uarts=0";
-        let expected_boot_cfg = BootSourceConfig {
+        let expected_boot_spec = BootSourceSpec {
             kernel_image_path: String::from(tmp_file.as_path().to_str().unwrap()),
             initrd_path: Some(String::from(tmp_file.as_path().to_str().unwrap())),
             boot_args: Some(cmdline.to_string()),
@@ -1584,7 +1584,7 @@ mod tests {
             tmp_ino
         );
 
-        vm_resources.build_boot_source(expected_boot_cfg).unwrap();
+        vm_resources.build_boot_source(expected_boot_spec).unwrap();
         let boot_source_builder = vm_resources.boot_source.builder.unwrap();
         assert_eq!(
             boot_source_builder
@@ -1613,12 +1613,14 @@ mod tests {
     #[test]
     fn test_set_block_device() {
         let mut vm_resources = default_vm_resources();
-        let (mut new_block_device_cfg, _file) = default_block_cfg();
+        let (mut new_block_device_spec, _file) = default_block_spec();
         let tmp_file = TempFile::new().unwrap();
-        new_block_device_cfg.drive_id = "block2".to_string();
-        new_block_device_cfg.path_on_host = Some(tmp_file.as_path().to_str().unwrap().to_string());
+        new_block_device_spec.drive_id = "block2".to_string();
+        new_block_device_spec.path_on_host = Some(tmp_file.as_path().to_str().unwrap().to_string());
         assert_eq!(vm_resources.block.devices.len(), 1);
-        vm_resources.set_block_device(new_block_device_cfg).unwrap();
+        vm_resources
+            .set_block_device(new_block_device_spec)
+            .unwrap();
         assert_eq!(vm_resources.block.devices.len(), 2);
     }
 
@@ -1627,11 +1629,11 @@ mod tests {
         let mut vm_resources = default_vm_resources();
         let mut tmp_sock_file = TempFile::new().unwrap();
         tmp_sock_file.remove().unwrap();
-        let new_vsock_cfg = default_config(&tmp_sock_file);
+        let new_vsock_spec = default_spec(&tmp_sock_file);
         assert!(vm_resources.vsock.get().is_none());
-        vm_resources.set_vsock_device(new_vsock_cfg).unwrap();
-        let actual_vsock_cfg = vm_resources.vsock.get().unwrap();
-        assert_eq!(actual_vsock_cfg.lock().unwrap().id(), VSOCK_DEV_ID);
+        vm_resources.set_vsock_device(new_vsock_spec).unwrap();
+        let actual_vsock_spec = vm_resources.vsock.get().unwrap();
+        assert_eq!(actual_vsock_spec.lock().unwrap().id(), VSOCK_DEV_ID);
     }
 
     #[test]
@@ -1639,13 +1641,13 @@ mod tests {
         let mut vm_resources = default_vm_resources();
 
         // Clone the existing net config in order to obtain a new one.
-        let mut new_net_device_cfg = default_net_cfg();
-        new_net_device_cfg.iface_id = "new_net_if".to_string();
-        new_net_device_cfg.guest_mac = Some(MacAddr::from_str("01:23:45:67:89:0c").unwrap());
-        new_net_device_cfg.host_dev_name = "dummy_path2".to_string();
+        let mut new_net_device_spec = default_net_spec();
+        new_net_device_spec.iface_id = "new_net_if".to_string();
+        new_net_device_spec.guest_mac = Some(MacAddr::from_str("01:23:45:67:89:0c").unwrap());
+        new_net_device_spec.host_dev_name = "dummy_path2".to_string();
         assert_eq!(vm_resources.net_builder.len(), 1);
 
-        vm_resources.build_net_device(new_net_device_cfg).unwrap();
+        vm_resources.build_net_device(new_net_device_spec).unwrap();
         assert_eq!(vm_resources.net_builder.len(), 2);
     }
 
@@ -1655,13 +1657,13 @@ mod tests {
 
         let tmp_file = TempFile::new().unwrap();
         tmp_file.as_file().set_len(0x1000).unwrap();
-        let cfg = PmemConfig {
+        let spec = PmemSpec {
             id: "pmem".to_string(),
             path_on_host: tmp_file.as_path().to_str().unwrap().to_string(),
             ..Default::default()
         };
         assert_eq!(vm_resources.pmem.devices.len(), 0);
-        vm_resources.build_pmem_device(cfg).unwrap();
+        vm_resources.build_pmem_device(spec).unwrap();
         assert_eq!(vm_resources.pmem.devices.len(), 1);
     }
 }

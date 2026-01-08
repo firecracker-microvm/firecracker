@@ -84,7 +84,7 @@ impl TryFrom<&Request> for ParsedRequest {
             (Method::Get, "balloon", None) => parse_get_balloon(path_tokens),
             (Method::Get, "version", None) => parse_get_version(),
             (Method::Get, "vm", None) if path_tokens.next() == Some("config") => {
-                Ok(ParsedRequest::new_sync(VmmAction::GetFullVmConfig))
+                Ok(ParsedRequest::new_sync(VmmAction::GetFullVmSpec))
             }
             (Method::Get, "machine-config", None) => parse_get_machine_config(),
             (Method::Get, "mmds", None) => parse_get_mmds(),
@@ -179,12 +179,12 @@ impl ParsedRequest {
                     info!("The request was executed successfully. Status code: 204 No Content.");
                     Response::new(Version::Http11, StatusCode::NoContent)
                 }
-                VmmData::MachineConfiguration(machine_config) => {
-                    Self::success_response_with_data(machine_config)
+                VmmData::MachineSpec(machine_spec) => {
+                    Self::success_response_with_data(machine_spec)
                 }
                 VmmData::MmdsValue(value) => Self::success_response_with_mmds_value(value),
-                VmmData::BalloonConfig(balloon_config) => {
-                    Self::success_response_with_data(balloon_config)
+                VmmData::BalloonSpec(balloon_spec) => {
+                    Self::success_response_with_data(balloon_spec)
                 }
                 VmmData::BalloonStats(stats) => Self::success_response_with_data(stats),
                 VmmData::VirtioMemStatus(data) => Self::success_response_with_data(data),
@@ -195,7 +195,7 @@ impl ParsedRequest {
                 VmmData::VmmVersion(version) => Self::success_response_with_data(
                     &serde_json::json!({ "firecracker_version": version.as_str() }),
                 ),
-                VmmData::FullVmConfig(config) => Self::success_response_with_data(config),
+                VmmData::FullVmSpec(vmm_spec) => Self::success_response_with_data(vmm_spec),
             },
             Err(vmm_action_error) => {
                 let mut response = match vmm_action_error {
@@ -223,8 +223,19 @@ impl ParsedRequest {
     }
 
     /// Helper function to avoid boiler-plate code.
-    pub(crate) fn new_sync(vmm_action: VmmAction) -> ParsedRequest {
-        ParsedRequest::new(RequestAction::Sync(Box::new(vmm_action)))
+    pub(crate) fn new_sync<T>(vmm_action: T) -> ParsedRequest
+    where
+        T: Into<VmmAction>,
+    {
+        ParsedRequest::new(RequestAction::Sync(Box::new(vmm_action.into())))
+    }
+
+    pub(crate) fn new_stateless<F, A>(entrypoint: F, args: A) -> ParsedRequest
+    where
+        F: FnOnce(A) -> VmmAction,
+        A: vmm::vmm_config::StatelessArgs,
+    {
+        ParsedRequest::new_sync(vmm::vmm_config::VmmActionPayload::new(entrypoint, args))
     }
 }
 
@@ -342,11 +353,11 @@ pub mod tests {
     use vmm::builder::StartMicrovmError;
     use vmm::cpu_config::templates::test_utils::build_test_template;
     use vmm::devices::virtio::balloon::device::HintingStatus;
-    use vmm::resources::VmmConfig;
+    use vmm::resources::VmmSpec;
     use vmm::rpc_interface::VmmActionError;
-    use vmm::vmm_config::balloon::{BalloonDeviceConfig, BalloonStats};
+    use vmm::vmm_config::balloon::{BalloonDeviceSpec, BalloonStats};
     use vmm::vmm_config::instance_info::InstanceInfo;
-    use vmm::vmm_config::machine_config::MachineConfig;
+    use vmm::vmm_config::machine_config::MachineSpec;
 
     use super::*;
 
@@ -581,8 +592,8 @@ pub mod tests {
             let data = Ok(vmm_data);
             let mut buf = Cursor::new(vec![0]);
             let expected_response = match data.as_ref().unwrap() {
-                VmmData::BalloonConfig(cfg) => {
-                    http_response(&serde_json::to_string(cfg).unwrap(), 200)
+                VmmData::BalloonSpec(spec) => {
+                    http_response(&serde_json::to_string(spec).unwrap(), 200)
                 }
                 VmmData::BalloonStats(stats) => {
                     http_response(&serde_json::to_string(stats).unwrap(), 200)
@@ -594,11 +605,11 @@ pub mod tests {
                     http_response(&serde_json::to_string(status).unwrap(), 200)
                 }
                 VmmData::Empty => http_response("", 204),
-                VmmData::FullVmConfig(cfg) => {
-                    http_response(&serde_json::to_string(cfg).unwrap(), 200)
+                VmmData::FullVmSpec(spec) => {
+                    http_response(&serde_json::to_string(spec).unwrap(), 200)
                 }
-                VmmData::MachineConfiguration(cfg) => {
-                    http_response(&serde_json::to_string(cfg).unwrap(), 200)
+                VmmData::MachineSpec(spec) => {
+                    http_response(&serde_json::to_string(spec).unwrap(), 200)
                 }
                 VmmData::MmdsValue(value) => {
                     http_response(&serde_json::to_string(value).unwrap(), 200)
@@ -616,7 +627,7 @@ pub mod tests {
             assert_eq!(buf.into_inner(), expected_response.as_bytes());
         };
 
-        verify_ok_response_with(VmmData::BalloonConfig(BalloonDeviceConfig::default()));
+        verify_ok_response_with(VmmData::BalloonSpec(BalloonDeviceSpec::default()));
         verify_ok_response_with(VmmData::BalloonStats(BalloonStats {
             swap_in: Some(1),
             swap_out: Some(1),
@@ -626,8 +637,8 @@ pub mod tests {
             ..Default::default()
         }));
         verify_ok_response_with(VmmData::Empty);
-        verify_ok_response_with(VmmData::FullVmConfig(VmmConfig::default()));
-        verify_ok_response_with(VmmData::MachineConfiguration(MachineConfig::default()));
+        verify_ok_response_with(VmmData::FullVmSpec(VmmSpec::default()));
+        verify_ok_response_with(VmmData::MachineSpec(MachineSpec::default()));
         verify_ok_response_with(VmmData::MmdsValue(serde_json::from_str("{}").unwrap()));
         verify_ok_response_with(VmmData::InstanceInformation(InstanceInfo::default()));
         verify_ok_response_with(VmmData::VmmVersion(String::default()));

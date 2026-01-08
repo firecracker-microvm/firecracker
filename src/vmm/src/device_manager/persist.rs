@@ -53,8 +53,8 @@ use crate::devices::virtio::vsock::{Vsock, VsockError, VsockUnixBackend, VsockUn
 use crate::mmds::data_store::MmdsVersion;
 use crate::resources::VmResources;
 use crate::snapshot::Persist;
-use crate::vmm_config::memory_hotplug::MemoryHotplugConfig;
-use crate::vmm_config::mmds::MmdsConfigError;
+use crate::vmm_config::memory_hotplug::MemoryHotplugSpec;
+use crate::vmm_config::mmds::MmdsSpecError;
 use crate::vstate::bus::BusError;
 use crate::vstate::memory::GuestMemoryMmap;
 use crate::{EventManager, Vm};
@@ -81,8 +81,8 @@ pub enum DevicePersistError {
     Vsock(#[from] VsockError),
     /// VsockUnixBackend: {0}
     VsockUnixBackend(#[from] VsockUnixBackendError),
-    /// MmdsConfig: {0}
-    MmdsConfig(#[from] MmdsConfigError),
+    /// MmdsSpec: {0}
+    MmdsSpec(#[from] MmdsSpecError),
     /// Entropy: {0}
     Entropy(#[from] EntropyError),
     /// Pmem: {0}
@@ -599,7 +599,7 @@ impl<'a> Persist<'a> for MMIODeviceManager {
             let ctor_args = VirtioMemConstructorArgs::new(Arc::clone(vm));
             let device = VirtioMem::restore(ctor_args, &memory_state.device_state)?;
 
-            constructor_args.vm_resources.memory_hotplug = Some(MemoryHotplugConfig {
+            constructor_args.vm_resources.memory_hotplug = Some(MemoryHotplugSpec {
                 total_size_mib: device.total_size_mib(),
                 block_size_mib: device.block_size_mib(),
                 slot_size_mib: device.slot_size_mib(),
@@ -631,14 +631,14 @@ mod tests {
     use crate::builder::tests::*;
     use crate::device_manager;
     use crate::devices::virtio::block::CacheType;
-    use crate::resources::VmmConfig;
+    use crate::resources::VmmSpec;
     use crate::snapshot::Snapshot;
-    use crate::vmm_config::balloon::BalloonDeviceConfig;
-    use crate::vmm_config::entropy::EntropyDeviceConfig;
-    use crate::vmm_config::memory_hotplug::MemoryHotplugConfig;
-    use crate::vmm_config::net::NetworkInterfaceConfig;
-    use crate::vmm_config::pmem::PmemConfig;
-    use crate::vmm_config::vsock::VsockDeviceConfig;
+    use crate::vmm_config::balloon::BalloonDeviceSpec;
+    use crate::vmm_config::entropy::EntropyDeviceSpec;
+    use crate::vmm_config::memory_hotplug::MemoryHotplugSpec;
+    use crate::vmm_config::net::NetworkInterfaceSpec;
+    use crate::vmm_config::pmem::PmemSpec;
+    use crate::vmm_config::vsock::VsockDeviceSpec;
 
     impl<T> PartialEq for VirtioDeviceState<T> {
         fn eq(&self, other: &VirtioDeviceState<T>) -> bool {
@@ -696,14 +696,14 @@ mod tests {
             let mut cmdline = default_kernel_cmdline();
 
             // Add a balloon device.
-            let balloon_cfg = BalloonDeviceConfig {
+            let balloon_spec = BalloonDeviceSpec {
                 amount_mib: 123,
                 deflate_on_oom: false,
                 stats_polling_interval_s: 1,
                 free_page_hinting: false,
                 free_page_reporting: false,
             };
-            insert_balloon_device(&mut vmm, &mut cmdline, &mut event_manager, balloon_cfg);
+            insert_balloon_device(&mut vmm, &mut cmdline, &mut event_manager, balloon_spec);
             // Add a block device.
             let drive_id = String::from("root");
             let block_configs = vec![CustomBlockConfig::new(
@@ -716,7 +716,7 @@ mod tests {
             _block_files =
                 insert_block_devices(&mut vmm, &mut cmdline, &mut event_manager, block_configs);
             // Add a net device.
-            let network_interface = NetworkInterfaceConfig {
+            let network_interface_spec = NetworkInterfaceSpec {
                 iface_id: String::from("netif"),
                 host_dev_name: String::from("hostname"),
                 guest_mac: None,
@@ -727,32 +727,32 @@ mod tests {
                 &mut vmm,
                 &mut cmdline,
                 &mut event_manager,
-                network_interface,
+                network_interface_spec,
                 MmdsVersion::V2,
             );
             // Add a vsock device.
             let vsock_dev_id = "vsock";
-            let vsock_config = VsockDeviceConfig {
+            let vsock_spec = VsockDeviceSpec {
                 vsock_id: Some(vsock_dev_id.to_string()),
                 guest_cid: 3,
                 uds_path: tmp_sock_file.as_path().to_str().unwrap().to_string(),
             };
-            insert_vsock_device(&mut vmm, &mut cmdline, &mut event_manager, vsock_config);
+            insert_vsock_device(&mut vmm, &mut cmdline, &mut event_manager, vsock_spec);
             // Add an entropy device.
-            let entropy_config = EntropyDeviceConfig::default();
-            insert_entropy_device(&mut vmm, &mut cmdline, &mut event_manager, entropy_config);
+            let entropy_spec = EntropyDeviceSpec::default();
+            insert_entropy_device(&mut vmm, &mut cmdline, &mut event_manager, entropy_spec);
             // Add a pmem device.
             let pmem_id = String::from("pmem");
-            let pmem_configs = vec![PmemConfig {
+            let pmem_specs = vec![PmemSpec {
                 id: pmem_id,
                 path_on_host: "".into(),
                 root_device: true,
                 read_only: true,
             }];
             _pmem_files =
-                insert_pmem_devices(&mut vmm, &mut cmdline, &mut event_manager, pmem_configs);
+                insert_pmem_devices(&mut vmm, &mut cmdline, &mut event_manager, pmem_specs);
 
-            let memory_hotplug_config = MemoryHotplugConfig {
+            let memory_hotplug_spec = MemoryHotplugSpec {
                 total_size_mib: 1024,
                 block_size_mib: 2,
                 slot_size_mib: 128,
@@ -761,7 +761,7 @@ mod tests {
                 &mut vmm,
                 &mut cmdline,
                 &mut event_manager,
-                memory_hotplug_config,
+                memory_hotplug_spec,
             );
 
             Snapshot::new(vmm.device_manager.save())
@@ -884,7 +884,7 @@ mod tests {
         );
         assert_eq!(
             expected_vm_resources,
-            serde_json::to_string_pretty(&VmmConfig::from(&*vm_resources)).unwrap()
+            serde_json::to_string_pretty(&VmmSpec::from(&*vm_resources)).unwrap()
         );
     }
 }
