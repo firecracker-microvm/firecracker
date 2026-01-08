@@ -545,6 +545,10 @@ pub(crate) mod tests {
         fn is_activated(&self) -> bool {
             false
         }
+
+        fn reset(&mut self) -> Option<(Arc<dyn VirtioInterrupt>, Vec<EventFd>)> {
+            None
+        }
     }
 
     #[test]

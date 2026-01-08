@@ -40,9 +40,7 @@ pub trait VirtioInterrupt: std::fmt::Debug + Send + Sync {
     }
 
     /// Get the `EventFd` (if any) that backs the underlying interrupt.
-    fn notifier(&self, _interrupt_type: VirtioInterruptType) -> Option<&EventFd> {
-        None
-    }
+    fn notifier(&self, interrupt_type: VirtioInterruptType) -> Option<&EventFd>;
 
     /// Get the current device interrupt status.
     fn status(&self) -> Arc<AtomicU32>;

@@ -155,9 +155,7 @@ pub trait VirtioDevice: AsAny + Send {
 
     /// Optionally deactivates this device and returns ownership of the guest memory map, interrupt
     /// event, and queue events.
-    fn reset(&mut self) -> Option<(Arc<dyn VirtioInterrupt>, Vec<EventFd>)> {
-        None
-    }
+    fn reset(&mut self) -> Option<(Arc<dyn VirtioInterrupt>, Vec<EventFd>)>;
 
     /// Mark pages used by queues as dirty.
     fn mark_queue_memory_dirty(&mut self, mem: &GuestMemoryMmap) -> Result<(), QueueError> {
@@ -252,6 +250,10 @@ pub(crate) mod tests {
         }
 
         fn is_activated(&self) -> bool {
+            todo!()
+        }
+
+        fn reset(&mut self) -> Option<(Arc<dyn VirtioInterrupt>, Vec<EventFd>)> {
             todo!()
         }
     }

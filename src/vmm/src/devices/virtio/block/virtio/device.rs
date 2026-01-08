@@ -671,6 +671,16 @@ impl VirtioDevice for VirtioBlock {
     fn is_activated(&self) -> bool {
         self.device_state.is_activated()
     }
+
+    fn reset(&mut self) -> Option<(Arc<dyn VirtioInterrupt>, Vec<EventFd>)> {
+        let interrupt = self.device_state.active_state()?.interrupt.clone();
+        let mut queue_evts = Vec::with_capacity(self.queue_evts.len());
+        for evt in &self.queue_evts {
+            queue_evts.push(evt.try_clone().ok()?)
+        }
+        self.device_state = DeviceState::Inactive;
+        Some((interrupt, queue_evts))
+    }
 }
 
 impl Drop for VirtioBlock {

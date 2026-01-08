@@ -209,6 +209,13 @@ impl VirtioDevice for Block {
         }
     }
 
+    fn reset(&mut self) -> Option<(Arc<dyn VirtioInterrupt>, Vec<EventFd>)> {
+        match self {
+            Self::Virtio(b) => b.reset(),
+            Self::VhostUser(b) => b.reset(),
+        }
+    }
+
     fn kick(&mut self) {
         // If device is activated, kick the block queue(s) to make up for any
         // pending or in-flight epoll events we may have not captured in
