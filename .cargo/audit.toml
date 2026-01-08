@@ -1,7 +1,12 @@
 [advisories]
-# The `paste` dependency is transitively included via `gdbstub`.
-# While the crate is archived/unmaintained, the author considers it feature-complete
-# and functionally stable. gdbstub will be update once they migrate 
-# to an alternative solution.
-# See https://github.com/daniel5151/gdbstub/issues/168
-ignore = ["RUSTSEC-2024-0436"]
+ignore = [
+        # The `paste` dependency is transitively included via `gdbstub`.
+        # While the crate is archived/unmaintained, the author considers it feature-complete
+        # and functionally stable. gdbstub will be update once they migrate
+        # to an alternative solution.
+        # See https://github.com/daniel5151/gdbstub/issues/168
+        "RUSTSEC-2024-0436",
+        # Temporary exclusion of the bincode crate advisory
+        # while we are working on migration to a substitution.
+        "RUSTSEC-2025-0141",
+]
