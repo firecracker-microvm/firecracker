@@ -10,7 +10,23 @@ and this project adheres to
 
 ### Added
 
+- [#5510](https://github.com/firecracker-microvm/firecracker/pull/5510),
+  [#5593](https://github.com/firecracker-microvm/firecracker/pull/5593),
+  [#5564](https://github.com/firecracker-microvm/firecracker/pull/5564): Add
+  support for the
+  [VMClock device](https://uapi-group.org/specifications/specs/vmclock). The
+  implementation supports the snapshot safety features proposed
+  [here](https://lore.kernel.org/lkml/20260107132514.437-1-bchalios@amazon.es/),
+  but doesn't provide currently any clock-specific information for helping the
+  guest synchronize its clocks. More information can be found in
+  [docs](docs/snapshotting/snapshot-support.md#userspace-notifications-of-loading-virtual-machine-snapshots).
+
 ### Changed
+
+- [#5564](https://github.com/firecracker-microvm/firecracker/pull/5564): which
+  added support for VMClock, uses one extra GSI for the VMClock device itself
+  which reduces the available GSIs for VirtIO devices. New maximum values is 92
+  devices on Aarch64 and 17 devices on x86.
 
 ### Deprecated
 
