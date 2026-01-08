@@ -27,7 +27,7 @@ function install_dependencies {
     esac
     curl -LO http://go.dev/dl/${archive}
     tar -C /usr/local -xzf $archive
-    export PATH=$PATH:/usr/local/go/bin
+    export PATH=/usr/local/go/bin:$PATH
     go version
     rm $archive
 }
@@ -165,7 +165,18 @@ function build_al_kernel {
     # fails immediately after clone because nothing is checked out
     make distclean || true
 
-    git checkout $(get_tag $KERNEL_VERSION)
+    TAG=$(get_tag $KERNEL_VERSION)
+
+    git checkout $TAG
+    # Create a temporary branch where we can apply patches and then
+    # easily discard them
+    git checkout -B tmp-$TAG
+
+    # Apply any patchset we have for our kernels
+    for patchset in ../patches/*; do
+        echo "Applying patchset ${patchset}/${KERNEL_VERSION}"
+        git apply ${patchset}/${KERNEL_VERSION}/*.patch
+    done
 
     arch=$(uname -m)
     if [ "$arch" = "x86_64" ]; then
@@ -193,6 +204,12 @@ function build_al_kernel {
     OUTPUT_FILE=$OUTPUT_DIR/vmlinux-$normalized_version$flavour
     cp -v $binary_path $OUTPUT_FILE
     cp -v .config $OUTPUT_FILE.config
+
+    # Undo any patches previously applied, so that we can build the same kernel with different
+    # configs, e.g. no-acpi
+    git reset --hard HEAD
+    git clean -f -d
+    git checkout -
 
     popd &>/dev/null
 }
@@ -253,10 +270,10 @@ function build_al_kernels {
     VMCLOCK_CONFIG="$PWD/guest_configs/vmclock.config"
 
     if [[ "$KERNEL_VERSION" == @(all|5.10) ]]; then
-        build_al_kernel $PWD/guest_configs/microvm-kernel-ci-$ARCH-5.10.config "$CI_CONFIG" "$PCIE_CONFIG" "$PMEM_CONFIG" "$MEM_CONFIG"
+        build_al_kernel $PWD/guest_configs/microvm-kernel-ci-$ARCH-5.10.config "$CI_CONFIG" "$PCIE_CONFIG" "$PMEM_CONFIG" "$MEM_CONFIG" "$VMCLOCK_CONFIG"
     fi
     if [[ $ARCH == "x86_64" && "$KERNEL_VERSION" == @(all|5.10-no-acpi) ]]; then
-        build_al_kernel $PWD/guest_configs/microvm-kernel-ci-$ARCH-5.10-no-acpi.config "$CI_CONFIG" "$PCIE_CONFIG" "$PMEM_CONFIG" "$MEM_CONFIG"
+        build_al_kernel $PWD/guest_configs/microvm-kernel-ci-$ARCH-5.10-no-acpi.config "$CI_CONFIG" "$PCIE_CONFIG" "$PMEM_CONFIG" "$MEM_CONFIG" "$VMCLOCK_CONFIG"
     fi
     if [[ "$KERNEL_VERSION" == @(all|6.1) ]]; then
         build_al_kernel $PWD/guest_configs/microvm-kernel-ci-$ARCH-6.1.config "$CI_CONFIG" "$PCIE_CONFIG" "$PMEM_CONFIG" "$MEM_CONFIG" "$VMCLOCK_CONFIG"
@@ -268,7 +285,7 @@ function build_al_kernels {
     OUTPUT_DIR=$OUTPUT_DIR/debug
     mkdir -pv $OUTPUT_DIR
     if [[ "$KERNEL_VERSION" == @(all|5.10) ]]; then
-        build_al_kernel "$PWD/guest_configs/microvm-kernel-ci-$ARCH-5.10.config" "$CI_CONFIG" "$PCIE_CONFIG" "$PMEM_CONFIG" "$MEM_CONFIG" "$FTRACE_CONFIG" "$DEBUG_CONFIG"
+        build_al_kernel "$PWD/guest_configs/microvm-kernel-ci-$ARCH-5.10.config" "$CI_CONFIG" "$PCIE_CONFIG" "$PMEM_CONFIG" "$MEM_CONFIG" "$FTRACE_CONFIG" "$DEBUG_CONFIG" "$VMCLOCK_CONFIG"
         vmlinux_split_debuginfo $OUTPUT_DIR/vmlinux-5.10.*
     fi
     if [[ "$KERNEL_VERSION" == @(all|6.1) ]]; then

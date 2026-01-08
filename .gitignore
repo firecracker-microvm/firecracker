@@ -1,4 +1,5 @@
 /build/
+/.ipython/
 /.kernel/
 target
 *.rs.bk

@@ -5,7 +5,7 @@ use std::ops::Deref;
 use std::sync::Arc;
 use std::time::Duration;
 
-use log::{error, info, warn};
+use log::{debug, error, info, warn};
 use serde::{Deserialize, Serialize};
 use utils::time::TimerFd;
 use vmm_sys_util::eventfd::EventFd;
@@ -207,7 +207,7 @@ pub struct BalloonStats {
 }
 
 impl BalloonStats {
-    fn update_with_stat(&mut self, stat: &BalloonStat) -> Result<(), BalloonError> {
+    fn update_with_stat(&mut self, stat: &BalloonStat) {
         let val = Some(stat.val);
         match stat.tag {
             VIRTIO_BALLOON_S_SWAP_IN => self.swap_in = val,
@@ -226,12 +226,11 @@ impl BalloonStats {
             VIRTIO_BALLOON_S_DIRECT_SCAN => self.direct_scan = val,
             VIRTIO_BALLOON_S_ASYNC_RECLAIM => self.async_reclaim = val,
             VIRTIO_BALLOON_S_DIRECT_RECLAIM => self.direct_reclaim = val,
-            _ => {
-                return Err(BalloonError::MalformedPayload);
+            tag => {
+                METRICS.stats_update_fails.inc();
+                debug!("balloon: unknown stats update tag: {tag}");
             }
         }
-
-        Ok(())
     }
 }
 
@@ -503,10 +502,7 @@ impl Balloon {
                 let stat = mem
                     .read_obj::<BalloonStat>(addr)
                     .map_err(|_| BalloonError::MalformedDescriptor)?;
-                self.latest_stats.update_with_stat(&stat).map_err(|_| {
-                    METRICS.stats_update_fails.inc();
-                    BalloonError::MalformedPayload
-                })?;
+                self.latest_stats.update_with_stat(&stat);
             }
 
             self.stats_desc_index = Some(head.index);
@@ -1067,52 +1063,52 @@ pub(crate) mod tests {
             val: 1,
         };
 
-        stats.update_with_stat(&stat).unwrap();
+        stats.update_with_stat(&stat);
         assert_eq!(stats.swap_in, Some(1));
         stat.tag = VIRTIO_BALLOON_S_SWAP_OUT;
-        stats.update_with_stat(&stat).unwrap();
+        stats.update_with_stat(&stat);
         assert_eq!(stats.swap_out, Some(1));
         stat.tag = VIRTIO_BALLOON_S_MAJFLT;
-        stats.update_with_stat(&stat).unwrap();
+        stats.update_with_stat(&stat);
         assert_eq!(stats.major_faults, Some(1));
         stat.tag = VIRTIO_BALLOON_S_MINFLT;
-        stats.update_with_stat(&stat).unwrap();
+        stats.update_with_stat(&stat);
         assert_eq!(stats.minor_faults, Some(1));
         stat.tag = VIRTIO_BALLOON_S_MEMFREE;
-        stats.update_with_stat(&stat).unwrap();
+        stats.update_with_stat(&stat);
         assert_eq!(stats.free_memory, Some(1));
         stat.tag = VIRTIO_BALLOON_S_MEMTOT;
-        stats.update_with_stat(&stat).unwrap();
+        stats.update_with_stat(&stat);
         assert_eq!(stats.total_memory, Some(1));
         stat.tag = VIRTIO_BALLOON_S_AVAIL;
-        stats.update_with_stat(&stat).unwrap();
+        stats.update_with_stat(&stat);
         assert_eq!(stats.available_memory, Some(1));
         stat.tag = VIRTIO_BALLOON_S_CACHES;
-        stats.update_with_stat(&stat).unwrap();
+        stats.update_with_stat(&stat);
         assert_eq!(stats.disk_caches, Some(1));
         stat.tag = VIRTIO_BALLOON_S_HTLB_PGALLOC;
-        stats.update_with_stat(&stat).unwrap();
+        stats.update_with_stat(&stat);
         assert_eq!(stats.hugetlb_allocations, Some(1));
         stat.tag = VIRTIO_BALLOON_S_HTLB_PGFAIL;
-        stats.update_with_stat(&stat).unwrap();
+        stats.update_with_stat(&stat);
         assert_eq!(stats.hugetlb_failures, Some(1));
         stat.tag = VIRTIO_BALLOON_S_OOM_KILL;
-        stats.update_with_stat(&stat).unwrap();
+        stats.update_with_stat(&stat);
         assert_eq!(stats.oom_kill, Some(1));
         stat.tag = VIRTIO_BALLOON_S_ALLOC_STALL;
-        stats.update_with_stat(&stat).unwrap();
+        stats.update_with_stat(&stat);
         assert_eq!(stats.alloc_stall, Some(1));
         stat.tag = VIRTIO_BALLOON_S_ASYNC_SCAN;
-        stats.update_with_stat(&stat).unwrap();
+        stats.update_with_stat(&stat);
         assert_eq!(stats.async_scan, Some(1));
         stat.tag = VIRTIO_BALLOON_S_DIRECT_SCAN;
-        stats.update_with_stat(&stat).unwrap();
+        stats.update_with_stat(&stat);
         assert_eq!(stats.direct_scan, Some(1));
         stat.tag = VIRTIO_BALLOON_S_ASYNC_RECLAIM;
-        stats.update_with_stat(&stat).unwrap();
+        stats.update_with_stat(&stat);
         assert_eq!(stats.async_reclaim, Some(1));
         stat.tag = VIRTIO_BALLOON_S_DIRECT_RECLAIM;
-        stats.update_with_stat(&stat).unwrap();
+        stats.update_with_stat(&stat);
         assert_eq!(stats.direct_reclaim, Some(1));
     }
 

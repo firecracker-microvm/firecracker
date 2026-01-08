@@ -227,11 +227,15 @@ impl<'a> Persist<'a> for MMIODeviceManager {
 
         let _: Result<(), ()> = self.for_each_virtio_device(|_, devid, device| {
             let mmio_transport_locked = device.inner.lock().expect("Poisoned lock");
+            let mut locked_device = mmio_transport_locked.locked_device();
+            // We need to call `prepare_save()` on the device before saving the transport
+            // so that, if we modify the transport state while preparing the device, e.g. sending
+            // an interrupt to the guest, this is correctly captured in the saved transport state.
+            locked_device.prepare_save();
             let transport_state = mmio_transport_locked.save();
             let device_info = device.resources;
             let device_id = devid.clone();
 
-            let mut locked_device = mmio_transport_locked.locked_device();
             match locked_device.device_type() {
                 virtio_ids::VIRTIO_ID_BALLOON => {
                     let device_state = locked_device
@@ -255,7 +259,6 @@ impl<'a> Persist<'a> for MMIODeviceManager {
                              snapshotting yet"
                         );
                     } else {
-                        block.prepare_save();
                         let device_state = block.save();
                         states.block_devices.push(VirtioDeviceState {
                             device_id,
@@ -275,7 +278,6 @@ impl<'a> Persist<'a> for MMIODeviceManager {
                         });
                     }
 
-                    net.prepare_save();
                     let device_state = net.save();
                     states.net_devices.push(VirtioDeviceState {
                         device_id,

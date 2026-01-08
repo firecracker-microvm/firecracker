@@ -11,8 +11,4 @@ git-fetch-with-cli = true
 AWS_LC_SYS_NO_JITTER_ENTROPY = "1"
 # disable AVX512 as it adds 600k of binary size
 # this was only used for MMDS token generation
-# Note: due to a bug in aws-lc [1] the AWS_LC_SYS_CFLAGS only work with
-# the cmake compiler.
-# [1]: https://github.com/aws/aws-lc-rs/issues/965
-AWS_LC_SYS_CMAKE_BUILDER = "1"
 AWS_LC_SYS_CFLAGS = "-DMY_ASSEMBLER_IS_TOO_OLD_FOR_512AVX"
