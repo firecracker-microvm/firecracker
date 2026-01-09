@@ -474,19 +474,40 @@ impl RateLimiter {
         }
     }
 
-    /// Updates the parameters of the token buckets associated with this RateLimiter.
-    // TODO: Please note that, right now, the buckets become full after being updated.
+    /// Updates the parameters of the token buckets associated with this `RateLimiter`.
+    ///
+    /// When updating bucket parameters, the existing state (`budget`, `one_time_burst`, and
+    /// `last_update` timestamp) is preserved from the current bucket. The `budget` and
+    /// `one_time_burst` values are capped at the new bucket's limits if the new limits
+    /// are smaller than the existing values.
     pub fn update_buckets(&mut self, bytes: BucketUpdate, ops: BucketUpdate) {
         match bytes {
             BucketUpdate::Disabled => self.bandwidth = None,
-            BucketUpdate::Update(tb) => self.bandwidth = Some(tb),
+            BucketUpdate::Update(tb) => {
+                let updated = Self::update_bucket(tb, self.bandwidth.as_ref());
+                self.bandwidth = Some(updated);
+            }
             BucketUpdate::None => (),
         };
         match ops {
             BucketUpdate::Disabled => self.ops = None,
-            BucketUpdate::Update(tb) => self.ops = Some(tb),
+            BucketUpdate::Update(tb) => {
+                let updated = Self::update_bucket(tb, self.ops.as_ref());
+                self.ops = Some(updated);
+            }
             BucketUpdate::None => (),
         };
+    }
+
+    /// Updates a token bucket with preserved state from an existing bucket.
+    fn update_bucket(mut new_bucket: TokenBucket, existing: Option<&TokenBucket>) -> TokenBucket {
+        if let Some(existing) = existing {
+            new_bucket.budget = std::cmp::min(existing.budget, new_bucket.size);
+            new_bucket.one_time_burst =
+                std::cmp::min(existing.one_time_burst, new_bucket.initial_one_time_burst);
+            new_bucket.last_update = existing.last_update;
+        }
+        new_bucket
     }
 
     /// Returns an immutable view of the inner bandwidth token bucket.
@@ -1149,16 +1170,40 @@ pub(crate) mod tests {
         assert!(l.consume(100, TokenType::Bytes));
     }
 
+    fn assert_bucket_updated(current: &TokenBucket, initial: &TokenBucket, new: &TokenBucket) {
+        assert_eq!(
+            (
+                current.capacity(),
+                current.refill_time_ms(),
+                current.initial_one_time_burst(),
+            ),
+            (
+                new.capacity(),
+                new.refill_time_ms(),
+                new.initial_one_time_burst(),
+            )
+        );
+        assert_eq!(
+            current.budget(),
+            std::cmp::min(initial.budget(), new.capacity())
+        );
+        assert_eq!(
+            current.one_time_burst(),
+            std::cmp::min(initial.one_time_burst(), new.initial_one_time_burst())
+        );
+        assert_eq!(current.get_last_update(), initial.get_last_update());
+    }
+
     #[test]
     fn test_update_buckets() {
         let mut x = RateLimiter::new(1000, 2000, 1000, 10, 20, 1000).unwrap();
 
-        let initial_bw = x.bandwidth.clone();
-        let initial_ops = x.ops.clone();
+        let initial_bw = x.bandwidth.as_ref().unwrap().clone();
+        let initial_ops = x.ops.as_ref().unwrap().clone();
 
         x.update_buckets(BucketUpdate::None, BucketUpdate::None);
-        assert_eq!(x.bandwidth, initial_bw);
-        assert_eq!(x.ops, initial_ops);
+        assert_eq!(x.bandwidth.as_ref(), Some(&initial_bw));
+        assert_eq!(x.ops.as_ref(), Some(&initial_ops));
 
         let new_bw = TokenBucket::new(123, 0, 57).unwrap();
         let new_ops = TokenBucket::new(321, 12346, 89).unwrap();
@@ -1167,18 +1212,60 @@ pub(crate) mod tests {
             BucketUpdate::Update(new_ops.clone()),
         );
 
-        // We have manually adjust the last_update field, because it changes when update_buckets()
-        // constructs new buckets (and thus gets a different value for last_update). We do this so
-        // it makes sense to test the following assertions.
-        x.bandwidth.as_mut().unwrap().last_update = new_bw.last_update;
-        x.ops.as_mut().unwrap().last_update = new_ops.last_update;
-
-        assert_eq!(x.bandwidth, Some(new_bw));
-        assert_eq!(x.ops, Some(new_ops));
+        let bw = x.bandwidth.as_ref().unwrap();
+        let ops = x.ops.as_ref().unwrap();
+        assert_bucket_updated(bw, &initial_bw, &new_bw);
+        assert_bucket_updated(ops, &initial_ops, &new_ops);
 
         x.update_buckets(BucketUpdate::Disabled, BucketUpdate::Disabled);
         assert_eq!(x.bandwidth, None);
         assert_eq!(x.ops, None);
+    }
+
+    #[test]
+    fn test_update_buckets_preserves_budget_after_consumption() {
+        let mut x = RateLimiter::new(1000, 0, 1000, 500, 0, 1000).unwrap();
+
+        // Consume some tokens to reduce budget
+        assert!(x.consume(300, TokenType::Bytes));
+        assert!(x.consume(200, TokenType::Ops));
+
+        let expected_bw_budget = 700;
+        let expected_ops_budget = 300;
+        assert_eq!(x.bandwidth.as_ref().unwrap().budget(), expected_bw_budget);
+        assert_eq!(x.ops.as_ref().unwrap().budget(), expected_ops_budget);
+
+        // Update buckets with new parameters
+        let new_bw = TokenBucket::new(2000, 0, 500).unwrap();
+        let new_ops = TokenBucket::new(800, 0, 500).unwrap();
+        x.update_buckets(
+            BucketUpdate::Update(new_bw.clone()),
+            BucketUpdate::Update(new_ops.clone()),
+        );
+
+        let bw = x.bandwidth.as_ref().unwrap();
+        let ops = x.ops.as_ref().unwrap();
+        assert_eq!(
+            (bw.capacity(), bw.budget()),
+            (new_bw.capacity(), expected_bw_budget)
+        );
+        assert_eq!(
+            (ops.capacity(), ops.budget()),
+            (new_ops.capacity(), expected_ops_budget)
+        );
+
+        // Test edge case: update with smaller size - budget should be capped
+        let mut x2 = RateLimiter::new(1000, 0, 1000, 500, 0, 1000).unwrap();
+        assert!(x2.consume(300, TokenType::Bytes));
+        assert_eq!(x2.bandwidth.as_ref().unwrap().budget(), 700);
+
+        // Update with smaller bucket size
+        let smaller_bw = TokenBucket::new(500, 0, 1000).unwrap();
+        x2.update_buckets(BucketUpdate::Update(smaller_bw.clone()), BucketUpdate::None);
+
+        let bw = x2.bandwidth.as_ref().unwrap();
+        assert_eq!(bw.capacity(), smaller_bw.capacity());
+        assert_eq!(bw.budget(), smaller_bw.capacity());
     }
 
     #[test]
