@@ -23,7 +23,9 @@ def seccompiler(tmp_path):
             inp = tmp_path / "input.json"
             inp.write_text(json.dumps(data))
             bpf = tmp_path / "output.bpfmap"
-            run_seccompiler_bin(bpf_path=bpf, json_path=inp, basic=basic)
+            run_seccompiler_bin(
+                bpf_path=bpf, json_path=inp, basic=basic, split_output=True
+            )
             return bpf
 
     return Seccompiler()

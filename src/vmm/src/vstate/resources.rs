@@ -196,7 +196,7 @@ mod tests {
 
     use super::ResourceAllocator;
     use crate::arch::{self, GSI_LEGACY_NUM, GSI_LEGACY_START, GSI_MSI_NUM, GSI_MSI_START};
-    use crate::snapshot::{Persist, Snapshot};
+    use crate::snapshot::Persist;
 
     #[test]
     fn test_allocate_irq() {
@@ -286,13 +286,9 @@ mod tests {
     }
 
     fn clone_allocator(allocator: &ResourceAllocator) -> ResourceAllocator {
-        let mut buf = vec![0u8; 1024];
-        Snapshot::new(allocator.save())
-            .save(&mut buf.as_mut_slice())
-            .unwrap();
-        let restored_state: ResourceAllocator = Snapshot::load_without_crc_check(buf.as_slice())
-            .unwrap()
-            .data;
+        let state = allocator.save();
+        let serialized_data = bitcode::serialize(&state).unwrap();
+        let restored_state: ResourceAllocator = bitcode::deserialize(&serialized_data).unwrap();
         ResourceAllocator::restore((), &restored_state).unwrap()
     }
 

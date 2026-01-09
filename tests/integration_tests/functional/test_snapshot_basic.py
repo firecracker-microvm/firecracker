@@ -236,9 +236,7 @@ def test_load_snapshot_failure_handling(uvm_plain):
     jailed_vmstate = vm.create_jailed_resource(snapshot_vmstate)
 
     # Load the snapshot
-    with pytest.raises(
-        RuntimeError, match="An error occured during bincode decoding: UnexpectedEnd"
-    ):
+    with pytest.raises(RuntimeError, match="IO Error: File too short to contain CRC"):
         vm.api.snapshot_load.put(mem_file_path=jailed_mem, snapshot_path=jailed_vmstate)
 
     vm.mark_killed()
