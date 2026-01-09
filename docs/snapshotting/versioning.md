@@ -6,7 +6,7 @@ limitations.
 
 ## Introduction
 
-Firecracker uses the serde crate [1] along with the bincode [2] format to
+Firecracker uses the serde crate [1] along with the bitcode [2] format to
 serialize its state into Firecracker snapshots. Firecracker snapshots have
 versions that are independent of Firecracker versions. Each Firecracker version
 declares support for a specific snapshot data format version. When creating a
@@ -46,7 +46,7 @@ A Firecracker snapshot has the following format:
 | -------- | ---- | --------------------------------------------------------- |
 | magic_id | 64   | Firecracker snapshot and architecture (x86_64/aarch64).   |
 | version  | M    | The snapshot data format version (`MAJOR.MINOR.PATCH`)    |
-| state    | N    | Bincode blob containing the microVM state.                |
+| state    | N    | Bitcode blob containing the microVM state.                |
 | crc      | 64   | Optional CRC64 sum of magic_id, version and state fields. |
 
 The snapshot format has its own version encoded in the snapshot file itself
@@ -54,14 +54,14 @@ after the snapshot's `magic_id`. The snapshot format version is independent of
 the Firecracker version and it is of the form `MAJOR.MINOR.PATCH`.
 
 Currently, Firecracker uses the
-[Serde bincode encoder](https://github.com/servo/bincode) for serializing the
-microVM state. The encoding format that bincode uses does not allow backwards
-compatible changes in the state, so essentially every change in the microVM
-state description will result in bump of the format's `MAJOR` version. If the
-needs arises, we will look into alternative formats that allow more flexibility
-with regards to backwards compatibility. If/when this happens, we will define
-how changes in the snapshot format reflect to changes in its `MAJOR.MINOR.PATCH`
-version.
+[Serde bitcode encoder](https://github.com/SoftbearStudios/bitcode) for
+serializing the microVM state. The encoding format that bitcode uses does not
+allow backwards compatible changes in the state, so essentially every change in
+the microVM state description will result in bump of the format's `MAJOR`
+version. If the needs arises, we will look into alternative formats that allow
+more flexibility with regards to backwards compatibility. If/when this happens,
+we will define how changes in the snapshot format reflect to changes in its
+`MAJOR.MINOR.PATCH` version.
 
 ## VM state encoding
 
@@ -72,14 +72,14 @@ Rust support are hard requirements while all others can be the subject of trade
 offs. More info about this comparison can be found
 [here](https://github.com/firecracker-microvm/firecracker/blob/9d427b33d989c3225d874210f6c2849465941dc0/docs/snapshotting/design.md#snapshot-format).
 
-Key benefits of using *bincode*:
+Key benefits of using *bitcode*:
 
 - Minimal snapshot size overhead
 - Minimal CPU overhead
 - Simple implementation
 
 The current implementation relies on the
-[Serde bincode encoder](https://github.com/servo/bincode).
+[Serde bitcode encoder](https://github.com/SoftbearStudios/bitcode).
 
 ## Snapshot compatibility
 
@@ -146,4 +146,4 @@ repository. All Firecracker devices implement the
 interface that enables creating from and saving to the microVM state.
 
 [1]: https://serde.rs
-[2]: https://github.com/bincode-org/bincode
+[2]: https://github.com/SoftbearStudios/bitcode

@@ -80,7 +80,6 @@ mod tests {
     use crate::arch::Kvm;
     use crate::devices::virtio::device::VirtioDevice;
     use crate::devices::virtio::test_utils::default_mem;
-    use crate::snapshot::Snapshot;
 
     #[test]
     fn test_persistence() {
@@ -100,21 +99,17 @@ mod tests {
         let vm = Vm::new(&kvm).unwrap();
 
         // Save the block device.
-        let mut mem = vec![0; 4096];
-
-        Snapshot::new(pmem.save())
-            .save(&mut mem.as_mut_slice())
-            .unwrap();
+        let pmem_state = pmem.save();
+        let serialized_data = bitcode::serialize(&pmem_state).unwrap();
 
         // Restore the block device.
+        let restored_state = bitcode::deserialize(&serialized_data).unwrap();
         let restored_pmem = Pmem::restore(
             PmemConstructorArgs {
                 mem: &guest_mem,
                 vm: &vm,
             },
-            &Snapshot::load_without_crc_check(mem.as_slice())
-                .unwrap()
-                .data,
+            &restored_state,
         )
         .unwrap();
 

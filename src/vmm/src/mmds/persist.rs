@@ -51,25 +51,18 @@ impl Persist<'_> for MmdsNetworkStack {
 mod tests {
 
     use super::*;
-    use crate::snapshot::Snapshot;
 
     #[test]
     fn test_persistence() {
         let ns = MmdsNetworkStack::new_with_defaults(None, Arc::new(Mutex::new(Mmds::default())));
 
-        let mut mem = vec![0; 4096];
+        let ns_state = ns.save();
+        let serialized_data = bitcode::serialize(&ns_state).unwrap();
 
-        Snapshot::new(ns.save())
-            .save(&mut mem.as_mut_slice())
-            .unwrap();
-
-        let restored_ns = MmdsNetworkStack::restore(
-            Arc::new(Mutex::new(Mmds::default())),
-            &Snapshot::load_without_crc_check(mem.as_slice())
-                .unwrap()
-                .data,
-        )
-        .unwrap();
+        let restored_state = bitcode::deserialize(&serialized_data).unwrap();
+        let restored_ns =
+            MmdsNetworkStack::restore(Arc::new(Mutex::new(Mmds::default())), &restored_state)
+                .unwrap();
 
         assert_eq!(restored_ns.mac_addr, ns.mac_addr);
         assert_eq!(restored_ns.ipv4_addr, ns.ipv4_addr);
