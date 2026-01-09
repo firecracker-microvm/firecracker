@@ -33,23 +33,51 @@
 //! * Shared Incremental Metrics (SharedIncMetrics) - dedicated for the metrics which need a counter
 //!   (i.e the number of times an API request failed). These metrics are reset upon flush.
 
-use serde::ser::SerializeMap;
-use serde::{Serialize, Serializer};
-
-use crate::logger::SharedIncMetric;
-
-/// Stores aggregated entropy metrics
-pub(super) static METRICS: EntropyDeviceMetrics = EntropyDeviceMetrics::new();
-
-/// Called by METRICS.flush(), this function facilitates serialization of entropy device metrics.
+/// This function facilitates aggregation and serialization of
+/// per device rng metrics. (Can also handle singular)
 pub fn flush_metrics<S: Serializer>(serializer: S) -> Result<S::Ok, S::Error> {
-    let mut seq = serializer.serialize_map(Some(1))?;
-    seq.serialize_entry("entropy", &METRICS)?;
+    let entropy_metrics = METRICS.read().unwrap();
+    let metrics_len = entropy_metrics.metrics.len();
+    // +1 to accomodate aggregate rng metrics
+    let mut seq = serializer.serialize_map(Some(1 + metrics_len))?;
+
+    let mut entropy_aggregated: EntropyDeviceMetrics = EntropyDeviceMetrics::default();
+
+    for (name, metrics) in entropy_metrics.metrics.iter() {
+        let dev_id = format!("entropy_{}", name);
+        // serialization will flush the metrics so aggregate before it.
+        let m: &EntropyDeviceMetrics = metrics;
+        entropy_aggregated.aggregate(m);
+        seq.serialize_entry(&dev_id, m)?;
+    }
+    seq.serialize_entry("entropy", &entropy_aggregated)?;
     seq.end()
 }
 
-#[derive(Debug, Serialize)]
-pub(super) struct EntropyDeviceMetrics {
+#[derive(Debug)]
+pub struct EntropyMetricsPerDevice {
+    pub metrics: BTreeMap<String, Arc<EntropyDeviceMetrics>>,
+}
+
+impl EntropyMetricsPerDevice {
+    pub fn alloc(device_id: String) -> Arc<EntropyDeviceMetrics> {
+        Arc::clone(
+            METRICS
+                .write()
+                .unwrap()
+                .metrics
+                .entry(device_id)
+                .or_insert_with(|| Arc::new(EntropyDeviceMetrics::default())),
+        )
+    }
+}
+
+static METRICS: RwLock<EntropyMetricsPerDevice> = RwLock::new(EntropyMetricsPerDevice {
+    metrics: BTreeMap::new(),
+});
+
+#[derive(Debug, Serialize, Default)]
+pub struct EntropyDeviceMetrics {
     /// Number of device activation failures
     pub activate_fails: SharedIncMetric,
     /// Number of entropy queue event handling failures
@@ -78,6 +106,20 @@ impl EntropyDeviceMetrics {
             rate_limiter_event_count: SharedIncMetric::new(),
         }
     }
+
+    pub fn aggregate(&mut self, other: &Self) {
+        self.activate_fails.add(other.activate_fails.fetch_diff());
+        self.entropy_event_fails
+            .add(other.entropy_event_fails.fetch_diff());
+        self.entropy_event_count
+            .add(other.entropy_event_count.fetch_diff());
+        self.entropy_bytes.add(other.entropy_bytes.fetch_diff());
+        self.host_rng_fails.add(other.host_rng_fails.fetch_diff());
+        self.entropy_rate_limiter_throttled
+            .add(other.entropy_rate_limiter_throttled.fetch_diff());
+        self.rate_limiter_event_count
+            .add(other.rate_limiter_event_count.fetch_diff());
+    }
 }
 
 #[cfg(test)]
@@ -86,15 +128,71 @@ pub mod tests {
     use crate::logger::IncMetric;
 
     #[test]
-    fn test_entropy_dev_metrics() {
-        let entropy_metrics: EntropyDeviceMetrics = EntropyDeviceMetrics::new();
-        let entropy_metrics_local: String = serde_json::to_string(&entropy_metrics).unwrap();
-        // the 1st serialize flushes the metrics and resets values to 0 so that
-        // we can compare the values with local metrics.
-        serde_json::to_string(&METRICS).unwrap();
-        let entropy_metrics_global: String = serde_json::to_string(&METRICS).unwrap();
-        assert_eq!(entropy_metrics_local, entropy_metrics_global);
-        entropy_metrics.entropy_event_count.inc();
-        assert_eq!(entropy_metrics.entropy_event_count.count(), 1);
+    fn test_rng_dev_metrics() {
+        for i in 0..5 {
+            let dev_id: String = format!("entropy{}", i);
+            EntropyMetricsPerDevice::alloc(dev_id.clone());
+            METRICS
+                .read()
+                .unwrap()
+                .metrics
+                .get(&dev_id)
+                .unwrap()
+                .activate_fails
+                .inc();
+            METRICS
+                .read()
+                .unwrap()
+                .metrics
+                .get(&dev_id)
+                .unwrap()
+                .entropy_bytes
+                .add(10);
+            METRICS
+                .read()
+                .unwrap()
+                .metrics
+                .get(&dev_id)
+                .unwrap()
+                .host_rng_fails
+                .add(5);
+        }
+
+        for i in 0..5 {
+            let dev_id: String = format!("entropy{}", i);
+            assert!(
+                METRICS
+                    .read()
+                    .unwrap()
+                    .metrics
+                    .get(&dev_id)
+                    .unwrap()
+                    .activate_fails
+                    .count()
+                    >= 1
+            );
+            assert!(
+                METRICS
+                    .read()
+                    .unwrap()
+                    .metrics
+                    .get(&dev_id)
+                    .unwrap()
+                    .entropy_bytes
+                    .count()
+                    >= 10
+            );
+            assert_eq!(
+                METRICS
+                    .read()
+                    .unwrap()
+                    .metrics
+                    .get(&dev_id)
+                    .unwrap()
+                    .host_rng_fails
+                    .count(),
+                5
+            );
+        }
     }
 }
