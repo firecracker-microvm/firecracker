@@ -557,8 +557,6 @@ pub(crate) mod tests {
 
     use super::*;
     use crate::snapshot::Persist;
-    #[cfg(target_arch = "x86_64")]
-    use crate::snapshot::Snapshot;
     use crate::test_utils::single_region_mem_raw;
     use crate::utils::mib_to_bytes;
     use crate::vstate::kvm::Kvm;
@@ -862,7 +860,6 @@ pub(crate) mod tests {
     fn test_restore_state_resource_allocator() {
         use vm_allocator::AllocPolicy;
 
-        let mut snapshot_data = vec![0u8; 10000];
         let (_, mut vm) = setup_vm_with_memory(0x1000);
         vm.setup_irqchip().unwrap();
 
@@ -878,13 +875,9 @@ pub(crate) mod tests {
         };
 
         let state = vm.save_state().unwrap();
-        Snapshot::new(state)
-            .save(&mut snapshot_data.as_mut_slice())
-            .unwrap();
+        let serialized_data = bitcode::serialize(&state).unwrap();
 
-        let restored_state: VmState = Snapshot::load_without_crc_check(snapshot_data.as_slice())
-            .unwrap()
-            .data;
+        let restored_state: VmState = bitcode::deserialize(&serialized_data).unwrap();
         vm.restore_state(&restored_state).unwrap();
 
         let mut resource_allocator = vm.resource_allocator();
