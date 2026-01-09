@@ -179,4 +179,7 @@ pub trait VsockChannel {
 /// The vsock backend, which is basically an epoll-event-driven vsock channel.
 /// Currently, the only implementation we have is `crate::devices::virtio::unix::muxer::VsockMuxer`,
 /// which translates guest-side vsock connections to host-side Unix domain socket connections.
-pub trait VsockBackend: VsockChannel + VsockEpollListener + Send {}
+pub trait VsockBackend: VsockChannel + VsockEpollListener + Send {
+    /// Notify the backend about RX queue availability changes.
+    fn notify_rxq(&mut self, enabled: bool) {}
+}
