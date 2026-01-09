@@ -7,8 +7,6 @@ use std::ops::Add;
 
 use aws_lc_rs::aead::{AES_256_GCM, Aad, Nonce, RandomizedNonceKey};
 use base64::Engine;
-use bincode::config;
-use bincode::config::{Configuration, Fixint, Limit, LittleEndian};
 use serde::{Deserialize, Serialize};
 use utils::time::{ClockType, get_time_ms};
 
@@ -37,15 +35,6 @@ pub const PATH_TO_TOKEN: &str = "/latest/api/token";
 /// is computed based on the expected length of the base64 encoded Token struct
 /// including a small deviation.
 const TOKEN_LENGTH_LIMIT: usize = 70;
-/// Byte limit passed to `bincode` to guard against allocating
-/// too much memory when deserializing tokens.
-const DESERIALIZATION_BYTES_LIMIT: usize = std::mem::size_of::<Token>();
-
-const BINCODE_CONFIG: Configuration<LittleEndian, Fixint, Limit<DESERIALIZATION_BYTES_LIMIT>> =
-    config::standard()
-        .with_fixed_int_encoding()
-        .with_limit::<DESERIALIZATION_BYTES_LIMIT>()
-        .with_little_endian();
 
 #[rustfmt::skip]
 #[derive(Debug, thiserror::Error, displaydoc::Display)]
@@ -56,8 +45,8 @@ pub enum MmdsTokenError {
     ExpiryExtraction,
     /// Invalid time to live value provided for token: {0}. Please provide a value between {MIN_TOKEN_TTL_SECONDS:} and {MAX_TOKEN_TTL_SECONDS:}.
     InvalidTtlValue(u32),
-    /// Bincode serialization failed: {0}.
-    Serialization(#[from] bincode::error::EncodeError),
+    /// Bitcode serialization failed: {0}.
+    Serialization(#[from] bitcode::Error),
     /// Failed to encrypt token.
     TokenEncryption,
 }
@@ -269,7 +258,7 @@ impl Token {
 
     /// Encode token structure into a string using base64 encoding.
     fn base64_encode(&self) -> Result<String, MmdsTokenError> {
-        let token_bytes: Vec<u8> = bincode::serde::encode_to_vec(self, BINCODE_CONFIG)?;
+        let token_bytes: Vec<u8> = bitcode::serialize(self)?;
 
         // Encode token structure bytes into base64.
         Ok(base64::engine::general_purpose::STANDARD.encode(token_bytes))
@@ -281,9 +270,8 @@ impl Token {
             .decode(encoded_token)
             .map_err(|_| MmdsTokenError::ExpiryExtraction)?;
 
-        let token: Token = bincode::serde::decode_from_slice(&token_bytes, BINCODE_CONFIG)
-            .map_err(|_| MmdsTokenError::ExpiryExtraction)?
-            .0;
+        let token: Token =
+            bitcode::deserialize(&token_bytes).map_err(|_| MmdsTokenError::ExpiryExtraction)?;
         Ok(token)
     }
 }

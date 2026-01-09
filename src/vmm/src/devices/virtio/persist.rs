@@ -268,7 +268,6 @@ mod tests {
     use crate::devices::virtio::test_utils::default_mem;
     use crate::devices::virtio::transport::mmio::tests::DummyDevice;
     use crate::devices::virtio::vsock::{Vsock, VsockUnixBackend};
-    use crate::snapshot::Snapshot;
 
     const DEFAULT_QUEUE_MAX_SIZE: u16 = 256;
     impl Default for QueueState {
@@ -370,23 +369,15 @@ mod tests {
         queue.size = queue.max_size;
         queue.initialize(&mem).unwrap();
 
-        let mut bytes = vec![0; 4096];
-
-        Snapshot::new(queue.save())
-            .save(&mut bytes.as_mut_slice())
-            .unwrap();
+        let queue_state = queue.save();
+        let serialized_data = bitcode::serialize(&queue_state).unwrap();
 
         let ca = QueueConstructorArgs {
             mem,
             is_activated: true,
         };
-        let restored_queue = Queue::restore(
-            ca,
-            &Snapshot::load_without_crc_check(bytes.as_slice())
-                .unwrap()
-                .data,
-        )
-        .unwrap();
+        let restored_state = bitcode::deserialize(&serialized_data).unwrap();
+        let restored_queue = Queue::restore(ca, &restored_state).unwrap();
 
         assert_eq!(restored_queue, queue);
     }
@@ -394,14 +385,11 @@ mod tests {
     #[test]
     fn test_virtio_device_state_serde() {
         let dummy = DummyDevice::new();
-        let mut mem = vec![0; 4096];
 
         let state = VirtioDeviceState::from_device(&dummy);
-        Snapshot::new(&state).save(&mut mem.as_mut_slice()).unwrap();
+        let serialized_data = bitcode::serialize(&state).unwrap();
 
-        let restored_state: VirtioDeviceState = Snapshot::load_without_crc_check(mem.as_slice())
-            .unwrap()
-            .data;
+        let restored_state: VirtioDeviceState = bitcode::deserialize(&serialized_data).unwrap();
         assert_eq!(restored_state, state);
     }
 
@@ -426,11 +414,8 @@ mod tests {
         mem: GuestMemoryMmap,
         device: Arc<Mutex<dyn VirtioDevice>>,
     ) {
-        let mut buf = vec![0; 4096];
-
-        Snapshot::new(mmio_transport.save())
-            .save(&mut buf.as_mut_slice())
-            .unwrap();
+        let transport_state = mmio_transport.save();
+        let serialized_data = bitcode::serialize(&transport_state).unwrap();
 
         let restore_args = MmioTransportConstructorArgs {
             mem,
@@ -438,13 +423,9 @@ mod tests {
             device,
             is_vhost_user: false,
         };
-        let restored_mmio_transport = MmioTransport::restore(
-            restore_args,
-            &Snapshot::load_without_crc_check(buf.as_slice())
-                .unwrap()
-                .data,
-        )
-        .unwrap();
+        let restored_state = bitcode::deserialize(&serialized_data).unwrap();
+        let restored_mmio_transport =
+            MmioTransport::restore(restore_args, &restored_state).unwrap();
 
         assert_eq!(restored_mmio_transport, mmio_transport);
     }

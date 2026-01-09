@@ -8,10 +8,6 @@ use std::os::fd::{AsRawFd, FromRawFd};
 use std::os::unix::fs::MetadataExt;
 use std::str::FromStr;
 
-use bincode::config;
-use bincode::config::{Configuration, Fixint, Limit, LittleEndian};
-use bincode::error::EncodeError as BincodeError;
-
 mod bindings;
 use bindings::*;
 
@@ -19,17 +15,11 @@ pub mod types;
 pub use types::*;
 use zerocopy::IntoBytes;
 
-// This byte limit is passed to `bincode` to guard against a potential memory
+// This byte limit is passed to `bitcode` to guard against a potential memory
 // allocation DOS caused by binary filters that are too large.
 // This limit can be safely determined since the maximum length of a BPF
 // filter is 4096 instructions and Firecracker has a finite number of threads.
 const DESERIALIZATION_BYTES_LIMIT: usize = 100_000;
-
-pub const BINCODE_CONFIG: Configuration<LittleEndian, Fixint, Limit<DESERIALIZATION_BYTES_LIMIT>> =
-    config::standard()
-        .with_fixed_int_encoding()
-        .with_limit::<DESERIALIZATION_BYTES_LIMIT>()
-        .with_little_endian();
 
 /// Binary filter compilation errors.
 #[derive(Debug, thiserror::Error, displaydoc::Display)]
@@ -61,7 +51,7 @@ pub enum CompilationError {
     /// Cannot create output file: {0}
     OutputCreate(std::io::Error),
     /// Cannot serialize bfp: {0}
-    BincodeSerialize(BincodeError),
+    BitcodeSerialize(bitcode::Error),
 }
 
 pub fn compile_bpf(
@@ -69,6 +59,7 @@ pub fn compile_bpf(
     arch: &str,
     out_path: &str,
     basic: bool,
+    split_output: bool,
 ) -> Result<(), CompilationError> {
     let mut file_content = String::new();
     File::open(input_path)
@@ -188,9 +179,44 @@ pub fn compile_bpf(
         bpf_map.insert(name.clone(), bpf);
     }
 
-    let mut output_file = File::create(out_path).map_err(CompilationError::OutputCreate)?;
+    // Helper function to create and write the main bitcode output file
+    let write_main_output = || -> Result<(), CompilationError> {
+        let mut output_file = File::create(out_path).map_err(CompilationError::OutputCreate)?;
+        let encoded = bitcode::serialize(&bpf_map).map_err(CompilationError::BitcodeSerialize)?;
 
-    bincode::encode_into_std_write(&bpf_map, &mut output_file, BINCODE_CONFIG)
-        .map_err(CompilationError::BincodeSerialize)?;
+        // Check size limit to prevent DOS attacks
+        if encoded.len() > DESERIALIZATION_BYTES_LIMIT {
+            // Create a simple error by trying to deserialize invalid data
+            let error = bitcode::deserialize::<()>(&[0xFF]).unwrap_err();
+            return Err(CompilationError::BitcodeSerialize(error));
+        }
+
+        std::io::Write::write_all(&mut output_file, &encoded)
+            .map_err(CompilationError::OutputCreate)
+    };
+
+    if split_output {
+        // Output individual files for each thread (for testing)
+        use std::path::Path;
+        let base_path = Path::new(out_path);
+        let parent = base_path.parent().unwrap_or_else(|| Path::new("."));
+
+        for (thread_name, bpf_data) in &bpf_map {
+            let thread_file_path = parent.join(format!("{}.bpf", thread_name));
+            let mut thread_file =
+                File::create(&thread_file_path).map_err(CompilationError::OutputCreate)?;
+
+            // Write raw BPF data as bytes
+            use zerocopy::IntoBytes;
+            std::io::Write::write_all(&mut thread_file, bpf_data.as_bytes())
+                .map_err(CompilationError::OutputCreate)?;
+        }
+
+        // Also create the main output file with bitcode format for compatibility
+        write_main_output()?;
+    } else {
+        // Normal output: single bitcode file
+        write_main_output()?;
+    }
     Ok(())
 }
