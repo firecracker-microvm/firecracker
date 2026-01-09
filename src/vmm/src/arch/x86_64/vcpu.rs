@@ -746,8 +746,6 @@ impl Peripherals {
             }
             unexpected_exit => {
                 METRICS.vcpu.failures.inc();
-                // TODO: Are we sure we want to finish running a vcpu upon
-                // receiving a vm exit that is not necessarily an error?
                 error!("Unexpected exit reason on vcpu run: {:?}", unexpected_exit);
                 Err(VcpuError::UnhandledKvmExit(format!(
                     "{:?}",

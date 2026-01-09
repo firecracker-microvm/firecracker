@@ -288,7 +288,6 @@ pub fn build_microvm_for_boot(
     )?;
 
     device_manager.attach_vmgenid_device(&vm)?;
-    #[cfg(target_arch = "x86_64")]
     device_manager.attach_vmclock_device(&vm)?;
 
     #[cfg(target_arch = "aarch64")]

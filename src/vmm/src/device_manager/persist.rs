@@ -15,7 +15,6 @@ use super::mmio::*;
 #[cfg(target_arch = "aarch64")]
 use crate::arch::DeviceType;
 use crate::device_manager::acpi::ACPIDeviceError;
-#[cfg(target_arch = "x86_64")]
 use crate::devices::acpi::vmclock::{VmClock, VmClockState};
 use crate::devices::acpi::vmgenid::{VMGenIDState, VmGenId};
 #[cfg(target_arch = "aarch64")]
@@ -168,7 +167,6 @@ impl fmt::Debug for MMIODevManagerConstructorArgs<'_> {
 #[derive(Default, Debug, Clone, Serialize, Deserialize)]
 pub struct ACPIDeviceManagerState {
     vmgenid: VMGenIDState,
-    #[cfg(target_arch = "x86_64")]
     vmclock: VmClockState,
 }
 
@@ -180,7 +178,6 @@ impl<'a> Persist<'a> for ACPIDeviceManager {
     fn save(&self) -> Self::State {
         ACPIDeviceManagerState {
             vmgenid: self.vmgenid.save(),
-            #[cfg(target_arch = "x86_64")]
             vmclock: self.vmclock.save(),
         }
     }
@@ -190,9 +187,13 @@ impl<'a> Persist<'a> for ACPIDeviceManager {
             // Safe to unwrap() here, this will never return an error.
             vmgenid: VmGenId::restore((), &state.vmgenid).unwrap(),
             // Safe to unwrap() here, this will never return an error.
-            #[cfg(target_arch = "x86_64")]
-            vmclock: VmClock::restore(vm.guest_memory(), &state.vmclock).unwrap(),
+            vmclock: VmClock::restore((), &state.vmclock).unwrap(),
         };
+
+        vm.register_irq(
+            &acpi_devices.vmclock.interrupt_evt,
+            acpi_devices.vmclock.gsi,
+        )?;
 
         acpi_devices.attach_vmgenid(vm)?;
         Ok(acpi_devices)
