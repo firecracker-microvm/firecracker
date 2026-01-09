@@ -73,6 +73,7 @@ def run_seccompiler_bin(
     bpf_path,
     json_path=defs.SECCOMP_JSON_DIR,
     basic=False,
+    split_output=False,
     binary_dir=DEFAULT_BINARY_DIR,
 ):
     """
@@ -89,6 +90,9 @@ def run_seccompiler_bin(
 
     if basic:
         seccompiler_args += " --basic"
+
+    if split_output:
+        seccompiler_args += " --split-output"
 
     seccompiler = get_binary("seccompiler-bin", binary_dir=binary_dir)
     utils.check_output(f"{seccompiler} {seccompiler_args}")

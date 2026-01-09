@@ -252,7 +252,6 @@ mod tests {
         KVM_PIT_SPEAKER_DUMMY,
     };
 
-    use crate::snapshot::Snapshot;
     use crate::vstate::vm::VmState;
     use crate::vstate::vm::tests::{setup_vm, setup_vm_with_memory};
 
@@ -314,17 +313,13 @@ mod tests {
     #[cfg(target_arch = "x86_64")]
     #[test]
     fn test_vmstate_serde() {
-        let mut snapshot_data = vec![0u8; 10000];
-
         let (_, mut vm) = setup_vm_with_memory(0x1000);
         vm.setup_irqchip().unwrap();
         let state = vm.save_state().unwrap();
-        Snapshot::new(state)
-            .save(&mut snapshot_data.as_mut_slice())
-            .unwrap();
-        let restored_state: VmState = Snapshot::load_without_crc_check(snapshot_data.as_slice())
-            .unwrap()
-            .data;
+
+        // Test direct bitcode serialization
+        let serialized_data = bitcode::serialize(&state).unwrap();
+        let restored_state: VmState = bitcode::deserialize(&serialized_data).unwrap();
 
         vm.restore_state(&restored_state).unwrap();
     }

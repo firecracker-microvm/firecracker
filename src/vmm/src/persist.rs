@@ -160,7 +160,7 @@ pub enum CreateSnapshotError {
 }
 
 /// Snapshot version
-pub const SNAPSHOT_VERSION: Version = Version::new(8, 0, 0);
+pub const SNAPSHOT_VERSION: Version = Version::new(9, 0, 0);
 
 /// Creates a Microvm snapshot.
 pub fn create_snapshot(
@@ -720,14 +720,9 @@ mod tests {
             vm_state: vmm.vm.save_state().unwrap(),
         };
 
-        let mut buf = vec![0; 10000];
-        Snapshot::new(&microvm_state)
-            .save(&mut buf.as_mut_slice())
-            .unwrap();
+        let serialized_data = bitcode::serialize(&microvm_state).unwrap();
 
-        let restored_microvm_state: MicrovmState = Snapshot::load_without_crc_check(buf.as_slice())
-            .unwrap()
-            .data;
+        let restored_microvm_state: MicrovmState = bitcode::deserialize(&serialized_data).unwrap();
 
         assert_eq!(restored_microvm_state.vm_info, microvm_state.vm_info);
         assert_eq!(

@@ -19,7 +19,7 @@ acpi_tables = { path = "../acpi-tables" }
 arrayvec = { version = "0.7.6", optional = true }
 aws-lc-rs = "1.15.4"
 base64 = "0.22.1"
-bincode = { version = "2.0.1", features = ["serde"] }
+bitcode = { version = "0.6.9", features = ["serde"] }
 bitflags = "2.10.0"
 bitvec = { version = "1.0.1", features = ["atomic", "serde"] }
 byteorder = "1.5.0"

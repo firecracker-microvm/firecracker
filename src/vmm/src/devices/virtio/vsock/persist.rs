@@ -133,7 +133,6 @@ pub(crate) mod tests {
     use crate::devices::virtio::test_utils::default_interrupt;
     use crate::devices::virtio::vsock::defs::uapi;
     use crate::devices::virtio::vsock::test_utils::{TestBackend, TestContext};
-    use crate::snapshot::Snapshot;
     use crate::utils::byte_order;
 
     impl Persist<'_> for TestBackend {
@@ -169,19 +168,15 @@ pub(crate) mod tests {
         ];
 
         // Test serialization
-        let mut mem = vec![0; 4096];
-
         // Save backend and device state separately.
         let state = VsockState {
             backend: ctx.device.backend().save(),
             frontend: ctx.device.save(),
         };
 
-        Snapshot::new(&state).save(&mut mem.as_mut_slice()).unwrap();
+        let serialized_data = bitcode::serialize(&state).unwrap();
 
-        let restored_state: VsockState = Snapshot::load_without_crc_check(mem.as_slice())
-            .unwrap()
-            .data;
+        let restored_state: VsockState = bitcode::deserialize(&serialized_data).unwrap();
         let mut restored_device = Vsock::restore(
             VsockConstructorArgs {
                 mem: ctx.mem.clone(),
