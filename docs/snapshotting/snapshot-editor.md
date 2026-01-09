@@ -136,3 +136,38 @@ Firecracker snapshot consists of 2 files:
 > ```bash
 > ./snapshot-editor info-vmstate vm-state --vmstate-path ./vmstate_file
 > ```
+
+### `tsc` command
+
+#### `set` subcommand
+
+> Set the saved TSC frequency (in kHz) for every vCPU in a vmstate file.
+>
+> Arguments:
+>
+> - `VMSTATE_PATH` - path to the `vmstate` file
+> - `--tsc-khz` - explicit TSC frequency (required on non-x86_64); on x86_64 it
+>   is auto-detected from the host if omitted
+>
+> Usage:
+>
+> ```bash
+> snapshot-editor tsc set \
+>     --vmstate-path ./vmstate_file \
+>     --tsc-khz 2500000
+> ```
+
+#### `clear` subcommand
+
+> Remove the saved TSC frequency so Firecracker skips scaling on restore.
+>
+> Arguments:
+>
+> - `VMSTATE_PATH` - path to the `vmstate` file
+>
+> Usage:
+>
+> ```bash
+> snapshot-editor tsc clear \
+>     --vmstate-path ./vmstate_file
+> ```
