@@ -1,0 +1,230 @@
+From a407e4b01512cc377029129410987fe4ce5172de Mon Sep 17 00:00:00 2001
+From: Patrick Roy <patrick.roy@linux.dev>
+Date: Sun, 23 Nov 2025 18:44:33 +0100
+Subject: [PATCH 26/50] KVM: guest_memfd: Add flag to remove from direct map
+
+Add GUEST_MEMFD_FLAG_NO_DIRECT_MAP flag for KVM_CREATE_GUEST_MEMFD()
+ioctl. When set, guest_memfd folios will be removed from the direct map
+after preparation, with direct map entries only restored when the folios
+are freed.
+
+To ensure these folios do not end up in places where the kernel cannot
+deal with them, set AS_NO_DIRECT_MAP on the guest_memfd's struct
+address_space if GUEST_MEMFD_FLAG_NO_DIRECT_MAP is requested.
+
+Note that this flag causes removal of direct map entries for all
+guest_memfd folios independent of whether they are "shared" or "private"
+(although current guest_memfd only supports either all folios in the
+"shared" state, or all folios in the "private" state if
+GUEST_MEMFD_FLAG_MMAP is not set). The usecase for removing direct map
+entries of also the shared parts of guest_memfd are a special type of
+non-CoCo VM where, host userspace is trusted to have access to all of
+guest memory, but where Spectre-style transient execution attacks
+through the host kernel's direct map should still be mitigated.  In this
+setup, KVM retains access to guest memory via userspace mappings of
+guest_memfd, which are reflected back into KVM's memslots via
+userspace_addr. This is needed for things like MMIO emulation on x86_64
+to work.
+
+Direct map entries are zapped right before guest or userspace mappings
+of gmem folios are set up, e.g. in kvm_gmem_fault_user_mapping() or
+kvm_gmem_get_pfn() [called from the KVM MMU code]. The only place where
+a gmem folio can be allocated without being mapped anywhere is
+kvm_gmem_populate(), where handling potential failures of direct map
+removal is not possible (by the time direct map removal is attempted,
+the folio is already marked as prepared, meaning attempting to re-try
+kvm_gmem_populate() would just result in -EEXIST without fixing up the
+direct map state). These folios are then removed form the direct map
+upon kvm_gmem_get_pfn(), e.g. when they are mapped into the guest later.
+
+Signed-off-by: Patrick Roy <patrick.roy@linux.dev>
+Signed-off-by: Nikita Kalyazin <kalyazin@amazon.com>
+---
+ Documentation/virt/kvm/api.rst | 22 ++++++++------
+ include/linux/kvm_host.h       | 12 ++++++++
+ include/uapi/linux/kvm.h       |  1 +
+ virt/kvm/guest_memfd.c         | 54 ++++++++++++++++++++++++++++++++++
+ 4 files changed, 80 insertions(+), 9 deletions(-)
+
+diff --git a/Documentation/virt/kvm/api.rst b/Documentation/virt/kvm/api.rst
+index 57061fa29e6a..1ff931db2828 100644
+--- a/Documentation/virt/kvm/api.rst
++++ b/Documentation/virt/kvm/api.rst
+@@ -6440,15 +6440,19 @@ a single guest_memfd file, but the bound ranges must not overlap).
+ The capability KVM_CAP_GUEST_MEMFD_FLAGS enumerates the `flags` that can be
+ specified via KVM_CREATE_GUEST_MEMFD.  Currently defined flags:
+ 
+-  ============================ ================================================
+-  GUEST_MEMFD_FLAG_MMAP        Enable using mmap() on the guest_memfd file
+-                               descriptor.
+-  GUEST_MEMFD_FLAG_INIT_SHARED Make all memory in the file shared during
+-                               KVM_CREATE_GUEST_MEMFD (memory files created
+-                               without INIT_SHARED will be marked private).
+-                               Shared memory can be faulted into host userspace
+-                               page tables. Private memory cannot.
+-  ============================ ================================================
++  ============================== ================================================
++  GUEST_MEMFD_FLAG_MMAP          Enable using mmap() on the guest_memfd file
++                                 descriptor.
++  GUEST_MEMFD_FLAG_INIT_SHARED   Make all memory in the file shared during
++                                 KVM_CREATE_GUEST_MEMFD (memory files created
++                                 without INIT_SHARED will be marked private).
++                                 Shared memory can be faulted into host userspace
++                                 page tables. Private memory cannot.
++  GUEST_MEMFD_FLAG_NO_DIRECT_MAP The guest_memfd instance will behave similarly
++                                 to memfd_secret, and unmaps the memory backing
++                                 it from the kernel's address space before
++                                 being passed off to userspace or the guest.
++  ============================== ================================================
+ 
+ When the KVM MMU performs a PFN lookup to service a guest fault and the backing
+ guest_memfd has the GUEST_MEMFD_FLAG_MMAP set, then the fault will always be
+diff --git a/include/linux/kvm_host.h b/include/linux/kvm_host.h
+index 93ff1cb9e6cd..bc76853ee8c1 100644
+--- a/include/linux/kvm_host.h
++++ b/include/linux/kvm_host.h
+@@ -738,10 +738,22 @@ static inline u64 kvm_gmem_get_supported_flags(struct kvm *kvm)
+ 	if (!kvm || kvm_arch_supports_gmem_init_shared(kvm))
+ 		flags |= GUEST_MEMFD_FLAG_INIT_SHARED;
+ 
++	if (kvm_arch_gmem_supports_no_direct_map())
++		flags |= GUEST_MEMFD_FLAG_NO_DIRECT_MAP;
++
+ 	return flags;
+ }
+ #endif
+ 
++#ifdef CONFIG_KVM_GUEST_MEMFD
++#ifndef kvm_arch_gmem_supports_no_direct_map
++static inline bool kvm_arch_gmem_supports_no_direct_map(void)
++{
++	return false;
++}
++#endif
++#endif /* CONFIG_KVM_GUEST_MEMFD */
++
+ #ifndef kvm_arch_has_readonly_mem
+ static inline bool kvm_arch_has_readonly_mem(struct kvm *kvm)
+ {
+diff --git a/include/uapi/linux/kvm.h b/include/uapi/linux/kvm.h
+index 52f6000ab020..13ee57c09669 100644
+--- a/include/uapi/linux/kvm.h
++++ b/include/uapi/linux/kvm.h
+@@ -1601,6 +1601,7 @@ struct kvm_memory_attributes {
+ #define KVM_CREATE_GUEST_MEMFD	_IOWR(KVMIO,  0xd4, struct kvm_create_guest_memfd)
+ #define GUEST_MEMFD_FLAG_MMAP		(1ULL << 0)
+ #define GUEST_MEMFD_FLAG_INIT_SHARED	(1ULL << 1)
++#define GUEST_MEMFD_FLAG_NO_DIRECT_MAP	(1ULL << 2)
+ 
+ struct kvm_create_guest_memfd {
+ 	__u64 size;
+diff --git a/virt/kvm/guest_memfd.c b/virt/kvm/guest_memfd.c
+index 658b611760ff..d9cec048bbe8 100644
+--- a/virt/kvm/guest_memfd.c
++++ b/virt/kvm/guest_memfd.c
+@@ -7,6 +7,9 @@
+ #include <linux/mempolicy.h>
+ #include <linux/pseudo_fs.h>
+ #include <linux/pagemap.h>
++#include <linux/set_memory.h>
++
++#include <asm/tlbflush.h>
+ 
+ #include "kvm_mm.h"
+ 
+@@ -76,6 +79,43 @@ static int __kvm_gmem_prepare_folio(struct kvm *kvm, struct kvm_memory_slot *slo
+ 	return 0;
+ }
+ 
++#define KVM_GMEM_FOLIO_NO_DIRECT_MAP BIT(0)
++
++static bool kvm_gmem_folio_no_direct_map(struct folio *folio)
++{
++	return ((u64) folio->private) & KVM_GMEM_FOLIO_NO_DIRECT_MAP;
++}
++
++static int kvm_gmem_folio_zap_direct_map(struct folio *folio)
++{
++	u64 gmem_flags = GMEM_I(folio_inode(folio))->flags;
++	int r = 0;
++
++	if (kvm_gmem_folio_no_direct_map(folio) || !(gmem_flags & GUEST_MEMFD_FLAG_NO_DIRECT_MAP))
++		goto out;
++
++	folio->private = (void *)((u64)folio->private | KVM_GMEM_FOLIO_NO_DIRECT_MAP);
++	r = folio_zap_direct_map(folio);
++
++out:
++	return r;
++}
++
++static void kvm_gmem_folio_restore_direct_map(struct folio *folio)
++{
++	/*
++	 * Direct map restoration cannot fail, as the only error condition
++	 * for direct map manipulation is failure to allocate page tables
++	 * when splitting huge pages, but this split would have already
++	 * happened in folio_zap_direct_map() in kvm_gmem_folio_zap_direct_map().
++	 * Thus folio_restore_direct_map() here only updates prot bits.
++	 */
++	if (kvm_gmem_folio_no_direct_map(folio)) {
++		WARN_ON(folio_restore_direct_map(folio));
++		folio->private = (void *)((u64)folio->private & ~KVM_GMEM_FOLIO_NO_DIRECT_MAP);
++	}
++}
++
+ static inline void kvm_gmem_mark_prepared(struct folio *folio)
+ {
+ 	folio_mark_uptodate(folio);
+@@ -398,6 +438,7 @@ static vm_fault_t kvm_gmem_fault_user_mapping(struct vm_fault *vmf)
+ 	struct inode *inode = file_inode(vmf->vma->vm_file);
+ 	struct folio *folio;
+ 	vm_fault_t ret = VM_FAULT_LOCKED;
++	int err;
+ 
+ 	if (((loff_t)vmf->pgoff << PAGE_SHIFT) >= i_size_read(inode))
+ 		return VM_FAULT_SIGBUS;
+@@ -423,6 +464,12 @@ static vm_fault_t kvm_gmem_fault_user_mapping(struct vm_fault *vmf)
+ 		kvm_gmem_mark_prepared(folio);
+ 	}
+ 
++	err = kvm_gmem_folio_zap_direct_map(folio);
++	if (err) {
++		ret = vmf_error(err);
++		goto out_folio;
++	}
++
+ 	vmf->page = folio_file_page(folio, vmf->pgoff);
+ 
+ out_folio:
+@@ -533,6 +580,8 @@ static void kvm_gmem_free_folio(struct folio *folio)
+ 	kvm_pfn_t pfn = page_to_pfn(page);
+ 	int order = folio_order(folio);
+ 
++	kvm_gmem_folio_restore_direct_map(folio);
++
+ 	kvm_arch_gmem_invalidate(pfn, pfn + (1ul << order));
+ }
+ 
+@@ -596,6 +645,9 @@ static int __kvm_gmem_create(struct kvm *kvm, loff_t size, u64 flags)
+ 	/* Unmovable mappings are supposed to be marked unevictable as well. */
+ 	WARN_ON_ONCE(!mapping_unevictable(inode->i_mapping));
+ 
++	if (flags & GUEST_MEMFD_FLAG_NO_DIRECT_MAP)
++		mapping_set_no_direct_map(inode->i_mapping);
++
+ 	GMEM_I(inode)->flags = flags;
+ 
+ 	file = alloc_file_pseudo(inode, kvm_gmem_mnt, name, O_RDWR, &kvm_gmem_fops);
+@@ -789,6 +841,8 @@ int kvm_gmem_get_pfn(struct kvm *kvm, struct kvm_memory_slot *slot,
+ 	if (!is_prepared)
+ 		r = kvm_gmem_prepare_folio(kvm, slot, gfn, folio);
+ 
++	kvm_gmem_folio_zap_direct_map(folio);
++
+ 	folio_unlock(folio);
+ 
+ 	if (!r)
+-- 
+2.50.1
+

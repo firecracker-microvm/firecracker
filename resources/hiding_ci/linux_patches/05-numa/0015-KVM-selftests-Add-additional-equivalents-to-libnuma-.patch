@@ -1,0 +1,101 @@
+From 8cce494eb40aabbfb8eb6a6c21e92f362564e661 Mon Sep 17 00:00:00 2001
+From: Sean Christopherson <seanjc@google.com>
+Date: Thu, 16 Oct 2025 10:28:49 -0700
+Subject: [PATCH 15/50] KVM: selftests: Add additional equivalents to libnuma
+ APIs in KVM's numaif.h
+
+Add APIs for all syscalls defined in the kernel's mm/mempolicy.c to match
+those that would be provided by linking to libnuma.  Opportunistically use
+the recently inroduced KVM_SYSCALL_DEFINE() builders to take care of the
+boilerplate, and to fix a flaw where the two existing wrappers would
+generate multiple symbols if numaif.h were to be included multiple times.
+
+Reviewed-by: Ackerley Tng <ackerleytng@google.com>
+Tested-by: Ackerley Tng <ackerleytng@google.com>
+Reviewed-by: Shivank Garg <shivankg@amd.com>
+Tested-by: Shivank Garg <shivankg@amd.com>
+Link: https://lore.kernel.org/r/20251016172853.52451-9-seanjc@google.com
+Signed-off-by: Sean Christopherson <seanjc@google.com>
+---
+ tools/testing/selftests/kvm/include/numaif.h  | 40 +++++++++++--------
+ .../selftests/kvm/x86/xapic_ipi_test.c        |  5 +--
+ 2 files changed, 25 insertions(+), 20 deletions(-)
+
+diff --git a/tools/testing/selftests/kvm/include/numaif.h b/tools/testing/selftests/kvm/include/numaif.h
+index b020547403fd..aaa4ac174890 100644
+--- a/tools/testing/selftests/kvm/include/numaif.h
++++ b/tools/testing/selftests/kvm/include/numaif.h
+@@ -13,23 +13,29 @@
+ #ifndef SELFTEST_KVM_NUMAIF_H
+ #define SELFTEST_KVM_NUMAIF_H
+ 
+-#define __NR_get_mempolicy 239
+-#define __NR_migrate_pages 256
+-
+-/* System calls */
+-long get_mempolicy(int *policy, const unsigned long *nmask,
+-		   unsigned long maxnode, void *addr, int flags)
+-{
+-	return syscall(__NR_get_mempolicy, policy, nmask,
+-		       maxnode, addr, flags);
+-}
+-
+-long migrate_pages(int pid, unsigned long maxnode,
+-		   const unsigned long *frommask,
+-		   const unsigned long *tomask)
+-{
+-	return syscall(__NR_migrate_pages, pid, maxnode, frommask, tomask);
+-}
++#include <linux/mempolicy.h>
++
++#include "kvm_syscalls.h"
++
++KVM_SYSCALL_DEFINE(get_mempolicy, 5, int *, policy, const unsigned long *, nmask,
++		   unsigned long, maxnode, void *, addr, int, flags);
++
++KVM_SYSCALL_DEFINE(set_mempolicy, 3, int, mode, const unsigned long *, nmask,
++		   unsigned long, maxnode);
++
++KVM_SYSCALL_DEFINE(set_mempolicy_home_node, 4, unsigned long, start,
++		   unsigned long, len, unsigned long, home_node,
++		   unsigned long, flags);
++
++KVM_SYSCALL_DEFINE(migrate_pages, 4, int, pid, unsigned long, maxnode,
++		   const unsigned long *, frommask, const unsigned long *, tomask);
++
++KVM_SYSCALL_DEFINE(move_pages, 6, int, pid, unsigned long, count, void *, pages,
++		   const int *, nodes, int *, status, int, flags);
++
++KVM_SYSCALL_DEFINE(mbind, 6, void *, addr, unsigned long, size, int, mode,
++		   const unsigned long *, nodemask, unsigned long, maxnode,
++		   unsigned int, flags);
+ 
+ /* Policies */
+ #define MPOL_DEFAULT	 0
+diff --git a/tools/testing/selftests/kvm/x86/xapic_ipi_test.c b/tools/testing/selftests/kvm/x86/xapic_ipi_test.c
+index 35cb9de54a82..ae4a4b6c05ca 100644
+--- a/tools/testing/selftests/kvm/x86/xapic_ipi_test.c
++++ b/tools/testing/selftests/kvm/x86/xapic_ipi_test.c
+@@ -256,7 +256,7 @@ void do_migrations(struct test_data_page *data, int run_secs, int delay_usecs,
+ 	int nodes = 0;
+ 	time_t start_time, last_update, now;
+ 	time_t interval_secs = 1;
+-	int i, r;
++	int i;
+ 	int from, to;
+ 	unsigned long bit;
+ 	uint64_t hlt_count;
+@@ -267,9 +267,8 @@ void do_migrations(struct test_data_page *data, int run_secs, int delay_usecs,
+ 		delay_usecs);
+ 
+ 	/* Get set of first 64 numa nodes available */
+-	r = get_mempolicy(NULL, &nodemask, sizeof(nodemask) * 8,
++	kvm_get_mempolicy(NULL, &nodemask, sizeof(nodemask) * 8,
+ 			  0, MPOL_F_MEMS_ALLOWED);
+-	TEST_ASSERT(r == 0, "get_mempolicy failed errno=%d", errno);
+ 
+ 	fprintf(stderr, "Numa nodes found amongst first %lu possible nodes "
+ 		"(each 1-bit indicates node is present): %#lx\n",
+-- 
+2.50.1
+

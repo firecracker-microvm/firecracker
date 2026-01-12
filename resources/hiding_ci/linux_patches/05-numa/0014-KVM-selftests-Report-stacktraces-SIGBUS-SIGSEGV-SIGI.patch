@@ -1,0 +1,68 @@
+From b83172488e5284e356d5c8b4745e2d7430cd2b04 Mon Sep 17 00:00:00 2001
+From: Sean Christopherson <seanjc@google.com>
+Date: Thu, 16 Oct 2025 10:28:48 -0700
+Subject: [PATCH 14/50] KVM: selftests: Report stacktraces SIGBUS, SIGSEGV,
+ SIGILL, and SIGFPE by default
+
+Register handlers for signals for all selftests that are likely happen due
+to test (or kernel) bugs, and explicitly fail tests on unexpected signals
+so that users get a stack trace, i.e. don't have to go spelunking to do
+basic triage.
+
+Register the handlers as early as possible, to catch as many unexpected
+signals as possible, and also so that the common code doesn't clobber a
+handler that's installed by test (or arch) code.
+
+Tested-by: Ackerley Tng <ackerleytng@google.com>
+Reviewed-by: Ackerley Tng <ackerleytng@google.com>
+Reviewed-by: Shivank Garg <shivankg@amd.com>
+Tested-by: Shivank Garg <shivankg@amd.com>
+Link: https://lore.kernel.org/r/20251016172853.52451-8-seanjc@google.com
+Signed-off-by: Sean Christopherson <seanjc@google.com>
+---
+ tools/testing/selftests/kvm/lib/kvm_util.c | 24 ++++++++++++++++++++++
+ 1 file changed, 24 insertions(+)
+
+diff --git a/tools/testing/selftests/kvm/lib/kvm_util.c b/tools/testing/selftests/kvm/lib/kvm_util.c
+index 203e33697492..5744643d9ec3 100644
+--- a/tools/testing/selftests/kvm/lib/kvm_util.c
++++ b/tools/testing/selftests/kvm/lib/kvm_util.c
+@@ -2290,11 +2290,35 @@ __weak void kvm_selftest_arch_init(void)
+ {
+ }
+ 
++static void report_unexpected_signal(int signum)
++{
++#define KVM_CASE_SIGNUM(sig)					\
++	case sig: TEST_FAIL("Unexpected " #sig " (%d)\n", signum)
++
++	switch (signum) {
++	KVM_CASE_SIGNUM(SIGBUS);
++	KVM_CASE_SIGNUM(SIGSEGV);
++	KVM_CASE_SIGNUM(SIGILL);
++	KVM_CASE_SIGNUM(SIGFPE);
++	default:
++		TEST_FAIL("Unexpected signal %d\n", signum);
++	}
++}
++
+ void __attribute((constructor)) kvm_selftest_init(void)
+ {
++	struct sigaction sig_sa = {
++		.sa_handler = report_unexpected_signal,
++	};
++
+ 	/* Tell stdout not to buffer its content. */
+ 	setbuf(stdout, NULL);
+ 
++	sigaction(SIGBUS, &sig_sa, NULL);
++	sigaction(SIGSEGV, &sig_sa, NULL);
++	sigaction(SIGILL, &sig_sa, NULL);
++	sigaction(SIGFPE, &sig_sa, NULL);
++
+ 	guest_random_seed = last_guest_seed = random();
+ 	pr_info("Random seed: 0x%x\n", guest_random_seed);
+ 
+-- 
+2.50.1
+

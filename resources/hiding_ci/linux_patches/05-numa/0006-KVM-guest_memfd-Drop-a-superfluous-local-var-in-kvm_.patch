@@ -1,0 +1,40 @@
+From c7f430520b2cbce8796897bd70df479e14fd8fe7 Mon Sep 17 00:00:00 2001
+From: Sean Christopherson <seanjc@google.com>
+Date: Tue, 7 Oct 2025 15:27:33 -0700
+Subject: [PATCH 06/50] KVM: guest_memfd: Drop a superfluous local var in
+ kvm_gmem_fault_user_mapping()
+
+Drop the local "int err" that's buried in the middle guest_memfd's user
+fault handler to avoid the potential for variable shadowing, e.g. if an
+"err" variable were also declared at function scope.
+
+No functional change intended.
+
+Link: https://lore.kernel.org/r/20251007222733.349460-1-seanjc@google.com
+Signed-off-by: Sean Christopherson <seanjc@google.com>
+---
+ virt/kvm/guest_memfd.c | 6 ++----
+ 1 file changed, 2 insertions(+), 4 deletions(-)
+
+diff --git a/virt/kvm/guest_memfd.c b/virt/kvm/guest_memfd.c
+index c78bbbe41ff0..e8a784d2e02f 100644
+--- a/virt/kvm/guest_memfd.c
++++ b/virt/kvm/guest_memfd.c
+@@ -361,12 +361,10 @@ static vm_fault_t kvm_gmem_fault_user_mapping(struct vm_fault *vmf)
+ 
+ 	folio = kvm_gmem_get_folio(inode, vmf->pgoff);
+ 	if (IS_ERR(folio)) {
+-		int err = PTR_ERR(folio);
+-
+-		if (err == -EAGAIN)
++		if (PTR_ERR(folio) == -EAGAIN)
+ 			return VM_FAULT_RETRY;
+ 
+-		return vmf_error(err);
++		return vmf_error(PTR_ERR(folio));
+ 	}
+ 
+ 	if (WARN_ON_ONCE(folio_test_large(folio))) {
+-- 
+2.50.1
+

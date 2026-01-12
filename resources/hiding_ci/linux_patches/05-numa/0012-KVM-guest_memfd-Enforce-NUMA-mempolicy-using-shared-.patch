@@ -1,0 +1,158 @@
+From 411462b35d5c9a3f382492141e4eb6bf7420b2b6 Mon Sep 17 00:00:00 2001
+From: Shivank Garg <shivankg@amd.com>
+Date: Thu, 16 Oct 2025 10:28:46 -0700
+Subject: [PATCH 12/50] KVM: guest_memfd: Enforce NUMA mempolicy using shared
+ policy
+
+Previously, guest-memfd allocations followed local NUMA node id in absence
+of process mempolicy, resulting in arbitrary memory allocation.
+Moreover, mbind() couldn't be used  by the VMM as guest memory wasn't
+mapped into userspace when allocation occurred.
+
+Enable NUMA policy support by implementing vm_ops for guest-memfd mmap
+operation.  This allows the VMM to use mmap()+mbind() to set the desired
+NUMA policy for a range of memory, and provides fine-grained control over
+guest memory allocation across NUMA nodes.
+
+Note, using mmap()+mbind() works even for PRIVATE memory, as mbind()
+doesn't require the memory to be faulted in.  However, get_mempolicy()
+and other paths that require the userspace page tables to be populated
+may return incorrect information for PRIVATE memory (though under the hood,
+KVM+guest_memfd will still behave correctly).
+
+Store the policy in the inode structure, gmem_inode, as a shared memory
+policy, so that the policy is a property of the physical memory itself,
+i.e. not bound to the VMA.  In guest_memfd, KVM is the primary MMU and any
+VMAs are secondary, i.e. using mbind() on a VMA to set policy is a means
+to an end, e.g. to avoid having to add a file-based equivalent to mbind().
+
+Similarly, retrieve the policy via mpol_shared_policy_lookup(), not
+get_vma_policy(), even when allocating to fault in memory for userspace
+mappings, so that the policy stored in gmem_inode is always the source of
+true.
+
+Apply policy changes only to future allocations, i.e. do not migrate
+existing memory in the guest_memfd instance.  This matches mbind(2)'s
+default behavior, which affects only new allocations unless overridden
+with MPOL_MF_MOVE/MPOL_MF_MOVE_ALL flags (which are not supported by
+guest_memfd as guest_memfd memory is unmovable).
+
+Suggested-by: David Hildenbrand <david@redhat.com>
+Acked-by: David Hildenbrand <david@redhat.com>
+Acked-by: Vlastimil Babka <vbabka@suse.cz>
+Signed-off-by: Shivank Garg <shivankg@amd.com>
+Tested-by: Ashish Kalra <ashish.kalra@amd.com>
+Link: https://lore.kernel.org/all/e9d43abc-bcdb-4f9f-9ad7-5644f714de19@amd.com
+[sean: fold in fixup (see Link above), massage changelog]
+Link: https://lore.kernel.org/r/20251016172853.52451-6-seanjc@google.com
+Signed-off-by: Sean Christopherson <seanjc@google.com>
+---
+ virt/kvm/guest_memfd.c | 58 ++++++++++++++++++++++++++++++++++++++++--
+ 1 file changed, 56 insertions(+), 2 deletions(-)
+
+diff --git a/virt/kvm/guest_memfd.c b/virt/kvm/guest_memfd.c
+index 88fd812f0f31..4463643bd0a2 100644
+--- a/virt/kvm/guest_memfd.c
++++ b/virt/kvm/guest_memfd.c
+@@ -4,6 +4,7 @@
+ #include <linux/falloc.h>
+ #include <linux/fs.h>
+ #include <linux/kvm_host.h>
++#include <linux/mempolicy.h>
+ #include <linux/pseudo_fs.h>
+ #include <linux/pagemap.h>
+ 
+@@ -27,6 +28,7 @@ struct gmem_file {
+ };
+ 
+ struct gmem_inode {
++	struct shared_policy policy;
+ 	struct inode vfs_inode;
+ };
+ 
+@@ -129,7 +131,25 @@ static int kvm_gmem_prepare_folio(struct kvm *kvm, struct kvm_memory_slot *slot,
+ static struct folio *kvm_gmem_get_folio(struct inode *inode, pgoff_t index)
+ {
+ 	/* TODO: Support huge pages. */
+-	return filemap_grab_folio(inode->i_mapping, index);
++	struct mempolicy *policy;
++	struct folio *folio;
++
++	/*
++	 * Fast-path: See if folio is already present in mapping to avoid
++	 * policy_lookup.
++	 */
++	folio = __filemap_get_folio(inode->i_mapping, index,
++				    FGP_LOCK | FGP_ACCESSED, 0);
++	if (!IS_ERR(folio))
++		return folio;
++
++	policy = mpol_shared_policy_lookup(&GMEM_I(inode)->policy, index);
++	folio = __filemap_get_folio_mpol(inode->i_mapping, index,
++					 FGP_LOCK | FGP_ACCESSED | FGP_CREAT,
++					 mapping_gfp_mask(inode->i_mapping), policy);
++	mpol_cond_put(policy);
++
++	return folio;
+ }
+ 
+ static enum kvm_gfn_range_filter kvm_gmem_get_invalidate_filter(struct inode *inode)
+@@ -411,8 +431,40 @@ static vm_fault_t kvm_gmem_fault_user_mapping(struct vm_fault *vmf)
+ 	return ret;
+ }
+ 
++#ifdef CONFIG_NUMA
++static int kvm_gmem_set_policy(struct vm_area_struct *vma, struct mempolicy *mpol)
++{
++	struct inode *inode = file_inode(vma->vm_file);
++
++	return mpol_set_shared_policy(&GMEM_I(inode)->policy, vma, mpol);
++}
++
++static struct mempolicy *kvm_gmem_get_policy(struct vm_area_struct *vma,
++					     unsigned long addr, pgoff_t *pgoff)
++{
++	struct inode *inode = file_inode(vma->vm_file);
++
++	*pgoff = vma->vm_pgoff + ((addr - vma->vm_start) >> PAGE_SHIFT);
++
++	/*
++	 * Return the memory policy for this index, or NULL if none is set.
++	 *
++	 * Returning NULL, e.g. instead of the current task's memory policy, is
++	 * important for the .get_policy kernel ABI: it indicates that no
++	 * explicit policy has been set via mbind() for this memory. The caller
++	 * can then replace NULL with the default memory policy instead of the
++	 * current task's memory policy.
++	 */
++	return mpol_shared_policy_lookup(&GMEM_I(inode)->policy, *pgoff);
++}
++#endif /* CONFIG_NUMA */
++
+ static const struct vm_operations_struct kvm_gmem_vm_ops = {
+-	.fault = kvm_gmem_fault_user_mapping,
++	.fault		= kvm_gmem_fault_user_mapping,
++#ifdef CONFIG_NUMA
++	.get_policy	= kvm_gmem_get_policy,
++	.set_policy	= kvm_gmem_set_policy,
++#endif
+ };
+ 
+ static int kvm_gmem_mmap(struct file *file, struct vm_area_struct *vma)
+@@ -864,11 +916,13 @@ static struct inode *kvm_gmem_alloc_inode(struct super_block *sb)
+ 	if (!gi)
+ 		return NULL;
+ 
++	mpol_shared_policy_init(&gi->policy, NULL);
+ 	return &gi->vfs_inode;
+ }
+ 
+ static void kvm_gmem_destroy_inode(struct inode *inode)
+ {
++	mpol_free_shared_policy(&GMEM_I(inode)->policy);
+ }
+ 
+ static void kvm_gmem_free_inode(struct inode *inode)
+-- 
+2.50.1
+
