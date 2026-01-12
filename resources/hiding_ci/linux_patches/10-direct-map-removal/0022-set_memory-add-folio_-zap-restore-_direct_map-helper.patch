@@ -1,0 +1,175 @@
+From 11fa4031094890e536874ef874a52386aec89293 Mon Sep 17 00:00:00 2001
+From: Nikita Kalyazin <kalyazin@amazon.com>
+Date: Mon, 12 Jan 2026 14:24:52 +0000
+Subject: [PATCH 22/50] set_memory: add folio_{zap,restore}_direct_map helpers
+
+From: Nikita Kalyazin <kalyazin@amazon.com>
+
+These allow guest_memfd to remove its memory from the direct map.
+Only implement them for x86 and arm64 as guest_memfd is only supported
+on those architectures.
+Only flush TLB in folio_zap_direct_map() on x86 as
+set_direct_map_valid_noflush on arm64 performs the flush internally
+despite of its name.
+Only export to KVM module on x86 as arm64 does not support building KVM
+as a module.
+
+Direct map removal gives guest_memfd the same protection that
+memfd_secret enjoys, such as hardening against Spectre-like attacks
+through in-kernel gadgets.
+
+Based-on-patch-by: Patrick Roy <patrick.roy@linux.dev>
+Signed-off-by: Nikita Kalyazin <kalyazin@amazon.com>
+---
+ arch/arm64/include/asm/set_memory.h     |  2 ++
+ arch/arm64/mm/pageattr.c                | 12 ++++++++++++
+ arch/loongarch/include/asm/set_memory.h |  2 ++
+ arch/riscv/include/asm/set_memory.h     |  2 ++
+ arch/s390/include/asm/set_memory.h      |  2 ++
+ arch/x86/include/asm/set_memory.h       |  2 ++
+ arch/x86/mm/pat/set_memory.c            | 20 ++++++++++++++++++++
+ include/linux/set_memory.h              | 10 ++++++++++
+ 8 files changed, 52 insertions(+)
+
+diff --git a/arch/arm64/include/asm/set_memory.h b/arch/arm64/include/asm/set_memory.h
+index 90f61b17275e..d949f1deb701 100644
+--- a/arch/arm64/include/asm/set_memory.h
++++ b/arch/arm64/include/asm/set_memory.h
+@@ -14,6 +14,8 @@ int set_memory_valid(unsigned long addr, int numpages, int enable);
+ int set_direct_map_invalid_noflush(struct page *page);
+ int set_direct_map_default_noflush(struct page *page);
+ int set_direct_map_valid_noflush(struct page *page, unsigned nr, bool valid);
++int folio_zap_direct_map(struct folio *folio);
++int folio_restore_direct_map(struct folio *folio);
+ bool kernel_page_present(struct page *page);
+ 
+ int set_memory_encrypted(unsigned long addr, int numpages);
+diff --git a/arch/arm64/mm/pageattr.c b/arch/arm64/mm/pageattr.c
+index 5135f2d66958..eb303b1b7c24 100644
+--- a/arch/arm64/mm/pageattr.c
++++ b/arch/arm64/mm/pageattr.c
+@@ -353,6 +353,18 @@ int set_direct_map_valid_noflush(struct page *page, unsigned nr, bool valid)
+ 	return set_memory_valid(addr, nr, valid);
+ }
+ 
++int folio_zap_direct_map(struct folio *folio)
++{
++	return set_direct_map_valid_noflush(folio_page(folio, 0),
++					    folio_nr_pages(folio), false);
++}
++
++int folio_restore_direct_map(struct folio *folio)
++{
++	return set_direct_map_valid_noflush(folio_page(folio, 0),
++					    folio_nr_pages(folio), true);
++}
++
+ #ifdef CONFIG_DEBUG_PAGEALLOC
+ /*
+  * This is - apart from the return value - doing the same
+diff --git a/arch/loongarch/include/asm/set_memory.h b/arch/loongarch/include/asm/set_memory.h
+index 55dfaefd02c8..9bc80ac420a9 100644
+--- a/arch/loongarch/include/asm/set_memory.h
++++ b/arch/loongarch/include/asm/set_memory.h
+@@ -18,5 +18,7 @@ bool kernel_page_present(struct page *page);
+ int set_direct_map_default_noflush(struct page *page);
+ int set_direct_map_invalid_noflush(struct page *page);
+ int set_direct_map_valid_noflush(struct page *page, unsigned nr, bool valid);
++int folio_zap_direct_map(struct folio *folio);
++int folio_restore_direct_map(struct folio *folio);
+ 
+ #endif /* _ASM_LOONGARCH_SET_MEMORY_H */
+diff --git a/arch/riscv/include/asm/set_memory.h b/arch/riscv/include/asm/set_memory.h
+index 87389e93325a..16557b70c830 100644
+--- a/arch/riscv/include/asm/set_memory.h
++++ b/arch/riscv/include/asm/set_memory.h
+@@ -43,6 +43,8 @@ static inline int set_kernel_memory(char *startp, char *endp,
+ int set_direct_map_invalid_noflush(struct page *page);
+ int set_direct_map_default_noflush(struct page *page);
+ int set_direct_map_valid_noflush(struct page *page, unsigned nr, bool valid);
++int folio_zap_direct_map(struct folio *folio);
++int folio_restore_direct_map(struct folio *folio);
+ bool kernel_page_present(struct page *page);
+ 
+ #endif /* __ASSEMBLER__ */
+diff --git a/arch/s390/include/asm/set_memory.h b/arch/s390/include/asm/set_memory.h
+index 94092f4ae764..fc73652e5715 100644
+--- a/arch/s390/include/asm/set_memory.h
++++ b/arch/s390/include/asm/set_memory.h
+@@ -63,6 +63,8 @@ __SET_MEMORY_FUNC(set_memory_4k, SET_MEMORY_4K)
+ int set_direct_map_invalid_noflush(struct page *page);
+ int set_direct_map_default_noflush(struct page *page);
+ int set_direct_map_valid_noflush(struct page *page, unsigned nr, bool valid);
++int folio_zap_direct_map(struct folio *folio);
++int folio_restore_direct_map(struct folio *folio);
+ bool kernel_page_present(struct page *page);
+ 
+ #endif
+diff --git a/arch/x86/include/asm/set_memory.h b/arch/x86/include/asm/set_memory.h
+index 61f56cdaccb5..7208af609121 100644
+--- a/arch/x86/include/asm/set_memory.h
++++ b/arch/x86/include/asm/set_memory.h
+@@ -90,6 +90,8 @@ int set_pages_rw(struct page *page, int numpages);
+ int set_direct_map_invalid_noflush(struct page *page);
+ int set_direct_map_default_noflush(struct page *page);
+ int set_direct_map_valid_noflush(struct page *page, unsigned nr, bool valid);
++int folio_zap_direct_map(struct folio *folio);
++int folio_restore_direct_map(struct folio *folio);
+ bool kernel_page_present(struct page *page);
+ 
+ extern int kernel_set_to_readonly;
+diff --git a/arch/x86/mm/pat/set_memory.c b/arch/x86/mm/pat/set_memory.c
+index 970981893c9b..6bf3f2390ffd 100644
+--- a/arch/x86/mm/pat/set_memory.c
++++ b/arch/x86/mm/pat/set_memory.c
+@@ -2656,6 +2656,26 @@ int set_direct_map_valid_noflush(struct page *page, unsigned nr, bool valid)
+ 	return __set_pages_np(page, nr);
+ }
+ 
++int folio_zap_direct_map(struct folio *folio)
++{
++	unsigned long addr = (unsigned long)folio_address(folio);
++	int ret;
++
++	ret = set_direct_map_valid_noflush(folio_page(folio, 0),
++					   folio_nr_pages(folio), false);
++	flush_tlb_kernel_range(addr, addr + folio_size(folio));
++
++	return ret;
++}
++EXPORT_SYMBOL_FOR_MODULES(folio_zap_direct_map, "kvm");
++
++int folio_restore_direct_map(struct folio *folio)
++{
++	return set_direct_map_valid_noflush(folio_page(folio, 0),
++					    folio_nr_pages(folio), true);
++}
++EXPORT_SYMBOL_FOR_MODULES(folio_restore_direct_map, "kvm");
++
+ #ifdef CONFIG_DEBUG_PAGEALLOC
+ void __kernel_map_pages(struct page *page, int numpages, int enable)
+ {
+diff --git a/include/linux/set_memory.h b/include/linux/set_memory.h
+index 3030d9245f5a..066a5568c194 100644
+--- a/include/linux/set_memory.h
++++ b/include/linux/set_memory.h
+@@ -44,6 +44,16 @@ static inline bool kernel_page_present(struct page *page)
+ {
+ 	return true;
+ }
++
++static inline int folio_zap_direct_map(struct folio *folio)
++{
++	return 0;
++}
++
++static inline int folio_restore_direct_map(struct folio *folio)
++{
++	return 0;
++}
+ #else /* CONFIG_ARCH_HAS_SET_DIRECT_MAP */
+ /*
+  * Some architectures, e.g. ARM64 can disable direct map modifications at
+-- 
+2.50.1
+

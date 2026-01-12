@@ -1,0 +1,42 @@
+From f3889de4e235f3dea6eaf7756c8c97e9f9eb2e57 Mon Sep 17 00:00:00 2001
+From: Patrick Roy <patrick.roy@linux.dev>
+Date: Sun, 23 Nov 2025 18:44:34 +0100
+Subject: [PATCH 27/50] KVM: x86: define kvm_arch_gmem_supports_no_direct_map()
+
+x86 supports GUEST_MEMFD_FLAG_NO_DIRECT_MAP whenever direct map
+modifications are possible (which is always the case).
+
+Signed-off-by: Patrick Roy <patrick.roy@linux.dev>
+Signed-off-by: Nikita Kalyazin <kalyazin@amazon.com>
+---
+ arch/x86/include/asm/kvm_host.h | 9 +++++++++
+ 1 file changed, 9 insertions(+)
+
+diff --git a/arch/x86/include/asm/kvm_host.h b/arch/x86/include/asm/kvm_host.h
+index 48598d017d6f..9fbbc40ebbbf 100644
+--- a/arch/x86/include/asm/kvm_host.h
++++ b/arch/x86/include/asm/kvm_host.h
+@@ -28,6 +28,7 @@
+ #include <linux/sched/vhost_task.h>
+ #include <linux/call_once.h>
+ #include <linux/atomic.h>
++#include <linux/set_memory.h>
+ 
+ #include <asm/apic.h>
+ #include <asm/pvclock-abi.h>
+@@ -2476,4 +2477,12 @@ static inline bool kvm_arch_has_irq_bypass(void)
+ 	return enable_device_posted_irqs;
+ }
+ 
++#ifdef CONFIG_KVM_GUEST_MEMFD
++static inline bool kvm_arch_gmem_supports_no_direct_map(void)
++{
++	return can_set_direct_map();
++}
++#define kvm_arch_gmem_supports_no_direct_map kvm_arch_gmem_supports_no_direct_map
++#endif /* CONFIG_KVM_GUEST_MEMFD */
++
+ #endif /* _ASM_X86_KVM_HOST_H */
+-- 
+2.50.1
+
