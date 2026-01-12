@@ -1,0 +1,59 @@
+From 72c0d4757336312893ad1053596c048dbaf6e651 Mon Sep 17 00:00:00 2001
+From: Shivank Garg <shivankg@amd.com>
+Date: Sun, 12 Oct 2025 07:16:06 +0000
+Subject: [PATCH 03/50] KVM: guest_memfd: move kvm_gmem_get_index() and use in
+ kvm_gmem_prepare_folio()
+
+Move kvm_gmem_get_index() to the top of the file so that it can be used
+in kvm_gmem_prepare_folio() to replace the open-coded calculation.
+
+No functional change intended.
+
+Reviewed-by: David Hildenbrand <david@redhat.com>
+Signed-off-by: Shivank Garg <shivankg@amd.com>
+Link: https://lore.kernel.org/r/20251012071607.17646-1-shivankg@amd.com
+Signed-off-by: Sean Christopherson <seanjc@google.com>
+---
+ virt/kvm/guest_memfd.c | 12 ++++++------
+ 1 file changed, 6 insertions(+), 6 deletions(-)
+
+diff --git a/virt/kvm/guest_memfd.c b/virt/kvm/guest_memfd.c
+index ffadc5ee8e04..f0c4c37d8d48 100644
+--- a/virt/kvm/guest_memfd.c
++++ b/virt/kvm/guest_memfd.c
+@@ -25,6 +25,11 @@ static inline kvm_pfn_t folio_file_pfn(struct folio *folio, pgoff_t index)
+ 	return folio_pfn(folio) + (index & (folio_nr_pages(folio) - 1));
+ }
+ 
++static pgoff_t kvm_gmem_get_index(struct kvm_memory_slot *slot, gfn_t gfn)
++{
++	return gfn - slot->base_gfn + slot->gmem.pgoff;
++}
++
+ static int __kvm_gmem_prepare_folio(struct kvm *kvm, struct kvm_memory_slot *slot,
+ 				    pgoff_t index, struct folio *folio)
+ {
+@@ -78,7 +83,7 @@ static int kvm_gmem_prepare_folio(struct kvm *kvm, struct kvm_memory_slot *slot,
+ 	 * checked when creating memslots.
+ 	 */
+ 	WARN_ON(!IS_ALIGNED(slot->gmem.pgoff, 1 << folio_order(folio)));
+-	index = gfn - slot->base_gfn + slot->gmem.pgoff;
++	index = kvm_gmem_get_index(slot, gfn);
+ 	index = ALIGN_DOWN(index, 1 << folio_order(folio));
+ 	r = __kvm_gmem_prepare_folio(kvm, slot, index, folio);
+ 	if (!r)
+@@ -335,11 +340,6 @@ static inline struct file *kvm_gmem_get_file(struct kvm_memory_slot *slot)
+ 	return get_file_active(&slot->gmem.file);
+ }
+ 
+-static pgoff_t kvm_gmem_get_index(struct kvm_memory_slot *slot, gfn_t gfn)
+-{
+-	return gfn - slot->base_gfn + slot->gmem.pgoff;
+-}
+-
+ static bool kvm_gmem_supports_mmap(struct inode *inode)
+ {
+ 	const u64 flags = (u64)inode->i_private;
+-- 
+2.50.1
+

@@ -1,0 +1,34 @@
+From abe5786a53766b3266fc49701859d59d4402c6f9 Mon Sep 17 00:00:00 2001
+From: Shivank Garg <shivankg@amd.com>
+Date: Sun, 12 Oct 2025 07:16:07 +0000
+Subject: [PATCH 04/50] KVM: guest_memfd: remove redundant gmem variable
+ initialization
+
+Remove redundant initialization of gmem in __kvm_gmem_get_pfn() as it is
+already initialized at the top of the function.
+
+No functional change intended.
+
+Reviewed-by: David Hildenbrand <david@redhat.com>
+Signed-off-by: Shivank Garg <shivankg@amd.com>
+Link: https://lore.kernel.org/r/20251012071607.17646-2-shivankg@amd.com
+Signed-off-by: Sean Christopherson <seanjc@google.com>
+---
+ virt/kvm/guest_memfd.c | 1 -
+ 1 file changed, 1 deletion(-)
+
+diff --git a/virt/kvm/guest_memfd.c b/virt/kvm/guest_memfd.c
+index f0c4c37d8d48..04a455c08202 100644
+--- a/virt/kvm/guest_memfd.c
++++ b/virt/kvm/guest_memfd.c
+@@ -687,7 +687,6 @@ static struct folio *__kvm_gmem_get_pfn(struct file *file,
+ 		return ERR_PTR(-EFAULT);
+ 	}
+ 
+-	gmem = file->private_data;
+ 	if (xa_load(&gmem->bindings, index) != slot) {
+ 		WARN_ON_ONCE(xa_load(&gmem->bindings, index));
+ 		return ERR_PTR(-EIO);
+-- 
+2.50.1
+

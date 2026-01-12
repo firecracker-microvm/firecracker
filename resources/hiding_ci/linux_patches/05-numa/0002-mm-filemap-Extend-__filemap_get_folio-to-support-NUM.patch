@@ -1,0 +1,101 @@
+From e667e0a708b4dc2ed90f7e44bc8d4ad8a423ace7 Mon Sep 17 00:00:00 2001
+From: Matthew Wilcox <willy@infradead.org>
+Date: Wed, 27 Aug 2025 17:52:44 +0000
+Subject: [PATCH 02/50] mm/filemap: Extend __filemap_get_folio() to support
+ NUMA memory policies
+
+Extend __filemap_get_folio() to support NUMA memory policies by
+renaming the implementation to __filemap_get_folio_mpol() and adding
+a mempolicy parameter. The original function becomes a static inline
+wrapper that passes NULL for the mempolicy.
+
+This infrastructure will enable future support for NUMA-aware page cache
+allocations in guest_memfd memory backend KVM guests.
+
+Reviewed-by: Pankaj Gupta <pankaj.gupta@amd.com>
+Reviewed-by: Vlastimil Babka <vbabka@suse.cz>
+Signed-off-by: Matthew Wilcox (Oracle) <willy@infradead.org>
+Reviewed-by: David Hildenbrand <david@redhat.com>
+Signed-off-by: Shivank Garg <shivankg@amd.com>
+Tested-by: Ashish Kalra <ashish.kalra@amd.com>
+Link: https://lore.kernel.org/r/20250827175247.83322-5-shivankg@amd.com
+Signed-off-by: Sean Christopherson <seanjc@google.com>
+---
+ include/linux/pagemap.h | 10 ++++++++--
+ mm/filemap.c            | 11 ++++++-----
+ 2 files changed, 14 insertions(+), 7 deletions(-)
+
+diff --git a/include/linux/pagemap.h b/include/linux/pagemap.h
+index f1d0610210f7..a17fabbc0269 100644
+--- a/include/linux/pagemap.h
++++ b/include/linux/pagemap.h
+@@ -755,11 +755,17 @@ static inline fgf_t fgf_set_order(size_t size)
+ }
+ 
+ void *filemap_get_entry(struct address_space *mapping, pgoff_t index);
+-struct folio *__filemap_get_folio(struct address_space *mapping, pgoff_t index,
+-		fgf_t fgp_flags, gfp_t gfp);
++struct folio *__filemap_get_folio_mpol(struct address_space *mapping,
++		pgoff_t index, fgf_t fgf_flags, gfp_t gfp, struct mempolicy *policy);
+ struct page *pagecache_get_page(struct address_space *mapping, pgoff_t index,
+ 		fgf_t fgp_flags, gfp_t gfp);
+ 
++static inline struct folio *__filemap_get_folio(struct address_space *mapping,
++		pgoff_t index, fgf_t fgf_flags, gfp_t gfp)
++{
++	return __filemap_get_folio_mpol(mapping, index, fgf_flags, gfp, NULL);
++}
++
+ /**
+  * write_begin_get_folio - Get folio for write_begin with flags.
+  * @iocb: The kiocb passed from write_begin (may be NULL).
+diff --git a/mm/filemap.c b/mm/filemap.c
+index 929868f0aa86..3e4579e4b8bb 100644
+--- a/mm/filemap.c
++++ b/mm/filemap.c
+@@ -1928,11 +1928,12 @@ void *filemap_get_entry(struct address_space *mapping, pgoff_t index)
+ }
+ 
+ /**
+- * __filemap_get_folio - Find and get a reference to a folio.
++ * __filemap_get_folio_mpol - Find and get a reference to a folio.
+  * @mapping: The address_space to search.
+  * @index: The page index.
+  * @fgp_flags: %FGP flags modify how the folio is returned.
+  * @gfp: Memory allocation flags to use if %FGP_CREAT is specified.
++ * @policy: NUMA memory allocation policy to follow.
+  *
+  * Looks up the page cache entry at @mapping & @index.
+  *
+@@ -1943,8 +1944,8 @@ void *filemap_get_entry(struct address_space *mapping, pgoff_t index)
+  *
+  * Return: The found folio or an ERR_PTR() otherwise.
+  */
+-struct folio *__filemap_get_folio(struct address_space *mapping, pgoff_t index,
+-		fgf_t fgp_flags, gfp_t gfp)
++struct folio *__filemap_get_folio_mpol(struct address_space *mapping,
++		pgoff_t index, fgf_t fgp_flags, gfp_t gfp, struct mempolicy *policy)
+ {
+ 	struct folio *folio;
+ 
+@@ -2014,7 +2015,7 @@ struct folio *__filemap_get_folio(struct address_space *mapping, pgoff_t index,
+ 			err = -ENOMEM;
+ 			if (order > min_order)
+ 				alloc_gfp |= __GFP_NORETRY | __GFP_NOWARN;
+-			folio = filemap_alloc_folio(alloc_gfp, order, NULL);
++			folio = filemap_alloc_folio(alloc_gfp, order, policy);
+ 			if (!folio)
+ 				continue;
+ 
+@@ -2061,7 +2062,7 @@ struct folio *__filemap_get_folio(struct address_space *mapping, pgoff_t index,
+ 		folio_clear_dropbehind(folio);
+ 	return folio;
+ }
+-EXPORT_SYMBOL(__filemap_get_folio);
++EXPORT_SYMBOL(__filemap_get_folio_mpol);
+ 
+ static inline struct folio *find_get_entry(struct xa_state *xas, pgoff_t max,
+ 		xa_mark_t mark)
+-- 
+2.50.1
+
