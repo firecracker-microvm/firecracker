@@ -24,7 +24,7 @@ bitflags = "2.10.0"
 bitvec = { version = "1.0.1", features = ["atomic", "serde"] }
 byteorder = "1.5.0"
 crc64 = "2.0.0"
-derive_more = { version = "2.1.0", default-features = false, features = [
+derive_more = { version = "2.1.1", default-features = false, features = [
   "from",
   "display",
 ] }
@@ -34,7 +34,7 @@ gdbstub = { version = "0.7.8", optional = true }
 gdbstub_arch = { version = "0.3.2", optional = true }
 kvm-bindings = { version = "0.14.0", features = ["fam-wrappers", "serde"] }
 kvm-ioctls = "0.24.0"
-libc = "0.2.178"
+libc = "0.2.180"
 linux-loader = "0.13.2"
 log = { version = "0.4.29", features = ["std", "serde"] }
 log-instrument = { path = "../log-instrument", optional = true }
@@ -43,7 +43,7 @@ micro_http = { git = "https://github.com/firecracker-microvm/micro-http" }
 pci = { path = "../pci" }
 semver = { version = "1.0.27", features = ["serde"] }
 serde = { version = "1.0.228", features = ["derive", "rc"] }
-serde_json = "1.0.145"
+serde_json = "1.0.149"
 slab = "0.4.11"
 thiserror = "2.0.17"
 userfaultfd = "0.9.0"
@@ -57,7 +57,7 @@ vm-memory = { version = "0.17.1", features = [
 ] }
 vm-superio = "0.8.1"
 vmm-sys-util = { version = "0.15.0", features = ["with-serde"] }
-zerocopy = { version = "0.8.31" }
+zerocopy = { version = "0.8.33" }
 
 [target.'cfg(target_arch = "aarch64")'.dependencies]
 vm-fdt = "0.3.0"
