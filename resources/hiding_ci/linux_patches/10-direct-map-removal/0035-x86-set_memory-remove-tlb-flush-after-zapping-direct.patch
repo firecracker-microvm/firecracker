@@ -1,0 +1,31 @@
+From ffc77e350a61c82474880e98bf65b6ac0c34b1e0 Mon Sep 17 00:00:00 2001
+From: Nikita Kalyazin <kalyazin@amazon.com>
+Date: Mon, 12 Jan 2026 15:51:48 +0000
+Subject: [PATCH 35/50] x86: set_memory: remove tlb flush after zapping direct
+ map
+
+Signed-off-by: Nikita Kalyazin <kalyazin@amazon.com>
+---
+ arch/x86/mm/pat/set_memory.c | 2 --
+ 1 file changed, 2 deletions(-)
+
+diff --git a/arch/x86/mm/pat/set_memory.c b/arch/x86/mm/pat/set_memory.c
+index 6bf3f2390ffd..1f7cd576a068 100644
+--- a/arch/x86/mm/pat/set_memory.c
++++ b/arch/x86/mm/pat/set_memory.c
+@@ -2658,12 +2658,10 @@ int set_direct_map_valid_noflush(struct page *page, unsigned nr, bool valid)
+ 
+ int folio_zap_direct_map(struct folio *folio)
+ {
+-	unsigned long addr = (unsigned long)folio_address(folio);
+ 	int ret;
+ 
+ 	ret = set_direct_map_valid_noflush(folio_page(folio, 0),
+ 					   folio_nr_pages(folio), false);
+-	flush_tlb_kernel_range(addr, addr + folio_size(folio));
+ 
+ 	return ret;
+ }
+-- 
+2.50.1
+
