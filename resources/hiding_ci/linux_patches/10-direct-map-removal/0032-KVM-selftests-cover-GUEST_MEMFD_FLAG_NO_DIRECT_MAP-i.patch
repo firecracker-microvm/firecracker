@@ -1,0 +1,90 @@
+From d9ef1149eb24a5339e571056e8a909b21be92846 Mon Sep 17 00:00:00 2001
+From: Patrick Roy <patrick.roy@linux.dev>
+Date: Sun, 23 Nov 2025 18:44:35 +0100
+Subject: [PATCH 32/50] KVM: selftests: cover GUEST_MEMFD_FLAG_NO_DIRECT_MAP in
+ existing selftests
+
+Extend mem conversion selftests to cover the scenario that the guest can
+fault in and write gmem-backed guest memory even if its direct map
+removed. Also cover the new flag in guest_memfd_test.c tests.
+
+Signed-off-by: Patrick Roy <patrick.roy@linux.dev>
+Signed-off-by: Nikita Kalyazin <kalyazin@amazon.com>
+---
+ tools/testing/selftests/kvm/guest_memfd_test.c  | 17 ++++++++++++++++-
+ .../kvm/x86/private_mem_conversions_test.c      |  7 ++++---
+ 2 files changed, 20 insertions(+), 4 deletions(-)
+
+diff --git a/tools/testing/selftests/kvm/guest_memfd_test.c b/tools/testing/selftests/kvm/guest_memfd_test.c
+index 618c937f3c90..9615018a1a67 100644
+--- a/tools/testing/selftests/kvm/guest_memfd_test.c
++++ b/tools/testing/selftests/kvm/guest_memfd_test.c
+@@ -403,6 +403,17 @@ static void test_guest_memfd(unsigned long vm_type)
+ 		__test_guest_memfd(vm, GUEST_MEMFD_FLAG_MMAP |
+ 				       GUEST_MEMFD_FLAG_INIT_SHARED);
+ 
++	if (flags & GUEST_MEMFD_FLAG_NO_DIRECT_MAP) {
++		__test_guest_memfd(vm, GUEST_MEMFD_FLAG_NO_DIRECT_MAP);
++		if (flags & GUEST_MEMFD_FLAG_MMAP)
++			__test_guest_memfd(vm, GUEST_MEMFD_FLAG_NO_DIRECT_MAP |
++					       GUEST_MEMFD_FLAG_MMAP);
++		if (flags & GUEST_MEMFD_FLAG_INIT_SHARED)
++			__test_guest_memfd(vm, GUEST_MEMFD_FLAG_NO_DIRECT_MAP |
++					       GUEST_MEMFD_FLAG_MMAP |
++					       GUEST_MEMFD_FLAG_INIT_SHARED);
++	}
++
+ 	kvm_vm_free(vm);
+ }
+ 
+@@ -445,10 +456,14 @@ static void test_guest_memfd_guest(void)
+ 	TEST_ASSERT(vm_check_cap(vm, KVM_CAP_GUEST_MEMFD_FLAGS) & GUEST_MEMFD_FLAG_INIT_SHARED,
+ 		    "Default VM type should support INIT_SHARED, supported flags = 0x%x",
+ 		    vm_check_cap(vm, KVM_CAP_GUEST_MEMFD_FLAGS));
++	TEST_ASSERT(vm_check_cap(vm, KVM_CAP_GUEST_MEMFD_FLAGS) & GUEST_MEMFD_FLAG_NO_DIRECT_MAP,
++		    "Default VM type should support INIT_SHARED, supported flags = 0x%x",
++		    vm_check_cap(vm, KVM_CAP_GUEST_MEMFD_FLAGS));
+ 
+ 	size = vm->page_size;
+ 	fd = vm_create_guest_memfd(vm, size, GUEST_MEMFD_FLAG_MMAP |
+-					     GUEST_MEMFD_FLAG_INIT_SHARED);
++					     GUEST_MEMFD_FLAG_INIT_SHARED |
++					     GUEST_MEMFD_FLAG_NO_DIRECT_MAP);
+ 	vm_set_user_memory_region2(vm, slot, KVM_MEM_GUEST_MEMFD, gpa, size, NULL, fd, 0);
+ 
+ 	mem = kvm_mmap(size, PROT_READ | PROT_WRITE, MAP_SHARED, fd);
+diff --git a/tools/testing/selftests/kvm/x86/private_mem_conversions_test.c b/tools/testing/selftests/kvm/x86/private_mem_conversions_test.c
+index 1969f4ab9b28..8767cb4a037e 100644
+--- a/tools/testing/selftests/kvm/x86/private_mem_conversions_test.c
++++ b/tools/testing/selftests/kvm/x86/private_mem_conversions_test.c
+@@ -367,7 +367,7 @@ static void *__test_mem_conversions(void *__vcpu)
+ }
+ 
+ static void test_mem_conversions(enum vm_mem_backing_src_type src_type, uint32_t nr_vcpus,
+-				 uint32_t nr_memslots)
++				 uint32_t nr_memslots, uint64_t gmem_flags)
+ {
+ 	/*
+ 	 * Allocate enough memory so that each vCPU's chunk of memory can be
+@@ -394,7 +394,7 @@ static void test_mem_conversions(enum vm_mem_backing_src_type src_type, uint32_t
+ 
+ 	vm_enable_cap(vm, KVM_CAP_EXIT_HYPERCALL, (1 << KVM_HC_MAP_GPA_RANGE));
+ 
+-	memfd = vm_create_guest_memfd(vm, memfd_size, 0);
++	memfd = vm_create_guest_memfd(vm, memfd_size, gmem_flags);
+ 
+ 	for (i = 0; i < nr_memslots; i++)
+ 		vm_mem_add(vm, src_type, BASE_DATA_GPA + slot_size * i,
+@@ -474,7 +474,8 @@ int main(int argc, char *argv[])
+ 		}
+ 	}
+ 
+-	test_mem_conversions(src_type, nr_vcpus, nr_memslots);
++	test_mem_conversions(src_type, nr_vcpus, nr_memslots, 0);
++	test_mem_conversions(src_type, nr_vcpus, nr_memslots, GUEST_MEMFD_FLAG_NO_DIRECT_MAP);
+ 
+ 	return 0;
+ }
+-- 
+2.50.1
+
