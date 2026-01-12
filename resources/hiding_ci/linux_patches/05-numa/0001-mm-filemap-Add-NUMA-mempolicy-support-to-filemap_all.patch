@@ -1,0 +1,180 @@
+From ad8eb269b976a8c2829a4877bfb6096bd6e9be38 Mon Sep 17 00:00:00 2001
+From: Matthew Wilcox <willy@infradead.org>
+Date: Wed, 27 Aug 2025 17:52:43 +0000
+Subject: [PATCH 01/50] mm/filemap: Add NUMA mempolicy support to
+ filemap_alloc_folio()
+
+Add a mempolicy parameter to filemap_alloc_folio() to enable NUMA-aware
+page cache allocations. This will be used by upcoming changes to
+support NUMA policies in guest-memfd, where guest_memory need to be
+allocated NUMA policy specified by VMM.
+
+All existing users pass NULL maintaining current behavior.
+
+Reviewed-by: Pankaj Gupta <pankaj.gupta@amd.com>
+Reviewed-by: Vlastimil Babka <vbabka@suse.cz>
+Signed-off-by: Matthew Wilcox (Oracle) <willy@infradead.org>
+Reviewed-by: David Hildenbrand <david@redhat.com>
+Signed-off-by: Shivank Garg <shivankg@amd.com>
+Tested-by: Ashish Kalra <ashish.kalra@amd.com>
+Link: https://lore.kernel.org/r/20250827175247.83322-4-shivankg@amd.com
+Signed-off-by: Sean Christopherson <seanjc@google.com>
+---
+ fs/btrfs/compression.c  |  4 ++--
+ fs/btrfs/verity.c       |  2 +-
+ fs/erofs/zdata.c        |  2 +-
+ fs/f2fs/compress.c      |  2 +-
+ include/linux/pagemap.h |  8 +++++---
+ mm/filemap.c            | 14 +++++++++-----
+ mm/readahead.c          |  2 +-
+ 7 files changed, 20 insertions(+), 14 deletions(-)
+
+diff --git a/fs/btrfs/compression.c b/fs/btrfs/compression.c
+index bacad18357b3..d927ae32e7d0 100644
+--- a/fs/btrfs/compression.c
++++ b/fs/btrfs/compression.c
+@@ -491,8 +491,8 @@ static noinline int add_ra_bio_pages(struct inode *inode,
+ 			continue;
+ 		}
+ 
+-		folio = filemap_alloc_folio(mapping_gfp_constraint(mapping,
+-								   ~__GFP_FS), 0);
++		folio = filemap_alloc_folio(mapping_gfp_constraint(mapping, ~__GFP_FS),
++					    0, NULL);
+ 		if (!folio)
+ 			break;
+ 
+diff --git a/fs/btrfs/verity.c b/fs/btrfs/verity.c
+index 46bd8ca58670..d4523d5debcd 100644
+--- a/fs/btrfs/verity.c
++++ b/fs/btrfs/verity.c
+@@ -742,7 +742,7 @@ static struct page *btrfs_read_merkle_tree_page(struct inode *inode,
+ 	}
+ 
+ 	folio = filemap_alloc_folio(mapping_gfp_constraint(inode->i_mapping, ~__GFP_FS),
+-				    0);
++				    0, NULL);
+ 	if (!folio)
+ 		return ERR_PTR(-ENOMEM);
+ 
+diff --git a/fs/erofs/zdata.c b/fs/erofs/zdata.c
+index bc80cfe482f7..b7369fb4fbe9 100644
+--- a/fs/erofs/zdata.c
++++ b/fs/erofs/zdata.c
+@@ -562,7 +562,7 @@ static void z_erofs_bind_cache(struct z_erofs_frontend *fe)
+ 			 * Allocate a managed folio for cached I/O, or it may be
+ 			 * then filled with a file-backed folio for in-place I/O
+ 			 */
+-			newfolio = filemap_alloc_folio(gfp, 0);
++			newfolio = filemap_alloc_folio(gfp, 0, NULL);
+ 			if (!newfolio)
+ 				continue;
+ 			newfolio->private = Z_EROFS_PREALLOCATED_FOLIO;
+diff --git a/fs/f2fs/compress.c b/fs/f2fs/compress.c
+index 6ad8d3bc6df7..a65e8cd388bc 100644
+--- a/fs/f2fs/compress.c
++++ b/fs/f2fs/compress.c
+@@ -1947,7 +1947,7 @@ static void f2fs_cache_compressed_page(struct f2fs_sb_info *sbi,
+ 		return;
+ 	}
+ 
+-	cfolio = filemap_alloc_folio(__GFP_NOWARN | __GFP_IO, 0);
++	cfolio = filemap_alloc_folio(__GFP_NOWARN | __GFP_IO, 0, NULL);
+ 	if (!cfolio)
+ 		return;
+ 
+diff --git a/include/linux/pagemap.h b/include/linux/pagemap.h
+index 09b581c1d878..f1d0610210f7 100644
+--- a/include/linux/pagemap.h
++++ b/include/linux/pagemap.h
+@@ -654,9 +654,11 @@ static inline void *detach_page_private(struct page *page)
+ }
+ 
+ #ifdef CONFIG_NUMA
+-struct folio *filemap_alloc_folio_noprof(gfp_t gfp, unsigned int order);
++struct folio *filemap_alloc_folio_noprof(gfp_t gfp, unsigned int order,
++		struct mempolicy *policy);
+ #else
+-static inline struct folio *filemap_alloc_folio_noprof(gfp_t gfp, unsigned int order)
++static inline struct folio *filemap_alloc_folio_noprof(gfp_t gfp, unsigned int order,
++		struct mempolicy *policy)
+ {
+ 	return folio_alloc_noprof(gfp, order);
+ }
+@@ -667,7 +669,7 @@ static inline struct folio *filemap_alloc_folio_noprof(gfp_t gfp, unsigned int o
+ 
+ static inline struct page *__page_cache_alloc(gfp_t gfp)
+ {
+-	return &filemap_alloc_folio(gfp, 0)->page;
++	return &filemap_alloc_folio(gfp, 0, NULL)->page;
+ }
+ 
+ static inline gfp_t readahead_gfp_mask(struct address_space *x)
+diff --git a/mm/filemap.c b/mm/filemap.c
+index 024b71da5224..929868f0aa86 100644
+--- a/mm/filemap.c
++++ b/mm/filemap.c
+@@ -1002,11 +1002,16 @@ int filemap_add_folio(struct address_space *mapping, struct folio *folio,
+ EXPORT_SYMBOL_GPL(filemap_add_folio);
+ 
+ #ifdef CONFIG_NUMA
+-struct folio *filemap_alloc_folio_noprof(gfp_t gfp, unsigned int order)
++struct folio *filemap_alloc_folio_noprof(gfp_t gfp, unsigned int order,
++		struct mempolicy *policy)
+ {
+ 	int n;
+ 	struct folio *folio;
+ 
++	if (policy)
++		return folio_alloc_mpol_noprof(gfp, order, policy,
++				NO_INTERLEAVE_INDEX, numa_node_id());
++
+ 	if (cpuset_do_page_mem_spread()) {
+ 		unsigned int cpuset_mems_cookie;
+ 		do {
+@@ -2009,7 +2014,7 @@ struct folio *__filemap_get_folio(struct address_space *mapping, pgoff_t index,
+ 			err = -ENOMEM;
+ 			if (order > min_order)
+ 				alloc_gfp |= __GFP_NORETRY | __GFP_NOWARN;
+-			folio = filemap_alloc_folio(alloc_gfp, order);
++			folio = filemap_alloc_folio(alloc_gfp, order, NULL);
+ 			if (!folio)
+ 				continue;
+ 
+@@ -2551,7 +2556,7 @@ static int filemap_create_folio(struct kiocb *iocb, struct folio_batch *fbatch)
+ 	if (iocb->ki_flags & (IOCB_NOWAIT | IOCB_WAITQ))
+ 		return -EAGAIN;
+ 
+-	folio = filemap_alloc_folio(mapping_gfp_mask(mapping), min_order);
++	folio = filemap_alloc_folio(mapping_gfp_mask(mapping), min_order, NULL);
+ 	if (!folio)
+ 		return -ENOMEM;
+ 	if (iocb->ki_flags & IOCB_DONTCACHE)
+@@ -3996,8 +4001,7 @@ static struct folio *do_read_cache_folio(struct address_space *mapping,
+ repeat:
+ 	folio = filemap_get_folio(mapping, index);
+ 	if (IS_ERR(folio)) {
+-		folio = filemap_alloc_folio(gfp,
+-					    mapping_min_folio_order(mapping));
++		folio = filemap_alloc_folio(gfp, mapping_min_folio_order(mapping), NULL);
+ 		if (!folio)
+ 			return ERR_PTR(-ENOMEM);
+ 		index = mapping_align_index(mapping, index);
+diff --git a/mm/readahead.c b/mm/readahead.c
+index 3a4b5d58eeb6..b415c9969176 100644
+--- a/mm/readahead.c
++++ b/mm/readahead.c
+@@ -186,7 +186,7 @@ static struct folio *ractl_alloc_folio(struct readahead_control *ractl,
+ {
+ 	struct folio *folio;
+ 
+-	folio = filemap_alloc_folio(gfp_mask, order);
++	folio = filemap_alloc_folio(gfp_mask, order, NULL);
+ 	if (folio && ractl->dropbehind)
+ 		__folio_set_dropbehind(folio);
+ 
+
+base-commit: 7d0a66e4bb9081d75c82ec4957c50034cb0ea449
+-- 
+2.50.1
+
