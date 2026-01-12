@@ -1,0 +1,189 @@
+From ae33eb7697448f1a8289e5aaab14fb60aac9a0a0 Mon Sep 17 00:00:00 2001
+From: Patrick Roy <patrick.roy@linux.dev>
+Date: Sun, 23 Nov 2025 18:44:35 +0100
+Subject: [PATCH 31/50] KVM: selftests: Add guest_memfd based
+ vm_mem_backing_src_types
+
+Allow selftests to configure their memslots such that userspace_addr is
+set to a MAP_SHARED mapping of the guest_memfd that's associated with
+the memslot. This setup is the configuration for non-CoCo VMs, where all
+guest memory is backed by a guest_memfd whose folios are all marked
+shared, but KVM is still able to access guest memory to provide
+functionality such as MMIO emulation on x86.
+
+Add backing types for normal guest_memfd, as well as direct map removed
+guest_memfd.
+
+Signed-off-by: Patrick Roy <patrick.roy@linux.dev>
+Signed-off-by: Nikita Kalyazin <kalyazin@amazon.com>
+---
+ .../testing/selftests/kvm/include/kvm_util.h  | 18 ++++++
+ .../testing/selftests/kvm/include/test_util.h |  7 +++
+ tools/testing/selftests/kvm/lib/kvm_util.c    | 61 ++++++++++---------
+ tools/testing/selftests/kvm/lib/test_util.c   |  8 +++
+ 4 files changed, 65 insertions(+), 29 deletions(-)
+
+diff --git a/tools/testing/selftests/kvm/include/kvm_util.h b/tools/testing/selftests/kvm/include/kvm_util.h
+index c2481be61434..15049943ce80 100644
+--- a/tools/testing/selftests/kvm/include/kvm_util.h
++++ b/tools/testing/selftests/kvm/include/kvm_util.h
+@@ -641,6 +641,24 @@ static inline bool is_smt_on(void)
+ 
+ void vm_create_irqchip(struct kvm_vm *vm);
+ 
++static inline uint32_t backing_src_guest_memfd_flags(enum vm_mem_backing_src_type t)
++{
++	uint32_t flags = 0;
++
++	switch (t) {
++	case VM_MEM_SRC_GUEST_MEMFD_NO_DIRECT_MAP:
++		flags |= GUEST_MEMFD_FLAG_NO_DIRECT_MAP;
++		fallthrough;
++	case VM_MEM_SRC_GUEST_MEMFD:
++		flags |= GUEST_MEMFD_FLAG_MMAP | GUEST_MEMFD_FLAG_INIT_SHARED;
++		break;
++	default:
++		break;
++	}
++
++	return flags;
++}
++
+ static inline int __vm_create_guest_memfd(struct kvm_vm *vm, uint64_t size,
+ 					uint64_t flags)
+ {
+diff --git a/tools/testing/selftests/kvm/include/test_util.h b/tools/testing/selftests/kvm/include/test_util.h
+index 8140e59b59e5..ea6de20ce8ef 100644
+--- a/tools/testing/selftests/kvm/include/test_util.h
++++ b/tools/testing/selftests/kvm/include/test_util.h
+@@ -152,6 +152,8 @@ enum vm_mem_backing_src_type {
+ 	VM_MEM_SRC_ANONYMOUS_HUGETLB_16GB,
+ 	VM_MEM_SRC_SHMEM,
+ 	VM_MEM_SRC_SHARED_HUGETLB,
++	VM_MEM_SRC_GUEST_MEMFD,
++	VM_MEM_SRC_GUEST_MEMFD_NO_DIRECT_MAP,
+ 	NUM_SRC_TYPES,
+ };
+ 
+@@ -184,6 +186,11 @@ static inline bool backing_src_is_shared(enum vm_mem_backing_src_type t)
+ 	return vm_mem_backing_src_alias(t)->flag & MAP_SHARED;
+ }
+ 
++static inline bool backing_src_is_guest_memfd(enum vm_mem_backing_src_type t)
++{
++	return t == VM_MEM_SRC_GUEST_MEMFD || t == VM_MEM_SRC_GUEST_MEMFD_NO_DIRECT_MAP;
++}
++
+ static inline bool backing_src_can_be_huge(enum vm_mem_backing_src_type t)
+ {
+ 	return t != VM_MEM_SRC_ANONYMOUS && t != VM_MEM_SRC_SHMEM;
+diff --git a/tools/testing/selftests/kvm/lib/kvm_util.c b/tools/testing/selftests/kvm/lib/kvm_util.c
+index d2d9794e0b39..d68ab2d3dc84 100644
+--- a/tools/testing/selftests/kvm/lib/kvm_util.c
++++ b/tools/testing/selftests/kvm/lib/kvm_util.c
+@@ -1011,6 +1011,33 @@ void vm_mem_add(struct kvm_vm *vm, enum vm_mem_backing_src_type src_type,
+ 	alignment = 1;
+ #endif
+ 
++	if (guest_memfd < 0) {
++		if ((flags & KVM_MEM_GUEST_MEMFD) || backing_src_is_guest_memfd(src_type)) {
++			uint32_t guest_memfd_flags = backing_src_guest_memfd_flags(src_type);
++
++			TEST_ASSERT(!guest_memfd_offset,
++				    "Offset must be zero when creating new guest_memfd");
++			guest_memfd = vm_create_guest_memfd(vm, mem_size, guest_memfd_flags);
++		}
++	} else {
++		/*
++		 * Install a unique fd for each memslot so that the fd
++		 * can be closed when the region is deleted without
++		 * needing to track if the fd is owned by the framework
++		 * or by the caller.
++		 */
++		guest_memfd = kvm_dup(guest_memfd);
++	}
++
++	if (guest_memfd > 0) {
++		flags |= KVM_MEM_GUEST_MEMFD;
++
++		region->region.guest_memfd = guest_memfd;
++		region->region.guest_memfd_offset = guest_memfd_offset;
++	} else {
++		region->region.guest_memfd = -1;
++	}
++
+ 	/*
+ 	 * When using THP mmap is not guaranteed to returned a hugepage aligned
+ 	 * address so we have to pad the mmap. Padding is not needed for HugeTLB
+@@ -1026,10 +1053,13 @@ void vm_mem_add(struct kvm_vm *vm, enum vm_mem_backing_src_type src_type,
+ 	if (alignment > 1)
+ 		region->mmap_size += alignment;
+ 
+-	region->fd = -1;
+-	if (backing_src_is_shared(src_type))
++	if (backing_src_is_guest_memfd(src_type))
++		region->fd = guest_memfd;
++	else if (backing_src_is_shared(src_type))
+ 		region->fd = kvm_memfd_alloc(region->mmap_size,
+ 					     src_type == VM_MEM_SRC_SHARED_HUGETLB);
++	else
++		region->fd = -1;
+ 
+ 	region->mmap_start = kvm_mmap(region->mmap_size, PROT_READ | PROT_WRITE,
+ 				      vm_mem_backing_src_alias(src_type)->flag,
+@@ -1054,33 +1084,6 @@ void vm_mem_add(struct kvm_vm *vm, enum vm_mem_backing_src_type src_type,
+ 	}
+ 
+ 	region->backing_src_type = src_type;
+-
+-	if (guest_memfd < 0) {
+-		if (flags & KVM_MEM_GUEST_MEMFD) {
+-			uint32_t guest_memfd_flags = 0;
+-			TEST_ASSERT(!guest_memfd_offset,
+-				    "Offset must be zero when creating new guest_memfd");
+-			guest_memfd = vm_create_guest_memfd(vm, mem_size, guest_memfd_flags);
+-		}
+-	} else {
+-		/*
+-		 * Install a unique fd for each memslot so that the fd
+-		 * can be closed when the region is deleted without
+-		 * needing to track if the fd is owned by the framework
+-		 * or by the caller.
+-		 */
+-		guest_memfd = kvm_dup(guest_memfd);
+-	}
+-
+-	if (guest_memfd > 0) {
+-		flags |= KVM_MEM_GUEST_MEMFD;
+-
+-		region->region.guest_memfd = guest_memfd;
+-		region->region.guest_memfd_offset = guest_memfd_offset;
+-	} else {
+-		region->region.guest_memfd = -1;
+-	}
+-
+ 	region->unused_phy_pages = sparsebit_alloc();
+ 	if (vm_arch_has_protected_memory(vm))
+ 		region->protected_phy_pages = sparsebit_alloc();
+diff --git a/tools/testing/selftests/kvm/lib/test_util.c b/tools/testing/selftests/kvm/lib/test_util.c
+index 8a1848586a85..ce9fe0271515 100644
+--- a/tools/testing/selftests/kvm/lib/test_util.c
++++ b/tools/testing/selftests/kvm/lib/test_util.c
+@@ -306,6 +306,14 @@ const struct vm_mem_backing_src_alias *vm_mem_backing_src_alias(uint32_t i)
+ 			 */
+ 			.flag = MAP_SHARED,
+ 		},
++		[VM_MEM_SRC_GUEST_MEMFD] = {
++			.name = "guest_memfd",
++			.flag = MAP_SHARED,
++		},
++		[VM_MEM_SRC_GUEST_MEMFD_NO_DIRECT_MAP] = {
++			.name = "guest_memfd_no_direct_map",
++			.flag = MAP_SHARED,
++		}
+ 	};
+ 	_Static_assert(ARRAY_SIZE(aliases) == NUM_SRC_TYPES,
+ 		       "Missing new backing src types?");
+-- 
+2.50.1
+

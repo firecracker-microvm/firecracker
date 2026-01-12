@@ -1,0 +1,64 @@
+From 1867ec7f5af8e591fbd6730d37d31b497cd4ca48 Mon Sep 17 00:00:00 2001
+From: Patrick Roy <patrick.roy@linux.dev>
+Date: Sun, 23 Nov 2025 18:44:33 +0100
+Subject: [PATCH 25/50] KVM: guest_memfd: Add stub for kvm_arch_gmem_invalidate
+
+Add a no-op stub for kvm_arch_gmem_invalidate if
+CONFIG_HAVE_KVM_ARCH_GMEM_INVALIDATE=n. This allows defining
+kvm_gmem_free_folio without ifdef-ery, which allows more cleanly using
+guest_memfd's free_folio callback for non-arch-invalidation related
+code.
+
+Acked-by: David Hildenbrand (Red Hat)" <david@kernel.org
+Acked-by: Vlastimil Babka <vbabka@suse.cz>
+Signed-off-by: Patrick Roy <patrick.roy@linux.dev>
+Signed-off-by: Nikita Kalyazin <kalyazin@amazon.com>
+---
+ include/linux/kvm_host.h | 2 ++
+ virt/kvm/guest_memfd.c   | 4 ----
+ 2 files changed, 2 insertions(+), 4 deletions(-)
+
+diff --git a/include/linux/kvm_host.h b/include/linux/kvm_host.h
+index 5bd76cf394fa..93ff1cb9e6cd 100644
+--- a/include/linux/kvm_host.h
++++ b/include/linux/kvm_host.h
+@@ -2599,6 +2599,8 @@ long kvm_gmem_populate(struct kvm *kvm, gfn_t gfn, void __user *src, long npages
+ 
+ #ifdef CONFIG_HAVE_KVM_ARCH_GMEM_INVALIDATE
+ void kvm_arch_gmem_invalidate(kvm_pfn_t start, kvm_pfn_t end);
++#else
++static inline void kvm_arch_gmem_invalidate(kvm_pfn_t start, kvm_pfn_t end) { }
+ #endif
+ 
+ #ifdef CONFIG_KVM_GENERIC_PRE_FAULT_MEMORY
+diff --git a/virt/kvm/guest_memfd.c b/virt/kvm/guest_memfd.c
+index 427c0acee9d7..658b611760ff 100644
+--- a/virt/kvm/guest_memfd.c
++++ b/virt/kvm/guest_memfd.c
+@@ -527,7 +527,6 @@ static int kvm_gmem_error_folio(struct address_space *mapping, struct folio *fol
+ 	return MF_DELAYED;
+ }
+ 
+-#ifdef CONFIG_HAVE_KVM_ARCH_GMEM_INVALIDATE
+ static void kvm_gmem_free_folio(struct folio *folio)
+ {
+ 	struct page *page = folio_page(folio, 0);
+@@ -536,15 +535,12 @@ static void kvm_gmem_free_folio(struct folio *folio)
+ 
+ 	kvm_arch_gmem_invalidate(pfn, pfn + (1ul << order));
+ }
+-#endif
+ 
+ static const struct address_space_operations kvm_gmem_aops = {
+ 	.dirty_folio = noop_dirty_folio,
+ 	.migrate_folio	= kvm_gmem_migrate_folio,
+ 	.error_remove_folio = kvm_gmem_error_folio,
+-#ifdef CONFIG_HAVE_KVM_ARCH_GMEM_INVALIDATE
+ 	.free_folio = kvm_gmem_free_folio,
+-#endif
+ };
+ 
+ static int kvm_gmem_setattr(struct mnt_idmap *idmap, struct dentry *dentry,
+-- 
+2.50.1
+
