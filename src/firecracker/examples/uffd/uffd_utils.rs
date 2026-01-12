@@ -334,7 +334,7 @@ impl UffdHandler {
             };
 
             let bytes_written = match bytes_written {
-                -1 if vmm_sys_util::errno::Error::last().errno() == libc::ENOSPC => 0,
+                -1 if vmm_sys_util::errno::Error::last().errno() == libc::EEXIST => 0,
                 written @ 0.. => written as usize,
                 _ => panic!("{:?}", std::io::Error::last_os_error()),
             };

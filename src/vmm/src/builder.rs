@@ -65,7 +65,10 @@ use crate::vstate::memory::{
 #[cfg(target_arch = "aarch64")]
 use crate::vstate::resources::ResourceAllocator;
 use crate::vstate::vcpu::VcpuError;
-use crate::vstate::vm::{GUEST_MEMFD_FLAG_MMAP, GUEST_MEMFD_FLAG_NO_DIRECT_MAP, Vm, VmError};
+use crate::vstate::vm::{
+    GUEST_MEMFD_FLAG_INIT_SHARED, GUEST_MEMFD_FLAG_MMAP, GUEST_MEMFD_FLAG_NO_DIRECT_MAP,
+    GUEST_MEMFD_FLAG_WRITE, Vm, VmError,
+};
 use crate::{EventManager, Vmm, VmmError};
 
 /// Errors associated with starting the instance.
@@ -145,8 +148,7 @@ impl std::convert::From<linux_loader::cmdline::Error> for StartMicrovmError {
     }
 }
 
-const KVM_CAP_GUEST_MEMFD_MMAP: u32 = 244;
-const KVM_CAP_GUEST_MEMFD_NO_DIRECT_MAP: u32 = 245;
+const KVM_CAP_GUEST_MEMFD_FLAGS: u32 = 244;
 
 /// Builds and starts a microVM based on the current Firecracker VmResources configuration.
 ///
@@ -183,8 +185,7 @@ pub fn build_microvm_for_boot(
 
     if secret_free {
         kvm_capabilities.push(KvmCapability::Add(Cap::GuestMemfd as u32));
-        kvm_capabilities.push(KvmCapability::Add(KVM_CAP_GUEST_MEMFD_MMAP));
-        kvm_capabilities.push(KvmCapability::Add(KVM_CAP_GUEST_MEMFD_NO_DIRECT_MAP));
+        kvm_capabilities.push(KvmCapability::Add(KVM_CAP_GUEST_MEMFD_FLAGS));
     }
 
     let kvm = Kvm::new(kvm_capabilities)?;
@@ -198,7 +199,9 @@ pub fn build_microvm_for_boot(
         true => Some(Arc::new(
             vm.create_guest_memfd(
                 vm_resources.dram_memory_size() + vm_resources.hotplug_memory_size(),
-                GUEST_MEMFD_FLAG_MMAP | GUEST_MEMFD_FLAG_NO_DIRECT_MAP,
+                GUEST_MEMFD_FLAG_MMAP
+                    | GUEST_MEMFD_FLAG_INIT_SHARED
+                    | GUEST_MEMFD_FLAG_NO_DIRECT_MAP,
             )
             .map_err(VmmError::Vm)?,
         )),
@@ -574,7 +577,7 @@ pub fn build_microvm_from_snapshot(
     vm_resources: &mut VmResources,
 ) -> Result<Arc<Mutex<Vmm>>, BuildMicrovmFromSnapshotError> {
     // TODO: take it from kvm-bindings when userfault support is merged upstream
-    const KVM_CAP_USERFAULT: u32 = 246;
+    const KVM_CAP_USERFAULT: u32 = 245;
 
     // Build Vmm.
     debug!("event_start: build microvm from snapshot");
@@ -583,8 +586,7 @@ pub fn build_microvm_from_snapshot(
     let mut kvm_capabilities = microvm_state.kvm_state.kvm_cap_modifiers.clone();
     if secret_free {
         kvm_capabilities.push(KvmCapability::Add(Cap::GuestMemfd as u32));
-        kvm_capabilities.push(KvmCapability::Add(KVM_CAP_GUEST_MEMFD_MMAP));
-        kvm_capabilities.push(KvmCapability::Add(KVM_CAP_GUEST_MEMFD_NO_DIRECT_MAP));
+        kvm_capabilities.push(KvmCapability::Add(KVM_CAP_GUEST_MEMFD_FLAGS));
         kvm_capabilities.push(KvmCapability::Add(KVM_CAP_USERFAULT));
     }
 
@@ -602,7 +604,10 @@ pub fn build_microvm_from_snapshot(
         true => Some(
             vm.create_guest_memfd(
                 memory_size_from_mem_state(&microvm_state.vm_state.memory),
-                GUEST_MEMFD_FLAG_MMAP | GUEST_MEMFD_FLAG_NO_DIRECT_MAP,
+                GUEST_MEMFD_FLAG_MMAP
+                    | GUEST_MEMFD_FLAG_INIT_SHARED
+                    | GUEST_MEMFD_FLAG_NO_DIRECT_MAP
+                    | GUEST_MEMFD_FLAG_WRITE,
             )
             .map_err(VmmError::Vm)?,
         ),
