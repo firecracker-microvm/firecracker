@@ -54,7 +54,9 @@ pub enum StartVcpusError {
 }
 
 pub(crate) const GUEST_MEMFD_FLAG_MMAP: u64 = 1;
-pub(crate) const GUEST_MEMFD_FLAG_NO_DIRECT_MAP: u64 = 2;
+pub(crate) const GUEST_MEMFD_FLAG_INIT_SHARED: u64 = 2;
+pub(crate) const GUEST_MEMFD_FLAG_NO_DIRECT_MAP: u64 = 4;
+pub(crate) const GUEST_MEMFD_FLAG_WRITE: u64 = 8;
 
 /// KVM userfault information
 #[derive(Copy, Clone, Default, Eq, PartialEq, Debug)]
