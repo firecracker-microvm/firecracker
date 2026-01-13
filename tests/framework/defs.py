@@ -43,4 +43,4 @@ if not ARTIFACT_DIR.exists():
         .read_text(encoding="utf-8")
         .strip()
     )
-    ARTIFACT_DIR = LOCAL_BUILD_PATH / current_artifacts_dir
+    ARTIFACT_DIR = FC_WORKSPACE_DIR / current_artifacts_dir
