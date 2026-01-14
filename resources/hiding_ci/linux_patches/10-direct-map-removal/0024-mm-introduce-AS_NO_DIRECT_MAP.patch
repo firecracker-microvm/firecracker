@@ -1,9 +1,7 @@
-From 7d4a20beafd780537b730263c30f5bdeaebab747 Mon Sep 17 00:00:00 2001
-From: Nikita Kalyazin <kalyazin@amazon.com>
+From 5dbca69a2c0a711d91a4473e25c74d66205850bd Mon Sep 17 00:00:00 2001
+From: Patrick Roy <patrick.roy@linux.dev>
 Date: Mon, 12 Jan 2026 15:29:36 +0000
 Subject: [PATCH 24/50] mm: introduce AS_NO_DIRECT_MAP
-
-From: Patrick Roy <patrick.roy@linux.dev>
 
 Add AS_NO_DIRECT_MAP for mappings where direct map entries of folios are
 set to not present. Currently, mappings that match this description are
@@ -24,9 +22,9 @@ can be mapped to userspace should also be GUP-able, and generally not
 have restrictions on who can access it).
 
 Acked-by: Mike Rapoport (Microsoft) <rppt@kernel.org>
-Acked-by: David Hildenbrand (Red Hat)" <david@kernel.org>
-Acked-by: Vlastimil Babka <vbabka@suse.cz>
+Acked-by: David Hildenbrand (Red Hat) <david@kernel.org>
 Signed-off-by: Patrick Roy <patrick.roy@linux.dev>
+Acked-by: Vlastimil Babka <vbabka@suse.cz>
 Signed-off-by: Nikita Kalyazin <kalyazin@amazon.com>
 ---
  include/linux/pagemap.h   | 16 ++++++++++++++++
