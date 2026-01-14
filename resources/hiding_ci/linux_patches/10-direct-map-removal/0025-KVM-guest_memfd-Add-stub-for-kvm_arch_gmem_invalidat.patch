@@ -1,4 +1,4 @@
-From 1867ec7f5af8e591fbd6730d37d31b497cd4ca48 Mon Sep 17 00:00:00 2001
+From fe4036b78292891978bd9aa35c4e541cdc1c8b05 Mon Sep 17 00:00:00 2001
 From: Patrick Roy <patrick.roy@linux.dev>
 Date: Sun, 23 Nov 2025 18:44:33 +0100
 Subject: [PATCH 25/50] KVM: guest_memfd: Add stub for kvm_arch_gmem_invalidate
@@ -9,9 +9,9 @@ kvm_gmem_free_folio without ifdef-ery, which allows more cleanly using
 guest_memfd's free_folio callback for non-arch-invalidation related
 code.
 
-Acked-by: David Hildenbrand (Red Hat)" <david@kernel.org
-Acked-by: Vlastimil Babka <vbabka@suse.cz>
+Acked-by: David Hildenbrand (Red Hat) <david@kernel.org>
 Signed-off-by: Patrick Roy <patrick.roy@linux.dev>
+Acked-by: Vlastimil Babka <vbabka@suse.cz>
 Signed-off-by: Nikita Kalyazin <kalyazin@amazon.com>
 ---
  include/linux/kvm_host.h | 2 ++
