@@ -738,7 +738,6 @@ apply_linux_61_tweaks() {
 
 # Modifies the processors CPU governor and P-state configuration (x86_64 only) for consistent performance. This means
 # - Disable turbo boost (Intel only) by writing 1 to /sys/devices/system/cpu/intel_pstate/no_turbo
-# - Disable turbo boost (AMD only) by writing 0 to /sys/devices/system/cpu/cpufreq/boost
 # - Lock the CPUs' P-state to the highest non-turbo one (Intel only) by writing 100 to /sys/devices/system/cpu/intel_pstate/{min,max}_perf_pct
 # - Set the cpu frequency governor to performance by writing "performance" to /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor
 apply_performance_tweaks() {
@@ -757,8 +756,6 @@ apply_performance_tweaks() {
     # https://www.kernel.org/doc/html/v4.12/admin-guide/pm/intel_pstate.html
     echo 100 |sudo tee /sys/devices/system/cpu/intel_pstate/min_perf_pct &> /dev/null
     echo 100 |sudo tee /sys/devices/system/cpu/intel_pstate/max_perf_pct &> /dev/null
-  elif [[ -f /sys/devices/system/cpu/cpufreq/boost ]]; then
-    echo 0 |sudo tee /sys/devices/system/cpu/cpufreq/boost &> /dev/null
   fi
 
   # The governor is a linux component that can adjust CPU frequency. "performance" tells it to always run CPUs at
@@ -775,8 +772,6 @@ unapply_performance_tweaks() {
     # restore p-state limits
     echo $MIN_PERF_PCT |sudo tee /sys/devices/system/cpu/intel_pstate/min_perf_pct &> /dev/null
     echo $MAX_PERF_PCT |sudo tee /sys/devices/system/cpu/intel_pstate/max_perf_pct &> /dev/null
-  elif [[ -f /sys/devices/system/cpu/cpufreq/boost ]]; then
-    echo 1 | sudo tee /sys/devices/system/cpu/cpufreq/boost &> /dev/null
   fi
 
   # We do not reset the governor, as keeping track of each CPUs configured governor is not trivial here. On our CI
