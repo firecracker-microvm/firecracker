@@ -5,7 +5,7 @@ use std::ffi::{CStr, CString, OsString};
 use std::fs::{self, File, OpenOptions, Permissions, canonicalize, read_to_string};
 use std::io;
 use std::io::Write;
-use std::os::unix::fs::PermissionsExt;
+use std::os::unix::fs::{MetadataExt, OpenOptionsExt, PermissionsExt, fchown};
 use std::os::unix::io::AsRawFd;
 use std::os::unix::process::CommandExt;
 use std::path::{Component, Path, PathBuf};
@@ -478,7 +478,35 @@ impl Env {
         //    Firecracker binary (like the executable .text section), this latter part is not
         //    desirable in Firecracker's threat model. Copying prevents 2 Firecracker processes from
         //    sharing memory.
-        fs::copy(&self.exec_file_path, &jailer_exec_file_path).map_err(|err| {
+        let mut src_file = OpenOptions::new()
+            .read(true)
+            .open(&self.exec_file_path)
+            .map_err(|err| JailerError::Open(self.exec_file_path.clone(), err))?;
+        let src_file_metadata = src_file
+            .metadata()
+            .map_err(|err| JailerError::Metadata(self.exec_file_path.clone(), err))?;
+        let src_file_mode = src_file_metadata.mode();
+        let mut dst_file = OpenOptions::new()
+            .write(true)
+            .create(true)
+            // Don't allow symlinks
+            .custom_flags(libc::O_NOFOLLOW)
+            .mode(src_file_mode)
+            .open(&jailer_exec_file_path)
+            .map_err(|err| JailerError::Open(jailer_exec_file_path.clone(), err))?;
+        let dst_file_metadata = dst_file
+            .metadata()
+            .map_err(|err| JailerError::Metadata(jailer_exec_file_path.clone(), err))?;
+        if 1 < dst_file_metadata.nlink() {
+            return Err(JailerError::HardLink(jailer_exec_file_path.clone()));
+        }
+
+        // Mark destination file as owned by the specified uid/gid
+        fchown(&dst_file, Some(self.uid()), Some(self.gid()))
+            .map_err(|err| JailerError::ChangeFileOwner(jailer_exec_file_path.clone(), err))?;
+
+        // Ignore the output since it is not interesting in this case
+        _ = std::io::copy(&mut src_file, &mut dst_file).map_err(|err| {
             JailerError::Copy(
                 self.exec_file_path.clone(),
                 jailer_exec_file_path.clone(),
@@ -629,7 +657,10 @@ impl Env {
 
         // If daemonization was requested, open /dev/null before chrooting.
         let dev_null = if self.daemonize {
-            Some(File::open("/dev/null").map_err(JailerError::OpenDevNull)?)
+            Some(
+                File::open("/dev/null")
+                    .map_err(|err| JailerError::Open("/dev/null".into(), err))?,
+            )
         } else {
             None
         };
@@ -1212,7 +1243,6 @@ mod tests {
             env.copy_exec_to_chroot().unwrap(),
             exec_file_name.to_os_string()
         );
-
         let dest_path = env.chroot_dir.join(exec_file_name);
         // Check that `fs::copy()` copied src content and permission bits to destination.
         let metadata_src = fs::metadata(&env.exec_file_path).unwrap();
