@@ -107,6 +107,44 @@ def test_exec_file_not_exist(uvm_plain, tmp_path):
         test_microvm.spawn()
 
 
+def test_exec_destination_path_is_symlink(uvm_plain):
+    """
+    Test the jailer correctly refuses to copy binary into symlink
+    """
+    test_microvm = uvm_plain
+
+    firecracker_root_dir = Path(test_microvm.chroot())
+    firecracker_bin_path = firecracker_root_dir / "firecracker"
+    dummy_path = Path("/srv/dummy")
+    dummy_path.unlink(missing_ok=True)
+    dummy_path.touch()
+    firecracker_bin_path.symlink_to(dummy_path)
+    with pytest.raises(
+        Exception,
+        match=f"Failed to open {firecracker_bin_path}",
+    ):
+        test_microvm.spawn()
+
+
+def test_exec_destination_path_is_hardlink(uvm_plain):
+    """
+    Test the jailer correctly refuses to copy binary into hardlink
+    """
+    test_microvm = uvm_plain
+
+    firecracker_root_dir = Path(test_microvm.chroot())
+    firecracker_bin_path = firecracker_root_dir / "firecracker"
+    dummy_path = Path("/srv/dummy")
+    dummy_path.unlink(missing_ok=True)
+    dummy_path.touch()
+    firecracker_bin_path.hardlink_to(dummy_path)
+    with pytest.raises(
+        Exception,
+        match=f"Detected hard link at: {firecracker_bin_path}",
+    ):
+        test_microvm.spawn()
+
+
 def test_default_chroot_hierarchy(uvm_plain):
     """
     Test the folder hierarchy created by default by the jailer.
@@ -154,7 +192,10 @@ def test_default_chroot_hierarchy(uvm_plain):
         test_microvm.jailer.gid,
     )
     check_stats(
-        os.path.join(test_microvm.jailer.chroot_path(), "firecracker"), FILE_STATS, 0, 0
+        os.path.join(test_microvm.jailer.chroot_path(), "firecracker"),
+        FILE_STATS,
+        test_microvm.jailer.uid,
+        test_microvm.jailer.gid,
     )
 
 
