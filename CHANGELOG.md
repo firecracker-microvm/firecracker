@@ -23,6 +23,9 @@ and this project adheres to
 
 ### Changed
 
+- [#5595](https://github.com/firecracker-microvm/firecracker/pull/5595): Added
+  `vsock_type` field to the vsock device API to denote the type of the
+  underlying socket. Can be `stream` or `seqpacket`
 - [#5564](https://github.com/firecracker-microvm/firecracker/pull/5564): which
   added support for VMClock, uses one extra GSI for the VMClock device itself
   which reduces the available GSIs for VirtIO devices. New maximum values is 92

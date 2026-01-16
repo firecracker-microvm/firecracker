@@ -939,7 +939,7 @@ pub mod tests {
     fn test_try_from_put_vsock() {
         let (mut sender, receiver) = UnixStream::pair().unwrap();
         let mut connection = HttpConnection::new(receiver);
-        let body = "{ \"vsock_id\": \"string\", \"guest_cid\": 0, \"uds_path\": \"string\" }";
+        let body = "{ \"vsock_id\": \"string\", \"guest_cid\": 0, \"uds_path\": \"string\", \"vsock_type\": \"stream\" }";
         sender
             .write_all(http_request("PUT", "/vsock", Some(body)).as_bytes())
             .unwrap();
