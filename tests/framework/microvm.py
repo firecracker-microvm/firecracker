@@ -1139,6 +1139,12 @@ class Microvm:
             resume_vm=resume,
             **optional_kwargs,
         )
+
+        if self.memory_monitor:
+            response = self.api.machine_config.get()
+            self.mem_size_bytes = int(response.json()["mem_size_mib"]) * 2**20
+            self.memory_monitor.start()
+
         # This is not a "wait for boot", but rather a "VM still works after restoration"
         if jailed_snapshot.net_ifaces and resume:
             self.wait_for_ssh_up()
