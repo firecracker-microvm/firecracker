@@ -86,6 +86,10 @@
                 "comment": "Used by the block device"
             },
             {
+                "syscall": "fallocate",
+                "comment": "Used by the block device for discard (hole punching)"
+            },
+            {
                 "syscall": "mremap",
                 "comment": "Used for re-allocating large memory regions, for example vectors"
             },
