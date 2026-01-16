@@ -108,6 +108,8 @@ pub struct VsockMuxer {
     local_port_set: HashSet<u32>,
     /// The last used host-side port.
     local_port_last: u32,
+    /// Whether the RX queue is paused.
+    rx_paused: bool,
 }
 
 impl VsockChannel for VsockMuxer {
@@ -299,7 +301,11 @@ impl VsockEpollListener for VsockMuxer {
     }
 }
 
-impl VsockBackend for VsockMuxer {}
+impl VsockBackend for VsockMuxer {
+    fn notify_rxq(&mut self, enabled: bool) {
+        self.set_rx_paused(!enabled);
+    }
+}
 
 impl VsockMuxer {
     /// Muxer constructor.
@@ -321,6 +327,7 @@ impl VsockMuxer {
             killq: MuxerKillQ::new(),
             local_port_last: (1u32 << 30) - 1,
             local_port_set: HashSet::with_capacity(defs::MAX_CONNECTIONS),
+            rx_paused: false,
         };
 
         // Listen on the host initiated socket, for incoming connections.
@@ -495,7 +502,7 @@ impl VsockMuxer {
             conn.as_raw_fd(),
             EpollListener::Connection {
                 key,
-                evset: conn.get_polled_evset(),
+                evset: self.adjust_conn_evset(conn.get_polled_evset()),
             },
         )
         .map(|_| {
@@ -564,6 +571,31 @@ impl VsockMuxer {
             .map_err(VsockUnixBackendError::EpollAdd)?;
 
         Ok(())
+    }
+
+    /// Modify the epoll listener for a given file descriptor.
+    fn modify_listener(&mut self, fd: RawFd, new_evset: EventSet) {
+        let Some(EpollListener::Connection { evset, .. }) = self.listener_map.get_mut(&fd) else {
+            warn!(
+                "vsock: muxer: error modifying epoll listener for fd {:?}: not found",
+                fd
+            );
+            return;
+        };
+
+        *evset = new_evset;
+        self.epoll
+            .ctl(
+                ControlOperation::Modify,
+                fd,
+                EpollEvent::new(new_evset, u64::try_from(fd).unwrap()),
+            )
+            .unwrap_or_else(|err| {
+                warn!(
+                    "vsock: muxer: error modifying epoll listener for fd {:?}: {:?}",
+                    fd, err
+                );
+            });
     }
 
     /// Remove (and return) a previously registered epoll listener.
@@ -686,7 +718,8 @@ impl VsockMuxer {
             }
 
             let fd = conn.as_raw_fd();
-            let new_evset = conn.get_polled_evset();
+            let polled_evset = conn.get_polled_evset();
+            let new_evset = self.adjust_conn_evset(polled_evset);
             if new_evset.is_empty() {
                 // If the connection no longer needs epoll notifications, remove its listener
                 // from our list.
@@ -782,6 +815,66 @@ impl VsockMuxer {
                 "vsock: muxer.rxq full; dropping RST packet for lp={}, pp={}",
                 local_port, peer_port
             );
+        }
+    }
+
+    /// Remove the IN event from the given event set if the RX queue is paused.
+    fn adjust_conn_evset(&self, mut evset: EventSet) -> EventSet {
+        if self.rx_paused {
+            evset.remove(EventSet::IN);
+        }
+        evset
+    }
+
+    /// Set the RX queue to the given state and update the epoll listeners accordingly.
+    fn set_rx_paused(&mut self, paused: bool) {
+        if self.rx_paused == paused {
+            return;
+        }
+        self.rx_paused = paused;
+
+        let mut updates = Vec::new();
+        let mut removes = Vec::new();
+        let mut adds = Vec::new();
+
+        for (key, conn) in self.conn_map.iter() {
+            let fd = conn.as_raw_fd();
+            let new_evset = self.adjust_conn_evset(conn.get_polled_evset());
+            match self.listener_map.get(&fd) {
+                Some(EpollListener::Connection { evset, .. }) => {
+                    if new_evset.is_empty() {
+                        removes.push(fd)
+                    } else if *evset != new_evset {
+                        updates.push((fd, new_evset))
+                    }
+                }
+                Some(_) => (),
+                None => {
+                    if !new_evset.is_empty() {
+                        adds.push((fd, *key, new_evset))
+                    }
+                }
+            }
+        }
+
+        for fd in removes {
+            self.remove_listener(fd);
+        }
+
+        for (fd, new_evset) in updates {
+            self.modify_listener(fd, new_evset)
+        }
+
+        for (fd, key, evset) in adds {
+            self.add_listener(fd, EpollListener::Connection { key, evset })
+                .unwrap_or_else(|err| {
+                    self.kill_connection(key);
+                    error!(
+                        "vsock: error adding epoll listener after RX pause change: {:?}",
+                        err
+                    );
+                    METRICS.muxer_event_fails.inc()
+                });
         }
     }
 }
