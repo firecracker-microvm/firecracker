@@ -84,8 +84,10 @@ mod defs {
         /// Vsock packet type.
         /// Defined in `/include/uapi/linux/virtio_vsock.h`.
         ///
-        /// Stream / connection-oriented packet (the only currently valid type).
+        /// Stream / connection-oriented packet.
         pub const VSOCK_TYPE_STREAM: u16 = 1;
+        /// Seqpacket / connection-oriented packet with message boundaries.
+        pub const VSOCK_TYPE_SEQPACKET: u16 = 2;
 
         pub const VSOCK_HOST_CID: u64 = 2;
     }

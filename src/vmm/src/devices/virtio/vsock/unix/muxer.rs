@@ -202,9 +202,13 @@ impl VsockChannel for VsockMuxer {
             pkt.hdr
         );
 
-        // If this packet has an unsupported type (!=stream), we must send back an RST.
-        //
-        if pkt.hdr.type_() != uapi::VSOCK_TYPE_STREAM {
+        // If this packet has an unsupported type (not STREAM or SEQPACKET), we must send back an RST.
+        // Socket type validation: The vsock packet type must match the Unix domain socket type
+        // on the host side. The host application is responsible for creating the appropriate
+        // socket type (SOCK_STREAM or SOCK_SEQPACKET) when listening on a port.
+        if pkt.hdr.type_() != uapi::VSOCK_TYPE_STREAM
+            && pkt.hdr.type_() != uapi::VSOCK_TYPE_SEQPACKET
+        {
             self.enq_rst(pkt.hdr.dst_port(), pkt.hdr.src_port());
             return Ok(());
         }
@@ -389,8 +393,8 @@ impl VsockMuxer {
             Some(EpollListener::LocalStream(_)) => {
                 if let Some(EpollListener::LocalStream(mut stream)) = self.remove_listener(fd) {
                     Self::read_local_stream_port(&mut stream)
-                        .map(|peer_port| (self.allocate_local_port(), peer_port))
-                        .and_then(|(local_port, peer_port)| {
+                        .map(|(peer_port, socket_type)| (self.allocate_local_port(), peer_port, socket_type))
+                        .and_then(|(local_port, peer_port, socket_type)| {
                             self.add_connection(
                                 ConnMapKey {
                                     local_port,
@@ -402,6 +406,7 @@ impl VsockMuxer {
                                     self.cid,
                                     local_port,
                                     peer_port,
+                                    socket_type,
                                 ),
                             )
                         })
@@ -421,9 +426,11 @@ impl VsockMuxer {
         }
     }
 
-    /// Parse a host "connect" command, and extract the destination vsock port.
-    fn read_local_stream_port(stream: &mut UnixStream) -> Result<u32, VsockUnixBackendError> {
-        let mut buf = [0u8; 32];
+    /// Parse a host "connect" command, and extract the destination vsock port and socket type.
+    /// Format: "CONNECT <port> [<type>]\n" where type is optional (defaults to STREAM).
+    /// Type can be "STREAM" or "SEQPACKET".
+    fn read_local_stream_port(stream: &mut UnixStream) -> Result<(u32, u16), VsockUnixBackendError> {
+        let mut buf = [0u8; 64];
 
         // This is the minimum number of bytes that we should be able to read, when parsing a
         // valid connection request. I.e. `b"connect 0\n".len()`.
@@ -467,6 +474,18 @@ impl VsockMuxer {
             .and_then(|word| {
                 word.parse::<u32>()
                     .map_err(|_| VsockUnixBackendError::InvalidPortRequest)
+            })
+            .and_then(|port| {
+                // Parse optional socket type (defaults to STREAM for backward compatibility)
+                let socket_type = match word_iter.next() {
+                    Some(type_str) => match type_str.to_uppercase().as_str() {
+                        "STREAM" => uapi::VSOCK_TYPE_STREAM,
+                        "SEQPACKET" => uapi::VSOCK_TYPE_SEQPACKET,
+                        _ => return Err(VsockUnixBackendError::InvalidPortRequest),
+                    },
+                    None => uapi::VSOCK_TYPE_STREAM, // Default to STREAM
+                };
+                Ok((port, socket_type))
             })
             .map_err(|_| VsockUnixBackendError::InvalidPortRequest)
     }
@@ -629,6 +648,7 @@ impl VsockMuxer {
                         pkt.hdr.dst_port(),
                         pkt.hdr.src_port(),
                         pkt.hdr.buf_alloc(),
+                        pkt.hdr.type_(),
                     ),
                 )
             })
@@ -918,6 +938,10 @@ mod tests {
         }
 
         fn local_connect(&mut self, peer_port: u32) -> (UnixStream, u32) {
+            self.local_connect_with_type(peer_port, None)
+        }
+
+        fn local_connect_with_type(&mut self, peer_port: u32, socket_type: Option<u16>) -> (UnixStream, u32) {
             let (init_local_lsn_count, init_conn_lsn_count) = self.count_epoll_listeners();
 
             let mut stream = UnixStream::connect(self.muxer.host_sock_path.clone()).unwrap();
@@ -931,7 +955,12 @@ mod tests {
             let (local_lsn_count, _) = self.count_epoll_listeners();
             assert_eq!(local_lsn_count, init_local_lsn_count + 1);
 
-            let buf = format!("CONNECT {}\n", peer_port);
+            let buf = match socket_type {
+                Some(uapi::VSOCK_TYPE_STREAM) => format!("CONNECT {} STREAM\n", peer_port),
+                Some(uapi::VSOCK_TYPE_SEQPACKET) => format!("CONNECT {} SEQPACKET\n", peer_port),
+                None => format!("CONNECT {}\n", peer_port),
+                _ => panic!("Invalid socket type"),
+            };
             stream.write_all(buf.as_bytes()).unwrap();
             // The muxer would now get notified that data is available for reading from the locally
             // initiated connection.
@@ -959,6 +988,10 @@ mod tests {
             assert_eq!(self.rx_pkt.hdr.op(), uapi::VSOCK_OP_REQUEST);
             assert_eq!(self.rx_pkt.hdr.dst_port(), peer_port);
             assert_eq!(self.rx_pkt.hdr.src_port(), local_port);
+
+            // Verify the socket type matches what was requested
+            let expected_type = socket_type.unwrap_or(uapi::VSOCK_TYPE_STREAM);
+            assert_eq!(self.rx_pkt.hdr.type_(), expected_type);
 
             self.init_tx_pkt(local_port, peer_port, uapi::VSOCK_OP_RESPONSE);
             self.send();
@@ -1027,7 +1060,7 @@ mod tests {
     fn test_bad_peer_pkt() {
         const LOCAL_PORT: u32 = 1026;
         const PEER_PORT: u32 = 1025;
-        const SOCK_DGRAM: u16 = 2;
+        const SOCK_DGRAM: u16 = 3;
 
         let mut ctx = MuxerTestContext::new("bad_peer_pkt");
         let tx_pkt = ctx.init_tx_pkt(LOCAL_PORT, PEER_PORT, uapi::VSOCK_OP_REQUEST);
@@ -1035,7 +1068,7 @@ mod tests {
         ctx.send();
 
         // The guest sent a SOCK_DGRAM packet. Per the vsock spec, we need to reply with an RST
-        // packet, since vsock only supports stream sockets.
+        // packet, since vsock only supports stream and seqpacket sockets.
         assert!(ctx.muxer.has_pending_rx());
         ctx.recv();
         assert_eq!(ctx.rx_pkt.hdr.op(), uapi::VSOCK_OP_RST);
@@ -1533,5 +1566,128 @@ mod tests {
 
         // Check that the connection was removed.
         assert_eq!(METRICS.conns_removed.count(), conns_removed + 1);
+    }
+
+    #[test]
+    fn test_seqpacket_socket_type() {
+        const LOCAL_PORT: u32 = 1026;
+        const PEER_PORT: u32 = 1025;
+
+        let mut ctx = MuxerTestContext::new("seqpacket_socket_type");
+
+        // Test that SEQPACKET socket type is accepted for connection requests
+        let mut listener = ctx.create_local_listener(LOCAL_PORT);
+        let tx_pkt = ctx.init_tx_pkt(LOCAL_PORT, PEER_PORT, uapi::VSOCK_OP_REQUEST);
+        tx_pkt.hdr.set_type(uapi::VSOCK_TYPE_SEQPACKET);
+        ctx.send();
+        
+        // Connection should be created
+        assert_eq!(ctx.muxer.conn_map.len(), 1);
+        let _stream = listener.accept();
+        ctx.recv();
+        
+        // Should receive a response packet with SEQPACKET type
+        assert_eq!(ctx.rx_pkt.hdr.op(), uapi::VSOCK_OP_RESPONSE);
+        assert_eq!(ctx.rx_pkt.hdr.type_(), uapi::VSOCK_TYPE_SEQPACKET);
+        assert_eq!(ctx.rx_pkt.hdr.src_port(), LOCAL_PORT);
+        assert_eq!(ctx.rx_pkt.hdr.dst_port(), PEER_PORT);
+        
+        let key = ConnMapKey {
+            local_port: LOCAL_PORT,
+            peer_port: PEER_PORT,
+        };
+        assert!(ctx.muxer.conn_map.contains_key(&key));
+        
+        // Verify the connection has the correct socket type
+        let conn = ctx.muxer.conn_map.get(&key).unwrap();
+        assert_eq!(conn.socket_type(), uapi::VSOCK_TYPE_SEQPACKET);
+    }
+
+    #[test]
+    fn test_seqpacket_host_initiated() {
+        // Test host-initiated SEQPACKET connection
+        let mut ctx = MuxerTestContext::new("seqpacket_host_initiated");
+        let peer_port = 1025;
+        
+        // Connect with explicit SEQPACKET type
+        let (_stream, local_port) = ctx.local_connect_with_type(peer_port, Some(uapi::VSOCK_TYPE_SEQPACKET));
+        
+        // Verify the connection was created with SEQPACKET type
+        let key = ConnMapKey {
+            local_port,
+            peer_port,
+        };
+        let conn = ctx.muxer.conn_map.get(&key).unwrap();
+        assert_eq!(conn.socket_type(), uapi::VSOCK_TYPE_SEQPACKET);
+    }
+
+    #[test]
+    fn test_seqpacket_backward_compatibility() {
+        // Test that CONNECT without socket type defaults to STREAM
+        let mut ctx = MuxerTestContext::new("seqpacket_backward_compat");
+        let peer_port = 1025;
+        
+        // Connect without specifying socket type (backward compatibility)
+        let (_stream, local_port) = ctx.local_connect(peer_port);
+        
+        // Verify the connection defaults to STREAM type
+        let key = ConnMapKey {
+            local_port,
+            peer_port,
+        };
+        let conn = ctx.muxer.conn_map.get(&key).unwrap();
+        assert_eq!(conn.socket_type(), uapi::VSOCK_TYPE_STREAM);
+    }
+
+    #[test]
+    fn test_seqpacket_explicit_stream() {
+        // Test host-initiated connection with explicit STREAM type
+        let mut ctx = MuxerTestContext::new("seqpacket_explicit_stream");
+        let peer_port = 1025;
+        
+        // Connect with explicit STREAM type
+        let (_stream, local_port) = ctx.local_connect_with_type(peer_port, Some(uapi::VSOCK_TYPE_STREAM));
+        
+        // Verify the connection was created with STREAM type
+        let key = ConnMapKey {
+            local_port,
+            peer_port,
+        };
+        let conn = ctx.muxer.conn_map.get(&key).unwrap();
+        assert_eq!(conn.socket_type(), uapi::VSOCK_TYPE_STREAM);
+    }
+
+    #[test]
+    fn test_seqpacket_data_transfer() {
+        // Test data transfer over SEQPACKET connection
+        let mut ctx = MuxerTestContext::new("seqpacket_data_transfer");
+        let peer_port = 1025;
+        
+        // Create SEQPACKET connection
+        let (mut stream, local_port) = ctx.local_connect_with_type(peer_port, Some(uapi::VSOCK_TYPE_SEQPACKET));
+        
+        // Test guest -> host data flow
+        let data = [1, 2, 3, 4];
+        ctx.init_data_tx_pkt(local_port, peer_port, &data);
+        ctx.send();
+        
+        let mut buf = vec![0u8; data.len()];
+        stream.read_exact(buf.as_mut_slice()).unwrap();
+        assert_eq!(buf.as_slice(), &data);
+        
+        // Test host -> guest data flow
+        let data = [5u8, 6, 7, 8];
+        stream.write_all(&data).unwrap();
+        ctx.notify_muxer();
+        
+        assert!(ctx.muxer.has_pending_rx());
+        ctx.recv();
+        assert_eq!(ctx.rx_pkt.hdr.op(), uapi::VSOCK_OP_RW);
+        assert_eq!(ctx.rx_pkt.hdr.type_(), uapi::VSOCK_TYPE_SEQPACKET);
+        assert_eq!(ctx.rx_pkt.hdr.src_port(), local_port);
+        assert_eq!(ctx.rx_pkt.hdr.dst_port(), peer_port);
+        
+        let buf = test_utils::read_packet_data(&ctx.tx_pkt, 4);
+        assert_eq!(&buf, &data);
     }
 }
