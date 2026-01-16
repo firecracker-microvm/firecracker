@@ -385,6 +385,9 @@ def test_balloon_snapshot(uvm_plain_any, microvm_factory):
     """
     vm = uvm_plain_any
     vm.spawn()
+    # Free page reporting and hinting fragment guest memory VMAs
+    # making it harder to identify them in the memory monitor.
+    vm.memory_monitor = None
     vm.basic_config(
         vcpu_count=2,
         mem_size_mib=256,
@@ -419,6 +422,10 @@ def test_balloon_snapshot(uvm_plain_any, microvm_factory):
 
     snapshot = vm.snapshot_full()
     microvm = microvm_factory.build_from_snapshot(snapshot)
+
+    # Free page reporting and hinting fragment guest memory VMAs
+    # making it harder to identify them in the memory monitor.
+    microvm.memory_monitor = None
 
     # Wait out the polling interval, then get the updated stats.
     time.sleep(STATS_POLLING_INTERVAL_S * 2)
@@ -462,6 +469,9 @@ def test_hinting_reporting_snapshot(uvm_plain_any, microvm_factory, method):
     """
     vm = uvm_plain_any
     vm.spawn()
+    # Free page reporting and hinting fragment guest memory VMAs
+    # making it harder to identify them in the memory monitor.
+    vm.memory_monitor = None
     vm.basic_config(
         vcpu_count=2,
         mem_size_mib=256,
@@ -508,6 +518,10 @@ def test_hinting_reporting_snapshot(uvm_plain_any, microvm_factory, method):
 
     snapshot = vm.snapshot_full()
     microvm = microvm_factory.build_from_snapshot(snapshot)
+
+    # Free page reporting and hinting fragment guest memory VMAs
+    # making it harder to identify them in the memory monitor.
+    microvm.memory_monitor = None
 
     microvm.ssh.check_output(
         "nohup /usr/local/bin/fast_page_fault_helper >/dev/null 2>&1 </dev/null &"
