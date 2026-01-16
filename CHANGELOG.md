@@ -6,6 +6,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.13.2]
+
+### Changed
+
+- [#5631](https://github.com/firecracker-microvm/firecracker/pull/5631): Update
+  binary copy process inside Jailer to disallow symlinks and hardlinks at the
+  destination path and change ownership of the copied binary to the specified
+  uid/gid.
+
 ## [1.13.1]
 
 ### Fixed
