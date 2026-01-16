@@ -63,6 +63,11 @@ found in our [OpenAPI spec](../../src/firecracker/swagger/firecracker.yaml).
 > The data provided for the update is merged with the existing data. In the
 > above example, the RX rate limit is updated, but the TX rate limit remains
 > unchanged.
+>
+> When updating rate limiter parameters, the current budget and one-time burst
+> state are preserved (capped at the new bucket's limits if the new bucket is
+> smaller), ensuring rate limiting continues smoothly without resetting to full
+> capacity.
 
 ## Removing Rate Limiting
 
