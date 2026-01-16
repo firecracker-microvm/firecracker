@@ -224,6 +224,7 @@ pub mod tests {
     use super::*;
     use crate::devices::virtio::net::generated;
     use crate::devices::virtio::net::test_utils::{TapTrafficSimulator, enable, if_index};
+    use regex::Regex;
 
     // Redefine `IoVecBufferMut` with specific length. Otherwise
     // Rust will not know what to do.
@@ -241,10 +242,16 @@ pub mod tests {
             generated::ifreq__bindgen_ty_1::default().ifrn_name.len()
         });
 
-        // Empty name - The tap should be named "tap0" by default
+        // Empty name - The tap should be named by the kernel (e.g., "tap0", "tap1", etc.)
         let tap = Tap::open_named("").unwrap();
-        assert_eq!(b"tap0\0\0\0\0\0\0\0\0\0\0\0\0", &tap.if_name);
-        assert_eq!("tap0", tap.if_name_as_str());
+        let tap_name_str = tap.if_name_as_str();
+
+        // Check that it starts with "tap" and the remainder is numeric.
+        assert!(
+            Regex::new(r"^tap\d+$").unwrap().is_match(tap_name_str),
+            "Generated tap name '{}' does not match expected pattern",
+            tap_name_str
+        );
 
         // Test using '%d' to have the kernel assign an unused name,
         // and that we correctly copy back that generated name
