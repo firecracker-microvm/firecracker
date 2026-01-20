@@ -678,6 +678,10 @@ download_ci_artifacts() {
         aws s3 sync --no-sign-request "$artifacts_arch" "$local_artifacts_path"
         ok_or_die "Failed to download artifacts using awscli!"
         cmd_sh "./tools/setup-ci-artifacts.sh" $local_artifacts_path
+        if [ $? != 0 ]; then
+          rm -rf $local_artifacts_path
+          die "Failed to setup artifacts!"
+        fi
     else
         say "Found existing artifacts: " $artifacts_arch " at: " $local_artifacts_path
     fi
