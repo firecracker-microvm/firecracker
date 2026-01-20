@@ -638,24 +638,18 @@ cmd_set_current_artifacts() {
 }
 
 cmd_ensure_current_artifacts() {
-  local artifacts=$1
-  if [ -f $LOCAL_ARTIFACTS_CURRENT_DIR_FILE ]; then
-    if [ -z $artifacts ]; then
+  if [ -f $LOCAL_ARTIFACTS_CURRENT_DIR_FILE ] && [ $# = 0 ]; then
       local current_local_artifacts_path=$(cat $LOCAL_ARTIFACTS_CURRENT_DIR_FILE)
-      say "Current artifacts path: " $current_local_artifacts_path
-    else
-      local local_artifacts_path=$(get_local_artifacts_path $artifacts)/$(uname -m)
-      say "Current artifacts path: " $local_artifacts_path
-    fi
-  else
-    if [ -z $artifacts ]; then
-      download_ci_artifacts
-    else
-      download_ci_artifacts $artifacts
-    fi
-    echo $LOCAL_ARTIFACTS_PATH > $LOCAL_ARTIFACTS_CURRENT_DIR_FILE
-    say "Current artifacts path: " $LOCAL_ARTIFACTS_PATH
+      if [ -d $current_local_artifacts_path ]; then
+        say "Current artifacts path: " $current_local_artifacts_path
+        return 0
+      fi
+      say "Invalid artifact dir! Artifacts will be downloaded again: $current_local_artifacts_path"
   fi
+
+  download_ci_artifacts $@
+  echo $LOCAL_ARTIFACTS_PATH > $LOCAL_ARTIFACTS_CURRENT_DIR_FILE
+  say "Current artifacts path: " $LOCAL_ARTIFACTS_PATH
 }
 
 download_ci_artifacts() {
