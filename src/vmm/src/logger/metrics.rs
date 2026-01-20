@@ -705,6 +705,8 @@ pub struct VcpuMetrics {
     pub exit_mmio_write: SharedIncMetric,
     /// Number of errors during this VCPU's run.
     pub failures: SharedIncMetric,
+    /// Number of times that the `KVM_KVMCLOCK_CTRL` ioctl failed.
+    pub kvmclock_ctrl_fails: SharedIncMetric,
 }
 impl VcpuMetrics {
     /// Const default construction.
@@ -715,6 +717,7 @@ impl VcpuMetrics {
             exit_mmio_read: SharedIncMetric::new(),
             exit_mmio_write: SharedIncMetric::new(),
             failures: SharedIncMetric::new(),
+            kvmclock_ctrl_fails: SharedIncMetric::new(),
         }
     }
 }

@@ -484,6 +484,15 @@ impl KvmVcpu {
         self.fd.set_tsc_khz(tsc_freq).map_err(SetTscError)
     }
 
+    /// Calls KVM_KVMCLOCK_CTRL to avoid guest soft lockup watchdog panics on resume.
+    /// See https://docs.kernel.org/virt/kvm/api.html .
+    pub fn kvmclock_ctrl(&self) {
+        if let Err(err) = self.fd.kvmclock_ctrl() {
+            METRICS.vcpu.kvmclock_ctrl_fails.inc();
+            warn!("KVM_KVMCLOCK_CTRL call failed {}", err);
+        }
+    }
+
     /// Use provided state to populate KVM internal state.
     pub fn restore_state(&self, state: &VcpuState) -> Result<(), KvmVcpuError> {
         // Ordering requirements:
@@ -540,6 +549,9 @@ impl KvmVcpu {
         self.fd
             .set_vcpu_events(&state.vcpu_events)
             .map_err(KvmVcpuError::VcpuSetVcpuEvents)?;
+
+        self.kvmclock_ctrl();
+
         Ok(())
     }
 

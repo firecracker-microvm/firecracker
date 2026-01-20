@@ -345,6 +345,10 @@ impl Vcpu {
                 self.response_sender
                     .send(VcpuResponse::Resumed)
                     .expect("vcpu channel unexpectedly closed");
+
+                #[cfg(target_arch = "x86_64")]
+                self.kvm_vcpu.kvmclock_ctrl();
+
                 // Move to 'running' state.
                 StateMachine::next(Self::running)
             }
