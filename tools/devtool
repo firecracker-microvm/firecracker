@@ -144,16 +144,18 @@ get_newest_s3_artifacts() {
   local bucket="spec.ccfc.min"
   local base_prefix="firecracker-ci/"
 
-  # Query all files in the `firecracker-ci` directory, sort them by the `LastModified` date
-  # and return the first one.
-  # Reasons for such complex operation:
-  # - since S3 does not store `LastModified` info for directories, the next best approach of
-  #   determining the `newest` directory is to check which directory contains the most recently
-  #   modified file
-  # - also awscli is paginated, so the command bellow can return multiple values, one for each page.
-  #   The very first entry though should be the correct one
-  # - the end of the command filters out directory out of the output
-  local newest_dir=$(aws s3api list-objects-v2 --bucket "$bucket" --prefix "$base_prefix" --no-sign-request --query 'reverse(sort_by(Contents, &LastModified))[0].Key' --output text | head -1 | sed "s|^$base_prefix||" | cut -d'/' -f1)
+  # Query all files in the `firecracker-ci` directory, check files contianing "vmlinux",
+  # sort them by the `LastModified` date, and return the last one (newest).
+  # We need to do it this way as S3 doesn't store `LastModified`` date for directories,
+  # so we need to list all files.
+  local newest_dir=$(aws s3api list-objects-v2 \
+        --bucket "$bucket" --prefix "$base_prefix" --no-sign-request \
+        --query 'sort_by(Contents[?contains(Key, `vmlinux`)], &LastModified)[-1].Key' |
+        tr -d '"' |
+        sed "s|^$base_prefix||" |
+        cut -d'/' -f1
+  )
+  [ -z "$newest_dir" ] && die "Could not find newest artifacts in S3."
 
   echo "$DEFAULT_ARTIFACTS_S3_BUCKET/$newest_dir"
 }
