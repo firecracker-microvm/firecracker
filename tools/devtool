@@ -144,16 +144,18 @@ get_newest_s3_artifacts() {
   local bucket="spec.ccfc.min"
   local base_prefix="firecracker-ci/"
 
-  # Query all files in the `firecracker-ci` directory, sort them by the `LastModified` date
-  # and return the first one.
-  # Reasons for such complex operation:
-  # - since S3 does not store `LastModified` info for directories, the next best approach of
-  #   determining the `newest` directory is to check which directory contains the most recently
-  #   modified file
-  # - also awscli is paginated, so the command bellow can return multiple values, one for each page.
-  #   The very first entry though should be the correct one
-  # - the end of the command filters out directory out of the output
-  local newest_dir=$(aws s3api list-objects-v2 --bucket "$bucket" --prefix "$base_prefix" --no-sign-request --query 'reverse(sort_by(Contents, &LastModified))[0].Key' --output text | head -1 | sed "s|^$base_prefix||" | cut -d'/' -f1)
+  # Query all files in the `firecracker-ci` directory, check files contianing "vmlinux",
+  # sort them by the `LastModified` date, and return the last one (newest).
+  # We need to do it this way as S3 doesn't store `LastModified`` date for directories,
+  # so we need to list all files.
+  local newest_dir=$(aws s3api list-objects-v2 \
+        --bucket "$bucket" --prefix "$base_prefix" --no-sign-request \
+        --query 'sort_by(Contents[?contains(Key, `vmlinux`)], &LastModified)[-1].Key' |
+        tr -d '"' |
+        sed "s|^$base_prefix||" |
+        cut -d'/' -f1
+  )
+  [ -z "$newest_dir" ] && die "Could not find newest artifacts in S3."
 
   echo "$DEFAULT_ARTIFACTS_S3_BUCKET/$newest_dir"
 }
@@ -638,24 +640,18 @@ cmd_set_current_artifacts() {
 }
 
 cmd_ensure_current_artifacts() {
-  local artifacts=$1
-  if [ -f $LOCAL_ARTIFACTS_CURRENT_DIR_FILE ]; then
-    if [ -z $artifacts ]; then
+  if [ -f $LOCAL_ARTIFACTS_CURRENT_DIR_FILE ] && [ $# = 0 ]; then
       local current_local_artifacts_path=$(cat $LOCAL_ARTIFACTS_CURRENT_DIR_FILE)
-      say "Current artifacts path: " $current_local_artifacts_path
-    else
-      local local_artifacts_path=$(get_local_artifacts_path $artifacts)/$(uname -m)
-      say "Current artifacts path: " $local_artifacts_path
-    fi
-  else
-    if [ -z $artifacts ]; then
-      download_ci_artifacts
-    else
-      download_ci_artifacts $artifacts
-    fi
-    echo $LOCAL_ARTIFACTS_PATH > $LOCAL_ARTIFACTS_CURRENT_DIR_FILE
-    say "Current artifacts path: " $LOCAL_ARTIFACTS_PATH
+      if [ -d $current_local_artifacts_path ]; then
+        say "Current artifacts path: " $current_local_artifacts_path
+        return 0
+      fi
+      say "Invalid artifact dir! Artifacts will be downloaded again: $current_local_artifacts_path"
   fi
+
+  download_ci_artifacts $@
+  echo $LOCAL_ARTIFACTS_PATH > $LOCAL_ARTIFACTS_CURRENT_DIR_FILE
+  say "Current artifacts path: " $LOCAL_ARTIFACTS_PATH
 }
 
 download_ci_artifacts() {
@@ -682,6 +678,10 @@ download_ci_artifacts() {
         aws s3 sync --no-sign-request "$artifacts_arch" "$local_artifacts_path"
         ok_or_die "Failed to download artifacts using awscli!"
         cmd_sh "./tools/setup-ci-artifacts.sh" $local_artifacts_path
+        if [ $? != 0 ]; then
+          rm -rf $local_artifacts_path
+          die "Failed to setup artifacts!"
+        fi
     else
         say "Found existing artifacts: " $artifacts_arch " at: " $local_artifacts_path
     fi
