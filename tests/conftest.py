@@ -484,6 +484,8 @@ def results_dir(request, pytestconfig):
 def guest_kernel_fxt(request, record_property):
     """Return all supported guest kernels."""
     kernel = request.param
+    if kernel is None:
+        pytest.fail(f"No kernel artifacts found in {ARTIFACT_DIR}")
     # vmlinux-5.10.167 -> linux-5.10
     prop = kernel.stem[2:]
     record_property("guest_kernel", prop)
@@ -513,13 +515,23 @@ guest_kernel_linux_6_1 = pytest.fixture(
 @pytest.fixture
 def rootfs():
     """Return an Ubuntu 24.04 read-only rootfs"""
-    return disks("ubuntu-24.04.squashfs")[0]
+    disk_list = disks("ubuntu-24.04.squashfs")
+    if not disk_list:
+        pytest.fail(
+            f"No disk artifacts found matching 'ubuntu-24.04.squashfs' in {ARTIFACT_DIR}"
+        )
+    return disk_list[0]
 
 
 @pytest.fixture
 def rootfs_rw():
     """Return an Ubuntu 24.04 ext4 rootfs"""
-    return disks("ubuntu-24.04.ext4")[0]
+    disk_list = disks("ubuntu-24.04.ext4")
+    if not disk_list:
+        pytest.fail(
+            f"No disk artifacts found matching 'ubuntu-24.04.ext4' in {ARTIFACT_DIR}"
+        )
+    return disk_list[0]
 
 
 @pytest.fixture
