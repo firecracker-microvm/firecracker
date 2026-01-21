@@ -8,6 +8,7 @@ use kvm_ioctls::{Kvm, VcpuFd};
 
 use crate::arch::x86_64::generated::hyperv::*;
 use crate::arch::x86_64::generated::hyperv_tlfs::*;
+use crate::arch::x86_64::generated::kvm_para::*;
 use crate::arch::x86_64::generated::msr_index::*;
 use crate::arch::x86_64::generated::perf_event::*;
 use crate::cpu_config::x86_64::cpuid::common::GetCpuidError;
@@ -48,15 +49,6 @@ const APIC_BASE_MSR: u32 = 0x800;
 
 /// Number of APIC MSR indexes
 const APIC_MSR_INDEXES: u32 = 0x400;
-
-/// Custom MSRs fall in the range 0x4b564d00-0x4b564dff
-const MSR_KVM_WALL_CLOCK_NEW: u32 = 0x4b56_4d00;
-const MSR_KVM_SYSTEM_TIME_NEW: u32 = 0x4b56_4d01;
-const MSR_KVM_ASYNC_PF_EN: u32 = 0x4b56_4d02;
-const MSR_KVM_STEAL_TIME: u32 = 0x4b56_4d03;
-const MSR_KVM_PV_EOI_EN: u32 = 0x4b56_4d04;
-const MSR_KVM_POLL_CONTROL: u32 = 0x4b56_4d05;
-const MSR_KVM_ASYNC_PF_INT: u32 = 0x4b56_4d06;
 
 /// Taken from arch/x86/include/asm/msr-index.h
 /// Spectre mitigations control MSR
