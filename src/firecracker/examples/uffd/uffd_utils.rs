@@ -334,7 +334,17 @@ impl UffdHandler {
             };
 
             let bytes_written = match bytes_written {
-                -1 if vmm_sys_util::errno::Error::last().errno() == libc::EEXIST => 0,
+                -1 if vmm_sys_util::errno::Error::last().errno() == libc::EEXIST => {
+                    // write() syscall returns -1 with EEXIST when the direct map PTE for the page
+                    // has already been removed, indicating the page has been populated. Reset the
+                    // corresponding bit in the userfault bitmap to suppress further KVM userfaults
+                    // for that page.
+                    self.userfault_bitmap
+                        .as_mut()
+                        .unwrap()
+                        .reset_addr_range(offset + total_written, self.page_size);
+                    0
+                }
                 written @ 0.. => written as usize,
                 _ => panic!("{:?}", std::io::Error::last_os_error()),
             };
