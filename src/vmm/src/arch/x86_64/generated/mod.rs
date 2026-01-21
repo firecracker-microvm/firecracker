@@ -8,6 +8,7 @@
 pub mod arch_prctl;
 pub mod hyperv;
 pub mod hyperv_tlfs;
+pub mod kvm_para;
 pub mod mpspec;
 pub mod msr_index;
 pub mod perf_event;
