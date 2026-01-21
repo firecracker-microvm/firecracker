@@ -21,7 +21,7 @@ use vm_memory::GuestAddress;
 
 #[cfg(target_arch = "aarch64")]
 use crate::Vcpu;
-use crate::arch::{ConfigurationError, configure_system_for_boot, load_kernel};
+use crate::arch::{ConfigurationError, configure_system_for_boot, host_page_size, load_kernel};
 #[cfg(target_arch = "aarch64")]
 use crate::construct_kvm_mpidrs;
 use crate::cpu_config::templates::{
@@ -666,6 +666,16 @@ pub fn build_microvm_from_snapshot(
     if let Some(ref mut slice) = userfault_bitmap_slice {
         // Set all bits so a fault on any page will cause a VM exit
         slice.fill(0xffu8);
+
+        microvm_state
+            .get_guest_addrs_no_userfault()
+            .iter()
+            .for_each(|guest_addr| {
+                let page_index = guest_addr / host_page_size() as u64;
+                let byte_index = usize::try_from(page_index / u8::BITS as u64).unwrap();
+                let bit_index = u8::try_from(page_index % u8::BITS as u64).unwrap();
+                slice[byte_index] &= !(1u8 << bit_index);
+            });
     }
 
     let userfault_bitmap: Option<u64> = userfault_bitmap_slice.map(|s| s.as_ptr() as u64);
