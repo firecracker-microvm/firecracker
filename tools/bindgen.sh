@@ -4,7 +4,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 # ./tools/devtool shell --privileged
-# cargo install bindgen-cli
+# cargo install bindgen-cli rsync
 # apt update && apt install patch
 # ./tools/bindgen.sh
 
@@ -129,6 +129,13 @@ fc-bindgen $ARCH_X86_INCLUDE/asm/msr-index.h \
     -Wno-macro-redefined \
     >src/vmm/src/arch/x86_64/generated/msr_index.rs
 perl -i -pe 's/= (\d+);/sprintf("= 0x%x;",$1)/eg' src/vmm/src/arch/x86_64/generated/msr_index.rs
+
+info "BINDGEN kvm_para.h"
+fc-bindgen $ARCH_X86_INCLUDE/uapi/asm/kvm_para.h \
+    --allowlist-var "^MSR_.*$" \
+    -- \
+    >src/vmm/src/arch/x86_64/generated/kvm_para.rs
+perl -i -pe 's/= (\d+);/sprintf("= 0x%x;",$1)/eg' src/vmm/src/arch/x86_64/generated/kvm_para.rs
 
 info "BINDGEN perf_event.h"
 grep "MSR_ARCH_PERFMON_" $ARCH_X86_INCLUDE/asm/perf_event.h \
