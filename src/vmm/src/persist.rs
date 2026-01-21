@@ -19,6 +19,8 @@ use vmm_sys_util::sock_ctrl_msg::ScmSocket;
 
 #[cfg(target_arch = "aarch64")]
 use crate::arch::aarch64::vcpu::get_manufacturer_id_from_host;
+#[cfg(target_arch = "x86_64")]
+use crate::arch::x86_64::generated::kvm_para::MSR_KVM_SYSTEM_TIME_NEW;
 use crate::builder::{self, BuildMicrovmFromSnapshotError};
 use crate::cpu_config::templates::StaticCpuTemplate;
 #[cfg(target_arch = "x86_64")]
@@ -86,6 +88,46 @@ pub struct MicrovmState {
     pub vcpu_states: Vec<VcpuState>,
     /// Device states.
     pub device_states: DevicesState,
+}
+
+impl MicrovmState {
+    /// Gets guest addresses of pages that must be excluded from KVM userfaulting.
+    ///
+    /// When restoring guest memory for a secret-free microVM from a snapshot, a userfault bitmap
+    /// is passed to KVM_SET_USER_MEMORY_REGION2 ioctl to tell KVM which guest memory pages should
+    /// trigger KVM userfaults (i.e. KVM_RUN exits with KVM_MEMORY_EXIT_FLAG_USERFAULT) when
+    /// accessed by the guest. Some guest pages do not need to be restored from the snapshot because
+    /// KVM populates them regardless of the saved memory content, so KVM userfaults are unnecessary
+    /// for those pages. Rather, write() syscall would just fail with EEXIST since their direct map
+    /// PTEs have been removed.
+    pub fn get_guest_addrs_no_userfault(&self) -> Vec<u64> {
+        #[cfg(target_arch = "x86_64")]
+        {
+            // On x86_64, KVM_SYSTEM_TIME_NEW MSR (MSR index: 0x4b564d01) contains the GPA of the
+            // per-CPU page for kvm-clock (i.e. struct pvclock_vcpu_time_info), which KVM populates
+            // on KVM_RUN using the current host clock.
+            let mut guest_addrs = Vec::new();
+            for vcpu_state in &self.vcpu_states {
+                for msrs in &vcpu_state.saved_msrs {
+                    for msr in msrs.as_slice() {
+                        if msr.index == MSR_KVM_SYSTEM_TIME_NEW {
+                            if msr.data == 0 {
+                                // kvm-clock isn't used.
+                                continue;
+                            }
+                            guest_addrs.push(msr.data);
+                        }
+                    }
+                }
+            }
+            guest_addrs
+        }
+
+        #[cfg(not(target_arch = "x86_64"))]
+        {
+            Vec::new()
+        }
+    }
 }
 
 /// This describes the mapping between Firecracker base virtual address and
