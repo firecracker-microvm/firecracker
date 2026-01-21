@@ -75,29 +75,33 @@ fn fault_all(uffd_handler: &mut UffdHandler, fault_addr: *mut libc::c_void) {
                 uffd_handler.serve_pf(region.base_host_virt_addr as _, region.size);
             }
             Some(_) => {
+                // This code assumes that the first fault is triggered by Firecracker either due to
+                // an MSR write (on x86) or due to device restoration reading from guest memory to
+                // check the virtio queues are sane (on ARM). As it is a UFFD minor fault, it needs
+                // to be handled via memcpy (using userspace page tables) instead of pwrite64()
+                // syscall (using the direct map), because the kernel already removes its direct map
+                // PTE before triggering the UFFD minor fault. While pwrite64() stops once it gets
+                // to the offset of that page, but populate_via_write() skips such pages and
+                // continues populating the rest of the region.
                 let written = uffd_handler.populate_via_write(region.offset as usize, region.size);
-
-                // This code is written under the assumption that the first fault triggered by
-                // Firecracker is either due to an MSR write (on x86) or due to device restoration
-                // reading from guest memory to check the virtio queues are sane (on
-                // ARM). This will be reported via a UFFD minor fault which needs to
-                // be handled via memcpy. Importantly, we get to the UFFD handler
-                // with the actual guest_memfd page already faulted in, meaning pwrite will stop
-                // once it gets to the offset of that page (e.g. written < region.size above).
-                // Thus, to fault in everything, we now need to skip this one page, write the
-                // remaining region, and then deal with the "gap" via uffd_handler.serve_pf().
-
-                if written < region.size - uffd_handler.page_size {
-                    let r = uffd_handler.populate_via_write(
-                        region.offset as usize + written + uffd_handler.page_size,
-                        region.size - written - uffd_handler.page_size,
+                #[cfg(target_arch = "x86_64")]
+                {
+                    // On x86_64, a page for kvm-clock could be already populated by KVM before the
+                    // first fault. Note that the kvm-clock page population does not trigger a UFFD
+                    // page fault events since it doesn't use the userspace mappings.
+                    assert!(
+                        written == region.size - uffd_handler.page_size
+                            || written == region.size - uffd_handler.page_size * 2
                     );
-                    assert_eq!(written + r, region.size - uffd_handler.page_size);
                 }
+                #[cfg(target_arch = "aarch64")]
+                {
+                    assert_eq!(written, region.size - uffd_handler.page_size);
+                }
+                uffd_handler.serve_pf(fault_addr.cast(), uffd_handler.page_size);
             }
         }
     }
-    uffd_handler.serve_pf(fault_addr.cast(), uffd_handler.page_size);
     let end = get_time_us(ClockType::Monotonic);
 
     println!("Finished Faulting All: {}us", end - start);
