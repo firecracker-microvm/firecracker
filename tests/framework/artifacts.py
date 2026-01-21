@@ -45,9 +45,8 @@ def disks(glob) -> list:
     return sorted(ARTIFACT_DIR.glob(glob))
 
 
-def kernel_params(
-    glob="vmlinux-*", select=kernels, artifact_dir=ARTIFACT_DIR
-) -> Iterator:
-    """Return supported kernels"""
-    for kernel in select(glob, artifact_dir):
-        yield pytest.param(kernel, id=kernel.name)
+def kernel_params(glob="vmlinux-*", select=kernels, artifact_dir=ARTIFACT_DIR) -> list:
+    """Return supported kernels or a single None if no kernels are found"""
+    return [
+        pytest.param(kernel, id=kernel.name) for kernel in select(glob, artifact_dir)
+    ] or [pytest.param(None, id="no-kernel-found")]
