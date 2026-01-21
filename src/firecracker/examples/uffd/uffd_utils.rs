@@ -320,16 +320,17 @@ impl UffdHandler {
         );
 
         let mut total_written = 0;
+        let mut pos = 0;
 
-        while total_written < len {
-            let src = unsafe { self.backing_buffer.add(offset + total_written) };
-            let len_to_write = (len - total_written).min(MAX_WRITE_LEN);
+        while pos < len {
+            let src = unsafe { self.backing_buffer.add(offset + pos) };
+            let len_to_write = (len - pos).min(MAX_WRITE_LEN);
             let bytes_written = unsafe {
                 libc::pwrite64(
                     self.guest_memfd.as_ref().unwrap().as_raw_fd(),
                     src.cast(),
                     len_to_write,
-                    (offset + total_written) as libc::off64_t,
+                    (offset + pos) as libc::off64_t,
                 )
             };
 
@@ -338,11 +339,12 @@ impl UffdHandler {
                     // write() syscall returns -1 with EEXIST when the direct map PTE for the page
                     // has already been removed, indicating the page has been populated. Reset the
                     // corresponding bit in the userfault bitmap to suppress further KVM userfaults
-                    // for that page.
+                    // for that page and skip the page.
                     self.userfault_bitmap
                         .as_mut()
                         .unwrap()
                         .reset_addr_range(offset + total_written, self.page_size);
+                    pos += self.page_size;
                     0
                 }
                 written @ 0.. => written as usize,
@@ -352,13 +354,10 @@ impl UffdHandler {
             self.userfault_bitmap
                 .as_mut()
                 .unwrap()
-                .reset_addr_range(offset + total_written, bytes_written);
+                .reset_addr_range(offset + pos, bytes_written);
 
             total_written += bytes_written;
-
-            if bytes_written != len_to_write {
-                break;
-            }
+            pos += bytes_written;
         }
 
         total_written
