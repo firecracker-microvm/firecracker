@@ -24,7 +24,7 @@ use super::request::*;
 use super::{BLOCK_QUEUE_SIZES, SECTOR_SHIFT, SECTOR_SIZE, VirtioBlockError, io as block_io};
 use crate::devices::virtio::ActivateError;
 use crate::devices::virtio::block::CacheType;
-use crate::devices::virtio::block::virtio::metrics::{BlockDeviceMetrics, BlockMetricsPerDevice};
+use crate::devices::virtio::block::virtio::metrics::{BlockDeviceMetrics, METRICS};
 use crate::devices::virtio::device::{ActiveState, DeviceState, VirtioDevice, VirtioDeviceType};
 use crate::devices::virtio::generated::virtio_blk::{
     VIRTIO_BLK_F_FLUSH, VIRTIO_BLK_F_RO, VIRTIO_BLK_ID_BYTES,
@@ -314,6 +314,11 @@ impl VirtioBlock {
         let config_space = ConfigSpace {
             capacity: disk_properties.nsectors.to_le(),
         };
+        let metrics = Arc::new(BlockDeviceMetrics::default());
+        METRICS
+            .write()
+            .unwrap()
+            .insert(config.drive_id.clone(), metrics.clone());
 
         Ok(VirtioBlock {
             avail_features,
@@ -334,7 +339,7 @@ impl VirtioBlock {
             disk: disk_properties,
             rate_limiter,
             is_io_engine_throttled: false,
-            metrics: BlockMetricsPerDevice::alloc(config.drive_id),
+            metrics: metrics,
         })
     }
 

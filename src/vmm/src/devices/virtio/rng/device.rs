@@ -496,6 +496,8 @@ mod tests {
             ],
         );
 
+        let entropy_event_fails = th.device().metrics.entropy_event_fails.count();
+        let entropy_event_count = th.device().metrics.entropy_event_count.count();
         let entropy_bytes = th.device().metrics.entropy_bytes.count();
         let host_rng_fails = th.device().metrics.host_rng_fails.count();
         assert_eq!(th.emulate_for_msec(100).unwrap(), 1);
