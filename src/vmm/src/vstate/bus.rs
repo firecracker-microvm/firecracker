@@ -195,46 +195,6 @@ impl Bus {
         Ok(())
     }
 
-    /// Removes all entries referencing the given device.
-    pub fn remove_by_device(&self, device: &Arc<dyn BusDeviceSync>) -> Result<()> {
-        let mut device_list = self.devices.write().unwrap();
-        let mut remove_key_list = Vec::new();
-
-        for (key, value) in device_list.iter() {
-            if Arc::ptr_eq(&value.upgrade().unwrap(), device) {
-                remove_key_list.push(*key);
-            }
-        }
-
-        for key in remove_key_list.iter() {
-            device_list.remove(key);
-        }
-
-        Ok(())
-    }
-
-    /// Updates the address range for an existing device.
-    pub fn update_range(
-        &self,
-        old_base: u64,
-        old_len: u64,
-        new_base: u64,
-        new_len: u64,
-    ) -> Result<()> {
-        // Retrieve the device corresponding to the range
-        let device = if let Some((_, _, dev)) = self.resolve(old_base) {
-            dev.clone()
-        } else {
-            return Err(BusError::MissingAddressRange);
-        };
-
-        // Remove the old address range
-        self.remove(old_base, old_len)?;
-
-        // Insert the new address range
-        self.insert(device, new_base, new_len)
-    }
-
     /// Reads data from the device that owns the range containing `addr` and puts it into `data`.
     ///
     /// Returns true on success, otherwise `data` is untouched.
@@ -319,10 +279,6 @@ mod tests {
         bus.insert(dummy.clone(), 0x13, 0x12).unwrap();
         bus.remove(0x42, 0x42).unwrap_err();
         bus.remove(0x13, 0x12).unwrap();
-
-        bus.insert(dummy.clone(), 0x16, 0x1).unwrap();
-        bus.remove_by_device(&dummy).unwrap();
-        bus.remove(0x16, 0x1).unwrap_err();
     }
 
     #[test]
@@ -394,17 +350,5 @@ mod tests {
         assert!(a.overlaps(0x13ff, 0x100));
         assert!(!a.overlaps(0x1400, 0x100));
         assert!(!a.overlaps(0xf00, 0x100));
-    }
-
-    #[test]
-    fn bus_update_range() {
-        let bus = Bus::new();
-        let dummy = Arc::new(DummyDevice);
-
-        bus.update_range(0x13, 0x12, 0x16, 0x1).unwrap_err();
-        bus.insert(dummy.clone(), 0x13, 12).unwrap();
-
-        bus.update_range(0x16, 0x1, 0x13, 0x12).unwrap_err();
-        bus.update_range(0x13, 0x12, 0x16, 0x1).unwrap();
     }
 }

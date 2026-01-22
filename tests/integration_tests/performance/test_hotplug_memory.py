@@ -90,7 +90,10 @@ def uvm_resumed_memhp(
         snapshot_type,
     )
     snapshot = uvm.make_snapshot(snapshot_type)
-    return microvm_factory.build_from_snapshot(snapshot, uffd_handler_name=uffd_handler)
+    uvm2 = microvm_factory.build_from_snapshot(snapshot, uffd_handler_name=uffd_handler)
+    uvm2.memory_monitor = None
+
+    return uvm2
 
 
 @pytest.fixture(
@@ -372,6 +375,8 @@ def test_snapshot_restore_incremental(uvm_plain_6_1, microvm_factory):
             use_snapshot_editor=True,
         )
     ):
+        uvm.memory_monitor = None
+
         # check checksums of previous cycles
         for j in range(i):
             _, checksum, _ = uvm.ssh.check_output(f"sha256sum /dev/shm/mem_hp_test_{j}")

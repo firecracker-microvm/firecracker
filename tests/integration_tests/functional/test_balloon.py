@@ -16,6 +16,14 @@ from framework.utils import get_stable_rss_mem
 STATS_POLLING_INTERVAL_S = 1
 
 
+def check_guest_dmesg_for_stalls(ssh_connection):
+    """Check guest dmesg for RCU stalls and soft lockups."""
+    _, stdout, _ = ssh_connection.check_output("dmesg")
+    assert "rcu_sched self-detected stall on CPU" not in stdout
+    assert "rcu_preempt detected stalls on CPUs/tasks" not in stdout
+    assert "BUG: soft lockup -" not in stdout
+
+
 def lower_ssh_oom_chance(ssh_connection):
     """Lure OOM away from ssh process"""
     logger = logging.getLogger("lower_ssh_oom_chance")
@@ -77,6 +85,12 @@ def _test_rss_memory_lower(test_microvm):
     # Check that the ballooning reclaimed the memory.
     assert balloon_rss - init_rss <= 15000
 
+    # Deflate the balloon and check we didn't see any stall messages
+    test_microvm.api.balloon.patch(amount_mib=0)
+    # This call will internally wait for rss to become stable.
+    _ = get_stable_rss_mem(test_microvm)
+    check_guest_dmesg_for_stalls(ssh_connection)
+
 
 # pylint: disable=C0103
 def test_rss_memory_lower(uvm_plain_any):
@@ -131,6 +145,7 @@ def test_inflate_reduces_free(uvm_plain_any):
 
     # Assert that ballooning reclaimed about 64 MB of memory.
     assert available_mem_inflated <= available_mem_deflated - 85 * 64000 / 100
+    check_guest_dmesg_for_stalls(test_microvm.ssh)
 
 
 # pylint: disable=C0103
@@ -256,6 +271,13 @@ def test_reinflate_balloon(uvm_plain_any):
     assert (third_reading - first_reading) <= 20000
     assert abs(second_reading - fourth_reading) <= 20000
 
+    # Deflate the balloon and check we didn't see any stall messages
+    test_microvm.api.balloon.patch(amount_mib=0)
+    # This call will internally wait for rss to become stable.
+    _ = get_stable_rss_mem(test_microvm)
+
+    check_guest_dmesg_for_stalls(test_microvm.ssh)
+
 
 # pylint: disable=C0103
 def test_stats(uvm_plain_any):
@@ -326,6 +348,7 @@ def test_stats(uvm_plain_any):
     # Ensure the stats reflect deflating the balloon.
     assert inflated_stats["free_memory"] < deflated_stats["free_memory"]
     assert inflated_stats["available_memory"] < deflated_stats["available_memory"]
+    check_guest_dmesg_for_stalls(test_microvm.ssh)
 
 
 def test_stats_update(uvm_plain_any):
@@ -377,6 +400,7 @@ def test_stats_update(uvm_plain_any):
 
     # Ensure that stats don't have unknown balloon stats fields
     assert "balloon: unknown stats update tag:" not in test_microvm.log_data
+    check_guest_dmesg_for_stalls(test_microvm.ssh)
 
 
 def test_balloon_snapshot(uvm_plain_any, microvm_factory):
@@ -385,6 +409,9 @@ def test_balloon_snapshot(uvm_plain_any, microvm_factory):
     """
     vm = uvm_plain_any
     vm.spawn()
+    # Free page reporting and hinting fragment guest memory VMAs
+    # making it harder to identify them in the memory monitor.
+    vm.memory_monitor = None
     vm.basic_config(
         vcpu_count=2,
         mem_size_mib=256,
@@ -420,6 +447,10 @@ def test_balloon_snapshot(uvm_plain_any, microvm_factory):
     snapshot = vm.snapshot_full()
     microvm = microvm_factory.build_from_snapshot(snapshot)
 
+    # Free page reporting and hinting fragment guest memory VMAs
+    # making it harder to identify them in the memory monitor.
+    microvm.memory_monitor = None
+
     # Wait out the polling interval, then get the updated stats.
     time.sleep(STATS_POLLING_INTERVAL_S * 2)
     stats_after_snap = microvm.api.balloon_stats.get().json()
@@ -453,6 +484,7 @@ def test_balloon_snapshot(uvm_plain_any, microvm_factory):
     # Ensure the stats are still working after restore and show
     # that the balloon inflated.
     assert stats_after_snap["available_memory"] > latest_stats["available_memory"]
+    check_guest_dmesg_for_stalls(microvm.ssh)
 
 
 @pytest.mark.parametrize("method", ["reporting", "hinting"])
@@ -462,6 +494,9 @@ def test_hinting_reporting_snapshot(uvm_plain_any, microvm_factory, method):
     """
     vm = uvm_plain_any
     vm.spawn()
+    # Free page reporting and hinting fragment guest memory VMAs
+    # making it harder to identify them in the memory monitor.
+    vm.memory_monitor = None
     vm.basic_config(
         vcpu_count=2,
         mem_size_mib=256,
@@ -509,6 +544,10 @@ def test_hinting_reporting_snapshot(uvm_plain_any, microvm_factory, method):
     snapshot = vm.snapshot_full()
     microvm = microvm_factory.build_from_snapshot(snapshot)
 
+    # Free page reporting and hinting fragment guest memory VMAs
+    # making it harder to identify them in the memory monitor.
+    microvm.memory_monitor = None
+
     microvm.ssh.check_output(
         "nohup /usr/local/bin/fast_page_fault_helper >/dev/null 2>&1 </dev/null &"
     )
@@ -532,6 +571,7 @@ def test_hinting_reporting_snapshot(uvm_plain_any, microvm_factory, method):
     # There should be a reduction in RSS, but it's inconsistent.
     # We only test that the reduction happens.
     assert third_reading > fourth_reading
+    check_guest_dmesg_for_stalls(microvm.ssh)
 
 
 @pytest.mark.parametrize("method", ["traditional", "hinting", "reporting"])
@@ -581,3 +621,4 @@ def test_memory_scrub(uvm_plain_any, method):
         _ = get_stable_rss_mem(microvm)
 
     microvm.ssh.check_output("/usr/local/bin/readmem {} {}".format(60, 1))
+    check_guest_dmesg_for_stalls(microvm.ssh)

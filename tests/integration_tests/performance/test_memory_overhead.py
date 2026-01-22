@@ -26,7 +26,7 @@ X86_MEMORY_GAP_START = 3072 * 2**20
 
 @pytest.mark.parametrize(
     "vcpu_count,mem_size_mib",
-    [(1, 128), (1, 1024), (2, 2048), (4, 4096)],
+    [(1, 128), (1, 1024), (2, 2048), (4, 4096), (32, 4096)],
 )
 @pytest.mark.nonci
 def test_memory_overhead(
@@ -55,6 +55,10 @@ def test_memory_overhead(
             {"performance_test": "test_memory_overhead", **microvm.dimensions}
         )
 
+        snapshot = microvm.snapshot_full()
+        microvm.kill()
+        microvm2 = microvm_factory.build_from_snapshot(snapshot)
+
         guest_mem_bytes = mem_size_mib * 2**20
         guest_mem_splits = {
             guest_mem_bytes,
@@ -64,7 +68,7 @@ def test_memory_overhead(
             guest_mem_splits.add(guest_mem_bytes - X86_MEMORY_GAP_START)
 
         mem_stats = defaultdict(int)
-        ps = psutil.Process(microvm.firecracker_pid)
+        ps = psutil.Process(microvm2.firecracker_pid)
 
         for pmmap in ps.memory_maps(grouped=False):
             # We publish 'size' and 'rss' (resident). size would be the worst case,
