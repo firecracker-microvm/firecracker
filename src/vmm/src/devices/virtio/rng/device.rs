@@ -7,7 +7,7 @@ use std::rc::Rc;
 use std::sync::Arc;
 
 use aws_lc_rs::rand;
-use log::info;
+use log::{info, warn};
 use vm_memory::GuestMemoryError;
 use vmm_sys_util::eventfd::EventFd;
 
@@ -76,7 +76,9 @@ impl Entropy {
             .map(|_| EventFd::new(libc::EFD_NONBLOCK))
             .collect::<Result<Vec<EventFd>, io::Error>>()?;
         let metrics = Arc::new(EntropyDeviceMetrics::default());
-        let _ = METRICS.set(metrics.clone()).inspect_err(|| warn!("Entropy metrics are already initialized!"));
+        let _ = METRICS
+            .set(metrics.clone())
+            .inspect_err(|_| warn!("Entropy metrics are already initialized!"));
 
         Ok(Self {
             avail_features: 1 << VIRTIO_F_VERSION_1,
@@ -453,19 +455,11 @@ mod tests {
         // Add a read-only descriptor (this should fail)
         th.add_desc_chain(RNG_QUEUE, 0, &[(0, 64, 0)]);
 
-        let entropy_event_fails = th.device().metrics.entropy_event_fails.count();
-        let entropy_event_count = th.device().metrics.entropy_event_count.count();
         let entropy_bytes = th.device().metrics.entropy_bytes.count();
         let host_rng_fails = th.device().metrics.host_rng_fails.count();
         assert_eq!(th.emulate_for_msec(100).unwrap(), 1);
-        assert_eq!(
-            th.device().metrics.entropy_event_fails.count(),
-            entropy_event_fails + 1
-        );
-        assert_eq!(
-            th.device().metrics.entropy_event_count.count(),
-            entropy_event_count + 1
-        );
+        assert_eq!(th.device().metrics.entropy_event_fails.count(), 1);
+        assert_eq!(th.device().metrics.entropy_event_count.count(), 1);
         assert_eq!(th.device().metrics.entropy_bytes.count(), entropy_bytes);
         assert_eq!(th.device().metrics.host_rng_fails.count(), host_rng_fails);
 
@@ -502,8 +496,6 @@ mod tests {
             ],
         );
 
-        let entropy_event_fails = th.device().metrics.entropy_event_fails.count();
-        let entropy_event_count = th.device().metrics.entropy_event_count.count();
         let entropy_bytes = th.device().metrics.entropy_bytes.count();
         let host_rng_fails = th.device().metrics.host_rng_fails.count();
         assert_eq!(th.emulate_for_msec(100).unwrap(), 1);

@@ -79,20 +79,6 @@ impl EntropyDeviceMetrics {
             rate_limiter_event_count: SharedIncMetric::new(),
         }
     }
-
-    pub fn aggregate(&mut self, other: &Self) {
-        self.activate_fails.add(other.activate_fails.fetch_diff());
-        self.entropy_event_fails
-            .add(other.entropy_event_fails.fetch_diff());
-        self.entropy_event_count
-            .add(other.entropy_event_count.fetch_diff());
-        self.entropy_bytes.add(other.entropy_bytes.fetch_diff());
-        self.host_rng_fails.add(other.host_rng_fails.fetch_diff());
-        self.entropy_rate_limiter_throttled
-            .add(other.entropy_rate_limiter_throttled.fetch_diff());
-        self.rate_limiter_event_count
-            .add(other.rate_limiter_event_count.fetch_diff());
-    }
 }
 
 #[cfg(test)]
