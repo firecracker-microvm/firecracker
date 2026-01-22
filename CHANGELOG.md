@@ -27,6 +27,10 @@ and this project adheres to
   added support for VMClock, uses one extra GSI for the VMClock device itself
   which reduces the available GSIs for VirtIO devices. New maximum values is 92
   devices on Aarch64 and 17 devices on x86.
+- [#5631](https://github.com/firecracker-microvm/firecracker/pull/5631): Update
+  binary copy process inside Jailer to disallow symlinks and hardlinks at the
+  destination path and change ownership of the copied binary to the specified
+  uid/gid.
 
 ### Deprecated
 
