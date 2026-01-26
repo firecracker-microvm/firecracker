@@ -58,6 +58,8 @@ pub enum GicError {
     InconsistentVcpuCount,
     /// The VgicSysRegsState is invalid.
     InvalidVgicSysRegState,
+    /// ITS state is missing.
+    MissingItsState,
 }
 
 /// List of implemented GICs.
