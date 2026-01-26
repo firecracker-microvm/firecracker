@@ -230,43 +230,36 @@ pub enum VmmData {
     HintingStatus(HintingStatus),
 }
 
-/// Trait used for deduplicating the MMDS request handling across the two ApiControllers.
-/// The methods get a mutable reference to self because the methods should initialise the data
-/// store with the defaults if it's not already initialised.
-trait MmdsRequestHandler {
-    fn mmds(&mut self) -> Result<MutexGuard<'_, Mmds>, VmmActionError>;
+fn mmds_patch_data(
+    mut mmds: MutexGuard<'_, Mmds>,
+    value: serde_json::Value,
+) -> Result<VmmData, VmmActionError> {
+    mmds.patch_data(value)
+        .map(|()| VmmData::Empty)
+        .map_err(|err| match err {
+            data_store::MmdsDatastoreError::DataStoreLimitExceeded => {
+                VmmActionError::MmdsLimitExceeded(
+                    data_store::MmdsDatastoreError::DataStoreLimitExceeded,
+                )
+            }
+            _ => VmmActionError::Mmds(err),
+        })
+}
 
-    fn get_mmds(&mut self) -> Result<VmmData, VmmActionError> {
-        Ok(VmmData::MmdsValue(self.mmds()?.data_store_value()))
-    }
-
-    fn patch_mmds(&mut self, value: serde_json::Value) -> Result<VmmData, VmmActionError> {
-        self.mmds()?
-            .patch_data(value)
-            .map(|()| VmmData::Empty)
-            .map_err(|err| match err {
-                data_store::MmdsDatastoreError::DataStoreLimitExceeded => {
-                    VmmActionError::MmdsLimitExceeded(
-                        data_store::MmdsDatastoreError::DataStoreLimitExceeded,
-                    )
-                }
-                _ => VmmActionError::Mmds(err),
-            })
-    }
-
-    fn put_mmds(&mut self, value: serde_json::Value) -> Result<VmmData, VmmActionError> {
-        self.mmds()?
-            .put_data(value)
-            .map(|()| VmmData::Empty)
-            .map_err(|err| match err {
-                data_store::MmdsDatastoreError::DataStoreLimitExceeded => {
-                    VmmActionError::MmdsLimitExceeded(
-                        data_store::MmdsDatastoreError::DataStoreLimitExceeded,
-                    )
-                }
-                _ => VmmActionError::Mmds(err),
-            })
-    }
+fn mmds_put_data(
+    mut mmds: MutexGuard<'_, Mmds>,
+    value: serde_json::Value,
+) -> Result<VmmData, VmmActionError> {
+    mmds.put_data(value)
+        .map(|()| VmmData::Empty)
+        .map_err(|err| match err {
+            data_store::MmdsDatastoreError::DataStoreLimitExceeded => {
+                VmmActionError::MmdsLimitExceeded(
+                    data_store::MmdsDatastoreError::DataStoreLimitExceeded,
+                )
+            }
+            _ => VmmActionError::Mmds(err),
+        })
 }
 
 /// Enables pre-boot setup and instantiation of a Firecracker VMM.
@@ -297,14 +290,6 @@ impl fmt::Debug for PrebootApiController<'_> {
             .field("boot_path", &self.boot_path)
             .field("fatal_error", &self.fatal_error)
             .finish()
-    }
-}
-
-impl MmdsRequestHandler for PrebootApiController<'_> {
-    fn mmds(&mut self) -> Result<MutexGuard<'_, Mmds>, VmmActionError> {
-        self.vm_resources
-            .locked_mmds_or_default()
-            .map_err(VmmActionError::MmdsConfig)
     }
 }
 
@@ -457,7 +442,12 @@ impl<'a> PrebootApiController<'a> {
                 );
                 Ok(VmmData::FullVmConfig((&*self.vm_resources).into()))
             }
-            GetMMDS => self.get_mmds(),
+            GetMMDS => Ok(VmmData::MmdsValue(
+                self.vm_resources
+                    .locked_mmds_or_default()
+                    .map_err(VmmActionError::MmdsConfig)?
+                    .data_store_value(),
+            )),
             GetVmMachineConfig => Ok(VmmData::MachineConfiguration(
                 self.vm_resources.machine_config.clone(),
             )),
@@ -469,11 +459,21 @@ impl<'a> PrebootApiController<'a> {
             LoadSnapshot(config) => self
                 .load_snapshot(&config)
                 .map_err(VmmActionError::LoadSnapshot),
-            PatchMMDS(value) => self.patch_mmds(value),
+            PatchMMDS(value) => mmds_patch_data(
+                self.vm_resources
+                    .locked_mmds_or_default()
+                    .map_err(VmmActionError::MmdsConfig)?,
+                value,
+            ),
             PutCpuConfiguration(custom_cpu_template) => {
                 self.set_custom_cpu_template(custom_cpu_template)
             }
-            PutMMDS(value) => self.put_mmds(value),
+            PutMMDS(value) => mmds_put_data(
+                self.vm_resources
+                    .locked_mmds_or_default()
+                    .map_err(VmmActionError::MmdsConfig)?,
+                value,
+            ),
             SetBalloonDevice(config) => self.set_balloon_device(config),
             SetVsockDevice(config) => self.set_vsock_device(config),
             SetMmdsConfiguration(config) => self.set_mmds_config(config),
@@ -673,14 +673,6 @@ pub struct RuntimeApiController {
     vm_resources: VmResources,
 }
 
-impl MmdsRequestHandler for RuntimeApiController {
-    fn mmds(&mut self) -> Result<MutexGuard<'_, Mmds>, VmmActionError> {
-        self.vm_resources
-            .locked_mmds_or_default()
-            .map_err(VmmActionError::MmdsConfig)
-    }
-}
-
 impl RuntimeApiController {
     /// Handles the incoming runtime `VmmAction` request and provides a response for it.
     pub fn handle_request(&mut self, request: VmmAction) -> Result<VmmData, VmmActionError> {
@@ -711,7 +703,12 @@ impl RuntimeApiController {
                 .memory_hotplug_status()
                 .map(VmmData::VirtioMemStatus)
                 .map_err(VmmActionError::InternalVmm),
-            GetMMDS => self.get_mmds(),
+            GetMMDS => Ok(VmmData::MmdsValue(
+                self.vm_resources
+                    .locked_mmds_or_default()
+                    .map_err(VmmActionError::MmdsConfig)?
+                    .data_store_value(),
+            )),
             GetVmMachineConfig => Ok(VmmData::MachineConfiguration(
                 self.vm_resources.machine_config.clone(),
             )),
@@ -721,9 +718,19 @@ impl RuntimeApiController {
             GetVmmVersion => Ok(VmmData::VmmVersion(
                 self.vmm.lock().expect("Poisoned lock").version(),
             )),
-            PatchMMDS(value) => self.patch_mmds(value),
+            PatchMMDS(value) => mmds_patch_data(
+                self.vm_resources
+                    .locked_mmds_or_default()
+                    .map_err(VmmActionError::MmdsConfig)?,
+                value,
+            ),
             Pause => self.pause(),
-            PutMMDS(value) => self.put_mmds(value),
+            PutMMDS(value) => mmds_put_data(
+                self.vm_resources
+                    .locked_mmds_or_default()
+                    .map_err(VmmActionError::MmdsConfig)?,
+                value,
+            ),
             Resume => self.resume(),
             #[cfg(target_arch = "x86_64")]
             SendCtrlAltDel => self.send_ctrl_alt_del(),
