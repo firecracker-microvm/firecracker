@@ -149,6 +149,7 @@ use crate::devices::virtio::pmem::device::Pmem;
 use crate::devices::virtio::rng::Entropy;
 use crate::devices::virtio::vsock::{Vsock, VsockUnixBackend};
 use crate::logger::{METRICS, MetricsError, error, info, warn};
+use crate::mmds::data_store::Mmds;
 use crate::persist::{MicrovmState, MicrovmStateError, VmInfo};
 use crate::rate_limiter::BucketUpdate;
 use crate::resources::VmmConfig;
@@ -339,6 +340,22 @@ impl Vmm {
     /// Gets Vmm instance info.
     pub fn instance_info(&self) -> InstanceInfo {
         self.instance_info.clone()
+    }
+
+    /// Gets MMDS reference, if any.
+    pub fn get_mmds(&self) -> Option<Arc<Mutex<Mmds>>> {
+        let mut mmds = None;
+        self.device_manager
+            .for_each_virtio_device(|device_type, device| {
+                if device_type == VirtioDeviceType::Net
+                    && let Some(net) = device.as_any().downcast_ref::<Net>()
+                    && let Some(mmds_ns) = &net.mmds_ns
+                {
+                    mmds = Some(mmds_ns.mmds.clone());
+                }
+            });
+
+        mmds
     }
 
     /// Provides the Vmm shutdown exit code if there is one.
