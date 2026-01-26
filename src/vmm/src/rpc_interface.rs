@@ -17,7 +17,7 @@ use crate::cpu_config::templates::{CustomCpuTemplate, GuestConfigError};
 use crate::devices::virtio::balloon::device::{HintingStatus, StartHintingCmd};
 use crate::devices::virtio::mem::VirtioMemStatus;
 use crate::logger::{LoggerConfig, info, warn, *};
-use crate::mmds::data_store::{self, Mmds};
+use crate::mmds::data_store::{self, Mmds, MmdsDatastoreError};
 use crate::persist::{CreateSnapshotError, RestoreFromSnapshotError, VmInfo};
 use crate::resources::VmmConfig;
 use crate::seccomp::BpfThreadMap;
@@ -706,9 +706,13 @@ impl RuntimeApiController {
                 .map(VmmData::VirtioMemStatus)
                 .map_err(VmmActionError::InternalVmm),
             GetMMDS => Ok(VmmData::MmdsValue(
-                self.vm_resources
-                    .locked_mmds_or_default()
-                    .map_err(VmmActionError::MmdsConfig)?
+                self.vmm
+                    .lock()
+                    .expect("Poisoned lock")
+                    .get_mmds()
+                    .ok_or(VmmActionError::Mmds(MmdsDatastoreError::NotInitialized))?
+                    .lock()
+                    .expect("Poisoned lock")
                     .data_store_value(),
             )),
             GetVmMachineConfig => Ok(VmmData::MachineConfiguration(
@@ -725,16 +729,24 @@ impl RuntimeApiController {
                 self.vmm.lock().expect("Poisoned lock").version(),
             )),
             PatchMMDS(value) => mmds_patch_data(
-                self.vm_resources
-                    .locked_mmds_or_default()
-                    .map_err(VmmActionError::MmdsConfig)?,
+                self.vmm
+                    .lock()
+                    .expect("Poisoned lock")
+                    .get_mmds()
+                    .ok_or(VmmActionError::Mmds(MmdsDatastoreError::NotInitialized))?
+                    .lock()
+                    .expect("Poisoned lock"),
                 value,
             ),
             Pause => self.pause(),
             PutMMDS(value) => mmds_put_data(
-                self.vm_resources
-                    .locked_mmds_or_default()
-                    .map_err(VmmActionError::MmdsConfig)?,
+                self.vmm
+                    .lock()
+                    .expect("Poisoned lock")
+                    .get_mmds()
+                    .ok_or(VmmActionError::Mmds(MmdsDatastoreError::NotInitialized))?
+                    .lock()
+                    .expect("Poisoned lock"),
                 value,
             ),
             Resume => self.resume(),
@@ -1014,10 +1026,12 @@ mod tests {
 
     #[test]
     fn test_runtime_get_mmds() {
-        assert_eq!(
-            runtime_request(VmmAction::GetMMDS).unwrap(),
-            VmmData::MmdsValue(Value::Null)
-        );
+        assert!(matches!(
+            runtime_request(VmmAction::GetMMDS),
+            Err(VmmActionError::Mmds(
+                data_store::MmdsDatastoreError::NotInitialized
+            ))
+        ));
     }
 
     #[test]

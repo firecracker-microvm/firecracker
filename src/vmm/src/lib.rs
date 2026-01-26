@@ -149,6 +149,7 @@ use crate::devices::virtio::pmem::device::Pmem;
 use crate::devices::virtio::rng::Entropy;
 use crate::devices::virtio::vsock::{Vsock, VsockUnixBackend};
 use crate::logger::{METRICS, MetricsError, error, info, warn};
+use crate::mmds::data_store::Mmds;
 use crate::persist::{MicrovmState, MicrovmStateError, VmInfo};
 use crate::rate_limiter::BucketUpdate;
 use crate::utils::{bytes_to_mib, u64_to_usize};
@@ -338,6 +339,40 @@ impl Vmm {
     /// Gets Vmm instance info.
     pub fn instance_info(&self) -> InstanceInfo {
         self.instance_info.clone()
+    }
+
+    /// Gets MMDS reference, if any.
+    pub fn get_mmds(&self) -> Option<Arc<Mutex<Mmds>>> {
+        // Unfortunately the way these different device managers have been
+        // implemented forces code duplication...
+        if self.device_manager.is_pci_enabled() {
+            for ((device_type, _), pci_device) in &self.device_manager.pci_devices.virtio_devices {
+                if *device_type == VirtioDeviceType::Net {
+                    let virtio_device = pci_device.lock().expect("Poisoned lock").virtio_device();
+                    let device_locked = virtio_device.lock().expect("Poisoned lock");
+                    if let Some(net) = device_locked.as_any().downcast_ref::<Net>()
+                        && let Some(mmds_ns) = &net.mmds_ns
+                    {
+                        return Some(mmds_ns.mmds.clone());
+                    }
+                }
+            }
+        } else {
+            for ((device_type, _), mmio_device) in &self.device_manager.mmio_devices.virtio_devices
+            {
+                if *device_type == VirtioDeviceType::Net {
+                    let virtio_device = mmio_device.inner.lock().expect("Poisoned lock").device();
+                    let device_locked = virtio_device.lock().expect("Poisoned lock");
+                    if let Some(net) = device_locked.as_any().downcast_ref::<Net>()
+                        && let Some(mmds_ns) = &net.mmds_ns
+                    {
+                        return Some(mmds_ns.mmds.clone());
+                    }
+                }
+            }
+        }
+
+        None
     }
 
     /// Provides the Vmm shutdown exit code if there is one.
