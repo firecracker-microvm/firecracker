@@ -881,7 +881,7 @@ impl RuntimeApiController {
         }
 
         let mut locked_vmm = self.vmm.lock().unwrap();
-        let vm_info = VmInfo::from(&self.vm_resources);
+        let vm_info = VmInfo::from(&*locked_vmm);
         let create_start_us = get_time_us(ClockType::Monotonic);
 
         create_snapshot(&mut locked_vmm, &vm_info, create_params)?;
