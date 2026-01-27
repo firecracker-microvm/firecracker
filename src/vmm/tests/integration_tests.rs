@@ -218,7 +218,7 @@ fn verify_create_snapshot(
         },
         ..Default::default()
     };
-    let vm_info = VmInfo::from(&resources);
+    let vm_info = VmInfo::from(&*vmm.lock().unwrap());
     let mut controller = RuntimeApiController::new(resources, vmm.clone());
 
     // Be sure that the microVM is running.
