@@ -7,7 +7,7 @@ set -eu -o pipefail
 apply_patch_file() {
   echo "Applying patch:" $(basename $1)
 
-  git am < $1
+  git am --empty=keep < $1
 }
 
 apply_patch_or_series() {
