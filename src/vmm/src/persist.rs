@@ -70,6 +70,19 @@ impl From<&VmResources> for VmInfo {
     }
 }
 
+impl From<&Vmm> for VmInfo {
+    fn from(value: &Vmm) -> Self {
+        let machine_config = &value.machine_config;
+        Self {
+            mem_size_mib: machine_config.mem_size_mib as u64,
+            smt: machine_config.smt,
+            cpu_template: StaticCpuTemplate::from(&machine_config.cpu_template),
+            boot_source: value.boot_source_config.clone(),
+            huge_pages: machine_config.huge_pages,
+        }
+    }
+}
+
 /// Contains the necessary state for saving/restoring a microVM.
 #[derive(Debug, Default, Serialize, Deserialize)]
 pub struct MicrovmState {
