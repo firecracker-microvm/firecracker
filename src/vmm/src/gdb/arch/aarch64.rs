@@ -193,6 +193,7 @@ const PSTATE_ID: u64 = arm64_core_reg_id!(KVM_REG_SIZE_U64, offset_of!(user_pt_r
 ///  - Single step
 ///  - Re-insert the SW breakpoint
 ///  - Resume
+///
 /// However, with IRQ enabled the single step takes us into the IRQ handler so when we resume we
 /// immediately hit the SW breapoint we just re-inserted getting stuck in a loop.
 fn toggle_interrupts(vcpu_fd: &VcpuFd, enable: bool) -> Result<(), GdbTargetError> {
