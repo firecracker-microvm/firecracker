@@ -353,12 +353,12 @@ impl Target for FirecrackerTarget {
     type Arch = GdbArch;
 
     #[inline(always)]
-    fn base_ops(&mut self) -> BaseOps<Self::Arch, Self::Error> {
+    fn base_ops(&mut self) -> BaseOps<'_, Self::Arch, Self::Error> {
         BaseOps::MultiThread(self)
     }
 
     #[inline(always)]
-    fn support_breakpoints(&mut self) -> Option<BreakpointsOps<Self>> {
+    fn support_breakpoints(&mut self) -> Option<BreakpointsOps<'_, Self>> {
         Some(self)
     }
 
@@ -480,7 +480,7 @@ impl MultiThreadBase for FirecrackerTarget {
     }
 
     #[inline(always)]
-    fn support_resume(&mut self) -> Option<MultiThreadResumeOps<Self>> {
+    fn support_resume(&mut self) -> Option<MultiThreadResumeOps<'_, Self>> {
         Some(self)
     }
 
@@ -552,12 +552,12 @@ impl MultiThreadSchedulerLocking for FirecrackerTarget {
 
 impl Breakpoints for FirecrackerTarget {
     #[inline(always)]
-    fn support_hw_breakpoint(&mut self) -> Option<HwBreakpointOps<Self>> {
+    fn support_hw_breakpoint(&mut self) -> Option<HwBreakpointOps<'_, Self>> {
         Some(self)
     }
 
     #[inline(always)]
-    fn support_sw_breakpoint(&mut self) -> Option<SwBreakpointOps<Self>> {
+    fn support_sw_breakpoint(&mut self) -> Option<SwBreakpointOps<'_, Self>> {
         Some(self)
     }
 }
