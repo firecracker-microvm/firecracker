@@ -184,29 +184,22 @@ function to [`.buildkite/pipeline_perf.py`](../.buildkite/pipeline_perf.py). To
 manually run an A/B-Test, use
 
 ```sh
-tools/devtool -y test --ab [optional arguments to ab_test.py] run --binaries-a <dir A> --binaries-b <dir B> [optional --artifacts-a <name A> --artifacts-b <name B>] --pytest-opts <test specification>
+tools/devtool -y test --ab [optional arguments to ab_test.py] run <dir A> <dir B> --pytest-opts <test specification>
 ```
 
-- _dir A_ and _dir B_ are directories containing firecracker and jailer binaries
-  whose performance characteristics you wish to compare
-- _name A_ and _name B_ are names of artifacts A and B run will to use
-  respectively
-
-You can use `./tools/devtool build --rev <revision> --release` to compile
-binaries from an arbitrary git object (commit SHAs, branches, tags etc.). This
-will create sub-directories in `build` containing the binaries. For example, to
-compare boottime of microVMs between Firecracker binaries compiled from the
-`main` branch and the `HEAD` of your current branch, run
+Here, _dir A_ and _dir B_ are directories containing firecracker and jailer
+binaries whose performance characteristics you wish to compare. You can use
+`./tools/devtool build --rev <revision> --release` to compile binaries from an
+arbitrary git object (commit SHAs, branches, tags etc.). This will create
+sub-directories in `build` containing the binaries. For example, to compare
+boottime of microVMs between Firecracker binaries compiled from the `main`
+branch and the `HEAD` of your current branch, run
 
 ```sh
 tools/devtool -y build --rev main --release
 tools/devtool -y build --rev HEAD --release
 tools/devtool -y test --no-build --ab -- run build/main build/HEAD --pytest-opts integration_tests/performance/test_boottime.py::test_boottime
 ```
-
-To download custom artifacts use
-`./tools/devtool download_ci_artifacts <S3 URI>...`. This will place artifacts
-into `build/artifacts` directory.
 
 #### How to Write an A/B-Compatible Test and Common Pitfalls
 
@@ -258,6 +251,26 @@ schedule an A/B-Test in buildkite, the `REVISION_A` and `REVISION_B` environment
 variables need to be set in the "Environment Variables" field under "Options" in
 buildkite's "New Build" modal.
 
+### A/B visualization
+
+To create visualization of A/B runs use `tools/ab_plot.py` script. It supports
+creating `pdf` and `table` outputs with multiple directories as inputs. Example
+usage:
+
+```sh
+ ./tools/ab_plot.py a_path b_path --output_type pdf
+```
+
+Alternatively using `devtool` running the script in the dev container with
+pre-installed dependencies.
+
+```sh
+ ./tools/devtool sh ./tools/ab_plot.py a_path b_path --output_type pdf
+```
+
+> [!NOTE] Generating `pdf` output may take some time for tests with a lot of
+> permutations.
+
 ### Beyond commit comparisons
 
 While our automated A/B-Testing suite only supports A/B-Tests across commit
@@ -266,37 +279,26 @@ arbitrary environment (such as comparison how the same Firecracker binary
 behaves on different hosts).
 
 For this, run the desired tests in your environments using `devtool` as you
-would for a non-A/B test. This will produce `test_results` directories which
-will contain `metrics.json` files for each run test.
-
-The `tools/ab_test.py` script can find and use these `metrics.json` files in the
-provided directories to compare runs:
+would for a non-A/B test. The only difference to a normal test run is you should
+set two environment variables: `AWS_EMF_ENVIRONMENT=local` and
+`AWS_EMF_NAMESPACE=local`:
 
 ```sh
-tools/ab_test.py analyze <path to A `test_results`> <path to B `test_results`>
+AWS_EMF_ENVIRONMENT=local AWS_EMF_NAMESPACE=local tools/devtool -y test -- integration_tests/performance/test_boottime.py::test_boottime
+```
+
+This instructs `aws_embedded_metrics` to dump all data series that our A/B-Test
+orchestration would analyze to `stdout`, and pytest will capture this output
+into a file stored at `./test_results/test-report.json`.
+
+The `tools/ab_test.py` script can consume these test reports, so next collect
+your two test report files to your local machine and run
+
+```sh
+tools/ab_test.py analyze <first test-report.json> <second test-report.json>
 ```
 
 This will then print the same analysis described in the previous sections.
-
-#### Visualization
-
-To create visualization of A/B runs use `tools/ab_plot.py` script. It supports
-creating `pdf` and `table` outputs using same `metrics.json` files used by
-`tools/ab_test.py`. Example usage:
-
-```sh
- ./tools/ab_plot.py <path to A `test_results`> <path to B `test_results`> --output_type pdf
-```
-
-Alternatively using `devtool` running the script in the dev container with
-pre-installed dependencies.
-
-```sh
- ./tools/devtool sh ./tools/ab_plot.py <path to A `test_results`> <path to B `test_results`> --output_type pdf
-```
-
-> [!NOTE] Generating `pdf` output may take some time for tests with a lot of
-> permutations.
 
 #### Troubleshooting
 
@@ -450,9 +452,9 @@ there. `pytest` will bring them into scope for all your tests.
 
 `Q4:` *I want to use more/other microvm test images, but I don't want to add
 them to the common s3 bucket.*\
-`A4:` Add your custom images to the `build/artifacts` subdirectory in the
-Firecracker source tree. This directory is bind-mounted in the container and
-used as a local image cache.
+`A4:` Add your custom images to the `build/img` subdirectory in the Firecracker
+source tree. This directory is bind-mounted in the container and used as a local
+image cache.
 
 `Q5:` *How can I get live logger output from the tests?*\
 `A5:` Accessing **pytest.ini** will allow you to modify logger settings.

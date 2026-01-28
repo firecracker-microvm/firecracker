@@ -60,13 +60,13 @@ impl SeccompCondition {
                 // JIT.
                 match self.val_len {
                     SeccompCmpArgLen::Dword => scmp_arg_cmp {
-                        arg: self.index as u32,
+                        arg: u32::from(self.index),
                         op: scmp_compare::SCMP_CMP_MASKED_EQ,
                         datum_a: 0x00000000FFFFFFFF,
                         datum_b: self.val,
                     },
                     SeccompCmpArgLen::Qword => scmp_arg_cmp {
-                        arg: self.index as u32,
+                        arg: u32::from(self.index),
                         op: scmp_compare::SCMP_CMP_EQ,
                         datum_a: self.val,
                         datum_b: 0,
@@ -74,38 +74,38 @@ impl SeccompCondition {
                 }
             }
             SeccompCmpOp::Ge => scmp_arg_cmp {
-                arg: self.index as u32,
+                arg: u32::from(self.index),
                 op: scmp_compare::SCMP_CMP_GE,
                 datum_a: self.val,
                 datum_b: 0,
             },
             SeccompCmpOp::Gt => scmp_arg_cmp {
-                arg: self.index as u32,
+                arg: u32::from(self.index),
                 op: scmp_compare::SCMP_CMP_GT,
                 datum_a: self.val,
                 datum_b: 0,
             },
             SeccompCmpOp::Le => scmp_arg_cmp {
-                arg: self.index as u32,
+                arg: u32::from(self.index),
                 op: scmp_compare::SCMP_CMP_LE,
                 datum_a: self.val,
                 datum_b: 0,
             },
             SeccompCmpOp::Lt => scmp_arg_cmp {
-                arg: self.index as u32,
+                arg: u32::from(self.index),
                 op: scmp_compare::SCMP_CMP_LT,
                 datum_a: self.val,
                 datum_b: 0,
             },
             SeccompCmpOp::Ne => scmp_arg_cmp {
-                arg: self.index as u32,
+                arg: u32::from(self.index),
                 op: scmp_compare::SCMP_CMP_NE,
                 datum_a: self.val,
                 datum_b: 0,
             },
 
             SeccompCmpOp::MaskedEq(m) => scmp_arg_cmp {
-                arg: self.index as u32,
+                arg: u32::from(self.index),
                 op: scmp_compare::SCMP_CMP_MASKED_EQ,
                 datum_a: m,
                 datum_b: self.val,

@@ -141,7 +141,7 @@ pub fn compile_bpf(
                 // SAFETY: Safe as all args are correct.
                 // We can assume no one will define u32::MAX
                 // filters for a syscall.
-                #[allow(clippy::cast_possible_truncation)]
+                #[allow(clippy::cast_possible_truncation, clippy::as_conversions)]
                 unsafe {
                     if seccomp_rule_add_array(
                         bpf_filter,
@@ -173,7 +173,7 @@ pub fn compile_bpf(
         memfd.rewind().map_err(CompilationError::MemfdRewind)?;
 
         // Cast is safe because usize == u64
-        #[allow(clippy::cast_possible_truncation)]
+        #[allow(clippy::cast_possible_truncation, clippy::as_conversions)]
         let size = memfd.metadata().unwrap().size() as usize;
         // Bpf instructions are 8 byte values and 4 byte alignment.
         // We use u64 to satisfy these requirements.

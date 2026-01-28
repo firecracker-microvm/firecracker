@@ -183,13 +183,6 @@ COMMON_PARSER.add_argument(
     type=str,
 )
 COMMON_PARSER.add_argument(
-    "--artifacts",
-    help="Use the Firecracker binaries from this S3 uri",
-    required=False,
-    default=os.environ.get("ARTIFACTS_OVERRIDE"),
-    type=str,
-)
-COMMON_PARSER.add_argument(
     "--no-kani",
     help="Don't add kani step",
     action="store_true",
@@ -276,12 +269,11 @@ class BKPipeline:
         self.per_arch["instances"] = ["m6i.metal", "m7g.metal"]
         self.per_arch["platforms"] = [("al2023", "linux_6.1")]
         self.binary_dir = args.binary_dir
-        self.artifacts = args.artifacts
         # Build sharing, if a binary dir wasn't already supplied
         if not args.binary_dir and with_build_step:
             build_cmds, self.shared_build = shared_build()
             self.build_group_per_arch(
-                "build", build_cmds, depends_on_build=False, set_key=self.shared_build
+                "🏗️ Build", build_cmds, depends_on_build=False, set_key=self.shared_build
             )
         else:
             self.shared_build = None
@@ -384,20 +376,12 @@ class BKPipeline:
         """Serialize the pipeline to JSON"""
         return json.dumps(self.to_dict(), indent=4, sort_keys=True, ensure_ascii=False)
 
-    def devtool_download_artifacts(self, artifacts):
-        """Generate a `devtool download_ci_artifacts` command"""
-        parts = ["./tools/devtool -y download_ci_artifacts"]
-        parts += artifacts
-        return " ".join(parts)
-
     def devtool_test(self, devtool_opts=None, pytest_opts=None):
         """Generate a `devtool test` command"""
         cmds = []
         parts = ["./tools/devtool -y test"]
         if self.shared_build is not None:
             parts.append("--no-build")
-        if self.artifacts is not None:
-            parts.append(f"--artifacts '{self.artifacts}'")
         if devtool_opts:
             parts.append(devtool_opts)
         parts.append("--")

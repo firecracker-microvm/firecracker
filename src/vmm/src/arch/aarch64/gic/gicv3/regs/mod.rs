@@ -57,11 +57,9 @@ pub fn restore_state(
         icc_regs::set_icc_regs(gic_device, *mpidr, &vcpu_state.icc)?;
     }
 
-    state
-        .its_state
-        .as_ref()
-        .ok_or(GicError::MissingItsState)?
-        .restore(its_device)
+    // Safe to unwrap here, as we know we support an ITS device, so `its_state.is_some()` is always
+    // `true`.
+    state.its_state.as_ref().unwrap().restore(its_device)
 }
 
 #[cfg(test)]
