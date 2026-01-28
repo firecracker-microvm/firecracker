@@ -30,7 +30,7 @@ derive_more = { version = "2.1.1", default-features = false, features = [
 ] }
 displaydoc = "0.2.5"
 event-manager = "0.4.2"
-gdbstub = { version = "0.7.8", optional = true }
+gdbstub = { version = "0.7.9", optional = true }
 gdbstub_arch = { version = "0.3.2", optional = true }
 kvm-bindings = { version = "0.14.0", features = ["fam-wrappers", "serde"] }
 kvm-ioctls = "0.24.0"
