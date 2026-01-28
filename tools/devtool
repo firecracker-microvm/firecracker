@@ -1110,7 +1110,7 @@ cmd_checkbuild() {
     fi
 
     # Use GNU target to check build as musl has issues with cross-compilation
-    cmd_sh "cargo clippy --target ${TARGET_ARCH}-unknown-linux-gnu --all --all-targets -- -D warnings" \
+    cmd_sh "cargo clippy --target ${TARGET_ARCH}-unknown-linux-gnu --all --all-targets --all-features -- -D warnings" \
         || die "Error running build checks for $TARGET_ARCH"
     say "Build check passed for $TARGET_ARCH"
 }
