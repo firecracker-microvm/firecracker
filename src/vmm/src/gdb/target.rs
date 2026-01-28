@@ -11,8 +11,8 @@ use gdbstub::common::{Signal, Tid};
 use gdbstub::stub::{BaseStopReason, MultiThreadStopReason};
 use gdbstub::target::ext::base::BaseOps;
 use gdbstub::target::ext::base::multithread::{
-    MultiThreadBase, MultiThreadResume, MultiThreadResumeOps, MultiThreadSingleStep,
-    MultiThreadSingleStepOps,
+    MultiThreadBase, MultiThreadResume, MultiThreadResumeOps, MultiThreadSchedulerLocking,
+    MultiThreadSchedulerLockingOps, MultiThreadSingleStep, MultiThreadSingleStepOps,
 };
 use gdbstub::target::ext::breakpoints::{
     Breakpoints, BreakpointsOps, HwBreakpoint, HwBreakpointOps, SwBreakpoint, SwBreakpointOps,
@@ -43,12 +43,14 @@ use crate::{FcExitCode, VcpuEvent, VcpuResponse, Vmm};
 struct VcpuState {
     single_step: bool,
     paused: bool,
+    has_resume_action: bool,
 }
 
 impl VcpuState {
     /// Disables single stepping on the Vcpu state
     fn reset_vcpu_state(&mut self) {
         self.single_step = false;
+        self.has_resume_action = false;
     }
 }
 
@@ -135,6 +137,9 @@ pub struct FirecrackerTarget {
     /// Stores the current paused thread id, GDB can inact commands without providing us a Tid to
     /// run on and expects us to use the last paused thread.
     paused_vcpu: Option<Tid>,
+
+    /// Whether scheduler locking is enabled for the current resume cycle
+    scheduler_locking: bool,
 }
 
 /// Convert the 1 indexed Tid to the 0 indexed Vcpuid
@@ -173,6 +178,7 @@ impl FirecrackerTarget {
             vcpu_state,
 
             paused_vcpu: Tid::new(1),
+            scheduler_locking: false,
         }
     }
 
@@ -224,6 +230,9 @@ impl FirecrackerTarget {
         }
 
         for cpu_id in 0..self.vcpu_state.len() {
+            if self.scheduler_locking && !self.vcpu_state[cpu_id].has_resume_action {
+                continue;
+            }
             let tid = vcpuid_to_tid(cpu_id)?;
             self.resume_vcpu(tid)?;
         }
@@ -488,7 +497,9 @@ impl MultiThreadResume for FirecrackerTarget {
         tid: Tid,
         _signal: Option<Signal>,
     ) -> Result<(), Self::Error> {
-        self.vcpu_state[tid_to_vcpuid(tid)].single_step = false;
+        let state = &mut self.vcpu_state[tid_to_vcpuid(tid)];
+        state.single_step = false;
+        state.has_resume_action = true;
 
         Ok(())
     }
@@ -501,12 +512,18 @@ impl MultiThreadResume for FirecrackerTarget {
     /// Clears the state of all Vcpus setting it back to base config
     fn clear_resume_actions(&mut self) -> Result<(), Self::Error> {
         self.reset_all_vcpu_states();
+        self.scheduler_locking = false;
 
         Ok(())
     }
 
     #[inline(always)]
     fn support_single_step(&mut self) -> Option<MultiThreadSingleStepOps<'_, Self>> {
+        Some(self)
+    }
+
+    #[inline(always)]
+    fn support_scheduler_locking(&mut self) -> Option<MultiThreadSchedulerLockingOps<'_, Self>> {
         Some(self)
     }
 }
@@ -518,8 +535,17 @@ impl MultiThreadSingleStep for FirecrackerTarget {
         tid: Tid,
         _signal: Option<Signal>,
     ) -> Result<(), Self::Error> {
-        self.vcpu_state[tid_to_vcpuid(tid)].single_step = true;
+        let state = &mut self.vcpu_state[tid_to_vcpuid(tid)];
+        state.single_step = true;
+        state.has_resume_action = true;
 
+        Ok(())
+    }
+}
+
+impl MultiThreadSchedulerLocking for FirecrackerTarget {
+    fn set_resume_action_scheduler_lock(&mut self) -> Result<(), Self::Error> {
+        self.scheduler_locking = true;
         Ok(())
     }
 }
