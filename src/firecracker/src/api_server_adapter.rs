@@ -9,7 +9,6 @@ use std::thread;
 
 use event_manager::{EventOps, Events, MutEventSubscriber, SubscriberOps};
 use vmm::logger::{ProcessTimeReporter, error, info, warn};
-use vmm::resources::VmResources;
 use vmm::rpc_interface::{
     ApiRequest, ApiResponse, BuildMicrovmFromRequestsError, PrebootApiController,
     RuntimeApiController, VmmAction,
@@ -51,7 +50,6 @@ impl ApiServerAdapter {
         api_event_fd: EventFd,
         from_api: Receiver<ApiRequest>,
         to_api: Sender<ApiResponse>,
-        vm_resources: VmResources,
         vmm: Arc<Mutex<Vmm>>,
         event_manager: &mut EventManager,
     ) -> Result<(), ApiServerError> {
@@ -59,7 +57,7 @@ impl ApiServerAdapter {
             api_event_fd,
             from_api,
             to_api,
-            controller: RuntimeApiController::new(vm_resources, vmm.clone()),
+            controller: RuntimeApiController::new(vmm.clone()),
         }));
         event_manager.add_subscriber(api_adapter);
         loop {
@@ -233,20 +231,13 @@ pub(crate) fn run_with_api(
         .map_err(ApiServerError::BuildMicroVmError),
     };
 
-    let result = build_result.and_then(|(vm_resources, vmm)| {
+    let result = build_result.and_then(|vmm| {
         firecracker_metrics
             .lock()
             .expect("Poisoned lock")
             .start(super::metrics::WRITE_METRICS_PERIOD_MS);
 
-        ApiServerAdapter::run_microvm(
-            api_event_fd,
-            from_api,
-            to_api,
-            vm_resources,
-            vmm,
-            &mut event_manager,
-        )
+        ApiServerAdapter::run_microvm(api_event_fd, from_api, to_api, vmm, &mut event_manager)
     });
 
     api_kill_switch.write(1).unwrap();

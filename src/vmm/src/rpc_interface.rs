@@ -356,7 +356,7 @@ impl<'a> PrebootApiController<'a> {
         pci_enabled: bool,
         mmds_size_limit: usize,
         metadata_json: Option<&str>,
-    ) -> Result<(VmResources, Arc<Mutex<Vmm>>), BuildMicrovmFromRequestsError> {
+    ) -> Result<Arc<Mutex<Vmm>>, BuildMicrovmFromRequestsError> {
         let mut vm_resources = VmResources {
             boot_timer: boot_timer_enabled,
             mmds_size_limit,
@@ -409,7 +409,7 @@ impl<'a> PrebootApiController<'a> {
 
         // Safe to unwrap because previous loop cannot end on None.
         let vmm = preboot_controller.built_vmm.unwrap();
-        Ok((vm_resources, vmm))
+        Ok(vmm)
     }
 
     /// Handles the incoming preboot request and provides a response for it.
@@ -670,7 +670,6 @@ impl<'a> PrebootApiController<'a> {
 #[derive(Debug)]
 pub struct RuntimeApiController {
     vmm: Arc<Mutex<Vmm>>,
-    vm_resources: VmResources,
 }
 
 impl RuntimeApiController {
@@ -817,8 +816,8 @@ impl RuntimeApiController {
     }
 
     /// Creates a new `RuntimeApiController`.
-    pub fn new(vm_resources: VmResources, vmm: Arc<Mutex<Vmm>>) -> Self {
-        Self { vmm, vm_resources }
+    pub fn new(vmm: Arc<Mutex<Vmm>>) -> Self {
+        Self { vmm }
     }
 
     /// Pauses the microVM by pausing the vCPUs.
@@ -1187,7 +1186,7 @@ mod tests {
 
     fn runtime_request(request: VmmAction) -> Result<VmmData, VmmActionError> {
         let vmm = Arc::new(Mutex::new(default_vmm()));
-        let mut runtime = RuntimeApiController::new(VmResources::default(), vmm.clone());
+        let mut runtime = RuntimeApiController::new(vmm.clone());
         runtime.handle_request(request)
     }
 
