@@ -1041,39 +1041,6 @@ mod tests {
     }
 
     #[test]
-    fn test_runtime_put_mmds() {
-        let mmds = Arc::new(Mutex::new(Mmds::default()));
-
-        assert_eq!(
-            runtime_request_with_mmds(
-                VmmAction::PutMMDS(Value::String("string".to_string())),
-                mmds.clone()
-            )
-            .unwrap(),
-            VmmData::Empty
-        );
-        assert_eq!(
-            runtime_request_with_mmds(VmmAction::GetMMDS, mmds.clone()).unwrap(),
-            VmmData::MmdsValue(Value::String("string".to_string()))
-        );
-
-        let filling = (0..51300).map(|_| "X").collect::<String>();
-        let data = "{\"key\": \"".to_string() + &filling + "\"}";
-
-        assert!(matches!(
-            runtime_request_with_mmds(
-                VmmAction::PutMMDS(serde_json::from_str(&data).unwrap()),
-                mmds.clone()
-            ),
-            Err(VmmActionError::MmdsLimitExceeded(_))
-        ));
-        assert_eq!(
-            runtime_request_with_mmds(VmmAction::GetMMDS, mmds).unwrap(),
-            VmmData::MmdsValue(Value::String("string".to_string()))
-        );
-    }
-
-    #[test]
     fn test_preboot_patch_mmds() {
         let mmds = Arc::new(Mutex::new(Mmds::default()));
         // MMDS data store is not yet initialized.
@@ -1139,70 +1106,6 @@ mod tests {
     }
 
     #[test]
-    fn test_runtime_patch_mmds() {
-        let mmds = Arc::new(Mutex::new(Mmds::default()));
-        // MMDS data store is not yet initialized.
-        let res = runtime_request(VmmAction::PatchMMDS(Value::String("string".to_string())));
-        assert!(
-            matches!(
-                res,
-                Err(VmmActionError::Mmds(
-                    data_store::MmdsDatastoreError::NotInitialized
-                ))
-            ),
-            "{:?}",
-            res
-        );
-
-        assert_eq!(
-            runtime_request_with_mmds(
-                VmmAction::PutMMDS(
-                    serde_json::from_str(r#"{"key1": "value1", "key2": "val2"}"#).unwrap(),
-                ),
-                mmds.clone()
-            )
-            .unwrap(),
-            VmmData::Empty
-        );
-        assert_eq!(
-            runtime_request_with_mmds(VmmAction::GetMMDS, mmds.clone()).unwrap(),
-            VmmData::MmdsValue(
-                serde_json::from_str(r#"{"key1": "value1", "key2": "val2"}"#).unwrap()
-            )
-        );
-        assert_eq!(
-            runtime_request_with_mmds(
-                VmmAction::PatchMMDS(
-                    serde_json::from_str(r#"{"key1": null, "key2": "value2"}"#).unwrap(),
-                ),
-                mmds.clone()
-            )
-            .unwrap(),
-            VmmData::Empty
-        );
-
-        assert_eq!(
-            runtime_request_with_mmds(VmmAction::GetMMDS, mmds.clone()).unwrap(),
-            VmmData::MmdsValue(serde_json::from_str(r#"{"key2": "value2"}"#).unwrap())
-        );
-
-        let filling = (0..HTTP_MAX_PAYLOAD_SIZE).map(|_| "X").collect::<String>();
-        let data = "{\"key\": \"".to_string() + &filling + "\"}";
-
-        assert!(matches!(
-            runtime_request_with_mmds(
-                VmmAction::PatchMMDS(serde_json::from_str(&data).unwrap()),
-                mmds.clone()
-            ),
-            Err(VmmActionError::MmdsLimitExceeded(_))
-        ));
-        assert_eq!(
-            runtime_request_with_mmds(VmmAction::GetMMDS, mmds).unwrap(),
-            VmmData::MmdsValue(serde_json::from_str(r#"{"key2": "value2"}"#).unwrap())
-        );
-    }
-
-    #[test]
     fn test_preboot_disallowed() {
         fn check_unsupported(res: Result<VmmData, VmmActionError>) {
             assert!(
@@ -1258,19 +1161,6 @@ mod tests {
     fn runtime_request(request: VmmAction) -> Result<VmmData, VmmActionError> {
         let vmm = Arc::new(Mutex::new(default_vmm()));
         let mut runtime = RuntimeApiController::new(VmResources::default(), vmm.clone());
-        runtime.handle_request(request)
-    }
-
-    fn runtime_request_with_mmds(
-        request: VmmAction,
-        mmds: Arc<Mutex<Mmds>>,
-    ) -> Result<VmmData, VmmActionError> {
-        let vm_res = VmResources {
-            mmds: Some(mmds),
-            ..Default::default()
-        };
-        let vmm = Arc::new(Mutex::new(default_vmm()));
-        let mut runtime = RuntimeApiController::new(vm_res, vmm.clone());
         runtime.handle_request(request)
     }
 
