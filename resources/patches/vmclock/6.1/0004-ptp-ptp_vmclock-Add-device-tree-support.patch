@@ -1,36 +1,26 @@
-From a70db7595dac8a3b84d14a8dc62b4067cc152055 Mon Sep 17 00:00:00 2001
+From 30468d547a380aa6db4d9e2ba8ab735daeab0694 Mon Sep 17 00:00:00 2001
 From: David Woodhouse <dwmw@amazon.co.uk>
-Date: Tue, 2 Dec 2025 20:12:07 +0000
-Subject: [PATCH 4/4] ptp: ptp_vmclock: Add device tree support
+Date: Wed, 21 Jan 2026 14:33:41 +0000
+Subject: [PATCH 4/7] ptp: ptp_vmclock: Add device tree support
 
 Add device tree support to the ptp_vmclock driver, allowing it to probe
 via device tree in addition to ACPI.
 
 Handle optional interrupt for clock disruption notifications, mirroring
-the ACPI notification behavior.
+the ACPI notification behaviour.
+
+Although the interrupt is marked as 'optional' in the DT bindings, if
+the device *advertises* the VMCLOCK_FLAG_NOTIFICATION_ABSENT then it
+*should* have an interrupt. The driver will refuse to initialize if not.
 
 Signed-off-by: David Woodhouse <dwmw@amazon.co.uk>
 Signed-off-by: Babis Chalios <bchalios@amazon.es>
 ---
- drivers/ptp/Kconfig       |  2 +-
- drivers/ptp/ptp_vmclock.c | 83 ++++++++++++++++++++++++++++++++++++---
- 2 files changed, 78 insertions(+), 7 deletions(-)
+ drivers/ptp/ptp_vmclock.c | 67 +++++++++++++++++++++++++++++++++++----
+ 1 file changed, 61 insertions(+), 6 deletions(-)
 
-diff --git a/drivers/ptp/Kconfig b/drivers/ptp/Kconfig
-index 44bc88a0a772..8c1aad77d708 100644
---- a/drivers/ptp/Kconfig
-+++ b/drivers/ptp/Kconfig
-@@ -121,7 +121,7 @@ config PTP_1588_CLOCK_KVM
- config PTP_1588_CLOCK_VMCLOCK
-        tristate "Virtual machine PTP clock"
-        depends on X86_TSC || ARM_ARCH_TIMER
--       depends on PTP_1588_CLOCK && ACPI && ARCH_SUPPORTS_INT128
-+       depends on PTP_1588_CLOCK && ARCH_SUPPORTS_INT128
-        default y
-        help
-          This driver adds support for using a virtual precision clock
 diff --git a/drivers/ptp/ptp_vmclock.c b/drivers/ptp/ptp_vmclock.c
-index 4673915c43e7..4b8c7fa4ea91 100644
+index 87435b65ea7b..662fbe93534c 100644
 --- a/drivers/ptp/ptp_vmclock.c
 +++ b/drivers/ptp/ptp_vmclock.c
 @@ -14,10 +14,13 @@
@@ -47,15 +37,7 @@ index 4673915c43e7..4b8c7fa4ea91 100644
  #include <linux/platform_device.h>
  #include <linux/slab.h>
  #include <linux/vmclock-abi.h>
-@@ -453,6 +456,7 @@ static int vmclock_remove(struct platform_device *pdev)
- 	return 0;
- }
- 
-+#ifdef CONFIG_ACPI
- static acpi_status vmclock_acpi_resources(struct acpi_resource *ares, void *data)
- {
- 	struct vmclock_state *st = data;
-@@ -490,7 +494,7 @@ vmclock_acpi_notification_handler(acpi_handle __always_unused handle,
+@@ -474,7 +477,7 @@ vmclock_acpi_notification_handler(acpi_handle __always_unused handle,
  	wake_up_interruptible(&st->disrupt_wait);
  }
  
@@ -64,38 +46,24 @@ index 4673915c43e7..4b8c7fa4ea91 100644
  {
  	struct acpi_device *adev = ACPI_COMPANION(dev);
  	acpi_status status;
-@@ -503,10 +507,6 @@ static int vmclock_setup_notification(struct device *dev, struct vmclock_state *
+@@ -487,10 +490,6 @@ static int vmclock_setup_notification(struct device *dev, struct vmclock_state *
  	if (!adev)
  		return -ENODEV;
  
 -	/* The device does not support notifications. Nothing else to do */
--	if (!(st->clk->flags & VMCLOCK_FLAG_NOTIFICATION_PRESENT))
+-	if (!(le64_to_cpu(st->clk->flags) & VMCLOCK_FLAG_NOTIFICATION_PRESENT))
 -		return 0;
 -
  	status = acpi_install_notify_handler(adev->handle, ACPI_DEVICE_NOTIFY,
  					     vmclock_acpi_notification_handler,
  					     dev);
-@@ -540,6 +540,70 @@ static int vmclock_probe_acpi(struct device *dev, struct vmclock_state *st)
- 
+@@ -525,6 +524,55 @@ static int vmclock_probe_acpi(struct device *dev, struct vmclock_state *st)
  	return 0;
  }
-+#else
-+static int vmclock_probe_acpi(struct device *dev, struct vmclock_state *st)
+ 
++static irqreturn_t vmclock_of_irq_handler(int __always_unused irq, void *_st)
 +{
-+	return -EINVAL;
-+}
-+
-+static int vmclock_setup_acpi_notification(struct device *dev)
-+{
-+	return -EINVAL;
-+}
-+
-+#endif
-+
-+static irqreturn_t vmclock_of_irq_handler(int __always_unused irq, void *dev)
-+{
-+	struct device *device = dev;
-+	struct vmclock_state *st = device->driver_data;
++	struct vmclock_state *st = _st;
 +
 +	wake_up_interruptible(&st->disrupt_wait);
 +	return IRQ_HANDLED;
@@ -125,7 +93,7 @@ index 4673915c43e7..4b8c7fa4ea91 100644
 +		return irq;
 +
 +	return devm_request_irq(dev, irq, vmclock_of_irq_handler, IRQF_SHARED,
-+				"vmclock", dev);
++				"vmclock", dev->driver_data);
 +}
 +
 +static int vmclock_setup_notification(struct device *dev,
@@ -140,13 +108,12 @@ index 4673915c43e7..4b8c7fa4ea91 100644
 +	} else {
 +		return vmclock_setup_of_notification(dev);
 +	}
-+
 +}
 +
- 
- static void vmclock_put_idx(void *data)
+ static void vmclock_remove(void *data)
  {
-@@ -561,7 +625,7 @@ static int vmclock_probe(struct platform_device *pdev)
+ 	struct device *dev = data;
+@@ -569,7 +617,7 @@ static int vmclock_probe(struct platform_device *pdev)
  	if (has_acpi_companion(dev))
  		ret = vmclock_probe_acpi(dev, st);
  	else
@@ -155,7 +122,7 @@ index 4673915c43e7..4b8c7fa4ea91 100644
  
  	if (ret) {
  		dev_info(dev, "Failed to obtain physical address: %d\n", ret);
-@@ -673,12 +737,19 @@ static const struct acpi_device_id vmclock_acpi_ids[] = {
+@@ -696,11 +744,18 @@ static const struct acpi_device_id vmclock_acpi_ids[] = {
  };
  MODULE_DEVICE_TABLE(acpi, vmclock_acpi_ids);
  
@@ -167,7 +134,6 @@ index 4673915c43e7..4b8c7fa4ea91 100644
 +
  static struct platform_driver vmclock_platform_driver = {
  	.probe		= vmclock_probe,
- 	.remove		= vmclock_remove,
  	.driver	= {
  		.name	= "vmclock",
  		.acpi_match_table = vmclock_acpi_ids,
@@ -176,5 +142,5 @@ index 4673915c43e7..4b8c7fa4ea91 100644
  };
  
 -- 
-2.34.1
+2.52.0
 
