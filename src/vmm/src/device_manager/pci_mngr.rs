@@ -16,7 +16,8 @@ use crate::devices::virtio::balloon::Balloon;
 use crate::devices::virtio::balloon::persist::{BalloonConstructorArgs, BalloonState};
 use crate::devices::virtio::block::device::Block;
 use crate::devices::virtio::block::persist::{BlockConstructorArgs, BlockState};
-use crate::devices::virtio::device::{VirtioDevice, VirtioDeviceType};
+use crate::devices::virtio::device::VirtioDevice;
+use crate::devices::virtio::generated::virtio_ids;
 use crate::devices::virtio::mem::VirtioMem;
 use crate::devices::virtio::mem::persist::{VirtioMemConstructorArgs, VirtioMemState};
 use crate::devices::virtio::net::Net;
@@ -47,7 +48,7 @@ pub struct PciDevices {
     /// PCIe segment of the VMM, if PCI is enabled. We currently support a single PCIe segment.
     pub pci_segment: Option<PciSegment>,
     /// All VirtIO PCI devices of the system
-    pub virtio_devices: HashMap<(VirtioDeviceType, String), Arc<Mutex<VirtioPciDevice>>>,
+    pub virtio_devices: HashMap<(u32, String), Arc<Mutex<VirtioPciDevice>>>,
 }
 
 #[derive(Debug, thiserror::Error, displaydoc::Display)]
@@ -119,7 +120,7 @@ impl PciDevices {
         debug!("Allocating BDF: {pci_device_bdf:?} for device");
         let mem = vm.guest_memory().clone();
 
-        let device_type = device.lock().expect("Poisoned lock").device_type();
+        let device_type: u32 = device.lock().expect("Poisoned lock").device_type();
 
         // Allocate one MSI vector per queue, plus one for configuration
         let msix_num =
@@ -171,7 +172,7 @@ impl PciDevices {
     ) -> Result<(), PciManagerError> {
         // We should only be reaching this point if PCI is enabled
         let pci_segment = self.pci_segment.as_ref().unwrap();
-        let device_type = device.lock().expect("Poisoned lock").device_type();
+        let device_type: u32 = device.lock().expect("Poisoned lock").device_type();
 
         let virtio_device = Arc::new(Mutex::new(VirtioPciDevice::new_from_state(
             device_id.to_string(),
@@ -206,7 +207,7 @@ impl PciDevices {
     /// Gets the specified device.
     pub fn get_virtio_device(
         &self,
-        device_type: VirtioDeviceType,
+        device_type: u32,
         device_id: &str,
     ) -> Option<&Arc<Mutex<VirtioPciDevice>>> {
         self.virtio_devices
@@ -293,7 +294,7 @@ impl<'a> Persist<'a> for PciDevices {
             let pci_device_bdf = transport_state.pci_device_bdf.into();
 
             match locked_virtio_dev.device_type() {
-                VirtioDeviceType::Balloon => {
+                virtio_ids::VIRTIO_ID_BALLOON => {
                     let balloon_device = locked_virtio_dev
                         .as_any()
                         .downcast_ref::<Balloon>()
@@ -308,7 +309,7 @@ impl<'a> Persist<'a> for PciDevices {
                         transport_state,
                     });
                 }
-                VirtioDeviceType::Block => {
+                virtio_ids::VIRTIO_ID_BLOCK => {
                     let block_dev = locked_virtio_dev
                         .as_mut_any()
                         .downcast_mut::<Block>()
@@ -328,7 +329,7 @@ impl<'a> Persist<'a> for PciDevices {
                         });
                     }
                 }
-                VirtioDeviceType::Net => {
+                virtio_ids::VIRTIO_ID_NET => {
                     let net_dev = locked_virtio_dev
                         .as_mut_any()
                         .downcast_mut::<Net>()
@@ -349,7 +350,7 @@ impl<'a> Persist<'a> for PciDevices {
                         transport_state,
                     })
                 }
-                VirtioDeviceType::Vsock => {
+                virtio_ids::VIRTIO_ID_VSOCK => {
                     let vsock_dev = locked_virtio_dev
                         .as_mut_any()
                         // Currently, VsockUnixBackend is the only implementation of VsockBackend.
@@ -380,7 +381,7 @@ impl<'a> Persist<'a> for PciDevices {
                         transport_state,
                     });
                 }
-                VirtioDeviceType::Rng => {
+                virtio_ids::VIRTIO_ID_RNG => {
                     let rng_dev = locked_virtio_dev
                         .as_mut_any()
                         .downcast_mut::<Entropy>()
@@ -394,7 +395,7 @@ impl<'a> Persist<'a> for PciDevices {
                         transport_state,
                     })
                 }
-                VirtioDeviceType::Pmem => {
+                virtio_ids::VIRTIO_ID_PMEM => {
                     let pmem_dev = locked_virtio_dev
                         .as_mut_any()
                         .downcast_mut::<Pmem>()
@@ -407,7 +408,7 @@ impl<'a> Persist<'a> for PciDevices {
                         transport_state,
                     });
                 }
-                VirtioDeviceType::Mem => {
+                virtio_ids::VIRTIO_ID_MEM => {
                     let mem_dev = locked_virtio_dev
                         .as_mut_any()
                         .downcast_mut::<VirtioMem>()
@@ -421,6 +422,7 @@ impl<'a> Persist<'a> for PciDevices {
                         transport_state,
                     })
                 }
+                _ => unreachable!(),
             }
         }
 

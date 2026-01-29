@@ -22,6 +22,7 @@ designed with the following goals in mind:
 import inspect
 import json
 import os
+import platform
 import shutil
 import sys
 import tempfile
@@ -32,7 +33,7 @@ import pytest
 import host_tools.cargo_build as build_tools
 from framework import defs, utils
 from framework.artifacts import disks, kernel_params
-from framework.defs import ARTIFACT_DIR, DEFAULT_BINARY_DIR
+from framework.defs import DEFAULT_BINARY_DIR
 from framework.microvm import HugePagesConfig, MicroVMFactory, SnapshotType
 from framework.properties import global_props
 from framework.utils_cpu_templates import (
@@ -398,7 +399,7 @@ def microvm_factory(request, record_property, results_dir, netns_factory):
             uvm_data.joinpath("host-dmesg.log").write_text(
                 utils.run_cmd(["dmesg", "-dPx"]).stdout
             )
-            shutil.copy(ARTIFACT_DIR / "id_rsa", uvm_data)
+            shutil.copy(f"/firecracker/build/img/{platform.machine()}/id_rsa", uvm_data)
             if Path(uvm.screen_log).exists():
                 shutil.copy(uvm.screen_log, uvm_data)
 
@@ -484,8 +485,6 @@ def results_dir(request, pytestconfig):
 def guest_kernel_fxt(request, record_property):
     """Return all supported guest kernels."""
     kernel = request.param
-    if kernel is None:
-        pytest.fail(f"No kernel artifacts found in {ARTIFACT_DIR}")
     # vmlinux-5.10.167 -> linux-5.10
     prop = kernel.stem[2:]
     record_property("guest_kernel", prop)
@@ -515,23 +514,13 @@ guest_kernel_linux_6_1 = pytest.fixture(
 @pytest.fixture
 def rootfs():
     """Return an Ubuntu 24.04 read-only rootfs"""
-    disk_list = disks("ubuntu-24.04.squashfs")
-    if not disk_list:
-        pytest.fail(
-            f"No disk artifacts found matching 'ubuntu-24.04.squashfs' in {ARTIFACT_DIR}"
-        )
-    return disk_list[0]
+    return disks("ubuntu-24.04.squashfs")[0]
 
 
 @pytest.fixture
 def rootfs_rw():
     """Return an Ubuntu 24.04 ext4 rootfs"""
-    disk_list = disks("ubuntu-24.04.ext4")
-    if not disk_list:
-        pytest.fail(
-            f"No disk artifacts found matching 'ubuntu-24.04.ext4' in {ARTIFACT_DIR}"
-        )
-    return disk_list[0]
+    return disks("ubuntu-24.04.ext4")[0]
 
 
 @pytest.fixture

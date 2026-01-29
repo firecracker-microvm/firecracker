@@ -32,15 +32,10 @@ DEFAULT_BINARY_DIR = (
 
 SUPPORTED_HOST_KERNELS = ["5.10", "6.1"]
 
-# When pytest is run in the devctr the test.sh scipt copies artifacts (rootfs, guest kernels, etc)
-# to the /srv/test_artifacts within the container
-ARTIFACT_DIR = Path(DEFAULT_TEST_SESSION_ROOT_PATH) / "test_artifacts"
+IMG_DIR = Path(DEFAULT_TEST_SESSION_ROOT_PATH) / "img"
 
-# Fall-back to the local directory if pytest was run without test.sh script
-if not ARTIFACT_DIR.exists():
-    current_artifacts_dir = (
-        (Path(LOCAL_BUILD_PATH) / "current_artifacts")
-        .read_text(encoding="utf-8")
-        .strip()
-    )
-    ARTIFACT_DIR = FC_WORKSPACE_DIR / current_artifacts_dir
+# fall-back to the local directory
+if not IMG_DIR.exists():
+    IMG_DIR = LOCAL_BUILD_PATH / "img"
+
+ARTIFACT_DIR = IMG_DIR / platform.machine()

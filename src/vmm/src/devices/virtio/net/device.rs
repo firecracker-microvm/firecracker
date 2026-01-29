@@ -18,8 +18,9 @@ use vmm_sys_util::eventfd::EventFd;
 
 use super::NET_QUEUE_MAX_SIZE;
 use crate::devices::virtio::ActivateError;
-use crate::devices::virtio::device::{ActiveState, DeviceState, VirtioDevice, VirtioDeviceType};
+use crate::devices::virtio::device::{ActiveState, DeviceState, VirtioDevice};
 use crate::devices::virtio::generated::virtio_config::VIRTIO_F_VERSION_1;
+use crate::devices::virtio::generated::virtio_ids::VIRTIO_ID_NET;
 use crate::devices::virtio::generated::virtio_net::{
     VIRTIO_NET_F_CSUM, VIRTIO_NET_F_GUEST_CSUM, VIRTIO_NET_F_GUEST_TSO4, VIRTIO_NET_F_GUEST_TSO6,
     VIRTIO_NET_F_GUEST_UFO, VIRTIO_NET_F_HOST_TSO4, VIRTIO_NET_F_HOST_TSO6, VIRTIO_NET_F_HOST_UFO,
@@ -341,6 +342,11 @@ impl Net {
             .map_err(NetError::TapSetVnetHdrSize)?;
 
         Self::new_with_tap(id, tap, guest_mac, rx_rate_limiter, tx_rate_limiter)
+    }
+
+    /// Provides the ID of this net device.
+    pub fn id(&self) -> &String {
+        &self.id
     }
 
     /// Provides the MAC of this net device.
@@ -935,11 +941,7 @@ impl Net {
 }
 
 impl VirtioDevice for Net {
-    impl_device_type!(VirtioDeviceType::Net);
-
-    fn id(&self) -> &str {
-        &self.id
-    }
+    impl_device_type!(VIRTIO_ID_NET);
 
     fn avail_features(&self) -> u64 {
         self.avail_features
@@ -1035,6 +1037,17 @@ impl VirtioDevice for Net {
 
     fn is_activated(&self) -> bool {
         self.device_state.is_activated()
+    }
+
+    fn kick(&mut self) {
+        // If device is activated, kick the net queue(s) to make up for any
+        // pending or in-flight epoll events we may have not captured in snapshot.
+        // No need to kick Ratelimiters because they are restored 'unblocked' so
+        // any inflight `timer_fd` events can be safely discarded.
+        if self.is_activated() {
+            info!("kick net {}.", self.id());
+            self.process_virtio_queues();
+        }
     }
 
     /// Prepare saving state
@@ -1140,7 +1153,7 @@ pub mod tests {
     fn test_virtio_device_type() {
         let mut net = default_net();
         set_mac(&mut net, MacAddr::from_str("11:22:33:44:55:66").unwrap());
-        assert_eq!(net.device_type(), VirtioDeviceType::Net);
+        assert_eq!(net.device_type(), VIRTIO_ID_NET);
     }
 
     #[test]

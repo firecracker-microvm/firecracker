@@ -31,14 +31,8 @@ if [ -f $CGROUP/cgroup.controllers -a -e $CGROUP/cgroup.type ]; then
         > $CGROUP/cgroup.subtree_control
 fi
 
-if [ -f build/current_artifacts ]; then
-  say "Copy artifacts to /srv/test_artifacts, so hardlinks work"
-  cp -ruvfL $(cat build/current_artifacts) /srv/test_artifacts
-else
-  # The directory must exist for pytest to function
-  mkdir -p /srv/test_artifacts
-  say_warn "No current artifacts are set. Some tests might break"
-fi
+say "Copy CI artifacts to /srv, so hardlinks work"
+cp -ruvf build/img /srv
 
 cd tests
 export PYTEST_ADDOPTS="${PYTEST_ADDOPTS:-} --pdbcls=IPython.terminal.debugger:TerminalPdb"

@@ -10,7 +10,8 @@ use serde::{Deserialize, Serialize};
 
 use super::*;
 use crate::devices::virtio::balloon::device::{BalloonStats, ConfigSpace, HintingState};
-use crate::devices::virtio::device::{ActiveState, DeviceState, VirtioDeviceType};
+use crate::devices::virtio::device::{ActiveState, DeviceState};
+use crate::devices::virtio::generated::virtio_ids::VIRTIO_ID_BALLOON;
 use crate::devices::virtio::persist::VirtioDeviceState;
 use crate::devices::virtio::queue::FIRECRACKER_MAX_QUEUE_SIZE;
 use crate::devices::virtio::transport::VirtioInterrupt;
@@ -172,7 +173,7 @@ impl Persist<'_> for Balloon {
             .virtio_state
             .build_queues_checked(
                 &constructor_args.mem,
-                VirtioDeviceType::Balloon,
+                VIRTIO_ID_BALLOON,
                 num_queues,
                 FIRECRACKER_MAX_QUEUE_SIZE,
             )
@@ -229,7 +230,7 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(restored_balloon.device_type(), VirtioDeviceType::Balloon);
+        assert_eq!(restored_balloon.device_type(), VIRTIO_ID_BALLOON);
 
         assert_eq!(restored_balloon.acked_features, balloon.acked_features);
         assert_eq!(restored_balloon.avail_features, balloon.avail_features);
