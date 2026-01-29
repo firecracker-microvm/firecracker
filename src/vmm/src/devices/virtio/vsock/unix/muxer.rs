@@ -33,7 +33,7 @@
 use std::collections::{HashMap, HashSet};
 use std::fmt::Debug;
 use std::io::Read;
-use std::os::unix::io::{AsRawFd, RawFd};
+use std::os::unix::io::{AsRawFd, FromRawFd, RawFd};
 use std::os::unix::net::{UnixListener, UnixStream};
 
 use log::{debug, error, info, warn};
@@ -202,9 +202,11 @@ impl VsockChannel for VsockMuxer {
             pkt.hdr
         );
 
-        // If this packet has an unsupported type (!=stream), we must send back an RST.
+        // If this packet has an unsupported type (not STREAM or SEQPACKET), we must send back an RST.
         //
-        if pkt.hdr.type_() != uapi::VSOCK_TYPE_STREAM {
+        if pkt.hdr.type_() != uapi::VSOCK_TYPE_STREAM
+            && pkt.hdr.type_() != uapi::VSOCK_TYPE_SEQPACKET
+        {
             self.enq_rst(pkt.hdr.dst_port(), pkt.hdr.src_port());
             return Ok(());
         }
@@ -389,8 +391,10 @@ impl VsockMuxer {
             Some(EpollListener::LocalStream(_)) => {
                 if let Some(EpollListener::LocalStream(mut stream)) = self.remove_listener(fd) {
                     Self::read_local_stream_port(&mut stream)
-                        .map(|peer_port| (self.allocate_local_port(), peer_port))
-                        .and_then(|(local_port, peer_port)| {
+                        .map(|(peer_port, socket_type)| {
+                            (self.allocate_local_port(), peer_port, socket_type)
+                        })
+                        .and_then(|(local_port, peer_port, socket_type)| {
                             self.add_connection(
                                 ConnMapKey {
                                     local_port,
@@ -402,6 +406,7 @@ impl VsockMuxer {
                                     self.cid,
                                     local_port,
                                     peer_port,
+                                    socket_type,
                                 ),
                             )
                         })
@@ -421,9 +426,13 @@ impl VsockMuxer {
         }
     }
 
-    /// Parse a host "connect" command, and extract the destination vsock port.
-    fn read_local_stream_port(stream: &mut UnixStream) -> Result<u32, VsockUnixBackendError> {
-        let mut buf = [0u8; 32];
+    /// Parse a host "connect" command, and extract the destination vsock port and socket type.
+    /// Format: "connect <port> [stream|seqpacket]\n"
+    /// If socket type is not specified, defaults to STREAM for backward compatibility.
+    fn read_local_stream_port(
+        stream: &mut UnixStream,
+    ) -> Result<(u32, u16), VsockUnixBackendError> {
+        let mut buf = [0u8; 64];
 
         // This is the minimum number of bytes that we should be able to read, when parsing a
         // valid connection request. I.e. `b"connect 0\n".len()`.
@@ -467,6 +476,15 @@ impl VsockMuxer {
             .and_then(|word| {
                 word.parse::<u32>()
                     .map_err(|_| VsockUnixBackendError::InvalidPortRequest)
+            })
+            .and_then(|port| {
+                // Parse optional socket type, default to STREAM for backward compatibility
+                let socket_type = match word_iter.next() {
+                    Some("seqpacket") => uapi::VSOCK_TYPE_SEQPACKET,
+                    Some("stream") | None => uapi::VSOCK_TYPE_STREAM,
+                    Some(_) => return Err(VsockUnixBackendError::InvalidPortRequest),
+                };
+                Ok((port, socket_type))
             })
             .map_err(|_| VsockUnixBackendError::InvalidPortRequest)
     }
@@ -604,6 +622,71 @@ impl VsockMuxer {
         self.local_port_set.remove(&port);
     }
 
+    /// Create a Unix socket connection with the specified socket type.
+    ///
+    /// This function creates a Unix domain socket with either SOCK_STREAM or SOCK_SEQPACKET type
+    /// and connects it to the specified path.
+    fn connect_unix_socket(
+        path: &str,
+        socket_type: u16,
+    ) -> Result<UnixStream, VsockUnixBackendError> {
+        // Determine the libc socket type based on vsock type
+        let sock_type = match socket_type {
+            uapi::VSOCK_TYPE_STREAM => libc::SOCK_STREAM,
+            uapi::VSOCK_TYPE_SEQPACKET => libc::SOCK_SEQPACKET,
+            _ => return Err(VsockUnixBackendError::InvalidPortRequest),
+        };
+
+        // Create socket using raw libc calls to support SEQPACKET
+        let fd = unsafe {
+            libc::socket(
+                libc::AF_UNIX,
+                sock_type | libc::SOCK_NONBLOCK | libc::SOCK_CLOEXEC,
+                0,
+            )
+        };
+
+        if fd < 0 {
+            return Err(VsockUnixBackendError::UnixConnect(std::io::Error::last_os_error()));
+        }
+
+        // Prepare sockaddr_un structure
+        let mut addr: libc::sockaddr_un = unsafe { std::mem::zeroed() };
+        addr.sun_family = libc::AF_UNIX as libc::sa_family_t;
+
+        let path_bytes = path.as_bytes();
+        if path_bytes.len() >= addr.sun_path.len() {
+            unsafe { libc::close(fd) };
+            return Err(VsockUnixBackendError::UnixConnect(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "path too long",
+            )));
+        }
+
+        for (i, &byte) in path_bytes.iter().enumerate() {
+            addr.sun_path[i] = byte as libc::c_char;
+        }
+
+        // Connect the socket
+        let ret = unsafe {
+            libc::connect(
+                fd,
+                &addr as *const libc::sockaddr_un as *const libc::sockaddr,
+                std::mem::size_of::<libc::sockaddr_un>() as libc::socklen_t,
+            )
+        };
+
+        if ret < 0 {
+            let err = std::io::Error::last_os_error();
+            unsafe { libc::close(fd) };
+            return Err(VsockUnixBackendError::UnixConnect(err));
+        }
+
+        // Convert raw fd to UnixStream
+        let stream = unsafe { UnixStream::from_raw_fd(fd) };
+        Ok(stream)
+    }
+
     /// Handle a new connection request comming from our peer (the guest vsock driver).
     ///
     /// This will attempt to connect to a host-side Unix socket, expected to be listening at
@@ -612,10 +695,9 @@ impl VsockMuxer {
     /// RST packet will be scheduled for delivery to the guest.
     fn handle_peer_request_pkt(&mut self, pkt: &VsockPacketTx) {
         let port_path = format!("{}_{}", self.host_sock_path, pkt.hdr.dst_port());
+        let socket_type = pkt.hdr.type_();
 
-        UnixStream::connect(port_path)
-            .and_then(|stream| stream.set_nonblocking(true).map(|_| stream))
-            .map_err(VsockUnixBackendError::UnixConnect)
+        Self::connect_unix_socket(&port_path, socket_type)
             .and_then(|stream| {
                 self.add_connection(
                     ConnMapKey {
@@ -629,6 +711,7 @@ impl VsockMuxer {
                         pkt.hdr.dst_port(),
                         pkt.hdr.src_port(),
                         pkt.hdr.buf_alloc(),
+                        socket_type,
                     ),
                 )
             })
@@ -1533,5 +1616,54 @@ mod tests {
 
         // Check that the connection was removed.
         assert_eq!(METRICS.conns_removed.count(), conns_removed + 1);
+    }
+
+    #[test]
+    fn test_seqpacket_support() {
+        const LOCAL_PORT: u32 = 1026;
+        const PEER_PORT: u32 = 1025;
+
+        let mut ctx = MuxerTestContext::new("seqpacket_support");
+
+        // Test that SEQPACKET packets are accepted (not rejected with RST)
+        let tx_pkt = ctx.init_tx_pkt(LOCAL_PORT, PEER_PORT, uapi::VSOCK_OP_REQUEST);
+        tx_pkt.hdr.set_type(uapi::VSOCK_TYPE_SEQPACKET);
+        ctx.send();
+
+        // The packet should be accepted, but since there's no listener, we should get an RST
+        ctx.recv();
+        assert_eq!(ctx.rx_pkt.hdr.op(), uapi::VSOCK_OP_RST);
+        assert_eq!(ctx.rx_pkt.hdr.src_port(), LOCAL_PORT);
+        assert_eq!(ctx.rx_pkt.hdr.dst_port(), PEER_PORT);
+
+        // Test that invalid socket types are still rejected
+        const INVALID_SOCK_TYPE: u16 = 99;
+        let tx_pkt = ctx.init_tx_pkt(LOCAL_PORT, PEER_PORT, uapi::VSOCK_OP_REQUEST);
+        tx_pkt.hdr.set_type(INVALID_SOCK_TYPE);
+        ctx.send();
+
+        // Should get an RST for invalid socket type
+        ctx.recv();
+        assert_eq!(ctx.rx_pkt.hdr.op(), uapi::VSOCK_OP_RST);
+        assert_eq!(ctx.rx_pkt.hdr.src_port(), LOCAL_PORT);
+        assert_eq!(ctx.rx_pkt.hdr.dst_port(), PEER_PORT);
+    }
+
+    #[test]
+    fn test_seqpacket_feature_flag() {
+        use crate::devices::virtio::device::VirtioDevice;
+        use crate::devices::virtio::vsock::device::VIRTIO_VSOCK_F_SEQPACKET;
+
+        // Test that the SEQPACKET feature flag is included in available features
+        let ctx = test_utils::TestContext::new();
+        let handler_ctx = ctx.create_event_handler_context();
+        let device = &handler_ctx.device;
+
+        // Check that SEQPACKET feature is advertised
+        assert_ne!(
+            device.avail_features() & (1 << VIRTIO_VSOCK_F_SEQPACKET),
+            0,
+            "SEQPACKET feature should be advertised"
+        );
     }
 }
