@@ -1,0 +1,55 @@
+From 726b41d6531d0e77fc20f6d7ea4b3178ade41e80 Mon Sep 17 00:00:00 2001
+From: David Woodhouse <dwmw@amazon.co.uk>
+Date: Wed, 21 Jan 2026 14:33:44 +0000
+Subject: [PATCH 7/7] ptp: ptp_vmclock: return TAI not UTC
+
+To output UTC would involve complex calculations about whether the time
+elapsed since the reference time has crossed the end of the month when
+a leap second takes effect. I've prototyped that, but it made me sad.
+
+Much better to report TAI, which is what PHCs should do anyway.
+And much much simpler.
+
+Signed-off-by: David Woodhouse <dwmw@amazon.co.uk>
+Signed-off-by: Babis Chalios <bchalios@amazon.es>
+---
+ drivers/ptp/ptp_vmclock.c | 13 +++++++++----
+ 1 file changed, 9 insertions(+), 4 deletions(-)
+
+diff --git a/drivers/ptp/ptp_vmclock.c b/drivers/ptp/ptp_vmclock.c
+index 2114d5fd760e..e0da9c5f5d00 100644
+--- a/drivers/ptp/ptp_vmclock.c
++++ b/drivers/ptp/ptp_vmclock.c
+@@ -80,13 +80,13 @@ static inline uint64_t mul_u64_u64_shr_add_u64(uint64_t *res_hi, uint64_t delta,
+ 
+ static inline bool tai_adjust(struct vmclock_abi *clk, uint64_t *sec)
+ {
+-	if (likely(clk->time_type == VMCLOCK_TIME_UTC))
++	if (clk->time_type == VMCLOCK_TIME_TAI)
+ 		return true;
+ 
+-	if (clk->time_type == VMCLOCK_TIME_TAI &&
+-	    (clk->flags & VMCLOCK_FLAG_TAI_OFFSET_VALID)) {
++	if (clk->time_type == VMCLOCK_TIME_UTC &&
++	    (le64_to_cpu(clk->flags) & VMCLOCK_FLAG_TAI_OFFSET_VALID)) {
+ 		if (sec)
+-			*sec += clk->tai_offset_sec;
++			*sec -= (int16_t)le16_to_cpu(clk->tai_offset_sec);
+ 		return true;
+ 	}
+ 	return false;
+@@ -321,6 +321,11 @@ static const struct ptp_clock_info ptp_vmclock_info = {
+ 	.getcrosststamp = ptp_vmclock_getcrosststamp,
+ };
+ 
++struct vmclock_file_state {
++	struct vmclock_state *st;
++	atomic_t seq;
++};
++
+ static int vmclock_miscdev_mmap(struct file *fp, struct vm_area_struct *vma)
+ {
+ 	struct vmclock_file_state *fst = fp->private_data;
+-- 
+2.52.0
+

@@ -1,7 +1,7 @@
-From d594b01069fb6fabb068379b59bd26e59dbd6661 Mon Sep 17 00:00:00 2001
+From daf492c70d7e7a2a09d76481fd7ecbc5e99fb58f Mon Sep 17 00:00:00 2001
 From: David Woodhouse <dwmw@amazon.co.uk>
-Date: Tue, 2 Dec 2025 20:11:55 +0000
-Subject: [PATCH 3/4] dt-bindings: ptp: Add amazon,vmclock
+Date: Wed, 21 Jan 2026 14:33:40 +0000
+Subject: [PATCH 3/7] dt-bindings: ptp: Add amazon,vmclock
 
 The vmclock device provides a PTP clock source and precise timekeeping
 across live migration and snapshot/restore operations.
@@ -9,7 +9,7 @@ across live migration and snapshot/restore operations.
 The binding has a required memory region containing the vmclock_abi
 structure and an optional interrupt for clock disruption notifications.
 
-The full specification is at https://david.woodhou.se/VMClock.pdf
+The full spec is at https://uapi-group.org/specifications/specs/vmclock/
 
 Signed-off-by: David Woodhouse <dwmw@amazon.co.uk>
 Signed-off-by: Babis Chalios <bchalios@amazon.es>
@@ -21,7 +21,7 @@ Reviewed-by: Krzysztof Kozlowski <krzysztof.kozlowski@oss.qualcomm.com>
 
 diff --git a/Documentation/devicetree/bindings/ptp/amazon,vmclock.yaml b/Documentation/devicetree/bindings/ptp/amazon,vmclock.yaml
 new file mode 100644
-index 000000000000..b98fee20ce5f
+index 000000000000..357790df876f
 --- /dev/null
 +++ b/Documentation/devicetree/bindings/ptp/amazon,vmclock.yaml
 @@ -0,0 +1,46 @@
@@ -39,8 +39,8 @@ index 000000000000..b98fee20ce5f
 +description:
 +  The vmclock device provides a precise clock source and allows for
 +  accurate timekeeping across live migration and snapshot/restore
-+  operations. The full specification of the shared data structure
-+  is available at https://david.woodhou.se/VMClock.pdf
++  operations. The full specification of the shared data structure is
++  available at https://uapi-group.org/specifications/specs/vmclock/
 +
 +properties:
 +  compatible:
@@ -72,5 +72,5 @@ index 000000000000..b98fee20ce5f
 +      interrupts = <GIC_SPI 36 IRQ_TYPE_EDGE_RISING>;
 +    };
 -- 
-2.34.1
+2.52.0
 
