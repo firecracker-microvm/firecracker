@@ -1,0 +1,116 @@
+From 1cb36e019ef80058db243c7a02696e17429bd0b1 Mon Sep 17 00:00:00 2001
+From: David Woodhouse <dwmw@amazon.co.uk>
+Date: Wed, 21 Jan 2026 14:33:43 +0000
+Subject: [PATCH 6/7] ptp: ptp_vmclock: remove dependency on CONFIG_ACPI
+
+Now that we added device tree support we can remove dependency on
+CONFIG_ACPI.
+
+Signed-off-by: David Woodhouse <dwmw@amazon.co.uk>
+Signed-off-by: Babis Chalios <bchalios@amazon.es>
+---
+ drivers/ptp/Kconfig       | 26 +++++++++++++++-----------
+ drivers/ptp/ptp_vmclock.c | 14 ++++++++++----
+ 2 files changed, 25 insertions(+), 15 deletions(-)
+
+diff --git a/drivers/ptp/Kconfig b/drivers/ptp/Kconfig
+index ebadd82c7a7d..e020045bac13 100644
+--- a/drivers/ptp/Kconfig
++++ b/drivers/ptp/Kconfig
+@@ -132,17 +132,21 @@ config PTP_1588_CLOCK_KVM
+ 	  will be called ptp_kvm.
+ 
+ config PTP_1588_CLOCK_VMCLOCK
+-       tristate "Virtual machine PTP clock"
+-       depends on X86_TSC || ARM_ARCH_TIMER
+-       depends on PTP_1588_CLOCK && ACPI && ARCH_SUPPORTS_INT128
+-       default y
+-       help
+-         This driver adds support for using a virtual precision clock
+-         advertised by the hypervisor. This clock is only useful in virtual
+-         machines where such a device is present.
+-
+-         To compile this driver as a module, choose M here: the module
+-         will be called ptp_vmclock.
++	tristate "Virtual machine PTP clock"
++	depends on X86_TSC || ARM_ARCH_TIMER
++	depends on PTP_1588_CLOCK && ARCH_SUPPORTS_INT128
++	default PTP_1588_CLOCK_KVM
++	help
++	  This driver adds support for using a virtual precision clock
++	  advertised by the hypervisor. This clock is only useful in virtual
++	  machines where such a device is present.
++
++	  Unlike the KVM virtual PTP clock, the VMCLOCK device offers support
++	  for reliable timekeeping even across live migration. So this driver
++	  is enabled by default whenever the KVM PTP clock is.
++
++		To compile this driver as a module, choose M here: the module
++		will be called ptp_vmclock.
+ 
+ config PTP_1588_CLOCK_IDT82P33
+ 	tristate "IDT 82P33xxx PTP clock"
+diff --git a/drivers/ptp/ptp_vmclock.c b/drivers/ptp/ptp_vmclock.c
+index dbe549cc4b04..2114d5fd760e 100644
+--- a/drivers/ptp/ptp_vmclock.c
++++ b/drivers/ptp/ptp_vmclock.c
+@@ -440,6 +440,7 @@ static const struct file_operations vmclock_miscdev_fops = {
+ 
+ /* module operations */
+ 
++#if IS_ENABLED(CONFIG_ACPI)
+ static acpi_status vmclock_acpi_resources(struct acpi_resource *ares, void *data)
+ {
+ 	struct vmclock_state *st = data;
+@@ -523,6 +524,7 @@ static int vmclock_probe_acpi(struct device *dev, struct vmclock_state *st)
+ 
+ 	return 0;
+ }
++#endif /* CONFIG_ACPI */
+ 
+ static irqreturn_t vmclock_of_irq_handler(int __always_unused irq, void *_st)
+ {
+@@ -566,11 +568,11 @@ static int vmclock_setup_notification(struct device *dev,
+ 	if (!(le64_to_cpu(st->clk->flags) & VMCLOCK_FLAG_NOTIFICATION_PRESENT))
+ 		return 0;
+ 
+-	if (has_acpi_companion(dev)) {
++#if IS_ENABLED(CONFIG_ACPI)
++	if (has_acpi_companion(dev))
+ 		return vmclock_setup_acpi_notification(dev);
+-	} else {
+-		return vmclock_setup_of_notification(dev);
+-	}
++#endif
++	return vmclock_setup_of_notification(dev);
+ }
+ 
+ static void vmclock_remove(void *data)
+@@ -583,10 +585,12 @@ static void vmclock_remove(void *data)
+ 		return;
+ 	}
+ 
++#if IS_ENABLED(CONFIG_ACPI)
+ 	if (has_acpi_companion(dev))
+ 		acpi_remove_notify_handler(ACPI_COMPANION(dev)->handle,
+ 					   ACPI_DEVICE_NOTIFY,
+ 					   vmclock_acpi_notification_handler);
++#endif
+ 
+ 	if (st->ptp_clock)
+ 		ptp_clock_unregister(st->ptp_clock);
+@@ -614,9 +618,11 @@ static int vmclock_probe(struct platform_device *pdev)
+ 	if (!st)
+ 		return -ENOMEM;
+ 
++#if IS_ENABLED(CONFIG_ACPI)
+ 	if (has_acpi_companion(dev))
+ 		ret = vmclock_probe_acpi(dev, st);
+ 	else
++#endif
+ 		ret = vmclock_probe_dt(dev, st);
+ 
+ 	if (ret) {
+-- 
+2.52.0
+

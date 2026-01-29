@@ -1,7 +1,7 @@
-From d0a6bf47dd6cd2a9ed17dbdc32dd34a6ba0f5b5f Mon Sep 17 00:00:00 2001
+From b1a7ba47d96753695d9101dde049bc0808f76167 Mon Sep 17 00:00:00 2001
 From: Babis Chalios <bchalios@amazon.es>
-Date: Tue, 2 Dec 2025 20:11:44 +0000
-Subject: [PATCH 2/4] ptp: vmclock: support device notifications
+Date: Wed, 21 Jan 2026 14:33:39 +0000
+Subject: [PATCH 2/7] ptp: vmclock: support device notifications
 
 Add optional support for device notifications in VMClock. When
 supported, the hypervisor will send a device notification every time it
@@ -22,13 +22,15 @@ the flag is not present the driver won't setup the ACPI notification
 handler and poll() will always immediately return POLLHUP.
 
 Signed-off-by: Babis Chalios <bchalios@amazon.es>
+Reviewed-by: David Woodhouse <dwmw@amazon.co.uk>
+Signed-off-by: David Woodhouse <dwmw@amazon.co.uk>
 ---
- drivers/ptp/ptp_vmclock.c        | 130 ++++++++++++++++++++++++++++---
- include/uapi/linux/vmclock-abi.h |   5 ++
- 2 files changed, 126 insertions(+), 9 deletions(-)
+ drivers/ptp/ptp_vmclock.c        | 200 ++++++++++++++++++++++++++-----
+ include/uapi/linux/vmclock-abi.h |   5 +
+ 2 files changed, 172 insertions(+), 33 deletions(-)
 
 diff --git a/drivers/ptp/ptp_vmclock.c b/drivers/ptp/ptp_vmclock.c
-index 1ce69eada4b2..4673915c43e7 100644
+index 1ce69eada4b2..87435b65ea7b 100644
 --- a/drivers/ptp/ptp_vmclock.c
 +++ b/drivers/ptp/ptp_vmclock.c
 @@ -5,6 +5,9 @@
@@ -49,15 +51,18 @@ index 1ce69eada4b2..4673915c43e7 100644
  	struct ptp_clock_info ptp_clock_info;
  	struct ptp_clock *ptp_clock;
  	enum clocksource_ids cs_id, sys_cs_id;
-@@ -311,10 +315,15 @@ static const struct ptp_clock_info ptp_vmclock_info = {
- 	.getcrosststamp = ptp_vmclock_getcrosststamp,
- };
+@@ -46,6 +50,9 @@ struct vmclock_state {
  
-+struct vmclock_file_state {
-+	struct vmclock_state *st;
-+	atomic_t seq;
-+};
+ #define VMCLOCK_MAX_WAIT ms_to_ktime(100)
+ 
++/* Require at least the flags field to be present. All else can be optional */
++#define VMCLOCK_MIN_SIZE offsetof(struct vmclock_abi, pad)
 +
+ /*
+  * Multiply a 64-bit count by a 64-bit tick 'period' in units of seconds >> 64
+  * and add the fractional second part of the reference time.
+@@ -313,8 +320,8 @@ static const struct ptp_clock_info ptp_vmclock_info = {
+ 
  static int vmclock_miscdev_mmap(struct file *fp, struct vm_area_struct *vma)
  {
 -	struct vmclock_state *st = container_of(fp->private_data,
@@ -67,23 +72,38 @@ index 1ce69eada4b2..4673915c43e7 100644
  
  	if ((vma->vm_flags & (VM_READ|VM_WRITE)) != VM_READ)
  		return -EROFS;
-@@ -333,11 +342,12 @@ static int vmclock_miscdev_mmap(struct file *fp, struct vm_area_struct *vma)
+@@ -322,22 +329,22 @@ static int vmclock_miscdev_mmap(struct file *fp, struct vm_area_struct *vma)
+ 	if (vma->vm_end - vma->vm_start != PAGE_SIZE || vma->vm_pgoff)
+ 		return -EINVAL;
+ 
+-        if (io_remap_pfn_range(vma, vma->vm_start,
+-			       st->res.start >> PAGE_SHIFT, PAGE_SIZE,
+-                               vma->vm_page_prot))
+-                return -EAGAIN;
++  if (io_remap_pfn_range(vma, vma->vm_start,
++             st->res.start >> PAGE_SHIFT, PAGE_SIZE,
++             vma->vm_page_prot))
++		return -EAGAIN;
+ 
+-        return 0;
++  return 0;
+ }
+ 
  static ssize_t vmclock_miscdev_read(struct file *fp, char __user *buf,
  				    size_t count, loff_t *ppos)
  {
 -	struct vmclock_state *st = container_of(fp->private_data,
 -						struct vmclock_state, miscdev);
+ 	ktime_t deadline = ktime_add(ktime_get(), VMCLOCK_MAX_WAIT);
 +	struct vmclock_file_state *fst = fp->private_data;
 +	struct vmclock_state *st = fst->st;
-+
- 	ktime_t deadline = ktime_add(ktime_get(), VMCLOCK_MAX_WAIT);
++	uint32_t seq, old_seq;
  	size_t max_count;
 -	int32_t seq;
-+	int32_t seq, old_seq;
  
  	if (*ppos >= PAGE_SIZE)
  		return 0;
-@@ -346,6 +356,7 @@ static ssize_t vmclock_miscdev_read(struct file *fp, char __user *buf,
+@@ -346,6 +353,7 @@ static ssize_t vmclock_miscdev_read(struct file *fp, char __user *buf,
  	if (count > max_count)
  		count = max_count;
  
@@ -91,13 +111,13 @@ index 1ce69eada4b2..4673915c43e7 100644
  	while (1) {
  		seq = st->clk->seq_count & ~1ULL;
  		virt_rmb();
-@@ -354,8 +365,16 @@ static ssize_t vmclock_miscdev_read(struct file *fp, char __user *buf,
+@@ -354,8 +362,16 @@ static ssize_t vmclock_miscdev_read(struct file *fp, char __user *buf,
  			return -EFAULT;
  
  		virt_rmb();
 -		if (seq == st->clk->seq_count)
 -			break;
-+		if (seq == st->clk->seq_count) {
++		if (seq == le32_to_cpu(st->clk->seq_count)) {
 +			/*
 +			 * Either we updated fst->seq to seq (the latest version we observed)
 +			 * or someone else did (old_seq == seq), so we can break.
@@ -110,41 +130,53 @@ index 1ce69eada4b2..4673915c43e7 100644
  
  		if (ktime_after(ktime_get(), deadline))
  			return -ETIMEDOUT;
-@@ -365,9 +384,57 @@ static ssize_t vmclock_miscdev_read(struct file *fp, char __user *buf,
+@@ -365,32 +381,67 @@ static ssize_t vmclock_miscdev_read(struct file *fp, char __user *buf,
  	return count;
  }
  
+-static const struct file_operations vmclock_miscdev_fops = {
+-        .mmap = vmclock_miscdev_mmap,
+-        .read = vmclock_miscdev_read,
+-};
 +static __poll_t vmclock_miscdev_poll(struct file *fp, poll_table *wait)
 +{
 +	struct vmclock_file_state *fst = fp->private_data;
 +	struct vmclock_state *st = fst->st;
 +	uint32_t seq;
-+
+ 
+-/* module operations */
 +	/*
 +	 * Hypervisor will not send us any notifications, so fail immediately
 +	 * to avoid having caller sleeping for ever.
 +	 */
-+	if (!(st->clk->flags & VMCLOCK_FLAG_NOTIFICATION_PRESENT))
++	if (!(le64_to_cpu(st->clk->flags) & VMCLOCK_FLAG_NOTIFICATION_PRESENT))
 +		return POLLHUP;
 +
 +	poll_wait(fp, &st->disrupt_wait, wait);
 +
-+	seq = st->clk->seq_count;
++	seq = le32_to_cpu(st->clk->seq_count);
 +	if (atomic_read(&fst->seq) != seq)
 +		return POLLIN | POLLRDNORM;
 +
 +	return 0;
 +}
-+
+ 
+-static int vmclock_remove(struct platform_device *pdev)
 +static int vmclock_miscdev_open(struct inode *inode, struct file *fp)
-+{
+ {
+-	struct device *dev = &pdev->dev;
+-	struct vmclock_state *st = dev_get_drvdata(dev);
 +	struct vmclock_state *st = container_of(fp->private_data,
 +						struct vmclock_state, miscdev);
 +	struct vmclock_file_state *fst = kzalloc(sizeof(*fst), GFP_KERNEL);
-+
+ 
+-	if (st->ptp_clock)
+-		ptp_clock_unregister(st->ptp_clock);
 +	if (!fst)
 +		return -ENOMEM;
-+
+ 
+-	if (st->miscdev.minor != MISC_DYNAMIC_MINOR)
+-		misc_deregister(&st->miscdev);
 +	fst->st = st;
 +	atomic_set(&fst->seq, 0);
 +
@@ -152,25 +184,43 @@ index 1ce69eada4b2..4673915c43e7 100644
 +
 +	return 0;
 +}
-+
+ 
 +static int vmclock_miscdev_release(struct inode *inode, struct file *fp)
 +{
 +	kfree(fp->private_data);
-+	return 0;
-+}
-+
- static const struct file_operations vmclock_miscdev_fops = {
--        .mmap = vmclock_miscdev_mmap,
--        .read = vmclock_miscdev_read,
+ 	return 0;
+ }
+ 
++static const struct file_operations vmclock_miscdev_fops = {
++	.owner = THIS_MODULE,
 +	.open = vmclock_miscdev_open,
 +	.release = vmclock_miscdev_release,
 +	.mmap = vmclock_miscdev_mmap,
 +	.read = vmclock_miscdev_read,
 +	.poll = vmclock_miscdev_poll,
- };
++};
++
++/* module operations */
++
+ static acpi_status vmclock_acpi_resources(struct acpi_resource *ares, void *data)
+ {
+ 	struct vmclock_state *st = data;
+ 	struct resource_win win;
+-	struct resource *res = &(win.res);
++	struct resource *res = &win.res;
  
- /* module operations */
-@@ -413,6 +480,44 @@ static acpi_status vmclock_acpi_resources(struct acpi_resource *ares, void *data
+ 	if (ares->type == ACPI_RESOURCE_TYPE_END_TAG)
+ 		return AE_OK;
+@@ -399,7 +450,7 @@ static acpi_status vmclock_acpi_resources(struct acpi_resource *ares, void *data
+ 	if (resource_type(&st->res) == IORESOURCE_MEM)
+ 		return AE_ERROR;
+ 
+-        if (acpi_dev_resource_memory(ares, res) ||
++  if (acpi_dev_resource_memory(ares, res) ||
+ 	    acpi_dev_resource_address_space(ares, &win)) {
+ 
+ 		if (resource_type(res) != IORESOURCE_MEM ||
+@@ -413,6 +464,44 @@ static acpi_status vmclock_acpi_resources(struct acpi_resource *ares, void *data
  	return AE_ERROR;
  }
  
@@ -198,7 +248,7 @@ index 1ce69eada4b2..4673915c43e7 100644
 +		return -ENODEV;
 +
 +	/* The device does not support notifications. Nothing else to do */
-+	if (!(st->clk->flags & VMCLOCK_FLAG_NOTIFICATION_PRESENT))
++	if (!(le64_to_cpu(st->clk->flags) & VMCLOCK_FLAG_NOTIFICATION_PRESENT))
 +		return 0;
 +
 +	status = acpi_install_notify_handler(adev->handle, ACPI_DEVICE_NOTIFY,
@@ -215,43 +265,130 @@ index 1ce69eada4b2..4673915c43e7 100644
  static int vmclock_probe_acpi(struct device *dev, struct vmclock_state *st)
  {
  	struct acpi_device *adev = ACPI_COMPANION(dev);
-@@ -495,6 +600,11 @@ static int vmclock_probe(struct platform_device *pdev)
+@@ -436,6 +525,30 @@ static int vmclock_probe_acpi(struct device *dev, struct vmclock_state *st)
+ 	return 0;
+ }
+ 
++static void vmclock_remove(void *data)
++{
++	struct device *dev = data;
++	struct vmclock_state *st = dev->driver_data;
++
++	if (!st) {
++		dev_err(dev, "vmclock_remove() called with NULL driver_data");
++		return;
++	}
++
++	if (has_acpi_companion(dev))
++		acpi_remove_notify_handler(ACPI_COMPANION(dev)->handle,
++					   ACPI_DEVICE_NOTIFY,
++					   vmclock_acpi_notification_handler);
++
++	if (st->ptp_clock)
++		ptp_clock_unregister(st->ptp_clock);
++
++	if (st->miscdev.minor != MISC_DYNAMIC_MINOR)
++		misc_deregister(&st->miscdev);
++
++	dev->driver_data = NULL;
++}
++
+ static void vmclock_put_idx(void *data)
+ {
+ 	struct vmclock_state *st = data;
+@@ -449,7 +562,7 @@ static int vmclock_probe(struct platform_device *pdev)
+ 	struct vmclock_state *st;
+ 	int ret;
+ 
+-	st = devm_kzalloc(dev, sizeof (*st), GFP_KERNEL);
++	st = devm_kzalloc(dev, sizeof(*st), GFP_KERNEL);
+ 	if (!st)
+ 		return -ENOMEM;
+ 
+@@ -463,6 +576,11 @@ static int vmclock_probe(struct platform_device *pdev)
  		goto out;
  	}
  
++	if (resource_size(&st->res) < VMCLOCK_MIN_SIZE) {
++		dev_info(dev, "Region too small (0x%llx)\n",
++			 resource_size(&st->res));
++		return -EINVAL;
++	}
+ 	st->clk = devm_memremap(dev, st->res.start, resource_size(&st->res),
+ 				MEMREMAP_WB | MEMREMAP_DEC);
+ 	if (IS_ERR(st->clk)) {
+@@ -473,7 +591,7 @@ static int vmclock_probe(struct platform_device *pdev)
+ 	}
+ 
+ 	if (st->clk->magic != VMCLOCK_MAGIC ||
+-	    st->clk->size < sizeof(*st->clk) ||
++	    st->clk->size > resource_size(&st->res) ||
+ 	    st->clk->version != 1) {
+ 		dev_info(dev, "vmclock magic fields invalid\n");
+ 		ret = -EINVAL;
+@@ -485,7 +603,7 @@ static int vmclock_probe(struct platform_device *pdev)
+ 		goto out;
+ 
+ 	st->index = ret;
+-        ret = devm_add_action_or_reset(&pdev->dev, vmclock_put_idx, st);
++  ret = devm_add_action_or_reset(&pdev->dev, vmclock_put_idx, st);
+ 	if (ret)
+ 		goto out;
+ 
+@@ -495,9 +613,26 @@ static int vmclock_probe(struct platform_device *pdev)
+ 		goto out;
+ 	}
+ 
+-	/* If the structure is big enough, it can be mapped to userspace */
+-	if (st->clk->size >= PAGE_SIZE) {
+-		st->miscdev.minor = MISC_DYNAMIC_MINOR;
++	st->miscdev.minor = MISC_DYNAMIC_MINOR;
++
 +	init_waitqueue_head(&st->disrupt_wait);
++	dev->driver_data = st;
++
++	ret = devm_add_action_or_reset(&pdev->dev, vmclock_remove, dev);
++	if (ret)
++		return ret;
++
 +	ret = vmclock_setup_notification(dev, st);
 +	if (ret)
 +		return ret;
 +
- 	/* If the structure is big enough, it can be mapped to userspace */
- 	if (st->clk->size >= PAGE_SIZE) {
- 		st->miscdev.minor = MISC_DYNAMIC_MINOR;
-@@ -544,6 +654,8 @@ static int vmclock_probe(struct platform_device *pdev)
- 		goto out;
- 	}
++	/*
++	 * If the structure is big enough, it can be mapped to userspace.
++	 * Theoretically a guest OS even using larger pages could still
++	 * use 4KiB PTEs to map smaller MMIO regions like this, but let's
++	 * cross that bridge if/when we come to it.
++	 */
++	if (le32_to_cpu(st->clk->size) >= PAGE_SIZE) {
+ 		st->miscdev.fops = &vmclock_miscdev_fops;
+ 		st->miscdev.name = st->name;
  
-+	dev->driver_data = st;
-+
- 	dev_info(dev, "%s: registered %s%s%s\n", st->name,
- 		 st->miscdev.minor ? "miscdev" : "",
- 		 (st->miscdev.minor && st->ptp_clock) ? ", " : "",
+@@ -563,7 +698,6 @@ MODULE_DEVICE_TABLE(acpi, vmclock_acpi_ids);
+ 
+ static struct platform_driver vmclock_platform_driver = {
+ 	.probe		= vmclock_probe,
+-	.remove		= vmclock_remove,
+ 	.driver	= {
+ 		.name	= "vmclock",
+ 		.acpi_match_table = vmclock_acpi_ids,
 diff --git a/include/uapi/linux/vmclock-abi.h b/include/uapi/linux/vmclock-abi.h
-index 75deb6ae2b27..4b7cd2b8532c 100644
+index 62b8f2091ca5..412784fd5969 100644
 --- a/include/uapi/linux/vmclock-abi.h
 +++ b/include/uapi/linux/vmclock-abi.h
 @@ -125,6 +125,11 @@ struct vmclock_abi {
  	 * loaded from some save state (restored from a snapshot).
  	 */
- #define VMCLOCK_FLAG_VM_GEN_COUNTER_PRESENT     (1 << 8)
+ #define VMCLOCK_FLAG_VM_GEN_COUNTER_PRESENT (1 << 8)
 +	/*
 +	 * If the NOTIFICATION_PRESENT flag is set, the hypervisor will send
 +	 * a notification every time it updates seq_count to a new even number.
 +	 */
-+#define VMCLOCK_FLAG_NOTIFICATION_PRESENT       (1 << 9)
++#define VMCLOCK_FLAG_NOTIFICATION_PRESENT (1 << 9)
  
  	uint8_t pad[2];
  	uint8_t clock_status;
 -- 
-2.34.1
+2.52.0
 
