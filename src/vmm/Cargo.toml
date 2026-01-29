@@ -46,6 +46,7 @@ serde = { version = "1.0.228", features = ["derive", "rc"] }
 serde_json = "1.0.149"
 slab = "0.4.11"
 thiserror = "2.0.18"
+uds = "0.4.2"
 userfaultfd = "0.9.0"
 utils = { path = "../utils" }
 uuid = "1.19.0"
