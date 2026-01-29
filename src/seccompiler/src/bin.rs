@@ -27,6 +27,12 @@ struct Cli {
                 and rule-level actions. Not recommended."
     )]
     basic: bool,
+    #[arg(
+        long,
+        help = "Output individual BPF files for each thread instead of a single combined file. \
+                Used for testing purposes."
+    )]
+    split_output: bool,
 }
 
 fn main() -> Result<(), CompilationError> {
@@ -36,5 +42,6 @@ fn main() -> Result<(), CompilationError> {
         &cli.target_arch,
         &cli.output_file,
         cli.basic,
+        cli.split_output,
     )
 }
