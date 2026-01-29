@@ -17,13 +17,13 @@ bench = false
 
 [dependencies]
 bincode = { version = "2.0.1", features = ["serde"] }
-clap = { version = "4.5.54", features = ["derive", "string"] }
+clap = { version = "4.5.55", features = ["derive", "string"] }
 displaydoc = "0.2.5"
 libc = "0.2.180"
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.149"
 thiserror = "2.0.18"
-zerocopy = { version = "0.8.33" }
+zerocopy = { version = "0.8.35" }
 
 [lints]
 workspace = true
