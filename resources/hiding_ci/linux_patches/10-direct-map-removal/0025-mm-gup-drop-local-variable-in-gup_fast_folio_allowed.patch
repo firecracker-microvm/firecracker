@@ -1,0 +1,58 @@
+From d888834fa4e4d92f0767fe378048056fa4aae340 Mon Sep 17 00:00:00 2001
+From: Nikita Kalyazin <kalyazin@amazon.com>
+Date: Mon, 19 Jan 2026 15:33:01 +0000
+Subject: [PATCH 25/63] mm/gup: drop local variable in gup_fast_folio_allowed
+
+From: Nikita Kalyazin <kalyazin@amazon.com>
+
+Move the check for pinning closer to where the result is used.
+No functional changes.
+
+Signed-off-by: Nikita Kalyazin <kalyazin@amazon.com>
+---
+ mm/gup.c | 19 ++++++++-----------
+ 1 file changed, 8 insertions(+), 11 deletions(-)
+
+diff --git a/mm/gup.c b/mm/gup.c
+index 6fb2eddfc9d2..44dca1505228 100644
+--- a/mm/gup.c
++++ b/mm/gup.c
+@@ -2737,18 +2737,9 @@ EXPORT_SYMBOL(get_user_pages_unlocked);
+  */
+ static bool gup_fast_folio_allowed(struct folio *folio, unsigned int flags)
+ {
+-	bool reject_file_backed = false;
+ 	struct address_space *mapping;
+ 	unsigned long mapping_flags;
+ 
+-	/*
+-	 * If we aren't pinning then no problematic write can occur. A long term
+-	 * pin is the most egregious case so this is the one we disallow.
+-	 */
+-	if ((flags & (FOLL_PIN | FOLL_LONGTERM | FOLL_WRITE)) ==
+-	    (FOLL_PIN | FOLL_LONGTERM | FOLL_WRITE))
+-		reject_file_backed = true;
+-
+ 	/* We hold a folio reference, so we can safely access folio fields. */
+ 	if (WARN_ON_ONCE(folio_test_slab(folio)))
+ 		return false;
+@@ -2793,8 +2784,14 @@ static bool gup_fast_folio_allowed(struct folio *folio, unsigned int flags)
+ 	 */
+ 	if (secretmem_mapping(mapping))
+ 		return false;
+-	/* The only remaining allowed file system is shmem. */
+-	return !reject_file_backed || shmem_mapping(mapping);
++
++	/*
++	 * If we aren't pinning then no problematic write can occur. A long term
++	 * pin is the most egregious case so this is the one we disallow.
++	 * Also check the only remaining allowed file system - shmem.
++	 */
++	return (flags & (FOLL_PIN | FOLL_LONGTERM | FOLL_WRITE)) !=
++	    (FOLL_PIN | FOLL_LONGTERM | FOLL_WRITE) || shmem_mapping(mapping);
+ }
+ 
+ static void __maybe_unused gup_fast_undo_dev_pagemap(int *nr, int nr_start,
+-- 
+2.50.1
+
