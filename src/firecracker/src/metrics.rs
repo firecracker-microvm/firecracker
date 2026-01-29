@@ -60,22 +60,19 @@ impl MutEventSubscriber for PeriodicMetrics {
         let source = event.fd();
         let event_set = event.event_set();
 
-        // TODO: also check for errors. Pending high level discussions on how we want
-        // to handle errors in devices.
         let supported_events = EventSet::IN;
-        if !supported_events.contains(event_set) {
+        if supported_events.contains(event_set) {
+            if source == self.write_metrics_event_fd.as_raw_fd() {
+                self.write_metrics_event_fd.read();
+                self.write_metrics();
+            } else {
+                error!("Spurious METRICS event!");
+            }
+        } else {
             warn!(
                 "Received unknown event: {:?} from source: {:?}",
                 event_set, source
             );
-            return;
-        }
-
-        if source == self.write_metrics_event_fd.as_raw_fd() {
-            self.write_metrics_event_fd.read();
-            self.write_metrics();
-        } else {
-            error!("Spurious METRICS event!");
         }
     }
 
