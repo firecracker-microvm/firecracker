@@ -4,7 +4,7 @@ FROM public.ecr.aws/lts/ubuntu:24.04
 # The Rust toolchain layer will get updated most frequently, but we could keep the system
 # dependencies layer intact for much longer.
 
-ARG RUST_TOOLCHAIN="1.89.0"
+ARG RUST_TOOLCHAIN="1.93.0"
 ARG TMP_BUILD_DIR=/tmp/build
 ARG DEBIAN_FRONTEND=noninteractive
 ARG PIP_BREAK_SYSTEM_PACKAGES=1
@@ -124,8 +124,8 @@ RUN curl https://sh.rustup.rs -sSf | sh -s -- -y --profile minimal --default-too
     && rustup target add aarch64-unknown-linux-musl \
     && rustup component add llvm-tools-preview clippy rustfmt \
     && cargo install --locked grcov cargo-sort cargo-afl \
-    && cargo install --locked cargo-deny --version 0.17.0 \
-    && cargo install --locked kani-verifier --version 0.64.0 && cargo kani setup \
+    && cargo install --locked cargo-deny --version 0.19.0 \
+    && cargo install --locked kani-verifier --version 0.67.0 && cargo kani setup \
     \
     && NIGHTLY_TOOLCHAIN=$(rustup toolchain list | grep nightly | tr -d '\n') \
     && rustup component add rust-src --toolchain "$NIGHTLY_TOOLCHAIN" \
