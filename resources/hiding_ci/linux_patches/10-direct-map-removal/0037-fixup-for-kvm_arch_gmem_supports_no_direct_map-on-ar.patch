@@ -1,0 +1,29 @@
+From f851e6f80d0c3cc1bc9da600c9af4a56fde19dbe Mon Sep 17 00:00:00 2001
+From: Nikita Kalyazin <kalyazin@amazon.com>
+Date: Thu, 29 Jan 2026 12:21:26 +0000
+Subject: [PATCH 37/64] fixup for kvm_arch_gmem_supports_no_direct_map on arm
+
+I forgot to update the argument when sending the v10 of direct map
+removal.
+
+Signed-off-by: Nikita Kalyazin <kalyazin@amazon.com>
+---
+ arch/arm64/include/asm/kvm_host.h | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/arch/arm64/include/asm/kvm_host.h b/arch/arm64/include/asm/kvm_host.h
+index 717e3d037d07..3b06e0dc3caf 100644
+--- a/arch/arm64/include/asm/kvm_host.h
++++ b/arch/arm64/include/asm/kvm_host.h
+@@ -1653,7 +1653,7 @@ static __always_inline enum fgt_group_id __fgt_reg_to_group_id(enum vcpu_sysreg
+ 		p;							\
+ 	})
+ #ifdef CONFIG_KVM_GUEST_MEMFD
+-static inline bool kvm_arch_gmem_supports_no_direct_map(void)
++static inline bool kvm_arch_gmem_supports_no_direct_map(struct kvm *kvm)
+ {
+ 	/*
+ 	 * Without FWB, direct map access is needed in kvm_pgtable_stage2_map(),
+-- 
+2.50.1
+
