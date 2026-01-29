@@ -14,8 +14,9 @@ use super::metrics::METRICS;
 use super::{RNG_NUM_QUEUES, RNG_QUEUE};
 use crate::devices::DeviceError;
 use crate::devices::virtio::ActivateError;
-use crate::devices::virtio::device::{ActiveState, DeviceState, VirtioDevice, VirtioDeviceType};
+use crate::devices::virtio::device::{ActiveState, DeviceState, VirtioDevice};
 use crate::devices::virtio::generated::virtio_config::VIRTIO_F_VERSION_1;
+use crate::devices::virtio::generated::virtio_ids::VIRTIO_ID_RNG;
 use crate::devices::virtio::iov_deque::IovDequeError;
 use crate::devices::virtio::iovec::IoVecBufferMut;
 use crate::devices::virtio::queue::{FIRECRACKER_MAX_QUEUE_SIZE, InvalidAvailIdx, Queue};
@@ -82,6 +83,10 @@ impl Entropy {
             rate_limiter,
             buffer: IoVecBufferMut::new()?,
         })
+    }
+
+    pub fn id(&self) -> &str {
+        ENTROPY_DEV_ID
     }
 
     fn signal_used_queue(&self) -> Result<(), DeviceError> {
@@ -249,11 +254,7 @@ impl Entropy {
 }
 
 impl VirtioDevice for Entropy {
-    impl_device_type!(VirtioDeviceType::Rng);
-
-    fn id(&self) -> &str {
-        ENTROPY_DEV_ID
-    }
+    impl_device_type!(VIRTIO_ID_RNG);
 
     fn queues(&self) -> &[Queue] {
         &self.queues
@@ -312,6 +313,13 @@ impl VirtioDevice for Entropy {
         self.device_state = DeviceState::Activated(ActiveState { mem, interrupt });
         Ok(())
     }
+
+    fn kick(&mut self) {
+        if self.is_activated() {
+            info!("kick entropy {}.", self.id());
+            self.process_virtio_queues();
+        }
+    }
 }
 
 #[cfg(test)]
@@ -320,7 +328,7 @@ mod tests {
 
     use super::*;
     use crate::check_metric_after_block;
-    use crate::devices::virtio::device::{VirtioDevice, VirtioDeviceType};
+    use crate::devices::virtio::device::VirtioDevice;
     use crate::devices::virtio::queue::VIRTQ_DESC_F_WRITE;
     use crate::devices::virtio::test_utils::test::{
         VirtioTestDevice, VirtioTestHelper, create_virtio_mem,
@@ -358,7 +366,7 @@ mod tests {
     #[test]
     fn test_device_type() {
         let entropy_dev = default_entropy();
-        assert_eq!(entropy_dev.device_type(), VirtioDeviceType::Rng);
+        assert_eq!(entropy_dev.device_type(), VIRTIO_ID_RNG);
     }
 
     #[test]

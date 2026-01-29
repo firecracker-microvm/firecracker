@@ -52,7 +52,7 @@ impl HugePageConfig {
             HugePageConfig::Hugetlbfs2M => 2,
         };
 
-        mem_size_mib.is_multiple_of(divisor)
+        mem_size_mib % divisor == 0
     }
 
     /// Returns the flags required to pass to `mmap`, in addition to `MAP_ANONYMOUS`, to

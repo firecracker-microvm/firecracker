@@ -9,7 +9,10 @@ TOOLS_DIR=$(dirname $0)
 source "$TOOLS_DIR/functions"
 
 say "Setup CI artifacts"
-cd $1
+cd build/img/$(uname -m)
+
+say "Fix executable permissions"
+find "firecracker" -type f |xargs chmod -c 755
 
 say "Generate SSH key to connect from host"
 if [ ! -s id_rsa ]; then

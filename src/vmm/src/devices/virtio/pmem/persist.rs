@@ -6,7 +6,8 @@ use vm_memory::GuestAddress;
 
 use super::device::{ConfigSpace, Pmem, PmemError};
 use crate::Vm;
-use crate::devices::virtio::device::{DeviceState, VirtioDeviceType};
+use crate::devices::virtio::device::DeviceState;
+use crate::devices::virtio::generated::virtio_ids::VIRTIO_ID_PMEM;
 use crate::devices::virtio::persist::{PersistError as VirtioStateError, VirtioDeviceState};
 use crate::devices::virtio::pmem::{PMEM_NUM_QUEUES, PMEM_QUEUE_SIZE};
 use crate::snapshot::Persist;
@@ -56,7 +57,7 @@ impl<'a> Persist<'a> for Pmem {
     ) -> Result<Self, Self::Error> {
         let queues = state.virtio_state.build_queues_checked(
             constructor_args.mem,
-            VirtioDeviceType::Pmem,
+            VIRTIO_ID_PMEM,
             PMEM_NUM_QUEUES,
             PMEM_QUEUE_SIZE,
         )?;
@@ -119,7 +120,7 @@ mod tests {
         .unwrap();
 
         // Test that virtio specific fields are the same.
-        assert_eq!(restored_pmem.device_type(), VirtioDeviceType::Pmem);
+        assert_eq!(restored_pmem.device_type(), VIRTIO_ID_PMEM);
         assert_eq!(restored_pmem.avail_features(), pmem.avail_features());
         assert_eq!(restored_pmem.acked_features(), pmem.acked_features());
         assert_eq!(restored_pmem.queues(), pmem.queues());

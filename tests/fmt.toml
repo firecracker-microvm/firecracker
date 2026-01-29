@@ -1,0 +1,8 @@
+comment_width=100
+wrap_comments=true
+format_code_in_doc_comments=true
+format_strings=true
+imports_granularity=Module
+normalize_comments=true
+normalize_doc_attributes=true
+group_imports=StdExternalCrate

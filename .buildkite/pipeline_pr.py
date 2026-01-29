@@ -27,7 +27,7 @@ pipeline = BKPipeline(
 pipeline.add_step(
     {
         "command": "./tools/devtool -y checkstyle",
-        "label": "style",
+        "label": "🪶 Style",
     },
     depends_on_build=False,
 )
@@ -35,7 +35,7 @@ pipeline.add_step(
 # run sanity build of devtool if Dockerfile is changed
 if any(x.parent.name == "devctr" for x in changed_files):
     pipeline.build_group_per_arch(
-        "dev-container-sanity-build",
+        "🐋 Dev Container Sanity Build",
         "./tools/devtool -y build_devctr && DEVCTR_IMAGE_TAG=latest ./tools/devtool test --no-build -- integration_tests/functional/test_api.py",
     )
 
@@ -44,7 +44,7 @@ if any(
     for x in changed_files
 ):
     pipeline.build_group_per_arch(
-        "release-sanity-build",
+        "📦 Release Sanity Build",
         "./tools/devtool -y make_release",
         depends_on_build=False,
     )
@@ -56,7 +56,7 @@ if not pipeline.args.no_kani and (
     or any(x.name == "test_kani.py" for x in changed_files)
 ):
     kani_grp = pipeline.build_group(
-        "kani",
+        "🔍 Kani",
         "./tools/devtool -y test --no-build -- ../tests/integration_tests/test_kani.py -n auto",
         # Kani step default
         # Kani runs fastest on m6a.metal
@@ -66,23 +66,26 @@ if not pipeline.args.no_kani and (
         **DEFAULTS_PERF,
         depends_on_build=False,
     )
+    # modify Kani steps' label
+    for step in kani_grp["steps"]:
+        step["label"] = "🔍 Kani"
 
 if run_all_tests(changed_files):
     pipeline.build_group(
-        "build",
+        "📦 Build",
         pipeline.devtool_test(pytest_opts="integration_tests/build/"),
         depends_on_build=False,
     )
 
     pipeline.build_group(
-        "functional-and-security",
+        "⚙ Functional and security 🔒",
         pipeline.devtool_test(
             pytest_opts="-n 16 --dist worksteal integration_tests/{{functional,security}}",
         ),
     )
 
     pipeline.build_group(
-        "performance",
+        "⏱ Performance",
         pipeline.devtool_test(
             devtool_opts="--performance -c 1-10 -m 0",
             pytest_opts="../tests/integration_tests/performance/",

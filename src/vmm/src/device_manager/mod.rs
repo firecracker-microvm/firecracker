@@ -31,7 +31,7 @@ use crate::devices::legacy::RTCDevice;
 use crate::devices::legacy::serial::SerialOut;
 use crate::devices::legacy::{IER_RDA_BIT, IER_RDA_OFFSET, SerialDevice};
 use crate::devices::pseudo::BootTimer;
-use crate::devices::virtio::device::{VirtioDevice, VirtioDeviceType};
+use crate::devices::virtio::device::VirtioDevice;
 use crate::devices::virtio::transport::mmio::{IrqTrigger, MmioTransport};
 use crate::resources::VmResources;
 use crate::snapshot::Persist;
@@ -237,6 +237,7 @@ impl DeviceManager {
         Ok(())
     }
 
+    #[cfg(target_arch = "x86_64")]
     pub(crate) fn attach_vmclock_device(&mut self, vm: &Vm) -> Result<(), AttachDeviceError> {
         self.acpi_devices.attach_vmclock(vm)?;
         Ok(())
@@ -331,11 +332,11 @@ impl DeviceManager {
     /// Get a VirtIO device of type `virtio_type` with ID `device_id`
     pub fn get_virtio_device(
         &self,
-        device_type: VirtioDeviceType,
+        virtio_type: u32,
         device_id: &str,
     ) -> Option<Arc<Mutex<dyn VirtioDevice>>> {
         if self.pci_devices.pci_segment.is_some() {
-            let pci_device = self.pci_devices.get_virtio_device(device_type, device_id)?;
+            let pci_device = self.pci_devices.get_virtio_device(virtio_type, device_id)?;
             Some(
                 pci_device
                     .lock()
@@ -346,7 +347,7 @@ impl DeviceManager {
         } else {
             let mmio_device = self
                 .mmio_devices
-                .get_virtio_device(device_type, device_id)?;
+                .get_virtio_device(virtio_type, device_id)?;
             Some(
                 mmio_device
                     .inner
@@ -464,9 +465,6 @@ impl<'a> Persist<'a> for DeviceManager {
         // Restore ACPI devices
         let mut acpi_devices = ACPIDeviceManager::restore(constructor_args.vm, &state.acpi_state)?;
         acpi_devices.vmgenid.notify_guest()?;
-        acpi_devices
-            .vmclock
-            .post_load_update(constructor_args.vm.guest_memory());
 
         // Restore PCI devices
         let pci_ctor_args = PciDevicesConstructorArgs {

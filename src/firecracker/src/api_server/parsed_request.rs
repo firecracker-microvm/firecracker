@@ -406,12 +406,12 @@ pub mod tests {
             "{} {} HTTP/1.1\r\nContent-Type: application/json\r\n",
             request_type, endpoint
         );
-        if let Some(body) = body {
+        if body.is_some() {
             return format!(
                 "{}Content-Length: {}\r\n\r\n{}",
                 req_no_body,
-                body.len(),
-                body
+                body.unwrap().len(),
+                body.unwrap()
             );
         }
         format!("{}\r\n", req_no_body,)

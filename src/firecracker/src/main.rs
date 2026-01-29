@@ -1,6 +1,8 @@
 // Copyright 2018 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
+#![allow(clippy::as_conversions)]
+
 mod api_server;
 mod api_server_adapter;
 mod generated;

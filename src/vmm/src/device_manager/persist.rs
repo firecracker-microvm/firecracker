@@ -15,6 +15,7 @@ use super::mmio::*;
 #[cfg(target_arch = "aarch64")]
 use crate::arch::DeviceType;
 use crate::device_manager::acpi::ACPIDeviceError;
+#[cfg(target_arch = "x86_64")]
 use crate::devices::acpi::vmclock::{VmClock, VmClockState};
 use crate::devices::acpi::vmgenid::{VMGenIDState, VmGenId};
 #[cfg(target_arch = "aarch64")]
@@ -25,7 +26,8 @@ use crate::devices::virtio::balloon::{Balloon, BalloonError};
 use crate::devices::virtio::block::BlockError;
 use crate::devices::virtio::block::device::Block;
 use crate::devices::virtio::block::persist::{BlockConstructorArgs, BlockState};
-use crate::devices::virtio::device::{VirtioDevice, VirtioDeviceType};
+use crate::devices::virtio::device::VirtioDevice;
+use crate::devices::virtio::generated::virtio_ids;
 use crate::devices::virtio::mem::VirtioMem;
 use crate::devices::virtio::mem::persist::{
     VirtioMemConstructorArgs, VirtioMemPersistError, VirtioMemState,
@@ -167,6 +169,7 @@ impl fmt::Debug for MMIODevManagerConstructorArgs<'_> {
 #[derive(Default, Debug, Clone, Serialize, Deserialize)]
 pub struct ACPIDeviceManagerState {
     vmgenid: VMGenIDState,
+    #[cfg(target_arch = "x86_64")]
     vmclock: VmClockState,
 }
 
@@ -178,6 +181,7 @@ impl<'a> Persist<'a> for ACPIDeviceManager {
     fn save(&self) -> Self::State {
         ACPIDeviceManagerState {
             vmgenid: self.vmgenid.save(),
+            #[cfg(target_arch = "x86_64")]
             vmclock: self.vmclock.save(),
         }
     }
@@ -187,13 +191,9 @@ impl<'a> Persist<'a> for ACPIDeviceManager {
             // Safe to unwrap() here, this will never return an error.
             vmgenid: VmGenId::restore((), &state.vmgenid).unwrap(),
             // Safe to unwrap() here, this will never return an error.
-            vmclock: VmClock::restore((), &state.vmclock).unwrap(),
+            #[cfg(target_arch = "x86_64")]
+            vmclock: VmClock::restore(vm.guest_memory(), &state.vmclock).unwrap(),
         };
-
-        vm.register_irq(
-            &acpi_devices.vmclock.interrupt_evt,
-            acpi_devices.vmclock.gsi,
-        )?;
 
         acpi_devices.attach_vmgenid(vm)?;
         Ok(acpi_devices)
@@ -237,7 +237,7 @@ impl<'a> Persist<'a> for MMIODeviceManager {
             let device_id = devid.clone();
 
             match locked_device.device_type() {
-                VirtioDeviceType::Balloon => {
+                virtio_ids::VIRTIO_ID_BALLOON => {
                     let device_state = locked_device
                         .as_any()
                         .downcast_ref::<Balloon>()
@@ -251,7 +251,7 @@ impl<'a> Persist<'a> for MMIODeviceManager {
                     });
                 }
                 // Both virtio-block and vhost-user-block share same device type.
-                VirtioDeviceType::Block => {
+                virtio_ids::VIRTIO_ID_BLOCK => {
                     let block = locked_device.as_mut_any().downcast_mut::<Block>().unwrap();
                     if block.is_vhost_user() {
                         warn!(
@@ -268,7 +268,7 @@ impl<'a> Persist<'a> for MMIODeviceManager {
                         });
                     }
                 }
-                VirtioDeviceType::Net => {
+                virtio_ids::VIRTIO_ID_NET => {
                     let net = locked_device.as_mut_any().downcast_mut::<Net>().unwrap();
                     if let (Some(mmds_ns), None) = (net.mmds_ns.as_ref(), states.mmds.as_ref()) {
                         let mmds_guard = mmds_ns.mmds.lock().expect("Poisoned lock");
@@ -286,7 +286,7 @@ impl<'a> Persist<'a> for MMIODeviceManager {
                         device_info,
                     });
                 }
-                VirtioDeviceType::Vsock => {
+                virtio_ids::VIRTIO_ID_VSOCK => {
                     let vsock = locked_device
                         .as_mut_any()
                         // Currently, VsockUnixBackend is the only implementation of VsockBackend.
@@ -315,7 +315,7 @@ impl<'a> Persist<'a> for MMIODeviceManager {
                         device_info,
                     });
                 }
-                VirtioDeviceType::Rng => {
+                virtio_ids::VIRTIO_ID_RNG => {
                     let entropy = locked_device
                         .as_mut_any()
                         .downcast_mut::<Entropy>()
@@ -329,7 +329,7 @@ impl<'a> Persist<'a> for MMIODeviceManager {
                         device_info,
                     });
                 }
-                VirtioDeviceType::Pmem => {
+                virtio_ids::VIRTIO_ID_PMEM => {
                     let pmem = locked_device.as_mut_any().downcast_mut::<Pmem>().unwrap();
                     let device_state = pmem.save();
                     states.pmem_devices.push(VirtioDeviceState {
@@ -339,7 +339,7 @@ impl<'a> Persist<'a> for MMIODeviceManager {
                         device_info,
                     })
                 }
-                VirtioDeviceType::Mem => {
+                virtio_ids::VIRTIO_ID_MEM => {
                     let mem = locked_device
                         .as_mut_any()
                         .downcast_mut::<VirtioMem>()
@@ -353,6 +353,7 @@ impl<'a> Persist<'a> for MMIODeviceManager {
                         device_info,
                     });
                 }
+                _ => unreachable!(),
             };
 
             Ok(())

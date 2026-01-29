@@ -11,7 +11,9 @@ from framework.utils import check_output
 from host_tools.fcmetrics import validate_fc_metrics
 
 
-def test_describe_snapshot(uvm_plain):
+def test_describe_snapshot_all_versions(
+    microvm_factory, guest_kernel, rootfs, firecracker_release
+):
     """
     Test `--describe-snapshot` correctness for all snapshot versions.
 
@@ -19,23 +21,29 @@ def test_describe_snapshot(uvm_plain):
     snapshot state file.
     """
 
-    vm = uvm_plain
-    fc_binary = vm.fc_binary_path
-
-    cmd = [fc_binary, "--snapshot-version"]
-    snap_version_tuple = check_output(cmd).stdout.strip().split("\n")[0].split(".")
-    snap_version = ".".join(str(x) for x in snap_version_tuple)
-
-    vm.spawn()
+    target_version = firecracker_release.snapshot_version
+    vm = microvm_factory.build(
+        guest_kernel,
+        rootfs,
+        fc_binary_path=firecracker_release.path,
+        jailer_binary_path=firecracker_release.jailer,
+    )
+    # FIXME: Once only FC versions >= 1.12 are supported, drop log_level="warn"
+    vm.spawn(log_level="warn", serial_out_path=None)
     vm.basic_config(track_dirty_pages=True)
     vm.start()
     snapshot = vm.snapshot_diff()
+    print("========== Firecracker create snapshot log ==========")
+    print(vm.log_data)
     vm.kill()
 
-    cmd = [fc_binary, "--describe-snapshot", snapshot.vmstate]
+    # Fetch Firecracker binary
+    fc_binary = microvm_factory.fc_binary_path
+    # Verify the output of `--describe-snapshot` command line parameter
+    cmd = [fc_binary] + ["--describe-snapshot", snapshot.vmstate]
     _, stdout, stderr = check_output(cmd)
     assert stderr == ""
-    assert snap_version in stdout
+    assert target_version in stdout
 
 
 def test_cli_metrics_path(uvm_plain):
