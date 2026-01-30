@@ -66,6 +66,10 @@
                 "comment": "Called for expanding the heap"
             },
             {
+                "syscall": "gettid",
+                "comment": "Rust std uses it during panic to print the thread id."
+            },
+            {
                 "syscall": "clock_gettime",
                 "comment": "Used for metrics and logging, via the helpers in utils/src/time.rs. It's not called on some platforms, because of vdso optimisations."
             },
@@ -320,6 +324,10 @@
                 ]
             },
             {
+                "syscall": "sendto",
+                "comment": "Rust std uses it to write to unix socket"
+            },
+            {
                 "syscall": "tkill",
                 "comment": "tkill is used by libc::abort during a panic to raise SIGABRT",
                 "args": [
@@ -522,6 +530,10 @@
             {
                 "syscall": "brk",
                 "comment": "Called for expanding the heap"
+            },
+            {
+                "syscall": "gettid",
+                "comment": "Rust std uses it during panic to print the thread id."
             },
             {
                 "syscall": "clock_gettime",
@@ -742,6 +754,10 @@
                 ]
             },
             {
+                "syscall": "sendto",
+                "comment": "Rust std uses it to write to unix socket"
+            },
+            {
                 "syscall": "tkill",
                 "comment": "tkill is used by libc::abort during a panic to raise SIGABRT",
                 "args": [
@@ -803,6 +819,10 @@
             {
                 "syscall": "brk",
                 "comment": "Called for expanding the heap"
+            },
+            {
+                "syscall": "gettid",
+                "comment": "Rust std uses it during panic to print the thread id."
             },
             {
                 "syscall": "clock_gettime",
