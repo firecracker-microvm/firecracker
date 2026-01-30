@@ -245,7 +245,7 @@ def check_hotunplug(uvm, requested_size_mib):
     print(f"RSS before: {rss_before}, after: {rss_after}")
 
     huge_pages = HugePagesConfig(uvm.api.machine_config.get().json()["huge_pages"])
-    if huge_pages == HugePagesConfig.HUGETLBFS_2MB and supports_hugetlbfs_discard():
+    if huge_pages == HugePagesConfig.NONE or supports_hugetlbfs_discard():
         assert rss_after < rss_before, "RSS didn't decrease"
 
 
