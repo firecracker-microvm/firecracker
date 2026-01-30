@@ -637,7 +637,7 @@ class Microvm:
         self,
         log_file="fc.log",
         serial_out_path="serial.log",
-        log_level="Debug",
+        log_level="Info",
         log_show_level=False,
         log_show_origin=False,
         metrics_path="fc.ndjson",
