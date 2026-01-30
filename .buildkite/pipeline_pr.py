@@ -23,6 +23,7 @@ pipeline = BKPipeline(
     timeout_in_minutes=45,
     with_build_step=not DOC_ONLY_CHANGE,
 )
+pipeline.artifacts = "s3://spec.ccfc.min/firecracker-ci-custom/itazur-20260130-vmclock-0"
 
 pipeline.add_step(
     {
