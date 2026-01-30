@@ -255,7 +255,9 @@ class Microvm:
         self.monitors = []
         self.memory_monitor = None
         if monitor_memory:
-            self.memory_monitor = MemoryMonitor(self)
+            self.memory_monitor = MemoryMonitor(
+                self, threshold_restored=5 << 20, threshold_booted=6 << 20
+            )
             self.monitors.append(self.memory_monitor)
 
         self.api = None
@@ -1143,6 +1145,8 @@ class Microvm:
         if self.memory_monitor:
             response = self.api.machine_config.get()
             self.mem_size_bytes = int(response.json()["mem_size_mib"]) * 2**20
+            # Notify monitor that this is a restored VM
+            self.memory_monitor.set_threshold_for_restored_vm()
             self.memory_monitor.start()
 
         # This is not a "wait for boot", but rather a "VM still works after restoration"

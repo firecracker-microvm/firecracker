@@ -43,11 +43,20 @@ class MemoryMonitor(Thread):
     ARM64_64BIT_MEMORY_GAP_START = 256 << 30
     ARM64_MEMORY_START = 2 << 30
 
-    def __init__(self, vm, threshold=5 << 20, period_s=0.01):
+    def __init__(
+        self,
+        vm,
+        threshold_restored=5 << 20,
+        threshold_booted=6 << 20,
+        period_s=0.01,
+    ):
         """Initialize monitor attributes."""
         Thread.__init__(self)
         self._vm = vm
-        self.threshold = threshold
+        self.threshold_restored = threshold_restored
+        self.threshold_booted = threshold_booted
+        # Start with booted threshold by default
+        self.threshold = threshold_booted
         self._exceeded = None
         self._period_s = period_s
         self._should_stop = False
@@ -57,6 +66,10 @@ class MemoryMonitor(Thread):
     def signal_stop(self):
         """Signal that the thread should stop."""
         self._should_stop = True
+
+    def set_threshold_for_restored_vm(self):
+        """Set threshold for a restored VM."""
+        self.threshold = self.threshold_restored
 
     def stop(self):
         """Stop the thread"""
