@@ -269,7 +269,7 @@ def test_config_start_with_limit(uvm_plain, vm_config_file):
     assert stdout.encode("utf-8") == response.encode("utf-8")
 
 
-@pytest.mark.parametrize("vm_config_file", ["framework/vm_config.json"])
+@pytest.mark.parametrize("vm_config_file", ["framework/vm_config_with_mmdsv2.json"])
 def test_config_with_default_limit(uvm_plain, vm_config_file):
     """
     Test for request payload limit.
@@ -277,6 +277,7 @@ def test_config_with_default_limit(uvm_plain, vm_config_file):
     test_microvm = uvm_plain
 
     _configure_vm_from_json(test_microvm, vm_config_file)
+    _configure_network_interface(test_microvm)
     test_microvm.spawn(serial_out_path=None)
 
     assert test_microvm.state == "Running"
