@@ -343,11 +343,26 @@ impl UffdHandler {
                     self.userfault_bitmap
                         .as_mut()
                         .unwrap()
-                        .reset_addr_range(offset + total_written, self.page_size);
+                        .reset_addr_range(offset + pos, self.page_size);
                     pos += self.page_size;
                     0
                 }
-                written @ 0.. => written as usize,
+                written @ 0.. => {
+                    if (written as usize) < len_to_write {
+                        // write() syscall wrote less bytes than we requested when the direct map
+                        // PTE for the page has already been removed,
+                        // indicating a page has been populated. Reset the
+                        // corresponding bit in the userfault bitmap to
+                        // suppress further KVM userfaults for that page and
+                        // skip the page.
+                        self.userfault_bitmap.as_mut().unwrap().reset_addr_range(
+                            offset + pos + bytes_written as usize,
+                            self.page_size,
+                        );
+                        pos += self.page_size;
+                    }
+                    written as usize
+                }
                 _ => panic!("{:?}", std::io::Error::last_os_error()),
             };
 
