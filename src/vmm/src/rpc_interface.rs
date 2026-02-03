@@ -695,7 +695,9 @@ impl RuntimeApiController {
                 .latest_balloon_stats()
                 .map(VmmData::BalloonStats)
                 .map_err(VmmActionError::InternalVmm),
-            GetFullVmConfig => Ok(VmmData::FullVmConfig((&self.vm_resources).into())),
+            GetFullVmConfig => Ok(VmmData::FullVmConfig(
+                self.vmm.lock().expect("Poisoned lock").full_config(),
+            )),
             GetMemoryHotplugStatus => self
                 .vmm
                 .lock()

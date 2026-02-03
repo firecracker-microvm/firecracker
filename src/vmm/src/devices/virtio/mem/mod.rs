@@ -1,7 +1,7 @@
 // Copyright 2022 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-mod device;
+pub mod device;
 mod event_handler;
 pub mod metrics;
 pub mod persist;
