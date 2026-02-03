@@ -241,9 +241,6 @@ impl Connection {
             return Err(PassiveOpenError::InvalidSyn);
         }
 
-        // TODO: If we ever implement window scaling, change the part that computes
-        // remote_rwnd_edge below.
-
         // We only care about the MSS option for now.
         let mss = parse_mss_option(segment)?;
 
@@ -528,16 +525,10 @@ impl Connection {
             return Err(RecvError::ConnectionReset);
         }
 
-        // TODO: The following logic fully makes sense only for a passive open (which is what we
-        // currently support). Things must change a bit if/when we also implement active opens.
-
         let segment_flags = s.flags_after_ns();
-
         if segment_flags.intersects(TcpFlags::RST) {
             let seq = Wrapping(s.sequence_number());
             // We accept the RST only if it carries an in-window sequence number.
-            // TODO: If/when we support active opens, we'll also have to accept RST/SYN segments,
-            // which must acknowledge our SYN to be valid.
             if seq_at_or_after(seq, self.ack_to_send) && seq_after(self.local_rwnd_edge, seq) {
                 self.set_flags(ConnStatusFlags::RESET);
                 return Ok((None, RecvStatusFlags::RESET_RECEIVED));
@@ -575,7 +566,6 @@ impl Connection {
             // Reaching this branch means the connection is ESTABLISHED. The only thing we want to
             // do right now is reset if we get segments which carry the SYN flag, because they are
             // obviously invalid, and something must be really wrong.
-            // TODO: Is it an overreaction to reset here?
             if s.flags_after_ns().intersects(TcpFlags::SYN) {
                 return self.reset_for_segment_helper(s, RecvStatusFlags::INVALID_SEGMENT);
             }
@@ -657,9 +647,8 @@ impl Connection {
             if let Some(fin_seq) = self.fin_received
                 && !seq_at_or_after(fin_seq, data_end_seq)
             {
-                // TODO: This is a strange situation, because the other endpoint is sending data
-                // after it initially closed its half of the connection. We simply ignore the
-                // segment for now.
+                // In a situation, when other endpoint is sending data after it initially closed
+                // its half of the connection, we simply ignore the segment.
                 return Ok((None, recv_status_flags | RecvStatusFlags::DATA_BEYOND_FIN));
             }
 
@@ -676,9 +665,6 @@ impl Connection {
             // We currently assume segments are seldom lost or reordered, and only accept those with
             // the exact next sequence number we're waiting for.
             if seq != self.ack_to_send {
-                // TODO: Maybe we should enqueue multiple ACKs here (after making such a thing
-                // possible in the first place), just so we're more likely to trigger a
-                // retransmission.
                 self.enqueue_ack();
                 return Ok((None, recv_status_flags | RecvStatusFlags::UNEXPECTED_SEQ));
             }
@@ -826,10 +812,6 @@ impl Connection {
         payload_src: PayloadSource<R>,
         now: u64,
     ) -> Result<Option<Incomplete<TcpSegment<'a, &'a mut [u8]>>>, WriteNextError> {
-        // TODO: like receive_segment(), this function is specific in some ways to Connections
-        // created via passive open. When/if we also implement active opens, some things will
-        // have to change.
-
         if self.is_reset() {
             return Err(WriteNextError::ConnectionReset);
         }
@@ -1012,10 +994,6 @@ impl Connection {
     }
 }
 
-// TODO: I'll be honest: the tests here cover the situations most likely to be encountered, but are
-// not even close to being exhaustive. Something like that might be worth pursuing after polishing
-// the rougher edges around the current implementation, and deciding its scope relative to an
-// actual TCP implementation.
 #[cfg(test)]
 pub(crate) mod tests {
     use super::*;
