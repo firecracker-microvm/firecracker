@@ -209,7 +209,7 @@ impl DeviceManager {
         cmdline: &mut Cmdline,
         is_vhost_user: bool,
     ) -> Result<(), AttachDeviceError> {
-        if self.pci_devices.pci_segment.is_some() {
+        if self.is_pci_enabled() {
             self.pci_devices.attach_pci_virtio_device(vm, id, device)?;
         } else {
             self.attach_mmio_virtio_device(vm, id, device, cmdline, is_vhost_user)?;
@@ -334,7 +334,7 @@ impl DeviceManager {
         device_type: VirtioDeviceType,
         device_id: &str,
     ) -> Option<Arc<Mutex<dyn VirtioDevice>>> {
-        if self.pci_devices.pci_segment.is_some() {
+        if self.is_pci_enabled() {
             let pci_device = self.pci_devices.get_virtio_device(device_type, device_id)?;
             Some(
                 pci_device
@@ -373,6 +373,10 @@ impl DeviceManager {
         } else {
             Err(FindDeviceError::DeviceNotFound)
         }
+    }
+
+    pub fn is_pci_enabled(&self) -> bool {
+        self.pci_devices.pci_segment.is_some()
     }
 }
 
