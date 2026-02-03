@@ -710,7 +710,11 @@ impl RuntimeApiController {
                     .data_store_value(),
             )),
             GetVmMachineConfig => Ok(VmmData::MachineConfiguration(
-                self.vm_resources.machine_config.clone(),
+                self.vmm
+                    .lock()
+                    .expect("Poisoned lock")
+                    .machine_config
+                    .clone(),
             )),
             GetVmInstanceInfo => Ok(VmmData::InstanceInformation(
                 self.vmm.lock().expect("Poisoned lock").instance_info(),
