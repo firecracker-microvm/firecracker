@@ -243,7 +243,7 @@ impl KvmVcpu {
         let extra_msrs = cpuid::common::msrs_to_save_by_cpuid(&kvm_cpuid);
         self.msrs_to_save.extend(extra_msrs);
 
-        // TODO: Some MSRs depend on values of other MSRs. This dependency will need to
+        // NOTE: Some MSRs depend on values of other MSRs. This dependency will need to
         // be implemented.
 
         // By this point we know that at snapshot, the list of MSRs we need to
@@ -586,9 +586,6 @@ impl KvmVcpu {
             .map_err(KvmVcpuError::VcpuGetDebugRegs)?;
         let lapic = self.fd.get_lapic().map_err(KvmVcpuError::VcpuGetLapic)?;
         let tsc_khz = self.get_tsc_khz().ok().or_else(|| {
-            // v0.25 and newer snapshots without TSC will only work on
-            // the same CPU model as the host on which they were taken.
-            // TODO: Add negative test for this warning failure.
             warn!("TSC freq not available. Snapshot cannot be loaded on a different CPU model.");
             None
         });
