@@ -311,6 +311,7 @@ pub fn build_microvm_for_boot(
 
     let vmm = Vmm {
         instance_info: instance_info.clone(),
+        machine_config: vm_resources.machine_config.clone(),
         shutdown_exit_code: None,
         kvm,
         vm,
@@ -511,6 +512,7 @@ pub fn build_microvm_from_snapshot(
 
     let mut vmm = Vmm {
         instance_info: instance_info.clone(),
+        machine_config: vm_resources.machine_config.clone(),
         shutdown_exit_code: None,
         kvm,
         vm,
@@ -763,6 +765,7 @@ pub(crate) mod tests {
     use crate::vmm_config::boot_source::DEFAULT_KERNEL_CMDLINE;
     use crate::vmm_config::drive::{BlockBuilder, BlockDeviceConfig};
     use crate::vmm_config::entropy::{EntropyDeviceBuilder, EntropyDeviceConfig};
+    use crate::vmm_config::machine_config::MachineConfig;
     use crate::vmm_config::net::{NetBuilder, NetworkInterfaceConfig};
     use crate::vmm_config::pmem::{PmemBuilder, PmemConfig};
     use crate::vmm_config::vsock::tests::default_config;
@@ -829,6 +832,7 @@ pub(crate) mod tests {
 
         Vmm {
             instance_info: InstanceInfo::default(),
+            machine_config: MachineConfig::default(),
             shutdown_exit_code: None,
             kvm,
             vm: Arc::new(vm),
