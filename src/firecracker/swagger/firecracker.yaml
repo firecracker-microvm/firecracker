@@ -1665,12 +1665,14 @@ definitions:
   SnapshotCreateParams:
     type: object
     required:
-      - mem_file_path
       - snapshot_path
     properties:
       mem_file_path:
         type: string
-        description: Path to the file that will contain the guest memory.
+        description:
+          Path to the file that will contain the guest memory. It is optional.
+          In case that a user doesn't provide a path, they are responsible to
+          ensure they store the microVM's memory state via external means.
       snapshot_path:
         type: string
         description: Path to the file that will contain the microVM state.
