@@ -34,8 +34,7 @@ def test_api_happy_start(uvm_plain):
     Test that a regular microvm API config and boot sequence works.
     """
     test_microvm = uvm_plain
-    test_microvm.time_api_requests = True
-    test_microvm.spawn(log_level="Debug")
+    test_microvm.spawn()
 
     # Set up the microVM with 2 vCPUs, 256 MiB of RAM and
     # a root file system with the rw permission.
@@ -55,8 +54,7 @@ def test_drive_io_engine(uvm_plain, io_engine):
     support the given type and that FC returns an error otherwise.
     """
     test_microvm = uvm_plain
-    test_microvm.time_api_requests = True
-    test_microvm.spawn(log_level="Debug")
+    test_microvm.spawn()
 
     test_microvm.basic_config(add_root_device=False)
     test_microvm.add_net_iface()
@@ -84,8 +82,7 @@ def test_api_put_update_pre_boot(uvm_plain, io_engine):
     Tests updates on drives, boot source and machine config.
     """
     test_microvm = uvm_plain
-    test_microvm.time_api_requests = True
-    test_microvm.spawn(log_level="Debug")
+    test_microvm.spawn()
 
     # Set up the microVM with 2 vCPUs, 256 MiB of RAM  and
     # a root file system with the rw permission.
@@ -180,8 +177,7 @@ def test_net_api_put_update_pre_boot(uvm_plain):
     Test PUT updates on network configurations before the microvm boots.
     """
     test_microvm = uvm_plain
-    test_microvm.time_api_requests = True
-    test_microvm.spawn(log_level="Debug")
+    test_microvm.spawn()
 
     tap1name = test_microvm.id[:8] + "tap1"
     tap1 = net_tools.Tap(tap1name, test_microvm.netns)
@@ -231,8 +227,7 @@ def test_api_mmds_config(uvm_plain):
     Tests updates on MMDS config before and after attaching a network device.
     """
     test_microvm = uvm_plain
-    test_microvm.time_api_requests = True
-    test_microvm.spawn(log_level="Debug")
+    test_microvm.spawn()
 
     # Set up the microVM with 2 vCPUs, 256 MiB of RAM  and
     # a root file system with the rw permission.
@@ -308,8 +303,7 @@ def test_api_machine_config(uvm_plain):
     Test /machine_config PUT/PATCH scenarios that unit tests can't cover.
     """
     test_microvm = uvm_plain
-    test_microvm.time_api_requests = True
-    test_microvm.spawn(log_level="Debug")
+    test_microvm.spawn()
 
     # Test invalid vcpu count < 0.
     with pytest.raises(RuntimeError):
@@ -423,8 +417,7 @@ def test_negative_machine_config_api(uvm_plain):
     response header should have "Deprecation: true".
     """
     test_microvm = uvm_plain
-    test_microvm.time_api_requests = True
-    test_microvm.spawn(log_level="Debug")
+    test_microvm.spawn()
 
     # Use `cpu_template` field in PUT /machine-config
     response = test_microvm.api.machine_config.put(
@@ -451,8 +444,7 @@ def test_api_cpu_config(uvm_plain, custom_cpu_template):
     Test /cpu-config PUT scenarios.
     """
     test_microvm = uvm_plain
-    test_microvm.time_api_requests = True
-    test_microvm.spawn(log_level="Debug")
+    test_microvm.spawn()
 
     with pytest.raises(RuntimeError):
         test_microvm.api.cpu_config.put(foo=False)
@@ -465,8 +457,7 @@ def test_api_put_update_post_boot(uvm_plain, io_engine):
     Test that PUT updates are rejected after the microvm boots.
     """
     test_microvm = uvm_plain
-    test_microvm.time_api_requests = True
-    test_microvm.spawn(log_level="Debug")
+    test_microvm.spawn()
 
     # Set up the microVM with 2 vCPUs, 256 MiB of RAM  and
     # a root file system with the rw permission.
@@ -526,8 +517,7 @@ def test_rate_limiters_api_config(uvm_plain, io_engine):
     Test the IO rate limiter API config.
     """
     test_microvm = uvm_plain
-    test_microvm.time_api_requests = True
-    test_microvm.spawn(log_level="Debug")
+    test_microvm.spawn()
 
     # Test the DRIVE rate limiting API.
 
@@ -635,8 +625,7 @@ def test_api_patch_pre_boot(uvm_plain, io_engine):
     Test that PATCH updates are not allowed before the microvm boots.
     """
     test_microvm = uvm_plain
-    test_microvm.time_api_requests = True
-    test_microvm.spawn(log_level="Debug")
+    test_microvm.spawn()
 
     # Sets up the microVM with 2 vCPUs, 256 MiB of RAM, 1 network interface
     # and a root file system with the rw permission.
@@ -686,8 +675,7 @@ def test_negative_api_patch_post_boot(uvm_plain, io_engine):
     Test PATCH updates that are not allowed after the microvm boots.
     """
     test_microvm = uvm_plain
-    test_microvm.time_api_requests = True
-    test_microvm.spawn(log_level="Debug")
+    test_microvm.spawn()
 
     # Sets up the microVM with 2 vCPUs, 256 MiB of RAM, 1 network iface and
     # a root file system with the rw permission.
@@ -729,8 +717,7 @@ def test_drive_patch(uvm_plain, io_engine):
     Extensively test drive PATCH scenarios before and after boot.
     """
     test_microvm = uvm_plain
-    test_microvm.time_api_requests = True
-    test_microvm.spawn(log_level="Debug")
+    test_microvm.spawn()
 
     # Sets up the microVM with 2 vCPUs, 256 MiB of RAM and
     # a root file system with the rw permission.
@@ -769,8 +756,7 @@ def test_send_ctrl_alt_del(uvm_plain_any):
     # This relies on the i8042 device and AT Keyboard support being present in
     # the guest kernel.
     test_microvm = uvm_plain_any
-    test_microvm.time_api_requests = True
-    test_microvm.spawn(log_level="Debug")
+    test_microvm.spawn()
 
     test_microvm.basic_config()
     test_microvm.add_net_iface()
@@ -918,8 +904,7 @@ def test_api_version(uvm_plain):
     Test the permanent VM version endpoint.
     """
     test_microvm = uvm_plain
-    test_microvm.time_api_requests = True
-    test_microvm.spawn(log_level="Debug")
+    test_microvm.spawn()
     test_microvm.basic_config()
 
     # Getting the VM version should be available pre-boot.
@@ -980,8 +965,7 @@ def test_api_entropy(uvm_plain):
     Test entropy related API commands.
     """
     test_microvm = uvm_plain
-    test_microvm.time_api_requests = True
-    test_microvm.spawn(log_level="Debug")
+    test_microvm.spawn()
     test_microvm.basic_config()
 
     # Create a new entropy device should be OK.
@@ -1002,8 +986,7 @@ def test_api_memory_hotplug(uvm_plain_6_1):
     Test hotplug related API commands.
     """
     test_microvm = uvm_plain_6_1
-    test_microvm.time_api_requests = True
-    test_microvm.spawn(log_level="Debug")
+    test_microvm.spawn()
     test_microvm.basic_config()
     test_microvm.add_net_iface()
 
@@ -1041,15 +1024,11 @@ def test_api_memory_hotplug(uvm_plain_6_1):
     assert status["requested_size_mib"] == 512
 
 
-def test_api_balloon(uvm_plain):
+def test_api_balloon(uvm_nano):
     """
     Test balloon related API commands.
     """
-    test_microvm = uvm_plain
-    test_microvm.time_api_requests = True
-    test_microvm.spawn(log_level="Debug")
-    test_microvm.basic_config(vcpu_count=2, mem_size_mib=256)
-    test_microvm.add_net_iface()
+    test_microvm = uvm_nano
 
     # Updating an inexistent balloon device should give an error.
     with pytest.raises(RuntimeError):
@@ -1114,8 +1093,7 @@ def test_pmem_api(uvm_plain_any, rootfs):
     """
 
     vm = uvm_plain_any
-    vm.time_api_requests = True
-    vm.spawn(log_level="Debug")
+    vm.spawn()
     vm.basic_config(add_root_device=False)
 
     invalid_pmem_path_on_host = os.path.join(vm.fsfiles, "invalid_scratch")
@@ -1170,17 +1148,11 @@ def test_pmem_api(uvm_plain_any, rootfs):
         vm.api.pmem.put(id="pmem")
 
 
-def test_get_full_config_after_restoring_snapshot(microvm_factory, uvm_plain):
+def test_get_full_config_after_restoring_snapshot(microvm_factory, uvm_nano):
     """
     Test the configuration of a microVM after restoring from a snapshot.
     """
-
-    test_microvm = uvm_plain
-    test_microvm.time_api_requests = True
-    test_microvm.spawn(log_level="Debug")
-    test_microvm.basic_config(vcpu_count=2, mem_size_mib=256)
-
-    net_iface = test_microvm.add_net_iface()
+    net_iface = uvm_nano.add_net_iface()
     cpu_vendor = utils_cpuid.get_cpu_vendor()
 
     setup_cfg = {}
@@ -1199,7 +1171,7 @@ def test_get_full_config_after_restoring_snapshot(microvm_factory, uvm_plain):
     if len(SUPPORTED_CPU_TEMPLATES) != 0:
         setup_cfg["machine-config"]["cpu_template"] = SUPPORTED_CPU_TEMPLATES[0]
 
-    test_microvm.api.machine_config.patch(**setup_cfg["machine-config"])
+    uvm_nano.api.machine_config.patch(**setup_cfg["machine-config"])
 
     setup_cfg["cpu-config"] = None
 
@@ -1210,30 +1182,30 @@ def test_get_full_config_after_restoring_snapshot(microvm_factory, uvm_plain):
             "is_root_device": True,
             "cache_type": "Unsafe",
             "is_read_only": True,
-            "path_on_host": f"/{test_microvm.rootfs_file.name}",
+            "path_on_host": f"/{uvm_nano.rootfs_file.name}",
             "rate_limiter": None,
             "io_engine": "Sync",
             "socket": None,
         }
     ]
 
-    test_microvm.api.pmem.put(
+    uvm_nano.api.pmem.put(
         id="pmem",
-        path_on_host="/" + test_microvm.rootfs_file.name,
+        path_on_host="/" + uvm_nano.rootfs_file.name,
         root_device=False,
         read_only=False,
     )
     setup_cfg["pmem"] = [
         {
             "id": "pmem",
-            "path_on_host": "/" + test_microvm.rootfs_file.name,
+            "path_on_host": "/" + uvm_nano.rootfs_file.name,
             "root_device": False,
             "read_only": False,
         }
     ]
 
     # Add a memory balloon device.
-    test_microvm.api.balloon.put(amount_mib=1, deflate_on_oom=True)
+    uvm_nano.api.balloon.put(amount_mib=1, deflate_on_oom=True)
     setup_cfg["balloon"] = {
         "amount_mib": 1,
         "deflate_on_oom": True,
@@ -1243,7 +1215,7 @@ def test_get_full_config_after_restoring_snapshot(microvm_factory, uvm_plain):
     }
 
     # Add a vsock device.
-    test_microvm.api.vsock.put(guest_cid=15, uds_path="vsock.sock")
+    uvm_nano.api.vsock.put(guest_cid=15, uds_path="vsock.sock")
     setup_cfg["vsock"] = {"guest_cid": 15, "uds_path": "vsock.sock"}
 
     setup_cfg["memory-hotplug"] = {
@@ -1251,7 +1223,7 @@ def test_get_full_config_after_restoring_snapshot(microvm_factory, uvm_plain):
         "block_size_mib": 128,
         "slot_size_mib": 1024,
     }
-    test_microvm.api.memory_hotplug.put(**setup_cfg["memory-hotplug"])
+    uvm_nano.api.memory_hotplug.put(**setup_cfg["memory-hotplug"])
 
     setup_cfg["logger"] = None
     setup_cfg["metrics"] = None
@@ -1260,10 +1232,10 @@ def test_get_full_config_after_restoring_snapshot(microvm_factory, uvm_plain):
         "network_interfaces": [net_iface.dev_name],
     }
 
-    test_microvm.api.mmds_config.put(**setup_cfg["mmds-config"])
+    uvm_nano.api.mmds_config.put(**setup_cfg["mmds-config"])
 
     # Start the microvm.
-    test_microvm.start()
+    uvm_nano.start()
 
     # Add a tx rate limiter to the net device.
     tx_rl = {
@@ -1271,7 +1243,7 @@ def test_get_full_config_after_restoring_snapshot(microvm_factory, uvm_plain):
         "ops": None,
     }
 
-    response = test_microvm.api.network.patch(
+    response = uvm_nano.api.network.patch(
         iface_id=net_iface.dev_name, tx_rate_limiter=tx_rl
     )
     setup_cfg["network-interfaces"] = [
@@ -1284,17 +1256,17 @@ def test_get_full_config_after_restoring_snapshot(microvm_factory, uvm_plain):
         }
     ]
 
-    snapshot = test_microvm.snapshot_full()
+    snapshot = uvm_nano.snapshot_full()
     uvm2 = microvm_factory.build_from_snapshot(snapshot)
     expected_cfg = setup_cfg.copy()
 
     # We expect boot-source to be set with the following values
     expected_cfg["boot-source"] = {
-        "kernel_image_path": test_microvm.get_jailed_resource(test_microvm.kernel_file),
+        "kernel_image_path": uvm_nano.get_jailed_resource(uvm_nano.kernel_file),
         "initrd_path": None,
         "boot_args": "reboot=k panic=1 nomodule swiotlb=noforce console=ttyS0",
     }
-    if not test_microvm.pci_enabled:
+    if not uvm_nano.pci_enabled:
         expected_cfg["boot-source"]["boot_args"] += " pci=off"
 
     # no ipv4_address or imds_compat specified during PUT /mmds/config so we expect the default
@@ -1319,11 +1291,10 @@ def test_get_full_config(uvm_plain):
     Test the reported configuration of a microVM configured with all resources.
     """
     test_microvm = uvm_plain
-    test_microvm.time_api_requests = True
 
     expected_cfg = {}
 
-    test_microvm.spawn(log_level="Debug")
+    test_microvm.spawn()
     # Basic config also implies a root block device.
     test_microvm.basic_config(boot_args="", rootfs_io_engine="Sync")
     expected_cfg["machine-config"] = {
@@ -1457,11 +1428,10 @@ def test_map_private_seccomp_regression(uvm_plain):
     killed by the seccomp filter before this PR.
     """
     test_microvm = uvm_plain
-    test_microvm.time_api_requests = True
     test_microvm.jailer.extra_args.update(
         {"http-api-max-payload-size": str(1024 * 1024 * 2)}
     )
-    test_microvm.spawn(log_level="Debug")
+    test_microvm.spawn()
     test_microvm.time_api_request = False
 
     response = test_microvm.api.mmds.get()
@@ -1477,8 +1447,7 @@ def test_negative_snapshot_load_api(microvm_factory):
     Test snapshot load API.
     """
     vm = microvm_factory.build()
-    vm.time_api_requests = True
-    vm.spawn(log_level="Debug")
+    vm.spawn()
 
     # Specifying both `mem_backend` and 'mem_file_path` should fail.
     err_msg = (
