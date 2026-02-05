@@ -758,6 +758,30 @@ apply_performance_tweaks() {
     echo 100 |sudo tee /sys/devices/system/cpu/intel_pstate/max_perf_pct &> /dev/null
   fi
 
+  # If CPU is Intel Granite Rapids (Xeon 6, FMS 06-AD-XX), disable C6 and C6P states.
+  # We've observed significant volatility in our performance tests on Intel Granite Rapids CPUs
+  # (Xeon 6, FMS 06-AD-XX), specifically in many of our latency metrics. After spending time investigating
+  # this, it seems like cross-CPU communication becomes prohibitively slow with the deepest C-states
+  # enabled. Since GNR chips have higher core density (96 per socket vs. SPR's 48 per socket), we believe
+  # that the tail latency of transitioning out of the deepest C-states explains the volatility.
+
+  # Disabling these deep states appear to stabilise the performance, so for consistency in our CI, we will disable them.
+
+  # NB: The performance volatility only appears to affect Granite Rapids instances with low load
+  # (e.g., our performance integration tests). The assumption is that when the load is high, cores
+  # are unlikely to enter deeper C-states, so inter-CPU communication does not encounter the overhead
+  # of transitioning out of deeper C-states.
+  model=$(awk '/^model\s+:/ {print $3; exit}' /proc/cpuinfo)
+  family=$(awk '/^cpu family\s+:/ {print $4; exit}' /proc/cpuinfo)
+  if [[ "$family" -eq 6 && "$model" -eq 173 ]]; then
+    say "Intel Granite Rapids CPU detected. Disabling C6 and C6P C-states"
+    for state in /sys/devices/system/cpu/cpu[0-9]*/cpuidle/state*/; do
+      if [[ -f "$state/name" && $(cat "$state/name") == C6* ]]; then
+        echo 1 | sudo tee "$state/disable" &> /dev/null
+      fi
+    done
+  fi
+
   # The governor is a linux component that can adjust CPU frequency. "performance" tells it to always run CPUs at
   # their maximum safe frequency. It seems to be the default for Amazon Linux, but it doesn't hurt to make this explicit.
   # See also https://wiki.archlinux.org/title/CPU_frequency_scaling
@@ -772,6 +796,17 @@ unapply_performance_tweaks() {
     # restore p-state limits
     echo $MIN_PERF_PCT |sudo tee /sys/devices/system/cpu/intel_pstate/min_perf_pct &> /dev/null
     echo $MAX_PERF_PCT |sudo tee /sys/devices/system/cpu/intel_pstate/max_perf_pct &> /dev/null
+  fi
+
+  # reenable Granite Rapids C-states
+  model=$(awk '/^model\s+:/ {print $3; exit}' /proc/cpuinfo)
+  family=$(awk '/^cpu family\s+:/ {print $4; exit}' /proc/cpuinfo)
+  if [[ "$family" -eq 6 && "$model" -eq 173 ]]; then
+    for state in /sys/devices/system/cpu/cpu[0-9]*/cpuidle/state*/; do
+      if [[ -f "$state/name" && $(cat "$state/name") == C6* ]]; then
+        echo 0 | sudo tee "$state/disable" &> /dev/null
+      fi
+    done
   fi
 
   # We do not reset the governor, as keeping track of each CPUs configured governor is not trivial here. On our CI
