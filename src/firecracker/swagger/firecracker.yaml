@@ -786,6 +786,50 @@ paths:
           schema:
             $ref: "#/definitions/Error"
 
+  /memory/mappings:
+    get:
+      summary: Gets the memory mappings with skippable pages bitmap.
+      operationId: getMemoryMappings
+      responses:
+        200:
+          description: OK
+          schema:
+            $ref: "#/definitions/MemoryMappingsResponse"
+        default:
+          description: Internal server error
+          schema:
+            $ref: "#/definitions/Error"
+
+  /memory:
+    get:
+      summary: Gets the memory info (resident and empty pages).
+      description: Returns an object with resident and empty bitmaps. The resident bitmap marks all pages that are resident. The empty bitmap marks zero pages (subset of resident pages). This is checked at the pageSize of each region. All regions must have the same page size.
+      operationId: getMemory
+      responses:
+        200:
+          description: OK
+          schema:
+            $ref: "#/definitions/MemoryResponse"
+        default:
+          description: Internal server error
+          schema:
+            $ref: "#/definitions/Error"
+
+  /memory/dirty:
+    get:
+      summary: Gets the dirty guest memory
+      description: This returns the resident memory that has been written since last snapshot.
+      operationId: getDirtyMemory
+      responses:
+        200:
+          description: OK
+          schema:
+            $ref: "#/definitions/MemoryDirty"
+        default:
+          description: Internal server error
+          schema:
+            $ref: "#/definitions/Error"
+
   /version:
     get:
       summary: Gets the Firecracker version.
@@ -1346,6 +1390,72 @@ definitions:
       vmm_version:
         description: MicroVM hypervisor build version.
         type: string
+
+  GuestMemoryRegionMapping:
+    type: object
+    description: Describes the region of guest memory that can be used for creating the memfile.
+    required:
+      - base_host_virt_addr
+      - size
+      - offset
+      - page_size
+    properties:
+      base_host_virt_addr:
+        type: integer
+      size:
+        description: The size of the region in bytes.
+        type: integer
+      offset:
+        description: The offset of the region in bytes.
+        type: integer
+      page_size:
+        description: The page size in bytes.
+        type: integer
+
+  MemoryMappingsResponse:
+    type: object
+    description: Response containing memory region mappings.
+    required:
+      - mappings
+    properties:
+      mappings:
+        type: array
+        description: The memory region mappings.
+        items:
+          $ref: "#/definitions/GuestMemoryRegionMapping"
+
+  MemoryResponse:
+    type: object
+    description: Response containing the memory info (resident and empty pages).
+    required:
+      - resident
+      - empty
+    properties:
+      resident:
+        type: array
+        description: The resident bitmap as a vector of u64 values. Each bit represents if the page is resident.
+        items:
+          type: integer
+          format: uint64
+      empty:
+        type: array
+        description: The empty bitmap as a vector of u64 values. Each bit represents if the page is zero (empty). This is a subset of the resident pages.
+        items:
+          type: integer
+          format: uint64
+
+  MemoryDirty:
+    type: object
+    description: Response containing the bitmap (one bit per page) of dirty pages of guest memory
+    required:
+      - bitmap:
+    properties:
+      bitmap:
+        type: array
+        description: The dirty bitmap as a vector of u64 values. Each bit respresents if the page is dirty.
+        itmes:
+          type: integer
+          format: uint64
 
   Logger:
     type: object
