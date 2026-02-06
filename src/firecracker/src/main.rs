@@ -572,7 +572,7 @@ fn build_microvm_from_json(
     pci_enabled: bool,
     mmds_size_limit: usize,
     metadata_json: Option<&str>,
-) -> Result<(VmResources, Arc<Mutex<vmm::Vmm>>), BuildFromJsonError> {
+) -> Result<Arc<Mutex<vmm::Vmm>>, BuildFromJsonError> {
     let mut vm_resources =
         VmResources::from_json(&config_json, &instance_info, mmds_size_limit, metadata_json)
             .map_err(BuildFromJsonError::ParseFromJson)?;
@@ -588,7 +588,7 @@ fn build_microvm_from_json(
 
     info!("Successfully started microvm that was configured from one single json");
 
-    Ok((vm_resources, vmm))
+    Ok(vmm)
 }
 
 #[derive(Debug, thiserror::Error, displaydoc::Display)]
@@ -615,7 +615,7 @@ fn run_without_api(
     event_manager.add_subscriber(firecracker_metrics.clone());
 
     // Build the microVm. We can ignore VmResources since it's not used without api.
-    let (_, vmm) = build_microvm_from_json(
+    let vmm = build_microvm_from_json(
         seccomp_filters,
         &mut event_manager,
         // Safe to unwrap since '--no-api' requires this to be set.

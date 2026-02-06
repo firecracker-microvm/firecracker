@@ -141,12 +141,26 @@ use crate::devices::virtio::balloon::{
 };
 use crate::devices::virtio::block::BlockError;
 use crate::devices::virtio::block::device::Block;
-use crate::devices::virtio::mem::{VIRTIO_MEM_DEV_ID, VirtioMem, VirtioMemError, VirtioMemStatus};
+use crate::devices::virtio::device::VirtioDeviceType;
+use crate::devices::virtio::mem::device::VirtioMem;
+use crate::devices::virtio::mem::{VIRTIO_MEM_DEV_ID, VirtioMemError, VirtioMemStatus};
 use crate::devices::virtio::net::Net;
+use crate::devices::virtio::pmem::device::Pmem;
+use crate::devices::virtio::rng::Entropy;
+use crate::devices::virtio::vsock::{Vsock, VsockUnixBackend};
 use crate::logger::{METRICS, MetricsError, error, info, warn};
+use crate::mmds::data_store::Mmds;
 use crate::persist::{MicrovmState, MicrovmStateError, VmInfo};
 use crate::rate_limiter::BucketUpdate;
+use crate::utils::{bytes_to_mib, u64_to_usize};
+use crate::vmm_config::balloon::BalloonDeviceConfig;
+use crate::vmm_config::boot_source::BootSourceConfig;
+use crate::vmm_config::entropy::EntropyDeviceConfig;
 use crate::vmm_config::instance_info::{InstanceInfo, VmState};
+use crate::vmm_config::machine_config::MachineConfig;
+use crate::vmm_config::memory_hotplug::MemoryHotplugConfig;
+use crate::vmm_config::net::NetworkInterfaceConfig;
+use crate::vmm_config::vsock::VsockDeviceConfig;
 use crate::vstate::memory::{GuestMemory, GuestMemoryMmap, GuestMemoryRegion};
 use crate::vstate::vcpu::VcpuState;
 pub use crate::vstate::vcpu::{Vcpu, VcpuConfig, VcpuEvent, VcpuHandle, VcpuResponse};
@@ -296,6 +310,9 @@ pub enum DumpCpuConfigError {
 pub struct Vmm {
     /// The [`InstanceInfo`] state of this [`Vmm`].
     pub instance_info: InstanceInfo,
+    /// Machine config
+    pub machine_config: MachineConfig,
+    boot_source_config: BootSourceConfig,
     shutdown_exit_code: Option<FcExitCode>,
 
     // Guest VM core resources.
@@ -324,9 +341,164 @@ impl Vmm {
         self.instance_info.clone()
     }
 
+    /// Gets MMDS reference, if any.
+    pub fn get_mmds(&self) -> Option<Arc<Mutex<Mmds>>> {
+        // Unfortunately the way these different device managers have been
+        // implemented forces code duplication...
+        if self.device_manager.is_pci_enabled() {
+            for ((device_type, _), pci_device) in &self.device_manager.pci_devices.virtio_devices {
+                if *device_type == VirtioDeviceType::Net {
+                    let virtio_device = pci_device.lock().expect("Poisoned lock").virtio_device();
+                    let device_locked = virtio_device.lock().expect("Poisoned lock");
+                    if let Some(net) = device_locked.as_any().downcast_ref::<Net>()
+                        && let Some(mmds_ns) = &net.mmds_ns
+                    {
+                        return Some(mmds_ns.mmds.clone());
+                    }
+                }
+            }
+        } else {
+            for ((device_type, _), mmio_device) in &self.device_manager.mmio_devices.virtio_devices
+            {
+                if *device_type == VirtioDeviceType::Net {
+                    let virtio_device = mmio_device.inner.lock().expect("Poisoned lock").device();
+                    let device_locked = virtio_device.lock().expect("Poisoned lock");
+                    if let Some(net) = device_locked.as_any().downcast_ref::<Net>()
+                        && let Some(mmds_ns) = &net.mmds_ns
+                    {
+                        return Some(mmds_ns.mmds.clone());
+                    }
+                }
+            }
+        }
+
+        None
+    }
+
     /// Provides the Vmm shutdown exit code if there is one.
     pub fn shutdown_exit_code(&self) -> Option<FcExitCode> {
         self.shutdown_exit_code
+    }
+
+    /// Builds a FullVmConfig from the current Vmm state.
+    pub fn full_config(&self) -> resources::VmmConfig {
+        let mut block = Vec::new();
+        let mut net = Vec::new();
+        let mut net_with_mmds = Vec::new();
+        let mut pmem = Vec::new();
+        let mut balloon = None;
+        let mut vsock = None;
+        let mut entropy = None;
+        let mut memory_hotplug = None;
+        let mut mmds_ipv4_address = None;
+        let mut mmds_ref = None;
+
+        macro_rules! append_config {
+            ($device_type:expr, $device:expr) => {
+                match $device_type {
+                    VirtioDeviceType::Block => {
+                        if let Some(b) = $device.as_mut_any().downcast_mut::<Block>() {
+                            block.push(b.config());
+                        }
+                    }
+                    VirtioDeviceType::Net => {
+                        if let Some(n) = $device.as_mut_any().downcast_mut::<Net>() {
+                            net.push(NetworkInterfaceConfig::from(&*n));
+                            if let Some(mmds_ns) = &n.mmds_ns {
+                                net_with_mmds.push(n.id.clone());
+                                if mmds_ipv4_address.is_none() {
+                                    mmds_ipv4_address = Some(mmds_ns.ipv4_addr());
+                                }
+                                if mmds_ref.is_none() {
+                                    mmds_ref = Some(mmds_ns.mmds.clone());
+                                }
+                            }
+                        }
+                    }
+                    VirtioDeviceType::Pmem => {
+                        if let Some(p) = $device.as_mut_any().downcast_mut::<Pmem>() {
+                            pmem.push(p.config.clone());
+                        }
+                    }
+                    VirtioDeviceType::Balloon => {
+                        if let Some(b) = $device.as_mut_any().downcast_mut::<Balloon>() {
+                            balloon = Some(BalloonDeviceConfig::from(b.config()));
+                        }
+                    }
+                    VirtioDeviceType::Vsock => {
+                        if let Some(v) = $device
+                            .as_mut_any()
+                            .downcast_mut::<Vsock<VsockUnixBackend>>()
+                        {
+                            vsock = Some(VsockDeviceConfig {
+                                vsock_id: None,
+                                guest_cid: u32::try_from(v.cid()).unwrap(),
+                                uds_path: v.backend().host_sock_path().to_owned(),
+                            });
+                        }
+                    }
+                    VirtioDeviceType::Rng => {
+                        if let Some(e) = $device.as_mut_any().downcast_mut::<Entropy>() {
+                            entropy = Some(EntropyDeviceConfig {
+                                rate_limiter: Some(e.rate_limiter().into()),
+                            });
+                        }
+                    }
+                    VirtioDeviceType::Mem => {
+                        if let Some(mem) = $device.as_mut_any().downcast_mut::<VirtioMem>() {
+                            memory_hotplug = Some(MemoryHotplugConfig {
+                                total_size_mib: bytes_to_mib(u64_to_usize(mem.config.region_size)),
+                                block_size_mib: bytes_to_mib(u64_to_usize(mem.config.block_size)),
+                                slot_size_mib: bytes_to_mib(mem.slot_size),
+                            });
+                        }
+                    }
+                }
+            };
+        }
+
+        if self.device_manager.is_pci_enabled() {
+            for ((device_type, _), pci_device) in &self.device_manager.pci_devices.virtio_devices {
+                let virtio_device = pci_device.lock().expect("Poisoned lock").virtio_device();
+                let mut device = virtio_device.lock().expect("Poisoned lock");
+                append_config!(device_type, device);
+            }
+        } else {
+            for ((device_type, _), mmio_device) in &self.device_manager.mmio_devices.virtio_devices
+            {
+                let virtio_device = mmio_device.inner.lock().expect("Poisoned lock").device();
+                let mut device = virtio_device.lock().expect("Poisoned lock");
+                append_config!(device_type, device);
+            }
+        }
+
+        let mmds_config = mmds_ref.and_then(|mmds| {
+            if net_with_mmds.is_empty() {
+                None
+            } else {
+                let mmds = mmds.lock().expect("Poisoned lock");
+                Some(vmm_config::mmds::MmdsConfig {
+                    version: mmds.version(),
+                    ipv4_address: mmds_ipv4_address,
+                    network_interfaces: net_with_mmds,
+                    imds_compat: mmds.imds_compat(),
+                })
+            }
+        });
+
+        resources::VmmConfig {
+            balloon,
+            drives: block,
+            boot_source: self.boot_source_config.clone(),
+            machine_config: Some(self.machine_config.clone()),
+            mmds_config,
+            network_interfaces: net,
+            vsock,
+            entropy,
+            pmem_devices: pmem,
+            memory_hotplug,
+            ..Default::default()
+        }
     }
 
     /// Starts the microVM vcpus.
