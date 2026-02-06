@@ -84,8 +84,13 @@ mod defs {
         /// Vsock packet type.
         /// Defined in `/include/uapi/linux/virtio_vsock.h`.
         ///
-        /// Stream / connection-oriented packet (the only currently valid type).
+        /// Stream / connection-oriented packet.
         pub const VSOCK_TYPE_STREAM: u16 = 1;
+        /// Sequenced packet (record preserving) socket type.
+        pub const VSOCK_TYPE_SEQPACKET: u16 = 2;
+
+        /// Virtio vsock feature bits.
+        pub const VIRTIO_VSOCK_F_SEQPACKET: u16 = 1;
 
         pub const VSOCK_HOST_CID: u64 = 2;
     }
@@ -95,7 +100,7 @@ mod defs {
 #[derive(Debug, thiserror::Error, displaydoc::Display)]
 #[rustfmt::skip]
 pub enum VsockError {
-    /** The total length of the descriptor chain ({0}) is too short to hold a packet of length {1} + header */
+    /** Descriptor chain ({0}) shorter than packet len {1} + header */
     DescChainTooShortForPacket(u32, u32),
     /// Empty queue
     EmptyQueue,
