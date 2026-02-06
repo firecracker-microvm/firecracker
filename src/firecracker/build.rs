@@ -51,6 +51,6 @@ fn main() {
     println!("cargo:rerun-if-changed={}", SECCOMPILER_SRC_DIR);
 
     let out_path = format!("{}/{}", out_dir, ADVANCED_BINARY_FILTER_FILE_NAME);
-    seccompiler::compile_bpf(&seccomp_json_path, &target_arch, &out_path, false)
+    seccompiler::compile_bpf(&seccomp_json_path, &target_arch, &out_path, false, false)
         .expect("Cannot compile seccomp filters");
 }
