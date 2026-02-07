@@ -88,7 +88,7 @@ mod defs {
         /// Stream / connection-oriented packet.
         pub const VSOCK_TYPE_STREAM: u16 = 1;
         /// Seqpacket based connection
-        pub const VSOCK_TYPE_SEQPACKET: u16 = 5;
+        pub const VSOCK_TYPE_SEQPACKET: u16 = 2;
 
         pub const VSOCK_HOST_CID: u64 = 2;
     }
