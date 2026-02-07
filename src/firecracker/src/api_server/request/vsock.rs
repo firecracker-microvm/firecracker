@@ -41,7 +41,8 @@ mod tests {
     fn test_parse_put_vsock_request() {
         let body = r#"{
             "guest_cid": 42,
-            "uds_path": "vsock.sock"
+            "uds_path": "vsock.sock",
+            "vsock_type": "stream"
         }"#;
         parse_put_vsock(&Body::new(body)).unwrap();
 
@@ -57,7 +58,8 @@ mod tests {
         let body = r#"{
             "vsock_id": "foo",
             "guest_cid": 42,
-            "uds_path": "vsock.sock"
+            "uds_path": "vsock.sock",
+            "vsock_type": "stream"
         }"#;
         depr_action_from_req(
             parse_put_vsock(&Body::new(body)).unwrap(),
@@ -66,7 +68,8 @@ mod tests {
 
         let body = r#"{
             "guest_cid": 42,
-            "uds_path": "vsock.sock"
+            "uds_path": "vsock.sock",
+            "vsock_type": "stream"
         }"#;
         let (_, mut parsing_info) = parse_put_vsock(&Body::new(body)).unwrap().into_parts();
         assert!(parsing_info.take_deprecation_message().is_none());
