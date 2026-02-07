@@ -970,7 +970,7 @@ def test_api_vsock(uvm_configured):
     """
     vm = uvm_configured
     # Create a vsock device.
-    vm.api.vsock.put(guest_cid=15, uds_path="vsock.sock")
+    vm.api.vsock.put(guest_cid=15, uds_path="vsock.sock", vsock_type="stream")
 
     # Updating an existing vsock is currently fine. Even changing its type.
     vm.api.vsock.put(
@@ -984,12 +984,16 @@ def test_api_vsock(uvm_configured):
     vm.api.vsock.put(guest_cid=166, uds_path="vsock.sock", vsock_type="stream")
 
     # Check PUT request. Although vsock_id is deprecated, it must still work.
-    response = vm.api.vsock.put(vsock_id="vsock1", guest_cid=15, uds_path="vsock.sock")
+    response = vm.api.vsock.put(
+        vsock_id="vsock1", guest_cid=15, uds_path="vsock.sock", vsock_type="stream"
+    )
     assert response.headers["deprecation"]
 
     # Updating an existing vsock is currently fine even with deprecated
     # `vsock_id`.
-    response = vm.api.vsock.put(vsock_id="vsock1", guest_cid=166, uds_path="vsock.sock")
+    response = vm.api.vsock.put(
+        vsock_id="vsock1", guest_cid=166, uds_path="vsock.sock", vsock_type="stream"
+    )
     assert response.headers["deprecation"]
 
     # No other vsock action is allowed after booting the VM.
@@ -997,7 +1001,7 @@ def test_api_vsock(uvm_configured):
 
     # Updating an existing vsock should not be fine at this point.
     with pytest.raises(RuntimeError):
-        vm.api.vsock.put(guest_cid=17, uds_path="vsock.sock")
+        vm.api.vsock.put(guest_cid=17, uds_path="vsock.sock", vsock_type="stream")
 
     # Changing the type of a vsock device should error at this point.
     with pytest.raises(RuntimeError):
@@ -1350,8 +1354,12 @@ def test_get_full_config_after_restoring_snapshot(microvm_factory, uvm_configure
     }
 
     # Add a vsock device.
-    uvm_configured.api.vsock.put(guest_cid=15, uds_path="vsock.sock")
-    setup_cfg["vsock"] = {"guest_cid": 15, "uds_path": "vsock.sock"}
+    uvm_configured.api.vsock.put(guest_cid=15, uds_path="vsock.sock", vsock_type="stream")
+    setup_cfg["vsock"] = {
+        "guest_cid": 15,
+        "uds_path": "vsock.sock",
+        "vsock_type": "stream",
+    }
 
     setup_cfg["memory-hotplug"] = {
         "total_size_mib": 1024,
@@ -1490,9 +1498,14 @@ def test_get_full_config(uvm):
     }
 
     # Add a vsock device.
-    response = test_microvm.api.vsock.put(guest_cid=15, uds_path="vsock.sock")
-    expected_cfg["vsock"] = {"guest_cid": 15, "uds_path": "vsock.sock"}
-
+    response = test_microvm.api.vsock.put(
+        guest_cid=15, uds_path="vsock.sock", vsock_type="stream"
+    )
+    expected_cfg["vsock"] = {
+        "guest_cid": 15,
+        "uds_path": "vsock.sock",
+        "vsock_type": "stream",
+    }
     # Add hot-pluggable memory.
     expected_cfg["memory-hotplug"] = {
         "total_size_mib": 1024,
@@ -1633,7 +1646,7 @@ def test_negative_snapshot_load_api(microvm_factory):
         )
 
     # API request without `mem_backend` or `mem_file_path` should fail.
-    err_msg = "missing field: either `mem_backend` or " "`mem_file_path` is required"
+    err_msg = "missing field: either `mem_backend` or `mem_file_path` is required"
     with pytest.raises(RuntimeError, match=err_msg):
         vm.api.snapshot_load.put(snapshot_path="foo")
 
