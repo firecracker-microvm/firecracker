@@ -32,14 +32,15 @@ class HostEchoWorker(Thread):
     contents of `blob_path`.
     """
 
-    def __init__(self, uds_path, blob_path):
+    def __init__(self, uds_path, blob_path, vsock_type=SOCK_STREAM):
         """."""
         super().__init__()
         self.uds_path = uds_path
         self.blob_path = blob_path
         self.hash = None
+        self.vsock_type = vsock_type
         self.error = None
-        self.sock = vsock_connect_to_guest(self.uds_path, ECHO_SERVER_PORT)
+        self.sock = vsock_connect_to_guest(self.uds_path, ECHO_SERVER_PORT, self.vsock_type)
 
     def run(self):
         """Thread code payload.
@@ -352,7 +353,7 @@ def make_host_port_path(uds_path, port):
     return "{}_{}".format(uds_path, port)
 
 
-def vsock_connect_to_guest(uds_path, port):
+def vsock_connect_to_guest(uds_path, port, vsock_type=SOCK_STREAM):
     """Return a Unix socket, connected to the guest vsock port `port`.
 
     The returned socket is a regular `socket.socket`, so callers can
@@ -361,10 +362,9 @@ def vsock_connect_to_guest(uds_path, port):
     the CONNECT/ACK handshake the socket is closed before raising, so
     the caller never receives a half-open descriptor.
     """
-    sock = socket(AF_UNIX, SOCK_STREAM)
+    sock = socket(AF_UNIX, vsock_type)
     try:
         sock.connect(uds_path)
-
         buf = bytearray("CONNECT {}\n".format(port).encode("utf-8"))
         sock.send(buf)
 
