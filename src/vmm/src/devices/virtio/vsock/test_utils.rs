@@ -18,9 +18,10 @@ use crate::devices::virtio::transport::VirtioInterrupt;
 use crate::devices::virtio::vsock::device::{EVQ_INDEX, RXQ_INDEX, TXQ_INDEX};
 use crate::devices::virtio::vsock::packet::VSOCK_PKT_HDR_SIZE;
 use crate::devices::virtio::vsock::{
-    Vsock, VsockBackend, VsockChannel, VsockEpollListener, VsockError,
+    Save, Vsock, VsockBackend, VsockChannel, VsockEpollListener, VsockError,
 };
 use crate::test_utils::single_region_mem;
+use crate::vmm_config::vsock::VsockType;
 use crate::vstate::memory::{GuestAddress, GuestMemoryMmap};
 
 #[derive(Debug)]
@@ -113,6 +114,13 @@ impl VsockEpollListener for TestBackend {
         self.evset = Some(evset);
     }
 }
+
+impl Save for TestBackend {
+    fn save(&self) -> &VsockType {
+        &VsockType::Stream
+    }
+}
+
 impl VsockBackend for TestBackend {}
 
 #[derive(Debug)]
