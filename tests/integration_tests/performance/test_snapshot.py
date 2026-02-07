@@ -1,6 +1,7 @@
 # Copyright 2023 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 # SPDX-License-Identifier: Apache-2.0
 """Performance benchmark for snapshot restore."""
+
 import re
 import signal
 import tempfile
@@ -73,7 +74,9 @@ class SnapshotRestoreTest:
             vm.api.balloon.put(
                 amount_mib=0, deflate_on_oom=True, stats_polling_interval_s=1
             )
-            vm.api.vsock.put(vsock_id="vsock0", guest_cid=3, uds_path="/v.sock")
+            vm.api.vsock.put(
+                vsock_id="vsock0", guest_cid=3, uds_path="/v.sock", vsock_type="stream"
+            )
 
         vm.start()
 

@@ -53,7 +53,9 @@ def test_snapshot_phase1(
     for i in range(4):
         vm.add_net_iface()
     # Add a vsock device
-    vm.api.vsock.put(vsock_id="vsock0", guest_cid=3, uds_path="/v.sock")
+    vm.api.vsock.put(
+        vsock_id="vsock0", guest_cid=3, uds_path="/v.sock", vsock_type="stream"
+    )
     # Add MMDS
     configure_mmds(vm, ["eth3"], version="V2")
     # Add a memory balloon.
