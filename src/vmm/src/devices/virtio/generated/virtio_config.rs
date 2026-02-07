@@ -16,6 +16,7 @@
     clippy::redundant_static_lifetimes
 )]
 
+pub const VIRTIO_VSOCK_F_SEQPACKET: u32 = 1;
 pub const VIRTIO_F_NOTIFY_ON_EMPTY: u32 = 24;
 pub const VIRTIO_F_ANY_LAYOUT: u32 = 27;
 pub const VIRTIO_F_VERSION_1: u32 = 32;
