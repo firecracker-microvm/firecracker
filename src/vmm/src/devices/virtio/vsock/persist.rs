@@ -122,6 +122,7 @@ where
 pub(crate) mod tests {
     use super::device::AVAIL_FEATURES;
     use super::*;
+    use crate::Persist;
     use crate::devices::virtio::device::VirtioDevice;
     use crate::devices::virtio::test_utils::default_interrupt;
     use crate::devices::virtio::vsock::defs::uapi;
@@ -162,7 +163,7 @@ pub(crate) mod tests {
         // Test serialization
         // Save backend and device state separately.
         let state = VsockState {
-            backend: ctx.device.backend().save(),
+            backend: Persist::save(ctx.device.backend()),
             frontend: ctx.device.save(),
         };
 
