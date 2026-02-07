@@ -10,10 +10,17 @@
 mod muxer;
 mod muxer_killq;
 mod muxer_rxq;
+mod seqpacket;
+use std::io::{self, Read, Write};
+use std::os::fd::AsRawFd;
+use std::os::unix::net::UnixStream;
 
 pub use muxer::VsockMuxer as VsockUnixBackend;
+use vm_memory::io::{ReadVolatile, WriteVolatile};
 
 use crate::devices::virtio::vsock::csm::VsockConnectionBackend;
+use crate::devices::virtio::vsock::unix::seqpacket::SeqpacketConn;
+use crate::vmm_config::vsock::VsockType;
 
 mod defs {
     /// Maximum number of established connections that we can handle.
@@ -47,6 +54,82 @@ pub enum VsockUnixBackendError {
     TooManyConnections,
 }
 
-type MuxerConnection = super::csm::VsockConnection<std::os::unix::net::UnixStream>;
+#[derive(Debug)]
+pub enum ConnBackend {
+    Stream(UnixStream),
+    Seqpacket(SeqpacketConn),
+}
 
-impl VsockConnectionBackend for std::os::unix::net::UnixStream {}
+impl ConnBackend {
+    fn connect(conn_type: &VsockType, port_path: String) -> Result<Self, VsockUnixBackendError> {
+        match conn_type {
+            VsockType::Seqpacket => {
+                let conn = SeqpacketConn::connect(port_path)
+                    .map_err(VsockUnixBackendError::UnixConnect)?;
+                Ok(ConnBackend::Seqpacket(conn))
+            }
+            VsockType::Stream => {
+                let conn = UnixStream::connect(port_path)
+                    .and_then(|stream| stream.set_nonblocking(true).map(|_| stream))
+                    .map_err(VsockUnixBackendError::UnixConnect)?;
+                Ok(ConnBackend::Stream(conn))
+            }
+        }
+    }
+}
+
+impl Read for ConnBackend {
+    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+        match self {
+            ConnBackend::Stream(inner) => inner.read(buf),
+            ConnBackend::Seqpacket(inner) => inner.read(buf),
+        }
+    }
+}
+
+impl AsRawFd for ConnBackend {
+    fn as_raw_fd(&self) -> i32 {
+        match self {
+            ConnBackend::Stream(inner) => inner.as_raw_fd(),
+            ConnBackend::Seqpacket(inner) => inner.as_raw_fd(),
+        }
+    }
+}
+
+impl ReadVolatile for ConnBackend {
+    fn read_volatile<B: vm_memory::bitmap::BitmapSlice>(
+        &mut self,
+        buf: &mut vm_memory::VolatileSlice<B>,
+    ) -> Result<usize, vm_memory::VolatileMemoryError> {
+        match self {
+            ConnBackend::Stream(inner) => inner.read_volatile(buf),
+            ConnBackend::Seqpacket(inner) => inner.read_volatile(buf),
+        }
+    }
+}
+
+impl WriteVolatile for ConnBackend {
+    fn write_volatile<B: vm_memory::bitmap::BitmapSlice>(
+        &mut self,
+        buf: &vm_memory::VolatileSlice<B>,
+    ) -> Result<usize, vm_memory::VolatileMemoryError> {
+        match self {
+            ConnBackend::Stream(inner) => inner.write_volatile(buf),
+            ConnBackend::Seqpacket(inner) => inner.write_volatile(buf),
+        }
+    }
+}
+
+impl Write for ConnBackend {
+    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+        match self {
+            ConnBackend::Stream(inner) => inner.write(buf),
+            ConnBackend::Seqpacket(inner) => inner.write(buf),
+        }
+    }
+    fn flush(&mut self) -> io::Result<()> {
+        Ok(())
+    }
+}
+
+impl VsockConnectionBackend for ConnBackend {}
