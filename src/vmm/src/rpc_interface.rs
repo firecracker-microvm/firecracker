@@ -998,6 +998,7 @@ mod tests {
     use crate::mmds::data_store::MmdsVersion;
     use crate::seccomp::BpfThreadMap;
     use crate::vmm_config::snapshot::{MemBackendConfig, MemBackendType};
+    use crate::vmm_config::vsock::VsockType;
 
     fn default_preboot<'a>(
         vm_resources: &'a mut VmResources,
@@ -1279,6 +1280,7 @@ mod tests {
                 vsock_id: Some(String::new()),
                 guest_cid: 0,
                 uds_path: String::new(),
+                vsock_type: VsockType::Stream,
             },
         )));
         check_unsupported(runtime_request(VmmAction::SetBalloonDevice(
@@ -1289,6 +1291,7 @@ mod tests {
                 vsock_id: Some(String::new()),
                 guest_cid: 0,
                 uds_path: String::new(),
+                vsock_type: VsockType::Stream,
             },
         )));
         check_unsupported(runtime_request(VmmAction::SetMmdsConfiguration(
