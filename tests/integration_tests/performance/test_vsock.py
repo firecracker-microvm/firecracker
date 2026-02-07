@@ -92,7 +92,12 @@ def test_vsock_throughput(
     vm.basic_config(vcpu_count=vcpus, mem_size_mib=mem_size_mib)
     vm.add_net_iface()
     # Create a vsock device
-    vm.api.vsock.put(vsock_id="vsock0", guest_cid=3, uds_path="/" + VSOCK_UDS_PATH)
+    vm.api.vsock.put(
+        vsock_id="vsock0",
+        guest_cid=3,
+        uds_path="/" + VSOCK_UDS_PATH,
+        vsock_type="stream",
+    )
     vm.start()
 
     metrics.set_dimensions(
