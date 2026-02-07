@@ -94,6 +94,7 @@ use crate::devices::virtio::vsock::metrics::METRICS;
 use crate::devices::virtio::vsock::packet::{VsockPacketHeader, VsockPacketRx, VsockPacketTx};
 use crate::logger::{IncMetric, debug, error, info, warn};
 use crate::utils::wrap_usize_to_u32;
+use crate::vmm_config::vsock::VsockType;
 
 /// Trait that vsock connection backends need to implement.
 ///
@@ -138,6 +139,8 @@ pub struct VsockConnection<S: VsockConnectionBackend> {
     /// Instant when this connection should be scheduled for immediate termination, due to some
     /// timeout condition having been fulfilled.
     expiry: Option<Instant>,
+    /// The type of the underlying socket connection
+    vsock_type: VsockType,
 }
 
 impl<S> VsockChannel for VsockConnection<S>
@@ -507,6 +510,7 @@ where
         local_port: u32,
         peer_port: u32,
         peer_buf_alloc: u32,
+        vsock_type: VsockType,
     ) -> Self {
         Self {
             local_cid,
@@ -523,6 +527,7 @@ where
             last_fwd_cnt_to_peer: Wrapping(0),
             pending_rx: PendingRxSet::from(PendingRx::Response),
             expiry: None,
+            vsock_type,
         }
     }
 
@@ -533,6 +538,7 @@ where
         peer_cid: u64,
         local_port: u32,
         peer_port: u32,
+        vsock_type: VsockType,
     ) -> Self {
         Self {
             local_cid,
@@ -549,6 +555,7 @@ where
             last_fwd_cnt_to_peer: Wrapping(0),
             pending_rx: PendingRxSet::from(PendingRx::Request),
             expiry: None,
+            vsock_type,
         }
     }
 
@@ -669,9 +676,12 @@ where
             .set_dst_cid(self.peer_cid)
             .set_src_port(self.local_port)
             .set_dst_port(self.peer_port)
-            .set_type(uapi::VSOCK_TYPE_STREAM)
             .set_buf_alloc(defs::CONN_TX_BUF_SIZE)
             .set_fwd_cnt(self.fwd_cnt.0);
+        match self.vsock_type {
+            VsockType::Seqpacket => hdr.set_type(uapi::VSOCK_TYPE_SEQPACKET),
+            VsockType::Stream => hdr.set_type(uapi::VSOCK_TYPE_STREAM),
+        };
     }
 }
 
@@ -880,9 +890,15 @@ mod tests {
                     LOCAL_PORT,
                     PEER_PORT,
                     PEER_BUF_ALLOC,
+                    VsockType::Stream,
                 ),
                 ConnState::LocalInit => VsockConnection::<TestStream>::new_local_init(
-                    stream, LOCAL_CID, PEER_CID, LOCAL_PORT, PEER_PORT,
+                    stream,
+                    LOCAL_CID,
+                    PEER_CID,
+                    LOCAL_PORT,
+                    PEER_PORT,
+                    VsockType::Stream,
                 ),
                 ConnState::Established => {
                     let mut conn = VsockConnection::<TestStream>::new_peer_init(
@@ -892,6 +908,7 @@ mod tests {
                         LOCAL_PORT,
                         PEER_PORT,
                         PEER_BUF_ALLOC,
+                        VsockType::Stream,
                     );
                     assert!(conn.has_pending_rx());
                     conn.recv_pkt(&mut rx_pkt).unwrap();
