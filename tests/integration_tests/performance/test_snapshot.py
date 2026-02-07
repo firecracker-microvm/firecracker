@@ -74,7 +74,9 @@ class SnapshotRestoreTest:
             vm.api.balloon.put(
                 amount_mib=0, deflate_on_oom=True, stats_polling_interval_s=1
             )
-            vm.api.vsock.put(vsock_id="vsock0", guest_cid=3, uds_path="/v.sock")
+            vm.api.vsock.put(
+                vsock_id="vsock0", guest_cid=3, uds_path="/v.sock", vsock_type="stream"
+            )
 
         vm.start()
 
