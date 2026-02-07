@@ -10,10 +10,16 @@
 mod muxer;
 mod muxer_killq;
 mod muxer_rxq;
+mod seqpacket;
+use std::io::{self, Read, Write};
+use std::os::fd::AsRawFd;
+use std::os::unix::net::UnixStream;
 
 pub use muxer::VsockMuxer as VsockUnixBackend;
+use vm_memory::io::{ReadVolatile, WriteVolatile};
 
 use crate::devices::virtio::vsock::csm::VsockConnectionBackend;
+use crate::devices::virtio::vsock::unix::seqpacket::SeqpacketConn;
 
 mod defs {
     /// Maximum number of established connections that we can handle.
@@ -47,6 +53,58 @@ pub enum VsockUnixBackendError {
     TooManyConnections,
 }
 
-type MuxerConnection = super::csm::VsockConnection<std::os::unix::net::UnixStream>;
+#[derive(Debug)]
+pub enum ConnBackend {
+    Stream(UnixStream),
+    Seqpacket(SeqpacketConn),
+}
 
-impl VsockConnectionBackend for std::os::unix::net::UnixStream {}
+macro_rules! forward_to_inner {
+    ($self:ident, $method:ident $(, $args:expr )* ) => {
+        match $self {
+            ConnBackend::Stream(inner) => inner.$method($($args),*),
+            ConnBackend::Seqpacket(inner) => inner.$method($($args),*),
+        }
+    };
+}
+
+impl Read for ConnBackend {
+    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+        forward_to_inner!(self, read, buf)
+    }
+}
+
+impl AsRawFd for ConnBackend {
+    fn as_raw_fd(&self) -> i32 {
+        forward_to_inner!(self, as_raw_fd)
+    }
+}
+
+impl ReadVolatile for ConnBackend {
+    fn read_volatile<B: vm_memory::bitmap::BitmapSlice>(
+        &mut self,
+        buf: &mut vm_memory::VolatileSlice<B>,
+    ) -> Result<usize, vm_memory::VolatileMemoryError> {
+        forward_to_inner!(self, read_volatile, buf)
+    }
+}
+
+impl WriteVolatile for ConnBackend {
+    fn write_volatile<B: vm_memory::bitmap::BitmapSlice>(
+        &mut self,
+        buf: &vm_memory::VolatileSlice<B>,
+    ) -> Result<usize, vm_memory::VolatileMemoryError> {
+        forward_to_inner!(self, write_volatile, buf)
+    }
+}
+
+impl Write for ConnBackend {
+    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+        forward_to_inner!(self, write, buf)
+    }
+    fn flush(&mut self) -> io::Result<()> {
+        Ok(())
+    }
+}
+
+impl VsockConnectionBackend for ConnBackend {}
