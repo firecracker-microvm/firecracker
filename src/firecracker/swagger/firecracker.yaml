@@ -1779,6 +1779,13 @@ definitions:
       uds_path:
         type: string
         description: Path to UNIX domain socket, used to proxy vsock connections.
+      vsock_type:
+        description: Enumeration indicating the type of the underlying socket (stream or seqpacket)
+        type: string
+        enum:
+          - stream
+          - seqpacket
+        default: stream
       vsock_id:
         type: string
         description:
