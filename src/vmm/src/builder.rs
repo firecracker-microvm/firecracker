@@ -941,7 +941,7 @@ pub(crate) mod tests {
         vsock_config: VsockDeviceConfig,
     ) {
         let vsock_dev_id = VSOCK_DEV_ID.to_owned();
-        let vsock = VsockBuilder::create_unixsock_vsock(vsock_config).unwrap();
+        let vsock = VsockBuilder::create_unixsock_vsock(&vsock_config).unwrap();
         let vsock = Arc::new(Mutex::new(vsock));
 
         attach_unixsock_vsock_device(

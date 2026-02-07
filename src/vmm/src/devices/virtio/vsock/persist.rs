@@ -14,6 +14,7 @@ use crate::devices::virtio::persist::VirtioDeviceState;
 use crate::devices::virtio::queue::FIRECRACKER_MAX_QUEUE_SIZE;
 use crate::devices::virtio::transport::VirtioInterrupt;
 use crate::snapshot::Persist;
+use crate::vmm_config::vsock::VsockType;
 use crate::vstate::memory::GuestMemoryMmap;
 
 /// The Vsock serializable state.
@@ -45,6 +46,7 @@ pub enum VsockBackendState {
 pub struct VsockUdsState {
     /// The path for the UDS socket.
     pub(crate) path: String,
+    pub(crate) vsock_type: VsockType,
 }
 
 /// A helper structure that holds the constructor arguments for VsockUnixBackend
@@ -71,6 +73,7 @@ impl Persist<'_> for VsockUnixBackend {
     fn save(&self) -> Self::State {
         VsockBackendState::Uds(VsockUdsState {
             path: self.host_sock_path.clone(),
+            vsock_type: self.vsock_type.clone(),
         })
     }
 
@@ -82,6 +85,7 @@ impl Persist<'_> for VsockUnixBackend {
             VsockBackendState::Uds(uds_state) => Ok(VsockUnixBackend::new(
                 constructor_args.cid,
                 uds_state.path.clone(),
+                uds_state.vsock_type.clone(),
             )?),
         }
     }
@@ -144,6 +148,7 @@ pub(crate) mod tests {
         fn save(&self) -> Self::State {
             VsockBackendState::Uds(VsockUdsState {
                 path: "test".to_owned(),
+                vsock_type: VsockType::Stream,
             })
         }
 
