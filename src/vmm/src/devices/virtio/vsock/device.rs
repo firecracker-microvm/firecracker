@@ -32,7 +32,9 @@ use super::packet::{VSOCK_PKT_HDR_SIZE, VsockPacketRx, VsockPacketTx};
 use super::{VsockBackend, defs};
 use crate::devices::virtio::ActivateError;
 use crate::devices::virtio::device::{ActiveState, DeviceState, VirtioDevice, VirtioDeviceType};
-use crate::devices::virtio::generated::virtio_config::{VIRTIO_F_IN_ORDER, VIRTIO_F_VERSION_1};
+use crate::devices::virtio::generated::virtio_config::{
+    VIRTIO_F_IN_ORDER, VIRTIO_F_VERSION_1, VIRTIO_VSOCK_F_SEQPACKET,
+};
 use crate::devices::virtio::queue::{InvalidAvailIdx, Queue as VirtQueue};
 use crate::devices::virtio::transport::{VirtioInterrupt, VirtioInterruptType};
 use crate::devices::virtio::vsock::VsockError;
@@ -52,8 +54,11 @@ pub(crate) const VIRTIO_VSOCK_EVENT_TRANSPORT_RESET: u32 = 0;
 /// - VIRTIO_F_VERSION_1: the device conforms to at least version 1.0 of the VirtIO spec.
 /// - VIRTIO_F_IN_ORDER: the device returns used buffers in the same order that the driver makes
 ///   them available.
-pub(crate) const AVAIL_FEATURES: u64 =
-    (1 << VIRTIO_F_VERSION_1 as u64) | (1 << VIRTIO_F_IN_ORDER as u64);
+/// - VIRTIO_VSOCK_F_SEQPACKET: the device supports vsock connections backed by seqpacket
+///   sockets.
+pub(crate) const AVAIL_FEATURES: u64 = (1 << VIRTIO_F_VERSION_1 as u64)
+    | (1 << VIRTIO_F_IN_ORDER as u64)
+    | (1 << VIRTIO_VSOCK_F_SEQPACKET as u64);
 
 /// Structure representing the vsock device.
 #[derive(Debug)]
