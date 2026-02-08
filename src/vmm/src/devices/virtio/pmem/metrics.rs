@@ -94,42 +94,22 @@ pub struct PmemMetricsPerDevice {
     pub metrics: BTreeMap<String, Arc<PmemMetrics>>,
 }
 
-impl PmemMetricsPerDevice {
-    /// Allocate `PmemDeviceMetrics` for pmem device having
-    /// id `drive_id`. Also, allocate only if it doesn't
-    /// exist to avoid overwriting previously allocated data.
-    /// lock is always initialized so it is safe the unwrap
-    /// the lock without a check.
-    pub fn alloc(drive_id: String) -> Arc<PmemMetrics> {
-        Arc::clone(
-            METRICS
-                .write()
-                .unwrap()
-                .metrics
-                .entry(drive_id)
-                .or_insert_with(|| Arc::new(PmemMetrics::default())),
-        )
-    }
-}
-
 /// Pool of pmem-related metrics per device behind a lock to
 /// keep things thread safe. Since the lock is initialized here
 /// it is safe to unwrap it without any check.
-static METRICS: RwLock<PmemMetricsPerDevice> = RwLock::new(PmemMetricsPerDevice {
-    metrics: BTreeMap::new(),
-});
+pub static METRICS: RwLock<BTreeMap<String, Arc<PmemMetrics>>> = RwLock::new(BTreeMap::new());
 
 /// This function facilitates aggregation and serialization of
 /// per pmem device metrics.
 pub fn flush_metrics<S: Serializer>(serializer: S) -> Result<S::Ok, S::Error> {
     let pmem_metrics = METRICS.read().unwrap();
-    let metrics_len = pmem_metrics.metrics.len();
+    let metrics_len = pmem_metrics.len();
     // +1 to accommodate aggregate pmem metrics
     let mut seq = serializer.serialize_map(Some(1 + metrics_len))?;
 
     let mut pmem_aggregated: PmemMetrics = PmemMetrics::default();
 
-    for (name, metrics) in pmem_metrics.metrics.iter() {
+    for (name, metrics) in pmem_metrics.iter() {
         let devn = format!("pmem_{}", name);
         // serialization will flush the metrics so aggregate before it.
         let m: &PmemMetrics = metrics;

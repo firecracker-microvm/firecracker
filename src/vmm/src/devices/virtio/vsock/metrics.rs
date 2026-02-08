@@ -39,21 +39,36 @@
 use serde::ser::SerializeMap;
 use serde::{Serialize, Serializer};
 
-use crate::logger::SharedIncMetric;
+use crate::logger::{IncMetric, SharedIncMetric};
 
-/// Stores aggregate metrics of all Vsock connections/actions
-pub(super) static METRICS: VsockDeviceMetrics = VsockDeviceMetrics::new();
+use std::collections::BTreeMap;
+use std::sync::{Arc, RwLock};
 
-/// Called by METRICS.flush(), this function facilitates serialization of vsock device metrics.
+/// This function facilitates aggregation and serialization of
+/// per device vsock metrics. (Can also handle singular)
 pub fn flush_metrics<S: Serializer>(serializer: S) -> Result<S::Ok, S::Error> {
-    let mut seq = serializer.serialize_map(Some(1))?;
-    seq.serialize_entry("vsock", &METRICS)?;
+    let vsock_metrics = METRICS.read().unwrap();
+    let metrics_len = vsock_metrics.len();
+    // +1 to accomodate aggregate vsock metrics
+    let mut seq = serializer.serialize_map(Some(1 + metrics_len))?;
+
+    let mut vsock_aggregated: VsockDeviceMetrics = VsockDeviceMetrics::default();
+
+    for (cid, metrics) in vsock_metrics.iter() {
+        // serialization will flush the metrics so aggregate before it.
+        let m: &VsockDeviceMetrics = metrics;
+        vsock_aggregated.aggregate(m);
+        seq.serialize_entry(&cid, m)?;
+    }
+    seq.serialize_entry("vsock", &vsock_aggregated)?;
     seq.end()
 }
 
+pub static METRICS: RwLock<BTreeMap<u64, Arc<VsockDeviceMetrics>>> = RwLock::new(BTreeMap::new());
+
 /// Vsock-related metrics.
-#[derive(Debug, Serialize)]
-pub(super) struct VsockDeviceMetrics {
+#[derive(Debug, Serialize, Default)]
+pub struct VsockDeviceMetrics {
     /// Number of times when activate failed on a vsock device.
     pub activate_fails: SharedIncMetric,
     /// Number of times when interacting with the space config of a vsock device failed.
@@ -123,6 +138,38 @@ impl VsockDeviceMetrics {
             rx_read_fails: SharedIncMetric::new(),
         }
     }
+
+    pub fn aggregate(&mut self, other: &Self) {
+        self.activate_fails.add(other.activate_fails.fetch_diff());
+        self.cfg_fails.add(other.cfg_fails.fetch_diff());
+        self.rx_queue_event_fails
+            .add(other.rx_queue_event_fails.fetch_diff());
+        self.tx_queue_event_fails
+            .add(other.tx_queue_event_fails.fetch_diff());
+        self.ev_queue_event_fails
+            .add(other.ev_queue_event_fails.fetch_diff());
+        self.muxer_event_fails
+            .add(other.muxer_event_fails.fetch_diff());
+        self.conn_event_fails
+            .add(other.conn_event_fails.fetch_diff());
+        self.rx_queue_event_count
+            .add(other.rx_queue_event_count.fetch_diff());
+        self.tx_queue_event_count
+            .add(other.tx_queue_event_count.fetch_diff());
+        self.rx_bytes_count.add(other.rx_bytes_count.fetch_diff());
+        self.tx_bytes_count.add(other.tx_bytes_count.fetch_diff());
+        self.rx_packets_count
+            .add(other.rx_packets_count.fetch_diff());
+        self.tx_packets_count
+            .add(other.tx_packets_count.fetch_diff());
+        self.conns_added.add(other.conns_added.fetch_diff());
+        self.conns_killed.add(other.conns_killed.fetch_diff());
+        self.conns_removed.add(other.conns_removed.fetch_diff());
+        self.killq_resync.add(other.killq_resync.fetch_diff());
+        self.tx_flush_fails.add(other.tx_flush_fails.fetch_diff());
+        self.tx_write_fails.add(other.tx_write_fails.fetch_diff());
+        self.rx_read_fails.add(other.rx_read_fails.fetch_diff());
+    }
 }
 
 #[cfg(test)]
@@ -130,16 +177,79 @@ pub mod tests {
     use super::*;
     use crate::logger::IncMetric;
 
+    // Device meant to test capability of retrieving and maintaining
+    // a default vsock for the tree, the default represents the global value.
+    // Also copies thread safety test from net devices.
     #[test]
-    fn test_vsock_dev_metrics() {
-        let vsock_metrics: VsockDeviceMetrics = VsockDeviceMetrics::new();
-        let vsock_metrics_local: String = serde_json::to_string(&vsock_metrics).unwrap();
-        // the 1st serialize flushes the metrics and resets values to 0 so that
-        // we can compare the values with local metrics.
-        serde_json::to_string(&METRICS).unwrap();
-        let vsock_metrics_global: String = serde_json::to_string(&METRICS).unwrap();
-        assert_eq!(vsock_metrics_local, vsock_metrics_global);
-        vsock_metrics.conns_added.inc();
-        assert_eq!(vsock_metrics.conns_added.count(), 1);
+    fn test_vsock_default() {
+        let guest_cid: u64 = 10;
+
+        // Drop any existing read/write lock to avoid deadlocks or stale locks.
+        drop(METRICS.read().unwrap());
+        drop(METRICS.write().unwrap());
+
+        METRICS
+            .write()
+            .unwrap()
+            .insert(guest_cid, Arc::new(VsockDeviceMetrics::default()));
+
+        // Increment a field (e.g. activate_fails) to ensure it's being tracked.
+        METRICS
+            .read()
+            .unwrap()
+            .get(&guest_cid)
+            .unwrap()
+            .activate_fails
+            .inc();
+
+        let count = METRICS
+            .read()
+            .unwrap()
+            .get(&guest_cid)
+            .unwrap()
+            .activate_fails
+            .count();
+        assert!(
+            count > 0,
+            "Expected activate_fails count > 0 but got {}",
+            count
+        );
+
+        // Ensure only up to 2 tests increment this (if sharing across tests).
+        assert!(
+            count <= 2,
+            "Expected activate_fails count <= 2 but got {}",
+            count
+        );
+
+        // Add more metric changes and assert correctness.
+        METRICS
+            .read()
+            .unwrap()
+            .get(&guest_cid)
+            .unwrap()
+            .activate_fails
+            .inc();
+
+        METRICS
+            .read()
+            .unwrap()
+            .get(&guest_cid)
+            .unwrap()
+            .rx_bytes_count
+            .add(5);
+
+        let rx_count = METRICS
+            .read()
+            .unwrap()
+            .get(&guest_cid)
+            .unwrap()
+            .rx_bytes_count
+            .count();
+        assert!(
+            rx_count >= 5,
+            "Expected rx_bytes_count >= 5 but got {}",
+            rx_count
+        );
     }
 }

@@ -28,6 +28,7 @@ use super::{
     VIRTIO_BALLOON_S_OOM_KILL, VIRTIO_BALLOON_S_SWAP_IN, VIRTIO_BALLOON_S_SWAP_OUT,
 };
 use crate::devices::virtio::balloon::BalloonError;
+use crate::devices::virtio::balloon::metrics::BalloonDeviceMetrics;
 use crate::devices::virtio::device::{ActiveState, VirtioDeviceType};
 use crate::devices::virtio::generated::virtio_config::VIRTIO_F_VERSION_1;
 use crate::devices::virtio::queue::InvalidAvailIdx;
@@ -226,7 +227,11 @@ impl BalloonStats {
             VIRTIO_BALLOON_S_ASYNC_RECLAIM => self.async_reclaim = val,
             VIRTIO_BALLOON_S_DIRECT_RECLAIM => self.direct_reclaim = val,
             tag => {
-                METRICS.stats_update_fails.inc();
+                METRICS
+                    .get()
+                    .expect("Balloon metrics uninitialized, failed to increment stats_update_fails")
+                    .stats_update_fails
+                    .inc();
                 debug!("balloon: unknown stats update tag: {tag}");
             }
         }
@@ -259,6 +264,8 @@ pub struct Balloon {
 
     // Holds state for free page hinting
     pub(crate) hinting_state: HintingState,
+    // Device metrics instance.
+    metrics: Arc<BalloonDeviceMetrics>,
 }
 
 impl Balloon {
@@ -303,6 +310,10 @@ impl Balloon {
             .collect::<Result<Vec<_>, _>>()?;
 
         let stats_timer = TimerFd::new();
+        let metrics = Arc::new(BalloonDeviceMetrics::default());
+        let _ = METRICS
+            .set(metrics.clone())
+            .inspect_err(|_| warn!("Balloon metrics are already initialized!"));
 
         Ok(Balloon {
             avail_features,
@@ -319,9 +330,10 @@ impl Balloon {
             stats_polling_interval_s,
             stats_timer,
             stats_desc_index: None,
-            latest_stats: BalloonStats::default(),
+            latest_stats: BalloonStats::default(), // we need to pass the same metrics instance, just get it from the variable maybe?
             pfn_buffer: [0u32; MAX_PAGE_COMPACT_BUFFER],
             hinting_state: Default::default(),
+            metrics,
         })
     }
 
@@ -372,7 +384,7 @@ impl Balloon {
             .active_state()
             .ok_or(BalloonError::DeviceNotActive)?
             .mem;
-        METRICS.inflate_count.inc();
+        self.metrics.inflate_count.inc();
 
         let queue = &mut self.queues[INFLATE_INDEX];
         // The pfn buffer index used during descriptor processing.
@@ -459,7 +471,7 @@ impl Balloon {
     }
 
     pub(crate) fn process_deflate_queue(&mut self) -> Result<(), BalloonError> {
-        METRICS.deflate_count.inc();
+        self.metrics.deflate_count.inc();
 
         let queue = &mut self.queues[DEFLATE_INDEX];
         let mut needs_interrupt = false;
@@ -480,7 +492,7 @@ impl Balloon {
     pub(crate) fn process_stats_queue(&mut self) -> Result<(), BalloonError> {
         // This is safe since we checked in the event handler that the device is activated.
         let mem = &self.device_state.active_state().unwrap().mem;
-        METRICS.stats_updates_count.inc();
+        self.metrics.stats_updates_count.inc();
 
         while let Some(head) = self.queues[STATS_INDEX].pop()? {
             if let Some(prev_stats_desc) = self.stats_desc_index {
@@ -566,12 +578,12 @@ impl Balloon {
                     continue;
                 }
 
-                METRICS.free_page_hint_count.inc();
+                self.metrics.free_page_hint_count.inc();
                 if let Err(err) = mem.discard_range(desc.addr, desc.len as usize) {
-                    METRICS.free_page_hint_fails.inc();
+                    self.metrics.free_page_hint_fails.inc();
                     error!("balloon hinting: failed to remove range: {err:?}");
                 } else {
-                    METRICS.free_page_hint_freed.add(desc.len as u64);
+                    self.metrics.free_page_hint_freed.add(desc.len as u64);
                 }
             }
 
@@ -608,12 +620,12 @@ impl Balloon {
 
             let mut last_desc = Some(head);
             while let Some(desc) = last_desc {
-                METRICS.free_page_report_count.inc();
+                self.metrics.free_page_report_count.inc();
                 if let Err(err) = mem.discard_range(desc.addr, desc.len as usize) {
-                    METRICS.free_page_report_fails.inc();
+                    self.metrics.free_page_report_fails.inc();
                     error!("balloon: failed to remove range: {err:?}");
                 } else {
-                    METRICS.free_page_report_freed.add(desc.len as u64);
+                    self.metrics.free_page_report_freed.add(desc.len as u64);
                 }
                 last_desc = desc.next_descriptor();
             }
@@ -638,7 +650,7 @@ impl Balloon {
                     .unwrap_or_else(|_| panic!("balloon: invalid queue id: {qidx}")),
             ))
             .map_err(|err| {
-                METRICS.event_fails.inc();
+                self.metrics.event_fails.inc();
                 BalloonError::InterruptError(err)
             })
     }
@@ -931,7 +943,7 @@ impl VirtioDevice for Balloon {
 
         self.device_state = DeviceState::Activated(ActiveState { mem, interrupt });
         if self.activate_evt.write(1).is_err() {
-            METRICS.activate_fails.inc();
+            self.metrics.activate_fails.inc();
             self.device_state = DeviceState::Inactive;
             return Err(ActivateError::EventFd);
         }
@@ -1359,7 +1371,7 @@ pub(crate) mod tests {
             );
 
             check_metric_after_block!(
-                METRICS.event_fails,
+                self.metrics.event_fails,
                 1,
                 balloon
                     .process_inflate_queue_event()
@@ -1386,7 +1398,7 @@ pub(crate) mod tests {
             );
 
             check_metric_after_block!(
-                METRICS.inflate_count,
+                self.metrics.inflate_count,
                 1,
                 invoke_handler_for_queue_event(&mut balloon, INFLATE_INDEX)
             );
@@ -1421,7 +1433,7 @@ pub(crate) mod tests {
                 VIRTQ_DESC_F_NEXT,
             );
             check_metric_after_block!(
-                METRICS.event_fails,
+                self.metrics.event_fails,
                 1,
                 balloon
                     .process_deflate_queue_event()
@@ -1441,7 +1453,7 @@ pub(crate) mod tests {
                 VIRTQ_DESC_F_NEXT,
             );
             check_metric_after_block!(
-                METRICS.deflate_count,
+                self.metrics.deflate_count,
                 1,
                 invoke_handler_for_queue_event(&mut balloon, DEFLATE_INDEX)
             );
@@ -1472,7 +1484,7 @@ pub(crate) mod tests {
                 VIRTQ_DESC_F_NEXT,
             );
             check_metric_after_block!(
-                METRICS.event_fails,
+                self.metrics.event_fails,
                 1,
                 balloon
                     .process_stats_queue_event()
@@ -1509,7 +1521,7 @@ pub(crate) mod tests {
                 2 * u32::try_from(SIZE_OF_STAT).unwrap(),
                 VIRTQ_DESC_F_NEXT,
             );
-            check_metric_after_block!(METRICS.stats_updates_count, 1, {
+            check_metric_after_block!(self.metrics.stats_updates_count, 1, {
                 // Trigger the queue event.
                 balloon.queue_events()[STATS_INDEX].write(1).unwrap();
                 balloon.process_stats_queue_event().unwrap();
@@ -1528,7 +1540,7 @@ pub(crate) mod tests {
             // we could just process the timer event and it would not
             // return an error.
             std::thread::sleep(Duration::from_secs(1));
-            check_metric_after_block!(METRICS.event_fails, 0, {
+            check_metric_after_block!(self.metrics.event_fails, 0, {
                 // Trigger the timer event, which consumes the stats
                 // descriptor index and signals the used queue.
                 assert!(balloon.stats_desc_index.is_some());
@@ -1560,7 +1572,7 @@ pub(crate) mod tests {
 
         th.add_scatter_gather(reporting_idx, 0, &[(0, safe_addr, page_size_chain, 0)]);
         check_metric_after_block!(
-            METRICS.free_page_report_freed,
+            self.metrics.free_page_report_freed,
             page_size,
             invoke_handler_for_queue_event(&mut th.device(), reporting_idx)
         );
@@ -1577,7 +1589,7 @@ pub(crate) mod tests {
         );
 
         check_metric_after_block!(
-            METRICS.free_page_report_freed,
+            self.metrics.free_page_report_freed,
             page_size * 3,
             invoke_handler_for_queue_event(&mut th.device(), reporting_idx)
         );
@@ -1586,7 +1598,7 @@ pub(crate) mod tests {
         th.add_scatter_gather(reporting_idx, 0, &[(1, safe_addr + 1, page_size_chain, 0)]);
 
         check_metric_after_block!(
-            METRICS.free_page_report_fails,
+            self.metrics.free_page_report_fails,
             1,
             invoke_handler_for_queue_event(&mut th.device(), reporting_idx)
         );
@@ -1665,7 +1677,7 @@ pub(crate) mod tests {
                 ],
             );
             check_metric_after_block!(
-                METRICS.free_page_hint_freed,
+                self.metrics.free_page_hint_freed,
                 0,
                 self.th.device().process_free_page_hinting_queue()
             );
@@ -1708,7 +1720,7 @@ pub(crate) mod tests {
             };
             self.th.add_scatter_gather(self.hinting_idx, 0, &payload);
             check_metric_after_block!(
-                METRICS.free_page_hint_freed,
+                self.metrics.free_page_hint_freed,
                 expected,
                 invoke_handler_for_queue_event(&mut self.th.device(), self.hinting_idx)
             );
@@ -1839,7 +1851,7 @@ pub(crate) mod tests {
         );
 
         check_metric_after_block!(
-            METRICS.free_page_hint_fails,
+            self.metrics.free_page_hint_fails,
             1,
             ht.th.device().process_free_page_hinting_queue().unwrap()
         );

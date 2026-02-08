@@ -24,20 +24,24 @@
 
 use serde::ser::SerializeMap;
 use serde::{Serialize, Serializer};
+use std::sync::{Arc, OnceLock};
 
 use crate::logger::{LatencyAggregateMetrics, SharedIncMetric};
 
 /// Stores aggregated virtio-mem metrics
-pub(super) static METRICS: VirtioMemDeviceMetrics = VirtioMemDeviceMetrics::new();
+pub(super) static METRICS: OnceLock<Arc<VirtioMemDeviceMetrics>> = OnceLock::new();
 
 /// Called by METRICS.flush(), this function facilitates serialization of virtio-mem device metrics.
 pub fn flush_metrics<S: Serializer>(serializer: S) -> Result<S::Ok, S::Error> {
     let mut seq = serializer.serialize_map(Some(1))?;
-    seq.serialize_entry("memory_hotplug", &METRICS)?;
+    let metrics = METRICS
+        .get()
+        .expect("mem: metrics instance not initialized");
+    seq.serialize_entry("memory_hotplug", &metrics)?;
     seq.end()
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Default, Debug, Serialize)]
 pub(super) struct VirtioMemDeviceMetrics {
     /// Number of device activation failures
     pub activate_fails: SharedIncMetric,

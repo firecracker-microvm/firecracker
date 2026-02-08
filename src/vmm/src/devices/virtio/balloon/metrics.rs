@@ -35,21 +35,25 @@
 
 use serde::ser::SerializeMap;
 use serde::{Serialize, Serializer};
+use std::sync::{Arc, OnceLock};
 
 use crate::logger::SharedIncMetric;
 
 /// Stores aggregated balloon metrics
-pub(super) static METRICS: BalloonDeviceMetrics = BalloonDeviceMetrics::new();
+pub(super) static METRICS: OnceLock<Arc<BalloonDeviceMetrics>> = OnceLock::new();
 
 /// Called by METRICS.flush(), this function facilitates serialization of balloon device metrics.
 pub fn flush_metrics<S: Serializer>(serializer: S) -> Result<S::Ok, S::Error> {
     let mut seq = serializer.serialize_map(Some(1))?;
-    seq.serialize_entry("balloon", &METRICS)?;
+    let metrics = METRICS
+        .get()
+        .expect("balloon: metrics instance not intialized");
+    seq.serialize_entry("balloon", &metrics)?;
     seq.end()
 }
 
 /// Balloon Device associated metrics.
-#[derive(Debug, Serialize)]
+#[derive(Default, Debug, Serialize)]
 pub(super) struct BalloonDeviceMetrics {
     /// Number of times when activate failed on a balloon device.
     pub activate_fails: SharedIncMetric,

@@ -88,50 +88,22 @@ use serde::{Serialize, Serializer};
 
 use crate::logger::{IncMetric, LatencyAggregateMetrics, SharedIncMetric};
 
-/// map of network interface id and metrics
-/// this should be protected by a lock before accessing.
-#[derive(Debug)]
-pub struct NetMetricsPerDevice {
-    /// used to access per net device metrics
-    pub metrics: BTreeMap<String, Arc<NetDeviceMetrics>>,
-}
-
-impl NetMetricsPerDevice {
-    /// Allocate `NetDeviceMetrics` for net device having
-    /// id `iface_id`. Also, allocate only if it doesn't
-    /// exist to avoid overwriting previously allocated data.
-    /// lock is always initialized so it is safe the unwrap
-    /// the lock without a check.
-    pub fn alloc(iface_id: String) -> Arc<NetDeviceMetrics> {
-        Arc::clone(
-            METRICS
-                .write()
-                .unwrap()
-                .metrics
-                .entry(iface_id)
-                .or_insert_with(|| Arc::new(NetDeviceMetrics::default())),
-        )
-    }
-}
-
 /// Pool of Network-related metrics per device behind a lock to
 /// keep things thread safe. Since the lock is initialized here
 /// it is safe to unwrap it without any check.
-static METRICS: RwLock<NetMetricsPerDevice> = RwLock::new(NetMetricsPerDevice {
-    metrics: BTreeMap::new(),
-});
+pub static METRICS: RwLock<BTreeMap<String, Arc<NetDeviceMetrics>>> = RwLock::new(BTreeMap::new());
 
 /// This function facilitates aggregation and serialization of
 /// per net device metrics.
 pub fn flush_metrics<S: Serializer>(serializer: S) -> Result<S::Ok, S::Error> {
     let net_metrics = METRICS.read().unwrap();
-    let metrics_len = net_metrics.metrics.len();
+    let metrics_len = net_metrics.len();
     // +1 to accomodate aggregate net metrics
     let mut seq = serializer.serialize_map(Some(1 + metrics_len))?;
 
     let mut net_aggregated: NetDeviceMetrics = NetDeviceMetrics::default();
 
-    for (name, metrics) in net_metrics.metrics.iter() {
+    for (name, metrics) in net_metrics.iter() {
         let devn = format!("net_{}", name);
         // serialization will flush the metrics so aggregate before it.
         let m: &NetDeviceMetrics = metrics;
@@ -280,11 +252,15 @@ pub mod tests {
 
         for i in 0..MAX_NET_DEVICES {
             let devn: String = format!("eth{}", i);
-            NetMetricsPerDevice::alloc(devn.clone());
+
+            METRICS
+                .write()
+                .unwrap()
+                .insert(devn.to_string(), Arc::new(NetDeviceMetrics::default()));
+
             METRICS
                 .read()
                 .unwrap()
-                .metrics
                 .get(&devn)
                 .unwrap()
                 .activate_fails
@@ -292,7 +268,6 @@ pub mod tests {
             METRICS
                 .read()
                 .unwrap()
-                .metrics
                 .get(&devn)
                 .unwrap()
                 .rx_bytes_count
@@ -300,7 +275,6 @@ pub mod tests {
             METRICS
                 .read()
                 .unwrap()
-                .metrics
                 .get(&devn)
                 .unwrap()
                 .tx_bytes_count
@@ -313,7 +287,6 @@ pub mod tests {
                 METRICS
                     .read()
                     .unwrap()
-                    .metrics
                     .get(&devn)
                     .unwrap()
                     .activate_fails
@@ -324,7 +297,6 @@ pub mod tests {
                 METRICS
                     .read()
                     .unwrap()
-                    .metrics
                     .get(&devn)
                     .unwrap()
                     .rx_bytes_count
@@ -335,7 +307,6 @@ pub mod tests {
                 METRICS
                     .read()
                     .unwrap()
-                    .metrics
                     .get(&devn)
                     .unwrap()
                     .tx_bytes_count
@@ -353,13 +324,14 @@ pub mod tests {
         drop(METRICS.read().unwrap());
         drop(METRICS.write().unwrap());
 
-        NetMetricsPerDevice::alloc(String::from(devn));
-        METRICS.read().unwrap().metrics.get(devn).unwrap();
+        METRICS
+            .write()
+            .unwrap()
+            .insert(devn.to_string(), Arc::new(NetDeviceMetrics::default()));
 
         METRICS
             .read()
             .unwrap()
-            .metrics
             .get(devn)
             .unwrap()
             .activate_fails
@@ -368,7 +340,6 @@ pub mod tests {
             METRICS
                 .read()
                 .unwrap()
-                .metrics
                 .get(devn)
                 .unwrap()
                 .activate_fails
@@ -378,7 +349,6 @@ pub mod tests {
             METRICS
                 .read()
                 .unwrap()
-                .metrics
                 .get(devn)
                 .unwrap()
                 .activate_fails
@@ -390,7 +360,6 @@ pub mod tests {
             METRICS
                 .read()
                 .unwrap()
-                .metrics
                 .get(devn)
                 .unwrap()
                 .activate_fails
@@ -400,7 +369,6 @@ pub mod tests {
             METRICS
                 .read()
                 .unwrap()
-                .metrics
                 .get(devn)
                 .unwrap()
                 .activate_fails
@@ -410,7 +378,6 @@ pub mod tests {
         METRICS
             .read()
             .unwrap()
-            .metrics
             .get(devn)
             .unwrap()
             .activate_fails
@@ -418,7 +385,6 @@ pub mod tests {
         METRICS
             .read()
             .unwrap()
-            .metrics
             .get(devn)
             .unwrap()
             .rx_bytes_count
@@ -427,7 +393,6 @@ pub mod tests {
             METRICS
                 .read()
                 .unwrap()
-                .metrics
                 .get(devn)
                 .unwrap()
                 .rx_bytes_count
