@@ -29,7 +29,7 @@ use crate::devices::virtio::generated::virtio_ring::VIRTIO_RING_F_EVENT_IDX;
 use crate::devices::virtio::iovec::{
     IoVecBuffer, IoVecBufferMut, IoVecError, ParsedDescriptorChain,
 };
-use crate::devices::virtio::net::metrics::{NetDeviceMetrics, NetMetricsPerDevice};
+use crate::devices::virtio::net::metrics::{METRICS as NETMETRICS, NetDeviceMetrics};
 use crate::devices::virtio::net::tap::Tap;
 use crate::devices::virtio::net::{
     MAX_BUFFER_SIZE, NET_QUEUE_SIZES, NetError, NetQueue, RX_INDEX, TX_INDEX, generated,
@@ -303,6 +303,11 @@ impl Net {
             queue_evts.push(EventFd::new(libc::EFD_NONBLOCK).map_err(NetError::EventFd)?);
             queues.push(Queue::new(size));
         }
+        let metrics = Arc::new(NetDeviceMetrics::default());
+        NETMETRICS
+            .write()
+            .unwrap()
+            .insert(id.clone(), metrics.clone());
 
         Ok(Net {
             id: id.clone(),
@@ -320,7 +325,7 @@ impl Net {
             device_state: DeviceState::Inactive,
             activate_evt: EventFd::new(libc::EFD_NONBLOCK).map_err(NetError::EventFd)?,
             mmds_ns: None,
-            metrics: NetMetricsPerDevice::alloc(id),
+            metrics: metrics,
             tx_buffer: Default::default(),
             rx_buffer: RxBuffers::new()?,
         })

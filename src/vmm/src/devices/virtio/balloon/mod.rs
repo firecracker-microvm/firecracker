@@ -121,5 +121,10 @@ pub(super) fn report_balloon_event_fail(err: BalloonError) {
         panic!("{}", err);
     }
     error!("{:?}", err);
-    METRICS.event_fails.inc();
+    // anything better we can do ?
+    METRICS
+        .get()
+        .expect("Balloon metrics uninitialized, failed to increment event fails")
+        .event_fails
+        .inc();
 }
