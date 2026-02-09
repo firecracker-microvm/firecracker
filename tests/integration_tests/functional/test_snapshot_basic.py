@@ -9,7 +9,6 @@ import os
 import platform
 import re
 import shutil
-import time
 import uuid
 from pathlib import Path
 
@@ -158,9 +157,6 @@ def test_cycled_snapshot_restore(
     for microvm in microvm_factory.build_n_from_snapshot(
         snapshot, cycles, incremental=True, use_snapshot_editor=use_snapshot_editor
     ):
-        # FIXME: This and the sleep below reduce the rate of vsock/ssh connection
-        # related spurious test failures, although we do not know why this is the case.
-        time.sleep(2)
         # Test vsock guest-initiated connections.
         path = os.path.join(
             microvm.path, make_host_port_path(VSOCK_UDS_PATH, ECHO_SERVER_PORT)
@@ -172,8 +168,6 @@ def test_cycled_snapshot_restore(
 
         # Check that the root device is not corrupted.
         check_filesystem(microvm.ssh, "squashfs", "/dev/vda")
-
-        time.sleep(2)
 
 
 def test_patch_drive_snapshot(uvm_nano, microvm_factory):
