@@ -241,10 +241,17 @@ pub mod tests {
             generated::ifreq__bindgen_ty_1::default().ifrn_name.len()
         });
 
-        // Empty name - The tap should be named "tap0" by default
+        // Empty name - The tap should be named "tapN" by default, where N is some number
+        // assigned by the kernel (e.g. "tap0", "tap1", etc.). We cannot assert a specific
+        // number because other tests running in parallel may have already created tap devices.
         let tap = Tap::open_named("").unwrap();
-        assert_eq!(b"tap0\0\0\0\0\0\0\0\0\0\0\0\0", &tap.if_name);
-        assert_eq!("tap0", tap.if_name_as_str());
+        let name = tap.if_name_as_str();
+        assert!(
+            name.starts_with("tap")
+                && name.len() > 3
+                && name[3..].chars().all(|c| c.is_ascii_digit()),
+            "Expected tap name matching 'tapN', got '{name}'"
+        );
 
         // Test using '%d' to have the kernel assign an unused name,
         // and that we correctly copy back that generated name
