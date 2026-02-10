@@ -212,6 +212,14 @@ impl PciDevices {
         self.virtio_devices
             .get(&(device_type, device_id.to_string()))
     }
+
+    pub fn for_each_virtio_device(&self, mut f: impl FnMut(VirtioDeviceType, &dyn VirtioDevice)) {
+        for ((device_type, _), pci_device) in &self.virtio_devices {
+            let device_arc = pci_device.lock().expect("Poisoned lock").virtio_device();
+            let device = device_arc.lock().expect("Poisoned lock");
+            f(*device_type, &*device);
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
