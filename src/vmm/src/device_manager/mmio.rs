@@ -25,7 +25,7 @@ use crate::arch::{RTC_MEM_START, SERIAL_MEM_START};
 #[cfg(target_arch = "aarch64")]
 use crate::devices::legacy::{RTCDevice, SerialDevice};
 use crate::devices::pseudo::BootTimer;
-use crate::devices::virtio::device::VirtioDeviceType;
+use crate::devices::virtio::device::{VirtioDevice, VirtioDeviceType};
 use crate::devices::virtio::transport::mmio::MmioTransport;
 use crate::vstate::bus::{Bus, BusError};
 #[cfg(target_arch = "x86_64")]
@@ -399,6 +399,14 @@ impl MMIODeviceManager {
             f(device_type, device_id, mmio_device)?;
         }
         Ok(())
+    }
+
+    pub fn for_each_virtio_device(&self, mut f: impl FnMut(VirtioDeviceType, &dyn VirtioDevice)) {
+        for ((device_type, _), virtio_device) in &self.virtio_devices {
+            let device_arc = virtio_device.inner.lock().expect("Poisoned lock").device();
+            let virtio_device = device_arc.lock().expect("Poisoned lock");
+            f(*device_type, &*virtio_device);
+        }
     }
 
     #[cfg(target_arch = "aarch64")]

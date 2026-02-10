@@ -379,6 +379,15 @@ impl DeviceManager {
         }
     }
 
+    /// Run fn `f()` on all virtio devices
+    pub fn for_each_virtio_device(&self, mut f: impl FnMut(VirtioDeviceType, &dyn VirtioDevice)) {
+        if self.is_pci_enabled() {
+            self.pci_devices.for_each_virtio_device(&mut f);
+        } else {
+            self.mmio_devices.for_each_virtio_device(&mut f);
+        }
+    }
+
     pub fn is_pci_enabled(&self) -> bool {
         self.pci_devices.pci_segment.is_some()
     }
