@@ -391,7 +391,7 @@ impl MMIODeviceManager {
     }
 
     /// Run fn for each registered virtio device.
-    pub fn for_each_virtio_device<F, E: Debug>(&self, mut f: F) -> Result<(), E>
+    pub fn for_each_virtio_mmio_device<F, E: Debug>(&self, mut f: F) -> Result<(), E>
     where
         F: FnMut(&VirtioDeviceType, &String, &MMIODevice<MmioTransport>) -> Result<(), E>,
     {
@@ -593,7 +593,7 @@ pub(crate) mod tests {
         assert_eq!(dev.resources.gsi, Some(arch::GSI_LEGACY_START));
 
         device_manager
-            .for_each_virtio_device(|device_type, device_id, mmio_device| {
+            .for_each_virtio_mmio_device(|device_type, device_id, mmio_device| {
                 assert_eq!(*device_type, VirtioDeviceType::Net);
                 assert_eq!(device_id, "dummy");
                 assert_eq!(mmio_device.resources.addr, arch::MEM_32BIT_DEVICES_START);
@@ -707,7 +707,7 @@ pub(crate) mod tests {
 
         let mut count = 0;
         let _: Result<(), MmioError> =
-            device_manager.for_each_virtio_device(|devtype, devid, _| {
+            device_manager.for_each_virtio_mmio_device(|devtype, devid, _| {
                 assert_eq!(*devtype, type_id);
                 match devid.as_str() {
                     "foo" => count += 1,

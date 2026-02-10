@@ -225,7 +225,7 @@ impl<'a> Persist<'a> for MMIODeviceManager {
             }
         }
 
-        let _: Result<(), ()> = self.for_each_virtio_device(|_, devid, device| {
+        let _: Result<(), ()> = self.for_each_virtio_mmio_device(|_, devid, device| {
             let mmio_transport_locked = device.inner.lock().expect("Poisoned lock");
             let mut locked_device = mmio_transport_locked.locked_device();
             // We need to call `prepare_save()` on the device before saving the transport
