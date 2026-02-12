@@ -19,6 +19,17 @@ pub enum VsockConfigError {
     CreateVsockDevice(VsockError),
 }
 
+/// from vsock related requests.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum VsockType {
+    /// a stream type socket
+    #[default]
+    Stream,
+    /// a seqpacket type socket
+    Seqpacket,
+}
+
 /// This struct represents the strongly typed equivalent of the json body
 /// from vsock related requests.
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
@@ -32,12 +43,15 @@ pub struct VsockDeviceConfig {
     pub guest_cid: u32,
     /// Path to local unix socket.
     pub uds_path: String,
+    /// the type of the underlying socket
+    pub vsock_type: VsockType,
 }
 
 #[derive(Debug)]
 struct VsockAndUnixPath {
     vsock: MutexVsockUnix,
     uds_path: String,
+    vsock_type: VsockType,
 }
 
 impl From<&VsockAndUnixPath> for VsockDeviceConfig {
@@ -47,6 +61,7 @@ impl From<&VsockAndUnixPath> for VsockDeviceConfig {
             vsock_id: None,
             guest_cid: u32::try_from(vsock_lock.cid()).unwrap(),
             uds_path: vsock.uds_path.clone(),
+            vsock_type: vsock.vsock_type.clone(),
         }
     }
 }
@@ -75,20 +90,17 @@ impl VsockBuilder {
 
     /// Inserts an existing vsock device.
     pub fn set_device(&mut self, device: Arc<Mutex<Vsock<VsockUnixBackend>>>) {
+        let device_inner = device.lock().expect("Poisoned lock");
         self.inner = Some(VsockAndUnixPath {
-            uds_path: device
-                .lock()
-                .expect("Poisoned lock")
-                .backend()
-                .host_sock_path()
-                .to_owned(),
+            uds_path: device_inner.backend().host_sock_path().to_owned(),
             vsock: device.clone(),
+            vsock_type: device_inner.backend().vsock_type().clone(),
         });
     }
 
     /// Inserts a Unix backend Vsock in the store.
     /// If an entry already exists, it will overwrite it.
-    pub fn insert(&mut self, cfg: VsockDeviceConfig) -> Result<(), VsockConfigError> {
+    pub fn insert(&mut self, cfg: &VsockDeviceConfig) -> Result<(), VsockConfigError> {
         // Make sure to drop the old one and remove the socket before creating a new one.
         if let Some(existing) = self.inner.take() {
             std::fs::remove_file(existing.uds_path).map_err(VsockUnixBackendError::UnixBind)?;
@@ -96,6 +108,7 @@ impl VsockBuilder {
         self.inner = Some(VsockAndUnixPath {
             uds_path: cfg.uds_path.clone(),
             vsock: Arc::new(Mutex::new(Self::create_unixsock_vsock(cfg)?)),
+            vsock_type: cfg.vsock_type.clone(),
         });
         Ok(())
     }
@@ -107,9 +120,13 @@ impl VsockBuilder {
 
     /// Creates a Vsock device from a VsockDeviceConfig.
     pub fn create_unixsock_vsock(
-        cfg: VsockDeviceConfig,
+        cfg: &VsockDeviceConfig,
     ) -> Result<Vsock<VsockUnixBackend>, VsockConfigError> {
-        let backend = VsockUnixBackend::new(u64::from(cfg.guest_cid), cfg.uds_path)?;
+        let backend = VsockUnixBackend::new(
+            u64::from(cfg.guest_cid),
+            cfg.uds_path.clone(),
+            cfg.vsock_type.clone(),
+        )?;
 
         Vsock::new(u64::from(cfg.guest_cid), backend).map_err(VsockConfigError::CreateVsockDevice)
     }
@@ -133,6 +150,7 @@ pub(crate) mod tests {
             vsock_id: None,
             guest_cid: 3,
             uds_path: tmp_sock_file.as_path().to_str().unwrap().to_string(),
+            vsock_type: VsockType::default(),
         }
     }
 
@@ -141,7 +159,7 @@ pub(crate) mod tests {
         let mut tmp_sock_file = TempFile::new().unwrap();
         tmp_sock_file.remove().unwrap();
         let vsock_config = default_config(&tmp_sock_file);
-        VsockBuilder::create_unixsock_vsock(vsock_config).unwrap();
+        VsockBuilder::create_unixsock_vsock(&vsock_config).unwrap();
     }
 
     #[test]
@@ -151,13 +169,13 @@ pub(crate) mod tests {
         tmp_sock_file.remove().unwrap();
         let mut vsock_config = default_config(&tmp_sock_file);
 
-        store.insert(vsock_config.clone()).unwrap();
+        store.insert(&vsock_config.clone()).unwrap();
         let vsock = store.get().unwrap();
         assert_eq!(vsock.lock().unwrap().id(), VSOCK_DEV_ID);
 
         let new_cid = vsock_config.guest_cid + 1;
         vsock_config.guest_cid = new_cid;
-        store.insert(vsock_config).unwrap();
+        store.insert(&vsock_config).unwrap();
         let vsock = store.get().unwrap();
         assert_eq!(vsock.lock().unwrap().cid(), u64::from(new_cid));
     }
@@ -168,7 +186,7 @@ pub(crate) mod tests {
         let mut tmp_sock_file = TempFile::new().unwrap();
         tmp_sock_file.remove().unwrap();
         let vsock_config = default_config(&tmp_sock_file);
-        vsock_builder.insert(vsock_config.clone()).unwrap();
+        vsock_builder.insert(&vsock_config.clone()).unwrap();
 
         let config = vsock_builder.config();
         assert!(config.is_some());
@@ -182,8 +200,12 @@ pub(crate) mod tests {
         tmp_sock_file.remove().unwrap();
         let vsock = Vsock::new(
             0,
-            VsockUnixBackend::new(1, tmp_sock_file.as_path().to_str().unwrap().to_string())
-                .unwrap(),
+            VsockUnixBackend::new(
+                1,
+                tmp_sock_file.as_path().to_str().unwrap().to_string(),
+                VsockType::default(),
+            )
+            .unwrap(),
         )
         .unwrap();
 

@@ -362,7 +362,7 @@ impl VmResources {
 
     /// Sets a vsock device to be attached when the VM starts.
     pub fn set_vsock_device(&mut self, config: VsockDeviceConfig) -> Result<(), VsockConfigError> {
-        self.vsock.insert(config)
+        self.vsock.insert(&config)
     }
 
     /// Builds an entropy device to be attached when the VM starts.
