@@ -41,6 +41,7 @@ use crate::vstate::bus::BusError;
 use crate::vstate::interrupts::InterruptError;
 use crate::vstate::memory::GuestMemoryMmap;
 use crate::{EventManager, Vm};
+use pci::PciBdf;
 
 #[derive(Debug, Default)]
 pub struct PciDevices {
@@ -103,6 +104,35 @@ impl PciDevices {
         Ok(())
     }
 
+    fn attach_common(
+        &mut self,
+        vm: &Arc<Vm>,
+        device_type: VirtioDeviceType,
+        id: String,
+        bdf: PciBdf,
+        virtio_device: Arc<Mutex<VirtioPciDevice>>,
+    ) -> Result<(), PciManagerError> {
+        // We should only be reaching this point if PCI is enabled
+        let pci_segment = self.pci_segment.as_ref().unwrap();
+
+        pci_segment
+            .pci_bus
+            .lock()
+            .expect("Poisoned lock")
+            .add_device(bdf.device() as u32, virtio_device.clone());
+
+        self.virtio_devices
+            .insert((device_type, id), virtio_device.clone());
+
+        Self::register_bars_with_bus(vm, &virtio_device)?;
+        virtio_device
+            .lock()
+            .expect("Poisoned lock")
+            .register_notification_ioevent(vm)?;
+
+        Ok(())
+    }
+
     pub(crate) fn attach_pci_virtio_device<
         T: 'static + VirtioDevice + MutEventSubscriber + Debug,
     >(
@@ -141,22 +171,8 @@ impl PciDevices {
         virtio_device.allocate_bars(&mut resource_allocator.mmio64_memory);
 
         let virtio_device = Arc::new(Mutex::new(virtio_device));
-        pci_segment
-            .pci_bus
-            .lock()
-            .expect("Poisoned lock")
-            .add_device(pci_device_bdf.device() as u32, virtio_device.clone());
 
-        self.virtio_devices
-            .insert((device_type, id.clone()), virtio_device.clone());
-
-        Self::register_bars_with_bus(vm, &virtio_device)?;
-        virtio_device
-            .lock()
-            .expect("Poisoned lock")
-            .register_notification_ioevent(vm)?;
-
-        Ok(())
+        self.attach_common(vm, device_type, id, pci_device_bdf, virtio_device)
     }
 
     fn restore_pci_device<T: 'static + VirtioDevice + MutEventSubscriber + Debug>(
@@ -167,8 +183,6 @@ impl PciDevices {
         transport_state: &VirtioPciDeviceState,
         event_manager: &mut EventManager,
     ) -> Result<(), PciManagerError> {
-        // We should only be reaching this point if PCI is enabled
-        let pci_segment = self.pci_segment.as_ref().unwrap();
         let device_type = device.lock().expect("Poisoned lock").device_type();
 
         let virtio_device = Arc::new(Mutex::new(VirtioPciDevice::new_from_state(
@@ -178,23 +192,13 @@ impl PciDevices {
             transport_state.clone(),
         )?));
 
-        pci_segment
-            .pci_bus
-            .lock()
-            .expect("Poisoned lock")
-            .add_device(
-                transport_state.pci_device_bdf.device() as u32,
-                virtio_device.clone(),
-            );
-
-        self.virtio_devices
-            .insert((device_type, device_id.to_string()), virtio_device.clone());
-
-        Self::register_bars_with_bus(vm, &virtio_device)?;
-        virtio_device
-            .lock()
-            .expect("Poisoned lock")
-            .register_notification_ioevent(vm)?;
+        self.attach_common(
+            vm,
+            device_type,
+            device_id.to_string(),
+            transport_state.pci_device_bdf,
+            virtio_device,
+        )?;
 
         event_manager.add_subscriber(device);
 
