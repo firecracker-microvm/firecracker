@@ -151,10 +151,17 @@ pub struct VmClockState {
     pub inner: vmclock_abi,
 }
 
+/// Errors for restoring VmClock from snapshot
+#[derive(Debug, thiserror::Error, displaydoc::Display)]
+pub enum VmClockPersistError {
+    /// Too large guest address ({0:#}) would cause overflow when adding field offsets, implying snapshot corruption
+    TooLargeGuestAddress(u64),
+}
+
 impl<'a> Persist<'a> for VmClock {
     type State = VmClockState;
     type ConstructorArgs = ();
-    type Error = Infallible;
+    type Error = VmClockPersistError;
 
     fn save(&self) -> Self::State {
         VmClockState {
@@ -165,6 +172,11 @@ impl<'a> Persist<'a> for VmClock {
     }
 
     fn restore(vm: Self::ConstructorArgs, state: &Self::State) -> Result<Self, Self::Error> {
+        if state.guest_address > u64::MAX - VMCLOCK_SIZE as u64 {
+            return Err(VmClockPersistError::TooLargeGuestAddress(
+                state.guest_address,
+            ));
+        }
         let interrupt_evt = EventFdTrigger::new(
             EventFd::new(libc::EFD_NONBLOCK)
                 .expect("vmclock: Could not create EventFd for VMClock device: {err}"),
