@@ -4,14 +4,14 @@
 
 Seccompiler-bin is a tool that compiles seccomp filters expressed as JSON files
 into serialized, binary BPF code that is directly consumed by Firecracker, at
-build or launch time.
+build or launch time. The binary filters are serialized using bitcode format.
 
 Seccompiler-bin uses a custom [JSON file structure](#json-file-format), detailed
 further below, that the filters must adhere to.
 
 Besides the seccompiler-bin executable, seccompiler also exports a library
 interface, with helper functions for deserializing and installing the binary
-filters.
+filters. The library uses bitcode format for serialization and deserialization.
 
 ## Usage
 
@@ -31,12 +31,25 @@ Example usage:
                                     # [default: "seccomp_binary_filter.out"]
     --basic # Optional, creates basic filters, discarding any parameter checks.
             # (Deprecated).
+    --split-output # Optional, creates individual BPF files for each thread.
 ```
 
 ### Seccompiler library
 
 To view the library documentation, navigate to the seccompiler source code, in
 `firecracker/src/seccompiler/src` and run `cargo doc --lib --open`.
+
+### Output format
+
+Seccompiler-bin generates binary BPF filters serialized using the bitcode
+format. The output file contains a bitcode-serialized map of thread names to
+their corresponding BPF instruction sequences.
+
+When using the `--split-output` flag, seccompiler-bin will generate individual
+`.bpf` files for each thread containing raw BPF bytecode (useful for testing)
+
+The individual thread files are named `<thread_name>.bpf` and placed in the same
+directory as the main output file.
 
 ## Where is seccompiler implemented?
 

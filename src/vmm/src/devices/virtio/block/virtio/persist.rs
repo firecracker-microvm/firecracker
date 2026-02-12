@@ -146,7 +146,6 @@ mod tests {
     use crate::devices::virtio::block::virtio::device::VirtioBlockConfig;
     use crate::devices::virtio::device::VirtioDevice;
     use crate::devices::virtio::test_utils::{default_interrupt, default_mem};
-    use crate::snapshot::Snapshot;
 
     #[test]
     fn test_cache_semantic_ser() {
@@ -168,11 +167,8 @@ mod tests {
         let block = VirtioBlock::new(config).unwrap();
 
         // Save the block device.
-        let mut mem = vec![0; 4096];
-
-        Snapshot::new(block.save())
-            .save(&mut mem.as_mut_slice())
-            .unwrap();
+        let block_state = block.save();
+        let _serialized_data = bitcode::serialize(&block_state).unwrap();
     }
 
     #[test]
@@ -213,20 +209,13 @@ mod tests {
         let guest_mem = default_mem();
 
         // Save the block device.
-        let mut mem = vec![0; 4096];
-
-        Snapshot::new(block.save())
-            .save(&mut mem.as_mut_slice())
-            .unwrap();
+        let block_state = block.save();
+        let serialized_data = bitcode::serialize(&block_state).unwrap();
 
         // Restore the block device.
-        let restored_block = VirtioBlock::restore(
-            BlockConstructorArgs { mem: guest_mem },
-            &Snapshot::load_without_crc_check(mem.as_slice())
-                .unwrap()
-                .data,
-        )
-        .unwrap();
+        let restored_state = bitcode::deserialize(&serialized_data).unwrap();
+        let restored_block =
+            VirtioBlock::restore(BlockConstructorArgs { mem: guest_mem }, &restored_state).unwrap();
 
         // Test that virtio specific fields are the same.
         assert_eq!(restored_block.device_type(), VirtioDeviceType::Block);
