@@ -482,6 +482,7 @@ pub(crate) mod tests {
 
     use std::ops::Deref;
 
+    use event_manager::{EventOps, Events, MutEventSubscriber};
     use vmm_sys_util::eventfd::EventFd;
 
     use super::*;
@@ -526,6 +527,11 @@ pub(crate) mod tests {
         pub fn set_avail_features(&mut self, avail_features: u64) {
             self.avail_features = avail_features;
         }
+    }
+
+    impl MutEventSubscriber for DummyDevice {
+        fn process(&mut self, _: Events, _: &mut EventOps) {}
+        fn init(&mut self, _: &mut EventOps) {}
     }
 
     impl VirtioDevice for DummyDevice {
