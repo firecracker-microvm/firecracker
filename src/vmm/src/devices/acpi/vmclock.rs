@@ -181,13 +181,12 @@ impl<'a> Persist<'a> for VmClock {
             EventFd::new(libc::EFD_NONBLOCK)
                 .expect("vmclock: Could not create EventFd for VMClock device: {err}"),
         );
-        let mut vmclock = VmClock {
+        Ok(VmClock {
             guest_address: GuestAddress(state.guest_address),
             interrupt_evt,
             gsi: state.gsi,
             inner: state.inner,
-        };
-        Ok(vmclock)
+        })
     }
 }
 
