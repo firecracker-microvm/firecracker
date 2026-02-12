@@ -190,12 +190,8 @@ impl<'a> Persist<'a> for ACPIDeviceManager {
             vmclock: VmClock::restore((), &state.vmclock).unwrap(),
         };
 
-        vm.register_irq(
-            &acpi_devices.vmclock.interrupt_evt,
-            acpi_devices.vmclock.gsi,
-        )?;
-
         acpi_devices.attach_vmgenid(vm)?;
+        acpi_devices.attach_vmclock(vm)?;
         Ok(acpi_devices)
     }
 }
