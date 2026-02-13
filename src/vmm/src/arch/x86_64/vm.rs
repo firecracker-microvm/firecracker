@@ -226,9 +226,7 @@ pub struct VmState {
     pub resource_allocator: ResourceAllocator,
     pitstate: kvm_pit_state2,
     clock: kvm_clock_data,
-    // TODO: rename this field to adopt inclusive language once Linux updates it, too.
     pic_master: kvm_irqchip,
-    // TODO: rename this field to adopt inclusive language once Linux updates it, too.
     pic_slave: kvm_irqchip,
     ioapic: kvm_irqchip,
 }
