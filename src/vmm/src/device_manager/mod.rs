@@ -409,7 +409,7 @@ pub enum DevicePersistError {
     /// Error restoring MMIO devices: {0}
     MmioRestore(#[from] persist::DevicePersistError),
     /// Error restoring ACPI devices: {0}
-    AcpiRestore(#[from] ACPIDeviceError),
+    AcpiRestore(#[from] persist::ACPIDevicePersistError),
     /// Error restoring PCI devices: {0}
     PciRestore(#[from] PciManagerError),
     /// Error notifying VMGenID device: {0}
