@@ -119,7 +119,7 @@ pub fn simulate_queue_and_async_completion_events(b: &mut VirtioBlock, expected_
             simulate_queue_event(b, None);
             simulate_async_completion_event(b, expected_irq);
         }
-        FileEngine::Sync(_) => {
+        FileEngine::Sync(_) | FileEngine::Vmdk(_) => {
             simulate_queue_event(b, Some(expected_irq));
         }
     }

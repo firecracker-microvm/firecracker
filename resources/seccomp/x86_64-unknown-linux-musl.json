@@ -23,6 +23,9 @@
                 "syscall": "open"
             },
             {
+                "syscall": "openat"
+            },
+            {
                 "syscall": "read"
             },
             {
@@ -88,6 +91,10 @@
             {
                 "syscall": "lseek",
                 "comment": "Used by the block device"
+            },
+            {
+                "syscall": "preadv",
+                "comment": "Used by the imago VMDK disk image backend"
             },
             {
                 "syscall": "mremap",
@@ -747,6 +754,9 @@
                 "syscall": "open"
             },
             {
+                "syscall": "openat"
+            },
+            {
                 "syscall": "read"
             },
             {
@@ -1037,6 +1047,9 @@
             },
             {
                 "syscall": "open"
+            },
+            {
+                "syscall": "openat"
             },
             {
                 "syscall": "close"
