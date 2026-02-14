@@ -2,12 +2,14 @@
 // SPDX-License-Identifier: Apache-2.0
 
 pub mod async_io;
+pub mod format;
 pub mod sync_io;
 
 use std::fmt::Debug;
 use std::fs::File;
 
 pub use self::async_io::{AsyncFileEngine, AsyncIoError};
+pub use self::format::{DiskImageFormat, VmdkFileEngine, VmdkIoError, detect_disk_format};
 pub use self::sync_io::{SyncFileEngine, SyncIoError};
 use crate::devices::virtio::block::virtio::PendingRequest;
 use crate::devices::virtio::block::virtio::device::FileEngineType;
@@ -31,6 +33,8 @@ pub enum BlockIoError {
     Sync(SyncIoError),
     /// Async error: {0}
     Async(AsyncIoError),
+    /// VMDK error: {0}
+    Vmdk(VmdkIoError),
 }
 
 impl BlockIoError {
@@ -54,6 +58,7 @@ pub enum FileEngine {
     #[allow(unused)]
     Async(AsyncFileEngine),
     Sync(SyncFileEngine),
+    Vmdk(VmdkFileEngine),
 }
 
 impl FileEngine {
@@ -66,13 +71,31 @@ impl FileEngine {
         }
     }
 
-    pub fn update_file_path(&mut self, file: File) -> Result<(), BlockIoError> {
-        match self {
-            FileEngine::Async(engine) => engine.update_file(file).map_err(BlockIoError::Async)?,
-            FileEngine::Sync(engine) => engine.update_file(file),
-        };
+    pub fn from_vmdk(file: File) -> Result<FileEngine, BlockIoError> {
+        Ok(FileEngine::Vmdk(
+            VmdkFileEngine::from_file(file).map_err(BlockIoError::Vmdk)?,
+        ))
+    }
 
-        Ok(())
+    pub fn update_file_path(&mut self, file: File) -> Result<Option<u64>, BlockIoError> {
+        match self {
+            FileEngine::Async(engine) => {
+                engine.update_file(file).map_err(BlockIoError::Async)?;
+                Ok(None)
+            }
+            FileEngine::Sync(engine) => {
+                engine.update_file(file);
+                Ok(None)
+            }
+            FileEngine::Vmdk(_) => {
+                *self = FileEngine::from_vmdk(file)?;
+                let disk_size = match self {
+                    FileEngine::Vmdk(engine) => engine.disk_size(),
+                    _ => unreachable!(),
+                };
+                Ok(Some(disk_size))
+            }
+        }
     }
 
     #[cfg(test)]
@@ -80,6 +103,9 @@ impl FileEngine {
         match self {
             FileEngine::Async(engine) => engine.file(),
             FileEngine::Sync(engine) => engine.file(),
+            FileEngine::Vmdk(_) => {
+                panic!("file() is not supported for VMDK engine")
+            }
         }
     }
 
@@ -104,6 +130,13 @@ impl FileEngine {
                 Err(err) => Err(RequestError {
                     req,
                     error: BlockIoError::Sync(err),
+                }),
+            },
+            FileEngine::Vmdk(engine) => match engine.read(offset, mem, addr, count) {
+                Ok(count) => Ok(FileEngineOk::Executed(RequestOk { req, count })),
+                Err(err) => Err(RequestError {
+                    req,
+                    error: BlockIoError::Vmdk(err),
                 }),
             },
         }
@@ -132,6 +165,13 @@ impl FileEngine {
                     error: BlockIoError::Sync(err),
                 }),
             },
+            FileEngine::Vmdk(engine) => match engine.write(offset, mem, addr, count) {
+                Ok(count) => Ok(FileEngineOk::Executed(RequestOk { req, count })),
+                Err(err) => Err(RequestError {
+                    req,
+                    error: BlockIoError::Vmdk(err),
+                }),
+            },
         }
     }
 
@@ -154,6 +194,13 @@ impl FileEngine {
                     error: BlockIoError::Sync(err),
                 }),
             },
+            FileEngine::Vmdk(engine) => match engine.flush() {
+                Ok(_) => Ok(FileEngineOk::Executed(RequestOk { req, count: 0 })),
+                Err(err) => Err(RequestError {
+                    req,
+                    error: BlockIoError::Vmdk(err),
+                }),
+            },
         }
     }
 
@@ -161,6 +208,7 @@ impl FileEngine {
         match self {
             FileEngine::Async(engine) => engine.drain(discard).map_err(BlockIoError::Async),
             FileEngine::Sync(_engine) => Ok(()),
+            FileEngine::Vmdk(_engine) => Ok(()),
         }
     }
 
@@ -170,6 +218,7 @@ impl FileEngine {
                 engine.drain_and_flush(discard).map_err(BlockIoError::Async)
             }
             FileEngine::Sync(engine) => engine.flush().map_err(BlockIoError::Sync),
+            FileEngine::Vmdk(engine) => engine.flush().map_err(BlockIoError::Vmdk),
         }
     }
 }
