@@ -89,20 +89,62 @@ impl DiskProperties {
         Ok(disk_size)
     }
 
+    fn from_disk_image(
+        disk_image_path: &str,
+        mut disk_image: File,
+        is_disk_read_only: bool,
+        file_engine_type: FileEngineType,
+    ) -> Result<(FileEngine, u64), VirtioBlockError> {
+        let format = block_io::detect_disk_format(&disk_image)
+            .map_err(|e| VirtioBlockError::BackingFile(e, disk_image_path.to_string()))?;
+
+        match format {
+            block_io::DiskImageFormat::Vmdk => {
+                if !is_disk_read_only {
+                    return Err(VirtioBlockError::FileEngine(block_io::BlockIoError::Vmdk(
+                        block_io::VmdkIoError::RequiresReadOnly,
+                    )));
+                }
+
+                let vmdk_engine = block_io::VmdkFileEngine::from_file(disk_image)
+                    .map_err(|e| VirtioBlockError::FileEngine(block_io::BlockIoError::Vmdk(e)))?;
+                let disk_size = vmdk_engine.disk_size();
+                Ok((FileEngine::Vmdk(vmdk_engine), disk_size))
+            }
+            block_io::DiskImageFormat::Raw => {
+                let disk_size = Self::file_size(disk_image_path, &mut disk_image)?;
+                let engine = FileEngine::from_file(disk_image, file_engine_type)
+                    .map_err(VirtioBlockError::FileEngine)?;
+                Ok((engine, disk_size))
+            }
+        }
+    }
+
+    fn file_engine_type(&self) -> FileEngineType {
+        match self.file_engine {
+            FileEngine::Async(_) => FileEngineType::Async,
+            FileEngine::Sync(_) | FileEngine::Vmdk(_) => FileEngineType::Sync,
+        }
+    }
+
     /// Create a new file for the block device using a FileEngine
     pub fn new(
         disk_image_path: String,
         is_disk_read_only: bool,
         file_engine_type: FileEngineType,
     ) -> Result<Self, VirtioBlockError> {
-        let mut disk_image = Self::open_file(&disk_image_path, is_disk_read_only)?;
-        let disk_size = Self::file_size(&disk_image_path, &mut disk_image)?;
+        let disk_image = Self::open_file(&disk_image_path, is_disk_read_only)?;
         let image_id = Self::build_disk_image_id(&disk_image);
+        let (file_engine, disk_size) = Self::from_disk_image(
+            &disk_image_path,
+            disk_image,
+            is_disk_read_only,
+            file_engine_type,
+        )?;
 
         Ok(Self {
             file_path: disk_image_path,
-            file_engine: FileEngine::from_file(disk_image, file_engine_type)
-                .map_err(VirtioBlockError::FileEngine)?,
+            file_engine,
             nsectors: disk_size >> SECTOR_SHIFT,
             image_id,
         })
@@ -114,13 +156,16 @@ impl DiskProperties {
         disk_image_path: String,
         is_disk_read_only: bool,
     ) -> Result<(), VirtioBlockError> {
-        let mut disk_image = Self::open_file(&disk_image_path, is_disk_read_only)?;
-        let disk_size = Self::file_size(&disk_image_path, &mut disk_image)?;
-
+        let disk_image = Self::open_file(&disk_image_path, is_disk_read_only)?;
         self.image_id = Self::build_disk_image_id(&disk_image);
-        self.file_engine
-            .update_file_path(disk_image)
-            .map_err(VirtioBlockError::FileEngine)?;
+        let (file_engine, disk_size) = Self::from_disk_image(
+            &disk_image_path,
+            disk_image,
+            is_disk_read_only,
+            self.file_engine_type(),
+        )?;
+        self.file_engine = file_engine;
+
         self.nsectors = disk_size >> SECTOR_SHIFT;
         self.file_path = disk_image_path;
 
@@ -271,7 +316,7 @@ macro_rules! unwrap_async_file_engine_or_return {
     ($file_engine: expr) => {
         match $file_engine {
             FileEngine::Async(engine) => engine,
-            FileEngine::Sync(_) => {
+            FileEngine::Sync(_) | FileEngine::Vmdk(_) => {
                 error!("The block device doesn't use an async IO engine");
                 return;
             }
@@ -290,6 +335,9 @@ impl VirtioBlock {
             config.file_engine_type,
         )?;
 
+        let is_read_only =
+            config.is_read_only || matches!(&disk_properties.file_engine, FileEngine::Vmdk(_));
+
         let rate_limiter = config
             .rate_limiter
             .map(RateLimiterConfig::try_into)
@@ -303,7 +351,7 @@ impl VirtioBlock {
             avail_features |= 1u64 << VIRTIO_BLK_F_FLUSH;
         }
 
-        if config.is_read_only {
+        if is_read_only {
             avail_features |= 1u64 << VIRTIO_BLK_F_RO;
         };
 
@@ -329,7 +377,7 @@ impl VirtioBlock {
             partuuid: config.partuuid,
             cache_type: config.cache_type,
             root_device: config.is_root_device,
-            read_only: config.is_read_only,
+            read_only: is_read_only,
 
             disk: disk_properties,
             rate_limiter,
@@ -559,6 +607,7 @@ impl VirtioBlock {
         match self.disk.file_engine {
             FileEngine::Sync(_) => FileEngineType::Sync,
             FileEngine::Async(_) => FileEngineType::Async,
+            FileEngine::Vmdk(_) => FileEngineType::Sync,
         }
     }
 
