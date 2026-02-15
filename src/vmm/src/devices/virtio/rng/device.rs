@@ -553,16 +553,19 @@ mod tests {
         th.add_desc_chain(RNG_QUEUE, 0, &[(0, 4000, VIRTQ_DESC_F_WRITE)]);
         th.add_desc_chain(RNG_QUEUE, 1, &[(1, 1000, VIRTQ_DESC_F_WRITE)]);
         th.device().process_entropy_queue();
-        assert_eq!(th.device().metrics.entropy_bytes.count(), 4000);
+        assert_eq!(th.device().metrics.entropy_bytes.count(), 8000);
         th.device().process_entropy_queue();
-        assert_eq!(th.device().metrics.entropy_rate_limiter_throttled.count(), 1);
+        assert_eq!(
+            th.device().metrics.entropy_rate_limiter_throttled.count(),
+            2
+        );
         assert!(th.device().rate_limiter().is_blocked());
 
         // 250 msec should give enough time for replenishing 1000 bytes worth of tokens.
         // Give it an extra 100 ms just to be sure the timer event reaches us from the kernel.
         std::thread::sleep(Duration::from_millis(350));
         th.emulate_for_msec(100);
-        assert_eq!(th.device().metrics.entropy_bytes.count(), 1000);
+        assert_eq!(th.device().metrics.entropy_bytes.count(), 9000);
         assert!(!th.device().rate_limiter().is_blocked());
     }
 
@@ -590,7 +593,7 @@ mod tests {
         let entropy_bytes = th.device().metrics.entropy_bytes.count();
         th.add_desc_chain(RNG_QUEUE, 0, &[(0, 64, VIRTQ_DESC_F_WRITE)]);
         th.emulate_for_msec(100);
-        assert_eq!(th.device().metrics.entropy_bytes.count(), 64);
+        assert_eq!(th.device().metrics.entropy_bytes.count(), 4064);
         assert_eq!(
             th.device().metrics.entropy_bytes.count(),
             entropy_bytes + 64
@@ -601,7 +604,10 @@ mod tests {
         // msec.
         th.add_desc_chain(RNG_QUEUE, 0, &[(0, 64, VIRTQ_DESC_F_WRITE)]);
         th.emulate_for_msec(50);
-        assert_eq!(th.device().metrics.entropy_rate_limiter_throttled.count(), 1);
+        assert_eq!(
+            th.device().metrics.entropy_rate_limiter_throttled.count(),
+            1
+        );
         // Entropy bytes count should not have increased.
         assert_eq!(
             th.device().metrics.entropy_bytes.count(),

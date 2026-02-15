@@ -41,6 +41,7 @@ log-instrument = { path = "../log-instrument", optional = true }
 memfd = "0.6.5"
 micro_http = { git = "https://github.com/firecracker-microvm/micro-http" }
 pci = { path = "../pci" }
+regex = "1.12.2"
 semver = { version = "1.0.27", features = ["serde"] }
 serde = { version = "1.0.228", features = ["derive", "rc"] }
 serde_json = "1.0.149"
