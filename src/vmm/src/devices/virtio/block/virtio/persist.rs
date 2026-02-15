@@ -17,7 +17,7 @@ use crate::devices::virtio::block::persist::BlockConstructorArgs;
 use crate::devices::virtio::block::virtio::device::{
     FileEngineType, VirtioBlkTopology, VirtioBlockConfig,
 };
-use crate::devices::virtio::block::virtio::metrics::BlockMetricsPerDevice;
+use crate::devices::virtio::block::virtio::metrics::{BlockDeviceMetrics, METRICS};
 use crate::devices::virtio::device::VirtioDeviceType;
 use crate::devices::virtio::generated::virtio_blk::{
     VIRTIO_BLK_F_DISCARD, VIRTIO_BLK_F_MQ, VIRTIO_BLK_F_RO,
@@ -181,17 +181,24 @@ impl Persist<'_> for VirtioBlock {
             ..Default::default()
         };
 
+        let metrics = Arc::clone(
+            METRICS
+                .write()
+                .unwrap()
+                .entry(state.id.clone())
+                .or_insert_with(|| Arc::new(BlockDeviceMetrics::default())),
+        );
+
         Ok(VirtioBlock {
             avail_features: state.virtio_state.avail_features,
             acked_features: state.virtio_state.acked_features,
             config_space,
             activate_evt: EventFd::new(libc::EFD_NONBLOCK).map_err(VirtioBlockError::EventFd)?,
-
             config,
             dmb_size_mib: None,
             rate_limiter: Arc::new(Mutex::new(rate_limiter)),
             state: BlockRuntimeState::Configuring(resources, Vec::new()),
-            metrics: BlockMetricsPerDevice::alloc(state.id.clone()),
+            metrics,
         })
     }
 }

@@ -5,6 +5,7 @@
 
 #[cfg(test)]
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 #[cfg(test)]
 use std::thread;
 #[cfg(test)]
@@ -61,10 +62,13 @@ pub fn default_block_with_path(path: String, file_engine_type: FileEngineType) -
     VirtioBlock::new(default_config(path, file_engine_type)).unwrap()
 }
 
+/// Source of unique drive IDs, so test devices never share a metrics instance.
+static NEXT_DRIVE_ID: AtomicU64 = AtomicU64::new(0);
+
 /// Create the default Block config, read-write and non-root, using file at the specified path.
 pub fn default_config(path: String, file_engine_type: FileEngineType) -> VirtioBlockConfig {
     VirtioBlockConfig {
-        drive_id: "test".to_string(),
+        drive_id: format!("test{}", NEXT_DRIVE_ID.fetch_add(1, Ordering::Relaxed)),
         path_on_host: path,
         is_root_device: false,
         partuuid: None,
