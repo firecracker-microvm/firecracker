@@ -14,7 +14,7 @@ use log::error;
 
 pub use self::device::{Balloon, BalloonConfig, BalloonStats};
 use super::queue::{InvalidAvailIdx, QueueError};
-use crate::devices::virtio::balloon::metrics::METRICS;
+use crate::devices::virtio::balloon::metrics::{BalloonDeviceMetrics, METRICS};
 use crate::devices::virtio::queue::FIRECRACKER_MAX_QUEUE_SIZE;
 use crate::logger::IncMetric;
 use crate::vstate::interrupts::InterruptError;
@@ -116,10 +116,13 @@ pub enum RemoveRegionError {
     RegionNotFound,
 }
 
-pub(super) fn report_balloon_event_fail(err: BalloonError) {
+pub(super) fn report_balloon_event_fail(
+    err: BalloonError,
+    metrics: std::sync::Arc<BalloonDeviceMetrics>,
+) {
     if let BalloonError::InvalidAvailIdx(err) = err {
         panic!("{}", err);
     }
     error!("{:?}", err);
-    METRICS.event_fails.inc();
+    metrics.event_fails.inc();
 }
