@@ -18,7 +18,7 @@ use crate::devices::virtio::ActivateError;
 use crate::devices::virtio::device::{ActiveState, DeviceState, VirtioDevice, VirtioDeviceType};
 use crate::devices::virtio::generated::virtio_config::VIRTIO_F_VERSION_1;
 use crate::devices::virtio::pmem::PMEM_QUEUE_SIZE;
-use crate::devices::virtio::pmem::metrics::{PmemMetrics, PmemMetricsPerDevice};
+use crate::devices::virtio::pmem::metrics::{METRICS, PmemMetrics};
 use crate::devices::virtio::queue::{DescriptorChain, InvalidAvailIdx, Queue, QueueError};
 use crate::devices::virtio::transport::{VirtioInterrupt, VirtioInterruptType};
 use crate::logger::{IncMetric, error, info};
@@ -120,6 +120,11 @@ impl Pmem {
     pub fn new_with_queues(config: PmemConfig, queues: Vec<Queue>) -> Result<Self, PmemError> {
         let (file, file_len, mmap_ptr, mmap_len) =
             Self::mmap_backing_file(&config.path_on_host, config.read_only)?;
+        let metrics = Arc::new(PmemMetrics::default());
+        METRICS
+            .write()
+            .unwrap()
+            .insert(config.id.clone(), metrics.clone());
 
         Ok(Self {
             avail_features: 1u64 << VIRTIO_F_VERSION_1,
@@ -135,7 +140,7 @@ impl Pmem {
             file,
             file_len,
             mmap_ptr,
-            metrics: PmemMetricsPerDevice::alloc(config.id.clone()),
+            metrics,
             config,
         })
     }
