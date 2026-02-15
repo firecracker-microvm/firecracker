@@ -11,13 +11,15 @@ use super::device::DiskProperties;
 use super::*;
 use crate::devices::virtio::block::persist::BlockConstructorArgs;
 use crate::devices::virtio::block::virtio::device::FileEngineType;
-use crate::devices::virtio::block::virtio::metrics::BlockMetricsPerDevice;
+use crate::devices::virtio::block::virtio::metrics::{BlockDeviceMetrics, METRICS};
 use crate::devices::virtio::device::{ActiveState, DeviceState, VirtioDeviceType};
 use crate::devices::virtio::generated::virtio_blk::VIRTIO_BLK_F_RO;
 use crate::devices::virtio::persist::VirtioDeviceState;
 use crate::rate_limiter::RateLimiter;
 use crate::rate_limiter::persist::RateLimiterState;
 use crate::snapshot::Persist;
+
+use std::sync::Arc;
 
 /// Holds info about block's file engine type. Gets saved in snapshot.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -114,6 +116,13 @@ impl Persist<'_> for VirtioBlock {
             capacity: disk_properties.nsectors.to_le(),
         };
 
+        let metrics = Arc::new(BlockDeviceMetrics::default());
+
+        METRICS
+            .write()
+            .unwrap()
+            .insert(state.id.clone(), metrics.clone());
+
         Ok(VirtioBlock {
             avail_features,
             acked_features,
@@ -133,7 +142,7 @@ impl Persist<'_> for VirtioBlock {
             disk: disk_properties,
             rate_limiter,
             is_io_engine_throttled: false,
-            metrics: BlockMetricsPerDevice::alloc(state.id.clone()),
+            metrics,
         })
     }
 }

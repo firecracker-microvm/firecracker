@@ -86,50 +86,23 @@ use serde::{Serialize, Serializer};
 
 use crate::logger::{IncMetric, LatencyAggregateMetrics, SharedIncMetric};
 
-/// map of block drive id and metrics
-/// this should be protected by a lock before accessing.
-#[derive(Debug)]
-pub struct BlockMetricsPerDevice {
-    /// used to access per block device metrics
-    pub metrics: BTreeMap<String, Arc<BlockDeviceMetrics>>,
-}
-
-impl BlockMetricsPerDevice {
-    /// Allocate `BlockDeviceMetrics` for block device having
-    /// id `drive_id`. Also, allocate only if it doesn't
-    /// exist to avoid overwriting previously allocated data.
-    /// lock is always initialized so it is safe the unwrap
-    /// the lock without a check.
-    pub fn alloc(drive_id: String) -> Arc<BlockDeviceMetrics> {
-        Arc::clone(
-            METRICS
-                .write()
-                .unwrap()
-                .metrics
-                .entry(drive_id)
-                .or_insert_with(|| Arc::new(BlockDeviceMetrics::default())),
-        )
-    }
-}
-
 /// Pool of block-related metrics per device behind a lock to
 /// keep things thread safe. Since the lock is initialized here
 /// it is safe to unwrap it without any check.
-static METRICS: RwLock<BlockMetricsPerDevice> = RwLock::new(BlockMetricsPerDevice {
-    metrics: BTreeMap::new(),
-});
+pub static METRICS: RwLock<BTreeMap<String, Arc<BlockDeviceMetrics>>> =
+    RwLock::new(BTreeMap::new());
 
 /// This function facilitates aggregation and serialization of
 /// per block device metrics.
 pub fn flush_metrics<S: Serializer>(serializer: S) -> Result<S::Ok, S::Error> {
     let block_metrics = METRICS.read().unwrap();
-    let metrics_len = block_metrics.metrics.len();
+    let metrics_len = block_metrics.len();
     // +1 to accommodate aggregate block metrics
     let mut seq = serializer.serialize_map(Some(1 + metrics_len))?;
 
     let mut block_aggregated: BlockDeviceMetrics = BlockDeviceMetrics::default();
 
-    for (name, metrics) in block_metrics.metrics.iter() {
+    for (name, metrics) in block_metrics.iter() {
         let devn = format!("block_{}", name);
         // serialization will flush the metrics so aggregate before it.
         let m: &BlockDeviceMetrics = metrics;
@@ -247,10 +220,6 @@ pub mod tests {
         // devices on aarch64 but we stick to 19 to keep test common.
         const MAX_BLOCK_DEVICES: usize = 19;
 
-        // This is to make sure that RwLock for block::metrics::METRICS is good.
-        drop(METRICS.read().unwrap());
-        drop(METRICS.write().unwrap());
-
         // block::metrics::METRICS is in short RwLock on Vec of BlockDeviceMetrics.
         // Normally, pointer to unique entries of block::metrics::METRICS are stored
         // in Block device so that Block device can do self.metrics.* to
@@ -264,7 +233,7 @@ pub mod tests {
         let mut metrics: Vec<Arc<BlockDeviceMetrics>> = Vec::new();
         for i in 0..MAX_BLOCK_DEVICES {
             let devn: String = format!("drv{}", i);
-            metrics.push(BlockMetricsPerDevice::alloc(devn.clone()));
+            metrics.push(Arc::new(BlockDeviceMetrics::default()));
             // update IncMetric
             metrics[i].activate_fails.inc();
             // update SharedMetric
@@ -296,11 +265,7 @@ pub mod tests {
         // `test_max_block_dev_metrics` which also uses the same name.
         let devn = "drv0";
 
-        // This is to make sure that RwLock for block::metrics::METRICS is good.
-        drop(METRICS.read().unwrap());
-        drop(METRICS.write().unwrap());
-
-        let test_metrics = BlockMetricsPerDevice::alloc(String::from(devn));
+        let test_metrics = BlockDeviceMetrics::default();
         // Test to update IncMetrics
         test_metrics.activate_fails.inc();
         assert!(
