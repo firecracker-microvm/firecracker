@@ -86,50 +86,22 @@ use serde::{Serialize, Serializer};
 
 use crate::logger::{IncMetric, LatencyAggregateMetrics, SharedIncMetric};
 
-/// map of pmem drive id and metrics
-/// this should be protected by a lock before accessing.
-#[derive(Debug)]
-pub struct PmemMetricsPerDevice {
-    /// used to access per pmem device metrics
-    pub metrics: BTreeMap<String, Arc<PmemMetrics>>,
-}
-
-impl PmemMetricsPerDevice {
-    /// Allocate `PmemDeviceMetrics` for pmem device having
-    /// id `drive_id`. Also, allocate only if it doesn't
-    /// exist to avoid overwriting previously allocated data.
-    /// lock is always initialized so it is safe the unwrap
-    /// the lock without a check.
-    pub fn alloc(drive_id: String) -> Arc<PmemMetrics> {
-        Arc::clone(
-            METRICS
-                .write()
-                .unwrap()
-                .metrics
-                .entry(drive_id)
-                .or_insert_with(|| Arc::new(PmemMetrics::default())),
-        )
-    }
-}
-
 /// Pool of pmem-related metrics per device behind a lock to
 /// keep things thread safe. Since the lock is initialized here
 /// it is safe to unwrap it without any check.
-static METRICS: RwLock<PmemMetricsPerDevice> = RwLock::new(PmemMetricsPerDevice {
-    metrics: BTreeMap::new(),
-});
+pub static METRICS: RwLock<BTreeMap<String, Arc<PmemMetrics>>> = RwLock::new(BTreeMap::new());
 
 /// This function facilitates aggregation and serialization of
 /// per pmem device metrics.
 pub fn flush_metrics<S: Serializer>(serializer: S) -> Result<S::Ok, S::Error> {
     let pmem_metrics = METRICS.read().unwrap();
-    let metrics_len = pmem_metrics.metrics.len();
+    let metrics_len = pmem_metrics.len();
     // +1 to accommodate aggregate pmem metrics
     let mut seq = serializer.serialize_map(Some(1 + metrics_len))?;
 
     let mut pmem_aggregated: PmemMetrics = PmemMetrics::default();
 
-    for (name, metrics) in pmem_metrics.metrics.iter() {
+    for (name, metrics) in pmem_metrics.iter() {
         let devn = format!("pmem_{}", name);
         // serialization will flush the metrics so aggregate before it.
         let m: &PmemMetrics = metrics;
@@ -177,6 +149,9 @@ impl PmemMetrics {
 
 #[cfg(test)]
 pub mod tests {
+    use bincode::de;
+    use std::sync::Arc;
+
     use super::*;
 
     #[test]
@@ -206,7 +181,12 @@ pub mod tests {
         let mut metrics: Vec<Arc<PmemMetrics>> = Vec::new();
         for i in 0..MAX_PMEM_DEVICES {
             let pmem_name: String = format!("pmem{}", i);
-            metrics.push(PmemMetricsPerDevice::alloc(pmem_name.clone()));
+            let dev_metrics = Arc::new(PmemMetrics::default());
+            METRICS
+                .write()
+                .unwrap()
+                .insert(pmem_name, dev_metrics.clone());
+            metrics.push(dev_metrics.clone());
             // update IncMetric
             metrics[i].activate_fails.inc();
 
@@ -224,7 +204,7 @@ pub mod tests {
 
     #[test]
     fn test_single_pmem_dev_metrics() {
-        let test_metrics = PmemMetricsPerDevice::alloc(String::from("pmem0"));
+        let test_metrics = PmemMetrics::default();
         // Test to update IncMetrics
         test_metrics.activate_fails.inc();
         assert!(
