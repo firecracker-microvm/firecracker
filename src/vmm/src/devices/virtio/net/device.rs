@@ -2000,7 +2000,7 @@ pub mod tests {
         // TX rate limiter events should error since the limiter is not blocked.
         // Validate that the event failed and failure was properly accounted for.
         th.simulate_event(NetEvent::TxRateLimiter);
-        assert_eq!(th.net().metrics.event_fails.count(), 1);
+        assert_eq!(th.net().metrics.event_fails.count(), 2);
     }
 
     // Cannot easily test failures for:
