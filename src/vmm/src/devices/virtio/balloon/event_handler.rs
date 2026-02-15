@@ -118,22 +118,22 @@ impl MutEventSubscriber for Balloon {
                 Self::PROCESS_ACTIVATE => self.process_activate_event(ops),
                 Self::PROCESS_VIRTQ_INFLATE => self
                     .process_inflate_queue_event()
-                    .unwrap_or_else(report_balloon_event_fail),
+                    .unwrap_or_else(|e| report_balloon_event_fail(e, self.metrics.clone())),
                 Self::PROCESS_VIRTQ_DEFLATE => self
                     .process_deflate_queue_event()
-                    .unwrap_or_else(report_balloon_event_fail),
+                    .unwrap_or_else(|e| report_balloon_event_fail(e, self.metrics.clone())),
                 Self::PROCESS_VIRTQ_STATS => self
                     .process_stats_queue_event()
-                    .unwrap_or_else(report_balloon_event_fail),
+                    .unwrap_or_else(|e| report_balloon_event_fail(e, self.metrics.clone())),
                 Self::PROCESS_STATS_TIMER => self
                     .process_stats_timer_event()
-                    .unwrap_or_else(report_balloon_event_fail),
+                    .unwrap_or_else(|e| report_balloon_event_fail(e, self.metrics.clone())),
                 Self::PROCESS_VIRTQ_FREE_PAGE_HINTING => self
                     .process_free_page_hinting_queue_event()
-                    .unwrap_or_else(report_balloon_event_fail),
+                    .unwrap_or_else(|e| report_balloon_event_fail(e, self.metrics.clone())),
                 Self::PROCESS_VIRTQ_FREE_PAGE_REPORTING => self
                     .process_free_page_reporting_queue_event()
-                    .unwrap_or_else(report_balloon_event_fail),
+                    .unwrap_or_else(|e| report_balloon_event_fail(e, self.metrics.clone())),
                 _ => {
                     warn!("Balloon: Spurious event received: {:?}", source);
                 }
