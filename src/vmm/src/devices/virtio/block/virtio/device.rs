@@ -24,7 +24,7 @@ use super::request::*;
 use super::{BLOCK_QUEUE_SIZES, SECTOR_SHIFT, SECTOR_SIZE, VirtioBlockError, io as block_io};
 use crate::devices::virtio::ActivateError;
 use crate::devices::virtio::block::CacheType;
-use crate::devices::virtio::block::virtio::metrics::{BlockDeviceMetrics, BlockMetricsPerDevice};
+use crate::devices::virtio::block::virtio::metrics::{BlockDeviceMetrics, METRICS};
 use crate::devices::virtio::device::{ActiveState, DeviceState, VirtioDevice, VirtioDeviceType};
 use crate::devices::virtio::generated::virtio_blk::{
     VIRTIO_BLK_F_FLUSH, VIRTIO_BLK_F_RO, VIRTIO_BLK_ID_BYTES,
@@ -311,6 +311,11 @@ impl VirtioBlock {
         let config_space = ConfigSpace {
             capacity: disk_properties.nsectors.to_le(),
         };
+        let metrics = Arc::new(BlockDeviceMetrics::default());
+        METRICS
+            .write()
+            .unwrap()
+            .insert(config.drive_id.clone(), metrics.clone());
 
         Ok(VirtioBlock {
             avail_features,
@@ -331,7 +336,7 @@ impl VirtioBlock {
             disk: disk_properties,
             rate_limiter,
             is_io_engine_throttled: false,
-            metrics: BlockMetricsPerDevice::alloc(config.drive_id),
+            metrics,
         })
     }
 
@@ -701,7 +706,6 @@ mod tests {
     use vmm_sys_util::tempfile::TempFile;
 
     use super::*;
-    use crate::check_metric_after_block;
     use crate::devices::virtio::block::virtio::IO_URING_NUM_ENTRIES;
     use crate::devices::virtio::block::virtio::test_utils::{
         default_block, read_blk_req_descriptors, set_queue, set_rate_limiter,
@@ -1049,11 +1053,8 @@ mod tests {
                 .flags
                 .set(VIRTQ_DESC_F_NEXT | VIRTQ_DESC_F_WRITE);
 
-            check_metric_after_block!(
-                &block.metrics.read_count,
-                1,
-                simulate_queue_and_async_completion_events(&mut block, true)
-            );
+            simulate_queue_and_async_completion_events(&mut block, true);
+            assert_eq!(block.metrics.read_count.count(), 1);
 
             assert_eq!(vq.used.idx.get(), 1);
             assert_eq!(vq.used.ring[0].get().id, 0);
@@ -1131,11 +1132,8 @@ mod tests {
                 vq.avail.idx.set(1);
                 vq.used.idx.set(0);
 
-                check_metric_after_block!(
-                    &block.metrics.invalid_reqs_count,
-                    1,
-                    simulate_queue_and_async_completion_events(&mut block, true)
-                );
+                simulate_queue_and_async_completion_events(&mut block, true);
+                assert_eq!(block.metrics.invalid_reqs_count.count(), 1);
 
                 let used_idx = vq.used.idx.get();
                 assert_eq!(used_idx, 1);
@@ -1159,11 +1157,8 @@ mod tests {
                 vq.dtable[1].len.set(512);
                 mem.write_slice(&rand_data[..512], data_addr).unwrap();
 
-                check_metric_after_block!(
-                    &block.metrics.write_count,
-                    1,
-                    simulate_queue_and_async_completion_events(&mut block, true)
-                );
+                simulate_queue_and_async_completion_events(&mut block, true);
+                assert_eq!(block.metrics.write_count.count(), 1);
 
                 assert_eq!(vq.used.idx.get(), 1);
                 assert_eq!(vq.used.ring[0].get().id, 0);
@@ -1210,11 +1205,8 @@ mod tests {
                 vq.dtable[1].len.set(512);
                 mem.write_slice(empty_data.as_slice(), data_addr).unwrap();
 
-                check_metric_after_block!(
-                    &block.metrics.read_count,
-                    1,
-                    simulate_queue_and_async_completion_events(&mut block, true)
-                );
+                simulate_queue_and_async_completion_events(&mut block, true);
+                assert_eq!(block.metrics.read_count.count(), 1);
 
                 assert_eq!(vq.used.idx.get(), 1);
                 assert_eq!(vq.used.ring[0].get().id, 0);
@@ -1377,11 +1369,8 @@ mod tests {
                     .flags
                     .set(VIRTQ_DESC_F_NEXT | VIRTQ_DESC_F_WRITE);
 
-                check_metric_after_block!(
-                    &block.metrics.invalid_reqs_count,
-                    1,
-                    simulate_queue_and_async_completion_events(&mut block, true)
-                );
+                simulate_queue_and_async_completion_events(&mut block, true);
+                assert_eq!(block.metrics.invalid_reqs_count.count(), 3);
 
                 let used_idx = vq.used.idx.get();
                 assert_eq!(used_idx, 1);
@@ -1686,11 +1675,8 @@ mod tests {
             // Following write procedure should fail because of bandwidth rate limiting.
             {
                 // Trigger the attempt to write.
-                check_metric_after_block!(
-                    &block.metrics.rate_limiter_throttled_events,
-                    1,
-                    simulate_queue_event(&mut block, Some(false))
-                );
+                simulate_queue_event(&mut block, Some(false));
+                assert_eq!(block.metrics.rate_limiter_throttled_events.count(), 1);
 
                 // Assert that limiter is blocked.
                 assert!(block.rate_limiter.is_blocked());
@@ -1704,11 +1690,8 @@ mod tests {
 
             // Following write procedure should succeed because bandwidth should now be available.
             {
-                check_metric_after_block!(
-                    &block.metrics.rate_limiter_throttled_events,
-                    0,
-                    block.process_rate_limiter_event()
-                );
+                block.process_rate_limiter_event();
+                assert_eq!(block.metrics.rate_limiter_throttled_events.count(), 1);
                 // Validate the rate_limiter is no longer blocked.
                 assert!(!block.rate_limiter.is_blocked());
                 // Complete async IO ops if needed
@@ -1755,11 +1738,8 @@ mod tests {
             // Following write procedure should fail because of ops rate limiting.
             {
                 // Trigger the attempt to write.
-                check_metric_after_block!(
-                    &block.metrics.rate_limiter_throttled_events,
-                    1,
-                    simulate_queue_event(&mut block, Some(false))
-                );
+                simulate_queue_event(&mut block, Some(false));
+                assert_eq!(block.metrics.rate_limiter_throttled_events.count(), 1);
 
                 // Assert that limiter is blocked.
                 assert!(block.rate_limiter.is_blocked());
@@ -1770,11 +1750,8 @@ mod tests {
             // Do a second write that still fails but this time on the fast path.
             {
                 // Trigger the attempt to write.
-                check_metric_after_block!(
-                    &block.metrics.rate_limiter_throttled_events,
-                    1,
-                    simulate_queue_event(&mut block, Some(false))
-                );
+                simulate_queue_event(&mut block, Some(false));
+                assert_eq!(block.metrics.rate_limiter_throttled_events.count(), 2);
 
                 // Assert that limiter is blocked.
                 assert!(block.rate_limiter.is_blocked());
@@ -1788,11 +1765,8 @@ mod tests {
 
             // Following write procedure should succeed because ops budget should now be available.
             {
-                check_metric_after_block!(
-                    &block.metrics.rate_limiter_throttled_events,
-                    0,
-                    block.process_rate_limiter_event()
-                );
+                block.process_rate_limiter_event();
+                assert_eq!(block.metrics.rate_limiter_throttled_events.count(), 2);
                 // Validate the rate_limiter is no longer blocked.
                 assert!(!block.rate_limiter.is_blocked());
                 // Complete async IO ops if needed
