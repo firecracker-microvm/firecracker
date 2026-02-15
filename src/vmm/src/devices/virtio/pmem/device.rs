@@ -17,7 +17,7 @@ use crate::devices::virtio::ActivateError;
 use crate::devices::virtio::device::{ActiveState, DeviceState, VirtioDevice, VirtioDeviceType};
 use crate::devices::virtio::generated::virtio_config::VIRTIO_F_VERSION_1;
 use crate::devices::virtio::pmem::PMEM_QUEUE_SIZE;
-use crate::devices::virtio::pmem::metrics::{PmemMetrics, PmemMetricsPerDevice};
+use crate::devices::virtio::pmem::metrics::{METRICS, PmemMetrics};
 use crate::devices::virtio::queue::{DescriptorChain, InvalidAvailIdx, Queue, QueueError};
 use crate::devices::virtio::transport::{VirtioInterrupt, VirtioInterruptType};
 use crate::impl_device_type;
@@ -332,6 +332,11 @@ impl Pmem {
             0
         };
         let kvm_mem_slot = KvmMemSlot::new(vm, cs.start, cs.size, mmap.mmap_ptr, flags)?;
+        let metrics = Arc::new(PmemMetrics::default());
+        METRICS
+            .write()
+            .unwrap()
+            .insert(config.id.clone(), metrics.clone());
 
         let rate_limiter = config
             .rate_limiter
@@ -346,7 +351,7 @@ impl Pmem {
             queues,
             queue_events: vec![EventFd::new(libc::EFD_NONBLOCK).map_err(PmemError::EventFd)?],
             guest_region,
-            metrics: PmemMetricsPerDevice::alloc(config.id.clone()),
+            metrics,
             rate_limiter,
             config,
             mmap,
