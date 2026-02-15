@@ -35,22 +35,34 @@
 
 use serde::ser::SerializeMap;
 use serde::{Serialize, Serializer};
+use std::collections::BTreeMap;
+use std::sync::{Arc, RwLock};
 
 use crate::logger::SharedIncMetric;
 
 /// Stores aggregated balloon metrics
-pub(super) static METRICS: BalloonDeviceMetrics = BalloonDeviceMetrics::new();
+pub(super) static METRICS: RwLock<BTreeMap<String, Arc<BalloonDeviceMetrics>>> =
+    RwLock::new(BTreeMap::new());
 
 /// Called by METRICS.flush(), this function facilitates serialization of balloon device metrics.
 pub fn flush_metrics<S: Serializer>(serializer: S) -> Result<S::Ok, S::Error> {
     let mut seq = serializer.serialize_map(Some(1))?;
-    seq.serialize_entry("balloon", &METRICS)?;
+    let dev_name = "balloon";
+    let mut balloon_agg = BalloonDeviceMetrics::default();
+
+    for (name, metrics) in METRICS.read().unwrap().iter() {
+        let dev_name = format!("balloon_{}", name);
+        balloon_agg.aggregate(metrics);
+        seq.serialize_entry(&dev_name, metrics)?;
+    }
+
+    seq.serialize_entry(dev_name, &balloon_agg)?;
     seq.end()
 }
 
 /// Balloon Device associated metrics.
-#[derive(Debug, Serialize)]
-pub(super) struct BalloonDeviceMetrics {
+#[derive(Default, Debug, Serialize)]
+pub struct BalloonDeviceMetrics {
     /// Number of times when activate failed on a balloon device.
     pub activate_fails: SharedIncMetric,
     /// Number of balloon device inflations.
@@ -76,25 +88,21 @@ pub(super) struct BalloonDeviceMetrics {
     /// Number of errors occurred while hinting
     pub free_page_hint_fails: SharedIncMetric,
 }
-impl BalloonDeviceMetrics {
-    /// Const default construction.
-    const fn new() -> Self {
-        Self {
-            activate_fails: SharedIncMetric::new(),
-            inflate_count: SharedIncMetric::new(),
-            stats_updates_count: SharedIncMetric::new(),
-            stats_update_fails: SharedIncMetric::new(),
-            deflate_count: SharedIncMetric::new(),
-            event_fails: SharedIncMetric::new(),
-            free_page_report_count: SharedIncMetric::new(),
-            free_page_report_freed: SharedIncMetric::new(),
-            free_page_report_fails: SharedIncMetric::new(),
-            free_page_hint_count: SharedIncMetric::new(),
-            free_page_hint_freed: SharedIncMetric::new(),
-            free_page_hint_fails: SharedIncMetric::new(),
-        }
-    }
-}
+
+crate::impl_aggregate!(BalloonDeviceMetrics {
+    activate_fails,
+    inflate_count,
+    stats_updates_count,
+    stats_update_fails,
+    deflate_count,
+    event_fails,
+    free_page_report_count,
+    free_page_report_freed,
+    free_page_report_fails,
+    free_page_hint_count,
+    free_page_hint_freed,
+    free_page_hint_fails,
+});
 
 #[cfg(test)]
 pub mod tests {
@@ -103,14 +111,13 @@ pub mod tests {
 
     #[test]
     fn test_balloon_dev_metrics() {
-        let balloon_metrics: BalloonDeviceMetrics = BalloonDeviceMetrics::new();
-        let balloon_metrics_local: String = serde_json::to_string(&balloon_metrics).unwrap();
-        // the 1st serialize flushes the metrics and resets values to 0 so that
-        // we can compare the values with local metrics.
-        serde_json::to_string(&METRICS).unwrap();
-        let balloon_metrics_global: String = serde_json::to_string(&METRICS).unwrap();
-        assert_eq!(balloon_metrics_local, balloon_metrics_global);
+        let balloon_metrics = BalloonDeviceMetrics::default();
         balloon_metrics.inflate_count.inc();
-        assert_eq!(balloon_metrics.inflate_count.count(), 1);
+
+        let serialized = serde_json::to_string(&balloon_metrics).unwrap();
+        let json_val: serde_json::Value = serde_json::from_str(&serialized).unwrap();
+        let obj = json_val.as_object().unwrap();
+
+        assert_eq!(obj.get("inflate_count").and_then(|v| v.as_u64()), Some(1));
     }
 }
