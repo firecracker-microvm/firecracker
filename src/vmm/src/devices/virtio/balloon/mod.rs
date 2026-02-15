@@ -12,7 +12,7 @@ mod util;
 
 pub use self::device::{Balloon, BalloonConfig, BalloonStats};
 use super::queue::{InvalidAvailIdx, QueueError};
-use crate::devices::virtio::balloon::metrics::METRICS;
+use crate::devices::virtio::balloon::metrics::{BalloonDeviceMetrics, METRICS};
 use crate::devices::virtio::queue::FIRECRACKER_MAX_QUEUE_SIZE;
 use crate::logger::{IncMetric, error};
 use crate::vstate::interrupts::InterruptError;
@@ -100,10 +100,27 @@ pub enum BalloonError {
     InvalidAvailIdx(#[from] InvalidAvailIdx),
 }
 
-pub(super) fn report_balloon_event_fail(err: BalloonError) {
+#[derive(Debug, thiserror::Error, displaydoc::Display)]
+pub enum RemoveRegionError {
+    /// Address translation error.
+    AddressTranslation,
+    /// Malformed guest address range.
+    MalformedRange,
+    /// Error calling madvise: {0}
+    MadviseFail(std::io::Error),
+    /// Error calling mmap: {0}
+    MmapFail(std::io::Error),
+    /// Region not found.
+    RegionNotFound,
+}
+
+pub(super) fn report_balloon_event_fail(
+    err: BalloonError,
+    metrics: std::sync::Arc<BalloonDeviceMetrics>,
+) {
     if let BalloonError::InvalidAvailIdx(err) = err {
         panic!("{}", err);
     }
     error!("{:?}", err);
-    METRICS.event_fails.inc();
+    metrics.event_fails.inc();
 }
