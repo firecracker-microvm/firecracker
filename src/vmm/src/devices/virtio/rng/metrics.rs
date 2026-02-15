@@ -37,19 +37,52 @@ use serde::ser::SerializeMap;
 use serde::{Serialize, Serializer};
 
 use crate::logger::SharedIncMetric;
+use std::collections::BTreeMap;
+use std::sync::{Arc, RwLock};
 
-/// Stores aggregated entropy metrics
-pub(super) static METRICS: EntropyDeviceMetrics = EntropyDeviceMetrics::new();
+/// Key of the VM's entropy device in `METRICS`. Only this entry is flushed.
+const METRICS_KEY: u64 = 0;
+
+/// Metrics instances of every entropy device created in this process.
+static METRICS: RwLock<BTreeMap<u64, Arc<EntropyDeviceMetrics>>> = RwLock::new(BTreeMap::new());
+
+// Tests get a unique key above METRICS_KEY so their devices are never flushed.
+#[cfg(test)]
+static NEXT_TEST_KEY: std::sync::atomic::AtomicU64 =
+    std::sync::atomic::AtomicU64::new(METRICS_KEY + 1);
+
+fn metrics_key() -> u64 {
+    #[cfg(not(test))]
+    return METRICS_KEY;
+    #[cfg(test)]
+    return NEXT_TEST_KEY.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// Create the metrics instance of a new entropy device and insert it into `METRICS`.
+pub(super) fn register() -> Arc<EntropyDeviceMetrics> {
+    let metrics = Arc::new(EntropyDeviceMetrics::default());
+    METRICS
+        .write()
+        .unwrap()
+        .insert(metrics_key(), metrics.clone());
+    metrics
+}
 
 /// Called by METRICS.flush(), this function facilitates serialization of entropy device metrics.
 pub fn flush_metrics<S: Serializer>(serializer: S) -> Result<S::Ok, S::Error> {
     let mut seq = serializer.serialize_map(Some(1))?;
-    seq.serialize_entry("entropy", &METRICS)?;
+    let dev_name = "entropy";
+
+    match METRICS.read().unwrap().get(&METRICS_KEY) {
+        Some(metrics) => seq.serialize_entry(dev_name, metrics.as_ref())?,
+        None => seq.serialize_entry(dev_name, &EntropyDeviceMetrics::default())?,
+    }
+
     seq.end()
 }
 
-#[derive(Debug, Serialize)]
-pub(super) struct EntropyDeviceMetrics {
+#[derive(Debug, Serialize, Default)]
+pub struct EntropyDeviceMetrics {
     /// Number of device activation failures
     pub activate_fails: SharedIncMetric,
     /// Number of entropy queue event handling failures
@@ -65,20 +98,6 @@ pub(super) struct EntropyDeviceMetrics {
     /// Number of events associated with the rate limiter
     pub rate_limiter_event_count: SharedIncMetric,
 }
-impl EntropyDeviceMetrics {
-    /// Const default construction.
-    const fn new() -> Self {
-        Self {
-            activate_fails: SharedIncMetric::new(),
-            entropy_event_fails: SharedIncMetric::new(),
-            entropy_event_count: SharedIncMetric::new(),
-            entropy_bytes: SharedIncMetric::new(),
-            host_rng_fails: SharedIncMetric::new(),
-            entropy_rate_limiter_throttled: SharedIncMetric::new(),
-            rate_limiter_event_count: SharedIncMetric::new(),
-        }
-    }
-}
 
 #[cfg(test)]
 pub mod tests {
@@ -86,15 +105,23 @@ pub mod tests {
     use crate::logger::IncMetric;
 
     #[test]
-    fn test_entropy_dev_metrics() {
-        let entropy_metrics: EntropyDeviceMetrics = EntropyDeviceMetrics::new();
-        let entropy_metrics_local: String = serde_json::to_string(&entropy_metrics).unwrap();
-        // the 1st serialize flushes the metrics and resets values to 0 so that
-        // we can compare the values with local metrics.
-        serde_json::to_string(&METRICS).unwrap();
-        let entropy_metrics_global: String = serde_json::to_string(&METRICS).unwrap();
-        assert_eq!(entropy_metrics_local, entropy_metrics_global);
-        entropy_metrics.entropy_event_count.inc();
-        assert_eq!(entropy_metrics.entropy_event_count.count(), 1);
+    fn test_rng_dev_metrics() {
+        let metrics_instance = EntropyDeviceMetrics::default();
+        metrics_instance.activate_fails.inc();
+        metrics_instance.entropy_bytes.add(10);
+        metrics_instance.host_rng_fails.add(5);
+
+        assert_eq!(metrics_instance.activate_fails.count(), 1);
+        assert_eq!(metrics_instance.entropy_bytes.count(), 10);
+        assert_eq!(metrics_instance.host_rng_fails.count(), 5);
+
+        let serialized = serde_json::to_string(&metrics_instance).unwrap();
+        let json_value: serde_json::Value =
+            serde_json::from_str(&serialized).expect("Failed to parse");
+        let obj = json_value.as_object().unwrap();
+
+        assert_eq!(obj.get("activate_fails").and_then(|v| v.as_u64()), Some(1));
+        assert_eq!(obj.get("entropy_bytes").and_then(|v| v.as_u64()), Some(10));
+        assert_eq!(obj.get("host_rng_fails").and_then(|v| v.as_u64()), Some(5));
     }
 }
