@@ -154,6 +154,8 @@ def test_cycled_snapshot_restore(
     snapshot = vm.make_snapshot(snapshot_type)
     vm.kill()
 
+    local_port_last = (1 << 30) - 1
+
     for microvm in microvm_factory.build_n_from_snapshot(
         snapshot, cycles, incremental=True, use_snapshot_editor=use_snapshot_editor
     ):
@@ -165,6 +167,12 @@ def test_cycled_snapshot_restore(
         # Test vsock host-initiated connections.
         path = os.path.join(microvm.jailer.chroot_path(), VSOCK_UDS_PATH)
         check_host_connections(path, blob_path, blob_hash)
+        m = re.findall(
+            r"vsock muxer: RX pkt: VsockPacketHeader {.*, src_port: (\d+),.*, op: 1,.*}",
+            microvm.log_data,
+        )
+        assert int(m[0]) == local_port_last + 1
+        local_port_last = int(m[-1])
 
         # Check that the root device is not corrupted.
         check_filesystem(microvm.ssh, "squashfs", "/dev/vda")
