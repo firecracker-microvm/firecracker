@@ -142,7 +142,7 @@ load_kvm() {
             if grep -q "vmx" /proc/cpuinfo; then
                 modprobe kvm_intel || return 1
             elif grep -q "svm" /proc/cpuinfo; then
-                modprobe kvm_amd || return 1
+                modprobe kvm_amd avic=1 || return 1
             else
                 return 1
             fi

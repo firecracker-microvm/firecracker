@@ -139,6 +139,9 @@ CTR_CI_ARTIFACTS_PATH="${CTR_FC_ROOT_DIR}/resources/$(uname -m)"
 
 DEFAULT_ARTIFACTS_S3_BUCKET=s3://spec.ccfc.min/firecracker-ci
 
+# Lockfile used while modifying KVM modules
+KVM_MODULE_LOCKFILE="/tmp/.kvm_module.lock"
+
 # Query default S3 bucket with artifacts and return the most recient path
 get_newest_s3_artifacts() {
   local bucket="spec.ccfc.min"
@@ -705,18 +708,21 @@ apply_linux_61_tweaks() {
         echo -e "CPU not vulnerable to iTLB multihit, using kvm.nx_huge_pages=never mitigation"
         # we need a lock so another process is not running the same thing and to
         # avoid race conditions.
-        lockfile="/tmp/.linux61_tweaks.lock"
         set -C # noclobber
         while true; do
-            if echo "$$" > "$lockfile"; then
+            if echo "$$" > "$KVM_MODULE_LOCKFILE"; then
                 echo "Successfully acquired lock"
                 if ! grep -q "never" $NX_HUGEPAGES; then
                     echo "Reloading KVM modules with nx_huge_pages=never"
                     sudo modprobe -r $KVM_VENDOR_MOD kvm
                     sudo modprobe kvm nx_huge_pages=never
-                    sudo modprobe $KVM_VENDOR_MOD
+                    if [[ $KVM_VENDOR_MOD == "kvm_amd" ]]; then
+                        sudo modprobe kvm_amd avic=1
+                    else
+                        sudo modprobe $KVM_VENDOR_MOD
+                    fi
                 fi
-                rm "$lockfile"
+                rm "$KVM_MODULE_LOCKFILE"
                 break
             else
                 sleep 5s
@@ -735,6 +741,38 @@ apply_linux_61_tweaks() {
     fi
 }
 
+apply_amd_avic_tweaks() {
+    if ! grep -q "svm" /proc/cpuinfo; then
+        return
+    fi
+
+    AVIC_PARAM=/sys/module/kvm_amd/parameters/avic
+    if [[ ! -f $AVIC_PARAM ]]; then
+        return
+    fi
+
+    if grep -q "Y\|1" $AVIC_PARAM; then
+        echo "AVIC already enabled"
+        return
+    fi
+
+    set -C # noclobber
+    while true; do
+        if echo "$$" > "$KVM_MODULE_LOCKFILE"; then
+            echo "Successfully acquired lock"
+            if ! grep -q "Y\|1" $AVIC_PARAM; then
+                echo "Reloading kvm_amd with avic=1"
+                sudo modprobe -r kvm_amd
+                sudo modprobe kvm_amd avic=1
+            fi
+            rm "$KVM_MODULE_LOCKFILE"
+            break
+        else
+            sleep 5s
+        fi
+    done
+    tail -v $AVIC_PARAM
+}
 
 # Modifies the processors CPU governor and P-state configuration (x86_64 only) for consistent performance. This means
 # - Disable turbo boost (Intel only) by writing 1 to /sys/devices/system/cpu/intel_pstate/no_turbo
@@ -758,6 +796,30 @@ apply_performance_tweaks() {
     echo 100 |sudo tee /sys/devices/system/cpu/intel_pstate/max_perf_pct &> /dev/null
   fi
 
+  # If CPU is Intel Granite Rapids (Xeon 6, FMS 06-AD-XX), disable C6 and C6P states.
+  # We've observed significant volatility in our performance tests on Intel Granite Rapids CPUs
+  # (Xeon 6, FMS 06-AD-XX), specifically in many of our latency metrics. After spending time investigating
+  # this, it seems like cross-CPU communication becomes prohibitively slow with the deepest C-states
+  # enabled. Since GNR chips have higher core density (96 per socket vs. SPR's 48 per socket), we believe
+  # that the tail latency of transitioning out of the deepest C-states explains the volatility.
+
+  # Disabling these deep states appear to stabilise the performance, so for consistency in our CI, we will disable them.
+
+  # NB: The performance volatility only appears to affect Granite Rapids instances with low load
+  # (e.g., our performance integration tests). The assumption is that when the load is high, cores
+  # are unlikely to enter deeper C-states, so inter-CPU communication does not encounter the overhead
+  # of transitioning out of deeper C-states.
+  model=$(awk '/^model\s+:/ {print $3; exit}' /proc/cpuinfo)
+  family=$(awk '/^cpu family\s+:/ {print $4; exit}' /proc/cpuinfo)
+  if [[ "$family" -eq 6 && "$model" -eq 173 ]]; then
+    say "Intel Granite Rapids CPU detected. Disabling C6 and C6P C-states"
+    for state in /sys/devices/system/cpu/cpu[0-9]*/cpuidle/state*/; do
+      if [[ -f "$state/name" && $(cat "$state/name") == C6* ]]; then
+        echo 1 | sudo tee "$state/disable" &> /dev/null
+      fi
+    done
+  fi
+
   # The governor is a linux component that can adjust CPU frequency. "performance" tells it to always run CPUs at
   # their maximum safe frequency. It seems to be the default for Amazon Linux, but it doesn't hurt to make this explicit.
   # See also https://wiki.archlinux.org/title/CPU_frequency_scaling
@@ -772,6 +834,17 @@ unapply_performance_tweaks() {
     # restore p-state limits
     echo $MIN_PERF_PCT |sudo tee /sys/devices/system/cpu/intel_pstate/min_perf_pct &> /dev/null
     echo $MAX_PERF_PCT |sudo tee /sys/devices/system/cpu/intel_pstate/max_perf_pct &> /dev/null
+  fi
+
+  # reenable Granite Rapids C-states
+  model=$(awk '/^model\s+:/ {print $3; exit}' /proc/cpuinfo)
+  family=$(awk '/^cpu family\s+:/ {print $4; exit}' /proc/cpuinfo)
+  if [[ "$family" -eq 6 && "$model" -eq 173 ]]; then
+    for state in /sys/devices/system/cpu/cpu[0-9]*/cpuidle/state*/; do
+      if [[ -f "$state/name" && $(cat "$state/name") == C6* ]]; then
+        echo 0 | sudo tee "$state/disable" &> /dev/null
+      fi
+    done
   fi
 
   # We do not reset the governor, as keeping track of each CPUs configured governor is not trivial here. On our CI
@@ -855,6 +928,7 @@ cmd_test() {
     fi
 
     apply_linux_61_tweaks
+    apply_amd_avic_tweaks
 
     # If we got to here, we've got all we need to continue.
     say "Kernel version: $(uname -r)"

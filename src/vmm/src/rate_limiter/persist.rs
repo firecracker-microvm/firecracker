@@ -95,7 +95,6 @@ impl Persist<'_> for RateLimiter {
 mod tests {
 
     use super::*;
-    use crate::snapshot::Snapshot;
 
     #[test]
     fn test_token_bucket_persistence() {
@@ -116,18 +115,11 @@ mod tests {
         assert!(tb.partial_eq(&restored_tb));
 
         // Test serialization.
-        let mut mem = vec![0; 4096];
-        Snapshot::new(tb.save())
-            .save(&mut mem.as_mut_slice())
-            .unwrap();
+        let tb_state = tb.save();
+        let serialized_data = bitcode::serialize(&tb_state).unwrap();
 
-        let restored_tb = TokenBucket::restore(
-            (),
-            &Snapshot::load_without_crc_check(mem.as_slice())
-                .unwrap()
-                .data,
-        )
-        .unwrap();
+        let restored_state = bitcode::deserialize(&serialized_data).unwrap();
+        let restored_tb = TokenBucket::restore((), &restored_state).unwrap();
         assert!(tb.partial_eq(&restored_tb));
     }
 
@@ -193,17 +185,11 @@ mod tests {
         );
 
         // Test serialization.
-        let mut mem = vec![0; 4096];
-        Snapshot::new(rate_limiter.save())
-            .save(&mut mem.as_mut_slice())
-            .unwrap();
-        let restored_rate_limiter = RateLimiter::restore(
-            (),
-            &Snapshot::load_without_crc_check(mem.as_slice())
-                .unwrap()
-                .data,
-        )
-        .unwrap();
+        let rate_limiter_state = rate_limiter.save();
+        let serialized_data = bitcode::serialize(&rate_limiter_state).unwrap();
+
+        let restored_state = bitcode::deserialize(&serialized_data).unwrap();
+        let restored_rate_limiter = RateLimiter::restore((), &restored_state).unwrap();
 
         assert!(
             rate_limiter

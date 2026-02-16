@@ -225,7 +225,7 @@ impl<'a> Persist<'a> for MMIODeviceManager {
             }
         }
 
-        let _: Result<(), ()> = self.for_each_virtio_device(|_, devid, device| {
+        let _: Result<(), ()> = self.for_each_virtio_mmio_device(|_, devid, device| {
             let mmio_transport_locked = device.inner.lock().expect("Poisoned lock");
             let mut locked_device = mmio_transport_locked.locked_device();
             // We need to call `prepare_save()` on the device before saving the transport
@@ -631,7 +631,6 @@ mod tests {
     use crate::device_manager;
     use crate::devices::virtio::block::CacheType;
     use crate::resources::VmmConfig;
-    use crate::snapshot::Snapshot;
     use crate::vmm_config::balloon::BalloonDeviceConfig;
     use crate::vmm_config::entropy::EntropyDeviceConfig;
     use crate::vmm_config::memory_hotplug::MemoryHotplugConfig;
@@ -682,12 +681,13 @@ mod tests {
 
     #[test]
     fn test_device_manager_persistence() {
-        let mut buf = vec![0; 65536];
         // These need to survive so the restored blocks find them.
         let _block_files;
         let _pmem_files;
         let mut tmp_sock_file = TempFile::new().unwrap();
         tmp_sock_file.remove().unwrap();
+
+        let serialized_data;
         // Set up a vmm with one of each device, and get the serialized DeviceStates.
         {
             let mut event_manager = EventManager::new().expect("Unable to create EventManager");
@@ -763,9 +763,8 @@ mod tests {
                 memory_hotplug_config,
             );
 
-            Snapshot::new(vmm.device_manager.save())
-                .save(&mut buf.as_mut_slice())
-                .unwrap();
+            let device_state = vmm.device_manager.save();
+            serialized_data = bitcode::serialize(&device_state).unwrap();
         }
 
         tmp_sock_file.remove().unwrap();
@@ -773,9 +772,7 @@ mod tests {
         let mut event_manager = EventManager::new().expect("Unable to create EventManager");
         let vmm = default_vmm();
         let device_manager_state: device_manager::DevicesState =
-            Snapshot::load_without_crc_check(buf.as_slice())
-                .unwrap()
-                .data;
+            bitcode::deserialize(&serialized_data).unwrap();
         let vm_resources = &mut VmResources::default();
         let restore_args = MMIODevManagerConstructorArgs {
             mem: vmm.vm.guest_memory(),
