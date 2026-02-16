@@ -114,7 +114,7 @@ pub struct VsockMuxer {
     /// most significant bits are fixed to 01, which may facilitate debugging and identification.
     /// This appears to have been a design decision dating back to the initial introduction of the
     /// vsock implementation.
-    local_port_last: u32,
+    pub(crate) local_port_last: u32,
 }
 
 impl VsockChannel for VsockMuxer {
