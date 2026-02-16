@@ -7,8 +7,6 @@ use std::ops::Add;
 
 use aws_lc_rs::aead::{AES_256_GCM, Aad, Nonce, RandomizedNonceKey};
 use base64::Engine;
-use bincode::config;
-use bincode::config::{Configuration, Fixint, Limit, LittleEndian};
 use serde::{Deserialize, Serialize};
 use utils::time::{ClockType, get_time_ms};
 
@@ -20,6 +18,11 @@ pub const KEY_LEN: usize = 32;
 pub const PAYLOAD_LEN: usize = std::mem::size_of::<u64>();
 /// Length of encryption tag.
 pub const TAG_LEN: usize = 16;
+
+/// Maximum size in bytes for token deserialization to prevent DOS attacks.
+/// The Token struct contains fixed-size arrays (IV_LEN + PAYLOAD_LEN + TAG_LEN = 36 bytes)
+/// plus bitcode serialization overhead. This limit provides a safe margin.
+const TOKEN_DESERIALIZATION_BYTES_LIMIT: usize = 100;
 
 /// Constant to convert seconds to milliseconds.
 pub const MILLISECONDS_PER_SECOND: u64 = 1_000;
@@ -37,15 +40,6 @@ pub const PATH_TO_TOKEN: &str = "/latest/api/token";
 /// is computed based on the expected length of the base64 encoded Token struct
 /// including a small deviation.
 const TOKEN_LENGTH_LIMIT: usize = 70;
-/// Byte limit passed to `bincode` to guard against allocating
-/// too much memory when deserializing tokens.
-const DESERIALIZATION_BYTES_LIMIT: usize = std::mem::size_of::<Token>();
-
-const BINCODE_CONFIG: Configuration<LittleEndian, Fixint, Limit<DESERIALIZATION_BYTES_LIMIT>> =
-    config::standard()
-        .with_fixed_int_encoding()
-        .with_limit::<DESERIALIZATION_BYTES_LIMIT>()
-        .with_little_endian();
 
 #[rustfmt::skip]
 #[derive(Debug, thiserror::Error, displaydoc::Display)]
@@ -56,8 +50,8 @@ pub enum MmdsTokenError {
     ExpiryExtraction,
     /// Invalid time to live value provided for token: {0}. Please provide a value between {MIN_TOKEN_TTL_SECONDS:} and {MAX_TOKEN_TTL_SECONDS:}.
     InvalidTtlValue(u32),
-    /// Bincode serialization failed: {0}.
-    Serialization(#[from] bincode::error::EncodeError),
+    /// Bitcode serialization failed: {0}.
+    Serialization(#[from] bitcode::Error),
     /// Failed to encrypt token.
     TokenEncryption,
 }
@@ -269,7 +263,7 @@ impl Token {
 
     /// Encode token structure into a string using base64 encoding.
     fn base64_encode(&self) -> Result<String, MmdsTokenError> {
-        let token_bytes: Vec<u8> = bincode::serde::encode_to_vec(self, BINCODE_CONFIG)?;
+        let token_bytes: Vec<u8> = bitcode::serialize(self)?;
 
         // Encode token structure bytes into base64.
         Ok(base64::engine::general_purpose::STANDARD.encode(token_bytes))
@@ -281,9 +275,13 @@ impl Token {
             .decode(encoded_token)
             .map_err(|_| MmdsTokenError::ExpiryExtraction)?;
 
-        let token: Token = bincode::serde::decode_from_slice(&token_bytes, BINCODE_CONFIG)
-            .map_err(|_| MmdsTokenError::ExpiryExtraction)?
-            .0;
+        // Check size limit to prevent DOS attacks
+        if token_bytes.len() > TOKEN_DESERIALIZATION_BYTES_LIMIT {
+            return Err(MmdsTokenError::ExpiryExtraction);
+        }
+
+        let token: Token =
+            bitcode::deserialize(&token_bytes).map_err(|_| MmdsTokenError::ExpiryExtraction)?;
         Ok(token)
     }
 }

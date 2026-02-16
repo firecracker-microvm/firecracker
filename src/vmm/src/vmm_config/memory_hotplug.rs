@@ -4,7 +4,7 @@
 use serde::{Deserialize, Serialize};
 
 use crate::devices::virtio::mem::{
-    VIRTIO_MEM_DEFAULT_BLOCK_SIZE_MIB, VIRTIO_MEM_DEFAULT_SLOT_SIZE_MIB,
+    VIRTIO_MEM_DEFAULT_BLOCK_SIZE_MIB, VIRTIO_MEM_DEFAULT_SLOT_SIZE_MIB, VirtioMem,
 };
 
 /// Errors associated with memory hotplug configuration.
@@ -83,6 +83,16 @@ impl MemoryHotplugConfig {
         }
 
         Ok(())
+    }
+}
+
+impl From<&VirtioMem> for MemoryHotplugConfig {
+    fn from(mem: &VirtioMem) -> Self {
+        MemoryHotplugConfig {
+            total_size_mib: mem.total_size_mib(),
+            block_size_mib: mem.block_size_mib(),
+            slot_size_mib: mem.slot_size_mib(),
+        }
     }
 }
 

@@ -51,6 +51,16 @@ impl From<&VsockAndUnixPath> for VsockDeviceConfig {
     }
 }
 
+impl From<&Vsock<VsockUnixBackend>> for VsockDeviceConfig {
+    fn from(vsock: &Vsock<VsockUnixBackend>) -> Self {
+        VsockDeviceConfig {
+            vsock_id: None, // deprecated
+            guest_cid: u32::try_from(vsock.cid()).unwrap(),
+            uds_path: vsock.backend().host_sock_path().to_owned(),
+        }
+    }
+}
+
 /// A builder of Vsock with Unix backend from 'VsockDeviceConfig'.
 #[derive(Debug, Default)]
 pub struct VsockBuilder {

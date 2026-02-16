@@ -138,23 +138,21 @@ mod tests {
     use crate::devices::virtio::device::VirtioDevice;
     use crate::devices::virtio::net::test_utils::{default_net, default_net_no_mmds};
     use crate::devices::virtio::test_utils::{default_interrupt, default_mem};
-    use crate::snapshot::Snapshot;
 
     fn validate_save_and_restore(net: Net, mmds_ds: Option<Arc<Mutex<Mmds>>>) {
         let guest_mem = default_mem();
-        let mut mem = vec![0; 4096];
 
         let id;
         let tap_if_name;
         let has_mmds_ns;
         let allow_mmds_requests;
         let virtio_state;
+        let serialized_data;
 
         // Create and save the net device.
         {
-            Snapshot::new(net.save())
-                .save(&mut mem.as_mut_slice())
-                .unwrap();
+            let net_state = net.save();
+            serialized_data = bitcode::serialize(&net_state).unwrap();
 
             // Save some fields that we want to check later.
             id = net.id.clone();
@@ -169,14 +167,13 @@ mod tests {
         drop(net);
         {
             // Deserialize and restore the net device.
+            let restored_state = bitcode::deserialize(&serialized_data).unwrap();
             match Net::restore(
                 NetConstructorArgs {
                     mem: guest_mem,
                     mmds: mmds_ds,
                 },
-                &Snapshot::load_without_crc_check(mem.as_slice())
-                    .unwrap()
-                    .data,
+                &restored_state,
             ) {
                 Ok(restored_net) => {
                     // Test that virtio specific fields are the same.
