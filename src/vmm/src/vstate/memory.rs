@@ -585,7 +585,7 @@ where
 }
 
 /// State of a guest memory region saved to file/buffer.
-#[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct GuestMemoryRegionState {
     // This should have been named `base_guest_addr` since it's _guest_ addr, but for
     // backward compatibility we have to keep this name. At least this comment should help.
@@ -600,7 +600,7 @@ pub struct GuestMemoryRegionState {
 }
 
 /// Describes guest memory regions and their snapshot file mappings.
-#[derive(Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct GuestMemoryState {
     /// List of regions.
     pub regions: Vec<GuestMemoryRegionState>,
@@ -940,15 +940,17 @@ mod tests {
     }
 
     fn check_serde<M: GuestMemoryExtension>(guest_memory: &M) {
-        let mut snapshot_data = vec![0u8; 10000];
         let original_state = guest_memory.describe();
-        Snapshot::new(&original_state)
-            .save(&mut snapshot_data.as_mut_slice())
-            .unwrap();
-        let restored_state = Snapshot::load_without_crc_check(snapshot_data.as_slice())
-            .unwrap()
-            .data;
+
+        // Test direct bitcode serialization
+        let serialized_data = bitcode::serialize(&original_state).unwrap();
+        let restored_state: GuestMemoryState = bitcode::deserialize(&serialized_data).unwrap();
         assert_eq!(original_state, restored_state);
+
+        // Test with Snapshot wrapper
+        let snapshot_data = bitcode::serialize(&Snapshot::new(original_state.clone())).unwrap();
+        let restored_snapshot = Snapshot::load_without_crc_check(&snapshot_data).unwrap();
+        assert_eq!(original_state, restored_snapshot.data);
     }
 
     #[test]
