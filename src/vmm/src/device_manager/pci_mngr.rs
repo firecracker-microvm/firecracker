@@ -7,7 +7,7 @@ use std::ops::DerefMut;
 use std::sync::{Arc, Mutex};
 
 use event_manager::{MutEventSubscriber, SubscriberOps};
-use log::{debug, error, warn};
+use log::{debug, warn};
 use serde::{Deserialize, Serialize};
 
 use super::persist::MmdsState;
@@ -363,16 +363,6 @@ impl<'a> Persist<'a> for PciDevices {
                         // Currently, VsockUnixBackend is the only implementation of VsockBackend.
                         .downcast_mut::<Vsock<VsockUnixBackend>>()
                         .unwrap();
-
-                    // Send Transport event to reset connections if device
-                    // is activated.
-                    if vsock_dev.is_activated() {
-                        vsock_dev
-                            .send_transport_reset_event()
-                            .unwrap_or_else(|err| {
-                                error!("Failed to send reset transport event: {:?}", err);
-                            });
-                    }
 
                     // Save state after potential notification to the guest. This
                     // way we save changes to the queue the notification can cause.

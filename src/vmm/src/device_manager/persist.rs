@@ -7,7 +7,7 @@ use std::fmt::{self, Debug};
 use std::sync::{Arc, Mutex};
 
 use event_manager::{MutEventSubscriber, SubscriberOps};
-use log::{error, warn};
+use log::warn;
 use serde::{Deserialize, Serialize};
 
 use super::acpi::ACPIDeviceManager;
@@ -288,14 +288,6 @@ impl<'a> Persist<'a> for MMIODeviceManager {
                         // Currently, VsockUnixBackend is the only implementation of VsockBackend.
                         .downcast_mut::<Vsock<VsockUnixBackend>>()
                         .unwrap();
-
-                    // Send Transport event to reset connections if device
-                    // is activated.
-                    if vsock.is_activated() {
-                        vsock.send_transport_reset_event().unwrap_or_else(|err| {
-                            error!("Failed to send reset transport event: {:?}", err);
-                        });
-                    }
 
                     // Save state after potential notification to the guest. This
                     // way we save changes to the queue the notification can cause.
