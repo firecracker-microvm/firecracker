@@ -356,7 +356,6 @@ mod tests {
     use std::str::from_utf8;
 
     use super::*;
-    use crate::check_metric_after_block;
     use crate::dumbo::pdu::tcp::Flags as TcpFlags;
     use crate::dumbo::tcp::connection::tests::ConnectionTester;
     use crate::dumbo::tcp::tests::mock_callback;
@@ -622,13 +621,13 @@ mod tests {
         assert!(endpoint.connection.dup_ack_pending());
 
         // The response goes out again, from its first byte.
-        check_metric_after_block!(METRICS.mmds.tx_errors, 0, {
-            let s = endpoint
-                .write_next_segment(write_buf.as_mut(), t.mss_reserved)
-                .unwrap();
-            assert_eq!(s.inner().sequence_number(), sent_seq);
-            assert_eq!(s.inner().payload(), sent.as_slice());
-        });
+        let tx_errors = METRICS.mmds.tx_errors.count();
+        let s = endpoint
+            .write_next_segment(write_buf.as_mut(), t.mss_reserved)
+            .unwrap();
+        assert_eq!(s.inner().sequence_number(), sent_seq);
+        assert_eq!(s.inner().payload(), sent.as_slice());
+        assert_eq!(METRICS.mmds.tx_errors.count(), tx_errors);
         assert!(!endpoint.connection.dup_ack_pending());
 
         // Once the guest ACKs it, the response is done and there is nothing left to send.
