@@ -38,6 +38,8 @@ pub struct VsockFrontendState {
 pub struct VsockBackendState {
     /// The path for the UDS socket.
     pub uds_path: String,
+    /// The last used host-side port.
+    pub local_port_last: u32,
 }
 
 /// A helper structure that holds the constructor arguments for VsockUnixBackend
@@ -64,6 +66,7 @@ impl Persist<'_> for VsockUnixBackend {
     fn save(&self) -> Self::State {
         VsockBackendState {
             uds_path: self.host_sock_path.clone(),
+            local_port_last: self.local_port_last,
         }
     }
 
@@ -71,10 +74,9 @@ impl Persist<'_> for VsockUnixBackend {
         constructor_args: Self::ConstructorArgs,
         state: &Self::State,
     ) -> Result<Self, Self::Error> {
-        Ok(VsockUnixBackend::new(
-            constructor_args.cid,
-            state.uds_path.clone(),
-        )?)
+        let mut backend = Self::new(constructor_args.cid, state.uds_path.clone())?;
+        backend.local_port_last = state.local_port_last;
+        Ok(backend)
     }
 }
 
@@ -134,6 +136,7 @@ pub(crate) mod tests {
         fn save(&self) -> Self::State {
             VsockBackendState {
                 uds_path: "test".to_owned(),
+                local_port_last: 0xdeadbeef,
             }
         }
 
@@ -171,6 +174,7 @@ pub(crate) mod tests {
                 mem: ctx.mem.clone(),
                 backend: {
                     assert_eq!(restored_state.backend.uds_path, "test".to_owned());
+                    assert_eq!(restored_state.backend.local_port_last, 0xdeadbeef);
                     TestBackend::new()
                 },
             },
