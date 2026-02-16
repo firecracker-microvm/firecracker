@@ -33,18 +33,11 @@ pub struct VsockFrontendState {
     pub virtio_state: VirtioDeviceState,
 }
 
-/// An enum for the serializable backend state types.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub enum VsockBackendState {
-    /// UDS backend state.
-    Uds(VsockUdsState),
-}
-
 /// The Vsock Unix Backend serializable state.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct VsockUdsState {
+pub struct VsockBackendState {
     /// The path for the UDS socket.
-    pub(crate) path: String,
+    pub uds_path: String,
 }
 
 /// A helper structure that holds the constructor arguments for VsockUnixBackend
@@ -69,21 +62,19 @@ impl Persist<'_> for VsockUnixBackend {
     type Error = VsockUnixBackendError;
 
     fn save(&self) -> Self::State {
-        VsockBackendState::Uds(VsockUdsState {
-            path: self.host_sock_path.clone(),
-        })
+        VsockBackendState {
+            uds_path: self.host_sock_path.clone(),
+        }
     }
 
     fn restore(
         constructor_args: Self::ConstructorArgs,
         state: &Self::State,
     ) -> Result<Self, Self::Error> {
-        match state {
-            VsockBackendState::Uds(uds_state) => Ok(VsockUnixBackend::new(
-                constructor_args.cid,
-                uds_state.path.clone(),
-            )?),
-        }
+        Ok(VsockUnixBackend::new(
+            constructor_args.cid,
+            state.uds_path.clone(),
+        )?)
     }
 }
 
@@ -141,15 +132,13 @@ pub(crate) mod tests {
         type Error = VsockUnixBackendError;
 
         fn save(&self) -> Self::State {
-            VsockBackendState::Uds(VsockUdsState {
-                path: "test".to_owned(),
-            })
+            VsockBackendState {
+                uds_path: "test".to_owned(),
+            }
         }
 
         fn restore(_: Self::ConstructorArgs, state: &Self::State) -> Result<Self, Self::Error> {
-            match state {
-                VsockBackendState::Uds(_) => Ok(TestBackend::new()),
-            }
+            Ok(TestBackend::new())
         }
     }
 
@@ -180,11 +169,9 @@ pub(crate) mod tests {
         let mut restored_device = Vsock::restore(
             VsockConstructorArgs {
                 mem: ctx.mem.clone(),
-                backend: match restored_state.backend {
-                    VsockBackendState::Uds(uds_state) => {
-                        assert_eq!(uds_state.path, "test".to_owned());
-                        TestBackend::new()
-                    }
+                backend: {
+                    assert_eq!(restored_state.backend.uds_path, "test".to_owned());
+                    TestBackend::new()
                 },
             },
             &restored_state.frontend,
