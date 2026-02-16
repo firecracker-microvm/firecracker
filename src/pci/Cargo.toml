@@ -14,7 +14,7 @@ default = []
 [dependencies]
 
 displaydoc = "0.2.5"
-libc = "0.2.180"
+libc = "0.2.182"
 log = "0.4.29"
 serde = { version = "1.0.228", features = ["derive"] }
 thiserror = "2.0.18"
