@@ -623,8 +623,8 @@ notified about changes through an event loop.
 > and was added in Linux kernel v7.0. Users need to make sure that the linked
 > patches are applied on their kernels. We have backported these patches for
 > Amazon Linux kernels v5.10 and v6.1 [here](../../resources/patches/vmclock).
-> Using the kernels suggested from the
-> [Getting Started Guide](../getting-started.md) includes these patches.
+> The kernels used in the [Getting Started Guide](../getting-started.md) include
+> these patches.
 
 ## Vsock device reset
 
