@@ -10,7 +10,7 @@ use vm_memory::GuestAddress;
 
 use crate::cpu_config::templates::CustomCpuTemplate;
 use crate::devices::virtio::device::VirtioDevice;
-use crate::logger::info;
+use crate::logger::{LoggerConfig, info};
 use crate::mmds;
 use crate::mmds::data_store::{Mmds, MmdsVersion};
 use crate::mmds::ns::MmdsNetworkStack;
@@ -71,7 +71,8 @@ pub enum ResourcesError {
 
 #[derive(Serialize, Deserialize, PartialEq, Eq, Debug)]
 #[serde(untagged)]
-enum CustomCpuTemplateOrPath {
+#[allow(missing_docs)]
+pub enum CustomCpuTemplateOrPath {
     Path(PathBuf),
     Template(CustomCpuTemplate),
 }
@@ -79,24 +80,25 @@ enum CustomCpuTemplateOrPath {
 /// Used for configuring a vmm from one single json passed to the Firecracker process.
 #[derive(Debug, Default, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "kebab-case")]
+#[allow(missing_docs)]
 pub struct VmmConfig {
-    balloon: Option<BalloonDeviceConfig>,
-    drives: Vec<BlockDeviceConfig>,
-    boot_source: BootSourceConfig,
-    cpu_config: Option<CustomCpuTemplateOrPath>,
-    logger: Option<crate::logger::LoggerConfig>,
-    machine_config: Option<MachineConfig>,
-    metrics: Option<MetricsConfig>,
-    mmds_config: Option<MmdsConfig>,
+    pub balloon: Option<BalloonDeviceConfig>,
+    pub drives: Vec<BlockDeviceConfig>,
+    pub boot_source: BootSourceConfig,
+    pub cpu_config: Option<CustomCpuTemplateOrPath>,
+    pub logger: Option<LoggerConfig>,
+    pub machine_config: Option<MachineConfig>,
+    pub metrics: Option<MetricsConfig>,
+    pub mmds_config: Option<MmdsConfig>,
     #[serde(default)]
-    network_interfaces: Vec<NetworkInterfaceConfig>,
-    vsock: Option<VsockDeviceConfig>,
-    entropy: Option<EntropyDeviceConfig>,
+    pub network_interfaces: Vec<NetworkInterfaceConfig>,
+    pub vsock: Option<VsockDeviceConfig>,
+    pub entropy: Option<EntropyDeviceConfig>,
     #[serde(default, rename = "pmem")]
-    pmem_devices: Vec<PmemConfig>,
+    pub pmem_devices: Vec<PmemConfig>,
     #[serde(skip)]
-    serial_config: Option<SerialConfig>,
-    memory_hotplug: Option<MemoryHotplugConfig>,
+    pub serial_config: Option<SerialConfig>,
+    pub memory_hotplug: Option<MemoryHotplugConfig>,
 }
 
 /// A data structure that encapsulates the device configurations

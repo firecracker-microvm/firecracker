@@ -102,7 +102,7 @@ fn test_build_microvm() {
 }
 
 fn pause_resume_microvm(vmm: Arc<Mutex<Vmm>>) {
-    let mut api_controller = RuntimeApiController::new(VmResources::default(), vmm.clone());
+    let mut api_controller = RuntimeApiController::new(vmm.clone());
 
     // There's a race between this thread and the vcpu thread, but this thread
     // should be able to pause vcpu thread before it finishes running its test-binary.
@@ -210,16 +210,9 @@ fn verify_create_snapshot(
         pci_enabled,
         memory_hotplug,
     );
-    let resources = VmResources {
-        machine_config: MachineConfig {
-            mem_size_mib: 1,
-            track_dirty_pages: is_diff,
-            ..Default::default()
-        },
-        ..Default::default()
-    };
-    let vm_info = VmInfo::from(&resources);
-    let mut controller = RuntimeApiController::new(resources, vmm.clone());
+
+    let vm_info = VmInfo::from(&*vmm.lock().unwrap());
+    let mut controller = RuntimeApiController::new(vmm.clone());
 
     // Be sure that the microVM is running.
     thread::sleep(Duration::from_millis(200));

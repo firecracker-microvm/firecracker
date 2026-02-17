@@ -209,7 +209,7 @@ impl DeviceManager {
         cmdline: &mut Cmdline,
         is_vhost_user: bool,
     ) -> Result<(), AttachDeviceError> {
-        if self.pci_devices.pci_segment.is_some() {
+        if self.is_pci_enabled() {
             self.pci_devices.attach_pci_virtio_device(vm, id, device)?;
         } else {
             self.attach_mmio_virtio_device(vm, id, device, cmdline, is_vhost_user)?;
@@ -278,15 +278,17 @@ impl DeviceManager {
     pub fn kick_virtio_devices(&self) {
         info!("Artificially kick devices");
         // Go through MMIO VirtIO devices
-        let _: Result<(), MmioError> = self.mmio_devices.for_each_virtio_device(|_, _, device| {
-            let mmio_transport_locked = device.inner.lock().expect("Poisoned lock");
-            mmio_transport_locked
-                .device()
-                .lock()
-                .expect("Poisoned lock")
-                .kick();
-            Ok(())
-        });
+        let _: Result<(), MmioError> =
+            self.mmio_devices
+                .for_each_virtio_mmio_device(|_, _, device| {
+                    let mmio_transport_locked = device.inner.lock().expect("Poisoned lock");
+                    mmio_transport_locked
+                        .device()
+                        .lock()
+                        .expect("Poisoned lock")
+                        .kick();
+                    Ok(())
+                });
         // Go through PCI VirtIO devices
         for virtio_pci_device in self.pci_devices.virtio_devices.values() {
             virtio_pci_device
@@ -315,11 +317,13 @@ impl DeviceManager {
     /// Mark queue memory dirty for activated VirtIO devices
     pub fn mark_virtio_queue_memory_dirty(&self, mem: &GuestMemoryMmap) {
         // Go through MMIO VirtIO devices
-        let _: Result<(), Infallible> = self.mmio_devices.for_each_virtio_device(|_, _, device| {
-            let mmio_transport_locked = device.inner.lock().expect("Poisoned locked");
-            Self::do_mark_virtio_queue_memory_dirty(mmio_transport_locked.device(), mem);
-            Ok(())
-        });
+        let _: Result<(), Infallible> =
+            self.mmio_devices
+                .for_each_virtio_mmio_device(|_, _, device| {
+                    let mmio_transport_locked = device.inner.lock().expect("Poisoned locked");
+                    Self::do_mark_virtio_queue_memory_dirty(mmio_transport_locked.device(), mem);
+                    Ok(())
+                });
 
         // Go through PCI VirtIO devices
         for device in self.pci_devices.virtio_devices.values() {
@@ -334,7 +338,7 @@ impl DeviceManager {
         device_type: VirtioDeviceType,
         device_id: &str,
     ) -> Option<Arc<Mutex<dyn VirtioDevice>>> {
-        if self.pci_devices.pci_segment.is_some() {
+        if self.is_pci_enabled() {
             let pci_device = self.pci_devices.get_virtio_device(device_type, device_id)?;
             Some(
                 pci_device
@@ -373,6 +377,19 @@ impl DeviceManager {
         } else {
             Err(FindDeviceError::DeviceNotFound)
         }
+    }
+
+    /// Run fn `f()` on all virtio devices
+    pub fn for_each_virtio_device(&self, mut f: impl FnMut(VirtioDeviceType, &dyn VirtioDevice)) {
+        if self.is_pci_enabled() {
+            self.pci_devices.for_each_virtio_device(&mut f);
+        } else {
+            self.mmio_devices.for_each_virtio_device(&mut f);
+        }
+    }
+
+    pub fn is_pci_enabled(&self) -> bool {
+        self.pci_devices.pci_segment.is_some()
     }
 }
 

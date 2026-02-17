@@ -1040,6 +1040,9 @@ class Microvm:
         It pauses the microvm before taking the snapshot.
         """
         self.pause()
+        # Notify monitor that snapshot is being created
+        if self.memory_monitor:
+            self.memory_monitor.set_threshold_for_snapshot()
         self.api.snapshot_create.put(
             mem_file_path=str(mem_path),
             snapshot_path=str(vmstate_path),
@@ -1143,6 +1146,8 @@ class Microvm:
         if self.memory_monitor:
             response = self.api.machine_config.get()
             self.mem_size_bytes = int(response.json()["mem_size_mib"]) * 2**20
+            # Notify monitor that this is a restored VM
+            self.memory_monitor.set_threshold_for_restored_vm()
             self.memory_monitor.start()
 
         # This is not a "wait for boot", but rather a "VM still works after restoration"

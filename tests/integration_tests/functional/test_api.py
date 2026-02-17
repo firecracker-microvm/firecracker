@@ -856,7 +856,7 @@ def _drive_patch(test_microvm, io_engine):
 
     # Validate full vm configuration after patching drives.
     response = test_microvm.api.vm_config.get().json()
-    assert response["drives"] == [
+    expected_drives = [
         {
             "drive_id": "rootfs",
             "partuuid": None,
@@ -897,6 +897,9 @@ def _drive_patch(test_microvm, io_engine):
             ),
         },
     ]
+    assert sorted(response["drives"], key=lambda d: d["drive_id"]) == sorted(
+        expected_drives, key=lambda d: d["drive_id"]
+    )
 
 
 def test_api_version(uvm_plain):

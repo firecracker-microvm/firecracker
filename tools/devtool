@@ -139,6 +139,9 @@ CTR_CI_ARTIFACTS_PATH="${CTR_FC_ROOT_DIR}/resources/$(uname -m)"
 
 DEFAULT_ARTIFACTS_S3_BUCKET=s3://spec.ccfc.min/firecracker-ci
 
+# Lockfile used while modifying KVM modules
+KVM_MODULE_LOCKFILE="/tmp/.kvm_module.lock"
+
 # Query default S3 bucket with artifacts and return the most recient path
 get_newest_s3_artifacts() {
   local bucket="spec.ccfc.min"
@@ -705,18 +708,21 @@ apply_linux_61_tweaks() {
         echo -e "CPU not vulnerable to iTLB multihit, using kvm.nx_huge_pages=never mitigation"
         # we need a lock so another process is not running the same thing and to
         # avoid race conditions.
-        lockfile="/tmp/.linux61_tweaks.lock"
         set -C # noclobber
         while true; do
-            if echo "$$" > "$lockfile"; then
+            if echo "$$" > "$KVM_MODULE_LOCKFILE"; then
                 echo "Successfully acquired lock"
                 if ! grep -q "never" $NX_HUGEPAGES; then
                     echo "Reloading KVM modules with nx_huge_pages=never"
                     sudo modprobe -r $KVM_VENDOR_MOD kvm
                     sudo modprobe kvm nx_huge_pages=never
-                    sudo modprobe $KVM_VENDOR_MOD
+                    if [[ $KVM_VENDOR_MOD == "kvm_amd" ]]; then
+                        sudo modprobe kvm_amd avic=1
+                    else
+                        sudo modprobe $KVM_VENDOR_MOD
+                    fi
                 fi
-                rm "$lockfile"
+                rm "$KVM_MODULE_LOCKFILE"
                 break
             else
                 sleep 5s
@@ -735,6 +741,38 @@ apply_linux_61_tweaks() {
     fi
 }
 
+apply_amd_avic_tweaks() {
+    if ! grep -q "svm" /proc/cpuinfo; then
+        return
+    fi
+
+    AVIC_PARAM=/sys/module/kvm_amd/parameters/avic
+    if [[ ! -f $AVIC_PARAM ]]; then
+        return
+    fi
+
+    if grep -q "Y\|1" $AVIC_PARAM; then
+        echo "AVIC already enabled"
+        return
+    fi
+
+    set -C # noclobber
+    while true; do
+        if echo "$$" > "$KVM_MODULE_LOCKFILE"; then
+            echo "Successfully acquired lock"
+            if ! grep -q "Y\|1" $AVIC_PARAM; then
+                echo "Reloading kvm_amd with avic=1"
+                sudo modprobe -r kvm_amd
+                sudo modprobe kvm_amd avic=1
+            fi
+            rm "$KVM_MODULE_LOCKFILE"
+            break
+        else
+            sleep 5s
+        fi
+    done
+    tail -v $AVIC_PARAM
+}
 
 # Modifies the processors CPU governor and P-state configuration (x86_64 only) for consistent performance. This means
 # - Disable turbo boost (Intel only) by writing 1 to /sys/devices/system/cpu/intel_pstate/no_turbo
@@ -890,6 +928,7 @@ cmd_test() {
     fi
 
     apply_linux_61_tweaks
+    apply_amd_avic_tweaks
 
     # If we got to here, we've got all we need to continue.
     say "Kernel version: $(uname -r)"

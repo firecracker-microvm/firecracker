@@ -523,7 +523,6 @@ reg_data_array!([u8; 256], 256);
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::snapshot::Snapshot;
 
     #[test]
     fn test_reg_size() {
@@ -544,12 +543,8 @@ mod tests {
         v.push(reg1);
         v.push(reg2);
 
-        let mut buf = vec![0; 10000];
-
-        Snapshot::new(&v).save(&mut buf.as_mut_slice()).unwrap();
-        let restored: Aarch64RegisterVec = Snapshot::load_without_crc_check(buf.as_slice())
-            .unwrap()
-            .data;
+        let serialized_data = bitcode::serialize(&v).unwrap();
+        let restored: Aarch64RegisterVec = bitcode::deserialize(&serialized_data).unwrap();
 
         for (old, new) in v.iter().zip(restored.iter()) {
             assert_eq!(old, new);
@@ -572,13 +567,11 @@ mod tests {
         v.push(reg1);
         v.push(reg2);
 
-        let mut buf = vec![0; 10000];
-
-        Snapshot::new(&v).save(&mut buf.as_mut_slice()).unwrap();
+        let serialized_data = bitcode::serialize(&v).unwrap();
 
         // Total size of registers according IDs are 16 + 16 = 32,
         // but actual data size is 8 + 16 = 24.
-        Snapshot::<Aarch64RegisterVec>::load_without_crc_check(buf.as_slice()).unwrap_err();
+        bitcode::deserialize::<Aarch64RegisterVec>(&serialized_data).unwrap_err();
     }
 
     #[test]
@@ -595,12 +588,10 @@ mod tests {
 
         v.push(reg);
 
-        let mut buf = vec![0; 10000];
-
-        Snapshot::new(v).save(&mut buf.as_mut_slice()).unwrap();
+        let serialized_data = bitcode::serialize(&v).unwrap();
 
         // 4096 bit wide registers are not supported.
-        Snapshot::<Aarch64RegisterVec>::load_without_crc_check(buf.as_slice()).unwrap_err();
+        bitcode::deserialize::<Aarch64RegisterVec>(&serialized_data).unwrap_err();
     }
 
     #[test]
