@@ -13,6 +13,7 @@ use crate::devices::virtio::device::{ActiveState, DeviceState, VirtioDeviceType}
 use crate::devices::virtio::persist::VirtioDeviceState;
 use crate::devices::virtio::queue::FIRECRACKER_MAX_QUEUE_SIZE;
 use crate::devices::virtio::transport::VirtioInterrupt;
+use crate::devices::virtio::vsock::metrics::METRICS;
 use crate::snapshot::Persist;
 use crate::vstate::memory::GuestMemoryMmap;
 
@@ -116,7 +117,17 @@ where
                 FIRECRACKER_MAX_QUEUE_SIZE,
             )
             .map_err(VsockError::VirtioState)?;
-        let mut vsock = Self::with_queues(state.cid, constructor_args.backend, queues)?;
+        let metrics = {
+            // If we are here then the muxer must have been initiated. Get the metrics
+            // instance and copy it to pass it to the vsock struct.
+            let mut metrics_guard = METRICS.write().unwrap();
+            let metrics_inst = metrics_guard.remove(&state.cid).unwrap();
+            let metrics_copy = metrics_inst.clone();
+            metrics_guard.insert(state.cid, metrics_inst);
+            metrics_copy
+        };
+        let mut vsock =
+            Self::with_queues(state.cid, constructor_args.backend, queues, Some(metrics))?;
 
         vsock.acked_features = state.virtio_state.acked_features;
         vsock.avail_features = state.virtio_state.avail_features;

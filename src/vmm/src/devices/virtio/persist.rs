@@ -501,7 +501,8 @@ mod tests {
         temp_uds_path.remove().unwrap();
         let uds_path = String::from(temp_uds_path.as_path().to_str().unwrap());
         let backend = VsockUnixBackend::new(guest_cid, uds_path).unwrap();
-        let vsock = Vsock::new(guest_cid, backend).unwrap();
+        let backend_metrics = backend.metrics.clone();
+        let vsock = Vsock::new(guest_cid, backend, Some(backend_metrics)).unwrap();
         let vsock = Arc::new(Mutex::new(vsock));
         let mmio_transport =
             MmioTransport::new(mem.clone(), interrupt.clone(), vsock.clone(), false);
