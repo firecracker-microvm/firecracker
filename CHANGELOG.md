@@ -33,6 +33,13 @@ and this project adheres to
   guest synchronize its clocks. More information can be found in
   [docs](docs/snapshotting/snapshot-support.md#userspace-notifications-of-loading-virtual-machine-snapshots).
 
+- [#5574](https://github.com/firecracker-microvm/firecracker/pull/5574),
+  [#5671](https://github.com/firecracker-microvm/firecracker/pull/5671),
+  [#5674](https://github.com/firecracker-microvm/firecracker/pull/5674)
+  [#5690](https://github.com/firecracker-microvm/firecracker/pull/5690) Added
+  Intel Granite Rapids as a supported and tested platform for Firecracker on 6.1
+  host kernel versions.
+
 ### Changed
 
 - [#5564](https://github.com/firecracker-microvm/firecracker/pull/5564): which
@@ -503,7 +510,7 @@ and this project adheres to
 - [#4578](https://github.com/firecracker-microvm/firecracker/pull/4578): Fix
   UFFD support not being forward-compatible with new ioctl options introduced in
   Linux 6.6. See also
-  https://github.com/bytecodealliance/userfaultfd-rs/issues/61.
+  <https://github.com/bytecodealliance/userfaultfd-rs/issues/61>.
 - [#4618](https://github.com/firecracker-microvm/firecracker/pull/4618): On
   x86_64, when taking a snapshot, if a vCPU has MSR_IA32_TSC_DEADLINE set to 0,
   Firecracker will replace it with the MSR_IA32_TSC value from the same vCPU.
@@ -517,7 +524,7 @@ and this project adheres to
   `MSR_IA32_TSC_DEADLINE`. This fixed guests using the `TSC_DEADLINE` hardware
   feature receiving incorrect timer interrupts after snapshot restoration, which
   could lead to them seemingly getting stuck in sleep-related syscalls (see also
-  https://github.com/firecracker-microvm/firecracker/pull/4099).
+  <https://github.com/firecracker-microvm/firecracker/pull/4099>).
 
 ## [1.7.0]
 
@@ -670,7 +677,7 @@ and this project adheres to
 - [#4261](https://github.com/firecracker-microvm/firecracker/pull/4261): Fixed a
   bug where Firecracker would log "RunWithApiError error: MicroVMStopped without
   an error: GenericError" when exiting after encountering an emulation error. It
-  now correctly prints "RunWithApiError error: MicroVMStopped *with* an error:
+  now correctly prints "RunWithApiError error: MicroVMStopped _with_ an error:
   GenericError".
 - [#4242](https://github.com/firecracker-microvm/firecracker/pull/4242): Fixed a
   bug introduced in #4047 that limited the `--level` option of logger to
@@ -1582,7 +1589,7 @@ and this project adheres to
 - The boot source is specified only with the `kernel_image_path` and the
   optional parameter `boot_args`. All other fields are removed.
 - The `path_on_host` property in the drive specification is now marked as
-  *mandatory*.
+  _mandatory_.
 - PATCH drive only allows patching/changing the `path_on_host` property.
 - All PUT and PATCH requests return the status code 204.
 - CPUID brand string (aka model name) now includes the host CPU frequency.

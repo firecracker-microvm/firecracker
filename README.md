@@ -132,18 +132,23 @@ The **API endpoint** can be used to:
 
 We test all combinations of:
 
-| Instance                               | Host OS & Kernel | Guest Rootfs | Guest Kernel |
-| :------------------------------------- | :--------------- | :----------- | :----------- |
-| m5n.metal (Intel Cascade Lake)         | al2 linux_5.10   | ubuntu 24.04 | linux_5.10   |
-| m6i.metal (Intel Ice Lake)             | al2023 linux_6.1 |              | linux_6.1    |
-| m7i.metal-24xl (Intel Sapphire Rapids) |                  |              |              |
-| m7i.metal-48xl (Intel Sapphire Rapids) |                  |              |              |
-| m6a.metal (AMD Milan)                  |                  |              |              |
-| m7a.metal-48xl (AMD Genoa)             |                  |              |              |
-| m6g.metal (Graviton 2)                 |                  |              |              |
-| m7g.metal (Graviton 3)                 |                  |              |              |
-| m8g.metal-24xl (Graviton 4)            |                  |              |              |
-| m8g.metal-48xl (Graviton 4)            |                  |              |              |
+| Instance                                    | Host OS & Kernel | Guest Rootfs | Guest Kernel |
+| :------------------------------------------ | :--------------- | :----------- | :----------- |
+| m5n.metal (Intel Cascade Lake)              | al2 linux_5.10   | ubuntu 24.04 | linux_5.10   |
+| m6i.metal (Intel Ice Lake)                  | al2023 linux_6.1 |              | linux_6.1    |
+| m7i.metal-24xl (Intel Sapphire Rapids)      |                  |              |              |
+| m7i.metal-48xl (Intel Sapphire Rapids)      |                  |              |              |
+| **m8i.metal-48xl (Intel Granite Rapids)\*** |                  |              |              |
+| **m8i.metal-96xl (Intel Granite Rapids)\*** |                  |              |              |
+| m6a.metal (AMD Milan)                       |                  |              |              |
+| m7a.metal-48xl (AMD Genoa)                  |                  |              |              |
+| m6g.metal (Graviton 2)                      |                  |              |              |
+| m7g.metal (Graviton 3)                      |                  |              |              |
+| m8g.metal-24xl (Graviton 4)                 |                  |              |              |
+| m8g.metal-48xl (Graviton 4)                 |                  |              |              |
+
+**\***: We **only** support AWS EC2 8th Gen Intel (\*8i) instances using a 6.1
+host kernel. This is due to poor kernel support for Granite Rapids CPUs on 5.10.
 
 ## Known issues and Limitations
 
