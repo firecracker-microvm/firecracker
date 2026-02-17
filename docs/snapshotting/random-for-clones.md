@@ -181,6 +181,8 @@ alter the read result via bind mounting another file on top of
   reseeded when the guest kernel handles the VMGenID notification. To completely
   avoid the race condition, users should follow the same steps as with kernels
   \< 5.18.
+- [Userspace notifications of loading snapshots](snapshot-support.md#userspace-notifications-of-loading-snapshots)
+  can be used to trigger the direct approach described above.
 
 **Annex 1 contains the source code of a C program which implements the previous
 three steps.** As soon as the guest kernel version switches to 4.19 (or higher),
