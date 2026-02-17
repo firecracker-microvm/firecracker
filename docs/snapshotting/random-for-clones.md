@@ -111,7 +111,7 @@ guest about time shift events, such as resuming from a snapshot. The device
 exposes a 16-byte cryptographically random identifier in guest memory.
 Firecracker implements VMGenID. When resuming a microVM from a snapshot
 Firecracker writes a new identifier and injects a notification to the guest.
-Linux,
+Linux
 [uses this value](https://elixir.bootlin.com/linux/v5.18.19/source/drivers/virt/vmgenid.c#L77)
 [as new randomness for its CSPRNG](https://elixir.bootlin.com/linux/v5.18.19/source/drivers/char/random.c#L908).
 Quoting the random.c implementation of the kernel:
