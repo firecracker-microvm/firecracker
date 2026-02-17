@@ -596,7 +596,7 @@ to implement mechanisms for ensuring de-duplication of such state, where needed.
 VMClock device
 ([specification](https://uapi-group.org/specifications/specs/vmclock/)) is a
 device that enables efficient application clock synchronization against real
-wallclock time, for applications running inside virtual machines. VMCLock also
+wallclock time, for applications running inside virtual machines. VMClock also
 takes care situations where there is some sort disruption happens to the clock.
 It handles these through fields in the
 [`vmlcock_abi`](https://uapi-group.org/specifications/specs/vmclock/#the-vmclock_abi-structure).
