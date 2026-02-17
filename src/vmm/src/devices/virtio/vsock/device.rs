@@ -268,6 +268,10 @@ where
         });
         queue.advance_used_ring_idx();
 
+        // NOTE: kick() will be called on resume and it will trigger the interrupt again. As calling
+        // it multiple times should not cause any harm, it would be safer to call it here as well
+        // as part of the sequence of actions that signal the reset event, prior to saving the
+        // transport state.
         self.signal_used_queue(EVQ_INDEX)?;
 
         Ok(())
@@ -391,6 +395,16 @@ where
                 self.id()
             );
             self.signal_used_queue(EVQ_INDEX).unwrap();
+        }
+    }
+
+    fn prepare_save(&mut self) {
+        // Send Transport event to reset connections if device
+        // is activated.
+        if self.is_activated() {
+            self.send_transport_reset_event().unwrap_or_else(|err| {
+                error!("Failed to send reset transport event: {:?}", err);
+            });
         }
     }
 }
