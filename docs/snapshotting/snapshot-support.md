@@ -621,10 +621,10 @@ notified about changes through an event loop.
 > in Linux through the patches
 > [here](https://lore.kernel.org/all/20260130173704.12575-1-itazur@amazon.com/)
 > and was added in Linux kernel v7.0. Users need to make sure that the linked
-> patches are applied on their kernels. We have backported these patches for AL
-> kernels [here](../../resources/patches/vmclock) 5.10 and 6.1 kernels. Using
-> the kernels suggested from the [Getting Started Guide](../getting-started.md)
-> includes these patches.
+> patches are applied on their kernels. We have backported these patches for
+> Amazon Linux kernels v5.10 and v6.1 [here](../../resources/patches/vmclock).
+> Using the kernels suggested from the
+> [Getting Started Guide](../getting-started.md) includes these patches.
 
 ## Vsock device reset
 
