@@ -111,6 +111,7 @@ impl PciDevices {
         id: String,
         bdf: PciBdf,
         virtio_device: Arc<Mutex<VirtioPciDevice>>,
+        event_manager: &mut EventManager,
     ) -> Result<(), PciManagerError> {
         // We should only be reaching this point if PCI is enabled
         let pci_segment = self.pci_segment.as_ref().unwrap();
@@ -130,6 +131,8 @@ impl PciDevices {
             .expect("Poisoned lock")
             .register_notification_ioevent(vm)?;
 
+        event_manager.add_subscriber(virtio_device.lock().expect("Poisoned lock").virtio_device());
+
         Ok(())
     }
 
@@ -140,6 +143,7 @@ impl PciDevices {
         vm: &Arc<Vm>,
         id: String,
         device: Arc<Mutex<T>>,
+        event_manager: &mut EventManager,
     ) -> Result<(), PciManagerError> {
         // We should only be reaching this point if PCI is enabled
         let pci_segment = self.pci_segment.as_ref().unwrap();
@@ -172,7 +176,14 @@ impl PciDevices {
 
         let virtio_device = Arc::new(Mutex::new(virtio_device));
 
-        self.attach_common(vm, device_type, id, pci_device_bdf, virtio_device)
+        self.attach_common(
+            vm,
+            device_type,
+            id,
+            pci_device_bdf,
+            virtio_device,
+            event_manager,
+        )
     }
 
     fn restore_pci_device<T: 'static + VirtioDevice + MutEventSubscriber + Debug>(
@@ -198,9 +209,8 @@ impl PciDevices {
             device_id.to_string(),
             transport_state.pci_device_bdf,
             virtio_device,
+            event_manager,
         )?;
-
-        event_manager.add_subscriber(device);
 
         Ok(())
     }

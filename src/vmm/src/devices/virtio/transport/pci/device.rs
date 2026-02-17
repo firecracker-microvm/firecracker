@@ -979,12 +979,14 @@ mod tests {
         let mut vmm = default_vmm();
         vmm.device_manager.enable_pci(&vmm.vm);
         let entropy = Arc::new(Mutex::new(Entropy::new(RateLimiter::default()).unwrap()));
+        let mut event_manager = crate::EventManager::new().unwrap();
         vmm.device_manager
             .attach_virtio_device(
                 &vmm.vm,
                 "rng".to_string(),
                 entropy.clone(),
                 &mut Cmdline::new(1024).unwrap(),
+                &mut event_manager,
                 false,
             )
             .unwrap();

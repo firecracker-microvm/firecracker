@@ -588,7 +588,14 @@ mod tests {
         let dummy = Arc::new(Mutex::new(DummyDevice::new()));
         device_manager
             .mmio_devices
-            .register_virtio_test_device(&vm, mem.clone(), dummy, &mut cmdline, "dummy")
+            .register_virtio_test_device(
+                &vm,
+                mem.clone(),
+                dummy,
+                &mut event_manager,
+                &mut cmdline,
+                "dummy",
+            )
             .unwrap();
 
         create_fdt(
