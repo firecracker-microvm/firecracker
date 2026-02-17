@@ -24,7 +24,7 @@
 - [Snapshot security and uniqueness](#snapshot-security-and-uniqueness)
   - [Secure and insecure usage examples](#usage-examples)
   - [Reusing snapshotted states securely](#reusing-snapshotted-states-securely)
-  - [Userspace notifications of loading Virtual Machine snapshots](#userspace-notifications-of-loading-virtual-machine-snapshots)
+  - [Userspace notifications of loading snapshots](#userspace-notifications-of-loading-snapshots)
 - [Vsock device reset](#vsock-device-reset)
 - [VMGenID device limitation](#vmgenid-device-limitation)
 - [Where can I resume my snapshots?](#where-can-i-resume-my-snapshots)
@@ -591,19 +591,19 @@ identifiers, cached random numbers, cryptographic tokens, etc **will** still be
 replicated across multiple microVMs resumed from the same snapshot. Users need
 to implement mechanisms for ensuring de-duplication of such state, where needed.
 
-## Userspace notifications of loading Virtual Machine snapshots
+## Userspace notifications of loading snapshots
 
 VMClock device
 ([specification](https://uapi-group.org/specifications/specs/vmclock/)) is a
 device that enables efficient application clock synchronization against real
-wallclock time, for applications running inside Virtual Machines. VMCLock also
+wallclock time, for applications running inside virtual machines. VMClock also
 takes care situations where there is some sort disruption happens to the clock.
 It handles these through fields in the
 [`vmlcock_abi`](https://uapi-group.org/specifications/specs/vmclock/#the-vmclock_abi-structure).
 Currently, it handles two cases:
 
 1. Live migration through the `disruption_marker` field.
-1. Virtual machine snapshots through the `vm_generation_counter`.
+1. Restore from snapshots through the `vm_generation_counter`.
 
 Whenever a VM starts from a snapshot VMClock will present a new (different that
 what was previously stored) value in the `vm_generation_counter`. This happens
@@ -617,14 +617,16 @@ recreate state.
 Moreover, VMClock allows processes to call poll() on the VMClock device and get
 notified about changes through an event loop.
 
-> [!IMPORTANT] Support for `vm_generation_counter` and `poll()` is implemented
-> in Linux through the patches
+> [!IMPORTANT]
+>
+> Support for `vm_generation_counter` and `poll()` is implemented in Linux
+> through the patches
 > [here](https://lore.kernel.org/lkml/20260107132514.437-1-bchalios@amazon.es/).
-> We have backported these patches for AL kernels
-> [here](../../resources/patches/vmclock) 5.10 and 6.1 kernels. Using the
-> kernels suggested from the [Getting Started Guide](../getting-started.md)
-> includes these patches. When using mainline kernels users need to make sure
-> that they apply the linked patches, until these get merged upstream.
+> We have backported these patches for Amazon Linux kernels v5.10 and v6.1
+> [here](../../resources/patches/vmclock). The kernels used in the
+> [Getting Started Guide](../getting-started.md) include these patches. When
+> using mainline kernels users need to make sure that they apply the linked
+> patches, until these get merged upstream.
 
 ## Vsock device reset
 
