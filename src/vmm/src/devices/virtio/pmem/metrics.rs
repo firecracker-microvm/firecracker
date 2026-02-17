@@ -157,9 +157,8 @@ impl PmemMetrics {
 
 #[cfg(test)]
 pub mod tests {
-    use std::sync::Arc;
-
     use super::*;
+    use std::sync::Arc;
 
     #[test]
     fn test_single_pmem_dev_metrics() {
