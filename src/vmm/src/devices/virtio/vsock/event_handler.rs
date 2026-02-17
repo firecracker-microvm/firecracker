@@ -35,7 +35,6 @@ use super::device::{EVQ_INDEX, RXQ_INDEX, TXQ_INDEX, Vsock};
 use crate::devices::virtio::device::VirtioDevice;
 use crate::devices::virtio::queue::InvalidAvailIdx;
 use crate::devices::virtio::vsock::defs::VSOCK_NUM_QUEUES;
-use crate::devices::virtio::vsock::metrics::METRICS;
 use crate::logger::IncMetric;
 
 impl<B> Vsock<B>
@@ -52,18 +51,18 @@ where
         let mut used_queues = Vec::new();
         if evset != EventSet::IN {
             warn!("vsock: rxq unexpected event {:?}", evset);
-            METRICS.rx_queue_event_fails.inc();
+            self.metrics.rx_queue_event_fails.inc();
             return used_queues;
         }
 
         if let Err(err) = self.queue_events[RXQ_INDEX].read() {
             error!("Failed to get vsock rx queue event: {:?}", err);
-            METRICS.rx_queue_event_fails.inc();
+            self.metrics.rx_queue_event_fails.inc();
         } else if self.backend.has_pending_rx() {
             if self.process_rx().unwrap() {
                 used_queues.push(RXQ_INDEX.try_into().unwrap());
             }
-            METRICS.rx_queue_event_count.inc();
+            self.metrics.rx_queue_event_count.inc();
         }
         used_queues
     }
@@ -72,18 +71,18 @@ where
         let mut used_queues = Vec::new();
         if evset != EventSet::IN {
             warn!("vsock: txq unexpected event {:?}", evset);
-            METRICS.tx_queue_event_fails.inc();
+            self.metrics.tx_queue_event_fails.inc();
             return used_queues;
         }
 
         if let Err(err) = self.queue_events[TXQ_INDEX].read() {
             error!("Failed to get vsock tx queue event: {:?}", err);
-            METRICS.tx_queue_event_fails.inc();
+            self.metrics.tx_queue_event_fails.inc();
         } else {
             if self.process_tx().unwrap() {
                 used_queues.push(TXQ_INDEX.try_into().unwrap());
             }
-            METRICS.tx_queue_event_count.inc();
+            self.metrics.tx_queue_event_count.inc();
             // The backend may have queued up responses to the packets we sent during
             // TX queue processing. If that happened, we need to fetch those responses
             // and place them into RX buffers.
@@ -97,13 +96,13 @@ where
     pub fn handle_evq_event(&mut self, evset: EventSet) {
         if evset != EventSet::IN {
             warn!("vsock: evq unexpected event {:?}", evset);
-            METRICS.ev_queue_event_fails.inc();
+            self.metrics.ev_queue_event_fails.inc();
             return;
         }
 
         if let Err(err) = self.queue_events[EVQ_INDEX].read() {
             error!("Failed to consume vsock evq event: {:?}", err);
-            METRICS.ev_queue_event_fails.inc();
+            self.metrics.ev_queue_event_fails.inc();
         }
     }
 
@@ -317,9 +316,12 @@ mod tests {
             let mut ctx = test_ctx.create_event_handler_context();
             ctx.mock_activate(test_ctx.mem.clone(), test_ctx.interrupt.clone());
 
-            let metric_before = METRICS.tx_queue_event_fails.count();
+            let metric_before = ctx.device.metrics.tx_queue_event_fails.count();
             ctx.device.handle_txq_event(EventSet::IN);
-            assert_eq!(metric_before + 1, METRICS.tx_queue_event_fails.count());
+            assert_eq!(
+                metric_before + 1,
+                ctx.device.metrics.tx_queue_event_fails.count()
+            );
         }
     }
 
@@ -380,9 +382,12 @@ mod tests {
             let mut ctx = test_ctx.create_event_handler_context();
             ctx.mock_activate(test_ctx.mem.clone(), test_ctx.interrupt.clone());
             ctx.device.backend.set_pending_rx(false);
-            let metric_before = METRICS.rx_queue_event_fails.count();
+            let metric_before = ctx.device.metrics.rx_queue_event_fails.count();
             ctx.device.handle_rxq_event(EventSet::IN);
-            assert_eq!(metric_before + 1, METRICS.rx_queue_event_fails.count());
+            assert_eq!(
+                metric_before + 1,
+                ctx.device.metrics.rx_queue_event_fails.count()
+            );
         }
     }
 
@@ -393,9 +398,12 @@ mod tests {
             let test_ctx = TestContext::new();
             let mut ctx = test_ctx.create_event_handler_context();
             ctx.device.backend.set_pending_rx(false);
-            let metric_before = METRICS.ev_queue_event_fails.count();
+            let metric_before = ctx.device.metrics.ev_queue_event_fails.count();
             ctx.device.handle_evq_event(EventSet::IN);
-            assert_eq!(metric_before + 1, METRICS.ev_queue_event_fails.count());
+            assert_eq!(
+                metric_before + 1,
+                ctx.device.metrics.ev_queue_event_fails.count()
+            );
         }
     }
 
