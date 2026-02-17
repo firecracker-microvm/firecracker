@@ -6,7 +6,6 @@
 use std::fmt::{self, Debug};
 use std::sync::{Arc, Mutex};
 
-use event_manager::SubscriberOps;
 use log::warn;
 use serde::{Deserialize, Serialize};
 
@@ -405,6 +404,7 @@ impl<'a> Persist<'a> for MMIODeviceManager {
                     resources: *device_info,
                     inner: mmio_transport,
                 },
+                event_manager,
             )?;
 
             if activated {
@@ -414,7 +414,6 @@ impl<'a> Persist<'a> for MMIODeviceManager {
                     .activate(mem.clone(), interrupt)?;
             }
 
-            event_manager.add_subscriber(device);
             Ok(())
         };
 

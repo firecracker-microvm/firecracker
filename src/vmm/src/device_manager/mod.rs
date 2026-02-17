@@ -188,6 +188,7 @@ impl DeviceManager {
         id: String,
         device: Arc<Mutex<T>>,
         cmdline: &mut Cmdline,
+        event_manager: &mut EventManager,
         is_vhost_user: bool,
     ) -> Result<(), AttachDeviceError> {
         let interrupt = Arc::new(IrqTrigger::new());
@@ -195,7 +196,7 @@ impl DeviceManager {
         let device =
             MmioTransport::new(vm.guest_memory().clone(), interrupt, device, is_vhost_user);
         self.mmio_devices
-            .register_mmio_virtio_for_boot(vm, id, device, cmdline)?;
+            .register_mmio_virtio_for_boot(vm, id, device, event_manager, cmdline)?;
 
         Ok(())
     }
@@ -207,12 +208,14 @@ impl DeviceManager {
         id: String,
         device: Arc<Mutex<T>>,
         cmdline: &mut Cmdline,
+        event_manager: &mut EventManager,
         is_vhost_user: bool,
     ) -> Result<(), AttachDeviceError> {
         if self.is_pci_enabled() {
-            self.pci_devices.attach_pci_virtio_device(vm, id, device)?;
+            self.pci_devices
+                .attach_pci_virtio_device(vm, id, device, event_manager)?;
         } else {
-            self.attach_mmio_virtio_device(vm, id, device, cmdline, is_vhost_user)?;
+            self.attach_mmio_virtio_device(vm, id, device, cmdline, event_manager, is_vhost_user)?;
         }
 
         Ok(())
