@@ -24,20 +24,32 @@
 
 use serde::ser::SerializeMap;
 use serde::{Serialize, Serializer};
+use std::collections::BTreeMap;
+use std::sync::{Arc, RwLock};
 
 use crate::logger::{LatencyAggregateMetrics, SharedIncMetric};
 
 /// Stores aggregated virtio-mem metrics
-pub(super) static METRICS: VirtioMemDeviceMetrics = VirtioMemDeviceMetrics::new();
+pub(super) static METRICS: RwLock<BTreeMap<String, Arc<VirtioMemDeviceMetrics>>> =
+    RwLock::new(BTreeMap::new());
 
 /// Called by METRICS.flush(), this function facilitates serialization of virtio-mem device metrics.
 pub fn flush_metrics<S: Serializer>(serializer: S) -> Result<S::Ok, S::Error> {
     let mut seq = serializer.serialize_map(Some(1))?;
-    seq.serialize_entry("memory_hotplug", &METRICS)?;
+    let dev_name = "memory_hotplug";
+
+    let mut mem_agg = VirtioMemDeviceMetrics::default();
+    for (name, metrics) in METRICS.read().unwrap().iter() {
+        let dev_name = format!("mem_{}", name);
+        mem_agg.aggregate(metrics);
+        seq.serialize_entry(&dev_name, &metrics)?;
+    }
+
+    seq.serialize_entry(&dev_name, &mem_agg)?;
     seq.end()
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Default, Debug, Serialize)]
 pub(super) struct VirtioMemDeviceMetrics {
     /// Number of device activation failures
     pub activate_fails: SharedIncMetric,
@@ -77,31 +89,26 @@ pub(super) struct VirtioMemDeviceMetrics {
     pub state_fails: SharedIncMetric,
 }
 
-impl VirtioMemDeviceMetrics {
-    /// Const default construction.
-    const fn new() -> Self {
-        Self {
-            activate_fails: SharedIncMetric::new(),
-            queue_event_fails: SharedIncMetric::new(),
-            queue_event_count: SharedIncMetric::new(),
-            plug_agg: LatencyAggregateMetrics::new(),
-            plug_count: SharedIncMetric::new(),
-            plug_bytes: SharedIncMetric::new(),
-            plug_fails: SharedIncMetric::new(),
-            unplug_agg: LatencyAggregateMetrics::new(),
-            unplug_count: SharedIncMetric::new(),
-            unplug_bytes: SharedIncMetric::new(),
-            unplug_fails: SharedIncMetric::new(),
-            unplug_discard_fails: SharedIncMetric::new(),
-            unplug_all_agg: LatencyAggregateMetrics::new(),
-            unplug_all_count: SharedIncMetric::new(),
-            unplug_all_fails: SharedIncMetric::new(),
-            state_agg: LatencyAggregateMetrics::new(),
-            state_count: SharedIncMetric::new(),
-            state_fails: SharedIncMetric::new(),
-        }
-    }
-}
+crate::impl_aggregate!(VirtioMemDeviceMetrics {
+    activate_fails,
+    queue_event_fails,
+    queue_event_count,
+    plug_agg,
+    plug_count,
+    plug_bytes,
+    plug_fails,
+    unplug_agg,
+    unplug_count,
+    unplug_bytes,
+    unplug_fails,
+    unplug_discard_fails,
+    unplug_all_agg,
+    unplug_all_count,
+    unplug_all_fails,
+    state_agg,
+    state_count,
+    state_fails,
+});
 
 #[cfg(test)]
 pub mod tests {
@@ -110,9 +117,17 @@ pub mod tests {
 
     #[test]
     fn test_memory_hotplug_metrics() {
-        let mem_metrics: VirtioMemDeviceMetrics = VirtioMemDeviceMetrics::new();
+        let mem_metrics = VirtioMemDeviceMetrics::default();
         mem_metrics.queue_event_count.inc();
         assert_eq!(mem_metrics.queue_event_count.count(), 1);
-        let _ = serde_json::to_string(&mem_metrics).unwrap();
+
+        let serialized = serde_json::to_string(&mem_metrics).unwrap();
+        let json_val: serde_json::Value = serde_json::from_str(&serialized).unwrap();
+        let obj = json_val.as_object().unwrap();
+
+        assert_eq!(
+            obj.get("queue_event_count").and_then(|v| v.as_u64()),
+            Some(1)
+        );
     }
 }

@@ -4,6 +4,7 @@
 use std::io;
 use std::ops::{Deref, Range};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use bitvec::vec::BitVec;
 use serde::{Deserialize, Serialize};
@@ -18,7 +19,7 @@ use crate::devices::virtio::generated::virtio_mem::{
     self, VIRTIO_MEM_F_UNPLUGGED_INACCESSIBLE, virtio_mem_config,
 };
 use crate::devices::virtio::mem::VIRTIO_MEM_DEV_ID;
-use crate::devices::virtio::mem::metrics::METRICS;
+use crate::devices::virtio::mem::metrics::{METRICS, VirtioMemDeviceMetrics};
 use crate::devices::virtio::mem::request::{BlockRangeState, Request, RequestedRange, Response};
 use crate::devices::virtio::queue::{
     DescriptorChain, FIRECRACKER_MAX_QUEUE_SIZE, InvalidAvailIdx, Queue, QueueConfig, QueueError,
@@ -33,6 +34,11 @@ use crate::vstate::vm::{KvmVm, VmError};
 
 // SAFETY: virtio_mem_config only contains plain data types
 unsafe impl ByteValued for virtio_mem_config {}
+
+// Unique identifier for the metrics instance in the METRICS map.
+// It only has to be unique within a process so an atomic that gets
+// incremented continuously is enough.
+static NEXT_ID: AtomicU64 = AtomicU64::new(0);
 
 #[derive(Debug, thiserror::Error, displaydoc::Display)]
 pub enum VirtioMemError {
@@ -94,6 +100,7 @@ pub struct VirtioMem {
     // Bitmap to track which blocks are plugged
     pub(crate) plugged_blocks: BitVec,
     vm: Arc<KvmVm>,
+    metrics: Arc<VirtioMemDeviceMetrics>,
 }
 
 /// Memory hotplug device status information.
@@ -155,6 +162,13 @@ impl VirtioMem {
             .map(|_| EventFd::new(libc::EFD_NONBLOCK))
             .collect::<Result<Vec<EventFd>, io::Error>>()?;
 
+        let metrics = Arc::new(VirtioMemDeviceMetrics::default());
+        let id = NEXT_ID.fetch_add(1, Ordering::Relaxed);
+        METRICS
+            .write()
+            .unwrap()
+            .insert(id.to_string(), metrics.clone());
+
         Ok(Self {
             avail_features: (1 << VIRTIO_F_VERSION_1) | (1 << VIRTIO_MEM_F_UNPLUGGED_INACCESSIBLE),
             acked_features: 0u64,
@@ -166,6 +180,7 @@ impl VirtioMem {
             vm,
             slot_size,
             plugged_blocks,
+            metrics,
         })
     }
 
@@ -353,17 +368,18 @@ impl VirtioMem {
         resp_addr: GuestAddress,
         used_idx: u16,
     ) -> Result<(), VirtioMemError> {
-        METRICS.plug_count.inc();
-        let _metric = METRICS.plug_agg.record_latency_metrics();
+        let metrics = Arc::clone(&self.metrics);
+        metrics.plug_count.inc();
+        let _metric = metrics.plug_agg.record_latency_metrics();
 
         let response = match self.process_plug_request(range) {
             Err(err) => {
-                METRICS.plug_fails.inc();
+                self.metrics.plug_fails.inc();
                 error!("virtio-mem: Failed to plug range: {}", err);
                 Response::error()
             }
             Ok(len) => {
-                METRICS.plug_bytes.add(usize_to_u64(len));
+                self.metrics.plug_bytes.add(usize_to_u64(len));
                 Response::ack()
             }
         };
@@ -387,16 +403,18 @@ impl VirtioMem {
         resp_addr: GuestAddress,
         used_idx: u16,
     ) -> Result<(), VirtioMemError> {
-        METRICS.unplug_count.inc();
-        let _metric = METRICS.unplug_agg.record_latency_metrics();
+        let metrics = Arc::clone(&self.metrics);
+        metrics.unplug_count.inc();
+        let _metric = metrics.unplug_agg.record_latency_metrics();
+
         let response = match self.process_unplug_request(range) {
             Err(err) => {
-                METRICS.unplug_fails.inc();
+                self.metrics.unplug_fails.inc();
                 error!("virtio-mem: Failed to unplug range: {}", err);
                 Response::error()
             }
             Ok(len) => {
-                METRICS.unplug_bytes.add(usize_to_u64(len));
+                self.metrics.unplug_bytes.add(usize_to_u64(len));
                 Response::ack()
             }
         };
@@ -408,15 +426,17 @@ impl VirtioMem {
         resp_addr: GuestAddress,
         used_idx: u16,
     ) -> Result<(), VirtioMemError> {
-        METRICS.unplug_all_count.inc();
-        let _metric = METRICS.unplug_all_agg.record_latency_metrics();
+        let metrics = Arc::clone(&self.metrics);
+        metrics.unplug_all_count.inc();
+        let _metric = metrics.unplug_all_agg.record_latency_metrics();
+
         let range = RequestedRange {
             addr: self.guest_address(),
             nb_blocks: self.plugged_blocks.len(),
         };
         let response = match self.update_range(&range, false) {
             Err(err) => {
-                METRICS.unplug_all_fails.inc();
+                self.metrics.unplug_all_fails.inc();
                 error!("virtio-mem: Failed to unplug all: {}", err);
                 Response::error()
             }
@@ -434,11 +454,13 @@ impl VirtioMem {
         resp_addr: GuestAddress,
         used_idx: u16,
     ) -> Result<(), VirtioMemError> {
-        METRICS.state_count.inc();
-        let _metric = METRICS.state_agg.record_latency_metrics();
+        let metrics = Arc::clone(&self.metrics);
+        metrics.state_count.inc();
+        let _metrics = metrics.state_agg.record_latency_metrics();
+
         let response = match self.validate_range(range) {
             Err(err) => {
-                METRICS.state_fails.inc();
+                self.metrics.state_fails.inc();
                 error!("virtio-mem: Failed to retrieve state of range: {}", err);
                 Response::error()
             }
@@ -471,15 +493,15 @@ impl VirtioMem {
     }
 
     pub(crate) fn process_mem_queue_event(&mut self) {
-        METRICS.queue_event_count.inc();
+        self.metrics.queue_event_count.inc();
         if let Err(err) = self.queue_events[MEM_QUEUE].read() {
-            METRICS.queue_event_fails.inc();
+            self.metrics.queue_event_fails.inc();
             error!("Failed to read mem queue event: {err}");
             return;
         }
 
         if let Err(err) = self.process_mem_queue() {
-            METRICS.queue_event_fails.inc();
+            self.metrics.queue_event_fails.inc();
             error!("virtio-mem: Failed to process queue: {err}");
         }
     }
@@ -603,7 +625,7 @@ impl VirtioMem {
                 self.apply_range_to_slot(slot_num, first_block, block_count, &req_blocks, plug)?;
         }
         if discard_failed {
-            METRICS.unplug_discard_fails.inc();
+            self.metrics.unplug_discard_fails.inc();
         }
         Ok(())
     }
@@ -741,7 +763,7 @@ impl VirtioDevice for VirtioMem {
             error!(
                 "virtio-mem: VIRTIO_MEM_F_UNPLUGGED_INACCESSIBLE feature not acknowledged by guest"
             );
-            METRICS.activate_fails.inc();
+            self.metrics.activate_fails.inc();
             return Err(ActivateError::RequiredFeatureNotAcked(
                 "VIRTIO_MEM_F_UNPLUGGED_INACCESSIBLE",
             ));
@@ -754,7 +776,7 @@ impl VirtioDevice for VirtioMem {
 
         self.device_state = DeviceState::Activated(ActiveState { mem, interrupt });
         if self.activate_event.write(1).is_err() {
-            METRICS.activate_fails.inc();
+            self.metrics.activate_fails.inc();
             self.device_state = DeviceState::Inactive;
             return Err(ActivateError::EventFd);
         }
@@ -996,14 +1018,11 @@ mod tests {
         let guest_mem = mem_dev.vm.guest_memory().clone();
         let mut th = test_helper(mem_dev, &guest_mem);
 
-        let queue_event_count = METRICS.queue_event_count.count();
-        let queue_event_fails = METRICS.queue_event_fails.count();
-
         th.add_desc_chain(MEM_QUEUE, 0, &[(0, REQ_SIZE, 0)]);
         assert_eq!(th.emulate_for_msec(100).unwrap(), 1);
 
-        assert_eq!(METRICS.queue_event_count.count(), queue_event_count + 1);
-        assert_eq!(METRICS.queue_event_fails.count(), queue_event_fails + 1);
+        assert_eq!(th.device().metrics.queue_event_count.count(), 1);
+        assert_eq!(th.device().metrics.queue_event_fails.count(), 1);
     }
 
     #[test]
@@ -1012,14 +1031,11 @@ mod tests {
         let guest_mem = mem_dev.vm.guest_memory().clone();
         let mut th = test_helper(mem_dev, &guest_mem);
 
-        let queue_event_count = METRICS.queue_event_count.count();
-        let queue_event_fails = METRICS.queue_event_fails.count();
-
         th.add_desc_chain(MEM_QUEUE, 0, &[(0, 1, 0)]);
         assert_eq!(th.emulate_for_msec(100).unwrap(), 1);
 
-        assert_eq!(METRICS.queue_event_count.count(), queue_event_count + 1);
-        assert_eq!(METRICS.queue_event_fails.count(), queue_event_fails + 1);
+        assert_eq!(th.device().metrics.queue_event_count.count(), 1);
+        assert_eq!(th.device().metrics.queue_event_fails.count(), 1);
     }
 
     #[test]
@@ -1028,14 +1044,11 @@ mod tests {
         let guest_mem = mem_dev.vm.guest_memory().clone();
         let mut th = test_helper(mem_dev, &guest_mem);
 
-        let queue_event_count = METRICS.queue_event_count.count();
-        let queue_event_fails = METRICS.queue_event_fails.count();
-
         th.add_desc_chain(MEM_QUEUE, 0, &[(0, REQ_SIZE, VIRTQ_DESC_F_WRITE)]);
         assert_eq!(th.emulate_for_msec(100).unwrap(), 1);
 
-        assert_eq!(METRICS.queue_event_count.count(), queue_event_count + 1);
-        assert_eq!(METRICS.queue_event_fails.count(), queue_event_fails + 1);
+        assert_eq!(th.device().metrics.queue_event_count.count(), 1);
+        assert_eq!(th.device().metrics.queue_event_fails.count(), 1);
     }
 
     #[test]
@@ -1044,14 +1057,11 @@ mod tests {
         let guest_mem = mem_dev.vm.guest_memory().clone();
         let mut th = test_helper(mem_dev, &guest_mem);
 
-        let queue_event_count = METRICS.queue_event_count.count();
-        let queue_event_fails = METRICS.queue_event_fails.count();
-
         th.add_desc_chain(MEM_QUEUE, 0, &[(0, REQ_SIZE, 0), (1, RESP_SIZE, 0)]);
         assert_eq!(th.emulate_for_msec(100).unwrap(), 1);
 
-        assert_eq!(METRICS.queue_event_count.count(), queue_event_count + 1);
-        assert_eq!(METRICS.queue_event_fails.count(), queue_event_fails + 1);
+        assert_eq!(th.device().metrics.queue_event_count.count(), 1);
+        assert_eq!(th.device().metrics.queue_event_fails.count(), 1);
     }
 
     #[test]
@@ -1060,9 +1070,6 @@ mod tests {
         let guest_mem = mem_dev.vm.guest_memory().clone();
         let mut th = test_helper(mem_dev, &guest_mem);
 
-        let queue_event_count = METRICS.queue_event_count.count();
-        let queue_event_fails = METRICS.queue_event_fails.count();
-
         th.add_desc_chain(
             MEM_QUEUE,
             0,
@@ -1070,8 +1077,8 @@ mod tests {
         );
         assert_eq!(th.emulate_for_msec(100).unwrap(), 1);
 
-        assert_eq!(METRICS.queue_event_count.count(), queue_event_count + 1);
-        assert_eq!(METRICS.queue_event_fails.count(), queue_event_fails + 1);
+        assert_eq!(th.device().metrics.queue_event_count.count(), 1);
+        assert_eq!(th.device().metrics.queue_event_fails.count(), 1);
     }
 
     #[test]
@@ -1122,12 +1129,6 @@ mod tests {
         th.device().update_requested_size(1024).unwrap();
         let addr = th.device().guest_address();
 
-        let queue_event_count = METRICS.queue_event_count.count();
-        let queue_event_fails = METRICS.queue_event_fails.count();
-        let plug_count = METRICS.plug_count.count();
-        let plug_bytes = METRICS.plug_bytes.count();
-        let plug_fails = METRICS.plug_fails.count();
-
         let resp = emulate_request(
             &mut th,
             &guest_mem,
@@ -1136,11 +1137,11 @@ mod tests {
         assert!(resp.is_ack());
         assert_eq!(th.device().plugged_size_mib(), 2);
 
-        assert_eq!(METRICS.queue_event_count.count(), queue_event_count + 1);
-        assert_eq!(METRICS.queue_event_fails.count(), queue_event_fails);
-        assert_eq!(METRICS.plug_count.count(), plug_count + 1);
-        assert_eq!(METRICS.plug_bytes.count(), plug_bytes + (2 << 20));
-        assert_eq!(METRICS.plug_fails.count(), plug_fails);
+        assert_eq!(th.device().metrics.queue_event_count.count(), 1);
+        assert_eq!(th.device().metrics.queue_event_fails.count(), 0);
+        assert_eq!(th.device().metrics.plug_count.count(), 1);
+        assert_eq!(th.device().metrics.plug_bytes.count(), 2 << 20);
+        assert_eq!(th.device().metrics.plug_fails.count(), 0);
     }
 
     #[test]
@@ -1151,10 +1152,6 @@ mod tests {
         th.device().update_requested_size(2).unwrap();
         let addr = th.device().guest_address();
 
-        let plug_count = METRICS.plug_count.count();
-        let plug_bytes = METRICS.plug_bytes.count();
-        let plug_fails = METRICS.plug_fails.count();
-
         let resp = emulate_request(
             &mut th,
             &guest_mem,
@@ -1162,9 +1159,9 @@ mod tests {
         );
         assert!(resp.is_error());
 
-        assert_eq!(METRICS.plug_count.count(), plug_count + 1);
-        assert_eq!(METRICS.plug_bytes.count(), plug_bytes);
-        assert_eq!(METRICS.plug_fails.count(), plug_fails + 1);
+        assert_eq!(th.device().metrics.plug_count.count(), 1);
+        assert_eq!(th.device().metrics.plug_bytes.count(), 0);
+        assert_eq!(th.device().metrics.plug_fails.count(), 1);
     }
 
     #[test]
@@ -1200,10 +1197,6 @@ mod tests {
         th.device().update_requested_size(1024).unwrap();
         let addr = th.device().guest_address();
 
-        let unplug_count = METRICS.unplug_count.count();
-        let unplug_bytes = METRICS.unplug_bytes.count();
-        let unplug_fails = METRICS.unplug_fails.count();
-
         // First plug
         let resp = emulate_request(
             &mut th,
@@ -1222,9 +1215,9 @@ mod tests {
         assert!(resp.is_ack());
         assert_eq!(th.device().plugged_size_mib(), 0);
 
-        assert_eq!(METRICS.unplug_count.count(), unplug_count + 1);
-        assert_eq!(METRICS.unplug_bytes.count(), unplug_bytes + (2 << 20));
-        assert_eq!(METRICS.unplug_fails.count(), unplug_fails);
+        assert_eq!(th.device().metrics.unplug_count.count(), 1);
+        assert_eq!(th.device().metrics.unplug_bytes.count(), 2 << 20);
+        assert_eq!(th.device().metrics.unplug_fails.count(), 0);
     }
 
     #[test]
@@ -1235,10 +1228,6 @@ mod tests {
         th.device().update_requested_size(1024).unwrap();
         let addr = th.device().guest_address();
 
-        let unplug_count = METRICS.unplug_count.count();
-        let unplug_bytes = METRICS.unplug_bytes.count();
-        let unplug_fails = METRICS.unplug_fails.count();
-
         let resp = emulate_request(
             &mut th,
             &guest_mem,
@@ -1246,9 +1235,9 @@ mod tests {
         );
         assert!(resp.is_error());
 
-        assert_eq!(METRICS.unplug_count.count(), unplug_count + 1);
-        assert_eq!(METRICS.unplug_bytes.count(), unplug_bytes);
-        assert_eq!(METRICS.unplug_fails.count(), unplug_fails + 1);
+        assert_eq!(th.device().metrics.unplug_count.count(), 1);
+        assert_eq!(th.device().metrics.unplug_bytes.count(), 0);
+        assert_eq!(th.device().metrics.unplug_fails.count(), 1);
     }
 
     #[test]
@@ -1258,9 +1247,6 @@ mod tests {
         let mut th = test_helper(mem_dev, &guest_mem);
         th.device().update_requested_size(1024).unwrap();
         let addr = th.device().guest_address();
-
-        let unplug_all_count = METRICS.unplug_all_count.count();
-        let unplug_all_fails = METRICS.unplug_all_fails.count();
 
         // Plug some blocks
         let resp = emulate_request(
@@ -1276,8 +1262,8 @@ mod tests {
         assert!(resp.is_ack());
         assert_eq!(th.device().plugged_size_mib(), 0);
 
-        assert_eq!(METRICS.unplug_all_count.count(), unplug_all_count + 1);
-        assert_eq!(METRICS.unplug_all_fails.count(), unplug_all_fails);
+        assert_eq!(th.device().metrics.unplug_all_count.count(), 1);
+        assert_eq!(th.device().metrics.unplug_all_fails.count(), 0);
     }
 
     /// A plug spanning two slots where the second slot's KVM update fails must leave only the first
@@ -1327,11 +1313,10 @@ mod tests {
         assert!(resp.is_ack());
         assert_eq!(th.device().plugged_size_mib(), 0);
 
-        let unplug_all_fails = METRICS.unplug_all_fails.count();
         let resp = emulate_request(&mut th, &guest_mem, Request::UnplugAll);
         assert!(resp.is_ack());
         assert_eq!(th.device().plugged_size_mib(), 0);
-        assert_eq!(METRICS.unplug_all_fails.count(), unplug_all_fails);
+        assert_eq!(th.device().metrics.unplug_all_fails.count(), 0);
     }
 
     #[test]
@@ -1342,9 +1327,6 @@ mod tests {
         th.device().update_requested_size(1024).unwrap();
         let addr = th.device().guest_address();
 
-        let state_count = METRICS.state_count.count();
-        let state_fails = METRICS.state_fails.count();
-
         let resp = emulate_request(
             &mut th,
             &guest_mem,
@@ -1352,8 +1334,8 @@ mod tests {
         );
         assert_eq!(resp, Response::ack_with_state(BlockRangeState::Unplugged));
 
-        assert_eq!(METRICS.state_count.count(), state_count + 1);
-        assert_eq!(METRICS.state_fails.count(), state_fails);
+        assert_eq!(th.device().metrics.state_count.count(), 1);
+        assert_eq!(th.device().metrics.state_fails.count(), 0);
     }
 
     #[test]
@@ -1414,9 +1396,6 @@ mod tests {
         th.device().update_requested_size(1024).unwrap();
         let addr = th.device().guest_address().unchecked_add(1);
 
-        let state_count = METRICS.state_count.count();
-        let state_fails = METRICS.state_fails.count();
-
         let resp = emulate_request(
             &mut th,
             &guest_mem,
@@ -1424,8 +1403,8 @@ mod tests {
         );
         assert!(resp.is_error());
 
-        assert_eq!(METRICS.state_count.count(), state_count + 1);
-        assert_eq!(METRICS.state_fails.count(), state_fails + 1);
+        assert_eq!(th.device().metrics.state_count.count(), 1);
+        assert_eq!(th.device().metrics.state_fails.count(), 1);
     }
 
     #[test]
@@ -1469,9 +1448,6 @@ mod tests {
         let guest_mem = mem_dev.vm.guest_memory().clone();
         let mut th = test_helper(mem_dev, &guest_mem);
 
-        let queue_event_count = METRICS.queue_event_count.count();
-        let queue_event_fails = METRICS.queue_event_fails.count();
-
         th.add_desc_chain(
             MEM_QUEUE,
             0,
@@ -1485,7 +1461,7 @@ mod tests {
             .unwrap();
         assert_eq!(th.emulate_for_msec(100).unwrap(), 1);
 
-        assert_eq!(METRICS.queue_event_count.count(), queue_event_count + 1);
-        assert_eq!(METRICS.queue_event_fails.count(), queue_event_fails + 1);
+        assert_eq!(th.device().metrics.queue_event_count.count(), 1);
+        assert_eq!(th.device().metrics.queue_event_fails.count(), 1);
     }
 }
