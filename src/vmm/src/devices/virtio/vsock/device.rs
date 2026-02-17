@@ -37,7 +37,7 @@ use crate::devices::virtio::generated::virtio_ring::VIRTIO_RING_F_EVENT_IDX;
 use crate::devices::virtio::queue::{InvalidAvailIdx, Queue as VirtQueue};
 use crate::devices::virtio::transport::{VirtioInterrupt, VirtioInterruptType};
 use crate::devices::virtio::vsock::VsockError;
-use crate::devices::virtio::vsock::metrics::METRICS;
+use crate::devices::virtio::vsock::metrics::{METRICS, VsockDeviceMetrics};
 use crate::impl_device_type;
 use crate::logger::{IncMetric, error, info, warn};
 use crate::utils::byte_order;
@@ -75,6 +75,7 @@ pub struct Vsock<B> {
     // continuous triggers from happening before the device gets activated.
     pub(crate) activate_evt: EventFd,
     pub(crate) device_state: DeviceState,
+    pub(crate) metrics: Arc<VsockDeviceMetrics>,
 
     pub rx_packet: VsockPacketRx,
     pub tx_packet: VsockPacketTx,
@@ -98,12 +99,23 @@ where
         cid: u64,
         backend: B,
         queues: Vec<VirtQueue>,
+        metrics: Option<Arc<VsockDeviceMetrics>>,
     ) -> Result<Vsock<B>, VsockError> {
         let mut queue_events = Vec::new();
         for _ in 0..queues.len() {
             queue_events.push(EventFd::new(libc::EFD_NONBLOCK).map_err(VsockError::EventFd)?);
         }
-
+        // the metrics instance may be supplied from the vsock backend (muxer)
+        // or if the vsock struct is being initialized in a test let it create its
+        // own metrics instance
+        let metrics_instance = match metrics {
+            Some(m) => m,
+            None => {
+                let metrics = Arc::new(VsockDeviceMetrics::default());
+                _ = METRICS.write().unwrap().insert(cid, metrics.clone());
+                metrics
+            }
+        };
         Ok(Vsock {
             cid,
             queues,
@@ -116,16 +128,21 @@ where
             rx_packet: VsockPacketRx::new()?,
             tx_packet: VsockPacketTx::default(),
             pending_event_ack: false,
+            metrics: metrics_instance,
         })
     }
 
     /// Create a new virtio-vsock device with the given VM CID and vsock backend.
-    pub fn new(cid: u64, backend: B) -> Result<Vsock<B>, VsockError> {
+    pub fn new(
+        cid: u64,
+        backend: B,
+        metrics: Option<Arc<VsockDeviceMetrics>>,
+    ) -> Result<Vsock<B>, VsockError> {
         let queues: Vec<VirtQueue> = defs::VSOCK_QUEUE_SIZES
             .iter()
             .map(|&max_size| VirtQueue::new(max_size))
             .collect();
-        Self::with_queues(cid, backend, queues)
+        Self::with_queues(cid, backend, queues, metrics)
     }
 
     /// Retrieve the cid associated with this vsock device.
@@ -263,7 +280,7 @@ where
 
         let queue = &mut self.queues[EVQ_INDEX];
         let head = queue.pop()?.ok_or_else(|| {
-            METRICS.ev_queue_event_fails.inc();
+            self.metrics.ev_queue_event_fails.inc();
             DeviceError::VsockError(VsockError::EmptyQueue)
         })?;
 
@@ -348,7 +365,7 @@ where
     }
 
     fn write_config(&mut self, offset: u64, data: &[u8]) {
-        METRICS.cfg_fails.inc();
+        self.metrics.cfg_fails.inc();
         warn!(
             "vsock: guest driver attempted to write device config (offset={:#x}, len={:#x})",
             offset,
@@ -369,7 +386,7 @@ where
         }
 
         if self.queues.len() != defs::VSOCK_NUM_QUEUES {
-            METRICS.activate_fails.inc();
+            self.metrics.activate_fails.inc();
             return Err(ActivateError::QueueMismatch {
                 expected: defs::VSOCK_NUM_QUEUES,
                 got: self.queues.len(),
@@ -383,12 +400,12 @@ where
         }
 
         self.backend.activate().map_err(|err| {
-            METRICS.activate_fails.inc();
+            self.metrics.activate_fails.inc();
             ActivateError::VsockBackend(err)
         })?;
 
         if self.activate_evt.write(1).is_err() {
-            METRICS.activate_fails.inc();
+            self.metrics.activate_fails.inc();
             return Err(ActivateError::EventFd);
         }
 
