@@ -54,17 +54,6 @@
       ]
     },
     {
-      "leaf": "0x7",
-      "subleaf": "0x2",
-      "flags": 1,
-      "modifiers": [
-        {
-          "register": "edx",
-          "bitmap": "0bxxxxxxxxxxxxxxxxxxxxxxxxxxxx0xxx"
-        }
-      ]
-    },
-    {
       "leaf": "0xd",
       "subleaf": "0x0",
       "flags": 1,
