@@ -291,7 +291,6 @@ pub mod test {
 
     use event_manager::{EventManager, SubscriberId, SubscriberOps};
 
-    use crate::check_metric_after_block;
     use crate::devices::virtio::device::VirtioDevice;
     use crate::devices::virtio::net::device::vnet_hdr_len;
     use crate::devices::virtio::net::generated::ETH_HLEN;
@@ -431,11 +430,8 @@ pub mod test {
 
             // Inject frame to tap and run epoll.
             let frame = inject_tap_tx_frame(&self.net(), frame_len);
-            check_metric_after_block!(
-                self.net().metrics.rx_packets_count,
-                0,
-                self.event_manager.run_with_timeout(100).unwrap()
-            );
+            self.event_manager.run_with_timeout(100).unwrap();
+            assert_eq!(self.net().metrics.rx_packets_count.count(), 0);
             // Check that the descriptor chain has been discarded.
             assert_eq!(
                 self.net().rx_buffer.used_descriptors,
@@ -465,11 +461,8 @@ pub mod test {
                 0,
                 &[(0, MAX_BUFFER_SIZE as u32, VIRTQ_DESC_F_WRITE)],
             );
-            check_metric_after_block!(
-                self.net().metrics.rx_packets_count,
-                1,
-                self.event_manager.run_with_timeout(100).unwrap()
-            );
+            self.event_manager.run_with_timeout(100).unwrap();
+            assert_eq!(self.net().metrics.rx_packets_count.count(), 1);
             // Check that the expected frame was sent to the Rx queue eventually.
             assert_eq!(self.rxq.used.idx.get(), used_idx + 1);
             assert!(

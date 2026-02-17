@@ -1541,6 +1541,7 @@ dependencies = [
  "micro_http",
  "pci",
  "proptest",
+ "regex",
  "semver",
  "serde",
  "serde_json",

@@ -129,7 +129,7 @@ impl TestContext {
         const CID: u64 = 52;
         const MEM_SIZE: usize = 1024 * 1024 * 128;
         let mem = single_region_mem(MEM_SIZE);
-        let mut device = Vsock::new(CID, TestBackend::new()).unwrap();
+        let mut device = Vsock::new(CID, TestBackend::new(), None).unwrap();
         for q in device.queues_mut() {
             q.ready = true;
             q.size = q.max_size;
@@ -180,7 +180,7 @@ impl TestContext {
             guest_rxvq,
             guest_txvq,
             guest_evvq,
-            device: Vsock::with_queues(self.cid, TestBackend::new(), queues).unwrap(),
+            device: Vsock::with_queues(self.cid, TestBackend::new(), queues, None).unwrap(),
         }
     }
 }

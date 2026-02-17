@@ -29,7 +29,7 @@ use crate::devices::virtio::generated::virtio_ring::VIRTIO_RING_F_EVENT_IDX;
 use crate::devices::virtio::iovec::{
     IoVecBuffer, IoVecBufferMut, IoVecError, ParsedDescriptorChain,
 };
-use crate::devices::virtio::net::metrics::{NetDeviceMetrics, NetMetricsPerDevice};
+use crate::devices::virtio::net::metrics::{METRICS as NETMETRICS, NetDeviceMetrics};
 use crate::devices::virtio::net::tap::Tap;
 use crate::devices::virtio::net::{
     MAX_BUFFER_SIZE, NET_QUEUE_SIZES, NetError, NetQueue, RX_INDEX, TX_INDEX, generated,
@@ -303,6 +303,11 @@ impl Net {
             queue_evts.push(EventFd::new(libc::EFD_NONBLOCK).map_err(NetError::EventFd)?);
             queues.push(Queue::new(size));
         }
+        let metrics = Arc::new(NetDeviceMetrics::default());
+        NETMETRICS
+            .write()
+            .unwrap()
+            .insert(id.clone(), metrics.clone());
 
         Ok(Net {
             id: id.clone(),
@@ -320,7 +325,7 @@ impl Net {
             device_state: DeviceState::Inactive,
             activate_evt: EventFd::new(libc::EFD_NONBLOCK).map_err(NetError::EventFd)?,
             mmds_ns: None,
-            metrics: NetMetricsPerDevice::alloc(id),
+            metrics,
             tx_buffer: Default::default(),
             rx_buffer: RxBuffers::new()?,
         })
@@ -1071,7 +1076,6 @@ pub mod tests {
     use vm_memory::GuestAddress;
 
     use super::*;
-    use crate::check_metric_after_block;
     use crate::devices::virtio::generated::virtio_ring::VIRTIO_RING_F_EVENT_IDX;
     use crate::devices::virtio::iovec::IoVecBuffer;
     use crate::devices::virtio::net::NET_QUEUE_SIZES;
@@ -1238,11 +1242,8 @@ pub mod tests {
 
         th.add_desc_chain(NetQueue::Rx, 0, &[(0, 4096, VIRTQ_DESC_F_WRITE)]);
         th.net().queue_evts[RX_INDEX].read().unwrap();
-        check_metric_after_block!(
-            th.net().metrics.event_fails,
-            1,
-            th.simulate_event(NetEvent::RxQueue)
-        );
+        th.simulate_event(NetEvent::RxQueue);
+        assert_eq!(th.net().metrics.event_fails.count(), 1);
 
         // Check that the used queue didn't advance.
         assert_eq!(th.rxq.used.idx.get(), 0);
@@ -1261,11 +1262,8 @@ pub mod tests {
             ],
         );
         let mut frame = inject_tap_tx_frame(&th.net(), 1000);
-        check_metric_after_block!(
-            th.net().metrics.rx_fails,
-            1,
-            th.event_manager.run_with_timeout(100).unwrap()
-        );
+        th.event_manager.run_with_timeout(100).unwrap();
+        assert_eq!(th.net().metrics.rx_fails.count(), 1);
         th.rxq.check_used_elem(0, 0, 0);
         header_set_num_buffers(frame.as_mut_slice(), 1);
         th.check_rx_queue_resume(&frame);
@@ -1384,11 +1382,8 @@ pub mod tests {
 
         // Inject frame to tap and run epoll.
         let mut frame = inject_tap_tx_frame(&th.net(), 1000);
-        check_metric_after_block!(
-            th.net().metrics.rx_packets_count,
-            1,
-            th.event_manager.run_with_timeout(100).unwrap()
-        );
+        th.event_manager.run_with_timeout(100).unwrap();
+        assert_eq!(th.net().metrics.rx_packets_count.count(), 1);
 
         // Check that the used queue has advanced.
         assert_eq!(th.rxq.used.idx.get(), 4);
@@ -1444,11 +1439,8 @@ pub mod tests {
         );
         // Inject frame to tap and run epoll.
         let mut frame = inject_tap_tx_frame(&th.net(), 1000);
-        check_metric_after_block!(
-            th.net().metrics.rx_packets_count,
-            1,
-            th.event_manager.run_with_timeout(100).unwrap()
-        );
+        th.event_manager.run_with_timeout(100).unwrap();
+        assert_eq!(th.net().metrics.rx_packets_count.count(), 1);
 
         // Check that the frame wasn't deferred.
         assert!(th.net().rx_buffer.used_descriptors == 0);
@@ -1511,11 +1503,8 @@ pub mod tests {
         // Inject 2 frames to tap and run epoll.
         let mut frame_1 = inject_tap_tx_frame(&th.net(), 200);
         let mut frame_2 = inject_tap_tx_frame(&th.net(), 300);
-        check_metric_after_block!(
-            th.net().metrics.rx_packets_count,
-            2,
-            th.event_manager.run_with_timeout(100).unwrap()
-        );
+        th.event_manager.run_with_timeout(100).unwrap();
+        assert_eq!(th.net().metrics.rx_packets_count.count(), 2);
 
         // Check that the frames weren't deferred.
         assert!(th.net().rx_buffer.used_bytes == 0);
@@ -1573,11 +1562,8 @@ pub mod tests {
         );
         // Inject frame to tap and run epoll.
         let mut frame = inject_tap_tx_frame(&th.net(), 1000);
-        check_metric_after_block!(
-            th.net().metrics.rx_packets_count,
-            1,
-            th.event_manager.run_with_timeout(100).unwrap()
-        );
+        th.event_manager.run_with_timeout(100).unwrap();
+        assert_eq!(th.net().metrics.rx_packets_count.count(), 1);
 
         // Check that the frame wasn't deferred.
         assert!(th.net().rx_buffer.used_bytes == 0);
@@ -1626,11 +1612,8 @@ pub mod tests {
 
         th.add_desc_chain(NetQueue::Tx, 0, &[(0, 4096, 0)]);
         th.net().queue_evts[TX_INDEX].read().unwrap();
-        check_metric_after_block!(
-            th.net().metrics.event_fails,
-            1,
-            th.simulate_event(NetEvent::TxQueue)
-        );
+        th.simulate_event(NetEvent::TxQueue);
+        assert_eq!(th.net().metrics.event_fails.count(), 1);
 
         // Check that the used queue didn't advance.
         assert_eq!(th.txq.used.idx.get(), 0);
@@ -1671,11 +1654,8 @@ pub mod tests {
 
         // Send an invalid frame (too small, VNET header missing).
         th.add_desc_chain(NetQueue::Tx, 0, &[(0, 1, 0)]);
-        check_metric_after_block!(
-            th.net().metrics.tx_malformed_frames,
-            1,
-            th.event_manager.run_with_timeout(100)
-        );
+        th.event_manager.run_with_timeout(100);
+        assert_eq!(th.net().metrics.tx_malformed_frames.count(), 1);
 
         // Check that the used queue advanced.
         assert_eq!(th.txq.used.idx.get(), 1);
@@ -1702,11 +1682,8 @@ pub mod tests {
             0,
             &[(0, (MAX_BUFFER_SIZE + 1).try_into().unwrap(), 0)],
         );
-        check_metric_after_block!(
-            th.net().metrics.tx_malformed_frames,
-            1,
-            th.event_manager.run_with_timeout(100)
-        );
+        th.event_manager.run_with_timeout(100);
+        assert_eq!(th.net().metrics.tx_malformed_frames.count(), 1);
 
         // Check that the used queue advanced.
         assert_eq!(th.txq.used.idx.get(), 1);
@@ -1729,11 +1706,8 @@ pub mod tests {
 
         // Send an invalid frame (too small, VNET header missing).
         th.add_desc_chain(NetQueue::Tx, 0, &[(0, 0, 0)]);
-        check_metric_after_block!(
-            th.net().metrics.tx_malformed_frames,
-            1,
-            th.event_manager.run_with_timeout(100)
-        );
+        th.event_manager.run_with_timeout(100);
+        assert_eq!(th.net().metrics.tx_malformed_frames.count(), 1);
 
         // Check that the used queue advanced.
         assert_eq!(th.txq.used.idx.get(), 1);
@@ -1772,11 +1746,8 @@ pub mod tests {
 
         // One frame is valid, one will not be handled because it includes write-only memory
         // so that leaves us with 2 malformed (no vnet header) frames.
-        check_metric_after_block!(
-            th.net().metrics.tx_malformed_frames,
-            2,
-            th.event_manager.run_with_timeout(100)
-        );
+        th.event_manager.run_with_timeout(100);
+        assert_eq!(th.net().metrics.tx_malformed_frames.count(), 2);
 
         // Check that the used queue advanced.
         assert_eq!(th.txq.used.idx.get(), 4);
@@ -1807,11 +1778,8 @@ pub mod tests {
         th.add_desc_chain(NetQueue::Tx, 0, &desc_list);
         let frame = th.write_tx_frame(&desc_list, 1000);
 
-        check_metric_after_block!(
-            th.net().metrics.tx_packets_count,
-            1,
-            th.event_manager.run_with_timeout(100).unwrap()
-        );
+        th.event_manager.run_with_timeout(100).unwrap();
+        assert_eq!(th.net().metrics.tx_packets_count.count(), 1);
 
         // Check that the used queue advanced.
         assert_eq!(th.txq.used.idx.get(), 1);
@@ -1840,11 +1808,8 @@ pub mod tests {
         th.add_desc_chain(NetQueue::Tx, 0, &desc_list);
         let _ = th.write_tx_frame(&desc_list, 1000);
 
-        check_metric_after_block!(
-            th.net().metrics.tap_write_fails,
-            1,
-            th.event_manager.run_with_timeout(100).unwrap()
-        );
+        th.event_manager.run_with_timeout(100).unwrap();
+        assert_eq!(th.net().metrics.tap_write_fails.count(), 1);
 
         // Check that the used queue advanced.
         assert_eq!(th.txq.used.idx.get(), 1);
@@ -1875,11 +1840,8 @@ pub mod tests {
         th.add_desc_chain(NetQueue::Tx, 500, &desc_list);
         let frame_2 = th.write_tx_frame(&desc_list, 600);
 
-        check_metric_after_block!(
-            th.net().metrics.tx_packets_count,
-            2,
-            th.event_manager.run_with_timeout(100).unwrap()
-        );
+        th.event_manager.run_with_timeout(100).unwrap();
+        assert_eq!(th.net().metrics.tx_packets_count.count(), 2);
 
         // Check that the used queue advanced.
         assert_eq!(th.txq.used.idx.get(), 2);
@@ -1966,29 +1928,23 @@ pub mod tests {
 
         // Call the code which sends the packet to the host or MMDS.
         // Validate the frame was consumed by MMDS and that the metrics reflect that.
-        check_metric_after_block!(
-            &METRICS.mmds.rx_accepted,
-            1,
-            assert!(
-                Net::write_to_mmds_or_tap(
-                    net.mmds_ns.as_mut(),
-                    &mut net.tx_rate_limiter,
-                    &mut headers,
-                    &buffer,
-                    &mut net.tap,
-                    Some(src_mac),
-                    &net.metrics,
-                )
-                .unwrap()
+        assert!(
+            Net::write_to_mmds_or_tap(
+                net.mmds_ns.as_mut(),
+                &mut net.tx_rate_limiter,
+                &mut headers,
+                &buffer,
+                &mut net.tap,
+                Some(src_mac),
+                &net.metrics,
             )
+            .unwrap()
         );
+        assert_eq!(METRICS.mmds.rx_accepted.count(), 1);
 
         // Validate that MMDS has a response and we can retrieve it.
-        check_metric_after_block!(
-            &METRICS.mmds.tx_frames,
-            1,
-            net.read_from_mmds_or_tap().unwrap()
-        );
+        net.read_from_mmds_or_tap().unwrap();
+        assert_eq!(METRICS.mmds.tx_frames.count(), 1);
     }
 
     #[test]
@@ -2006,34 +1962,28 @@ pub mod tests {
         let mut headers = vec![0; frame_hdr_len()];
 
         // Check that a legit MAC doesn't affect the spoofed MAC metric.
-        check_metric_after_block!(
-            net.metrics.tx_spoofed_mac_count,
-            0,
-            Net::write_to_mmds_or_tap(
-                net.mmds_ns.as_mut(),
-                &mut net.tx_rate_limiter,
-                &mut headers,
-                &buffer,
-                &mut net.tap,
-                Some(guest_mac),
-                &net.metrics,
-            )
+        Net::write_to_mmds_or_tap(
+            net.mmds_ns.as_mut(),
+            &mut net.tx_rate_limiter,
+            &mut headers,
+            &buffer,
+            &mut net.tap,
+            Some(guest_mac),
+            &net.metrics,
         );
+        assert_eq!(net.metrics.tx_spoofed_mac_count.count(), 0);
 
         // Check that a spoofed MAC increases our spoofed MAC metric.
-        check_metric_after_block!(
-            net.metrics.tx_spoofed_mac_count,
-            1,
-            Net::write_to_mmds_or_tap(
-                net.mmds_ns.as_mut(),
-                &mut net.tx_rate_limiter,
-                &mut headers,
-                &buffer,
-                &mut net.tap,
-                Some(not_guest_mac),
-                &net.metrics,
-            )
+        Net::write_to_mmds_or_tap(
+            net.mmds_ns.as_mut(),
+            &mut net.tx_rate_limiter,
+            &mut headers,
+            &buffer,
+            &mut net.tap,
+            Some(not_guest_mac),
+            &net.metrics,
         );
+        assert_eq!(net.metrics.tx_spoofed_mac_count.count(), 1);
     }
 
     #[test]
@@ -2044,19 +1994,13 @@ pub mod tests {
 
         // RX rate limiter events should error since the limiter is not blocked.
         // Validate that the event failed and failure was properly accounted for.
-        check_metric_after_block!(
-            th.net().metrics.event_fails,
-            1,
-            th.simulate_event(NetEvent::RxRateLimiter)
-        );
+        th.simulate_event(NetEvent::RxRateLimiter);
+        assert_eq!(th.net().metrics.event_fails.count(), 1);
 
         // TX rate limiter events should error since the limiter is not blocked.
         // Validate that the event failed and failure was properly accounted for.
-        check_metric_after_block!(
-            th.net().metrics.event_fails,
-            1,
-            th.simulate_event(NetEvent::TxRateLimiter)
-        );
+        th.simulate_event(NetEvent::TxRateLimiter);
+        assert_eq!(th.net().metrics.event_fails.count(), 2);
     }
 
     // Cannot easily test failures for:
@@ -2074,11 +2018,8 @@ pub mod tests {
         // The RX queue is empty and there is a deferred frame.
         th.net().rx_buffer.used_descriptors = 1;
         th.net().rx_buffer.used_bytes = 100;
-        check_metric_after_block!(
-            th.net().metrics.no_rx_avail_buffer,
-            1,
-            th.simulate_event(NetEvent::Tap)
-        );
+        th.simulate_event(NetEvent::Tap);
+        assert_eq!(th.net().metrics.no_rx_avail_buffer.count(), 1);
 
         // We need to set this here to false, otherwise the device will try to
         // handle a deferred frame, it will fail and will never try to read from
@@ -2091,11 +2032,8 @@ pub mod tests {
             0,
             &[(0, MAX_BUFFER_SIZE as u32, VIRTQ_DESC_F_WRITE)],
         );
-        check_metric_after_block!(
-            th.net().metrics.tap_read_fails,
-            1,
-            th.simulate_event(NetEvent::Tap)
-        );
+        th.simulate_event(NetEvent::Tap);
+        assert_eq!(th.net().metrics.tap_read_fails.count(), 1);
 
         // dropping th would double close the tap fd, so leak it
         std::mem::forget(th);
@@ -2109,11 +2047,8 @@ pub mod tests {
 
         th.net().rx_rate_limiter = RateLimiter::new(0, 0, 0, 0, 0, 0).unwrap();
         // There is no actual event on the rate limiter's timerfd.
-        check_metric_after_block!(
-            th.net().metrics.event_fails,
-            1,
-            th.simulate_event(NetEvent::RxRateLimiter)
-        );
+        th.simulate_event(NetEvent::RxRateLimiter);
+        assert_eq!(th.net().metrics.event_fails.count(), 1);
     }
 
     #[test]
@@ -2125,11 +2060,8 @@ pub mod tests {
         th.net().tx_rate_limiter = RateLimiter::new(0, 0, 0, 0, 0, 0).unwrap();
         th.simulate_event(NetEvent::TxRateLimiter);
         // There is no actual event on the rate limiter's timerfd.
-        check_metric_after_block!(
-            th.net().metrics.event_fails,
-            1,
-            th.simulate_event(NetEvent::TxRateLimiter)
-        );
+        th.simulate_event(NetEvent::TxRateLimiter);
+        assert_eq!(th.net().metrics.event_fails.count(), 2);
     }
 
     #[test]
@@ -2178,11 +2110,8 @@ pub mod tests {
             // following TX procedure should succeed because bandwidth should now be available
             {
                 // tx_count increments 1 from write_to_mmds_or_tap()
-                check_metric_after_block!(
-                    th.net().metrics.tx_count,
-                    1,
-                    th.simulate_event(NetEvent::TxRateLimiter)
-                );
+                th.simulate_event(NetEvent::TxRateLimiter);
+                assert_eq!(th.net().metrics.tx_count.count(), 1);
                 // This should be still blocked. We managed to send the first frame, but
                 // not enough budget for the second
                 assert!(th.net().tx_rate_limiter.is_blocked());
@@ -2195,11 +2124,8 @@ pub mod tests {
             // following TX procedure should succeed to handle the second frame as well
             {
                 // tx_count increments 1 from write_to_mmds_or_tap()
-                check_metric_after_block!(
-                    th.net().metrics.tx_count,
-                    1,
-                    th.simulate_event(NetEvent::TxRateLimiter)
-                );
+                th.simulate_event(NetEvent::TxRateLimiter);
+                assert_eq!(th.net().metrics.tx_count.count(), 2);
                 // validate the rate_limiter is no longer blocked
                 assert!(!th.net().tx_rate_limiter.is_blocked());
                 // make sure the data queue advance one more place
@@ -2263,11 +2189,8 @@ pub mod tests {
             // following RX procedure should succeed because bandwidth should now be available
             {
                 // no longer throttled
-                check_metric_after_block!(
-                    th.net().metrics.rx_rate_limiter_throttled,
-                    0,
-                    th.simulate_event(NetEvent::RxRateLimiter)
-                );
+                th.simulate_event(NetEvent::RxRateLimiter);
+                assert_eq!(th.net().metrics.rx_rate_limiter_throttled.count(), 2);
                 // validate the rate_limiter is no longer blocked
                 assert!(!th.net().rx_rate_limiter.is_blocked());
                 // make sure the virtio queue operation completed this time
@@ -2307,11 +2230,8 @@ pub mod tests {
             {
                 // trigger the TX handler
                 th.add_desc_chain(NetQueue::Tx, 0, &[(0, 4096, 0)]);
-                check_metric_after_block!(
-                    th.net().metrics.tx_rate_limiter_throttled,
-                    1,
-                    th.simulate_event(NetEvent::TxQueue)
-                );
+                th.simulate_event(NetEvent::TxQueue);
+                assert_eq!(th.net().metrics.tx_rate_limiter_throttled.count(), 1);
 
                 // assert that limiter is blocked
                 assert!(th.net().tx_rate_limiter.is_blocked());
@@ -2326,11 +2246,8 @@ pub mod tests {
             // following TX procedure should succeed because ops should now be available
             {
                 // no longer throttled
-                check_metric_after_block!(
-                    th.net().metrics.tx_rate_limiter_throttled,
-                    0,
-                    th.simulate_event(NetEvent::TxRateLimiter)
-                );
+                th.simulate_event(NetEvent::TxRateLimiter);
+                assert_eq!(th.net().metrics.tx_rate_limiter_throttled.count(), 1);
                 // validate the rate_limiter is no longer blocked
                 assert!(!th.net().tx_rate_limiter.is_blocked());
                 // make sure the data queue advanced
@@ -2361,11 +2278,8 @@ pub mod tests {
             // following RX procedure should fail because of ops rate limiting
             {
                 // trigger the RX handler
-                check_metric_after_block!(
-                    th.net().metrics.rx_rate_limiter_throttled,
-                    1,
-                    th.simulate_event(NetEvent::Tap)
-                );
+                th.simulate_event(NetEvent::Tap);
+                assert_eq!(th.net().metrics.rx_rate_limiter_throttled.count(), 1);
 
                 // assert that limiter is blocked
                 assert!(th.net().rx_rate_limiter.is_blocked());

@@ -501,9 +501,9 @@ impl MsixCap {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::Vm;
     use crate::builder::tests::default_vmm;
     use crate::logger::{IncMetric, METRICS};
-    use crate::{Vm, check_metric_after_block};
 
     fn msix_vector_group(nr_vectors: u16) -> Arc<MsixVectorGroup> {
         let vmm = default_vmm();
@@ -602,54 +602,58 @@ mod tests {
     fn test_access_table() {
         let mut config = MsixConfig::new(msix_vector_group(2), 0x42);
         // enabled and not masked
-        check_metric_after_block!(
-            METRICS.interrupts.config_updates,
-            2,
-            config.set_msg_ctl(0x8000)
+        let mut config_update_count = METRICS.interrupts.config_updates.count();
+        config.set_msg_ctl(0x8000);
+        assert_eq!(
+            METRICS.interrupts.config_updates.count(),
+            config_update_count + 2
         );
         let mut buffer = [0u8; 8];
+        config_update_count += 2;
 
         // Write first vector's address with a single 8-byte write
         // It's still masked so shouldn't be updated
-        check_metric_after_block!(
-            METRICS.interrupts.config_updates,
-            0,
-            config.write_table(0, &u64::to_le_bytes(0x0000_1312_0000_1110))
+        config.write_table(0, &u64::to_le_bytes(0x0000_1312_0000_1110));
+        assert_eq!(
+            METRICS.interrupts.config_updates.count(),
+            config_update_count
         );
 
         // Same for control and message data
         // Now, we enabled it, so we should see an update
-        check_metric_after_block!(
-            METRICS.interrupts.config_updates,
-            1,
-            config.write_table(8, &u64::to_le_bytes(0x0_0000_0020))
+        config.write_table(8, &u64::to_le_bytes(0x0_0000_0020));
+        assert_eq!(
+            METRICS.interrupts.config_updates.count(),
+            config_update_count + 1
         );
+        config_update_count += 1;
 
         // Write second vector's fields with 4-byte writes
         // low 32 bits of the address (still masked)
-        check_metric_after_block!(
-            METRICS.interrupts.config_updates,
-            0,
-            config.write_table(16, &u32::to_le_bytes(0x4241))
+        config.write_table(16, &u32::to_le_bytes(0x4241));
+        assert_eq!(
+            METRICS.interrupts.config_updates.count(),
+            config_update_count
         );
         // high 32 bits of the address (still masked)
-        check_metric_after_block!(
-            METRICS.interrupts.config_updates,
-            0,
-            config.write_table(20, &u32::to_le_bytes(0x4443))
+        config.write_table(20, &u32::to_le_bytes(0x4443));
+        assert_eq!(
+            METRICS.interrupts.config_updates.count(),
+            config_update_count
         );
         // message data (still masked)
-        check_metric_after_block!(
-            METRICS.interrupts.config_updates,
-            0,
-            config.write_table(24, &u32::to_le_bytes(0x21))
+        config.write_table(24, &u32::to_le_bytes(0x21));
+        assert_eq!(
+            METRICS.interrupts.config_updates.count(),
+            config_update_count
         );
         // vector control (now unmasked)
-        check_metric_after_block!(
-            METRICS.interrupts.config_updates,
-            1,
-            config.write_table(28, &u32::to_le_bytes(0x0))
+        config.write_table(28, &u32::to_le_bytes(0x0));
+        assert_eq!(
+            METRICS.interrupts.config_updates.count(),
+            config_update_count + 1
         );
+        config_update_count += 1;
 
         assert_eq!(config.table_entries[0].msg_addr_hi, 0x1312);
         assert_eq!(config.table_entries[0].msg_addr_lo, 0x1110);
@@ -696,22 +700,30 @@ mod tests {
         assert_eq!(0x0_0000_0020, u64::from_le_bytes(buffer));
 
         // If we mask the interrupts we shouldn't see any update
-        check_metric_after_block!(METRICS.interrupts.config_updates, 0, {
-            config.write_table(12, &u32::to_le_bytes(0x1));
-            config.write_table(28, &u32::to_le_bytes(0x1));
-        });
+        config.write_table(12, &u32::to_le_bytes(0x1));
+        config.write_table(28, &u32::to_le_bytes(0x1));
+        assert_eq!(
+            METRICS.interrupts.config_updates.count(),
+            config_update_count
+        );
 
         // Un-masking them should update them
-        check_metric_after_block!(METRICS.interrupts.config_updates, 2, {
-            config.write_table(12, &u32::to_le_bytes(0x0));
-            config.write_table(28, &u32::to_le_bytes(0x0));
-        });
+        config.write_table(12, &u32::to_le_bytes(0x0));
+        config.write_table(28, &u32::to_le_bytes(0x0));
+        assert_eq!(
+            METRICS.interrupts.config_updates.count(),
+            config_update_count + 2
+        );
+
+        config_update_count += 2;
 
         // Setting up the same config should have no effect
-        check_metric_after_block!(METRICS.interrupts.config_updates, 0, {
-            config.write_table(12, &u32::to_le_bytes(0x0));
-            config.write_table(28, &u32::to_le_bytes(0x0));
-        });
+        config.write_table(12, &u32::to_le_bytes(0x0));
+        config.write_table(28, &u32::to_le_bytes(0x0));
+        assert_eq!(
+            METRICS.interrupts.config_updates.count(),
+            config_update_count
+        );
     }
 
     #[test]
@@ -806,28 +818,28 @@ mod tests {
         assert_eq!(config.get_pba_bit(1), 1);
         // Enable MSI-X vector and unmask interrupts
         // Individual vectors are still masked, so no change
-        check_metric_after_block!(METRICS.interrupts.triggers, 0, config.set_msg_ctl(0x8000));
+        config.set_msg_ctl(0x8000);
+        assert_eq!(METRICS.interrupts.triggers.count(), 0);
 
         // Enable all vectors
         // Vector one had a pending bit, so we must have triggered an interrupt for it
         // and cleared the pending bit
-        check_metric_after_block!(METRICS.interrupts.triggers, 1, {
-            config.write_table(8, &u64::to_le_bytes(0x0_0000_0020));
-            config.write_table(24, &u64::to_le_bytes(0x0_0000_0020));
-        });
+        config.write_table(8, &u64::to_le_bytes(0x0_0000_0020));
+        config.write_table(24, &u64::to_le_bytes(0x0_0000_0020));
+        assert_eq!(METRICS.interrupts.triggers.count(), 1);
         assert_eq!(config.get_pba_bit(1), 0);
 
         // Check that interrupt is sent as well for enabled vectors once we unmask from
         // Message Control
 
         // Mask vectors and set pending bit for vector 0
-        check_metric_after_block!(METRICS.interrupts.triggers, 0, {
-            config.set_msg_ctl(0xc000);
-            config.set_pba_bit(0, false);
-        });
+        config.set_msg_ctl(0xc000);
+        config.set_pba_bit(0, false);
+        assert_eq!(METRICS.interrupts.triggers.count(), 1);
 
         // Unmask them
-        check_metric_after_block!(METRICS.interrupts.triggers, 1, config.set_msg_ctl(0x8000));
+        config.set_msg_ctl(0x8000);
+        assert_eq!(METRICS.interrupts.triggers.count(), 2);
         assert_eq!(config.get_pba_bit(0), 0);
     }
 }

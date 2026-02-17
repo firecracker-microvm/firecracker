@@ -35,22 +35,26 @@
 
 use serde::ser::SerializeMap;
 use serde::{Serialize, Serializer};
+use std::sync::{Arc, OnceLock};
 
 use crate::logger::SharedIncMetric;
 
 /// Stores aggregated balloon metrics
-pub(super) static METRICS: BalloonDeviceMetrics = BalloonDeviceMetrics::new();
+pub(super) static METRICS: OnceLock<Arc<BalloonDeviceMetrics>> = OnceLock::new();
 
 /// Called by METRICS.flush(), this function facilitates serialization of balloon device metrics.
 pub fn flush_metrics<S: Serializer>(serializer: S) -> Result<S::Ok, S::Error> {
     let mut seq = serializer.serialize_map(Some(1))?;
-    seq.serialize_entry("balloon", &METRICS)?;
+    let metrics = METRICS
+        .get()
+        .expect("balloon: metrics instance not intialized");
+    seq.serialize_entry("balloon", &metrics)?;
     seq.end()
 }
 
 /// Balloon Device associated metrics.
-#[derive(Debug, Serialize)]
-pub(super) struct BalloonDeviceMetrics {
+#[derive(Default, Debug, Serialize)]
+pub struct BalloonDeviceMetrics {
     /// Number of times when activate failed on a balloon device.
     pub activate_fails: SharedIncMetric,
     /// Number of balloon device inflations.
@@ -100,15 +104,21 @@ impl BalloonDeviceMetrics {
 pub mod tests {
     use super::*;
     use crate::logger::IncMetric;
+    use std::sync::Arc;
 
     #[test]
     fn test_balloon_dev_metrics() {
-        let balloon_metrics: BalloonDeviceMetrics = BalloonDeviceMetrics::new();
+        let balloon_metrics = Arc::new(BalloonDeviceMetrics::new());
         let balloon_metrics_local: String = serde_json::to_string(&balloon_metrics).unwrap();
+        // its fine if .set() errors here. due to the METRICS lock being initialized
+        // by another test. the test flushes the global instance metrics and checks
+        // for structural similarity only.
+        METRICS.set(balloon_metrics.clone());
+
         // the 1st serialize flushes the metrics and resets values to 0 so that
         // we can compare the values with local metrics.
-        serde_json::to_string(&METRICS).unwrap();
-        let balloon_metrics_global: String = serde_json::to_string(&METRICS).unwrap();
+        serde_json::to_string(METRICS.get().unwrap()).unwrap();
+        let balloon_metrics_global: String = serde_json::to_string(METRICS.get().unwrap()).unwrap();
         assert_eq!(balloon_metrics_local, balloon_metrics_global);
         balloon_metrics.inflate_count.inc();
         assert_eq!(balloon_metrics.inflate_count.count(), 1);
