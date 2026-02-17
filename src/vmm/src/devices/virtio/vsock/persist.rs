@@ -113,7 +113,9 @@ where
                 FIRECRACKER_MAX_QUEUE_SIZE,
             )
             .map_err(VsockError::VirtioState)?;
-        let mut vsock = Self::with_queues(state.cid, constructor_args.backend, queues)?;
+
+        let metrics = constructor_args.backend.metrics();
+        let mut vsock = Self::with_queues(state.cid, constructor_args.backend, queues, metrics)?;
 
         vsock.acked_features = state.virtio_state.acked_features;
         vsock.avail_features = state.virtio_state.avail_features;

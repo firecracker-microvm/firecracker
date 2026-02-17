@@ -118,7 +118,11 @@ impl VsockBuilder {
     ) -> Result<Vsock<VsockUnixBackend>, VsockConfigError> {
         let cid = u64::from(cfg.guest_cid);
         let backend = VsockUnixBackend::new(cid, cfg.uds_path)?;
-        let mut vsock = Vsock::new(cid, backend).map_err(VsockConfigError::CreateVsockDevice)?;
+        let metrics = backend.metrics.clone();
+
+        let mut vsock = Vsock::new(u64::from(cfg.guest_cid), backend, metrics)
+            .map_err(VsockConfigError::CreateVsockDevice)?;
+
         vsock.dmb_size_mib = cfg.dmb_size_mib;
         Ok(vsock)
     }
@@ -197,12 +201,11 @@ pub(crate) mod tests {
         let mut vsock_builder = VsockBuilder::new();
         let mut tmp_sock_file = TempFile::new().unwrap();
         tmp_sock_file.remove().unwrap();
-        let vsock = Vsock::new(
-            0,
+        let backend =
             VsockUnixBackend::new(1, tmp_sock_file.as_path().to_str().unwrap().to_string())
-                .unwrap(),
-        )
-        .unwrap();
+                .unwrap();
+        let metrics = backend.metrics.clone();
+        let vsock = Vsock::new(0, backend, metrics).unwrap();
 
         let device = Arc::new(Mutex::new(vsock));
         vsock_builder.set_device(device);
