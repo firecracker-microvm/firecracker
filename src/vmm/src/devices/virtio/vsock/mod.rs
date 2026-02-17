@@ -21,6 +21,7 @@ pub mod test_utils;
 mod unix;
 
 use std::os::unix::io::AsRawFd;
+use std::sync::Arc;
 
 use vm_memory::GuestMemoryError;
 use vmm_sys_util::epoll::EventSet;
@@ -32,6 +33,7 @@ pub use self::unix::{VsockUnixBackend, VsockUnixBackendError};
 use super::iov_deque::IovDequeError;
 use crate::devices::virtio::iovec::IoVecError;
 use crate::devices::virtio::persist::PersistError as VirtioStateError;
+use crate::devices::virtio::vsock::metrics::VsockDeviceMetrics;
 use crate::vstate::memory::GuestMemoryMmap;
 
 mod defs {
@@ -196,4 +198,7 @@ pub trait VsockBackend: VsockChannel + VsockEpollListener + Send {
     /// Reset the backend, dropping all active connections and removing its listeners
     /// from the poll set.
     fn reset(&mut self);
+
+    /// Metrics instance shared by the device, the backend and its connections.
+    fn metrics(&self) -> Arc<VsockDeviceMetrics>;
 }
