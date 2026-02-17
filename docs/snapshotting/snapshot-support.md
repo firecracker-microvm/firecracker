@@ -619,12 +619,12 @@ notified about changes through an event loop.
 
 > [!IMPORTANT] Support for `vm_generation_counter` and `poll()` is implemented
 > in Linux through the patches
-> [here](https://lore.kernel.org/lkml/20260107132514.437-1-bchalios@amazon.es/).
-> We have backported these patches for AL kernels
-> [here](../../resources/patches/vmclock) 5.10 and 6.1 kernels. Using the
-> kernels suggested from the [Getting Started Guide](../getting-started.md)
-> includes these patches. When using mainline kernels users need to make sure
-> that they apply the linked patches, until these get merged upstream.
+> [here](https://lore.kernel.org/all/20260130173704.12575-1-itazur@amazon.com/)
+> and was added in Linux kernel v7.0. Users need to make sure that the linked
+> patches are applied on their kernels. We have backported these patches for AL
+> kernels [here](../../resources/patches/vmclock) 5.10 and 6.1 kernels. Using
+> the kernels suggested from the [Getting Started Guide](../getting-started.md)
+> includes these patches.
 
 ## Vsock device reset
 
