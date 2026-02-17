@@ -110,8 +110,10 @@ impl VsockBuilder {
         cfg: VsockDeviceConfig,
     ) -> Result<Vsock<VsockUnixBackend>, VsockConfigError> {
         let backend = VsockUnixBackend::new(u64::from(cfg.guest_cid), cfg.uds_path)?;
+        let metrics = Some(backend.metrics.clone());
 
-        Vsock::new(u64::from(cfg.guest_cid), backend).map_err(VsockConfigError::CreateVsockDevice)
+        Vsock::new(u64::from(cfg.guest_cid), backend, metrics)
+            .map_err(VsockConfigError::CreateVsockDevice)
     }
 
     /// Returns the structure used to configure the vsock device.
@@ -184,6 +186,7 @@ pub(crate) mod tests {
             0,
             VsockUnixBackend::new(1, tmp_sock_file.as_path().to_str().unwrap().to_string())
                 .unwrap(),
+            None,
         )
         .unwrap();
 
