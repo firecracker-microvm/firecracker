@@ -175,4 +175,4 @@ socat - VSOCK-CONNECT:2:52
 ## Known issues
 
 Vsock snapshot support is currently limited. Please see
-[Snapshotting vsock limitation](snapshotting/snapshot-support.md#vsock-device-limitation).
+[Snapshotting vsock limitation](snapshotting/snapshot-support.md#vsock-device-reset).

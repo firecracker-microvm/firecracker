@@ -25,7 +25,7 @@
   - [Secure and insecure usage examples](#usage-examples)
   - [Reusing snapshotted states securely](#reusing-snapshotted-states-securely)
   - [Userspace notifications of loading Virtual Machine snapshots](#userspace-notifications-of-loading-virtual-machine-snapshots)
-- [Vsock device limitation](#vsock-device-limitation)
+- [Vsock device reset](#vsock-device-reset)
 - [VMGenID device limitation](#vmgenid-device-limitation)
 - [Where can I resume my snapshots?](#where-can-i-resume-my-snapshots)
 
