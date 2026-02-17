@@ -268,6 +268,7 @@ mod tests {
     use crate::devices::virtio::test_utils::default_mem;
     use crate::devices::virtio::transport::mmio::tests::DummyDevice;
     use crate::devices::virtio::vsock::{Vsock, VsockUnixBackend};
+    use crate::vmm_config::vsock::VsockType;
 
     const DEFAULT_QUEUE_MAX_SIZE: u16 = 256;
     impl Default for QueueState {
@@ -481,7 +482,7 @@ mod tests {
         // Remove the file so the path can be used by the socket.
         temp_uds_path.remove().unwrap();
         let uds_path = String::from(temp_uds_path.as_path().to_str().unwrap());
-        let backend = VsockUnixBackend::new(guest_cid, uds_path).unwrap();
+        let backend = VsockUnixBackend::new(guest_cid, uds_path, VsockType::Stream).unwrap();
         let vsock = Vsock::new(guest_cid, backend).unwrap();
         let vsock = Arc::new(Mutex::new(vsock));
         let mmio_transport =

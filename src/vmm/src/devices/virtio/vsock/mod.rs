@@ -32,6 +32,7 @@ pub use self::unix::{VsockUnixBackend, VsockUnixBackendError};
 use super::iov_deque::IovDequeError;
 use crate::devices::virtio::iovec::IoVecError;
 use crate::devices::virtio::persist::PersistError as VirtioStateError;
+use crate::vmm_config::vsock::VsockType;
 
 mod defs {
     use crate::devices::virtio::queue::FIRECRACKER_MAX_QUEUE_SIZE;
@@ -84,8 +85,10 @@ mod defs {
         /// Vsock packet type.
         /// Defined in `/include/uapi/linux/virtio_vsock.h`.
         ///
-        /// Stream / connection-oriented packet (the only currently valid type).
+        /// Stream / connection-oriented packet.
         pub const VSOCK_TYPE_STREAM: u16 = 1;
+        /// Seqpacket based connection
+        pub const VSOCK_TYPE_SEQPACKET: u16 = 2;
 
         pub const VSOCK_HOST_CID: u64 = 2;
     }

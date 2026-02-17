@@ -139,7 +139,9 @@ def test_cycled_snapshot_restore(
     )
     vm.set_cpu_template(cpu_template_any)
     vm.add_net_iface()
-    vm.api.vsock.put(vsock_id="vsock0", guest_cid=3, uds_path=VSOCK_UDS_PATH)
+    vm.api.vsock.put(
+        vsock_id="vsock0", guest_cid=3, uds_path=VSOCK_UDS_PATH, vsock_type="stream"
+    )
     vm.start()
 
     vm_blob_path = "/tmp/vsock/test.blob"
