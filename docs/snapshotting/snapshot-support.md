@@ -24,7 +24,7 @@
 - [Snapshot security and uniqueness](#snapshot-security-and-uniqueness)
   - [Secure and insecure usage examples](#usage-examples)
   - [Reusing snapshotted states securely](#reusing-snapshotted-states-securely)
-  - [Userspace notifications of loading Virtual Machine snapshots](#userspace-notifications-of-loading-virtual-machine-snapshots)
+  - [Userspace notifications of loading snapshots](#userspace-notifications-of-loading-snapshots)
 - [Vsock device reset](#vsock-device-reset)
 - [VMGenID device limitation](#vmgenid-device-limitation)
 - [Where can I resume my snapshots?](#where-can-i-resume-my-snapshots)
@@ -591,7 +591,7 @@ identifiers, cached random numbers, cryptographic tokens, etc **will** still be
 replicated across multiple microVMs resumed from the same snapshot. Users need
 to implement mechanisms for ensuring de-duplication of such state, where needed.
 
-## Userspace notifications of loading Virtual Machine snapshots
+## Userspace notifications of loading snapshots
 
 VMClock device
 ([specification](https://uapi-group.org/specifications/specs/vmclock/)) is a
@@ -603,7 +603,7 @@ It handles these through fields in the
 Currently, it handles two cases:
 
 1. Live migration through the `disruption_marker` field.
-1. Virtual machine snapshots through the `vm_generation_counter`.
+1. Restore from snapshots through the `vm_generation_counter`.
 
 Whenever a VM starts from a snapshot VMClock will present a new (different that
 what was previously stored) value in the `vm_generation_counter`. This happens
