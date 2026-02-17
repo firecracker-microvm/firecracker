@@ -40,7 +40,6 @@ def test_memory_overhead(
     mem_size_mib,
     pci_enabled,
     metrics,
-    secret_free,
 ):
     """Track Firecracker memory overhead.
 
@@ -55,7 +54,6 @@ def test_memory_overhead(
         microvm.basic_config(
             vcpu_count=vcpu_count,
             mem_size_mib=mem_size_mib,
-            secret_free=secret_free,
         )
         microvm.add_net_iface()
         microvm.start()
