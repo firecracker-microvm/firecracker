@@ -38,6 +38,10 @@ and this project adheres to
 
 ### Fixed
 
+- [#5688](https://github.com/firecracker-microvm/firecracker/pull/5688): Fixed
+  vsock local port reuse across snapshot restore by saving the last used local
+  port into the snapshot, so users need to regenerate snapshots.
+
 ## [v1.14.0]
 
 ### Added
