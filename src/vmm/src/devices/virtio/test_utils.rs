@@ -16,15 +16,6 @@ use crate::test_utils::single_region_mem;
 use crate::utils::{align_up, u64_to_usize};
 use crate::vstate::memory::{Address, Bytes, GuestAddress, GuestMemoryMmap};
 
-#[macro_export]
-macro_rules! check_metric_after_block {
-    ($metric:expr, $delta:expr, $block:expr) => {{
-        let before = $metric.count();
-        let _ = $block;
-        assert_eq!($metric.count() - before, $delta, "unexpected metric value");
-    }};
-}
-
 /// Creates a [`GuestMemoryMmap`] with a single region  of size 65536 (= 0x10000 hex) starting at
 /// guest physical address 0
 pub fn default_mem() -> GuestMemoryMmap {
