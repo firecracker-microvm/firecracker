@@ -41,6 +41,7 @@ struct ApiServerAdapter {
     from_api: Receiver<ApiRequest>,
     to_api: Sender<ApiResponse>,
     controller: RuntimeApiController,
+    request: Option<ApiRequest>,
 }
 
 impl ApiServerAdapter {
@@ -58,12 +59,14 @@ impl ApiServerAdapter {
             from_api,
             to_api,
             controller: RuntimeApiController::new(vmm.clone()),
+            request: None,
         }));
-        event_manager.add_subscriber(api_adapter);
+        event_manager.add_subscriber(api_adapter.clone());
         loop {
             event_manager
                 .run()
                 .expect("EventManager events driver fatal error");
+            api_adapter.lock().expect("Poisoned lock").handle_request();
 
             match vmm.lock().unwrap().shutdown_exit_code() {
                 Some(FcExitCode::Ok) => break,
@@ -74,13 +77,38 @@ impl ApiServerAdapter {
         Ok(())
     }
 
-    fn handle_request(&mut self, req_action: VmmAction) {
+    fn _handle_request(&mut self, req_action: VmmAction) {
         let response = self.controller.handle_request(req_action);
         // Send back the result.
         self.to_api
             .send(Box::new(response))
             .map_err(|_| ())
             .expect("one-shot channel closed");
+    }
+
+    fn handle_request(&mut self) {
+        if let Some(api_request) = self.request.take() {
+            let request_is_pause = *api_request == VmmAction::Pause;
+            self._handle_request(*api_request);
+
+            // If the latest req is a pause request, temporarily switch to a mode where we
+            // do blocking `recv`s on the `from_api` receiver in a loop, until we get
+            // unpaused. The device emulation is implicitly paused since we do not
+            // relinquish control to the event manager because we're not returning from
+            // `process`.
+            if request_is_pause {
+                // This loop only attempts to process API requests, so things like the
+                // metric flush timerfd handling are frozen as well.
+                loop {
+                    let req = self.from_api.recv().expect("Error receiving API request.");
+                    let req_is_resume = *req == VmmAction::Resume;
+                    self._handle_request(*req);
+                    if req_is_resume {
+                        break;
+                    }
+                }
+            }
+        }
     }
 }
 impl MutEventSubscriber for ApiServerAdapter {
@@ -93,26 +121,7 @@ impl MutEventSubscriber for ApiServerAdapter {
             let _ = self.api_event_fd.read();
             match self.from_api.try_recv() {
                 Ok(api_request) => {
-                    let request_is_pause = *api_request == VmmAction::Pause;
-                    self.handle_request(*api_request);
-
-                    // If the latest req is a pause request, temporarily switch to a mode where we
-                    // do blocking `recv`s on the `from_api` receiver in a loop, until we get
-                    // unpaused. The device emulation is implicitly paused since we do not
-                    // relinquish control to the event manager because we're not returning from
-                    // `process`.
-                    if request_is_pause {
-                        // This loop only attempts to process API requests, so things like the
-                        // metric flush timerfd handling are frozen as well.
-                        loop {
-                            let req = self.from_api.recv().expect("Error receiving API request.");
-                            let req_is_resume = *req == VmmAction::Resume;
-                            self.handle_request(*req);
-                            if req_is_resume {
-                                break;
-                            }
-                        }
-                    }
+                    self.request = Some(api_request);
                 }
                 Err(TryRecvError::Empty) => {
                     warn_unrestricted!("Got a spurious notification from api thread");
