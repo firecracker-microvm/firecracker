@@ -7,7 +7,7 @@ use std::path::PathBuf;
 use serde::{Deserialize, Serialize};
 
 use crate::logger::{FcLineWriter, METRICS};
-use crate::utils::open_file_write_nonblock;
+use crate::utils::open_file_nonblock;
 
 /// Strongly typed structure used to describe the metrics system.
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
@@ -26,7 +26,7 @@ pub enum MetricsConfigError {
 /// Configures the metrics as described in `metrics_cfg`.
 pub fn init_metrics(metrics_cfg: MetricsConfig) -> Result<(), MetricsConfigError> {
     let writer = FcLineWriter::new(
-        open_file_write_nonblock(&metrics_cfg.metrics_path)
+        open_file_nonblock(&metrics_cfg.metrics_path)
             .map_err(|err| MetricsConfigError::InitializationFailure(err.to_string()))?,
     );
     METRICS
