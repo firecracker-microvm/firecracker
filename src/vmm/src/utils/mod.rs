@@ -14,7 +14,6 @@ use std::fs::{File, OpenOptions};
 use std::num::Wrapping;
 use std::os::unix::fs::OpenOptionsExt;
 use std::path::Path;
-use std::result::Result;
 
 use libc::O_NONBLOCK;
 
