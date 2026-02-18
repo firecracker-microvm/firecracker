@@ -1,0 +1,61 @@
+From a11839dc97a704285db8772392bf74d4134292bf Mon Sep 17 00:00:00 2001
+From: Nikita Kalyazin <kalyazin@amazon.com>
+Date: Wed, 18 Feb 2026 14:15:16 +0000
+Subject: [PATCH] poc for synchronize_srcu from sean
+
+See: https://lore.kernel.org/kvm/aZS8XXOW7vhMkNWQ@google.com
+
+Signed-off-by: Nikita Kalyazin <kalyazin@amazon.com>
+---
+ include/linux/srcu.h  | 2 ++
+ kernel/rcu/srcutree.c | 7 +++++++
+ virt/kvm/kvm_main.c   | 2 +-
+ 3 files changed, 10 insertions(+), 1 deletion(-)
+
+diff --git a/include/linux/srcu.h b/include/linux/srcu.h
+index ada65b58bc4c..6d60292de54f 100644
+--- a/include/linux/srcu.h
++++ b/include/linux/srcu.h
+@@ -65,6 +65,8 @@ void __srcu_read_unlock(struct srcu_struct *ssp, int idx) __releases(ssp);
+ 
+ void call_srcu(struct srcu_struct *ssp, struct rcu_head *head,
+ 		void (*func)(struct rcu_head *head));
++void call_srcu_expedited(struct srcu_struct *ssp, struct rcu_head *rhp,
++			 rcu_callback_t func);
+ void cleanup_srcu_struct(struct srcu_struct *ssp);
+ void synchronize_srcu(struct srcu_struct *ssp);
+ 
+diff --git a/kernel/rcu/srcutree.c b/kernel/rcu/srcutree.c
+index 1ff94b76d91f..b103b9e19346 100644
+--- a/kernel/rcu/srcutree.c
++++ b/kernel/rcu/srcutree.c
+@@ -1557,6 +1557,13 @@ unsigned long get_state_synchronize_srcu(struct srcu_struct *ssp)
+ }
+ EXPORT_SYMBOL_GPL(get_state_synchronize_srcu);
+ 
++void call_srcu_expedited(struct srcu_struct *ssp, struct rcu_head *rhp,
++			 rcu_callback_t func)
++{
++	__call_srcu(ssp, rhp, func, rcu_gp_is_normal());
++}
++EXPORT_SYMBOL_GPL(call_srcu_expedited);
++
+ /**
+  * start_poll_synchronize_srcu - Provide cookie and start grace period
+  * @ssp: srcu_struct to provide cookie for.
+diff --git a/virt/kvm/kvm_main.c b/virt/kvm/kvm_main.c
+index a634e8f59ccc..60a8b7ca8ab4 100644
+--- a/virt/kvm/kvm_main.c
++++ b/virt/kvm/kvm_main.c
+@@ -6027,7 +6027,7 @@ int kvm_io_bus_register_dev(struct kvm *kvm, enum kvm_bus bus_idx, gpa_t addr,
+ 	memcpy(new_bus->range + i + 1, bus->range + i,
+ 		(bus->dev_count - i) * sizeof(struct kvm_io_range));
+ 	rcu_assign_pointer(kvm->buses[bus_idx], new_bus);
+-	call_srcu(&kvm->srcu, &bus->rcu, __free_bus);
++	call_srcu_expedited(&kvm->srcu, &bus->rcu, __free_bus);
+ 
+ 	return 0;
+ }
+-- 
+2.50.1
+
