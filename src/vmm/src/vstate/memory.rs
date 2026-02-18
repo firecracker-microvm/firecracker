@@ -126,6 +126,7 @@ impl<'a> GuestMemorySlot<'a> {
         let mut write_size = 0;
         let mut skip_size = 0;
         let mut dirty_batch_start = 0;
+        let mut cursor_offset: usize = 0; // tracks total file cursor advancement
 
         for (i, v) in kvm_bitmap.iter().enumerate() {
             for j in 0..64 {
@@ -140,6 +141,7 @@ impl<'a> GuestMemorySlot<'a> {
                         writer
                             .seek(SeekFrom::Current(skip_size.try_into().unwrap()))
                             .unwrap();
+                        cursor_offset += skip_size;
                         dirty_batch_start = page_offset;
                         skip_size = 0;
                     }
@@ -150,6 +152,7 @@ impl<'a> GuestMemorySlot<'a> {
                         // Dump the dirty pages.
                         let slice = &self.slice.subslice(dirty_batch_start, write_size)?;
                         writer.write_all_volatile(slice)?;
+                        cursor_offset += write_size;
                         write_size = 0;
                     }
                     skip_size += page_size;
@@ -159,6 +162,17 @@ impl<'a> GuestMemorySlot<'a> {
 
         if write_size > 0 {
             writer.write_all_volatile(&self.slice.subslice(dirty_batch_start, write_size)?)?;
+            cursor_offset += write_size;
+        }
+
+        // Seek to the exact end of this slot. Without this, multi-slot VMs have
+        // cursor misalignment: the next slot writes at wrong file offsets because
+        // this slot didn't advance the cursor past its trailing clean pages.
+        let remaining = self.slice.len().saturating_sub(cursor_offset);
+        if remaining > 0 {
+            writer
+                .seek(SeekFrom::Current(remaining.try_into().unwrap()))
+                .unwrap();
         }
 
         Ok(())
@@ -1331,5 +1345,85 @@ mod tests {
                 .unwrap_err(),
             GuestMemoryError::IOError(_)
         );
+    }
+
+    /// Regression test: dump_dirty must align the file cursor between slots.
+    ///
+    /// When region 1 (slot 0) ends with clean pages, dump_dirty must seek past
+    /// them so region 2 (slot 1) starts writing at the correct file offset.
+    /// Without the trailing seek, slot 1's data is shifted backward by the
+    /// size of slot 0's trailing clean pages, corrupting the snapshot.
+    #[test]
+    fn test_dump_dirty_multi_slot_cursor_alignment() {
+        let page_size = get_page_size().unwrap();
+
+        // Simulate a VM with two memory regions (like a 4GB VM with MMIO gap).
+        // Use 128 pages per region (512KB) so bitmap entries align properly.
+        // KVM bitmap uses 64 pages per u64, so 128 pages = 2 u64 entries.
+        let region_1_address = GuestAddress(0);
+        let region_2_address = GuestAddress(page_size as u64 * 256);
+        let region_size = page_size * 128;
+        let mem_regions = [
+            (region_1_address, region_size),
+            (region_2_address, region_size),
+        ];
+        let guest_memory = into_region_ext(
+            anonymous(mem_regions.into_iter(), true, HugePageConfig::None).unwrap(),
+        );
+
+        // Fill region 1 with pattern 0xAA, region 2 with 0xBB
+        let region1_data = vec![0xAAu8; region_size];
+        let region2_data = vec![0xBBu8; region_size];
+        guest_memory.write(&region1_data, region_1_address).unwrap();
+        guest_memory
+            .write(&region2_data, region_2_address)
+            .unwrap();
+
+        // Reset Firecracker's internal bitmap (the writes above marked everything dirty)
+        guest_memory.reset_dirty();
+
+        // Dirty bitmap: only page 0 of region 1 is dirty (pages 1-3 are clean).
+        // ALL pages of region 2 are dirty.
+        // This means region 1 has 3 trailing clean pages that dump_dirty must
+        // seek past before writing region 2.
+        let mut dirty_bitmap: DirtyBitmap = HashMap::new();
+        // Slot 0: only first page dirty, rest clean (127 trailing clean pages)
+        dirty_bitmap.insert(0, vec![0b01, 0]); // 2 u64s for 128 pages, only bit 0 set
+        // Slot 1: all 128 pages dirty
+        dirty_bitmap.insert(1, vec![u64::MAX, u64::MAX]); // all bits set
+
+        // Dump dirty pages to a file
+        let mut file = TempFile::new().unwrap().into_file();
+        file.set_len((region_size * 2) as u64).unwrap();
+        guest_memory.dump_dirty(&mut file, &dirty_bitmap).unwrap();
+
+        // Now do a full dump for comparison (ground truth)
+        let mut full_file = TempFile::new().unwrap().into_file();
+        full_file.set_len((region_size * 2) as u64).unwrap();
+        guest_memory.dump(&mut full_file).unwrap();
+
+        // Read region 2 from both files and compare.
+        // Region 2 starts at file offset region_size (after region 1).
+        let mut dirty_region2 = vec![0u8; region_size];
+        let mut full_region2 = vec![0u8; region_size];
+
+        file.seek(SeekFrom::Start(region_size as u64)).unwrap();
+        file.read_exact(&mut dirty_region2).unwrap();
+
+        full_file
+            .seek(SeekFrom::Start(region_size as u64))
+            .unwrap();
+        full_file.read_exact(&mut full_region2).unwrap();
+
+        assert_eq!(
+            dirty_region2, full_region2,
+            "Region 2 data at file offset {} should match between dirty and full dump. \
+             If this fails, dump_dirty didn't seek past trailing clean pages in region 1, \
+             causing region 2 data to be written at the wrong file offset.",
+            region_size
+        );
+
+        // Also verify region 2 has the expected content (0xBB)
+        assert_eq!(dirty_region2, region2_data);
     }
 }
