@@ -60,6 +60,9 @@ and this project adheres to
 - [#5688](https://github.com/firecracker-microvm/firecracker/pull/5688): Fixed
   vsock local port reuse across snapshot restore by saving the last used local
   port into the snapshot, so users need to regenerate snapshots.
+- [#5698](https://github.com/firecracker-microvm/firecracker/pull/5698): Fixed
+  the possible ENXIO error which could occur during file open operation if the
+  underlying file is FIFO without active readers already attached.
 
 ## [v1.14.0]
 
