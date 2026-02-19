@@ -6,6 +6,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+### Changed
+
+### Deprecated
+
+### Removed
+
+### Fixed
+
 ## [v1.15.0]
 
 ### Added
@@ -44,6 +56,10 @@ and this project adheres to
 ### Removed
 
 ### Fixed
+
+- [#5688](https://github.com/firecracker-microvm/firecracker/pull/5688): Fixed
+  vsock local port reuse across snapshot restore by saving the last used local
+  port into the snapshot, so users need to regenerate snapshots.
 
 ## [v1.14.0]
 

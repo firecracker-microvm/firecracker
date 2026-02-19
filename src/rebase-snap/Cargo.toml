@@ -1,6 +1,6 @@
 [package]
 name = "rebase-snap"
-version = "1.15.0-dev"
+version = "1.16.0-dev"
 authors = ["Amazon Firecracker team <firecracker-devel@amazon.com>"]
 edition = "2024"
 license = "Apache-2.0"
@@ -14,7 +14,7 @@ tracing = ["log-instrument", "utils/tracing"]
 
 [dependencies]
 displaydoc = "0.2.5"
-libc = "0.2.180"
+libc = "0.2.182"
 log-instrument = { path = "../log-instrument", optional = true }
 thiserror = "2.0.18"
 vmm-sys-util = "0.15.0"

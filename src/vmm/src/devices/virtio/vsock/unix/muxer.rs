@@ -107,7 +107,14 @@ pub struct VsockMuxer {
     /// ports to host-initiated connections.
     local_port_set: HashSet<u32>,
     /// The last used host-side port.
-    local_port_last: u32,
+    ///
+    /// Local ports are allocated in a round-robin fashion within the range [1 << 30, 1 << 31).
+    /// There should be no inherent technical requirement for this specific range. But the range
+    /// provides 1 billion available ports, making port collisions unlikely. In addition, the
+    /// most significant bits are fixed to 01, which may facilitate debugging and identification.
+    /// This appears to have been a design decision dating back to the initial introduction of the
+    /// vsock implementation.
+    pub(crate) local_port_last: u32,
 }
 
 impl VsockChannel for VsockMuxer {
