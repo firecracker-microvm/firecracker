@@ -38,6 +38,10 @@ and this project adheres to
 
 ### Fixed
 
+- [#5698](https://github.com/firecracker-microvm/firecracker/pull/5698): Fixed
+  the possible ENXIO error which could occur during file open operation if the
+  underlying file is FIFO without active readers already attached.
+
 ## [v1.14.0]
 
 ### Added
