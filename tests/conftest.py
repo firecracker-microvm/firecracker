@@ -374,6 +374,27 @@ def microvm_factory(request, record_property, results_dir, netns_factory):
         netns_factory=netns_factory,
         custom_cpu_template=custom_cpu_template,
     )
+
+    # Disable API request timing for performance tests
+    is_performance_test = "performance" in request.node.nodeid
+    if is_performance_test:
+        # Store original build method
+        original_build = uvm_factory.build
+        original_build_from_snapshot = uvm_factory.build_from_snapshot
+
+        def build_with_timing_disabled(*args, **kwargs):
+            vm = original_build(*args, **kwargs)
+            vm.time_api_requests = False
+            return vm
+
+        def build_from_snapshot_with_timing_disabled(*args, **kwargs):
+            vm = original_build_from_snapshot(*args, **kwargs)
+            vm.time_api_requests = False
+            return vm
+
+        uvm_factory.build = build_with_timing_disabled
+        uvm_factory.build_from_snapshot = build_from_snapshot_with_timing_disabled
+
     yield uvm_factory
 
     # if the test failed, save important files from the root of the uVM into `test_results` for troubleshooting

@@ -55,7 +55,6 @@ class SnapshotRestoreTest:
             pci=pci_enabled,
         )
         vm.spawn(log_level="Info", emit_metrics=True)
-        vm.time_api_requests = False
         vm.basic_config(
             vcpu_count=self.vcpus,
             mem_size_mib=self.mem,
