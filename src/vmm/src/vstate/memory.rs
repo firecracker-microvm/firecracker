@@ -1147,17 +1147,23 @@ mod tests {
             .write(&second_region, region_2_address)
             .unwrap();
 
+        // Firecracker Dirty Bitmap after the writes:
+        // First region pages: [dirty, dirty]
+        // Second region pages: [dirty, dirty]
+
         let memory_state = guest_memory.describe();
 
-        // Dump only the dirty pages.
+        // KVM dirty bitmap:
         // First region pages: [dirty, clean]
         // Second region pages: [clean, dirty]
-        let mut dirty_bitmap: DirtyBitmap = HashMap::new();
-        dirty_bitmap.insert(0, vec![0b01]);
-        dirty_bitmap.insert(1, vec![0b10]);
+        let mut kvm_dirty_bitmap: DirtyBitmap = HashMap::new();
+        kvm_dirty_bitmap.insert(0, vec![0b01]);
+        kvm_dirty_bitmap.insert(1, vec![0b10]);
 
         let mut file = TempFile::new().unwrap().into_file();
-        guest_memory.dump_dirty(&mut file, &dirty_bitmap).unwrap();
+        guest_memory
+            .dump_dirty(&mut file, &kvm_dirty_bitmap)
+            .unwrap();
 
         // We can restore from this because this is the first dirty dump.
         let restored_guest_memory =
@@ -1182,18 +1188,25 @@ mod tests {
         let ones = vec![1u8; page_size];
         let twos = vec![2u8; page_size];
 
-        // Firecracker Bitmap
-        // First region pages: [dirty, clean]
+        // Firecracker Dirty Bitmap:
+        // First region pages: [clean, dirty]
         // Second region pages: [clean, clean]
         guest_memory
             .write(&twos, GuestAddress(page_size as u64))
             .unwrap();
+        // KVM dirty bitmap:
+        // First region pages: [dirty, clean]
+        // Second region pages: [clean, dirty]
+        kvm_dirty_bitmap.insert(0, vec![0b01]);
+        kvm_dirty_bitmap.insert(1, vec![0b10]);
 
-        guest_memory.dump_dirty(&mut reader, &dirty_bitmap).unwrap();
+        guest_memory
+            .dump_dirty(&mut reader, &kvm_dirty_bitmap)
+            .unwrap();
 
         // Check that only the dirty regions are dumped.
         let mut diff_file_content = Vec::new();
-        let expected_first_region = [
+        let expected_file_contents = [
             ones.as_slice(),
             twos.as_slice(),
             zeros.as_slice(),
@@ -1202,7 +1215,7 @@ mod tests {
         .concat();
         reader.seek(SeekFrom::Start(0)).unwrap();
         reader.read_to_end(&mut diff_file_content).unwrap();
-        assert_eq!(expected_first_region, diff_file_content);
+        assert_eq!(expected_file_contents, diff_file_content);
     }
 
     #[test]
