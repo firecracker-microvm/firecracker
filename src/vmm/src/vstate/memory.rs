@@ -133,6 +133,11 @@ impl<'a> GuestMemorySlot<'a> {
                 let page_offset = ((i * 64) + j) * page_size;
                 let is_firecracker_page_dirty = firecracker_bitmap.dirty_at(page_offset);
 
+                if page_offset >= self.slice.len() {
+                    // The KVM bitmap is larger than the slot size
+                    break;
+                }
+
                 if is_kvm_page_dirty || is_firecracker_page_dirty {
                     // We are at the start of a new batch of dirty pages.
                     if skip_size > 0 {
@@ -159,6 +164,14 @@ impl<'a> GuestMemorySlot<'a> {
 
         if write_size > 0 {
             writer.write_all_volatile(&self.slice.subslice(dirty_batch_start, write_size)?)?;
+        }
+
+        // Advance the cursor even if the trailing pages are clean, so that the
+        // next slot starts writing at the correct offset.
+        if skip_size > 0 {
+            writer
+                .seek(SeekFrom::Current(skip_size.try_into().unwrap()))
+                .unwrap();
         }
 
         Ok(())
