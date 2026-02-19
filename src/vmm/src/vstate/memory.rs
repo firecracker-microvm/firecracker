@@ -201,6 +201,14 @@ impl<'a> GuestMemorySlot<'a> {
             writer.write_all_volatile(&self.slice.subslice(dirty_batch_start, write_size)?)?;
         }
 
+        // Advance the cursor even if the trailing pages are clean, so that the
+        // next slot starts writing at the correct offset.
+        if skip_size > 0 {
+            writer
+                .seek(SeekFrom::Current(skip_size.try_into().unwrap()))
+                .map_err(MemoryError::SeekError)?;
+        }
+
         Ok(())
     }
 
