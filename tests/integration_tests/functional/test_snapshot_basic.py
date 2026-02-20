@@ -410,14 +410,15 @@ def test_create_large_diff_snapshot(uvm_plain):
     # process would have been taken down.
 
 
-def test_diff_snapshot_overlay(uvm_plain_any, microvm_factory):
+@pytest.mark.parametrize("mem_size", [256, 4096])
+def test_diff_snapshot_overlay(uvm_plain_any, microvm_factory, mem_size):
     """
     Tests that if we take a diff snapshot and direct firecracker to write it on
     top of an existing snapshot file, it will successfully merge them.
     """
     basevm = uvm_plain_any
     basevm.spawn()
-    basevm.basic_config(track_dirty_pages=True)
+    basevm.basic_config(track_dirty_pages=True, mem_size_mib=mem_size)
     basevm.add_net_iface()
     basevm.start()
 
