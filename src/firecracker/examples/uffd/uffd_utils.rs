@@ -288,7 +288,10 @@ impl UffdHandler {
 
         for region in self.mem_regions.iter() {
             if region.contains(fault_page_addr) {
-                return self.populate_from_file(&region.clone(), fault_page_addr, len);
+                let offset =
+                    (region.offset + fault_page_addr - region.base_host_virt_addr) as usize;
+                let src = unsafe { self.backing_buffer.add(offset) };
+                return self.populate_via_uffdio_copy(src, fault_page_addr, len);
             }
         }
 
@@ -378,11 +381,20 @@ impl UffdHandler {
         total_written
     }
 
-    fn populate_via_uffdio_copy(&self, src: *const u8, dst: u64, len: usize) -> bool {
+    fn populate_via_uffdio_copy(&mut self, src: *const u8, dst: u64, len: usize) -> bool {
+        // Calculate offset before the match to avoid borrow checker issues
+        let offset = self.addr_to_offset(dst as *mut u8) as usize;
+
         unsafe {
             match self.uffd.copy(src.cast(), dst as *mut _, len, true) {
                 // Make sure the UFFD copied some bytes.
-                Ok(value) => assert!(value > 0),
+                Ok(value) => {
+                    assert!(value > 0);
+                    // For secret-free VMs, clear the bit in userfault_bitmap after successful UFFDIO_COPY
+                    if let Some(bitmap) = &mut self.userfault_bitmap {
+                        bitmap.reset_addr_range(offset, len);
+                    }
+                }
                 // Catch EAGAIN errors, which occur when a `remove` event lands in the UFFD
                 // queue while we're processing `pagefault` events.
                 // The weird cast is because the `bytes_copied` field is based on the
@@ -403,44 +415,6 @@ impl UffdHandler {
         };
 
         true
-    }
-
-    fn populate_via_memcpy(&mut self, src: *const u8, dst: u64, offset: usize, len: usize) -> bool {
-        let dst_memcpy = unsafe {
-            self.guest_memfd_addr
-                .expect("no guest_memfd addr")
-                .add(offset)
-        };
-
-        unsafe {
-            std::ptr::copy_nonoverlapping(src, dst_memcpy, len);
-        }
-
-        self.userfault_bitmap
-            .as_mut()
-            .unwrap()
-            .reset_addr_range(offset, len);
-
-        self.uffd
-            .r#continue(dst as _, len, true)
-            .expect("uffd_continue");
-
-        true
-    }
-
-    fn populate_from_file(
-        &mut self,
-        region: &GuestRegionUffdMapping,
-        dst: u64,
-        len: usize,
-    ) -> bool {
-        let offset = (region.offset + dst - region.base_host_virt_addr) as usize;
-        let src = unsafe { self.backing_buffer.add(offset) };
-
-        match self.guest_memfd {
-            Some(_) => self.populate_via_memcpy(src, dst, offset, len),
-            None => self.populate_via_uffdio_copy(src, dst, len),
-        }
     }
 
     fn zero_out(&mut self, addr: u64) -> bool {
