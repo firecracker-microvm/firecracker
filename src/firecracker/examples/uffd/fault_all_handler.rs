@@ -90,27 +90,32 @@ fn fault_all(uffd_handler: &mut UffdHandler, fault_addr: *mut libc::c_void) {
                     // first fault. Note that the kvm-clock page population does not trigger a UFFD
                     // page fault events since it doesn't use the userspace mappings.
                     //
-                    // 3 cases are possible:
-                    //  1) We wrote the entire region: this is when neither the kvmclock page nor
-                    //     the page that triggered the UFFD event was present in the region. This is
-                    //     only possible on x86 with the VMs larger than 3GiB.
-                    //  2) We wrote the region but one page. This is expected to happen on ARM,
-                    //     where the only page missing is the one the caused the UFFD event.
-                    //  3) We wrote the region but two pages: one for the kvmclock and one that
-                    //     caused the UFFD event. This can only happen on x86.
+                    // 2 cases are possible:
+                    //  1) We wrote the entire region: this is when the kvmclock page was not present
+                    //     in the region (for VMs larger than 3GiB due to the MMIO gap).
+                    //  2) We wrote the region but one page, which is the kvmclock page.
                     assert!(
-                        written == region.size
-                            || written == region.size - uffd_handler.page_size
-                            || written == region.size - uffd_handler.page_size * 2
+                        written == region.size || written == region.size - uffd_handler.page_size
                     );
+
+                    if written < region.size {
+                        // In the case 2 described above, we use UFFDIO_CONTINUE to set up userspace
+                        // page tables that KVM uses to populate the shared kvmclock page.
+                        _ = uffd_handler
+                            .uffd
+                            .r#continue(fault_addr, uffd_handler.page_size, true)
+                            .inspect_err(|err| println!("Error during uffdio_continue: {:?}", err));
+                    }
                 }
                 #[cfg(target_arch = "aarch64")]
                 {
-                    assert_eq!(written, region.size - uffd_handler.page_size);
-                }
-                // We skip the serve_pf() call in case 1) described above
-                if written < region.size {
-                    uffd_handler.serve_pf(fault_addr.cast(), uffd_handler.page_size);
+                    assert_eq!(written, region.size);
+                    // In the case 2 described above, we use UFFDIO_CONTINUE to set up userspace
+                    // page tables that KVM uses to populate the shared kvmclock page.
+                    _ = uffd_handler
+                        .uffd
+                        .r#continue(fault_addr, uffd_handler.page_size, true)
+                        .inspect_err(|err| println!("Error during uffdio_continue: {:?}", err));
                 }
             }
         }
