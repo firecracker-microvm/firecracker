@@ -187,7 +187,7 @@ impl<'a> Persist<'a> for MsixVectorGroup {
     fn restore(
         constructor_args: Self::ConstructorArgs,
         state: &Self::State,
-    ) -> std::result::Result<Self, Self::Error> {
+    ) -> Result<Self, Self::Error> {
         let mut vectors = Vec::with_capacity(state.len());
 
         for gsi in state {

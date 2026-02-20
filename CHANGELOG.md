@@ -6,6 +6,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.14.2]
+
+### Fixed
+
+- [#5698](https://github.com/firecracker-microvm/firecracker/pull/5698): Fixed
+  the possible ENXIO error which could occur during file open operation if the
+  underlying file is FIFO without active readers already attached.
+
 ## [1.14.1]
 
 ### Changed
