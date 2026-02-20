@@ -7,8 +7,8 @@ use std::ops::Add;
 
 use aws_lc_rs::aead::{AES_256_GCM, Aad, Nonce, RandomizedNonceKey};
 use base64::Engine;
-use serde::{Deserialize, Serialize};
 use utils::time::{ClockType, get_time_ms};
+use zerocopy::{FromBytes, Immutable, IntoBytes};
 
 /// Length of initialization vector.
 pub const IV_LEN: usize = 12;
@@ -18,11 +18,6 @@ pub const KEY_LEN: usize = 32;
 pub const PAYLOAD_LEN: usize = std::mem::size_of::<u64>();
 /// Length of encryption tag.
 pub const TAG_LEN: usize = 16;
-
-/// Maximum size in bytes for token deserialization to prevent DOS attacks.
-/// The Token struct contains fixed-size arrays (IV_LEN + PAYLOAD_LEN + TAG_LEN = 36 bytes)
-/// plus bitcode serialization overhead. This limit provides a safe margin.
-const TOKEN_DESERIALIZATION_BYTES_LIMIT: usize = 100;
 
 /// Constant to convert seconds to milliseconds.
 pub const MILLISECONDS_PER_SECOND: u64 = 1_000;
@@ -50,8 +45,6 @@ pub enum MmdsTokenError {
     ExpiryExtraction,
     /// Invalid time to live value provided for token: {0}. Please provide a value between {MIN_TOKEN_TTL_SECONDS:} and {MAX_TOKEN_TTL_SECONDS:}.
     InvalidTtlValue(u32),
-    /// Bitcode serialization failed: {0}.
-    Serialization(#[from] bitcode::Error),
     /// Failed to encrypt token.
     TokenEncryption,
 }
@@ -99,7 +92,7 @@ impl TokenAuthority {
         // Create token structure containing the encrypted expiry value.
         let token = self.create_token(ttl_seconds)?;
         // Encode struct into base64 in order to obtain token string.
-        let encoded_token = token.base64_encode()?;
+        let encoded_token = token.base64_encode();
         // Increase the count of encrypted tokens.
         self.num_encrypted_tokens += 1;
 
@@ -245,7 +238,8 @@ impl TokenAuthority {
 }
 
 /// Structure for token information.
-#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+#[derive(Clone, Debug, FromBytes, Immutable, IntoBytes, PartialEq)]
+#[repr(C)]
 struct Token {
     // Nonce or Initialization Vector.
     iv: [u8; IV_LEN],
@@ -262,27 +256,16 @@ impl Token {
     }
 
     /// Encode token structure into a string using base64 encoding.
-    fn base64_encode(&self) -> Result<String, MmdsTokenError> {
-        let token_bytes: Vec<u8> = bitcode::serialize(self)?;
-
-        // Encode token structure bytes into base64.
-        Ok(base64::engine::general_purpose::STANDARD.encode(token_bytes))
+    fn base64_encode(&self) -> String {
+        base64::engine::general_purpose::STANDARD.encode(self.as_bytes())
     }
 
     /// Decode token structure from base64 string.
     fn base64_decode(encoded_token: &str) -> Result<Self, MmdsTokenError> {
-        let token_bytes = base64::engine::general_purpose::STANDARD
+        let bytes = base64::engine::general_purpose::STANDARD
             .decode(encoded_token)
             .map_err(|_| MmdsTokenError::ExpiryExtraction)?;
-
-        // Check size limit to prevent DOS attacks
-        if token_bytes.len() > TOKEN_DESERIALIZATION_BYTES_LIMIT {
-            return Err(MmdsTokenError::ExpiryExtraction);
-        }
-
-        let token: Token =
-            bitcode::deserialize(&token_bytes).map_err(|_| MmdsTokenError::ExpiryExtraction)?;
-        Ok(token)
+        Self::read_from_bytes(&bytes).map_err(|_| MmdsTokenError::ExpiryExtraction)
     }
 }
 
@@ -392,7 +375,7 @@ mod tests {
     #[test]
     fn test_encode_decode() {
         let expected_token = Token::new([0u8; IV_LEN], [0u8; PAYLOAD_LEN], [0u8; TAG_LEN]);
-        let mut encoded_token = expected_token.base64_encode().unwrap();
+        let mut encoded_token = expected_token.base64_encode();
         let actual_token = Token::base64_decode(&encoded_token).unwrap();
         assert_eq!(actual_token, expected_token);
 
