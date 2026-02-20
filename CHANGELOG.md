@@ -63,6 +63,10 @@ and this project adheres to
 - [#5698](https://github.com/firecracker-microvm/firecracker/pull/5698): Fixed
   the possible ENXIO error which could occur during file open operation if the
   underlying file is FIFO without active readers already attached.
+- [#5705](https://github.com/firecracker-microvm/firecracker/pull/5705): Fixed a
+  bug that caused Firecracker to corrupt the memory files of differential
+  snapshots for VMs with multiple memory slots. This affected VMs using memory
+  hot-plugging or any x86 VMs with a memory size larger than 3GiB.
 
 ## [v1.14.0]
 
