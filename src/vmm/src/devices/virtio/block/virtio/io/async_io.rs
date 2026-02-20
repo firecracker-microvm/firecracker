@@ -230,6 +230,28 @@ impl AsyncFileEngine {
         Ok(())
     }
 
+    pub fn push_discard(
+        &mut self,
+        offset: u64,
+        len: u32,
+        req: PendingRequest,
+    ) -> Result<(), RequestError<AsyncIoError>> {
+        let wrapped_user_data = WrappedRequest::new(req);
+
+        if let Err((io_uring_error, data)) =
+            self.ring
+                .push(Operation::fallocate(0, len, offset, wrapped_user_data))
+        {
+            error!(
+                "DISCARD fallocate failed (offset={}, len={}): {:?}",
+                offset, len, io_uring_error
+            );
+            return Ok(());
+        }
+
+        Ok(())
+    }
+
     fn do_pop(&mut self) -> Result<Option<Cqe<WrappedRequest>>, AsyncIoError> {
         self.ring.pop().map_err(AsyncIoError::IoUring)
     }
