@@ -489,8 +489,6 @@ impl Peripherals {
     /// Returns error or enum specifying whether emulation was handled or interrupted.
     pub fn run_arch_emulation(&self, exit: VcpuExit) -> Result<VcpuEmulation, VcpuError> {
         METRICS.vcpu.failures.inc();
-        // TODO: Are we sure we want to finish running a vcpu upon
-        // receiving a vm exit that is not necessarily an error?
         error!("Unexpected exit reason on vcpu run: {:?}", exit);
         Err(VcpuError::UnhandledKvmExit(format!("{:?}", exit)))
     }

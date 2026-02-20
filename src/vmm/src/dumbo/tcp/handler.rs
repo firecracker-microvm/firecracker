@@ -18,8 +18,6 @@ use crate::dumbo::pdu::tcp::{Flags as TcpFlags, TcpError as TcpSegmentError, Tcp
 use crate::dumbo::tcp::endpoint::Endpoint;
 use crate::dumbo::tcp::{NextSegmentStatus, RstConfig};
 
-// TODO: This is currently IPv4 specific. Maybe change it to a more generic implementation.
-
 /// Describes events which may occur when the handler receives packets.
 #[derive(Debug, PartialEq, Eq)]
 pub enum RecvEvent {
@@ -349,7 +347,6 @@ impl TcpIPv4Handler {
         }
     }
 
-    // TODO: I guess this should be refactored at some point to also remove the endpoint if found.
     fn find_evictable_connection(&self) -> Option<ConnectionTuple> {
         for (tuple, endpoint) in self.connections.iter() {
             if endpoint.is_evictable() {
