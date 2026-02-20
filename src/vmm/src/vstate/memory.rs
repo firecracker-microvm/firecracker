@@ -867,6 +867,7 @@ mod tests {
 
     use std::collections::HashMap;
     use std::io::{Read, Seek, Write};
+    use std::os::unix::fs::MetadataExt;
 
     use vmm_sys_util::tempfile::TempFile;
 
@@ -1247,6 +1248,50 @@ mod tests {
         reader.seek(SeekFrom::Start(0)).unwrap();
         reader.read_to_end(&mut diff_file_content).unwrap();
         assert_eq!(expected_file_contents, diff_file_content);
+
+        // Take a 3rd snapshot
+
+        // Firecracker Dirty Bitmap:
+        // First region pages: [dirty, clean]
+        // Second region pages: [dirty, clean]
+        guest_memory.write(&twos, region_1_address).unwrap();
+        guest_memory.write(&ones, region_2_address).unwrap();
+        // KVM dirty bitmap:
+        // First region pages: [clean, clean]
+        // Second region pages: [clean, clean]
+        kvm_dirty_bitmap.insert(0, vec![0b00]);
+        kvm_dirty_bitmap.insert(1, vec![0b00]);
+
+        let file = TempFile::new().unwrap();
+        let logical_size = page_size as u64 * 4;
+        file.as_file().set_len(logical_size).unwrap();
+
+        let mut reader = file.into_file();
+        guest_memory
+            .dump_dirty(&mut reader, &kvm_dirty_bitmap)
+            .unwrap();
+
+        // Check that only the dirty regions are dumped.
+        let mut diff_file_content = Vec::new();
+        // The resulting file is a sparse file with holes.
+        let expected_file_contents = [
+            twos.as_slice(),
+            zeros.as_slice(), // hole
+            ones.as_slice(),
+            zeros.as_slice(), // hole
+        ]
+        .concat();
+        reader.seek(SeekFrom::Start(0)).unwrap();
+        reader.read_to_end(&mut diff_file_content).unwrap();
+
+        assert_eq!(expected_file_contents, diff_file_content);
+
+        // Make sure that only 2 of the pages are written in the file and the
+        // other two are holes.
+        let metadata = reader.metadata().unwrap();
+        let physical_size = metadata.blocks() * 512;
+        assert_eq!(physical_size, 2 * page_size as u64);
+        assert_ne!(physical_size, logical_size);
 
         // Test with bitmaps that are too large or too small
         kvm_dirty_bitmap.insert(0, vec![0b1, 0b01]);
