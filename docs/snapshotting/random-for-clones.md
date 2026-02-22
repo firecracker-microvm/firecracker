@@ -111,7 +111,7 @@ guest about time shift events, such as resuming from a snapshot. The device
 exposes a 16-byte cryptographically random identifier in guest memory.
 Firecracker implements VMGenID. When resuming a microVM from a snapshot
 Firecracker writes a new identifier and injects a notification to the guest.
-Linux,
+Linux
 [uses this value](https://elixir.bootlin.com/linux/v5.18.19/source/drivers/virt/vmgenid.c#L77)
 [as new randomness for its CSPRNG](https://elixir.bootlin.com/linux/v5.18.19/source/drivers/char/random.c#L908).
 Quoting the random.c implementation of the kernel:
@@ -127,11 +127,7 @@ Quoting the random.c implementation of the kernel:
 As a result, values returned by `getrandom()` and `/dev/(u)random` are distinct
 in all VMs started from the same snapshot, **after** the kernel handles the
 VMGenID notification. This leaves a race window between resuming vCPUs and Linux
-CSPRNG getting successfully re-seeded. In Linux 6.8, we
-[extended VMGenID](https://lore.kernel.org/lkml/20230531095119.11202-2-bchalios@amazon.es/)
-to emit a uevent to user space when it handles the notification. User space can
-poll this uevent to know when it is safe to use `getrandom()`, et al. avoiding
-the race condition.
+CSPRNG getting successfully re-seeded.
 
 Firecracker supports VMGenID on ARM systems using the DeviceTree binding that
 was added for the device in Linux 6.10. However, the latest Linux kernel that
@@ -185,9 +181,8 @@ alter the read result via bind mounting another file on top of
   reseeded when the guest kernel handles the VMGenID notification. To completely
   avoid the race condition, users should follow the same steps as with kernels
   \< 5.18.
-- On kernels starting from 6.8, users can poll for the VMGenID uevent that the
-  driver sends when the CSPRNG is reseeded after handling the VMGenID
-  notification.
+- [Userspace notifications of loading snapshots](snapshot-support.md#userspace-notifications-of-loading-snapshots)
+  can be used to trigger the direct approach described above.
 
 **Annex 1 contains the source code of a C program which implements the previous
 three steps.** As soon as the guest kernel version switches to 4.19 (or higher),
