@@ -51,9 +51,9 @@ fn edit(
     output_path: &PathBuf,
     f: impl Fn(MicrovmState) -> Result<MicrovmState, EditVmStateError>,
 ) -> Result<(), EditVmStateError> {
-    let snapshot = open_vmstate(vmstate_path)?;
-    let microvm_state = f(snapshot.data)?;
-    save_vmstate(microvm_state, output_path)?;
+    let mut snapshot = open_vmstate(vmstate_path)?;
+    snapshot.data = f(snapshot.data)?;
+    save_vmstate(&snapshot, output_path)?;
     Ok(())
 }
 
