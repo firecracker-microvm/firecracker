@@ -20,6 +20,8 @@ DEFAULT_INSTANCES = [
     "m6i.metal",      # Intel Ice Lake
     "m7i.metal-24xl", # Intel Sapphire Rapids
     "m7i.metal-48xl", # Intel Sapphire Rapids
+    "m8i.metal-48xl", # Intel Granite Rapids
+    "m8i.metal-96xl", # Intel Granite Rapids
     "m6a.metal",      # AMD Milan
     "m7a.metal-48xl", # AMD Genoa
     "m6g.metal",      # Graviton2

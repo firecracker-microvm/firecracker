@@ -14,7 +14,6 @@ use std::fs::{File, OpenOptions};
 use std::num::Wrapping;
 use std::os::unix::fs::OpenOptionsExt;
 use std::path::Path;
-use std::result::Result;
 
 use libc::O_NONBLOCK;
 
@@ -76,14 +75,16 @@ pub const fn align_down(addr: u64, align: u64) -> u64 {
     addr & !(align - 1)
 }
 
-/// Create and open a File for writing to it.
-/// In case we open a FIFO, in order to not block the instance if nobody is consuming the message
-/// that is flushed to it, we are opening it with `O_NONBLOCK` flag.
-/// In this case, writing to a pipe will start failing when reaching 64K of unconsumed content.
-pub fn open_file_write_nonblock(path: &Path) -> Result<File, std::io::Error> {
+/// Create and open a file for both reading and writing to it with a O_NONBLOCK flag.
+/// In case we open a FIFO, we need all READ, WRITE and O_NONBLOCK in order to not block the process
+/// if nobody is consuming the message. Otherwise opening the FIFO with only WRITE and O_NONBLOCK
+/// will fail with ENXIO if there is no readier already attached to it.
+/// NOTE: writing to a pipe will start failing when reaching 64K of unconsumed content.
+pub fn open_file_nonblock(path: &Path) -> Result<File, std::io::Error> {
     OpenOptions::new()
         .custom_flags(O_NONBLOCK)
         .create(true)
+        .read(true)
         .write(true)
         .open(path)
 }

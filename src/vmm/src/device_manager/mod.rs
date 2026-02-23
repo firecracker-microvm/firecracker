@@ -35,7 +35,7 @@ use crate::devices::virtio::device::{VirtioDevice, VirtioDeviceType};
 use crate::devices::virtio::transport::mmio::{IrqTrigger, MmioTransport};
 use crate::resources::VmResources;
 use crate::snapshot::Persist;
-use crate::utils::open_file_write_nonblock;
+use crate::utils::open_file_nonblock;
 use crate::vstate::bus::BusError;
 use crate::vstate::memory::GuestMemoryMmap;
 use crate::{EmulateSerialInitError, EventManager, Vm};
@@ -125,7 +125,7 @@ impl DeviceManager {
         output: Option<&PathBuf>,
     ) -> Result<Arc<Mutex<SerialDevice>>, std::io::Error> {
         let (serial_in, serial_out) = match output {
-            Some(path) => (None, open_file_write_nonblock(path).map(SerialOut::File)?),
+            Some(path) => (None, open_file_nonblock(path).map(SerialOut::File)?),
             None => {
                 Self::set_stdout_nonblocking();
 
