@@ -97,8 +97,8 @@ pub fn create_fdt(
     create_clock_node(&mut fdt_writer)?;
     create_psci_node(&mut fdt_writer)?;
     create_devices_node(&mut fdt_writer, device_manager)?;
-    create_vmgenid_node(&mut fdt_writer, &device_manager.acpi_devices.vmgenid)?;
-    create_vmclock_node(&mut fdt_writer, &device_manager.acpi_devices.vmclock)?;
+    create_vmgenid_node(&mut fdt_writer, device_manager.acpi_devices.vmgenid())?;
+    create_vmclock_node(&mut fdt_writer, device_manager.acpi_devices.vmclock())?;
     create_pci_nodes(&mut fdt_writer, &device_manager.pci_devices)?;
 
     // End Header node.
