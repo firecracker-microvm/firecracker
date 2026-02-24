@@ -63,6 +63,10 @@ pub enum MemoryError {
     SlotSizeTooLarge,
     /// Dirty bitmap not found for memory slot {0}
     DirtyBitmapNotFound(u32),
+    /// Dirty bitmap is larger than the slot size
+    DirtyBitmapTooLarge,
+    /// Dirty bitmap is smaller than the slot size
+    DirtyBitmapTooSmall,
     /// Seek error: {0}
     SeekError(std::io::Error),
     /// Volatile memory error: {0}
@@ -141,11 +145,30 @@ impl<'a> GuestMemorySlot<'a> {
         let mut skip_size = 0;
         let mut dirty_batch_start = 0;
 
+        let expected_bitmap_array_len = (self.slice.len() / page_size).div_ceil(64);
+        if kvm_bitmap.len() > expected_bitmap_array_len {
+            return Err(MemoryError::DirtyBitmapTooLarge);
+        } else if kvm_bitmap.len() < expected_bitmap_array_len {
+            return Err(MemoryError::DirtyBitmapTooSmall);
+        }
+
         for (i, v) in kvm_bitmap.iter().enumerate() {
             for j in 0..64 {
                 let is_kvm_page_dirty = ((v >> j) & 1u64) != 0u64;
                 let page_offset = ((i * 64) + j) * page_size;
                 let is_firecracker_page_dirty = firecracker_bitmap.dirty_at(page_offset);
+
+                // We process 64 pages at a time, however the number of pages
+                // in the slot might not be a multiple of 64. We need to break
+                // once we go past the last page that is actually part of the
+                // region.
+                if page_offset >= self.slice.len() {
+                    // Ensure there are no more dirty bits after this point
+                    if (v >> j) != 0 {
+                        return Err(MemoryError::DirtyBitmapTooLarge);
+                    }
+                    break;
+                }
 
                 if is_kvm_page_dirty || is_firecracker_page_dirty {
                     // We are at the start of a new batch of dirty pages.
@@ -1216,6 +1239,26 @@ mod tests {
         reader.seek(SeekFrom::Start(0)).unwrap();
         reader.read_to_end(&mut diff_file_content).unwrap();
         assert_eq!(expected_file_contents, diff_file_content);
+
+        // Test with bitmaps that are too large or too small
+        kvm_dirty_bitmap.insert(0, vec![0b1, 0b01]);
+        kvm_dirty_bitmap.insert(1, vec![0b10]);
+        assert!(matches!(
+            guest_memory.dump_dirty(&mut reader, &kvm_dirty_bitmap),
+            Err(MemoryError::DirtyBitmapTooLarge)
+        ));
+        kvm_dirty_bitmap.insert(0, vec![0b01]);
+        kvm_dirty_bitmap.insert(1, vec![0b110]);
+        assert!(matches!(
+            guest_memory.dump_dirty(&mut reader, &kvm_dirty_bitmap),
+            Err(MemoryError::DirtyBitmapTooLarge)
+        ));
+        kvm_dirty_bitmap.insert(0, vec![]);
+        kvm_dirty_bitmap.insert(1, vec![0b10]);
+        assert!(matches!(
+            guest_memory.dump_dirty(&mut reader, &kvm_dirty_bitmap),
+            Err(MemoryError::DirtyBitmapTooSmall)
+        ));
     }
 
     #[test]
