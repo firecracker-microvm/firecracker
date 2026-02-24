@@ -16,6 +16,8 @@ pub enum ACPIDeviceError {
     RegisterIrq(#[from] kvm_ioctls::Error),
     /// Could not write to guest memory: {0}
     WriteGuestMemory(#[from] GuestMemoryError),
+    /// Could not notify guest: {0}
+    NotifyGuest(#[from] std::io::Error),
 }
 
 #[derive(Debug)]
