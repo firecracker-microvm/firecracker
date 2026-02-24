@@ -125,15 +125,3 @@ function validate_version {
         die "Invalid version number: $version. Version should not contain \`wip\` or \`dirty\`."
     fi
 }
-
-#########################
-# Firecracker functions #
-#########################
-
-# Check if /dev/kvm exists. Exit if it doesn't.
-# Upon returning from this call, the caller can be certain /dev/kvm is
-# available.
-#
-ensure_kvm() {
-    [[ -c /dev/kvm ]] || die "/dev/kvm not found. Aborting."
-}
