@@ -617,6 +617,9 @@ recreate state.
 Moreover, VMClock allows processes to call poll() on the VMClock device and get
 notified about changes through an event loop.
 
+For reference, the C code used in our tests is available
+[here](https://github.com/firecracker-microvm/firecracker/blob/main/tests/host_tools/vmclock.c).
+
 > [!IMPORTANT]
 >
 > Support for `vm_generation_counter` and `poll()` is implemented in Linux
