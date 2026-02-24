@@ -174,7 +174,7 @@ impl DeviceManager {
             mmio_devices: MMIODeviceManager::new(),
             #[cfg(target_arch = "x86_64")]
             legacy_devices,
-            acpi_devices: ACPIDeviceManager::new(),
+            acpi_devices: ACPIDeviceManager::default(),
             pci_devices: PciDevices::new(),
         })
     }
@@ -559,10 +559,10 @@ pub(crate) mod tests {
     pub(crate) fn default_device_manager() -> DeviceManager {
         let mut resource_allocator = ResourceAllocator::new();
         let mmio_devices = MMIODeviceManager::new();
-        let acpi_devices = ACPIDeviceManager {
-            vmgenid: Some(VmGenId::new(&mut resource_allocator)),
-            vmclock: Some(VmClock::new(&mut resource_allocator)),
-        };
+        let acpi_devices = ACPIDeviceManager::new(
+            VmGenId::new(&mut resource_allocator),
+            VmClock::new(&mut resource_allocator),
+        );
         let pci_devices = PciDevices::new();
 
         #[cfg(target_arch = "x86_64")]

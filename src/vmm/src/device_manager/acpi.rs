@@ -20,22 +20,22 @@ pub enum ACPIDeviceError {
     NotifyGuest(#[from] std::io::Error),
 }
 
-#[derive(Debug)]
+// Although both VMGenID and VMClock devices are always present, they should be instantiated when
+// they are attached to preserve the existing ordering of GSI allocation.
+#[derive(Debug, Default)]
 pub struct ACPIDeviceManager {
     /// VMGenID device
-    pub vmgenid: Option<VmGenId>,
+    vmgenid: Option<VmGenId>,
     /// VMclock device
-    pub vmclock: Option<VmClock>,
+    vmclock: Option<VmClock>,
 }
 
 impl ACPIDeviceManager {
     /// Create a new ACPIDeviceManager object
-    pub fn new() -> Self {
-        // Although both VMGenID and VMClock devices are always present, they should be instantiated
-        // when they are attached to preserve the existing ordering of GSI allocation.
+    pub fn new(vmgenid: VmGenId, vmclock: VmClock) -> Self {
         ACPIDeviceManager {
-            vmgenid: None,
-            vmclock: None,
+            vmgenid: Some(vmgenid),
+            vmclock: Some(vmclock),
         }
     }
 
