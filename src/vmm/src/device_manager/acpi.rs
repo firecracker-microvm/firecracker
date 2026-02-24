@@ -8,7 +8,7 @@ use vm_memory::GuestMemoryError;
 use crate::Vm;
 use crate::devices::acpi::vmclock::VmClock;
 use crate::devices::acpi::vmgenid::VmGenId;
-use crate::vstate::resources::ResourceAllocator;
+use crate::vstate::memory::GuestMemoryMmap;
 
 #[derive(Debug, thiserror::Error, displaydoc::Display)]
 pub enum ACPIDeviceError {
@@ -23,30 +23,60 @@ pub enum ACPIDeviceError {
 #[derive(Debug)]
 pub struct ACPIDeviceManager {
     /// VMGenID device
-    pub vmgenid: VmGenId,
+    pub vmgenid: Option<VmGenId>,
     /// VMclock device
-    pub vmclock: VmClock,
+    pub vmclock: Option<VmClock>,
 }
 
 impl ACPIDeviceManager {
     /// Create a new ACPIDeviceManager object
-    pub fn new(resource_allocator: &mut ResourceAllocator) -> Self {
+    pub fn new() -> Self {
+        // Although both VMGenID and VMClock devices are always present, they should be instantiated
+        // when they are attached to preserve the existing ordering of GSI allocation.
         ACPIDeviceManager {
-            vmgenid: VmGenId::new(resource_allocator),
-            vmclock: VmClock::new(resource_allocator),
+            vmgenid: None,
+            vmclock: None,
         }
     }
 
-    pub fn attach_vmgenid(&self, vm: &Vm) -> Result<(), ACPIDeviceError> {
-        vm.register_irq(&self.vmgenid.interrupt_evt, self.vmgenid.gsi)?;
-        self.vmgenid.activate(vm.guest_memory())?;
+    pub fn attach_vmgenid(&mut self, vm: &Vm) {
+        self.vmgenid = Some(VmGenId::new(&mut vm.resource_allocator()));
+    }
+
+    pub fn attach_vmclock(&mut self, vm: &Vm) {
+        self.vmclock = Some(VmClock::new(&mut vm.resource_allocator()));
+    }
+
+    pub fn vmgenid(&self) -> &VmGenId {
+        self.vmgenid.as_ref().expect("Missing VMGenID device")
+    }
+
+    pub fn vmclock(&self) -> &VmClock {
+        self.vmclock.as_ref().expect("Missing VMClock device")
+    }
+
+    pub fn activate_vmgenid(&self, vm: &Vm) -> Result<(), ACPIDeviceError> {
+        vm.register_irq(&self.vmgenid().interrupt_evt, self.vmgenid().gsi)?;
+        self.vmgenid().activate(vm.guest_memory())?;
         Ok(())
     }
 
-    pub fn attach_vmclock(&self, vm: &Vm) -> Result<(), ACPIDeviceError> {
-        vm.register_irq(&self.vmclock.interrupt_evt, self.vmclock.gsi)?;
-        self.vmclock.activate(vm.guest_memory())?;
+    pub fn activate_vmclock(&self, vm: &Vm) -> Result<(), ACPIDeviceError> {
+        vm.register_irq(&self.vmclock().interrupt_evt, self.vmclock().gsi)?;
+        self.vmclock().activate(vm.guest_memory())?;
         Ok(())
+    }
+
+    pub fn post_restore_vmgenid(&self) -> Result<(), ACPIDeviceError> {
+        self.vmgenid().post_restore()?;
+        Ok(())
+    }
+
+    pub fn post_restore_vmclock(&mut self, mem: &GuestMemoryMmap) {
+        self.vmclock
+            .as_mut()
+            .expect("Missing VMClock device")
+            .post_restore(mem);
     }
 }
 
@@ -54,9 +84,9 @@ impl ACPIDeviceManager {
 impl Aml for ACPIDeviceManager {
     fn append_aml_bytes(&self, v: &mut Vec<u8>) -> Result<(), aml::AmlError> {
         // AML for [`VmGenId`] device.
-        self.vmgenid.append_aml_bytes(v)?;
+        self.vmgenid().append_aml_bytes(v)?;
         // AML for [`VmClock`] device.
-        self.vmclock.append_aml_bytes(v)?;
+        self.vmclock().append_aml_bytes(v)?;
 
         // Create the AML for the GED interrupt handler
         aml::Device::new(
@@ -66,8 +96,8 @@ impl Aml for ACPIDeviceManager {
                 &aml::Name::new(
                     "_CRS".try_into()?,
                     &aml::ResourceTemplate::new(vec![
-                        &aml::Interrupt::new(true, true, false, false, self.vmgenid.gsi),
-                        &aml::Interrupt::new(true, true, false, false, self.vmclock.gsi),
+                        &aml::Interrupt::new(true, true, false, false, self.vmgenid().gsi),
+                        &aml::Interrupt::new(true, true, false, false, self.vmclock().gsi),
                     ]),
                 )?,
                 // We know that the maximum IRQ number fits in a u8. We have up to
@@ -81,7 +111,7 @@ impl Aml for ACPIDeviceManager {
                     vec![
                         &aml::If::new(
                             #[allow(clippy::cast_possible_truncation)]
-                            &aml::Equal::new(&aml::Arg(0), &(self.vmgenid.gsi as u8)),
+                            &aml::Equal::new(&aml::Arg(0), &(self.vmgenid().gsi as u8)),
                             vec![&aml::Notify::new(
                                 &aml::Path::new("\\_SB_.VGEN")?,
                                 &0x80usize,
@@ -89,7 +119,7 @@ impl Aml for ACPIDeviceManager {
                         ),
                         &aml::If::new(
                             #[allow(clippy::cast_possible_truncation)]
-                            &aml::Equal::new(&aml::Arg(0), &(self.vmclock.gsi as u8)),
+                            &aml::Equal::new(&aml::Arg(0), &(self.vmclock().gsi as u8)),
                             vec![&aml::Notify::new(
                                 &aml::Path::new("\\_SB_.VCLK")?,
                                 &0x80usize,

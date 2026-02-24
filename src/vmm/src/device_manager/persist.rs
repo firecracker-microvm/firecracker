@@ -177,24 +177,24 @@ impl<'a> Persist<'a> for ACPIDeviceManager {
 
     fn save(&self) -> Self::State {
         ACPIDeviceManagerState {
-            vmgenid: self.vmgenid.save(),
-            vmclock: self.vmclock.save(),
+            vmgenid: self.vmgenid().save(),
+            vmclock: self.vmclock().save(),
         }
     }
 
     fn restore(vm: Self::ConstructorArgs, state: &Self::State) -> Result<Self, Self::Error> {
         let mut acpi_devices = ACPIDeviceManager {
             // Safe to unwrap() here, this will never return an error.
-            vmgenid: VmGenId::restore((), &state.vmgenid).unwrap(),
+            vmgenid: Some(VmGenId::restore((), &state.vmgenid).unwrap()),
             // Safe to unwrap() here, this will never return an error.
-            vmclock: VmClock::restore((), &state.vmclock).unwrap(),
+            vmclock: Some(VmClock::restore((), &state.vmclock).unwrap()),
         };
 
-        acpi_devices.attach_vmgenid(vm)?;
-        acpi_devices.vmgenid.post_restore()?;
+        acpi_devices.activate_vmgenid(vm)?;
+        acpi_devices.post_restore_vmgenid()?;
 
-        acpi_devices.attach_vmclock(vm)?;
-        acpi_devices.vmclock.post_restore(vm.guest_memory());
+        acpi_devices.activate_vmclock(vm)?;
+        acpi_devices.post_restore_vmclock(vm.guest_memory());
 
         Ok(acpi_devices)
     }
