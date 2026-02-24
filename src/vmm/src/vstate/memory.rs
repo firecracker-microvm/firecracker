@@ -59,6 +59,20 @@ pub enum MemoryError {
     Unaligned,
     /// Error protecting memory slot: {0}
     Mprotect(std::io::Error),
+    /// Size too large for i64 conversion
+    SlotSizeTooLarge,
+    /// Dirty bitmap not found for memory slot {0}
+    DirtyBitmapNotFound(u32),
+    /// Seek error: {0}
+    SeekError(std::io::Error),
+    /// Volatile memory error: {0}
+    VolatileMemoryError(vm_memory::VolatileMemoryError),
+}
+
+impl From<vm_memory::VolatileMemoryError> for MemoryError {
+    fn from(e: vm_memory::VolatileMemoryError) -> Self {
+        MemoryError::VolatileMemoryError(e)
+    }
 }
 
 /// Type of the guest region
@@ -121,7 +135,7 @@ impl<'a> GuestMemorySlot<'a> {
         writer: &mut T,
         kvm_bitmap: &[u64],
         page_size: usize,
-    ) -> Result<(), GuestMemoryError> {
+    ) -> Result<(), MemoryError> {
         let firecracker_bitmap = self.slice.bitmap();
         let mut write_size = 0;
         let mut skip_size = 0;
@@ -137,9 +151,12 @@ impl<'a> GuestMemorySlot<'a> {
                     // We are at the start of a new batch of dirty pages.
                     if skip_size > 0 {
                         // Seek forward over the unmodified pages.
+                        let offset = skip_size
+                            .try_into()
+                            .map_err(|_| MemoryError::SlotSizeTooLarge)?;
                         writer
-                            .seek(SeekFrom::Current(skip_size.try_into().unwrap()))
-                            .unwrap();
+                            .seek(SeekFrom::Current(offset))
+                            .map_err(MemoryError::SeekError)?;
                         dirty_batch_start = page_offset;
                         skip_size = 0;
                     }
@@ -668,10 +685,15 @@ impl GuestMemoryExtension for GuestMemoryMmap {
                 .flat_map(|region| region.slots())
                 .try_for_each(|(mem_slot, plugged)| {
                     if !plugged {
-                        let ilen = i64::try_from(mem_slot.slice.len()).unwrap();
-                        writer.seek(SeekFrom::Current(ilen)).unwrap();
+                        let ilen = i64::try_from(mem_slot.slice.len())
+                            .map_err(|_| MemoryError::SlotSizeTooLarge)?;
+                        writer
+                            .seek(SeekFrom::Current(ilen))
+                            .map_err(MemoryError::SeekError)?;
                     } else {
-                        let kvm_bitmap = dirty_bitmap.get(&mem_slot.slot).unwrap();
+                        let kvm_bitmap = dirty_bitmap
+                            .get(&mem_slot.slot)
+                            .ok_or(MemoryError::DirtyBitmapNotFound(mem_slot.slot))?;
                         mem_slot.dump_dirty(writer, kvm_bitmap, page_size)?;
                     }
                     Ok(())
@@ -683,7 +705,7 @@ impl GuestMemoryExtension for GuestMemoryMmap {
             self.reset_dirty();
         }
 
-        write_result.map_err(MemoryError::WriteMemory)
+        write_result
     }
 
     /// Resets all the memory region bitmaps
