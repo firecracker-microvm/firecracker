@@ -308,7 +308,7 @@ For creating a diff snapshot, you should use the same API command, but with
 >     -d '{
 >             "snapshot_type": "Diff",
 >             "snapshot_path": "./snapshot_file",
->             "mem_file_path": "./mem_file",
+>             "mem_file_path": "./mem_file"
 >     }'
 > ```
 
