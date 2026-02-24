@@ -3,21 +3,20 @@
 
 #[cfg(target_arch = "x86_64")]
 use acpi_tables::{Aml, aml};
-use vm_memory::GuestMemoryError;
 
 use crate::Vm;
-use crate::devices::acpi::vmclock::VmClock;
-use crate::devices::acpi::vmgenid::VmGenId;
+use crate::devices::acpi::vmclock::{VmClock, VmClockError};
+use crate::devices::acpi::vmgenid::{VmGenId, VmGenIdError};
 use crate::vstate::memory::GuestMemoryMmap;
 
 #[derive(Debug, thiserror::Error, displaydoc::Display)]
 pub enum ACPIDeviceError {
-    /// Could not register GSI with KVM: {0}
+    /// VMGenID: {0}
+    VmGenId(#[from] VmGenIdError),
+    /// VMClock: {0}
+    VmClock(#[from] VmClockError),
+    /// Could not register IRQ with KVM: {0}
     RegisterIrq(#[from] kvm_ioctls::Error),
-    /// Could not write to guest memory: {0}
-    WriteGuestMemory(#[from] GuestMemoryError),
-    /// Could not notify guest: {0}
-    NotifyGuest(#[from] std::io::Error),
 }
 
 // Although both VMGenID and VMClock devices are always present, they should be instantiated when
@@ -39,12 +38,14 @@ impl ACPIDeviceManager {
         }
     }
 
-    pub fn attach_vmgenid(&mut self, vm: &Vm) {
-        self.vmgenid = Some(VmGenId::new(&mut vm.resource_allocator()));
+    pub fn attach_vmgenid(&mut self, vm: &Vm) -> Result<(), ACPIDeviceError> {
+        self.vmgenid = Some(VmGenId::new(&mut vm.resource_allocator())?);
+        Ok(())
     }
 
-    pub fn attach_vmclock(&mut self, vm: &Vm) {
-        self.vmclock = Some(VmClock::new(&mut vm.resource_allocator()));
+    pub fn attach_vmclock(&mut self, vm: &Vm) -> Result<(), ACPIDeviceError> {
+        self.vmclock = Some(VmClock::new(&mut vm.resource_allocator())?);
+        Ok(())
     }
 
     pub fn vmgenid(&self) -> &VmGenId {
@@ -72,11 +73,12 @@ impl ACPIDeviceManager {
         Ok(())
     }
 
-    pub fn post_restore_vmclock(&mut self, mem: &GuestMemoryMmap) {
+    pub fn post_restore_vmclock(&mut self, mem: &GuestMemoryMmap) -> Result<(), ACPIDeviceError> {
         self.vmclock
             .as_mut()
             .expect("Missing VMClock device")
-            .post_restore(mem);
+            .post_restore(mem)?;
+        Ok(())
     }
 }
 

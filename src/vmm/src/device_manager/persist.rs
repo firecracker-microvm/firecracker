@@ -194,7 +194,7 @@ impl<'a> Persist<'a> for ACPIDeviceManager {
         acpi_devices.post_restore_vmgenid()?;
 
         acpi_devices.activate_vmclock(vm)?;
-        acpi_devices.post_restore_vmclock(vm.guest_memory());
+        acpi_devices.post_restore_vmclock(vm.guest_memory())?;
 
         Ok(acpi_devices)
     }

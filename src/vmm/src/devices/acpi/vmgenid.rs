@@ -20,6 +20,20 @@ use crate::vstate::resources::ResourceAllocator;
 /// Bytes of memory we allocate for VMGenID device
 pub const VMGENID_MEM_SIZE: u64 = 16;
 
+#[derive(Debug, thiserror::Error, displaydoc::Display)]
+pub enum VmGenIdError {
+    /// Could not create EventFd: {0}
+    CreateEventFd(std::io::Error),
+    /// Could not allocate GSI: {0}
+    AllocateGsi(vm_allocator::Error),
+    /// Could not allocate guest memory: {0}
+    AllocateMemory(vm_allocator::Error),
+    /// Could not write generation ID to guest memory: {0}
+    WriteGuestMemory(#[from] GuestMemoryError),
+    /// Could not notify guest: {0}
+    NotifyGuest(std::io::Error),
+}
+
 /// Virtual Machine Generation ID device
 ///
 /// VMGenID is an emulated device which exposes to the guest a 128-bit cryptographically random
@@ -43,38 +57,37 @@ pub struct VmGenId {
 impl VmGenId {
     /// Create a new Vm Generation Id device using an address in the guest for writing the
     /// generation ID and a GSI for sending device notifications.
-    pub fn from_parts(guest_address: GuestAddress, gsi: u32) -> Self {
+    pub fn from_parts(guest_address: GuestAddress, gsi: u32) -> Result<Self, VmGenIdError> {
         debug!(
             "vmgenid: building VMGenID device. Address: {:#010x}. IRQ: {}",
             guest_address.0, gsi
         );
         let interrupt_evt = EventFdTrigger::new(
-            EventFd::new(libc::EFD_NONBLOCK)
-                .expect("vmgenid: Could not create EventFd for VMGenID device"),
+            EventFd::new(libc::EFD_NONBLOCK).map_err(VmGenIdError::CreateEventFd)?,
         );
         let gen_id = Self::make_genid();
 
-        Self {
+        Ok(Self {
             gen_id,
             interrupt_evt,
             guest_address,
             gsi,
-        }
+        })
     }
 
     /// Create a new VMGenID device
     ///
     /// Allocate memory and a GSI for sending notifications and build the device
-    pub fn new(resource_allocator: &mut ResourceAllocator) -> Self {
+    pub fn new(resource_allocator: &mut ResourceAllocator) -> Result<Self, VmGenIdError> {
         let gsi = resource_allocator
             .allocate_gsi_legacy(1)
-            .expect("vmgenid: Could not allocate GSI for VMGenID");
+            .map_err(VmGenIdError::AllocateGsi)?[0];
         // The generation ID needs to live in an 8-byte aligned buffer
         let addr = resource_allocator
             .allocate_system_memory(VMGENID_MEM_SIZE, 8, vm_allocator::AllocPolicy::LastMatch)
-            .expect("vmgenid: Could not allocate guest RAM for VMGenID");
+            .map_err(VmGenIdError::AllocateMemory)?;
 
-        Self::from_parts(GuestAddress(addr), gsi[0])
+        Self::from_parts(GuestAddress(addr), gsi)
     }
 
     // Create a 16-bytes random number
@@ -88,22 +101,22 @@ impl VmGenId {
     ///
     /// This will only have effect if we have updated the generation ID in guest memory, i.e. when
     /// re-creating the device after snapshot resumption.
-    pub fn post_restore(&self) -> Result<(), std::io::Error> {
+    pub fn post_restore(&self) -> Result<(), VmGenIdError> {
         self.interrupt_evt
             .trigger()
-            .inspect_err(|err| error!("vmgenid: could not send guest notification: {err}"))?;
+            .map_err(VmGenIdError::NotifyGuest)?;
         debug!("vmgenid: notifying guest about new generation ID");
         Ok(())
     }
 
     /// Attach the [`VmGenId`] device
-    pub fn activate(&self, mem: &GuestMemoryMmap) -> Result<(), GuestMemoryError> {
+    pub fn activate(&self, mem: &GuestMemoryMmap) -> Result<(), VmGenIdError> {
         debug!(
             "vmgenid: writing new generation ID to guest: {:#034x}",
             self.gen_id
         );
         mem.write_slice(&self.gen_id.to_le_bytes(), self.guest_address)
-            .inspect_err(|err| error!("vmgenid: could not write generation ID to guest: {err}"))?;
+            .map_err(VmGenIdError::WriteGuestMemory)?;
 
         Ok(())
     }
@@ -122,7 +135,7 @@ pub struct VMGenIDState {
 impl<'a> Persist<'a> for VmGenId {
     type State = VMGenIDState;
     type ConstructorArgs = ();
-    type Error = Infallible;
+    type Error = VmGenIdError;
 
     fn save(&self) -> Self::State {
         VMGenIDState {
@@ -132,7 +145,7 @@ impl<'a> Persist<'a> for VmGenId {
     }
 
     fn restore(_: Self::ConstructorArgs, state: &Self::State) -> Result<Self, Self::Error> {
-        Ok(Self::from_parts(GuestAddress(state.addr), state.gsi))
+        Self::from_parts(GuestAddress(state.addr), state.gsi)
     }
 }
 

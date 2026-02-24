@@ -43,6 +43,20 @@ macro_rules! write_vmclock_field {
     };
 }
 
+#[derive(Debug, thiserror::Error, displaydoc::Display)]
+pub enum VmClockError {
+    /// Could not create EventFd: {0}
+    CreateEventFd(std::io::Error),
+    /// Could not allocate GSI: {0}
+    AllocateGsi(vm_allocator::Error),
+    /// Could not allocate guest memory: {0}
+    AllocateMemory(vm_allocator::Error),
+    /// Could not write VMClock data to guest memory: {0}
+    WriteGuestMemory(#[from] GuestMemoryError),
+    /// Could not notify guest: {0}
+    NotifyGuest(std::io::Error),
+}
+
 /// VMclock device
 ///
 /// This device emulates the VMclock device which allows passing information to the guest related
@@ -62,22 +76,21 @@ pub struct VmClock {
 
 impl VmClock {
     /// Create a new [`VmClock`] device for a newly booted VM
-    pub fn new(resource_allocator: &mut ResourceAllocator) -> VmClock {
+    pub fn new(resource_allocator: &mut ResourceAllocator) -> Result<VmClock, VmClockError> {
         let addr = resource_allocator
             .allocate_system_memory(
                 VMCLOCK_SIZE as u64,
                 VMCLOCK_SIZE as u64,
                 AllocPolicy::LastMatch,
             )
-            .expect("vmclock: could not allocate guest memory for device");
+            .map_err(VmClockError::AllocateMemory)?;
 
         let gsi = resource_allocator
             .allocate_gsi_legacy(1)
-            .expect("vmclock: Could not allocate GSI for VMClock: {err}")[0];
+            .map_err(VmClockError::AllocateGsi)?[0];
 
         let interrupt_evt = EventFdTrigger::new(
-            EventFd::new(libc::EFD_NONBLOCK)
-                .expect("vmclock: Could not create EventFd for VMClock device: {err}"),
+            EventFd::new(libc::EFD_NONBLOCK).map_err(VmClockError::CreateEventFd)?,
         );
 
         let mut inner = vmclock_abi {
@@ -90,22 +103,22 @@ impl VmClock {
             ..Default::default()
         };
 
-        VmClock {
+        Ok(VmClock {
             guest_address: GuestAddress(addr),
             interrupt_evt,
             gsi,
             inner,
-        }
+        })
     }
 
     /// Activate [`VmClock`] device
-    pub fn activate(&self, mem: &GuestMemoryMmap) -> Result<(), GuestMemoryError> {
+    pub fn activate(&self, mem: &GuestMemoryMmap) -> Result<(), VmClockError> {
         mem.write_slice(self.inner.as_slice(), self.guest_address)?;
         Ok(())
     }
 
     /// Bump the VM generation counter and notify guest after snapshot restore
-    pub fn post_restore(&mut self, mem: &GuestMemoryMmap) {
+    pub fn post_restore(&mut self, mem: &GuestMemoryMmap) -> Result<(), VmClockError> {
         write_vmclock_field!(self, mem, seq_count, self.inner.seq_count | 1);
 
         // This fence ensures guest sees all previous writes. It is matched to a
@@ -133,8 +146,9 @@ impl VmClock {
         write_vmclock_field!(self, mem, seq_count, self.inner.seq_count.wrapping_add(1));
         self.interrupt_evt
             .trigger()
-            .expect("vmclock: could not send guest notification: {err}");
+            .map_err(VmClockError::NotifyGuest)?;
         debug!("vmclock: notifying guest about VMClock updates");
+        Ok(())
     }
 }
 
@@ -154,7 +168,7 @@ pub struct VmClockState {
 impl<'a> Persist<'a> for VmClock {
     type State = VmClockState;
     type ConstructorArgs = ();
-    type Error = Infallible;
+    type Error = VmClockError;
 
     fn save(&self) -> Self::State {
         VmClockState {
@@ -166,8 +180,7 @@ impl<'a> Persist<'a> for VmClock {
 
     fn restore(vm: Self::ConstructorArgs, state: &Self::State) -> Result<Self, Self::Error> {
         let interrupt_evt = EventFdTrigger::new(
-            EventFd::new(libc::EFD_NONBLOCK)
-                .expect("vmclock: Could not create EventFd for VMClock device: {err}"),
+            EventFd::new(libc::EFD_NONBLOCK).map_err(VmClockError::CreateEventFd)?,
         );
         Ok(VmClock {
             guest_address: GuestAddress(state.guest_address),
@@ -231,7 +244,7 @@ mod tests {
 
     fn default_vmclock() -> VmClock {
         let mut resource_allocator = ResourceAllocator::new();
-        VmClock::new(&mut resource_allocator)
+        VmClock::new(&mut resource_allocator).unwrap()
     }
 
     #[test]
