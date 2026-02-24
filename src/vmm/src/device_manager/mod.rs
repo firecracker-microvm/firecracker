@@ -233,13 +233,13 @@ impl DeviceManager {
     }
 
     pub(crate) fn attach_vmgenid_device(&mut self, vm: &Vm) -> Result<(), AttachDeviceError> {
-        self.acpi_devices.attach_vmgenid(vm);
+        self.acpi_devices.attach_vmgenid(vm)?;
         self.acpi_devices.activate_vmgenid(vm)?;
         Ok(())
     }
 
     pub(crate) fn attach_vmclock_device(&mut self, vm: &Vm) -> Result<(), AttachDeviceError> {
-        self.acpi_devices.attach_vmclock(vm);
+        self.acpi_devices.attach_vmclock(vm)?;
         self.acpi_devices.activate_vmclock(vm)?;
         Ok(())
     }
@@ -560,8 +560,8 @@ pub(crate) mod tests {
         let mut resource_allocator = ResourceAllocator::new();
         let mmio_devices = MMIODeviceManager::new();
         let acpi_devices = ACPIDeviceManager::new(
-            VmGenId::new(&mut resource_allocator),
-            VmClock::new(&mut resource_allocator),
+            VmGenId::new(&mut resource_allocator).unwrap(),
+            VmClock::new(&mut resource_allocator).unwrap(),
         );
         let pci_devices = PciDevices::new();
 
