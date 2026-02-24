@@ -412,8 +412,6 @@ pub enum DevicePersistError {
     AcpiRestore(#[from] ACPIDeviceError),
     /// Error restoring PCI devices: {0}
     PciRestore(#[from] PciManagerError),
-    /// Error notifying VMGenID device: {0}
-    VmGenidUpdate(#[from] std::io::Error),
     /// Error resetting serial console: {0}
     SerialRestore(#[from] EmulateSerialInitError),
     /// Error inserting device in bus: {0}
@@ -479,11 +477,7 @@ impl<'a> Persist<'a> for DeviceManager {
         let mmio_devices = MMIODeviceManager::restore(mmio_ctor_args, &state.mmio_state)?;
 
         // Restore ACPI devices
-        let mut acpi_devices = ACPIDeviceManager::restore(constructor_args.vm, &state.acpi_state)?;
-        acpi_devices.vmgenid.notify_guest()?;
-        acpi_devices
-            .vmclock
-            .post_load_update(constructor_args.vm.guest_memory());
+        let acpi_devices = ACPIDeviceManager::restore(constructor_args.vm, &state.acpi_state)?;
 
         // Restore PCI devices
         let pci_ctor_args = PciDevicesConstructorArgs {

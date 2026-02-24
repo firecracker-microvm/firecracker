@@ -84,11 +84,11 @@ impl VmGenId {
         u128::from_le_bytes(gen_id_bytes)
     }
 
-    /// Send an ACPI notification to guest device.
+    /// Notify guest after snapshot restore
     ///
     /// This will only have effect if we have updated the generation ID in guest memory, i.e. when
     /// re-creating the device after snapshot resumption.
-    pub fn notify_guest(&mut self) -> Result<(), std::io::Error> {
+    pub fn post_restore(&self) -> Result<(), std::io::Error> {
         self.interrupt_evt
             .trigger()
             .inspect_err(|err| error!("vmgenid: could not send guest notification: {err}"))?;
