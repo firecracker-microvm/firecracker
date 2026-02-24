@@ -183,12 +183,12 @@ impl<'a> Persist<'a> for ACPIDeviceManager {
     }
 
     fn restore(vm: Self::ConstructorArgs, state: &Self::State) -> Result<Self, Self::Error> {
-        let mut acpi_devices = ACPIDeviceManager {
+        let mut acpi_devices = ACPIDeviceManager::new(
             // Safe to unwrap() here, this will never return an error.
-            vmgenid: Some(VmGenId::restore((), &state.vmgenid).unwrap()),
+            VmGenId::restore((), &state.vmgenid).unwrap(),
             // Safe to unwrap() here, this will never return an error.
-            vmclock: Some(VmClock::restore((), &state.vmclock).unwrap()),
-        };
+            VmClock::restore((), &state.vmclock).unwrap(),
+        );
 
         acpi_devices.activate_vmgenid(vm)?;
         acpi_devices.post_restore_vmgenid()?;
