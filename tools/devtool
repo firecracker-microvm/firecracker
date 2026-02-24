@@ -140,7 +140,7 @@ CTR_CI_ARTIFACTS_PATH="${CTR_FC_ROOT_DIR}/resources/$(uname -m)"
 DEFAULT_ARTIFACTS_S3_BUCKET=s3://spec.ccfc.min/firecracker-ci
 
 # Lockfile used while modifying KVM modules
-KVM_MODULE_LOCKFILE="/tmp/.kvm_module.lock"
+KVM_MODULE_LOCKFILE="/tmp/.kvm_module_lock"
 
 # Query default S3 bucket with artifacts and return the most recient path
 get_newest_s3_artifacts() {
