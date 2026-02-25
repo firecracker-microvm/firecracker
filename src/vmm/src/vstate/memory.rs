@@ -1715,6 +1715,37 @@ mod tests {
                 oracle_file.read_exact(&mut oracle_buf).unwrap();
                 prop_assert_eq!(&opt_buf, &oracle_buf);
             }
+
+            #[test]
+            fn store_dirty_bitmap_correctness(
+                region_specs in proptest::collection::vec(region_spec(), 1..=3),
+            ) {
+                let page_size = get_page_size().unwrap();
+                let (guest_memory, kvm_bitmap, _) = build_memory(&region_specs);
+
+                guest_memory.store_dirty_bitmap(&kvm_bitmap, page_size);
+
+                // Verify: every KVM-dirty page on a plugged slot is now
+                // dirty in the firecracker bitmap.
+                for (region, spec) in guest_memory.iter().zip(region_specs.iter()) {
+                    for (slot_idx, (slot, plugged)) in region.slots().enumerate() {
+                        if !plugged {
+                            continue;
+                        }
+                        let num_pages = slot.slice.len() / page_size;
+                        let bm = &spec.kvm_bitmaps[slot_idx];
+                        let fc = slot.slice.bitmap();
+                        for page in 0..num_pages {
+                            let kvm_dirty =
+                                ((bm[page / 64] >> (page % 64)) & 1) == 1;
+                            let fc_dirty = fc.dirty_at(page * page_size);
+                            // Bitmap starts clean, so after store_dirty_bitmap
+                            // the fc bitmap must exactly match the KVM bitmap.
+                            prop_assert_eq!(fc_dirty, kvm_dirty, "mismatch at page {}", page);
+                        }
+                    }
+                }
+            }
         }
     }
 }
