@@ -101,7 +101,7 @@ impl VmGenId {
     ///
     /// This will only have effect if we have updated the generation ID in guest memory, i.e. when
     /// re-creating the device after snapshot resumption.
-    pub fn post_restore(&self) -> Result<(), VmGenIdError> {
+    pub fn do_post_restore(&self) -> Result<(), VmGenIdError> {
         self.interrupt_evt
             .trigger()
             .map_err(VmGenIdError::NotifyGuest)?;
