@@ -74,12 +74,9 @@ def test_attach_too_many_devices(uvm_plain):
     # Attempting to start a microVM with more than
     # `MAX_DEVICES_ATTACHED` devices should fail.
     error_str = (
-        ("Could not find an available device slot on the PCI bus.")
+        "Could not find an available device slot on the PCI bus."
         if test_microvm.pci_enabled
-        else (
-            "Failed to allocate requested resource: The requested resource"
-            " is not available."
-        )
+        else "Could not allocate GSI: The requested resource is not available."
     )
     with pytest.raises(RuntimeError, match=error_str):
         test_microvm.start()
