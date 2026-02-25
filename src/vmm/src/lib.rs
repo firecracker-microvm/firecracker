@@ -141,12 +141,27 @@ use crate::devices::virtio::balloon::{
 };
 use crate::devices::virtio::block::BlockError;
 use crate::devices::virtio::block::device::Block;
-use crate::devices::virtio::mem::{VIRTIO_MEM_DEV_ID, VirtioMem, VirtioMemError, VirtioMemStatus};
+use crate::devices::virtio::device::VirtioDeviceType;
+use crate::devices::virtio::mem::device::VirtioMem;
+use crate::devices::virtio::mem::{VIRTIO_MEM_DEV_ID, VirtioMemError, VirtioMemStatus};
 use crate::devices::virtio::net::Net;
+use crate::devices::virtio::pmem::device::Pmem;
+use crate::devices::virtio::rng::Entropy;
+use crate::devices::virtio::vsock::{Vsock, VsockUnixBackend};
 use crate::logger::{METRICS, MetricsError, error, info, warn};
+use crate::mmds::data_store::Mmds;
 use crate::persist::{MicrovmState, MicrovmStateError, VmInfo};
 use crate::rate_limiter::BucketUpdate;
+use crate::resources::VmmConfig;
+use crate::vmm_config::balloon::BalloonDeviceConfig;
+use crate::vmm_config::boot_source::BootSourceConfig;
+use crate::vmm_config::entropy::EntropyDeviceConfig;
 use crate::vmm_config::instance_info::{InstanceInfo, VmState};
+use crate::vmm_config::machine_config::MachineConfig;
+use crate::vmm_config::memory_hotplug::MemoryHotplugConfig;
+use crate::vmm_config::mmds::MmdsConfig;
+use crate::vmm_config::net::NetworkInterfaceConfig;
+use crate::vmm_config::vsock::VsockDeviceConfig;
 use crate::vstate::memory::{GuestMemory, GuestMemoryMmap, GuestMemoryRegion};
 use crate::vstate::vcpu::VcpuState;
 pub use crate::vstate::vcpu::{Vcpu, VcpuConfig, VcpuEvent, VcpuHandle, VcpuResponse};
@@ -296,6 +311,9 @@ pub enum DumpCpuConfigError {
 pub struct Vmm {
     /// The [`InstanceInfo`] state of this [`Vmm`].
     pub instance_info: InstanceInfo,
+    /// Machine config
+    pub machine_config: MachineConfig,
+    boot_source_config: BootSourceConfig,
     shutdown_exit_code: Option<FcExitCode>,
 
     // Guest VM core resources.
@@ -324,9 +342,116 @@ impl Vmm {
         self.instance_info.clone()
     }
 
+    /// Gets MMDS reference, if any.
+    pub fn get_mmds(&self) -> Option<Arc<Mutex<Mmds>>> {
+        let mut mmds = None;
+        self.device_manager
+            .for_each_virtio_device(|device_type, device| {
+                if device_type == VirtioDeviceType::Net
+                    && let Some(net) = device.as_any().downcast_ref::<Net>()
+                    && let Some(mmds_ns) = &net.mmds_ns
+                {
+                    mmds = Some(mmds_ns.mmds.clone());
+                }
+            });
+
+        mmds
+    }
+
     /// Provides the Vmm shutdown exit code if there is one.
     pub fn shutdown_exit_code(&self) -> Option<FcExitCode> {
         self.shutdown_exit_code
+    }
+
+    /// Builds a FullVmConfig from the current Vmm state.
+    pub fn full_config(&self) -> VmmConfig {
+        let mut block = Vec::new();
+        let mut net = Vec::new();
+        let mut net_with_mmds = Vec::new();
+        let mut pmem = Vec::new();
+        let mut balloon = None;
+        let mut vsock = None;
+        let mut entropy = None;
+        let mut memory_hotplug = None;
+        let mut mmds_ipv4_address = None;
+        let mut mmds_ref = None;
+
+        self.device_manager
+            .for_each_virtio_device(|device_type, device| match device_type {
+                VirtioDeviceType::Block => {
+                    if let Some(b) = device.as_any().downcast_ref::<Block>() {
+                        block.push(b.config());
+                    }
+                }
+                VirtioDeviceType::Net => {
+                    if let Some(n) = device.as_any().downcast_ref::<Net>() {
+                        net.push(NetworkInterfaceConfig::from(n));
+                        if let Some(mmds_ns) = &n.mmds_ns {
+                            net_with_mmds.push(n.id.clone());
+                            if mmds_ref.is_none() {
+                                mmds_ref = Some(mmds_ns.mmds.clone());
+                                mmds_ipv4_address = Some(mmds_ns.ipv4_addr());
+                            }
+                        }
+                    }
+                }
+                VirtioDeviceType::Pmem => {
+                    if let Some(p) = device.as_any().downcast_ref::<Pmem>() {
+                        pmem.push(p.config.clone());
+                    }
+                }
+                VirtioDeviceType::Balloon => {
+                    if let Some(b) = device.as_any().downcast_ref::<Balloon>() {
+                        balloon = Some(BalloonDeviceConfig::from(b.config()));
+                    }
+                }
+                VirtioDeviceType::Vsock => {
+                    if let Some(v) = device.as_any().downcast_ref::<Vsock<VsockUnixBackend>>() {
+                        vsock = Some(VsockDeviceConfig::from(v));
+                    }
+                }
+                VirtioDeviceType::Rng => {
+                    if let Some(e) = device.as_any().downcast_ref::<Entropy>() {
+                        entropy = Some(EntropyDeviceConfig::from(e));
+                    }
+                }
+                VirtioDeviceType::Mem => {
+                    if let Some(m) = device.as_any().downcast_ref::<VirtioMem>() {
+                        memory_hotplug = Some(MemoryHotplugConfig::from(m));
+                    }
+                }
+            });
+
+        let mmds_config = mmds_ref.map(|mmds| {
+            let mmds = mmds.lock().expect("Poisoned lock");
+            MmdsConfig {
+                version: mmds.version(),
+                ipv4_address: mmds_ipv4_address,
+                network_interfaces: net_with_mmds,
+                imds_compat: mmds.imds_compat(),
+            }
+        });
+
+        // This must match the From<&VmResources> for VmmConfig implementation
+        // in resources.rs which is used to retrieve the config before the VM
+        // is started.
+        VmmConfig {
+            balloon,
+            drives: block,
+            boot_source: self.boot_source_config.clone(),
+            cpu_config: None,
+            logger: None,
+            machine_config: Some(self.machine_config.clone()),
+            metrics: None,
+            mmds_config,
+            network_interfaces: net,
+            vsock,
+            entropy,
+            pmem_devices: pmem,
+            // serial_config is marked serde(skip) so that it doesnt end up in snapshots
+            serial_config: None,
+            memory_hotplug,
+        }
     }
 
     /// Starts the microVM vcpus.

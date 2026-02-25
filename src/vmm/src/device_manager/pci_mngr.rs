@@ -7,7 +7,7 @@ use std::ops::DerefMut;
 use std::sync::{Arc, Mutex};
 
 use event_manager::{MutEventSubscriber, SubscriberOps};
-use log::{debug, error, warn};
+use log::{debug, warn};
 use serde::{Deserialize, Serialize};
 
 use super::persist::MmdsState;
@@ -212,6 +212,14 @@ impl PciDevices {
         self.virtio_devices
             .get(&(device_type, device_id.to_string()))
     }
+
+    pub fn for_each_virtio_device(&self, mut f: impl FnMut(VirtioDeviceType, &dyn VirtioDevice)) {
+        for ((device_type, _), pci_device) in &self.virtio_devices {
+            let device_arc = pci_device.lock().expect("Poisoned lock").virtio_device();
+            let device = device_arc.lock().expect("Poisoned lock");
+            f(*device_type, &*device);
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -355,16 +363,6 @@ impl<'a> Persist<'a> for PciDevices {
                         // Currently, VsockUnixBackend is the only implementation of VsockBackend.
                         .downcast_mut::<Vsock<VsockUnixBackend>>()
                         .unwrap();
-
-                    // Send Transport event to reset connections if device
-                    // is activated.
-                    if vsock_dev.is_activated() {
-                        vsock_dev
-                            .send_transport_reset_event()
-                            .unwrap_or_else(|err| {
-                                error!("Failed to send reset transport event: {:?}", err);
-                            });
-                    }
 
                     // Save state after potential notification to the guest. This
                     // way we save changes to the queue the notification can cause.
@@ -659,7 +657,6 @@ mod tests {
     use crate::devices::virtio::block::CacheType;
     use crate::mmds::data_store::MmdsVersion;
     use crate::resources::VmmConfig;
-    use crate::snapshot::Snapshot;
     use crate::vmm_config::balloon::BalloonDeviceConfig;
     use crate::vmm_config::entropy::EntropyDeviceConfig;
     use crate::vmm_config::memory_hotplug::MemoryHotplugConfig;
@@ -669,12 +666,13 @@ mod tests {
 
     #[test]
     fn test_device_manager_persistence() {
-        let mut buf = vec![0; 65536];
         // These need to survive so the restored blocks find them.
         let _block_files;
         let _pmem_files;
         let mut tmp_sock_file = TempFile::new().unwrap();
         tmp_sock_file.remove().unwrap();
+
+        let serialized_data;
         // Set up a vmm with one of each device, and get the serialized DeviceStates.
         {
             let mut event_manager = EventManager::new().expect("Unable to create EventManager");
@@ -751,9 +749,8 @@ mod tests {
                 memory_hotplug_config,
             );
 
-            Snapshot::new(vmm.device_manager.save())
-                .save(&mut buf.as_mut_slice())
-                .unwrap();
+            let device_state = vmm.device_manager.save();
+            serialized_data = bitcode::serialize(&device_state).unwrap();
         }
 
         tmp_sock_file.remove().unwrap();
@@ -765,9 +762,7 @@ mod tests {
         // object and calling default_vmm() is the easiest way to create one.
         let vmm = default_vmm();
         let device_manager_state: device_manager::DevicesState =
-            Snapshot::load_without_crc_check(buf.as_slice())
-                .unwrap()
-                .data;
+            bitcode::deserialize(&serialized_data).unwrap();
         let vm_resources = &mut VmResources::default();
         let restore_args = PciDevicesConstructorArgs {
             vm: &vmm.vm,

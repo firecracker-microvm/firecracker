@@ -35,7 +35,7 @@ use crate::devices::virtio::device::{VirtioDevice, VirtioDeviceType};
 use crate::devices::virtio::transport::mmio::{IrqTrigger, MmioTransport};
 use crate::resources::VmResources;
 use crate::snapshot::Persist;
-use crate::utils::open_file_write_nonblock;
+use crate::utils::open_file_nonblock;
 use crate::vstate::bus::BusError;
 use crate::vstate::memory::GuestMemoryMmap;
 use crate::{EmulateSerialInitError, EventManager, Vm};
@@ -125,7 +125,7 @@ impl DeviceManager {
         output: Option<&PathBuf>,
     ) -> Result<Arc<Mutex<SerialDevice>>, std::io::Error> {
         let (serial_in, serial_out) = match output {
-            Some(path) => (None, open_file_write_nonblock(path).map(SerialOut::File)?),
+            Some(path) => (None, open_file_nonblock(path).map(SerialOut::File)?),
             None => {
                 Self::set_stdout_nonblocking();
 
@@ -174,7 +174,7 @@ impl DeviceManager {
             mmio_devices: MMIODeviceManager::new(),
             #[cfg(target_arch = "x86_64")]
             legacy_devices,
-            acpi_devices: ACPIDeviceManager::new(&mut vm.resource_allocator()),
+            acpi_devices: ACPIDeviceManager::default(),
             pci_devices: PciDevices::new(),
         })
     }
@@ -209,7 +209,7 @@ impl DeviceManager {
         cmdline: &mut Cmdline,
         is_vhost_user: bool,
     ) -> Result<(), AttachDeviceError> {
-        if self.pci_devices.pci_segment.is_some() {
+        if self.is_pci_enabled() {
             self.pci_devices.attach_pci_virtio_device(vm, id, device)?;
         } else {
             self.attach_mmio_virtio_device(vm, id, device, cmdline, is_vhost_user)?;
@@ -234,11 +234,13 @@ impl DeviceManager {
 
     pub(crate) fn attach_vmgenid_device(&mut self, vm: &Vm) -> Result<(), AttachDeviceError> {
         self.acpi_devices.attach_vmgenid(vm)?;
+        self.acpi_devices.activate_vmgenid(vm)?;
         Ok(())
     }
 
     pub(crate) fn attach_vmclock_device(&mut self, vm: &Vm) -> Result<(), AttachDeviceError> {
         self.acpi_devices.attach_vmclock(vm)?;
+        self.acpi_devices.activate_vmclock(vm)?;
         Ok(())
     }
 
@@ -278,15 +280,17 @@ impl DeviceManager {
     pub fn kick_virtio_devices(&self) {
         info!("Artificially kick devices");
         // Go through MMIO VirtIO devices
-        let _: Result<(), MmioError> = self.mmio_devices.for_each_virtio_device(|_, _, device| {
-            let mmio_transport_locked = device.inner.lock().expect("Poisoned lock");
-            mmio_transport_locked
-                .device()
-                .lock()
-                .expect("Poisoned lock")
-                .kick();
-            Ok(())
-        });
+        let _: Result<(), MmioError> =
+            self.mmio_devices
+                .for_each_virtio_mmio_device(|_, _, device| {
+                    let mmio_transport_locked = device.inner.lock().expect("Poisoned lock");
+                    mmio_transport_locked
+                        .device()
+                        .lock()
+                        .expect("Poisoned lock")
+                        .kick();
+                    Ok(())
+                });
         // Go through PCI VirtIO devices
         for virtio_pci_device in self.pci_devices.virtio_devices.values() {
             virtio_pci_device
@@ -315,11 +319,13 @@ impl DeviceManager {
     /// Mark queue memory dirty for activated VirtIO devices
     pub fn mark_virtio_queue_memory_dirty(&self, mem: &GuestMemoryMmap) {
         // Go through MMIO VirtIO devices
-        let _: Result<(), Infallible> = self.mmio_devices.for_each_virtio_device(|_, _, device| {
-            let mmio_transport_locked = device.inner.lock().expect("Poisoned locked");
-            Self::do_mark_virtio_queue_memory_dirty(mmio_transport_locked.device(), mem);
-            Ok(())
-        });
+        let _: Result<(), Infallible> =
+            self.mmio_devices
+                .for_each_virtio_mmio_device(|_, _, device| {
+                    let mmio_transport_locked = device.inner.lock().expect("Poisoned locked");
+                    Self::do_mark_virtio_queue_memory_dirty(mmio_transport_locked.device(), mem);
+                    Ok(())
+                });
 
         // Go through PCI VirtIO devices
         for device in self.pci_devices.virtio_devices.values() {
@@ -334,7 +340,7 @@ impl DeviceManager {
         device_type: VirtioDeviceType,
         device_id: &str,
     ) -> Option<Arc<Mutex<dyn VirtioDevice>>> {
-        if self.pci_devices.pci_segment.is_some() {
+        if self.is_pci_enabled() {
             let pci_device = self.pci_devices.get_virtio_device(device_type, device_id)?;
             Some(
                 pci_device
@@ -374,6 +380,19 @@ impl DeviceManager {
             Err(FindDeviceError::DeviceNotFound)
         }
     }
+
+    /// Run fn `f()` on all virtio devices
+    pub fn for_each_virtio_device(&self, mut f: impl FnMut(VirtioDeviceType, &dyn VirtioDevice)) {
+        if self.is_pci_enabled() {
+            self.pci_devices.for_each_virtio_device(&mut f);
+        } else {
+            self.mmio_devices.for_each_virtio_device(&mut f);
+        }
+    }
+
+    pub fn is_pci_enabled(&self) -> bool {
+        self.pci_devices.pci_segment.is_some()
+    }
 }
 
 #[derive(Debug, Default, Clone, Serialize, Deserialize)]
@@ -395,8 +414,6 @@ pub enum DevicePersistError {
     AcpiRestore(#[from] ACPIDeviceError),
     /// Error restoring PCI devices: {0}
     PciRestore(#[from] PciManagerError),
-    /// Error notifying VMGenID device: {0}
-    VmGenidUpdate(#[from] std::io::Error),
     /// Error resetting serial console: {0}
     SerialRestore(#[from] EmulateSerialInitError),
     /// Error inserting device in bus: {0}
@@ -462,11 +479,7 @@ impl<'a> Persist<'a> for DeviceManager {
         let mmio_devices = MMIODeviceManager::restore(mmio_ctor_args, &state.mmio_state)?;
 
         // Restore ACPI devices
-        let mut acpi_devices = ACPIDeviceManager::restore(constructor_args.vm, &state.acpi_state)?;
-        acpi_devices.vmgenid.notify_guest()?;
-        acpi_devices
-            .vmclock
-            .post_load_update(constructor_args.vm.guest_memory());
+        let acpi_devices = ACPIDeviceManager::restore(constructor_args.vm, &state.acpi_state)?;
 
         // Restore PCI devices
         let pci_ctor_args = PciDevicesConstructorArgs {
@@ -539,12 +552,17 @@ pub(crate) mod tests {
     use super::*;
     #[cfg(target_arch = "aarch64")]
     use crate::builder::tests::default_vmm;
+    use crate::devices::acpi::vmclock::VmClock;
+    use crate::devices::acpi::vmgenid::VmGenId;
     use crate::vstate::resources::ResourceAllocator;
 
     pub(crate) fn default_device_manager() -> DeviceManager {
         let mut resource_allocator = ResourceAllocator::new();
         let mmio_devices = MMIODeviceManager::new();
-        let acpi_devices = ACPIDeviceManager::new(&mut resource_allocator);
+        let acpi_devices = ACPIDeviceManager::new(
+            VmGenId::new(&mut resource_allocator).unwrap(),
+            VmClock::new(&mut resource_allocator).unwrap(),
+        );
         let pci_devices = PciDevices::new();
 
         #[cfg(target_arch = "x86_64")]

@@ -32,3 +32,9 @@ updates:
           - "vm-allocator"
           - "event-manager"
           - "vm-superio"
+  - package-ecosystem: "rust-toolchain"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+

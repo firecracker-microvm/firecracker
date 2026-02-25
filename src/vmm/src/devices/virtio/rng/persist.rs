@@ -78,25 +78,18 @@ mod tests {
     use crate::devices::virtio::rng::device::ENTROPY_DEV_ID;
     use crate::devices::virtio::test_utils::default_interrupt;
     use crate::devices::virtio::test_utils::test::create_virtio_mem;
-    use crate::snapshot::Snapshot;
 
     #[test]
     fn test_persistence() {
-        let mut mem = vec![0u8; 4096];
         let entropy = Entropy::new(RateLimiter::default()).unwrap();
 
-        Snapshot::new(entropy.save())
-            .save(&mut mem.as_mut_slice())
-            .unwrap();
+        let entropy_state = entropy.save();
+        let serialized_data = bitcode::serialize(&entropy_state).unwrap();
 
         let guest_mem = create_virtio_mem();
-        let restored = Entropy::restore(
-            EntropyConstructorArgs { mem: guest_mem },
-            &Snapshot::load_without_crc_check(mem.as_slice())
-                .unwrap()
-                .data,
-        )
-        .unwrap();
+        let restored_state = bitcode::deserialize(&serialized_data).unwrap();
+        let restored =
+            Entropy::restore(EntropyConstructorArgs { mem: guest_mem }, &restored_state).unwrap();
 
         assert_eq!(restored.device_type(), VirtioDeviceType::Rng);
         assert_eq!(restored.id(), ENTROPY_DEV_ID);

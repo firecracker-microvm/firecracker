@@ -6,7 +6,6 @@
 import json
 import platform
 import resource
-import struct
 from pathlib import Path
 
 import pytest
@@ -27,67 +26,6 @@ def bin_test_syscall(tmp_path):
     yield test_syscall_bin.resolve()
 
 
-class BpfMapReader:
-    """
-    Simple reader for the files that seccompiler-bin produces
-
-    The files are serialized with bincode[1] in format that is easy to parse.
-
-        sock_filter = <ushort uchar uchar uint>
-        BpfProgram = Vec<sock_filter>
-        BpfMap = BTreeMap(str, BpfProgram)
-        str = Vec<uchar>
-
-    [1] https://github.com/bincode-org/bincode/blob/trunk/docs/spec.md
-    """
-
-    INSN_FMT = "<HBBI"
-    INSN_SIZEOF = struct.calcsize(INSN_FMT)
-
-    def __init__(self, buf):
-        self.buf = buf
-        self.offset = 0
-
-    @classmethod
-    def from_file(cls, file):
-        """Initialize a buffer from a file"""
-        return cls(Path(file).read_bytes())
-
-    def read_format(self, fmt):
-        """Read a struct format string from the buffer"""
-        val = struct.unpack_from(fmt, self.buf, offset=self.offset)
-        self.offset += struct.calcsize(fmt)
-        if len(val) == 1:
-            return val[0]
-        return val
-
-    def is_eof(self):
-        """Are we at the end of the buffer?"""
-        return self.offset == len(self.buf)
-
-    def lookahead(self, size):
-        """Look ahead `size` bytes"""
-        return self.buf[self.offset : self.offset + size]
-
-    def split(self):
-        """Return separate filters"""
-        threads = {}
-        # how many entries in the map
-        map_len = self.read_format("<Q")
-        for _ in range(map_len):
-            # read key
-            key_str_len = self.read_format("<Q")
-            key_str = self.read_format(f"{key_str_len}s").decode("ascii")
-            # read value: vec of instructions
-            insn_len = self.read_format("<Q")
-            data = self.lookahead(insn_len * self.INSN_SIZEOF)
-            threads[key_str] = data
-            self.offset += len(data)
-
-        assert self.is_eof()
-        return threads
-
-
 def test_validate_filter(seccompiler, bin_test_syscall, monkeypatch, tmp_path):
     """Assert that the seccomp filter matches the JSON description."""
 
@@ -99,12 +37,17 @@ def test_validate_filter(seccompiler, bin_test_syscall, monkeypatch, tmp_path):
     # prevent coredumps
     resource.setrlimit(resource.RLIMIT_CORE, (0, 0))
 
-    bpf_path = seccompiler.compile(fc_filter)
-    filters = BpfMapReader.from_file(bpf_path).split()
+    seccompiler.compile(fc_filter, split_output=True)
+
+    # With split_output=True, individual .bpf files are created for each thread
     arch = seccomp.Arch.X86_64 if ARCH == "x86_64" else seccomp.Arch.AARCH64
     for thread, filter_data in fc_filter.items():
         filter_path = Path(f"{thread}.bpf")
-        filter_path.write_bytes(filters[thread])
+        # The individual files should already exist from the split output
+        assert (
+            filter_path.exists()
+        ), f"Expected {filter_path} to be created by seccompiler"
+
         # for each rule, run the helper program and execute a syscall
         for rule in filter_data["filter"]:
             print(filter_path, rule)

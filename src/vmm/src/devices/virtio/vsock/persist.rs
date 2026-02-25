@@ -33,18 +33,13 @@ pub struct VsockFrontendState {
     pub virtio_state: VirtioDeviceState,
 }
 
-/// An enum for the serializable backend state types.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub enum VsockBackendState {
-    /// UDS backend state.
-    Uds(VsockUdsState),
-}
-
 /// The Vsock Unix Backend serializable state.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct VsockUdsState {
+pub struct VsockBackendState {
     /// The path for the UDS socket.
-    pub(crate) path: String,
+    pub uds_path: String,
+    /// The last used host-side port.
+    pub local_port_last: u32,
 }
 
 /// A helper structure that holds the constructor arguments for VsockUnixBackend
@@ -69,21 +64,19 @@ impl Persist<'_> for VsockUnixBackend {
     type Error = VsockUnixBackendError;
 
     fn save(&self) -> Self::State {
-        VsockBackendState::Uds(VsockUdsState {
-            path: self.host_sock_path.clone(),
-        })
+        VsockBackendState {
+            uds_path: self.host_sock_path.clone(),
+            local_port_last: self.local_port_last,
+        }
     }
 
     fn restore(
         constructor_args: Self::ConstructorArgs,
         state: &Self::State,
     ) -> Result<Self, Self::Error> {
-        match state {
-            VsockBackendState::Uds(uds_state) => Ok(VsockUnixBackend::new(
-                constructor_args.cid,
-                uds_state.path.clone(),
-            )?),
-        }
+        let mut backend = Self::new(constructor_args.cid, state.uds_path.clone())?;
+        backend.local_port_last = state.local_port_last;
+        Ok(backend)
     }
 }
 
@@ -133,7 +126,6 @@ pub(crate) mod tests {
     use crate::devices::virtio::test_utils::default_interrupt;
     use crate::devices::virtio::vsock::defs::uapi;
     use crate::devices::virtio::vsock::test_utils::{TestBackend, TestContext};
-    use crate::snapshot::Snapshot;
     use crate::utils::byte_order;
 
     impl Persist<'_> for TestBackend {
@@ -142,15 +134,14 @@ pub(crate) mod tests {
         type Error = VsockUnixBackendError;
 
         fn save(&self) -> Self::State {
-            VsockBackendState::Uds(VsockUdsState {
-                path: "test".to_owned(),
-            })
+            VsockBackendState {
+                uds_path: "test".to_owned(),
+                local_port_last: 0xdeadbeef,
+            }
         }
 
         fn restore(_: Self::ConstructorArgs, state: &Self::State) -> Result<Self, Self::Error> {
-            match state {
-                VsockBackendState::Uds(_) => Ok(TestBackend::new()),
-            }
+            Ok(TestBackend::new())
         }
     }
 
@@ -169,27 +160,22 @@ pub(crate) mod tests {
         ];
 
         // Test serialization
-        let mut mem = vec![0; 4096];
-
         // Save backend and device state separately.
         let state = VsockState {
             backend: ctx.device.backend().save(),
             frontend: ctx.device.save(),
         };
 
-        Snapshot::new(&state).save(&mut mem.as_mut_slice()).unwrap();
+        let serialized_data = bitcode::serialize(&state).unwrap();
 
-        let restored_state: VsockState = Snapshot::load_without_crc_check(mem.as_slice())
-            .unwrap()
-            .data;
+        let restored_state: VsockState = bitcode::deserialize(&serialized_data).unwrap();
         let mut restored_device = Vsock::restore(
             VsockConstructorArgs {
                 mem: ctx.mem.clone(),
-                backend: match restored_state.backend {
-                    VsockBackendState::Uds(uds_state) => {
-                        assert_eq!(uds_state.path, "test".to_owned());
-                        TestBackend::new()
-                    }
+                backend: {
+                    assert_eq!(restored_state.backend.uds_path, "test".to_owned());
+                    assert_eq!(restored_state.backend.local_port_last, 0xdeadbeef);
+                    TestBackend::new()
                 },
             },
             &restored_state.frontend,

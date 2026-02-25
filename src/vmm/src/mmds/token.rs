@@ -7,10 +7,8 @@ use std::ops::Add;
 
 use aws_lc_rs::aead::{AES_256_GCM, Aad, Nonce, RandomizedNonceKey};
 use base64::Engine;
-use bincode::config;
-use bincode::config::{Configuration, Fixint, Limit, LittleEndian};
-use serde::{Deserialize, Serialize};
 use utils::time::{ClockType, get_time_ms};
+use zerocopy::{FromBytes, Immutable, IntoBytes};
 
 /// Length of initialization vector.
 pub const IV_LEN: usize = 12;
@@ -37,15 +35,6 @@ pub const PATH_TO_TOKEN: &str = "/latest/api/token";
 /// is computed based on the expected length of the base64 encoded Token struct
 /// including a small deviation.
 const TOKEN_LENGTH_LIMIT: usize = 70;
-/// Byte limit passed to `bincode` to guard against allocating
-/// too much memory when deserializing tokens.
-const DESERIALIZATION_BYTES_LIMIT: usize = std::mem::size_of::<Token>();
-
-const BINCODE_CONFIG: Configuration<LittleEndian, Fixint, Limit<DESERIALIZATION_BYTES_LIMIT>> =
-    config::standard()
-        .with_fixed_int_encoding()
-        .with_limit::<DESERIALIZATION_BYTES_LIMIT>()
-        .with_little_endian();
 
 #[rustfmt::skip]
 #[derive(Debug, thiserror::Error, displaydoc::Display)]
@@ -56,8 +45,6 @@ pub enum MmdsTokenError {
     ExpiryExtraction,
     /// Invalid time to live value provided for token: {0}. Please provide a value between {MIN_TOKEN_TTL_SECONDS:} and {MAX_TOKEN_TTL_SECONDS:}.
     InvalidTtlValue(u32),
-    /// Bincode serialization failed: {0}.
-    Serialization(#[from] bincode::error::EncodeError),
     /// Failed to encrypt token.
     TokenEncryption,
 }
@@ -105,7 +92,7 @@ impl TokenAuthority {
         // Create token structure containing the encrypted expiry value.
         let token = self.create_token(ttl_seconds)?;
         // Encode struct into base64 in order to obtain token string.
-        let encoded_token = token.base64_encode()?;
+        let encoded_token = token.base64_encode();
         // Increase the count of encrypted tokens.
         self.num_encrypted_tokens += 1;
 
@@ -251,7 +238,8 @@ impl TokenAuthority {
 }
 
 /// Structure for token information.
-#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+#[derive(Clone, Debug, FromBytes, Immutable, IntoBytes, PartialEq)]
+#[repr(C)]
 struct Token {
     // Nonce or Initialization Vector.
     iv: [u8; IV_LEN],
@@ -268,23 +256,16 @@ impl Token {
     }
 
     /// Encode token structure into a string using base64 encoding.
-    fn base64_encode(&self) -> Result<String, MmdsTokenError> {
-        let token_bytes: Vec<u8> = bincode::serde::encode_to_vec(self, BINCODE_CONFIG)?;
-
-        // Encode token structure bytes into base64.
-        Ok(base64::engine::general_purpose::STANDARD.encode(token_bytes))
+    fn base64_encode(&self) -> String {
+        base64::engine::general_purpose::STANDARD.encode(self.as_bytes())
     }
 
     /// Decode token structure from base64 string.
     fn base64_decode(encoded_token: &str) -> Result<Self, MmdsTokenError> {
-        let token_bytes = base64::engine::general_purpose::STANDARD
+        let bytes = base64::engine::general_purpose::STANDARD
             .decode(encoded_token)
             .map_err(|_| MmdsTokenError::ExpiryExtraction)?;
-
-        let token: Token = bincode::serde::decode_from_slice(&token_bytes, BINCODE_CONFIG)
-            .map_err(|_| MmdsTokenError::ExpiryExtraction)?
-            .0;
-        Ok(token)
+        Self::read_from_bytes(&bytes).map_err(|_| MmdsTokenError::ExpiryExtraction)
     }
 }
 
@@ -394,7 +375,7 @@ mod tests {
     #[test]
     fn test_encode_decode() {
         let expected_token = Token::new([0u8; IV_LEN], [0u8; PAYLOAD_LEN], [0u8; TAG_LEN]);
-        let mut encoded_token = expected_token.base64_encode().unwrap();
+        let mut encoded_token = expected_token.base64_encode();
         let actual_token = Token::base64_decode(&encoded_token).unwrap();
         assert_eq!(actual_token, expected_token);
 

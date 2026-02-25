@@ -128,13 +128,14 @@ pub(crate) mod tests {
             kernel_image_path: "./vmlinux.bin".to_string(),
         };
 
-        let mut snapshot_data = vec![0u8; 1000];
-        Snapshot::new(&boot_src_cfg)
-            .save(&mut snapshot_data.as_mut_slice())
-            .unwrap();
-        let restored_boot_cfg = Snapshot::load_without_crc_check(snapshot_data.as_slice())
-            .unwrap()
-            .data;
+        // Use bitcode serialization directly for the test data
+        let serialized_data = bitcode::serialize(&boot_src_cfg).unwrap();
+        let restored_boot_cfg: BootSourceConfig = bitcode::deserialize(&serialized_data).unwrap();
         assert_eq!(boot_src_cfg, restored_boot_cfg);
+
+        // Also test with Snapshot wrapper
+        let snapshot_data = bitcode::serialize(&Snapshot::new(boot_src_cfg.clone())).unwrap();
+        let restored_snapshot = Snapshot::load_without_crc_check(&snapshot_data).unwrap();
+        assert_eq!(boot_src_cfg, restored_snapshot.data);
     }
 }
