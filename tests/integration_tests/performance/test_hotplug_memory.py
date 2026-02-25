@@ -349,7 +349,7 @@ def test_snapshot_restore_persistence(uvm_plain_6_1, microvm_factory, snapshot_t
     validate_metrics(restored_vm)
 
 
-def test_snapshot_restore_incremental(uvm_plain_6_1, microvm_factory):
+def test_snapshot_restore_incremental(uvm_plain_6_1, microvm_factory, snapshot_type):
     """
     Check that hptplugged memory is persisted across snapshot/restore.
     """
@@ -359,10 +359,17 @@ def test_snapshot_restore_incremental(uvm_plain_6_1, microvm_factory):
         )
 
     uvm = uvm_booted_memhp(
-        uvm_plain_6_1, None, microvm_factory, False, DEFAULT_CONFIG, None, None, None
+        uvm_plain_6_1,
+        None,
+        microvm_factory,
+        False,
+        DEFAULT_CONFIG,
+        None,
+        None,
+        snapshot_type,
     )
 
-    snapshot = uvm.snapshot_full()
+    snapshot = uvm.make_snapshot(snapshot_type)
 
     hotplug_count = 16
     hp_mem_mib_per_cycle = 1024 // hotplug_count
