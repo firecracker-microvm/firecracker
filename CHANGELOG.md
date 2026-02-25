@@ -44,6 +44,10 @@ and this project adheres to
 - [#5688](https://github.com/firecracker-microvm/firecracker/pull/5688): Fixed
   vsock local port reuse across snapshot restore by saving the last used local
   port into the snapshot, so users need to regenerate snapshots.
+- [#5705](https://github.com/firecracker-microvm/firecracker/pull/5705): Fixed a
+  bug that caused Firecracker to corrupt the memory files of differential
+  snapshots for VMs with multiple memory slots. This affected VMs using memory
+  hot-plugging or any x86 VMs with a memory size larger than 3GiB.
 
 ## [v1.14.0]
 
