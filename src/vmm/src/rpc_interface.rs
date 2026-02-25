@@ -678,7 +678,11 @@ pub struct RuntimeApiController {
 
 impl RuntimeApiController {
     /// Handles the incoming runtime `VmmAction` request and provides a response for it.
-    pub fn handle_request(&mut self, request: VmmAction) -> Result<VmmData, VmmActionError> {
+    pub fn handle_request(
+        &mut self,
+        request: VmmAction,
+        _event_manager: &mut EventManager,
+    ) -> Result<VmmData, VmmActionError> {
         use self::VmmAction::*;
         match request {
             // Supported operations allowed post-boot.
@@ -1214,7 +1218,8 @@ mod tests {
     fn runtime_request(request: VmmAction) -> Result<VmmData, VmmActionError> {
         let vmm = Arc::new(Mutex::new(default_vmm()));
         let mut runtime = RuntimeApiController::new(vmm.clone());
-        runtime.handle_request(request)
+        let mut event_manager = EventManager::new().unwrap();
+        runtime.handle_request(request, &mut event_manager)
     }
 
     #[test]

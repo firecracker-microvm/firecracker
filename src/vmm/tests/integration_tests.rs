@@ -103,14 +103,21 @@ fn test_build_microvm() {
 
 fn pause_resume_microvm(vmm: Arc<Mutex<Vmm>>) {
     let mut api_controller = RuntimeApiController::new(vmm.clone());
+    let mut event_manager = EventManager::new().unwrap();
 
     // There's a race between this thread and the vcpu thread, but this thread
     // should be able to pause vcpu thread before it finishes running its test-binary.
-    api_controller.handle_request(VmmAction::Pause).unwrap();
+    api_controller
+        .handle_request(VmmAction::Pause, &mut event_manager)
+        .unwrap();
     // Pausing again the microVM should not fail (microVM remains in the
     // `Paused` state).
-    api_controller.handle_request(VmmAction::Pause).unwrap();
-    api_controller.handle_request(VmmAction::Resume).unwrap();
+    api_controller
+        .handle_request(VmmAction::Pause, &mut event_manager)
+        .unwrap();
+    api_controller
+        .handle_request(VmmAction::Resume, &mut event_manager)
+        .unwrap();
 
     vmm.lock().unwrap().stop(FcExitCode::Ok);
 }
@@ -213,12 +220,15 @@ fn verify_create_snapshot(
 
     let vm_info = VmInfo::from(&*vmm.lock().unwrap());
     let mut controller = RuntimeApiController::new(vmm.clone());
+    let mut event_manager = EventManager::new().unwrap();
 
     // Be sure that the microVM is running.
     thread::sleep(Duration::from_millis(200));
 
     // Pause microVM.
-    controller.handle_request(VmmAction::Pause).unwrap();
+    controller
+        .handle_request(VmmAction::Pause, &mut event_manager)
+        .unwrap();
 
     // Create snapshot.
     let snapshot_type = match is_diff {
@@ -232,7 +242,10 @@ fn verify_create_snapshot(
     };
 
     controller
-        .handle_request(VmmAction::CreateSnapshot(snapshot_params))
+        .handle_request(
+            VmmAction::CreateSnapshot(snapshot_params),
+            &mut event_manager,
+        )
         .unwrap();
 
     vmm.lock().unwrap().stop(FcExitCode::Ok);
