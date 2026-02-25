@@ -66,7 +66,10 @@ impl ApiServerAdapter {
             event_manager
                 .run()
                 .expect("EventManager events driver fatal error");
-            api_adapter.lock().expect("Poisoned lock").handle_request();
+            api_adapter
+                .lock()
+                .expect("Poisoned lock")
+                .handle_request(event_manager);
 
             match vmm.lock().unwrap().shutdown_exit_code() {
                 Some(FcExitCode::Ok) => break,
@@ -77,8 +80,8 @@ impl ApiServerAdapter {
         Ok(())
     }
 
-    fn _handle_request(&mut self, req_action: VmmAction) {
-        let response = self.controller.handle_request(req_action);
+    fn _handle_request(&mut self, req_action: VmmAction, event_manager: &mut EventManager) {
+        let response = self.controller.handle_request(req_action, event_manager);
         // Send back the result.
         self.to_api
             .send(Box::new(response))
@@ -86,10 +89,10 @@ impl ApiServerAdapter {
             .expect("one-shot channel closed");
     }
 
-    fn handle_request(&mut self) {
+    fn handle_request(&mut self, event_manager: &mut EventManager) {
         if let Some(api_request) = self.request.take() {
             let request_is_pause = *api_request == VmmAction::Pause;
-            self._handle_request(*api_request);
+            self._handle_request(*api_request, event_manager);
 
             // If the latest req is a pause request, temporarily switch to a mode where we
             // do blocking `recv`s on the `from_api` receiver in a loop, until we get
@@ -102,7 +105,7 @@ impl ApiServerAdapter {
                 loop {
                     let req = self.from_api.recv().expect("Error receiving API request.");
                     let req_is_resume = *req == VmmAction::Resume;
-                    self._handle_request(*req);
+                    self._handle_request(*req, event_manager);
                     if req_is_resume {
                         break;
                     }
