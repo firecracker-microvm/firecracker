@@ -140,7 +140,7 @@ CTR_CI_ARTIFACTS_PATH="${CTR_FC_ROOT_DIR}/resources/$(uname -m)"
 DEFAULT_ARTIFACTS_S3_BUCKET=s3://spec.ccfc.min/firecracker-ci
 
 # Lockfile used while modifying KVM modules
-KVM_MODULE_LOCKFILE="/tmp/.kvm_module.lock"
+KVM_MODULE_LOCKFILE="/tmp/.kvm_module_lock"
 
 # Query default S3 bucket with artifacts and return the most recient path
 get_newest_s3_artifacts() {
@@ -692,86 +692,126 @@ download_ci_artifacts() {
     LOCAL_ARTIFACTS_PATH=$local_artifacts_path
 }
 
-apply_linux_61_tweaks() {
-    KV=$(uname -r)
-    if [[ $KV != 6.1.* ]] || [ $(uname -m) != x86_64 ]; then
-        return
+# Acquire the KVM module lock and run the given command.
+# Uses flock with a timeout for safe, automatic lock management.
+# Usage: with_kvm_module_lock <command> [args...]
+with_kvm_module_lock() {
+    local LOCK_TIMEOUT=120
+    (
+        if ! flock -w "$LOCK_TIMEOUT" 9; then
+            say_warn "Timed out waiting for KVM module lock after: ${LOCK_TIMEOUT}s"
+            exit 1
+        fi
+        echo "Successfully acquired lock"
+        "$@"
+    ) 9>"$KVM_MODULE_LOCKFILE"
+}
+
+# Reload KVM modules with the given vendor module and kvm params.
+# Always enables avic=1 on AMD. Unloads first if already loaded.
+# Usage: reload_kvm_modules <vendor_mod> [kvm_param...]
+#   e.g. reload_kvm_modules kvm_intel nx_huge_pages=never
+reload_kvm_modules() {
+    local vendor_mod=$1; shift
+
+    # Unload if already loaded
+    if lsmod | grep -qP "^kvm_(amd|intel)"; then
+        if ! sudo modprobe -r $vendor_mod kvm; then
+            say_warn "Failed to unload KVM modules (${vendor_mod}, kvm) (may be in use)"
+            return 1
+        fi
     fi
-    say "Applying Linux 6.1 boot-time regression mitigations"
 
-    KVM_VENDOR_MOD=$(lsmod |grep -P "^kvm_(amd|intel)" | awk '{print $1}')
-    ITLB_MULTIHIT=/sys/devices/system/cpu/vulnerabilities/itlb_multihit
-    NX_HUGEPAGES=/sys/module/kvm/parameters/nx_huge_pages
-
-    # If m6a/m6i
-    if grep -q "Not affected" $ITLB_MULTIHIT; then
-        echo -e "CPU not vulnerable to iTLB multihit, using kvm.nx_huge_pages=never mitigation"
-        # we need a lock so another process is not running the same thing and to
-        # avoid race conditions.
-        set -C # noclobber
-        while true; do
-            if echo "$$" > "$KVM_MODULE_LOCKFILE"; then
-                echo "Successfully acquired lock"
-                if ! grep -q "never" $NX_HUGEPAGES; then
-                    echo "Reloading KVM modules with nx_huge_pages=never"
-                    sudo modprobe -r $KVM_VENDOR_MOD kvm
-                    sudo modprobe kvm nx_huge_pages=never
-                    if [[ $KVM_VENDOR_MOD == "kvm_amd" ]]; then
-                        sudo modprobe kvm_amd avic=1
-                    else
-                        sudo modprobe $KVM_VENDOR_MOD
-                    fi
-                fi
-                rm "$KVM_MODULE_LOCKFILE"
-                break
-            else
-                sleep 5s
-            fi
-        done
-        tail -v $ITLB_MULTIHIT $NX_HUGEPAGES
-    # else (m5d Skylake and CascadeLake)
+    if ! sudo modprobe kvm "$@"; then
+        say_warn "Failed to load kvm module"
+        return 1
+    fi
+    if [[ $vendor_mod == "kvm_amd" ]]; then
+        if ! sudo modprobe kvm_amd avic=1; then
+            say_warn "Failed to load kvm_amd module"
+            return 1
+        fi
     else
-        echo "CPU vulnerable to iTLB_multihit, checking if favordynmods is enabled"
-        mount |grep cgroup |grep -q favordynmods
-        if [ $? -ne 0 ]; then
-            say_warn "cgroups' favordynmods option not enabled; VM creation performance may be impacted"
-        else
-            echo "favordynmods is enabled"
+        if ! sudo modprobe $vendor_mod; then
+            say_warn "Failed to load $vendor_mod module"
+            return 1
         fi
     fi
 }
 
-apply_amd_avic_tweaks() {
-    if ! grep -q "svm" /proc/cpuinfo; then
-        return
+# Determine the KVM vendor module for the current CPU.
+kvm_vendor_mod() {
+    if grep -q "vmx" /proc/cpuinfo; then
+        echo kvm_intel
+    elif grep -q "svm" /proc/cpuinfo; then
+        echo kvm_amd
+    else
+        # aarch64
+        echo kvm
+    fi
+}
+
+# Ensure /dev/kvm is available and apply platform-specific KVM tweaks.
+# - Loads KVM modules if not present
+# - On Linux 6.1 x86_64: applies nx_huge_pages=never for non-vulnerable CPUs,
+#   checks favordynmods for vulnerable ones
+# - On AMD: ensures AVIC is enabled
+setup_kvm() {
+    local kernel_version=$(uname -r)
+    local arch=$(uname -m)
+    local vendor_mod=$(kvm_vendor_mod)
+
+    local need_kvm_reload=0
+    local kvm_extra_params=()
+
+    # Load KVM if not already available
+    if [[ ! -c /dev/kvm ]]; then
+        need_kvm_reload=1
     fi
 
-    AVIC_PARAM=/sys/module/kvm_amd/parameters/avic
-    if [[ ! -f $AVIC_PARAM ]]; then
-        return
-    fi
+    local itlb_multihit=/sys/devices/system/cpu/vulnerabilities/itlb_multihit
+    local nx_huge_pages=/sys/module/kvm/parameters/nx_huge_pages
+    # Linux 6.1 x86_64: mitigate boot-time regression
+    if [[ $kernel_version == 6.1.* ]] && [[ $arch == x86_64 ]]; then
 
-    if grep -q "Y\|1" $AVIC_PARAM; then
-        echo "AVIC already enabled"
-        return
-    fi
-
-    set -C # noclobber
-    while true; do
-        if echo "$$" > "$KVM_MODULE_LOCKFILE"; then
-            echo "Successfully acquired lock"
-            if ! grep -q "Y\|1" $AVIC_PARAM; then
-                echo "Reloading kvm_amd with avic=1"
-                sudo modprobe -r kvm_amd
-                sudo modprobe kvm_amd avic=1
+        say "Applying Linux 6.1 boot-time regression mitigations"
+        if grep -q "Not affected" $itlb_multihit; then
+            echo "CPU not vulnerable to iTLB multihit, using kvm.nx_huge_pages=never mitigation"
+            if ! grep -q "never" $nx_huge_pages 2>/dev/null; then
+                kvm_extra_params+=(nx_huge_pages=never)
+                need_kvm_reload=1
             fi
-            rm "$KVM_MODULE_LOCKFILE"
-            break
         else
-            sleep 5s
+            echo "CPU vulnerable to iTLB_multihit, checking if favordynmods is enabled"
+            if mount | grep cgroup | grep -q favordynmods; then
+                echo "favordynmods is enabled"
+            else
+                say_warn "cgroups' favordynmods option not enabled; VM creation performance may be impacted"
+            fi
         fi
-    done
-    tail -v $AVIC_PARAM
+    fi
+
+    # AMD: ensure AVIC is enabled
+    local avic_param=/sys/module/kvm_amd/parameters/avic
+    if [[ $vendor_mod == "kvm_amd" ]]; then
+        if ! grep -q "Y\|1" $avic_param; then
+            echo "AVIC not enabled, will reload kvm_amd with avic=1"
+            need_kvm_reload=1
+        fi
+    fi
+
+    if [[ $need_kvm_reload -eq 1 ]]; then
+        echo "Reloading KVM modules"
+        reload_kvm_modules "$vendor_mod" "${kvm_extra_params[@]}"
+        ok_or_die "Could not reload kvm modules"
+    fi
+
+    tail -v $itlb_multihit $nx_huge_pages
+    if [[ $vendor_mod == "kvm_amd" ]]; then
+        tail -v $avic_param
+    fi
+
+    [[ -c /dev/kvm ]] || die "/dev/kvm not found. Aborting."
 }
 
 # Modifies the processors CPU governor and P-state configuration (x86_64 only) for consistent performance. This means
@@ -908,7 +948,7 @@ cmd_test() {
     done
 
     # Check prerequisites.
-    [ $do_kvm_check != 0 ] && ensure_kvm
+    [ $do_kvm_check != 0 ] && with_kvm_module_lock setup_kvm
     ensure_devctr
     [ $do_build_dir_check != 0 ] && ensure_build_dir
     if [ $do_artifacts_check != 0 ]; then
@@ -926,9 +966,6 @@ cmd_test() {
         ok_or_die "Failed to build Firecracker!"
       fi
     fi
-
-    apply_linux_61_tweaks
-    apply_amd_avic_tweaks
 
     # If we got to here, we've got all we need to continue.
     say "Kernel version: $(uname -r)"
