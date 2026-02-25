@@ -118,7 +118,7 @@ impl VmClock {
     }
 
     /// Bump the VM generation counter and notify guest after snapshot restore
-    pub fn post_restore(&mut self, mem: &GuestMemoryMmap) -> Result<(), VmClockError> {
+    pub fn do_post_restore(&mut self, mem: &GuestMemoryMmap) -> Result<(), VmClockError> {
         write_vmclock_field!(self, mem, seq_count, self.inner.seq_count | 1);
 
         // This fence ensures guest sees all previous writes. It is matched to a
@@ -276,7 +276,7 @@ mod tests {
 
         let state = vmclock.save();
         let mut vmclock_new = VmClock::restore((), &state).unwrap();
-        vmclock_new.post_restore(&mem);
+        vmclock_new.do_post_restore(&mem);
 
         let guest_data_new: vmclock_abi = mem.read_obj(VMCLOCK_TEST_GUEST_ADDR).unwrap();
         assert_ne!(guest_data_new, vmclock.inner);
