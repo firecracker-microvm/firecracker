@@ -311,7 +311,7 @@ def test_virtio_mem_configs(uvm_plain_6_1, memhp_config):
 
 def test_snapshot_restore_persistence(uvm_plain_6_1, microvm_factory, snapshot_type):
     """
-    Check that hptplugged memory is persisted across snapshot/restore.
+    Check that hotplugged memory is persisted across snapshot/restore.
     """
     if not uvm_plain_6_1.pci_enabled:
         pytest.skip(
@@ -351,7 +351,7 @@ def test_snapshot_restore_persistence(uvm_plain_6_1, microvm_factory, snapshot_t
 
 def test_snapshot_restore_incremental(uvm_plain_6_1, microvm_factory, snapshot_type):
     """
-    Check that hptplugged memory is persisted across snapshot/restore.
+    Check that hotplugged memory is persisted across snapshot/restore.
     """
     if not uvm_plain_6_1.pci_enabled:
         pytest.skip(
