@@ -403,6 +403,7 @@ impl<'a> Persist<'a> for MMIODeviceManager {
                 MMIODevice {
                     resources: *device_info,
                     inner: mmio_transport,
+                    sub_id: None,
                 },
                 event_manager,
             )?;

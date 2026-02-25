@@ -128,12 +128,12 @@ impl PciDevices {
             .insert((device_type, id), virtio_device.clone());
 
         Self::register_bars_with_bus(vm, &virtio_device)?;
-        virtio_device
-            .lock()
-            .expect("Poisoned lock")
-            .register_notification_ioevent(vm)?;
 
-        event_manager.add_subscriber(virtio_device.lock().expect("Poisoned lock").virtio_device());
+        let mut device = virtio_device.lock().expect("Poisoned lock");
+        device.register_notification_ioevent(vm)?;
+
+        let sub_id = event_manager.add_subscriber(device.virtio_device());
+        device.sub_id = Some(sub_id);
 
         Ok(())
     }

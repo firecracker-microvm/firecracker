@@ -114,6 +114,8 @@ pub struct MMIODevice<T> {
     pub(crate) resources: MMIODeviceInfo,
     /// The actual device
     pub(crate) inner: Arc<Mutex<T>>,
+    /// The subscriber ID returned by the EventManager
+    pub(crate) sub_id: Option<event_manager::SubscriberId>,
 }
 
 /// Manages the complexities of registering a MMIO device.
@@ -175,7 +177,7 @@ impl MMIODeviceManager {
         &mut self,
         vm: &Vm,
         device_id: String,
-        device: MMIODevice<MmioTransport>,
+        mut device: MMIODevice<MmioTransport>,
         event_manager: &mut EventManager,
     ) -> Result<(), MmioError> {
         // Our virtio devices are currently hardcoded to use a single IRQ.
@@ -204,7 +206,9 @@ impl MMIODeviceManager {
             device.resources.len,
         )?;
 
-        event_manager.add_subscriber(device.inner.lock().expect("Poisoned lock").device());
+        let sub_id =
+            event_manager.add_subscriber(device.inner.lock().expect("Poisoned lock").device());
+        device.sub_id = Some(sub_id);
 
         self.virtio_devices.insert(identifier, device);
 
@@ -245,6 +249,7 @@ impl MMIODeviceManager {
         let device = MMIODevice {
             resources: self.allocate_mmio_resources(&mut vm.resource_allocator(), 1)?,
             inner: Arc::new(Mutex::new(mmio_device)),
+            sub_id: None,
         };
 
         #[cfg(target_arch = "x86_64")]
@@ -294,6 +299,7 @@ impl MMIODeviceManager {
         let device = MMIODevice {
             resources: device_info,
             inner: serial,
+            sub_id: None,
         };
 
         vm.common.mmio_bus.insert(
@@ -347,6 +353,7 @@ impl MMIODeviceManager {
         let device = MMIODevice {
             resources: device_info,
             inner: rtc,
+            sub_id: None,
         };
 
         vm.common.mmio_bus.insert(
@@ -374,6 +381,7 @@ impl MMIODeviceManager {
         let device = MMIODevice {
             resources: device_info,
             inner: boot_timer,
+            sub_id: None,
         };
 
         mmio_bus.insert(
