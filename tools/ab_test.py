@@ -126,6 +126,15 @@ IGNORED = [
         "performance_test": "test_vsock_throughput",
         "mode": "g2h",
     },
+    # Network latencies on m8i.metal-{48,96}xl w/ 5.10 host
+    *[
+        {
+            "instance": instance,
+            "performance_test": "test_network_latency",
+            "host_kernel": "linux-5.10",
+        }
+        for instance in ["m8i.metal-48xl", "m8i.metal-96xl"]
+    ],
     # block latencies if guest uses async request submission
     {"fio_engine": "libaio", "metric": "clat_read"},
     {"fio_engine": "libaio", "metric": "clat_write"},
