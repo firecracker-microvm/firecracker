@@ -1,0 +1,170 @@
+From 49c170f7da716896c2962fe108e48724b2290b73 Mon Sep 17 00:00:00 2001
+From: Takahiro Itazuri <itazur@amazon.com>
+Date: Thu, 19 Feb 2026 08:09:45 +0000
+Subject: [RFC PATCH v2 4/7] KVM: Rename invalidate_begin to invalidate_start
+ for consistency
+
+Most MMU-related helpers use "_start" suffix.  Align with the prevailing
+naming convention for consistency across MMU-related codebase.
+
+```
+$ git grep -E "invalidate(_range)?_start" | wc -l
+123
+
+$ git grep -E "invalidate(_range)?_begin" | wc -l
+14
+```
+
+No functional change intended.
+
+Signed-off-by: Takahiro Itazuri <itazur@amazon.com>
+---
+ arch/x86/kvm/mmu/mmu.c       |  2 +-
+ include/linux/kvm_host.h     |  2 +-
+ include/linux/mmu_notifier.h |  4 ++--
+ virt/kvm/guest_memfd.c       | 14 +++++++-------
+ virt/kvm/kvm_main.c          |  6 +++---
+ 5 files changed, 14 insertions(+), 14 deletions(-)
+
+diff --git a/arch/x86/kvm/mmu/mmu.c b/arch/x86/kvm/mmu/mmu.c
+index d3e705ac4c6f..e82a357e2219 100644
+--- a/arch/x86/kvm/mmu/mmu.c
++++ b/arch/x86/kvm/mmu/mmu.c
+@@ -6859,7 +6859,7 @@ void kvm_zap_gfn_range(struct kvm *kvm, gfn_t gfn_start, gfn_t gfn_end)
+ 
+ 	write_lock(&kvm->mmu_lock);
+ 
+-	kvm_mmu_invalidate_begin(kvm);
++	kvm_mmu_invalidate_start(kvm);
+ 
+ 	kvm_mmu_invalidate_range_add(kvm, gfn_start, gfn_end);
+ 
+diff --git a/include/linux/kvm_host.h b/include/linux/kvm_host.h
+index 2ea5d2f172f7..618a71894ed1 100644
+--- a/include/linux/kvm_host.h
++++ b/include/linux/kvm_host.h
+@@ -1566,7 +1566,7 @@ void kvm_mmu_free_memory_cache(struct kvm_mmu_memory_cache *mc);
+ void *kvm_mmu_memory_cache_alloc(struct kvm_mmu_memory_cache *mc);
+ #endif
+ 
+-void kvm_mmu_invalidate_begin(struct kvm *kvm);
++void kvm_mmu_invalidate_start(struct kvm *kvm);
+ void kvm_mmu_invalidate_range_add(struct kvm *kvm, gfn_t start, gfn_t end);
+ void kvm_mmu_invalidate_end(struct kvm *kvm);
+ bool kvm_mmu_unmap_gfn_range(struct kvm *kvm, struct kvm_gfn_range *range);
+diff --git a/include/linux/mmu_notifier.h b/include/linux/mmu_notifier.h
+index d1094c2d5fb6..8ecf36a84e3b 100644
+--- a/include/linux/mmu_notifier.h
++++ b/include/linux/mmu_notifier.h
+@@ -134,8 +134,8 @@ struct mmu_notifier_ops {
+ 	 * Invalidation of multiple concurrent ranges may be
+ 	 * optionally permitted by the driver. Either way the
+ 	 * establishment of sptes is forbidden in the range passed to
+-	 * invalidate_range_begin/end for the whole duration of the
+-	 * invalidate_range_begin/end critical section.
++	 * invalidate_range_start/end for the whole duration of the
++	 * invalidate_range_start/end critical section.
+ 	 *
+ 	 * invalidate_range_start() is called when all pages in the
+ 	 * range are still mapped and have at least a refcount of one.
+diff --git a/virt/kvm/guest_memfd.c b/virt/kvm/guest_memfd.c
+index 5d6e966d4f32..79f34dad0c2f 100644
+--- a/virt/kvm/guest_memfd.c
++++ b/virt/kvm/guest_memfd.c
+@@ -206,7 +206,7 @@ static enum kvm_gfn_range_filter kvm_gmem_get_invalidate_filter(struct inode *in
+ 	return KVM_FILTER_PRIVATE;
+ }
+ 
+-static void __kvm_gmem_invalidate_begin(struct gmem_file *f, pgoff_t start,
++static void __kvm_gmem_invalidate_start(struct gmem_file *f, pgoff_t start,
+ 					pgoff_t end,
+ 					enum kvm_gfn_range_filter attr_filter)
+ {
+@@ -230,7 +230,7 @@ static void __kvm_gmem_invalidate_begin(struct gmem_file *f, pgoff_t start,
+ 			found_memslot = true;
+ 
+ 			KVM_MMU_LOCK(kvm);
+-			kvm_mmu_invalidate_begin(kvm);
++			kvm_mmu_invalidate_start(kvm);
+ 		}
+ 
+ 		flush |= kvm_mmu_unmap_gfn_range(kvm, &gfn_range);
+@@ -243,7 +243,7 @@ static void __kvm_gmem_invalidate_begin(struct gmem_file *f, pgoff_t start,
+ 		KVM_MMU_UNLOCK(kvm);
+ }
+ 
+-static void kvm_gmem_invalidate_begin(struct inode *inode, pgoff_t start,
++static void kvm_gmem_invalidate_start(struct inode *inode, pgoff_t start,
+ 				      pgoff_t end)
+ {
+ 	enum kvm_gfn_range_filter attr_filter;
+@@ -252,7 +252,7 @@ static void kvm_gmem_invalidate_begin(struct inode *inode, pgoff_t start,
+ 	attr_filter = kvm_gmem_get_invalidate_filter(inode);
+ 
+ 	kvm_gmem_for_each_file(f, inode->i_mapping)
+-		__kvm_gmem_invalidate_begin(f, start, end, attr_filter);
++		__kvm_gmem_invalidate_start(f, start, end, attr_filter);
+ }
+ 
+ static void __kvm_gmem_invalidate_end(struct gmem_file *f, pgoff_t start,
+@@ -287,7 +287,7 @@ static long kvm_gmem_punch_hole(struct inode *inode, loff_t offset, loff_t len)
+ 	 */
+ 	filemap_invalidate_lock(inode->i_mapping);
+ 
+-	kvm_gmem_invalidate_begin(inode, start, end);
++	kvm_gmem_invalidate_start(inode, start, end);
+ 
+ 	truncate_inode_pages_range(inode->i_mapping, offset, offset + len - 1);
+ 
+@@ -401,7 +401,7 @@ static int kvm_gmem_release(struct inode *inode, struct file *file)
+ 	 * Zap all SPTEs pointed at by this file.  Do not free the backing
+ 	 * memory, as its lifetime is associated with the inode, not the file.
+ 	 */
+-	__kvm_gmem_invalidate_begin(f, 0, -1ul,
++	__kvm_gmem_invalidate_start(f, 0, -1ul,
+ 				    kvm_gmem_get_invalidate_filter(inode));
+ 	__kvm_gmem_invalidate_end(f, 0, -1ul);
+ 
+@@ -582,7 +582,7 @@ static int kvm_gmem_error_folio(struct address_space *mapping, struct folio *fol
+ 	start = folio->index;
+ 	end = start + folio_nr_pages(folio);
+ 
+-	kvm_gmem_invalidate_begin(mapping->host, start, end);
++	kvm_gmem_invalidate_start(mapping->host, start, end);
+ 
+ 	/*
+ 	 * Do not truncate the range, what action is taken in response to the
+diff --git a/virt/kvm/kvm_main.c b/virt/kvm/kvm_main.c
+index 60a8b7ca8ab4..5871882ff1db 100644
+--- a/virt/kvm/kvm_main.c
++++ b/virt/kvm/kvm_main.c
+@@ -678,7 +678,7 @@ static __always_inline int kvm_age_hva_range_no_flush(struct mmu_notifier *mn,
+ 	return kvm_age_hva_range(mn, start, end, handler, false);
+ }
+ 
+-void kvm_mmu_invalidate_begin(struct kvm *kvm)
++void kvm_mmu_invalidate_start(struct kvm *kvm)
+ {
+ 	lockdep_assert_held_write(&kvm->mmu_lock);
+ 	/*
+@@ -734,7 +734,7 @@ static int kvm_mmu_notifier_invalidate_range_start(struct mmu_notifier *mn,
+ 		.start		= range->start,
+ 		.end		= range->end,
+ 		.handler	= kvm_mmu_unmap_gfn_range,
+-		.on_lock	= kvm_mmu_invalidate_begin,
++		.on_lock	= kvm_mmu_invalidate_start,
+ 		.flush_on_ret	= true,
+ 		.may_block	= mmu_notifier_range_blockable(range),
+ 	};
+@@ -2571,7 +2571,7 @@ static int kvm_vm_set_mem_attributes(struct kvm *kvm, gfn_t start, gfn_t end,
+ 		.end = end,
+ 		.arg.attributes = attributes,
+ 		.handler = kvm_pre_set_memory_attributes,
+-		.on_lock = kvm_mmu_invalidate_begin,
++		.on_lock = kvm_mmu_invalidate_start,
+ 		.flush_on_ret = true,
+ 		.may_block = true,
+ 	};
+-- 
+2.50.1
+
