@@ -130,6 +130,7 @@ Contributors to the Firecracker repository:
 - huang-jl <1046678590@qq.com>
 - Iggy Jackson <iggy@theiggy.com>
 - ihciah <ihciah@gmail.com>
+- Ilias Stamatis <ilstam@amazon.com>
 - Ioana Chirca <chioana@amazon.com>
 - Ishwor Gurung <me@ishworgurung.com>
 - Iulian Barbu <iul@amazon.com>
