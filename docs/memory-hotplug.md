@@ -46,9 +46,11 @@ be done through a `PUT` request on `/hotplug/memory` or by including the
 configuration in the JSON configuration file. In both cases, when the VM is
 started, the hotpluggable region will be completely unplugged.
 
-> [!Note] Memory configured through `/hotplug/memory` is a separate pool of
-> memory from the usual "boot memory". Only memory configured through the
-> hotplug endpoint can be plugged or unplugged dynamically.
+> [!Note]
+>
+> Memory configured through `/hotplug/memory` is a separate pool of memory from
+> the usual "boot memory". Only memory configured through the hotplug endpoint
+> can be plugged or unplugged dynamically.
 
 ### Configuration Parameters
 
@@ -68,7 +70,7 @@ started, the hotpluggable region will be completely unplugged.
 It is recommended to leave these values to the default unless strict memory
 protection is required, in which case `block_size_mib` should be equal to
 `slot_size_mib`. Note that this will make it harder for the guest kernel to find
-contiguous memory to hot-un-plug. Refer to the
+contiguous memory to hot-remove. Refer to the
 [Memory Protection](#memory-protection) section below for more details.
 
 ### API Configuration
@@ -91,7 +93,9 @@ curl --unix-socket $socket_location -i \
     }"
 ```
 
-> [!Note] This is only allowed before the `InstanceStart` action and not on
+> [!Note]
+>
+> This is only allowed before the `InstanceStart` action and not on
 > snapshot-restored VMs (which will use the configuration saved in the
 > snapshot).
 
@@ -196,10 +200,12 @@ curl --unix-socket $socket_location -i \
     -d '{"requested_size_mib": 0}'
 ```
 
-> [!Note] Unplugging requires the guest to cooperate and actually be able to
-> find and report memory blocks that can be moved or freed by the host. As in
-> the hotplugging case, it is recommended to monitor the operation through the
-> `GET` API.
+> [!Note]
+>
+> Unplugging requires the guest to cooperate and actually be able to find and
+> report memory blocks that can be moved or freed by the host. As in the
+> hotplugging case, it is recommended to monitor the operation through the `GET`
+> API.
 
 ## Configuring the guest driver
 
