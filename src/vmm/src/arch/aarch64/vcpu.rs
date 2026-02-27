@@ -669,6 +669,26 @@ mod tests {
     }
 
     #[test]
+    fn test_pmu_v3_feature_invalid() {
+        let (_, mut vm) = setup_vm_with_memory(0x1000);
+        let mut vcpu = KvmVcpu::new(0, &vm).unwrap();
+        vm.setup_irqchip(1).unwrap();
+
+        // Firecracker does not support KVM_ARM_VCPU_PMU_V3. Check that
+        // attempting to enable this feature returns an error.
+        let vcpu_features = vec![VcpuFeatures {
+            index: 0,
+            bitmap: RegisterValueFilter {
+                filter: 1 << KVM_ARM_VCPU_PMU_V3,
+                value: 1 << KVM_ARM_VCPU_PMU_V3,
+            },
+        }];
+
+        let res = vcpu.init(&vcpu_features);
+        assert!(matches!(res.unwrap_err(), KvmVcpuError::UnsupportedPmuV3));
+    }
+
+    #[test]
     fn test_vcpu_save_restore_state() {
         let (_, mut vm) = setup_vm_with_memory(0x1000);
         let mut vcpu = KvmVcpu::new(0, &vm).unwrap();
