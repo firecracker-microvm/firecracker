@@ -14,6 +14,7 @@ use super::{Vmm, VmmError};
 use crate::EventManager;
 use crate::builder::StartMicrovmError;
 use crate::cpu_config::templates::{CustomCpuTemplate, GuestConfigError};
+use crate::device_manager::pci_mngr::PciManagerError;
 use crate::devices::virtio::balloon::device::{HintingStatus, StartHintingCmd};
 use crate::devices::virtio::mem::VirtioMemStatus;
 use crate::logger::{LoggerConfig, info, warn, *};
@@ -21,6 +22,7 @@ use crate::mmds::data_store::{self, Mmds, MmdsDatastoreError};
 use crate::persist::{CreateSnapshotError, RestoreFromSnapshotError, VmInfo};
 use crate::resources::VmmConfig;
 use crate::seccomp::BpfThreadMap;
+use crate::vmm_config::HotplugDeviceConfig;
 use crate::vmm_config::balloon::{
     BalloonConfigError, BalloonDeviceConfig, BalloonStats, BalloonUpdateConfig,
     BalloonUpdateStatsConfig,
@@ -203,6 +205,12 @@ pub enum VmmActionError {
     StartMicrovm(#[from] StartMicrovmError),
     /// Vsock config error: {0}
     VsockConfig(#[from] VsockConfigError),
+    /// Device ID in use
+    DeviceIdInUse,
+    /// PCI is not enabled
+    PciNotEnabled,
+    /// PCI manager error: {0}
+    PciManager(#[from] PciManagerError),
 }
 
 /// The enum represents the response sent by the VMM in case of success. The response is either
@@ -681,7 +689,7 @@ impl RuntimeApiController {
     pub fn handle_request(
         &mut self,
         request: VmmAction,
-        _event_manager: &mut EventManager,
+        event_manager: &mut EventManager,
     ) -> Result<VmmData, VmmActionError> {
         use self::VmmAction::*;
         match request {
@@ -745,6 +753,24 @@ impl RuntimeApiController {
                     .expect("Poisoned lock"),
                 value,
             ),
+            InsertBlockDevice(config) => self
+                .vmm
+                .lock()
+                .expect("Poisoned lock")
+                .hotplug_device(HotplugDeviceConfig::Block(config), event_manager)
+                .map(|()| VmmData::Empty),
+            InsertPmemDevice(config) => self
+                .vmm
+                .lock()
+                .expect("Poisoned lock")
+                .hotplug_device(HotplugDeviceConfig::Pmem(config), event_manager)
+                .map(|()| VmmData::Empty),
+            InsertNetworkDevice(config) => self
+                .vmm
+                .lock()
+                .expect("Poisoned lock")
+                .hotplug_device(HotplugDeviceConfig::Net(config), event_manager)
+                .map(|()| VmmData::Empty),
             Pause => self.pause(),
             PutMMDS(value) => mmds_put_data(
                 self.vmm
@@ -809,9 +835,6 @@ impl RuntimeApiController {
             | ConfigureLogger(_)
             | ConfigureMetrics(_)
             | ConfigureSerial(_)
-            | InsertBlockDevice(_)
-            | InsertPmemDevice(_)
-            | InsertNetworkDevice(_)
             | LoadSnapshot(_)
             | PutCpuConfiguration(_)
             | SetBalloonDevice(_)
@@ -998,7 +1021,6 @@ mod tests {
     use super::*;
     use crate::HTTP_MAX_PAYLOAD_SIZE;
     use crate::builder::tests::default_vmm;
-    use crate::devices::virtio::block::CacheType;
     use crate::mmds::data_store::MmdsVersion;
     use crate::seccomp::BpfThreadMap;
     use crate::vmm_config::snapshot::{MemBackendConfig, MemBackendType};
@@ -1255,30 +1277,6 @@ mod tests {
                 metrics_path: PathBuf::new(),
             },
         )));
-        check_unsupported(runtime_request(VmmAction::InsertBlockDevice(
-            BlockDeviceConfig {
-                drive_id: String::new(),
-                partuuid: None,
-                is_root_device: false,
-                cache_type: CacheType::Unsafe,
-
-                is_read_only: Some(false),
-                path_on_host: Some(String::new()),
-                rate_limiter: None,
-                file_engine_type: None,
-
-                socket: None,
-            },
-        )));
-        check_unsupported(runtime_request(VmmAction::InsertNetworkDevice(
-            NetworkInterfaceConfig {
-                iface_id: String::new(),
-                host_dev_name: String::new(),
-                guest_mac: None,
-                rx_rate_limiter: None,
-                tx_rate_limiter: None,
-            },
-        )));
         check_unsupported(runtime_request(VmmAction::SetVsockDevice(
             VsockDeviceConfig {
                 vsock_id: Some(String::new()),
@@ -1324,13 +1322,6 @@ mod tests {
         check_unsupported(runtime_request(VmmAction::SetEntropyDevice(
             EntropyDeviceConfig::default(),
         )));
-        check_unsupported(runtime_request(VmmAction::InsertPmemDevice(PmemConfig {
-            id: String::new(),
-            path_on_host: String::new(),
-            root_device: false,
-            read_only: false,
-            ..Default::default()
-        })));
         check_unsupported(runtime_request(VmmAction::SetMemoryHotplugDevice(
             MemoryHotplugConfig::default(),
         )));
