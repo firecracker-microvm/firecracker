@@ -452,7 +452,7 @@ def test_api_cpu_config(uvm_plain, custom_cpu_template):
     test_microvm.api.cpu_config.put(**custom_cpu_template["template"])
 
 
-def test_api_put_update_post_boot(uvm_plain, io_engine):
+def test_api_put_update_post_boot(uvm_plain):
     """
     Test that PUT updates are rejected after the microvm boots.
     """
@@ -485,22 +485,6 @@ def test_api_put_update_post_boot(uvm_plain, io_engine):
 
     with pytest.raises(RuntimeError, match=NOT_SUPPORTED_AFTER_START):
         test_microvm.api.machine_config.put(vcpu_count=4, mem_size_mib=128)
-
-    # Network interface update is not allowed after boot.
-    with pytest.raises(RuntimeError, match=NOT_SUPPORTED_AFTER_START):
-        test_microvm.api.network.put(
-            iface_id="1", host_dev_name=tap1.name, guest_mac="06:00:00:00:00:02"
-        )
-
-    # Block device update is not allowed after boot.
-    with pytest.raises(RuntimeError, match=NOT_SUPPORTED_AFTER_START):
-        test_microvm.api.drive.put(
-            drive_id="rootfs",
-            path_on_host=test_microvm.jailer.jailed_path(test_microvm.rootfs_file),
-            is_read_only=False,
-            is_root_device=True,
-            io_engine=io_engine,
-        )
 
     # MMDS config is not allowed post-boot.
     mmds_config = {
@@ -1216,10 +1200,6 @@ def test_pmem_rate_limiter_api(uvm_plain_any, rootfs):
     # Boot with pmem as rootfs.
     vm.add_pmem("rootfs", rootfs, True, True)
     vm.start()
-
-    # PUT pmem after boot is not allowed.
-    with pytest.raises(RuntimeError, match=NOT_SUPPORTED_AFTER_START):
-        vm.api.pmem.put(id="pmem0", path_on_host=pmem_file_path)
 
     # PATCH pmem rate limiter after boot should succeed.
     vm.api.pmem.patch(

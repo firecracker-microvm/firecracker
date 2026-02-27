@@ -34,9 +34,12 @@ use crate::devices::pseudo::BootTimer;
 use crate::devices::virtio::ActivateError;
 use crate::devices::virtio::balloon::BalloonError;
 use crate::devices::virtio::block::BlockError;
+use crate::devices::virtio::block::device::Block;
 use crate::devices::virtio::device::{VirtioDevice, VirtioDeviceType};
 use crate::devices::virtio::mem::persist::VirtioMemPersistError;
+use crate::devices::virtio::net::Net;
 use crate::devices::virtio::net::persist::NetPersistError;
+use crate::devices::virtio::pmem::device::Pmem;
 use crate::devices::virtio::pmem::persist::PmemPersistError;
 use crate::devices::virtio::rng::persist::EntropyPersistError;
 use crate::devices::virtio::transport::mmio::{IrqTrigger, MmioTransport};
@@ -44,9 +47,14 @@ use crate::devices::virtio::vsock::{VsockError, VsockUnixBackendError};
 use crate::logger::{error, info};
 use crate::rate_limiter::TokenBucket;
 use crate::resources::VmResources;
+use crate::rpc_interface::VmmActionError;
 use crate::snapshot::Persist;
 use crate::utils::open_file_nonblock;
+use crate::vmm_config::HotplugDeviceConfig;
+use crate::vmm_config::drive::{BlockDeviceConfig, DriveError};
 use crate::vmm_config::mmds::MmdsConfigError;
+use crate::vmm_config::net::{NetBuilder, NetworkInterfaceConfig, NetworkInterfaceError};
+use crate::vmm_config::pmem::{PmemConfig, PmemConfigError};
 use crate::vstate::bus::BusError;
 use crate::vstate::memory::GuestMemoryMmap;
 use crate::{EventManager, Vm};
@@ -463,6 +471,84 @@ impl DeviceManager {
 
     pub fn is_pci_enabled(&self) -> bool {
         self.pci_devices.pci_segment.is_some()
+    }
+
+    /// Attaches a device after VM start
+    pub fn hotplug_device(
+        &mut self,
+        vm: Arc<Vm>,
+        config: HotplugDeviceConfig,
+        event_manager: &mut EventManager,
+    ) -> Result<(), VmmActionError> {
+        if !self.is_pci_enabled() {
+            return Err(VmmActionError::PciNotEnabled);
+        }
+
+        let dev_type = config.device_type();
+        let dev_id = config.device_id().to_string();
+
+        if self
+            .pci_devices
+            .virtio_devices
+            .contains_key(&(dev_type, dev_id.clone()))
+        {
+            return Err(VmmActionError::DeviceIdInUse);
+        }
+
+        let device = match config {
+            HotplugDeviceConfig::Block(cfg) => Self::hotplug_make_block(cfg)?,
+            HotplugDeviceConfig::Pmem(cfg) => Self::hotplug_make_pmem(vm.clone(), cfg)?,
+            HotplugDeviceConfig::Net(cfg) => self.hotplug_make_net(cfg)?,
+        };
+
+        self.pci_devices
+            .attach_pci_virtio_device(&vm, dev_id, device, event_manager)?;
+        Ok(())
+    }
+
+    fn hotplug_make_block(
+        config: BlockDeviceConfig,
+    ) -> Result<Arc<Mutex<dyn VirtioDevice>>, VmmActionError> {
+        if config.is_root_device {
+            return Err(DriveError::RootBlockDeviceAlreadyAdded.into());
+        }
+
+        let block = Block::new(config).map_err(DriveError::CreateBlockDevice)?;
+        Ok(Arc::new(Mutex::new(block)))
+    }
+
+    fn hotplug_make_pmem(
+        vm: Arc<Vm>,
+        config: PmemConfig,
+    ) -> Result<Arc<Mutex<dyn VirtioDevice>>, VmmActionError> {
+        if config.root_device {
+            return Err(PmemConfigError::AddingSecondRootDevice.into());
+        }
+
+        let pmem = Pmem::new(vm.clone(), config).map_err(PmemConfigError::from)?;
+        Ok(Arc::new(Mutex::new(pmem)))
+    }
+
+    fn hotplug_make_net(
+        &self,
+        config: NetworkInterfaceConfig,
+    ) -> Result<Arc<Mutex<dyn VirtioDevice>>, VmmActionError> {
+        if let Some(mac) = config.guest_mac {
+            let mut mac_in_use = false;
+            self.for_each_virtio_device(|_, device| {
+                if let Some(net) = device.as_any().downcast_ref::<Net>()
+                    && net.guest_mac() == Some(&mac)
+                {
+                    mac_in_use = true;
+                }
+            });
+            if mac_in_use {
+                return Err(NetworkInterfaceError::GuestMacAddressInUse(mac.to_string()).into());
+            }
+        }
+
+        let net = NetBuilder::create_net(config)?;
+        Ok(Arc::new(Mutex::new(net)))
     }
 }
 

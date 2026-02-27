@@ -137,13 +137,11 @@ impl PciDevices {
         Ok(())
     }
 
-    pub(crate) fn attach_pci_virtio_device<
-        T: 'static + VirtioDevice + MutEventSubscriber + Debug,
-    >(
+    pub(crate) fn attach_pci_virtio_device(
         &mut self,
         vm: &Arc<Vm>,
         id: String,
-        device: Arc<Mutex<T>>,
+        device: Arc<Mutex<dyn VirtioDevice>>,
         event_manager: &mut EventManager,
     ) -> Result<(), PciManagerError> {
         // We should only be reaching this point if PCI is enabled
