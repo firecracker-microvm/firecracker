@@ -9,8 +9,6 @@ set -eu -o pipefail
 set -x
 PS4='+\t '
 
-cp -ruv $rootfs/* /
-
 packages="udev systemd-sysv openssh-server iproute2 curl socat python3-minimal iperf3 iputils-ping fio kmod tmux hwloc-nox vim-tiny trace-cmd linuxptp strace python3-boto3 pciutils"
 
 # msr-tools is only supported on x86-64.
@@ -32,15 +30,13 @@ passwd -d root
 # The serial getty service hooks up the login prompt to the kernel console
 # at ttyS0 (where Firecracker connects its serial console). We'll set it up
 # for autologin to avoid the login prompt.
-for console in ttyS0; do
-    mkdir "/etc/systemd/system/serial-getty@$console.service.d/"
-    cat <<'EOF' > "/etc/systemd/system/serial-getty@$console.service.d/override.conf"
+mkdir "/etc/systemd/system/serial-getty@ttyS0.service.d/"
+cat <<'EOF' >"/etc/systemd/system/serial-getty@ttyS0.service.d/override.conf"
 [Service]
 # systemd requires this empty ExecStart line to override
 ExecStart=
 ExecStart=-/sbin/agetty --autologin root -o '-p -- \\u' --keep-baud 115200,38400,9600 %I dumb
 EOF
-done
 
 # Setup fcnet service. This is a custom Firecracker setup for assigning IPs
 # to the network interfaces in the guests spawned by the CI.
@@ -79,3 +75,9 @@ EOF
 
 # Build a manifest
 dpkg-query --show >/root/manifest
+
+# Make systemd mountpoint
+mkdir -pv $rootfs/var/lib/systemd
+
+# So apt works
+mkdir -pv $rootfs/var/lib/dpkg

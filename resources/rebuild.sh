@@ -32,13 +32,6 @@ function install_dependencies {
     rm $archive
 }
 
-function prepare_docker {
-    nohup /usr/bin/dockerd --host=unix:///var/run/docker.sock --host=tcp://127.0.0.1:2375 &
-
-    # Wait for Docker socket to be created
-    timeout 15 sh -c "until docker info; do echo .; sleep 1; done"
-}
-
 function compile_and_install {
     local SRC=$1
     local BIN="${SRC%.*}"
@@ -56,45 +49,10 @@ function compile_and_install {
 }
 
 # Build a rootfs
-function build_rootfs {
-    local ROOTFS_NAME=$1
-    local flavour=${2}
-    local FROM_CTR=public.ecr.aws/ubuntu/ubuntu:$flavour
-    local rootfs="tmp_rootfs"
-    mkdir -pv "$rootfs"
-
-    # Launch Docker
+function build_ci_rootfs {
+    local IMAGE_NAME=$1
     prepare_docker
-
-    cp -rvf overlay/* $rootfs
-
-    # curl -O https://cloud-images.ubuntu.com/minimal/releases/noble/release/ubuntu-24.04-minimal-cloudimg-amd64-root.tar.xz
-    #
-    # TBD use systemd-nspawn instead of Docker
-    #   sudo tar xaf ubuntu-22.04-minimal-cloudimg-amd64-root.tar.xz -C $rootfs
-    #   sudo systemd-nspawn --resolv-conf=bind-uplink -D $rootfs
-    docker run --env rootfs=$rootfs --privileged --rm -i -v "$PWD:/work" -w /work "$FROM_CTR" bash -s <<'EOF'
-
-./chroot.sh
-
-# Copy everything we need to the bind-mounted rootfs image file
-dirs="bin etc home lib lib64 root sbin usr"
-for d in $dirs; do tar c "/$d" | tar x -C $rootfs; done
-
-# Make mountpoints
-mkdir -pv $rootfs/{dev,proc,sys,run,tmp,var/lib/systemd}
-# So apt works
-mkdir -pv $rootfs/var/lib/dpkg/
-EOF
-
-    # TBD what abt /etc/hosts?
-    echo | tee $rootfs/etc/resolv.conf
-
-    rootfs_img="$OUTPUT_DIR/$ROOTFS_NAME.squashfs"
-    mv $rootfs/root/manifest $OUTPUT_DIR/$ROOTFS_NAME.manifest
-    mksquashfs $rootfs $rootfs_img -all-root -noappend -comp zstd
-    rm -rf $rootfs
-    rm -f nohup.out
+    build_rootfs "$IMAGE_NAME" "$OUTPUT_DIR" "$PWD/overlay" "chroot.sh"
 }
 
 
@@ -226,7 +184,7 @@ function prepare_and_build_rootfs {
         compile_and_install $BIN_DIR/$SRC
     done
 
-    build_rootfs ubuntu-24.04 noble
+    build_ci_rootfs ubuntu:24.04
     build_initramfs
 
     for SRC in ${SRCS[@]}; do
