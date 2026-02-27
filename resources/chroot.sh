@@ -9,8 +9,6 @@ set -eu -o pipefail
 set -x
 PS4='+\t '
 
-cp -ruv $rootfs/* /
-
 packages="udev systemd-sysv openssh-server iproute2 curl socat python3-minimal iperf3 iputils-ping fio kmod tmux hwloc-nox vim-tiny trace-cmd linuxptp strace python3-boto3 pciutils"
 
 # msr-tools is only supported on x86-64.
@@ -79,3 +77,9 @@ EOF
 
 # Build a manifest
 dpkg-query --show >/root/manifest
+
+# Make systemd mountpoint
+mkdir -pv $rootfs/var/lib/systemd
+
+# So apt works
+mkdir -pv $rootfs/var/lib/dpkg
