@@ -471,7 +471,7 @@ def timed_memory_hotplug(uvm, size, metrics, metric_prefix, fc_metric_name):
     [HugePagesConfig.NONE, HugePagesConfig.HUGETLBFS_2MB],
 )
 def test_memory_hotplug_latency(
-    microvm_factory, guest_kernel_linux_6_1, rootfs, hotplug_size, huge_pages, metrics
+    microvm_factory, guest_kernel_default, rootfs, hotplug_size, huge_pages, metrics
 ):
     """Test the latency of hotplugging memory"""
 
@@ -481,10 +481,8 @@ def test_memory_hotplug_latency(
             "slot_size_mib": 128,
             "block_size_mib": 2,
         }
-        uvm_plain_6_1 = microvm_factory.build(guest_kernel_linux_6_1, rootfs, pci=True)
-        uvm = uvm_booted_memhp(
-            uvm_plain_6_1, None, None, False, config, None, None, None
-        )
+        uvm_plain = microvm_factory.build(guest_kernel_default, rootfs, pci=True)
+        uvm = uvm_booted_memhp(uvm_plain, None, None, False, config, None, None, None)
 
         if i == 0:
             metrics.set_dimensions(

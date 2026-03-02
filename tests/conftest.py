@@ -546,7 +546,7 @@ guest_kernel_linux_6_1 = pytest.fixture(
     guest_kernel_fxt,
     params=kernel_params("vmlinux-6.1*"),
 )
-guest_kernel_default = guest_kernel_linux_5_10
+guest_kernel_default = guest_kernel_linux_6_1
 
 
 def match_rootfs_to_kernel(request):
