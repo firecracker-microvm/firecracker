@@ -51,7 +51,7 @@ utils = { path = "../utils" }
 uuid = "1.21.0"
 vhost = { version = "0.15.0", features = ["vhost-user-frontend"] }
 vm-allocator = { version = "0.1.3", features = ["serde"] }
-vm-memory = { version = "0.17.1", features = [
+vm-memory = { version = "0.18.0", features = [
   "backend-mmap",
   "backend-bitmap",
 ] }
