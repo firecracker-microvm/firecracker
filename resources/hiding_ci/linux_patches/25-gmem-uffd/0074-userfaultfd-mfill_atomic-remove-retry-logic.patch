@@ -1,0 +1,75 @@
+From 0a3172a9d6c403599aed365c374a4e7976f9cbc1 Mon Sep 17 00:00:00 2001
+From: "Mike Rapoport (Microsoft)" <rppt@kernel.org>
+Date: Fri, 16 Jan 2026 18:47:02 +0200
+Subject: [PATCH 74/84] userfaultfd: mfill_atomic() remove retry logic
+
+Since __mfill_atomic_pte() handles the retry for both anonymous and
+shmem, there is no need to retry copying the date from the userspace in
+the loop in mfill_atomic().
+
+Drop the retry logic from mfill_atomic().
+
+Signed-off-by: Mike Rapoport (Microsoft) <rppt@kernel.org>
+---
+ mm/userfaultfd.c | 24 ------------------------
+ 1 file changed, 24 deletions(-)
+
+diff --git a/mm/userfaultfd.c b/mm/userfaultfd.c
+index cc50d83462ee..54ffba878a8d 100644
+--- a/mm/userfaultfd.c
++++ b/mm/userfaultfd.c
+@@ -29,7 +29,6 @@ struct mfill_state {
+ 	struct vm_area_struct *vma;
+ 	unsigned long src_addr;
+ 	unsigned long dst_addr;
+-	struct folio *folio;
+ 	pmd_t *pmd;
+ };
+ 
+@@ -882,7 +881,6 @@ static __always_inline ssize_t mfill_atomic(struct userfaultfd_ctx *ctx,
+ 	VM_WARN_ON_ONCE(src_start + len <= src_start);
+ 	VM_WARN_ON_ONCE(dst_start + len <= dst_start);
+ 
+-retry:
+ 	err = mfill_get_vma(&state);
+ 	if (err)
+ 		goto out;
+@@ -909,26 +907,6 @@ static __always_inline ssize_t mfill_atomic(struct userfaultfd_ctx *ctx,
+ 		err = mfill_atomic_pte(&state);
+ 		cond_resched();
+ 
+-		if (unlikely(err == -ENOENT)) {
+-			void *kaddr;
+-
+-			mfill_put_vma(&state);
+-			VM_WARN_ON_ONCE(!state.folio);
+-
+-			kaddr = kmap_local_folio(state.folio, 0);
+-			err = copy_from_user(kaddr,
+-					     (const void __user *)state.src_addr,
+-					     PAGE_SIZE);
+-			kunmap_local(kaddr);
+-			if (unlikely(err)) {
+-				err = -EFAULT;
+-				goto out;
+-			}
+-			flush_dcache_folio(state.folio);
+-			goto retry;
+-		} else
+-			VM_WARN_ON_ONCE(state.folio);
+-
+ 		if (!err) {
+ 			state.dst_addr += PAGE_SIZE;
+ 			state.src_addr += PAGE_SIZE;
+@@ -944,8 +922,6 @@ static __always_inline ssize_t mfill_atomic(struct userfaultfd_ctx *ctx,
+ 	if (state.vma)
+ 		mfill_put_vma(&state);
+ out:
+-	if (state.folio)
+-		folio_put(state.folio);
+ 	VM_WARN_ON_ONCE(copied < 0);
+ 	VM_WARN_ON_ONCE(err > 0);
+ 	VM_WARN_ON_ONCE(!copied && !err);
+-- 
+2.50.1
+
