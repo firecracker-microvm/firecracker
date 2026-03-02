@@ -29,7 +29,7 @@ use crate::devices::legacy::I8042Device;
 #[cfg(target_arch = "aarch64")]
 use crate::devices::legacy::RTCDevice;
 use crate::devices::legacy::serial::SerialOut;
-use crate::devices::legacy::{IER_RDA_BIT, IER_RDA_OFFSET, SerialDevice};
+use crate::devices::legacy::{IER_RDA_BIT, IER_RDA_OFFSET, IER_THR_EMPTY_BIT, SerialDevice};
 use crate::devices::pseudo::BootTimer;
 use crate::devices::virtio::ActivateError;
 use crate::devices::virtio::balloon::BalloonError;
@@ -575,7 +575,7 @@ impl DeviceManager {
 
                 device_locked
                     .serial
-                    .write(IER_RDA_OFFSET, IER_RDA_BIT)
+                    .write(IER_RDA_OFFSET, IER_RDA_BIT | IER_THR_EMPTY_BIT)
                     .map_err(|_| EmulateSerialInitError(std::io::Error::last_os_error()))?;
             }
             Ok(())
@@ -591,8 +591,13 @@ impl DeviceManager {
 
             serial
                 .serial
-                .write(IER_RDA_OFFSET, IER_RDA_BIT)
+                .write(IER_RDA_OFFSET, IER_RDA_BIT | IER_THR_EMPTY_BIT)
                 .map_err(|_| EmulateSerialInitError(std::io::Error::last_os_error()))?;
+            // Write a newline to DATA_OFFSET to trigger THRE interrupt.
+            // Without this, the guest 8250 driver stalls waiting for a THRE
+            // interrupt that never fires after snapshot restore, because setting
+            // IER alone does not generate the interrupt - only a THR write does.
+            let _ = serial.serial.write(0, 0x0a);
             Ok(())
         }
     }
