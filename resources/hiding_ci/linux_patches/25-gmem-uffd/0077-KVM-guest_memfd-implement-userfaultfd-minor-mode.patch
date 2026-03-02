@@ -1,0 +1,158 @@
+From 5a02e2d8a5f327d40b79c39c0cda1d91d56228f0 Mon Sep 17 00:00:00 2001
+From: "Kalyazin, Nikita" <kalyazin@amazon.co.uk>
+Date: Fri, 23 Jan 2026 17:50:52 +0000
+Subject: [PATCH 77/84] KVM: guest_memfd: implement userfaultfd minor mode
+
+userfaultfd notifications about minor page faults used for live migration
+and snapshotting of VMs with memory backed by shared hugetlbfs or tmpfs
+mappings as described in detail in commit 7677f7fd8be7 ("userfaultfd: add
+minor fault registration mode").
+
+To use the same mechanism for VMs that use guest_memfd to map their memory,
+guest_memfd should support userfaultfd minor mode.
+
+Extend ->fault() method of guest_memfd with ability to notify core page
+fault handler that a page fault requires handle_userfault(VM_UFFD_MINOR)
+to complete and add vm_uffd_ops to guest_memfd vm_ops with
+implementation of ->can_userfault() and ->get_folio_noalloc() methods.
+
+Signed-off-by: Nikita Kalyazin <kalyazin@amazon.com>
+Co-developed-by: Mike Rapoport (Microsoft) <rppt@kernel.org>
+Signed-off-by: Mike Rapoport (Microsoft) <rppt@kernel.org>
+---
+ virt/kvm/guest_memfd.c | 76 ++++++++++++++++++++++++++++++++++++------
+ 1 file changed, 65 insertions(+), 11 deletions(-)
+
+diff --git a/virt/kvm/guest_memfd.c b/virt/kvm/guest_memfd.c
+index dd0e38da3263..d148740bbc9a 100644
+--- a/virt/kvm/guest_memfd.c
++++ b/virt/kvm/guest_memfd.c
+@@ -8,6 +8,7 @@
+ #include <linux/pseudo_fs.h>
+ #include <linux/pagemap.h>
+ #include <linux/set_memory.h>
++#include <linux/userfaultfd_k.h>
+ 
+ #include <asm/tlbflush.h>
+ 
+@@ -164,6 +165,26 @@ static int kvm_gmem_prepare_folio(struct kvm *kvm, struct kvm_memory_slot *slot,
+ 	return r;
+ }
+ 
++static struct folio *kvm_gmem_get_folio_noalloc(struct inode *inode, pgoff_t pgoff)
++{
++	return __filemap_get_folio(inode->i_mapping, pgoff,
++				   FGP_LOCK | FGP_ACCESSED, 0);
++}
++
++static struct folio *__kvm_gmem_folio_alloc(struct inode *inode, pgoff_t index)
++{
++	struct mempolicy *policy;
++	struct folio *folio;
++
++	policy = mpol_shared_policy_lookup(&GMEM_I(inode)->policy, index);
++	folio = __filemap_get_folio_mpol(inode->i_mapping, index,
++					 FGP_LOCK | FGP_ACCESSED | FGP_CREAT,
++					 mapping_gfp_mask(inode->i_mapping), policy);
++	mpol_cond_put(policy);
++
++	return folio;
++}
++
+ /*
+  * Returns a locked folio on success.  The caller is responsible for
+  * setting the up-to-date flag before the memory is mapped into the guest.
+@@ -176,25 +197,17 @@ static int kvm_gmem_prepare_folio(struct kvm *kvm, struct kvm_memory_slot *slot,
+ static struct folio *kvm_gmem_get_folio(struct inode *inode, pgoff_t index)
+ {
+ 	/* TODO: Support huge pages. */
+-	struct mempolicy *policy;
+ 	struct folio *folio;
+ 
+ 	/*
+ 	 * Fast-path: See if folio is already present in mapping to avoid
+ 	 * policy_lookup.
+ 	 */
+-	folio = __filemap_get_folio(inode->i_mapping, index,
+-				    FGP_LOCK | FGP_ACCESSED, 0);
++	folio = kvm_gmem_get_folio_noalloc(inode, index);
+ 	if (!IS_ERR(folio))
+ 		return folio;
+ 
+-	policy = mpol_shared_policy_lookup(&GMEM_I(inode)->policy, index);
+-	folio = __filemap_get_folio_mpol(inode->i_mapping, index,
+-					 FGP_LOCK | FGP_ACCESSED | FGP_CREAT,
+-					 mapping_gfp_mask(inode->i_mapping), policy);
+-	mpol_cond_put(policy);
+-
+-	return folio;
++	return __kvm_gmem_folio_alloc(inode, index);
+ }
+ 
+ static enum kvm_gfn_range_filter kvm_gmem_get_invalidate_filter(struct inode *inode)
+@@ -504,7 +517,24 @@ static vm_fault_t kvm_gmem_fault_user_mapping(struct vm_fault *vmf)
+ 	if (!(GMEM_I(inode)->flags & GUEST_MEMFD_FLAG_INIT_SHARED))
+ 		return VM_FAULT_SIGBUS;
+ 
+-	folio = kvm_gmem_get_folio(inode, vmf->pgoff);
++	folio = __filemap_get_folio(inode->i_mapping, vmf->pgoff,
++				    FGP_LOCK | FGP_ACCESSED, 0);
++
++	if (userfaultfd_armed(vmf->vma)) {
++		/*
++		 * If userfaultfd is registered in minor mode and a folio
++		 * exists, return VM_FAULT_UFFD_MINOR to trigger the
++		 * userfaultfd handler.
++		 */
++		if (userfaultfd_minor(vmf->vma) && !IS_ERR_OR_NULL(folio)) {
++			ret = VM_FAULT_UFFD_MINOR;
++			goto out_folio;
++		}
++	}
++
++	/* folio not in the pagecache, try to allocate */
++	if (IS_ERR(folio))
++		folio = __kvm_gmem_folio_alloc(inode, vmf->pgoff);
+ 	if (IS_ERR(folio)) {
+ 		if (PTR_ERR(folio) == -EAGAIN)
+ 			return VM_FAULT_RETRY;
+@@ -569,12 +599,36 @@ static struct mempolicy *kvm_gmem_get_policy(struct vm_area_struct *vma,
+ }
+ #endif /* CONFIG_NUMA */
+ 
++#ifdef CONFIG_USERFAULTFD
++static bool kvm_gmem_can_userfault(struct vm_area_struct *vma, vm_flags_t vm_flags)
++{
++	struct inode *inode = file_inode(vma->vm_file);
++
++	/*
++	 * Only support userfaultfd for guest_memfd with INIT_SHARED flag.
++	 * This ensures the memory can be mapped to userspace.
++	 */
++	if (!(GMEM_I(inode)->flags & GUEST_MEMFD_FLAG_INIT_SHARED))
++		return false;
++
++	return true;
++}
++
++static const struct vm_uffd_ops kvm_gmem_uffd_ops = {
++	.can_userfault = kvm_gmem_can_userfault,
++	.get_folio_noalloc = kvm_gmem_get_folio_noalloc,
++};
++#endif /* CONFIG_USERFAULTFD */
++
+ static const struct vm_operations_struct kvm_gmem_vm_ops = {
+ 	.fault		= kvm_gmem_fault_user_mapping,
+ #ifdef CONFIG_NUMA
+ 	.get_policy	= kvm_gmem_get_policy,
+ 	.set_policy	= kvm_gmem_set_policy,
+ #endif
++#ifdef CONFIG_USERFAULTFD
++	.uffd_ops	= &kvm_gmem_uffd_ops,
++#endif
+ };
+ 
+ static int kvm_gmem_mmap(struct file *file, struct vm_area_struct *vma)
+-- 
+2.50.1
+

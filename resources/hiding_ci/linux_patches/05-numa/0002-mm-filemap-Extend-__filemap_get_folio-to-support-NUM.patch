@@ -1,7 +1,7 @@
-From e667e0a708b4dc2ed90f7e44bc8d4ad8a423ace7 Mon Sep 17 00:00:00 2001
+From 065dadc1332617dce3bb3effb329e51e5a5d0e49 Mon Sep 17 00:00:00 2001
 From: Matthew Wilcox <willy@infradead.org>
 Date: Wed, 27 Aug 2025 17:52:44 +0000
-Subject: [PATCH 02/50] mm/filemap: Extend __filemap_get_folio() to support
+Subject: [PATCH 02/84] mm/filemap: Extend __filemap_get_folio() to support
  NUMA memory policies
 
 Extend __filemap_get_folio() to support NUMA memory policies by
