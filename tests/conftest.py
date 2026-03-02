@@ -510,6 +510,7 @@ guest_kernel_linux_6_1 = pytest.fixture(
     guest_kernel_fxt,
     params=kernel_params("vmlinux-6.1*"),
 )
+guest_kernel_default = guest_kernel_linux_5_10
 
 
 @pytest.fixture
@@ -535,9 +536,9 @@ def rootfs_rw():
 
 
 @pytest.fixture
-def uvm_plain(microvm_factory, guest_kernel_linux_5_10, rootfs, pci_enabled):
+def uvm_plain(microvm_factory, guest_kernel_default, rootfs, pci_enabled):
     """Create a vanilla VM, non-parametrized"""
-    return microvm_factory.build(guest_kernel_linux_5_10, rootfs, pci=pci_enabled)
+    return microvm_factory.build(guest_kernel_default, rootfs, pci=pci_enabled)
 
 
 @pytest.fixture
@@ -553,9 +554,9 @@ def uvm_plain_acpi(microvm_factory, guest_kernel_acpi, rootfs, pci_enabled):
 
 
 @pytest.fixture
-def uvm_plain_rw(microvm_factory, guest_kernel_linux_5_10, rootfs_rw):
+def uvm_plain_rw(microvm_factory, guest_kernel_default, rootfs_rw):
     """Create a vanilla VM, non-parametrized"""
-    return microvm_factory.build(guest_kernel_linux_5_10, rootfs_rw)
+    return microvm_factory.build(guest_kernel_default, rootfs_rw)
 
 
 @pytest.fixture
