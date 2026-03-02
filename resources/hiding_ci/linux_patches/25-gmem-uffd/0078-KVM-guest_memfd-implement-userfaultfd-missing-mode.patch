@@ -1,0 +1,101 @@
+From f51f5805a16906e328ddbaf762abbc4eb3b37e0d Mon Sep 17 00:00:00 2001
+From: "Kalyazin, Nikita" <kalyazin@amazon.co.uk>
+Date: Fri, 23 Jan 2026 17:51:04 +0000
+Subject: [PATCH 78/84] KVM: guest_memfd: implement userfaultfd missing mode
+
+userfaultfd missing mode allows populating guest memory with the content
+supplied by userspace on demand.
+
+Extend guest_memfd implementation of vm_uffd_ops to support MISSING
+mode.
+
+Signed-off-by: Nikita Kalyazin <kalyazin@amazon.com>
+Co-developed-by: Mike Rapoport (Microsoft) <rppt@kernel.org>
+Signed-off-by: Mike Rapoport (Microsoft) <rppt@kernel.org>
+---
+ virt/kvm/guest_memfd.c | 60 +++++++++++++++++++++++++++++++++++++++++-
+ 1 file changed, 59 insertions(+), 1 deletion(-)
+
+diff --git a/virt/kvm/guest_memfd.c b/virt/kvm/guest_memfd.c
+index d148740bbc9a..4cffebd312e8 100644
+--- a/virt/kvm/guest_memfd.c
++++ b/virt/kvm/guest_memfd.c
+@@ -530,6 +530,14 @@ static vm_fault_t kvm_gmem_fault_user_mapping(struct vm_fault *vmf)
+ 			ret = VM_FAULT_UFFD_MINOR;
+ 			goto out_folio;
+ 		}
++
++		/*
++		 * Check if userfaultfd is registered in missing mode. If so,
++		 * check if a folio exists in the page cache. If not, return
++		 * VM_FAULT_UFFD_MISSING to trigger the userfaultfd handler.
++		 */
++		if (userfaultfd_missing(vmf->vma) && IS_ERR_OR_NULL(folio))
++			return VM_FAULT_UFFD_MISSING;
+ 	}
+ 
+ 	/* folio not in the pagecache, try to allocate */
+@@ -614,9 +622,59 @@ static bool kvm_gmem_can_userfault(struct vm_area_struct *vma, vm_flags_t vm_fla
+ 	return true;
+ }
+ 
++static struct folio *kvm_gmem_folio_alloc(struct vm_area_struct *vma,
++					  unsigned long addr)
++{
++	struct inode *inode = file_inode(vma->vm_file);
++	pgoff_t pgoff = linear_page_index(vma, addr);
++	struct mempolicy *mpol;
++	struct folio *folio;
++	gfp_t gfp;
++
++	if (unlikely(pgoff >= (i_size_read(inode) >> PAGE_SHIFT)))
++		return NULL;
++
++	gfp = mapping_gfp_mask(inode->i_mapping);
++	mpol = mpol_shared_policy_lookup(&GMEM_I(inode)->policy, pgoff);
++	mpol = mpol ?: get_task_policy(current);
++	folio = folio_alloc_mpol(gfp, 0, mpol, pgoff, numa_node_id());
++	mpol_cond_put(mpol);
++
++	return folio;
++}
++
++static int kvm_gmem_filemap_add(struct folio *folio,
++				struct vm_area_struct *vma,
++				unsigned long addr)
++{
++	struct inode *inode = file_inode(vma->vm_file);
++	struct address_space *mapping = inode->i_mapping;
++	pgoff_t pgoff = linear_page_index(vma, addr);
++	int err;
++
++	__folio_set_locked(folio);
++	err = filemap_add_folio(mapping, folio, pgoff, GFP_KERNEL);
++	if (err) {
++		folio_unlock(folio);
++		return err;
++	}
++
++	return 0;
++}
++
++static void kvm_gmem_filemap_remove(struct folio *folio,
++				    struct vm_area_struct *vma)
++{
++	filemap_remove_folio(folio);
++	folio_unlock(folio);
++}
++
+ static const struct vm_uffd_ops kvm_gmem_uffd_ops = {
+-	.can_userfault = kvm_gmem_can_userfault,
++	.can_userfault     = kvm_gmem_can_userfault,
+ 	.get_folio_noalloc = kvm_gmem_get_folio_noalloc,
++	.alloc_folio       = kvm_gmem_folio_alloc,
++	.filemap_add       = kvm_gmem_filemap_add,
++	.filemap_remove    = kvm_gmem_filemap_remove,
+ };
+ #endif /* CONFIG_USERFAULTFD */
+ 
+-- 
+2.50.1
+
