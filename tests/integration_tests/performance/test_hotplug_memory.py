@@ -136,11 +136,11 @@ def uvm_resumed_memhp(
         "resumed-uffd-huge-pages",
     ],
 )
-def uvm_any_memhp(request, uvm_plain_6_1, rootfs, microvm_factory):
+def uvm_any_memhp(request, uvm_plain, rootfs, microvm_factory):
     """Fixture that yields a booted or resumed VM with memory hotplugging"""
     ctor, vhost_user, huge_pages, uffd_handler, snapshot_type = request.param
     yield ctor(
-        uvm_plain_6_1,
+        uvm_plain,
         rootfs,
         microvm_factory,
         vhost_user,
@@ -278,13 +278,11 @@ def test_virtio_mem_hotplug_hotunplug(uvm_any_memhp):
     ],
     ids=["all_different", "slot_sized_block", "single_slot", "single_block"],
 )
-def test_virtio_mem_configs(uvm_plain_6_1, memhp_config):
+def test_virtio_mem_configs(uvm_plain, memhp_config):
     """
     Check that the virtio mem device is working as expected for different configs
     """
-    uvm = uvm_booted_memhp(
-        uvm_plain_6_1, None, None, False, memhp_config, None, None, None
-    )
+    uvm = uvm_booted_memhp(uvm_plain, None, None, False, memhp_config, None, None, None)
     if not uvm.pci_enabled:
         pytest.skip(
             "Skip tests on MMIO transport to save time as we don't expect any difference."
@@ -309,16 +307,16 @@ def test_virtio_mem_configs(uvm_plain_6_1, memhp_config):
     validate_metrics(uvm)
 
 
-def test_snapshot_restore_persistence(uvm_plain_6_1, microvm_factory, snapshot_type):
+def test_snapshot_restore_persistence(uvm_plain, microvm_factory, snapshot_type):
     """
     Check that hptplugged memory is persisted across snapshot/restore.
     """
-    if not uvm_plain_6_1.pci_enabled:
+    if not uvm_plain.pci_enabled:
         pytest.skip(
             "Skip tests on MMIO transport to save time as we don't expect any difference."
         )
     uvm = uvm_booted_memhp(
-        uvm_plain_6_1,
+        uvm_plain,
         None,
         microvm_factory,
         False,
@@ -349,17 +347,17 @@ def test_snapshot_restore_persistence(uvm_plain_6_1, microvm_factory, snapshot_t
     validate_metrics(restored_vm)
 
 
-def test_snapshot_restore_incremental(uvm_plain_6_1, microvm_factory):
+def test_snapshot_restore_incremental(uvm_plain, microvm_factory):
     """
     Check that hptplugged memory is persisted across snapshot/restore.
     """
-    if not uvm_plain_6_1.pci_enabled:
+    if not uvm_plain.pci_enabled:
         pytest.skip(
             "Skip tests on MMIO transport to save time as we don't expect any difference."
         )
 
     uvm = uvm_booted_memhp(
-        uvm_plain_6_1, None, microvm_factory, False, DEFAULT_CONFIG, None, None, None
+        uvm_plain, None, microvm_factory, False, DEFAULT_CONFIG, None, None, None
     )
 
     snapshot = uvm.snapshot_full()
@@ -457,10 +455,8 @@ def test_memory_hotplug_latency(
             "slot_size_mib": 128,
             "block_size_mib": 2,
         }
-        uvm_plain_6_1 = microvm_factory.build(guest_kernel_linux_6_1, rootfs, pci=True)
-        uvm = uvm_booted_memhp(
-            uvm_plain_6_1, None, None, False, config, None, None, None
-        )
+        uvm_plain = microvm_factory.build(guest_kernel_linux_6_1, rootfs, pci=True)
+        uvm = uvm_booted_memhp(uvm_plain, None, None, False, config, None, None, None)
 
         if i == 0:
             metrics.set_dimensions(
