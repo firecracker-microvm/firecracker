@@ -1,0 +1,79 @@
+From e903355f8556815bacac5b6b8a03062f10491da3 Mon Sep 17 00:00:00 2001
+From: Shivank Garg <shivankg@amd.com>
+Date: Wed, 27 Aug 2025 17:52:45 +0000
+Subject: [PATCH 03/84] mm/mempolicy: Export memory policy symbols
+
+KVM guest_memfd wants to implement support for NUMA policies just like
+shmem already does using the shared policy infrastructure. As
+guest_memfd currently resides in KVM module code, we have to export the
+relevant symbols.
+
+In the future, guest_memfd might be moved to core-mm, at which point the
+symbols no longer would have to be exported. When/if that happens is
+still unclear.
+
+Acked-by: David Hildenbrand <david@redhat.com>
+Acked-by: Vlastimil Babka <vbabka@suse.cz>
+Signed-off-by: Shivank Garg <shivankg@amd.com>
+Tested-by: Ashish Kalra <ashish.kalra@amd.com>
+Link: https://lore.kernel.org/r/20250827175247.83322-6-shivankg@amd.com
+Signed-off-by: Sean Christopherson <seanjc@google.com>
+---
+ mm/mempolicy.c | 6 ++++++
+ 1 file changed, 6 insertions(+)
+
+diff --git a/mm/mempolicy.c b/mm/mempolicy.c
+index eb83cff7db8c..3d797d47a040 100644
+--- a/mm/mempolicy.c
++++ b/mm/mempolicy.c
+@@ -354,6 +354,7 @@ struct mempolicy *get_task_policy(struct task_struct *p)
+ 
+ 	return &default_policy;
+ }
++EXPORT_SYMBOL_FOR_MODULES(get_task_policy, "kvm");
+ 
+ static const struct mempolicy_operations {
+ 	int (*create)(struct mempolicy *pol, const nodemask_t *nodes);
+@@ -487,6 +488,7 @@ void __mpol_put(struct mempolicy *pol)
+ 		return;
+ 	kmem_cache_free(policy_cache, pol);
+ }
++EXPORT_SYMBOL_FOR_MODULES(__mpol_put, "kvm");
+ 
+ static void mpol_rebind_default(struct mempolicy *pol, const nodemask_t *nodes)
+ {
+@@ -2885,6 +2887,7 @@ struct mempolicy *mpol_shared_policy_lookup(struct shared_policy *sp,
+ 	read_unlock(&sp->lock);
+ 	return pol;
+ }
++EXPORT_SYMBOL_FOR_MODULES(mpol_shared_policy_lookup, "kvm");
+ 
+ static void sp_free(struct sp_node *n)
+ {
+@@ -3170,6 +3173,7 @@ void mpol_shared_policy_init(struct shared_policy *sp, struct mempolicy *mpol)
+ 		mpol_put(mpol);	/* drop our incoming ref on sb mpol */
+ 	}
+ }
++EXPORT_SYMBOL_FOR_MODULES(mpol_shared_policy_init, "kvm");
+ 
+ int mpol_set_shared_policy(struct shared_policy *sp,
+ 			struct vm_area_struct *vma, struct mempolicy *pol)
+@@ -3188,6 +3192,7 @@ int mpol_set_shared_policy(struct shared_policy *sp,
+ 		sp_free(new);
+ 	return err;
+ }
++EXPORT_SYMBOL_FOR_MODULES(mpol_set_shared_policy, "kvm");
+ 
+ /* Free a backing policy store on inode delete. */
+ void mpol_free_shared_policy(struct shared_policy *sp)
+@@ -3206,6 +3211,7 @@ void mpol_free_shared_policy(struct shared_policy *sp)
+ 	}
+ 	write_unlock(&sp->lock);
+ }
++EXPORT_SYMBOL_FOR_MODULES(mpol_free_shared_policy, "kvm");
+ 
+ #ifdef CONFIG_NUMA_BALANCING
+ static int __initdata numabalancing_override;
+-- 
+2.50.1
+

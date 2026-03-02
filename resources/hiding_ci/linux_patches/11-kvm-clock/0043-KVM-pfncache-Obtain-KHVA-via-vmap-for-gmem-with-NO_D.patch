@@ -1,0 +1,115 @@
+From 117ffee0b544bd3348d74b1d40fcf8f15fe0ac4a Mon Sep 17 00:00:00 2001
+From: Takahiro Itazuri <itazur@amazon.com>
+Date: Sun, 22 Feb 2026 14:30:14 +0000
+Subject: [PATCH 43/84] KVM: pfncache: Obtain KHVA via vmap() for gmem with
+ NO_DIRECT_MAP
+
+Currently, pfncaches map RAM pages via kmap(), which typically returns a
+kernel address derived from the direct map.  However, guest_memfd
+created with GUEST_MEMFD_FLAG_NO_DIRECT_MAP has their direct map removed
+and uses an AS_NO_DIRECT_MAP mapping.  So kmap() cannot be used in this
+case.
+
+pfncaches can be used from atomic context where page faults cannot be
+tolerated.  Therefore, it cannot fall back to access via a userspace
+mapping like KVM does for other accesses to NO_DIRECT_MAP guest_memfd.
+
+To obtain a fault-free kernel host virtual address (KHVA), use vmap()
+for NO_DIRECT_MAP pages.  Since gpc_map() is the sole producer of KHVA
+for pfncaches and only vmap() returns a vmalloc address, gpc_unmap()
+can reliably pair vunmap() using is_vmalloc_addr().
+
+Although vm_map_ram() could be faster than vmap(), mixing short-lived
+and long-lived vm_map_ram() can lead to fragmentation.  For this reason,
+vm_map_ram() is recommended only for short-lived ones.  Since pfncaches
+typically have a lifetime comparable to that of the VM, vm_map_ram() is
+deliberately not used here.
+
+pfncaches are not dynamically allocated but are statically allocated on
+a per-VM and per-vCPU basis.  For a normal VM (i.e. non-Xen), there is
+one pfncache per vCPU.  For a Xen VM, there is one per-VM pfncache and
+five per-vCPU pfncaches.  Given the maximum of 1024 vCPUs, a normal VM
+can have up to 1024 pfncaches, consuming 4 MB of virtual address space.
+A Xen VM can have up to 5121 pfncaches, consuming approximately 20 MB of
+virtual address space.  Although the vmalloc area is limited on 32-bit
+systems, it should be large enough and typically tens of TB on 64-bit
+systems (e.g. 32 TB for 4-level paging and 12800 TB for 5-level paging
+on x86_64).  If virtual address space exhaustion becomes a concern,
+migration to an mm-local region (like forthcoming mermap?) could be
+considered in the future.  Note that vmap() and vm_map_ram() only create
+virtual mappings to existing pages; they do not allocate new physical
+pages.
+
+Signed-off-by: Takahiro Itazuri <itazur@amazon.com>
+---
+ virt/kvm/pfncache.c | 33 ++++++++++++++++++++++++++++-----
+ 1 file changed, 28 insertions(+), 5 deletions(-)
+
+diff --git a/virt/kvm/pfncache.c b/virt/kvm/pfncache.c
+index 100a8e2f114b..531adc4dcb11 100644
+--- a/virt/kvm/pfncache.c
++++ b/virt/kvm/pfncache.c
+@@ -16,6 +16,7 @@
+ #include <linux/highmem.h>
+ #include <linux/module.h>
+ #include <linux/errno.h>
++#include <linux/pagemap.h>
+ 
+ #include "kvm_mm.h"
+ 
+@@ -98,8 +99,19 @@ bool kvm_gpc_check(struct gfn_to_pfn_cache *gpc, unsigned long len)
+ 
+ static void *gpc_map(kvm_pfn_t pfn)
+ {
+-	if (pfn_valid(pfn))
+-		return kmap(pfn_to_page(pfn));
++	if (pfn_valid(pfn)) {
++		struct page *page = pfn_to_page(pfn);
++		struct page *head = compound_head(page);
++		struct address_space *mapping = READ_ONCE(head->mapping);
++
++		if (mapping && mapping_no_direct_map(mapping)) {
++			struct page *pages[] = { page };
++
++			return vmap(pages, 1, VM_MAP, PAGE_KERNEL);
++		}
++
++		return kmap(page);
++	}
+ 
+ #ifdef CONFIG_HAS_IOMEM
+ 	return memremap(pfn_to_hpa(pfn), PAGE_SIZE, MEMREMAP_WB);
+@@ -115,7 +127,15 @@ static void gpc_unmap(kvm_pfn_t pfn, void *khva)
+ 		return;
+ 
+ 	if (pfn_valid(pfn)) {
+-		kunmap(pfn_to_page(pfn));
++		/*
++		 * For valid PFNs, gpc_map() returns either a kmap() address
++		 * (non-vmalloc) or a vmap() address (vmalloc).
++		 */
++		if (is_vmalloc_addr(khva))
++			vunmap(khva);
++		else
++			kunmap(pfn_to_page(pfn));
++
+ 		return;
+ 	}
+ 
+@@ -233,8 +253,11 @@ static kvm_pfn_t gpc_to_pfn_retry(struct gfn_to_pfn_cache *gpc)
+ 
+ 		/*
+ 		 * Obtain a new kernel mapping if KVM itself will access the
+-		 * pfn.  Note, kmap() and memremap() can both sleep, so this
+-		 * too must be done outside of gpc->lock!
++		 * pfn.  Note, kmap(), vmap() and memremap() can all sleep, so
++		 * this too must be done outside of gpc->lock!
++		 * Note that even though gpc->lock is dropped, it's still fine
++		 * to read gpc->pfn and other fields because gpc->refresh_lock
++		 * mutex prevents them from being updated.
+ 		 */
+ 		if (new_pfn == gpc->pfn)
+ 			new_khva = old_khva;
+-- 
+2.50.1
+

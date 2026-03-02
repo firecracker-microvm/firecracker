@@ -1,0 +1,69 @@
+From 2cdeec4da6745dad3beca5048c1e8eda7c8c023f Mon Sep 17 00:00:00 2001
+From: Takahiro Itazuri <itazur@amazon.com>
+Date: Fri, 20 Feb 2026 11:33:58 +0000
+Subject: [PATCH 41/84] KVM: x86: Avoid silent kvm-clock activation failures
+
+kvm_write_system_time() previously ignored the return value of
+kvm_gpc_activate().  As a result, kvm-clock activation could fail
+silently, making debugging harder.
+
+Propagate the return value so that the MSR write fail properly instead
+of continuing silently.
+
+Signed-off-by: Takahiro Itazuri <itazur@amazon.com>
+---
+ arch/x86/kvm/x86.c | 18 ++++++++++--------
+ 1 file changed, 10 insertions(+), 8 deletions(-)
+
+diff --git a/arch/x86/kvm/x86.c b/arch/x86/kvm/x86.c
+index 652345b161aa..03de438d8fc3 100644
+--- a/arch/x86/kvm/x86.c
++++ b/arch/x86/kvm/x86.c
+@@ -2438,7 +2438,7 @@ static void kvm_write_wall_clock(struct kvm *kvm, gpa_t wall_clock, int sec_hi_o
+ 	kvm_write_guest(kvm, wall_clock, &version, sizeof(version));
+ }
+ 
+-static void kvm_write_system_time(struct kvm_vcpu *vcpu, gpa_t system_time,
++static int kvm_write_system_time(struct kvm_vcpu *vcpu, gpa_t system_time,
+ 				  bool old_msr, bool host_initiated)
+ {
+ 	struct kvm_arch *ka = &vcpu->kvm->arch;
+@@ -2455,12 +2455,12 @@ static void kvm_write_system_time(struct kvm_vcpu *vcpu, gpa_t system_time,
+ 
+ 	/* we verify if the enable bit is set... */
+ 	if (system_time & 1)
+-		kvm_gpc_activate(&vcpu->arch.pv_time, system_time & ~1ULL,
+-				 sizeof(struct pvclock_vcpu_time_info));
+-	else
+-		kvm_gpc_deactivate(&vcpu->arch.pv_time);
++		return kvm_gpc_activate(&vcpu->arch.pv_time,
++					system_time & ~1ULL,
++					sizeof(struct pvclock_vcpu_time_info));
+ 
+-	return;
++	kvm_gpc_deactivate(&vcpu->arch.pv_time);
++	return 0;
+ }
+ 
+ static uint32_t div_frac(uint32_t dividend, uint32_t divisor)
+@@ -4156,13 +4156,15 @@ int kvm_set_msr_common(struct kvm_vcpu *vcpu, struct msr_data *msr_info)
+ 		if (!guest_pv_has(vcpu, KVM_FEATURE_CLOCKSOURCE2))
+ 			return 1;
+ 
+-		kvm_write_system_time(vcpu, data, false, msr_info->host_initiated);
++		if (kvm_write_system_time(vcpu, data, false, msr_info->host_initiated))
++			return 1;
+ 		break;
+ 	case MSR_KVM_SYSTEM_TIME:
+ 		if (!guest_pv_has(vcpu, KVM_FEATURE_CLOCKSOURCE))
+ 			return 1;
+ 
+-		kvm_write_system_time(vcpu, data, true,  msr_info->host_initiated);
++		if (kvm_write_system_time(vcpu, data, true,  msr_info->host_initiated))
++			return 1;
+ 		break;
+ 	case MSR_KVM_ASYNC_PF_EN:
+ 		if (!guest_pv_has(vcpu, KVM_FEATURE_ASYNC_PF))
+-- 
+2.50.1
+
