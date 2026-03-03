@@ -10,6 +10,11 @@ and this project adheres to
 
 ### Added
 
+- [#5323](https://github.com/firecracker-microvm/firecracker/pull/5323): Add
+  support for Vsock Unix domain socket path overriding on snapshot restore. More
+  information can be found in the
+  [docs](docs/vsock.md/#unix-domain-socket-renaming).
+
 ### Changed
 
 ### Deprecated
