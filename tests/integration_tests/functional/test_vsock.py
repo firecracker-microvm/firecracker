@@ -19,6 +19,8 @@ import time
 from pathlib import Path
 from socket import timeout as SocketTimeout
 
+import pytest
+
 from framework.utils_vsock import (
     ECHO_SERVER_PORT,
     VSOCK_UDS_PATH,
@@ -282,3 +284,83 @@ def test_vsock_transport_reset_g2h(uvm_plain_any, microvm_factory):
 
         # Terminate VM.
         new_vm.kill()
+
+
+def test_vsock_after_override(
+    uvm_plain_any, microvm_factory, bin_vsock_path, test_fc_session_root_path
+):
+    """
+    Test that the Vsock device works correctly after overriding the host UDS
+    path on snapshot restore.
+    """
+    initial_uds_path = VSOCK_UDS_PATH
+    overridden_uds_path = f"{VSOCK_UDS_PATH}2"
+
+    test_vm = uvm_plain_any
+    test_vm.spawn()
+    test_vm.basic_config(vcpu_count=2, mem_size_mib=256)
+    test_vm.add_net_iface()
+    test_vm.api.vsock.put(
+        vsock_id="vsock0", guest_cid=3, uds_path=f"/{initial_uds_path}"
+    )
+    test_vm.start()
+
+    # Generate the random data blob file.
+    blob_path, blob_hash = make_blob(test_fc_session_root_path)
+    vm_blob_path = "/tmp/vsock/test.blob"
+
+    # Set up a tmpfs drive on the guest, so we can copy the blob there.
+    # Guest-initiated connections (echo workers) will use this blob.
+    _copy_vsock_data_to_guest(test_vm.ssh, blob_path, vm_blob_path, bin_vsock_path)
+
+    # Start guest echo server.
+    start_guest_echo_server(test_vm)
+
+    # Create snapshot and terminate a VM.
+    snapshot = test_vm.snapshot_full()
+    test_vm.kill()
+
+    vm2 = microvm_factory.build()
+    vm2.spawn()
+
+    vm2.restore_from_snapshot(snapshot, vsock_override=overridden_uds_path, resume=True)
+
+    # Check that vsock device still works.
+    # Test guest-initiated connections.
+    path = os.path.join(
+        vm2.path, make_host_port_path(overridden_uds_path, ECHO_SERVER_PORT)
+    )
+    check_guest_connections(vm2, path, vm_blob_path, blob_hash)
+
+    # Test host-initiated connections.
+    path = os.path.join(vm2.jailer.chroot_path(), overridden_uds_path)
+    check_host_connections(path, blob_path, blob_hash)
+    metrics = vm2.flush_metrics()
+    validate_fc_metrics(metrics)
+
+
+def test_vsock_override_fails_without_device(uvm_plain_any, microvm_factory):
+    """
+    Providing an override should fail if there is no vsock device.
+    """
+
+    overridden_uds_path = f"{VSOCK_UDS_PATH}2"
+
+    test_vm = uvm_plain_any
+    test_vm.spawn()
+    test_vm.basic_config(vcpu_count=2, mem_size_mib=256)
+    test_vm.start()
+
+    snapshot = test_vm.snapshot_full()
+    test_vm.kill()
+
+    vm2 = microvm_factory.build()
+    vm2.spawn()
+
+    # The failed snapshot load causes Firecracker to exit.
+    with pytest.raises(RuntimeError, match="Unknown Vsock Device"):
+        vm2.restore_from_snapshot(
+            snapshot, vsock_override=overridden_uds_path, resume=True
+        )
+
+    vm2.mark_killed()
