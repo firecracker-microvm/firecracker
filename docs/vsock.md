@@ -6,6 +6,7 @@
 - [Firecracker Virtio-vsock Design](#firecracker-virtio-vsock-design)
 - [Setting up the Virtio-vsock Device](#setting-up-the-virtio-vsock-device)
 - [Examples](#examples)
+- [Unix Domain Socket Renaming](#unix-domain-socket-renaming)
 - [Known Issues](#known-issues)
 
 ## Prerequisites
@@ -171,6 +172,40 @@ chosen port on the host (CID=2):
 ```bash
 socat - VSOCK-CONNECT:2:52
 ```
+
+## Unix Domain Socket Renaming
+
+In certain environments where the jailer is not used, restoring snapshots with
+vsock devices may be difficult because the same host Unix Domain Socket (UDS)
+path cannot be multiplexed, meaning collisions could occur if two VMs with the
+same UDS path attempted to open a connection on the same port.
+
+In this case, you can use the `vsock_override` parameter of the snapshot restore
+API to provide a different path for the UDS to be opened at.
+
+For example, if a snapshot was taken with the host socket path `./v.sock.1`, on
+restore we can override it to instead open the socket at `./v.sock.2`, like
+this:
+
+```
+curl --unix-socket /tmp/firecracker.socket -i \
+    -X PUT 'http://localhost/snapshot/load' \
+    -H  'Accept: application/json' \
+    -H  'Content-Type: application/json' \
+    -d '{
+            "snapshot_path": "./snapshot_file",
+            "mem_backend": {
+                "backend_path": "./mem_file",
+                "backend_type": "File"
+            },
+            "vsock_override": {
+                "uds_path": "./v.sock.2",
+            }
+    }'
+```
+
+All connections on the restored VM will then be opened with `./v.sock.2` as a
+prefix.
 
 ## Known issues
 
