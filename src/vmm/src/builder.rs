@@ -604,8 +604,14 @@ fn attach_entropy_device(
         .id()
         .to_string();
 
-    event_manager.add_subscriber(entropy_device.clone());
-    device_manager.attach_virtio_device(vm, id, entropy_device.clone(), cmdline, false)
+    device_manager.attach_virtio_device(
+        vm,
+        id,
+        entropy_device.clone(),
+        cmdline,
+        event_manager,
+        false,
+    )
 }
 
 fn allocate_virtio_mem_address(
@@ -644,8 +650,14 @@ fn attach_virtio_mem_device(
     ));
 
     let id = virtio_mem.lock().expect("Poisoned lock").id().to_string();
-    event_manager.add_subscriber(virtio_mem.clone());
-    device_manager.attach_virtio_device(vm, id, virtio_mem.clone(), cmdline, false)?;
+    device_manager.attach_virtio_device(
+        vm,
+        id,
+        virtio_mem.clone(),
+        cmdline,
+        event_manager,
+        false,
+    )?;
     Ok(())
 }
 
@@ -672,8 +684,14 @@ fn attach_block_devices<'a, I: Iterator<Item = &'a Arc<Mutex<Block>>> + Debug>(
             (locked.id().to_string(), locked.is_vhost_user())
         };
         // The device mutex mustn't be locked here otherwise it will deadlock.
-        event_manager.add_subscriber(block.clone());
-        device_manager.attach_virtio_device(vm, id, block.clone(), cmdline, is_vhost_user)?;
+        device_manager.attach_virtio_device(
+            vm,
+            id,
+            block.clone(),
+            cmdline,
+            event_manager,
+            is_vhost_user,
+        )?;
     }
     Ok(())
 }
@@ -687,9 +705,15 @@ fn attach_net_devices<'a, I: Iterator<Item = &'a Arc<Mutex<Net>>> + Debug>(
 ) -> Result<(), StartMicrovmError> {
     for net_device in net_devices {
         let id = net_device.lock().expect("Poisoned lock").id().to_string();
-        event_manager.add_subscriber(net_device.clone());
         // The device mutex mustn't be locked here otherwise it will deadlock.
-        device_manager.attach_virtio_device(vm, id, net_device.clone(), cmdline, false)?;
+        device_manager.attach_virtio_device(
+            vm,
+            id,
+            net_device.clone(),
+            cmdline,
+            event_manager,
+            false,
+        )?;
     }
     Ok(())
 }
@@ -716,8 +740,14 @@ fn attach_pmem_devices<'a, I: Iterator<Item = &'a Arc<Mutex<Pmem>>> + Debug>(
             locked_dev.config.id.to_string()
         };
 
-        event_manager.add_subscriber(device.clone());
-        device_manager.attach_virtio_device(vm, id, device.clone(), cmdline, false)?;
+        device_manager.attach_virtio_device(
+            vm,
+            id,
+            device.clone(),
+            cmdline,
+            event_manager,
+            false,
+        )?;
     }
     Ok(())
 }
@@ -730,9 +760,8 @@ fn attach_unixsock_vsock_device(
     event_manager: &mut EventManager,
 ) -> Result<(), AttachDeviceError> {
     let id = String::from(unix_vsock.lock().expect("Poisoned lock").id());
-    event_manager.add_subscriber(unix_vsock.clone());
     // The device mutex mustn't be locked here otherwise it will deadlock.
-    device_manager.attach_virtio_device(vm, id, unix_vsock.clone(), cmdline, false)
+    device_manager.attach_virtio_device(vm, id, unix_vsock.clone(), cmdline, event_manager, false)
 }
 
 fn attach_balloon_device(
@@ -743,9 +772,8 @@ fn attach_balloon_device(
     event_manager: &mut EventManager,
 ) -> Result<(), AttachDeviceError> {
     let id = String::from(balloon.lock().expect("Poisoned lock").id());
-    event_manager.add_subscriber(balloon.clone());
     // The device mutex mustn't be locked here otherwise it will deadlock.
-    device_manager.attach_virtio_device(vm, id, balloon.clone(), cmdline, false)
+    device_manager.attach_virtio_device(vm, id, balloon.clone(), cmdline, event_manager, false)
 }
 
 #[cfg(test)]
