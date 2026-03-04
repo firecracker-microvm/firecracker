@@ -68,16 +68,19 @@ impl ACPIDeviceManager {
         Ok(())
     }
 
-    pub fn post_restore_vmgenid(&self) -> Result<(), ACPIDeviceError> {
-        self.vmgenid().post_restore()?;
+    pub fn do_post_restore_vmgenid(&self) -> Result<(), ACPIDeviceError> {
+        self.vmgenid().do_post_restore()?;
         Ok(())
     }
 
-    pub fn post_restore_vmclock(&mut self, mem: &GuestMemoryMmap) -> Result<(), ACPIDeviceError> {
+    pub fn do_post_restore_vmclock(
+        &mut self,
+        mem: &GuestMemoryMmap,
+    ) -> Result<(), ACPIDeviceError> {
         self.vmclock
             .as_mut()
             .expect("Missing VMClock device")
-            .post_restore(mem)?;
+            .do_post_restore(mem)?;
         Ok(())
     }
 }

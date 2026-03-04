@@ -17,7 +17,7 @@ gdb = ["arrayvec", "gdbstub", "gdbstub_arch"]
 
 acpi_tables = { path = "../acpi-tables" }
 arrayvec = { version = "0.7.6", optional = true }
-aws-lc-rs = "1.15.4"
+aws-lc-rs = "1.16.0"
 base64 = "0.22.1"
 bitcode = { version = "0.6.9", features = ["serde"] }
 bitflags = "2.11.0"

@@ -98,6 +98,8 @@ pub enum KvmVcpuError {
     RestoreState(VcpuArchError),
     /// Failed to save the state of the vcpu: {0}
     SaveState(VcpuArchError),
+    /// Found unsupported KVM_ARM_VCPU_PMU_V3 bit set in vcpu features.
+    UnsupportedPmuV3,
 }
 
 /// Error type for [`KvmVcpu::configure`].
@@ -299,6 +301,16 @@ impl KvmVcpu {
 
     /// Initializes internal vcpufd.
     fn init_vcpu(&self) -> Result<(), KvmVcpuError> {
+        // Setting KVM_ARM_VCPU_PMU_V3 without initialising the PMU causes KVM
+        // to crash on KVM_RUN with EINVAL.
+        //
+        // To properly initialise the PMU, the KVM_SET_DEVICE_ATTR ioctl must
+        // be made with the flag KVM_ARM_VCPU_PMU_V3_INIT set. Firecracker
+        // currently does not handle this, so we should return an error instead.
+        if (self.kvi.features[0] & (1 << KVM_ARM_VCPU_PMU_V3)) != 0 {
+            return Err(KvmVcpuError::UnsupportedPmuV3);
+        }
+
         self.fd.vcpu_init(&self.kvi).map_err(KvmVcpuError::Init)?;
         Ok(())
     }
@@ -654,6 +666,26 @@ mod tests {
         }];
         vcpu.init(&vcpu_features).unwrap();
         assert!((vcpu.kvi.features[0] & (1 << KVM_ARM_VCPU_PSCI_0_2)) == 0)
+    }
+
+    #[test]
+    fn test_pmu_v3_feature_invalid() {
+        let (_, mut vm) = setup_vm_with_memory(0x1000);
+        let mut vcpu = KvmVcpu::new(0, &vm).unwrap();
+        vm.setup_irqchip(1).unwrap();
+
+        // Firecracker does not support KVM_ARM_VCPU_PMU_V3. Check that
+        // attempting to enable this feature returns an error.
+        let vcpu_features = vec![VcpuFeatures {
+            index: 0,
+            bitmap: RegisterValueFilter {
+                filter: 1 << KVM_ARM_VCPU_PMU_V3,
+                value: 1 << KVM_ARM_VCPU_PMU_V3,
+            },
+        }];
+
+        let res = vcpu.init(&vcpu_features);
+        assert!(matches!(res.unwrap_err(), KvmVcpuError::UnsupportedPmuV3));
     }
 
     #[test]
