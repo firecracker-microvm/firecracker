@@ -217,6 +217,9 @@ def test_cpu_topology(uvm_plain_any, num_vcpus, htt):
     )
 
 
+@pytest.mark.skipif(
+    PLATFORM == "aarch64", reason="Skip until the hange in guest sysfs is addressed"
+)
 @pytest.mark.parametrize("num_vcpus", [1, 2, 16])
 @pytest.mark.parametrize("htt", [True, False], ids=["HTT_ON", "HTT_OFF"])
 def test_cache_topology(uvm_plain_any, num_vcpus, htt):
