@@ -33,7 +33,7 @@ from tenacity import Retrying, retry, stop_after_attempt, wait_fixed
 import host_tools.cargo_build as build_tools
 import host_tools.network as net_tools
 from framework import utils
-from framework.defs import MAX_API_CALL_DURATION_MS
+from framework.defs import DEFAULT_BINARY_DIR, MAX_API_CALL_DURATION_MS
 from framework.http_api import Api
 from framework.jailer import JailerContext
 from framework.microvm_helpers import MicrovmHelpers
@@ -100,12 +100,16 @@ class Snapshot:
     snapshot_type: SnapshotType
     meta: dict
 
-    def rebase_snapshot(self, base, use_snapshot_editor=False):
+    def rebase_snapshot(
+        self, base, use_snapshot_editor=False, binary_dir=DEFAULT_BINARY_DIR
+    ):
         """Rebases current incremental snapshot onto a specified base layer."""
         if not self.snapshot_type.needs_rebase:
             raise ValueError(f"Cannot rebase {self.snapshot_type}")
         if use_snapshot_editor:
-            build_tools.run_snap_editor_rebase(base.mem, self.mem)
+            build_tools.run_snap_editor_rebase(
+                base.mem, self.mem, binary_dir=binary_dir
+            )
         else:
             build_tools.run_rebase_snap_bin(base.mem, self.mem)
 
@@ -1349,7 +1353,9 @@ class MicroVMFactory:
 
                 if current_snapshot.snapshot_type.needs_rebase:
                     next_snapshot = next_snapshot.rebase_snapshot(
-                        current_snapshot, use_snapshot_editor
+                        current_snapshot,
+                        use_snapshot_editor,
+                        binary_dir=microvm.fc_binary_path.parent,
                     )
 
                 last_snapshot = current_snapshot
