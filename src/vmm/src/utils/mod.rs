@@ -20,15 +20,6 @@ use libc::O_NONBLOCK;
 /// How many bits to left-shift by to convert MiB to bytes
 const MIB_TO_BYTES_SHIFT: usize = 20;
 
-/// Return the default page size of the platform, in bytes.
-pub fn get_page_size() -> Result<usize, vmm_sys_util::errno::Error> {
-    // SAFETY: Safe because the parameters are valid.
-    match unsafe { libc::sysconf(libc::_SC_PAGESIZE) } {
-        -1 => Err(vmm_sys_util::errno::Error::last()),
-        ps => Ok(usize::try_from(ps).unwrap()),
-    }
-}
-
 /// Safely converts a u64 value to a usize value.
 /// This bypasses the Clippy lint check because we only support 64-bit platforms.
 #[cfg(target_pointer_width = "64")]
