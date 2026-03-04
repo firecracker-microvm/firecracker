@@ -743,7 +743,7 @@ fn attach_pmem_devices<'a, I: Iterator<Item = &'a Arc<Mutex<Pmem>>> + Debug>(
                     false => cmdline.insert_str("rw")?,
                 }
             }
-            locked_dev.alloc_region(vm.as_ref());
+            locked_dev.alloc_region(vm.as_ref())?;
             locked_dev.set_mem_region(vm.as_ref())?;
             locked_dev.config.id.to_string()
         };
