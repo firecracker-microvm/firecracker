@@ -311,7 +311,7 @@ def test_virtio_mem_configs(uvm_plain_6_1, memhp_config):
 
 def test_snapshot_restore_persistence(uvm_plain_6_1, microvm_factory, snapshot_type):
     """
-    Check that hptplugged memory is persisted across snapshot/restore.
+    Check that hotplugged memory is persisted across snapshot/restore.
     """
     if not uvm_plain_6_1.pci_enabled:
         pytest.skip(
@@ -349,9 +349,9 @@ def test_snapshot_restore_persistence(uvm_plain_6_1, microvm_factory, snapshot_t
     validate_metrics(restored_vm)
 
 
-def test_snapshot_restore_incremental(uvm_plain_6_1, microvm_factory):
+def test_snapshot_restore_incremental(uvm_plain_6_1, microvm_factory, snapshot_type):
     """
-    Check that hptplugged memory is persisted across snapshot/restore.
+    Check that hotplugged memory is persisted across snapshot/restore.
     """
     if not uvm_plain_6_1.pci_enabled:
         pytest.skip(
@@ -359,13 +359,27 @@ def test_snapshot_restore_incremental(uvm_plain_6_1, microvm_factory):
         )
 
     uvm = uvm_booted_memhp(
-        uvm_plain_6_1, None, microvm_factory, False, DEFAULT_CONFIG, None, None, None
+        uvm_plain_6_1,
+        None,
+        microvm_factory,
+        False,
+        DEFAULT_CONFIG,
+        None,
+        None,
+        snapshot_type,
     )
 
-    snapshot = uvm.snapshot_full()
+    hp_total_size_mib = uvm.api.memory_hotplug.get().json()["total_size_mib"]
+
+    snapshot = uvm.make_snapshot(snapshot_type)
 
     hotplug_count = 16
-    hp_mem_mib_per_cycle = 1024 // hotplug_count
+    hp_mem_mib_per_cycle = hp_total_size_mib // hotplug_count
+
+    # we're not using hugepages, so it's always 4KiB pages
+    guest_pages_per_mib = 1024 // 4
+    hp_mem_pages_per_cycle = hp_mem_mib_per_cycle * guest_pages_per_mib
+
     checksums = []
     for i, uvm in enumerate(
         microvm_factory.build_n_from_snapshot(
@@ -400,6 +414,16 @@ def test_snapshot_restore_incremental(uvm_plain_6_1, microvm_factory):
 
         _, checksum, _ = uvm.ssh.check_output(f"sha256sum /dev/shm/mem_hp_test_{i}")
         checksums.append(checksum)
+
+        # dirty a page in the middle of the hotplugged memory to verify differential snapshots
+        # This is to test also the case where the page and the slots are not consecutive with the
+        # one we're going to write to avoid issues like #5696.
+        file_to_dirty = i // 2
+        page_to_dirty = hp_mem_pages_per_cycle // 2
+        uvm.ssh.check_output(
+            f"dd if=/dev/shm/mem_hp_test_{file_to_dirty} of=/dev/shm/mem_hp_test_{file_to_dirty} "
+            f"bs=4K count=1 skip={page_to_dirty} seek={page_to_dirty} conv=notrunc"
+        )
 
         validate_metrics(uvm)
 
