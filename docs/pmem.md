@@ -25,7 +25,7 @@ device and make VM boot from it.
 > there is no need to use guest page cache for its operations. This behaviour
 > can be configured by using `DAX` feature of the kernel.
 >
-> - To mount a device with `DAX` add `--flags=dax` to the `mount` command.
+> - To mount a device with `DAX` add `--options=dax` to the `mount` command.
 > - To configure a root device with `DAX` append `rootflags=dax` to the kernel
 >   arguments.
 >
