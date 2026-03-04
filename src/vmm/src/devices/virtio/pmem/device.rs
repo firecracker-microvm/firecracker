@@ -32,6 +32,8 @@ use crate::{Vm, impl_device_type};
 
 #[derive(Debug, thiserror::Error, displaydoc::Display)]
 pub enum PmemError {
+    /// Failed to allocate memory region
+    AllocationFailed,
     /// Cannot set the memory regions: {0}
     SetUserMemoryRegion(VmError),
     /// Unablet to allocate a KVM slot for the device
@@ -230,7 +232,7 @@ impl Pmem {
     }
 
     /// Allocate memory in past_mmio64 memory region
-    pub fn alloc_region(&mut self, vm: &Vm) {
+    pub fn alloc_region(&mut self, vm: &Vm) -> Result<(), PmemError> {
         let mut resource_allocator_lock = vm.resource_allocator();
         let resource_allocator = resource_allocator_lock.deref_mut();
         let addr = resource_allocator
@@ -240,8 +242,9 @@ impl Pmem {
                 Pmem::ALIGNMENT,
                 AllocPolicy::FirstMatch,
             )
-            .unwrap();
+            .map_err(|_| PmemError::AllocationFailed)?;
         self.config_space.start = addr.start();
+        Ok(())
     }
 
     /// Set user memory region in KVM
