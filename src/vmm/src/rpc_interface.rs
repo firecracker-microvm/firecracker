@@ -165,10 +165,10 @@ pub enum VmmActionError {
     ConfigureCpu(#[from] GuestConfigError),
     /// Drive config error: {0}
     DriveConfig(#[from] DriveError),
-    /// Entropy device error: {0}
-    EntropyDevice(#[from] EntropyDeviceError),
-    /// Pmem device error: {0}
-    PmemDevice(#[from] PmemConfigError),
+    /// Entropy config error: {0}
+    EntropyConfig(#[from] EntropyDeviceError),
+    /// Pmem config error: {0}
+    PmemConfig(#[from] PmemConfigError),
     /// Memory hotplug config error: {0}
     MemoryHotplugConfig(#[from] MemoryHotplugConfigError),
     /// Memory hotplug update error: {0}
@@ -537,7 +537,7 @@ impl<'a> PrebootApiController<'a> {
         self.vm_resources
             .build_pmem_device(cfg)
             .map(|()| VmmData::Empty)
-            .map_err(VmmActionError::PmemDevice)
+            .map_err(VmmActionError::PmemConfig)
     }
 
     fn set_balloon_device(&mut self, cfg: BalloonDeviceConfig) -> Result<VmmData, VmmActionError> {
