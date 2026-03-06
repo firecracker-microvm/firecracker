@@ -584,3 +584,25 @@ def test_snapshot_rename_interface(uvm_nano, microvm_factory):
         rename_interfaces={iface_override.dev_name: iface_override.tap_name},
         resume=True,
     )
+
+
+def test_snapshot_rename_vsock(
+    uvm_nano,
+    microvm_factory,
+):
+    """
+    Test that we can restore a snapshot and point its vsock device to a
+    different unix socket.
+    """
+
+    vm = uvm_nano
+    vm.api.vsock.put(vsock_id="vsock0", guest_cid=3, uds_path="/v.sock1")
+    vm.add_net_iface()
+    vm.start()
+
+    snapshot = vm.snapshot_full()
+
+    restored_vm = microvm_factory.build()
+    restored_vm.spawn()
+
+    restored_vm.restore_from_snapshot(snapshot, vsock_override="/v.sock2", resume=True)
