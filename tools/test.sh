@@ -53,7 +53,7 @@ export PYTEST_ADDOPTS="${PYTEST_ADDOPTS:-} --pdbcls=IPython.terminal.debugger:Te
 
 # if the tests failed and we are running in CI, print some disk usage stats
 # to help troubleshooting
-if [ $ret != 0 ] && [ "$BUILDKITE" == "true" ]; then
+if [ $ret != 0 ] && [ "${BUILDKITE:-false}" == "true" ]; then
     df -ih
     df -h
     du -h / 2>/dev/null |sort -h |tail -32
