@@ -818,4 +818,25 @@ mod tests {
             TcpError::MssRemaining
         );
     }
+
+    #[test]
+    fn test_invalid_tcp_option_len() {
+        // Build a minimal segment with header_len = 24 (OPTIONS_OFFSET + 4 bytes of options).
+        let mut buf = [0u8; 100];
+        let header_len: u8 = OPTIONS_OFFSET + 4;
+        {
+            let mut seg = TcpSegment::from_bytes_unchecked(buf.as_mut());
+            seg.set_header_len_rsvd_ns(header_len, false);
+        }
+        // Write an unknown option kind (0xFF) with opt_len = 0 (invalid, < 2).
+        let opts_start = usize::from(OPTIONS_OFFSET);
+        buf[opts_start] = 0xFF;
+        buf[opts_start + 1] = 0;
+
+        let seg = TcpSegment::from_bytes_unchecked(buf.as_ref());
+        assert_eq!(
+            seg.parse_mss_option_unchecked(header_len.into()),
+            Err(TcpError::MssOption)
+        );
+    }
 }
