@@ -63,4 +63,12 @@ pub enum VirtioBlockError {
     RateLimiter(std::io::Error),
     /// Persistence error: {0}
     Persist(crate::devices::virtio::persist::PersistError),
+    /// Sector overflow in discard segment
+    SectorOverflow,
+    /// Discard segment exceeds disk size
+    BeyondDiskSize,
+    /// Invalid flags in discard segment
+    InvalidDiscardFlags,
+    /// Invalid discard request (e.g., empty segments)
+    InvalidDiscardRequest,
 }
