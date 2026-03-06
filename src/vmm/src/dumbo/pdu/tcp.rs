@@ -257,7 +257,13 @@ impl<T: NetworkBytes + Debug> TcpSegment<'_, T> {
                 }
                 _ => {
                     // Some other option; just skip opt_len bytes in total.
-                    i += b[i + 1] as usize;
+                    // Per RFC 9293 (MUST-7), opt_len includes the kind and
+                    // length bytes so the minimum valid value is 2.
+                    let opt_len = b[i + 1] as usize;
+                    if opt_len < 2 {
+                        return Err(TcpError::MssOption);
+                    }
+                    i += opt_len;
                     continue;
                 }
             }
