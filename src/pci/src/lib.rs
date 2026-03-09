@@ -13,21 +13,6 @@ use std::fmt::{Debug, Display};
 
 use serde::{Deserialize, Serialize};
 
-/// PCI has four interrupt pins A->D.
-#[derive(Copy, Clone)]
-pub enum PciInterruptPin {
-    IntA,
-    IntB,
-    IntC,
-    IntD,
-}
-
-impl PciInterruptPin {
-    pub fn to_mask(self) -> u32 {
-        self as u32
-    }
-}
-
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Serialize, Deserialize)]
 pub struct PciBdf(u32);
 
@@ -93,13 +78,6 @@ impl Display for PciBdf {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{:#?}", self)
     }
-}
-
-/// Represents the types of PCI headers allowed in the configuration registers.
-#[derive(Debug, Copy, Clone, Eq, PartialEq)]
-pub enum PciHeaderType {
-    Device,
-    Bridge,
 }
 
 /// Classes of PCI nodes.
@@ -406,29 +384,6 @@ impl From<u16> for PciExpressCapabilityId {
             0x002e => PciExpressCapabilityId::DataObjectExchange,
             0xffff => PciExpressCapabilityId::ExtendedCapabilitiesAbsence,
             _ => PciExpressCapabilityId::Reserved,
-        }
-    }
-}
-
-/// See pci_regs.h in kernel
-#[derive(Copy, Clone, PartialEq, Eq, Serialize, Deserialize, Debug)]
-pub enum PciBarRegionType {
-    Memory32BitRegion = 0,
-    IoRegion = 0x01,
-    Memory64BitRegion = 0x04,
-}
-
-#[derive(Debug, Copy, Clone, Serialize, Deserialize)]
-pub enum PciBarPrefetchable {
-    NotPrefetchable = 0,
-    Prefetchable = 0x08,
-}
-
-impl From<PciBarPrefetchable> for bool {
-    fn from(val: PciBarPrefetchable) -> Self {
-        match val {
-            PciBarPrefetchable::NotPrefetchable => false,
-            PciBarPrefetchable::Prefetchable => true,
         }
     }
 }
