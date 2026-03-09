@@ -18,13 +18,16 @@ Contributors to the Firecracker repository:
 
 - Aaqa Ishtyaq <aaqaishtyaq@gmail.com>
 - Aaron Hill <aa1ronham@gmail.com>
+- Aaron Lo <aaronlo0929@gmail.com>
 - Aaron O'Mullan <aaron.omullan@gmail.com>
 - Abhijeet Kasurde <akasurde@redhat.com>
 - acatangiu <adrian@parity.io>
 - acsmyth <54330152+acsmyth@users.noreply.github.com>
 - Adam Jensen <adam@acj.sh>
 - Adam Leskis <leskis@gmail.com>
+- Adnan Khan <adnanek@amazon.com>
 - Adrian Catangiu <acatan@amazon.com>
+- aerosouund <aerosound161@gmail.com>
 - Ahmed Abouzied <ahmedaabouzied44@gmail.com>
 - Akhil Mohan <akhilerm@gmail.com>
 - Alakesh <alakeshh@amazon.com>
@@ -56,7 +59,7 @@ Contributors to the Firecracker repository:
 - Aussie Schnore <aussiev123@yahoo.com>
 - Austin Vazquez <macedonv@amazon.com>
 - Ayato Tokubi <tokubi.ayato@gmail.com>
-- Babis Chalios <bchalios@amazon.es>
+- Babis Chalios <mail@bchalios.io>
 - Bartosz Zbytniewski <bartosz.zbytniewski.dev@gmail.com>
 - Begley Brothers Inc <begleybrothers@gmail.com>
 - Ben Holmes <bencwholmes@gmail.com>
@@ -97,6 +100,7 @@ Contributors to the Firecracker repository:
 - Derek Manwaring <derekmn@amazon.com>
 - Diana Popa <dpopa@amazon.com>
 - Dmitrii <dmitrii.ustiugov@epfl.ch>
+- DontPanicO <dontpanic.call0@gmail.com>
 - Echo-Head-Wall <101990236+Echo-Head-Wall@users.noreply.github.com>
 - Eddie Cazares <Ecazares15@utexas.edu>
 - Eduard Kyvenko <eduard.kyvenko@gmail.com>
@@ -129,6 +133,7 @@ Contributors to the Firecracker repository:
 - huang-jl <1046678590@qq.com>
 - Iggy Jackson <iggy@theiggy.com>
 - ihciah <ihciah@gmail.com>
+- Ilias Stamatis <ilstam@amazon.com>
 - Ioana Chirca <chioana@amazon.com>
 - Ishwor Gurung <me@ishworgurung.com>
 - Iulian Barbu <iul@amazon.com>
@@ -195,6 +200,7 @@ Contributors to the Firecracker repository:
 - moricho <ikeda.morito@gmail.com>
 - Muki Kiboigo <muki@kiboigo.com>
 - Muskaan Singla <msinglaa@amazon.com>
+- mzh <1113584652@qq.com>
 - Narek Galstyan <narekg@berkeley.edu>
 - Nathan Hoang <nathanhoang5@gmail.com>
 - Nathan Sizemore <nathanrsizemore@gmail.com>
@@ -279,11 +285,12 @@ Contributors to the Firecracker repository:
 - xiekeyang <keyang.xie@gmail.com>
 - Ye Sijun <junnplus@gmail.com>
 - Yichen Zhang <jakezhang2020@gmail.com>
+- Yılmaz ŞEN <yilmazsen94@gmail.com>
 - YLyu <lyuyuan92@gmail.com>
 - YUAN LYU <lyuyuan92@gmail.com>
 - Yuval Kohavi <yuval.kohavi@gmail.com>
-- Yılmaz ŞEN <yilmazsen94@gmail.com>
 - Zhenyu Qi <qzydustin@hotmail.com>
 - Zi Shen Lim <zlim.lnx@gmail.com>
 - Zicklag <zicklag@katharostech.com>
 - Дамјан Георгиевски <gdamjan@gmail.com>
+- 刘顺钰 <shunyu.liu@chaitin.com>
