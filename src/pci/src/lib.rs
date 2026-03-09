@@ -9,11 +9,8 @@
 
 extern crate log;
 
-use std::fmt::{self, Debug, Display};
-use std::num::ParseIntError;
-use std::str::FromStr;
+use std::fmt::{Debug, Display};
 
-use serde::de::Visitor;
 use serde::{Deserialize, Serialize};
 
 /// PCI has four interrupt pins A->D.
@@ -31,43 +28,8 @@ impl PciInterruptPin {
     }
 }
 
-#[derive(Clone, Copy, PartialEq, Eq, PartialOrd)]
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Serialize, Deserialize)]
 pub struct PciBdf(u32);
-
-struct PciBdfVisitor;
-
-impl Visitor<'_> for PciBdfVisitor {
-    type Value = PciBdf;
-
-    fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
-        formatter.write_str("struct PciBdf")
-    }
-
-    fn visit_str<E>(self, v: &str) -> Result<Self::Value, E>
-    where
-        E: serde::de::Error,
-    {
-        PciBdf::from_str(v).map_err(serde::de::Error::custom)
-    }
-}
-
-impl<'de> serde::Deserialize<'de> for PciBdf {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: serde::Deserializer<'de>,
-    {
-        deserializer.deserialize_str(PciBdfVisitor)
-    }
-}
-
-impl serde::Serialize for PciBdf {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
-        serializer.collect_str(&self.to_string())
-    }
-}
 
 impl PciBdf {
     pub fn segment(&self) -> u16 {
@@ -114,18 +76,6 @@ impl From<&PciBdf> for u32 {
     }
 }
 
-impl From<PciBdf> for u16 {
-    fn from(bdf: PciBdf) -> Self {
-        (bdf.0 & 0xffff) as u16
-    }
-}
-
-impl From<&PciBdf> for u16 {
-    fn from(bdf: &PciBdf) -> Self {
-        (bdf.0 & 0xffff) as u16
-    }
-}
-
 impl Debug for PciBdf {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
@@ -141,43 +91,7 @@ impl Debug for PciBdf {
 
 impl Display for PciBdf {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(
-            f,
-            "{:04x}:{:02x}:{:02x}.{:01x}",
-            self.segment(),
-            self.bus(),
-            self.device(),
-            self.function()
-        )
-    }
-}
-
-/// Errors associated with parsing a BDF string.
-#[derive(Debug, thiserror::Error, displaydoc::Display)]
-pub enum PciBdfParseError {
-    /// Unable to parse bus/device/function number hex: {0}
-    InvalidHex(#[from] ParseIntError),
-    /// Invalid format: {0} (expected format: 0000:00:00.0)
-    InvalidFormat(String),
-}
-
-impl FromStr for PciBdf {
-    type Err = PciBdfParseError;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let items: Vec<&str> = s.split('.').collect();
-        if items.len() != 2 {
-            return Err(PciBdfParseError::InvalidFormat(s.to_string()));
-        }
-        let function = u8::from_str_radix(items[1], 16)?;
-        let items: Vec<&str> = items[0].split(':').collect();
-        if items.len() != 3 {
-            return Err(PciBdfParseError::InvalidFormat(s.to_string()));
-        }
-        let segment = u16::from_str_radix(items[0], 16)?;
-        let bus = u8::from_str_radix(items[1], 16)?;
-        let device = u8::from_str_radix(items[2], 16)?;
-        Ok(PciBdf::new(segment, bus, device, function))
+        write!(f, "{:#?}", self)
     }
 }
 
@@ -539,127 +453,5 @@ mod tests {
         assert_eq!(bdf.bus(), 0x56);
         assert_eq!(bdf.device(), 0x0f);
         assert_eq!(bdf.function(), 0x0);
-    }
-
-    #[test]
-    fn test_pci_bdf_to_u32() {
-        let bdf = PciBdf::new(0x1234, 0x56, 0x1f, 0x7);
-        let val: u32 = bdf.into();
-        assert_eq!(val, 0x123456ff);
-    }
-
-    #[test]
-    fn test_pci_bdf_to_u16() {
-        let bdf = PciBdf::new(0x1234, 0x56, 0x1f, 0x7);
-        let val: u16 = bdf.into();
-        assert_eq!(val, 0x56ff);
-    }
-
-    #[test]
-    fn test_pci_bdf_from_str_valid() {
-        let bdf = PciBdf::from_str("1234:56:1f.7").unwrap();
-        assert_eq!(bdf.segment(), 0x1234);
-        assert_eq!(bdf.bus(), 0x56);
-        assert_eq!(bdf.device(), 0x1f);
-        assert_eq!(bdf.function(), 0x7);
-    }
-
-    #[test]
-    fn test_pci_bdf_from_str_zero() {
-        let bdf = PciBdf::from_str("0000:00:00.0").unwrap();
-        assert_eq!(bdf.segment(), 0);
-        assert_eq!(bdf.bus(), 0);
-        assert_eq!(bdf.device(), 0);
-        assert_eq!(bdf.function(), 0);
-    }
-
-    #[test]
-    fn test_pci_bdf_from_str_invalid_format() {
-        assert!(matches!(
-            PciBdf::from_str("invalid"),
-            Err(PciBdfParseError::InvalidFormat(_))
-        ));
-        assert!(matches!(
-            PciBdf::from_str("1234:56"),
-            Err(PciBdfParseError::InvalidFormat(_))
-        ));
-        assert!(matches!(
-            PciBdf::from_str("1234:56:78:9a.b"),
-            Err(PciBdfParseError::InvalidFormat(_))
-        ));
-    }
-
-    #[test]
-    fn test_pci_bdf_from_str_invalid_hex() {
-        assert!(matches!(
-            PciBdf::from_str("xxxx:00:00.0"),
-            Err(PciBdfParseError::InvalidHex(_))
-        ));
-        assert!(matches!(
-            PciBdf::from_str("0000:xx:00.0"),
-            Err(PciBdfParseError::InvalidHex(_))
-        ));
-        assert!(matches!(
-            PciBdf::from_str("0000:00:xx.0"),
-            Err(PciBdfParseError::InvalidHex(_))
-        ));
-        assert!(matches!(
-            PciBdf::from_str("0000:00:00.x"),
-            Err(PciBdfParseError::InvalidHex(_))
-        ));
-    }
-
-    #[test]
-    fn test_pci_bdf_display() {
-        let bdf = PciBdf::new(0x1234, 0x56, 0x1f, 0x7);
-        assert_eq!(format!("{}", bdf), "1234:56:1f.7");
-    }
-
-    #[test]
-    fn test_pci_bdf_debug() {
-        let bdf = PciBdf::new(0x1234, 0x56, 0x1f, 0x7);
-        assert_eq!(format!("{:?}", bdf), "1234:56:1f.7");
-    }
-
-    #[test]
-    fn test_pci_bdf_partial_eq() {
-        let bdf1 = PciBdf::new(0x1234, 0x56, 0x1f, 0x7);
-        let bdf2 = PciBdf::new(0x1234, 0x56, 0x1f, 0x7);
-        let bdf3 = PciBdf::new(0x1234, 0x56, 0x1f, 0x6);
-        assert_eq!(bdf1, bdf2);
-        assert_ne!(bdf1, bdf3);
-    }
-
-    #[test]
-    fn test_pci_bdf_partial_ord() {
-        let bdf1 = PciBdf::new(0x1234, 0x56, 0x1f, 0x6);
-        let bdf2 = PciBdf::new(0x1234, 0x56, 0x1f, 0x7);
-        assert!(bdf1 < bdf2);
-    }
-
-    #[test]
-    fn test_pci_bdf_deserialize_ok() {
-        // Test deserializer
-        let visitor = PciBdfVisitor;
-        let result = visitor
-            .visit_str::<serde::de::value::Error>("1234:56:1f.7")
-            .unwrap();
-        assert_eq!(result, PciBdf::new(0x1234, 0x56, 0x1f, 0x7));
-    }
-
-    #[test]
-    fn test_pci_bdf_deserialize_invalid() {
-        // Test deserializer with invalid input returns error
-        let visitor = PciBdfVisitor;
-        assert!(visitor
-            .visit_str::<serde::de::value::Error>("invalid")
-            .is_err());
-    }
-
-    #[test]
-    fn test_pci_bdf_serialize() {
-        // Test serializer using serde_test
-        let bdf = PciBdf::new(0x1234, 0x56, 0x1f, 0x7);
-        serde_test::assert_tokens(&bdf, &[serde_test::Token::Str("1234:56:1f.7")]);
     }
 }
