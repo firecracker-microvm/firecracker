@@ -81,33 +81,33 @@ impl Display for PciBdf {
 }
 
 /// Classes of PCI nodes.
+/// https://admin.pci-ids.ucw.cz/read/PD/
 #[allow(dead_code)]
 #[derive(Copy, Clone)]
+#[repr(u8)]
 pub enum PciClassCode {
-    TooOld,
-    MassStorage,
-    NetworkController,
-    DisplayController,
-    MultimediaController,
-    MemoryController,
-    BridgeDevice,
-    SimpleCommunicationController,
-    BaseSystemPeripheral,
-    InputDevice,
-    DockingStation,
-    Processor,
-    SerialBusController,
-    WirelessController,
-    IntelligentIoController,
-    EncryptionController,
-    DataAcquisitionSignalProcessing,
-    Other = 0xff,
-}
-
-impl PciClassCode {
-    pub fn get_register_value(self) -> u8 {
-        self as u8
-    }
+    UnclassifiedDevice = 0x00,
+    MassStorageController = 0x01,
+    NetworkController = 0x02,
+    DisplayController = 0x03,
+    MultimediaController = 0x04,
+    MemoryController = 0x05,
+    Bridge = 0x06,
+    CommunicationController = 0x07,
+    GenericSystemPeripheral = 0x08,
+    InputDeviceController = 0x09,
+    DockingStation = 0x0a,
+    Processor = 0x0b,
+    SerialBusController = 0x0c,
+    WirelessController = 0x0d,
+    IntelligentController = 0x0e,
+    SatelliteCommunicationsController = 0x0f,
+    EncryptionController = 0x10,
+    SignalProcessingController = 0x11,
+    ProcessingAccelerators = 0x12,
+    NonEssentialInstrumentation = 0x13,
+    Coprocessor = 0x40,
+    UnassignedClass = 0xff,
 }
 
 /// A PCI subclass. Each class in `PciClassCode` can specify a unique set of subclasses. This trait
