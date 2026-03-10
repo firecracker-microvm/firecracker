@@ -110,16 +110,10 @@ pub enum PciClassCode {
     UnassignedClass = 0xff,
 }
 
-/// A PCI subclass. Each class in `PciClassCode` can specify a unique set of subclasses. This trait
-/// is implemented by each subclass. It allows use of a trait object to generate configurations.
-pub trait PciSubclass {
-    /// Convert this subclass to the value used in the PCI specification.
-    fn get_register_value(&self) -> u8;
-}
-
 /// Subclasses of the MultimediaController class.
 #[allow(dead_code)]
 #[derive(Copy, Clone)]
+#[repr(u8)]
 pub enum PciMultimediaSubclass {
     VideoController = 0x00,
     AudioController = 0x01,
@@ -128,15 +122,10 @@ pub enum PciMultimediaSubclass {
     Other = 0x80,
 }
 
-impl PciSubclass for PciMultimediaSubclass {
-    fn get_register_value(&self) -> u8 {
-        *self as u8
-    }
-}
-
 /// Subclasses of the BridgeDevice
 #[allow(dead_code)]
 #[derive(Copy, Clone)]
+#[repr(u8)]
 pub enum PciBridgeSubclass {
     HostBridge = 0x00,
     IsaBridge = 0x01,
@@ -152,15 +141,10 @@ pub enum PciBridgeSubclass {
     OtherBridgeDevice = 0x80,
 }
 
-impl PciSubclass for PciBridgeSubclass {
-    fn get_register_value(&self) -> u8 {
-        *self as u8
-    }
-}
-
 /// Subclass of the SerialBus
 #[allow(dead_code)]
 #[derive(Copy, Clone)]
+#[repr(u8)]
 pub enum PciSerialBusSubClass {
     Firewire = 0x00,
     Accessbus = 0x01,
@@ -168,15 +152,10 @@ pub enum PciSerialBusSubClass {
     Usb = 0x03,
 }
 
-impl PciSubclass for PciSerialBusSubClass {
-    fn get_register_value(&self) -> u8 {
-        *self as u8
-    }
-}
-
 /// Mass Storage Sub Classes
 #[allow(dead_code)]
 #[derive(Copy, Clone)]
+#[repr(u8)]
 pub enum PciMassStorageSubclass {
     ScsiStorage = 0x00,
     IdeInterface = 0x01,
@@ -190,15 +169,10 @@ pub enum PciMassStorageSubclass {
     MassStorage = 0x80,
 }
 
-impl PciSubclass for PciMassStorageSubclass {
-    fn get_register_value(&self) -> u8 {
-        *self as u8
-    }
-}
-
 /// Network Controller Sub Classes
 #[allow(dead_code)]
 #[derive(Copy, Clone)]
+#[repr(u8)]
 pub enum PciNetworkControllerSubclass {
     EthernetController = 0x00,
     TokenRingController = 0x01,
@@ -210,12 +184,6 @@ pub enum PciNetworkControllerSubclass {
     InfinibandController = 0x07,
     FabricController = 0x08,
     NetworkController = 0x80,
-}
-
-impl PciSubclass for PciNetworkControllerSubclass {
-    fn get_register_value(&self) -> u8 {
-        *self as u8
-    }
 }
 
 /// Types of PCI capabilities.
