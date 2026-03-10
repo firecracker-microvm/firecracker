@@ -186,7 +186,9 @@ macro_rules! msr_modifier {
     };
 }
 
-pub(crate) use {cpuid_leaf_modifier, cpuid_reg_modifier, msr_modifier};
+pub(crate) use cpuid_leaf_modifier;
+pub(crate) use cpuid_reg_modifier;
+pub(crate) use msr_modifier;
 
 #[cfg(test)]
 mod tests {
