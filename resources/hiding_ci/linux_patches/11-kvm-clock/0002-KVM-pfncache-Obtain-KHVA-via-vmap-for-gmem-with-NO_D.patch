@@ -1,8 +1,7 @@
-From 117ffee0b544bd3348d74b1d40fcf8f15fe0ac4a Mon Sep 17 00:00:00 2001
+From 1ecb0ebddc1c7e59184d2d1707d7dee59dd9d852 Mon Sep 17 00:00:00 2001
 From: Takahiro Itazuri <itazur@amazon.com>
 Date: Sun, 22 Feb 2026 14:30:14 +0000
-Subject: [PATCH 43/84] KVM: pfncache: Obtain KHVA via vmap() for gmem with
- NO_DIRECT_MAP
+Subject: [RFC PATCH v3 2/6] KVM: pfncache: Obtain KHVA via vmap() for gmem with NO_DIRECT_MAP
 
 Currently, pfncaches map RAM pages via kmap(), which typically returns a
 kernel address derived from the direct map.  However, guest_memfd
@@ -46,7 +45,7 @@ Signed-off-by: Takahiro Itazuri <itazur@amazon.com>
  1 file changed, 28 insertions(+), 5 deletions(-)
 
 diff --git a/virt/kvm/pfncache.c b/virt/kvm/pfncache.c
-index 100a8e2f114b..531adc4dcb11 100644
+index 5d16e2b8a6eb..0b49ba98f33f 100644
 --- a/virt/kvm/pfncache.c
 +++ b/virt/kvm/pfncache.c
 @@ -16,6 +16,7 @@
