@@ -8,12 +8,12 @@
 use std::sync::{Arc, Mutex};
 
 use byteorder::{ByteOrder, LittleEndian};
-use pci::{PciCapabilityId, PciClassCode};
 use serde::{Deserialize, Serialize};
 
 use super::BarReprogrammingParams;
 use super::msix::MsixConfig;
 use crate::logger::{info, warn};
+use crate::pci::{PciCapabilityId, PciClassCode};
 use crate::utils::u64_to_usize;
 
 // The number of 32bit registers in the config space, 4096 bytes.
@@ -448,10 +448,10 @@ impl PciConfiguration {
 
 #[cfg(test)]
 mod tests {
-    use pci::PciMultimediaSubclass;
     use vm_memory::ByteValued;
 
     use super::*;
+    use crate::pci::PciMultimediaSubclass;
     use crate::pci::msix::MsixCap;
 
     #[repr(C, packed)]

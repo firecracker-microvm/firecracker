@@ -11,11 +11,10 @@ use std::ops::DerefMut;
 use std::sync::{Arc, Barrier, Mutex};
 
 use byteorder::{ByteOrder, LittleEndian};
-use pci::{PciBridgeSubclass, PciClassCode};
 
 use crate::logger::error;
 use crate::pci::configuration::PciConfiguration;
-use crate::pci::{DeviceRelocation, PciDevice};
+use crate::pci::{DeviceRelocation, PciBridgeSubclass, PciClassCode, PciDevice};
 use crate::utils::u64_to_usize;
 use crate::vstate::bus::BusDevice;
 
@@ -453,12 +452,13 @@ mod tests {
     use std::sync::atomic::AtomicUsize;
     use std::sync::{Arc, Mutex};
 
-    use pci::{PciClassCode, PciMassStorageSubclass};
-
     use super::{PciBus, PciConfigIo, PciConfigMmio, PciRoot};
     use crate::pci::bus::{DEVICE_ID_INTEL_VIRT_PCIE_HOST, VENDOR_ID_INTEL};
     use crate::pci::configuration::PciConfiguration;
-    use crate::pci::{BarReprogrammingParams, DeviceRelocation, DeviceRelocationError, PciDevice};
+    use crate::pci::{
+        BarReprogrammingParams, DeviceRelocation, DeviceRelocationError, PciClassCode, PciDevice,
+        PciMassStorageSubclass,
+    };
     use crate::vstate::bus::BusDevice;
 
     #[derive(Debug, Default)]
