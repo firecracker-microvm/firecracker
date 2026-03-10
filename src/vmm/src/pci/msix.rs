@@ -7,12 +7,12 @@
 use std::sync::Arc;
 
 use byteorder::{ByteOrder, LittleEndian};
-use pci::PciCapabilityId;
 use serde::{Deserialize, Serialize};
 use vm_memory::ByteValued;
 
 use crate::Vm;
 use crate::logger::{debug, error, warn};
+use crate::pci::PciCapabilityId;
 use crate::pci::configuration::PciCapability;
 use crate::snapshot::Persist;
 use crate::vstate::interrupts::{InterruptError, MsixVectorConfig, MsixVectorGroup};
