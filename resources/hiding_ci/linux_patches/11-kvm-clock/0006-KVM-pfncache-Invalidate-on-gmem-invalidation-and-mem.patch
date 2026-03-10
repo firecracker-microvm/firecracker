@@ -1,8 +1,7 @@
-From 541764609c6f68efa346f20f019cc4fd37096717 Mon Sep 17 00:00:00 2001
+From c8b19d2c2643e0b9bf4626ed0211d067f23ef593 Mon Sep 17 00:00:00 2001
 From: Takahiro Itazuri <itazur@amazon.com>
 Date: Sun, 22 Feb 2026 17:25:07 +0000
-Subject: [PATCH 47/84] KVM: pfncache: Invalidate on gmem invalidation and
- memattr updates
+Subject: [RFC PATCH v3 6/6] KVM: pfncache: Invalidate on gmem invalidation and memattr updates
 
 Invalidate pfncaches when guest_memfd invalidation or memory attribute
 updates render cached PFN resolutions stale.
@@ -20,17 +19,18 @@ overhead to a greater ot lesser extent, regardless of guest_memfd-backed
 or not.  At the time of writing, only Xen uses HVA-based pfncaches.
 
 Signed-off-by: Takahiro Itazuri <itazur@amazon.com>
+Suggested-by: David Hildenbrand (Red Hat) <david@kernel.org>
 ---
  virt/kvm/guest_memfd.c | 50 ++++++++++++++++++++++++++++++++++++++++++
- virt/kvm/kvm_main.c    | 45 +++++++++++++++++++++++++++++++++++++
+ virt/kvm/kvm_main.c    | 47 ++++++++++++++++++++++++++++++++++++++-
  virt/kvm/pfncache.c    |  4 ++--
- 3 files changed, 97 insertions(+), 2 deletions(-)
+ 3 files changed, 98 insertions(+), 3 deletions(-)
 
 diff --git a/virt/kvm/guest_memfd.c b/virt/kvm/guest_memfd.c
-index bfdde5951ab8..0a36cd1e99d1 100644
+index 79f34dad0c2f..eb2f1a7e54dc 100644
 --- a/virt/kvm/guest_memfd.c
 +++ b/virt/kvm/guest_memfd.c
-@@ -214,6 +214,33 @@ static void __kvm_gmem_invalidate_start(struct gmem_file *f, pgoff_t start,
+@@ -215,6 +215,33 @@ static void __kvm_gmem_invalidate_start(struct gmem_file *f, pgoff_t start,
  	struct kvm *kvm = f->kvm;
  	unsigned long index;
  
@@ -64,7 +64,7 @@ index bfdde5951ab8..0a36cd1e99d1 100644
  	xa_for_each_range(&f->bindings, index, slot, start, end - 1) {
  		pgoff_t pgoff = slot->gmem.pgoff;
  
-@@ -258,12 +285,35 @@ static void __kvm_gmem_invalidate_end(struct gmem_file *f, pgoff_t start,
+@@ -259,12 +286,35 @@ static void __kvm_gmem_invalidate_end(struct gmem_file *f, pgoff_t start,
  				      pgoff_t end)
  {
  	struct kvm *kvm = f->kvm;
@@ -101,10 +101,10 @@ index bfdde5951ab8..0a36cd1e99d1 100644
  
  static void kvm_gmem_invalidate_end(struct inode *inode, pgoff_t start,
 diff --git a/virt/kvm/kvm_main.c b/virt/kvm/kvm_main.c
-index 8d83957b9f07..89a5b3682170 100644
+index f51056e971d0..2ad31e491090 100644
 --- a/virt/kvm/kvm_main.c
 +++ b/virt/kvm/kvm_main.c
-@@ -2564,6 +2564,8 @@ static int kvm_vm_set_mem_attributes(struct kvm *kvm, gfn_t start, gfn_t end,
+@@ -2583,9 +2583,11 @@ static int kvm_vm_set_mem_attributes(struct kvm *kvm, gfn_t start, gfn_t end,
  		.on_lock = kvm_mmu_invalidate_end,
  		.may_block = true,
  	};
@@ -112,8 +112,12 @@ index 8d83957b9f07..89a5b3682170 100644
 +	struct kvm_memory_slot *slot;
  	unsigned long i;
  	void *entry;
- 	int r = 0;
-@@ -2590,6 +2592,34 @@ static int kvm_vm_set_mem_attributes(struct kvm *kvm, gfn_t start, gfn_t end,
+-	int r = 0;
++	int r = 0, bkt;
+ 
+ 	entry = attributes ? xa_mk_value(attributes) : NULL;
+ 
+@@ -2609,6 +2611,34 @@ static int kvm_vm_set_mem_attributes(struct kvm *kvm, gfn_t start, gfn_t end,
  		cond_resched();
  	}
  
@@ -133,7 +137,7 @@ index 8d83957b9f07..89a5b3682170 100644
 +	 * while HVA-based pfncaches do not have gpa/memslot info.  Thus,
 +	 * using GFN ranges would miss invalidating HVA-based ones.
 +	 */
-+	kvm_for_each_memslot(slot, slots) {
++	kvm_for_each_memslot(slot, bkt, slots) {
 +		gfn_t gfn_start = max(start, slot->base_gfn);
 +		gfn_t gfn_end = min(end, slot->base_gfn + slot->npages);
 +
@@ -148,7 +152,7 @@ index 8d83957b9f07..89a5b3682170 100644
  	kvm_handle_gfn_range(kvm, &pre_set_range);
  
  	for (i = start; i < end; i++) {
-@@ -2601,6 +2631,21 @@ static int kvm_vm_set_mem_attributes(struct kvm *kvm, gfn_t start, gfn_t end,
+@@ -2620,6 +2650,21 @@ static int kvm_vm_set_mem_attributes(struct kvm *kvm, gfn_t start, gfn_t end,
  
  	kvm_handle_gfn_range(kvm, &post_set_range);
  
@@ -171,7 +175,7 @@ index 8d83957b9f07..89a5b3682170 100644
  	mutex_unlock(&kvm->slots_lock);
  
 diff --git a/virt/kvm/pfncache.c b/virt/kvm/pfncache.c
-index 2880a36257c2..2b44da46d2ab 100644
+index 63e08fbac16d..42b3b849f78b 100644
 --- a/virt/kvm/pfncache.c
 +++ b/virt/kvm/pfncache.c
 @@ -144,7 +144,7 @@ static void gpc_unmap(kvm_pfn_t pfn, void *khva)

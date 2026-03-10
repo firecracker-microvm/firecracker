@@ -1,8 +1,7 @@
-From b931de31f75b6eb90a68b57e35b2ff2eab335325 Mon Sep 17 00:00:00 2001
+From e984350805efaa4690aaa9f2c70dc4d8077f60ca Mon Sep 17 00:00:00 2001
 From: Takahiro Itazuri <itazur@amazon.com>
 Date: Sun, 22 Feb 2026 13:31:50 +0000
-Subject: [PATCH 42/84] KVM: pfncache: Resolve PFNs via kvm_gmem_get_pfn() for
- gmem-backed GPAs
+Subject: [RFC PATCH v3 1/6] KVM: pfncache: Resolve PFNs via kvm_gmem_get_pfn() for gmem-backed GPAs
 
 Currently, pfncaches always resolve PFNs via hva_to_pfn(), which
 requires a userspace mapping and relies on GUP.  This does not work for
@@ -32,7 +31,7 @@ Signed-off-by: Takahiro Itazuri <itazur@amazon.com>
  1 file changed, 33 insertions(+), 12 deletions(-)
 
 diff --git a/virt/kvm/pfncache.c b/virt/kvm/pfncache.c
-index 728d2c1b488a..100a8e2f114b 100644
+index 728d2c1b488a..5d16e2b8a6eb 100644
 --- a/virt/kvm/pfncache.c
 +++ b/virt/kvm/pfncache.c
 @@ -152,7 +152,36 @@ static inline bool mmu_notifier_retry_cache(struct kvm *kvm, unsigned long mmu_s
@@ -45,7 +44,7 @@ index 728d2c1b488a..100a8e2f114b 100644
 +	/* For HVA-based pfncaches, memslot is NULL */
 +	return gpc->memslot && kvm_slot_has_gmem(gpc->memslot) &&
 +	       (kvm_memslot_is_gmem_only(gpc->memslot) ||
-+	        kvm_mem_is_private(gpc->kvm, gpa_to_gfn(gpc->gpa)));
++		kvm_mem_is_private(gpc->kvm, gpa_to_gfn(gpc->gpa)));
 +}
 +
 +static kvm_pfn_t gpc_to_pfn(struct gfn_to_pfn_cache *gpc, struct page **page)
