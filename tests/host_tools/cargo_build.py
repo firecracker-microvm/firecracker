@@ -98,7 +98,7 @@ def run_seccompiler_bin(
     utils.check_output(f"{seccompiler} {seccompiler_args}")
 
 
-def run_snap_editor_rebase(base_snap, diff_snap):
+def run_snap_editor_rebase(base_snap, diff_snap, binary_dir=DEFAULT_BINARY_DIR):
     """
     Run apply_diff_snap.
 
@@ -106,7 +106,7 @@ def run_snap_editor_rebase(base_snap, diff_snap):
     :param diff_snap: path to diff snapshot mem file
     """
 
-    snap_ed = get_binary("snapshot-editor")
+    snap_ed = get_binary("snapshot-editor", binary_dir=binary_dir)
     utils.check_output(
         f"{snap_ed} edit-memory rebase --memory-path {base_snap} --diff-path {diff_snap}"
     )

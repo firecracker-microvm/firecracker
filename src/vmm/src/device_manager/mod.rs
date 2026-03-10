@@ -31,11 +31,20 @@ use crate::devices::legacy::RTCDevice;
 use crate::devices::legacy::serial::SerialOut;
 use crate::devices::legacy::{IER_RDA_BIT, IER_RDA_OFFSET, SerialDevice};
 use crate::devices::pseudo::BootTimer;
+use crate::devices::virtio::ActivateError;
+use crate::devices::virtio::balloon::BalloonError;
+use crate::devices::virtio::block::BlockError;
 use crate::devices::virtio::device::{VirtioDevice, VirtioDeviceType};
+use crate::devices::virtio::mem::persist::VirtioMemPersistError;
+use crate::devices::virtio::net::persist::NetPersistError;
+use crate::devices::virtio::pmem::persist::PmemPersistError;
+use crate::devices::virtio::rng::persist::EntropyPersistError;
 use crate::devices::virtio::transport::mmio::{IrqTrigger, MmioTransport};
+use crate::devices::virtio::vsock::{VsockError, VsockUnixBackendError};
 use crate::resources::VmResources;
 use crate::snapshot::Persist;
 use crate::utils::open_file_nonblock;
+use crate::vmm_config::mmds::MmdsConfigError;
 use crate::vstate::bus::BusError;
 use crate::vstate::memory::GuestMemoryMmap;
 use crate::{EmulateSerialInitError, EventManager, Vm};
@@ -188,6 +197,7 @@ impl DeviceManager {
         id: String,
         device: Arc<Mutex<T>>,
         cmdline: &mut Cmdline,
+        event_manager: &mut EventManager,
         is_vhost_user: bool,
     ) -> Result<(), AttachDeviceError> {
         let interrupt = Arc::new(IrqTrigger::new());
@@ -195,7 +205,7 @@ impl DeviceManager {
         let device =
             MmioTransport::new(vm.guest_memory().clone(), interrupt, device, is_vhost_user);
         self.mmio_devices
-            .register_mmio_virtio_for_boot(vm, id, device, cmdline)?;
+            .register_mmio_virtio_for_boot(vm, id, device, event_manager, cmdline)?;
 
         Ok(())
     }
@@ -207,12 +217,14 @@ impl DeviceManager {
         id: String,
         device: Arc<Mutex<T>>,
         cmdline: &mut Cmdline,
+        event_manager: &mut EventManager,
         is_vhost_user: bool,
     ) -> Result<(), AttachDeviceError> {
         if self.is_pci_enabled() {
-            self.pci_devices.attach_pci_virtio_device(vm, id, device)?;
+            self.pci_devices
+                .attach_pci_virtio_device(vm, id, device, event_manager)?;
         } else {
-            self.attach_mmio_virtio_device(vm, id, device, cmdline, is_vhost_user)?;
+            self.attach_mmio_virtio_device(vm, id, device, cmdline, event_manager, is_vhost_user)?;
         }
 
         Ok(())
@@ -406,14 +418,51 @@ pub struct DevicesState {
     pub pci_state: pci_mngr::PciDevicesState,
 }
 
+/// Errors for (de)serialization of the devices.
 #[derive(Debug, thiserror::Error, displaydoc::Display)]
 pub enum DevicePersistError {
+    /// Balloon: {0}
+    Balloon(#[from] BalloonError),
+    /// Block: {0}
+    Block(#[from] BlockError),
+    /// MMIO Device manager: {0}
+    MmioDeviceManager(#[from] mmio::MmioError),
+    /// Mmio transport
+    MmioTransport,
+    /// PCI Device manager: {0}
+    PciDeviceManager(#[from] PciManagerError),
+    /// Bus error: {0}
+    Bus(#[from] BusError),
+    #[cfg(target_arch = "aarch64")]
+    /// Legacy: {0}
+    Legacy(#[from] std::io::Error),
+    /// Net: {0}
+    Net(#[from] NetPersistError),
+    /// Vsock: {0}
+    Vsock(#[from] VsockError),
+    /// VsockUnixBackend: {0}
+    VsockUnixBackend(#[from] VsockUnixBackendError),
+    /// MmdsConfig: {0}
+    MmdsConfig(#[from] MmdsConfigError),
+    /// Entropy: {0}
+    Entropy(#[from] EntropyPersistError),
+    /// Pmem: {0}
+    Pmem(#[from] PmemPersistError),
+    /// virtio-mem: {0}
+    VirtioMem(#[from] VirtioMemPersistError),
+    /// Could not activate device: {0}
+    DeviceActivation(#[from] ActivateError),
+}
+
+/// Errors for (de)serialization of the device manager.
+#[derive(Debug, thiserror::Error, displaydoc::Display)]
+pub enum DeviceManagerPersistError {
     /// Error restoring MMIO devices: {0}
-    MmioRestore(#[from] persist::DevicePersistError),
+    MmioRestore(DevicePersistError),
     /// Error restoring ACPI devices: {0}
     AcpiRestore(#[from] ACPIDeviceError),
     /// Error restoring PCI devices: {0}
-    PciRestore(#[from] PciManagerError),
+    PciRestore(DevicePersistError),
     /// Error resetting serial console: {0}
     SerialRestore(#[from] EmulateSerialInitError),
     /// Error inserting device in bus: {0}
@@ -445,7 +494,7 @@ impl std::fmt::Debug for DeviceRestoreArgs<'_> {
 impl<'a> Persist<'a> for DeviceManager {
     type State = DevicesState;
     type ConstructorArgs = DeviceRestoreArgs<'a>;
-    type Error = DevicePersistError;
+    type Error = DeviceManagerPersistError;
 
     fn save(&self) -> Self::State {
         DevicesState {
@@ -476,7 +525,8 @@ impl<'a> Persist<'a> for DeviceManager {
             vm_resources: constructor_args.vm_resources,
             instance_id: constructor_args.instance_id,
         };
-        let mmio_devices = MMIODeviceManager::restore(mmio_ctor_args, &state.mmio_state)?;
+        let mmio_devices = MMIODeviceManager::restore(mmio_ctor_args, &state.mmio_state)
+            .map_err(DeviceManagerPersistError::MmioRestore)?;
 
         // Restore ACPI devices
         let acpi_devices = ACPIDeviceManager::restore(constructor_args.vm, &state.acpi_state)?;
@@ -489,7 +539,8 @@ impl<'a> Persist<'a> for DeviceManager {
             instance_id: constructor_args.instance_id,
             event_manager: constructor_args.event_manager,
         };
-        let pci_devices = PciDevices::restore(pci_ctor_args, &state.pci_state)?;
+        let pci_devices = PciDevices::restore(pci_ctor_args, &state.pci_state)
+            .map_err(DeviceManagerPersistError::PciRestore)?;
 
         let device_manager = DeviceManager {
             mmio_devices,
