@@ -1,12 +1,15 @@
-From fcc4d74f19245fa22bbbf27df1cb9a5da165416a Mon Sep 17 00:00:00 2001
+From c8b19d2c2643e0b9bf4626ed0211d067f23ef593 Mon Sep 17 00:00:00 2001
 From: Takahiro Itazuri <itazur@amazon.com>
-Date: Wed, 25 Feb 2026 08:51:15 +0000
-Subject: [PATCH 40/84] KVM: pfncache: Add guest_memfd support to pfncache
+Date: Tue, 10 Mar 2026 06:08:41 +0000
+Subject: [RFC PATCH v3 0/6] KVM: pfncache: Add guest_memfd support to pfncache
 
 [ based on v6.18 with [1] ]
 
-This patch series is a follow-up to RFC v1.  (This is still labelled RFC
-since its dependency [1]  has not yet been merged.)
+This patch series is another follow-up to RFC v1 with minor fixes of RFC
+v2.  (This is still labelled RFC since its dependency [1] has not yet
+been merged.)  This change was tested for guest_memfd created with
+GUEST_MEMFD_FLAG_MMAP and GUEST_MEMFD_FLAG_NO_DIRECT_MAP in the feature
+branch of Firecracker [2].
 
 === Problem Statement ===
 
@@ -15,7 +18,7 @@ of today, pfncaches resolve PFNs via hva_to_pfn(), which requires a
 userspace mapping and relies on GUP.  This does not work for guest_memfd
 in the following two ways:
 
-  * guest_memfd created with GUEST_MEMFD_FLAP_MMAP does not have a
+  * guest_memfd created with GUEST_MEMFD_FLAG_MMAP does not have a
     userspace mapping due to the nature of private memory.
 
   * guest_memfd created with GUEST_MEMFD_FLAG_NO_DIRECT_MAP uses an
@@ -40,7 +43,7 @@ The core part keeps the original approach in RFC v1:
 
   * Obtain a fault-free KHVA for NO_DIRECT_MAP pages via vmap()
 
-=== Changes since RFC v1 ===
+=== Main Change since RFC v1 ===
 
   * Hook pfncache invalidation into guest_memfd invalidation (punch hole
     / release / error handling) as well as into memory attribute updates
@@ -98,12 +101,25 @@ especially welcome:
     regardless of guest_memfd-backed or not.  At the time of writing,
     only Xen uses HVA-based pfncaches.
 
+=== Changelog ===
+
+Changes since RFC v2:
+- Drop avoidance of silent kvm-clock activation failure.
+- Fix a compile error for kvm_for_each_memslot().
+
+Changes since RFC v1:
+- Prevent kvm-clock activation from failing silently.
+- Generalize serialization mechanism for invalidation.
+- Hook pfncache invalidation into guest_memfd invalidation and memory
+  attribute updates.
+
+RFC v2: https://lore.kernel.org/all/20260226135309.29493-1-itazur@amazon.com/
 RFC v1: https://lore.kernel.org/all/20251203144159.6131-1-itazur@amazon.com/
 
 [1]: https://lore.kernel.org/all/20260126164445.11867-1-kalyazin@amazon.com/
+[2]: https://github.com/firecracker-microvm/firecracker/tree/feature/secret-hiding
 
-Takahiro Itazuri (7):
-  KVM: x86: Avoid silent kvm-clock activation failures
+Takahiro Itazuri (6):
   KVM: pfncache: Resolve PFNs via kvm_gmem_get_pfn() for gmem-backed GPAs
   KVM: pfncache: Obtain KHVA via vmap() for gmem with NO_DIRECT_MAP
   KVM: Rename invalidate_begin to invalidate_start for consistency
@@ -111,19 +127,16 @@ Takahiro Itazuri (7):
   KVM: Rename mn_* invalidate-related fields to generic ones
   KVM: pfncache: Invalidate on gmem invalidation and memattr updates
 
- Documentation/virt/kvm/locking.rst |   8 +--
+ Documentation/virt/kvm/locking.rst |   8 +-
  arch/x86/kvm/mmu/mmu.c             |   2 +-
- arch/x86/kvm/x86.c                 |  18 ++---
  include/linux/kvm_host.h           |  13 ++--
  include/linux/mmu_notifier.h       |   4 +-
- virt/kvm/guest_memfd.c             |  64 +++++++++++++++--
- virt/kvm/kvm_main.c                |  99 +++++++++++++++++++-------
- virt/kvm/kvm_mm.h                  |  12 ++--
- virt/kvm/pfncache.c                | 110 ++++++++++++++++++++---------
- 9 files changed, 235 insertions(+), 95 deletions(-)
+ virt/kvm/guest_memfd.c             |  64 ++++++++++++++--
+ virt/kvm/kvm_main.c                | 101 ++++++++++++++++++-------
+ virt/kvm/kvm_mm.h                  |  12 +--
+ virt/kvm/pfncache.c                | 114 ++++++++++++++++++++---------
+ 8 files changed, 229 insertions(+), 89 deletions(-)
 
---
-2.50.1
 -- 
 2.50.1
 
