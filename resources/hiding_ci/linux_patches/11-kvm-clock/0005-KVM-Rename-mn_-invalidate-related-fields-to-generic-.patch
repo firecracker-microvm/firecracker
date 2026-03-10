@@ -1,8 +1,7 @@
-From 3f6ebe5bbaefcec51333716d8e3047be6a17ae34 Mon Sep 17 00:00:00 2001
+From 14ea9e0f2b1b32cf4afb9f85803ac4fdce0e5e68 Mon Sep 17 00:00:00 2001
 From: Takahiro Itazuri <itazur@amazon.com>
 Date: Sun, 22 Feb 2026 14:57:50 +0000
-Subject: [PATCH 46/84] KVM: Rename mn_* invalidate-related fields to generic
- ones
+Subject: [RFC PATCH v3 5/6] KVM: Rename mn_* invalidate-related fields to generic ones
 
 The addition of guest_memfd support to pfncaches introduces additional
 sources of pfncache invalidation beyond the MMU notifier path.  The
@@ -49,10 +48,10 @@ index ae8bce7fecbe..73679044ce44 100644
  ``kvm_arch::tsc_write_lock``
  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 diff --git a/include/linux/kvm_host.h b/include/linux/kvm_host.h
-index c808c0872a4b..bc51a8fe3838 100644
+index 618a71894ed1..7faa83d3d306 100644
 --- a/include/linux/kvm_host.h
 +++ b/include/linux/kvm_host.h
-@@ -808,10 +808,13 @@ struct kvm {
+@@ -814,10 +814,13 @@ struct kvm {
  	 */
  	atomic_t nr_memslots_dirty_logging;
  
@@ -71,7 +70,7 @@ index c808c0872a4b..bc51a8fe3838 100644
  	/* For management / invalidation of gfn_to_pfn_caches */
  	spinlock_t gpc_lock;
 diff --git a/virt/kvm/kvm_main.c b/virt/kvm/kvm_main.c
-index 2211ce7017b4..8d83957b9f07 100644
+index d64e70f8e8e3..f51056e971d0 100644
 --- a/virt/kvm/kvm_main.c
 +++ b/virt/kvm/kvm_main.c
 @@ -749,9 +749,9 @@ static int kvm_mmu_notifier_invalidate_range_start(struct mmu_notifier *mn,
@@ -154,7 +153,7 @@ index 2211ce7017b4..8d83957b9f07 100644
  	else
  		WARN_ON(kvm->mmu_invalidate_in_progress);
  #else
-@@ -1637,17 +1637,17 @@ static void kvm_swap_active_memslots(struct kvm *kvm, int as_id)
+@@ -1640,17 +1640,17 @@ static void kvm_swap_active_memslots(struct kvm *kvm, int as_id)
  	 * progress, otherwise the locking in invalidate_range_start and
  	 * invalidate_range_end will be unbalanced.
  	 */
@@ -180,7 +179,7 @@ index 2211ce7017b4..8d83957b9f07 100644
  	/*
  	 * Acquired in kvm_set_memslot. Must be released before synchronize
 diff --git a/virt/kvm/pfncache.c b/virt/kvm/pfncache.c
-index 3ff8251727e2..2880a36257c2 100644
+index bafda64b8916..63e08fbac16d 100644
 --- a/virt/kvm/pfncache.c
 +++ b/virt/kvm/pfncache.c
 @@ -147,26 +147,24 @@ static void gpc_unmap(kvm_pfn_t pfn, void *khva)
