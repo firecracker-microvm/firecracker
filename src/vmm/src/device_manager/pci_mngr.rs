@@ -8,7 +8,6 @@ use std::sync::{Arc, Mutex};
 
 use event_manager::{MutEventSubscriber, SubscriberOps};
 use log::{debug, warn};
-use pci::PciBdf;
 use serde::{Deserialize, Serialize};
 
 use super::persist::MmdsState;
@@ -34,6 +33,7 @@ use crate::devices::virtio::vsock::persist::{
     VsockConstructorArgs, VsockState, VsockUdsConstructorArgs,
 };
 use crate::devices::virtio::vsock::{Vsock, VsockUnixBackend};
+use crate::pci::PciBdf;
 use crate::pci::bus::PciRootError;
 use crate::resources::VmResources;
 use crate::snapshot::Persist;

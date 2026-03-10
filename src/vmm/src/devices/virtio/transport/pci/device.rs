@@ -16,9 +16,6 @@ use std::sync::{Arc, Barrier, Mutex};
 
 use kvm_ioctls::{IoEventAddress, NoDatamatch};
 use log::warn;
-use pci::{
-    PciBdf, PciCapabilityId, PciClassCode, PciMassStorageSubclass, PciNetworkControllerSubclass,
-};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use vm_allocator::{AddressAllocator, AllocPolicy, RangeInclusive};
@@ -37,7 +34,10 @@ use crate::devices::virtio::transport::{VirtioInterrupt, VirtioInterruptType};
 use crate::logger::{debug, error};
 use crate::pci::configuration::{PciCapability, PciConfiguration, PciConfigurationState};
 use crate::pci::msix::{MsixCap, MsixConfig, MsixConfigState};
-use crate::pci::{BarReprogrammingParams, DeviceRelocationError, PciDevice};
+use crate::pci::{
+    BarReprogrammingParams, DeviceRelocationError, PciBdf, PciCapabilityId, PciClassCode,
+    PciDevice, PciMassStorageSubclass, PciNetworkControllerSubclass,
+};
 use crate::snapshot::Persist;
 use crate::utils::u64_to_usize;
 use crate::vstate::bus::BusDevice;
@@ -952,7 +952,6 @@ mod tests {
 
     use event_manager::MutEventSubscriber;
     use linux_loader::loader::Cmdline;
-    use pci::{PciCapabilityId, PciClassCode};
     use vm_memory::{ByteValued, Le32};
 
     use super::{PciCapabilityType, VirtioPciDevice};
@@ -968,8 +967,8 @@ mod tests {
         NOTIFY_OFF_MULTIPLIER, PciVirtioSubclass, VirtioPciCap, VirtioPciCfgCap,
         VirtioPciNotifyCap,
     };
-    use crate::pci::PciDevice;
     use crate::pci::msix::MsixCap;
+    use crate::pci::{PciCapabilityId, PciClassCode, PciDevice};
     use crate::rate_limiter::RateLimiter;
     use crate::utils::u64_to_usize;
     use crate::{Vm, Vmm};
