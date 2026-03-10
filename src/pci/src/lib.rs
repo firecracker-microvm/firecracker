@@ -82,8 +82,8 @@ impl Display for PciBdf {
 
 /// Classes of PCI nodes.
 /// https://admin.pci-ids.ucw.cz/read/PD/
-#[allow(dead_code)]
-#[derive(Copy, Clone)]
+#[allow(dead_code, missing_docs)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
 #[repr(u8)]
 pub enum PciClassCode {
     UnclassifiedDevice = 0x00,
@@ -111,8 +111,8 @@ pub enum PciClassCode {
 }
 
 /// Subclasses of the MultimediaController class.
-#[allow(dead_code)]
-#[derive(Copy, Clone)]
+#[allow(dead_code, missing_docs)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
 #[repr(u8)]
 pub enum PciMultimediaSubclass {
     VideoController = 0x00,
@@ -123,8 +123,8 @@ pub enum PciMultimediaSubclass {
 }
 
 /// Subclasses of the BridgeDevice
-#[allow(dead_code)]
-#[derive(Copy, Clone)]
+#[allow(dead_code, missing_docs)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
 #[repr(u8)]
 pub enum PciBridgeSubclass {
     HostBridge = 0x00,
@@ -142,8 +142,8 @@ pub enum PciBridgeSubclass {
 }
 
 /// Subclass of the SerialBus
-#[allow(dead_code)]
-#[derive(Copy, Clone)]
+#[allow(dead_code, missing_docs)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
 #[repr(u8)]
 pub enum PciSerialBusSubClass {
     Firewire = 0x00,
@@ -153,8 +153,8 @@ pub enum PciSerialBusSubClass {
 }
 
 /// Mass Storage Sub Classes
-#[allow(dead_code)]
-#[derive(Copy, Clone)]
+#[allow(dead_code, missing_docs)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
 #[repr(u8)]
 pub enum PciMassStorageSubclass {
     ScsiStorage = 0x00,
@@ -170,8 +170,8 @@ pub enum PciMassStorageSubclass {
 }
 
 /// Network Controller Sub Classes
-#[allow(dead_code)]
-#[derive(Copy, Clone)]
+#[allow(dead_code, missing_docs)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
 #[repr(u8)]
 pub enum PciNetworkControllerSubclass {
     EthernetController = 0x00,
@@ -187,9 +187,8 @@ pub enum PciNetworkControllerSubclass {
 }
 
 /// Types of PCI capabilities.
-#[derive(Debug, PartialEq, Eq, Copy, Clone)]
-#[allow(dead_code)]
-#[allow(non_camel_case_types)]
+#[allow(dead_code, missing_docs)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
 #[repr(u8)]
 pub enum PciCapabilityId {
     ListId = 0,
@@ -245,8 +244,8 @@ impl From<u8> for PciCapabilityId {
 }
 
 /// Types of PCI Express capabilities.
-#[derive(PartialEq, Eq, Copy, Clone, Debug)]
-#[allow(dead_code)]
+#[allow(dead_code, missing_docs)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
 #[repr(u16)]
 pub enum PciExpressCapabilityId {
     NullCapability = 0x0000,
