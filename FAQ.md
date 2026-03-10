@@ -180,21 +180,28 @@ on event file descriptors to drive device emulation.
 
 ### How can I gracefully reboot the guest? How can I gracefully poweroff the guest?
 
-Firecracker does not virtualize guest power management, therefore operations
-like gracefully rebooting or powering off the guest are supported in
-unconventional ways.
+Regardless of architecture, Firecracker does not currently support guest reboot.
 
-Running the `poweroff` or `halt` commands inside a Linux guest will bring it
-down but Firecracker process remains unaware of the guest shutdown so it lives
-on.
+On **ARM**, issuing either `poweroff` or `reboot` inside a Linux guest results
+in a graceful system shutdown and the termination of the Firecracker process.
+This works because KVM emulates the PSCI interface for power management and
+notifies Firecracker when the guest tries to change the power state of the
+virtual machine.
 
-Running the `reboot` command in a Linux guest will gracefully bring down the
-guest system and also bring a graceful end to the Firecracker process.
+On **x86**, Firecracker does not virtualize power management (e.g. there is no
+ACPI PM support). Consequently:
 
-On `x86_64` systems, issuing a `SendCtrlAltDel` action command through the
-Firecracker API will generate a `Ctrl + Alt + Del` keyboard event in the guest
-which triggers a behavior identical to running the `reboot` command. This is,
-however, not supported on `aarch64` systems.
+- `poweroff`: This will shut down the guest OS, but because the guest has no way
+  of requesting a power-off, the Firecracker process will remain alive.
+- `reboot`: Running reboot will successfully terminate the Firecracker process
+  if the guest is booted with `reboot=k` in the kernel command line. This option
+  instructs Linux to reset the CPU(s) via the i8042 (keyboard controller) reset
+  line when rebooting. Firecracker, which emulates the i8042 controller,
+  intercepts the reset command and terminates the process.
+- API Command: Issuing a `SendCtrlAltDel` action via the Firecracker API injects
+  a `Ctrl+Alt+Del` keyboard sequence into the guest. Depending on the guest
+  configuration (see ctrl-alt-del.target on systemd systems), this typically
+  triggers the same reboot behavior described above.
 
 ### How can I create my own rootfs or kernel images?
 

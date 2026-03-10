@@ -6,7 +6,6 @@
 use std::fmt::{self, Debug};
 use std::sync::{Arc, Mutex};
 
-use event_manager::{MutEventSubscriber, SubscriberOps};
 use log::warn;
 use serde::{Deserialize, Serialize};
 
@@ -14,82 +13,37 @@ use super::acpi::ACPIDeviceManager;
 use super::mmio::*;
 #[cfg(target_arch = "aarch64")]
 use crate::arch::DeviceType;
+use crate::device_manager::DevicePersistError;
 use crate::device_manager::acpi::ACPIDeviceError;
 use crate::devices::acpi::vmclock::{VmClock, VmClockState};
 use crate::devices::acpi::vmgenid::{VMGenIDState, VmGenId};
 #[cfg(target_arch = "aarch64")]
 use crate::devices::legacy::RTCDevice;
-use crate::devices::virtio::ActivateError;
+use crate::devices::virtio::balloon::Balloon;
 use crate::devices::virtio::balloon::persist::{BalloonConstructorArgs, BalloonState};
-use crate::devices::virtio::balloon::{Balloon, BalloonError};
-use crate::devices::virtio::block::BlockError;
 use crate::devices::virtio::block::device::Block;
 use crate::devices::virtio::block::persist::{BlockConstructorArgs, BlockState};
 use crate::devices::virtio::device::{VirtioDevice, VirtioDeviceType};
 use crate::devices::virtio::mem::VirtioMem;
-use crate::devices::virtio::mem::persist::{
-    VirtioMemConstructorArgs, VirtioMemPersistError, VirtioMemState,
-};
+use crate::devices::virtio::mem::persist::{VirtioMemConstructorArgs, VirtioMemState};
 use crate::devices::virtio::net::Net;
-use crate::devices::virtio::net::persist::{
-    NetConstructorArgs, NetPersistError as NetError, NetState,
-};
+use crate::devices::virtio::net::persist::{NetConstructorArgs, NetState};
 use crate::devices::virtio::persist::{MmioTransportConstructorArgs, MmioTransportState};
 use crate::devices::virtio::pmem::device::Pmem;
-use crate::devices::virtio::pmem::persist::{
-    PmemConstructorArgs, PmemPersistError as PmemError, PmemState,
-};
+use crate::devices::virtio::pmem::persist::{PmemConstructorArgs, PmemState};
 use crate::devices::virtio::rng::Entropy;
-use crate::devices::virtio::rng::persist::{
-    EntropyConstructorArgs, EntropyPersistError as EntropyError, EntropyState,
-};
+use crate::devices::virtio::rng::persist::{EntropyConstructorArgs, EntropyState};
 use crate::devices::virtio::transport::mmio::{IrqTrigger, MmioTransport};
 use crate::devices::virtio::vsock::persist::{
     VsockConstructorArgs, VsockState, VsockUdsConstructorArgs,
 };
-use crate::devices::virtio::vsock::{Vsock, VsockError, VsockUnixBackend, VsockUnixBackendError};
+use crate::devices::virtio::vsock::{Vsock, VsockUnixBackend};
 use crate::mmds::data_store::MmdsVersion;
 use crate::resources::VmResources;
 use crate::snapshot::Persist;
 use crate::vmm_config::memory_hotplug::MemoryHotplugConfig;
-use crate::vmm_config::mmds::MmdsConfigError;
-use crate::vstate::bus::BusError;
 use crate::vstate::memory::GuestMemoryMmap;
 use crate::{EventManager, Vm};
-
-/// Errors for (de)serialization of the MMIO device manager.
-#[derive(Debug, thiserror::Error, displaydoc::Display)]
-pub enum DevicePersistError {
-    /// Balloon: {0}
-    Balloon(#[from] BalloonError),
-    /// Block: {0}
-    Block(#[from] BlockError),
-    /// Device manager: {0}
-    DeviceManager(#[from] super::mmio::MmioError),
-    /// Mmio transport
-    MmioTransport,
-    /// Bus error: {0}
-    Bus(#[from] BusError),
-    #[cfg(target_arch = "aarch64")]
-    /// Legacy: {0}
-    Legacy(#[from] std::io::Error),
-    /// Net: {0}
-    Net(#[from] NetError),
-    /// Vsock: {0}
-    Vsock(#[from] VsockError),
-    /// VsockUnixBackend: {0}
-    VsockUnixBackend(#[from] VsockUnixBackendError),
-    /// MmdsConfig: {0}
-    MmdsConfig(#[from] MmdsConfigError),
-    /// Entropy: {0}
-    Entropy(#[from] EntropyError),
-    /// Pmem: {0}
-    Pmem(#[from] PmemError),
-    /// virtio-mem: {0}
-    VirtioMem(#[from] VirtioMemPersistError),
-    /// Could not activate device: {0}
-    DeviceActivation(#[from] ActivateError),
-}
 
 /// Holds the state of a MMIO VirtIO device
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -381,7 +335,6 @@ impl<'a> Persist<'a> for MMIODeviceManager {
         let mut restore_helper = |device: Arc<Mutex<dyn VirtioDevice>>,
                                   activated: bool,
                                   is_vhost_user: bool,
-                                  as_subscriber: Arc<Mutex<dyn MutEventSubscriber>>,
                                   id: &String,
                                   state: &MmioTransportState,
                                   device_info: &MMIODeviceInfo,
@@ -405,7 +358,9 @@ impl<'a> Persist<'a> for MMIODeviceManager {
                 MMIODevice {
                     resources: *device_info,
                     inner: mmio_transport,
+                    sub_id: None,
                 },
+                event_manager,
             )?;
 
             if activated {
@@ -415,7 +370,6 @@ impl<'a> Persist<'a> for MMIODeviceManager {
                     .activate(mem.clone(), interrupt)?;
             }
 
-            event_manager.add_subscriber(as_subscriber);
             Ok(())
         };
 
@@ -431,10 +385,9 @@ impl<'a> Persist<'a> for MMIODeviceManager {
                 .set_device(device.clone());
 
             restore_helper(
-                device.clone(),
+                device,
                 balloon_state.device_state.virtio_state.activated,
                 false,
-                device,
                 &balloon_state.device_id,
                 &balloon_state.transport_state,
                 &balloon_state.device_info,
@@ -454,10 +407,9 @@ impl<'a> Persist<'a> for MMIODeviceManager {
                 .add_virtio_device(device.clone());
 
             restore_helper(
-                device.clone(),
+                device,
                 block_state.device_state.is_activated(),
                 false,
-                device,
                 &block_state.device_id,
                 &block_state.transport_state,
                 &block_state.device_info,
@@ -494,10 +446,9 @@ impl<'a> Persist<'a> for MMIODeviceManager {
                 .add_device(device.clone());
 
             restore_helper(
-                device.clone(),
+                device,
                 net_state.device_state.virtio_state.activated,
                 false,
-                device,
                 &net_state.device_id,
                 &net_state.transport_state,
                 &net_state.device_info,
@@ -524,10 +475,9 @@ impl<'a> Persist<'a> for MMIODeviceManager {
                 .set_device(device.clone());
 
             restore_helper(
-                device.clone(),
+                device,
                 vsock_state.device_state.frontend.virtio_state.activated,
                 false,
-                device,
                 &vsock_state.device_id,
                 &vsock_state.transport_state,
                 &vsock_state.device_info,
@@ -549,10 +499,9 @@ impl<'a> Persist<'a> for MMIODeviceManager {
                 .set_device(device.clone());
 
             restore_helper(
-                device.clone(),
+                device,
                 entropy_state.device_state.virtio_state.activated,
                 false,
-                device,
                 &entropy_state.device_id,
                 &entropy_state.transport_state,
                 &entropy_state.device_info,
@@ -575,10 +524,9 @@ impl<'a> Persist<'a> for MMIODeviceManager {
                 .add_device(device.clone());
 
             restore_helper(
-                device.clone(),
+                device,
                 pmem_state.device_state.virtio_state.activated,
                 false,
-                device,
                 &pmem_state.device_id,
                 &pmem_state.transport_state,
                 &pmem_state.device_info,
@@ -599,10 +547,9 @@ impl<'a> Persist<'a> for MMIODeviceManager {
             let arcd_device = Arc::new(Mutex::new(device));
 
             restore_helper(
-                arcd_device.clone(),
+                arcd_device,
                 memory_state.device_state.virtio_state.activated,
                 false,
-                arcd_device,
                 &memory_state.device_id,
                 &memory_state.transport_state,
                 &memory_state.device_info,
