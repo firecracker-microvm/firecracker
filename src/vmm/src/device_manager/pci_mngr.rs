@@ -8,6 +8,7 @@ use std::sync::{Arc, Mutex};
 
 use event_manager::{MutEventSubscriber, SubscriberOps};
 use log::{debug, warn};
+use pci::PciBdf;
 use serde::{Deserialize, Serialize};
 
 use super::persist::MmdsState;
@@ -41,7 +42,6 @@ use crate::vstate::bus::BusError;
 use crate::vstate::interrupts::InterruptError;
 use crate::vstate::memory::GuestMemoryMmap;
 use crate::{EventManager, Vm};
-use pci::PciBdf;
 
 #[derive(Debug, Default)]
 pub struct PciDevices {
