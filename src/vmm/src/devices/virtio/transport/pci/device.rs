@@ -312,11 +312,11 @@ impl VirtioPciDevice {
                 &PciNetworkControllerSubclass::EthernetController as &dyn PciSubclass,
             ),
             VirtioDeviceType::Block => (
-                PciClassCode::MassStorage,
+                PciClassCode::MassStorageController,
                 &PciMassStorageSubclass::MassStorage as &dyn PciSubclass,
             ),
             _ => (
-                PciClassCode::Other,
+                PciClassCode::UnassignedClass,
                 &PciVirtioSubclass::NonTransitionalBase as &dyn PciSubclass,
             ),
         };
@@ -1044,14 +1044,14 @@ mod tests {
         // register 0x2: | Class code | Subclass | Prog IF | Revision ID |
         //
         // Class code: VIRTIO_PCI_VENDOR_ID for all VirtIO devices
-        // Subclass: PciClassCode::NetworkController for net, PciClassCode::MassStore for block
-        //           PciClassCode::Other for everything else
+        // Subclass: PciClassCode::NetworkController for net, PciClassCode::MassStorageController
+        // for block           PciClassCode::UnassignedClass for everything else
         // Prog IF: A register defining some programmable interface register. 0 for VirtIO devices
         // Revision ID: 0x1 for modern VirtIO devices
         let reg2 = locked_virtio_pci_device.read_config_register(2);
         assert_eq!(reg2, 0xffff_0001);
         let class_code = ((reg2 >> 24) & 0xff) as u8;
-        assert_eq!(class_code, PciClassCode::Other.get_register_value());
+        assert_eq!(class_code, PciClassCode::UnassignedClass as u8);
         let subclass = ((reg2 >> 16) & 0xff) as u8;
         assert_eq!(
             subclass,
