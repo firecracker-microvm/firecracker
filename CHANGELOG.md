@@ -23,7 +23,7 @@ and this project adheres to
 
 ### Fixed
 
-## [v1.15.0]
+## [1.15.0]
 
 ### Added
 
@@ -75,7 +75,7 @@ and this project adheres to
 - [#5739](https://github.com/firecracker-microvm/firecracker/pull/5739): Fixed
   validation of TCP SYN options length when MMDS is enabled.
 
-## [v1.14.0]
+## [1.14.0]
 
 ### Added
 
