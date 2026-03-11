@@ -7,12 +7,14 @@ mod edit_memory;
 #[cfg(target_arch = "aarch64")]
 mod edit_vmstate;
 mod info;
+mod tsc;
 mod utils;
 
 use edit_memory::{EditMemoryError, EditMemorySubCommand, edit_memory_command};
 #[cfg(target_arch = "aarch64")]
 use edit_vmstate::{EditVmStateError, EditVmStateSubCommand, edit_vmstate_command};
 use info::{InfoVmStateError, InfoVmStateSubCommand, info_vmstate_command};
+use tsc::{TscCommandError, TscSubCommand, tsc_command};
 
 #[derive(Debug, thiserror::Error, displaydoc::Display)]
 enum SnapEditorError {
@@ -23,6 +25,8 @@ enum SnapEditorError {
     EditVmState(#[from] EditVmStateError),
     /// Error during getting info from a vmstate file: {0}
     InfoVmState(#[from] InfoVmStateError),
+    /// Error during updating TSC metadata: {0}
+    EditTsc(#[from] TscCommandError),
 }
 
 #[derive(Debug, Parser)]
@@ -41,6 +45,8 @@ enum Command {
     EditVmstate(EditVmStateSubCommand),
     #[command(subcommand)]
     InfoVmstate(InfoVmStateSubCommand),
+    #[command(subcommand)]
+    Tsc(TscSubCommand),
 }
 
 fn main_exec() -> Result<(), SnapEditorError> {
@@ -51,6 +57,7 @@ fn main_exec() -> Result<(), SnapEditorError> {
         #[cfg(target_arch = "aarch64")]
         Command::EditVmstate(command) => edit_vmstate_command(command)?,
         Command::InfoVmstate(command) => info_vmstate_command(command)?,
+        Command::Tsc(command) => tsc_command(command)?,
     }
 
     Ok(())
