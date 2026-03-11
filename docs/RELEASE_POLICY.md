@@ -90,8 +90,9 @@ v3.1 will be patched since were the last two Firecracker releases and less than
 
 | Release | Release Date | Latest Patch | Min. end of support | Official end of Support         |
 | ------: | -----------: | -----------: | ------------------: | :------------------------------ |
+|   v1.15 |   2026-03-09 |      v1.15.0 |          2026-09-09 | Supported                       |
 |   v1.14 |   2025-12-17 |      v1.14.2 |          2026-06-17 | Supported                       |
-|   v1.13 |   2025-08-28 |      v1.13.2 |          2026-02-28 | Supported                       |
+|   v1.13 |   2025-08-28 |      v1.13.2 |          2026-02-28 | 2026-03-09 (v1.15 released)     |
 |   v1.12 |   2025-05-07 |      v1.12.1 |          2025-11-07 | 2025-12-17 (v1.14 released)     |
 |   v1.11 |   2025-03-18 |      v1.11.0 |          2025-09-18 | 2025-09-18 (end of 6mo support) |
 |   v1.10 |   2024-11-07 |      v1.10.1 |          2025-05-07 | 2025-05-07 (v1.12 released)     |

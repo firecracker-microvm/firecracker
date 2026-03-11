@@ -125,3 +125,69 @@ function validate_version {
         die "Invalid version number: $version. Version should not contain \`wip\` or \`dirty\`."
     fi
 }
+
+########################
+# Rootfs build helpers #
+########################
+
+# Wait for dockerd to come up in devctr
+prepare_docker() {
+    nohup /usr/bin/dockerd --host=unix:///var/run/docker.sock --host=tcp://127.0.0.1:2375 &
+
+    # Wait for Docker socket to be created
+    timeout 15 sh -c "until docker info; do echo .; sleep 1; done"
+    rm -f nohup.out
+}
+
+# Build a squashfs rootfs from a Docker image.
+# Runs <setup_script> inside the container to install packages and configure.
+# The setup script receives $rootfs as the overlay directory (pre-populated
+# with overlay files).
+# Usage: build_rootfs <image> <output_dir> <overlay_dir> <setup_script>
+build_rootfs() {
+    local IMAGE_NAME=$1
+    local OUTPUT_DIR=$2
+    local OVERLAY_DIR=$3
+    local SETUP_SCRIPT=$4
+    local ROOTFS_NAME="${IMAGE_NAME//:/-}"
+    local FROM_CTR="public.ecr.aws/docker/library/$IMAGE_NAME"
+    local rootfs="rootfs_${ROOTFS_NAME}_$$"
+
+    say "Building rootfs for $IMAGE_NAME"
+
+    mkdir -pv $rootfs
+
+    cp -rvf "$OVERLAY_DIR"/* "$rootfs"
+
+    # Run setup script inside the container image, then copy the
+    # resulting filesystem back to the bind-mounted rootfs directory.
+    docker run --env rootfs="$rootfs" --privileged --rm -i \
+        -v "$PWD:/work" -w "/work" "$FROM_CTR" sh -c '
+            # Make overlay files available inside the container
+            cp -ruv $rootfs/* /
+
+            # Run the setup script
+            if [ -e /bin/bash ]; then
+              bash /work/'"$SETUP_SCRIPT"'
+            else
+              sh /work/'"$SETUP_SCRIPT"'
+            fi
+
+            # Copy filesystem back to bind-mounted rootfs
+            dirs="bin etc home lib lib64 root sbin usr"
+            for d in $dirs; do [ -d "/$d" ] && tar c "/$d" | tar x -C $rootfs; done
+            mkdir -pv $rootfs/dev $rootfs/proc $rootfs/sys $rootfs/run $rootfs/tmp 
+            '
+
+    # TBD what about /etc/hosts?
+    echo > $rootfs/etc/resolv.conf
+
+    mkdir -pv "$OUTPUT_DIR"
+
+    # If manifest file is present in rootfs, move it to output dir
+    [ -f "$rootfs/root/manifest" ] && mv "$rootfs/root/manifest" "$OUTPUT_DIR/$ROOTFS_NAME.manifest"
+
+    mksquashfs "$rootfs" "$OUTPUT_DIR/$ROOTFS_NAME.squashfs" \
+        -all-root -noappend -comp zstd
+    rm -rf "$rootfs"
+}

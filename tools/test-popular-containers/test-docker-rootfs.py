@@ -5,7 +5,7 @@
 # pylint:disable=invalid-name
 
 """
-Test all the ext4 rootfs in the current directory
+Test all the squashfs rootfs in the current directory
 """
 
 import os
@@ -29,7 +29,7 @@ kernel = kernels[-1]
 vmfcty = MicroVMFactory(DEFAULT_BINARY_DIR)
 # (may take a while to compile Firecracker...)
 
-for rootfs in Path(".").glob("*.ext4"):
+for rootfs in Path(".").glob("*.squashfs"):
     print(f">>>> Testing {rootfs}")
     uvm = vmfcty.build(kernel, rootfs)
     uvm.spawn()
