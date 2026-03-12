@@ -50,12 +50,21 @@ const APIC_BASE_MSR: u32 = 0x800;
 const APIC_MSR_INDEXES: u32 = 0x400;
 
 /// Custom MSRs fall in the range 0x4b564d00-0x4b564dff
+const MSR_KVM_RANGE_START: u32 = 0x4b56_4d00;
+const MSR_KVM_RANGE_END: u32 = 0x4b56_4dff;
+#[allow(unused)]
 const MSR_KVM_WALL_CLOCK_NEW: u32 = 0x4b56_4d00;
+#[allow(unused)]
 const MSR_KVM_SYSTEM_TIME_NEW: u32 = 0x4b56_4d01;
+#[allow(unused)]
 const MSR_KVM_ASYNC_PF_EN: u32 = 0x4b56_4d02;
+#[allow(unused)]
 const MSR_KVM_STEAL_TIME: u32 = 0x4b56_4d03;
+#[allow(unused)]
 const MSR_KVM_PV_EOI_EN: u32 = 0x4b56_4d04;
+#[allow(unused)]
 const MSR_KVM_POLL_CONTROL: u32 = 0x4b56_4d05;
+#[allow(unused)]
 const MSR_KVM_ASYNC_PF_INT: u32 = 0x4b56_4d06;
 
 /// Taken from arch/x86/include/asm/msr-index.h
@@ -218,11 +227,6 @@ static SERIALIZABLE_MSR_RANGES: &[MsrRange] = &[
     MSR_RANGE!(MSR_TURBO_ACTIVATION_RATIO),
     MSR_RANGE!(MSR_IA32_TSC_DEADLINE),
     MSR_RANGE!(APIC_BASE_MSR, APIC_MSR_INDEXES),
-    MSR_RANGE!(MSR_KVM_WALL_CLOCK_NEW),
-    MSR_RANGE!(MSR_KVM_SYSTEM_TIME_NEW),
-    MSR_RANGE!(MSR_KVM_ASYNC_PF_EN),
-    MSR_RANGE!(MSR_KVM_STEAL_TIME),
-    MSR_RANGE!(MSR_KVM_PV_EOI_EN),
     MSR_RANGE!(MSR_EFER),
     MSR_RANGE!(MSR_STAR),
     MSR_RANGE!(MSR_LSTAR),
@@ -234,9 +238,11 @@ static SERIALIZABLE_MSR_RANGES: &[MsrRange] = &[
     MSR_RANGE!(MSR_TSC_AUX),
     MSR_RANGE!(MSR_MISC_FEATURES_ENABLES),
     MSR_RANGE!(MSR_K7_HWCR),
-    MSR_RANGE!(MSR_KVM_POLL_CONTROL),
-    MSR_RANGE!(MSR_KVM_ASYNC_PF_INT),
     MSR_RANGE!(MSR_IA32_TSX_CTRL),
+    MSR_RANGE!(
+        MSR_KVM_RANGE_START,
+        MSR_KVM_RANGE_END - MSR_KVM_RANGE_START + 1
+    ),
 ];
 
 /// Specifies whether a particular MSR should be included in vcpu serialization.
