@@ -791,16 +791,6 @@ impl PciDevice for VirtioPciDevice {
         self.configuration.detect_bar_reprogramming(reg_idx, data)
     }
 
-    fn move_bar(&mut self, old_base: u64, new_base: u64) -> Result<(), DeviceRelocationError> {
-        // We only update our idea of the bar in order to support free_bars() above.
-        // The majority of the reallocation is done inside DeviceManager.
-        if self.bar_address == old_base {
-            self.bar_address = new_base;
-        }
-
-        Ok(())
-    }
-
     fn read_bar(&mut self, _base: u64, offset: u64, data: &mut [u8]) {
         match offset {
             o if o < COMMON_CONFIG_BAR_OFFSET + COMMON_CONFIG_SIZE => {
