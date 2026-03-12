@@ -681,7 +681,10 @@ where
             .set_buf_alloc(defs::CONN_TX_BUF_SIZE)
             .set_fwd_cnt(self.fwd_cnt.0);
         match self.vsock_type {
-            VsockType::Seqpacket => hdr.set_type(uapi::VSOCK_TYPE_SEQPACKET),
+            VsockType::Seqpacket => {
+                hdr.set_msg_eom();
+                hdr.set_type(uapi::VSOCK_TYPE_SEQPACKET)
+            }
             VsockType::Stream => hdr.set_type(uapi::VSOCK_TYPE_STREAM),
         };
     }
