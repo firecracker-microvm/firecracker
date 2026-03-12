@@ -8,12 +8,12 @@
 use std::sync::{Arc, Mutex};
 
 use byteorder::{ByteOrder, LittleEndian};
-use pci::{PciCapabilityId, PciClassCode, PciSubclass};
 use serde::{Deserialize, Serialize};
 
 use super::BarReprogrammingParams;
 use super::msix::MsixConfig;
 use crate::logger::{info, warn};
+use crate::pci::{PciCapabilityId, PciClassCode};
 use crate::utils::u64_to_usize;
 
 // The number of 32bit registers in the config space, 4096 bytes.
@@ -98,7 +98,7 @@ impl PciConfiguration {
         device_id: u16,
         revision_id: u8,
         class_code: PciClassCode,
-        subclass: &dyn PciSubclass,
+        subclass: u8,
         subsystem_vendor_id: u16,
         subsystem_id: u16,
         msix_config: Option<Arc<Mutex<MsixConfig>>>,
@@ -108,8 +108,8 @@ impl PciConfiguration {
         registers[0] = (u32::from(device_id) << 16) | u32::from(vendor_id);
         // TODO(dverkamp): Status should be write-1-to-clear
         writable_bits[1] = 0x0000_ffff; // Status (r/o), command (r/w)
-        registers[2] = (u32::from(class_code.get_register_value()) << 24)
-            | (u32::from(subclass.get_register_value()) << 16)
+        registers[2] = (u32::from(class_code as u8) << 24)
+            | (u32::from(subclass) << 16)
             | u32::from(revision_id);
         writable_bits[3] = 0x0000_00ff; // Cacheline size (r/w)
         registers[3] = 0x0000_0000; // Header type 0 (device)
@@ -448,10 +448,10 @@ impl PciConfiguration {
 
 #[cfg(test)]
 mod tests {
-    use pci::PciMultimediaSubclass;
     use vm_memory::ByteValued;
 
     use super::*;
+    use crate::pci::PciMultimediaSubclass;
     use crate::pci::msix::MsixCap;
 
     #[repr(C, packed)]
@@ -645,7 +645,7 @@ mod tests {
             0x5678,
             0x1,
             PciClassCode::MultimediaController,
-            &PciMultimediaSubclass::AudioController,
+            PciMultimediaSubclass::AudioController as u8,
             0xABCD,
             0x2468,
             None,

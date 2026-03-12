@@ -16,10 +16,6 @@ use std::sync::{Arc, Barrier, Mutex};
 
 use kvm_ioctls::{IoEventAddress, NoDatamatch};
 use log::warn;
-use pci::{
-    PciBdf, PciCapabilityId, PciClassCode, PciMassStorageSubclass, PciNetworkControllerSubclass,
-    PciSubclass,
-};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use vm_allocator::{AddressAllocator, AllocPolicy, RangeInclusive};
@@ -38,7 +34,10 @@ use crate::devices::virtio::transport::{VirtioInterrupt, VirtioInterruptType};
 use crate::logger::{debug, error};
 use crate::pci::configuration::{PciCapability, PciConfiguration, PciConfigurationState};
 use crate::pci::msix::{MsixCap, MsixConfig, MsixConfigState};
-use crate::pci::{BarReprogrammingParams, DeviceRelocationError, PciDevice};
+use crate::pci::{
+    BarReprogrammingParams, DeviceRelocationError, PciBdf, PciCapabilityId, PciClassCode,
+    PciDevice, PciMassStorageSubclass, PciNetworkControllerSubclass,
+};
 use crate::snapshot::Persist;
 use crate::utils::u64_to_usize;
 use crate::vstate::bus::BusDevice;
@@ -195,14 +194,9 @@ struct VirtioPciCfgCapInfo {
 }
 
 #[derive(Debug, Copy, Clone)]
+#[repr(u8)]
 pub enum PciVirtioSubclass {
     NonTransitionalBase = 0xff,
-}
-
-impl PciSubclass for PciVirtioSubclass {
-    fn get_register_value(&self) -> u8 {
-        *self as u8
-    }
 }
 
 // Allocate one bar for the structs pointed to by the capability structures.
@@ -309,15 +303,15 @@ impl VirtioPciDevice {
         let (class, subclass) = match device_type {
             VirtioDeviceType::Net => (
                 PciClassCode::NetworkController,
-                &PciNetworkControllerSubclass::EthernetController as &dyn PciSubclass,
+                PciNetworkControllerSubclass::EthernetController as u8,
             ),
             VirtioDeviceType::Block => (
-                PciClassCode::MassStorage,
-                &PciMassStorageSubclass::MassStorage as &dyn PciSubclass,
+                PciClassCode::MassStorageController,
+                PciMassStorageSubclass::MassStorage as u8,
             ),
             _ => (
-                PciClassCode::Other,
-                &PciVirtioSubclass::NonTransitionalBase as &dyn PciSubclass,
+                PciClassCode::UnassignedClass,
+                PciVirtioSubclass::NonTransitionalBase as u8,
             ),
         };
 
@@ -958,7 +952,6 @@ mod tests {
 
     use event_manager::MutEventSubscriber;
     use linux_loader::loader::Cmdline;
-    use pci::{PciCapabilityId, PciClassCode, PciSubclass};
     use vm_memory::{ByteValued, Le32};
 
     use super::{PciCapabilityType, VirtioPciDevice};
@@ -974,8 +967,8 @@ mod tests {
         NOTIFY_OFF_MULTIPLIER, PciVirtioSubclass, VirtioPciCap, VirtioPciCfgCap,
         VirtioPciNotifyCap,
     };
-    use crate::pci::PciDevice;
     use crate::pci::msix::MsixCap;
+    use crate::pci::{PciCapabilityId, PciClassCode, PciDevice};
     use crate::rate_limiter::RateLimiter;
     use crate::utils::u64_to_usize;
     use crate::{Vm, Vmm};
@@ -1044,19 +1037,16 @@ mod tests {
         // register 0x2: | Class code | Subclass | Prog IF | Revision ID |
         //
         // Class code: VIRTIO_PCI_VENDOR_ID for all VirtIO devices
-        // Subclass: PciClassCode::NetworkController for net, PciClassCode::MassStore for block
-        //           PciClassCode::Other for everything else
+        // Subclass: PciClassCode::NetworkController for net, PciClassCode::MassStorageController
+        // for block           PciClassCode::UnassignedClass for everything else
         // Prog IF: A register defining some programmable interface register. 0 for VirtIO devices
         // Revision ID: 0x1 for modern VirtIO devices
         let reg2 = locked_virtio_pci_device.read_config_register(2);
         assert_eq!(reg2, 0xffff_0001);
         let class_code = ((reg2 >> 24) & 0xff) as u8;
-        assert_eq!(class_code, PciClassCode::Other.get_register_value());
+        assert_eq!(class_code, PciClassCode::UnassignedClass as u8);
         let subclass = ((reg2 >> 16) & 0xff) as u8;
-        assert_eq!(
-            subclass,
-            PciVirtioSubclass::NonTransitionalBase.get_register_value()
-        );
+        assert_eq!(subclass, PciVirtioSubclass::NonTransitionalBase as u8);
         let prog_if = ((reg2 >> 8) & 0xff) as u8;
         assert_eq!(prog_if, 0);
         let revision_id = reg2 & 0xff;

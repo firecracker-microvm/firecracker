@@ -11,11 +11,10 @@ use std::ops::DerefMut;
 use std::sync::{Arc, Barrier, Mutex};
 
 use byteorder::{ByteOrder, LittleEndian};
-use pci::{PciBridgeSubclass, PciClassCode};
 
 use crate::logger::error;
 use crate::pci::configuration::PciConfiguration;
-use crate::pci::{DeviceRelocation, PciDevice};
+use crate::pci::{DeviceRelocation, PciBridgeSubclass, PciClassCode, PciDevice};
 use crate::utils::u64_to_usize;
 use crate::vstate::bus::BusDevice;
 
@@ -48,8 +47,8 @@ impl PciRoot {
                     VENDOR_ID_INTEL,
                     DEVICE_ID_INTEL_VIRT_PCIE_HOST,
                     0,
-                    PciClassCode::BridgeDevice,
-                    &PciBridgeSubclass::HostBridge,
+                    PciClassCode::Bridge,
+                    PciBridgeSubclass::HostBridge as u8,
                     0,
                     0,
                     None,
@@ -453,12 +452,13 @@ mod tests {
     use std::sync::atomic::AtomicUsize;
     use std::sync::{Arc, Mutex};
 
-    use pci::{PciClassCode, PciMassStorageSubclass};
-
     use super::{PciBus, PciConfigIo, PciConfigMmio, PciRoot};
     use crate::pci::bus::{DEVICE_ID_INTEL_VIRT_PCIE_HOST, VENDOR_ID_INTEL};
     use crate::pci::configuration::PciConfiguration;
-    use crate::pci::{BarReprogrammingParams, DeviceRelocation, DeviceRelocationError, PciDevice};
+    use crate::pci::{
+        BarReprogrammingParams, DeviceRelocation, DeviceRelocationError, PciClassCode, PciDevice,
+        PciMassStorageSubclass,
+    };
     use crate::vstate::bus::BusDevice;
 
     #[derive(Debug, Default)]
@@ -494,8 +494,8 @@ mod tests {
                 0x42,
                 0x0,
                 0x0,
-                PciClassCode::MassStorage,
-                &PciMassStorageSubclass::SerialScsiController,
+                PciClassCode::MassStorageController,
+                PciMassStorageSubclass::SerialScsiController as u8,
                 0x13,
                 0x12,
                 None,

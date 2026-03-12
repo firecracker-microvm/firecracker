@@ -106,9 +106,10 @@ impl Aml for ACPIDeviceManager {
                     ]),
                 )?,
                 // We know that the maximum IRQ number fits in a u8. We have up to
-                // 32 IRQs in x86 and up to 128 in ARM (look into `vmm::crate::arch::layout::GSI_LEGACY_END`).
-                // Both `vmgenid.gsi` and `vmclock.gsi` can safely be cast to `u8`
-                // without truncation, so we let clippy know.
+                // 32 IRQs in x86 and up to 128 in ARM (look into
+                // `vmm::crate::arch::layout::GSI_LEGACY_END`). Both `vmgenid.gsi`
+                // and `vmclock.gsi` can safely be cast to `u8` without truncation,
+                // so we let clippy know.
                 &aml::Method::new(
                     "_EVT".try_into()?,
                     1,
