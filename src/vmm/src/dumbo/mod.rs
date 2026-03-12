@@ -13,7 +13,6 @@ pub use crate::dumbo::pdu::ethernet::{
     ETHERTYPE_ARP, ETHERTYPE_IPV4, EthernetFrame, PAYLOAD_OFFSET as ETHERNET_PAYLOAD_OFFSET,
 };
 pub use crate::dumbo::pdu::ipv4::{IPv4Packet, PROTOCOL_TCP, PROTOCOL_UDP};
-pub use crate::dumbo::pdu::udp::{UDP_HEADER_SIZE, UdpDatagram};
 use crate::utils::net::mac::MacAddr;
 
 /// Represents a generalization of a borrowed `[u8]` slice.
