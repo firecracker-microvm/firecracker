@@ -30,6 +30,11 @@ use crate::vstate::bus::BusDevice;
 pub const IER_RDA_BIT: u8 = 0b0000_0001;
 /// Received Data Available interrupt offset
 pub const IER_RDA_OFFSET: u8 = 1;
+/// Transmitter Holding Register Empty interrupt - enables TX interrupt
+/// so the guest serial driver gets notified when it can send the next byte.
+/// Without this bit set after snapshot restore, the guest 8250 driver stalls
+/// because it waits for a THRE interrupt that the emulator never fires.
+pub const IER_THR_EMPTY_BIT: u8 = 0b0000_0010;
 
 /// Metrics specific to the UART device.
 #[derive(Debug, Serialize, Default)]
