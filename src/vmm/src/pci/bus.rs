@@ -466,12 +466,6 @@ mod tests {
         reloc_cnt: AtomicUsize,
     }
 
-    impl RelocationMock {
-        fn cnt(&self) -> usize {
-            self.reloc_cnt.load(std::sync::atomic::Ordering::SeqCst)
-        }
-    }
-
     impl DeviceRelocation for RelocationMock {
         fn move_bar(
             &self,
@@ -490,7 +484,7 @@ mod tests {
 
     impl PciDevMock {
         fn new() -> Self {
-            let mut config = PciConfiguration::new_type0(
+            let config = PciConfiguration::new_type0(
                 0x42,
                 0x0,
                 0x0,
@@ -500,9 +494,6 @@ mod tests {
                 0x12,
                 None,
             );
-
-            config.add_pci_bar(0, 0x1000, 0x1000);
-
             PciDevMock(config)
         }
     }
@@ -524,10 +515,10 @@ mod tests {
 
         fn detect_bar_reprogramming(
             &mut self,
-            reg_idx: usize,
-            data: &[u8],
+            _reg_idx: usize,
+            _data: &[u8],
         ) -> Option<BarReprogrammingParams> {
-            self.0.detect_bar_reprogramming(reg_idx, data)
+            None
         }
     }
 
@@ -909,57 +900,5 @@ mod tests {
         write_mmio_config(&mut mmio_config, 0, 0, 0, 15, 0, &[0x42]);
         read_mmio_config(&mut mmio_config, 0, 0, 0, 15, 0, &mut buffer);
         assert_eq!(buffer[0], 0x42);
-    }
-
-    #[test]
-    fn test_bar_reprogramming() {
-        let (mut mmio_config, _, mock) = initialize_bus();
-        let mut buffer = [0u8; 4];
-        assert_eq!(mock.cnt(), 0);
-
-        read_mmio_config(&mut mmio_config, 0, 1, 0, 0x4, 0, &mut buffer);
-        let old_addr = u32::from_le_bytes(buffer) & 0xffff_fff0;
-        assert_eq!(old_addr, 0x1000);
-
-        // Writing the lower 32bits first should not trigger any reprogramming
-        write_mmio_config(
-            &mut mmio_config,
-            0,
-            1,
-            0,
-            0x4,
-            0,
-            &u32::to_le_bytes(0x1312_0000),
-        );
-
-        read_mmio_config(&mut mmio_config, 0, 1, 0, 0x4, 0, &mut buffer);
-        let new_addr = u32::from_le_bytes(buffer) & 0xffff_fff0;
-        assert_eq!(new_addr, 0x1312_0000);
-        assert_eq!(mock.cnt(), 0);
-
-        // Writing the upper 32bits first should now trigger the reprogramming logic
-        write_mmio_config(&mut mmio_config, 0, 1, 0, 0x5, 0, &u32::to_le_bytes(0x1110));
-        read_mmio_config(&mut mmio_config, 0, 1, 0, 0x5, 0, &mut buffer);
-        let new_addr = u32::from_le_bytes(buffer);
-        assert_eq!(new_addr, 0x1110);
-        assert_eq!(mock.cnt(), 1);
-
-        // BAR2 should not be used, so reading its address should return all 0s
-        read_mmio_config(&mut mmio_config, 0, 1, 0, 0x6, 0, &mut buffer);
-        assert_eq!(buffer, [0x0, 0x0, 0x0, 0x0]);
-
-        // and reprogramming shouldn't have any effect
-        write_mmio_config(
-            &mut mmio_config,
-            0,
-            1,
-            0,
-            0x5,
-            0,
-            &u32::to_le_bytes(0x1312_1110),
-        );
-
-        read_mmio_config(&mut mmio_config, 0, 1, 0, 0x6, 0, &mut buffer);
-        assert_eq!(buffer, [0x0, 0x0, 0x0, 0x0]);
     }
 }

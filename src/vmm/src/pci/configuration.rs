@@ -12,9 +12,8 @@ use pci::{PciCapabilityId, PciClassCode, PciSubclass};
 use serde::{Deserialize, Serialize};
 use zerocopy::{FromBytes, IntoBytes};
 
-use super::BarReprogrammingParams;
 use super::msix::MsixConfig;
-use crate::logger::{info, warn};
+use crate::logger::warn;
 use crate::utils::u64_to_usize;
 
 // The number of 32bit registers in the config space, 4096 bytes.
@@ -23,7 +22,6 @@ const NUM_CONFIGURATION_REGISTERS: usize = 1024;
 const STATUS_REG: usize = 1;
 const STATUS_REG_CAPABILITIES_USED_MASK: u32 = 0x0010_0000;
 const ROM_BAR_REG: usize = 12;
-const BAR_MEM_ADDR_MASK: u32 = 0xffff_fff0;
 const ROM_BAR_ADDR_MASK: u32 = 0xffff_f800;
 const MSI_CAPABILITY_REGISTER_MASK: u32 = 0x0071_0000;
 const MSIX_CAPABILITY_REGISTER_MASK: u32 = 0xc000_0000;
@@ -151,27 +149,11 @@ pub trait PciCapability {
     fn id(&self) -> PciCapabilityId;
 }
 
-// Decode the BAR size from the value stored in the BAR registers.
-fn decode_64_bits_bar_size(bar_size_hi: u32, bar_size_lo: u32) -> u64 {
-    let bar_size: u64 = ((bar_size_hi as u64) << 32) | (bar_size_lo as u64);
-    let size = !bar_size + 1;
-    assert_ne!(size, 0);
-    size
-}
-
-#[derive(Debug, Default, Clone, Copy, Serialize, Deserialize)]
-struct PciBar {
-    addr: u32,
-    size: u32,
-    used: bool,
-}
-
 /// PCI configuration space state for (de)serialization
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PciConfigurationState {
     registers: Vec<u32>,
     writable_bits: Vec<u32>,
-    bars: Vec<PciBar>,
     last_capability: Option<(usize, usize)>,
     msix_cap_reg_idx: Option<usize>,
 }
@@ -184,7 +166,6 @@ pub struct PciConfigurationState {
 pub struct PciConfiguration {
     registers: [u32; NUM_CONFIGURATION_REGISTERS],
     writable_bits: [u32; NUM_CONFIGURATION_REGISTERS], // writable bits for each register.
-    bars: [PciBar; NUM_BAR_REGS as usize],
     // Contains the byte offset and size of the last capability.
     last_capability: Option<(usize, usize)>,
     msix_cap_reg_idx: Option<usize>,
@@ -220,7 +201,6 @@ impl PciConfiguration {
         PciConfiguration {
             registers,
             writable_bits,
-            bars: [PciBar::default(); NUM_BAR_REGS as usize],
             last_capability: None,
             msix_cap_reg_idx: None,
             msix_config,
@@ -235,7 +215,6 @@ impl PciConfiguration {
         PciConfiguration {
             registers: state.registers.try_into().unwrap(),
             writable_bits: state.writable_bits.try_into().unwrap(),
-            bars: state.bars.try_into().unwrap(),
             last_capability: state.last_capability,
             msix_cap_reg_idx: state.msix_cap_reg_idx,
             msix_config,
@@ -247,7 +226,6 @@ impl PciConfiguration {
         PciConfigurationState {
             registers: self.registers.to_vec(),
             writable_bits: self.writable_bits.to_vec(),
-            bars: self.bars.to_vec(),
             last_capability: self.last_capability,
             msix_cap_reg_idx: self.msix_cap_reg_idx,
         }
@@ -262,13 +240,7 @@ impl PciConfiguration {
     pub fn write_reg(&mut self, reg_idx: usize, value: u32) {
         let mut mask = self.writable_bits[reg_idx];
 
-        if (BAR0_REG as usize..(BAR0_REG + NUM_BAR_REGS) as usize).contains(&reg_idx) {
-            // Handle very specific case where the BAR is being written with
-            // all 1's to retrieve the BAR size during next BAR reading.
-            if value == 0xffff_ffff {
-                mask &= self.bars[reg_idx - 4].size;
-            }
-        } else if reg_idx == ROM_BAR_REG {
+        if reg_idx == ROM_BAR_REG {
             // Handle very specific case where the BAR is being written with
             // all 1's on bits 31-11 to retrieve the BAR size during next BAR
             // reading.
@@ -328,68 +300,6 @@ impl PciConfiguration {
         } else {
             warn!("bad PCI config write offset {}", offset);
         }
-    }
-
-    /// Add the [addr, addr + size) BAR region.
-    ///
-    /// Configures the specified BAR to report this region and size to the guest kernel.
-    /// Enforces a few constraints (i.e, region size must be power of two, register not already
-    /// used).
-    pub fn add_pci_bar(&mut self, bar_idx: usize, addr: u64, size: u64) {
-        let reg_idx = BAR0_REG as usize + bar_idx;
-
-        // These are a few constraints that are imposed due to the fact
-        // that only VirtIO devices are actually allocating a BAR. Moreover, this is
-        // a single 64-bit BAR. Not conforming to these requirements is an internal
-        // Firecracker bug.
-
-        // We are only using BAR 0
-        assert_eq!(bar_idx, 0);
-        // We shouldn't be trying to use the same BAR twice
-        assert!(!self.bars[0].used);
-        assert!(!self.bars[1].used);
-        // We can't have a size of 0
-        assert_ne!(size, 0);
-        // BAR size needs to be a power of two
-        assert!(size.is_power_of_two());
-        // We should not be overflowing the address space
-        addr.checked_add(size - 1).unwrap();
-
-        // Encode the BAR size as expected by the software running in
-        // the guest.
-        let (bar_size_hi, bar_size_lo) = encode_64_bits_bar_size(size);
-
-        self.registers[reg_idx + 1] = (addr >> 32) as u32;
-        self.writable_bits[reg_idx + 1] = 0xffff_ffff;
-        self.bars[bar_idx + 1].addr = self.registers[reg_idx + 1];
-        self.bars[bar_idx].size = bar_size_lo;
-        self.bars[bar_idx + 1].size = bar_size_hi;
-        self.bars[bar_idx + 1].used = true;
-
-        // Addresses of memory BARs are 16-byte aligned so the lower 4 bits are always 0. Within
-        // the register we use this 4 bits to encode extra information about the BAR. The meaning
-        // of these bits is:
-        //
-        // |    Bit 3     | Bits 2-1 |  Bit 0   |
-        // | Prefetchable |   type   | Always 0 |
-        //
-        // Non-prefetchable, 64 bits BAR region
-        self.registers[reg_idx] = (((addr & 0xffff_ffff) as u32) & BAR_MEM_ADDR_MASK) | 4u32;
-        self.writable_bits[reg_idx] = BAR_MEM_ADDR_MASK;
-        self.bars[bar_idx].addr = self.registers[reg_idx];
-        self.bars[bar_idx].used = true;
-    }
-
-    /// Returns the address of the given BAR region.
-    ///
-    /// This assumes that `bar_idx` is a valid BAR register.
-    pub fn get_bar_addr(&self, bar_idx: usize) -> u64 {
-        assert!(bar_idx < NUM_BAR_REGS as usize);
-
-        let reg_idx = BAR0_REG as usize + bar_idx;
-
-        (u64::from(self.bars[bar_idx].addr & self.writable_bits[reg_idx]))
-            | (u64::from(self.bars[bar_idx + 1].addr) << 32)
     }
 
     /// Adds the capability `cap_data` to the list of capabilities.
@@ -477,73 +387,6 @@ impl PciConfiguration {
             4 => self.write_reg(reg_idx, LittleEndian::read_u32(data)),
             _ => (),
         }
-    }
-
-    /// Detect whether the guest wants to reprogram the address of a BAR
-    pub fn detect_bar_reprogramming(
-        &mut self,
-        reg_idx: usize,
-        data: &[u8],
-    ) -> Option<BarReprogrammingParams> {
-        if data.len() != 4 {
-            return None;
-        }
-
-        let value = LittleEndian::read_u32(data);
-
-        let mask = self.writable_bits[reg_idx];
-        if !(BAR0_REG as usize..(BAR0_REG + NUM_BAR_REGS) as usize).contains(&reg_idx) {
-            return None;
-        }
-
-        // Ignore the case where the BAR size is being asked for.
-        if value == 0xffff_ffff {
-            return None;
-        }
-
-        let bar_idx = reg_idx - 4;
-
-        // Do not reprogram BARs we are not using
-        if !self.bars[bar_idx].used {
-            return None;
-        }
-
-        // We are always using 64bit BARs, so two BAR registers. We don't do anything until
-        // the upper BAR is modified, otherwise we would be moving the BAR to a wrong
-        // location in memory.
-        if bar_idx == 0 {
-            return None;
-        }
-
-        // The lower BAR (of this 64bit BAR) has been reprogrammed to a different value
-        // than it used to be
-        if (self.registers[reg_idx - 1] & self.writable_bits[reg_idx - 1])
-                    != (self.bars[bar_idx - 1].addr & self.writable_bits[reg_idx - 1]) ||
-                    // Or the lower BAR hasn't been changed but the upper one is being reprogrammed
-                    // now to a different value
-                    (value & mask) != (self.bars[bar_idx].addr & mask)
-        {
-            info!(
-                "Detected BAR reprogramming: (BAR {}) 0x{:x}->0x{:x}",
-                reg_idx, self.registers[reg_idx], value
-            );
-            let old_base = (u64::from(self.bars[bar_idx].addr & mask) << 32)
-                | u64::from(self.bars[bar_idx - 1].addr & self.writable_bits[reg_idx - 1]);
-            let new_base = (u64::from(value & mask) << 32)
-                | u64::from(self.registers[reg_idx - 1] & self.writable_bits[reg_idx - 1]);
-            let len = decode_64_bits_bar_size(self.bars[bar_idx].size, self.bars[bar_idx - 1].size);
-
-            self.bars[bar_idx].addr = value;
-            self.bars[bar_idx - 1].addr = self.registers[reg_idx - 1];
-
-            return Some(BarReprogrammingParams {
-                old_base,
-                new_base,
-                len,
-            });
-        }
-
-        None
     }
 }
 
@@ -766,104 +609,6 @@ mod tests {
     }
 
     #[test]
-    #[should_panic]
-    fn test_encode_zero_sized_bar() {
-        encode_64_bits_bar_size(0);
-    }
-
-    #[test]
-    #[should_panic]
-    fn test_decode_zero_sized_bar() {
-        decode_64_bits_bar_size(0, 0);
-    }
-
-    #[test]
-    fn test_bar_size_encoding() {
-        // According to OSDev wiki (https://wiki.osdev.org/PCI#Address_and_size_of_the_BAR):
-        //
-        // > To determine the amount of address space needed by a PCI device, you must save the
-        // > original value of the BAR, write a value of all 1's to the register, then read it back.
-        // > The amount of memory can then be determined by masking the information bits, performing
-        // > a bitwise NOT ('~' in C), and incrementing the value by 1. The original value of the
-        // BAR > should then be restored. The BAR register is naturally aligned and as such you can
-        // only > modify the bits that are set. For example, if a device utilizes 16 MB it will
-        // have BAR0 > filled with 0xFF000000 (0x1000000 after decoding) and you can only modify
-        // the upper > 8-bits.
-        //
-        // So, we encode a 64 bits size and then store it as a 2 32bit addresses (we use
-        // two BARs).
-        let (hi, lo) = encode_64_bits_bar_size(0xffff_ffff_ffff_fff0);
-        assert_eq!(hi, 0);
-        assert_eq!(lo, 0x0000_0010);
-        assert_eq!(decode_64_bits_bar_size(hi, lo), 0xffff_ffff_ffff_fff0);
-    }
-
-    #[test]
-    #[should_panic]
-    fn test_bar_size_no_power_of_two() {
-        let mut pci_config = default_pci_config();
-        pci_config.add_pci_bar(0, 0x1000, 0x1001);
-    }
-
-    #[test]
-    #[should_panic]
-    fn test_bad_bar_index() {
-        let mut pci_config = default_pci_config();
-        pci_config.add_pci_bar(NUM_BAR_REGS as usize, 0x1000, 0x1000);
-    }
-
-    #[test]
-    #[should_panic]
-    fn test_bad_64bit_bar_index() {
-        let mut pci_config = default_pci_config();
-        pci_config.add_pci_bar(NUM_BAR_REGS as usize - 1, 0x1000, 0x1000);
-    }
-
-    #[test]
-    #[should_panic]
-    fn test_bar_size_overflows() {
-        let mut pci_config = default_pci_config();
-        pci_config.add_pci_bar(0, u64::MAX, 0x2);
-    }
-
-    #[test]
-    #[should_panic]
-    fn test_lower_bar_free_upper_used() {
-        let mut pci_config = default_pci_config();
-        pci_config.add_pci_bar(1, 0x1000, 0x1000);
-        pci_config.add_pci_bar(0, 0x1000, 0x1000);
-    }
-
-    #[test]
-    #[should_panic]
-    fn test_lower_bar_used() {
-        let mut pci_config = default_pci_config();
-        pci_config.add_pci_bar(0, 0x1000, 0x1000);
-        pci_config.add_pci_bar(0, 0x1000, 0x1000);
-    }
-
-    #[test]
-    #[should_panic]
-    fn test_upper_bar_used() {
-        let mut pci_config = default_pci_config();
-        pci_config.add_pci_bar(0, 0x1000, 0x1000);
-        pci_config.add_pci_bar(1, 0x1000, 0x1000);
-    }
-
-    #[test]
-    fn test_add_pci_bar() {
-        let mut pci_config = default_pci_config();
-
-        pci_config.add_pci_bar(0, 0x1_0000_0000, 0x1000);
-
-        assert_eq!(pci_config.get_bar_addr(0), 0x1_0000_0000);
-        assert_eq!(pci_config.read_reg(BAR0_REG as usize) & 0xffff_fff0, 0x0);
-        assert!(pci_config.bars[0].used);
-        assert_eq!(pci_config.read_reg(BAR0_REG as usize + 1), 1);
-        assert!(pci_config.bars[0].used);
-    }
-
-    #[test]
     fn test_access_invalid_reg() {
         let mut pci_config = default_pci_config();
 
@@ -898,95 +643,6 @@ mod tests {
     }
 
     #[test]
-    fn test_detect_bar_reprogramming() {
-        let mut pci_config = default_pci_config();
-
-        // Trying to reprogram with something less than 4 bytes (length of the address) should fail
-        assert!(
-            pci_config
-                .detect_bar_reprogramming(BAR0_REG as usize, &[0x13])
-                .is_none()
-        );
-        assert!(
-            pci_config
-                .detect_bar_reprogramming(BAR0_REG as usize, &[0x13, 0x12])
-                .is_none()
-        );
-        assert!(
-            pci_config
-                .detect_bar_reprogramming(BAR0_REG as usize, &[0x13, 0x12])
-                .is_none()
-        );
-        assert!(
-            pci_config
-                .detect_bar_reprogramming(BAR0_REG as usize, &[0x13, 0x12, 0x16])
-                .is_none()
-        );
-
-        // Writing all 1s is a special case where we're actually asking for the size of the BAR
-        assert!(
-            pci_config
-                .detect_bar_reprogramming(BAR0_REG as usize, &u32::to_le_bytes(0xffff_ffff))
-                .is_none()
-        );
-
-        // Trying to reprogram a BAR that hasn't be initialized does nothing
-        for reg_idx in BAR0_REG..BAR0_REG + NUM_BAR_REGS {
-            assert!(
-                pci_config
-                    .detect_bar_reprogramming(reg_idx as usize, &u32::to_le_bytes(0x1312_4243))
-                    .is_none()
-            );
-        }
-
-        // Reprogramming of a 64bit BAR
-        pci_config.add_pci_bar(0, 0x13_1200_0000, 0x8000);
-
-        // First we write the lower 32 bits and this shouldn't cause any reprogramming
-        assert!(
-            pci_config
-                .detect_bar_reprogramming(BAR0_REG as usize, &u32::to_le_bytes(0x4200_0000))
-                .is_none()
-        );
-        pci_config.write_config_register(BAR0_REG as usize, 0, &u32::to_le_bytes(0x4200_0000));
-
-        // Writing the upper 32 bits should trigger the reprogramming
-        assert_eq!(
-            pci_config.detect_bar_reprogramming(BAR0_REG as usize + 1, &u32::to_le_bytes(0x84)),
-            Some(BarReprogrammingParams {
-                old_base: 0x13_1200_0000,
-                new_base: 0x84_4200_0000,
-                len: 0x8000,
-            })
-        );
-        pci_config.write_config_register(BAR0_REG as usize + 1, 0, &u32::to_le_bytes(0x84));
-
-        // Trying to reprogram the upper bits directly (without first touching the lower bits)
-        // should trigger a reprogramming
-        assert_eq!(
-            pci_config.detect_bar_reprogramming(BAR0_REG as usize + 1, &u32::to_le_bytes(0x1312)),
-            Some(BarReprogrammingParams {
-                old_base: 0x84_4200_0000,
-                new_base: 0x1312_4200_0000,
-                len: 0x8000,
-            })
-        );
-        pci_config.write_config_register(BAR0_REG as usize + 1, 0, &u32::to_le_bytes(0x1312));
-
-        // Attempting to reprogram the BAR with the same address should not have any effect
-        assert!(
-            pci_config
-                .detect_bar_reprogramming(BAR0_REG as usize, &u32::to_le_bytes(0x4200_0000))
-                .is_none()
-        );
-        assert!(
-            pci_config
-                .detect_bar_reprogramming(BAR0_REG as usize + 1, &u32::to_le_bytes(0x1312))
-                .is_none()
-        );
-    }
-
-    #[test]
     fn test_rom_bar() {
         let mut pci_config = default_pci_config();
 
@@ -998,6 +654,12 @@ mod tests {
         // Reading the size of the BAR should always return 0 as well
         pci_config.write_reg(ROM_BAR_REG, 0xffff_ffff);
         assert_eq!(pci_config.read_reg(ROM_BAR_REG), 0);
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_encode_zero_sized_bar() {
+        encode_64_bits_bar_size(0);
     }
 
     #[test]
