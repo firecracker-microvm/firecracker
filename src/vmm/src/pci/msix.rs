@@ -10,6 +10,7 @@ use byteorder::{ByteOrder, LittleEndian};
 use pci::PciCapabilityId;
 use serde::{Deserialize, Serialize};
 use vm_memory::ByteValued;
+use zerocopy::FromBytes;
 
 use crate::Vm;
 use crate::logger::{debug, error, warn};
@@ -202,6 +203,18 @@ impl MsixConfig {
                     self.inject_msix_and_clear_pba(index);
                 }
             }
+        }
+    }
+
+    /// Write to the Message Control register
+    pub fn write_msg_ctl_register(&mut self, offset: u8, data: &[u8]) {
+        if offset == 2 && data.len() == 2 {
+            // 2-bytes write in the Message Control field
+            self.set_msg_ctl(u16::read_from_bytes(data).unwrap());
+        } else if offset == 0 && data.len() == 4 {
+            // 4 bytes write at the beginning. Ignore the first 2 bytes which are the
+            // capability id and next capability pointer
+            self.set_msg_ctl((u32::read_from_bytes(data).unwrap() >> 16) as u16);
         }
     }
 

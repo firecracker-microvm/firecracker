@@ -52,7 +52,6 @@ impl PciRoot {
                     &PciBridgeSubclass::HostBridge,
                     0,
                     0,
-                    None,
                 ),
             }
         }
@@ -492,7 +491,6 @@ mod tests {
                 &PciMassStorageSubclass::SerialScsiController,
                 0x13,
                 0x12,
-                None,
             );
             PciDevMock(config)
         }
