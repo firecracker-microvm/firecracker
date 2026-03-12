@@ -5,13 +5,10 @@
 //
 // SPDX-License-Identifier: Apache-2.0 AND BSD-3-Clause
 
-use std::sync::{Arc, Mutex};
-
 use byteorder::{ByteOrder, LittleEndian};
 use serde::{Deserialize, Serialize};
 use zerocopy::{FromBytes, IntoBytes};
 
-use super::msix::MsixConfig;
 use crate::logger::warn;
 use crate::pci::{PciCapabilityId, PciClassCode};
 
@@ -186,7 +183,6 @@ pub struct PciConfigurationState {
     registers: Vec<u32>,
     writable_bits: Vec<u32>,
     last_capability: Option<(u8, u8)>,
-    msix_cap_reg_idx: Option<u16>,
 }
 
 #[derive(Debug)]
@@ -199,8 +195,6 @@ pub struct PciConfiguration {
     writable_bits: [u32; NUM_CONFIGURATION_REGISTERS], // writable bits for each register.
     // Contains the byte offset and size of the last capability.
     last_capability: Option<(u8, u8)>,
-    msix_cap_reg_idx: Option<u16>,
-    msix_config: Option<Arc<Mutex<MsixConfig>>>,
 }
 
 impl PciConfiguration {
@@ -214,7 +208,6 @@ impl PciConfiguration {
         subclass: u8,
         subsystem_vendor_id: u16,
         subsystem_id: u16,
-        msix_config: Option<Arc<Mutex<MsixConfig>>>,
     ) -> Self {
         let mut registers = [0u32; NUM_CONFIGURATION_REGISTERS];
         let mut writable_bits = [0u32; NUM_CONFIGURATION_REGISTERS];
@@ -233,16 +226,11 @@ impl PciConfiguration {
             registers,
             writable_bits,
             last_capability: None,
-            msix_cap_reg_idx: None,
-            msix_config,
         }
     }
 
     /// Create a type 0 PCI configuration from snapshot state
-    pub fn type0_from_state(
-        state: PciConfigurationState,
-        msix_config: Option<Arc<Mutex<MsixConfig>>>,
-    ) -> Result<Self, PciConfigurationError> {
+    pub fn type0_from_state(state: PciConfigurationState) -> Result<Self, PciConfigurationError> {
         let reg_len = state.registers.len();
         let registers = state
             .registers
@@ -259,8 +247,6 @@ impl PciConfiguration {
             registers,
             writable_bits,
             last_capability: state.last_capability,
-            msix_cap_reg_idx: state.msix_cap_reg_idx,
-            msix_config,
         })
     }
 
@@ -270,7 +256,6 @@ impl PciConfiguration {
             registers: self.registers.to_vec(),
             writable_bits: self.writable_bits.to_vec(),
             last_capability: self.last_capability,
-            msix_cap_reg_idx: self.msix_cap_reg_idx,
         }
     }
 
@@ -384,9 +369,7 @@ impl PciConfiguration {
                 self.writable_bits[(cap_offset / 4) as usize] = MSI_CAPABILITY_REGISTER_MASK;
             }
             PciCapabilityId::MsiX => {
-                self.msix_cap_reg_idx = Some(u16::from(cap_offset) / 4);
-                self.writable_bits[self.msix_cap_reg_idx.unwrap() as usize] =
-                    MSIX_CAPABILITY_REGISTER_MASK;
+                self.writable_bits[(cap_offset / 4) as usize] = MSIX_CAPABILITY_REGISTER_MASK;
             }
             _ => {}
         }
@@ -408,26 +391,6 @@ impl PciConfiguration {
 
         if offset as usize + data.len() > 4 {
             return;
-        }
-
-        // Handle potential write to MSI-X message control register
-        if let Some(msix_cap_reg_idx) = self.msix_cap_reg_idx
-            && let Some(msix_config) = &self.msix_config
-        {
-            if msix_cap_reg_idx == reg_idx && offset == 2 && data.len() == 2 {
-                // 2-bytes write in the Message Control field
-                msix_config
-                    .lock()
-                    .unwrap()
-                    .set_msg_ctl(LittleEndian::read_u16(data));
-            } else if msix_cap_reg_idx == reg_idx && offset == 0 && data.len() == 4 {
-                // 4 bytes write at the beginning. Ignore the first 2 bytes which are the
-                // capability id and next capability pointer
-                msix_config
-                    .lock()
-                    .unwrap()
-                    .set_msg_ctl((LittleEndian::read_u32(data) >> 16) as u16);
-            }
         }
 
         match data.len() {
@@ -647,7 +610,6 @@ mod tests {
             PciMultimediaSubclass::AudioController as u8,
             0xABCD,
             0x2468,
-            None,
         )
     }
 
