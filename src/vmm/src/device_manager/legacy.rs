@@ -26,7 +26,6 @@ pub enum LegacyDeviceError {
 
 /// The `PortIODeviceManager` is a wrapper that is used for registering legacy devices
 /// on an I/O Bus. It currently manages the uart and i8042 devices.
-/// The `LegacyDeviceManger` should be initialized only by using the constructor.
 #[derive(Debug)]
 pub struct PortIODeviceManager {
     // BusDevice::Serial
@@ -51,17 +50,6 @@ impl PortIODeviceManager {
     const I8042_KDB_DATA_REGISTER_ADDRESS: u64 = 0x060;
     /// i8042 keyboard data register size.
     const I8042_KDB_DATA_REGISTER_SIZE: u64 = 0x5;
-
-    /// Create a new DeviceManager handling legacy devices (uart, i8042).
-    pub fn new(
-        stdio_serial: Arc<Mutex<SerialDevice>>,
-        i8042: Arc<Mutex<I8042Device>>,
-    ) -> Result<Self, LegacyDeviceError> {
-        Ok(PortIODeviceManager {
-            stdio_serial,
-            i8042,
-        })
-    }
 
     /// Register supported legacy devices.
     pub fn register_devices(&mut self, vm: &Vm) -> Result<(), LegacyDeviceError> {
@@ -169,8 +157,8 @@ mod tests {
     fn test_register_legacy_devices() {
         let (_, vm) = setup_vm_with_memory(0x1000);
         vm.setup_irqchip().unwrap();
-        let mut ldm = PortIODeviceManager::new(
-            Arc::new(Mutex::new(SerialDevice {
+        let mut ldm = PortIODeviceManager {
+            stdio_serial: Arc::new(Mutex::new(SerialDevice {
                 serial: Serial::with_events(
                     EventFdTrigger::new(EventFd::new(EFD_NONBLOCK).unwrap()),
                     SerialEventsWrapper {
@@ -180,11 +168,10 @@ mod tests {
                 ),
                 input: None,
             })),
-            Arc::new(Mutex::new(
+            i8042: Arc::new(Mutex::new(
                 I8042Device::new(EventFd::new(libc::EFD_NONBLOCK).unwrap()).unwrap(),
             )),
-        )
-        .unwrap();
+        };
         ldm.register_devices(&vm).unwrap();
     }
 }
