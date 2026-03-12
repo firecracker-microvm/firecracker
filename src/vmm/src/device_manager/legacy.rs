@@ -10,7 +10,6 @@ use std::sync::{Arc, Mutex};
 
 use acpi_tables::aml::AmlError;
 use acpi_tables::{Aml, aml};
-use vmm_sys_util::eventfd::EventFd;
 
 use crate::Vm;
 use crate::devices::legacy::{I8042Device, SerialDevice};
@@ -34,9 +33,6 @@ pub struct PortIODeviceManager {
     pub stdio_serial: Arc<Mutex<SerialDevice>>,
     // BusDevice::I8042Device
     pub i8042: Arc<Mutex<I8042Device>>,
-
-    // Keyboard event.
-    pub kbd_evt: EventFd,
 }
 
 impl PortIODeviceManager {
@@ -61,16 +57,9 @@ impl PortIODeviceManager {
         stdio_serial: Arc<Mutex<SerialDevice>>,
         i8042: Arc<Mutex<I8042Device>>,
     ) -> Result<Self, LegacyDeviceError> {
-        let kbd_evt = i8042
-            .lock()
-            .expect("Poisoned lock")
-            .kbd_interrupt_evt
-            .try_clone()?;
-
         Ok(PortIODeviceManager {
             stdio_serial,
             i8042,
-            kbd_evt,
         })
     }
 
@@ -98,10 +87,11 @@ impl PortIODeviceManager {
         )
         .map_err(|e| LegacyDeviceError::EventFd(std::io::Error::from_raw_os_error(e.errno())))?;
 
-        vm.register_irq(&self.kbd_evt, Self::KBD_EVT_GSI)
-            .map_err(|e| {
-                LegacyDeviceError::EventFd(std::io::Error::from_raw_os_error(e.errno()))
-            })?;
+        vm.register_irq(
+            &self.i8042.lock().expect("Poisoned lock").kbd_interrupt_evt,
+            Self::KBD_EVT_GSI,
+        )
+        .map_err(|e| LegacyDeviceError::EventFd(std::io::Error::from_raw_os_error(e.errno())))?;
 
         Ok(())
     }
