@@ -227,8 +227,6 @@ const MSIX_PBA_BAR_OFFSET: u64 = 0x48000;
 const MSIX_PBA_SIZE: u64 = 0x800;
 /// The BAR size must be a power of 2.
 pub const CAPABILITY_BAR_SIZE: u64 = 0x80000;
-const VIRTIO_COMMON_BAR_INDEX: usize = 0;
-const VIRTIO_SHM_BAR_INDEX: usize = 2;
 
 const NOTIFY_OFF_MULTIPLIER: u32 = 4; // A dword per notification address.
 
@@ -354,7 +352,7 @@ impl VirtioPciDevice {
             .start();
 
         self.configuration.add_pci_bar(
-            VIRTIO_COMMON_BAR_INDEX,
+            VIRTIO_BAR_INDEX as usize,
             virtio_pci_bar_addr,
             CAPABILITY_BAR_SIZE,
         );
