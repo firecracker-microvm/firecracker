@@ -237,6 +237,14 @@ def bin_vsock_path(test_fc_session_root_path):
 
 
 @pytest.fixture(scope="session")
+def bin_sysgenid_path(test_fc_session_root_path):
+    """Build a simple util for test SysGenID device"""
+    sysgenid_helper_bin_path = os.path.join(test_fc_session_root_path, "sysgenid")
+    build_tools.gcc_compile("host_tools/sysgenid.c", sysgenid_helper_bin_path)
+    yield sysgenid_helper_bin_path
+
+
+@pytest.fixture(scope="session")
 def bin_vmclock_path(test_fc_session_root_path):
     """Build a simple util for test VMclock device"""
     vmclock_helper_bin_path = os.path.join(test_fc_session_root_path, "vmclock")
