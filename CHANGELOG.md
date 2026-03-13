@@ -6,6 +6,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.14.4]
+
+### Fixed
+
+- [#5762](https://github.com/firecracker-microvm/firecracker/pull/5762): Cap
+  virtio-rng per-request entropy to 64 KiB. Previously, a guest could construct
+  a descriptor chain that caused Firecracker to allocate more host memory than
+  the guest actually provided, potentially leading to excessive host memory
+  consumption.
+
 ## [1.14.3]
 
 ### Fixed
