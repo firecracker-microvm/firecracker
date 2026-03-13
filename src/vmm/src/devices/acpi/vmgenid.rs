@@ -157,7 +157,7 @@ impl Aml for VmGenId {
         aml::Device::new(
             "_SB_.VGEN".try_into()?,
             vec![
-                &aml::Name::new("_HID".try_into()?, &"FCVMGID")?,
+                &aml::Name::new("_HID".try_into()?, &"VMGENCTR")?,
                 &aml::Name::new("_CID".try_into()?, &"VM_Gen_Counter")?,
                 &aml::Name::new("_DDN".try_into()?, &"VM_Gen_Counter")?,
                 &aml::Name::new(
