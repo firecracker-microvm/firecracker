@@ -171,6 +171,8 @@ where
             let index = head.index;
             let used_len = match self.rx_packet.parse(mem, head) {
                 Ok(()) => {
+                    // my understanding is that here, i don't really know how much data will i get
+                    // i just know that there's an rx event. will call recv packet to actually read what the packet contains
                     if self.backend.recv_pkt(&mut self.rx_packet).is_ok() {
                         match self.rx_packet.commit_hdr() {
                             // This addition cannot overflow, because packet length

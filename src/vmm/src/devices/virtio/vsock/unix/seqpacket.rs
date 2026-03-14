@@ -92,14 +92,17 @@ impl ReadVolatile for SeqpacketConn {
         buf: &mut vm_memory::VolatileSlice<B>,
     ) -> Result<usize, vm_memory::VolatileMemoryError> {
         let fd = self.0.as_raw_fd();
-        let guard = buf.ptr_guard_mut();
+        let mut backing = vec![0u8; 64 * 1024];
+        let mut slice =
+            unsafe { vm_memory::VolatileSlice::new(backing.as_mut_ptr().cast(), 64 * 1024) };
+
+        let guard = slice.ptr_guard_mut();
 
         let dst = guard.as_ptr().cast::<libc::c_void>();
-
         // SAFETY: Rust's I/O safety invariants ensure that BorrowedFd contains a valid file
         // descriptor`. The memory pointed to by `dst` is valid for writes of length
         // `buf.len() by the invariants upheld by the constructor of `VolatileSlice`.
-        let bytes_read = unsafe { libc::read(fd, dst, buf.len()) };
+        let bytes_read = unsafe { libc::read(fd, dst, guard.len()) };
 
         if bytes_read < 0 {
             // We don't know if a partial read might have happened, so mark everything as dirty

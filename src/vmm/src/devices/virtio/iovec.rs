@@ -437,6 +437,9 @@ impl<const L: u16> IoVecBufferMut<L> {
         mut offset: usize,
         mut len: usize,
     ) -> Result<usize, VolatileMemoryError> {
+        // no idea whats going on here in detail.
+        // but the core picture i am getting is that i am reading data into
+        // an array starting from the vsock header up to PAGE_SIZE bytes
         let mut total_bytes_read = 0;
 
         for iov in self.vecs.as_slice() {
