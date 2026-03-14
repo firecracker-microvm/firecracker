@@ -156,7 +156,7 @@ impl VsockChannel for VsockMuxer {
                         .set_dst_cid(self.cid)
                         .set_src_port(local_port)
                         .set_dst_port(peer_port)
-                        .set_len(0)
+                        .set_len(0) // we maybe need to set the real length here rather than zero
                         .set_flags(0)
                         .set_buf_alloc(0)
                         .set_fwd_cnt(0);

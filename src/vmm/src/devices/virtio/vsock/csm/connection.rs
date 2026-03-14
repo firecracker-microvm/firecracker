@@ -80,6 +80,7 @@ use std::fmt::Debug;
 use std::io::{ErrorKind, Write};
 use std::num::Wrapping;
 use std::os::unix::io::{AsRawFd, RawFd};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
 use log::{debug, error, info, warn};
@@ -103,6 +104,8 @@ use crate::vmm_config::vsock::VsockType;
 /// (sadly, trait aliases are not supported,
 /// <https://github.com/rust-lang/rfcs/pull/1733#issuecomment-243840014>).
 pub trait VsockConnectionBackend: ReadVolatile + Write + WriteVolatile + AsRawFd {}
+
+pub static COUNTER: AtomicBool = AtomicBool::new(false);
 
 /// A self-managing connection object, that handles communication between a guest-side AF_VSOCK
 /// socket and a host-side `ReadVolatile + Write + WriteVolatile + AsRawFd` stream.
@@ -682,8 +685,14 @@ where
             .set_fwd_cnt(self.fwd_cnt.0);
         match self.vsock_type {
             VsockType::Seqpacket => {
-                hdr.set_msg_eom();
-                hdr.set_type(uapi::VSOCK_TYPE_SEQPACKET)
+                hdr.set_type(uapi::VSOCK_TYPE_SEQPACKET);
+                if COUNTER.load(Ordering::Relaxed) {
+                    hdr.set_msg_eom();
+                    COUNTER.store(false, Ordering::Relaxed);
+                } else {
+                    COUNTER.store(true, Ordering::Relaxed);
+                };
+                hdr
             }
             VsockType::Stream => hdr.set_type(uapi::VSOCK_TYPE_STREAM),
         };
