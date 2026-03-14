@@ -78,8 +78,8 @@ pub struct VsockPacketHeader {
     fwd_cnt: u32,
 }
 
-const VIRTIO_VSOCK_SEQ_EOM: u32 = 1 << 1;
-const VIRTIO_VSOCK_SEQ_EOR: u32 = 1 << 2;
+const VIRTIO_VSOCK_SEQ_EOM: u32 = 1 << 0;
+const VIRTIO_VSOCK_SEQ_EOR: u32 = 1 << 1;
 
 impl VsockPacketHeader {
     pub fn src_cid(&self) -> u64 {
