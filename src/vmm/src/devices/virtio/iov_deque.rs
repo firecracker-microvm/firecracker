@@ -159,9 +159,16 @@ impl<const L: u16> IovDeque<L> {
     }
 
     /// Create a new [`IovDeque`] that can hold memory described by a single VirtIO queue.
-    pub fn new() -> Result<Self, IovDequeError> {
+    pub fn new(multiplier: Option<usize>) -> Result<Self, IovDequeError> {
+        // get the size of a pages bytes
+        let m = if let Some(multiplier) = multiplier {
+            multiplier
+        } else {
+            128 // expriment, use 128kb packets (huge)
+        };
         let pages_bytes = Self::pages_bytes();
-        let capacity = pages_bytes / std::mem::size_of::<iovec>();
+        // divide that by the size of an iovec ?
+        let capacity = pages_bytes * m / std::mem::size_of::<iovec>();
         let capacity: u16 = capacity.try_into().unwrap();
         assert!(
             L <= capacity,
@@ -170,16 +177,18 @@ impl<const L: u16> IovDeque<L> {
             L
         );
 
+        // what ?
         let memfd = Self::create_memfd(pages_bytes)?;
         let raw_memfd = memfd.as_file().as_raw_fd();
-        let buffer = Self::allocate_ring_buffer_memory(pages_bytes)?;
+        // allocate an actual buffer in the guest mempory ?
+        let buffer = Self::allocate_ring_buffer_memory(pages_bytes * m)?;
 
         // Map the first page of virtual memory to the physical page described by the memfd object
         // SAFETY: We are calling the system call with valid arguments
         let _ = unsafe {
             Self::mmap(
                 buffer,
-                pages_bytes,
+                pages_bytes * m,
                 libc::PROT_READ | libc::PROT_WRITE,
                 libc::MAP_SHARED | libc::MAP_FIXED,
                 raw_memfd,
@@ -194,13 +203,13 @@ impl<const L: u16> IovDeque<L> {
         //   allocation we got from `Self::allocate_ring_buffer_memory`.
         // * The resulting pointer is the beginning of the second page of our allocation, so it
         //   doesn't wrap around the address space.
-        let next_page = unsafe { buffer.add(pages_bytes) };
+        let next_page = unsafe { buffer.add(pages_bytes * m) };
 
         // SAFETY: We are calling the system call with valid arguments
         let _ = unsafe {
             Self::mmap(
                 next_page,
-                pages_bytes,
+                pages_bytes * m,
                 libc::PROT_READ | libc::PROT_WRITE,
                 libc::MAP_SHARED | libc::MAP_FIXED,
                 raw_memfd,
@@ -346,19 +355,19 @@ mod tests {
 
     #[test]
     fn test_new() {
-        let deque = IovDeque::new().unwrap();
+        let deque = IovDeque::new(None).unwrap();
         assert_eq!(deque.len(), 0);
     }
 
     #[test]
     fn test_new_less_than_page() {
-        let deque = super::IovDeque::<128>::new().unwrap();
+        let deque = super::IovDeque::<128>::new(None).unwrap();
         assert_eq!(deque.len(), 0);
     }
 
     #[test]
     fn test_new_more_than_page() {
-        let deque = super::IovDeque::<512>::new().unwrap();
+        let deque = super::IovDeque::<512>::new(None).unwrap();
         assert_eq!(deque.len(), 0);
     }
 
@@ -372,7 +381,7 @@ mod tests {
     #[test]
     #[should_panic]
     fn test_push_back_too_many() {
-        let mut deque = IovDeque::new().unwrap();
+        let mut deque = IovDeque::new(None).unwrap();
         assert_eq!(deque.len(), 0);
 
         for i in 0u16..256 {
@@ -386,21 +395,21 @@ mod tests {
     #[test]
     #[should_panic]
     fn test_pop_front_from_empty() {
-        let mut deque = IovDeque::new().unwrap();
+        let mut deque = IovDeque::new(None).unwrap();
         deque.pop_front(1);
     }
 
     #[test]
     #[should_panic]
     fn test_pop_front_too_many() {
-        let mut deque = IovDeque::new().unwrap();
+        let mut deque = IovDeque::new(None).unwrap();
         deque.push_back(make_iovec(42, 42));
         deque.pop_front(2);
     }
 
     #[test]
     fn test_pop_font() {
-        let mut deque = IovDeque::new().unwrap();
+        let mut deque = IovDeque::new(None).unwrap();
         assert_eq!(deque.len(), 0);
         assert!(!deque.is_full());
         deque.pop_front(0);
@@ -441,7 +450,7 @@ mod tests {
 
     #[test]
     fn test_pop_back() {
-        let mut deque = IovDeque::new().unwrap();
+        let mut deque = IovDeque::new(None).unwrap();
         assert_eq!(deque.len(), 0);
         assert!(!deque.is_full());
         deque.pop_back(0);
@@ -482,7 +491,7 @@ mod tests {
 
     #[test]
     fn test_pop_many() {
-        let mut deque = IovDeque::new().unwrap();
+        let mut deque = IovDeque::new(None).unwrap();
 
         for i in 0u16..256 {
             deque.push_back(make_iovec(i, i));
@@ -508,7 +517,7 @@ mod tests {
 
     #[test]
     fn test_as_slice() {
-        let mut deque = IovDeque::new().unwrap();
+        let mut deque = IovDeque::new(None).unwrap();
         assert!(deque.as_slice().is_empty());
 
         for i in 0..256 {
@@ -525,7 +534,7 @@ mod tests {
 
     #[test]
     fn test_as_mut_slice() {
-        let mut deque = IovDeque::new().unwrap();
+        let mut deque = IovDeque::new(None).unwrap();
         assert!(deque.as_mut_slice().is_empty());
 
         for i in 0..256 {
@@ -552,7 +561,7 @@ mod tests {
         // is not perfect anymore. Need to ensure the wraparound logic
         // remains valid in such cases.
         const L: u16 = 16;
-        let mut deque = super::IovDeque::<L>::new().unwrap();
+        let mut deque = super::IovDeque::<L>::new(None).unwrap();
         assert!(deque.as_mut_slice().is_empty());
 
         // Number of times need to fill/empty the queue to reach the

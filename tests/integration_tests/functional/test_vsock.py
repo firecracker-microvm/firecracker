@@ -18,6 +18,7 @@ import subprocess
 import time
 from pathlib import Path
 from socket import timeout as SocketTimeout
+from ssl import SOCK_STREAM
 
 import pytest
 
@@ -51,7 +52,12 @@ def test_vsock(uvm_plain_any, bin_vsock_path, test_fc_session_root_path):
 
     vm.basic_config()
     vm.add_net_iface()
-    vm.api.vsock.put(vsock_id="vsock0", guest_cid=3, uds_path=f"/{VSOCK_UDS_PATH}")
+    vm.api.vsock.put(
+        vsock_id="vsock0",
+        guest_cid=3,
+        uds_path=f"/{VSOCK_UDS_PATH}",
+        vsock_type="stream",
+    )
     vm.start()
 
     check_vsock_device(vm, bin_vsock_path, test_fc_session_root_path, vm.ssh)
@@ -59,7 +65,7 @@ def test_vsock(uvm_plain_any, bin_vsock_path, test_fc_session_root_path):
     validate_fc_metrics(metrics)
 
 
-def negative_test_host_connections(vm, blob_path, blob_hash):
+def negative_test_host_connections(vm, blob_path, blob_hash, vsock_type):
     """Negative test for host-initiated connections.
 
     This will start a daemonized echo server on the guest VM, and then spawn
@@ -71,7 +77,7 @@ def negative_test_host_connections(vm, blob_path, blob_hash):
 
     workers = []
     for _ in range(NEGATIVE_TEST_CONNECTION_COUNT):
-        worker = HostEchoWorker(uds_path, blob_path)
+        worker = HostEchoWorker(uds_path, blob_path, vsock_type)
         workers.append(worker)
         worker.start()
 
@@ -112,7 +118,12 @@ def test_vsock_epipe(uvm_plain_any, bin_vsock_path, test_fc_session_root_path):
     vm.spawn()
     vm.basic_config()
     vm.add_net_iface()
-    vm.api.vsock.put(vsock_id="vsock0", guest_cid=3, uds_path=f"/{VSOCK_UDS_PATH}")
+    vm.api.vsock.put(
+        vsock_id="vsock0",
+        guest_cid=3,
+        uds_path=f"/{VSOCK_UDS_PATH}",
+        vsock_type="stream",
+    )
     vm.start()
 
     # Generate the random data blob file, 20MB
@@ -125,7 +136,7 @@ def test_vsock_epipe(uvm_plain_any, bin_vsock_path, test_fc_session_root_path):
 
     # Negative test for host-initiated connections that
     # are closed with in flight data.
-    negative_test_host_connections(vm, blob_path, blob_hash)
+    negative_test_host_connections(vm, blob_path, blob_hash, SOCK_STREAM)
     metrics = vm.flush_metrics()
     validate_fc_metrics(metrics)
 
@@ -152,7 +163,12 @@ def test_vsock_transport_reset_h2g(
     test_vm.spawn()
     test_vm.basic_config(vcpu_count=2, mem_size_mib=256)
     test_vm.add_net_iface()
-    test_vm.api.vsock.put(vsock_id="vsock0", guest_cid=3, uds_path=f"/{VSOCK_UDS_PATH}")
+    test_vm.api.vsock.put(
+        vsock_id="vsock0",
+        guest_cid=3,
+        uds_path=f"/{VSOCK_UDS_PATH}",
+        vsock_type="stream",
+    )
     test_vm.start()
 
     # Generate the random data blob file.
@@ -194,6 +210,7 @@ def test_vsock_transport_reset_h2g(
             assert (
                 response == b""
             ), f"Connection not closed: response received '{response.decode('utf-8')}'"
+
         except (SocketTimeout, ConnectionResetError, BrokenPipeError):
             pass
 
@@ -225,7 +242,12 @@ def test_vsock_transport_reset_g2h(uvm_plain_any, microvm_factory):
     test_vm.spawn()
     test_vm.basic_config(vcpu_count=2, mem_size_mib=256)
     test_vm.add_net_iface()
-    test_vm.api.vsock.put(vsock_id="vsock0", guest_cid=3, uds_path=f"/{VSOCK_UDS_PATH}")
+    test_vm.api.vsock.put(
+        vsock_id="vsock0",
+        guest_cid=3,
+        uds_path=f"/{VSOCK_UDS_PATH}",
+        vsock_type="stream",
+    )
     test_vm.start()
 
     # Create snapshot and terminate a VM.

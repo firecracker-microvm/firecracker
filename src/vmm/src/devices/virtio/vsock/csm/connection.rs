@@ -80,6 +80,7 @@ use std::fmt::Debug;
 use std::io::{ErrorKind, Write};
 use std::num::Wrapping;
 use std::os::unix::io::{AsRawFd, RawFd};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
 use log::{debug, error, info, warn};
@@ -95,6 +96,7 @@ use crate::devices::virtio::vsock::metrics::METRICS;
 use crate::devices::virtio::vsock::packet::{VsockPacketHeader, VsockPacketRx, VsockPacketTx};
 use crate::logger::IncMetric;
 use crate::utils::wrap_usize_to_u32;
+use crate::vmm_config::vsock::VsockType;
 
 /// Trait that vsock connection backends need to implement.
 ///
@@ -102,6 +104,8 @@ use crate::utils::wrap_usize_to_u32;
 /// (sadly, trait aliases are not supported,
 /// <https://github.com/rust-lang/rfcs/pull/1733#issuecomment-243840014>).
 pub trait VsockConnectionBackend: ReadVolatile + Write + WriteVolatile + AsRawFd {}
+
+pub static COUNTER: AtomicBool = AtomicBool::new(false);
 
 /// A self-managing connection object, that handles communication between a guest-side AF_VSOCK
 /// socket and a host-side `ReadVolatile + Write + WriteVolatile + AsRawFd` stream.
@@ -139,6 +143,8 @@ pub struct VsockConnection<S: VsockConnectionBackend> {
     /// Instant when this connection should be scheduled for immediate termination, due to some
     /// timeout condition having been fulfilled.
     expiry: Option<Instant>,
+    /// The type of the underlying socket connection
+    vsock_type: VsockType,
 }
 
 impl<S> VsockChannel for VsockConnection<S>
@@ -216,10 +222,10 @@ where
 
             // The maximum amount of data we can read in is limited by both the RX buffer size and
             // the peer available buffer space.
-            let max_len = std::cmp::min(pkt.buf_size(), self.peer_avail_credit());
+            // let max_len = std::cmp::min(pkt.buf_size(), self.peer_avail_credit());
 
             // Read data from the stream straight to the RX buffer, for maximum throughput.
-            match pkt.read_at_offset_from(&mut self.stream, 0, max_len) {
+            match pkt.read_at_offset_from(&mut self.stream, 0, 128 * 1024) {
                 Ok(read_cnt) => {
                     if read_cnt == 0 {
                         // A 0-length read means the host stream was closed down. In that case,
@@ -509,6 +515,7 @@ where
         local_port: u32,
         peer_port: u32,
         peer_buf_alloc: u32,
+        vsock_type: VsockType,
     ) -> Self {
         Self {
             local_cid,
@@ -525,6 +532,7 @@ where
             last_fwd_cnt_to_peer: Wrapping(0),
             pending_rx: PendingRxSet::from(PendingRx::Response),
             expiry: None,
+            vsock_type,
         }
     }
 
@@ -535,6 +543,7 @@ where
         peer_cid: u64,
         local_port: u32,
         peer_port: u32,
+        vsock_type: VsockType,
     ) -> Self {
         Self {
             local_cid,
@@ -551,6 +560,7 @@ where
             last_fwd_cnt_to_peer: Wrapping(0),
             pending_rx: PendingRxSet::from(PendingRx::Request),
             expiry: None,
+            vsock_type,
         }
     }
 
@@ -671,9 +681,18 @@ where
             .set_dst_cid(self.peer_cid)
             .set_src_port(self.local_port)
             .set_dst_port(self.peer_port)
-            .set_type(uapi::VSOCK_TYPE_STREAM)
             .set_buf_alloc(defs::CONN_TX_BUF_SIZE)
             .set_fwd_cnt(self.fwd_cnt.0);
+        match self.vsock_type {
+            VsockType::Seqpacket => {
+                hdr.set_type(uapi::VSOCK_TYPE_SEQPACKET);
+
+                hdr.set_msg_eom();
+
+                hdr
+            }
+            VsockType::Stream => hdr.set_type(uapi::VSOCK_TYPE_STREAM),
+        };
     }
 }
 
@@ -860,7 +879,7 @@ mod tests {
             let vsock_test_ctx = TestContext::new();
             let mut handler_ctx = vsock_test_ctx.create_event_handler_context();
             let stream = TestStream::new();
-            let mut rx_pkt = VsockPacketRx::new().unwrap();
+            let mut rx_pkt = VsockPacketRx::new(None).unwrap();
             rx_pkt
                 .parse(
                     &vsock_test_ctx.mem,
@@ -882,9 +901,15 @@ mod tests {
                     LOCAL_PORT,
                     PEER_PORT,
                     PEER_BUF_ALLOC,
+                    VsockType::Stream,
                 ),
                 ConnState::LocalInit => VsockConnection::<TestStream>::new_local_init(
-                    stream, LOCAL_CID, PEER_CID, LOCAL_PORT, PEER_PORT,
+                    stream,
+                    LOCAL_CID,
+                    PEER_CID,
+                    LOCAL_PORT,
+                    PEER_PORT,
+                    VsockType::Stream,
                 ),
                 ConnState::Established => {
                     let mut conn = VsockConnection::<TestStream>::new_peer_init(
@@ -894,6 +919,7 @@ mod tests {
                         LOCAL_PORT,
                         PEER_PORT,
                         PEER_BUF_ALLOC,
+                        VsockType::Stream,
                     );
                     assert!(conn.has_pending_rx());
                     conn.recv_pkt(&mut rx_pkt).unwrap();

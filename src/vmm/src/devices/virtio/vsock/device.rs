@@ -33,7 +33,9 @@ use super::packet::{VSOCK_PKT_HDR_SIZE, VsockPacketRx, VsockPacketTx};
 use super::{VsockBackend, defs};
 use crate::devices::virtio::ActivateError;
 use crate::devices::virtio::device::{ActiveState, DeviceState, VirtioDevice, VirtioDeviceType};
-use crate::devices::virtio::generated::virtio_config::{VIRTIO_F_IN_ORDER, VIRTIO_F_VERSION_1};
+use crate::devices::virtio::generated::virtio_config::{
+    VIRTIO_F_IN_ORDER, VIRTIO_F_VERSION_1, VIRTIO_VSOCK_F_SEQPACKET,
+};
 use crate::devices::virtio::queue::{InvalidAvailIdx, Queue as VirtQueue};
 use crate::devices::virtio::transport::{VirtioInterrupt, VirtioInterruptType};
 use crate::devices::virtio::vsock::VsockError;
@@ -53,8 +55,9 @@ pub(crate) const VIRTIO_VSOCK_EVENT_TRANSPORT_RESET: u32 = 0;
 /// - VIRTIO_F_VERSION_1: the device conforms to at least version 1.0 of the VirtIO spec.
 /// - VIRTIO_F_IN_ORDER: the device returns used buffers in the same order that the driver makes
 ///   them available.
-pub(crate) const AVAIL_FEATURES: u64 =
-    (1 << VIRTIO_F_VERSION_1 as u64) | (1 << VIRTIO_F_IN_ORDER as u64);
+pub(crate) const AVAIL_FEATURES: u64 = (1 << VIRTIO_F_VERSION_1 as u64)
+    | (1 << VIRTIO_F_IN_ORDER as u64)
+    | (1 << VIRTIO_VSOCK_F_SEQPACKET as u64);
 
 /// Structure representing the vsock device.
 #[derive(Debug)]
@@ -72,7 +75,6 @@ pub struct Vsock<B> {
     // continuous triggers from happening before the device gets activated.
     pub(crate) activate_evt: EventFd,
     pub(crate) device_state: DeviceState,
-
     pub rx_packet: VsockPacketRx,
     pub tx_packet: VsockPacketTx,
 }
@@ -92,6 +94,7 @@ where
         cid: u64,
         backend: B,
         queues: Vec<VirtQueue>,
+        packet_buffer_size: Option<usize>, // an option of packet buffer size
     ) -> Result<Vsock<B>, VsockError> {
         let mut queue_events = Vec::new();
         for _ in 0..queues.len() {
@@ -107,7 +110,8 @@ where
             acked_features: 0,
             activate_evt: EventFd::new(libc::EFD_NONBLOCK).map_err(VsockError::EventFd)?,
             device_state: DeviceState::Inactive,
-            rx_packet: VsockPacketRx::new()?,
+            // if i was propagating the size then i'd need to make this layer somehow aware of the size or the fact that the backend is seqpacket
+            rx_packet: VsockPacketRx::new(packet_buffer_size)?,
             tx_packet: VsockPacketTx::default(),
         })
     }
@@ -118,7 +122,7 @@ where
             .iter()
             .map(|&max_size| VirtQueue::new(max_size))
             .collect();
-        Self::with_queues(cid, backend, queues)
+        Self::with_queues(cid, backend, queues, None)
     }
 
     /// Retrieve the cid associated with this vsock device.
@@ -168,6 +172,8 @@ where
             let index = head.index;
             let used_len = match self.rx_packet.parse(mem, head) {
                 Ok(()) => {
+                    // my understanding is that here, i don't really know how much data will i get
+                    // i just know that there's an rx event. will call recv packet to actually read what the packet contains
                     if self.backend.recv_pkt(&mut self.rx_packet).is_ok() {
                         match self.rx_packet.commit_hdr() {
                             // This addition cannot overflow, because packet length

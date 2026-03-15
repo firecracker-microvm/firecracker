@@ -314,8 +314,9 @@ impl<const L: u16> IoVecBufferMut<L> {
     }
 
     /// Create an empty `IoVecBufferMut`.
-    pub fn new() -> Result<Self, IovDequeError> {
-        let vecs = IovDeque::new()?;
+    pub fn new(size_multiplier: Option<usize>) -> Result<Self, IovDequeError> {
+        // right now i am passing a uszie. i need to handle that this usize is a multiple of page size
+        let vecs = IovDeque::new(size_multiplier)?;
         Ok(Self { vecs, len: 0 })
     }
 
@@ -359,11 +360,12 @@ impl<const L: u16> IoVecBufferMut<L> {
     /// # Safety
     ///
     /// The descriptor chain cannot be referencing the same memory location as another chain
+    /// we should understand the implication of having a size parameter on this
     pub unsafe fn from_descriptor_chain(
         mem: &GuestMemoryMmap,
         head: DescriptorChain,
     ) -> Result<Self, IoVecError> {
-        let mut new_buffer = Self::new()?;
+        let mut new_buffer = Self::new(Some(128))?;
         // SAFETY: descriptor chain cannot be referencing the same memory location as another chain
         unsafe {
             new_buffer.load_descriptor_chain(mem, head)?;
@@ -437,6 +439,9 @@ impl<const L: u16> IoVecBufferMut<L> {
         mut offset: usize,
         mut len: usize,
     ) -> Result<usize, VolatileMemoryError> {
+        // no idea whats going on here in detail.
+        // but the core picture i am getting is that i am reading data into
+        // an array starting from the vsock header up to PAGE_SIZE bytes
         let mut total_bytes_read = 0;
 
         for iov in self.vecs.as_slice() {
@@ -452,12 +457,12 @@ impl<const L: u16> IoVecBufferMut<L> {
             let mut slice =
                 // SAFETY: the constructor IoVecBufferMut::from_descriptor_chain ensures that
                 // all iovecs contained point towards valid ranges of guest memory
-                unsafe { VolatileSlice::new(iov.iov_base.cast(), iov.iov_len).offset(offset)? };
+                unsafe { VolatileSlice::new(iov.iov_base.cast(), 128* 100).offset(offset)? };
             offset = 0;
 
-            if slice.len() > len {
-                slice = slice.subslice(0, len)?;
-            }
+            // if slice.len() > len {
+            //     slice = slice.subslice(0, len)?;
+            // }
 
             match loop {
                 match src.read_volatile(&mut slice) {
@@ -535,7 +540,7 @@ mod tests {
 
     impl<const L: u16> From<&mut [u8]> for super::IoVecBufferMut<L> {
         fn from(buf: &mut [u8]) -> Self {
-            let mut vecs = IovDeque::new().unwrap();
+            let mut vecs = IovDeque::new(None).unwrap();
             vecs.push_back(iovec {
                 iov_base: buf.as_mut_ptr().cast::<c_void>(),
                 iov_len: buf.len(),
@@ -551,7 +556,7 @@ mod tests {
     impl<const L: u16> From<Vec<&mut [u8]>> for super::IoVecBufferMut<L> {
         fn from(buffer: Vec<&mut [u8]>) -> Self {
             let mut len = 0;
-            let mut vecs = IovDeque::new().unwrap();
+            let mut vecs = IovDeque::new(None).unwrap();
             for slice in buffer {
                 len += slice.len() as u32;
 

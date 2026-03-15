@@ -80,7 +80,7 @@ impl Entropy {
             queues,
             queue_events,
             rate_limiter,
-            buffer: IoVecBufferMut::new()?,
+            buffer: IoVecBufferMut::new(None)?,
         })
     }
 
