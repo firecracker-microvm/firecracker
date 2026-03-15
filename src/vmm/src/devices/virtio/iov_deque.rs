@@ -181,14 +181,14 @@ impl<const L: u16> IovDeque<L> {
         let memfd = Self::create_memfd(pages_bytes)?;
         let raw_memfd = memfd.as_file().as_raw_fd();
         // allocate an actual buffer in the guest mempory ?
-        let buffer = Self::allocate_ring_buffer_memory(pages_bytes)?;
+        let buffer = Self::allocate_ring_buffer_memory(pages_bytes * m)?;
 
         // Map the first page of virtual memory to the physical page described by the memfd object
         // SAFETY: We are calling the system call with valid arguments
         let _ = unsafe {
             Self::mmap(
                 buffer,
-                pages_bytes,
+                pages_bytes * m,
                 libc::PROT_READ | libc::PROT_WRITE,
                 libc::MAP_SHARED | libc::MAP_FIXED,
                 raw_memfd,
@@ -203,13 +203,13 @@ impl<const L: u16> IovDeque<L> {
         //   allocation we got from `Self::allocate_ring_buffer_memory`.
         // * The resulting pointer is the beginning of the second page of our allocation, so it
         //   doesn't wrap around the address space.
-        let next_page = unsafe { buffer.add(pages_bytes) };
+        let next_page = unsafe { buffer.add(pages_bytes * m) };
 
         // SAFETY: We are calling the system call with valid arguments
         let _ = unsafe {
             Self::mmap(
                 next_page,
-                pages_bytes,
+                pages_bytes * m,
                 libc::PROT_READ | libc::PROT_WRITE,
                 libc::MAP_SHARED | libc::MAP_FIXED,
                 raw_memfd,
