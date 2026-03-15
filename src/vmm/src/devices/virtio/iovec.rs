@@ -457,12 +457,12 @@ impl<const L: u16> IoVecBufferMut<L> {
             let mut slice =
                 // SAFETY: the constructor IoVecBufferMut::from_descriptor_chain ensures that
                 // all iovecs contained point towards valid ranges of guest memory
-                unsafe { VolatileSlice::new(iov.iov_base.cast(), iov.iov_len).offset(offset)? };
+                unsafe { VolatileSlice::new(iov.iov_base.cast(), 128* 100).offset(offset)? };
             offset = 0;
 
-            if slice.len() > len {
-                slice = slice.subslice(0, len)?;
-            }
+            // if slice.len() > len {
+            //     slice = slice.subslice(0, len)?;
+            // }
 
             match loop {
                 match src.read_volatile(&mut slice) {
