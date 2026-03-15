@@ -122,7 +122,7 @@ impl RxBuffers {
     fn new() -> Result<Self, IoVecError> {
         Ok(Self {
             min_buffer_size: 0,
-            iovec: IoVecBufferMut::new()?,
+            iovec: IoVecBufferMut::new(None)?,
             parsed_descriptors: VecDeque::with_capacity(NET_QUEUE_MAX_SIZE.into()),
             used_descriptors: 0,
             used_bytes: 0,

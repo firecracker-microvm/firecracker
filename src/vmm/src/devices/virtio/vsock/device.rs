@@ -75,7 +75,6 @@ pub struct Vsock<B> {
     // continuous triggers from happening before the device gets activated.
     pub(crate) activate_evt: EventFd,
     pub(crate) device_state: DeviceState,
-
     pub rx_packet: VsockPacketRx,
     pub tx_packet: VsockPacketTx,
 }
@@ -95,6 +94,7 @@ where
         cid: u64,
         backend: B,
         queues: Vec<VirtQueue>,
+        packet_buffer_size: Option<usize>, // an option of packet buffer size
     ) -> Result<Vsock<B>, VsockError> {
         let mut queue_events = Vec::new();
         for _ in 0..queues.len() {
@@ -110,7 +110,8 @@ where
             acked_features: 0,
             activate_evt: EventFd::new(libc::EFD_NONBLOCK).map_err(VsockError::EventFd)?,
             device_state: DeviceState::Inactive,
-            rx_packet: VsockPacketRx::new()?,
+            // if i was propagating the size then i'd need to make this layer somehow aware of the size or the fact that the backend is seqpacket
+            rx_packet: VsockPacketRx::new(packet_buffer_size)?,
             tx_packet: VsockPacketTx::default(),
         })
     }
@@ -121,7 +122,7 @@ where
             .iter()
             .map(|&max_size| VirtQueue::new(max_size))
             .collect();
-        Self::with_queues(cid, backend, queues)
+        Self::with_queues(cid, backend, queues, None)
     }
 
     /// Retrieve the cid associated with this vsock device.

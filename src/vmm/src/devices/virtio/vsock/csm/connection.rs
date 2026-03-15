@@ -882,7 +882,7 @@ mod tests {
             let vsock_test_ctx = TestContext::new();
             let mut handler_ctx = vsock_test_ctx.create_event_handler_context();
             let stream = TestStream::new();
-            let mut rx_pkt = VsockPacketRx::new().unwrap();
+            let mut rx_pkt = VsockPacketRx::new(None).unwrap();
             rx_pkt
                 .parse(
                     &vsock_test_ctx.mem,
