@@ -686,12 +686,9 @@ where
         match self.vsock_type {
             VsockType::Seqpacket => {
                 hdr.set_type(uapi::VSOCK_TYPE_SEQPACKET);
-                if COUNTER.load(Ordering::Relaxed) {
-                    hdr.set_msg_eom();
-                    COUNTER.store(false, Ordering::Relaxed);
-                } else {
-                    COUNTER.store(true, Ordering::Relaxed);
-                };
+
+                hdr.set_msg_eom();
+
                 hdr
             }
             VsockType::Stream => hdr.set_type(uapi::VSOCK_TYPE_STREAM),
