@@ -164,7 +164,7 @@ impl<const L: u16> IovDeque<L> {
         let m = if let Some(multiplier) = multiplier {
             multiplier
         } else {
-            256 // expriment, use 256kb packets (huge)
+            128 // expriment, use 128kb packets (huge)
         };
         let pages_bytes = Self::pages_bytes();
         // divide that by the size of an iovec ?
