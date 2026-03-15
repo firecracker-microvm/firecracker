@@ -365,7 +365,7 @@ impl<const L: u16> IoVecBufferMut<L> {
         mem: &GuestMemoryMmap,
         head: DescriptorChain,
     ) -> Result<Self, IoVecError> {
-        let mut new_buffer = Self::new(None)?;
+        let mut new_buffer = Self::new(Some(128))?;
         // SAFETY: descriptor chain cannot be referencing the same memory location as another chain
         unsafe {
             new_buffer.load_descriptor_chain(mem, head)?;
