@@ -222,10 +222,10 @@ where
 
             // The maximum amount of data we can read in is limited by both the RX buffer size and
             // the peer available buffer space.
-            let max_len = std::cmp::min(pkt.buf_size(), self.peer_avail_credit());
+            // let max_len = std::cmp::min(pkt.buf_size(), self.peer_avail_credit());
 
             // Read data from the stream straight to the RX buffer, for maximum throughput.
-            match pkt.read_at_offset_from(&mut self.stream, 0, max_len) {
+            match pkt.read_at_offset_from(&mut self.stream, 0, 128 * 1024) {
                 Ok(read_cnt) => {
                     if read_cnt == 0 {
                         // A 0-length read means the host stream was closed down. In that case,
