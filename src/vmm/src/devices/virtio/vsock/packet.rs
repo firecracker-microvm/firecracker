@@ -362,15 +362,15 @@ impl VsockPacketRx {
         offset: u32,
         count: u32,
     ) -> Result<u32, VsockError> {
-        if count
-            > self
-                .buffer
-                .len()
-                .saturating_sub(VSOCK_PKT_HDR_SIZE)
-                .saturating_sub(offset)
-        {
-            return Err(VsockError::GuestMemoryBounds);
-        }
+        // if count
+        //     > self
+        //         .buffer
+        //         .len()
+        //         .saturating_sub(VSOCK_PKT_HDR_SIZE)
+        //         .saturating_sub(offset)
+        // {
+        //     return Err(VsockError::GuestMemoryBounds);
+        // }
 
         self.buffer
             .write_volatile_at(src, (offset + VSOCK_PKT_HDR_SIZE) as usize, count as usize)
