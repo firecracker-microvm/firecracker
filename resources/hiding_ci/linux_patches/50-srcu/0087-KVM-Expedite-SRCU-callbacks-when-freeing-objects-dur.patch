@@ -1,0 +1,43 @@
+From a39725e3a74b64106815ed72d5924cedda84b529 Mon Sep 17 00:00:00 2001
+From: Sean Christopherson <seanjc@google.com>
+Date: Mon, 9 Mar 2026 12:30:59 -0700
+Subject: [PATCH 87/87] KVM: Expedite SRCU callbacks when freeing objects
+ during I/O bus registration
+
+Use the recently introduced call_srcu_expedited() when freeing the old I/O
+bug during device registration to avoid triggering a non-expedited grace
+period.  Delaying the freeing of the object by a full grace period is a
+complete non-issue, but the grace period also gets transferred to future
+synchronizations, e.g. to the synchronize_srcu_expedited() invocation in
+kvm_swap_active_memslots().
+
+For micro-VM use cases, effectively transferring the non-expedited grace
+period to memslot updates results in a meaningful delay in overall boot
+time.  E.g. with a CONFIG_HZ=100 kernel, the sync triggers a ~20ms delay,
+increasing boot times by 15% or more.
+
+Fixes: 7d9a0273c459 ("KVM: Avoid synchronize_srcu() in kvm_io_bus_register_dev()")
+Reported-by: Nikita Kalyazin <kalyazin@amazon.com>
+Closes: https://lore.kernel.org/all/a84ddba8-12da-489a-9dd1-ccdf7451a1ba@amazon.com
+Cc: Keir Fraser <keirf@google.com>
+Signed-off-by: Sean Christopherson <seanjc@google.com>
+---
+ virt/kvm/kvm_main.c | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/virt/kvm/kvm_main.c b/virt/kvm/kvm_main.c
+index 19c2dcd19d49..2ad31e491090 100644
+--- a/virt/kvm/kvm_main.c
++++ b/virt/kvm/kvm_main.c
+@@ -6072,7 +6072,7 @@ int kvm_io_bus_register_dev(struct kvm *kvm, enum kvm_bus bus_idx, gpa_t addr,
+ 	memcpy(new_bus->range + i + 1, bus->range + i,
+ 		(bus->dev_count - i) * sizeof(struct kvm_io_range));
+ 	rcu_assign_pointer(kvm->buses[bus_idx], new_bus);
+-	call_srcu(&kvm->srcu, &bus->rcu, __free_bus);
++	call_srcu_expedited(&kvm->srcu, &bus->rcu, __free_bus);
+ 
+ 	return 0;
+ }
+-- 
+2.50.1
+
