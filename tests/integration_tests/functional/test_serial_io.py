@@ -48,6 +48,56 @@ def test_serial_after_snapshot(uvm_plain, microvm_factory):
     # We need to send a newline to signal the serial to flush
     # the login content.
     serial.tx("")
+
+    # looking for the # prompt at the end
+    serial.rx("ubuntu-fc-uvm:~#")
+    serial.tx("pwd")
+    res = serial.rx("#")
+    assert "/root" in res
+
+
+def test_serial_active_tx_snapshot(uvm_plain, microvm_factory):
+    """
+    Snapshot a guest that is actively transmitting on the serial console and
+    test that the transmission continues after snapshot restore.
+    """
+    microvm = uvm_plain
+    microvm.help.enable_console()
+    microvm.spawn(serial_out_path=None)
+    microvm.basic_config(
+        vcpu_count=2,
+        mem_size_mib=256,
+    )
+    serial = Serial(microvm)
+    serial.open()
+    microvm.start()
+
+    # looking for the # prompt at the end
+    serial.rx("ubuntu-fc-uvm:~#")
+
+    # Start an unbounded serial transmission from inside the guest such that
+    # there will be an active transmission at the point of pausing the VM to
+    # take the snapshot. This will saturate the TX buffer of the UART and it
+    # might make the guest driver enable TX interrupts.
+    serial.tx("cat /dev/zero")
+    # Give the guest time to start the transmission
+    time.sleep(1)
+
+    # Create snapshot.
+    snapshot = microvm.snapshot_full()
+    # Kill base microVM.
+    microvm.kill()
+
+    # Load microVM clone from snapshot.
+    vm = microvm_factory.build()
+    vm.help.enable_console()
+    vm.spawn(serial_out_path=None)
+    vm.restore_from_snapshot(snapshot, resume=True)
+    serial = Serial(vm)
+    serial.open()
+
+    # Send Ctrl-C to the guest to stop the ongoing transmission and regain the shell
+    serial.tx("\x03", end="")
     # looking for the # prompt at the end
     serial.rx("ubuntu-fc-uvm:~#")
     serial.tx("pwd")
