@@ -63,15 +63,15 @@ impl BusDevice for PciRoot {}
 impl PciDevice for PciRoot {
     fn write_config_register(
         &mut self,
-        reg_idx: usize,
-        offset: u64,
+        reg_idx: u16,
+        offset: u8,
         data: &[u8],
     ) -> Option<Arc<Barrier>> {
         self.config.write_config_register(reg_idx, offset, data);
         None
     }
 
-    fn read_config_register(&mut self, reg_idx: usize) -> u32 {
+    fn read_config_register(&mut self, reg_idx: u16) -> u32 {
         self.config.read_reg(reg_idx)
     }
 }
@@ -80,7 +80,7 @@ impl PciDevice for PciRoot {
 pub struct PciBus {
     /// Devices attached to this bus.
     /// Device 0 is host bridge.
-    pub devices: HashMap<u32, Arc<Mutex<dyn PciDevice>>>,
+    pub devices: HashMap<u8, Arc<Mutex<dyn PciDevice>>>,
     vm: Arc<dyn DeviceRelocation>,
     device_ids: Vec<bool>,
 }
@@ -96,7 +96,7 @@ impl Debug for PciBus {
 impl PciBus {
     /// Create a new PCI bus
     pub fn new(pci_root: PciRoot, vm: Arc<dyn DeviceRelocation>) -> Self {
-        let mut devices: HashMap<u32, Arc<Mutex<dyn PciDevice>>> = HashMap::new();
+        let mut devices: HashMap<u8, Arc<Mutex<dyn PciDevice>>> = HashMap::new();
         let mut device_ids: Vec<bool> = vec![false; NUM_DEVICE_IDS];
 
         devices.insert(0, Arc::new(Mutex::new(pci_root)));
@@ -110,16 +110,18 @@ impl PciBus {
     }
 
     /// Insert a device in the bus
-    pub fn add_device(&mut self, device_id: u32, device: Arc<Mutex<dyn PciDevice>>) {
+    pub fn add_device(&mut self, device_id: u8, device: Arc<Mutex<dyn PciDevice>>) {
         self.devices.insert(device_id, device);
     }
 
     /// Get a new device ID
-    pub fn next_device_id(&mut self) -> Result<u32, PciRootError> {
+    // idx is bounded by NUM_DEVICE_IDS (32), so it always fits in u8.
+    #[allow(clippy::cast_possible_truncation)]
+    pub fn next_device_id(&mut self) -> Result<u8, PciRootError> {
         for (idx, device_id) in self.device_ids.iter_mut().enumerate() {
             if !(*device_id) {
                 *device_id = true;
-                return Ok(idx.try_into().unwrap());
+                return Ok(idx as u8);
             }
         }
 
@@ -180,13 +182,15 @@ impl PciConfigIo {
             .lock()
             .unwrap()
             .devices
-            .get(&(device.try_into().unwrap()))
+            .get(&device)
             .map_or(0xffff_ffff, |d| {
                 d.lock().unwrap().read_config_register(register)
             })
     }
 
     /// Handle a configuration space write over Port IO
+    // offset is validated to be < 4 at the top of this function.
+    #[allow(clippy::cast_possible_truncation)]
     pub fn config_space_write(&mut self, offset: u64, data: &[u8]) -> Option<Arc<Barrier>> {
         if u64_to_usize(offset) + data.len() > 4 {
             return None;
@@ -214,7 +218,7 @@ impl PciConfigIo {
         // be a problem currently, since we mainly access this when we are setting up devices.
         // We might want to do some profiling to ensure this does not become a bottleneck.
         let pci_bus = self.pci_bus.as_ref().lock().unwrap();
-        if let Some(d) = pci_bus.devices.get(&(device.try_into().unwrap())) {
+        if let Some(d) = pci_bus.devices.get(&device) {
             let mut device = d.lock().unwrap();
 
             // Find out if one of the device's BAR is being reprogrammed, and
@@ -232,6 +236,10 @@ impl PciConfigIo {
                     e, params.old_base, params.new_base, params.len
                 );
             }
+
+            // offset is validated to be < 4 at the top of this function.
+            #[allow(clippy::cast_possible_truncation)]
+            let offset = offset as u8;
 
             // Update the register value
             device.write_config_register(register, offset, data)
@@ -326,7 +334,7 @@ impl PciConfigMmio {
             .lock()
             .unwrap()
             .devices
-            .get(&(device.try_into().unwrap()))
+            .get(&device)
             .map_or(0xffff_ffff, |d| {
                 d.lock().unwrap().read_config_register(register)
             })
@@ -350,7 +358,7 @@ impl PciConfigMmio {
         }
 
         let pci_bus = self.pci_bus.lock().unwrap();
-        if let Some(d) = pci_bus.devices.get(&(device.try_into().unwrap())) {
+        if let Some(d) = pci_bus.devices.get(&device) {
             let mut device = d.lock().unwrap();
 
             // Find out if one of the device's BAR is being reprogrammed, and
@@ -368,6 +376,10 @@ impl PciConfigMmio {
                     e, params.old_base, params.new_base, params.len
                 );
             }
+
+            // offset is validated to be < 4 at the top of this function.
+            #[allow(clippy::cast_possible_truncation)]
+            let offset = offset as u8;
 
             // Update the register value
             device.write_config_register(register, offset, data);
@@ -387,7 +399,11 @@ impl BusDevice for PciConfigMmio {
             return;
         }
 
-        let value = self.config_space_read(offset.try_into().unwrap());
+        // offset is checked to fit in u32 before narrowing.
+        #[allow(clippy::cast_possible_truncation)]
+        let offset = offset as u32;
+
+        let value = self.config_space_read(offset);
         for i in start..end {
             data[i - start] = ((value >> (i * 8)) & 0xff) as u8;
         }
@@ -397,20 +413,28 @@ impl BusDevice for PciConfigMmio {
         if offset > u64::from(u32::MAX) {
             return None;
         }
-        self.config_space_write(offset.try_into().unwrap(), offset % 4, data);
+
+        // offset is checked to fit in u32 before narrowing.
+        #[allow(clippy::cast_possible_truncation)]
+        let offset_u32 = offset as u32;
+
+        self.config_space_write(offset_u32, offset % 4, data);
 
         None
     }
 }
 
-fn shift_and_mask(value: u32, offset: usize, mask: u32) -> usize {
-    ((value >> offset) & mask) as usize
+fn shift_and_mask(value: u32, offset: usize, mask: u32) -> u32 {
+    (value >> offset) & mask
 }
 
 // Parse the MMIO address offset to a (bus, device, function, register) tuple.
 // See section 7.2.2 PCI Express Enhanced Configuration Access Mechanism (ECAM)
 // from the Pci Express Base Specification Revision 5.0 Version 1.0.
-fn parse_mmio_config_address(config_address: u32) -> (usize, usize, usize, usize) {
+//
+// The masks used below guarantee the values fit in the narrower return types.
+#[allow(clippy::cast_possible_truncation)]
+fn parse_mmio_config_address(config_address: u32) -> (u8, u8, u8, u16) {
     const BUS_NUMBER_OFFSET: usize = 20;
     const BUS_NUMBER_MASK: u32 = 0x00ff;
     const DEVICE_NUMBER_OFFSET: usize = 15;
@@ -421,15 +445,17 @@ fn parse_mmio_config_address(config_address: u32) -> (usize, usize, usize, usize
     const REGISTER_NUMBER_MASK: u32 = 0x3ff;
 
     (
-        shift_and_mask(config_address, BUS_NUMBER_OFFSET, BUS_NUMBER_MASK),
-        shift_and_mask(config_address, DEVICE_NUMBER_OFFSET, DEVICE_NUMBER_MASK),
-        shift_and_mask(config_address, FUNCTION_NUMBER_OFFSET, FUNCTION_NUMBER_MASK),
-        shift_and_mask(config_address, REGISTER_NUMBER_OFFSET, REGISTER_NUMBER_MASK),
+        shift_and_mask(config_address, BUS_NUMBER_OFFSET, BUS_NUMBER_MASK) as u8,
+        shift_and_mask(config_address, DEVICE_NUMBER_OFFSET, DEVICE_NUMBER_MASK) as u8,
+        shift_and_mask(config_address, FUNCTION_NUMBER_OFFSET, FUNCTION_NUMBER_MASK) as u8,
+        shift_and_mask(config_address, REGISTER_NUMBER_OFFSET, REGISTER_NUMBER_MASK) as u16,
     )
 }
 
 // Parse the CONFIG_ADDRESS register to a (bus, device, function, register) tuple.
-fn parse_io_config_address(config_address: u32) -> (usize, usize, usize, usize) {
+// The masks used below guarantee the values fit in the narrower return types.
+#[allow(clippy::cast_possible_truncation)]
+fn parse_io_config_address(config_address: u32) -> (u8, u8, u8, u16) {
     const BUS_NUMBER_OFFSET: usize = 16;
     const BUS_NUMBER_MASK: u32 = 0x00ff;
     const DEVICE_NUMBER_OFFSET: usize = 11;
@@ -440,10 +466,10 @@ fn parse_io_config_address(config_address: u32) -> (usize, usize, usize, usize) 
     const REGISTER_NUMBER_MASK: u32 = 0x3f;
 
     (
-        shift_and_mask(config_address, BUS_NUMBER_OFFSET, BUS_NUMBER_MASK),
-        shift_and_mask(config_address, DEVICE_NUMBER_OFFSET, DEVICE_NUMBER_MASK),
-        shift_and_mask(config_address, FUNCTION_NUMBER_OFFSET, FUNCTION_NUMBER_MASK),
-        shift_and_mask(config_address, REGISTER_NUMBER_OFFSET, REGISTER_NUMBER_MASK),
+        shift_and_mask(config_address, BUS_NUMBER_OFFSET, BUS_NUMBER_MASK) as u8,
+        shift_and_mask(config_address, DEVICE_NUMBER_OFFSET, DEVICE_NUMBER_MASK) as u8,
+        shift_and_mask(config_address, FUNCTION_NUMBER_OFFSET, FUNCTION_NUMBER_MASK) as u8,
+        shift_and_mask(config_address, REGISTER_NUMBER_OFFSET, REGISTER_NUMBER_MASK) as u16,
     )
 }
 
@@ -510,21 +536,21 @@ mod tests {
     impl PciDevice for PciDevMock {
         fn write_config_register(
             &mut self,
-            reg_idx: usize,
-            offset: u64,
+            reg_idx: u16,
+            offset: u8,
             data: &[u8],
         ) -> Option<Arc<std::sync::Barrier>> {
             self.0.write_config_register(reg_idx, offset, data);
             None
         }
 
-        fn read_config_register(&mut self, reg_idx: usize) -> u32 {
+        fn read_config_register(&mut self, reg_idx: u16) -> u32 {
             self.0.read_reg(reg_idx)
         }
 
         fn detect_bar_reprogramming(
             &mut self,
-            reg_idx: usize,
+            reg_idx: u16,
             data: &[u8],
         ) -> Option<BarReprogrammingParams> {
             self.0.detect_bar_reprogramming(reg_idx, data)
