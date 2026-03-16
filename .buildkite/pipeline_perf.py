@@ -36,9 +36,6 @@ perf_test = {
         "label": "network",
         "tests": "integration_tests/performance/test_network.py",
         "devtool_opts": "-c 1-10 -m 0",
-        # Triggers if delta is > 0.01ms (10µs) or default relative threshold (5%)
-        # only relevant for latency test, throughput test will always be magnitudes above this anyway
-        "ab_opts": "--absolute-strength 0.010",
     },
     "snapshot-latency": {
         "label": "snapshot-latency",
