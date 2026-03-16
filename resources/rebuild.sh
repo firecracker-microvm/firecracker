@@ -52,7 +52,7 @@ function compile_and_install {
 function build_ci_rootfs {
     local IMAGE_NAME=$1
     prepare_docker
-    build_rootfs "$IMAGE_NAME" "$OUTPUT_DIR" "$PWD/overlay" "chroot.sh"
+    build_rootfs "$IMAGE_NAME" "$OUTPUT_DIR" "$PWD/rootfs/overlay" "rootfs/setup-ubuntu-ci.sh"
 }
 
 
@@ -174,7 +174,7 @@ function build_al_kernel {
 }
 
 function prepare_and_build_rootfs {
-    BIN_DIR=overlay/usr/local/bin
+    BIN_DIR=rootfs/overlay/usr/local/bin
 
     SRCS=(init.c fillmem.c fast_page_fault_helper.c readmem.c go_sdk_cred_provider.go go_sdk_cred_provider_with_custom_endpoint.go)
     if [ $ARCH == "aarch64" ]; then

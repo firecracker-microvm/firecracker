@@ -14,7 +14,7 @@ source "$TOPDIR/tools/functions"
 USER_UID=$(stat -c '%u' "$TOPDIR")
 USER_GID=$(stat -c '%g' "$TOPDIR")
 
-OVERLAY_DIR="$TOPDIR/resources/overlay"
+OVERLAY_DIR="$TOPDIR/resources/rootfs/overlay"
 SETUP_SCRIPT="setup-minimal.sh"
 OUTPUT_DIR=$PWD
 
