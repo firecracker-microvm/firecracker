@@ -35,17 +35,17 @@ pub trait PciDevice: Send {
     /// * `offset` - Offset into the register.
     fn write_config_register(
         &mut self,
-        reg_idx: usize,
-        offset: u64,
+        reg_idx: u16,
+        offset: u8,
         data: &[u8],
     ) -> Option<Arc<Barrier>>;
     /// Gets a register from the configuration space.
     /// * `reg_idx` - The index of the config register to read.
-    fn read_config_register(&mut self, reg_idx: usize) -> u32;
+    fn read_config_register(&mut self, reg_idx: u16) -> u32;
     /// Detects if a BAR is being reprogrammed.
     fn detect_bar_reprogramming(
         &mut self,
-        _reg_idx: usize,
+        _reg_idx: u16,
         _data: &[u8],
     ) -> Option<BarReprogrammingParams> {
         None

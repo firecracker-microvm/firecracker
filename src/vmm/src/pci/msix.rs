@@ -198,7 +198,11 @@ impl MsixConfig {
         // masked.
         if old_masked && !self.masked {
             for (index, entry) in self.table_entries.clone().iter().enumerate() {
-                if !entry.masked() && self.get_pba_bit(index.try_into().unwrap()) == 1 {
+                // Table indices are bounded by MAX_MSIX_VECTORS_PER_DEVICE (2048), fitting in u16.
+                #[allow(clippy::cast_possible_truncation)]
+                let index = index as u16;
+
+                if !entry.masked() && self.get_pba_bit(index) == 1 {
                     self.inject_msix_and_clear_pba(index);
                 }
             }
@@ -338,12 +342,16 @@ impl MsixConfig {
         // All of this is valid only if MSI-X has not been masked for the whole
         // device.
 
+        // Table indices are bounded by MAX_MSIX_VECTORS_PER_DEVICE (2048), fitting in u16.
+        #[allow(clippy::cast_possible_truncation)]
+        let index = index as u16;
+
         // Check if bit has been flipped
         if !self.masked
             && self.enabled
             && old_entry.masked()
             && !table_entry.masked()
-            && self.get_pba_bit(index.try_into().unwrap()) == 1
+            && self.get_pba_bit(index) == 1
         {
             self.inject_msix_and_clear_pba(index);
         }
@@ -431,15 +439,15 @@ impl MsixConfig {
     }
 
     /// Inject an MSI-X interrupt and clear the PBA bit for a vector
-    fn inject_msix_and_clear_pba(&mut self, vector: usize) {
+    fn inject_msix_and_clear_pba(&mut self, vector: u16) {
         // Inject the MSI message
-        match self.vectors.trigger(vector) {
+        match self.vectors.trigger(vector as usize) {
             Ok(_) => debug!("MSI-X injected on vector control flip"),
             Err(e) => error!("failed to inject MSI-X: {}", e),
         }
 
         // Clear the bit from PBA
-        self.set_pba_bit(vector.try_into().unwrap(), true);
+        self.set_pba_bit(vector, true);
     }
 }
 

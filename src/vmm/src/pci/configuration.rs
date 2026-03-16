@@ -14,23 +14,22 @@ use super::BarReprogrammingParams;
 use super::msix::MsixConfig;
 use crate::logger::{info, warn};
 use crate::pci::{PciCapabilityId, PciClassCode};
-use crate::utils::u64_to_usize;
 
 // The number of 32bit registers in the config space, 4096 bytes.
 const NUM_CONFIGURATION_REGISTERS: usize = 1024;
 
 const STATUS_REG: usize = 1;
 const STATUS_REG_CAPABILITIES_USED_MASK: u32 = 0x0010_0000;
-const BAR0_REG: usize = 4;
-const ROM_BAR_REG: usize = 12;
+const BAR0_REG: u16 = 4;
+const ROM_BAR_REG: u16 = 12;
 const BAR_MEM_ADDR_MASK: u32 = 0xffff_fff0;
 const ROM_BAR_ADDR_MASK: u32 = 0xffff_f800;
 const MSI_CAPABILITY_REGISTER_MASK: u32 = 0x0071_0000;
 const MSIX_CAPABILITY_REGISTER_MASK: u32 = 0xc000_0000;
 const NUM_BAR_REGS: usize = 6;
-const CAPABILITY_LIST_HEAD_OFFSET: usize = 0x34;
-const FIRST_CAPABILITY_OFFSET: usize = 0x40;
-const CAPABILITY_MAX_OFFSET: usize = 192;
+const CAPABILITY_LIST_HEAD_OFFSET: u8 = 0x34;
+const FIRST_CAPABILITY_OFFSET: u8 = 0x40;
+const CAPABILITY_MAX_OFFSET: u16 = 192;
 
 /// A PCI capability list. Devices can optionally specify capabilities in their configuration space.
 pub trait PciCapability {
@@ -71,8 +70,8 @@ pub struct PciConfigurationState {
     registers: Vec<u32>,
     writable_bits: Vec<u32>,
     bars: Vec<PciBar>,
-    last_capability: Option<(usize, usize)>,
-    msix_cap_reg_idx: Option<usize>,
+    last_capability: Option<(u8, u8)>,
+    msix_cap_reg_idx: Option<u16>,
 }
 
 #[derive(Debug)]
@@ -85,8 +84,8 @@ pub struct PciConfiguration {
     writable_bits: [u32; NUM_CONFIGURATION_REGISTERS], // writable bits for each register.
     bars: [PciBar; NUM_BAR_REGS],
     // Contains the byte offset and size of the last capability.
-    last_capability: Option<(usize, usize)>,
-    msix_cap_reg_idx: Option<usize>,
+    last_capability: Option<(u8, u8)>,
+    msix_cap_reg_idx: Option<u16>,
     msix_config: Option<Arc<Mutex<MsixConfig>>>,
 }
 
@@ -153,19 +152,19 @@ impl PciConfiguration {
     }
 
     /// Reads a 32bit register from `reg_idx` in the register map.
-    pub fn read_reg(&self, reg_idx: usize) -> u32 {
-        *(self.registers.get(reg_idx).unwrap_or(&0xffff_ffff))
+    pub fn read_reg(&self, reg_idx: u16) -> u32 {
+        *(self.registers.get(reg_idx as usize).unwrap_or(&0xffff_ffff))
     }
 
     /// Writes a 32bit register to `reg_idx` in the register map.
-    pub fn write_reg(&mut self, reg_idx: usize, value: u32) {
-        let mut mask = self.writable_bits[reg_idx];
+    pub fn write_reg(&mut self, reg_idx: u16, value: u32) {
+        let mut mask = self.writable_bits[reg_idx as usize];
 
-        if (BAR0_REG..BAR0_REG + NUM_BAR_REGS).contains(&reg_idx) {
+        if (BAR0_REG as usize..BAR0_REG as usize + NUM_BAR_REGS).contains(&(reg_idx as usize)) {
             // Handle very specific case where the BAR is being written with
             // all 1's to retrieve the BAR size during next BAR reading.
             if value == 0xffff_ffff {
-                mask &= self.bars[reg_idx - 4].size;
+                mask &= self.bars[(reg_idx - BAR0_REG) as usize].size;
             }
         } else if reg_idx == ROM_BAR_REG {
             // Handle very specific case where the BAR is being written with
@@ -176,15 +175,15 @@ impl PciConfiguration {
             }
         }
 
-        if let Some(r) = self.registers.get_mut(reg_idx) {
-            *r = (*r & !self.writable_bits[reg_idx]) | (value & mask);
+        if let Some(r) = self.registers.get_mut(reg_idx as usize) {
+            *r = (*r & !self.writable_bits[reg_idx as usize]) | (value & mask);
         } else {
             warn!("bad PCI register write {}", reg_idx);
         }
     }
 
     /// Writes a 16bit word to `offset`. `offset` must be 16bit aligned.
-    pub fn write_word(&mut self, offset: usize, value: u16) {
+    pub fn write_word(&mut self, offset: u16, value: u16) {
         let shift = match offset % 4 {
             0 => 0,
             2 => 16,
@@ -193,7 +192,7 @@ impl PciConfiguration {
                 return;
             }
         };
-        let reg_idx = offset / 4;
+        let reg_idx = (offset / 4) as usize;
 
         if let Some(r) = self.registers.get_mut(reg_idx) {
             let writable_mask = self.writable_bits[reg_idx];
@@ -206,14 +205,14 @@ impl PciConfiguration {
     }
 
     /// Writes a byte to `offset`.
-    pub fn write_byte(&mut self, offset: usize, value: u8) {
+    pub fn write_byte(&mut self, offset: u16, value: u8) {
         self.write_byte_internal(offset, value, true);
     }
 
     /// Writes a byte to `offset`, optionally enforcing read-only bits.
-    fn write_byte_internal(&mut self, offset: usize, value: u8, apply_writable_mask: bool) {
-        let shift = (offset % 4) * 8;
-        let reg_idx = offset / 4;
+    fn write_byte_internal(&mut self, offset: u16, value: u8, apply_writable_mask: bool) {
+        let shift = (offset as usize % 4) * 8;
+        let reg_idx = offset as usize / 4;
 
         if let Some(r) = self.registers.get_mut(reg_idx) {
             let writable_mask = if apply_writable_mask {
@@ -234,8 +233,8 @@ impl PciConfiguration {
     /// Configures the specified BAR to report this region and size to the guest kernel.
     /// Enforces a few constraints (i.e, region size must be power of two, register not already
     /// used).
-    pub fn add_pci_bar(&mut self, bar_idx: usize, addr: u64, size: u64) {
-        let reg_idx = BAR0_REG + bar_idx;
+    pub fn add_pci_bar(&mut self, bar_idx: u8, addr: u64, size: u64) {
+        let reg_idx = (BAR0_REG + u16::from(bar_idx)) as usize;
 
         // These are a few constraints that are imposed due to the fact
         // that only VirtIO devices are actually allocating a BAR. Moreover, this is
@@ -260,10 +259,10 @@ impl PciConfiguration {
 
         self.registers[reg_idx + 1] = (addr >> 32) as u32;
         self.writable_bits[reg_idx + 1] = 0xffff_ffff;
-        self.bars[bar_idx + 1].addr = self.registers[reg_idx + 1];
-        self.bars[bar_idx].size = bar_size_lo;
-        self.bars[bar_idx + 1].size = bar_size_hi;
-        self.bars[bar_idx + 1].used = true;
+        self.bars[bar_idx as usize + 1].addr = self.registers[reg_idx + 1];
+        self.bars[bar_idx as usize].size = bar_size_lo;
+        self.bars[bar_idx as usize + 1].size = bar_size_hi;
+        self.bars[bar_idx as usize + 1].used = true;
 
         // Addresses of memory BARs are 16-byte aligned so the lower 4 bits are always 0. Within
         // the register we use this 4 bits to encode extra information about the BAR. The meaning
@@ -275,20 +274,20 @@ impl PciConfiguration {
         // Non-prefetchable, 64 bits BAR region
         self.registers[reg_idx] = (((addr & 0xffff_ffff) as u32) & BAR_MEM_ADDR_MASK) | 4u32;
         self.writable_bits[reg_idx] = BAR_MEM_ADDR_MASK;
-        self.bars[bar_idx].addr = self.registers[reg_idx];
-        self.bars[bar_idx].used = true;
+        self.bars[bar_idx as usize].addr = self.registers[reg_idx];
+        self.bars[bar_idx as usize].used = true;
     }
 
     /// Returns the address of the given BAR region.
     ///
     /// This assumes that `bar_idx` is a valid BAR register.
-    pub fn get_bar_addr(&self, bar_idx: usize) -> u64 {
-        assert!(bar_idx < NUM_BAR_REGS);
+    pub fn get_bar_addr(&self, bar_idx: u8) -> u64 {
+        assert!((bar_idx as usize) < NUM_BAR_REGS);
 
-        let reg_idx = BAR0_REG + bar_idx;
+        let reg_idx = (BAR0_REG + u16::from(bar_idx)) as usize;
 
-        (u64::from(self.bars[bar_idx].addr & self.writable_bits[reg_idx]))
-            | (u64::from(self.bars[bar_idx + 1].addr) << 32)
+        (u64::from(self.bars[bar_idx as usize].addr & self.writable_bits[reg_idx]))
+            | (u64::from(self.bars[bar_idx as usize + 1].addr) << 32)
     }
 
     /// Adds the capability `cap_data` to the list of capabilities.
@@ -296,8 +295,13 @@ impl PciConfiguration {
     /// `cap_data` should not include the two-byte PCI capability header (type, next).
     /// Correct values will be generated automatically based on `cap_data.id()` and
     /// `cap_data.len()`.
-    pub fn add_capability(&mut self, cap_data: &dyn PciCapability) -> usize {
+    pub fn add_capability(&mut self, cap_data: &dyn PciCapability) -> u8 {
         let total_len = cap_data.bytes().len() + 2;
+        assert!(total_len < usize::from(u8::MAX));
+        // We assert that the len fit in u8
+        #[allow(clippy::cast_possible_truncation)]
+        let total_len = total_len as u8;
+
         let (cap_offset, tail_offset) = match self.last_capability {
             Some((offset, len)) => (Self::next_dword(offset, len), offset + 1),
             None => (FIRST_CAPABILITY_OFFSET, CAPABILITY_LIST_HEAD_OFFSET),
@@ -306,24 +310,28 @@ impl PciConfiguration {
         // We know that the capabilities we are using have a valid size (doesn't overflow) and that
         // we add capabilities that fit in the available space. If any of these requirements don't
         // hold, this is due to a Firecracker bug.
-        let end_offset = cap_offset.checked_add(total_len).unwrap();
+        let end_offset = u16::from(cap_offset) + u16::from(total_len);
         assert!(end_offset <= CAPABILITY_MAX_OFFSET);
         self.registers[STATUS_REG] |= STATUS_REG_CAPABILITIES_USED_MASK;
-        self.write_byte_internal(tail_offset, cap_offset.try_into().unwrap(), false);
-        self.write_byte_internal(cap_offset, cap_data.id() as u8, false);
-        self.write_byte_internal(cap_offset + 1, 0, false); // Next pointer.
+        self.write_byte_internal(u16::from(tail_offset), cap_offset, false);
+        self.write_byte_internal(u16::from(cap_offset), cap_data.id() as u8, false);
+        self.write_byte_internal(u16::from(cap_offset) + 1, 0, false); // Next pointer.
         for (i, byte) in cap_data.bytes().iter().enumerate() {
-            self.write_byte_internal(cap_offset + i + 2, *byte, false);
+            // We asserted that the number of bytes fit into u8 and so in u16
+            #[allow(clippy::cast_possible_truncation)]
+            let i = i as u16;
+            self.write_byte_internal(u16::from(cap_offset) + i + 2, *byte, false);
         }
         self.last_capability = Some((cap_offset, total_len));
 
         match cap_data.id() {
             PciCapabilityId::MessageSignalledInterrupts => {
-                self.writable_bits[cap_offset / 4] = MSI_CAPABILITY_REGISTER_MASK;
+                self.writable_bits[(cap_offset / 4) as usize] = MSI_CAPABILITY_REGISTER_MASK;
             }
             PciCapabilityId::MsiX => {
-                self.msix_cap_reg_idx = Some(cap_offset / 4);
-                self.writable_bits[self.msix_cap_reg_idx.unwrap()] = MSIX_CAPABILITY_REGISTER_MASK;
+                self.msix_cap_reg_idx = Some(u16::from(cap_offset) / 4);
+                self.writable_bits[self.msix_cap_reg_idx.unwrap() as usize] =
+                    MSIX_CAPABILITY_REGISTER_MASK;
             }
             _ => {}
         }
@@ -332,18 +340,18 @@ impl PciConfiguration {
     }
 
     // Find the next aligned offset after the one given.
-    fn next_dword(offset: usize, len: usize) -> usize {
+    fn next_dword(offset: u8, len: u8) -> u8 {
         let next = offset + len;
         (next + 3) & !3
     }
 
     /// Write a PCI configuration register
-    pub fn write_config_register(&mut self, reg_idx: usize, offset: u64, data: &[u8]) {
-        if reg_idx >= NUM_CONFIGURATION_REGISTERS {
+    pub fn write_config_register(&mut self, reg_idx: u16, offset: u8, data: &[u8]) {
+        if reg_idx as usize >= NUM_CONFIGURATION_REGISTERS {
             return;
         }
 
-        if u64_to_usize(offset) + data.len() > 4 {
+        if offset as usize + data.len() > 4 {
             return;
         }
 
@@ -368,9 +376,9 @@ impl PciConfiguration {
         }
 
         match data.len() {
-            1 => self.write_byte(reg_idx * 4 + u64_to_usize(offset), data[0]),
+            1 => self.write_byte(reg_idx * 4 + offset as u16, data[0]),
             2 => self.write_word(
-                reg_idx * 4 + u64_to_usize(offset),
+                reg_idx * 4 + offset as u16,
                 u16::from(data[0]) | (u16::from(data[1]) << 8),
             ),
             4 => self.write_reg(reg_idx, LittleEndian::read_u32(data)),
@@ -381,7 +389,7 @@ impl PciConfiguration {
     /// Detect whether the guest wants to reprogram the address of a BAR
     pub fn detect_bar_reprogramming(
         &mut self,
-        reg_idx: usize,
+        reg_idx: u16,
         data: &[u8],
     ) -> Option<BarReprogrammingParams> {
         if data.len() != 4 {
@@ -390,8 +398,8 @@ impl PciConfiguration {
 
         let value = LittleEndian::read_u32(data);
 
-        let mask = self.writable_bits[reg_idx];
-        if !(BAR0_REG..BAR0_REG + NUM_BAR_REGS).contains(&reg_idx) {
+        let mask = self.writable_bits[reg_idx as usize];
+        if !(BAR0_REG as usize..BAR0_REG as usize + NUM_BAR_REGS).contains(&(reg_idx as usize)) {
             return None;
         }
 
@@ -400,7 +408,7 @@ impl PciConfiguration {
             return None;
         }
 
-        let bar_idx = reg_idx - 4;
+        let bar_idx = (reg_idx - BAR0_REG) as usize;
 
         // Do not reprogram BARs we are not using
         if !self.bars[bar_idx].used {
@@ -416,6 +424,7 @@ impl PciConfiguration {
 
         // The lower BAR (of this 64bit BAR) has been reprogrammed to a different value
         // than it used to be
+        let reg_idx = reg_idx as usize;
         if (self.registers[reg_idx - 1] & self.writable_bits[reg_idx - 1])
                     != (self.bars[bar_idx - 1].addr & self.writable_bits[reg_idx - 1]) ||
                     // Or the lower BAR hasn't been changed but the upper one is being reprogrammed
@@ -447,6 +456,9 @@ impl PciConfiguration {
 }
 
 #[cfg(test)]
+// There ase some constants that still use bigger types than needed, but we
+// only cast them to smaller types in unit tests.
+#[allow(clippy::cast_possible_truncation)]
 mod tests {
     use vm_memory::ByteValued;
 
@@ -533,17 +545,17 @@ mod tests {
         assert_eq!(cap2_offset % 4, 0);
 
         // The capability list head should be pointing to cap1.
-        let cap_ptr = cfg.read_reg(CAPABILITY_LIST_HEAD_OFFSET / 4) & 0xFF;
-        assert_eq!(cap1_offset, cap_ptr as usize);
+        let cap_ptr = cfg.read_reg(u16::from(CAPABILITY_LIST_HEAD_OFFSET) / 4) & 0xFF;
+        assert_eq!(cap1_offset as u32, cap_ptr);
 
         // Verify the contents of the capabilities.
-        let cap1_data = cfg.read_reg(cap1_offset / 4);
+        let cap1_data = cfg.read_reg(u16::from(cap1_offset) / 4);
         assert_eq!(cap1_data & 0xFF, 0x09); // capability ID
-        assert_eq!((cap1_data >> 8) & 0xFF, u32::try_from(cap2_offset).unwrap()); // next capability pointer
+        assert_eq!((cap1_data >> 8) & 0xFF, u32::from(cap2_offset)); // next capability pointer
         assert_eq!((cap1_data >> 16) & 0xFF, 0x04); // cap1.len
         assert_eq!((cap1_data >> 24) & 0xFF, 0xAA); // cap1.foo
 
-        let cap2_data = cfg.read_reg(cap2_offset / 4);
+        let cap2_data = cfg.read_reg(u16::from(cap2_offset) / 4);
         assert_eq!(cap2_data & 0xFF, 0x09); // capability ID
         assert_eq!((cap2_data >> 8) & 0xFF, 0x00); // next capability pointer
         assert_eq!((cap2_data >> 16) & 0xFF, 0x04); // cap2.len
@@ -564,7 +576,7 @@ mod tests {
         );
         cfg.add_capability(&msix_cap);
 
-        let cap_reg = FIRST_CAPABILITY_OFFSET / 4;
+        let cap_reg = u16::from(FIRST_CAPABILITY_OFFSET) / 4;
         let reg = cfg.read_reg(cap_reg);
         // Capability ID is MSI-X
         assert_eq!(
@@ -708,14 +720,14 @@ mod tests {
     #[should_panic]
     fn test_bad_bar_index() {
         let mut pci_config = default_pci_config();
-        pci_config.add_pci_bar(NUM_BAR_REGS, 0x1000, 0x1000);
+        pci_config.add_pci_bar(NUM_BAR_REGS as u8, 0x1000, 0x1000);
     }
 
     #[test]
     #[should_panic]
     fn test_bad_64bit_bar_index() {
         let mut pci_config = default_pci_config();
-        pci_config.add_pci_bar(NUM_BAR_REGS - 1, 0x1000, 0x1000);
+        pci_config.add_pci_bar((NUM_BAR_REGS - 1) as u8, 0x1000, 0x1000);
     }
 
     #[test]
@@ -768,31 +780,43 @@ mod tests {
 
         // Can't read past the end of the configuration space
         assert_eq!(
-            pci_config.read_reg(NUM_CONFIGURATION_REGISTERS),
+            pci_config.read_reg(NUM_CONFIGURATION_REGISTERS as u16),
             0xffff_ffff
         );
 
         // Read out all of configuration space
-        let config_space: Vec<u32> = (0..NUM_CONFIGURATION_REGISTERS)
+        let config_space: Vec<u32> = (0..NUM_CONFIGURATION_REGISTERS as u16)
             .map(|reg_idx| pci_config.read_reg(reg_idx))
             .collect();
 
         // Various invalid write accesses
 
         // Past the end of config space
-        pci_config.write_config_register(NUM_CONFIGURATION_REGISTERS, 0, &[0x42]);
-        pci_config.write_config_register(NUM_CONFIGURATION_REGISTERS, 0, &[0x42, 0x42]);
-        pci_config.write_config_register(NUM_CONFIGURATION_REGISTERS, 0, &[0x42, 0x42, 0x42, 0x42]);
+        pci_config.write_config_register(NUM_CONFIGURATION_REGISTERS as u16, 0, &[0x42]);
+        pci_config.write_config_register(NUM_CONFIGURATION_REGISTERS as u16, 0, &[0x42, 0x42]);
+        pci_config.write_config_register(
+            NUM_CONFIGURATION_REGISTERS as u16,
+            0,
+            &[0x42, 0x42, 0x42, 0x42],
+        );
 
         // Past register boundaries
-        pci_config.write_config_register(NUM_CONFIGURATION_REGISTERS, 1, &[0x42, 0x42, 0x42, 0x42]);
-        pci_config.write_config_register(NUM_CONFIGURATION_REGISTERS, 2, &[0x42, 0x42, 0x42]);
-        pci_config.write_config_register(NUM_CONFIGURATION_REGISTERS, 3, &[0x42, 0x42]);
-        pci_config.write_config_register(NUM_CONFIGURATION_REGISTERS, 4, &[0x42]);
-        pci_config.write_config_register(NUM_CONFIGURATION_REGISTERS, 5, &[]);
+        pci_config.write_config_register(
+            NUM_CONFIGURATION_REGISTERS as u16,
+            1,
+            &[0x42, 0x42, 0x42, 0x42],
+        );
+        pci_config.write_config_register(
+            NUM_CONFIGURATION_REGISTERS as u16,
+            2,
+            &[0x42, 0x42, 0x42],
+        );
+        pci_config.write_config_register(NUM_CONFIGURATION_REGISTERS as u16, 3, &[0x42, 0x42]);
+        pci_config.write_config_register(NUM_CONFIGURATION_REGISTERS as u16, 4, &[0x42]);
+        pci_config.write_config_register(NUM_CONFIGURATION_REGISTERS as u16, 5, &[]);
 
         for (reg_idx, reg) in config_space.iter().enumerate() {
-            assert_eq!(*reg, pci_config.read_reg(reg_idx));
+            assert_eq!(*reg, pci_config.read_reg(reg_idx as u16));
         }
     }
 
@@ -830,7 +854,7 @@ mod tests {
         );
 
         // Trying to reprogram a BAR that hasn't be initialized does nothing
-        for reg_idx in BAR0_REG..BAR0_REG + NUM_BAR_REGS {
+        for reg_idx in BAR0_REG..BAR0_REG + NUM_BAR_REGS as u16 {
             assert!(
                 pci_config
                     .detect_bar_reprogramming(reg_idx, &u32::to_le_bytes(0x1312_4243))

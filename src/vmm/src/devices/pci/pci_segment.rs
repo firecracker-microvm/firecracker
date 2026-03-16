@@ -169,12 +169,7 @@ impl PciSegment {
         Ok(PciBdf::new(
             self.id,
             0,
-            self.pci_bus
-                .lock()
-                .unwrap()
-                .next_device_id()?
-                .try_into()
-                .unwrap(),
+            self.pci_bus.lock().unwrap().next_device_id()?,
             0,
         ))
     }
