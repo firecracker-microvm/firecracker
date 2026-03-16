@@ -437,6 +437,24 @@ mod tests {
     }
 
     #[test]
+    fn test_restore_from_state() {
+        let mut serial = SerialDevice::new(None, SerialOut::Sink, None).unwrap();
+        serial.serial.raw_input(b"abc").unwrap();
+
+        let state = serial.serial.state();
+        let mut restored = SerialDevice::new(None, SerialOut::Sink, Some(&state)).unwrap();
+
+        // Make sure we read back what we previously injected
+        let mut buf = [0u8; 1];
+        restored.read(0, 0, &mut buf);
+        assert_eq!(buf[0], b'a');
+        restored.read(0, 0, &mut buf);
+        assert_eq!(buf[0], b'b');
+        restored.read(0, 0, &mut buf);
+        assert_eq!(buf[0], b'c');
+    }
+
+    #[test]
     fn test_is_fifo() {
         // invalid file descriptors arent fifos
         let invalid = -1;
