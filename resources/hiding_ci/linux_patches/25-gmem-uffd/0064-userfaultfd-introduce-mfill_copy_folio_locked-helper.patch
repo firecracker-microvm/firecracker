@@ -1,7 +1,7 @@
-From b4270449471da9d61fb6111c064b6ce831a79566 Mon Sep 17 00:00:00 2001
+From 274f2c05074b7b6e3bb12a6dfbab0d688c9a62a9 Mon Sep 17 00:00:00 2001
 From: "Mike Rapoport (Microsoft)" <rppt@kernel.org>
-Date: Thu, 8 Jan 2026 21:25:05 +0200
-Subject: [PATCH 64/84] userfaultfd: introduce mfill_copy_folio_locked() helper
+Date: Fri, 6 Mar 2026 19:18:01 +0200
+Subject: [PATCH 64/87] userfaultfd: introduce mfill_copy_folio_locked() helper
 
 Split copying of data when locks held from mfill_atomic_pte_copy() into
 a helper function mfill_copy_folio_locked().
@@ -11,6 +11,7 @@ mfill_atomic_pte_copy() function easier to comprehend.
 
 No functional change.
 
+Acked-by: Peter Xu <peterx@redhat.com>
 Signed-off-by: Mike Rapoport (Microsoft) <rppt@kernel.org>
 ---
  mm/userfaultfd.c | 59 ++++++++++++++++++++++++++++--------------------
