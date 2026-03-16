@@ -32,6 +32,12 @@ and this project adheres to
   HID (Hardware ID) of VMGenID device so that it aligns with the upstream Linux
   kernel. This caused the driver not to be bound correctly to the device prior
   to Linux kernel 6.10.
+- [#5764](https://github.com/firecracker-microvm/firecracker/pull/5764): Fixed a
+  bug that caused the guest UART driver to get stuck and stop transmitting after
+  snapshot restore. The bug was triggered by taking a snapshot while a serial
+  transmission was taking place. On restore the driver would wait for a TX
+  interrupt that would never arrive and no output would appear in the serial
+  console.
 - [#5780](https://github.com/firecracker-microvm/firecracker/pull/5780): Fixed
   missing `/sys/devices/system/cpu/cpu*/cache/*` in aarch64 guests when running
   on host kernels >= 6.3 with guest kernels >= 6.1.156.
