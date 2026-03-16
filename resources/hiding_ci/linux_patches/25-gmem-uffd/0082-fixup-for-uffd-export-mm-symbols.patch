@@ -1,26 +1,13 @@
-From c7ee86ceb3a0cdfe1532099ec7f12f069381db33 Mon Sep 17 00:00:00 2001
+From 40f4e5b892c456e530300e51390de6319af7d596 Mon Sep 17 00:00:00 2001
 From: Nikita Kalyazin <kalyazin@amazon.com>
 Date: Mon, 2 Mar 2026 15:13:17 +0000
-Subject: [PATCH 81/84] fixup for uffd: export mm symbols
+Subject: [PATCH 82/87] fixup for uffd: export mm symbols
 
 Signed-off-by: Nikita Kalyazin <kalyazin@amazon.com>
 ---
- mm/filemap.c   | 1 +
  mm/mempolicy.c | 1 +
- 2 files changed, 2 insertions(+)
+ 1 file changed, 1 insertion(+)
 
-diff --git a/mm/filemap.c b/mm/filemap.c
-index 3e4579e4b8bb..041c7719e524 100644
---- a/mm/filemap.c
-+++ b/mm/filemap.c
-@@ -261,6 +261,7 @@ void filemap_remove_folio(struct folio *folio)
- 
- 	filemap_free_folio(mapping, folio);
- }
-+EXPORT_SYMBOL_FOR_MODULES(filemap_remove_folio, "kvm");
- 
- /*
-  * page_cache_delete_batch - delete several folios from page cache
 diff --git a/mm/mempolicy.c b/mm/mempolicy.c
 index 3d797d47a040..1dbbbb28a36e 100644
 --- a/mm/mempolicy.c
