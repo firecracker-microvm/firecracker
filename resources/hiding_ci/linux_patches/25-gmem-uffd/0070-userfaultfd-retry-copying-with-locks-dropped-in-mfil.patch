@@ -1,12 +1,12 @@
-From a2d7751925edd0185d5f6fca9ed9f69ba43ab31f Mon Sep 17 00:00:00 2001
+From 6ecb9e899ef28f4522ffb704be2f020cf873a179 Mon Sep 17 00:00:00 2001
 From: "Mike Rapoport (Microsoft)" <rppt@kernel.org>
-Date: Sun, 11 Jan 2026 18:37:59 +0200
-Subject: [PATCH 68/84] userfaultfd: retry copying with locks dropped in
+Date: Fri, 6 Mar 2026 19:18:05 +0200
+Subject: [PATCH 70/87] userfaultfd: retry copying with locks dropped in
  mfill_atomic_pte_copy()
 
 Implementation of UFFDIO_COPY for anonymous memory might fail to copy
-data data from userspace buffer when the destination VMA is locked
-(either with mm_lock or with per-VMA lock).
+data from userspace buffer when the destination VMA is locked (either
+with mm_lock or with per-VMA lock).
 
 In that case, mfill_atomic() releases the locks, retries copying the
 data with locks dropped and then re-locks the destination VMA and
@@ -17,19 +17,32 @@ never happens for other UFFDIO_ operations, make it a part of
 mfill_atomic_pte_copy() that actually implements UFFDIO_COPY for
 anonymous memory.
 
-shmem implementation will be updated later and the loop in
-mfill_atomic() will be adjusted afterwards.
+As a temporal safety measure to avoid breaking biscection
+mfill_atomic_pte_copy() makes sure to never return -ENOENT so that the
+loop in mfill_atomic() won't retry copiyng outside of mmap_lock. This is
+removed later when shmem implementation will be updated later and the
+loop in mfill_atomic() will be adjusted.
 
 Signed-off-by: Mike Rapoport (Microsoft) <rppt@kernel.org>
 ---
- mm/userfaultfd.c | 70 +++++++++++++++++++++++++++++++-----------------
- 1 file changed, 46 insertions(+), 24 deletions(-)
+ mm/userfaultfd.c | 78 +++++++++++++++++++++++++++++++++---------------
+ 1 file changed, 54 insertions(+), 24 deletions(-)
 
 diff --git a/mm/userfaultfd.c b/mm/userfaultfd.c
-index 83a9377130fd..07e4e95ec276 100644
+index 78d29499c5a9..391a27b7b9b7 100644
 --- a/mm/userfaultfd.c
 +++ b/mm/userfaultfd.c
-@@ -400,35 +400,57 @@ static int mfill_copy_folio_locked(struct folio *folio, unsigned long src_addr)
+@@ -159,6 +159,9 @@ static void uffd_mfill_unlock(struct vm_area_struct *vma)
+ 
+ static void mfill_put_vma(struct mfill_state *state)
+ {
++	if (!state->vma)
++		return;
++
+ 	up_read(&state->ctx->map_changing_lock);
+ 	uffd_mfill_unlock(state->vma);
+ 	state->vma = NULL;
+@@ -400,35 +403,63 @@ static int mfill_copy_folio_locked(struct folio *folio, unsigned long src_addr)
  	return ret;
  }
  
@@ -87,9 +100,7 @@ index 83a9377130fd..07e4e95ec276 100644
 +	if (mem_cgroup_charge(folio, state->vma->vm_mm, GFP_KERNEL))
 +		goto out_release;
  
-+	ret = mfill_copy_folio_locked(folio, src_addr);
-+	if (unlikely(ret)) {
- 		/* fallback to copy_from_user outside mmap_lock */
+-		/* fallback to copy_from_user outside mmap_lock */
 -		if (unlikely(ret)) {
 -			ret = -ENOENT;
 -			state->folio = folio;
@@ -99,13 +110,22 @@ index 83a9377130fd..07e4e95ec276 100644
 -	} else {
 -		folio = state->folio;
 -		state->folio = NULL;
++	ret = mfill_copy_folio_locked(folio, src_addr);
++	if (unlikely(ret)) {
++		/*
++		 * Fallback to copy_from_user outside mmap_lock.
++		 * If retry is successful, mfill_copy_folio_locked() returns
++		 * with locks retaken by mfill_get_vma().
++		 * If there was an error, we must mfill_put_vma() anyway and it
++		 * will take care of unlocking if needed.
++		 */
 +		ret = mfill_copy_folio_retry(state, folio);
 +		if (ret)
 +			goto out_release;
  	}
  
  	/*
-@@ -438,17 +460,16 @@ static int mfill_atomic_pte_copy(struct mfill_state *state)
+@@ -438,17 +469,16 @@ static int mfill_atomic_pte_copy(struct mfill_state *state)
  	 */
  	__folio_mark_uptodate(folio);
  
@@ -127,16 +147,6 @@ index 83a9377130fd..07e4e95ec276 100644
  	folio_put(folio);
  	goto out;
  }
-@@ -900,7 +921,8 @@ static __always_inline ssize_t mfill_atomic(struct userfaultfd_ctx *ctx,
- 			break;
- 	}
- 
--	mfill_put_vma(&state);
-+	if (state.vma)
-+		mfill_put_vma(&state);
- out:
- 	if (state.folio)
- 		folio_put(state.folio);
 -- 
 2.50.1
 

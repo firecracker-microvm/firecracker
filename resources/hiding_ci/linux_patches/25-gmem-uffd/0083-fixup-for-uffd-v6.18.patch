@@ -1,7 +1,7 @@
-From 07fb198f7921eec4c06521ae0e9ec2e1d05526ea Mon Sep 17 00:00:00 2001
+From 823136e0d38a78f324133798a98f33cd3f7a55df Mon Sep 17 00:00:00 2001
 From: Nikita Kalyazin <kalyazin@amazon.com>
 Date: Fri, 23 Jan 2026 16:07:52 +0000
-Subject: [PATCH 82/84] fixup for uffd + v6.18
+Subject: [PATCH 83/87] fixup for uffd + v6.18
 
 ---
  include/asm-generic/pgtable_uffd.h | 17 +++++++++++++++++

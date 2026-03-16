@@ -1,7 +1,7 @@
-From 0a3172a9d6c403599aed365c374a4e7976f9cbc1 Mon Sep 17 00:00:00 2001
+From 5ef59a3ad84fc7ce2529d52c7156e5279914cd52 Mon Sep 17 00:00:00 2001
 From: "Mike Rapoport (Microsoft)" <rppt@kernel.org>
-Date: Fri, 16 Jan 2026 18:47:02 +0200
-Subject: [PATCH 74/84] userfaultfd: mfill_atomic() remove retry logic
+Date: Fri, 6 Mar 2026 19:18:11 +0200
+Subject: [PATCH 77/87] userfaultfd: mfill_atomic(): remove retry logic
 
 Since __mfill_atomic_pte() handles the retry for both anonymous and
 shmem, there is no need to retry copying the date from the userspace in
@@ -15,7 +15,7 @@ Signed-off-by: Mike Rapoport (Microsoft) <rppt@kernel.org>
  1 file changed, 24 deletions(-)
 
 diff --git a/mm/userfaultfd.c b/mm/userfaultfd.c
-index cc50d83462ee..54ffba878a8d 100644
+index 9e76df7ba923..4ebadd7ba84a 100644
 --- a/mm/userfaultfd.c
 +++ b/mm/userfaultfd.c
 @@ -29,7 +29,6 @@ struct mfill_state {
@@ -26,7 +26,7 @@ index cc50d83462ee..54ffba878a8d 100644
  	pmd_t *pmd;
  };
  
-@@ -882,7 +881,6 @@ static __always_inline ssize_t mfill_atomic(struct userfaultfd_ctx *ctx,
+@@ -891,7 +890,6 @@ static __always_inline ssize_t mfill_atomic(struct userfaultfd_ctx *ctx,
  	VM_WARN_ON_ONCE(src_start + len <= src_start);
  	VM_WARN_ON_ONCE(dst_start + len <= dst_start);
  
@@ -34,7 +34,7 @@ index cc50d83462ee..54ffba878a8d 100644
  	err = mfill_get_vma(&state);
  	if (err)
  		goto out;
-@@ -909,26 +907,6 @@ static __always_inline ssize_t mfill_atomic(struct userfaultfd_ctx *ctx,
+@@ -918,26 +916,6 @@ static __always_inline ssize_t mfill_atomic(struct userfaultfd_ctx *ctx,
  		err = mfill_atomic_pte(&state);
  		cond_resched();
  
@@ -61,9 +61,9 @@ index cc50d83462ee..54ffba878a8d 100644
  		if (!err) {
  			state.dst_addr += PAGE_SIZE;
  			state.src_addr += PAGE_SIZE;
-@@ -944,8 +922,6 @@ static __always_inline ssize_t mfill_atomic(struct userfaultfd_ctx *ctx,
- 	if (state.vma)
- 		mfill_put_vma(&state);
+@@ -952,8 +930,6 @@ static __always_inline ssize_t mfill_atomic(struct userfaultfd_ctx *ctx,
+ 
+ 	mfill_put_vma(&state);
  out:
 -	if (state.folio)
 -		folio_put(state.folio);

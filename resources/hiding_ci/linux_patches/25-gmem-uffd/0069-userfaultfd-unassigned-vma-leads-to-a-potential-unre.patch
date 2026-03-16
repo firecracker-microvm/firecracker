@@ -1,0 +1,121 @@
+From d3c56661eb5f418903f80d95d4bdc48d7f4bc8a6 Mon Sep 17 00:00:00 2001
+From: Edward Adam Davis <eadavis@qq.com>
+Date: Mon, 16 Mar 2026 11:11:03 +0800
+Subject: [PATCH 69/87] userfaultfd: unassigned vma leads to a potential
+ unreleased locks
+
+A deadlock [1] occurs in mfill_get_vma() because the locks mmap_lock
+and map_changing_lock are not released; the failure to release them
+properly stems from the assignment of the vma variable occurring at
+an inappropriate stage.
+
+Moving the vma assignment operation within mfill_get_vma() to after
+the vma has been got.
+
+[1]
+WARNING: possible circular locking dependency detected
+syzkaller #0 Not tainted
+------------------------------------------------------
+syz.0.17/5990 is trying to acquire lock:
+ffff88802caef3b8 (&mm->mmap_lock){++++}-{4:4}, at: __might_fault+0xaf/0x130 mm/memory.c:7249
+
+but task is already holding lock:
+ffff88807cdbccf0 (&ctx->map_changing_lock){.+.+}-{4:4}, at: mfill_get_vma+0x162/0x660 mm/userfaultfd.c:226
+
+which lock already depends on the new lock.
+
+the existing dependency chain (in reverse order) is:
+-> #2 (&ctx->map_changing_lock){.+.+}-{4:4}:
+       down_read+0x47/0x2e0 kernel/locking/rwsem.c:1568
+       mfill_get_vma+0x162/0x660 mm/userfaultfd.c:226
+       mfill_atomic mm/userfaultfd.c:900 [inline]
+       mfill_atomic_continue+0x189/0x12c0 mm/userfaultfd.c:974
+       userfaultfd_continue fs/userfaultfd.c:1806 [inline]
+       userfaultfd_ioctl+0x232d/0x4c70 fs/userfaultfd.c:2071
+       vfs_ioctl fs/ioctl.c:51 [inline]
+       __do_sys_ioctl fs/ioctl.c:597 [inline]
+       __se_sys_ioctl+0xfc/0x170 fs/ioctl.c:583
+       do_syscall_x64 arch/x86/entry/syscall_64.c:63 [inline]
+       do_syscall_64+0x14d/0xf80 arch/x86/entry/syscall_64.c:94
+       entry_SYSCALL_64_after_hwframe+0x77/0x7f
+
+-> #1 (vm_lock){++++}-{0:0}:
+       __vma_start_exclude_readers+0x28a/0x940 mm/mmap_lock.c:125
+       __vma_start_write+0xdc/0x290 mm/mmap_lock.c:148
+       vma_start_write include/linux/mmap_lock.h:303 [inline]
+       mprotect_fixup+0x5eb/0xa80 mm/mprotect.c:768
+       setup_arg_pages+0x565/0xac0 fs/exec.c:670
+       load_elf_binary+0xc5e/0x2980 fs/binfmt_elf.c:1029
+       search_binary_handler fs/exec.c:1664 [inline]
+       exec_binprm fs/exec.c:1696 [inline]
+       bprm_execve+0x949/0x1470 fs/exec.c:1748
+       kernel_execve+0x844/0x930 fs/exec.c:1892
+       try_to_run_init_process+0x13/0x60 init/main.c:1514
+       kernel_init+0xad/0x1d0 init/main.c:1642
+       ret_from_fork+0x51e/0xb90 arch/x86/kernel/process.c:158
+       ret_from_fork_asm+0x1a/0x30 arch/x86/entry/entry_64.S:245
+
+-> #0 (&mm->mmap_lock){++++}-{4:4}:
+       check_prev_add kernel/locking/lockdep.c:3165 [inline]
+       check_prevs_add kernel/locking/lockdep.c:3284 [inline]
+       validate_chain kernel/locking/lockdep.c:3908 [inline]
+       __lock_acquire+0x15a5/0x2cf0 kernel/locking/lockdep.c:5237
+       lock_acquire+0xf0/0x2e0 kernel/locking/lockdep.c:5868
+       __might_fault+0xcb/0x130 mm/memory.c:7249
+       userfaultfd_continue fs/userfaultfd.c:1813 [inline]
+       userfaultfd_ioctl+0x2372/0x4c70 fs/userfaultfd.c:2071
+       vfs_ioctl fs/ioctl.c:51 [inline]
+       __do_sys_ioctl fs/ioctl.c:597 [inline]
+       __se_sys_ioctl+0xfc/0x170 fs/ioctl.c:583
+       do_syscall_x64 arch/x86/entry/syscall_64.c:63 [inline]
+       do_syscall_64+0x14d/0xf80 arch/x86/entry/syscall_64.c:94
+       entry_SYSCALL_64_after_hwframe+0x77/0x7f
+
+other info that might help us debug this:
+
+Chain exists of:
+  &mm->mmap_lock --> vm_lock --> &ctx->map_changing_lock
+
+ Possible unsafe locking scenario:
+
+       CPU0                    CPU1
+       ----                    ----
+  rlock(&ctx->map_changing_lock);
+                               lock(vm_lock);
+                               lock(&ctx->map_changing_lock);
+  rlock(&mm->mmap_lock);
+
+ *** DEADLOCK ***
+
+Fixes: 7d4d4de3ac3e ("userfaultfd: introduce mfill_get_vma() and mfill_put_vma()")
+Reported-by: syzbot+c473aa669b5e8a6f48d2@syzkaller.appspotmail.com
+Closes: https://syzkaller.appspot.com/bug?extid=c473aa669b5e8a6f48d2
+Tested-by: syzbot+c473aa669b5e8a6f48d2@syzkaller.appspotmail.com
+Signed-off-by: Edward Adam Davis <eadavis@qq.com>
+---
+ mm/userfaultfd.c | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/mm/userfaultfd.c b/mm/userfaultfd.c
+index 1d1a226f1126..78d29499c5a9 100644
+--- a/mm/userfaultfd.c
++++ b/mm/userfaultfd.c
+@@ -179,6 +179,7 @@ static int mfill_get_vma(struct mfill_state *state)
+ 	if (IS_ERR(dst_vma))
+ 		return PTR_ERR(dst_vma);
+ 
++	state->vma = dst_vma;
+ 	/*
+ 	 * If memory mappings are changing because of non-cooperative
+ 	 * operation (e.g. mremap) running in parallel, bail out and
+@@ -216,7 +217,6 @@ static int mfill_get_vma(struct mfill_state *state)
+ 		goto out_unlock;
+ 
+ out:
+-	state->vma = dst_vma;
+ 	return 0;
+ 
+ out_unlock:
+-- 
+2.50.1
+
