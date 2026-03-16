@@ -1,7 +1,7 @@
-From d5a8221736f7924ebdc76198a88eb854da5ba2c9 Mon Sep 17 00:00:00 2001
+From ead492fdae67eaedf00cad9ff8f5d54c04bd7691 Mon Sep 17 00:00:00 2001
 From: "Mike Rapoport (Microsoft)" <rppt@kernel.org>
-Date: Sun, 11 Jan 2026 18:28:04 +0200
-Subject: [PATCH 65/84] userfaultfd: introduce struct mfill_state
+Date: Fri, 6 Mar 2026 19:18:02 +0200
+Subject: [PATCH 65/87] userfaultfd: introduce struct mfill_state
 
 mfill_atomic() passes a lot of parameters down to its callees.
 
