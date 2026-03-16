@@ -1,7 +1,7 @@
-From e91df4e07efe2c55041157590a898a0a9530c3de Mon Sep 17 00:00:00 2001
+From c8bd01a546ee3b0897bf8f60d1c566aaa7fd302a Mon Sep 17 00:00:00 2001
 From: "Mike Rapoport (Microsoft)" <rppt@kernel.org>
-Date: Sat, 15 Nov 2025 13:23:02 +0200
-Subject: [PATCH 71/84] userfaultfd, shmem: use a VMA callback to handle
+Date: Fri, 6 Mar 2026 19:18:08 +0200
+Subject: [PATCH 74/87] shmem, userfaultfd: use a VMA callback to handle
  UFFDIO_CONTINUE
 
 When userspace resolves a page fault in a shmem VMA with UFFDIO_CONTINUE
@@ -42,13 +42,13 @@ index 095928c30b4b..12d7b6e8d364 100644
  
  /* A combined operation mode + behavior flags. */
 diff --git a/mm/shmem.c b/mm/shmem.c
-index 94624cd5fd58..0e670a979f5b 100644
+index 3be5f5d03ee9..c52fc39dd06a 100644
 --- a/mm/shmem.c
 +++ b/mm/shmem.c
-@@ -5288,6 +5288,18 @@ static const struct super_operations shmem_ops = {
- };
+@@ -3263,13 +3263,26 @@ int shmem_mfill_atomic_pte(pmd_t *dst_pmd,
+ 	return ret;
+ }
  
- #ifdef CONFIG_USERFAULTFD
 +static struct folio *shmem_get_folio_noalloc(struct inode *inode, pgoff_t pgoff)
 +{
 +	struct folio *folio;
@@ -63,8 +63,7 @@ index 94624cd5fd58..0e670a979f5b 100644
 +
  static bool shmem_can_userfault(struct vm_area_struct *vma, vm_flags_t vm_flags)
  {
- 	/*
-@@ -5300,7 +5312,8 @@ static bool shmem_can_userfault(struct vm_area_struct *vma, vm_flags_t vm_flags)
+ 	return true;
  }
  
  static const struct vm_uffd_ops shmem_uffd_ops = {
@@ -72,13 +71,13 @@ index 94624cd5fd58..0e670a979f5b 100644
 +	.can_userfault		= shmem_can_userfault,
 +	.get_folio_noalloc	= shmem_get_folio_noalloc,
  };
- #endif
+ #endif /* CONFIG_USERFAULTFD */
  
 diff --git a/mm/userfaultfd.c b/mm/userfaultfd.c
-index 23f405d26460..e7f2cac00237 100644
+index c5438ea4d163..666d17db9f3e 100644
 --- a/mm/userfaultfd.c
 +++ b/mm/userfaultfd.c
-@@ -188,6 +188,7 @@ static int mfill_get_vma(struct mfill_state *state)
+@@ -191,6 +191,7 @@ static int mfill_get_vma(struct mfill_state *state)
  	struct userfaultfd_ctx *ctx = state->ctx;
  	uffd_flags_t flags = state->flags;
  	struct vm_area_struct *dst_vma;
@@ -86,7 +85,7 @@ index 23f405d26460..e7f2cac00237 100644
  	int err;
  
  	/*
-@@ -228,10 +229,12 @@ static int mfill_get_vma(struct mfill_state *state)
+@@ -232,10 +233,12 @@ static int mfill_get_vma(struct mfill_state *state)
  	if (is_vm_hugetlb_page(dst_vma))
  		goto out;
  
@@ -102,7 +101,7 @@ index 23f405d26460..e7f2cac00237 100644
  		goto out_unlock;
  
  out:
-@@ -564,6 +567,7 @@ static int mfill_atomic_pte_zeropage(struct mfill_state *state)
+@@ -573,6 +576,7 @@ static int mfill_atomic_pte_zeropage(struct mfill_state *state)
  static int mfill_atomic_pte_continue(struct mfill_state *state)
  {
  	struct vm_area_struct *dst_vma = state->vma;
@@ -110,7 +109,7 @@ index 23f405d26460..e7f2cac00237 100644
  	unsigned long dst_addr = state->dst_addr;
  	pgoff_t pgoff = linear_page_index(dst_vma, dst_addr);
  	struct inode *inode = file_inode(dst_vma->vm_file);
-@@ -573,16 +577,13 @@ static int mfill_atomic_pte_continue(struct mfill_state *state)
+@@ -582,16 +586,13 @@ static int mfill_atomic_pte_continue(struct mfill_state *state)
  	struct page *page;
  	int ret;
  
@@ -133,7 +132,7 @@ index 23f405d26460..e7f2cac00237 100644
  
  	page = folio_file_page(folio, pgoff);
  	if (PageHWPoison(page)) {
-@@ -596,13 +597,12 @@ static int mfill_atomic_pte_continue(struct mfill_state *state)
+@@ -605,13 +606,12 @@ static int mfill_atomic_pte_continue(struct mfill_state *state)
  		goto out_release;
  
  	folio_unlock(folio);
