@@ -1,7 +1,7 @@
-From 2b8e84a4db2e9a3ec4124cbb4b80767c3d12d3f1 Mon Sep 17 00:00:00 2001
+From 26503a81a4fe4294e23b374b154f18e8826ec792 Mon Sep 17 00:00:00 2001
 From: "Mike Rapoport (Microsoft)" <rppt@kernel.org>
-Date: Fri, 16 Jan 2026 12:59:30 +0200
-Subject: [PATCH 73/84] shmem, userfaultfd: implement shmem uffd operations
+Date: Fri, 6 Mar 2026 19:18:10 +0200
+Subject: [PATCH 76/87] shmem, userfaultfd: implement shmem uffd operations
  using vm_uffd_ops
 
 Add filemap_add() and filemap_remove() methods to vm_uffd_ops and use
@@ -18,16 +18,12 @@ mfill_atomic_install_pte() is not used anywhere outside of
 mm/userfaultfd, make it static.
 
 Signed-off-by: Mike Rapoport (Microsoft) <rppt@kernel.org>
-
-fixup
-
-Signed-off-by: Mike Rapoport (Microsoft) <rppt@kernel.org>
 ---
  include/linux/shmem_fs.h      |  14 ----
- include/linux/userfaultfd_k.h |  20 +++--
+ include/linux/userfaultfd_k.h |  21 +++--
  mm/shmem.c                    | 148 ++++++++++++----------------------
  mm/userfaultfd.c              |  79 +++++++++---------
- 4 files changed, 106 insertions(+), 155 deletions(-)
+ 4 files changed, 106 insertions(+), 156 deletions(-)
 
 diff --git a/include/linux/shmem_fs.h b/include/linux/shmem_fs.h
 index 0e47465ef0fd..a3a9c357e7dc 100644
@@ -55,17 +51,23 @@ index 0e47465ef0fd..a3a9c357e7dc 100644
   * Used space is stored as unsigned 64-bit value in bytes but
   * quota core supports only signed 64-bit values so use that
 diff --git a/include/linux/userfaultfd_k.h b/include/linux/userfaultfd_k.h
-index cbf41240aeaf..d466cbbbf99f 100644
+index cbf41240aeaf..d1656f3afa14 100644
 --- a/include/linux/userfaultfd_k.h
 +++ b/include/linux/userfaultfd_k.h
-@@ -97,6 +97,21 @@ struct vm_uffd_ops {
+@@ -93,10 +93,24 @@ struct vm_uffd_ops {
+ 	struct folio *(*get_folio_noalloc)(struct inode *inode, pgoff_t pgoff);
+ 	/*
+ 	 * Called during resolution of UFFDIO_COPY request.
+-	 * Should return allocate a and return folio or NULL if allocation fails.
++	 * Should allocate and return a folio or NULL if allocation
++	 * fails.
  	 */
  	struct folio *(*alloc_folio)(struct vm_area_struct *vma,
  				     unsigned long addr);
 +	/*
 +	 * Called during resolution of UFFDIO_COPY request.
 +	 * Should lock the folio and add it to VMA's page cache.
-+	 * Returns 0 on success, error code on failre.
++	 * Returns 0 on success, error code on failure.
 +	 */
 +	int (*filemap_add)(struct folio *folio, struct vm_area_struct *vma,
 +			 unsigned long addr);
@@ -73,14 +75,12 @@ index cbf41240aeaf..d466cbbbf99f 100644
 +	 * Called during resolution of UFFDIO_COPY request on the error
 +	 * handling path.
 +	 * Should revert the operation of ->filemap_add().
-+	 * The folio should be unlocked, but the reference to it should not be
-+	 * dropped.
 +	 */
 +	void (*filemap_remove)(struct folio *folio, struct vm_area_struct *vma);
  };
  
  /* A combined operation mode + behavior flags. */
-@@ -130,11 +145,6 @@ static inline uffd_flags_t uffd_flags_set_mode(uffd_flags_t flags, enum mfill_at
+@@ -130,11 +144,6 @@ static inline uffd_flags_t uffd_flags_set_mode(uffd_flags_t flags, enum mfill_at
  /* Flags controlling behavior. These behavior changes are mode-independent. */
  #define MFILL_ATOMIC_WP MFILL_ATOMIC_FLAG(0)
  
@@ -93,7 +93,7 @@ index cbf41240aeaf..d466cbbbf99f 100644
  				 unsigned long src_start, unsigned long len,
  				 uffd_flags_t flags);
 diff --git a/mm/shmem.c b/mm/shmem.c
-index 0e670a979f5b..d9a77665e79d 100644
+index c52fc39dd06a..0c64e3a9265d 100644
 --- a/mm/shmem.c
 +++ b/mm/shmem.c
 @@ -3149,118 +3149,73 @@ static inline struct inode *shmem_get_inode(struct mnt_idmap *idmap,
@@ -263,9 +263,9 @@ index 0e670a979f5b..d9a77665e79d 100644
 -	shmem_inode_unacct_blocks(inode, 1);
 -	return ret;
  }
- #endif /* CONFIG_USERFAULTFD */
  
-@@ -5314,6 +5269,9 @@ static bool shmem_can_userfault(struct vm_area_struct *vma, vm_flags_t vm_flags)
+ static struct folio *shmem_get_folio_noalloc(struct inode *inode, pgoff_t pgoff)
+@@ -3283,6 +3238,9 @@ static bool shmem_can_userfault(struct vm_area_struct *vma, vm_flags_t vm_flags)
  static const struct vm_uffd_ops shmem_uffd_ops = {
  	.can_userfault		= shmem_can_userfault,
  	.get_folio_noalloc	= shmem_get_folio_noalloc,
@@ -273,10 +273,10 @@ index 0e670a979f5b..d9a77665e79d 100644
 +	.filemap_add		= shmem_mfill_filemap_add,
 +	.filemap_remove		= shmem_mfill_filemap_remove,
  };
- #endif
+ #endif /* CONFIG_USERFAULTFD */
  
 diff --git a/mm/userfaultfd.c b/mm/userfaultfd.c
-index 760f83f1c84e..cc50d83462ee 100644
+index 8a34d08599d7..9e76df7ba923 100644
 --- a/mm/userfaultfd.c
 +++ b/mm/userfaultfd.c
 @@ -14,7 +14,6 @@
@@ -287,7 +287,7 @@ index 760f83f1c84e..cc50d83462ee 100644
  #include <asm/tlbflush.h>
  #include <asm/tlb.h>
  #include "internal.h"
-@@ -337,10 +336,10 @@ static bool mfill_file_over_size(struct vm_area_struct *dst_vma,
+@@ -340,10 +339,10 @@ static bool mfill_file_over_size(struct vm_area_struct *dst_vma,
   * This function handles both MCOPY_ATOMIC_NORMAL and _CONTINUE for both shmem
   * and anon, and for both shared and private VMAs.
   */
@@ -302,7 +302,7 @@ index 760f83f1c84e..cc50d83462ee 100644
  {
  	int ret;
  	struct mm_struct *dst_mm = dst_vma->vm_mm;
-@@ -380,9 +379,6 @@ int mfill_atomic_install_pte(pmd_t *dst_pmd,
+@@ -383,9 +382,6 @@ int mfill_atomic_install_pte(pmd_t *dst_pmd,
  		goto out_unlock;
  
  	if (page_in_cache) {
@@ -312,7 +312,7 @@ index 760f83f1c84e..cc50d83462ee 100644
  		folio_add_file_rmap_pte(folio, page, dst_vma);
  	} else {
  		folio_add_new_anon_rmap(folio, dst_vma, dst_addr, RMAP_EXCLUSIVE);
-@@ -397,6 +393,9 @@ int mfill_atomic_install_pte(pmd_t *dst_pmd,
+@@ -400,6 +396,9 @@ int mfill_atomic_install_pte(pmd_t *dst_pmd,
  
  	set_pte_at(dst_mm, dst_addr, dst_pte, _dst_pte);
  
@@ -322,7 +322,7 @@ index 760f83f1c84e..cc50d83462ee 100644
  	/* No need to invalidate - it was non-present before */
  	update_mmu_cache(dst_vma, dst_addr, dst_pte);
  	ret = 0;
-@@ -503,13 +502,22 @@ static int __mfill_atomic_pte(struct mfill_state *state,
+@@ -512,13 +511,22 @@ static int __mfill_atomic_pte(struct mfill_state *state,
  	 */
  	__folio_mark_uptodate(folio);
  
@@ -347,7 +347,7 @@ index 760f83f1c84e..cc50d83462ee 100644
  err_folio_put:
  	folio_put(folio);
  	/* Don't return -ENOENT so that our caller won't retry */
-@@ -522,6 +530,18 @@ static int mfill_atomic_pte_copy(struct mfill_state *state)
+@@ -531,6 +539,18 @@ static int mfill_atomic_pte_copy(struct mfill_state *state)
  {
  	const struct vm_uffd_ops *ops = vma_uffd_ops(state->vma);
  
@@ -366,7 +366,7 @@ index 760f83f1c84e..cc50d83462ee 100644
  	return __mfill_atomic_pte(state, ops);
  }
  
-@@ -541,7 +561,8 @@ static int mfill_atomic_pte_zeropage(struct mfill_state *state)
+@@ -550,7 +570,8 @@ static int mfill_atomic_pte_zeropage(struct mfill_state *state)
  	spinlock_t *ptl;
  	int ret;
  
@@ -376,7 +376,7 @@ index 760f83f1c84e..cc50d83462ee 100644
  		return mfill_atomic_pte_zeroed_folio(state);
  
  	_dst_pte = pte_mkspecial(pfn_pte(my_zero_pfn(dst_addr),
-@@ -596,11 +617,10 @@ static int mfill_atomic_pte_continue(struct mfill_state *state)
+@@ -605,11 +626,10 @@ static int mfill_atomic_pte_continue(struct mfill_state *state)
  	}
  
  	ret = mfill_atomic_install_pte(dst_pmd, dst_vma, dst_addr,
@@ -389,7 +389,7 @@ index 760f83f1c84e..cc50d83462ee 100644
  	return 0;
  
  out_release:
-@@ -820,41 +840,18 @@ extern ssize_t mfill_atomic_hugetlb(struct userfaultfd_ctx *ctx,
+@@ -829,41 +849,18 @@ extern ssize_t mfill_atomic_hugetlb(struct userfaultfd_ctx *ctx,
  
  static __always_inline ssize_t mfill_atomic_pte(struct mfill_state *state)
  {

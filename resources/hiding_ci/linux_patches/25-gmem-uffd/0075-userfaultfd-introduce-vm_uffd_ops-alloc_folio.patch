@@ -1,7 +1,7 @@
-From 825f7c8e5f8e889eb6d5cb16ec9b827725a9cfaf Mon Sep 17 00:00:00 2001
+From b46b16b896de908adde4a4678c37a560744ad320 Mon Sep 17 00:00:00 2001
 From: "Mike Rapoport (Microsoft)" <rppt@kernel.org>
-Date: Fri, 16 Jan 2026 17:50:05 +0200
-Subject: [PATCH 72/84] userfaultfd: introduce vm_uffd_ops->alloc_folio()
+Date: Fri, 6 Mar 2026 19:18:09 +0200
+Subject: [PATCH 75/87] userfaultfd: introduce vm_uffd_ops->alloc_folio()
 
 and use it to refactor mfill_atomic_pte_zeroed_folio() and
 mfill_atomic_pte_copy().
@@ -45,7 +45,7 @@ index 12d7b6e8d364..cbf41240aeaf 100644
  
  /* A combined operation mode + behavior flags. */
 diff --git a/mm/userfaultfd.c b/mm/userfaultfd.c
-index e7f2cac00237..760f83f1c84e 100644
+index 666d17db9f3e..8a34d08599d7 100644
 --- a/mm/userfaultfd.c
 +++ b/mm/userfaultfd.c
 @@ -42,8 +42,26 @@ static bool anon_can_userfault(struct vm_area_struct *vma, vm_flags_t vm_flags)
@@ -75,7 +75,7 @@ index e7f2cac00237..760f83f1c84e 100644
  };
  
  static const struct vm_uffd_ops *vma_uffd_ops(struct vm_area_struct *vma)
-@@ -451,7 +469,8 @@ static int mfill_copy_folio_retry(struct mfill_state *state, struct folio *folio
+@@ -454,7 +472,8 @@ static int mfill_copy_folio_retry(struct mfill_state *state, struct folio *folio
  	return 0;
  }
  
@@ -85,7 +85,7 @@ index e7f2cac00237..760f83f1c84e 100644
  {
  	unsigned long dst_addr = state->dst_addr;
  	unsigned long src_addr = state->src_addr;
-@@ -459,20 +478,22 @@ static int mfill_atomic_pte_copy(struct mfill_state *state)
+@@ -462,16 +481,12 @@ static int mfill_atomic_pte_copy(struct mfill_state *state)
  	struct folio *folio;
  	int ret;
  
@@ -102,7 +102,13 @@ index e7f2cac00237..760f83f1c84e 100644
 -	if (unlikely(ret)) {
 +	if (uffd_flags_mode_is(flags, MFILL_ATOMIC_COPY)) {
 +		ret = mfill_copy_folio_locked(folio, src_addr);
- 		/* fallback to copy_from_user outside mmap_lock */
+ 		/*
+ 		 * Fallback to copy_from_user outside mmap_lock.
+ 		 * If retry is successful, mfill_copy_folio_locked() returns
+@@ -479,9 +494,15 @@ static int mfill_atomic_pte_copy(struct mfill_state *state)
+ 		 * If there was an error, we must mfill_put_vma() anyway and it
+ 		 * will take care of unlocking if needed.
+ 		 */
 -		ret = mfill_copy_folio_retry(state, folio);
 -		if (ret)
 -			goto out_release;
@@ -118,7 +124,7 @@ index e7f2cac00237..760f83f1c84e 100644
  	}
  
  	/*
-@@ -485,47 +506,30 @@ static int mfill_atomic_pte_copy(struct mfill_state *state)
+@@ -494,47 +515,30 @@ static int mfill_atomic_pte_copy(struct mfill_state *state)
  	ret = mfill_atomic_install_pte(state->pmd, state->vma, dst_addr,
  				       &folio->page, true, flags);
  	if (ret)
@@ -181,7 +187,7 @@ index e7f2cac00237..760f83f1c84e 100644
  }
  
  static int mfill_atomic_pte_zeropage(struct mfill_state *state)
-@@ -538,7 +542,7 @@ static int mfill_atomic_pte_zeropage(struct mfill_state *state)
+@@ -547,7 +551,7 @@ static int mfill_atomic_pte_zeropage(struct mfill_state *state)
  	int ret;
  
  	if (mm_forbids_zeropage(dst_vma->vm_mm))

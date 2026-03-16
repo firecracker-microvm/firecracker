@@ -1,7 +1,7 @@
-From 808d447b98577d3e7c83d60279c15ad71d595122 Mon Sep 17 00:00:00 2001
+From d22fc8036e84854cb24f880eeaab5cc91ecd4dd7 Mon Sep 17 00:00:00 2001
 From: "Mike Rapoport (Microsoft)" <rppt@kernel.org>
-Date: Mon, 7 Jul 2025 13:14:47 +0300
-Subject: [PATCH 66/84] userfaultfd: introduce mfill_get_pmd() helper.
+Date: Fri, 6 Mar 2026 19:18:03 +0200
+Subject: [PATCH 66/87] userfaultfd: introduce mfill_get_pmd() helper.
 
 There is a lengthy code chunk in mfill_atomic() that establishes the PMD
 for UFFDIO operations. This code may be called twice: first time when
