@@ -51,8 +51,9 @@ function compile_and_install {
 # Build a rootfs
 function build_ci_rootfs {
     local IMAGE_NAME=$1
+    local SETUP_SCRIPT=$2
     prepare_docker
-    build_rootfs "$IMAGE_NAME" "$OUTPUT_DIR" "$PWD/rootfs/overlay" "rootfs/setup-ubuntu-ci.sh"
+    build_rootfs "$IMAGE_NAME" "$OUTPUT_DIR" "$PWD/rootfs/overlay" "$SETUP_SCRIPT"
 }
 
 
@@ -185,7 +186,8 @@ function prepare_and_build_rootfs {
         compile_and_install $BIN_DIR/$SRC
     done
 
-    build_ci_rootfs ubuntu:24.04
+    build_ci_rootfs ubuntu:24.04 "rootfs/setup-ubuntu-ci.sh"
+    build_ci_rootfs amazonlinux:2023 "rootfs/setup-al2023-ci.sh"
     build_initramfs
 
     for SRC in ${SRCS[@]}; do
