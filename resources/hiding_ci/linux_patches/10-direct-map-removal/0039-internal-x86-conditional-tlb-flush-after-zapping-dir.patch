@@ -1,7 +1,7 @@
-From 9c88d6efd519c7b5979b50883fce19ae067a19dd Mon Sep 17 00:00:00 2001
+From 0e0ec50c14c25b4aaf62d6e59d668a4aeeba5a98 Mon Sep 17 00:00:00 2001
 From: Nikita Kalyazin <kalyazin@amazon.com>
 Date: Mon, 12 Jan 2026 15:51:48 +0000
-Subject: [PATCH 39/84] internal: x86: conditional tlb flush after zapping
+Subject: [PATCH 39/87] internal: x86: conditional tlb flush after zapping
  direct map
 
 Gate TLB flushes after removing pages from direct map on x86 by a
@@ -15,13 +15,13 @@ and disabled TLB flushes.
 Signed-off-by: Nikita Kalyazin <kalyazin@amazon.com>
 ---
  arch/x86/include/asm/tlbflush.h | 3 ++-
- arch/x86/mm/pat/set_memory.c    | 7 +++----
  arch/x86/mm/tlb.c               | 1 +
  fs/userfaultfd.c                | 1 +
  include/linux/kvm_host.h        | 1 +
- virt/kvm/guest_memfd.c          | 5 ++++-
+ mm/memory.c                     | 2 --
+ virt/kvm/guest_memfd.c          | 3 +++
  virt/kvm/kvm_main.c             | 3 +++
- 7 files changed, 15 insertions(+), 6 deletions(-)
+ 7 files changed, 11 insertions(+), 3 deletions(-)
 
 diff --git a/arch/x86/include/asm/tlbflush.h b/arch/x86/include/asm/tlbflush.h
 index 00daedfefc1b..6f57f7eb621b 100644
@@ -44,29 +44,6 @@ index 00daedfefc1b..6f57f7eb621b 100644
  static inline void __native_tlb_flush_global(unsigned long cr4)
  {
  	native_write_cr4(cr4 ^ X86_CR4_PGE);
-diff --git a/arch/x86/mm/pat/set_memory.c b/arch/x86/mm/pat/set_memory.c
-index 1b4e03e4740d..8bfed19c21eb 100644
---- a/arch/x86/mm/pat/set_memory.c
-+++ b/arch/x86/mm/pat/set_memory.c
-@@ -2656,15 +2656,14 @@ int set_direct_map_valid_noflush(const void *addr, unsigned long numpages,
- 
- 	return __set_pages_np(addr, numpages);
- }
-+EXPORT_SYMBOL_FOR_MODULES(set_direct_map_valid_noflush, "kvm");
- 
- int folio_zap_direct_map(struct folio *folio)
- {
--	const void *addr = folio_address(folio);
- 	int ret;
- 
--	ret = set_direct_map_valid_noflush(addr, folio_nr_pages(folio), false);
--	flush_tlb_kernel_range((unsigned long)addr,
--			       (unsigned long)addr + folio_size(folio));
-+	ret = set_direct_map_valid_noflush(folio_address(folio),
-+					   folio_nr_pages(folio), false);
- 
- 	return ret;
- }
 diff --git a/arch/x86/mm/tlb.c b/arch/x86/mm/tlb.c
 index 5d221709353e..cce591d26e4c 100644
 --- a/arch/x86/mm/tlb.c
@@ -103,11 +80,24 @@ index 9f34afa27d00..685e56404533 100644
  
  struct kvm_device {
  	const struct kvm_device_ops *ops;
+diff --git a/mm/memory.c b/mm/memory.c
+index 078558b21cfb..4f200c3e7d24 100644
+--- a/mm/memory.c
++++ b/mm/memory.c
+@@ -7343,8 +7343,6 @@ int folio_zap_direct_map(struct folio *folio)
+ 	int ret;
+ 
+ 	ret = set_direct_map_valid_noflush(addr, folio_nr_pages(folio), false);
+-	flush_tlb_kernel_range((unsigned long)addr,
+-			       (unsigned long)addr + folio_size(folio));
+ 
+ 	return ret;
+ }
 diff --git a/virt/kvm/guest_memfd.c b/virt/kvm/guest_memfd.c
-index 8c42a6dd6a4b..624b774c2942 100644
+index 5beeb6866dcf..ed68a3b635ca 100644
 --- a/virt/kvm/guest_memfd.c
 +++ b/virt/kvm/guest_memfd.c
-@@ -88,6 +88,7 @@ static bool kvm_gmem_folio_no_direct_map(struct folio *folio)
+@@ -91,6 +91,7 @@ static bool kvm_gmem_folio_no_direct_map(struct folio *folio)
  
  static int kvm_gmem_folio_zap_direct_map(struct folio *folio)
  {
@@ -115,12 +105,10 @@ index 8c42a6dd6a4b..624b774c2942 100644
  	u64 gmem_flags = GMEM_I(folio_inode(folio))->flags;
  	int r = 0;
  
-@@ -95,7 +96,9 @@ static int kvm_gmem_folio_zap_direct_map(struct folio *folio)
- 		goto out;
- 
- 	folio->private = (void *)((u64)folio->private | KVM_GMEM_FOLIO_NO_DIRECT_MAP);
--	r = folio_zap_direct_map(folio);
-+	r = set_direct_map_valid_noflush(folio_address(folio), folio_nr_pages(folio), false);
+@@ -100,6 +101,8 @@ static int kvm_gmem_folio_zap_direct_map(struct folio *folio)
+ 	r = folio_zap_direct_map(folio);
+ 	if (!r)
+ 		folio->private = (void *)((u64)folio->private | KVM_GMEM_FOLIO_NO_DIRECT_MAP);
 +	if (guest_memfd_tlb_flush)
 +		flush_tlb_kernel_range(addr, addr + folio_size(folio));
  
