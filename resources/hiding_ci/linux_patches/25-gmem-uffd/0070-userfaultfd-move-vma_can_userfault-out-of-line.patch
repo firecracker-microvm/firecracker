@@ -1,0 +1,114 @@
+From 6099924d5a4f5a7b92c971b4eaef466958f0e6b5 Mon Sep 17 00:00:00 2001
+From: "Mike Rapoport (Microsoft)" <rppt@kernel.org>
+Date: Fri, 6 Mar 2026 19:18:06 +0200
+Subject: [PATCH 70/86] userfaultfd: move vma_can_userfault out of line
+
+vma_can_userfault() has grown pretty big and it's not called on
+performance critical path.
+
+Move it out of line.
+
+No functional changes.
+
+Reviewed-by: David Hildenbrand (Red Hat) <david@kernel.org>
+Reviewed-by: Liam R. Howlett <Liam.Howlett@oracle.com>
+Signed-off-by: Mike Rapoport (Microsoft) <rppt@kernel.org>
+---
+ include/linux/userfaultfd_k.h | 36 ++---------------------------------
+ mm/userfaultfd.c              | 33 ++++++++++++++++++++++++++++++++
+ 2 files changed, 35 insertions(+), 34 deletions(-)
+
+diff --git a/include/linux/userfaultfd_k.h b/include/linux/userfaultfd_k.h
+index c0e716aec26a..e4f43e7b063f 100644
+--- a/include/linux/userfaultfd_k.h
++++ b/include/linux/userfaultfd_k.h
+@@ -208,40 +208,8 @@ static inline bool userfaultfd_armed(struct vm_area_struct *vma)
+ 	return vma->vm_flags & __VM_UFFD_FLAGS;
+ }
+ 
+-static inline bool vma_can_userfault(struct vm_area_struct *vma,
+-				     vm_flags_t vm_flags,
+-				     bool wp_async)
+-{
+-	vm_flags &= __VM_UFFD_FLAGS;
+-
+-	if (vma->vm_flags & VM_DROPPABLE)
+-		return false;
+-
+-	if ((vm_flags & VM_UFFD_MINOR) &&
+-	    (!is_vm_hugetlb_page(vma) && !vma_is_shmem(vma)))
+-		return false;
+-
+-	/*
+-	 * If wp async enabled, and WP is the only mode enabled, allow any
+-	 * memory type.
+-	 */
+-	if (wp_async && (vm_flags == VM_UFFD_WP))
+-		return true;
+-
+-#ifndef CONFIG_PTE_MARKER_UFFD_WP
+-	/*
+-	 * If user requested uffd-wp but not enabled pte markers for
+-	 * uffd-wp, then shmem & hugetlbfs are not supported but only
+-	 * anonymous.
+-	 */
+-	if ((vm_flags & VM_UFFD_WP) && !vma_is_anonymous(vma))
+-		return false;
+-#endif
+-
+-	/* By default, allow any of anon|shmem|hugetlb */
+-	return vma_is_anonymous(vma) || is_vm_hugetlb_page(vma) ||
+-	    vma_is_shmem(vma);
+-}
++bool vma_can_userfault(struct vm_area_struct *vma, vm_flags_t vm_flags,
++		       bool wp_async);
+ 
+ static inline bool vma_has_uffd_without_event_remap(struct vm_area_struct *vma)
+ {
+diff --git a/mm/userfaultfd.c b/mm/userfaultfd.c
+index 391a27b7b9b7..b0a3ac838b15 100644
+--- a/mm/userfaultfd.c
++++ b/mm/userfaultfd.c
+@@ -2059,6 +2059,39 @@ ssize_t move_pages(struct userfaultfd_ctx *ctx, unsigned long dst_start,
+ 	return moved ? moved : err;
+ }
+ 
++bool vma_can_userfault(struct vm_area_struct *vma, vm_flags_t vm_flags,
++		       bool wp_async)
++{
++	vm_flags &= __VM_UFFD_FLAGS;
++
++	if (vma->vm_flags & VM_DROPPABLE)
++		return false;
++
++	if ((vm_flags & VM_UFFD_MINOR) &&
++	    (!is_vm_hugetlb_page(vma) && !vma_is_shmem(vma)))
++		return false;
++
++	/*
++	 * If wp async enabled, and WP is the only mode enabled, allow any
++	 * memory type.
++	 */
++	if (wp_async && (vm_flags == VM_UFFD_WP))
++		return true;
++
++	/*
++	 * If user requested uffd-wp but not enabled pte markers for
++	 * uffd-wp, then shmem & hugetlbfs are not supported but only
++	 * anonymous.
++	 */
++	if (!uffd_supports_wp_marker() && (vm_flags & VM_UFFD_WP) &&
++	    !vma_is_anonymous(vma))
++		return false;
++
++	/* By default, allow any of anon|shmem|hugetlb */
++	return vma_is_anonymous(vma) || is_vm_hugetlb_page(vma) ||
++	    vma_is_shmem(vma);
++}
++
+ static void userfaultfd_set_vm_flags(struct vm_area_struct *vma,
+ 				     vm_flags_t vm_flags)
+ {
+-- 
+2.50.1
+

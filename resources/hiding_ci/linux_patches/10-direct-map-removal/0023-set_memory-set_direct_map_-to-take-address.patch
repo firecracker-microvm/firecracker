@@ -1,17 +1,20 @@
-From bfd8b809494f91043ff1dcc221f8d94e0264d9f0 Mon Sep 17 00:00:00 2001
+From 70f123dfb4f7fb3cc11b4bc6725780212a8effcf Mon Sep 17 00:00:00 2001
 From: Nikita Kalyazin <kalyazin@amazon.com>
 Date: Mon, 19 Jan 2026 15:03:18 +0000
-Subject: [PATCH 23/84] set_memory: set_direct_map_* to take address
+Subject: [PATCH 23/87] set_memory: set_direct_map_* to take address
+
+From: Nikita Kalyazin <kalyazin@amazon.com>
 
 This is to avoid excessive conversions folio->page->address when adding
 helpers on top of set_direct_map_valid_noflush() in the next patch.
 
+Acked-by: David Hildenbrand (Arm) <david@kernel.org>
 Signed-off-by: Nikita Kalyazin <kalyazin@amazon.com>
 ---
  arch/arm64/include/asm/set_memory.h     |  7 ++++---
  arch/arm64/mm/pageattr.c                | 19 +++++++++----------
  arch/loongarch/include/asm/set_memory.h |  7 ++++---
- arch/loongarch/mm/pageattr.c            | 25 ++++++++++++-------------
+ arch/loongarch/mm/pageattr.c            | 25 +++++++++++--------------
  arch/riscv/include/asm/set_memory.h     |  7 ++++---
  arch/riscv/mm/pageattr.c                | 17 +++++++++--------
  arch/s390/include/asm/set_memory.h      |  7 ++++---
@@ -23,7 +26,7 @@ Signed-off-by: Nikita Kalyazin <kalyazin@amazon.com>
  mm/execmem.c                            |  6 ++++--
  mm/secretmem.c                          |  6 +++---
  mm/vmalloc.c                            | 11 +++++++----
- 15 files changed, 90 insertions(+), 78 deletions(-)
+ 15 files changed, 89 insertions(+), 79 deletions(-)
 
 diff --git a/arch/arm64/include/asm/set_memory.h b/arch/arm64/include/asm/set_memory.h
 index 90f61b17275e..c71a2a6812c4 100644
@@ -118,10 +121,10 @@ index 55dfaefd02c8..5e9b67b2fea1 100644
  
  #endif /* _ASM_LOONGARCH_SET_MEMORY_H */
 diff --git a/arch/loongarch/mm/pageattr.c b/arch/loongarch/mm/pageattr.c
-index f5e910b68229..c1b2be915038 100644
+index f5e910b68229..9e08905d3624 100644
 --- a/arch/loongarch/mm/pageattr.c
 +++ b/arch/loongarch/mm/pageattr.c
-@@ -198,32 +198,31 @@ bool kernel_page_present(struct page *page)
+@@ -198,32 +198,29 @@ bool kernel_page_present(struct page *page)
  	return pte_present(ptep_get(pte));
  }
  
@@ -142,8 +145,7 @@ index f5e910b68229..c1b2be915038 100644
 +int set_direct_map_invalid_noflush(const void *addr)
  {
 -	unsigned long addr = (unsigned long)page_address(page);
-+	unsigned long addr = (unsigned long)addr;
- 
+-
 -	if (addr < vm_map_base)
 +	if ((unsigned long)addr < vm_map_base)
  		return 0;
@@ -165,7 +167,7 @@ index f5e910b68229..c1b2be915038 100644
  		return 0;
  
  	if (valid) {
-@@ -234,5 +233,5 @@ int set_direct_map_valid_noflush(struct page *page, unsigned nr, bool valid)
+@@ -234,5 +231,5 @@ int set_direct_map_valid_noflush(struct page *page, unsigned nr, bool valid)
  		clear = __pgprot(_PAGE_PRESENT | _PAGE_VALID);
  	}
  
