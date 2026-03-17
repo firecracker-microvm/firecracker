@@ -1,0 +1,228 @@
+From c3bcbcf9415bca3d1653ec3a0b362592dd4bcfcc Mon Sep 17 00:00:00 2001
+From: Takahiro Itazuri <itazur@amazon.com>
+Date: Sun, 22 Feb 2026 14:57:50 +0000
+Subject: [PATCH 45/86] KVM: Rename mn_* invalidate-related fields to generic
+ ones
+
+The addition of guest_memfd support to pfncaches introduces additional
+sources of pfncache invalidation beyond the MMU notifier path.  The
+existing mn_* naming implies that they are only relevant to MMU
+notifiers, which is no longer true.
+
+No functional changes intended.
+
+Signed-off-by: Takahiro Itazuri <itazur@amazon.com>
+---
+ Documentation/virt/kvm/locking.rst |  8 +++---
+ include/linux/kvm_host.h           | 11 ++++---
+ virt/kvm/kvm_main.c                | 46 +++++++++++++++---------------
+ virt/kvm/pfncache.c                | 28 +++++++++---------
+ 4 files changed, 47 insertions(+), 46 deletions(-)
+
+diff --git a/Documentation/virt/kvm/locking.rst b/Documentation/virt/kvm/locking.rst
+index ae8bce7fecbe..73679044ce44 100644
+--- a/Documentation/virt/kvm/locking.rst
++++ b/Documentation/virt/kvm/locking.rst
+@@ -20,7 +20,7 @@ The acquisition orders for mutexes are as follows:
+ - kvm->slots_lock is taken outside kvm->irq_lock, though acquiring
+   them together is quite rare.
+ 
+-- kvm->mn_active_invalidate_count ensures that pairs of
++- kvm->active_invalidate_count ensures that pairs of MMU notifier's
+   invalidate_range_start() and invalidate_range_end() callbacks
+   use the same memslots array.  kvm->slots_lock and kvm->slots_arch_lock
+   are taken on the waiting side when modifying memslots, so MMU notifiers
+@@ -249,12 +249,12 @@ time it will be set using the Dirty tracking mechanism described above.
+ :Comment:	Exists to allow taking cpus_read_lock() while kvm_usage_count is
+ 		protected, which simplifies the virtualization enabling logic.
+ 
+-``kvm->mn_invalidate_lock``
+-^^^^^^^^^^^^^^^^^^^^^^^^^^^
++``kvm->invalidate_lock``
++^^^^^^^^^^^^^^^^^^^^^^^^
+ 
+ :Type:          spinlock_t
+ :Arch:          any
+-:Protects:      mn_active_invalidate_count, mn_memslots_update_rcuwait
++:Protects:      active_invalidate_count, memslots_update_rcuwait
+ 
+ ``kvm_arch::tsc_write_lock``
+ ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+diff --git a/include/linux/kvm_host.h b/include/linux/kvm_host.h
+index c808c0872a4b..bc51a8fe3838 100644
+--- a/include/linux/kvm_host.h
++++ b/include/linux/kvm_host.h
+@@ -808,10 +808,13 @@ struct kvm {
+ 	 */
+ 	atomic_t nr_memslots_dirty_logging;
+ 
+-	/* Used to wait for completion of MMU notifiers.  */
+-	spinlock_t mn_invalidate_lock;
+-	unsigned long mn_active_invalidate_count;
+-	struct rcuwait mn_memslots_update_rcuwait;
++	/*
++	 * Used by active memslots swap and pfncache refresh to wait for
++	 * invalidation to complete.
++	 */
++	spinlock_t invalidate_lock;
++	unsigned long active_invalidate_count;
++	struct rcuwait memslots_update_rcuwait;
+ 
+ 	/* For management / invalidation of gfn_to_pfn_caches */
+ 	spinlock_t gpc_lock;
+diff --git a/virt/kvm/kvm_main.c b/virt/kvm/kvm_main.c
+index 2211ce7017b4..8d83957b9f07 100644
+--- a/virt/kvm/kvm_main.c
++++ b/virt/kvm/kvm_main.c
+@@ -749,9 +749,9 @@ static int kvm_mmu_notifier_invalidate_range_start(struct mmu_notifier *mn,
+ 	 *
+ 	 * Pairs with the decrement in range_end().
+ 	 */
+-	spin_lock(&kvm->mn_invalidate_lock);
+-	kvm->mn_active_invalidate_count++;
+-	spin_unlock(&kvm->mn_invalidate_lock);
++	spin_lock(&kvm->invalidate_lock);
++	kvm->active_invalidate_count++;
++	spin_unlock(&kvm->invalidate_lock);
+ 
+ 	/*
+ 	 * Invalidate pfn caches _before_ invalidating the secondary MMUs, i.e.
+@@ -760,7 +760,7 @@ static int kvm_mmu_notifier_invalidate_range_start(struct mmu_notifier *mn,
+ 	 * any given time, and the caches themselves can check for hva overlap,
+ 	 * i.e. don't need to rely on memslot overlap checks for performance.
+ 	 * Because this runs without holding mmu_lock, the pfn caches must use
+-	 * mn_active_invalidate_count (see above) instead of
++	 * active_invalidate_count (see above) instead of
+ 	 * mmu_invalidate_in_progress.
+ 	 */
+ 	gpc_invalidate_hva_range_start(kvm, range->start, range->end);
+@@ -819,18 +819,18 @@ static void kvm_mmu_notifier_invalidate_range_end(struct mmu_notifier *mn,
+ 	kvm_handle_hva_range(kvm, &hva_range);
+ 
+ 	/* Pairs with the increment in range_start(). */
+-	spin_lock(&kvm->mn_invalidate_lock);
+-	if (!WARN_ON_ONCE(!kvm->mn_active_invalidate_count))
+-		--kvm->mn_active_invalidate_count;
+-	wake = !kvm->mn_active_invalidate_count;
+-	spin_unlock(&kvm->mn_invalidate_lock);
++	spin_lock(&kvm->invalidate_lock);
++	if (!WARN_ON_ONCE(!kvm->active_invalidate_count))
++		--kvm->active_invalidate_count;
++	wake = !kvm->active_invalidate_count;
++	spin_unlock(&kvm->invalidate_lock);
+ 
+ 	/*
+ 	 * There can only be one waiter, since the wait happens under
+ 	 * slots_lock.
+ 	 */
+ 	if (wake)
+-		rcuwait_wake_up(&kvm->mn_memslots_update_rcuwait);
++		rcuwait_wake_up(&kvm->memslots_update_rcuwait);
+ }
+ 
+ static int kvm_mmu_notifier_clear_flush_young(struct mmu_notifier *mn,
+@@ -1131,8 +1131,8 @@ static struct kvm *kvm_create_vm(unsigned long type, const char *fdname)
+ 	mutex_init(&kvm->irq_lock);
+ 	mutex_init(&kvm->slots_lock);
+ 	mutex_init(&kvm->slots_arch_lock);
+-	spin_lock_init(&kvm->mn_invalidate_lock);
+-	rcuwait_init(&kvm->mn_memslots_update_rcuwait);
++	spin_lock_init(&kvm->invalidate_lock);
++	rcuwait_init(&kvm->memslots_update_rcuwait);
+ 	xa_init(&kvm->vcpu_array);
+ #ifdef CONFIG_KVM_GENERIC_MEMORY_ATTRIBUTES
+ 	xa_init(&kvm->mem_attr_array);
+@@ -1299,7 +1299,7 @@ static void kvm_destroy_vm(struct kvm *kvm)
+ 	/*
+ 	 * At this point, pending calls to invalidate_range_start()
+ 	 * have completed but no more MMU notifiers will run, so
+-	 * mn_active_invalidate_count may remain unbalanced.
++	 * active_invalidate_count may remain unbalanced.
+ 	 * No threads can be waiting in kvm_swap_active_memslots() as the
+ 	 * last reference on KVM has been dropped, but freeing
+ 	 * memslots would deadlock without this manual intervention.
+@@ -1308,9 +1308,9 @@ static void kvm_destroy_vm(struct kvm *kvm)
+ 	 * notifier between a start() and end(), then there shouldn't be any
+ 	 * in-progress invalidations.
+ 	 */
+-	WARN_ON(rcuwait_active(&kvm->mn_memslots_update_rcuwait));
+-	if (kvm->mn_active_invalidate_count)
+-		kvm->mn_active_invalidate_count = 0;
++	WARN_ON(rcuwait_active(&kvm->memslots_update_rcuwait));
++	if (kvm->active_invalidate_count)
++		kvm->active_invalidate_count = 0;
+ 	else
+ 		WARN_ON(kvm->mmu_invalidate_in_progress);
+ #else
+@@ -1637,17 +1637,17 @@ static void kvm_swap_active_memslots(struct kvm *kvm, int as_id)
+ 	 * progress, otherwise the locking in invalidate_range_start and
+ 	 * invalidate_range_end will be unbalanced.
+ 	 */
+-	spin_lock(&kvm->mn_invalidate_lock);
+-	prepare_to_rcuwait(&kvm->mn_memslots_update_rcuwait);
+-	while (kvm->mn_active_invalidate_count) {
++	spin_lock(&kvm->invalidate_lock);
++	prepare_to_rcuwait(&kvm->memslots_update_rcuwait);
++	while (kvm->active_invalidate_count) {
+ 		set_current_state(TASK_UNINTERRUPTIBLE);
+-		spin_unlock(&kvm->mn_invalidate_lock);
++		spin_unlock(&kvm->invalidate_lock);
+ 		schedule();
+-		spin_lock(&kvm->mn_invalidate_lock);
++		spin_lock(&kvm->invalidate_lock);
+ 	}
+-	finish_rcuwait(&kvm->mn_memslots_update_rcuwait);
++	finish_rcuwait(&kvm->memslots_update_rcuwait);
+ 	rcu_assign_pointer(kvm->memslots[as_id], slots);
+-	spin_unlock(&kvm->mn_invalidate_lock);
++	spin_unlock(&kvm->invalidate_lock);
+ 
+ 	/*
+ 	 * Acquired in kvm_set_memslot. Must be released before synchronize
+diff --git a/virt/kvm/pfncache.c b/virt/kvm/pfncache.c
+index bafda64b8916..63e08fbac16d 100644
+--- a/virt/kvm/pfncache.c
++++ b/virt/kvm/pfncache.c
+@@ -147,26 +147,24 @@ static void gpc_unmap(kvm_pfn_t pfn, void *khva)
+ static inline bool mmu_notifier_retry_cache(struct kvm *kvm, unsigned long mmu_seq)
+ {
+ 	/*
+-	 * mn_active_invalidate_count acts for all intents and purposes
+-	 * like mmu_invalidate_in_progress here; but the latter cannot
+-	 * be used here because the invalidation of caches in the
+-	 * mmu_notifier event occurs _before_ mmu_invalidate_in_progress
+-	 * is elevated.
++	 * active_invalidate_count acts for all intents and purposes like
++	 * mmu_invalidate_in_progress here; but the latter cannot be used here
++	 * because the invalidation of caches in the mmu_notifier event occurs
++	 * _before_ mmu_invalidate_in_progress is elevated.
+ 	 *
+-	 * Note, it does not matter that mn_active_invalidate_count
+-	 * is not protected by gpc->lock.  It is guaranteed to
+-	 * be elevated before the mmu_notifier acquires gpc->lock, and
+-	 * isn't dropped until after mmu_invalidate_seq is updated.
++	 * Note, it does not matter that active_invalidate_count is not
++	 * protected by gpc->lock.  It is guaranteed to be elevated before the
++	 * mmu_notifier acquires gpc->lock, and isn't dropped until after
++	 * mmu_invalidate_seq is updated.
+ 	 */
+-	if (kvm->mn_active_invalidate_count)
++	if (kvm->active_invalidate_count)
+ 		return true;
+ 
+ 	/*
+-	 * Ensure mn_active_invalidate_count is read before
+-	 * mmu_invalidate_seq.  This pairs with the smp_wmb() in
+-	 * mmu_notifier_invalidate_range_end() to guarantee either the
+-	 * old (non-zero) value of mn_active_invalidate_count or the
+-	 * new (incremented) value of mmu_invalidate_seq is observed.
++	 * Ensure active_invalidate_count is read before mmu_invalidate_seq.
++	 * This pairs with the smp_wmb() in kvm_mmu_invalidate_end() to
++	 * guarantee either the old (non-zero) value of active_invalidate_count
++	 * or the new (incremented) value of mmu_invalidate_seq is observed.
+ 	 */
+ 	smp_rmb();
+ 	return kvm->mmu_invalidate_seq != mmu_seq;
+-- 
+2.50.1
+

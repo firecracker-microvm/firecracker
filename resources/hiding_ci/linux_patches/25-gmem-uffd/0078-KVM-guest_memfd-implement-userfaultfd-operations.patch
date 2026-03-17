@@ -1,0 +1,163 @@
+From cae9db2062e2e5158b0b6b3465cbeb45014e8b00 Mon Sep 17 00:00:00 2001
+From: Nikita Kalyazin <kalyazin@amazon.com>
+Date: Fri, 6 Mar 2026 19:18:13 +0200
+Subject: [PATCH 78/86] KVM: guest_memfd: implement userfaultfd operations
+
+userfaultfd notifications about page faults used for live migration
+and snapshotting of VMs.
+
+MISSING mode allows post-copy live migration and MINOR mode allows
+optimization for post-copy live migration for VMs backed with shared
+hugetlbfs or tmpfs mappings as described in detail in commit
+7677f7fd8be7 ("userfaultfd: add minor fault registration mode").
+
+To use the same mechanisms for VMs that use guest_memfd to map their
+memory, guest_memfd should support userfaultfd operations.
+
+Add implementation of vm_uffd_ops to guest_memfd.
+
+Signed-off-by: Nikita Kalyazin <kalyazin@amazon.com>
+Co-developed-by: Mike Rapoport (Microsoft) <rppt@kernel.org>
+Signed-off-by: Mike Rapoport (Microsoft) <rppt@kernel.org>
+---
+ mm/filemap.c           |  1 +
+ virt/kvm/guest_memfd.c | 84 +++++++++++++++++++++++++++++++++++++++++-
+ 2 files changed, 83 insertions(+), 2 deletions(-)
+
+diff --git a/mm/filemap.c b/mm/filemap.c
+index 3e4579e4b8bb..041c7719e524 100644
+--- a/mm/filemap.c
++++ b/mm/filemap.c
+@@ -261,6 +261,7 @@ void filemap_remove_folio(struct folio *folio)
+ 
+ 	filemap_free_folio(mapping, folio);
+ }
++EXPORT_SYMBOL_FOR_MODULES(filemap_remove_folio, "kvm");
+ 
+ /*
+  * page_cache_delete_batch - delete several folios from page cache
+diff --git a/virt/kvm/guest_memfd.c b/virt/kvm/guest_memfd.c
+index f8eac86e6931..922839f044e0 100644
+--- a/virt/kvm/guest_memfd.c
++++ b/virt/kvm/guest_memfd.c
+@@ -8,6 +8,7 @@
+ #include <linux/pseudo_fs.h>
+ #include <linux/pagemap.h>
+ #include <linux/set_memory.h>
++#include <linux/userfaultfd_k.h>
+ 
+ #include "kvm_mm.h"
+ 
+@@ -154,6 +155,12 @@ static int kvm_gmem_prepare_folio(struct kvm *kvm, struct kvm_memory_slot *slot,
+ 	return r;
+ }
+ 
++static struct folio *kvm_gmem_get_folio_noalloc(struct inode *inode, pgoff_t pgoff)
++{
++	return __filemap_get_folio(inode->i_mapping, pgoff,
++				   FGP_LOCK | FGP_ACCESSED, 0);
++}
++
+ /*
+  * Returns a locked folio on success.  The caller is responsible for
+  * setting the up-to-date flag before the memory is mapped into the guest.
+@@ -173,8 +180,7 @@ static struct folio *kvm_gmem_get_folio(struct inode *inode, pgoff_t index)
+ 	 * Fast-path: See if folio is already present in mapping to avoid
+ 	 * policy_lookup.
+ 	 */
+-	folio = __filemap_get_folio(inode->i_mapping, index,
+-				    FGP_LOCK | FGP_ACCESSED, 0);
++	folio = kvm_gmem_get_folio_noalloc(inode, index);
+ 	if (!IS_ERR(folio))
+ 		return folio;
+ 
+@@ -559,12 +565,86 @@ static struct mempolicy *kvm_gmem_get_policy(struct vm_area_struct *vma,
+ }
+ #endif /* CONFIG_NUMA */
+ 
++#ifdef CONFIG_USERFAULTFD
++static bool kvm_gmem_can_userfault(struct vm_area_struct *vma, vm_flags_t vm_flags)
++{
++	struct inode *inode = file_inode(vma->vm_file);
++
++	/*
++	 * Only support userfaultfd for guest_memfd with INIT_SHARED flag.
++	 * This ensures the memory can be mapped to userspace.
++	 */
++	if (!(GMEM_I(inode)->flags & GUEST_MEMFD_FLAG_INIT_SHARED))
++		return false;
++
++	return true;
++}
++
++static struct folio *kvm_gmem_folio_alloc(struct vm_area_struct *vma,
++					  unsigned long addr)
++{
++	struct inode *inode = file_inode(vma->vm_file);
++	pgoff_t pgoff = linear_page_index(vma, addr);
++	struct mempolicy *mpol;
++	struct folio *folio;
++	gfp_t gfp;
++
++	if (unlikely(pgoff >= (i_size_read(inode) >> PAGE_SHIFT)))
++		return NULL;
++
++	gfp = mapping_gfp_mask(inode->i_mapping);
++	mpol = mpol_shared_policy_lookup(&GMEM_I(inode)->policy, pgoff);
++	mpol = mpol ?: get_task_policy(current);
++	folio = filemap_alloc_folio(gfp, 0, mpol);
++	mpol_cond_put(mpol);
++
++	return folio;
++}
++
++static int kvm_gmem_filemap_add(struct folio *folio,
++				struct vm_area_struct *vma,
++				unsigned long addr)
++{
++	struct inode *inode = file_inode(vma->vm_file);
++	struct address_space *mapping = inode->i_mapping;
++	pgoff_t pgoff = linear_page_index(vma, addr);
++	int err;
++
++	__folio_set_locked(folio);
++	err = filemap_add_folio(mapping, folio, pgoff, GFP_KERNEL);
++	if (err) {
++		folio_unlock(folio);
++		return err;
++	}
++
++	return 0;
++}
++
++static void kvm_gmem_filemap_remove(struct folio *folio,
++				    struct vm_area_struct *vma)
++{
++	filemap_remove_folio(folio);
++	folio_unlock(folio);
++}
++
++static const struct vm_uffd_ops kvm_gmem_uffd_ops = {
++	.can_userfault     = kvm_gmem_can_userfault,
++	.get_folio_noalloc = kvm_gmem_get_folio_noalloc,
++	.alloc_folio       = kvm_gmem_folio_alloc,
++	.filemap_add       = kvm_gmem_filemap_add,
++	.filemap_remove    = kvm_gmem_filemap_remove,
++};
++#endif /* CONFIG_USERFAULTFD */
++
+ static const struct vm_operations_struct kvm_gmem_vm_ops = {
+ 	.fault		= kvm_gmem_fault_user_mapping,
+ #ifdef CONFIG_NUMA
+ 	.get_policy	= kvm_gmem_get_policy,
+ 	.set_policy	= kvm_gmem_set_policy,
+ #endif
++#ifdef CONFIG_USERFAULTFD
++	.uffd_ops	= &kvm_gmem_uffd_ops,
++#endif
+ };
+ 
+ static int kvm_gmem_mmap(struct file *file, struct vm_area_struct *vma)
+-- 
+2.50.1
+
