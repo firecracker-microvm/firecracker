@@ -1,0 +1,154 @@
+From 77a4de592ebe187512445cc00def5859ec64c056 Mon Sep 17 00:00:00 2001
+From: "Mike Rapoport (Microsoft)" <rppt@kernel.org>
+Date: Fri, 6 Mar 2026 19:18:08 +0200
+Subject: [PATCH 73/86] shmem, userfaultfd: use a VMA callback to handle
+ UFFDIO_CONTINUE
+
+When userspace resolves a page fault in a shmem VMA with UFFDIO_CONTINUE
+it needs to get a folio that already exists in the pagecache backing
+that VMA.
+
+Instead of using shmem_get_folio() for that, add a get_folio_noalloc()
+method to 'struct vm_uffd_ops' that will return a folio if it exists in
+the VMA's pagecache at given pgoff.
+
+Implement get_folio_noalloc() method for shmem and slightly refactor
+userfaultfd's mfill_get_vma() and mfill_atomic_pte_continue() to support
+this new API.
+
+Signed-off-by: Mike Rapoport (Microsoft) <rppt@kernel.org>
+---
+ include/linux/userfaultfd_k.h |  7 +++++++
+ mm/shmem.c                    | 15 ++++++++++++++-
+ mm/userfaultfd.c              | 32 ++++++++++++++++----------------
+ 3 files changed, 37 insertions(+), 17 deletions(-)
+
+diff --git a/include/linux/userfaultfd_k.h b/include/linux/userfaultfd_k.h
+index 095928c30b4b..12d7b6e8d364 100644
+--- a/include/linux/userfaultfd_k.h
++++ b/include/linux/userfaultfd_k.h
+@@ -84,6 +84,13 @@ extern vm_fault_t handle_userfault(struct vm_fault *vmf, unsigned long reason);
+ struct vm_uffd_ops {
+ 	/* Checks if a VMA can support userfaultfd */
+ 	bool (*can_userfault)(struct vm_area_struct *vma, vm_flags_t vm_flags);
++	/*
++	 * Called to resolve UFFDIO_CONTINUE request.
++	 * Should return the folio found at pgoff in the VMA's pagecache if it
++	 * exists or ERR_PTR otherwise.
++	 * The returned folio is locked and with reference held.
++	 */
++	struct folio *(*get_folio_noalloc)(struct inode *inode, pgoff_t pgoff);
+ };
+ 
+ /* A combined operation mode + behavior flags. */
+diff --git a/mm/shmem.c b/mm/shmem.c
+index 3be5f5d03ee9..c52fc39dd06a 100644
+--- a/mm/shmem.c
++++ b/mm/shmem.c
+@@ -3263,13 +3263,26 @@ int shmem_mfill_atomic_pte(pmd_t *dst_pmd,
+ 	return ret;
+ }
+ 
++static struct folio *shmem_get_folio_noalloc(struct inode *inode, pgoff_t pgoff)
++{
++	struct folio *folio;
++	int err;
++
++	err = shmem_get_folio(inode, pgoff, 0, &folio, SGP_NOALLOC);
++	if (err)
++		return ERR_PTR(err);
++
++	return folio;
++}
++
+ static bool shmem_can_userfault(struct vm_area_struct *vma, vm_flags_t vm_flags)
+ {
+ 	return true;
+ }
+ 
+ static const struct vm_uffd_ops shmem_uffd_ops = {
+-	.can_userfault	= shmem_can_userfault,
++	.can_userfault		= shmem_can_userfault,
++	.get_folio_noalloc	= shmem_get_folio_noalloc,
+ };
+ #endif /* CONFIG_USERFAULTFD */
+ 
+diff --git a/mm/userfaultfd.c b/mm/userfaultfd.c
+index c5438ea4d163..666d17db9f3e 100644
+--- a/mm/userfaultfd.c
++++ b/mm/userfaultfd.c
+@@ -191,6 +191,7 @@ static int mfill_get_vma(struct mfill_state *state)
+ 	struct userfaultfd_ctx *ctx = state->ctx;
+ 	uffd_flags_t flags = state->flags;
+ 	struct vm_area_struct *dst_vma;
++	const struct vm_uffd_ops *ops;
+ 	int err;
+ 
+ 	/*
+@@ -232,10 +233,12 @@ static int mfill_get_vma(struct mfill_state *state)
+ 	if (is_vm_hugetlb_page(dst_vma))
+ 		goto out;
+ 
+-	if (!vma_is_anonymous(dst_vma) && !vma_is_shmem(dst_vma))
++	ops = vma_uffd_ops(dst_vma);
++	if (!ops)
+ 		goto out_unlock;
+-	if (!vma_is_shmem(dst_vma) &&
+-	    uffd_flags_mode_is(flags, MFILL_ATOMIC_CONTINUE))
++
++	if (uffd_flags_mode_is(flags, MFILL_ATOMIC_CONTINUE) &&
++	    !ops->get_folio_noalloc)
+ 		goto out_unlock;
+ 
+ out:
+@@ -573,6 +576,7 @@ static int mfill_atomic_pte_zeropage(struct mfill_state *state)
+ static int mfill_atomic_pte_continue(struct mfill_state *state)
+ {
+ 	struct vm_area_struct *dst_vma = state->vma;
++	const struct vm_uffd_ops *ops = vma_uffd_ops(dst_vma);
+ 	unsigned long dst_addr = state->dst_addr;
+ 	pgoff_t pgoff = linear_page_index(dst_vma, dst_addr);
+ 	struct inode *inode = file_inode(dst_vma->vm_file);
+@@ -582,16 +586,13 @@ static int mfill_atomic_pte_continue(struct mfill_state *state)
+ 	struct page *page;
+ 	int ret;
+ 
+-	ret = shmem_get_folio(inode, pgoff, 0, &folio, SGP_NOALLOC);
++	if (!ops)
++		return -EOPNOTSUPP;
++
++	folio = ops->get_folio_noalloc(inode, pgoff);
+ 	/* Our caller expects us to return -EFAULT if we failed to find folio */
+-	if (ret == -ENOENT)
+-		ret = -EFAULT;
+-	if (ret)
+-		goto out;
+-	if (!folio) {
+-		ret = -EFAULT;
+-		goto out;
+-	}
++	if (IS_ERR_OR_NULL(folio))
++		return -EFAULT;
+ 
+ 	page = folio_file_page(folio, pgoff);
+ 	if (PageHWPoison(page)) {
+@@ -605,13 +606,12 @@ static int mfill_atomic_pte_continue(struct mfill_state *state)
+ 		goto out_release;
+ 
+ 	folio_unlock(folio);
+-	ret = 0;
+-out:
+-	return ret;
++	return 0;
++
+ out_release:
+ 	folio_unlock(folio);
+ 	folio_put(folio);
+-	goto out;
++	return ret;
+ }
+ 
+ /* Handles UFFDIO_POISON for all non-hugetlb VMAs. */
+-- 
+2.50.1
+
