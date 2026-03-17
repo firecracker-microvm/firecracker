@@ -1,0 +1,244 @@
+From 61819894fd4f5bab48147fb16f199b0c765f7a30 Mon Sep 17 00:00:00 2001
+From: Jack Thomson <jackabt@amazon.com>
+Date: Fri, 16 Jan 2026 15:14:33 +0000
+Subject: [PATCH 4/7] KVM: Add KVM_ASYNC_PF ioctl and auto-complete pending
+ APFs on re-entry
+
+Add the KVM_ASYNC_PF vCPU ioctl for managing userfaultfd-based async page
+faults.
+
+KVM_APF_OP_ACCEPT runs under vcpu->mutex and transitions the APF to
+ACCEPTED state so the vCPU re-enters halted while userspace resolves the
+page.  KVM_APF_OP_READY runs without vcpu->mutex so it can be called from
+any thread (e.g. a UFFD handler) to wake the vCPU once the page is ready.
+
+For the common synchronous case (userspace resolves the page via
+UFFDIO_COPY and immediately re-enters KVM_RUN), no ioctl is needed.  KVM
+auto-completes any PENDING userfault APFs at KVM_RUN re-entry time.  This
+avoids a silent hang where the vCPU would otherwise re-fault, find the APF
+already queued, and halt forever waiting for a READY that never comes.
+
+The auto-complete check is two loads behind a likely() branch, so the cost
+on the normal KVM_RUN path is effectively zero.
+
+Signed-off-by: Jack Thomson <jackabt@amazon.com>
+---
+ arch/x86/kvm/Kconfig     |  1 +
+ arch/x86/kvm/x86.c       | 56 ++++++++++++++++++++++++++++++++++++++++
+ include/linux/kvm_host.h |  2 +-
+ include/uapi/linux/kvm.h | 15 +++++------
+ virt/kvm/async_pf.c      | 42 +++++++++++++-----------------
+ 5 files changed, 83 insertions(+), 33 deletions(-)
+
+diff --git a/arch/x86/kvm/Kconfig b/arch/x86/kvm/Kconfig
+index 180781998aa7..b2c8e75c7d6f 100644
+--- a/arch/x86/kvm/Kconfig
++++ b/arch/x86/kvm/Kconfig
+@@ -30,6 +30,7 @@ config KVM_X86
+ 	select HAVE_KVM_IRQ_BYPASS
+ 	select HAVE_KVM_IRQ_ROUTING
+ 	select HAVE_KVM_READONLY_MEM
++	select HAVE_KVM_VCPU_ASYNC_IOCTL
+ 	select VHOST_TASK
+ 	select KVM_ASYNC_PF
+ 	select USER_RETURN_NOTIFIER
+diff --git a/arch/x86/kvm/x86.c b/arch/x86/kvm/x86.c
+index a447663d5eff..0995a6e99250 100644
+--- a/arch/x86/kvm/x86.c
++++ b/arch/x86/kvm/x86.c
+@@ -6200,6 +6200,38 @@ static int kvm_get_reg_list(struct kvm_vcpu *vcpu,
+ 	return 0;
+ }
+ 
++long kvm_arch_vcpu_async_ioctl(struct file *filp, unsigned int ioctl,
++			       unsigned long arg)
++{
++	struct kvm_vcpu *vcpu = filp->private_data;
++	void __user *argp = (void __user *)arg;
++
++	if (ioctl == KVM_ASYNC_PF) {
++		struct kvm_async_pf_req req;
++
++		if (copy_from_user(&req, argp, sizeof(req)))
++			return -EFAULT;
++
++		if (req.flags || req.reserved[0] || req.reserved[1])
++			return -EINVAL;
++
++		if (req.gpa & ~PAGE_MASK)
++			return -EINVAL;
++
++		/*
++		 * Only READY runs without vcpu->mutex — it must be callable
++		 * from a non-vCPU thread.  ACCEPT is handled under
++		 * vcpu->mutex in kvm_arch_vcpu_ioctl().
++		 */
++		if (req.op == KVM_APF_OP_READY)
++			return kvm_async_pf_complete(vcpu, req.gpa);
++
++		return -ENOIOCTLCMD;
++	}
++
++	return -ENOIOCTLCMD;
++}
++
+ long kvm_arch_vcpu_ioctl(struct file *filp,
+ 			 unsigned int ioctl, unsigned long arg)
+ {
+@@ -6218,6 +6250,28 @@ long kvm_arch_vcpu_ioctl(struct file *filp,
+ 
+ 	u.buffer = NULL;
+ 	switch (ioctl) {
++	case KVM_ASYNC_PF: {
++		struct kvm_async_pf_req req;
++
++		r = -EFAULT;
++		if (copy_from_user(&req, argp, sizeof(req)))
++			goto out;
++
++		r = -EINVAL;
++		if (req.flags || req.reserved[0] || req.reserved[1])
++			goto out;
++		if (req.gpa & ~PAGE_MASK)
++			goto out;
++
++		switch (req.op) {
++		case KVM_APF_OP_ACCEPT:
++			r = kvm_async_pf_accept(vcpu, req.gpa);
++			break;
++		default:
++			r = -EINVAL;
++		}
++		break;
++	}
+ 	case KVM_GET_LAPIC: {
+ 		r = -EINVAL;
+ 		if (!lapic_in_kernel(vcpu))
+@@ -11953,6 +12007,8 @@ int kvm_arch_vcpu_ioctl_run(struct kvm_vcpu *vcpu)
+ 	if (r <= 0)
+ 		goto out;
+ 
++	kvm_async_pf_autocomplete_pending(vcpu);
++
+ 	r = vcpu_run(vcpu);
+ 
+ out:
+diff --git a/include/linux/kvm_host.h b/include/linux/kvm_host.h
+index 624f422615ff..9cce0647f8dc 100644
+--- a/include/linux/kvm_host.h
++++ b/include/linux/kvm_host.h
+@@ -262,7 +262,7 @@ struct kvm_async_pf {
+ bool kvm_async_pf_userfault_exists(struct kvm_vcpu *vcpu,
+ 				   gfn_t gfn);
+ int kvm_async_pf_accept(struct kvm_vcpu *vcpu, gpa_t gpa);
+-int kvm_async_pf_sync_complete(struct kvm_vcpu *vcpu, gpa_t gpa);
++void kvm_async_pf_autocomplete_pending(struct kvm_vcpu *vcpu);
+ int kvm_async_pf_complete(struct kvm_vcpu *vcpu, gpa_t gpa);
+ void kvm_clear_async_pf_completion_queue(struct kvm_vcpu *vcpu);
+ void kvm_check_async_pf_completion(struct kvm_vcpu *vcpu);
+diff --git a/include/uapi/linux/kvm.h b/include/uapi/linux/kvm.h
+index 7ff327522a53..a38693eafb36 100644
+--- a/include/uapi/linux/kvm.h
++++ b/include/uapi/linux/kvm.h
+@@ -1620,29 +1620,28 @@ struct kvm_create_guest_memfd {
+  * Userfaultfd async page fault ioctl.
+  *
+  * When a vCPU exits with KVM_EXIT_MEMORY_FAULT and KVM_MEMORY_EXIT_FLAG_APF
+- * set, an async page fault has been created. Userspace must respond with
+- * one of ACCEPT or SYNC_COMPLETE before re-entering the vCPU:
++ * set, an async page fault has been created. Userspace may respond before
++ * re-entering the vCPU:
+  *
+  * KVM_APF_OP_ACCEPT - Userspace will resolve the page asynchronously.
+  *   The vCPU re-enters in a halted state while the page is being resolved.
+  *   When the page is ready, userspace calls KVM_APF_OP_READY to wake
+  *   the vCPU.
+  *
+- * KVM_APF_OP_SYNC_COMPLETE - Userspace has already resolved the page
+- *   fault synchronously (e.g. via UFFDIO_COPY or equivalent). KVM will
+- *   complete the APF immediately, allowing the guest to retry the faulting
+- *   instruction. The page MUST be present when this ioctl is called.
+- *
+  * KVM_APF_OP_READY - Signal that an async page fault previously accepted
+  *   via KVM_APF_OP_ACCEPT has been resolved. The argument is the GPA
+  *   that was faulted. This wakes the vCPU if it was halted waiting for
+  *   the page.
++ *
++ * If userspace resolves the page synchronously (e.g. via UFFDIO_COPY) and
++ * re-enters KVM_RUN without calling ACCEPT, KVM will auto-complete the
++ * pending APF on re-entry. The guest retries the faulting instruction and
++ * finds the page present.
+  */
+ #define KVM_ASYNC_PF		_IOW(KVMIO, 0xd6, struct kvm_async_pf_req)
+ 
+ #define KVM_APF_OP_READY		0
+ #define KVM_APF_OP_ACCEPT		1
+-#define KVM_APF_OP_SYNC_COMPLETE	2
+ 
+ struct kvm_async_pf_req {
+ 	__u64 gpa;
+diff --git a/virt/kvm/async_pf.c b/virt/kvm/async_pf.c
+index 14aab70ad263..81cdea301b83 100644
+--- a/virt/kvm/async_pf.c
++++ b/virt/kvm/async_pf.c
+@@ -218,39 +218,33 @@ int kvm_async_pf_accept(struct kvm_vcpu *vcpu, gpa_t gpa)
+ }
+ 
+ /*
+- * Synchronous completion: userspace resolved the fault (e.g. UFFDIO_COPY)
+- * before re-entering the guest. Complete the APF immediately so the guest
+- * retries and finds the page present.
++ * Auto-complete any userfault APFs still in PENDING state.
++ *
++ * Called on KVM_RUN re-entry. If userspace resolved the page (e.g. via
++ * UFFDIO_COPY) and re-enters without calling ACCEPT, auto-complete the
++ * APF so the guest retries and finds the page present.
+  */
+-int kvm_async_pf_sync_complete(struct kvm_vcpu *vcpu, gpa_t gpa)
++void kvm_async_pf_autocomplete_pending(struct kvm_vcpu *vcpu)
+ {
+ 	struct kvm_async_pf *apf;
+-	gfn_t gfn = gpa_to_gfn(gpa);
+-	bool first;
++	bool wakeup = false;
+ 
+-	spin_lock(&vcpu->async_pf.lock);
+-	apf = async_pf_find_work_item_from_gfn(vcpu, gfn);
++	if (likely(!vcpu->async_pf.userfault_enabled ||
++		   !atomic_read(&vcpu->async_pf.queued)))
++		return;
+ 
+-	if (!apf || !apf->userfault) {
+-		spin_unlock(&vcpu->async_pf.lock);
+-		return -ENOENT;
+-	}
+-
+-	if (apf->uf_state != KVM_APF_UF_PENDING) {
+-		spin_unlock(&vcpu->async_pf.lock);
+-		return -EINVAL;
++	spin_lock(&vcpu->async_pf.lock);
++	list_for_each_entry(apf, &vcpu->async_pf.queue, queue) {
++		if (apf->userfault && apf->uf_state == KVM_APF_UF_PENDING) {
++			apf->uf_state = KVM_APF_UF_COMPLETED;
++			list_add_tail(&apf->link, &vcpu->async_pf.done);
++			wakeup = true;
++		}
+ 	}
+-
+-	apf->uf_state = KVM_APF_UF_COMPLETED;
+-	first = list_empty(&vcpu->async_pf.done);
+-	list_add_tail(&apf->link, &vcpu->async_pf.done);
+ 	spin_unlock(&vcpu->async_pf.lock);
+ 
+-	if (first)
++	if (wakeup)
+ 		kvm_arch_async_page_present_queued(vcpu);
+-
+-	__kvm_vcpu_wake_up(vcpu);
+-	return 0;
+ }
+ 
+ void kvm_clear_async_pf_completion_queue(struct kvm_vcpu *vcpu)
+-- 
+2.43.0
+
