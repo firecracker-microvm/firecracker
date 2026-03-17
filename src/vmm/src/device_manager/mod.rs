@@ -163,7 +163,10 @@ impl DeviceManager {
         let i8042 = Arc::new(Mutex::new(I8042Device::new(reset_evt)?));
 
         // create pio dev manager with legacy devices
-        let mut legacy_devices = PortIODeviceManager::new(serial, i8042)?;
+        let mut legacy_devices = PortIODeviceManager {
+            stdio_serial: serial,
+            i8042,
+        };
         legacy_devices.register_devices(vm)?;
         Ok(legacy_devices)
     }
@@ -617,15 +620,14 @@ pub(crate) mod tests {
         let pci_devices = PciDevices::new();
 
         #[cfg(target_arch = "x86_64")]
-        let legacy_devices = PortIODeviceManager::new(
-            Arc::new(Mutex::new(
+        let legacy_devices = PortIODeviceManager {
+            stdio_serial: Arc::new(Mutex::new(
                 SerialDevice::new(None, SerialOut::Sink).unwrap(),
             )),
-            Arc::new(Mutex::new(
+            i8042: Arc::new(Mutex::new(
                 I8042Device::new(EventFd::new(libc::EFD_NONBLOCK).unwrap()).unwrap(),
             )),
-        )
-        .unwrap();
+        };
 
         DeviceManager {
             mmio_devices,
