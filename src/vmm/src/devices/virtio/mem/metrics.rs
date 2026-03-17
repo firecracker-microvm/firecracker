@@ -35,9 +35,11 @@ pub(super) static METRICS: OnceLock<Arc<VirtioMemDeviceMetrics>> = OnceLock::new
 pub fn flush_metrics<S: Serializer>(serializer: S) -> Result<S::Ok, S::Error> {
     // why are even doing different handling ? what is seq and why is it important ?
     let mut seq = serializer.serialize_map(Some(1))?;
-    if let Some(metrics) = METRICS.get() {
-        seq.serialize_entry("memory_hotplug", &metrics)?;
-    };
+    let dev_name = "memory_hotplug";
+    match METRICS.get() {
+        Some(metrics) => seq.serialize_entry(dev_name, &metrics)?,
+        None => seq.serialize_entry(dev_name, &VirtioMemDeviceMetrics::default())?,
+    }
     seq.end()
 }
 
