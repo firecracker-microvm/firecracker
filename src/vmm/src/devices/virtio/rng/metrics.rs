@@ -44,9 +44,12 @@ use std::sync::{Arc, OnceLock};
 /// This function facilitates aggregation and serialization of rng metrics.
 pub fn flush_metrics<S: Serializer>(serializer: S) -> Result<S::Ok, S::Error> {
     let mut seq = serializer.serialize_map(Some(1))?;
-    if let Some(metrics) = METRICS.get() {
-        seq.serialize_entry("rng", &metrics)?
-    };
+    let dev_name = "entropy";
+    match METRICS.get() {
+        Some(metrics) => seq.serialize_entry(dev_name, &metrics)?,
+        None => seq.serialize_entry(dev_name, &EntropyDeviceMetrics::default())?,
+    }
+
     seq.end()
 }
 
