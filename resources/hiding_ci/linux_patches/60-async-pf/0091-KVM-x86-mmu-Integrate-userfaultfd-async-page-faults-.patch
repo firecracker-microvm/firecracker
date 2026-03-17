@@ -1,0 +1,85 @@
+From afde618d84cf20f61ce9f8c3a9b21d9cdebbbb62 Mon Sep 17 00:00:00 2001
+From: Jack Thomson <jackabt@amazon.com>
+Date: Mon, 9 Feb 2026 11:52:30 +0000
+Subject: [PATCH 5/7] KVM: x86/mmu: Integrate userfaultfd async page faults
+ into the MMU
+
+Wire up userfaultfd-based async page faults in __kvm_mmu_faultin_pfn().
+
+When a userfault page is accessed and the vCPU has APF enabled, KVM
+creates an async page fault instead of immediately exiting to userspace.
+If an APF for the same GFN is already pending, the vCPU is halted via
+KVM_REQ_APF_HALT to wait for resolution.
+
+On the exit path, KVM_MEMORY_EXIT_FLAG_APF is set on the memory fault so
+userspace can distinguish APF exits from plain userfault exits and respond
+with ACCEPT or simply re-enter (auto-complete).
+
+Signed-off-by: Jack Thomson <jackabt@amazon.com>
+---
+ arch/x86/kvm/mmu/mmu.c | 27 ++++++++++++++++++++++++---
+ 1 file changed, 24 insertions(+), 3 deletions(-)
+
+diff --git a/arch/x86/kvm/mmu/mmu.c b/arch/x86/kvm/mmu/mmu.c
+index e82a357e2219..ab285e1ff80f 100644
+--- a/arch/x86/kvm/mmu/mmu.c
++++ b/arch/x86/kvm/mmu/mmu.c
+@@ -4513,7 +4513,8 @@ static u32 alloc_apf_token(struct kvm_vcpu *vcpu)
+ }
+ 
+ static bool kvm_arch_setup_async_pf(struct kvm_vcpu *vcpu,
+-				    struct kvm_page_fault *fault)
++				    struct kvm_page_fault *fault,
++				    bool userfault)
+ {
+ 	struct kvm_arch_async_pf arch;
+ 
+@@ -4524,7 +4525,8 @@ static bool kvm_arch_setup_async_pf(struct kvm_vcpu *vcpu,
+ 	arch.cr3 = kvm_mmu_get_guest_pgd(vcpu, vcpu->arch.mmu);
+ 
+ 	return kvm_setup_async_pf(vcpu, fault->addr,
+-				  kvm_vcpu_gfn_to_hva(vcpu, fault->gfn), &arch);
++				  kvm_vcpu_gfn_to_hva(vcpu, fault->gfn), &arch,
++				  userfault);
+ }
+ 
+ void kvm_arch_async_page_ready(struct kvm_vcpu *vcpu, struct kvm_async_pf *work)
+@@ -4598,7 +4600,26 @@ static int __kvm_mmu_faultin_pfn(struct kvm_vcpu *vcpu,
+ 	if (userfault < 0)
+ 		return userfault;
+ 	if (userfault) {
++		bool report_async = false;
++
++		if (vcpu->async_pf.userfault_enabled &&
++		    !fault->prefetch && kvm_can_do_async_pf(vcpu)) {
++			trace_kvm_try_async_get_page(fault->addr, fault->gfn);
++			if (kvm_async_pf_userfault_exists(vcpu, fault->gfn)) {
++				trace_kvm_async_pf_repeated_fault(fault->addr, fault->gfn);
++				kvm_make_request(KVM_REQ_APF_HALT, vcpu);
++				return RET_PF_RETRY;
++			} else if (kvm_arch_setup_async_pf(vcpu, fault, true)) {
++				report_async = true;
++			}
++		}
++
+ 		kvm_mmu_prepare_userfault_exit(vcpu, fault);
++
++		if (report_async) {
++			vcpu->run->memory_fault.flags |= KVM_MEMORY_EXIT_FLAG_APF;
++		}
++
+ 		return -EFAULT;
+ 	}
+ 
+@@ -4627,7 +4648,7 @@ static int __kvm_mmu_faultin_pfn(struct kvm_vcpu *vcpu,
+ 			trace_kvm_async_pf_repeated_fault(fault->addr, fault->gfn);
+ 			kvm_make_request(KVM_REQ_APF_HALT, vcpu);
+ 			return RET_PF_RETRY;
+-		} else if (kvm_arch_setup_async_pf(vcpu, fault)) {
++		} else if (kvm_arch_setup_async_pf(vcpu, fault, false)) {
+ 			return RET_PF_RETRY;
+ 		}
+ 	}
+-- 
+2.43.0
+
