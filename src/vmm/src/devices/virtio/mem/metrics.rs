@@ -34,9 +34,11 @@ pub(super) static METRICS: OnceLock<Arc<VirtioMemDeviceMetrics>> = OnceLock::new
 /// Called by METRICS.flush(), this function facilitates serialization of virtio-mem device metrics.
 pub fn flush_metrics<S: Serializer>(serializer: S) -> Result<S::Ok, S::Error> {
     let mut seq = serializer.serialize_map(Some(1))?;
-    if let Some(metrics) = METRICS.get() {
-        seq.serialize_entry("memory_hotplug", &metrics)?;
-    };
+    let dev_name = "memory_hotplug";
+    match METRICS.get() {
+        Some(metrics) => seq.serialize_entry(dev_name, &metrics)?,
+        None => seq.serialize_entry(dev_name, &VirtioMemDeviceMetrics::default())?,
+    }
     seq.end()
 }
 
