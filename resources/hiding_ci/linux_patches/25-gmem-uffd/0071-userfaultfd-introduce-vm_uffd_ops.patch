@@ -1,0 +1,224 @@
+From f7dff50433dca6a954a9de24174eb98a7e1473ac Mon Sep 17 00:00:00 2001
+From: "Mike Rapoport (Microsoft)" <rppt@kernel.org>
+Date: Fri, 6 Mar 2026 19:18:07 +0200
+Subject: [PATCH 71/86] userfaultfd: introduce vm_uffd_ops
+
+Current userfaultfd implementation works only with memory managed by
+core MM: anonymous, shmem and hugetlb.
+
+First, there is no fundamental reason to limit userfaultfd support only
+to the core memory types and userfaults can be handled similarly to
+regular page faults provided a VMA owner implements appropriate
+callbacks.
+
+Second, historically various code paths were conditioned on
+vma_is_anonymous(), vma_is_shmem() and is_vm_hugetlb_page() and some of
+these conditions can be expressed as operations implemented by a
+particular memory type.
+
+Introduce vm_uffd_ops extension to vm_operations_struct that will
+delegate memory type specific operations to a VMA owner.
+
+Operations for anonymous memory are handled internally in userfaultfd
+using anon_uffd_ops that implicitly assigned to anonymous VMAs.
+
+Start with a single operation, ->can_userfault() that will verify that a
+VMA meets requirements for userfaultfd support at registration time.
+
+Implement that method for anonymous, shmem and hugetlb and move relevant
+parts of vma_can_userfault() into the new callbacks.
+
+Signed-off-by: Mike Rapoport (Microsoft) <rppt@kernel.org>
+---
+ include/linux/mm.h            |  5 +++++
+ include/linux/userfaultfd_k.h |  6 ++++++
+ mm/hugetlb.c                  | 15 +++++++++++++++
+ mm/shmem.c                    | 15 +++++++++++++++
+ mm/userfaultfd.c              | 36 ++++++++++++++++++++++++++---------
+ 5 files changed, 68 insertions(+), 9 deletions(-)
+
+diff --git a/include/linux/mm.h b/include/linux/mm.h
+index 7c79b3369b82..72289e52e41e 100644
+--- a/include/linux/mm.h
++++ b/include/linux/mm.h
+@@ -605,6 +605,8 @@ struct vm_fault {
+ 					 */
+ };
+ 
++struct vm_uffd_ops;
++
+ /*
+  * These are the virtual MM functions - opening of an area, closing and
+  * unmapping it (needed to keep files on disk up-to-date etc), pointer
+@@ -690,6 +692,9 @@ struct vm_operations_struct {
+ 	struct page *(*find_normal_page)(struct vm_area_struct *vma,
+ 					 unsigned long addr);
+ #endif /* CONFIG_FIND_NORMAL_PAGE */
++#ifdef CONFIG_USERFAULTFD
++	const struct vm_uffd_ops *uffd_ops;
++#endif
+ };
+ 
+ #ifdef CONFIG_NUMA_BALANCING
+diff --git a/include/linux/userfaultfd_k.h b/include/linux/userfaultfd_k.h
+index e4f43e7b063f..095928c30b4b 100644
+--- a/include/linux/userfaultfd_k.h
++++ b/include/linux/userfaultfd_k.h
+@@ -80,6 +80,12 @@ struct userfaultfd_ctx {
+ 
+ extern vm_fault_t handle_userfault(struct vm_fault *vmf, unsigned long reason);
+ 
++/* VMA userfaultfd operations */
++struct vm_uffd_ops {
++	/* Checks if a VMA can support userfaultfd */
++	bool (*can_userfault)(struct vm_area_struct *vma, vm_flags_t vm_flags);
++};
++
+ /* A combined operation mode + behavior flags. */
+ typedef unsigned int __bitwise uffd_flags_t;
+ 
+diff --git a/mm/hugetlb.c b/mm/hugetlb.c
+index 0455119716ec..96b72ca8e60a 100644
+--- a/mm/hugetlb.c
++++ b/mm/hugetlb.c
+@@ -5472,6 +5472,18 @@ static vm_fault_t hugetlb_vm_op_fault(struct vm_fault *vmf)
+ 	return 0;
+ }
+ 
++#ifdef CONFIG_USERFAULTFD
++static bool hugetlb_can_userfault(struct vm_area_struct *vma,
++				  vm_flags_t vm_flags)
++{
++	return true;
++}
++
++static const struct vm_uffd_ops hugetlb_uffd_ops = {
++	.can_userfault = hugetlb_can_userfault,
++};
++#endif
++
+ /*
+  * When a new function is introduced to vm_operations_struct and added
+  * to hugetlb_vm_ops, please consider adding the function to shm_vm_ops.
+@@ -5485,6 +5497,9 @@ const struct vm_operations_struct hugetlb_vm_ops = {
+ 	.close = hugetlb_vm_op_close,
+ 	.may_split = hugetlb_vm_op_split,
+ 	.pagesize = hugetlb_vm_op_pagesize,
++#ifdef CONFIG_USERFAULTFD
++	.uffd_ops = &hugetlb_uffd_ops,
++#endif
+ };
+ 
+ static pte_t make_huge_pte(struct vm_area_struct *vma, struct folio *folio,
+diff --git a/mm/shmem.c b/mm/shmem.c
+index 5a3f0f754dc0..3be5f5d03ee9 100644
+--- a/mm/shmem.c
++++ b/mm/shmem.c
+@@ -3262,6 +3262,15 @@ int shmem_mfill_atomic_pte(pmd_t *dst_pmd,
+ 	shmem_inode_unacct_blocks(inode, 1);
+ 	return ret;
+ }
++
++static bool shmem_can_userfault(struct vm_area_struct *vma, vm_flags_t vm_flags)
++{
++	return true;
++}
++
++static const struct vm_uffd_ops shmem_uffd_ops = {
++	.can_userfault	= shmem_can_userfault,
++};
+ #endif /* CONFIG_USERFAULTFD */
+ 
+ #ifdef CONFIG_TMPFS
+@@ -5294,6 +5303,9 @@ static const struct vm_operations_struct shmem_vm_ops = {
+ 	.set_policy     = shmem_set_policy,
+ 	.get_policy     = shmem_get_policy,
+ #endif
++#ifdef CONFIG_USERFAULTFD
++	.uffd_ops	= &shmem_uffd_ops,
++#endif
+ };
+ 
+ static const struct vm_operations_struct shmem_anon_vm_ops = {
+@@ -5303,6 +5315,9 @@ static const struct vm_operations_struct shmem_anon_vm_ops = {
+ 	.set_policy     = shmem_set_policy,
+ 	.get_policy     = shmem_get_policy,
+ #endif
++#ifdef CONFIG_USERFAULTFD
++	.uffd_ops	= &shmem_uffd_ops,
++#endif
+ };
+ 
+ int shmem_init_fs_context(struct fs_context *fc)
+diff --git a/mm/userfaultfd.c b/mm/userfaultfd.c
+index b0a3ac838b15..21439a22c389 100644
+--- a/mm/userfaultfd.c
++++ b/mm/userfaultfd.c
+@@ -34,6 +34,25 @@ struct mfill_state {
+ 	pmd_t *pmd;
+ };
+ 
++static bool anon_can_userfault(struct vm_area_struct *vma, vm_flags_t vm_flags)
++{
++	/* anonymous memory does not support MINOR mode */
++	if (vm_flags & VM_UFFD_MINOR)
++		return false;
++	return true;
++}
++
++static const struct vm_uffd_ops anon_uffd_ops = {
++	.can_userfault	= anon_can_userfault,
++};
++
++static const struct vm_uffd_ops *vma_uffd_ops(struct vm_area_struct *vma)
++{
++	if (vma_is_anonymous(vma))
++		return &anon_uffd_ops;
++	return vma->vm_ops ? vma->vm_ops->uffd_ops : NULL;
++}
++
+ static __always_inline
+ bool validate_dst_vma(struct vm_area_struct *dst_vma, unsigned long dst_end)
+ {
+@@ -2062,13 +2081,15 @@ ssize_t move_pages(struct userfaultfd_ctx *ctx, unsigned long dst_start,
+ bool vma_can_userfault(struct vm_area_struct *vma, vm_flags_t vm_flags,
+ 		       bool wp_async)
+ {
+-	vm_flags &= __VM_UFFD_FLAGS;
++	const struct vm_uffd_ops *ops = vma_uffd_ops(vma);
+ 
+-	if (vma->vm_flags & VM_DROPPABLE)
++	/* only VMAs that implement vm_uffd_ops are supported */
++	if (!ops)
+ 		return false;
+ 
+-	if ((vm_flags & VM_UFFD_MINOR) &&
+-	    (!is_vm_hugetlb_page(vma) && !vma_is_shmem(vma)))
++	vm_flags &= __VM_UFFD_FLAGS;
++
++	if (vma->vm_flags & VM_DROPPABLE)
+ 		return false;
+ 
+ 	/*
+@@ -2080,16 +2101,13 @@ bool vma_can_userfault(struct vm_area_struct *vma, vm_flags_t vm_flags,
+ 
+ 	/*
+ 	 * If user requested uffd-wp but not enabled pte markers for
+-	 * uffd-wp, then shmem & hugetlbfs are not supported but only
+-	 * anonymous.
++	 * uffd-wp, then only anonymous memory is supported
+ 	 */
+ 	if (!uffd_supports_wp_marker() && (vm_flags & VM_UFFD_WP) &&
+ 	    !vma_is_anonymous(vma))
+ 		return false;
+ 
+-	/* By default, allow any of anon|shmem|hugetlb */
+-	return vma_is_anonymous(vma) || is_vm_hugetlb_page(vma) ||
+-	    vma_is_shmem(vma);
++	return ops->can_userfault(vma, vm_flags);
+ }
+ 
+ static void userfaultfd_set_vm_flags(struct vm_area_struct *vma,
+-- 
+2.50.1
+
