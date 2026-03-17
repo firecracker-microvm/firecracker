@@ -1,0 +1,209 @@
+From 17ea82279f4ec3e15a63b9a88ee3f86ac249c5df Mon Sep 17 00:00:00 2001
+From: Jack Thomson <jackabt@amazon.com>
+Date: Fri, 16 Jan 2026 15:14:10 +0000
+Subject: [PATCH 1/7] KVM: async_pf: Convert queued count to atomic and tighten
+ locking
+
+Userfaultfd-based async page faults will need to synchronize between the
+vCPU thread and ioctl callers operating on the same async_pf state.
+
+Convert vcpu->async_pf.queued from u32 to atomic_t and hold the spinlock
+across list operations in kvm_clear_async_pf_completion_queue(),
+kvm_check_async_pf_completion(), kvm_async_pf_wakeup_all(), and
+kvm_setup_async_pf().
+
+No functional change intended.
+
+Signed-off-by: Jack Thomson <jackabt@amazon.com>
+---
+ include/linux/kvm_host.h |  2 +-
+ virt/kvm/async_pf.c      | 62 ++++++++++++++++++++++++++--------------
+ 2 files changed, 41 insertions(+), 23 deletions(-)
+
+diff --git a/include/linux/kvm_host.h b/include/linux/kvm_host.h
+index 7faa83d3d306..12274080cc32 100644
+--- a/include/linux/kvm_host.h
++++ b/include/linux/kvm_host.h
+@@ -363,7 +363,7 @@ struct kvm_vcpu {
+ 
+ #ifdef CONFIG_KVM_ASYNC_PF
+ 	struct {
+-		u32 queued;
++		atomic_t queued;
+ 		struct list_head queue;
+ 		struct list_head done;
+ 		spinlock_t lock;
+diff --git a/virt/kvm/async_pf.c b/virt/kvm/async_pf.c
+index b8aaa96b799b..4d553f4d1caf 100644
+--- a/virt/kvm/async_pf.c
++++ b/virt/kvm/async_pf.c
+@@ -40,6 +40,7 @@ void kvm_async_pf_vcpu_init(struct kvm_vcpu *vcpu)
+ 	INIT_LIST_HEAD(&vcpu->async_pf.done);
+ 	INIT_LIST_HEAD(&vcpu->async_pf.queue);
+ 	spin_lock_init(&vcpu->async_pf.lock);
++	atomic_set(&vcpu->async_pf.queued, 0);
+ }
+ 
+ static void async_pf_execute(struct work_struct *work)
+@@ -119,6 +120,8 @@ static void kvm_flush_and_free_async_pf_work(struct kvm_async_pf *work)
+ 
+ void kvm_clear_async_pf_completion_queue(struct kvm_vcpu *vcpu)
+ {
++	spin_lock(&vcpu->async_pf.lock);
++
+ 	/* cancel outstanding work queue item */
+ 	while (!list_empty(&vcpu->async_pf.queue)) {
+ 		struct kvm_async_pf *work =
+@@ -126,50 +129,55 @@ void kvm_clear_async_pf_completion_queue(struct kvm_vcpu *vcpu)
+ 					 typeof(*work), queue);
+ 		list_del(&work->queue);
+ 
++		spin_unlock(&vcpu->async_pf.lock);
+ #ifdef CONFIG_KVM_ASYNC_PF_SYNC
+ 		flush_work(&work->work);
+ #else
+ 		if (cancel_work_sync(&work->work))
+ 			kmem_cache_free(async_pf_cache, work);
+ #endif
++		spin_lock(&vcpu->async_pf.lock);
+ 	}
+ 
+-	spin_lock(&vcpu->async_pf.lock);
+ 	while (!list_empty(&vcpu->async_pf.done)) {
+ 		struct kvm_async_pf *work =
+ 			list_first_entry(&vcpu->async_pf.done,
+ 					 typeof(*work), link);
+ 		list_del(&work->link);
+-
+ 		spin_unlock(&vcpu->async_pf.lock);
++
+ 		kvm_flush_and_free_async_pf_work(work);
+ 		spin_lock(&vcpu->async_pf.lock);
+ 	}
+-	spin_unlock(&vcpu->async_pf.lock);
+ 
+-	vcpu->async_pf.queued = 0;
++	atomic_set(&vcpu->async_pf.queued, 0);
++	spin_unlock(&vcpu->async_pf.lock);
+ }
+ 
+ void kvm_check_async_pf_completion(struct kvm_vcpu *vcpu)
+ {
+ 	struct kvm_async_pf *work;
+ 
+-	while (!list_empty_careful(&vcpu->async_pf.done) &&
+-	      kvm_arch_can_dequeue_async_page_present(vcpu)) {
+-		spin_lock(&vcpu->async_pf.lock);
++	spin_lock(&vcpu->async_pf.lock);
++	while (!list_empty(&vcpu->async_pf.done) &&
++	       kvm_arch_can_dequeue_async_page_present(vcpu)) {
+ 		work = list_first_entry(&vcpu->async_pf.done, typeof(*work),
+-					      link);
++					link);
+ 		list_del(&work->link);
++		if (!work->wakeup_all)
++			list_del(&work->queue);
++		atomic_dec(&vcpu->async_pf.queued);
+ 		spin_unlock(&vcpu->async_pf.lock);
+ 
+ 		kvm_arch_async_page_ready(vcpu, work);
+ 		if (!IS_ENABLED(CONFIG_KVM_ASYNC_PF_SYNC))
+ 			kvm_arch_async_page_present(vcpu, work);
+ 
+-		list_del(&work->queue);
+-		vcpu->async_pf.queued--;
+ 		kvm_flush_and_free_async_pf_work(work);
++
++		spin_lock(&vcpu->async_pf.lock);
+ 	}
++	spin_unlock(&vcpu->async_pf.lock);
+ }
+ 
+ /*
+@@ -181,36 +189,41 @@ bool kvm_setup_async_pf(struct kvm_vcpu *vcpu, gpa_t cr2_or_gpa,
+ {
+ 	struct kvm_async_pf *work;
+ 
+-	if (vcpu->async_pf.queued >= ASYNC_PF_PER_VCPU)
+-		return false;
+-
+ 	/* Arch specific code should not do async PF in this case */
+ 	if (unlikely(kvm_is_error_hva(hva)))
+ 		return false;
+ 
++	if (unlikely(atomic_inc_return(&vcpu->async_pf.queued) > ASYNC_PF_PER_VCPU))
++		goto failed_setup;
++
+ 	/*
+ 	 * do alloc nowait since if we are going to sleep anyway we
+ 	 * may as well sleep faulting in page
+ 	 */
+-	work = kmem_cache_zalloc(async_pf_cache, GFP_NOWAIT);
+-	if (!work)
+-		return false;
++	work = kmem_cache_zalloc(async_pf_cache, GFP_NOWAIT | __GFP_NOWARN);
++	if (unlikely(!work))
++		goto failed_setup;
+ 
+ 	work->wakeup_all = false;
+ 	work->vcpu = vcpu;
+ 	work->cr2_or_gpa = cr2_or_gpa;
+ 	work->addr = hva;
+ 	work->arch = *arch;
++	work->notpresent_injected = kvm_arch_async_page_not_present(vcpu, work);
+ 
+ 	INIT_WORK(&work->work, async_pf_execute);
+ 
++	spin_lock(&vcpu->async_pf.lock);
+ 	list_add_tail(&work->queue, &vcpu->async_pf.queue);
+-	vcpu->async_pf.queued++;
+-	work->notpresent_injected = kvm_arch_async_page_not_present(vcpu, work);
++	spin_unlock(&vcpu->async_pf.lock);
+ 
+ 	schedule_work(&work->work);
+ 
+ 	return true;
++
++failed_setup:
++	atomic_dec(&vcpu->async_pf.queued);
++	return false;
+ }
+ 
+ int kvm_async_pf_wakeup_all(struct kvm_vcpu *vcpu)
+@@ -218,24 +231,29 @@ int kvm_async_pf_wakeup_all(struct kvm_vcpu *vcpu)
+ 	struct kvm_async_pf *work;
+ 	bool first;
+ 
+-	if (!list_empty_careful(&vcpu->async_pf.done))
++	spin_lock(&vcpu->async_pf.lock);
++
++	if (!list_empty(&vcpu->async_pf.done)) {
++		spin_unlock(&vcpu->async_pf.lock);
+ 		return 0;
++	}
+ 
+ 	work = kmem_cache_zalloc(async_pf_cache, GFP_ATOMIC);
+-	if (!work)
++	if (!work) {
++		spin_unlock(&vcpu->async_pf.lock);
+ 		return -ENOMEM;
++	}
+ 
+ 	work->wakeup_all = true;
+ 	INIT_LIST_HEAD(&work->queue); /* for list_del to work */
+ 
+-	spin_lock(&vcpu->async_pf.lock);
+ 	first = list_empty(&vcpu->async_pf.done);
+ 	list_add_tail(&work->link, &vcpu->async_pf.done);
++	atomic_inc(&vcpu->async_pf.queued);
+ 	spin_unlock(&vcpu->async_pf.lock);
+ 
+ 	if (!IS_ENABLED(CONFIG_KVM_ASYNC_PF_SYNC) && first)
+ 		kvm_arch_async_page_present_queued(vcpu);
+ 
+-	vcpu->async_pf.queued++;
+ 	return 0;
+ }
+-- 
+2.43.0
+
