@@ -52,7 +52,7 @@ impl VhostUserDeviceBuilder {
         let position = self
             .devices
             .iter()
-            .position(|d| d.lock().unwrap().id == config.id);
+            .position(|d| d.lock().expect("Poisoned lock").id == config.id);
 
         let device = Arc::new(Mutex::new(VhostUserGeneric::new(config)?));
 
@@ -70,13 +70,13 @@ impl VhostUserDeviceBuilder {
         self.devices
             .iter()
             .map(|d| {
-                let d = d.lock().unwrap();
+                let d = d.lock().expect("Poisoned lock");
                 VhostUserDeviceConfig {
                     id: d.id.clone(),
                     device_type: d.device_type_id as u8,
                     socket: d.vu_handle.socket_path.clone(),
                     num_queues: d.queues.len() as u64,
-                    queue_size: Some(d.queues[0].size),
+                    queue_size: d.queues.first().map(|q| q.size),
                 }
             })
             .collect()

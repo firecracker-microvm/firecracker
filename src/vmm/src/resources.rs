@@ -491,12 +491,12 @@ impl VmResources {
         &self,
         regions: &[(GuestAddress, usize)],
     ) -> Result<Vec<GuestRegionMmap>, MemoryError> {
-        let vhost_user_device_used = self
-            .block
-            .devices
-            .iter()
-            .any(|b| b.lock().expect("Poisoned lock").is_vhost_user())
-            || !self.vhost_user.devices.is_empty();
+        let vhost_user_device_used = !self.vhost_user.devices.is_empty()
+            || self
+                .block
+                .devices
+                .iter()
+                .any(|b| b.lock().expect("Poisoned lock").is_vhost_user());
 
         // Page faults are more expensive for shared memory mapping, including  memfd.
         // For this reason, we only back guest memory with a memfd

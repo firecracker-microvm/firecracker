@@ -433,7 +433,7 @@ impl Vmm {
                             device_type: d.device_type_id as u8,
                             socket: d.vu_handle.socket_path.clone(),
                             num_queues: d.queues.len() as u64,
-                            queue_size: Some(d.queues[0].size),
+                            queue_size: d.queues.first().map(|q| q.size),
                         });
                     }
                 }

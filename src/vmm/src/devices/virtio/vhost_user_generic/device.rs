@@ -23,6 +23,7 @@ use crate::devices::virtio::vhost_user_metrics::{
     VhostUserDeviceMetrics, VhostUserMetricsPerDevice,
 };
 use crate::logger::{IncMetric, StoreMetric, log_dev_preview_warning};
+use crate::utils::u64_to_usize;
 use crate::vmm_config::vhost_user_device::VhostUserDeviceConfig;
 use crate::vstate::memory::GuestMemoryMmap;
 
@@ -225,7 +226,7 @@ where
     }
 
     fn read_config(&self, offset: u64, data: &mut [u8]) {
-        if let Some(config_space_bytes) = self.config_space.as_slice().get(offset as usize..) {
+        if let Some(config_space_bytes) = self.config_space.as_slice().get(u64_to_usize(offset)..) {
             let len = config_space_bytes.len().min(data.len());
             data[..len].copy_from_slice(&config_space_bytes[..len]);
         } else {
