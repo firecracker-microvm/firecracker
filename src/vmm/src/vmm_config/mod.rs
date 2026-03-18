@@ -30,11 +30,11 @@ pub mod mmds;
 pub mod net;
 /// Wrapper for configuring the pmem devises attached to the microVM.
 pub mod pmem;
-/// Wrapper for configuring generic vhost-user devices attached to the microVM.
-pub mod vhost_user_device;
 /// Wrapper for configuring microVM snapshots and the microVM state.
 pub mod serial;
 pub mod snapshot;
+/// Wrapper for configuring generic vhost-user devices attached to the microVM.
+pub mod vhost_user_device;
 /// Wrapper for configuring the vsock devices attached to the microVM.
 pub mod vsock;
 

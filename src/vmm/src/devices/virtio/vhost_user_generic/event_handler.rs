@@ -23,7 +23,10 @@ impl VhostUserGeneric {
 
     fn process_activate_event(&self, ops: &mut EventOps) {
         if let Err(err) = self.activate_evt.read() {
-            error!("Failed to consume generic vhost-user activate event: {:?}", err);
+            error!(
+                "Failed to consume generic vhost-user activate event: {:?}",
+                err
+            );
         }
         if let Err(err) = ops.remove(Events::with_data(
             &self.activate_evt,

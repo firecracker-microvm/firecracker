@@ -32,9 +32,9 @@ pub(crate) fn parse_put_vhost_user_device(
             "The id from the path does not match the id from the body!".to_string(),
         ))
     } else {
-        Ok(ParsedRequest::new_sync(
-            VmmAction::InsertVhostUserDevice(device_cfg),
-        ))
+        Ok(ParsedRequest::new_sync(VmmAction::InsertVhostUserDevice(
+            device_cfg,
+        )))
     }
 }
 

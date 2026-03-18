@@ -102,9 +102,8 @@ impl<T: VhostUserHandleBackend> VhostUserGenericImpl<T> {
 
         let requested_protocol_features = VhostUserProtocolFeatures::CONFIG;
 
-        let mut vu_handle =
-            VhostUserHandleImpl::<T>::new(&config.socket, config.num_queues)
-                .map_err(VhostUserGenericError::VhostUser)?;
+        let mut vu_handle = VhostUserHandleImpl::<T>::new(&config.socket, config.num_queues)
+            .map_err(VhostUserGenericError::VhostUser)?;
         let (acked_features, acked_protocol_features) = vu_handle
             .negotiate_features(AVAILABLE_FEATURES, requested_protocol_features)
             .map_err(VhostUserGenericError::VhostUser)?;
@@ -119,7 +118,12 @@ impl<T: VhostUserHandleBackend> VhostUserGenericImpl<T> {
         let buffer = [0u8; MAX_CONFIG_SPACE_SIZE as usize];
         let (_, config_space) = vu_handle
             .vu
-            .get_config(0, MAX_CONFIG_SPACE_SIZE, VhostUserConfigFlags::WRITABLE, &buffer)
+            .get_config(
+                0,
+                MAX_CONFIG_SPACE_SIZE,
+                VhostUserConfigFlags::WRITABLE,
+                &buffer,
+            )
             .map_err(VhostUserGenericError::Vhost)?;
 
         let activate_evt =
@@ -343,9 +347,7 @@ mod tests {
                 Ok(0)
             }
 
-            fn get_protocol_features(
-                &mut self,
-            ) -> Result<VhostUserProtocolFeatures, vhost::Error> {
+            fn get_protocol_features(&mut self) -> Result<VhostUserProtocolFeatures, vhost::Error> {
                 Ok(VhostUserProtocolFeatures::empty())
             }
 
@@ -366,9 +368,12 @@ mod tests {
         let (_tmp_dir, tmp_socket_path) = create_tmp_socket();
 
         // Backend without CONFIG feature must return an error.
-        let err = VhostUserGenericImpl::<MockMaster>::new(default_config(tmp_socket_path))
-            .unwrap_err();
-        assert!(matches!(err, VhostUserGenericError::ConfigFeatureNotNegotiated));
+        let err =
+            VhostUserGenericImpl::<MockMaster>::new(default_config(tmp_socket_path)).unwrap_err();
+        assert!(matches!(
+            err,
+            VhostUserGenericError::ConfigFeatureNotNegotiated
+        ));
     }
 
     #[test]
@@ -405,9 +410,7 @@ mod tests {
                 Ok(AVAILABLE_FEATURES)
             }
 
-            fn get_protocol_features(
-                &mut self,
-            ) -> Result<VhostUserProtocolFeatures, vhost::Error> {
+            fn get_protocol_features(&mut self) -> Result<VhostUserProtocolFeatures, vhost::Error> {
                 Ok(self.protocol_features)
             }
 
@@ -502,9 +505,7 @@ mod tests {
                 Ok(VhostUserVirtioFeatures::PROTOCOL_FEATURES.bits())
             }
 
-            fn get_protocol_features(
-                &mut self,
-            ) -> Result<VhostUserProtocolFeatures, vhost::Error> {
+            fn get_protocol_features(&mut self) -> Result<VhostUserProtocolFeatures, vhost::Error> {
                 Ok(VhostUserProtocolFeatures::CONFIG)
             }
 
@@ -550,11 +551,7 @@ mod tests {
                 Ok(())
             }
 
-            fn set_vring_base(
-                &self,
-                _queue_index: usize,
-                _base: u16,
-            ) -> Result<(), vhost::Error> {
+            fn set_vring_base(&self, _queue_index: usize, _base: u16) -> Result<(), vhost::Error> {
                 Ok(())
             }
 

@@ -424,10 +424,7 @@ impl Vmm {
                     }
                 }
                 VirtioDeviceType::VhostUserGeneric => {
-                    if let Some(d) = device
-                        .as_any()
-                        .downcast_ref::<VhostUserGeneric>()
-                    {
+                    if let Some(d) = device.as_any().downcast_ref::<VhostUserGeneric>() {
                         vhost_user_devices.push(VhostUserDeviceConfig {
                             id: d.id.clone(),
                             device_type: d.device_type_id as u8,

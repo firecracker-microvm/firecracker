@@ -40,8 +40,8 @@ use crate::vmm_config::net::{
 };
 use crate::vmm_config::pmem::{PmemConfig, PmemConfigError};
 use crate::vmm_config::serial::SerialConfig;
-use crate::vmm_config::vhost_user_device::{VhostUserDeviceConfig, VhostUserDeviceConfigError};
 use crate::vmm_config::snapshot::{CreateSnapshotParams, LoadSnapshotParams, SnapshotType};
+use crate::vmm_config::vhost_user_device::{VhostUserDeviceConfig, VhostUserDeviceConfigError};
 use crate::vmm_config::vsock::{VsockConfigError, VsockDeviceConfig};
 use crate::vmm_config::{self, RateLimiterUpdate};
 
