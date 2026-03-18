@@ -18,6 +18,7 @@ use crate::devices::virtio::device::VirtioDevice;
 use crate::devices::virtio::queue::Queue;
 use crate::devices::virtio::transport::pci::common_config_offset::*;
 use crate::devices::virtio::transport::pci::device::VIRTQ_MSI_NO_VECTOR;
+use crate::devices::virtio::transport::pci::device_status::*;
 use crate::logger::warn;
 
 pub const VIRTIO_PCI_COMMON_CONFIG_ID: &str = "virtio_pci_common_config";
@@ -161,6 +162,25 @@ impl VirtioPciCommonConfig {
         }
     }
 
+    /// Guard queue configuration field writes based on device status.
+    ///
+    /// Per the virtio spec, the driver SHALL follow this sequence:
+    ///   INIT -> ACKNOWLEDGE -> DRIVER -> FEATURES_OK -> DRIVER_OK
+    /// https://docs.oasis-open.org/virtio/virtio/v1.3/csd01/virtio-v1.3-csd01.html#x1-1220001
+    ///
+    /// Queue configuration must only be done between FEATURES_OK and DRIVER_OK.
+    fn update_queue_field<F: FnOnce(&mut Queue)>(&mut self, queues: &mut [Queue], f: F) {
+        let status = self.driver_status;
+        if status == (ACKNOWLEDGE | DRIVER | FEATURES_OK) {
+            self.with_queue_mut(queues, f);
+        } else {
+            warn!(
+                "pci: queue config write not allowed in device status {:#x}",
+                status
+            );
+        }
+    }
+
     fn write_common_config_word(&mut self, offset: u64, value: u16, queues: &mut [Queue]) {
         match offset {
             MSIX_CONFIG => {
@@ -178,7 +198,7 @@ impl VirtioPciCommonConfig {
                 }
             }
             QUEUE_SELECT => self.queue_select = value,
-            QUEUE_SIZE => self.with_queue_mut(queues, |q| q.size = value),
+            QUEUE_SIZE => self.update_queue_field(queues, |q| q.size = value),
             QUEUE_MSIX_VECTOR => {
                 let mut msix_queues = self.msix_queues.lock().expect("Poisoned lock");
                 let nr_vectors = msix_queues.len() + 1;
@@ -195,7 +215,7 @@ impl VirtioPciCommonConfig {
                     }
                 }
             }
-            QUEUE_ENABLE => self.with_queue_mut(queues, |q| {
+            QUEUE_ENABLE => self.update_queue_field(queues, |q| {
                 if value != 0 {
                     q.ready = value == 1;
                 }
@@ -290,22 +310,22 @@ impl VirtioPciCommonConfig {
             DEVICE_FEATURE_SELECT => self.device_feature_select = value,
             DRIVER_FEATURE_SELECT => self.driver_feature_select = value,
             DRIVER_FEATURE => locked_device.ack_features_by_page(self.driver_feature_select, value),
-            QUEUE_DESC_LO => self.with_queue_mut(locked_device.queues_mut(), |q| {
+            QUEUE_DESC_LO => self.update_queue_field(locked_device.queues_mut(), |q| {
                 lo(&mut q.desc_table_address, value)
             }),
-            QUEUE_DESC_HI => self.with_queue_mut(locked_device.queues_mut(), |q| {
+            QUEUE_DESC_HI => self.update_queue_field(locked_device.queues_mut(), |q| {
                 hi(&mut q.desc_table_address, value)
             }),
-            QUEUE_AVAIL_LO => self.with_queue_mut(locked_device.queues_mut(), |q| {
+            QUEUE_AVAIL_LO => self.update_queue_field(locked_device.queues_mut(), |q| {
                 lo(&mut q.avail_ring_address, value)
             }),
-            QUEUE_AVAIL_HI => self.with_queue_mut(locked_device.queues_mut(), |q| {
+            QUEUE_AVAIL_HI => self.update_queue_field(locked_device.queues_mut(), |q| {
                 hi(&mut q.avail_ring_address, value)
             }),
-            QUEUE_USED_LO => self.with_queue_mut(locked_device.queues_mut(), |q| {
+            QUEUE_USED_LO => self.update_queue_field(locked_device.queues_mut(), |q| {
                 lo(&mut q.used_ring_address, value)
             }),
-            QUEUE_USED_HI => self.with_queue_mut(locked_device.queues_mut(), |q| {
+            QUEUE_USED_HI => self.update_queue_field(locked_device.queues_mut(), |q| {
                 hi(&mut q.used_ring_address, value)
             }),
             _ => {
@@ -378,7 +398,7 @@ mod tests {
         assert_eq!(read_back[0], 0x55);
 
         // Device features is read-only and passed through from the device.
-        regs.write(DEVICE_FEATURE, &[0, 0, 0, 0], dev.clone());
+        regs.write(DEVICE_FEATURE, &[1, 2, 3, 4], dev.clone());
         let mut read_back = vec![0, 0, 0, 0];
         regs.read(DEVICE_FEATURE, &mut read_back, dev.clone());
         assert_eq!(LittleEndian::read_u32(&read_back), 0u32);
@@ -525,9 +545,22 @@ mod tests {
             max_size[queue_id as usize] = len;
         }
 
+        // Before FEATURES_OK is set, the driver should not be able to change the queue size.
+        config.driver_status = ACKNOWLEDGE | DRIVER;
+        for queue_id in 0u16..2 {
+            config.write(QUEUE_SELECT, queue_id.as_slice(), device.clone());
+            config.write(QUEUE_SIZE, 0u16.as_slice(), device.clone());
+            config.read(QUEUE_SIZE, len.as_mut_slice(), device.clone());
+            assert_eq!(len, max_size[queue_id as usize]);
+        }
+
+        // Verify writing a queue size to a non-existent queue is ignored.
         config.write(QUEUE_SELECT, 2u16.as_slice(), device.clone());
         config.read(QUEUE_SIZE, len.as_mut_slice(), device.clone());
         assert_eq!(len, 0);
+
+        // Set FEATURES_OK so that the driver can change the queue size.
+        config.driver_status |= FEATURES_OK;
 
         // Setup size smaller than what is the maximum offered
         for queue_id in 0u16..2 {
@@ -540,6 +573,13 @@ mod tests {
             config.read(QUEUE_SIZE, len.as_mut_slice(), device.clone());
             assert_eq!(len, max_size[queue_id as usize] - 1);
         }
+
+        // Verify writes are rejected after DRIVER_OK is set.
+        config.driver_status |= DRIVER_OK;
+        config.write(QUEUE_SELECT, 0u16.as_slice(), device.clone());
+        config.write(QUEUE_SIZE, 0u16.as_slice(), device.clone());
+        config.read(QUEUE_SIZE, len.as_mut_slice(), device.clone());
+        assert_eq!(len, max_size[0] - 1);
     }
 
     #[test]
@@ -574,19 +614,40 @@ mod tests {
         let device = default_device();
         let mut enabled = 0u16;
 
+        // Initially queue should be disabled
         for queue_id in 0u16..2 {
             config.write(QUEUE_SELECT, queue_id.as_slice(), device.clone());
-
-            // Initially queue should be disabled
             config.read(QUEUE_ENABLE, enabled.as_mut_slice(), device.clone());
             assert_eq!(enabled, 0);
+        }
 
-            // Enable queue
+        // Enabling a queue before FEATURES_OK should be ignored.
+        config.driver_status = ACKNOWLEDGE | DRIVER;
+        for queue_id in 0u16..2 {
+            config.write(QUEUE_SELECT, queue_id.as_slice(), device.clone());
+            config.write(QUEUE_ENABLE, 1u16.as_slice(), device.clone());
+            config.read(QUEUE_ENABLE, enabled.as_mut_slice(), device.clone());
+            assert_eq!(enabled, 0);
+        }
+
+        // Set FEATURES_OK so that the driver can enable the queue.
+        config.driver_status |= FEATURES_OK;
+        for queue_id in 0u16..2 {
+            config.write(QUEUE_SELECT, queue_id.as_slice(), device.clone());
             config.write(QUEUE_ENABLE, 1u16.as_slice(), device.clone());
             config.read(QUEUE_ENABLE, enabled.as_mut_slice(), device.clone());
             assert_eq!(enabled, 1);
 
-            // According to the specification "The driver MUST NOT write a 0 to queue_enable."
+            // The driver MUST NOT write a 0 to queue_enable.
+            config.write(QUEUE_ENABLE, 0u16.as_slice(), device.clone());
+            config.read(QUEUE_ENABLE, enabled.as_mut_slice(), device.clone());
+            assert_eq!(enabled, 1);
+        }
+
+        // Verify writes are rejected after DRIVER_OK
+        config.driver_status |= DRIVER_OK;
+        for queue_id in 0u16..2 {
+            config.write(QUEUE_SELECT, queue_id.as_slice(), device.clone());
             config.write(QUEUE_ENABLE, 0u16.as_slice(), device.clone());
             config.read(QUEUE_ENABLE, enabled.as_mut_slice(), device.clone());
             assert_eq!(enabled, 1);
@@ -646,13 +707,39 @@ mod tests {
     fn test_queue_addresses() {
         let mut config = default_pci_common_config();
         let device = default_device();
-        let mut reg64bit = 0;
 
+        // Before FEATURES_OK is set, the driver should not be able to change the queue addresses.
+        config.driver_status = ACKNOWLEDGE | DRIVER;
         for queue_id in 0u16..2 {
             config.write(QUEUE_SELECT, queue_id.as_slice(), device.clone());
 
             for offset in [QUEUE_DESC_LO, QUEUE_AVAIL_LO, QUEUE_USED_LO] {
                 write_64bit_field(&mut config, device.clone(), offset, 0x0000_1312_0000_1110);
+                assert_eq!(read_64bit_field(&mut config, device.clone(), offset), 0);
+            }
+        }
+
+        // Set status so queue fields can be modified
+        config.driver_status |= FEATURES_OK;
+        for queue_id in 0u16..2 {
+            config.write(QUEUE_SELECT, queue_id.as_slice(), device.clone());
+
+            for offset in [QUEUE_DESC_LO, QUEUE_AVAIL_LO, QUEUE_USED_LO] {
+                write_64bit_field(&mut config, device.clone(), offset, 0x0000_1312_0000_1110);
+                assert_eq!(
+                    read_64bit_field(&mut config, device.clone(), offset),
+                    0x0000_1312_0000_1110
+                );
+            }
+        }
+
+        // Verify writes are rejected after DRIVER_OK
+        config.driver_status |= DRIVER_OK;
+        for queue_id in 0u16..2 {
+            config.write(QUEUE_SELECT, queue_id.as_slice(), device.clone());
+
+            for offset in [QUEUE_DESC_LO, QUEUE_AVAIL_LO, QUEUE_USED_LO] {
+                write_64bit_field(&mut config, device.clone(), offset, 0xDEAD_BEEF);
                 assert_eq!(
                     read_64bit_field(&mut config, device.clone(), offset),
                     0x0000_1312_0000_1110
