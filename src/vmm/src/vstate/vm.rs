@@ -42,7 +42,7 @@ use crate::vstate::memory::{
     GuestRegionMmap, GuestRegionMmapExt, MaybeBounce, MemoryError, bitmap_size,
 };
 use crate::vstate::resources::ResourceAllocator;
-use crate::vstate::vcpu::{StartThreadedError, VcpuError, VcpuHandle};
+use crate::vstate::vcpu::{SharedApfStream, StartThreadedError, VcpuError, VcpuHandle};
 use crate::{DirtyBitmap, Vcpu, mem_size_mib};
 
 /// Error type for [`KvmVm::start_vcpus`].
@@ -56,6 +56,7 @@ pub enum StartVcpusError {
 
 pub(crate) const GUEST_MEMFD_FLAG_MMAP: u64 = 1;
 pub(crate) const GUEST_MEMFD_FLAG_INIT_SHARED: u64 = 2;
+#[allow(dead_code)]
 pub(crate) const GUEST_MEMFD_FLAG_NO_DIRECT_MAP: u64 = 4;
 pub(crate) const GUEST_MEMFD_FLAG_WRITE: u64 = 8;
 
@@ -250,6 +251,9 @@ impl KvmVm {
         &mut self,
         vcpu_count: u8,
         secret_free: bool,
+        writer: &File,
+        apf_stream: Option<SharedApfStream>,
+        apf_supported: bool,
     ) -> Result<Vec<Vcpu>, VmError> {
         self.arch_pre_create_vcpus(vcpu_count)?;
 
@@ -259,14 +263,23 @@ impl KvmVm {
                 .vcpus_exit_evt()
                 .try_clone()
                 .map_err(VmError::EventFd)?;
+            let vcpu_writer = writer.try_clone().map_err(VmError::EventFd)?;
             let userfault_resolved = if secret_free {
                 Some(Arc::new((Mutex::new(false), Condvar::new())))
             } else {
                 None
             };
 
-            let vcpu = Vcpu::new(cpu_idx, self, exit_evt, userfault_resolved)
-                .map_err(VmError::CreateVcpu)?;
+            let vcpu = Vcpu::new(
+                cpu_idx,
+                self,
+                exit_evt,
+                userfault_resolved,
+                vcpu_writer,
+                apf_stream.clone(),
+                apf_supported,
+            )
+            .map_err(VmError::CreateVcpu)?;
             vcpus.push(vcpu);
         }
 
@@ -572,6 +585,7 @@ impl KvmVm {
                 false => slot.protect(true).map_err(VmError::MemoryError),
             })?;
 
+        // Update guest memory
         self.common.guest_memory = new_guest_memory;
 
         Ok(())
@@ -915,6 +929,7 @@ fn mincore_bitmap(addr: *mut u8, len: usize) -> Result<Vec<u64>, VmError> {
 
 #[cfg(test)]
 pub(crate) mod tests {
+    use std::os::fd::FromRawFd;
     use std::sync::atomic::Ordering;
 
     use vm_memory::GuestAddress;
@@ -1020,7 +1035,13 @@ pub(crate) mod tests {
         let vcpu_count = 2;
         let mut vm = setup_vm_with_memory(mib_to_bytes(128));
 
-        let vcpu_vec = vm.create_vcpus(vcpu_count, false).unwrap();
+        let vcpu_vec = {
+            let (_, writer_fd) = crate::builder::pipe2(libc::O_NONBLOCK).unwrap();
+            // SAFETY: writer_fd is valid
+            let writer = unsafe { std::fs::File::from_raw_fd(writer_fd) };
+            vm.create_vcpus(vcpu_count, false, &writer, None, false)
+                .unwrap()
+        };
 
         assert_eq!(vcpu_vec.len(), vcpu_count as usize);
     }
