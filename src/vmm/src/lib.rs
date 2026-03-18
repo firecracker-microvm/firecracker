@@ -147,6 +147,7 @@ use crate::devices::virtio::mem::{VIRTIO_MEM_DEV_ID, VirtioMemError, VirtioMemSt
 use crate::devices::virtio::net::Net;
 use crate::devices::virtio::pmem::device::Pmem;
 use crate::devices::virtio::rng::Entropy;
+use crate::devices::virtio::vhost_user_generic::device::VhostUserGeneric;
 use crate::devices::virtio::vsock::{Vsock, VsockUnixBackend};
 use crate::logger::{METRICS, MetricsError, error, info, warn};
 use crate::mmds::data_store::Mmds;
@@ -161,6 +162,7 @@ use crate::vmm_config::machine_config::MachineConfig;
 use crate::vmm_config::memory_hotplug::MemoryHotplugConfig;
 use crate::vmm_config::mmds::MmdsConfig;
 use crate::vmm_config::net::NetworkInterfaceConfig;
+use crate::vmm_config::vhost_user_device::VhostUserDeviceConfig;
 use crate::vmm_config::vsock::VsockDeviceConfig;
 use crate::vstate::memory::{GuestMemory, GuestMemoryMmap, GuestMemoryRegion};
 use crate::vstate::vcpu::VcpuState;
@@ -369,6 +371,7 @@ impl Vmm {
         let mut net = Vec::new();
         let mut net_with_mmds = Vec::new();
         let mut pmem = Vec::new();
+        let mut vhost_user_devices = Vec::new();
         let mut balloon = None;
         let mut vsock = None;
         let mut entropy = None;
@@ -420,9 +423,20 @@ impl Vmm {
                         memory_hotplug = Some(MemoryHotplugConfig::from(m));
                     }
                 }
-                // Generic vhost-user devices are not included in the instance info
-                // as their configuration is not tracked in VmResources.
-                VirtioDeviceType::VhostUserGeneric => {}
+                VirtioDeviceType::VhostUserGeneric => {
+                    if let Some(d) = device
+                        .as_any()
+                        .downcast_ref::<VhostUserGeneric>()
+                    {
+                        vhost_user_devices.push(VhostUserDeviceConfig {
+                            id: d.id.clone(),
+                            device_type: d.device_type_id as u8,
+                            socket: d.vu_handle.socket_path.clone(),
+                            num_queues: d.queues.len() as u64,
+                            queue_size: Some(d.queues[0].size),
+                        });
+                    }
+                }
             });
 
         let mmds_config = mmds_ref.map(|mmds| {
@@ -451,6 +465,7 @@ impl Vmm {
             vsock,
             entropy,
             pmem_devices: pmem,
+            vhost_user_devices,
             // serial_config is marked serde(skip) so that it doesnt end up in snapshots
             serial_config: None,
             memory_hotplug,

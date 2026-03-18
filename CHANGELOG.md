@@ -10,6 +10,11 @@ and this project adheres to
 
 ### Added
 
+- [#5687](https://github.com/firecracker-microvm/firecracker/issues/5687): Add
+  generic vhost-user frontend device support. This allows attaching any
+  virtio device type (e.g. virtio-fs, virtio-scsi) via the vhost-user protocol
+  without requiring a dedicated Firecracker frontend for each device type.
+  Configured via the `/vhost-user-devices/{id}` API endpoint.
 - [#5323](https://github.com/firecracker-microvm/firecracker/pull/5323): Add
   support for Vsock Unix domain socket path overriding on snapshot restore. More
   information can be found in the

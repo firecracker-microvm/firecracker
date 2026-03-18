@@ -30,6 +30,9 @@ use crate::vmm_config::mmds::{MmdsConfig, MmdsConfigError};
 use crate::vmm_config::net::*;
 use crate::vmm_config::pmem::{PmemBuilder, PmemConfig, PmemConfigError};
 use crate::vmm_config::serial::SerialConfig;
+use crate::vmm_config::vhost_user_device::{
+    VhostUserDeviceBuilder, VhostUserDeviceConfig, VhostUserDeviceConfigError,
+};
 use crate::vmm_config::vsock::*;
 use crate::vstate::memory;
 use crate::vstate::memory::{GuestRegionMmap, MemoryError};
@@ -67,6 +70,8 @@ pub enum ResourcesError {
     PmemDevice(#[from] PmemConfigError),
     /// Memory hotplug config error: {0}
     MemoryHotplugConfig(#[from] MemoryHotplugConfigError),
+    /// Generic vhost-user device error: {0}
+    VhostUserDevice(#[from] VhostUserDeviceConfigError),
 }
 
 #[derive(Serialize, Deserialize, PartialEq, Eq, Debug)]
@@ -96,6 +101,8 @@ pub struct VmmConfig {
     pub entropy: Option<EntropyDeviceConfig>,
     #[serde(default, rename = "pmem")]
     pub pmem_devices: Vec<PmemConfig>,
+    #[serde(default, rename = "vhost-user-devices")]
+    pub vhost_user_devices: Vec<VhostUserDeviceConfig>,
     #[serde(skip)]
     pub serial_config: Option<SerialConfig>,
     pub memory_hotplug: Option<MemoryHotplugConfig>,
@@ -121,6 +128,8 @@ pub struct VmResources {
     pub entropy: EntropyDeviceBuilder,
     /// The pmem devices.
     pub pmem: PmemBuilder,
+    /// The generic vhost-user devices.
+    pub vhost_user: VhostUserDeviceBuilder,
     /// The memory hotplug configuration.
     pub memory_hotplug: Option<MemoryHotplugConfig>,
     /// The optional Mmds data store.
@@ -214,6 +223,10 @@ impl VmResources {
 
         for pmem_config in vmm_config.pmem_devices.into_iter() {
             resources.build_pmem_device(pmem_config)?;
+        }
+
+        for vu_config in vmm_config.vhost_user_devices.into_iter() {
+            resources.build_vhost_user_device(vu_config)?;
         }
 
         if let Some(serial_cfg) = vmm_config.serial_config {
@@ -379,6 +392,14 @@ impl VmResources {
         self.pmem.build(body, has_block_root)
     }
 
+    /// Builds a generic vhost-user device to be attached when the VM starts.
+    pub fn build_vhost_user_device(
+        &mut self,
+        body: VhostUserDeviceConfig,
+    ) -> Result<(), VhostUserDeviceConfigError> {
+        self.vhost_user.build(body)
+    }
+
     /// Sets the memory hotplug configuration.
     pub fn set_memory_hotplug_config(
         &mut self,
@@ -474,14 +495,15 @@ impl VmResources {
             .block
             .devices
             .iter()
-            .any(|b| b.lock().expect("Poisoned lock").is_vhost_user());
+            .any(|b| b.lock().expect("Poisoned lock").is_vhost_user())
+            || !self.vhost_user.devices.is_empty();
 
         // Page faults are more expensive for shared memory mapping, including  memfd.
         // For this reason, we only back guest memory with a memfd
-        // if a vhost-user-blk device is configured in the VM, otherwise we fall back to
+        // if a vhost-user device is configured in the VM, otherwise we fall back to
         // an anonymous private memory.
         //
-        // The vhost-user-blk branch is not currently covered by integration tests in Rust,
+        // The vhost-user branch is not currently covered by integration tests in Rust,
         // because that would require running a backend process. If in the future we converge to
         // a single way of backing guest memory for vhost-user and non-vhost-user cases,
         // that would not be worth the effort.
@@ -535,6 +557,7 @@ impl From<&VmResources> for VmmConfig {
             vsock: resources.vsock.config(),
             entropy: resources.entropy.config(),
             pmem_devices: resources.pmem.configs(),
+            vhost_user_devices: resources.vhost_user.configs(),
             // serial_config is marked serde(skip) so that it doesnt end up in snapshots.
             serial_config: None,
             memory_hotplug: resources.memory_hotplug.clone(),
