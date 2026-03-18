@@ -10,7 +10,7 @@
 mod uffd_utils;
 
 use std::fs::File;
-use std::os::unix::net::UnixListener;
+use std::os::unix::net::{UnixListener, UnixStream};
 
 use uffd_utils::{Runtime, UffdHandler};
 
@@ -18,18 +18,37 @@ fn main() {
     let mut args = std::env::args();
     let uffd_sock_path = args.nth(1).expect("No socket path given");
     let mem_file_path = args.next().expect("No memory file given");
+    let apf_sock_path = args.next();
 
     let file = File::open(mem_file_path).expect("Cannot open memfile");
 
-    // Get Uffd from UDS. We'll use the uffd to handle PFs for Firecracker.
     let listener = UnixListener::bind(uffd_sock_path).expect("Cannot bind to socket path");
+
+    // Firecracker connects to APF first (before snapshot load), then UFFD (during snapshot load).
+    // Accept in the same order to avoid deadlock.
+    let apf_stream = if let Some(apf_path) = apf_sock_path {
+        let apf_listener = UnixListener::bind(apf_path).expect("Cannot bind to APF socket path");
+        let (apf_stream, _) = apf_listener
+            .accept()
+            .expect("Cannot listen on APF UDS socket");
+        apf_stream
+    } else {
+        let (apf_stream, _) = UnixStream::pair().expect("Cannot create APF socket pair");
+        apf_stream
+    };
+
     let (stream, _) = listener.accept().expect("Cannot listen on UDS socket");
     stream
         .set_nonblocking(true)
         .expect("Cannot set non-blocking");
 
-    let mut runtime = Runtime::new(stream, file);
+    let mut runtime = Runtime::new(stream, file, apf_stream);
     runtime.install_panic_hook();
+    match runtime.try_receive_exitless_apf() {
+        Ok(true) => println!("Exitless APF enabled"),
+        Ok(false) => println!("Exitless APF not available"),
+        Err(e) => println!("Exitless APF setup error: {e}"),
+    }
     runtime.run(
         |uffd_handler: &mut UffdHandler| {
             // !DISCLAIMER!

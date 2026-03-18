@@ -605,6 +605,7 @@ checksum = "ef25905e51abafe4dcea6c15fec58c57b601cdbd0ee53d22ea1d3016c587d39b"
 name = "firecracker"
 version = "1.18.0-dev"
 dependencies = [
+ "bitcode",
  "cargo_toml",
  "displaydoc",
  "event-manager",
