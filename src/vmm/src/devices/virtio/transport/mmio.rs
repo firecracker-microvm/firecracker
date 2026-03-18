@@ -241,7 +241,7 @@ impl BusDevice for MmioTransport {
                 let v = match offset {
                     0x0 => MMIO_MAGIC_VALUE,
                     0x04 => MMIO_VERSION,
-                    0x08 => self.locked_device().device_type() as u32,
+                    0x08 => self.locked_device().mmio_device_type_id(),
                     0x0c => VENDOR_ID, // vendor id
                     0x10 => {
                         let mut features = self

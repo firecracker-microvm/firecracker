@@ -431,6 +431,12 @@ impl<'a> Persist<'a> for PciDevices {
                         transport_state,
                     })
                 }
+                VirtioDeviceType::VhostUserGeneric => {
+                    warn!(
+                        "Skipping generic vhost-user device. VhostUserGeneric does not support \
+                         snapshotting yet"
+                    );
+                }
             }
         }
 

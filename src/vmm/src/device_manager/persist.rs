@@ -299,6 +299,12 @@ impl<'a> Persist<'a> for MMIODeviceManager {
                         device_info,
                     });
                 }
+                VirtioDeviceType::VhostUserGeneric => {
+                    warn!(
+                        "Skipping generic vhost-user device. VhostUserGeneric does not support \
+                         snapshotting yet"
+                    );
+                }
             };
 
             Ok(())
