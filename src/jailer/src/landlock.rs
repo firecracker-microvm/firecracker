@@ -63,9 +63,9 @@ pub fn prepare_ruleset(jail_dir: &Path) -> Result<RulesetCreated, JailerError> {
 ///
 /// Returns [`JailerError::Landlock`] if `restrict_self` fails.
 pub fn enforce(ruleset: RulesetCreated) -> Result<(), JailerError> {
-    ruleset
-        .restrict_self()
-        .map_err(|err| JailerError::Landlock(format!("Failed to enforce Landlock ruleset: {err}")))?;
+    ruleset.restrict_self().map_err(|err| {
+        JailerError::Landlock(format!("Failed to enforce Landlock ruleset: {err}"))
+    })?;
     Ok(())
 }
 
