@@ -496,7 +496,9 @@ mod tests {
             fn set_hdr_flags(&self, _flags: VhostUserHeaderFlag) {}
 
             fn get_features(&self) -> Result<u64, vhost::Error> {
-                Ok(0)
+                // Must include PROTOCOL_FEATURES so that protocol feature
+                // negotiation (including CONFIG) takes place.
+                Ok(VhostUserVirtioFeatures::PROTOCOL_FEATURES.bits())
             }
 
             fn get_protocol_features(
