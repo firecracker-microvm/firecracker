@@ -586,7 +586,11 @@ def load_seccomp_rules(seccomp_path: Path):
 
 KNOWN_SUPERFLUOUS_RULES = {
     # This syscall is inserted at runtime by the linux kernel, and thus not actually present in our binary.
-    "restart_syscall": [{}]
+    "restart_syscall": [{}],
+    # KVM_ASYNC_PF ioctl (0x4010aed6) is called via vmm_sys_util::ioctl_with_ref which uses
+    # inline assembly for the syscall instruction, so static analysis cannot backpropagate the
+    # ioctl number through the function boundary.
+    "ioctl": [{1: 1074835158}],
 }
 
 
