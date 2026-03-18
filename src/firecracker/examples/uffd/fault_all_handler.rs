@@ -10,7 +10,7 @@
 mod uffd_utils;
 
 use std::fs::File;
-use std::os::unix::net::UnixListener;
+use std::os::unix::net::{UnixListener, UnixStream};
 
 use uffd_utils::{Runtime, UffdHandler};
 use utils::time::{ClockType, get_time_us};
@@ -29,7 +29,8 @@ fn main() {
         .set_nonblocking(true)
         .expect("Cannot set non-blocking");
 
-    let mut runtime = Runtime::new(stream, file);
+    let (apf_stream, _) = UnixStream::pair().expect("Cannot create APF socket pair");
+    let mut runtime = Runtime::new(stream, file, apf_stream);
     runtime.install_panic_hook();
     runtime.run(
         |uffd_handler: &mut UffdHandler| {

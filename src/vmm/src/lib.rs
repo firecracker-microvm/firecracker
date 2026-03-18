@@ -106,6 +106,8 @@ pub mod signal_handler;
 pub mod snapshot;
 /// Utility functions for integration and benchmark testing
 pub mod test_utils;
+/// Length-prefixed bitcode message broker for UFFD communication.
+pub mod uffd_broker;
 /// Utility functions and struct
 pub mod utils;
 /// Wrappers over structures used to configure the VMM.
@@ -117,10 +119,9 @@ pub mod vstate;
 pub mod initrd;
 
 use std::collections::HashMap;
-use std::io::{self, Read, Write};
+use std::io;
 use std::os::fd::RawFd;
 use std::os::unix::io::AsRawFd;
-use std::os::unix::net::UnixStream;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -148,7 +149,7 @@ use crate::devices::virtio::rng::Entropy;
 use crate::devices::virtio::vsock::{Vsock, VsockUnixBackend};
 use crate::logger::{METRICS, MetricsError, log_dev_preview_warning};
 use crate::mmds::data_store::Mmds;
-use crate::persist::{FaultReply, FaultRequest, MicrovmState, MicrovmStateError, VmInfo};
+use crate::persist::{FaultRequest, MicrovmState, MicrovmStateError, VmInfo};
 use crate::rate_limiter::BucketUpdate;
 use crate::resources::VmmConfig;
 use crate::rpc_interface::VmmActionError;
@@ -313,10 +314,12 @@ pub struct Vmm {
     /// VM object.
     pub vm: Vm,
     // Used for userfault communication with the UFFD handler when secret freedom is enabled
-    uffd_socket: Option<UnixStream>,
+    uffd_socket: Option<UffdMessageBroker>,
     // Device manager
     device_manager: DeviceManager,
 }
+
+pub use uffd_broker::UffdMessageBroker;
 
 impl Vmm {
     /// Gets Vmm version.
@@ -746,88 +749,34 @@ impl Vmm {
             vcpu,
             offset,
             flags: userfault_data.flags,
-            token: None,
+            gpa: None,
         };
-        let fault_request_json =
-            serde_json::to_string(&fault_request).expect("Failed to serialize fault request");
 
         self.uffd_socket
-            .as_ref()
+            .as_mut()
             .expect("Uffd socket is not set")
-            .write_all(fault_request_json.as_bytes())
-            .expect("Failed to write to uffd socket");
+            .send_fault_request(fault_request)
+            .unwrap_or_else(|e| error!("Failed to send fault request to UFFD handler: {e}"));
     }
 
     fn active_event_in_uffd_socket(&self, source: RawFd, event_set: EventSet) -> bool {
         if let Some(uffd_socket) = &self.uffd_socket {
-            uffd_socket.as_raw_fd() == source && event_set == EventSet::IN
+            uffd_socket.stream().as_raw_fd() == source && event_set == EventSet::IN
         } else {
             false
         }
     }
 
     fn process_uffd_socket(&mut self) {
-        const BUFFER_SIZE: usize = 4096;
-
-        let stream = self.uffd_socket.as_mut().expect("Uffd socket is not set");
-
-        let mut buffer = [0u8; BUFFER_SIZE];
-        let mut current_pos = 0;
-
-        loop {
-            if current_pos < BUFFER_SIZE {
-                match stream.read(&mut buffer[current_pos..]) {
-                    Ok(0) => break,
-                    Ok(n) => current_pos += n,
-                    Err(e) if e.kind() == io::ErrorKind::WouldBlock => {
-                        if current_pos == 0 {
-                            break;
-                        }
-                    }
-                    Err(e) if e.kind() == io::ErrorKind::Interrupted => continue,
-                    Err(e) => panic!("Read error: {}", e),
-                }
-            }
-
-            let mut parser = serde_json::Deserializer::from_slice(&buffer[..current_pos])
-                .into_iter::<FaultReply>();
-            let mut total_consumed = 0;
-            let mut needs_more = false;
-
-            while let Some(result) = parser.next() {
-                match result {
-                    Ok(fault_reply) => {
-                        let vcpu = fault_reply.vcpu.expect("vCPU must be set");
-                        self.vm
-                            .as_kvm()
-                            .expect("Userfault handling is only supported for KVM VMs")
-                            .vcpus_handles()[vcpu as usize]
-                            .send_userfault_resolved();
-
-                        total_consumed = parser.byte_offset();
-                    }
-                    Err(e) if e.is_eof() => {
-                        needs_more = true;
-                        break;
-                    }
-                    Err(e) => {
-                        println!(
-                            "Buffer content: {:?}",
-                            std::str::from_utf8(&buffer[..current_pos])
-                        );
-                        panic!("Invalid JSON: {}", e);
-                    }
-                }
-            }
-
-            if total_consumed > 0 {
-                buffer.copy_within(total_consumed..current_pos, 0);
-                current_pos -= total_consumed;
-            }
-
-            if needs_more {
-                continue;
-            }
+        let kvm_vm = self
+            .vm
+            .as_kvm()
+            .expect("Userfault handling is only supported for KVM VMs")
+            .clone();
+        let socket = self.uffd_socket.as_mut().unwrap();
+        for fault_reply in socket.by_ref() {
+            let vcpu = fault_reply.vcpu.expect("vCPU must be set");
+            kvm_vm.vcpus_handles()[vcpu as usize].send_userfault_resolved();
         }
     }
 
@@ -987,7 +936,7 @@ impl MutEventSubscriber for Vmm {
         }
 
         if let Some(uffd_socket) = self.uffd_socket.as_ref()
-            && let Err(err) = ops.add(Events::new(uffd_socket, EventSet::IN))
+            && let Err(err) = ops.add(Events::new(uffd_socket.stream(), EventSet::IN))
         {
             error!("Failed to register UFFD socket: {}", err);
         }

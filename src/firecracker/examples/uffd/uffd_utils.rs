@@ -13,22 +13,191 @@
 
 mod userfault_bitmap;
 
+use std::collections::HashMap;
 use std::ffi::c_void;
 use std::fs::File;
 use std::io::{Read, Write};
 use std::num::NonZero;
-use std::os::unix::io::{AsRawFd, FromRawFd, IntoRawFd};
+use std::os::unix::io::{AsRawFd, FromRawFd, IntoRawFd, RawFd};
 use std::os::unix::net::UnixStream;
 use std::ptr;
-use std::sync::atomic::AtomicU64;
+use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
 use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
-use serde_json::{Deserializer, StreamDeserializer};
 use userfaultfd::{Error, Event, Uffd};
 use vmm_sys_util::sock_ctrl_msg::ScmSocket;
 
 use crate::uffd_utils::userfault_bitmap::UserfaultBitmap;
+
+// Exitless APF support — must match kernel UAPI definitions
+pub const KVM_APF_RING_SIZE: usize = 32;
+
+#[repr(C)]
+#[derive(Debug, Default, Clone, Copy)]
+pub struct KvmApfRingEntry {
+    pub gpa: u64,
+    pub flags: u64,
+}
+
+#[repr(C)]
+pub struct KvmApfRing {
+    pub head: AtomicU32,
+    pub tail: AtomicU32,
+    pub reserved: u32,
+    pub padding: u32,
+    pub entries: [KvmApfRingEntry; KVM_APF_RING_SIZE],
+}
+
+#[repr(C)]
+pub struct KvmApfSharedPage {
+    pub notify: KvmApfRing,
+    pub complete: KvmApfRing,
+}
+
+impl KvmApfRing {
+    pub fn pop(&self) -> Option<KvmApfRingEntry> {
+        let head = self.head.load(Ordering::Acquire);
+        let tail = self.tail.load(Ordering::Relaxed);
+        if head == tail {
+            return None;
+        }
+        let entry = self.entries[tail as usize];
+        self.tail
+            .store((tail + 1) % KVM_APF_RING_SIZE as u32, Ordering::Release);
+        Some(entry)
+    }
+}
+
+pub struct ExitlessApfVcpu {
+    pub eventfd: RawFd,
+    pub complete_eventfd: RawFd,
+    pub shared_page: *mut KvmApfSharedPage,
+    buff: [u8; 8],
+}
+
+impl ExitlessApfVcpu {
+    pub fn from_fds(
+        eventfd: RawFd,
+        complete_eventfd: RawFd,
+        shared_page_memfd: RawFd,
+    ) -> std::io::Result<Self> {
+        let page_size = unsafe { libc::sysconf(libc::_SC_PAGESIZE) } as usize;
+        let ptr = unsafe {
+            libc::mmap(
+                ptr::null_mut(),
+                page_size,
+                libc::PROT_READ | libc::PROT_WRITE,
+                libc::MAP_SHARED,
+                shared_page_memfd,
+                0,
+            )
+        };
+        if ptr == libc::MAP_FAILED {
+            return Err(std::io::Error::last_os_error());
+        }
+        unsafe { libc::close(shared_page_memfd) };
+        Ok(Self {
+            eventfd,
+            complete_eventfd,
+            shared_page: ptr as *mut KvmApfSharedPage,
+            buff: [0; 8],
+        })
+    }
+
+    pub fn notify_ring(&self) -> &KvmApfRing {
+        unsafe { &(*self.shared_page).notify }
+    }
+    fn complete_ring(&self) -> &KvmApfRing {
+        unsafe { &(*self.shared_page).complete }
+    }
+
+    pub fn drain_eventfd(&mut self) {
+        unsafe { libc::read(self.eventfd, self.buff.as_mut_ptr() as *mut c_void, 8) };
+    }
+
+    pub fn signal_ready(&self, gpa: u64) {
+        let ring = self.complete_ring();
+        let entry = KvmApfRingEntry { gpa, flags: 0 };
+        for attempt in 0u32.. {
+            let head = ring.head.load(Ordering::Relaxed);
+            let tail = ring.tail.load(Ordering::Acquire);
+            let next = (head + 1) % KVM_APF_RING_SIZE as u32;
+            if next != tail {
+                unsafe {
+                    let slot = &raw const ring.entries[head as usize] as *mut KvmApfRingEntry;
+                    ptr::write(slot, entry);
+                }
+                ring.head.store(next, Ordering::Release);
+                let val: u64 = 1;
+                unsafe {
+                    libc::write(
+                        self.complete_eventfd,
+                        &val as *const u64 as *const c_void,
+                        8,
+                    )
+                };
+                return;
+            }
+            if attempt == 0 {
+                let val: u64 = 1;
+                unsafe {
+                    libc::write(
+                        self.complete_eventfd,
+                        &val as *const u64 as *const c_void,
+                        8,
+                    )
+                };
+            }
+            if attempt >= 10_000 {
+                eprintln!("WARN: APF completion ring full after {attempt} spins for gpa {gpa:#x}");
+            }
+            std::hint::spin_loop();
+        }
+    }
+}
+
+impl Drop for ExitlessApfVcpu {
+    fn drop(&mut self) {
+        let page_size = unsafe { libc::sysconf(libc::_SC_PAGESIZE) } as usize;
+        unsafe {
+            libc::munmap(self.shared_page as *mut c_void, page_size);
+            libc::close(self.eventfd);
+            libc::close(self.complete_eventfd);
+        }
+    }
+}
+
+struct SendableSharedPage(*mut KvmApfSharedPage);
+unsafe impl Send for SendableSharedPage {}
+
+fn signal_apf_ready(shared_page: SendableSharedPage, complete_eventfd: RawFd, gpa: u64) {
+    let ring = unsafe { &(*shared_page.0).complete };
+    let entry = KvmApfRingEntry { gpa, flags: 0 };
+    for attempt in 0u32.. {
+        let head = ring.head.load(Ordering::Relaxed);
+        let tail = ring.tail.load(Ordering::Acquire);
+        let next = (head + 1) % KVM_APF_RING_SIZE as u32;
+        if next != tail {
+            unsafe {
+                let slot = &raw const ring.entries[head as usize] as *mut KvmApfRingEntry;
+                ptr::write(slot, entry);
+            }
+            ring.head.store(next, Ordering::Release);
+            let val: u64 = 1;
+            unsafe { libc::write(complete_eventfd, &val as *const u64 as *const c_void, 8) };
+            return;
+        }
+        if attempt == 0 {
+            let val: u64 = 1;
+            unsafe { libc::write(complete_eventfd, &val as *const u64 as *const c_void, 8) };
+        }
+        if attempt >= 10_000 {
+            eprintln!("WARN: APF completion ring full after {attempt} spins for gpa {gpa:#x}");
+        }
+        std::hint::spin_loop();
+    }
+}
 
 // This is the same with the one used in src/vmm.
 /// This describes the mapping between Firecracker base virtual address and offset in the
@@ -46,11 +215,15 @@ pub struct GuestRegionUffdMapping {
     pub size: usize,
     /// Offset in the backend file/buffer where the region contents are.
     pub offset: u64,
+    /// Guest physical address start for this region.
+    pub gpa_start: u64,
     /// The configured page size for this memory region.
     pub page_size: usize,
+    /// Whether this region uses guest_memfd.
+    pub is_guest_memfd: bool,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq, bitcode::Encode, bitcode::Decode)]
 pub struct FaultRequest {
     /// vCPU that encountered the fault
     pub vcpu: u32,
@@ -76,7 +249,7 @@ impl FaultRequest {
 }
 
 /// FaultReply
-#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq, bitcode::Encode, bitcode::Decode)]
 pub struct FaultReply {
     /// vCPU that encountered the fault, from `FaultRequest` (if present, otherwise 0)
     pub vcpu: Option<u32>,
@@ -426,49 +599,42 @@ impl UffdHandler {
     }
 }
 
-struct UffdMsgIterator {
+/// Length-prefixed bitcode message iterator matching the VMM's UffdMessageBroker protocol.
+/// Messages are framed as: 4-byte LE size header + bitcode payload.
+struct UffdMsgIterBitcode {
     stream: UnixStream,
     buffer: Vec<u8>,
     current_pos: usize,
 }
 
-impl Iterator for UffdMsgIterator {
+impl Iterator for UffdMsgIterBitcode {
     type Item = FaultRequest;
 
     fn next(&mut self) -> Option<Self::Item> {
         match self.stream.read(&mut self.buffer[self.current_pos..]) {
             Ok(bytes_read) => self.current_pos += bytes_read,
-            Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
-                // Continue with existing buffer data
-            }
-            Err(e) => panic!("Failed to read from stream: {}", e,),
+            Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {}
+            Err(e) => panic!("Failed to read from stream: {e}"),
         }
 
-        if self.current_pos == 0 {
+        if self.current_pos < 4 {
             return None;
         }
 
-        let str_slice = std::str::from_utf8(&self.buffer[..self.current_pos]).unwrap();
-        let mut stream: StreamDeserializer<_, Self::Item> =
-            Deserializer::from_str(str_slice).into_iter();
-
-        match stream.next()? {
-            Ok(value) => {
-                let consumed = stream.byte_offset();
-                self.buffer.copy_within(consumed..self.current_pos, 0);
-                self.current_pos -= consumed;
-                Some(value)
-            }
-            Err(e) => panic!(
-                "Failed to deserialize JSON message: {}. Error: {}",
-                String::from_utf8_lossy(&self.buffer[..self.current_pos]),
-                e
-            ),
+        let size = u32::from_le_bytes(self.buffer[..4].try_into().unwrap()) as usize;
+        if self.current_pos < 4 + size {
+            return None;
         }
+
+        let decoded: FaultRequest = bitcode::decode(&self.buffer[4..4 + size])
+            .unwrap_or_else(|e| panic!("Failed to decode bitcode message: {e}"));
+        self.buffer.copy_within(4 + size..self.current_pos, 0);
+        self.current_pos -= 4 + size;
+        Some(decoded)
     }
 }
 
-impl UffdMsgIterator {
+impl UffdMsgIterBitcode {
     fn new(stream: UnixStream) -> Self {
         Self {
             stream,
@@ -478,17 +644,18 @@ impl UffdMsgIterator {
     }
 }
 
-#[derive(Debug)]
 pub struct Runtime {
     stream: UnixStream,
     backing_file: File,
     backing_memory: *mut u8,
     backing_memory_size: usize,
     handler: UffdHandler,
+    apf_stream: UnixStream,
+    exitless_vcpus: HashMap<RawFd, ExitlessApfVcpu>,
 }
 
 impl Runtime {
-    pub fn new(stream: UnixStream, backing_file: File) -> Self {
+    pub fn new(stream: UnixStream, backing_file: File, apf_stream: UnixStream) -> Self {
         let file_meta = backing_file
             .metadata()
             .expect("can not get backing file metadata");
@@ -517,6 +684,8 @@ impl Runtime {
             backing_memory: ret.cast(),
             backing_memory_size,
             handler,
+            apf_stream,
+            exitless_vcpus: HashMap::new(),
         }
     }
 
@@ -558,9 +727,10 @@ impl Runtime {
     }
 
     pub fn send_fault_reply(&mut self, fault_reply: FaultReply) {
-        let reply = UffdMsgToFirecracker::FaultRep(fault_reply);
-        let reply_json = serde_json::to_string(&reply).unwrap();
-        self.stream.write_all(reply_json.as_bytes()).unwrap();
+        let encoded = bitcode::encode(&fault_reply);
+        let size = (encoded.len() as u32).to_le_bytes();
+        self.stream.write_all(&size).unwrap();
+        self.stream.write_all(&encoded).unwrap();
     }
 
     pub fn construct_handler(
@@ -600,6 +770,47 @@ impl Runtime {
         )
     }
 
+    pub fn try_receive_exitless_apf(&mut self) -> std::io::Result<bool> {
+        let mut msg_buf = [0u8; 256];
+        let mut fds = [0i32; 64];
+        // Firecracker sends exitless APF fds over the UFFD socket (self.stream),
+        // not the APF socket. Block until we receive the message.
+        self.stream.set_nonblocking(false).expect("set nonblocking");
+        let (bytes_read, fds_read) = {
+            let mut iovecs = [libc::iovec {
+                iov_base: msg_buf.as_mut_ptr().cast(),
+                iov_len: msg_buf.len(),
+            }];
+            match unsafe { self.stream.recv_with_fds(&mut iovecs, &mut fds) } {
+                Ok(r) => r,
+                Err(e) => {
+                    self.stream.set_nonblocking(true).expect("Set nonblocking");
+                    return Err(std::io::Error::from_raw_os_error(e.errno()));
+                }
+            }
+        };
+        self.stream.set_nonblocking(true).expect("set nonblocking");
+        if bytes_read > 0 && fds_read == 0 {
+            let msg = std::str::from_utf8(&msg_buf[..bytes_read]).unwrap_or("");
+            if msg.starts_with("no_exitless_apf") {
+                println!("Exitless APF: not supported by kernel, disabled");
+                return Ok(false);
+            }
+        }
+        if fds_read == 0 || fds_read % 3 != 0 {
+            return Ok(false);
+        }
+        let num_vcpus = fds_read / 3;
+        for i in 0..num_vcpus {
+            let base = i * 3;
+            let ctx = ExitlessApfVcpu::from_fds(fds[base], fds[base + 1], fds[base + 2])?;
+            let eventfd = ctx.eventfd;
+            self.exitless_vcpus.insert(eventfd, ctx);
+        }
+        println!("Exitless APF: {num_vcpus} vCPUs configured");
+        Ok(!self.exitless_vcpus.is_empty())
+    }
+
     /// Polls the `UnixStream` and UFFD fds in a loop.
     /// When stream is polled, new uffd is retrieved.
     /// When uffd is polled, page fault is handled by
@@ -610,11 +821,14 @@ impl Runtime {
         pf_event_dispatch: impl Fn(&mut UffdHandler),
         pf_vcpu_event_dispatch: impl Fn(&mut UffdHandler, usize),
     ) {
+        let stream_fd = self.stream.as_raw_fd();
+        let apf_stream_fd = self.apf_stream.as_raw_fd();
+
         let mut pollfds = vec![];
 
         // Poll the stream for incoming uffds
         pollfds.push(libc::pollfd {
-            fd: self.stream.as_raw_fd(),
+            fd: stream_fd,
             events: libc::POLLIN,
             revents: 0,
         });
@@ -625,8 +839,24 @@ impl Runtime {
             revents: 0,
         });
 
+        // Poll the APF stream for fallback fault requests
+        pollfds.push(libc::pollfd {
+            fd: apf_stream_fd,
+            events: libc::POLLIN,
+            revents: 0,
+        });
+
+        // Add exitless APF eventfds to pollfds
+        for &eventfd in self.exitless_vcpus.keys() {
+            pollfds.push(libc::pollfd {
+                fd: eventfd,
+                events: libc::POLLIN,
+                revents: 0,
+            });
+        }
+
         let mut uffd_msg_iter =
-            UffdMsgIterator::new(self.stream.try_clone().expect("Failed to clone stream"));
+            UffdMsgIterBitcode::new(self.stream.try_clone().expect("Failed to clone stream"));
 
         loop {
             let pollfd_ptr = pollfds.as_mut_ptr();
@@ -646,7 +876,7 @@ impl Runtime {
                 }
                 if fd.revents & libc::POLLIN != 0 {
                     nready -= 1;
-                    if fd.fd == self.stream.as_raw_fd() {
+                    if fd.fd == stream_fd {
                         for fault_request in uffd_msg_iter.by_ref() {
                             let page_size = self.handler.page_size;
 
@@ -662,6 +892,40 @@ impl Runtime {
                             );
 
                             self.send_fault_reply(fault_request.into_reply(page_size as u64));
+                        }
+                    } else if fd.fd == apf_stream_fd {
+                        // APF fallback path: fault requests over socket
+                        for fault_request in uffd_msg_iter.by_ref() {
+                            let page_size = self.handler.page_size;
+
+                            assert!(
+                                (fault_request.offset as usize) < self.handler.size(),
+                                "received bogus offset from firecracker"
+                            );
+
+                            pf_vcpu_event_dispatch(
+                                &mut self.handler,
+                                fault_request.offset as usize,
+                            );
+
+                            self.send_fault_reply(fault_request.into_reply(page_size as u64));
+                        }
+                    } else if let Some(ctx) = self.exitless_vcpus.get_mut(&fd.fd) {
+                        // Exitless APF: drain notify ring and resolve pages
+                        ctx.drain_eventfd();
+                        while let Some(entry) = ctx.notify_ring().pop() {
+                            let gpa = entry.gpa;
+                            // Find the region and offset for this GPA
+                            for region in &self.handler.mem_regions {
+                                if region.gpa_start <= gpa
+                                    && gpa < region.gpa_start + region.size as u64
+                                {
+                                    let offset = (gpa - region.gpa_start + region.offset) as usize;
+                                    pf_vcpu_event_dispatch(&mut self.handler, offset);
+                                    break;
+                                }
+                            }
+                            ctx.signal_ready(gpa);
                         }
                     } else {
                         // Handle one of uffd page faults
@@ -692,6 +956,8 @@ mod tests {
         let tmp_dir = TempDir::new().unwrap();
         let dummy_socket_path = tmp_dir.as_path().join("dummy_socket");
         let dummy_socket_path_clone = dummy_socket_path.clone();
+        let apf_socket_path = tmp_dir.as_path().join("apf_socket");
+        let apf_socket_path_clone = apf_socket_path.clone();
 
         let mut uninit_runtime = Box::new(MaybeUninit::<Runtime>::uninit());
         // We will use this pointer to bypass a bunch of Rust Safety
@@ -706,24 +972,33 @@ mod tests {
             let file = File::open(dummy_mem_path).expect("Cannot open memfile");
             let listener =
                 UnixListener::bind(dummy_socket_path).expect("Cannot bind to socket path");
+            let apf_listener =
+                UnixListener::bind(apf_socket_path).expect("Cannot bind to apf socket path");
             let (stream, _) = listener.accept().expect("Cannot listen on UDS socket");
+            let (apf_stream, _) = apf_listener
+                .accept()
+                .expect("Cannot listen on APF UDS socket");
             // Update runtime with actual runtime
-            let runtime = uninit_runtime.write(Runtime::new(stream, file));
+            let runtime = uninit_runtime.write(Runtime::new(stream, file, apf_stream));
             runtime.run(|_: &mut UffdHandler| {}, |_: &mut UffdHandler, _: usize| {});
         });
 
         // wait for runtime thread to initialize itself
         std::thread::sleep(std::time::Duration::from_millis(100));
 
-        let stream =
+        let mut stream =
             UnixStream::connect(dummy_socket_path_clone).expect("Cannot connect to the socket");
+        let _apf_stream =
+            UnixStream::connect(apf_socket_path_clone).expect("Cannot connect to the apf socket");
 
         #[allow(deprecated)]
         let dummy_memory_region = vec![GuestRegionUffdMapping {
             base_host_virt_addr: 0,
             size: 0x1000,
             offset: 0,
+            gpa_start: 0,
             page_size: 4096,
+            is_guest_memfd: false,
         }];
         let dummy_memory_region_json = serde_json::to_string(&dummy_memory_region).unwrap();
 
@@ -743,20 +1018,20 @@ mod tests {
             );
         }
 
-        // there is no way to properly stop runtime, so
-        // we send a message with an incorrect memory region
-        // to cause runtime thread to panic
-        #[allow(deprecated)]
-        let error_memory_region = vec![GuestRegionUffdMapping {
-            base_host_virt_addr: 0,
-            size: 0,
-            offset: 0,
-            page_size: 4096,
-        }];
-        let error_memory_region_json = serde_json::to_string(&error_memory_region).unwrap();
-        stream
-            .send_with_fd(error_memory_region_json.as_bytes(), dummy_fd)
-            .unwrap();
+        // There is no way to properly stop runtime, so we send a
+        // bitcode-encoded FaultRequest with a bogus offset (beyond handler
+        // size) to trigger the assert in the run() loop.
+        let bogus_request = FaultRequest {
+            vcpu: 0,
+            offset: 0xDEAD_0000, // way beyond 0x1000 handler size
+            flags: 0,
+            token: None,
+        };
+        let encoded = bitcode::encode(&bogus_request);
+        let size = (encoded.len() as u32).to_le_bytes();
+        use std::io::Write;
+        stream.write_all(&size).unwrap();
+        stream.write_all(&encoded).unwrap();
 
         runtime_thread.join().unwrap_err();
     }

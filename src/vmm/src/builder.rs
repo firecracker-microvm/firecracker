@@ -74,7 +74,7 @@ use crate::vstate::vm::{
     GUEST_MEMFD_FLAG_INIT_SHARED, GUEST_MEMFD_FLAG_MMAP, GUEST_MEMFD_FLAG_NO_DIRECT_MAP,
     GUEST_MEMFD_FLAG_WRITE, KvmVm, Vm, VmError,
 };
-use crate::{EventManager, Vmm, VmmError};
+use crate::{EventManager, UffdMessageBroker, Vmm, VmmError};
 
 /// Errors associated with starting the instance.
 #[derive(Debug, thiserror::Error, displaydoc::Display)]
@@ -787,7 +787,7 @@ pub fn build_microvm_from_snapshot(
         boot_source_config: vm_resources.boot_source.config.clone(),
         shutdown_exit_code: None,
         vm,
-        uffd_socket,
+        uffd_socket: uffd_socket.map(UffdMessageBroker::new),
         device_manager,
     };
 
