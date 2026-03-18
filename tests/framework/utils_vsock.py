@@ -163,7 +163,7 @@ def check_guest_connections(vm, server_port_path, blob_path, blob_hash):
         # Needed to execute the bash script that tests for concurrent
         # vsock guest initiated connections.
         vm.ssh.check_output(
-            "echo 1024 > /sys/fs/cgroup/system.slice/ssh.service/pids.max"
+            f"echo 1024 > /sys/fs/cgroup/system.slice/{vm.distro.ssh_service}/pids.max"
         )
 
         # Build the guest worker sub-command.

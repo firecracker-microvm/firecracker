@@ -34,6 +34,7 @@ import host_tools.cargo_build as build_tools
 import host_tools.network as net_tools
 from framework import utils
 from framework.defs import DEFAULT_BINARY_DIR, MAX_API_CALL_DURATION_MS
+from framework.guest import GuestDistro
 from framework.http_api import Api
 from framework.jailer import JailerContext
 from framework.microvm_helpers import MicrovmHelpers
@@ -221,6 +222,7 @@ class Microvm:
 
         self.kernel_file = None
         self.rootfs_file = None
+        self.distro = None
         self.ssh_key = None
         self.initrd_file = None
         self.boot_args = None
@@ -1062,6 +1064,7 @@ class Microvm:
             snapshot_type=snapshot_type,
             meta={
                 "kernel_file": str(self.kernel_file),
+                "rootfs_file": str(self.rootfs_file) if self.rootfs_file else None,
                 "vcpus_count": self.vcpus_count,
             },
         )
@@ -1125,6 +1128,9 @@ class Microvm:
             setattr(self, key, value)
         # Adjust things just in case
         self.kernel_file = Path(self.kernel_file)
+        if self.rootfs_file:
+            self.rootfs_file = Path(self.rootfs_file)
+            self.distro = GuestDistro.from_rootfs(self.rootfs_file)
 
         iface_overrides = []
         if rename_interfaces is not None:
@@ -1306,6 +1312,7 @@ class MicroVMFactory:
                 rootfs_path = Path(vm.path) / rootfs.name
                 shutil.copyfile(rootfs, rootfs_path)
             vm.rootfs_file = rootfs_path
+            vm.distro = GuestDistro.from_rootfs(rootfs_path)
             vm.ssh_key = ssh_key
         return vm
 
