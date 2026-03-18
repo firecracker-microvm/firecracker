@@ -1251,6 +1251,7 @@ mod tests {
             netns: Some("zzzns"),
             daemonize: false,
             new_pid_ns: false,
+            landlock: false,
             cgroups: Vec::new(),
             resource_limits: Vec::new(),
             parent_cgroup: None,
