@@ -12,6 +12,7 @@ use std::os::unix::net::UnixStream;
 use std::path::Path;
 use std::sync::{Arc, Mutex};
 
+use bitcode::{Decode, Encode};
 use semver::Version;
 use serde::{Deserialize, Serialize};
 use userfaultfd::{FeatureFlags, RegisterMode, Uffd, UffdBuilder};
@@ -39,7 +40,7 @@ use crate::vmm_config::machine_config::{HugePageConfig, MachineConfigError, Mach
 use crate::vmm_config::snapshot::{CreateSnapshotParams, LoadSnapshotParams, MemBackendType};
 use crate::vstate::kvm::KvmState;
 use crate::vstate::memory::{
-    self, GuestMemoryState, GuestRegionMmap, GuestRegionType, MemoryError,
+    self, GuestMemoryRegion, GuestMemoryState, GuestRegionMmap, GuestRegionType, MemoryError,
 };
 use crate::vstate::vcpu::{VcpuSendEventError, VcpuState};
 use crate::vstate::vm::{VmError, VmState};
@@ -161,8 +162,12 @@ pub struct GuestRegionUffdMapping {
     pub size: usize,
     /// Offset in the backend file/buffer where the region contents are.
     pub offset: u64,
+    /// Guest physical address start for this region.
+    pub gpa_start: u64,
     /// The configured page size for this memory region.
     pub page_size: usize,
+    /// Tracks if is guest memfd
+    pub is_guest_memfd: bool,
     /// The configured page size **in bytes** for this memory region. The name is
     /// wrong but cannot be changed due to being API, so this field is deprecated,
     /// to be removed in 2.0.
@@ -171,7 +176,7 @@ pub struct GuestRegionUffdMapping {
 }
 
 /// FaultRequest
-#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq, Encode, Decode)]
 pub struct FaultRequest {
     /// vCPU that encountered the fault
     pub vcpu: u32,
@@ -179,12 +184,12 @@ pub struct FaultRequest {
     pub offset: u64,
     /// Flags
     pub flags: u64,
-    /// Async PF token
-    pub token: Option<u32>,
+    /// Async PF GPA
+    pub gpa: Option<u64>,
 }
 
 /// FaultReply
-#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq, Encode, Decode)]
 pub struct FaultReply {
     /// vCPU that encountered the fault, from `FaultRequest` (if present, otherwise 0)
     pub vcpu: Option<u32>,
@@ -194,8 +199,8 @@ pub struct FaultReply {
     pub len: u64,
     /// Flags, must be copied from `FaultRequest`, otherwise 0
     pub flags: u64,
-    /// Async PF token, must be copied from `FaultRequest`, otherwise None
-    pub token: Option<u32>,
+    /// Async PF GPA, must be copied from `FaultRequest`, otherwise None
+    pub gpa: Option<u64>,
     /// Whether the populated pages are zero pages
     pub zero: bool,
 }
@@ -644,6 +649,7 @@ fn create_guest_memory(
     huge_pages: HugePageConfig,
     guest_memfd: Option<File>,
 ) -> Result<(Vec<GuestRegionMmap>, Vec<GuestRegionUffdMapping>), GuestMemoryFromUffdError> {
+    let is_guest_memfd = guest_memfd.is_some();
     let guest_memory = match guest_memfd {
         Some(file) => memory::file_shared(
             file.into(),
@@ -662,7 +668,9 @@ fn create_guest_memory(
             base_host_virt_addr: mem_region.as_ptr() as u64,
             size: mem_region.size(),
             offset,
+            gpa_start: mem_region.start_addr().0,
             page_size: huge_pages.page_size(),
+            is_guest_memfd,
             page_size_kib: huge_pages.page_size(),
         });
         offset += mem_region.size() as u64;
@@ -870,14 +878,18 @@ mod tests {
                 base_host_virt_addr: 0,
                 size: 0x100000,
                 offset: 0,
+                gpa_start: 0,
                 page_size: HugePageConfig::None.page_size(),
+                is_guest_memfd: false,
                 page_size_kib: HugePageConfig::None.page_size(),
             },
             GuestRegionUffdMapping {
                 base_host_virt_addr: 0x100000,
                 size: 0x200000,
-                offset: 0,
+                offset: 0x100000,
+                gpa_start: 0x100000,
                 page_size: HugePageConfig::Hugetlbfs2M.page_size(),
+                is_guest_memfd: false,
                 page_size_kib: HugePageConfig::Hugetlbfs2M.page_size(),
             },
         ];
