@@ -6,8 +6,10 @@
 use std::fmt::Debug;
 use std::fs::File;
 use std::io;
-use std::os::fd::{AsFd, AsRawFd};
+use std::os::fd::{AsFd, AsRawFd, FromRawFd, RawFd};
 use std::os::unix::fs::MetadataExt;
+use std::os::unix::net::UnixStream;
+use std::path::Path;
 #[cfg(feature = "gdb")]
 use std::sync::mpsc;
 use std::sync::{Arc, Mutex};
@@ -45,9 +47,7 @@ use crate::devices::virtio::vsock::{Vsock, VsockUnixBackend};
 #[cfg(feature = "gdb")]
 use crate::gdb;
 use crate::initrd::{InitrdConfig, InitrdError};
-use crate::logger::debug;
-#[cfg(target_arch = "aarch64")]
-use crate::logger::warn;
+use crate::logger::{debug, warn};
 use crate::persist::{
     GuestMemoryFromFileError, GuestMemoryFromUffdError, MicrovmState, MicrovmStateError,
     guest_memory_from_file, guest_memory_from_uffd,
@@ -66,12 +66,26 @@ use crate::vstate::memory::{
 };
 #[cfg(target_arch = "aarch64")]
 use crate::vstate::resources::ResourceAllocator;
-use crate::vstate::vcpu::VcpuError;
+use crate::vstate::vcpu::{SharedApfStream, VcpuError};
 use crate::vstate::vm::{
     GUEST_MEMFD_FLAG_INIT_SHARED, GUEST_MEMFD_FLAG_MMAP, GUEST_MEMFD_FLAG_NO_DIRECT_MAP,
     GUEST_MEMFD_FLAG_WRITE, Vm, VmError,
 };
-use crate::{EventManager, Vmm, VmmError};
+use crate::{EventManager, UffdMessageBroker, Vmm, VmmError};
+
+const KVM_CAP_GUEST_MEMFD_FLAGS: u32 = 244;
+const KVM_CAP_ASYNC_PF_USERFAULT: u32 = 246;
+
+pub(crate) fn pipe2(flags: libc::c_int) -> io::Result<(RawFd, RawFd)> {
+    let mut fds = [0, 0];
+    // SAFETY: Safe as we know flags are good
+    let res = unsafe { libc::pipe2(fds.as_mut_ptr(), flags) };
+    if res == 0 {
+        Ok((fds[0], fds[1]))
+    } else {
+        Err(io::Error::last_os_error())
+    }
+}
 
 /// Errors associated with starting the instance.
 #[derive(Debug, thiserror::Error, displaydoc::Display)]
@@ -150,8 +164,6 @@ impl std::convert::From<linux_loader::cmdline::Error> for StartMicrovmError {
     }
 }
 
-const KVM_CAP_GUEST_MEMFD_FLAGS: u32 = 244;
-
 /// Builds and starts a microVM based on the current Firecracker VmResources configuration.
 ///
 /// The built microVM and all the created vCPUs start off in the paused state.
@@ -194,8 +206,20 @@ pub fn build_microvm_for_boot(
     // Set up Kvm Vm and register memory regions.
     // Build custom CPU config if a custom template is provided.
     let mut vm = Vm::new(&kvm, secret_free)?;
-    let (mut vcpus, vcpus_exit_evt) =
-        vm.create_vcpus(vm_resources.machine_config.vcpu_count, secret_free)?;
+
+    let (reader_fd, writer_fd) = pipe2(libc::O_NONBLOCK).unwrap();
+    // SAFETY: We know these files are good as we check the result
+    let reader = unsafe { File::from_raw_fd(reader_fd) };
+    // SAFETY: We know these files are good as we check the result
+    let writer = unsafe { File::from_raw_fd(writer_fd) };
+
+    let (mut vcpus, vcpus_exit_evt) = vm.create_vcpus(
+        vm_resources.machine_config.vcpu_count,
+        secret_free,
+        &writer,
+        None,
+        false,
+    )?;
 
     let guest_memfd = match secret_free {
         true => Some(Arc::new(
@@ -203,7 +227,8 @@ pub fn build_microvm_for_boot(
                 vm_resources.dram_memory_size() + vm_resources.hotplug_memory_size(),
                 GUEST_MEMFD_FLAG_MMAP
                     | GUEST_MEMFD_FLAG_INIT_SHARED
-                    | GUEST_MEMFD_FLAG_NO_DIRECT_MAP,
+                    | GUEST_MEMFD_FLAG_NO_DIRECT_MAP
+                    | GUEST_MEMFD_FLAG_WRITE,
             )
             .map_err(VmmError::Vm)?,
         )),
@@ -400,8 +425,16 @@ pub fn build_microvm_for_boot(
         uffd: None,
         uffd_socket: None,
         vcpus_handles: Vec::new(),
+        vcpu_fds: Vec::new(),
         vcpus_exit_evt,
+        _apf_pipe_reader: reader,
         device_manager,
+        _guest_memfd: None,
+        _eventfd: None,
+        apf_stream: None,
+        apf_supported: false,
+        exitless_apf: Vec::new(),
+        exitless_apf_setup_done: false,
     };
     let vmm = Arc::new(Mutex::new(vmm));
 
@@ -592,15 +625,54 @@ pub fn build_microvm_from_snapshot(
         kvm_capabilities.push(KvmCapability::Add(KVM_CAP_USERFAULT));
     }
 
+    let apf_sock = params
+        .mem_backend
+        .backend_path
+        .parent()
+        .unwrap_or_else(|| Path::new("/tmp"))
+        .join("apf.socket");
+    let apf_stream: Option<SharedApfStream> = UnixStream::connect(&apf_sock)
+        .and_then(|stream| {
+            stream.set_nonblocking(true)?;
+            Ok(stream)
+        })
+        .map(|s| std::sync::Arc::new(std::sync::Mutex::new(UffdMessageBroker::new(s))))
+        .ok();
+
     let kvm = Kvm::new(kvm_capabilities).map_err(StartMicrovmError::Kvm)?;
+
+    // Check APF capability at runtime — don't require it
+    let apf_supported = apf_stream.is_some()
+        && kvm
+            .fd
+            .check_extension_raw(u64::from(KVM_CAP_ASYNC_PF_USERFAULT))
+            != 0;
+    if apf_stream.is_some() && !apf_supported {
+        warn!("KVM_CAP_ASYNC_PF_USERFAULT not supported by kernel, APF disabled");
+    }
 
     // Set up Kvm Vm and register memory regions.
     // Build custom CPU config if a custom template is provided.
     let mut vm = Vm::new(&kvm, secret_free).map_err(StartMicrovmError::Vm)?;
 
+    let (reader_fd, writer_fd) = pipe2(libc::O_NONBLOCK).unwrap();
+    // SAFETY: This fd has just been created above
+    let reader = unsafe { File::from_raw_fd(reader_fd) };
+    // SAFETY: This fd has just been created above
+    let writer = unsafe { File::from_raw_fd(writer_fd) };
+
     let (mut vcpus, vcpus_exit_evt) = vm
-        .create_vcpus(vm_resources.machine_config.vcpu_count, secret_free)
+        .create_vcpus(
+            vm_resources.machine_config.vcpu_count,
+            secret_free,
+            &writer,
+            apf_stream.clone(),
+            apf_supported,
+        )
         .map_err(StartMicrovmError::Vm)?;
+
+    // Collect vcpu fds early (needed for exitless APF setup before VM runs)
+    let vcpu_fds: Vec<RawFd> = vcpus.iter().map(|v| v.kvm_vcpu.fd.as_raw_fd()).collect();
 
     let guest_memfd = match secret_free {
         true => Some(
@@ -689,6 +761,58 @@ pub fn build_microvm_from_snapshot(
     )
     .map_err(StartMicrovmError::Vm)?;
 
+    // Set up UFFD socket + exitless APF BEFORE vCPU state restore.
+    // vCPU restore (MSR writes) can trigger userfaults on kvm-clock pages,
+    // so the handler must be unblocked and ready to service faults first.
+    let (uffd_socket_broker, exitless_apf_contexts, exitless_apf_done) = {
+        use vmm_sys_util::sock_ctrl_msg::ScmSocket;
+        if let Some(uff_socket) = uffd_socket {
+            let broker = UffdMessageBroker::new(uff_socket);
+            let (contexts, done) = if apf_supported {
+                let mut contexts = Vec::new();
+                let mut handler_fds = Vec::new();
+                for &vcpu_fd in &vcpu_fds {
+                    match crate::vstate::exitless_apf::ExitlessApfContext::new(vcpu_fd) {
+                        Ok(ctx) => {
+                            let (n, c, m) = ctx.fds_for_handler();
+                            handler_fds.push(n);
+                            handler_fds.push(c);
+                            handler_fds.push(m);
+                            contexts.push(ctx);
+                        }
+                        Err(e) => {
+                            warn!("Exitless APF context creation failed: {e}");
+                            break;
+                        }
+                    }
+                }
+                if !contexts.is_empty() {
+                    let msg = format!("exitless_apf:{}", vcpu_fds.len());
+                    match broker
+                        .stream()
+                        .send_with_fds(&[msg.as_bytes()], &handler_fds)
+                    {
+                        Ok(n) => debug!(
+                            "Sent {} bytes with {} fds for exitless APF",
+                            n,
+                            handler_fds.len()
+                        ),
+                        Err(e) => warn!("Failed to send exitless APF fds: {e}"),
+                    }
+                }
+                (contexts, true)
+            } else {
+                // Tell handler that exitless APF is not available
+                let msg = b"no_exitless_apf";
+                let _ = broker.stream().send_with_fds(&[&msg[..]], &[]);
+                (Vec::new(), true)
+            };
+            (Some(broker), contexts, done)
+        } else {
+            (None, Vec::new(), false)
+        }
+    };
+
     #[cfg(target_arch = "x86_64")]
     {
         // Scale TSC to match, extract the TSC freq from the state if specified
@@ -754,10 +878,18 @@ pub fn build_microvm_from_snapshot(
         kvm,
         vm,
         uffd,
-        uffd_socket,
+        uffd_socket: uffd_socket_broker,
         vcpus_handles: Vec::new(),
+        vcpu_fds,
         vcpus_exit_evt,
+        _apf_pipe_reader: reader,
         device_manager,
+        _guest_memfd: None,
+        _eventfd: None,
+        apf_stream,
+        apf_supported,
+        exitless_apf: exitless_apf_contexts,
+        exitless_apf_setup_done: exitless_apf_done,
     };
 
     // Move vcpus to their own threads and start their state machine in the 'Paused' state.
@@ -1120,9 +1252,18 @@ pub(crate) mod tests {
     }
 
     pub(crate) fn default_vmm() -> Vmm {
+        use std::os::fd::FromRawFd;
+
         let (kvm, mut vm) = setup_vm_with_memory(mib_to_bytes(128));
 
-        let (_, vcpus_exit_evt) = vm.create_vcpus(1, false).unwrap();
+        let (reader_fd, writer_fd) = super::pipe2(libc::O_NONBLOCK).unwrap();
+        // SAFETY: reader_fd is a valid fd from pipe2() above; we take sole ownership.
+        let reader = unsafe { std::fs::File::from_raw_fd(reader_fd) };
+        let (_, vcpus_exit_evt) = {
+            // SAFETY: writer_fd is a valid fd from pipe2() above; we take sole ownership.
+            let writer = unsafe { std::fs::File::from_raw_fd(writer_fd) };
+            vm.create_vcpus(1, false, &writer, None, false).unwrap()
+        };
 
         Vmm {
             instance_info: InstanceInfo::default(),
@@ -1134,8 +1275,16 @@ pub(crate) mod tests {
             uffd: None,
             uffd_socket: None,
             vcpus_handles: Vec::new(),
+            vcpu_fds: Vec::new(),
             vcpus_exit_evt,
+            _apf_pipe_reader: reader,
             device_manager: default_device_manager(),
+            _guest_memfd: None,
+            _eventfd: None,
+            apf_stream: None,
+            apf_supported: false,
+            exitless_apf: Vec::new(),
+            exitless_apf_setup_done: false,
         }
     }
 
