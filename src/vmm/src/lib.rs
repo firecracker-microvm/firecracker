@@ -273,6 +273,8 @@ pub enum VmmError {
     KvmVm(#[from] vstate::vm::VmError),
     /// Kvm error: {0}
     Kvm(#[from] vstate::kvm::KvmError),
+    /// Exitless APF setup error: {0}
+    ExitlessApfSetup(String),
     /// Failed perform action on device: {0}
     FindDeviceError(#[from] device_manager::FindDeviceError),
     /// Block: {0}
@@ -332,6 +334,12 @@ pub struct Vmm {
     pub(crate) _eventfd: Option<i32>,
     /// APF stream shared with vCPUs
     apf_stream: Option<vstate::vcpu::SharedApfStream>,
+    /// Whether the kernel supports KVM_CAP_ASYNC_PF_USERFAULT
+    apf_supported: bool,
+    /// Exitless APF contexts (one per vCPU)
+    exitless_apf: Vec<vstate::exitless_apf::ExitlessApfContext>,
+    /// Whether exitless APF setup has been done
+    exitless_apf_setup_done: bool,
 }
 
 pub use uffd_broker::UffdMessageBroker;
@@ -749,6 +757,62 @@ impl Vmm {
 
         // Break the main event loop, propagating the Vmm exit-code.
         self.shutdown_exit_code = Some(exit_code);
+    }
+
+    /// Set up exitless APF - creates contexts in Firecracker (where the KVM ioctl works)
+    /// and sends eventfds + shared page memfds to the handler.
+    pub fn setup_exitless_apf(&mut self) -> Result<(), VmmError> {
+        use vmm_sys_util::sock_ctrl_msg::ScmSocket;
+
+        if self.exitless_apf_setup_done {
+            return Ok(());
+        }
+
+        if !self.apf_supported {
+            // Tell the handler that exitless APF is not available
+            if let Some(ref uffd_socket) = self.uffd_socket {
+                let msg = b"no_exitless_apf";
+                let _ = uffd_socket.stream().send_with_fds(&[&msg[..]], &[]);
+            }
+            self.exitless_apf_setup_done = true;
+            return Ok(());
+        }
+
+        info!("Setting up exitless APF for {} vCPUs", self.vcpu_fds.len());
+
+        // Create ExitlessApfContext for each vCPU (does the KVM_SET_APF_EVENTFD ioctl)
+        let mut contexts = Vec::new();
+        let mut handler_fds = Vec::new();
+        for &vcpu_fd in &self.vcpu_fds {
+            let ctx = vstate::exitless_apf::ExitlessApfContext::new(vcpu_fd).map_err(|e| {
+                VmmError::ExitlessApfSetup(format!(
+                    "Failed to create context for vcpu fd {vcpu_fd}: {e}"
+                ))
+            })?;
+            let (notify_fd, complete_fd, memfd) = ctx.fds_for_handler();
+            handler_fds.push(notify_fd);
+            handler_fds.push(complete_fd);
+            handler_fds.push(memfd);
+            contexts.push(ctx);
+        }
+
+        // Send the fds to the handler: 3 fds per vCPU
+        if let Some(ref uffd_socket) = self.uffd_socket {
+            let msg = format!("exitless_apf:{}", self.vcpu_fds.len());
+            let n = uffd_socket
+                .stream()
+                .send_with_fds(&[msg.as_bytes()], &handler_fds)
+                .map_err(|e| VmmError::ExitlessApfSetup(format!("Failed to send fds: {e}")))?;
+            info!(
+                "Sent {} bytes with {} fds for exitless APF",
+                n,
+                handler_fds.len()
+            );
+            self.exitless_apf = contexts;
+            self.exitless_apf_setup_done = true;
+        }
+
+        Ok(())
     }
 
     fn process_vcpu_userfault(&mut self, vcpu: u32, userfault_data: UserfaultData) {

@@ -3,6 +3,8 @@
 
 /// Module with the implementation of a Bus that can hold devices.
 pub mod bus;
+/// Module for exitless async page fault support
+pub mod exitless_apf;
 /// VM interrupts implementation.
 pub mod interrupts;
 /// Module with Kvm implementation.

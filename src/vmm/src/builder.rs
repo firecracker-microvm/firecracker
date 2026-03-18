@@ -234,7 +234,8 @@ pub fn build_microvm_for_boot(
                 ),
                 GUEST_MEMFD_FLAG_MMAP
                     | GUEST_MEMFD_FLAG_INIT_SHARED
-                    | GUEST_MEMFD_FLAG_NO_DIRECT_MAP,
+                    | GUEST_MEMFD_FLAG_NO_DIRECT_MAP
+                    | GUEST_MEMFD_FLAG_WRITE,
             )
             .map_err(VmmError::KvmVm)?,
         ),
@@ -433,6 +434,9 @@ pub fn build_microvm_for_boot(
         _guest_memfd: None,
         _eventfd: None,
         apf_stream: None,
+        apf_supported: false,
+        exitless_apf: Vec::new(),
+        exitless_apf_setup_done: false,
     };
     let vmm = Arc::new(Mutex::new(vmm));
 
@@ -784,6 +788,58 @@ pub fn build_microvm_from_snapshot(
     )
     .map_err(StartMicrovmError::KvmVm)?;
 
+    // Set up UFFD socket + exitless APF BEFORE vCPU state restore.
+    // vCPU restore (MSR writes) can trigger userfaults on kvm-clock pages,
+    // so the handler must be unblocked and ready to service faults first.
+    let (uffd_socket_broker, exitless_apf_contexts, exitless_apf_done) = {
+        use vmm_sys_util::sock_ctrl_msg::ScmSocket;
+        if let Some(uff_socket) = uffd_socket {
+            let broker = UffdMessageBroker::new(uff_socket);
+            let (contexts, done) = if apf_supported {
+                let mut contexts = Vec::new();
+                let mut handler_fds = Vec::new();
+                for &vcpu_fd in &vcpu_fds {
+                    match crate::vstate::exitless_apf::ExitlessApfContext::new(vcpu_fd) {
+                        Ok(ctx) => {
+                            let (n, c, m) = ctx.fds_for_handler();
+                            handler_fds.push(n);
+                            handler_fds.push(c);
+                            handler_fds.push(m);
+                            contexts.push(ctx);
+                        }
+                        Err(e) => {
+                            warn!("Exitless APF context creation failed: {e}");
+                            break;
+                        }
+                    }
+                }
+                if !contexts.is_empty() {
+                    let msg = format!("exitless_apf:{}", vcpu_fds.len());
+                    match broker
+                        .stream()
+                        .send_with_fds(&[msg.as_bytes()], &handler_fds)
+                    {
+                        Ok(n) => debug!(
+                            "Sent {} bytes with {} fds for exitless APF",
+                            n,
+                            handler_fds.len()
+                        ),
+                        Err(e) => warn!("Failed to send exitless APF fds: {e}"),
+                    }
+                }
+                (contexts, true)
+            } else {
+                // Tell handler that exitless APF is not available
+                let msg = b"no_exitless_apf";
+                let _ = broker.stream().send_with_fds(&[&msg[..]], &[]);
+                (Vec::new(), true)
+            };
+            (Some(broker), contexts, done)
+        } else {
+            (None, Vec::new(), false)
+        }
+    };
+
     #[cfg(target_arch = "x86_64")]
     {
         // Scale TSC to match, extract the TSC freq from the state if specified
@@ -856,13 +912,16 @@ pub fn build_microvm_from_snapshot(
         boot_source_config: vm_resources.boot_source.config.clone(),
         shutdown_exit_code: None,
         vm,
-        uffd_socket: uffd_socket.map(UffdMessageBroker::new),
+        uffd_socket: uffd_socket_broker,
         vcpu_fds,
         _apf_pipe_reader: reader,
         device_manager,
         _guest_memfd: None,
         _eventfd: None,
         apf_stream,
+        apf_supported,
+        exitless_apf: exitless_apf_contexts,
+        exitless_apf_setup_done: exitless_apf_done,
     };
 
     // Move vcpus to their own threads and start their state machine in the 'Paused' state.
@@ -1300,6 +1359,9 @@ pub(crate) mod tests {
             _guest_memfd: None,
             _eventfd: None,
             apf_stream: None,
+            apf_supported: false,
+            exitless_apf: Vec::new(),
+            exitless_apf_setup_done: false,
         }
     }
 
@@ -1337,6 +1399,9 @@ pub(crate) mod tests {
             _guest_memfd: None,
             _eventfd: None,
             apf_stream: None,
+            apf_supported: false,
+            exitless_apf: Vec::new(),
+            exitless_apf_setup_done: false,
         }
     }
 
