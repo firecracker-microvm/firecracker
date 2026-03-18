@@ -1039,6 +1039,18 @@
                         "index": 1,
                         "type": "dword",
                         "op": "eq",
+                        "val": 1074835158,
+                        "comment": "KVM_ASYNC_PF_READY"
+                    }
+                ]
+            },
+            {
+                "syscall": "ioctl",
+                "args": [
+                    {
+                        "index": 1,
+                        "type": "dword",
+                        "op": "eq",
                         "val": 2214637198,
                         "comment": "KVM_GET_LAPIC"
                     }

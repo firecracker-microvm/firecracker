@@ -5,6 +5,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the THIRD-PARTY file.
 
+use std::fs::File;
 use std::os::fd::AsRawFd;
 use std::sync::atomic::{Ordering, fence};
 use std::sync::mpsc::{Receiver, Sender, TryRecvError, channel};
@@ -35,6 +36,7 @@ pub const VCPU_RTSIG_OFFSET: i32 = 0;
 // TODO: remove when KVM userfault support is merged upstream.
 /// VM exit due to a userfault.
 const KVM_MEMORY_EXIT_FLAG_USERFAULT: u64 = 1 << 4;
+const KVM_MEMORY_EXIT_FLAG_APF: u64 = 1 << 5;
 
 /// Errors associated with the wrappers over KVM ioctls.
 #[derive(Debug, thiserror::Error, displaydoc::Display)]
@@ -53,6 +55,8 @@ pub enum VcpuError {
     VcpuSpawn(io::Error),
     /// Vcpu not present in TLS
     VcpuTlsNotPresent,
+    /// Failed to enable KVM capability: {0}
+    EnableCap(errno::Error),
     /// Error with gdb request sent
     #[cfg(feature = "gdb")]
     GdbRequest(GdbTargetError),
@@ -89,6 +93,12 @@ pub enum CopyKvmFdError {
 
 type UserfaultResolved = Arc<(Mutex<bool>, Condvar)>;
 
+use crate::UffdMessageBroker;
+use crate::persist::FaultRequest;
+
+/// Shared APF stream for sending async page fault requests directly to handler
+pub type SharedApfStream = std::sync::Arc<std::sync::Mutex<UffdMessageBroker>>;
+
 /// A wrapper around creating and using a vcpu.
 #[derive(Debug)]
 pub struct Vcpu {
@@ -100,6 +110,8 @@ pub struct Vcpu {
     /// Debugger emitter for gdb events
     #[cfg(feature = "gdb")]
     gdb_event: Option<Sender<usize>>,
+    /// File descriptor for the APF pipe writer (kept alive for the lifetime of the vCPU)
+    _apf_pipe_writer: File,
     /// The receiving end of events channel owned by the vcpu side.
     event_receiver: Receiver<VcpuEvent>,
     /// The transmitting end of the events channel which will be given to the handler.
@@ -110,6 +122,8 @@ pub struct Vcpu {
     response_sender: Sender<VcpuResponse>,
     /// A condvar to notify the vCPU that a userfault has been resolved
     userfault_resolved: Option<UserfaultResolved>,
+    /// Shared APF stream for sending async page fault requests directly to handler
+    apf_stream: Option<SharedApfStream>,
 }
 
 impl Vcpu {
@@ -139,10 +153,23 @@ impl Vcpu {
         vm: &Vm,
         exit_evt: EventFd,
         userfault_resolved: Option<UserfaultResolved>,
+        writer: File,
+        apf_stream: Option<SharedApfStream>,
+        _apf_supported: bool,
     ) -> Result<Self, VcpuError> {
         let (event_sender, event_receiver) = channel();
         let (response_sender, response_receiver) = channel();
         let kvm_vcpu = KvmVcpu::new(index, vm).unwrap();
+
+        #[cfg(target_arch = "x86_64")]
+        if _apf_supported {
+            let cap = kvm_bindings::kvm_enable_cap {
+                cap: 246, // KVM_CAP_ASYNC_PF_USERFAULT
+                args: [1, 0, 0, 0],
+                ..Default::default()
+            };
+            kvm_vcpu.fd.enable_cap(&cap).map_err(VcpuError::EnableCap)?;
+        }
 
         Ok(Vcpu {
             exit_evt,
@@ -152,8 +179,10 @@ impl Vcpu {
             response_sender,
             #[cfg(feature = "gdb")]
             gdb_event: None,
+            _apf_pipe_writer: writer,
             kvm_vcpu,
             userfault_resolved,
+            apf_stream,
         })
     }
 
@@ -402,6 +431,48 @@ impl Vcpu {
         &mut self,
         userfaultfd_data: UserfaultData,
     ) -> Result<VcpuEmulation, VcpuError> {
+        let is_async_pf = userfaultfd_data.flags & KVM_MEMORY_EXIT_FLAG_APF != 0;
+
+        if is_async_pf {
+            // Exitless ring was full — kernel fell back to a vCPU exit.
+            // Send APF request directly to handler for resolution, then
+            // accept so the vCPU can re-enter immediately.
+            if let Some(stream) = &self.apf_stream {
+                let fault_request = FaultRequest {
+                    vcpu: self.kvm_vcpu.index as u32,
+                    offset: 0,
+                    flags: userfaultfd_data.flags,
+                    gpa: Some(userfaultfd_data.gpa),
+                };
+                if let Err(e) = stream
+                    .lock()
+                    .expect("APF stream lock poisoned")
+                    .send_fault_request(fault_request)
+                {
+                    error!("Failed to send APF fault request to handler: {e}");
+                }
+            }
+
+            let req = crate::vstate::memory::KvmAPFReq {
+                gpa: userfaultfd_data.gpa,
+                op: crate::vstate::memory::KVM_APF_OP_ACCEPT,
+                flags: 0,
+                reserved: [0; 2],
+            };
+            let vcpu_raw_fd = self.kvm_vcpu.fd.as_raw_fd();
+            // SAFETY: ioctl on a valid vCPU fd with a properly initialized KvmAPFReq struct.
+            unsafe {
+                vmm_sys_util::ioctl::ioctl_with_ref(
+                    &vcpu_raw_fd,
+                    crate::vstate::memory::KVM_ASYNC_PF(),
+                    &req,
+                );
+            }
+
+            return Ok(VcpuEmulation::Handled);
+        }
+
+        // Sync path: notify VMM and wait for resolution
         self.response_sender
             .send(VcpuResponse::Userfault(userfaultfd_data))
             .expect("Failed to send userfault data");
@@ -735,6 +806,7 @@ pub(crate) mod tests {
 
     #[cfg(target_arch = "x86_64")]
     use std::collections::BTreeMap;
+    use std::os::fd::FromRawFd;
     use std::sync::atomic::Ordering;
     use std::sync::{Arc, Barrier, Mutex};
 
@@ -911,7 +983,12 @@ pub(crate) mod tests {
     pub(crate) fn setup_vcpu(mem_size: usize) -> (Kvm, Vm, Vcpu) {
         let (kvm, mut vm) = setup_vm_with_memory(mem_size);
 
-        let (mut vcpus, _) = vm.create_vcpus(1, false).unwrap();
+        let (mut vcpus, _) = {
+            let (_, writer_fd) = crate::builder::pipe2(libc::O_NONBLOCK).unwrap();
+            // SAFETY: writer_fd is valid
+            let writer = unsafe { std::fs::File::from_raw_fd(writer_fd) };
+            vm.create_vcpus(1, false, &writer, None, false).unwrap()
+        };
         let mut vcpu = vcpus.remove(0);
 
         #[cfg(target_arch = "aarch64")]

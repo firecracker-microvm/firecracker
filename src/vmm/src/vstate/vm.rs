@@ -39,11 +39,12 @@ use crate::vstate::memory::{
     GuestMemoryState, GuestRegionMmap, GuestRegionMmapExt, MaybeBounce, MemoryError, bitmap_size,
 };
 use crate::vstate::resources::ResourceAllocator;
-use crate::vstate::vcpu::VcpuError;
+use crate::vstate::vcpu::{SharedApfStream, VcpuError};
 use crate::{DirtyBitmap, Vcpu, mem_size_mib};
 
 pub(crate) const GUEST_MEMFD_FLAG_MMAP: u64 = 1;
 pub(crate) const GUEST_MEMFD_FLAG_INIT_SHARED: u64 = 2;
+#[allow(dead_code)]
 pub(crate) const GUEST_MEMFD_FLAG_NO_DIRECT_MAP: u64 = 4;
 pub(crate) const GUEST_MEMFD_FLAG_WRITE: u64 = 8;
 
@@ -204,6 +205,9 @@ impl Vm {
         &mut self,
         vcpu_count: u8,
         secret_free: bool,
+        writer: &File,
+        apf_stream: Option<SharedApfStream>,
+        apf_supported: bool,
     ) -> Result<(Vec<Vcpu>, EventFd), VmError> {
         self.arch_pre_create_vcpus(vcpu_count)?;
 
@@ -212,14 +216,23 @@ impl Vm {
         let mut vcpus = Vec::with_capacity(vcpu_count as usize);
         for cpu_idx in 0..vcpu_count {
             let exit_evt = exit_evt.try_clone().map_err(VmError::EventFd)?;
+            let vcpu_writer = writer.try_clone().map_err(VmError::EventFd)?;
             let userfault_resolved = if secret_free {
                 Some(Arc::new((Mutex::new(false), Condvar::new())))
             } else {
                 None
             };
 
-            let vcpu = Vcpu::new(cpu_idx, self, exit_evt, userfault_resolved)
-                .map_err(VmError::CreateVcpu)?;
+            let vcpu = Vcpu::new(
+                cpu_idx,
+                self,
+                exit_evt,
+                userfault_resolved,
+                vcpu_writer,
+                apf_stream.clone(),
+                apf_supported,
+            )
+            .map_err(VmError::CreateVcpu)?;
             vcpus.push(vcpu);
         }
 
@@ -336,6 +349,7 @@ impl Vm {
                 false => slot.protect(true).map_err(VmError::MemoryError),
             })?;
 
+        // Update guest memory
         self.common.guest_memory = new_guest_memory;
 
         Ok(())
@@ -691,6 +705,7 @@ impl DeviceRelocation for Vm {
 
 #[cfg(test)]
 pub(crate) mod tests {
+    use std::os::fd::FromRawFd;
     use std::sync::atomic::Ordering;
 
     use vm_memory::GuestAddress;
@@ -813,7 +828,13 @@ pub(crate) mod tests {
         let vcpu_count = 2;
         let (_, mut vm) = setup_vm_with_memory(mib_to_bytes(128));
 
-        let (vcpu_vec, _) = vm.create_vcpus(vcpu_count, false).unwrap();
+        let (vcpu_vec, _) = {
+            let (_, writer_fd) = crate::builder::pipe2(libc::O_NONBLOCK).unwrap();
+            // SAFETY: writer_fd is valid
+            let writer = unsafe { std::fs::File::from_raw_fd(writer_fd) };
+            vm.create_vcpus(vcpu_count, false, &writer, None, false)
+                .unwrap()
+        };
 
         assert_eq!(vcpu_vec.len(), vcpu_count as usize);
     }

@@ -12,7 +12,9 @@ use std::os::fd::AsRawFd;
 use std::sync::{Arc, Mutex};
 
 use bitvec::vec::BitVec;
-use kvm_bindings::{KVM_MEM_GUEST_MEMFD, KVM_MEM_LOG_DIRTY_PAGES, kvm_userspace_memory_region};
+use kvm_bindings::{
+    KVM_MEM_GUEST_MEMFD, KVM_MEM_LOG_DIRTY_PAGES, KVMIO, kvm_userspace_memory_region,
+};
 use serde::{Deserialize, Serialize};
 pub use vm_memory::bitmap::{AtomicBitmap, BS, Bitmap, BitmapSlice};
 pub use vm_memory::mmap::MmapRegionBuilder;
@@ -25,6 +27,7 @@ use vm_memory::{
     GuestMemoryError, GuestMemoryRegionBytes, ReadVolatile, VolatileMemoryError, VolatileSlice,
     WriteVolatile,
 };
+use vmm_sys_util::ioctl_iow_nr;
 
 use crate::arch::host_page_size;
 use crate::logger::error;
@@ -82,6 +85,36 @@ impl From<vm_memory::VolatileMemoryError> for MemoryError {
         MemoryError::VolatileMemoryError(e)
     }
 }
+
+/// Request structure for the `KVM_ASYNC_PF` ioctl.
+#[derive(Debug, Copy, Clone)]
+#[repr(C)]
+pub struct KvmAPFReq {
+    /// Guest physical address of the faulting page.
+    pub gpa: u64,
+    /// Operation code (ready, accept, or sync-complete).
+    pub op: u32,
+    /// Flags (currently unused, must be 0).
+    pub flags: u32,
+    /// Reserved for future use.
+    pub reserved: [u64; 2],
+}
+
+/// Mark an async page fault as ready (page is now available).
+pub const KVM_APF_OP_READY: u32 = 0;
+/// Accept an async page fault (vCPU acknowledges the APF).
+pub const KVM_APF_OP_ACCEPT: u32 = 1;
+/// Signal synchronous completion of an async page fault.
+#[allow(dead_code)]
+pub const KVM_APF_OP_SYNC_COMPLETE: u32 = 2;
+
+/// `KVM_ASYNC_PF` ioctl — manages async page faults on a vCPU.
+#[allow(missing_docs)]
+mod apf_ioctl {
+    use super::*;
+    ioctl_iow_nr!(KVM_ASYNC_PF, KVMIO, 0xd6, KvmAPFReq);
+}
+pub use apf_ioctl::KVM_ASYNC_PF;
 
 /// Type of the guest region
 #[derive(Copy, Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
