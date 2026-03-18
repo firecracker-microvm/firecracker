@@ -6,8 +6,10 @@
 use std::fmt::Debug;
 use std::fs::File;
 use std::io;
-use std::os::fd::{AsFd, AsRawFd};
+use std::os::fd::{AsFd, AsRawFd, FromRawFd, RawFd};
 use std::os::unix::fs::MetadataExt;
+use std::os::unix::net::UnixStream;
+use std::path::Path;
 #[cfg(feature = "gdb")]
 use std::sync::mpsc;
 use std::sync::{Arc, Mutex};
@@ -44,9 +46,7 @@ use crate::devices::virtio::vsock::{Vsock, VsockUnixBackend};
 #[cfg(feature = "gdb")]
 use crate::gdb;
 use crate::initrd::{InitrdConfig, InitrdError};
-use crate::logger::debug;
-#[cfg(target_arch = "aarch64")]
-use crate::logger::warn;
+use crate::logger::{debug, warn};
 use crate::persist::{
     GuestMemoryFromFileError, GuestMemoryFromUffdError, MicrovmState, MicrovmStateError,
     guest_memory_from_file, guest_memory_from_uffd,
@@ -69,12 +69,26 @@ use crate::vstate::memory::{
 };
 #[cfg(target_arch = "aarch64")]
 use crate::vstate::resources::ResourceAllocator;
-use crate::vstate::vcpu::VcpuError;
+use crate::vstate::vcpu::{SharedApfStream, VcpuError};
 use crate::vstate::vm::{
     GUEST_MEMFD_FLAG_INIT_SHARED, GUEST_MEMFD_FLAG_MMAP, GUEST_MEMFD_FLAG_NO_DIRECT_MAP,
     GUEST_MEMFD_FLAG_WRITE, KvmVm, Vm, VmError,
 };
 use crate::{EventManager, UffdMessageBroker, Vmm, VmmError};
+
+const KVM_CAP_GUEST_MEMFD_FLAGS: u32 = 244;
+const KVM_CAP_ASYNC_PF_USERFAULT: u32 = 246;
+
+pub(crate) fn pipe2(flags: libc::c_int) -> io::Result<(RawFd, RawFd)> {
+    let mut fds = [0, 0];
+    // SAFETY: Safe as we know flags are good
+    let res = unsafe { libc::pipe2(fds.as_mut_ptr(), flags) };
+    if res == 0 {
+        Ok((fds[0], fds[1]))
+    } else {
+        Err(io::Error::last_os_error())
+    }
+}
 
 /// Errors associated with starting the instance.
 #[derive(Debug, thiserror::Error, displaydoc::Display)]
@@ -149,8 +163,6 @@ impl std::convert::From<linux_loader::cmdline::Error> for StartMicrovmError {
     }
 }
 
-const KVM_CAP_GUEST_MEMFD_FLAGS: u32 = 244;
-
 /// Builds and starts a microVM based on the current Firecracker VmResources configuration.
 ///
 /// The built microVM and all the created vCPUs start off in the paused state.
@@ -197,7 +209,20 @@ pub fn build_microvm_for_boot(
     // Set up KVM VM and register memory regions.
     // Build custom CPU config if a custom template is provided.
     let mut vm = KvmVm::new(kvm, secret_free)?;
-    let mut vcpus = vm.create_vcpus(vm_resources.machine_config.vcpu_count, secret_free)?;
+
+    let (reader_fd, writer_fd) = pipe2(libc::O_NONBLOCK).unwrap();
+    // SAFETY: We know these files are good as we check the result
+    let reader = unsafe { File::from_raw_fd(reader_fd) };
+    // SAFETY: We know these files are good as we check the result
+    let writer = unsafe { File::from_raw_fd(writer_fd) };
+
+    let mut vcpus = vm.create_vcpus(
+        vm_resources.machine_config.vcpu_count,
+        secret_free,
+        &writer,
+        None,
+        false,
+    )?;
 
     let guest_memfd = match secret_free {
         true => Some(
@@ -402,7 +427,12 @@ pub fn build_microvm_for_boot(
         shutdown_exit_code: None,
         vm,
         uffd_socket: None,
+        vcpu_fds: Vec::new(),
+        _apf_pipe_reader: reader,
         device_manager,
+        _guest_memfd: None,
+        _eventfd: None,
+        apf_stream: None,
     };
     let vmm = Arc::new(Mutex::new(vmm));
 
@@ -613,15 +643,54 @@ pub fn build_microvm_from_snapshot(
         kvm_capabilities.push(KvmCapability::Add(KVM_CAP_USERFAULT));
     }
 
+    let apf_sock = params
+        .mem_backend
+        .backend_path
+        .parent()
+        .unwrap_or_else(|| Path::new("/tmp"))
+        .join("apf.socket");
+    let apf_stream: Option<SharedApfStream> = UnixStream::connect(&apf_sock)
+        .and_then(|stream| {
+            stream.set_nonblocking(true)?;
+            Ok(stream)
+        })
+        .map(|s| std::sync::Arc::new(std::sync::Mutex::new(UffdMessageBroker::new(s))))
+        .ok();
+
     let kvm = Kvm::new(kvm_capabilities).map_err(StartMicrovmError::Kvm)?;
+
+    // Check APF capability at runtime — don't require it
+    let apf_supported = apf_stream.is_some()
+        && kvm
+            .fd
+            .check_extension_raw(u64::from(KVM_CAP_ASYNC_PF_USERFAULT))
+            != 0;
+    if apf_stream.is_some() && !apf_supported {
+        warn!("KVM_CAP_ASYNC_PF_USERFAULT not supported by kernel, APF disabled");
+    }
 
     // Set up KVM VM and register memory regions.
     // Build custom CPU config if a custom template is provided.
     let mut vm = KvmVm::new(kvm, secret_free).map_err(StartMicrovmError::KvmVm)?;
 
+    let (reader_fd, writer_fd) = pipe2(libc::O_NONBLOCK).unwrap();
+    // SAFETY: This fd has just been created above
+    let reader = unsafe { File::from_raw_fd(reader_fd) };
+    // SAFETY: This fd has just been created above
+    let writer = unsafe { File::from_raw_fd(writer_fd) };
+
     let mut vcpus = vm
-        .create_vcpus(vm_resources.machine_config.vcpu_count, secret_free)
+        .create_vcpus(
+            vm_resources.machine_config.vcpu_count,
+            secret_free,
+            &writer,
+            apf_stream.clone(),
+            apf_supported,
+        )
         .map_err(StartMicrovmError::KvmVm)?;
+
+    // Collect vcpu fds early (needed for exitless APF setup before VM runs)
+    let vcpu_fds: Vec<RawFd> = vcpus.iter().map(|v| v.kvm_vcpu.fd.as_raw_fd()).collect();
 
     let guest_memfd = match secret_free {
         true => Some(
@@ -788,7 +857,12 @@ pub fn build_microvm_from_snapshot(
         shutdown_exit_code: None,
         vm,
         uffd_socket: uffd_socket.map(UffdMessageBroker::new),
+        vcpu_fds,
+        _apf_pipe_reader: reader,
         device_manager,
+        _guest_memfd: None,
+        _eventfd: None,
+        apf_stream,
     };
 
     // Move vcpus to their own threads and start their state machine in the 'Paused' state.
@@ -1124,14 +1198,27 @@ pub(crate) mod tests {
     #[cfg(target_arch = "x86_64")]
     #[test]
     fn test_synchronize_tsc_offsets() {
+        use std::os::fd::FromRawFd;
+
         for offsets in [
             &[-5_000_000_000_i64][..],
             &[-5_000_000_000, 5_000_000_000][..],
             &[5_000_000_000, 5_000_000_000][..],
         ] {
             let count = u8::try_from(offsets.len()).unwrap();
+            // vCPUs need the APF notification pipe even when no snapshot is involved.
+            let (reader_fd, writer_fd) = super::pipe2(libc::O_NONBLOCK).unwrap();
+            // SAFETY: both fds are valid fds from pipe2() above; we take sole ownership of each.
+            let (_reader, writer) = unsafe {
+                (
+                    std::fs::File::from_raw_fd(reader_fd),
+                    std::fs::File::from_raw_fd(writer_fd),
+                )
+            };
             let mut source_vm = setup_vm_with_memory(0x1000);
-            let source_vcpus = source_vm.create_vcpus(count, false).unwrap();
+            let source_vcpus = source_vm
+                .create_vcpus(count, false, &writer, None, false)
+                .unwrap();
             if !source_vcpus[0].kvm_vcpu.supports_tsc_offset_attr() {
                 eprintln!("Skipping TSC offset synchronization: KVM attribute unavailable");
                 return;
@@ -1143,7 +1230,7 @@ pub(crate) mod tests {
                 .collect();
 
             let mut vm = setup_vm_with_memory(0x1000);
-            let vcpus = vm.create_vcpus(count, false).unwrap();
+            let vcpus = vm.create_vcpus(count, false, &writer, None, false).unwrap();
             for ((vcpu, state), &offset) in vcpus.iter().zip(&states).zip(offsets) {
                 vcpu.kvm_vcpu.restore_state(state).unwrap();
                 // Establish exact offsets without depending on KVM's MSR-write heuristics.
@@ -1187,9 +1274,18 @@ pub(crate) mod tests {
     }
 
     pub(crate) fn default_vmm() -> Vmm {
+        use std::os::fd::FromRawFd;
+
         let mut vm = setup_vm_with_memory(mib_to_bytes(128));
 
-        let _ = vm.create_vcpus(1, false).unwrap();
+        let (reader_fd, writer_fd) = super::pipe2(libc::O_NONBLOCK).unwrap();
+        // SAFETY: reader_fd is a valid fd from pipe2() above; we take sole ownership.
+        let reader = unsafe { std::fs::File::from_raw_fd(reader_fd) };
+        let _ = {
+            // SAFETY: writer_fd is a valid fd from pipe2() above; we take sole ownership.
+            let writer = unsafe { std::fs::File::from_raw_fd(writer_fd) };
+            vm.create_vcpus(1, false, &writer, None, false).unwrap()
+        };
 
         Vmm {
             instance_info: InstanceInfo::default(),
@@ -1198,7 +1294,12 @@ pub(crate) mod tests {
             shutdown_exit_code: None,
             vm: Vm::Kvm(Arc::new(vm)),
             uffd_socket: None,
+            vcpu_fds: Vec::new(),
+            _apf_pipe_reader: reader,
             device_manager: default_device_manager(),
+            _guest_memfd: None,
+            _eventfd: None,
+            apf_stream: None,
         }
     }
 
@@ -1207,9 +1308,18 @@ pub(crate) mod tests {
     }
 
     pub(crate) fn default_vmm_with_pci_ports(hotplug_ports: u8) -> Vmm {
+        use std::os::fd::FromRawFd;
+
         let mut vm = setup_vm_with_memory(mib_to_bytes(128));
 
-        let _ = vm.create_vcpus(1, false).unwrap();
+        let (reader_fd, writer_fd) = super::pipe2(libc::O_NONBLOCK).unwrap();
+        // SAFETY: reader_fd is a valid fd from pipe2() above; we take sole ownership.
+        let reader = unsafe { std::fs::File::from_raw_fd(reader_fd) };
+        let _ = {
+            // SAFETY: writer_fd is a valid fd from pipe2() above; we take sole ownership.
+            let writer = unsafe { std::fs::File::from_raw_fd(writer_fd) };
+            vm.create_vcpus(1, false, &writer, None, false).unwrap()
+        };
 
         let vm = Arc::new(vm);
         let device_manager = default_device_manager_with_pci(&vm, hotplug_ports);
@@ -1221,7 +1331,12 @@ pub(crate) mod tests {
             shutdown_exit_code: None,
             vm: Vm::Kvm(vm),
             uffd_socket: None,
+            vcpu_fds: Vec::new(),
+            _apf_pipe_reader: reader,
             device_manager,
+            _guest_memfd: None,
+            _eventfd: None,
+            apf_stream: None,
         }
     }
 

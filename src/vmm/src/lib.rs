@@ -119,11 +119,15 @@ pub mod vstate;
 pub mod initrd;
 
 use std::collections::HashMap;
+use std::fs::File;
 use std::io;
 use std::os::fd::RawFd;
 use std::os::unix::io::AsRawFd;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
+
+use vmm_sys_util::ioctl::ioctl_with_ref;
+use vmm_sys_util::syscall::SyscallReturnCode;
 
 use device_manager::DeviceManager;
 use event_manager::{EventManager as BaseEventManager, EventOps, Events, MutEventSubscriber};
@@ -165,6 +169,7 @@ use crate::vmm_config::net::NetworkInterfaceConfig;
 use crate::vmm_config::vsock::VsockDeviceConfig;
 pub use crate::vstate::kvm::Kvm;
 use crate::vstate::memory::{GuestMemoryExtension, GuestMemoryMmap, GuestMemoryRegion};
+use crate::vstate::memory::{KVM_APF_OP_READY, KVM_ASYNC_PF, KvmAPFReq};
 #[cfg(target_arch = "aarch64")]
 use crate::vstate::vcpu::VcpuState;
 pub use crate::vstate::vcpu::{Vcpu, VcpuConfig, VcpuEvent, VcpuHandle, VcpuResponse};
@@ -315,8 +320,18 @@ pub struct Vmm {
     pub vm: Vm,
     // Used for userfault communication with the UFFD handler when secret freedom is enabled
     uffd_socket: Option<UffdMessageBroker>,
+    /// Raw vCPU file descriptors for ioctl access
+    vcpu_fds: Vec<RawFd>,
+    /// APF pipe reader; held for fd lifetime.
+    _apf_pipe_reader: File,
     // Device manager
     device_manager: DeviceManager,
+    /// Guest memfd file handle; held for fd lifetime.
+    pub(crate) _guest_memfd: Option<File>,
+    /// Eventfd for APF notifications; held for fd lifetime.
+    pub(crate) _eventfd: Option<i32>,
+    /// APF stream shared with vCPUs
+    apf_stream: Option<vstate::vcpu::SharedApfStream>,
 }
 
 pub use uffd_broker::UffdMessageBroker;
@@ -737,6 +752,7 @@ impl Vmm {
     }
 
     fn process_vcpu_userfault(&mut self, vcpu: u32, userfault_data: UserfaultData) {
+        // APF requests are now sent directly by vCPUs, so we only handle sync faults here
         let offset = self
             .vm
             .as_kvm()
@@ -777,6 +793,40 @@ impl Vmm {
         for fault_reply in socket.by_ref() {
             let vcpu = fault_reply.vcpu.expect("vCPU must be set");
             kvm_vm.vcpus_handles()[vcpu as usize].send_userfault_resolved();
+        }
+    }
+
+    fn process_apf_socket(&mut self) {
+        let Some(apf_stream) = self.apf_stream.as_ref() else {
+            return;
+        };
+        let mut stream = apf_stream.lock().expect("APF stream lock poisoned");
+        for fault_reply in stream.by_ref() {
+            let vcpu = fault_reply.vcpu.expect("vCPU must be set") as usize;
+            let gpa = fault_reply.gpa.unwrap();
+            self.apf_ready_ioctl(vcpu, gpa);
+        }
+    }
+
+    fn apf_ready_ioctl(&self, vcpu: usize, gpa: u64) {
+        let apf_message = KvmAPFReq {
+            gpa,
+            op: KVM_APF_OP_READY,
+            flags: 0,
+            reserved: [0; 2],
+        };
+
+        // SAFETY: ioctl on a valid vcpu fd with a valid gpa reference
+        unsafe {
+            let _ = SyscallReturnCode(ioctl_with_ref(
+                &self.vcpu_fds[vcpu],
+                KVM_ASYNC_PF(),
+                &apf_message,
+            ))
+            .into_empty_result()
+            .inspect_err(|err| {
+                info!("KVM_ASYNC_PF_READY error: {err:?}");
+            });
         }
     }
 
@@ -924,6 +974,17 @@ impl MutEventSubscriber for Vmm {
         if self.active_event_in_uffd_socket(source, event_set) {
             self.process_uffd_socket();
         }
+
+        if let Some(apf_stream) = &self.apf_stream {
+            let fd = apf_stream
+                .lock()
+                .expect("APF stream lock poisoned")
+                .stream()
+                .as_raw_fd();
+            if source == fd && event_set == EventSet::IN {
+                self.process_apf_socket();
+            }
+        }
     }
 
     fn init(&mut self, ops: &mut EventOps) {
@@ -939,6 +1000,13 @@ impl MutEventSubscriber for Vmm {
             && let Err(err) = ops.add(Events::new(uffd_socket.stream(), EventSet::IN))
         {
             error!("Failed to register UFFD socket: {}", err);
+        }
+
+        if let Some(apf_stream) = &self.apf_stream {
+            let stream = apf_stream.lock().expect("APF stream lock poisoned");
+            if let Err(err) = ops.add(Events::new(stream.stream(), EventSet::IN)) {
+                error!("Failed to register APF socket: {}", err);
+            }
         }
     }
 }
