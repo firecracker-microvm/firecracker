@@ -18,14 +18,14 @@ def test_init_params(uvm_plain):
     vm.memory_monitor = None
 
     # We will override the init with /bin/cat so that we try to read the
-    # Ubuntu version from the /etc/issue file.
+    # distro info from the /etc/os-release file.
     vm.basic_config(
         vcpu_count=1,
-        boot_args="console=ttyS0 reboot=k panic=1 swiotlb=noforce init=/bin/cat -- /etc/issue",
+        boot_args="console=ttyS0 reboot=k panic=1 swiotlb=noforce init=/bin/cat -- /etc/os-release",
     )
 
     vm.start()
     serial = Serial(vm)
     serial.open()
     # If the string does not show up, the test will fail.
-    serial.rx(token="Ubuntu 24.04")
+    serial.rx(token=vm.distro.os_release_token)
