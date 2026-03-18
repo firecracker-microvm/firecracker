@@ -103,12 +103,12 @@ mod tests {
             return;
         }
         let tmp = TempDir::new_with_prefix("landlock_test_").unwrap();
-        assert!(prepare_ruleset(tmp.as_path()).is_ok());
+        prepare_ruleset(tmp.as_path()).unwrap();
     }
 
     #[test]
     fn test_prepare_ruleset_nonexistent_dir() {
         let result = prepare_ruleset(Path::new("/nonexistent/path/for/landlock/test"));
-        assert!(result.is_err());
+        result.unwrap_err();
     }
 }
