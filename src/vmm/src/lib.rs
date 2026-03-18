@@ -106,6 +106,8 @@ pub mod signal_handler;
 pub mod snapshot;
 /// Utility functions for integration and benchmark testing
 pub mod test_utils;
+/// Length-prefixed bitcode message broker for UFFD communication.
+pub mod uffd_broker;
 /// Utility functions and struct
 pub mod utils;
 /// Wrappers over structures used to configure the VMM.
@@ -117,13 +119,16 @@ pub mod vstate;
 pub mod initrd;
 
 use std::collections::HashMap;
-use std::io::{self, Read, Write};
+use std::fs::File;
+use std::io;
 use std::os::fd::RawFd;
 use std::os::unix::io::AsRawFd;
-use std::os::unix::net::UnixStream;
 use std::sync::mpsc::RecvTimeoutError;
 use std::sync::{Arc, Barrier, Mutex};
 use std::time::Duration;
+
+use vmm_sys_util::ioctl::ioctl_with_ref;
+use vmm_sys_util::syscall::SyscallReturnCode;
 
 use device_manager::DeviceManager;
 use event_manager::{EventManager as BaseEventManager, EventOps, Events, MutEventSubscriber};
@@ -153,7 +158,7 @@ use crate::devices::virtio::rng::Entropy;
 use crate::devices::virtio::vsock::{Vsock, VsockUnixBackend};
 use crate::logger::{METRICS, MetricsError};
 use crate::mmds::data_store::Mmds;
-use crate::persist::{FaultReply, FaultRequest, MicrovmState, MicrovmStateError, VmInfo};
+use crate::persist::{FaultRequest, MicrovmState, MicrovmStateError, VmInfo};
 use crate::rate_limiter::BucketUpdate;
 use crate::resources::VmmConfig;
 use crate::vmm_config::balloon::BalloonDeviceConfig;
@@ -168,6 +173,7 @@ use crate::vmm_config::vsock::VsockDeviceConfig;
 use crate::vstate::memory::{
     GuestMemory, GuestMemoryExtension, GuestMemoryMmap, GuestMemoryRegion,
 };
+use crate::vstate::memory::{KVM_APF_OP_READY, KVM_ASYNC_PF, KvmAPFReq};
 use crate::vstate::vcpu::VcpuState;
 pub use crate::vstate::vcpu::{Vcpu, VcpuConfig, VcpuEvent, VcpuHandle, VcpuResponse};
 use crate::vstate::vm::UserfaultData;
@@ -267,6 +273,8 @@ pub enum VmmError {
     Vm(#[from] vstate::vm::VmError),
     /// Kvm error: {0}
     Kvm(#[from] vstate::kvm::KvmError),
+    /// Exitless APF setup error: {0}
+    ExitlessApfSetup(String),
     /// Failed perform action on device: {0}
     FindDeviceError(#[from] device_manager::FindDeviceError),
     /// Block: {0}
@@ -325,14 +333,32 @@ pub struct Vmm {
     #[allow(unused)]
     uffd: Option<Uffd>,
     // Used for userfault communication with the UFFD handler when secret freedom is enabled
-    uffd_socket: Option<UnixStream>,
+    uffd_socket: Option<UffdMessageBroker>,
     /// Handles to the vcpu threads with vcpu_fds inside them.
     pub vcpus_handles: Vec<VcpuHandle>,
+    /// Raw vCPU file descriptors for ioctl access
+    vcpu_fds: Vec<RawFd>,
     // Used by Vcpus and devices to initiate teardown; Vmm should never write here.
     vcpus_exit_evt: EventFd,
+    /// APF pipe reader; held for fd lifetime.
+    _apf_pipe_reader: File,
     // Device manager
     device_manager: DeviceManager,
+    /// Guest memfd file handle; held for fd lifetime.
+    pub(crate) _guest_memfd: Option<File>,
+    /// Eventfd for APF notifications; held for fd lifetime.
+    pub(crate) _eventfd: Option<i32>,
+    /// APF stream shared with vCPUs
+    apf_stream: Option<vstate::vcpu::SharedApfStream>,
+    /// Whether the kernel supports KVM_CAP_ASYNC_PF_USERFAULT
+    apf_supported: bool,
+    /// Exitless APF contexts (one per vCPU)
+    exitless_apf: Vec<vstate::exitless_apf::ExitlessApfContext>,
+    /// Whether exitless APF setup has been done
+    exitless_apf_setup_done: bool,
 }
+
+pub use uffd_broker::UffdMessageBroker;
 
 impl Vmm {
     /// Gets Vmm version.
@@ -830,7 +856,64 @@ impl Vmm {
         self.shutdown_exit_code = Some(exit_code);
     }
 
+    /// Set up exitless APF - creates contexts in Firecracker (where the KVM ioctl works)
+    /// and sends eventfds + shared page memfds to the handler.
+    pub fn setup_exitless_apf(&mut self) -> Result<(), VmmError> {
+        use vmm_sys_util::sock_ctrl_msg::ScmSocket;
+
+        if self.exitless_apf_setup_done {
+            return Ok(());
+        }
+
+        if !self.apf_supported {
+            // Tell the handler that exitless APF is not available
+            if let Some(ref uffd_socket) = self.uffd_socket {
+                let msg = b"no_exitless_apf";
+                let _ = uffd_socket.stream().send_with_fds(&[&msg[..]], &[]);
+            }
+            self.exitless_apf_setup_done = true;
+            return Ok(());
+        }
+
+        info!("Setting up exitless APF for {} vCPUs", self.vcpu_fds.len());
+
+        // Create ExitlessApfContext for each vCPU (does the KVM_SET_APF_EVENTFD ioctl)
+        let mut contexts = Vec::new();
+        let mut handler_fds = Vec::new();
+        for &vcpu_fd in &self.vcpu_fds {
+            let ctx = vstate::exitless_apf::ExitlessApfContext::new(vcpu_fd).map_err(|e| {
+                VmmError::ExitlessApfSetup(format!(
+                    "Failed to create context for vcpu fd {vcpu_fd}: {e}"
+                ))
+            })?;
+            let (notify_fd, complete_fd, memfd) = ctx.fds_for_handler();
+            handler_fds.push(notify_fd);
+            handler_fds.push(complete_fd);
+            handler_fds.push(memfd);
+            contexts.push(ctx);
+        }
+
+        // Send the fds to the handler: 3 fds per vCPU
+        if let Some(ref uffd_socket) = self.uffd_socket {
+            let msg = format!("exitless_apf:{}", self.vcpu_fds.len());
+            let n = uffd_socket
+                .stream()
+                .send_with_fds(&[msg.as_bytes()], &handler_fds)
+                .map_err(|e| VmmError::ExitlessApfSetup(format!("Failed to send fds: {e}")))?;
+            info!(
+                "Sent {} bytes with {} fds for exitless APF",
+                n,
+                handler_fds.len()
+            );
+            self.exitless_apf = contexts;
+            self.exitless_apf_setup_done = true;
+        }
+
+        Ok(())
+    }
+
     fn process_vcpu_userfault(&mut self, vcpu: u32, userfault_data: UserfaultData) {
+        // APF requests are now sent directly by vCPUs, so we only handle sync faults here
         let offset = self
             .vm
             .guest_memory()
@@ -841,84 +924,63 @@ impl Vmm {
             vcpu,
             offset,
             flags: userfault_data.flags,
-            token: None,
+            gpa: None,
         };
-        let fault_request_json =
-            serde_json::to_string(&fault_request).expect("Failed to serialize fault request");
 
         self.uffd_socket
-            .as_ref()
+            .as_mut()
             .expect("Uffd socket is not set")
-            .write_all(fault_request_json.as_bytes())
-            .expect("Failed to write to uffd socket");
+            .send_fault_request(fault_request)
+            .unwrap_or_else(|e| error!("Failed to send fault request to UFFD handler: {e}"));
     }
 
     fn active_event_in_uffd_socket(&self, source: RawFd, event_set: EventSet) -> bool {
         if let Some(uffd_socket) = &self.uffd_socket {
-            uffd_socket.as_raw_fd() == source && event_set == EventSet::IN
+            uffd_socket.stream().as_raw_fd() == source && event_set == EventSet::IN
         } else {
             false
         }
     }
 
     fn process_uffd_socket(&mut self) {
-        const BUFFER_SIZE: usize = 4096;
+        let socket = self.uffd_socket.as_mut().unwrap();
+        for fault_reply in socket.by_ref() {
+            let vcpu = fault_reply.vcpu.expect("vCPU must be set");
+            self.vcpus_handles[vcpu as usize].send_userfault_resolved();
+        }
+    }
 
-        let stream = self.uffd_socket.as_mut().expect("Uffd socket is not set");
+    fn process_apf_socket(&mut self) {
+        let Some(apf_stream) = self.apf_stream.as_ref() else {
+            return;
+        };
+        let mut stream = apf_stream.lock().expect("APF stream lock poisoned");
+        for fault_reply in stream.by_ref() {
+            let vcpu = fault_reply.vcpu.expect("vCPU must be set") as usize;
+            let gpa = fault_reply.gpa.unwrap();
+            self.apf_ready_ioctl(vcpu, gpa);
+        }
+    }
 
-        let mut buffer = [0u8; BUFFER_SIZE];
-        let mut current_pos = 0;
+    fn apf_ready_ioctl(&self, vcpu: usize, gpa: u64) {
+        let apf_message = KvmAPFReq {
+            gpa,
+            op: KVM_APF_OP_READY,
+            flags: 0,
+            reserved: [0; 2],
+        };
 
-        loop {
-            if current_pos < BUFFER_SIZE {
-                match stream.read(&mut buffer[current_pos..]) {
-                    Ok(0) => break,
-                    Ok(n) => current_pos += n,
-                    Err(e) if e.kind() == io::ErrorKind::WouldBlock => {
-                        if current_pos == 0 {
-                            break;
-                        }
-                    }
-                    Err(e) if e.kind() == io::ErrorKind::Interrupted => continue,
-                    Err(e) => panic!("Read error: {}", e),
-                }
-            }
-
-            let mut parser = serde_json::Deserializer::from_slice(&buffer[..current_pos])
-                .into_iter::<FaultReply>();
-            let mut total_consumed = 0;
-            let mut needs_more = false;
-
-            while let Some(result) = parser.next() {
-                match result {
-                    Ok(fault_reply) => {
-                        let vcpu = fault_reply.vcpu.expect("vCPU must be set");
-                        self.vcpus_handles[vcpu as usize].send_userfault_resolved();
-
-                        total_consumed = parser.byte_offset();
-                    }
-                    Err(e) if e.is_eof() => {
-                        needs_more = true;
-                        break;
-                    }
-                    Err(e) => {
-                        println!(
-                            "Buffer content: {:?}",
-                            std::str::from_utf8(&buffer[..current_pos])
-                        );
-                        panic!("Invalid JSON: {}", e);
-                    }
-                }
-            }
-
-            if total_consumed > 0 {
-                buffer.copy_within(total_consumed..current_pos, 0);
-                current_pos -= total_consumed;
-            }
-
-            if needs_more {
-                continue;
-            }
+        // SAFETY: ioctl on a valid vcpu fd with a valid gpa reference
+        unsafe {
+            let _ = SyscallReturnCode(ioctl_with_ref(
+                &self.vcpu_fds[vcpu],
+                KVM_ASYNC_PF(),
+                &apf_message,
+            ))
+            .into_empty_result()
+            .inspect_err(|err| {
+                info!("KVM_ASYNC_PF_READY error: {err:?}");
+            });
         }
     }
 
@@ -1028,6 +1090,17 @@ impl MutEventSubscriber for Vmm {
         if self.active_event_in_uffd_socket(source, event_set) {
             self.process_uffd_socket();
         }
+
+        if let Some(apf_stream) = &self.apf_stream {
+            let fd = apf_stream
+                .lock()
+                .expect("APF stream lock poisoned")
+                .stream()
+                .as_raw_fd();
+            if source == fd && event_set == EventSet::IN {
+                self.process_apf_socket();
+            }
+        }
     }
 
     fn init(&mut self, ops: &mut EventOps) {
@@ -1036,9 +1109,16 @@ impl MutEventSubscriber for Vmm {
         }
 
         if let Some(uffd_socket) = self.uffd_socket.as_ref()
-            && let Err(err) = ops.add(Events::new(uffd_socket, EventSet::IN))
+            && let Err(err) = ops.add(Events::new(uffd_socket.stream(), EventSet::IN))
         {
             error!("Failed to register UFFD socket: {}", err);
+        }
+
+        if let Some(apf_stream) = &self.apf_stream {
+            let stream = apf_stream.lock().expect("APF stream lock poisoned");
+            if let Err(err) = ops.add(Events::new(stream.stream(), EventSet::IN)) {
+                error!("Failed to register APF socket: {}", err);
+            }
         }
     }
 }
