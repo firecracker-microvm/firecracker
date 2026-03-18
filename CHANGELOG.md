@@ -23,6 +23,12 @@ and this project adheres to
 
 ### Fixed
 
+- [#5762](https://github.com/firecracker-microvm/firecracker/pull/5762): Cap
+  virtio-rng per-request entropy to 64 KiB. Previously, a guest could construct
+  a descriptor chain that caused Firecracker to allocate more host memory than
+  the guest actually provided, potentially leading to excessive host memory
+  consumption.
+
 ## [1.15.0]
 
 ### Added
