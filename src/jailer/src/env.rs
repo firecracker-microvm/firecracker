@@ -189,7 +189,7 @@ impl Env {
 
         let new_pid_ns = arguments.flag_present("new-pid-ns");
 
-        let landlock = arguments.flag_present("landlock");
+        let landlock = arguments.flag_present("landlock-restrict-fs");
 
         // Optional arguments.
         let mut cgroup_conf = None;
@@ -895,7 +895,7 @@ mod tests {
         }
 
         if arg_vals.landlock {
-            arg_vec.push("--landlock".to_string());
+            arg_vec.push("--landlock-restrict-fs".to_string());
         }
 
         if let Some(parent_cg) = arg_vals.parent_cgroup {

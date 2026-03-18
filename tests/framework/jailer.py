@@ -112,7 +112,7 @@ class JailerContext:
         if self.new_pid_ns:
             jailer_param_list.append("--new-pid-ns")
         if self.landlock:
-            jailer_param_list.append("--landlock")
+            jailer_param_list.append("--landlock-restrict-fs")
         if self.parent_cgroup:
             jailer_param_list.extend(["--parent-cgroup", str(self.parent_cgroup)])
         if self.cgroup_ver:

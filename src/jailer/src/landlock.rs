@@ -3,10 +3,11 @@
 
 //! Landlock LSM integration for the Firecracker jailer.
 //!
-//! Landlock is a Linux security module (available since kernel 5.13) that allows a process to
-//! restrict its own file system access. The jailer uses it as a defense-in-depth mechanism: even
-//! if a guest VM escapes the pivot_root chroot, the Landlock rules—applied before the exec—
-//! prevent Firecracker from accessing files outside the jail directory.
+//! [Landlock](https://landlock.io) is a Linux security module (available since kernel 5.13) that
+//! allows a process to restrict its own file system access. The jailer uses it as a
+//! defense-in-depth mechanism: even if a guest VM escapes the pivot_root chroot, the Landlock
+//! rules—applied before the exec—prevent Firecracker from accessing files outside the jail
+//! directory.
 //!
 //! Usage:
 //! 1. Call [`prepare_ruleset`] **before** `chroot()` to open a file descriptor referencing the
@@ -33,10 +34,10 @@ use crate::JailerError;
 ///
 /// # Errors
 ///
-/// Returns [`JailerError::Landlock`] if the kernel does not support Landlock (kernel < 5.13),
+/// Returns [`JailerError::Landlock`] if the kernel does not support Landlock,
 /// if `jail_dir` cannot be opened, or if any ruleset syscall fails.
 pub fn prepare_ruleset(jail_dir: &Path) -> Result<RulesetCreated, JailerError> {
-    let abi = ABI::V1;
+    let abi = ABI::V4;
 
     let path_fd = PathFd::new(jail_dir).map_err(|err| {
         JailerError::Landlock(format!(
@@ -71,29 +72,21 @@ pub fn enforce(ruleset: RulesetCreated) -> Result<(), JailerError> {
 
 #[cfg(test)]
 mod tests {
-    #![allow(clippy::undocumented_unsafe_blocks)]
-
-    use std::ffi::CStr;
-
+    use landlock::CompatLevel;
     use vmm_sys_util::tempdir::TempDir;
 
     use super::*;
 
+    /// Returns true if the running kernel supports Landlock (any ABI version).
+    ///
+    /// Uses the Landlock crate's own compatibility check (via `HardRequirement`) rather than
+    /// parsing the kernel version string, since Landlock may be backported to older kernels.
     fn is_landlock_supported() -> bool {
-        // SAFETY: zeroed() is always safe for plain-old-data types.
-        let mut utsname: libc::utsname = unsafe { std::mem::zeroed() };
-        // SAFETY: utsname is a valid pointer to a libc::utsname struct.
-        if unsafe { libc::uname(&mut utsname) } != 0 {
-            return false;
-        }
-        // SAFETY: release is a null-terminated C string written by uname().
-        let release = unsafe { CStr::from_ptr(utsname.release.as_ptr()) }
-            .to_string_lossy()
-            .into_owned();
-        let mut parts = release.split('.');
-        let major: i32 = parts.next().and_then(|s| s.parse().ok()).unwrap_or(0);
-        let minor: i32 = parts.next().and_then(|s| s.parse().ok()).unwrap_or(0);
-        major > 5 || (major == 5 && minor >= 13)
+        Ruleset::default()
+            .set_compatibility(CompatLevel::HardRequirement)
+            .handle_access(AccessFs::from_all(ABI::V1))
+            .and_then(|r| r.create())
+            .is_ok()
     }
 
     #[test]
