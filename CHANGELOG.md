@@ -10,7 +10,7 @@ and this project adheres to
 
 ### Added
 
-- [[#1](https://github.com/superserve-ai/firecracker/pull/1)]: Add opt-in
+- \[[#1](https://github.com/superserve-ai/firecracker/pull/1)\]: Add opt-in
   `--landlock` flag to the jailer that uses the Linux Landlock LSM (kernel >=
   5.13) as a defense-in-depth mechanism. When enabled, the jailed Firecracker
   process is restricted to only accessing files within the jail directory, even
