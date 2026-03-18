@@ -19,6 +19,7 @@ use vmm_sys_util::syscall::SyscallReturnCode;
 use crate::JailerError;
 use crate::cgroup::{CgroupConfiguration, CgroupConfigurationBuilder};
 use crate::chroot::chroot;
+use crate::landlock;
 use crate::resource_limits::{FSIZE_ARG, NO_FILE_ARG, ResourceLimits};
 
 pub const PROC_MOUNTS: &str = "/proc/mounts";
@@ -124,6 +125,7 @@ pub struct Env {
     netns: Option<String>,
     daemonize: bool,
     new_pid_ns: bool,
+    landlock: bool,
     start_time_us: u64,
     start_time_cpu_us: u64,
     jailer_cpu_time_us: u64,
@@ -186,6 +188,8 @@ impl Env {
         let daemonize = arguments.flag_present("daemonize");
 
         let new_pid_ns = arguments.flag_present("new-pid-ns");
+
+        let landlock = arguments.flag_present("landlock");
 
         // Optional arguments.
         let mut cgroup_conf = None;
@@ -263,6 +267,7 @@ impl Env {
             netns,
             daemonize,
             new_pid_ns,
+            landlock,
             start_time_us,
             start_time_cpu_us,
             jailer_cpu_time_us: 0,
@@ -669,6 +674,14 @@ impl Env {
         #[cfg(target_arch = "aarch64")]
         self.copy_midr_el1_info()?;
 
+        // Prepare the Landlock ruleset before chrooting, while the jail directory is still
+        // reachable by its host path. The PathFd captures the inode and survives pivot_root.
+        let landlock_ruleset = if self.landlock {
+            Some(landlock::prepare_ruleset(self.chroot_dir())?)
+        } else {
+            None
+        };
+
         // Jail self.
         chroot(self.chroot_dir())?;
 
@@ -762,6 +775,12 @@ impl Env {
             self.jailer_cpu_time_us += get_time_us(ClockType::ProcessCpu);
         }
 
+        // Enforce the Landlock ruleset right before exec so that the restrictions are inherited
+        // by the jailed Firecracker process.
+        if let Some(ruleset) = landlock_ruleset {
+            landlock::enforce(ruleset)?;
+        }
+
         // If specified, exec the provided binary into a new PID namespace.
         if self.new_pid_ns {
             self.exec_into_new_pid_ns(chroot_exec_file)
@@ -804,6 +823,7 @@ mod tests {
         pub netns: Option<&'a str>,
         pub daemonize: bool,
         pub new_pid_ns: bool,
+        pub landlock: bool,
         pub cgroups: Vec<&'a str>,
         pub resource_limits: Vec<&'a str>,
         pub parent_cgroup: Option<&'a str>,
@@ -823,6 +843,7 @@ mod tests {
                 netns: Some("zzzns"),
                 daemonize: true,
                 new_pid_ns: true,
+                landlock: false,
                 cgroups: vec!["cpu.shares=2", "cpuset.mems=0"],
                 resource_limits: vec!["no-file=1024", "fsize=1048575"],
                 parent_cgroup: None,
@@ -871,6 +892,10 @@ mod tests {
 
         if arg_vals.new_pid_ns {
             arg_vec.push("--new-pid-ns".to_string());
+        }
+
+        if arg_vals.landlock {
+            arg_vec.push("--landlock".to_string());
         }
 
         if let Some(parent_cg) = arg_vals.parent_cgroup {

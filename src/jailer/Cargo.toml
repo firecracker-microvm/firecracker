@@ -15,6 +15,7 @@ bench = false
 tracing = ["log-instrument", "utils/tracing"]
 
 [dependencies]
+landlock = "0.4"
 libc = "0.2.183"
 log-instrument = { path = "../log-instrument", optional = true }
 regex = { version = "1.12.3", default-features = false, features = ["std"] }

@@ -17,6 +17,7 @@ use crate::env::Env;
 mod cgroup;
 mod chroot;
 mod env;
+mod landlock;
 mod resource_limits;
 
 const JAILER_VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -152,6 +153,8 @@ pub enum JailerError {
     UTF8Parsing(std::str::Utf8Error),
     #[error("{}", format!("Failed to write to {:?}: {}", .0, .1).replace('\"', ""))]
     Write(PathBuf, io::Error),
+    #[error("Landlock error: {0}")]
+    Landlock(String),
 }
 
 /// Create an ArgParser object which contains info about the command line argument parser and
@@ -230,6 +233,15 @@ pub fn build_arg_parser() -> ArgParser<'static> {
             Argument::new("version")
                 .takes_value(false)
                 .help("Print the binary version number."),
+        )
+        .arg(
+            Argument::new("landlock")
+                .takes_value(false)
+                .help(
+                    "Restrict the jailed process's filesystem access to the jail directory using \
+                     the Linux Landlock LSM. Requires kernel >= 5.13. If the kernel does not \
+                     support Landlock, the jailer will exit with an error.",
+                ),
         )
 }
 
