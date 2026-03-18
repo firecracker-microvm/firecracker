@@ -34,6 +34,7 @@ use crate::devices::virtio::queue::Queue;
 use crate::devices::virtio::transport::pci::common_config::{
     VirtioPciCommonConfig, VirtioPciCommonConfigState,
 };
+use crate::devices::virtio::transport::pci::device_status::*;
 use crate::devices::virtio::transport::{VirtioInterrupt, VirtioInterruptType};
 use crate::logger::{debug, error};
 use crate::pci::configuration::{PciCapability, PciConfiguration, PciConfigurationState};
@@ -45,13 +46,6 @@ use crate::vstate::bus::BusDevice;
 use crate::vstate::interrupts::{InterruptError, MsixVectorGroup};
 use crate::vstate::memory::GuestMemoryMmap;
 use crate::vstate::resources::ResourceAllocator;
-
-const DEVICE_INIT: u8 = 0x00;
-const DEVICE_ACKNOWLEDGE: u8 = 0x01;
-const DEVICE_DRIVER: u8 = 0x02;
-const DEVICE_DRIVER_OK: u8 = 0x04;
-const DEVICE_FEATURES_OK: u8 = 0x08;
-const DEVICE_FAILED: u8 = 0x80;
 
 /// Vector value used to disable MSI for a queue.
 pub const VIRTQ_MSI_NO_VECTOR: u16 = 0xffff;
@@ -468,15 +462,14 @@ impl VirtioPciDevice {
     }
 
     fn is_driver_ready(&self) -> bool {
-        let ready_bits =
-            (DEVICE_ACKNOWLEDGE | DEVICE_DRIVER | DEVICE_DRIVER_OK | DEVICE_FEATURES_OK);
+        let ready_bits = (ACKNOWLEDGE | DRIVER | DRIVER_OK | FEATURES_OK);
         self.common_config.driver_status == ready_bits
-            && self.common_config.driver_status & DEVICE_FAILED == 0
+            && self.common_config.driver_status & FAILED == 0
     }
 
     /// Determines if the driver has requested the device (re)init / reset itself
     fn is_driver_init(&self) -> bool {
-        self.common_config.driver_status == DEVICE_INIT
+        self.common_config.driver_status == INIT
     }
 
     pub fn config_bar_addr(&self) -> u64 {
@@ -929,7 +922,7 @@ impl PciDevice for VirtioPciDevice {
                     error!("Attempt to reset device when not implemented in underlying device");
                     // TODO: currently we don't support device resetting, but we still
                     // follow the spec and set the status field to 0.
-                    self.common_config.driver_status = DEVICE_INIT;
+                    self.common_config.driver_status = INIT;
                 }
             }
         }
@@ -960,7 +953,6 @@ mod tests {
     use crate::arch::MEM_64BIT_DEVICES_START;
     use crate::builder::tests::default_vmm;
     use crate::devices::virtio::device::{VirtioDevice, VirtioDeviceType};
-    use crate::devices::virtio::device_status::{ACKNOWLEDGE, DRIVER, DRIVER_OK, FEATURES_OK};
     use crate::devices::virtio::generated::virtio_config::VIRTIO_F_VERSION_1;
     use crate::devices::virtio::rng::Entropy;
     use crate::devices::virtio::transport::pci::device::{
@@ -968,6 +960,9 @@ mod tests {
         ISR_CONFIG_BAR_OFFSET, ISR_CONFIG_SIZE, NOTIFICATION_BAR_OFFSET, NOTIFICATION_SIZE,
         NOTIFY_OFF_MULTIPLIER, PciVirtioSubclass, VirtioPciCap, VirtioPciCfgCap,
         VirtioPciNotifyCap,
+    };
+    use crate::devices::virtio::transport::pci::device_status::{
+        ACKNOWLEDGE, DRIVER, DRIVER_OK, FEATURES_OK,
     };
     use crate::pci::PciDevice;
     use crate::pci::msix::MsixCap;
@@ -1556,14 +1551,8 @@ mod tests {
                 .load(std::sync::atomic::Ordering::SeqCst)
         );
 
-        write_driver_status(
-            &mut locked_virtio_pci_device,
-            ACKNOWLEDGE.try_into().unwrap(),
-        );
-        write_driver_status(
-            &mut locked_virtio_pci_device,
-            (ACKNOWLEDGE | DRIVER).try_into().unwrap(),
-        );
+        write_driver_status(&mut locked_virtio_pci_device, ACKNOWLEDGE);
+        write_driver_status(&mut locked_virtio_pci_device, ACKNOWLEDGE | DRIVER);
         assert!(!locked_virtio_pci_device.is_driver_init());
         assert!(!locked_virtio_pci_device.is_driver_ready());
         assert!(
@@ -1573,7 +1562,7 @@ mod tests {
         );
 
         let status = read_driver_status(&mut locked_virtio_pci_device);
-        assert_eq!(status as u32, ACKNOWLEDGE | DRIVER);
+        assert_eq!(status, ACKNOWLEDGE | DRIVER);
 
         // Entropy device just offers VIRTIO_F_VERSION_1
         let offered_features = read_device_features(&mut locked_virtio_pci_device);
@@ -1582,10 +1571,10 @@ mod tests {
         write_driver_features(&mut locked_virtio_pci_device, offered_features);
         write_driver_status(
             &mut locked_virtio_pci_device,
-            (ACKNOWLEDGE | DRIVER | FEATURES_OK).try_into().unwrap(),
+            ACKNOWLEDGE | DRIVER | FEATURES_OK,
         );
         let status = read_driver_status(&mut locked_virtio_pci_device);
-        assert!((status & u8::try_from(FEATURES_OK).unwrap()) != 0);
+        assert!((status & FEATURES_OK) != 0);
 
         assert!(!locked_virtio_pci_device.is_driver_init());
         assert!(!locked_virtio_pci_device.is_driver_ready());
@@ -1599,9 +1588,7 @@ mod tests {
 
         write_driver_status(
             &mut locked_virtio_pci_device,
-            (ACKNOWLEDGE | DRIVER | FEATURES_OK | DRIVER_OK)
-                .try_into()
-                .unwrap(),
+            ACKNOWLEDGE | DRIVER | FEATURES_OK | DRIVER_OK,
         );
 
         assert!(!locked_virtio_pci_device.is_driver_init());
