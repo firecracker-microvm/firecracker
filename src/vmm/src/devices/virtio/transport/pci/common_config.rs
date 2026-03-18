@@ -127,10 +127,66 @@ impl VirtioPciCommonConfig {
 
     fn write_common_config_byte(&mut self, offset: u64, value: u8) {
         match offset {
-            DEVICE_STATUS => self.driver_status = value,
+            DEVICE_STATUS => self.set_device_status(value),
             _ => {
                 warn!("pci: invalid virtio config byte write: 0x{:x}", offset);
             }
+        }
+    }
+
+    fn set_device_status(&mut self, status: u8) {
+        /// Enforce the device status state machine per the virtio spec:
+        ///   INIT -> ACKNOWLEDGE -> DRIVER -> FEATURES_OK -> DRIVER_OK
+        /// https://docs.oasis-open.org/virtio/virtio/v1.3/csd01/virtio-v1.3-csd01.html#x1-1220001
+        ///
+        /// Each step sets exactly one new bit while preserving all previous bits.
+        const VALID_TRANSITIONS: &[(u8, u8)] = &[
+            (INIT, ACKNOWLEDGE),
+            (ACKNOWLEDGE, ACKNOWLEDGE | DRIVER),
+            (ACKNOWLEDGE | DRIVER, ACKNOWLEDGE | DRIVER | FEATURES_OK),
+            (
+                ACKNOWLEDGE | DRIVER | FEATURES_OK,
+                ACKNOWLEDGE | DRIVER | FEATURES_OK | DRIVER_OK,
+            ),
+        ];
+
+        if (status & FAILED) != 0 {
+            // Something went wrong in the guest.
+            //
+            // https://docs.oasis-open.org/virtio/virtio/v1.3/csd01/virtio-v1.3-csd01.html#x1-110001
+            // > FAILED (128)
+            // > Indicates that something went wrong in the guest, and it has given up on the
+            // > device.
+            self.driver_status |= FAILED;
+        } else if status == INIT {
+            // Reset requested by the driver.
+            //
+            // https://docs.oasis-open.org/virtio/virtio/v1.3/csd01/virtio-v1.3-csd01.html#x1-1430001
+            // > The device MUST reset when 0 is written to device_status, and present a 0 in
+            // > device_status once that is done.
+            //
+            // https://docs.oasis-open.org/virtio/virtio/v1.3/csd01/virtio-v1.3-csd01.html#x1-1440002
+            // > After writing 0 to device_status, the driver MUST wait for a read of device_status
+            // > to return 0 before reinitializing the device.
+            //
+            // https://docs.oasis-open.org/virtio/virtio/v1.3/csd01/virtio-v1.3-csd01.html#x1-200001
+            // > 2.4.1 Device Requirements: Device Reset
+            // > A device MUST reinitialize device status to 0 after receiving a reset.
+            //
+            // Setting INIT (0) here before the actual reset completes in write_bar() may appear
+            // racy - the driver could read 0 before the device is fully torn down.  But concurrent
+            // access is serialized since VirtioPciDevice is accessed through Arc<Mutex<>>.
+            self.driver_status = INIT;
+        } else if VALID_TRANSITIONS
+            .iter()
+            .any(|&(from, to)| self.driver_status == from && status == to)
+        {
+            self.driver_status = status;
+        } else {
+            warn!(
+                "pci: invalid virtio device status transition: {:#x} -> {:#x}",
+                self.driver_status, status
+            );
         }
     }
 
@@ -385,11 +441,6 @@ mod tests {
         };
 
         let dev = Arc::new(Mutex::new(DummyDevice::new()));
-        // Can set all bits of driver_status.
-        regs.write(DEVICE_STATUS, &[0x55], dev.clone());
-        let mut read_back = vec![0x00];
-        regs.read(DEVICE_STATUS, &mut read_back, dev.clone());
-        assert_eq!(read_back[0], 0x55);
 
         // The config generation register is read only.
         regs.write(CONFIG_GENERATION, &[0xaa], dev.clone());
@@ -497,14 +548,100 @@ mod tests {
     #[test]
     fn test_device_status() {
         let mut config = default_pci_common_config();
-        let mut device = default_device();
+        let device = default_device();
         let mut status = 0u8;
 
+        // Initial status should be INIT (0)
         config.read(DEVICE_STATUS, status.as_mut_slice(), device.clone());
         assert_eq!(status, 0);
-        config.write(DEVICE_STATUS, 0x42u8.as_slice(), device.clone());
+
+        // Valid state transitions
+        config.write(DEVICE_STATUS, ACKNOWLEDGE.as_slice(), device.clone());
         config.read(DEVICE_STATUS, status.as_mut_slice(), device.clone());
-        assert_eq!(status, 0x42);
+        assert_eq!(status, ACKNOWLEDGE);
+
+        config.write(
+            DEVICE_STATUS,
+            (ACKNOWLEDGE | DRIVER).as_slice(),
+            device.clone(),
+        );
+        config.read(DEVICE_STATUS, status.as_mut_slice(), device.clone());
+        assert_eq!(status, ACKNOWLEDGE | DRIVER);
+
+        config.write(
+            DEVICE_STATUS,
+            (ACKNOWLEDGE | DRIVER | FEATURES_OK).as_slice(),
+            device.clone(),
+        );
+        config.read(DEVICE_STATUS, status.as_mut_slice(), device.clone());
+        assert_eq!(status, ACKNOWLEDGE | DRIVER | FEATURES_OK);
+
+        config.write(
+            DEVICE_STATUS,
+            (ACKNOWLEDGE | DRIVER | FEATURES_OK | DRIVER_OK).as_slice(),
+            device.clone(),
+        );
+        config.read(DEVICE_STATUS, status.as_mut_slice(), device.clone());
+        assert_eq!(status, ACKNOWLEDGE | DRIVER | FEATURES_OK | DRIVER_OK);
+
+        // Reset should always work
+        config.write(DEVICE_STATUS, INIT.as_slice(), device.clone());
+        config.read(DEVICE_STATUS, status.as_mut_slice(), device.clone());
+        assert_eq!(status, INIT);
+    }
+
+    #[test]
+    fn test_device_status_invalid_transitions() {
+        let mut config = default_pci_common_config();
+        let device = default_device();
+
+        // Helper to attempt a transition and verify it was rejected.
+        let mut assert_rejected = |config: &mut VirtioPciCommonConfig, new: u8, expected: u8| {
+            config.write(DEVICE_STATUS, new.as_slice(), device.clone());
+            let mut s = 0u8;
+            config.read(DEVICE_STATUS, s.as_mut_slice(), device.clone());
+            assert_eq!(s, expected, "transition to {new:#x} should be rejected");
+        };
+
+        // Check the initial state is INIT (0)
+        let mut status = 0;
+        config.read(DEVICE_STATUS, status.as_mut_slice(), device.clone());
+        assert_eq!(status, INIT);
+
+        // Skip ACKNOWLEDGE: INIT -> ACKNOWLEDGE | DRIVER
+        assert_rejected(&mut config, ACKNOWLEDGE | DRIVER, INIT);
+        // Arbitrary value from INIT
+        assert_rejected(&mut config, 0x42, INIT);
+
+        // Advance to ACKNOWLEDGE | DRIVER | FEATURES_OK
+        config.write(DEVICE_STATUS, ACKNOWLEDGE.as_slice(), device.clone());
+        config.write(
+            DEVICE_STATUS,
+            (ACKNOWLEDGE | DRIVER).as_slice(),
+            device.clone(),
+        );
+        config.write(
+            DEVICE_STATUS,
+            (ACKNOWLEDGE | DRIVER | FEATURES_OK).as_slice(),
+            device.clone(),
+        );
+        let expected = ACKNOWLEDGE | DRIVER | FEATURES_OK;
+
+        // Go back: FEATURES_OK -> DRIVER
+        assert_rejected(&mut config, ACKNOWLEDGE | DRIVER, expected);
+        // Valid transition FEATURES_OK -> DRIVER_OK but without cumulative bits
+        assert_rejected(&mut config, DRIVER_OK, expected);
+
+        // Advance to FEATURES_OK
+        config.write(
+            DEVICE_STATUS,
+            (ACKNOWLEDGE | DRIVER | FEATURES_OK).as_slice(),
+            device.clone(),
+        );
+        let expected = ACKNOWLEDGE | DRIVER | FEATURES_OK;
+
+        // Go back from FEATURES_OK
+        assert_rejected(&mut config, ACKNOWLEDGE | DRIVER, expected);
     }
 
     #[test]
