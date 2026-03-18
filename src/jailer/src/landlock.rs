@@ -3,7 +3,8 @@
 
 //! Landlock LSM integration for the Firecracker jailer.
 //!
-//! [Landlock](https://landlock.io) is a Linux security module (available since kernel 5.13) that
+//! [Landlock](https://docs.kernel.org/userspace-api/landlock.html) is a Linux security module
+//! (available since kernel 5.13) that
 //! allows a process to restrict its own file system access. The jailer uses it as a
 //! defense-in-depth mechanism: even if a guest VM escapes the pivot_root chroot, the Landlock
 //! rules—applied before the exec—prevent Firecracker from accessing files outside the jail
