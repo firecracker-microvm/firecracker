@@ -464,7 +464,6 @@ impl VirtioPciDevice {
     fn is_driver_ready(&self) -> bool {
         let ready_bits = (ACKNOWLEDGE | DRIVER | DRIVER_OK | FEATURES_OK);
         self.common_config.driver_status == ready_bits
-            && self.common_config.driver_status & FAILED == 0
     }
 
     /// Determines if the driver has requested the device (re)init / reset itself
