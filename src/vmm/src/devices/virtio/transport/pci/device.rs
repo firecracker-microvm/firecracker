@@ -954,6 +954,7 @@ mod tests {
     use crate::devices::virtio::device::{VirtioDevice, VirtioDeviceType};
     use crate::devices::virtio::generated::virtio_config::VIRTIO_F_VERSION_1;
     use crate::devices::virtio::rng::Entropy;
+    use crate::devices::virtio::transport::pci::common_config_offset::*;
     use crate::devices::virtio::transport::pci::device::{
         COMMON_CONFIG_BAR_OFFSET, COMMON_CONFIG_SIZE, DEVICE_CONFIG_BAR_OFFSET, DEVICE_CONFIG_SIZE,
         ISR_CONFIG_BAR_OFFSET, ISR_CONFIG_SIZE, NOTIFICATION_BAR_OFFSET, NOTIFICATION_SIZE,
@@ -1364,15 +1365,15 @@ mod tests {
         let mut locked_virtio_pci_device = device.lock().unwrap();
 
         // Let's read the number of queues of the entropy device
-        // That information is located at offset 0x12 past the BAR region belonging to the common
-        // config capability.
-        let bar_offset = u32::try_from(COMMON_CONFIG_BAR_OFFSET).unwrap() + 0x12;
+        // That information is located at NUM_QUEUES offset past the BAR region belonging to the
+        // common config capability.
+        let bar_offset = u32::try_from(COMMON_CONFIG_BAR_OFFSET + NUM_QUEUES).unwrap();
         let len = 2u32;
         let num_queues = cap_pci_cfg_read(&mut locked_virtio_pci_device, bar_offset, len);
         assert_eq!(num_queues, 1);
 
         // Let's update the driver features and see if that takes effect
-        let bar_offset = u32::try_from(COMMON_CONFIG_BAR_OFFSET).unwrap() + 0x14;
+        let bar_offset = u32::try_from(COMMON_CONFIG_BAR_OFFSET + DEVICE_STATUS).unwrap();
         let len = 1u32;
         let device_status = cap_pci_cfg_read(&mut locked_virtio_pci_device, bar_offset, len);
         assert_eq!(device_status, 0);
@@ -1474,28 +1475,44 @@ mod tests {
     }
 
     fn write_driver_status(device: &mut VirtioPciDevice, status: u8) {
-        device.write_bar(0, COMMON_CONFIG_BAR_OFFSET + 0x14, status.as_slice());
+        device.write_bar(
+            0,
+            COMMON_CONFIG_BAR_OFFSET + DEVICE_STATUS,
+            status.as_slice(),
+        );
     }
 
     fn read_driver_status(device: &mut VirtioPciDevice) -> u8 {
         let mut status = 0u8;
-        device.read_bar(0, COMMON_CONFIG_BAR_OFFSET + 0x14, status.as_mut_slice());
+        device.read_bar(
+            0,
+            COMMON_CONFIG_BAR_OFFSET + DEVICE_STATUS,
+            status.as_mut_slice(),
+        );
         status
     }
 
     fn read_device_features(device: &mut VirtioPciDevice) -> u64 {
         let mut features_lo = 0u32;
-        device.write_bar(0, COMMON_CONFIG_BAR_OFFSET, 0u32.as_slice());
+        device.write_bar(
+            0,
+            COMMON_CONFIG_BAR_OFFSET + DEVICE_FEATURE_SELECT,
+            0u32.as_slice(),
+        );
         device.read_bar(
             0,
-            COMMON_CONFIG_BAR_OFFSET + 0x4,
+            COMMON_CONFIG_BAR_OFFSET + DEVICE_FEATURE,
             features_lo.as_mut_slice(),
         );
         let mut features_hi = 0u32;
-        device.write_bar(0, COMMON_CONFIG_BAR_OFFSET, 1u32.as_slice());
+        device.write_bar(
+            0,
+            COMMON_CONFIG_BAR_OFFSET + DEVICE_FEATURE_SELECT,
+            1u32.as_slice(),
+        );
         device.read_bar(
             0,
-            COMMON_CONFIG_BAR_OFFSET + 0x4,
+            COMMON_CONFIG_BAR_OFFSET + DEVICE_FEATURE,
             features_hi.as_mut_slice(),
         );
 
@@ -1503,16 +1520,24 @@ mod tests {
     }
 
     fn write_driver_features(device: &mut VirtioPciDevice, features: u64) {
-        device.write_bar(0, COMMON_CONFIG_BAR_OFFSET + 0x8, 0u32.as_slice());
         device.write_bar(
             0,
-            COMMON_CONFIG_BAR_OFFSET + 0xc,
+            COMMON_CONFIG_BAR_OFFSET + DRIVER_FEATURE_SELECT,
+            0u32.as_slice(),
+        );
+        device.write_bar(
+            0,
+            COMMON_CONFIG_BAR_OFFSET + DRIVER_FEATURE,
             ((features & 0xffff_ffff) as u32).as_slice(),
         );
-        device.write_bar(0, COMMON_CONFIG_BAR_OFFSET + 0x8, 1u32.as_slice());
         device.write_bar(
             0,
-            COMMON_CONFIG_BAR_OFFSET + 0xc,
+            COMMON_CONFIG_BAR_OFFSET + DRIVER_FEATURE_SELECT,
+            1u32.as_slice(),
+        );
+        device.write_bar(
+            0,
+            COMMON_CONFIG_BAR_OFFSET + DRIVER_FEATURE,
             (((features >> 32) & 0xffff_ffff) as u32).as_slice(),
         );
     }
@@ -1520,20 +1545,20 @@ mod tests {
     fn setup_queues(device: &mut VirtioPciDevice) {
         device.write_bar(
             0,
-            COMMON_CONFIG_BAR_OFFSET + 0x20,
+            COMMON_CONFIG_BAR_OFFSET + QUEUE_DESC_LO,
             0x8000_0000u64.as_slice(),
         );
         device.write_bar(
             0,
-            COMMON_CONFIG_BAR_OFFSET + 0x28,
+            COMMON_CONFIG_BAR_OFFSET + QUEUE_AVAIL_LO,
             0x8000_1000u64.as_slice(),
         );
         device.write_bar(
             0,
-            COMMON_CONFIG_BAR_OFFSET + 0x30,
+            COMMON_CONFIG_BAR_OFFSET + QUEUE_USED_LO,
             0x8000_2000u64.as_slice(),
         );
-        device.write_bar(0, COMMON_CONFIG_BAR_OFFSET + 0x1c, 1u16.as_slice());
+        device.write_bar(0, COMMON_CONFIG_BAR_OFFSET + QUEUE_ENABLE, 1u16.as_slice());
     }
 
     #[test]
