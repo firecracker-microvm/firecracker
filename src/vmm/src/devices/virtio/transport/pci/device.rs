@@ -913,6 +913,7 @@ impl PciDevice for VirtioPciDevice {
             {
                 Ok(()) => self.device_activated.store(true, Ordering::SeqCst),
                 Err(err) => {
+                    self.common_config.driver_status |= DEVICE_NEEDS_RESET;
                     error!("Error activating device: {err:?}");
 
                     // Section 2.1.2 of the specification states that we need to send a device
@@ -1625,6 +1626,29 @@ mod tests {
                 .device_activated
                 .load(Ordering::SeqCst)
         );
+    }
+
+    #[test]
+    fn test_activate_failure_sets_needs_reset() {
+        // Verify that DEVICE_NEEDS_RESET is set in driver_status when device activation fails.
+        use crate::devices::virtio::transport::pci::device_status::DEVICE_NEEDS_RESET;
+
+        let mut vmm = create_vmm_with_virtio_pci_device();
+        let device = get_virtio_device(&vmm);
+        let mut locked = device.lock().unwrap();
+
+        // Drive through init without setting up queues, so activate() fails.
+        write_driver_status(&mut locked, ACKNOWLEDGE);
+        write_driver_status(&mut locked, ACKNOWLEDGE | DRIVER);
+        let features = read_device_features(&mut locked);
+        write_driver_features(&mut locked, features);
+        write_driver_status(&mut locked, ACKNOWLEDGE | DRIVER | FEATURES_OK);
+        // Skip setup_queues() -- queues are not ready, so activate() will fail.
+        write_driver_status(&mut locked, ACKNOWLEDGE | DRIVER | FEATURES_OK | DRIVER_OK);
+
+        assert!(!locked.device_activated.load(Ordering::SeqCst));
+        let status = read_driver_status(&mut locked);
+        assert_eq!(status & DEVICE_NEEDS_RESET, DEVICE_NEEDS_RESET);
     }
 
     #[test]
