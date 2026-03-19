@@ -434,7 +434,7 @@ impl VirtioPciDevice {
             vectors,
         ));
 
-        let virtio_pci_device = VirtioPciDevice {
+        let mut virtio_pci_device = VirtioPciDevice {
             id,
             pci_device_bdf: state.pci_device_bdf,
             configuration: pci_config,
@@ -835,10 +835,12 @@ impl PciDevice for VirtioPciDevice {
 
     fn write_bar(&mut self, _base: u64, offset: u64, data: &[u8]) -> Option<Arc<Barrier>> {
         match offset {
-            o if o < COMMON_CONFIG_BAR_OFFSET + COMMON_CONFIG_SIZE => {
-                self.common_config
-                    .write(o - COMMON_CONFIG_BAR_OFFSET, data, self.device.clone())
-            }
+            o if o < COMMON_CONFIG_BAR_OFFSET + COMMON_CONFIG_SIZE => self.common_config.write(
+                o - COMMON_CONFIG_BAR_OFFSET,
+                data,
+                self.device.clone(),
+                self.device_activated.load(Ordering::SeqCst),
+            ),
             o if (ISR_CONFIG_BAR_OFFSET..ISR_CONFIG_BAR_OFFSET + ISR_CONFIG_SIZE).contains(&o) => {
                 // We don't actually support legacy INT#x interrupts for VirtIO PCI devices
                 warn!("pci: access to unsupported ISR status field");
@@ -919,9 +921,21 @@ impl PciDevice for VirtioPciDevice {
                 }
                 None => {
                     error!("Attempt to reset device when not implemented in underlying device");
-                    // TODO: currently we don't support device resetting, but we still
-                    // follow the spec and set the status field to 0.
-                    self.common_config.driver_status = INIT;
+                    // The virtio spec does not specify what to do if reset fails.
+                    //
+                    // Our MMIO transport sets FAILED in this case, but we must NOT do that for PCI.
+                    // During shutdown, the Linux kernel issues a reset to each virtio device.  The
+                    // virtio PCI driver then polls device_status until it reads back 0, unlike the
+                    // virtio MMIO driver which simply writes 0 and returns.  Setting FAILED would
+                    // cause the poll to spin forever, breaking reboot command and Ctrl-Alt-Del.
+                    // - PCI: https://elixir.bootlin.com/linux/v6.19.8/source/drivers/virtio/virtio_pci_modern.c#L546-L565
+                    // - MMIO: https://elixir.bootlin.com/linux/v6.19.8/source/drivers/virtio/virtio_mmio.c#L251-L258
+                    //
+                    // Since device_status was already set to INIT by set_device_status(), we don't
+                    // need to set it again here.  However, the backend device is still active since
+                    // reset() is unimplemented.  The combination of device_activated == true and
+                    // device_status == INIT will cause set_device_status() to block any
+                    // re-initialization attempts.
                 }
             }
         }
@@ -941,6 +955,7 @@ impl BusDevice for VirtioPciDevice {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::atomic::Ordering;
     use std::sync::{Arc, Mutex};
 
     use event_manager::MutEventSubscriber;
@@ -1582,7 +1597,7 @@ mod tests {
         assert!(
             !locked_virtio_pci_device
                 .device_activated
-                .load(std::sync::atomic::Ordering::SeqCst)
+                .load(Ordering::SeqCst)
         );
 
         write_driver_status(&mut locked_virtio_pci_device, ACKNOWLEDGE);
@@ -1592,7 +1607,7 @@ mod tests {
         assert!(
             !locked_virtio_pci_device
                 .device_activated
-                .load(std::sync::atomic::Ordering::SeqCst)
+                .load(Ordering::SeqCst)
         );
 
         let status = read_driver_status(&mut locked_virtio_pci_device);
@@ -1615,7 +1630,7 @@ mod tests {
         assert!(
             !locked_virtio_pci_device
                 .device_activated
-                .load(std::sync::atomic::Ordering::SeqCst)
+                .load(Ordering::SeqCst)
         );
 
         setup_queues(&mut locked_virtio_pci_device);
@@ -1630,7 +1645,50 @@ mod tests {
         assert!(
             locked_virtio_pci_device
                 .device_activated
-                .load(std::sync::atomic::Ordering::SeqCst)
+                .load(Ordering::SeqCst)
         );
+    }
+
+    #[test]
+    fn test_failed_reset_blocks_reinitialization() {
+        let mut vmm = create_vmm_with_virtio_pci_device();
+        let device = get_virtio_device(&vmm);
+        let mut locked = device.lock().unwrap();
+
+        // Full initialization sequence.
+        write_driver_status(&mut locked, ACKNOWLEDGE);
+        write_driver_status(&mut locked, ACKNOWLEDGE | DRIVER);
+        let features = read_device_features(&mut locked);
+        write_driver_features(&mut locked, features);
+        write_driver_status(&mut locked, ACKNOWLEDGE | DRIVER | FEATURES_OK);
+        setup_queues(&mut locked);
+        write_driver_status(&mut locked, ACKNOWLEDGE | DRIVER | FEATURES_OK | DRIVER_OK);
+        assert!(locked.device_activated.load(Ordering::SeqCst));
+
+        // Write 0 to device_status to request a reset.
+        // Entropy's reset() returns None (unimplemented), so the reset fails.
+        write_driver_status(&mut locked, 0);
+        assert_eq!(read_driver_status(&mut locked), 0);
+        // device_activated stays true because the backend was not actually reset.
+        assert!(locked.device_activated.load(Ordering::SeqCst));
+
+        // Attempt to re-initialize should be rejected because device_activated is
+        // still true while driver_status is INIT.
+        write_driver_status(&mut locked, ACKNOWLEDGE);
+        assert_eq!(read_driver_status(&mut locked), 0);
+
+        // Save state and restore into a new device -- the combination of
+        // device_activated == true and driver_status == INIT is preserved in the
+        // snapshot, so the blocking behavior survives restore.
+        let saved_state = locked.state();
+        drop(locked);
+
+        let new_entropy = Arc::new(Mutex::new(Entropy::new(RateLimiter::default()).unwrap()));
+        let restored =
+            VirtioPciDevice::new_from_state("rng".to_string(), &vmm.vm, new_entropy, saved_state)
+                .unwrap();
+
+        assert!(restored.device_activated.load(Ordering::SeqCst));
+        assert_eq!(restored.common_config.driver_status, 0);
     }
 }

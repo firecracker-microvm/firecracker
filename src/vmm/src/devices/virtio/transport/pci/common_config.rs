@@ -95,11 +95,17 @@ impl VirtioPciCommonConfig {
         }
     }
 
-    pub fn write(&mut self, offset: u64, data: &[u8], device: Arc<Mutex<dyn VirtioDevice>>) {
+    pub fn write(
+        &mut self,
+        offset: u64,
+        data: &[u8],
+        device: Arc<Mutex<dyn VirtioDevice>>,
+        device_activated: bool,
+    ) {
         assert!(data.len() <= 8);
 
         match data.len() {
-            1 => self.write_common_config_byte(offset, data[0]),
+            1 => self.write_common_config_byte(offset, data[0], device_activated),
             2 => self.write_common_config_word(
                 offset,
                 LittleEndian::read_u16(data),
@@ -125,16 +131,16 @@ impl VirtioPciCommonConfig {
         }
     }
 
-    fn write_common_config_byte(&mut self, offset: u64, value: u8) {
+    fn write_common_config_byte(&mut self, offset: u64, value: u8, device_activated: bool) {
         match offset {
-            DEVICE_STATUS => self.set_device_status(value),
+            DEVICE_STATUS => self.set_device_status(value, device_activated),
             _ => {
                 warn!("pci: invalid virtio config byte write: 0x{:x}", offset);
             }
         }
     }
 
-    fn set_device_status(&mut self, status: u8) {
+    fn set_device_status(&mut self, status: u8, device_activated: bool) {
         /// Enforce the device status state machine per the virtio spec:
         ///   INIT -> ACKNOWLEDGE -> DRIVER -> FEATURES_OK -> DRIVER_OK
         /// https://docs.oasis-open.org/virtio/virtio/v1.3/csd01/virtio-v1.3-csd01.html#x1-1220001
@@ -181,7 +187,17 @@ impl VirtioPciCommonConfig {
             .iter()
             .any(|&(from, to)| self.driver_status == from && status == to)
         {
-            self.driver_status = status;
+            if !device_activated {
+                self.driver_status = status;
+            } else {
+                // If the device doesn't implement reset(), the device is left activated.
+                // Re-initialization against a still-live backend device MUST be rejected.
+                warn!(
+                    "pci: rejecting device status transition {:#x} -> {:#x}: previous reset did \
+                     not complete successfully and device is still active",
+                    self.driver_status, status
+                );
+            }
         } else {
             warn!(
                 "pci: invalid virtio device status transition: {:#x} -> {:#x}",
@@ -443,29 +459,29 @@ mod tests {
         let dev = Arc::new(Mutex::new(DummyDevice::new()));
 
         // The config generation register is read only.
-        regs.write(CONFIG_GENERATION, &[0xaa], dev.clone());
+        regs.write(CONFIG_GENERATION, &[0xaa], dev.clone(), false);
         let mut read_back = vec![0x00];
         regs.read(CONFIG_GENERATION, &mut read_back, dev.clone());
         assert_eq!(read_back[0], 0x55);
 
         // Device features is read-only and passed through from the device.
-        regs.write(DEVICE_FEATURE, &[1, 2, 3, 4], dev.clone());
+        regs.write(DEVICE_FEATURE, &[1, 2, 3, 4], dev.clone(), false);
         let mut read_back = vec![0, 0, 0, 0];
         regs.read(DEVICE_FEATURE, &mut read_back, dev.clone());
         assert_eq!(LittleEndian::read_u32(&read_back), 0u32);
 
         // Feature select registers are read/write.
-        regs.write(DEVICE_FEATURE_SELECT, &[1, 2, 3, 4], dev.clone());
+        regs.write(DEVICE_FEATURE_SELECT, &[1, 2, 3, 4], dev.clone(), false);
         let mut read_back = vec![0, 0, 0, 0];
         regs.read(DEVICE_FEATURE_SELECT, &mut read_back, dev.clone());
         assert_eq!(LittleEndian::read_u32(&read_back), 0x0403_0201);
-        regs.write(DRIVER_FEATURE_SELECT, &[1, 2, 3, 4], dev.clone());
+        regs.write(DRIVER_FEATURE_SELECT, &[1, 2, 3, 4], dev.clone(), false);
         let mut read_back = vec![0, 0, 0, 0];
         regs.read(DRIVER_FEATURE_SELECT, &mut read_back, dev.clone());
         assert_eq!(LittleEndian::read_u32(&read_back), 0x0403_0201);
 
         // 'queue_select' can be read and written.
-        regs.write(QUEUE_SELECT, &[0xaa, 0x55], dev.clone());
+        regs.write(QUEUE_SELECT, &[0xaa, 0x55], dev.clone(), false);
         let mut read_back = vec![0x00, 0x00];
         regs.read(QUEUE_SELECT, &mut read_back, dev.clone());
         assert_eq!(read_back[0], 0xaa);
@@ -477,12 +493,12 @@ mod tests {
         assert_eq!(read_back, [0xff, 0xff]);
 
         // Writing the MSI vector of an invalid `queue_select` does not have any effect.
-        regs.write(QUEUE_MSIX_VECTOR, &[0x12, 0x13], dev.clone());
+        regs.write(QUEUE_MSIX_VECTOR, &[0x12, 0x13], dev.clone(), false);
         assert_eq!(read_back, [0xff, 0xff]);
         // Valid `queue_select` though should setup the corresponding MSI-X queue.
-        regs.write(QUEUE_SELECT, &[0x1, 0x0], dev.clone());
+        regs.write(QUEUE_SELECT, &[0x1, 0x0], dev.clone(), false);
         assert_eq!(regs.queue_select, 1);
-        regs.write(QUEUE_MSIX_VECTOR, &[0x1, 0x0], dev.clone());
+        regs.write(QUEUE_MSIX_VECTOR, &[0x1, 0x0], dev.clone(), false);
         regs.read(QUEUE_MSIX_VECTOR, &mut read_back, dev);
         assert_eq!(LittleEndian::read_u16(&read_back[..2]), 0x1);
     }
@@ -501,11 +517,21 @@ mod tests {
         config.read(DEVICE_FEATURE, features.as_mut_slice(), device.clone());
         assert_eq!(features, 0x1110);
         // select second page
-        config.write(DEVICE_FEATURE_SELECT, 1u32.as_slice(), device.clone());
+        config.write(
+            DEVICE_FEATURE_SELECT,
+            1u32.as_slice(),
+            device.clone(),
+            false,
+        );
         config.read(DEVICE_FEATURE, features.as_mut_slice(), device.clone());
         assert_eq!(features, 0x1312);
         // Try a third page. It doesn't exist so we should get all 0s
-        config.write(DEVICE_FEATURE_SELECT, 2u32.as_slice(), device.clone());
+        config.write(
+            DEVICE_FEATURE_SELECT,
+            2u32.as_slice(),
+            device.clone(),
+            false,
+        );
         config.read(DEVICE_FEATURE, features.as_mut_slice(), device.clone());
         assert_eq!(features, 0x0);
     }
@@ -520,11 +546,21 @@ mod tests {
             .set_avail_features(0x0000_1312_0000_1110);
 
         // ACK some features of the first page
-        config.write(DRIVER_FEATURE, 0x1100u32.as_slice(), device.clone());
+        config.write(DRIVER_FEATURE, 0x1100u32.as_slice(), device.clone(), false);
         assert_eq!(device.lock().unwrap().acked_features(), 0x1100);
         // ACK some features of the second page
-        config.write(DRIVER_FEATURE_SELECT, 1u32.as_slice(), device.clone());
-        config.write(DRIVER_FEATURE, 0x0000_1310u32.as_slice(), device.clone());
+        config.write(
+            DRIVER_FEATURE_SELECT,
+            1u32.as_slice(),
+            device.clone(),
+            false,
+        );
+        config.write(
+            DRIVER_FEATURE,
+            0x0000_1310u32.as_slice(),
+            device.clone(),
+            false,
+        );
         assert_eq!(
             device.lock().unwrap().acked_features(),
             0x0000_1310_0000_1100
@@ -540,7 +576,7 @@ mod tests {
         config.read(NUM_QUEUES, num_queues.as_mut_slice(), device.clone());
         assert_eq!(num_queues, 2);
         // `num_queues` is read-only
-        config.write(NUM_QUEUES, 4u16.as_slice(), device.clone());
+        config.write(NUM_QUEUES, 4u16.as_slice(), device.clone(), false);
         config.read(NUM_QUEUES, num_queues.as_mut_slice(), device.clone());
         assert_eq!(num_queues, 2);
     }
@@ -556,7 +592,7 @@ mod tests {
         assert_eq!(status, 0);
 
         // Valid state transitions
-        config.write(DEVICE_STATUS, ACKNOWLEDGE.as_slice(), device.clone());
+        config.write(DEVICE_STATUS, ACKNOWLEDGE.as_slice(), device.clone(), false);
         config.read(DEVICE_STATUS, status.as_mut_slice(), device.clone());
         assert_eq!(status, ACKNOWLEDGE);
 
@@ -564,6 +600,7 @@ mod tests {
             DEVICE_STATUS,
             (ACKNOWLEDGE | DRIVER).as_slice(),
             device.clone(),
+            false,
         );
         config.read(DEVICE_STATUS, status.as_mut_slice(), device.clone());
         assert_eq!(status, ACKNOWLEDGE | DRIVER);
@@ -572,6 +609,7 @@ mod tests {
             DEVICE_STATUS,
             (ACKNOWLEDGE | DRIVER | FEATURES_OK).as_slice(),
             device.clone(),
+            false,
         );
         config.read(DEVICE_STATUS, status.as_mut_slice(), device.clone());
         assert_eq!(status, ACKNOWLEDGE | DRIVER | FEATURES_OK);
@@ -580,12 +618,13 @@ mod tests {
             DEVICE_STATUS,
             (ACKNOWLEDGE | DRIVER | FEATURES_OK | DRIVER_OK).as_slice(),
             device.clone(),
+            false,
         );
         config.read(DEVICE_STATUS, status.as_mut_slice(), device.clone());
         assert_eq!(status, ACKNOWLEDGE | DRIVER | FEATURES_OK | DRIVER_OK);
 
         // Reset should always work
-        config.write(DEVICE_STATUS, INIT.as_slice(), device.clone());
+        config.write(DEVICE_STATUS, INIT.as_slice(), device.clone(), true);
         config.read(DEVICE_STATUS, status.as_mut_slice(), device.clone());
         assert_eq!(status, INIT);
     }
@@ -597,7 +636,7 @@ mod tests {
 
         // Helper to attempt a transition and verify it was rejected.
         let mut assert_rejected = |config: &mut VirtioPciCommonConfig, new: u8, expected: u8| {
-            config.write(DEVICE_STATUS, new.as_slice(), device.clone());
+            config.write(DEVICE_STATUS, new.as_slice(), device.clone(), false);
             let mut s = 0u8;
             config.read(DEVICE_STATUS, s.as_mut_slice(), device.clone());
             assert_eq!(s, expected, "transition to {new:#x} should be rejected");
@@ -614,16 +653,18 @@ mod tests {
         assert_rejected(&mut config, 0x42, INIT);
 
         // Advance to ACKNOWLEDGE | DRIVER | FEATURES_OK
-        config.write(DEVICE_STATUS, ACKNOWLEDGE.as_slice(), device.clone());
+        config.write(DEVICE_STATUS, ACKNOWLEDGE.as_slice(), device.clone(), false);
         config.write(
             DEVICE_STATUS,
             (ACKNOWLEDGE | DRIVER).as_slice(),
             device.clone(),
+            false,
         );
         config.write(
             DEVICE_STATUS,
             (ACKNOWLEDGE | DRIVER | FEATURES_OK).as_slice(),
             device.clone(),
+            false,
         );
         let expected = ACKNOWLEDGE | DRIVER | FEATURES_OK;
 
@@ -637,11 +678,38 @@ mod tests {
             DEVICE_STATUS,
             (ACKNOWLEDGE | DRIVER | FEATURES_OK).as_slice(),
             device.clone(),
+            false,
         );
         let expected = ACKNOWLEDGE | DRIVER | FEATURES_OK;
 
         // Go back from FEATURES_OK
         assert_rejected(&mut config, ACKNOWLEDGE | DRIVER, expected);
+    }
+
+    #[test]
+    fn test_device_activated_blocks_transitions() {
+        let mut config = default_pci_common_config();
+        let device = default_device();
+        let mut status = 0u8;
+
+        // Simulate a failed reset: driver_status is INIT but device is still activated.
+        config.read(DEVICE_STATUS, status.as_mut_slice(), device.clone());
+        assert_eq!(status, INIT);
+
+        // Every transition should be rejected when device_activated is true at INIT.
+        for &value in &[
+            ACKNOWLEDGE,
+            ACKNOWLEDGE | DRIVER,
+            ACKNOWLEDGE | DRIVER | FEATURES_OK,
+            ACKNOWLEDGE | DRIVER | FEATURES_OK | DRIVER_OK,
+        ] {
+            config.write(DEVICE_STATUS, value.as_slice(), device.clone(), true);
+            config.read(DEVICE_STATUS, status.as_mut_slice(), device.clone());
+            assert_eq!(
+                status, INIT,
+                "transition to {value:#x} should be blocked while device is activated"
+            );
+        }
     }
 
     #[test]
@@ -653,13 +721,13 @@ mod tests {
         // Our device has 2 queues, so we should be using 3 vectors in total.
         // Trying to set a vector bigger than that should fail. Observing the
         // failure happens through a subsequent read that should return NO_VECTOR.
-        config.write(MSIX_CONFIG, 3u16.as_slice(), device.clone());
+        config.write(MSIX_CONFIG, 3u16.as_slice(), device.clone(), false);
         config.read(MSIX_CONFIG, vector.as_mut_slice(), device.clone());
         assert_eq!(vector, VIRTQ_MSI_NO_VECTOR);
 
         // Any of the 3 valid values should work
         for i in 0u16..3 {
-            config.write(MSIX_CONFIG, i.as_slice(), device.clone());
+            config.write(MSIX_CONFIG, i.as_slice(), device.clone(), false);
             config.read(MSIX_CONFIG, vector.as_mut_slice(), device.clone());
             assert_eq!(vector, i);
         }
@@ -673,7 +741,7 @@ mod tests {
         let mut max_size = [0u16; 2];
 
         for queue_id in 0u16..2 {
-            config.write(QUEUE_SELECT, queue_id.as_slice(), device.clone());
+            config.write(QUEUE_SELECT, queue_id.as_slice(), device.clone(), false);
             config.read(QUEUE_SIZE, len.as_mut_slice(), device.clone());
             assert_eq!(
                 len,
@@ -685,14 +753,14 @@ mod tests {
         // Before FEATURES_OK is set, the driver should not be able to change the queue size.
         config.driver_status = ACKNOWLEDGE | DRIVER;
         for queue_id in 0u16..2 {
-            config.write(QUEUE_SELECT, queue_id.as_slice(), device.clone());
-            config.write(QUEUE_SIZE, 0u16.as_slice(), device.clone());
+            config.write(QUEUE_SELECT, queue_id.as_slice(), device.clone(), false);
+            config.write(QUEUE_SIZE, 0u16.as_slice(), device.clone(), false);
             config.read(QUEUE_SIZE, len.as_mut_slice(), device.clone());
             assert_eq!(len, max_size[queue_id as usize]);
         }
 
         // Verify writing a queue size to a non-existent queue is ignored.
-        config.write(QUEUE_SELECT, 2u16.as_slice(), device.clone());
+        config.write(QUEUE_SELECT, 2u16.as_slice(), device.clone(), false);
         config.read(QUEUE_SIZE, len.as_mut_slice(), device.clone());
         assert_eq!(len, 0);
 
@@ -701,11 +769,12 @@ mod tests {
 
         // Setup size smaller than what is the maximum offered
         for queue_id in 0u16..2 {
-            config.write(QUEUE_SELECT, queue_id.as_slice(), device.clone());
+            config.write(QUEUE_SELECT, queue_id.as_slice(), device.clone(), false);
             config.write(
                 QUEUE_SIZE,
                 (max_size[queue_id as usize] - 1).as_slice(),
                 device.clone(),
+                false,
             );
             config.read(QUEUE_SIZE, len.as_mut_slice(), device.clone());
             assert_eq!(len, max_size[queue_id as usize] - 1);
@@ -713,8 +782,8 @@ mod tests {
 
         // Verify writes are rejected after DRIVER_OK is set.
         config.driver_status |= DRIVER_OK;
-        config.write(QUEUE_SELECT, 0u16.as_slice(), device.clone());
-        config.write(QUEUE_SIZE, 0u16.as_slice(), device.clone());
+        config.write(QUEUE_SELECT, 0u16.as_slice(), device.clone(), false);
+        config.write(QUEUE_SIZE, 0u16.as_slice(), device.clone(), false);
         config.read(QUEUE_SIZE, len.as_mut_slice(), device.clone());
         assert_eq!(len, max_size[0] - 1);
     }
@@ -730,15 +799,20 @@ mod tests {
         // failure happens through a subsequent read that should return NO_VECTOR.
         for queue_id in 0u16..2 {
             // Select queue
-            config.write(QUEUE_SELECT, queue_id.as_slice(), device.clone());
+            config.write(QUEUE_SELECT, queue_id.as_slice(), device.clone(), false);
 
-            config.write(QUEUE_MSIX_VECTOR, 3u16.as_slice(), device.clone());
+            config.write(QUEUE_MSIX_VECTOR, 3u16.as_slice(), device.clone(), false);
             config.read(QUEUE_MSIX_VECTOR, vector.as_mut_slice(), device.clone());
             assert_eq!(vector, VIRTQ_MSI_NO_VECTOR);
 
             // Any of the 3 valid values should work
             for vector_id in 0u16..3 {
-                config.write(QUEUE_MSIX_VECTOR, vector_id.as_slice(), device.clone());
+                config.write(
+                    QUEUE_MSIX_VECTOR,
+                    vector_id.as_slice(),
+                    device.clone(),
+                    false,
+                );
                 config.read(QUEUE_MSIX_VECTOR, vector.as_mut_slice(), device.clone());
                 assert_eq!(vector, vector_id);
             }
@@ -753,7 +827,7 @@ mod tests {
 
         // Initially queue should be disabled
         for queue_id in 0u16..2 {
-            config.write(QUEUE_SELECT, queue_id.as_slice(), device.clone());
+            config.write(QUEUE_SELECT, queue_id.as_slice(), device.clone(), false);
             config.read(QUEUE_ENABLE, enabled.as_mut_slice(), device.clone());
             assert_eq!(enabled, 0);
         }
@@ -761,8 +835,8 @@ mod tests {
         // Enabling a queue before FEATURES_OK should be ignored.
         config.driver_status = ACKNOWLEDGE | DRIVER;
         for queue_id in 0u16..2 {
-            config.write(QUEUE_SELECT, queue_id.as_slice(), device.clone());
-            config.write(QUEUE_ENABLE, 1u16.as_slice(), device.clone());
+            config.write(QUEUE_SELECT, queue_id.as_slice(), device.clone(), false);
+            config.write(QUEUE_ENABLE, 1u16.as_slice(), device.clone(), false);
             config.read(QUEUE_ENABLE, enabled.as_mut_slice(), device.clone());
             assert_eq!(enabled, 0);
         }
@@ -770,13 +844,13 @@ mod tests {
         // Set FEATURES_OK so that the driver can enable the queue.
         config.driver_status |= FEATURES_OK;
         for queue_id in 0u16..2 {
-            config.write(QUEUE_SELECT, queue_id.as_slice(), device.clone());
-            config.write(QUEUE_ENABLE, 1u16.as_slice(), device.clone());
+            config.write(QUEUE_SELECT, queue_id.as_slice(), device.clone(), false);
+            config.write(QUEUE_ENABLE, 1u16.as_slice(), device.clone(), false);
             config.read(QUEUE_ENABLE, enabled.as_mut_slice(), device.clone());
             assert_eq!(enabled, 1);
 
             // The driver MUST NOT write a 0 to queue_enable.
-            config.write(QUEUE_ENABLE, 0u16.as_slice(), device.clone());
+            config.write(QUEUE_ENABLE, 0u16.as_slice(), device.clone(), false);
             config.read(QUEUE_ENABLE, enabled.as_mut_slice(), device.clone());
             assert_eq!(enabled, 1);
         }
@@ -784,8 +858,8 @@ mod tests {
         // Verify writes are rejected after DRIVER_OK
         config.driver_status |= DRIVER_OK;
         for queue_id in 0u16..2 {
-            config.write(QUEUE_SELECT, queue_id.as_slice(), device.clone());
-            config.write(QUEUE_ENABLE, 0u16.as_slice(), device.clone());
+            config.write(QUEUE_SELECT, queue_id.as_slice(), device.clone(), false);
+            config.write(QUEUE_ENABLE, 0u16.as_slice(), device.clone(), false);
             config.read(QUEUE_ENABLE, enabled.as_mut_slice(), device.clone());
             assert_eq!(enabled, 1);
         }
@@ -802,12 +876,12 @@ mod tests {
         // a field setup by the device and should be read-only for the driver
 
         for queue_id in 0u16..2 {
-            config.write(QUEUE_SELECT, queue_id.as_slice(), device.clone());
+            config.write(QUEUE_SELECT, queue_id.as_slice(), device.clone(), false);
             config.read(QUEUE_NOTIFY_OFF, offset.as_mut_slice(), device.clone());
             assert_eq!(offset, queue_id);
 
             // Writing to it should not have any effect
-            config.write(QUEUE_NOTIFY_OFF, 0x42.as_slice(), device.clone());
+            config.write(QUEUE_NOTIFY_OFF, 0x42.as_slice(), device.clone(), false);
             config.read(QUEUE_NOTIFY_OFF, offset.as_mut_slice(), device.clone());
             assert_eq!(offset, queue_id);
         }
@@ -822,8 +896,8 @@ mod tests {
         let lo32 = (value & 0xffff_ffff) as u32;
         let hi32 = (value >> 32) as u32;
 
-        config.write(offset, lo32.as_slice(), device.clone());
-        config.write(offset + 4, hi32.as_slice(), device.clone());
+        config.write(offset, lo32.as_slice(), device.clone(), false);
+        config.write(offset + 4, hi32.as_slice(), device.clone(), false);
     }
 
     fn read_64bit_field(
@@ -848,7 +922,7 @@ mod tests {
         // Before FEATURES_OK is set, the driver should not be able to change the queue addresses.
         config.driver_status = ACKNOWLEDGE | DRIVER;
         for queue_id in 0u16..2 {
-            config.write(QUEUE_SELECT, queue_id.as_slice(), device.clone());
+            config.write(QUEUE_SELECT, queue_id.as_slice(), device.clone(), false);
 
             for offset in [QUEUE_DESC_LO, QUEUE_AVAIL_LO, QUEUE_USED_LO] {
                 write_64bit_field(&mut config, device.clone(), offset, 0x0000_1312_0000_1110);
@@ -859,7 +933,7 @@ mod tests {
         // Set status so queue fields can be modified
         config.driver_status |= FEATURES_OK;
         for queue_id in 0u16..2 {
-            config.write(QUEUE_SELECT, queue_id.as_slice(), device.clone());
+            config.write(QUEUE_SELECT, queue_id.as_slice(), device.clone(), false);
 
             for offset in [QUEUE_DESC_LO, QUEUE_AVAIL_LO, QUEUE_USED_LO] {
                 write_64bit_field(&mut config, device.clone(), offset, 0x0000_1312_0000_1110);
@@ -873,7 +947,7 @@ mod tests {
         // Verify writes are rejected after DRIVER_OK
         config.driver_status |= DRIVER_OK;
         for queue_id in 0u16..2 {
-            config.write(QUEUE_SELECT, queue_id.as_slice(), device.clone());
+            config.write(QUEUE_SELECT, queue_id.as_slice(), device.clone(), false);
 
             for offset in [QUEUE_DESC_LO, QUEUE_AVAIL_LO, QUEUE_USED_LO] {
                 write_64bit_field(&mut config, device.clone(), offset, 0xDEAD_BEEF);
