@@ -381,7 +381,18 @@ impl VirtioPciCommonConfig {
         match offset {
             DEVICE_FEATURE_SELECT => self.device_feature_select = value,
             DRIVER_FEATURE_SELECT => self.driver_feature_select = value,
-            DRIVER_FEATURE => locked_device.ack_features_by_page(self.driver_feature_select, value),
+            DRIVER_FEATURE => {
+                // Feature negotiation is only allowed in DRIVER state.
+                // https://docs.oasis-open.org/virtio/virtio/v1.3/csd01/virtio-v1.3-csd01.html#x1-1220001
+                if self.driver_status == (ACKNOWLEDGE | DRIVER) {
+                    locked_device.ack_features_by_page(self.driver_feature_select, value);
+                } else {
+                    warn!(
+                        "pci: feature negotiation not allowed in device state {:#x}",
+                        self.driver_status
+                    );
+                }
+            }
             QUEUE_DESC_LO => self.update_queue_field(locked_device.queues_mut(), |q| {
                 lo(&mut q.desc_table_address, value)
             }),
@@ -545,6 +556,10 @@ mod tests {
             .unwrap()
             .set_avail_features(0x0000_1312_0000_1110);
 
+        // Feature negotiation requires DRIVER state (ACKNOWLEDGE | DRIVER).
+        config.set_device_status(ACKNOWLEDGE, false);
+        config.set_device_status(ACKNOWLEDGE | DRIVER, false);
+
         // ACK some features of the first page
         config.write(DRIVER_FEATURE, 0x1100u32.as_slice(), device.clone(), false);
         assert_eq!(device.lock().unwrap().acked_features(), 0x1100);
@@ -558,6 +573,25 @@ mod tests {
         config.write(
             DRIVER_FEATURE,
             0x0000_1310u32.as_slice(),
+            device.clone(),
+            false,
+        );
+        assert_eq!(
+            device.lock().unwrap().acked_features(),
+            0x0000_1310_0000_1100
+        );
+
+        // After FEATURES_OK, further feature writes should be rejected.
+        config.set_device_status(ACKNOWLEDGE | DRIVER | FEATURES_OK, false);
+        config.write(
+            DRIVER_FEATURE_SELECT,
+            0u32.as_slice(),
+            device.clone(),
+            false,
+        );
+        config.write(
+            DRIVER_FEATURE,
+            0xFFFF_FFFFu32.as_slice(),
             device.clone(),
             false,
         );
