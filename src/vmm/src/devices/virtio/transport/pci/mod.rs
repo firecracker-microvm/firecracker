@@ -15,6 +15,7 @@ pub(crate) mod device_status {
     pub const DRIVER: u8 = 0x02;
     pub const DRIVER_OK: u8 = 0x04;
     pub const FEATURES_OK: u8 = 0x08;
+    pub const DEVICE_NEEDS_RESET: u8 = 0x40;
     pub const FAILED: u8 = 0x80;
 }
 
