@@ -94,9 +94,9 @@ mount -t virtiofs myfs /mnt
 
 - **Snapshotting is not supported.** Creating or restoring snapshots of
   a VM with generic vhost-user devices will fail.
-- **Configuration space writes are not forwarded** to the backend. The
-  backend owns the configuration space in read-only mode from the guest
-  perspective.
-- **The backend must be started before Firecracker.** Firecracker
-  connects to the socket during device configuration and will return an
-  error if the backend is not available.
+- **Configuration space writes are not yet forwarded** to the backend
+  via `VHOST_USER_SET_CONFIG`.
+- **The backend must be started before the device is attached.**
+  Firecracker connects to the socket when processing the
+  `PUT /vhost-user-devices/{id}` request and will return an error if the
+  backend is not available.
