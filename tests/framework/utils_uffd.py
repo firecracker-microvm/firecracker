@@ -19,7 +19,13 @@ class UffdHandler:
     """Describe the UFFD page fault handler process."""
 
     def __init__(
-        self, name, socket_path, snapshot: "Snapshot", chroot_path, log_file_name
+        self,
+        name,
+        socket_path,
+        snapshot: "Snapshot",
+        chroot_path,
+        log_file_name,
+        apf=True,
     ):
         """Instantiate the handler process with arguments."""
         self._proc = None
@@ -28,6 +34,7 @@ class UffdHandler:
         self.snapshot = snapshot
         self._chroot = chroot_path
         self._log_file = log_file_name
+        self._apf = apf
 
     def spawn(self, uid, gid):
         """Spawn handler process using arguments provided."""
@@ -42,8 +49,9 @@ class UffdHandler:
                     f"/{self._handler_name}",
                     self.socket_path,
                     self.snapshot.mem.name,
-                    APF_SOCKET_PATH,
                 ]
+                if self._apf:
+                    args.append(APF_SOCKET_PATH)
                 self._proc = subprocess.Popen(
                     args, stdout=logfile, stderr=subprocess.STDOUT
                 )
@@ -99,7 +107,7 @@ class UffdHandler:
             self.kill()
 
 
-def spawn_pf_handler(vm, handler_path, jailed_snapshot):
+def spawn_pf_handler(vm, handler_path, jailed_snapshot, apf=True):
     """Spawn page fault handler process."""
     # Copy snapshot memory file into chroot of microVM.
     # Copy the valid page fault binary into chroot of microVM.
@@ -107,7 +115,12 @@ def spawn_pf_handler(vm, handler_path, jailed_snapshot):
     handler_name = os.path.basename(jailed_handler)
 
     uffd_handler = UffdHandler(
-        handler_name, SOCKET_PATH, jailed_snapshot, vm.chroot(), "uffd.log"
+        handler_name,
+        SOCKET_PATH,
+        jailed_snapshot,
+        vm.chroot(),
+        "uffd.log",
+        apf=apf,
     )
     uffd_handler.spawn(vm.jailer.uid, vm.jailer.gid)
 
