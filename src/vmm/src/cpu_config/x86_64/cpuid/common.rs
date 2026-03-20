@@ -25,6 +25,8 @@ pub enum GetCpuidError {
 /// - When the given `leaf` is more than `max_leaf` supported by CPUID.
 /// - When the CPUID leaf `sub-leaf` is invalid (all its register equal 0).
 pub fn get_cpuid(leaf: u32, subleaf: u32) -> Result<std::arch::x86_64::CpuidResult, GetCpuidError> {
+    // TODO: Remove `unsafe` block when Kani nightly toolchain is updated to be >=1.94.0
+    #[allow(unused_unsafe)]
     let max_leaf =
         // JUSTIFICATION: There is no safe alternative.
         // SAFETY: This is safe because the host supports the `cpuid` instruction
@@ -144,6 +146,8 @@ mod tests {
 
     #[test]
     fn get_cpuid_unsupported_leaf() {
+        // TODO: Remove `unsafe` block when Kani nightly toolchain is updated to be >=1.94.0
+        #[allow(unused_unsafe)]
         let max_leaf =
             // JUSTIFICATION: There is no safe alternative.
             // SAFETY: This is safe because the host supports the `cpuid` instruction
