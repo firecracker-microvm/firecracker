@@ -254,22 +254,18 @@ class MicrovmHelpers:
         with tempfile.NamedTemporaryFile(
             mode="w", suffix=".gdb", delete=False, prefix="fc_gdb_"
         ) as f:
-            f.write(
-                f"""
+            f.write(f"""
                 target remote {chroot_gdb_socket}
                 directory resources/linux
                 hbreak start_kernel
                 continue
-            """
-            )
+            """)
             gdb_script = f.name
 
-        self.tmux_neww(
-            f"""
+        self.tmux_neww(f"""
             until [ -S {chroot_gdb_socket} ]; do
                 echo 'waiting for {chroot_gdb_socket}';
                 sleep 1;
             done;
             gdb {self.vm.kernel_file} -x {gdb_script}
-            """
-        )
+            """)

@@ -10,7 +10,6 @@ the same lock, which may be unintended, but safe.
 TBD disambiguate with the module name in that case.
 """
 
-
 import functools
 import tempfile
 from pathlib import Path

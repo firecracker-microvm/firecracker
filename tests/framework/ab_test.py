@@ -21,6 +21,7 @@ while still preventing the latter: We run cargo audit twice, once on main HEAD, 
 of both invocations is the same, the test passes (with us being alerted to this situtation via a special pipeline that
 does not block PRs). If not, it fails, preventing PRs from introducing new vulnerable dependencies.
 """
+
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from typing import Callable, Optional, TypeVar

@@ -1,6 +1,7 @@
 # Copyright 2019 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 # SPDX-License-Identifier: Apache-2.0
 """Tests ensuring security vulnerabilities are not present in dependencies."""
+
 import json
 
 import pytest

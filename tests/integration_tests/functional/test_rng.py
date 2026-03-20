@@ -145,7 +145,7 @@ def _process_dd_output(out):
     report = out.splitlines()[-1].split(" ")
 
     # Last two items in the line are value and units
-    (value, units) = (report[-2], report[-1])
+    value, units = (report[-2], report[-1])
 
     return float(value) * _throughput_units_multiplier(units) / 1000
 
