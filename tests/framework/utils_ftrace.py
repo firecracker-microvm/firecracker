@@ -1,6 +1,7 @@
 # Copyright 2024 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 # SPDX-License-Identifier: Apache-2.0
 """Utilities for interacting with the kernel's ftrace subsystem"""
+
 import contextlib
 
 from framework.utils import check_output

@@ -1,6 +1,7 @@
 # Copyright 2020 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 # SPDX-License-Identifier: Apache-2.0
 """Generic utility functions that are used in the framework."""
+
 import errno
 import json
 import logging
@@ -558,9 +559,7 @@ def guest_run_fio_iteration(ssh_connection, iteration):
     fio = """fio --filename=/dev/vda --direct=1 --rw=randread --bs=4k \
         --ioengine=libaio --iodepth=16 --runtime=10 --numjobs=4 --time_based \
         --group_reporting --name=iops-test-job --eta-newline=1 --readonly \
-        --output /tmp/fio{} > /dev/null &""".format(
-        iteration
-    )
+        --output /tmp/fio{} > /dev/null &""".format(iteration)
     exit_code, _, stderr = ssh_connection.run(fio)
     assert exit_code == 0, stderr
 

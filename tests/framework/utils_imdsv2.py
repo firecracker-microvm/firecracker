@@ -11,7 +11,6 @@ instances are set with an adequate hop limit (2 for example). See
 `ec2:MetadataHttpPutResponseHopLimit`
 """
 
-
 import time
 
 import requests

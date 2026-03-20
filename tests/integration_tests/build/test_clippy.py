@@ -2,7 +2,6 @@
 # SPDX-License-Identifier: Apache-2.0
 """Tests ensuring codebase style compliance for Rust and Python."""
 
-
 import platform
 
 import pytest

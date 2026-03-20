@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 """Checks that the output of instrumentation examples is correct"""
+
 import pytest
 
 from framework import utils

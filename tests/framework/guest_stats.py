@@ -1,8 +1,7 @@
 # Copyright 2025 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-"""Classes for querying guest stats inside microVMs.
-"""
+"""Classes for querying guest stats inside microVMs."""
 
 
 class ByteUnit:

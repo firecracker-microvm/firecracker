@@ -210,7 +210,7 @@ def test_config_machine_config_params(uvm_plain, test_config):
 
     # Test configuration determines if the file is a valid config or not
     # based on the CPU
-    (vm_config_file, cpu_template_used, smt_used) = test_config
+    vm_config_file, cpu_template_used, smt_used = test_config
 
     _configure_vm_from_json(test_microvm, vm_config_file)
     test_microvm.jailer.extra_args.update({"no-api": None})

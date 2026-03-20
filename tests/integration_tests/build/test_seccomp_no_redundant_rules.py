@@ -3,6 +3,7 @@
 """A test that fails if it can definitely prove a seccomp rule redundant
 (although it passing does not guarantee the converse, that all rules are definitely needed).
 """
+
 import platform
 from pathlib import Path
 

@@ -63,8 +63,8 @@ on the following:
     getting consistent measurements for some performance metrics.
 
 [^2]: No logs are currently produced in the span of time between the `jailer`
-    process start-up and the logging system initialization in the `firecracker`
-    process.
+    process start-up and the logging system initialization in the
+    `firecracker` process.
 
 [1]: https://aws.amazon.com/ec2/instance-types/m5/
 [2]: https://aws.amazon.com/ec2/instance-types/m6/

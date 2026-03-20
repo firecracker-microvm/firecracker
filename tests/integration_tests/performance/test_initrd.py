@@ -1,6 +1,7 @@
 # Copyright 2018 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 # SPDX-License-Identifier: Apache-2.0
 """Tests for initrd."""
+
 import pytest
 
 from framework.microvm import HugePagesConfig, Serial

@@ -322,12 +322,12 @@ def get_cpus(node):
 def check_limits(pid, no_file, fsize):
     """Verify resource limits against expected values."""
     # Fetch firecracker process limits for number of open fds
-    (soft, hard) = resource.prlimit(pid, resource.RLIMIT_NOFILE)
+    soft, hard = resource.prlimit(pid, resource.RLIMIT_NOFILE)
     assert soft == no_file
     assert hard == no_file
 
     # Fetch firecracker process limits for maximum file size
-    (soft, hard) = resource.prlimit(pid, resource.RLIMIT_FSIZE)
+    soft, hard = resource.prlimit(pid, resource.RLIMIT_FSIZE)
     assert soft == fsize
     assert hard == fsize
 
@@ -521,13 +521,13 @@ def test_args_default_resource_limits(uvm_plain):
     assert pid != 0
 
     # Fetch firecracker process limits for number of open fds
-    (soft, hard) = resource.prlimit(pid, resource.RLIMIT_NOFILE)
+    soft, hard = resource.prlimit(pid, resource.RLIMIT_NOFILE)
     # Check that the default limit was set.
     assert soft == 2048
     assert hard == 2048
 
     # Fetch firecracker process limits for number of open fds
-    (soft, hard) = resource.prlimit(pid, resource.RLIMIT_FSIZE)
+    soft, hard = resource.prlimit(pid, resource.RLIMIT_FSIZE)
     # Check that no limit was set
     assert soft == -1
     assert hard == -1
