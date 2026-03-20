@@ -61,6 +61,16 @@ and this project adheres to
   (0x4b564d00-0x4b564dff) instead of a small subset. Previously, some KVM MSRs
   such as MSR_KVM_ASYNC_PF_INT and MSR_KVM_ASYNC_PF_ACK were missing from
   snapshots, which could cause issues on restore.
+- [#5818](https://github.com/firecracker-microvm/firecracker/pull/5818): Enforce
+  the virtio device initialization sequence in the PCI transport, matching the
+  existing MMIO transport behavior. The PCI transport now validates device
+  status transitions, rejects queue configuration writes outside the FEATURES_OK
+  to DRIVER_OK window, rejects feature negotiation outside the DRIVER state,
+  blocks re-initialization after a failed reset, and sets DEVICE_NEEDS_RESET
+  when device activation fails.
+- [#5818](https://github.com/firecracker-microvm/firecracker/pull/5818): Reject
+  device status writes that clear previously set bits in the MMIO transport,
+  except for reset.
 
 ## [1.15.0]
 
