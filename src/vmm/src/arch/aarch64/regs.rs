@@ -90,6 +90,10 @@ arm64_sys_reg!(ID_AA64ISAR0_EL1, 3, 0, 0, 6, 0);
 arm64_sys_reg!(ID_AA64ISAR1_EL1, 3, 0, 0, 6, 1);
 arm64_sys_reg!(ID_AA64MMFR2_EL1, 3, 0, 0, 7, 2);
 
+// Cache Level ID Register
+// https://developer.arm.com/documentation/ddi0595/2021-12/AArch64-Registers/CLIDR-EL1--Cache-Level-ID-Register
+arm64_sys_reg!(CLIDR_EL1, 3, 1, 0, 0, 1);
+
 // Counter-timer Virtual Timer CompareValue register.
 // https://developer.arm.com/documentation/ddi0595/2021-12/AArch64-Registers/CNTV-CVAL-EL0--Counter-timer-Virtual-Timer-CompareValue-register
 // https://elixir.bootlin.com/linux/v6.8/source/arch/arm64/include/asm/sysreg.h#L468

@@ -25,6 +25,9 @@ and this project adheres to
 - [#XXXX](https://github.com/firecracker-microvm/firecracker/pull/XXXX): Reject
   device status writes that clear previously set bits in the MMIO transport,
   except for reset.
+- [#5780](https://github.com/firecracker-microvm/firecracker/pull/5780): Fixed
+  missing `/sys/devices/system/cpu/cpu*/cache/*` in aarch64 guests when running
+  on host kernels >= 6.3 with guest kernels >= 6.1.156.
 
 ## [1.14.3]
 
