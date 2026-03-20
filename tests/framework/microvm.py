@@ -1107,6 +1107,7 @@ class Microvm:
         clock_realtime: bool = False,
         *,
         uffd_handler_name: str = None,
+        apf: bool = True,
     ):
         """Restore a snapshot"""
 
@@ -1117,6 +1118,7 @@ class Microvm:
                 self,
                 uffd_handler(uffd_handler_name, binary_dir=self.fc_binary_path.parent),
                 jailed_snapshot,
+                apf=apf,
             )
 
         jailed_mem = Path("/") / jailed_snapshot.mem.name
@@ -1334,7 +1336,7 @@ class MicroVMFactory:
         return vm
 
     def build_from_snapshot(
-        self, snapshot: Snapshot, uffd_handler_name=None, clock_realtime=False
+        self, snapshot: Snapshot, uffd_handler_name=None, clock_realtime=False, apf=True
     ):
         """Build a microvm from a snapshot"""
         vm = self.build()
@@ -1344,6 +1346,7 @@ class MicroVMFactory:
             resume=True,
             uffd_handler_name=uffd_handler_name,
             clock_realtime=clock_realtime,
+            apf=apf,
         )
         return vm
 
@@ -1377,6 +1380,7 @@ class MicroVMFactory:
         nr_vms,
         *,
         uffd_handler_name=None,
+        apf=True,
         incremental=False,
         use_snapshot_editor=True,
         no_netns_reuse=False,
@@ -1396,7 +1400,10 @@ class MicroVMFactory:
             microvm.spawn()
 
             snapshot_copy = microvm.restore_from_snapshot(
-                current_snapshot, resume=True, uffd_handler_name=uffd_handler_name
+                current_snapshot,
+                resume=True,
+                uffd_handler_name=uffd_handler_name,
+                apf=apf,
             )
 
             yield microvm
