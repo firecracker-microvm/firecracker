@@ -28,6 +28,9 @@ use crate::arch::{BootProtocol, EntryPoint, arch_memory_regions_with_gap};
 use crate::cpu_config::aarch64::{CpuConfiguration, CpuConfigurationError};
 use crate::cpu_config::templates::CustomCpuTemplate;
 use crate::initrd::InitrdConfig;
+use zerocopy::IntoBytes;
+
+use crate::logger::warn;
 use crate::utils::{align_up, u64_to_usize, usize_to_u64};
 use crate::vmm_config::machine_config::MachineConfig;
 use crate::vstate::memory::{
@@ -51,6 +54,8 @@ pub enum ConfigurationError {
     VcpuConfig(#[from] CpuConfigurationError),
     /// Error configuring the vcpu: {0}
     VcpuConfigure(#[from] KvmVcpuError),
+    /// Failed to read host cache information: {0}
+    CacheInfo(#[from] cache_info::CacheInfoError),
 }
 
 /// Returns a Vec of the valid memory addresses for aarch64.
@@ -118,6 +123,11 @@ pub fn configure_system_for_boot(
             &optional_capabilities,
         )?;
     }
+
+    // Override CLIDR_EL1 ctype/LoC fields on each vCPU to match the host's
+    // real cache topology. See `override_clidr` for details.
+    override_clidr(vcpus)?;
+
     let vcpu_mpidr = vcpus
         .iter_mut()
         .map(|cpu| cpu.kvm_vcpu.get_mpidr())
@@ -138,6 +148,70 @@ pub fn configure_system_for_boot(
 
     let fdt_address = GuestAddress(get_fdt_addr(vm.guest_memory()));
     vm.guest_memory().write_slice(fdt.as_slice(), fdt_address)?;
+
+    Ok(())
+}
+
+/// Override CLIDR_EL1 ctype/LoC fields on each vCPU to match the host's real
+/// cache topology.
+///
+/// Since host kernel 6.3 (commit 7af0c2534f4c), KVM fabricates CLIDR_EL1
+/// instead of passing through the host's real value. This can cause the guest
+/// to see fewer cache levels than actually exist. Guest kernels >= 6.1.156
+/// backported `init_of_cache_level()` which counts cache leaves from the DT,
+/// while `populate_cache_leaves()` uses CLIDR_EL1. If the DT (built from host
+/// sysfs) describes different cache entries than CLIDR_EL1, the mismatch
+/// causes cache sysfs entries to not be created.
+///
+/// We read the current (possibly fabricated) CLIDR_EL1, replace only the ctype
+/// and LoC fields with values derived from sysfs, and preserve all other fields
+/// (LoUU, LoUIS, ICB, Ttype). This is safe on pre-6.3 kernels where CLIDR
+/// already matches sysfs — the write is skipped as a no-op.
+fn override_clidr(vcpus: &[Vcpu]) -> Result<(), ConfigurationError> {
+    let mut l1_caches = Vec::new();
+    let mut non_l1_caches = Vec::new();
+    cache_info::read_cache_config(&mut l1_caches, &mut non_l1_caches)?;
+
+    // If sysfs reports no L1 caches, we cannot build a meaningful CLIDR.
+    // Writing an all-zero CLIDR would tell the guest there are no caches,
+    // which is worse than whatever KVM fabricated. Leave it alone.
+    if l1_caches.is_empty() {
+        warn!("No L1 caches found in sysfs, skipping CLIDR override");
+        return Ok(());
+    }
+
+    let sysfs_clidr = cache_info::build_clidr_from_caches(&l1_caches, &non_l1_caches);
+
+    let mut cur_clidr: u64 = 0;
+    // Reading/writing CLIDR_EL1 via KVM_SET_ONE_REG may not be supported on
+    // older kernels (pre-6.3). In that case KVM passes through the real host
+    // CLIDR and the override is unnecessary, so we warn and continue.
+    if let Err(e) = vcpus[0]
+        .kvm_vcpu
+        .fd
+        .get_one_reg(regs::CLIDR_EL1, cur_clidr.as_mut_bytes())
+    {
+        warn!("Failed to read CLIDR_EL1, skipping override: {e}");
+        return Ok(());
+    }
+
+    let new_clidr = cache_info::merge_clidr(cur_clidr, sysfs_clidr);
+
+    if new_clidr != cur_clidr {
+        for vcpu in vcpus.iter() {
+            if let Err(e) = vcpu
+                .kvm_vcpu
+                .fd
+                .set_one_reg(regs::CLIDR_EL1, new_clidr.as_bytes())
+            {
+                warn!(
+                    "Failed to set CLIDR_EL1 to {:#x} on vCPU {}, skipping override: {e}",
+                    new_clidr, vcpu.kvm_vcpu.index
+                );
+                return Ok(());
+            }
+        }
+    }
 
     Ok(())
 }
