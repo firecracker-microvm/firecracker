@@ -958,14 +958,6 @@ pub(crate) mod tests {
                 | device_status::DRIVER_OK
         );
         assert!(d.locked_device().is_activated());
-
-        // A write which changes the size of a queue after activation; currently only triggers
-        // a warning path and have no effect on queue state.
-        write_le_u32(&mut buf[..], 0);
-        d.queue_select = 0;
-        d.write(0x0, 0x44, &buf[..]);
-        d.read(0x0, 0x44, &mut buf[..]);
-        assert_eq!(read_le_u32(&buf[..]), 1);
     }
 
     #[test]
@@ -1173,6 +1165,69 @@ pub(crate) mod tests {
         dummy_dev.set_avail_features(8);
         dummy_dev.ack_features_by_page(0, 8);
         assert_eq!(dummy_dev.acked_features(), 24);
+    }
+
+    #[test]
+    fn test_queue_config_immutable_after_activation() {
+        // Verify that writes to queue configuration fields are rejected after the device has been
+        // activated (DRIVER_OK).  These MMIO registers are write-only (reads return 0), so this
+        // cannot be tested at the integration level via /dev/mem readback.
+        let mem = single_region_mem(0x1000);
+        let interrupt = Arc::new(IrqTrigger::new());
+        let mut dev = MmioTransport::new(
+            mem,
+            interrupt,
+            Arc::new(Mutex::new(DummyDevice::new())),
+            false,
+        );
+        activate_device(&mut dev);
+
+        dev.queue_select = 0;
+
+        // Save the queue state right after activation.
+        let size_before = dev.locked_device().queues()[0].size;
+        let ready_before = dev.locked_device().queues()[0].ready;
+        let desc_before = dev.locked_device().queues()[0].desc_table_address;
+        let avail_before = dev.locked_device().queues()[0].avail_ring_address;
+        let used_before = dev.locked_device().queues()[0].used_ring_address;
+
+        // Attempt to poison every queue config register.
+        let mut buf = [0u8; 4];
+
+        // QueueNum (0x38)
+        write_le_u32(&mut buf, 0);
+        dev.write(0x0, 0x38, &buf);
+        assert_eq!(dev.locked_device().queues()[0].size, size_before);
+
+        // QueueReady (0x44)
+        write_le_u32(&mut buf, 0);
+        dev.write(0x0, 0x44, &buf);
+        assert_eq!(dev.locked_device().queues()[0].ready, ready_before);
+
+        // QueueDescLow/High (0x80, 0x84)
+        write_le_u32(&mut buf, 0xDEADBEEF);
+        dev.write(0x0, 0x80, &buf);
+        dev.write(0x0, 0x84, &buf);
+        assert_eq!(
+            dev.locked_device().queues()[0].desc_table_address,
+            desc_before
+        );
+
+        // QueueAvailLow/High (0x90, 0x94)
+        dev.write(0x0, 0x90, &buf);
+        dev.write(0x0, 0x94, &buf);
+        assert_eq!(
+            dev.locked_device().queues()[0].avail_ring_address,
+            avail_before
+        );
+
+        // QueueUsedLow/High (0xa0, 0xa4)
+        dev.write(0x0, 0xa0, &buf);
+        dev.write(0x0, 0xa4, &buf);
+        assert_eq!(
+            dev.locked_device().queues()[0].used_ring_address,
+            used_before
+        );
     }
 
     #[test]
