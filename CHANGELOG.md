@@ -15,6 +15,16 @@ and this project adheres to
   a descriptor chain that caused Firecracker to allocate more host memory than
   the guest actually provided, potentially leading to excessive host memory
   consumption.
+- [#XXXX](https://github.com/firecracker-microvm/firecracker/pull/XXXX): Enforce
+  the virtio device initialization sequence in the PCI transport, matching the
+  existing MMIO transport behavior. The PCI transport now validates device
+  status transitions, rejects queue configuration writes outside the FEATURES_OK
+  to DRIVER_OK window, rejects feature negotiation outside the DRIVER state,
+  blocks re-initialization after a failed reset, and sets DEVICE_NEEDS_RESET
+  when device activation fails.
+- [#XXXX](https://github.com/firecracker-microvm/firecracker/pull/XXXX): Reject
+  device status writes that clear previously set bits in the MMIO transport,
+  except for reset.
 
 ## [1.15.0]
 
