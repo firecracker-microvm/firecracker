@@ -285,6 +285,112 @@
                 ]
             },
             {
+                "syscall": "mmap",
+                "comment": "Used by pmem device to mmap the backing file",
+                "args": [
+                    {
+                        "index": 3,
+                        "type": "dword",
+                        "op": "eq",
+                        "val": 16385,
+                        "comment": "libc::MAP_SHARED | libc::MAP_NORESERVE"
+                    },
+                    {
+                        "index": 2,
+                        "type": "dword",
+                        "op": {"masked_eq": 4},
+                        "val": 0,
+                        "comment": "Ensure PROT_EXEC is not set"
+                    }
+                ]
+            },
+            {
+                "syscall": "mmap",
+                "comment": "Used by pmem device for aligned anonymous mapping",
+                "args": [
+                    {
+                        "index": 3,
+                        "type": "dword",
+                        "op": "eq",
+                        "val": 16418,
+                        "comment": "libc::MAP_PRIVATE | libc::MAP_NORESERVE | libc::MAP_ANONYMOUS"
+                    },
+                    {
+                        "index": 2,
+                        "type": "dword",
+                        "op": {"masked_eq": 4},
+                        "val": 0,
+                        "comment": "Ensure PROT_EXEC is not set"
+                    }
+                ]
+            },
+            {
+                "syscall": "mmap",
+                "comment": "Used by pmem device to overlay file mapping on anonymous region",
+                "args": [
+                    {
+                        "index": 3,
+                        "type": "dword",
+                        "op": "eq",
+                        "val": 16401,
+                        "comment": "libc::MAP_SHARED | libc::MAP_NORESERVE | libc::MAP_FIXED"
+                    },
+                    {
+                        "index": 2,
+                        "type": "dword",
+                        "op": {"masked_eq": 4},
+                        "val": 0,
+                        "comment": "Ensure PROT_EXEC is not set"
+                    }
+                ]
+            },
+            {
+                "syscall": "mmap",
+                "comment": "Used by IovDeque ring buffer for net device hotplug",
+                "args": [
+                    {
+                        "index": 3,
+                        "type": "dword",
+                        "op": "eq",
+                        "val": 17,
+                        "comment": "libc::MAP_SHARED | libc::MAP_FIXED"
+                    },
+                    {
+                        "index": 2,
+                        "type": "dword",
+                        "op": "eq",
+                        "val": 3,
+                        "comment": "libc::PROT_READ | libc::PROT_WRITE"
+                    }
+                ]
+            },
+            {
+                "syscall": "memfd_create",
+                "comment": "Used by IovDeque ring buffer for net device hotplug",
+                "args": [
+                    {
+                        "index": 1,
+                        "type": "dword",
+                        "op": "eq",
+                        "val": 3,
+                        "comment": "MFD_CLOEXEC | MFD_ALLOW_SEALING"
+                    }
+                ]
+            },
+            {
+                "syscall": "fcntl",
+                "comment": "Used by IovDeque to seal memfd during net device hotplug",
+                "args": [
+                    {
+                        "index": 1,
+                        "type": "dword",
+                        "op": "eq",
+                        "val": 1033,
+                        "comment": "F_ADD_SEALS"
+                    }
+                ]
+            },
+            {
                 "syscall": "rt_sigaction",
                 "comment": "rt_sigaction is used by libc::abort during a panic to install the default handler for SIGABRT",
                 "args": [
@@ -350,6 +456,26 @@
                         "op": "eq",
                         "val": 35,
                         "comment": "sigrtmin() + vcpu::VCPU_RTSIG_OFFSET"
+                    }
+                ]
+            },
+            {
+                "syscall": "timerfd_create",
+                "comment": "Needed for creating rate limiters during device hotplug",
+                "args": [
+                    {
+                        "index": 0,
+                        "type": "dword",
+                        "op": "eq",
+                        "val": 1,
+                        "comment": "CLOCK_MONOTONIC"
+                    },
+                    {
+                        "index": 1,
+                        "type": "dword",
+                        "op": "eq",
+                        "val": 526336,
+                        "comment": "TFD_NONBLOCK | TFD_CLOEXEC"
                     }
                 ]
             },
@@ -474,6 +600,58 @@
                         "op": "eq",
                         "val": 1075883590,
                         "comment": "KVM_SET_USER_MEMORY_REGION, used to (un)plug memory for the virtio-mem device"
+                    }
+                ]
+            },
+            {
+                "syscall": "ioctl",
+                "comment": "Needed for registering ioeventfds during device hotplug",
+                "args": [
+                    {
+                        "index": 1,
+                        "type": "dword",
+                        "op": "eq",
+                        "val": 1077980793,
+                        "comment": "KVM_IOEVENTFD"
+                    }
+                ]
+            },
+            {
+                "syscall": "ioctl",
+                "comment": "Needed for opening tap device during net hotplug",
+                "args": [
+                    {
+                        "index": 1,
+                        "type": "dword",
+                        "op": "eq",
+                        "val": 1074025674,
+                        "comment": "TUNSETIFF"
+                    }
+                ]
+            },
+            {
+                "syscall": "ioctl",
+                "comment": "Needed for configuring tap offload during net hotplug",
+                "args": [
+                    {
+                        "index": 1,
+                        "type": "dword",
+                        "op": "eq",
+                        "val": 1074025680,
+                        "comment": "TUNSETOFFLOAD"
+                    }
+                ]
+            },
+            {
+                "syscall": "ioctl",
+                "comment": "Needed for setting tap vnet header size during net hotplug",
+                "args": [
+                    {
+                        "index": 1,
+                        "type": "dword",
+                        "op": "eq",
+                        "val": 1074025688,
+                        "comment": "TUNSETVNETHDRSZ"
                     }
                 ]
             },
