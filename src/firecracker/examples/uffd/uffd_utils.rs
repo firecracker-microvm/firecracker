@@ -885,7 +885,6 @@ impl Runtime {
                                 "received bogus offset from firecracker"
                             );
 
-                            // Handle one of FaultRequest page faults
                             pf_vcpu_event_dispatch(
                                 &mut self.handler,
                                 fault_request.offset as usize,
