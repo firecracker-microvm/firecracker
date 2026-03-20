@@ -12,6 +12,7 @@ from framework.utils import chroot
 from host_tools import cargo_build
 
 SOCKET_PATH = "/firecracker-uffd.sock"
+APF_SOCKET_PATH = "/apf.socket"
 
 
 class UffdHandler:
@@ -41,6 +42,7 @@ class UffdHandler:
                     f"/{self._handler_name}",
                     self.socket_path,
                     self.snapshot.mem.name,
+                    APF_SOCKET_PATH,
                 ]
                 self._proc = subprocess.Popen(
                     args, stdout=logfile, stderr=subprocess.STDOUT
@@ -55,6 +57,8 @@ class UffdHandler:
             # The page fault handler will create the socket path with root rights.
             # Change rights to the jailer's.
             os.chown(self.socket_path, uid, gid)
+            if os.path.exists(APF_SOCKET_PATH):
+                os.chown(APF_SOCKET_PATH, uid, gid)
 
     @property
     def proc(self):
