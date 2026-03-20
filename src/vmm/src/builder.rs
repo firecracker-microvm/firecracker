@@ -234,8 +234,7 @@ pub fn build_microvm_for_boot(
                 ),
                 GUEST_MEMFD_FLAG_MMAP
                     | GUEST_MEMFD_FLAG_INIT_SHARED
-                    | GUEST_MEMFD_FLAG_NO_DIRECT_MAP
-                    | GUEST_MEMFD_FLAG_WRITE,
+                    | GUEST_MEMFD_FLAG_NO_DIRECT_MAP,
             )
             .map_err(VmmError::KvmVm)?,
         ),
