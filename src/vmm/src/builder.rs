@@ -228,8 +228,7 @@ pub fn build_microvm_for_boot(
                 vm_resources.dram_memory_size() + vm_resources.hotplug_memory_size(),
                 GUEST_MEMFD_FLAG_MMAP
                     | GUEST_MEMFD_FLAG_INIT_SHARED
-                    | GUEST_MEMFD_FLAG_NO_DIRECT_MAP
-                    | GUEST_MEMFD_FLAG_WRITE,
+                    | GUEST_MEMFD_FLAG_NO_DIRECT_MAP,
             )
             .map_err(VmmError::Vm)?,
         )),
