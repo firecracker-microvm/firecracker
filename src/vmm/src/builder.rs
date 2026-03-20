@@ -767,7 +767,8 @@ pub fn build_microvm_from_snapshot(
         use vmm_sys_util::sock_ctrl_msg::ScmSocket;
         if let Some(uff_socket) = uffd_socket {
             let broker = UffdMessageBroker::new(uff_socket);
-            let (contexts, done) = if apf_supported {
+            let apf_exitless = apf_supported && std::env::var("FC_APF_NO_EXITLESS").is_err();
+            let (contexts, done) = if apf_exitless {
                 let mut contexts = Vec::new();
                 let mut handler_fds = Vec::new();
                 for &vcpu_fd in &vcpu_fds {
