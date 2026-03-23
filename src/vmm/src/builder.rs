@@ -430,6 +430,7 @@ pub fn build_microvm_for_boot(
         _guest_memfd: None,
         _eventfd: None,
         apf_stream: None,
+        apf_stream_fd: None,
         apf_supported: false,
         exitless_apf: Vec::new(),
         exitless_apf_setup_done: false,
@@ -769,7 +770,9 @@ pub fn build_microvm_from_snapshot(
         use vmm_sys_util::sock_ctrl_msg::ScmSocket;
         if let Some(uff_socket) = uffd_socket {
             let broker = UffdMessageBroker::new(uff_socket);
-            let apf_exitless = apf_supported && std::env::var("FC_APF_NO_EXITLESS").is_err();
+            let apf_exitless = apf_supported
+                && std::env::var("FC_APF_NO_EXITLESS").is_err()
+                && !std::path::Path::new("/apf_no_exitless").exists();
             let (contexts, done) = if apf_exitless {
                 let mut contexts = Vec::new();
                 let mut handler_fds = Vec::new();
@@ -885,6 +888,12 @@ pub fn build_microvm_from_snapshot(
         device_manager,
         _guest_memfd: None,
         _eventfd: None,
+        apf_stream_fd: apf_stream.as_ref().map(|s| {
+            s.lock()
+                .expect("APF stream lock poisoned")
+                .stream()
+                .as_raw_fd()
+        }),
         apf_stream,
         apf_supported,
         exitless_apf: exitless_apf_contexts,
@@ -1246,6 +1255,7 @@ pub(crate) mod tests {
             _guest_memfd: None,
             _eventfd: None,
             apf_stream: None,
+            apf_stream_fd: None,
             apf_supported: false,
             exitless_apf: Vec::new(),
             exitless_apf_setup_done: false,
