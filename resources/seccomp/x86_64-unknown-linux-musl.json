@@ -508,6 +508,18 @@
             {
                 "syscall": "mprotect",
                 "comment": "Used by memory hotplug to protect access to underlying host memory"
+            },
+            {
+                "syscall": "ioctl",
+                "args": [
+                    {
+                        "index": 1,
+                        "type": "dword",
+                        "op": "eq",
+                        "val": 1075883734,
+                        "comment": "KVM_ASYNC_PF (accept/ready/sync_complete)"
+                    }
+                ]
             }
         ]
     },
@@ -580,8 +592,8 @@
                 "comment": "sigaltstack is used by Rust stdlib to remove alternative signal stack during thread teardown."
             },
             {
-              "syscall": "getrandom",
-              "comment": "getrandom is used by `HttpServer` to reinialize `HashMap` after moving to the API thread"
+                "syscall": "getrandom",
+                "comment": "getrandom is used by `HttpServer` to reinialize `HashMap` after moving to the API thread"
             },
             {
                 "syscall": "accept4",
@@ -1240,6 +1252,22 @@
                         "op": "eq",
                         "val": 1075883638,
                         "comment": "KVM_IRQFD"
+                    }
+                ]
+            },
+            {
+                "syscall": "sendto",
+                "comment": "APF fallback: vCPU sends fault request to handler via socket"
+            },
+            {
+                "syscall": "ioctl",
+                "args": [
+                    {
+                        "index": 1,
+                        "type": "dword",
+                        "op": "eq",
+                        "val": 1075883734,
+                        "comment": "KVM_ASYNC_PF (accept/ready/sync_complete)"
                     }
                 ]
             }
