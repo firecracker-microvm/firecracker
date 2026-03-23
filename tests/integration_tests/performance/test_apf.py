@@ -12,10 +12,10 @@ Four variants:
   - baseline: (SF_OFF) standard UFFD, kernel blocks in-kernel (no KVM exit)
 """
 
-import os
 import platform
 import signal
 import time
+from pathlib import Path
 
 import pytest
 
@@ -112,9 +112,18 @@ def test_apf_latency(
     fault_samples = []
     ops_rate_samples = []
 
-    # Set env var for fallback variant (skip exitless ring setup in VMM)
+    # For fallback variant: monkey-patch restore to drop a flag file in the
+    # jailer chroot before snapshot load. The VMM checks /apf_no_exitless.
+    from framework.microvm import Microvm  # pylint: disable=import-outside-toplevel
+
+    _orig_restore = Microvm.restore_from_snapshot
     if no_exitless_env:
-        os.environ["FC_APF_NO_EXITLESS"] = "1"
+
+        def _restore_with_flag(self, *args, **kwargs):
+            (Path(self.chroot()) / "apf_no_exitless").touch()
+            return _orig_restore(self, *args, **kwargs)
+
+        Microvm.restore_from_snapshot = _restore_with_flag
 
     try:
         for microvm in microvm_factory.build_n_from_snapshot(
@@ -124,6 +133,15 @@ def test_apf_latency(
             apf=apf_socket,
         ):
             microvm.memory_monitor = None
+
+            # Assert VM wasn't killed by seccomp (APF fallback needs
+            # sendto + KVM_ASYNC_PF in vcpu/vmm seccomp filters)
+            fc_log = microvm.log_data
+            assert (
+                "bad syscall" not in fc_log
+            ), "VM killed by seccomp during APF. Log:\n" + "\n".join(
+                fc_log.splitlines()[-5:]
+            )
 
             microvm.ssh.check_output(
                 "rm -f /tmp/fast_page_fault_helper.out /tmp/cpu_ops_*.out"
@@ -160,9 +178,8 @@ def test_apf_latency(
                     ops_rate = total_ops / (fault_ms / 1000)
                     ops_rate_samples.append(ops_rate)
                     metrics.put_metric("cpu_ops_rate", ops_rate, "Count/Second")
-
     finally:
-        os.environ.pop("FC_APF_NO_EXITLESS", None)
+        Microvm.restore_from_snapshot = _orig_restore
 
     # --- Print summary ---
     fault_avg = sum(fault_samples) / len(fault_samples)
