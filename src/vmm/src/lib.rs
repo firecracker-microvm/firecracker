@@ -135,7 +135,6 @@ use event_manager::{EventManager as BaseEventManager, EventOps, Events, MutEvent
 use seccomp::BpfProgram;
 use snapshot::Persist;
 use userfaultfd::Uffd;
-use vm_memory::GuestAddress;
 use vmm_sys_util::epoll::EventSet;
 use vmm_sys_util::eventfd::EventFd;
 use vmm_sys_util::terminal::Terminal;
@@ -170,9 +169,7 @@ use crate::vmm_config::memory_hotplug::MemoryHotplugConfig;
 use crate::vmm_config::mmds::MmdsConfig;
 use crate::vmm_config::net::NetworkInterfaceConfig;
 use crate::vmm_config::vsock::VsockDeviceConfig;
-use crate::vstate::memory::{
-    GuestMemory, GuestMemoryExtension, GuestMemoryMmap, GuestMemoryRegion,
-};
+use crate::vstate::memory::{GuestMemory, GuestMemoryMmap, GuestMemoryRegion};
 use crate::vstate::memory::{KVM_APF_OP_READY, KVM_ASYNC_PF, KvmAPFReq};
 use crate::vstate::vcpu::VcpuState;
 pub use crate::vstate::vcpu::{Vcpu, VcpuConfig, VcpuEvent, VcpuHandle, VcpuResponse};
@@ -350,6 +347,8 @@ pub struct Vmm {
     pub(crate) _eventfd: Option<i32>,
     /// APF stream shared with vCPUs
     apf_stream: Option<vstate::vcpu::SharedApfStream>,
+    /// Cached raw fd for APF stream (avoids mutex lock per event loop iteration)
+    apf_stream_fd: Option<RawFd>,
     /// Whether the kernel supports KVM_CAP_ASYNC_PF_USERFAULT
     apf_supported: bool,
     /// Exitless APF contexts (one per vCPU)
@@ -913,18 +912,13 @@ impl Vmm {
     }
 
     fn process_vcpu_userfault(&mut self, vcpu: u32, userfault_data: UserfaultData) {
-        // APF requests are now sent directly by vCPUs, so we only handle sync faults here
-        let offset = self
-            .vm
-            .guest_memory()
-            .gpa_to_offset(GuestAddress(userfault_data.gpa))
-            .expect("Failed to convert GPA to offset");
-
+        // Sync path: vCPU blocked on condvar, send fault to handler for resolution.
+        // Always send GPA — the handler converts GPA→offset via its mem_regions.
         let fault_request = FaultRequest {
             vcpu,
-            offset,
+            offset: 0,
             flags: userfault_data.flags,
-            gpa: None,
+            gpa: Some(userfault_data.gpa),
         };
 
         self.uffd_socket
@@ -1091,15 +1085,11 @@ impl MutEventSubscriber for Vmm {
             self.process_uffd_socket();
         }
 
-        if let Some(apf_stream) = &self.apf_stream {
-            let fd = apf_stream
-                .lock()
-                .expect("APF stream lock poisoned")
-                .stream()
-                .as_raw_fd();
-            if source == fd && event_set == EventSet::IN {
-                self.process_apf_socket();
-            }
+        if let Some(fd) = self.apf_stream_fd
+            && source == fd
+            && event_set == EventSet::IN
+        {
+            self.process_apf_socket();
         }
     }
 
