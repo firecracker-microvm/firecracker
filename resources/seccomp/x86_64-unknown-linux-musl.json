@@ -814,6 +814,18 @@
                         "comment": "Ensure PROT_EXEC is not set"
                     }
                 ]
+            },
+            {
+                "syscall": "ioctl",
+                "args": [
+                    {
+                        "index": 1,
+                        "type": "dword",
+                        "op": "eq",
+                        "val": 1075883734,
+                        "comment": "KVM_ASYNC_PF (accept/ready/sync_complete)"
+                    }
+                ]
             }
         ]
     },
@@ -890,8 +902,8 @@
                 "comment": "sigaltstack is used by Rust stdlib to remove alternative signal stack during thread teardown."
             },
             {
-              "syscall": "getrandom",
-              "comment": "getrandom is used by `HttpServer` to reinialize `HashMap` after moving to the API thread"
+                "syscall": "getrandom",
+                "comment": "getrandom is used by `HttpServer` to reinialize `HashMap` after moving to the API thread"
             },
             {
                 "syscall": "accept4",
@@ -1395,18 +1407,6 @@
                         "index": 1,
                         "type": "dword",
                         "op": "eq",
-                        "val": 1074835158,
-                        "comment": "KVM_ASYNC_PF_READY"
-                    }
-                ]
-            },
-            {
-                "syscall": "ioctl",
-                "args": [
-                    {
-                        "index": 1,
-                        "type": "dword",
-                        "op": "eq",
                         "val": 2214637198,
                         "comment": "KVM_GET_LAPIC"
                     }
@@ -1596,6 +1596,22 @@
                         "op": "eq",
                         "val": 1075883638,
                         "comment": "KVM_IRQFD"
+                    }
+                ]
+            },
+            {
+                "syscall": "sendto",
+                "comment": "APF fallback: vCPU sends fault request to handler via socket"
+            },
+            {
+                "syscall": "ioctl",
+                "args": [
+                    {
+                        "index": 1,
+                        "type": "dword",
+                        "op": "eq",
+                        "val": 1075883734,
+                        "comment": "KVM_ASYNC_PF (accept/ready/sync_complete)"
                     }
                 ]
             }
