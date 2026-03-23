@@ -96,6 +96,22 @@ def _guest_python(microvm, script, **kwargs):
     return stdout.strip()
 
 
+def _assert_vm_healthy(microvm):
+    """Assert the VM didn't crash (e.g., seccomp kill on APF fallback)."""
+    fc_log = microvm.log_data
+    assert "bad syscall" not in fc_log, (
+        "VM was killed by seccomp during APF handling. "
+        "Check that sendto and KVM_ASYNC_PF ioctls are allowed in the "
+        "vcpu/vmm seccomp filters.\nFC log tail:\n"
+        + "\n".join(fc_log.splitlines()[-5:])
+    )
+    assert (
+        "Shutting down VM after intercepting signal" not in fc_log
+    ), "VM received fatal signal during APF handling.\nFC log tail:\n" + "\n".join(
+        fc_log.splitlines()[-5:]
+    )
+
+
 @pytest.fixture
 def apf_vm(microvm_factory, guest_kernel_linux_5_10, rootfs, secret_free):
     """Provide a factory function for booting + snapshotting VMs.
@@ -145,6 +161,7 @@ def test_apf_per_page_fingerprint(microvm_factory, apf_vm):
         apf=True,
     ):
         microvm.memory_monitor = None
+        _assert_vm_healthy(microvm)
         # Sequential verification
         result = _guest_python(
             microvm,
@@ -156,6 +173,7 @@ def test_apf_per_page_fingerprint(microvm_factory, apf_vm):
         )
         assert "VERIFIED" in result and "OK" in result, f"Verification failed: {result}"
 
+        _assert_vm_healthy(microvm)
         handler_log = microvm.uffd_handler.log_data
         assert "Exitless APF enabled" in handler_log
 
@@ -183,6 +201,7 @@ def test_apf_random_access_order(microvm_factory, apf_vm):
         apf=True,
     ):
         microvm.memory_monitor = None
+        _assert_vm_healthy(microvm)
         result = _guest_python(
             microvm,
             VERIFY_FINGERPRINTS,
@@ -293,6 +312,7 @@ def test_apf_multi_region_hash(microvm_factory, apf_vm):
         apf=True,
     ):
         microvm.memory_monitor = None
+        _assert_vm_healthy(microvm)
         hash_after = _guest_python(microvm, VERIFY_HASH, n_files=8)
         assert (
             hash_before == hash_after
@@ -321,6 +341,7 @@ def test_apf_snapshot_chain(microvm_factory, apf_vm):
             apf=True,
         )
         microvm.memory_monitor = None
+        _assert_vm_healthy(microvm)
 
         result = _guest_python(
             microvm,
@@ -602,6 +623,7 @@ def test_apf_rapid_restore_cycle(microvm_factory, apf_vm):
             apf=True,
         )
         microvm.memory_monitor = None
+        _assert_vm_healthy(microvm)
         # Touch just enough to verify SSH + one read
         _, canary, _ = microvm.ssh.check_output("cat /tmp/rapid_test")
         assert canary.strip() == "ALIVE", f"Rapid cycle {i}: got '{canary.strip()}'"

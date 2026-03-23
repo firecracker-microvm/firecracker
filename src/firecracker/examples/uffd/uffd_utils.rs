@@ -231,8 +231,8 @@ pub struct FaultRequest {
     pub offset: u64,
     /// Flags
     pub flags: u64,
-    /// Async PF token
-    pub token: Option<u32>,
+    /// Async PF GPA (set for APF fallback faults, None for sync faults)
+    pub gpa: Option<u64>,
 }
 
 impl FaultRequest {
@@ -242,7 +242,7 @@ impl FaultRequest {
             offset: self.offset,
             len,
             flags: self.flags,
-            token: self.token,
+            gpa: self.gpa,
             zero: false,
         }
     }
@@ -259,8 +259,8 @@ pub struct FaultReply {
     pub len: u64,
     /// Flags, must be copied from `FaultRequest`, otherwise 0
     pub flags: u64,
-    /// Async PF token, must be copied from `FaultRequest`, otherwise None
-    pub token: Option<u32>,
+    /// Async PF GPA, must be copied from `FaultRequest`, otherwise None
+    pub gpa: Option<u64>,
     /// Whether the populated pages are zero pages
     pub zero: bool,
 }
@@ -421,6 +421,17 @@ impl UffdHandler {
                 );
             }
         }
+    }
+
+    /// Convert a guest physical address to an offset in the backing memory file.
+    #[inline]
+    pub fn gpa_to_offset(&self, gpa: u64) -> Option<usize> {
+        for region in &self.mem_regions {
+            if region.gpa_start <= gpa && gpa < region.gpa_start + region.size as u64 {
+                return Some((gpa - region.gpa_start + region.offset) as usize);
+            }
+        }
+        None
     }
 
     pub fn read_event(&mut self) -> Result<Option<Event>, Error> {
@@ -733,6 +744,13 @@ impl Runtime {
         self.stream.write_all(&encoded).unwrap();
     }
 
+    pub fn send_apf_fault_reply(&mut self, fault_reply: FaultReply) {
+        let encoded = bitcode::encode(&fault_reply);
+        let size = (encoded.len() as u32).to_le_bytes();
+        self.apf_stream.write_all(&size).unwrap();
+        self.apf_stream.write_all(&encoded).unwrap();
+    }
+
     pub fn construct_handler(
         stream: &UnixStream,
         backing_memory: *mut u8,
@@ -857,6 +875,11 @@ impl Runtime {
 
         let mut uffd_msg_iter =
             UffdMsgIterBitcode::new(self.stream.try_clone().expect("Failed to clone stream"));
+        let mut apf_msg_iter = UffdMsgIterBitcode::new(
+            self.apf_stream
+                .try_clone()
+                .expect("Failed to clone APF stream"),
+        );
 
         loop {
             let pollfd_ptr = pollfds.as_mut_ptr();
@@ -879,52 +902,40 @@ impl Runtime {
                     if fd.fd == stream_fd {
                         for fault_request in uffd_msg_iter.by_ref() {
                             let page_size = self.handler.page_size;
-
+                            let offset = fault_request
+                                .gpa
+                                .and_then(|gpa| self.handler.gpa_to_offset(gpa))
+                                .unwrap_or(fault_request.offset as usize);
                             assert!(
-                                (fault_request.offset as usize) < self.handler.size(),
+                                offset < self.handler.size(),
                                 "received bogus offset from firecracker"
                             );
-
-                            pf_vcpu_event_dispatch(
-                                &mut self.handler,
-                                fault_request.offset as usize,
-                            );
-
+                            pf_vcpu_event_dispatch(&mut self.handler, offset);
                             self.send_fault_reply(fault_request.into_reply(page_size as u64));
                         }
                     } else if fd.fd == apf_stream_fd {
-                        // APF fallback path: fault requests over socket
-                        for fault_request in uffd_msg_iter.by_ref() {
+                        // APF fallback path: read from APF socket, reply on APF socket
+                        for fault_request in apf_msg_iter.by_ref() {
                             let page_size = self.handler.page_size;
-
+                            let offset = fault_request
+                                .gpa
+                                .and_then(|gpa| self.handler.gpa_to_offset(gpa))
+                                .unwrap_or(fault_request.offset as usize);
                             assert!(
-                                (fault_request.offset as usize) < self.handler.size(),
-                                "received bogus offset from firecracker"
+                                offset < self.handler.size(),
+                                "received bogus offset from APF handler"
                             );
-
-                            pf_vcpu_event_dispatch(
-                                &mut self.handler,
-                                fault_request.offset as usize,
-                            );
-
-                            self.send_fault_reply(fault_request.into_reply(page_size as u64));
+                            pf_vcpu_event_dispatch(&mut self.handler, offset);
+                            self.send_apf_fault_reply(fault_request.into_reply(page_size as u64));
                         }
                     } else if let Some(ctx) = self.exitless_vcpus.get_mut(&fd.fd) {
                         // Exitless APF: drain notify ring and resolve pages
                         ctx.drain_eventfd();
                         while let Some(entry) = ctx.notify_ring().pop() {
-                            let gpa = entry.gpa;
-                            // Find the region and offset for this GPA
-                            for region in &self.handler.mem_regions {
-                                if region.gpa_start <= gpa
-                                    && gpa < region.gpa_start + region.size as u64
-                                {
-                                    let offset = (gpa - region.gpa_start + region.offset) as usize;
-                                    pf_vcpu_event_dispatch(&mut self.handler, offset);
-                                    break;
-                                }
+                            if let Some(offset) = self.handler.gpa_to_offset(entry.gpa) {
+                                pf_vcpu_event_dispatch(&mut self.handler, offset);
                             }
-                            ctx.signal_ready(gpa);
+                            ctx.signal_ready(entry.gpa);
                         }
                     } else {
                         // Handle one of uffd page faults
@@ -977,6 +988,9 @@ mod tests {
             let (apf_stream, _) = apf_listener
                 .accept()
                 .expect("Cannot listen on APF UDS socket");
+            apf_stream
+                .set_nonblocking(true)
+                .expect("Cannot set APF stream non-blocking");
             // Update runtime with actual runtime
             let runtime = uninit_runtime.write(Runtime::new(stream, file, apf_stream));
             runtime.run(|_: &mut UffdHandler| {}, |_: &mut UffdHandler, _: usize| {});
@@ -1024,7 +1038,7 @@ mod tests {
             vcpu: 0,
             offset: 0xDEAD_0000, // way beyond 0x1000 handler size
             flags: 0,
-            token: None,
+            gpa: None,
         };
         let encoded = bitcode::encode(&bogus_request);
         let size = (encoded.len() as u32).to_le_bytes();
