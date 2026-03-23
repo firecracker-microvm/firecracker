@@ -32,6 +32,9 @@ fn main() {
             .accept()
             .expect("Cannot listen on APF UDS socket");
         apf_stream
+            .set_nonblocking(true)
+            .expect("Cannot set APF stream non-blocking");
+        apf_stream
     } else {
         let (apf_stream, _) = UnixStream::pair().expect("Cannot create APF socket pair");
         apf_stream
