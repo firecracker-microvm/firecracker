@@ -5,8 +5,7 @@ allow = [
     "Apache-2.0",
     "BSD-3-Clause",
     "ISC",
-    "Unicode-3.0",
-    "OpenSSL"
+    "Unicode-3.0"
 ]
 
 [[bans.deny]]
