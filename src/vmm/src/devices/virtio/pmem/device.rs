@@ -254,8 +254,9 @@ impl Pmem {
         // This is safe since we checked in the event handler that the device is activated.
         let active_state = self.device_state.active_state().unwrap();
 
+        let mut cached_result = None;
         while let Some(head) = self.queues[0].pop()? {
-            let add_result = match self.process_chain(head) {
+            let add_result = match self.process_chain(head, &mut cached_result) {
                 Ok(()) => self.queues[0].add_used(head.index, 4),
                 Err(err) => {
                     error!("pmem: {err}");
@@ -283,7 +284,11 @@ impl Pmem {
         Ok(())
     }
 
-    fn process_chain(&self, head: DescriptorChain) -> Result<(), PmemError> {
+    fn process_chain(
+        &self,
+        head: DescriptorChain,
+        cached_result: &mut Option<i32>,
+    ) -> Result<(), PmemError> {
         // This is safe since we checked in the event handler that the device is activated.
         let active_state = self.device_state.active_state().unwrap();
 
@@ -312,21 +317,33 @@ impl Pmem {
             return Err(PmemError::Non4byteStatusDescriptor(status_descriptor.len));
         }
 
-        let mut result = SUCCESS;
-        // SAFETY: We are calling the system call with valid arguments and checking the returned
-        // value
-        unsafe {
-            let ret = libc::msync(
-                self.mmap_ptr as *mut libc::c_void,
-                u64_to_usize(self.file_len),
-                libc::MS_SYNC,
-            );
-            if ret < 0 {
-                error!("pmem: Unable to msync the file. Error: {}", ret);
-                result = FAILURE;
+        // Since there is only 1 type of request pmem device supports,
+        // we treat single notification from the guest as a single request
+        // and reuse cached result of `msync` from first valid descriptor
+        // for all following descriptors.
+        if let Some(result) = cached_result {
+            active_state
+                .mem
+                .write_obj(*result, status_descriptor.addr)?;
+        } else {
+            let mut status = SUCCESS;
+            // SAFETY: We are calling the system call with valid arguments and checking the returned
+            // value
+            unsafe {
+                let ret = libc::msync(
+                    self.mmap_ptr as *mut libc::c_void,
+                    u64_to_usize(self.file_len),
+                    libc::MS_SYNC,
+                );
+                if ret < 0 {
+                    error!("pmem: Unable to msync the file. Error: {}", ret);
+                    status = FAILURE;
+                }
             }
+            *cached_result = Some(status);
+
+            active_state.mem.write_obj(status, status_descriptor.addr)?;
         }
-        active_state.mem.write_obj(result, status_descriptor.addr)?;
         Ok(())
     }
 
@@ -501,8 +518,28 @@ mod tests {
             vq.used.idx.set(0);
             vq.avail.idx.set(1);
             let head = pmem.queues[0].pop().unwrap().unwrap();
-            pmem.process_chain(head).unwrap();
+            let mut result = None;
+            pmem.process_chain(head, &mut result).unwrap();
             assert_eq!(mem.read_obj::<u32>(GuestAddress(0x2000)).unwrap(), 0);
+            assert!(result.is_some());
+        }
+
+        // Valid request cached value reuse
+        {
+            vq.avail.ring[0].set(0);
+            vq.dtable[0].set(0x1000, 4, VIRTQ_DESC_F_NEXT, 1);
+            vq.avail.ring[1].set(1);
+            vq.dtable[1].set(0x2000, 4, VIRTQ_DESC_F_WRITE, 0);
+            mem.write_obj::<u32>(0, GuestAddress(0x1000)).unwrap();
+            mem.write_obj::<u32>(0x69, GuestAddress(0x2000)).unwrap();
+
+            pmem.queues[0] = vq.create_queue();
+            vq.used.idx.set(0);
+            vq.avail.idx.set(1);
+            let head = pmem.queues[0].pop().unwrap().unwrap();
+            let mut result = Some(0x69);
+            pmem.process_chain(head, &mut result).unwrap();
+            assert_eq!(mem.read_obj::<u32>(GuestAddress(0x2000)).unwrap(), 0x69);
         }
 
         // Invalid request type
@@ -516,7 +553,7 @@ mod tests {
             vq.avail.idx.set(1);
             let head = pmem.queues[0].pop().unwrap().unwrap();
             assert!(matches!(
-                pmem.process_chain(head).unwrap_err(),
+                pmem.process_chain(head, &mut None).unwrap_err(),
                 PmemError::UnknownRequestType(0x69),
             ));
         }
@@ -532,7 +569,7 @@ mod tests {
             vq.avail.idx.set(1);
             let head = pmem.queues[0].pop().unwrap().unwrap();
             assert!(matches!(
-                pmem.process_chain(head).unwrap_err(),
+                pmem.process_chain(head, &mut None).unwrap_err(),
                 PmemError::DescriptorChainTooShort,
             ));
         }
@@ -550,7 +587,7 @@ mod tests {
             vq.avail.idx.set(1);
             let head = pmem.queues[0].pop().unwrap().unwrap();
             assert!(matches!(
-                pmem.process_chain(head).unwrap_err(),
+                pmem.process_chain(head, &mut None).unwrap_err(),
                 PmemError::WriteOnlyDescriptor,
             ));
         }
@@ -568,7 +605,7 @@ mod tests {
             vq.avail.idx.set(1);
             let head = pmem.queues[0].pop().unwrap().unwrap();
             assert!(matches!(
-                pmem.process_chain(head).unwrap_err(),
+                pmem.process_chain(head, &mut None).unwrap_err(),
                 PmemError::ReadOnlyDescriptor,
             ));
         }
@@ -584,7 +621,7 @@ mod tests {
             vq.avail.idx.set(1);
             let head = pmem.queues[0].pop().unwrap().unwrap();
             assert!(matches!(
-                pmem.process_chain(head).unwrap_err(),
+                pmem.process_chain(head, &mut None).unwrap_err(),
                 PmemError::Non4byteHeadDescriptor(0x69),
             ));
         }
@@ -603,7 +640,7 @@ mod tests {
             vq.avail.idx.set(1);
             let head = pmem.queues[0].pop().unwrap().unwrap();
             assert!(matches!(
-                pmem.process_chain(head).unwrap_err(),
+                pmem.process_chain(head, &mut None).unwrap_err(),
                 PmemError::Non4byteStatusDescriptor(0x69),
             ));
         }
