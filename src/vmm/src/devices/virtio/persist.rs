@@ -483,7 +483,7 @@ mod tests {
         // Remove the file so the path can be used by the socket.
         temp_uds_path.remove().unwrap();
         let uds_path = String::from(temp_uds_path.as_path().to_str().unwrap());
-        let backend = VsockUnixBackend::new(guest_cid, uds_path, VsockType::Stream).unwrap();
+        let backend = VsockUnixBackend::new(guest_cid, uds_path, VsockType::Stream, None).unwrap();
         let device = Vsock::new(guest_cid, backend, &VsockType::Stream).unwrap();
         let vsock = Arc::new(Mutex::new(device));
         let mmio_transport =
