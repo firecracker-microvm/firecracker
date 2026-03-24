@@ -49,8 +49,8 @@ use crate::devices::virtio::vsock::csm::VsockConnection;
 use crate::devices::virtio::vsock::defs::uapi::{VSOCK_TYPE_SEQPACKET, VSOCK_TYPE_STREAM};
 use crate::devices::virtio::vsock::metrics::METRICS;
 use crate::devices::virtio::vsock::packet::{VsockPacketRx, VsockPacketTx};
-use crate::devices::virtio::vsock::unix::ConnBackend;
 use crate::devices::virtio::vsock::unix::seqpacket::{SeqpacketConn, SeqpacketListener, Socket};
+use crate::devices::virtio::vsock::unix::{ConnBackend, ReadResult};
 use crate::logger::{IncMetric, debug, error, info, warn};
 use crate::vmm_config::vsock::VsockType;
 
@@ -121,6 +121,8 @@ pub struct VsockMuxer {
     pub(crate) local_port_last: u32,
     /// The type of the socket (stream or seqpacket)
     pub(crate) vsock_type: VsockType,
+    /// Length of the intermediate connection buffer
+    pub(crate) conn_buffer_size: Option<usize>,
 }
 
 impl VsockChannel for VsockMuxer {
@@ -129,7 +131,7 @@ impl VsockChannel for VsockMuxer {
     /// Retuns:
     /// - `Ok(())`: `pkt` has been successfully filled in; or
     /// - `Err(VsockError::NoData)`: there was no available data with which to fill in the packet.
-    fn recv_pkt(&mut self, pkt: &mut VsockPacketRx) -> Result<(), VsockError> {
+    fn recv_pkt(&mut self, pkt: &mut VsockPacketRx) -> Result<ReadResult, VsockError> {
         // We'll look for instructions on how to build the RX packet in the RX queue. If the
         // queue is empty, that doesn't necessarily mean we don't have any pending RX, since
         // the queue might be out-of-sync. If that's the case, we'll attempt to sync it first,
@@ -160,7 +162,7 @@ impl VsockChannel for VsockMuxer {
                         VsockType::Stream => pkt.hdr.set_type(VSOCK_TYPE_STREAM),
                     };
                     self.rxq.pop().unwrap();
-                    return Ok(());
+                    return Ok(ReadResult::default());
                 }
 
                 // We'll defer building the packet to this connection, since it has something
@@ -191,7 +193,18 @@ impl VsockChannel for VsockMuxer {
                 }
 
                 debug!("vsock muxer: RX pkt: {:?}", pkt.hdr);
-                return Ok(());
+                match res {
+                    Ok(read_res) => {
+                        // the read was buffered into an intermediate vector and this
+                        // means there is still data to process but no fd event will
+                        // kick off. manually push a a PendingRx queue entry
+                        if read_res.should_retrigger {
+                            self.rxq.push(rx);
+                        }
+                        return Ok(read_res);
+                    }
+                    Err(e) => return Err(e),
+                }
             }
         }
 
@@ -325,6 +338,7 @@ impl VsockMuxer {
         cid: u64,
         host_sock_path: String,
         vsock_type: VsockType,
+        conn_buffer_size: Option<usize>,
     ) -> Result<Self, VsockUnixBackendError> {
         // Open/bind on the host Unix socket, so we can accept host-initiated
         // connections.
@@ -355,6 +369,7 @@ impl VsockMuxer {
             local_port_last: (1u32 << 30) - 1,
             local_port_set: HashSet::with_capacity(defs::MAX_CONNECTIONS),
             vsock_type,
+            conn_buffer_size,
         };
 
         // Listen on the host initiated socket, for incoming connections.
@@ -438,6 +453,7 @@ impl VsockMuxer {
                                     local_port,
                                     peer_port,
                                     self.vsock_type.clone(),
+                                    self.conn_buffer_size,
                                 ),
                             )
                         })
@@ -682,6 +698,7 @@ impl VsockMuxer {
                                 pkt.hdr.src_port(),
                                 pkt.hdr.buf_alloc(),
                                 VsockType::Stream,
+                                None,
                             ),
                         )
                     })
@@ -704,6 +721,7 @@ impl VsockMuxer {
                                 pkt.hdr.src_port(),
                                 pkt.hdr.buf_alloc(),
                                 VsockType::Seqpacket,
+                                self.conn_buffer_size,
                             ),
                         )
                     })
@@ -926,7 +944,7 @@ mod tests {
                 )
                 .unwrap();
 
-            let muxer = VsockMuxer::new(PEER_CID, get_file(name), VsockType::Stream).unwrap();
+            let muxer = VsockMuxer::new(PEER_CID, get_file(name), VsockType::Stream, None).unwrap();
             Self {
                 _vsock_test_ctx: vsock_test_ctx,
                 rx_pkt,
