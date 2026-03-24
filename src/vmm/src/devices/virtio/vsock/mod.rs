@@ -22,7 +22,7 @@ mod unix;
 
 use std::os::unix::io::AsRawFd;
 
-use vm_memory::GuestMemoryError;
+use vm_memory::{GuestMemoryError, VolatileMemoryError};
 use vmm_sys_util::epoll::EventSet;
 
 pub use self::defs::VSOCK_DEV_ID;
@@ -132,6 +132,8 @@ pub enum VsockError {
     IovDeque(IovDequeError),
     /// Tried to push to full IovDeque.
     IovDequeOverflow,
+    /// Message too big for the intermediate connection buffer. buffer length {0}, incoming size {1}
+    MessageTooLong(usize, usize),
 }
 
 impl From<IoVecError> for VsockError {
