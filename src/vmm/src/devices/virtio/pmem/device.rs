@@ -44,6 +44,10 @@ pub enum PmemError {
     ReadOnlyDescriptor,
     /// Unexpected write-only descriptor
     WriteOnlyDescriptor,
+    /// Head descriptor has invalid length of {0} instead of 4
+    Non4byteHeadDescriptor(u32),
+    /// Status descriptor has invalid length of {0} instead of 4
+    Non4byteStatusDescriptor(u32),
     /// UnknownRequestType: {0}
     UnknownRequestType(u32),
     /// Descriptor chain too short
@@ -283,19 +287,31 @@ impl Pmem {
         // This is safe since we checked in the event handler that the device is activated.
         let active_state = self.device_state.active_state().unwrap();
 
+        // Virtio spec, section 5.19.6 Driver Operations
+        // https://docs.oasis-open.org/virtio/virtio/v1.3/csd01/virtio-v1.3-csd01.html#x1-6970006
         if head.is_write_only() {
             return Err(PmemError::WriteOnlyDescriptor);
+        }
+        if head.len != 4 {
+            return Err(PmemError::Non4byteHeadDescriptor(head.len));
         }
         let request: u32 = active_state.mem.read_obj(head.addr)?;
         if request != VIRTIO_PMEM_REQ_TYPE_FLUSH {
             return Err(PmemError::UnknownRequestType(request));
         }
+
+        // Virtio spec, section 5.19.7 Device Operations
+        // https://docs.oasis-open.org/virtio/virtio/v1.3/csd01/virtio-v1.3-csd01.html#x1-6980007
         let Some(status_descriptor) = head.next_descriptor() else {
             return Err(PmemError::DescriptorChainTooShort);
         };
         if !status_descriptor.is_write_only() {
             return Err(PmemError::ReadOnlyDescriptor);
         }
+        if status_descriptor.len != 4 {
+            return Err(PmemError::Non4byteStatusDescriptor(status_descriptor.len));
+        }
+
         let mut result = SUCCESS;
         // SAFETY: We are calling the system call with valid arguments and checking the returned
         // value
@@ -554,6 +570,41 @@ mod tests {
             assert!(matches!(
                 pmem.process_chain(head).unwrap_err(),
                 PmemError::ReadOnlyDescriptor,
+            ));
+        }
+
+        // Invalid length head descriptor
+        {
+            vq.avail.ring[0].set(0);
+            vq.dtable[0].set(0x1000, 0x69, VIRTQ_DESC_F_NEXT, 1);
+            mem.write_obj::<u32>(0, GuestAddress(0x1000)).unwrap();
+
+            pmem.queues[0] = vq.create_queue();
+            vq.used.idx.set(0);
+            vq.avail.idx.set(1);
+            let head = pmem.queues[0].pop().unwrap().unwrap();
+            assert!(matches!(
+                pmem.process_chain(head).unwrap_err(),
+                PmemError::Non4byteHeadDescriptor(0x69),
+            ));
+        }
+
+        // Invalid length status descriptor
+        {
+            vq.avail.ring[0].set(0);
+            vq.dtable[0].set(0x1000, 4, VIRTQ_DESC_F_NEXT, 1);
+            vq.avail.ring[1].set(1);
+            vq.dtable[1].set(0x2000, 0x69, VIRTQ_DESC_F_WRITE, 0);
+            mem.write_obj::<u32>(0, GuestAddress(0x1000)).unwrap();
+            mem.write_obj::<u32>(0x69, GuestAddress(0x2000)).unwrap();
+
+            pmem.queues[0] = vq.create_queue();
+            vq.used.idx.set(0);
+            vq.avail.idx.set(1);
+            let head = pmem.queues[0].pop().unwrap().unwrap();
+            assert!(matches!(
+                pmem.process_chain(head).unwrap_err(),
+                PmemError::Non4byteStatusDescriptor(0x69),
             ));
         }
     }
