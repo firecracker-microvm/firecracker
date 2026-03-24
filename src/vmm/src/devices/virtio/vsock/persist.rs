@@ -42,6 +42,7 @@ pub struct VsockBackendState {
     /// The last used host-side port.
     pub local_port_last: u32,
     pub vsock_type: VsockType,
+    pub conn_buffer_size: Option<usize>,
 }
 
 /// A helper structure that holds the constructor arguments for VsockUnixBackend
@@ -70,6 +71,7 @@ impl Persist<'_> for VsockUnixBackend {
             uds_path: self.host_sock_path.clone(),
             local_port_last: self.local_port_last,
             vsock_type: self.vsock_type.clone(),
+            conn_buffer_size: self.conn_buffer_size,
         }
     }
 
@@ -81,6 +83,7 @@ impl Persist<'_> for VsockUnixBackend {
             constructor_args.cid,
             state.uds_path.clone(),
             state.vsock_type.clone(),
+            state.conn_buffer_size,
         )?;
         backend.local_port_last = state.local_port_last;
         Ok(backend)
@@ -145,6 +148,7 @@ pub(crate) mod tests {
                 uds_path: "test".to_owned(),
                 local_port_last: 0xdeadbeef,
                 vsock_type: VsockType::Stream,
+                conn_buffer_size: None,
             }
         }
 

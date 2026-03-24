@@ -1281,6 +1281,7 @@ mod tests {
                 guest_cid: 0,
                 uds_path: String::new(),
                 vsock_type: VsockType::Stream,
+                conn_buffer_size: None,
             },
         )));
         check_unsupported(runtime_request(VmmAction::SetBalloonDevice(
@@ -1292,6 +1293,7 @@ mod tests {
                 guest_cid: 0,
                 uds_path: String::new(),
                 vsock_type: VsockType::Stream,
+                conn_buffer_size: None,
             },
         )));
         check_unsupported(runtime_request(VmmAction::SetMmdsConfiguration(

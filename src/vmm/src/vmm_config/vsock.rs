@@ -4,9 +4,13 @@
 use std::convert::TryFrom;
 use std::sync::{Arc, Mutex};
 
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 
 use crate::devices::virtio::vsock::{Vsock, VsockError, VsockUnixBackend, VsockUnixBackendError};
+
+// A connection buffer needs to be equivalent to atleast 1 page of memory
+const MIN_CONN_BUF: usize = 4 * 1024;
+const MAX_CONN_BUF: usize = 256 * 1024;
 
 type MutexVsockUnix = Arc<Mutex<Vsock<VsockUnixBackend>>>;
 
@@ -31,6 +35,21 @@ pub enum VsockType {
     Seqpacket,
 }
 
+fn deserialize_conn_buffer_size<'de, D>(deserializer: D) -> Result<Option<usize>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let v = Option::<usize>::deserialize(deserializer)?;
+    if let Some(n) = v
+        && !(MIN_CONN_BUF..=MAX_CONN_BUF).contains(&n)
+    {
+        return Err(serde::de::Error::custom(format!(
+            "conn_buffer_size is invalid (max {}), (min {})",
+            MAX_CONN_BUF, MIN_CONN_BUF
+        )));
+    }
+    Ok(v)
+}
 /// This struct represents the strongly typed equivalent of the json body
 /// from vsock related requests.
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
@@ -47,6 +66,11 @@ pub struct VsockDeviceConfig {
     #[serde(default)]
     /// the type of the underlying socket
     pub vsock_type: VsockType,
+    #[serde(default)]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(deserialize_with = "deserialize_conn_buffer_size")]
+    /// the size of the intermediate connection buffer
+    pub conn_buffer_size: Option<usize>,
 }
 
 #[derive(Debug)]
@@ -54,6 +78,7 @@ struct VsockAndUnixPath {
     vsock: MutexVsockUnix,
     uds_path: String,
     vsock_type: VsockType,
+    conn_buffer_size: Option<usize>,
 }
 
 impl From<&VsockAndUnixPath> for VsockDeviceConfig {
@@ -64,6 +89,7 @@ impl From<&VsockAndUnixPath> for VsockDeviceConfig {
             guest_cid: u32::try_from(vsock_lock.cid()).unwrap(),
             uds_path: vsock.uds_path.clone(),
             vsock_type: vsock.vsock_type.clone(),
+            conn_buffer_size: vsock.conn_buffer_size,
         }
     }
 }
@@ -75,6 +101,7 @@ impl From<&Vsock<VsockUnixBackend>> for VsockDeviceConfig {
             guest_cid: u32::try_from(vsock.cid()).unwrap(),
             uds_path: vsock.backend().host_sock_path().to_owned(),
             vsock_type: vsock.backend().vsock_type.clone(),
+            conn_buffer_size: vsock.backend().conn_buffer_size,
         }
     }
 }
@@ -98,6 +125,7 @@ impl VsockBuilder {
             uds_path: device_inner.backend().host_sock_path().to_owned(),
             vsock: device.clone(),
             vsock_type: device_inner.backend().vsock_type().clone(),
+            conn_buffer_size: device_inner.backend().conn_buffer_size,
         });
     }
 
@@ -112,6 +140,7 @@ impl VsockBuilder {
             uds_path: cfg.uds_path.clone(),
             vsock: Arc::new(Mutex::new(Self::create_unixsock_vsock(cfg)?)),
             vsock_type: cfg.vsock_type.clone(),
+            conn_buffer_size: cfg.conn_buffer_size,
         });
         Ok(())
     }
@@ -129,6 +158,7 @@ impl VsockBuilder {
             u64::from(cfg.guest_cid),
             cfg.uds_path.clone(),
             cfg.vsock_type.clone(),
+            cfg.conn_buffer_size,
         )?;
 
         Vsock::new(u64::from(cfg.guest_cid), backend).map_err(VsockConfigError::CreateVsockDevice)
@@ -154,6 +184,7 @@ pub(crate) mod tests {
             guest_cid: 3,
             uds_path: tmp_sock_file.as_path().to_str().unwrap().to_string(),
             vsock_type: VsockType::default(),
+            conn_buffer_size: None,
         }
     }
 
@@ -207,6 +238,7 @@ pub(crate) mod tests {
                 1,
                 tmp_sock_file.as_path().to_str().unwrap().to_string(),
                 VsockType::default(),
+                None,
             )
             .unwrap(),
         )

@@ -440,6 +440,7 @@ fn test_preboot_load_snap_disallowed_after_boot_resources() {
         guest_cid: 0,
         uds_path: String::new(),
         vsock_type: VsockType::Stream,
+        conn_buffer_size: None,
     });
     verify_load_snap_disallowed_after_boot_resources(req, "SetVsockDevice");
 
