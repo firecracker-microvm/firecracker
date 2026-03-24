@@ -61,6 +61,8 @@ pub enum BusError {
     ZeroSizedRange,
     /// Failed to find address range.
     MissingAddressRange,
+    /// The supplied range is invalid.
+    InvalidRange,
 }
 
 /// Result type for [`Bus`]-related operations.
@@ -74,22 +76,39 @@ impl fmt::Display for BusError {
 
 impl error::Error for BusError {}
 
-/// Holds a base and length representing the address space occupied by a `BusDevice`.
+/// Holds a base and end representing the address space occupied by a `BusDevice`.
 ///
 /// * base - The address at which the range start.
-/// * len - The length of the range in bytes.
+/// * end - The last address of the range (inclusive).
 #[derive(Debug, Copy, Clone)]
 pub struct BusRange {
     /// base address of a range within a [`Bus`]
-    pub base: u64,
-    /// length of a range within a [`Bus`]
-    pub len: u64,
+    base: u64,
+    /// last address of a range within a [`Bus`] (inclusive)
+    end: u64,
 }
 
+#[allow(missing_docs)]
 impl BusRange {
+    pub fn new(base: u64, len: u64) -> Result<Self> {
+        if len == 0 {
+            return Err(BusError::ZeroSizedRange);
+        }
+        let end = base.checked_add(len - 1).ok_or(BusError::InvalidRange)?;
+        Ok(BusRange { base, end })
+    }
+
+    pub fn base(&self) -> u64 {
+        self.base
+    }
+
+    pub fn end(&self) -> u64 {
+        self.end
+    }
+
     /// Returns true if there is overlap with the given range.
-    pub fn overlaps(&self, base: u64, len: u64) -> bool {
-        self.base < (base + len) && base < self.base + self.len
+    pub fn overlaps(&self, other: &BusRange) -> bool {
+        self.base <= other.end && other.base <= self.end
     }
 }
 
@@ -132,29 +151,25 @@ impl Bus {
 
     fn first_before(&self, addr: u64) -> Option<(BusRange, Arc<dyn BusDeviceSync>)> {
         let devices = self.devices.read().unwrap();
-        let (range, dev) = devices
-            .range(..=BusRange { base: addr, len: 1 })
-            .next_back()?;
+        let (range, dev) = devices.range(..=BusRange::new(addr, 1).ok()?).next_back()?;
         dev.upgrade().map(|d| (*range, d.clone()))
     }
 
     #[allow(clippy::type_complexity)]
     /// Get a reference to a device residing inside the bus at address [`addr`].
     pub fn resolve(&self, addr: u64) -> Option<(u64, u64, Arc<dyn BusDeviceSync>)> {
-        if let Some((range, dev)) = self.first_before(addr) {
-            let offset = addr - range.base;
-            if offset < range.len {
-                return Some((range.base, offset, dev));
-            }
+        if let Some((range, dev)) = self.first_before(addr)
+            && addr <= range.end()
+        {
+            let offset = addr - range.base();
+            return Some((range.base(), offset, dev));
         }
         None
     }
 
     /// Insert a device into the [`Bus`] in the range [`addr`, `addr` + `len`].
     pub fn insert(&self, device: Arc<dyn BusDeviceSync>, base: u64, len: u64) -> Result<()> {
-        if len == 0 {
-            return Err(BusError::ZeroSizedRange);
-        }
+        let new_range = BusRange::new(base, len)?;
 
         // Reject all cases where the new device's range overlaps with an existing device.
         if self
@@ -162,7 +177,7 @@ impl Bus {
             .read()
             .unwrap()
             .iter()
-            .any(|(range, _dev)| range.overlaps(base, len))
+            .any(|(range, _dev)| range.overlaps(&new_range))
         {
             return Err(BusError::Overlap);
         }
@@ -171,7 +186,7 @@ impl Bus {
             .devices
             .write()
             .unwrap()
-            .insert(BusRange { base, len }, Arc::downgrade(&device))
+            .insert(new_range, Arc::downgrade(&device))
             .is_some()
         {
             return Err(BusError::Overlap);
@@ -182,11 +197,7 @@ impl Bus {
 
     /// Removes the device at the given address space range.
     pub fn remove(&self, base: u64, len: u64) -> Result<()> {
-        if len == 0 {
-            return Err(BusError::ZeroSizedRange);
-        }
-
-        let bus_range = BusRange { base, len };
+        let bus_range = BusRange::new(base, len)?;
 
         if self.devices.write().unwrap().remove(&bus_range).is_none() {
             return Err(BusError::MissingAddressRange);
@@ -245,6 +256,49 @@ mod tests {
 
             None
         }
+    }
+
+    #[test]
+    fn bus_range_new() {
+        // Zero length is invalid.
+        assert!(matches!(BusRange::new(0, 0), Err(BusError::ZeroSizedRange)));
+        assert!(matches!(
+            BusRange::new(u64::MAX, 0),
+            Err(BusError::ZeroSizedRange)
+        ));
+
+        // Overflow is invalid.
+        assert!(matches!(
+            BusRange::new(u64::MAX, 2),
+            Err(BusError::InvalidRange)
+        ));
+        assert!(matches!(
+            BusRange::new(2, u64::MAX),
+            Err(BusError::InvalidRange)
+        ));
+
+        // Ranges that exactly reach u64::MAX are valid.
+        let r = BusRange::new(u64::MAX, 1).unwrap();
+        assert_eq!(r.base(), u64::MAX);
+        assert_eq!(r.end(), u64::MAX);
+
+        let r = BusRange::new(1, u64::MAX).unwrap();
+        assert_eq!(r.base(), 1);
+        assert_eq!(r.end(), u64::MAX);
+
+        let r = BusRange::new(u64::MAX - 4095, 4096).unwrap();
+        assert_eq!(r.base(), u64::MAX - 4095);
+        assert_eq!(r.end(), u64::MAX);
+
+        // One sized valid range.
+        let r = BusRange::new(0, 1).unwrap();
+        assert_eq!(r.base(), 0);
+        assert_eq!(r.end(), 0);
+
+        // Normal valid range.
+        let r = BusRange::new(0x1000, 0x400).unwrap();
+        assert_eq!(r.base(), 0x1000);
+        assert_eq!(r.end(), 0x13ff);
     }
 
     #[test]
@@ -318,12 +372,12 @@ mod tests {
     #[test]
     #[allow(clippy::redundant_clone)]
     fn busrange_cmp() {
-        let range = BusRange { base: 0x10, len: 2 };
-        assert_eq!(range, BusRange { base: 0x10, len: 3 });
-        assert_eq!(range, BusRange { base: 0x10, len: 2 });
+        let range = BusRange::new(0x10, 2).unwrap();
+        assert_eq!(range, BusRange::new(0x10, 3).unwrap());
+        assert_eq!(range, BusRange::new(0x10, 2).unwrap());
 
-        assert!(range < BusRange { base: 0x12, len: 1 });
-        assert!(range < BusRange { base: 0x12, len: 3 });
+        assert!(range < BusRange::new(0x12, 1).unwrap());
+        assert!(range < BusRange::new(0x12, 3).unwrap());
 
         assert_eq!(range, range.clone());
 
@@ -338,17 +392,14 @@ mod tests {
 
     #[test]
     fn bus_range_overlap() {
-        let a = BusRange {
-            base: 0x1000,
-            len: 0x400,
-        };
-        assert!(a.overlaps(0x1000, 0x400));
-        assert!(a.overlaps(0xf00, 0x400));
-        assert!(a.overlaps(0x1000, 0x01));
-        assert!(a.overlaps(0xfff, 0x02));
-        assert!(a.overlaps(0x1100, 0x100));
-        assert!(a.overlaps(0x13ff, 0x100));
-        assert!(!a.overlaps(0x1400, 0x100));
-        assert!(!a.overlaps(0xf00, 0x100));
+        let a = BusRange::new(0x1000, 0x400).unwrap();
+        assert!(a.overlaps(&BusRange::new(0x1000, 0x400).unwrap()));
+        assert!(a.overlaps(&BusRange::new(0xf00, 0x400).unwrap()));
+        assert!(a.overlaps(&BusRange::new(0x1000, 0x01).unwrap()));
+        assert!(a.overlaps(&BusRange::new(0xfff, 0x02).unwrap()));
+        assert!(a.overlaps(&BusRange::new(0x1100, 0x100).unwrap()));
+        assert!(a.overlaps(&BusRange::new(0x13ff, 0x100).unwrap()));
+        assert!(!a.overlaps(&BusRange::new(0x1400, 0x100).unwrap()));
+        assert!(!a.overlaps(&BusRange::new(0xf00, 0x100).unwrap()));
     }
 }
