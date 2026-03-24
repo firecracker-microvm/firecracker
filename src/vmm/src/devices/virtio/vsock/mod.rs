@@ -32,6 +32,7 @@ pub use self::unix::{VsockUnixBackend, VsockUnixBackendError};
 use super::iov_deque::IovDequeError;
 use crate::devices::virtio::iovec::IoVecError;
 use crate::devices::virtio::persist::PersistError as VirtioStateError;
+use crate::devices::virtio::vsock::unix::ReadResult;
 use crate::vmm_config::vsock::VsockType;
 
 mod defs {
@@ -169,7 +170,7 @@ pub trait VsockEpollListener: AsRawFd {
 ///       - `send_pkt(&pkt)` will fetch data from `pkt`, and place it into the channel.
 pub trait VsockChannel {
     /// Read/receive an incoming packet from the channel.
-    fn recv_pkt(&mut self, pkt: &mut VsockPacketRx) -> Result<(), VsockError>;
+    fn recv_pkt(&mut self, pkt: &mut VsockPacketRx) -> Result<ReadResult, VsockError>;
 
     /// Write/send a packet through the channel.
     fn send_pkt(&mut self, pkt: &VsockPacketTx) -> Result<(), VsockError>;
