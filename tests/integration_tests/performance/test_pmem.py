@@ -197,5 +197,6 @@ def test_pmem_first_read(
             }
         )
         run_fio_single_read(vm, i, results_dir, fio_block_size)
+        vm.kill()
 
     emit_fio_single_read_metrics(results_dir, metrics)
