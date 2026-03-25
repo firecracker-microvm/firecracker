@@ -32,6 +32,9 @@ and this project adheres to
   HID (Hardware ID) of VMGenID device so that it aligns with the upstream Linux
   kernel. This caused the driver not to be bound correctly to the device prior
   to Linux kernel 6.10.
+- [#5780](https://github.com/firecracker-microvm/firecracker/pull/5780): Fixed
+  missing `/sys/devices/system/cpu/cpu*/cache/*` in aarch64 guests when running
+  on host kernels >= 6.3 with guest kernels >= 6.1.156.
 
 ## [1.15.0]
 

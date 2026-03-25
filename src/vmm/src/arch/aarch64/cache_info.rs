@@ -10,7 +10,7 @@ use crate::logger::warn;
 const MAX_CACHE_LEVEL: u8 = 7;
 
 #[derive(Debug, thiserror::Error, displaydoc::Display)]
-pub(crate) enum CacheInfoError {
+pub enum CacheInfoError {
     /// Failed to read cache information: {0}
     FailedToReadCacheInfo(#[from] io::Error),
     /// Invalid cache configuration found for {0}: {1}
@@ -32,7 +32,7 @@ trait CacheStore: std::fmt::Debug {
 }
 
 #[derive(Debug)]
-pub(crate) struct CacheEntry {
+pub struct CacheEntry {
     // Cache Level: 1, 2, 3..
     pub level: u8,
     // Type of cache: Unified, Data, Instruction.
@@ -154,7 +154,7 @@ impl Default for CacheEntry {
 
 #[derive(Debug)]
 // Based on https://elixir.free-electrons.com/linux/v4.9.62/source/include/linux/cacheinfo.h#L11.
-pub(crate) enum CacheType {
+pub enum CacheType {
     Instruction,
     Data,
     Unified,
@@ -312,6 +312,105 @@ pub(crate) fn read_cache_config(
         }
     }
     Ok(())
+}
+
+// CLIDR_EL1 field positions
+// https://developer.arm.com/documentation/ddi0595/2021-12/AArch64-Registers/CLIDR-EL1--Cache-Level-ID-Register
+const CLIDR_CTYPE_SHIFT: u8 = 3; // Each Ctype field is 3 bits
+const CLIDR_LOC_SHIFT: u8 = 24;
+
+// CLIDR_EL1 Ctype field values
+const CLIDR_CTYPE_NO_CACHE: u64 = 0;
+const CLIDR_CTYPE_INSTRUCTION: u64 = 1;
+const CLIDR_CTYPE_DATA: u64 = 2;
+const CLIDR_CTYPE_SEPARATE: u64 = 3;
+const CLIDR_CTYPE_UNIFIED: u64 = 4;
+
+/// Classify a set of cache entries at the same level into a CLIDR Ctype value.
+fn ctype_for_entries<'a>(entries: impl Iterator<Item = &'a CacheEntry>) -> u64 {
+    let (mut has_data, mut has_inst, mut has_unified) = (false, false, false);
+    let mut any = false;
+    for c in entries {
+        any = true;
+        match c.type_ {
+            CacheType::Data => has_data = true,
+            CacheType::Instruction => has_inst = true,
+            CacheType::Unified => has_unified = true,
+        }
+    }
+    if !any {
+        return CLIDR_CTYPE_NO_CACHE;
+    }
+    if has_unified {
+        CLIDR_CTYPE_UNIFIED
+    } else if has_data && has_inst {
+        CLIDR_CTYPE_SEPARATE
+    } else if has_data {
+        CLIDR_CTYPE_DATA
+    } else if has_inst {
+        CLIDR_CTYPE_INSTRUCTION
+    } else {
+        CLIDR_CTYPE_NO_CACHE
+    }
+}
+
+/// Build a CLIDR_EL1 value from the host's cache topology read from sysfs.
+///
+/// Since host kernel 6.3 (commit 7af0c2534f4c), KVM fabricates CLIDR_EL1 to
+/// expose a different cache topology than the host. Guest kernels >= 6.1.156
+/// backported `init_of_cache_level()` which counts cache leaves from the DT,
+/// while `populate_cache_leaves()` uses CLIDR_EL1. If the DT (built from
+/// sysfs) describes different cache entries than CLIDR_EL1, the mismatch
+/// causes cache sysfs entries to not be created in the guest.
+///
+/// This function builds a CLIDR_EL1 value that matches the host's real cache
+/// topology so it can be written to each vCPU, making CLIDR_EL1 consistent
+/// with the FDT.
+pub(crate) fn build_clidr_from_caches(
+    l1_caches: &[CacheEntry],
+    non_l1_caches: &[CacheEntry],
+) -> u64 {
+    let mut clidr: u64 = 0;
+    let mut max_level: u8 = 0;
+
+    let l1_ctype = ctype_for_entries(l1_caches.iter());
+    if l1_ctype != CLIDR_CTYPE_NO_CACHE {
+        clidr |= l1_ctype;
+        max_level = 1;
+    }
+
+    for level in 2..=MAX_CACHE_LEVEL {
+        let ctype = ctype_for_entries(non_l1_caches.iter().filter(|c| c.level == level));
+        if ctype == CLIDR_CTYPE_NO_CACHE {
+            break;
+        }
+
+        let shift = CLIDR_CTYPE_SHIFT * (level - 1);
+        clidr |= ctype << shift;
+        max_level = level;
+    }
+
+    // Set LoC (Level of Coherence) to the highest cache level
+    clidr |= u64::from(max_level) << CLIDR_LOC_SHIFT;
+
+    clidr
+}
+
+/// Merge sysfs-derived ctype/LoC fields into an existing CLIDR_EL1 value,
+/// preserving LoUU, LoUIS, ICB, and Ttype fields from the original.
+///
+/// This ensures that on pre-6.3 kernels (where CLIDR already matches sysfs),
+/// the write is effectively a no-op, and fields we can't derive from sysfs
+/// (like LoUU, LoUIS, ICB) are never clobbered.
+pub(crate) fn merge_clidr(current: u64, sysfs: u64) -> u64 {
+    // Ctype fields: bits [20:0] (7 levels × 3 bits each = 21 bits)
+    // LoC field: bits [26:24]
+    // We replace only these fields from sysfs, preserving LoUIS [23:21],
+    // LoUU [29:27], ICB [32:30], and Ttype [46:33] from the original.
+    const CTYPE_MASK: u64 = 0x001F_FFFF; // bits [20:0]
+    const LOC_MASK: u64 = 0x0700_0000; // bits [26:24]
+    const REPLACE_MASK: u64 = CTYPE_MASK | LOC_MASK;
+    (current & !REPLACE_MASK) | (sysfs & REPLACE_MASK)
 }
 
 #[cfg(test)]
@@ -575,5 +674,102 @@ mod tests {
         read_cache_config(&mut l1_caches, &mut non_l1_caches).unwrap();
         assert_eq!(l1_caches.len(), 2);
         assert_eq!(l1_caches.len(), 2);
+    }
+
+    #[test]
+    fn test_build_clidr_from_caches() {
+        // L1 Separate (Data + Instruction) + L2 Unified + L3 Unified
+        let l1 = vec![
+            CacheEntry {
+                level: 1,
+                type_: CacheType::Data,
+                ..CacheEntry::default()
+            },
+            CacheEntry {
+                level: 1,
+                type_: CacheType::Instruction,
+                ..CacheEntry::default()
+            },
+        ];
+        let non_l1 = vec![
+            CacheEntry {
+                level: 2,
+                type_: CacheType::Unified,
+                ..CacheEntry::default()
+            },
+            CacheEntry {
+                level: 3,
+                type_: CacheType::Unified,
+                ..CacheEntry::default()
+            },
+        ];
+        let clidr = build_clidr_from_caches(&l1, &non_l1);
+        // ctype1=3 (Separate), ctype2=4 (Unified), ctype3=4 (Unified), LoC=3
+        assert_eq!(clidr & 0x7, 3, "L1 should be Separate");
+        assert_eq!((clidr >> 3) & 0x7, 4, "L2 should be Unified");
+        assert_eq!((clidr >> 6) & 0x7, 4, "L3 should be Unified");
+        assert_eq!((clidr >> 24) & 0x7, 3, "LoC should be 3");
+
+        // L1 Unified only (no higher levels)
+        let l1_unified = vec![CacheEntry {
+            level: 1,
+            type_: CacheType::Unified,
+            ..CacheEntry::default()
+        }];
+        let clidr = build_clidr_from_caches(&l1_unified, &[]);
+        assert_eq!(clidr & 0x7, 4, "L1 should be Unified");
+        assert_eq!((clidr >> 3) & 0x7, 0, "L2 should be NoCache");
+        assert_eq!((clidr >> 24) & 0x7, 1, "LoC should be 1");
+
+        // No caches at all
+        let clidr = build_clidr_from_caches(&[], &[]);
+        assert_eq!(clidr, 0, "Empty caches should produce CLIDR=0");
+
+        // Mock store default: L1 Data + L1 Instruction + L2 Unified
+        let mut l1_mock: Vec<CacheEntry> = Vec::new();
+        let mut non_l1_mock: Vec<CacheEntry> = Vec::new();
+        read_cache_config(&mut l1_mock, &mut non_l1_mock).unwrap();
+        let clidr = build_clidr_from_caches(&l1_mock, &non_l1_mock);
+        assert_eq!(clidr & 0x7, 3, "Mock L1 should be Separate");
+        assert_eq!((clidr >> 3) & 0x7, 4, "Mock L2 should be Unified");
+        assert_eq!((clidr >> 24) & 0x7, 2, "Mock LoC should be 2");
+    }
+
+    #[test]
+    fn test_merge_clidr() {
+        // CLIDR_EL1 layout:
+        //   [20:0]  Ctype1..Ctype7 (7 × 3 bits)
+        //   [23:21] LoUIS
+        //   [26:24] LoC
+        //   [29:27] LoUU
+        //   [32:30] ICB
+        //   [46:33] Ttype1..Ttype7
+        //
+        // merge_clidr replaces only Ctype [20:0] and LoC [26:24] from sysfs,
+        // preserving LoUIS, LoUU, ICB, and Ttype from current.
+
+        // current: LoUU=2 [29:27], LoUIS=1 [23:21], ICB=1 [32:30]
+        //          Ctype1=Unified(4) [2:0], LoC=1 [26:24]
+        let current: u64 = (1 << 30) // ICB=1
+            | (2 << 27)              // LoUU=2
+            | (1 << 24)              // LoC=1
+            | (1 << 21)              // LoUIS=1
+            | 4; // Ctype1=Unified
+        // sysfs: Ctype1=Separate(3), Ctype2=Unified(4), Ctype3=Unified(4), LoC=3
+        let sysfs: u64 = (3 << 24) | (4 << 6) | (4 << 3) | 3;
+        let merged = merge_clidr(current, sysfs);
+
+        // Ctype and LoC should come from sysfs
+        assert_eq!(merged & 0x001F_FFFF, sysfs & 0x001F_FFFF, "Ctype mismatch");
+        assert_eq!((merged >> 24) & 0x7, 3, "LoC should be 3 from sysfs");
+        // LoUIS, LoUU, ICB should be preserved from current
+        assert_eq!((merged >> 21) & 0x7, 1, "LoUIS should be preserved");
+        assert_eq!((merged >> 27) & 0x7, 2, "LoUU should be preserved");
+        assert_eq!((merged >> 30) & 0x7, 1, "ICB should be preserved");
+
+        // When current == sysfs in the replaced region, merge is identity
+        let current = 0x0000_0000_0300_0123_u64;
+        let sysfs = 0x0000_0000_0300_0123_u64;
+        assert_eq!(merge_clidr(current, sysfs), current);
     }
 }
