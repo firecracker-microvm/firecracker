@@ -1,0 +1,62 @@
+From 75ee570d5d68306eef0fc2e4b2055ca81fc267f3 Mon Sep 17 00:00:00 2001
+From: Jack Thomson <jackabt@amazon.com>
+Date: Wed, 25 Mar 2026 11:56:37 +0000
+Subject: [PATCH] fixup! KVM: async_pf: Convert queued count to atomic and
+ tighten locking
+
+Don't hold async_pf.lock over kvm_arch_can_dequeue_async_page_present().
+
+The original commit wrapped the entire while loop with spin_lock, which
+causes kvm_arch_can_dequeue_async_page_present() to run with preemption
+disabled.
+
+The fix uses the upstream pattern: lockless list_empty_careful() in the
+while condition with the lock only held around the actual list mutations.
+A double-check under the lock handles the race between the lockless
+check and lock acquisition.
+
+Signed-off-by: Jack Thomson <jackabt@amazon.com>
+---
+ virt/kvm/async_pf.c | 14 +++++++-------
+ 1 file changed, 7 insertions(+), 7 deletions(-)
+
+diff --git a/virt/kvm/async_pf.c b/virt/kvm/async_pf.c
+index 2e4f89db4d47..3a2341054781 100644
+--- a/virt/kvm/async_pf.c
++++ b/virt/kvm/async_pf.c
+@@ -343,14 +343,17 @@ void kvm_check_async_pf_completion(struct kvm_vcpu *vcpu)
+ {
+ 	struct kvm_async_pf *work;
+ 
+-	spin_lock(&vcpu->async_pf.lock);
+-	while (!list_empty(&vcpu->async_pf.done) &&
++	while (!list_empty_careful(&vcpu->async_pf.done) &&
+ 	       kvm_arch_can_dequeue_async_page_present(vcpu)) {
++		spin_lock(&vcpu->async_pf.lock);
++		if (list_empty(&vcpu->async_pf.done)) {
++			spin_unlock(&vcpu->async_pf.lock);
++			break;
++		}
+ 		work = list_first_entry(&vcpu->async_pf.done, typeof(*work),
+ 					link);
+ 		list_del(&work->link);
+-		if (!work->wakeup_all)
+-			list_del(&work->queue);
++		list_del(&work->queue);
+ 		atomic_dec(&vcpu->async_pf.queued);
+ 		spin_unlock(&vcpu->async_pf.lock);
+ 
+@@ -359,10 +362,7 @@ void kvm_check_async_pf_completion(struct kvm_vcpu *vcpu)
+ 			kvm_arch_async_page_present(vcpu, work);
+ 
+ 		kvm_flush_and_free_async_pf_work(work);
+-
+-		spin_lock(&vcpu->async_pf.lock);
+ 	}
+-	spin_unlock(&vcpu->async_pf.lock);
+ }
+ 
+ /*
+-- 
+2.43.0
+
