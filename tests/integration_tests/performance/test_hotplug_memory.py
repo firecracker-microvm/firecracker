@@ -502,3 +502,4 @@ def test_memory_hotplug_latency(
         timed_memory_hotplug(uvm, hotplug_size, metrics, "hotplug", "plug_agg")
         timed_memory_hotplug(uvm, 0, metrics, "hotunplug", "unplug_agg")
         timed_memory_hotplug(uvm, hotplug_size, metrics, "hotplug_2nd", "plug_agg")
+        uvm.kill()
