@@ -35,8 +35,8 @@ use crate::logger::{debug, error};
 use crate::pci::configuration::{PciCapability, PciConfiguration, PciConfigurationState};
 use crate::pci::msix::{MsixCap, MsixConfig, MsixConfigState};
 use crate::pci::{
-    BarReprogrammingParams, DeviceRelocationError, PciBdf, PciCapabilityId, PciClassCode,
-    PciDevice, PciMassStorageSubclass, PciNetworkControllerSubclass,
+    BarReprogrammingParams, DeviceRelocationError, PciCapabilityId, PciClassCode, PciDevice,
+    PciMassStorageSubclass, PciNetworkControllerSubclass, PciSBDF,
 };
 use crate::snapshot::Persist;
 use crate::vstate::bus::BusDevice;
@@ -230,7 +230,7 @@ const VIRTIO_PCI_DEVICE_ID_BASE: u16 = 0x1040; // Add to device type to get devi
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct VirtioPciDeviceState {
-    pub pci_device_bdf: PciBdf,
+    pub sbdf: PciSBDF,
     pub device_activated: bool,
     pub cap_pci_cfg_offset: u16,
     pub cap_pci_cfg: Vec<u8>,
@@ -254,8 +254,8 @@ pub struct VirtioPciDevice {
     // The subscriber ID returned by the EventManager
     pub sub_id: Option<event_manager::SubscriberId>,
 
-    // BDF assigned to the device
-    pci_device_bdf: PciBdf,
+    // SBDF assigned to the device
+    sbdf: PciSBDF,
 
     // PCI configuration registers.
     configuration: PciConfiguration,
@@ -363,14 +363,11 @@ impl VirtioPciDevice {
         memory: GuestMemoryMmap,
         device: Arc<Mutex<dyn VirtioDevice>>,
         msix_vectors: Arc<MsixVectorGroup>,
-        pci_device_bdf: u32,
+        sbdf: u32,
     ) -> Result<Self, VirtioPciDeviceError> {
         let num_queues = device.lock().expect("Poisoned lock").queues().len();
 
-        let msix_config = Arc::new(Mutex::new(MsixConfig::new(
-            msix_vectors.clone(),
-            pci_device_bdf,
-        )));
+        let msix_config = Arc::new(Mutex::new(MsixConfig::new(msix_vectors.clone(), sbdf)));
         let pci_config = Self::pci_configuration(
             device.lock().expect("Poisoned lock").device_type(),
             &msix_config,
@@ -395,7 +392,7 @@ impl VirtioPciDevice {
         let virtio_pci_device = VirtioPciDevice {
             id,
             sub_id: None,
-            pci_device_bdf: pci_device_bdf.into(),
+            sbdf: sbdf.into(),
             configuration: pci_config,
             common_config: virtio_common_config,
             device,
@@ -415,8 +412,7 @@ impl VirtioPciDevice {
         device: Arc<Mutex<dyn VirtioDevice>>,
         state: VirtioPciDeviceState,
     ) -> Result<Self, VirtioPciDeviceError> {
-        let msix_config =
-            MsixConfig::from_state(state.msix_state, vm.clone(), state.pci_device_bdf.into())?;
+        let msix_config = MsixConfig::from_state(state.msix_state, vm.clone(), state.sbdf.into())?;
         let vectors = msix_config.vectors.clone();
         let msix_config = Arc::new(Mutex::new(msix_config));
 
@@ -440,7 +436,7 @@ impl VirtioPciDevice {
         let virtio_pci_device = VirtioPciDevice {
             id,
             sub_id: None,
-            pci_device_bdf: state.pci_device_bdf,
+            sbdf: state.sbdf,
             configuration: pci_config,
             common_config: virtio_common_config,
             device,
@@ -620,7 +616,7 @@ impl VirtioPciDevice {
 
     pub fn state(&self) -> VirtioPciDeviceState {
         VirtioPciDeviceState {
-            pci_device_bdf: self.pci_device_bdf,
+            sbdf: self.sbdf,
             device_activated: self.device_activated.load(Ordering::Acquire),
             cap_pci_cfg_offset: self.cap_pci_cfg_info.offset,
             cap_pci_cfg: self.cap_pci_cfg_info.cap.bytes().to_vec(),

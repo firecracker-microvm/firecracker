@@ -87,11 +87,11 @@ pub trait DeviceRelocation: Send + Sync {
     ) -> Result<(), DeviceRelocationError>;
 }
 
-/// Device BDF
-#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Serialize, Deserialize)]
-pub struct PciBdf(u32);
+/// Segment with associated Device BDF
+#[derive(Clone, Copy, Default, PartialEq, Eq, PartialOrd, Serialize, Deserialize)]
+pub struct PciSBDF(u32);
 
-impl PciBdf {
+impl PciSBDF {
     /// Get segment part
     pub fn segment(&self) -> u16 {
         ((self.0 >> 16) & 0xffff) as u16
@@ -123,25 +123,25 @@ impl PciBdf {
     }
 }
 
-impl From<u32> for PciBdf {
+impl From<u32> for PciSBDF {
     fn from(bdf: u32) -> Self {
         Self(bdf)
     }
 }
 
-impl From<PciBdf> for u32 {
-    fn from(bdf: PciBdf) -> Self {
+impl From<PciSBDF> for u32 {
+    fn from(bdf: PciSBDF) -> Self {
         bdf.0
     }
 }
 
-impl From<&PciBdf> for u32 {
-    fn from(bdf: &PciBdf) -> Self {
+impl From<&PciSBDF> for u32 {
+    fn from(bdf: &PciSBDF) -> Self {
         bdf.0
     }
 }
 
-impl Debug for PciBdf {
+impl Debug for PciSBDF {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
@@ -154,7 +154,7 @@ impl Debug for PciBdf {
     }
 }
 
-impl Display for PciBdf {
+impl Display for PciSBDF {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{:#?}", self)
     }
@@ -441,19 +441,19 @@ mod tests {
 
     #[test]
     fn test_pci_bdf_new() {
-        let bdf = PciBdf::new(0x1234, 0x56, 0x1f, 0x7);
-        assert_eq!(bdf.segment(), 0x1234);
-        assert_eq!(bdf.bus(), 0x56);
-        assert_eq!(bdf.device(), 0x1f);
-        assert_eq!(bdf.function(), 0x7);
+        let sbdf = PciSBDF::new(0x1234, 0x56, 0x1f, 0x7);
+        assert_eq!(sbdf.segment(), 0x1234);
+        assert_eq!(sbdf.bus(), 0x56);
+        assert_eq!(sbdf.device(), 0x1f);
+        assert_eq!(sbdf.function(), 0x7);
     }
 
     #[test]
     fn test_pci_bdf_from_u32() {
-        let bdf = PciBdf::from(0x12345678);
-        assert_eq!(bdf.segment(), 0x1234);
-        assert_eq!(bdf.bus(), 0x56);
-        assert_eq!(bdf.device(), 0x0f);
-        assert_eq!(bdf.function(), 0x0);
+        let sbdf = PciSBDF::from(0x12345678);
+        assert_eq!(sbdf.segment(), 0x1234);
+        assert_eq!(sbdf.bus(), 0x56);
+        assert_eq!(sbdf.device(), 0x0f);
+        assert_eq!(sbdf.function(), 0x0);
     }
 }

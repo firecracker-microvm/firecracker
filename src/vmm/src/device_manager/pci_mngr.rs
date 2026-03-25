@@ -33,7 +33,7 @@ use crate::devices::virtio::vsock::persist::{
     VsockConstructorArgs, VsockState, VsockUdsConstructorArgs,
 };
 use crate::devices::virtio::vsock::{Vsock, VsockUnixBackend};
-use crate::pci::PciBdf;
+use crate::pci::PciSBDF;
 use crate::pci::bus::PciRootError;
 use crate::resources::VmResources;
 use crate::snapshot::Persist;
@@ -109,7 +109,7 @@ impl PciDevices {
         vm: &Arc<Vm>,
         device_type: VirtioDeviceType,
         id: String,
-        bdf: PciBdf,
+        sbdf: PciSBDF,
         virtio_device: Arc<Mutex<VirtioPciDevice>>,
         event_manager: &mut EventManager,
     ) -> Result<(), PciManagerError> {
@@ -120,7 +120,7 @@ impl PciDevices {
             .pci_bus
             .lock()
             .expect("Poisoned lock")
-            .add_device(bdf.device(), virtio_device.clone());
+            .add_device(sbdf.device(), virtio_device.clone());
 
         self.virtio_devices
             .insert((device_type, id), virtio_device.clone());
@@ -147,8 +147,8 @@ impl PciDevices {
     ) -> Result<(), PciManagerError> {
         // We should only be reaching this point if PCI is enabled
         let pci_segment = self.pci_segment.as_ref().unwrap();
-        let pci_device_bdf = pci_segment.next_device_bdf()?;
-        debug!("Allocating BDF: {pci_device_bdf:?} for device");
+        let sbdf = pci_segment.next_device_sbdf()?;
+        debug!("Allocating SBDF: {sbdf:?} for device");
         let mem = vm.guest_memory().clone();
 
         let device_type = device.lock().expect("Poisoned lock").device_type();
@@ -160,13 +160,8 @@ impl PciDevices {
         let msix_vectors = Vm::create_msix_group(vm.clone(), msix_num)?;
 
         // Create the transport
-        let mut virtio_device = VirtioPciDevice::new(
-            id.clone(),
-            mem,
-            device,
-            Arc::new(msix_vectors),
-            pci_device_bdf.into(),
-        )?;
+        let mut virtio_device =
+            VirtioPciDevice::new(id.clone(), mem, device, Arc::new(msix_vectors), sbdf.into())?;
 
         // Allocate bars
         let mut resource_allocator_lock = vm.resource_allocator();
@@ -176,14 +171,7 @@ impl PciDevices {
 
         let virtio_device = Arc::new(Mutex::new(virtio_device));
 
-        self.attach_common(
-            vm,
-            device_type,
-            id,
-            pci_device_bdf,
-            virtio_device,
-            event_manager,
-        )
+        self.attach_common(vm, device_type, id, sbdf, virtio_device, event_manager)
     }
 
     fn restore_pci_device<T: 'static + VirtioDevice + MutEventSubscriber + Debug>(
@@ -207,7 +195,7 @@ impl PciDevices {
             vm,
             device_type,
             device_id.to_string(),
-            transport_state.pci_device_bdf,
+            transport_state.sbdf,
             virtio_device,
             event_manager,
         )?;
@@ -310,7 +298,7 @@ impl<'a> Persist<'a> for PciDevices {
             locked_virtio_dev.prepare_save();
             let transport_state = locked_pci_dev.state();
 
-            let pci_device_bdf = transport_state.pci_device_bdf.into();
+            let pci_device_bdf = transport_state.sbdf.into();
 
             match locked_virtio_dev.device_type() {
                 VirtioDeviceType::Balloon => {
