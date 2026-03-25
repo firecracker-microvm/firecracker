@@ -3,11 +3,11 @@
 
 use std::fs::OpenOptions;
 use std::io::{Seek, SeekFrom};
+use std::num::TryFromIntError;
 use std::os::fd::AsRawFd;
 use std::path::PathBuf;
 
 use clap::Subcommand;
-use vmm::utils::u64_to_usize;
 use vmm_sys_util::seek_hole::SeekHole;
 
 #[derive(Debug, thiserror::Error, displaydoc::Display)]
@@ -26,6 +26,8 @@ pub enum EditMemoryError {
     SeekMemory(std::io::Error),
     /// Failed to send the file: {0}
     SendFile(std::io::Error),
+    /// Invalid block size: {0}
+    InvalidBlockSize(TryFromIntError),
 }
 
 #[derive(Debug, Subcommand)]
@@ -89,8 +91,9 @@ fn rebase(memory_path: PathBuf, diff_path: PathBuf) -> Result<(), EditMemoryErro
                 libc::sendfile64(
                     base_file.as_raw_fd(),
                     diff_file.as_raw_fd(),
-                    (&mut cursor as *mut u64).cast::<i64>(),
-                    u64_to_usize(block_end.saturating_sub(cursor)),
+                    std::ptr::from_mut::<u64>(&mut cursor).cast::<i64>(),
+                    usize::try_from(block_end.saturating_sub(cursor))
+                        .map_err(EditMemoryError::InvalidBlockSize)?,
                 )
             };
             if num_transferred_bytes < 0 {
@@ -115,7 +118,7 @@ mod tests {
     fn check_file_content(file: &File, expected_content: &[u8]) {
         assert_eq!(
             file.metadata().unwrap().len(),
-            expected_content.len() as u64
+            u64::try_from(expected_content.len()).unwrap()
         );
         let mut buf = vec![0u8; expected_content.len()];
         file.read_exact_at(buf.as_mut_slice(), 0).unwrap();
@@ -153,7 +156,7 @@ mod tests {
 
         // Diff file that has only holes
         diff_file
-            .set_len(initial_base_file_content.len() as u64)
+            .set_len(u64::try_from(initial_base_file_content.len()).unwrap())
             .unwrap();
         rebase(base_path, diff_path).unwrap();
         check_file_content(base_file, &initial_base_file_content);
