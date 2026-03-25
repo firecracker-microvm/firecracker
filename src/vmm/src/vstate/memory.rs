@@ -519,14 +519,32 @@ impl GuestRegionMmapExt {
                     Ok(())
                 }
             }
-            // Match either the case of an anonymous mapping, or the case
-            // of a shared file mapping.
-            // TODO: madvise(MADV_DONTNEED) doesn't actually work with memfd
-            // (or in general MAP_SHARED of a fd). In those cases we should use
-            // fallocate64(FALLOC_FL_PUNCH_HOLE|FALLOC_FL_KEEP_SIZE).
-            // We keep falling to the madvise branch to keep the previous behaviour.
+            // Guest_memfd (MAP_SHARED): use fallocate(PUNCH_HOLE) to free pages.
+            (Some(fo), flags) if flags & libc::MAP_SHARED != 0 => {
+                let file_off = fo.start() + caddr.raw_value();
+                let len_i64 = i64::try_from(len).expect("discard length exceeds i64");
+                // SAFETY: fd and offset are valid, len is within the mapped region.
+                let ret = unsafe {
+                    libc::fallocate(
+                        fo.file().as_raw_fd(),
+                        libc::FALLOC_FL_PUNCH_HOLE | libc::FALLOC_FL_KEEP_SIZE,
+                        file_off.cast_signed(),
+                        len_i64,
+                    )
+                };
+                if ret < 0 {
+                    let os_error = std::io::Error::last_os_error();
+                    error!(
+                        "discard_range: fallocate(PUNCH_HOLE) failed: {:?}",
+                        os_error
+                    );
+                    Err(GuestMemoryError::IOError(os_error))
+                } else {
+                    Ok(())
+                }
+            }
+            // Anonymous memory: MADV_DONTNEED releases pages back to the kernel.
             _ => {
-                // Madvise the region in order to mark it as not used.
                 // SAFETY: The address and length are known to be valid.
                 let ret = unsafe { libc::madvise(phys_address.cast(), len, libc::MADV_DONTNEED) };
                 if ret < 0 {
