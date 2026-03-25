@@ -401,14 +401,13 @@ pub mod test {
             };
 
             // Create the descriptor chain.
-            let mut iter = desc_list.iter().peekable();
             let mut addr = self.data_addr() + addr_offset;
-            while let Some(&(index, len, flags)) = iter.next() {
+            for (i, &(index, len, flags)) in desc_list.iter().enumerate() {
                 let desc = &queue.dtable[index as usize];
-                desc.set(addr, len, flags, 0);
-                if let Some(&&(next_index, _, _)) = iter.peek() {
-                    desc.flags.set(flags | VIRTQ_DESC_F_NEXT);
-                    desc.next.set(next_index);
+                if let Some(&(next_index, _, _)) = desc_list.get(i + 1) {
+                    desc.set(addr, len, flags | VIRTQ_DESC_F_NEXT, next_index);
+                } else {
+                    desc.set(addr, len, flags, 0);
                 }
 
                 addr += u64::from(len);
