@@ -93,13 +93,13 @@ def _test_rss_memory_lower(test_microvm):
 
 
 # pylint: disable=C0103
-def test_rss_memory_lower(uvm_plain_any):
+def test_rss_memory_lower(uvm_plain_any, secret_free):
     """
     Test that inflating the balloon makes guest use less rss memory.
     """
     test_microvm = uvm_plain_any
     test_microvm.spawn()
-    test_microvm.basic_config()
+    test_microvm.basic_config(secret_free=secret_free)
     test_microvm.add_net_iface()
 
     # Add a memory balloon.
@@ -114,13 +114,13 @@ def test_rss_memory_lower(uvm_plain_any):
 
 
 # pylint: disable=C0103
-def test_inflate_reduces_free(uvm_plain_any):
+def test_inflate_reduces_free(uvm_plain_any, secret_free):
     """
     Check that the output of free in guest changes with inflate.
     """
     test_microvm = uvm_plain_any
     test_microvm.spawn()
-    test_microvm.basic_config()
+    test_microvm.basic_config(secret_free=secret_free)
     test_microvm.add_net_iface()
 
     # Install deflated balloon.
@@ -150,7 +150,7 @@ def test_inflate_reduces_free(uvm_plain_any):
 
 # pylint: disable=C0103
 @pytest.mark.parametrize("deflate_on_oom", [True, False])
-def test_deflate_on_oom(uvm_plain_any, deflate_on_oom):
+def test_deflate_on_oom(uvm_plain_any, secret_free, deflate_on_oom):
     """
     Verify that setting the `deflate_on_oom` option works correctly.
 
@@ -167,7 +167,7 @@ def test_deflate_on_oom(uvm_plain_any, deflate_on_oom):
 
     test_microvm = uvm_plain_any
     test_microvm.spawn()
-    test_microvm.basic_config()
+    test_microvm.basic_config(secret_free=secret_free)
     test_microvm.add_net_iface()
 
     # Add a deflated memory balloon.
@@ -215,13 +215,13 @@ def test_deflate_on_oom(uvm_plain_any, deflate_on_oom):
 
 
 # pylint: disable=C0103
-def test_reinflate_balloon(uvm_plain_any):
+def test_reinflate_balloon(uvm_plain_any, secret_free):
     """
     Verify that repeatedly inflating and deflating the balloon works.
     """
     test_microvm = uvm_plain_any
     test_microvm.spawn()
-    test_microvm.basic_config()
+    test_microvm.basic_config(secret_free=secret_free)
     test_microvm.add_net_iface()
 
     # Add a deflated memory balloon.
@@ -280,13 +280,13 @@ def test_reinflate_balloon(uvm_plain_any):
 
 
 # pylint: disable=C0103
-def test_stats(uvm_plain_any):
+def test_stats(uvm_plain_any, secret_free):
     """
     Verify that balloon stats work as expected.
     """
     test_microvm = uvm_plain_any
     test_microvm.spawn()
-    test_microvm.basic_config()
+    test_microvm.basic_config(secret_free=secret_free)
     test_microvm.add_net_iface()
 
     # Add a memory balloon with stats enabled.
@@ -351,13 +351,13 @@ def test_stats(uvm_plain_any):
     check_guest_dmesg_for_stalls(test_microvm.ssh)
 
 
-def test_stats_update(uvm_plain_any):
+def test_stats_update(uvm_plain_any, secret_free):
     """
     Verify that balloon stats update correctly.
     """
     test_microvm = uvm_plain_any
     test_microvm.spawn()
-    test_microvm.basic_config()
+    test_microvm.basic_config(secret_free=secret_free)
     test_microvm.add_net_iface()
 
     # Add a memory balloon with stats enabled.
@@ -403,7 +403,7 @@ def test_stats_update(uvm_plain_any):
     check_guest_dmesg_for_stalls(test_microvm.ssh)
 
 
-def test_balloon_snapshot(uvm_plain_any, microvm_factory):
+def test_balloon_snapshot(uvm_plain_any, secret_free, microvm_factory):
     """
     Test that the balloon works after pause/resume.
     """
@@ -415,6 +415,7 @@ def test_balloon_snapshot(uvm_plain_any, microvm_factory):
     vm.basic_config(
         vcpu_count=2,
         mem_size_mib=256,
+        secret_free=secret_free,
     )
     vm.add_net_iface()
 
@@ -437,15 +438,14 @@ def test_balloon_snapshot(uvm_plain_any, microvm_factory):
     # Now inflate the balloon with 20MB of pages.
     vm.api.balloon.patch(amount_mib=20)
 
-    # Check memory usage again.
+    # Check memory usage again — should decrease (balloon reclaimed pages).
     second_reading = get_stable_rss_mem(vm)
-
-    # There should be a reduction in RSS, but it's inconsistent.
-    # We only test that the reduction happens.
     assert first_reading > second_reading
 
     snapshot = vm.snapshot_full()
-    microvm = microvm_factory.build_from_snapshot(snapshot)
+    # secret_free requires UFFD backend (file backend can't mmap as guest_memfd)
+    uffd = "on_demand" if secret_free else None
+    microvm = microvm_factory.build_from_snapshot(snapshot, uffd_handler_name=uffd)
 
     # Free page reporting and hinting fragment guest memory VMAs
     # making it harder to identify them in the memory monitor.
@@ -461,18 +461,15 @@ def test_balloon_snapshot(uvm_plain_any, microvm_factory):
     # Dirty 60MB of pages.
     make_guest_dirty_memory(microvm.ssh, amount_mib=60)
 
-    # Check memory usage.
+    # Check memory usage — should increase (guest used more memory).
     fourth_reading = get_stable_rss_mem(microvm)
-
     assert fourth_reading > third_reading
 
     # Inflate the balloon with another 20MB of pages.
     microvm.api.balloon.patch(amount_mib=40)
 
+    # Should decrease again (balloon reclaimed pages).
     fifth_reading = get_stable_rss_mem(microvm)
-
-    # There should be a reduction in RSS, but it's inconsistent.
-    # We only test that the reduction happens.
     assert fourth_reading > fifth_reading
 
     # Get the stats after we take a snapshot and dirty some memory,
@@ -488,7 +485,9 @@ def test_balloon_snapshot(uvm_plain_any, microvm_factory):
 
 
 @pytest.mark.parametrize("method", ["reporting", "hinting"])
-def test_hinting_reporting_snapshot(uvm_plain_any, microvm_factory, method):
+def test_hinting_reporting_snapshot(
+    uvm_plain_any, secret_free, microvm_factory, method
+):
     """
     Test that the balloon hinting and reporting works after pause/resume.
     """
@@ -500,6 +499,7 @@ def test_hinting_reporting_snapshot(uvm_plain_any, microvm_factory, method):
     vm.basic_config(
         vcpu_count=2,
         mem_size_mib=256,
+        secret_free=secret_free,
     )
     vm.add_net_iface()
 
@@ -534,15 +534,14 @@ def test_hinting_reporting_snapshot(uvm_plain_any, microvm_factory, method):
     if free_page_hinting:
         vm.api.balloon_hinting_start.patch()
 
-    # Check memory usage again.
+    # Check memory usage again — should decrease (pages freed + hinted/reported).
     second_reading = get_stable_rss_mem(vm)
-
-    # There should be a reduction in RSS, but it's inconsistent.
-    # We only test that the reduction happens.
     assert first_reading > second_reading
 
     snapshot = vm.snapshot_full()
-    microvm = microvm_factory.build_from_snapshot(snapshot)
+    # secret_free requires UFFD backend (file backend can't mmap as guest_memfd)
+    uffd = "on_demand" if secret_free else None
+    microvm = microvm_factory.build_from_snapshot(snapshot, uffd_handler_name=uffd)
 
     # Free page reporting and hinting fragment guest memory VMAs
     # making it harder to identify them in the memory monitor.
@@ -565,23 +564,20 @@ def test_hinting_reporting_snapshot(uvm_plain_any, microvm_factory, method):
     if free_page_hinting:
         microvm.api.balloon_hinting_start.patch()
 
-    # Check memory usage again.
+    # Check memory usage again — should decrease.
     fourth_reading = get_stable_rss_mem(microvm)
-
-    # There should be a reduction in RSS, but it's inconsistent.
-    # We only test that the reduction happens.
     assert third_reading > fourth_reading
     check_guest_dmesg_for_stalls(microvm.ssh)
 
 
 @pytest.mark.parametrize("method", ["traditional", "hinting", "reporting"])
-def test_memory_scrub(uvm_plain_any, method):
+def test_memory_scrub(uvm_plain_any, secret_free, method):
     """
     Test that the memory is zeroed after deflate.
     """
     microvm = uvm_plain_any
     microvm.spawn()
-    microvm.basic_config(vcpu_count=2, mem_size_mib=256)
+    microvm.basic_config(vcpu_count=2, mem_size_mib=256, secret_free=secret_free)
     microvm.add_net_iface()
 
     free_page_reporting = method == "reporting"
