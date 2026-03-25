@@ -12,14 +12,11 @@ use acpi_tables::aml::AmlError;
 use acpi_tables::{Aml, aml};
 
 use crate::devices::legacy::{I8042Device, SerialDevice};
-use crate::vstate::bus::BusError;
 use crate::vstate::vm::KvmVm;
 
 /// Errors corresponding to the `PortIODeviceManager`.
 #[derive(Debug, derive_more::From, thiserror::Error, displaydoc::Display)]
 pub enum LegacyDeviceError {
-    /// Failed to add legacy device to Bus: {0}
-    BusError(BusError),
     /// Failed to create EventFd: {0}
     EventFd(std::io::Error),
 }
@@ -58,12 +55,12 @@ impl PortIODeviceManager {
             self.stdio_serial.clone(),
             Self::SERIAL_PORT_ADDRESS,
             Self::SERIAL_PORT_SIZE,
-        )?;
+        );
         io_bus.insert(
             self.i8042.clone(),
             Self::I8042_KDB_DATA_REGISTER_ADDRESS,
             Self::I8042_KDB_DATA_REGISTER_SIZE,
-        )?;
+        );
 
         vm.register_irq(
             self.stdio_serial
