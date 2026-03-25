@@ -57,7 +57,6 @@ use crate::vmm_config::drive::{BlockDeviceConfig, DriveError};
 use crate::vmm_config::mmds::MmdsConfigError;
 use crate::vmm_config::net::{NetBuilder, NetworkInterfaceConfig, NetworkInterfaceError};
 use crate::vmm_config::pmem::{PmemConfig, PmemConfigError};
-use crate::vstate::bus::BusError;
 use crate::vstate::memory::GuestMemoryMmap;
 use crate::vstate::vm::{KvmVm, Vm};
 
@@ -89,8 +88,6 @@ pub enum DeviceManagerCreateError {
 pub enum AttachDeviceError {
     /// MMIO transport error: {0}
     MmioTransport(#[from] MmioError),
-    /// Error inserting device in bus: {0}
-    Bus(#[from] BusError),
     /// Error while registering ACPI with KVM: {0}
     AttachAcpiDevice(#[from] ACPIDeviceError),
     #[cfg(target_arch = "aarch64")]
@@ -601,8 +598,7 @@ impl DeviceManager {
 
         vm.common
             .mmio_bus
-            .remove(pci_device.config_bar_addr(), CAPABILITY_BAR_SIZE)
-            .map_err(PciManagerError::Bus)?;
+            .remove(pci_device.config_bar_addr(), CAPABILITY_BAR_SIZE);
 
         self.pci_devices
             .pci_segment
@@ -653,8 +649,6 @@ pub enum DevicePersistError {
     MmioTransport,
     /// PCI Device manager: {0}
     PciDeviceManager(#[from] PciManagerError),
-    /// Bus error: {0}
-    Bus(#[from] BusError),
     #[cfg(target_arch = "aarch64")]
     /// Legacy: {0}
     Legacy(#[from] std::io::Error),
@@ -685,8 +679,6 @@ pub enum DeviceManagerPersistError {
     AcpiRestore(#[from] ACPIDeviceError),
     /// Error restoring PCI devices: {0}
     PciRestore(DevicePersistError),
-    /// Error inserting device in bus: {0}
-    Bus(#[from] BusError),
     /// Error creating DeviceManager: {0}
     DeviceManager(#[from] DeviceManagerCreateError),
 }
@@ -781,9 +773,9 @@ impl<'a> Persist<'a> for DeviceManager {
 
 #[cfg(test)]
 pub(crate) mod tests {
-    use super::*;
     use vmm_sys_util::tempfile::TempFile;
 
+    use super::*;
     use crate::builder::tests::{
         CustomBlockConfig, default_kernel_cmdline, default_vmm, insert_block_devices,
     };
