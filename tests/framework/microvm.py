@@ -1016,6 +1016,27 @@ class Microvm:
         )
         self.disks[pmem_id] = path_on_host
 
+    def _move_to_secret_free_cgroup(self):
+        """Create a dedicated cgroup for the FC process and move it there.
+
+        guest_memfd pages are charged to the active memcg at allocation time
+        and DO NOT migrate when a task is moved between cgroups. Callers must
+        invoke this before FC starts allocating guest memory (before
+        InstanceStart or snapshot_load).
+        """
+        pid = self.firecracker_pid
+        cg_dir = Path(f"/sys/fs/cgroup/fc-{pid}")
+        procs_path = cg_dir / "cgroup.procs"
+        if not cg_dir.exists():
+            Path("/sys/fs/cgroup/cgroup.subtree_control").write_text(
+                "+memory", encoding="ascii"
+            )
+            cg_dir.mkdir()
+        procs_path.write_text(str(pid), encoding="ascii")
+        assert (
+            str(pid) in procs_path.read_text(encoding="ascii").strip().split()
+        ), f"Failed to move FC pid {pid} into cgroup {cg_dir}"
+
     def start(self):
         """Start the microvm.
 
@@ -1023,6 +1044,11 @@ class Microvm:
         """
         # Check that the VM has not started yet
         assert self.state == "Not started"
+
+        # secret_free relies on cgroup memory.current to observe guest_memfd
+        # allocations; place FC in its own cgroup before it starts allocating.
+        if self.secret_free:
+            self._move_to_secret_free_cgroup()
 
         self.api.actions.put(action_type="InstanceStart")
 
@@ -1159,6 +1185,12 @@ class Microvm:
 
         if clock_realtime:
             optional_kwargs["clock_realtime"] = clock_realtime
+
+        # secret_free relies on cgroup memory.current to observe guest_memfd
+        # allocations; place FC in its own cgroup before snapshot load kicks
+        # off guest memory allocations.
+        if self.secret_free:
+            self._move_to_secret_free_cgroup()
 
         self.api.snapshot_load.put(
             mem_backend=mem_backend,

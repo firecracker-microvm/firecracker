@@ -134,9 +134,20 @@ def track_cpu_utilization(
     return cpu_utilization
 
 
-def get_resident_memory(process: psutil.Process):
+def get_resident_memory(uvm):
     """Returns current memory utilization in KiB, including used HugeTLBFS"""
 
+    if uvm is not None and uvm.secret_free:
+        # guest_memfd pages are owned by the kernel (not mapped into VMM RSS),
+        # so per-process RSS can't track discard_range() freeing them. The
+        # microvm places FC in a dedicated cgroup before allocating guest
+        # memory; memory.current tracks guest_memfd allocations and drops
+        # after fallocate(PUNCH_HOLE).
+        pid = uvm.firecracker_pid
+        cg_dir = Path(f"/sys/fs/cgroup/fc-{pid}")
+        return int((cg_dir / "memory.current").read_text().strip()) // 1024
+
+    process: psutil.Process = uvm.ps
     proc_status = Path("/proc", str(process.pid), "status").read_text("utf-8")
     for line in proc_status.splitlines():
         if line.startswith("HugetlbPages:"):  # entry is in KiB
@@ -260,18 +271,23 @@ def search_output_from_cmd(cmd: str, find_regex: typing.Pattern) -> typing.Match
 
 def get_stable_rss_mem(uvm, percentage_delta=1):
     """
-    Get the RSS memory that a guest uses, given the pid of the guest.
+    Get a stable memory usage reading for the VM.
 
-    Wait till the fluctuations in RSS drop below percentage_delta.
+    For regular memory: returns host RSS of the FC process (KiB).
+    For secret_free (guest_memfd): returns guest-side memory usage
+    (total - available) since host RSS doesn't track page cache pages
+    freed by fallocate(PUNCH_HOLE).
+
+    Wait till the fluctuations drop below percentage_delta.
     Or print a warning if this does not happen.
     """
 
     first_rss = 0
     second_rss = 0
     for _ in range(5):
-        first_rss = get_resident_memory(uvm.ps)
+        first_rss = get_resident_memory(uvm)
         time.sleep(1)
-        second_rss = get_resident_memory(uvm.ps)
+        second_rss = get_resident_memory(uvm)
         abs_diff = abs(first_rss - second_rss)
         abs_delta = abs_diff / first_rss * 100
         print(

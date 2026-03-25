@@ -278,11 +278,11 @@ def check_hotplug(uvm, requested_size_mib):
 def check_hotunplug(uvm, requested_size_mib):
     """Verifies memory can be hotunplugged and gets released"""
 
-    rss_before = get_resident_memory(uvm.ps)
+    rss_before = get_resident_memory(uvm)
 
     check_hotplug(uvm, requested_size_mib)
 
-    rss_after = get_resident_memory(uvm.ps)
+    rss_after = get_resident_memory(uvm)
 
     print(f"RSS before: {rss_before}, after: {rss_after}")
 
