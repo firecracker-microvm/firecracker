@@ -363,7 +363,7 @@ impl VirtioPciDevice {
         memory: GuestMemoryMmap,
         device: Arc<Mutex<dyn VirtioDevice>>,
         msix_vectors: Arc<MsixVectorGroup>,
-        sbdf: u32,
+        sbdf: PciSBDF,
     ) -> Result<Self, VirtioPciDeviceError> {
         let num_queues = device.lock().expect("Poisoned lock").queues().len();
 
@@ -392,7 +392,7 @@ impl VirtioPciDevice {
         let virtio_pci_device = VirtioPciDevice {
             id,
             sub_id: None,
-            sbdf: sbdf.into(),
+            sbdf,
             configuration: pci_config,
             common_config: virtio_common_config,
             device,
@@ -412,7 +412,7 @@ impl VirtioPciDevice {
         device: Arc<Mutex<dyn VirtioDevice>>,
         state: VirtioPciDeviceState,
     ) -> Result<Self, VirtioPciDeviceError> {
-        let msix_config = MsixConfig::from_state(state.msix_state, vm.clone(), state.sbdf.into())?;
+        let msix_config = MsixConfig::from_state(state.msix_state, vm.clone(), state.sbdf)?;
         let vectors = msix_config.vectors.clone();
         let msix_config = Arc::new(Mutex::new(msix_config));
 
