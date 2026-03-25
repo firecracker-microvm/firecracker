@@ -9,6 +9,7 @@ use vmm_sys_util::eventfd::EventFd;
 
 use crate::Vm;
 use crate::logger::{IncMetric, METRICS};
+use crate::pci::PciSBDF;
 use crate::snapshot::Persist;
 
 #[derive(Debug, thiserror::Error, displaydoc::Display)]
@@ -35,8 +36,8 @@ pub struct MsixVectorConfig {
     pub low_addr: u32,
     /// Data to write to delivery message signaled interrupt.
     pub data: u32,
-    /// Unique ID of the device to delivery message signaled interrupt.
-    pub devid: u32,
+    /// Devid of the device to delivery message signaled interrupt.
+    pub devid: PciSBDF,
 }
 
 /// Type that describes an allocated interrupt

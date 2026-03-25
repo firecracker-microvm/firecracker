@@ -161,7 +161,7 @@ impl PciDevices {
 
         // Create the transport
         let mut virtio_device =
-            VirtioPciDevice::new(id.clone(), mem, device, Arc::new(msix_vectors), sbdf.into())?;
+            VirtioPciDevice::new(id.clone(), mem, device, Arc::new(msix_vectors), sbdf)?;
 
         // Allocate bars
         let mut resource_allocator_lock = vm.resource_allocator();
@@ -226,8 +226,8 @@ impl PciDevices {
 pub struct VirtioDeviceState<T> {
     /// Device identifier
     pub device_id: String,
-    /// Device BDF
-    pub pci_device_bdf: u32,
+    /// Device SBDF
+    pub sbdf: PciSBDF,
     /// Device state
     pub device_state: T,
     /// Transport state
@@ -298,7 +298,7 @@ impl<'a> Persist<'a> for PciDevices {
             locked_virtio_dev.prepare_save();
             let transport_state = locked_pci_dev.state();
 
-            let pci_device_bdf = transport_state.sbdf.into();
+            let sbdf = transport_state.sbdf;
 
             match locked_virtio_dev.device_type() {
                 VirtioDeviceType::Balloon => {
@@ -311,7 +311,7 @@ impl<'a> Persist<'a> for PciDevices {
 
                     state.balloon_device = Some(VirtioDeviceState {
                         device_id: balloon_device.id().to_string(),
-                        pci_device_bdf,
+                        sbdf,
                         device_state,
                         transport_state,
                     });
@@ -330,7 +330,7 @@ impl<'a> Persist<'a> for PciDevices {
                         let device_state = block_dev.save();
                         state.block_devices.push(VirtioDeviceState {
                             device_id: block_dev.id().to_string(),
-                            pci_device_bdf,
+                            sbdf,
                             device_state,
                             transport_state,
                         });
@@ -352,7 +352,7 @@ impl<'a> Persist<'a> for PciDevices {
 
                     state.net_devices.push(VirtioDeviceState {
                         device_id: net_dev.id().to_string(),
-                        pci_device_bdf,
+                        sbdf,
                         device_state,
                         transport_state,
                     })
@@ -373,7 +373,7 @@ impl<'a> Persist<'a> for PciDevices {
 
                     state.vsock_device = Some(VirtioDeviceState {
                         device_id: vsock_dev.id().to_string(),
-                        pci_device_bdf,
+                        sbdf,
                         device_state: vsock_state,
                         transport_state,
                     });
@@ -387,7 +387,7 @@ impl<'a> Persist<'a> for PciDevices {
 
                     state.entropy_device = Some(VirtioDeviceState {
                         device_id: rng_dev.id().to_string(),
-                        pci_device_bdf,
+                        sbdf,
                         device_state,
                         transport_state,
                     })
@@ -400,7 +400,7 @@ impl<'a> Persist<'a> for PciDevices {
                     let device_state = pmem_dev.save();
                     state.pmem_devices.push(VirtioDeviceState {
                         device_id: pmem_dev.config.id.clone(),
-                        pci_device_bdf,
+                        sbdf,
                         device_state,
                         transport_state,
                     });
@@ -414,7 +414,7 @@ impl<'a> Persist<'a> for PciDevices {
 
                     state.memory_device = Some(VirtioDeviceState {
                         device_id: mem_dev.id().to_string(),
-                        pci_device_bdf,
+                        sbdf,
                         device_state,
                         transport_state,
                     })

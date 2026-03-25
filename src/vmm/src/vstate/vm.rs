@@ -457,7 +457,7 @@ impl Vm {
             // For the time being, we are using a single PCI segment and a single bus per segment
             // so just passing config.devid should be fine.
             entry.flags = KVM_MSI_VALID_DEVID;
-            entry.u.msi.__bindgen_anon_1.devid = config.devid;
+            entry.u.msi.__bindgen_anon_1.devid = config.devid.into();
         }
 
         self.common
@@ -556,6 +556,7 @@ pub(crate) mod tests {
     use vm_memory::mmap::MmapRegionBuilder;
 
     use super::*;
+    use crate::pci::PciSBDF;
     use crate::snapshot::Persist;
     use crate::test_utils::single_region_mem_raw;
     use crate::utils::mib_to_bytes;
@@ -751,7 +752,7 @@ pub(crate) mod tests {
             high_addr: 0x42,
             low_addr: 0x12,
             data: 0x12,
-            devid: 0xafa,
+            devid: PciSBDF::from(0xafa),
         };
         msix_group.update(0, config, true, true).unwrap();
         msix_group.update(4, config, true, true).unwrap_err();
@@ -770,7 +771,7 @@ pub(crate) mod tests {
             high_addr: 0x42,
             low_addr: 0x13,
             data: 0x12,
-            devid: 0xafa,
+            devid: PciSBDF::from(0xafa),
         };
         for i in 0..4 {
             config.data = 0x12 * i;
