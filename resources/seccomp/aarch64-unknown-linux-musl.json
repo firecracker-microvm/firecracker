@@ -217,7 +217,11 @@
             },
             {
                 "syscall": "madvise",
-                "comment": "Used by the VirtIO balloon device and by musl for some customer workloads. It is also used by aws-lc during random number generation. They setup a memory page that mark with MADV_WIPEONFORK to be able to detect forks. They also call it with -1 to see if madvise is supported in certain platforms." 
+                "comment": "Used by the VirtIO balloon device and by musl for some customer workloads. It is also used by aws-lc during random number generation. They setup a memory page that mark with MADV_WIPEONFORK to be able to detect forks. They also call it with -1 to see if madvise is supported in certain platforms."
+            },
+            {
+                "syscall": "fallocate",
+                "comment": "Used to punch holes in guest_memfd (MAP_SHARED) when discarding memory ranges, e.g. during virtio-mem unplug or balloon inflate with secret_free."
             },
             {
                 "syscall": "msync",
