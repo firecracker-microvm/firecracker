@@ -11,6 +11,7 @@ use super::RateLimiterConfig;
 use crate::VmmError;
 use crate::devices::virtio::device::VirtioDevice;
 use crate::devices::virtio::net::{Net, TapError};
+use crate::logger::warn;
 use crate::utils::net::mac::MacAddr;
 
 /// This struct represents the strongly typed equivalent of the json body from net iface
@@ -130,6 +131,11 @@ impl NetBuilder {
             .iter()
             .position(|net| net.lock().expect("Poisoned lock").id() == netif_config.iface_id)
         {
+            warn!(
+                "Replacing existing network device '{}'. The previous device configuration will \
+                 be destroyed.",
+                netif_config.iface_id
+            );
             self.net_devices.swap_remove(index);
         }
 
