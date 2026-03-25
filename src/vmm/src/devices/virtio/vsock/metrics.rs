@@ -48,18 +48,11 @@ use std::sync::{Arc, RwLock};
 /// per device vsock metrics. (Can also handle singular)
 pub fn flush_metrics<S: Serializer>(serializer: S) -> Result<S::Ok, S::Error> {
     let vsock_metrics = METRICS.read().unwrap();
-    let metrics_len = vsock_metrics.len();
-    // +1 to accomodate aggregate vsock metrics
-    let mut seq = serializer.serialize_map(Some(1 + metrics_len))?;
-
     let mut vsock_aggregated: VsockDeviceMetrics = VsockDeviceMetrics::default();
-
-    for (cid, metrics) in vsock_metrics.iter() {
-        // serialization will flush the metrics so aggregate before it.
-        let m: &VsockDeviceMetrics = metrics;
-        vsock_aggregated.aggregate(m);
-        seq.serialize_entry(&cid, m)?;
+    for (_, metrics) in vsock_metrics.iter() {
+        vsock_aggregated.aggregate(metrics);
     }
+    let mut seq = serializer.serialize_map(Some(1))?;
     seq.serialize_entry("vsock", &vsock_aggregated)?;
     seq.end()
 }
