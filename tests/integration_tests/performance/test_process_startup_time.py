@@ -23,6 +23,7 @@ def test_startup_time_new_pid_ns(
         microvm = microvm_factory.build(guest_kernel_linux_5_10, rootfs)
         microvm.jailer.new_pid_ns = True
         _test_startup_time(microvm, metrics, "new_pid_ns")
+        microvm.kill()
 
 
 @pytest.mark.nonci
@@ -35,6 +36,7 @@ def test_startup_time_daemonize(
     for _ in range(ITERATIONS):
         microvm = microvm_factory.build(guest_kernel_linux_5_10, rootfs)
         _test_startup_time(microvm, metrics, "daemonize")
+        microvm.kill()
 
 
 @pytest.mark.nonci
@@ -48,6 +50,7 @@ def test_startup_time_custom_seccomp(
         microvm = microvm_factory.build(guest_kernel_linux_5_10, rootfs)
         _custom_filter_setup(microvm)
         _test_startup_time(microvm, metrics, "custom_seccomp")
+        microvm.kill()
 
 
 def _test_startup_time(microvm, metrics, test_suffix: str):
