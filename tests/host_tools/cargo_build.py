@@ -142,3 +142,17 @@ def build_gdb():
     )
 
     return build_path / DEFAULT_TARGET / "debug"
+
+
+def build_fuzzing(release=False):
+    """Builds Firecracker with fuzzing feature enabled. Returns the binary dir"""
+    profile = "release" if release else "debug"
+    build_path = LOCAL_BUILD_PATH / "fuzzing"
+    release_flag = " --release" if release else ""
+    cargo(
+        "build",
+        f"--features fuzzing{release_flag} --target {DEFAULT_TARGET} --all",
+        env={"CARGO_TARGET_DIR": build_path},
+    )
+
+    return build_path / DEFAULT_TARGET / profile
