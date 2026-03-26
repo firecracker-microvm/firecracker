@@ -1175,6 +1175,8 @@ cmd_test_debug() {
 cmd_fmt() {
     cmd_sh "cargo fmt --all"
     cmd_sh "cargo sort"
+    TARGET_ARCH=$(uname -m)
+    cmd_sh "cargo clippy --fix --allow-dirty --allow-staged --target ${TARGET_ARCH}-unknown-linux-musl --all --all-targets --all-features -- -D warnings" || true
     cmd_sh "cd tests; black --config pyproject.toml . ../tools ../.buildkite"
     cmd_sh "cd tests; isort . ../tools ../.buildkite"
     cmd_sh "mdformat $(git ls-files '*.md' | tr '\n' ' ')"
@@ -1191,6 +1193,7 @@ cmd_checkstyle() {
 
     cmd_test --no-build --no-kvm-check --no-build-dir-check --no-artifacts-check -- -n 4 --dist worksteal integration_tests/style || exit 1
     cmd_test --no-build --no-kvm-check --no-build-dir-check --no-artifacts-check -- -n 4 --doctest-modules framework || exit 1
+    cmd_test --no-build --no-kvm-check --no-build-dir-check --no-artifacts-check -- integration_tests/build/test_clippy.py || exit 1
 }
 
 cmd_checkbuild() {
