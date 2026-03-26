@@ -1,6 +1,12 @@
 // Copyright 2018 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
+#[cfg(all(feature = "fuzzing", not(debug_assertions)))]
+compile_error!(
+    "The `fuzzing` feature must not be used in release builds. \
+     Build with the dev profile instead: `cargo build --features fuzzing`"
+);
+
 mod api_server;
 mod api_server_adapter;
 mod generated;
@@ -21,6 +27,8 @@ use utils::arg_parser::{ArgParser, Argument};
 use utils::validators::validate_instance_id;
 use vmm::arch::host_page_size;
 use vmm::builder::StartMicrovmError;
+#[cfg(feature = "fuzzing")]
+use vmm::logger::warn;
 use vmm::logger::{
     LOGGER, LoggerConfig, METRICS, ProcessTimeReporter, StoreMetric, debug, error, info,
 };
@@ -40,7 +48,11 @@ use crate::seccomp::SeccompConfig;
 // runtime file.
 // see https://refspecs.linuxfoundation.org/FHS_3.0/fhs/ch03s15.html for more information.
 const DEFAULT_API_SOCK_PATH: &str = "/run/firecracker.socket";
-const FIRECRACKER_VERSION: &str = env!("CARGO_PKG_VERSION");
+const FIRECRACKER_VERSION: &str = if cfg!(feature = "fuzzing") {
+    concat!(env!("CARGO_PKG_VERSION"), "+fuzzing")
+} else {
+    env!("CARGO_PKG_VERSION")
+};
 const MMDS_CONTENT_ARG: &str = "metadata";
 
 #[derive(Debug, thiserror::Error, displaydoc::Display)]
@@ -318,6 +330,12 @@ fn main_exec() -> Result<(), MainError> {
         })
         .map_err(MainError::LoggerInitialization)?;
     info!("Running Firecracker v{FIRECRACKER_VERSION}");
+
+    #[cfg(feature = "fuzzing")]
+    warn!(
+        "This Firecracker binary was built with the `fuzzing` feature enabled. This disables \
+         security-critical randomness and relaxes error handling. DO NOT use in production."
+    );
 
     register_signal_handlers().map_err(MainError::RegisterSignalHandlers)?;
 

@@ -17,6 +17,7 @@ bench = false
 
 [features]
 tracing = ["log-instrument", "utils/tracing", "vmm/tracing"]
+fuzzing = ["vmm/fuzzing"]
 gdb = ["vmm/gdb"]
 
 [dependencies]

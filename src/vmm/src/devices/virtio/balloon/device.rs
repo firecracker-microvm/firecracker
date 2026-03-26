@@ -692,6 +692,12 @@ impl Balloon {
             return Err(err);
         }
 
+        // Under fuzzing, also process the stats queue since we can't use the timer-driven path.
+        #[cfg(feature = "fuzzing")]
+        if self.stats_enabled() {
+            _ = self.process_stats_queue();
+        }
+
         Ok(())
     }
 
