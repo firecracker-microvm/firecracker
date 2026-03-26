@@ -498,6 +498,8 @@ impl Balloon {
                 // the protocol, but return it if we find one.
                 error!("balloon: driver is not compliant, more than one stats buffer received");
                 self.queues[STATS_INDEX].add_used(prev_stats_desc, 0)?;
+                self.queues[STATS_INDEX].advance_used_ring_idx();
+                self.signal_used_queue(STATS_INDEX)?;
             }
 
             // Reject oversized descriptors to prevent a guest from causing
