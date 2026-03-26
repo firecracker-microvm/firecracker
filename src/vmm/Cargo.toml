@@ -12,6 +12,7 @@ bench = false
 default = []
 tracing = ["log-instrument"]
 gdb = ["arrayvec", "gdbstub", "gdbstub_arch"]
+fuzzing = []
 
 [dependencies]
 

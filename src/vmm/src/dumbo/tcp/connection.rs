@@ -10,6 +10,7 @@ use std::fmt::Debug;
 use std::num::{NonZeroU16, NonZeroU64, NonZeroUsize, Wrapping};
 
 use bitflags::bitflags;
+#[cfg(not(feature = "fuzzing"))]
 use vmm_sys_util::rand::xor_pseudo_rng_u32;
 
 use crate::dumbo::ByteBuffer;
@@ -251,6 +252,10 @@ impl Connection {
         let ack_to_send = Wrapping(segment.sequence_number()) + Wrapping(1);
 
         // Let's pick the initial sequence number.
+        // when fuzzing use a constant value to make it deterministic
+        #[cfg(feature = "fuzzing")]
+        let isn = Wrapping(0x12345678u32);
+        #[cfg(not(feature = "fuzzing"))]
         let isn = Wrapping(xor_pseudo_rng_u32());
         let first_not_sent = isn + Wrapping(1);
         let remote_rwnd_edge = first_not_sent + Wrapping(u32::from(segment.window_size()));
