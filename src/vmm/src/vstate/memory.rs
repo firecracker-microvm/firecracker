@@ -235,14 +235,6 @@ impl<'a> GuestMemorySlot<'a> {
     }
 }
 
-fn addr_in_range(addr: GuestAddress, start: GuestAddress, len: usize) -> bool {
-    if let Some(end) = start.checked_add(len as u64) {
-        addr >= start && addr < end
-    } else {
-        false
-    }
-}
-
 impl GuestRegionMmapExt {
     /// Adds a DRAM region which only contains a single plugged slot
     pub(crate) fn dram_from_mmap_region(region: GuestRegionMmap, slot: u32) -> Self {
@@ -345,11 +337,17 @@ impl GuestRegionMmapExt {
         len: usize,
     ) -> impl Iterator<Item = GuestMemorySlot<'_>> {
         self.slots().map(|(slot, _)| slot).filter(move |slot| {
-            if let Some(slot_end) = slot.guest_addr.checked_add(slot.slice.len() as u64) {
-                addr_in_range(slot.guest_addr, from, len) || addr_in_range(slot_end, from, len)
-            } else {
-                false
-            }
+            // Two intervals [a, b) and [c, d) intersect iff a < d && c < b.
+            // This correctly handles the containment case where the slot fully
+            // contains the range (or vice versa).
+            let slot_start = slot.guest_addr;
+            let Some(slot_end) = slot_start.checked_add(slot.slice.len() as u64) else {
+                return false;
+            };
+            let Some(range_end) = from.checked_add(len as u64) else {
+                return false;
+            };
+            slot_start < range_end && from < slot_end
         })
     }
 
@@ -1462,6 +1460,59 @@ mod tests {
                 .unwrap_err(),
             GuestMemoryError::IOError(_)
         );
+    }
+
+    /// Verifies that `slots_intersecting_range` returns the correct slots for
+    /// ranges at slot boundaries, interior to a slot, and spanning two slots.
+    #[test]
+    fn test_slots_intersecting_range() {
+        let page_size = get_page_size().unwrap();
+        let slot_size = 4 * page_size;
+        let region_size = 2 * slot_size;
+        let base = GuestAddress(0);
+        let slot1_base = base.unchecked_add(slot_size as u64);
+
+        let mmap_region = anonymous(
+            std::iter::once((base, region_size)),
+            false,
+            HugePageConfig::None,
+        )
+        .unwrap()
+        .into_iter()
+        .next()
+        .unwrap();
+
+        let region = GuestRegionMmapExt::hotpluggable_from_mmap_region(mmap_region, 0, slot_size);
+        assert_eq!(region.slot_cnt(), 2);
+
+        // (range_offset_in_pages, range_len_in_pages, expected_slot_addrs)
+        let cases: &[(usize, usize, &[GuestAddress])] = &[
+            // At slot 0 boundary
+            (0, 1, &[base]),
+            // Interior to slot 0
+            (1, 1, &[base]),
+            // Interior to slot 1
+            (5, 1, &[slot1_base]),
+            // Spanning slot 0 and slot 1
+            (3, 2, &[base, slot1_base]),
+            // Entire region
+            (0, 8, &[base, slot1_base]),
+            // Outside the region
+            (8, 1, &[]),
+            // Zero-length range
+            (0, 0, &[]),
+        ];
+
+        for &(offset_pages, len_pages, expected) in cases {
+            let from = base.unchecked_add((offset_pages * page_size) as u64);
+            let len = len_pages * page_size;
+            let found: Vec<_> = region.slots_intersecting_range(from, len).collect();
+            let addrs: Vec<_> = found.iter().map(|s| s.guest_addr).collect();
+            assert_eq!(
+                addrs, expected,
+                "offset={offset_pages} pages, len={len_pages} pages"
+            );
+        }
     }
 
     #[allow(clippy::cast_possible_truncation, clippy::cast_possible_wrap)]
