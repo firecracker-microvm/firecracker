@@ -278,10 +278,11 @@ if `virtio-pmem` is used for memory sharing.
 
 ## Memory usage
 
-> [!NOTE] `virtio-pmem` memory can be paged out by the host, because it is
-> backed by a file with `MAP_SHARED` mapping type. To prevent this from
-> happening, you can use `vmtouch` or similar tool to lock file pages from being
-> evicted.
+> [!NOTE]
+>
+> `virtio-pmem` memory can be paged out by the host, because it is backed by a
+> file with `MAP_SHARED` mapping type. To prevent this from happening, you can
+> use `vmtouch` or similar tool to lock file pages from being evicted.
 
 `virtio-pmem` resides in host memory and does increase the maximum possible
 memory usage of a VM since now VM can use all of its RAM and access all of the
