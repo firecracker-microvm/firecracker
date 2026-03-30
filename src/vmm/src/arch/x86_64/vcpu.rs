@@ -725,6 +725,7 @@ impl Peripherals {
     pub fn run_arch_emulation(&self, exit: VcpuExit) -> Result<VcpuEmulation, VcpuError> {
         match exit {
             VcpuExit::IoIn(addr, data) => {
+                data.fill(0);
                 if let Some(pio_bus) = &self.pio_bus {
                     let _metric = METRICS.vcpu.exit_io_in_agg.record_latency_metrics();
                     if let Err(err) = pio_bus.read(u64::from(addr), data) {
