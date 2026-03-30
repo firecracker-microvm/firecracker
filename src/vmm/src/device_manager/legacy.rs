@@ -149,7 +149,7 @@ mod tests {
     use vmm_sys_util::eventfd::EventFd;
 
     use super::*;
-    use crate::devices::legacy::serial::SerialOut;
+    use crate::devices::legacy::serial::{SerialOut, SerialOutInner};
     use crate::devices::legacy::{EventFdTrigger, SerialEventsWrapper};
     use crate::vstate::vm::tests::setup_vm_with_memory;
 
@@ -164,7 +164,7 @@ mod tests {
                     SerialEventsWrapper {
                         buffer_ready_event_fd: None,
                     },
-                    SerialOut::Sink,
+                    SerialOut::new(SerialOutInner::Sink, None),
                 ),
                 input: None,
             })),
