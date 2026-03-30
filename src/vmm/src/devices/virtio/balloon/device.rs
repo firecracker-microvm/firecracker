@@ -41,6 +41,16 @@ use crate::{impl_device_type, mem_size_mib};
 
 const SIZE_OF_U32: usize = std::mem::size_of::<u32>();
 const SIZE_OF_STAT: usize = std::mem::size_of::<BalloonStat>();
+/// Upper bound on the number of stats tags a guest may report.
+/// The VirtIO spec currently defines 16, but newer kernel versions can
+/// add more (e.g. Linux 6.12 added several, see 74c025c5d7e4). We use a
+/// generous limit that still bounds computation without breaking on future
+/// kernels.
+const MAX_STATS_TAGS: u32 = 256;
+/// Maximum valid stats descriptor length in bytes.
+/// Descriptors exceeding this are rejected to prevent unbounded iteration.
+#[allow(clippy::cast_possible_truncation)]
+const MAX_STATS_DESC_LEN: u32 = MAX_STATS_TAGS * std::mem::size_of::<BalloonStat>() as u32;
 
 fn mib_to_pages(amount_mib: u32) -> Result<u32, BalloonError> {
     amount_mib
@@ -488,7 +498,24 @@ impl Balloon {
                 // the protocol, but return it if we find one.
                 error!("balloon: driver is not compliant, more than one stats buffer received");
                 self.queues[STATS_INDEX].add_used(prev_stats_desc, 0)?;
+                self.queues[STATS_INDEX].advance_used_ring_idx();
+                self.signal_used_queue(STATS_INDEX)?;
             }
+
+            // Reject oversized descriptors to prevent a guest from causing
+            // excessive iteration on the VMM event loop.
+            // We still hold onto the descriptor (via stats_desc_index below)
+            // so that the stats request/response protocol is preserved and
+            // trigger_stats_update can return it to the guest later.
+            if head.len > MAX_STATS_DESC_LEN {
+                warn!(
+                    "balloon: stats descriptor too large: {} > {}, skipping",
+                    head.len, MAX_STATS_DESC_LEN
+                );
+                self.stats_desc_index = Some(head.index);
+                continue;
+            }
+
             for index in (0..head.len).step_by(SIZE_OF_STAT) {
                 // Read the address at position `index`. The only case
                 // in which this fails is if there is overflow,
@@ -1938,5 +1965,72 @@ pub(crate) mod tests {
         balloon.write_config(0, &expected_config);
         assert_eq!(balloon.num_pages(), 0x1122_3344);
         assert_eq!(balloon.actual_pages(), 0x1234_5678);
+    }
+
+    /// Test that process_stats_queue holds oversized descriptors without
+    /// updating stats, and updates stats for valid-length ones.
+    #[test]
+    fn test_stats_queue_oversized_descriptor_rejected() {
+        struct TestCase {
+            desc_len: u32,
+            stats_updated: bool,
+        }
+
+        let cases = [
+            TestCase {
+                desc_len: MAX_STATS_DESC_LEN + 1,
+                stats_updated: false,
+            },
+            TestCase {
+                desc_len: MAX_STATS_DESC_LEN,
+                stats_updated: true,
+            },
+        ];
+
+        let stat_addr: u64 = 0x1000;
+
+        for tc in &cases {
+            let mut balloon = Balloon::new(0, true, 1, false, false).unwrap();
+            let mem = default_mem();
+            let statsq = VirtQueue::new(GuestAddress(0), &mem, 16);
+            balloon.set_queue(INFLATE_INDEX, statsq.create_queue());
+            balloon.set_queue(DEFLATE_INDEX, statsq.create_queue());
+            balloon.set_queue(STATS_INDEX, statsq.create_queue());
+            balloon.activate(mem.clone(), default_interrupt()).unwrap();
+
+            // Fill the descriptor region with a recognisable stat value.
+            let n_stats = tc.desc_len as usize / SIZE_OF_STAT;
+            for i in 0..n_stats {
+                mem.write_obj::<BalloonStat>(
+                    BalloonStat {
+                        tag: VIRTIO_BALLOON_S_MEMFREE,
+                        val: 0xBEEF,
+                    },
+                    GuestAddress(stat_addr + (i * SIZE_OF_STAT) as u64),
+                )
+                .unwrap();
+            }
+
+            set_request(&statsq, 0, stat_addr, tc.desc_len, VIRTQ_DESC_F_NEXT);
+            balloon.queue_events()[STATS_INDEX].write(1).unwrap();
+            balloon.process_stats_queue_event().unwrap();
+
+            // The descriptor should always be held (stats protocol preserved)
+            // regardless of whether the stats were updated.
+            assert!(
+                balloon.stats_desc_index.is_some(),
+                "desc_len={}: descriptor should be held",
+                tc.desc_len,
+            );
+
+            // Verify stats were only updated for valid descriptors.
+            assert_eq!(
+                balloon.latest_stats.free_memory.is_some(),
+                tc.stats_updated,
+                "desc_len={}: expected stats_updated={}",
+                tc.desc_len,
+                tc.stats_updated,
+            );
+        }
     }
 }

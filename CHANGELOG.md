@@ -40,6 +40,10 @@ and this project adheres to
   to a slot boundary. On plug, this could leave hotplugged memory inaccessible
   to the guest. On unplug, the guest could retain access to memory that
   Firecracker considered freed.
+- [#5794](https://github.com/firecracker-microvm/firecracker/pull/5794): Bound
+  balloon statistics descriptor length to prevent a guest-controlled oversized
+  descriptor from temporarily stalling the VMM event loop. Only affects microVMs
+  with `stats_polling_interval_s > 0`.
 
 ## [1.15.0]
 
