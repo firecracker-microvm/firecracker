@@ -420,6 +420,7 @@ fn handle_kvm_exit(
     match emulation_result {
         Ok(run) => match run {
             VcpuExit::MmioRead(addr, data) => {
+                data.fill(0);
                 if let Some(mmio_bus) = &peripherals.mmio_bus {
                     let _metric = METRICS.vcpu.exit_mmio_read_agg.record_latency_metrics();
                     if let Err(err) = mmio_bus.read(addr, data) {
