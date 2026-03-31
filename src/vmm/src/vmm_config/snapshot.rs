@@ -64,6 +64,38 @@ pub struct VsockOverride {
     pub uds_path: String,
 }
 
+/// Configuration for a single drive override that is provided by the user.
+#[derive(Debug, PartialEq, Eq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct DriveOverrideConfig {
+    /// The ID of the drive to modify
+    pub drive_id: String,
+    /// The new host path for a virtio-block device's backing file
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub path_on_host: Option<String>,
+    /// The new socket path for a vhost-user-block device's backend
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub socket: Option<String>,
+}
+
+/// Allows for changing the backing host path of a block device during snapshot restore
+#[derive(Debug, PartialEq, Eq)]
+pub struct DriveOverride {
+    /// The ID of the drive to modify
+    pub drive_id: String,
+    /// The new backing path
+    pub backing: DriveOverrideBacking,
+}
+
+/// The new backing path for a [`DriveOverride`].
+#[derive(Debug, PartialEq, Eq)]
+pub enum DriveOverrideBacking {
+    /// New host path for a virtio-block device's backing file
+    PathOnHost(String),
+    /// New socket path for a vhost-user-block device's backend
+    Socket(String),
+}
+
 /// Stores the configuration that will be used for loading a snapshot.
 #[derive(Debug, PartialEq, Eq)]
 pub struct LoadSnapshotParams {
@@ -81,6 +113,8 @@ pub struct LoadSnapshotParams {
     pub network_overrides: Vec<NetworkOverride>,
     /// When set, the vsock backend UDS path will be overridden
     pub vsock_override: Option<VsockOverride>,
+    /// The block devices to override on load.
+    pub drive_overrides: Vec<DriveOverride>,
     /// [x86_64 only] When set to true, passes `KVM_CLOCK_REALTIME` to `KVM_SET_CLOCK` on restore,
     /// advancing kvmclock by the wall-clock time elapsed since the snapshot was taken. When false
     /// (default), kvmclock resumes from where it was at snapshot time.
@@ -117,6 +151,9 @@ pub struct LoadSnapshotConfig {
     /// Whether or not to override the vsock backend UDS path.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub vsock_override: Option<VsockOverride>,
+    /// The block devices to override on load.
+    #[serde(default)]
+    pub drive_overrides: Vec<DriveOverrideConfig>,
     /// [x86_64 only] When set to true, passes `KVM_CLOCK_REALTIME` to `KVM_SET_CLOCK` on restore.
     #[serde(default)]
     pub clock_realtime: bool,

@@ -1647,6 +1647,30 @@ definitions:
         description:
           The new path for the backing Unix Domain Socket.
 
+  DriveOverride:
+    type: object
+    description:
+      Allows for changing the backing host path of a block device
+      during snapshot restore. Exactly one of `path_on_host` or `socket`
+      must be set, matching the device type.
+    required:
+      - drive_id
+    properties:
+      drive_id:
+        type: string
+        description:
+          The ID of the drive to modify
+      path_on_host:
+        type: string
+        description:
+          The new host path for a virtio-block device's backing file.
+          This field is required for virtio-block overrides and should be omitted for vhost-user-block overrides.
+      socket:
+        type: string
+        description:
+          The new path to the vhost-user-block backend socket.
+          This field is required for vhost-user-block overrides and should be omitted for virtio-block overrides.
+
   SnapshotLoadParams:
     type: object
     description:
@@ -1694,6 +1718,11 @@ definitions:
           for restoring a snapshot with a different socket path than the one used
           when the snapshot was created. For example, when the original socket path
           is no longer available or when deploying to a different environment.
+      drive_overrides:
+        type: array
+        description: Block device host paths to override
+        items:
+          $ref: "#/definitions/DriveOverride"
       clock_realtime:
         type: boolean
         description:

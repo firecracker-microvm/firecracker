@@ -200,6 +200,65 @@ ip addr add 172.16.3.2/30 dev eth0
 ip route add default via 172.16.3.1/30 dev eth0
 ```
 
+### Overriding block device paths
+
+When restoring a VM from a snapshot on a different host or in an environment
+where disk paths are non-deterministic (e.g. container runtimes using
+devmapper), the block device paths baked into the snapshot state may no longer
+be valid. In this case you can use the `drive_overrides` parameter of the
+snapshot restore API to specify a new backing path for each block device.
+
+Each entry mirrors the conventions of the `PUT /drives` API: use `path_on_host`
+for virtio-block devices and `socket` for vhost-user-block devices. Exactly one
+of the two must be set per entry, and it must match the type of the device
+identified by `drive_id`.
+
+For a virtio-block device with drive ID `rootfs`, override its host path during
+snapshot resume:
+
+```bash
+curl --unix-socket /tmp/firecracker.socket -i \
+    -X PUT 'http://localhost/snapshot/load' \
+    -H  'Accept: application/json' \
+    -H  'Content-Type: application/json' \
+    -d '{
+            "snapshot_path": "./snapshot_file",
+            "mem_backend": {
+                "backend_path": "./mem_file",
+                "backend_type": "File"
+            },
+            "drive_overrides": [
+                 {
+                     "drive_id": "rootfs",
+                     "path_on_host": "/new/path/to/rootfs.ext4"
+                 }
+            ]
+    }'
+```
+
+For a vhost-user-block device with drive ID `scratch`, override its backend
+socket path:
+
+```bash
+curl --unix-socket /tmp/firecracker.socket -i \
+    -X PUT 'http://localhost/snapshot/load' \
+    -H  'Accept: application/json' \
+    -H  'Content-Type: application/json' \
+    -d '{
+            "snapshot_path": "./snapshot_file",
+            "mem_backend": {
+                "backend_path": "./mem_file",
+                "backend_type": "File"
+            },
+            "drive_overrides": [
+                 {
+                     "drive_id": "scratch",
+                     "socket": "/new/path/to/vhost-user.sock"
+                 }
+            ]
+    }'
+```
+
 # Ingress connectivity
 
 The above setup only provides egress connectivity. If in addition we also want

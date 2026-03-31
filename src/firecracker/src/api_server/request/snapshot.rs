@@ -5,8 +5,8 @@ use serde::de::Error as DeserializeError;
 use vmm::logger::{IncMetric, METRICS};
 use vmm::rpc_interface::VmmAction;
 use vmm::vmm_config::snapshot::{
-    CreateSnapshotParams, LoadSnapshotConfig, LoadSnapshotParams, MemBackendConfig, MemBackendType,
-    Vm, VmState,
+    CreateSnapshotParams, DriveOverride, DriveOverrideBacking, DriveOverrideConfig,
+    LoadSnapshotConfig, LoadSnapshotParams, MemBackendConfig, MemBackendType, Vm, VmState,
 };
 
 use super::super::parsed_request::{ParsedRequest, RequestError};
@@ -22,6 +22,12 @@ pub const MISSING_FIELD: &str =
 /// Only specifying one of them is allowed.
 pub const TOO_MANY_FIELDS: &str =
     "too many fields: either `mem_backend` or `mem_file_path` exclusively is required";
+/// None of the `path_on_host` or `socket` fields has been specified for a drive override.
+pub const DRIVE_OVERRIDE_MISSING_FIELD: &str =
+    "missing field: either `path_on_host` or `socket` is required for each drive override";
+/// Both the `path_on_host` and `socket` fields have been specified for a drive override.
+/// Only specifying one of them is allowed.
+pub const DRIVE_OVERRIDE_TOO_MANY_FIELDS: &str = "too many fields: either `path_on_host` or `socket` exclusively is required for each drive override";
 
 pub(crate) fn parse_put_snapshot(
     body: &Body,
@@ -57,6 +63,29 @@ fn parse_put_snapshot_create(body: &Body) -> Result<ParsedRequest, RequestError>
     Ok(ParsedRequest::new_sync(VmmAction::CreateSnapshot(
         snapshot_config,
     )))
+}
+
+/// Validate that a [`DriveOverrideConfig`] specifies exactly one of
+/// `path_on_host` or `socket`, and convert it to the internal [`DriveOverride`].
+fn convert_drive_override(cfg: DriveOverrideConfig) -> Result<DriveOverride, RequestError> {
+    let backing = match (cfg.path_on_host, cfg.socket) {
+        (Some(path), None) => DriveOverrideBacking::PathOnHost(path),
+        (None, Some(socket)) => DriveOverrideBacking::Socket(socket),
+        (Some(_), Some(_)) => {
+            return Err(RequestError::SerdeJson(serde_json::Error::custom(
+                DRIVE_OVERRIDE_TOO_MANY_FIELDS,
+            )));
+        }
+        (None, None) => {
+            return Err(RequestError::SerdeJson(serde_json::Error::custom(
+                DRIVE_OVERRIDE_MISSING_FIELD,
+            )));
+        }
+    };
+    Ok(DriveOverride {
+        drive_id: cfg.drive_id,
+        backing,
+    })
 }
 
 fn parse_put_snapshot_load(body: &Body) -> Result<ParsedRequest, RequestError> {
@@ -102,6 +131,13 @@ fn parse_put_snapshot_load(body: &Body) -> Result<ParsedRequest, RequestError> {
         }
     };
 
+    // Validate each drive override and convert to the internal representation.
+    let drive_overrides = snapshot_config
+        .drive_overrides
+        .into_iter()
+        .map(convert_drive_override)
+        .collect::<Result<Vec<_>, _>>()?;
+
     let snapshot_params = LoadSnapshotParams {
         snapshot_path: snapshot_config.snapshot_path,
         mem_backend,
@@ -111,6 +147,7 @@ fn parse_put_snapshot_load(body: &Body) -> Result<ParsedRequest, RequestError> {
         resume_vm: snapshot_config.resume_vm,
         network_overrides: snapshot_config.network_overrides,
         vsock_override: snapshot_config.vsock_override,
+        drive_overrides,
         clock_realtime: snapshot_config.clock_realtime,
     };
 
@@ -127,7 +164,9 @@ fn parse_put_snapshot_load(body: &Body) -> Result<ParsedRequest, RequestError> {
 
 #[cfg(test)]
 mod tests {
-    use vmm::vmm_config::snapshot::{MemBackendConfig, MemBackendType, NetworkOverride};
+    use vmm::vmm_config::snapshot::{
+        DriveOverride, DriveOverrideBacking, MemBackendConfig, MemBackendType, NetworkOverride,
+    };
 
     use super::*;
     use crate::api_server::parsed_request::tests::{depr_action_from_req, vmm_action_from_request};
@@ -190,6 +229,7 @@ mod tests {
             resume_vm: false,
             network_overrides: vec![],
             vsock_override: None,
+            drive_overrides: vec![],
             clock_realtime: false,
         };
         let mut parsed_request = parse_put_snapshot(&Body::new(body), Some("load")).unwrap();
@@ -222,6 +262,7 @@ mod tests {
             resume_vm: false,
             network_overrides: vec![],
             vsock_override: None,
+            drive_overrides: vec![],
             clock_realtime: false,
         };
         let mut parsed_request = parse_put_snapshot(&Body::new(body), Some("load")).unwrap();
@@ -254,6 +295,7 @@ mod tests {
             resume_vm: true,
             network_overrides: vec![],
             vsock_override: None,
+            drive_overrides: vec![],
             clock_realtime: false,
         };
         let mut parsed_request = parse_put_snapshot(&Body::new(body), Some("load")).unwrap();
@@ -295,6 +337,49 @@ mod tests {
                 host_dev_name: String::from("vmtap2"),
             }],
             vsock_override: None,
+            drive_overrides: vec![],
+            clock_realtime: false,
+        };
+        let mut parsed_request = parse_put_snapshot(&Body::new(body), Some("load")).unwrap();
+        assert!(
+            parsed_request
+                .parsing_info()
+                .take_deprecation_message()
+                .is_none()
+        );
+        assert_eq!(
+            vmm_action_from_request(parsed_request),
+            VmmAction::LoadSnapshot(expected_config)
+        );
+
+        let body = r#"{
+            "snapshot_path": "foo",
+            "mem_backend": {
+                "backend_path": "bar",
+                "backend_type": "File"
+            },
+            "resume_vm": true,
+            "drive_overrides": [
+                {
+                    "drive_id": "rootfs",
+                    "path_on_host": "/new/path/rootfs.ext4"
+                }
+            ]
+        }"#;
+        let expected_config = LoadSnapshotParams {
+            snapshot_path: PathBuf::from("foo"),
+            mem_backend: MemBackendConfig {
+                backend_path: PathBuf::from("bar"),
+                backend_type: MemBackendType::File,
+            },
+            track_dirty_pages: false,
+            resume_vm: true,
+            network_overrides: vec![],
+            vsock_override: None,
+            drive_overrides: vec![DriveOverride {
+                drive_id: String::from("rootfs"),
+                backing: DriveOverrideBacking::PathOnHost(String::from("/new/path/rootfs.ext4")),
+            }],
             clock_realtime: false,
         };
         let mut parsed_request = parse_put_snapshot(&Body::new(body), Some("load")).unwrap();
@@ -324,6 +409,7 @@ mod tests {
             resume_vm: true,
             network_overrides: vec![],
             vsock_override: None,
+            drive_overrides: vec![],
             clock_realtime: false,
         };
         let parsed_request = parse_put_snapshot(&Body::new(body), Some("load")).unwrap();
@@ -407,6 +493,54 @@ mod tests {
         );
         parse_put_snapshot(&Body::new(body), Some("invalid")).unwrap_err();
         parse_put_snapshot(&Body::new(body), None).unwrap_err();
+
+        // Drive override that supplies both `path_on_host` and `socket` must be rejected.
+        let body = r#"{
+            "snapshot_path": "foo",
+            "mem_backend": {
+                "backend_path": "bar",
+                "backend_type": "File"
+            },
+            "drive_overrides": [
+                {
+                    "drive_id": "rootfs",
+                    "path_on_host": "/p",
+                    "socket": "/s"
+                }
+            ]
+        }"#;
+        assert_eq!(
+            parse_put_snapshot(&Body::new(body), Some("load"))
+                .err()
+                .unwrap()
+                .to_string(),
+            RequestError::SerdeJson(serde_json::Error::custom(
+                DRIVE_OVERRIDE_TOO_MANY_FIELDS.to_string()
+            ))
+            .to_string()
+        );
+
+        // Drive override that supplies neither field must be rejected.
+        let body = r#"{
+            "snapshot_path": "foo",
+            "mem_backend": {
+                "backend_path": "bar",
+                "backend_type": "File"
+            },
+            "drive_overrides": [
+                { "drive_id": "rootfs" }
+            ]
+        }"#;
+        assert_eq!(
+            parse_put_snapshot(&Body::new(body), Some("load"))
+                .err()
+                .unwrap()
+                .to_string(),
+            RequestError::SerdeJson(serde_json::Error::custom(
+                DRIVE_OVERRIDE_MISSING_FIELD.to_string()
+            ))
+            .to_string()
+        );
     }
 
     #[test]

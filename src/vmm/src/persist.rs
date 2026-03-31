@@ -26,6 +26,7 @@ use crate::cpu_config::x86_64::cpuid::CpuidTrait;
 #[cfg(target_arch = "x86_64")]
 use crate::cpu_config::x86_64::cpuid::common::get_vendor_id_from_host;
 use crate::device_manager::{DevicePersistError, DevicesState};
+use crate::devices::virtio::block::persist::DriveOverrideError;
 use crate::logger::{info, warn};
 use crate::resources::VmResources;
 use crate::seccomp::BpfThreadMap;
@@ -408,6 +409,27 @@ pub fn restore_from_snapshot(
             .clone_from(&vsock_override.uds_path);
     }
 
+    for entry in &params.drive_overrides {
+        microvm_state
+            .device_states
+            .mmio_state
+            .block_devices
+            .iter_mut()
+            .map(|device| &mut device.device_state)
+            .chain(
+                microvm_state
+                    .device_states
+                    .pci_state
+                    .block_devices
+                    .iter_mut()
+                    .map(|device| &mut device.device_state),
+            )
+            .find(|x| x.id() == entry.drive_id)
+            .ok_or_else(|| SnapshotStateFromFileError::UnknownBlockDevice(entry.drive_id.clone()))?
+            .apply_override(&entry.backing)
+            .map_err(SnapshotStateFromFileError::from)?;
+    }
+
     let track_dirty_pages = params.track_dirty_pages;
 
     let vcpu_count = microvm_state
@@ -482,6 +504,10 @@ pub enum SnapshotStateFromFileError {
     UnknownNetworkDevice,
     /// Unknown Vsock Device.
     UnknownVsockDevice,
+    /// Unknown Block Device: `{0}`.
+    UnknownBlockDevice(String),
+    /// Failed to apply drive override: {0}
+    DriveOverride(#[from] DriveOverrideError),
 }
 
 fn snapshot_state_from_file(

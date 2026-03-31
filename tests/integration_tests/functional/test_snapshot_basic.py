@@ -709,3 +709,95 @@ def test_clocksource_snapshot_restore(
     assert (
         jumped == clock_realtime
     ), f"Clock {jumped_str} but clock_realtime was {"not" if clock_realtime else ""} set."
+
+
+def test_snapshot_override_drive(uvm_nano, microvm_factory):
+    """
+    Test that we can restore a snapshot and point a block device to a
+    different host path.
+    """
+    vm = uvm_nano
+    vm.add_net_iface()
+    vm.start()
+
+    snapshot = vm.snapshot_full()
+
+    restored_vm = microvm_factory.build()
+    restored_vm.spawn()
+
+    # Place the rootfs at the override path. The framework skips auto-jailing
+    # for overridden drives, so the snapshot's original path is absent from
+    # the new jail and the override must take effect for restore to succeed.
+    shutil.copy(
+        snapshot.disks["rootfs"], Path(restored_vm.chroot()) / "rootfs_override.ext4"
+    )
+
+    restored_vm.restore_from_snapshot(
+        snapshot,
+        drive_overrides=[
+            {"drive_id": "rootfs", "path_on_host": "/rootfs_override.ext4"},
+        ],
+        resume=True,
+    )
+
+    restored_vm.ssh.check_output("blockdev --getsize64 /dev/vda")
+
+
+def test_snapshot_override_multiple_drives(uvm_nano, microvm_factory):
+    """
+    Test that multiple drives can be overridden at once on snapshot restore,
+    and that each override applies to the correct device.
+    """
+    vm = uvm_nano
+    vm.add_net_iface()
+
+    scratch = drive_tools.FilesystemFile(str(Path(vm.path) / "scratch.ext4"), size=64)
+    vm.add_drive("scratch", scratch.path)
+
+    vm.start()
+    snapshot = vm.snapshot_full()
+
+    restored_vm = microvm_factory.build()
+    restored_vm.spawn()
+
+    chroot = Path(restored_vm.chroot())
+    shutil.copy(snapshot.disks["rootfs"], chroot / "rootfs_override.ext4")
+    shutil.copy(snapshot.disks["scratch"], chroot / "scratch_override.ext4")
+
+    restored_vm.restore_from_snapshot(
+        snapshot,
+        drive_overrides=[
+            {"drive_id": "rootfs", "path_on_host": "/rootfs_override.ext4"},
+            {"drive_id": "scratch", "path_on_host": "/scratch_override.ext4"},
+        ],
+        resume=True,
+    )
+
+    restored_vm.ssh.check_output("blockdev --getsize64 /dev/vda")
+    restored_vm.ssh.check_output("blockdev --getsize64 /dev/vdb")
+
+
+def test_drive_override_fails_unknown_id(uvm_nano, microvm_factory):
+    """
+    Providing a drive override with an unknown drive_id should fail.
+    """
+    vm = uvm_nano
+    vm.start()
+
+    snapshot = vm.snapshot_full()
+    vm.kill()
+
+    restored_vm = microvm_factory.build()
+    restored_vm.spawn()
+
+    # The failed snapshot load causes Firecracker to exit.
+    with pytest.raises(RuntimeError, match="Unknown Block Device"):
+        restored_vm.restore_from_snapshot(
+            snapshot,
+            drive_overrides=[
+                {"drive_id": "nonexistent", "path_on_host": "/fake/path"},
+            ],
+            resume=True,
+        )
+
+    restored_vm.mark_killed()
