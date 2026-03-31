@@ -1085,6 +1085,7 @@ class Microvm:
         rename_interfaces: dict = None,
         vsock_override: str = None,
         clock_realtime: bool = False,
+        drive_overrides: list = None,
         *,
         uffd_handler_name: str = None,
     ):
@@ -1146,6 +1147,9 @@ class Microvm:
 
         if clock_realtime:
             optional_kwargs["clock_realtime"] = clock_realtime
+
+        if drive_overrides is not None:
+            optional_kwargs["drive_overrides"] = drive_overrides
 
         self.api.snapshot_load.put(
             mem_backend=mem_backend,

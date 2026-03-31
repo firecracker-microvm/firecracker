@@ -1314,6 +1314,7 @@ mod tests {
                 network_overrides: vec![],
                 vsock_override: None,
                 clock_realtime: false,
+                drive_overrides: vec![],
             },
         )));
         check_unsupported(runtime_request(VmmAction::SetEntropyDevice(

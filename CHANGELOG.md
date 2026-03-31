@@ -10,6 +10,8 @@ and this project adheres to
 
 ### Added
 
+- [#5774](https://github.com/firecracker-microvm/firecracker/pull/5774): Add
+  support for block device path overriding on snapshot restore.
 - [#5323](https://github.com/firecracker-microvm/firecracker/pull/5323): Add
   support for Vsock Unix domain socket path overriding on snapshot restore. More
   information can be found in the

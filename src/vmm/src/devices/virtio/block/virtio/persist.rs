@@ -52,11 +52,11 @@ impl From<FileEngineTypeState> for FileEngineType {
 /// Holds info about the block device. Gets saved in snapshot.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct VirtioBlockState {
-    id: String,
+    pub id: String,
     partuuid: Option<String>,
     cache_type: CacheType,
     root_device: bool,
-    disk_path: String,
+    pub disk_path: String,
     pub virtio_state: VirtioDeviceState,
     rate_limiter_state: RateLimiterState,
     file_engine_type: FileEngineTypeState,

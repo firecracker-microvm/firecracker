@@ -34,7 +34,9 @@ use crate::utils::u64_to_usize;
 use crate::vmm_config::boot_source::BootSourceConfig;
 use crate::vmm_config::instance_info::InstanceInfo;
 use crate::vmm_config::machine_config::{HugePageConfig, MachineConfigError, MachineConfigUpdate};
-use crate::vmm_config::snapshot::{CreateSnapshotParams, LoadSnapshotParams, MemBackendType};
+use crate::vmm_config::snapshot::{
+    CreateSnapshotParams, DriveOverrideBacking, LoadSnapshotParams, MemBackendType,
+};
 use crate::vstate::kvm::KvmState;
 use crate::vstate::memory::{
     self, GuestMemoryState, GuestRegionMmap, GuestRegionType, MemoryError,
@@ -408,6 +410,35 @@ pub fn restore_from_snapshot(
             .clone_from(&vsock_override.uds_path);
     }
 
+    for entry in &params.drive_overrides {
+        let device_state = microvm_state
+            .device_states
+            .mmio_state
+            .block_devices
+            .iter_mut()
+            .map(|device| &mut device.device_state)
+            .chain(
+                microvm_state
+                    .device_states
+                    .pci_state
+                    .block_devices
+                    .iter_mut()
+                    .map(|device| &mut device.device_state),
+            )
+            .find(|x| x.id() == entry.drive_id)
+            .ok_or(SnapshotStateFromFileError::UnknownBlockDevice)?;
+
+        let applied = match &entry.backing {
+            DriveOverrideBacking::PathOnHost { path_on_host } => {
+                device_state.set_disk_path(path_on_host)
+            }
+            DriveOverrideBacking::Socket { socket } => device_state.set_socket_path(socket),
+        };
+        if !applied {
+            Err(SnapshotStateFromFileError::DriveOverrideMismatch)?;
+        }
+    }
+
     let track_dirty_pages = params.track_dirty_pages;
 
     let vcpu_count = microvm_state
@@ -482,6 +513,10 @@ pub enum SnapshotStateFromFileError {
     UnknownNetworkDevice,
     /// Unknown Vsock Device.
     UnknownVsockDevice,
+    /// Unknown Block Device.
+    UnknownBlockDevice,
+    /// Drive Override field does not match the device type.
+    DriveOverrideMismatch,
 }
 
 fn snapshot_state_from_file(
