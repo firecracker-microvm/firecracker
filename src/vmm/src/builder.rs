@@ -411,8 +411,6 @@ pub enum BuildMicrovmFromSnapshotError {
     VmUpdateConfig(#[from] MachineConfigError),
     /// Failed to restore MMIO device: {0}
     RestoreMmioDevice(#[from] MicrovmStateError),
-    /// Failed to emulate MMIO serial: {0}
-    EmulateSerialInit(#[from] crate::EmulateSerialInitError),
     /// Failed to start vCPUs as no vCPU seccomp filter found.
     MissingVcpuSeccompFilters,
     /// Failed to start vCPUs: {0}
