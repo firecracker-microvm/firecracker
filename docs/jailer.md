@@ -263,6 +263,15 @@ Note: default value for `<api-sock>` is `/run/firecracker.socket`.
 
 ### Observations
 
+- All inputs to the jailer are considered trusted, including the paths provided
+  via `--exec-file`, `--chroot-base-dir`, and `--netns`, as well as any
+  resources placed inside the jail root directory. Cgroup mount points are
+  discovered from `/proc/mounts` and are managed by the kernel, so they are
+  inherently trusted. The operator invoking the jailer is part of the trusted
+  computing base. It is the operator's responsibility to ensure that these paths
+  and their parent directories have appropriate ownership and permissions (e.g.,
+  root-owned, not world-writable) to prevent unauthorized modification by other
+  local users.
 - The user must create hard links for (or copy) any resources which will be
   provided to the VM via the API (disk images, kernel images, named pipes, etc)
   inside the jailed root folder. Also, permissions must be properly managed for
