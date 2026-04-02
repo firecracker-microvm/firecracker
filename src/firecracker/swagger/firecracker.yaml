@@ -1602,7 +1602,7 @@ definitions:
         type: string
         description:
           The new path for the backing Unix Domain Socket.
-          
+
   SnapshotLoadParams:
     type: object
     description:
