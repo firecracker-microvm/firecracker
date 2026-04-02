@@ -423,6 +423,8 @@ pub enum BuildMicrovmFromSnapshotError {
     SeccompFiltersInternal(#[from] crate::seccomp::InstallationError),
     /// Failed to restore devices: {0}
     RestoreDevices(#[from] DeviceManagerPersistError),
+    /// clock_realtime is not supported on aarch64.
+    UnsupportedClockRealtime,
 }
 
 /// Builds and starts a microVM based on the provided MicrovmState.
@@ -438,6 +440,7 @@ pub fn build_microvm_from_snapshot(
     uffd: Option<Uffd>,
     seccomp_filters: &BpfThreadMap,
     vm_resources: &mut VmResources,
+    clock_realtime: bool,
 ) -> Result<Arc<Mutex<Vmm>>, BuildMicrovmFromSnapshotError> {
     // Build Vmm.
     debug!("event_start: build microvm from snapshot");
@@ -479,6 +482,9 @@ pub fn build_microvm_from_snapshot(
 
     #[cfg(target_arch = "aarch64")]
     {
+        if clock_realtime {
+            return Err(BuildMicrovmFromSnapshotError::UnsupportedClockRealtime);
+        }
         let mpidrs = construct_kvm_mpidrs(&microvm_state.vcpu_states);
         // Restore kvm vm state.
         vm.restore_state(&mpidrs, &microvm_state.vm_state)?;
@@ -486,7 +492,7 @@ pub fn build_microvm_from_snapshot(
 
     // Restore kvm vm state.
     #[cfg(target_arch = "x86_64")]
-    vm.restore_state(&microvm_state.vm_state)?;
+    vm.restore_state(&microvm_state.vm_state, clock_realtime)?;
 
     // Restore the boot source config paths.
     vm_resources.boot_source.config = microvm_state.vm_info.boot_source;
