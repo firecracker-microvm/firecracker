@@ -885,7 +885,7 @@ pub(crate) mod tests {
         let restored_state: VmState = Snapshot::load_without_crc_check(snapshot_data.as_slice())
             .unwrap()
             .data;
-        vm.restore_state(&restored_state).unwrap();
+        vm.restore_state(&restored_state, false).unwrap();
 
         let mut resource_allocator = vm.resource_allocator();
         let gsi_new = resource_allocator.allocate_gsi_msi(1).unwrap()[0];
