@@ -8,6 +8,7 @@ import platform
 import signal
 import termios
 import time
+from pathlib import Path
 
 from framework import utils
 from framework.microvm import Serial
@@ -253,3 +254,41 @@ def test_serial_file_output(uvm_any):
     uvm_any.ssh.check_output("echo 'hello' > /dev/ttyS0")
 
     assert b"hello" in uvm_any.serial_out_path.read_bytes()
+
+
+def test_serial_rate_limiting(uvm_plain):
+    """Test that serial output is rate-limited when a rate limiter is configured."""
+    microvm = uvm_plain
+    microvm.spawn()
+    microvm.add_net_iface()
+    microvm.basic_config(vcpu_count=1, mem_size_mib=256)
+
+    # Configure serial output to a file with a rate limiter:
+    # 1 KiB/sec sustained, 64 KiB one-time burst.
+    serial_path = Path(microvm.path) / "serial.log"
+    serial_path.touch()
+    microvm.create_jailed_resource(serial_path)
+    microvm.api.serial.put(
+        serial_out_path="serial.log",
+        rate_limiter={"size": 1024, "one_time_burst": 65536, "refill_time": 1000},
+    )
+    microvm.start()
+
+    size_before = serial_path.stat().st_size
+
+    # Write a large payload (~1MB) from the guest to the serial port.
+    microvm.ssh.check_output("base64 /dev/urandom | head -c 1000000 > /dev/ttyS0")
+
+    # Wait for any in-flight writes to settle.
+    time.sleep(2)
+
+    # With 64 KiB burst + ~2s at 1 KiB/sec, output should be well under 80 KB.
+    new_bytes = serial_path.stat().st_size - size_before
+    assert new_bytes < 80000, (
+        f"Serial output is {new_bytes} bytes, "
+        "expected under 80000 due to rate limiting"
+    )
+
+    # Verify the rate_limiter_dropped_bytes metric was incremented.
+    fc_metrics = microvm.flush_metrics()
+    assert fc_metrics["uart"]["rate_limiter_dropped_bytes"] > 0
