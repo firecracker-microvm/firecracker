@@ -264,6 +264,7 @@ def validate_fc_metrics(metrics):
             "missed_write_count",
             "read_count",
             "write_count",
+            "rate_limiter_dropped_bytes",
         ],
         "signals": [
             "sigbus",
