@@ -118,7 +118,11 @@ and/or creating their own custom CPU templates.
 
 #### Clocksources available to guests
 
-Firecracker only exposes kvm-clock to customers.
+Firecracker exposes the following clock sources to guests:
+
+- x86_64: kvm-clock and tsc. Linux guests >=5.10 will pick tsc by default if
+  stable.
+- aarch64: arch_sys_counter
 
 ### I/O: Storage, Networking and Rate Limiting
 
