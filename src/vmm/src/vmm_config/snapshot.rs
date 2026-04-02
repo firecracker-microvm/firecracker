@@ -72,6 +72,10 @@ pub struct LoadSnapshotParams {
     pub resume_vm: bool,
     /// The network devices to override on load.
     pub network_overrides: Vec<NetworkOverride>,
+    /// [x86_64 only] When set to true, passes `KVM_CLOCK_REALTIME` to `KVM_SET_CLOCK` on restore,
+    /// advancing kvmclock by the wall-clock time elapsed since the snapshot was taken. When false
+    /// (default), kvmclock resumes from where it was at snapshot time.
+    pub clock_realtime: bool,
 }
 
 /// Stores the configuration for loading a snapshot that is provided by the user.
@@ -101,6 +105,9 @@ pub struct LoadSnapshotConfig {
     /// The network devices to override on load.
     #[serde(default)]
     pub network_overrides: Vec<NetworkOverride>,
+    /// [x86_64 only] When set to true, passes `KVM_CLOCK_REALTIME` to `KVM_SET_CLOCK` on restore.
+    #[serde(default)]
+    pub clock_realtime: bool,
 }
 
 /// Stores the configuration used for managing snapshot memory.
