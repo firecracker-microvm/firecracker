@@ -9,6 +9,7 @@ use std::sync::{Arc, Mutex};
 
 use byteorder::{ByteOrder, LittleEndian};
 use serde::{Deserialize, Serialize};
+use zerocopy::{FromBytes, IntoBytes};
 
 use super::BarReprogrammingParams;
 use super::msix::MsixConfig;
@@ -44,6 +45,126 @@ const CAPABILITY_LIST_HEAD_OFFSET: u8 = 0x34;
 const FIRST_CAPABILITY_OFFSET: u8 = 0x40;
 const CAPABILITY_MAX_OFFSET: u16 = 192;
 
+/// Type representing information about single BAR register
+///  31                                                 4  3    2  1  0
+/// +---------------------------------------------------+----+---+----+
+/// |                                                   |    |    |   |
+/// |          Base Address (28 bits)                   |Pref|Type| 0 |
+/// |                                                   |    |    |   |
+/// +---------------------------------------------------+----+---+----+
+///  \___________________________________________________/ \__/ \_/ \_/
+///               Base Address                            Pre- Type Memory
+///               (16-byte aligned minimum)               fetch     Space
+///                                                       able      Indicator
+///
+///   Bit  0   : Memory Space Indicator (hardwired to 0)
+///   Bits 2:1 : Type  - 00 = 32-bit address space
+///                      10 = 64-bit address space
+///                      (01, 11 = reserved)
+///   Bit  3   : Prefetchable - 0 = non-prefetchable
+///                             1 = prefetchable
+///   Bits 31:4: Base Address (read/write, writable bits depend on size)
+#[derive(Debug, Default, Clone, Copy, Serialize, Deserialize)]
+pub struct Bar {
+    /// Encoded address value of the register (lower bits might carry information)
+    pub encoded_addr: u32,
+    /// Encoded size value of the register (according to PCI rules of size encoding).
+    pub encoded_size: u32,
+    /// Indicator if the register was prepared to be read as the `size` instead of `addr`
+    pub about_to_be_read: bool,
+}
+
+/// Specifies if the BAR is prefetchable
+#[derive(Debug, Clone, Copy)]
+#[repr(u8)]
+pub enum BarPrefetchable {
+    /// No
+    No = 0,
+    /// Yes
+    Yes = 1,
+}
+
+/// Type to handle basic interactions with BARs region
+#[derive(Debug, Default, Clone, Copy, Serialize, Deserialize)]
+pub struct Bars {
+    /// BARs
+    pub bars: [Bar; NUM_BAR_REGS],
+}
+impl Bars {
+    /// Set 2 consecutive BAR slots as a single 64bit bar
+    #[allow(clippy::cast_possible_truncation)]
+    pub fn set_bar_64(&mut self, bar_idx: u8, addr: u64, size: u64, prefetchable: BarPrefetchable) {
+        assert_ne!(size, 0);
+        assert!(size.is_power_of_two());
+        assert!(addr & 0b1111 == 0);
+        addr.checked_add(size - 1).unwrap();
+        assert!(usize::from(bar_idx) < NUM_BAR_REGS - 1);
+
+        // Unused BARs will have address and size of 0
+        assert_eq!(self.bars[bar_idx as usize].encoded_addr, 0);
+        assert_eq!(self.bars[bar_idx as usize].encoded_size, 0);
+        assert_eq!(self.bars[bar_idx as usize + 1].encoded_addr, 0);
+        assert_eq!(self.bars[bar_idx as usize + 1].encoded_size, 0);
+
+        let (size_hi, size_lo) = encode_64_bits_bar_size(size);
+        let addr_lo = (addr & 0xfffffff0) as u32;
+        let addr_hi = (addr >> 32) as u32;
+        let prefetchable = (prefetchable as u32) << 3;
+        let is_64_bit = 0b100;
+
+        self.bars[bar_idx as usize].encoded_addr = addr_lo | prefetchable | is_64_bit;
+        self.bars[bar_idx as usize].encoded_size = size_lo;
+        self.bars[(bar_idx + 1) as usize].encoded_addr = addr_hi;
+        self.bars[(bar_idx + 1) as usize].encoded_size = size_hi;
+    }
+    /// Get the address of the 64bit bar
+    #[allow(clippy::cast_possible_truncation)]
+    pub fn get_bar_addr_64(&self, bar_idx: u8) -> u64 {
+        assert!((bar_idx as usize) < NUM_BAR_REGS - 1);
+        let addr_hi = self.bars[(bar_idx + 1) as usize].encoded_addr;
+        let addr_lo = self.bars[bar_idx as usize].encoded_addr & !0b1111;
+        (addr_hi as u64) << 32 | (addr_lo as u64)
+    }
+    /// Writes into a given BAR register at the given offset
+    #[allow(clippy::cast_possible_truncation)]
+    pub fn write(&mut self, bar_idx: u8, offset: u8, data: &[u8]) {
+        // There are only 6 registers each 4 bytes long
+        assert!((bar_idx as usize) < NUM_BAR_REGS);
+        assert!(offset as usize + data.len() <= 4);
+        if let Ok(value) = u32::read_from_bytes(data)
+            && value == 0xffff_ffff
+        {
+            self.bars[bar_idx as usize].about_to_be_read = true;
+        } else {
+            self.bars[bar_idx as usize].about_to_be_read = false;
+            // There is no BAR relocation support as of right now.
+            // PCI specification does not provide a way for a device to
+            // tell the driver that it does not support BAR relocation, but
+            // linux kernel does check this at:
+            // https://elixir.bootlin.com/linux/v6.19.8/source/drivers/pci/setup-res.c#L107
+        }
+    }
+    /// Reads from a given BAR register at the given offset
+    #[allow(clippy::cast_possible_truncation)]
+    pub fn read(&mut self, bar_idx: u8, offset: u8, data: &mut [u8]) {
+        // There are only 6 registers each 4 bytes long
+        assert!((bar_idx as usize) < NUM_BAR_REGS);
+        assert!(offset as usize + data.len() <= 4);
+        let bar = &mut self.bars[bar_idx as usize];
+        let bytes = if bar.about_to_be_read {
+            // This technically allows for an inconsistent behaviour where the guest would read
+            // only a part of the `size` of the BAR on the first read, but will get `addr` bytes
+            // on following reads. Any sane driver will read the whole register, so this should
+            // not be an issue. This will be fixed once we support BAR relocation/resizing.
+            bar.about_to_be_read = false;
+            bar.encoded_size.as_bytes()
+        } else {
+            bar.encoded_addr.as_bytes()
+        };
+        data.copy_from_slice(&bytes[offset as usize..][..data.len()]);
+    }
+}
+
 /// A PCI capability list. Devices can optionally specify capabilities in their configuration space.
 pub trait PciCapability {
     /// Bytes of the PCI capability
@@ -62,7 +183,7 @@ fn encode_64_bits_bar_size(bar_size: u64) -> (u32, u32) {
     (result_hi, result_lo)
 }
 
-// This decoes the BAR size from the value stored in the BAR registers.
+// Decode the BAR size from the value stored in the BAR registers.
 fn decode_64_bits_bar_size(bar_size_hi: u32, bar_size_lo: u32) -> u64 {
     let bar_size: u64 = ((bar_size_hi as u64) << 32) | (bar_size_lo as u64);
     let size = !bar_size + 1;
@@ -952,5 +1073,69 @@ mod tests {
         // Reading the size of the BAR should always return 0 as well
         pci_config.write_reg(ROM_BAR_REG, 0xffff_ffff);
         assert_eq!(pci_config.read_reg(ROM_BAR_REG), 0);
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_bars_size_no_power_of_two() {
+        let mut bars = Bars::default();
+        bars.set_bar_64(0, 0x1000, 0x1001, BarPrefetchable::No);
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_bars_bad_bar_index() {
+        let mut bars = Bars::default();
+        bars.set_bar_64(NUM_BAR_REGS as u8, 0x1000, 0x1000, BarPrefetchable::No);
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_bars_bad_64bit_bar_index() {
+        let mut bars = Bars::default();
+        bars.set_bar_64(NUM_BAR_REGS as u8 - 1, 0x1000, 0x1000, BarPrefetchable::No);
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_bars_bar_size_overflows() {
+        let mut bars = Bars::default();
+        bars.set_bar_64(0, u64::MAX, 0x2, BarPrefetchable::No);
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_bars_lower_bar_free_upper_used() {
+        let mut bars = Bars::default();
+        bars.set_bar_64(1, 0x1000, 0x1000, BarPrefetchable::No);
+        bars.set_bar_64(0, 0x1000, 0x1000, BarPrefetchable::No);
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_bars_lower_bar_used() {
+        let mut bars = Bars::default();
+        bars.set_bar_64(0, 0x1000, 0x1000, BarPrefetchable::No);
+        bars.set_bar_64(0, 0x1000, 0x1000, BarPrefetchable::No);
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_bars_upper_bar_used() {
+        let mut bars = Bars::default();
+        bars.set_bar_64(0, 0x1000, 0x1000, BarPrefetchable::No);
+        bars.set_bar_64(1, 0x1000, 0x1000, BarPrefetchable::No);
+    }
+
+    #[test]
+    fn test_bars_add_pci_bar() {
+        let mut bars = Bars::default();
+        bars.set_bar_64(0, 0x1_0000_0000, 0x1000, BarPrefetchable::No);
+        assert_eq!(bars.get_bar_addr_64(0), 0x1_0000_0000);
+        let mut v: u32 = 0;
+        bars.read(0, 0, v.as_mut_bytes());
+        assert_eq!(v & 0xffff_fff0, 0x0);
+        bars.read(1, 0, v.as_mut_bytes());
+        assert_eq!(v, 1);
     }
 }
