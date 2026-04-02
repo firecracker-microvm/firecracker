@@ -39,7 +39,7 @@ const FIRST_CAPABILITY_OFFSET: u8 = 0x40;
 const CAPABILITY_MAX_OFFSET: u16 = 192;
 
 /// First register in the BARs region
-pub const BAR0_REG: u8 = 4;
+pub const BAR0_REG_IDX: u16 = 4;
 /// Number of BAR registers
 pub const NUM_BAR_REGS: u8 = 6;
 

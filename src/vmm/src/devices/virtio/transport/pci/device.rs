@@ -34,7 +34,7 @@ use crate::devices::virtio::transport::pci::device_status::*;
 use crate::devices::virtio::transport::{VirtioInterrupt, VirtioInterruptType};
 use crate::logger::{debug, error, warn};
 use crate::pci::configuration::{
-    BAR0_REG, BarPrefetchable, Bars, NUM_BAR_REGS, PciCapability, PciConfiguration,
+    BAR0_REG_IDX, BarPrefetchable, Bars, NUM_BAR_REGS, PciCapability, PciConfiguration,
     PciConfigurationError, PciConfigurationState,
 };
 use crate::pci::msix::{MsixCap, MsixConfig, MsixConfigState};
@@ -734,10 +734,10 @@ impl PciDevice for VirtioPciDevice {
         offset: u8,
         data: &[u8],
     ) -> Option<Arc<Barrier>> {
-        if u16::from(BAR0_REG) <= reg_idx && reg_idx < u16::from(BAR0_REG + NUM_BAR_REGS) {
-            // reg_idx is in [BAR0_REG, BAR0_REG+NUM_BAR_REGS), so the difference is 0..5.
+        if BAR0_REG_IDX <= reg_idx && reg_idx < BAR0_REG_IDX + u16::from(NUM_BAR_REGS) {
+            // reg_idx is in [BAR0_REG_IDX, BAR0_REG_IDX+NUM_BAR_REGS), so the difference is 0..5.
             #[allow(clippy::cast_possible_truncation)]
-            let bar_idx = (reg_idx - u16::from(BAR0_REG)) as u8;
+            let bar_idx = (reg_idx - BAR0_REG_IDX) as u8;
             self.bars.write(bar_idx, offset, data);
             None
         } else {
@@ -766,10 +766,10 @@ impl PciDevice for VirtioPciDevice {
     }
 
     fn read_config_register(&mut self, reg_idx: u16) -> u32 {
-        if u16::from(BAR0_REG) <= reg_idx && reg_idx < u16::from(BAR0_REG + NUM_BAR_REGS) {
-            // reg_idx is in [BAR0_REG, BAR0_REG+NUM_BAR_REGS), so the difference is 0..5.
+        if BAR0_REG_IDX <= reg_idx && reg_idx < BAR0_REG_IDX + u16::from(NUM_BAR_REGS) {
+            // reg_idx is in [BAR0_REG_IDX, BAR0_REG_IDX+NUM_BAR_REGS), so the difference is 0..5.
             #[allow(clippy::cast_possible_truncation)]
-            let bar_idx = (reg_idx - u16::from(BAR0_REG)) as u8;
+            let bar_idx = (reg_idx - BAR0_REG_IDX) as u8;
             let mut value: u32 = 0;
             self.bars.read(bar_idx, 0, value.as_mut_bytes());
             value
