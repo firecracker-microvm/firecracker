@@ -9,6 +9,7 @@ import os
 import platform
 import re
 import shutil
+import time
 import uuid
 from pathlib import Path
 
@@ -606,3 +607,105 @@ def test_snapshot_rename_vsock(
     restored_vm.spawn()
 
     restored_vm.restore_from_snapshot(snapshot, vsock_override="/v.sock2", resume=True)
+
+
+SLEEP_SECONDS = 30
+
+CLOCK_SOURCES = {"x86_64": ["tsc", "kvm-clock"], "aarch64": ["arch_sys_counter"]}[
+    global_props.cpu_architecture
+]
+
+
+def read_guest_monotonic(vm):
+    """Read CLOCK_MONOTONIC inside the guest"""
+    _, stdout, _ = vm.ssh.check_output(
+        "python3 -c 'import time; print(time.monotonic())'"
+    )
+    return float(stdout.strip())
+
+
+def read_guest_clocksource(vm):
+    """Read the active clocksource inside the guest"""
+    _, stdout, _ = vm.ssh.check_output(
+        "cat /sys/devices/system/clocksource/clocksource0/current_clocksource"
+    )
+    return stdout.strip()
+
+
+@pytest.mark.parametrize("clocksource", CLOCK_SOURCES)
+@pytest.mark.parametrize("clock_realtime", [False, True])
+def test_clocksource_snapshot_restore(
+    uvm_plain_any, microvm_factory, clocksource, clock_realtime
+):
+    """Measure CLOCK_MONOTONIC before snapshot and after restore to determine
+    whether the clocksource jumps forward or resumes from where it left off."""
+
+    if clock_realtime and clocksource != "kvm-clock":
+        pytest.skip(f"Clocksource {clocksource} doesn't support clock_realtime flag")
+    if clock_realtime and global_props.host_linux_version_tpl < (5, 16):
+        pytest.skip("clock_realtime is not supported on Linux < 5.16")
+
+    boot_args = (
+        "reboot=k panic=1 nomodule swiotlb=noforce console=ttyS0"
+        f" clocksource={clocksource}"
+    )
+
+    vm = uvm_plain_any
+    vm.spawn()
+    vm.basic_config(vcpu_count=2, mem_size_mib=256, boot_args=boot_args)
+    vm.add_net_iface()
+    vm.start()
+
+    # Confirm the clocksource took effect
+    active = read_guest_clocksource(vm)
+    _, avail_out, _ = vm.ssh.check_output(
+        "cat /sys/devices/system/clocksource/clocksource0/available_clocksource"
+    )
+    print("Available clocksources: %s", avail_out.strip())
+    if active != clocksource:
+        pytest.skip(f"Clocksource {clocksource} not available")
+
+    guest_before = read_guest_monotonic(vm)
+    host_before = time.monotonic()
+
+    snapshot = vm.snapshot_full()
+    vm.kill()
+
+    print("Sleeping %ds between snapshot and restore...", SLEEP_SECONDS)
+    time.sleep(SLEEP_SECONDS)
+
+    restored_vm = microvm_factory.build_from_snapshot(
+        snapshot, clock_realtime=clock_realtime
+    )
+
+    guest_after = read_guest_monotonic(restored_vm)
+    host_after = time.monotonic()
+
+    # Confirm clocksource survived the restore
+    active_after = read_guest_clocksource(restored_vm)
+    assert (
+        active_after == clocksource
+    ), f"Clocksource changed after restore: {clocksource} -> {active_after}"
+
+    guest_delta = guest_after - guest_before
+    host_delta = host_after - host_before
+
+    # If guest_delta is close to host_delta, the clock jumped forward
+    # (suspend/resume behavior). If it's near 0, it resumed from where
+    # it left off.
+    jumped = abs(guest_delta - host_delta) < 5.0
+
+    jumped_str = "JUMPED" if jumped else "RESUMED"
+
+    print(
+        f"Host kernel:    {global_props.host_linux_version}\n"
+        f"Clocksource:    {clocksource}\n"
+        f"Guest MONOTONIC before: {guest_before:.3f} s\n"
+        f"Guest MONOTONIC after:  {guest_after:.3f} s\n"
+        f"Guest delta:    {guest_delta:.3f} s\n"
+        f"Host delta:     {host_delta:.3f} s\n"
+        f"Behavior:       {jumped_str}\n"
+    )
+    assert (
+        jumped == clock_realtime
+    ), f"Clock {jumped_str} but clock_realtime was {"not" if clock_realtime else ""} set."

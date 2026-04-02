@@ -1084,6 +1084,7 @@ class Microvm:
         resume: bool = False,
         rename_interfaces: dict = None,
         vsock_override: str = None,
+        clock_realtime: bool = False,
         *,
         uffd_handler_name: str = None,
     ):
@@ -1142,6 +1143,9 @@ class Microvm:
 
         if vsock_override is not None:
             optional_kwargs["vsock_override"] = {"uds_path": vsock_override}
+
+        if clock_realtime:
+            optional_kwargs["clock_realtime"] = clock_realtime
 
         self.api.snapshot_load.put(
             mem_backend=mem_backend,
@@ -1305,12 +1309,17 @@ class MicroVMFactory:
             vm.ssh_key = ssh_key
         return vm
 
-    def build_from_snapshot(self, snapshot: Snapshot, uffd_handler_name=None):
+    def build_from_snapshot(
+        self, snapshot: Snapshot, uffd_handler_name=None, clock_realtime=False
+    ):
         """Build a microvm from a snapshot"""
         vm = self.build()
         vm.spawn()
         vm.restore_from_snapshot(
-            snapshot, resume=True, uffd_handler_name=uffd_handler_name
+            snapshot,
+            resume=True,
+            uffd_handler_name=uffd_handler_name,
+            clock_realtime=clock_realtime,
         )
         return vm
 
