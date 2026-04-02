@@ -189,6 +189,17 @@ struct VirtioPciCfgCapInfo {
     cap: VirtioPciCfgCap,
 }
 
+impl VirtioPciCfgCapInfo {
+    fn in_range(&self, reg_idx: u16, offset: u8, data_len: usize) -> bool {
+        let base = reg_idx * 4;
+        let cap_start = self.offset;
+        let cap_end = self.offset as usize + self.cap.bytes().len();
+        let start = base + u16::from(offset);
+        let end = (base + u16::from(offset)) as usize + data_len;
+        cap_start <= start && end <= cap_end
+    }
+}
+
 #[derive(Debug, Copy, Clone)]
 #[repr(u8)]
 pub enum PciVirtioSubclass {
@@ -734,67 +745,62 @@ impl PciDevice for VirtioPciDevice {
         offset: u8,
         data: &[u8],
     ) -> Option<Arc<Barrier>> {
-        if BAR0_REG_IDX <= reg_idx && reg_idx < BAR0_REG_IDX + u16::from(NUM_BAR_REGS) {
+        let in_bars = BAR0_REG_IDX <= reg_idx && reg_idx < BAR0_REG_IDX + u16::from(NUM_BAR_REGS);
+        let in_msix_cap_header = reg_idx * 4 == self.msix_config_cap_offset;
+        let in_pci_cfg = self.cap_pci_cfg_info.in_range(reg_idx, offset, data.len());
+        if in_bars {
             // reg_idx is in [BAR0_REG_IDX, BAR0_REG_IDX+NUM_BAR_REGS), so the difference is 0..5.
             #[allow(clippy::cast_possible_truncation)]
             let bar_idx = (reg_idx - BAR0_REG_IDX) as u8;
             self.bars.write(bar_idx, offset, data);
             None
+        } else if in_msix_cap_header {
+            // For the MsixCap structure, we need to capture writes to the second 2 bytes
+            // of the capability header where Function Mask and MSI-X Enable bits are present.
+            // Everything else can be served from `self.configuration`.
+            self.msix_config
+                .lock()
+                .unwrap()
+                .write_msg_ctl_register(offset, data);
+            self.configuration
+                .write_config_register(reg_idx, offset, data);
+            None
+        } else if in_pci_cfg {
+            let offset = (reg_idx * 4 + u16::from(offset) - self.cap_pci_cfg_info.offset) as usize;
+            self.write_cap_pci_cfg(offset, data)
         } else {
-            // Handle access to the header of the MsixCapability. The rest of the
-            // capability is handled by the PciConfiguration.
-            let base = reg_idx * 4;
-            if base == self.msix_config_cap_offset {
-                self.msix_config
-                    .lock()
-                    .unwrap()
-                    .write_msg_ctl_register(offset, data);
-            }
-            if base + u16::from(offset) >= self.cap_pci_cfg_info.offset
-                && (base + u16::from(offset)) as usize + data.len()
-                    <= self.cap_pci_cfg_info.offset as usize
-                        + self.cap_pci_cfg_info.cap.bytes().len()
-            {
-                let offset = (base + u16::from(offset) - self.cap_pci_cfg_info.offset) as usize;
-                self.write_cap_pci_cfg(offset, data)
-            } else {
-                self.configuration
-                    .write_config_register(reg_idx, offset, data);
-                None
-            }
+            self.configuration
+                .write_config_register(reg_idx, offset, data);
+            None
         }
     }
 
     fn read_config_register(&mut self, reg_idx: u16) -> u32 {
-        if BAR0_REG_IDX <= reg_idx && reg_idx < BAR0_REG_IDX + u16::from(NUM_BAR_REGS) {
+        let in_bars = BAR0_REG_IDX <= reg_idx && reg_idx < BAR0_REG_IDX + u16::from(NUM_BAR_REGS);
+        let in_pci_cfg = self.cap_pci_cfg_info.in_range(reg_idx, 0, 4);
+
+        if in_bars {
             // reg_idx is in [BAR0_REG_IDX, BAR0_REG_IDX+NUM_BAR_REGS), so the difference is 0..5.
             #[allow(clippy::cast_possible_truncation)]
             let bar_idx = (reg_idx - BAR0_REG_IDX) as u8;
             let mut value: u32 = 0;
             self.bars.read(bar_idx, 0, value.as_mut_bytes());
             value
-        } else {
+        } else if in_pci_cfg {
             // Handle the special case where the capability VIRTIO_PCI_CAP_PCI_CFG
             // is accessed. This capability has a special meaning as it allows the
             // guest to access other capabilities without mapping the PCI BAR.
-            let base = reg_idx as usize * 4;
-            if base >= self.cap_pci_cfg_info.offset as usize
-                && base + 4
-                    <= self.cap_pci_cfg_info.offset as usize
-                        + self.cap_pci_cfg_info.cap.bytes().len()
-            {
-                let offset = base - self.cap_pci_cfg_info.offset as usize;
-                let mut data = [0u8; 4];
-                let len = u32::from(self.cap_pci_cfg_info.cap.cap.length) as usize;
-                if len <= 4 {
-                    self.read_cap_pci_cfg(offset, &mut data[..len]);
-                    u32::from_le_bytes(data)
-                } else {
-                    0
-                }
+            let offset = (reg_idx * 4 - self.cap_pci_cfg_info.offset) as usize;
+            let mut data = [0u8; 4];
+            let len = u32::from(self.cap_pci_cfg_info.cap.cap.length) as usize;
+            if len <= 4 {
+                self.read_cap_pci_cfg(offset, &mut data[..len]);
+                u32::from_le_bytes(data)
             } else {
-                self.configuration.read_reg(reg_idx)
+                0
             }
+        } else {
+            self.configuration.read_reg(reg_idx)
         }
     }
 
