@@ -14,6 +14,10 @@ and this project adheres to
   support for Vsock Unix domain socket path overriding on snapshot restore. More
   information can be found in the
   [docs](docs/vsock.md/#unix-domain-socket-renaming).
+- [#5824](https://github.com/firecracker-microvm/firecracker/pull/5824): Add
+  optional rate limiting to serial console output, configurable via the
+  `rate_limiter` field on `PUT /serial`. A new metric is exposed under `uart`:
+  `rate_limiter_dropped_bytes`.
 
 ### Changed
 
