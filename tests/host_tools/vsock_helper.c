@@ -16,6 +16,7 @@
 #include <stdlib.h>
 #include <stdint.h>
 #include <string.h>
+#include <signal.h>
 #include <unistd.h>
 #include <stdio.h>
 #include <time.h>
@@ -24,14 +25,17 @@
 #define BUF_SIZE (16 * 1024)
 #define SERVER_ACCEPT_BACKLOG 128
 
+volatile int connection_socket;
 
 int print_usage() {
     fprintf(stderr, "Usage: ./vsock-helper <command> <args>\n");
     fprintf(stderr, "\n");
     fprintf(stderr, "Commands:\n");
-    fprintf(stderr, "  echo <cid> <port>\n");
-    fprintf(stderr, "      Connect to echo server at CID:port. Pipe STDIN to server,\n");
-    fprintf(stderr, "      server response to STDOUT.\n");
+    fprintf(stderr, "  echo <cid> <port> [stream|seqpacket]\n");
+    fprintf(stderr, "      connect to an echo server, listening on CID:port.\n");
+    fprintf(stderr, "      STDIN will be piped through to the echo server, and\n");
+    fprintf(stderr, "      data coming from the server will pe sent to STDOUT.\n");
+    fprintf(stderr, "      stream|seqpacket  socket type (default: stream)\n");
     fprintf(stderr, "\n");
     fprintf(stderr, "  ping <cid> <port> <count>\n");
     fprintf(stderr, "      Send <count> ping messages to echo server at CID:port.\n");
@@ -64,9 +68,9 @@ int xfer(int src_fd, int dst_fd) {
 }
 
 
-int run_echo(uint32_t cid, uint32_t port) {
+int run_echo(uint32_t cid, uint32_t port, int sock_type) {
 
-    int sock = socket(AF_VSOCK, SOCK_STREAM, 0);
+    int sock = socket(AF_VSOCK, sock_type, 0);
     if (sock < 0) {
         perror("socket()");
         return -1;
@@ -82,6 +86,8 @@ int run_echo(uint32_t cid, uint32_t port) {
         return -1;
     }
 
+    connection_socket = sock;
+
     for (;;) {
         int ping_cnt = xfer(STDIN_FILENO, sock);
         if (!ping_cnt) break;
@@ -96,6 +102,10 @@ int run_echo(uint32_t cid, uint32_t port) {
     }
 
     return close(sock);
+}
+
+void stop_server_loop(int sig) {
+    close(connection_socket);
 }
 
 
@@ -270,13 +280,15 @@ int run_ping_uds(const char *uds_path, uint32_t port, int count) {
 
 
 int main(int argc, char **argv) {
+    signal(SIGTERM, stop_server_loop);
+    signal(SIGINT, stop_server_loop);
 
     if (argc < 2) {
         return print_usage();
     }
 
     if (strcmp(argv[1], "echo") == 0) {
-        if (argc != 4) {
+        if (argc < 4 || argc > 5) {
             return print_usage();
         }
         uint32_t cid = atoi(argv[2]);
@@ -284,7 +296,19 @@ int main(int argc, char **argv) {
         if (!cid || !port) {
             return print_usage();
         }
-        return run_echo(cid, port);
+
+        int sock_type = SOCK_STREAM;
+        if (argc == 5) {
+            if (strcmp(argv[4], "seqpacket") == 0) {
+                sock_type = SOCK_SEQPACKET;
+            } else if (strcmp(argv[4], "stream") == 0) {
+                sock_type = SOCK_STREAM;
+            } else {
+                return print_usage();
+            }
+        }
+
+        return run_echo(cid, port, sock_type);
     }
 
     if (strcmp(argv[1], "ping") == 0) {
