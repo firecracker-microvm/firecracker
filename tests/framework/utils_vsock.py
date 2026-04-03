@@ -65,7 +65,6 @@ class HostEchoWorker(Thread):
                 buf = blob_file.read(BUF_SIZE)
                 if not buf:
                     break
-
                 sent = self.sock.send(buf)
                 while sent < len(buf):
                     sent += self.sock.send(buf[sent:])
@@ -110,7 +109,21 @@ def start_guest_echo_server(vm):
     return os.path.join(vm.jailer.chroot_path(), VSOCK_UDS_PATH)
 
 
-def check_host_connections(uds_path, blob_path, blob_hash):
+def start_seqpacket_echo_server(vm):
+    """Start a vsock seqpacket echo server in the microVM.
+
+    Returns a UDS path to connect to the server.
+    """
+    cmd = f"nohup /tmp/vsock_seq_server serve {ECHO_SERVER_PORT} af_vsock >/dev/null 2>&1 &"
+    vm.ssh.check_output(cmd)
+
+    # Give the server time to initialise
+    time.sleep(1)
+
+    return os.path.join(vm.jailer.chroot_path(), VSOCK_UDS_PATH)
+
+
+def check_host_connections(uds_path, blob_path, blob_hash, vsock_type=SOCK_STREAM):
     """Test host-initiated connections.
 
     This will spawn `TEST_CONNECTION_COUNT` `HostEchoWorker` threads.
@@ -121,7 +134,7 @@ def check_host_connections(uds_path, blob_path, blob_hash):
 
     workers = []
     for _ in range(TEST_CONNECTION_COUNT):
-        worker = HostEchoWorker(uds_path, blob_path)
+        worker = HostEchoWorker(uds_path, blob_path, vsock_type)
         workers.append(worker)
         worker.start()
 
@@ -130,6 +143,76 @@ def check_host_connections(uds_path, blob_path, blob_hash):
 
     for wrk in workers:
         assert wrk.hash == blob_hash
+
+
+def check_guest_connections_seqpacket(
+    vm, server_port_path, server_bin_path, blob_path, blob_hash
+):
+    """Test guest-initiated connections.
+
+    This will start an echo server on the host (in its own thread), then
+    start `TEST_CONNECTION_COUNT` workers inside the guest VM, all
+    communicating with the echo server.
+    """
+    port = server_port_path.split("_")[-1]
+    if Path(server_port_path).exists():
+        Path(
+            server_port_path
+        ).unlink()  # the vsock server program doesn't have reuseaddr
+
+    echo_server = Popen([server_bin_path, "serve", port, "af_unix", server_port_path])
+
+    try:
+        # Give the server program bit of time to create the socket
+        for attempt in Retrying(
+            wait=wait_fixed(0.2),
+            stop=stop_after_attempt(3),
+            reraise=True,
+        ):
+            with attempt:
+                assert Path(server_port_path).exists()
+
+        # Link the listening Unix socket into the VM's jail, so that
+        # Firecracker can connect to it.
+        vm.create_jailed_resource(server_port_path)
+
+        # Increase maximum process count for the ssh service.
+        # Avoids: "bash: fork: retry: Resource temporarily unavailable"
+        # Needed to execute the bash script that tests for concurrent
+        # vsock guest initiated connections.
+        vm.ssh.check_output(
+            "echo 1024 > /sys/fs/cgroup/system.slice/ssh.service/pids.max"
+        )
+
+        # Build the guest worker sub-command.
+        # `vsock_helper` will read the blob file from STDIN and send the echo
+        # server response to STDOUT. This response is then hashed, and the
+        # hash is compared against `blob_hash` (computed on the host). This
+        # comparison sets the exit status of the worker command.
+        worker_cmd = "hash=$("
+        worker_cmd += "cat {}".format(blob_path)
+        worker_cmd += " | /tmp/vsock_helper echo 2 {} seqpacket".format(
+            ECHO_SERVER_PORT
+        )
+        worker_cmd += " | md5sum | cut -f1 -d\\ "
+        worker_cmd += ")"
+        worker_cmd += ' && [[ "$hash" = "{}" ]]'.format(blob_hash)
+
+        # Run `TEST_CONNECTION_COUNT` concurrent workers, using the above
+        # worker sub-command.
+        # If any worker fails, this command will fail. If all worker sub-commands
+        # succeed, this will also succeed.
+        cmd = 'workers="";'
+        cmd += "for i in $(seq 1 {}); do".format(TEST_CONNECTION_COUNT)
+        cmd += "  ({})& ".format(worker_cmd)
+        cmd += '  workers="$workers $!";'
+        cmd += "done;"
+        cmd += "for w in $workers; do wait $w || (wait; exit 1); done"
+
+        vm.ssh.check_output(cmd)
+    finally:
+        echo_server.terminate()
+        echo_server.wait()
 
 
 def check_guest_connections(vm, server_port_path, blob_path, blob_hash):
@@ -173,7 +256,7 @@ def check_guest_connections(vm, server_port_path, blob_path, blob_hash):
         # comparison sets the exit status of the worker command.
         worker_cmd = "hash=$("
         worker_cmd += "cat {}".format(blob_path)
-        worker_cmd += " | /tmp/vsock_helper echo 2 {}".format(ECHO_SERVER_PORT)
+        worker_cmd += " | /tmp/vsock_helper echo 2 {} stream".format(ECHO_SERVER_PORT)
         worker_cmd += " | md5sum | cut -f1 -d\\ "
         worker_cmd += ")"
         worker_cmd += ' && [[ "$hash" = "{}" ]]'.format(blob_hash)
@@ -216,14 +299,19 @@ def _vsock_connect_to_guest(uds_path, port):
     return sock
 
 
-def _copy_vsock_data_to_guest(ssh_connection, blob_path, vm_blob_path, vsock_helper):
+def _copy_vsock_data_to_guest(
+    ssh_connection, blob_path, vm_blob_path, vsock_helper=None, vsock_seq_server=None
+):
     # Copy the data file and a vsock helper to the guest.
 
     cmd = "mkdir -p /tmp/vsock"
     ecode, _, _ = ssh_connection.run(cmd)
     assert ecode == 0, "Failed to set up tmpfs drive on the guest."
+    if vsock_helper:
+        ssh_connection.scp_put(vsock_helper, "/tmp/vsock_helper")
+    if vsock_seq_server:
+        ssh_connection.scp_put(vsock_seq_server, "/tmp/vsock_seq_server")
 
-    ssh_connection.scp_put(vsock_helper, "/tmp/vsock_helper")
     ssh_connection.scp_put(blob_path, vm_blob_path)
 
 

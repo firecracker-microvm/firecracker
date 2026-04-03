@@ -597,7 +597,9 @@ def test_snapshot_rename_vsock(
     """
 
     vm = uvm_nano
-    vm.api.vsock.put(vsock_id="vsock0", guest_cid=3, uds_path="/v.sock1")
+    vm.api.vsock.put(
+        vsock_id="vsock0", guest_cid=3, uds_path="/v.sock1", vsock_type="stream"
+    )
     vm.add_net_iface()
     vm.start()
 

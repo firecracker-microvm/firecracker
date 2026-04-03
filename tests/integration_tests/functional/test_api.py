@@ -967,8 +967,16 @@ def test_api_vsock(uvm_nano):
     # Create a vsock device.
     vm.api.vsock.put(guest_cid=15, uds_path="vsock.sock")
 
-    # Updating an existing vsock is currently fine.
-    vm.api.vsock.put(guest_cid=166, uds_path="vsock.sock")
+    # Updating an existing vsock is currently fine. Even changing its type.
+    vm.api.vsock.put(
+        guest_cid=166,
+        uds_path="vsock.sock",
+        vsock_type="seqpacket",
+        conn_buffer_size=4096,
+    )
+
+    # Revert it back to stream.
+    vm.api.vsock.put(guest_cid=166, uds_path="vsock.sock", vsock_type="stream")
 
     # Check PUT request. Although vsock_id is deprecated, it must still work.
     response = vm.api.vsock.put(vsock_id="vsock1", guest_cid=15, uds_path="vsock.sock")
@@ -985,6 +993,10 @@ def test_api_vsock(uvm_nano):
     # Updating an existing vsock should not be fine at this point.
     with pytest.raises(RuntimeError):
         vm.api.vsock.put(guest_cid=17, uds_path="vsock.sock")
+
+    # Changing the type of a vsock device should error at this point.
+    with pytest.raises(RuntimeError):
+        vm.api.vsock.put(guest_cid=17, uds_path="vsock.sock", vsock_type="seqpacket")
 
 
 def test_api_entropy(uvm_plain):
