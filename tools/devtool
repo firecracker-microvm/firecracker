@@ -508,6 +508,10 @@ cmd_help() {
     echo "                                     to achieve consistent performance. Used for running performance tests in CI."
     echo "                                     Implies --huge-pages."
     echo "        --huge-pages                 Make sure the host has a hugetlbfs pool large enough for the tests."
+    echo "        --vfio-nvme DEVICE           Load VFIO kernel modules and pass the NVMe block device (e.g. /dev/sdf)"
+    echo "                                     or PCI SBDF (e.g. 0003:13:00.0) to pytest with '--vfio-nvme' for VFIO"
+    echo "                                     passthrough tests. WARNING: tests overwrite the device, see"
+    echo "                                     'VFIO passthrough tests' in tests/README.md."
     echo "        --ab                         Run A/B test."
     echo "        --no-build                   Skip building step."
     echo "        --no-archive                 Skip archiving of 'test_result' after the test is done."
@@ -1020,6 +1024,10 @@ cmd_test() {
             "--huge-pages")
                 local huge_pages=1;
                 ;;
+            "--vfio-nvme")
+                shift
+                local vfio_nvme="$1"
+                ;;
             "--ab")
                 do_ab_test=1
                 ;;
@@ -1106,6 +1114,13 @@ cmd_test() {
           die "Failed to allocate $num_hugetlbfs_pages hugetlbfs pages, only got $huge_pages_new"
         fi
       fi
+    fi
+
+    # The `vfio_nvme` pytest fixture binds the device to vfio-pci inside the
+    # container, but kernel modules can only be loaded from the host.
+    if [[ -n "$vfio_nvme" ]]; then
+      sudo modprobe -a vfio vfio-pci || die "Failed to load VFIO kernel modules"
+      set -- "$@" "--vfio-nvme=$vfio_nvme"
     fi
 
     say "Starting test run ..."
