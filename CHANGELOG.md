@@ -56,6 +56,11 @@ and this project adheres to
   since the snapshot was taken. Users using `kvm-clock` that want to explicitly
   advance the clock with `KVM_CLOCK_REALTIME` can opt back in using the new
   `clock_realtime` flag in `LoadSnapshot` API.
+- [#5738](https://github.com/firecracker-microvm/firecracker/pull/5738): Fixed
+  x86_64 snapshot serialization to cover the full KVM custom MSR range
+  (0x4b564d00-0x4b564dff) instead of a small subset. Previously, some KVM MSRs
+  such as MSR_KVM_ASYNC_PF_INT and MSR_KVM_ASYNC_PF_ACK were missing from
+  snapshots, which could cause issues on restore.
 
 ## [1.15.0]
 
