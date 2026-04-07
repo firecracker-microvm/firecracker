@@ -866,7 +866,7 @@ pub(crate) mod tests {
         let serialized_data = bitcode::serialize(&state).unwrap();
 
         let restored_state: VmState = bitcode::deserialize(&serialized_data).unwrap();
-        vm.restore_state(&restored_state).unwrap();
+        vm.restore_state(&restored_state, false).unwrap();
 
         let mut resource_allocator = vm.resource_allocator();
         let gsi_new = resource_allocator.allocate_gsi_msi(1).unwrap()[0];

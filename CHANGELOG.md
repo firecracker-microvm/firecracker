@@ -50,6 +50,12 @@ and this project adheres to
   balloon statistics descriptor length to prevent a guest-controlled oversized
   descriptor from temporarily stalling the VMM event loop. Only affects microVMs
   with `stats_polling_interval_s > 0`.
+- [#5809](https://github.com/firecracker-microvm/firecracker/pull/5809): Fixed a
+  bug on host Linux >= 5.16 for x86_64 guests using the `kvm-clock` clock source
+  causing the monotonic clock to jump on restore by the wall-clock time elapsed
+  since the snapshot was taken. Users using `kvm-clock` that want to explicitly
+  advance the clock with `KVM_CLOCK_REALTIME` can opt back in using the new
+  `clock_realtime` flag in `LoadSnapshot` API.
 
 ## [1.15.0]
 

@@ -5,7 +5,7 @@ use std::fmt;
 use std::sync::{Arc, Mutex};
 
 use kvm_bindings::{
-    KVM_CLOCK_TSC_STABLE, KVM_IRQCHIP_IOAPIC, KVM_IRQCHIP_PIC_MASTER, KVM_IRQCHIP_PIC_SLAVE,
+    KVM_CLOCK_REALTIME, KVM_IRQCHIP_IOAPIC, KVM_IRQCHIP_PIC_MASTER, KVM_IRQCHIP_PIC_SLAVE,
     KVM_PIT_SPEAKER_DUMMY, MsrList, kvm_clock_data, kvm_irqchip, kvm_pit_config, kvm_pit_state2,
 };
 use kvm_ioctls::Cap;
@@ -30,6 +30,8 @@ pub enum ArchVmError {
     SetPit2(kvm_ioctls::Error),
     /// Set clock error: {0}
     SetClock(kvm_ioctls::Error),
+    /// clock_realtime requested but not present in the snapshot state
+    ClockRealtimeNotInState,
     /// Set IrqChipPicMaster error: {0}
     SetIrqChipPicMaster(kvm_ioctls::Error),
     /// Set IrqChipPicSlave error: {0}
@@ -127,13 +129,25 @@ impl ArchVm {
     /// - [`kvm_ioctls::VmFd::set_irqchip`] errors.
     /// - [`kvm_ioctls::VmFd::set_irqchip`] errors.
     /// - [`kvm_ioctls::VmFd::set_irqchip`] errors.
-    pub fn restore_state(&mut self, state: &VmState) -> Result<(), ArchVmError> {
+    pub fn restore_state(
+        &mut self,
+        state: &VmState,
+        clock_realtime: bool,
+    ) -> Result<(), ArchVmError> {
         self.fd()
             .set_pit2(&state.pitstate)
             .map_err(ArchVmError::SetPit2)?;
-        self.fd()
-            .set_clock(&state.clock)
-            .map_err(ArchVmError::SetClock)?;
+        let mut clock = state.clock;
+        clock.flags = if clock_realtime {
+            // clock_realtime needs to be present in the snapshot
+            if clock.flags & KVM_CLOCK_REALTIME == 0 {
+                return Err(ArchVmError::ClockRealtimeNotInState);
+            }
+            KVM_CLOCK_REALTIME
+        } else {
+            0
+        };
+        self.fd().set_clock(&clock).map_err(ArchVmError::SetClock)?;
         self.fd()
             .set_irqchip(&state.pic_master)
             .map_err(ArchVmError::SetIrqChipPicMaster)?;
@@ -167,9 +181,7 @@ impl ArchVm {
     pub fn save_state(&self) -> Result<VmState, ArchVmError> {
         let pitstate = self.fd().get_pit2().map_err(ArchVmError::VmGetPit2)?;
 
-        let mut clock = self.fd().get_clock().map_err(ArchVmError::VmGetClock)?;
-        // This bit is not accepted in SET_CLOCK, clear it.
-        clock.flags &= !KVM_CLOCK_TSC_STABLE;
+        let clock = self.fd().get_clock().map_err(ArchVmError::VmGetClock)?;
 
         let mut pic_master = kvm_irqchip {
             chip_id: KVM_IRQCHIP_PIC_MASTER,
@@ -248,10 +260,13 @@ impl fmt::Debug for VmState {
 #[cfg(test)]
 mod tests {
     use kvm_bindings::{
-        KVM_CLOCK_TSC_STABLE, KVM_IRQCHIP_IOAPIC, KVM_IRQCHIP_PIC_MASTER, KVM_IRQCHIP_PIC_SLAVE,
+        KVM_CLOCK_REALTIME, KVM_IRQCHIP_IOAPIC, KVM_IRQCHIP_PIC_MASTER, KVM_IRQCHIP_PIC_SLAVE,
         KVM_PIT_SPEAKER_DUMMY,
     };
+    use kvm_ioctls::Cap;
+    use std::time::SystemTime;
 
+    use crate::arch::ArchVmError;
     use crate::vstate::vm::VmState;
     use crate::vstate::vm::tests::{setup_vm, setup_vm_with_memory};
 
@@ -270,7 +285,6 @@ mod tests {
             vm_state.pitstate.flags | KVM_PIT_SPEAKER_DUMMY,
             KVM_PIT_SPEAKER_DUMMY
         );
-        assert_eq!(vm_state.clock.flags & KVM_CLOCK_TSC_STABLE, 0);
         assert_eq!(vm_state.pic_master.chip_id, KVM_IRQCHIP_PIC_MASTER);
         assert_eq!(vm_state.pic_slave.chip_id, KVM_IRQCHIP_PIC_SLAVE);
         assert_eq!(vm_state.ioapic.chip_id, KVM_IRQCHIP_IOAPIC);
@@ -278,7 +292,46 @@ mod tests {
         let (_, mut vm) = setup_vm_with_memory(0x1000);
         vm.setup_irqchip().unwrap();
 
-        vm.restore_state(&vm_state).unwrap();
+        vm.restore_state(&vm_state, false).unwrap();
+    }
+
+    #[cfg(target_arch = "x86_64")]
+    #[test]
+    fn test_vm_save_restore_state_kvm_clock_realtime() {
+        let (kvm, vm) = setup_vm_with_memory(0x1000);
+        vm.setup_irqchip().unwrap();
+
+        let clock_realtime_supported =
+            kvm.fd.check_extension_int(Cap::AdjustClock).cast_unsigned() & KVM_CLOCK_REALTIME != 0;
+
+        // mock a state without realtime information
+        let mut vm_state = vm.save_state().unwrap();
+        vm_state.clock.flags &= !KVM_CLOCK_REALTIME;
+
+        let (_, mut vm) = setup_vm_with_memory(0x1000);
+        vm.setup_irqchip().unwrap();
+
+        let res = vm.restore_state(&vm_state, true);
+        assert!(res == Err(ArchVmError::ClockRealtimeNotInState));
+
+        // mock a state with realtime information
+        vm_state.clock.flags |= KVM_CLOCK_REALTIME;
+        vm_state.clock.realtime = SystemTime::now()
+            .duration_since(SystemTime::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+            .try_into()
+            .unwrap();
+
+        let (_, mut vm) = setup_vm_with_memory(0x1000);
+        vm.setup_irqchip().unwrap();
+
+        let res = vm.restore_state(&vm_state, true);
+        if clock_realtime_supported {
+            res.unwrap()
+        } else {
+            assert!(matches!(res, Err(ArchVmError::SetClock(err)) if err.errno() == libc::EINVAL))
+        }
     }
 
     #[cfg(target_arch = "x86_64")]
@@ -296,18 +349,18 @@ mod tests {
         // Try to restore an invalid PIC Master chip ID
         let orig_master_chip_id = vm_state.pic_master.chip_id;
         vm_state.pic_master.chip_id = KVM_NR_IRQCHIPS;
-        vm.restore_state(&vm_state).unwrap_err();
+        vm.restore_state(&vm_state, false).unwrap_err();
         vm_state.pic_master.chip_id = orig_master_chip_id;
 
         // Try to restore an invalid PIC Slave chip ID
         let orig_slave_chip_id = vm_state.pic_slave.chip_id;
         vm_state.pic_slave.chip_id = KVM_NR_IRQCHIPS;
-        vm.restore_state(&vm_state).unwrap_err();
+        vm.restore_state(&vm_state, false).unwrap_err();
         vm_state.pic_slave.chip_id = orig_slave_chip_id;
 
         // Try to restore an invalid IOPIC chip ID
         vm_state.ioapic.chip_id = KVM_NR_IRQCHIPS;
-        vm.restore_state(&vm_state).unwrap_err();
+        vm.restore_state(&vm_state, false).unwrap_err();
     }
 
     #[cfg(target_arch = "x86_64")]
@@ -321,6 +374,6 @@ mod tests {
         let serialized_data = bitcode::serialize(&state).unwrap();
         let restored_state: VmState = bitcode::deserialize(&serialized_data).unwrap();
 
-        vm.restore_state(&restored_state).unwrap();
+        vm.restore_state(&restored_state, false).unwrap();
     }
 }
