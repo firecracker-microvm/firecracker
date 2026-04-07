@@ -22,7 +22,9 @@ use crate::devices::virtio::pmem::metrics::{PmemMetrics, PmemMetricsPerDevice};
 use crate::devices::virtio::queue::{DescriptorChain, InvalidAvailIdx, Queue, QueueError};
 use crate::devices::virtio::transport::{VirtioInterrupt, VirtioInterruptType};
 use crate::logger::{IncMetric, error, info};
+use crate::rate_limiter::{BucketUpdate, RateLimiter, TokenType};
 use crate::utils::{align_up, u64_to_usize};
+use crate::vmm_config::RateLimiterConfig;
 use crate::vmm_config::pmem::PmemConfig;
 use crate::vstate::memory::{ByteValued, Bytes, GuestMemoryMmap, GuestMmapRegion};
 use crate::vstate::vm::VmError;
@@ -58,6 +60,8 @@ pub enum PmemError {
     Queue(#[from] QueueError),
     /// Error during obtaining the descriptor from the queue: {0}
     QueuePop(#[from] InvalidAvailIdx),
+    /// Error creating rate limiter: {0}
+    RateLimiter(std::io::Error),
 }
 
 const VIRTIO_PMEM_REQ_TYPE_FLUSH: u32 = 0;
@@ -94,6 +98,7 @@ pub struct Pmem {
     pub file_len: u64,
     pub mmap_ptr: u64,
     pub metrics: Arc<PmemMetrics>,
+    pub rate_limiter: RateLimiter,
 
     pub config: PmemConfig,
 }
@@ -125,6 +130,13 @@ impl Pmem {
         let (file, file_len, mmap_ptr, mmap_len) =
             Self::mmap_backing_file(&config.path_on_host, config.read_only)?;
 
+        let rate_limiter = config
+            .rate_limiter
+            .map(RateLimiterConfig::try_into)
+            .transpose()
+            .map_err(PmemError::RateLimiter)?
+            .unwrap_or_default();
+
         Ok(Self {
             avail_features: 1u64 << VIRTIO_F_VERSION_1,
             acked_features: 0u64,
@@ -140,6 +152,7 @@ impl Pmem {
             file_len,
             mmap_ptr,
             metrics: PmemMetricsPerDevice::alloc(config.id.clone()),
+            rate_limiter,
             config,
         })
     }
@@ -254,6 +267,26 @@ impl Pmem {
         // This is safe since we checked in the event handler that the device is activated.
         let active_state = self.device_state.active_state().unwrap();
 
+        if self.queues[0].is_empty() {
+            return Ok(());
+        }
+
+        // There is only 1 type of request pmem supports, so we can consume
+        // rate-limiter before even looking at the queue. This is still valid
+        // even if the queue will not have any valid requests since it indicate
+        // broken guest driver and rate-limiting should still apply for such case.
+        // Rate limit: consume 1 op and file_len bytes for the coalesced msync.
+        // If the rate limiter is blocked, defer notification until the timer fires.
+        if !self.rate_limiter.consume(1, TokenType::Ops) {
+            self.metrics.rate_limiter_throttled_events.inc();
+            return Ok(());
+        }
+        if !self.rate_limiter.consume(self.file_len, TokenType::Bytes) {
+            self.rate_limiter.manual_replenish(1, TokenType::Ops);
+            self.metrics.rate_limiter_throttled_events.inc();
+            return Ok(());
+        }
+
         let mut cached_result = None;
         while let Some(head) = self.queues[0].pop()? {
             let add_result = match self.process_chain(head, &mut cached_result) {
@@ -270,8 +303,8 @@ impl Pmem {
                 break;
             }
         }
-        self.queues[0].advance_used_ring_idx();
 
+        self.queues[0].advance_used_ring_idx();
         if self.queues[0].prepare_kick() {
             active_state
                 .interrupt
@@ -347,10 +380,34 @@ impl Pmem {
         Ok(())
     }
 
+    /// Updates the parameters for the rate limiter.
+    pub fn update_rate_limiter(&mut self, bytes: BucketUpdate, ops: BucketUpdate) {
+        self.rate_limiter.update_buckets(bytes, ops);
+    }
+
     pub fn process_queue(&mut self) {
         self.metrics.queue_event_count.inc();
         if let Err(err) = self.queue_events[0].read() {
             error!("pmem: Failed to get queue event: {err:?}");
+            self.metrics.event_fails.inc();
+            return;
+        }
+
+        if self.rate_limiter.is_blocked() {
+            self.metrics.rate_limiter_throttled_events.inc();
+            return;
+        }
+
+        self.handle_queue().unwrap_or_else(|err| {
+            error!("pmem: {err:?}");
+            self.metrics.event_fails.inc();
+        });
+    }
+
+    pub fn process_rate_limiter_event(&mut self) {
+        self.metrics.rate_limiter_event_count.inc();
+        if let Err(err) = self.rate_limiter.event_handler() {
+            error!("pmem: Failed to get rate-limiter event: {err:?}");
             self.metrics.event_fails.inc();
             return;
         }
@@ -458,6 +515,7 @@ mod tests {
             path_on_host: "not_a_path".into(),
             root_device: true,
             read_only: false,
+            ..Default::default()
         };
         assert!(matches!(
             Pmem::new(config).unwrap_err(),
@@ -471,6 +529,7 @@ mod tests {
             path_on_host: dummy_path.clone(),
             root_device: true,
             read_only: false,
+            ..Default::default()
         };
         assert!(matches!(
             Pmem::new(config).unwrap_err(),
@@ -483,6 +542,7 @@ mod tests {
             path_on_host: dummy_path,
             root_device: true,
             read_only: false,
+            ..Default::default()
         };
         Pmem::new(config).unwrap();
     }
@@ -497,6 +557,7 @@ mod tests {
             path_on_host: dummy_path,
             root_device: true,
             read_only: false,
+            ..Default::default()
         };
         let mut pmem = Pmem::new(config).unwrap();
 
