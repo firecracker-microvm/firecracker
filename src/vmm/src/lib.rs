@@ -708,6 +708,20 @@ impl Vmm {
         Ok(())
     }
 
+    /// Updates the rate limiter parameters for pmem device with `pmem_id` id.
+    pub fn update_pmem_rate_limiter(
+        &mut self,
+        pmem_id: &str,
+        rl_bytes: BucketUpdate,
+        rl_ops: BucketUpdate,
+    ) -> Result<(), VmmError> {
+        self.device_manager
+            .with_virtio_device(pmem_id, |pmem: &mut Pmem| {
+                pmem.update_rate_limiter(rl_bytes, rl_ops)
+            })?;
+        Ok(())
+    }
+
     /// Updates the rate limiter parameters for net device with `net_id` id.
     pub fn update_net_rate_limiters(
         &mut self,

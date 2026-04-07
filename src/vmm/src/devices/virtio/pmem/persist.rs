@@ -9,6 +9,8 @@ use crate::Vm;
 use crate::devices::virtio::device::{DeviceState, VirtioDeviceType};
 use crate::devices::virtio::persist::{PersistError as VirtioStateError, VirtioDeviceState};
 use crate::devices::virtio::pmem::{PMEM_NUM_QUEUES, PMEM_QUEUE_SIZE};
+use crate::rate_limiter::RateLimiter;
+use crate::rate_limiter::persist::RateLimiterState;
 use crate::snapshot::Persist;
 use crate::vmm_config::pmem::PmemConfig;
 use crate::vstate::memory::{GuestMemoryMmap, GuestRegionMmap};
@@ -19,6 +21,7 @@ pub struct PmemState {
     pub virtio_state: VirtioDeviceState,
     pub config_space: ConfigSpace,
     pub config: PmemConfig,
+    pub rate_limiter_state: RateLimiterState,
 }
 
 #[derive(Debug)]
@@ -35,6 +38,8 @@ pub enum PmemPersistError {
     Pmem(#[from] PmemError),
     /// Error registering memory region: {0}
     Vm(#[from] VmError),
+    /// Error restoring rate limiter: {0}
+    RateLimiter(std::io::Error),
 }
 
 impl<'a> Persist<'a> for Pmem {
@@ -47,6 +52,7 @@ impl<'a> Persist<'a> for Pmem {
             virtio_state: VirtioDeviceState::from_device(self),
             config_space: self.config_space,
             config: self.config.clone(),
+            rate_limiter_state: self.rate_limiter.save(),
         }
     }
 
@@ -65,6 +71,8 @@ impl<'a> Persist<'a> for Pmem {
         pmem.config_space = state.config_space;
         pmem.avail_features = state.virtio_state.avail_features;
         pmem.acked_features = state.virtio_state.acked_features;
+        pmem.rate_limiter = RateLimiter::restore((), &state.rate_limiter_state)
+            .map_err(PmemPersistError::RateLimiter)?;
 
         pmem.set_mem_region(constructor_args.vm)?;
 
@@ -92,6 +100,7 @@ mod tests {
             path_on_host: dummy_path,
             root_device: true,
             read_only: false,
+            ..Default::default()
         };
         let pmem = Pmem::new(config).unwrap();
         let guest_mem = default_mem();
