@@ -38,6 +38,15 @@ from framework.microvm import MicroVMFactory, SnapshotType
 from framework.properties import global_props
 from framework.utils_cpu_templates import get_cpu_template_name
 from framework.utils_hugepages import HugePagesConfig
+from framework.utils_vfio import (
+    NVME_PCI_CLASS,
+    vfio_nvme_check_unused,
+    vfio_nvme_driver_name,
+    vfio_nvme_find_pci_device,
+    vfio_nvme_pci_class,
+    vfio_nvme_rebind,
+    vfio_nvme_unbind,
+)
 from framework.vm_backend import (
     available_vm_backend_params,
     available_vm_backends,
@@ -103,6 +112,14 @@ def pytest_addoption(parser):
         help="Path to custom CPU template to be applied unless overwritten by a test",
         default=None,
         type=Path,
+    )
+
+    parser.addoption(
+        "--vfio-nvme",
+        action="store",
+        help="NVMe block device (e.g. /dev/sdf) or PCI SBDF (e.g. 0003:13:00.0) to bind to "
+        "vfio-pci for VFIO passthrough tests",
+        default=None,
     )
 
 
@@ -579,6 +596,42 @@ def pcie_hotplug_ports(request):
 def huge_pages(request):
     """Fixture that allows configuring whether a microVM will have huge pages enabled or not"""
     return getattr(request, "param", HugePagesConfig.NONE)
+
+
+@pytest.fixture(scope="session")
+def vfio_nvme(request):
+    """
+    SBDF of the `--vfio-nvme` device, bound to vfio-pci for the session.
+    Afterwards the device is handed back to the host driver. In CI it is left
+    without a driver instead, since cancelled builds leave it on vfio-pci and
+    later runs must still find it.
+    """
+    device = request.config.getoption("--vfio-nvme")
+    if device is None:
+        pytest.skip("No VFIO device configured (set --vfio-nvme)")
+    # Only 1 VFIO device is available, so tests using it can not run in parallel
+    worker_count = os.environ.get("PYTEST_XDIST_WORKER_COUNT", "1")
+    assert worker_count == "1", f"VFIO tests can not run on {worker_count} workers"
+
+    is_ci = os.environ.get("BUILDKITE") == "true"
+    pci_device_path = vfio_nvme_find_pci_device(device, allow_unclaimed=is_ci)
+    pci_class = vfio_nvme_pci_class(pci_device_path)
+    assert pci_class == NVME_PCI_CLASS, f"{device} is not an NVMe PCI device"
+    vfio_nvme_check_unused(pci_device_path)
+
+    try:
+        if vfio_nvme_driver_name(pci_device_path) != "vfio-pci":
+            vfio_nvme_rebind(pci_device_path, "vfio-pci")
+        driver_name = vfio_nvme_driver_name(pci_device_path)
+        assert driver_name == "vfio-pci", f"Can not bind {device} to vfio-pci"
+        yield pci_device_path.name
+    finally:
+        if is_ci:
+            # `driver_override` stays set, so the host driver does not claim
+            # the device before the next run
+            vfio_nvme_unbind(pci_device_path)
+        else:
+            vfio_nvme_rebind(pci_device_path, "")
 
 
 @pytest.fixture(params=available_vm_backend_params())

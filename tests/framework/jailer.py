@@ -144,9 +144,9 @@ class JailerContext:
         return os.path.join(self.chroot_base_with_id(), "root")
 
     def jailed_path(self, file_path, create=False, subdir="."):
-        """Create a hard link or block special device owned by uid:gid.
+        """Create a hard link or block/char special device owned by uid:gid.
 
-        Create a hard link or block special device from the specified file,
+        Create a hard link or block/char special device from the specified file,
         changes the owner to uid:gid, and returns a path to the file which is
         valid within the jail.
         """
@@ -157,9 +157,17 @@ class JailerContext:
         jailed_p = Path("/") / subdir / file_path.name
         if create:
             stat_src = file_path.stat()
-            if file_path.is_block_device():
-                perms = stat.S_IRUSR | stat.S_IWUSR
-                os.mknod(global_p, mode=stat.S_IFBLK | perms, device=stat_src.st_rdev)
+            if file_path.is_block_device() or file_path.is_char_device():
+                file_type = stat.S_IFMT(stat_src.st_mode)
+                # Reuse a node of the same device, e.g. /dev/vfio/vfio is
+                # shared by all VFIO devices. Never repoint it to another one.
+                if global_p.exists():
+                    stat_node = global_p.stat()
+                    assert stat.S_IFMT(stat_node.st_mode) == file_type
+                    assert stat_node.st_rdev == stat_src.st_rdev
+                else:
+                    perms = stat.S_IRUSR | stat.S_IWUSR
+                    os.mknod(global_p, mode=file_type | perms, device=stat_src.st_rdev)
             else:
                 stat_dst = chroot_path.stat()
                 if stat_src.st_dev == stat_dst.st_dev:
@@ -172,6 +180,20 @@ class JailerContext:
 
             os.chown(global_p, self.uid, self.gid)
         return str(jailed_p)
+
+    def add_vfio_device(self, sbdf):
+        """Expose the VFIO group of the host PCI device `sbdf` inside the jail."""
+        iommu_group_path = Path(f"/sys/bus/pci/devices/{sbdf}/iommu_group").resolve()
+        iommu_group = iommu_group_path.name
+        assert iommu_group.isdigit(), f"{sbdf} has no IOMMU group"
+        self.jailed_path("/dev/vfio/vfio", create=True, subdir="dev/vfio")
+        self.jailed_path(f"/dev/vfio/{iommu_group}", create=True, subdir="dev/vfio")
+        # Firecracker readlink()s this to get the group ID from the basename
+        chroot_path = Path(self.chroot_path())
+        jailed_link = chroot_path / f"sys/bus/pci/devices/{sbdf}/iommu_group"
+        jailed_link.parent.mkdir(parents=True)
+        jailed_link.symlink_to(f"../iommu_groups/{iommu_group}")
+        os.lchown(jailed_link, self.uid, self.gid)
 
     def setup(self):
         """Set up this jailer context."""

@@ -86,6 +86,35 @@ dev container automatically, so setting them on the host before invoking
   configurations that don't add any value when running on a development
   environment.
 
+### VFIO passthrough tests
+
+Tests marked with `pytest.mark.vfio` pass a host NVMe device through to the
+guest. They are skipped unless the device is given with `--vfio-nvme`, either as
+a block device or as a PCI SBDF:
+
+```sh
+tools/devtool -y test --vfio-nvme /dev/nvme1n1 -- -m vfio integration_tests/functional/
+# Or
+tools/devtool -y test --vfio-nvme 0000:01:00.0 -- -m vfio integration_tests/functional/
+```
+
+**WARNING: the tests overwrite data on the device.** Only use a spare NVMe
+device which the host does not need. The tests fail if any of its namespaces is
+in use, e.g. mounted.
+
+`tools/devtool` loads the `vfio` and `vfio-pci` kernel modules. The tests bind
+the device to `vfio-pci` for the test session and hand it back to the host
+driver afterwards. In CI the device is left without a driver instead, and the
+only NVMe device not claimed by the host driver is used if the block device can
+not be found. If a run is interrupted, the device can stay on `vfio-pci`. To
+give it back to the host driver:
+
+```sh
+echo | sudo tee /sys/bus/pci/devices/<SBDF>/driver_override
+echo <SBDF> | sudo tee /sys/bus/pci/drivers/vfio-pci/unbind
+echo <SBDF> | sudo tee /sys/bus/pci/drivers_probe
+```
+
 ### Output
 
 Output, including testrun results, goes to `stdout`. Errors go to `stderr`. By

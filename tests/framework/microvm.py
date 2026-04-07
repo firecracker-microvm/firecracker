@@ -964,6 +964,11 @@ class Microvm:
 
         return iface
 
+    def add_passthrough_device(self, dev_id, sbdf):
+        """Pass the host PCI device `sbdf`, bound to vfio-pci, through to the guest"""
+        self.jailer.add_vfio_device(sbdf)
+        self.api.device_passthrough.put(id=dev_id, sbdf=sbdf)
+
     def add_pmem(
         self,
         pmem_id,
