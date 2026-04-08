@@ -23,7 +23,6 @@ use crate::mmds::data_store::{self, Mmds, MmdsDatastoreError};
 use crate::persist::{CreateSnapshotError, RestoreFromSnapshotError, VmInfo};
 use crate::resources::VmmConfig;
 use crate::seccomp::BpfThreadMap;
-use crate::vmm_config::HotplugDeviceConfig;
 use crate::vmm_config::balloon::{
     BalloonConfigError, BalloonDeviceConfig, BalloonStats, BalloonUpdateConfig,
     BalloonUpdateStatsConfig,
@@ -44,8 +43,9 @@ use crate::vmm_config::net::{
 use crate::vmm_config::pmem::{PmemConfig, PmemConfigError, PmemDeviceUpdateConfig};
 use crate::vmm_config::serial::SerialConfig;
 use crate::vmm_config::snapshot::{CreateSnapshotParams, LoadSnapshotParams, SnapshotType};
+use crate::vmm_config::vfio::{VfioConfig, VfioConfigError};
 use crate::vmm_config::vsock::{VsockConfigError, VsockDeviceConfig};
-use crate::vmm_config::{self, RateLimiterUpdate};
+use crate::vmm_config::{self, HotplugDeviceConfig, RateLimiterUpdate};
 
 /// This enum represents the public interface of the VMM. Each action contains various
 /// bits of information (ids, paths, etc.).
@@ -119,6 +119,9 @@ pub enum VmmAction {
     /// Set the entropy device using `EntropyDeviceConfig` as input. This action can only be called
     /// before the microVM has booted.
     SetEntropyDevice(EntropyDeviceConfig),
+    /// Add a VFIO passthrough device using `VfioConfig` as input. This action can only be called
+    /// before the microVM has booted.
+    InsertVfioDevice(VfioConfig),
     /// Get the memory hotplug device configuration and status.
     GetMemoryHotplugStatus,
     /// Set the memory hotplug device using `MemoryHotplugConfig` as input. This action can only be
@@ -218,6 +221,8 @@ pub enum VmmActionError {
     PciNotEnabled,
     /// PCI manager error: {0}
     PciManager(#[from] PciManagerError),
+    /// VFIO config error: {0}
+    VfioConfig(#[from] VfioConfigError),
 }
 
 /// The enum represents the response sent by the VMM in case of success. The response is either
@@ -498,6 +503,7 @@ impl<'a> PrebootApiController<'a> {
             StartMicroVm => self.start_microvm(),
             UpdateMachineConfiguration(config) => self.update_machine_config(config),
             SetEntropyDevice(config) => self.set_entropy_device(config),
+            InsertVfioDevice(config) => self.insert_vfio_device(config),
             SetMemoryHotplugDevice(config) => self.set_memory_hotplug_device(config),
             // Operations not allowed pre-boot.
             CreateSnapshot(_)
@@ -611,6 +617,15 @@ impl<'a> PrebootApiController<'a> {
         self.boot_path = true;
         self.vm_resources.build_entropy_device(cfg)?;
         Ok(VmmData::Empty)
+    }
+
+    fn insert_vfio_device(&mut self, cfg: VfioConfig) -> Result<VmmData, VmmActionError> {
+        log_dev_preview_warning("VFIO", None);
+        self.boot_path = true;
+        self.vm_resources
+            .set_vfio_device(cfg)
+            .map(|()| VmmData::Empty)
+            .map_err(VmmActionError::VfioConfig)
     }
 
     fn set_memory_hotplug_device(
@@ -856,6 +871,7 @@ impl RuntimeApiController {
             | SetMmdsConfiguration(_)
             | SetEntropyDevice(_)
             | SetMemoryHotplugDevice(_)
+            | InsertVfioDevice(_)
             | StartMicroVm
             | UpdateMachineConfiguration(_) => Err(VmmActionError::OperationNotSupportedPostBoot),
         }
@@ -1036,6 +1052,7 @@ mod tests {
     use crate::HTTP_MAX_PAYLOAD_SIZE;
     use crate::builder::tests::default_vmm;
     use crate::mmds::data_store::MmdsVersion;
+    use crate::pci::PciSBDF;
     use crate::seccomp::BpfThreadMap;
     use crate::vmm_config::snapshot::{MemBackendConfig, MemBackendType};
 
@@ -1339,5 +1356,9 @@ mod tests {
         check_unsupported(runtime_request(VmmAction::SetMemoryHotplugDevice(
             MemoryHotplugConfig::default(),
         )));
+        check_unsupported(runtime_request(VmmAction::InsertVfioDevice(VfioConfig {
+            id: String::new(),
+            sbdf: PciSBDF::new(0x0, 0x0, 0x0, 0x0),
+        })));
     }
 }

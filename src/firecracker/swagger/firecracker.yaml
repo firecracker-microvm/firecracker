@@ -339,6 +339,38 @@ paths:
           schema:
             $ref: "#/definitions/Error"
 
+  /vfio/{id}:
+    put:
+      summary: Creates or updates a VFIO passthrough device. Pre-boot only.
+      description:
+        Creates new VFIO passthrough device with ID specified by id parameter.
+        If a VFIO device with the specified ID already exists, it updates
+        device state based on new input.
+      operationId: putGuestVfioByID
+      parameters:
+        - name: id
+          in: path
+          description: The id of the VFIO passthrough device
+          required: true
+          type: string
+        - name: body
+          in: body
+          description: VFIO device properties
+          required: true
+          schema:
+            $ref: "#/definitions/Vfio"
+      responses:
+        204:
+          description: VFIO device is created/updated
+        400:
+          description: VFIO device cannot be created/updated due to bad input
+          schema:
+            $ref: "#/definitions/Error"
+        default:
+          description: Internal server error.
+          schema:
+            $ref: "#/definitions/Error"
+
   /pmem/{id}:
     put:
       summary: Creates or updates a pmem device. Pre-boot only.
@@ -1287,6 +1319,23 @@ definitions:
       rate_limiter:
         $ref: "#/definitions/RateLimiter"
 
+  Vfio:
+    type: object
+    required:
+      - id
+      - sbdf
+    properties:
+      id:
+        type: string
+        description:
+          Identifier for this VFIO passthrough device.
+      sbdf:
+        type: string
+        description:
+          Host PCI device identifier. Accepted formats are full sysfs path
+          ("/sys/bus/pci/devices/0000:11:22.3"), full SBDF ("0000:11:22.3"),
+          short BDF ("11:22.3"), hex integer ("0x1113"), or decimal integer.
+
   Error:
     type: object
     properties:
@@ -1333,6 +1382,11 @@ definitions:
         $ref: "#/definitions/Vsock"
       entropy:
         $ref: "#/definitions/EntropyDevice"
+      vfio:
+        type: array
+        description: Configurations for all VFIO passthrough devices.
+        items:
+          $ref: "#/definitions/Vfio"
 
   InstanceActionInfo:
     type: object
