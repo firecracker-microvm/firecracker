@@ -21,6 +21,9 @@ use crate::vmm_config::balloon::*;
 use crate::vmm_config::boot_source::{
     BootConfig, BootSource, BootSourceConfig, BootSourceConfigError,
 };
+use crate::vmm_config::device_passthrough::{
+    DevicePassthroughConfig, DevicePassthroughConfigError, DevicePassthroughConfigs,
+};
 use crate::vmm_config::drive::*;
 use crate::vmm_config::entropy::*;
 use crate::vmm_config::instance_info::InstanceInfo;
@@ -68,6 +71,8 @@ pub enum ResourcesError {
     PmemConfig(#[from] PmemConfigError),
     /// Memory hotplug config error: {0}
     MemoryHotplugConfig(#[from] MemoryHotplugConfigError),
+    /// Device passthrough config error: {0}
+    DevicePassthroughConfig(#[from] DevicePassthroughConfigError),
 }
 
 #[derive(Serialize, Deserialize, PartialEq, Eq, Debug)]
@@ -100,6 +105,8 @@ pub struct VmmConfig {
     #[serde(skip)]
     pub serial_config: Option<SerialConfig>,
     pub memory_hotplug: Option<MemoryHotplugConfig>,
+    #[serde(default)]
+    pub device_passthrough: Vec<DevicePassthroughConfig>,
 }
 
 /// A data structure that encapsulates the device configurations
@@ -138,6 +145,8 @@ pub struct VmResources {
     pub serial_out_path: Option<PathBuf>,
     /// Optional rate limiter config for serial output.
     pub serial_rate_limiter_cfg: Option<TokenBucketConfig>,
+    /// Device passthrough configuration.
+    pub device_passthrough: DevicePassthroughConfigs,
 }
 
 impl VmResources {
@@ -237,6 +246,10 @@ impl VmResources {
 
         if let Some(memory_hotplug_config) = vmm_config.memory_hotplug {
             resources.set_memory_hotplug_config(memory_hotplug_config)?;
+        }
+
+        for config in vmm_config.device_passthrough {
+            resources.device_passthrough.add(config)?;
         }
 
         Ok(resources)
@@ -553,6 +566,7 @@ impl From<&VmResources> for VmmConfig {
             // serial_config is marked serde(skip) so that it doesnt end up in snapshots.
             serial_config: None,
             memory_hotplug: resources.memory_hotplug.clone(),
+            device_passthrough: resources.device_passthrough.configs.clone(),
         }
     }
 }
@@ -666,6 +680,7 @@ mod tests {
             serial_out_path: None,
             serial_rate_limiter_cfg: None,
             memory_hotplug: Default::default(),
+            device_passthrough: Default::default(),
         }
     }
 
