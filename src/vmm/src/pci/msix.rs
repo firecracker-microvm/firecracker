@@ -466,7 +466,7 @@ impl MsixConfig {
 
 #[repr(C, packed)]
 #[derive(Debug, Clone, Copy, Default, Serialize, Deserialize)]
-/// MSI-X PCI capability
+/// 7.7.2 MSI-X Capability and Table Structure
 pub struct MsixCap {
     /// Message Control Register
     ///   10-0:  MSI-X Table size
@@ -516,6 +516,55 @@ impl MsixCap {
             table: (table_off & 0xffff_fff8u32) | u32::from(table_pci_bar & 0x7u8),
             pba: (pba_off & 0xffff_fff8u32) | u32::from(pba_pci_bar & 0x7u8),
         }
+    }
+
+    /// Is MASKED bit set
+    pub fn masked(&self) -> bool {
+        (self.msg_ctl >> FUNCTION_MASK_BIT) & 0x1 == 0x1
+    }
+
+    /// Is ENABLED bit set
+    pub fn enabled(&self) -> bool {
+        (self.msg_ctl >> MSIX_ENABLE_BIT) & 0x1 == 0x1
+    }
+
+    /// Table offset
+    pub fn table_offset(&self) -> u32 {
+        self.table & 0xffff_fff8
+    }
+
+    /// Pba offset
+    pub fn pba_offset(&self) -> u32 {
+        self.pba & 0xffff_fff8
+    }
+
+    /// Table BAR idx
+    pub fn table_bir(&self) -> u8 {
+        (self.table & 0x7) as u8
+    }
+
+    /// PBA BAR idx
+    pub fn pba_bir(&self) -> u8 {
+        (self.pba & 0x7) as u8
+    }
+
+    /// Table size
+    pub fn table_size(&self) -> u16 {
+        (self.msg_ctl & 0x7ff) + 1
+    }
+
+    /// Table BAR offset and size in bytes
+    pub fn table_range(&self) -> (u64, u64) {
+        // The table takes 16 bytes per entry.
+        let size = self.table_size() as u64 * 16;
+        (self.table_offset() as u64, size)
+    }
+
+    /// PBA BAR offset and size in bytes
+    pub fn pba_range(&self) -> (u64, u64) {
+        // The table takes 1 bit per entry modulo 8 bytes.
+        let size = (self.table_size() as u64).div_ceil(64) * 8;
+        (self.pba_offset() as u64, size)
     }
 }
 
