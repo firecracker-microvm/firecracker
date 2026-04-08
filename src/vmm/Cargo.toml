@@ -11,13 +11,13 @@ bench = false
 [features]
 default = []
 tracing = ["log-instrument"]
-gdb = ["arrayvec", "gdbstub", "gdbstub_arch"]
+gdb = ["gdbstub", "gdbstub_arch"]
 fuzzing = []
 
 [dependencies]
 
 acpi_tables = { path = "../acpi-tables" }
-arrayvec = { version = "0.7.6", optional = true }
+arrayvec = { version = "0.7.6" }
 aws-lc-rs = "1.17.0"
 base64 = "0.22.1"
 bitcode = { version = "0.6.9", features = ["serde"] }
