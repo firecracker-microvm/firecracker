@@ -15,6 +15,7 @@ use super::request::actions::parse_put_actions;
 use super::request::balloon::{parse_get_balloon, parse_patch_balloon, parse_put_balloon};
 use super::request::boot_source::parse_put_boot_source;
 use super::request::cpu_configuration::parse_put_cpu_config;
+use super::request::device_passthrough::parse_put_device_passthrough;
 use super::request::drive::{parse_patch_drive, parse_put_drive};
 use super::request::entropy::parse_put_entropy;
 use super::request::instance_info::parse_get_instance_info;
@@ -110,6 +111,9 @@ impl TryFrom<&Request> for ParsedRequest {
             }
             (Method::Put, "snapshot", Some(body)) => parse_put_snapshot(body, path_tokens.next()),
             (Method::Put, "vsock", Some(body)) => parse_put_vsock(body),
+            (Method::Put, "device-passthrough", Some(body)) => {
+                parse_put_device_passthrough(body, path_tokens.next())
+            }
             (Method::Put, "entropy", Some(body)) => parse_put_entropy(body),
             (Method::Put, "hotplug", Some(body)) if path_tokens.next() == Some("memory") => {
                 parse_put_memory_hotplug(body)
