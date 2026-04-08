@@ -58,6 +58,7 @@ use crate::vmm_config::drive::{BlockDeviceConfig, DriveError};
 use crate::vmm_config::mmds::MmdsConfigError;
 use crate::vmm_config::net::{NetBuilder, NetworkInterfaceConfig, NetworkInterfaceError};
 use crate::vmm_config::pmem::{PmemConfig, PmemConfigError};
+use crate::vmm_config::vfio::VfioConfig;
 use crate::vstate::bus::BusError;
 use crate::vstate::memory::GuestMemoryMmap;
 use crate::vstate::vm::{KvmVm, Vm};
@@ -317,6 +318,19 @@ impl DeviceManager {
         Ok(())
     }
 
+    pub fn attach_vfio_device(
+        &mut self,
+        vm: &Arc<KvmVm>,
+        config: VfioConfig,
+    ) -> Result<(), AttachDeviceError> {
+        match &mut self.virtio_devices {
+            VirtioDevices::Mmio(_) => Err(AttachDeviceError::NotSupported),
+            VirtioDevices::Pci(devices) => devices
+                .attach_vfio_device(vm, config)
+                .map_err(AttachDeviceError::from),
+        }
+    }
+
     #[cfg(target_arch = "x86_64")]
     pub(crate) fn append_aml_bytes(
         &self,
@@ -338,7 +352,6 @@ impl DeviceManager {
         }
     }
 
-    #[cfg(target_arch = "aarch64")]
     pub(crate) fn pci_devices(&self) -> Option<&PciDevices> {
         match &self.virtio_devices {
             VirtioDevices::Pci(pci_devices) => Some(pci_devices),
@@ -776,9 +789,9 @@ impl<'a> Persist<'a> for DeviceManager {
 
 #[cfg(test)]
 pub(crate) mod tests {
-    use super::*;
     use vmm_sys_util::tempfile::TempFile;
 
+    use super::*;
     use crate::builder::tests::{
         CustomBlockConfig, default_kernel_cmdline, default_vmm, default_vmm_with_pci,
         insert_block_devices,
