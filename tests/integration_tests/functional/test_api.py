@@ -1445,6 +1445,9 @@ def test_get_full_config_after_restoring_snapshot(microvm_factory, uvm_configure
     # We should expect a null entropy device
     expected_cfg["entropy"] = None
 
+    # No passthrough devices configured
+    expected_cfg["device-passthrough"] = []
+
     # Validate full vm configuration post-restore.
     response = uvm2.api.vm_config.get().json()
     assert response != setup_cfg
@@ -1581,6 +1584,9 @@ def test_get_full_config(uvm):
 
     # We should expect a null entropy device
     expected_cfg["entropy"] = None
+
+    # No passthrough devices configured
+    expected_cfg["device-passthrough"] = []
 
     # Getting full vm configuration should be available pre-boot.
     response = test_microvm.api.vm_config.get()

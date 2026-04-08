@@ -339,6 +339,38 @@ paths:
           schema:
             $ref: "#/definitions/Error"
 
+  /device-passthrough/{id}:
+    put:
+      summary: Creates or updates a passthrough device. Pre-boot only.
+      description:
+        Creates new passthrough device with ID specified by id parameter.
+        If a device with the specified ID already exists, it updates
+        device state based on new input.
+      operationId: putGuestDevicePassthroughByID
+      parameters:
+        - name: id
+          in: path
+          description: The id of the passthrough device
+          required: true
+          type: string
+        - name: body
+          in: body
+          description: passthrough device properties
+          required: true
+          schema:
+            $ref: "#/definitions/DevicePassthrough"
+      responses:
+        204:
+          description: passthrough device is created/updated
+        400:
+          description: passthrough device cannot be created/updated due to bad input
+          schema:
+            $ref: "#/definitions/Error"
+        default:
+          description: Internal server error.
+          schema:
+            $ref: "#/definitions/Error"
+
   /pmem/{id}:
     put:
       summary: Creates or updates a pmem device. Pre-boot only.
@@ -1318,6 +1350,22 @@ definitions:
       rate_limiter:
         $ref: "#/definitions/RateLimiter"
 
+  DevicePassthrough:
+    type: object
+    required:
+      - id
+      - sbdf
+    properties:
+      id:
+        type: string
+        description:
+          Identifier for this passthrough device.
+      sbdf:
+        type: string
+        description:
+          Host PCI device identifier. Accepted formats - full SBDF ("0000:01:02.3") or
+          short BDF ("01:02.3").
+
   Error:
     type: object
     properties:
@@ -1364,6 +1412,11 @@ definitions:
         $ref: "#/definitions/Vsock"
       entropy:
         $ref: "#/definitions/EntropyDevice"
+      device-passthrough:
+        type: array
+        description: Configurations for all device passthrough devices.
+        items:
+          $ref: "#/definitions/DevicePassthrough"
 
   InstanceActionInfo:
     type: object

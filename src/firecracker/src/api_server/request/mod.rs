@@ -5,6 +5,7 @@ pub mod actions;
 pub mod balloon;
 pub mod boot_source;
 pub mod cpu_configuration;
+pub mod device_passthrough;
 pub mod drive;
 pub mod entropy;
 pub mod hotplug;
