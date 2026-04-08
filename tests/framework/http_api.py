@@ -201,3 +201,4 @@ class Api:
         self.pmem = Resource(self, "/pmem", "id")
         self.serial = Resource(self, "/serial")
         self.memory_hotplug = Resource(self, "/hotplug/memory")
+        self.device_passthrough = Resource(self, "/device-passthrough", "id")
