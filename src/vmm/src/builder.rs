@@ -50,6 +50,7 @@ use crate::utils::{u32_mib_to_bytes, u64_to_usize};
 use crate::vmm_config::boot_source::{
     DEFAULT_KERNEL_CMDLINE, append_root_device_cmdline, build_cmdline,
 };
+use crate::vmm_config::device_passthrough::DevicePassthroughConfig;
 use crate::vmm_config::instance_info::{InstanceInfo, VmState};
 use crate::vmm_config::machine_config::MachineConfigError;
 use crate::vmm_config::memory_hotplug::MemoryHotplugConfig;
@@ -288,6 +289,12 @@ pub fn build_microvm_for_boot(
             virtio_mem_addr.expect("address should be allocated"),
         )?;
     }
+
+    attach_vfio_devices(
+        &mut device_manager,
+        &vm,
+        &vm_resources.device_passthrough.configs,
+    )?;
 
     #[cfg(target_arch = "aarch64")]
     device_manager.attach_legacy_devices_aarch64(
@@ -619,6 +626,18 @@ fn allocate_virtio_mem_address(
         )?
         .start();
     Ok(GuestAddress(addr))
+}
+
+fn attach_vfio_devices(
+    device_manager: &mut DeviceManager,
+    vm: &Vm,
+    configs: &[DevicePassthroughConfig],
+) -> Result<(), StartMicrovmError> {
+    let kvm_vm = vm.as_kvm().ok_or(AttachDeviceError::NotSupported)?;
+    for config in configs.iter() {
+        device_manager.attach_vfio_device(kvm_vm, config.clone())?;
+    }
+    Ok(())
 }
 
 fn attach_virtio_mem_device(

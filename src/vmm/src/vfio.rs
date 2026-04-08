@@ -1,9 +1,6 @@
 // Copyright 2026 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-// TODO remove this once all code is used
-#![allow(dead_code)]
-
 use std::ops::DerefMut;
 use std::os::fd::AsRawFd;
 use std::path::Path;
@@ -88,7 +85,7 @@ pub enum VfioError {
 /// Description of the area within some BAR where all reads/writes are emulated.
 /// This is used for emulation of reads/writes to the MSIx table.
 #[derive(Debug, Copy, Clone)]
-struct VfioBarEmulatedArea {
+pub struct VfioBarEmulatedArea {
     bar_idx: u8,
     in_bar_offset: u64,
     gpa: u64,
@@ -194,6 +191,12 @@ impl VfioDevice {
         sbdf: PciSBDF,
     ) -> Result<VfioDevice, VfioError> {
         vfio_init_device(container, vm, config, sbdf)
+    }
+
+    /// Return a `gpa`/`size` of the mmio emulated area needed to be registered with `mmio_bus`
+    pub fn mmio_area(&self) -> (u64, u64) {
+        let emulated_area = &self.msix_state.emulated_area;
+        (emulated_area.gpa, emulated_area.size)
     }
 }
 
@@ -1217,7 +1220,7 @@ fn vfio_init_device(
     Ok(vfio_device)
 }
 
-/// Performs device reset and removes emulated regions from the mmio_bus.
+/// Performs device teardown.
 fn vfio_deinit_device(device: &VfioDevice) {
     device.device.reset();
 
