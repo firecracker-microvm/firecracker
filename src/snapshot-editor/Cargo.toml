@@ -17,9 +17,9 @@ clap = { version = "4.6.0", features = ["derive", "string"] }
 displaydoc = "0.2.5"
 
 fc_utils = { package = "utils", path = "../utils" }
-libc = "0.2.183"
+libc = "0.2.184"
 log-instrument = { path = "../log-instrument", optional = true }
-semver = "1.0.27"
+semver = "1.0.28"
 thiserror = "2.0.18"
 vmm = { path = "../vmm" }
 vmm-sys-util = "0.15.0"
