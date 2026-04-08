@@ -49,6 +49,8 @@ thiserror = "2.0.18"
 userfaultfd = "0.9.0"
 utils = { path = "../utils" }
 uuid = "1.23.2"
+vfio-bindings = "0.6.2"
+vfio-ioctls = { version = "0.6.0", default-features = false, features = ["kvm"] }
 vhost = { version = "0.15.0", features = ["vhost-user-frontend"] }
 vm-allocator = { version = "0.1.3", features = ["serde"] }
 vm-memory = { version = "0.17.1", features = [
