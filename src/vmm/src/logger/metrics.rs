@@ -473,6 +473,10 @@ pub struct PutRequestsMetrics {
     pub hotplug_memory_count: SharedIncMetric,
     /// Number of failed PUTs to /hotplug/memory
     pub hotplug_memory_fails: SharedIncMetric,
+    /// Number of PUTs triggering a passthrough device attach.
+    pub device_passthrough_count: SharedIncMetric,
+    /// Number of failures in attaching a passthrough device.
+    pub device_passthrough_fails: SharedIncMetric,
 }
 impl PutRequestsMetrics {
     /// Const default construction.
@@ -504,6 +508,8 @@ impl PutRequestsMetrics {
             serial_fails: SharedIncMetric::new(),
             hotplug_memory_count: SharedIncMetric::new(),
             hotplug_memory_fails: SharedIncMetric::new(),
+            device_passthrough_count: SharedIncMetric::new(),
+            device_passthrough_fails: SharedIncMetric::new(),
         }
     }
 }
