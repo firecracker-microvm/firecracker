@@ -17,7 +17,7 @@ pub enum VfioConfigError {
 pub struct VfioConfig {
     /// ID of the device
     pub id: String,
-    /// Path to the device
+    /// Sysfs path to the PCI device
     pub path_on_host: String,
 }
 
