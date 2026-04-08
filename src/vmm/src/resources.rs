@@ -21,6 +21,9 @@ use crate::vmm_config::balloon::*;
 use crate::vmm_config::boot_source::{
     BootConfig, BootSource, BootSourceConfig, BootSourceConfigError,
 };
+use crate::vmm_config::device_passthrough::{
+    DevicePassthroughConfig, DevicePassthroughConfigError, DevicePassthroughConfigs,
+};
 use crate::vmm_config::drive::*;
 use crate::vmm_config::enclave::EnclaveConfig;
 use crate::vmm_config::entropy::*;
@@ -69,6 +72,8 @@ pub enum ResourcesError {
     PmemConfig(#[from] PmemConfigError),
     /// Memory hotplug config error: {0}
     MemoryHotplugConfig(#[from] MemoryHotplugConfigError),
+    /// Device passthrough config error: {0}
+    DevicePassthroughConfig(#[from] DevicePassthroughConfigError),
 }
 
 #[derive(Serialize, Deserialize, PartialEq, Eq, Debug)]
@@ -104,6 +109,8 @@ pub struct VmmConfig {
     /// Enclave configuration for Nitro Enclaves.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub enclave: Option<EnclaveConfig>,
+    #[serde(default)]
+    pub device_passthrough: Vec<DevicePassthroughConfig>,
 }
 
 /// A data structure that encapsulates the device configurations
@@ -144,6 +151,8 @@ pub struct VmResources {
     pub serial_rate_limiter_cfg: Option<TokenBucketConfig>,
     /// Enclave configuration for Nitro Enclaves.
     pub enclave: Option<EnclaveConfig>,
+    /// Device passthrough configuration.
+    pub device_passthrough: DevicePassthroughConfigs,
 }
 
 impl VmResources {
@@ -268,6 +277,10 @@ impl VmResources {
 
         if let Some(enclave) = vmm_config.enclave {
             resources.set_enclave_config(enclave);
+        }
+
+        for config in vmm_config.device_passthrough {
+            resources.device_passthrough.add(config)?;
         }
 
         Ok(resources)
@@ -631,6 +644,7 @@ impl From<&VmResources> for VmmConfig {
             serial_config: None,
             memory_hotplug: resources.memory_hotplug.clone(),
             enclave: resources.enclave.clone(),
+            device_passthrough: resources.device_passthrough.configs.clone(),
         }
     }
 }
@@ -757,6 +771,7 @@ mod tests {
             serial_rate_limiter_cfg: None,
             memory_hotplug: Default::default(),
             enclave: None,
+            device_passthrough: Default::default(),
         }
     }
 
