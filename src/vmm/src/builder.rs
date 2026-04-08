@@ -52,6 +52,7 @@ use crate::vmm_config::instance_info::{InstanceInfo, VmState};
 use crate::vmm_config::machine_config::MachineConfigError;
 use crate::vmm_config::memory_hotplug::MemoryHotplugConfig;
 use crate::vmm_config::pmem::PmemConfig;
+use crate::vmm_config::vfio::VfioConfig;
 use crate::vstate::kvm::{Kvm, KvmError};
 use crate::vstate::memory::GuestRegionMmap;
 #[cfg(target_arch = "aarch64")]
@@ -284,6 +285,8 @@ pub fn build_microvm_for_boot(
             virtio_mem_addr.expect("address should be allocated"),
         )?;
     }
+
+    attach_vfio_devices(&mut device_manager, &vm, &vm_resources.vfio.configs)?;
 
     #[cfg(target_arch = "aarch64")]
     device_manager.attach_legacy_devices_aarch64(
@@ -637,6 +640,22 @@ fn allocate_virtio_mem_address(
         )?
         .start();
     Ok(GuestAddress(addr))
+}
+
+fn attach_vfio_devices(
+    device_manager: &mut DeviceManager,
+    vm: &Vm,
+    configs: &[VfioConfig],
+) -> Result<(), StartMicrovmError> {
+    let kvm_vm = vm.as_kvm().ok_or(AttachDeviceError::NotSupported)?;
+    for config in configs.iter() {
+        device_manager
+            .pci_devices
+            // NOTE: technically, there is no reason to clone,
+            // but unfortunately vm_resources are not mutable.
+            .attach_vfio_device(kvm_vm, config.clone())?;
+    }
+    Ok(())
 }
 
 fn attach_virtio_mem_device(

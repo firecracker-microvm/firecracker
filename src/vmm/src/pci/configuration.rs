@@ -90,6 +90,14 @@ pub enum BarPrefetchable {
     Yes = 1,
 }
 
+impl From<bool> for BarPrefetchable {
+    fn from(value: bool) -> Self {
+        // SAFETY: BarPrefetchable is #[repr(u8)] with No = 0 and Yes = 1,
+        // which matches the guaranteed bool representation (false = 0, true = 1).
+        unsafe { std::mem::transmute(value) }
+    }
+}
+
 /// Type to handle basic interactions with BARs region
 #[derive(Debug, Default, Clone, Copy, Serialize, Deserialize)]
 pub struct Bars {
