@@ -585,6 +585,14 @@ impl VmResources {
         };
         Ok(regions.pop().unwrap())
     }
+
+    /// Adds a passthrough device configuration.
+    pub fn set_passthrough_device(
+        &mut self,
+        config: DevicePassthroughConfig,
+    ) -> Result<(), DevicePassthroughConfigError> {
+        self.device_passthrough.add(config)
+    }
 }
 
 impl From<&VmResources> for VmmConfig {
