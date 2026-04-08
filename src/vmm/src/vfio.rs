@@ -1,9 +1,6 @@
 // Copyright 2026 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-// TODO remove this once all code is used
-#![allow(dead_code)]
-
 use std::ops::DerefMut;
 use std::os::fd::AsRawFd;
 use std::path::Path;
@@ -88,11 +85,13 @@ pub enum VfioError {
 /// Description of the area within some BAR where all reads/writes are emulated.
 /// This is used for emulation of reads/writes to the MSIx table.
 #[derive(Debug, Copy, Clone)]
-struct VfioBarEmulatedArea {
+pub struct VfioBarEmulatedArea {
     bar_idx: u8,
     in_bar_offset: u64,
-    gpa: u64,
-    size: u64,
+    /// GPA of the area
+    pub gpa: u64,
+    /// Size of the area
+    pub size: u64,
 }
 
 // TODO with addition of BAR relocation to `Bars` type, guest now can change the gpa addresses of
@@ -140,13 +139,13 @@ struct VfioBarMapping {
 
 /// Container for everything MSIx related
 #[derive(Debug)]
-struct VfioMsixState {
+pub struct VfioMsixState {
     /// Register idx where the capability is in the configuration space
     register: u8,
     cap: MsixCap,
     /// Emulated area for the MSIX Table. The PBA is passed through since it is read-only and
     /// filled by the device itself.
-    emulated_area: VfioBarEmulatedArea,
+    pub emulated_area: VfioBarEmulatedArea,
     config: MsixConfig,
 }
 
@@ -171,7 +170,8 @@ pub struct VfioDevice {
     device: InternalVfioDevice,
     bars: VfioBars,
     bar_mappings: Vec<VfioBarMapping>,
-    msix_state: VfioMsixState,
+    /// MSIx state of the VFIO device
+    pub msix_state: VfioMsixState,
     masks: Vec<VfioRegisterMask>,
     vm: Arc<KvmVm>,
 }
@@ -1217,7 +1217,7 @@ fn vfio_init_device(
     Ok(vfio_device)
 }
 
-/// Performs device reset and removes emulated regions from the mmio_bus.
+/// Performs device teardown.
 fn vfio_deinit_device(device: &VfioDevice) {
     device.device.reset();
 
