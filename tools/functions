@@ -132,7 +132,7 @@ function validate_version {
 
 # Wait for dockerd to come up in devctr
 prepare_docker() {
-    nohup /usr/bin/dockerd --host=unix:///var/run/docker.sock --host=tcp://127.0.0.1:2375 &
+    nohup /usr/bin/dockerd --host=unix:///var/run/docker.sock --host=tcp://127.0.0.1:2375 --storage-engine=vfs &
 
     # Wait for Docker socket to be created
     timeout 15 sh -c "until docker info; do echo .; sleep 1; done"
