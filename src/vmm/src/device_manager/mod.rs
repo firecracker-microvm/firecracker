@@ -56,6 +56,7 @@ use crate::rpc_interface::VmmActionError;
 use crate::snapshot::Persist;
 use crate::utils::open_file_nonblock;
 use crate::vmm_config::HotplugDeviceConfig;
+use crate::vmm_config::device_passthrough::DevicePassthroughConfig;
 use crate::vmm_config::drive::{BlockDeviceConfig, DriveError};
 use crate::vmm_config::mmds::MmdsConfigError;
 use crate::vmm_config::net::{NetBuilder, NetworkInterfaceConfig, NetworkInterfaceError};
@@ -333,6 +334,19 @@ impl DeviceManager {
         self.acpi_devices.attach_vmclock(vm)?;
         self.acpi_devices.activate_vmclock(vm)?;
         Ok(())
+    }
+
+    pub fn attach_vfio_device(
+        &mut self,
+        vm: &Arc<KvmVm>,
+        config: DevicePassthroughConfig,
+    ) -> Result<(), AttachDeviceError> {
+        match &mut self.virtio_devices {
+            VirtioDevices::Mmio(_) => Err(AttachDeviceError::NotSupported),
+            VirtioDevices::Pci(devices) => devices
+                .attach_vfio_device(vm, config)
+                .map_err(AttachDeviceError::from),
+        }
     }
 
     #[cfg(target_arch = "x86_64")]
@@ -872,9 +886,9 @@ impl<'a> Persist<'a> for DeviceManager {
 
 #[cfg(test)]
 pub(crate) mod tests {
-    use super::*;
     use vmm_sys_util::tempfile::TempFile;
 
+    use super::*;
     use crate::builder::tests::{
         CustomBlockConfig, default_kernel_cmdline, default_vmm, default_vmm_with_hotplug_ports,
         default_vmm_with_pci, insert_block_devices,
