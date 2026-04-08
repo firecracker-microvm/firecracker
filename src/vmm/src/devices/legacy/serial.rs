@@ -16,7 +16,7 @@ use event_manager::{EventOps, Events, MutEventSubscriber};
 use libc::EFD_NONBLOCK;
 use log::{error, warn};
 use serde::Serialize;
-use vm_superio::serial::{Error as SerialError, SerialEvents};
+use vm_superio::serial::{Error as SerialError, SerialEvents, SerialState};
 use vm_superio::{Serial, Trigger};
 use vmm_sys_util::epoll::EventSet;
 use vmm_sys_util::eventfd::EventFd;
@@ -24,12 +24,6 @@ use vmm_sys_util::eventfd::EventFd;
 use crate::devices::legacy::EventFdTrigger;
 use crate::logger::{IncMetric, SharedIncMetric};
 use crate::vstate::bus::BusDevice;
-
-/// Received Data Available interrupt - for letting the driver know that
-/// there is some pending data to be processed.
-pub const IER_RDA_BIT: u8 = 0b0000_0001;
-/// Received Data Available interrupt offset
-pub const IER_RDA_OFFSET: u8 = 1;
 
 /// Metrics specific to the UART device.
 #[derive(Debug, Serialize, Default)]
@@ -230,17 +224,26 @@ impl<I: Read + AsRawFd + Send + Debug> SerialWrapper<EventFdTrigger, SerialEvent
 pub type SerialDevice = SerialWrapper<EventFdTrigger, SerialEventsWrapper, Stdin>;
 
 impl SerialDevice {
-    pub fn new(serial_in: Option<Stdin>, serial_out: SerialOut) -> Result<Self, std::io::Error> {
+    pub fn new(
+        serial_in: Option<Stdin>,
+        serial_out: SerialOut,
+        state: Option<&SerialState>,
+    ) -> Result<Self, std::io::Error> {
         let interrupt_evt = EventFdTrigger::new(EventFd::new(EFD_NONBLOCK)?);
         let buffer_read_event_fd = EventFdTrigger::new(EventFd::new(EFD_NONBLOCK)?);
+        let events = SerialEventsWrapper {
+            buffer_ready_event_fd: Some(buffer_read_event_fd),
+        };
 
-        let serial = Serial::with_events(
-            interrupt_evt,
-            SerialEventsWrapper {
-                buffer_ready_event_fd: Some(buffer_read_event_fd),
-            },
-            serial_out,
-        );
+        let serial =
+            match state {
+                Some(state) => Serial::from_state(state, interrupt_evt, events, serial_out)
+                    .map_err(|err| match err {
+                        SerialError::Trigger(e) | SerialError::IOError(e) => e,
+                        SerialError::FullFifo => std::io::Error::other("FIFO buffer too large"),
+                    })?,
+                None => Serial::with_events(interrupt_evt, events, serial_out),
+            };
 
         Ok(SerialDevice {
             serial,
@@ -431,6 +434,24 @@ mod tests {
         let invalid_reads_after_2 = metrics.missed_read_count.count();
         // The `invalid_read_count` metric should be the same as before the one-byte reads.
         assert_eq!(invalid_reads_after_2, invalid_reads_after);
+    }
+
+    #[test]
+    fn test_restore_from_state() {
+        let mut serial = SerialDevice::new(None, SerialOut::Sink, None).unwrap();
+        serial.serial.raw_input(b"abc").unwrap();
+
+        let state = serial.serial.state();
+        let mut restored = SerialDevice::new(None, SerialOut::Sink, Some(&state)).unwrap();
+
+        // Make sure we read back what we previously injected
+        let mut buf = [0u8; 1];
+        restored.read(0, 0, &mut buf);
+        assert_eq!(buf[0], b'a');
+        restored.read(0, 0, &mut buf);
+        assert_eq!(buf[0], b'b');
+        restored.read(0, 0, &mut buf);
+        assert_eq!(buf[0], b'c');
     }
 
     #[test]

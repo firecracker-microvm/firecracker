@@ -160,7 +160,7 @@ pub enum CreateSnapshotError {
 }
 
 /// Snapshot version
-pub const SNAPSHOT_VERSION: Version = Version::new(9, 0, 0);
+pub const SNAPSHOT_VERSION: Version = Version::new(10, 0, 0);
 
 /// Creates a Microvm snapshot.
 pub fn create_snapshot(
@@ -466,6 +466,7 @@ pub fn restore_from_snapshot(
         uffd,
         seccomp_filters,
         vm_resources,
+        params.clock_realtime,
     )
     .map_err(RestoreFromSnapshotError::Build)
 }

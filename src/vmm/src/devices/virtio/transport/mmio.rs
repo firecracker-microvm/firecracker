@@ -168,23 +168,51 @@ impl MmioTransport {
     #[allow(unused_assignments)]
     fn set_device_status(&mut self, status: u32) {
         use device_status::*;
-        // match changed bits
-        match !self.device_status & status {
-            ACKNOWLEDGE if self.device_status == INIT => {
-                self.device_status = status;
-            }
-            DRIVER if self.device_status == ACKNOWLEDGE => {
-                self.device_status = status;
-            }
-            FEATURES_OK if self.device_status == (ACKNOWLEDGE | DRIVER) => {
-                self.device_status = status;
-            }
-            DRIVER_OK if self.device_status == (ACKNOWLEDGE | DRIVER | FEATURES_OK) => {
-                self.device_status = status;
+
+        const VALID_TRANSITIONS: &[(u32, u32)] = &[
+            (INIT, ACKNOWLEDGE),
+            (ACKNOWLEDGE, ACKNOWLEDGE | DRIVER),
+            (ACKNOWLEDGE | DRIVER, ACKNOWLEDGE | DRIVER | FEATURES_OK),
+            (
+                ACKNOWLEDGE | DRIVER | FEATURES_OK,
+                ACKNOWLEDGE | DRIVER | FEATURES_OK | DRIVER_OK,
+            ),
+        ];
+
+        if (status & FAILED) != 0 {
+            // TODO: notify backend driver to stop the device
+            self.device_status |= FAILED;
+        } else if status == INIT {
+            {
                 let mut locked_device = self.device.lock().expect("Poisoned lock");
-                let device_activated = locked_device.is_activated();
-                if !device_activated {
-                    // temporary variable needed for borrow checker
+                if locked_device.is_activated() {
+                    let mut device_status = self.device_status;
+                    let reset_result = locked_device.reset();
+                    match reset_result {
+                        Some((_interrupt_evt, mut _queue_evts)) => {}
+                        None => {
+                            device_status |= FAILED;
+                        }
+                    }
+                    self.device_status = device_status;
+                }
+            }
+
+            // If the backend device driver doesn't support reset,
+            // just leave the device marked as FAILED.
+            if self.device_status & FAILED == 0 {
+                self.reset();
+            }
+        } else if VALID_TRANSITIONS
+            .iter()
+            .any(|&(from, to)| self.device_status == from && status == to)
+        {
+            self.device_status = status;
+
+            // Activate the device when transitioning to DRIVER_OK.
+            if status == (ACKNOWLEDGE | DRIVER | FEATURES_OK | DRIVER_OK) {
+                let mut locked_device = self.device.lock().expect("Poisoned lock");
+                if !locked_device.is_activated() {
                     let activate_result =
                         locked_device.activate(self.mem.clone(), self.interrupt.clone());
                     if let Err(err) = activate_result {
@@ -198,38 +226,11 @@ impl MmioTransport {
                     }
                 }
             }
-            _ if (status & FAILED) != 0 => {
-                // TODO: notify backend driver to stop the device
-                self.device_status |= FAILED;
-            }
-            _ if status == 0 => {
-                {
-                    let mut locked_device = self.device.lock().expect("Poisoned lock");
-                    if locked_device.is_activated() {
-                        let mut device_status = self.device_status;
-                        let reset_result = locked_device.reset();
-                        match reset_result {
-                            Some((_interrupt_evt, mut _queue_evts)) => {}
-                            None => {
-                                device_status |= FAILED;
-                            }
-                        }
-                        self.device_status = device_status;
-                    }
-                }
-
-                // If the backend device driver doesn't support reset,
-                // just leave the device marked as FAILED.
-                if self.device_status & FAILED == 0 {
-                    self.reset();
-                }
-            }
-            _ => {
-                warn!(
-                    "invalid virtio driver status transition: {:#x} -> {:#x}",
-                    self.device_status, status
-                );
-            }
+        } else {
+            warn!(
+                "invalid virtio driver status transition: {:#x} -> {:#x}",
+                self.device_status, status
+            );
         }
     }
 }
@@ -971,14 +972,6 @@ pub(crate) mod tests {
                 | device_status::DRIVER_OK
         );
         assert!(d.locked_device().is_activated());
-
-        // A write which changes the size of a queue after activation; currently only triggers
-        // a warning path and have no effect on queue state.
-        write_le_u32(&mut buf[..], 0);
-        d.queue_select = 0;
-        d.write(0x0, 0x44, &buf[..]);
-        d.read(0x0, 0x44, &mut buf[..]);
-        assert_eq!(read_le_u32(&buf[..]), 1);
     }
 
     #[test]
@@ -1074,6 +1067,61 @@ pub(crate) mod tests {
         assert!(d.locked_device().is_activated());
     }
 
+    fn read_device_status(d: &mut MmioTransport) -> u32 {
+        let mut buf = [0; 4];
+        d.read(0x0, 0x70, &mut buf[..]);
+        read_le_u32(&buf[..])
+    }
+
+    #[test]
+    fn test_device_status_invalid_transitions() {
+        let m = single_region_mem(0x1000);
+        let interrupt: Arc<IrqTrigger> = Arc::new(IrqTrigger::new());
+        let mut d = MmioTransport::new(
+            m,
+            interrupt,
+            Arc::new(Mutex::new(DummyDevice::new())),
+            false,
+        );
+
+        let mut assert_rejected = |d: &mut MmioTransport, new: u32, expected: u32| {
+            set_device_status(d, new);
+            assert_eq!(
+                read_device_status(d),
+                expected,
+                "transition to {new:#x} should be rejected"
+            );
+        };
+
+        // Skip ACKNOWLEDGE: INIT -> ACKNOWLEDGE | DRIVER
+        assert_rejected(
+            &mut d,
+            device_status::ACKNOWLEDGE | device_status::DRIVER,
+            device_status::INIT,
+        );
+        // Arbitrary value from INIT
+        assert_rejected(&mut d, 0x42, device_status::INIT);
+
+        // Advance to ACKNOWLEDGE | DRIVER | FEATURES_OK
+        set_device_status(&mut d, device_status::ACKNOWLEDGE);
+        set_device_status(&mut d, device_status::ACKNOWLEDGE | device_status::DRIVER);
+        set_device_status(
+            &mut d,
+            device_status::ACKNOWLEDGE | device_status::DRIVER | device_status::FEATURES_OK,
+        );
+        let expected =
+            device_status::ACKNOWLEDGE | device_status::DRIVER | device_status::FEATURES_OK;
+
+        // Go back: FEATURES_OK -> DRIVER
+        assert_rejected(
+            &mut d,
+            device_status::ACKNOWLEDGE | device_status::DRIVER,
+            expected,
+        );
+        // Valid transition FEATURES_OK -> DRIVER_OK but without cumulative bits
+        assert_rejected(&mut d, device_status::DRIVER_OK, expected);
+    }
+
     #[test]
     fn test_bus_device_reset() {
         let m = single_region_mem(0x1000);
@@ -1131,6 +1179,69 @@ pub(crate) mod tests {
         dummy_dev.set_avail_features(8);
         dummy_dev.ack_features_by_page(0, 8);
         assert_eq!(dummy_dev.acked_features(), 24);
+    }
+
+    #[test]
+    fn test_queue_config_immutable_after_activation() {
+        // Verify that writes to queue configuration fields are rejected after the device has been
+        // activated (DRIVER_OK).  These MMIO registers are write-only (reads return 0), so this
+        // cannot be tested at the integration level via /dev/mem readback.
+        let mem = single_region_mem(0x1000);
+        let interrupt = Arc::new(IrqTrigger::new());
+        let mut dev = MmioTransport::new(
+            mem,
+            interrupt,
+            Arc::new(Mutex::new(DummyDevice::new())),
+            false,
+        );
+        activate_device(&mut dev);
+
+        dev.queue_select = 0;
+
+        // Save the queue state right after activation.
+        let size_before = dev.locked_device().queues()[0].size;
+        let ready_before = dev.locked_device().queues()[0].ready;
+        let desc_before = dev.locked_device().queues()[0].desc_table_address;
+        let avail_before = dev.locked_device().queues()[0].avail_ring_address;
+        let used_before = dev.locked_device().queues()[0].used_ring_address;
+
+        // Attempt to poison every queue config register.
+        let mut buf = [0u8; 4];
+
+        // QueueNum (0x38)
+        write_le_u32(&mut buf, 0);
+        dev.write(0x0, 0x38, &buf);
+        assert_eq!(dev.locked_device().queues()[0].size, size_before);
+
+        // QueueReady (0x44)
+        write_le_u32(&mut buf, 0);
+        dev.write(0x0, 0x44, &buf);
+        assert_eq!(dev.locked_device().queues()[0].ready, ready_before);
+
+        // QueueDescLow/High (0x80, 0x84)
+        write_le_u32(&mut buf, 0xDEADBEEF);
+        dev.write(0x0, 0x80, &buf);
+        dev.write(0x0, 0x84, &buf);
+        assert_eq!(
+            dev.locked_device().queues()[0].desc_table_address,
+            desc_before
+        );
+
+        // QueueAvailLow/High (0x90, 0x94)
+        dev.write(0x0, 0x90, &buf);
+        dev.write(0x0, 0x94, &buf);
+        assert_eq!(
+            dev.locked_device().queues()[0].avail_ring_address,
+            avail_before
+        );
+
+        // QueueUsedLow/High (0xa0, 0xa4)
+        dev.write(0x0, 0xa0, &buf);
+        dev.write(0x0, 0xa4, &buf);
+        assert_eq!(
+            dev.locked_device().queues()[0].used_ring_address,
+            used_before
+        );
     }
 
     #[test]

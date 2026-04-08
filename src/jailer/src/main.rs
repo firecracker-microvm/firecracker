@@ -3,6 +3,9 @@
 
 use std::ffi::{CString, NulError, OsString};
 use std::fmt::{Debug, Display};
+use std::fs::OpenOptions;
+use std::io::Read;
+use std::os::unix::fs::OpenOptionsExt;
 use std::path::{Path, PathBuf};
 use std::{env as p_env, fs, io};
 
@@ -240,12 +243,25 @@ where
     T: AsRef<Path> + Debug,
     V: Display + Debug,
 {
-    fs::write(file_path, format!("{}\n", value))
+    let mut file = OpenOptions::new()
+        .write(true)
+        .create(true)
+        .truncate(true)
+        .custom_flags(libc::O_NOFOLLOW)
+        .open(file_path.as_ref())
+        .map_err(|err| JailerError::Write(PathBuf::from(file_path.as_ref()), err))?;
+    io::Write::write_all(&mut file, format!("{}\n", value).as_bytes())
         .map_err(|err| JailerError::Write(PathBuf::from(file_path.as_ref()), err))
 }
 
 pub fn readln_special<T: AsRef<Path> + Debug>(file_path: &T) -> Result<String, JailerError> {
-    let mut line = fs::read_to_string(file_path)
+    let mut file = OpenOptions::new()
+        .read(true)
+        .custom_flags(libc::O_NOFOLLOW)
+        .open(file_path.as_ref())
+        .map_err(|err| JailerError::ReadToString(PathBuf::from(file_path.as_ref()), err))?;
+    let mut line = String::new();
+    file.read_to_string(&mut line)
         .map_err(|err| JailerError::ReadToString(PathBuf::from(file_path.as_ref()), err))?;
 
     // Remove the newline character at the end (if any).

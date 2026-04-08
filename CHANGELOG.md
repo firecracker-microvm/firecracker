@@ -32,6 +32,12 @@ and this project adheres to
   HID (Hardware ID) of VMGenID device so that it aligns with the upstream Linux
   kernel. This caused the driver not to be bound correctly to the device prior
   to Linux kernel 6.10.
+- [#5764](https://github.com/firecracker-microvm/firecracker/pull/5764): Fixed a
+  bug that caused the guest UART driver to get stuck and stop transmitting after
+  snapshot restore. The bug was triggered by taking a snapshot while a serial
+  transmission was taking place. On restore the driver would wait for a TX
+  interrupt that would never arrive and no output would appear in the serial
+  console.
 - [#5780](https://github.com/firecracker-microvm/firecracker/pull/5780): Fixed
   missing `/sys/devices/system/cpu/cpu*/cache/*` in aarch64 guests when running
   on host kernels >= 6.3 with guest kernels >= 6.1.156.
@@ -44,6 +50,27 @@ and this project adheres to
   balloon statistics descriptor length to prevent a guest-controlled oversized
   descriptor from temporarily stalling the VMM event loop. Only affects microVMs
   with `stats_polling_interval_s > 0`.
+- [#5809](https://github.com/firecracker-microvm/firecracker/pull/5809): Fixed a
+  bug on host Linux >= 5.16 for x86_64 guests using the `kvm-clock` clock source
+  causing the monotonic clock to jump on restore by the wall-clock time elapsed
+  since the snapshot was taken. Users using `kvm-clock` that want to explicitly
+  advance the clock with `KVM_CLOCK_REALTIME` can opt back in using the new
+  `clock_realtime` flag in `LoadSnapshot` API.
+- [#5738](https://github.com/firecracker-microvm/firecracker/pull/5738): Fixed
+  x86_64 snapshot serialization to cover the full KVM custom MSR range
+  (0x4b564d00-0x4b564dff) instead of a small subset. Previously, some KVM MSRs
+  such as MSR_KVM_ASYNC_PF_INT and MSR_KVM_ASYNC_PF_ACK were missing from
+  snapshots, which could cause issues on restore.
+- [#5818](https://github.com/firecracker-microvm/firecracker/pull/5818): Enforce
+  the virtio device initialization sequence in the PCI transport, matching the
+  existing MMIO transport behavior. The PCI transport now validates device
+  status transitions, rejects queue configuration writes outside the FEATURES_OK
+  to DRIVER_OK window, rejects feature negotiation outside the DRIVER state,
+  blocks re-initialization after a failed reset, and sets DEVICE_NEEDS_RESET
+  when device activation fails.
+- [#5818](https://github.com/firecracker-microvm/firecracker/pull/5818): Reject
+  device status writes that clear previously set bits in the MMIO transport,
+  except for reset.
 
 ## [1.15.0]
 

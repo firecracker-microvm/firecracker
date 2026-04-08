@@ -279,11 +279,6 @@ pub(crate) fn mem_size_mib(guest_memory: &GuestMemoryMmap) -> u64 {
     guest_memory.iter().map(|region| region.len()).sum::<u64>() >> 20
 }
 
-// Error type for [`Vmm::emulate_serial_init`].
-/// Emulate serial init error: {0}
-#[derive(Debug, thiserror::Error, displaydoc::Display)]
-pub struct EmulateSerialInitError(#[from] std::io::Error);
-
 /// Error type for [`Vmm::start_vcpus`].
 #[derive(Debug, thiserror::Error, displaydoc::Display)]
 pub enum StartVcpusError {

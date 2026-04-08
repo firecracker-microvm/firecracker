@@ -96,6 +96,11 @@ namespace isolation and drops privileges of the Firecracker process.
 
 To set up the jailer correctly, you'll need to:
 
+- Ensure that all paths provided to the jailer (`--exec-file`,
+  `--chroot-base-dir`, `--netns`) and their parent directories are not writable
+  by unprivileged users. The jailer treats all its inputs as trusted; it is the
+  operator's responsibility to ensure that these paths cannot be tampered with
+  by other local users.
 - Create a dedicated non-privileged POSIX user and group to run Firecracker
   under. Use the created POSIX user and group IDs in Jailer's `--uid <uid>` and
   `--gid <gid>` flags, respectively. This will run the Firecracker as the

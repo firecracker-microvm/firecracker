@@ -14,12 +14,12 @@ use std::sync::{Arc, Mutex};
 #[cfg(target_arch = "x86_64")]
 use acpi_tables::{Aml, aml};
 use log::info;
-use pci::PciBdf;
 #[cfg(target_arch = "x86_64")]
 use uuid::Uuid;
 use vm_allocator::AddressAllocator;
 
 use crate::arch::{ArchVm as Vm, PCI_MMCONFIG_START, PCI_MMIO_CONFIG_SIZE_PER_SEGMENT};
+use crate::pci::PciSBDF;
 #[cfg(target_arch = "x86_64")]
 use crate::pci::bus::{PCI_CONFIG_IO_PORT, PCI_CONFIG_IO_PORT_SIZE};
 use crate::pci::bus::{PciBus, PciConfigIo, PciConfigMmio, PciRoot, PciRootError};
@@ -165,16 +165,11 @@ impl PciSegment {
         Ok(segment)
     }
 
-    pub(crate) fn next_device_bdf(&self) -> Result<PciBdf, PciRootError> {
-        Ok(PciBdf::new(
+    pub(crate) fn next_device_sbdf(&self) -> Result<PciSBDF, PciRootError> {
+        Ok(PciSBDF::new(
             self.id,
             0,
-            self.pci_bus
-                .lock()
-                .unwrap()
-                .next_device_id()?
-                .try_into()
-                .unwrap(),
+            self.pci_bus.lock().unwrap().next_device_id()?,
             0,
         ))
     }
@@ -544,14 +539,14 @@ mod tests {
 
         // Start checking from device id 1, since 0 is allocated to the Root port.
         for dev_id in 1..32 {
-            let bdf = pci_segment.next_device_bdf().unwrap();
+            let sbdf = pci_segment.next_device_sbdf().unwrap();
             // In our case we have a single Segment with id 0, which has
             // a single bus with id 0. Also, each device of ours has a
             // single function.
-            assert_eq!(bdf, PciBdf::new(0, 0, dev_id, 0));
+            assert_eq!(sbdf, PciSBDF::new(0, 0, dev_id, 0));
         }
 
         // We can only have 32 devices on a segment
-        pci_segment.next_device_bdf().unwrap_err();
+        pci_segment.next_device_sbdf().unwrap_err();
     }
 }

@@ -45,6 +45,54 @@ use crate::vmm_config::memory_hotplug::MemoryHotplugConfig;
 use crate::vstate::memory::GuestMemoryMmap;
 use crate::{EventManager, Vm};
 
+#[derive(Debug, Default, Clone, Serialize, Deserialize)]
+pub struct SerialState {
+    pub baud_divisor_low: u8,
+    pub baud_divisor_high: u8,
+    pub interrupt_enable: u8,
+    pub interrupt_identification: u8,
+    pub line_control: u8,
+    pub line_status: u8,
+    pub modem_control: u8,
+    pub modem_status: u8,
+    pub scratch: u8,
+    pub in_buffer: Vec<u8>,
+}
+
+impl From<vm_superio::serial::SerialState> for SerialState {
+    fn from(s: vm_superio::serial::SerialState) -> Self {
+        Self {
+            baud_divisor_low: s.baud_divisor_low,
+            baud_divisor_high: s.baud_divisor_high,
+            interrupt_enable: s.interrupt_enable,
+            interrupt_identification: s.interrupt_identification,
+            line_control: s.line_control,
+            line_status: s.line_status,
+            modem_control: s.modem_control,
+            modem_status: s.modem_status,
+            scratch: s.scratch,
+            in_buffer: s.in_buffer,
+        }
+    }
+}
+
+impl From<&SerialState> for vm_superio::serial::SerialState {
+    fn from(s: &SerialState) -> Self {
+        Self {
+            baud_divisor_low: s.baud_divisor_low,
+            baud_divisor_high: s.baud_divisor_high,
+            interrupt_enable: s.interrupt_enable,
+            interrupt_identification: s.interrupt_identification,
+            line_control: s.line_control,
+            line_status: s.line_status,
+            modem_control: s.modem_control,
+            modem_status: s.modem_status,
+            scratch: s.scratch,
+            in_buffer: s.in_buffer.clone(),
+        }
+    }
+}
+
 /// Holds the state of a MMIO VirtIO device
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct VirtioDeviceState<T> {
@@ -104,6 +152,7 @@ pub struct MMIODevManagerConstructorArgs<'a> {
     pub event_manager: &'a mut EventManager,
     pub vm_resources: &'a mut VmResources,
     pub instance_id: &'a str,
+    pub serial_state: Option<&'a SerialState>,
 }
 impl fmt::Debug for MMIODevManagerConstructorArgs<'_> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -318,9 +367,12 @@ impl<'a> Persist<'a> for MMIODeviceManager {
         {
             for state in &state.legacy_devices {
                 if state.type_ == DeviceType::Serial {
+                    let serial_state: Option<vm_superio::serial::SerialState> =
+                        constructor_args.serial_state.map(Into::into);
                     let serial = crate::DeviceManager::setup_serial_device(
                         constructor_args.event_manager,
                         constructor_args.vm_resources.serial_out_path.as_ref(),
+                        serial_state.as_ref(),
                     )?;
 
                     dev_manager.register_mmio_serial(vm, serial, Some(state.device_info))?;
@@ -719,6 +771,7 @@ mod tests {
             event_manager: &mut event_manager,
             vm_resources,
             instance_id: "microvm-id",
+            serial_state: None,
         };
         let _restored_dev_manager =
             MMIODeviceManager::restore(restore_args, &device_manager_state.mmio_state).unwrap();

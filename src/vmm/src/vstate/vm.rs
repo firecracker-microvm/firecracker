@@ -443,21 +443,8 @@ impl Vm {
         entry.u.msi.data = config.data;
 
         if self.common.fd.check_extension(kvm_ioctls::Cap::MsiDevid) {
-            // According to KVM documentation:
-            // https://docs.kernel.org/virt/kvm/api.html#kvm-set-gsi-routing
-            //
-            // if the capability is set, we need to set the flag and provide a valid unique device
-            // ID. "For PCI, this is usually a BDF identifier in the lower 16 bits".
-            //
-            // The layout of `config.devid` is:
-            //
-            // |---- 16 bits ----|-- 8 bits --|-- 5 bits --|-- 3 bits --|
-            // |      segment    |     bus    |   device   |  function  |
-            //
-            // For the time being, we are using a single PCI segment and a single bus per segment
-            // so just passing config.devid should be fine.
             entry.flags = KVM_MSI_VALID_DEVID;
-            entry.u.msi.__bindgen_anon_1.devid = config.devid;
+            entry.u.msi.__bindgen_anon_1.devid = config.devid.into();
         }
 
         self.common
@@ -556,6 +543,7 @@ pub(crate) mod tests {
     use vm_memory::mmap::MmapRegionBuilder;
 
     use super::*;
+    use crate::pci::PciSBDF;
     use crate::snapshot::Persist;
     use crate::test_utils::single_region_mem_raw;
     use crate::utils::mib_to_bytes;
@@ -751,7 +739,7 @@ pub(crate) mod tests {
             high_addr: 0x42,
             low_addr: 0x12,
             data: 0x12,
-            devid: 0xafa,
+            devid: PciSBDF::from(0xafa),
         };
         msix_group.update(0, config, true, true).unwrap();
         msix_group.update(4, config, true, true).unwrap_err();
@@ -770,7 +758,7 @@ pub(crate) mod tests {
             high_addr: 0x42,
             low_addr: 0x13,
             data: 0x12,
-            devid: 0xafa,
+            devid: PciSBDF::from(0xafa),
         };
         for i in 0..4 {
             config.data = 0x12 * i;
@@ -878,7 +866,7 @@ pub(crate) mod tests {
         let serialized_data = bitcode::serialize(&state).unwrap();
 
         let restored_state: VmState = bitcode::deserialize(&serialized_data).unwrap();
-        vm.restore_state(&restored_state).unwrap();
+        vm.restore_state(&restored_state, false).unwrap();
 
         let mut resource_allocator = vm.resource_allocator();
         let gsi_new = resource_allocator.allocate_gsi_msi(1).unwrap()[0];
