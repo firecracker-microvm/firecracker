@@ -38,18 +38,32 @@ use crate::pci::PciSBDF;
 use crate::pci::bus::PciRootError;
 use crate::resources::VmResources;
 use crate::snapshot::Persist;
+use crate::vfio::{
+    VfioContainer, VfioDevice, VfioError, vfio_create_kvm_vfio_device_and_vfio_container,
+    vfio_dma_map_guest_memory,
+};
 use crate::vmm_config::memory_hotplug::MemoryHotplugConfig;
+use crate::vmm_config::vfio::VfioConfig;
 use crate::vstate::bus::BusError;
 use crate::vstate::interrupts::InterruptError;
 use crate::vstate::memory::GuestMemoryMmap;
 use crate::vstate::vm::KvmVm;
 
-#[derive(Debug)]
 pub struct PciDevices {
     /// PCIe segment of the VMM. We currently support a single PCIe segment.
     pub pci_segment: PciSegment,
     /// All VirtIO PCI devices of the system
     pub virtio_devices: HashMap<VirtioDeviceId, Arc<Mutex<VirtioPciDevice>>>,
+
+    pub vfio_container: Option<Arc<VfioContainer>>,
+    // All Vfio PCI devices
+    pub vfio_devices: Vec<Arc<Mutex<VfioDevice>>>,
+}
+
+impl std::fmt::Debug for PciDevices {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("PciDevices").finish()
+    }
 }
 
 #[derive(Debug, thiserror::Error, displaydoc::Display)]
@@ -66,6 +80,8 @@ pub enum PciManagerError {
     VirtioPciDevice(#[from] VirtioPciDeviceError),
     /// KVM error: {0}
     Kvm(#[from] vmm_sys_util::errno::Error),
+    /// Vfio error: {0}
+    Vfio(#[from] VfioError),
 }
 
 impl PciDevices {
@@ -77,6 +93,8 @@ impl PciDevices {
         Ok(Self {
             pci_segment,
             virtio_devices: HashMap::new(),
+            vfio_container: None,
+            vfio_devices: Vec::new(),
         })
     }
 
@@ -213,6 +231,60 @@ impl PciDevices {
         // Ensure no other references to the device remain, so it is freed when
         // this function returns.
         assert_eq!(Arc::strong_count(&pci_device_arc), 1);
+
+        Ok(())
+    }
+
+    pub fn attach_vfio_device(
+        &mut self,
+        vm: &Arc<KvmVm>,
+        config: VfioConfig,
+    ) -> Result<(), PciManagerError> {
+        for device in self.vfio_devices.iter() {
+            let device = device.lock().unwrap();
+            // SAFETY: We must never add 2 devices with same id or same SBDF
+            assert_ne!(device.config.id, config.id);
+            assert_ne!(device.config.sbdf, config.sbdf);
+        }
+
+        let pci_device_bdf = self.pci_segment.next_device_sbdf()?;
+        debug!("VFIO: Allocating BDF: {pci_device_bdf:?} for device");
+
+        if self.vfio_container.is_none() {
+            let container = vfio_create_kvm_vfio_device_and_vfio_container(vm.as_ref())?;
+            self.vfio_container = Some(container);
+        }
+        let container = self.vfio_container.as_ref().unwrap();
+        let is_first_device = self.vfio_devices.is_empty();
+
+        let device = match VfioDevice::new(container, vm, config, pci_device_bdf) {
+            Ok(d) => d,
+            Err(e) => {
+                if is_first_device {
+                    self.vfio_container = None;
+                }
+                return Err(e.into());
+            }
+        };
+
+        #[allow(clippy::collapsible_if)]
+        if is_first_device {
+            if let Err(e) = vfio_dma_map_guest_memory(container, vm.guest_memory()) {
+                self.vfio_container = None;
+                return Err(e.into());
+            }
+        }
+
+        // This is for config space
+        self.pci_segment
+            .pci_bus
+            .lock()
+            .unwrap()
+            // SAFETY: we should never add 2 devices with same device id
+            .add_device(pci_device_bdf.device(), device.clone())
+            .unwrap();
+
+        self.vfio_devices.push(device);
 
         Ok(())
     }
@@ -890,7 +962,8 @@ mod tests {
     "total_size_mib": 1024,
     "block_size_mib": 2,
     "slot_size_mib": 128
-  }}
+  }},
+  "vfio": []
 }}"#,
             _block_files.last().unwrap().as_path().to_str().unwrap(),
             tmp_sock_file.as_path().to_str().unwrap(),
