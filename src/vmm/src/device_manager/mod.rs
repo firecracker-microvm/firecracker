@@ -59,6 +59,7 @@ use crate::seccomp::BpfProgram;
 use crate::snapshot::Persist;
 use crate::utils::{open_file_nonblock, set_stdout_nonblocking};
 use crate::vmm_config::HotplugDeviceConfig;
+use crate::vmm_config::device_passthrough::DevicePassthroughConfig;
 use crate::vmm_config::drive::{BlockDeviceConfig, DriveError};
 use crate::vmm_config::mmds::MmdsConfigError;
 use crate::vmm_config::net::{NetBuilder, NetworkInterfaceConfig, NetworkInterfaceError};
@@ -333,6 +334,21 @@ impl DeviceManager {
         self.acpi_devices.attach_vmclock(vm)?;
         self.acpi_devices.activate_vmclock(vm)?;
         Ok(())
+    }
+
+    pub fn attach_vfio_device(
+        &mut self,
+        vm: &Arc<KvmVm>,
+        config: DevicePassthroughConfig,
+    ) -> Result<(), AttachDeviceError> {
+        match &mut self.virtio_devices {
+            VirtioDevices::Mmio(_) | VirtioDevices::Enclave(_) => {
+                Err(AttachDeviceError::NotSupported)
+            }
+            VirtioDevices::Pci(devices) => devices
+                .attach_vfio_device(vm, config)
+                .map_err(AttachDeviceError::from),
+        }
     }
 
     #[cfg(target_arch = "x86_64")]
@@ -1263,9 +1279,9 @@ pub(crate) mod tests {
 
     #[test]
     fn test_unplug_marks_used_rings_dirty() {
-        use crate::arch::host_page_size;
         use vm_memory::GuestMemoryBackend;
 
+        use crate::arch::host_page_size;
         use crate::devices::virtio::block::device::Block;
         use crate::devices::virtio::test_utils::{VirtQueue, default_interrupt};
         use crate::test_utils::single_region_mem_dirty_tracking;

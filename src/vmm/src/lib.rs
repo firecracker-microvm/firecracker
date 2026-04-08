@@ -366,6 +366,7 @@ impl Vmm {
         let mut memory_hotplug = None;
         let mut mmds_ipv4_address = None;
         let mut mmds_ref = None;
+        let mut device_passthrough = Vec::new();
 
         self.device_manager
             .for_each_virtio_device(|device_type, device| match device_type {
@@ -413,6 +414,12 @@ impl Vmm {
                 }
             });
 
+        if let Some(pci_devices) = self.device_manager.pci_devices() {
+            for device in pci_devices.vfio_devices.iter() {
+                device_passthrough.push(device.lock().unwrap().config.clone());
+            }
+        }
+
         let mmds_config = mmds_ref.map(|mmds| {
             let mmds = mmds.lock().expect("Poisoned lock");
             MmdsConfig {
@@ -443,9 +450,7 @@ impl Vmm {
             serial_config: None,
             memory_hotplug,
             enclave: self.enclave_config(),
-            // TODO: currently information about passthrough devices is not saved on VM boot since
-            // no actual passthrough devices are created.
-            device_passthrough: vec![],
+            device_passthrough,
         }
     }
 
