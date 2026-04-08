@@ -441,6 +441,9 @@ impl Vmm {
             serial_config: None,
             memory_hotplug,
             enclave: self.enclave_config(),
+            // TODO: currently information about passthrough devices is not saved on VM boot since
+            // no actual passthrough devices are created.
+            device_passthrough: vec![],
         }
     }
 
