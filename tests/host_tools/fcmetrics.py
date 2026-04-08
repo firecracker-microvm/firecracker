@@ -244,6 +244,8 @@ def validate_fc_metrics(metrics):
             "hotplug_memory_fails",
             "enclave_count",
             "enclave_fails",
+            "device_passthrough_count",
+            "device_passthrough_fails",
         ],
         "seccomp": [
             "num_faults",
