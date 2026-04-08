@@ -429,6 +429,9 @@ impl Vmm {
             // serial_config is marked serde(skip) so that it doesnt end up in snapshots
             serial_config: None,
             memory_hotplug,
+            // TODO: currently information about VFIO devices is not saved on VM boot since
+            // no actual VFIO devices are created.
+            vfio: vec![],
         }
     }
 
