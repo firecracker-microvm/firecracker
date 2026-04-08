@@ -26,6 +26,20 @@ def test_api_device_passthrough(uvm):
     with pytest.raises(RuntimeError, match=expected_msg):
         vm.api.device_passthrough.put(id="dev0")
 
+    # Unknown field
+    expected_msg = re.escape("unknown field `foo`")
+    with pytest.raises(RuntimeError, match=expected_msg):
+        vm.api.device_passthrough.put(id="dev0", sbdf="01:02.03", foo="bar")
+
+    # Id in the path differs from the id in the body
+    expected_msg = re.escape(
+        "The id from the path does not match the id from the body!"
+    )
+    with pytest.raises(RuntimeError, match=expected_msg):
+        vm.api.device_passthrough.request(
+            "PUT", "/device-passthrough/dev1", id="dev0", sbdf="01:02.03"
+        )
+
     # Valid passthrough device configs and overwrites
     vm.api.device_passthrough.put(id="nvme0", sbdf="0000:01:02.03")
     vm.api.device_passthrough.put(id="nvme0", sbdf="01:02.03")
@@ -42,6 +56,28 @@ def test_api_device_passthrough(uvm):
     expected_msg = re.escape("The ID cannot be empty.")
     with pytest.raises(RuntimeError, match=expected_msg):
         vm.api.device_passthrough.put(id="", sbdf="0000:01:02.05")
+
+    # Failed requests do not change the config. SBDFs are normalized.
+    assert vm.api.vm_config.get().json()["device-passthrough"] == [
+        {"id": "nvme0", "sbdf": "0000:01:02.3"},
+        {"id": "nvme1", "sbdf": "0000:01:02.4"},
+    ]
+
+
+@pin_pci(True)
+@pin_guest_kernel(GUEST_KERNEL_DEFAULT)
+def test_device_passthrough_missing_host_device(uvm):
+    """
+    Test that starting a VM with a passthrough device absent on the host fails.
+    """
+    vm = uvm
+    vm.spawn()
+    vm.basic_config()
+
+    vm.api.device_passthrough.put(id="nvme0", sbdf="0000:ff:1f.7")
+    expected_msg = re.escape("Start microvm error")
+    with pytest.raises(RuntimeError, match=expected_msg):
+        vm.start()
 
 
 @pin_guest_kernel(GUEST_KERNEL_DEFAULT)
@@ -80,7 +116,11 @@ def test_device_passthrough_incompatible_devices_no_pci(uvm):
 
 @pin_pci(True)
 @pin_guest_kernel(GUEST_KERNEL_DEFAULT)
-def test_device_passthrough_incompatible_devices_invalid_sbdf(uvm):
+@pytest.mark.parametrize(
+    "sbdf",
+    ["", "aaaaaaaaaaa", "01:02", "0000:01:20.0", "0000:01:02.8", "0000:100:02.0"],
+)
+def test_device_passthrough_incompatible_devices_invalid_sbdf(uvm, sbdf):
     """
     Test that adding a passthrough device with invalid SBDF fails at API level.
     """
@@ -90,7 +130,7 @@ def test_device_passthrough_incompatible_devices_invalid_sbdf(uvm):
 
     expected_msg = re.escape("Invalid device passthrough SBDF")
     with pytest.raises(RuntimeError, match=expected_msg):
-        vm.api.device_passthrough.put(id="nvme0", sbdf="aaaaaaaaaaa")
+        vm.api.device_passthrough.put(id="nvme0", sbdf=sbdf)
 
 
 @pin_pci(True)
