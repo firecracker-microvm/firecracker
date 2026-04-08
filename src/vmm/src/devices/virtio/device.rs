@@ -70,6 +70,9 @@ pub enum VirtioDeviceType {
     Pmem = virtio_ids::VIRTIO_ID_PMEM as u8,
 }
 
+/// Unique identifier for a virtio device: its type and string ID.
+pub type VirtioDeviceId = (VirtioDeviceType, String);
+
 /// Trait for virtio devices to be driven by a virtio transport.
 ///
 /// The lifecycle of a virtio device is to be moved to a virtio transport, which will then query the

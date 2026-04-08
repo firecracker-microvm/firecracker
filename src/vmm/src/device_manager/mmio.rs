@@ -23,7 +23,7 @@ use crate::arch::{RTC_MEM_START, SERIAL_MEM_START};
 #[cfg(target_arch = "aarch64")]
 use crate::devices::legacy::{RTCDevice, SerialDevice};
 use crate::devices::pseudo::BootTimer;
-use crate::devices::virtio::device::{VirtioDevice, VirtioDeviceType};
+use crate::devices::virtio::device::{VirtioDevice, VirtioDeviceId, VirtioDeviceType};
 use crate::devices::virtio::transport::mmio::MmioTransport;
 #[cfg(target_arch = "x86_64")]
 use crate::logger::debug;
@@ -122,7 +122,7 @@ pub struct MMIODevice<T> {
 #[derive(Debug, Default)]
 pub struct MMIODeviceManager {
     /// VirtIO devices using an MMIO transport layer
-    pub(crate) virtio_devices: HashMap<(VirtioDeviceType, String), MMIODevice<MmioTransport>>,
+    pub(crate) virtio_devices: HashMap<VirtioDeviceId, MMIODevice<MmioTransport>>,
     /// Boot timer device
     pub(crate) boot_timer: Option<MMIODevice<BootTimer>>,
     #[cfg(target_arch = "aarch64")]
