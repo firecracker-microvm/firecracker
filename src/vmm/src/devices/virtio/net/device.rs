@@ -22,7 +22,7 @@ use crate::devices::virtio::generated::virtio_config::VIRTIO_F_VERSION_1;
 use crate::devices::virtio::generated::virtio_net::{
     VIRTIO_NET_F_CSUM, VIRTIO_NET_F_GUEST_CSUM, VIRTIO_NET_F_GUEST_TSO4, VIRTIO_NET_F_GUEST_TSO6,
     VIRTIO_NET_F_GUEST_UFO, VIRTIO_NET_F_HOST_TSO4, VIRTIO_NET_F_HOST_TSO6, VIRTIO_NET_F_HOST_UFO,
-    VIRTIO_NET_F_MAC, VIRTIO_NET_F_MRG_RXBUF, virtio_net_hdr_v1,
+    VIRTIO_NET_F_MAC, VIRTIO_NET_F_MRG_RXBUF, VIRTIO_NET_F_MTU, virtio_net_hdr_v1,
 };
 use crate::devices::virtio::generated::virtio_ring::VIRTIO_RING_F_EVENT_IDX;
 use crate::devices::virtio::iovec::{
@@ -88,6 +88,13 @@ fn init_vnet_hdr(buf: &mut [u8]) {
 #[repr(C)]
 pub struct ConfigSpace {
     pub guest_mac: MacAddr,
+    // Padding fields to match the virtio_net_config layout:
+    // offset 6: status (u16, not advertised)
+    _status: u16,
+    // offset 8: max_virtqueue_pairs (u16, not advertised)
+    _max_virtqueue_pairs: u16,
+    // offset 10: mtu (u16, advertised via VIRTIO_NET_F_MTU)
+    pub mtu: u16,
 }
 
 // SAFETY: `ConfigSpace` contains only PODs in `repr(C)` or `repr(transparent)`, without padding.
@@ -275,6 +282,7 @@ impl Net {
         guest_mac: Option<MacAddr>,
         rx_rate_limiter: RateLimiter,
         tx_rate_limiter: RateLimiter,
+        mtu: Option<u16>,
     ) -> Result<Self, NetError> {
         let mut avail_features = (1 << VIRTIO_NET_F_GUEST_CSUM)
             | (1 << VIRTIO_NET_F_CSUM)
@@ -289,6 +297,10 @@ impl Net {
             | (1 << VIRTIO_RING_F_EVENT_IDX);
 
         let mut config_space = ConfigSpace::default();
+        if let Some(mtu) = mtu {
+            avail_features |= 1 << VIRTIO_NET_F_MTU;
+            config_space.mtu = mtu;
+        }
         if let Some(mac) = guest_mac {
             config_space.guest_mac = mac;
             // Enabling feature for MAC address configuration
@@ -332,6 +344,7 @@ impl Net {
         guest_mac: Option<MacAddr>,
         rx_rate_limiter: RateLimiter,
         tx_rate_limiter: RateLimiter,
+        mtu: Option<u16>,
     ) -> Result<Self, NetError> {
         let tap = Tap::open_named(tap_if_name).map_err(NetError::TapOpen)?;
 
@@ -339,7 +352,7 @@ impl Net {
         tap.set_vnet_hdr_size(vnet_hdr_size)
             .map_err(NetError::TapSetVnetHdrSize)?;
 
-        Self::new_with_tap(id, tap, guest_mac, rx_rate_limiter, tx_rate_limiter)
+        Self::new_with_tap(id, tap, guest_mac, rx_rate_limiter, tx_rate_limiter, mtu)
     }
 
     /// Provides the MAC of this net device.
@@ -350,6 +363,15 @@ impl Net {
     /// Provides the host IFACE name of this net device.
     pub fn iface_name(&self) -> String {
         self.tap.if_name_as_str().to_string()
+    }
+
+    /// Returns the configured MTU if `VIRTIO_NET_F_MTU` is advertised, otherwise `None`.
+    pub fn mtu(&self) -> Option<u16> {
+        if self.avail_features & (1 << VIRTIO_NET_F_MTU) != 0 {
+            Some(self.config_space.mtu)
+        } else {
+            None
+        }
     }
 
     /// Provides the MmdsNetworkStack of this net device.

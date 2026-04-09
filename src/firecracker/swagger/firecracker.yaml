@@ -1534,6 +1534,14 @@ definitions:
         description: Host level path for the guest network interface
       iface_id:
         type: string
+      mtu:
+        type: integer
+        description:
+          MTU to advertise to the guest via VIRTIO_NET_F_MTU. When set, the guest
+          driver will configure the interface with this MTU. When absent,
+          VIRTIO_NET_F_MTU is not advertised and the guest uses its default MTU.
+        minimum: 1
+        maximum: 65535
       rx_rate_limiter:
         $ref: "#/definitions/RateLimiter"
       tx_rate_limiter:

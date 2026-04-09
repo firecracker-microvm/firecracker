@@ -1101,6 +1101,7 @@ pub(crate) mod tests {
             iface_id: String::from("netif"),
             host_dev_name: String::from("hostname"),
             guest_mac: None,
+            mtu: None,
             rx_rate_limiter: None,
             tx_rate_limiter: None,
         };

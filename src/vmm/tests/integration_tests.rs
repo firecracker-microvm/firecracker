@@ -427,6 +427,7 @@ fn test_preboot_load_snap_disallowed_after_boot_resources() {
         iface_id: String::new(),
         host_dev_name: String::new(),
         guest_mac: None,
+        mtu: None,
         rx_rate_limiter: None,
         tx_rate_limiter: None,
     });
