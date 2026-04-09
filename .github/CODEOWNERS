@@ -13,7 +13,7 @@ docs/prod-host-setup.md @kalyazin @Manciukic @micz010
 **/*POLICY*.md @kalyazin @Manciukic @micz010
 
 # Also these non-md files in the repository root
-THIRD_PARTY @kalyazin @Manciukic @micz010
+THIRD-PARTY @kalyazin @Manciukic @micz010
 LICENSE @kalyazin @Manciukic @micz010
 NOTICE @kalyazin @Manciukic @micz010
 PGP-KEY.asc @kalyazin @Manciukic @micz010
