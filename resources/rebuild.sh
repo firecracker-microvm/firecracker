@@ -132,6 +132,7 @@ function build_al_kernel {
 
     # Apply any patchset we have for our kernels
     for patchset in ../patches/*; do
+        [ -d "$patchset" ] || continue
         echo "Applying patchset ${patchset}/${KERNEL_VERSION}"
         git apply ${patchset}/${KERNEL_VERSION}/*.patch
     done
