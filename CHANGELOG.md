@@ -10,6 +10,12 @@ and this project adheres to
 
 ### Added
 
+- \[[#1](https://github.com/superserve-ai/firecracker/pull/1)\]: Add opt-in
+  `--landlock` flag to the jailer that uses the Linux Landlock LSM (kernel >=
+  5.13) as a defense-in-depth mechanism. When enabled, the jailed Firecracker
+  process is restricted to only accessing files within the jail directory, even
+  if it escapes the `pivot_root` chroot via a kernel exploit.
+
 - [#5323](https://github.com/firecracker-microvm/firecracker/pull/5323): Add
   support for Vsock Unix domain socket path overriding on snapshot restore. More
   information can be found in the
