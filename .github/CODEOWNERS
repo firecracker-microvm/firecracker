@@ -1,19 +1,19 @@
 # All markdown files
-*.md @xmarcalx @kalyazin @pb8o @Manciukic
+*.md @kalyazin @Manciukic @micz010
 
 # But not the ones in docs/
 docs/*.md
 
 # Except these specific ones
-docs/getting-started.md @xmarcalx @kalyazin @pb8o @Manciukic
-docs/prod-host-setup.md @xmarcalx @kalyazin @pb8o @Manciukic
+docs/getting-started.md @kalyazin @Manciukic @micz010
+docs/prod-host-setup.md @kalyazin @Manciukic @micz010
 
 # Also cover all "*policy*.md" documents
-**/*policy*.md @xmarcalx @kalyazin @pb8o @Manciukic
-**/*POLICY*.md @xmarcalx @kalyazin @pb8o @Manciukic
+**/*policy*.md @kalyazin @Manciukic @micz010
+**/*POLICY*.md @kalyazin @Manciukic @micz010
 
 # Also these non-md files in the repository root
-THIRD_PARTY @xmarcalx @kalyazin @pb8o @Manciukic
-LICENSE @xmarcalx @kalyazin @pb8o @Manciukic
-NOTICE @xmarcalx @kalyazin @pb8o @Manciukic
-PGP-KEY.asc @xmarcalx @kalyazin @pb8o @Manciukic
+THIRD_PARTY @kalyazin @Manciukic @micz010
+LICENSE @kalyazin @Manciukic @micz010
+NOTICE @kalyazin @Manciukic @micz010
+PGP-KEY.asc @kalyazin @Manciukic @micz010
