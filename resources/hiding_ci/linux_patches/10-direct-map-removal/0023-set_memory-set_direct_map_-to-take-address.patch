@@ -1,32 +1,32 @@
-From 70f123dfb4f7fb3cc11b4bc6725780212a8effcf Mon Sep 17 00:00:00 2001
+From be23bb10b169ad92b9b0055dcd71212d3c47860f Mon Sep 17 00:00:00 2001
 From: Nikita Kalyazin <kalyazin@amazon.com>
 Date: Mon, 19 Jan 2026 15:03:18 +0000
-Subject: [PATCH 23/87] set_memory: set_direct_map_* to take address
+Subject: [PATCH 23/94] set_memory: set_direct_map_* to take address
 
-From: Nikita Kalyazin <kalyazin@amazon.com>
+From: Nikita Kalyazin <nikita.kalyazin@linux.dev>
 
 This is to avoid excessive conversions folio->page->address when adding
 helpers on top of set_direct_map_valid_noflush() in the next patch.
 
 Acked-by: David Hildenbrand (Arm) <david@kernel.org>
-Signed-off-by: Nikita Kalyazin <kalyazin@amazon.com>
+Signed-off-by: Nikita Kalyazin <nikita.kalyazin@linux.dev>
 ---
  arch/arm64/include/asm/set_memory.h     |  7 ++++---
- arch/arm64/mm/pageattr.c                | 19 +++++++++----------
+ arch/arm64/mm/pageattr.c                | 19 +++++++++--------
  arch/loongarch/include/asm/set_memory.h |  7 ++++---
- arch/loongarch/mm/pageattr.c            | 25 +++++++++++--------------
+ arch/loongarch/mm/pageattr.c            | 25 ++++++++++-------------
  arch/riscv/include/asm/set_memory.h     |  7 ++++---
- arch/riscv/mm/pageattr.c                | 17 +++++++++--------
+ arch/riscv/mm/pageattr.c                | 17 ++++++++--------
  arch/s390/include/asm/set_memory.h      |  7 ++++---
- arch/s390/mm/pageattr.c                 | 13 +++++++------
+ arch/s390/mm/pageattr.c                 | 13 ++++++------
  arch/x86/include/asm/set_memory.h       |  7 ++++---
- arch/x86/mm/pat/set_memory.c            | 23 ++++++++++++-----------
+ arch/x86/mm/pat/set_memory.c            | 27 +++++++++++++------------
  include/linux/set_memory.h              |  9 +++++----
  kernel/power/snapshot.c                 |  4 ++--
  mm/execmem.c                            |  6 ++++--
  mm/secretmem.c                          |  6 +++---
- mm/vmalloc.c                            | 11 +++++++----
- 15 files changed, 89 insertions(+), 79 deletions(-)
+ mm/vmalloc.c                            | 11 ++++++----
+ 15 files changed, 91 insertions(+), 81 deletions(-)
 
 diff --git a/arch/arm64/include/asm/set_memory.h b/arch/arm64/include/asm/set_memory.h
 index 90f61b17275e..c71a2a6812c4 100644
@@ -307,7 +307,7 @@ index 61f56cdaccb5..f912191f0853 100644
  
  extern int kernel_set_to_readonly;
 diff --git a/arch/x86/mm/pat/set_memory.c b/arch/x86/mm/pat/set_memory.c
-index 970981893c9b..99b72447a4b4 100644
+index 970981893c9b..fdf259aa81d1 100644
 --- a/arch/x86/mm/pat/set_memory.c
 +++ b/arch/x86/mm/pat/set_memory.c
 @@ -2600,9 +2600,9 @@ int set_pages_rw(struct page *page, int numpages)
@@ -365,6 +365,18 @@ index 970981893c9b..99b72447a4b4 100644
  }
  
  #ifdef CONFIG_DEBUG_PAGEALLOC
+@@ -2672,9 +2673,9 @@ void __kernel_map_pages(struct page *page, int numpages, int enable)
+ 	 * and hence no memory allocations during large page split.
+ 	 */
+ 	if (enable)
+-		__set_pages_p(page, numpages);
++		__set_pages_p(page_address(page), numpages);
+ 	else
+-		__set_pages_np(page, numpages);
++		__set_pages_np(page_address(page), numpages);
+ 
+ 	/*
+ 	 * We should perform an IPI and flush all tlbs,
 diff --git a/include/linux/set_memory.h b/include/linux/set_memory.h
 index 3030d9245f5a..1a2563f525fc 100644
 --- a/include/linux/set_memory.h
