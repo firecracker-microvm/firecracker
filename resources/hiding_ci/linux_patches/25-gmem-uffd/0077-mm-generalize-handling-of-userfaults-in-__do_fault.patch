@@ -1,7 +1,7 @@
-From 4b0df20f616ce065782d41d57a3bfde9d0b8dec4 Mon Sep 17 00:00:00 2001
+From f054d81910042cb280b77c8c4f0c59df3bb0e22a Mon Sep 17 00:00:00 2001
 From: Peter Xu <peterx@redhat.com>
 Date: Fri, 6 Mar 2026 19:18:12 +0200
-Subject: [PATCH 77/86] mm: generalize handling of userfaults in __do_fault()
+Subject: [PATCH 77/94] mm: generalize handling of userfaults in __do_fault()
 
 When a VMA is registered with userfaulfd, its ->fault()
 method should check if a folio exists in the page cache and call
@@ -32,7 +32,7 @@ Signed-off-by: Mike Rapoport (Microsoft) <rppt@kernel.org>
  3 files changed, 51 insertions(+), 12 deletions(-)
 
 diff --git a/mm/memory.c b/mm/memory.c
-index 4f200c3e7d24..3d09be163662 100644
+index 5b07a6ac5027..823a64791476 100644
 --- a/mm/memory.c
 +++ b/mm/memory.c
 @@ -5247,6 +5247,41 @@ static vm_fault_t do_anonymous_page(struct vm_fault *vmf)
