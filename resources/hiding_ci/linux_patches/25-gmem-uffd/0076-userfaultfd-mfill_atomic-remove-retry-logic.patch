@@ -1,7 +1,7 @@
-From 32e824ea391781f15aa4a8e62d17eb5081f28ab1 Mon Sep 17 00:00:00 2001
+From a85448db9f0fd622c17fea2ef9c667c48a753802 Mon Sep 17 00:00:00 2001
 From: "Mike Rapoport (Microsoft)" <rppt@kernel.org>
 Date: Fri, 6 Mar 2026 19:18:11 +0200
-Subject: [PATCH 76/86] userfaultfd: mfill_atomic(): remove retry logic
+Subject: [PATCH 76/94] userfaultfd: mfill_atomic(): remove retry logic
 
 Since __mfill_atomic_pte() handles the retry for both anonymous and
 shmem, there is no need to retry copying the date from the userspace in

@@ -1,7 +1,7 @@
-From cae9db2062e2e5158b0b6b3465cbeb45014e8b00 Mon Sep 17 00:00:00 2001
+From 145e85601f3db583e1a51addeed9acce9934b293 Mon Sep 17 00:00:00 2001
 From: Nikita Kalyazin <kalyazin@amazon.com>
 Date: Fri, 6 Mar 2026 19:18:13 +0200
-Subject: [PATCH 78/86] KVM: guest_memfd: implement userfaultfd operations
+Subject: [PATCH 78/94] KVM: guest_memfd: implement userfaultfd operations
 
 userfaultfd notifications about page faults used for live migration
 and snapshotting of VMs.
@@ -37,7 +37,7 @@ index 3e4579e4b8bb..041c7719e524 100644
  /*
   * page_cache_delete_batch - delete several folios from page cache
 diff --git a/virt/kvm/guest_memfd.c b/virt/kvm/guest_memfd.c
-index f8eac86e6931..922839f044e0 100644
+index b5732e2299cd..eda34a3e6a98 100644
 --- a/virt/kvm/guest_memfd.c
 +++ b/virt/kvm/guest_memfd.c
 @@ -8,6 +8,7 @@
@@ -48,7 +48,7 @@ index f8eac86e6931..922839f044e0 100644
  
  #include "kvm_mm.h"
  
-@@ -154,6 +155,12 @@ static int kvm_gmem_prepare_folio(struct kvm *kvm, struct kvm_memory_slot *slot,
+@@ -158,6 +159,12 @@ static int kvm_gmem_prepare_folio(struct kvm *kvm, struct kvm_memory_slot *slot,
  	return r;
  }
  
@@ -61,7 +61,7 @@ index f8eac86e6931..922839f044e0 100644
  /*
   * Returns a locked folio on success.  The caller is responsible for
   * setting the up-to-date flag before the memory is mapped into the guest.
-@@ -173,8 +180,7 @@ static struct folio *kvm_gmem_get_folio(struct inode *inode, pgoff_t index)
+@@ -177,8 +184,7 @@ static struct folio *kvm_gmem_get_folio(struct inode *inode, pgoff_t index)
  	 * Fast-path: See if folio is already present in mapping to avoid
  	 * policy_lookup.
  	 */
@@ -71,7 +71,7 @@ index f8eac86e6931..922839f044e0 100644
  	if (!IS_ERR(folio))
  		return folio;
  
-@@ -559,12 +565,86 @@ static struct mempolicy *kvm_gmem_get_policy(struct vm_area_struct *vma,
+@@ -563,12 +569,86 @@ static struct mempolicy *kvm_gmem_get_policy(struct vm_area_struct *vma,
  }
  #endif /* CONFIG_NUMA */
  
