@@ -1,7 +1,7 @@
-From 223719ccdd829c66acd4c7455715299fe2f24774 Mon Sep 17 00:00:00 2001
+From abdd00eb33d598c6fbfdb9bfbbe2882075f00eae Mon Sep 17 00:00:00 2001
 From: Nikita Kalyazin <kalyazin@amazon.com>
 Date: Mon, 2 Mar 2026 15:13:17 +0000
-Subject: [PATCH 81/86] fixup for uffd: export mm symbols
+Subject: [PATCH 81/94] fixup for uffd: export mm symbols
 
 Signed-off-by: Nikita Kalyazin <kalyazin@amazon.com>
 ---

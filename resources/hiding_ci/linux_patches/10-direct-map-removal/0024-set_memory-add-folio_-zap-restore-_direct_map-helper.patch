@@ -1,14 +1,16 @@
-From c7152d2f08f30476300f9d02eff69baea318b15f Mon Sep 17 00:00:00 2001
+From 450885230ddd9a7cae794d7e5b2cca295d6dbeb9 Mon Sep 17 00:00:00 2001
 From: Nikita Kalyazin <kalyazin@amazon.com>
 Date: Mon, 12 Jan 2026 14:24:52 +0000
-Subject: [PATCH 24/87] set_memory: add folio_{zap,restore}_direct_map helpers
+Subject: [PATCH 24/94] set_memory: add folio_{zap,restore}_direct_map helpers
 
-From: Nikita Kalyazin <kalyazin@amazon.com>
+From: Nikita Kalyazin <nikita.kalyazin@linux.dev>
 
 Let's provide folio_{zap,restore}_direct_map helpers as preparation for
 supporting removal of the direct map for guest_memfd folios.
 In folio_zap_direct_map(), flush TLB to make sure the data is not
-accessible.
+accessible.  On some architectures, there may be a double TLB flush
+issued because set_direct_map_valid_noflush already performs a flush
+internally.
 
 The new helpers need to be accessible to KVM on architectures that
 support guest_memfd (x86 and arm64).
@@ -17,11 +19,12 @@ Direct map removal gives guest_memfd the same protection that
 memfd_secret does, such as hardening against Spectre-like attacks
 through in-kernel gadgets.
 
-Signed-off-by: Nikita Kalyazin <kalyazin@amazon.com>
+Acked-by: David Hildenbrand (Arm) <david@kernel.org>
+Signed-off-by: Nikita Kalyazin <nikita.kalyazin@linux.dev>
 ---
- include/linux/set_memory.h | 13 ++++++++++++
- mm/memory.c                | 42 ++++++++++++++++++++++++++++++++++++++
- 2 files changed, 55 insertions(+)
+ include/linux/set_memory.h | 13 +++++++++++
+ mm/memory.c                | 45 ++++++++++++++++++++++++++++++++++++++
+ 2 files changed, 58 insertions(+)
 
 diff --git a/include/linux/set_memory.h b/include/linux/set_memory.h
 index 1a2563f525fc..24caea2931f9 100644
@@ -55,7 +58,7 @@ index 1a2563f525fc..24caea2931f9 100644
  
  #ifdef CONFIG_X86_64
 diff --git a/mm/memory.c b/mm/memory.c
-index b59ae7ce42eb..078558b21cfb 100644
+index b59ae7ce42eb..1ec36299e963 100644
 --- a/mm/memory.c
 +++ b/mm/memory.c
 @@ -76,6 +76,7 @@
@@ -66,7 +69,7 @@ index b59ae7ce42eb..078558b21cfb 100644
  
  #include <trace/events/kmem.h>
  
-@@ -7324,3 +7325,44 @@ void vma_pgtable_walk_end(struct vm_area_struct *vma)
+@@ -7324,3 +7325,47 @@ void vma_pgtable_walk_end(struct vm_area_struct *vma)
  	if (is_vm_hugetlb_page(vma))
  		hugetlb_vma_unlock_read(vma);
  }
@@ -78,7 +81,7 @@ index b59ae7ce42eb..078558b21cfb 100644
 + *
 + * Removes the folio from the kernel direct map and flushes the TLB.  This may
 + * require splitting huge pages in the direct map, which can fail due to memory
-+ * allocation.
++ * allocation.  So far, only order-0 folios are supported.
 + *
 + * Return: 0 on success, or a negative error code on failure.
 + */
@@ -86,6 +89,9 @@ index b59ae7ce42eb..078558b21cfb 100644
 +{
 +	const void *addr = folio_address(folio);
 +	int ret;
++
++	if (folio_test_large(folio))
++		return -EINVAL;
 +
 +	ret = set_direct_map_valid_noflush(addr, folio_nr_pages(folio), false);
 +	flush_tlb_kernel_range((unsigned long)addr,

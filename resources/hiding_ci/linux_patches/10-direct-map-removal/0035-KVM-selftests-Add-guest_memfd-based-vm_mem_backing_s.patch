@@ -1,7 +1,7 @@
-From 232a9968e0c92b5a6944dd8282cf01af944d8fc0 Mon Sep 17 00:00:00 2001
+From 7c7b83cc07e603fbd0df907fe3f428131261629c Mon Sep 17 00:00:00 2001
 From: Patrick Roy <patrick.roy@linux.dev>
 Date: Sun, 23 Nov 2025 18:44:35 +0100
-Subject: [PATCH 35/87] KVM: selftests: Add guest_memfd based
+Subject: [PATCH 35/94] KVM: selftests: Add guest_memfd based
  vm_mem_backing_src_types
 
 Allow selftests to configure their memslots such that userspace_addr is
@@ -15,7 +15,7 @@ Add backing types for normal guest_memfd, as well as direct map removed
 guest_memfd.
 
 Signed-off-by: Patrick Roy <patrick.roy@linux.dev>
-Signed-off-by: Nikita Kalyazin <kalyazin@amazon.com>
+Signed-off-by: Nikita Kalyazin <nikita.kalyazin@linux.dev>
 ---
  .../testing/selftests/kvm/include/kvm_util.h  | 18 ++++++
  .../testing/selftests/kvm/include/test_util.h |  7 +++

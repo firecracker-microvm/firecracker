@@ -1,7 +1,7 @@
-From 61819894fd4f5bab48147fb16f199b0c765f7a30 Mon Sep 17 00:00:00 2001
+From d5c50670043e88b9420f798dd15cd3355f32ebbd Mon Sep 17 00:00:00 2001
 From: Jack Thomson <jackabt@amazon.com>
 Date: Fri, 16 Jan 2026 15:14:33 +0000
-Subject: [PATCH 4/7] KVM: Add KVM_ASYNC_PF ioctl and auto-complete pending
+Subject: [PATCH 90/94] KVM: Add KVM_ASYNC_PF ioctl and auto-complete pending
  APFs on re-entry
 
 Add the KVM_ASYNC_PF vCPU ioctl for managing userfaultfd-based async page
@@ -43,7 +43,7 @@ index 180781998aa7..b2c8e75c7d6f 100644
  	select KVM_ASYNC_PF
  	select USER_RETURN_NOTIFIER
 diff --git a/arch/x86/kvm/x86.c b/arch/x86/kvm/x86.c
-index a447663d5eff..0995a6e99250 100644
+index 7e08203ab134..6c151538280f 100644
 --- a/arch/x86/kvm/x86.c
 +++ b/arch/x86/kvm/x86.c
 @@ -6200,6 +6200,38 @@ static int kvm_get_reg_list(struct kvm_vcpu *vcpu,
@@ -240,5 +240,5 @@ index 14aab70ad263..81cdea301b83 100644
  
  void kvm_clear_async_pf_completion_queue(struct kvm_vcpu *vcpu)
 -- 
-2.43.0
+2.50.1
 

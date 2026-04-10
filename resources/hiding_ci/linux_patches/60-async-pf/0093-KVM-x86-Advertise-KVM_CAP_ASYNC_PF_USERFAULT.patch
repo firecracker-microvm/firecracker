@@ -1,7 +1,7 @@
-From 28fc7f7f2e04e54c556fe7987290c3e3dd890ae4 Mon Sep 17 00:00:00 2001
+From f30eac4b24a6f4043e9aeedaedbcd7dc66347020 Mon Sep 17 00:00:00 2001
 From: Jack Thomson <jackabt@amazon.com>
 Date: Mon, 16 Feb 2026 10:08:57 +0000
-Subject: [PATCH 7/7] KVM: x86: Advertise KVM_CAP_ASYNC_PF_USERFAULT
+Subject: [PATCH 93/94] KVM: x86: Advertise KVM_CAP_ASYNC_PF_USERFAULT
 
 Add KVM_CAP_ASYNC_PF_USERFAULT (246) so userspace can discover support for
 userfaultfd-based async page faults and the exitless eventfd mechanism.
@@ -205,7 +205,7 @@ index c15f45efca4f..5ee00cbb11c4 100644
  =========================
  
 diff --git a/arch/x86/kvm/x86.c b/arch/x86/kvm/x86.c
-index a25be68305b2..b55c47124922 100644
+index b3fbfb9413e9..40ba624a3fd8 100644
 --- a/arch/x86/kvm/x86.c
 +++ b/arch/x86/kvm/x86.c
 @@ -4894,6 +4894,7 @@ int kvm_vm_ioctl_check_extension(struct kvm *kvm, long ext)
@@ -825,5 +825,5 @@ index 76dc75ab4387..2e4f89db4d47 100644
  	trace_kvm_apf_exitless_signal(vcpu->vcpu_id, gpa);
  
 -- 
-2.43.0
+2.50.1
 

@@ -1,7 +1,7 @@
-From f16cb1056f66f925d116cffa83db455f7066f63f Mon Sep 17 00:00:00 2001
+From eacc66d4eaeed8db8a87767079887b68155c5892 Mon Sep 17 00:00:00 2001
 From: Jack Thomson <jackabt@amazon.com>
 Date: Fri, 16 Jan 2026 15:14:32 +0000
-Subject: [PATCH 2/7] KVM: async_pf: Add userfaultfd async page fault
+Subject: [PATCH 88/94] KVM: async_pf: Add userfaultfd async page fault
  definitions
 
 Define the UAPI and internal structures needed for userfaultfd-based async
@@ -129,5 +129,5 @@ index 052c7c4876eb..7ff327522a53 100644
  struct kvm_pre_fault_memory {
  	__u64 gpa;
 -- 
-2.43.0
+2.50.1
 

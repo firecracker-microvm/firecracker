@@ -1,7 +1,7 @@
-From 40ea8b644a885e26bde0ddb38e66a3e1dd712477 Mon Sep 17 00:00:00 2001
+From fdfc2dacead5df7d31a03679dfffddca433bb8b2 Mon Sep 17 00:00:00 2001
 From: Nikita Kalyazin <kalyazin@amazon.com>
 Date: Fri, 14 Nov 2025 11:34:23 +0000
-Subject: [PATCH 60/86] KVM: guest_memfd: add generic population via write
+Subject: [PATCH 60/94] KVM: guest_memfd: add generic population via write
 
 On systems that support shared guest memory, write() is useful, for
 example, for population of the initial image.  Even though the same can
@@ -82,10 +82,10 @@ index b351b1ba6330..052c7c4876eb 100644
  struct kvm_create_guest_memfd {
  	__u64 size;
 diff --git a/virt/kvm/guest_memfd.c b/virt/kvm/guest_memfd.c
-index 6dd127203e4e..36f250801759 100644
+index 116d9346e87b..d60be4b52555 100644
 --- a/virt/kvm/guest_memfd.c
 +++ b/virt/kvm/guest_memfd.c
-@@ -584,6 +584,8 @@ static int kvm_gmem_mmap(struct file *file, struct vm_area_struct *vma)
+@@ -588,6 +588,8 @@ static int kvm_gmem_mmap(struct file *file, struct vm_area_struct *vma)
  
  static struct file_operations kvm_gmem_fops = {
  	.mmap		= kvm_gmem_mmap,
@@ -94,8 +94,8 @@ index 6dd127203e4e..36f250801759 100644
  	.open		= generic_file_open,
  	.release	= kvm_gmem_release,
  	.fallocate	= kvm_gmem_fallocate,
-@@ -636,8 +638,55 @@ static void kvm_gmem_free_folio(struct folio *folio)
- 	kvm_arch_gmem_invalidate(pfn, pfn + (1ul << order));
+@@ -640,8 +642,55 @@ static void kvm_gmem_free_folio(struct folio *folio)
+ 		kvm_gmem_folio_restore_direct_map(folio);
  }
  
 +static bool kvm_gmem_supports_write(struct inode *inode)
@@ -150,7 +150,7 @@ index 6dd127203e4e..36f250801759 100644
  	.migrate_folio	= kvm_gmem_migrate_folio,
  	.error_remove_folio = kvm_gmem_error_folio,
  	.free_folio = kvm_gmem_free_folio,
-@@ -708,6 +757,7 @@ static int __kvm_gmem_create(struct kvm *kvm, loff_t size, u64 flags)
+@@ -712,6 +761,7 @@ static int __kvm_gmem_create(struct kvm *kvm, loff_t size, u64 flags)
  	}
  
  	file->f_flags |= O_LARGEFILE;

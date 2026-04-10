@@ -1,7 +1,7 @@
-From 77a4de592ebe187512445cc00def5859ec64c056 Mon Sep 17 00:00:00 2001
+From 6aaa5f0f23a254edccdce8d398e0132a87e7f440 Mon Sep 17 00:00:00 2001
 From: "Mike Rapoport (Microsoft)" <rppt@kernel.org>
 Date: Fri, 6 Mar 2026 19:18:08 +0200
-Subject: [PATCH 73/86] shmem, userfaultfd: use a VMA callback to handle
+Subject: [PATCH 73/94] shmem, userfaultfd: use a VMA callback to handle
  UFFDIO_CONTINUE
 
 When userspace resolves a page fault in a shmem VMA with UFFDIO_CONTINUE

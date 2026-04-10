@@ -1,7 +1,7 @@
-From 3562608604a8801f7205dc66d909e6a9fb5e73e8 Mon Sep 17 00:00:00 2001
+From 7c2504e349ddfd3bbcdef74d0450740741de737e Mon Sep 17 00:00:00 2001
 From: Takahiro Itazuri <itazur@amazon.com>
 Date: Sun, 22 Feb 2026 17:25:07 +0000
-Subject: [PATCH 46/86] KVM: pfncache: Invalidate on gmem invalidation and
+Subject: [PATCH 46/94] KVM: pfncache: Invalidate on gmem invalidation and
  memattr updates
 
 Invalidate pfncaches when guest_memfd invalidation or memory attribute
@@ -28,10 +28,10 @@ Suggested-by: David Hildenbrand (Red Hat) <david@kernel.org>
  3 files changed, 98 insertions(+), 3 deletions(-)
 
 diff --git a/virt/kvm/guest_memfd.c b/virt/kvm/guest_memfd.c
-index cc39ab9f8d85..6dd127203e4e 100644
+index 68396333586f..116d9346e87b 100644
 --- a/virt/kvm/guest_memfd.c
 +++ b/virt/kvm/guest_memfd.c
-@@ -204,6 +204,33 @@ static void __kvm_gmem_invalidate_start(struct gmem_file *f, pgoff_t start,
+@@ -208,6 +208,33 @@ static void __kvm_gmem_invalidate_start(struct gmem_file *f, pgoff_t start,
  	struct kvm *kvm = f->kvm;
  	unsigned long index;
  
@@ -65,7 +65,7 @@ index cc39ab9f8d85..6dd127203e4e 100644
  	xa_for_each_range(&f->bindings, index, slot, start, end - 1) {
  		pgoff_t pgoff = slot->gmem.pgoff;
  
-@@ -248,12 +275,35 @@ static void __kvm_gmem_invalidate_end(struct gmem_file *f, pgoff_t start,
+@@ -252,12 +279,35 @@ static void __kvm_gmem_invalidate_end(struct gmem_file *f, pgoff_t start,
  				      pgoff_t end)
  {
  	struct kvm *kvm = f->kvm;
