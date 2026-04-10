@@ -1,7 +1,7 @@
-From 7e9f5dac38454a207f9e7f5a0c860b89d131a5bb Mon Sep 17 00:00:00 2001
+From 114f04d4747068059cf565881b9b046801480c05 Mon Sep 17 00:00:00 2001
 From: Patrick Roy <patrick.roy@linux.dev>
 Date: Sun, 23 Nov 2025 18:44:35 +0100
-Subject: [PATCH 37/87] KVM: selftests: stuff vm_mem_backing_src_type into
+Subject: [PATCH 37/94] KVM: selftests: stuff vm_mem_backing_src_type into
  vm_shape
 
 Use one of the padding fields in struct vm_shape to carry an enum
@@ -12,7 +12,7 @@ Overwriting this default will allow tests to create VMs where the test
 code is backed by mmap'd guest_memfd instead of anonymous memory.
 
 Signed-off-by: Patrick Roy <patrick.roy@linux.dev>
-Signed-off-by: Nikita Kalyazin <kalyazin@amazon.com>
+Signed-off-by: Nikita Kalyazin <nikita.kalyazin@linux.dev>
 ---
  .../testing/selftests/kvm/include/kvm_util.h  | 19 ++++++++++---------
  tools/testing/selftests/kvm/lib/kvm_util.c    |  2 +-

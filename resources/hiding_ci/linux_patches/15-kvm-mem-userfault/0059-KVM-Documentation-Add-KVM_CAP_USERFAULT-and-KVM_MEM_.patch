@@ -1,7 +1,7 @@
-From 8b8a1b8f2a005987699ca8ef2444c938fae4faa1 Mon Sep 17 00:00:00 2001
+From efdb08cc8acc1e7a6105318ca9ea3d51ad314b7f Mon Sep 17 00:00:00 2001
 From: James Houghton <jthoughton@google.com>
 Date: Wed, 4 Dec 2024 19:13:48 +0000
-Subject: [PATCH 59/86] KVM: Documentation: Add KVM_CAP_USERFAULT and
+Subject: [PATCH 59/94] KVM: Documentation: Add KVM_CAP_USERFAULT and
  KVM_MEM_USERFAULT details
 
 Include the note about memory ordering when clearing bits in

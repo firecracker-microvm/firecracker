@@ -1,7 +1,7 @@
-From 7ce562add8c3add2f52b849d0a77097b3a9fe5f0 Mon Sep 17 00:00:00 2001
+From 68076b57cbd83499b84f32f5a578c354bea39692 Mon Sep 17 00:00:00 2001
 From: James Houghton <jthoughton@google.com>
 Date: Wed, 4 Dec 2024 19:13:46 +0000
-Subject: [PATCH 57/86] KVM: selftests: Inform set_memory_region_test of
+Subject: [PATCH 57/94] KVM: selftests: Inform set_memory_region_test of
  KVM_MEM_USERFAULT
 
 The KVM_MEM_USERFAULT flag is supported iff KVM_CAP_USERFAULT is
