@@ -1,8 +1,8 @@
-From 17ea82279f4ec3e15a63b9a88ee3f86ac249c5df Mon Sep 17 00:00:00 2001
+From 78c86721718b78b0043f60084d04549da804a540 Mon Sep 17 00:00:00 2001
 From: Jack Thomson <jackabt@amazon.com>
 Date: Fri, 16 Jan 2026 15:14:10 +0000
-Subject: [PATCH 1/7] KVM: async_pf: Convert queued count to atomic and tighten
- locking
+Subject: [PATCH 87/94] KVM: async_pf: Convert queued count to atomic and
+ tighten locking
 
 Userfaultfd-based async page faults will need to synchronize between the
 vCPU thread and ioctl callers operating on the same async_pf state.
@@ -205,5 +205,5 @@ index b8aaa96b799b..4d553f4d1caf 100644
  	return 0;
  }
 -- 
-2.43.0
+2.50.1
 

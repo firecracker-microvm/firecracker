@@ -1,7 +1,7 @@
-From bf9a06115ecb8f42462b8939c661a7fa68a5bd03 Mon Sep 17 00:00:00 2001
+From ed6c53c5a032943234d60e83e60d3e10d67e2fda Mon Sep 17 00:00:00 2001
 From: James Houghton <jthoughton@google.com>
 Date: Thu, 9 Jan 2025 20:49:18 +0000
-Subject: [PATCH 48/86] KVM: Add KVM_MEMORY_EXIT_FLAG_USERFAULT
+Subject: [PATCH 48/94] KVM: Add KVM_MEMORY_EXIT_FLAG_USERFAULT
 
 This flag is used for vCPU memory faults caused by KVM Userfault; i.e.,
 the bit in `userfault_bitmap` corresponding to the faulting gfn was set.
