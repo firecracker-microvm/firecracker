@@ -103,6 +103,10 @@
                 "comment": "Used by the block device"
             },
             {
+                "syscall": "readlinkat",
+                "comment": "Needed for VFIO device teardown"
+            },
+            {
                 "syscall": "mremap",
                 "comment": "Used for re-allocating large memory regions, for example vectors"
             },
@@ -668,6 +672,32 @@
                         "op": "eq",
                         "val": 1075883638,
                         "comment": "KVM_IRQFD"
+                    }
+                ]
+            },
+            {
+                "syscall": "ioctl",
+                "comment": "Needed for VFIO device teardown",
+                "args": [
+                    {
+                        "index": 1,
+                        "type": "dword",
+                        "op": "eq",
+                        "val": 15215,
+                        "comment": "VFIO_DEVICE_RESET"
+                    }
+                ]
+            },
+            {
+                "syscall": "ioctl",
+                "comment": "Needed for VFIO device teardown",
+                "args": [
+                    {
+                        "index": 1,
+                        "type": "dword",
+                        "op": "eq",
+                        "val": 15209,
+                        "comment": "VFIO_GROUP_UNSET_CONTAINER"
                     }
                 ]
             },
@@ -1442,6 +1472,14 @@
                         "comment": "KVM_IRQFD"
                     }
                 ]
+            },
+            {
+                "syscall": "pread64",
+                "comment": "Used by VFIO passthrough to read device PCI config and BAR regions on vCPU MMIO/PIO exits"
+            },
+            {
+                "syscall": "pwrite64",
+                "comment": "Used by VFIO passthrough to write device PCI config and BAR regions on vCPU MMIO/PIO exits"
             }
         ]
     }
