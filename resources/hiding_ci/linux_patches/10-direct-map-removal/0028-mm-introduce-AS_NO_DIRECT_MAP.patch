@@ -1,7 +1,7 @@
-From 3cbe82fbe24722544c05598a611b7c98d161799f Mon Sep 17 00:00:00 2001
+From abc867c00868f03e7641bd285186a0848f8f40c1 Mon Sep 17 00:00:00 2001
 From: Patrick Roy <patrick.roy@linux.dev>
 Date: Mon, 12 Jan 2026 15:29:36 +0000
-Subject: [PATCH 28/87] mm: introduce AS_NO_DIRECT_MAP
+Subject: [PATCH 28/94] mm: introduce AS_NO_DIRECT_MAP
 
 Add AS_NO_DIRECT_MAP for mappings where direct map entries of folios are
 set to not present. Currently, mappings that match this description are
@@ -26,15 +26,15 @@ Acked-by: David Hildenbrand (Red Hat) <david@kernel.org>
 Signed-off-by: Patrick Roy <patrick.roy@linux.dev>
 Acked-by: Vlastimil Babka <vbabka@suse.cz>
 Reviewed-by: Ackerley Tng <ackerleytng@google.com>
-Signed-off-by: Nikita Kalyazin <kalyazin@amazon.com>
+Signed-off-by: Nikita Kalyazin <nikita.kalyazin@linux.dev>
 ---
  include/linux/pagemap.h   | 16 ++++++++++++++++
  include/linux/secretmem.h | 18 ------------------
- lib/buildid.c             | 22 ++++++++++++++++++++--
+ lib/buildid.c             | 11 +++++++++--
  mm/gup.c                  |  9 ++++-----
  mm/mlock.c                |  2 +-
  mm/secretmem.c            |  8 ++------
- 6 files changed, 43 insertions(+), 32 deletions(-)
+ 6 files changed, 32 insertions(+), 32 deletions(-)
 
 diff --git a/include/linux/pagemap.h b/include/linux/pagemap.h
 index a17fabbc0269..d51e0c0404e2 100644
@@ -104,10 +104,10 @@ index e918f96881f5..0ae1fb057b3d 100644
  {
  	return false;
 diff --git a/lib/buildid.c b/lib/buildid.c
-index c4b0f376fb34..caeff8f077bc 100644
+index c4b0f376fb34..e27ff5d8c4fc 100644
 --- a/lib/buildid.c
 +++ b/lib/buildid.c
-@@ -65,8 +65,8 @@ static int freader_get_folio(struct freader *r, loff_t file_off)
+@@ -65,10 +65,11 @@ static int freader_get_folio(struct freader *r, loff_t file_off)
  
  	freader_put_folio(r);
  
@@ -117,8 +117,11 @@ index c4b0f376fb34..caeff8f077bc 100644
 +	if (mapping_no_direct_map(r->file->f_mapping))
  		return -EFAULT;
  
++	/* only use page cache lookup - fail if not already cached */
  	r->folio = filemap_get_folio(r->file->f_mapping, file_off >> PAGE_SHIFT);
-@@ -116,6 +116,24 @@ static const void *freader_fetch(struct freader *r, loff_t file_off, size_t sz)
+ 
+ 	/* if sleeping is allowed, wait for the page, if necessary */
+@@ -116,6 +117,12 @@ static const void *freader_fetch(struct freader *r, loff_t file_off, size_t sz)
  		return r->data + file_off;
  	}
  
@@ -128,23 +131,11 @@ index c4b0f376fb34..caeff8f077bc 100644
 +		return NULL;
 +	}
 +
-+	/* use __kernel_read() for sleepable context */
-+	if (r->may_fault) {
-+		ssize_t ret;
-+
-+		ret = __kernel_read(r->file, r->buf, sz, &file_off);
-+		if (ret != sz) {
-+			r->err = (ret < 0) ? ret : -EIO;
-+			return NULL;
-+		}
-+		return r->buf;
-+	}
-+
  	/* fetch or reuse folio for given file offset */
  	r->err = freader_get_folio(r, file_off);
  	if (r->err)
 diff --git a/mm/gup.c b/mm/gup.c
-index 65d80625c90c..8e8e52e39bd4 100644
+index 9ec6b3499109..9c945c7f82ae 100644
 --- a/mm/gup.c
 +++ b/mm/gup.c
 @@ -11,7 +11,6 @@
@@ -182,7 +173,7 @@ index 65d80625c90c..8e8e52e39bd4 100644
  	if (folio_test_hugetlb(folio))
  		return true;
  
-@@ -2782,7 +2781,7 @@ static bool gup_fast_folio_allowed(struct folio *folio, unsigned int flags)
+@@ -2786,7 +2785,7 @@ static bool gup_fast_folio_allowed(struct folio *folio, unsigned int flags)
  	 * At this point, we know the mapping is non-null and points to an
  	 * address_space object.
  	 */

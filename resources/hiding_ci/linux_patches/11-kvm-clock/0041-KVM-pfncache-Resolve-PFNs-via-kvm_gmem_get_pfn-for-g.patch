@@ -1,7 +1,7 @@
-From 330d5d4a29bcf5432f4dc69a085a2aeef25f7c2b Mon Sep 17 00:00:00 2001
+From 6176d7e13f3bcc14083402dbf803b68ff64b67e1 Mon Sep 17 00:00:00 2001
 From: Takahiro Itazuri <itazur@amazon.com>
 Date: Sun, 22 Feb 2026 13:31:50 +0000
-Subject: [PATCH 41/86] KVM: pfncache: Resolve PFNs via kvm_gmem_get_pfn() for
+Subject: [PATCH 41/94] KVM: pfncache: Resolve PFNs via kvm_gmem_get_pfn() for
  gmem-backed GPAs
 
 Currently, pfncaches always resolve PFNs via hva_to_pfn(), which

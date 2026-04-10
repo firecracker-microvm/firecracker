@@ -1,7 +1,7 @@
-From 5b43455df19d4838a551e0536a6876a680ba29e2 Mon Sep 17 00:00:00 2001
+From 2283672a5623e50cb8353e653bc3ff27f859d1db Mon Sep 17 00:00:00 2001
 From: "Mike Rapoport (Microsoft)" <rppt@kernel.org>
 Date: Fri, 6 Mar 2026 19:18:09 +0200
-Subject: [PATCH 74/86] userfaultfd: introduce vm_uffd_ops->alloc_folio()
+Subject: [PATCH 74/94] userfaultfd: introduce vm_uffd_ops->alloc_folio()
 
 and use it to refactor mfill_atomic_pte_zeroed_folio() and
 mfill_atomic_pte_copy().

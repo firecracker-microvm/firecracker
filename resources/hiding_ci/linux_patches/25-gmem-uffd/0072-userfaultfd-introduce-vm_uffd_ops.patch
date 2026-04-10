@@ -1,7 +1,7 @@
-From 37c68d03053d052c2e72f953e4a59fcf4f5f566d Mon Sep 17 00:00:00 2001
+From 4053792dca17ff25648b5b9453151aadc5daf03a Mon Sep 17 00:00:00 2001
 From: Mike Rapoport <rppt@kernel.org>
 Date: Wed, 11 Mar 2026 20:49:00 +0200
-Subject: [PATCH 72/86] userfaultfd: introduce vm_uffd_ops
+Subject: [PATCH 72/94] userfaultfd: introduce vm_uffd_ops
 
 On Fri, Mar 06, 2026 at 07:18:07PM +0200, Mike Rapoport wrote:
 >  bool vma_can_userfault(struct vm_area_struct *vma, vm_flags_t vm_flags,

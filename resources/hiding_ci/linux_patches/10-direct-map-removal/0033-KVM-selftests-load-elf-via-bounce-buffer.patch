@@ -1,7 +1,7 @@
-From e6b105a314d205051913b562f92793f6a5120388 Mon Sep 17 00:00:00 2001
+From f4e56592c7e30e9989a9f37c4e182a9a9cc0c2b8 Mon Sep 17 00:00:00 2001
 From: Patrick Roy <patrick.roy@linux.dev>
 Date: Sun, 23 Nov 2025 18:44:34 +0100
-Subject: [PATCH 33/87] KVM: selftests: load elf via bounce buffer
+Subject: [PATCH 33/94] KVM: selftests: load elf via bounce buffer
 
 If guest memory is backed using a VMA that does not allow GUP (e.g. a
 userspace mapping of guest_memfd when the fd was allocated using
@@ -11,7 +11,7 @@ support loading binaries in this cases, do the read(2) syscall using a
 bounce buffer, and then memcpy from the bounce buffer into guest memory.
 
 Signed-off-by: Patrick Roy <patrick.roy@linux.dev>
-Signed-off-by: Nikita Kalyazin <kalyazin@amazon.com>
+Signed-off-by: Nikita Kalyazin <nikita.kalyazin@linux.dev>
 ---
  .../testing/selftests/kvm/include/test_util.h |  1 +
  tools/testing/selftests/kvm/lib/elf.c         |  8 +++----

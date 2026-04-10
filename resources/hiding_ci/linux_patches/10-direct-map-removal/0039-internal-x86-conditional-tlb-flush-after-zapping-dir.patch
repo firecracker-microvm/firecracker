@@ -1,7 +1,7 @@
-From 0e0ec50c14c25b4aaf62d6e59d668a4aeeba5a98 Mon Sep 17 00:00:00 2001
+From 4b09417fd0a5698dcb9a935c1e23584b8bc070dd Mon Sep 17 00:00:00 2001
 From: Nikita Kalyazin <kalyazin@amazon.com>
 Date: Mon, 12 Jan 2026 15:51:48 +0000
-Subject: [PATCH 39/87] internal: x86: conditional tlb flush after zapping
+Subject: [PATCH 39/94] internal: x86: conditional tlb flush after zapping
  direct map
 
 Gate TLB flushes after removing pages from direct map on x86 by a
@@ -81,11 +81,11 @@ index 9f34afa27d00..685e56404533 100644
  struct kvm_device {
  	const struct kvm_device_ops *ops;
 diff --git a/mm/memory.c b/mm/memory.c
-index 078558b21cfb..4f200c3e7d24 100644
+index 1ec36299e963..5b07a6ac5027 100644
 --- a/mm/memory.c
 +++ b/mm/memory.c
-@@ -7343,8 +7343,6 @@ int folio_zap_direct_map(struct folio *folio)
- 	int ret;
+@@ -7346,8 +7346,6 @@ int folio_zap_direct_map(struct folio *folio)
+ 		return -EINVAL;
  
  	ret = set_direct_map_valid_noflush(addr, folio_nr_pages(folio), false);
 -	flush_tlb_kernel_range((unsigned long)addr,
@@ -94,7 +94,7 @@ index 078558b21cfb..4f200c3e7d24 100644
  	return ret;
  }
 diff --git a/virt/kvm/guest_memfd.c b/virt/kvm/guest_memfd.c
-index 5beeb6866dcf..ed68a3b635ca 100644
+index 9e493d049798..5757949ff13a 100644
 --- a/virt/kvm/guest_memfd.c
 +++ b/virt/kvm/guest_memfd.c
 @@ -91,6 +91,7 @@ static bool kvm_gmem_folio_no_direct_map(struct folio *folio)
@@ -102,10 +102,10 @@ index 5beeb6866dcf..ed68a3b635ca 100644
  static int kvm_gmem_folio_zap_direct_map(struct folio *folio)
  {
 +	unsigned long addr = (unsigned long)folio_address(folio);
- 	u64 gmem_flags = GMEM_I(folio_inode(folio))->flags;
  	int r = 0;
  
-@@ -100,6 +101,8 @@ static int kvm_gmem_folio_zap_direct_map(struct folio *folio)
+ 	VM_WARN_ON_FOLIO(!folio_test_locked(folio), folio);
+@@ -104,6 +105,8 @@ static int kvm_gmem_folio_zap_direct_map(struct folio *folio)
  	r = folio_zap_direct_map(folio);
  	if (!r)
  		folio->private = (void *)((u64)folio->private | KVM_GMEM_FOLIO_NO_DIRECT_MAP);

@@ -1,7 +1,7 @@
-From 43587e783a02a7698319d38c234d0aeb1ef071cc Mon Sep 17 00:00:00 2001
+From 854e8101f72f16764a92a847cb81436bb05e612a Mon Sep 17 00:00:00 2001
 From: James Houghton <jthoughton@google.com>
 Date: Thu, 9 Jan 2025 20:49:17 +0000
-Subject: [PATCH 47/86] KVM: Add KVM_MEM_USERFAULT memslot flag and bitmap
+Subject: [PATCH 47/94] KVM: Add KVM_MEM_USERFAULT memslot flag and bitmap
 
 Use one of the 14 reserved u64s in struct kvm_userspace_memory_region2
 for the user to provide `userfault_bitmap`.

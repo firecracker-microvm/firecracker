@@ -1,7 +1,7 @@
-From c3bcbcf9415bca3d1653ec3a0b362592dd4bcfcc Mon Sep 17 00:00:00 2001
+From 05badd86cd3bc0ea82243a941e77bac176594890 Mon Sep 17 00:00:00 2001
 From: Takahiro Itazuri <itazur@amazon.com>
 Date: Sun, 22 Feb 2026 14:57:50 +0000
-Subject: [PATCH 45/86] KVM: Rename mn_* invalidate-related fields to generic
+Subject: [PATCH 45/94] KVM: Rename mn_* invalidate-related fields to generic
  ones
 
 The addition of guest_memfd support to pfncaches introduces additional

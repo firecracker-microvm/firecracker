@@ -1,7 +1,7 @@
-From 01125ed6e07fe5c26bceee1cb6b9664a57bb465a Mon Sep 17 00:00:00 2001
+From 6280e0d3bc5d7ba137ecaf2e0ef3eab92e778559 Mon Sep 17 00:00:00 2001
 From: Sean Christopherson <seanjc@google.com>
 Date: Mon, 9 Mar 2026 12:30:58 -0700
-Subject: [PATCH 85/86] srcu: Add and export call_srcu_expedited() to avoid
+Subject: [PATCH 85/94] srcu: Add and export call_srcu_expedited() to avoid
  transferring grace periods
 
 Add and export an expedited version of call_srcu() so that users of

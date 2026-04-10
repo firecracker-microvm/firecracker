@@ -1,8 +1,8 @@
-From 1ef60d6e4842da5a797f59f8e14946e1f9154a0b Mon Sep 17 00:00:00 2001
+From ce0aeae2b44c279f241304644c6d5958f1362779 Mon Sep 17 00:00:00 2001
 From: Jack Thomson <jackabt@amazon.com>
 Date: Mon, 9 Feb 2026 11:52:46 +0000
-Subject: [PATCH 6/7] KVM: x86: Add exitless async page fault notification via
- eventfd
+Subject: [PATCH 92/94] KVM: x86: Add exitless async page fault notification
+ via eventfd
 
 When a VMM handles many userfault APFs (e.g. during snapshot restore),
 the KVM_RUN exit/re-entry overhead for each fault becomes significant.
@@ -53,7 +53,7 @@ index ab285e1ff80f..9e7bc9ac8555 100644
  
  		if (report_async) {
 diff --git a/arch/x86/kvm/x86.c b/arch/x86/kvm/x86.c
-index 0995a6e99250..a25be68305b2 100644
+index 6c151538280f..b3fbfb9413e9 100644
 --- a/arch/x86/kvm/x86.c
 +++ b/arch/x86/kvm/x86.c
 @@ -6067,6 +6067,9 @@ static int kvm_vcpu_ioctl_enable_cap(struct kvm_vcpu *vcpu,
@@ -521,5 +521,5 @@ index 81cdea301b83..76dc75ab4387 100644
 +	return true;
 +}
 -- 
-2.43.0
+2.50.1
 
