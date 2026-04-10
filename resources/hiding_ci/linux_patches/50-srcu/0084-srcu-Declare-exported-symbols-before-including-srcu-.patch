@@ -1,7 +1,7 @@
-From 99a2176de13bcbb3f7c26368f02e3abc8031b145 Mon Sep 17 00:00:00 2001
+From 761a222782779c348a12ae07ef434299b63c5ce8 Mon Sep 17 00:00:00 2001
 From: Sean Christopherson <seanjc@google.com>
 Date: Mon, 9 Mar 2026 12:30:57 -0700
-Subject: [PATCH 84/86] srcu: Declare exported symbols before including
+Subject: [PATCH 84/94] srcu: Declare exported symbols before including
  srcu{tiny,tree}.h
 
 Move the declarations of call_srcu(), cleanup_srcu_struct(), and
