@@ -1,7 +1,7 @@
-From d81c05381e6a68667fd539ccfd2e0cdb0e59a358 Mon Sep 17 00:00:00 2001
+From 9ab240194c5bfefcc0d0d2913bd995e7bca0424b Mon Sep 17 00:00:00 2001
 From: Patrick Roy <patrick.roy@linux.dev>
 Date: Sun, 23 Nov 2025 18:44:33 +0100
-Subject: [PATCH 32/87] KVM: guest_memfd: Add flag to remove from direct map
+Subject: [PATCH 32/94] KVM: guest_memfd: Add flag to remove from direct map
 
 Add GUEST_MEMFD_FLAG_NO_DIRECT_MAP flag for KVM_CREATE_GUEST_MEMFD()
 ioctl. When set, guest_memfd folios will be removed from the direct map
@@ -28,23 +28,23 @@ to work.
 
 Direct map entries are zapped right before guest or userspace mappings
 of gmem folios are set up, e.g. in kvm_gmem_fault_user_mapping() or
-kvm_gmem_get_pfn() [called from the KVM MMU code]. The only place where
-a gmem folio can be allocated without being mapped anywhere is
-kvm_gmem_populate(), where handling potential failures of direct map
-removal is not possible (by the time direct map removal is attempted,
-the folio is already marked as prepared, meaning attempting to re-try
-kvm_gmem_populate() would just result in -EEXIST without fixing up the
-direct map state). These folios are then removed form the direct map
-upon kvm_gmem_get_pfn(), e.g. when they are mapped into the guest later.
+kvm_gmem_get_pfn() [called from the KVM MMU code].  At present, direct
+map removal is not supported on platforms that support
+kvm_gmem_populate().  In case such support is added in the future, the
+following ordering is maintained: zap then prepare, invalidate then
+restore, to avoid having guest-owned pages being temporarily mapped on
+by host.  This assumes that preparation or invalidation code does not
+access the page content.
 
 Signed-off-by: Patrick Roy <patrick.roy@linux.dev>
-Signed-off-by: Nikita Kalyazin <kalyazin@amazon.com>
+Co-developed-by: Nikita Kalyazin <nikita.kalyazin@linux.dev>
+Signed-off-by: Nikita Kalyazin <nikita.kalyazin@linux.dev>
 ---
  Documentation/virt/kvm/api.rst | 21 +++++-----
  include/linux/kvm_host.h       |  3 ++
  include/uapi/linux/kvm.h       |  1 +
- virt/kvm/guest_memfd.c         | 70 +++++++++++++++++++++++++++++++---
- 4 files changed, 81 insertions(+), 14 deletions(-)
+ virt/kvm/guest_memfd.c         | 74 +++++++++++++++++++++++++++++++---
+ 4 files changed, 85 insertions(+), 14 deletions(-)
 
 diff --git a/Documentation/virt/kvm/api.rst b/Documentation/virt/kvm/api.rst
 index 57061fa29e6a..3286e003decc 100644
@@ -105,7 +105,7 @@ index 52f6000ab020..13ee57c09669 100644
  struct kvm_create_guest_memfd {
  	__u64 size;
 diff --git a/virt/kvm/guest_memfd.c b/virt/kvm/guest_memfd.c
-index 658b611760ff..5beeb6866dcf 100644
+index 658b611760ff..9e493d049798 100644
 --- a/virt/kvm/guest_memfd.c
 +++ b/virt/kvm/guest_memfd.c
 @@ -7,6 +7,7 @@
@@ -116,7 +116,7 @@ index 658b611760ff..5beeb6866dcf 100644
  
  #include "kvm_mm.h"
  
-@@ -81,6 +82,35 @@ static inline void kvm_gmem_mark_prepared(struct folio *folio)
+@@ -81,6 +82,39 @@ static inline void kvm_gmem_mark_prepared(struct folio *folio)
  	folio_mark_uptodate(folio);
  }
  
@@ -129,10 +129,14 @@ index 658b611760ff..5beeb6866dcf 100644
 +
 +static int kvm_gmem_folio_zap_direct_map(struct folio *folio)
 +{
-+	u64 gmem_flags = GMEM_I(folio_inode(folio))->flags;
 +	int r = 0;
 +
-+	if (kvm_gmem_folio_no_direct_map(folio) || !(gmem_flags & GUEST_MEMFD_FLAG_NO_DIRECT_MAP))
++	VM_WARN_ON_FOLIO(!folio_test_locked(folio), folio);
++
++	if (WARN_ON_ONCE(!(GMEM_I(folio_inode(folio))->flags & GUEST_MEMFD_FLAG_NO_DIRECT_MAP)))
++		return -EINVAL;
++
++	if (kvm_gmem_folio_no_direct_map(folio))
 +		goto out;
 +
 +	r = folio_zap_direct_map(folio);
@@ -152,7 +156,7 @@ index 658b611760ff..5beeb6866dcf 100644
  /*
   * Process @folio, which contains @gfn, so that the guest can use it.
   * The folio must be locked and the gfn must be contained in @slot.
-@@ -393,11 +423,17 @@ static bool kvm_gmem_supports_mmap(struct inode *inode)
+@@ -393,11 +427,17 @@ static bool kvm_gmem_supports_mmap(struct inode *inode)
  	return GMEM_I(inode)->flags & GUEST_MEMFD_FLAG_MMAP;
  }
  
@@ -170,7 +174,7 @@ index 658b611760ff..5beeb6866dcf 100644
  
  	if (((loff_t)vmf->pgoff << PAGE_SHIFT) >= i_size_read(inode))
  		return VM_FAULT_SIGBUS;
-@@ -423,6 +459,14 @@ static vm_fault_t kvm_gmem_fault_user_mapping(struct vm_fault *vmf)
+@@ -423,6 +463,14 @@ static vm_fault_t kvm_gmem_fault_user_mapping(struct vm_fault *vmf)
  		kvm_gmem_mark_prepared(folio);
  	}
  
@@ -185,17 +189,17 @@ index 658b611760ff..5beeb6866dcf 100644
  	vmf->page = folio_file_page(folio, vmf->pgoff);
  
  out_folio:
-@@ -533,6 +577,9 @@ static void kvm_gmem_free_folio(struct folio *folio)
- 	kvm_pfn_t pfn = page_to_pfn(page);
+@@ -534,6 +582,9 @@ static void kvm_gmem_free_folio(struct folio *folio)
  	int order = folio_order(folio);
  
+ 	kvm_arch_gmem_invalidate(pfn, pfn + (1ul << order));
++
 +	if (kvm_gmem_folio_no_direct_map(folio))
 +		kvm_gmem_folio_restore_direct_map(folio);
-+
- 	kvm_arch_gmem_invalidate(pfn, pfn + (1ul << order));
  }
  
-@@ -596,6 +643,9 @@ static int __kvm_gmem_create(struct kvm *kvm, loff_t size, u64 flags)
+ static const struct address_space_operations kvm_gmem_aops = {
+@@ -596,6 +647,9 @@ static int __kvm_gmem_create(struct kvm *kvm, loff_t size, u64 flags)
  	/* Unmovable mappings are supposed to be marked unevictable as well. */
  	WARN_ON_ONCE(!mapping_unevictable(inode->i_mapping));
  
@@ -205,7 +209,7 @@ index 658b611760ff..5beeb6866dcf 100644
  	GMEM_I(inode)->flags = flags;
  
  	file = alloc_file_pseudo(inode, kvm_gmem_mnt, name, O_RDWR, &kvm_gmem_fops);
-@@ -786,15 +836,25 @@ int kvm_gmem_get_pfn(struct kvm *kvm, struct kvm_memory_slot *slot,
+@@ -786,15 +840,25 @@ int kvm_gmem_get_pfn(struct kvm *kvm, struct kvm_memory_slot *slot,
  	if (IS_ERR(folio))
  		return PTR_ERR(folio);
  

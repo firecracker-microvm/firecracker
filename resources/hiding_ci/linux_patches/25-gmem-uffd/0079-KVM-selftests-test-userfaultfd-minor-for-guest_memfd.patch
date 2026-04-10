@@ -1,7 +1,7 @@
-From 220eeb46b2ddee0b2462fb8a37c272bd974a071a Mon Sep 17 00:00:00 2001
+From 38a95785d37c3285a1357782f9f9e72fb1b4109c Mon Sep 17 00:00:00 2001
 From: Nikita Kalyazin <kalyazin@amazon.com>
 Date: Fri, 6 Mar 2026 19:18:14 +0200
-Subject: [PATCH 79/86] KVM: selftests: test userfaultfd minor for guest_memfd
+Subject: [PATCH 79/94] KVM: selftests: test userfaultfd minor for guest_memfd
 
 The test demonstrates that a minor userfaultfd event in guest_memfd can
 be resolved via a memcpy followed by a UFFDIO_CONTINUE ioctl.

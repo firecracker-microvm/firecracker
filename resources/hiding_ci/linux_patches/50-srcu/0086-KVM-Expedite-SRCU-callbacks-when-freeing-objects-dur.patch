@@ -1,7 +1,7 @@
-From 3980657de714a1696acad439c82a02481cdb65c5 Mon Sep 17 00:00:00 2001
+From 851e4318eaf7f95c09d4f2d88db4efac43c90993 Mon Sep 17 00:00:00 2001
 From: Sean Christopherson <seanjc@google.com>
 Date: Mon, 9 Mar 2026 12:30:59 -0700
-Subject: [PATCH 86/86] KVM: Expedite SRCU callbacks when freeing objects
+Subject: [PATCH 86/94] KVM: Expedite SRCU callbacks when freeing objects
  during I/O bus registration
 
 Use the recently introduced call_srcu_expedited() when freeing the old I/O

@@ -1,7 +1,7 @@
-From 34d5c022a51157a24b709290b5bba74f94678256 Mon Sep 17 00:00:00 2001
+From ff2ab2bf722e769ee4d2edb30bfc4f4c8a254c12 Mon Sep 17 00:00:00 2001
 From: Nikita Kalyazin <kalyazin@amazon.com>
 Date: Fri, 14 Nov 2025 11:35:11 +0000
-Subject: [PATCH 61/86] KVM: selftests: update guest_memfd write tests
+Subject: [PATCH 61/94] KVM: selftests: update guest_memfd write tests
 
 This is to reflect that the write syscall is now implemented for
 guest_memfd.

@@ -1,7 +1,7 @@
-From b40496f26936d17b8ccb7228a342f92f4781e17b Mon Sep 17 00:00:00 2001
+From f05f4adae3d4d1374b79ce0ed4dede8c421b86c2 Mon Sep 17 00:00:00 2001
 From: James Houghton <jthoughton@google.com>
 Date: Thu, 9 Jan 2025 20:49:21 +0000
-Subject: [PATCH 50/86] KVM: x86/mmu: Add support for KVM_MEM_USERFAULT
+Subject: [PATCH 50/94] KVM: x86/mmu: Add support for KVM_MEM_USERFAULT
 
 Adhering to the requirements of KVM Userfault:
 
@@ -124,7 +124,7 @@ index ed5c01df21ba..a08741d39b82 100644
  
  static inline int kvm_mmu_do_page_fault(struct kvm_vcpu *vcpu, gpa_t cr2_or_gpa,
 diff --git a/arch/x86/kvm/x86.c b/arch/x86/kvm/x86.c
-index 652345b161aa..a447663d5eff 100644
+index d1aeefd014c0..7e08203ab134 100644
 --- a/arch/x86/kvm/x86.c
 +++ b/arch/x86/kvm/x86.c
 @@ -13494,12 +13494,36 @@ static void kvm_mmu_slot_apply_flags(struct kvm *kvm,

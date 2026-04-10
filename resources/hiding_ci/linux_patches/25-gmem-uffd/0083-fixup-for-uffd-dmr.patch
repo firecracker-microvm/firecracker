@@ -1,7 +1,7 @@
-From c5107e90b70f8261f009754762abebb927e22785 Mon Sep 17 00:00:00 2001
+From 43206a265ef1ad72604e7940e8f72a11244d86ea Mon Sep 17 00:00:00 2001
 From: Nikita Kalyazin <kalyazin@amazon.com>
 Date: Mon, 26 Jan 2026 12:37:52 +0000
-Subject: [PATCH 83/86] fixup for uffd + dmr
+Subject: [PATCH 83/94] fixup for uffd + dmr
 
 Signed-off-by: Nikita Kalyazin <kalyazin@amazon.com>
 ---
@@ -9,10 +9,10 @@ Signed-off-by: Nikita Kalyazin <kalyazin@amazon.com>
  1 file changed, 6 insertions(+)
 
 diff --git a/virt/kvm/guest_memfd.c b/virt/kvm/guest_memfd.c
-index 922839f044e0..0da609ceef48 100644
+index eda34a3e6a98..7bd90e91c3bd 100644
 --- a/virt/kvm/guest_memfd.c
 +++ b/virt/kvm/guest_memfd.c
-@@ -617,6 +617,12 @@ static int kvm_gmem_filemap_add(struct folio *folio,
+@@ -621,6 +621,12 @@ static int kvm_gmem_filemap_add(struct folio *folio,
  		return err;
  	}
  
