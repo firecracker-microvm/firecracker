@@ -1,7 +1,7 @@
-From e1dccc8f2f55bb0bff655504fd276fbcb4a8c745 Mon Sep 17 00:00:00 2001
+From 2bfd57d5273e01519f651e79051ea083ecb50a46 Mon Sep 17 00:00:00 2001
 From: "Mike Rapoport (Microsoft)" <rppt@kernel.org>
 Date: Fri, 6 Mar 2026 19:18:04 +0200
-Subject: [PATCH 66/86] userfaultfd: introduce mfill_get_vma() and
+Subject: [PATCH 66/94] userfaultfd: introduce mfill_get_vma() and
  mfill_put_vma()
 
 Split the code that finds, locks and verifies VMA from mfill_atomic()

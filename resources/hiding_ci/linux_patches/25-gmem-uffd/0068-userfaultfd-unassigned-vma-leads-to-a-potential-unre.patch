@@ -1,7 +1,7 @@
-From f297dedaf188cb4bcef5f8412e5e6aff0070c0d7 Mon Sep 17 00:00:00 2001
+From e6c96ebb621f2d35923fcbbb3ffb6f9c10add7d5 Mon Sep 17 00:00:00 2001
 From: Edward Adam Davis <eadavis@qq.com>
 Date: Mon, 16 Mar 2026 11:11:03 +0800
-Subject: [PATCH 68/86] userfaultfd: unassigned vma leads to a potential
+Subject: [PATCH 68/94] userfaultfd: unassigned vma leads to a potential
  unreleased locks
 
 A deadlock [1] occurs in mfill_get_vma() because the locks mmap_lock

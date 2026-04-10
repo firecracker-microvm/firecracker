@@ -1,7 +1,7 @@
-From 80afbc7cde66f8b2b195664c8a272c9315b1d0ff Mon Sep 17 00:00:00 2001
+From a6cd2ad6f9f715a264fd5a697a40e637be77f5b7 Mon Sep 17 00:00:00 2001
 From: Patrick Roy <patrick.roy@linux.dev>
 Date: Sun, 23 Nov 2025 18:44:33 +0100
-Subject: [PATCH 29/87] KVM: guest_memfd: Add stub for kvm_arch_gmem_invalidate
+Subject: [PATCH 29/94] KVM: guest_memfd: Add stub for kvm_arch_gmem_invalidate
 
 Add a no-op stub for kvm_arch_gmem_invalidate if
 CONFIG_HAVE_KVM_ARCH_GMEM_INVALIDATE=n. This allows defining
@@ -13,7 +13,7 @@ Acked-by: David Hildenbrand (Red Hat) <david@kernel.org>
 Signed-off-by: Patrick Roy <patrick.roy@linux.dev>
 Acked-by: Vlastimil Babka <vbabka@suse.cz>
 Reviewed-by: Ackerley Tng <ackerleytng@google.com>
-Signed-off-by: Nikita Kalyazin <kalyazin@amazon.com>
+Signed-off-by: Nikita Kalyazin <nikita.kalyazin@linux.dev>
 ---
  include/linux/kvm_host.h | 2 ++
  virt/kvm/guest_memfd.c   | 4 ----
