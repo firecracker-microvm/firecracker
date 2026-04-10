@@ -1,7 +1,7 @@
-From 6099924d5a4f5a7b92c971b4eaef466958f0e6b5 Mon Sep 17 00:00:00 2001
+From 1ead3e06371b92f11f35e9fd3d2c50d7f7ad7368 Mon Sep 17 00:00:00 2001
 From: "Mike Rapoport (Microsoft)" <rppt@kernel.org>
 Date: Fri, 6 Mar 2026 19:18:06 +0200
-Subject: [PATCH 70/86] userfaultfd: move vma_can_userfault out of line
+Subject: [PATCH 70/94] userfaultfd: move vma_can_userfault out of line
 
 vma_can_userfault() has grown pretty big and it's not called on
 performance critical path.

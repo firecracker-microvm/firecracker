@@ -1,7 +1,7 @@
-From f7dff50433dca6a954a9de24174eb98a7e1473ac Mon Sep 17 00:00:00 2001
+From 685c846df4850741bdc21ee07f49d81969c7ad45 Mon Sep 17 00:00:00 2001
 From: "Mike Rapoport (Microsoft)" <rppt@kernel.org>
 Date: Fri, 6 Mar 2026 19:18:07 +0200
-Subject: [PATCH 71/86] userfaultfd: introduce vm_uffd_ops
+Subject: [PATCH 71/94] userfaultfd: introduce vm_uffd_ops
 
 Current userfaultfd implementation works only with memory managed by
 core MM: anonymous, shmem and hugetlb.

@@ -1,7 +1,7 @@
-From 58d089525628bc2bb27f5733141928ddc4a8a2d1 Mon Sep 17 00:00:00 2001
+From eaf0edecca76c574f4697cecb42a699636a50382 Mon Sep 17 00:00:00 2001
 From: "Mike Rapoport (Microsoft)" <rppt@kernel.org>
 Date: Fri, 6 Mar 2026 19:18:10 +0200
-Subject: [PATCH 75/86] shmem, userfaultfd: implement shmem uffd operations
+Subject: [PATCH 75/94] shmem, userfaultfd: implement shmem uffd operations
  using vm_uffd_ops
 
 Add filemap_add() and filemap_remove() methods to vm_uffd_ops and use

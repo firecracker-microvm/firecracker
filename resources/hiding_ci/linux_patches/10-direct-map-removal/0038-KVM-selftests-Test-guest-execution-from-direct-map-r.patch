@@ -1,7 +1,7 @@
-From df7109021c0ca1d5351bf5fee04f2153e08c5e4e Mon Sep 17 00:00:00 2001
+From 666ac08672164616e1b0c2cd9833e18420867fcb Mon Sep 17 00:00:00 2001
 From: Patrick Roy <patrick.roy@linux.dev>
 Date: Sun, 23 Nov 2025 18:44:36 +0100
-Subject: [PATCH 38/87] KVM: selftests: Test guest execution from direct map
+Subject: [PATCH 38/94] KVM: selftests: Test guest execution from direct map
  removed gmem
 
 Add a selftest that loads itself into guest_memfd (via
@@ -14,7 +14,7 @@ that's been reflected into the memslot's userspace_addr field (instead
 of trying to do direct map accesses).
 
 Signed-off-by: Patrick Roy <patrick.roy@linux.dev>
-Signed-off-by: Nikita Kalyazin <kalyazin@amazon.com>
+Signed-off-by: Nikita Kalyazin <nikita.kalyazin@linux.dev>
 ---
  .../selftests/kvm/set_memory_region_test.c    | 52 +++++++++++++++++--
  1 file changed, 48 insertions(+), 4 deletions(-)

@@ -1,8 +1,8 @@
-From 75ee570d5d68306eef0fc2e4b2055ca81fc267f3 Mon Sep 17 00:00:00 2001
+From 67112bb5ec0815b68680eba7ab89aa546bc2c138 Mon Sep 17 00:00:00 2001
 From: Jack Thomson <jackabt@amazon.com>
 Date: Wed, 25 Mar 2026 11:56:37 +0000
-Subject: [PATCH] fixup! KVM: async_pf: Convert queued count to atomic and
- tighten locking
+Subject: [PATCH 94/94] fixup! KVM: async_pf: Convert queued count to atomic
+ and tighten locking
 
 Don't hold async_pf.lock over kvm_arch_can_dequeue_async_page_present().
 
@@ -58,5 +58,5 @@ index 2e4f89db4d47..3a2341054781 100644
  
  /*
 -- 
-2.43.0
+2.50.1
 

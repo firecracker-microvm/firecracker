@@ -1,7 +1,7 @@
-From e67b3d6d0f84158724ef06a2f7107809028921d6 Mon Sep 17 00:00:00 2001
+From 5a2e2b0f96d4f66f94d39fb00346611bdd235895 Mon Sep 17 00:00:00 2001
 From: Patrick Roy <patrick.roy@linux.dev>
 Date: Sun, 23 Nov 2025 18:44:35 +0100
-Subject: [PATCH 36/87] KVM: selftests: cover GUEST_MEMFD_FLAG_NO_DIRECT_MAP in
+Subject: [PATCH 36/94] KVM: selftests: cover GUEST_MEMFD_FLAG_NO_DIRECT_MAP in
  existing selftests
 
 Extend mem conversion selftests to cover the scenario that the guest can
@@ -9,7 +9,7 @@ fault in and write gmem-backed guest memory even if its direct map
 removed. Also cover the new flag in guest_memfd_test.c tests.
 
 Signed-off-by: Patrick Roy <patrick.roy@linux.dev>
-Signed-off-by: Nikita Kalyazin <kalyazin@amazon.com>
+Signed-off-by: Nikita Kalyazin <nikita.kalyazin@linux.dev>
 ---
  tools/testing/selftests/kvm/guest_memfd_test.c  | 17 ++++++++++++++++-
  .../kvm/x86/private_mem_conversions_test.c      |  7 ++++---
