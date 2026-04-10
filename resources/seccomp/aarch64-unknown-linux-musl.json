@@ -1335,6 +1335,14 @@
                         "comment": "KVM_IRQFD"
                     }
                 ]
+            },
+            {
+                "syscall": "pread64",
+                "comment": "Used by VFIO passthrough to read device PCI config and BAR regions on vCPU MMIO/PIO exits"
+            },
+            {
+                "syscall": "pwrite64",
+                "comment": "Used by VFIO passthrough to write device PCI config and BAR regions on vCPU MMIO/PIO exits"
             }
         ]
     }
