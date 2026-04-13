@@ -9,4 +9,12 @@ ignore = [
         # Temporary exclusion of the bincode crate advisory
         # while we are working on migration to a substitution.
         "RUSTSEC-2025-0141",
+        # `rand` unsoundness when a custom logger re-enters `rand::rng()`/`thread_rng()`
+        # during ThreadRng reseeding. Firecracker is not affected:
+        # - uuid (1.23.0): does not enable `fast-rng` or `rng-rand` features, so it uses
+        #   `getrandom` directly and never calls into rand.
+        # - proptest: uses rand 0.9 with `default-features = false` and does not enable
+        #   the `thread_rng` feature, so the affected functions are not compiled in.
+        # See https://rustsec.org/advisories/RUSTSEC-2026-0097.html
+        "RUSTSEC-2026-0097",
 ]
