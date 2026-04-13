@@ -14,7 +14,6 @@ use kvm_bindings::{
     kvm_mp_state, kvm_regs, kvm_sregs, kvm_vcpu_events, kvm_xcrs, kvm_xsave, kvm_xsave2,
 };
 use kvm_ioctls::{VcpuExit, VcpuFd};
-use log::{error, warn};
 use serde::{Deserialize, Serialize};
 use vmm_sys_util::fam::{self, FamStruct};
 
@@ -24,7 +23,7 @@ use crate::arch::x86_64::interrupts;
 use crate::arch::x86_64::msr::{MsrError, create_boot_msr_entries};
 use crate::arch::x86_64::regs::{SetupFpuError, SetupRegistersError, SetupSpecialRegistersError};
 use crate::cpu_config::x86_64::{CpuConfiguration, cpuid};
-use crate::logger::{IncMetric, METRICS};
+use crate::logger::{IncMetric, METRICS, error, warn};
 use crate::vstate::bus::Bus;
 use crate::vstate::memory::GuestMemoryMmap;
 use crate::vstate::vcpu::{VcpuConfig, VcpuEmulation, VcpuError};

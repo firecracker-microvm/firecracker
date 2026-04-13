@@ -12,7 +12,6 @@ use std::sync::{Arc, Mutex};
 
 use bitvec::vec::BitVec;
 use kvm_bindings::{KVM_MEM_LOG_DIRTY_PAGES, kvm_userspace_memory_region};
-use log::error;
 use serde::{Deserialize, Serialize};
 pub use vm_memory::bitmap::{AtomicBitmap, BS, Bitmap, BitmapSlice};
 pub use vm_memory::mmap::MmapRegionBuilder;
@@ -24,6 +23,7 @@ pub use vm_memory::{
 use vm_memory::{GuestMemoryError, GuestMemoryRegionBytes, VolatileSlice, WriteVolatile};
 
 use crate::arch::host_page_size;
+use crate::logger::error;
 use crate::utils::u64_to_usize;
 use crate::vmm_config::machine_config::HugePageConfig;
 use crate::vstate::vm::VmError;

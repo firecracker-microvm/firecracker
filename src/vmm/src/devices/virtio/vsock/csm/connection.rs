@@ -82,7 +82,6 @@ use std::num::Wrapping;
 use std::os::unix::io::{AsRawFd, RawFd};
 use std::time::{Duration, Instant};
 
-use log::{debug, error, info, warn};
 use vm_memory::GuestMemoryError;
 use vm_memory::io::{ReadVolatile, WriteVolatile};
 use vmm_sys_util::epoll::EventSet;
@@ -93,7 +92,7 @@ use super::txbuf::TxBuf;
 use super::{ConnState, PendingRx, PendingRxSet, VsockCsmError, defs};
 use crate::devices::virtio::vsock::metrics::METRICS;
 use crate::devices::virtio::vsock::packet::{VsockPacketHeader, VsockPacketRx, VsockPacketTx};
-use crate::logger::IncMetric;
+use crate::logger::{IncMetric, debug, error, info, warn};
 use crate::utils::wrap_usize_to_u32;
 
 /// Trait that vsock connection backends need to implement.

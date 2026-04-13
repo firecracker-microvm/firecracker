@@ -19,14 +19,13 @@ use kvm_bindings::{
     kvm_irq_routing_entry, kvm_userspace_memory_region,
 };
 use kvm_ioctls::VmFd;
-use log::debug;
 use serde::{Deserialize, Serialize};
 use vmm_sys_util::errno;
 use vmm_sys_util::eventfd::EventFd;
 
 pub use crate::arch::{ArchVm as Vm, ArchVmError, VmState};
 use crate::arch::{GSI_MSI_END, host_page_size};
-use crate::logger::info;
+use crate::logger::{debug, info};
 use crate::pci::{DeviceRelocation, DeviceRelocationError, PciDevice};
 use crate::persist::CreateSnapshotError;
 use crate::vmm_config::snapshot::SnapshotType;

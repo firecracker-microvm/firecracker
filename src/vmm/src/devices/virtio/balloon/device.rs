@@ -5,7 +5,6 @@ use std::ops::Deref;
 use std::sync::Arc;
 use std::time::Duration;
 
-use log::{debug, error, info, warn};
 use serde::{Deserialize, Serialize};
 use utils::time::TimerFd;
 use vmm_sys_util::eventfd::EventFd;
@@ -32,7 +31,7 @@ use crate::devices::virtio::device::{ActiveState, VirtioDeviceType};
 use crate::devices::virtio::generated::virtio_config::VIRTIO_F_VERSION_1;
 use crate::devices::virtio::queue::InvalidAvailIdx;
 use crate::devices::virtio::transport::{VirtioInterrupt, VirtioInterruptType};
-use crate::logger::{IncMetric, log_dev_preview_warning};
+use crate::logger::{IncMetric, debug, error, info, log_dev_preview_warning, warn};
 use crate::utils::u64_to_usize;
 use crate::vstate::memory::{
     Address, ByteValued, Bytes, GuestAddress, GuestMemoryExtension, GuestMemoryMmap,

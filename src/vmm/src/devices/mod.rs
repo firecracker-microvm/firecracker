@@ -17,12 +17,10 @@ pub mod pci;
 pub mod pseudo;
 pub mod virtio;
 
-use log::error;
-
 use crate::devices::virtio::net::metrics::NetDeviceMetrics;
 use crate::devices::virtio::queue::{InvalidAvailIdx, QueueError};
 use crate::devices::virtio::vsock::VsockError;
-use crate::logger::IncMetric;
+use crate::logger::{IncMetric, error};
 use crate::vstate::interrupts::InterruptError;
 
 // Function used for reporting error in terms of logging

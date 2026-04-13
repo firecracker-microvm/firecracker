@@ -13,7 +13,6 @@ use std::ops::Deref;
 use std::sync::{Arc, Mutex};
 
 use libc::{EAGAIN, iovec};
-use log::{error, info};
 use vmm_sys_util::eventfd::EventFd;
 
 use super::NET_QUEUE_MAX_SIZE;
@@ -40,7 +39,7 @@ use crate::devices::{DeviceError, report_net_event_fail};
 use crate::dumbo::pdu::arp::ETH_IPV4_FRAME_LEN;
 use crate::dumbo::pdu::ethernet::{EthernetFrame, PAYLOAD_OFFSET};
 use crate::impl_device_type;
-use crate::logger::{IncMetric, METRICS};
+use crate::logger::{IncMetric, METRICS, error};
 use crate::mmds::data_store::Mmds;
 use crate::mmds::ns::MmdsNetworkStack;
 use crate::rate_limiter::{BucketUpdate, RateLimiter, TokenType};

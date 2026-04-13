@@ -3,7 +3,6 @@
 
 use acpi_tables::fadt::{FADT_F_HW_REDUCED_ACPI, FADT_F_PWR_BUTTON, FADT_F_SLP_BUTTON};
 use acpi_tables::{Aml, Dsdt, Fadt, Madt, Mcfg, Rsdp, Sdt, Xsdt, aml};
-use log::{debug, error};
 use vm_allocator::AllocPolicy;
 
 use crate::Vcpu;
@@ -12,6 +11,7 @@ use crate::acpi::x86_64::{
 };
 use crate::arch::x86_64::layout;
 use crate::device_manager::DeviceManager;
+use crate::logger::{debug, error};
 use crate::vstate::memory::{GuestAddress, GuestMemoryMmap};
 use crate::vstate::resources::ResourceAllocator;
 
