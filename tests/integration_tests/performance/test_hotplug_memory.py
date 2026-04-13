@@ -278,19 +278,21 @@ def check_hotplug(uvm, requested_size_mib):
 def check_hotunplug(uvm, requested_size_mib):
     """Verifies memory can be hotunplugged and gets released"""
 
-    rss_before = get_resident_memory(uvm.ps)
+    rss_before = get_resident_memory(uvm)
 
     check_hotplug(uvm, requested_size_mib)
 
-    rss_after = get_resident_memory(uvm.ps)
+    rss_after = get_resident_memory(uvm)
 
     print(f"RSS before: {rss_before}, after: {rss_after}")
 
     machine_config = uvm.api.machine_config.get().json()
     huge_pages = HugePagesConfig(machine_config["huge_pages"])
     secret_free = machine_config.get("secret_free", False)
-    if not secret_free and (
-        huge_pages == HugePagesConfig.NONE or supports_hugetlbfs_discard()
+    if (
+        secret_free
+        or huge_pages == HugePagesConfig.NONE
+        or supports_hugetlbfs_discard()
     ):
         assert rss_after < rss_before, "RSS didn't decrease"
 

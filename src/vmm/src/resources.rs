@@ -268,12 +268,6 @@ impl VmResources {
             return Err(MachineConfigError::IncompatibleBalloonSize);
         }
 
-        if self.balloon.get().is_some() && updated.secret_free {
-            return Err(MachineConfigError::Incompatible(
-                "balloon device",
-                "secret freedom",
-            ));
-        }
         if updated.secret_free {
             if self.vhost_user_devices_used() {
                 return Err(MachineConfigError::Incompatible(
@@ -345,10 +339,6 @@ impl VmResources {
         // the guest memory.
         if config.amount_mib as usize > self.machine_config.mem_size_mib {
             return Err(BalloonConfigError::TooManyPagesRequested);
-        }
-
-        if self.machine_config.secret_free {
-            return Err(BalloonConfigError::IncompatibleWith("secret freedom"));
         }
 
         self.balloon.set(config)
