@@ -18,6 +18,12 @@ and this project adheres to
   optional rate limiting to serial console output, configurable via the
   `rate_limiter` field on `PUT /serial`. A new metric is exposed under `uart`:
   `rate_limiter_dropped_bytes`.
+- [#5799](https://github.com/firecracker-microvm/firecracker/pull/5799): Add
+  per-callsite rate limiting for error, warn, and info level log messages. Each
+  callsite independently allows up to 10 messages per 5-second window. When
+  logging resumes after suppression, a warn-level summary reports the count of
+  suppressed messages. A new `rate_limited_log_count` metric tracks the total
+  number of suppressed messages.
 
 ### Changed
 
