@@ -27,17 +27,17 @@ recommended.
 
 Firecracker implements the 8250 serial device, which is visible from the guest
 side and is tied to the Firecracker/non-daemonized jailer process stdout.
-Without proper handling, because the guest has access to the serial device, this
-can lead to unbound memory or storage usage on the host side. Firecracker does
-not offer users the option to limit serial data transfer, nor does it impose any
-restrictions on stdout handling. Users are responsible for handling the memory
-and storage usage of the Firecracker process stdout. We suggest using any
-upper-bounded forms of storage, such as fixed-size or ring buffers, using
-programs like `journald` or `logrotate`, or redirecting to `/dev/null` or a
-named pipe. Furthermore, we do not recommend that users enable the serial device
-in production. To disable it in the guest kernel, use the `8250.nr_uarts=0` boot
-argument when configuring the boot source. Please be aware that the device can
-be reactivated from within the guest even if it was disabled at boot.
+Without proper handling, because the guest has access to the serial device. This
+can lead to unbound memory or storage usage on the host side. Users are
+responsible for handling the memory and storage usage of the Firecracker process
+stdout. We recommend using the rate limiter for the serial data transfer that
+Firecracker offers or any upper-bounded forms of storage, such as fixed-size or
+ring buffers, using programs like `journald` or `logrotate`, or redirecting to
+`/dev/null` or a named pipe. Furthermore, we do not recommend that users enable
+the serial device in production. To disable it in the guest kernel, use the
+`8250.nr_uarts=0` boot argument when configuring the boot source. Please be
+aware that the device can be reactivated from within the guest even if it was
+disabled at boot.
 
 If Firecracker's `stdout` buffer is non-blocking and full (assuming it has a
 bounded size), any subsequent writes will fail, resulting in data loss, until
