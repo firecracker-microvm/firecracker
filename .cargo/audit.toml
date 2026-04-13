@@ -1,7 +1,18 @@
 [advisories]
-# The `paste` dependency is transitively included via `gdbstub`.
-# While the crate is archived/unmaintained, the author considers it feature-complete
-# and functionally stable. gdbstub will be update once they migrate
-# to an alternative solution.
-# See https://github.com/daniel5151/gdbstub/issues/168
-ignore = ["RUSTSEC-2024-0436"]
+ignore = [
+    # The `paste` dependency is transitively included via `gdbstub`.
+    # While the crate is archived/unmaintained, the author considers it feature-complete
+    # and functionally stable. gdbstub will be update once they migrate
+    # to an alternative solution.
+    # See https://github.com/daniel5151/gdbstub/issues/168
+    "RUSTSEC-2024-0436",
+
+    # `rand` unsoundness when a custom logger re-enters `rand::rng()`/`thread_rng()`
+    # during ThreadRng reseeding. Firecracker is not affected:
+    # - uuid (1.23.0): does not enable `fast-rng` or `rng-rand` features, so it uses
+    #   `getrandom` directly and never calls into rand.
+    # - proptest: uses rand 0.9 with `default-features = false` and does not enable
+    #   the `thread_rng` feature, so the affected functions are not compiled in.
+    # See https://rustsec.org/advisories/RUSTSEC-2026-0097.html
+    "RUSTSEC-2026-0097",
+]
