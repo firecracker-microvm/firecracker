@@ -37,6 +37,7 @@ const DEV_PREVIEW_LOG_PREFIX: &str = "[DevPreview]";
 
 /// Log a standard warning message indicating a given feature name
 /// is in development preview.
+#[allow(clippy::disallowed_macros)]
 pub fn log_dev_preview_warning(feature_name: &str, msg_opt: Option<String>) {
     match msg_opt {
         None => {
@@ -62,7 +63,8 @@ pub fn update_metric_with_elapsed_time(metric: &SharedStoreMetric, start_time_us
 #[macro_export]
 macro_rules! debug {
     ($($arg:tt)+) => {{
-        $crate::logger::__log_debug!($($arg)+)
+        #[allow(clippy::disallowed_macros)]
+        { $crate::logger::__log_debug!($($arg)+) }
     }};
 }
 
@@ -71,6 +73,7 @@ macro_rules! debug {
 #[macro_export]
 macro_rules! error_unrestricted {
     ($($arg:tt)+) => {{
+        #[allow(clippy::disallowed_macros)]
         { $crate::logger::__log_error!($($arg)+) }
     }};
 }
@@ -79,6 +82,7 @@ macro_rules! error_unrestricted {
 #[macro_export]
 macro_rules! warn_unrestricted {
     ($($arg:tt)+) => {{
+        #[allow(clippy::disallowed_macros)]
         { $crate::logger::__log_warn!($($arg)+) }
     }};
 }
@@ -87,6 +91,7 @@ macro_rules! warn_unrestricted {
 #[macro_export]
 macro_rules! info_unrestricted {
     ($($arg:tt)+) => {{
+        #[allow(clippy::disallowed_macros)]
         { $crate::logger::__log_info!($($arg)+) }
     }};
 }
@@ -96,6 +101,7 @@ macro_rules! info_unrestricted {
 #[macro_export]
 macro_rules! __log_rate_limited_impl {
     ($level:expr, $level_macro:path, $($arg:tt)+) => {{
+        #[allow(clippy::disallowed_macros)]
         if $crate::logger::log_enabled!($level) {
             static LIMITER: $crate::logger::rate_limited::LogRateLimiter =
                 $crate::logger::rate_limited::LogRateLimiter::new(
