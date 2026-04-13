@@ -6,7 +6,6 @@
 use std::fmt::{self, Debug};
 use std::sync::{Arc, Mutex};
 
-use log::warn;
 use serde::{Deserialize, Serialize};
 
 use super::acpi::ACPIDeviceManager;
@@ -38,6 +37,7 @@ use crate::devices::virtio::vsock::persist::{
     VsockConstructorArgs, VsockState, VsockUdsConstructorArgs,
 };
 use crate::devices::virtio::vsock::{Vsock, VsockUnixBackend};
+use crate::logger::warn;
 use crate::mmds::data_store::MmdsVersion;
 use crate::resources::VmResources;
 use crate::snapshot::Persist;

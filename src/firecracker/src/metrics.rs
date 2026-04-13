@@ -6,7 +6,7 @@ use std::time::Duration;
 
 use event_manager::{EventOps, Events, MutEventSubscriber};
 use utils::time::TimerFd;
-use vmm::logger::{IncMetric, METRICS, error, warn};
+use vmm::logger::{IncMetric, METRICS, error_unrestricted, warn_unrestricted};
 use vmm_sys_util::epoll::EventSet;
 
 /// Metrics reporting period.
@@ -44,7 +44,7 @@ impl PeriodicMetrics {
     fn write_metrics(&mut self) {
         if let Err(err) = METRICS.write() {
             METRICS.logger.missed_metrics_count.inc();
-            error!("Failed to write metrics: {}", err);
+            error_unrestricted!("Failed to write metrics: {}", err);
         }
 
         #[cfg(test)]
@@ -64,9 +64,10 @@ impl MutEventSubscriber for PeriodicMetrics {
         // to handle errors in devices.
         let supported_events = EventSet::IN;
         if !supported_events.contains(event_set) {
-            warn!(
+            warn_unrestricted!(
                 "Received unknown event: {:?} from source: {:?}",
-                event_set, source
+                event_set,
+                source
             );
             return;
         }
@@ -75,13 +76,13 @@ impl MutEventSubscriber for PeriodicMetrics {
             self.write_metrics_event_fd.read();
             self.write_metrics();
         } else {
-            error!("Spurious METRICS event!");
+            error_unrestricted!("Spurious METRICS event!");
         }
     }
 
     fn init(&mut self, ops: &mut EventOps) {
         if let Err(err) = ops.add(Events::new(&self.write_metrics_event_fd, EventSet::IN)) {
-            error!("Failed to register metrics event: {}", err);
+            error_unrestricted!("Failed to register metrics event: {}", err);
         }
     }
 }

@@ -10,11 +10,11 @@ use std::fmt::Debug;
 use std::mem::{self, size_of};
 
 use libc::c_char;
-use log::debug;
 use vm_allocator::AllocPolicy;
 
 use crate::arch::GSI_LEGACY_END;
 use crate::arch::x86_64::generated::mpspec;
+use crate::logger::debug;
 use crate::vstate::memory::{
     Address, ByteValued, Bytes, GuestAddress, GuestMemory, GuestMemoryMmap,
 };

@@ -4,9 +4,10 @@
 use std::fmt;
 use std::sync::LazyLock;
 
-use log::warn;
 use serde::{Deserialize, Serialize};
 use vm_memory::GuestAddress;
+
+use crate::logger::warn;
 
 /// Module for aarch64 related functionality.
 #[cfg(target_arch = "aarch64")]

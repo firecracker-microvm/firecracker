@@ -8,7 +8,7 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 
 use event_manager::{EventOps, Events, MutEventSubscriber, SubscriberOps};
-use vmm::logger::{ProcessTimeReporter, error, info, warn};
+use vmm::logger::{ProcessTimeReporter, error_unrestricted, info_unrestricted, warn_unrestricted};
 use vmm::rpc_interface::{
     ApiRequest, ApiResponse, BuildMicrovmFromRequestsError, PrebootApiController,
     RuntimeApiController, VmmAction,
@@ -115,20 +115,20 @@ impl MutEventSubscriber for ApiServerAdapter {
                     }
                 }
                 Err(TryRecvError::Empty) => {
-                    warn!("Got a spurious notification from api thread");
+                    warn_unrestricted!("Got a spurious notification from api thread");
                 }
                 Err(TryRecvError::Disconnected) => {
                     panic!("The channel's sending half was disconnected. Cannot receive data.");
                 }
             };
         } else {
-            error!("Spurious EventManager event for handler: ApiServerAdapter");
+            error_unrestricted!("Spurious EventManager event for handler: ApiServerAdapter");
         }
     }
 
     fn init(&mut self, ops: &mut EventOps) {
         if let Err(err) = ops.add(Events::new(&self.api_event_fd, EventSet::IN)) {
-            error!("Failed to register activate event: {}", err);
+            error_unrestricted!("Failed to register activate event: {}", err);
         }
     }
 }
@@ -174,7 +174,7 @@ pub(crate) fn run_with_api(
             return Err(ApiServerError::FailedToBindAndRunHttpServer(err));
         }
     };
-    info!("Listening on API socket ({bind_path:?}).");
+    info_unrestricted!("Listening on API socket ({bind_path:?}).");
 
     let api_kill_switch_clone = api_kill_switch
         .try_clone()

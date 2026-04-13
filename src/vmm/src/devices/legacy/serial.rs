@@ -12,11 +12,8 @@ use std::io::{self, Read, Stdin, Write};
 use std::os::unix::io::{AsRawFd, RawFd};
 use std::sync::{Arc, Barrier};
 
-use crate::rate_limiter::{BucketReduction, TokenBucket};
-
 use event_manager::{EventOps, Events, MutEventSubscriber};
 use libc::EFD_NONBLOCK;
-use log::{error, warn};
 use serde::Serialize;
 use vm_superio::serial::{Error as SerialError, SerialEvents, SerialState};
 use vm_superio::{Serial, Trigger};
@@ -24,7 +21,8 @@ use vmm_sys_util::epoll::EventSet;
 use vmm_sys_util::eventfd::EventFd;
 
 use crate::devices::legacy::EventFdTrigger;
-use crate::logger::{IncMetric, SharedIncMetric};
+use crate::logger::{IncMetric, SharedIncMetric, error, warn};
+use crate::rate_limiter::{BucketReduction, TokenBucket};
 use crate::utils::usize_to_u64;
 use crate::vstate::bus::BusDevice;
 

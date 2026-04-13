@@ -15,7 +15,6 @@ use event_manager::{MutEventSubscriber, SubscriberOps};
 #[cfg(target_arch = "x86_64")]
 use legacy::{LegacyDeviceError, PortIODeviceManager};
 use linux_loader::loader::Cmdline;
-use log::{error, info};
 use mmio::{MMIODeviceManager, MmioError};
 use pci_mngr::{PciDevices, PciDevicesConstructorArgs, PciManagerError};
 use persist::MMIODevManagerConstructorArgs;
@@ -42,6 +41,7 @@ use crate::devices::virtio::pmem::persist::PmemPersistError;
 use crate::devices::virtio::rng::persist::EntropyPersistError;
 use crate::devices::virtio::transport::mmio::{IrqTrigger, MmioTransport};
 use crate::devices::virtio::vsock::{VsockError, VsockUnixBackendError};
+use crate::logger::{error, info};
 use crate::rate_limiter::TokenBucket;
 use crate::resources::VmResources;
 use crate::snapshot::Persist;

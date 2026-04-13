@@ -533,6 +533,8 @@ pub struct LoggerSystemMetrics {
     pub metrics_fails: SharedIncMetric,
     /// Number of misses on logging human readable content.
     pub missed_log_count: SharedIncMetric,
+    /// Number of log messages suppressed by rate limiting.
+    pub rate_limited_log_count: SharedIncMetric,
 }
 impl LoggerSystemMetrics {
     /// Const default construction.
@@ -541,6 +543,7 @@ impl LoggerSystemMetrics {
             missed_metrics_count: SharedIncMetric::new(),
             metrics_fails: SharedIncMetric::new(),
             missed_log_count: SharedIncMetric::new(),
+            rate_limited_log_count: SharedIncMetric::new(),
         }
     }
 }

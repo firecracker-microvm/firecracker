@@ -34,6 +34,21 @@ pub mod generated;
 use std::cmp::max;
 use std::fs::File;
 
+use super::EntryPoint;
+use crate::acpi::create_acpi_tables;
+use crate::arch::{BootProtocol, SYSTEM_MEM_SIZE, SYSTEM_MEM_START, arch_memory_regions_with_gap};
+use crate::cpu_config::templates::{CustomCpuTemplate, GuestConfigError};
+use crate::cpu_config::x86_64::CpuConfiguration;
+use crate::device_manager::DeviceManager;
+use crate::initrd::InitrdConfig;
+use crate::logger::debug;
+use crate::utils::{align_down, u64_to_usize, usize_to_u64};
+use crate::vmm_config::machine_config::MachineConfig;
+use crate::vstate::memory::{
+    Address, GuestAddress, GuestMemory, GuestMemoryMmap, GuestMemoryRegion, GuestRegionType,
+};
+use crate::vstate::vcpu::KvmVcpuConfigureError;
+use crate::{Vcpu, VcpuConfig, Vm, logger};
 use kvm::Kvm;
 use layout::{
     CMDLINE_START, MMIO32_MEM_SIZE, MMIO32_MEM_START, MMIO64_MEM_SIZE, MMIO64_MEM_START,
@@ -48,22 +63,6 @@ use linux_loader::loader::elf::start_info::{
     hvm_memmap_table_entry, hvm_modlist_entry, hvm_start_info,
 };
 use linux_loader::loader::{Cmdline, KernelLoader, PvhBootCapability, load_cmdline};
-use log::debug;
-
-use super::EntryPoint;
-use crate::acpi::create_acpi_tables;
-use crate::arch::{BootProtocol, SYSTEM_MEM_SIZE, SYSTEM_MEM_START, arch_memory_regions_with_gap};
-use crate::cpu_config::templates::{CustomCpuTemplate, GuestConfigError};
-use crate::cpu_config::x86_64::CpuConfiguration;
-use crate::device_manager::DeviceManager;
-use crate::initrd::InitrdConfig;
-use crate::utils::{align_down, u64_to_usize, usize_to_u64};
-use crate::vmm_config::machine_config::MachineConfig;
-use crate::vstate::memory::{
-    Address, GuestAddress, GuestMemory, GuestMemoryMmap, GuestMemoryRegion, GuestRegionType,
-};
-use crate::vstate::vcpu::KvmVcpuConfigureError;
-use crate::{Vcpu, VcpuConfig, Vm, logger};
 
 // Value taken from https://elixir.bootlin.com/linux/v5.10.68/source/arch/x86/include/uapi/asm/e820.h#L31
 // Usable normal RAM
