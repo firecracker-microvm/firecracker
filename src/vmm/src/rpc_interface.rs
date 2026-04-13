@@ -1298,6 +1298,7 @@ mod tests {
             path_on_host: String::new(),
             root_device: false,
             read_only: false,
+            ..Default::default()
         })));
         check_unsupported(runtime_request(VmmAction::SetMemoryHotplugDevice(
             MemoryHotplugConfig::default(),
