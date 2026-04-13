@@ -11,7 +11,6 @@ use std::sync::{Arc, Mutex};
 
 use event_manager::SubscriberOps;
 use linux_loader::cmdline::Cmdline as LoaderKernelCmdline;
-use userfaultfd::Uffd;
 use utils::time::TimestampUs;
 use vm_allocator::AllocPolicy;
 use vm_memory::GuestAddress;
@@ -47,6 +46,7 @@ use crate::persist::{MicrovmState, MicrovmStateError};
 use crate::resources::VmResources;
 use crate::seccomp::BpfThreadMap;
 use crate::snapshot::Persist;
+use crate::uffd_block::UffdBlock;
 use crate::utils::mib_to_bytes;
 use crate::vmm_config::instance_info::InstanceInfo;
 use crate::vmm_config::machine_config::MachineConfigError;
@@ -320,7 +320,7 @@ pub fn build_microvm_for_boot(
         shutdown_exit_code: None,
         kvm,
         vm,
-        uffd: None,
+        mem_uffd_block: None,
         vcpus_handles: Vec::new(),
         vcpus_exit_evt,
         device_manager,
@@ -441,7 +441,7 @@ pub fn build_microvm_from_snapshot(
     event_manager: &mut EventManager,
     microvm_state: MicrovmState,
     guest_memory: Vec<GuestRegionMmap>,
-    uffd: Option<Uffd>,
+    mem_uffd_block: Option<UffdBlock>,
     seccomp_filters: &BpfThreadMap,
     vm_resources: &mut VmResources,
     clock_realtime: bool,
@@ -526,7 +526,7 @@ pub fn build_microvm_from_snapshot(
         shutdown_exit_code: None,
         kvm,
         vm,
-        uffd,
+        mem_uffd_block,
         vcpus_handles: Vec::new(),
         vcpus_exit_evt,
         device_manager,
@@ -806,6 +806,7 @@ pub(crate) mod tests {
     use crate::vmm_config::machine_config::MachineConfig;
     use crate::vmm_config::net::{NetBuilder, NetworkInterfaceConfig};
     use crate::vmm_config::pmem::{PmemBuilder, PmemConfig};
+
     use crate::vmm_config::vsock::tests::default_config;
     use crate::vmm_config::vsock::{VsockBuilder, VsockDeviceConfig};
     use crate::vstate::vm::tests::setup_vm_with_memory;
@@ -875,7 +876,7 @@ pub(crate) mod tests {
             shutdown_exit_code: None,
             kvm,
             vm: Arc::new(vm),
-            uffd: None,
+            mem_uffd_block: None,
             vcpus_handles: Vec::new(),
             vcpus_exit_evt,
             device_manager: default_device_manager(),
