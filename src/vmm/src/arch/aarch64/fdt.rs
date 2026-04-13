@@ -272,6 +272,10 @@ fn create_chosen_node(
         )?;
     }
 
+    // Prevent the kernel from reassigning PCI BAR addresses.
+    // https://elixir.bootlin.com/linux/v6.19.8/source/drivers/pci/of.c#L255
+    fdt.property_u32("linux,pci-probe-only", 1)?;
+
     fdt.end_node(chosen)?;
 
     Ok(())
