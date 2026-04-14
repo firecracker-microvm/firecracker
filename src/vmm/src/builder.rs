@@ -195,6 +195,7 @@ pub fn build_microvm_for_boot(
         &vcpus_exit_evt,
         &vm,
         vm_resources.serial_out_path.as_ref(),
+        vm_resources.serial_rate_limiter(),
     )?;
 
     let vm = Arc::new(vm);
@@ -285,6 +286,7 @@ pub fn build_microvm_for_boot(
         event_manager,
         &mut boot_cmdline,
         vm_resources.serial_out_path.as_ref(),
+        vm_resources.serial_rate_limiter(),
     )?;
 
     device_manager.attach_vmgenid_device(&vm)?;

@@ -373,6 +373,7 @@ impl<'a> Persist<'a> for MMIODeviceManager {
                         constructor_args.event_manager,
                         constructor_args.vm_resources.serial_out_path.as_ref(),
                         serial_state.as_ref(),
+                        constructor_args.vm_resources.serial_rate_limiter(),
                     )?;
 
                     dev_manager.register_mmio_serial(vm, serial, Some(state.device_info))?;

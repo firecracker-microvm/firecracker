@@ -1720,6 +1720,14 @@ definitions:
       serial_out_path:
         type: string
         description: Path to a file or named pipe on the host to which serial output should be written.
+      rate_limiter:
+        $ref: "#/definitions/TokenBucket"
+        description:
+          Optional token bucket for rate limiting serial console output
+          bandwidth. When present, guest writes to the serial port that
+          exceed the configured rate are silently dropped and counted in
+          the `uart.rate_limiter_dropped_bytes` metric. When absent
+          (the default), serial output is not rate-limited.
 
   MemoryHotplugConfig:
     type: object
