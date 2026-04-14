@@ -99,12 +99,22 @@ if run_all_tests(changed_files):
         ),
     )
 
+    # `-m` on the command line replaces the one in pytest.ini, so repeat its
+    # exclusions.
+    PR_MARKERS = "not nonci and not no_block_pr"
+    pipeline.build_group(
+        "vfio",
+        pipeline.devtool_test(
+            devtool_opts="--vfio-nvme /dev/sdf",
+            pytest_opts=f"-m 'vfio and {PR_MARKERS}' integration_tests/functional/",
+        ),
+        **DEFAULTS_PERF,
+    )
+
     # Tests marked `serial` need the host to themselves (timing assertions,
     # CPU pinning); the rest run in parallel on the regular agents, in a group
     # of their own so the two overlap. They need a hugetlbfs pool, which
-    # `--huge-pages` sets up once per host. `-m` on the command line replaces
-    # the one in pytest.ini, so repeat its exclusions.
-    PR_MARKERS = "not nonci and not no_block_pr"
+    # `--huge-pages` sets up once per host.
     pipeline.build_group(
         "performance",
         pipeline.devtool_test(
