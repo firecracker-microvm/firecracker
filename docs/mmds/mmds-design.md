@@ -154,6 +154,18 @@ one from the MMDS network stack associated with the current network device.
 1. There are no MMDS related frames to send, so tell the device model to read
    from the TAP fd instead.
 
+#### Security Considerations
+
+Operators should not rely on the MMDS network stack to filter packets with the
+MMDS IP as the destination from the guest's outbound traffic. As stated in our
+[threat model](../design.md#threat-containment), guest traffic should be treated
+as untrusted, and firewall rules should be put in place at the host-level to
+prevent guests from accessing restricted IPv4 addresses on the host.
+
+Example rules for dropping host IMDS-bound packets may be seen in our
+[production host setup](../prod-host-setup.md#filtering-guest-egress-network-traffic)
+documentation.
+
 ### TCP handler
 
 Handles received packets that appear to carry TCP segments. Its operation is
