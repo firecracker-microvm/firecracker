@@ -10,13 +10,11 @@ pub mod persist;
 pub mod test_utils;
 mod util;
 
-use log::error;
-
 pub use self::device::{Balloon, BalloonConfig, BalloonStats};
 use super::queue::{InvalidAvailIdx, QueueError};
 use crate::devices::virtio::balloon::metrics::METRICS;
 use crate::devices::virtio::queue::FIRECRACKER_MAX_QUEUE_SIZE;
-use crate::logger::IncMetric;
+use crate::logger::{IncMetric, error};
 use crate::vstate::interrupts::InterruptError;
 
 /// Device ID used in MMIO device identification.

@@ -14,8 +14,6 @@ use acpi_tables::{Aml, aml};
 use event_manager::SubscriberOps;
 use kvm_ioctls::IoEventAddress;
 use linux_loader::cmdline as kernel_cmdline;
-#[cfg(target_arch = "x86_64")]
-use log::debug;
 use serde::{Deserialize, Serialize};
 use vm_allocator::AllocPolicy;
 
@@ -27,6 +25,8 @@ use crate::devices::legacy::{RTCDevice, SerialDevice};
 use crate::devices::pseudo::BootTimer;
 use crate::devices::virtio::device::{VirtioDevice, VirtioDeviceType};
 use crate::devices::virtio::transport::mmio::MmioTransport;
+#[cfg(target_arch = "x86_64")]
+use crate::logger::debug;
 use crate::vstate::bus::{Bus, BusError};
 #[cfg(target_arch = "x86_64")]
 use crate::vstate::memory::GuestAddress;

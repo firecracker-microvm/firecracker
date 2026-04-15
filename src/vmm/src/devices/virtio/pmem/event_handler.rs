@@ -2,10 +2,10 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use event_manager::{EventOps, EventSet, Events, MutEventSubscriber};
-use log::{error, warn};
 
 use super::device::Pmem;
 use crate::devices::virtio::device::VirtioDevice;
+use crate::logger::{error, warn};
 
 impl Pmem {
     const PROCESS_ACTIVATE: u32 = 0;

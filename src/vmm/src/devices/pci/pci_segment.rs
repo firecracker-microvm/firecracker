@@ -13,12 +13,12 @@ use std::sync::{Arc, Mutex};
 
 #[cfg(target_arch = "x86_64")]
 use acpi_tables::{Aml, aml};
-use log::info;
 #[cfg(target_arch = "x86_64")]
 use uuid::Uuid;
 use vm_allocator::AddressAllocator;
 
 use crate::arch::{ArchVm as Vm, PCI_MMCONFIG_START, PCI_MMIO_CONFIG_SIZE_PER_SEGMENT};
+use crate::logger::info;
 use crate::pci::PciSBDF;
 #[cfg(target_arch = "x86_64")]
 use crate::pci::bus::{PCI_CONFIG_IO_PORT, PCI_CONFIG_IO_PORT_SIZE};

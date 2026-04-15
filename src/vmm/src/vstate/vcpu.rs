@@ -14,7 +14,6 @@ use std::{fmt, io, thread};
 use kvm_bindings::{KVM_SYSTEM_EVENT_RESET, KVM_SYSTEM_EVENT_SHUTDOWN};
 use kvm_ioctls::{VcpuExit, VcpuFd};
 use libc::{c_int, c_void, siginfo_t};
-use log::{error, info, warn};
 use vmm_sys_util::errno;
 use vmm_sys_util::eventfd::EventFd;
 
@@ -23,7 +22,7 @@ pub use crate::arch::{KvmVcpu, KvmVcpuConfigureError, KvmVcpuError, Peripherals,
 use crate::cpu_config::templates::{CpuConfiguration, GuestConfigError};
 #[cfg(feature = "gdb")]
 use crate::gdb::target::{GdbTargetError, get_raw_tid};
-use crate::logger::{IncMetric, METRICS};
+use crate::logger::{IncMetric, METRICS, error, info, warn};
 use crate::seccomp::{BpfProgram, BpfProgramRef};
 use crate::utils::signal::{Killable, register_signal_handler, sigrtmin};
 use crate::utils::sm::StateMachine;
