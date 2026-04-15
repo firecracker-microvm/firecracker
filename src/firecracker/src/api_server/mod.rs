@@ -17,7 +17,8 @@ use parsed_request::{ParsedRequest, RequestAction};
 use serde_json::json;
 use utils::time::{ClockType, get_time_us};
 use vmm::logger::{
-    METRICS, ProcessTimeReporter, debug, error, info, update_metric_with_elapsed_time, warn,
+    METRICS, ProcessTimeReporter, debug, error_unrestricted, info_unrestricted,
+    update_metric_with_elapsed_time, warn_unrestricted,
 };
 use vmm::rpc_interface::{ApiRequest, ApiResponse, VmmAction};
 use vmm::seccomp::BpfProgramRef;
@@ -81,7 +82,7 @@ impl ApiServer {
         }
 
         server.start_server().expect("Cannot start HTTP server");
-        info!("API server started.");
+        info_unrestricted!("API server started.");
 
         // Store process start time metric.
         process_time_reporter.report_start_time();
@@ -98,7 +99,7 @@ impl ApiServer {
                 }
                 Err(err) => {
                     // print request error, but keep server running
-                    error!("API Server error on retrieving incoming request: {}", err);
+                    error_unrestricted!("API Server error on retrieving incoming request: {}", err);
                     continue;
                 }
             };
@@ -108,7 +109,7 @@ impl ApiServer {
                 let response = server_request
                     .process(|request| self.handle_request(request, request_processing_start_us));
                 if let Err(err) = server.respond(response) {
-                    error!("API Server encountered an error on response: {}", err);
+                    error_unrestricted!("API Server encountered an error on response: {}", err);
                 };
 
                 let delta_us = get_time_us(ClockType::Monotonic) - request_processing_start_us;
@@ -131,13 +132,13 @@ impl ApiServer {
                     }
                 };
                 if let Some(message) = parsing_info.take_deprecation_message() {
-                    warn!("{}", message);
+                    warn_unrestricted!("{}", message);
                     response.set_deprecation();
                 }
                 response
             }
             Err(err) => {
-                error!("{:?}", err);
+                error_unrestricted!("{:?}", err);
                 err.into()
             }
         }
@@ -179,7 +180,7 @@ impl ApiServer {
         {
             let elapsed_time_us =
                 update_metric_with_elapsed_time(metric, request_processing_start_us);
-            info!("'{}' API request took {} us.", action, elapsed_time_us);
+            info_unrestricted!("'{}' API request took {} us.", action, elapsed_time_us);
         }
         response
     }

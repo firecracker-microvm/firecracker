@@ -16,6 +16,7 @@ use crate::mmds::data_store::{Mmds, MmdsVersion};
 use crate::mmds::ns::MmdsNetworkStack;
 use crate::utils::mib_to_bytes;
 use crate::utils::net::ipv4addr::is_link_local_valid;
+use crate::vmm_config::TokenBucketConfig;
 use crate::vmm_config::balloon::*;
 use crate::vmm_config::boot_source::{
     BootConfig, BootSource, BootSourceConfig, BootSourceConfigError,
@@ -135,9 +136,22 @@ pub struct VmResources {
     pub pci_enabled: bool,
     /// Where serial console output should be written to
     pub serial_out_path: Option<PathBuf>,
+    /// Optional rate limiter config for serial output.
+    pub serial_rate_limiter_cfg: Option<TokenBucketConfig>,
 }
 
 impl VmResources {
+    /// Returns a `TokenBucket` from the serial rate limiter config, if configured.
+    pub fn serial_rate_limiter(&self) -> Option<crate::rate_limiter::TokenBucket> {
+        self.serial_rate_limiter_cfg.as_ref().and_then(|cfg| {
+            crate::rate_limiter::TokenBucket::new(
+                cfg.size,
+                cfg.one_time_burst.unwrap_or(0),
+                cfg.refill_time,
+            )
+        })
+    }
+
     /// Configures Vmm resources as described by the `config_json` param.
     pub fn from_json(
         config_json: &str,
@@ -218,6 +232,7 @@ impl VmResources {
 
         if let Some(serial_cfg) = vmm_config.serial_config {
             resources.serial_out_path = serial_cfg.serial_out_path;
+            resources.serial_rate_limiter_cfg = serial_cfg.rate_limiter;
         }
 
         if let Some(memory_hotplug_config) = vmm_config.memory_hotplug {
@@ -651,6 +666,7 @@ mod tests {
             pmem: Default::default(),
             pci_enabled: false,
             serial_out_path: None,
+            serial_rate_limiter_cfg: None,
             memory_hotplug: Default::default(),
         }
     }

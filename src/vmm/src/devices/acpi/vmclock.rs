@@ -6,7 +6,6 @@ use std::mem::offset_of;
 use std::sync::atomic::{Ordering, fence};
 
 use acpi_tables::{Aml, aml};
-use log::{debug, error};
 use serde::{Deserialize, Serialize};
 use vm_allocator::AllocPolicy;
 use vm_memory::{Address, ByteValued, Bytes, GuestAddress, GuestMemoryError};
@@ -19,6 +18,7 @@ use crate::devices::acpi::generated::vmclock_abi::{
     VMCLOCK_FLAG_VM_GEN_COUNTER_PRESENT, VMCLOCK_MAGIC, VMCLOCK_STATUS_UNKNOWN, vmclock_abi,
 };
 use crate::devices::legacy::EventFdTrigger;
+use crate::logger::debug;
 use crate::snapshot::Persist;
 use crate::vstate::memory::GuestMemoryMmap;
 use crate::vstate::resources::ResourceAllocator;

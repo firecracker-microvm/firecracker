@@ -432,6 +432,7 @@ impl<'a> PrebootApiController<'a> {
                 .map_err(VmmActionError::Metrics),
             ConfigureSerial(serial_cfg) => {
                 self.vm_resources.serial_out_path = serial_cfg.serial_out_path;
+                self.vm_resources.serial_rate_limiter_cfg = serial_cfg.rate_limiter;
                 Ok(VmmData::Empty)
             }
             GetBalloonConfig => self.balloon_config(),

@@ -6,8 +6,18 @@
 
 mod logging;
 mod metrics;
+pub mod rate_limited;
 
-pub use log::{Level, debug, error, info, log_enabled, trace, warn};
+pub use log::{Level, log_enabled, trace};
+
+// Re-export log macros under hidden names for use by wrapper macros.
+#[doc(hidden)]
+pub use log::{debug as __log_debug, error as __log_error, info as __log_info, warn as __log_warn};
+// Re-export the rate-limited macros so callers can use
+// `crate::logger::{error, warn, info}` as before.
+pub use crate::{
+    debug, error, error_unrestricted, info, info_unrestricted, warn, warn_unrestricted,
+};
 pub use logging::{
     DEFAULT_INSTANCE_ID, DEFAULT_LEVEL, INSTANCE_ID, LOGGER, LevelFilter, LevelFilterFromStrError,
     LoggerConfig, LoggerInitError, LoggerUpdateError,
@@ -27,11 +37,16 @@ const DEV_PREVIEW_LOG_PREFIX: &str = "[DevPreview]";
 
 /// Log a standard warning message indicating a given feature name
 /// is in development preview.
+#[allow(clippy::disallowed_macros)]
 pub fn log_dev_preview_warning(feature_name: &str, msg_opt: Option<String>) {
     match msg_opt {
-        None => warn!("{DEV_PREVIEW_LOG_PREFIX} {feature_name} is in development preview."),
+        None => {
+            warn_unrestricted!("{DEV_PREVIEW_LOG_PREFIX} {feature_name} is in development preview.")
+        }
         Some(msg) => {
-            warn!("{DEV_PREVIEW_LOG_PREFIX} {feature_name} is in development preview - {msg}")
+            warn_unrestricted!(
+                "{DEV_PREVIEW_LOG_PREFIX} {feature_name} is in development preview - {msg}"
+            )
         }
     }
 }
@@ -42,4 +57,114 @@ pub fn update_metric_with_elapsed_time(metric: &SharedStoreMetric, start_time_us
     let delta_us = get_time_us(ClockType::Monotonic) - start_time_us;
     metric.store(delta_us);
     delta_us
+}
+
+/// Debug log — passthrough to `log::debug!`.
+#[macro_export]
+macro_rules! debug {
+    ($($arg:tt)+) => {{
+        #[allow(clippy::disallowed_macros)]
+        { $crate::logger::__log_debug!($($arg)+) }
+    }};
+}
+
+/// Unrestricted error log — bypasses rate limiting.
+/// Use for non-guest-triggerable paths only.
+#[macro_export]
+macro_rules! error_unrestricted {
+    ($($arg:tt)+) => {{
+        #[allow(clippy::disallowed_macros)]
+        { $crate::logger::__log_error!($($arg)+) }
+    }};
+}
+
+/// Unrestricted warning log — bypasses rate limiting.
+#[macro_export]
+macro_rules! warn_unrestricted {
+    ($($arg:tt)+) => {{
+        #[allow(clippy::disallowed_macros)]
+        { $crate::logger::__log_warn!($($arg)+) }
+    }};
+}
+
+/// Unrestricted info log — bypasses rate limiting.
+#[macro_export]
+macro_rules! info_unrestricted {
+    ($($arg:tt)+) => {{
+        #[allow(clippy::disallowed_macros)]
+        { $crate::logger::__log_info!($($arg)+) }
+    }};
+}
+
+/// Internal helper macro implementing the rate-limiting logic.
+#[doc(hidden)]
+#[macro_export]
+macro_rules! __log_rate_limited_impl {
+    ($level:expr, $level_macro:path, $($arg:tt)+) => {{
+        #[allow(clippy::disallowed_macros)]
+        if $crate::logger::log_enabled!($level) {
+            static LIMITER: $crate::logger::rate_limited::LogRateLimiter =
+                $crate::logger::rate_limited::LogRateLimiter::new(
+                    $crate::logger::rate_limited::DEFAULT_BURST,
+                    $crate::logger::rate_limited::DEFAULT_REFILL_TIME_MS,
+                );
+            static SUPPRESSED: std::sync::atomic::AtomicU64 =
+                std::sync::atomic::AtomicU64::new(0);
+
+            if LIMITER.check() {
+                let suppressed =
+                    SUPPRESSED.swap(0, std::sync::atomic::Ordering::Relaxed);
+                if suppressed > 0 {
+                    $crate::warn_unrestricted!(
+                        "{suppressed} messages were suppressed due to rate limiting"
+                    );
+                }
+                $level_macro!($($arg)+);
+            } else {
+                SUPPRESSED.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                $crate::logger::IncMetric::inc(
+                    &$crate::logger::METRICS.logger.rate_limited_log_count,
+                );
+            }
+        }
+    }};
+}
+
+/// Rate-limited error log. Default: 10 messages per 5-second refill period.
+/// Suppressed messages are tracked via the `rate_limited_log_count` metric.
+/// When logging resumes after suppression, a warn-level summary reports
+/// the number of suppressed messages.
+#[macro_export]
+macro_rules! error {
+    ($($arg:tt)+) => {
+        $crate::__log_rate_limited_impl!(
+            $crate::logger::Level::Error,
+            $crate::logger::error_unrestricted,
+            $($arg)+
+        )
+    };
+}
+
+/// Rate-limited warning log. Same semantics as [`error!`].
+#[macro_export]
+macro_rules! warn {
+    ($($arg:tt)+) => {
+        $crate::__log_rate_limited_impl!(
+            $crate::logger::Level::Warn,
+            $crate::logger::warn_unrestricted,
+            $($arg)+
+        )
+    };
+}
+
+/// Rate-limited info log. Same semantics as [`error!`].
+#[macro_export]
+macro_rules! info {
+    ($($arg:tt)+) => {
+        $crate::__log_rate_limited_impl!(
+            $crate::logger::Level::Info,
+            $crate::logger::info_unrestricted,
+            $($arg)+
+        )
+    };
 }

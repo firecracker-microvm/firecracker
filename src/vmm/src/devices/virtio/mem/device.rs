@@ -7,7 +7,6 @@ use std::sync::Arc;
 use std::sync::atomic::AtomicU32;
 
 use bitvec::vec::BitVec;
-use log::info;
 use serde::{Deserialize, Serialize};
 use vm_memory::{
     Address, Bytes, GuestAddress, GuestMemory, GuestMemoryError, GuestMemoryRegion, GuestUsize,
@@ -29,7 +28,7 @@ use crate::devices::virtio::queue::{
     DescriptorChain, FIRECRACKER_MAX_QUEUE_SIZE, InvalidAvailIdx, Queue, QueueError,
 };
 use crate::devices::virtio::transport::{VirtioInterrupt, VirtioInterruptType};
-use crate::logger::{IncMetric, debug, error};
+use crate::logger::{IncMetric, debug, error, info};
 use crate::utils::{bytes_to_mib, mib_to_bytes, u64_to_usize, usize_to_u64};
 use crate::vstate::interrupts::InterruptError;
 use crate::vstate::memory::{

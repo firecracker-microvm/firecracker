@@ -21,6 +21,8 @@ pub(crate) fn parse_put_serial(body: &Body) -> Result<ParsedRequest, RequestErro
 mod tests {
     use std::path::PathBuf;
 
+    use vmm::vmm_config::TokenBucketConfig;
+
     use super::*;
     use crate::api_server::parsed_request::tests::vmm_action_from_request;
 
@@ -30,6 +32,28 @@ mod tests {
 
         let expected_config = SerialConfig {
             serial_out_path: Some(PathBuf::from("serial")),
+            rate_limiter: None,
+        };
+        assert_eq!(
+            vmm_action_from_request(parse_put_serial(&Body::new(body)).unwrap()),
+            VmmAction::ConfigureSerial(expected_config)
+        );
+    }
+
+    #[test]
+    fn test_parse_put_serial_with_rate_limiter() {
+        let body = r#"{
+            "serial_out_path": "serial",
+            "rate_limiter": {"size": 1024, "one_time_burst": 65536, "refill_time": 1000}
+        }"#;
+
+        let expected_config = SerialConfig {
+            serial_out_path: Some(PathBuf::from("serial")),
+            rate_limiter: Some(TokenBucketConfig {
+                size: 1024,
+                one_time_burst: Some(65536),
+                refill_time: 1000,
+            }),
         };
         assert_eq!(
             vmm_action_from_request(parse_put_serial(&Body::new(body)).unwrap()),

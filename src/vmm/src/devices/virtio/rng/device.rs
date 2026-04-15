@@ -6,7 +6,6 @@ use std::ops::Deref;
 use std::sync::Arc;
 
 use aws_lc_rs::rand;
-use log::info;
 use vm_memory::GuestMemoryError;
 use vmm_sys_util::eventfd::EventFd;
 

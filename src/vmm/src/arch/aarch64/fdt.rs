@@ -583,7 +583,7 @@ mod tests {
         cmdline.insert("console", "/dev/tty0").unwrap();
 
         device_manager
-            .attach_legacy_devices_aarch64(&vm, &mut event_manager, &mut cmdline, None)
+            .attach_legacy_devices_aarch64(&vm, &mut event_manager, &mut cmdline, None, None)
             .unwrap();
         let dummy = Arc::new(Mutex::new(DummyDevice::new()));
         device_manager
