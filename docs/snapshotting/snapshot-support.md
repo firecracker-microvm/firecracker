@@ -631,10 +631,14 @@ For reference, the C code used in our tests is available
 > through the patches
 > [here](https://lore.kernel.org/all/20260130173704.12575-1-itazur@amazon.com/)
 > and was merged in Linux kernel v7.0. Users need to make sure that the linked
-> patches are applied on their kernels. We have backported these patches for
-> Amazon Linux kernels v5.10 and v6.1 [here](../../resources/patches/vmclock).
-> The kernels used in the [Getting Started Guide](../getting-started.md) include
-> these patches.
+> patches are applied on their kernels. These patches have been backported to
+> Amazon Linux v5.10 and v6.1 microVM kernels, starting from
+> [microvm-kernel-5.10.252-285.992.amzn2](https://github.com/amazonlinux/linux/tree/microvm-kernel-5.10.252-285.992.amzn2)
+> and
+> [microvm-kernel-6.1.167-27.319.amzn2023](https://github.com/amazonlinux/linux/tree/microvm-kernel-6.1.167-27.319.amzn2023)
+> respectively. These patched kernels will be automatically downloaded when
+> running the integration test suite, or they can be manually downloaded using
+> `tools/devtool download_ci_artifacts`.
 
 ## Vsock device reset
 
