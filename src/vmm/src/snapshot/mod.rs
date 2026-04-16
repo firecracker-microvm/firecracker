@@ -57,7 +57,7 @@ pub enum SnapshotError {
     InvalidFormatVersion(Version),
     /// Magic value does not match arch: {0}
     InvalidMagic(u64),
-    /// An error occured during bitcode serialization: {0}
+    /// An error occurred during bitcode serialization: {0}
     Bitcode(#[from] bitcode::Error),
     /// IO Error: {0}
     Io(#[from] std::io::Error),
