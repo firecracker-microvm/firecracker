@@ -316,6 +316,10 @@ impl Aml for PciDsmMethod {
                             &aml::Equal::new(&aml::Arg(2), &aml::ZERO),
                             vec![&aml::Return::new(&aml::Buffer::new(vec![0x21]))],
                         ),
+                        // Define DSM_PCI_PRESERVE_BOOT_CONFIG(0x05) function. The return
+                        // value of 0 indicates that the guest should preserve PCI resource
+                        // assignment done by us.
+                        // https://elixir.bootlin.com/linux/v6.19.8/source/drivers/pci/pci-acpi.c#L123
                         &aml::If::new(
                             &aml::Equal::new(&aml::Arg(2), &0x05u8),
                             vec![&aml::Return::new(&aml::ZERO)],
