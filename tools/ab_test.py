@@ -126,6 +126,11 @@ IGNORED = [
         "performance_test": "test_vsock_throughput",
         "mode": "g2h",
     },
+    # Network latency on m6a.metal / m7a.metal
+    *[
+        {"instance": instance, "performance_test": "test_network_latency"}
+        for instance in ["m6a.metal", "m7a.metal-48xl"]
+    ],
     # Network latencies on m8i.metal-{48,96}xl w/ 5.10 host
     *[
         {
