@@ -353,8 +353,9 @@ impl Net {
 
         let backend: Box<dyn NetDevBackend> = match backend_type {
             // ammar: use something other than io error as the return of socket backend creation
-            NetDevBackendType::Socket(path) => {
-                Box::new(SocketBacked::new(path).map_err(|_| NetError::SocketOpen())?)
+            NetDevBackendType::Socket(_) => {
+                // id is passed as the socket path in the case of socket backend
+                Box::new(SocketBacked::new(id.clone()).map_err(|_| NetError::SocketOpen())?)
             }
             NetDevBackendType::Tap(tap_if_name) => {
                 let mut tap = Tap::open_named(&tap_if_name).map_err(NetError::TapOpen)?;
