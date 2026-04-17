@@ -62,7 +62,7 @@ Firecracker exposes the following configuration options for VFIO devices:
 
 #### Add device
 
-The same `PUT /vfio/{id}` endpoint works only before the VM boot:
+The same `PUT /vfio/{id}` endpoint works both before and after boot:
 
 ```console
 curl --unix-socket $socket_location -i \
@@ -74,6 +74,19 @@ curl --unix-socket $socket_location -i \
          \"sbdf\": \"0000:01:02.03\"
     }"
 ```
+
+#### Remove device
+
+A VFIO device can be removed at runtime via `DELETE /vfio/{id}`:
+
+```console
+curl --unix-socket $socket_location -i \
+    -X DELETE 'http://localhost/vfio/device0'
+```
+
+Hot-unplug is only valid after the microVM has booted. The device is detached
+from the guest PCI bus and all associated resources (DMA mappings, interrupts,
+BAR memory) are released.
 
 ## Booting from a VFIO device
 
@@ -104,6 +117,9 @@ Notes:
 - The guest kernel must include the driver for the passthrough device (e.g.
   `CONFIG_BLK_DEV_NVME=y`) and any filesystem it uses, either built-in or
   available as an initrd-loadable module.
+- If the device is hot-plugged after boot it cannot be the root device — the
+  kernel has already mounted root by then. Use cold-boot configuration for the
+  root device.
 
 ## Security
 
