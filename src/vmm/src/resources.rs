@@ -71,6 +71,12 @@ pub enum ResourcesError {
     MemoryHotplugConfig(#[from] MemoryHotplugConfigError),
     /// VFIO config error: {0}
     VfioConfig(#[from] VfioConfigError),
+    /// VFIO devices attached, but PCI disabled
+    VfioWithoutPci,
+    /// VFIO devices are not compatible with memory hot-plugging device
+    VfioWithMemHotplug,
+    /// VFIO devices are not compatible with memory balloon device
+    VfioWithBalloon,
 }
 
 #[derive(Serialize, Deserialize, PartialEq, Eq, Debug)]
@@ -251,6 +257,22 @@ impl VmResources {
         }
 
         Ok(resources)
+    }
+
+    /// Validate the VM configuration for incompatibilities
+    pub fn validate(&self) -> Result<(), ResourcesError> {
+        if !self.vfio.configs.is_empty() {
+            if !self.pci_enabled {
+                return Err(ResourcesError::VfioWithoutPci);
+            }
+            if self.memory_hotplug.is_some() {
+                return Err(ResourcesError::VfioWithMemHotplug);
+            }
+            if self.balloon.get().is_some() {
+                return Err(ResourcesError::VfioWithBalloon);
+            }
+        }
+        Ok(())
     }
 
     /// If not initialised, create the mmds data store with the default config.
