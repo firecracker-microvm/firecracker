@@ -62,7 +62,7 @@ const fn frame_hdr_len() -> usize {
 }
 
 // ammar: maybe reduce visibility of those types when done
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]
 pub enum NetDevBackendType {
     Socket(String), // the string denotes the socket path
     Tap(String),    // denotes the tap device name

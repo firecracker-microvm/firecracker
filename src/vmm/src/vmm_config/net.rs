@@ -10,12 +10,13 @@ use serde::{Deserialize, Serialize};
 use super::RateLimiterConfig;
 use crate::VmmError;
 use crate::devices::virtio::device::VirtioDevice;
+use crate::devices::virtio::net::device::NetDevBackendType;
 use crate::devices::virtio::net::{Net, TapError};
 use crate::utils::net::mac::MacAddr;
 
 /// This struct represents the strongly typed equivalent of the json body from net iface
 /// related requests.
-#[derive(Debug, PartialEq, Eq, Deserialize, Serialize)]
+#[derive(Debug, PartialEq, Deserialize, Serialize, Eq)]
 #[serde(deny_unknown_fields)]
 pub struct NetworkInterfaceConfig {
     /// ID of the guest network interface.
@@ -28,6 +29,8 @@ pub struct NetworkInterfaceConfig {
     pub rx_rate_limiter: Option<RateLimiterConfig>,
     /// Rate Limiter for transmitted packages.
     pub tx_rate_limiter: Option<RateLimiterConfig>,
+    /// The backend type of the net device
+    pub backend_type: NetDevBackendType,
 }
 
 impl From<&Net> for NetworkInterfaceConfig {
@@ -40,6 +43,7 @@ impl From<&Net> for NetworkInterfaceConfig {
             guest_mac: net.guest_mac().copied(),
             rx_rate_limiter: rx_rl.into_option(),
             tx_rate_limiter: tx_rl.into_option(),
+            backend_type: net.tap.save(),
         }
     }
 }
@@ -157,6 +161,7 @@ impl NetBuilder {
             cfg.guest_mac,
             rx_rate_limiter.unwrap_or_default(),
             tx_rate_limiter.unwrap_or_default(),
+            cfg.backend_type,
         )
         .map_err(NetworkInterfaceError::CreateNetworkDevice)
     }

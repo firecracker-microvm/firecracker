@@ -13,6 +13,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
 use crate::devices::virtio::net::Net;
+use crate::devices::virtio::net::device::NetDevBackendType;
 #[cfg(test)]
 use crate::devices::virtio::net::device::vnet_hdr_len;
 use crate::devices::virtio::net::generated::net_device_flags;
@@ -45,13 +46,14 @@ pub fn default_net() -> Net {
         Some(guest_mac),
         RateLimiter::default(),
         RateLimiter::default(),
+        NetDevBackendType::Tap("".to_string()),
     )
     .unwrap();
     net.configure_mmds_network_stack(
         MmdsNetworkStack::default_ipv4_addr(),
         Arc::new(Mutex::new(Mmds::default())),
     );
-    enable(&net.tap);
+    // enable(&net.tap);
 
     net
 }
@@ -68,9 +70,11 @@ pub fn default_net_no_mmds() -> Net {
         Some(guest_mac),
         RateLimiter::default(),
         RateLimiter::default(),
+        NetDevBackendType::Tap("".to_string()),
     )
     .unwrap();
-    enable(&net.tap);
+    // ammar: clean this up and enable the device properly with handling fo the socket backend
+    // enable(&net.tap);
 
     net
 }
