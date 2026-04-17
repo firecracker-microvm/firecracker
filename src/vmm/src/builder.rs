@@ -44,7 +44,7 @@ use crate::logger::debug;
 #[cfg(target_arch = "aarch64")]
 use crate::logger::warn;
 use crate::persist::{MicrovmState, MicrovmStateError};
-use crate::resources::VmResources;
+use crate::resources::{ResourcesError, VmResources};
 use crate::seccomp::BpfThreadMap;
 use crate::snapshot::Persist;
 use crate::utils::{u32_mib_to_bytes, u64_to_usize};
@@ -66,6 +66,8 @@ use crate::{EventManager, Vmm, VmmError};
 /// Errors associated with starting the instance.
 #[derive(Debug, thiserror::Error, displaydoc::Display)]
 pub enum StartMicrovmError {
+    /// Incompatible device configuration: {0}
+    IncompatibleDeviceConfiguration(#[from] ResourcesError),
     /// Unable to attach block device to Vmm: {0}
     AttachBlockDevice(io::Error),
     /// The number of vCPUs ({requested}) exceeds the maximum for a KVM microVM ({max}).
@@ -173,6 +175,7 @@ pub fn build_microvm_for_boot(
 ) -> Result<Arc<Mutex<Vmm>>, StartMicrovmError> {
     // Timestamp for measuring microVM boot duration.
     let request_ts = TimestampUs::default();
+    vm_resources.validate()?;
 
     // Reject an out-of-range vCPU count before doing any work for the boot.
     let vcpu_count = kvm_vcpu_count(&vm_resources.machine_config)?;
@@ -438,6 +441,8 @@ pub fn build_and_boot_microvm(
 /// Error type for [`build_microvm_from_snapshot`].
 #[derive(Debug, thiserror::Error, displaydoc::Display)]
 pub enum BuildMicrovmFromSnapshotError {
+    /// Incompatible device configuration: {0}
+    IncompatibleDeviceConfiguration(#[from] ResourcesError),
     /// Failed to create microVM and vCPUs: {0}
     CreateMicrovmAndVcpus(#[from] StartMicrovmError),
     /// Could not access KVM: {0}
@@ -520,6 +525,7 @@ pub fn build_microvm_from_snapshot(
 ) -> Result<Arc<Mutex<Vmm>>, BuildMicrovmFromSnapshotError> {
     // Build Vmm.
     debug!("event_start: build microvm from snapshot");
+    vm_resources.validate()?;
 
     // Reject an out-of-range vCPU count before doing any work for the restore.
     let vcpu_count = kvm_vcpu_count(&vm_resources.machine_config)?;
