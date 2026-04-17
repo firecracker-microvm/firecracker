@@ -11,6 +11,7 @@ from pathlib import Path
 
 import pytest
 
+FAKE_PATH = "fake_path"
 VFIO_SBDF = os.environ.get("FC_VFIO_PCI_SBDF")
 VFIO_SYSFS = os.environ.get("FC_VFIO_PCI_SYSFS_PATH")
 
@@ -68,14 +69,12 @@ def uvm_with_vfio(microvm_factory, guest_kernel, rootfs):
     return vm
 
 
-def test_api_vfio(uvm_plain):
+def test_api_vfio(microvm_factory, guest_kernel, rootfs):
     """
     Test VFIO passthrough API commands.
     """
 
-    FAKE_PATH = "fake_path"
-
-    vm = uvm_plain
+    vm = microvm_factory.build(guest_kernel, rootfs, pci=True)
     create_vfio_path(vm, FAKE_PATH)
     vm.spawn()
     vm.basic_config()
@@ -109,6 +108,101 @@ def test_api_vfio(uvm_plain):
     expected_msg = re.escape("Cannot verify path to the VFIO device")
     with pytest.raises(RuntimeError, match=expected_msg):
         vm.api.vfio.put(id="nvme0", path_on_host=invalid_device_path)
+
+
+def test_vfio_incompatible_devices_no_pci(microvm_factory, guest_kernel, rootfs):
+    """
+    Test that adding VFIO device without PCI fails at API level.
+    """
+    vm = microvm_factory.build(guest_kernel, rootfs, pci=False)
+    vm.jailer.setup()
+    create_vfio_path(vm, FAKE_PATH)
+    vm.spawn()
+    vm.basic_config()
+
+    expected_msg = re.escape("VFIO devices attached, but PCI disabled")
+    with pytest.raises(RuntimeError, match=expected_msg):
+        vm.api.vfio.put(id="nvme0", path_on_host=FAKE_PATH)
+
+
+def test_vfio_incompatible_devices_vfio_balloon(microvm_factory, guest_kernel, rootfs):
+    """
+    Test that adding balloon after VFIO fails at API level.
+    """
+    vm = microvm_factory.build(guest_kernel, rootfs, pci=True)
+    vm.jailer.setup()
+    create_vfio_path(vm, FAKE_PATH)
+    vm.spawn()
+    vm.basic_config()
+
+    vm.api.vfio.put(id="nvme0", path_on_host=FAKE_PATH)
+    expected_msg = re.escape(
+        "VFIO devices are not compatible with memory balloon device"
+    )
+    with pytest.raises(RuntimeError, match=expected_msg):
+        vm.api.balloon.put(
+            amount_mib=0, deflate_on_oom=False, stats_polling_interval_s=1
+        )
+
+
+def test_vfio_incompatible_devices_balloon_vfio(microvm_factory, guest_kernel, rootfs):
+    """
+    Test that adding VFIO after balloon fails at API level.
+    """
+    vm = microvm_factory.build(guest_kernel, rootfs, pci=True)
+    vm.jailer.setup()
+    create_vfio_path(vm, FAKE_PATH)
+    vm.spawn()
+    vm.basic_config()
+
+    vm.api.balloon.put(amount_mib=0, deflate_on_oom=False, stats_polling_interval_s=1)
+    expected_msg = re.escape(
+        "VFIO devices are not compatible with memory balloon device"
+    )
+    with pytest.raises(RuntimeError, match=expected_msg):
+        vm.api.vfio.put(id="nvme0", path_on_host=FAKE_PATH)
+
+
+def test_vfio_incompatible_devices_vfio_mem_hot_plug(
+    microvm_factory, guest_kernel, rootfs
+):
+    """
+    Test that adding memory hotplug after VFIO fails at API level.
+    """
+    vm = microvm_factory.build(guest_kernel, rootfs, pci=True)
+    vm.jailer.setup()
+    create_vfio_path(vm, FAKE_PATH)
+    vm.spawn()
+    vm.basic_config()
+
+    vm.api.vfio.put(id="nvme0", path_on_host=FAKE_PATH)
+    expected_msg = re.escape(
+        "VFIO devices are not compatible with memory hot-plugging device"
+    )
+    with pytest.raises(RuntimeError, match=expected_msg):
+        vm.api.memory_hotplug.put(
+            total_size_mib=256, slot_size_mib=256, block_size_mib=64
+        )
+
+
+def test_vfio_incompatible_devices_mem_hot_plug_vfio(
+    microvm_factory, guest_kernel, rootfs
+):
+    """
+    Test that adding VFIO after memory hotplug fails at API level.
+    """
+    vm = microvm_factory.build(guest_kernel, rootfs, pci=True)
+    vm.jailer.setup()
+    create_vfio_path(vm, FAKE_PATH)
+    vm.spawn()
+    vm.basic_config()
+
+    vm.api.memory_hotplug.put(total_size_mib=256, slot_size_mib=256, block_size_mib=64)
+    expected_msg = re.escape(
+        "VFIO devices are not compatible with memory hot-plugging device"
+    )
+    with pytest.raises(RuntimeError, match=expected_msg):
+        vm.api.vfio.put(id="nvme0", path_on_host=FAKE_PATH)
 
 
 def test_vfio_nvme_not_present_without_config(microvm_factory, guest_kernel, rootfs):
