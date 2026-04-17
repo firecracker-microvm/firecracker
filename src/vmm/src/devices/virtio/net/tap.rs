@@ -146,6 +146,7 @@ impl SocketBacked {
     pub fn new(path: String) -> Result<Self, std::io::Error> {
         // open a socket and set its path to path
         let stream = UnixStream::connect(path.clone())?;
+        stream.set_nonblocking(true)?;
         Ok(SocketBacked {
             fd: stream,
             hdr_size: 0,
