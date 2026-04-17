@@ -49,7 +49,7 @@ use crate::devices::virtio::rng::persist::EntropyPersistError;
 use crate::devices::virtio::vsock::{VsockError, VsockUnixBackendError};
 use crate::logger::{error, info};
 use crate::rate_limiter::TokenBucket;
-use crate::resources::VmResources;
+use crate::resources::{ResourcesError, VmResources};
 use crate::rpc_interface::VmmActionError;
 use crate::snapshot::Persist;
 use crate::utils::open_file_nonblock;
@@ -473,6 +473,19 @@ impl DeviceManager {
         event_manager: &mut EventManager,
     ) -> Result<(), VmmActionError> {
         let dev_type = config.device_type();
+        let passthrough_err = match dev_type {
+            VirtioDeviceType::Balloon => Some(ResourcesError::DevicePassthroughWithBalloon),
+            VirtioDeviceType::Mem => Some(ResourcesError::DevicePassthroughWithMemHotplug),
+            VirtioDeviceType::Pmem => Some(ResourcesError::DevicePassthroughWithPmem),
+            _ => None,
+        };
+        if let Some(err) = passthrough_err
+            && let Some(pci_devices) = self.pci_devices()
+            && !pci_devices.vfio_devices.is_empty()
+        {
+            return Err(VmmActionError::IncompatibleDeviceConfiguration(err));
+        }
+
         let dev_id = config.device_id().to_string();
         let device_id = (dev_type, dev_id.clone());
 
