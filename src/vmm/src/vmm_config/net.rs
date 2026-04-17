@@ -21,6 +21,7 @@ use crate::utils::net::mac::MacAddr;
 pub struct NetworkInterfaceConfig {
     // ammar: make this name more generic and pass it as the socket path of the backend type
     /// ID of the guest network interface.
+    /// ammar: if host dev name is the name of the device on the host, what does iface id denote?
     pub iface_id: String,
     /// Host level path for the guest network interface.
     pub host_dev_name: String,
