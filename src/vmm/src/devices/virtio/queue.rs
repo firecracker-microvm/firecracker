@@ -538,6 +538,9 @@ impl Queue {
         // We use `self.next_avail` to store the position, in `ring`, of the next available
         // descriptor index, with a twist: we always only increment `self.next_avail`, so the
         // actual position will be `self.next_avail % self.size`.
+        // expl: this is needed because its a ring buffer. so next avail is a grow only counter.
+        // if we consume the whole buffer and then there are free items they woud be at normal indices
+        // but we need to normalize next avail to fit the size of the actual ring queue buffer
         let idx = self.next_avail.0 % self.size;
         // SAFETY:
         // index is bound by the queue size

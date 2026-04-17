@@ -10,12 +10,16 @@ use std::fs::File;
 use std::io::Error as IoError;
 use std::os::raw::*;
 use std::os::unix::io::{AsRawFd, FromRawFd, RawFd};
+use std::os::unix::net::UnixStream;
+use std::path::PathBuf;
 
 use vmm_sys_util::ioctl::{ioctl_with_mut_ref, ioctl_with_ref, ioctl_with_val};
 use vmm_sys_util::ioctl_iow_nr;
 
 use crate::devices::virtio::iovec::IoVecBuffer;
+use crate::devices::virtio::net::device::NetDevBackendType;
 use crate::devices::virtio::net::generated;
+use crate::error;
 
 // As defined in the Linux UAPI:
 // https://elixir.bootlin.com/linux/v4.17/source/include/uapi/linux/if.h#L33
@@ -112,6 +116,163 @@ impl IfReqBuilder {
     }
 }
 
+pub trait NetDevBackend: Debug + Send + Sync + AsRawFd {
+    // probably not open_named
+    // set header size is for sure
+    // if name as str no. but there should be a way to store and retrieve the interface name for persistence
+    // set_offload ? idk, don't really understand
+    // read and write iovec ? for sure
+    fn set_vnet_hdr_size(&mut self, size: c_int) -> Result<(), TapError>;
+    // check if we can make them default implementations
+    fn read_iovec(&mut self, buffer: &mut [libc::iovec]) -> Result<usize, IoError>;
+    // heyy
+    fn write_iovec(&mut self, buffer: &IoVecBuffer) -> Result<usize, IoError>;
+    // returns the unique string that represents this backend (path for socket backend and device name for tap)
+    fn identifier(&self) -> String;
+    // fetch back the NetDevBackendType from the trait
+    fn save(&self) -> NetDevBackendType;
+    // set offload
+    fn set_offload(&self, flags: c_uint) -> Result<(), TapError>;
+}
+
+#[derive(Debug)]
+pub struct SocketBacked {
+    fd: UnixStream,
+    hdr_size: c_int,
+    path: PathBuf,
+}
+
+impl SocketBacked {
+    pub fn new(path: String) -> Result<Self, std::io::Error> {
+        // open a socket and set its path to path
+        let stream = UnixStream::connect(path.clone())?;
+        Ok(SocketBacked {
+            fd: stream,
+            hdr_size: 0,
+            path: PathBuf::from(&path),
+        })
+    }
+}
+
+impl AsRawFd for SocketBacked {
+    fn as_raw_fd(&self) -> RawFd {
+        self.fd.as_raw_fd()
+    }
+}
+
+impl NetDevBackend for SocketBacked {
+    // if i need to make it change the header size then won't i need a mutable reference ? if i
+    // make the tap function take a mutable reference would this fuck up ownership somewhere ?
+    // nah didn't cause much damage, just needed to declare the tap as mut
+    // maybe we don't need that
+    fn set_vnet_hdr_size(&mut self, size: c_int) -> Result<(), TapError> {
+        self.hdr_size = size;
+        Ok(())
+    }
+
+    fn read_iovec(&mut self, buffer: &mut [libc::iovec]) -> Result<usize, IoError> {
+        // how should i impose header size though ?
+        let iov = buffer.as_mut_ptr();
+        let iovcnt = buffer.len().try_into().unwrap();
+
+        // SAFETY: `readv` is safe. Called with a valid tap fd, the iovec pointer and length
+        // is provide by the `IoVecBufferMut` implementation and we check the return value.
+        let ret = unsafe { libc::readv(self.fd.as_raw_fd(), iov, iovcnt) };
+        if ret == -1 {
+            return Err(IoError::last_os_error());
+        }
+        Ok(usize::try_from(ret).unwrap())
+    }
+
+    fn write_iovec(&mut self, buffer: &IoVecBuffer) -> Result<usize, IoError> {
+        let iovcnt = i32::try_from(buffer.iovec_count()).unwrap();
+        let iov = buffer.as_iovec_ptr();
+
+        // SAFETY: `writev` is safe. Called with a valid tap fd, the iovec pointer and length
+        // is provide by the `IoVecBuffer` implementation and we check the return value.
+        let ret = unsafe { libc::writev(self.fd.as_raw_fd(), iov, iovcnt) };
+        if ret == -1 {
+            return Err(IoError::last_os_error());
+        }
+        Ok(usize::try_from(ret).unwrap())
+    }
+
+    fn identifier(&self) -> String {
+        // ammar: fix. this sucks
+        self.path.to_str().unwrap().to_string()
+    }
+
+    fn save(&self) -> NetDevBackendType {
+        NetDevBackendType::Socket(self.path.to_str().unwrap().to_string())
+    }
+    fn set_offload(&self, flags: c_uint) -> Result<(), TapError> {
+        panic!(
+            "set_offload should not be called for the socket backend because the feature is relayed to the backend socket"
+        )
+    }
+}
+
+// should it be a trait or just an enum that contains both?
+impl NetDevBackend for Tap {
+    /// Set the size of the vnet hdr.
+    // ammar: on a socket backend this would just set a field on the backing struct
+    fn set_vnet_hdr_size(&mut self, size: c_int) -> Result<(), TapError> {
+        // SAFETY: ioctl is safe. Called with a valid tap fd, and we check the return.
+        if unsafe { ioctl_with_ref(&self.tap_file, TUNSETVNETHDRSZ(), &size) } < 0 {
+            return Err(TapError::SetSizeOfVnetHdr(IoError::last_os_error()));
+        }
+
+        Ok(())
+    }
+
+    /// Write an `IoVecBuffer` to tap
+    fn write_iovec(&mut self, buffer: &IoVecBuffer) -> Result<usize, IoError> {
+        let iovcnt = i32::try_from(buffer.iovec_count()).unwrap();
+        let iov = buffer.as_iovec_ptr();
+
+        // SAFETY: `writev` is safe. Called with a valid tap fd, the iovec pointer and length
+        // is provide by the `IoVecBuffer` implementation and we check the return value.
+        let ret = unsafe { libc::writev(self.tap_file.as_raw_fd(), iov, iovcnt) };
+        if ret == -1 {
+            return Err(IoError::last_os_error());
+        }
+        Ok(usize::try_from(ret).unwrap())
+    }
+
+    /// Read from tap to an `IoVecBufferMut`
+    fn read_iovec(&mut self, buffer: &mut [libc::iovec]) -> Result<usize, IoError> {
+        let iov = buffer.as_mut_ptr();
+        let iovcnt = buffer.len().try_into().unwrap();
+
+        // SAFETY: `readv` is safe. Called with a valid tap fd, the iovec pointer and length
+        // is provide by the `IoVecBufferMut` implementation and we check the return value.
+        let ret = unsafe { libc::readv(self.tap_file.as_raw_fd(), iov, iovcnt) };
+        if ret == -1 {
+            return Err(IoError::last_os_error());
+        }
+        Ok(usize::try_from(ret).unwrap())
+    }
+
+    fn identifier(&self) -> String {
+        self.if_name_as_str().to_string()
+    }
+
+    fn save(&self) -> NetDevBackendType {
+        NetDevBackendType::Tap(String::from_utf8(self.if_name.to_vec()).unwrap())
+    }
+
+    /// Set the offload flags for the tap interface.
+    /// don't fully get this overload stuff and how it would interact with passt
+    fn set_offload(&self, flags: c_uint) -> Result<(), TapError> {
+        // SAFETY: ioctl is safe. Called with a valid tap fd, and we check the return.
+        if unsafe { ioctl_with_val(&self.tap_file, TUNSETOFFLOAD(), c_ulong::from(flags)) } < 0 {
+            return Err(TapError::SetOffloadFlags(IoError::last_os_error()));
+        }
+
+        Ok(())
+    }
+}
+
 impl Tap {
     /// Create a TUN/TAP device given the interface name.
     /// # Arguments
@@ -158,54 +319,6 @@ impl Tap {
             .position(|x| *x == 0)
             .unwrap_or(IFACE_NAME_MAX_LEN);
         std::str::from_utf8(&self.if_name[..len]).unwrap_or("")
-    }
-
-    /// Set the offload flags for the tap interface.
-    pub fn set_offload(&self, flags: c_uint) -> Result<(), TapError> {
-        // SAFETY: ioctl is safe. Called with a valid tap fd, and we check the return.
-        if unsafe { ioctl_with_val(&self.tap_file, TUNSETOFFLOAD(), c_ulong::from(flags)) } < 0 {
-            return Err(TapError::SetOffloadFlags(IoError::last_os_error()));
-        }
-
-        Ok(())
-    }
-
-    /// Set the size of the vnet hdr.
-    pub fn set_vnet_hdr_size(&self, size: c_int) -> Result<(), TapError> {
-        // SAFETY: ioctl is safe. Called with a valid tap fd, and we check the return.
-        if unsafe { ioctl_with_ref(&self.tap_file, TUNSETVNETHDRSZ(), &size) } < 0 {
-            return Err(TapError::SetSizeOfVnetHdr(IoError::last_os_error()));
-        }
-
-        Ok(())
-    }
-
-    /// Write an `IoVecBuffer` to tap
-    pub(crate) fn write_iovec(&mut self, buffer: &IoVecBuffer) -> Result<usize, IoError> {
-        let iovcnt = i32::try_from(buffer.iovec_count()).unwrap();
-        let iov = buffer.as_iovec_ptr();
-
-        // SAFETY: `writev` is safe. Called with a valid tap fd, the iovec pointer and length
-        // is provide by the `IoVecBuffer` implementation and we check the return value.
-        let ret = unsafe { libc::writev(self.tap_file.as_raw_fd(), iov, iovcnt) };
-        if ret == -1 {
-            return Err(IoError::last_os_error());
-        }
-        Ok(usize::try_from(ret).unwrap())
-    }
-
-    /// Read from tap to an `IoVecBufferMut`
-    pub(crate) fn read_iovec(&mut self, buffer: &mut [libc::iovec]) -> Result<usize, IoError> {
-        let iov = buffer.as_mut_ptr();
-        let iovcnt = buffer.len().try_into().unwrap();
-
-        // SAFETY: `readv` is safe. Called with a valid tap fd, the iovec pointer and length
-        // is provide by the `IoVecBufferMut` implementation and we check the return value.
-        let ret = unsafe { libc::readv(self.tap_file.as_raw_fd(), iov, iovcnt) };
-        if ret == -1 {
-            return Err(IoError::last_os_error());
-        }
-        Ok(usize::try_from(ret).unwrap())
     }
 }
 
@@ -284,7 +397,7 @@ pub mod tests {
     #[test]
     fn test_set_options() {
         // This line will fail to provide an initialized FD if the test is not run as root.
-        let tap = Tap::open_named("").unwrap();
+        let mut tap = Tap::open_named("").unwrap();
         tap.set_vnet_hdr_size(16).unwrap();
         tap.set_offload(0).unwrap();
     }

@@ -13,6 +13,7 @@ use std::ops::Deref;
 use std::sync::{Arc, Mutex};
 
 use libc::{EAGAIN, iovec};
+use serde::{Deserialize, Serialize};
 use vmm_sys_util::eventfd::EventFd;
 
 use super::NET_QUEUE_MAX_SIZE;
@@ -29,7 +30,7 @@ use crate::devices::virtio::iovec::{
     IoVecBuffer, IoVecBufferMut, IoVecError, ParsedDescriptorChain,
 };
 use crate::devices::virtio::net::metrics::{NetDeviceMetrics, NetMetricsPerDevice};
-use crate::devices::virtio::net::tap::Tap;
+use crate::devices::virtio::net::tap::{NetDevBackend, SocketBacked, Tap};
 use crate::devices::virtio::net::{
     MAX_BUFFER_SIZE, NET_QUEUE_SIZES, NetError, NetQueue, RX_INDEX, TX_INDEX, generated,
 };
@@ -58,6 +59,13 @@ pub(crate) const fn vnet_hdr_len() -> usize {
 // the header IPv4 ARP header which is 28 bytes long.
 const fn frame_hdr_len() -> usize {
     vnet_hdr_len() + FRAME_HEADER_MAX_LEN
+}
+
+// ammar: maybe reduce visibility of those types when done
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum NetDevBackendType {
+    Socket(String), // the string denotes the socket path
+    Tap(String),    // denotes the tap device name
 }
 
 // Frames being sent/received through the network device model have a VNET header. This
@@ -237,7 +245,7 @@ pub struct Net {
     pub(crate) id: String,
 
     /// The backend for this device: a tap.
-    pub tap: Tap,
+    pub tap: Box<dyn NetDevBackend>,
 
     pub(crate) avail_features: u64,
     pub(crate) acked_features: u64,
@@ -269,13 +277,14 @@ pub struct Net {
 
 impl Net {
     /// Create a new virtio network device with the given TAP interface.
-    pub fn new_with_tap(
+    pub fn new_with_backend(
         id: String,
-        tap: Tap,
+        backend: Box<dyn NetDevBackend>,
         guest_mac: Option<MacAddr>,
         rx_rate_limiter: RateLimiter,
         tx_rate_limiter: RateLimiter,
     ) -> Result<Self, NetError> {
+        // ammar: what are those features ?
         let mut avail_features = (1 << VIRTIO_NET_F_GUEST_CSUM)
             | (1 << VIRTIO_NET_F_CSUM)
             | (1 << VIRTIO_NET_F_GUEST_TSO4)
@@ -305,7 +314,7 @@ impl Net {
 
         Ok(Net {
             id: id.clone(),
-            tap,
+            tap: backend,
             avail_features,
             acked_features: 0u64,
             queues,
@@ -320,6 +329,8 @@ impl Net {
             activate_evt: EventFd::new(libc::EFD_NONBLOCK).map_err(NetError::EventFd)?,
             mmds_ns: None,
             metrics: NetMetricsPerDevice::alloc(id),
+            // expl: hmmmm so the tx buffer (iovecbuffer) is just a default of something ?
+            // so we do data buffering in the firecracker process. and thats why we need a rate limiter ?
             tx_buffer: Default::default(),
             rx_buffer: RxBuffers::new()?,
         })
@@ -328,18 +339,32 @@ impl Net {
     /// Create a new virtio network device given the interface name.
     pub fn new(
         id: String,
-        tap_if_name: &str,
+        backend_identifier: &str,
         guest_mac: Option<MacAddr>,
         rx_rate_limiter: RateLimiter,
         tx_rate_limiter: RateLimiter,
+        backend_type: NetDevBackendType,
     ) -> Result<Self, NetError> {
-        let tap = Tap::open_named(tap_if_name).map_err(NetError::TapOpen)?;
+        // ammar: here we should do an enum check on the type of the backend to see how to construct the netdev
 
         let vnet_hdr_size = i32::try_from(vnet_hdr_len()).unwrap();
-        tap.set_vnet_hdr_size(vnet_hdr_size)
-            .map_err(NetError::TapSetVnetHdrSize)?;
+        // ammar: there is a set header length size. so the backend we will implement should respect that and only return to us bytes
+        // per read as much as this header size
 
-        Self::new_with_tap(id, tap, guest_mac, rx_rate_limiter, tx_rate_limiter)
+        let backend: Box<dyn NetDevBackend> = match backend_type {
+            // ammar: use something other than io error as the return of socket backend creation
+            NetDevBackendType::Socket(path) => {
+                Box::new(SocketBacked::new(path).map_err(|_| NetError::SocketOpen())?)
+            }
+            NetDevBackendType::Tap(tap_if_name) => {
+                let mut tap = Tap::open_named(&tap_if_name).map_err(NetError::TapOpen)?;
+                tap.set_vnet_hdr_size(vnet_hdr_size)
+                    .map_err(NetError::TapSetVnetHdrSize)?;
+                Box::new(tap)
+            }
+        };
+
+        Self::new_with_backend(id, backend, guest_mac, rx_rate_limiter, tx_rate_limiter)
     }
 
     /// Provides the MAC of this net device.
@@ -349,7 +374,8 @@ impl Net {
 
     /// Provides the host IFACE name of this net device.
     pub fn iface_name(&self) -> String {
-        self.tap.if_name_as_str().to_string()
+        // ammar: what should iface name in the non tap case ? this will matter in persistence
+        self.tap.identifier().to_string()
     }
 
     /// Provides the MmdsNetworkStack of this net device.
@@ -407,6 +433,8 @@ impl Net {
 
     // Helper function to consume one op with `size` bytes from a rate limiter
     fn rate_limiter_consume_op(rate_limiter: &mut RateLimiter, size: u64) -> bool {
+        // what is the rate limiter and what does it mean to consume from it ?
+        // get 1 token from it ?
         if !rate_limiter.consume(1, TokenType::Ops) {
             return false;
         }
@@ -499,13 +527,14 @@ impl Net {
         rate_limiter: &mut RateLimiter,
         headers: &mut [u8],
         frame_iovec: &IoVecBuffer,
-        tap: &mut Tap,
+        backend: &mut Box<dyn NetDevBackend>,
         guest_mac: Option<MacAddr>,
         net_metrics: &NetDeviceMetrics,
     ) -> Result<bool, NetError> {
         // Read the frame headers from the IoVecBuffer
         let max_header_len = headers.len();
         let header_len = frame_iovec
+            // a double mutable reference ??
             .read_volatile_at(&mut &mut *headers, 0, max_header_len)
             .map_err(|err| {
                 error!("Received malformed TX buffer: {:?}", err);
@@ -518,6 +547,7 @@ impl Net {
             net_metrics.tx_malformed_frames.inc();
         })?;
 
+        // expl: this the mmds path
         if let Some(ns) = mmds_ns
             && ns.is_mmds_frame(headers)
         {
@@ -540,6 +570,8 @@ impl Net {
         // This frame goes to the TAP.
 
         // Check for guest MAC spoofing.
+        // ammar: what would the mac address i check for be in the case of passt ? i don't have a tap then i don't a mac
+        // does passt assign a mac ?
         if let Some(guest_mac) = guest_mac {
             let _ = EthernetFrame::from_bytes(headers).map(|eth_frame| {
                 if guest_mac != eth_frame.src_mac() {
@@ -549,7 +581,8 @@ impl Net {
         }
 
         let _metric = net_metrics.tap_write_agg.record_latency_metrics();
-        match Self::write_tap(tap, frame_iovec) {
+        // ammar: actual writing to the tap iface from frame_iovec. what we implement should be interactable with in a similar interface
+        match Self::write_backend(backend, frame_iovec) {
             Ok(_) => {
                 let len = u64::from(frame_iovec.len());
                 net_metrics.tx_bytes_count.add(len);
@@ -690,6 +723,7 @@ impl Net {
         let mut used_any = false;
         let tx_queue = &mut self.queues[TX_INDEX];
 
+        // expl: fetch a virtqueue descriptor
         while let Some(head) = tx_queue.pop_or_enable_notification()? {
             self.metrics
                 .tx_remaining_reqs_count
@@ -699,6 +733,7 @@ impl Net {
             // SAFETY: This descriptor chain is only loaded once
             // virtio requests are handled sequentially so no two IoVecBuffers
             // are live at the same time, meaning this has exclusive ownership over the memory
+            // expl: push this descriptor chain into the tx buffer
             if unsafe { self.tx_buffer.load_descriptor_chain(mem, head).is_err() } {
                 self.metrics.tx_fails.inc();
                 tx_queue.add_used(head_index, 0)?;
@@ -706,6 +741,7 @@ impl Net {
             };
 
             // We only handle frames that are up to MAX_BUFFER_SIZE
+            // expl: cant receive more than 64kb
             if self.tx_buffer.len() as usize > MAX_BUFFER_SIZE {
                 error!("net: received too big frame from driver");
                 self.metrics.tx_malformed_frames.inc();
@@ -713,6 +749,8 @@ impl Net {
                 continue;
             }
 
+            // huh?
+            // anyways, if rate limiter fails, undo the pop from the queue (return the descriptor)
             if !Self::rate_limiter_consume_op(
                 &mut self.tx_rate_limiter,
                 u64::from(self.tx_buffer.len()),
@@ -722,6 +760,10 @@ impl Net {
                 break;
             }
 
+            // where is the tx buffer allocated from ? does this mean we buffer this data in the firecracker
+            // process memory ? do we not have this zero copy trick we did in vsock ?
+            // expl: write whats in the tx buffer to the tap interface
+            // but wait. when did we even fill the tx buffer ?
             let frame_consumed_by_mmds = Self::write_to_mmds_or_tap(
                 self.mmds_ns.as_mut(),
                 &mut self.tx_rate_limiter,
@@ -823,7 +865,10 @@ impl Net {
         self.tap.read_iovec(slice)
     }
 
-    fn write_tap(tap: &mut Tap, buf: &IoVecBuffer) -> std::io::Result<usize> {
+    fn write_backend(
+        tap: &mut Box<dyn NetDevBackend>,
+        buf: &IoVecBuffer,
+    ) -> std::io::Result<usize> {
         tap.write_iovec(buf)
     }
 
@@ -1017,10 +1062,13 @@ impl VirtioDevice for Net {
             }
         }
 
+        // ammar: we should try to fully understand offload
         let supported_flags: u32 = Net::build_tap_offload_features(self.acked_features);
-        self.tap
-            .set_offload(supported_flags)
-            .map_err(super::super::ActivateError::TapSetOffload)?;
+        if let NetDevBackendType::Tap(_) = self.tap.save() {
+            self.tap
+                .set_offload(supported_flags)
+                .map_err(super::super::ActivateError::TapSetOffload)?;
+        }
 
         self.rx_buffer.min_buffer_size = self.minimum_rx_buffer_size();
 
