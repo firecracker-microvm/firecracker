@@ -511,6 +511,8 @@ impl Queue {
     pub fn pop_or_enable_notification(
         &mut self,
     ) -> Result<Option<DescriptorChain>, InvalidAvailIdx> {
+        // like vsock, these chains probably come with known sizes and you can't just pop another one you want
+        // maybe we can do the local iov trick from qemu
         if !self.uses_notif_suppression {
             return self.pop();
         }
