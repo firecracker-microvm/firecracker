@@ -189,11 +189,14 @@ impl NetDevBackend for SocketBacked {
     fn write_iovec(&mut self, buffer: &IoVecBuffer) -> Result<usize, IoError> {
         // this one has to be higher by 1 if we will add another iovec for the size
         let mut iovcnt = i32::try_from(buffer.iovec_count()).unwrap();
+        let msglen = buffer.len();
 
         let size_iov = libc::iovec {
-            iov_base: buffer.len() as *mut core::ffi::c_void,
+            iov_base: msglen as *mut core::ffi::c_void,
             iov_len: std::mem::size_of::<u32>(),
         };
+        // i need to somehow get the vecs inside the original one
+        // well 2 is right. lets just give it a shot
         iovcnt += 1;
         let iovs: [libc::iovec; 2] = unsafe { [size_iov, *(buffer.as_iovec_ptr())] };
 
