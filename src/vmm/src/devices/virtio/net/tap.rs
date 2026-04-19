@@ -189,6 +189,7 @@ impl NetDevBackend for SocketBacked {
     fn write_iovec(&mut self, buffer: &IoVecBuffer) -> Result<usize, IoError> {
         let mut iovcnt = i32::try_from(buffer.iovec_count()).unwrap();
         let msglen = (buffer.len() as libc::c_uint).to_be();
+        assert!(buffer.len() != 0);
 
         let size_iov = libc::iovec {
             iov_base: &msglen as *const u32 as *mut core::ffi::c_void,
