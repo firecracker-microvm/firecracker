@@ -285,15 +285,7 @@ impl Net {
         tx_rate_limiter: RateLimiter,
     ) -> Result<Self, NetError> {
         // ammar: what are those features ?
-        let mut avail_features = (1 << VIRTIO_NET_F_GUEST_CSUM)
-            | (1 << VIRTIO_NET_F_CSUM)
-            | (1 << VIRTIO_NET_F_GUEST_TSO4)
-            | (1 << VIRTIO_NET_F_GUEST_TSO6)
-            | (1 << VIRTIO_NET_F_GUEST_UFO)
-            | (1 << VIRTIO_NET_F_HOST_TSO4)
-            | (1 << VIRTIO_NET_F_HOST_TSO6)
-            | (1 << VIRTIO_NET_F_HOST_UFO)
-            | (1 << VIRTIO_F_VERSION_1)
+        let mut avail_features = (1 << VIRTIO_F_VERSION_1)
             | (1 << VIRTIO_NET_F_MRG_RXBUF)
             | (1 << VIRTIO_RING_F_EVENT_IDX);
 

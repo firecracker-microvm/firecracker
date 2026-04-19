@@ -238,19 +238,6 @@ impl NetDevBackend for Tap {
     fn write_iovec(&mut self, buffer: &IoVecBuffer) -> Result<usize, IoError> {
         let iovcnt = i32::try_from(buffer.iovec_count()).unwrap();
         let iov = buffer.as_iovec_ptr();
-        // first write the size, form the buffer. then he iov
-        let data_size = buffer.len();
-        let ret1 = unsafe {
-            libc::write(
-                self.tap_file.as_raw_fd(),
-                data_size as *mut core::ffi::c_void,
-                std::mem::size_of_val(&data_size),
-            )
-        };
-        if ret1 == -1 {
-            return Err(IoError::last_os_error());
-        }
-
         // SAFETY: `writev` is safe. Called with a valid tap fd, the iovec pointer and length
         // is provide by the `IoVecBuffer` implementation and we check the return value.
         let ret = unsafe { libc::writev(self.tap_file.as_raw_fd(), iov, iovcnt) };
