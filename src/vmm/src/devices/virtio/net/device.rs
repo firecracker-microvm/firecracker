@@ -724,7 +724,7 @@ impl Net {
         let mut used_any = false;
         let tx_queue = &mut self.queues[TX_INDEX];
 
-        // expl: fetch a virtqueue descriptor
+        // expl: fetch a virtqueue descriptor (that is already written to?)
         while let Some(head) = tx_queue.pop_or_enable_notification()? {
             self.metrics
                 .tx_remaining_reqs_count
