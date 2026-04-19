@@ -196,8 +196,16 @@ impl NetDevBackend for SocketBacked {
             iov_len: std::mem::size_of::<libc::c_uint>(),
         };
 
+        let data_iov = unsafe { *(buffer.as_iovec_ptr()) };
+        let data_iov = unsafe {
+            libc::iovec {
+                iov_base: (data_iov.iov_base as *mut u8).add(12) as *mut core::ffi::c_void,
+                iov_len: data_iov.iov_len - 12,
+            }
+        };
+
+        let iovs: [libc::iovec; 2] = [size_iov, data_iov];
         iovcnt += 1;
-        let iovs: [libc::iovec; 2] = unsafe { [size_iov, *(buffer.as_iovec_ptr())] };
 
         let ret = unsafe { libc::writev(self.fd.as_raw_fd(), iovs.as_ptr(), iovcnt) };
         if ret == -1 {
