@@ -18,7 +18,7 @@ use vmm_sys_util::ioctl::{ioctl_with_mut_ref, ioctl_with_ref, ioctl_with_val};
 use vmm_sys_util::ioctl_iow_nr;
 
 use crate::devices::virtio::iovec::IoVecBuffer;
-use crate::devices::virtio::net::device::NetDevBackendType;
+use crate::devices::virtio::net::device::{NetDevBackendType, vnet_hdr_len};
 use crate::devices::virtio::net::generated;
 use crate::error;
 
@@ -173,16 +173,22 @@ impl NetDevBackend for SocketBacked {
     }
 
     fn read_iovec(&mut self, buffer: &mut [libc::iovec]) -> Result<usize, IoError> {
-        // how should i impose header size though ?
         let iov = buffer.as_mut_ptr();
-        let iovcnt = buffer.len().try_into().unwrap();
 
-        // SAFETY: `readv` is safe. Called with a valid tap fd, the iovec pointer and length
-        // is provide by the `IoVecBufferMut` implementation and we check the return value.
-        let ret = unsafe { libc::readv(self.fd.as_raw_fd(), iov, iovcnt) };
+        // offset the buffer by 12 to leave room for virtio header
+        let data_iov = libc::iovec {
+            iov_base: unsafe { ((*iov).iov_base as *mut u8).add(vnet_hdr_len()) as *mut _ },
+            iov_len: unsafe { (*iov).iov_len - vnet_hdr_len() },
+        };
+
+        let ret = unsafe { libc::readv(self.fd.as_raw_fd(), &data_iov, 1) };
         if ret == -1 {
             return Err(IoError::last_os_error());
         }
+
+        // zero out the virtio header at the start
+        unsafe { std::ptr::write_bytes((*iov).iov_base as *mut u8, 0, vnet_hdr_len()) };
+
         Ok(usize::try_from(ret).unwrap())
     }
 

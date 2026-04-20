@@ -850,6 +850,7 @@ impl Net {
     ///
     /// `self.rx_buffer` needs to have at least one descriptor chain parsed
     pub unsafe fn read_tap(&mut self) -> std::io::Result<usize> {
+        // if we have the merge feature (evaluates to true) we get all chains
         let slice = if self.has_feature(VIRTIO_NET_F_MRG_RXBUF as u64) {
             self.rx_buffer.all_chains_slice_mut()
         } else {
