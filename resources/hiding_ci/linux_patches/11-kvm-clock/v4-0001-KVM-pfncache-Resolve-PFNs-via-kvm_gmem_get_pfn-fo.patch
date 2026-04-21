@@ -1,0 +1,147 @@
+From fa1a0071514005b9cb02b0790ee7a3fb98b4be88 Mon Sep 17 00:00:00 2001
+From: Takahiro Itazuri <itazur@amazon.com>
+Date: Sun, 22 Feb 2026 13:31:50 +0000
+Subject: [RFC PATCH v4 1/7] KVM: pfncache: Resolve PFNs via kvm_gmem_get_pfn()
+ for gmem-backed GPAs
+
+Currently, pfncaches always resolve PFNs via hva_to_pfn(), which
+requires a userspace mapping and relies on GUP.  This does not work for
+guest_memfd in the following two ways:
+
+  * guest_memfd created without MMAP flag does not have a userspace
+    mapping.
+
+  * guest_memfd created with NO_DIRECT_MAP flag uses an AS_NO_DIRECT_MAP
+    mapping, which is rejected by GUP.
+
+Resolve PFNs via kvm_gmem_get_pfn() for guest_memfd-backed and GPA-based
+pfncaches.  Otherwise, fall back to the existing hva_to_pfn().
+
+The current implementation does not support HVA-based pfncaches for
+NO_DIRECT_MAP guest_memfd.  HVA-based pfncaches do not store
+memslot/GPA context, so they cannot determine whether the target is
+guest_memfd-backed and always fall back to hva_to_pfn().  Adding a
+memslot/GPA lookup is possibile but would add overhead to all HVA-based
+pfncache activations and refreshes.  At the time of writing, only Xen
+uses HVA-based pfncaches.
+
+Signed-off-by: Takahiro Itazuri <itazur@amazon.com>
+---
+ virt/kvm/pfncache.c | 66 ++++++++++++++++++++++++++++++++++++---------
+ 1 file changed, 54 insertions(+), 12 deletions(-)
+
+diff --git a/virt/kvm/pfncache.c b/virt/kvm/pfncache.c
+index 728d2c1b488a..ad41cf3e8df4 100644
+--- a/virt/kvm/pfncache.c
++++ b/virt/kvm/pfncache.c
+@@ -152,7 +152,53 @@ static inline bool mmu_notifier_retry_cache(struct kvm *kvm, unsigned long mmu_s
+ 	return kvm->mmu_invalidate_seq != mmu_seq;
+ }
+ 
+-static kvm_pfn_t hva_to_pfn_retry(struct gfn_to_pfn_cache *gpc)
++/*
++ * Determine whether a GPA-based pfncache is backed by guest_memfd, i.e. needs
++ * to be resolved via kvm_gmem_get_pfn() rather than GUP.
++ *
++ * The caller holds gpc->refresh_lock, but does not hold gpc->lock nor
++ * kvm->slots_lock.  Reading slot->flags (via kvm_slot_has_gmem() and
++ * kvm_memslot_is_gmem_only()) is safe because memslot changes bump
++ * slots->generation, which is detected in kvm_gpc_check(), forcing callers
++ * to invoke kvm_gpc_refresh().
++ *
++ * Looking up memory attributes (via kvm_mem_is_private()) can race with
++ * KVM_SET_MEMORY_ATTRIBUTES, which takes kvm->slots_lock to serialize
++ * writers but doesn't exclude lockless readers.  Handling that race is deferred
++ * to a subsequent commit that wires up pfncache invalidation for gmem events.
++ */
++static inline bool gpc_is_gmem_backed(struct gfn_to_pfn_cache *gpc)
++{
++	lockdep_assert_held(&gpc->refresh_lock);
++
++	/* For HVA-based pfncaches, memslot is NULL */
++	return gpc->memslot && kvm_slot_has_gmem(gpc->memslot) &&
++	       (kvm_memslot_is_gmem_only(gpc->memslot) ||
++		kvm_mem_is_private(gpc->kvm, gpa_to_gfn(gpc->gpa)));
++}
++
++static kvm_pfn_t gpc_to_pfn(struct gfn_to_pfn_cache *gpc, struct page **page)
++{
++	if (gpc_is_gmem_backed(gpc)) {
++		kvm_pfn_t pfn;
++
++		if (kvm_gmem_get_pfn(gpc->kvm, gpc->memslot,
++				     gpa_to_gfn(gpc->gpa), &pfn, page, NULL))
++			return KVM_PFN_ERR_FAULT;
++
++		return pfn;
++	}
++
++	return hva_to_pfn(&(struct kvm_follow_pfn) {
++		.slot = gpc->memslot,
++		.gfn = gpa_to_gfn(gpc->gpa),
++		.flags = FOLL_WRITE,
++		.hva = gpc->uhva,
++		.refcounted_page = page,
++	});
++}
++
++static kvm_pfn_t gpc_to_pfn_retry(struct gfn_to_pfn_cache *gpc)
+ {
+ 	/* Note, the new page offset may be different than the old! */
+ 	void *old_khva = (void *)PAGE_ALIGN_DOWN((uintptr_t)gpc->khva);
+@@ -161,14 +207,6 @@ static kvm_pfn_t hva_to_pfn_retry(struct gfn_to_pfn_cache *gpc)
+ 	unsigned long mmu_seq;
+ 	struct page *page;
+ 
+-	struct kvm_follow_pfn kfp = {
+-		.slot = gpc->memslot,
+-		.gfn = gpa_to_gfn(gpc->gpa),
+-		.flags = FOLL_WRITE,
+-		.hva = gpc->uhva,
+-		.refcounted_page = &page,
+-	};
+-
+ 	lockdep_assert_held(&gpc->refresh_lock);
+ 
+ 	lockdep_assert_held_write(&gpc->lock);
+@@ -206,7 +244,7 @@ static kvm_pfn_t hva_to_pfn_retry(struct gfn_to_pfn_cache *gpc)
+ 			cond_resched();
+ 		}
+ 
+-		new_pfn = hva_to_pfn(&kfp);
++		new_pfn = gpc_to_pfn(gpc, &page);
+ 		if (is_error_noslot_pfn(new_pfn))
+ 			goto out_error;
+ 
+@@ -319,7 +357,7 @@ static int __kvm_gpc_refresh(struct gfn_to_pfn_cache *gpc, gpa_t gpa, unsigned l
+ 		}
+ 	}
+ 
+-	/* Note: the offset must be correct before calling hva_to_pfn_retry() */
++	/* Note: the offset must be correct before calling gpc_to_pfn_retry() */
+ 	gpc->uhva += page_offset;
+ 
+ 	/*
+@@ -327,7 +365,7 @@ static int __kvm_gpc_refresh(struct gfn_to_pfn_cache *gpc, gpa_t gpa, unsigned l
+ 	 * drop the lock and do the HVA to PFN lookup again.
+ 	 */
+ 	if (!gpc->valid || hva_change) {
+-		ret = hva_to_pfn_retry(gpc);
++		ret = gpc_to_pfn_retry(gpc);
+ 	} else {
+ 		/*
+ 		 * If the HVA→PFN mapping was already valid, don't unmap it.
+@@ -441,6 +479,10 @@ int kvm_gpc_activate_hva(struct gfn_to_pfn_cache *gpc, unsigned long uhva, unsig
+ 	if (!access_ok((void __user *)uhva, len))
+ 		return -EINVAL;
+ 
++	/*
++	 * HVA-based caches always resolve PFNs via GUP (hva_to_pfn()), which
++	 * does not work for NO_DIRECT_MAP guest_memfd.
++	 */
+ 	return __kvm_gpc_activate(gpc, INVALID_GPA, uhva, len);
+ }
+ 
+-- 
+2.50.1
+

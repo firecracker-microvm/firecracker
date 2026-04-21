@@ -1,0 +1,245 @@
+From 6d17d4dbf9174ba51ad950e08d580394044ac9e3 Mon Sep 17 00:00:00 2001
+From: Takahiro Itazuri <itazur@amazon.com>
+Date: Mon, 20 Apr 2026 05:03:23 +0000
+Subject: [RFC PATCH v4 6/7] KVM: selftests: Test pfncache with gmem-backed
+ memory
+
+Add a selftest that exercises pfncache (gfn_to_pfn_cache) with
+guest_memfd-backed memory by using kvm-clock as the test vehicle.
+
+The test creates two VM configurations:
+
+ - NO_DIRECT_MAP VM: All memory is gmem-backed (MMAP | INIT_SHARED |
+   NO_DIRECT_MAP). KVM_MEMSLOT_GMEM_ONLY is set, so pfncache resolves
+   PFNs via kvm_gmem_get_pfn() and maps KHVAs via vmap().
+
+ - SW_PROTECTED_VM: Memory starts private. pfncache resolves PFNs via
+   kvm_gmem_get_pfn() for private pages. This validates the private
+   memory pfncache path for future extensibility (e.g. pKVM-like VMs).
+
+The guest writes MSR_KVM_SYSTEM_TIME_NEW (triggering kvm_gpc_activate()
+internally), reads the pvclock structure to verify KVM wrote through the
+pfncache KHVA correctly, and reports the kvm-clock value to the host for
+bounds checking against KVM_GET_CLOCK.
+
+Signed-off-by: Takahiro Itazuri <itazur@amazon.com>
+---
+ tools/testing/selftests/kvm/Makefile.kvm      |   1 +
+ .../selftests/kvm/x86/pfncache_gmem_test.c    | 193 ++++++++++++++++++
+ 2 files changed, 194 insertions(+)
+ create mode 100644 tools/testing/selftests/kvm/x86/pfncache_gmem_test.c
+
+diff --git a/tools/testing/selftests/kvm/Makefile.kvm b/tools/testing/selftests/kvm/Makefile.kvm
+index 148d427ff24b..faf454d64e4e 100644
+--- a/tools/testing/selftests/kvm/Makefile.kvm
++++ b/tools/testing/selftests/kvm/Makefile.kvm
+@@ -92,6 +92,7 @@ TEST_GEN_PROGS_x86 += x86/nested_emulation_test
+ TEST_GEN_PROGS_x86 += x86/nested_exceptions_test
+ TEST_GEN_PROGS_x86 += x86/platform_info_test
+ TEST_GEN_PROGS_x86 += x86/pmu_counters_test
++TEST_GEN_PROGS_x86 += x86/pfncache_gmem_test
+ TEST_GEN_PROGS_x86 += x86/pmu_event_filter_test
+ TEST_GEN_PROGS_x86 += x86/private_mem_conversions_test
+ TEST_GEN_PROGS_x86 += x86/private_mem_kvm_exits_test
+diff --git a/tools/testing/selftests/kvm/x86/pfncache_gmem_test.c b/tools/testing/selftests/kvm/x86/pfncache_gmem_test.c
+new file mode 100644
+index 000000000000..8878abd072fd
+--- /dev/null
++++ b/tools/testing/selftests/kvm/x86/pfncache_gmem_test.c
+@@ -0,0 +1,193 @@
++// SPDX-License-Identifier: GPL-2.0-only
++/*
++ * Copyright (C) 2026, Amazon.com, Inc. or its affiliates.
++ *
++ * Test pfncache (gfn_to_pfn_cache) with guest_memfd-backed memory.
++ *
++ * Exercises pfncache indirectly through kvm-clock: the guest writes
++ * MSR_KVM_SYSTEM_TIME_NEW (triggering kvm_gpc_activate() in KVM), KVM writes
++ * pvclock data through the pfncache's KHVA, and the guest reads the
++ * pvclock_vcpu_time_info structure to verify correctness.
++ *
++ * Two VM configurations exercise distinct pfncache code paths:
++ *
++ *  - NO_DIRECT_MAP VM: All memory is gmem-backed and shared (MMAP |
++ *    INIT_SHARED | NO_DIRECT_MAP).  KVM_MEMSLOT_GMEM_ONLY is set, so
++ *    gpc_is_gmem_backed() always returns true.  PFN resolution goes through
++ *    kvm_gmem_get_pfn() and KHVA mapping uses vmap().
++ *
++ *  - SW_PROTECTED_VM: Memory starts private.  pfncache uses
++ *    kvm_gmem_get_pfn() for private pages.  This validates the private
++ *    memory pfncache path for future extensibility (e.g. pKVM-like VMs).
++ */
++#include <asm/kvm_para.h>
++#include <asm/pvclock.h>
++#include <asm/pvclock-abi.h>
++#include <stdint.h>
++
++#include "test_util.h"
++#include "kvm_util.h"
++#include "processor.h"
++
++#define GUEST_SYNC_CLOCK(__stage, __val)	\
++	GUEST_SYNC_ARGS(__stage, __val, 0, 0, 0)
++
++static void guest_main(vm_paddr_t pvti_pa, struct pvclock_vcpu_time_info *pvti)
++{
++	int stage = 0;
++
++	wrmsr(MSR_KVM_SYSTEM_TIME_NEW, pvti_pa | KVM_MSR_ENABLED);
++
++	for (;;) {
++		uint64_t clock;
++
++		GUEST_ASSERT(pvti->system_time != 0);
++		clock = __pvclock_read_cycles(pvti, rdtsc());
++		GUEST_SYNC_CLOCK(stage++, clock);
++	}
++}
++
++static uint64_t run_and_verify_kvm_clock(struct kvm_vcpu *vcpu,
++					 uint64_t prev_clock)
++{
++	struct kvm_clock_data start, end;
++	struct ucall uc;
++	uint64_t guest_clock;
++
++	vm_ioctl(vcpu->vm, KVM_GET_CLOCK, &start);
++	vcpu_run(vcpu);
++	vm_ioctl(vcpu->vm, KVM_GET_CLOCK, &end);
++
++	TEST_ASSERT_KVM_EXIT_REASON(vcpu, KVM_EXIT_IO);
++
++	switch (get_ucall(vcpu, &uc)) {
++	case UCALL_SYNC:
++		break;
++	case UCALL_ABORT:
++		REPORT_GUEST_ASSERT(uc);
++		/* unreachable */
++		return 0;
++	default:
++		TEST_FAIL("Unexpected ucall: %lu", uc.cmd);
++	}
++
++	guest_clock = uc.args[2];
++
++	TEST_ASSERT(start.clock <= guest_clock && guest_clock <= end.clock,
++		    "guest clock %llu ns not in expected range [%llu, %llu] ns",
++		    (unsigned long long)guest_clock,
++		    (unsigned long long)start.clock,
++		    (unsigned long long)end.clock);
++
++	if (prev_clock)
++		TEST_ASSERT(guest_clock > prev_clock,
++			    "guest clock %llu ns not monotonic (prev %llu ns)",
++			    (unsigned long long)guest_clock,
++			    (unsigned long long)prev_clock);
++
++	pr_info("  guest clock %llu ns, expected range [%llu, %llu] ns\n",
++		(unsigned long long)guest_clock,
++		(unsigned long long)start.clock,
++		(unsigned long long)end.clock);
++
++	return guest_clock;
++}
++
++#define PVCLOCK_SLOT		10
++#define PVCLOCK_GPA		(1ULL << 32)
++
++static struct kvm_vm *setup_vm(struct vm_shape shape,
++			       struct kvm_vcpu **vcpu_out)
++{
++	struct kvm_vm *vm;
++
++	vm = __vm_create_shape_with_one_vcpu(shape, vcpu_out, 0, guest_main);
++
++	/*
++	 * For SW_PROTECTED_VM, the primary memslot doesn't have guest_memfd.
++	 * Place the pvclock page in a separate memslot with both anonymous
++	 * memory (for shared) and guest_memfd (for private), and mark it
++	 * private so that pfncache exercises the kvm_gmem_get_pfn() path.
++	 */
++	if (shape.type == KVM_X86_SW_PROTECTED_VM) {
++		int memfd = vm_create_guest_memfd(vm, getpagesize(), 0);
++
++		vm_mem_add(vm, VM_MEM_SRC_ANONYMOUS, PVCLOCK_GPA,
++			   PVCLOCK_SLOT, 1, KVM_MEM_GUEST_MEMFD, memfd, 0);
++		virt_map(vm, PVCLOCK_GPA, PVCLOCK_GPA, 1);
++		vcpu_args_set(*vcpu_out, 2, (vm_paddr_t)PVCLOCK_GPA,
++			      (struct pvclock_vcpu_time_info *)PVCLOCK_GPA);
++		vm_mem_set_private(vm, PVCLOCK_GPA, getpagesize());
++	} else {
++		vm_vaddr_t pvti_gva;
++		vm_paddr_t pvti_gpa;
++
++		pvti_gva = vm_vaddr_alloc(vm, getpagesize(), 0x10000);
++		pvti_gpa = addr_gva2gpa(vm, pvti_gva);
++		vcpu_args_set(*vcpu_out, 2, pvti_gpa, pvti_gva);
++	}
++
++	return vm;
++}
++
++static void test_no_direct_map(void)
++{
++	struct vm_shape shape = {
++		.mode = VM_MODE_DEFAULT,
++		.type = VM_TYPE_DEFAULT,
++		.src_type = VM_MEM_SRC_GUEST_MEMFD_NO_DIRECT_MAP,
++	};
++	struct kvm_vcpu *vcpu;
++	struct kvm_vm *vm;
++	uint64_t clock = 0;
++
++	pr_info("Testing pfncache with NO_DIRECT_MAP guest_memfd\n");
++
++	vm = setup_vm(shape, &vcpu);
++
++	/* Verify kvm-clock works with gmem-backed pfncache (vmap KHVA) */
++	clock = run_and_verify_kvm_clock(vcpu, clock);
++	clock = run_and_verify_kvm_clock(vcpu, clock);
++
++	kvm_vm_free(vm);
++}
++
++static void test_sw_protected_vm(void)
++{
++	struct vm_shape shape = {
++		.mode = VM_MODE_DEFAULT,
++		.type = KVM_X86_SW_PROTECTED_VM,
++	};
++	struct kvm_vcpu *vcpu;
++	struct kvm_vm *vm;
++	uint64_t clock = 0;
++
++	pr_info("Testing pfncache with SW_PROTECTED_VM (guest_memfd-backed private memory)\n");
++
++	vm = setup_vm(shape, &vcpu);
++
++	/* Verify kvm-clock works with gmem-backed private memory */
++	clock = run_and_verify_kvm_clock(vcpu, clock);
++	clock = run_and_verify_kvm_clock(vcpu, clock);
++
++	kvm_vm_free(vm);
++}
++
++int main(int argc, char *argv[])
++{
++	TEST_REQUIRE(kvm_has_cap(KVM_CAP_GUEST_MEMFD));
++	TEST_REQUIRE(sys_clocksource_is_based_on_tsc());
++
++	if (kvm_check_cap(KVM_CAP_GUEST_MEMFD_FLAGS) &
++	    GUEST_MEMFD_FLAG_NO_DIRECT_MAP)
++		test_no_direct_map();
++	else
++		print_skip("GUEST_MEMFD_FLAG_NO_DIRECT_MAP not supported");
++
++	if (kvm_check_cap(KVM_CAP_VM_TYPES) & BIT(KVM_X86_SW_PROTECTED_VM))
++		test_sw_protected_vm();
++	else
++		print_skip("KVM_X86_SW_PROTECTED_VM not supported");
++
++	return 0;
++}
+-- 
+2.50.1
+

@@ -1,0 +1,133 @@
+From a209e0ce57bc0a69e8680de01d82eca16081a604 Mon Sep 17 00:00:00 2001
+From: Takahiro Itazuri <itazur@amazon.com>
+Date: Mon, 20 Apr 2026 05:57:34 +0000
+Subject: [RFC PATCH v4 7/7] KVM: selftests: Test pfncache invalidation for
+ gmem-backed memory
+
+Extend pfncache_gmem_test to verify pfncache invalidation paths:
+
+ - punch_hole: fallocate(PUNCH_HOLE) on the pvclock page's guest_memfd
+   frees the backing page and invalidates the pfncache.  The next
+   vcpu_run re-resolves the PFN with a freshly allocated page.
+
+ - file release: kvm_vm_free() closes the guest_memfd fd, triggering a
+   full-range pfncache invalidation.
+
+ - private/shared conversion: KVM_SET_MEMORY_ATTRIBUTES changes the
+   pvclock page from private to shared, invalidating the pfncache.  The
+   PFN is re-resolved via GUP instead of kvm_gmem_get_pfn().
+
+Signed-off-by: Takahiro Itazuri <itazur@amazon.com>
+---
+ .../selftests/kvm/x86/pfncache_gmem_test.c    | 39 ++++++++++++++++---
+ 1 file changed, 34 insertions(+), 5 deletions(-)
+
+diff --git a/tools/testing/selftests/kvm/x86/pfncache_gmem_test.c b/tools/testing/selftests/kvm/x86/pfncache_gmem_test.c
+index 8878abd072fd..267d4d7844f3 100644
+--- a/tools/testing/selftests/kvm/x86/pfncache_gmem_test.c
++++ b/tools/testing/selftests/kvm/x86/pfncache_gmem_test.c
+@@ -36,11 +36,10 @@ static void guest_main(vm_paddr_t pvti_pa, struct pvclock_vcpu_time_info *pvti)
+ {
+ 	int stage = 0;
+ 
+-	wrmsr(MSR_KVM_SYSTEM_TIME_NEW, pvti_pa | KVM_MSR_ENABLED);
+-
+ 	for (;;) {
+ 		uint64_t clock;
+ 
++		wrmsr(MSR_KVM_SYSTEM_TIME_NEW, pvti_pa | KVM_MSR_ENABLED);
+ 		GUEST_ASSERT(pvti->system_time != 0);
+ 		clock = __pvclock_read_cycles(pvti, rdtsc());
+ 		GUEST_SYNC_CLOCK(stage++, clock);
+@@ -97,7 +96,8 @@ static uint64_t run_and_verify_kvm_clock(struct kvm_vcpu *vcpu,
+ #define PVCLOCK_GPA		(1ULL << 32)
+ 
+ static struct kvm_vm *setup_vm(struct vm_shape shape,
+-			       struct kvm_vcpu **vcpu_out)
++			       struct kvm_vcpu **vcpu_out,
++			       vm_paddr_t *pvti_gpa_out)
+ {
+ 	struct kvm_vm *vm;
+ 
+@@ -118,6 +118,9 @@ static struct kvm_vm *setup_vm(struct vm_shape shape,
+ 		vcpu_args_set(*vcpu_out, 2, (vm_paddr_t)PVCLOCK_GPA,
+ 			      (struct pvclock_vcpu_time_info *)PVCLOCK_GPA);
+ 		vm_mem_set_private(vm, PVCLOCK_GPA, getpagesize());
++
++		if (pvti_gpa_out)
++			*pvti_gpa_out = PVCLOCK_GPA;
+ 	} else {
+ 		vm_vaddr_t pvti_gva;
+ 		vm_paddr_t pvti_gpa;
+@@ -125,6 +128,9 @@ static struct kvm_vm *setup_vm(struct vm_shape shape,
+ 		pvti_gva = vm_vaddr_alloc(vm, getpagesize(), 0x10000);
+ 		pvti_gpa = addr_gva2gpa(vm, pvti_gva);
+ 		vcpu_args_set(*vcpu_out, 2, pvti_gpa, pvti_gva);
++
++		if (pvti_gpa_out)
++			*pvti_gpa_out = pvti_gpa;
+ 	}
+ 
+ 	return vm;
+@@ -139,16 +145,27 @@ static void test_no_direct_map(void)
+ 	};
+ 	struct kvm_vcpu *vcpu;
+ 	struct kvm_vm *vm;
++	vm_paddr_t pvti_gpa;
+ 	uint64_t clock = 0;
+ 
+ 	pr_info("Testing pfncache with NO_DIRECT_MAP guest_memfd\n");
+ 
+-	vm = setup_vm(shape, &vcpu);
++	vm = setup_vm(shape, &vcpu, &pvti_gpa);
+ 
+ 	/* Verify kvm-clock works with gmem-backed pfncache (vmap KHVA) */
+ 	clock = run_and_verify_kvm_clock(vcpu, clock);
+ 	clock = run_and_verify_kvm_clock(vcpu, clock);
+ 
++	/*
++	 * Punch a hole in the pvclock page's guest_memfd backing.  This
++	 * invalidates the pfncache; the next vcpu_run re-resolves the PFN
++	 * with a freshly allocated page.
++	 */
++	pr_info("  punch_hole on pvclock page\n");
++	vm_guest_mem_punch_hole(vm, pvti_gpa, getpagesize());
++	clock = run_and_verify_kvm_clock(vcpu, clock);
++
++	/* Smoke test: VM teardown (closing guest_memfd) doesn't crash. */
+ 	kvm_vm_free(vm);
+ }
+ 
+@@ -160,16 +177,28 @@ static void test_sw_protected_vm(void)
+ 	};
+ 	struct kvm_vcpu *vcpu;
+ 	struct kvm_vm *vm;
++	vm_paddr_t pvti_gpa;
+ 	uint64_t clock = 0;
+ 
+ 	pr_info("Testing pfncache with SW_PROTECTED_VM (guest_memfd-backed private memory)\n");
+ 
+-	vm = setup_vm(shape, &vcpu);
++	vm = setup_vm(shape, &vcpu, &pvti_gpa);
+ 
+ 	/* Verify kvm-clock works with gmem-backed private memory */
+ 	clock = run_and_verify_kvm_clock(vcpu, clock);
+ 	clock = run_and_verify_kvm_clock(vcpu, clock);
+ 
++	/* Convert pvclock page from private to shared */
++	pr_info("  converting pvclock page: private -> shared\n");
++	vm_mem_set_shared(vm, pvti_gpa, getpagesize());
++	clock = run_and_verify_kvm_clock(vcpu, 0);
++
++	/* Convert back to private */
++	pr_info("  converting pvclock page: shared -> private\n");
++	vm_mem_set_private(vm, pvti_gpa, getpagesize());
++	clock = run_and_verify_kvm_clock(vcpu, 0);
++
++	/* Smoke test: VM teardown (closing guest_memfd) doesn't crash. */
+ 	kvm_vm_free(vm);
+ }
+ 
+-- 
+2.50.1
+

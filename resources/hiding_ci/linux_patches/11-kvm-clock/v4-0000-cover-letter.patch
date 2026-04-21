@@ -1,0 +1,126 @@
+From 174960869b9d81002bc4ec5d66acf3d5acb1887a Mon Sep 17 00:00:00 2001
+From: Takahiro Itazuri <itazur@amazon.com>
+Date: Mon, 20 Apr 2026 14:28:37 +0000
+Subject: [RFC PATCH v4 0/7] KVM: pfncache: Add guest_memfd support to
+ pfncache
+
+[ based on kvm/next with [1] ]
+
+This patch series adds guest_memfd support to gfn_to_pfn_cache (a.k.a.
+pfncache).  (This is still labelled RFC since its dependency [1] has not
+yet been merged.)
+
+=== Problem Statement ===
+
+pfncache does not work with guest_memfd.  pfncaches resolve PFNs via
+hva_to_pfn(), which requires a userspace mapping and relies on GUP.
+This does not work for guest_memfd in the following two ways:
+
+  * guest_memfd created with GUEST_MEMFD_FLAG_MMAP does not have a
+    userspace mapping due to the nature of private memory.
+
+  * guest_memfd created with GUEST_MEMFD_FLAG_NO_DIRECT_MAP uses an
+    AS_NO_DIRECT_MAP mapping, which is rejected by GUP.
+
+In addition, pfncaches map RAM pages via kmap(), which typically returns
+an address derived from the direct map.  So kmap() cannot be used for
+NO_DIRECT_MAP guest_memfd.  pfncaches require fault-free KHVAs since
+they can be used from atomic context.  Thus, it cannot fall back to
+access via a userspace mapping like KVM does for other accesses to
+NO_DIRECT_MAP guest_memfd.
+
+The introduction of guest_memfd support necessitates additional
+invalidation paths in addition to the existing MMU notifier path: one
+from guest_memfd invalidation and another from memory attribute updates.
+
+=== Core Approach ===
+
+  * Resolve PFNs for guest_memfd-backed GPAs via kvm_gmem_get_pfn().
+
+  * Obtain a fault-free KHVA for NO_DIRECT_MAP pages via vmap().
+
+  * Hook pfncache invalidation into guest_memfd invalidation (punch hole
+    / release / error handling) as well as into memory attribute updates
+    (switch between shared and private memories).
+
+  * Reuse mn_active_invalidate_count to synchronize the new invalidation
+    paths with the existing pfncache retry logic.
+
+=== Design Considerations (Feedback Appreciated) ===
+
+  * Reusing mn_active_invalidate_count allows reusing the existing
+    pfncache retry logic as-is and enables invalidating pfncaches
+    without holding mmu_lock from guest_memfd invalidation context.  As
+    a side effect, active memslots swap is blocked while
+    mn_active_invalidate_count > 0.  To avoid this block, it would be
+    possible to introduce a dedicated counter instead.
+
+  * Although both guest_memfd invalidation and memory attribute update
+    are driven by GFN ranges, pfncache invalidation is performed using
+    HVA ranges.  GPA-based pfncaches have memslot/GPA context, whereas
+    HVA-based pfncaches do not.  Using GFN-based invalidation would
+    miss HVA-based pfncaches.
+
+  * The current implementation does not support HVA-based pfncaches for
+    NO_DIRECT_MAP guest_memfd.  HVA-based pfncaches do not store
+    memslot/GPA context, so they cannot determine whether the target is
+    gmem-backed and always fall back to GUP (hva_to_pfn()), which fails
+    for NO_DIRECT_MAP pages.  Adding a memslot/GPA lookup is possible
+    but would add overhead to all HVA-based pfncache activations and
+    refreshes.  At the time of writing, only Xen uses HVA-based
+    pfncaches.
+
+=== Changelog ===
+
+Changes since RFC v3:
+- Drop the rename of mn_* invalidate-related fields to generic ones, as
+  suggested by Sean.  Keep the mn_ prefix.
+- Fix incorrect HVA range computation in pfncache invalidation for
+  guest_memfd and memory attribute update paths.  gfn_to_hva_memslot()
+  with gfn_end == slot->base_gfn + slot->npages triggers
+  array_index_nospec() clamping, resulting in an empty range.  Use
+  hva_start + (gfn_end - gfn_start) * PAGE_SIZE instead.
+- Add selftests that exercise pfncache with guest_memfd-backed memory
+  (NO_DIRECT_MAP and SW_PROTECTED_VM) and verify invalidation paths
+  (punch_hole, private-to-shared conversion, file release).
+
+Changes since RFC v2:
+- Drop avoidance of silent kvm-clock activation failure.
+- Fix a compile error for kvm_for_each_memslot().
+
+Changes since RFC v1:
+- Prevent kvm-clock activation from failing silently.
+- Generalize serialization mechanism for invalidation.
+- Hook pfncache invalidation into guest_memfd invalidation and memory
+  attribute updates.
+
+RFC v3: https://lore.kernel.org/all/20260310063647.15665-1-itazur@amazon.com/
+RFC v2: https://lore.kernel.org/all/20260226135309.29493-1-itazur@amazon.com/
+RFC v1: https://lore.kernel.org/all/20251203144159.6131-1-itazur@amazon.com/
+
+[1]: https://lore.kernel.org/all/20260126164445.11867-1-kalyazin@amazon.com/
+
+Takahiro Itazuri (7):
+  KVM: pfncache: Resolve PFNs via kvm_gmem_get_pfn() for gmem-backed
+    GPAs
+  KVM: pfncache: Obtain KHVA via vmap() for gmem with NO_DIRECT_MAP
+  KVM: Rename invalidate_begin to invalidate_start for consistency
+  KVM: pfncache: Rename invalidate_start() helper
+  KVM: pfncache: Invalidate on gmem invalidation and memattr updates
+  KVM: selftests: Test pfncache with gmem-backed memory
+  KVM: selftests: Test pfncache invalidation for gmem-backed memory
+
+ arch/x86/kvm/mmu/mmu.c                        |   2 +-
+ include/linux/kvm_host.h                      |   2 +-
+ tools/testing/selftests/kvm/Makefile.kvm      |   1 +
+ .../selftests/kvm/x86/pfncache_gmem_test.c    | 222 ++++++++++++++++++
+ virt/kvm/guest_memfd.c                        |  64 ++++-
+ virt/kvm/kvm_main.c                           |  55 ++++-
+ virt/kvm/kvm_mm.h                             |  12 +-
+ virt/kvm/pfncache.c                           | 110 +++++++--
+ 8 files changed, 427 insertions(+), 41 deletions(-)
+ create mode 100644 tools/testing/selftests/kvm/x86/pfncache_gmem_test.c
+
+-- 
+2.50.1
+

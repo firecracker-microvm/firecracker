@@ -1,13 +1,13 @@
-From 7c2504e349ddfd3bbcdef74d0450740741de737e Mon Sep 17 00:00:00 2001
+From 1dbe5e1ecefe65f7e0157b231419645c06b19d48 Mon Sep 17 00:00:00 2001
 From: Takahiro Itazuri <itazur@amazon.com>
-Date: Sun, 22 Feb 2026 17:25:07 +0000
-Subject: [PATCH 46/94] KVM: pfncache: Invalidate on gmem invalidation and
+Date: Tue, 7 Apr 2026 12:59:05 +0000
+Subject: [RFC PATCH v4 5/7] KVM: pfncache: Invalidate on gmem invalidation and
  memattr updates
 
 Invalidate pfncaches when guest_memfd invalidation or memory attribute
 updates render cached PFN resolutions stale.
 
-Reuse active_invalidate_count to synchronize with the existing retry
+Reuse mn_active_invalidate_count to synchronize with the existing retry
 logic and preserve ordering against mmu_invalidate_seq.
 
 Invalidation needs to be performed using HVA ranges so that both
@@ -15,23 +15,23 @@ GPA-based and HVA-based pfncaches are covered.  Internally GPA-based
 ones translate GPA to memslot/UHVA first and then resolve PFN, while
 HVA-based ones only resolve PFN and do not store memslot/GPA context.
 Technically, it is possible to make HVA-based pfncaches search the
-corresponding memslot/GPA when activated / refreshed, but it would add
-overhead to a greater ot lesser extent, regardless of guest_memfd-backed
+corresponding memslot/GPA when activated/refreshed, but it would add
+overhead to a greater or lesser extent, regardless of guest_memfd-backed
 or not.  At the time of writing, only Xen uses HVA-based pfncaches.
 
-Signed-off-by: Takahiro Itazuri <itazur@amazon.com>
 Suggested-by: David Hildenbrand (Red Hat) <david@kernel.org>
+Signed-off-by: Takahiro Itazuri <itazur@amazon.com>
 ---
  virt/kvm/guest_memfd.c | 50 ++++++++++++++++++++++++++++++++++++++++++
  virt/kvm/kvm_main.c    | 47 ++++++++++++++++++++++++++++++++++++++-
- virt/kvm/pfncache.c    |  4 ++--
- 3 files changed, 98 insertions(+), 3 deletions(-)
+ virt/kvm/pfncache.c    | 21 ++++++++++--------
+ 3 files changed, 108 insertions(+), 10 deletions(-)
 
 diff --git a/virt/kvm/guest_memfd.c b/virt/kvm/guest_memfd.c
-index 68396333586f..116d9346e87b 100644
+index 79f34dad0c2f..b6d60c46dc46 100644
 --- a/virt/kvm/guest_memfd.c
 +++ b/virt/kvm/guest_memfd.c
-@@ -208,6 +208,33 @@ static void __kvm_gmem_invalidate_start(struct gmem_file *f, pgoff_t start,
+@@ -215,6 +215,33 @@ static void __kvm_gmem_invalidate_start(struct gmem_file *f, pgoff_t start,
  	struct kvm *kvm = f->kvm;
  	unsigned long index;
  
@@ -39,16 +39,16 @@ index 68396333586f..116d9346e87b 100644
 +	 * Prevent pfncaches from being activated / refreshed using stale PFN
 +	 * resolutions.  To invalidate pfncaches _before_ invalidating the
 +	 * secondary MMUs (i.e. without acquiring mmu_lock), pfncaches must use
-+	 * active_invalidate_count instead of mmu_invalidate_in_progress.
++	 * mn_active_invalidate_count instead of mmu_invalidate_in_progress.
 +	 */
-+	spin_lock(&kvm->invalidate_lock);
-+	kvm->active_invalidate_count++;
-+	spin_unlock(&kvm->invalidate_lock);
++	spin_lock(&kvm->mn_invalidate_lock);
++	kvm->mn_active_invalidate_count++;
++	spin_unlock(&kvm->mn_invalidate_lock);
 +
 +	/*
 +	 * Invalidation of pfncaches must be done using a HVA range.  pfncaches
 +	 * can be either GPA-based or HVA-based, and all pfncaches store uhva
-+	 * while HVA-based pfncaches do not have gpa/memslot info.  Thus,
++	 * while HVA-based pfncaches do not have gpa/memslot context.  Thus,
 +	 * using GFN ranges would miss invalidating HVA-based ones.
 +	 */
 +	xa_for_each_range(&f->bindings, index, slot, start, end - 1) {
@@ -57,7 +57,7 @@ index 68396333586f..116d9346e87b 100644
 +		gfn_t gfn_end = slot->base_gfn + min(pgoff + slot->npages, end) - pgoff;
 +
 +		unsigned long hva_start = gfn_to_hva_memslot(slot, gfn_start);
-+		unsigned long hva_end = gfn_to_hva_memslot(slot, gfn_end);
++		unsigned long hva_end = hva_start + (gfn_end - gfn_start) * PAGE_SIZE;
 +
 +		gpc_invalidate_hva_range_start(kvm, hva_start, hva_end);
 +	}
@@ -65,7 +65,7 @@ index 68396333586f..116d9346e87b 100644
  	xa_for_each_range(&f->bindings, index, slot, start, end - 1) {
  		pgoff_t pgoff = slot->gmem.pgoff;
  
-@@ -252,12 +279,35 @@ static void __kvm_gmem_invalidate_end(struct gmem_file *f, pgoff_t start,
+@@ -259,12 +286,35 @@ static void __kvm_gmem_invalidate_end(struct gmem_file *f, pgoff_t start,
  				      pgoff_t end)
  {
  	struct kvm *kvm = f->kvm;
@@ -80,32 +80,32 @@ index 68396333586f..116d9346e87b 100644
 +	/*
 +	 * This must be done after the increment of mmu_invalidate_seq and
 +	 * smp_wmb() in kvm_mmu_invalidate_end() to guarantee that
-+	 * gpc_invalidate_retry() observes either the old (non-zero)
-+	 * active_invalidate_count or the new (incremented) mmu_invalidate_seq.
++	 * gpc_invalidate_in_progress() observes either the old (non-zero)
++	 * mn_active_invalidate_count or the new (incremented) mmu_invalidate_seq.
 +	 */
-+	spin_lock(&kvm->invalidate_lock);
-+	if (!WARN_ON_ONCE(!kvm->active_invalidate_count))
-+		kvm->active_invalidate_count--;
-+	wake = !kvm->active_invalidate_count;
-+	spin_unlock(&kvm->invalidate_lock);
++	spin_lock(&kvm->mn_invalidate_lock);
++	if (!WARN_ON_ONCE(!kvm->mn_active_invalidate_count))
++		kvm->mn_active_invalidate_count--;
++	wake = !kvm->mn_active_invalidate_count;
++	spin_unlock(&kvm->mn_invalidate_lock);
 +
 +	/*
 +	 * guest_memfd invalidation itself doesn't need to block active memslots
 +	 * swap as bindings updates are serialized by filemap_invalidate_lock().
-+	 * However, active_invalidate_count is shared with the MMU notifier
-+	 * path, so the waiter must be waked when active_invalidate_count drops
-+	 * to zero.
++	 * However, mn_active_invalidate_count is shared with the MMU notifier
++	 * path, so the waiter must be woken when mn_active_invalidate_count
++	 * drops to zero.
 +	 */
 +	if (wake)
-+		rcuwait_wake_up(&kvm->memslots_update_rcuwait);
++		rcuwait_wake_up(&kvm->mn_memslots_update_rcuwait);
  }
  
  static void kvm_gmem_invalidate_end(struct inode *inode, pgoff_t start,
 diff --git a/virt/kvm/kvm_main.c b/virt/kvm/kvm_main.c
-index 8d83957b9f07..867cf777d266 100644
+index d64e70f8e8e3..e316cb718f7c 100644
 --- a/virt/kvm/kvm_main.c
 +++ b/virt/kvm/kvm_main.c
-@@ -2564,9 +2564,11 @@ static int kvm_vm_set_mem_attributes(struct kvm *kvm, gfn_t start, gfn_t end,
+@@ -2583,9 +2583,11 @@ static int kvm_vm_set_mem_attributes(struct kvm *kvm, gfn_t start, gfn_t end,
  		.on_lock = kvm_mmu_invalidate_end,
  		.may_block = true,
  	};
@@ -118,7 +118,7 @@ index 8d83957b9f07..867cf777d266 100644
  
  	entry = attributes ? xa_mk_value(attributes) : NULL;
  
-@@ -2590,6 +2592,34 @@ static int kvm_vm_set_mem_attributes(struct kvm *kvm, gfn_t start, gfn_t end,
+@@ -2609,6 +2611,34 @@ static int kvm_vm_set_mem_attributes(struct kvm *kvm, gfn_t start, gfn_t end,
  		cond_resched();
  	}
  
@@ -126,11 +126,11 @@ index 8d83957b9f07..867cf777d266 100644
 +	 * Prevent pfncaches from being activated / refreshed using stale PFN
 +	 * resolutions.  To invalidate pfncaches _before_ invalidating the
 +	 * secondary MMUs (i.e. without acquiring mmu_lock), pfncaches must use
-+	 * active_invalidate_count instead of mmu_invalidate_in_progress.
++	 * mn_active_invalidate_count instead of mmu_invalidate_in_progress.
 +	 */
-+	spin_lock(&kvm->invalidate_lock);
-+	kvm->active_invalidate_count++;
-+	spin_unlock(&kvm->invalidate_lock);
++	spin_lock(&kvm->mn_invalidate_lock);
++	kvm->mn_active_invalidate_count++;
++	spin_unlock(&kvm->mn_invalidate_lock);
 +
 +	/*
 +	 * Invalidation of pfncaches must be done using a HVA range.  pfncaches
@@ -144,7 +144,7 @@ index 8d83957b9f07..867cf777d266 100644
 +
 +		if (gfn_start < gfn_end) {
 +			unsigned long hva_start = gfn_to_hva_memslot(slot, gfn_start);
-+			unsigned long hva_end = gfn_to_hva_memslot(slot, gfn_end);
++			unsigned long hva_end = hva_start + (gfn_end - gfn_start) * PAGE_SIZE;
 +
 +			gpc_invalidate_hva_range_start(kvm, hva_start, hva_end);
 +		}
@@ -153,30 +153,30 @@ index 8d83957b9f07..867cf777d266 100644
  	kvm_handle_gfn_range(kvm, &pre_set_range);
  
  	for (i = start; i < end; i++) {
-@@ -2601,6 +2631,21 @@ static int kvm_vm_set_mem_attributes(struct kvm *kvm, gfn_t start, gfn_t end,
+@@ -2620,6 +2650,21 @@ static int kvm_vm_set_mem_attributes(struct kvm *kvm, gfn_t start, gfn_t end,
  
  	kvm_handle_gfn_range(kvm, &post_set_range);
  
 +	/*
 +	 * This must be done after the increment of mmu_invalidate_seq and
 +	 * smp_wmb() in kvm_mmu_invalidate_end() to guarantee that
-+	 * gpc_invalidate_retry() observes either the old (non-zero)
-+	 * active_invalidate_count or the new (incremented) mmu_invalidate_seq.
++	 * gpc_invalidate_in_progress() observes either the old (non-zero)
++	 * mn_active_invalidate_count or the new (incremented) mmu_invalidate_seq.
 +	 *
-+	 * memslots_update_rcuwait does not need to be waked when
-+	 * active_invalidate_count drops to zero because active memslots swap is
-+	 * also done while holding slots_lock.
++	 * mn_memslots_update_rcuwait does not need to be waked when
++	 * mn_active_invalidate_count drops to zero because active memslots swap
++	 * is also done while holding slots_lock.
 +	 */
-+	spin_lock(&kvm->invalidate_lock);
-+	if (!WARN_ON_ONCE(!kvm->active_invalidate_count))
-+		kvm->active_invalidate_count--;
-+	spin_unlock(&kvm->invalidate_lock);
++	spin_lock(&kvm->mn_invalidate_lock);
++	if (!WARN_ON_ONCE(!kvm->mn_active_invalidate_count))
++		kvm->mn_active_invalidate_count--;
++	spin_unlock(&kvm->mn_invalidate_lock);
 +
  out_unlock:
  	mutex_unlock(&kvm->slots_lock);
  
 diff --git a/virt/kvm/pfncache.c b/virt/kvm/pfncache.c
-index 63e08fbac16d..42b3b849f78b 100644
+index bb4ba3a1b3d9..6329cea68875 100644
 --- a/virt/kvm/pfncache.c
 +++ b/virt/kvm/pfncache.c
 @@ -144,7 +144,7 @@ static void gpc_unmap(kvm_pfn_t pfn, void *khva)
@@ -184,16 +184,41 @@ index 63e08fbac16d..42b3b849f78b 100644
  }
  
 -static inline bool mmu_notifier_retry_cache(struct kvm *kvm, unsigned long mmu_seq)
-+static inline bool gpc_invalidate_retry(struct kvm *kvm, unsigned long mmu_seq)
++static inline bool gpc_invalidate_in_progress(struct kvm *kvm, unsigned long mmu_seq)
  {
  	/*
- 	 * active_invalidate_count acts for all intents and purposes like
-@@ -274,7 +274,7 @@ static kvm_pfn_t gpc_to_pfn_retry(struct gfn_to_pfn_cache *gpc)
+ 	 * mn_active_invalidate_count acts for all intents and purposes
+@@ -178,14 +178,17 @@ static inline bool mmu_notifier_retry_cache(struct kvm *kvm, unsigned long mmu_s
+  *
+  * The caller holds gpc->refresh_lock, but does not hold gpc->lock nor
+  * kvm->slots_lock.  Reading slot->flags (via kvm_slot_has_gmem() and
+- * kvm_memslot_is_gmem_only()) is safe because memslot changes bump
+- * slots->generation, which is detected in kvm_gpc_check(), forcing callers
+- * to invoke kvm_gpc_refresh().
++ * kvm_memslot_is_gmem_only()) and looking up memory attributes (via
++ * kvm_mem_is_private()) without those locks is safe because:
+  *
+- * Looking up memory attributes (via kvm_mem_is_private()) can race with
+- * KVM_SET_MEMORY_ATTRIBUTES, which takes kvm->slots_lock to serialize
+- * writers but doesn't exclude lockless readers.  Handling that race is deferred
+- * to a subsequent commit that wires up pfncache invalidation for gmem events.
++ * - memslot changes bump slots->generation, which is detected in
++ *   kvm_gpc_check(), forcing callers to invoke kvm_gpc_refresh().
++ *
++ * - Memory attribute changes and gmem invalidations elevate
++ *   mn_active_invalidate_count and bump mmu_invalidate_seq, bracketing the
++ *   pfncache invalidation.  gpc_invalidate_in_progress() observes either of
++ *   these changes and forces a retry of the refresh loop in gpc_to_pfn_retry(),
++ *   so any stale value read here will be re-evaluated.
+  */
+ static inline bool gpc_is_gmem_backed(struct gfn_to_pfn_cache *gpc)
+ {
+@@ -293,7 +296,7 @@ static kvm_pfn_t gpc_to_pfn_retry(struct gfn_to_pfn_cache *gpc)
  		 * attempting to refresh.
  		 */
  		WARN_ON_ONCE(gpc->valid);
 -	} while (mmu_notifier_retry_cache(gpc->kvm, mmu_seq));
-+	} while (gpc_invalidate_retry(gpc->kvm, mmu_seq));
++	} while (gpc_invalidate_in_progress(gpc->kvm, mmu_seq));
  
  	gpc->valid = true;
  	gpc->pfn = new_pfn;

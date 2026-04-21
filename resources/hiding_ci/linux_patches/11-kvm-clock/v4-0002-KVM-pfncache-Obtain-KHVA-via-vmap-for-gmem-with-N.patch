@@ -1,8 +1,8 @@
-From 46d084369ead434c29b98d7beb7ff97164123359 Mon Sep 17 00:00:00 2001
+From 7dbaff456931e4709e929ad238bb5d033af1b2ef Mon Sep 17 00:00:00 2001
 From: Takahiro Itazuri <itazur@amazon.com>
 Date: Sun, 22 Feb 2026 14:30:14 +0000
-Subject: [PATCH 42/94] KVM: pfncache: Obtain KHVA via vmap() for gmem with
- NO_DIRECT_MAP
+Subject: [RFC PATCH v4 2/7] KVM: pfncache: Obtain KHVA via vmap() for gmem
+ with NO_DIRECT_MAP
 
 Currently, pfncaches map RAM pages via kmap(), which typically returns a
 kernel address derived from the direct map.  However, guest_memfd
@@ -35,10 +35,9 @@ virtual address space.  Although the vmalloc area is limited on 32-bit
 systems, it should be large enough and typically tens of TB on 64-bit
 systems (e.g. 32 TB for 4-level paging and 12800 TB for 5-level paging
 on x86_64).  If virtual address space exhaustion becomes a concern,
-migration to an mm-local region (like forthcoming mermap?) could be
-considered in the future.  Note that vmap() and vm_map_ram() only create
-virtual mappings to existing pages; they do not allocate new physical
-pages.
+migration to an mm-local region could be considered in the future.  Note
+that vmap() and vm_map_ram() only create virtual mappings to existing
+pages; they do not allocate new physical pages.
 
 Signed-off-by: Takahiro Itazuri <itazur@amazon.com>
 ---
@@ -46,7 +45,7 @@ Signed-off-by: Takahiro Itazuri <itazur@amazon.com>
  1 file changed, 28 insertions(+), 5 deletions(-)
 
 diff --git a/virt/kvm/pfncache.c b/virt/kvm/pfncache.c
-index 5d16e2b8a6eb..0b49ba98f33f 100644
+index ad41cf3e8df4..682dc3ba2216 100644
 --- a/virt/kvm/pfncache.c
 +++ b/virt/kvm/pfncache.c
 @@ -16,6 +16,7 @@
@@ -96,7 +95,7 @@ index 5d16e2b8a6eb..0b49ba98f33f 100644
  		return;
  	}
  
-@@ -233,8 +253,11 @@ static kvm_pfn_t gpc_to_pfn_retry(struct gfn_to_pfn_cache *gpc)
+@@ -250,8 +270,11 @@ static kvm_pfn_t gpc_to_pfn_retry(struct gfn_to_pfn_cache *gpc)
  
  		/*
  		 * Obtain a new kernel mapping if KVM itself will access the
