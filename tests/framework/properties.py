@@ -106,6 +106,12 @@ class GlobalProps:
         return tuple(int(x) for x in self.host_linux_version.split("."))
 
     @property
+    def is_nested_virt(self):
+        """Are we running under a hypervisor (e.g. non-metal EC2 instance)?"""
+        with open("/proc/cpuinfo", encoding="utf-8") as f:
+            return "hypervisor" in f.read()
+
+    @property
     def is_ec2(self):
         """Are we running on an EC2 instance?"""
         return self.environment == "ec2"
