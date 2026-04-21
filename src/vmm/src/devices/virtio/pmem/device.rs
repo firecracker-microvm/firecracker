@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use std::fs::{File, OpenOptions};
+use std::io;
 use std::ops::{Deref, DerefMut};
 use std::os::fd::AsRawFd;
 use std::sync::{Arc, Mutex};
@@ -9,6 +10,7 @@ use std::sync::{Arc, Mutex};
 use kvm_bindings::{KVM_MEM_READONLY, kvm_userspace_memory_region};
 use kvm_ioctls::VmFd;
 use serde::{Deserialize, Serialize};
+use userfaultfd::{FeatureFlags, UffdBuilder};
 use vm_allocator::AllocPolicy;
 use vm_memory::mmap::{MmapRegionBuilder, MmapRegionError};
 use vm_memory::{GuestAddress, GuestMemoryError};
@@ -22,8 +24,10 @@ use crate::devices::virtio::pmem::metrics::{PmemMetrics, PmemMetricsPerDevice};
 use crate::devices::virtio::queue::{DescriptorChain, InvalidAvailIdx, Queue, QueueError};
 use crate::devices::virtio::transport::{VirtioInterrupt, VirtioInterruptType};
 use crate::logger::{IncMetric, error, info};
+use crate::uffd_block::{FaultPolicy, UffdBlock, VmaRegion};
 use crate::utils::{align_up, u64_to_usize};
 use crate::vmm_config::pmem::PmemConfig;
+use crate::vmm_config::snapshot::MemBackendType;
 use crate::vstate::memory::{ByteValued, Bytes, GuestMemoryMmap, GuestMmapRegion};
 use crate::vstate::vm::VmError;
 use crate::{Vm, impl_device_type};
@@ -92,6 +96,8 @@ pub struct Pmem {
     pub metrics: Arc<PmemMetrics>,
 
     pub config: PmemConfig,
+    /// UFFD block handler for Uffd backend
+    pub uffd_block: Option<UffdBlock>,
 }
 
 impl Drop for Pmem {
@@ -118,8 +124,19 @@ impl Pmem {
     /// Create a new Pmem device with a backing file at `disk_image_path` path using a pre-created
     /// set of queues.
     pub fn new_with_queues(config: PmemConfig, queues: Vec<Queue>) -> Result<Self, PmemError> {
-        let (file, file_len, mmap_ptr, mmap_len) =
-            Self::mmap_backing_file(&config.path_on_host, config.read_only)?;
+        let (file, file_len, mmap_ptr, mmap_len, uffd_block) = match config.backend_type {
+            MemBackendType::File => {
+                let (file, file_len, mmap_ptr, mmap_len) =
+                    Self::mmap_backing_file(&config.path_on_host, config.read_only)?;
+                (file, file_len, mmap_ptr, mmap_len, None)
+            }
+            MemBackendType::Uffd => {
+                let size = config.size.ok_or(PmemError::BackingFileZeroSize)?;
+                let (file, mmap_ptr, mmap_len, block) =
+                    Self::mmap_uffd(&config.path_on_host, size, config.read_only)?;
+                (file, size, mmap_ptr, mmap_len, Some(block))
+            }
+        };
 
         Ok(Self {
             avail_features: 1u64 << VIRTIO_F_VERSION_1,
@@ -137,6 +154,7 @@ impl Pmem {
             mmap_ptr,
             metrics: PmemMetricsPerDevice::alloc(config.id.clone()),
             config,
+            uffd_block,
         })
     }
 
@@ -210,6 +228,68 @@ impl Pmem {
             }
         };
         Ok((file, file_len, mmap_ptr as u64, mmap_len))
+    }
+
+    fn mmap_uffd(
+        sock_path: &str,
+        size: u64,
+        read_only: bool,
+    ) -> Result<(File, u64, u64, UffdBlock), PmemError> {
+        let memfd = memfd::MemfdOptions::new()
+            .create("pmem_uffd_placeholder")
+            .map_err(|e| PmemError::BackingFile(io::Error::other(e)))?;
+        let prot = libc::PROT_READ | if read_only { 0 } else { libc::PROT_WRITE };
+        let mmap_len = align_up(size, Self::ALIGNMENT);
+        memfd
+            .as_file()
+            .set_len(mmap_len)
+            .map_err(PmemError::BackingFile)?;
+        let file = memfd.into_file();
+
+        // SAFETY: Valid arguments and result is checked.
+        let mmap_ptr = unsafe {
+            let ptr = libc::mmap(
+                std::ptr::null_mut(),
+                u64_to_usize(mmap_len),
+                prot,
+                libc::MAP_SHARED | libc::MAP_NORESERVE,
+                file.as_raw_fd(),
+                0,
+            );
+            if ptr == libc::MAP_FAILED {
+                return Err(PmemError::BackingFile(io::Error::last_os_error()));
+            }
+            ptr as u64
+        };
+
+        let uffd = UffdBuilder::new()
+            .require_features(FeatureFlags::EVENT_REMOVE)
+            .close_on_exec(true)
+            .non_blocking(true)
+            .user_mode_only(false)
+            .create()
+            .map_err(|e| PmemError::BackingFile(io::Error::other(e)))?;
+
+        uffd.register(mmap_ptr as *mut _, usize::try_from(mmap_len).unwrap())
+            .map_err(|e| PmemError::BackingFile(io::Error::other(e)))?;
+
+        let region = VmaRegion {
+            base_host_virt_addr: mmap_ptr,
+            size: usize::try_from(mmap_len).unwrap(),
+            offset: 0,
+            page_size: usize::try_from(Self::ALIGNMENT).unwrap(),
+            prot,
+            flags: libc::MAP_SHARED | libc::MAP_FIXED,
+            ..Default::default()
+        };
+
+        let block =
+            UffdBlock::new(sock_path, FaultPolicy::Zerocopy).map_err(PmemError::BackingFile)?;
+        block
+            .handshake(uffd, vec![region])
+            .map_err(PmemError::BackingFile)?;
+
+        Ok((file, mmap_ptr, mmap_len, block))
     }
 
     /// Allocate memory in past_mmio64 memory region
@@ -312,6 +392,10 @@ impl Pmem {
         }
         active_state.mem.write_obj(result, status_descriptor.addr)?;
         Ok(())
+    }
+
+    pub fn uffd_block_sock_fd(&self) -> Option<std::os::unix::io::RawFd> {
+        self.uffd_block.as_ref().map(|b| b.sock_fd())
     }
 
     pub fn process_queue(&mut self) {
@@ -425,6 +509,7 @@ mod tests {
             path_on_host: "not_a_path".into(),
             root_device: true,
             read_only: false,
+            ..Default::default()
         };
         assert!(matches!(
             Pmem::new(config).unwrap_err(),
@@ -438,6 +523,7 @@ mod tests {
             path_on_host: dummy_path.clone(),
             root_device: true,
             read_only: false,
+            ..Default::default()
         };
         assert!(matches!(
             Pmem::new(config).unwrap_err(),
@@ -450,6 +536,7 @@ mod tests {
             path_on_host: dummy_path,
             root_device: true,
             read_only: false,
+            ..Default::default()
         };
         Pmem::new(config).unwrap();
     }
@@ -464,6 +551,7 @@ mod tests {
             path_on_host: dummy_path,
             root_device: true,
             read_only: false,
+            ..Default::default()
         };
         let mut pmem = Pmem::new(config).unwrap();
 

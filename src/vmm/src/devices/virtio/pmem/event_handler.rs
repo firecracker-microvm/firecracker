@@ -10,6 +10,7 @@ use crate::logger::{error, warn};
 impl Pmem {
     const PROCESS_ACTIVATE: u32 = 0;
     const PROCESS_PMEM_QUEUE: u32 = 1;
+    const PROCESS_UFFD: u32 = 2;
 
     fn register_runtime_events(&self, ops: &mut EventOps) {
         if let Err(err) = ops.add(Events::with_data(
@@ -52,6 +53,16 @@ impl Pmem {
 
 impl MutEventSubscriber for Pmem {
     fn init(&mut self, ops: &mut EventOps) {
+        if let Some(sock_fd) = self.uffd_block_sock_fd()
+            && let Err(err) = ops.add(Events::with_data_raw(
+                sock_fd,
+                Self::PROCESS_UFFD,
+                EventSet::IN,
+            ))
+        {
+            error!("pmem: Failed to register UFFD block socket: {}", err);
+        }
+
         if self.is_activated() {
             self.register_runtime_events(ops)
         } else {
@@ -65,6 +76,39 @@ impl MutEventSubscriber for Pmem {
 
         if !event_set.contains(EventSet::IN) {
             warn!("pmem: Received unknown event: {event_set:#?} from source {source}");
+            return;
+        }
+
+        if source == Self::PROCESS_UFFD {
+            if let Some(uffd_block) = &self.uffd_block {
+                loop {
+                    match uffd_block.handle_response() {
+                        Ok(true) => {}
+                        Ok(false) => {
+                            // Server closed the connection. If the server supports
+                            // reconnection, call uffd_block.reconnect() here.
+                            if let Err(err) = ops.remove(Events::with_data_raw(
+                                uffd_block.sock_fd(),
+                                Self::PROCESS_UFFD,
+                                EventSet::IN,
+                            )) {
+                                error!("pmem: Failed to deregister UFFD socket: {}", err);
+                            }
+                            break;
+                        }
+                        Err(e) => {
+                            if e.kind() == std::io::ErrorKind::WouldBlock {
+                                // No more data available right now
+                                break;
+                            }
+                            error!("pmem: UFFD block handle response error: {}", e);
+                            break;
+                        }
+                    }
+                }
+            } else {
+                error!("pmem: UFFD event but uffd_block is None!");
+            }
             return;
         }
 

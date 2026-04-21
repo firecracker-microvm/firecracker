@@ -6,6 +6,7 @@ use std::sync::{Arc, Mutex};
 use serde::{Deserialize, Serialize};
 
 use crate::devices::virtio::pmem::device::{Pmem, PmemError};
+use crate::vmm_config::snapshot::MemBackendType;
 
 /// Errors associated wit the operations allowed on a pmem device
 #[derive(Debug, thiserror::Error, displaydoc::Display)]
@@ -26,8 +27,14 @@ pub enum PmemConfigError {
 pub struct PmemConfig {
     /// Unique identifier of the device.
     pub id: String,
-    /// Path of the drive.
+    /// Path of the drive (for File backend) or UFFD handler socket (for Uffd backend).
     pub path_on_host: String,
+    /// Backend type for the PMEM device.
+    #[serde(default)]
+    pub backend_type: MemBackendType,
+    /// Size of the PMEM device in bytes (required for Uffd backend).
+    #[serde(default)]
+    pub size: Option<u64>,
     /// Use this pmem device for rootfs
     #[serde(default)]
     pub root_device: bool,
@@ -119,6 +126,7 @@ mod tests {
             path_on_host: dummy_path,
             root_device: true,
             read_only: false,
+            ..Default::default()
         };
         builder.build(config.clone(), false).unwrap();
         assert_eq!(builder.devices.len(), 1);
@@ -143,6 +151,7 @@ mod tests {
             path_on_host: dummy_path,
             root_device: true,
             read_only: false,
+            ..Default::default()
         };
         builder.build(config.clone(), false).unwrap();
 
@@ -165,10 +174,39 @@ mod tests {
             path_on_host: dummy_path,
             root_device: true,
             read_only: false,
+            ..Default::default()
         };
         assert!(matches!(
             builder.build(config, true).unwrap_err(),
             PmemConfigError::AddingSecondRootDevice,
         ));
+    }
+
+    #[test]
+    fn test_pmem_config_uffd_serde() {
+        // Uffd backend with size
+        let json = r#"{
+            "id": "pmem0",
+            "path_on_host": "/tmp/uffd.sock",
+            "backend_type": "Uffd",
+            "size": 2097152,
+            "root_device": true,
+            "read_only": false
+        }"#;
+        let config: PmemConfig = serde_json::from_str(json).unwrap();
+        assert_eq!(config.backend_type, MemBackendType::Uffd);
+        assert_eq!(config.size, Some(2097152));
+        assert_eq!(config.path_on_host, "/tmp/uffd.sock");
+
+        // File backend defaults (no backend_type or size)
+        let json = r#"{
+            "id": "pmem1",
+            "path_on_host": "/tmp/file.img",
+            "root_device": false,
+            "read_only": true
+        }"#;
+        let config: PmemConfig = serde_json::from_str(json).unwrap();
+        assert_eq!(config.backend_type, MemBackendType::File);
+        assert_eq!(config.size, None);
     }
 }

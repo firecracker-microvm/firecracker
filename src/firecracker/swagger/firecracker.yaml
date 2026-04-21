@@ -1245,7 +1245,8 @@ definitions:
       path_on_host:
         type: string
         description:
-          Host level path for the virtio-pmem device to use as a backing file.
+          Host level path for the virtio-pmem device to use as a backing file. For Uffd backend,
+          this should be the Unix socket path where the UFFD handler is listening.
       root_device:
         type: boolean
         description:
@@ -1255,6 +1256,20 @@ definitions:
         type: boolean
         description:
           Flag to map backing file in read-only mode.
+      backend_type:
+        type: string
+        enum:
+          - File
+          - Uffd
+        description:
+          Backend type for the PMEM device. "File" uses a regular file backing, while "Uffd"
+          uses zero-copy userfaultfd mode where an external handler provides page data.
+        default: File
+      size:
+        type: integer
+        description:
+          Size of the PMEM device in bytes. Required for Uffd backend to inform the handler
+          about the expected data size. For File backend, the size is derived from the file.
 
   Error:
     type: object

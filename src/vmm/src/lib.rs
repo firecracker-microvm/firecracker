@@ -115,6 +115,8 @@ pub mod vstate;
 
 /// Module with initrd.
 pub mod initrd;
+/// Inline UFFD block backend for on-demand page fault handling.
+pub mod uffd_block;
 
 use std::collections::HashMap;
 use std::io;
@@ -127,7 +129,6 @@ use device_manager::DeviceManager;
 use event_manager::{EventManager as BaseEventManager, EventOps, Events, MutEventSubscriber};
 use seccomp::BpfProgram;
 use snapshot::Persist;
-use userfaultfd::Uffd;
 use vmm_sys_util::epoll::EventSet;
 use vmm_sys_util::eventfd::EventFd;
 use vmm_sys_util::terminal::Terminal;
@@ -153,6 +154,7 @@ use crate::mmds::data_store::Mmds;
 use crate::persist::{MicrovmState, MicrovmStateError, VmInfo};
 use crate::rate_limiter::BucketUpdate;
 use crate::resources::VmmConfig;
+use crate::uffd_block::UffdBlock;
 use crate::vmm_config::balloon::BalloonDeviceConfig;
 use crate::vmm_config::boot_source::BootSourceConfig;
 use crate::vmm_config::entropy::EntropyDeviceConfig;
@@ -315,9 +317,9 @@ pub struct Vmm {
     kvm: Kvm,
     /// VM object
     pub vm: Arc<Vm>,
-    // Save UFFD in order to keep it open in the Firecracker process, as well.
+    // Save UFFD block in order to keep it open in the Firecracker process, as well.
     #[allow(unused)]
-    uffd: Option<Uffd>,
+    mem_uffd_block: Option<UffdBlock>,
     /// Handles to the vcpu threads with vcpu_fds inside them.
     pub vcpus_handles: Vec<VcpuHandle>,
     // Used by Vcpus and devices to initiate teardown; Vmm should never write here.
@@ -840,7 +842,7 @@ impl Drop for Vmm {
 
 impl MutEventSubscriber for Vmm {
     /// Handle a read event (EPOLLIN).
-    fn process(&mut self, event: Events, _: &mut EventOps) {
+    fn process(&mut self, event: Events, ops: &mut EventOps) {
         let source = event.fd();
         let event_set = event.event_set();
 
@@ -869,6 +871,30 @@ impl MutEventSubscriber for Vmm {
                 FcExitCode::Ok
             };
             self.stop(exit_code);
+        } else if let Some(uffd_block) = &self.mem_uffd_block {
+            let sock_fd = uffd_block.sock_fd();
+            if source == sock_fd && event_set == EventSet::IN {
+                loop {
+                    match uffd_block.handle_response() {
+                        Ok(true) => { /* handled response, check for more */ }
+                        Ok(false) => {
+                            // Server closed the connection. If the server supports
+                            // reconnection, call uffd_block.reconnect() here.
+                            if let Err(err) = ops.remove(Events::new_raw(sock_fd, EventSet::IN)) {
+                                error!("Failed to deregister snapshot UFFD socket: {}", err);
+                            }
+                            break;
+                        }
+                        Err(e) => {
+                            if e.kind() == std::io::ErrorKind::WouldBlock {
+                                break;
+                            }
+                            error!("Snapshot UFFD block handle response error: {}", e);
+                            break;
+                        }
+                    }
+                }
+            }
         } else {
             error!("Spurious EventManager event for handler: Vmm");
         }
@@ -877,6 +903,12 @@ impl MutEventSubscriber for Vmm {
     fn init(&mut self, ops: &mut EventOps) {
         if let Err(err) = ops.add(Events::new(&self.vcpus_exit_evt, EventSet::IN)) {
             error!("Failed to register vmm exit event: {}", err);
+        }
+
+        if let Some(uffd_block) = &self.mem_uffd_block
+            && let Err(err) = ops.add(Events::new_raw(uffd_block.sock_fd(), EventSet::IN))
+        {
+            error!("Failed to register snapshot UFFD block socket: {}", err);
         }
     }
 }

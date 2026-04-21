@@ -14,7 +14,7 @@ use std::sync::{Arc, Mutex};
 
 use semver::Version;
 use serde::{Deserialize, Serialize};
-use userfaultfd::{FeatureFlags, Uffd, UffdBuilder};
+use userfaultfd::{FeatureFlags, UffdBuilder};
 use vmm_sys_util::sock_ctrl_msg::ScmSocket;
 
 #[cfg(target_arch = "aarch64")]
@@ -30,6 +30,7 @@ use crate::logger::{info, warn};
 use crate::resources::VmResources;
 use crate::seccomp::BpfThreadMap;
 use crate::snapshot::Snapshot;
+use crate::uffd_block::{FaultPolicy, UffdBlock};
 use crate::utils::u64_to_usize;
 use crate::vmm_config::boot_source::BootSourceConfig;
 use crate::vmm_config::instance_info::InstanceInfo;
@@ -436,7 +437,7 @@ pub fn restore_from_snapshot(
     let mem_backend_path = &params.mem_backend.backend_path;
     let mem_state = &microvm_state.vm_state.memory;
 
-    let (guest_memory, uffd) = match params.mem_backend.backend_type {
+    let (guest_memory, mem_uffd_block) = match params.mem_backend.backend_type {
         MemBackendType::File => {
             if vm_resources.machine_config.huge_pages.is_hugetlbfs() {
                 return Err(RestoreFromSnapshotGuestMemoryError::File(
@@ -463,7 +464,7 @@ pub fn restore_from_snapshot(
         event_manager,
         microvm_state,
         guest_memory,
-        uffd,
+        mem_uffd_block,
         seccomp_filters,
         vm_resources,
         params.clock_realtime,
@@ -534,7 +535,7 @@ fn guest_memory_from_uffd(
     mem_state: &GuestMemoryState,
     track_dirty_pages: bool,
     huge_pages: HugePageConfig,
-) -> Result<(Vec<GuestRegionMmap>, Option<Uffd>), GuestMemoryFromUffdError> {
+) -> Result<(Vec<GuestRegionMmap>, Option<UffdBlock>), GuestMemoryFromUffdError> {
     let (guest_memory, backend_mappings) =
         create_guest_memory(mem_state, track_dirty_pages, huge_pages)?;
 
@@ -558,9 +559,16 @@ fn guest_memory_from_uffd(
             .map_err(GuestMemoryFromUffdError::Register)?;
     }
 
-    send_uffd_handshake(mem_uds_path, &backend_mappings, &uffd)?;
+    let uffd_block = UffdBlock::new(mem_uds_path.to_str().unwrap(), FaultPolicy::default())?;
+    uffd_block.handshake_compat(
+        uffd,
+        backend_mappings,
+        libc::PROT_READ | libc::PROT_WRITE,
+        libc::MAP_SHARED | libc::MAP_FIXED,
+        false,
+    )?;
 
-    Ok((guest_memory, Some(uffd)))
+    Ok((guest_memory, Some(uffd_block)))
 }
 
 fn create_guest_memory(
@@ -586,6 +594,9 @@ fn create_guest_memory(
     Ok((guest_memory, backend_mappings))
 }
 
+/// Deprecated: Use `UffdBlock::new()` instead, which sends `GuestRegionUffdMapping`
+/// directly and handles page fault responses via the VMM event loop.
+#[allow(dead_code)]
 fn send_uffd_handshake(
     mem_uds_path: &Path,
     backend_mappings: &[GuestRegionUffdMapping],
