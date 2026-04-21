@@ -281,7 +281,7 @@ mod tests {
         let fingerprint = fingerprint::Fingerprint {
             firecracker_version: crate::utils::CPU_TEMPLATE_HELPER_VERSION.to_string(),
             kernel_version: "sample_kernel_version".to_string(),
-            microcode_version: "sample_microcode_version".to_string(),
+            microcode_version: Some("sample_microcode_version".to_string()),
             bios_version: "sample_bios_version".to_string(),
             bios_revision: "sample_bios_revision".to_string(),
             guest_cpu_config: serde_json::from_str(SAMPLE_MODIFIERS).unwrap(),

@@ -23,15 +23,35 @@ pub fn dump(vmm: Arc<Mutex<Vmm>>) -> Result<Fingerprint, FingerprintDumpError> {
         firecracker_version: crate::utils::CPU_TEMPLATE_HELPER_VERSION.to_string(),
         kernel_version: get_kernel_version()?,
         #[cfg(target_arch = "x86_64")]
-        microcode_version: read_sysfs_file("/sys/devices/system/cpu/cpu0/microcode/version")?,
+        microcode_version: read_microcode_version(
+            "/sys/devices/system/cpu/cpu0/microcode/version",
+        )?,
         #[cfg(target_arch = "aarch64")]
-        microcode_version: read_sysfs_file(
+        microcode_version: read_microcode_version(
             "/sys/devices/system/cpu/cpu0/regs/identification/revidr_el1",
         )?,
         bios_version: read_sysfs_file("/sys/devices/virtual/dmi/id/bios_version")?,
         bios_revision: read_sysfs_file("/sys/devices/virtual/dmi/id/bios_release")?,
         guest_cpu_config: crate::template::dump::dump(vmm)?,
     })
+}
+
+fn is_running_nested() -> bool {
+    read_to_string("/proc/cpuinfo")
+        .map(|s| s.contains("hypervisor"))
+        .unwrap_or(false)
+}
+
+fn read_microcode_version(path: &str) -> Result<Option<String>, FingerprintDumpError> {
+    match read_sysfs_file(path) {
+        Ok(v) => Ok(Some(v)),
+        Err(FingerprintDumpError::ReadSysfsFile(_, ref io_err))
+            if io_err.kind() == std::io::ErrorKind::NotFound && is_running_nested() =>
+        {
+            Ok(None)
+        }
+        Err(e) => Err(e),
+    }
 }
 
 fn get_kernel_version() -> Result<String, FingerprintDumpError> {

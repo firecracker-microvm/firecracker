@@ -29,7 +29,7 @@ macro_rules! declare_fingerprint_struct_and_enum {
 // pub struct Fingerprint {
 //     pub firecracker_version: String,
 //     pub kernel_version: String,
-//     pub microcode_version: String,
+//     pub microcode_version: Option<String>,
 //     pub bios_version: String,
 //     pub bios_revision: String,
 //     pub guest_cpu_config: CustomCpuTemplate,
@@ -50,7 +50,7 @@ macro_rules! declare_fingerprint_struct_and_enum {
 declare_fingerprint_struct_and_enum!(
     firecracker_version: String,
     kernel_version: String,
-    microcode_version: String,
+    microcode_version: Option<String>,
     bios_version: String,
     bios_revision: String,
     guest_cpu_config: CustomCpuTemplate
