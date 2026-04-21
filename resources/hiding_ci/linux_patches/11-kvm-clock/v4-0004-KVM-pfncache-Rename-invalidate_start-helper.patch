@@ -1,7 +1,7 @@
-From aa4927b33d7bb8d78ee9f314ec9c28c86a7390cc Mon Sep 17 00:00:00 2001
+From 38ba451f358640fa11ff2f11c9f2762250b93808 Mon Sep 17 00:00:00 2001
 From: Takahiro Itazuri <itazur@amazon.com>
 Date: Sun, 22 Feb 2026 14:43:29 +0000
-Subject: [PATCH 44/94] KVM: pfncache: Rename invalidate_start() helper
+Subject: [RFC PATCH v4 4/7] KVM: pfncache: Rename invalidate_start() helper
 
 Rename gfn_to_pfn_cache_invalidate_start() to
 gpc_invalidate_hva_range_start() to explicitly indicate that it takes a
@@ -17,7 +17,7 @@ Signed-off-by: Takahiro Itazuri <itazur@amazon.com>
  3 files changed, 9 insertions(+), 9 deletions(-)
 
 diff --git a/virt/kvm/kvm_main.c b/virt/kvm/kvm_main.c
-index d7a6a7a612a9..2211ce7017b4 100644
+index 5871882ff1db..d64e70f8e8e3 100644
 --- a/virt/kvm/kvm_main.c
 +++ b/virt/kvm/kvm_main.c
 @@ -763,7 +763,7 @@ static int kvm_mmu_notifier_invalidate_range_start(struct mmu_notifier *mn,
@@ -54,7 +54,7 @@ index 9fcc5d5b7f8d..abd8e7d33ab0 100644
  }
  #endif /* HAVE_KVM_PFNCACHE */
 diff --git a/virt/kvm/pfncache.c b/virt/kvm/pfncache.c
-index 0b49ba98f33f..bafda64b8916 100644
+index 682dc3ba2216..bb4ba3a1b3d9 100644
 --- a/virt/kvm/pfncache.c
 +++ b/virt/kvm/pfncache.c
 @@ -23,8 +23,8 @@
