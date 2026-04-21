@@ -137,6 +137,13 @@ AMD_MILAN_HOST_ONLY_FEATS_6_1 = AMD_MILAN_HOST_ONLY_FEATS - {
     "sme",
 } | {"brs", "rapl", "v_spec_ctrl"}
 
+# Since v6.11, flags declared in cpufeatures.h without a quoted /proc/cpuinfo name
+# are hidden. VMSCAPE added IBPB_EXIT_TO_USER without one, so v6.18+ amzn2023 hides it.
+# https://github.com/torvalds/linux/commit/78ce84b9e0a54a0c91a7449f321c1f852c0cd3fc
+AMD_MILAN_HOST_ONLY_FEATS_6_18 = AMD_MILAN_HOST_ONLY_FEATS_6_1 - {
+    "ibpb_exit_to_user",
+} | {"xtopology", "debug_swap"}
+
 AMD_GENOA_HOST_ONLY_FEATS = AMD_MILAN_HOST_ONLY_FEATS | {
     "avic",
     "flush_l1d",
@@ -152,6 +159,56 @@ AMD_GENOA_HOST_ONLY_FEATS_6_1 = AMD_MILAN_HOST_ONLY_FEATS_6_1 - {"brs"} | {
     "perfmon_v2",
     "x2avic",
 }
+
+AMD_GENOA_HOST_ONLY_FEATS_6_18 = AMD_GENOA_HOST_ONLY_FEATS_6_1 - {
+    # Since v6.11, flags declared in cpufeatures.h without a quoted /proc/cpuinfo name
+    # are hidden. VMSCAPE added IBPB_EXIT_TO_USER without one, so v6.18+ amzn2023 hides it.
+    # https://github.com/torvalds/linux/commit/78ce84b9e0a54a0c91a7449f321c1f852c0cd3fc
+    "ibpb_exit_to_user",
+    # Propagated to the guest since:
+    # https://github.com/torvalds/linux/commit/8c19b6f257fa (KVM AUTOIBRS, v6.3)
+    # https://github.com/torvalds/linux/commit/e7862eda309e (guest synthesises ibrs_enhanced
+    # from AUTOIBRS, v6.3; backported to 5.10 and 6.1 LTSs, so our guest kernels pick it up)
+    "ibrs_enhanced",
+    # Propagated to the guest since:
+    # https://github.com/torvalds/linux/commit/45cf86f26148 (KVM advertises FLUSH_L1D, v6.2)
+    # https://github.com/torvalds/linux/commit/da3db168fb67 (KVM virtualises MSR_IA32_FLUSH_CMD on SVM, v6.4)
+    "flush_l1d",
+} | {"debug_swap", "cpuid_fault", "xtopology", "la57", "vnmi"}
+
+INTEL_SPR_GNR_HOST_ONLY_FEATS_6_18_REMOVED = {
+    # Since v6.11, flags declared in cpufeatures.h without a quoted /proc/cpuinfo name
+    # are hidden. VMSCAPE added IBPB_EXIT_TO_USER without one, so v6.18+ amzn2023 hides it.
+    # https://github.com/torvalds/linux/commit/78ce84b9e0a54a0c91a7449f321c1f852c0cd3fc
+    "ibpb_exit_to_user",
+    "pebs",
+    # Propagated to the guest since:
+    # https://github.com/torvalds/linux/commit/45cf86f26148 (KVM advertises FLUSH_L1D, v6.2)
+    "flush_l1d",
+    "dts",
+    "dtes64",
+    "bts",
+}
+INTEL_SPR_GNR_HOST_ONLY_FEATS_6_18_ADDED = {"la57"}
+
+# Intel Ice Lake is not vulnerable to VMScape (BHB clearing software mitigation), so
+# "ibpb_exit_to_user" is not needed.
+# https://docs.kernel.org/admin-guide/hw-vuln/vmscape.html#affected-processors
+INTEL_ICELAKE_HOST_ONLY_FEATS_5_10 = INTEL_HOST_ONLY_FEATS - {
+    "ibpb_exit_to_user",
+    "cdp_l3",
+} | {"pconfig", "tme", "split_lock_detect"}
+
+INTEL_ICELAKE_HOST_ONLY_FEATS_6_1 = INTEL_ICELAKE_HOST_ONLY_FEATS_5_10 - {
+    "bts",
+    "dtes64",
+    "dts",
+    "pebs",
+}
+
+INTEL_ICELAKE_HOST_ONLY_FEATS_6_18 = INTEL_ICELAKE_HOST_ONLY_FEATS_6_1 - {
+    "flush_l1d",
+} | {"la57"}
 
 
 def test_host_vs_guest_cpu_features(uvm_plain_any):
@@ -169,16 +226,20 @@ def test_host_vs_guest_cpu_features(uvm_plain_any):
         case CpuModel.AMD_MILAN:
             if global_props.host_linux_version_tpl < (6, 1):
                 assert host_feats - guest_feats == AMD_MILAN_HOST_ONLY_FEATS
-            else:
+            elif global_props.host_linux_version_tpl < (6, 18):
                 assert host_feats - guest_feats == AMD_MILAN_HOST_ONLY_FEATS_6_1
+            else:
+                assert host_feats - guest_feats == AMD_MILAN_HOST_ONLY_FEATS_6_18
 
             assert guest_feats - host_feats == AMD_GUEST_ONLY_FEATS
 
         case CpuModel.AMD_GENOA:
             if global_props.host_linux_version_tpl < (6, 1):
                 assert host_feats - guest_feats == AMD_GENOA_HOST_ONLY_FEATS
-            else:
+            elif global_props.host_linux_version_tpl < (6, 18):
                 assert host_feats - guest_feats == AMD_GENOA_HOST_ONLY_FEATS_6_1
+            else:
+                assert host_feats - guest_feats == AMD_GENOA_HOST_ONLY_FEATS_6_18
 
             assert guest_feats - host_feats == AMD_GUEST_ONLY_FEATS
 
@@ -189,7 +250,11 @@ def test_host_vs_guest_cpu_features(uvm_plain_any):
             # Ubuntu hasn't backported the patch for VMScape yet.
             # This is only requried for Intel Cascade Lake since we only run
             # tests on Intel Cascade Lake for Ubuntu.
-            if "amzn" not in global_props.host_os:
+            # Since v6.11, flags declared in cpufeatures.h without a quoted /proc/cpuinfo name
+            # are hidden. VMSCAPE added IBPB_EXIT_TO_USER without one, so v6.18+ amzn2023 hides it.
+            # https://github.com/torvalds/linux/commit/78ce84b9e0a54a0c91a7449f321c1f852c0cd3fc
+            host_version = global_props.host_linux_version_tpl
+            if "amzn" not in global_props.host_os or host_version >= (6, 18):
                 expected_host_minus_guest -= {"ibpb_exit_to_user"}
 
             # Linux kernel v6.4+ passes through the CPUID bit for "flush_l1d" to guests.
@@ -214,29 +279,13 @@ def test_host_vs_guest_cpu_features(uvm_plain_any):
             assert guest_feats - host_feats == expected_guest_minus_host
 
         case CpuModel.INTEL_ICELAKE:
-            expected_host_minus_guest = INTEL_HOST_ONLY_FEATS
-
-            # As long as BHB clearing software mitigation is enabled, Intel Ice Lake is not
-            # vulnerable to VMScape and "IBPB before exit to userspace" is not needed.
-            # https://docs.kernel.org/admin-guide/hw-vuln/vmscape.html#affected-processors
-            expected_host_minus_guest -= {"ibpb_exit_to_user"}
-
-            host_guest_diff_5_10 = expected_host_minus_guest - {"cdp_l3"} | {
-                "pconfig",
-                "tme",
-                "split_lock_detect",
-            }
-            host_guest_diff_6_1 = host_guest_diff_5_10 - {
-                "bts",
-                "dtes64",
-                "dts",
-                "pebs",
-            }
-
-            if global_props.host_linux_version_tpl < (6, 1):
-                assert host_feats - guest_feats == host_guest_diff_5_10
+            host_version = global_props.host_linux_version_tpl
+            if host_version < (6, 1):
+                assert host_feats - guest_feats == INTEL_ICELAKE_HOST_ONLY_FEATS_5_10
+            elif host_version < (6, 18):
+                assert host_feats - guest_feats == INTEL_ICELAKE_HOST_ONLY_FEATS_6_1
             else:
-                assert host_feats - guest_feats == host_guest_diff_6_1
+                assert host_feats - guest_feats == INTEL_ICELAKE_HOST_ONLY_FEATS_6_18
             assert guest_feats - host_feats == INTEL_GUEST_ONLY_FEATS - {"umip"}
         case CpuModel.INTEL_SAPPHIRE_RAPIDS | CpuModel.INTEL_GRANITE_RAPIDS:
             expected_host_minus_guest = INTEL_HOST_ONLY_FEATS.copy()
@@ -358,6 +407,10 @@ def test_host_vs_guest_cpu_features(uvm_plain_any):
                 # set on host.
                 "tsc_known_freq",
             }
+
+            if host_version >= (6, 18):
+                expected_host_minus_guest -= INTEL_SPR_GNR_HOST_ONLY_FEATS_6_18_REMOVED
+                expected_host_minus_guest |= INTEL_SPR_GNR_HOST_ONLY_FEATS_6_18_ADDED
 
             assert host_feats - guest_feats == expected_host_minus_guest
             assert guest_feats - host_feats == expected_guest_minus_host
