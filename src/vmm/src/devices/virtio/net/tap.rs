@@ -181,6 +181,22 @@ impl NetDevBackend for SocketBacked {
             iov_len: unsafe { (*iov).iov_len - vnet_hdr_len() },
         };
 
+        // create a 4 byte buffer, read the size that passt prepends into the packet and discard those
+        // bytes. we only care about the data packets
+        let mut len_buf = [0u8; 4];
+        let ret = unsafe {
+            libc::read(
+                self.fd.as_raw_fd(),
+                len_buf.as_mut_ptr() as *mut core::ffi::c_void,
+                4,
+            )
+        };
+        if ret == -1 {
+            return Err(IoError::last_os_error());
+        }
+
+        let _frame_len = u32::from_be(u32::from_ne_bytes(len_buf));
+
         let ret = unsafe { libc::readv(self.fd.as_raw_fd(), &data_iov, 1) };
         if ret == -1 {
             return Err(IoError::last_os_error());
