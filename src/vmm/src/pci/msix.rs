@@ -11,12 +11,12 @@ use serde::{Deserialize, Serialize};
 use vm_memory::ByteValued;
 use zerocopy::FromBytes;
 
-use crate::Vm;
 use crate::logger::{debug, error, warn};
 use crate::pci::configuration::PciCapability;
 use crate::pci::{PciCapabilityId, PciSBDF};
 use crate::snapshot::Persist;
 use crate::vstate::interrupts::{InterruptError, MsixVectorConfig, MsixVectorGroup};
+use crate::vstate::vm::KvmVm;
 
 const MAX_MSIX_VECTORS_PER_DEVICE: u16 = 2048;
 const MSIX_TABLE_ENTRIES_MODULO: u64 = 16;
@@ -118,7 +118,7 @@ impl MsixConfig {
     /// Create an MSI-X configuration from snapshot state
     pub fn from_state(
         state: MsixConfigState,
-        vm: Arc<Vm>,
+        vm: Arc<KvmVm>,
         sbdf: PciSBDF,
     ) -> Result<Self, InterruptError> {
         let vectors = Arc::new(MsixVectorGroup::restore(vm, &state.vectors)?);
@@ -523,12 +523,13 @@ impl MsixCap {
 mod tests {
     use super::*;
     use crate::builder::tests::default_vmm;
+    use crate::check_metric_after_block;
     use crate::logger::{IncMetric, METRICS};
-    use crate::{Vm, check_metric_after_block};
+    use crate::vstate::vm::KvmVm;
 
     fn msix_vector_group(nr_vectors: u16) -> Arc<MsixVectorGroup> {
         let vmm = default_vmm();
-        Arc::new(Vm::create_msix_group(vmm.vm.clone(), nr_vectors).unwrap())
+        Arc::new(KvmVm::create_msix_group(vmm.vm.clone(), nr_vectors).unwrap())
     }
 
     #[test]

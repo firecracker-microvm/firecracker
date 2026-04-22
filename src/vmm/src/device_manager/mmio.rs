@@ -17,6 +17,7 @@ use linux_loader::cmdline as kernel_cmdline;
 use serde::{Deserialize, Serialize};
 use vm_allocator::AllocPolicy;
 
+use crate::EventManager;
 use crate::arch::BOOT_DEVICE_MEM_START;
 #[cfg(target_arch = "aarch64")]
 use crate::arch::{RTC_MEM_START, SERIAL_MEM_START};
@@ -31,7 +32,7 @@ use crate::vstate::bus::{Bus, BusError};
 #[cfg(target_arch = "x86_64")]
 use crate::vstate::memory::GuestAddress;
 use crate::vstate::resources::ResourceAllocator;
-use crate::{EventManager, Vm};
+use crate::vstate::vm::KvmVm;
 
 /// Errors for MMIO device manager.
 #[derive(Debug, thiserror::Error, displaydoc::Display)]
@@ -175,7 +176,7 @@ impl MMIODeviceManager {
     /// Register a virtio-over-MMIO device to be used via MMIO transport at a specific slot.
     pub fn register_mmio_virtio(
         &mut self,
-        vm: &Vm,
+        vm: &KvmVm,
         device_id: String,
         mut device: MMIODevice<MmioTransport>,
         event_manager: &mut EventManager,
@@ -240,7 +241,7 @@ impl MMIODeviceManager {
     /// to the boot cmdline.
     pub fn register_mmio_virtio_for_boot(
         &mut self,
-        vm: &Vm,
+        vm: &KvmVm,
         device_id: String,
         mmio_device: MmioTransport,
         event_manager: &mut EventManager,
@@ -273,7 +274,7 @@ impl MMIODeviceManager {
     /// otherwise allocate a new MMIO resources for it.
     pub fn register_mmio_serial(
         &mut self,
-        vm: &Vm,
+        vm: &KvmVm,
         serial: Arc<Mutex<SerialDevice>>,
         device_info_opt: Option<MMIODeviceInfo>,
     ) -> Result<(), MmioError> {
@@ -333,7 +334,7 @@ impl MMIODeviceManager {
     /// given as parameter, otherwise allocate a new MMIO resources for it.
     pub fn register_mmio_rtc(
         &mut self,
-        vm: &Vm,
+        vm: &KvmVm,
         rtc: Arc<Mutex<RTCDevice>>,
         device_info_opt: Option<MMIODeviceInfo>,
     ) -> Result<(), MmioError> {
@@ -461,14 +462,14 @@ pub(crate) mod tests {
     use crate::test_utils::multi_region_mem_raw;
     use crate::vstate::kvm::Kvm;
     use crate::vstate::memory::{GuestAddress, GuestMemoryMmap};
-    use crate::{Vm, arch, impl_device_type};
+    use crate::{arch, impl_device_type};
 
     const QUEUE_SIZES: &[u16] = &[64];
 
     impl MMIODeviceManager {
         pub(crate) fn register_virtio_test_device(
             &mut self,
-            vm: &Vm,
+            vm: &KvmVm,
             guest_mem: GuestMemoryMmap,
             device: Arc<Mutex<dyn VirtioDevice>>,
             event_manager: &mut EventManager,
@@ -594,7 +595,7 @@ pub(crate) mod tests {
         let start_addr2 = GuestAddress(0x1000);
         let guest_mem = multi_region_mem_raw(&[(start_addr1, 0x1000), (start_addr2, 0x1000)]);
         let kvm = Kvm::new(vec![]).expect("Cannot create Kvm");
-        let mut vm = Vm::new(&kvm).unwrap();
+        let mut vm = KvmVm::new(&kvm).unwrap();
         vm.register_dram_memory_regions(guest_mem).unwrap();
         let mut device_manager = MMIODeviceManager::new();
 
@@ -648,7 +649,7 @@ pub(crate) mod tests {
         let start_addr2 = GuestAddress(0x1000);
         let guest_mem = multi_region_mem_raw(&[(start_addr1, 0x1000), (start_addr2, 0x1000)]);
         let kvm = Kvm::new(vec![]).expect("Cannot create Kvm");
-        let mut vm = Vm::new(&kvm).unwrap();
+        let mut vm = KvmVm::new(&kvm).unwrap();
         vm.register_dram_memory_regions(guest_mem).unwrap();
         let mut device_manager = MMIODeviceManager::new();
 
@@ -704,7 +705,7 @@ pub(crate) mod tests {
         let start_addr2 = GuestAddress(0x1000);
         let guest_mem = multi_region_mem_raw(&[(start_addr1, 0x1000), (start_addr2, 0x1000)]);
         let kvm = Kvm::new(vec![]).expect("Cannot create Kvm");
-        let mut vm = Vm::new(&kvm).unwrap();
+        let mut vm = KvmVm::new(&kvm).unwrap();
         vm.register_dram_memory_regions(guest_mem).unwrap();
 
         #[cfg(target_arch = "x86_64")]

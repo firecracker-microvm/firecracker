@@ -57,7 +57,7 @@ use crate::vstate::memory::GuestRegionMmap;
 #[cfg(target_arch = "aarch64")]
 use crate::vstate::resources::ResourceAllocator;
 use crate::vstate::vcpu::VcpuError;
-use crate::vstate::vm::{Vm, VmError};
+use crate::vstate::vm::{KvmVm, VmError};
 use crate::{EventManager, Vmm, VmmError};
 
 /// Errors associated with starting the instance.
@@ -125,8 +125,8 @@ pub enum StartMicrovmError {
     /// Error cloning Vcpu fds
     #[cfg(feature = "gdb")]
     VcpuFdCloneError(#[from] crate::vstate::vcpu::CopyKvmFdError),
-    /// Error with the Vm object: {0}
-    Vm(#[from] VmError),
+    /// Error with the KvmVm object: {0}
+    KvmVm(#[from] VmError),
 }
 
 /// It's convenient to automatically convert `linux_loader::cmdline::Error`s
@@ -171,9 +171,9 @@ pub fn build_microvm_for_boot(
         .get_cpu_template()?;
 
     let kvm = Kvm::new(cpu_template.kvm_capabilities.clone())?;
-    // Set up Kvm Vm and register memory regions.
+    // Set up KVM VM and register memory regions.
     // Build custom CPU config if a custom template is provided.
-    let mut vm = Vm::new(&kvm)?;
+    let mut vm = KvmVm::new(&kvm)?;
     let (mut vcpus, vcpus_exit_evt) = vm.create_vcpus(vm_resources.machine_config.vcpu_count)?;
     vm.register_dram_memory_regions(guest_memory)?;
 
@@ -411,7 +411,7 @@ pub enum BuildMicrovmFromSnapshotError {
     /// Could not set TSC scaling within the snapshot: {0}
     SetTsc(#[from] crate::arch::SetTscError),
     /// Failed to restore microVM state: {0}
-    RestoreState(#[from] crate::vstate::vm::ArchVmError),
+    RestoreState(#[from] crate::vstate::vm::KvmVmError),
     /// Failed to update microVM configuration: {0}
     VmUpdateConfig(#[from] MachineConfigError),
     /// Failed to restore MMIO device: {0}
@@ -452,16 +452,16 @@ pub fn build_microvm_from_snapshot(
 
     let kvm = Kvm::new(microvm_state.kvm_state.kvm_cap_modifiers.clone())
         .map_err(StartMicrovmError::Kvm)?;
-    // Set up Kvm Vm and register memory regions.
+    // Set up KVM VM and register memory regions.
     // Build custom CPU config if a custom template is provided.
-    let mut vm = Vm::new(&kvm).map_err(StartMicrovmError::Vm)?;
+    let mut vm = KvmVm::new(&kvm).map_err(StartMicrovmError::KvmVm)?;
 
     let (mut vcpus, vcpus_exit_evt) = vm
         .create_vcpus(vm_resources.machine_config.vcpu_count)
-        .map_err(StartMicrovmError::Vm)?;
+        .map_err(StartMicrovmError::KvmVm)?;
 
     vm.restore_memory_regions(guest_memory, &microvm_state.vm_state.memory)
-        .map_err(StartMicrovmError::Vm)?;
+        .map_err(StartMicrovmError::KvmVm)?;
 
     #[cfg(target_arch = "x86_64")]
     {
@@ -602,7 +602,7 @@ fn setup_pvtime(
 
 fn attach_entropy_device(
     device_manager: &mut DeviceManager,
-    vm: &Arc<Vm>,
+    vm: &Arc<KvmVm>,
     cmdline: &mut LoaderKernelCmdline,
     entropy_device: &Arc<Mutex<Entropy>>,
     event_manager: &mut EventManager,
@@ -624,7 +624,7 @@ fn attach_entropy_device(
 }
 
 fn allocate_virtio_mem_address(
-    vm: &Vm,
+    vm: &KvmVm,
     total_size_mib: usize,
 ) -> Result<GuestAddress, StartMicrovmError> {
     let addr = vm
@@ -641,7 +641,7 @@ fn allocate_virtio_mem_address(
 
 fn attach_virtio_mem_device(
     device_manager: &mut DeviceManager,
-    vm: &Arc<Vm>,
+    vm: &Arc<KvmVm>,
     cmdline: &mut LoaderKernelCmdline,
     config: &MemoryHotplugConfig,
     event_manager: &mut EventManager,
@@ -672,7 +672,7 @@ fn attach_virtio_mem_device(
 
 fn attach_block_devices<'a, I: Iterator<Item = &'a Arc<Mutex<Block>>> + Debug>(
     device_manager: &mut DeviceManager,
-    vm: &Arc<Vm>,
+    vm: &Arc<KvmVm>,
     cmdline: &mut LoaderKernelCmdline,
     blocks: I,
     event_manager: &mut EventManager,
@@ -707,7 +707,7 @@ fn attach_block_devices<'a, I: Iterator<Item = &'a Arc<Mutex<Block>>> + Debug>(
 
 fn attach_net_devices<'a, I: Iterator<Item = &'a Arc<Mutex<Net>>> + Debug>(
     device_manager: &mut DeviceManager,
-    vm: &Arc<Vm>,
+    vm: &Arc<KvmVm>,
     cmdline: &mut LoaderKernelCmdline,
     net_devices: I,
     event_manager: &mut EventManager,
@@ -729,7 +729,7 @@ fn attach_net_devices<'a, I: Iterator<Item = &'a Arc<Mutex<Net>>> + Debug>(
 
 fn attach_pmem_devices(
     device_manager: &mut DeviceManager,
-    vm: &Arc<Vm>,
+    vm: &Arc<KvmVm>,
     cmdline: &mut LoaderKernelCmdline,
     configs: &[PmemConfig],
     event_manager: &mut EventManager,
@@ -753,7 +753,7 @@ fn attach_pmem_devices(
 
 fn attach_unixsock_vsock_device(
     device_manager: &mut DeviceManager,
-    vm: &Arc<Vm>,
+    vm: &Arc<KvmVm>,
     cmdline: &mut LoaderKernelCmdline,
     unix_vsock: &Arc<Mutex<Vsock<VsockUnixBackend>>>,
     event_manager: &mut EventManager,
@@ -765,7 +765,7 @@ fn attach_unixsock_vsock_device(
 
 fn attach_balloon_device(
     device_manager: &mut DeviceManager,
-    vm: &Arc<Vm>,
+    vm: &Arc<KvmVm>,
     cmdline: &mut LoaderKernelCmdline,
     balloon: &Arc<Mutex<Balloon>>,
     event_manager: &mut EventManager,

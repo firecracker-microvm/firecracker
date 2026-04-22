@@ -23,8 +23,8 @@ use serde::{Deserialize, Serialize};
 use vmm_sys_util::errno;
 use vmm_sys_util::eventfd::EventFd;
 
-pub use crate::arch::{ArchVm as Vm, ArchVmError, VmState};
 use crate::arch::{GSI_MSI_END, host_page_size};
+pub use crate::arch::{KvmVm, KvmVmError, VmState};
 use crate::logger::{debug, info};
 use crate::persist::CreateSnapshotError;
 use crate::vmm_config::snapshot::SnapshotType;
@@ -48,13 +48,13 @@ pub struct RoutingEntry {
 /// Architecture independent parts of a VM.
 #[derive(Debug)]
 pub struct VmCommon {
-    /// The KVM file descriptor used to access this Vm.
+    /// The KVM file descriptor used to access this KvmVm.
     pub fd: VmFd,
     max_memslots: u32,
-    /// The guest memory of this Vm.
+    /// The guest memory of this KvmVm.
     pub guest_memory: GuestMemoryMmap,
     next_kvm_slot: AtomicU32,
-    /// Interrupts used by Vm's devices
+    /// Interrupts used by KvmVm's devices
     pub interrupts: Mutex<HashMap<u32, RoutingEntry>>,
     /// Allocator for VM resources
     pub resource_allocator: Mutex<ResourceAllocator>,
@@ -74,7 +74,7 @@ pub enum VmError {
     /// Failed to get KVM's dirty log: {0}
     GetDirtyLog(kvm_ioctls::Error),
     /// {0}
-    Arch(#[from] ArchVmError),
+    Arch(#[from] KvmVmError),
     /// Error during eventfd operations: {0}
     EventFd(std::io::Error),
     /// Failed to create vcpu: {0}
@@ -91,8 +91,8 @@ pub enum VmError {
     MemoryError(#[from] MemoryError),
 }
 
-/// Contains Vm functions that are usable across CPU architectures
-impl Vm {
+/// Contains KvmVm functions that are usable across CPU architectures
+impl KvmVm {
     /// Create a KVM VM
     pub fn create_common(kvm: &crate::vstate::kvm::Kvm) -> Result<VmCommon, VmError> {
         // It is known that KVM_CREATE_VM occasionally fails with EINTR on heavily loaded machines
@@ -207,7 +207,7 @@ impl Vm {
         Ok(())
     }
 
-    /// Register a list of new memory regions to this [`Vm`].
+    /// Register a list of new memory regions to this [`KvmVm`].
     pub fn register_dram_memory_regions(
         &mut self,
         regions: Vec<GuestRegionMmap>,
@@ -226,7 +226,7 @@ impl Vm {
         Ok(())
     }
 
-    /// Register a new hotpluggable region to this [`Vm`].
+    /// Register a new hotpluggable region to this [`KvmVm`].
     pub fn register_hotpluggable_memory_region(
         &mut self,
         region: GuestRegionMmap,
@@ -247,7 +247,7 @@ impl Vm {
         self.register_memory_region(arcd_region)
     }
 
-    /// Register a list of new memory regions to this [`Vm`].
+    /// Register a list of new memory regions to this [`KvmVm`].
     ///
     /// Note: regions and state.regions need to be in the same order.
     pub fn restore_memory_regions(
@@ -279,12 +279,12 @@ impl Vm {
         &self.common.fd
     }
 
-    /// Gets a reference to this [`Vm`]'s [`GuestMemoryMmap`] object
+    /// Gets a reference to this [`KvmVm`]'s [`GuestMemoryMmap`] object
     pub fn guest_memory(&self) -> &GuestMemoryMmap {
         &self.common.guest_memory
     }
 
-    /// Gets a mutable reference to this [`Vm`]'s [`ResourceAllocator`] object
+    /// Gets a mutable reference to this [`KvmVm`]'s [`ResourceAllocator`] object
     pub fn resource_allocator(&self) -> MutexGuard<'_, ResourceAllocator> {
         self.common
             .resource_allocator
@@ -455,7 +455,10 @@ impl Vm {
     }
 
     /// Create a group of MSI-X interrupts
-    pub fn create_msix_group(vm: Arc<Vm>, count: u16) -> Result<MsixVectorGroup, InterruptError> {
+    pub fn create_msix_group(
+        vm: Arc<KvmVm>,
+        count: u16,
+    ) -> Result<MsixVectorGroup, InterruptError> {
         debug!("Creating new MSI group with {count} vectors");
         let mut vectors = Vec::with_capacity(count as usize);
         for gsi in vm
@@ -537,14 +540,14 @@ pub(crate) mod tests {
     use crate::vstate::memory::GuestRegionMmap;
 
     // Auxiliary function being used throughout the tests.
-    pub(crate) fn setup_vm() -> (Kvm, Vm) {
+    pub(crate) fn setup_vm() -> (Kvm, KvmVm) {
         let kvm = Kvm::new(vec![]).expect("Cannot create Kvm");
-        let vm = Vm::new(&kvm).expect("Cannot create new vm");
+        let vm = KvmVm::new(&kvm).expect("Cannot create new vm");
         (kvm, vm)
     }
 
     // Auxiliary function being used throughout the tests.
-    pub(crate) fn setup_vm_with_memory(mem_size: usize) -> (Kvm, Vm) {
+    pub(crate) fn setup_vm_with_memory(mem_size: usize) -> (Kvm, KvmVm) {
         let (kvm, mut vm) = setup_vm();
         let gm = single_region_mem_raw(mem_size);
         vm.register_dram_memory_regions(gm).unwrap();
@@ -555,7 +558,7 @@ pub(crate) mod tests {
     fn test_new() {
         // Testing with a valid /dev/kvm descriptor.
         let kvm = Kvm::new(vec![]).expect("Cannot create Kvm");
-        Vm::new(&kvm).unwrap();
+        KvmVm::new(&kvm).unwrap();
     }
 
     #[test]
@@ -638,15 +641,15 @@ pub(crate) mod tests {
         assert_eq!(vcpu_vec.len(), vcpu_count as usize);
     }
 
-    fn enable_irqchip(vm: &mut Vm) {
+    fn enable_irqchip(vm: &mut KvmVm) {
         #[cfg(target_arch = "x86_64")]
         vm.setup_irqchip().unwrap();
         #[cfg(target_arch = "aarch64")]
         vm.setup_irqchip(1).unwrap();
     }
 
-    fn create_msix_group(vm: &Arc<Vm>) -> MsixVectorGroup {
-        Vm::create_msix_group(vm.clone(), 4).unwrap()
+    fn create_msix_group(vm: &Arc<KvmVm>) -> MsixVectorGroup {
+        KvmVm::create_msix_group(vm.clone(), 4).unwrap()
     }
 
     #[test]

@@ -11,9 +11,9 @@ use std::sync::{Arc, Mutex};
 use acpi_tables::aml::AmlError;
 use acpi_tables::{Aml, aml};
 
-use crate::Vm;
 use crate::devices::legacy::{I8042Device, SerialDevice};
 use crate::vstate::bus::BusError;
+use crate::vstate::vm::KvmVm;
 
 /// Errors corresponding to the `PortIODeviceManager`.
 #[derive(Debug, derive_more::From, thiserror::Error, displaydoc::Display)]
@@ -52,7 +52,7 @@ impl PortIODeviceManager {
     const I8042_KDB_DATA_REGISTER_SIZE: u64 = 0x5;
 
     /// Register supported legacy devices.
-    pub fn register_devices(&mut self, vm: &Vm) -> Result<(), LegacyDeviceError> {
+    pub fn register_devices(&mut self, vm: &KvmVm) -> Result<(), LegacyDeviceError> {
         let io_bus = &vm.pio_bus;
         io_bus.insert(
             self.stdio_serial.clone(),

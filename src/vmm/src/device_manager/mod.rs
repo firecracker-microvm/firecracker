@@ -23,6 +23,7 @@ use utils::time::TimestampUs;
 use vm_superio::serial;
 use vmm_sys_util::eventfd::EventFd;
 
+use crate::EventManager;
 use crate::device_manager::acpi::ACPIDeviceError;
 #[cfg(target_arch = "x86_64")]
 use crate::devices::legacy::I8042Device;
@@ -58,7 +59,7 @@ use crate::vmm_config::net::{NetBuilder, NetworkInterfaceConfig, NetworkInterfac
 use crate::vmm_config::pmem::{PmemConfig, PmemConfigError};
 use crate::vstate::bus::BusError;
 use crate::vstate::memory::GuestMemoryMmap;
-use crate::{EventManager, Vm};
+use crate::vstate::vm::KvmVm;
 
 /// ACPI device manager.
 pub mod acpi;
@@ -196,7 +197,7 @@ impl DeviceManager {
     fn create_legacy_devices(
         event_manager: &mut EventManager,
         vcpus_exit_evt: &EventFd,
-        vm: &Vm,
+        vm: &KvmVm,
         serial_output: Option<&PathBuf>,
         serial_state: Option<&serial::SerialState>,
         serial_rate_limiter: Option<TokenBucket>,
@@ -227,7 +228,7 @@ impl DeviceManager {
     pub fn new(
         event_manager: &mut EventManager,
         vcpus_exit_evt: &EventFd,
-        vm: &Vm,
+        vm: &KvmVm,
         serial_output: Option<&PathBuf>,
         serial_rate_limiter: Option<TokenBucket>,
     ) -> Result<Self, DeviceManagerCreateError> {
@@ -255,7 +256,7 @@ impl DeviceManager {
         T: 'static + VirtioDevice + MutEventSubscriber + Debug,
     >(
         &mut self,
-        vm: &Vm,
+        vm: &KvmVm,
         id: String,
         device: Arc<Mutex<T>>,
         cmdline: &mut Cmdline,
@@ -275,7 +276,7 @@ impl DeviceManager {
     /// Attaches a VirtioDevice device to the device manager and event manager.
     pub(crate) fn attach_virtio_device<T: 'static + VirtioDevice + MutEventSubscriber + Debug>(
         &mut self,
-        vm: &Arc<Vm>,
+        vm: &Arc<KvmVm>,
         id: String,
         device: Arc<Mutex<T>>,
         cmdline: &mut Cmdline,
@@ -295,7 +296,7 @@ impl DeviceManager {
     /// Attaches a [`BootTimer`] to the VM
     pub(crate) fn attach_boot_timer_device(
         &mut self,
-        vm: &Vm,
+        vm: &KvmVm,
         request_ts: TimestampUs,
     ) -> Result<(), AttachDeviceError> {
         let boot_timer = Arc::new(Mutex::new(BootTimer::new(request_ts)));
@@ -306,13 +307,13 @@ impl DeviceManager {
         Ok(())
     }
 
-    pub(crate) fn attach_vmgenid_device(&mut self, vm: &Vm) -> Result<(), AttachDeviceError> {
+    pub(crate) fn attach_vmgenid_device(&mut self, vm: &KvmVm) -> Result<(), AttachDeviceError> {
         self.acpi_devices.attach_vmgenid(vm)?;
         self.acpi_devices.activate_vmgenid(vm)?;
         Ok(())
     }
 
-    pub(crate) fn attach_vmclock_device(&mut self, vm: &Vm) -> Result<(), AttachDeviceError> {
+    pub(crate) fn attach_vmclock_device(&mut self, vm: &KvmVm) -> Result<(), AttachDeviceError> {
         self.acpi_devices.attach_vmclock(vm)?;
         self.acpi_devices.activate_vmclock(vm)?;
         Ok(())
@@ -321,7 +322,7 @@ impl DeviceManager {
     #[cfg(target_arch = "aarch64")]
     pub(crate) fn attach_legacy_devices_aarch64(
         &mut self,
-        vm: &Vm,
+        vm: &KvmVm,
         event_manager: &mut EventManager,
         cmdline: &mut Cmdline,
         serial_out_path: Option<&PathBuf>,
@@ -352,7 +353,7 @@ impl DeviceManager {
     }
 
     /// Enables PCIe support for Firecracker devices
-    pub fn enable_pci(&mut self, vm: &Arc<Vm>) -> Result<(), PciManagerError> {
+    pub fn enable_pci(&mut self, vm: &Arc<KvmVm>) -> Result<(), PciManagerError> {
         self.pci_devices.attach_pci_segment(vm)
     }
 
@@ -477,7 +478,7 @@ impl DeviceManager {
     /// Attaches a device after VM start
     pub fn hotplug_device(
         &mut self,
-        vm: Arc<Vm>,
+        vm: Arc<KvmVm>,
         config: HotplugDeviceConfig,
         event_manager: &mut EventManager,
     ) -> Result<(), VmmActionError> {
@@ -519,7 +520,7 @@ impl DeviceManager {
     }
 
     fn hotplug_make_pmem(
-        vm: Arc<Vm>,
+        vm: Arc<KvmVm>,
         config: PmemConfig,
     ) -> Result<Arc<Mutex<dyn VirtioDevice>>, VmmActionError> {
         if config.root_device {
@@ -566,7 +567,7 @@ impl DeviceManager {
     /// Detaches a device after VM start
     pub fn hot_unplug_device(
         &mut self,
-        vm: Arc<Vm>,
+        vm: Arc<KvmVm>,
         device_id: VirtioDeviceId,
         event_manager: &mut EventManager,
     ) -> Result<(), VmmActionError> {
@@ -679,7 +680,7 @@ pub enum DeviceManagerPersistError {
 
 pub struct DeviceRestoreArgs<'a> {
     pub mem: &'a GuestMemoryMmap,
-    pub vm: &'a Arc<Vm>,
+    pub vm: &'a Arc<KvmVm>,
     pub event_manager: &'a mut EventManager,
     pub vcpus_exit_evt: &'a EventFd,
     pub vm_resources: &'a mut VmResources,

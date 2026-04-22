@@ -10,6 +10,7 @@ use serde::{Deserialize, Serialize};
 
 use super::acpi::ACPIDeviceManager;
 use super::mmio::*;
+use crate::EventManager;
 #[cfg(target_arch = "aarch64")]
 use crate::arch::DeviceType;
 use crate::device_manager::DevicePersistError;
@@ -42,7 +43,7 @@ use crate::resources::VmResources;
 use crate::snapshot::Persist;
 use crate::vmm_config::memory_hotplug::MemoryHotplugConfig;
 use crate::vstate::memory::GuestMemoryMmap;
-use crate::{EventManager, Vm};
+use crate::vstate::vm::KvmVm;
 
 #[derive(Debug, Default, Clone, Serialize, Deserialize)]
 pub struct SerialState {
@@ -147,7 +148,7 @@ pub struct DeviceStates {
 
 pub struct MMIODevManagerConstructorArgs<'a> {
     pub mem: &'a GuestMemoryMmap,
-    pub vm: &'a Arc<Vm>,
+    pub vm: &'a Arc<KvmVm>,
     pub event_manager: &'a mut EventManager,
     pub vm_resources: &'a mut VmResources,
     pub instance_id: &'a str,
@@ -174,7 +175,7 @@ pub struct ACPIDeviceManagerState {
 
 impl<'a> Persist<'a> for ACPIDeviceManager {
     type State = ACPIDeviceManagerState;
-    type ConstructorArgs = &'a Vm;
+    type ConstructorArgs = &'a KvmVm;
     type Error = ACPIDeviceError;
 
     fn save(&self) -> Self::State {

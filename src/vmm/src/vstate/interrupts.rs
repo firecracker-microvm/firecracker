@@ -7,10 +7,10 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use kvm_ioctls::VmFd;
 use vmm_sys_util::eventfd::EventFd;
 
-use crate::Vm;
 use crate::logger::{IncMetric, METRICS};
 use crate::pci::PciSBDF;
 use crate::snapshot::Persist;
+use crate::vstate::vm::KvmVm;
 
 #[derive(Debug, thiserror::Error, displaydoc::Display)]
 /// Errors related with Firecracker interrupts
@@ -87,9 +87,9 @@ impl MsixVector {
 #[derive(Debug)]
 /// MSI interrupts created for a VirtIO device
 pub struct MsixVectorGroup {
-    /// Reference to the Vm object, which we'll need for interacting with the underlying KVM Vm
+    /// Reference to the KvmVm object, which we'll need for interacting with the underlying KVM KvmVm
     /// file descriptor
-    pub vm: Arc<Vm>,
+    pub vm: Arc<KvmVm>,
     /// A list of all the MSI-X vectors
     pub vectors: Vec<MsixVector>,
 }
@@ -98,7 +98,7 @@ impl MsixVectorGroup {
     /// Returns the number of vectors in this group
     pub fn num_vectors(&self) -> u16 {
         // It is safe to unwrap here. We are creating `MsixVectorGroup` objects through the
-        // `Vm::create_msix_group` where the argument for the number of `vectors` is a `u16`.
+        // `KvmVm::create_msix_group` where the argument for the number of `vectors` is a `u16`.
         u16::try_from(self.vectors.len()).unwrap()
     }
 
@@ -175,7 +175,7 @@ impl MsixVectorGroup {
 
 impl<'a> Persist<'a> for MsixVectorGroup {
     type State = Vec<u32>;
-    type ConstructorArgs = Arc<Vm>;
+    type ConstructorArgs = Arc<KvmVm>;
     type Error = InterruptError;
 
     fn save(&self) -> Self::State {

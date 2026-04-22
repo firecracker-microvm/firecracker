@@ -19,11 +19,11 @@ use crate::vstate::memory::{GuestMemoryExtension, GuestMemoryState};
 use crate::vstate::resources::ResourceAllocator;
 use crate::vstate::vm::{VmCommon, VmError};
 
-/// Error type for [`Vm::restore_state`]
+/// Error type for [`KvmVm::restore_state`]
 #[allow(missing_docs)]
 #[cfg(target_arch = "x86_64")]
 #[derive(Debug, PartialEq, Eq, thiserror::Error, displaydoc::Display)]
-pub enum ArchVmError {
+pub enum KvmVmError {
     /// Failed to check KVM capability (0): {1}
     CheckCapability(Cap, kvm_ioctls::Error),
     /// Set PIT2 error: {0}
@@ -54,7 +54,7 @@ pub enum ArchVmError {
 
 /// Structure representing the current architecture's understand of what a "virtual machine" is.
 #[derive(Debug)]
-pub struct ArchVm {
+pub struct KvmVm {
     /// Architecture independent parts of a vm
     pub common: VmCommon,
     msrs_to_save: MsrList,
@@ -66,12 +66,12 @@ pub struct ArchVm {
     pub pio_bus: Arc<Bus>,
 }
 
-impl ArchVm {
-    /// Create a new `Vm` struct.
-    pub fn new(kvm: &crate::vstate::kvm::Kvm) -> Result<ArchVm, VmError> {
+impl KvmVm {
+    /// Create a new `KvmVm` struct.
+    pub fn new(kvm: &crate::vstate::kvm::Kvm) -> Result<KvmVm, VmError> {
         let common = Self::create_common(kvm)?;
 
-        let msrs_to_save = kvm.msrs_to_save().map_err(ArchVmError::GetMsrsToSave)?;
+        let msrs_to_save = kvm.msrs_to_save().map_err(KvmVmError::GetMsrsToSave)?;
 
         // `KVM_CAP_XSAVE2` was introduced to support dynamically-sized XSTATE buffer in kernel
         // v5.17. `KVM_GET_EXTENSION(KVM_CAP_XSAVE2)` returns the required size in byte if
@@ -83,7 +83,7 @@ impl ArchVm {
             // Catch all negative values just in case although the possible negative return value
             // of ioctl() is only -1.
             ..=-1 => {
-                return Err(VmError::Arch(ArchVmError::CheckCapability(
+                return Err(VmError::Arch(KvmVmError::CheckCapability(
                     Cap::Xsave2,
                     vmm_sys_util::errno::Error::last(),
                 )));
@@ -96,11 +96,11 @@ impl ArchVm {
         common
             .fd
             .set_tss_address(u64_to_usize(crate::arch::x86_64::layout::KVM_TSS_ADDRESS))
-            .map_err(ArchVmError::SetTssAddress)?;
+            .map_err(KvmVmError::SetTssAddress)?;
 
         let pio_bus = Arc::new(Bus::new());
 
-        Ok(ArchVm {
+        Ok(KvmVm {
             common,
             msrs_to_save,
             xsave2_size,
@@ -109,13 +109,13 @@ impl ArchVm {
     }
 
     /// Pre-vCPU creation setup.
-    pub fn arch_pre_create_vcpus(&mut self, _: u8) -> Result<(), ArchVmError> {
+    pub fn arch_pre_create_vcpus(&mut self, _: u8) -> Result<(), KvmVmError> {
         // For x86_64 we need to create the interrupt controller before calling `KVM_CREATE_VCPUS`
         self.setup_irqchip()
     }
 
     /// Post-vCPU creation setup.
-    pub fn arch_post_create_vcpus(&mut self, _: u8) -> Result<(), ArchVmError> {
+    pub fn arch_post_create_vcpus(&mut self, _: u8) -> Result<(), KvmVmError> {
         Ok(())
     }
 
@@ -133,39 +133,39 @@ impl ArchVm {
         &mut self,
         state: &VmState,
         clock_realtime: bool,
-    ) -> Result<(), ArchVmError> {
+    ) -> Result<(), KvmVmError> {
         self.fd()
             .set_pit2(&state.pitstate)
-            .map_err(ArchVmError::SetPit2)?;
+            .map_err(KvmVmError::SetPit2)?;
         let mut clock = state.clock;
         clock.flags = if clock_realtime {
             // clock_realtime needs to be present in the snapshot
             if clock.flags & KVM_CLOCK_REALTIME == 0 {
-                return Err(ArchVmError::ClockRealtimeNotInState);
+                return Err(KvmVmError::ClockRealtimeNotInState);
             }
             KVM_CLOCK_REALTIME
         } else {
             0
         };
-        self.fd().set_clock(&clock).map_err(ArchVmError::SetClock)?;
+        self.fd().set_clock(&clock).map_err(KvmVmError::SetClock)?;
         self.fd()
             .set_irqchip(&state.pic_master)
-            .map_err(ArchVmError::SetIrqChipPicMaster)?;
+            .map_err(KvmVmError::SetIrqChipPicMaster)?;
         self.fd()
             .set_irqchip(&state.pic_slave)
-            .map_err(ArchVmError::SetIrqChipPicSlave)?;
+            .map_err(KvmVmError::SetIrqChipPicSlave)?;
         self.fd()
             .set_irqchip(&state.ioapic)
-            .map_err(ArchVmError::SetIrqChipIoAPIC)?;
+            .map_err(KvmVmError::SetIrqChipIoAPIC)?;
         self.common.resource_allocator = Mutex::new(state.resource_allocator.clone());
         Ok(())
     }
 
     /// Creates the irq chip and an in-kernel device model for the PIT.
-    pub fn setup_irqchip(&self) -> Result<(), ArchVmError> {
+    pub fn setup_irqchip(&self) -> Result<(), KvmVmError> {
         self.fd()
             .create_irq_chip()
-            .map_err(ArchVmError::VmSetIrqChip)?;
+            .map_err(KvmVmError::VmSetIrqChip)?;
         // We need to enable the emulation of a dummy speaker port stub so that writing to port 0x61
         // (i.e. KVM_SPEAKER_BASE_ADDRESS) does not trigger an exit to user space.
         let pit_config = kvm_pit_config {
@@ -174,14 +174,14 @@ impl ArchVm {
         };
         self.fd()
             .create_pit2(pit_config)
-            .map_err(ArchVmError::VmSetIrqChip)
+            .map_err(KvmVmError::VmSetIrqChip)
     }
 
-    /// Saves and returns the Kvm Vm state.
-    pub fn save_state(&self) -> Result<VmState, ArchVmError> {
-        let pitstate = self.fd().get_pit2().map_err(ArchVmError::VmGetPit2)?;
+    /// Saves and returns the KVM VM state.
+    pub fn save_state(&self) -> Result<VmState, KvmVmError> {
+        let pitstate = self.fd().get_pit2().map_err(KvmVmError::VmGetPit2)?;
 
-        let clock = self.fd().get_clock().map_err(ArchVmError::VmGetClock)?;
+        let clock = self.fd().get_clock().map_err(KvmVmError::VmGetClock)?;
 
         let mut pic_master = kvm_irqchip {
             chip_id: KVM_IRQCHIP_PIC_MASTER,
@@ -189,7 +189,7 @@ impl ArchVm {
         };
         self.fd()
             .get_irqchip(&mut pic_master)
-            .map_err(ArchVmError::VmGetIrqChip)?;
+            .map_err(KvmVmError::VmGetIrqChip)?;
 
         let mut pic_slave = kvm_irqchip {
             chip_id: KVM_IRQCHIP_PIC_SLAVE,
@@ -197,7 +197,7 @@ impl ArchVm {
         };
         self.fd()
             .get_irqchip(&mut pic_slave)
-            .map_err(ArchVmError::VmGetIrqChip)?;
+            .map_err(KvmVmError::VmGetIrqChip)?;
 
         let mut ioapic = kvm_irqchip {
             chip_id: KVM_IRQCHIP_IOAPIC,
@@ -205,7 +205,7 @@ impl ArchVm {
         };
         self.fd()
             .get_irqchip(&mut ioapic)
-            .map_err(ArchVmError::VmGetIrqChip)?;
+            .map_err(KvmVmError::VmGetIrqChip)?;
 
         Ok(VmState {
             memory: self.common.guest_memory.describe(),
@@ -266,7 +266,7 @@ mod tests {
     use kvm_ioctls::Cap;
     use std::time::SystemTime;
 
-    use crate::arch::ArchVmError;
+    use crate::arch::KvmVmError;
     use crate::vstate::vm::VmState;
     use crate::vstate::vm::tests::{setup_vm, setup_vm_with_memory};
 
@@ -312,7 +312,7 @@ mod tests {
         vm.setup_irqchip().unwrap();
 
         let res = vm.restore_state(&vm_state, true);
-        assert!(res == Err(ArchVmError::ClockRealtimeNotInState));
+        assert!(res == Err(KvmVmError::ClockRealtimeNotInState));
 
         // mock a state with realtime information
         vm_state.clock.flags |= KVM_CLOCK_REALTIME;
@@ -330,7 +330,7 @@ mod tests {
         if clock_realtime_supported {
             res.unwrap()
         } else {
-            assert!(matches!(res, Err(ArchVmError::SetClock(err)) if err.errno() == libc::EINVAL))
+            assert!(matches!(res, Err(KvmVmError::SetClock(err)) if err.errno() == libc::EINVAL))
         }
     }
 

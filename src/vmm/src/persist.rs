@@ -133,8 +133,8 @@ pub enum MicrovmStateError {
     RestoreDevices(#[from] DevicePersistError),
     /// Cannot save Vcpu state: {0}
     SaveVcpuState(vstate::vcpu::VcpuError),
-    /// Cannot save Vm state: {0}
-    SaveVmState(vstate::vm::ArchVmError),
+    /// Cannot save KvmVm state: {0}
+    SaveVmState(vstate::vm::KvmVmError),
     /// Cannot signal Vcpu: {0}
     SignalVcpu(VcpuSendEventError),
     /// Vcpu is in unexpected state.

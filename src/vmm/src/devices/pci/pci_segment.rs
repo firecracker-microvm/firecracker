@@ -17,7 +17,7 @@ use acpi_tables::{Aml, aml};
 use uuid::Uuid;
 use vm_allocator::AddressAllocator;
 
-use crate::arch::{ArchVm as Vm, PCI_MMCONFIG_START, PCI_MMIO_CONFIG_SIZE_PER_SEGMENT};
+use crate::arch::{KvmVm, PCI_MMCONFIG_START, PCI_MMIO_CONFIG_SIZE_PER_SEGMENT};
 use crate::logger::info;
 use crate::pci::PciSBDF;
 #[cfg(target_arch = "x86_64")]
@@ -69,7 +69,7 @@ impl std::fmt::Debug for PciSegment {
 }
 
 impl PciSegment {
-    fn build(id: u16, vm: &Arc<Vm>, pci_irq_slots: &[u8; 32]) -> Result<PciSegment, BusError> {
+    fn build(id: u16, vm: &Arc<KvmVm>, pci_irq_slots: &[u8; 32]) -> Result<PciSegment, BusError> {
         let pci_root = PciRoot::new(None);
         let pci_bus = Arc::new(Mutex::new(PciBus::new(pci_root)));
 
@@ -113,11 +113,9 @@ impl PciSegment {
     #[cfg(target_arch = "x86_64")]
     pub(crate) fn new(
         id: u16,
-        vm: &Arc<Vm>,
+        vm: &Arc<KvmVm>,
         pci_irq_slots: &[u8; 32],
     ) -> Result<PciSegment, BusError> {
-        use crate::Vm;
-
         let mut segment = Self::build(id, vm, pci_irq_slots)?;
         let pci_config_io = Arc::new(Mutex::new(PciConfigIo::new(Arc::clone(&segment.pci_bus))));
 
@@ -147,7 +145,7 @@ impl PciSegment {
     #[cfg(target_arch = "aarch64")]
     pub(crate) fn new(
         id: u16,
-        vm: &Arc<Vm>,
+        vm: &Arc<KvmVm>,
         pci_irq_slots: &[u8; 32],
     ) -> Result<PciSegment, BusError> {
         let segment = Self::build(id, vm, pci_irq_slots)?;

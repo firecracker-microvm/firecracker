@@ -27,7 +27,7 @@ use crate::seccomp::{BpfProgram, BpfProgramRef};
 use crate::utils::signal::{Killable, register_signal_handler, sigrtmin};
 use crate::utils::sm::StateMachine;
 use crate::vstate::bus::Bus;
-use crate::vstate::vm::Vm;
+use crate::vstate::vm::KvmVm;
 
 /// Signal number (SIGRTMIN) used to kick Vcpus.
 pub const VCPU_RTSIG_OFFSET: i32 = 0;
@@ -124,7 +124,7 @@ impl Vcpu {
     /// * `index` - Represents the 0-based CPU index between [0, max vcpus).
     /// * `vm` - The vm to which this vcpu will get attached.
     /// * `exit_evt` - An `EventFd` that will be written into when this vcpu exits.
-    pub fn new(index: u8, vm: &Vm, exit_evt: EventFd) -> Result<Self, VcpuError> {
+    pub fn new(index: u8, vm: &KvmVm, exit_evt: EventFd) -> Result<Self, VcpuError> {
         let (event_sender, event_receiver) = channel();
         let (response_sender, response_receiver) = channel();
         let kvm_vcpu = KvmVcpu::new(index, vm).unwrap();
@@ -153,7 +153,7 @@ impl Vcpu {
     }
 
     /// Obtains a copy of the VcpuFd
-    pub fn copy_kvm_vcpu_fd(&self, vm: &Vm) -> Result<VcpuFd, CopyKvmFdError> {
+    pub fn copy_kvm_vcpu_fd(&self, vm: &KvmVm) -> Result<VcpuFd, CopyKvmFdError> {
         // SAFETY: We own this fd so it is considered safe to clone
         let r = unsafe { libc::dup(self.kvm_vcpu.fd.as_raw_fd()) };
         if r < 0 {
@@ -167,7 +167,7 @@ impl Vcpu {
     /// The handle can be used to control the remote vcpu.
     pub fn start_threaded(
         mut self,
-        vm: &Vm,
+        vm: &KvmVm,
         seccomp_filter: Arc<BpfProgram>,
         barrier: Arc<Barrier>,
     ) -> Result<VcpuHandle, StartThreadedError> {
@@ -671,7 +671,6 @@ pub(crate) mod tests {
     use crate::vstate::kvm::Kvm;
     use crate::vstate::memory::{GuestAddress, GuestMemoryMmap};
     use crate::vstate::vcpu::VcpuError as EmulationError;
-    use crate::vstate::vm::Vm;
     use crate::vstate::vm::tests::setup_vm_with_memory;
 
     struct DummyDevice;
@@ -827,7 +826,7 @@ pub(crate) mod tests {
 
     // Auxiliary function being used throughout the tests.
     #[allow(unused_mut)]
-    pub(crate) fn setup_vcpu(mem_size: usize) -> (Kvm, Vm, Vcpu) {
+    pub(crate) fn setup_vcpu(mem_size: usize) -> (Kvm, KvmVm, Vcpu) {
         let (kvm, mut vm) = setup_vm_with_memory(mem_size);
 
         let (mut vcpus, _) = vm.create_vcpus(1).unwrap();
@@ -866,7 +865,7 @@ pub(crate) mod tests {
         entry_addr.kernel_load
     }
 
-    fn vcpu_configured_for_boot() -> (Vm, VcpuHandle, EventFd) {
+    fn vcpu_configured_for_boot() -> (KvmVm, VcpuHandle, EventFd) {
         // Need enough mem to boot linux.
         let mem_size = mib_to_bytes(64);
         let (kvm, vm, mut vcpu) = setup_vcpu(mem_size);

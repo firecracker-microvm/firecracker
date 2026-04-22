@@ -28,14 +28,14 @@ use crate::devices::virtio::queue::{
     DescriptorChain, FIRECRACKER_MAX_QUEUE_SIZE, InvalidAvailIdx, Queue, QueueError,
 };
 use crate::devices::virtio::transport::{VirtioInterrupt, VirtioInterruptType};
+use crate::impl_device_type;
 use crate::logger::{IncMetric, debug, error, info};
 use crate::utils::{bytes_to_mib, mib_to_bytes, u64_to_usize, usize_to_u64};
 use crate::vstate::interrupts::InterruptError;
 use crate::vstate::memory::{
     ByteValued, GuestMemoryExtension, GuestMemoryMmap, GuestRegionMmap, GuestRegionType,
 };
-use crate::vstate::vm::VmError;
-use crate::{Vm, impl_device_type};
+use crate::vstate::vm::{KvmVm, VmError};
 
 // SAFETY: virtio_mem_config only contains plain data types
 unsafe impl ByteValued for virtio_mem_config {}
@@ -97,7 +97,7 @@ pub struct VirtioMem {
     pub(crate) slot_size: usize,
     // Bitmap to track which blocks are plugged
     pub(crate) plugged_blocks: BitVec,
-    vm: Arc<Vm>,
+    vm: Arc<KvmVm>,
 }
 
 /// Memory hotplug device status information.
@@ -118,7 +118,7 @@ pub struct VirtioMemStatus {
 
 impl VirtioMem {
     pub fn new(
-        vm: Arc<Vm>,
+        vm: Arc<KvmVm>,
         addr: GuestAddress,
         total_size_mib: usize,
         block_size_mib: usize,
@@ -143,7 +143,7 @@ impl VirtioMem {
     }
 
     pub fn from_state(
-        vm: Arc<Vm>,
+        vm: Arc<KvmVm>,
         queues: Vec<Queue>,
         config: virtio_mem_config,
         slot_size: usize,

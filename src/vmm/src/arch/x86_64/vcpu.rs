@@ -27,7 +27,7 @@ use crate::logger::{IncMetric, METRICS, error, warn};
 use crate::vstate::bus::Bus;
 use crate::vstate::memory::GuestMemoryMmap;
 use crate::vstate::vcpu::{VcpuConfig, VcpuEmulation, VcpuError};
-use crate::vstate::vm::Vm;
+use crate::vstate::vm::KvmVm;
 
 // Tolerance for TSC frequency expected variation.
 // The value of 250 parts per million is based on
@@ -172,7 +172,7 @@ impl KvmVcpu {
     ///
     /// * `index` - Represents the 0-based CPU index between [0, max vcpus).
     /// * `vm` - The vm to which this vcpu will get attached.
-    pub fn new(index: u8, vm: &Vm) -> Result<Self, KvmVcpuError> {
+    pub fn new(index: u8, vm: &KvmVm) -> Result<Self, KvmVcpuError> {
         let kvm_vcpu = vm
             .fd()
             .create_vcpu(index.into())
@@ -820,7 +820,6 @@ mod tests {
     };
     use crate::cpu_config::x86_64::cpuid::{Cpuid, CpuidEntry, CpuidKey};
     use crate::vstate::kvm::Kvm;
-    use crate::vstate::vm::Vm;
     use crate::vstate::vm::tests::{setup_vm, setup_vm_with_memory};
 
     impl Default for VcpuState {
@@ -841,7 +840,7 @@ mod tests {
         }
     }
 
-    fn setup_vcpu(mem_size: usize) -> (Kvm, Vm, KvmVcpu) {
+    fn setup_vcpu(mem_size: usize) -> (Kvm, KvmVm, KvmVcpu) {
         let (kvm, vm) = setup_vm_with_memory(mem_size);
         vm.setup_irqchip().unwrap();
         let vcpu = KvmVcpu::new(0, &vm).unwrap();

@@ -23,7 +23,6 @@ use vmm_sys_util::errno;
 use vmm_sys_util::eventfd::EventFd;
 use zerocopy::IntoBytes;
 
-use crate::Vm;
 use crate::devices::virtio::device::{VirtioDevice, VirtioDeviceType};
 use crate::devices::virtio::generated::virtio_ids;
 use crate::devices::virtio::queue::Queue;
@@ -47,6 +46,7 @@ use crate::vstate::bus::BusDevice;
 use crate::vstate::interrupts::{InterruptError, MsixVectorGroup};
 use crate::vstate::memory::GuestMemoryMmap;
 use crate::vstate::resources::ResourceAllocator;
+use crate::vstate::vm::KvmVm;
 
 /// Vector value used to disable MSI for a queue.
 pub const VIRTQ_MSI_NO_VECTOR: u16 = 0xffff;
@@ -414,7 +414,7 @@ impl VirtioPciDevice {
 
     pub fn new_from_state(
         id: String,
-        vm: &Arc<Vm>,
+        vm: &Arc<KvmVm>,
         device: Arc<Mutex<dyn VirtioDevice>>,
         state: VirtioPciDeviceState,
     ) -> Result<Self, VirtioPciDeviceError> {
@@ -604,7 +604,7 @@ impl VirtioPciDevice {
     }
 
     /// Register the IoEvent notification for a VirtIO device
-    pub fn register_notification_ioevent(&self, vm: &Vm) -> Result<(), errno::Error> {
+    pub fn register_notification_ioevent(&self, vm: &KvmVm) -> Result<(), errno::Error> {
         let bar_addr = self.config_bar_addr();
         for (i, queue_evt) in self
             .device
@@ -1006,6 +1006,7 @@ mod tests {
     use vm_memory::{ByteValued, Le32};
 
     use super::{PciCapabilityType, VirtioPciDevice};
+    use crate::Vmm;
     use crate::arch::MEM_64BIT_DEVICES_START;
     use crate::builder::tests::default_vmm;
     use crate::devices::virtio::device::{VirtioDevice, VirtioDeviceType};
@@ -1024,7 +1025,6 @@ mod tests {
     use crate::pci::msix::MsixCap;
     use crate::pci::{PciCapabilityId, PciClassCode, PciDevice};
     use crate::rate_limiter::RateLimiter;
-    use crate::{Vm, Vmm};
 
     fn create_vmm_with_virtio_pci_device() -> Vmm {
         let mut vmm = default_vmm();

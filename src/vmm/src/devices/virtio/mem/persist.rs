@@ -9,7 +9,6 @@ use bitvec::vec::BitVec;
 use serde::{Deserialize, Serialize};
 use vm_memory::Address;
 
-use crate::Vm;
 use crate::devices::virtio::device::VirtioDeviceType;
 use crate::devices::virtio::generated::virtio_ids::VIRTIO_ID_MEM;
 use crate::devices::virtio::generated::virtio_mem::virtio_mem_config;
@@ -19,6 +18,7 @@ use crate::devices::virtio::queue::FIRECRACKER_MAX_QUEUE_SIZE;
 use crate::snapshot::Persist;
 use crate::utils::usize_to_u64;
 use crate::vstate::memory::{GuestMemoryMmap, GuestRegionMmap};
+use crate::vstate::vm::KvmVm;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct VirtioMemState {
@@ -34,11 +34,11 @@ pub struct VirtioMemState {
 
 #[derive(Debug)]
 pub struct VirtioMemConstructorArgs {
-    vm: Arc<Vm>,
+    vm: Arc<KvmVm>,
 }
 
 impl VirtioMemConstructorArgs {
-    pub fn new(vm: Arc<Vm>) -> Self {
+    pub fn new(vm: Arc<KvmVm>) -> Self {
         Self { vm }
     }
 }

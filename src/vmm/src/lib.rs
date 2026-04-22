@@ -133,6 +133,7 @@ use vmm_sys_util::eventfd::EventFd;
 use vmm_sys_util::terminal::Terminal;
 use vstate::kvm::Kvm;
 use vstate::vcpu::{self, StartThreadedError, VcpuSendEventError};
+use vstate::vm::KvmVm;
 
 use crate::cpu_config::templates::CpuConfiguration;
 use crate::devices::virtio::balloon::device::{HintingStatus, StartHintingCmd};
@@ -167,7 +168,6 @@ use crate::vmm_config::vsock::VsockDeviceConfig;
 use crate::vstate::memory::{GuestMemory, GuestMemoryMmap, GuestMemoryRegion};
 use crate::vstate::vcpu::VcpuState;
 pub use crate::vstate::vcpu::{Vcpu, VcpuConfig, VcpuEvent, VcpuHandle, VcpuResponse};
-pub use crate::vstate::vm::Vm;
 
 /// Shorthand type for the EventManager flavour used by Firecracker.
 pub type EventManager = BaseEventManager<Arc<Mutex<dyn MutEventSubscriber>>>;
@@ -259,8 +259,8 @@ pub enum VmmError {
     VcpuMessage,
     /// Cannot spawn Vcpu thread: {0}
     VcpuSpawn(io::Error),
-    /// Vm error: {0}
-    Vm(#[from] vstate::vm::VmError),
+    /// KvmVm error: {0}
+    KvmVm(#[from] vstate::vm::VmError),
     /// Kvm error: {0}
     Kvm(#[from] vstate::kvm::KvmError),
     /// Failed perform action on device: {0}
@@ -316,7 +316,7 @@ pub struct Vmm {
     // Guest VM core resources.
     kvm: Kvm,
     /// VM object
-    pub vm: Arc<Vm>,
+    pub vm: Arc<KvmVm>,
     // Save UFFD in order to keep it open in the Firecracker process, as well.
     #[allow(unused)]
     uffd: Option<Uffd>,
@@ -824,9 +824,9 @@ impl Vmm {
         self.shutdown_exit_code = Some(exit_code);
     }
 
-    /// Gets a reference to kvm-ioctls Vm
+    /// Gets a reference to kvm-ioctls KvmVm
     #[cfg(feature = "gdb")]
-    pub fn vm(&self) -> &Vm {
+    pub fn vm(&self) -> &KvmVm {
         &self.vm
     }
 
