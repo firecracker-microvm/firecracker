@@ -17,7 +17,7 @@ use acpi_tables::{Aml, aml};
 use uuid::Uuid;
 use vm_allocator::AddressAllocator;
 
-use crate::arch::{KvmVm, PCI_MMCONFIG_START, PCI_MMIO_CONFIG_SIZE_PER_SEGMENT};
+use crate::arch::{PCI_MMCONFIG_START, PCI_MMIO_CONFIG_SIZE_PER_SEGMENT};
 use crate::logger::info;
 use crate::pci::PciSBDF;
 #[cfg(target_arch = "x86_64")]
@@ -25,6 +25,7 @@ use crate::pci::bus::{PCI_CONFIG_IO_PORT, PCI_CONFIG_IO_PORT_SIZE};
 use crate::pci::bus::{PciBus, PciConfigIo, PciConfigMmio, PciRoot, PciRootError};
 use crate::vstate::bus::{BusDeviceSync, BusError};
 use crate::vstate::resources::ResourceAllocator;
+use crate::vstate::vm::KvmVm;
 
 pub struct PciSegment {
     pub(crate) id: u16,
@@ -467,8 +468,9 @@ mod tests {
     #[test]
     fn test_pci_segment_build() {
         let vmm = default_vmm();
+        let kvm_vm = vmm.vm.as_kvm().unwrap().clone();
         let pci_irq_slots = &[0u8; 32];
-        let pci_segment = PciSegment::new(0, &vmm.vm, pci_irq_slots).unwrap();
+        let pci_segment = PciSegment::new(0, &kvm_vm, pci_irq_slots).unwrap();
 
         assert_eq!(pci_segment.id, 0);
         assert_eq!(
@@ -498,13 +500,14 @@ mod tests {
     #[test]
     fn test_io_bus() {
         let vmm = default_vmm();
+        let kvm_vm = vmm.vm.as_kvm().unwrap().clone();
         let pci_irq_slots = &[0u8; 32];
-        let pci_segment = PciSegment::new(0, &vmm.vm, pci_irq_slots).unwrap();
+        let pci_segment = PciSegment::new(0, &kvm_vm, pci_irq_slots).unwrap();
 
         let mut data = [0u8; u64_to_usize(PCI_CONFIG_IO_PORT_SIZE)];
-        vmm.vm.pio_bus.read(PCI_CONFIG_IO_PORT, &mut data).unwrap();
+        kvm_vm.pio_bus.read(PCI_CONFIG_IO_PORT, &mut data).unwrap();
 
-        vmm.vm
+        kvm_vm
             .pio_bus
             .read(PCI_CONFIG_IO_PORT + PCI_CONFIG_IO_PORT_SIZE, &mut data)
             .unwrap_err();
@@ -513,17 +516,18 @@ mod tests {
     #[test]
     fn test_mmio_bus() {
         let vmm = default_vmm();
+        let kvm_vm = vmm.vm.as_kvm().unwrap().clone();
         let pci_irq_slots = &[0u8; 32];
-        let pci_segment = PciSegment::new(0, &vmm.vm, pci_irq_slots).unwrap();
+        let pci_segment = PciSegment::new(0, &kvm_vm, pci_irq_slots).unwrap();
 
         let mut data = [0u8; u64_to_usize(PCI_MMIO_CONFIG_SIZE_PER_SEGMENT)];
 
-        vmm.vm
+        kvm_vm
             .common
             .mmio_bus
             .read(pci_segment.mmio_config_address, &mut data)
             .unwrap();
-        vmm.vm
+        kvm_vm
             .common
             .mmio_bus
             .read(
@@ -536,8 +540,9 @@ mod tests {
     #[test]
     fn test_next_device_bdf() {
         let vmm = default_vmm();
+        let kvm_vm = vmm.vm.as_kvm().unwrap().clone();
         let pci_irq_slots = &[0u8; 32];
-        let pci_segment = PciSegment::new(0, &vmm.vm, pci_irq_slots).unwrap();
+        let pci_segment = PciSegment::new(0, &kvm_vm, pci_irq_slots).unwrap();
 
         // Start checking from device id 1, since 0 is allocated to the Root port.
         for dev_id in 1..32 {

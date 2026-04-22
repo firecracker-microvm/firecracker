@@ -765,9 +765,10 @@ mod tests {
         let device_manager_state: device_manager::DevicesState =
             bitcode::deserialize(&serialized_data).unwrap();
         let vm_resources = &mut VmResources::default();
+        let kvm_vm = vmm.vm.as_kvm().unwrap().clone();
         let restore_args = MMIODevManagerConstructorArgs {
-            mem: vmm.vm.guest_memory(),
-            vm: &vmm.vm,
+            mem: kvm_vm.guest_memory(),
+            vm: &kvm_vm,
             event_manager: &mut event_manager,
             vm_resources,
             instance_id: "microvm-id",

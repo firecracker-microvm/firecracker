@@ -1028,7 +1028,9 @@ mod tests {
 
     fn create_vmm_with_virtio_pci_device() -> Vmm {
         let mut vmm = default_vmm();
-        vmm.device_manager.enable_pci(&vmm.vm);
+        vmm.device_manager
+            .enable_pci(&vmm.vm.as_kvm().unwrap().clone())
+            .unwrap();
         let entropy = Arc::new(Mutex::new(Entropy::new(RateLimiter::default()).unwrap()));
         let mut event_manager = crate::EventManager::new().unwrap();
         vmm.device_manager
@@ -1704,8 +1706,9 @@ mod tests {
         drop(locked);
 
         let new_entropy = Arc::new(Mutex::new(Entropy::new(RateLimiter::default()).unwrap()));
+        let kvm_vm = vmm.vm.as_kvm().unwrap().clone();
         let restored =
-            VirtioPciDevice::new_from_state("rng".to_string(), &vmm.vm, new_entropy, saved_state)
+            VirtioPciDevice::new_from_state("rng".to_string(), &kvm_vm, new_entropy, saved_state)
                 .unwrap();
 
         assert!(restored.device_activated.load(Ordering::SeqCst));

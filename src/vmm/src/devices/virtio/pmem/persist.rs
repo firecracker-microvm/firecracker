@@ -87,9 +87,9 @@ mod tests {
     use vmm_sys_util::tempfile::TempFile;
 
     use super::*;
-    use crate::arch::Kvm;
     use crate::devices::virtio::device::VirtioDevice;
     use crate::devices::virtio::test_utils::default_mem;
+    use crate::vstate::vm::tests::setup_vm;
 
     #[test]
     fn test_persistence() {
@@ -105,8 +105,7 @@ mod tests {
             ..Default::default()
         };
         let guest_mem = default_mem();
-        let kvm = Kvm::new(vec![]).unwrap();
-        let vm = Arc::new(KvmVm::new(kvm).unwrap());
+        let vm = Arc::new(setup_vm());
         let pmem = Pmem::new(vm.clone(), config).unwrap();
 
         // Save the block device.

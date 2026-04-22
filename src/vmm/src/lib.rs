@@ -122,15 +122,12 @@ use std::os::unix::io::AsRawFd;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-pub use crate::vstate::vm::StartVcpusError;
 use device_manager::DeviceManager;
 use event_manager::{EventManager as BaseEventManager, EventOps, Events, MutEventSubscriber};
 use snapshot::Persist;
 use vmm_sys_util::epoll::EventSet;
 use vmm_sys_util::terminal::Terminal;
-pub use vstate::kvm::Kvm;
 use vstate::vcpu::{self, VcpuSendEventError};
-use vstate::vm::KvmVm;
 
 use crate::cpu_config::templates::CpuConfiguration;
 use crate::devices::virtio::balloon::device::{HintingStatus, StartHintingCmd};
@@ -162,10 +159,12 @@ use crate::vmm_config::memory_hotplug::MemoryHotplugConfig;
 use crate::vmm_config::mmds::MmdsConfig;
 use crate::vmm_config::net::NetworkInterfaceConfig;
 use crate::vmm_config::vsock::VsockDeviceConfig;
+pub use crate::vstate::kvm::Kvm;
 use crate::vstate::memory::{GuestMemory, GuestMemoryMmap, GuestMemoryRegion};
 #[cfg(target_arch = "aarch64")]
 use crate::vstate::vcpu::VcpuState;
 pub use crate::vstate::vcpu::{Vcpu, VcpuConfig, VcpuEvent, VcpuHandle, VcpuResponse};
+pub use crate::vstate::vm::{StartVcpusError, Vm};
 
 /// Shorthand type for the EventManager flavour used by Firecracker.
 pub type EventManager = BaseEventManager<Arc<Mutex<dyn MutEventSubscriber>>>;
@@ -255,6 +254,8 @@ pub enum VmmError {
     VcpuResume,
     /// Failed to message the vCPUs.
     VcpuMessage,
+    /// Operation not supported on {0} VMs.
+    NotSupportedOnVmType(&'static str),
     /// Cannot spawn Vcpu thread: {0}
     VcpuSpawn(io::Error),
     /// KvmVm error: {0}
@@ -302,8 +303,8 @@ pub struct Vmm {
     boot_source_config: BootSourceConfig,
     shutdown_exit_code: Option<FcExitCode>,
 
-    /// VM object
-    pub vm: Arc<KvmVm>,
+    /// VM object.
+    pub vm: Vm,
     // Device manager
     device_manager: DeviceManager,
 }
@@ -459,15 +460,23 @@ impl Vmm {
 
     /// Sends a resume command to the vCPUs.
     pub fn resume_vm(&mut self) -> Result<(), VmmError> {
+        let kvm_vm = self
+            .vm
+            .as_kvm()
+            .ok_or_else(|| VmmError::NotSupportedOnVmType(self.vm.type_name()))?;
         self.device_manager.kick_virtio_devices();
-        self.vm.resume_vcpus()?;
+        kvm_vm.resume_vcpus()?;
         self.instance_info.state = VmState::Running;
         Ok(())
     }
 
     /// Sends a pause command to the vCPUs.
     pub fn pause_vm(&mut self) -> Result<(), VmmError> {
-        self.vm.pause_vcpus()?;
+        let kvm_vm = self
+            .vm
+            .as_kvm()
+            .ok_or_else(|| VmmError::NotSupportedOnVmType(self.vm.type_name()))?;
+        kvm_vm.pause_vcpus()?;
         self.instance_info.state = VmState::Paused;
         Ok(())
     }
@@ -494,12 +503,16 @@ impl Vmm {
         // state before we save device state, that interrupt will never be delivered to the guest
         // upon resuming from the snapshot.
         let device_states = self.device_manager.save();
-        let vcpu_states = self.vm.save_vcpu_states()?;
-        let kvm_state = self.vm.kvm().save_state();
+        let kvm_vm = self
+            .vm
+            .as_kvm()
+            .ok_or_else(|| MicrovmStateError::NotAllowed("save_state requires KVM".into()))?;
+        let vcpu_states = kvm_vm.save_vcpu_states()?;
+        let kvm_state = kvm_vm.kvm().save_state();
         let vm_state = {
             #[cfg(target_arch = "x86_64")]
             {
-                self.vm
+                kvm_vm
                     .save_state()
                     .map_err(MicrovmStateError::SaveVmState)?
             }
@@ -507,7 +520,7 @@ impl Vmm {
             {
                 let mpidrs = construct_kvm_mpidrs(&vcpu_states);
 
-                self.vm
+                kvm_vm
                     .save_state(&mpidrs)
                     .map_err(MicrovmStateError::SaveVmState)?
             }
@@ -524,7 +537,11 @@ impl Vmm {
 
     /// Dumps CPU configuration.
     pub fn dump_cpu_config(&mut self) -> Result<Vec<CpuConfiguration>, DumpCpuConfigError> {
-        self.vm.dump_cpu_config_states()
+        let kvm_vm = self
+            .vm
+            .as_kvm()
+            .ok_or_else(|| DumpCpuConfigError::NotAllowed("dump_cpu_config requires KVM".into()))?;
+        kvm_vm.dump_cpu_config_states()
     }
 
     /// Updates the path of the host file backing the emulated block device with id `drive_id`.
@@ -678,7 +695,7 @@ impl Vmm {
 
     /// Gets a reference to kvm-ioctls KvmVm
     #[cfg(feature = "gdb")]
-    pub fn vm(&self) -> &KvmVm {
+    pub fn vm(&self) -> &Vm {
         &self.vm
     }
 
@@ -689,8 +706,13 @@ impl Vmm {
         config: HotplugDeviceConfig,
         event_manager: &mut EventManager,
     ) -> Result<(), VmmActionError> {
+        let kvm_vm = self
+            .vm
+            .as_kvm()
+            .ok_or_else(|| VmmActionError::NotSupported("Operation requires KVM".to_string()))?
+            .clone();
         self.device_manager
-            .hotplug_device(self.vm.clone(), config, event_manager)
+            .hotplug_device(kvm_vm, config, event_manager)
     }
 
     /// Detaches a device after VM start
@@ -700,8 +722,13 @@ impl Vmm {
         device_id: VirtioDeviceId,
         event_manager: &mut EventManager,
     ) -> Result<(), VmmActionError> {
+        let kvm_vm = self
+            .vm
+            .as_kvm()
+            .ok_or_else(|| VmmActionError::NotSupported("Operation requires KVM".to_string()))?
+            .clone();
         self.device_manager
-            .hot_unplug_device(self.vm.clone(), device_id, event_manager)
+            .hot_unplug_device(kvm_vm, device_id, event_manager)
     }
 }
 
@@ -732,8 +759,10 @@ fn construct_kvm_mpidrs(vcpu_states: &[VcpuState]) -> Vec<u64> {
 
 impl Drop for Vmm {
     fn drop(&mut self) {
-        info!("Killing vCPU threads");
-        self.vm.shutdown_vcpus();
+        if let Some(kvm_vm) = self.vm.as_kvm() {
+            info!("Killing vCPU threads");
+            kvm_vm.shutdown_vcpus();
+        }
 
         if let Err(err) = std::io::stdin().lock().set_canon_mode() {
             warn!("Cannot set canonical mode for the terminal. {:?}", err);
@@ -744,7 +773,9 @@ impl Drop for Vmm {
             error!("Failed to write metrics while stopping: {}", err);
         }
 
-        if !self.vm.vcpus_handles().is_empty() {
+        if let Some(kvm_vm) = self.vm.as_kvm()
+            && !kvm_vm.vcpus_handles().is_empty()
+        {
             error!("Failed to tear down Vmm: the vcpu threads have not finished execution.");
         }
     }
@@ -756,40 +787,48 @@ impl MutEventSubscriber for Vmm {
         let source = event.fd();
         let event_set = event.event_set();
 
-        if source == self.vm.vcpus_exit_evt().as_raw_fd() && event_set == EventSet::IN {
-            // Exit event handling should never do anything more than call 'self.stop()'.
-            let _ = self.vm.vcpus_exit_evt().read();
+        match &self.vm {
+            Vm::Kvm(kvm_vm) => {
+                if source == kvm_vm.vcpus_exit_evt().as_raw_fd() && event_set == EventSet::IN {
+                    // Exit event handling should never do anything more than call 'self.stop()'.
+                    let _ = kvm_vm.vcpus_exit_evt().read();
 
-            let exit_code = 'exit_code: {
-                // Query each vcpu for their exit_code.
-                let handles = self.vm.vcpus_handles();
-                for handle in handles.iter() {
-                    // Drain all vcpu responses that are pending from this vcpu until we find an
-                    // exit status.
-                    for response in handle.response_receiver().try_iter() {
-                        if let VcpuResponse::Exited(status) = response {
-                            // It could be that some vcpus exited successfully while others
-                            // errored out. Thus make sure that error exits from one vcpu always
-                            // takes precedence over "ok" exits
-                            if status != FcExitCode::Ok {
-                                break 'exit_code status;
+                    let exit_code = 'exit_code: {
+                        // Query each vcpu for their exit_code.
+                        let handles = kvm_vm.vcpus_handles();
+                        for handle in handles.iter() {
+                            // Drain all vcpu responses that are pending from this vcpu
+                            // until we find an exit status.
+                            for response in handle.response_receiver().try_iter() {
+                                if let VcpuResponse::Exited(status) = response {
+                                    // It could be that some vcpus exited successfully while
+                                    // others errored out. Thus make sure that error exits from
+                                    // one vcpu always takes precedence over "ok" exits
+                                    if status != FcExitCode::Ok {
+                                        break 'exit_code status;
+                                    }
+                                }
                             }
                         }
-                    }
-                }
 
-                // No CPUs exited with error status code, report "Ok"
-                FcExitCode::Ok
-            };
-            self.stop(exit_code);
-        } else {
-            error!("Spurious EventManager event for handler: Vmm");
+                        // No CPUs exited with error status code, report "Ok"
+                        FcExitCode::Ok
+                    };
+                    self.stop(exit_code);
+                } else {
+                    error!("Spurious EventManager event for handler: Vmm");
+                }
+            }
         }
     }
 
     fn init(&mut self, ops: &mut EventOps) {
-        if let Err(err) = ops.add(Events::new(self.vm.vcpus_exit_evt(), EventSet::IN)) {
-            error!("Failed to register vmm exit event: {}", err);
+        match &self.vm {
+            Vm::Kvm(kvm_vm) => {
+                if let Err(err) = ops.add(Events::new(kvm_vm.vcpus_exit_evt(), EventSet::IN)) {
+                    error!("Failed to register vmm exit event: {}", err);
+                }
+            }
         }
     }
 }

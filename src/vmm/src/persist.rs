@@ -174,14 +174,18 @@ pub fn create_snapshot(
 
     snapshot_state_to_file(&microvm_state, &params.snapshot_path)?;
 
-    vmm.vm
-        .snapshot_memory_to_file(&params.mem_file_path, params.snapshot_type)?;
+    let kvm_vm = vmm.vm.as_kvm().ok_or_else(|| {
+        CreateSnapshotError::MicrovmState(MicrovmStateError::NotAllowed(
+            "snapshot requires KVM".into(),
+        ))
+    })?;
+    kvm_vm.snapshot_memory_to_file(&params.mem_file_path, params.snapshot_type)?;
 
     // We need to mark queues as dirty again for all activated devices. The reason we
     // do it here is that we don't mark pages as dirty during runtime
     // for queue objects.
     vmm.device_manager
-        .mark_virtio_queue_memory_dirty(vmm.vm.guest_memory());
+        .mark_virtio_queue_memory_dirty(kvm_vm.guest_memory());
 
     Ok(())
 }
@@ -744,9 +748,9 @@ mod tests {
                 ..Default::default()
             },
             #[cfg(target_arch = "aarch64")]
-            vm_state: vmm.vm.save_state(&mpidrs).unwrap(),
+            vm_state: vmm.vm.as_kvm().unwrap().save_state(&mpidrs).unwrap(),
             #[cfg(target_arch = "x86_64")]
-            vm_state: vmm.vm.save_state().unwrap(),
+            vm_state: vmm.vm.as_kvm().unwrap().save_state().unwrap(),
         };
 
         let serialized_data = bitcode::serialize(&microvm_state).unwrap();

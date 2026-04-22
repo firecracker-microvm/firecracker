@@ -111,6 +111,29 @@ pub enum VmError {
     MemoryError(#[from] MemoryError),
 }
 
+/// VM abstraction: either a KVM-based VM or (in the future) a Nitro Enclave.
+#[derive(Debug)]
+pub enum Vm {
+    /// KVM-backed virtual machine.
+    Kvm(Arc<KvmVm>),
+}
+
+impl Vm {
+    /// Returns the name of the VM type.
+    pub fn type_name(&self) -> &'static str {
+        match self {
+            Vm::Kvm(_) => "Kvm",
+        }
+    }
+
+    /// Returns a reference to the inner KVM VM, or `None` if this is not a KVM VM.
+    pub fn as_kvm(&self) -> Option<&Arc<KvmVm>> {
+        match self {
+            Vm::Kvm(v) => Some(v),
+        }
+    }
+}
+
 /// Contains KvmVm functions that are usable across CPU architectures
 impl KvmVm {
     /// Create a KVM VM
@@ -1034,7 +1057,7 @@ pub(crate) mod tests {
 
         msix_group.enable().unwrap();
         let state = msix_group.save();
-        let restored_group = MsixVectorGroup::restore(vm, &state).unwrap();
+        let restored_group = MsixVectorGroup::restore(vm.clone(), &state).unwrap();
 
         assert_eq!(msix_group.num_vectors(), restored_group.num_vectors());
         // Even if an MSI group is enabled, we don't save it as such. During restoration, the PCI

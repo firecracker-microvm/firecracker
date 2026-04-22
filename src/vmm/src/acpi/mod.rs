@@ -247,9 +247,9 @@ mod tests {
         // A mocke Vmm object with 128MBs of memory
         let vmm = default_vmm();
         let mut writer = AcpiTableWriter {
-            mem: vmm.vm.guest_memory(),
+            mem: vmm.vm.as_kvm().unwrap().guest_memory(),
         };
-        let mut resource_allocator = vmm.vm.resource_allocator();
+        let mut resource_allocator = vmm.vm.as_kvm().unwrap().resource_allocator();
 
         // This should succeed
         let mut sdt = MockSdt(vec![0; 4096]);

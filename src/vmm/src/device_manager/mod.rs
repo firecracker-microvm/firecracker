@@ -59,7 +59,7 @@ use crate::vmm_config::net::{NetBuilder, NetworkInterfaceConfig, NetworkInterfac
 use crate::vmm_config::pmem::{PmemConfig, PmemConfigError};
 use crate::vstate::bus::BusError;
 use crate::vstate::memory::GuestMemoryMmap;
-use crate::vstate::vm::KvmVm;
+use crate::vstate::vm::{KvmVm, Vm};
 
 /// ACPI device manager.
 pub mod acpi;
@@ -101,6 +101,8 @@ pub enum AttachDeviceError {
     CreateSerial(#[from] std::io::Error),
     /// Error attach PCI device: {0}
     PciTransport(#[from] PciManagerError),
+    /// Operation not supported on this VM type
+    NotSupported,
 }
 
 #[derive(Debug, thiserror::Error, displaydoc::Display)]
@@ -276,18 +278,29 @@ impl DeviceManager {
     /// Attaches a VirtioDevice device to the device manager and event manager.
     pub(crate) fn attach_virtio_device<T: 'static + VirtioDevice + MutEventSubscriber + Debug>(
         &mut self,
-        vm: &Arc<KvmVm>,
+        vm: &Vm,
         id: String,
         device: Arc<Mutex<T>>,
         cmdline: &mut Cmdline,
         event_manager: &mut EventManager,
         is_vhost_user: bool,
     ) -> Result<(), AttachDeviceError> {
+        let kvm_vm = vm
+            .as_kvm()
+            .cloned()
+            .ok_or(AttachDeviceError::NotSupported)?;
         if self.is_pci_enabled() {
             self.pci_devices
-                .attach_pci_virtio_device(vm, id, device, event_manager)?;
+                .attach_pci_virtio_device(&kvm_vm, id, device, event_manager)?;
         } else {
-            self.attach_mmio_virtio_device(vm, id, device, cmdline, event_manager, is_vhost_user)?;
+            self.attach_mmio_virtio_device(
+                &kvm_vm,
+                id,
+                device,
+                cmdline,
+                event_manager,
+                is_vhost_user,
+            )?;
         }
 
         Ok(())
@@ -822,7 +835,13 @@ pub(crate) mod tests {
         let mut cmdline = Cmdline::new(4096).unwrap();
         let mut event_manager = EventManager::new().unwrap();
         vmm.device_manager
-            .attach_legacy_devices_aarch64(&vmm.vm, &mut event_manager, &mut cmdline, None, None)
+            .attach_legacy_devices_aarch64(
+                vmm.vm.as_kvm().unwrap(),
+                &mut event_manager,
+                &mut cmdline,
+                None,
+                None,
+            )
             .unwrap();
         assert!(vmm.device_manager.mmio_devices.rtc.is_some());
         assert!(vmm.device_manager.mmio_devices.serial.is_none());
@@ -830,7 +849,13 @@ pub(crate) mod tests {
         let mut vmm = default_vmm();
         cmdline.insert("console", "/dev/blah").unwrap();
         vmm.device_manager
-            .attach_legacy_devices_aarch64(&vmm.vm, &mut event_manager, &mut cmdline, None, None)
+            .attach_legacy_devices_aarch64(
+                vmm.vm.as_kvm().unwrap(),
+                &mut event_manager,
+                &mut cmdline,
+                None,
+                None,
+            )
             .unwrap();
         assert!(vmm.device_manager.mmio_devices.rtc.is_some());
         assert!(vmm.device_manager.mmio_devices.serial.is_some());
@@ -872,7 +897,9 @@ pub(crate) mod tests {
     fn test_hotplug_block() {
         let mut evt_manager = EventManager::new().unwrap();
         let mut vmm = default_vmm();
-        vmm.device_manager.enable_pci(&vmm.vm).unwrap();
+        vmm.device_manager
+            .enable_pci(vmm.vm.as_kvm().unwrap())
+            .unwrap();
         let f = TempFile::new().unwrap();
 
         // Successful case
@@ -960,7 +987,9 @@ pub(crate) mod tests {
     #[test]
     fn test_hotplug_pmem() {
         let mut vmm = default_vmm();
-        vmm.device_manager.enable_pci(&vmm.vm).unwrap();
+        vmm.device_manager
+            .enable_pci(vmm.vm.as_kvm().unwrap())
+            .unwrap();
         let mut evt_manager = EventManager::new().unwrap();
         let f = TempFile::new().unwrap();
         f.as_file().set_len(0x1000).unwrap();
@@ -1019,7 +1048,9 @@ pub(crate) mod tests {
     #[test]
     fn test_hotplug_net() {
         let mut vmm = default_vmm();
-        vmm.device_manager.enable_pci(&vmm.vm).unwrap();
+        vmm.device_manager
+            .enable_pci(vmm.vm.as_kvm().unwrap())
+            .unwrap();
         let mut evt_manager = EventManager::new().unwrap();
 
         let mac = "AA:FC:00:00:00:01";
@@ -1078,7 +1109,9 @@ pub(crate) mod tests {
     fn test_unplug_root_block() {
         let mut evt_manager = EventManager::new().unwrap();
         let mut vmm = default_vmm();
-        vmm.device_manager.enable_pci(&vmm.vm).unwrap();
+        vmm.device_manager
+            .enable_pci(vmm.vm.as_kvm().unwrap())
+            .unwrap();
         let f = TempFile::new().unwrap();
 
         // Simulate a root block device added pre-boot by attaching it
@@ -1089,7 +1122,7 @@ pub(crate) mod tests {
         vmm.device_manager
             .pci_devices
             .attach_pci_virtio_device(
-                &vmm.vm,
+                vmm.vm.as_kvm().unwrap(),
                 "rootfs".to_string(),
                 Arc::new(Mutex::new(block)),
                 &mut evt_manager,
@@ -1108,7 +1141,9 @@ pub(crate) mod tests {
     fn test_unplug_root_pmem() {
         let mut evt_manager = EventManager::new().unwrap();
         let mut vmm = default_vmm();
-        vmm.device_manager.enable_pci(&vmm.vm).unwrap();
+        vmm.device_manager
+            .enable_pci(vmm.vm.as_kvm().unwrap())
+            .unwrap();
         let f = TempFile::new().unwrap();
         f.as_file().set_len(0x1000).unwrap();
 
@@ -1121,11 +1156,11 @@ pub(crate) mod tests {
             read_only: false,
             ..Default::default()
         };
-        let pmem = Pmem::new(vmm.vm.clone(), cfg).unwrap();
+        let pmem = Pmem::new(vmm.vm.as_kvm().unwrap().clone(), cfg).unwrap();
         vmm.device_manager
             .pci_devices
             .attach_pci_virtio_device(
-                &vmm.vm,
+                vmm.vm.as_kvm().unwrap(),
                 "pmem_root".to_string(),
                 Arc::new(Mutex::new(pmem)),
                 &mut evt_manager,

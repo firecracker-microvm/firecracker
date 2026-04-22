@@ -529,7 +529,7 @@ mod tests {
 
     fn msix_vector_group(nr_vectors: u16) -> Arc<MsixVectorGroup> {
         let vmm = default_vmm();
-        Arc::new(KvmVm::create_msix_group(vmm.vm.clone(), nr_vectors).unwrap())
+        Arc::new(KvmVm::create_msix_group(vmm.vm.as_kvm().unwrap().clone(), nr_vectors).unwrap())
     }
 
     #[test]

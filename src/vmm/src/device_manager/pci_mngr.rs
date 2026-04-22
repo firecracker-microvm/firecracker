@@ -108,7 +108,7 @@ impl PciDevices {
 
     fn attach_common(
         &mut self,
-        vm: &Arc<KvmVm>,
+        vm: &KvmVm,
         device_type: VirtioDeviceType,
         id: String,
         sbdf: PciSBDF,
@@ -650,7 +650,9 @@ mod tests {
         {
             let mut event_manager = EventManager::new().expect("Unable to create EventManager");
             let mut vmm = default_vmm();
-            vmm.device_manager.enable_pci(&vmm.vm).unwrap();
+            vmm.device_manager
+                .enable_pci(&vmm.vm.as_kvm().unwrap().clone())
+                .unwrap();
             let mut cmdline = default_kernel_cmdline();
 
             // Add a balloon device.
@@ -738,9 +740,10 @@ mod tests {
         let device_manager_state: device_manager::DevicesState =
             bitcode::deserialize(&serialized_data).unwrap();
         let vm_resources = &mut VmResources::default();
+        let kvm_vm = vmm.vm.as_kvm().unwrap().clone();
         let restore_args = PciDevicesConstructorArgs {
-            vm: &vmm.vm,
-            mem: vmm.vm.guest_memory(),
+            vm: &kvm_vm,
+            mem: kvm_vm.guest_memory(),
             vm_resources,
             instance_id: "microvm-id",
             event_manager: &mut event_manager,
