@@ -584,7 +584,8 @@ impl<'a> Persist<'a> for PciDevices {
             constructor_args
                 .vm_resources
                 .pmem
-                .add_device(device.clone());
+                .configs
+                .push(pmem_state.device_state.config.clone());
 
             pci_devices.restore_pci_device(
                 constructor_args.vm,
