@@ -431,7 +431,8 @@ fn check_skips_extern_c_fn() {
 
 #[test]
 fn fix_skips_extern_c_fn_in_impl() {
-    const GIVEN: &str = "struct S;\nimpl S {\n    extern \"C\" fn callback() {}\n    fn normal() {}\n}";
+    const GIVEN: &str =
+        "struct S;\nimpl S {\n    extern \"C\" fn callback() {}\n    fn normal() {}\n}";
     const EXPECTED: &str = "struct S;\nimpl S {\n    extern \"C\" fn callback() {}\n    #[log_instrument::instrument]\n    fn normal() {}\n}";
     fix(GIVEN, EXPECTED, None);
 }
