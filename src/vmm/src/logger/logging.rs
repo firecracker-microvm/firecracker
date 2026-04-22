@@ -53,6 +53,15 @@ impl Logger {
 
     /// Applies the given logger configuration the logger.
     pub fn update(&self, config: LoggerConfig) -> Result<(), LoggerUpdateError> {
+        // Open the file before acquiring the lock so that instrumented callees
+        // (e.g. open_file_nonblock with tracing enabled) can log without
+        // re-entering the locked Logger.
+        let file = config
+            .log_path
+            .map(|p| open_file_nonblock(&p))
+            .transpose()
+            .map_err(LoggerUpdateError)?;
+
         let mut guard = self.0.lock().unwrap();
         log::set_max_level(
             config
@@ -61,11 +70,9 @@ impl Logger {
                 .unwrap_or(DEFAULT_LEVEL),
         );
 
-        if let Some(log_path) = config.log_path {
-            let file = open_file_nonblock(&log_path).map_err(LoggerUpdateError)?;
-
+        if let Some(file) = file {
             guard.target = Some(file);
-        };
+        }
 
         if let Some(show_level) = config.show_level {
             guard.format.show_level = show_level;
