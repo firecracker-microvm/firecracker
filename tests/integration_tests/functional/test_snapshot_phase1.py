@@ -97,6 +97,14 @@ def test_snapshot_phase1(
     _, stdout, _ = vm.ssh.run(cmd)
     assert json.loads(stdout) == data_store
 
+    # Record guest CLOCK_MONOTONIC just before snapshotting. The cross-kernel
+    # restore test reads this back and asserts the clock didn't jump forward
+    # by the pipeline-elapsed time, which would indicate a kvm-clock regression
+    # (see a1fd537f9 "fix(kvm-clock): do not jump monotonic clock on restore").
+    vm.ssh.check_output(
+        "python3 -c 'import time; print(time.monotonic())' > /tmp/monotonic-before"
+    )
+
     # Copy snapshot files to be published to S3 for the 2nd part of the test
     # Create snapshot artifacts directory specific for the kernel version used.
     snapshot = vm.snapshot_full()
