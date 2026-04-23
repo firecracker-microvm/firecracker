@@ -45,6 +45,17 @@ if __name__ == "__main__":
         instances=instances_x86_64,
         platforms=DEFAULT_PLATFORMS,
     )
+
+    # https://github.com/firecracker-microvm/firecracker/blob/main/docs/snapshotting/snapshot-support.md#where-can-i-resume-my-snapshots
+    aarch64_platforms = [("al2023", "linux_6.1")]
+    pipeline.build_group(
+        "snapshot-create-aarch64",
+        commands,
+        timeout=30,
+        artifact_paths="snapshots/**/*",
+        instances=instances_aarch64,
+        platforms=aarch64_platforms,
+    )
     pipeline.add_step("wait")
 
     # allow-list of what instances can be restores on what other instances (in
@@ -53,9 +64,6 @@ if __name__ == "__main__":
         "m5n.metal": ["m6i.metal"],
         "m6i.metal": ["m5n.metal"],
     }
-
-    # https://github.com/firecracker-microvm/firecracker/blob/main/docs/kernel-policy.md#experimental-snapshot-compatibility-across-kernel-versions
-    aarch64_platforms = [("al2023", "linux_6.1")]
     aarch64_all_platforms = aarch64_platforms + restore_only_platforms
     perms_aarch64 = itertools.product(
         instances_aarch64, aarch64_platforms, instances_aarch64, aarch64_all_platforms
