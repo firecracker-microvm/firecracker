@@ -117,7 +117,11 @@ def test_snap_restore_from_artifacts(
     # in the snapshot root dir.
     logger.info("Working with snapshot artifacts in %s.", snapshot_dir)
 
-    vm = microvm_factory.build()
+    # Skip memory monitor: the balloon inflation below fragments the guest
+    # VMA via discard_range's MAP_FIXED anonymous mmap workaround (used only
+    # for private file-backed mappings from snapshot restore), defeating
+    # MemoryMonitor.is_guest_mem. Cross-kernel test, not overhead.
+    vm = microvm_factory.build(monitor_memory=False)
     vm.time_api_requests = False
     vm.spawn()
     logger.info("Loading microVM from snapshot...")
