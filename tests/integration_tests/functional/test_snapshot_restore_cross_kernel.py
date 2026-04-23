@@ -11,6 +11,7 @@ import pytest
 
 from framework.defs import FC_WORKSPACE_DIR
 from framework.utils import (
+    check_entropy,
     generate_mmds_get_request,
     generate_mmds_session_token,
     guest_run_fio_iteration,
@@ -124,5 +125,8 @@ def test_snap_restore_from_artifacts(
 
     logger.info("Testing block device via fio...")
     guest_run_fio_iteration(vm.ssh, 0)
+
+    logger.info("Testing entropy...")
+    check_entropy(vm.ssh)
 
     vm.kill()
