@@ -38,7 +38,21 @@ if __name__ == "__main__":
         "mkdir -pv snapshots",
         "tar cSvf snapshots/{instance}_{kv}.tar snapshot_artifacts",
     ]
-    pipeline.build_group(
+
+    def create_step_key(instance, kv):
+        """Buildkite key for a snapshot-create step.
+
+        Keys may only contain [A-Za-z0-9_\\-:], so dots in instance names
+        (m5n.metal) and kernel versions (linux_5.10) are sanitized to
+        underscores. Tarball paths stay unchanged.
+        """
+        return f"snap-create-{instance}-{kv}".replace(".", "_")
+
+    # Key each snapshot-create step so restore steps can depend on the
+    # specific source snapshot they need, rather than waiting for every
+    # snapshot-create step to finish. `build_group` doesn't sanitize
+    # substituted key values, so we set the final key after it fans out.
+    x86_create = pipeline.build_group(
         "snapshot-create",
         commands,
         timeout=30,
@@ -49,7 +63,7 @@ if __name__ == "__main__":
 
     # https://github.com/firecracker-microvm/firecracker/blob/main/docs/snapshotting/snapshot-support.md#where-can-i-resume-my-snapshots
     aarch64_platforms = [("al2023", "linux_6.1")]
-    pipeline.build_group(
+    aarch64_create = pipeline.build_group(
         "snapshot-create-aarch64",
         commands,
         timeout=30,
@@ -57,7 +71,9 @@ if __name__ == "__main__":
         instances=instances_aarch64,
         platforms=aarch64_platforms,
     )
-    pipeline.add_step("wait")
+    for grp in (x86_create, aarch64_create):
+        for s in grp["steps"]:
+            s["key"] = create_step_key(s["agents"]["instance"], s["agents"]["kv"])
 
     # allow-list of what instances can be restored on what other instances (in
     # addition to itself). aarch64 is restricted to same-instance restores.
@@ -111,6 +127,7 @@ if __name__ == "__main__":
             "label": f"snapshot-restore-src-{src_instance}-{src_kv}-dst-{dst_instance}-{dst_kv}",
             "timeout": 30,
             "agents": {"instance": dst_instance, "kv": dst_kv, "os": dst_os},
+            "depends_on": [create_step_key(src_instance, src_kv)],
             **per_instance,
         }
         steps.append(step)
