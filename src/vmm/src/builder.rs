@@ -1315,6 +1315,7 @@ pub(crate) mod tests {
             path_on_host: "".into(),
             root_device: true,
             read_only: true,
+            ..Default::default()
         }];
         let mut vmm = default_vmm();
         let mut cmdline = default_kernel_cmdline();

@@ -619,6 +619,21 @@ def test_rate_limiters_api_config(uvm_plain, io_engine):
         },
     )
 
+    # Test the PMEM rate limiting API.
+
+    # Test pmem with bw and ops rate-limiting.
+    pmem_fs = drive_tools.FilesystemFile(
+        os.path.join(test_microvm.fsfiles, "pmem_rl"), size=2
+    )
+    test_microvm.api.pmem.put(
+        id="pmem_rl",
+        path_on_host=test_microvm.create_jailed_resource(pmem_fs.path),
+        rate_limiter={
+            "bandwidth": {"size": 1000000, "refill_time": 100},
+            "ops": {"size": 1, "refill_time": 100},
+        },
+    )
+
 
 def test_api_patch_pre_boot(uvm_plain, io_engine):
     """
@@ -668,6 +683,15 @@ def test_api_patch_pre_boot(uvm_plain, io_engine):
     # Patching net before boot is not allowed.
     with pytest.raises(RuntimeError, match=NOT_SUPPORTED_BEFORE_START):
         test_microvm.api.network.patch(iface_id=iface_id)
+
+    # Patching pmem before boot is not allowed.
+    # Using nonexistents pmem device is fine since the failure should happen
+    # at API layer
+    with pytest.raises(RuntimeError, match=NOT_SUPPORTED_BEFORE_START):
+        test_microvm.api.pmem.patch(
+            id="nonexistent",
+            rate_limiter={"ops": {"size": 1, "refill_time": 100}},
+        )
 
 
 def test_negative_api_patch_post_boot(uvm_plain, io_engine):
@@ -1151,6 +1175,105 @@ def test_pmem_api(uvm_plain_any, rootfs):
         vm.api.pmem.put(id="pmem")
 
 
+def test_pmem_rate_limiter_api(uvm_plain_any, rootfs):
+    """
+    Test virtio-pmem rate limiter PUT and PATCH API commands.
+    """
+    vm = uvm_plain_any
+    vm.spawn()
+    vm.basic_config(add_root_device=False)
+
+    pmem_size_mb = 2
+    pmem_path_on_host = drive_tools.FilesystemFile(
+        os.path.join(vm.fsfiles, "scratch"), size=pmem_size_mb
+    )
+    pmem_file_path = vm.create_jailed_resource(pmem_path_on_host.path)
+
+    # PUT pmem with rate limiter at creation time.
+    vm.api.pmem.put(
+        id="pmem0",
+        path_on_host=pmem_file_path,
+        rate_limiter={
+            "bandwidth": {"size": 1000000, "refill_time": 100},
+            "ops": {"size": 10, "refill_time": 1000},
+        },
+    )
+
+    # Verify rate limiter is reflected in vm config.
+    response = vm.api.vm_config.get().json()
+    pmem_cfg = response["pmem"][0]
+    assert pmem_cfg["rate_limiter"]["bandwidth"]["size"] == 1000000
+    assert pmem_cfg["rate_limiter"]["ops"]["size"] == 10
+
+    # PUT pmem without rate limiter (overwrite).
+    vm.api.pmem.put(
+        id="pmem0",
+        path_on_host=pmem_file_path,
+    )
+    response = vm.api.vm_config.get().json()
+    assert response["pmem"][0]["rate_limiter"] is None
+
+    # PATCH pmem before boot is not allowed.
+    with pytest.raises(RuntimeError, match=NOT_SUPPORTED_BEFORE_START):
+        vm.api.pmem.patch(
+            id="pmem0",
+            rate_limiter={
+                "bandwidth": {"size": 5000, "refill_time": 100},
+            },
+        )
+
+    # Boot with pmem as rootfs.
+    vm.add_pmem("rootfs", rootfs, True, True)
+    vm.start()
+
+    # PUT pmem after boot is not allowed.
+    with pytest.raises(RuntimeError, match=NOT_SUPPORTED_AFTER_START):
+        vm.api.pmem.put(id="pmem0", path_on_host=pmem_file_path)
+
+    # PATCH pmem rate limiter after boot should succeed.
+    vm.api.pmem.patch(
+        id="pmem0",
+        rate_limiter={
+            "bandwidth": {"size": 5000, "refill_time": 100},
+            "ops": {"size": 500, "refill_time": 100},
+        },
+    )
+
+    # PATCH with only bandwidth should succeed.
+    vm.api.pmem.patch(
+        id="pmem0",
+        rate_limiter={
+            "bandwidth": {"size": 2000000, "refill_time": 200},
+        },
+    )
+
+    # PATCH with only ops should succeed.
+    vm.api.pmem.patch(
+        id="pmem0",
+        rate_limiter={
+            "ops": {"size": 100, "refill_time": 500},
+        },
+    )
+
+    # PATCH without rate_limiter field should succeed.
+    vm.api.pmem.patch(id="pmem0")
+
+    # PATCH with unknown fields should fail.
+    with pytest.raises(RuntimeError, match="unknown field"):
+        vm.api.pmem.patch(
+            id="pmem0",
+            path_on_host="foo",
+            rate_limiter={"ops": {"size": 1, "refill_time": 100}},
+        )
+
+    # PATCH non-existent device should fail.
+    with pytest.raises(RuntimeError, match="not found"):
+        vm.api.pmem.patch(
+            id="nonexistent",
+            rate_limiter={"ops": {"size": 1, "refill_time": 100}},
+        )
+
+
 def test_get_full_config_after_restoring_snapshot(microvm_factory, uvm_nano):
     """
     Test the configuration of a microVM after restoring from a snapshot.
@@ -1204,6 +1327,7 @@ def test_get_full_config_after_restoring_snapshot(microvm_factory, uvm_nano):
             "path_on_host": "/" + uvm_nano.rootfs_file.name,
             "root_device": False,
             "read_only": False,
+            "rate_limiter": None,
         }
     ]
 
@@ -1339,6 +1463,7 @@ def test_get_full_config(uvm_plain):
             "path_on_host": "/" + test_microvm.rootfs_file.name,
             "root_device": False,
             "read_only": False,
+            "rate_limiter": None,
         }
     ]
 

@@ -157,6 +157,100 @@ VMs, which could be exploited as a side channel by an attacker inside the
 microVM. Users that want to use `virtio-pmem` to share memory are encouraged to
 carefully evaluate the security risk according to their threat model.
 
+### Limiting `msync` write bandwidth
+
+When a guest issues a flush request to the `virtio-pmem` device (via the
+`VIRTIO_PMEM_REQ_TYPE_FLUSH`), Firecracker calls `msync(MS_SYNC)` on the backing
+file to persist dirty pages to disk. A malicious guest can issue a high volume
+of flush requests, leading to excessive host I/O usage.
+
+There are two ways to mitigate this:
+
+#### Firecracker rate limiter
+
+The `virtio-pmem` device supports a built-in rate limiter, identical to the one
+available for block devices. It throttles flush requests using two token
+buckets:
+
+- `bandwidth` — limits the total number of bytes sent to the `msync` per refill
+  interval. Each flush consumes tokens equal to the **full backing file size**,
+  because `msync` is called over the entire mapped region. For example, with a
+  256 MiB backing file and `size` set to `268435456` (256 MiB), at most one
+  flush is allowed per `refill_time` milliseconds.
+- `ops` — limits the number of `msync` calls per refill interval (after
+  coalescing multiple flush requests within a single queue notification into one
+  call).
+
+The rate limiter can be configured at device creation time. The following
+example allows at most 1 flush per second for a 256 MiB backing file
+(`bandwidth.size` = 256 MiB = 268435456 bytes), and at most 10 `msync`
+operations per second:
+
+```json
+"pmem": [
+    {
+      "id": "pmem0",
+      "path_on_host": "./backing_file_256m",
+      "rate_limiter": {
+        "bandwidth": { "size": 268435456, "refill_time": 1000 },
+        "ops": { "size": 10, "refill_time": 1000 }
+      }
+    }
+]
+```
+
+It can also be updated at runtime via the API:
+
+```console
+curl --unix-socket $socket_location -i \
+    -X PATCH 'http://localhost/pmem/pmem0' \
+    -H 'Content-Type: application/json' \
+    -d '{
+         "id": "pmem0",
+         "rate_limiter": {
+           "bandwidth": { "size": 268435456, "refill_time": 1000 },
+           "ops": { "size": 10, "refill_time": 1000 }
+         }
+    }'
+```
+
+> [!NOTE]
+>
+> Since each flush always costs exactly one op and exactly `file_size` bytes,
+> the `bandwidth` and `ops` buckets are correlated: setting `bandwidth.size` to
+> `file_size` with a given `refill_time` is equivalent to setting `ops.size` to
+> `1` with the same `refill_time` — both allow one flush per interval. In
+> practice, configuring only one of the two buckets is sufficient. Use `ops` for
+> a simple "N flushes per interval" limit, or `bandwidth` if you want to express
+> the limit in terms of I/O throughput.
+
+#### Cgroup v2 IO controller
+
+Alternatively, the **cgroup v2 IO controller** can throttle write bandwidth on
+the block device that hosts the `virtio-pmem` backing file:
+
+```bash
+# Identify the block device MAJOR:MINOR for the backing file
+dev=$(stat -c '%d' /path/to/backing_file)
+echo "$((dev >> 8)):$((dev & 0xff))"
+
+# Enable the io controller
+echo "+io" | sudo tee /sys/fs/cgroup/<vm_cgroup>/cgroup.subtree_control
+
+# Limit write bandwidth (e.g. 10 MB/s) on device MAJOR:MINOR
+echo "MAJOR:MINOR wbps=10485760" | sudo tee /sys/fs/cgroup/<vm_cgroup>/io.max
+```
+
+> [!NOTE]
+>
+> - This requires **cgroup v2** with a filesystem that supports cgroup-aware
+>   writeback (e.g. ext4, btrfs).
+> - The limit applies to all I/O from the cgroup to that device, not only
+>   `msync` flushes.
+> - When using the [Jailer](jailer.md), the Firecracker process is already
+>   placed in a cgroup. You can configure `io.max` on that cgroup before
+>   starting the microVM.
+
 ## Snapshot support
 
 `virtio-pmem` works with snapshot functionality of Firecracker. Snapshot will
@@ -184,10 +278,11 @@ if `virtio-pmem` is used for memory sharing.
 
 ## Memory usage
 
-> [!NOTE] `virtio-pmem` memory can be paged out by the host, because it is
-> backed by a file with `MAP_SHARED` mapping type. To prevent this from
-> happening, you can use `vmtouch` or similar tool to lock file pages from being
-> evicted.
+> [!NOTE]
+>
+> `virtio-pmem` memory can be paged out by the host, because it is backed by a
+> file with `MAP_SHARED` mapping type. To prevent this from happening, you can
+> use `vmtouch` or similar tool to lock file pages from being evicted.
 
 `virtio-pmem` resides in host memory and does increase the maximum possible
 memory usage of a VM since now VM can use all of its RAM and access all of the
