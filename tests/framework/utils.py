@@ -555,13 +555,15 @@ def start_screen_process(screen_log, session_name, binary_path, binary_params):
 
 
 def guest_run_fio_iteration(ssh_connection, iteration):
-    """Start FIO workload into a microVM."""
-    fio = """fio --filename=/dev/vda --direct=1 --rw=randread --bs=4k \
-        --ioengine=libaio --iodepth=16 --runtime=10 --numjobs=4 --time_based \
-        --group_reporting --name=iops-test-job --eta-newline=1 --readonly \
-        --output /tmp/fio{} > /dev/null &""".format(iteration)
-    exit_code, _, stderr = ssh_connection.run(fio)
-    assert exit_code == 0, stderr
+    """Run FIO workload on a microVM and verify IO completed successfully."""
+    fio = (
+        "fio --filename=/dev/vda --direct=1 --rw=randread --bs=4k "
+        "--ioengine=libaio --iodepth=16 --runtime=10 --numjobs=4 --time_based "
+        "--group_reporting --name=iops-test-job --readonly --output-format=json"
+    )
+    _, stdout, _ = ssh_connection.check_output(fio)
+    total_read = json.loads(stdout)["jobs"][0]["read"]["io_bytes"]
+    assert total_read > 0, f"fio iteration {iteration}: no bytes read from block device"
 
 
 def check_filesystem(ssh_connection, disk_fmt, disk):
