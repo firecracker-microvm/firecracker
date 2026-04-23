@@ -5,7 +5,6 @@
 
 import json
 import logging
-import platform
 from pathlib import Path
 
 import pytest
@@ -71,12 +70,9 @@ def get_snapshot_dirs():
     """Get all the snapshot directories"""
     snapshot_root_name = "snapshot_artifacts"
     snapshot_root_dir = Path(FC_WORKSPACE_DIR) / snapshot_root_name
-    cpu_templates = []
-    if platform.machine() == "x86_64":
-        cpu_templates = ["None"]
-    cpu_templates += get_supported_cpu_templates()
+    cpu_templates = ["None"] + get_supported_cpu_templates()
     for cpu_template in cpu_templates:
-        for snapshot_dir in snapshot_root_dir.glob(f"*_{cpu_template}_guest_snapshot"):
+        for snapshot_dir in snapshot_root_dir.glob(f"**/*_{cpu_template}_guest_snapshot"):
             assert snapshot_dir.is_dir()
             yield pytest.param(snapshot_dir, id=snapshot_dir.name)
 
