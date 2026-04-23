@@ -58,6 +58,8 @@ def test_snapshot_phase1(
     configure_mmds(vm, ["eth3"], version="V2")
     # Add a memory balloon.
     vm.api.balloon.put(amount_mib=0, deflate_on_oom=True, stats_polling_interval_s=1)
+    # Add an entropy device.
+    vm.api.entropy.put()
 
     vm.start()
 
