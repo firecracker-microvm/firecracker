@@ -27,6 +27,23 @@ from integration_tests.functional.test_balloon import (
 pytestmark = pytest.mark.nonci
 
 
+def _check_guest_monotonic_did_not_jump(ssh_connection, max_delta_sec=10):
+    # Phase1 recorded CLOCK_MONOTONIC to /tmp/monotonic-before just before
+    # snapshotting. Firecracker is supposed to resume MONOTONIC from capture
+    # time, so the delta here should be near zero regardless of how long
+    # phase1 and restore are apart in the pipeline. A large delta indicates
+    # MONOTONIC jumped forward across the snapshot - a kvm-clock regression
+    # that could surface only on some host-kernel combinations.
+    _, before_str, _ = ssh_connection.check_output("cat /tmp/monotonic-before")
+    _, after_str, _ = ssh_connection.check_output(
+        "python3 -c 'import time; print(time.monotonic())'"
+    )
+    delta = float(after_str.strip()) - float(before_str.strip())
+    assert (
+        0 <= delta <= max_delta_sec
+    ), f"Guest MONOTONIC jumped {delta:.3f}s across snapshot (max {max_delta_sec}s)"
+
+
 def _test_balloon(microvm):
     # Check memory usage.
     first_reading = get_stable_rss_mem(microvm)
@@ -113,6 +130,12 @@ def test_snap_restore_from_artifacts(
     for idx, iface in enumerate(vm.iface.values()):
         logger.info("Testing net device %s...", iface["iface"].dev_name)
         vm.ssh_iface(idx).check_output("true")
+
+    # Check MONOTONIC before any other post-restore activity, so the delta
+    # is bounded by the few seconds of post-resume setup rather than the
+    # full test runtime.
+    logger.info("Testing guest MONOTONIC did not jump across snapshot...")
+    _check_guest_monotonic_did_not_jump(vm.ssh)
 
     logger.info("Testing data store behavior...")
     _test_mmds(vm, vm.iface["eth3"]["iface"])
