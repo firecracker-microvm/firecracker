@@ -23,10 +23,11 @@ if __name__ == "__main__":
         "m6i.metal",
         "m7i.metal-24xl",
         "m7i.metal-48xl",
+        "m8i.metal-48xl",
         "m6a.metal",
         "m7a.metal-48xl",
     ]
-    instances_aarch64 = ["m7g.metal"]
+    instances_aarch64 = ["m6g.metal", "m7g.metal", "m8g.metal-24xl"]
     restore_only_platforms = [("al2023", "linux_6.18")]
     x86_64_platforms = DEFAULT_PLATFORMS + restore_only_platforms
     commands = [
@@ -58,8 +59,8 @@ if __name__ == "__main__":
     )
     pipeline.add_step("wait")
 
-    # allow-list of what instances can be restores on what other instances (in
-    # addition to itself)
+    # allow-list of what instances can be restored on what other instances (in
+    # addition to itself). aarch64 is restricted to same-instance restores.
     supported = {
         "m5n.metal": ["m6i.metal"],
         "m6i.metal": ["m5n.metal"],
