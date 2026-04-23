@@ -12,6 +12,7 @@ import pytest
 from framework.defs import FC_WORKSPACE_DIR
 from framework.utils import (
     check_entropy,
+    check_network_data_integrity,
     generate_mmds_get_request,
     generate_mmds_session_token,
     guest_run_fio_iteration,
@@ -136,6 +137,9 @@ def test_snap_restore_from_artifacts(
     # full test runtime.
     logger.info("Testing guest MONOTONIC did not jump across snapshot...")
     _check_guest_monotonic_did_not_jump(vm.ssh)
+
+    logger.info("Testing network data integrity...")
+    check_network_data_integrity(vm.ssh)
 
     logger.info("Testing data store behavior...")
     _test_mmds(vm, vm.iface["eth3"]["iface"])

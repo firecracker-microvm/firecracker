@@ -2,7 +2,9 @@
 # SPDX-License-Identifier: Apache-2.0
 """Generic utility functions that are used in the framework."""
 
+import base64
 import errno
+import hashlib
 import json
 import logging
 import os
@@ -576,6 +578,19 @@ def check_filesystem(ssh_connection, disk_fmt, disk):
 def check_entropy(ssh_connection):
     """Check that we can get random numbers from /dev/hwrng"""
     ssh_connection.check_output("dd if=/dev/hwrng of=/dev/null bs=4096 count=1")
+
+
+def check_network_data_integrity(ssh_connection, size_bytes=64 * 1024):
+    """Push random bytes to the guest over SSH and verify the guest-side sha256
+    matches the host-side hash. Exercises the virtio-net RX path end-to-end."""
+    payload = os.urandom(size_bytes)
+    host_hash = hashlib.sha256(payload).hexdigest()
+    b64 = base64.b64encode(payload).decode("ascii")
+    _, stdout, _ = ssh_connection.check_output(f"echo {b64} | base64 -d | sha256sum")
+    guest_hash = stdout.strip().split()[0]
+    assert (
+        guest_hash == host_hash
+    ), f"Guest hash {guest_hash} does not match host hash {host_hash}"
 
 
 @retry(wait=wait_fixed(0.5), stop=stop_after_attempt(5), reraise=True)
