@@ -6,7 +6,6 @@ Creates snapshots for other tests like test_snapshot_restore_cross_kernel.py
 """
 
 import json
-import platform
 import re
 
 import pytest
@@ -17,9 +16,6 @@ from framework.utils import (
     generate_mmds_session_token,
 )
 from framework.utils_cpu_templates import get_cpu_template_name
-
-if platform.machine() != "x86_64":
-    pytestmark = pytest.mark.skip("only x86_64 architecture supported")
 
 # Default IPv4 address to route MMDS requests.
 IPV4_ADDRESS = "169.254.169.254"
