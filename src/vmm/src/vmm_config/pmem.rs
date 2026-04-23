@@ -6,6 +6,7 @@ use std::sync::{Arc, Mutex};
 use serde::{Deserialize, Serialize};
 
 use crate::devices::virtio::pmem::device::{Pmem, PmemError};
+use crate::vmm_config::RateLimiterConfig;
 
 /// Errors associated wit the operations allowed on a pmem device
 #[derive(Debug, thiserror::Error, displaydoc::Display)]
@@ -18,6 +19,19 @@ pub enum PmemConfigError {
     CreateDevice(#[from] PmemError),
     /// Error accessing underlying file: {0}
     File(std::io::Error),
+    /// Unable to patch the pmem device: {0} Please verify the request arguments.
+    DeviceUpdate(crate::VmmError),
+}
+
+/// Configuration for updating a pmem device at runtime.
+/// Only the rate limiter can be updated.
+#[derive(Debug, Default, PartialEq, Eq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct PmemDeviceUpdateConfig {
+    /// The pmem device ID.
+    pub id: String,
+    /// New rate limiter config.
+    pub rate_limiter: Option<RateLimiterConfig>,
 }
 
 /// Use this structure to setup a Pmem device before boothing the kernel.
@@ -34,6 +48,8 @@ pub struct PmemConfig {
     /// Map the file as read only
     #[serde(default)]
     pub read_only: bool,
+    /// Rate Limiter for flush operations.
+    pub rate_limiter: Option<RateLimiterConfig>,
 }
 
 /// Wrapper for the collection that holds all the Pmem devices.
@@ -119,6 +135,7 @@ mod tests {
             path_on_host: dummy_path,
             root_device: true,
             read_only: false,
+            ..Default::default()
         };
         builder.build(config.clone(), false).unwrap();
         assert_eq!(builder.devices.len(), 1);
@@ -143,6 +160,7 @@ mod tests {
             path_on_host: dummy_path,
             root_device: true,
             read_only: false,
+            ..Default::default()
         };
         builder.build(config.clone(), false).unwrap();
 
@@ -165,6 +183,7 @@ mod tests {
             path_on_host: dummy_path,
             root_device: true,
             read_only: false,
+            ..Default::default()
         };
         assert!(matches!(
             builder.build(config, true).unwrap_err(),

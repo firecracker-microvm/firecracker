@@ -141,7 +141,7 @@ use crate::devices::virtio::balloon::{
 };
 use crate::devices::virtio::block::BlockError;
 use crate::devices::virtio::block::device::Block;
-use crate::devices::virtio::device::VirtioDeviceType;
+use crate::devices::virtio::device::{VirtioDevice, VirtioDeviceType};
 use crate::devices::virtio::mem::device::VirtioMem;
 use crate::devices::virtio::mem::{VIRTIO_MEM_DEV_ID, VirtioMemError, VirtioMemStatus};
 use crate::devices::virtio::net::Net;
@@ -449,6 +449,32 @@ impl Vmm {
         }
     }
 
+    /// Check if the VM has any devices without snapshot support
+    pub fn check_unsnapshottable_devices(&self) -> Result<(), MicrovmStateError> {
+        let mut tuples = Vec::new();
+        self.device_manager
+            .for_each_virtio_device(|device_type, device| {
+                if let VirtioDeviceType::Block = device_type
+                    && let Some(b) = device.as_any().downcast_ref::<Block>()
+                    && b.is_vhost_user()
+                {
+                    tuples.push(("vhost-user-block", b.id().to_owned()));
+                }
+            });
+        if tuples.is_empty() {
+            Ok(())
+        } else {
+            let msg = tuples
+                .iter()
+                .map(|(t, id)| format!("{t}(id: {id})"))
+                .collect::<Vec<_>>()
+                .join(",");
+            Err(MicrovmStateError::NotAllowed(format!(
+                "Devices without snapshot support are present: {msg}"
+            )))
+        }
+    }
+
     /// Starts the microVM vcpus.
     ///
     /// # Errors
@@ -555,7 +581,8 @@ impl Vmm {
 
     /// Saves the state of a paused Microvm.
     pub fn save_state(&mut self, vm_info: &VmInfo) -> Result<MicrovmState, MicrovmStateError> {
-        use self::MicrovmStateError::SaveVmState;
+        self.check_unsnapshottable_devices()?;
+
         // We need to save device state before saving KVM state.
         // Some devices, (at the time of writing this comment block device with async engine)
         // might modify the VirtIO transport and send an interrupt to the guest. If we save KVM
@@ -567,13 +594,17 @@ impl Vmm {
         let vm_state = {
             #[cfg(target_arch = "x86_64")]
             {
-                self.vm.save_state().map_err(SaveVmState)?
+                self.vm
+                    .save_state()
+                    .map_err(MicrovmStateError::SaveVmState)?
             }
             #[cfg(target_arch = "aarch64")]
             {
                 let mpidrs = construct_kvm_mpidrs(&vcpu_states);
 
-                self.vm.save_state(&mpidrs).map_err(SaveVmState)?
+                self.vm
+                    .save_state(&mpidrs)
+                    .map_err(MicrovmStateError::SaveVmState)?
             }
         };
 
@@ -674,6 +705,20 @@ impl Vmm {
     pub fn update_vhost_user_block_config(&mut self, drive_id: &str) -> Result<(), VmmError> {
         self.device_manager
             .with_virtio_device(drive_id, |block: &mut Block| block.update_config())??;
+        Ok(())
+    }
+
+    /// Updates the rate limiter parameters for pmem device with `pmem_id` id.
+    pub fn update_pmem_rate_limiter(
+        &mut self,
+        pmem_id: &str,
+        rl_bytes: BucketUpdate,
+        rl_ops: BucketUpdate,
+    ) -> Result<(), VmmError> {
+        self.device_manager
+            .with_virtio_device(pmem_id, |pmem: &mut Pmem| {
+                pmem.update_rate_limiter(rl_bytes, rl_ops)
+            })?;
         Ok(())
     }
 

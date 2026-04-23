@@ -37,7 +37,6 @@ use crate::devices::virtio::vsock::persist::{
     VsockConstructorArgs, VsockState, VsockUdsConstructorArgs,
 };
 use crate::devices::virtio::vsock::{Vsock, VsockUnixBackend};
-use crate::logger::warn;
 use crate::mmds::data_store::MmdsVersion;
 use crate::resources::VmResources;
 use crate::snapshot::Persist;
@@ -256,20 +255,17 @@ impl<'a> Persist<'a> for MMIODeviceManager {
                 // Both virtio-block and vhost-user-block share same device type.
                 VirtioDeviceType::Block => {
                     let block = locked_device.as_mut_any().downcast_mut::<Block>().unwrap();
-                    if block.is_vhost_user() {
-                        warn!(
-                            "Skipping vhost-user-block device. VhostUserBlock does not support \
-                             snapshotting yet"
-                        );
-                    } else {
-                        let device_state = block.save();
-                        states.block_devices.push(VirtioDeviceState {
-                            device_id,
-                            device_state,
-                            transport_state,
-                            device_info,
-                        });
-                    }
+                    assert!(
+                        !block.is_vhost_user(),
+                        "vhost-user-block does not support snapshotting yet"
+                    );
+                    let device_state = block.save();
+                    states.block_devices.push(VirtioDeviceState {
+                        device_id,
+                        device_state,
+                        transport_state,
+                        device_info,
+                    });
                 }
                 VirtioDeviceType::Net => {
                     let net = locked_device.as_mut_any().downcast_mut::<Net>().unwrap();
@@ -739,6 +735,7 @@ mod tests {
                 path_on_host: "".into(),
                 root_device: true,
                 read_only: true,
+                ..Default::default()
             }];
             _pmem_files =
                 insert_pmem_devices(&mut vmm, &mut cmdline, &mut event_manager, pmem_configs);
@@ -843,7 +840,8 @@ mod tests {
       "id": "pmem",
       "path_on_host": "{}",
       "root_device": true,
-      "read_only": true
+      "read_only": true,
+      "rate_limiter": null
     }}
   ],
   "memory-hotplug": {{

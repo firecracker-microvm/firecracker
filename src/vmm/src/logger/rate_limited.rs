@@ -6,8 +6,10 @@
 //! `LogRateLimiter` instance via a `static`, so flooding one callsite does
 //! not suppress unrelated log messages.
 
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Mutex, OnceLock};
 
+use crate::logger::{IncMetric, METRICS};
 use crate::rate_limiter::TokenBucket;
 
 /// Maximum number of messages allowed per refill period.
@@ -25,6 +27,7 @@ pub struct LogRateLimiter {
     inner: OnceLock<Mutex<TokenBucket>>,
     burst: u64,
     refill_time_ms: u64,
+    suppressed: AtomicU64,
 }
 
 impl Default for LogRateLimiter {
@@ -44,6 +47,7 @@ impl LogRateLimiter {
             inner: OnceLock::new(),
             burst,
             refill_time_ms,
+            suppressed: AtomicU64::new(0),
         }
     }
 
@@ -63,6 +67,26 @@ impl LogRateLimiter {
             bucket.reduce(1),
             crate::rate_limiter::BucketReduction::Success
         )
+    }
+
+    /// Check if log is should be emitted and print a warning if it was
+    /// suppressed before. Marked to be never inlined since it is called in a
+    /// lot of macros and would blow up the binary size otherwise.
+    #[inline(never)]
+    pub fn check_maybe_suppressed(&self) -> bool {
+        if self.check() {
+            let suppressed = self.suppressed.swap(0, Ordering::Relaxed);
+            if 0 < suppressed {
+                crate::logger::warn_unrestricted!(
+                    "{suppressed} messages were suppressed due to rate limiting"
+                );
+            }
+            true
+        } else {
+            self.suppressed.fetch_add(1, Ordering::Relaxed);
+            METRICS.logger.rate_limited_log_count.inc();
+            false
+        }
     }
 }
 
