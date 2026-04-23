@@ -25,40 +25,43 @@ pub fn compare(
     curr: Fingerprint,
     filters: Vec<FingerprintField>,
 ) -> Result<(), FingerprintCompareError> {
-    let compare =
-        |field: &FingerprintField, val1, val2| -> Option<Result<String, serde_json::Error>> {
-            if val1 != val2 {
-                let diff = Diff {
-                    name: format!("{field:#?}"),
-                    prev: val1,
-                    curr: val2,
-                };
-                Some(serde_json::to_string_pretty(&diff))
-            } else {
-                None
-            }
-        };
+    fn compare_field<T: Serialize + PartialEq>(
+        field: &FingerprintField,
+        val1: &T,
+        val2: &T,
+    ) -> Option<Result<String, serde_json::Error>> {
+        if val1 != val2 {
+            let diff = Diff {
+                name: format!("{field:#?}"),
+                prev: val1,
+                curr: val2,
+            };
+            Some(serde_json::to_string_pretty(&diff))
+        } else {
+            None
+        }
+    }
 
     let results = filters
         .into_iter()
         .filter_map(|filter| {
             match filter {
-                FingerprintField::firecracker_version => compare(
+                FingerprintField::firecracker_version => compare_field(
                     &filter,
                     &prev.firecracker_version,
                     &curr.firecracker_version,
                 ),
                 FingerprintField::kernel_version => {
-                    compare(&filter, &prev.kernel_version, &curr.kernel_version)
+                    compare_field(&filter, &prev.kernel_version, &curr.kernel_version)
                 }
                 FingerprintField::microcode_version => {
-                    compare(&filter, &prev.microcode_version, &curr.microcode_version)
+                    compare_field(&filter, &prev.microcode_version, &curr.microcode_version)
                 }
                 FingerprintField::bios_version => {
-                    compare(&filter, &prev.bios_version, &curr.bios_version)
+                    compare_field(&filter, &prev.bios_version, &curr.bios_version)
                 }
                 FingerprintField::bios_revision => {
-                    compare(&filter, &prev.bios_revision, &curr.bios_revision)
+                    compare_field(&filter, &prev.bios_revision, &curr.bios_revision)
                 }
                 FingerprintField::guest_cpu_config => {
                     if prev.guest_cpu_config != curr.guest_cpu_config {
@@ -103,7 +106,7 @@ mod tests {
         Fingerprint {
             firecracker_version: crate::utils::CPU_TEMPLATE_HELPER_VERSION.to_string(),
             kernel_version: "sample_kernel_version".to_string(),
-            microcode_version: "sample_microcode_version".to_string(),
+            microcode_version: Some("sample_microcode_version".to_string()),
             bios_version: "sample_bios_version".to_string(),
             bios_revision: "sample_bios_revision".to_string(),
             guest_cpu_config: CustomCpuTemplate::default(),
@@ -128,7 +131,7 @@ mod tests {
         let f1 = build_sample_fingerprint();
         let mut f2 = build_sample_fingerprint();
         f2.kernel_version = "different_kernel_version".to_string();
-        f2.microcode_version = "different_microcode_version".to_string();
+        f2.microcode_version = Some("different_microcode_version".to_string());
         let filters = vec![FingerprintField::kernel_version];
         let result = compare(f1, f2, filters);
         match result {

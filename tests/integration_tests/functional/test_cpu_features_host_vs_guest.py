@@ -359,6 +359,14 @@ def test_host_vs_guest_cpu_features(uvm_plain_any):
                 "tsc_known_freq",
             }
 
+            # On nested virt (non-metal instances), the L0 hypervisor does not
+            # expose many host-only features. Only expect features actually
+            # present on this host. Additionally, "hypervisor" is present on
+            # the host itself, so it is no longer guest-only.
+            if global_props.is_nested_virt:
+                expected_host_minus_guest &= host_feats
+                expected_guest_minus_host.discard("hypervisor")
+
             assert host_feats - guest_feats == expected_host_minus_guest
             assert guest_feats - host_feats == expected_guest_minus_host
         case CpuModel.ARM_NEOVERSE_N1:
