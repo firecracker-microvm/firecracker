@@ -14,7 +14,7 @@ use std::collections::BTreeMap;
 
 use self::custom_cpu_template::CpuidRegister;
 use super::templates::CustomCpuTemplate;
-use crate::cpu_config::x86_64::cpuid::{Cpuid, CpuidKey};
+use crate::cpu_config::x86_64::cpuid::{Cpuid, CpuidKey, CpuidTrait};
 
 /// Errors thrown while configuring templates.
 #[derive(Debug, PartialEq, Eq, thiserror::Error, displaydoc::Display)]
@@ -45,14 +45,12 @@ pub(crate) fn apply_template_to_cpuid(
     mut cpuid: Cpuid,
     template: &CustomCpuTemplate,
 ) -> Result<Cpuid, CpuConfigurationError> {
-    let guest_cpuid = cpuid.inner_mut();
-
     for mod_leaf in &template.cpuid_modifiers {
         let cpuid_key = CpuidKey {
             leaf: mod_leaf.leaf,
             subleaf: mod_leaf.subleaf,
         };
-        if let Some(entry) = guest_cpuid.get_mut(&cpuid_key) {
+        if let Some(entry) = cpuid.get_mut(&cpuid_key) {
             entry.flags = mod_leaf.flags;
 
             // Can we modify one reg multiple times????
@@ -100,7 +98,7 @@ mod tests {
     use super::custom_cpu_template::{CpuidLeafModifier, CpuidRegisterModifier, RegisterModifier};
     use super::*;
     use crate::cpu_config::templates::RegisterValueFilter;
-    use crate::cpu_config::x86_64::cpuid::{CpuidEntry, IntelCpuid, KvmCpuidFlags};
+    use crate::cpu_config::x86_64::cpuid::{IntelCpuid, KvmCpuidFlags};
 
     fn build_test_template() -> CustomCpuTemplate {
         CustomCpuTemplate {
@@ -160,13 +158,14 @@ mod tests {
     }
 
     fn build_supported_cpuid() -> Cpuid {
-        Cpuid::Intel(IntelCpuid(BTreeMap::from([(
-            CpuidKey {
-                leaf: 0x3,
-                subleaf: 0x0,
-            },
-            CpuidEntry::default(),
-        )])))
+        Cpuid::Intel(IntelCpuid(
+            kvm_bindings::CpuId::from_entries(&[kvm_bindings::kvm_cpuid_entry2 {
+                function: 0x3,
+                index: 0x0,
+                ..Default::default()
+            }])
+            .unwrap(),
+        ))
     }
 
     fn build_supported_msrs() -> BTreeMap<u32, u64> {
@@ -174,7 +173,7 @@ mod tests {
     }
 
     fn empty_cpuid() -> Cpuid {
-        Cpuid::Intel(IntelCpuid(BTreeMap::new()))
+        Cpuid::Intel(IntelCpuid(kvm_bindings::CpuId::from_entries(&[]).unwrap()))
     }
 
     #[test]

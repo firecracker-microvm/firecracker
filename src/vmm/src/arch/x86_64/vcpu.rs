@@ -120,8 +120,6 @@ pub struct SetTscError(#[from] kvm_ioctls::Error);
 /// Errors associated with configuring an x86_64 vCPU.
 #[derive(Debug, thiserror::Error, displaydoc::Display, Eq, PartialEq)]
 pub enum KvmVcpuConfigureError {
-    /// Failed to convert `Cpuid` to `kvm_bindings::CpuId`: {0}
-    ConvertCpuidType(#[from] vmm_sys_util::fam::Error),
     /// Failed to apply modifications to CPUID: {0}
     NormalizeCpuidError(#[from] cpuid::NormalizeCpuidError),
     /// Failed to set CPUID: {0}
@@ -217,7 +215,7 @@ impl KvmVcpu {
             u8::from(vcpu_count > 1 && smt),
         )?;
 
-        let kvm_cpuid = CpuId::try_from(cpuid)?;
+        let kvm_cpuid = CpuId::from(cpuid);
         self.fd
             .set_cpuid2(&kvm_cpuid)
             .map_err(KvmVcpuConfigureError::SetCpuid)?;
@@ -855,7 +853,7 @@ mod tests {
     };
     use crate::cpu_config::x86_64::{
         apply_template_to_cpuid, apply_template_to_msrs,
-        cpuid::{Cpuid, CpuidEntry, CpuidKey},
+        cpuid::{Cpuid, CpuidEntry, CpuidKey, CpuidTrait},
     };
     use crate::vstate::vm::tests::{setup_vm, setup_vm_with_memory};
 
@@ -1031,7 +1029,6 @@ mod tests {
         let state = vcpu.save_state().unwrap();
         let cpuid = Cpuid::try_from(state.cpuid).unwrap();
         let leaf3 = cpuid
-            .inner()
             .get(&CpuidKey {
                 leaf: 0x3,
                 subleaf: 0x0,
@@ -1065,7 +1062,6 @@ mod tests {
         let cpuid = Cpuid::try_from(cpuid).unwrap();
         assert_ne!(
             cpuid
-                .inner()
                 .get(&CpuidKey {
                     leaf: 0,
                     subleaf: 0,
