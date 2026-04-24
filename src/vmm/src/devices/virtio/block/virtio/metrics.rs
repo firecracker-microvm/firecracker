@@ -184,6 +184,8 @@ pub struct BlockDeviceMetrics {
     pub io_engine_throttled_events: SharedIncMetric,
     /// Number of remaining requests in the queue.
     pub remaining_reqs_count: SharedIncMetric,
+    /// Number of successful discard (TRIM) operations.
+    pub discard_count: SharedIncMetric,
 }
 
 impl BlockDeviceMetrics {
@@ -230,6 +232,7 @@ impl BlockDeviceMetrics {
             .add(other.io_engine_throttled_events.fetch_diff());
         self.remaining_reqs_count
             .add(other.remaining_reqs_count.fetch_diff());
+        self.discard_count.add(other.discard_count.fetch_diff());
     }
 }
 

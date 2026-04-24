@@ -130,7 +130,13 @@ impl AsyncFileEngine {
         const PUNCH_HOLE_MODE: u32 = 3;
         let wrapped = WrappedRequest::new(req);
         self.ring
-            .push(Operation::fallocate(0, offset, len, PUNCH_HOLE_MODE, wrapped))
+            .push(Operation::fallocate(
+                0,
+                offset,
+                len,
+                PUNCH_HOLE_MODE,
+                wrapped,
+            ))
             .map_err(|(io_uring_error, data)| RequestError {
                 req: data.req,
                 error: AsyncIoError::IoUring(io_uring_error),

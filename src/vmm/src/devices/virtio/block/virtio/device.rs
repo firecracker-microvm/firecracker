@@ -59,6 +59,8 @@ pub struct DiskProperties {
     pub file_engine: FileEngine,
     pub nsectors: u64,
     pub image_id: [u8; VIRTIO_BLK_ID_BYTES as usize],
+    /// Set on first EOPNOTSUPP from fallocate; subsequent discards are no-ops. Not persisted.
+    pub discard_unsupported: bool,
 }
 
 impl DiskProperties {
@@ -106,6 +108,7 @@ impl DiskProperties {
                 .map_err(VirtioBlockError::FileEngine)?,
             nsectors: disk_size >> SECTOR_SHIFT,
             image_id,
+            discard_unsupported: false,
         })
     }
 
@@ -124,6 +127,10 @@ impl DiskProperties {
             .map_err(VirtioBlockError::FileEngine)?;
         self.nsectors = disk_size >> SECTOR_SHIFT;
         self.file_path = disk_image_path;
+        // The new backing file may live on a different filesystem; re-arm
+        // the EOPNOTSUPP cache so the first request probes the new file
+        // rather than carrying over the old one's verdict.
+        self.discard_unsupported = false;
 
         Ok(())
     }
@@ -501,17 +508,42 @@ impl VirtioBlock {
                 }
                 Ok(None) => break,
                 Ok(Some(cqe)) => {
-                    let res = cqe.result();
-                    let user_data = cqe.user_data();
+                    let cqe_result = cqe.result();
+                    let pending = cqe.user_data();
 
-                    let (pending, res) = match res {
-                        Ok(count) => (user_data, Ok(count)),
-                        Err(error) => (
-                            user_data,
-                            Err(IoErr::FileEngine(block_io::BlockIoError::Async(
-                                async_io::AsyncIoError::IO(error),
-                            ))),
-                        ),
+                    // io_uring CQE errors use negated errno, so EOPNOTSUPP is -95.
+                    let is_eopnotsupp = matches!(
+                        &cqe_result,
+                        Err(e) if e.raw_os_error() == Some(-libc::EOPNOTSUPP)
+                    );
+                    if is_eopnotsupp && pending.request_type() == RequestType::Discard {
+                        if !self.disk.discard_unsupported {
+                            warn!(
+                                "Block discard not supported by host filesystem; disabling discard"
+                            );
+                            self.disk.discard_unsupported = true;
+                        }
+                        let finished = pending.finish(
+                            &active_state.mem,
+                            Err(IoErr::DiscardUnsupported),
+                            &self.metrics,
+                        );
+                        queue
+                            .add_used(finished.desc_idx, finished.num_bytes_to_mem)
+                            .unwrap_or_else(|err| {
+                                error!(
+                                    "Failed to add available descriptor head {}: {}",
+                                    finished.desc_idx, err
+                                )
+                            });
+                        continue;
+                    }
+
+                    let res = match cqe_result {
+                        Ok(count) => Ok(count),
+                        Err(error) => Err(IoErr::FileEngine(block_io::BlockIoError::Async(
+                            async_io::AsyncIoError::IO(error),
+                        ))),
                     };
                     let finished = pending.finish(&active_state.mem, res, &self.metrics);
                     queue
@@ -1891,6 +1923,55 @@ mod tests {
                 mdata.st_ino()
             );
             assert_eq!(block.disk.image_id, id.as_slice());
+        }
+    }
+
+    #[test]
+    fn test_discard_unsupported_cached() {
+        for engine in [FileEngineType::Sync, FileEngineType::Async] {
+            let mut block = default_block(engine);
+            let mem = default_mem();
+            let interrupt = default_interrupt();
+            let vq = VirtQueue::new(GuestAddress(0), &mem, 16);
+            set_queue(&mut block, 0, vq.create_queue());
+            block.activate(mem.clone(), interrupt).unwrap();
+            read_blk_req_descriptors(&vq);
+
+            let request_type_addr = GuestAddress(vq.dtable[0].addr.get());
+            let data_addr = GuestAddress(vq.dtable[1].addr.get());
+            let status_addr = GuestAddress(vq.dtable[2].addr.get());
+
+            vq.dtable[1].flags.set(VIRTQ_DESC_F_NEXT);
+            vq.dtable[1].len.set(DISCARD_SEGMENT_SIZE);
+
+            mem.write_obj::<u32>(VIRTIO_BLK_T_DISCARD, request_type_addr)
+                .unwrap();
+            mem.write_obj(
+                DiscardWriteZeroes {
+                    sector: 0,
+                    num_sectors: 4,
+                    flags: 0,
+                },
+                data_addr,
+            )
+            .unwrap();
+
+            // Pre-set the flag as if a previous EOPNOTSUPP was already detected.
+            block.disk.discard_unsupported = true;
+
+            // Neither discard_count nor invalid_reqs_count should increment.
+            let discard_before = block.metrics.discard_count.count();
+            let invalid_before = block.metrics.invalid_reqs_count.count();
+            simulate_queue_and_async_completion_events(&mut block, true);
+            assert_eq!(block.metrics.discard_count.count(), discard_before);
+            assert_eq!(block.metrics.invalid_reqs_count.count(), invalid_before);
+
+            assert_eq!(vq.used.idx.get(), 1);
+            assert_eq!(vq.used.ring[0].get().len, 1); // status byte only
+            assert_eq!(
+                u32::from(mem.read_obj::<u8>(status_addr).unwrap()),
+                VIRTIO_BLK_S_UNSUPP
+            );
         }
     }
 }

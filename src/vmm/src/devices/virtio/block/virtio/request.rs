@@ -18,9 +18,9 @@ pub use crate::devices::virtio::generated::virtio_blk::{
     VIRTIO_BLK_T_OUT,
 };
 use crate::devices::virtio::queue::DescriptorChain;
-use crate::logger::{IncMetric, error};
+use crate::logger::{IncMetric, error, warn};
 use crate::rate_limiter::{RateLimiter, TokenType};
-use crate::vstate::memory::{ByteValued, Bytes, GuestAddress, GuestMemoryMmap};
+use crate::vstate::memory::{Address, ByteValued, Bytes, GuestAddress, GuestMemoryMmap};
 
 /// One virtio-blk discard/write_zeroes segment — virtio spec §5.2.6.14.
 #[derive(Debug, Default, Copy, Clone)]
@@ -39,10 +39,15 @@ const _: () = assert!(std::mem::size_of::<DiscardWriteZeroes>() == DISCARD_SEGME
 #[derive(Debug, derive_more::From)]
 pub enum IoErr {
     GetId(GuestMemoryError),
-    PartialTransfer { completed: u32, expected: u32 },
+    PartialTransfer {
+        completed: u32,
+        expected: u32,
+    },
     FileEngine(block_io::BlockIoError),
     InvalidOffset,
     InvalidFlags,
+    /// Discard not supported by the host filesystem; cached after first EOPNOTSUPP.
+    DiscardUnsupported,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -83,9 +88,18 @@ pub struct FinishedRequest {
 
 #[derive(Debug)]
 enum Status {
-    Ok { num_bytes_to_mem: u32 },
-    IoErr { num_bytes_to_mem: u32, err: IoErr },
-    Unsupported { op: u32 },
+    Ok {
+        num_bytes_to_mem: u32,
+    },
+    IoErr {
+        num_bytes_to_mem: u32,
+        err: IoErr,
+    },
+    Unsupported {
+        op: u32,
+    },
+    /// Discard silently unsupported — returns VIRTIO_BLK_S_UNSUPP without logging or metrics.
+    DiscardUnsupported,
 }
 
 impl Status {
@@ -117,6 +131,10 @@ pub struct PendingRequest {
 }
 
 impl PendingRequest {
+    pub fn request_type(&self) -> RequestType {
+        self.r#type
+    }
+
     fn write_status_and_finish(
         self,
         status: &Status,
@@ -143,6 +161,7 @@ impl PendingRequest {
                 error!("Received unsupported virtio block request: {}", op);
                 (0, u8::try_from(VIRTIO_BLK_S_UNSUPP).unwrap())
             }
+            Status::DiscardUnsupported => (0, u8::try_from(VIRTIO_BLK_S_UNSUPP).unwrap()),
         };
 
         let num_bytes_to_mem = mem
@@ -195,9 +214,13 @@ impl PendingRequest {
             (Ok(transferred_data_len), RequestType::GetDeviceID) => {
                 Status::from_data(self.data_len, transferred_data_len, true)
             }
-            (Ok(_), RequestType::Discard) => Status::Unsupported {
-                op: VIRTIO_BLK_T_DISCARD,
-            },
+            (Ok(_), RequestType::Discard) => {
+                block_metrics.discard_count.inc();
+                Status::Ok {
+                    num_bytes_to_mem: 0,
+                }
+            }
+            (Err(IoErr::DiscardUnsupported), _) => Status::DiscardUnsupported,
             (_, RequestType::Unsupported(op)) => Status::Unsupported { op },
             (Err(err), _) => Status::IoErr {
                 num_bytes_to_mem: 0,
@@ -207,6 +230,29 @@ impl PendingRequest {
 
         self.write_status_and_finish(&status, mem, block_metrics)
     }
+}
+
+fn parse_discard_segment(
+    data_addr: GuestAddress,
+    nsectors: u64,
+    mem: &GuestMemoryMmap,
+) -> Result<(u64, u64), IoErr> {
+    // max_discard_seg = 1 guarantees exactly one segment per request.
+    let seg: DiscardWriteZeroes = mem.read_obj(data_addr).map_err(IoErr::GetId)?;
+    if seg.flags != 0 {
+        return Err(IoErr::InvalidFlags);
+    }
+    if seg.num_sectors == 0 {
+        return Err(IoErr::InvalidOffset);
+    }
+    seg.sector
+        .checked_add(u64::from(seg.num_sectors))
+        .filter(|&top| top <= nsectors)
+        .ok_or(IoErr::InvalidOffset)?;
+    Ok((
+        seg.sector << SECTOR_SHIFT,
+        u64::from(seg.num_sectors) << SECTOR_SHIFT,
+    ))
 }
 
 /// The request header represents the mandatory fields of each block device request.
@@ -303,6 +349,9 @@ impl Request {
             if data_desc.is_write_only() && req.r#type == RequestType::Out {
                 return Err(VirtioBlockError::UnexpectedWriteOnlyDescriptor);
             }
+            if data_desc.is_write_only() && req.r#type == RequestType::Discard {
+                return Err(VirtioBlockError::UnexpectedWriteOnlyDescriptor);
+            }
             if !data_desc.is_write_only() && req.r#type == RequestType::In {
                 return Err(VirtioBlockError::UnexpectedReadOnlyDescriptor);
             }
@@ -332,6 +381,11 @@ impl Request {
             }
             RequestType::GetDeviceID => {
                 if req.data_len < VIRTIO_BLK_ID_BYTES {
+                    return Err(VirtioBlockError::InvalidDataLength);
+                }
+            }
+            RequestType::Discard => {
+                if req.data_len == 0 || !req.data_len.is_multiple_of(DISCARD_SEGMENT_SIZE) {
                     return Err(VirtioBlockError::InvalidDataLength);
                 }
             }
@@ -413,7 +467,23 @@ impl Request {
                 return ProcessingResult::Executed(pending.finish(mem, res, block_metrics));
             }
             RequestType::Discard => {
-                return ProcessingResult::Executed(pending.finish(mem, Ok(0), block_metrics));
+                if disk.discard_unsupported {
+                    return ProcessingResult::Executed(pending.finish(
+                        mem,
+                        Err(IoErr::DiscardUnsupported),
+                        block_metrics,
+                    ));
+                }
+                match parse_discard_segment(self.data_addr, disk.nsectors, mem) {
+                    Err(io_err) => {
+                        return ProcessingResult::Executed(pending.finish(
+                            mem,
+                            Err(io_err),
+                            block_metrics,
+                        ));
+                    }
+                    Ok((offset, len)) => disk.file_engine.discard(offset, len, pending),
+                }
             }
             RequestType::Unsupported(_) => {
                 return ProcessingResult::Executed(pending.finish(mem, Ok(0), block_metrics));
@@ -428,6 +498,18 @@ impl Request {
             Err(err) => {
                 if err.error.is_throttling_err() {
                     ProcessingResult::Throttled
+                } else if err.error.is_eopnotsupp()
+                    && err.req.request_type() == RequestType::Discard
+                {
+                    if !disk.discard_unsupported {
+                        warn!("Block discard not supported by host filesystem; disabling discard");
+                        disk.discard_unsupported = true;
+                    }
+                    ProcessingResult::Executed(err.req.finish(
+                        mem,
+                        Err(IoErr::DiscardUnsupported),
+                        block_metrics,
+                    ))
                 } else {
                     ProcessingResult::Executed(err.req.finish(
                         mem,

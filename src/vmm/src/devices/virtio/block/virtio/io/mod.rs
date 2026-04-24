@@ -40,6 +40,14 @@ impl BlockIoError {
             _ => false,
         }
     }
+
+    pub fn is_eopnotsupp(&self) -> bool {
+        matches!(
+            self,
+            BlockIoError::Sync(SyncIoError::Discard(e))
+                if e.raw_os_error() == Some(libc::EOPNOTSUPP)
+        )
+    }
 }
 
 #[derive(Debug)]
