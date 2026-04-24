@@ -26,3 +26,6 @@ vmm-sys-util = "0.15.0"
 
 [lints]
 workspace = true
+
+[dev-dependencies]
+kvm-bindings = "0.14.0"

@@ -17,7 +17,7 @@ use kvm_bindings::CpuId;
 use self::custom_cpu_template::CpuidRegister;
 use super::templates::CustomCpuTemplate;
 use crate::Vcpu;
-use crate::cpu_config::x86_64::cpuid::{Cpuid, CpuidKey};
+use crate::cpu_config::x86_64::cpuid::{Cpuid, CpuidKey, CpuidTrait};
 
 /// Errors thrown while configuring templates.
 #[derive(Debug, PartialEq, Eq, thiserror::Error, displaydoc::Display)]
@@ -67,15 +67,13 @@ impl CpuConfiguration {
             mut msrs,
         } = self;
 
-        let guest_cpuid = cpuid.inner_mut();
-
         // Apply CPUID modifiers
         for mod_leaf in template.cpuid_modifiers.iter() {
             let cpuid_key = CpuidKey {
                 leaf: mod_leaf.leaf,
                 subleaf: mod_leaf.subleaf,
             };
-            if let Some(entry) = guest_cpuid.get_mut(&cpuid_key) {
+            if let Some(entry) = cpuid.get_mut(&cpuid_key) {
                 entry.flags = mod_leaf.flags;
 
                 // Can we modify one reg multiple times????
@@ -124,7 +122,7 @@ mod tests {
     use super::custom_cpu_template::{CpuidLeafModifier, CpuidRegisterModifier, RegisterModifier};
     use super::*;
     use crate::cpu_config::templates::RegisterValueFilter;
-    use crate::cpu_config::x86_64::cpuid::{CpuidEntry, IntelCpuid, KvmCpuidFlags};
+    use crate::cpu_config::x86_64::cpuid::KvmCpuidFlags;
 
     fn build_test_template() -> CustomCpuTemplate {
         CustomCpuTemplate {
@@ -183,19 +181,33 @@ mod tests {
         }
     }
 
+    /// Helper: build a Cpuid with an Intel leaf 0 + given extra entries.
+    fn make_intel_cpuid(extra: &[kvm_bindings::kvm_cpuid_entry2]) -> Cpuid {
+        let mut entries = vec![kvm_bindings::kvm_cpuid_entry2 {
+            function: 0x0,
+            index: 0x0,
+            flags: 0x0,
+            eax: 0x16,
+            ebx: 0x756E6547,
+            ecx: 0x6C65746E,
+            edx: 0x49656E69,
+            ..Default::default()
+        }];
+        entries.extend_from_slice(extra);
+        Cpuid::try_from(kvm_bindings::CpuId::from_entries(&entries).unwrap()).unwrap()
+    }
+
     fn build_supported_cpuid() -> Cpuid {
-        Cpuid::Intel(IntelCpuid(BTreeMap::from([(
-            CpuidKey {
-                leaf: 0x3,
-                subleaf: 0x0,
-            },
-            CpuidEntry::default(),
-        )])))
+        make_intel_cpuid(&[kvm_bindings::kvm_cpuid_entry2 {
+            function: 0x3,
+            index: 0x0,
+            ..Default::default()
+        }])
     }
 
     fn empty_cpu_config() -> CpuConfiguration {
         CpuConfiguration {
-            cpuid: Cpuid::Intel(IntelCpuid(BTreeMap::new())),
+            cpuid: make_intel_cpuid(&[]),
             msrs: Default::default(),
         }
     }

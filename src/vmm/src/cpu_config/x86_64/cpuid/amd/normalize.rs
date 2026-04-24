@@ -132,7 +132,7 @@ impl super::AmdCpuid {
         // Pass-through host CPUID for leaves 0x8000001e and 0x8000001d.
         {
             // 0x8000001e - Processor Topology Information
-            self.0.insert(
+            self.insert(
                 CpuidKey::leaf(0x8000001e),
                 CpuidEntry {
                     flags: KvmCpuidFlags::EMPTY,
@@ -169,7 +169,7 @@ impl super::AmdCpuid {
                 if cache_type == 0 {
                     break;
                 }
-                self.0.insert(
+                self.insert(
                     CpuidKey::subleaf(0x8000001d, subleaf),
                     CpuidEntry {
                         flags: KvmCpuidFlags::SIGNIFICANT_INDEX,
@@ -387,8 +387,6 @@ impl super::AmdCpuid {
 #[cfg(test)]
 mod tests {
 
-    use std::collections::BTreeMap;
-
     use super::*;
     use crate::cpu_config::x86_64::cpuid::AmdCpuid;
 
@@ -396,7 +394,7 @@ mod tests {
     fn test_update_structured_extended_entry_invalid() {
         // `update_structured_extended_entry()` should exit with MissingLeaf0x7Subleaf0 error for
         // CPUID lacking leaf 0x7 / subleaf 0.
-        let mut cpuid = AmdCpuid(BTreeMap::new());
+        let mut cpuid = AmdCpuid(kvm_bindings::CpuId::from_entries(&[]).unwrap());
         assert_eq!(
             cpuid.update_structured_extended_entry().unwrap_err(),
             NormalizeCpuidError::MissingLeaf0x7Subleaf0
@@ -407,21 +405,19 @@ mod tests {
     fn test_update_structured_extended_entry_valid() {
         // `update_structured_extended_entry()` should succeed for CPUID having leaf 0x7 / subleaf
         // 0, and bit 29 of EDX (IA32_ARCH_CAPABILITIES MSR enumeration) should be disabled.
-        let mut cpuid = AmdCpuid(BTreeMap::from([(
-            CpuidKey {
-                leaf: 0x7,
-                subleaf: 0x0,
-            },
-            CpuidEntry {
-                flags: KvmCpuidFlags::SIGNIFICANT_INDEX,
-                result: CpuidRegisters {
-                    eax: 0,
-                    ebx: 0,
-                    ecx: 0,
-                    edx: u32::MAX,
-                },
-            },
-        )]));
+        let mut cpuid = AmdCpuid(
+            kvm_bindings::CpuId::from_entries(&[kvm_bindings::kvm_cpuid_entry2 {
+                function: 0x7,
+                index: 0x0,
+                flags: KvmCpuidFlags::SIGNIFICANT_INDEX.0,
+                eax: 0,
+                ebx: 0,
+                ecx: 0,
+                edx: u32::MAX,
+                ..Default::default()
+            }])
+            .unwrap(),
+        );
         cpuid.update_structured_extended_entry().unwrap();
         assert_eq!(
             cpuid
