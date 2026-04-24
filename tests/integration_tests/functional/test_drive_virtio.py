@@ -383,3 +383,67 @@ def _check_mount(ssh_connection, dev_path):
     assert stderr == ""
     _, _, stderr = ssh_connection.run("umount /tmp", timeout=30.0)
     assert stderr == ""
+
+
+def _mount_disk(ssh):
+    ssh.check_output("mkdir -p /tmp/mnt")
+    ssh.check_output("mount /dev/vdb /tmp/mnt")
+
+
+def _fill_and_trim(ssh):
+    ssh.check_output("dd if=/dev/zero of=/tmp/mnt/fill bs=1M count=64 conv=fsync")
+    ssh.check_output("rm /tmp/mnt/fill && sync")
+    _, stdout, _ = ssh.check_output("fstrim -v /tmp/mnt")
+    assert "0 B" not in stdout, f"fstrim reported no bytes trimmed: {stdout}"
+
+
+def test_discard(uvm_plain_any, microvm_factory, io_engine):
+    """
+    Verify VIRTIO_BLK_F_DISCARD on a fresh boot and after snapshot/restore.
+    """
+    vm = uvm_plain_any
+    vm.spawn()
+    vm.basic_config()
+    vm.add_net_iface()
+    fs = drive_tools.FilesystemFile(os.path.join(vm.fsfiles, "discard_test"), size=256)
+    vm.add_drive("discard_disk", fs.path, is_read_only=False, io_engine=io_engine)
+    vm.start()
+
+    _mount_disk(vm.ssh)
+    _fill_and_trim(vm.ssh)
+    st = os.stat(fs.path)
+    assert st.st_blocks * 512 < st.st_size, "backing file has no holes after trim"
+
+    snapshot = vm.snapshot_full()
+    vm = microvm_factory.build_from_snapshot(snapshot)
+    # Disk is still mounted in the restored guest; write+trim again.
+    _fill_and_trim(vm.ssh)
+    st = os.stat(fs.path)
+    assert st.st_blocks * 512 < st.st_size, "backing file has no holes after trim post-restore"
+
+    metrics = vm.flush_metrics()
+    assert metrics["block"]["discard_count"] > 0
+
+
+def test_discard_not_advertised_for_read_only(uvm_plain_any, io_engine):
+    """
+    Verify VIRTIO_BLK_F_DISCARD is NOT advertised for read-only block devices.
+
+    The kernel exposes discard support via /sys/block/<dev>/queue/discard_max_bytes.
+    A value of 0 means the device does not support discard.
+    """
+    vm = uvm_plain_any
+    vm.spawn()
+    vm.basic_config()
+    vm.add_net_iface()
+
+    fs = drive_tools.FilesystemFile(os.path.join(vm.fsfiles, "ro_disk"), size=64)
+    vm.add_drive("ro_disk", fs.path, is_read_only=True, io_engine=io_engine)
+    vm.start()
+
+    _, stdout, _ = vm.ssh.check_output("cat /sys/block/vdb/queue/discard_max_bytes")
+    assert (
+        stdout.strip() == "0"
+    ), f"Expected discard_max_bytes=0 for read-only device, got: {stdout.strip()}"
+
+
