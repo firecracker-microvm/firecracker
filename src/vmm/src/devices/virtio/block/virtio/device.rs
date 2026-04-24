@@ -163,10 +163,27 @@ impl DiskProperties {
 #[derive(Debug, Default, Clone, Copy, Eq, PartialEq)]
 #[repr(C)]
 pub struct ConfigSpace {
-    pub capacity: u64,
+    pub capacity: u64,                   // offset 0
+    pub size_max: u32,                   // offset 8
+    pub seg_max: u32,                    // offset 12
+    pub geometry_cylinders: u16,         // offset 16
+    pub geometry_heads: u8,              // offset 18
+    pub geometry_sectors: u8,            // offset 19
+    pub blk_size: u32,                   // offset 20
+    pub topology_physical_block_exp: u8, // offset 24
+    pub topology_alignment_offset: u8,   // offset 25
+    pub topology_min_io_size: u16,       // offset 26
+    pub topology_opt_io_size: u32,       // offset 28
+    pub writeback: u8,                   // offset 32
+    pub(crate) _unused0: u8,             // offset 33 (spec field — virtio_blk_config.unused)
+    pub num_queues: u16,                 // offset 34
+    pub max_discard_sectors: u32,        // offset 36
+    pub max_discard_seg: u32,            // offset 40
+    pub discard_sector_alignment: u32,   // offset 44
+    pub(crate) _unused1: [u8; 8],        // offset 48 (placeholder for write-zeroes + alignment to 56)
 }
-
-// SAFETY: `ConfigSpace` contains only PODs in `repr(C)` or `repr(transparent)`, without padding.
+const _: () = assert!(std::mem::size_of::<ConfigSpace>() == 56);
+// SAFETY: repr(C), all POD fields, explicit padding — no implicit padding bytes.
 unsafe impl ByteValued for ConfigSpace {}
 
 /// Use this structure to set up the Block Device before booting the kernel.
@@ -314,6 +331,7 @@ impl VirtioBlock {
 
         let config_space = ConfigSpace {
             capacity: disk_properties.nsectors.to_le(),
+            ..Default::default()
         };
 
         Ok(VirtioBlock {
@@ -821,11 +839,17 @@ mod tests {
             // This will read the number of sectors.
             // The block's backing file size is 0x1000, so there are 8 (4096/512) sectors.
             // The config space is little endian.
-            let expected_config_space = ConfigSpace { capacity: 8 };
+            let expected_config_space = ConfigSpace {
+                capacity: 8,
+                ..Default::default()
+            };
             assert_eq!(actual_config_space, expected_config_space);
 
             // Invalid read.
-            let expected_config_space = ConfigSpace { capacity: 696969 };
+            let expected_config_space = ConfigSpace {
+                capacity: 696969,
+                ..Default::default()
+            };
             actual_config_space = expected_config_space;
             block.read_config(
                 std::mem::size_of::<ConfigSpace>() as u64 + 1,
@@ -842,7 +866,10 @@ mod tests {
         for engine in [FileEngineType::Sync, FileEngineType::Async] {
             let mut block = default_block(engine);
 
-            let expected_config_space = ConfigSpace { capacity: 696969 };
+            let expected_config_space = ConfigSpace {
+                capacity: 696969,
+                ..Default::default()
+            };
             block.write_config(0, expected_config_space.as_slice());
 
             let mut actual_config_space = ConfigSpace::default();
@@ -852,6 +879,7 @@ mod tests {
             // If privileged user writes to `/dev/mem`, in block config space - byte by byte.
             let expected_config_space = ConfigSpace {
                 capacity: 0x1122334455667788,
+                ..Default::default()
             };
             let expected_config_space_slice = expected_config_space.as_slice();
             for (i, b) in expected_config_space_slice.iter().enumerate() {
@@ -863,6 +891,7 @@ mod tests {
             // Invalid write.
             let new_config_space = ConfigSpace {
                 capacity: 0xDEADBEEF,
+                ..Default::default()
             };
             block.write_config(5, new_config_space.as_slice());
             // Make sure nothing got written.
