@@ -204,7 +204,7 @@ RUN cp /usr/lib/python3/dist-packages/seccomp.cpython-312-"$ARCH"-linux-gnu.so "
 # Base: Rust toolchain (current version)
 # ============================================================
 FROM python-deps AS rust-toolchain
-ARG RUST_TOOLCHAIN="1.94.1"
+ARG RUST_TOOLCHAIN="1.95.0"
 ENV CARGO_HOME=/usr/local/rust
 ENV RUSTUP_HOME=/usr/local/rust
 ENV PATH="$PATH:$CARGO_HOME/bin"
