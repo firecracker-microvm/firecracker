@@ -404,6 +404,7 @@ version = "1.17.0-dev"
 dependencies = [
  "clap",
  "displaydoc",
+ "kvm-bindings",
  "libc",
  "log-instrument",
  "serde",
