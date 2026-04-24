@@ -214,10 +214,8 @@ impl KvmVcpu {
             u8::from(vcpu_config.vcpu_count > 1 && vcpu_config.smt),
         )?;
 
-        // Set CPUID.
-        let kvm_cpuid = kvm_bindings::CpuId::try_from(cpuid)?;
-
         // Set CPUID in the KVM
+        let kvm_cpuid = kvm_bindings::CpuId::from(cpuid);
         self.fd
             .set_cpuid2(&kvm_cpuid)
             .map_err(KvmVcpuConfigureError::SetCpuid)?;
@@ -818,7 +816,7 @@ mod tests {
         CpuConfiguration, CpuTemplateType, CustomCpuTemplate, GetCpuTemplate, GuestConfigError,
         StaticCpuTemplate,
     };
-    use crate::cpu_config::x86_64::cpuid::{Cpuid, CpuidEntry, CpuidKey};
+    use crate::cpu_config::x86_64::cpuid::{Cpuid, CpuidEntry, CpuidKey, CpuidTrait};
     use crate::vstate::vm::tests::{setup_vm, setup_vm_with_memory};
 
     impl Default for VcpuState {
@@ -997,7 +995,6 @@ mod tests {
         let state = vcpu.save_state().unwrap();
         let cpuid = Cpuid::try_from(state.cpuid).unwrap();
         let leaf3 = cpuid
-            .inner()
             .get(&CpuidKey {
                 leaf: 0x3,
                 subleaf: 0x0,
@@ -1046,7 +1043,6 @@ mod tests {
         let cpuid = Cpuid::try_from(cpuid).unwrap();
         assert_ne!(
             cpuid
-                .inner()
                 .get(&CpuidKey {
                     leaf: 0,
                     subleaf: 0,
