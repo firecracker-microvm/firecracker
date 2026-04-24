@@ -871,7 +871,10 @@ mod tests {
 
             assert_eq!(block.device_type(), VIRTIO_ID_BLOCK);
 
-            let features: u64 = (1u64 << VIRTIO_F_VERSION_1) | (1u64 << VIRTIO_RING_F_EVENT_IDX);
+            // default_block is non-read-only, so VIRTIO_BLK_F_DISCARD is advertised.
+            let features: u64 = (1u64 << VIRTIO_F_VERSION_1)
+                | (1u64 << VIRTIO_RING_F_EVENT_IDX)
+                | (1u64 << VIRTIO_BLK_F_DISCARD);
 
             assert_eq!(
                 block.avail_features_by_page(0),
@@ -897,11 +900,13 @@ mod tests {
 
             let mut actual_config_space = ConfigSpace::default();
             block.read_config(0, actual_config_space.as_mut_slice());
-            // This will read the number of sectors.
             // The block's backing file size is 0x1000, so there are 8 (4096/512) sectors.
-            // The config space is little endian.
+            // default_block is non-read-only, so discard fields are populated.
             let expected_config_space = ConfigSpace {
                 capacity: 8,
+                max_discard_sectors: 8,
+                max_discard_seg: 1,
+                discard_sector_alignment: 1,
                 ..Default::default()
             };
             assert_eq!(actual_config_space, expected_config_space);
@@ -1956,6 +1961,153 @@ mod tests {
     }
 
     #[test]
+    fn test_discard_feature_and_config() {
+        // Non-read-only block: VIRTIO_BLK_F_DISCARD set, discard config fields populated.
+        for engine in [FileEngineType::Sync, FileEngineType::Async] {
+            let block = default_block(engine);
+            assert_ne!(block.avail_features & (1u64 << VIRTIO_BLK_F_DISCARD), 0);
+            assert_eq!(block.avail_features & (1u64 << VIRTIO_BLK_F_RO), 0);
+            // default_block has 0x1000-byte backing file → 8 sectors.
+            assert_eq!(block.config_space.max_discard_sectors, 8);
+            assert_eq!(block.config_space.max_discard_seg, 1);
+            assert_eq!(block.config_space.discard_sector_alignment, 1);
+        }
+
+        // Read-only block: VIRTIO_BLK_F_RO set, no discard.
+        let f = TempFile::new().unwrap();
+        f.as_file().set_len(0x1000).unwrap();
+        let config = VirtioBlockConfig {
+            drive_id: "test_ro".to_string(),
+            path_on_host: f.as_path().to_str().unwrap().to_string(),
+            is_root_device: false,
+            partuuid: None,
+            is_read_only: true,
+            cache_type: CacheType::Unsafe,
+            rate_limiter: None,
+            file_engine_type: FileEngineType::default(),
+        };
+        let ro_block = VirtioBlock::new(config).unwrap();
+        assert_eq!(ro_block.avail_features & (1u64 << VIRTIO_BLK_F_DISCARD), 0);
+        assert_ne!(ro_block.avail_features & (1u64 << VIRTIO_BLK_F_RO), 0);
+        assert_eq!(ro_block.config_space.max_discard_sectors, 0);
+        assert_eq!(ro_block.config_space.max_discard_seg, 0);
+        assert_eq!(ro_block.config_space.discard_sector_alignment, 0);
+    }
+
+    #[test]
+    fn test_discard() {
+        for engine in [FileEngineType::Sync, FileEngineType::Async] {
+            let mut block = default_block(engine);
+            let mem = default_mem();
+            let interrupt = default_interrupt();
+            let vq = VirtQueue::new(GuestAddress(0), &mem, 16);
+            set_queue(&mut block, 0, vq.create_queue());
+            block.activate(mem.clone(), interrupt).unwrap();
+            read_blk_req_descriptors(&vq);
+
+            let request_type_addr = GuestAddress(vq.dtable[0].addr.get());
+            let data_addr = GuestAddress(vq.dtable[1].addr.get());
+            let status_addr = GuestAddress(vq.dtable[2].addr.get());
+
+            // Discard data descriptor is read-only (guest sends the segment list).
+            vq.dtable[1].flags.set(VIRTQ_DESC_F_NEXT);
+            vq.dtable[1].len.set(DISCARD_SEGMENT_SIZE);
+
+            // Valid discard: sector 0, 4 sectors, flags=0.
+            {
+                mem.write_obj::<u32>(VIRTIO_BLK_T_DISCARD, request_type_addr)
+                    .unwrap();
+                mem.write_obj(
+                    DiscardWriteZeroes {
+                        sector: 0,
+                        num_sectors: 4,
+                        flags: 0,
+                    },
+                    data_addr,
+                )
+                .unwrap();
+
+                check_metric_after_block!(
+                    &block.metrics.discard_count,
+                    1,
+                    simulate_queue_and_async_completion_events(&mut block, true)
+                );
+
+                assert_eq!(vq.used.idx.get(), 1);
+                assert_eq!(vq.used.ring[0].get().id, 0);
+                assert_eq!(vq.used.ring[0].get().len, 1); // status byte only
+                assert_eq!(mem.read_obj::<u32>(status_addr).unwrap(), VIRTIO_BLK_S_OK);
+            }
+
+            // Invalid: non-zero flags rejected.
+            {
+                vq.used.idx.set(0);
+                set_queue(&mut block, 0, vq.create_queue());
+                mem.write_obj::<u32>(VIRTIO_BLK_T_DISCARD, request_type_addr)
+                    .unwrap();
+                mem.write_obj(
+                    DiscardWriteZeroes {
+                        sector: 0,
+                        num_sectors: 4,
+                        flags: 1,
+                    },
+                    data_addr,
+                )
+                .unwrap();
+
+                simulate_queue_event(&mut block, Some(true));
+
+                assert_eq!(vq.used.idx.get(), 1);
+                assert_eq!(
+                    u32::from(mem.read_obj::<u8>(status_addr).unwrap()),
+                    VIRTIO_BLK_S_IOERR
+                );
+            }
+
+            // Invalid: sector range exceeds disk bounds.
+            {
+                vq.used.idx.set(0);
+                set_queue(&mut block, 0, vq.create_queue());
+                mem.write_obj::<u32>(VIRTIO_BLK_T_DISCARD, request_type_addr)
+                    .unwrap();
+                // 8-sector disk; sector 7 + 4 = 11 > 8.
+                mem.write_obj(
+                    DiscardWriteZeroes {
+                        sector: 7,
+                        num_sectors: 4,
+                        flags: 0,
+                    },
+                    data_addr,
+                )
+                .unwrap();
+
+                simulate_queue_event(&mut block, Some(true));
+
+                assert_eq!(vq.used.idx.get(), 1);
+                assert_eq!(
+                    u32::from(mem.read_obj::<u8>(status_addr).unwrap()),
+                    VIRTIO_BLK_S_IOERR
+                );
+            }
+
+            // Invalid data length: not a multiple of DISCARD_SEGMENT_SIZE → parse error.
+            {
+                vq.used.idx.set(0);
+                set_queue(&mut block, 0, vq.create_queue());
+                vq.dtable[1].len.set(DISCARD_SEGMENT_SIZE - 1);
+                mem.write_obj::<u32>(VIRTIO_BLK_T_DISCARD, request_type_addr)
+                    .unwrap();
+
+                simulate_queue_event(&mut block, Some(true));
+
+                // Parse error → descriptor chain discarded (used len = 0).
+                assert_eq!(vq.used.idx.get(), 1);
+                assert_eq!(vq.used.ring[0].get().len, 0);
+            }
+        }
+    }
+
+    #[test]
     fn test_discard_unsupported_cached() {
         for engine in [FileEngineType::Sync, FileEngineType::Async] {
             let mut block = default_block(engine);
@@ -2001,6 +2153,31 @@ mod tests {
                 u32::from(mem.read_obj::<u8>(status_addr).unwrap()),
                 VIRTIO_BLK_S_UNSUPP
             );
+        }
+    }
+
+    #[test]
+    fn test_update_disk_image_refreshes_discard_state() {
+        // update_disk_image() must re-arm the discard_unsupported cache (the new
+        // backing file may live on a fallocate-capable filesystem) and refresh
+        // max_discard_sectors (which is derived from the disk's sector count).
+        for engine in [FileEngineType::Sync, FileEngineType::Async] {
+            let mut block = default_block(engine);
+            // default_block uses a 0x1000-byte (8-sector) backing file.
+            assert_eq!(block.config_space.max_discard_sectors, 8);
+
+            // Simulate a previous EOPNOTSUPP from the old backing file.
+            block.disk.discard_unsupported = true;
+
+            // Hot-swap to a 16 KiB file (32 sectors).
+            let f = TempFile::new().unwrap();
+            f.as_file().set_len(0x4000).unwrap();
+            block
+                .update_disk_image(f.as_path().to_str().unwrap().to_string())
+                .unwrap();
+
+            assert!(!block.disk.discard_unsupported);
+            assert_eq!(block.config_space.max_discard_sectors, 32);
         }
     }
 }
