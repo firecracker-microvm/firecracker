@@ -182,6 +182,7 @@ def validate_fc_metrics(metrics):
             "missed_metrics_count",
             "metrics_fails",
             "missed_log_count",
+            "rate_limited_log_count",
         ],
         "mmds": [
             "rx_accepted",
@@ -210,6 +211,8 @@ def validate_fc_metrics(metrics):
             "mmds_fails",
             "hotplug_memory_count",
             "hotplug_memory_fails",
+            "pmem_count",
+            "pmem_fails",
         ],
         "put_api_requests": [
             "actions_count",
@@ -264,6 +267,7 @@ def validate_fc_metrics(metrics):
             "missed_write_count",
             "read_count",
             "write_count",
+            "rate_limiter_dropped_bytes",
         ],
         "signals": [
             "sigbus",
@@ -311,6 +315,8 @@ def validate_fc_metrics(metrics):
             "cfg_fails",
             "event_fails",
             "queue_event_count",
+            "rate_limiter_throttled_events",
+            "rate_limiter_event_count",
         ],
         "memory_hotplug": [
             "activate_fails",

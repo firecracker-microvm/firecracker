@@ -490,6 +490,10 @@ pub struct PatchRequestsMetrics {
     pub hotplug_memory_count: SharedIncMetric,
     /// Number of failed PATCHes to /hotplug/memory
     pub hotplug_memory_fails: SharedIncMetric,
+    /// Number of tries to PATCH a pmem device.
+    pub pmem_count: SharedIncMetric,
+    /// Number of failures in PATCHing a pmem device.
+    pub pmem_fails: SharedIncMetric,
 }
 impl PatchRequestsMetrics {
     /// Const default construction.
@@ -505,6 +509,8 @@ impl PatchRequestsMetrics {
             mmds_fails: SharedIncMetric::new(),
             hotplug_memory_count: SharedIncMetric::new(),
             hotplug_memory_fails: SharedIncMetric::new(),
+            pmem_count: SharedIncMetric::new(),
+            pmem_fails: SharedIncMetric::new(),
         }
     }
 }
@@ -533,6 +539,8 @@ pub struct LoggerSystemMetrics {
     pub metrics_fails: SharedIncMetric,
     /// Number of misses on logging human readable content.
     pub missed_log_count: SharedIncMetric,
+    /// Number of log messages suppressed by rate limiting.
+    pub rate_limited_log_count: SharedIncMetric,
 }
 impl LoggerSystemMetrics {
     /// Const default construction.
@@ -541,6 +549,7 @@ impl LoggerSystemMetrics {
             missed_metrics_count: SharedIncMetric::new(),
             metrics_fails: SharedIncMetric::new(),
             missed_log_count: SharedIncMetric::new(),
+            rate_limited_log_count: SharedIncMetric::new(),
         }
     }
 }

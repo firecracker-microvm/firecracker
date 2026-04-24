@@ -15,7 +15,6 @@ use std::sync::atomic::{AtomicBool, AtomicU16, AtomicU32, AtomicUsize, Ordering}
 use std::sync::{Arc, Barrier, Mutex};
 
 use kvm_ioctls::{IoEventAddress, NoDatamatch};
-use log::warn;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use vm_allocator::{AddressAllocator, AllocPolicy, RangeInclusive};
@@ -32,8 +31,10 @@ use crate::devices::virtio::transport::pci::common_config::{
 };
 use crate::devices::virtio::transport::pci::device_status::*;
 use crate::devices::virtio::transport::{VirtioInterrupt, VirtioInterruptType};
-use crate::logger::{debug, error};
-use crate::pci::configuration::{PciCapability, PciConfiguration, PciConfigurationState};
+use crate::logger::{debug, error, warn};
+use crate::pci::configuration::{
+    PciCapability, PciConfiguration, PciConfigurationError, PciConfigurationState,
+};
 use crate::pci::msix::{MsixCap, MsixConfig, MsixConfigState};
 use crate::pci::{
     BarReprogrammingParams, DeviceRelocationError, PciCapabilityId, PciClassCode, PciDevice,
@@ -240,6 +241,8 @@ pub enum VirtioPciDeviceError {
     CreateVirtioPciDevice(#[from] DeviceRelocationError),
     /// Error creating MSI configuration: {0}
     Msi(#[from] InterruptError),
+    /// Invalid PCI configuration state: {0}
+    PciConfiguration(#[from] PciConfigurationError),
 }
 
 pub struct VirtioPciDevice {
@@ -413,11 +416,13 @@ impl VirtioPciDevice {
         let pci_config = PciConfiguration::type0_from_state(
             state.pci_configuration_state,
             Some(msix_config.clone()),
-        );
+        )?;
         let virtio_common_config = VirtioPciCommonConfig::new(state.pci_dev_state);
         let cap_pci_cfg_info = VirtioPciCfgCapInfo {
             offset: state.cap_pci_cfg_offset,
-            cap: *VirtioPciCfgCap::from_slice(&state.cap_pci_cfg).unwrap(),
+            cap: *VirtioPciCfgCap::from_slice(&state.cap_pci_cfg).ok_or(
+                PciConfigurationError::InvalidCapPciCfgLength(state.cap_pci_cfg.len()),
+            )?,
         };
 
         let interrupt = Arc::new(VirtioInterruptMsix::new(

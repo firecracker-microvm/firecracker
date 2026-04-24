@@ -1,0 +1,6 @@
+disallowed-macros = [
+    { path = "log::error", reason = "use crate::logger::error or error_unrestricted instead" },
+    { path = "log::warn", reason = "use crate::logger::warn or warn_unrestricted instead" },
+    { path = "log::info", reason = "use crate::logger::info or info_unrestricted instead" },
+    { path = "log::debug", reason = "use crate::logger::debug instead" },
+]

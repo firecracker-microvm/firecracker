@@ -272,6 +272,10 @@ fn create_chosen_node(
         )?;
     }
 
+    // Prevent the kernel from reassigning PCI BAR addresses.
+    // https://elixir.bootlin.com/linux/v6.19.8/source/drivers/pci/of.c#L255
+    fdt.property_u32("linux,pci-probe-only", 1)?;
+
     fdt.end_node(chosen)?;
 
     Ok(())
@@ -583,7 +587,7 @@ mod tests {
         cmdline.insert("console", "/dev/tty0").unwrap();
 
         device_manager
-            .attach_legacy_devices_aarch64(&vm, &mut event_manager, &mut cmdline, None)
+            .attach_legacy_devices_aarch64(&vm, &mut event_manager, &mut cmdline, None, None)
             .unwrap();
         let dummy = Arc::new(Mutex::new(DummyDevice::new()));
         device_manager

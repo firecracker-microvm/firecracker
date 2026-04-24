@@ -15,7 +15,6 @@ use event_manager::{MutEventSubscriber, SubscriberOps};
 #[cfg(target_arch = "x86_64")]
 use legacy::{LegacyDeviceError, PortIODeviceManager};
 use linux_loader::loader::Cmdline;
-use log::{error, info};
 use mmio::{MMIODeviceManager, MmioError};
 use pci_mngr::{PciDevices, PciDevicesConstructorArgs, PciManagerError};
 use persist::MMIODevManagerConstructorArgs;
@@ -30,7 +29,7 @@ use crate::devices::legacy::I8042Device;
 #[cfg(target_arch = "aarch64")]
 use crate::devices::legacy::RTCDevice;
 use crate::devices::legacy::SerialDevice;
-use crate::devices::legacy::serial::SerialOut;
+use crate::devices::legacy::serial::{SerialOut, SerialOutInner};
 use crate::devices::pseudo::BootTimer;
 use crate::devices::virtio::ActivateError;
 use crate::devices::virtio::balloon::BalloonError;
@@ -42,6 +41,8 @@ use crate::devices::virtio::pmem::persist::PmemPersistError;
 use crate::devices::virtio::rng::persist::EntropyPersistError;
 use crate::devices::virtio::transport::mmio::{IrqTrigger, MmioTransport};
 use crate::devices::virtio::vsock::{VsockError, VsockUnixBackendError};
+use crate::logger::{error, info};
+use crate::rate_limiter::TokenBucket;
 use crate::resources::VmResources;
 use crate::snapshot::Persist;
 use crate::utils::open_file_nonblock;
@@ -134,13 +135,23 @@ impl DeviceManager {
         event_manager: &mut EventManager,
         output: Option<&PathBuf>,
         state: Option<&serial::SerialState>,
+        rate_limiter: Option<TokenBucket>,
     ) -> Result<Arc<Mutex<SerialDevice>>, std::io::Error> {
         let (serial_in, serial_out) = match output {
-            Some(path) => (None, open_file_nonblock(path).map(SerialOut::File)?),
+            Some(path) => (
+                None,
+                SerialOut::new(
+                    SerialOutInner::File(open_file_nonblock(path)?),
+                    rate_limiter,
+                ),
+            ),
             None => {
                 Self::set_stdout_nonblocking();
 
-                (Some(std::io::stdin()), SerialOut::Stdout(std::io::stdout()))
+                (
+                    Some(std::io::stdin()),
+                    SerialOut::new(SerialOutInner::Stdout(std::io::stdout()), rate_limiter),
+                )
             }
         };
 
@@ -179,9 +190,15 @@ impl DeviceManager {
         vm: &Vm,
         serial_output: Option<&PathBuf>,
         serial_state: Option<&serial::SerialState>,
+        serial_rate_limiter: Option<TokenBucket>,
     ) -> Result<PortIODeviceManager, DeviceManagerCreateError> {
         // Create serial device
-        let serial = Self::setup_serial_device(event_manager, serial_output, serial_state)?;
+        let serial = Self::setup_serial_device(
+            event_manager,
+            serial_output,
+            serial_state,
+            serial_rate_limiter,
+        )?;
         let reset_evt = vcpus_exit_evt
             .try_clone()
             .map_err(DeviceManagerCreateError::EventFd)?;
@@ -203,10 +220,17 @@ impl DeviceManager {
         vcpus_exit_evt: &EventFd,
         vm: &Vm,
         serial_output: Option<&PathBuf>,
+        serial_rate_limiter: Option<TokenBucket>,
     ) -> Result<Self, DeviceManagerCreateError> {
         #[cfg(target_arch = "x86_64")]
-        let legacy_devices =
-            Self::create_legacy_devices(event_manager, vcpus_exit_evt, vm, serial_output, None)?;
+        let legacy_devices = Self::create_legacy_devices(
+            event_manager,
+            vcpus_exit_evt,
+            vm,
+            serial_output,
+            None,
+            serial_rate_limiter,
+        )?;
 
         Ok(DeviceManager {
             mmio_devices: MMIODeviceManager::new(),
@@ -292,6 +316,7 @@ impl DeviceManager {
         event_manager: &mut EventManager,
         cmdline: &mut Cmdline,
         serial_out_path: Option<&PathBuf>,
+        serial_rate_limiter: Option<TokenBucket>,
     ) -> Result<(), AttachDeviceError> {
         // Serial device setup.
         let cmdline_contains_console = cmdline
@@ -302,7 +327,12 @@ impl DeviceManager {
             .contains("console=");
 
         if cmdline_contains_console {
-            let serial = Self::setup_serial_device(event_manager, serial_out_path, None)?;
+            let serial = Self::setup_serial_device(
+                event_manager,
+                serial_out_path,
+                None,
+                serial_rate_limiter,
+            )?;
             self.mmio_devices.register_mmio_serial(vm, serial, None)?;
             self.mmio_devices.add_mmio_serial_to_cmdline(cmdline)?;
         }
@@ -549,6 +579,7 @@ impl<'a> Persist<'a> for DeviceManager {
             constructor_args.vm,
             constructor_args.vm_resources.serial_out_path.as_ref(),
             serial_state.as_ref(),
+            constructor_args.vm_resources.serial_rate_limiter(),
         )?;
 
         // Restore MMIO devices
@@ -608,7 +639,7 @@ pub(crate) mod tests {
         #[cfg(target_arch = "x86_64")]
         let legacy_devices = PortIODeviceManager {
             stdio_serial: Arc::new(Mutex::new(
-                SerialDevice::new(None, SerialOut::Sink, None).unwrap(),
+                SerialDevice::new(None, SerialOut::new(SerialOutInner::Sink, None), None).unwrap(),
             )),
             i8042: Arc::new(Mutex::new(
                 I8042Device::new(EventFd::new(libc::EFD_NONBLOCK).unwrap()).unwrap(),
@@ -634,7 +665,7 @@ pub(crate) mod tests {
         let mut cmdline = Cmdline::new(4096).unwrap();
         let mut event_manager = EventManager::new().unwrap();
         vmm.device_manager
-            .attach_legacy_devices_aarch64(&vmm.vm, &mut event_manager, &mut cmdline, None)
+            .attach_legacy_devices_aarch64(&vmm.vm, &mut event_manager, &mut cmdline, None, None)
             .unwrap();
         assert!(vmm.device_manager.mmio_devices.rtc.is_some());
         assert!(vmm.device_manager.mmio_devices.serial.is_none());
@@ -642,7 +673,7 @@ pub(crate) mod tests {
         let mut vmm = default_vmm();
         cmdline.insert("console", "/dev/blah").unwrap();
         vmm.device_manager
-            .attach_legacy_devices_aarch64(&vmm.vm, &mut event_manager, &mut cmdline, None)
+            .attach_legacy_devices_aarch64(&vmm.vm, &mut event_manager, &mut cmdline, None, None)
             .unwrap();
         assert!(vmm.device_manager.mmio_devices.rtc.is_some());
         assert!(vmm.device_manager.mmio_devices.serial.is_some());

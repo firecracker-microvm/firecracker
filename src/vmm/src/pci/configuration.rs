@@ -15,6 +15,19 @@ use super::msix::MsixConfig;
 use crate::logger::{info, warn};
 use crate::pci::{PciCapabilityId, PciClassCode};
 
+/// Errors from restoring PCI configuration state.
+#[derive(Debug, thiserror::Error, displaydoc::Display)]
+pub enum PciConfigurationError {
+    /// Invalid registers length: {0}
+    InvalidRegistersLength(usize),
+    /// Invalid writable_bits length: {0}
+    InvalidWritableBitsLength(usize),
+    /// Invalid bars length: {0}
+    InvalidBarsLength(usize),
+    /// Invalid cap_pci_cfg length: {0}
+    InvalidCapPciCfgLength(usize),
+}
+
 // The number of 32bit registers in the config space, 4096 bytes.
 const NUM_CONFIGURATION_REGISTERS: usize = 1024;
 
@@ -129,15 +142,33 @@ impl PciConfiguration {
     pub fn type0_from_state(
         state: PciConfigurationState,
         msix_config: Option<Arc<Mutex<MsixConfig>>>,
-    ) -> Self {
-        PciConfiguration {
-            registers: state.registers.try_into().unwrap(),
-            writable_bits: state.writable_bits.try_into().unwrap(),
-            bars: state.bars.try_into().unwrap(),
+    ) -> Result<Self, PciConfigurationError> {
+        let reg_len = state.registers.len();
+        let registers = state
+            .registers
+            .try_into()
+            .map_err(|_| PciConfigurationError::InvalidRegistersLength(reg_len))?;
+
+        let wb_len = state.writable_bits.len();
+        let writable_bits = state
+            .writable_bits
+            .try_into()
+            .map_err(|_| PciConfigurationError::InvalidWritableBitsLength(wb_len))?;
+
+        let bar_len = state.bars.len();
+        let bars = state
+            .bars
+            .try_into()
+            .map_err(|_| PciConfigurationError::InvalidBarsLength(bar_len))?;
+
+        Ok(PciConfiguration {
+            registers,
+            writable_bits,
+            bars,
             last_capability: state.last_capability,
             msix_cap_reg_idx: state.msix_cap_reg_idx,
             msix_config,
-        }
+        })
     }
 
     /// Create PCI configuration space state
