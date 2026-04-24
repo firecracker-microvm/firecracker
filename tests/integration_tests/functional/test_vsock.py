@@ -26,6 +26,7 @@ from framework.utils_vsock import (
     VSOCK_UDS_PATH,
     HostEchoWorker,
     _copy_vsock_data_to_guest,
+    boot_vsock_vm,
     check_guest_connections,
     check_host_connections,
     check_vsock_device,
@@ -39,20 +40,35 @@ NEGATIVE_TEST_CONNECTION_COUNT = 100
 TEST_WORKER_COUNT = 10
 
 
-def test_vsock(uvm_plain_any, bin_vsock_path, test_fc_session_root_path):
+@pytest.fixture
+def vsock_uvm(uvm_plain_acpi, request):
+    """Fixture to initialize a microVM with vsock device."""
+    vcpus = request.param if hasattr(request, "param") else 1
+
+    return boot_vsock_vm(
+        uvm_plain_acpi,
+        vcpu_count=vcpus,
+        mem_size_mib=1024,
+        log_level="Info",
+        emit_metrics=True,
+        pin_threads=True,
+    )
+
+
+@pytest.fixture
+def vsock_uvm_any(uvm_plain_any):
+    """Fixture to initialize a kernel-parametrized microVM with vsock device."""
+    return boot_vsock_vm(uvm_plain_any)
+
+
+def test_vsock(vsock_uvm_any, bin_vsock_path, test_fc_session_root_path):
     """
     Test guest and host vsock initiated connections.
 
     Check the module docstring for details on the setup.
     """
 
-    vm = uvm_plain_any
-    vm.spawn()
-
-    vm.basic_config()
-    vm.add_net_iface()
-    vm.api.vsock.put(vsock_id="vsock0", guest_cid=3, uds_path=f"/{VSOCK_UDS_PATH}")
-    vm.start()
+    vm = vsock_uvm_any
 
     check_vsock_device(vm, bin_vsock_path, test_fc_session_root_path, vm.ssh)
     metrics = vm.flush_metrics()
@@ -104,16 +120,11 @@ def negative_test_host_connections(vm, blob_path, blob_hash):
     validate_fc_metrics(metrics)
 
 
-def test_vsock_epipe(uvm_plain_any, bin_vsock_path, test_fc_session_root_path):
+def test_vsock_epipe(vsock_uvm_any, bin_vsock_path, test_fc_session_root_path):
     """
     Vsock negative test to validate SIGPIPE/EPIPE handling.
     """
-    vm = uvm_plain_any
-    vm.spawn()
-    vm.basic_config()
-    vm.add_net_iface()
-    vm.api.vsock.put(vsock_id="vsock0", guest_cid=3, uds_path=f"/{VSOCK_UDS_PATH}")
-    vm.start()
+    vm = vsock_uvm_any
 
     # Generate the random data blob file, 20MB
     blob_path, blob_hash = make_blob(test_fc_session_root_path, 20 * 2**20)
@@ -130,8 +141,9 @@ def test_vsock_epipe(uvm_plain_any, bin_vsock_path, test_fc_session_root_path):
     validate_fc_metrics(metrics)
 
 
+@pytest.mark.parametrize("vsock_uvm", [1, 2], indirect=True, ids=["1vcpu", "2vcpu"])
 def test_vsock_transport_reset_h2g(
-    uvm_plain_any, microvm_factory, bin_vsock_path, test_fc_session_root_path
+    vsock_uvm, microvm_factory, bin_vsock_path, test_fc_session_root_path
 ):
     """
     Vsock transport reset test.
@@ -148,12 +160,7 @@ def test_vsock_transport_reset_h2g(
     6. Close VM -> Load VM from Snapshot -> check that vsock
        device is still working.
     """
-    test_vm = uvm_plain_any
-    test_vm.spawn()
-    test_vm.basic_config(vcpu_count=2, mem_size_mib=256)
-    test_vm.add_net_iface()
-    test_vm.api.vsock.put(vsock_id="vsock0", guest_cid=3, uds_path=f"/{VSOCK_UDS_PATH}")
-    test_vm.start()
+    test_vm = vsock_uvm
 
     # Generate the random data blob file.
     blob_path, blob_hash = make_blob(test_fc_session_root_path)
@@ -217,16 +224,12 @@ def test_vsock_transport_reset_h2g(
     validate_fc_metrics(metrics)
 
 
-def test_vsock_transport_reset_g2h(uvm_plain_any, microvm_factory):
+@pytest.mark.parametrize("vsock_uvm", [1, 2], indirect=True, ids=["1vcpu", "2vcpu"])
+def test_vsock_transport_reset_g2h(vsock_uvm, microvm_factory):
     """
     Vsock transport reset test.
     """
-    test_vm = uvm_plain_any
-    test_vm.spawn()
-    test_vm.basic_config(vcpu_count=2, mem_size_mib=256)
-    test_vm.add_net_iface()
-    test_vm.api.vsock.put(vsock_id="vsock0", guest_cid=3, uds_path=f"/{VSOCK_UDS_PATH}")
-    test_vm.start()
+    test_vm = vsock_uvm
 
     # Create snapshot and terminate a VM.
     snapshot = test_vm.snapshot_full()
