@@ -27,7 +27,7 @@ use crate::devices::virtio::block::CacheType;
 use crate::devices::virtio::block::virtio::metrics::{BlockDeviceMetrics, BlockMetricsPerDevice};
 use crate::devices::virtio::device::{ActiveState, DeviceState, VirtioDevice};
 use crate::devices::virtio::generated::virtio_blk::{
-    VIRTIO_BLK_F_FLUSH, VIRTIO_BLK_F_RO, VIRTIO_BLK_ID_BYTES,
+    VIRTIO_BLK_F_DISCARD, VIRTIO_BLK_F_FLUSH, VIRTIO_BLK_F_RO, VIRTIO_BLK_ID_BYTES,
 };
 use crate::devices::virtio::generated::virtio_config::VIRTIO_F_VERSION_1;
 use crate::devices::virtio::generated::virtio_ids::VIRTIO_ID_BLOCK;
@@ -330,14 +330,39 @@ impl VirtioBlock {
 
         if config.is_read_only {
             avail_features |= 1u64 << VIRTIO_BLK_F_RO;
-        };
+        } else {
+            avail_features |= 1u64 << VIRTIO_BLK_F_DISCARD;
+        }
 
         let queue_evts = [EventFd::new(libc::EFD_NONBLOCK).map_err(VirtioBlockError::EventFd)?];
 
         let queues = BLOCK_QUEUE_SIZES.iter().map(|&s| Queue::new(s)).collect();
 
+        let discard_sectors = u32::try_from(disk_properties.nsectors).unwrap_or(u32::MAX);
         let config_space = ConfigSpace {
             capacity: disk_properties.nsectors.to_le(),
+            max_discard_sectors: if !config.is_read_only {
+                discard_sectors
+            } else {
+                0
+            },
+            // max_discard_seg = 1: each VIRTIO_BLK_T_DISCARD request carries
+            // exactly one (sector, num_sectors) tuple. Raising this would let
+            // the guest batch disjoint discards (e.g. fstrim on a fragmented
+            // filesystem) into a single multi-segment request, saving virtqueue
+            // round-trips. We keep it at 1 in this iteration because the async
+            // io_uring engine currently produces exactly one SQE per virtio
+            // request; multi-segment would require submitting N SQEs and only
+            // completing the virtio request after all N CQEs return (or
+            // serialising them). max_discard_sectors is set to the full disk
+            // so contiguous ranges are never split, regardless of this limit.
+            max_discard_seg: if !config.is_read_only { 1 } else { 0 },
+            // discard_sector_alignment: the spec requires a non-zero power of
+            // two when DISCARD is advertised. We use 1 (one sector) — no
+            // alignment preference — because the host's fallocate(PUNCH_HOLE)
+            // accepts any byte offset/length and the kernel rounds internally
+            // to FS-block granularity.
+            discard_sector_alignment: if !config.is_read_only { 1 } else { 0 },
             ..Default::default()
         };
 
@@ -588,6 +613,10 @@ impl VirtioBlock {
     pub fn update_disk_image(&mut self, disk_image_path: String) -> Result<(), VirtioBlockError> {
         self.disk.update(disk_image_path, self.read_only)?;
         self.config_space.capacity = self.disk.nsectors.to_le(); // virtio_block_config_space();
+        // Discard config fields derive from the new disk's sector count, so
+        // refresh them alongside `capacity`.
+        let discard_sectors = u32::try_from(self.disk.nsectors).unwrap_or(u32::MAX);
+        self.config_space.max_discard_sectors = if !self.read_only { discard_sectors } else { 0 };
 
         // Kick the driver to pick up the changes. (But only if the device is already activated).
         if self.is_activated() {
