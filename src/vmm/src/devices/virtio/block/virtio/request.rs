@@ -14,18 +14,35 @@ use crate::devices::virtio::block::virtio::device::DiskProperties;
 use crate::devices::virtio::block::virtio::metrics::BlockDeviceMetrics;
 pub use crate::devices::virtio::generated::virtio_blk::{
     VIRTIO_BLK_ID_BYTES, VIRTIO_BLK_S_IOERR, VIRTIO_BLK_S_OK, VIRTIO_BLK_S_UNSUPP,
-    VIRTIO_BLK_T_FLUSH, VIRTIO_BLK_T_GET_ID, VIRTIO_BLK_T_IN, VIRTIO_BLK_T_OUT,
+    VIRTIO_BLK_T_DISCARD, VIRTIO_BLK_T_FLUSH, VIRTIO_BLK_T_GET_ID, VIRTIO_BLK_T_IN,
+    VIRTIO_BLK_T_OUT,
 };
 use crate::devices::virtio::queue::DescriptorChain;
 use crate::logger::{IncMetric, error};
 use crate::rate_limiter::{RateLimiter, TokenType};
 use crate::vstate::memory::{ByteValued, Bytes, GuestAddress, GuestMemoryMmap};
 
+/// One virtio-blk discard/write_zeroes segment — virtio spec §5.2.6.14.
+#[derive(Debug, Default, Copy, Clone)]
+#[repr(C)]
+pub struct DiscardWriteZeroes {
+    pub sector: u64,
+    pub num_sectors: u32,
+    pub flags: u32,
+}
+// SAFETY: repr(C), all POD fields, no implicit padding.
+unsafe impl ByteValued for DiscardWriteZeroes {}
+
+pub const DISCARD_SEGMENT_SIZE: u32 = 16;
+const _: () = assert!(std::mem::size_of::<DiscardWriteZeroes>() == DISCARD_SEGMENT_SIZE as usize);
+
 #[derive(Debug, derive_more::From)]
 pub enum IoErr {
     GetId(GuestMemoryError),
     PartialTransfer { completed: u32, expected: u32 },
     FileEngine(block_io::BlockIoError),
+    InvalidOffset,
+    InvalidFlags,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -34,6 +51,7 @@ pub enum RequestType {
     Out,
     Flush,
     GetDeviceID,
+    Discard,
     Unsupported(u32),
 }
 
@@ -44,6 +62,7 @@ impl From<u32> for RequestType {
             VIRTIO_BLK_T_OUT => RequestType::Out,
             VIRTIO_BLK_T_FLUSH => RequestType::Flush,
             VIRTIO_BLK_T_GET_ID => RequestType::GetDeviceID,
+            VIRTIO_BLK_T_DISCARD => RequestType::Discard,
             t => RequestType::Unsupported(t),
         }
     }
@@ -176,6 +195,9 @@ impl PendingRequest {
             (Ok(transferred_data_len), RequestType::GetDeviceID) => {
                 Status::from_data(self.data_len, transferred_data_len, true)
             }
+            (Ok(_), RequestType::Discard) => Status::Unsupported {
+                op: VIRTIO_BLK_T_DISCARD,
+            },
             (_, RequestType::Unsupported(op)) => Status::Unsupported { op },
             (Err(err), _) => Status::IoErr {
                 num_bytes_to_mem: 0,
@@ -389,6 +411,9 @@ impl Request {
                     .map(|_| VIRTIO_BLK_ID_BYTES)
                     .map_err(IoErr::GetId);
                 return ProcessingResult::Executed(pending.finish(mem, res, block_metrics));
+            }
+            RequestType::Discard => {
+                return ProcessingResult::Executed(pending.finish(mem, Ok(0), block_metrics));
             }
             RequestType::Unsupported(_) => {
                 return ProcessingResult::Executed(pending.finish(mem, Ok(0), block_metrics));
@@ -714,10 +739,13 @@ mod tests {
                 (
                     1u32,
                     std::sync::Arc::new(Strategy::prop_map(any::<u32>(), |id| {
-                        // Random unsupported requests for our implementation start at
-                        // VIRTIO_BLK_T_GET_ID + 1 = 9.
-                        // This can be further refined to include unsupported requests ids < 9.
-                        RequestType::Unsupported(id.checked_add(9).unwrap_or(9))
+                        // Random unsupported requests start past every known
+                        // request type so a randomly-generated id can never
+                        // collide with a recognised one (which would make
+                        // RequestType::from() round-trip to the recognised
+                        // variant instead of Unsupported). Past GET_ID (8) and
+                        // DISCARD (11) leaves 12 as the smallest safe base.
+                        RequestType::Unsupported(id.checked_add(12).unwrap_or(12))
                     })),
                 ),
             ))
@@ -731,6 +759,7 @@ mod tests {
                 RequestType::Out => VIRTIO_BLK_T_OUT,
                 RequestType::Flush => VIRTIO_BLK_T_FLUSH,
                 RequestType::GetDeviceID => VIRTIO_BLK_T_GET_ID,
+                RequestType::Discard => VIRTIO_BLK_T_DISCARD,
                 RequestType::Unsupported(id) => id,
             }
         }
@@ -743,6 +772,7 @@ mod tests {
             RequestType::Out => VIRTQ_DESC_F_NEXT,
             RequestType::Flush => VIRTQ_DESC_F_NEXT,
             RequestType::GetDeviceID => VIRTQ_DESC_F_NEXT | VIRTQ_DESC_F_WRITE,
+            RequestType::Discard => VIRTQ_DESC_F_NEXT,
             RequestType::Unsupported(_) => VIRTQ_DESC_F_NEXT,
         }
     }
