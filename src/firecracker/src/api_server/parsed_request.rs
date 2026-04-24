@@ -24,7 +24,7 @@ use super::request::machine_configuration::{
 use super::request::metrics::parse_put_metrics;
 use super::request::mmds::{parse_get_mmds, parse_patch_mmds, parse_put_mmds};
 use super::request::net::{parse_patch_net, parse_put_net};
-use super::request::pmem::parse_put_pmem;
+use super::request::pmem::{parse_patch_pmem, parse_put_pmem};
 use super::request::snapshot::{parse_patch_vm_state, parse_put_snapshot};
 use super::request::version::parse_get_version;
 use super::request::vsock::parse_put_vsock;
@@ -120,6 +120,7 @@ impl TryFrom<&Request> for ParsedRequest {
             (Method::Patch, "network-interfaces", Some(body)) => {
                 parse_patch_net(body, path_tokens.next())
             }
+            (Method::Patch, "pmem", Some(body)) => parse_patch_pmem(body, path_tokens.next()),
             (Method::Patch, "vm", Some(body)) => parse_patch_vm_state(body),
             (Method::Patch, "hotplug", Some(body)) if path_tokens.next() == Some("memory") => {
                 parse_patch_memory_hotplug(body)
@@ -282,6 +283,10 @@ pub(crate) fn method_to_error(method: Method) -> Result<ParsedRequest, RequestEr
         Method::Patch => Err(RequestError::Generic(
             StatusCode::BadRequest,
             "Empty PATCH request.".to_string(),
+        )),
+        Method::Delete => Err(RequestError::Generic(
+            StatusCode::BadRequest,
+            "Empty Delete request.".to_string(),
         )),
     }
 }
