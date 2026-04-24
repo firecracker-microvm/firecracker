@@ -111,8 +111,17 @@ impl Persist<'_> for VirtioBlock {
         let avail_features = state.virtio_state.avail_features;
         let acked_features = state.virtio_state.acked_features;
 
+        let discard_sectors = u32::try_from(disk_properties.nsectors).unwrap_or(u32::MAX);
         let config_space = ConfigSpace {
             capacity: disk_properties.nsectors.to_le(),
+            max_discard_sectors: if !is_read_only { discard_sectors } else { 0 },
+            max_discard_seg: if !is_read_only { 1 } else { 0 },
+            // discard_sector_alignment: the spec requires a non-zero power of
+            // two when DISCARD is advertised. We use 1 (one sector) — no
+            // alignment preference — because the host's fallocate(PUNCH_HOLE)
+            // accepts any byte offset/length and the kernel rounds internally
+            // to FS-block granularity.
+            discard_sector_alignment: if !is_read_only { 1 } else { 0 },
             ..Default::default()
         };
 
