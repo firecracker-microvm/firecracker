@@ -4,7 +4,7 @@
 use std::fmt::Debug;
 use std::fs::File;
 use std::os::fd::RawFd;
-use std::os::unix::io::AsRawFd;
+use std::os::unix::io::AsRawFd as _;
 
 use vm_memory::GuestMemoryError;
 use vmm_sys_util::eventfd::EventFd;
@@ -82,6 +82,7 @@ impl AsyncFileEngine {
                 Restriction::AllowOpCode(OpCode::Read),
                 Restriction::AllowOpCode(OpCode::Write),
                 Restriction::AllowOpCode(OpCode::Fsync),
+                Restriction::AllowOpCode(OpCode::Fallocate),
             ],
             Some(completion_fd),
         )
@@ -117,6 +118,23 @@ impl AsyncFileEngine {
 
     pub fn completion_evt(&self) -> &EventFd {
         &self.completion_evt
+    }
+
+    pub fn push_discard(
+        &mut self,
+        offset: u64,
+        len: u64,
+        req: PendingRequest,
+    ) -> Result<(), RequestError<AsyncIoError>> {
+        // FALLOC_FL_PUNCH_HOLE | FALLOC_FL_KEEP_SIZE = 3
+        const PUNCH_HOLE_MODE: u32 = 3;
+        let wrapped = WrappedRequest::new(req);
+        self.ring
+            .push(Operation::fallocate(0, offset, len, PUNCH_HOLE_MODE, wrapped))
+            .map_err(|(io_uring_error, data)| RequestError {
+                req: data.req,
+                error: AsyncIoError::IoUring(io_uring_error),
+            })
     }
 
     pub fn push_read(

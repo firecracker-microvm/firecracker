@@ -29,6 +29,8 @@ pub enum OpCode {
     Write = io_uring_op::IORING_OP_WRITE as u8,
     /// Fsync operation.
     Fsync = io_uring_op::IORING_OP_FSYNC as u8,
+    /// Fallocate operation.
+    Fallocate = io_uring_op::IORING_OP_FALLOCATE as u8,
 }
 
 // Useful for outputting errors.
@@ -38,6 +40,7 @@ impl From<OpCode> for &'static str {
             OpCode::Read => "read",
             OpCode::Write => "write",
             OpCode::Fsync => "fsync",
+            OpCode::Fallocate => "fallocate",
         }
     }
 }
@@ -94,6 +97,26 @@ impl<T: Debug> Operation<T> {
             opcode: OpCode::Write,
             addr: Some(addr),
             len: Some(len),
+            flags: 0,
+            offset: Some(offset),
+            user_data,
+        }
+    }
+
+    /// Construct a fallocate operation.
+    ///
+    /// For IORING_OP_FALLOCATE the kernel reads the length from sqe->addr (u64)
+    /// and the mode flags from sqe->len (u32), with the file offset in sqe->off.
+    /// The existing `addr` and `len` struct fields map to exactly those SQE slots,
+    /// so no changes to `into_sqe` are needed.
+    // Firecracker targets 64-bit only; usize == u64 so this cast never truncates.
+    #[allow(clippy::cast_possible_truncation)]
+    pub fn fallocate(fd: FixedFd, offset: u64, len: u64, mode: u32, user_data: T) -> Self {
+        Self {
+            fd,
+            opcode: OpCode::Fallocate,
+            addr: Some(len as usize), // sqe->addr = fallocate length (u64)
+            len: Some(mode),          // sqe->len  = fallocate mode flags
             flags: 0,
             offset: Some(offset),
             user_data,

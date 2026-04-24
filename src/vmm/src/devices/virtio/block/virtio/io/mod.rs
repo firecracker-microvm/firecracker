@@ -157,6 +157,30 @@ impl FileEngine {
         }
     }
 
+    pub fn discard(
+        &mut self,
+        offset: u64,
+        len: u64,
+        req: PendingRequest,
+    ) -> Result<FileEngineOk, RequestError<BlockIoError>> {
+        match self {
+            FileEngine::Async(engine) => match engine.push_discard(offset, len, req) {
+                Ok(()) => Ok(FileEngineOk::Submitted),
+                Err(err) => Err(RequestError {
+                    req: err.req,
+                    error: BlockIoError::Async(err.error),
+                }),
+            },
+            FileEngine::Sync(engine) => match engine.discard(offset, len) {
+                Ok(()) => Ok(FileEngineOk::Executed(RequestOk { req, count: 0 })),
+                Err(err) => Err(RequestError {
+                    req,
+                    error: BlockIoError::Sync(err),
+                }),
+            },
+        }
+    }
+
     pub fn drain(&mut self, discard: bool) -> Result<(), BlockIoError> {
         match self {
             FileEngine::Async(engine) => engine.drain(discard).map_err(BlockIoError::Async),

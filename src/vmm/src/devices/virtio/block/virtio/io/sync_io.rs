@@ -3,6 +3,7 @@
 
 use std::fs::File;
 use std::io::{Seek, SeekFrom, Write};
+use std::os::unix::io::AsRawFd;
 
 use vm_memory::{GuestMemoryError, ReadVolatile, WriteVolatile};
 
@@ -10,6 +11,8 @@ use crate::vstate::memory::{GuestAddress, GuestMemory, GuestMemoryMmap};
 
 #[derive(Debug, thiserror::Error, displaydoc::Display)]
 pub enum SyncIoError {
+    /// Discard: {0}
+    Discard(std::io::Error),
     /// Flush: {0}
     Flush(std::io::Error),
     /// Seek: {0}
@@ -73,6 +76,27 @@ impl SyncFileEngine {
             .and_then(|slice| Ok(self.file.write_all_volatile(&slice)?))
             .map_err(SyncIoError::Transfer)?;
         Ok(count)
+    }
+
+    pub fn discard(&mut self, offset: u64, len: u64) -> Result<(), SyncIoError> {
+        // SAFETY: libc::fallocate is FFI-unsafe by Rust convention, but it has
+        // no memory-safety preconditions on its arguments — the kernel reports
+        // invalid fd/mode/offset/len via the negative return value, not through
+        // undefined behaviour. The fd is kept valid for the duration of the
+        // call by the `&mut self` borrow of `self.file`.
+        let ret = unsafe {
+            libc::fallocate(
+                self.file.as_raw_fd(),
+                libc::FALLOC_FL_PUNCH_HOLE | libc::FALLOC_FL_KEEP_SIZE,
+                i64::try_from(offset).expect("discard offset fits in i64"),
+                i64::try_from(len).expect("discard length fits in i64"),
+            )
+        };
+        if ret < 0 {
+            Err(SyncIoError::Discard(std::io::Error::last_os_error()))
+        } else {
+            Ok(())
+        }
     }
 
     pub fn flush(&mut self) -> Result<(), SyncIoError> {
