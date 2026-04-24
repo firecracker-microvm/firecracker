@@ -43,6 +43,10 @@
                 "syscall": "fsync"
             },
             {
+                "syscall": "fallocate",
+                "comment": "Used by the block device for VIRTIO_BLK_F_DISCARD (FALLOC_FL_PUNCH_HOLE)"
+            },
+            {
                 "syscall": "close"
             },
             {
