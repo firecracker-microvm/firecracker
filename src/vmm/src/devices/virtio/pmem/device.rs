@@ -22,7 +22,9 @@ use crate::devices::virtio::pmem::metrics::{PmemMetrics, PmemMetricsPerDevice};
 use crate::devices::virtio::queue::{DescriptorChain, InvalidAvailIdx, Queue, QueueError};
 use crate::devices::virtio::transport::{VirtioInterrupt, VirtioInterruptType};
 use crate::logger::{IncMetric, error, info};
+use crate::rate_limiter::{BucketUpdate, RateLimiter, TokenType};
 use crate::utils::{align_up, u64_to_usize};
+use crate::vmm_config::RateLimiterConfig;
 use crate::vmm_config::pmem::PmemConfig;
 use crate::vstate::memory::{ByteValued, Bytes, GuestMemoryMmap, GuestMmapRegion};
 use crate::vstate::vm::VmError;
@@ -44,6 +46,10 @@ pub enum PmemError {
     ReadOnlyDescriptor,
     /// Unexpected write-only descriptor
     WriteOnlyDescriptor,
+    /// Head descriptor has invalid length of {0} instead of 4
+    Non4byteHeadDescriptor(u32),
+    /// Status descriptor has invalid length of {0} instead of 4
+    Non4byteStatusDescriptor(u32),
     /// UnknownRequestType: {0}
     UnknownRequestType(u32),
     /// Descriptor chain too short
@@ -54,6 +60,8 @@ pub enum PmemError {
     Queue(#[from] QueueError),
     /// Error during obtaining the descriptor from the queue: {0}
     QueuePop(#[from] InvalidAvailIdx),
+    /// Error creating rate limiter: {0}
+    RateLimiter(std::io::Error),
 }
 
 const VIRTIO_PMEM_REQ_TYPE_FLUSH: u32 = 0;
@@ -90,6 +98,7 @@ pub struct Pmem {
     pub file_len: u64,
     pub mmap_ptr: u64,
     pub metrics: Arc<PmemMetrics>,
+    pub rate_limiter: RateLimiter,
 
     pub config: PmemConfig,
 }
@@ -121,6 +130,13 @@ impl Pmem {
         let (file, file_len, mmap_ptr, mmap_len) =
             Self::mmap_backing_file(&config.path_on_host, config.read_only)?;
 
+        let rate_limiter = config
+            .rate_limiter
+            .map(RateLimiterConfig::try_into)
+            .transpose()
+            .map_err(PmemError::RateLimiter)?
+            .unwrap_or_default();
+
         Ok(Self {
             avail_features: 1u64 << VIRTIO_F_VERSION_1,
             acked_features: 0u64,
@@ -136,6 +152,7 @@ impl Pmem {
             file_len,
             mmap_ptr,
             metrics: PmemMetricsPerDevice::alloc(config.id.clone()),
+            rate_limiter,
             config,
         })
     }
@@ -250,8 +267,29 @@ impl Pmem {
         // This is safe since we checked in the event handler that the device is activated.
         let active_state = self.device_state.active_state().unwrap();
 
+        if self.queues[0].is_empty() {
+            return Ok(());
+        }
+
+        // There is only 1 type of request pmem supports, so we can consume
+        // rate-limiter before even looking at the queue. This is still valid
+        // even if the queue will not have any valid requests since it indicate
+        // broken guest driver and rate-limiting should still apply for such case.
+        // Rate limit: consume 1 op and file_len bytes for the coalesced msync.
+        // If the rate limiter is blocked, defer notification until the timer fires.
+        if !self.rate_limiter.consume(1, TokenType::Ops) {
+            self.metrics.rate_limiter_throttled_events.inc();
+            return Ok(());
+        }
+        if !self.rate_limiter.consume(self.file_len, TokenType::Bytes) {
+            self.rate_limiter.manual_replenish(1, TokenType::Ops);
+            self.metrics.rate_limiter_throttled_events.inc();
+            return Ok(());
+        }
+
+        let mut cached_result = None;
         while let Some(head) = self.queues[0].pop()? {
-            let add_result = match self.process_chain(head) {
+            let add_result = match self.process_chain(head, &mut cached_result) {
                 Ok(()) => self.queues[0].add_used(head.index, 4),
                 Err(err) => {
                     error!("pmem: {err}");
@@ -265,8 +303,8 @@ impl Pmem {
                 break;
             }
         }
-        self.queues[0].advance_used_ring_idx();
 
+        self.queues[0].advance_used_ring_idx();
         if self.queues[0].prepare_kick() {
             active_state
                 .interrupt
@@ -279,45 +317,97 @@ impl Pmem {
         Ok(())
     }
 
-    fn process_chain(&self, head: DescriptorChain) -> Result<(), PmemError> {
+    fn process_chain(
+        &self,
+        head: DescriptorChain,
+        cached_result: &mut Option<i32>,
+    ) -> Result<(), PmemError> {
         // This is safe since we checked in the event handler that the device is activated.
         let active_state = self.device_state.active_state().unwrap();
 
+        // Virtio spec, section 5.19.6 Driver Operations
+        // https://docs.oasis-open.org/virtio/virtio/v1.3/csd01/virtio-v1.3-csd01.html#x1-6970006
         if head.is_write_only() {
             return Err(PmemError::WriteOnlyDescriptor);
+        }
+        if head.len != 4 {
+            return Err(PmemError::Non4byteHeadDescriptor(head.len));
         }
         let request: u32 = active_state.mem.read_obj(head.addr)?;
         if request != VIRTIO_PMEM_REQ_TYPE_FLUSH {
             return Err(PmemError::UnknownRequestType(request));
         }
+
+        // Virtio spec, section 5.19.7 Device Operations
+        // https://docs.oasis-open.org/virtio/virtio/v1.3/csd01/virtio-v1.3-csd01.html#x1-6980007
         let Some(status_descriptor) = head.next_descriptor() else {
             return Err(PmemError::DescriptorChainTooShort);
         };
         if !status_descriptor.is_write_only() {
             return Err(PmemError::ReadOnlyDescriptor);
         }
-        let mut result = SUCCESS;
-        // SAFETY: We are calling the system call with valid arguments and checking the returned
-        // value
-        unsafe {
-            let ret = libc::msync(
-                self.mmap_ptr as *mut libc::c_void,
-                u64_to_usize(self.file_len),
-                libc::MS_SYNC,
-            );
-            if ret < 0 {
-                error!("pmem: Unable to msync the file. Error: {}", ret);
-                result = FAILURE;
-            }
+        if status_descriptor.len != 4 {
+            return Err(PmemError::Non4byteStatusDescriptor(status_descriptor.len));
         }
-        active_state.mem.write_obj(result, status_descriptor.addr)?;
+
+        // Since there is only 1 type of request pmem device supports,
+        // we treat single notification from the guest as a single request
+        // and reuse cached result of `msync` from first valid descriptor
+        // for all following descriptors.
+        if let Some(result) = cached_result {
+            active_state
+                .mem
+                .write_obj(*result, status_descriptor.addr)?;
+        } else {
+            let mut status = SUCCESS;
+            // SAFETY: We are calling the system call with valid arguments and checking the returned
+            // value
+            unsafe {
+                let ret = libc::msync(
+                    self.mmap_ptr as *mut libc::c_void,
+                    u64_to_usize(self.file_len),
+                    libc::MS_SYNC,
+                );
+                if ret < 0 {
+                    error!("pmem: Unable to msync the file. Error: {}", ret);
+                    status = FAILURE;
+                }
+            }
+            *cached_result = Some(status);
+
+            active_state.mem.write_obj(status, status_descriptor.addr)?;
+        }
         Ok(())
+    }
+
+    /// Updates the parameters for the rate limiter.
+    pub fn update_rate_limiter(&mut self, bytes: BucketUpdate, ops: BucketUpdate) {
+        self.rate_limiter.update_buckets(bytes, ops);
     }
 
     pub fn process_queue(&mut self) {
         self.metrics.queue_event_count.inc();
         if let Err(err) = self.queue_events[0].read() {
             error!("pmem: Failed to get queue event: {err:?}");
+            self.metrics.event_fails.inc();
+            return;
+        }
+
+        if self.rate_limiter.is_blocked() {
+            self.metrics.rate_limiter_throttled_events.inc();
+            return;
+        }
+
+        self.handle_queue().unwrap_or_else(|err| {
+            error!("pmem: {err:?}");
+            self.metrics.event_fails.inc();
+        });
+    }
+
+    pub fn process_rate_limiter_event(&mut self) {
+        self.metrics.rate_limiter_event_count.inc();
+        if let Err(err) = self.rate_limiter.event_handler() {
+            error!("pmem: Failed to get rate-limiter event: {err:?}");
             self.metrics.event_fails.inc();
             return;
         }
@@ -425,6 +515,7 @@ mod tests {
             path_on_host: "not_a_path".into(),
             root_device: true,
             read_only: false,
+            ..Default::default()
         };
         assert!(matches!(
             Pmem::new(config).unwrap_err(),
@@ -438,6 +529,7 @@ mod tests {
             path_on_host: dummy_path.clone(),
             root_device: true,
             read_only: false,
+            ..Default::default()
         };
         assert!(matches!(
             Pmem::new(config).unwrap_err(),
@@ -450,6 +542,7 @@ mod tests {
             path_on_host: dummy_path,
             root_device: true,
             read_only: false,
+            ..Default::default()
         };
         Pmem::new(config).unwrap();
     }
@@ -464,6 +557,7 @@ mod tests {
             path_on_host: dummy_path,
             root_device: true,
             read_only: false,
+            ..Default::default()
         };
         let mut pmem = Pmem::new(config).unwrap();
 
@@ -485,8 +579,28 @@ mod tests {
             vq.used.idx.set(0);
             vq.avail.idx.set(1);
             let head = pmem.queues[0].pop().unwrap().unwrap();
-            pmem.process_chain(head).unwrap();
+            let mut result = None;
+            pmem.process_chain(head, &mut result).unwrap();
             assert_eq!(mem.read_obj::<u32>(GuestAddress(0x2000)).unwrap(), 0);
+            assert!(result.is_some());
+        }
+
+        // Valid request cached value reuse
+        {
+            vq.avail.ring[0].set(0);
+            vq.dtable[0].set(0x1000, 4, VIRTQ_DESC_F_NEXT, 1);
+            vq.avail.ring[1].set(1);
+            vq.dtable[1].set(0x2000, 4, VIRTQ_DESC_F_WRITE, 0);
+            mem.write_obj::<u32>(0, GuestAddress(0x1000)).unwrap();
+            mem.write_obj::<u32>(0x69, GuestAddress(0x2000)).unwrap();
+
+            pmem.queues[0] = vq.create_queue();
+            vq.used.idx.set(0);
+            vq.avail.idx.set(1);
+            let head = pmem.queues[0].pop().unwrap().unwrap();
+            let mut result = Some(0x69);
+            pmem.process_chain(head, &mut result).unwrap();
+            assert_eq!(mem.read_obj::<u32>(GuestAddress(0x2000)).unwrap(), 0x69);
         }
 
         // Invalid request type
@@ -500,7 +614,7 @@ mod tests {
             vq.avail.idx.set(1);
             let head = pmem.queues[0].pop().unwrap().unwrap();
             assert!(matches!(
-                pmem.process_chain(head).unwrap_err(),
+                pmem.process_chain(head, &mut None).unwrap_err(),
                 PmemError::UnknownRequestType(0x69),
             ));
         }
@@ -516,7 +630,7 @@ mod tests {
             vq.avail.idx.set(1);
             let head = pmem.queues[0].pop().unwrap().unwrap();
             assert!(matches!(
-                pmem.process_chain(head).unwrap_err(),
+                pmem.process_chain(head, &mut None).unwrap_err(),
                 PmemError::DescriptorChainTooShort,
             ));
         }
@@ -534,7 +648,7 @@ mod tests {
             vq.avail.idx.set(1);
             let head = pmem.queues[0].pop().unwrap().unwrap();
             assert!(matches!(
-                pmem.process_chain(head).unwrap_err(),
+                pmem.process_chain(head, &mut None).unwrap_err(),
                 PmemError::WriteOnlyDescriptor,
             ));
         }
@@ -552,8 +666,43 @@ mod tests {
             vq.avail.idx.set(1);
             let head = pmem.queues[0].pop().unwrap().unwrap();
             assert!(matches!(
-                pmem.process_chain(head).unwrap_err(),
+                pmem.process_chain(head, &mut None).unwrap_err(),
                 PmemError::ReadOnlyDescriptor,
+            ));
+        }
+
+        // Invalid length head descriptor
+        {
+            vq.avail.ring[0].set(0);
+            vq.dtable[0].set(0x1000, 0x69, VIRTQ_DESC_F_NEXT, 1);
+            mem.write_obj::<u32>(0, GuestAddress(0x1000)).unwrap();
+
+            pmem.queues[0] = vq.create_queue();
+            vq.used.idx.set(0);
+            vq.avail.idx.set(1);
+            let head = pmem.queues[0].pop().unwrap().unwrap();
+            assert!(matches!(
+                pmem.process_chain(head, &mut None).unwrap_err(),
+                PmemError::Non4byteHeadDescriptor(0x69),
+            ));
+        }
+
+        // Invalid length status descriptor
+        {
+            vq.avail.ring[0].set(0);
+            vq.dtable[0].set(0x1000, 4, VIRTQ_DESC_F_NEXT, 1);
+            vq.avail.ring[1].set(1);
+            vq.dtable[1].set(0x2000, 0x69, VIRTQ_DESC_F_WRITE, 0);
+            mem.write_obj::<u32>(0, GuestAddress(0x1000)).unwrap();
+            mem.write_obj::<u32>(0x69, GuestAddress(0x2000)).unwrap();
+
+            pmem.queues[0] = vq.create_queue();
+            vq.used.idx.set(0);
+            vq.avail.idx.set(1);
+            let head = pmem.queues[0].pop().unwrap().unwrap();
+            assert!(matches!(
+                pmem.process_chain(head, &mut None).unwrap_err(),
+                PmemError::Non4byteStatusDescriptor(0x69),
             ));
         }
     }

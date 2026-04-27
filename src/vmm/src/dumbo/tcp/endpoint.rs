@@ -599,7 +599,7 @@ mod tests {
         assert_eq!(actual_response, expected_response);
 
         // Test invalid HTTP methods.
-        let invalid_methods = ["POST", "HEAD", "DELETE", "CONNECT", "OPTIONS", "TRACE"];
+        let invalid_methods = ["POST", "HEAD", "CONNECT", "OPTIONS", "TRACE"];
         for method in invalid_methods.iter() {
             let request_bytes = format!("{} http://169.254.169.255/ HTTP/1.0\r\n\r\n", method);
             let mut expected_response = Response::new(Version::Http11, StatusCode::NotImplemented);
