@@ -82,84 +82,18 @@ pub struct ConfigSpace {
 // SAFETY: `ConfigSpace` contains only PODs in `repr(c)`, without padding.
 unsafe impl ByteValued for ConfigSpace {}
 
+/// RAII wrapper for the pmem mmap region. Performs mmap on construction and munmap on drop.
 #[derive(Debug)]
-pub struct Pmem {
-    // VirtIO fields
-    pub avail_features: u64,
-    pub acked_features: u64,
-    pub activate_event: EventFd,
-
-    // Transport fields
-    pub device_state: DeviceState,
-    pub queues: Vec<Queue>,
-    pub queue_events: Vec<EventFd>,
-
-    // Pmem specific fields
-    pub config_space: ConfigSpace,
-    pub file: File,
+pub struct PmemMmap {
     pub file_len: u64,
     pub mmap_ptr: u64,
-    pub metrics: Arc<PmemMetrics>,
-    pub rate_limiter: RateLimiter,
-
-    pub config: PmemConfig,
+    pub mmap_len: u64,
 }
 
-impl Drop for Pmem {
-    fn drop(&mut self) {
-        let mmap_len = align_up(self.file_len, Self::ALIGNMENT);
-        // SAFETY: `mmap_ptr` is a valid pointer since Pmem can only be created with `new*` methods.
-        //         Mapping size calculation is same for original mmap call.
-        unsafe {
-            _ = libc::munmap(self.mmap_ptr as *mut libc::c_void, u64_to_usize(mmap_len));
-        }
-    }
-}
+impl PmemMmap {
+    const ALIGNMENT: u64 = Pmem::ALIGNMENT;
 
-impl Pmem {
-    // Pmem devices need to have address and size to be
-    // a multiple of 2MB
-    pub const ALIGNMENT: u64 = 2 * 1024 * 1024;
-
-    /// Create a new Pmem device with a backing file at `disk_image_path` path.
-    pub fn new(config: PmemConfig) -> Result<Self, PmemError> {
-        Self::new_with_queues(config, vec![Queue::new(PMEM_QUEUE_SIZE)])
-    }
-
-    /// Create a new Pmem device with a backing file at `disk_image_path` path using a pre-created
-    /// set of queues.
-    pub fn new_with_queues(config: PmemConfig, queues: Vec<Queue>) -> Result<Self, PmemError> {
-        let (file, file_len, mmap_ptr, mmap_len) =
-            Self::mmap_backing_file(&config.path_on_host, config.read_only)?;
-
-        let rate_limiter = config
-            .rate_limiter
-            .map(RateLimiterConfig::try_into)
-            .transpose()
-            .map_err(PmemError::RateLimiter)?
-            .unwrap_or_default();
-
-        Ok(Self {
-            avail_features: 1u64 << VIRTIO_F_VERSION_1,
-            acked_features: 0u64,
-            activate_event: EventFd::new(libc::EFD_NONBLOCK).map_err(PmemError::EventFd)?,
-            device_state: DeviceState::Inactive,
-            queues,
-            queue_events: vec![EventFd::new(libc::EFD_NONBLOCK).map_err(PmemError::EventFd)?],
-            config_space: ConfigSpace {
-                start: 0,
-                size: mmap_len,
-            },
-            file,
-            file_len,
-            mmap_ptr,
-            metrics: PmemMetricsPerDevice::alloc(config.id.clone()),
-            rate_limiter,
-            config,
-        })
-    }
-
-    fn mmap_backing_file(path: &str, read_only: bool) -> Result<(File, u64, u64, u64), PmemError> {
+    pub fn new(path: &str, read_only: bool) -> Result<Self, PmemError> {
         let file = OpenOptions::new()
             .read(true)
             .write(!read_only)
@@ -228,7 +162,86 @@ impl Pmem {
                 mmap_ptr
             }
         };
-        Ok((file, file_len, mmap_ptr as u64, mmap_len))
+        Ok(Self {
+            file_len,
+            mmap_ptr: mmap_ptr as u64,
+            mmap_len,
+        })
+    }
+}
+
+impl Drop for PmemMmap {
+    fn drop(&mut self) {
+        // SAFETY: `mmap_ptr` is a valid pointer since PmemMmap can only be created via `new()`.
+        //         `mmap_len` is the same value used for the original mmap call.
+        unsafe {
+            _ = libc::munmap(
+                self.mmap_ptr as *mut libc::c_void,
+                u64_to_usize(self.mmap_len),
+            );
+        }
+    }
+}
+
+#[derive(Debug)]
+pub struct Pmem {
+    // VirtIO fields
+    pub avail_features: u64,
+    pub acked_features: u64,
+    pub activate_event: EventFd,
+
+    // Transport fields
+    pub device_state: DeviceState,
+    pub queues: Vec<Queue>,
+    pub queue_events: Vec<EventFd>,
+
+    // Pmem specific fields
+    pub config_space: ConfigSpace,
+    pub mmap: PmemMmap,
+    pub metrics: Arc<PmemMetrics>,
+    pub rate_limiter: RateLimiter,
+
+    pub config: PmemConfig,
+}
+
+impl Pmem {
+    // Pmem devices need to have address and size to be
+    // a multiple of 2MB
+    pub const ALIGNMENT: u64 = 2 * 1024 * 1024;
+
+    /// Create a new Pmem device with a backing file at `disk_image_path` path.
+    pub fn new(config: PmemConfig) -> Result<Self, PmemError> {
+        Self::new_with_queues(config, vec![Queue::new(PMEM_QUEUE_SIZE)])
+    }
+
+    /// Create a new Pmem device with a backing file at `disk_image_path` path using a pre-created
+    /// set of queues.
+    pub fn new_with_queues(config: PmemConfig, queues: Vec<Queue>) -> Result<Self, PmemError> {
+        let mmap = PmemMmap::new(&config.path_on_host, config.read_only)?;
+
+        let rate_limiter = config
+            .rate_limiter
+            .map(RateLimiterConfig::try_into)
+            .transpose()
+            .map_err(PmemError::RateLimiter)?
+            .unwrap_or_default();
+
+        Ok(Self {
+            avail_features: 1u64 << VIRTIO_F_VERSION_1,
+            acked_features: 0u64,
+            activate_event: EventFd::new(libc::EFD_NONBLOCK).map_err(PmemError::EventFd)?,
+            device_state: DeviceState::Inactive,
+            queues,
+            queue_events: vec![EventFd::new(libc::EFD_NONBLOCK).map_err(PmemError::EventFd)?],
+            config_space: ConfigSpace {
+                start: 0,
+                size: mmap.mmap_len,
+            },
+            metrics: PmemMetricsPerDevice::alloc(config.id.clone()),
+            rate_limiter,
+            config,
+            mmap,
+        })
     }
 
     /// Allocate memory in past_mmio64 memory region
@@ -254,7 +267,7 @@ impl Pmem {
             slot: next_slot,
             guest_phys_addr: self.config_space.start,
             memory_size: self.config_space.size,
-            userspace_addr: self.mmap_ptr,
+            userspace_addr: self.mmap.mmap_ptr,
             flags: if self.config.read_only {
                 KVM_MEM_READONLY
             } else {
@@ -284,7 +297,10 @@ impl Pmem {
             self.metrics.rate_limiter_throttled_events.inc();
             return Ok(());
         }
-        if !self.rate_limiter.consume(self.file_len, TokenType::Bytes) {
+        if !self
+            .rate_limiter
+            .consume(self.mmap.file_len, TokenType::Bytes)
+        {
             self.rate_limiter.manual_replenish(1, TokenType::Ops);
             self.metrics.rate_limiter_throttled_events.inc();
             return Ok(());
@@ -367,8 +383,8 @@ impl Pmem {
             // value
             unsafe {
                 let ret = libc::msync(
-                    self.mmap_ptr as *mut libc::c_void,
-                    u64_to_usize(self.file_len),
+                    self.mmap.mmap_ptr as *mut libc::c_void,
+                    u64_to_usize(self.mmap.file_len),
                     libc::MS_SYNC,
                 );
                 if ret < 0 {
