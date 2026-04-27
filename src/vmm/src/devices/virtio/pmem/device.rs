@@ -211,13 +211,23 @@ impl Pmem {
 
     /// Create a new Pmem device with a backing file at `disk_image_path` path.
     pub fn new(config: PmemConfig) -> Result<Self, PmemError> {
-        Self::new_with_queues(config, vec![Queue::new(PMEM_QUEUE_SIZE)])
+        Self::new_with_queues(config, vec![Queue::new(PMEM_QUEUE_SIZE)], 0u64, None)
     }
 
     /// Create a new Pmem device with a backing file at `disk_image_path` path using a pre-created
     /// set of queues.
-    pub fn new_with_queues(config: PmemConfig, queues: Vec<Queue>) -> Result<Self, PmemError> {
+    pub fn new_with_queues(
+        config: PmemConfig,
+        queues: Vec<Queue>,
+        acked_features: u64,
+        config_space: Option<ConfigSpace>,
+    ) -> Result<Self, PmemError> {
         let mmap = PmemMmap::new(&config.path_on_host, config.read_only)?;
+
+        let config_space = config_space.unwrap_or(ConfigSpace {
+            start: 0,
+            size: mmap.mmap_len,
+        });
 
         let rate_limiter = config
             .rate_limiter
@@ -228,15 +238,12 @@ impl Pmem {
 
         Ok(Self {
             avail_features: 1u64 << VIRTIO_F_VERSION_1,
-            acked_features: 0u64,
+            acked_features,
             activate_event: EventFd::new(libc::EFD_NONBLOCK).map_err(PmemError::EventFd)?,
             device_state: DeviceState::Inactive,
             queues,
             queue_events: vec![EventFd::new(libc::EFD_NONBLOCK).map_err(PmemError::EventFd)?],
-            config_space: ConfigSpace {
-                start: 0,
-                size: mmap.mmap_len,
-            },
+            config_space,
             metrics: PmemMetricsPerDevice::alloc(config.id.clone()),
             rate_limiter,
             config,
