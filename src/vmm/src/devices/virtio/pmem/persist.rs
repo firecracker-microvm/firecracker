@@ -67,10 +67,12 @@ impl<'a> Persist<'a> for Pmem {
             PMEM_QUEUE_SIZE,
         )?;
 
-        let mut pmem = Pmem::new_with_queues(state.config.clone(), queues)?;
-        pmem.config_space = state.config_space;
-        pmem.avail_features = state.virtio_state.avail_features;
-        pmem.acked_features = state.virtio_state.acked_features;
+        let mut pmem = Pmem::new_with_queues(
+            state.config.clone(),
+            queues,
+            state.virtio_state.acked_features,
+            Some(state.config_space),
+        )?;
         pmem.rate_limiter = RateLimiter::restore((), &state.rate_limiter_state)
             .map_err(PmemPersistError::RateLimiter)?;
 
