@@ -743,9 +743,7 @@ fn attach_pmem_devices(
             }
         }
         let id = config.id.clone();
-        let mut pmem = Pmem::new(config.clone())?;
-        pmem.alloc_region(vm.as_ref())?;
-        pmem.set_mem_region(vm.as_ref())?;
+        let pmem = Pmem::new(vm.clone(), config.clone())?;
         let device = Arc::new(Mutex::new(pmem));
 
         device_manager.attach_virtio_device(vm, id, device, cmdline, event_manager, false)?;
