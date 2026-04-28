@@ -455,6 +455,11 @@ impl Vmm {
                     tuples.push(("vhost-user-block", b.id().to_owned()));
                 }
             });
+        if let Some(pci_devices) = self.device_manager.pci_devices() {
+            for device in pci_devices.vfio_devices.iter() {
+                tuples.push(("vfio", device.lock().unwrap().config.id.clone()));
+            }
+        }
         if tuples.is_empty() {
             Ok(())
         } else {
