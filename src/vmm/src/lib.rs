@@ -454,6 +454,9 @@ impl Vmm {
                     tuples.push(("vhost-user-block", b.id().to_owned()));
                 }
             });
+        for device in self.device_manager.pci_devices.vfio_devices.iter() {
+            tuples.push(("vfio", device.lock().unwrap().config.id.clone()));
+        }
         if tuples.is_empty() {
             Ok(())
         } else {
