@@ -768,10 +768,17 @@ impl<'a> Persist<'a> for DeviceManager {
 #[cfg(test)]
 pub(crate) mod tests {
     use super::*;
-    #[cfg(target_arch = "aarch64")]
+    use vmm_sys_util::tempfile::TempFile;
+
     use crate::builder::tests::default_vmm;
     use crate::devices::acpi::vmclock::VmClock;
     use crate::devices::acpi::vmgenid::VmGenId;
+    use crate::devices::virtio::block::CacheType;
+    use crate::rpc_interface::VmmActionError;
+    use crate::vmm_config::HotplugDeviceConfig;
+    use crate::vmm_config::drive::{BlockDeviceConfig, DriveError};
+    use crate::vmm_config::net::{NetworkInterfaceConfig, NetworkInterfaceError};
+    use crate::vmm_config::pmem::{PmemConfig, PmemConfigError};
     use crate::vstate::resources::ResourceAllocator;
 
     pub(crate) fn default_device_manager() -> DeviceManager {
@@ -842,5 +849,147 @@ pub(crate) mod tests {
                         .addr
                 ))
         );
+    }
+
+    fn make_hotplug_block_cfg(drive_id: &str, f: &TempFile, is_root: bool) -> BlockDeviceConfig {
+        BlockDeviceConfig {
+            drive_id: drive_id.to_string(),
+            partuuid: None,
+            is_root_device: is_root,
+            cache_type: CacheType::Unsafe,
+            is_read_only: Some(false),
+            path_on_host: Some(f.as_path().to_str().unwrap().to_string()),
+            rate_limiter: None,
+            file_engine_type: None,
+            socket: None,
+        }
+    }
+
+    #[test]
+    fn test_hotplug_block() {
+        let mut evt_manager = EventManager::new().unwrap();
+        let mut vmm = default_vmm();
+        vmm.device_manager.enable_pci(&vmm.vm).unwrap();
+        let f = TempFile::new().unwrap();
+
+        // Successful case
+        let cfg = HotplugDeviceConfig::Block(make_hotplug_block_cfg("block0", &f, false));
+        vmm.hotplug_device(cfg, &mut evt_manager).unwrap();
+        assert!(
+            vmm.device_manager
+                .pci_devices
+                .virtio_devices
+                .contains_key(&(VirtioDeviceType::Block, "block0".to_string()))
+        );
+
+        // Duplicate device ID is rejected
+        let cfg2 = HotplugDeviceConfig::Block(make_hotplug_block_cfg("block0", &f, false));
+        assert!(matches!(
+            vmm.hotplug_device(cfg2, &mut evt_manager),
+            Err(VmmActionError::DeviceIdInUse)
+        ));
+
+        // Root block device is rejected
+        let cfg3 = HotplugDeviceConfig::Block(make_hotplug_block_cfg("block1", &f, true));
+        assert!(matches!(
+            vmm.hotplug_device(cfg3, &mut evt_manager),
+            Err(VmmActionError::DriveConfig(
+                DriveError::RootBlockDeviceAlreadyAdded
+            ))
+        ));
+    }
+
+    #[test]
+    fn test_hotplug_pci_not_enabled() {
+        let mut vmm = default_vmm();
+        let mut evt_manager = EventManager::new().unwrap();
+        let f = TempFile::new().unwrap();
+
+        let cfg = HotplugDeviceConfig::Block(make_hotplug_block_cfg("block0", &f, false));
+        assert!(matches!(
+            vmm.hotplug_device(cfg, &mut evt_manager),
+            Err(VmmActionError::PciNotEnabled)
+        ));
+    }
+
+    #[test]
+    fn test_hotplug_pmem() {
+        let mut vmm = default_vmm();
+        vmm.device_manager.enable_pci(&vmm.vm).unwrap();
+        let mut evt_manager = EventManager::new().unwrap();
+        let f = TempFile::new().unwrap();
+        f.as_file().set_len(0x1000).unwrap();
+
+        // Successful case
+        let cfg = HotplugDeviceConfig::Pmem(PmemConfig {
+            id: "pmem0".to_string(),
+            path_on_host: f.as_path().to_str().unwrap().to_string(),
+            root_device: false,
+            read_only: false,
+            ..Default::default()
+        });
+        vmm.hotplug_device(cfg, &mut evt_manager).unwrap();
+        assert!(
+            vmm.device_manager
+                .pci_devices
+                .virtio_devices
+                .contains_key(&(VirtioDeviceType::Pmem, "pmem0".to_string()))
+        );
+
+        // Root pmem device is rejected
+        let f2 = TempFile::new().unwrap();
+        let cfg2 = HotplugDeviceConfig::Pmem(PmemConfig {
+            id: "pmem1".to_string(),
+            path_on_host: f2.as_path().to_str().unwrap().to_string(),
+            root_device: true,
+            read_only: false,
+            ..Default::default()
+        });
+        assert!(matches!(
+            vmm.hotplug_device(cfg2, &mut evt_manager),
+            Err(VmmActionError::PmemConfig(
+                PmemConfigError::AddingSecondRootDevice
+            ))
+        ));
+    }
+
+    #[test]
+    fn test_hotplug_net() {
+        let mut vmm = default_vmm();
+        vmm.device_manager.enable_pci(&vmm.vm).unwrap();
+        let mut evt_manager = EventManager::new().unwrap();
+
+        let mac = "AA:FC:00:00:00:01";
+
+        // Successful case
+        let cfg = HotplugDeviceConfig::Net(NetworkInterfaceConfig {
+            iface_id: "eth0".to_string(),
+            host_dev_name: "hostname".to_string(),
+            guest_mac: Some(mac.parse().unwrap()),
+            rx_rate_limiter: None,
+            tx_rate_limiter: None,
+        });
+        vmm.hotplug_device(cfg, &mut evt_manager).unwrap();
+        assert!(
+            vmm.device_manager
+                .pci_devices
+                .virtio_devices
+                .contains_key(&(VirtioDeviceType::Net, "eth0".to_string()))
+        );
+
+        // Duplicate MAC is rejected
+        let cfg2 = HotplugDeviceConfig::Net(NetworkInterfaceConfig {
+            iface_id: "eth1".to_string(),
+            host_dev_name: "hostname2".to_string(),
+            guest_mac: Some(mac.parse().unwrap()),
+            rx_rate_limiter: None,
+            tx_rate_limiter: None,
+        });
+        assert!(matches!(
+            vmm.hotplug_device(cfg2, &mut evt_manager),
+            Err(VmmActionError::NetworkConfig(
+                NetworkInterfaceError::GuestMacAddressInUse(_)
+            ))
+        ));
     }
 }
