@@ -892,6 +892,7 @@ impl MutEventSubscriber for Vmm {
                     error!("Spurious EventManager event for handler: Vmm");
                 }
             }
+            Vm::Enclave(_) => {}
         }
     }
 
@@ -902,6 +903,7 @@ impl MutEventSubscriber for Vmm {
                     error!("Failed to register vmm exit event: {}", err);
                 }
             }
+            Vm::Enclave(_) => {}
         }
         if let Some(evt) = self.device_manager.hotplug_completion_evt()
             && let Err(err) = ops.add(Events::new(evt, EventSet::IN))

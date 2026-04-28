@@ -29,6 +29,7 @@ use vmm_sys_util::terminal::Terminal;
 use crate::arch::{GSI_MSI_END, host_page_size};
 pub use crate::arch::{KvmVm, KvmVmError, VmState};
 use crate::logger::{debug, info};
+use crate::nitro_enclave::enclave_vm::EnclaveVm;
 use crate::pci::PciSBDF;
 use crate::pci::msix::MsixTableEntry;
 use crate::persist::CreateSnapshotError;
@@ -118,11 +119,14 @@ pub enum VmError {
     MemoryError(#[from] MemoryError),
 }
 
-/// VM abstraction: either a KVM-based VM or (in the future) a Nitro Enclave.
+/// VM abstraction: either a KVM-based VM or a Nitro Enclave.
 #[derive(Debug)]
+#[allow(clippy::large_enum_variant)]
 pub enum Vm {
     /// KVM-backed virtual machine.
     Kvm(Arc<KvmVm>),
+    /// Nitro Enclave-backed virtual machine.
+    Enclave(EnclaveVm),
 }
 
 impl Vm {
@@ -130,6 +134,7 @@ impl Vm {
     pub fn type_name(&self) -> &'static str {
         match self {
             Vm::Kvm(_) => "Kvm",
+            Vm::Enclave(_) => "Enclave",
         }
     }
 
@@ -137,6 +142,15 @@ impl Vm {
     pub fn as_kvm(&self) -> Option<&Arc<KvmVm>> {
         match self {
             Vm::Kvm(v) => Some(v),
+            Vm::Enclave(_) => None,
+        }
+    }
+
+    /// Returns a reference to the inner EnclaveVm, or `None` if this is not an Enclave VM.
+    pub fn as_enclave(&self) -> Option<&EnclaveVm> {
+        match self {
+            Vm::Kvm(_) => None,
+            Vm::Enclave(e) => Some(e),
         }
     }
 }
