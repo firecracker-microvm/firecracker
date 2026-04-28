@@ -10,6 +10,8 @@ use std::os::unix::io::{AsRawFd, FromRawFd, OwnedFd, RawFd};
 use vmm_sys_util::ioctl::{ioctl_with_mut_ref, ioctl_with_ref};
 use vmm_sys_util::{ioctl_ior_nr, ioctl_iow_nr, ioctl_iowr_nr};
 
+use crate::align_up;
+
 /// Path to the Nitro Enclaves device node.
 const NE_DEV_PATH: &str = "/dev/nitro_enclaves";
 
@@ -202,6 +204,81 @@ impl NitroEnclavesDevFd {
             return Err(std::io::Error::last_os_error());
         }
         Ok(ptr.cast::<u8>())
+    }
+
+    /// Allocate CMA memory with a given alignment.
+    ///
+    /// Reserves virtual address space, finds an aligned address within it,
+    /// then overlays CMA memory via `MAP_FIXED`. Unused prefix/suffix of
+    /// the reservation are unmapped.
+    ///
+    /// Returns `(ptr, aligned_size)` where `ptr` is the aligned CMA base
+    /// and `aligned_size` is `size` rounded up to `alignment`.
+    pub fn allocate_cma_aligned(
+        &self,
+        size: usize,
+        alignment: usize,
+    ) -> Result<(*mut u8, usize), std::io::Error> {
+        let aligned_size = align_up!(size, alignment);
+        let reserve_size = aligned_size
+            .checked_add(alignment)
+            .ok_or_else(|| std::io::Error::other("CMA reservation size overflow"))?;
+
+        // Step 1: Reserve VA space for alignment.
+        // SAFETY: MAP_ANONYMOUS mmap with PROT_NONE; reserves VA space only.
+        let reserve_ptr = unsafe {
+            libc::mmap(
+                std::ptr::null_mut(),
+                reserve_size,
+                libc::PROT_NONE,
+                libc::MAP_ANONYMOUS | libc::MAP_PRIVATE,
+                -1,
+                0,
+            )
+        };
+        if reserve_ptr == libc::MAP_FAILED {
+            return Err(std::io::Error::last_os_error());
+        }
+
+        // Step 2: Find aligned address within the reservation.
+        let base = reserve_ptr as usize;
+        let aligned_addr = align_up!(base, alignment);
+        let aligned_ptr = aligned_addr as *mut libc::c_void;
+
+        // Step 3: Overlay CMA memory at the aligned address via MAP_FIXED.
+        // MAP_POPULATE pre-faults pages for immediate physical backing.
+        // SAFETY: We own the VA range from the reservation.
+        let cma_ptr = unsafe {
+            libc::mmap(
+                aligned_ptr,
+                aligned_size,
+                libc::PROT_READ | libc::PROT_WRITE,
+                libc::MAP_SHARED | libc::MAP_FIXED | libc::MAP_POPULATE,
+                self.fd.as_raw_fd(),
+                0,
+            )
+        };
+        if cma_ptr == libc::MAP_FAILED {
+            let err = std::io::Error::last_os_error();
+            // SAFETY: reserve_ptr/reserve_size are from our earlier mmap.
+            unsafe { libc::munmap(reserve_ptr, reserve_size) };
+            return Err(err);
+        }
+
+        // Unmap the unused prefix and suffix of the reservation.
+        let prefix_size = aligned_addr - base;
+        if prefix_size > 0 {
+            // SAFETY: prefix is part of our reservation, not overlapping CMA.
+            unsafe { libc::munmap(reserve_ptr, prefix_size) };
+        }
+        let suffix_start = aligned_addr + aligned_size;
+        let suffix_size = (base + reserve_size) - suffix_start;
+        if suffix_size > 0 {
+            // SAFETY: suffix is part of our reservation, not overlapping CMA.
+            unsafe { libc::munmap(suffix_start as *mut libc::c_void, suffix_size) };
+        }
+
+        Ok((cma_ptr.cast::<u8>(), aligned_size))
     }
 
     /// Read the matched-flag subset the hypervisor implements.
