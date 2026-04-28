@@ -5,3 +5,4 @@ pub mod eif;
 pub mod enclave_vm;
 pub mod info_page;
 pub mod ne_ioctl;
+pub mod serial_console;
