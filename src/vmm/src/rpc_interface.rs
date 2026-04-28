@@ -16,6 +16,7 @@ use crate::builder::StartMicrovmError;
 use crate::cpu_config::templates::{CustomCpuTemplate, GuestConfigError};
 use crate::device_manager::pci_mngr::PciManagerError;
 use crate::devices::virtio::balloon::device::{HintingStatus, StartHintingCmd};
+use crate::devices::virtio::device::VirtioDeviceId;
 use crate::devices::virtio::mem::VirtioMemStatus;
 use crate::logger::{LoggerConfig, info, warn, *};
 use crate::mmds::data_store::{self, Mmds, MmdsDatastoreError};
@@ -150,6 +151,8 @@ pub enum VmmAction {
     /// Update the microVM configuration (memory & vcpu) using `VmUpdateConfig` as input. This
     /// action can only be called before the microVM has booted.
     UpdateMachineConfiguration(MachineConfigUpdate),
+    /// Hot-unplug a device.
+    HotUnplugDevice(VirtioDeviceId),
 }
 
 /// Wrapper for all errors associated with VMM actions.
@@ -507,7 +510,8 @@ impl<'a> PrebootApiController<'a> {
             | UpdatePmemDevice(_)
             | StartFreePageHinting(_)
             | GetFreePageHintingStatus
-            | StopFreePageHinting => Err(VmmActionError::OperationNotSupportedPreBoot),
+            | StopFreePageHinting
+            | HotUnplugDevice(_) => Err(VmmActionError::OperationNotSupportedPreBoot),
             #[cfg(target_arch = "x86_64")]
             SendCtrlAltDel => Err(VmmActionError::OperationNotSupportedPreBoot),
         }
@@ -770,6 +774,12 @@ impl RuntimeApiController {
                 .lock()
                 .expect("Poisoned lock")
                 .hotplug_device(HotplugDeviceConfig::Net(config), event_manager)
+                .map(|()| VmmData::Empty),
+            HotUnplugDevice(device_id) => self
+                .vmm
+                .lock()
+                .expect("Poisoned lock")
+                .hot_unplug_device(device_id, event_manager)
                 .map(|()| VmmData::Empty),
             Pause => self.pause(),
             PutMMDS(value) => mmds_put_data(
