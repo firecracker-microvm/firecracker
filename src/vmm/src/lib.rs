@@ -827,6 +827,7 @@ impl MutEventSubscriber for Vmm {
                     error!("Spurious EventManager event for handler: Vmm");
                 }
             }
+            Vm::Enclave(_) => {}
         }
     }
 
@@ -837,6 +838,7 @@ impl MutEventSubscriber for Vmm {
                     error!("Failed to register vmm exit event: {}", err);
                 }
             }
+            Vm::Enclave(_) => {}
         }
     }
 }
