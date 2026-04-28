@@ -24,6 +24,7 @@ bitcode = { version = "0.6.9", features = ["serde"] }
 bitflags = "2.12.1"
 bitvec = { version = "1.0.1", features = ["atomic", "serde"] }
 byteorder = "1.5.0"
+crc32fast = "1.4.0"
 crc64 = "2.0.0"
 derive_more = { version = "2.1.1", default-features = false, features = [
     "from",
