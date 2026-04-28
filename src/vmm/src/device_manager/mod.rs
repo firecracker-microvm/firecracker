@@ -43,8 +43,9 @@ use crate::devices::virtio::pmem::device::Pmem;
 use crate::devices::virtio::pmem::persist::PmemPersistError;
 use crate::devices::virtio::rng::persist::EntropyPersistError;
 use crate::devices::virtio::transport::mmio::{IrqTrigger, MmioTransport};
+use crate::devices::virtio::transport::pci::device::CAPABILITY_BAR_SIZE;
 use crate::devices::virtio::vsock::{VsockError, VsockUnixBackendError};
-use crate::logger::{error, info};
+use crate::logger::{error, info, warn};
 use crate::rate_limiter::TokenBucket;
 use crate::resources::VmResources;
 use crate::rpc_interface::VmmActionError;
@@ -551,14 +552,64 @@ impl DeviceManager {
         Ok(Arc::new(Mutex::new(net)))
     }
 
+    /// Returns true if the given virtio device is a root block or pmem device.
+    fn is_root_device(device: &dyn VirtioDevice) -> bool {
+        if let Some(block) = device.as_any().downcast_ref::<Block>() {
+            return block.root_device();
+        }
+        if let Some(pmem) = device.as_any().downcast_ref::<Pmem>() {
+            return pmem.config.root_device;
+        }
+        false
+    }
+
     /// Detaches a device after VM start
     pub fn hot_unplug_device(
         &mut self,
-        _vm: Arc<Vm>,
-        _device_id: VirtioDeviceId,
-        _event_manager: &mut EventManager,
+        vm: Arc<Vm>,
+        device_id: VirtioDeviceId,
+        event_manager: &mut EventManager,
     ) -> Result<(), VmmActionError> {
-        todo!()
+        if !self.is_pci_enabled() {
+            return Err(VmmActionError::PciNotEnabled);
+        }
+
+        let virtio_device = self
+            .get_virtio_device(device_id.0, &device_id.1)
+            .ok_or(VmmActionError::DeviceNotFound)?;
+
+        if Self::is_root_device(&*virtio_device.lock().expect("Poisoned lock")) {
+            return Err(VmmActionError::CannotUnplugRootDevice);
+        }
+
+        let pci_device_arc = self.pci_devices.virtio_devices.remove(&device_id).unwrap();
+        let pci_device = pci_device_arc.lock().expect("Poisoned lock");
+
+        vm.common
+            .mmio_bus
+            .remove(pci_device.config_bar_addr(), CAPABILITY_BAR_SIZE)
+            .map_err(PciManagerError::Bus)?;
+
+        self.pci_devices
+            .pci_segment
+            .as_ref()
+            .unwrap()
+            .pci_bus
+            .lock()
+            .expect("Poisoned lock")
+            .remove_device(pci_device.sbdf.device());
+
+        if let Some(sub_id) = pci_device.sub_id
+            && event_manager.remove_subscriber(sub_id).is_err()
+        {
+            warn!("Failed to remove event subscriber for device {device_id:?}");
+        }
+
+        // Ensure no other references to the device remain, so it is freed when
+        // this function returns.
+        assert_eq!(Arc::strong_count(&pci_device_arc), 1);
+
+        Ok(())
     }
 }
 

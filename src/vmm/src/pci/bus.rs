@@ -114,6 +114,12 @@ impl PciBus {
         self.device_ids[device_id as usize] = true;
     }
 
+    /// Remove a device from the bus and free its device ID slot
+    pub fn remove_device(&mut self, device_id: u8) {
+        self.devices.remove(&device_id);
+        self.device_ids[device_id as usize] = false;
+    }
+
     /// Get a new device ID
     // idx is bounded by NUM_DEVICE_IDS (32), so it always fits in u8.
     #[allow(clippy::cast_possible_truncation)]
