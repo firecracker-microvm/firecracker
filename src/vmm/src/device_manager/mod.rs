@@ -35,7 +35,7 @@ use crate::devices::virtio::ActivateError;
 use crate::devices::virtio::balloon::BalloonError;
 use crate::devices::virtio::block::BlockError;
 use crate::devices::virtio::block::device::Block;
-use crate::devices::virtio::device::{VirtioDevice, VirtioDeviceType};
+use crate::devices::virtio::device::{VirtioDevice, VirtioDeviceId, VirtioDeviceType};
 use crate::devices::virtio::mem::persist::VirtioMemPersistError;
 use crate::devices::virtio::net::Net;
 use crate::devices::virtio::net::persist::NetPersistError;
@@ -549,6 +549,16 @@ impl DeviceManager {
 
         let net = NetBuilder::create_net(config)?;
         Ok(Arc::new(Mutex::new(net)))
+    }
+
+    /// Detaches a device after VM start
+    pub fn hot_unplug_device(
+        &mut self,
+        _vm: Arc<Vm>,
+        _device_id: VirtioDeviceId,
+        _event_manager: &mut EventManager,
+    ) -> Result<(), VmmActionError> {
+        todo!()
     }
 }
 

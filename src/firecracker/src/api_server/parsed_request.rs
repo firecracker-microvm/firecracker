@@ -6,6 +6,7 @@ use std::fmt::Debug;
 use micro_http::{Body, Method, Request, Response, StatusCode, Version};
 use serde::ser::Serialize;
 use serde_json::Value;
+use vmm::devices::virtio::device::VirtioDeviceType;
 use vmm::logger::{Level, error_unrestricted, info_unrestricted, log_enabled};
 use vmm::rpc_interface::{VmmAction, VmmActionError, VmmData};
 
@@ -31,6 +32,7 @@ use super::request::vsock::parse_put_vsock;
 use crate::api_server::request::hotplug::memory::{
     parse_get_memory_hotplug, parse_patch_memory_hotplug, parse_put_memory_hotplug,
 };
+use crate::api_server::request::hotplug::parse_unplug_device;
 use crate::api_server::request::serial::parse_put_serial;
 
 #[derive(Debug)]
@@ -126,6 +128,16 @@ impl TryFrom<&Request> for ParsedRequest {
                 parse_patch_memory_hotplug(body)
             }
             (Method::Patch, _, None) => method_to_error(Method::Patch),
+            (Method::Delete, "drives", None) => {
+                parse_unplug_device(VirtioDeviceType::Block, path_tokens.next())
+            }
+            (Method::Delete, "pmem", None) => {
+                parse_unplug_device(VirtioDeviceType::Pmem, path_tokens.next())
+            }
+            (Method::Delete, "network-interfaces", None) => {
+                parse_unplug_device(VirtioDeviceType::Net, path_tokens.next())
+            }
+            (Method::Delete, _, Some(_)) => method_to_error(Method::Delete),
             (method, unknown_uri, _) => Err(RequestError::InvalidPathMethod(
                 unknown_uri.to_string(),
                 method,
