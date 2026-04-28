@@ -2,4 +2,5 @@
 // SPDX-License-Identifier: Apache-2.0
 
 pub mod eif;
+pub mod info_page;
 pub mod ne_ioctl;
