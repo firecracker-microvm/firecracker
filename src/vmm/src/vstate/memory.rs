@@ -326,8 +326,10 @@ unsafe impl Sync for RawGuestRegionMmap {}
 /// Note: this implements automatic defer for vm_memory::GuestRegionMmap, so it can be used in its place.
 #[derive(Debug)]
 pub struct GuestRegionMmap {
-    /// Held for its `Drop` impl which unmaps the guest memory region.
-    _region: RawGuestRegionMmap,
+    /// Held for its `Drop` impl which unmaps the guest memory region. `None`
+    /// for a borrowed region (see [`GuestRegionMmap::from_raw_ptr`]) whose
+    /// mapping is owned elsewhere and must NOT be unmapped when this drops.
+    _region: Option<RawGuestRegionMmap>,
     proxy: vm_memory::GuestRegionMmap<Option<AtomicBitmap>>,
 }
 
@@ -386,7 +388,46 @@ impl GuestRegionMmap {
         assert!(region.mmap_size >= mmap_region.size());
 
         Ok(GuestRegionMmap {
-            _region: region,
+            _region: Some(region),
+            proxy: vm_memory::GuestRegionMmap::new(mmap_region, guest_base)
+                .ok_or(MemoryError::VmMemoryError)?,
+        })
+    }
+
+    /// Wrap a pre-existing, externally-owned mmap'd region as a
+    /// [`GuestRegionMmap`] WITHOUT taking ownership of the mapping.
+    ///
+    /// Unlike [`Self::allocate`], this does not allocate and its `Drop` does NOT
+    /// `munmap` — the caller owns the mapping for the region's lifetime and is
+    /// responsible for unmapping it (or the mapping is owned by an external
+    /// entity, e.g. a kernel driver that has been donated the pages). The built
+    /// `MmapRegion` uses `with_raw_mmap_pointer` (`owned == false`), so vm-memory
+    /// will not unmap it either.
+    ///
+    /// # Safety
+    ///
+    /// `ptr` must be valid for `size` bytes and must remain mapped for the
+    /// lifetime of the returned region.
+    pub(crate) unsafe fn from_raw_ptr(
+        ptr: *mut u8,
+        size: usize,
+        guest_base: GuestAddress,
+        prot: libc::c_int,
+        flags: libc::c_int,
+    ) -> Result<Self, MemoryError> {
+        // SAFETY: caller guarantees `ptr` is valid for `size` bytes.
+        let mmap_region = unsafe {
+            MmapRegionBuilder::new_with_bitmap(size, None)
+                .with_mmap_prot(prot)
+                .with_mmap_flags(flags)
+                .with_raw_mmap_pointer(ptr)
+                .build()
+                .map_err(MemoryError::MmapRegionError)?
+        };
+        // Borrowed: vm-memory must not own the mapping (we didn't allocate it).
+        assert!(!mmap_region.owned());
+        Ok(GuestRegionMmap {
+            _region: None,
             proxy: vm_memory::GuestRegionMmap::new(mmap_region, guest_base)
                 .ok_or(MemoryError::VmMemoryError)?,
         })
