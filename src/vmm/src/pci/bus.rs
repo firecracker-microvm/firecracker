@@ -111,6 +111,7 @@ impl PciBus {
             "PCI device ID {device_id} already in use"
         );
         self.devices.insert(device_id, device);
+        self.device_ids[device_id as usize] = true;
     }
 
     /// Get a new device ID
