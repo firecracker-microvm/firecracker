@@ -84,6 +84,22 @@ class Resource:
 
         return res
 
+    def delete(self, resource_id):
+        """Make a DELETE request"""
+        path = self.resource + "/" + resource_id
+        url = self._api.endpoint + path
+        try:
+            res = self._api.session.delete(url)
+        except Exception as e:
+            if self._api.error_callback:
+                self._api.error_callback("DELETE", path, str(e))
+            raise
+        if res.status_code != HTTPStatus.NO_CONTENT:
+            json = res.json()
+            msg = json.get("fault_message", json.get("error", res.content))
+            raise RuntimeError(msg, json, res)
+        return res
+
     def request(self, method, path, **kwargs):
         """Make an HTTP request"""
         kwargs = {key: val for key, val in kwargs.items() if val is not None}
