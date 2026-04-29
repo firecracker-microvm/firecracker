@@ -351,6 +351,33 @@ mod tests {
     }
 
     #[test]
+    fn test_logger_update_with_log_path() {
+        let logger = Logger(Mutex::new(LoggerConfiguration {
+            target: None,
+            filter: LogFilter { module: None },
+            format: LogFormat {
+                show_level: false,
+                show_log_origin: false,
+            },
+        }));
+
+        let tmp = vmm_sys_util::tempfile::TempFile::new().unwrap();
+        let path = tmp.as_path().to_path_buf();
+
+        logger
+            .update(LoggerConfig {
+                log_path: Some(path),
+                level: None,
+                show_level: None,
+                show_log_origin: None,
+                module: None,
+            })
+            .unwrap();
+
+        assert!(logger.0.lock().unwrap().target.is_some());
+    }
+
+    #[test]
     fn logger() {
         // Get temp file path.
         let file = vmm_sys_util::tempfile::TempFile::new().unwrap();
