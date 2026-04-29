@@ -562,7 +562,7 @@ impl<'a> Persist<'a> for MMIODeviceManager {
             let device = Arc::new(Mutex::new(Pmem::restore(
                 PmemConstructorArgs {
                     mem,
-                    vm: vm.as_ref(),
+                    vm: vm.clone(),
                 },
                 &pmem_state.device_state,
             )?));
@@ -570,7 +570,8 @@ impl<'a> Persist<'a> for MMIODeviceManager {
             constructor_args
                 .vm_resources
                 .pmem
-                .add_device(device.clone());
+                .configs
+                .push(pmem_state.device_state.config.clone());
 
             restore_helper(
                 device,
