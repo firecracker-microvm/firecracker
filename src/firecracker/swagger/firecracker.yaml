@@ -400,6 +400,40 @@ paths:
           schema:
             $ref: "#/definitions/Error"
 
+  /vhost-user-devices/{id}:
+    put:
+      summary: Creates or updates a generic vhost-user device. Pre-boot only.
+      description:
+        Creates a new generic vhost-user device with ID specified by id parameter.
+        If a device with the specified ID already exists, it is replaced.
+        The backend process must be running and listening on the specified Unix
+        domain socket before making this request. The CONFIG protocol feature is
+        required.
+      operationId: putGuestVhostUserDeviceByID
+      parameters:
+        - name: id
+          in: path
+          description: The id of the guest vhost-user device
+          required: true
+          type: string
+        - name: body
+          in: body
+          description: Guest vhost-user device properties
+          required: true
+          schema:
+            $ref: "#/definitions/VhostUserDevice"
+      responses:
+        204:
+          description: Vhost-user device is created/updated
+        400:
+          description: Vhost-user device cannot be created/updated due to bad input
+          schema:
+            $ref: "#/definitions/Error"
+        default:
+          description: Internal server error.
+          schema:
+            $ref: "#/definitions/Error"
+
   /logger:
     put:
       summary: Initializes the logger by specifying a named pipe or a file for the logs output.
@@ -1287,6 +1321,41 @@ definitions:
       rate_limiter:
         $ref: "#/definitions/RateLimiter"
 
+  VhostUserDevice:
+    type: object
+    required:
+      - id
+      - device_type
+      - socket
+      - num_queues
+    properties:
+      id:
+        type: string
+        description:
+          Unique identifier of the device.
+      device_type:
+        type: integer
+        minimum: 0
+        maximum: 255
+        description:
+          The virtio device type ID as defined in the virtio specification.
+          For example, 26 for virtio-fs, 8 for virtio-scsi.
+          The backend is responsible for handling the corresponding device protocol.
+      socket:
+        type: string
+        description:
+          Path to the vhost-user backend Unix domain socket.
+      num_queues:
+        type: integer
+        minimum: 1
+        description:
+          Number of virtqueues to configure for this device.
+      queue_size:
+        type: integer
+        minimum: 1
+        description:
+          Queue size. Defaults to 256 if not specified.
+
   Error:
     type: object
     properties:
@@ -1329,6 +1398,11 @@ definitions:
         description: Configurations for all pmem devices.
         items:
           $ref: "#/definitions/Pmem"
+      vhost-user-devices:
+        type: array
+        description: Configurations for all generic vhost-user devices.
+        items:
+          $ref: "#/definitions/VhostUserDevice"
       vsock:
         $ref: "#/definitions/Vsock"
       entropy:

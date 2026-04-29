@@ -432,6 +432,10 @@ pub struct PutRequestsMetrics {
     pub hotplug_memory_count: SharedIncMetric,
     /// Number of failed PUTs to /hotplug/memory
     pub hotplug_memory_fails: SharedIncMetric,
+    /// Number of PUTs triggering a vhost-user device attach.
+    pub vhost_user_count: SharedIncMetric,
+    /// Number of failures in attaching a vhost-user device.
+    pub vhost_user_fails: SharedIncMetric,
 }
 impl PutRequestsMetrics {
     /// Const default construction.
@@ -463,6 +467,8 @@ impl PutRequestsMetrics {
             serial_fails: SharedIncMetric::new(),
             hotplug_memory_count: SharedIncMetric::new(),
             hotplug_memory_fails: SharedIncMetric::new(),
+            vhost_user_count: SharedIncMetric::new(),
+            vhost_user_fails: SharedIncMetric::new(),
         }
     }
 }

@@ -954,6 +954,41 @@ class Microvm:
 
         self.disks_vhost_user[drive_id] = backend
 
+    def add_vhost_user_generic_device(
+        self,
+        device_id,
+        path_on_host,
+        device_type,
+        num_queues,
+        is_read_only=False,
+        queue_size=None,
+        backend_type=VhostUserBlkBackendType.CROSVM,
+    ):
+        """Add a generic vhost-user device backed by an external process."""
+
+        prev = self.disks_vhost_user.pop(device_id, None)
+        if prev:
+            prev.kill()
+
+        backend = VhostUserBlkBackend.with_backend(
+            backend_type, path_on_host, self.chroot(), device_id, is_read_only
+        )
+
+        socket = backend.spawn(self.jailer.uid, self.jailer.gid)
+
+        kwargs = {
+            "id": device_id,
+            "device_type": device_type,
+            "socket": socket,
+            "num_queues": num_queues,
+        }
+        if queue_size is not None:
+            kwargs["queue_size"] = queue_size
+
+        self.api.vhost_user_device.put(**kwargs)
+
+        self.disks_vhost_user[device_id] = backend
+
     def patch_drive(self, drive_id, file=None):
         """Modify/patch an existing block device."""
         if file:

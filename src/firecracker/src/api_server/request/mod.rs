@@ -18,5 +18,6 @@ pub mod pmem;
 pub mod serial;
 pub mod snapshot;
 pub mod version;
+pub mod vhost_user_device;
 pub mod vsock;
 pub use micro_http::{Body, Method, StatusCode};
