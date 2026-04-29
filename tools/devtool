@@ -692,19 +692,35 @@ download_ci_artifacts() {
     LOCAL_ARTIFACTS_PATH=$local_artifacts_path
 }
 
-# Acquire the KVM module lock and run the given command.
-# Uses flock with a timeout for safe, automatic lock management.
-# Usage: with_kvm_module_lock <command> [args...]
-with_kvm_module_lock() {
-    local LOCK_TIMEOUT=120
-    (
-        if ! flock -w "$LOCK_TIMEOUT" 9; then
-            say_warn "Timed out waiting for KVM module lock after: ${LOCK_TIMEOUT}s"
-            exit 1
-        fi
-        echo "Successfully acquired lock"
-        "$@"
-    ) 9>"$KVM_MODULE_LOCKFILE"
+# KVM module lock helpers.
+# All operate on fd 9 pointing to KVM_MODULE_LOCKFILE.
+KVM_LOCK_TIMEOUT=120
+
+acquire_shared_kvm_lock() {
+    exec 9>"$KVM_MODULE_LOCKFILE"
+    flock -s -w "$KVM_LOCK_TIMEOUT" 9 || die "Timed out waiting for shared KVM lock"
+    echo "Acquired shared KVM lock"
+}
+
+upgrade_to_exclusive_kvm_lock() {
+    flock -u 9
+    if ! flock -w "$KVM_LOCK_TIMEOUT" 9; then
+        say_warn "Timed out waiting for exclusive KVM lock, skipping reload"
+        flock -s -w "$KVM_LOCK_TIMEOUT" 9 || die "Failed to re-acquire shared KVM lock"
+        return 1
+    fi
+    echo "Upgraded to exclusive KVM lock"
+}
+
+downgrade_to_shared_kvm_lock() {
+    flock -s -w "$KVM_LOCK_TIMEOUT" 9 || die "Failed to downgrade to shared KVM lock"
+    echo "Downgraded to shared KVM lock"
+}
+
+# Get the reference count of a kernel module from /proc/modules.
+# Returns 0 if the module is not loaded.
+get_kvm_refcount() {
+    awk -v mod="$1" '$1 == mod {print $3; found=1} END {if (!found) print 0}' /proc/modules
 }
 
 # Reload KVM modules with the given vendor module and kvm params.
@@ -756,6 +772,10 @@ kvm_vendor_mod() {
 # - On Linux 6.1 x86_64: applies nx_huge_pages=never for non-vulnerable CPUs,
 #   checks favordynmods for vulnerable ones
 # - On AMD: ensures AVIC is enabled
+#
+# Expected to be called while holding a shared lock on KVM_MODULE_LOCKFILE
+# (fd 9). If kvm reload is required, shared lock is temporary upgraded to
+# exclusive lock.
 setup_kvm() {
     local kernel_version=$(uname -r)
     local arch=$(uname -m)
@@ -801,9 +821,18 @@ setup_kvm() {
     fi
 
     if [[ $need_kvm_reload -eq 1 ]]; then
-        echo "Reloading KVM modules"
-        reload_kvm_modules "$vendor_mod" "${kvm_extra_params[@]}"
-        ok_or_die "Could not reload kvm modules"
+        local refcount
+        refcount=$(get_kvm_refcount "$vendor_mod")
+        if [[ "$refcount" -gt 0 ]]; then
+            say_warn "KVM module $vendor_mod is in use (refcount=$refcount), skipping reload"
+        else
+            echo "Reloading KVM modules"
+            if upgrade_to_exclusive_kvm_lock; then
+                reload_kvm_modules "$vendor_mod" "${kvm_extra_params[@]}"
+                ok_or_die "Could not reload kvm modules"
+                downgrade_to_shared_kvm_lock
+            fi
+        fi
     fi
 
     tail -v $itlb_multihit $nx_huge_pages
@@ -948,7 +977,17 @@ cmd_test() {
     done
 
     # Check prerequisites.
-    [ $do_kvm_check != 0 ] && with_kvm_module_lock setup_kvm
+    # Acquire a shared lock on the KVM module lockfile. This lock is held
+    # for the entire lifetime of the test run to prevent other agents from
+    # reloading KVM modules while tests are using /dev/kvm. If setup_kvm
+    # determines a reload is needed, it will temporarily upgrade to an
+    # exclusive lock internally.
+    # If test does not want to do kvm checks, there is no reason
+    # to deal with any locks
+    if [ $do_kvm_check != 0 ]; then
+        acquire_shared_kvm_lock
+        setup_kvm
+    fi
     ensure_devctr
     [ $do_build_dir_check != 0 ] && ensure_build_dir
     if [ $do_artifacts_check != 0 ]; then
