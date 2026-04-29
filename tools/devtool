@@ -1011,7 +1011,7 @@ cmd_test() {
     say "$(sed '/^processor.*: 0$/,/^processor.*: 1$/!d; /^processor.*: 1$/d' /proc/cpuinfo)"
     say "RPM firmware versions: $(rpm -q microcode_ctl amd-ucode-firmware linux-firmware)"
 
-    env |grep -P "^(AWS_EMF_|BUILDKITE|CODECOV_)" > env.list
+    env |grep -P "^(AWS_EMF_|BUILDKITE|CODECOV_|FC_TEST_)" > env.list
     if [[ $performance_tweaks -eq 1 ]]; then
       if [[ "$(uname --machine)" == "x86_64" ]]; then
         say "Detected CI and performance tests, tuning CPU frequency scaling and idle states for reduced variability"
@@ -1230,9 +1230,13 @@ cmd_checkstyle() {
       cmd_sh "git-secrets --register-aws && git-secrets --scan"
     fi
 
-    cmd_test --no-build --no-kvm-check --no-build-dir-check --no-artifacts-check -- -n 4 --dist worksteal integration_tests/style || exit 1
-    cmd_test --no-build --no-kvm-check --no-build-dir-check --no-artifacts-check -- -n 4 --doctest-modules framework || exit 1
-    cmd_test --no-build --no-kvm-check --no-build-dir-check --no-artifacts-check -- integration_tests/build/test_clippy.py || exit 1
+    export FC_TEST_SKIP_ARTIFACT_COPY=1
+    cmd_test --no-build --no-kvm-check --no-build-dir-check --no-artifacts-check -- \
+        -n 4 --dist worksteal \
+        integration_tests/style \
+        integration_tests/build/test_clippy.py \
+        --doctest-modules framework \
+        || exit 1
 }
 
 cmd_checkbuild() {
