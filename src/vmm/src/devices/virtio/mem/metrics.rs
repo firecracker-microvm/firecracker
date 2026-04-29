@@ -24,20 +24,26 @@
 
 use serde::ser::SerializeMap;
 use serde::{Serialize, Serializer};
+use std::sync::{Arc, OnceLock};
 
 use crate::logger::{LatencyAggregateMetrics, SharedIncMetric};
 
 /// Stores aggregated virtio-mem metrics
-pub(super) static METRICS: VirtioMemDeviceMetrics = VirtioMemDeviceMetrics::new();
+pub(super) static METRICS: OnceLock<Arc<VirtioMemDeviceMetrics>> = OnceLock::new();
 
 /// Called by METRICS.flush(), this function facilitates serialization of virtio-mem device metrics.
 pub fn flush_metrics<S: Serializer>(serializer: S) -> Result<S::Ok, S::Error> {
+    // why are even doing different handling ? what is seq and why is it important ?
     let mut seq = serializer.serialize_map(Some(1))?;
-    seq.serialize_entry("memory_hotplug", &METRICS)?;
+    let dev_name = "memory_hotplug";
+    match METRICS.get() {
+        Some(metrics) => seq.serialize_entry(dev_name, &metrics)?,
+        None => seq.serialize_entry(dev_name, &VirtioMemDeviceMetrics::default())?,
+    }
     seq.end()
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Default, Debug, Serialize)]
 pub(super) struct VirtioMemDeviceMetrics {
     /// Number of device activation failures
     pub activate_fails: SharedIncMetric,
