@@ -151,6 +151,10 @@ pub struct PmemMetrics {
     pub event_fails: SharedIncMetric,
     /// Number of events triggered on the queue of this pmem device.
     pub queue_event_count: SharedIncMetric,
+    /// Number of events throttled because of the rate limiter.
+    pub rate_limiter_throttled_events: SharedIncMetric,
+    /// Number of rate limiter replenish events.
+    pub rate_limiter_event_count: SharedIncMetric,
 }
 
 impl PmemMetrics {
@@ -172,6 +176,10 @@ impl PmemMetrics {
         self.event_fails.add(other.event_fails.fetch_diff());
         self.queue_event_count
             .add(other.queue_event_count.fetch_diff());
+        self.rate_limiter_throttled_events
+            .add(other.rate_limiter_throttled_events.fetch_diff());
+        self.rate_limiter_event_count
+            .add(other.rate_limiter_event_count.fetch_diff());
     }
 }
 

@@ -416,7 +416,7 @@ impl MultiThreadBase for FirecrackerTarget {
 
             vmm.vm
                 .guest_memory()
-                .read(&mut data[..read_len], GuestAddress(gpa as u64))
+                .read(&mut data[..read_len], GuestAddress(gpa))
                 .map_err(|e| {
                     error!("Error reading memory {e:?} gpa is {gpa}");
                 })?;
