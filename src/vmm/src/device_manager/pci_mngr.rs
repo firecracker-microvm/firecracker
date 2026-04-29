@@ -576,7 +576,7 @@ impl<'a> Persist<'a> for PciDevices {
             let device = Arc::new(Mutex::new(Pmem::restore(
                 PmemConstructorArgs {
                     mem,
-                    vm: constructor_args.vm.as_ref(),
+                    vm: constructor_args.vm.clone(),
                 },
                 &pmem_state.device_state,
             )?));
@@ -584,7 +584,8 @@ impl<'a> Persist<'a> for PciDevices {
             constructor_args
                 .vm_resources
                 .pmem
-                .add_device(device.clone());
+                .configs
+                .push(pmem_state.device_state.config.clone());
 
             pci_devices.restore_pci_device(
                 constructor_args.vm,
@@ -705,6 +706,7 @@ mod tests {
                 path_on_host: "".into(),
                 root_device: true,
                 read_only: true,
+                ..Default::default()
             }];
             _pmem_files =
                 insert_pmem_devices(&mut vmm, &mut cmdline, &mut event_manager, pmem_configs);
@@ -812,7 +814,8 @@ mod tests {
       "id": "pmem",
       "path_on_host": "{}",
       "root_device": true,
-      "read_only": true
+      "read_only": true,
+      "rate_limiter": null
     }}
   ],
   "memory-hotplug": {{
