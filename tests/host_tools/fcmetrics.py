@@ -12,6 +12,7 @@ import json
 import logging
 import math
 import platform
+import re
 import time
 from threading import Thread
 
@@ -630,8 +631,9 @@ def extract_fields(file_path):
     return [field.split(": ", maxsplit=1) for field in fields.splitlines()]
 
 
-def is_file_production(filepath):
-    """Returns True iff accesses to metric fields in the given file should cause the metric be considered 'used in production code'. Excludes, for example, files in which the metrics are defined, where accesses happen as part of copy constructors, etc."""
+def is_file_test_or_definition(filepath):
+    """Returns True for test files and metrics definition files, where field
+    references should not count as production usage."""
     path = filepath.lower()
     return (
         "/test/" in path
@@ -652,23 +654,60 @@ KNOWN_FALSE_POSITIVES = [
 ]
 
 
-def is_metric_used(field, field_type):
-    """Returns True iff the given metric has a production use in the firecracker codebase"""
-    if field in KNOWN_FALSE_POSITIVES:
-        return True
+def find_unused_metrics():
+    """Find all unused metrics in a single grep pass instead of one per field.
 
-    if field_type in ("SharedIncMetric", "SharedStoreMetric"):
-        pattern = rf"{field}\s*\.\s*store|{field}\s*\.\s*inc|{field}\s*\.\s*add|{field}\s*\.\s*fetch|METRICS.*{field}"
-    elif field_type == "LatencyAggregateMetrics":
-        pattern = rf"{field}\s*\.\s*record_latency_metrics"
-    else:
-        raise RuntimeError(f"Unknown metric type: {field_type}")
+    Returns a dict mapping metrics file paths to lists of (field, type) tuples
+    for metrics that have no production usage.
+    """
+    metrics_files = find_metrics_files()
+    if not metrics_files:
+        return {}
 
-    result = utils.run_cmd(f'grep -RPzo "{pattern}" ../src')
+    all_fields = []
+    for file_path in metrics_files:
+        for field, ty in extract_fields(file_path):
+            all_fields.append((file_path, field, ty))
 
-    for line in result.stdout.strip().split("\0"):
+    if not all_fields:
+        return {}
+
+    non_fp_fields = [
+        (fp, f, t) for fp, f, t in all_fields if f not in KNOWN_FALSE_POSITIVES
+    ]
+    if not non_fp_fields:
+        return {}
+
+    # One grep for all field names
+    field_names = sorted({f for _, f, _ in non_fp_fields})
+    combined = "|".join(field_names)
+    result = utils.run_cmd(f'grep -rPn "{combined}" ../src')
+
+    used_fields = set()
+    for line in result.stdout.strip().splitlines():
         if not line:
             continue
-        if not is_file_production(line.split(":", maxsplit=1)[0]):
-            return True
-    return False
+        parts = line.split(":", maxsplit=2)
+        if len(parts) < 3:
+            continue
+        filepath, _, code = parts
+        if is_file_test_or_definition(filepath):
+            continue
+        # Strip comments and string literals so we only match real code.
+        code = code.lstrip()
+        if code.startswith("//") or code.startswith("/*") or code.startswith("*"):
+            continue
+        code = re.sub(r"//.*", "", code)
+        code = re.sub(r'"[^"]*"', "", code)
+        for field in field_names:
+            if field in code:
+                used_fields.add(field)
+
+    unused = {}
+    for file_path, field, ty in all_fields:
+        if field in KNOWN_FALSE_POSITIVES:
+            continue
+        if field not in used_fields:
+            unused.setdefault(file_path, []).append((field, ty))
+
+    return unused

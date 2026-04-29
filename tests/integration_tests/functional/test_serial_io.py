@@ -32,7 +32,7 @@ def test_serial_after_snapshot(uvm_plain, microvm_factory):
     microvm.start()
 
     # looking for the # prompt at the end
-    serial.rx("ubuntu-fc-uvm:~#")
+    serial.rx(microvm.distro.shell_prompt)
 
     # Create snapshot.
     snapshot = microvm.snapshot_full()
@@ -51,7 +51,7 @@ def test_serial_after_snapshot(uvm_plain, microvm_factory):
     serial.tx("")
 
     # looking for the # prompt at the end
-    serial.rx("ubuntu-fc-uvm:~#")
+    serial.rx(vm.distro.shell_prompt)
     serial.tx("pwd")
     res = serial.rx("#")
     assert "/root" in res
@@ -74,7 +74,7 @@ def test_serial_active_tx_snapshot(uvm_plain, microvm_factory):
     microvm.start()
 
     # looking for the # prompt at the end
-    serial.rx("ubuntu-fc-uvm:~#")
+    serial.rx(microvm.distro.shell_prompt)
 
     # Start an unbounded serial transmission from inside the guest such that
     # there will be an active transmission at the point of pausing the VM to
@@ -100,7 +100,7 @@ def test_serial_active_tx_snapshot(uvm_plain, microvm_factory):
     # Send Ctrl-C to the guest to stop the ongoing transmission and regain the shell
     serial.tx("\x03", end="")
     # looking for the # prompt at the end
-    serial.rx("ubuntu-fc-uvm:~#")
+    serial.rx(vm.distro.shell_prompt)
     serial.tx("pwd")
     res = serial.rx("#")
     assert "/root" in res
@@ -125,7 +125,7 @@ def test_serial_console_login(uvm_plain_any):
 
     serial = Serial(microvm)
     serial.open()
-    serial.rx("ubuntu-fc-uvm:")
+    serial.rx(microvm.distro.shell_prompt)
     serial.tx("id")
     serial.rx("uid=0(root) gid=0(root) groups=0(root)")
 
@@ -176,10 +176,10 @@ def test_serial_dos(uvm_plain_any):
     after_size = get_total_mem_size(microvm.firecracker_pid)
     # Give the check a bit of tolerance (1%) since sometimes random unrelated
     # allocations break it.
-    assert after_size <= (before_size * 1.01), (
-        "The memory size of the "
-        "Firecracker process "
-        "changed from {} to {}.".format(before_size, after_size)
+    assert after_size <= (
+        before_size * 1.01
+    ), "The memory size of the Firecracker process changed from {} to {}.".format(
+        before_size, after_size
     )
 
 
@@ -284,10 +284,9 @@ def test_serial_rate_limiting(uvm_plain):
 
     # With 64 KiB burst + ~2s at 1 KiB/sec, output should be well under 80 KB.
     new_bytes = serial_path.stat().st_size - size_before
-    assert new_bytes < 80000, (
-        f"Serial output is {new_bytes} bytes, "
-        "expected under 80000 due to rate limiting"
-    )
+    assert (
+        new_bytes < 80000
+    ), f"Serial output is {new_bytes} bytes, expected under 80000 due to rate limiting"
 
     # Verify the rate_limiter_dropped_bytes metric was incremented.
     fc_metrics = microvm.flush_metrics()
