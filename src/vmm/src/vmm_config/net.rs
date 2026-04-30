@@ -24,6 +24,10 @@ pub struct NetworkInterfaceConfig {
     pub host_dev_name: String,
     /// Guest MAC address.
     pub guest_mac: Option<MacAddr>,
+    /// MTU to advertise to the guest via VIRTIO_NET_F_MTU. When set, the guest driver
+    /// will configure the interface with this MTU. When absent, VIRTIO_NET_F_MTU is not
+    /// advertised and the guest uses its default MTU.
+    pub mtu: Option<u16>,
     /// Rate Limiter for received packages.
     pub rx_rate_limiter: Option<RateLimiterConfig>,
     /// Rate Limiter for transmitted packages.
@@ -38,6 +42,7 @@ impl From<&Net> for NetworkInterfaceConfig {
             iface_id: net.id().to_string(),
             host_dev_name: net.iface_name(),
             guest_mac: net.guest_mac().copied(),
+            mtu: net.mtu(),
             rx_rate_limiter: rx_rl.into_option(),
             tx_rate_limiter: tx_rl.into_option(),
         }
@@ -157,6 +162,7 @@ impl NetBuilder {
             cfg.guest_mac,
             rx_rate_limiter.unwrap_or_default(),
             tx_rate_limiter.unwrap_or_default(),
+            cfg.mtu,
         )
         .map_err(NetworkInterfaceError::CreateNetworkDevice)
     }
@@ -189,6 +195,7 @@ mod tests {
             iface_id: String::from(id),
             host_dev_name: String::from(name),
             guest_mac: Some(MacAddr::from_str(mac).unwrap()),
+            mtu: None,
             rx_rate_limiter: RateLimiterConfig::default().into_option(),
             tx_rate_limiter: RateLimiterConfig::default().into_option(),
         }
@@ -200,6 +207,7 @@ mod tests {
                 iface_id: self.iface_id.clone(),
                 host_dev_name: self.host_dev_name.clone(),
                 guest_mac: self.guest_mac,
+                mtu: self.mtu,
                 rx_rate_limiter: None,
                 tx_rate_limiter: None,
             }
@@ -334,6 +342,7 @@ mod tests {
             Some(MacAddr::from_str(guest_mac).unwrap()),
             RateLimiter::default(),
             RateLimiter::default(),
+            None,
         )
         .unwrap();
 

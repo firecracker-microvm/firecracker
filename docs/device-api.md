@@ -83,6 +83,7 @@ specification:
 | `NetworkInterface`        | guest_mac          |    O     |       O        |      O       |        O         |   **R**    |      O       |     O      |      O      |     O      |
 |                           | host_dev_name      |    O     |       O        |      O       |        O         |   **R**    |      O       |     O      |      O      |     O      |
 |                           | iface_id           |    O     |       O        |      O       |        O         |   **R**    |      O       |     O      |      O      |     O      |
+|                           | mtu                |    O     |       O        |      O       |        O         |   **R**    |      O       |     O      |      O      |     O      |
 |                           | rx_rate_limiter    |    O     |       O        |      O       |        O         |   **R**    |      O       |     O      |      O      |     O      |
 |                           | tx_rate_limiter    |    O     |       O        |      O       |        O         |   **R**    |      O       |     O      |      O      |     O      |
 | `PartialDrive`            | drive_id           |    O     |       O        |    **R**     |        O         |     O      |      O       |     O      |      O      |     O      |

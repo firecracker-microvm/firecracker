@@ -8,10 +8,14 @@ import time
 import pytest
 from tenacity import Retrying, stop_after_attempt, wait_fixed
 
+import host_tools.network as net_tools
 from framework import utils
 
 # The iperf version to run this tests with
 IPERF_BINARY = "iperf3"
+
+# VIRTIO_NET_F_MTU feature bit index (virtio spec 5.1.3)
+VIRTIO_NET_F_MTU_BIT = 3
 
 
 def test_high_ingress_traffic(uvm_plain_any):
@@ -127,3 +131,53 @@ def test_tap_offload(uvm_any):
         with attempt:
             ret = vm.ssh.check_output(f"sync; cat {out_filename}")
             assert ret.stdout == message, f"{ret.stdout=} {ret.stderr=}"
+
+
+def test_tap_mtu_advertised_to_guest(uvm_plain_any):
+    """
+    Verify that VIRTIO_NET_F_MTU correctly advertises the TAP MTU to the guest.
+
+    Configures multiple TAP interfaces with distinct MTU values and checks that
+    each guest network interface reports the MTU matching its host TAP.
+    """
+    vm = uvm_plain_any
+    vm.spawn()
+    vm.basic_config()
+
+    # (interface index, MTU) pairs with varied values
+    iface_mtus = [(0, 1450), (1, 1500), (2, 8935)]
+
+    for idx, mtu in iface_mtus:
+        iface = net_tools.NetIfaceConfig.with_id(idx)
+        vm.add_net_iface(iface, api=False)
+        vm.api.network.put(
+            iface_id=iface.dev_name,
+            host_dev_name=iface.tap_name,
+            guest_mac=iface.guest_mac,
+            mtu=mtu,
+        )
+
+    vm.start()
+
+    # Verify each guest interface carries the expected MTU and has the feature flag set.
+    # SSH runs over eth0; we can still query other interfaces from there.
+    # /sys/class/net/{if}/device/features is a bitstring where index i is '1'
+    # when feature bit i is negotiated.
+    for idx, mtu in iface_mtus:
+        iface_name = f"eth{idx}"
+        guest_ip = vm.iface[iface_name]["iface"].guest_ip
+        guest_if = net_tools.get_guest_net_if_name(vm.ssh, guest_ip)
+        assert (
+            guest_if is not None
+        ), f"Could not find guest interface for {iface_name} ({guest_ip})"
+        mtu_out = vm.ssh.check_output(f"cat /sys/class/net/{guest_if}/mtu")
+        assert (
+            int(mtu_out.stdout.strip()) == mtu
+        ), f"{iface_name} (guest: {guest_if}): expected MTU {mtu}, got {mtu_out.stdout.strip()}"
+        features = vm.ssh.check_output(
+            f"cat /sys/class/net/{guest_if}/device/features"
+        ).stdout
+        assert features[VIRTIO_NET_F_MTU_BIT] == "1", (
+            f"{iface_name} (guest: {guest_if}): VIRTIO_NET_F_MTU (bit {VIRTIO_NET_F_MTU_BIT})"
+            f" not set in negotiated features: {features!r}"
+        )
