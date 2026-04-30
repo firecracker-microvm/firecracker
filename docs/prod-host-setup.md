@@ -222,6 +222,34 @@ most classful qdiscs perform rate control.
   - `connlimit` - restricts the number of connections for a destination IP
     address/from a source IP address, as well as limit the bandwidth
 
+### Filtering Guest Egress Network Traffic
+
+As stated in Firecracker's [threat model](./design.md#threat-containment),
+Firecracker does not perform any network traffic filtering. Packets are
+forwarded directly from the guest's virtual network interface to the TAP device.
+Firewall rules should therefore be implemented on the host to ensure that a
+malicious VM cannot access restricted addresses.
+
+`nft` or `iptables-nft` can be used to implement packet filtering rules. One
+commonly used rule is to drop packets from VMs with the host's IMDS store as the
+destination. Using the same rule tables and chains as the
+[network setup guide](./network-setup.md#on-the-host):
+
+#### `nft`
+
+```
+sudo nft add rule firecracker filter iifname "tap*" ip daddr 169.254.169.254 counter drop
+```
+
+#### `iptables-nft`
+
+```
+sudo iptables-nft -I FORWARD -i tap+ -d 169.254.169.254 -j DROP
+```
+
+This will drop all IPv4 packets originating from any TAP device with IMDS as the
+destination.
+
 ### Mitigating Noisy-Neighbour Storage Device Contention
 
 Data written to storage devices is managed in Linux with a page cache. Updates

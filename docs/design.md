@@ -90,6 +90,10 @@ is copied by the Firecracker I/O thread from the emulated network interface to
 the backing host TAP device, and I/O rate limiting is applied at this point.
 These barriers are marked in the diagram below.
 
+Firecracker does not perform any network traffic filtering. All egress traffic
+from a guest is therefore considered untrusted, and should be filtered at the
+host-level.
+
 ![Firecracker Threat Containment](images/firecracker_threat_containment.png?raw=true "Firecracker Threat Containment")
 
 ## Components and Features
