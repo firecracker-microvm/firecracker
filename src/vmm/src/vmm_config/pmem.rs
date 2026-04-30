@@ -1,11 +1,9 @@
 // Copyright 2025 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-use std::sync::{Arc, Mutex};
-
 use serde::{Deserialize, Serialize};
 
-use crate::devices::virtio::pmem::device::{Pmem, PmemError};
+use crate::devices::virtio::pmem::device::PmemError;
 use crate::vmm_config::RateLimiterConfig;
 
 /// Errors associated wit the operations allowed on a pmem device
@@ -52,22 +50,20 @@ pub struct PmemConfig {
     pub rate_limiter: Option<RateLimiterConfig>,
 }
 
-/// Wrapper for the collection that holds all the Pmem devices.
+/// Wrapper for the collection that holds all the Pmem device configs.
 #[derive(Debug, Default)]
 pub struct PmemBuilder {
-    /// The list of pmem devices
-    pub devices: Vec<Arc<Mutex<Pmem>>>,
+    /// The list of pmem device configs
+    pub configs: Vec<PmemConfig>,
 }
 
 impl PmemBuilder {
     /// Specifies whether there is a root block device already present in the list.
     pub fn has_root_device(&self) -> bool {
-        self.devices
-            .iter()
-            .any(|d| d.lock().unwrap().config.root_device)
+        self.configs.iter().any(|c| c.root_device)
     }
 
-    /// Build a device from the config
+    /// Add or replace a config, validating root device constraints.
     pub fn build(
         &mut self,
         config: PmemConfig,
@@ -76,75 +72,45 @@ impl PmemBuilder {
         if config.root_device && has_block_root {
             return Err(PmemConfigError::AddingSecondRootDevice);
         }
-        let position = self
-            .devices
-            .iter()
-            .position(|d| d.lock().unwrap().config.id == config.id);
+        let position = self.configs.iter().position(|c| c.id == config.id);
         if let Some(index) = position {
-            if !self.devices[index].lock().unwrap().config.root_device
-                && config.root_device
-                && self.has_root_device()
-            {
+            if !self.configs[index].root_device && config.root_device && self.has_root_device() {
                 return Err(PmemConfigError::RootPmemDeviceAlreadyExist);
             }
-            let pmem = Pmem::new(config)?;
-            let pmem = Arc::new(Mutex::new(pmem));
-            self.devices[index] = pmem;
+            self.configs[index] = config;
         } else {
             if config.root_device && self.has_root_device() {
                 return Err(PmemConfigError::RootPmemDeviceAlreadyExist);
             }
-            let pmem = Pmem::new(config)?;
-            let pmem = Arc::new(Mutex::new(pmem));
-            self.devices.push(pmem);
+            self.configs.push(config);
         }
         Ok(())
-    }
-
-    /// Adds an existing pmem device in the builder. This function should
-    /// only be used during snapshot restoration process and should add
-    /// devices in the same order as they were in the original VM.
-    pub fn add_device(&mut self, device: Arc<Mutex<Pmem>>) {
-        self.devices.push(device);
-    }
-
-    /// Returns a vec with the structures used to configure the devices.
-    pub fn configs(&self) -> Vec<PmemConfig> {
-        self.devices
-            .iter()
-            .map(|b| b.lock().unwrap().config.clone())
-            .collect()
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use vmm_sys_util::tempfile::TempFile;
-
     use super::*;
 
     #[test]
     fn test_pmem_builder_build() {
         let mut builder = PmemBuilder::default();
 
-        let dummy_file = TempFile::new().unwrap();
-        dummy_file.as_file().set_len(Pmem::ALIGNMENT).unwrap();
-        let dummy_path = dummy_file.as_path().to_str().unwrap().to_string();
         let mut config = PmemConfig {
             id: "1".into(),
-            path_on_host: dummy_path,
+            path_on_host: "/dummy".into(),
             root_device: true,
             read_only: false,
             ..Default::default()
         };
         builder.build(config.clone(), false).unwrap();
-        assert_eq!(builder.devices.len(), 1);
+        assert_eq!(builder.configs.len(), 1);
         assert!(builder.has_root_device());
 
         // First device got replaced with new one
         config.root_device = false;
         builder.build(config, false).unwrap();
-        assert_eq!(builder.devices.len(), 1);
+        assert_eq!(builder.configs.len(), 1);
         assert!(!builder.has_root_device());
     }
 
@@ -152,12 +118,9 @@ mod tests {
     fn test_pmem_builder_build_seconde_root() {
         let mut builder = PmemBuilder::default();
 
-        let dummy_file = TempFile::new().unwrap();
-        dummy_file.as_file().set_len(Pmem::ALIGNMENT).unwrap();
-        let dummy_path = dummy_file.as_path().to_str().unwrap().to_string();
         let mut config = PmemConfig {
             id: "1".into(),
-            path_on_host: dummy_path,
+            path_on_host: "/dummy".into(),
             root_device: true,
             read_only: false,
             ..Default::default()
@@ -175,12 +138,9 @@ mod tests {
     fn test_pmem_builder_build_root_with_block_already_a_root() {
         let mut builder = PmemBuilder::default();
 
-        let dummy_file = TempFile::new().unwrap();
-        dummy_file.as_file().set_len(Pmem::ALIGNMENT).unwrap();
-        let dummy_path = dummy_file.as_path().to_str().unwrap().to_string();
         let config = PmemConfig {
             id: "1".into(),
-            path_on_host: dummy_path,
+            path_on_host: "/dummy".into(),
             root_device: true,
             read_only: false,
             ..Default::default()

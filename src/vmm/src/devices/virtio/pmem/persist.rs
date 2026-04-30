@@ -1,6 +1,8 @@
 // Copyright 2025 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
+use std::sync::Arc;
+
 use serde::{Deserialize, Serialize};
 use vm_memory::GuestAddress;
 
@@ -27,7 +29,7 @@ pub struct PmemState {
 #[derive(Debug)]
 pub struct PmemConstructorArgs<'a> {
     pub mem: &'a GuestMemoryMmap,
-    pub vm: &'a Vm,
+    pub vm: Arc<Vm>,
 }
 
 #[derive(Debug, thiserror::Error, displaydoc::Display)]
@@ -50,7 +52,7 @@ impl<'a> Persist<'a> for Pmem {
     fn save(&self) -> Self::State {
         PmemState {
             virtio_state: VirtioDeviceState::from_device(self),
-            config_space: self.config_space,
+            config_space: self.guest_region.config_space,
             config: self.config.clone(),
             rate_limiter_state: self.rate_limiter.save(),
         }
@@ -67,14 +69,15 @@ impl<'a> Persist<'a> for Pmem {
             PMEM_QUEUE_SIZE,
         )?;
 
-        let mut pmem = Pmem::new_with_queues(state.config.clone(), queues)?;
-        pmem.config_space = state.config_space;
-        pmem.avail_features = state.virtio_state.avail_features;
-        pmem.acked_features = state.virtio_state.acked_features;
+        let mut pmem = Pmem::new_with_queues(
+            constructor_args.vm,
+            state.config.clone(),
+            queues,
+            state.virtio_state.acked_features,
+            Some(state.config_space),
+        )?;
         pmem.rate_limiter = RateLimiter::restore((), &state.rate_limiter_state)
             .map_err(PmemPersistError::RateLimiter)?;
-
-        pmem.set_mem_region(constructor_args.vm)?;
 
         Ok(pmem)
     }
@@ -102,21 +105,22 @@ mod tests {
             read_only: false,
             ..Default::default()
         };
-        let pmem = Pmem::new(config).unwrap();
         let guest_mem = default_mem();
         let kvm = Kvm::new(vec![]).unwrap();
-        let vm = Vm::new(&kvm).unwrap();
+        let vm = Arc::new(Vm::new(&kvm).unwrap());
+        let pmem = Pmem::new(vm.clone(), config).unwrap();
 
         // Save the block device.
         let pmem_state = pmem.save();
         let serialized_data = bitcode::serialize(&pmem_state).unwrap();
+        drop(pmem);
 
         // Restore the block device.
         let restored_state = bitcode::deserialize(&serialized_data).unwrap();
         let restored_pmem = Pmem::restore(
             PmemConstructorArgs {
                 mem: &guest_mem,
-                vm: &vm,
+                vm: vm.clone(),
             },
             &restored_state,
         )
@@ -124,11 +128,15 @@ mod tests {
 
         // Test that virtio specific fields are the same.
         assert_eq!(restored_pmem.device_type(), VirtioDeviceType::Pmem);
-        assert_eq!(restored_pmem.avail_features(), pmem.avail_features());
-        assert_eq!(restored_pmem.acked_features(), pmem.acked_features());
-        assert_eq!(restored_pmem.queues(), pmem.queues());
-        assert!(!pmem.is_activated());
+        assert_eq!(
+            restored_pmem.avail_features(),
+            pmem_state.virtio_state.avail_features
+        );
+        assert_eq!(
+            restored_pmem.acked_features(),
+            pmem_state.virtio_state.acked_features
+        );
         assert!(!restored_pmem.is_activated());
-        assert_eq!(restored_pmem.config, pmem.config);
+        assert_eq!(restored_pmem.config, pmem_state.config);
     }
 }
