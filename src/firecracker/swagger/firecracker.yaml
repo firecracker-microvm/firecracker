@@ -1858,6 +1858,22 @@ definitions:
       uds_path:
         type: string
         description: Path to UNIX domain socket, used to proxy vsock connections.
+      vsock_type:
+        description: Enumeration indicating the type of the underlying socket (stream or seqpacket)
+        type: string
+        enum:
+          - stream
+          - seqpacket
+        default: stream
+      conn_buffer_size:
+        type: integer
+        minimum: 4096
+        maximum: 262144
+        description:
+          The amount in bytes that can be buffered in firecracker if the data in the tx/rx queue is
+          too much to fit in a single descriptor. This parameter is ignored for stream sockets 
+          because connection buffering is a seqpacket only concept. The minimum is 4096 (one 
+          virtqueue descriptor) and the maximum is 256KB (kernel limit)
       vsock_id:
         type: string
         description:

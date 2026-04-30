@@ -13,11 +13,14 @@ In order to test the vsock device connection state machine, these tests will:
   guest-initiated connections.
 """
 
+import os
 import os.path
 import subprocess
 import time
 from pathlib import Path
+from socket import SOCK_SEQPACKET, SOCK_STREAM
 from socket import timeout as SocketTimeout
+from threading import Thread
 
 import pytest
 
@@ -26,12 +29,15 @@ from framework.utils_vsock import (
     VSOCK_UDS_PATH,
     HostEchoWorker,
     _copy_vsock_data_to_guest,
+    _vsock_connect_to_guest,
     check_guest_connections,
+    check_guest_connections_seqpacket,
     check_host_connections,
     check_vsock_device,
     make_blob,
     make_host_port_path,
     start_guest_echo_server,
+    start_seqpacket_echo_server,
 )
 from host_tools.fcmetrics import validate_fc_metrics
 
@@ -51,7 +57,12 @@ def test_vsock(uvm_plain_any, bin_vsock_path, test_fc_session_root_path):
 
     vm.basic_config()
     vm.add_net_iface()
-    vm.api.vsock.put(vsock_id="vsock0", guest_cid=3, uds_path=f"/{VSOCK_UDS_PATH}")
+    vm.api.vsock.put(
+        vsock_id="vsock0",
+        guest_cid=3,
+        uds_path=f"/{VSOCK_UDS_PATH}",
+        vsock_type="stream",
+    )
     vm.start()
 
     check_vsock_device(vm, bin_vsock_path, test_fc_session_root_path, vm.ssh)
@@ -59,7 +70,7 @@ def test_vsock(uvm_plain_any, bin_vsock_path, test_fc_session_root_path):
     validate_fc_metrics(metrics)
 
 
-def negative_test_host_connections(vm, blob_path, blob_hash):
+def negative_test_host_connections(vm, blob_path, blob_hash, vsock_type):
     """Negative test for host-initiated connections.
 
     This will start a daemonized echo server on the guest VM, and then spawn
@@ -71,7 +82,7 @@ def negative_test_host_connections(vm, blob_path, blob_hash):
 
     workers = []
     for _ in range(NEGATIVE_TEST_CONNECTION_COUNT):
-        worker = HostEchoWorker(uds_path, blob_path)
+        worker = HostEchoWorker(uds_path, blob_path, vsock_type)
         workers.append(worker)
         worker.start()
 
@@ -112,7 +123,12 @@ def test_vsock_epipe(uvm_plain_any, bin_vsock_path, test_fc_session_root_path):
     vm.spawn()
     vm.basic_config()
     vm.add_net_iface()
-    vm.api.vsock.put(vsock_id="vsock0", guest_cid=3, uds_path=f"/{VSOCK_UDS_PATH}")
+    vm.api.vsock.put(
+        vsock_id="vsock0",
+        guest_cid=3,
+        uds_path=f"/{VSOCK_UDS_PATH}",
+        vsock_type="stream",
+    )
     vm.start()
 
     # Generate the random data blob file, 20MB
@@ -125,7 +141,7 @@ def test_vsock_epipe(uvm_plain_any, bin_vsock_path, test_fc_session_root_path):
 
     # Negative test for host-initiated connections that
     # are closed with in flight data.
-    negative_test_host_connections(vm, blob_path, blob_hash)
+    negative_test_host_connections(vm, blob_path, blob_hash, SOCK_STREAM)
     metrics = vm.flush_metrics()
     validate_fc_metrics(metrics)
 
@@ -152,7 +168,12 @@ def test_vsock_transport_reset_h2g(
     test_vm.spawn()
     test_vm.basic_config(vcpu_count=2, mem_size_mib=256)
     test_vm.add_net_iface()
-    test_vm.api.vsock.put(vsock_id="vsock0", guest_cid=3, uds_path=f"/{VSOCK_UDS_PATH}")
+    test_vm.api.vsock.put(
+        vsock_id="vsock0",
+        guest_cid=3,
+        uds_path=f"/{VSOCK_UDS_PATH}",
+        vsock_type="stream",
+    )
     test_vm.start()
 
     # Generate the random data blob file.
@@ -194,6 +215,7 @@ def test_vsock_transport_reset_h2g(
             assert (
                 response == b""
             ), f"Connection not closed: response received '{response.decode('utf-8')}'"
+
         except (SocketTimeout, ConnectionResetError, BrokenPipeError):
             pass
 
@@ -225,7 +247,12 @@ def test_vsock_transport_reset_g2h(uvm_plain_any, microvm_factory):
     test_vm.spawn()
     test_vm.basic_config(vcpu_count=2, mem_size_mib=256)
     test_vm.add_net_iface()
-    test_vm.api.vsock.put(vsock_id="vsock0", guest_cid=3, uds_path=f"/{VSOCK_UDS_PATH}")
+    test_vm.api.vsock.put(
+        vsock_id="vsock0",
+        guest_cid=3,
+        uds_path=f"/{VSOCK_UDS_PATH}",
+        vsock_type="stream",
+    )
     test_vm.start()
 
     # Create snapshot and terminate a VM.
@@ -284,6 +311,123 @@ def test_vsock_transport_reset_g2h(uvm_plain_any, microvm_factory):
 
         # Terminate VM.
         new_vm.kill()
+
+
+def test_vsock_seqpacket_h2g(
+    uvm_plain_6_1, bin_vsock_seqpacket_listener_path, test_fc_session_root_path
+):
+    """Test host-to-guest vsock seqpacket connections."""
+    vm = uvm_plain_6_1
+    vm.spawn()
+    vm.basic_config()
+    vm.add_net_iface()
+    vm.api.vsock.put(
+        vsock_id="vsock0",
+        guest_cid=3,
+        uds_path=f"/{VSOCK_UDS_PATH}",
+        vsock_type="seqpacket",
+        conn_buffer_size=16 * 1024,
+    )
+    vm.start()
+
+    blob_path, blob_hash = make_blob(test_fc_session_root_path, 16 * 1024)
+    vm_blob_path = "/tmp/vsock/test.blob"
+
+    _copy_vsock_data_to_guest(
+        vm.ssh,
+        blob_path,
+        vm_blob_path,
+        vsock_seq_server=bin_vsock_seqpacket_listener_path,
+    )
+    path = start_seqpacket_echo_server(vm)
+
+    check_host_connections(path, blob_path, blob_hash, SOCK_SEQPACKET)
+    metrics = vm.flush_metrics()
+    validate_fc_metrics(metrics)
+
+
+def test_vsock_seqpacket_g2h(
+    uvm_plain_6_1,
+    bin_vsock_seqpacket_listener_path,
+    bin_vsock_path,
+    test_fc_session_root_path,
+):
+    """Test guest-to-host vsock seqpacket connections."""
+    vm = uvm_plain_6_1
+    vm.spawn()
+    vm.basic_config()
+    vm.add_net_iface()
+    vm.api.vsock.put(
+        vsock_id="vsock0",
+        guest_cid=3,
+        uds_path=f"/{VSOCK_UDS_PATH}",
+        vsock_type="seqpacket",
+        conn_buffer_size=16 * 1024,
+    )
+    vm.start()
+
+    blob_path, blob_hash = make_blob(test_fc_session_root_path, 16 * 1024)
+    vm_blob_path = "/tmp/vsock/test.blob"
+
+    _copy_vsock_data_to_guest(vm.ssh, blob_path, vm_blob_path, bin_vsock_path)
+
+    path = os.path.join(vm.path, make_host_port_path(VSOCK_UDS_PATH, ECHO_SERVER_PORT))
+    check_guest_connections_seqpacket(
+        vm, path, bin_vsock_seqpacket_listener_path, vm_blob_path, blob_hash
+    )
+
+    metrics = vm.flush_metrics()
+    validate_fc_metrics(metrics)
+
+
+def test_vsock_seqpacket_h2g_overflow(
+    uvm_plain_6_1, bin_vsock_seqpacket_listener_path, test_fc_session_root_path
+):
+    """Test that sending a message larger than conn_buffer_size errors."""
+    conn_buffer_size = 16 * 1024
+
+    vm = uvm_plain_6_1
+    vm.spawn()
+    vm.basic_config()
+    vm.add_net_iface()
+    vm.api.vsock.put(
+        vsock_id="vsock0",
+        guest_cid=3,
+        uds_path=f"/{VSOCK_UDS_PATH}",
+        vsock_type="seqpacket",
+        conn_buffer_size=conn_buffer_size,
+    )
+    vm.start()
+
+    blob_path, _ = make_blob(test_fc_session_root_path, 1024)
+    vm_blob_path = "/tmp/vsock/test.blob"
+    _copy_vsock_data_to_guest(
+        vm.ssh,
+        blob_path,
+        vm_blob_path,
+        vsock_seq_server=bin_vsock_seqpacket_listener_path,
+    )
+    path = start_seqpacket_echo_server(vm)
+
+    worker_error = None
+
+    def worker():
+        nonlocal worker_error
+        try:
+            sock = _vsock_connect_to_guest(path, ECHO_SERVER_PORT, SOCK_SEQPACKET)
+            oversized_msg = os.urandom(conn_buffer_size + 1)
+            sock.send(oversized_msg)
+            sock.recv(conn_buffer_size + 1)
+        except OSError as err:
+            worker_error = err
+
+    t = Thread(target=worker)
+    t.start()
+    t.join()
+
+    assert (
+        worker_error is not None
+    ), "Expected an error when sending message larger than conn_buffer_size"
 
 
 def test_vsock_after_override(

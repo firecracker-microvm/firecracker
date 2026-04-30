@@ -324,6 +324,32 @@
                 ]
             },
             {
+                "syscall": "socket",
+                "comment": "Called to open the vsock seqpacket UDS (SeqpacketConn::connect and SeqpacketListener::bind)",
+                "args": [
+                    {
+                        "index": 0,
+                        "type": "dword",
+                        "op": "eq",
+                        "val": 1,
+                        "comment": "libc::AF_UNIX"
+                    },
+                    {
+                        "index": 1,
+                        "type": "dword",
+                        "op": "eq",
+                        "val": 524293,
+                        "comment": "libc::SOCK_SEQPACKET | libc::SOCK_CLOEXEC"
+                    },
+                    {
+                        "index": 2,
+                        "type": "dword",
+                        "op": "eq",
+                        "val": 0
+                    }
+                ]
+            },
+            {
                 "syscall": "sendto",
                 "comment": "Rust std uses it to write to unix socket"
             },

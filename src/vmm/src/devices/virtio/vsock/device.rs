@@ -32,7 +32,9 @@ use super::packet::{VSOCK_PKT_HDR_SIZE, VsockPacketRx, VsockPacketTx};
 use super::{VsockBackend, defs};
 use crate::devices::virtio::ActivateError;
 use crate::devices::virtio::device::{ActiveState, DeviceState, VirtioDevice, VirtioDeviceType};
-use crate::devices::virtio::generated::virtio_config::{VIRTIO_F_IN_ORDER, VIRTIO_F_VERSION_1};
+use crate::devices::virtio::generated::virtio_config::{
+    VIRTIO_F_IN_ORDER, VIRTIO_F_VERSION_1, VIRTIO_VSOCK_F_SEQPACKET,
+};
 use crate::devices::virtio::queue::{InvalidAvailIdx, Queue as VirtQueue};
 use crate::devices::virtio::transport::{VirtioInterrupt, VirtioInterruptType};
 use crate::devices::virtio::vsock::VsockError;
@@ -52,8 +54,11 @@ pub(crate) const VIRTIO_VSOCK_EVENT_TRANSPORT_RESET: u32 = 0;
 /// - VIRTIO_F_VERSION_1: the device conforms to at least version 1.0 of the VirtIO spec.
 /// - VIRTIO_F_IN_ORDER: the device returns used buffers in the same order that the driver makes
 ///   them available.
-pub(crate) const AVAIL_FEATURES: u64 =
-    (1 << VIRTIO_F_VERSION_1 as u64) | (1 << VIRTIO_F_IN_ORDER as u64);
+/// - VIRTIO_VSOCK_F_SEQPACKET: the device supports vsock connections backed by seqpacket
+///   sockets.
+pub(crate) const AVAIL_FEATURES: u64 = (1 << VIRTIO_F_VERSION_1 as u64)
+    | (1 << VIRTIO_F_IN_ORDER as u64)
+    | (1 << VIRTIO_VSOCK_F_SEQPACKET as u64);
 
 /// Structure representing the vsock device.
 #[derive(Debug)]
@@ -162,47 +167,45 @@ where
 
         let queue = &mut self.queues[RXQ_INDEX];
         let mut have_used = false;
+        let mut should_retrigger = false;
 
         while let Some(head) = queue.pop()? {
             let index = head.index;
             let used_len = match self.rx_packet.parse(mem, head) {
-                Ok(()) => {
-                    if self.backend.recv_pkt(&mut self.rx_packet).is_ok() {
-                        match self.rx_packet.commit_hdr() {
-                            // This addition cannot overflow, because packet length
-                            // is previously validated against `MAX_PKT_BUF_SIZE`
-                            // bound as part of `commit_hdr()`.
-                            Ok(()) => VSOCK_PKT_HDR_SIZE + self.rx_packet.hdr.len(),
-                            Err(err) => {
-                                warn!(
-                                    "vsock: Error writing packet header to guest memory: \
-                                     {:?}.Discarding the package.",
-                                    err
-                                );
-                                0
-                            }
-                        }
-                    } else {
-                        // We are using a consuming iterator over the virtio buffers, so, if we
-                        // can't fill in this buffer, we'll need to undo the
-                        // last iterator step.
+                Ok(()) => match self.backend.recv_pkt(&mut self.rx_packet) {
+                    Err(_) => {
                         queue.undo_pop();
                         break;
                     }
-                }
+                    Ok(read_res) => {
+                        should_retrigger = read_res.should_retrigger;
+                        self.rx_packet
+                            .commit_hdr()
+                            .map(|_| VSOCK_PKT_HDR_SIZE + read_res.bytes_read)
+                            .unwrap_or_else(|err| {
+                                warn!("vsock: Error writing packet header: {:?}. Discarding.", err);
+                                0
+                            })
+                    }
+                },
                 Err(err) => {
                     warn!("vsock: RX queue error: {:?}. Discarding the package.", err);
                     0
                 }
             };
-
             have_used = true;
             queue.add_used(index, used_len).unwrap_or_else(|err| {
                 error!("Failed to add available descriptor {}: {}", index, err)
             });
-        }
-        queue.advance_used_ring_idx();
 
+            // we received more than the rx packet size
+            // trigger another loop iteration to consume from the temp buffer
+            if should_retrigger {
+                continue;
+            }
+        }
+
+        queue.advance_used_ring_idx();
         Ok(have_used)
     }
 

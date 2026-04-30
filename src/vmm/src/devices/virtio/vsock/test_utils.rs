@@ -17,6 +17,7 @@ use crate::devices::virtio::test_utils::{VirtQueue as GuestQ, default_interrupt}
 use crate::devices::virtio::transport::VirtioInterrupt;
 use crate::devices::virtio::vsock::device::{RXQ_INDEX, TXQ_INDEX};
 use crate::devices::virtio::vsock::packet::VSOCK_PKT_HDR_SIZE;
+use crate::devices::virtio::vsock::unix::ReadResult;
 use crate::devices::virtio::vsock::{
     Vsock, VsockBackend, VsockChannel, VsockEpollListener, VsockError,
 };
@@ -65,7 +66,7 @@ impl Default for TestBackend {
 }
 
 impl VsockChannel for TestBackend {
-    fn recv_pkt(&mut self, pkt: &mut VsockPacketRx) -> Result<(), VsockError> {
+    fn recv_pkt(&mut self, pkt: &mut VsockPacketRx) -> Result<ReadResult, VsockError> {
         let cool_buf = [0xDu8, 0xE, 0xA, 0xD, 0xB, 0xE, 0xE, 0xF];
         match self.rx_err.take() {
             None => {
@@ -78,7 +79,7 @@ impl VsockChannel for TestBackend {
                         .unwrap();
                 }
                 self.rx_ok_cnt += 1;
-                Ok(())
+                Ok(ReadResult::new(buf_size, false))
             }
             Some(err) => Err(err),
         }

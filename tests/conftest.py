@@ -245,6 +245,18 @@ def bin_sysgenid_path(test_fc_session_root_path):
 
 
 @pytest.fixture(scope="session")
+def bin_vsock_seqpacket_listener_path(test_fc_session_root_path):
+    """Build a simple vsock seqpacket server application."""
+    vsock_seq_srv_bin_path = os.path.join(test_fc_session_root_path, "vsock_seq_server")
+    build_tools.gcc_compile(
+        "host_tools/vsock_seq_server.c",
+        vsock_seq_srv_bin_path,
+        extra_flags="-lpthread -O3",
+    )
+    yield vsock_seq_srv_bin_path
+
+
+@pytest.fixture(scope="session")
 def bin_vmclock_path(test_fc_session_root_path):
     """Build a simple util for test VMclock device"""
     vmclock_helper_bin_path = os.path.join(test_fc_session_root_path, "vmclock")
