@@ -9,6 +9,7 @@ use std::fs::File;
 use std::io::{Read, Seek, SeekFrom, Write};
 use std::ops::Deref;
 use std::os::fd::AsRawFd;
+use std::sync::atomic::{AtomicU8, Ordering};
 use std::sync::{Arc, Mutex};
 
 use bitvec::vec::BitVec;
@@ -538,10 +539,29 @@ impl GuestRegionMmapExt {
                         "discard_range: fallocate(PUNCH_HOLE) failed: {:?}",
                         os_error
                     );
-                    Err(GuestMemoryError::IOError(os_error))
-                } else {
-                    Ok(())
+                    return Err(GuestMemoryError::IOError(os_error));
                 }
+                // After punching the hole, the pages are gone. Set the userfault
+                // bitmap bits so that the next access triggers a MISSING fault
+                // and the handler re-populates via UFFDIO_COPY (not CONTINUE,
+                // which would EFAULT because the folio no longer exists).
+                if let Some(bitmap_ptr) = self.userfault_bitmap {
+                    let gpa = self.inner.start_addr().raw_value() + caddr.raw_value();
+                    let page_size = host_page_size() as u64;
+                    let first_page = gpa / page_size;
+                    let last_page = (gpa + len as u64 - 1) / page_size;
+                    // SAFETY: bitmap_ptr is a valid, mapped AtomicU8 array covering
+                    // all guest pages (sized by bitmap_size() at setup).
+                    let bitmap = bitmap_ptr as *const AtomicU8;
+                    for page in first_page..=last_page {
+                        let byte_index = (page / 8) as isize;
+                        let bit_index = (page % 8) as u8;
+                        // SAFETY: byte_index is within the bitmap's allocated range.
+                        let byte = unsafe { &*bitmap.offset(byte_index) };
+                        byte.fetch_or(1u8 << bit_index, Ordering::SeqCst);
+                    }
+                }
+                Ok(())
             }
             // Anonymous memory: MADV_DONTNEED releases pages back to the kernel.
             _ => {
