@@ -408,6 +408,36 @@ mod tests {
 }
 
 #[test]
+fn fix_skips_extern_c_fn() {
+    const GIVEN: &str = "extern \"C\" fn handle_signal() {}\nfn normal() {}";
+    const EXPECTED: &str =
+        "extern \"C\" fn handle_signal() {}\n#[log_instrument::instrument]\nfn normal() {}";
+    fix(GIVEN, EXPECTED, None);
+}
+
+#[test]
+fn check_skips_extern_c_fn() {
+    const GIVEN: &str = "extern \"C\" fn handle_signal() {}";
+    let path = setup(GIVEN);
+    let output = Command::new(BINARY)
+        .args(["--action", "check", "--path", &path])
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(0));
+    assert_eq!(output.stdout, []);
+    assert_eq!(output.stderr, []);
+    remove_file(path).unwrap();
+}
+
+#[test]
+fn fix_skips_extern_c_fn_in_impl() {
+    const GIVEN: &str =
+        "struct S;\nimpl S {\n    extern \"C\" fn callback() {}\n    fn normal() {}\n}";
+    const EXPECTED: &str = "struct S;\nimpl S {\n    extern \"C\" fn callback() {}\n    #[log_instrument::instrument]\n    fn normal() {}\n}";
+    fix(GIVEN, EXPECTED, None);
+}
+
+#[test]
 fn readme_custom_suffix() {
     const GIVEN: &str = r#"fn main() {
     println!("Hello World!");
