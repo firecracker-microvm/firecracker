@@ -39,8 +39,8 @@ use crate::pci::configuration::{
 };
 use crate::pci::msix::{MsixCap, MsixConfig, MsixConfigState};
 use crate::pci::{
-    BarReprogrammingParams, DeviceRelocationError, PciCapabilityId, PciClassCode, PciDevice,
-    PciMassStorageSubclass, PciNetworkControllerSubclass, PciSBDF,
+    BarReprogrammingParams, PciCapabilityId, PciClassCode, PciDevice, PciMassStorageSubclass,
+    PciNetworkControllerSubclass, PciSBDF,
 };
 use crate::snapshot::Persist;
 use crate::vstate::bus::BusDevice;
@@ -249,8 +249,6 @@ pub struct VirtioPciDeviceState {
 
 #[derive(Debug, thiserror::Error, displaydoc::Display)]
 pub enum VirtioPciDeviceError {
-    /// Failed creating VirtioPciDevice: {0}
-    CreateVirtioPciDevice(#[from] DeviceRelocationError),
     /// Error creating MSI configuration: {0}
     Msi(#[from] InterruptError),
     /// Invalid PCI configuration state: {0}
@@ -802,18 +800,6 @@ impl PciDevice for VirtioPciDevice {
         } else {
             self.configuration.read_reg(reg_idx)
         }
-    }
-
-    fn detect_bar_reprogramming(
-        &mut self,
-        reg_idx: u16,
-        data: &[u8],
-    ) -> Option<BarReprogrammingParams> {
-        None
-    }
-
-    fn move_bar(&mut self, old_base: u64, new_base: u64) -> Result<(), DeviceRelocationError> {
-        Ok(())
     }
 
     fn read_bar(&mut self, _base: u64, offset: u64, data: &mut [u8]) {

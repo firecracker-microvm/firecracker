@@ -26,7 +26,6 @@ use vmm_sys_util::eventfd::EventFd;
 pub use crate::arch::{ArchVm as Vm, ArchVmError, VmState};
 use crate::arch::{GSI_MSI_END, host_page_size};
 use crate::logger::{debug, info};
-use crate::pci::{DeviceRelocation, DeviceRelocationError, PciDevice};
 use crate::persist::CreateSnapshotError;
 use crate::vmm_config::snapshot::SnapshotType;
 use crate::vstate::bus::Bus;
@@ -520,18 +519,6 @@ fn mincore_bitmap(addr: *mut u8, len: usize) -> Result<Vec<u64>, VmError> {
     }
 
     Ok(bitmap)
-}
-
-impl DeviceRelocation for Vm {
-    fn move_bar(
-        &self,
-        _old_base: u64,
-        _new_base: u64,
-        _len: u64,
-        _pci_dev: &mut dyn PciDevice,
-    ) -> Result<(), DeviceRelocationError> {
-        Err(DeviceRelocationError::NotSupported)
-    }
 }
 
 #[cfg(test)]
