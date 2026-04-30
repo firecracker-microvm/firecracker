@@ -93,11 +93,12 @@ impl PciDevices {
 
         debug!(
             "Inserting MMIO BAR region: {:#x}:{:#x}",
-            virtio_device_locked.bar_address, CAPABILITY_BAR_SIZE
+            virtio_device_locked.config_bar_addr(),
+            CAPABILITY_BAR_SIZE
         );
         vm.common.mmio_bus.insert(
             virtio_device.clone(),
-            virtio_device_locked.bar_address,
+            virtio_device_locked.config_bar_addr(),
             CAPABILITY_BAR_SIZE,
         )?;
 

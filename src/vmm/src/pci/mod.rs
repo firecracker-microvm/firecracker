@@ -42,14 +42,6 @@ pub trait PciDevice: Send {
     /// Gets a register from the configuration space.
     /// * `reg_idx` - The index of the config register to read.
     fn read_config_register(&mut self, reg_idx: u16) -> u32;
-    /// Detects if a BAR is being reprogrammed.
-    fn detect_bar_reprogramming(
-        &mut self,
-        _reg_idx: u16,
-        _data: &[u8],
-    ) -> Option<BarReprogrammingParams> {
-        None
-    }
     /// Reads from a BAR region mapped into the device.
     /// * `addr` - The guest address inside the BAR.
     /// * `data` - Filled with the data from `addr`.
@@ -60,31 +52,6 @@ pub trait PciDevice: Send {
     fn write_bar(&mut self, _base: u64, _offset: u64, _data: &[u8]) -> Option<Arc<Barrier>> {
         None
     }
-    /// Relocates the BAR to a different address in guest address space.
-    fn move_bar(&mut self, _old_base: u64, _new_base: u64) -> Result<(), DeviceRelocationError> {
-        Ok(())
-    }
-}
-
-/// Errors for device manager.
-#[derive(Debug, thiserror::Error, displaydoc::Display)]
-pub enum DeviceRelocationError {
-    /// Device relocation not supported.
-    NotSupported,
-}
-
-/// This trait defines a set of functions which can be triggered whenever a
-/// PCI device is modified in any way.
-pub trait DeviceRelocation: Send + Sync {
-    /// The BAR needs to be moved to a different location in the guest address
-    /// space. This follows a decision from the software running in the guest.
-    fn move_bar(
-        &self,
-        old_base: u64,
-        new_base: u64,
-        len: u64,
-        pci_dev: &mut dyn PciDevice,
-    ) -> Result<(), DeviceRelocationError>;
 }
 
 /// Segment with associated Device BDF

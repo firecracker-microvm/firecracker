@@ -7,14 +7,12 @@
 
 use std::collections::HashMap;
 use std::fmt::Debug;
-use std::ops::DerefMut;
 use std::sync::{Arc, Barrier, Mutex};
 
 use byteorder::{ByteOrder, LittleEndian};
 
-use crate::logger::error;
 use crate::pci::configuration::PciConfiguration;
-use crate::pci::{DeviceRelocation, PciBridgeSubclass, PciClassCode, PciDevice};
+use crate::pci::{PciBridgeSubclass, PciClassCode, PciDevice};
 use crate::utils::u64_to_usize;
 use crate::vstate::bus::BusDevice;
 
@@ -51,7 +49,6 @@ impl PciRoot {
                     PciBridgeSubclass::HostBridge as u8,
                     0,
                     0,
-                    None,
                 ),
             }
         }
@@ -81,7 +78,6 @@ pub struct PciBus {
     /// Devices attached to this bus.
     /// Device 0 is host bridge.
     pub devices: HashMap<u8, Arc<Mutex<dyn PciDevice>>>,
-    vm: Arc<dyn DeviceRelocation>,
     device_ids: Vec<bool>,
 }
 
@@ -95,7 +91,7 @@ impl Debug for PciBus {
 
 impl PciBus {
     /// Create a new PCI bus
-    pub fn new(pci_root: PciRoot, vm: Arc<dyn DeviceRelocation>) -> Self {
+    pub fn new(pci_root: PciRoot) -> Self {
         let mut devices: HashMap<u8, Arc<Mutex<dyn PciDevice>>> = HashMap::new();
         let mut device_ids: Vec<bool> = vec![false; NUM_DEVICE_IDS];
 
@@ -104,7 +100,6 @@ impl PciBus {
 
         PciBus {
             devices,
-            vm,
             device_ids,
         }
     }
@@ -232,22 +227,6 @@ impl PciConfigIo {
         if let Some(d) = pci_bus.devices.get(&device) {
             let mut device = d.lock().unwrap();
 
-            // Find out if one of the device's BAR is being reprogrammed, and
-            // reprogram it if needed.
-            if let Some(params) = device.detect_bar_reprogramming(register, data)
-                && let Err(e) = pci_bus.vm.move_bar(
-                    params.old_base,
-                    params.new_base,
-                    params.len,
-                    device.deref_mut(),
-                )
-            {
-                error!(
-                    "Failed moving device BAR: {}: 0x{:x}->0x{:x}(0x{:x})",
-                    e, params.old_base, params.new_base, params.len
-                );
-            }
-
             // offset is validated to be < 4 at the top of this function.
             #[allow(clippy::cast_possible_truncation)]
             let offset = offset as u8;
@@ -372,22 +351,6 @@ impl PciConfigMmio {
         if let Some(d) = pci_bus.devices.get(&device) {
             let mut device = d.lock().unwrap();
 
-            // Find out if one of the device's BAR is being reprogrammed, and
-            // reprogram it if needed.
-            if let Some(params) = device.detect_bar_reprogramming(register, data)
-                && let Err(e) = pci_bus.vm.move_bar(
-                    params.old_base,
-                    params.new_base,
-                    params.len,
-                    device.deref_mut(),
-                )
-            {
-                error!(
-                    "Failed moving device BAR: {}: 0x{:x}->0x{:x}(0x{:x})",
-                    e, params.old_base, params.new_base, params.len
-                );
-            }
-
             // offset is validated to be < 4 at the top of this function.
             #[allow(clippy::cast_possible_truncation)]
             let offset = offset as u8;
@@ -486,48 +449,19 @@ fn parse_io_config_address(config_address: u32) -> (u8, u8, u8, u16) {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::atomic::AtomicUsize;
     use std::sync::{Arc, Mutex};
 
     use super::{PciBus, PciConfigIo, PciConfigMmio, PciRoot};
     use crate::pci::bus::{DEVICE_ID_INTEL_VIRT_PCIE_HOST, VENDOR_ID_INTEL};
     use crate::pci::configuration::PciConfiguration;
-    use crate::pci::{
-        BarReprogrammingParams, DeviceRelocation, DeviceRelocationError, PciClassCode, PciDevice,
-        PciMassStorageSubclass,
-    };
+    use crate::pci::{PciClassCode, PciDevice, PciMassStorageSubclass};
     use crate::vstate::bus::BusDevice;
-
-    #[derive(Debug, Default)]
-    struct RelocationMock {
-        reloc_cnt: AtomicUsize,
-    }
-
-    impl RelocationMock {
-        fn cnt(&self) -> usize {
-            self.reloc_cnt.load(std::sync::atomic::Ordering::SeqCst)
-        }
-    }
-
-    impl DeviceRelocation for RelocationMock {
-        fn move_bar(
-            &self,
-            _old_base: u64,
-            _new_base: u64,
-            _len: u64,
-            _pci_dev: &mut dyn PciDevice,
-        ) -> Result<(), DeviceRelocationError> {
-            self.reloc_cnt
-                .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-            Ok(())
-        }
-    }
 
     struct PciDevMock(PciConfiguration);
 
     impl PciDevMock {
         fn new() -> Self {
-            let mut config = PciConfiguration::new_type0(
+            let config = PciConfiguration::new_type0(
                 0x42,
                 0x0,
                 0x0,
@@ -535,11 +469,7 @@ mod tests {
                 PciMassStorageSubclass::SerialScsiController as u8,
                 0x13,
                 0x12,
-                None,
             );
-
-            config.add_pci_bar(0, 0x1000, 0x1000);
-
             PciDevMock(config)
         }
     }
@@ -558,21 +488,12 @@ mod tests {
         fn read_config_register(&mut self, reg_idx: u16) -> u32 {
             self.0.read_reg(reg_idx)
         }
-
-        fn detect_bar_reprogramming(
-            &mut self,
-            reg_idx: u16,
-            data: &[u8],
-        ) -> Option<BarReprogrammingParams> {
-            self.0.detect_bar_reprogramming(reg_idx, data)
-        }
     }
 
     #[test]
     fn test_writing_io_config_address() {
-        let mock = Arc::new(RelocationMock::default());
         let root = PciRoot::new(None);
-        let mut bus = PciConfigIo::new(Arc::new(Mutex::new(PciBus::new(root, mock))));
+        let mut bus = PciConfigIo::new(Arc::new(Mutex::new(PciBus::new(root))));
 
         assert_eq!(bus.config_address, 0);
         // Writing more than 32 bits will should fail
@@ -612,9 +533,8 @@ mod tests {
 
     #[test]
     fn test_reading_io_config_address() {
-        let mock = Arc::new(RelocationMock::default());
         let root = PciRoot::new(None);
-        let mut bus = PciConfigIo::new(Arc::new(Mutex::new(PciBus::new(root, mock))));
+        let mut bus = PciConfigIo::new(Arc::new(Mutex::new(PciBus::new(root))));
 
         let mut buffer = [0u8; 4];
 
@@ -659,19 +579,18 @@ mod tests {
         assert_eq!(buffer, [0x45, 0x44, 0x43, 0x42]);
     }
 
-    fn initialize_bus() -> (PciConfigMmio, PciConfigIo, Arc<RelocationMock>) {
-        let mock = Arc::new(RelocationMock::default());
+    fn initialize_bus() -> (PciConfigMmio, PciConfigIo) {
         let root = PciRoot::new(None);
-        let mut bus = PciBus::new(root, mock.clone());
+        let mut bus = PciBus::new(root);
         bus.add_device(1, Arc::new(Mutex::new(PciDevMock::new())));
 
         let bus = Arc::new(Mutex::new(bus));
-        (PciConfigMmio::new(bus.clone()), PciConfigIo::new(bus), mock)
+        (PciConfigMmio::new(bus.clone()), PciConfigIo::new(bus))
     }
 
     #[test]
     fn test_invalid_register_boundary_reads() {
-        let (mut mmio_config, mut io_config, _) = initialize_bus();
+        let (mut mmio_config, mut io_config) = initialize_bus();
 
         // Read crossing register boundaries
         let mut buffer = [0u8; 4];
@@ -806,7 +725,7 @@ mod tests {
 
     #[test]
     fn test_mmio_invalid_bus_number() {
-        let (mut mmio_config, _, _) = initialize_bus();
+        let (mut mmio_config, _) = initialize_bus();
         let mut buffer = [0u8; 4];
 
         // Asking for Bus 1 should return all 1s
@@ -831,7 +750,7 @@ mod tests {
 
     #[test]
     fn test_io_invalid_bus_number() {
-        let (_, mut pio_config, _) = initialize_bus();
+        let (_, mut pio_config) = initialize_bus();
         let mut buffer = [0u8; 4];
 
         // Asking for Bus 1 should return all 1s
@@ -849,7 +768,7 @@ mod tests {
 
     #[test]
     fn test_mmio_invalid_function() {
-        let (mut mmio_config, _, _) = initialize_bus();
+        let (mut mmio_config, _) = initialize_bus();
         let mut buffer = [0u8; 4];
 
         // Asking for Bus 1 should return all 1s
@@ -874,7 +793,7 @@ mod tests {
 
     #[test]
     fn test_io_invalid_function() {
-        let (_, mut pio_config, _) = initialize_bus();
+        let (_, mut pio_config) = initialize_bus();
         let mut buffer = [0u8; 4];
 
         // Asking for Bus 1 should return all 1s
@@ -892,7 +811,7 @@ mod tests {
 
     #[test]
     fn test_io_disabled_reads() {
-        let (_, mut pio_config, _) = initialize_bus();
+        let (_, mut pio_config) = initialize_bus();
         let mut buffer = [0u8; 4];
 
         // Trying to read without enabling should return all 1s
@@ -910,7 +829,7 @@ mod tests {
 
     #[test]
     fn test_io_disabled_writes() {
-        let (_, mut pio_config, _) = initialize_bus();
+        let (_, mut pio_config) = initialize_bus();
 
         // Try to write the IRQ line used for the root port.
         let mut buffer = [0u8; 4];
@@ -938,7 +857,7 @@ mod tests {
 
     #[test]
     fn test_mmio_writes() {
-        let (mut mmio_config, _, _) = initialize_bus();
+        let (mut mmio_config, _) = initialize_bus();
         let mut buffer = [0u8; 4];
 
         read_mmio_config(&mut mmio_config, 0, 0, 0, 15, 0, &mut buffer);
@@ -946,57 +865,5 @@ mod tests {
         write_mmio_config(&mut mmio_config, 0, 0, 0, 15, 0, &[0x42]);
         read_mmio_config(&mut mmio_config, 0, 0, 0, 15, 0, &mut buffer);
         assert_eq!(buffer[0], 0x42);
-    }
-
-    #[test]
-    fn test_bar_reprogramming() {
-        let (mut mmio_config, _, mock) = initialize_bus();
-        let mut buffer = [0u8; 4];
-        assert_eq!(mock.cnt(), 0);
-
-        read_mmio_config(&mut mmio_config, 0, 1, 0, 0x4, 0, &mut buffer);
-        let old_addr = u32::from_le_bytes(buffer) & 0xffff_fff0;
-        assert_eq!(old_addr, 0x1000);
-
-        // Writing the lower 32bits first should not trigger any reprogramming
-        write_mmio_config(
-            &mut mmio_config,
-            0,
-            1,
-            0,
-            0x4,
-            0,
-            &u32::to_le_bytes(0x1312_0000),
-        );
-
-        read_mmio_config(&mut mmio_config, 0, 1, 0, 0x4, 0, &mut buffer);
-        let new_addr = u32::from_le_bytes(buffer) & 0xffff_fff0;
-        assert_eq!(new_addr, 0x1312_0000);
-        assert_eq!(mock.cnt(), 0);
-
-        // Writing the upper 32bits first should now trigger the reprogramming logic
-        write_mmio_config(&mut mmio_config, 0, 1, 0, 0x5, 0, &u32::to_le_bytes(0x1110));
-        read_mmio_config(&mut mmio_config, 0, 1, 0, 0x5, 0, &mut buffer);
-        let new_addr = u32::from_le_bytes(buffer);
-        assert_eq!(new_addr, 0x1110);
-        assert_eq!(mock.cnt(), 1);
-
-        // BAR2 should not be used, so reading its address should return all 0s
-        read_mmio_config(&mut mmio_config, 0, 1, 0, 0x6, 0, &mut buffer);
-        assert_eq!(buffer, [0x0, 0x0, 0x0, 0x0]);
-
-        // and reprogramming shouldn't have any effect
-        write_mmio_config(
-            &mut mmio_config,
-            0,
-            1,
-            0,
-            0x5,
-            0,
-            &u32::to_le_bytes(0x1312_1110),
-        );
-
-        read_mmio_config(&mut mmio_config, 0, 1, 0, 0x6, 0, &mut buffer);
-        assert_eq!(buffer, [0x0, 0x0, 0x0, 0x0]);
     }
 }

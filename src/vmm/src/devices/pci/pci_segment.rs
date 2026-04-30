@@ -71,7 +71,7 @@ impl std::fmt::Debug for PciSegment {
 impl PciSegment {
     fn build(id: u16, vm: &Arc<Vm>, pci_irq_slots: &[u8; 32]) -> Result<PciSegment, BusError> {
         let pci_root = PciRoot::new(None);
-        let pci_bus = Arc::new(Mutex::new(PciBus::new(pci_root, vm.clone())));
+        let pci_bus = Arc::new(Mutex::new(PciBus::new(pci_root)));
 
         let pci_config_mmio = Arc::new(Mutex::new(PciConfigMmio::new(Arc::clone(&pci_bus))));
         let mmio_config_address = PCI_MMCONFIG_START + PCI_MMIO_CONFIG_SIZE_PER_SEGMENT * id as u64;
