@@ -11,6 +11,7 @@ use serde::{Deserialize, Serialize};
 use super::device::{Net, RxBuffers};
 use super::{NET_NUM_QUEUES, NET_QUEUE_MAX_SIZE, RX_INDEX, TapError};
 use crate::devices::virtio::device::{ActiveState, DeviceState, VirtioDeviceType};
+use crate::devices::virtio::net::device::NetDevBackendType;
 use crate::devices::virtio::persist::{PersistError as VirtioStateError, VirtioDeviceState};
 use crate::devices::virtio::transport::VirtioInterrupt;
 use crate::mmds::data_store::Mmds;
@@ -41,6 +42,7 @@ pub struct NetState {
     pub mmds_ns: Option<MmdsNetworkStackState>,
     config_space: NetConfigSpaceState,
     pub virtio_state: VirtioDeviceState,
+    pub backend_type: NetDevBackendType,
 }
 
 /// Auxiliary structure for creating a device when resuming from a snapshot.
@@ -73,6 +75,7 @@ impl Persist<'_> for Net {
     type Error = NetPersistError;
 
     fn save(&self) -> Self::State {
+        // we need to figure out the underlying backend type here so we can persist properly
         NetState {
             id: self.id.clone(),
             tap_if_name: self.iface_name(),
@@ -83,6 +86,7 @@ impl Persist<'_> for Net {
                 guest_mac: self.guest_mac,
             },
             virtio_state: VirtioDeviceState::from_device(self),
+            backend_type: self.tap.save(),
         }
     }
 
@@ -95,10 +99,11 @@ impl Persist<'_> for Net {
         let tx_rate_limiter = RateLimiter::restore((), &state.tx_rate_limiter_state)?;
         let mut net = Net::new(
             state.id.clone(),
-            &state.tap_if_name,
+            &state.tap_if_name, // make this not tap name. but something more generic
             state.config_space.guest_mac,
             rx_rate_limiter,
             tx_rate_limiter,
+            NetDevBackendType::Tap(state.tap_if_name.clone()),
         )?;
 
         // We trust the MMIODeviceManager::restore to pass us an MMDS data store reference if

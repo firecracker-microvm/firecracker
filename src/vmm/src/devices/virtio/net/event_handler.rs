@@ -46,8 +46,9 @@ impl Net {
         )) {
             error!("Failed to register tx queue event: {}", err);
         }
+        let fd = &self.tap.as_raw_fd();
         if let Err(err) = ops.add(Events::with_data(
-            &self.tap,
+            fd,
             Self::PROCESS_TAP_RX,
             EventSet::IN | EventSet::EDGE_TRIGGERED,
         )) {

@@ -511,6 +511,8 @@ impl Queue {
     pub fn pop_or_enable_notification(
         &mut self,
     ) -> Result<Option<DescriptorChain>, InvalidAvailIdx> {
+        // like vsock, these chains probably come with known sizes and you can't just pop another one you want
+        // maybe we can do the local iov trick from qemu
         if !self.uses_notif_suppression {
             return self.pop();
         }
@@ -538,6 +540,9 @@ impl Queue {
         // We use `self.next_avail` to store the position, in `ring`, of the next available
         // descriptor index, with a twist: we always only increment `self.next_avail`, so the
         // actual position will be `self.next_avail % self.size`.
+        // expl: this is needed because its a ring buffer. so next avail is a grow only counter.
+        // if we consume the whole buffer and then there are free items they woud be at normal indices
+        // but we need to normalize next avail to fit the size of the actual ring queue buffer
         let idx = self.next_avail.0 % self.size;
         // SAFETY:
         // index is bound by the queue size
