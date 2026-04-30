@@ -63,9 +63,9 @@ pub enum ResourcesError {
     /// Vsock device error: {0}
     VsockDevice(#[from] VsockConfigError),
     /// Entropy device error: {0}
-    EntropyDevice(#[from] EntropyDeviceError),
+    EntropyConfig(#[from] EntropyDeviceError),
     /// Pmem device error: {0}
-    PmemDevice(#[from] PmemConfigError),
+    PmemConfig(#[from] PmemConfigError),
     /// Memory hotplug config error: {0}
     MemoryHotplugConfig(#[from] MemoryHotplugConfigError),
 }

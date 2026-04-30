@@ -141,7 +141,7 @@ use crate::devices::virtio::balloon::{
 };
 use crate::devices::virtio::block::BlockError;
 use crate::devices::virtio::block::device::Block;
-use crate::devices::virtio::device::{VirtioDevice, VirtioDeviceType};
+use crate::devices::virtio::device::{VirtioDevice, VirtioDeviceId, VirtioDeviceType};
 use crate::devices::virtio::mem::device::VirtioMem;
 use crate::devices::virtio::mem::{VIRTIO_MEM_DEV_ID, VirtioMemError, VirtioMemStatus};
 use crate::devices::virtio::net::Net;
@@ -153,6 +153,8 @@ use crate::mmds::data_store::Mmds;
 use crate::persist::{MicrovmState, MicrovmStateError, VmInfo};
 use crate::rate_limiter::BucketUpdate;
 use crate::resources::VmmConfig;
+use crate::rpc_interface::VmmActionError;
+use crate::vmm_config::HotplugDeviceConfig;
 use crate::vmm_config::balloon::BalloonDeviceConfig;
 use crate::vmm_config::boot_source::BootSourceConfig;
 use crate::vmm_config::entropy::EntropyDeviceConfig;
@@ -826,6 +828,28 @@ impl Vmm {
     #[cfg(feature = "gdb")]
     pub fn vm(&self) -> &Vm {
         &self.vm
+    }
+
+    /// Attaches a device after VM start
+    #[inline]
+    pub fn hotplug_device(
+        &mut self,
+        config: HotplugDeviceConfig,
+        event_manager: &mut EventManager,
+    ) -> Result<(), VmmActionError> {
+        self.device_manager
+            .hotplug_device(self.vm.clone(), config, event_manager)
+    }
+
+    /// Detaches a device after VM start
+    #[inline]
+    pub fn hot_unplug_device(
+        &mut self,
+        device_id: VirtioDeviceId,
+        event_manager: &mut EventManager,
+    ) -> Result<(), VmmActionError> {
+        self.device_manager
+            .hot_unplug_device(self.vm.clone(), device_id, event_manager)
     }
 }
 

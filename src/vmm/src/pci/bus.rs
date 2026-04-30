@@ -106,7 +106,18 @@ impl PciBus {
 
     /// Insert a device in the bus
     pub fn add_device(&mut self, device_id: u8, device: Arc<Mutex<dyn PciDevice>>) {
+        assert!(
+            !self.devices.contains_key(&device_id),
+            "PCI device ID {device_id} already in use"
+        );
         self.devices.insert(device_id, device);
+        self.device_ids[device_id as usize] = true;
+    }
+
+    /// Remove a device from the bus and free its device ID slot
+    pub fn remove_device(&mut self, device_id: u8) {
+        self.devices.remove(&device_id);
+        self.device_ids[device_id as usize] = false;
     }
 
     /// Get a new device ID

@@ -69,11 +69,17 @@ def test_validate_filter(seccompiler, bin_test_syscall, monkeypatch, tmp_path):
                 assert utils.run_cmd(f"{cmd} {allowed_str}").returncode == 0
                 # for each allowed arg try a different number
                 for arg in rule["args"]:
-                    # We just add 1000000 to the allowed arg and assume it is
-                    # not something we allow in another rule. While not perfect
-                    # it works in practice.
                     bad_args = allowed_args.copy()
-                    bad_args[arg["index"]] = str(arg["val"] + 1_000_000)
+                    if isinstance(arg["op"], dict) and "masked_eq" in arg["op"]:
+                        # For masked_eq, flip the mask bit to violate the check
+                        bad_args[arg["index"]] = str(
+                            arg["val"] ^ arg["op"]["masked_eq"]
+                        )
+                    else:
+                        # We just add 1000000 to the allowed arg and assume it
+                        # is not something we allow in another rule. While not
+                        # perfect it works in practice.
+                        bad_args[arg["index"]] = str(arg["val"] + 1_000_000)
                     unallowed_str = " ".join(str(x) for x in bad_args)
                     outcome = utils.run_cmd(f"{cmd} {unallowed_str}")
                     # if we call it with unallowed args, it should exit 159

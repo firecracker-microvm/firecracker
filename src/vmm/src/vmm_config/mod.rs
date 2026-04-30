@@ -6,7 +6,11 @@ use std::io;
 
 use serde::{Deserialize, Serialize};
 
+use crate::devices::virtio::device::VirtioDeviceType;
 use crate::rate_limiter::{BucketUpdate, RateLimiter, TokenBucket};
+use crate::vmm_config::drive::BlockDeviceConfig;
+use crate::vmm_config::net::NetworkInterfaceConfig;
+use crate::vmm_config::pmem::PmemConfig;
 
 /// Wrapper for configuring the balloon device.
 pub mod balloon;
@@ -35,6 +39,32 @@ pub mod serial;
 pub mod snapshot;
 /// Wrapper for configuring the vsock devices attached to the microVM.
 pub mod vsock;
+
+#[allow(missing_docs)]
+#[derive(Debug)]
+pub enum HotplugDeviceConfig {
+    Block(BlockDeviceConfig),
+    Pmem(PmemConfig),
+    Net(NetworkInterfaceConfig),
+}
+
+impl HotplugDeviceConfig {
+    pub(crate) fn device_id(&self) -> &str {
+        match self {
+            Self::Block(cfg) => &cfg.drive_id,
+            Self::Pmem(cfg) => &cfg.id,
+            Self::Net(cfg) => &cfg.iface_id,
+        }
+    }
+
+    pub(crate) fn device_type(&self) -> VirtioDeviceType {
+        match self {
+            Self::Block(_) => VirtioDeviceType::Block,
+            Self::Pmem(_) => VirtioDeviceType::Pmem,
+            Self::Net(_) => VirtioDeviceType::Net,
+        }
+    }
+}
 
 // TODO: Migrate the VMM public-facing code (i.e. interface) to use stateless structures,
 // for receiving data/args, such as the below `RateLimiterConfig` and `TokenBucketConfig`.
