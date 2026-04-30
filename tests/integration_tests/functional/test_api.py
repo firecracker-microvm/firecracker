@@ -1123,10 +1123,6 @@ def test_pmem_api(uvm_plain_any, rootfs):
     vm.spawn()
     vm.basic_config(add_root_device=False)
 
-    invalid_pmem_path_on_host = os.path.join(vm.fsfiles, "invalid_scratch")
-    utils.check_output(f"touch {invalid_pmem_path_on_host}")
-    invalid_pmem_file_path = vm.create_jailed_resource(str(invalid_pmem_path_on_host))
-
     pmem_size_mb = 2
     pmem_path_on_host = drive_tools.FilesystemFile(
         os.path.join(vm.fsfiles, "scratch"), size=pmem_size_mb
@@ -1139,11 +1135,6 @@ def test_pmem_api(uvm_plain_any, rootfs):
     )
     with pytest.raises(RuntimeError, match=expected_msg):
         vm.api.pmem.put(id="pmem")
-
-    # Try to add pmem with 0 sized backing file
-    expected_msg = re.escape("Error backing file size is 0")
-    with pytest.raises(RuntimeError, match=expected_msg):
-        vm.api.pmem.put(id="pmem", path_on_host=invalid_pmem_file_path)
 
     # Try to add pmem as root while block is set as root
     vm.api.drive.put(drive_id="drive", path_on_host=pmem_file_path, is_root_device=True)

@@ -4,6 +4,9 @@
 
 import json
 import os
+import re
+
+import pytest
 
 import host_tools.drive as drive_tools
 from framework import utils
@@ -44,6 +47,25 @@ def check_pmem_exist(vm, index, root, read_only, size, extension):
                 assert "/" in block["mountpoints"]
             return
     assert False
+
+
+def test_pmem_zero_size_backing_file(uvm_plain_any):
+    """
+    Test that a pmem device with a zero-sized backing file fails at boot time.
+    """
+    vm = uvm_plain_any
+    vm.spawn()
+    vm.basic_config(add_root_device=True)
+
+    zero_size_path = os.path.join(vm.fsfiles, "zero_scratch")
+    utils.check_output(f"touch {zero_size_path}")
+    jailed_path = vm.create_jailed_resource(zero_size_path)
+
+    vm.api.pmem.put(id="pmem", path_on_host=jailed_path)
+
+    expected_msg = re.escape("Error backing file size is 0")
+    with pytest.raises(RuntimeError, match=expected_msg):
+        vm.start()
 
 
 def test_pmem_add(uvm_plain_any, microvm_factory):
