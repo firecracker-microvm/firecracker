@@ -58,6 +58,7 @@ vm-memory = { version = "0.17.1", features = [
 vm-superio = "0.8.1"
 vmm-sys-util = { version = "0.15.0", features = ["with-serde"] }
 zerocopy = { version = "0.8.48" }
+imago = { version = "0.2.3", features = ["sync-wrappers"] }
 
 [target.'cfg(target_arch = "aarch64")'.dependencies]
 vm-fdt = "0.3.0"
