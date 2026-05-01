@@ -10,6 +10,10 @@ and this project adheres to
 
 ### Added
 
+- [#5870](https://github.com/firecracker-microvm/firecracker/pull/5870): Add
+  basic VFIO support allowing for PCIe device passthrough into VM. See
+  [documentation][docs/vfio.md] for instructions and current limitations.
+
 ### Changed
 
 ### Deprecated
