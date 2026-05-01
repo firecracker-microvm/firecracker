@@ -22,6 +22,9 @@ and this project adheres to
   will use transparent huge pages for the guest memory via
   `madvise(MADV_HUGEPAGE)`. Guest memory must be a multiple of 2MB when using
   this option.
+- [#5870](https://github.com/firecracker-microvm/firecracker/pull/5870): Add
+  basic VFIO support allowing for PCIe device passthrough into VM. See
+  [documentation][docs/vfio.md] for instructions and current limitations.
 
 ### Changed
 
