@@ -174,21 +174,22 @@ impl DeviceManager {
         {
             self.mmio_devices.serial.as_ref().map(|device| {
                 let locked = device.inner.lock().expect("Poisoned lock");
-                locked.serial.state().into()
+                let mut s: persist::SerialState = locked.serial.state().into();
+                s.tx_queue = locked.tx_queue_snapshot();
+                s
             })
         }
 
         #[cfg(target_arch = "x86_64")]
         {
-            Some(
-                self.legacy_devices
-                    .stdio_serial
-                    .lock()
-                    .expect("Poisoned lock")
-                    .serial
-                    .state()
-                    .into(),
-            )
+            let locked = self
+                .legacy_devices
+                .stdio_serial
+                .lock()
+                .expect("Poisoned lock");
+            let mut s: persist::SerialState = locked.serial.state().into();
+            s.tx_queue = locked.tx_queue_snapshot();
+            Some(s)
         }
     }
 
@@ -728,6 +729,17 @@ impl<'a> Persist<'a> for DeviceManager {
             serial_state.as_ref(),
             constructor_args.vm_resources.serial_rate_limiter(),
         )?;
+        // Restore any in-flight TX bytes that were captured at snapshot time.
+        // Older snapshots (pre-v10.1.0) carry an empty `tx_queue`, so this
+        // is a no-op on the upgrade path.
+        #[cfg(target_arch = "x86_64")]
+        if let Some(snap) = state.serial_state.as_ref() {
+            legacy_devices
+                .stdio_serial
+                .lock()
+                .expect("Poisoned lock")
+                .restore_tx_queue(&snap.tx_queue);
+        }
 
         // Restore MMIO devices
         let mmio_ctor_args = MMIODevManagerConstructorArgs {

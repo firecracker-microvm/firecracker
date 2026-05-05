@@ -407,6 +407,28 @@ impl<T: Trigger, EV: SerialEvents, I: Read + AsRawFd + Send> SerialWrapper<T, EV
         (self.serial.read(MCR_OFFSET) & MCR_LOOP_BIT) != 0
     }
 
+    /// Snapshot view of the soft TX FIFO. Used by the persistence layer to
+    /// include in-flight bytes in the snapshot file so they survive
+    /// snapshot/restore and live migration.
+    pub fn tx_queue_snapshot(&self) -> Vec<u8> {
+        self.tx_queue.iter().copied().collect()
+    }
+
+    /// Restore the soft TX FIFO from a snapshot. Bytes are appended in
+    /// order; if the snapshot exceeds the current capacity (e.g. it was
+    /// taken with a larger cap) the excess is dropped to preserve the
+    /// invariant that `tx_queue.len() <= TX_QUEUE_CAPACITY`. The drain
+    /// timer is armed if the queue ends up non-empty so that bytes start
+    /// flowing immediately on the restored side.
+    pub fn restore_tx_queue(&mut self, bytes: &[u8]) {
+        self.tx_queue.clear();
+        let take = bytes.len().min(TX_QUEUE_CAPACITY);
+        self.tx_queue.extend(&bytes[..take]);
+        if !self.tx_queue.is_empty() {
+            self.arm_tx_drain_timer();
+        }
+    }
+
     /// Drain up to one FIFO's worth of bytes from the queue into the
     /// underlying serial device. Each byte goes through the regular
     /// `Serial::write(DATA, b)` path so it produces the same observable
@@ -994,5 +1016,63 @@ mod tests {
         assert!(dev.tx_queue.is_empty());
         // Read it back through the bus path.
         assert_eq!(bus_read(&mut dev, 3), 0x55);
+    }
+
+    #[test]
+    fn test_tx_queue_snapshot_round_trip() {
+        // The TX FIFO is part of the snapshot (snapshot v10.1.0+) so that
+        // pending console output survives snapshot/restore. Round-trip a
+        // payload through `tx_queue_snapshot` -> `restore_tx_queue` and
+        // confirm the bytes drain in order on the restored side.
+        let mut sender = test_serial_device(SerialOut::new(SerialOutInner::Sink, None));
+        let payload: &[u8] = b"snapshot-pending-bytes";
+        for &b in payload {
+            bus_write(&mut sender, DATA_OFFSET as u64, b);
+        }
+        let snap = sender.tx_queue_snapshot();
+        assert_eq!(snap, payload);
+
+        let tmp = vmm_sys_util::tempfile::TempFile::new().unwrap();
+        let file = tmp.into_file();
+        let mut receiver = test_serial_device(SerialOut::new(
+            SerialOutInner::File(file.try_clone().unwrap()),
+            None,
+        ));
+        receiver.restore_tx_queue(&snap);
+        assert_eq!(receiver.tx_queue.len(), payload.len());
+        assert!(receiver.tx_drain_timer_armed);
+
+        // Drain enough times to flush the entire queue (queue is shorter
+        // than one FIFO so a single drain suffices).
+        receiver.drain_tx_queue();
+        assert!(receiver.tx_queue.is_empty());
+
+        use std::io::Seek;
+        let mut file = file;
+        file.seek(std::io::SeekFrom::Start(0)).unwrap();
+        let mut readback = Vec::new();
+        file.read_to_end(&mut readback).unwrap();
+        assert_eq!(readback, payload);
+    }
+
+    #[test]
+    fn test_restore_tx_queue_truncates_to_capacity() {
+        // A snapshot taken with a larger cap (or a corrupted one) must not
+        // be allowed to push the queue past its current capacity.
+        let mut dev = test_serial_device(SerialOut::new(SerialOutInner::Sink, None));
+        let oversized = vec![0xABu8; TX_QUEUE_CAPACITY + 1024];
+        dev.restore_tx_queue(&oversized);
+        assert_eq!(dev.tx_queue.len(), TX_QUEUE_CAPACITY);
+    }
+
+    #[test]
+    fn test_restore_tx_queue_empty_does_not_arm_timer() {
+        // Old (pre-v10.1.0) snapshots carry an empty `tx_queue`. Restoring
+        // an empty queue must be a no-op — in particular it must not arm
+        // the drain timer (which would cause a spurious wakeup).
+        let mut dev = test_serial_device(SerialOut::new(SerialOutInner::Sink, None));
+        dev.restore_tx_queue(&[]);
+        assert!(dev.tx_queue.is_empty());
+        assert!(!dev.tx_drain_timer_armed);
     }
 }

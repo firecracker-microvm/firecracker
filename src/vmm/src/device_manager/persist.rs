@@ -56,6 +56,13 @@ pub struct SerialState {
     pub modem_status: u8,
     pub scratch: u8,
     pub in_buffer: Vec<u8>,
+    /// Bytes that the guest has written to the data register but that the
+    /// host hasn't drained to the underlying writer yet. Persisted so that
+    /// snapshot/restore (and live migration) does not drop pending console
+    /// output. New in snapshot v10.1.0; serde `default` so older snapshots
+    /// restore as empty.
+    #[serde(default)]
+    pub tx_queue: Vec<u8>,
 }
 
 impl From<vm_superio::serial::SerialState> for SerialState {
@@ -71,6 +78,7 @@ impl From<vm_superio::serial::SerialState> for SerialState {
             modem_status: s.modem_status,
             scratch: s.scratch,
             in_buffer: s.in_buffer,
+            tx_queue: Vec::new(),
         }
     }
 }
@@ -371,6 +379,16 @@ impl<'a> Persist<'a> for MMIODeviceManager {
                         serial_state.as_ref(),
                         constructor_args.vm_resources.serial_rate_limiter(),
                     )?;
+
+                    // Restore any in-flight TX bytes captured at snapshot
+                    // time. Older snapshots (pre-v10.1.0) have an empty
+                    // `tx_queue`, so this is a no-op on the upgrade path.
+                    if let Some(snap) = constructor_args.serial_state {
+                        serial
+                            .lock()
+                            .expect("Poisoned lock")
+                            .restore_tx_queue(&snap.tx_queue);
+                    }
 
                     dev_manager.register_mmio_serial(vm, serial, Some(state.device_info))?;
                 }
