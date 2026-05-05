@@ -11,30 +11,24 @@ use std::os::unix::io::{AsRawFd, RawFd};
 use std::sync::{Arc, Mutex};
 
 use event_manager::{EventManager, SubscriberOps};
-use libc::EFD_NONBLOCK;
-use vm_superio::Serial;
 use vmm::devices::legacy::serial::{SerialOut, SerialOutInner};
 use vmm::devices::legacy::{EventFdTrigger, SerialEventsWrapper, SerialWrapper};
 use vmm::vstate::bus::BusDevice;
-use vmm_sys_util::eventfd::EventFd;
 
 fn create_serial(
     pipe: c_int,
 ) -> Arc<Mutex<SerialWrapper<EventFdTrigger, SerialEventsWrapper, Box<MockSerialInput>>>> {
     // Serial input is the reading end of the pipe.
     let serial_in = MockSerialInput(pipe);
-    let kick_stdin_evt = EventFdTrigger::new(EventFd::new(libc::EFD_NONBLOCK).unwrap());
 
-    Arc::new(Mutex::new(SerialWrapper {
-        serial: Serial::with_events(
-            EventFdTrigger::new(EventFd::new(EFD_NONBLOCK).unwrap()),
-            SerialEventsWrapper {
-                buffer_ready_event_fd: Some(kick_stdin_evt.try_clone().unwrap()),
-            },
+    Arc::new(Mutex::new(
+        SerialWrapper::with_input(
+            Some(Box::new(serial_in)),
             SerialOut::new(SerialOutInner::Stdout(std::io::stdout()), None),
-        ),
-        input: Some(Box::new(serial_in)),
-    }))
+            None,
+        )
+        .unwrap(),
+    ))
 }
 
 #[derive(Debug)]
