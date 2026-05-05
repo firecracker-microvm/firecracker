@@ -121,7 +121,7 @@ impl PciDevices {
             .pci_bus
             .lock()
             .expect("Poisoned lock")
-            .add_device(sbdf.device(), virtio_device.clone());
+            .add_device(sbdf.device(), virtio_device.clone())?;
 
         self.virtio_devices
             .insert((device_type, id), virtio_device.clone());

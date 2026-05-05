@@ -21,6 +21,8 @@ use crate::vstate::bus::BusDevice;
 pub enum PciRootError {
     /// Could not find an available device slot on the PCI bus.
     NoPciDeviceSlotAvailable,
+    /// PCI device ID {0} is already in use.
+    DuplicateDeviceId(u8),
 }
 
 const VENDOR_ID_INTEL: u16 = 0x8086;
@@ -105,13 +107,17 @@ impl PciBus {
     }
 
     /// Insert a device in the bus
-    pub fn add_device(&mut self, device_id: u8, device: Arc<Mutex<dyn PciDevice>>) {
-        assert!(
-            !self.devices.contains_key(&device_id),
-            "PCI device ID {device_id} already in use"
-        );
+    pub fn add_device(
+        &mut self,
+        device_id: u8,
+        device: Arc<Mutex<dyn PciDevice>>,
+    ) -> Result<(), PciRootError> {
+        if self.devices.contains_key(&device_id) {
+            return Err(PciRootError::DuplicateDeviceId(device_id));
+        }
         self.devices.insert(device_id, device);
         self.device_ids[device_id as usize] = true;
+        Ok(())
     }
 
     /// Remove a device from the bus and free its device ID slot
@@ -582,7 +588,8 @@ mod tests {
     fn initialize_bus() -> (PciConfigMmio, PciConfigIo) {
         let root = PciRoot::new(None);
         let mut bus = PciBus::new(root);
-        bus.add_device(1, Arc::new(Mutex::new(PciDevMock::new())));
+        bus.add_device(1, Arc::new(Mutex::new(PciDevMock::new())))
+            .unwrap();
 
         let bus = Arc::new(Mutex::new(bus));
         (PciConfigMmio::new(bus.clone()), PciConfigIo::new(bus))
