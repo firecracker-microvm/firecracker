@@ -122,6 +122,9 @@ impl Persist<'_> for VirtioBlock {
             // accepts any byte offset/length and the kernel rounds internally
             // to FS-block granularity.
             discard_sector_alignment: if !is_read_only { 1 } else { 0 },
+            max_write_zeroes_sectors: if !is_read_only { discard_sectors } else { 0 },
+            max_write_zeroes_seg: if !is_read_only { 1 } else { 0 },
+            write_zeroes_may_unmap: if !is_read_only { 1 } else { 0 },
             ..Default::default()
         };
 

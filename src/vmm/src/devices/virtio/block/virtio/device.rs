@@ -27,7 +27,8 @@ use crate::devices::virtio::block::CacheType;
 use crate::devices::virtio::block::virtio::metrics::{BlockDeviceMetrics, BlockMetricsPerDevice};
 use crate::devices::virtio::device::{ActiveState, DeviceState, VirtioDevice};
 use crate::devices::virtio::generated::virtio_blk::{
-    VIRTIO_BLK_F_DISCARD, VIRTIO_BLK_F_FLUSH, VIRTIO_BLK_F_RO, VIRTIO_BLK_ID_BYTES,
+    VIRTIO_BLK_F_DISCARD, VIRTIO_BLK_F_FLUSH, VIRTIO_BLK_F_RO, VIRTIO_BLK_F_WRITE_ZEROES,
+    VIRTIO_BLK_ID_BYTES,
 };
 use crate::devices::virtio::generated::virtio_config::VIRTIO_F_VERSION_1;
 use crate::devices::virtio::generated::virtio_ids::VIRTIO_ID_BLOCK;
@@ -365,6 +366,7 @@ impl VirtioBlock {
             avail_features |= 1u64 << VIRTIO_BLK_F_RO;
         } else {
             avail_features |= 1u64 << VIRTIO_BLK_F_DISCARD;
+            avail_features |= 1u64 << VIRTIO_BLK_F_WRITE_ZEROES;
         }
 
         let queue_evts = [EventFd::new(libc::EFD_NONBLOCK).map_err(VirtioBlockError::EventFd)?];
@@ -396,6 +398,25 @@ impl VirtioBlock {
             // accepts any byte offset/length and the kernel rounds internally
             // to FS-block granularity.
             discard_sector_alignment: if !config.is_read_only { 1 } else { 0 },
+            max_write_zeroes_sectors: if !config.is_read_only {
+                discard_sectors
+            } else {
+                0
+            },
+            // max_write_zeroes_seg = 1: each VIRTIO_BLK_T_WRITE_ZEROES
+            // request carries exactly one (sector, num_sectors, flags) tuple.
+            // Raising this would let the guest batch disjoint zero ranges
+            // (e.g. mkfs zeroing several inode tables) into a single
+            // multi-segment request, saving virtqueue round-trips. We keep
+            // it at 1 in this iteration because the async io_uring engine
+            // currently produces exactly one SQE per virtio request;
+            // multi-segment would require submitting N SQEs and only
+            // completing the virtio request after all N CQEs return (or
+            // serialising them). max_write_zeroes_sectors is set to the
+            // full disk so contiguous ranges are never split, regardless of
+            // this limit.
+            max_write_zeroes_seg: if !config.is_read_only { 1 } else { 0 },
+            write_zeroes_may_unmap: if !config.is_read_only { 1 } else { 0 },
             ..Default::default()
         };
 
@@ -669,10 +690,12 @@ impl VirtioBlock {
     pub fn update_disk_image(&mut self, disk_image_path: String) -> Result<(), VirtioBlockError> {
         self.disk.update(disk_image_path, self.read_only)?;
         self.config_space.capacity = self.disk.nsectors.to_le(); // virtio_block_config_space();
-        // Discard config fields derive from the new disk's sector count, so
-        // refresh them alongside `capacity`.
+        // Discard/write-zeroes config fields derive from the new disk's
+        // sector count, so refresh them alongside `capacity`.
         let discard_sectors = u32::try_from(self.disk.nsectors).unwrap_or(u32::MAX);
         self.config_space.max_discard_sectors = if !self.read_only { discard_sectors } else { 0 };
+        self.config_space.max_write_zeroes_sectors =
+            if !self.read_only { discard_sectors } else { 0 };
 
         // Kick the driver to pick up the changes. (But only if the device is already activated).
         if self.is_activated() {
@@ -927,10 +950,12 @@ mod tests {
 
             assert_eq!(block.device_type(), VIRTIO_ID_BLOCK);
 
-            // default_block is non-read-only, so VIRTIO_BLK_F_DISCARD is advertised.
+            // default_block is non-read-only, so VIRTIO_BLK_F_DISCARD and
+            // VIRTIO_BLK_F_WRITE_ZEROES are advertised.
             let features: u64 = (1u64 << VIRTIO_F_VERSION_1)
                 | (1u64 << VIRTIO_RING_F_EVENT_IDX)
-                | (1u64 << VIRTIO_BLK_F_DISCARD);
+                | (1u64 << VIRTIO_BLK_F_DISCARD)
+                | (1u64 << VIRTIO_BLK_F_WRITE_ZEROES);
 
             assert_eq!(
                 block.avail_features_by_page(0),
@@ -957,12 +982,15 @@ mod tests {
             let mut actual_config_space = ConfigSpace::default();
             block.read_config(0, actual_config_space.as_mut_slice());
             // The block's backing file size is 0x1000, so there are 8 (4096/512) sectors.
-            // default_block is non-read-only, so discard fields are populated.
+            // default_block is non-read-only, so discard and write-zeroes fields are populated.
             let expected_config_space = ConfigSpace {
                 capacity: 8,
                 max_discard_sectors: 8,
                 max_discard_seg: 1,
                 discard_sector_alignment: 1,
+                max_write_zeroes_sectors: 8,
+                max_write_zeroes_seg: 1,
+                write_zeroes_may_unmap: 1,
                 ..Default::default()
             };
             assert_eq!(actual_config_space, expected_config_space);
