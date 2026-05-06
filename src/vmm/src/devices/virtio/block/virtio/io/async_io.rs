@@ -143,6 +143,31 @@ impl AsyncFileEngine {
             })
     }
 
+    pub fn push_write_zeroes(
+        &mut self,
+        offset: u64,
+        len: u64,
+        unmap: bool,
+        req: PendingRequest,
+    ) -> Result<(), RequestError<AsyncIoError>> {
+        // FALLOC_FL_PUNCH_HOLE | FALLOC_FL_KEEP_SIZE = 3
+        // FALLOC_FL_ZERO_RANGE | FALLOC_FL_KEEP_SIZE = 17
+        const PUNCH_HOLE_MODE: u32 = 3;
+        const ZERO_RANGE_MODE: u32 = 17;
+        let mode = if unmap {
+            PUNCH_HOLE_MODE
+        } else {
+            ZERO_RANGE_MODE
+        };
+        let wrapped = WrappedRequest::new(req);
+        self.ring
+            .push(Operation::fallocate(0, offset, len, mode, wrapped))
+            .map_err(|(io_uring_error, data)| RequestError {
+                req: data.req,
+                error: AsyncIoError::IoUring(io_uring_error),
+            })
+    }
+
     pub fn push_read(
         &mut self,
         offset: u64,

@@ -21,6 +21,8 @@ pub enum SyncIoError {
     SyncAll(std::io::Error),
     /// Transfer: {0}
     Transfer(GuestMemoryError),
+    /// WriteZeroes: {0}
+    WriteZeroes(std::io::Error),
 }
 
 #[derive(Debug)]
@@ -94,6 +96,39 @@ impl SyncFileEngine {
         };
         if ret < 0 {
             Err(SyncIoError::Discard(std::io::Error::last_os_error()))
+        } else {
+            Ok(())
+        }
+    }
+
+    pub fn write_zeroes(
+        &mut self,
+        offset: u64,
+        len: u64,
+        unmap: bool,
+    ) -> Result<(), SyncIoError> {
+        // UNMAP=1 reuses PUNCH_HOLE (the spec lets the device deallocate);
+        // UNMAP=0 must zero in place without deallocating, so use ZERO_RANGE.
+        let mode = if unmap {
+            libc::FALLOC_FL_PUNCH_HOLE | libc::FALLOC_FL_KEEP_SIZE
+        } else {
+            libc::FALLOC_FL_ZERO_RANGE | libc::FALLOC_FL_KEEP_SIZE
+        };
+        // SAFETY: libc::fallocate is FFI-unsafe by Rust convention, but it has
+        // no memory-safety preconditions on its arguments — the kernel reports
+        // invalid fd/mode/offset/len via the negative return value, not through
+        // undefined behaviour. The fd is kept valid for the duration of the
+        // call by the `&mut self` borrow of `self.file`.
+        let ret = unsafe {
+            libc::fallocate(
+                self.file.as_raw_fd(),
+                mode,
+                i64::try_from(offset).expect("write_zeroes offset fits in i64"),
+                i64::try_from(len).expect("write_zeroes length fits in i64"),
+            )
+        };
+        if ret < 0 {
+            Err(SyncIoError::WriteZeroes(std::io::Error::last_os_error()))
         } else {
             Ok(())
         }

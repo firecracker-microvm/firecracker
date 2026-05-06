@@ -44,7 +44,7 @@ impl BlockIoError {
     pub fn is_eopnotsupp(&self) -> bool {
         matches!(
             self,
-            BlockIoError::Sync(SyncIoError::Discard(e))
+            BlockIoError::Sync(SyncIoError::Discard(e) | SyncIoError::WriteZeroes(e))
                 if e.raw_os_error() == Some(libc::EOPNOTSUPP)
         )
     }
@@ -180,6 +180,31 @@ impl FileEngine {
                 }),
             },
             FileEngine::Sync(engine) => match engine.discard(offset, len) {
+                Ok(()) => Ok(FileEngineOk::Executed(RequestOk { req, count: 0 })),
+                Err(err) => Err(RequestError {
+                    req,
+                    error: BlockIoError::Sync(err),
+                }),
+            },
+        }
+    }
+
+    pub fn write_zeroes(
+        &mut self,
+        offset: u64,
+        len: u64,
+        unmap: bool,
+        req: PendingRequest,
+    ) -> Result<FileEngineOk, RequestError<BlockIoError>> {
+        match self {
+            FileEngine::Async(engine) => match engine.push_write_zeroes(offset, len, unmap, req) {
+                Ok(()) => Ok(FileEngineOk::Submitted),
+                Err(err) => Err(RequestError {
+                    req: err.req,
+                    error: BlockIoError::Async(err.error),
+                }),
+            },
+            FileEngine::Sync(engine) => match engine.write_zeroes(offset, len, unmap) {
                 Ok(()) => Ok(FileEngineOk::Executed(RequestOk { req, count: 0 })),
                 Err(err) => Err(RequestError {
                     req,
