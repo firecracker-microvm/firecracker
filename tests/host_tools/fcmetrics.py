@@ -96,6 +96,7 @@ def validate_fc_metrics(metrics):
         "io_engine_throttled_events",
         "remaining_reqs_count",
         "discard_count",
+        "write_zeroes_count",
         {"read_agg": latency_agg_metrics_fields},
         {"write_agg": latency_agg_metrics_fields},
     ]

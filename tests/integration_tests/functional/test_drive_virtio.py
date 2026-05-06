@@ -447,3 +447,86 @@ def test_discard_not_advertised_for_read_only(uvm_plain_any, io_engine):
     ), f"Expected discard_max_bytes=0 for read-only device, got: {stdout.strip()}"
 
 
+def _exercise_write_zeroes(ssh):
+    """Write random data, issue blkdiscard -z, verify zeros on /dev/vdb."""
+    # Sysfs check: the kernel populates write_zeroes_max_bytes from the
+    # negotiated feature; a non-zero value proves the feature is advertised.
+    _, stdout, _ = ssh.check_output(
+        "cat /sys/block/vdb/queue/write_zeroes_max_bytes"
+    )
+    assert int(stdout.strip()) > 0, (
+        f"Expected non-zero write_zeroes_max_bytes, got: {stdout.strip()}"
+    )
+    # Write random non-zero data so we can tell zeroing apart from
+    # "the device was already zero".
+    ssh.check_output("dd if=/dev/urandom of=/dev/vdb bs=1M count=1 conv=fsync")
+    ssh.check_output("sync && echo 3 > /proc/sys/vm/drop_caches")
+    # Issue zero-out via blkdiscard -z (BLKZEROOUT ioctl).
+    ssh.check_output("blkdiscard -z --offset 0 --length $((1024*1024)) /dev/vdb")
+    ssh.check_output("sync && echo 3 > /proc/sys/vm/drop_caches")
+    # Verify the range now reads as zeros.
+    ssh.check_output("cmp -n 1048576 /dev/vdb /dev/zero")
+
+
+def test_write_zeroes(uvm_plain_any, microvm_factory, io_engine):
+    """
+    Verify VIRTIO_BLK_F_WRITE_ZEROES on a fresh boot and after snapshot/restore.
+
+    Writes random data to a 1 MiB region of /dev/vdb, then issues
+    `blkdiscard -z` (BLKZEROOUT ioctl), and asserts that:
+      - sysfs /queue/write_zeroes_max_bytes is non-zero (feature negotiated)
+      - the region reads back as zeros after the operation
+    The same workload is then run against a snapshot-restored VM, which
+    catches `persist::restore()` populating the write-zeroes ConfigSpace
+    fields wrong (the restored guest would otherwise see a zero
+    write_zeroes_max_bytes and the workload would silently regress).
+
+    Note: we deliberately do NOT assert that the `write_zeroes_count` metric
+    increased. The Linux kernel's `blkdev_issue_zeroout()` may issue either
+    `REQ_OP_WRITE_ZEROES` (counted) or fall back to plain zero-page writes
+    (counted as `write_count`) depending on internal heuristics; both
+    result in the device contents reading as zeros. Direct WRITE_ZEROES
+    request handling is covered by the unit tests.
+    """
+    vm = uvm_plain_any
+    vm.spawn()
+    vm.basic_config()
+    vm.add_net_iface()
+    fs = drive_tools.FilesystemFile(os.path.join(vm.fsfiles, "wz_test"), size=64)
+    vm.add_drive("wz_disk", fs.path, is_read_only=False, io_engine=io_engine)
+    vm.start()
+
+    _exercise_write_zeroes(vm.ssh)
+
+    snapshot = vm.snapshot_full()
+    vm = microvm_factory.build_from_snapshot(snapshot)
+    _exercise_write_zeroes(vm.ssh)
+
+    metrics = vm.flush_metrics()
+    assert metrics["block"]["execute_fails"] == 0
+
+
+def test_write_zeroes_not_advertised_for_read_only(uvm_plain_any, io_engine):
+    """
+    Verify VIRTIO_BLK_F_WRITE_ZEROES is NOT advertised for read-only devices.
+
+    The kernel exposes the negotiated feature via
+    /sys/block/<dev>/queue/write_zeroes_max_bytes; 0 means not supported.
+    """
+    vm = uvm_plain_any
+    vm.spawn()
+    vm.basic_config()
+    vm.add_net_iface()
+
+    fs = drive_tools.FilesystemFile(os.path.join(vm.fsfiles, "ro_wz_disk"), size=64)
+    vm.add_drive("ro_wz_disk", fs.path, is_read_only=True, io_engine=io_engine)
+    vm.start()
+
+    _, stdout, _ = vm.ssh.check_output(
+        "cat /sys/block/vdb/queue/write_zeroes_max_bytes"
+    )
+    assert stdout.strip() == "0", (
+        f"Expected write_zeroes_max_bytes=0 for read-only device, got: {stdout.strip()}"
+    )
+
+
