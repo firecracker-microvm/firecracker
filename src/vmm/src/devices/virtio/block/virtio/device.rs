@@ -187,9 +187,37 @@ pub struct ConfigSpace {
     pub max_discard_sectors: u32,        // offset 36
     pub max_discard_seg: u32,            // offset 40
     pub discard_sector_alignment: u32,   // offset 44
-    pub(crate) _unused1: [u8; 8],        // offset 48 (placeholder for write-zeroes + alignment to 56)
+    pub max_write_zeroes_sectors: u32,   // offset 48
+    pub max_write_zeroes_seg: u32,       // offset 52
+    pub write_zeroes_may_unmap: u8,      // offset 56
+    pub(crate) _unused1: [u8; 3],        // offset 57 (spec field — virtio_blk_config.unused1)
+    pub(crate) _pad: [u8; 4],            // offset 60 (Rust alignment padding to 64; spec ends at 60)
 }
-const _: () = assert!(std::mem::size_of::<ConfigSpace>() == 56);
+const _: () = assert!(std::mem::size_of::<ConfigSpace>() == 64);
+// Compile-time guards against accidental layout drift. The byte offsets here
+// match the virtio-blk spec exactly (Linux kernel
+// `include/uapi/linux/virtio_blk.h::struct virtio_blk_config`).
+const _: () = assert!(std::mem::offset_of!(ConfigSpace, capacity) == 0);
+const _: () = assert!(std::mem::offset_of!(ConfigSpace, size_max) == 8);
+const _: () = assert!(std::mem::offset_of!(ConfigSpace, seg_max) == 12);
+const _: () = assert!(std::mem::offset_of!(ConfigSpace, geometry_cylinders) == 16);
+const _: () = assert!(std::mem::offset_of!(ConfigSpace, geometry_heads) == 18);
+const _: () = assert!(std::mem::offset_of!(ConfigSpace, geometry_sectors) == 19);
+const _: () = assert!(std::mem::offset_of!(ConfigSpace, blk_size) == 20);
+const _: () = assert!(std::mem::offset_of!(ConfigSpace, topology_physical_block_exp) == 24);
+const _: () = assert!(std::mem::offset_of!(ConfigSpace, topology_alignment_offset) == 25);
+const _: () = assert!(std::mem::offset_of!(ConfigSpace, topology_min_io_size) == 26);
+const _: () = assert!(std::mem::offset_of!(ConfigSpace, topology_opt_io_size) == 28);
+const _: () = assert!(std::mem::offset_of!(ConfigSpace, writeback) == 32);
+const _: () = assert!(std::mem::offset_of!(ConfigSpace, _unused0) == 33);
+const _: () = assert!(std::mem::offset_of!(ConfigSpace, num_queues) == 34);
+const _: () = assert!(std::mem::offset_of!(ConfigSpace, max_discard_sectors) == 36);
+const _: () = assert!(std::mem::offset_of!(ConfigSpace, max_discard_seg) == 40);
+const _: () = assert!(std::mem::offset_of!(ConfigSpace, discard_sector_alignment) == 44);
+const _: () = assert!(std::mem::offset_of!(ConfigSpace, max_write_zeroes_sectors) == 48);
+const _: () = assert!(std::mem::offset_of!(ConfigSpace, max_write_zeroes_seg) == 52);
+const _: () = assert!(std::mem::offset_of!(ConfigSpace, write_zeroes_may_unmap) == 56);
+const _: () = assert!(std::mem::offset_of!(ConfigSpace, _unused1) == 57);
 // SAFETY: repr(C), all POD fields, explicit padding — no implicit padding bytes.
 unsafe impl ByteValued for ConfigSpace {}
 
