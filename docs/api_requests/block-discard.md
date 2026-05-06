@@ -40,5 +40,3 @@ discard requests with `VIRTIO_BLK_S_UNSUPP` immediately — no additional
 - At most one discard segment per request is supported (`max_discard_seg = 1`).
 - The discard segment flags field must be zero; non-zero flags are rejected with
   an I/O error.
-- The `write_zeroes` variant of the feature (`VIRTIO_BLK_T_WRITE_ZEROES`) is not
-  supported.
