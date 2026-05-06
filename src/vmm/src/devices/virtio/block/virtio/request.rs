@@ -666,6 +666,10 @@ mod tests {
             RequestType::from(VIRTIO_BLK_T_GET_ID),
             RequestType::GetDeviceID
         );
+        assert_eq!(
+            RequestType::from(VIRTIO_BLK_T_WRITE_ZEROES),
+            RequestType::WriteZeroes
+        );
         assert_eq!(RequestType::from(42), RequestType::Unsupported(42));
     }
 
