@@ -15,7 +15,7 @@ use crate::devices::virtio::block::virtio::metrics::BlockDeviceMetrics;
 pub use crate::devices::virtio::generated::virtio_blk::{
     VIRTIO_BLK_ID_BYTES, VIRTIO_BLK_S_IOERR, VIRTIO_BLK_S_OK, VIRTIO_BLK_S_UNSUPP,
     VIRTIO_BLK_T_DISCARD, VIRTIO_BLK_T_FLUSH, VIRTIO_BLK_T_GET_ID, VIRTIO_BLK_T_IN,
-    VIRTIO_BLK_T_OUT,
+    VIRTIO_BLK_T_OUT, VIRTIO_BLK_T_WRITE_ZEROES,
 };
 use crate::devices::virtio::queue::DescriptorChain;
 use crate::logger::{IncMetric, error, warn};
@@ -48,6 +48,8 @@ pub enum IoErr {
     InvalidFlags,
     /// Discard not supported by the host filesystem; cached after first EOPNOTSUPP.
     DiscardUnsupported,
+    /// Write zeroes not supported by the host filesystem; cached after first EOPNOTSUPP.
+    WriteZeroesUnsupported,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -57,6 +59,7 @@ pub enum RequestType {
     Flush,
     GetDeviceID,
     Discard,
+    WriteZeroes,
     Unsupported(u32),
 }
 
@@ -68,6 +71,7 @@ impl From<u32> for RequestType {
             VIRTIO_BLK_T_FLUSH => RequestType::Flush,
             VIRTIO_BLK_T_GET_ID => RequestType::GetDeviceID,
             VIRTIO_BLK_T_DISCARD => RequestType::Discard,
+            VIRTIO_BLK_T_WRITE_ZEROES => RequestType::WriteZeroes,
             t => RequestType::Unsupported(t),
         }
     }
@@ -100,6 +104,8 @@ enum Status {
     },
     /// Discard silently unsupported — returns VIRTIO_BLK_S_UNSUPP without logging or metrics.
     DiscardUnsupported,
+    /// Write zeroes silently unsupported — returns VIRTIO_BLK_S_UNSUPP without logging or metrics.
+    WriteZeroesUnsupported,
 }
 
 impl Status {
@@ -162,6 +168,7 @@ impl PendingRequest {
                 (0, u8::try_from(VIRTIO_BLK_S_UNSUPP).unwrap())
             }
             Status::DiscardUnsupported => (0, u8::try_from(VIRTIO_BLK_S_UNSUPP).unwrap()),
+            Status::WriteZeroesUnsupported => (0, u8::try_from(VIRTIO_BLK_S_UNSUPP).unwrap()),
         };
 
         let num_bytes_to_mem = mem
@@ -220,7 +227,12 @@ impl PendingRequest {
                     num_bytes_to_mem: 0,
                 }
             }
+            (Ok(_), RequestType::WriteZeroes) => {
+                // Placeholder: replaced when feature is wired up.
+                Status::WriteZeroesUnsupported
+            }
             (Err(IoErr::DiscardUnsupported), _) => Status::DiscardUnsupported,
+            (Err(IoErr::WriteZeroesUnsupported), _) => Status::WriteZeroesUnsupported,
             (_, RequestType::Unsupported(op)) => Status::Unsupported { op },
             (Err(err), _) => Status::IoErr {
                 num_bytes_to_mem: 0,
@@ -484,6 +496,14 @@ impl Request {
                     }
                     Ok((offset, len)) => disk.file_engine.discard(offset, len, pending),
                 }
+            }
+            RequestType::WriteZeroes => {
+                // Placeholder: replaced when feature is wired up in a later commit.
+                return ProcessingResult::Executed(pending.finish(
+                    mem,
+                    Err(IoErr::WriteZeroesUnsupported),
+                    block_metrics,
+                ));
             }
             RequestType::Unsupported(_) => {
                 return ProcessingResult::Executed(pending.finish(mem, Ok(0), block_metrics));
@@ -825,9 +845,10 @@ mod tests {
                         // request type so a randomly-generated id can never
                         // collide with a recognised one (which would make
                         // RequestType::from() round-trip to the recognised
-                        // variant instead of Unsupported). Past GET_ID (8) and
-                        // DISCARD (11) leaves 12 as the smallest safe base.
-                        RequestType::Unsupported(id.checked_add(12).unwrap_or(12))
+                        // variant instead of Unsupported). Past GET_ID (8),
+                        // DISCARD (11) and WRITE_ZEROES (13) leaves 14 as
+                        // the smallest safe base.
+                        RequestType::Unsupported(id.checked_add(14).unwrap_or(14))
                     })),
                 ),
             ))
@@ -842,6 +863,7 @@ mod tests {
                 RequestType::Flush => VIRTIO_BLK_T_FLUSH,
                 RequestType::GetDeviceID => VIRTIO_BLK_T_GET_ID,
                 RequestType::Discard => VIRTIO_BLK_T_DISCARD,
+                RequestType::WriteZeroes => VIRTIO_BLK_T_WRITE_ZEROES,
                 RequestType::Unsupported(id) => id,
             }
         }
@@ -855,6 +877,7 @@ mod tests {
             RequestType::Flush => VIRTQ_DESC_F_NEXT,
             RequestType::GetDeviceID => VIRTQ_DESC_F_NEXT | VIRTQ_DESC_F_WRITE,
             RequestType::Discard => VIRTQ_DESC_F_NEXT,
+            RequestType::WriteZeroes => VIRTQ_DESC_F_NEXT,
             RequestType::Unsupported(_) => VIRTQ_DESC_F_NEXT,
         }
     }
