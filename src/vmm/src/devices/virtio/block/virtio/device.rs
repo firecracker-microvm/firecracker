@@ -596,6 +596,29 @@ impl VirtioBlock {
                             });
                         continue;
                     }
+                    if is_eopnotsupp && pending.request_type() == RequestType::WriteZeroes {
+                        if !self.disk.write_zeroes_unsupported {
+                            warn!(
+                                "Block write_zeroes not supported by host filesystem; disabling \
+                                 write_zeroes"
+                            );
+                            self.disk.write_zeroes_unsupported = true;
+                        }
+                        let finished = pending.finish(
+                            &active_state.mem,
+                            Err(IoErr::WriteZeroesUnsupported),
+                            &self.metrics,
+                        );
+                        queue
+                            .add_used(finished.desc_idx, finished.num_bytes_to_mem)
+                            .unwrap_or_else(|err| {
+                                error!(
+                                    "Failed to add available descriptor head {}: {}",
+                                    finished.desc_idx, err
+                                )
+                            });
+                        continue;
+                    }
 
                     let res = match cqe_result {
                         Ok(count) => Ok(count),

@@ -15,7 +15,7 @@ use crate::devices::virtio::block::virtio::metrics::BlockDeviceMetrics;
 pub use crate::devices::virtio::generated::virtio_blk::{
     VIRTIO_BLK_ID_BYTES, VIRTIO_BLK_S_IOERR, VIRTIO_BLK_S_OK, VIRTIO_BLK_S_UNSUPP,
     VIRTIO_BLK_T_DISCARD, VIRTIO_BLK_T_FLUSH, VIRTIO_BLK_T_GET_ID, VIRTIO_BLK_T_IN,
-    VIRTIO_BLK_T_OUT, VIRTIO_BLK_T_WRITE_ZEROES,
+    VIRTIO_BLK_T_OUT, VIRTIO_BLK_T_WRITE_ZEROES, VIRTIO_BLK_WRITE_ZEROES_FLAG_UNMAP,
 };
 use crate::devices::virtio::queue::DescriptorChain;
 use crate::logger::{IncMetric, error, warn};
@@ -228,8 +228,10 @@ impl PendingRequest {
                 }
             }
             (Ok(_), RequestType::WriteZeroes) => {
-                // Placeholder: replaced when feature is wired up.
-                Status::WriteZeroesUnsupported
+                block_metrics.write_zeroes_count.inc();
+                Status::Ok {
+                    num_bytes_to_mem: 0,
+                }
             }
             (Err(IoErr::DiscardUnsupported), _) => Status::DiscardUnsupported,
             (Err(IoErr::WriteZeroesUnsupported), _) => Status::WriteZeroesUnsupported,
@@ -264,6 +266,32 @@ fn parse_discard_segment(
     Ok((
         seg.sector << SECTOR_SHIFT,
         u64::from(seg.num_sectors) << SECTOR_SHIFT,
+    ))
+}
+
+fn parse_write_zeroes_segment(
+    data_addr: GuestAddress,
+    nsectors: u64,
+    mem: &GuestMemoryMmap,
+) -> Result<(u64, u64, bool), IoErr> {
+    // max_write_zeroes_seg = 1 guarantees exactly one segment per request.
+    let seg: DiscardWriteZeroes = mem.read_obj(data_addr).map_err(IoErr::GetId)?;
+    // Only bit 0 (UNMAP) is defined; all other bits MUST be 0 per virtio spec
+    // §5.2.6.14.
+    if seg.flags & !VIRTIO_BLK_WRITE_ZEROES_FLAG_UNMAP != 0 {
+        return Err(IoErr::InvalidFlags);
+    }
+    if seg.num_sectors == 0 {
+        return Err(IoErr::InvalidOffset);
+    }
+    seg.sector
+        .checked_add(u64::from(seg.num_sectors))
+        .filter(|&top| top <= nsectors)
+        .ok_or(IoErr::InvalidOffset)?;
+    Ok((
+        seg.sector << SECTOR_SHIFT,
+        u64::from(seg.num_sectors) << SECTOR_SHIFT,
+        seg.flags & VIRTIO_BLK_WRITE_ZEROES_FLAG_UNMAP != 0,
     ))
 }
 
@@ -364,6 +392,9 @@ impl Request {
             if data_desc.is_write_only() && req.r#type == RequestType::Discard {
                 return Err(VirtioBlockError::UnexpectedWriteOnlyDescriptor);
             }
+            if data_desc.is_write_only() && req.r#type == RequestType::WriteZeroes {
+                return Err(VirtioBlockError::UnexpectedWriteOnlyDescriptor);
+            }
             if !data_desc.is_write_only() && req.r#type == RequestType::In {
                 return Err(VirtioBlockError::UnexpectedReadOnlyDescriptor);
             }
@@ -398,6 +429,11 @@ impl Request {
             }
             RequestType::Discard => {
                 if req.data_len == 0 || !req.data_len.is_multiple_of(DISCARD_SEGMENT_SIZE) {
+                    return Err(VirtioBlockError::InvalidDataLength);
+                }
+            }
+            RequestType::WriteZeroes => {
+                if req.data_len == 0 || req.data_len % DISCARD_SEGMENT_SIZE != 0 {
                     return Err(VirtioBlockError::InvalidDataLength);
                 }
             }
@@ -498,12 +534,25 @@ impl Request {
                 }
             }
             RequestType::WriteZeroes => {
-                // Placeholder: replaced when feature is wired up in a later commit.
-                return ProcessingResult::Executed(pending.finish(
-                    mem,
-                    Err(IoErr::WriteZeroesUnsupported),
-                    block_metrics,
-                ));
+                if disk.write_zeroes_unsupported {
+                    return ProcessingResult::Executed(pending.finish(
+                        mem,
+                        Err(IoErr::WriteZeroesUnsupported),
+                        block_metrics,
+                    ));
+                }
+                match parse_write_zeroes_segment(self.data_addr, disk.nsectors, mem) {
+                    Err(io_err) => {
+                        return ProcessingResult::Executed(pending.finish(
+                            mem,
+                            Err(io_err),
+                            block_metrics,
+                        ));
+                    }
+                    Ok((offset, len, unmap)) => {
+                        disk.file_engine.write_zeroes(offset, len, unmap, pending)
+                    }
+                }
             }
             RequestType::Unsupported(_) => {
                 return ProcessingResult::Executed(pending.finish(mem, Ok(0), block_metrics));
@@ -528,6 +577,21 @@ impl Request {
                     ProcessingResult::Executed(err.req.finish(
                         mem,
                         Err(IoErr::DiscardUnsupported),
+                        block_metrics,
+                    ))
+                } else if err.error.is_eopnotsupp()
+                    && err.req.request_type() == RequestType::WriteZeroes
+                {
+                    if !disk.write_zeroes_unsupported {
+                        warn!(
+                            "Block write_zeroes not supported by host filesystem; disabling \
+                             write_zeroes"
+                        );
+                        disk.write_zeroes_unsupported = true;
+                    }
+                    ProcessingResult::Executed(err.req.finish(
+                        mem,
+                        Err(IoErr::WriteZeroesUnsupported),
                         block_metrics,
                     ))
                 } else {
