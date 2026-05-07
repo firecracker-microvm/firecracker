@@ -436,6 +436,7 @@ impl Vmm {
             // serial_config is marked serde(skip) so that it doesnt end up in snapshots
             serial_config: None,
             memory_hotplug,
+            enclave: None,
         }
     }
 

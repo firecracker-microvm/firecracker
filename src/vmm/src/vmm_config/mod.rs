@@ -15,6 +15,8 @@ pub mod balloon;
 pub mod boot_source;
 /// Wrapper for configuring the block devices.
 pub mod drive;
+/// Wrapper for enclave-specific configuration.
+pub mod enclave;
 /// Wrapper for configuring the entropy device attached to the microVM.
 pub mod entropy;
 /// Wrapper over the microVM general information attached to the microVM.
