@@ -320,7 +320,6 @@ pub fn build_microvm_for_boot(
         boot_source_config: vm_resources.boot_source.config.clone(),
         shutdown_exit_code: None,
         vm: vm.clone(),
-        uffd: None,
         device_manager,
     };
     let vmm = Arc::new(Mutex::new(vmm));
@@ -498,6 +497,8 @@ pub fn build_microvm_from_snapshot(
     // Restore the boot source config paths.
     vm_resources.boot_source.config = microvm_state.vm_info.boot_source;
 
+    vm.set_uffd(uffd);
+
     let vm = Arc::new(vm);
 
     // Restore devices states.
@@ -522,7 +523,6 @@ pub fn build_microvm_from_snapshot(
         boot_source_config: vm_resources.boot_source.config.clone(),
         shutdown_exit_code: None,
         vm: vm.clone(),
-        uffd,
         device_manager,
     };
 
@@ -859,7 +859,6 @@ pub(crate) mod tests {
             boot_source_config: BootSourceConfig::default(),
             shutdown_exit_code: None,
             vm: Arc::new(vm),
-            uffd: None,
             device_manager: default_device_manager(),
         }
     }

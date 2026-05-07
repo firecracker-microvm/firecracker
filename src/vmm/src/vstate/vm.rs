@@ -20,6 +20,7 @@ use kvm_bindings::{
 };
 use kvm_ioctls::VmFd;
 use serde::{Deserialize, Serialize};
+use userfaultfd::Uffd;
 use vmm_sys_util::errno;
 use vmm_sys_util::eventfd::EventFd;
 use vmm_sys_util::terminal::Terminal;
@@ -73,6 +74,8 @@ pub struct VmCommon {
     pub mmio_bus: Arc<Bus>,
     /// The global KVM state (fd + capabilities).
     pub kvm: Kvm,
+    /// Userfaultfd kept open for snapshot restore.
+    pub uffd: Option<Uffd>,
     /// Handles to vCPU threads.
     pub vcpus_handles: Mutex<Vec<VcpuHandle>>,
     /// Event fd written to by vCPUs on exit.
@@ -159,6 +162,7 @@ impl KvmVm {
             resource_allocator: Mutex::new(ResourceAllocator::new()),
             mmio_bus: Arc::new(Bus::new()),
             kvm,
+            uffd: None,
             vcpus_handles: Mutex::new(Vec::new()),
             vcpus_exit_evt,
         })
@@ -198,6 +202,11 @@ impl KvmVm {
     /// Returns a locked reference to the vCPU handles.
     pub fn vcpus_handles(&self) -> MutexGuard<'_, Vec<VcpuHandle>> {
         self.common.vcpus_handles.lock().expect("Poisoned lock")
+    }
+
+    /// Sets the userfaultfd (used during snapshot restore).
+    pub fn set_uffd(&mut self, uffd: Option<Uffd>) {
+        self.common.uffd = uffd;
     }
 
     /// Starts the microVM vCPUs.

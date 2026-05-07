@@ -126,7 +126,6 @@ pub use crate::vstate::vm::StartVcpusError;
 use device_manager::DeviceManager;
 use event_manager::{EventManager as BaseEventManager, EventOps, Events, MutEventSubscriber};
 use snapshot::Persist;
-use userfaultfd::Uffd;
 use vmm_sys_util::epoll::EventSet;
 use vmm_sys_util::terminal::Terminal;
 pub use vstate::kvm::Kvm;
@@ -305,9 +304,6 @@ pub struct Vmm {
 
     /// VM object
     pub vm: Arc<KvmVm>,
-    // Save UFFD in order to keep it open in the Firecracker process, as well.
-    #[allow(unused)]
-    uffd: Option<Uffd>,
     // Device manager
     device_manager: DeviceManager,
 }
