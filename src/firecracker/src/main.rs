@@ -599,12 +599,22 @@ fn build_microvm_from_json(
             .map_err(BuildFromJsonError::ParseFromJson)?;
     vm_resources.boot_timer = boot_timer_enabled;
     vm_resources.pci_enabled = pci_enabled;
-    let vmm = vmm::builder::build_and_boot_microvm(
-        &instance_info,
-        &vm_resources,
-        event_manager,
-        seccomp_filters,
-    )
+    let vmm = if let Some(enclave_config) = &vm_resources.enclave {
+        vmm::nitro_enclave::enclave_builder::build_and_boot_enclave(
+            &instance_info,
+            &vm_resources,
+            enclave_config,
+            event_manager,
+        )
+        .map_err(StartMicrovmError::from)
+    } else {
+        vmm::builder::build_and_boot_microvm(
+            &instance_info,
+            &vm_resources,
+            event_manager,
+            seccomp_filters,
+        )
+    }
     .map_err(BuildFromJsonError::StartMicroVM)?;
 
     info_unrestricted!("Successfully started microvm that was configured from one single json");

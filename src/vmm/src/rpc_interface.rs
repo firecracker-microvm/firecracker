@@ -625,17 +625,32 @@ impl<'a> PrebootApiController<'a> {
     // On success, this command will end the pre-boot stage and this controller
     // will be replaced by a runtime controller.
     fn start_microvm(&mut self) -> Result<VmmData, VmmActionError> {
-        build_and_boot_microvm(
-            &self.instance_info,
-            self.vm_resources,
-            self.event_manager,
-            self.seccomp_filters,
-        )
-        .map(|vmm| {
-            self.built_vmm = Some(vmm);
-            VmmData::Empty
-        })
-        .map_err(VmmActionError::StartMicrovm)
+        if let Some(enclave_config) = &self.vm_resources.enclave {
+            let enclave_config = enclave_config.clone();
+            crate::nitro_enclave::enclave_builder::build_and_boot_enclave(
+                &self.instance_info,
+                self.vm_resources,
+                &enclave_config,
+                self.event_manager,
+            )
+            .map(|vmm| {
+                self.built_vmm = Some(vmm);
+                VmmData::Empty
+            })
+            .map_err(|e| VmmActionError::StartMicrovm(StartMicrovmError::from(e)))
+        } else {
+            build_and_boot_microvm(
+                &self.instance_info,
+                self.vm_resources,
+                self.event_manager,
+                self.seccomp_filters,
+            )
+            .map(|vmm| {
+                self.built_vmm = Some(vmm);
+                VmmData::Empty
+            })
+            .map_err(VmmActionError::StartMicrovm)
+        }
     }
 
     // On success, this command will end the pre-boot stage and this controller

@@ -82,6 +82,8 @@ pub enum StartMicrovmError {
     /// Error creating legacy device: {0}
     #[cfg(target_arch = "x86_64")]
     CreateLegacyDevice(device_manager::legacy::LegacyDeviceError),
+    /// Enclave builder error: {0}
+    Enclave(#[from] crate::nitro_enclave::enclave_builder::EnclaveBuilderError),
     /// Error enabling pvtime on vcpu: {0}
     #[cfg(target_arch = "aarch64")]
     EnablePVTime(crate::arch::VcpuArchError),
