@@ -6,6 +6,7 @@ pub mod balloon;
 pub mod boot_source;
 pub mod cpu_configuration;
 pub mod drive;
+pub mod enclave;
 pub mod entropy;
 pub mod hotplug;
 pub mod instance_info;

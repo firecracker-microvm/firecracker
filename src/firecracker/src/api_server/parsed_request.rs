@@ -16,6 +16,7 @@ use super::request::balloon::{parse_get_balloon, parse_patch_balloon, parse_put_
 use super::request::boot_source::parse_put_boot_source;
 use super::request::cpu_configuration::parse_put_cpu_config;
 use super::request::drive::{parse_patch_drive, parse_put_drive};
+use super::request::enclave::{parse_get_enclave, parse_put_enclave};
 use super::request::entropy::parse_put_entropy;
 use super::request::instance_info::parse_get_instance_info;
 use super::request::logger::parse_put_logger;
@@ -84,6 +85,7 @@ impl TryFrom<&Request> for ParsedRequest {
         match (request.method(), path, request.body.as_ref()) {
             (Method::Get, "", None) => parse_get_instance_info(),
             (Method::Get, "balloon", None) => parse_get_balloon(path_tokens),
+            (Method::Get, "enclave", None) => parse_get_enclave(path_tokens),
             (Method::Get, "version", None) => parse_get_version(),
             (Method::Get, "vm", None) if path_tokens.next() == Some("config") => {
                 Ok(ParsedRequest::new_sync(VmmAction::GetFullVmConfig))
@@ -99,6 +101,7 @@ impl TryFrom<&Request> for ParsedRequest {
             (Method::Put, "boot-source", Some(body)) => parse_put_boot_source(body),
             (Method::Put, "cpu-config", Some(body)) => parse_put_cpu_config(body),
             (Method::Put, "drives", Some(body)) => parse_put_drive(body, path_tokens.next()),
+            (Method::Put, "enclave", Some(body)) => parse_put_enclave(body, path_tokens),
             (Method::Put, "pmem", Some(body)) => parse_put_pmem(body, path_tokens.next()),
             (Method::Put, "logger", Some(body)) => parse_put_logger(body),
             (Method::Put, "serial", Some(body)) => parse_put_serial(body),
@@ -205,6 +208,7 @@ impl ParsedRequest {
                 VmmData::HintingStatus(hinting_status) => {
                     Self::success_response_with_data(hinting_status)
                 }
+                VmmData::EnclaveConfiguration(config) => Self::success_response_with_data(config),
                 VmmData::InstanceInformation(info) => Self::success_response_with_data(info),
                 VmmData::VmmVersion(version) => Self::success_response_with_data(
                     &serde_json::json!({ "firecracker_version": version.as_str() }),
@@ -363,6 +367,7 @@ pub mod tests {
     use vmm::resources::VmmConfig;
     use vmm::rpc_interface::VmmActionError;
     use vmm::vmm_config::balloon::{BalloonDeviceConfig, BalloonStats};
+    use vmm::vmm_config::enclave::EnclaveConfig;
     use vmm::vmm_config::instance_info::InstanceInfo;
     use vmm::vmm_config::machine_config::MachineConfig;
 
@@ -612,6 +617,9 @@ pub mod tests {
                     http_response(&serde_json::to_string(status).unwrap(), 200)
                 }
                 VmmData::Empty => http_response("", 204),
+                VmmData::EnclaveConfiguration(cfg) => {
+                    http_response(&serde_json::to_string(cfg).unwrap(), 200)
+                }
                 VmmData::FullVmConfig(cfg) => {
                     http_response(&serde_json::to_string(cfg).unwrap(), 200)
                 }
@@ -644,6 +652,7 @@ pub mod tests {
             ..Default::default()
         }));
         verify_ok_response_with(VmmData::Empty);
+        verify_ok_response_with(VmmData::EnclaveConfiguration(EnclaveConfig::default()));
         verify_ok_response_with(VmmData::FullVmConfig(VmmConfig::default()));
         verify_ok_response_with(VmmData::MachineConfiguration(MachineConfig::default()));
         verify_ok_response_with(VmmData::MmdsValue(serde_json::from_str("{}").unwrap()));
