@@ -137,7 +137,7 @@ mod tests {
         let state = original_dev.save();
 
         // Create a "new" VM for restore
-        let (_, vm) = setup_vm_with_memory(0x1000);
+        let vm = setup_vm_with_memory(0x1000);
         let vm = Arc::new(vm);
         let constructor_args = VirtioMemConstructorArgs::new(vm);
         let restored_dev = VirtioMem::restore(constructor_args, &state).unwrap();

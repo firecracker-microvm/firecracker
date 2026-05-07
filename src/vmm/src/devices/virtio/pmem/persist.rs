@@ -106,7 +106,7 @@ mod tests {
         };
         let guest_mem = default_mem();
         let kvm = Kvm::new(vec![]).unwrap();
-        let vm = Arc::new(KvmVm::new(&kvm).unwrap());
+        let vm = Arc::new(KvmVm::new(kvm).unwrap());
         let pmem = Pmem::new(vm.clone(), config).unwrap();
 
         // Save the block device.

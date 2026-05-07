@@ -173,7 +173,7 @@ pub fn build_microvm_for_boot(
     let kvm = Kvm::new(cpu_template.kvm_capabilities.clone())?;
     // Set up KVM VM and register memory regions.
     // Build custom CPU config if a custom template is provided.
-    let mut vm = KvmVm::new(&kvm)?;
+    let mut vm = KvmVm::new(kvm)?;
     let (mut vcpus, vcpus_exit_evt) = vm.create_vcpus(vm_resources.machine_config.vcpu_count)?;
     vm.register_dram_memory_regions(guest_memory)?;
 
@@ -303,7 +303,7 @@ pub fn build_microvm_for_boot(
     }
 
     configure_system_for_boot(
-        &kvm,
+        vm.kvm(),
         &vm,
         &mut device_manager,
         vcpus.as_mut(),
@@ -319,7 +319,6 @@ pub fn build_microvm_for_boot(
         machine_config: vm_resources.machine_config.clone(),
         boot_source_config: vm_resources.boot_source.config.clone(),
         shutdown_exit_code: None,
-        kvm,
         vm,
         uffd: None,
         vcpus_handles: Vec::new(),
@@ -454,7 +453,7 @@ pub fn build_microvm_from_snapshot(
         .map_err(StartMicrovmError::Kvm)?;
     // Set up KVM VM and register memory regions.
     // Build custom CPU config if a custom template is provided.
-    let mut vm = KvmVm::new(&kvm).map_err(StartMicrovmError::KvmVm)?;
+    let mut vm = KvmVm::new(kvm).map_err(StartMicrovmError::KvmVm)?;
 
     let (mut vcpus, vcpus_exit_evt) = vm
         .create_vcpus(vm_resources.machine_config.vcpu_count)
@@ -525,7 +524,6 @@ pub fn build_microvm_from_snapshot(
         machine_config: vm_resources.machine_config.clone(),
         boot_source_config: vm_resources.boot_source.config.clone(),
         shutdown_exit_code: None,
-        kvm,
         vm,
         uffd,
         vcpus_handles: Vec::new(),
@@ -855,7 +853,7 @@ pub(crate) mod tests {
     }
 
     pub(crate) fn default_vmm() -> Vmm {
-        let (kvm, mut vm) = setup_vm_with_memory(mib_to_bytes(128));
+        let mut vm = setup_vm_with_memory(mib_to_bytes(128));
 
         let (_, vcpus_exit_evt) = vm.create_vcpus(1).unwrap();
 
@@ -864,7 +862,6 @@ pub(crate) mod tests {
             machine_config: MachineConfig::default(),
             boot_source_config: BootSourceConfig::default(),
             shutdown_exit_code: None,
-            kvm,
             vm: Arc::new(vm),
             uffd: None,
             vcpus_handles: Vec::new(),

@@ -15,6 +15,7 @@ use crate::arch::x86_64::msr::MsrError;
 use crate::snapshot::Persist;
 use crate::utils::u64_to_usize;
 use crate::vstate::bus::Bus;
+use crate::vstate::kvm::Kvm;
 use crate::vstate::memory::{GuestMemoryExtension, GuestMemoryState};
 use crate::vstate::resources::ResourceAllocator;
 use crate::vstate::vm::{VmCommon, VmError};
@@ -68,10 +69,12 @@ pub struct KvmVm {
 
 impl KvmVm {
     /// Create a new `KvmVm` struct.
-    pub fn new(kvm: &crate::vstate::kvm::Kvm) -> Result<KvmVm, VmError> {
+    pub fn new(kvm: Kvm) -> Result<KvmVm, VmError> {
         let common = Self::create_common(kvm)?;
-
-        let msrs_to_save = kvm.msrs_to_save().map_err(KvmVmError::GetMsrsToSave)?;
+        let msrs_to_save = common
+            .kvm
+            .msrs_to_save()
+            .map_err(KvmVmError::GetMsrsToSave)?;
 
         // `KVM_CAP_XSAVE2` was introduced to support dynamically-sized XSTATE buffer in kernel
         // v5.17. `KVM_GET_EXTENSION(KVM_CAP_XSAVE2)` returns the required size in byte if
@@ -273,11 +276,11 @@ mod tests {
     #[cfg(target_arch = "x86_64")]
     #[test]
     fn test_vm_save_restore_state() {
-        let (_, vm) = setup_vm();
+        let vm = setup_vm();
         // Irqchips, clock and pitstate are not configured so trying to save state should fail.
         vm.save_state().unwrap_err();
 
-        let (_, vm) = setup_vm_with_memory(0x1000);
+        let vm = setup_vm_with_memory(0x1000);
         vm.setup_irqchip().unwrap();
 
         let vm_state = vm.save_state().unwrap();
@@ -289,7 +292,7 @@ mod tests {
         assert_eq!(vm_state.pic_slave.chip_id, KVM_IRQCHIP_PIC_SLAVE);
         assert_eq!(vm_state.ioapic.chip_id, KVM_IRQCHIP_IOAPIC);
 
-        let (_, mut vm) = setup_vm_with_memory(0x1000);
+        let mut vm = setup_vm_with_memory(0x1000);
         vm.setup_irqchip().unwrap();
 
         vm.restore_state(&vm_state, false).unwrap();
@@ -298,17 +301,22 @@ mod tests {
     #[cfg(target_arch = "x86_64")]
     #[test]
     fn test_vm_save_restore_state_kvm_clock_realtime() {
-        let (kvm, vm) = setup_vm_with_memory(0x1000);
+        let vm = setup_vm_with_memory(0x1000);
         vm.setup_irqchip().unwrap();
 
-        let clock_realtime_supported =
-            kvm.fd.check_extension_int(Cap::AdjustClock).cast_unsigned() & KVM_CLOCK_REALTIME != 0;
+        let clock_realtime_supported = vm
+            .kvm()
+            .fd
+            .check_extension_int(Cap::AdjustClock)
+            .cast_unsigned()
+            & KVM_CLOCK_REALTIME
+            != 0;
 
         // mock a state without realtime information
         let mut vm_state = vm.save_state().unwrap();
         vm_state.clock.flags &= !KVM_CLOCK_REALTIME;
 
-        let (_, mut vm) = setup_vm_with_memory(0x1000);
+        let mut vm = setup_vm_with_memory(0x1000);
         vm.setup_irqchip().unwrap();
 
         let res = vm.restore_state(&vm_state, true);
@@ -323,7 +331,7 @@ mod tests {
             .try_into()
             .unwrap();
 
-        let (_, mut vm) = setup_vm_with_memory(0x1000);
+        let mut vm = setup_vm_with_memory(0x1000);
         vm.setup_irqchip().unwrap();
 
         let res = vm.restore_state(&vm_state, true);
@@ -339,11 +347,11 @@ mod tests {
     fn test_vm_save_restore_state_bad_irqchip() {
         use kvm_bindings::KVM_NR_IRQCHIPS;
 
-        let (_, vm) = setup_vm_with_memory(0x1000);
+        let vm = setup_vm_with_memory(0x1000);
         vm.setup_irqchip().unwrap();
         let mut vm_state = vm.save_state().unwrap();
 
-        let (_, mut vm) = setup_vm_with_memory(0x1000);
+        let mut vm = setup_vm_with_memory(0x1000);
         vm.setup_irqchip().unwrap();
 
         // Try to restore an invalid PIC Master chip ID
@@ -366,7 +374,7 @@ mod tests {
     #[cfg(target_arch = "x86_64")]
     #[test]
     fn test_vmstate_serde() {
-        let (_, mut vm) = setup_vm_with_memory(0x1000);
+        let mut vm = setup_vm_with_memory(0x1000);
         vm.setup_irqchip().unwrap();
         let state = vm.save_state().unwrap();
 

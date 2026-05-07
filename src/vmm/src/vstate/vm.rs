@@ -30,6 +30,7 @@ use crate::persist::CreateSnapshotError;
 use crate::vmm_config::snapshot::SnapshotType;
 use crate::vstate::bus::Bus;
 use crate::vstate::interrupts::{InterruptError, MsixVector, MsixVectorConfig, MsixVectorGroup};
+use crate::vstate::kvm::Kvm;
 use crate::vstate::memory::{
     GuestMemory, GuestMemoryExtension, GuestMemoryMmap, GuestMemoryRegion, GuestMemoryState,
     GuestRegionMmap, GuestRegionMmapExt, MemoryError,
@@ -60,6 +61,8 @@ pub struct VmCommon {
     pub resource_allocator: Mutex<ResourceAllocator>,
     /// MMIO bus
     pub mmio_bus: Arc<Bus>,
+    /// The global KVM state (fd + capabilities).
+    pub kvm: Kvm,
 }
 
 /// Errors associated with the wrappers over KVM ioctls.
@@ -94,7 +97,7 @@ pub enum VmError {
 /// Contains KvmVm functions that are usable across CPU architectures
 impl KvmVm {
     /// Create a KVM VM
-    pub fn create_common(kvm: &crate::vstate::kvm::Kvm) -> Result<VmCommon, VmError> {
+    pub fn create_common(kvm: Kvm) -> Result<VmCommon, VmError> {
         // It is known that KVM_CREATE_VM occasionally fails with EINTR on heavily loaded machines
         // with many VMs.
         //
@@ -139,6 +142,7 @@ impl KvmVm {
             interrupts: Mutex::new(HashMap::with_capacity(GSI_MSI_END as usize + 1)),
             resource_allocator: Mutex::new(ResourceAllocator::new()),
             mmio_bus: Arc::new(Bus::new()),
+            kvm,
         })
     }
 
@@ -160,6 +164,11 @@ impl KvmVm {
         self.arch_post_create_vcpus(vcpu_count)?;
 
         Ok((vcpus, exit_evt))
+    }
+
+    /// Returns a reference to the [`Kvm`] instance.
+    pub fn kvm(&self) -> &Kvm {
+        &self.common.kvm
     }
 
     /// Reserves the next `slot_cnt` contiguous kvm slot ids and returns the first one
@@ -540,30 +549,29 @@ pub(crate) mod tests {
     use crate::vstate::memory::GuestRegionMmap;
 
     // Auxiliary function being used throughout the tests.
-    pub(crate) fn setup_vm() -> (Kvm, KvmVm) {
+    pub(crate) fn setup_vm() -> KvmVm {
         let kvm = Kvm::new(vec![]).expect("Cannot create Kvm");
-        let vm = KvmVm::new(&kvm).expect("Cannot create new vm");
-        (kvm, vm)
+        KvmVm::new(kvm).expect("Cannot create new vm")
     }
 
     // Auxiliary function being used throughout the tests.
-    pub(crate) fn setup_vm_with_memory(mem_size: usize) -> (Kvm, KvmVm) {
-        let (kvm, mut vm) = setup_vm();
+    pub(crate) fn setup_vm_with_memory(mem_size: usize) -> KvmVm {
+        let mut vm = setup_vm();
         let gm = single_region_mem_raw(mem_size);
         vm.register_dram_memory_regions(gm).unwrap();
-        (kvm, vm)
+        vm
     }
 
     #[test]
     fn test_new() {
         // Testing with a valid /dev/kvm descriptor.
         let kvm = Kvm::new(vec![]).expect("Cannot create Kvm");
-        KvmVm::new(&kvm).unwrap();
+        KvmVm::new(kvm).unwrap();
     }
 
     #[test]
     fn test_register_memory_regions() {
-        let (_, mut vm) = setup_vm();
+        let mut vm = setup_vm();
 
         // Trying to set a memory region with a size that is not a multiple of GUEST_PAGE_SIZE
         // will result in error.
@@ -581,8 +589,8 @@ pub(crate) mod tests {
 
     #[test]
     fn test_too_many_regions() {
-        let (kvm, mut vm) = setup_vm();
-        let max_nr_regions = kvm.max_nr_memslots();
+        let mut vm = setup_vm();
+        let max_nr_regions = vm.kvm().max_nr_memslots();
 
         // SAFETY: valid mmap parameters
         let ptr = unsafe {
@@ -634,7 +642,7 @@ pub(crate) mod tests {
     #[test]
     fn test_create_vcpus() {
         let vcpu_count = 2;
-        let (_, mut vm) = setup_vm_with_memory(mib_to_bytes(128));
+        let mut vm = setup_vm_with_memory(mib_to_bytes(128));
 
         let (vcpu_vec, _) = vm.create_vcpus(vcpu_count).unwrap();
 
@@ -654,7 +662,7 @@ pub(crate) mod tests {
 
     #[test]
     fn test_msi_vector_group_new() {
-        let (_, vm) = setup_vm_with_memory(mib_to_bytes(128));
+        let vm = setup_vm_with_memory(mib_to_bytes(128));
         let vm = Arc::new(vm);
         let msix_group = create_msix_group(&vm);
         assert_eq!(msix_group.num_vectors(), 4);
@@ -662,7 +670,7 @@ pub(crate) mod tests {
 
     #[test]
     fn test_msi_vector_group_enable_disable() {
-        let (_, mut vm) = setup_vm_with_memory(mib_to_bytes(128));
+        let mut vm = setup_vm_with_memory(mib_to_bytes(128));
         enable_irqchip(&mut vm);
         let vm = Arc::new(vm);
         let msix_group = create_msix_group(&vm);
@@ -690,7 +698,7 @@ pub(crate) mod tests {
 
     #[test]
     fn test_msi_vector_group_trigger() {
-        let (_, mut vm) = setup_vm_with_memory(mib_to_bytes(128));
+        let mut vm = setup_vm_with_memory(mib_to_bytes(128));
         enable_irqchip(&mut vm);
 
         let vm = Arc::new(vm);
@@ -707,7 +715,7 @@ pub(crate) mod tests {
 
     #[test]
     fn test_msi_vector_group_notifier() {
-        let (_, vm) = setup_vm_with_memory(mib_to_bytes(128));
+        let vm = setup_vm_with_memory(mib_to_bytes(128));
         let vm = Arc::new(vm);
         let msix_group = create_msix_group(&vm);
 
@@ -720,7 +728,7 @@ pub(crate) mod tests {
 
     #[test]
     fn test_msi_vector_group_update_invalid_vector() {
-        let (_, mut vm) = setup_vm_with_memory(mib_to_bytes(128));
+        let mut vm = setup_vm_with_memory(mib_to_bytes(128));
         enable_irqchip(&mut vm);
         let vm = Arc::new(vm);
         let msix_group = create_msix_group(&vm);
@@ -736,7 +744,7 @@ pub(crate) mod tests {
 
     #[test]
     fn test_msi_vector_group_update() {
-        let (_, mut vm) = setup_vm_with_memory(mib_to_bytes(128));
+        let mut vm = setup_vm_with_memory(mib_to_bytes(128));
         enable_irqchip(&mut vm);
         let vm = Arc::new(vm);
         assert!(vm.common.interrupts.lock().unwrap().is_empty());
@@ -812,7 +820,7 @@ pub(crate) mod tests {
 
     #[test]
     fn test_msi_vector_group_persistence() {
-        let (_, mut vm) = setup_vm_with_memory(mib_to_bytes(128));
+        let mut vm = setup_vm_with_memory(mib_to_bytes(128));
         enable_irqchip(&mut vm);
         let vm = Arc::new(vm);
         let msix_group = create_msix_group(&vm);
@@ -837,7 +845,7 @@ pub(crate) mod tests {
     fn test_restore_state_resource_allocator() {
         use vm_allocator::AllocPolicy;
 
-        let (_, mut vm) = setup_vm_with_memory(0x1000);
+        let mut vm = setup_vm_with_memory(0x1000);
         vm.setup_irqchip().unwrap();
 
         // Allocate a GSI and some memory and make sure they are still allocated after restore

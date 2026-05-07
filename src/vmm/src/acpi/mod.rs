@@ -309,7 +309,7 @@ mod tests {
     // change in the future.
     #[test]
     fn test_write_acpi_table_small_memory() {
-        let (_, vm) = setup_vm_with_memory(u64_to_usize(SYSTEM_MEM_START + SYSTEM_MEM_SIZE - 4096));
+        let vm = setup_vm_with_memory(u64_to_usize(SYSTEM_MEM_START + SYSTEM_MEM_SIZE - 4096));
         let mut writer = AcpiTableWriter {
             mem: vm.guest_memory(),
         };

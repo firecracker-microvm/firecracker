@@ -668,7 +668,6 @@ pub(crate) mod tests {
     use crate::utils::mib_to_bytes;
     use crate::utils::signal::validate_signal_num;
     use crate::vstate::bus::BusDevice;
-    use crate::vstate::kvm::Kvm;
     use crate::vstate::memory::{GuestAddress, GuestMemoryMmap};
     use crate::vstate::vcpu::VcpuError as EmulationError;
     use crate::vstate::vm::tests::setup_vm_with_memory;
@@ -685,7 +684,7 @@ pub(crate) mod tests {
 
     #[test]
     fn test_handle_kvm_exit() {
-        let (_, _, mut vcpu) = setup_vcpu(0x1000);
+        let (_, mut vcpu) = setup_vcpu(0x1000);
         let res = handle_kvm_exit(&mut vcpu.kvm_vcpu.peripherals, Ok(VcpuExit::Hlt));
         assert!(matches!(
             res,
@@ -826,8 +825,8 @@ pub(crate) mod tests {
 
     // Auxiliary function being used throughout the tests.
     #[allow(unused_mut)]
-    pub(crate) fn setup_vcpu(mem_size: usize) -> (Kvm, KvmVm, Vcpu) {
-        let (kvm, mut vm) = setup_vm_with_memory(mem_size);
+    pub(crate) fn setup_vcpu(mem_size: usize) -> (KvmVm, Vcpu) {
+        let mut vm = setup_vm_with_memory(mem_size);
 
         let (mut vcpus, _) = vm.create_vcpus(1).unwrap();
         let mut vcpu = vcpus.remove(0);
@@ -835,7 +834,7 @@ pub(crate) mod tests {
         #[cfg(target_arch = "aarch64")]
         vcpu.kvm_vcpu.init(&[]).unwrap();
 
-        (kvm, vm, vcpu)
+        (vm, vcpu)
     }
 
     fn load_good_kernel(vm_memory: &GuestMemoryMmap) -> GuestAddress {
@@ -868,7 +867,7 @@ pub(crate) mod tests {
     fn vcpu_configured_for_boot() -> (KvmVm, VcpuHandle, EventFd) {
         // Need enough mem to boot linux.
         let mem_size = mib_to_bytes(64);
-        let (kvm, vm, mut vcpu) = setup_vcpu(mem_size);
+        let (vm, mut vcpu) = setup_vcpu(mem_size);
 
         let vcpu_exit_evt = vcpu.exit_evt.try_clone().unwrap();
 
@@ -889,7 +888,7 @@ pub(crate) mod tests {
                         vcpu_count: 1,
                         smt: false,
                         cpu_config: CpuConfiguration {
-                            cpuid: Cpuid::try_from(kvm.supported_cpuid.clone()).unwrap(),
+                            cpuid: Cpuid::try_from(vm.kvm().supported_cpuid.clone()).unwrap(),
                             msrs: BTreeMap::new(),
                         },
                     },
@@ -907,7 +906,7 @@ pub(crate) mod tests {
                     smt: false,
                     cpu_config: crate::cpu_config::aarch64::CpuConfiguration::default(),
                 },
-                &kvm.optional_capabilities(),
+                &vm.kvm().optional_capabilities(),
             )
             .expect("failed to configure vcpu");
 
@@ -928,7 +927,7 @@ pub(crate) mod tests {
 
     #[test]
     fn test_set_mmio_bus() {
-        let (_, _, mut vcpu) = setup_vcpu(0x1000);
+        let (_, mut vcpu) = setup_vcpu(0x1000);
         assert!(vcpu.kvm_vcpu.peripherals.mmio_bus.is_none());
         vcpu.set_mmio_bus(Arc::new(Bus::new()));
         assert!(vcpu.kvm_vcpu.peripherals.mmio_bus.is_some());
@@ -936,7 +935,7 @@ pub(crate) mod tests {
 
     #[test]
     fn test_vcpu_kick() {
-        let (_, vm, mut vcpu) = setup_vcpu(0x1000);
+        let (vm, mut vcpu) = setup_vcpu(0x1000);
 
         let mut kvm_run =
             kvm_ioctls::KvmRunWrapper::mmap_from_fd(&vcpu.kvm_vcpu.fd, vm.fd().run_size())
@@ -998,7 +997,7 @@ pub(crate) mod tests {
 
     #[test]
     fn test_immediate_exit_shortcircuits_execution() {
-        let (_, _, mut vcpu) = setup_vcpu(0x1000);
+        let (_, mut vcpu) = setup_vcpu(0x1000);
 
         vcpu.kvm_vcpu.fd.set_kvm_immediate_exit(1);
         // Set a dummy value to be returned by the emulate call

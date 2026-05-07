@@ -131,7 +131,7 @@ use userfaultfd::Uffd;
 use vmm_sys_util::epoll::EventSet;
 use vmm_sys_util::eventfd::EventFd;
 use vmm_sys_util::terminal::Terminal;
-use vstate::kvm::Kvm;
+pub use vstate::kvm::Kvm;
 use vstate::vcpu::{self, StartThreadedError, VcpuSendEventError};
 use vstate::vm::KvmVm;
 
@@ -313,8 +313,6 @@ pub struct Vmm {
     boot_source_config: BootSourceConfig,
     shutdown_exit_code: Option<FcExitCode>,
 
-    // Guest VM core resources.
-    kvm: Kvm,
     /// VM object
     pub vm: Arc<KvmVm>,
     // Save UFFD in order to keep it open in the Firecracker process, as well.
@@ -592,7 +590,7 @@ impl Vmm {
         // upon resuming from the snapshot.
         let device_states = self.device_manager.save();
         let vcpu_states = self.save_vcpu_states()?;
-        let kvm_state = self.kvm.save_state();
+        let kvm_state = self.vm.kvm().save_state();
         let vm_state = {
             #[cfg(target_arch = "x86_64")]
             {

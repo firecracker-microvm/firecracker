@@ -155,7 +155,7 @@ mod tests {
 
     #[test]
     fn test_register_legacy_devices() {
-        let (_, vm) = setup_vm_with_memory(0x1000);
+        let vm = setup_vm_with_memory(0x1000);
         vm.setup_irqchip().unwrap();
         let mut ldm = PortIODeviceManager {
             stdio_serial: Arc::new(Mutex::new(SerialDevice {

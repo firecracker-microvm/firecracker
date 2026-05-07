@@ -714,7 +714,7 @@ pub(crate) mod test_utils {
     }
 
     pub(crate) fn default_virtio_mem() -> VirtioMem {
-        let (_, mut vm) = setup_vm_with_memory(0x1000);
+        let mut vm = setup_vm_with_memory(0x1000);
         let addr = GuestAddress(512 << 30);
         vm.register_hotpluggable_memory_region(
             memory::anonymous(
@@ -769,7 +769,7 @@ mod tests {
 
     #[test]
     fn test_from_state() {
-        let (_, vm) = setup_vm_with_memory(0x1000);
+        let vm = setup_vm_with_memory(0x1000);
         let vm = Arc::new(vm);
         let queues = vec![Queue::new(FIRECRACKER_MAX_QUEUE_SIZE); MEM_NUM_QUEUES];
         let addr = 512 << 30;
