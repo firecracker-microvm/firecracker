@@ -48,7 +48,7 @@ use crate::resources::VmResources;
 use crate::seccomp::BpfThreadMap;
 use crate::snapshot::Persist;
 use crate::utils::mib_to_bytes;
-use crate::vmm_config::instance_info::InstanceInfo;
+use crate::vmm_config::instance_info::{InstanceInfo, VmState};
 use crate::vmm_config::machine_config::MachineConfigError;
 use crate::vmm_config::memory_hotplug::MemoryHotplugConfig;
 use crate::vmm_config::pmem::PmemConfig;
@@ -319,9 +319,8 @@ pub fn build_microvm_for_boot(
         machine_config: vm_resources.machine_config.clone(),
         boot_source_config: vm_resources.boot_source.config.clone(),
         shutdown_exit_code: None,
-        vm,
+        vm: vm.clone(),
         uffd: None,
-        vcpus_handles: Vec::new(),
         device_manager,
     };
     let vmm = Arc::new(Mutex::new(vmm));
@@ -335,16 +334,15 @@ pub fn build_microvm_for_boot(
         .for_each(|vcpu| vcpu.attach_debug_info(gdb_tx.clone()));
 
     // Move vcpus to their own threads and start their state machine in the 'Paused' state.
-    vmm.lock()
-        .unwrap()
-        .start_vcpus(
-            vcpus,
-            seccomp_filters
-                .get("vcpu")
-                .ok_or_else(|| StartMicrovmError::MissingSeccompFilters("vcpu".to_string()))?
-                .clone(),
-        )
-        .map_err(VmmError::VcpuStart)?;
+    vm.start_vcpus(
+        vcpus,
+        seccomp_filters
+            .get("vcpu")
+            .ok_or_else(|| StartMicrovmError::MissingSeccompFilters("vcpu".to_string()))?
+            .clone(),
+    )
+    .map_err(VmmError::VcpuStart)?;
+    vmm.lock().unwrap().instance_info.state = VmState::Paused;
 
     #[cfg(feature = "gdb")]
     if let Some(gdb_socket_path) = &vm_resources.machine_config.gdb_socket_path {
@@ -518,19 +516,18 @@ pub fn build_microvm_from_snapshot(
     let mut device_manager =
         DeviceManager::restore(device_ctor_args, &microvm_state.device_states)?;
 
-    let mut vmm = Vmm {
+    let vmm = Vmm {
         instance_info: instance_info.clone(),
         machine_config: vm_resources.machine_config.clone(),
         boot_source_config: vm_resources.boot_source.config.clone(),
         shutdown_exit_code: None,
-        vm,
+        vm: vm.clone(),
         uffd,
-        vcpus_handles: Vec::new(),
         device_manager,
     };
 
     // Move vcpus to their own threads and start their state machine in the 'Paused' state.
-    vmm.start_vcpus(
+    vm.start_vcpus(
         vcpus,
         seccomp_filters
             .get("vcpu")
@@ -539,6 +536,7 @@ pub fn build_microvm_from_snapshot(
     )?;
 
     let vmm = Arc::new(Mutex::new(vmm));
+    vmm.lock().unwrap().instance_info.state = VmState::Paused;
     event_manager.add_subscriber(vmm.clone());
 
     // Load seccomp filters for the VMM thread.
@@ -862,7 +860,6 @@ pub(crate) mod tests {
             shutdown_exit_code: None,
             vm: Arc::new(vm),
             uffd: None,
-            vcpus_handles: Vec::new(),
             device_manager: default_device_manager(),
         }
     }

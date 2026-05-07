@@ -10,7 +10,7 @@ use std::fs::OpenOptions;
 use std::io::Write;
 use std::path::Path;
 use std::sync::atomic::{AtomicU32, Ordering};
-use std::sync::{Arc, Mutex, MutexGuard};
+use std::sync::{Arc, Barrier, Mutex, MutexGuard};
 
 #[cfg(target_arch = "x86_64")]
 use kvm_bindings::KVM_IRQCHIP_IOAPIC;
@@ -22,6 +22,7 @@ use kvm_ioctls::VmFd;
 use serde::{Deserialize, Serialize};
 use vmm_sys_util::errno;
 use vmm_sys_util::eventfd::EventFd;
+use vmm_sys_util::terminal::Terminal;
 
 use crate::arch::{GSI_MSI_END, host_page_size};
 pub use crate::arch::{KvmVm, KvmVmError, VmState};
@@ -36,8 +37,17 @@ use crate::vstate::memory::{
     GuestRegionMmap, GuestRegionMmapExt, MemoryError,
 };
 use crate::vstate::resources::ResourceAllocator;
-use crate::vstate::vcpu::VcpuError;
+use crate::vstate::vcpu::{StartThreadedError, VcpuError, VcpuHandle};
 use crate::{DirtyBitmap, Vcpu, mem_size_mib};
+
+/// Error type for [`KvmVm::start_vcpus`].
+#[derive(Debug, thiserror::Error, displaydoc::Display)]
+pub enum StartVcpusError {
+    /// Failed to set terminal mode: {0}
+    SetTerminalMode(#[from] vmm_sys_util::errno::Error),
+    /// Vcpu handle error: {0}
+    VcpuHandle(#[from] StartThreadedError),
+}
 
 #[derive(Debug, Serialize, Deserialize)]
 /// A struct representing an interrupt line used by some device of the microVM
@@ -63,6 +73,8 @@ pub struct VmCommon {
     pub mmio_bus: Arc<Bus>,
     /// The global KVM state (fd + capabilities).
     pub kvm: Kvm,
+    /// Handles to vCPU threads.
+    pub vcpus_handles: Mutex<Vec<VcpuHandle>>,
     /// Event fd written to by vCPUs on exit.
     pub vcpus_exit_evt: EventFd,
 }
@@ -147,6 +159,7 @@ impl KvmVm {
             resource_allocator: Mutex::new(ResourceAllocator::new()),
             mmio_bus: Arc::new(Bus::new()),
             kvm,
+            vcpus_handles: Mutex::new(Vec::new()),
             vcpus_exit_evt,
         })
     }
@@ -180,6 +193,180 @@ impl KvmVm {
     /// Returns a reference to the vCPU exit [`EventFd`].
     pub fn vcpus_exit_evt(&self) -> &EventFd {
         &self.common.vcpus_exit_evt
+    }
+
+    /// Returns a locked reference to the vCPU handles.
+    pub fn vcpus_handles(&self) -> MutexGuard<'_, Vec<VcpuHandle>> {
+        self.common.vcpus_handles.lock().expect("Poisoned lock")
+    }
+
+    /// Starts the microVM vCPUs.
+    ///
+    /// Sets the terminal to raw/non-blocking mode, then spawns a thread per vCPU
+    /// and stores the resulting handles. The barrier is used to synchronize TLS
+    /// initialization across all vCPU threads before returning.
+    pub fn start_vcpus(
+        self: &Arc<Self>,
+        mut vcpus: Vec<Vcpu>,
+        vcpu_seccomp_filter: Arc<crate::seccomp::BpfProgram>,
+    ) -> Result<(), StartVcpusError> {
+        let vcpu_count = vcpus.len();
+        let barrier = Arc::new(Barrier::new(vcpu_count + 1));
+
+        let stdin = std::io::stdin().lock();
+        stdin.set_raw_mode().inspect_err(|&err| {
+            crate::logger::warn!("Cannot set raw mode for the terminal. {:?}", err);
+        })?;
+        stdin.set_non_block(true).inspect_err(|&err| {
+            crate::logger::warn!("Cannot set non block for the terminal. {:?}", err);
+        })?;
+
+        let mut handles = self.vcpus_handles();
+        handles.reserve(vcpu_count);
+        for mut vcpu in vcpus.drain(..) {
+            vcpu.set_mmio_bus(self.common.mmio_bus.clone());
+            #[cfg(target_arch = "x86_64")]
+            vcpu.kvm_vcpu.set_pio_bus(self.pio_bus.clone());
+
+            handles.push(vcpu.start_threaded(
+                self,
+                vcpu_seccomp_filter.clone(),
+                barrier.clone(),
+            )?);
+        }
+        drop(handles);
+        barrier.wait();
+
+        Ok(())
+    }
+
+    /// Sends a pause event to all vCPUs and waits for acknowledgement.
+    pub fn pause_vcpus(&self) -> Result<(), crate::VmmError> {
+        let mut handles = self.vcpus_handles();
+        handles
+            .iter_mut()
+            .try_for_each(|handle| handle.send_event(crate::VcpuEvent::Pause))
+            .map_err(|_| crate::VmmError::VcpuMessage)?;
+
+        if handles
+            .iter()
+            .map(|handle| {
+                handle
+                    .response_receiver()
+                    .recv_timeout(crate::RECV_TIMEOUT_SEC)
+            })
+            .any(|response| !matches!(response, Ok(crate::VcpuResponse::Paused)))
+        {
+            return Err(crate::VmmError::VcpuMessage);
+        }
+        Ok(())
+    }
+
+    /// Sends a resume event to all vCPUs and waits for acknowledgement.
+    pub fn resume_vcpus(&self) -> Result<(), crate::VmmError> {
+        let mut handles = self.vcpus_handles();
+        handles
+            .iter_mut()
+            .try_for_each(|handle| handle.send_event(crate::VcpuEvent::Resume))
+            .map_err(|_| crate::VmmError::VcpuMessage)?;
+
+        if handles
+            .iter()
+            .map(|handle| {
+                handle
+                    .response_receiver()
+                    .recv_timeout(crate::RECV_TIMEOUT_SEC)
+            })
+            .any(|response| !matches!(response, Ok(crate::VcpuResponse::Resumed)))
+        {
+            return Err(crate::VmmError::VcpuMessage);
+        }
+        Ok(())
+    }
+
+    /// Saves vCPU states by requesting each vCPU thread to serialize its state.
+    pub fn save_vcpu_states(
+        &self,
+    ) -> Result<Vec<crate::vstate::vcpu::VcpuState>, crate::persist::MicrovmStateError> {
+        use crate::persist::MicrovmStateError;
+
+        let mut handles = self.vcpus_handles();
+        for handle in handles.iter_mut() {
+            handle
+                .send_event(crate::VcpuEvent::SaveState)
+                .map_err(MicrovmStateError::SignalVcpu)?;
+        }
+
+        let vcpu_responses = handles
+            .iter()
+            .map(|handle| {
+                handle
+                    .response_receiver()
+                    .recv_timeout(crate::RECV_TIMEOUT_SEC)
+            })
+            .collect::<Result<Vec<crate::VcpuResponse>, _>>()
+            .map_err(|_| MicrovmStateError::UnexpectedVcpuResponse)?;
+
+        vcpu_responses
+            .into_iter()
+            .map(|response| match response {
+                crate::VcpuResponse::SavedState(state) => Ok(*state),
+                crate::VcpuResponse::Error(err) => Err(MicrovmStateError::SaveVcpuState(err)),
+                crate::VcpuResponse::NotAllowed(reason) => {
+                    Err(MicrovmStateError::NotAllowed(reason))
+                }
+                _ => Err(MicrovmStateError::UnexpectedVcpuResponse),
+            })
+            .collect()
+    }
+
+    /// Dumps CPU configuration from all vCPU threads.
+    pub fn dump_cpu_config_states(
+        &self,
+    ) -> Result<Vec<crate::cpu_config::templates::CpuConfiguration>, crate::DumpCpuConfigError>
+    {
+        use crate::DumpCpuConfigError;
+
+        let mut handles = self.vcpus_handles();
+        for handle in handles.iter_mut() {
+            handle
+                .send_event(crate::VcpuEvent::DumpCpuConfig)
+                .map_err(DumpCpuConfigError::SendEvent)?;
+        }
+
+        let vcpu_responses = handles
+            .iter()
+            .map(|handle| {
+                handle
+                    .response_receiver()
+                    .recv_timeout(crate::RECV_TIMEOUT_SEC)
+            })
+            .collect::<Result<Vec<crate::VcpuResponse>, _>>()
+            .map_err(|_| DumpCpuConfigError::UnexpectedResponse)?;
+
+        vcpu_responses
+            .into_iter()
+            .map(|response| match response {
+                crate::VcpuResponse::DumpedCpuConfig(cpu_config) => Ok(*cpu_config),
+                crate::VcpuResponse::Error(err) => Err(DumpCpuConfigError::DumpCpuConfig(err)),
+                crate::VcpuResponse::NotAllowed(reason) => {
+                    Err(DumpCpuConfigError::NotAllowed(reason))
+                }
+                _ => Err(DumpCpuConfigError::UnexpectedResponse),
+            })
+            .collect()
+    }
+
+    /// Sends finish events to all vCPU threads and joins them.
+    pub fn shutdown_vcpus(&self) {
+        let mut handles = self.vcpus_handles();
+        for (idx, handle) in handles.iter_mut().enumerate() {
+            if let Err(err) = handle.send_event(crate::VcpuEvent::Finish) {
+                crate::logger::error!("Failed to send VcpuEvent::Finish to vCPU {}: {}", idx, err);
+            }
+        }
+        // Join the vCPU threads by running VcpuHandle::drop().
+        handles.clear();
     }
 
     /// Reserves the next `slot_cnt` contiguous kvm slot ids and returns the first one
