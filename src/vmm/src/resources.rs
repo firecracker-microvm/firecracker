@@ -22,6 +22,7 @@ use crate::vmm_config::boot_source::{
     BootConfig, BootSource, BootSourceConfig, BootSourceConfigError,
 };
 use crate::vmm_config::drive::*;
+use crate::vmm_config::enclave::EnclaveConfig;
 use crate::vmm_config::entropy::*;
 use crate::vmm_config::instance_info::InstanceInfo;
 use crate::vmm_config::machine_config::{MachineConfig, MachineConfigError, MachineConfigUpdate};
@@ -100,6 +101,9 @@ pub struct VmmConfig {
     #[serde(skip)]
     pub serial_config: Option<SerialConfig>,
     pub memory_hotplug: Option<MemoryHotplugConfig>,
+    /// Enclave configuration for Nitro Enclaves.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub enclave: Option<EnclaveConfig>,
 }
 
 /// A data structure that encapsulates the device configurations
@@ -138,6 +142,8 @@ pub struct VmResources {
     pub serial_out_path: Option<PathBuf>,
     /// Optional rate limiter config for serial output.
     pub serial_rate_limiter_cfg: Option<TokenBucketConfig>,
+    /// Enclave configuration for Nitro Enclaves.
+    pub enclave: Option<EnclaveConfig>,
 }
 
 impl VmResources {
@@ -238,6 +244,8 @@ impl VmResources {
         if let Some(memory_hotplug_config) = vmm_config.memory_hotplug {
             resources.set_memory_hotplug_config(memory_hotplug_config)?;
         }
+
+        resources.enclave = vmm_config.enclave;
 
         Ok(resources)
     }
@@ -553,6 +561,7 @@ impl From<&VmResources> for VmmConfig {
             // serial_config is marked serde(skip) so that it doesnt end up in snapshots.
             serial_config: None,
             memory_hotplug: resources.memory_hotplug.clone(),
+            enclave: resources.enclave.clone(),
         }
     }
 }
@@ -669,6 +678,7 @@ mod tests {
             serial_out_path: None,
             serial_rate_limiter_cfg: None,
             memory_hotplug: Default::default(),
+            enclave: None,
         }
     }
 
