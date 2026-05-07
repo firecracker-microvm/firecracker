@@ -66,9 +66,10 @@ def test_serial_active_tx_snapshot(uvm_plain, microvm_factory):
     microvm.help.enable_console()
     microvm.spawn(serial_out_path=None)
     microvm.basic_config(
-        vcpu_count=2,
+        vcpu_count=4,
         mem_size_mib=256,
     )
+    microvm.add_net_iface()
     serial = Serial(microvm)
     serial.open()
     microvm.start()
@@ -80,11 +81,32 @@ def test_serial_active_tx_snapshot(uvm_plain, microvm_factory):
     # there will be an active transmission at the point of pausing the VM to
     # take the snapshot. This will saturate the TX buffer of the UART and it
     # might make the guest driver enable TX interrupts.
-    serial.tx("cat /dev/zero")
+    #
+    # On a multi-vCPU guest this unbounded transmission causes a TX interrupt
+    # storm that leads to a soft lockup on the CPU handling the serial IRQ.
+    # We work around this with two pieces of pinning:
+    #
+    # 1. Pin all IRQs to CPU0, then move the serial IRQ to CPU1. This keeps
+    #    SSH (virtio-net) on CPU0 reachable while the lockup, if it occurs,
+    #    is contained on CPU1. We need SSH because the serial console is
+    #    unusable during the flood and we still need a way to stop `cat`
+    #    after restore.
+    # 2. Pin the writer (`cat`) to CPU3 so it runs on a different CPU than
+    #    the serial IRQ handler. Having the writer and the IRQ handler on
+    #    separate CPUs makes it likely that the guest driver still has TX
+    #    interrupts enabled at the moment we take the snapshot, which is
+    #    the scenario this test is meant to exercise.
+    microvm.ssh.check_output(
+        "for irq in $(ls /proc/irq/ | grep -E '^[0-9]+$'); do"
+        "  echo 1 > /proc/irq/$irq/smp_affinity 2>/dev/null || true;"
+        " done;"
+        " SER_IRQ=$(awk '/ttyS0/{print $1}' /proc/interrupts | tr -d :);"
+        " echo 2 > /proc/irq/$SER_IRQ/smp_affinity;"
+        " nohup taskset -c 3 cat /dev/zero > /dev/ttyS0 2>/dev/null &"
+    )
     # Give the guest time to start the transmission
     time.sleep(1)
 
-    # Create snapshot.
     snapshot = microvm.snapshot_full()
     # Kill base microVM.
     microvm.kill()
@@ -94,11 +116,16 @@ def test_serial_active_tx_snapshot(uvm_plain, microvm_factory):
     vm.help.enable_console()
     vm.spawn(serial_out_path=None)
     vm.restore_from_snapshot(snapshot, resume=True)
+
+    # The restored VM resumes the cat flood. Kill it via SSH so the serial
+    # console becomes usable again.
+    vm.ssh.check_output("pkill -9 cat || true")
+
     serial = Serial(vm)
     serial.open()
-
-    # Send Ctrl-C to the guest to stop the ongoing transmission and regain the shell
-    serial.tx("\x03", end="")
+    # We need to send a newline to signal the serial to flush
+    # the login content.
+    serial.tx("")
     # looking for the # prompt at the end
     serial.rx(vm.distro.shell_prompt)
     serial.tx("pwd")
