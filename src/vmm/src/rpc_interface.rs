@@ -7,12 +7,11 @@ use std::sync::{Arc, Mutex, MutexGuard};
 use serde_json::Value;
 use utils::time::{ClockType, get_time_us};
 
-use super::builder::build_and_boot_microvm;
+use super::builder::{StartMicrovmError, build_and_boot_microvm};
 use super::persist::{create_snapshot, restore_from_snapshot};
 use super::resources::VmResources;
 use super::{Vmm, VmmError};
 use crate::EventManager;
-use crate::builder::StartMicrovmError;
 use crate::cpu_config::templates::{CustomCpuTemplate, GuestConfigError};
 use crate::device_manager::pci_mngr::PciManagerError;
 use crate::devices::virtio::balloon::device::{HintingStatus, StartHintingCmd};
@@ -30,6 +29,7 @@ use crate::vmm_config::balloon::{
 };
 use crate::vmm_config::boot_source::{BootSourceConfig, BootSourceConfigError};
 use crate::vmm_config::drive::{BlockDeviceConfig, BlockDeviceUpdateConfig, DriveError};
+use crate::vmm_config::enclave::EnclaveConfig;
 use crate::vmm_config::entropy::{EntropyDeviceConfig, EntropyDeviceError};
 use crate::vmm_config::instance_info::InstanceInfo;
 use crate::vmm_config::machine_config::{MachineConfig, MachineConfigError, MachineConfigUpdate};
@@ -127,6 +127,10 @@ pub enum VmmAction {
     /// Updates the memory hotplug device using `MemoryHotplugConfigUpdate` as input. This action
     /// can only be called after the microVM has booted.
     UpdateMemoryHotplugSize(MemoryHotplugSizeUpdate),
+    /// Set the enclave configuration. This action can only be called before the microVM has booted.
+    SetEnclaveConfig(EnclaveConfig),
+    /// Get the enclave configuration.
+    GetEnclaveConfig,
     /// Launch the microVM. This action can only be called before the microVM has booted.
     StartMicroVm,
     /// Send CTRL+ALT+DEL to the microVM, using the i8042 keyboard function. If an AT-keyboard
@@ -241,6 +245,8 @@ pub enum VmmData {
     InstanceInformation(InstanceInfo),
     /// The microVM version.
     VmmVersion(String),
+    /// The enclave configuration.
+    EnclaveConfiguration(EnclaveConfig),
     /// The status of the memory hotplug device.
     VirtioMemStatus(VirtioMemStatus),
     /// The status of the virtio-balloon hinting run
@@ -497,6 +503,10 @@ impl<'a> PrebootApiController<'a> {
             SetMmdsConfiguration(config) => self.set_mmds_config(config),
             StartMicroVm => self.start_microvm(),
             UpdateMachineConfiguration(config) => self.update_machine_config(config),
+            SetEnclaveConfig(config) => self.set_enclave_config(config),
+            GetEnclaveConfig => Ok(VmmData::EnclaveConfiguration(
+                self.vm_resources.enclave.clone().unwrap_or_default(),
+            )),
             SetEntropyDevice(config) => self.set_entropy_device(config),
             SetMemoryHotplugDevice(config) => self.set_memory_hotplug_device(config),
             // Operations not allowed pre-boot.
@@ -619,6 +629,12 @@ impl<'a> PrebootApiController<'a> {
     ) -> Result<VmmData, VmmActionError> {
         self.boot_path = true;
         self.vm_resources.set_memory_hotplug_config(cfg)?;
+        Ok(VmmData::Empty)
+    }
+
+    fn set_enclave_config(&mut self, cfg: EnclaveConfig) -> Result<VmmData, VmmActionError> {
+        self.boot_path = true;
+        self.vm_resources.enclave = Some(cfg);
         Ok(VmmData::Empty)
     }
 
@@ -850,6 +866,14 @@ impl RuntimeApiController {
                 .map(|_| VmmData::Empty)
                 .map_err(VmmActionError::BalloonUpdate),
             UpdateBlockDevice(new_cfg) => self.update_block_device(new_cfg),
+            GetEnclaveConfig => Ok(VmmData::EnclaveConfiguration(
+                self.vmm
+                    .lock()
+                    .expect("Poisoned lock")
+                    .enclave_config
+                    .clone()
+                    .unwrap_or_default(),
+            )),
             UpdateNetworkInterface(netif_update) => self.update_net_rate_limiters(netif_update),
             UpdatePmemDevice(new_cfg) => self.update_pmem_device(new_cfg),
             UpdateMemoryHotplugSize(cfg) => self
@@ -867,6 +891,7 @@ impl RuntimeApiController {
             | LoadSnapshot(_)
             | PutCpuConfiguration(_)
             | SetBalloonDevice(_)
+            | SetEnclaveConfig(_)
             | SetVsockDevice(_)
             | SetMmdsConfiguration(_)
             | SetEntropyDevice(_)
@@ -1359,6 +1384,9 @@ mod tests {
         )));
         check_unsupported(runtime_request(VmmAction::SetMemoryHotplugDevice(
             MemoryHotplugConfig::default(),
+        )));
+        check_unsupported(runtime_request(VmmAction::SetEnclaveConfig(
+            EnclaveConfig::default(),
         )));
     }
 }
