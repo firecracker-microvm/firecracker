@@ -63,6 +63,8 @@ pub struct VmCommon {
     pub mmio_bus: Arc<Bus>,
     /// The global KVM state (fd + capabilities).
     pub kvm: Kvm,
+    /// Event fd written to by vCPUs on exit.
+    pub vcpus_exit_evt: EventFd,
 }
 
 /// Errors associated with the wrappers over KVM ioctls.
@@ -134,6 +136,8 @@ impl KvmVm {
             attempt += 1;
         };
 
+        let vcpus_exit_evt = EventFd::new(libc::EFD_NONBLOCK).map_err(VmError::EventFd)?;
+
         Ok(VmCommon {
             fd,
             max_memslots: kvm.max_nr_memslots(),
@@ -143,32 +147,39 @@ impl KvmVm {
             resource_allocator: Mutex::new(ResourceAllocator::new()),
             mmio_bus: Arc::new(Bus::new()),
             kvm,
+            vcpus_exit_evt,
         })
     }
 
     /// Creates the specified number of [`Vcpu`]s.
     ///
-    /// The returned [`EventFd`] is written to whenever any of the vcpus exit.
-    pub fn create_vcpus(&mut self, vcpu_count: u8) -> Result<(Vec<Vcpu>, EventFd), VmError> {
+    /// Each vCPU gets a clone of the `vcpus_exit_evt` EventFd stored on this KvmVm.
+    pub fn create_vcpus(&mut self, vcpu_count: u8) -> Result<Vec<Vcpu>, VmError> {
         self.arch_pre_create_vcpus(vcpu_count)?;
-
-        let exit_evt = EventFd::new(libc::EFD_NONBLOCK).map_err(VmError::EventFd)?;
 
         let mut vcpus = Vec::with_capacity(vcpu_count as usize);
         for cpu_idx in 0..vcpu_count {
-            let exit_evt = exit_evt.try_clone().map_err(VmError::EventFd)?;
+            let exit_evt = self
+                .vcpus_exit_evt()
+                .try_clone()
+                .map_err(VmError::EventFd)?;
             let vcpu = Vcpu::new(cpu_idx, self, exit_evt).map_err(VmError::CreateVcpu)?;
             vcpus.push(vcpu);
         }
 
         self.arch_post_create_vcpus(vcpu_count)?;
 
-        Ok((vcpus, exit_evt))
+        Ok(vcpus)
     }
 
     /// Returns a reference to the [`Kvm`] instance.
     pub fn kvm(&self) -> &Kvm {
         &self.common.kvm
+    }
+
+    /// Returns a reference to the vCPU exit [`EventFd`].
+    pub fn vcpus_exit_evt(&self) -> &EventFd {
+        &self.common.vcpus_exit_evt
     }
 
     /// Reserves the next `slot_cnt` contiguous kvm slot ids and returns the first one
@@ -644,7 +655,7 @@ pub(crate) mod tests {
         let vcpu_count = 2;
         let mut vm = setup_vm_with_memory(mib_to_bytes(128));
 
-        let (vcpu_vec, _) = vm.create_vcpus(vcpu_count).unwrap();
+        let vcpu_vec = vm.create_vcpus(vcpu_count).unwrap();
 
         assert_eq!(vcpu_vec.len(), vcpu_count as usize);
     }

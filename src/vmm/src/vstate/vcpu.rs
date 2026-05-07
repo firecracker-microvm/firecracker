@@ -828,7 +828,7 @@ pub(crate) mod tests {
     pub(crate) fn setup_vcpu(mem_size: usize) -> (KvmVm, Vcpu) {
         let mut vm = setup_vm_with_memory(mem_size);
 
-        let (mut vcpus, _) = vm.create_vcpus(1).unwrap();
+        let mut vcpus = vm.create_vcpus(1).unwrap();
         let mut vcpu = vcpus.remove(0);
 
         #[cfg(target_arch = "aarch64")]

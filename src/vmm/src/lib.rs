@@ -129,7 +129,6 @@ use seccomp::BpfProgram;
 use snapshot::Persist;
 use userfaultfd::Uffd;
 use vmm_sys_util::epoll::EventSet;
-use vmm_sys_util::eventfd::EventFd;
 use vmm_sys_util::terminal::Terminal;
 pub use vstate::kvm::Kvm;
 use vstate::vcpu::{self, StartThreadedError, VcpuSendEventError};
@@ -320,8 +319,6 @@ pub struct Vmm {
     uffd: Option<Uffd>,
     /// Handles to the vcpu threads with vcpu_fds inside them.
     pub vcpus_handles: Vec<VcpuHandle>,
-    // Used by Vcpus and devices to initiate teardown; Vmm should never write here.
-    vcpus_exit_evt: EventFd,
     // Device manager
     device_manager: DeviceManager,
 }
@@ -911,9 +908,9 @@ impl MutEventSubscriber for Vmm {
         let source = event.fd();
         let event_set = event.event_set();
 
-        if source == self.vcpus_exit_evt.as_raw_fd() && event_set == EventSet::IN {
+        if source == self.vm.vcpus_exit_evt().as_raw_fd() && event_set == EventSet::IN {
             // Exit event handling should never do anything more than call 'self.stop()'.
-            let _ = self.vcpus_exit_evt.read();
+            let _ = self.vm.vcpus_exit_evt().read();
 
             let exit_code = 'exit_code: {
                 // Query each vcpu for their exit_code.
@@ -942,7 +939,7 @@ impl MutEventSubscriber for Vmm {
     }
 
     fn init(&mut self, ops: &mut EventOps) {
-        if let Err(err) = ops.add(Events::new(&self.vcpus_exit_evt, EventSet::IN)) {
+        if let Err(err) = ops.add(Events::new(self.vm.vcpus_exit_evt(), EventSet::IN)) {
             error!("Failed to register vmm exit event: {}", err);
         }
     }

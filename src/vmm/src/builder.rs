@@ -174,7 +174,7 @@ pub fn build_microvm_for_boot(
     // Set up KVM VM and register memory regions.
     // Build custom CPU config if a custom template is provided.
     let mut vm = KvmVm::new(kvm)?;
-    let (mut vcpus, vcpus_exit_evt) = vm.create_vcpus(vm_resources.machine_config.vcpu_count)?;
+    let mut vcpus = vm.create_vcpus(vm_resources.machine_config.vcpu_count)?;
     vm.register_dram_memory_regions(guest_memory)?;
 
     // Allocate memory as soon as possible to make hotpluggable memory available to all consumers,
@@ -195,7 +195,7 @@ pub fn build_microvm_for_boot(
 
     let mut device_manager = DeviceManager::new(
         event_manager,
-        &vcpus_exit_evt,
+        vm.vcpus_exit_evt(),
         &vm,
         vm_resources.serial_out_path.as_ref(),
         vm_resources.serial_rate_limiter(),
@@ -322,7 +322,6 @@ pub fn build_microvm_for_boot(
         vm,
         uffd: None,
         vcpus_handles: Vec::new(),
-        vcpus_exit_evt,
         device_manager,
     };
     let vmm = Arc::new(Mutex::new(vmm));
@@ -455,7 +454,7 @@ pub fn build_microvm_from_snapshot(
     // Build custom CPU config if a custom template is provided.
     let mut vm = KvmVm::new(kvm).map_err(StartMicrovmError::KvmVm)?;
 
-    let (mut vcpus, vcpus_exit_evt) = vm
+    let mut vcpus = vm
         .create_vcpus(vm_resources.machine_config.vcpu_count)
         .map_err(StartMicrovmError::KvmVm)?;
 
@@ -513,7 +512,7 @@ pub fn build_microvm_from_snapshot(
         event_manager,
         vm_resources,
         instance_id: &instance_info.id,
-        vcpus_exit_evt: &vcpus_exit_evt,
+        vcpus_exit_evt: vm.vcpus_exit_evt(),
     };
     #[allow(unused_mut)]
     let mut device_manager =
@@ -527,7 +526,6 @@ pub fn build_microvm_from_snapshot(
         vm,
         uffd,
         vcpus_handles: Vec::new(),
-        vcpus_exit_evt,
         device_manager,
     };
 
@@ -855,7 +853,7 @@ pub(crate) mod tests {
     pub(crate) fn default_vmm() -> Vmm {
         let mut vm = setup_vm_with_memory(mib_to_bytes(128));
 
-        let (_, vcpus_exit_evt) = vm.create_vcpus(1).unwrap();
+        vm.create_vcpus(1).unwrap();
 
         Vmm {
             instance_info: InstanceInfo::default(),
@@ -865,7 +863,6 @@ pub(crate) mod tests {
             vm: Arc::new(vm),
             uffd: None,
             vcpus_handles: Vec::new(),
-            vcpus_exit_evt,
             device_manager: default_device_manager(),
         }
     }
