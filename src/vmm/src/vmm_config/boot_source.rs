@@ -22,6 +22,12 @@ use serde::{Deserialize, Serialize};
 pub const DEFAULT_KERNEL_CMDLINE: &str = "reboot=k panic=1 nomodule 8250.nr_uarts=0 i8042.noaux \
                                           i8042.nomux i8042.dumbkbd swiotlb=noforce";
 
+/// Default kernel command line for enclave VMs.
+///
+/// `initcall_blacklist=i8042_init` skips the i8042 keyboard controller probe
+/// which would otherwise stall for ~500ms on hardware without one.
+pub const DEFAULT_ENCLAVE_KERNEL_CMDLINE: &str = "panic=1 initcall_blacklist=i8042_init";
+
 /// Strongly typed data structure used to configure the boot source of the
 /// microvm.
 #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
