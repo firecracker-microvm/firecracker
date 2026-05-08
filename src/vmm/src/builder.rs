@@ -48,6 +48,7 @@ use crate::resources::VmResources;
 use crate::seccomp::BpfThreadMap;
 use crate::snapshot::Persist;
 use crate::utils::mib_to_bytes;
+use crate::vmm_config::boot_source::{DEFAULT_KERNEL_CMDLINE, build_cmdline};
 use crate::vmm_config::instance_info::{InstanceInfo, VmState};
 use crate::vmm_config::machine_config::MachineConfigError;
 use crate::vmm_config::memory_hotplug::MemoryHotplugConfig;
@@ -162,8 +163,12 @@ pub fn build_microvm_for_boot(
         .map_err(StartMicrovmError::GuestMemory)?;
 
     // Clone the command-line so that a failed boot doesn't pollute the original.
+    // If the user didn't provide boot_args, use the KVM-specific default.
     #[allow(unused_mut)]
-    let mut boot_cmdline = boot_config.cmdline.clone();
+    let mut boot_cmdline = match boot_config.cmdline.clone() {
+        Some(cmdline) => cmdline,
+        None => build_cmdline(DEFAULT_KERNEL_CMDLINE)?,
+    };
 
     let cpu_template = vm_resources
         .machine_config
@@ -797,7 +802,7 @@ pub(crate) mod tests {
     use crate::mmds::ns::MmdsNetworkStack;
     use crate::utils::mib_to_bytes;
     use crate::vmm_config::balloon::{BALLOON_DEV_ID, BalloonBuilder, BalloonDeviceConfig};
-    use crate::vmm_config::boot_source::{BootSourceConfig, DEFAULT_KERNEL_CMDLINE};
+    use crate::vmm_config::boot_source::BootSourceConfig;
     use crate::vmm_config::drive::{BlockBuilder, BlockDeviceConfig};
     use crate::vmm_config::entropy::{EntropyDeviceBuilder, EntropyDeviceConfig};
     use crate::vmm_config::machine_config::MachineConfig;
@@ -854,11 +859,7 @@ pub(crate) mod tests {
     }
 
     pub(crate) fn default_kernel_cmdline() -> Cmdline {
-        linux_loader::cmdline::Cmdline::try_from(
-            DEFAULT_KERNEL_CMDLINE,
-            crate::arch::CMDLINE_MAX_SIZE,
-        )
-        .unwrap()
+        build_cmdline(DEFAULT_KERNEL_CMDLINE).unwrap()
     }
 
     pub(crate) fn default_vmm() -> Vmm {

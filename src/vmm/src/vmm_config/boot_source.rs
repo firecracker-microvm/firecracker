@@ -4,6 +4,7 @@
 use std::fs::File;
 use std::io;
 
+use linux_loader::cmdline;
 use serde::{Deserialize, Serialize};
 
 /// Default guest kernel command line:
@@ -56,12 +57,18 @@ pub struct BootSource {
 /// Holds the kernel builder (created and validates based on BootSourceConfig).
 #[derive(Debug)]
 pub struct BootConfig {
-    /// The commandline validated against correctness.
-    pub cmdline: linux_loader::cmdline::Cmdline,
+    /// The commandline, if explicitly provided by the user. `None` means the
+    /// consumer should apply its own default (e.g. [`DEFAULT_KERNEL_CMDLINE`]).
+    pub cmdline: Option<cmdline::Cmdline>,
     /// The descriptor to the kernel file.
     pub kernel_file: File,
     /// The descriptor to the initrd file, if there is one.
     pub initrd_file: Option<File>,
+}
+
+/// Build a [`Cmdline`](cmdline::Cmdline) from a string.
+pub fn build_cmdline(s: &str) -> Result<cmdline::Cmdline, cmdline::Error> {
+    cmdline::Cmdline::try_from(s, crate::arch::CMDLINE_MAX_SIZE)
 }
 
 impl BootConfig {
@@ -78,13 +85,12 @@ impl BootConfig {
             None => None,
         };
 
-        let cmdline_str = match cfg.boot_args.as_ref() {
-            None => DEFAULT_KERNEL_CMDLINE,
-            Some(str) => str.as_str(),
+        let cmdline = match cfg.boot_args.as_ref() {
+            None => None,
+            Some(s) => {
+                Some(build_cmdline(s).map_err(|err| InvalidKernelCommandLine(err.to_string()))?)
+            }
         };
-        let cmdline =
-            linux_loader::cmdline::Cmdline::try_from(cmdline_str, crate::arch::CMDLINE_MAX_SIZE)
-                .map_err(|err| InvalidKernelCommandLine(err.to_string()))?;
 
         Ok(BootConfig {
             cmdline,
@@ -114,10 +120,7 @@ pub(crate) mod tests {
 
         let boot_cfg = BootConfig::new(&boot_src_cfg).unwrap();
         assert!(boot_cfg.initrd_file.is_none());
-        assert_eq!(
-            boot_cfg.cmdline.as_cstring().unwrap().as_bytes_with_nul(),
-            [DEFAULT_KERNEL_CMDLINE.as_bytes(), b"\0"].concat()
-        );
+        assert!(boot_cfg.cmdline.is_none());
     }
 
     #[test]
