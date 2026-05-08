@@ -335,6 +335,7 @@ pub fn build_microvm_for_boot(
         shutdown_exit_code: None,
         vm,
         device_manager,
+        enclave_config: None,
     };
     let vmm = Arc::new(Mutex::new(vmm));
 
@@ -567,6 +568,7 @@ pub fn build_microvm_from_snapshot(
         shutdown_exit_code: None,
         vm,
         device_manager,
+        enclave_config: None,
     };
 
     // Move vcpus to their own threads and start their state machine in the 'Paused' state.
@@ -955,6 +957,7 @@ pub(crate) mod tests {
             shutdown_exit_code: None,
             vm: Vm::Kvm(Arc::new(vm)),
             device_manager: default_device_manager(),
+            enclave_config: None,
         }
     }
 
@@ -977,6 +980,7 @@ pub(crate) mod tests {
             shutdown_exit_code: None,
             vm: Vm::Kvm(vm),
             device_manager,
+            enclave_config: None,
         }
     }
 

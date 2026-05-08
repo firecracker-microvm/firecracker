@@ -156,6 +156,7 @@ use crate::rpc_interface::VmmActionError;
 use crate::vmm_config::HotplugDeviceConfig;
 use crate::vmm_config::balloon::BalloonDeviceConfig;
 use crate::vmm_config::boot_source::BootSourceConfig;
+use crate::vmm_config::enclave::EnclaveConfig;
 use crate::vmm_config::entropy::EntropyDeviceConfig;
 use crate::vmm_config::instance_info::{InstanceInfo, VmState};
 use crate::vmm_config::machine_config::MachineConfig;
@@ -314,6 +315,8 @@ pub struct Vmm {
     pub vm: Vm,
     // Device manager
     device_manager: DeviceManager,
+    /// Enclave configuration (if running in enclave mode).
+    pub enclave_config: Option<EnclaveConfig>,
 }
 
 impl Vmm {
@@ -436,7 +439,7 @@ impl Vmm {
             // serial_config is marked serde(skip) so that it doesnt end up in snapshots
             serial_config: None,
             memory_hotplug,
-            enclave: None,
+            enclave: self.enclave_config.clone(),
         }
     }
 
@@ -893,7 +896,23 @@ impl MutEventSubscriber for Vmm {
                     error!("Spurious EventManager event for handler: Vmm");
                 }
             }
-            Vm::Enclave(_) => {}
+            Vm::Enclave(enclave_vm) => {
+                if source != enclave_vm.enclave_raw_fd() {
+                    error!(
+                        "Spurious EventManager event for handler: Vmm (fd={}, event_set={:?})",
+                        source, event_set
+                    );
+                    return;
+                }
+                if event_set.contains(EventSet::ERROR) {
+                    error!("Enclave exited with error");
+                    self.stop(FcExitCode::GenericError);
+                } else if event_set.contains(EventSet::HANG_UP) || event_set.contains(EventSet::IN)
+                {
+                    info!("Enclave exited");
+                    self.stop(FcExitCode::Ok);
+                }
+            }
         }
     }
 
@@ -904,7 +923,14 @@ impl MutEventSubscriber for Vmm {
                     error!("Failed to register vmm exit event: {}", err);
                 }
             }
-            Vm::Enclave(_) => {}
+            Vm::Enclave(enclave_vm) => {
+                if let Err(err) = ops.add(Events::new_raw(
+                    enclave_vm.enclave_raw_fd(),
+                    EventSet::IN | EventSet::HANG_UP | EventSet::ERROR,
+                )) {
+                    error!("Failed to register enclave fd event: {}", err);
+                }
+            }
         }
         if let Some(evt) = self.device_manager.hotplug_completion_evt()
             && let Err(err) = ops.add(Events::new(evt, EventSet::IN))
