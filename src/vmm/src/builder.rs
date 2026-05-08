@@ -359,17 +359,6 @@ pub fn build_microvm_for_boot(
         debug!("No GDB socket provided not starting gdb server.");
     }
 
-    // Load seccomp filters for the VMM thread.
-    // Execution panics if filters cannot be loaded, use --no-seccomp if skipping filters
-    // altogether is the desired behaviour.
-    // Keep this as the last step before resuming vcpus.
-    crate::seccomp::apply_filter(
-        seccomp_filters
-            .get("vmm")
-            .ok_or_else(|| StartMicrovmError::MissingSeccompFilters("vmm".to_string()))?,
-    )
-    .map_err(VmmError::SeccompFilters)?;
-
     event_manager.add_subscriber(vmm.clone());
 
     Ok(vmm)
@@ -425,10 +414,6 @@ pub enum BuildMicrovmFromSnapshotError {
     StartVcpus(#[from] crate::StartVcpusError),
     /// Failed to restore vCPUs: {0}
     RestoreVcpus(#[from] VcpuError),
-    /// Failed to apply VMM secccomp filter as none found.
-    MissingVmmSeccompFilters,
-    /// Failed to apply VMM secccomp filter: {0}
-    SeccompFiltersInternal(#[from] crate::seccomp::InstallationError),
     /// Failed to restore devices: {0}
     RestoreDevices(#[from] DeviceManagerPersistError),
     /// clock_realtime is not supported on aarch64.
@@ -548,13 +533,6 @@ pub fn build_microvm_from_snapshot(
     vmm.lock().unwrap().instance_info.state = VmState::Paused;
     event_manager.add_subscriber(vmm.clone());
 
-    // Load seccomp filters for the VMM thread.
-    // Keep this as the last step of the building process.
-    crate::seccomp::apply_filter(
-        seccomp_filters
-            .get("vmm")
-            .ok_or(BuildMicrovmFromSnapshotError::MissingVmmSeccompFilters)?,
-    )?;
     debug!("event_end: build microvm from snapshot");
 
     Ok(vmm)

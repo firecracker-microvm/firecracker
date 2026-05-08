@@ -234,8 +234,6 @@ pub enum VmmError {
     Metrics(MetricsError),
     /// Cannot add a device to the MMIO Bus. {0}
     RegisterMMIODevice(device_manager::mmio::MmioError),
-    /// Cannot install seccomp filters: {0}
-    SeccompFilters(seccomp::InstallationError),
     /// Error writing to the serial console: {0}
     Serial(io::Error),
     /// Error creating the vcpu: {0}

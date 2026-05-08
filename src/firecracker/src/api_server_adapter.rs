@@ -33,6 +33,10 @@ pub enum ApiServerError {
     FailedToBindAndRunHttpServer(ServerError),
     /// Failed to build MicroVM from Json: {0}
     BuildFromJson(crate::BuildFromJsonError),
+    /// Missing vmm seccomp filter
+    MissingSeccompFilter,
+    /// Failed to install vmm seccomp filter: {0}
+    SeccompFilter(vmm::seccomp::InstallationError),
 }
 
 #[derive(Debug)]
@@ -243,7 +247,16 @@ pub(crate) fn run_with_api(
         .map_err(ApiServerError::BuildMicroVmError),
     };
 
+    // INVARIANT: seccomp must be applied before entering the event loop.
+    // No guest-facing operations may occur between builder return and filter installation.
     let result = build_result.and_then(|vmm| {
+        vmm::seccomp::apply_filter(
+            seccomp_filters
+                .get("vmm")
+                .ok_or(ApiServerError::MissingSeccompFilter)?,
+        )
+        .map_err(ApiServerError::SeccompFilter)?;
+
         firecracker_metrics
             .lock()
             .expect("Poisoned lock")
