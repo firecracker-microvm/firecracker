@@ -9,7 +9,7 @@ set -eu -o pipefail
 set -x
 PS4='+\t '
 
-packages="systemd-udev openssh-server iproute socat iperf3 iputils fio kmod tmux hwloc vim-minimal trace-cmd strace python3-boto3 pciutils tar passwd procps-ng findutils e2fsprogs"
+packages="systemd-udev openssh-server iproute socat iperf3 iputils fio fio-engine-libaio kmod tmux hwloc vim-minimal trace-cmd strace python3-boto3 pciutils tar passwd procps-ng findutils e2fsprogs"
 
 # certain packages that are required in our CI tests are not available on Amazon Linux.
 # Build these from source so tests work properly.

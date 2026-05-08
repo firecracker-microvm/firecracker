@@ -21,6 +21,7 @@ use vm_allocator::{AddressAllocator, AllocPolicy, RangeInclusive};
 use vm_memory::{Address, ByteValued, GuestAddress, Le32};
 use vmm_sys_util::errno;
 use vmm_sys_util::eventfd::EventFd;
+use zerocopy::IntoBytes;
 
 use crate::Vm;
 use crate::devices::virtio::device::{VirtioDevice, VirtioDeviceType};
@@ -33,12 +34,13 @@ use crate::devices::virtio::transport::pci::device_status::*;
 use crate::devices::virtio::transport::{VirtioInterrupt, VirtioInterruptType};
 use crate::logger::{debug, error, warn};
 use crate::pci::configuration::{
-    PciCapability, PciConfiguration, PciConfigurationError, PciConfigurationState,
+    BAR0_REG_IDX, BarPrefetchable, Bars, NUM_BAR_REGS, PciCapability, PciConfiguration,
+    PciConfigurationError, PciConfigurationState,
 };
 use crate::pci::msix::{MsixCap, MsixConfig, MsixConfigState};
 use crate::pci::{
-    BarReprogrammingParams, DeviceRelocationError, PciCapabilityId, PciClassCode, PciDevice,
-    PciMassStorageSubclass, PciNetworkControllerSubclass, PciSBDF,
+    BarReprogrammingParams, PciCapabilityId, PciClassCode, PciDevice, PciMassStorageSubclass,
+    PciNetworkControllerSubclass, PciSBDF,
 };
 use crate::snapshot::Persist;
 use crate::vstate::bus::BusDevice;
@@ -187,6 +189,17 @@ struct VirtioPciCfgCapInfo {
     cap: VirtioPciCfgCap,
 }
 
+impl VirtioPciCfgCapInfo {
+    fn in_range(&self, reg_idx: u16, offset: u8, data_len: usize) -> bool {
+        let base = reg_idx * 4;
+        let cap_start = self.offset;
+        let cap_end = self.offset as usize + self.cap.bytes().len();
+        let start = base + u16::from(offset);
+        let end = (base + u16::from(offset)) as usize + data_len;
+        cap_start <= start && end <= cap_end
+    }
+}
+
 #[derive(Debug, Copy, Clone)]
 #[repr(u8)]
 pub enum PciVirtioSubclass {
@@ -215,8 +228,6 @@ const MSIX_PBA_BAR_OFFSET: u32 = 0x48000;
 const MSIX_PBA_SIZE: u32 = 0x800;
 /// The BAR size must be a power of 2.
 pub const CAPABILITY_BAR_SIZE: u64 = 0x80000;
-const VIRTIO_COMMON_BAR_INDEX: u8 = 0;
-const VIRTIO_SHM_BAR_INDEX: usize = 2;
 
 const NOTIFY_OFF_MULTIPLIER: u32 = 4; // A dword per notification address.
 
@@ -232,13 +243,12 @@ pub struct VirtioPciDeviceState {
     pub pci_configuration_state: PciConfigurationState,
     pub pci_dev_state: VirtioPciCommonConfigState,
     pub msix_state: MsixConfigState,
-    pub bar_address: u64,
+    pub bars: Bars,
+    pub msix_config_cap_offset: u16,
 }
 
 #[derive(Debug, thiserror::Error, displaydoc::Display)]
 pub enum VirtioPciDeviceError {
-    /// Failed creating VirtioPciDevice: {0}
-    CreateVirtioPciDevice(#[from] DeviceRelocationError),
     /// Error creating MSI configuration: {0}
     Msi(#[from] InterruptError),
     /// Invalid PCI configuration state: {0}
@@ -252,10 +262,12 @@ pub struct VirtioPciDevice {
     pub sub_id: Option<event_manager::SubscriberId>,
 
     // SBDF assigned to the device
-    sbdf: PciSBDF,
+    pub sbdf: PciSBDF,
 
     // PCI configuration registers.
     configuration: PciConfiguration,
+    // BARs region from configuration space handled separately
+    bars: Bars,
 
     // virtio PCI common configuration
     common_config: VirtioPciCommonConfig,
@@ -277,9 +289,8 @@ pub struct VirtioPciDevice {
     // needed when the guest tries to early access the virtio configuration of
     // a device.
     cap_pci_cfg_info: VirtioPciCfgCapInfo,
-
-    // Allocated address for the BAR
-    pub bar_address: u64,
+    msix_config_cap_offset: u16,
+    msix_config: Arc<Mutex<MsixConfig>>,
 }
 
 impl Debug for VirtioPciDevice {
@@ -319,7 +330,6 @@ impl VirtioPciDevice {
             subclass,
             VIRTIO_PCI_VENDOR_ID,
             pci_device_id,
-            Some(msix_config.clone()),
         )
     }
 
@@ -342,16 +352,13 @@ impl VirtioPciDevice {
             )
             .unwrap()
             .start();
-
-        self.configuration.add_pci_bar(
-            VIRTIO_COMMON_BAR_INDEX,
+        self.bars.set_bar_64(
+            VIRTIO_BAR_INDEX,
             virtio_pci_bar_addr,
             CAPABILITY_BAR_SIZE,
+            BarPrefetchable::No,
         );
-
-        // Once the BARs are allocated, the capabilities can be added to the PCI configuration.
         self.add_pci_capabilities();
-        self.bar_address = virtio_pci_bar_addr;
     }
 
     /// Constructs a new PCI transport for the given virtio device.
@@ -397,7 +404,9 @@ impl VirtioPciDevice {
             virtio_interrupt: Some(interrupt),
             memory,
             cap_pci_cfg_info: VirtioPciCfgCapInfo::default(),
-            bar_address: 0,
+            bars: Bars::default(),
+            msix_config,
+            msix_config_cap_offset: 0,
         };
 
         Ok(virtio_pci_device)
@@ -413,10 +422,7 @@ impl VirtioPciDevice {
         let vectors = msix_config.vectors.clone();
         let msix_config = Arc::new(Mutex::new(msix_config));
 
-        let pci_config = PciConfiguration::type0_from_state(
-            state.pci_configuration_state,
-            Some(msix_config.clone()),
-        )?;
+        let pci_config = PciConfiguration::type0_from_state(state.pci_configuration_state)?;
         let virtio_common_config = VirtioPciCommonConfig::new(state.pci_dev_state);
         let cap_pci_cfg_info = VirtioPciCfgCapInfo {
             offset: state.cap_pci_cfg_offset,
@@ -443,7 +449,9 @@ impl VirtioPciDevice {
             virtio_interrupt: Some(interrupt),
             memory: vm.guest_memory().clone(),
             cap_pci_cfg_info,
-            bar_address: state.bar_address,
+            bars: state.bars,
+            msix_config,
+            msix_config_cap_offset: state.msix_config_cap_offset,
         };
 
         if state.device_activated {
@@ -471,7 +479,7 @@ impl VirtioPciDevice {
     }
 
     pub fn config_bar_addr(&self) -> u64 {
-        self.configuration.get_bar_addr(VIRTIO_BAR_INDEX)
+        self.bars.get_bar_addr_64(VIRTIO_BAR_INDEX)
     }
 
     fn add_pci_capabilities(&mut self) {
@@ -525,7 +533,10 @@ impl VirtioPciDevice {
                 VIRTIO_BAR_INDEX,
                 MSIX_PBA_BAR_OFFSET,
             );
-            self.configuration.add_capability(&msix_cap);
+            // The whole Configuration region is 4K, so u16 can address it all
+            #[allow(clippy::cast_possible_truncation)]
+            let offset = self.configuration.add_capability(&msix_cap) as u16;
+            self.msix_config_cap_offset = offset;
         }
     }
 
@@ -627,7 +638,8 @@ impl VirtioPciDevice {
                 .lock()
                 .expect("Poisoned lock")
                 .state(),
-            bar_address: self.bar_address,
+            bars: self.bars,
+            msix_config_cap_offset: self.msix_config_cap_offset,
         }
     }
 }
@@ -731,15 +743,28 @@ impl PciDevice for VirtioPciDevice {
         offset: u8,
         data: &[u8],
     ) -> Option<Arc<Barrier>> {
-        // Handle the special case where the capability VIRTIO_PCI_CAP_PCI_CFG
-        // is accessed. This capability has a special meaning as it allows the
-        // guest to access other capabilities without mapping the PCI BAR.
-        let base = reg_idx as usize * 4;
-        if base + offset as usize >= self.cap_pci_cfg_info.offset as usize
-            && base + offset as usize + data.len()
-                <= self.cap_pci_cfg_info.offset as usize + self.cap_pci_cfg_info.cap.bytes().len()
-        {
-            let offset = base + offset as usize - self.cap_pci_cfg_info.offset as usize;
+        let in_bars = BAR0_REG_IDX <= reg_idx && reg_idx < BAR0_REG_IDX + u16::from(NUM_BAR_REGS);
+        let in_msix_cap_header = reg_idx * 4 == self.msix_config_cap_offset;
+        let in_pci_cfg = self.cap_pci_cfg_info.in_range(reg_idx, offset, data.len());
+        if in_bars {
+            // reg_idx is in [BAR0_REG_IDX, BAR0_REG_IDX+NUM_BAR_REGS), so the difference is 0..5.
+            #[allow(clippy::cast_possible_truncation)]
+            let bar_idx = (reg_idx - BAR0_REG_IDX) as u8;
+            self.bars.write(bar_idx, offset, data);
+            None
+        } else if in_msix_cap_header {
+            // For the MsixCap structure, we need to capture writes to the second 2 bytes
+            // of the capability header where Function Mask and MSI-X Enable bits are present.
+            // Everything else can be served from `self.configuration`.
+            self.msix_config
+                .lock()
+                .unwrap()
+                .write_msg_ctl_register(offset, data);
+            self.configuration
+                .write_config_register(reg_idx, offset, data);
+            None
+        } else if in_pci_cfg {
+            let offset = (reg_idx * 4 + u16::from(offset) - self.cap_pci_cfg_info.offset) as usize;
             self.write_cap_pci_cfg(offset, data)
         } else {
             self.configuration
@@ -749,15 +774,21 @@ impl PciDevice for VirtioPciDevice {
     }
 
     fn read_config_register(&mut self, reg_idx: u16) -> u32 {
-        // Handle the special case where the capability VIRTIO_PCI_CAP_PCI_CFG
-        // is accessed. This capability has a special meaning as it allows the
-        // guest to access other capabilities without mapping the PCI BAR.
-        let base = reg_idx as usize * 4;
-        if base >= self.cap_pci_cfg_info.offset as usize
-            && base + 4
-                <= self.cap_pci_cfg_info.offset as usize + self.cap_pci_cfg_info.cap.bytes().len()
-        {
-            let offset = base - self.cap_pci_cfg_info.offset as usize;
+        let in_bars = BAR0_REG_IDX <= reg_idx && reg_idx < BAR0_REG_IDX + u16::from(NUM_BAR_REGS);
+        let in_pci_cfg = self.cap_pci_cfg_info.in_range(reg_idx, 0, 4);
+
+        if in_bars {
+            // reg_idx is in [BAR0_REG_IDX, BAR0_REG_IDX+NUM_BAR_REGS), so the difference is 0..5.
+            #[allow(clippy::cast_possible_truncation)]
+            let bar_idx = (reg_idx - BAR0_REG_IDX) as u8;
+            let mut value: u32 = 0;
+            self.bars.read(bar_idx, 0, value.as_mut_bytes());
+            value
+        } else if in_pci_cfg {
+            // Handle the special case where the capability VIRTIO_PCI_CAP_PCI_CFG
+            // is accessed. This capability has a special meaning as it allows the
+            // guest to access other capabilities without mapping the PCI BAR.
+            let offset = (reg_idx * 4 - self.cap_pci_cfg_info.offset) as usize;
             let mut data = [0u8; 4];
             let len = u32::from(self.cap_pci_cfg_info.cap.cap.length) as usize;
             if len <= 4 {
@@ -769,24 +800,6 @@ impl PciDevice for VirtioPciDevice {
         } else {
             self.configuration.read_reg(reg_idx)
         }
-    }
-
-    fn detect_bar_reprogramming(
-        &mut self,
-        reg_idx: u16,
-        data: &[u8],
-    ) -> Option<BarReprogrammingParams> {
-        self.configuration.detect_bar_reprogramming(reg_idx, data)
-    }
-
-    fn move_bar(&mut self, old_base: u64, new_base: u64) -> Result<(), DeviceRelocationError> {
-        // We only update our idea of the bar in order to support free_bars() above.
-        // The majority of the reallocation is done inside DeviceManager.
-        if self.bar_address == old_base {
-            self.bar_address = new_base;
-        }
-
-        Ok(())
     }
 
     fn read_bar(&mut self, _base: u64, offset: u64, data: &mut [u8]) {

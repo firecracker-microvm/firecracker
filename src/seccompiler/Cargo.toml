@@ -19,7 +19,7 @@ bench = false
 bitcode = { version = "0.6.9", features = ["serde"] }
 clap = { version = "4.6.1", features = ["derive", "string"] }
 displaydoc = "0.2.5"
-libc = "0.2.185"
+libc = "0.2.186"
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.149"
 thiserror = "2.0.18"

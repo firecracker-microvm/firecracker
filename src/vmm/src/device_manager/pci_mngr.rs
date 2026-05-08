@@ -16,7 +16,7 @@ use crate::devices::virtio::balloon::Balloon;
 use crate::devices::virtio::balloon::persist::{BalloonConstructorArgs, BalloonState};
 use crate::devices::virtio::block::device::Block;
 use crate::devices::virtio::block::persist::{BlockConstructorArgs, BlockState};
-use crate::devices::virtio::device::{VirtioDevice, VirtioDeviceType};
+use crate::devices::virtio::device::{VirtioDevice, VirtioDeviceId, VirtioDeviceType};
 use crate::devices::virtio::mem::VirtioMem;
 use crate::devices::virtio::mem::persist::{VirtioMemConstructorArgs, VirtioMemState};
 use crate::devices::virtio::net::Net;
@@ -48,7 +48,7 @@ pub struct PciDevices {
     /// PCIe segment of the VMM, if PCI is enabled. We currently support a single PCIe segment.
     pub pci_segment: Option<PciSegment>,
     /// All VirtIO PCI devices of the system
-    pub virtio_devices: HashMap<(VirtioDeviceType, String), Arc<Mutex<VirtioPciDevice>>>,
+    pub virtio_devices: HashMap<VirtioDeviceId, Arc<Mutex<VirtioPciDevice>>>,
 }
 
 #[derive(Debug, thiserror::Error, displaydoc::Display)]
@@ -93,11 +93,12 @@ impl PciDevices {
 
         debug!(
             "Inserting MMIO BAR region: {:#x}:{:#x}",
-            virtio_device_locked.bar_address, CAPABILITY_BAR_SIZE
+            virtio_device_locked.config_bar_addr(),
+            CAPABILITY_BAR_SIZE
         );
         vm.common.mmio_bus.insert(
             virtio_device.clone(),
-            virtio_device_locked.bar_address,
+            virtio_device_locked.config_bar_addr(),
             CAPABILITY_BAR_SIZE,
         )?;
 
@@ -120,7 +121,7 @@ impl PciDevices {
             .pci_bus
             .lock()
             .expect("Poisoned lock")
-            .add_device(sbdf.device(), virtio_device.clone());
+            .add_device(sbdf.device(), virtio_device.clone())?;
 
         self.virtio_devices
             .insert((device_type, id), virtio_device.clone());
@@ -136,13 +137,11 @@ impl PciDevices {
         Ok(())
     }
 
-    pub(crate) fn attach_pci_virtio_device<
-        T: 'static + VirtioDevice + MutEventSubscriber + Debug,
-    >(
+    pub(crate) fn attach_pci_virtio_device(
         &mut self,
         vm: &Arc<Vm>,
         id: String,
-        device: Arc<Mutex<T>>,
+        device: Arc<Mutex<dyn VirtioDevice>>,
         event_manager: &mut EventManager,
     ) -> Result<(), PciManagerError> {
         // We should only be reaching this point if PCI is enabled
