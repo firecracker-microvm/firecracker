@@ -54,6 +54,7 @@ const VIRTIO_BALLOON_F_STATS_VQ: u32 = 1; // Enable statistics.
 const VIRTIO_BALLOON_F_DEFLATE_ON_OOM: u32 = 2; // Deflate balloon on OOM.
 const VIRTIO_BALLOON_F_FREE_PAGE_HINTING: u32 = 3; // Enable free page hinting
 const VIRTIO_BALLOON_F_FREE_PAGE_REPORTING: u32 = 5; // Enable free page reporting
+pub(crate) const VIRTIO_BALLOON_F_HINT_WAIT_ON_ACK: u32 = 6; // Hinting waits on device ack
 
 // The statistics tags. defined in linux "include/uapi/linux/virtio_balloon.h".
 const VIRTIO_BALLOON_S_SWAP_IN: u16 = 0;

@@ -20,7 +20,8 @@ use super::{
     FREE_PAGE_HINT_STOP, INFLATE_INDEX, MAX_PAGE_COMPACT_BUFFER, MAX_PAGES_IN_DESC,
     MIB_TO_4K_PAGES, STATS_INDEX, VIRTIO_BALLOON_F_DEFLATE_ON_OOM,
     VIRTIO_BALLOON_F_FREE_PAGE_HINTING, VIRTIO_BALLOON_F_FREE_PAGE_REPORTING,
-    VIRTIO_BALLOON_F_STATS_VQ, VIRTIO_BALLOON_PFN_SHIFT, VIRTIO_BALLOON_S_ALLOC_STALL,
+    VIRTIO_BALLOON_F_HINT_WAIT_ON_ACK, VIRTIO_BALLOON_F_STATS_VQ, VIRTIO_BALLOON_PFN_SHIFT,
+    VIRTIO_BALLOON_S_ALLOC_STALL,
     VIRTIO_BALLOON_S_ASYNC_RECLAIM, VIRTIO_BALLOON_S_ASYNC_SCAN, VIRTIO_BALLOON_S_AVAIL,
     VIRTIO_BALLOON_S_CACHES, VIRTIO_BALLOON_S_DIRECT_RECLAIM, VIRTIO_BALLOON_S_DIRECT_SCAN,
     VIRTIO_BALLOON_S_HTLB_PGALLOC, VIRTIO_BALLOON_S_HTLB_PGFAIL, VIRTIO_BALLOON_S_MAJFLT,
@@ -299,6 +300,7 @@ impl Balloon {
         if free_page_hinting {
             log_dev_preview_warning("Free Page Hinting", None);
             avail_features |= 1u64 << VIRTIO_BALLOON_F_FREE_PAGE_HINTING;
+            avail_features |= 1u64 << VIRTIO_BALLOON_F_HINT_WAIT_ON_ACK;
             queue_count += 1;
         }
 
@@ -741,6 +743,10 @@ impl Balloon {
         self.avail_features & (1u64 << VIRTIO_BALLOON_F_FREE_PAGE_HINTING) != 0
     }
 
+    pub fn free_page_hinting_wait_ack(&self) -> bool {
+        self.avail_features & (1u64 << VIRTIO_BALLOON_F_HINT_WAIT_ON_ACK) != 0
+    }
+
     pub fn free_page_hinting_idx(&self) -> usize {
         let mut idx = BALLOON_MIN_NUM_QUEUES;
 
@@ -1169,6 +1175,7 @@ pub(crate) mod tests {
                 | (u64::from(*deflate_on_oom) << VIRTIO_BALLOON_F_DEFLATE_ON_OOM)
                 | ((u64::from(*reporting)) << VIRTIO_BALLOON_F_FREE_PAGE_REPORTING)
                 | ((u64::from(*hinting)) << VIRTIO_BALLOON_F_FREE_PAGE_HINTING)
+                | ((u64::from(*hinting)) << VIRTIO_BALLOON_F_HINT_WAIT_ON_ACK)
                 | ((u64::from(*stats_interval)) << VIRTIO_BALLOON_F_STATS_VQ);
 
             assert_eq!(
@@ -1185,6 +1192,31 @@ pub(crate) mod tests {
             }
             // Only present features should be acknowledged.
             assert_eq!(balloon.acked_features, features);
+        }
+    }
+
+    #[test]
+    fn test_wait_on_ack_advertised_with_fph() {
+        let balloon = Balloon::new(0, false, 0, true, false).unwrap();
+        assert!(balloon.free_page_hinting());
+        assert!(balloon.free_page_hinting_wait_ack());
+        assert_ne!(
+            balloon.avail_features & (1u64 << VIRTIO_BALLOON_F_HINT_WAIT_ON_ACK),
+            0
+        );
+    }
+
+    #[test]
+    fn test_wait_on_ack_not_advertised_without_fph() {
+        for (deflate, stats_interval, reporting) in
+            iproduct!(&[true, false], &[0u16, 1], &[true, false])
+        {
+            let balloon = Balloon::new(0, *deflate, *stats_interval, false, *reporting).unwrap();
+            assert!(!balloon.free_page_hinting_wait_ack());
+            assert_eq!(
+                balloon.avail_features & (1u64 << VIRTIO_BALLOON_F_HINT_WAIT_ON_ACK),
+                0
+            );
         }
     }
 

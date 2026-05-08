@@ -263,4 +263,29 @@ mod tests {
         assert_eq!(restored_balloon.stats_desc_index, balloon.stats_desc_index);
         assert_eq!(restored_balloon.latest_stats, balloon.latest_stats);
     }
+
+    #[test]
+    fn test_wait_on_ack_round_trips_snapshot() {
+        let guest_mem = default_mem();
+        let mut mem = vec![0; 4096];
+
+        let balloon = Balloon::new(0, false, 0, true, false).unwrap();
+        assert!(balloon.free_page_hinting_wait_ack());
+
+        Snapshot::new(balloon.save())
+            .save(&mut mem.as_mut_slice())
+            .unwrap();
+
+        let restored_balloon = Balloon::restore(
+            BalloonConstructorArgs { mem: guest_mem },
+            &Snapshot::load_without_crc_check(mem.as_slice())
+                .unwrap()
+                .data,
+        )
+        .unwrap();
+
+        assert!(restored_balloon.free_page_hinting());
+        assert!(restored_balloon.free_page_hinting_wait_ack());
+        assert_eq!(restored_balloon.avail_features, balloon.avail_features);
+    }
 }
