@@ -465,6 +465,26 @@ your scenario.
 >
 > This will prevent ranges which have been reclaimed from being freed.
 
+#### `VIRTIO_BALLOON_F_HINT_WAIT_ON_ACK`
+
+Whenever `free_page_hinting` is enabled, Firecracker also advertises
+`VIRTIO_BALLOON_F_HINT_WAIT_ON_ACK` (bit 6). When negotiated, the guest
+driver waits for the device to signal-used each hint buffer before
+pushing the corresponding page onto its internal free list — closing
+the data-loss race described in the warning above without any host-side
+protocol change.
+
+The bit only takes effect on guests whose kernel carries the supporting
+patch (Jack Thomson's `virtio_balloon: Support wait on ACK for hinting`,
+not yet upstream as of this writing). On unsupported guests the driver
+self-clears the bit during `validate`, so the advertise is ignored and
+hinting falls back to the unsynchronised behaviour. There is no separate
+configuration knob — opting into `free_page_hinting` is sufficient.
+
+Note that the per-buffer round trip introduces extra wait time per hint
+cycle on supported guests; the safety/perf trade-off is intentional and
+documented at the kernel-patch level.
+
 ## Balloon Caveats
 
 - Firecracker has no control over the speed of inflation or deflation; this is
