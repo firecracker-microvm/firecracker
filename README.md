@@ -116,6 +116,8 @@ The **API endpoint** can be used to:
 - Add a [entropy device](docs/entropy.md) to the microVM.
 - Add a [pmem device](docs/pmem.md) to the microVM.
 - Configure and manage [memory hotplugging](docs/memory-hotplug.md).
+- `[Developer Preview]` [Hot-plug and hot-unplug](docs/device-hotplug.md) virtio
+  PCI devices while the VM is running.
 - Start the microVM using a given kernel image, root file system, and boot
   arguments.
 - [x86_64 only] Stop the microVM.
