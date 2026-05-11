@@ -480,11 +480,7 @@ def test_hotplug_max_devices(uvm_any_with_pci):
             is_read_only=False,
         )
 
-    # Unplug all hotplugged devices
-    for i in range(free_slots):
-        vm.api.drive.delete(f"block{i}")
-
-    # Remove the stale devices from the guest
+    # Remove the devices from the guest first
     new_bdfs = [
         l.split()[0]
         for l in set(lspci_full.strip().splitlines())
@@ -492,6 +488,10 @@ def test_hotplug_max_devices(uvm_any_with_pci):
     ]
     for bdf in new_bdfs:
         vm.ssh.check_output(f"echo 1 > /sys/bus/pci/devices/0000:{bdf}/remove")
+
+    # Then unplug all hotplugged devices via the API
+    for i in range(free_slots):
+        vm.api.drive.delete(f"block{i}")
 
     # Verify we're back to the initial number of devices
     _, lspci, _ = vm.ssh.check_output("lspci -n")
