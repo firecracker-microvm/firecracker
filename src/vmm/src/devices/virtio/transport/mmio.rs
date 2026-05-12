@@ -187,12 +187,8 @@ impl MmioTransport {
                 let mut locked_device = self.device.lock().expect("Poisoned lock");
                 if locked_device.is_activated() {
                     let mut device_status = self.device_status;
-                    let reset_result = locked_device.reset();
-                    match reset_result {
-                        Some((_interrupt_evt, mut _queue_evts)) => {}
-                        None => {
-                            device_status |= FAILED;
-                        }
+                    if !locked_device.reset() {
+                        device_status |= FAILED;
                     }
                     self.device_status = device_status;
                 }
@@ -614,7 +610,7 @@ pub(crate) mod tests {
         let interrupt = Arc::new(IrqTrigger::new());
         let mut dummy = DummyDevice::new();
         // Validate reset is no-op.
-        assert!(dummy.reset().is_none());
+        assert!(!dummy.reset());
         let mut d = MmioTransport::new(m, interrupt, Arc::new(Mutex::new(dummy)), false);
 
         // We just make sure here that the implementation of a mmio device behaves as we expect,

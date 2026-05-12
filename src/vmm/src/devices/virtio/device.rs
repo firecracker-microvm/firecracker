@@ -178,10 +178,9 @@ pub trait VirtioDevice: AsAny + MutEventSubscriber + Send {
     /// Checks if the resources of this device are activated.
     fn is_activated(&self) -> bool;
 
-    /// Optionally deactivates this device and returns ownership of the guest memory map, interrupt
-    /// event, and queue events.
-    fn reset(&mut self) -> Option<(Arc<dyn VirtioInterrupt>, Vec<EventFd>)> {
-        None
+    /// Reset the device. Returns true on success, false otherwise.
+    fn reset(&mut self) -> bool {
+        false
     }
 
     /// Mark pages used by queues as dirty.
