@@ -8,13 +8,17 @@
 use std::fmt::{self, Debug};
 use std::fs::File;
 use std::io::Error as IoError;
+use std::io::ErrorKind;
 use std::os::raw::*;
 use std::os::unix::io::{AsRawFd, FromRawFd, RawFd};
+use std::os::unix::net::UnixStream;
+use std::path::PathBuf;
 
 use vmm_sys_util::ioctl::{ioctl_with_mut_ref, ioctl_with_ref, ioctl_with_val};
 use vmm_sys_util::ioctl_iow_nr;
 
 use crate::devices::virtio::iovec::IoVecBuffer;
+use crate::devices::virtio::net::device::vnet_hdr_len;
 use crate::devices::virtio::net::generated;
 
 // As defined in the Linux UAPI:
@@ -109,6 +113,169 @@ impl IfReqBuilder {
         }
 
         Ok(self.0)
+    }
+}
+
+#[derive(Debug)]
+pub struct PasstBackend {
+    fd: UnixStream,
+    hdr_size: c_int,
+    path: PathBuf,
+}
+
+impl PasstBackend {
+    pub fn new(path: String) -> Result<Self, IoError> {
+        // open a socket and set its path to path
+        let stream = UnixStream::connect(path.clone())?;
+        stream.set_nonblocking(true)?;
+        Ok(PasstBackend {
+            fd: stream,
+            hdr_size: 0,
+            path: PathBuf::from(&path),
+        })
+    }
+
+    fn read_iovec(&mut self, buffer: &mut [libc::iovec]) -> Result<usize, IoError> {
+        let iov = buffer.as_mut_ptr();
+        let iovcnt = buffer.len().try_into().unwrap();
+
+        // SAFETY: Dereferencing a pointer underlying a slice can never be null as guaranteed by the compiler.
+        unsafe {
+            if (*iov).iov_len < 12 && iovcnt == 1 {
+                // we don't have enough iovs to receive 12 bytes
+                if iovcnt == 1 {
+                    return Err(IoError::new(
+                        ErrorKind::InvalidData,
+                        "The buffers allocated for the packet don't contain the minimum capacity to receive",
+                    ));
+                }
+            }
+        }
+
+        // the guest expects the vnet header to be populated, which passt won't provide.
+        // write the header length bytes into the iov at the start.
+        // SAFETY: We just checked that the iov is atleast 12 bytes in length.
+        unsafe { std::ptr::write_bytes((*iov).iov_base.cast::<u8>(), 0, vnet_hdr_len()) };
+
+        // read the length of the incoming packet which passt adds to discard it as we have no use for it.
+        // SAFETY: `read` is being called with a valid file descriptor and the error is being handled.
+        let mut len_buf = [0u8; 4];
+        let ret = unsafe {
+            libc::read(
+                self.fd.as_raw_fd(),
+                len_buf.as_mut_ptr().cast::<core::ffi::c_void>(),
+                4,
+            )
+        };
+        if ret == -1 {
+            return Err(IoError::last_os_error());
+        }
+
+        // SAFETY: We checked that there are atleast 12 bytes in the first iov and there is more
+        // than 1 and we are calling `readv` with a valid file descriptor.
+        let ret = unsafe {
+            // store the original base of the which contains the vnet header bytes we wrote
+            let original_base = (*iov).iov_base;
+            // add vnet_hdr_len bytes to the base so when we call readv on the fd it writes vnet_hdr_len
+            // bytes into the iov
+            (*iov).iov_base = ((*iov).iov_base.cast::<u8>()).add(vnet_hdr_len()).cast();
+            let ret = libc::readv(self.fd.as_raw_fd(), iov, iovcnt);
+            // revert the iov base back to the original base so the guest would see [vnet_header][ethernet_frame]
+            (*iov).iov_base = original_base;
+            ret
+        };
+        if ret == -1 {
+            return Err(IoError::last_os_error());
+        }
+
+        Ok(usize::try_from(ret + vnet_hdr_len().cast_signed()).unwrap())
+    }
+
+    fn write_iovec(&mut self, buffer: &IoVecBuffer) -> Result<usize, IoError> {
+        // get the count of iovs from the buffer
+        let iovcnt = buffer.iovec_count();
+
+        // the guest didn't put a vnet header into the packet
+        if buffer.len() as usize <= vnet_hdr_len() {
+            return Err(IoError::new(
+                ErrorKind::InvalidData,
+                "Packet sent by the guest isn't the minimum needed size",
+            ));
+        };
+
+        // the guest will have set the length to how many bytes were in the frame + vnet_hdr_len
+        let msglen =
+            ((buffer.len() - u32::try_from(vnet_hdr_len()).unwrap()) as libc::c_uint).to_be();
+
+        // Copy the first iov into a new iov.
+        // SAFETY: IoVecBuffer is a safe wrapper that contains a vector, dereferencing the
+        // pointer can never be null. We already checked the iov length is atleast 12 bytes
+        // and we are writing a valid value to iov_base.
+        let mut iov = unsafe {
+            let mut i = *buffer.as_iovec_ptr();
+            // add 12 bytes to its base to ignore the vnet header. we will use the last 4 bytes
+            // of the space allocated to the vnet header to write the size
+            i.iov_base = (i.iov_base.cast::<u8>()).add(vnet_hdr_len() - 4).cast();
+
+            // copy msglen into this new base
+            std::ptr::write_unaligned(i.iov_base.cast::<u32>(), msglen);
+            i
+        };
+
+        // set the length to 4 (the size before the ethernet header)
+        iov.iov_len = 4;
+
+        // build a new iovec buffer, with one extra iov because we split the first into 2.
+        let mut iovs: Vec<libc::iovec> = {
+            let mut new_buf = Vec::with_capacity(iovcnt + 1);
+            // push the 4 bytes iov we just created to it
+            new_buf.push(iov);
+            // push the spliced iov (the rest of the original)
+            // SAFETY: We previously checked that the first iov has atleast 12 bytes.
+            unsafe {
+                new_buf.push(libc::iovec {
+                    iov_base: (iov.iov_base.cast::<u8>())
+                        .add(4)
+                        .cast::<core::ffi::c_void>(),
+                    iov_len: buffer.len() as usize - vnet_hdr_len(), // the original message length
+                });
+            }
+            let mut curr_iov = buffer.as_iovec_ptr();
+            // SAFETY: We are iterating on a valid array of iovec's up to iovcnt and creating
+            // immutable pointers from it.
+            unsafe {
+                for _ in 1..iovcnt {
+                    // add 1 will add the size of an iovec to that address
+                    curr_iov = curr_iov.add(1);
+                    new_buf.push(*curr_iov);
+                }
+            }
+
+            new_buf
+        };
+
+        // SAFETY: calling `writev` with a valid file descriptor and handling the error.
+        let ret = unsafe {
+            libc::writev(
+                self.fd.as_raw_fd(),
+                iovs.as_ptr(),
+                i32::try_from(iovs.len()).unwrap(),
+            )
+        };
+        if ret == -1 {
+            return Err(IoError::last_os_error());
+        }
+        Ok(usize::try_from(ret).unwrap())
+    }
+
+    pub fn identifier(&self) -> String {
+        self.path.display().to_string()
+    }
+}
+
+impl AsRawFd for PasstBackend {
+    fn as_raw_fd(&self) -> RawFd {
+        self.fd.as_raw_fd()
     }
 }
 
