@@ -96,6 +96,39 @@ def make_blob(dst_dir, size=BLOB_SIZE):
     return blob_path, blob_hash.hexdigest()
 
 
+def boot_vsock_vm(
+    vm,
+    *,
+    vcpu_count=None,
+    mem_size_mib=None,
+    log_level=None,
+    emit_metrics=False,
+    pin_threads=False,
+):
+    """Spawn, configure and start a microVM with a vsock device attached."""
+    spawn_kwargs = {}
+    if log_level is not None:
+        spawn_kwargs["log_level"] = log_level
+    if emit_metrics:
+        spawn_kwargs["emit_metrics"] = True
+    vm.spawn(**spawn_kwargs)
+
+    config_kwargs = {}
+    if vcpu_count is not None:
+        config_kwargs["vcpu_count"] = vcpu_count
+    if mem_size_mib is not None:
+        config_kwargs["mem_size_mib"] = mem_size_mib
+    vm.basic_config(**config_kwargs)
+
+    vm.add_net_iface()
+    vm.api.vsock.put(vsock_id="vsock0", guest_cid=3, uds_path="/" + VSOCK_UDS_PATH)
+    vm.start()
+    if pin_threads:
+        vm.pin_threads(0)
+
+    return vm
+
+
 def start_guest_echo_server(vm):
     """Start a vsock echo server in the microVM.
 

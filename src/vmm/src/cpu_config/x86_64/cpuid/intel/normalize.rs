@@ -312,8 +312,6 @@ pub enum DefaultBrandStringError {
 ///
 /// Never.
 // As we pass through host frequency, we require CPUID and thus `cfg(cpuid)`.
-// TODO: Use `split_array_ref`
-// (https://github.com/firecracker-microvm/firecracker/issues/3347)
 #[allow(clippy::indexing_slicing, clippy::arithmetic_side_effects)]
 #[inline]
 fn default_brand_string(
