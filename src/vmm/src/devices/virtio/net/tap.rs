@@ -117,6 +117,44 @@ impl IfReqBuilder {
 }
 
 #[derive(Debug)]
+pub enum NetDevBackend {
+    Passt(PasstBackend),
+    Tap(Tap),
+}
+
+impl AsRawFd for NetDevBackend {
+    fn as_raw_fd(&self) -> RawFd {
+        match self {
+            NetDevBackend::Passt(passt) => passt.as_raw_fd(),
+            NetDevBackend::Tap(tap) => tap.as_raw_fd(),
+        }
+    }
+}
+
+impl NetDevBackend {
+    pub fn identifier(&self) -> String {
+        match self {
+            NetDevBackend::Passt(passt) => passt.identifier(),
+            NetDevBackend::Tap(tap) => tap.identifier(),
+        }
+    }
+
+    pub fn read_iovec(&mut self, buffer: &mut [libc::iovec]) -> Result<usize, IoError> {
+        match self {
+            NetDevBackend::Passt(passt) => passt.read_iovec(buffer),
+            NetDevBackend::Tap(tap) => tap.read_iovec(buffer),
+        }
+    }
+
+    pub fn write_iovec(&mut self, buffer: &IoVecBuffer) -> Result<usize, IoError> {
+        match self {
+            NetDevBackend::Passt(passt) => passt.write_iovec(buffer),
+            NetDevBackend::Tap(tap) => tap.write_iovec(buffer),
+        }
+    }
+}
+
+#[derive(Debug)]
 pub struct PasstBackend {
     fd: UnixStream,
     hdr_size: c_int,
@@ -351,7 +389,6 @@ impl Tap {
     pub(crate) fn write_iovec(&mut self, buffer: &IoVecBuffer) -> Result<usize, IoError> {
         let iovcnt = i32::try_from(buffer.iovec_count()).unwrap();
         let iov = buffer.as_iovec_ptr();
-
         // SAFETY: `writev` is safe. Called with a valid tap fd, the iovec pointer and length
         // is provide by the `IoVecBuffer` implementation and we check the return value.
         let ret = unsafe { libc::writev(self.tap_file.as_raw_fd(), iov, iovcnt) };
@@ -373,6 +410,10 @@ impl Tap {
             return Err(IoError::last_os_error());
         }
         Ok(usize::try_from(ret).unwrap())
+    }
+
+    pub fn identifier(&self) -> String {
+        self.if_name_as_str().to_string()
     }
 }
 
