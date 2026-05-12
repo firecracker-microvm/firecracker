@@ -974,41 +974,36 @@ impl PciDevice for VirtioPciDevice {
         // Device has been reset by the driver
         if self.device_activated.load(Ordering::SeqCst) && self.is_driver_init() {
             let mut device = self.device.lock().unwrap();
-            let reset_result = device.reset();
-            match reset_result {
-                Some(_) => {
-                    // Upon reset the device returns its interrupt EventFD
-                    self.virtio_interrupt = None;
-                    self.device_activated.store(false, Ordering::SeqCst);
+            if device.reset() {
+                self.virtio_interrupt = None;
+                self.device_activated.store(false, Ordering::SeqCst);
 
-                    // Reset queue readiness (changes queue_enable), queue sizes
-                    // and selected_queue as per spec for reset
-                    self.virtio_device()
-                        .lock()
-                        .unwrap()
-                        .queues_mut()
-                        .iter_mut()
-                        .for_each(Queue::reset);
-                    self.common_config.queue_select = 0;
-                }
-                None => {
-                    error!("Attempt to reset device when not implemented in underlying device");
-                    // The virtio spec does not specify what to do if reset fails.
-                    //
-                    // Our MMIO transport sets FAILED in this case, but we must NOT do that for PCI.
-                    // During shutdown, the Linux kernel issues a reset to each virtio device.  The
-                    // virtio PCI driver then polls device_status until it reads back 0, unlike the
-                    // virtio MMIO driver which simply writes 0 and returns.  Setting FAILED would
-                    // cause the poll to spin forever, breaking reboot command and Ctrl-Alt-Del.
-                    // - PCI: https://elixir.bootlin.com/linux/v6.19.8/source/drivers/virtio/virtio_pci_modern.c#L546-L565
-                    // - MMIO: https://elixir.bootlin.com/linux/v6.19.8/source/drivers/virtio/virtio_mmio.c#L251-L258
-                    //
-                    // Since device_status was already set to INIT by set_device_status(), we don't
-                    // need to set it again here.  However, the backend device is still active since
-                    // reset() is unimplemented.  The combination of device_activated == true and
-                    // device_status == INIT will cause set_device_status() to block any
-                    // re-initialization attempts.
-                }
+                // Reset queue readiness (changes queue_enable), queue sizes
+                // and selected_queue as per spec for reset
+                self.virtio_device()
+                    .lock()
+                    .unwrap()
+                    .queues_mut()
+                    .iter_mut()
+                    .for_each(Queue::reset);
+                self.common_config.queue_select = 0;
+            } else {
+                error!("Attempt to reset device when not implemented in underlying device");
+                // The virtio spec does not specify what to do if reset fails.
+                //
+                // Our MMIO transport sets FAILED in this case, but we must NOT do that for PCI.
+                // During shutdown, the Linux kernel issues a reset to each virtio device.  The
+                // virtio PCI driver then polls device_status until it reads back 0, unlike the
+                // virtio MMIO driver which simply writes 0 and returns.  Setting FAILED would
+                // cause the poll to spin forever, breaking reboot command and Ctrl-Alt-Del.
+                // - PCI: https://elixir.bootlin.com/linux/v6.19.8/source/drivers/virtio/virtio_pci_modern.c#L546-L565
+                // - MMIO: https://elixir.bootlin.com/linux/v6.19.8/source/drivers/virtio/virtio_mmio.c#L251-L258
+                //
+                // Since device_status was already set to INIT by set_device_status(), we don't
+                // need to set it again here.  However, the backend device is still active since
+                // reset() is unimplemented.  The combination of device_activated == true and
+                // device_status == INIT will cause set_device_status() to block any
+                // re-initialization attempts.
             }
         }
         None
