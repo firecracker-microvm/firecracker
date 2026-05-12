@@ -11,6 +11,8 @@ use serde::{Deserialize, Serialize};
 use super::device::{Net, RxBuffers};
 use super::{NET_NUM_QUEUES, NET_QUEUE_MAX_SIZE, RX_INDEX, TapError};
 use crate::devices::virtio::device::{ActiveState, DeviceState, VirtioDeviceType};
+use crate::devices::virtio::net::device::NetDevBackendType;
+use crate::devices::virtio::net::tap::NetDevBackend;
 use crate::devices::virtio::persist::{PersistError as VirtioStateError, VirtioDeviceState};
 use crate::devices::virtio::transport::VirtioInterrupt;
 use crate::mmds::data_store::Mmds;
@@ -24,6 +26,7 @@ use crate::vstate::memory::GuestMemoryMmap;
 
 /// Information about the network config's that are saved
 /// at snapshot.
+/// ammar: if i snapshot a passt vm and restore it, will i get the same mac?
 #[derive(Debug, Default, Clone, Serialize, Deserialize)]
 pub struct NetConfigSpaceState {
     guest_mac: Option<MacAddr>,
@@ -34,13 +37,14 @@ pub struct NetConfigSpaceState {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct NetState {
     pub id: String,
-    pub tap_if_name: String,
+    pub backend_identifier: String,
     rx_rate_limiter_state: RateLimiterState,
     tx_rate_limiter_state: RateLimiterState,
     /// The associated MMDS network stack.
     pub mmds_ns: Option<MmdsNetworkStackState>,
     config_space: NetConfigSpaceState,
     pub virtio_state: VirtioDeviceState,
+    pub backend_type: NetDevBackendType,
 }
 
 /// Auxiliary structure for creating a device when resuming from a snapshot.
@@ -73,9 +77,13 @@ impl Persist<'_> for Net {
     type Error = NetPersistError;
 
     fn save(&self) -> Self::State {
+        let backend_type = match &self.backend {
+            NetDevBackend::Tap(tap) => NetDevBackendType::Tap(tap.identifier()),
+            NetDevBackend::Passt(passt) => NetDevBackendType::Passt(passt.identifier()),
+        };
         NetState {
             id: self.id.clone(),
-            tap_if_name: self.iface_name(),
+            backend_identifier: self.identifier(),
             rx_rate_limiter_state: self.rx_rate_limiter.save(),
             tx_rate_limiter_state: self.tx_rate_limiter.save(),
             mmds_ns: self.mmds_ns.as_ref().map(|mmds| mmds.save()),
@@ -83,6 +91,7 @@ impl Persist<'_> for Net {
                 guest_mac: self.guest_mac,
             },
             virtio_state: VirtioDeviceState::from_device(self),
+            backend_type: backend_type,
         }
     }
 
@@ -95,10 +104,11 @@ impl Persist<'_> for Net {
         let tx_rate_limiter = RateLimiter::restore((), &state.tx_rate_limiter_state)?;
         let mut net = Net::new(
             state.id.clone(),
-            &state.tap_if_name,
+            &state.backend_identifier,
             state.config_space.guest_mac,
             rx_rate_limiter,
             tx_rate_limiter,
+            NetDevBackendType::Tap(state.backend_identifier.clone()),
         )?;
 
         // We trust the MMIODeviceManager::restore to pass us an MMDS data store reference if
@@ -143,7 +153,7 @@ mod tests {
         let guest_mem = default_mem();
 
         let id;
-        let tap_if_name;
+        let backend_identifier;
         let has_mmds_ns;
         let allow_mmds_requests;
         let virtio_state;
@@ -156,7 +166,7 @@ mod tests {
 
             // Save some fields that we want to check later.
             id = net.id.clone();
-            tap_if_name = net.iface_name();
+            backend_identifier = net.identifier();
             has_mmds_ns = net.mmds_ns.is_some();
             allow_mmds_requests = has_mmds_ns && mmds_ds.is_some();
             virtio_state = VirtioDeviceState::from_device(&net);
@@ -184,7 +194,7 @@ mod tests {
 
                     // Test that net specific fields are the same.
                     assert_eq!(&restored_net.id, &id);
-                    assert_eq!(&restored_net.iface_name(), &tap_if_name);
+                    assert_eq!(&restored_net.identifier(), &backend_identifier);
                     assert_eq!(restored_net.mmds_ns.is_some(), allow_mmds_requests);
                     assert_eq!(restored_net.rx_rate_limiter, RateLimiter::default());
                     assert_eq!(restored_net.tx_rate_limiter, RateLimiter::default());
