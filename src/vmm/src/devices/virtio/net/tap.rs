@@ -505,9 +505,11 @@ pub mod tests {
 
     #[test]
     fn test_write_iovec() {
-        let mut tap = Tap::open_named("").unwrap();
-        enable(&tap);
-        let tap_traffic_simulator = TapTrafficSimulator::new(if_index(&tap));
+        let tap_dev = Tap::open_named("").unwrap();
+        let if_name = tap_dev.if_name;
+        let mut tap = NetDevBackend::Tap(Tap::open_named("").unwrap());
+        enable(&if_name);
+        let tap_traffic_simulator = TapTrafficSimulator::new(&tap);
 
         let mut fragment1 = vmm_sys_util::rand::rand_bytes(PAYLOAD_SIZE);
         fragment1.as_mut_slice()[..generated::ETH_HLEN as usize]
@@ -515,7 +517,7 @@ pub mod tests {
         let fragment2 = vmm_sys_util::rand::rand_bytes(PAYLOAD_SIZE);
         let fragment3 = vmm_sys_util::rand::rand_bytes(PAYLOAD_SIZE);
 
-        let scattered = IoVecBuffer::from(vec![
+        let mut scattered = IoVecBuffer::from(vec![
             fragment1.as_slice(),
             fragment2.as_slice(),
             fragment3.as_slice(),
@@ -542,9 +544,12 @@ pub mod tests {
 
     #[test]
     fn test_read_iovec() {
-        let mut tap = Tap::open_named("").unwrap();
-        enable(&tap);
-        let tap_traffic_simulator = TapTrafficSimulator::new(if_index(&tap));
+        let tap_dev = Tap::open_named("").unwrap();
+        let if_name = tap_dev.if_name;
+        let mut tap = NetDevBackend::Tap(Tap::open_named("").unwrap());
+        enable(&if_name);
+
+        let tap_traffic_simulator = TapTrafficSimulator::new(&tap);
 
         let mut buff1 = vec![0; PAYLOAD_SIZE + VNET_HDR_SIZE];
         let mut buff2 = vec![0; 2 * PAYLOAD_SIZE];

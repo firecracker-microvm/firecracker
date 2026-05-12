@@ -619,6 +619,7 @@ mod tests {
     use crate::builder::tests::*;
     use crate::device_manager;
     use crate::devices::virtio::block::CacheType;
+    use crate::devices::virtio::net::device::NetDevBackendType;
     use crate::resources::VmmConfig;
     use crate::vmm_config::balloon::BalloonDeviceConfig;
     use crate::vmm_config::entropy::EntropyDeviceConfig;
@@ -710,6 +711,7 @@ mod tests {
                 guest_mac: None,
                 rx_rate_limiter: None,
                 tx_rate_limiter: None,
+                backend_type: NetDevBackendType::Tap("hostname".to_string()),
             };
             insert_net_device_with_mmds(
                 &mut vmm,

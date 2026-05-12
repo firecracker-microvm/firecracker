@@ -574,6 +574,7 @@ mod tests {
     use crate::devices::virtio::block::virtio::VirtioBlockError;
     use crate::devices::virtio::block::{BlockError, CacheType};
     use crate::devices::virtio::device::VirtioDevice;
+    use crate::devices::virtio::net::device::NetDevBackendType;
     use crate::devices::virtio::vsock::VSOCK_DEV_ID;
     use crate::resources::VmResources;
     use crate::utils::net::mac::MacAddr;
@@ -587,19 +588,21 @@ mod tests {
     use crate::vmm_config::vsock::tests::default_config;
 
     fn default_net_cfg() -> NetworkInterfaceConfig {
+        // TempFile::new_with_prefix("") generates a random file name used as random net_if
+        // name.
+        let dev_name = TempFile::new_with_prefix("")
+            .unwrap()
+            .as_path()
+            .to_str()
+            .unwrap()
+            .to_string();
         NetworkInterfaceConfig {
             iface_id: "net_if1".to_string(),
-            // TempFile::new_with_prefix("") generates a random file name used as random net_if
-            // name.
-            host_dev_name: TempFile::new_with_prefix("")
-                .unwrap()
-                .as_path()
-                .to_str()
-                .unwrap()
-                .to_string(),
+            host_dev_name: dev_name.clone(),
             guest_mac: Some(MacAddr::from_str("01:23:45:67:89:0a").unwrap()),
             rx_rate_limiter: Some(RateLimiterConfig::default()),
             tx_rate_limiter: Some(RateLimiterConfig::default()),
+            backend_type: NetDevBackendType::Tap(dev_name),
         }
     }
 

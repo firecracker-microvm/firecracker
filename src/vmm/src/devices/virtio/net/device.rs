@@ -1669,7 +1669,7 @@ pub mod tests {
         let mem = single_region_mem(2 * MAX_BUFFER_SIZE);
         let mut th = TestHelper::get_default(&mem);
         th.activate_net();
-        let tap_traffic_simulator = TapTrafficSimulator::new(if_index(&th.net().tap));
+        let tap_traffic_simulator = TapTrafficSimulator::new(&th.net().backend);
 
         th.add_desc_chain(NetQueue::Tx, 0, &[(0, 4096, 0)]);
         th.net().queue_evts[TX_INDEX].read().unwrap();
@@ -1690,7 +1690,7 @@ pub mod tests {
         let mem = single_region_mem(2 * MAX_BUFFER_SIZE);
         let mut th = TestHelper::get_default(&mem);
         th.activate_net();
-        let tap_traffic_simulator = TapTrafficSimulator::new(if_index(&th.net().tap));
+        let tap_traffic_simulator = TapTrafficSimulator::new(&th.net().backend);
 
         let desc_list = [(0, 100, 0), (1, 100, VIRTQ_DESC_F_WRITE), (2, 500, 0)];
         th.add_desc_chain(NetQueue::Tx, 0, &desc_list);
@@ -1714,7 +1714,7 @@ pub mod tests {
         let mem = single_region_mem(2 * MAX_BUFFER_SIZE);
         let mut th = TestHelper::get_default(&mem);
         th.activate_net();
-        let tap_traffic_simulator = TapTrafficSimulator::new(if_index(&th.net().tap));
+        let tap_traffic_simulator = TapTrafficSimulator::new(&th.net().backend);
 
         // Send an invalid frame (too small, VNET header missing).
         th.add_desc_chain(NetQueue::Tx, 0, &[(0, 1, 0)]);
@@ -1741,7 +1741,7 @@ pub mod tests {
         let mem = single_region_mem(2 * MAX_BUFFER_SIZE);
         let mut th = TestHelper::get_default(&mem);
         th.activate_net();
-        let tap_traffic_simulator = TapTrafficSimulator::new(if_index(&th.net().tap));
+        let tap_traffic_simulator = TapTrafficSimulator::new(&th.net().backend);
 
         // Send an invalid frame (too big, maximum buffer is MAX_BUFFER_SIZE).
         th.add_desc_chain(
@@ -1772,7 +1772,7 @@ pub mod tests {
         let mem = single_region_mem(2 * MAX_BUFFER_SIZE);
         let mut th = TestHelper::get_default(&mem);
         th.activate_net();
-        let tap_traffic_simulator = TapTrafficSimulator::new(if_index(&th.net().tap));
+        let tap_traffic_simulator = TapTrafficSimulator::new(&th.net().backend);
 
         // Send an invalid frame (too small, VNET header missing).
         th.add_desc_chain(NetQueue::Tx, 0, &[(0, 0, 0)]);
@@ -1799,7 +1799,7 @@ pub mod tests {
         let mem = single_region_mem(2 * MAX_BUFFER_SIZE);
         let mut th = TestHelper::get_default(&mem);
         th.activate_net();
-        let tap_traffic_simulator = TapTrafficSimulator::new(if_index(&th.net().tap));
+        let tap_traffic_simulator = TapTrafficSimulator::new(&th.net().backend);
 
         // Add invalid descriptor chain - writeable descriptor.
         th.add_desc_chain(
@@ -1846,7 +1846,7 @@ pub mod tests {
         let mem = single_region_mem(2 * MAX_BUFFER_SIZE);
         let mut th = TestHelper::get_default(&mem);
         th.activate_net();
-        let tap_traffic_simulator = TapTrafficSimulator::new(if_index(&th.net().tap));
+        let tap_traffic_simulator = TapTrafficSimulator::new(&th.net().backend);
 
         // Add gaps between the descriptor ids in order to ensure that we follow
         // the `next` field.
@@ -1881,7 +1881,7 @@ pub mod tests {
         th.activate_net();
         // force the next write to the tap to return an error by simply closing the fd
         // SAFETY: its a valid fd
-        unsafe { libc::close(th.net.lock().unwrap().tap.as_raw_fd()) };
+        unsafe { libc::close(th.net.lock().unwrap().backend.as_raw_fd()) };
 
         let desc_list = [(0, 1000, 0)];
         th.add_desc_chain(NetQueue::Tx, 0, &desc_list);
@@ -1911,7 +1911,7 @@ pub mod tests {
         let mem = single_region_mem(2 * MAX_BUFFER_SIZE);
         let mut th = TestHelper::get_default(&mem);
         th.activate_net();
-        let tap_traffic_simulator = TapTrafficSimulator::new(if_index(&th.net().tap));
+        let tap_traffic_simulator = TapTrafficSimulator::new(&th.net().backend);
 
         // Write the first frame to the Tx queue
         let desc_list = [(0, 50, 0), (1, 100, 0), (2, 150, 0)];
@@ -2022,7 +2022,7 @@ pub mod tests {
                     &mut net.tx_rate_limiter,
                     &mut headers,
                     &buffer,
-                    &mut net.tap,
+                    &mut net.backend,
                     Some(src_mac),
                     &net.metrics,
                 )
@@ -2061,7 +2061,7 @@ pub mod tests {
                 &mut net.tx_rate_limiter,
                 &mut headers,
                 &buffer,
-                &mut net.tap,
+                &mut net.backend,
                 Some(guest_mac),
                 &net.metrics,
             )
@@ -2076,7 +2076,7 @@ pub mod tests {
                 &mut net.tx_rate_limiter,
                 &mut headers,
                 &buffer,
-                &mut net.tap,
+                &mut net.backend,
                 Some(not_guest_mac),
                 &net.metrics,
             )
@@ -2116,7 +2116,7 @@ pub mod tests {
         th.activate_net();
         // force the next write to the tap to return an error by simply closing the fd
         // SAFETY: its a valid fd
-        unsafe { libc::close(th.net.lock().unwrap().tap.as_raw_fd()) };
+        unsafe { libc::close(th.net.lock().unwrap().backend.as_raw_fd()) };
 
         // The RX queue is empty and there is a deferred frame.
         th.net().rx_buffer.used_descriptors = 1;

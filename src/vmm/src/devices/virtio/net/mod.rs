@@ -21,7 +21,7 @@ pub mod device;
 mod event_handler;
 pub mod metrics;
 pub mod persist;
-mod tap;
+pub mod tap;
 pub mod test_utils;
 
 mod generated;
@@ -47,6 +47,8 @@ pub enum NetQueue {
 pub enum NetError {
     /// Open tap device failed: {0}
     TapOpen(TapError),
+    /// Socket backend opening failed
+    SocketOpen(),
     /// Setting vnet header size failed: {0}
     TapSetVnetHdrSize(TapError),
     /// EventFd error: {0}
