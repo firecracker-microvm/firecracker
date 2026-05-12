@@ -1,6 +1,8 @@
 // Copyright 2020 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
+use std::os::fd::AsRawFd;
+
 use event_manager::{EventOps, Events, MutEventSubscriber};
 use vmm_sys_util::epoll::EventSet;
 
@@ -46,8 +48,9 @@ impl Net {
         )) {
             error!("Failed to register tx queue event: {}", err);
         }
+        let fd = &self.backend.as_raw_fd();
         if let Err(err) = ops.add(Events::with_data(
-            &self.tap,
+            fd,
             Self::PROCESS_TAP_RX,
             EventSet::IN | EventSet::EDGE_TRIGGERED,
         )) {
