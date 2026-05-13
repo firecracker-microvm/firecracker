@@ -510,7 +510,7 @@ impl VirtioMem {
                 updated_range.addr,
                 self.nb_blocks_to_len(updated_range.nb_blocks),
             )
-            .try_for_each(|slot| {
+            .try_for_each(|(slot, _)| {
                 let slot_range = RequestedRange {
                     addr: slot.guest_addr,
                     nb_blocks: slot.slice.len() / u64_to_usize(self.config.block_size),

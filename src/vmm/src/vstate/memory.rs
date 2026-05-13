@@ -347,8 +347,8 @@ impl GuestRegionMmapExt {
         &self,
         from: GuestAddress,
         len: usize,
-    ) -> impl Iterator<Item = GuestMemorySlot<'_>> {
-        self.slots().map(|(slot, _)| slot).filter(move |slot| {
+    ) -> impl Iterator<Item = (GuestMemorySlot<'_>, bool)> {
+        self.slots().filter(move |(slot, _)| {
             // Two intervals [a, b) and [c, d) intersect iff a < d && c < b.
             // This correctly handles the containment case where the slot fully
             // contains the range (or vice versa).
@@ -1520,7 +1520,7 @@ mod tests {
             let from = base.unchecked_add((offset_pages * page_size) as u64);
             let len = len_pages * page_size;
             let found: Vec<_> = region.slots_intersecting_range(from, len).collect();
-            let addrs: Vec<_> = found.iter().map(|s| s.guest_addr).collect();
+            let addrs: Vec<_> = found.iter().map(|(s, _)| s.guest_addr).collect();
             assert_eq!(
                 addrs, expected,
                 "offset={offset_pages} pages, len={len_pages} pages"
