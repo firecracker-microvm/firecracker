@@ -19,7 +19,7 @@ use crate::devices::acpi::generated::vmclock_abi::{
 use crate::devices::legacy::EventFdTrigger;
 use crate::logger::debug;
 use crate::snapshot::Persist;
-use crate::vstate::memory::GuestMemoryMmap;
+use crate::vstate::memory::{GuestMemoryExtension, GuestMemoryMmap};
 use crate::vstate::resources::ResourceAllocator;
 
 // SAFETY: `vmclock_abi` is a POD
@@ -114,6 +114,7 @@ impl VmClock {
 
     /// Activate [`VmClock`] device
     pub fn activate(&self, mem: &GuestMemoryMmap) -> Result<(), VmClockError> {
+        mem.check_range_plugged(self.guest_address, self.inner.as_slice().len())?;
         mem.write_slice(self.inner.as_slice(), self.guest_address)?;
         Ok(())
     }
