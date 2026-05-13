@@ -145,7 +145,14 @@ fn test_dirty_bitmap_success() {
     for (vmm, _) in vmms {
         // Let it churn for a while and dirty some pages...
         thread::sleep(Duration::from_millis(100));
-        let bitmap = vmm.lock().unwrap().vm.get_dirty_bitmap().unwrap();
+        let bitmap = vmm
+            .lock()
+            .unwrap()
+            .vm
+            .as_kvm()
+            .unwrap()
+            .get_dirty_bitmap()
+            .unwrap();
         let num_dirty_pages: u32 = bitmap
             .values()
             .map(|bitmap_per_region| {

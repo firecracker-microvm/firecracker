@@ -64,6 +64,8 @@ const PTE_ADDRESS_MASK: u64 = !0b111u64;
 fn read_address(vmm: &Vmm, address: u64) -> Result<u64, GdbTargetError> {
     let mut buf = [0; 8];
     vmm.vm
+        .as_kvm()
+        .expect("GDB requires KVM")
         .guest_memory()
         .read(&mut buf, GuestAddress(address))?;
 

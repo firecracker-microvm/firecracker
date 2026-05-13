@@ -247,9 +247,9 @@ mod tests {
         // A mocke Vmm object with 128MBs of memory
         let vmm = default_vmm();
         let mut writer = AcpiTableWriter {
-            mem: vmm.vm.guest_memory(),
+            mem: vmm.vm.as_kvm().unwrap().guest_memory(),
         };
-        let mut resource_allocator = vmm.vm.resource_allocator();
+        let mut resource_allocator = vmm.vm.as_kvm().unwrap().resource_allocator();
 
         // This should succeed
         let mut sdt = MockSdt(vec![0; 4096]);
@@ -309,7 +309,7 @@ mod tests {
     // change in the future.
     #[test]
     fn test_write_acpi_table_small_memory() {
-        let (_, vm) = setup_vm_with_memory(u64_to_usize(SYSTEM_MEM_START + SYSTEM_MEM_SIZE - 4096));
+        let vm = setup_vm_with_memory(u64_to_usize(SYSTEM_MEM_START + SYSTEM_MEM_SIZE - 4096));
         let mut writer = AcpiTableWriter {
             mem: vm.guest_memory(),
         };
