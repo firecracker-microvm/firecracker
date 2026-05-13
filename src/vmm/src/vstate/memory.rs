@@ -296,6 +296,27 @@ impl GuestRegionMmapExt {
         })
     }
 
+    /// Check whether the given guest address range falls within plugged slots.
+    pub(crate) fn check_range_plugged(
+        &self,
+        caddr: MemoryRegionAddress,
+        len: usize,
+    ) -> Result<(), GuestMemoryError> {
+        // caddr is guaranteed to be within the region by the caller
+        // (try_for_each_region_in_range validates this).
+        let from = self
+            .start_addr()
+            .checked_add(caddr.raw_value())
+            .expect("caddr should be within the region");
+        if self
+            .slots_intersecting_range(from, len)
+            .any(|(_, plugged)| !plugged)
+        {
+            return Err(GuestMemoryError::HostAddressNotAvailable);
+        }
+        Ok(())
+    }
+
     pub(crate) fn slot_cnt(&self) -> u32 {
         u32::try_from(u64_to_usize(self.len()) / self.slot_size).unwrap()
     }
@@ -640,6 +661,10 @@ where
 
     /// Discards a memory range, freeing up memory pages
     fn discard_range(&self, addr: GuestAddress, range_len: usize) -> Result<(), GuestMemoryError>;
+
+    /// Check whether the given guest address range falls entirely within plugged memory.
+    /// Returns Err if the address is not in any region or is in an unplugged slot.
+    fn check_range_plugged(&self, addr: GuestAddress, len: usize) -> Result<(), GuestMemoryError>;
 }
 
 /// State of a guest memory region saved to file/buffer.
@@ -820,6 +845,12 @@ impl GuestMemoryExtension for GuestMemoryMmap {
     fn discard_range(&self, addr: GuestAddress, range_len: usize) -> Result<(), GuestMemoryError> {
         self.try_for_each_region_in_range(addr, range_len, |region, start, len| {
             region.discard_range(start, len)
+        })
+    }
+
+    fn check_range_plugged(&self, addr: GuestAddress, len: usize) -> Result<(), GuestMemoryError> {
+        self.try_for_each_region_in_range(addr, len, |region, offset, chunk_len| {
+            region.check_range_plugged(offset, chunk_len)
         })
     }
 }
@@ -1811,5 +1842,52 @@ mod tests {
                 }
             }
         }
+    }
+
+    #[test]
+    fn test_check_range_plugged() {
+        let region_size = 0x4000usize; // 4 slots of 0x1000
+        let regions = anonymous(
+            vec![(GuestAddress(0x10_0000), region_size)].into_iter(),
+            false,
+            HugePageConfig::None,
+        )
+        .unwrap();
+        let region = regions.into_iter().next().unwrap();
+
+        let state = GuestMemoryRegionState {
+            base_address: 0x10_0000,
+            size: region_size,
+            region_type: GuestRegionType::Hotpluggable,
+            plugged: vec![true, true, false, true],
+        };
+
+        let ext = GuestRegionMmapExt::from_state(region, &state, 0).unwrap();
+
+        // Slot 0 (offset 0..0x1000): plugged
+        ext.check_range_plugged(MemoryRegionAddress(0), 0x100)
+            .unwrap();
+        // Slot 1 (offset 0x1000..0x2000): plugged
+        ext.check_range_plugged(MemoryRegionAddress(0x1000), 0x100)
+            .unwrap();
+        // Slot 2 (offset 0x2000..0x3000): unplugged
+        assert!(
+            ext.check_range_plugged(MemoryRegionAddress(0x2000), 0x100)
+                .is_err()
+        );
+        // Spanning slots 1-2: fails because slot 2 is unplugged
+        assert!(
+            ext.check_range_plugged(MemoryRegionAddress(0x1800), 0x1000)
+                .is_err()
+        );
+        // Spanning slots 0-1: both plugged
+        ext.check_range_plugged(MemoryRegionAddress(0x800), 0x1000)
+            .unwrap();
+        // Slot 3 (offset 0x3000..0x4000): plugged
+        ext.check_range_plugged(MemoryRegionAddress(0x3000), 0x100)
+            .unwrap();
+        // Zero length: always ok
+        ext.check_range_plugged(MemoryRegionAddress(0x2000), 0)
+            .unwrap();
     }
 }
