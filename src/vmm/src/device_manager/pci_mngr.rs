@@ -114,6 +114,10 @@ pub enum PciManagerError {
     InconsistentRootPort(usize, PciSBDF, u8),
     /// VFIO error: {0}
     Vfio(#[from] VfioError),
+    /// Trying to add a device with duplicate id: {0}
+    DeviceIdDuplicate(String),
+    /// Trying to add a device with duplicate SBDF: {0}
+    DeviceSBDFDuplicate(PciSBDF),
 }
 
 impl PciDevices {
@@ -172,6 +176,17 @@ impl PciDevices {
         Ok(())
     }
 
+    fn next_sbdf(&self, placement: PciPlacement) -> Result<PciSBDF, PciManagerError> {
+        match placement {
+            PciPlacement::PrimaryBus => Ok(self.pci_segment.next_device_sbdf()?),
+            PciPlacement::SecondaryBus => {
+                let port = self.pci_segment.next_free_root_port()?;
+                let secondary_bus = port.lock().expect("Poisoned lock").secondary_bus();
+                Ok(PciSBDF::new(self.pci_segment.id, secondary_bus, 0, 0))
+            }
+        }
+    }
+
     pub(crate) fn attach_pci_virtio_device(
         &mut self,
         vm: &Arc<KvmVm>,
@@ -189,15 +204,7 @@ impl PciDevices {
             return Err(PciManagerError::DmbNotSupported(id));
         }
 
-        let (sbdf, root_port) = match placement {
-            PciPlacement::PrimaryBus => (self.pci_segment.next_device_sbdf()?, None),
-            PciPlacement::SecondaryBus => {
-                let port = self.pci_segment.next_free_root_port()?;
-                let secondary_bus = port.lock().expect("Poisoned lock").secondary_bus();
-                let sbdf = PciSBDF::new(self.pci_segment.id, secondary_bus, 0, 0);
-                (sbdf, Some(port))
-            }
-        };
+        let sbdf = self.next_sbdf(placement)?;
         debug!("Allocating SBDF: {sbdf:?} for device");
 
         let device_type = device.lock().expect("Poisoned lock").device_type();
@@ -214,7 +221,7 @@ impl PciDevices {
 
         // It's likely that the guest has already programmed the root port's
         // window. Try to place the device BAR inside that window if possible.
-        let bar_placement = match root_port {
+        let bar_placement = match self.pci_segment.root_port_for_bus(sbdf.bus()) {
             None => BarPlacement::Packed,
             Some(port) => BarPlacement::BehindPort(
                 port.lock().expect("Poisoned lock").nonpref_memory_window(),
@@ -336,19 +343,40 @@ impl PciDevices {
         }
     }
 
-    pub fn attach_vfio_device(
+    /// Attach VFIO device and notify the guest about it
+    pub fn hotplug_vfio_device(
         &mut self,
         vm: &Arc<KvmVm>,
         config: DevicePassthroughConfig,
     ) -> Result<(), PciManagerError> {
+        let sbdf = self.attach_vfio_device(vm, config, PciPlacement::SecondaryBus)?;
+
+        // Notify the guest the device is hot-plugged
+        // Hotplugged devices are always behind secondary root_ports.
+        let port = self.pci_segment.root_port_for_bus(sbdf.bus()).unwrap();
+        port.lock().expect("Poisoned lock").plug();
+
+        Ok(())
+    }
+
+    /// Attach VFIO device without notifying the guest
+    pub fn attach_vfio_device(
+        &mut self,
+        vm: &Arc<KvmVm>,
+        config: DevicePassthroughConfig,
+        placement: PciPlacement,
+    ) -> Result<PciSBDF, PciManagerError> {
         for device in self.vfio_devices.iter() {
             let device = device.lock().unwrap();
-            // SAFETY: We must never add 2 devices with same id or same SBDF
-            assert_ne!(device.config.id, config.id);
-            assert_ne!(device.config.sbdf, config.sbdf);
+            if device.config.id == config.id {
+                return Err(PciManagerError::DeviceIdDuplicate(config.id));
+            }
+            if device.config.sbdf == config.sbdf {
+                return Err(PciManagerError::DeviceSBDFDuplicate(config.sbdf));
+            }
         }
 
-        let pci_device_bdf = self.pci_segment.next_device_sbdf()?;
+        let pci_device_bdf = self.next_sbdf(placement)?;
         debug!("VFIO: Allocating BDF: {pci_device_bdf:?} for device");
 
         let device = if let Some(container) = &self.vfio_container {
@@ -369,7 +397,8 @@ impl PciDevices {
         // This is for config space
         self.pci_segment
             .pci_buses
-            .root_bus()
+            .get(pci_device_bdf.bus())
+            .unwrap()
             .lock()
             .unwrap()
             // SAFETY: we should never add 2 devices with same device id
@@ -386,7 +415,7 @@ impl PciDevices {
 
         self.vfio_devices.push(device);
 
-        Ok(())
+        Ok(pci_device_bdf)
     }
 
     fn restore_pci_device<T: 'static + VirtioDevice + MutEventSubscriber + Debug>(
