@@ -155,6 +155,7 @@ use crate::rpc_interface::VmmActionError;
 use crate::vmm_config::HotplugDeviceConfig;
 use crate::vmm_config::balloon::BalloonDeviceConfig;
 use crate::vmm_config::boot_source::BootSourceConfig;
+use crate::vmm_config::device_passthrough::DevicePassthroughConfig;
 use crate::vmm_config::entropy::EntropyDeviceConfig;
 use crate::vmm_config::instance_info::{InstanceInfo, VmState};
 use crate::vmm_config::machine_config::MachineConfig;
@@ -767,6 +768,20 @@ impl Vmm {
             .clone();
         self.device_manager
             .hotplug_device(kvm_vm, config, event_manager)
+    }
+
+    /// Attaches a passthrough device after VM start
+    pub fn hotplug_passthrough_device(
+        &mut self,
+        config: DevicePassthroughConfig,
+    ) -> Result<(), VmmActionError> {
+        log_dev_preview_warning("device passthrough hotplug", None);
+        let kvm_vm = self
+            .vm
+            .as_kvm()
+            .ok_or_else(|| VmmActionError::NotSupported("Operation requires KVM".to_string()))?;
+        self.device_manager
+            .hotplug_passthrough_device(kvm_vm, config)
     }
 
     /// Detaches a device after VM start
