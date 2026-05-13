@@ -128,7 +128,8 @@ macro_rules! create_check_visitor_function {
     ($func_name:ident, $item:ident) => {
         fn $func_name(&mut self, i: &syn::$item) {
             let attr = check_attributes(&i.attrs);
-            if !attr.instrumented && !attr.test && i.sig.constness.is_none() {
+            if !attr.instrumented && !attr.test && i.sig.constness.is_none() && i.sig.abi.is_none()
+            {
                 self.0 = Some(i.span());
             } else {
                 self.visit_block(&i.block);
@@ -162,7 +163,8 @@ macro_rules! create_fix_visitor_function {
         fn $func_name(&mut self, i: &syn::$item) {
             let attr = check_attributes(&i.attrs);
 
-            if !attr.instrumented && !attr.test && i.sig.constness.is_none() {
+            if !attr.instrumented && !attr.test && i.sig.constness.is_none() && i.sig.abi.is_none()
+            {
                 let line = i.span().start().line;
 
                 let attr_string = instrument(&i.sig, self.suffix, self.cfg_attr);

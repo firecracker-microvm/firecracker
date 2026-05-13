@@ -53,6 +53,15 @@ impl Logger {
 
     /// Applies the given logger configuration the logger.
     pub fn update(&self, config: LoggerConfig) -> Result<(), LoggerUpdateError> {
+        // Open the file before acquiring the lock so that instrumented callees
+        // (e.g. open_file_nonblock with tracing enabled) can log without
+        // re-entering the locked Logger.
+        let file = config
+            .log_path
+            .map(|p| open_file_nonblock(&p))
+            .transpose()
+            .map_err(LoggerUpdateError)?;
+
         let mut guard = self.0.lock().unwrap();
         log::set_max_level(
             config
@@ -61,11 +70,9 @@ impl Logger {
                 .unwrap_or(DEFAULT_LEVEL),
         );
 
-        if let Some(log_path) = config.log_path {
-            let file = open_file_nonblock(&log_path).map_err(LoggerUpdateError)?;
-
+        if let Some(file) = file {
             guard.target = Some(file);
-        };
+        }
 
         if let Some(show_level) = config.show_level {
             guard.format.show_level = show_level;
@@ -398,5 +405,29 @@ mod tests {
         );
 
         std::fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn test_logger_update_with_log_path() {
+        let logger = Logger(Mutex::new(LoggerConfiguration {
+            target: None,
+            filter: LogFilter { module: None },
+            format: LogFormat {
+                show_level: false,
+                show_log_origin: false,
+            },
+        }));
+        let tmp = vmm_sys_util::tempfile::TempFile::new().unwrap();
+        let path = tmp.as_path().to_path_buf();
+        logger
+            .update(LoggerConfig {
+                log_path: Some(path),
+                level: None,
+                show_level: None,
+                show_log_origin: None,
+                module: None,
+            })
+            .unwrap();
+        assert!(logger.0.lock().unwrap().target.is_some());
     }
 }
