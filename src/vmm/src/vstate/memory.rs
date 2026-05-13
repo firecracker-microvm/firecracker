@@ -22,12 +22,12 @@ pub use vm_memory::{
 };
 use vm_memory::{GuestMemoryError, GuestMemoryRegionBytes, VolatileSlice, WriteVolatile};
 
+use crate::DirtyBitmap;
 use crate::arch::host_page_size;
 use crate::logger::error;
 use crate::utils::u64_to_usize;
 use crate::vmm_config::machine_config::HugePageConfig;
-use crate::vstate::vm::VmError;
-use crate::{DirtyBitmap, Vm};
+use crate::vstate::vm::{KvmVm, VmError};
 
 /// Type of GuestRegionMmap.
 pub type GuestRegionMmap = vm_memory::GuestRegionMmap<Option<AtomicBitmap>>;
@@ -352,7 +352,7 @@ impl GuestRegionMmapExt {
     /// (un)plug a slot from an Hotpluggable memory region
     pub(crate) fn update_slot(
         &self,
-        vm: &Vm,
+        vm: &KvmVm,
         mem_slot: &GuestMemorySlot<'_>,
         plug: bool,
     ) -> Result<(), VmError> {

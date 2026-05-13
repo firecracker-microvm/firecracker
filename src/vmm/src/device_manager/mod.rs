@@ -23,6 +23,7 @@ use utils::time::TimestampUs;
 use vm_superio::serial;
 use vmm_sys_util::eventfd::EventFd;
 
+use crate::EventManager;
 use crate::device_manager::acpi::ACPIDeviceError;
 #[cfg(target_arch = "x86_64")]
 use crate::devices::legacy::I8042Device;
@@ -58,7 +59,7 @@ use crate::vmm_config::net::{NetBuilder, NetworkInterfaceConfig, NetworkInterfac
 use crate::vmm_config::pmem::{PmemConfig, PmemConfigError};
 use crate::vstate::bus::BusError;
 use crate::vstate::memory::GuestMemoryMmap;
-use crate::{EventManager, Vm};
+use crate::vstate::vm::{KvmVm, Vm};
 
 /// ACPI device manager.
 pub mod acpi;
@@ -100,6 +101,8 @@ pub enum AttachDeviceError {
     CreateSerial(#[from] std::io::Error),
     /// Error attach PCI device: {0}
     PciTransport(#[from] PciManagerError),
+    /// Operation not supported on this VM type
+    NotSupported,
 }
 
 #[derive(Debug, thiserror::Error, displaydoc::Display)]
@@ -196,7 +199,7 @@ impl DeviceManager {
     fn create_legacy_devices(
         event_manager: &mut EventManager,
         vcpus_exit_evt: &EventFd,
-        vm: &Vm,
+        vm: &KvmVm,
         serial_output: Option<&PathBuf>,
         serial_state: Option<&serial::SerialState>,
         serial_rate_limiter: Option<TokenBucket>,
@@ -227,7 +230,7 @@ impl DeviceManager {
     pub fn new(
         event_manager: &mut EventManager,
         vcpus_exit_evt: &EventFd,
-        vm: &Vm,
+        vm: &KvmVm,
         serial_output: Option<&PathBuf>,
         serial_rate_limiter: Option<TokenBucket>,
     ) -> Result<Self, DeviceManagerCreateError> {
@@ -255,7 +258,7 @@ impl DeviceManager {
         T: 'static + VirtioDevice + MutEventSubscriber + Debug,
     >(
         &mut self,
-        vm: &Vm,
+        vm: &KvmVm,
         id: String,
         device: Arc<Mutex<T>>,
         cmdline: &mut Cmdline,
@@ -275,18 +278,29 @@ impl DeviceManager {
     /// Attaches a VirtioDevice device to the device manager and event manager.
     pub(crate) fn attach_virtio_device<T: 'static + VirtioDevice + MutEventSubscriber + Debug>(
         &mut self,
-        vm: &Arc<Vm>,
+        vm: &Vm,
         id: String,
         device: Arc<Mutex<T>>,
         cmdline: &mut Cmdline,
         event_manager: &mut EventManager,
         is_vhost_user: bool,
     ) -> Result<(), AttachDeviceError> {
+        let kvm_vm = vm
+            .as_kvm()
+            .cloned()
+            .ok_or(AttachDeviceError::NotSupported)?;
         if self.is_pci_enabled() {
             self.pci_devices
-                .attach_pci_virtio_device(vm, id, device, event_manager)?;
+                .attach_pci_virtio_device(&kvm_vm, id, device, event_manager)?;
         } else {
-            self.attach_mmio_virtio_device(vm, id, device, cmdline, event_manager, is_vhost_user)?;
+            self.attach_mmio_virtio_device(
+                &kvm_vm,
+                id,
+                device,
+                cmdline,
+                event_manager,
+                is_vhost_user,
+            )?;
         }
 
         Ok(())
@@ -295,7 +309,7 @@ impl DeviceManager {
     /// Attaches a [`BootTimer`] to the VM
     pub(crate) fn attach_boot_timer_device(
         &mut self,
-        vm: &Vm,
+        vm: &KvmVm,
         request_ts: TimestampUs,
     ) -> Result<(), AttachDeviceError> {
         let boot_timer = Arc::new(Mutex::new(BootTimer::new(request_ts)));
@@ -306,13 +320,13 @@ impl DeviceManager {
         Ok(())
     }
 
-    pub(crate) fn attach_vmgenid_device(&mut self, vm: &Vm) -> Result<(), AttachDeviceError> {
+    pub(crate) fn attach_vmgenid_device(&mut self, vm: &KvmVm) -> Result<(), AttachDeviceError> {
         self.acpi_devices.attach_vmgenid(vm)?;
         self.acpi_devices.activate_vmgenid(vm)?;
         Ok(())
     }
 
-    pub(crate) fn attach_vmclock_device(&mut self, vm: &Vm) -> Result<(), AttachDeviceError> {
+    pub(crate) fn attach_vmclock_device(&mut self, vm: &KvmVm) -> Result<(), AttachDeviceError> {
         self.acpi_devices.attach_vmclock(vm)?;
         self.acpi_devices.activate_vmclock(vm)?;
         Ok(())
@@ -321,7 +335,7 @@ impl DeviceManager {
     #[cfg(target_arch = "aarch64")]
     pub(crate) fn attach_legacy_devices_aarch64(
         &mut self,
-        vm: &Vm,
+        vm: &KvmVm,
         event_manager: &mut EventManager,
         cmdline: &mut Cmdline,
         serial_out_path: Option<&PathBuf>,
@@ -352,7 +366,7 @@ impl DeviceManager {
     }
 
     /// Enables PCIe support for Firecracker devices
-    pub fn enable_pci(&mut self, vm: &Arc<Vm>) -> Result<(), PciManagerError> {
+    pub fn enable_pci(&mut self, vm: &Arc<KvmVm>) -> Result<(), PciManagerError> {
         self.pci_devices.attach_pci_segment(vm)
     }
 
@@ -477,7 +491,7 @@ impl DeviceManager {
     /// Attaches a device after VM start
     pub fn hotplug_device(
         &mut self,
-        vm: Arc<Vm>,
+        vm: Arc<KvmVm>,
         config: HotplugDeviceConfig,
         event_manager: &mut EventManager,
     ) -> Result<(), VmmActionError> {
@@ -519,7 +533,7 @@ impl DeviceManager {
     }
 
     fn hotplug_make_pmem(
-        vm: Arc<Vm>,
+        vm: Arc<KvmVm>,
         config: PmemConfig,
     ) -> Result<Arc<Mutex<dyn VirtioDevice>>, VmmActionError> {
         if config.root_device {
@@ -566,7 +580,7 @@ impl DeviceManager {
     /// Detaches a device after VM start
     pub fn hot_unplug_device(
         &mut self,
-        vm: Arc<Vm>,
+        vm: Arc<KvmVm>,
         device_id: VirtioDeviceId,
         event_manager: &mut EventManager,
     ) -> Result<(), VmmActionError> {
@@ -679,7 +693,7 @@ pub enum DeviceManagerPersistError {
 
 pub struct DeviceRestoreArgs<'a> {
     pub mem: &'a GuestMemoryMmap,
-    pub vm: &'a Arc<Vm>,
+    pub vm: &'a Arc<KvmVm>,
     pub event_manager: &'a mut EventManager,
     pub vcpus_exit_evt: &'a EventFd,
     pub vm_resources: &'a mut VmResources,
@@ -821,7 +835,13 @@ pub(crate) mod tests {
         let mut cmdline = Cmdline::new(4096).unwrap();
         let mut event_manager = EventManager::new().unwrap();
         vmm.device_manager
-            .attach_legacy_devices_aarch64(&vmm.vm, &mut event_manager, &mut cmdline, None, None)
+            .attach_legacy_devices_aarch64(
+                vmm.vm.as_kvm().unwrap(),
+                &mut event_manager,
+                &mut cmdline,
+                None,
+                None,
+            )
             .unwrap();
         assert!(vmm.device_manager.mmio_devices.rtc.is_some());
         assert!(vmm.device_manager.mmio_devices.serial.is_none());
@@ -829,7 +849,13 @@ pub(crate) mod tests {
         let mut vmm = default_vmm();
         cmdline.insert("console", "/dev/blah").unwrap();
         vmm.device_manager
-            .attach_legacy_devices_aarch64(&vmm.vm, &mut event_manager, &mut cmdline, None, None)
+            .attach_legacy_devices_aarch64(
+                vmm.vm.as_kvm().unwrap(),
+                &mut event_manager,
+                &mut cmdline,
+                None,
+                None,
+            )
             .unwrap();
         assert!(vmm.device_manager.mmio_devices.rtc.is_some());
         assert!(vmm.device_manager.mmio_devices.serial.is_some());
@@ -871,7 +897,9 @@ pub(crate) mod tests {
     fn test_hotplug_block() {
         let mut evt_manager = EventManager::new().unwrap();
         let mut vmm = default_vmm();
-        vmm.device_manager.enable_pci(&vmm.vm).unwrap();
+        vmm.device_manager
+            .enable_pci(vmm.vm.as_kvm().unwrap())
+            .unwrap();
         let f = TempFile::new().unwrap();
 
         // Successful case
@@ -959,7 +987,9 @@ pub(crate) mod tests {
     #[test]
     fn test_hotplug_pmem() {
         let mut vmm = default_vmm();
-        vmm.device_manager.enable_pci(&vmm.vm).unwrap();
+        vmm.device_manager
+            .enable_pci(vmm.vm.as_kvm().unwrap())
+            .unwrap();
         let mut evt_manager = EventManager::new().unwrap();
         let f = TempFile::new().unwrap();
         f.as_file().set_len(0x1000).unwrap();
@@ -1018,7 +1048,9 @@ pub(crate) mod tests {
     #[test]
     fn test_hotplug_net() {
         let mut vmm = default_vmm();
-        vmm.device_manager.enable_pci(&vmm.vm).unwrap();
+        vmm.device_manager
+            .enable_pci(vmm.vm.as_kvm().unwrap())
+            .unwrap();
         let mut evt_manager = EventManager::new().unwrap();
 
         let mac = "AA:FC:00:00:00:01";
@@ -1077,7 +1109,9 @@ pub(crate) mod tests {
     fn test_unplug_root_block() {
         let mut evt_manager = EventManager::new().unwrap();
         let mut vmm = default_vmm();
-        vmm.device_manager.enable_pci(&vmm.vm).unwrap();
+        vmm.device_manager
+            .enable_pci(vmm.vm.as_kvm().unwrap())
+            .unwrap();
         let f = TempFile::new().unwrap();
 
         // Simulate a root block device added pre-boot by attaching it
@@ -1088,7 +1122,7 @@ pub(crate) mod tests {
         vmm.device_manager
             .pci_devices
             .attach_pci_virtio_device(
-                &vmm.vm,
+                vmm.vm.as_kvm().unwrap(),
                 "rootfs".to_string(),
                 Arc::new(Mutex::new(block)),
                 &mut evt_manager,
@@ -1107,7 +1141,9 @@ pub(crate) mod tests {
     fn test_unplug_root_pmem() {
         let mut evt_manager = EventManager::new().unwrap();
         let mut vmm = default_vmm();
-        vmm.device_manager.enable_pci(&vmm.vm).unwrap();
+        vmm.device_manager
+            .enable_pci(vmm.vm.as_kvm().unwrap())
+            .unwrap();
         let f = TempFile::new().unwrap();
         f.as_file().set_len(0x1000).unwrap();
 
@@ -1120,11 +1156,11 @@ pub(crate) mod tests {
             read_only: false,
             ..Default::default()
         };
-        let pmem = Pmem::new(vmm.vm.clone(), cfg).unwrap();
+        let pmem = Pmem::new(vmm.vm.as_kvm().unwrap().clone(), cfg).unwrap();
         vmm.device_manager
             .pci_devices
             .attach_pci_virtio_device(
-                &vmm.vm,
+                vmm.vm.as_kvm().unwrap(),
                 "pmem_root".to_string(),
                 Arc::new(Mutex::new(pmem)),
                 &mut evt_manager,

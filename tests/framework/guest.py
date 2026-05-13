@@ -5,6 +5,7 @@
 
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Optional
 
 
 @dataclass(frozen=True)
@@ -17,8 +18,8 @@ class GuestDistro:
     shell_prompt: str
 
     @classmethod
-    def from_rootfs(cls, rootfs_path: Path) -> "GuestDistro":
-        """Return a guest distro object based on the rootfs name"""
+    def from_rootfs(cls, rootfs_path: Path) -> Optional["GuestDistro"]:
+        """Return a guest distro object based on the rootfs name, or None if unrecognized."""
         name = rootfs_path.stem.lower()
         if "ubuntu" in name:
             hostname = "ubuntu-fc-uvm"
@@ -36,4 +37,4 @@ class GuestDistro:
                 os_release_token='ID="amzn"',
                 shell_prompt=f"[root@{hostname} ~]#",
             )
-        raise ValueError(f"Unknown guest distro for rootfs: {rootfs_path}")
+        return None
