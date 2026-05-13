@@ -246,7 +246,7 @@ mod tests {
             // expected:  [d] [b] [d] [d] [b]
             let base_block = rand::rand_bytes(block_size);
             // Adding to the base file 2 times because
-            // it is 1 block smaller then diff right now.
+            // it is 1 block smaller than diff right now.
             base_file.write_all(&base_block).unwrap();
             base_file.write_all(&base_block).unwrap();
             expected_result.extend(base_block);
