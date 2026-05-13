@@ -341,11 +341,14 @@ paths:
 
   /vfio/{id}:
     put:
-      summary: Creates or updates a VFIO passthrough device. Pre-boot only.
+      summary: Creates or updates a VFIO passthrough device.
       description:
-        Creates new VFIO passthrough device with ID specified by id parameter.
+        This API can be used pre-boot and at runtime. During pre-boot phase it
+        creates new VFIO passthrough device with ID specified by id parameter.
         If a VFIO device with the specified ID already exists, it updates
-        device state based on new input.
+        device state based on new input. During runtime it can be called to
+        hot-plug new VFIO device. Updates to existing VFIO devices during
+        runtime is not supported.
       operationId: putGuestVfioByID
       parameters:
         - name: id
