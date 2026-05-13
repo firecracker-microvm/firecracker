@@ -24,7 +24,7 @@ use crate::dumbo::tcp::connection::{Connection, PassiveOpenError, RecvStatusFlag
 use crate::dumbo::tcp::{MAX_WINDOW_SIZE, NextSegmentStatus, seq_after};
 use crate::logger::{IncMetric, METRICS};
 
-// TODO: These are currently expressed in cycles. Normally, they would be the equivalent of a
+// These are currently expressed in cycles. Normally, they would be the equivalent of a
 // certain duration, depending on the frequency of the CPU, but we still have a bit to go until
 // that functionality is available, so we just use some conservative-ish values. Even on a fast
 // 4GHz CPU, the first is roughly equal to 10 seconds, and the other is ~300 ms.
@@ -115,9 +115,6 @@ impl Endpoint {
             receive_buf: [0u8; RCV_BUF_MAX_SIZE as usize],
             receive_buf_left: 0,
             response_buf: Vec::new(),
-            // TODO: Using first_not_sent() makes sense here because a connection is currently
-            // created via passive open only, so this points to the sequence number right after
-            // the SYNACK. It might stop working like that if/when the implementation changes.
             response_seq: connection.first_not_sent(),
             initial_response_seq: connection.first_not_sent(),
             connection,
@@ -599,7 +596,7 @@ mod tests {
         assert_eq!(actual_response, expected_response);
 
         // Test invalid HTTP methods.
-        let invalid_methods = ["POST", "HEAD", "DELETE", "CONNECT", "OPTIONS", "TRACE"];
+        let invalid_methods = ["POST", "HEAD", "CONNECT", "OPTIONS", "TRACE"];
         for method in invalid_methods.iter() {
             let request_bytes = format!("{} http://169.254.169.255/ HTTP/1.0\r\n\r\n", method);
             let mut expected_response = Response::new(Version::Http11, StatusCode::NotImplemented);

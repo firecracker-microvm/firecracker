@@ -9,13 +9,14 @@ use std::sync::Arc;
 use byteorder::{ByteOrder, LittleEndian};
 use serde::{Deserialize, Serialize};
 use vm_memory::ByteValued;
+use zerocopy::FromBytes;
 
-use crate::Vm;
 use crate::logger::{debug, error, warn};
 use crate::pci::configuration::PciCapability;
 use crate::pci::{PciCapabilityId, PciSBDF};
 use crate::snapshot::Persist;
 use crate::vstate::interrupts::{InterruptError, MsixVectorConfig, MsixVectorGroup};
+use crate::vstate::vm::KvmVm;
 
 const MAX_MSIX_VECTORS_PER_DEVICE: u16 = 2048;
 const MSIX_TABLE_ENTRIES_MODULO: u64 = 16;
@@ -117,7 +118,7 @@ impl MsixConfig {
     /// Create an MSI-X configuration from snapshot state
     pub fn from_state(
         state: MsixConfigState,
-        vm: Arc<Vm>,
+        vm: Arc<KvmVm>,
         sbdf: PciSBDF,
     ) -> Result<Self, InterruptError> {
         let vectors = Arc::new(MsixVectorGroup::restore(vm, &state.vectors)?);
@@ -206,6 +207,18 @@ impl MsixConfig {
                     self.inject_msix_and_clear_pba(index);
                 }
             }
+        }
+    }
+
+    /// Write to the Message Control register
+    pub fn write_msg_ctl_register(&mut self, offset: u8, data: &[u8]) {
+        if offset == 2 && data.len() == 2 {
+            // 2-bytes write in the Message Control field
+            self.set_msg_ctl(u16::read_from_bytes(data).unwrap());
+        } else if offset == 0 && data.len() == 4 {
+            // 4 bytes write at the beginning. Ignore the first 2 bytes which are the
+            // capability id and next capability pointer
+            self.set_msg_ctl((u32::read_from_bytes(data).unwrap() >> 16) as u16);
         }
     }
 
@@ -510,12 +523,13 @@ impl MsixCap {
 mod tests {
     use super::*;
     use crate::builder::tests::default_vmm;
+    use crate::check_metric_after_block;
     use crate::logger::{IncMetric, METRICS};
-    use crate::{Vm, check_metric_after_block};
+    use crate::vstate::vm::KvmVm;
 
     fn msix_vector_group(nr_vectors: u16) -> Arc<MsixVectorGroup> {
         let vmm = default_vmm();
-        Arc::new(Vm::create_msix_group(vmm.vm.clone(), nr_vectors).unwrap())
+        Arc::new(KvmVm::create_msix_group(vmm.vm.as_kvm().unwrap().clone(), nr_vectors).unwrap())
     }
 
     #[test]

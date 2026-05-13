@@ -10,6 +10,7 @@ use crate::logger::{error, warn};
 impl Pmem {
     const PROCESS_ACTIVATE: u32 = 0;
     const PROCESS_PMEM_QUEUE: u32 = 1;
+    const PROCESS_RATE_LIMITER: u32 = 2;
 
     fn register_runtime_events(&self, ops: &mut EventOps) {
         if let Err(err) = ops.add(Events::with_data(
@@ -18,6 +19,13 @@ impl Pmem {
             EventSet::IN,
         )) {
             error!("pmem: Failed to register queue event: {err}");
+        }
+        if let Err(err) = ops.add(Events::with_data(
+            &self.rate_limiter,
+            Self::PROCESS_RATE_LIMITER,
+            EventSet::IN,
+        )) {
+            error!("pmem: Failed to register rate-limiter event: {err}");
         }
     }
 
@@ -76,6 +84,7 @@ impl MutEventSubscriber for Pmem {
         match source {
             Self::PROCESS_ACTIVATE => self.process_activate_event(ops),
             Self::PROCESS_PMEM_QUEUE => self.process_queue(),
+            Self::PROCESS_RATE_LIMITER => self.process_rate_limiter_event(),
             _ => {
                 warn!("pmem: Unknown event received: {source}");
             }

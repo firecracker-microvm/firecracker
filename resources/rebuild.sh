@@ -51,8 +51,9 @@ function compile_and_install {
 # Build a rootfs
 function build_ci_rootfs {
     local IMAGE_NAME=$1
+    local SETUP_SCRIPT=$2
     prepare_docker
-    build_rootfs "$IMAGE_NAME" "$OUTPUT_DIR" "$PWD/overlay" "chroot.sh"
+    build_rootfs "$IMAGE_NAME" "$OUTPUT_DIR" "$PWD/rootfs/overlay" "$SETUP_SCRIPT"
 }
 
 
@@ -110,8 +111,8 @@ function get_tag {
     local KERNEL_VERSION=$1
 
     # list all tags from newest to oldest
-    (git --no-pager tag -l --sort=-creatordate | grep "microvm-kernel-$1\..*\.amzn2" \
-        || git --no-pager tag -l --sort=-creatordate | grep "kernel-$1\..*\.amzn2") | head -n1
+    (git --no-pager tag -l --sort=-v:refname | grep "microvm-kernel-$1\..*\.amzn2" \
+        || git --no-pager tag -l --sort=-v:refname | grep "kernel-$1\..*\.amzn2") | head -n1
 }
 
 function build_al_kernel {
@@ -174,7 +175,7 @@ function build_al_kernel {
 }
 
 function prepare_and_build_rootfs {
-    BIN_DIR=overlay/usr/local/bin
+    BIN_DIR=rootfs/overlay/usr/local/bin
 
     SRCS=(init.c fillmem.c fast_page_fault_helper.c readmem.c go_sdk_cred_provider.go go_sdk_cred_provider_with_custom_endpoint.go)
     if [ $ARCH == "aarch64" ]; then
@@ -185,7 +186,8 @@ function prepare_and_build_rootfs {
         compile_and_install $BIN_DIR/$SRC
     done
 
-    build_ci_rootfs ubuntu:24.04
+    build_ci_rootfs ubuntu:24.04 "rootfs/setup-ubuntu-ci.sh"
+    build_ci_rootfs amazonlinux:2023 "rootfs/setup-al2023-ci.sh"
     build_initramfs
 
     for SRC in ${SRCS[@]}; do

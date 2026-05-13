@@ -6,7 +6,6 @@ Creates snapshots for other tests like test_snapshot_restore_cross_kernel.py
 """
 
 import json
-import platform
 import re
 
 import pytest
@@ -17,9 +16,6 @@ from framework.utils import (
     generate_mmds_session_token,
 )
 from framework.utils_cpu_templates import get_cpu_template_name
-
-if platform.machine() != "x86_64":
-    pytestmark = pytest.mark.skip("only x86_64 architecture supported")
 
 # Default IPv4 address to route MMDS requests.
 IPV4_ADDRESS = "169.254.169.254"
@@ -58,6 +54,8 @@ def test_snapshot_phase1(
     configure_mmds(vm, ["eth3"], version="V2")
     # Add a memory balloon.
     vm.api.balloon.put(amount_mib=0, deflate_on_oom=True, stats_polling_interval_s=1)
+    # Add an entropy device.
+    vm.api.entropy.put()
 
     vm.start()
 
@@ -94,6 +92,14 @@ def test_snapshot_phase1(
     cmd = generate_mmds_get_request(IPV4_ADDRESS, token=token)
     _, stdout, _ = vm.ssh.run(cmd)
     assert json.loads(stdout) == data_store
+
+    # Record guest CLOCK_MONOTONIC just before snapshotting. The cross-kernel
+    # restore test reads this back and asserts the clock didn't jump forward
+    # by the pipeline-elapsed time, which would indicate a kvm-clock regression
+    # (see a1fd537f9 "fix(kvm-clock): do not jump monotonic clock on restore").
+    vm.ssh.check_output(
+        "python3 -c 'import time; print(time.monotonic())' > /tmp/monotonic-before"
+    )
 
     # Copy snapshot files to be published to S3 for the 2nd part of the test
     # Create snapshot artifacts directory specific for the kernel version used.

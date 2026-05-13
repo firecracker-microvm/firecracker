@@ -6,6 +6,7 @@ use std::fmt::Debug;
 use micro_http::{Body, Method, Request, Response, StatusCode, Version};
 use serde::ser::Serialize;
 use serde_json::Value;
+use vmm::devices::virtio::device::VirtioDeviceType;
 use vmm::logger::{Level, error_unrestricted, info_unrestricted, log_enabled};
 use vmm::rpc_interface::{VmmAction, VmmActionError, VmmData};
 
@@ -24,13 +25,14 @@ use super::request::machine_configuration::{
 use super::request::metrics::parse_put_metrics;
 use super::request::mmds::{parse_get_mmds, parse_patch_mmds, parse_put_mmds};
 use super::request::net::{parse_patch_net, parse_put_net};
-use super::request::pmem::parse_put_pmem;
+use super::request::pmem::{parse_patch_pmem, parse_put_pmem};
 use super::request::snapshot::{parse_patch_vm_state, parse_put_snapshot};
 use super::request::version::parse_get_version;
 use super::request::vsock::parse_put_vsock;
 use crate::api_server::request::hotplug::memory::{
     parse_get_memory_hotplug, parse_patch_memory_hotplug, parse_put_memory_hotplug,
 };
+use crate::api_server::request::hotplug::parse_unplug_device;
 use crate::api_server::request::serial::parse_put_serial;
 
 #[derive(Debug)]
@@ -120,11 +122,22 @@ impl TryFrom<&Request> for ParsedRequest {
             (Method::Patch, "network-interfaces", Some(body)) => {
                 parse_patch_net(body, path_tokens.next())
             }
+            (Method::Patch, "pmem", Some(body)) => parse_patch_pmem(body, path_tokens.next()),
             (Method::Patch, "vm", Some(body)) => parse_patch_vm_state(body),
             (Method::Patch, "hotplug", Some(body)) if path_tokens.next() == Some("memory") => {
                 parse_patch_memory_hotplug(body)
             }
             (Method::Patch, _, None) => method_to_error(Method::Patch),
+            (Method::Delete, "drives", None) => {
+                parse_unplug_device(VirtioDeviceType::Block, path_tokens.next())
+            }
+            (Method::Delete, "pmem", None) => {
+                parse_unplug_device(VirtioDeviceType::Pmem, path_tokens.next())
+            }
+            (Method::Delete, "network-interfaces", None) => {
+                parse_unplug_device(VirtioDeviceType::Net, path_tokens.next())
+            }
+            (Method::Delete, _, Some(_)) => method_to_error(Method::Delete),
             (method, unknown_uri, _) => Err(RequestError::InvalidPathMethod(
                 unknown_uri.to_string(),
                 method,
@@ -282,6 +295,10 @@ pub(crate) fn method_to_error(method: Method) -> Result<ParsedRequest, RequestEr
         Method::Patch => Err(RequestError::Generic(
             StatusCode::BadRequest,
             "Empty PATCH request.".to_string(),
+        )),
+        Method::Delete => Err(RequestError::Generic(
+            StatusCode::BadRequest,
+            "Empty Delete request.".to_string(),
         )),
     }
 }

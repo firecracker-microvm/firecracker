@@ -146,7 +146,7 @@ fn run(cli: Cli) -> Result<(), HelperError> {
 
                 let stripped_templates = template::strip::strip(templates)?;
 
-                for (path, template) in paths.into_iter().zip(stripped_templates.into_iter()) {
+                for (path, template) in paths.into_iter().zip(stripped_templates) {
                     let path = utils::add_suffix(&path, &suffix);
                     let template_json = serde_json::to_string_pretty(&template)?;
                     write(path, template_json)?;

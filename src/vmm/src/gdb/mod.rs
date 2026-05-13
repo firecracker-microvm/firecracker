@@ -44,8 +44,10 @@ pub fn gdb_thread(
     // when resumed will be removed
     {
         let vmm = vmm.lock().unwrap();
-        vcpu_set_debug(&vmm.vcpus_handles[0].vcpu_fd, &[entry_addr], false)?;
-        for handle in &vmm.vcpus_handles[1..] {
+        let kvm_vm = vmm.vm.as_kvm().expect("GDB requires KVM");
+        let handles = kvm_vm.vcpus_handles();
+        vcpu_set_debug(&handles[0].vcpu_fd, &[entry_addr], false)?;
+        for handle in &handles[1..] {
             vcpu_set_debug(&handle.vcpu_fd, &[], false)?;
         }
     }

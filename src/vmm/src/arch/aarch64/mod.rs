@@ -37,7 +37,8 @@ use crate::vstate::memory::{
     Address, Bytes, GuestAddress, GuestMemory, GuestMemoryMmap, GuestRegionType,
 };
 use crate::vstate::vcpu::KvmVcpuError;
-use crate::{DeviceManager, Kvm, Vcpu, VcpuConfig, Vm, logger};
+use crate::vstate::vm::KvmVm;
+use crate::{DeviceManager, Kvm, Vcpu, VcpuConfig, logger};
 
 /// Errors thrown while configuring aarch64 system.
 #[derive(Debug, thiserror::Error, displaydoc::Display)]
@@ -92,7 +93,7 @@ pub fn arch_memory_regions(size: usize) -> Vec<(GuestAddress, usize)> {
 #[allow(clippy::too_many_arguments)]
 pub fn configure_system_for_boot(
     kvm: &Kvm,
-    vm: &Vm,
+    vm: &KvmVm,
     device_manager: &mut DeviceManager,
     vcpus: &mut [Vcpu],
     machine_config: &MachineConfig,

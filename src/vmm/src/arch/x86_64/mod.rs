@@ -48,7 +48,8 @@ use crate::vstate::memory::{
     Address, GuestAddress, GuestMemory, GuestMemoryMmap, GuestMemoryRegion, GuestRegionType,
 };
 use crate::vstate::vcpu::KvmVcpuConfigureError;
-use crate::{Vcpu, VcpuConfig, Vm, logger};
+use crate::vstate::vm::KvmVm;
+use crate::{Vcpu, VcpuConfig, logger};
 use kvm::Kvm;
 use layout::{
     CMDLINE_START, MMIO32_MEM_SIZE, MMIO32_MEM_START, MMIO64_MEM_SIZE, MMIO64_MEM_START,
@@ -174,7 +175,7 @@ pub fn initrd_load_addr(guest_mem: &GuestMemoryMmap, initrd_size: usize) -> Opti
 #[allow(clippy::too_many_arguments)]
 pub fn configure_system_for_boot(
     kvm: &Kvm,
-    vm: &Vm,
+    vm: &KvmVm,
     device_manager: &mut DeviceManager,
     vcpus: &mut [Vcpu],
     machine_config: &MachineConfig,

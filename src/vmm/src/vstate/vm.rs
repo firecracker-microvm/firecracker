@@ -10,7 +10,7 @@ use std::fs::OpenOptions;
 use std::io::Write;
 use std::path::Path;
 use std::sync::atomic::{AtomicU32, Ordering};
-use std::sync::{Arc, Mutex, MutexGuard};
+use std::sync::{Arc, Barrier, Mutex, MutexGuard};
 
 #[cfg(target_arch = "x86_64")]
 use kvm_bindings::KVM_IRQCHIP_IOAPIC;
@@ -20,24 +20,35 @@ use kvm_bindings::{
 };
 use kvm_ioctls::VmFd;
 use serde::{Deserialize, Serialize};
+use userfaultfd::Uffd;
 use vmm_sys_util::errno;
 use vmm_sys_util::eventfd::EventFd;
+use vmm_sys_util::terminal::Terminal;
 
-pub use crate::arch::{ArchVm as Vm, ArchVmError, VmState};
 use crate::arch::{GSI_MSI_END, host_page_size};
+pub use crate::arch::{KvmVm, KvmVmError, VmState};
 use crate::logger::{debug, info};
-use crate::pci::{DeviceRelocation, DeviceRelocationError, PciDevice};
 use crate::persist::CreateSnapshotError;
 use crate::vmm_config::snapshot::SnapshotType;
 use crate::vstate::bus::Bus;
 use crate::vstate::interrupts::{InterruptError, MsixVector, MsixVectorConfig, MsixVectorGroup};
+use crate::vstate::kvm::Kvm;
 use crate::vstate::memory::{
     GuestMemory, GuestMemoryExtension, GuestMemoryMmap, GuestMemoryRegion, GuestMemoryState,
     GuestRegionMmap, GuestRegionMmapExt, MemoryError,
 };
 use crate::vstate::resources::ResourceAllocator;
-use crate::vstate::vcpu::VcpuError;
+use crate::vstate::vcpu::{StartThreadedError, VcpuError, VcpuHandle};
 use crate::{DirtyBitmap, Vcpu, mem_size_mib};
+
+/// Error type for [`KvmVm::start_vcpus`].
+#[derive(Debug, thiserror::Error, displaydoc::Display)]
+pub enum StartVcpusError {
+    /// Failed to set terminal mode: {0}
+    SetTerminalMode(#[from] vmm_sys_util::errno::Error),
+    /// Vcpu handle error: {0}
+    VcpuHandle(#[from] StartThreadedError),
+}
 
 #[derive(Debug, Serialize, Deserialize)]
 /// A struct representing an interrupt line used by some device of the microVM
@@ -49,18 +60,26 @@ pub struct RoutingEntry {
 /// Architecture independent parts of a VM.
 #[derive(Debug)]
 pub struct VmCommon {
-    /// The KVM file descriptor used to access this Vm.
+    /// The KVM file descriptor used to access this KvmVm.
     pub fd: VmFd,
     max_memslots: u32,
-    /// The guest memory of this Vm.
+    /// The guest memory of this KvmVm.
     pub guest_memory: GuestMemoryMmap,
     next_kvm_slot: AtomicU32,
-    /// Interrupts used by Vm's devices
+    /// Interrupts used by KvmVm's devices
     pub interrupts: Mutex<HashMap<u32, RoutingEntry>>,
     /// Allocator for VM resources
     pub resource_allocator: Mutex<ResourceAllocator>,
     /// MMIO bus
     pub mmio_bus: Arc<Bus>,
+    /// The global KVM state (fd + capabilities).
+    pub kvm: Kvm,
+    /// Userfaultfd kept open for snapshot restore.
+    pub uffd: Option<Uffd>,
+    /// Handles to vCPU threads.
+    pub vcpus_handles: Mutex<Vec<VcpuHandle>>,
+    /// Event fd written to by vCPUs on exit.
+    pub vcpus_exit_evt: EventFd,
 }
 
 /// Errors associated with the wrappers over KVM ioctls.
@@ -75,7 +94,7 @@ pub enum VmError {
     /// Failed to get KVM's dirty log: {0}
     GetDirtyLog(kvm_ioctls::Error),
     /// {0}
-    Arch(#[from] ArchVmError),
+    Arch(#[from] KvmVmError),
     /// Error during eventfd operations: {0}
     EventFd(std::io::Error),
     /// Failed to create vcpu: {0}
@@ -92,10 +111,33 @@ pub enum VmError {
     MemoryError(#[from] MemoryError),
 }
 
-/// Contains Vm functions that are usable across CPU architectures
+/// VM abstraction: either a KVM-based VM or (in the future) a Nitro Enclave.
+#[derive(Debug)]
+pub enum Vm {
+    /// KVM-backed virtual machine.
+    Kvm(Arc<KvmVm>),
+}
+
 impl Vm {
+    /// Returns the name of the VM type.
+    pub fn type_name(&self) -> &'static str {
+        match self {
+            Vm::Kvm(_) => "Kvm",
+        }
+    }
+
+    /// Returns a reference to the inner KVM VM, or `None` if this is not a KVM VM.
+    pub fn as_kvm(&self) -> Option<&Arc<KvmVm>> {
+        match self {
+            Vm::Kvm(v) => Some(v),
+        }
+    }
+}
+
+/// Contains KvmVm functions that are usable across CPU architectures
+impl KvmVm {
     /// Create a KVM VM
-    pub fn create_common(kvm: &crate::vstate::kvm::Kvm) -> Result<VmCommon, VmError> {
+    pub fn create_common(kvm: Kvm) -> Result<VmCommon, VmError> {
         // It is known that KVM_CREATE_VM occasionally fails with EINTR on heavily loaded machines
         // with many VMs.
         //
@@ -132,6 +174,8 @@ impl Vm {
             attempt += 1;
         };
 
+        let vcpus_exit_evt = EventFd::new(libc::EFD_NONBLOCK).map_err(VmError::EventFd)?;
+
         Ok(VmCommon {
             fd,
             max_memslots: kvm.max_nr_memslots(),
@@ -140,27 +184,221 @@ impl Vm {
             interrupts: Mutex::new(HashMap::with_capacity(GSI_MSI_END as usize + 1)),
             resource_allocator: Mutex::new(ResourceAllocator::new()),
             mmio_bus: Arc::new(Bus::new()),
+            kvm,
+            uffd: None,
+            vcpus_handles: Mutex::new(Vec::new()),
+            vcpus_exit_evt,
         })
     }
 
     /// Creates the specified number of [`Vcpu`]s.
     ///
-    /// The returned [`EventFd`] is written to whenever any of the vcpus exit.
-    pub fn create_vcpus(&mut self, vcpu_count: u8) -> Result<(Vec<Vcpu>, EventFd), VmError> {
+    /// Each vCPU gets a clone of the `vcpus_exit_evt` EventFd stored on this KvmVm.
+    pub fn create_vcpus(&mut self, vcpu_count: u8) -> Result<Vec<Vcpu>, VmError> {
         self.arch_pre_create_vcpus(vcpu_count)?;
-
-        let exit_evt = EventFd::new(libc::EFD_NONBLOCK).map_err(VmError::EventFd)?;
 
         let mut vcpus = Vec::with_capacity(vcpu_count as usize);
         for cpu_idx in 0..vcpu_count {
-            let exit_evt = exit_evt.try_clone().map_err(VmError::EventFd)?;
+            let exit_evt = self
+                .vcpus_exit_evt()
+                .try_clone()
+                .map_err(VmError::EventFd)?;
             let vcpu = Vcpu::new(cpu_idx, self, exit_evt).map_err(VmError::CreateVcpu)?;
             vcpus.push(vcpu);
         }
 
         self.arch_post_create_vcpus(vcpu_count)?;
 
-        Ok((vcpus, exit_evt))
+        Ok(vcpus)
+    }
+
+    /// Returns a reference to the [`Kvm`] instance.
+    pub fn kvm(&self) -> &Kvm {
+        &self.common.kvm
+    }
+
+    /// Returns a reference to the vCPU exit [`EventFd`].
+    pub fn vcpus_exit_evt(&self) -> &EventFd {
+        &self.common.vcpus_exit_evt
+    }
+
+    /// Returns a locked reference to the vCPU handles.
+    pub fn vcpus_handles(&self) -> MutexGuard<'_, Vec<VcpuHandle>> {
+        self.common.vcpus_handles.lock().expect("Poisoned lock")
+    }
+
+    /// Sets the userfaultfd (used during snapshot restore).
+    pub fn set_uffd(&mut self, uffd: Option<Uffd>) {
+        self.common.uffd = uffd;
+    }
+
+    /// Starts the microVM vCPUs.
+    ///
+    /// Sets the terminal to raw/non-blocking mode, then spawns a thread per vCPU
+    /// and stores the resulting handles. The barrier is used to synchronize TLS
+    /// initialization across all vCPU threads before returning.
+    pub fn start_vcpus(
+        self: &Arc<Self>,
+        mut vcpus: Vec<Vcpu>,
+        vcpu_seccomp_filter: Arc<crate::seccomp::BpfProgram>,
+    ) -> Result<(), StartVcpusError> {
+        let vcpu_count = vcpus.len();
+        let barrier = Arc::new(Barrier::new(vcpu_count + 1));
+
+        let stdin = std::io::stdin().lock();
+        stdin.set_raw_mode().inspect_err(|&err| {
+            crate::logger::warn!("Cannot set raw mode for the terminal. {:?}", err);
+        })?;
+        stdin.set_non_block(true).inspect_err(|&err| {
+            crate::logger::warn!("Cannot set non block for the terminal. {:?}", err);
+        })?;
+
+        let mut handles = self.vcpus_handles();
+        handles.reserve(vcpu_count);
+        for mut vcpu in vcpus.drain(..) {
+            vcpu.set_mmio_bus(self.common.mmio_bus.clone());
+            #[cfg(target_arch = "x86_64")]
+            vcpu.kvm_vcpu.set_pio_bus(self.pio_bus.clone());
+
+            handles.push(vcpu.start_threaded(
+                self,
+                vcpu_seccomp_filter.clone(),
+                barrier.clone(),
+            )?);
+        }
+        drop(handles);
+        barrier.wait();
+
+        Ok(())
+    }
+
+    /// Sends a pause event to all vCPUs and waits for acknowledgement.
+    pub fn pause_vcpus(&self) -> Result<(), crate::VmmError> {
+        let mut handles = self.vcpus_handles();
+        handles
+            .iter_mut()
+            .try_for_each(|handle| handle.send_event(crate::VcpuEvent::Pause))
+            .map_err(|_| crate::VmmError::VcpuMessage)?;
+
+        if handles
+            .iter()
+            .map(|handle| {
+                handle
+                    .response_receiver()
+                    .recv_timeout(crate::RECV_TIMEOUT_SEC)
+            })
+            .any(|response| !matches!(response, Ok(crate::VcpuResponse::Paused)))
+        {
+            return Err(crate::VmmError::VcpuMessage);
+        }
+        Ok(())
+    }
+
+    /// Sends a resume event to all vCPUs and waits for acknowledgement.
+    pub fn resume_vcpus(&self) -> Result<(), crate::VmmError> {
+        let mut handles = self.vcpus_handles();
+        handles
+            .iter_mut()
+            .try_for_each(|handle| handle.send_event(crate::VcpuEvent::Resume))
+            .map_err(|_| crate::VmmError::VcpuMessage)?;
+
+        if handles
+            .iter()
+            .map(|handle| {
+                handle
+                    .response_receiver()
+                    .recv_timeout(crate::RECV_TIMEOUT_SEC)
+            })
+            .any(|response| !matches!(response, Ok(crate::VcpuResponse::Resumed)))
+        {
+            return Err(crate::VmmError::VcpuMessage);
+        }
+        Ok(())
+    }
+
+    /// Saves vCPU states by requesting each vCPU thread to serialize its state.
+    pub fn save_vcpu_states(
+        &self,
+    ) -> Result<Vec<crate::vstate::vcpu::VcpuState>, crate::persist::MicrovmStateError> {
+        use crate::persist::MicrovmStateError;
+
+        let mut handles = self.vcpus_handles();
+        for handle in handles.iter_mut() {
+            handle
+                .send_event(crate::VcpuEvent::SaveState)
+                .map_err(MicrovmStateError::SignalVcpu)?;
+        }
+
+        let vcpu_responses = handles
+            .iter()
+            .map(|handle| {
+                handle
+                    .response_receiver()
+                    .recv_timeout(crate::RECV_TIMEOUT_SEC)
+            })
+            .collect::<Result<Vec<crate::VcpuResponse>, _>>()
+            .map_err(|_| MicrovmStateError::UnexpectedVcpuResponse)?;
+
+        vcpu_responses
+            .into_iter()
+            .map(|response| match response {
+                crate::VcpuResponse::SavedState(state) => Ok(*state),
+                crate::VcpuResponse::Error(err) => Err(MicrovmStateError::SaveVcpuState(err)),
+                crate::VcpuResponse::NotAllowed(reason) => {
+                    Err(MicrovmStateError::NotAllowed(reason))
+                }
+                _ => Err(MicrovmStateError::UnexpectedVcpuResponse),
+            })
+            .collect()
+    }
+
+    /// Dumps CPU configuration from all vCPU threads.
+    pub fn dump_cpu_config_states(
+        &self,
+    ) -> Result<Vec<crate::cpu_config::templates::CpuConfiguration>, crate::DumpCpuConfigError>
+    {
+        use crate::DumpCpuConfigError;
+
+        let mut handles = self.vcpus_handles();
+        for handle in handles.iter_mut() {
+            handle
+                .send_event(crate::VcpuEvent::DumpCpuConfig)
+                .map_err(DumpCpuConfigError::SendEvent)?;
+        }
+
+        let vcpu_responses = handles
+            .iter()
+            .map(|handle| {
+                handle
+                    .response_receiver()
+                    .recv_timeout(crate::RECV_TIMEOUT_SEC)
+            })
+            .collect::<Result<Vec<crate::VcpuResponse>, _>>()
+            .map_err(|_| DumpCpuConfigError::UnexpectedResponse)?;
+
+        vcpu_responses
+            .into_iter()
+            .map(|response| match response {
+                crate::VcpuResponse::DumpedCpuConfig(cpu_config) => Ok(*cpu_config),
+                crate::VcpuResponse::Error(err) => Err(DumpCpuConfigError::DumpCpuConfig(err)),
+                crate::VcpuResponse::NotAllowed(reason) => {
+                    Err(DumpCpuConfigError::NotAllowed(reason))
+                }
+                _ => Err(DumpCpuConfigError::UnexpectedResponse),
+            })
+            .collect()
+    }
+
+    /// Sends finish events to all vCPU threads and joins them.
+    pub fn shutdown_vcpus(&self) {
+        let mut handles = self.vcpus_handles();
+        for (idx, handle) in handles.iter_mut().enumerate() {
+            if let Err(err) = handle.send_event(crate::VcpuEvent::Finish) {
+                crate::logger::error!("Failed to send VcpuEvent::Finish to vCPU {}: {}", idx, err);
+            }
+        }
+        // Join the vCPU threads by running VcpuHandle::drop().
+        handles.clear();
     }
 
     /// Reserves the next `slot_cnt` contiguous kvm slot ids and returns the first one
@@ -208,7 +446,7 @@ impl Vm {
         Ok(())
     }
 
-    /// Register a list of new memory regions to this [`Vm`].
+    /// Register a list of new memory regions to this [`KvmVm`].
     pub fn register_dram_memory_regions(
         &mut self,
         regions: Vec<GuestRegionMmap>,
@@ -227,7 +465,7 @@ impl Vm {
         Ok(())
     }
 
-    /// Register a new hotpluggable region to this [`Vm`].
+    /// Register a new hotpluggable region to this [`KvmVm`].
     pub fn register_hotpluggable_memory_region(
         &mut self,
         region: GuestRegionMmap,
@@ -248,7 +486,7 @@ impl Vm {
         self.register_memory_region(arcd_region)
     }
 
-    /// Register a list of new memory regions to this [`Vm`].
+    /// Register a list of new memory regions to this [`KvmVm`].
     ///
     /// Note: regions and state.regions need to be in the same order.
     pub fn restore_memory_regions(
@@ -280,12 +518,12 @@ impl Vm {
         &self.common.fd
     }
 
-    /// Gets a reference to this [`Vm`]'s [`GuestMemoryMmap`] object
+    /// Gets a reference to this [`KvmVm`]'s [`GuestMemoryMmap`] object
     pub fn guest_memory(&self) -> &GuestMemoryMmap {
         &self.common.guest_memory
     }
 
-    /// Gets a mutable reference to this [`Vm`]'s [`ResourceAllocator`] object
+    /// Gets a mutable reference to this [`KvmVm`]'s [`ResourceAllocator`] object
     pub fn resource_allocator(&self) -> MutexGuard<'_, ResourceAllocator> {
         self.common
             .resource_allocator
@@ -456,7 +694,10 @@ impl Vm {
     }
 
     /// Create a group of MSI-X interrupts
-    pub fn create_msix_group(vm: Arc<Vm>, count: u16) -> Result<MsixVectorGroup, InterruptError> {
+    pub fn create_msix_group(
+        vm: Arc<KvmVm>,
+        count: u16,
+    ) -> Result<MsixVectorGroup, InterruptError> {
         debug!("Creating new MSI group with {count} vectors");
         let mut vectors = Vec::with_capacity(count as usize);
         for gsi in vm
@@ -522,18 +763,6 @@ fn mincore_bitmap(addr: *mut u8, len: usize) -> Result<Vec<u64>, VmError> {
     Ok(bitmap)
 }
 
-impl DeviceRelocation for Vm {
-    fn move_bar(
-        &self,
-        _old_base: u64,
-        _new_base: u64,
-        _len: u64,
-        _pci_dev: &mut dyn PciDevice,
-    ) -> Result<(), DeviceRelocationError> {
-        Err(DeviceRelocationError::NotSupported)
-    }
-}
-
 #[cfg(test)]
 pub(crate) mod tests {
     use std::sync::atomic::Ordering;
@@ -550,30 +779,29 @@ pub(crate) mod tests {
     use crate::vstate::memory::GuestRegionMmap;
 
     // Auxiliary function being used throughout the tests.
-    pub(crate) fn setup_vm() -> (Kvm, Vm) {
+    pub(crate) fn setup_vm() -> KvmVm {
         let kvm = Kvm::new(vec![]).expect("Cannot create Kvm");
-        let vm = Vm::new(&kvm).expect("Cannot create new vm");
-        (kvm, vm)
+        KvmVm::new(kvm).expect("Cannot create new vm")
     }
 
     // Auxiliary function being used throughout the tests.
-    pub(crate) fn setup_vm_with_memory(mem_size: usize) -> (Kvm, Vm) {
-        let (kvm, mut vm) = setup_vm();
+    pub(crate) fn setup_vm_with_memory(mem_size: usize) -> KvmVm {
+        let mut vm = setup_vm();
         let gm = single_region_mem_raw(mem_size);
         vm.register_dram_memory_regions(gm).unwrap();
-        (kvm, vm)
+        vm
     }
 
     #[test]
     fn test_new() {
         // Testing with a valid /dev/kvm descriptor.
         let kvm = Kvm::new(vec![]).expect("Cannot create Kvm");
-        Vm::new(&kvm).unwrap();
+        KvmVm::new(kvm).unwrap();
     }
 
     #[test]
     fn test_register_memory_regions() {
-        let (_, mut vm) = setup_vm();
+        let mut vm = setup_vm();
 
         // Trying to set a memory region with a size that is not a multiple of GUEST_PAGE_SIZE
         // will result in error.
@@ -591,8 +819,8 @@ pub(crate) mod tests {
 
     #[test]
     fn test_too_many_regions() {
-        let (kvm, mut vm) = setup_vm();
-        let max_nr_regions = kvm.max_nr_memslots();
+        let mut vm = setup_vm();
+        let max_nr_regions = vm.kvm().max_nr_memslots();
 
         // SAFETY: valid mmap parameters
         let ptr = unsafe {
@@ -644,27 +872,27 @@ pub(crate) mod tests {
     #[test]
     fn test_create_vcpus() {
         let vcpu_count = 2;
-        let (_, mut vm) = setup_vm_with_memory(mib_to_bytes(128));
+        let mut vm = setup_vm_with_memory(mib_to_bytes(128));
 
-        let (vcpu_vec, _) = vm.create_vcpus(vcpu_count).unwrap();
+        let vcpu_vec = vm.create_vcpus(vcpu_count).unwrap();
 
         assert_eq!(vcpu_vec.len(), vcpu_count as usize);
     }
 
-    fn enable_irqchip(vm: &mut Vm) {
+    fn enable_irqchip(vm: &mut KvmVm) {
         #[cfg(target_arch = "x86_64")]
         vm.setup_irqchip().unwrap();
         #[cfg(target_arch = "aarch64")]
         vm.setup_irqchip(1).unwrap();
     }
 
-    fn create_msix_group(vm: &Arc<Vm>) -> MsixVectorGroup {
-        Vm::create_msix_group(vm.clone(), 4).unwrap()
+    fn create_msix_group(vm: &Arc<KvmVm>) -> MsixVectorGroup {
+        KvmVm::create_msix_group(vm.clone(), 4).unwrap()
     }
 
     #[test]
     fn test_msi_vector_group_new() {
-        let (_, vm) = setup_vm_with_memory(mib_to_bytes(128));
+        let vm = setup_vm_with_memory(mib_to_bytes(128));
         let vm = Arc::new(vm);
         let msix_group = create_msix_group(&vm);
         assert_eq!(msix_group.num_vectors(), 4);
@@ -672,7 +900,7 @@ pub(crate) mod tests {
 
     #[test]
     fn test_msi_vector_group_enable_disable() {
-        let (_, mut vm) = setup_vm_with_memory(mib_to_bytes(128));
+        let mut vm = setup_vm_with_memory(mib_to_bytes(128));
         enable_irqchip(&mut vm);
         let vm = Arc::new(vm);
         let msix_group = create_msix_group(&vm);
@@ -700,7 +928,7 @@ pub(crate) mod tests {
 
     #[test]
     fn test_msi_vector_group_trigger() {
-        let (_, mut vm) = setup_vm_with_memory(mib_to_bytes(128));
+        let mut vm = setup_vm_with_memory(mib_to_bytes(128));
         enable_irqchip(&mut vm);
 
         let vm = Arc::new(vm);
@@ -717,7 +945,7 @@ pub(crate) mod tests {
 
     #[test]
     fn test_msi_vector_group_notifier() {
-        let (_, vm) = setup_vm_with_memory(mib_to_bytes(128));
+        let vm = setup_vm_with_memory(mib_to_bytes(128));
         let vm = Arc::new(vm);
         let msix_group = create_msix_group(&vm);
 
@@ -730,7 +958,7 @@ pub(crate) mod tests {
 
     #[test]
     fn test_msi_vector_group_update_invalid_vector() {
-        let (_, mut vm) = setup_vm_with_memory(mib_to_bytes(128));
+        let mut vm = setup_vm_with_memory(mib_to_bytes(128));
         enable_irqchip(&mut vm);
         let vm = Arc::new(vm);
         let msix_group = create_msix_group(&vm);
@@ -746,7 +974,7 @@ pub(crate) mod tests {
 
     #[test]
     fn test_msi_vector_group_update() {
-        let (_, mut vm) = setup_vm_with_memory(mib_to_bytes(128));
+        let mut vm = setup_vm_with_memory(mib_to_bytes(128));
         enable_irqchip(&mut vm);
         let vm = Arc::new(vm);
         assert!(vm.common.interrupts.lock().unwrap().is_empty());
@@ -822,14 +1050,14 @@ pub(crate) mod tests {
 
     #[test]
     fn test_msi_vector_group_persistence() {
-        let (_, mut vm) = setup_vm_with_memory(mib_to_bytes(128));
+        let mut vm = setup_vm_with_memory(mib_to_bytes(128));
         enable_irqchip(&mut vm);
         let vm = Arc::new(vm);
         let msix_group = create_msix_group(&vm);
 
         msix_group.enable().unwrap();
         let state = msix_group.save();
-        let restored_group = MsixVectorGroup::restore(vm, &state).unwrap();
+        let restored_group = MsixVectorGroup::restore(vm.clone(), &state).unwrap();
 
         assert_eq!(msix_group.num_vectors(), restored_group.num_vectors());
         // Even if an MSI group is enabled, we don't save it as such. During restoration, the PCI
@@ -847,7 +1075,7 @@ pub(crate) mod tests {
     fn test_restore_state_resource_allocator() {
         use vm_allocator::AllocPolicy;
 
-        let (_, mut vm) = setup_vm_with_memory(0x1000);
+        let mut vm = setup_vm_with_memory(0x1000);
         vm.setup_irqchip().unwrap();
 
         // Allocate a GSI and some memory and make sure they are still allocated after restore

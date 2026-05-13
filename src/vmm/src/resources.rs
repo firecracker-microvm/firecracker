@@ -63,9 +63,9 @@ pub enum ResourcesError {
     /// Vsock device error: {0}
     VsockDevice(#[from] VsockConfigError),
     /// Entropy device error: {0}
-    EntropyDevice(#[from] EntropyDeviceError),
+    EntropyConfig(#[from] EntropyDeviceError),
     /// Pmem device error: {0}
-    PmemDevice(#[from] PmemConfigError),
+    PmemConfig(#[from] PmemConfigError),
     /// Memory hotplug config error: {0}
     MemoryHotplugConfig(#[from] MemoryHotplugConfigError),
 }
@@ -120,7 +120,7 @@ pub struct VmResources {
     pub net_builder: NetBuilder,
     /// The entropy device builder.
     pub entropy: EntropyDeviceBuilder,
-    /// The pmem devices.
+    /// The pmem device configs.
     pub pmem: PmemBuilder,
     /// The memory hotplug configuration.
     pub memory_hotplug: Option<MemoryHotplugConfig>,
@@ -549,7 +549,7 @@ impl From<&VmResources> for VmmConfig {
             network_interfaces: resources.net_builder.configs(),
             vsock: resources.vsock.config(),
             entropy: resources.entropy.config(),
-            pmem_devices: resources.pmem.configs(),
+            pmem_devices: resources.pmem.configs.clone(),
             // serial_config is marked serde(skip) so that it doesnt end up in snapshots.
             serial_config: None,
             memory_hotplug: resources.memory_hotplug.clone(),
@@ -1681,8 +1681,8 @@ mod tests {
             path_on_host: tmp_file.as_path().to_str().unwrap().to_string(),
             ..Default::default()
         };
-        assert_eq!(vm_resources.pmem.devices.len(), 0);
+        assert_eq!(vm_resources.pmem.configs.len(), 0);
         vm_resources.build_pmem_device(cfg).unwrap();
-        assert_eq!(vm_resources.pmem.devices.len(), 1);
+        assert_eq!(vm_resources.pmem.configs.len(), 1);
     }
 }

@@ -23,10 +23,13 @@ if __name__ == "__main__":
         "m6i.metal",
         "m7i.metal-24xl",
         "m7i.metal-48xl",
+        "m8i.metal-48xl",
         "m6a.metal",
         "m7a.metal-48xl",
     ]
-    instances_aarch64 = ["m7g.metal"]
+    instances_aarch64 = ["m6g.metal", "m7g.metal", "m8g.metal-24xl"]
+    restore_only_platforms = [("al2023", "linux_6.18")]
+    x86_64_platforms = DEFAULT_PLATFORMS + restore_only_platforms
     commands = [
         "./tools/devtool -y test --no-build --no-archive -- -m nonci -n4 integration_tests/functional/test_snapshot_phase1.py",
         # punch holes in mem snapshot tiles and tar them so they are preserved in S3
@@ -35,7 +38,21 @@ if __name__ == "__main__":
         "mkdir -pv snapshots",
         "tar cSvf snapshots/{instance}_{kv}.tar snapshot_artifacts",
     ]
-    pipeline.build_group(
+
+    def create_step_key(instance, kv):
+        """Buildkite key for a snapshot-create step.
+
+        Keys may only contain [A-Za-z0-9_\\-:], so dots in instance names
+        (m5n.metal) and kernel versions (linux_5.10) are sanitized to
+        underscores. Tarball paths stay unchanged.
+        """
+        return f"snap-create-{instance}-{kv}".replace(".", "_")
+
+    # Key each snapshot-create step so restore steps can depend on the
+    # specific source snapshot they need, rather than waiting for every
+    # snapshot-create step to finish. `build_group` doesn't sanitize
+    # substituted key values, so we set the final key after it fans out.
+    x86_create = pipeline.build_group(
         "snapshot-create",
         commands,
         timeout=30,
@@ -43,23 +60,34 @@ if __name__ == "__main__":
         instances=instances_x86_64,
         platforms=DEFAULT_PLATFORMS,
     )
-    pipeline.add_step("wait")
 
-    # allow-list of what instances can be restores on what other instances (in
-    # addition to itself)
+    # https://github.com/firecracker-microvm/firecracker/blob/main/docs/snapshotting/snapshot-support.md#where-can-i-resume-my-snapshots
+    aarch64_platforms = [("al2023", "linux_6.1")]
+    aarch64_create = pipeline.build_group(
+        "snapshot-create-aarch64",
+        commands,
+        timeout=30,
+        artifact_paths="snapshots/**/*",
+        instances=instances_aarch64,
+        platforms=aarch64_platforms,
+    )
+    for grp in (x86_create, aarch64_create):
+        for s in grp["steps"]:
+            s["key"] = create_step_key(s["agents"]["instance"], s["agents"]["kv"])
+
+    # allow-list of what instances can be restored on what other instances (in
+    # addition to itself). aarch64 is restricted to same-instance restores.
     supported = {
         "m5n.metal": ["m6i.metal"],
         "m6i.metal": ["m5n.metal"],
     }
-
-    # https://github.com/firecracker-microvm/firecracker/blob/main/docs/kernel-policy.md#experimental-snapshot-compatibility-across-kernel-versions
-    aarch64_platforms = [("al2023", "linux_6.1")]
+    aarch64_all_platforms = aarch64_platforms + restore_only_platforms
     perms_aarch64 = itertools.product(
-        instances_aarch64, aarch64_platforms, instances_aarch64, aarch64_platforms
+        instances_aarch64, aarch64_platforms, instances_aarch64, aarch64_all_platforms
     )
 
     perms_x86_64 = itertools.product(
-        instances_x86_64, DEFAULT_PLATFORMS, instances_x86_64, DEFAULT_PLATFORMS
+        instances_x86_64, DEFAULT_PLATFORMS, instances_x86_64, x86_64_platforms
     )
     steps = []
     for (
@@ -73,6 +101,9 @@ if __name__ == "__main__":
             continue
         # newer -> older is not supported, and does not work
         if src_kv > dst_kv:
+            continue
+        # only test cross-kernel restore between adjacent kernel versions
+        if src_kv == "linux_5.10" and dst_kv == "linux_6.18":
             continue
         if src_instance != dst_instance and dst_instance not in supported.get(
             src_instance, []
@@ -96,6 +127,7 @@ if __name__ == "__main__":
             "label": f"snapshot-restore-src-{src_instance}-{src_kv}-dst-{dst_instance}-{dst_kv}",
             "timeout": 30,
             "agents": {"instance": dst_instance, "kv": dst_kv, "os": dst_os},
+            "depends_on": [create_step_key(src_instance, src_kv)],
             **per_instance,
         }
         steps.append(step)

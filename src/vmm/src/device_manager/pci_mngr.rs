@@ -10,13 +10,14 @@ use event_manager::{MutEventSubscriber, SubscriberOps};
 use serde::{Deserialize, Serialize};
 
 use super::persist::MmdsState;
+use crate::EventManager;
 use crate::device_manager::DevicePersistError;
 use crate::devices::pci::PciSegment;
 use crate::devices::virtio::balloon::Balloon;
 use crate::devices::virtio::balloon::persist::{BalloonConstructorArgs, BalloonState};
 use crate::devices::virtio::block::device::Block;
 use crate::devices::virtio::block::persist::{BlockConstructorArgs, BlockState};
-use crate::devices::virtio::device::{VirtioDevice, VirtioDeviceType};
+use crate::devices::virtio::device::{VirtioDevice, VirtioDeviceId, VirtioDeviceType};
 use crate::devices::virtio::mem::VirtioMem;
 use crate::devices::virtio::mem::persist::{VirtioMemConstructorArgs, VirtioMemState};
 use crate::devices::virtio::net::Net;
@@ -41,14 +42,14 @@ use crate::vmm_config::memory_hotplug::MemoryHotplugConfig;
 use crate::vstate::bus::BusError;
 use crate::vstate::interrupts::InterruptError;
 use crate::vstate::memory::GuestMemoryMmap;
-use crate::{EventManager, Vm};
+use crate::vstate::vm::KvmVm;
 
 #[derive(Debug, Default)]
 pub struct PciDevices {
     /// PCIe segment of the VMM, if PCI is enabled. We currently support a single PCIe segment.
     pub pci_segment: Option<PciSegment>,
     /// All VirtIO PCI devices of the system
-    pub virtio_devices: HashMap<(VirtioDeviceType, String), Arc<Mutex<VirtioPciDevice>>>,
+    pub virtio_devices: HashMap<VirtioDeviceId, Arc<Mutex<VirtioPciDevice>>>,
 }
 
 #[derive(Debug, thiserror::Error, displaydoc::Display)]
@@ -72,7 +73,7 @@ impl PciDevices {
         Default::default()
     }
 
-    pub fn attach_pci_segment(&mut self, vm: &Arc<Vm>) -> Result<(), PciManagerError> {
+    pub fn attach_pci_segment(&mut self, vm: &Arc<KvmVm>) -> Result<(), PciManagerError> {
         // We only support a single PCIe segment. Calling this function twice is a Firecracker
         // internal error.
         assert!(self.pci_segment.is_none());
@@ -86,18 +87,19 @@ impl PciDevices {
     }
 
     fn register_bars_with_bus(
-        vm: &Vm,
+        vm: &KvmVm,
         virtio_device: &Arc<Mutex<VirtioPciDevice>>,
     ) -> Result<(), PciManagerError> {
         let virtio_device_locked = virtio_device.lock().expect("Poisoned lock");
 
         debug!(
             "Inserting MMIO BAR region: {:#x}:{:#x}",
-            virtio_device_locked.bar_address, CAPABILITY_BAR_SIZE
+            virtio_device_locked.config_bar_addr(),
+            CAPABILITY_BAR_SIZE
         );
         vm.common.mmio_bus.insert(
             virtio_device.clone(),
-            virtio_device_locked.bar_address,
+            virtio_device_locked.config_bar_addr(),
             CAPABILITY_BAR_SIZE,
         )?;
 
@@ -106,7 +108,7 @@ impl PciDevices {
 
     fn attach_common(
         &mut self,
-        vm: &Arc<Vm>,
+        vm: &KvmVm,
         device_type: VirtioDeviceType,
         id: String,
         sbdf: PciSBDF,
@@ -120,7 +122,7 @@ impl PciDevices {
             .pci_bus
             .lock()
             .expect("Poisoned lock")
-            .add_device(sbdf.device(), virtio_device.clone());
+            .add_device(sbdf.device(), virtio_device.clone())?;
 
         self.virtio_devices
             .insert((device_type, id), virtio_device.clone());
@@ -136,13 +138,11 @@ impl PciDevices {
         Ok(())
     }
 
-    pub(crate) fn attach_pci_virtio_device<
-        T: 'static + VirtioDevice + MutEventSubscriber + Debug,
-    >(
+    pub(crate) fn attach_pci_virtio_device(
         &mut self,
-        vm: &Arc<Vm>,
+        vm: &Arc<KvmVm>,
         id: String,
-        device: Arc<Mutex<T>>,
+        device: Arc<Mutex<dyn VirtioDevice>>,
         event_manager: &mut EventManager,
     ) -> Result<(), PciManagerError> {
         // We should only be reaching this point if PCI is enabled
@@ -157,7 +157,7 @@ impl PciDevices {
         let msix_num =
             u16::try_from(device.lock().expect("Poisoned lock").queues().len() + 1).unwrap();
 
-        let msix_vectors = Vm::create_msix_group(vm.clone(), msix_num)?;
+        let msix_vectors = KvmVm::create_msix_group(vm.clone(), msix_num)?;
 
         // Create the transport
         let mut virtio_device =
@@ -176,7 +176,7 @@ impl PciDevices {
 
     fn restore_pci_device<T: 'static + VirtioDevice + MutEventSubscriber + Debug>(
         &mut self,
-        vm: &Arc<Vm>,
+        vm: &Arc<KvmVm>,
         device: Arc<Mutex<T>>,
         device_id: &str,
         transport_state: &VirtioPciDeviceState,
@@ -257,7 +257,7 @@ pub struct PciDevicesState {
 }
 
 pub struct PciDevicesConstructorArgs<'a> {
-    pub vm: &'a Arc<Vm>,
+    pub vm: &'a Arc<KvmVm>,
     pub mem: &'a GuestMemoryMmap,
     pub vm_resources: &'a mut VmResources,
     pub instance_id: &'a str,
@@ -576,7 +576,7 @@ impl<'a> Persist<'a> for PciDevices {
             let device = Arc::new(Mutex::new(Pmem::restore(
                 PmemConstructorArgs {
                     mem,
-                    vm: constructor_args.vm.as_ref(),
+                    vm: constructor_args.vm.clone(),
                 },
                 &pmem_state.device_state,
             )?));
@@ -584,7 +584,8 @@ impl<'a> Persist<'a> for PciDevices {
             constructor_args
                 .vm_resources
                 .pmem
-                .add_device(device.clone());
+                .configs
+                .push(pmem_state.device_state.config.clone());
 
             pci_devices.restore_pci_device(
                 constructor_args.vm,
@@ -649,7 +650,9 @@ mod tests {
         {
             let mut event_manager = EventManager::new().expect("Unable to create EventManager");
             let mut vmm = default_vmm();
-            vmm.device_manager.enable_pci(&vmm.vm).unwrap();
+            vmm.device_manager
+                .enable_pci(&vmm.vm.as_kvm().unwrap().clone())
+                .unwrap();
             let mut cmdline = default_kernel_cmdline();
 
             // Add a balloon device.
@@ -705,6 +708,7 @@ mod tests {
                 path_on_host: "".into(),
                 root_device: true,
                 read_only: true,
+                ..Default::default()
             }];
             _pmem_files =
                 insert_pmem_devices(&mut vmm, &mut cmdline, &mut event_manager, pmem_configs);
@@ -730,15 +734,16 @@ mod tests {
         let mut event_manager = EventManager::new().expect("Unable to create EventManager");
         // Keep in mind we are re-creating here an empty DeviceManager. Restoring later on
         // will create a new PciDevices manager different than vmm.pci_devices. We're doing
-        // this to avoid restoring the whole Vmm, since what we really need from Vmm is the Vm
+        // this to avoid restoring the whole Vmm, since what we really need from Vmm is the KvmVm
         // object and calling default_vmm() is the easiest way to create one.
         let vmm = default_vmm();
         let device_manager_state: device_manager::DevicesState =
             bitcode::deserialize(&serialized_data).unwrap();
         let vm_resources = &mut VmResources::default();
+        let kvm_vm = vmm.vm.as_kvm().unwrap().clone();
         let restore_args = PciDevicesConstructorArgs {
-            vm: &vmm.vm,
-            mem: vmm.vm.guest_memory(),
+            vm: &kvm_vm,
+            mem: kvm_vm.guest_memory(),
             vm_resources,
             instance_id: "microvm-id",
             event_manager: &mut event_manager,
@@ -812,7 +817,8 @@ mod tests {
       "id": "pmem",
       "path_on_host": "{}",
       "root_device": true,
-      "read_only": true
+      "read_only": true,
+      "rate_limiter": null
     }}
   ],
   "memory-hotplug": {{

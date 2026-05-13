@@ -88,9 +88,6 @@ pub enum TcpError {
     SliceTooShort,
 }
 
-// TODO: The implementation of TcpSegment is IPv4 specific in regard to checksum computation. Maybe
-// make it more generic at some point.
-
 /// Interprets the inner bytes as a TCP segment.
 #[derive(Debug)]
 pub struct TcpSegment<'a, T: 'a> {

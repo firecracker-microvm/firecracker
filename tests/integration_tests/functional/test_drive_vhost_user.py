@@ -88,7 +88,8 @@ def _check_drives(test_microvm, assert_dict, keys_array):
 def test_vhost_user_block(uvm_vhost_user_booted_ro):
     """
     This test simply tries to boot a VM with
-    vhost-user-block as a root device.
+    vhost-user-block as a root device and then
+    tries to snapshot it.
     """
 
     vm = uvm_vhost_user_booted_ro
@@ -104,6 +105,14 @@ def test_vhost_user_block(uvm_vhost_user_booted_ro):
     }
     _check_drives(vm, assert_dict, assert_dict.keys())
     vhost_user_block_metrics.validate(vm)
+
+    with pytest.raises(
+        RuntimeError,
+        match=r"Devices without snapshot support are present: vhost-user-block\(id: rootfs\)",
+    ):
+        vm.api.snapshot_create.put(
+            mem_file_path="memfile", snapshot_path="statefile", snapshot_type="Full"
+        )
 
 
 def test_vhost_user_block_read_write(uvm_vhost_user_booted_rw):

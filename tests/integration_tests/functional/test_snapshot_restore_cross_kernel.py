@@ -5,13 +5,14 @@
 
 import json
 import logging
-import platform
 from pathlib import Path
 
 import pytest
 
 from framework.defs import FC_WORKSPACE_DIR
 from framework.utils import (
+    check_entropy,
+    check_network_data_integrity,
     generate_mmds_get_request,
     generate_mmds_session_token,
     guest_run_fio_iteration,
@@ -25,6 +26,23 @@ from integration_tests.functional.test_balloon import (
 )
 
 pytestmark = pytest.mark.nonci
+
+
+def _check_guest_monotonic_did_not_jump(ssh_connection, max_delta_sec=10):
+    # Phase1 recorded CLOCK_MONOTONIC to /tmp/monotonic-before just before
+    # snapshotting. Firecracker is supposed to resume MONOTONIC from capture
+    # time, so the delta here should be near zero regardless of how long
+    # phase1 and restore are apart in the pipeline. A large delta indicates
+    # MONOTONIC jumped forward across the snapshot - a kvm-clock regression
+    # that could surface only on some host-kernel combinations.
+    _, before_str, _ = ssh_connection.check_output("cat /tmp/monotonic-before")
+    _, after_str, _ = ssh_connection.check_output(
+        "python3 -c 'import time; print(time.monotonic())'"
+    )
+    delta = float(after_str.strip()) - float(before_str.strip())
+    assert (
+        0 <= delta <= max_delta_sec
+    ), f"Guest MONOTONIC jumped {delta:.3f}s across snapshot (max {max_delta_sec}s)"
 
 
 def _test_balloon(microvm):
@@ -71,12 +89,11 @@ def get_snapshot_dirs():
     """Get all the snapshot directories"""
     snapshot_root_name = "snapshot_artifacts"
     snapshot_root_dir = Path(FC_WORKSPACE_DIR) / snapshot_root_name
-    cpu_templates = []
-    if platform.machine() == "x86_64":
-        cpu_templates = ["None"]
-    cpu_templates += get_supported_cpu_templates()
+    cpu_templates = ["None"] + get_supported_cpu_templates()
     for cpu_template in cpu_templates:
-        for snapshot_dir in snapshot_root_dir.glob(f"*_{cpu_template}_guest_snapshot"):
+        for snapshot_dir in snapshot_root_dir.glob(
+            f"**/*_{cpu_template}_guest_snapshot"
+        ):
             assert snapshot_dir.is_dir()
             yield pytest.param(snapshot_dir, id=snapshot_dir.name)
 
@@ -100,7 +117,11 @@ def test_snap_restore_from_artifacts(
     # in the snapshot root dir.
     logger.info("Working with snapshot artifacts in %s.", snapshot_dir)
 
-    vm = microvm_factory.build()
+    # Skip memory monitor: the balloon inflation below fragments the guest
+    # VMA via discard_range's MAP_FIXED anonymous mmap workaround (used only
+    # for private file-backed mappings from snapshot restore), defeating
+    # MemoryMonitor.is_guest_mem. Cross-kernel test, not overhead.
+    vm = microvm_factory.build(monitor_memory=False)
     vm.time_api_requests = False
     vm.spawn()
     logger.info("Loading microVM from snapshot...")
@@ -115,6 +136,15 @@ def test_snap_restore_from_artifacts(
         logger.info("Testing net device %s...", iface["iface"].dev_name)
         vm.ssh_iface(idx).check_output("true")
 
+    # Check MONOTONIC before any other post-restore activity, so the delta
+    # is bounded by the few seconds of post-resume setup rather than the
+    # full test runtime.
+    logger.info("Testing guest MONOTONIC did not jump across snapshot...")
+    _check_guest_monotonic_did_not_jump(vm.ssh)
+
+    logger.info("Testing network data integrity...")
+    check_network_data_integrity(vm.ssh)
+
     logger.info("Testing data store behavior...")
     _test_mmds(vm, vm.iface["eth3"]["iface"])
 
@@ -124,9 +154,10 @@ def test_snap_restore_from_artifacts(
     logger.info("Testing vsock device...")
     check_vsock_device(vm, bin_vsock_path, test_fc_session_root_path, vm.ssh)
 
-    # Run fio on the guest.
-    # TODO: check the result of FIO or use fsck to check that the root device is
-    # not corrupted. No obvious errors will be returned here.
+    logger.info("Testing block device via fio...")
     guest_run_fio_iteration(vm.ssh, 0)
+
+    logger.info("Testing entropy...")
+    check_entropy(vm.ssh)
 
     vm.kill()

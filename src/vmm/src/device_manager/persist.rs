@@ -10,6 +10,7 @@ use serde::{Deserialize, Serialize};
 
 use super::acpi::ACPIDeviceManager;
 use super::mmio::*;
+use crate::EventManager;
 #[cfg(target_arch = "aarch64")]
 use crate::arch::DeviceType;
 use crate::device_manager::DevicePersistError;
@@ -37,13 +38,12 @@ use crate::devices::virtio::vsock::persist::{
     VsockConstructorArgs, VsockState, VsockUdsConstructorArgs,
 };
 use crate::devices::virtio::vsock::{Vsock, VsockUnixBackend};
-use crate::logger::warn;
 use crate::mmds::data_store::MmdsVersion;
 use crate::resources::VmResources;
 use crate::snapshot::Persist;
 use crate::vmm_config::memory_hotplug::MemoryHotplugConfig;
 use crate::vstate::memory::GuestMemoryMmap;
-use crate::{EventManager, Vm};
+use crate::vstate::vm::KvmVm;
 
 #[derive(Debug, Default, Clone, Serialize, Deserialize)]
 pub struct SerialState {
@@ -148,7 +148,7 @@ pub struct DeviceStates {
 
 pub struct MMIODevManagerConstructorArgs<'a> {
     pub mem: &'a GuestMemoryMmap,
-    pub vm: &'a Arc<Vm>,
+    pub vm: &'a Arc<KvmVm>,
     pub event_manager: &'a mut EventManager,
     pub vm_resources: &'a mut VmResources,
     pub instance_id: &'a str,
@@ -175,7 +175,7 @@ pub struct ACPIDeviceManagerState {
 
 impl<'a> Persist<'a> for ACPIDeviceManager {
     type State = ACPIDeviceManagerState;
-    type ConstructorArgs = &'a Vm;
+    type ConstructorArgs = &'a KvmVm;
     type Error = ACPIDeviceError;
 
     fn save(&self) -> Self::State {
@@ -256,20 +256,17 @@ impl<'a> Persist<'a> for MMIODeviceManager {
                 // Both virtio-block and vhost-user-block share same device type.
                 VirtioDeviceType::Block => {
                     let block = locked_device.as_mut_any().downcast_mut::<Block>().unwrap();
-                    if block.is_vhost_user() {
-                        warn!(
-                            "Skipping vhost-user-block device. VhostUserBlock does not support \
-                             snapshotting yet"
-                        );
-                    } else {
-                        let device_state = block.save();
-                        states.block_devices.push(VirtioDeviceState {
-                            device_id,
-                            device_state,
-                            transport_state,
-                            device_info,
-                        });
-                    }
+                    assert!(
+                        !block.is_vhost_user(),
+                        "vhost-user-block does not support snapshotting yet"
+                    );
+                    let device_state = block.save();
+                    states.block_devices.push(VirtioDeviceState {
+                        device_id,
+                        device_state,
+                        transport_state,
+                        device_info,
+                    });
                 }
                 VirtioDeviceType::Net => {
                     let net = locked_device.as_mut_any().downcast_mut::<Net>().unwrap();
@@ -566,7 +563,7 @@ impl<'a> Persist<'a> for MMIODeviceManager {
             let device = Arc::new(Mutex::new(Pmem::restore(
                 PmemConstructorArgs {
                     mem,
-                    vm: vm.as_ref(),
+                    vm: vm.clone(),
                 },
                 &pmem_state.device_state,
             )?));
@@ -574,7 +571,8 @@ impl<'a> Persist<'a> for MMIODeviceManager {
             constructor_args
                 .vm_resources
                 .pmem
-                .add_device(device.clone());
+                .configs
+                .push(pmem_state.device_state.config.clone());
 
             restore_helper(
                 device,
@@ -739,6 +737,7 @@ mod tests {
                 path_on_host: "".into(),
                 root_device: true,
                 read_only: true,
+                ..Default::default()
             }];
             _pmem_files =
                 insert_pmem_devices(&mut vmm, &mut cmdline, &mut event_manager, pmem_configs);
@@ -766,9 +765,10 @@ mod tests {
         let device_manager_state: device_manager::DevicesState =
             bitcode::deserialize(&serialized_data).unwrap();
         let vm_resources = &mut VmResources::default();
+        let kvm_vm = vmm.vm.as_kvm().unwrap().clone();
         let restore_args = MMIODevManagerConstructorArgs {
-            mem: vmm.vm.guest_memory(),
-            vm: &vmm.vm,
+            mem: kvm_vm.guest_memory(),
+            vm: &kvm_vm,
             event_manager: &mut event_manager,
             vm_resources,
             instance_id: "microvm-id",
@@ -843,7 +843,8 @@ mod tests {
       "id": "pmem",
       "path_on_host": "{}",
       "root_device": true,
-      "read_only": true
+      "read_only": true,
+      "rate_limiter": null
     }}
   ],
   "memory-hotplug": {{

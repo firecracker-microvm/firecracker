@@ -1,30 +1,34 @@
 // Copyright 2025 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
+use std::sync::Arc;
+
 use serde::{Deserialize, Serialize};
 use vm_memory::GuestAddress;
 
 use super::device::{ConfigSpace, Pmem, PmemError};
-use crate::Vm;
 use crate::devices::virtio::device::{DeviceState, VirtioDeviceType};
 use crate::devices::virtio::persist::{PersistError as VirtioStateError, VirtioDeviceState};
 use crate::devices::virtio::pmem::{PMEM_NUM_QUEUES, PMEM_QUEUE_SIZE};
+use crate::rate_limiter::RateLimiter;
+use crate::rate_limiter::persist::RateLimiterState;
 use crate::snapshot::Persist;
 use crate::vmm_config::pmem::PmemConfig;
 use crate::vstate::memory::{GuestMemoryMmap, GuestRegionMmap};
-use crate::vstate::vm::VmError;
+use crate::vstate::vm::{KvmVm, VmError};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PmemState {
     pub virtio_state: VirtioDeviceState,
     pub config_space: ConfigSpace,
     pub config: PmemConfig,
+    pub rate_limiter_state: RateLimiterState,
 }
 
 #[derive(Debug)]
 pub struct PmemConstructorArgs<'a> {
     pub mem: &'a GuestMemoryMmap,
-    pub vm: &'a Vm,
+    pub vm: Arc<KvmVm>,
 }
 
 #[derive(Debug, thiserror::Error, displaydoc::Display)]
@@ -34,7 +38,9 @@ pub enum PmemPersistError {
     /// Error creating Pmem devie: {0}
     Pmem(#[from] PmemError),
     /// Error registering memory region: {0}
-    Vm(#[from] VmError),
+    KvmVm(#[from] VmError),
+    /// Error restoring rate limiter: {0}
+    RateLimiter(std::io::Error),
 }
 
 impl<'a> Persist<'a> for Pmem {
@@ -45,8 +51,9 @@ impl<'a> Persist<'a> for Pmem {
     fn save(&self) -> Self::State {
         PmemState {
             virtio_state: VirtioDeviceState::from_device(self),
-            config_space: self.config_space,
+            config_space: self.guest_region.config_space,
             config: self.config.clone(),
+            rate_limiter_state: self.rate_limiter.save(),
         }
     }
 
@@ -61,12 +68,15 @@ impl<'a> Persist<'a> for Pmem {
             PMEM_QUEUE_SIZE,
         )?;
 
-        let mut pmem = Pmem::new_with_queues(state.config.clone(), queues)?;
-        pmem.config_space = state.config_space;
-        pmem.avail_features = state.virtio_state.avail_features;
-        pmem.acked_features = state.virtio_state.acked_features;
-
-        pmem.set_mem_region(constructor_args.vm)?;
+        let mut pmem = Pmem::new_with_queues(
+            constructor_args.vm,
+            state.config.clone(),
+            queues,
+            state.virtio_state.acked_features,
+            Some(state.config_space),
+        )?;
+        pmem.rate_limiter = RateLimiter::restore((), &state.rate_limiter_state)
+            .map_err(PmemPersistError::RateLimiter)?;
 
         Ok(pmem)
     }
@@ -77,9 +87,9 @@ mod tests {
     use vmm_sys_util::tempfile::TempFile;
 
     use super::*;
-    use crate::arch::Kvm;
     use crate::devices::virtio::device::VirtioDevice;
     use crate::devices::virtio::test_utils::default_mem;
+    use crate::vstate::vm::tests::setup_vm;
 
     #[test]
     fn test_persistence() {
@@ -92,22 +102,23 @@ mod tests {
             path_on_host: dummy_path,
             root_device: true,
             read_only: false,
+            ..Default::default()
         };
-        let pmem = Pmem::new(config).unwrap();
         let guest_mem = default_mem();
-        let kvm = Kvm::new(vec![]).unwrap();
-        let vm = Vm::new(&kvm).unwrap();
+        let vm = Arc::new(setup_vm());
+        let pmem = Pmem::new(vm.clone(), config).unwrap();
 
         // Save the block device.
         let pmem_state = pmem.save();
         let serialized_data = bitcode::serialize(&pmem_state).unwrap();
+        drop(pmem);
 
         // Restore the block device.
         let restored_state = bitcode::deserialize(&serialized_data).unwrap();
         let restored_pmem = Pmem::restore(
             PmemConstructorArgs {
                 mem: &guest_mem,
-                vm: &vm,
+                vm: vm.clone(),
             },
             &restored_state,
         )
@@ -115,11 +126,15 @@ mod tests {
 
         // Test that virtio specific fields are the same.
         assert_eq!(restored_pmem.device_type(), VirtioDeviceType::Pmem);
-        assert_eq!(restored_pmem.avail_features(), pmem.avail_features());
-        assert_eq!(restored_pmem.acked_features(), pmem.acked_features());
-        assert_eq!(restored_pmem.queues(), pmem.queues());
-        assert!(!pmem.is_activated());
+        assert_eq!(
+            restored_pmem.avail_features(),
+            pmem_state.virtio_state.avail_features
+        );
+        assert_eq!(
+            restored_pmem.acked_features(),
+            pmem_state.virtio_state.acked_features
+        );
         assert!(!restored_pmem.is_activated());
-        assert_eq!(restored_pmem.config, pmem.config);
+        assert_eq!(restored_pmem.config, pmem_state.config);
     }
 }

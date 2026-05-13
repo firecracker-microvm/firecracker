@@ -27,7 +27,7 @@ use crate::logger::{IncMetric, METRICS, error, warn};
 use crate::vstate::bus::Bus;
 use crate::vstate::memory::GuestMemoryMmap;
 use crate::vstate::vcpu::{VcpuConfig, VcpuEmulation, VcpuError};
-use crate::vstate::vm::Vm;
+use crate::vstate::vm::KvmVm;
 
 // Tolerance for TSC frequency expected variation.
 // The value of 250 parts per million is based on
@@ -172,7 +172,7 @@ impl KvmVcpu {
     ///
     /// * `index` - Represents the 0-based CPU index between [0, max vcpus).
     /// * `vm` - The vm to which this vcpu will get attached.
-    pub fn new(index: u8, vm: &Vm) -> Result<Self, KvmVcpuError> {
+    pub fn new(index: u8, vm: &KvmVm) -> Result<Self, KvmVcpuError> {
         let kvm_vcpu = vm
             .fd()
             .create_vcpu(index.into())
@@ -242,7 +242,7 @@ impl KvmVcpu {
         let extra_msrs = cpuid::common::msrs_to_save_by_cpuid(&kvm_cpuid);
         self.msrs_to_save.extend(extra_msrs);
 
-        // TODO: Some MSRs depend on values of other MSRs. This dependency will need to
+        // NOTE: Some MSRs depend on values of other MSRs. This dependency will need to
         // be implemented.
 
         // By this point we know that at snapshot, the list of MSRs we need to
@@ -585,9 +585,6 @@ impl KvmVcpu {
             .map_err(KvmVcpuError::VcpuGetDebugRegs)?;
         let lapic = self.fd.get_lapic().map_err(KvmVcpuError::VcpuGetLapic)?;
         let tsc_khz = self.get_tsc_khz().ok().or_else(|| {
-            // v0.25 and newer snapshots without TSC will only work on
-            // the same CPU model as the host on which they were taken.
-            // TODO: Add negative test for this warning failure.
             warn!("TSC freq not available. Snapshot cannot be loaded on a different CPU model.");
             None
         });
@@ -822,8 +819,6 @@ mod tests {
         StaticCpuTemplate,
     };
     use crate::cpu_config::x86_64::cpuid::{Cpuid, CpuidEntry, CpuidKey};
-    use crate::vstate::kvm::Kvm;
-    use crate::vstate::vm::Vm;
     use crate::vstate::vm::tests::{setup_vm, setup_vm_with_memory};
 
     impl Default for VcpuState {
@@ -844,19 +839,19 @@ mod tests {
         }
     }
 
-    fn setup_vcpu(mem_size: usize) -> (Kvm, Vm, KvmVcpu) {
-        let (kvm, vm) = setup_vm_with_memory(mem_size);
+    fn setup_vcpu(mem_size: usize) -> (KvmVm, KvmVcpu) {
+        let vm = setup_vm_with_memory(mem_size);
         vm.setup_irqchip().unwrap();
         let vcpu = KvmVcpu::new(0, &vm).unwrap();
-        (kvm, vm, vcpu)
+        (vm, vcpu)
     }
 
     fn create_vcpu_config(
-        kvm: &Kvm,
+        vm: &KvmVm,
         vcpu: &KvmVcpu,
         template: &CustomCpuTemplate,
     ) -> Result<VcpuConfig, GuestConfigError> {
-        let cpuid = Cpuid::try_from(kvm.supported_cpuid.clone())
+        let cpuid = Cpuid::try_from(vm.kvm().supported_cpuid.clone())
             .map_err(GuestConfigError::CpuidFromKvmCpuid)?;
         let msrs = vcpu
             .get_msrs(template.msr_index_iter())
@@ -872,9 +867,9 @@ mod tests {
 
     #[test]
     fn test_configure_vcpu() {
-        let (kvm, vm, mut vcpu) = setup_vcpu(0x10000);
+        let (vm, mut vcpu) = setup_vcpu(0x10000);
 
-        let vcpu_config = create_vcpu_config(&kvm, &vcpu, &CustomCpuTemplate::default()).unwrap();
+        let vcpu_config = create_vcpu_config(&vm, &vcpu, &CustomCpuTemplate::default()).unwrap();
         assert_eq!(
             vcpu.configure(
                 vm.guest_memory(),
@@ -887,11 +882,11 @@ mod tests {
             Ok(())
         );
 
-        let try_configure = |kvm: &Kvm, vcpu: &mut KvmVcpu, template| -> bool {
+        let try_configure = |vm: &KvmVm, vcpu: &mut KvmVcpu, template| -> bool {
             let cpu_template = Some(CpuTemplateType::Static(template));
             let template = cpu_template.get_cpu_template();
             match template {
-                Ok(template) => match create_vcpu_config(kvm, vcpu, &template) {
+                Ok(template) => match create_vcpu_config(vm, vcpu, &template) {
                     Ok(config) => vcpu
                         .configure(
                             vm.guest_memory(),
@@ -909,19 +904,19 @@ mod tests {
         };
 
         // Test configure while using the T2 template.
-        let t2_res = try_configure(&kvm, &mut vcpu, StaticCpuTemplate::T2);
+        let t2_res = try_configure(&vm, &mut vcpu, StaticCpuTemplate::T2);
 
         // Test configure while using the C3 template.
-        let c3_res = try_configure(&kvm, &mut vcpu, StaticCpuTemplate::C3);
+        let c3_res = try_configure(&vm, &mut vcpu, StaticCpuTemplate::C3);
 
         // Test configure while using the T2S template.
-        let t2s_res = try_configure(&kvm, &mut vcpu, StaticCpuTemplate::T2S);
+        let t2s_res = try_configure(&vm, &mut vcpu, StaticCpuTemplate::T2S);
 
         // Test configure while using the T2CL template.
-        let t2cl_res = try_configure(&kvm, &mut vcpu, StaticCpuTemplate::T2CL);
+        let t2cl_res = try_configure(&vm, &mut vcpu, StaticCpuTemplate::T2CL);
 
         // Test configure while using the T2S template.
-        let t2a_res = try_configure(&kvm, &mut vcpu, StaticCpuTemplate::T2A);
+        let t2a_res = try_configure(&vm, &mut vcpu, StaticCpuTemplate::T2A);
 
         let cpu_model = CpuModel::get_cpu_model();
         match &cpuid::common::get_vendor_id_from_host().unwrap() {
@@ -976,8 +971,8 @@ mod tests {
 
     #[test]
     fn test_vcpu_cpuid_restore() {
-        let (kvm, _, vcpu) = setup_vcpu(0x10000);
-        vcpu.fd.set_cpuid2(&kvm.supported_cpuid).unwrap();
+        let (vm, vcpu) = setup_vcpu(0x10000);
+        vcpu.fd.set_cpuid2(&vm.kvm().supported_cpuid).unwrap();
 
         // Mutate the CPUID.
         // Leaf 0x3 / EAX that is an unused (reserved to be accurate) register, so it's harmless.
@@ -994,7 +989,7 @@ mod tests {
         drop(vcpu);
 
         // Restore the state into a new vcpu.
-        let (_, _vm, vcpu) = setup_vcpu(0x10000);
+        let (_vm, vcpu) = setup_vcpu(0x10000);
         let result2 = vcpu.restore_state(&state);
         assert!(result2.is_ok(), "{}", result2.unwrap_err());
 
@@ -1014,12 +1009,12 @@ mod tests {
     #[test]
     fn test_empty_cpuid_entries_removed() {
         // Test that `get_cpuid()` removes zeroed empty entries from the `KVM_GET_CPUID2` result.
-        let (kvm, vm, mut vcpu) = setup_vcpu(0x10000);
+        let (vm, mut vcpu) = setup_vcpu(0x10000);
         let vcpu_config = VcpuConfig {
             vcpu_count: 1,
             smt: false,
             cpu_config: CpuConfiguration {
-                cpuid: Cpuid::try_from(kvm.supported_cpuid.clone()).unwrap(),
+                cpuid: Cpuid::try_from(vm.kvm().supported_cpuid.clone()).unwrap(),
                 msrs: BTreeMap::new(),
             },
         };
@@ -1072,7 +1067,7 @@ mod tests {
         // Since `KVM_SET_CPUID2` has not been called before vcpu configuration, all leaves should
         // be filled with zero. Therefore, `KvmVcpu::dump_cpu_config()` should fail with CPUID type
         // conversion error due to the lack of brand string info in leaf 0x0.
-        let (_, _, vcpu) = setup_vcpu(0x10000);
+        let (_, vcpu) = setup_vcpu(0x10000);
         match vcpu.dump_cpu_config() {
             Err(KvmVcpuError::ConvertCpuidType(_)) => (),
             Err(err) => panic!("Unexpected error: {err}"),
@@ -1083,12 +1078,12 @@ mod tests {
     #[test]
     fn test_dump_cpu_config_with_configured_vcpu() {
         // Test `dump_cpu_config()` after vcpu configuration.
-        let (kvm, vm, mut vcpu) = setup_vcpu(0x10000);
+        let (vm, mut vcpu) = setup_vcpu(0x10000);
         let vcpu_config = VcpuConfig {
             vcpu_count: 1,
             smt: false,
             cpu_config: CpuConfiguration {
-                cpuid: Cpuid::try_from(kvm.supported_cpuid.clone()).unwrap(),
+                cpuid: Cpuid::try_from(vm.kvm().supported_cpuid.clone()).unwrap(),
                 msrs: BTreeMap::new(),
             },
         };
@@ -1110,7 +1105,7 @@ mod tests {
     fn test_is_tsc_scaling_required() {
         // Test `is_tsc_scaling_required` as if it were on the same
         // CPU model as the one in the snapshot state.
-        let (_, _, vcpu) = setup_vcpu(0x1000);
+        let (_, vcpu) = setup_vcpu(0x1000);
 
         {
             // The frequency difference is within tolerance.
@@ -1152,7 +1147,7 @@ mod tests {
 
     #[test]
     fn test_set_tsc() {
-        let (kvm, _, vcpu) = setup_vcpu(0x1000);
+        let (vm, vcpu) = setup_vcpu(0x1000);
         let mut state = vcpu.save_state().unwrap();
         state.tsc_khz = Some(
             state.tsc_khz.unwrap()
@@ -1161,9 +1156,9 @@ mod tests {
                     * 2,
         );
 
-        if kvm.fd.check_extension(Cap::TscControl) {
+        if vm.kvm().fd.check_extension(Cap::TscControl) {
             vcpu.set_tsc_khz(state.tsc_khz.unwrap()).unwrap();
-            if kvm.fd.check_extension(Cap::GetTscKhz) {
+            if vm.kvm().fd.check_extension(Cap::GetTscKhz) {
                 assert_eq!(vcpu.get_tsc_khz().ok(), state.tsc_khz);
             } else {
                 vcpu.get_tsc_khz().unwrap_err();
@@ -1177,7 +1172,7 @@ mod tests {
     fn test_get_msrs_with_msrs_to_save() {
         // Test `get_msrs()` with the MSR indices that should be serialized into snapshots.
         // The MSR indices should be valid and this test should succeed.
-        let (_, _, vcpu) = setup_vcpu(0x1000);
+        let (_, vcpu) = setup_vcpu(0x1000);
         vcpu.get_msrs(vcpu.msrs_to_save.iter().copied()).unwrap();
     }
 
@@ -1185,7 +1180,7 @@ mod tests {
     fn test_get_msrs_with_msrs_to_dump() {
         // Test `get_msrs()` with the MSR indices that should be dumped.
         // All the MSR indices should be valid and the call should succeed.
-        let (_, _, vcpu) = setup_vcpu(0x1000);
+        let (_, vcpu) = setup_vcpu(0x1000);
 
         let kvm = kvm_ioctls::Kvm::new().unwrap();
         let msrs_to_dump = crate::arch::x86_64::msr::get_msrs_to_dump(&kvm).unwrap();
@@ -1198,7 +1193,7 @@ mod tests {
         // Test `get_msrs()` with unsupported MSR indices. This should return `VcpuGetMsr` error
         // that happens when `KVM_GET_MSRS` fails to populate MSR values in the middle and exits.
         // Currently, MSR indices 2..=4 are not listed as supported MSRs.
-        let (_, _, vcpu) = setup_vcpu(0x1000);
+        let (_, vcpu) = setup_vcpu(0x1000);
         let msr_index_list: Vec<u32> = vec![2, 3, 4];
         match vcpu.get_msrs(msr_index_list.iter().copied()) {
             Err(KvmVcpuError::VcpuGetMsr(_)) => (),
@@ -1304,7 +1299,7 @@ mod tests {
     #[test]
     fn test_get_msr_chunks_preserved_order() {
         // Regression test for #4666
-        let (_, vm) = setup_vm();
+        let vm = setup_vm();
         let vcpu = KvmVcpu::new(0, &vm).unwrap();
 
         // The list of supported MSR indices, in the order they were returned by KVM

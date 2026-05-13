@@ -532,25 +532,35 @@ guest_kernel_linux_6_1 = pytest.fixture(
 )
 
 
+def match_rootfs_to_kernel(request):
+    """For 5.10, use Ubuntu as rootfs, otherwise use AL2023.
+    Reason: AL2023 does not officially support 5.10"""
+    for name in request.fixturenames:
+        if name.startswith("guest_kernel"):
+            kernel = request.getfixturevalue(name)
+            if kernel and kernel.stem[2:] == "linux-5.10":
+                return "ubuntu"
+            break
+    return "amazonlinux"
+
+
 @pytest.fixture
-def rootfs():
-    """Return an Ubuntu 24.04 read-only rootfs"""
-    disk_list = disks("ubuntu-24.04.squashfs")
+def rootfs(request):
+    """Return a read-only rootfs. Ubuntu for 5.10, AL2023 for 6.1."""
+    distro = match_rootfs_to_kernel(request)
+    disk_list = disks(f"{distro}*.squashfs")
     if not disk_list:
-        pytest.fail(
-            f"No disk artifacts found matching 'ubuntu-24.04.squashfs' in {ARTIFACT_DIR}"
-        )
+        pytest.fail(f"No {distro} squashfs found in {ARTIFACT_DIR}")
     return disk_list[0]
 
 
 @pytest.fixture
-def rootfs_rw():
-    """Return an Ubuntu 24.04 ext4 rootfs"""
-    disk_list = disks("ubuntu-24.04.ext4")
+def rootfs_rw(request):
+    """Return a writeable rootfs. Ubuntu for 5.10, AL2023 for 6.1."""
+    distro = match_rootfs_to_kernel(request)
+    disk_list = disks(f"{distro}*.ext4")
     if not disk_list:
-        pytest.fail(
-            f"No disk artifacts found matching 'ubuntu-24.04.ext4' in {ARTIFACT_DIR}"
-        )
+        pytest.fail(f"No {distro} ext4 found in {ARTIFACT_DIR}")
     return disk_list[0]
 
 
@@ -598,7 +608,7 @@ def artifact_dir():
 def uvm_plain_any(microvm_factory, guest_kernel, rootfs, pci_enabled):
     """All guest kernels
     kernel: all
-    rootfs: Ubuntu 24.04
+    rootfs: Ubuntu for 5.10, AL2023 for 6.1
     """
     return microvm_factory.build(guest_kernel, rootfs, pci=pci_enabled)
 

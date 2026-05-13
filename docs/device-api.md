@@ -107,6 +107,9 @@ specification:
 |                           | path_on_host       |    O     |       O        |      O       |        O         |     O      |      O       |     O      |    **R**    |     O      |
 |                           | root_device        |    O     |       O        |      O       |        O         |     O      |      O       |     O      |    **R**    |     O      |
 |                           | read_only          |    O     |       O        |      O       |        O         |     O      |      O       |     O      |    **R**    |     O      |
+|                           | rate_limiter       |    O     |       O        |      O       |        O         |     O      |      O       |     O      |    **R**    |     O      |
+| `PartialPmem`             | id                 |    O     |       O        |      O       |        O         |     O      |      O       |     O      |    **R**    |     O      |
+|                           | rate_limiter       |    O     |       O        |      O       |        O         |     O      |      O       |     O      |    **R**    |     O      |
 | `SerialConfig`            | serial_out_path    |    O     |       O        |      O       |        O         |     O      |      O       |     O      |      O      |     O      |
 |                           | rate_limiter       |    O     |       O        |      O       |        O         |     O      |      O       |     O      |      O      |     O      |
 | `MemoryHotplugConfig`     | total_size_mib     |    O     |       O        |      O       |        O         |     O      |      O       |     O      |      O      |   **R**    |
@@ -118,7 +121,7 @@ specification:
 either virtio-block or vhost-user-block devices.
 
 \*\* The `TokenBucket` can be configured with any combination of virtio-net,
-virtio-block, virtio-rng and serial devices.
+virtio-block, virtio-pmem, virtio-rng and serial devices.
 
 ## Output Schema
 

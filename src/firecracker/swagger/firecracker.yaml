@@ -370,6 +370,35 @@ paths:
           description: Internal server error.
           schema:
             $ref: "#/definitions/Error"
+    patch:
+      summary: Updates the rate limiter of a pmem device. Post-boot only.
+      description:
+        Updates the rate limiter applied to the pmem device with the ID specified
+        by the id path parameter.
+      operationId: patchGuestPmemByID
+      parameters:
+        - name: id
+          in: path
+          description: The id of the guest pmem device
+          required: true
+          type: string
+        - name: body
+          in: body
+          description: Pmem rate limiter properties
+          required: true
+          schema:
+            $ref: "#/definitions/PartialPmem"
+      responses:
+        204:
+          description: Pmem device updated
+        400:
+          description: Pmem device cannot be updated due to bad input
+          schema:
+            $ref: "#/definitions/Error"
+        default:
+          description: Internal server error.
+          schema:
+            $ref: "#/definitions/Error"
 
   /logger:
     put:
@@ -1255,6 +1284,8 @@ definitions:
         type: boolean
         description:
           Flag to map backing file in read-only mode.
+      rate_limiter:
+        $ref: "#/definitions/RateLimiter"
 
   Error:
     type: object
@@ -1536,6 +1567,19 @@ definitions:
       rx_rate_limiter:
         $ref: "#/definitions/RateLimiter"
       tx_rate_limiter:
+        $ref: "#/definitions/RateLimiter"
+
+  PartialPmem:
+    type: object
+    description:
+      Defines a partial pmem device structure, used to update the rate limiter
+      for that device, after microvm start.
+    required:
+      - id
+    properties:
+      id:
+        type: string
+      rate_limiter:
         $ref: "#/definitions/RateLimiter"
 
   RateLimiter:

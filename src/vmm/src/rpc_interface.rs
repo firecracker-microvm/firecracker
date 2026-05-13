@@ -14,13 +14,16 @@ use super::{Vmm, VmmError};
 use crate::EventManager;
 use crate::builder::StartMicrovmError;
 use crate::cpu_config::templates::{CustomCpuTemplate, GuestConfigError};
+use crate::device_manager::pci_mngr::PciManagerError;
 use crate::devices::virtio::balloon::device::{HintingStatus, StartHintingCmd};
+use crate::devices::virtio::device::VirtioDeviceId;
 use crate::devices::virtio::mem::VirtioMemStatus;
 use crate::logger::{LoggerConfig, info, warn, *};
 use crate::mmds::data_store::{self, Mmds, MmdsDatastoreError};
 use crate::persist::{CreateSnapshotError, RestoreFromSnapshotError, VmInfo};
 use crate::resources::VmmConfig;
 use crate::seccomp::BpfThreadMap;
+use crate::vmm_config::HotplugDeviceConfig;
 use crate::vmm_config::balloon::{
     BalloonConfigError, BalloonDeviceConfig, BalloonStats, BalloonUpdateConfig,
     BalloonUpdateStatsConfig,
@@ -38,7 +41,7 @@ use crate::vmm_config::mmds::{MmdsConfig, MmdsConfigError};
 use crate::vmm_config::net::{
     NetworkInterfaceConfig, NetworkInterfaceError, NetworkInterfaceUpdateConfig,
 };
-use crate::vmm_config::pmem::{PmemConfig, PmemConfigError};
+use crate::vmm_config::pmem::{PmemConfig, PmemConfigError, PmemDeviceUpdateConfig};
 use crate::vmm_config::serial::SerialConfig;
 use crate::vmm_config::snapshot::{CreateSnapshotParams, LoadSnapshotParams, SnapshotType};
 use crate::vmm_config::vsock::{VsockConfigError, VsockDeviceConfig};
@@ -83,6 +86,8 @@ pub enum VmmAction {
     InsertBlockDevice(BlockDeviceConfig),
     /// Add a virtio-pmem device.
     InsertPmemDevice(PmemConfig),
+    /// Update an existing pmem device's rate limiter.
+    UpdatePmemDevice(PmemDeviceUpdateConfig),
     /// Add a new network interface config or update one that already exists using the
     /// `NetworkInterfaceConfig` as input. This action can only be called before the microVM has
     /// booted.
@@ -146,6 +151,8 @@ pub enum VmmAction {
     /// Update the microVM configuration (memory & vcpu) using `VmUpdateConfig` as input. This
     /// action can only be called before the microVM has booted.
     UpdateMachineConfiguration(MachineConfigUpdate),
+    /// Hot-unplug a device.
+    HotUnplugDevice(VirtioDeviceId),
 }
 
 /// Wrapper for all errors associated with VMM actions.
@@ -163,10 +170,10 @@ pub enum VmmActionError {
     ConfigureCpu(#[from] GuestConfigError),
     /// Drive config error: {0}
     DriveConfig(#[from] DriveError),
-    /// Entropy device error: {0}
-    EntropyDevice(#[from] EntropyDeviceError),
-    /// Pmem device error: {0}
-    PmemDevice(#[from] PmemConfigError),
+    /// Entropy config error: {0}
+    EntropyConfig(#[from] EntropyDeviceError),
+    /// Pmem config error: {0}
+    PmemConfig(#[from] PmemConfigError),
     /// Memory hotplug config error: {0}
     MemoryHotplugConfig(#[from] MemoryHotplugConfigError),
     /// Memory hotplug update error: {0}
@@ -201,6 +208,16 @@ pub enum VmmActionError {
     StartMicrovm(#[from] StartMicrovmError),
     /// Vsock config error: {0}
     VsockConfig(#[from] VsockConfigError),
+    /// Device ID in use
+    DeviceIdInUse,
+    /// Device not found
+    DeviceNotFound,
+    /// Cannot unplug root device
+    CannotUnplugRootDevice,
+    /// PCI is not enabled
+    PciNotEnabled,
+    /// PCI manager error: {0}
+    PciManager(#[from] PciManagerError),
 }
 
 /// The enum represents the response sent by the VMM in case of success. The response is either
@@ -494,9 +511,11 @@ impl<'a> PrebootApiController<'a> {
             | UpdateBlockDevice(_)
             | UpdateMemoryHotplugSize(_)
             | UpdateNetworkInterface(_)
+            | UpdatePmemDevice(_)
             | StartFreePageHinting(_)
             | GetFreePageHintingStatus
-            | StopFreePageHinting => Err(VmmActionError::OperationNotSupportedPreBoot),
+            | StopFreePageHinting
+            | HotUnplugDevice(_) => Err(VmmActionError::OperationNotSupportedPreBoot),
             #[cfg(target_arch = "x86_64")]
             SendCtrlAltDel => Err(VmmActionError::OperationNotSupportedPreBoot),
         }
@@ -534,7 +553,7 @@ impl<'a> PrebootApiController<'a> {
         self.vm_resources
             .build_pmem_device(cfg)
             .map(|()| VmmData::Empty)
-            .map_err(VmmActionError::PmemDevice)
+            .map_err(VmmActionError::PmemConfig)
     }
 
     fn set_balloon_device(&mut self, cfg: BalloonDeviceConfig) -> Result<VmmData, VmmActionError> {
@@ -675,7 +694,11 @@ pub struct RuntimeApiController {
 
 impl RuntimeApiController {
     /// Handles the incoming runtime `VmmAction` request and provides a response for it.
-    pub fn handle_request(&mut self, request: VmmAction) -> Result<VmmData, VmmActionError> {
+    pub fn handle_request(
+        &mut self,
+        request: VmmAction,
+        event_manager: &mut EventManager,
+    ) -> Result<VmmData, VmmActionError> {
         use self::VmmAction::*;
         match request {
             // Supported operations allowed post-boot.
@@ -738,6 +761,30 @@ impl RuntimeApiController {
                     .expect("Poisoned lock"),
                 value,
             ),
+            InsertBlockDevice(config) => self
+                .vmm
+                .lock()
+                .expect("Poisoned lock")
+                .hotplug_device(HotplugDeviceConfig::Block(config), event_manager)
+                .map(|()| VmmData::Empty),
+            InsertPmemDevice(config) => self
+                .vmm
+                .lock()
+                .expect("Poisoned lock")
+                .hotplug_device(HotplugDeviceConfig::Pmem(config), event_manager)
+                .map(|()| VmmData::Empty),
+            InsertNetworkDevice(config) => self
+                .vmm
+                .lock()
+                .expect("Poisoned lock")
+                .hotplug_device(HotplugDeviceConfig::Net(config), event_manager)
+                .map(|()| VmmData::Empty),
+            HotUnplugDevice(device_id) => self
+                .vmm
+                .lock()
+                .expect("Poisoned lock")
+                .hot_unplug_device(device_id, event_manager)
+                .map(|()| VmmData::Empty),
             Pause => self.pause(),
             PutMMDS(value) => mmds_put_data(
                 self.vmm
@@ -789,6 +836,7 @@ impl RuntimeApiController {
                 .map_err(VmmActionError::BalloonUpdate),
             UpdateBlockDevice(new_cfg) => self.update_block_device(new_cfg),
             UpdateNetworkInterface(netif_update) => self.update_net_rate_limiters(netif_update),
+            UpdatePmemDevice(new_cfg) => self.update_pmem_device(new_cfg),
             UpdateMemoryHotplugSize(cfg) => self
                 .vmm
                 .lock()
@@ -801,9 +849,6 @@ impl RuntimeApiController {
             | ConfigureLogger(_)
             | ConfigureMetrics(_)
             | ConfigureSerial(_)
-            | InsertBlockDevice(_)
-            | InsertPmemDevice(_)
-            | InsertNetworkDevice(_)
             | LoadSnapshot(_)
             | PutCpuConfiguration(_)
             | SetBalloonDevice(_)
@@ -943,6 +988,25 @@ impl RuntimeApiController {
         Ok(VmmData::Empty)
     }
 
+    /// Updates the rate limiter for a pmem device.
+    fn update_pmem_device(
+        &mut self,
+        new_cfg: PmemDeviceUpdateConfig,
+    ) -> Result<VmmData, VmmActionError> {
+        if new_cfg.rate_limiter.is_some() {
+            self.vmm
+                .lock()
+                .expect("Poisoned lock")
+                .update_pmem_rate_limiter(
+                    &new_cfg.id,
+                    RateLimiterUpdate::from(new_cfg.rate_limiter).bandwidth,
+                    RateLimiterUpdate::from(new_cfg.rate_limiter).ops,
+                )
+                .map_err(PmemConfigError::DeviceUpdate)?;
+        }
+        Ok(VmmData::Empty)
+    }
+
     /// Updates configuration for an emulated net device as described in `new_cfg`.
     fn update_net_rate_limiters(
         &mut self,
@@ -971,7 +1035,6 @@ mod tests {
     use super::*;
     use crate::HTTP_MAX_PAYLOAD_SIZE;
     use crate::builder::tests::default_vmm;
-    use crate::devices::virtio::block::CacheType;
     use crate::mmds::data_store::MmdsVersion;
     use crate::seccomp::BpfThreadMap;
     use crate::vmm_config::snapshot::{MemBackendConfig, MemBackendType};
@@ -1162,6 +1225,9 @@ mod tests {
         check_unsupported(preboot_request(VmmAction::UpdateBlockDevice(
             BlockDeviceUpdateConfig::default(),
         )));
+        check_unsupported(preboot_request(VmmAction::UpdatePmemDevice(
+            PmemDeviceUpdateConfig::default(),
+        )));
         check_unsupported(preboot_request(VmmAction::UpdateNetworkInterface(
             NetworkInterfaceUpdateConfig {
                 iface_id: String::new(),
@@ -1188,7 +1254,8 @@ mod tests {
     fn runtime_request(request: VmmAction) -> Result<VmmData, VmmActionError> {
         let vmm = Arc::new(Mutex::new(default_vmm()));
         let mut runtime = RuntimeApiController::new(vmm.clone());
-        runtime.handle_request(request)
+        let mut event_manager = EventManager::new().unwrap();
+        runtime.handle_request(request, &mut event_manager)
     }
 
     #[test]
@@ -1222,30 +1289,6 @@ mod tests {
         check_unsupported(runtime_request(VmmAction::ConfigureMetrics(
             MetricsConfig {
                 metrics_path: PathBuf::new(),
-            },
-        )));
-        check_unsupported(runtime_request(VmmAction::InsertBlockDevice(
-            BlockDeviceConfig {
-                drive_id: String::new(),
-                partuuid: None,
-                is_root_device: false,
-                cache_type: CacheType::Unsafe,
-
-                is_read_only: Some(false),
-                path_on_host: Some(String::new()),
-                rate_limiter: None,
-                file_engine_type: None,
-
-                socket: None,
-            },
-        )));
-        check_unsupported(runtime_request(VmmAction::InsertNetworkDevice(
-            NetworkInterfaceConfig {
-                iface_id: String::new(),
-                host_dev_name: String::new(),
-                guest_mac: None,
-                rx_rate_limiter: None,
-                tx_rate_limiter: None,
             },
         )));
         check_unsupported(runtime_request(VmmAction::SetVsockDevice(
@@ -1293,12 +1336,6 @@ mod tests {
         check_unsupported(runtime_request(VmmAction::SetEntropyDevice(
             EntropyDeviceConfig::default(),
         )));
-        check_unsupported(runtime_request(VmmAction::InsertPmemDevice(PmemConfig {
-            id: String::new(),
-            path_on_host: String::new(),
-            root_device: false,
-            read_only: false,
-        })));
         check_unsupported(runtime_request(VmmAction::SetMemoryHotplugDevice(
             MemoryHotplugConfig::default(),
         )));

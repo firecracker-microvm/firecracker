@@ -31,7 +31,10 @@ if [ -f $CGROUP/cgroup.controllers -a -e $CGROUP/cgroup.type ]; then
         > $CGROUP/cgroup.subtree_control
 fi
 
-if [ -f build/current_artifacts ]; then
+if [ "${FC_TEST_SKIP_ARTIFACT_COPY:-}" = "1" ]; then
+  mkdir -p /srv/test_artifacts
+  say "Skipping artifact copy (FC_TEST_SKIP_ARTIFACT_COPY=1)"
+elif [ -f build/current_artifacts ]; then
   say "Copy artifacts to /srv/test_artifacts, so hardlinks work"
   cp -ruvfL $(cat build/current_artifacts) /srv/test_artifacts
 else
@@ -53,7 +56,7 @@ export PYTEST_ADDOPTS="${PYTEST_ADDOPTS:-} --pdbcls=IPython.terminal.debugger:Te
 
 # if the tests failed and we are running in CI, print some disk usage stats
 # to help troubleshooting
-if [ $ret != 0 ] && [ "$BUILDKITE" == "true" ]; then
+if [ $ret != 0 ] && [ "${BUILDKITE:-false}" == "true" ]; then
     df -ih
     df -h
     du -h / 2>/dev/null |sort -h |tail -32
