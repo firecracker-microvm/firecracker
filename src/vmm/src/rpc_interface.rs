@@ -821,6 +821,12 @@ impl RuntimeApiController {
                 .expect("Poisoned lock")
                 .hotplug_device(HotplugDeviceConfig::Net(config), event_manager)
                 .map(|()| VmmData::Empty),
+            InsertVfioDevice(config) => self
+                .vmm
+                .lock()
+                .expect("Poisoned lock")
+                .hotplug_device_vfio(config)
+                .map(|()| VmmData::Empty),
             HotUnplugDevice(device_id) => self
                 .vmm
                 .lock()
@@ -898,7 +904,6 @@ impl RuntimeApiController {
             | SetMmdsConfiguration(_)
             | SetEntropyDevice(_)
             | SetMemoryHotplugDevice(_)
-            | InsertVfioDevice(_)
             | StartMicroVm
             | UpdateMachineConfiguration(_) => Err(VmmActionError::OperationNotSupportedPostBoot),
         }
@@ -1382,9 +1387,5 @@ mod tests {
         check_unsupported(runtime_request(VmmAction::SetMemoryHotplugDevice(
             MemoryHotplugConfig::default(),
         )));
-        check_unsupported(runtime_request(VmmAction::InsertVfioDevice(VfioConfig {
-            id: String::new(),
-            path_on_host: String::new(),
-        })));
     }
 }

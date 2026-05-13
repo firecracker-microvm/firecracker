@@ -64,8 +64,6 @@ def uvm_with_vfio(microvm_factory, guest_kernel_linux_6_1, rootfs):
     vm.spawn()
     vm.basic_config(mem_size_mib=512)
     vm.add_net_iface()
-    vm.api.vfio.put(id="nvme0", path_on_host=VFIO_SYSFS)
-    vm.start()
     return vm
 
 
@@ -231,6 +229,30 @@ def test_vfio_nvme_not_present_without_config(
 def test_vfio_nvme_visible(uvm_with_vfio):
     """The passthrough device appears on the guest PCI bus."""
     vm = uvm_with_vfio
+    vm.api.vfio.put(id="nvme0", path_on_host=VFIO_SYSFS)
+    vm.start()
+
+    _, stdout, _ = vm.ssh.check_output("lspci -nn")
+    assert "Non-Volatile memory controller" in stdout
+
+    vm.ssh.check_output("test -d /sys/class/nvme/nvme0")
+    vm.ssh.check_output("test -b /dev/nvme0n1")
+
+    _, stdout, _ = vm.ssh.check_output("lsblk -Jb")
+    blocks = json.loads(stdout)["blockdevices"]
+    nvme = [b for b in blocks if b["name"] == "nvme0n1"]
+    assert len(nvme) == 1
+    assert int(nvme[0]["size"]) > 0
+
+
+def test_vfio_nvme_visible_after_hotplug(uvm_with_vfio):
+    """The passthrough device appears on the guest PCI bus."""
+    vm = uvm_with_vfio
+    vm.start()
+
+    vm.api.vfio.put(id="nvme0", path_on_host=VFIO_SYSFS)
+    vm.ssh.check_output("echo 1 > /sys/bus/pci/rescan")
+
     _, stdout, _ = vm.ssh.check_output("lspci -nn")
     assert "Non-Volatile memory controller" in stdout
 
@@ -247,6 +269,9 @@ def test_vfio_nvme_visible(uvm_with_vfio):
 def test_vfio_nvme_read(uvm_with_vfio):
     """The guest can read data from the passthrough NVMe device."""
     vm = uvm_with_vfio
+    vm.api.vfio.put(id="nvme0", path_on_host=VFIO_SYSFS)
+    vm.start()
+
     _, stdout, _ = vm.ssh.check_output(
         "dd if=/dev/nvme0n1 of=/dev/null bs=4k count=256 2>&1"
     )
@@ -256,6 +281,9 @@ def test_vfio_nvme_read(uvm_with_vfio):
 def test_vfio_nvme_write_readback(uvm_with_vfio):
     """Write data and read it back to confirm DMA in both directions."""
     vm = uvm_with_vfio
+    vm.api.vfio.put(id="nvme0", path_on_host=VFIO_SYSFS)
+    vm.start()
+
     vm.ssh.check_output("dd if=/dev/urandom of=/tmp/pattern bs=4k count=1")
     vm.ssh.check_output("dd if=/tmp/pattern of=/dev/nvme0n1 bs=4k count=1 oflag=direct")
     vm.ssh.check_output(
