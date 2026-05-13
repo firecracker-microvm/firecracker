@@ -723,7 +723,232 @@
                         "val": 0,
                         "comment": "Ensure PROT_EXEC is not set"
                     }
+                ],
+                "comment": "Used by memory hotplug to protect access to underlying host memory"
+            },
+            {
+                "syscall": "dup",
+                "comment": "Used by vfio-ioctls to duplicate file descriptors for VFIO device setup"
+            },
+            {
+                "syscall": "ioctl",
+                "comment": "Used by vfio-ioctls during VfioDevice drop to detach group from container",
+                "args": [
+                    {
+                        "index": 1,
+                        "type": "dword",
+                        "op": "eq",
+                        "val": 15209,
+                        "comment": "VFIO_GROUP_UNSET_CONTAINER"
+                    }
                 ]
+            },
+            {
+                "syscall": "ioctl",
+                "comment": "Used by vfio-ioctls during VFIO device cleanup to unmap DMA regions",
+                "args": [
+                    {
+                        "index": 1,
+                        "type": "dword",
+                        "op": "eq",
+                        "val": 15218,
+                        "comment": "VFIO_IOMMU_UNMAP_DMA"
+                    }
+                ]
+            },
+            {
+                "syscall": "pread64",
+                "comment": "Used by VFIO passthrough for reading device PCI config and BAR regions"
+            },
+            {
+                "syscall": "pwrite64",
+                "comment": "Used by VFIO passthrough for writing device PCI config and BAR regions"
+            },
+            {
+                "syscall": "ioctl",
+                "comment": "Used by VFIO hotplug to create the KVM VFIO device",
+                "args": [
+                    {
+                        "index": 1,
+                        "type": "dword",
+                        "op": "eq",
+                        "val": 3222056672,
+                        "comment": "KVM_CREATE_DEVICE"
+                    }
+                ]
+            },
+            {
+                "syscall": "ioctl",
+                "comment": "Used by VFIO hotplug to attach the VFIO group to the KVM VFIO device",
+                "args": [
+                    {
+                        "index": 1,
+                        "type": "dword",
+                        "op": "eq",
+                        "val": 1075359457,
+                        "comment": "KVM_SET_DEVICE_ATTR"
+                    }
+                ]
+            },
+            {
+                "syscall": "ioctl",
+                "comment": "Used by VFIO hotplug to query the VFIO API version",
+                "args": [
+                    {
+                        "index": 1,
+                        "type": "dword",
+                        "op": "eq",
+                        "val": 15204,
+                        "comment": "VFIO_GET_API_VERSION"
+                    }
+                ]
+            },
+            {
+                "syscall": "ioctl",
+                "comment": "Used by VFIO hotplug to check VFIO IOMMU type extension",
+                "args": [
+                    {
+                        "index": 1,
+                        "type": "dword",
+                        "op": "eq",
+                        "val": 15205,
+                        "comment": "VFIO_CHECK_EXTENSION"
+                    }
+                ]
+            },
+            {
+                "syscall": "ioctl",
+                "comment": "Used by VFIO hotplug to set the IOMMU type on the container",
+                "args": [
+                    {
+                        "index": 1,
+                        "type": "dword",
+                        "op": "eq",
+                        "val": 15206,
+                        "comment": "VFIO_SET_IOMMU"
+                    }
+                ]
+            },
+            {
+                "syscall": "ioctl",
+                "comment": "Used by VFIO hotplug to get the VFIO group status",
+                "args": [
+                    {
+                        "index": 1,
+                        "type": "dword",
+                        "op": "eq",
+                        "val": 15207,
+                        "comment": "VFIO_GROUP_GET_STATUS"
+                    }
+                ]
+            },
+            {
+                "syscall": "ioctl",
+                "comment": "Used by VFIO hotplug to bind the VFIO group to the container",
+                "args": [
+                    {
+                        "index": 1,
+                        "type": "dword",
+                        "op": "eq",
+                        "val": 15208,
+                        "comment": "VFIO_GROUP_SET_CONTAINER"
+                    }
+                ]
+            },
+            {
+                "syscall": "ioctl",
+                "comment": "Used by VFIO hotplug to obtain a fd for a device in the group",
+                "args": [
+                    {
+                        "index": 1,
+                        "type": "dword",
+                        "op": "eq",
+                        "val": 15210,
+                        "comment": "VFIO_GROUP_GET_DEVICE_FD"
+                    }
+                ]
+            },
+            {
+                "syscall": "ioctl",
+                "comment": "Used by VFIO hotplug to get general device info",
+                "args": [
+                    {
+                        "index": 1,
+                        "type": "dword",
+                        "op": "eq",
+                        "val": 15211,
+                        "comment": "VFIO_DEVICE_GET_INFO"
+                    }
+                ]
+            },
+            {
+                "syscall": "ioctl",
+                "comment": "Used by VFIO hotplug to query device region (BAR) info",
+                "args": [
+                    {
+                        "index": 1,
+                        "type": "dword",
+                        "op": "eq",
+                        "val": 15212,
+                        "comment": "VFIO_DEVICE_GET_REGION_INFO"
+                    }
+                ]
+            },
+            {
+                "syscall": "ioctl",
+                "comment": "Used by VFIO hotplug to query device IRQ info (MSI-X)",
+                "args": [
+                    {
+                        "index": 1,
+                        "type": "dword",
+                        "op": "eq",
+                        "val": 15213,
+                        "comment": "VFIO_DEVICE_GET_IRQ_INFO"
+                    }
+                ]
+            },
+            {
+                "syscall": "ioctl",
+                "comment": "Used by VFIO hotplug to set up MSI-X interrupts on the device",
+                "args": [
+                    {
+                        "index": 1,
+                        "type": "dword",
+                        "op": "eq",
+                        "val": 15214,
+                        "comment": "VFIO_DEVICE_SET_IRQS"
+                    }
+                ]
+            },
+            {
+                "syscall": "ioctl",
+                "comment": "Used by VFIO hotplug to reset the device after attach",
+                "args": [
+                    {
+                        "index": 1,
+                        "type": "dword",
+                        "op": "eq",
+                        "val": 15215,
+                        "comment": "VFIO_DEVICE_RESET"
+                    }
+                ]
+            },
+            {
+                "syscall": "ioctl",
+                "comment": "Used by VFIO hotplug to map guest memory and BAR regions for DMA",
+                "args": [
+                    {
+                        "index": 1,
+                        "type": "dword",
+                        "op": "eq",
+                        "val": 15217,
+                        "comment": "VFIO_IOMMU_MAP_DMA"
+                    }
+                ]
+            },
+            {
+                "syscall": "readlink",
+                "comment": "Used by VFIO hotplug to resolve the iommu_group symlink under the device sysfs path"
             }
         ]
     },
