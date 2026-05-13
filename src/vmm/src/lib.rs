@@ -160,6 +160,7 @@ use crate::vmm_config::machine_config::MachineConfig;
 use crate::vmm_config::memory_hotplug::MemoryHotplugConfig;
 use crate::vmm_config::mmds::MmdsConfig;
 use crate::vmm_config::net::NetworkInterfaceConfig;
+use crate::vmm_config::vfio::VfioConfig;
 use crate::vmm_config::vsock::VsockDeviceConfig;
 pub use crate::vstate::kvm::Kvm;
 use crate::vstate::memory::{GuestMemory, GuestMemoryMmap, GuestMemoryRegion};
@@ -729,6 +730,17 @@ impl Vmm {
             .clone();
         self.device_manager
             .hotplug_device(kvm_vm, config, event_manager)
+    }
+
+    /// Attaches a VFIO device after VM start
+    #[inline]
+    pub fn hotplug_device_vfio(&mut self, config: VfioConfig) -> Result<(), VmmActionError> {
+        log_dev_preview_warning("VFIO device hotplug", None);
+        let kvm_vm = self
+            .vm
+            .as_kvm()
+            .ok_or_else(|| VmmActionError::NotSupported("Operation requires KVM".to_string()))?;
+        self.device_manager.hotplug_device_vfio(&kvm_vm, config)
     }
 
     /// Detaches a device after VM start

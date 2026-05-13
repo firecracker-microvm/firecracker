@@ -57,6 +57,7 @@ use crate::vmm_config::drive::{BlockDeviceConfig, DriveError};
 use crate::vmm_config::mmds::MmdsConfigError;
 use crate::vmm_config::net::{NetBuilder, NetworkInterfaceConfig, NetworkInterfaceError};
 use crate::vmm_config::pmem::{PmemConfig, PmemConfigError};
+use crate::vmm_config::vfio::VfioConfig;
 use crate::vstate::bus::BusError;
 use crate::vstate::memory::GuestMemoryMmap;
 use crate::vstate::vm::{KvmVm, Vm};
@@ -532,6 +533,33 @@ impl DeviceManager {
 
         self.pci_devices
             .attach_pci_virtio_device(&vm, dev_id, device, event_manager)?;
+        Ok(())
+    }
+
+    /// Attaches a device after VM start
+    pub fn hotplug_device_vfio(
+        &mut self,
+        vm: &Arc<KvmVm>,
+        config: VfioConfig,
+    ) -> Result<(), VmmActionError> {
+        if !self.is_pci_enabled() {
+            return Err(VmmActionError::PciNotEnabled);
+        }
+
+        for (virtio_type, _) in self.pci_devices.virtio_devices.keys() {
+            if *virtio_type == VirtioDeviceType::Balloon {
+                return Err(VmmActionError::IncompatibleDeviceConfiguration(
+                    ResourcesError::VfioWithBalloon,
+                ));
+            }
+            if *virtio_type == VirtioDeviceType::Mem {
+                return Err(VmmActionError::IncompatibleDeviceConfiguration(
+                    ResourcesError::VfioWithMemHotplug,
+                ));
+            }
+        }
+
+        self.pci_devices.attach_vfio_device(&vm, config)?;
         Ok(())
     }
 

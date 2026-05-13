@@ -10,32 +10,31 @@ use event_manager::{MutEventSubscriber, SubscriberOps};
 use serde::{Deserialize, Serialize};
 
 use super::persist::MmdsState;
-use crate::EventManager;
 use crate::device_manager::DevicePersistError;
 use crate::devices::pci::PciSegment;
-use crate::devices::virtio::balloon::Balloon;
 use crate::devices::virtio::balloon::persist::{BalloonConstructorArgs, BalloonState};
+use crate::devices::virtio::balloon::Balloon;
 use crate::devices::virtio::block::device::Block;
 use crate::devices::virtio::block::persist::{BlockConstructorArgs, BlockState};
 use crate::devices::virtio::device::{VirtioDevice, VirtioDeviceId, VirtioDeviceType};
-use crate::devices::virtio::mem::VirtioMem;
 use crate::devices::virtio::mem::persist::{VirtioMemConstructorArgs, VirtioMemState};
-use crate::devices::virtio::net::Net;
+use crate::devices::virtio::mem::VirtioMem;
 use crate::devices::virtio::net::persist::{NetConstructorArgs, NetState};
+use crate::devices::virtio::net::Net;
 use crate::devices::virtio::pmem::device::Pmem;
 use crate::devices::virtio::pmem::persist::{PmemConstructorArgs, PmemState};
-use crate::devices::virtio::rng::Entropy;
 use crate::devices::virtio::rng::persist::{EntropyConstructorArgs, EntropyState};
+use crate::devices::virtio::rng::Entropy;
 use crate::devices::virtio::transport::pci::device::{
-    CAPABILITY_BAR_SIZE, VirtioPciDevice, VirtioPciDeviceError, VirtioPciDeviceState,
+    VirtioPciDevice, VirtioPciDeviceError, VirtioPciDeviceState, CAPABILITY_BAR_SIZE,
 };
 use crate::devices::virtio::vsock::persist::{
     VsockConstructorArgs, VsockState, VsockUdsConstructorArgs,
 };
 use crate::devices::virtio::vsock::{Vsock, VsockUnixBackend};
 use crate::logger::{debug, warn};
-use crate::pci::PciSBDF;
 use crate::pci::bus::PciRootError;
+use crate::pci::PciSBDF;
 use crate::resources::VmResources;
 use crate::snapshot::Persist;
 use crate::vfio::{VfioContainer, VfioDeviceBundle, VfioError};
@@ -45,6 +44,7 @@ use crate::vstate::bus::BusError;
 use crate::vstate::interrupts::InterruptError;
 use crate::vstate::memory::GuestMemoryMmap;
 use crate::vstate::vm::KvmVm;
+use crate::EventManager;
 
 #[derive(Default)]
 pub struct PciDevices {
@@ -66,6 +66,8 @@ impl std::fmt::Debug for PciDevices {
 
 #[derive(Debug, thiserror::Error, displaydoc::Display)]
 pub enum PciManagerError {
+    /// Trying to add new device with id: {0}, but device with this id is already present
+    AdddingDuplicatedDevice(String),
     /// Resource allocation error: {0}
     ResourceAllocation(#[from] vm_allocator::Error),
     /// Bus error: {0}
@@ -195,9 +197,12 @@ impl PciDevices {
     ) -> Result<(), PciManagerError> {
         for device in self.vfio_devices.iter() {
             let device = device.lock().unwrap();
-            // SAFETY: We must never add 2 devices with same id or same SBDF
-            assert_ne!(device.config.id, config.id);
-            assert_ne!(device.config.sbdf, config.sbdf);
+            if device.config.id == config.id {
+                return Err(PciManagerError::AdddingDuplicatedDevice(config.id));
+            }
+            if device.config.sbdf == config.sbdf {
+                return Err(PciManagerError::AdddingDuplicatedDevice(config.id));
+            }
         }
 
         let pci_segment = self.pci_segment.as_ref().unwrap();

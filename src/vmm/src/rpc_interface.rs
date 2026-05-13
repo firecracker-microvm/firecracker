@@ -822,6 +822,12 @@ impl RuntimeApiController {
                 .expect("Poisoned lock")
                 .hotplug_device(HotplugDeviceConfig::Net(config), event_manager)
                 .map(|()| VmmData::Empty),
+            InsertVfioDevice(config) => self
+                .vmm
+                .lock()
+                .expect("Poisoned lock")
+                .hotplug_device_vfio(config)
+                .map(|()| VmmData::Empty),
             HotUnplugDevice(device_id) => self
                 .vmm
                 .lock()
@@ -899,7 +905,6 @@ impl RuntimeApiController {
             | SetMmdsConfiguration(_)
             | SetEntropyDevice(_)
             | SetMemoryHotplugDevice(_)
-            | InsertVfioDevice(_)
             | StartMicroVm
             | UpdateMachineConfiguration(_) => Err(VmmActionError::OperationNotSupportedPostBoot),
         }
@@ -1080,7 +1085,6 @@ mod tests {
     use crate::HTTP_MAX_PAYLOAD_SIZE;
     use crate::builder::tests::default_vmm;
     use crate::mmds::data_store::MmdsVersion;
-    use crate::pci::PciSBDF;
     use crate::seccomp::BpfThreadMap;
     use crate::vmm_config::snapshot::{MemBackendConfig, MemBackendType};
 
@@ -1384,9 +1388,5 @@ mod tests {
         check_unsupported(runtime_request(VmmAction::SetMemoryHotplugDevice(
             MemoryHotplugConfig::default(),
         )));
-        check_unsupported(runtime_request(VmmAction::InsertVfioDevice(VfioConfig {
-            id: String::new(),
-            sbdf: PciSBDF::new(0x0, 0x0, 0x0, 0x0),
-        })));
     }
 }
