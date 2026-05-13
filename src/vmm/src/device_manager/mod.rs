@@ -519,6 +519,34 @@ impl DeviceManager {
         }
     }
 
+    /// Attaches a device after VM start
+    pub fn hotplug_device_vfio(
+        &mut self,
+        vm: &Arc<KvmVm>,
+        config: VfioConfig,
+    ) -> Result<(), VmmActionError> {
+        match &mut self.virtio_devices {
+            VirtioDevices::Mmio(_) => Err(VmmActionError::PciNotEnabled),
+            VirtioDevices::Pci(pci_devices) => {
+                for (virtio_type, _) in pci_devices.virtio_devices.keys() {
+                    if *virtio_type == VirtioDeviceType::Balloon {
+                        return Err(VmmActionError::IncompatibleDeviceConfiguration(
+                            ResourcesError::VfioWithBalloon,
+                        ));
+                    }
+                    if *virtio_type == VirtioDeviceType::Mem {
+                        return Err(VmmActionError::IncompatibleDeviceConfiguration(
+                            ResourcesError::VfioWithMemHotplug,
+                        ));
+                    }
+                }
+
+                pci_devices.attach_vfio_device(vm, config)?;
+                Ok(())
+            }
+        }
+    }
+
     fn hotplug_make_block(
         config: BlockDeviceConfig,
     ) -> Result<Arc<Mutex<dyn VirtioDevice>>, VmmActionError> {
