@@ -37,6 +37,12 @@ and this project adheres to
   rescan the PCI bus after hotplug and remove the device before unplug since no
   automatic notification mechanism is implemented yet. More information can be
   found in the [Device Hotplugging](docs/device-hotplug.md) documentation page.
+- [#5771](https://github.com/firecracker-microvm/firecracker/pull/5771): Add
+  opt-in `--landlock-restrict-fs` flag to the jailer that uses the Linux
+  Landlock LSM as a defense-in-depth mechanism. When enabled, the jailed
+  Firecracker process is restricted to only accessing files within the jail
+  directory, even if it escapes the `pivot_root` chroot via a kernel exploit.
+  Best-effort: silently ignored on kernels without Landlock support (< 5.13).
 - [#5323](https://github.com/firecracker-microvm/firecracker/pull/5323): Add
   support for Vsock Unix domain socket path overriding on snapshot restore. More
   information can be found in the
