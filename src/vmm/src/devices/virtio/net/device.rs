@@ -135,6 +135,15 @@ impl RxBuffers {
         })
     }
 
+    /// Reset the RX buffers to their initial state.
+    fn clear(&mut self) {
+        self.iovec.clear();
+        self.parsed_descriptors.clear();
+        self.used_descriptors = 0;
+        self.used_bytes = 0;
+        self.min_buffer_size = 0;
+    }
+
     /// Add a new `DescriptorChain` that we received from the RX queue in the buffer.
     ///
     /// SAFETY: The `DescriptorChain` cannot be referencing the same memory location as any other
