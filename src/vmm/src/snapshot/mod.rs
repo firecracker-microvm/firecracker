@@ -251,9 +251,6 @@ mod tests {
         let mut snapshot_data = Vec::new();
         snapshot.save(&mut snapshot_data).unwrap();
 
-        // Debug: print the length to understand what's happening
-        println!("Snapshot data length: {}", snapshot_data.len());
-
         assert_eq!(
             get_format_version(&mut std::io::Cursor::new(&snapshot_data)).unwrap(),
             SNAPSHOT_VERSION
