@@ -503,6 +503,30 @@ impl Net {
         guest_mac: Option<MacAddr>,
         net_metrics: &NetDeviceMetrics,
     ) -> Result<bool, NetError> {
+        // There is a potential for a TOCTOU race condition here where,
+        // when MMDS is enabled, the guest can rewrite packet headers between
+        // the time that we check that a packet should be detoured to MMDS,
+        // and the time that we forward it to the TAP.
+        //
+        // The implication of this is that a malicious guest can construct a
+        // packet destined for the TAP (i.e., dest_ip != 169.254.169.254), then race
+        // to overwrite the destination IP to 169.254.169.254. the packet will
+        // then be sent over the TAP towards the host's IMDS store.
+        //
+        // We do not plan to fix this for a few reasons:
+        //
+        // 1. Without MMDS enabled, packets with destination IP 169.254.169.254
+        //    will be forwarded to the TAP without filtering. Operators should
+        //    not rely on MMDS for IMDS access control.
+        // 2. Guest originated traffic is treated as untrusted and Firecracker
+        //    does not filter IPv4 packets. Operators deploying Firecracker
+        //    based services should implement host-level firewall rules to
+        //    restrict guest egress traffic.
+        // 3. Preventing this TOCTOU by copying packets to to a host buffer
+        //    before routing decisions would significantly reduce guest-to-host
+        //    TCP throughput, which is not justifiable given the mitigations
+        //    available at host-level.
+
         // Read the frame headers from the IoVecBuffer
         let max_header_len = headers.len();
         let header_len = frame_iovec
