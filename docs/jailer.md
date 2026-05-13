@@ -26,6 +26,7 @@ jailer --id <id> \
        [--resource-limit <resource=value>] \
        [--daemonize] \
        [--new-pid-ns] \
+       [--landlock-restrict-fs] \
        [--...extra arguments for Firecracker]
 ```
 
@@ -98,6 +99,14 @@ Here is an example on how to set multiple resource limits using this argument:
   `CLONE_NEWPID` flag. As a result, the jailer and the process running the exec
   file have different PIDs. The PID of the child process is stored in the jail
   root directory inside `<exec_file_name>.pid`.
+- When present, `--landlock-restrict-fs` uses the Linux
+  [Landlock LSM](https://docs.kernel.org/userspace-api/landlock.html) to
+  restrict the jailed Firecracker process to only accessing files within the
+  jail directory. This is a defense-in-depth measure: even if the process
+  escapes the `pivot_root` chroot via a kernel exploit, Landlock (enforced by a
+  separate LSM path) independently prevents access to files outside the jail.
+  The flag operates in best-effort mode — on kernels without Landlock support
+  (< 5.13) it has no effect.
 - The jailer adheres to the "end of command options" convention, meaning all
   parameters specified after `--` are forwarded to Firecracker. For example,
   this can be paired with the `--config-file` Firecracker argument to specify a
