@@ -165,7 +165,6 @@ impl MmioTransport {
     /// of the driver initialization sequence specified in 3.1. The driver MUST NOT clear
     /// a device status bit. If the driver sets the FAILED bit, the driver MUST later reset
     /// the device before attempting to re-initialize.
-    #[allow(unused_assignments)]
     fn set_device_status(&mut self, status: u32) {
         use device_status::*;
 
@@ -183,21 +182,11 @@ impl MmioTransport {
             // TODO: notify backend driver to stop the device
             self.device_status |= FAILED;
         } else if status == INIT {
-            {
-                let mut locked_device = self.device.lock().expect("Poisoned lock");
-                if locked_device.is_activated() {
-                    let mut device_status = self.device_status;
-                    if !locked_device.reset() {
-                        device_status |= FAILED;
-                    }
-                    self.device_status = device_status;
-                }
-            }
-
-            // If the backend device driver doesn't support reset,
-            // just leave the device marked as FAILED.
-            if self.device_status & FAILED == 0 {
+            if self.device_status != INIT {
                 self.reset();
+                if !self.device.lock().expect("Poisoned lock").reset() {
+                    self.device_status |= FAILED;
+                }
             }
         } else if VALID_TRANSITIONS
             .iter()
@@ -596,6 +585,12 @@ pub(crate) mod tests {
         fn is_activated(&self) -> bool {
             self.device_activated
         }
+
+        fn reset(&mut self) -> bool {
+            self.device_activated = false;
+            self.acked_features = 0;
+            true
+        }
     }
 
     fn set_device_status(d: &mut MmioTransport, status: u32) {
@@ -609,8 +604,7 @@ pub(crate) mod tests {
         let m = single_region_mem(0x1000);
         let interrupt = Arc::new(IrqTrigger::new());
         let mut dummy = DummyDevice::new();
-        // Validate reset is no-op.
-        assert!(!dummy.reset());
+        assert!(dummy.reset());
         let mut d = MmioTransport::new(m, interrupt, Arc::new(Mutex::new(dummy)), false);
 
         // We just make sure here that the implementation of a mmio device behaves as we expect,
@@ -1140,11 +1134,12 @@ pub(crate) mod tests {
         assert_eq!(d.device_status, 0x8f);
         assert!(d.locked_device().is_activated());
 
-        // Nothing happens when backend driver doesn't support reset
+        // Resetting the device should deactivate it
         write_le_u32(&mut buf[..], 0x0);
         d.write(0x0, 0x70, &buf[..]);
-        assert_eq!(d.device_status, 0x8f);
-        assert!(d.locked_device().is_activated());
+        assert_eq!(d.device_status, device_status::INIT);
+        assert!(!d.locked_device().is_activated());
+        assert_eq!(d.locked_device().acked_features(), 0);
     }
 
     #[test]
