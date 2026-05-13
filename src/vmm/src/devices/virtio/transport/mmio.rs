@@ -492,6 +492,7 @@ pub(crate) mod tests {
         device_activated: bool,
         config_bytes: [u8; 0xeff],
         activate_should_error: bool,
+        reset_should_fail: bool,
     }
 
     impl DummyDevice {
@@ -508,6 +509,7 @@ pub(crate) mod tests {
                 device_activated: false,
                 config_bytes: [0; 0xeff],
                 activate_should_error: false,
+                reset_should_fail: false,
             }
         }
 
@@ -588,6 +590,9 @@ pub(crate) mod tests {
         }
 
         fn reset(&mut self) -> bool {
+            if self.reset_should_fail {
+                return false;
+            }
             self.device_activated = false;
             self.acked_features = 0;
             true
@@ -1141,6 +1146,26 @@ pub(crate) mod tests {
         assert_eq!(d.device_status, device_status::INIT);
         assert!(!d.locked_device().is_activated());
         assert_eq!(d.locked_device().acked_features(), 0);
+    }
+
+    #[test]
+    fn test_bus_device_reset_failure() {
+        let m = single_region_mem(0x1000);
+        let interrupt = Arc::new(IrqTrigger::new());
+        let device = DummyDevice {
+            reset_should_fail: true,
+            ..DummyDevice::new()
+        };
+        let mut d = MmioTransport::new(m, interrupt, Arc::new(Mutex::new(device)), false);
+
+        activate_device(&mut d);
+        assert!(d.locked_device().is_activated());
+
+        // A backend that doesn't support reset must set FAILED.
+        let mut buf = [0; 4];
+        write_le_u32(&mut buf[..], 0x0);
+        d.write(0x0, 0x70, &buf[..]);
+        assert_ne!(d.device_status & device_status::FAILED, 0);
     }
 
     #[test]
