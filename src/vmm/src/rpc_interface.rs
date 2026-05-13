@@ -124,8 +124,8 @@ pub enum VmmAction {
     /// Set the entropy device using `EntropyDeviceConfig` as input. This action can only be called
     /// before the microVM has booted.
     SetEntropyDevice(EntropyDeviceConfig),
-    /// Add a passthrough device using `DevicePassthroughConfig` as input. This action can only be called
-    /// before the microVM has booted.
+    /// Add a passthrough device using `DevicePassthroughConfig` as input. After the microVM has
+    /// booted, this hot-plugs the device.
     InsertPassthroughDevice(DevicePassthroughConfig),
     /// Get the memory hotplug device configuration and status.
     GetMemoryHotplugStatus,
@@ -814,6 +814,12 @@ impl RuntimeApiController {
                 .expect("Poisoned lock")
                 .hotplug_device(HotplugDeviceConfig::Net(config), event_manager)
                 .map(|()| VmmData::Empty),
+            InsertPassthroughDevice(config) => self
+                .vmm
+                .lock()
+                .expect("Poisoned lock")
+                .hotplug_passthrough_device(config)
+                .map(|()| VmmData::Empty),
             HotUnplugDevice(device_id, force) => self
                 .vmm
                 .lock()
@@ -890,7 +896,6 @@ impl RuntimeApiController {
             | SetMmdsConfiguration(_)
             | SetEntropyDevice(_)
             | SetMemoryHotplugDevice(_)
-            | InsertPassthroughDevice(_)
             | StartMicroVm
             | UpdateMachineConfiguration(_) => Err(VmmActionError::OperationNotSupportedPostBoot),
         }
@@ -1081,7 +1086,6 @@ mod tests {
     use crate::HTTP_MAX_PAYLOAD_SIZE;
     use crate::builder::tests::default_vmm;
     use crate::mmds::data_store::MmdsVersion;
-    use crate::pci::PciSBDF;
     use crate::seccomp::BpfThreadMap;
     use crate::vmm_config::snapshot::{
         MemBackendConfig, MemBackendType, SnapshotLoadHugePageConfig,
@@ -1389,12 +1393,6 @@ mod tests {
         )));
         check_unsupported(runtime_request(VmmAction::SetMemoryHotplugDevice(
             MemoryHotplugConfig::default(),
-        )));
-        check_unsupported(runtime_request(VmmAction::InsertPassthroughDevice(
-            DevicePassthroughConfig {
-                id: String::new(),
-                sbdf: PciSBDF::new(0x0, 0x0, 0x0, 0x0),
-            },
         )));
     }
 }

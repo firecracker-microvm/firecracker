@@ -374,11 +374,13 @@ paths:
 
   /device-passthrough/{id}:
     put:
-      summary: Creates or updates a passthrough device. Pre-boot only.
+      summary: Creates or updates a passthrough device.
       description:
-        Creates new passthrough device with ID specified by id parameter.
-        If a device with the specified ID already exists, it updates
-        device state based on new input.
+        Before boot, creates new passthrough device with ID specified by id
+        parameter. If a device with the specified ID already exists, it updates
+        device state based on new input. After boot, hot-plugs a new
+        passthrough device behind a free PCIe root port. Updates of existing
+        devices are not supported after boot.
       operationId: putGuestDevicePassthroughByID
       parameters:
         - name: id
