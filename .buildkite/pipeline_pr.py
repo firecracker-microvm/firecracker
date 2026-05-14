@@ -122,4 +122,14 @@ if run_all_tests(changed_files):
         ),
     )
 
+    pipeline.build_group(
+        "enclave",
+        pipeline.devtool_test(
+            devtool_opts="--no-kvm-check",
+            pytest_opts="-k enclave integration_tests/functional",
+        ),
+        platforms=[("al2023", "enclave")],
+        instances=["c8i.8xlarge", "m8g.8xlarge"],
+    )
+
 print(pipeline.to_json())
