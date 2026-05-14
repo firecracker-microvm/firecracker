@@ -688,8 +688,6 @@ pub enum VcpuEmulation {
 pub(crate) mod tests {
     #![allow(clippy::undocumented_unsafe_blocks)]
 
-    #[cfg(target_arch = "x86_64")]
-    use std::collections::BTreeMap;
     use std::sync::atomic::Ordering;
     use std::sync::{Arc, Barrier, Mutex};
 
@@ -924,7 +922,7 @@ pub(crate) mod tests {
                 .configure_cpuid(&cpuid, 1, false)
                 .expect("failed to configure vcpu CPUID");
             vcpu.kvm_vcpu
-                .configure_msrs_for_boot(&BTreeMap::new(), &configured_cpuid)
+                .configure_msrs_for_boot(&kvm_bindings::Msrs::new(0).unwrap(), &configured_cpuid)
                 .expect("failed to configure vcpu MSRs");
             vcpu.kvm_vcpu
                 .configure_boot_state(vm.guest_memory(), entry_point)
