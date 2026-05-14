@@ -314,7 +314,7 @@ impl VirtioDevice for Entropy {
     }
 
     fn _reset(&mut self) -> bool {
-        false
+        true
     }
 
     fn activate(
