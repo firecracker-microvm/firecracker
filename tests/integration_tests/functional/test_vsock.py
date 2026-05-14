@@ -538,3 +538,47 @@ def test_snapshot_restore_with_inflight_vsock_tx(
         new_vm.path, make_host_port_path(VSOCK_UDS_PATH, ECHO_SERVER_PORT)
     )
     check_guest_connections(new_vm, path, vm_blob_path, blob_hash)
+
+
+def test_device_reset(uvm):
+    """
+    Test that virtio-vsock device reset works.
+    """
+    vm = uvm
+    vm.spawn()
+    vm.basic_config()
+    vm.add_net_iface()
+    vm.api.vsock.put(guest_cid=3, vsock_id="vsock0", uds_path="/" + VSOCK_UDS_PATH)
+    vm.start()
+
+    uds_path = start_guest_echo_server(vm)
+    blob_path, blob_hash = make_blob(vm.path)
+    check_host_connections(uds_path, blob_path, blob_hash)
+
+    # Keep a connection open across the reset.
+    held_conn = vsock_connect_to_guest(uds_path, ECHO_SERVER_PORT)
+
+    # Find the virtio vsock device.
+    virtio_dev = vm.ssh.check_output(
+        "ls -d /sys/bus/virtio/drivers/vmw_vsock_virtio_transport/virtio*"
+        " | xargs -n1 basename"
+    ).stdout.strip()
+
+    vm.ssh.check_output(
+        f"echo {virtio_dev} > /sys/bus/virtio/drivers/vmw_vsock_virtio_transport/unbind"
+    )
+
+    held_conn.close()
+
+    # Verify the vsock device is gone.
+    ret = vm.ssh.run("ls /sys/bus/virtio/drivers/vmw_vsock_virtio_transport/virtio*")
+    assert ret.returncode != 0
+
+    # Rebind and verify the data path works by starting a guest echo server
+    # and sending data from the host through the vsock.
+    vm.ssh.check_output(
+        f"echo {virtio_dev} > /sys/bus/virtio/drivers/vmw_vsock_virtio_transport/bind"
+    )
+    uds_path = start_guest_echo_server(vm)
+    blob_path, blob_hash = make_blob(vm.path)
+    check_host_connections(uds_path, blob_path, blob_hash)
