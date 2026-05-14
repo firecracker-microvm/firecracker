@@ -449,6 +449,114 @@ mod tests {
     }
 
     #[test]
+    fn test_pending_event_ack_gates_rxq_event() {
+        // RX queue events arriving before the guest acks the TRANSPORT_RESET must not
+        // drain the RX virtqueue.
+        let test_ctx = TestContext::new();
+        let mut ctx = test_ctx.create_event_handler_context();
+        ctx.mock_activate(test_ctx.mem.clone(), test_ctx.interrupt.clone());
+
+        ctx.device.pending_event_ack = true;
+        ctx.device.backend.set_pending_rx(true);
+
+        ctx.signal_rxq_event();
+
+        assert_eq!(
+            ctx.guest_rxvq.used.idx.get(),
+            0,
+            "RX vq must stay empty while pending_event_ack is set"
+        );
+        assert_eq!(
+            ctx.device.backend.rx_ok_cnt, 0,
+            "backend recv_pkt must not be called while gated"
+        );
+    }
+
+    #[test]
+    fn test_pending_event_ack_gates_txq_drain() {
+        // The trailing RX drain in handle_txq_event must also be gated.
+        let test_ctx = TestContext::new();
+        let mut ctx = test_ctx.create_event_handler_context();
+        ctx.mock_activate(test_ctx.mem.clone(), test_ctx.interrupt.clone());
+
+        ctx.device.pending_event_ack = true;
+        ctx.device.backend.set_pending_rx(true);
+
+        ctx.signal_txq_event();
+
+        // TX still drains - it is unrelated to the RX/EVQ race.
+        assert_eq!(ctx.guest_txvq.used.idx.get(), 1);
+        // RX drain must be suppressed by the gate.
+        assert_eq!(
+            ctx.guest_rxvq.used.idx.get(),
+            0,
+            "RX vq must stay empty during txq drain while gated"
+        );
+    }
+
+    #[test]
+    fn test_evq_event_clears_flag_without_pending_rx() {
+        // The evq ack must clear pending_event_ack even when the backend has nothing
+        // queued, otherwise a later RX would stay gated forever.
+        let test_ctx = TestContext::new();
+        let mut ctx = test_ctx.create_event_handler_context();
+        ctx.mock_activate(test_ctx.mem.clone(), test_ctx.interrupt.clone());
+
+        ctx.device.pending_event_ack = true;
+        ctx.device.backend.set_pending_rx(false);
+        ctx.device.queue_events[EVQ_INDEX].write(1).unwrap();
+
+        let used = ctx.device.handle_evq_event(EventSet::IN);
+
+        assert!(
+            !ctx.device.pending_event_ack,
+            "pending_event_ack must be cleared by evq ack regardless of RX backlog"
+        );
+        assert!(used.is_empty(), "no queues should be signalled");
+        assert_eq!(ctx.guest_rxvq.used.idx.get(), 0);
+    }
+
+    #[test]
+    fn test_evq_event_logs_eventfd_read_failure() {
+        // Driving handle_evq_event without writing to the eventfd first triggers the
+        // EAGAIN read error branch. The flag must still be cleared so the device can
+        // recover.
+        let test_ctx = TestContext::new();
+        let mut ctx = test_ctx.create_event_handler_context();
+        ctx.mock_activate(test_ctx.mem.clone(), test_ctx.interrupt.clone());
+
+        ctx.device.pending_event_ack = true;
+        ctx.device.backend.set_pending_rx(false);
+
+        let metric_before = METRICS.ev_queue_event_fails.count();
+        let used = ctx.device.handle_evq_event(EventSet::IN);
+
+        assert_eq!(metric_before + 1, METRICS.ev_queue_event_fails.count());
+        assert!(used.is_empty());
+        assert!(
+            !ctx.device.pending_event_ack,
+            "flag must clear even when the eventfd read errors"
+        );
+    }
+
+    #[test]
+    fn test_process_rx_short_circuits_on_pending_event_ack() {
+        // Direct call to process_rx must respect the flag and not touch the queue.
+        let test_ctx = TestContext::new();
+        let mut ctx = test_ctx.create_event_handler_context();
+        ctx.mock_activate(test_ctx.mem.clone(), test_ctx.interrupt.clone());
+
+        ctx.device.pending_event_ack = true;
+        ctx.device.backend.set_pending_rx(true);
+
+        let progressed = ctx.device.process_rx().unwrap();
+
+        assert!(!progressed, "process_rx must report no progress when gated");
+        assert_eq!(ctx.guest_rxvq.used.idx.get(), 0);
+        assert_eq!(ctx.device.backend.rx_ok_cnt, 0);
+    }
+
+    #[test]
     fn test_backend_event() {
         // Test case:
         // - a backend event is received; and
