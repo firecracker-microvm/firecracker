@@ -1030,6 +1030,10 @@
                 "syscall": "close"
             },
             {
+                "syscall": "eventfd2",
+                "comment": "Needed for recreating the MSI-X vector eventfds when a PCI device is reset by the guest (MsixVectorGroup recreated from the vCPU thread)"
+            },
+            {
                 "syscall": "fstat",
                 "comment": "Used for reading the local timezone from /etc/localtime"
             },
