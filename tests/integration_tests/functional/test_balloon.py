@@ -622,3 +622,60 @@ def test_memory_scrub(uvm, method):
 
     microvm.ssh.check_output("/usr/local/bin/readmem {} {}".format(60, 1))
     check_guest_dmesg_for_stalls(microvm.ssh)
+
+
+def test_device_reset(uvm):
+    """
+    Test that virtio-balloon device reset works.
+    """
+    vm = uvm
+    vm.spawn()
+    vm.basic_config()
+    vm.add_net_iface()
+    vm.api.balloon.put(amount_mib=0, deflate_on_oom=True, stats_polling_interval_s=0)
+    vm.start()
+
+    meminfo = MeminfoGuest(vm)
+    free_initial = meminfo.get().mem_free.kib()
+
+    # Inflate the balloon by 64 MiB and confirm guest free memory drops.
+    vm.api.balloon.patch(amount_mib=64)
+    get_stable_rss_mem(vm)
+    free_inflated = meminfo.get().mem_free.kib()
+    # Inflating 64 MiB should reclaim at least 85% of that from guest free
+    # memory. The 15% slack accounts for kernel accounting overhead.
+    inflated_drop = 64 * 1024 * 85 // 100
+    assert free_inflated <= free_initial - inflated_drop
+
+    # Find the virtio balloon device.
+    virtio_dev = vm.ssh.check_output(
+        "ls -d /sys/bus/virtio/drivers/virtio_balloon/virtio* | xargs -n1 basename"
+    ).stdout.strip()
+
+    # Reset the device by unbinding the driver.
+    vm.ssh.check_output(
+        f"echo {virtio_dev} > /sys/bus/virtio/drivers/virtio_balloon/unbind"
+    )
+
+    # Verify the balloon is gone.
+    ret = vm.ssh.run("ls /sys/bus/virtio/drivers/virtio_balloon/virtio*")
+    assert ret.returncode != 0
+
+    # Rebind and make sure the device node is back.
+    vm.ssh.check_output(
+        f"echo {virtio_dev} > /sys/bus/virtio/drivers/virtio_balloon/bind"
+    )
+    vm.ssh.check_output("ls /sys/bus/virtio/drivers/virtio_balloon/virtio*")
+
+    # The inflation target is preserved across reset, assert that the driver
+    # re-inflates the balloon.
+    get_stable_rss_mem(vm)
+    free_after_reset = meminfo.get().mem_free.kib()
+    assert free_after_reset <= free_initial - inflated_drop
+
+    # Deflate to make sure the device is functional in both directions
+    vm.api.balloon.patch(amount_mib=0)
+    get_stable_rss_mem(vm)
+    free_deflated = meminfo.get().mem_free.kib()
+    DEFLATE_SLACK_KIB = 8 * 1024  # arbitrary 8 MiB tolerance for measurement noise
+    assert free_deflated >= free_initial - DEFLATE_SLACK_KIB
