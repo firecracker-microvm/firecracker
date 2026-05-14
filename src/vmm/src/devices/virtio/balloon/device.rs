@@ -981,7 +981,13 @@ impl VirtioDevice for Balloon {
     }
 
     fn _reset(&mut self) -> bool {
-        false
+        self.config_space.actual_pages = 0;
+        self.config_space.free_page_hint_cmd_id = FREE_PAGE_HINT_STOP;
+        self.stats_timer.arm(Duration::ZERO, None);
+        self.stats_desc_index = None;
+        self.latest_stats = BalloonStats::default();
+        self.hinting_state = Default::default();
+        true
     }
 
     fn kick(&mut self) {
