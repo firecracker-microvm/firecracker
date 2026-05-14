@@ -394,7 +394,10 @@ where
     }
 
     fn _reset(&mut self) -> bool {
-        false
+        self.backend.reset();
+        self.rx_packet.clear();
+        self.tx_packet.clear();
+        true
     }
 
     fn kick(&mut self) {
