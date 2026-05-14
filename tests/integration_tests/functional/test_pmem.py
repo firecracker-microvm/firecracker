@@ -226,3 +226,43 @@ def test_pmem_dax_memory_saving(
     assert (
         pmem_rss_usage < block_rss_usage
     ), f"{block_cache_usage} <= {pmem_cache_usage}"
+
+
+def test_device_reset(uvm_plain_any):
+    """
+    Test that virtio-pmem device reset works.
+    """
+    vm = uvm_plain_any
+    vm.spawn()
+    vm.basic_config(add_root_device=True)
+    vm.add_net_iface()
+
+    fs = drive_tools.FilesystemFile(os.path.join(vm.fsfiles, "scratch"), size=2)
+    vm.add_pmem("pmem_scratch", fs.path, False, False)
+    vm.start()
+
+    # Verify the pmem device is accessible.
+    vm.ssh.check_output("ls /dev/pmem0")
+
+    virtio_dev = vm.ssh.check_output(
+        "basename $(realpath /sys/block/pmem0/device/../../..)"
+    ).stdout.strip()
+
+    vm.ssh.check_output(
+        f"echo {virtio_dev} > /sys/bus/virtio/drivers/virtio_pmem/unbind"
+    )
+
+    # Verify the device is gone.
+    ret = vm.ssh.run("ls /dev/pmem0")
+    assert ret.returncode != 0
+
+    # Rebind and verify the device is functional.
+    vm.ssh.check_output(f"echo {virtio_dev} > /sys/bus/virtio/drivers/virtio_pmem/bind")
+    # The NVDIMM subsystem creates the device node asynchronously after driver
+    # probe, so we need to wait for it.
+    vm.ssh.check_output("sleep 1")
+    vm.ssh.check_output("mount /dev/pmem0 /tmp")
+    vm.ssh.check_output("echo reset_test > /tmp/testfile")
+    ret = vm.ssh.check_output("cat /tmp/testfile")
+    assert "reset_test" in ret.stdout
+    vm.ssh.check_output("umount /tmp")
