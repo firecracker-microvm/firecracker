@@ -962,7 +962,6 @@ impl PciDevice for VirtioPciDevice {
         if self.device_activated.load(Ordering::SeqCst) && self.is_driver_init() {
             let mut device = self.device.lock().unwrap();
             if device.reset() {
-                self.virtio_interrupt = None;
                 self.device_activated.store(false, Ordering::SeqCst);
 
                 // Reset queue readiness (changes queue_enable), queue sizes
