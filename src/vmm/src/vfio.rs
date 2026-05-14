@@ -16,7 +16,7 @@ pub use vfio_ioctls::{
     VfioContainer, VfioDevice, VfioDeviceFd, VfioRegionInfoCap, VfioRegionInfoCapSparseMmap,
     VfioRegionSparseMmapArea,
 };
-use vm_allocator::AllocPolicy;
+use vm_allocator::{AllocPolicy, RangeInclusive};
 use vm_memory::{GuestMemory, GuestMemoryRegion};
 use vmm_sys_util::eventfd::EventFd;
 use zerocopy::IntoBytes;
@@ -927,6 +927,18 @@ fn dma_map_guest_memory(
     Ok(())
 }
 
+fn dma_unmap_guest_memory(container: &VfioContainer, guest_memory: &GuestMemoryMmap) {
+    for region in guest_memory.iter() {
+        if region.region_type == GuestRegionType::Dram {
+            let iova = region.start_addr().0;
+            let size = region.size();
+            if let Err(ee) = container.vfio_dma_unmap(iova, size) {
+                error!("Failed to unmap DMA from guest memory: {ee}");
+            }
+        }
+    }
+}
+
 fn map_bar_mapping(
     container: &VfioContainer,
     device: &VfioDevice,
@@ -1247,6 +1259,48 @@ pub fn init_vfio_device(
             .expect("Failed to register VFIO device mmio region");
     }
     Ok(vfio_device_bundle)
+}
+
+/// Performs cleanup of all VFIO device resources allocated by `init_vfio_device`
+pub fn deinit_vfio_device(
+    container: &Arc<VfioContainer>,
+    vm: &KvmVm,
+    device: &VfioDeviceBundle,
+    last_vfio_device: bool,
+) {
+    device.device.reset();
+
+    for hole in device.msix_state.bar_hole_infos.iter() {
+        vm.common.mmio_bus.remove(hole.gpa, hole.size).unwrap();
+    }
+
+    let mut resource_allocator_lock = vm.resource_allocator();
+    let resource_allocator = resource_allocator_lock.deref_mut();
+    let mut bar_idx = 0;
+    while bar_idx < NUM_BAR_REGS {
+        if device.bars.bars[bar_idx as usize].used() {
+            let start = device.bars.get_bar_addr(bar_idx);
+            let size = device.bars.get_bar_size(bar_idx);
+            let range = RangeInclusive::new(start, start + size - 1).unwrap();
+            if device.bars.bars[bar_idx as usize].is_64bit() {
+                resource_allocator.mmio64_memory.free(&range).unwrap();
+                bar_idx += 2;
+            } else {
+                resource_allocator.mmio32_memory.free(&range).unwrap();
+                bar_idx += 1;
+            }
+        } else {
+            bar_idx += 1;
+        }
+    }
+
+    for mapping in device.bar_mappings.iter() {
+        unmap_bar_mapping(container, vm, mapping);
+    }
+
+    if last_vfio_device {
+        dma_unmap_guest_memory(container, vm.guest_memory());
+    }
 }
 
 #[cfg(test)]

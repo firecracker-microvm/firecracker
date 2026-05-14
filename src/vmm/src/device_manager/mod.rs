@@ -559,7 +559,7 @@ impl DeviceManager {
             }
         }
 
-        self.pci_devices.attach_vfio_device(&vm, config)?;
+        self.pci_devices.attach_vfio_device(vm, config)?;
         Ok(())
     }
 
@@ -665,6 +665,15 @@ impl DeviceManager {
         // this function returns.
         assert_eq!(Arc::strong_count(&pci_device_arc), 1);
 
+        Ok(())
+    }
+
+    /// Detaches a device after VM start
+    pub fn hot_unplug_vfio_device(&mut self, vm: &KvmVm, id: String) -> Result<(), VmmActionError> {
+        if !self.is_pci_enabled() {
+            return Err(VmmActionError::PciNotEnabled);
+        }
+        self.pci_devices.detach_vfio_device(vm, id)?;
         Ok(())
     }
 }

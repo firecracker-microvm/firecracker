@@ -245,16 +245,21 @@ def test_vfio_nvme_visible(uvm_with_vfio):
     assert int(nvme[0]["size"]) > 0
 
 
-def test_vfio_nvme_visible_after_hotplug(uvm_with_vfio):
+def test_vfio_nvme_hotplug_unplug_cycle(uvm_with_vfio):
     """The passthrough device appears on the guest PCI bus."""
     vm = uvm_with_vfio
     vm.start()
 
+    _, lspci_before, _ = vm.ssh.check_output("lspci -n")
+
     vm.api.vfio.put(id="nvme0", path_on_host=VFIO_SYSFS)
     vm.ssh.check_output("echo 1 > /sys/bus/pci/rescan")
 
-    _, stdout, _ = vm.ssh.check_output("lspci -nn")
-    assert "Non-Volatile memory controller" in stdout
+    _, lspci_after, _ = vm.ssh.check_output("lspci -n")
+    new_entries = set(lspci_after.splitlines()) - set(lspci_before.splitlines())
+    assert len(new_entries) == 1
+    entry = new_entries.pop()
+    bdf = entry.split()[0]
 
     vm.ssh.check_output("test -d /sys/class/nvme/nvme0")
     vm.ssh.check_output("test -b /dev/nvme0n1")
@@ -264,6 +269,12 @@ def test_vfio_nvme_visible_after_hotplug(uvm_with_vfio):
     nvme = [b for b in blocks if b["name"] == "nvme0n1"]
     assert len(nvme) == 1
     assert int(nvme[0]["size"]) > 0
+
+    vm.ssh.check_output(f"echo 1 > /sys/bus/pci/devices/0000:{bdf}/remove")
+    vm.api.vfio.delete("nvme0")
+    vm.ssh.check_output("echo 1 > /sys/bus/pci/rescan")
+    _, lspci_after_unplug, _ = vm.ssh.check_output("lspci -n")
+    assert lspci_after_unplug == lspci_before
 
 
 def test_vfio_nvme_read(uvm_with_vfio):
