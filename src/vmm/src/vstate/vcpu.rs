@@ -653,8 +653,6 @@ pub enum VcpuEmulation {
 pub(crate) mod tests {
     #![allow(clippy::undocumented_unsafe_blocks)]
 
-    #[cfg(target_arch = "x86_64")]
-    use std::collections::BTreeMap;
     use std::sync::atomic::Ordering;
     use std::sync::{Arc, Barrier, Mutex};
 
@@ -889,7 +887,7 @@ pub(crate) mod tests {
                         smt: false,
                         cpu_config: CpuConfiguration {
                             cpuid: Cpuid::try_from(vm.kvm().supported_cpuid.clone()).unwrap(),
-                            msrs: BTreeMap::new(),
+                            msrs: kvm_bindings::Msrs::new(0).unwrap(),
                         },
                     },
                 )

@@ -5,7 +5,6 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the THIRD-PARTY file.
 
-use std::collections::BTreeMap;
 use std::fmt::Debug;
 use std::sync::Arc;
 
@@ -20,7 +19,7 @@ use vmm_sys_util::fam::{self, FamStruct};
 use crate::arch::EntryPoint;
 use crate::arch::x86_64::generated::msr_index::{MSR_IA32_TSC, MSR_IA32_TSC_DEADLINE};
 use crate::arch::x86_64::interrupts;
-use crate::arch::x86_64::msr::{MsrError, create_boot_msr_entries};
+use crate::arch::x86_64::msr::{MsrError, create_boot_msr_entries, msrs_insert};
 use crate::arch::x86_64::regs::{SetupFpuError, SetupRegistersError, SetupSpecialRegistersError};
 use crate::cpu_config::x86_64::{CpuConfiguration, cpuid};
 use crate::logger::{IncMetric, METRICS, error, warn};
@@ -222,12 +221,13 @@ impl KvmVcpu {
 
         // Clone MSR entries that are modified by CPU template from `VcpuConfig`.
         let mut msrs = vcpu_config.cpu_config.msrs.clone();
-        self.msrs_to_save.extend(msrs.keys());
+        self.msrs_to_save
+            .extend(msrs.as_slice().iter().map(|entry| entry.index));
 
         // Apply MSR modification to comply the linux boot protocol.
-        create_boot_msr_entries().into_iter().for_each(|entry| {
-            msrs.insert(entry.index, entry.data);
-        });
+        for entry in create_boot_msr_entries() {
+            msrs_insert(&mut msrs, entry.index, entry.data);
+        }
 
         // TODO - Add/amend MSRs for vCPUs based on cpu_config
         // By this point the Guest CPUID is established. Some CPU features require MSRs
@@ -247,16 +247,7 @@ impl KvmVcpu {
         // save is `architectural MSRs` + `MSRs inferred through CPUID` + `other
         // MSRs defined by the template`
 
-        let kvm_msrs = msrs
-            .into_iter()
-            .map(|entry| kvm_bindings::kvm_msr_entry {
-                index: entry.0,
-                data: entry.1,
-                ..Default::default()
-            })
-            .collect::<Vec<_>>();
-
-        crate::arch::x86_64::msr::set_msrs(&self.fd, &kvm_msrs)?;
+        crate::arch::x86_64::msr::set_msrs(&self.fd, &msrs)?;
         crate::arch::x86_64::regs::setup_regs(&self.fd, kernel_entry_point)?;
         crate::arch::x86_64::regs::setup_fpu(&self.fd)?;
         crate::arch::x86_64::regs::setup_sregs(guest_mem, &self.fd, kernel_entry_point.protocol)?;
@@ -534,19 +525,18 @@ impl KvmVcpu {
     /// # Errors
     ///
     /// * When `KvmVcpu::get_msr_chunks()` returns errors.
+    /// * When [`kvm_bindings::Msrs::new`] returns errors.
     pub fn get_msrs(
         &self,
         msr_index_iter: impl ExactSizeIterator<Item = u32>,
-    ) -> Result<BTreeMap<u32, u64>, KvmVcpuError> {
-        let mut msrs = BTreeMap::new();
-        self.get_msr_chunks(msr_index_iter)?
-            .iter()
-            .for_each(|msr_chunk| {
-                msr_chunk.as_slice().iter().for_each(|msr| {
-                    msrs.insert(msr.index, msr.data);
-                });
-            });
-        Ok(msrs)
+    ) -> Result<Msrs, KvmVcpuError> {
+        let mut combined = Msrs::new(0).map_err(KvmVcpuError::Fam)?;
+        for chunk in self.get_msr_chunks(msr_index_iter)? {
+            for entry in chunk.as_slice() {
+                msrs_insert(&mut combined, entry.index, entry.data);
+            }
+        }
+        Ok(combined)
     }
 
     /// Save the KVM internal state.
@@ -1012,7 +1002,7 @@ mod tests {
             smt: false,
             cpu_config: CpuConfiguration {
                 cpuid: Cpuid::try_from(vm.kvm().supported_cpuid.clone()).unwrap(),
-                msrs: BTreeMap::new(),
+                msrs: Msrs::new(0).unwrap(),
             },
         };
         vcpu.configure(
@@ -1080,7 +1070,7 @@ mod tests {
             smt: false,
             cpu_config: CpuConfiguration {
                 cpuid: Cpuid::try_from(vm.kvm().supported_cpuid.clone()).unwrap(),
-                msrs: BTreeMap::new(),
+                msrs: Msrs::new(0).unwrap(),
             },
         };
 

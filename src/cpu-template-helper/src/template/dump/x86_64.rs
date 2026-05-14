@@ -1,8 +1,7 @@
 // Copyright 2023 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-use std::collections::BTreeMap;
-
+use kvm_bindings::Msrs;
 use vmm::MSR_RANGE;
 use vmm::arch::x86_64::generated::msr_index::*;
 use vmm::arch::x86_64::msr::MsrRange;
@@ -47,10 +46,11 @@ fn cpuid_to_modifiers(cpuid: &Cpuid) -> Vec<CpuidLeafModifier> {
     result
 }
 
-fn msrs_to_modifier(msrs: &BTreeMap<u32, u64>) -> Vec<RegisterModifier> {
+fn msrs_to_modifier(msrs: &Msrs) -> Vec<RegisterModifier> {
     let mut msrs: Vec<RegisterModifier> = msrs
+        .as_slice()
         .iter()
-        .map(|(index, value)| msr_modifier!(*index, *value))
+        .map(|entry| msr_modifier!(entry.index, entry.data))
         .collect();
 
     msrs.retain(|modifier| !should_exclude_msr(modifier.addr));
@@ -122,8 +122,7 @@ fn should_exclude_msr_amd(index: u32) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use std::collections::BTreeMap;
-
+    use kvm_bindings::kvm_msr_entry;
     use vmm::cpu_config::x86_64::cpuid::IntelCpuid;
 
     use super::*;
@@ -183,24 +182,29 @@ mod tests {
         ]
     }
 
-    fn build_sample_msrs() -> BTreeMap<u32, u64> {
-        let mut map = BTreeMap::from([
+    fn build_sample_msrs() -> Msrs {
+        let entry = |index, data| kvm_msr_entry {
+            index,
+            data,
+            ..Default::default()
+        };
+        let mut entries = vec![
             // should be sorted in the result.
-            (0x1, 0xffff_ffff_ffff_ffff),
-            (0x5, 0xffff_ffff_0000_0000),
-            (0x3, 0x0000_0000_ffff_ffff),
-            (0x2, 0x0000_0000_0000_0000),
-        ]);
+            entry(0x1, 0xffff_ffff_ffff_ffff),
+            entry(0x5, 0xffff_ffff_0000_0000),
+            entry(0x3, 0x0000_0000_ffff_ffff),
+            entry(0x2, 0x0000_0000_0000_0000),
+        ];
         // should be excluded from the result.
         MSR_EXCLUSION_LIST
             .iter()
             .chain(MSR_EXCLUSION_LIST_AMD.iter())
             .for_each(|range| {
                 (range.base..(range.base + range.nmsrs)).for_each(|id| {
-                    map.insert(id, 0);
+                    entries.push(entry(id, 0));
                 })
             });
-        map
+        Msrs::from_entries(&entries).unwrap()
     }
 
     fn build_expected_msr_modifiers() -> Vec<RegisterModifier> {
