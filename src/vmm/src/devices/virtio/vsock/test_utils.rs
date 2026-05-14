@@ -15,7 +15,7 @@ use crate::devices::virtio::device::VirtioDevice;
 use crate::devices::virtio::queue::{VIRTQ_DESC_F_NEXT, VIRTQ_DESC_F_WRITE};
 use crate::devices::virtio::test_utils::{VirtQueue as GuestQ, default_interrupt};
 use crate::devices::virtio::transport::VirtioInterrupt;
-use crate::devices::virtio::vsock::device::{RXQ_INDEX, TXQ_INDEX};
+use crate::devices::virtio::vsock::device::{EVQ_INDEX, RXQ_INDEX, TXQ_INDEX};
 use crate::devices::virtio::vsock::packet::VSOCK_PKT_HDR_SIZE;
 use crate::devices::virtio::vsock::{
     Vsock, VsockBackend, VsockChannel, VsockEpollListener, VsockError,
