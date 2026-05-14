@@ -680,7 +680,12 @@ impl VirtioDevice for VirtioBlock {
     }
 
     fn _reset(&mut self) -> bool {
-        false
+        if let Err(err) = self.disk.file_engine.reset() {
+            error!("Failed to reset block IO engine: {:?}", err);
+            return false;
+        }
+        self.is_io_engine_throttled = false;
+        true
     }
 }
 
