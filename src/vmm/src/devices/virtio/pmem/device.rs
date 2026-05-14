@@ -593,7 +593,7 @@ impl VirtioDevice for Pmem {
     }
 
     fn _reset(&mut self) -> bool {
-        false
+        true
     }
 
     fn kick(&mut self) {
