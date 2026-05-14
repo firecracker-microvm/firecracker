@@ -709,3 +709,61 @@ def test_clocksource_snapshot_restore(
     assert (
         jumped == clock_realtime
     ), f"Clock {jumped_str} but clock_realtime was {"not" if clock_realtime else ""} set."
+
+
+def test_snapshot_override_drive(uvm_nano, microvm_factory):
+    """
+    Test that we can restore a snapshot and point a block device to a
+    different host path.
+    """
+    vm = uvm_nano
+    vm.add_net_iface()
+    vm.start()
+
+    snapshot = vm.snapshot_full()
+
+    restored_vm = microvm_factory.build()
+    restored_vm.spawn()
+
+    # Copy the rootfs to a new file in the restored VM's chroot so the
+    # jailed Firecracker can see it, and use a different inode than the
+    # original to verify the override actually swapped the backing file.
+    original_rootfs = snapshot.disks["rootfs"]
+    shutil.copy(original_rootfs, Path(restored_vm.chroot()) / "rootfs_override.ext4")
+
+    restored_vm.restore_from_snapshot(
+        snapshot,
+        drive_overrides=[
+            {"drive_id": "rootfs", "path_on_host": "/rootfs_override.ext4"},
+        ],
+        resume=True,
+    )
+
+    # Verify the block device still works after restore.
+    restored_vm.ssh.check_output("blockdev --getsize64 /dev/vda")
+
+
+def test_drive_override_fails_unknown_id(uvm_nano, microvm_factory):
+    """
+    Providing a drive override with an unknown drive_id should fail.
+    """
+    vm = uvm_nano
+    vm.start()
+
+    snapshot = vm.snapshot_full()
+    vm.kill()
+
+    restored_vm = microvm_factory.build()
+    restored_vm.spawn()
+
+    # The failed snapshot load causes Firecracker to exit.
+    with pytest.raises(RuntimeError, match="Unknown Block Device"):
+        restored_vm.restore_from_snapshot(
+            snapshot,
+            drive_overrides=[
+                {"drive_id": "nonexistent", "path_on_host": "/fake/path"},
+            ],
+            resume=True,
+        )
+
+    restored_vm.mark_killed()

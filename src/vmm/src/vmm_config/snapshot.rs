@@ -64,6 +64,33 @@ pub struct VsockOverride {
     pub uds_path: String,
 }
 
+/// Allows for changing the backing host path of a block device during snapshot restore
+#[derive(Debug, PartialEq, Eq, Deserialize)]
+pub struct DriveOverride {
+    /// The ID of the drive to modify
+    pub drive_id: String,
+    /// The new backing path, matching the conventions of the `PUT /drives` API
+    #[serde(flatten)]
+    pub backing: DriveOverrideBacking,
+}
+
+/// The new backing path for a [`DriveOverride`]. Exactly one variant matches
+/// the JSON body, based on which of `path_on_host` or `socket` is set.
+#[derive(Debug, PartialEq, Eq, Deserialize)]
+#[serde(untagged, deny_unknown_fields)]
+pub enum DriveOverrideBacking {
+    /// New host path for a virtio-block device's backing file
+    PathOnHost {
+        /// The new host path for the backing file
+        path_on_host: String,
+    },
+    /// New socket path for a vhost-user-block device's backend
+    Socket {
+        /// The new path to the vhost-user-block backend socket
+        socket: String,
+    },
+}
+
 /// Stores the configuration that will be used for loading a snapshot.
 #[derive(Debug, PartialEq, Eq)]
 pub struct LoadSnapshotParams {
@@ -85,6 +112,8 @@ pub struct LoadSnapshotParams {
     /// advancing kvmclock by the wall-clock time elapsed since the snapshot was taken. When false
     /// (default), kvmclock resumes from where it was at snapshot time.
     pub clock_realtime: bool,
+    /// The block devices to override on load.
+    pub drive_overrides: Vec<DriveOverride>,
 }
 
 /// Stores the configuration for loading a snapshot that is provided by the user.
@@ -120,6 +149,9 @@ pub struct LoadSnapshotConfig {
     /// [x86_64 only] When set to true, passes `KVM_CLOCK_REALTIME` to `KVM_SET_CLOCK` on restore.
     #[serde(default)]
     pub clock_realtime: bool,
+    /// The block devices to override on load.
+    #[serde(default)]
+    pub drive_overrides: Vec<DriveOverride>,
 }
 
 /// Stores the configuration used for managing snapshot memory.
