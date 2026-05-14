@@ -10,41 +10,41 @@ use event_manager::{MutEventSubscriber, SubscriberOps};
 use serde::{Deserialize, Serialize};
 
 use super::persist::MmdsState;
+use crate::EventManager;
 use crate::device_manager::DevicePersistError;
 use crate::devices::pci::PciSegment;
-use crate::devices::virtio::balloon::persist::{BalloonConstructorArgs, BalloonState};
 use crate::devices::virtio::balloon::Balloon;
+use crate::devices::virtio::balloon::persist::{BalloonConstructorArgs, BalloonState};
 use crate::devices::virtio::block::device::Block;
 use crate::devices::virtio::block::persist::{BlockConstructorArgs, BlockState};
 use crate::devices::virtio::device::{VirtioDevice, VirtioDeviceId, VirtioDeviceType};
-use crate::devices::virtio::mem::persist::{VirtioMemConstructorArgs, VirtioMemState};
 use crate::devices::virtio::mem::VirtioMem;
-use crate::devices::virtio::net::persist::{NetConstructorArgs, NetState};
+use crate::devices::virtio::mem::persist::{VirtioMemConstructorArgs, VirtioMemState};
 use crate::devices::virtio::net::Net;
+use crate::devices::virtio::net::persist::{NetConstructorArgs, NetState};
 use crate::devices::virtio::pmem::device::Pmem;
 use crate::devices::virtio::pmem::persist::{PmemConstructorArgs, PmemState};
-use crate::devices::virtio::rng::persist::{EntropyConstructorArgs, EntropyState};
 use crate::devices::virtio::rng::Entropy;
+use crate::devices::virtio::rng::persist::{EntropyConstructorArgs, EntropyState};
 use crate::devices::virtio::transport::pci::device::{
-    VirtioPciDevice, VirtioPciDeviceError, VirtioPciDeviceState, CAPABILITY_BAR_SIZE,
+    CAPABILITY_BAR_SIZE, VirtioPciDevice, VirtioPciDeviceError, VirtioPciDeviceState,
 };
 use crate::devices::virtio::vsock::persist::{
     VsockConstructorArgs, VsockState, VsockUdsConstructorArgs,
 };
 use crate::devices::virtio::vsock::{Vsock, VsockUnixBackend};
 use crate::logger::{debug, warn};
-use crate::pci::bus::PciRootError;
 use crate::pci::PciSBDF;
+use crate::pci::bus::PciRootError;
 use crate::resources::VmResources;
 use crate::snapshot::Persist;
-use crate::vfio::{VfioContainer, VfioDeviceBundle, VfioError};
+use crate::vfio::{VfioContainer, VfioDeviceBundle, VfioError, deinit_vfio_device};
 use crate::vmm_config::memory_hotplug::MemoryHotplugConfig;
 use crate::vmm_config::vfio::VfioConfig;
 use crate::vstate::bus::BusError;
 use crate::vstate::interrupts::InterruptError;
 use crate::vstate::memory::GuestMemoryMmap;
 use crate::vstate::vm::KvmVm;
-use crate::EventManager;
 
 #[derive(Default)]
 pub struct PciDevices {
@@ -68,6 +68,8 @@ impl std::fmt::Debug for PciDevices {
 pub enum PciManagerError {
     /// Trying to add new device with id: {0}, but device with this id is already present
     AdddingDuplicatedDevice(String),
+    /// Device not found
+    DeviceNotFound,
     /// Resource allocation error: {0}
     ResourceAllocation(#[from] vm_allocator::Error),
     /// Bus error: {0}
@@ -247,6 +249,51 @@ impl PciDevices {
         self.vfio_devices.push(device);
 
         Ok(())
+    }
+
+    pub fn detach_vfio_device(&mut self, vm: &KvmVm, id: String) -> Result<(), PciManagerError> {
+        if self.pci_segment.is_none() {
+            return Ok(());
+        }
+        if self.vfio_container.is_none() {
+            // SAFETY: vfio devices cannot exist without vfio_container
+            assert!(self.vfio_devices.is_empty());
+            return Ok(());
+        }
+
+        let pci_segment = self.pci_segment.as_ref().unwrap();
+        let mut pci_bus = pci_segment.pci_bus.lock().expect("Poisoned lock");
+        let container = self.vfio_container.as_ref().unwrap();
+
+        let last_vfio_device = self.vfio_devices.len() == 1;
+
+        let mut idx = None;
+        for (i, device) in self.vfio_devices.iter().enumerate() {
+            let device = device.lock().unwrap();
+            if device.config.id == id {
+                idx = Some(i);
+                pci_bus.remove_device(device.sbdf.device());
+                deinit_vfio_device(container, vm, &device);
+                break;
+            }
+        }
+        if let Some(idx) = idx {
+            let device = self.vfio_devices.swap_remove(idx);
+            assert_eq!(Arc::strong_count(&device), 1);
+            // Drop device explicitly to have a guaranteed destroy order with the vfio_container
+            drop(device);
+
+            if last_vfio_device {
+                crate::vfio::dma_unmap_guest_memory(container, vm.guest_memory());
+
+                assert_eq!(Arc::strong_count(container), 1);
+                self.vfio_container = None;
+            }
+
+            Ok(())
+        } else {
+            Err(PciManagerError::DeviceNotFound)
+        }
     }
 
     fn restore_pci_device<T: 'static + VirtioDevice + MutEventSubscriber + Debug>(

@@ -373,6 +373,29 @@ paths:
           description: Internal server error.
           schema:
             $ref: "#/definitions/Error"
+    delete:
+      summary: Hot-unplugs a VFIO passthrough device. Runtime only.
+      description:
+        Removes a VFIO passthrough device with the specified ID from the guest.
+        Only valid after the microVM has booted.
+      operationId: deleteGuestVfioByID
+      parameters:
+        - name: id
+          in: path
+          description: The id of the VFIO passthrough device
+          required: true
+          type: string
+      responses:
+        204:
+          description: VFIO device is removed
+        400:
+          description: VFIO device cannot be removed due to bad input
+          schema:
+            $ref: "#/definitions/Error"
+        default:
+          description: Internal server error.
+          schema:
+            $ref: "#/definitions/Error"
 
   /pmem/{id}:
     put:

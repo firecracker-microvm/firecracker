@@ -1317,19 +1317,18 @@ pub fn init_vfio_device(
 
 /// Performs cleanup of all VFIO device resources allocated by `init_vfio_device`
 pub fn deinit_vfio_device(container: &Arc<VfioContainer>, vm: &KvmVm, device: &VfioDeviceBundle) {
-    device.device.reset();
-
     for hole in device.msix_state.bar_hole_infos.iter() {
         vm.common.mmio_bus.remove(hole.gpa, hole.size).unwrap();
     }
+    for mapping in device.bar_mappings.iter() {
+        unmap_bar_mapping(container, vm, mapping);
+    }
+
+    device.device.reset();
 
     let mut resource_allocator_lock = vm.resource_allocator();
     let resource_allocator = resource_allocator_lock.deref_mut();
     deallocate_bars(resource_allocator, &device.bars);
-
-    for mapping in device.bar_mappings.iter() {
-        unmap_bar_mapping(container, vm, mapping);
-    }
 }
 
 #[cfg(test)]

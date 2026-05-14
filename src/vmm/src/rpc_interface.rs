@@ -156,6 +156,8 @@ pub enum VmmAction {
     UpdateMachineConfiguration(MachineConfigUpdate),
     /// Hot-unplug a device.
     HotUnplugDevice(VirtioDeviceId),
+    /// Hot-unplug a VFIO device.
+    HotUnplugVfioDevice(String),
 }
 
 /// Wrapper for all errors associated with VMM actions.
@@ -524,6 +526,7 @@ impl<'a> PrebootApiController<'a> {
             | GetFreePageHintingStatus
             | StopFreePageHinting
             | HotUnplugDevice(_) => Err(VmmActionError::OperationNotSupportedPreBoot),
+            HotUnplugVfioDevice(_) => Err(VmmActionError::OperationNotSupportedPreBoot),
             #[cfg(target_arch = "x86_64")]
             SendCtrlAltDel => Err(VmmActionError::OperationNotSupportedPreBoot),
         }
@@ -833,6 +836,12 @@ impl RuntimeApiController {
                 .lock()
                 .expect("Poisoned lock")
                 .hot_unplug_device(device_id, event_manager)
+                .map(|()| VmmData::Empty),
+            HotUnplugVfioDevice(id) => self
+                .vmm
+                .lock()
+                .expect("Poisoned lock")
+                .hot_unplug_vfio_device(id)
                 .map(|()| VmmData::Empty),
             Pause => self.pause(),
             PutMMDS(value) => mmds_put_data(
