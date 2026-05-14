@@ -1046,6 +1046,10 @@
                 "comment": "Needed for recreating the MSI-X vector eventfds when a PCI device is reset by the guest (MsixVectorGroup recreated from the vCPU thread)"
             },
             {
+                "syscall": "io_uring_enter",
+                "comment": "Needed to drain the async block IO engine's io_uring when the device is reset by the guest (from the vCPU thread)"
+            },
+            {
                 "syscall": "fstat",
                 "comment": "Used for reading the local timezone from /etc/localtime"
             },
