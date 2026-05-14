@@ -141,12 +141,14 @@ function build_al_kernel {
     arch=$(uname -m)
     if [ "$arch" = "x86_64" ]; then
         format="elf"
-        target="vmlinux"
-        binary_path="$target"
+        target="vmlinux bzImage"
+        binary_path="vmlinux"
+        bzimage_path="arch/x86/boot/bzImage"
     elif [ "$arch" = "aarch64" ]; then
         format="pe"
         target="Image"
         binary_path="arch/arm64/boot/$target"
+        bzimage_path=""
     else
         echo "FATAL: Unsupported architecture!"
         exit 1
@@ -164,6 +166,9 @@ function build_al_kernel {
     OUTPUT_FILE=$OUTPUT_DIR/vmlinux-$normalized_version$flavour
     cp -v $binary_path $OUTPUT_FILE
     cp -v .config $OUTPUT_FILE.config
+    if [ -n "$bzimage_path" ]; then
+        cp -v $bzimage_path $OUTPUT_DIR/bzImage-$normalized_version$flavour
+    fi
 
     # Undo any patches previously applied, so that we can build the same kernel with different
     # configs, e.g. no-acpi
