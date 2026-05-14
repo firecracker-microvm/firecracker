@@ -232,3 +232,35 @@ def test_rng_bw_rate_limiter(uvm_any):
     # Check the rate limiter using a request size equal to the size
     # of the token bucket.
     _check_entropy_rate_limited(vm.ssh, size, expected_kbps)
+
+
+def test_device_reset(uvm):
+    """
+    Test that virtio-rng device reset works.
+    """
+    vm = uvm
+    vm.spawn()
+    vm.basic_config()
+    vm.add_net_iface()
+    vm.api.entropy.put()
+    vm.start()
+
+    # Verify the rng device works.
+    vm.ssh.check_output("dd if=/dev/hwrng of=/dev/null bs=32 count=1")
+
+    # Find the virtio rng device.
+    virtio_dev = vm.ssh.check_output(
+        "ls -d /sys/bus/virtio/drivers/virtio_rng/virtio* | xargs -n1 basename"
+    ).stdout.strip()
+
+    vm.ssh.check_output(
+        f"echo {virtio_dev} > /sys/bus/virtio/drivers/virtio_rng/unbind"
+    )
+
+    # Verify the rng device is gone.
+    ret = vm.ssh.run("ls /sys/bus/virtio/drivers/virtio_rng/virtio*")
+    assert ret.returncode != 0
+
+    # Rebind and verify it works again.
+    vm.ssh.check_output(f"echo {virtio_dev} > /sys/bus/virtio/drivers/virtio_rng/bind")
+    vm.ssh.check_output("dd if=/dev/hwrng of=/dev/null bs=32 count=1")
