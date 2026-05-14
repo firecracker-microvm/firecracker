@@ -539,18 +539,52 @@ mod tests {
 
     #[test]
     fn test_next_device_bdf() {
+        use crate::pci::configuration::PciConfiguration;
+        use crate::pci::{PciClassCode, PciDevice, PciMassStorageSubclass};
+
+        struct PciDevMock(PciConfiguration);
+        impl PciDevice for PciDevMock {
+            fn write_config_register(
+                &mut self,
+                reg_idx: u16,
+                offset: u8,
+                data: &[u8],
+            ) -> Option<Arc<std::sync::Barrier>> {
+                self.0.write_config_register(reg_idx, offset, data);
+                None
+            }
+            fn read_config_register(&mut self, reg_idx: u16) -> u32 {
+                self.0.read_reg(reg_idx)
+            }
+        }
+        fn mock_dev() -> Arc<Mutex<dyn PciDevice>> {
+            Arc::new(Mutex::new(PciDevMock(PciConfiguration::new_type0(
+                0x42,
+                0x0,
+                0x0,
+                PciClassCode::MassStorageController,
+                PciMassStorageSubclass::SerialScsiController as u8,
+                0x13,
+                0x12,
+            ))))
+        }
+
         let vmm = default_vmm();
         let kvm_vm = vmm.vm.as_kvm().unwrap().clone();
         let pci_irq_slots = &[0u8; 32];
         let pci_segment = PciSegment::new(0, &kvm_vm, pci_irq_slots).unwrap();
 
         // Start checking from device id 1, since 0 is allocated to the Root port.
+        // `next_device_sbdf` only inspects the bus, so the caller must `add_device`
+        // before requesting the next id.
         for dev_id in 1..32 {
             let sbdf = pci_segment.next_device_sbdf().unwrap();
             // In our case we have a single Segment with id 0, which has
             // a single bus with id 0. Also, each device of ours has a
             // single function.
             assert_eq!(sbdf, PciSBDF::new(0, 0, dev_id, 0));
+            let mut segment = pci_segment.pci_bus.lock().unwrap();
+            segment.add_device(dev_id, mock_dev()).unwrap();
         }
 
         // We can only have 32 devices on a segment
