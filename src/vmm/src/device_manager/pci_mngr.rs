@@ -38,7 +38,7 @@ use crate::pci::PciSBDF;
 use crate::pci::bus::PciRootError;
 use crate::resources::VmResources;
 use crate::snapshot::Persist;
-use crate::vfio::{VfioContainer, VfioDeviceBundle, VfioError};
+use crate::vfio::{VfioContainer, VfioDeviceBundle, VfioError, deinit_vfio_device};
 use crate::vmm_config::memory_hotplug::MemoryHotplugConfig;
 use crate::vmm_config::vfio::VfioConfig;
 use crate::vstate::bus::BusError;
@@ -66,6 +66,8 @@ impl std::fmt::Debug for PciDevices {
 
 #[derive(Debug, thiserror::Error, displaydoc::Display)]
 pub enum PciManagerError {
+    /// Device not found
+    DeviceNotFound,
     /// Resource allocation error: {0}
     ResourceAllocation(#[from] vm_allocator::Error),
     /// Bus error: {0}
@@ -223,6 +225,43 @@ impl PciDevices {
         self.vfio_devices.push(vfio_device_bundle);
 
         Ok(())
+    }
+
+    pub fn detach_vfio_device(&mut self, vm: &KvmVm, id: String) -> Result<(), PciManagerError> {
+        let pci_segment = self.pci_segment.as_ref().unwrap();
+        let container = self.vfio_container.as_ref().unwrap();
+
+        let last_vfio_device = self.vfio_devices.len() == 1;
+
+        let mut idx = None;
+        for (i, device) in self.vfio_devices.iter().enumerate() {
+            let device = device.lock().unwrap();
+            if device.config.id == id {
+                idx = Some(i);
+                deinit_vfio_device(container, vm, &device, last_vfio_device);
+
+                pci_segment
+                    .pci_bus
+                    .lock()
+                    .expect("Poisoned lock")
+                    .remove_device(device.sbdf.device());
+            }
+        }
+        if let Some(idx) = idx {
+            let device = self.vfio_devices.swap_remove(idx);
+            assert_eq!(Arc::strong_count(&device), 1);
+            // Drop device explicitly to have a guaranteed destroy order with the vfio_container
+            drop(device);
+
+            if last_vfio_device {
+                assert_eq!(Arc::strong_count(container), 1);
+                self.vfio_container = None;
+            }
+
+            Ok(())
+        } else {
+            Err(PciManagerError::DeviceNotFound)
+        }
     }
 
     fn restore_pci_device<T: 'static + VirtioDevice + MutEventSubscriber + Debug>(

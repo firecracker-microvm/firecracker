@@ -737,7 +737,7 @@ impl Vmm {
             .vm
             .as_kvm()
             .ok_or_else(|| VmmActionError::NotSupported("Operation requires KVM".to_string()))?;
-        self.device_manager.hotplug_device_vfio(&kvm_vm, config)
+        self.device_manager.hotplug_device_vfio(kvm_vm, config)
     }
 
     /// Detaches a device after VM start
@@ -755,6 +755,16 @@ impl Vmm {
             .clone();
         self.device_manager
             .hot_unplug_device(kvm_vm, device_id, event_manager)
+    }
+
+    /// Detaches a device after VM start
+    #[inline]
+    pub fn hot_unplug_vfio_device(&mut self, id: String) -> Result<(), VmmActionError> {
+        let kvm_vm = self
+            .vm
+            .as_kvm()
+            .ok_or_else(|| VmmActionError::NotSupported("Operation requires KVM".to_string()))?;
+        self.device_manager.hot_unplug_vfio_device(kvm_vm, id)
     }
 }
 
