@@ -423,21 +423,43 @@ pub fn create_boot_msr_entries() -> Vec<kvm_msr_entry> {
     ]
 }
 
+/// Insert or update an MSR entry in `msrs`, mirroring `BTreeMap::insert` semantics: when an entry
+/// with the given index already exists its `data` is overwritten, otherwise a new entry is pushed.
+///
+/// # Errors
+///
+/// Propagates [`vmm_sys_util::fam::Error`] from [`Msrs::push`] when the FAM struct is at capacity.
+pub fn msrs_insert(msrs: &mut Msrs, index: u32, data: u64) {
+    if let Some(entry) = msrs
+        .as_mut_slice()
+        .iter_mut()
+        .find(|entry| entry.index == index)
+    {
+        entry.data = data;
+    } else {
+        msrs.push(kvm_msr_entry {
+            index,
+            data,
+            ..Default::default()
+        })
+        .expect("MSRS entry count exceeded KVM_MAX_MSR_ENTRIES");
+    }
+}
+
 /// Configure Model Specific Registers (MSRs) required to boot Linux for a given x86_64 vCPU.
 ///
 /// # Arguments
 ///
 /// * `vcpu` - Structure for the VCPU that holds the VCPU's fd.
+/// * `msrs` - The MSRs to write to KVM.
 ///
 /// # Errors
 ///
 /// When:
-/// - Failed to create [`vmm_sys_util::fam::FamStructWrapper`] for MSRs.
 /// - [`kvm_ioctls::ioctls::vcpu::VcpuFd::set_msrs`] errors.
 /// - [`kvm_ioctls::ioctls::vcpu::VcpuFd::set_msrs`] fails to write all given MSRs entries.
-pub fn set_msrs(vcpu: &VcpuFd, msr_entries: &[kvm_msr_entry]) -> Result<(), MsrError> {
-    let msrs = Msrs::from_entries(msr_entries)?;
-    vcpu.set_msrs(&msrs)
+pub fn set_msrs(vcpu: &VcpuFd, msrs: &Msrs) -> Result<(), MsrError> {
+    vcpu.set_msrs(msrs)
         .map_err(MsrError::SetMsrs)
         .and_then(|msrs_written| {
             if msrs_written == msrs.as_fam_struct_ref().nmsrs as usize {
@@ -484,7 +506,8 @@ mod tests {
     fn test_setup_msrs() {
         let vcpu = create_vcpu();
         let msr_boot_entries = create_boot_msr_entries();
-        set_msrs(&vcpu, &msr_boot_entries).unwrap();
+        let msrs = Msrs::from_entries(&msr_boot_entries).unwrap();
+        set_msrs(&vcpu, &msrs).unwrap();
 
         // This test will check against the last MSR entry configured (the tenth one).
         // See create_msr_entries() for details.
@@ -512,12 +535,31 @@ mod tests {
         // Test `set_msrs()` with a valid MSR entry. It should succeed, as IA32_TSC MSR is listed
         // in supported MSRs as of now.
         let vcpu = create_vcpu();
-        let msr_entries = vec![kvm_msr_entry {
+        let msrs = Msrs::from_entries(&[kvm_msr_entry {
             index: MSR_IA32_TSC,
             data: 0,
             ..Default::default()
-        }];
-        set_msrs(&vcpu, &msr_entries).unwrap();
+        }])
+        .unwrap();
+        set_msrs(&vcpu, &msrs).unwrap();
+    }
+
+    #[test]
+    fn test_msrs_insert_overwrites_and_pushes() {
+        let mut msrs = Msrs::new(0).unwrap();
+
+        msrs_insert(&mut msrs, 0x10, 0xaa);
+        msrs_insert(&mut msrs, 0x20, 0xbb);
+        assert_eq!(msrs.as_slice().len(), 2);
+        assert_eq!(msrs.as_slice()[0].data, 0xaa);
+        assert_eq!(msrs.as_slice()[1].data, 0xbb);
+
+        msrs_insert(&mut msrs, 0x10, 0xcc);
+        assert_eq!(msrs.as_slice().len(), 2);
+        assert_eq!(msrs.as_slice()[0].index, 0x10);
+        assert_eq!(msrs.as_slice()[0].data, 0xcc);
+        assert_eq!(msrs.as_slice()[1].index, 0x20);
+        assert_eq!(msrs.as_slice()[1].data, 0xbb);
     }
 
     #[test]
@@ -526,12 +568,13 @@ mod tests {
         // listed in supported MSRs as of now. If hardware vendor adds this MSR index and KVM
         // supports this MSR, we need to change the index as needed.
         let vcpu = create_vcpu();
-        let msr_entries = vec![kvm_msr_entry {
+        let msrs = Msrs::from_entries(&[kvm_msr_entry {
             index: 2,
             ..Default::default()
-        }];
+        }])
+        .unwrap();
         assert_eq!(
-            set_msrs(&vcpu, &msr_entries).unwrap_err(),
+            set_msrs(&vcpu, &msrs).unwrap_err(),
             MsrError::SetMsrsIncomplete
         );
     }
