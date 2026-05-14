@@ -1677,7 +1677,7 @@ mod tests {
     }
 
     #[test]
-    fn test_failed_reset_blocks_reinitialization() {
+    fn test_reset_and_reinitialization() {
         let mut vmm = create_vmm_with_virtio_pci_device();
         let device = get_virtio_device(&vmm);
         let mut locked = device.lock().unwrap();
@@ -1693,40 +1693,20 @@ mod tests {
         assert!(locked.device_activated.load(Ordering::SeqCst));
 
         // Write 0 to device_status to request a reset.
-        // Entropy's reset() returns None (unimplemented), so the reset fails.
         write_driver_status(&mut locked, 0);
         assert_eq!(read_driver_status(&mut locked), 0);
-        // device_activated stays true because the backend was not actually reset.
-        assert!(locked.device_activated.load(Ordering::SeqCst));
+        // Device should be deactivated after successful reset.
+        assert!(!locked.device_activated.load(Ordering::SeqCst));
 
-        // Attempt to re-initialize should be rejected because device_activated is
-        // still true while driver_status is INIT.
+        // Re-initialization should succeed after a successful reset.
         write_driver_status(&mut locked, ACKNOWLEDGE);
-        assert_eq!(read_driver_status(&mut locked), 0);
-
-        // Save state and restore into a new device -- the combination of
-        // device_activated == true and driver_status == INIT is preserved in the
-        // snapshot, so the blocking behavior survives restore.
-        let saved_state = locked.state();
-        drop(locked);
-
-        // Fully drop the original device before constructing the restored copy: the restored
-        // copy reuses the same MSI-X GSIs, so the two `MsixVectorGroup` instances must never
-        // exist concurrently. This is how it will happen in real scenario anyway.
-        let kvm_vm = vmm.vm.as_kvm().unwrap().clone();
-        let saved_allocator = kvm_vm.resource_allocator().clone();
-        drop(device);
-        drop(vmm);
-        // Restore the allocator state so the restored group's GSIs are marked allocated and
-        // its `MsixVectorGroup::drop` will succeed when the test ends.
-        *kvm_vm.resource_allocator() = saved_allocator;
-
-        let new_entropy = Arc::new(Mutex::new(Entropy::new(RateLimiter::default()).unwrap()));
-        let restored =
-            VirtioPciDevice::new_from_state("rng".to_string(), &kvm_vm, new_entropy, saved_state)
-                .unwrap();
-
-        assert!(restored.device_activated.load(Ordering::SeqCst));
-        assert_eq!(restored.common_config.driver_status, 0);
+        assert_eq!(read_driver_status(&mut locked), ACKNOWLEDGE);
+        write_driver_status(&mut locked, ACKNOWLEDGE | DRIVER);
+        let features = read_device_features(&mut locked);
+        write_driver_features(&mut locked, features);
+        write_driver_status(&mut locked, ACKNOWLEDGE | DRIVER | FEATURES_OK);
+        setup_queues(&mut locked);
+        write_driver_status(&mut locked, ACKNOWLEDGE | DRIVER | FEATURES_OK | DRIVER_OK);
+        assert!(locked.device_activated.load(Ordering::SeqCst));
     }
 }
