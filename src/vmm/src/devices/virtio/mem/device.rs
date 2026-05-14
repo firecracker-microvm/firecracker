@@ -654,7 +654,14 @@ impl VirtioDevice for VirtioMem {
     }
 
     fn _reset(&mut self) -> bool {
-        false
+        // Virtio spec, section 5.15.5.2:
+        // The device MUST NOT change the state of memory blocks during device
+        // reset. The device MUST NOT modify memory or memory properties of
+        // plugged memory blocks during device reset.
+        //
+        // Note: the Linux virtio-mem driver does not support rebinding when
+        // memory is plugged
+        true
     }
 
     fn activate(
