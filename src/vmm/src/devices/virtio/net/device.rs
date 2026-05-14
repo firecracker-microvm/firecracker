@@ -522,7 +522,7 @@ impl Net {
         //    does not filter IPv4 packets. Operators deploying Firecracker
         //    based services should implement host-level firewall rules to
         //    restrict guest egress traffic.
-        // 3. Preventing this TOCTOU by copying packets to to a host buffer
+        // 3. Preventing this TOCTOU by copying packets to a host buffer
         //    before routing decisions would significantly reduce guest-to-host
         //    TCP throughput, which is not justifiable given the mitigations
         //    available at host-level.
