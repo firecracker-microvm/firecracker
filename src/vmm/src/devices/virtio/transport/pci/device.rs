@@ -652,6 +652,68 @@ impl VirtioPciDevice {
         self.set_notification_ioevents(vm, false)
     }
 
+    /// Tear down the MSI-X configuration. Used on device reset.
+    fn reset_msix(&mut self) {
+        let (num_vectors, vm) = {
+            let msix_config = self.msix_config.lock().expect("Poisoned lock");
+            (
+                msix_config.vectors.num_vectors(),
+                msix_config.vectors.vm.clone(),
+            )
+        };
+
+        // Build a fresh MSI-X vector group and configuration.
+        let msix_vectors = match KvmVm::create_msix_group(vm.clone(), num_vectors) {
+            Ok(vectors) => Arc::new(vectors),
+            Err(err) => {
+                error!("Failed to recreate MSI-X vector group on reset: {err:?}");
+                return;
+            }
+        };
+
+        self.common_config
+            .msix_config
+            .store(VIRTQ_MSI_NO_VECTOR, Ordering::Release);
+        for vector in self
+            .common_config
+            .msix_queues
+            .lock()
+            .expect("Poisoned lock")
+            .iter_mut()
+        {
+            *vector = VIRTQ_MSI_NO_VECTOR;
+        }
+
+        let msix_config = Arc::new(Mutex::new(MsixConfig::new(msix_vectors.clone(), self.sbdf)));
+        let interrupt = Arc::new(VirtioInterruptMsix::new(
+            msix_config.clone(),
+            self.common_config.msix_config.clone(),
+            self.common_config.msix_queues.clone(),
+            msix_vectors,
+        ));
+
+        // Dropping the previous virtio_interrupt and msix_config releases the
+        // last references to the old MsixVectorGroup, whose Drop unregisters
+        // the irqfds, removes the GSI routes from the routing table and frees
+        // the GSIs.
+        self.virtio_interrupt = Some(interrupt);
+        self.msix_config = msix_config;
+
+        // Flush the updated routing table
+        if let Err(err) = vm.set_gsi_routes() {
+            error!("Failed to update GSI routes after MSI-X reset: {err:?}");
+        }
+
+        // Clear the MSI-X Enable and Function Mask bits in the guest-visible
+        // PCI capability so config-space reads stay consistent with the
+        // freshly-reset MsixConfig.
+        let reg_idx = self.msix_config_cap_offset / 4;
+        let msg_ctl = (self.configuration.read_reg(reg_idx) >> 16) as u16;
+        let msg_ctl = msg_ctl & !((1 << 15) | (1 << 14)); // clear Enable + Function Mask
+        self.configuration
+            .write_config_register(reg_idx, 2, &msg_ctl.to_le_bytes());
+    }
+
     pub fn state(&self) -> VirtioPciDeviceState {
         VirtioPciDeviceState {
             sbdf: self.sbdf,
@@ -973,9 +1035,8 @@ impl PciDevice for VirtioPciDevice {
 
         // Device has been reset by the driver
         if self.device_activated.load(Ordering::SeqCst) && self.is_driver_init() {
-            let mut device = self.device.lock().unwrap();
-            if device.reset() {
-                self.virtio_interrupt = None;
+            let reset_succeeded = self.device.lock().unwrap().reset();
+            if reset_succeeded {
                 self.device_activated.store(false, Ordering::SeqCst);
 
                 // Reset queue readiness (changes queue_enable), queue sizes
@@ -984,6 +1045,8 @@ impl PciDevice for VirtioPciDevice {
                 self.common_config.queue_select = 0;
                 self.common_config.device_feature_select = 0;
                 self.common_config.driver_feature_select = 0;
+
+                self.reset_msix();
             } else {
                 error!("Attempt to reset device when not implemented in underlying device");
                 // The virtio spec does not specify what to do if reset fails.
