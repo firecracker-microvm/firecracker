@@ -131,6 +131,8 @@ class SSHConnection:
             "KexAlgorithms=ecdh-sha2-nistp521",
             "-o",
             "HostKeyAlgorithms=rsa-sha2-512",
+            "-o",
+            "PubkeyAcceptedAlgorithms=rsa-sha2-512",
             "-c",
             "aes256-ctr",
             *self.options,
