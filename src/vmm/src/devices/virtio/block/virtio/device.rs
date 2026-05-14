@@ -680,7 +680,8 @@ impl VirtioDevice for VirtioBlock {
     }
 
     fn _reset(&mut self) -> bool {
-        false
+        self.is_io_engine_throttled = false;
+        true
     }
 }
 
