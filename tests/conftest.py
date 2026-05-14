@@ -19,6 +19,7 @@ designed with the following goals in mind:
   https://docs.pytest.org/en/7.2.x/explanation/fixtures.html
 """
 
+import ctypes
 import inspect
 import json
 import os
@@ -51,6 +52,16 @@ if sys.version_info < (3, 10):
 # Some tests create system-level resources; ensure we run as root.
 if os.geteuid() != 0:
     raise PermissionError("Test session needs to be run as root.")
+
+
+# Become a child subreaper so that orphaned descendants (Firecracker, after
+# its jailer parent exits) reparent to us instead of init. This lets us
+# waitpid() on the firecracker PID directly, avoiding the pidfd notification
+# race for multi-threaded processes on kernels older than 6.15.
+_PR_SET_CHILD_SUBREAPER = 36
+_libc = ctypes.CDLL("libc.so.6", use_errno=True)
+if _libc.prctl(_PR_SET_CHILD_SUBREAPER, 1, 0, 0, 0) != 0:
+    raise OSError(ctypes.get_errno(), "prctl(PR_SET_CHILD_SUBREAPER) failed")
 
 
 METRICS = get_metrics_logger()
