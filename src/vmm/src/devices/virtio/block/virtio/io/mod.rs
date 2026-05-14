@@ -157,6 +157,13 @@ impl FileEngine {
         }
     }
 
+    pub fn reset(&mut self) -> Result<(), BlockIoError> {
+        match self {
+            FileEngine::Async(engine) => engine.drain(true).map_err(BlockIoError::Async),
+            FileEngine::Sync(_) => Ok(()),
+        }
+    }
+
     pub fn drain(&mut self, discard: bool) -> Result<(), BlockIoError> {
         match self {
             FileEngine::Async(engine) => engine.drain(discard).map_err(BlockIoError::Async),
