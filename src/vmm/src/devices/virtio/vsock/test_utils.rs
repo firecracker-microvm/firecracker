@@ -106,6 +106,8 @@ impl VsockBackend for TestBackend {
     fn activate(&mut self) -> Result<(), VsockError> {
         Ok(())
     }
+
+    fn reset(&mut self) {}
 }
 
 #[derive(Debug)]

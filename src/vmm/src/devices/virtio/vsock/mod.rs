@@ -186,4 +186,8 @@ pub trait VsockChannel {
 pub trait VsockBackend: VsockChannel + VsockEpollListener + Send {
     /// Activate the backend, adding its listeners to the poll set.
     fn activate(&mut self) -> Result<(), VsockError>;
+
+    /// Reset the backend, dropping all active connections and removing its listeners
+    /// from the poll set.
+    fn reset(&mut self);
 }

@@ -307,6 +307,24 @@ impl VsockBackend for VsockMuxer {
         self.add_listener(self.host_sock.as_raw_fd(), EpollListener::HostSock)
             .map_err(VsockError::VsockUdsBackend)
     }
+
+    fn reset(&mut self) {
+        // Remove all connections and their epoll listeners.
+        let keys: Vec<ConnMapKey> = self.conn_map.keys().copied().collect();
+        for key in keys {
+            self.remove_connection(key);
+        }
+
+        let fds: Vec<RawFd> = self.listener_map.keys().copied().collect();
+        for fd in fds {
+            self.remove_listener(fd);
+        }
+
+        self.rxq = MuxerRxQ::new();
+        self.killq = MuxerKillQ::new();
+        self.local_port_set.clear();
+        self.local_port_last = (1u32 << 30) - 1;
+    }
 }
 
 impl VsockMuxer {
