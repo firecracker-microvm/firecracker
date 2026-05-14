@@ -115,6 +115,8 @@ pub mod vstate;
 
 /// Module with initrd.
 pub mod initrd;
+/// Inline UFFD block backend for on-demand page fault handling.
+pub mod uffd_block;
 
 use std::collections::HashMap;
 use std::io;
