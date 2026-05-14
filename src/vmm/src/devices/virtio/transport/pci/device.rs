@@ -967,12 +967,7 @@ impl PciDevice for VirtioPciDevice {
 
                 // Reset queue readiness (changes queue_enable), queue sizes
                 // and selected_queue as per spec for reset
-                self.virtio_device()
-                    .lock()
-                    .unwrap()
-                    .queues_mut()
-                    .iter_mut()
-                    .for_each(Queue::reset);
+                device.queues_mut().iter_mut().for_each(Queue::reset);
                 self.common_config.queue_select = 0;
             } else {
                 error!("Attempt to reset device when not implemented in underlying device");
