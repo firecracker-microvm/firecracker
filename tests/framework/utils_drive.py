@@ -5,11 +5,12 @@
 
 import os
 import subprocess
-import time
 from abc import ABC, abstractmethod
 from enum import Enum
 from pathlib import Path
 from subprocess import check_output
+
+from tenacity import retry, stop_after_attempt, wait_fixed
 
 from framework import utils
 
@@ -81,17 +82,19 @@ class VhostUserBlkBackend(ABC):
         args = self._spawn_cmd()
         proc = subprocess.Popen(args)
 
-        # Give the backend time to initialise.
-        time.sleep(1)
-
         assert proc is not None and proc.poll() is None, "backend is not up"
-        assert self.socket_path.exists()
+        self._wait_for_socket()
 
         os.chown(self.socket_path, uid, gid)
 
         self.proc = proc
 
         return str(Path("/") / os.path.basename(self.socket_path))
+
+    @retry(wait=wait_fixed(0.1), stop=stop_after_attempt(50), reraise=True)
+    def _wait_for_socket(self):
+        """Wait for the backend socket to appear (up to 5s)."""
+        assert self.socket_path.exists(), f"socket {self.socket_path} not ready"
 
     @abstractmethod
     def _spawn_cmd(self):
