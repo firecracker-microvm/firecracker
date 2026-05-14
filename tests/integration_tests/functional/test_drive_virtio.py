@@ -386,3 +386,38 @@ def _check_mount(ssh_connection, dev_path):
     assert stderr == ""
     _, _, stderr = ssh_connection.run("umount /tmp", timeout=30.0)
     assert stderr == ""
+
+
+def test_device_reset(uvm):
+    """
+    Test that virtio-block device reset works.
+    """
+    vm = uvm
+    vm.spawn()
+    vm.basic_config()
+    vm.add_net_iface()
+
+    fs = drive_tools.FilesystemFile(os.path.join(vm.fsfiles, "scratch"), size=2)
+    vm.add_drive("scratch", fs.path)
+    vm.start()
+
+    # Verify the scratch drive is accessible.
+    vm.ssh.check_output("mount /dev/vdb /tmp && umount /tmp")
+
+    # Find the virtio device backing vdb and unbind it.
+    virtio_dev = vm.ssh.check_output(
+        "basename $(readlink /sys/block/vdb/device)"
+    ).stdout.strip()
+
+    vm.ssh.check_output(
+        f"echo {virtio_dev} > /sys/bus/virtio/drivers/virtio_blk/unbind"
+    )
+
+    # Verify the drive is gone.
+    ret = vm.ssh.run("ls /dev/vdb")
+    assert ret.returncode != 0
+
+    # Rebind and verify the drive is back.
+    vm.ssh.check_output(f"echo {virtio_dev} > /sys/bus/virtio/drivers/virtio_blk/bind")
+    vm.ssh.check_output("ls /dev/vdb")
+    vm.ssh.check_output("mount /dev/vdb /tmp && umount /tmp")
