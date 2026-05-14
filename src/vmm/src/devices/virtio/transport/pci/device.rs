@@ -982,6 +982,8 @@ impl PciDevice for VirtioPciDevice {
                 // and selected_queue as per spec for reset
                 device.queues_mut().iter_mut().for_each(Queue::reset);
                 self.common_config.queue_select = 0;
+                self.common_config.device_feature_select = 0;
+                self.common_config.driver_feature_select = 0;
             } else {
                 error!("Attempt to reset device when not implemented in underlying device");
                 // The virtio spec does not specify what to do if reset fails.
