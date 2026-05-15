@@ -90,6 +90,10 @@ and this project adheres to
 - [#5818](https://github.com/firecracker-microvm/firecracker/pull/5818): Reject
   device status writes that clear previously set bits in the MMIO transport,
   except for reset.
+- [#5884](https://github.com/firecracker-microvm/firecracker/pull/5884):
+  Corrected the OpenAPI spec for `PATCH /balloon/hinting/start` and
+  `PATCH /balloon/hinting/stop` to declare `204 No Content` instead of `200`,
+  matching the actual runtime response.
 
 ## [1.15.0]
 

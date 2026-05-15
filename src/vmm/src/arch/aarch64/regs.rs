@@ -127,7 +127,7 @@ pub const KVM_REG_ARM64_SVE_VLS: u64 =
     KVM_REG_ARM64 | KVM_REG_ARM64_SVE as u64 | KVM_REG_SIZE_U512 | 0xffff;
 
 /// Program Counter
-/// The offset value (0x100 = 32 * 8) is calcuated as follows:
+/// The offset value (0x100 = 32 * 8) is calculated as follows:
 /// - `kvm_regs` includes `regs` field of type `user_pt_regs` at the beginning (i.e., at offset 0).
 /// - `pc` follows `regs[31]` and `sp` within `user_pt_regs` and they are 8 bytes each (i.e. the
 ///   offset is (31 + 1) * 8 = 256).
@@ -196,7 +196,7 @@ impl From<usize> for RegSize {
             RegSize::U512_SIZE => RegSize::U512,
             RegSize::U1024_SIZE => RegSize::U1024,
             RegSize::U2048_SIZE => RegSize::U2048,
-            _ => unreachable!("Registers bigger then 2048 bits are not supported"),
+            _ => unreachable!("Registers bigger than 2048 bits are not supported"),
         }
     }
 }

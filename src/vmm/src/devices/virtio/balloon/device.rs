@@ -92,7 +92,7 @@ fn default_ack_on_stop() -> bool {
     true
 }
 
-/// Command recieved from the API to start a hinting run
+/// Command received from the API to start a hinting run
 #[derive(Copy, Clone, Debug, Eq, PartialEq, Deserialize)]
 pub struct StartHintingCmd {
     /// If we should automatically acknowledge end of the run after stop.
