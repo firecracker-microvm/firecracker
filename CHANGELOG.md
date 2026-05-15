@@ -16,6 +16,8 @@ and this project adheres to
   rescan the PCI bus after hotplug and remove the device before unplug since no
   automatic notification mechanism is implemented yet. More information can be
   found in the [Device Hotplugging](docs/device-hotplug.md) documentation page.
+- [#5891](https://github.com/firecracker-microvm/firecracker/pull/5891): Added
+  support for virtio device reset.
 - [#5323](https://github.com/firecracker-microvm/firecracker/pull/5323): Add
   support for Vsock Unix domain socket path overriding on snapshot restore. More
   information can be found in the
