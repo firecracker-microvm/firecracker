@@ -383,6 +383,10 @@ where
     fn deactivate(&mut self) {
         self.device_state = DeviceState::Inactive;
     }
+
+    fn _reset(&mut self) -> bool {
+        false
+    }
 }
 
 #[cfg(test)]

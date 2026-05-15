@@ -214,6 +214,13 @@ impl VirtioDevice for Block {
         }
     }
 
+    fn _reset(&mut self) -> bool {
+        match self {
+            Self::Virtio(b) => b._reset(),
+            Self::VhostUser(b) => b._reset(),
+        }
+    }
+
     fn prepare_save(&mut self) {
         match self {
             Self::Virtio(b) => b.prepare_save(),

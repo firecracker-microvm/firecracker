@@ -589,6 +589,10 @@ pub(crate) mod tests {
         }
 
         fn deactivate(&mut self) {}
+
+        fn _reset(&mut self) -> bool {
+            false
+        }
     }
 
     #[test]
