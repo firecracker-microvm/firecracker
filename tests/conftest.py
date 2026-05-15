@@ -629,12 +629,13 @@ guest_kernel_6_1_debug = pytest.fixture(
     guest_kernel_fxt,
     params=kernel_params("vmlinux-6.1*", artifact_dir=defs.ARTIFACT_DIR / "debug"),
 )
+guest_kernel_default_debug = guest_kernel_6_1_debug
 
 
 @pytest.fixture
-def uvm_plain_debug(microvm_factory, guest_kernel_6_1_debug, rootfs_rw):
+def uvm_plain_debug(microvm_factory, guest_kernel_default_debug, rootfs_rw):
     """VM running a kernel with debug/trace Kconfig options"""
-    return microvm_factory.build(guest_kernel_6_1_debug, rootfs_rw)
+    return microvm_factory.build(guest_kernel_default_debug, rootfs_rw)
 
 
 @pytest.fixture
