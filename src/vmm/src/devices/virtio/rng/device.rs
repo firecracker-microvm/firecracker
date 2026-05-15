@@ -309,6 +309,10 @@ impl VirtioDevice for Entropy {
         self.device_state.is_activated()
     }
 
+    fn deactivate(&mut self) {
+        self.device_state = DeviceState::Inactive;
+    }
+
     fn activate(
         &mut self,
         mem: GuestMemoryMmap,
