@@ -653,6 +653,10 @@ impl VirtioDevice for VirtioMem {
         self.device_state = DeviceState::Inactive;
     }
 
+    fn _reset(&mut self) -> bool {
+        false
+    }
+
     fn activate(
         &mut self,
         mem: GuestMemoryMmap,
