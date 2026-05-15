@@ -218,7 +218,6 @@ where
 
         while let Some(head) = queue.pop()? {
             let index = head.index;
-            // let pkt = match VsockPacket::from_tx_virtq_head(mem, head) {
             match self.tx_packet.parse(mem, head) {
                 Ok(()) => (),
                 Err(err) => {
