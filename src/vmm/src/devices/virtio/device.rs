@@ -199,6 +199,9 @@ pub trait VirtioDevice: AsAny + MutEventSubscriber + Send {
 
     /// Reset the device. Returns true on success, false otherwise.
     fn reset(&mut self) -> bool {
+        for queue in self.queues_mut() {
+            *queue = Queue::new(queue.max_size);
+        }
         false
     }
 
