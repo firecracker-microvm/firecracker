@@ -568,8 +568,10 @@ fn allocate_pvtime_region(
 ) -> Result<GuestAddress, StartMicrovmError> {
     let size = STEALTIME_STRUCT_MEM_SIZE * vcpu_count as u64;
     let addr = resource_allocator
-        .allocate_system_memory(size, STEALTIME_STRUCT_MEM_SIZE, policy)
-        .map_err(StartMicrovmError::AllocateResources)?;
+        .system_memory
+        .allocate(size, STEALTIME_STRUCT_MEM_SIZE, policy)
+        .map_err(StartMicrovmError::AllocateResources)?
+        .start();
     Ok(GuestAddress(addr))
 }
 

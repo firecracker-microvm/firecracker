@@ -84,8 +84,10 @@ impl VmGenId {
             .map_err(VmGenIdError::AllocateGsi)?[0];
         // The generation ID needs to live in an 8-byte aligned buffer
         let addr = resource_allocator
-            .allocate_system_memory(VMGENID_MEM_SIZE, 8, vm_allocator::AllocPolicy::LastMatch)
-            .map_err(VmGenIdError::AllocateMemory)?;
+            .system_memory
+            .allocate(VMGENID_MEM_SIZE, 8, vm_allocator::AllocPolicy::LastMatch)
+            .map_err(VmGenIdError::AllocateMemory)?
+            .start();
 
         Self::from_parts(GuestAddress(addr), gsi)
     }

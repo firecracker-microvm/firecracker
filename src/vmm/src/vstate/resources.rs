@@ -108,27 +108,6 @@ impl ResourceAllocator {
     pub fn allocate_gsi_msi(&mut self, gsi_count: u32) -> Result<Vec<u32>, vm_allocator::Error> {
         allocate_many_ids(&mut self.gsi_msi_allocator, gsi_count)
     }
-
-    /// Allocate a memory range for system data
-    ///
-    /// If it succeeds, it returns the first address of the allocated range
-    ///
-    /// # Arguments
-    ///
-    /// * `size` - The size in bytes of the memory to allocate
-    /// * `alignment` - The alignment of the address of the first byte
-    /// * `policy` - A [`vm_allocator::AllocPolicy`] variant for determining the allocation policy
-    pub fn allocate_system_memory(
-        &mut self,
-        size: u64,
-        alignment: u64,
-        policy: AllocPolicy,
-    ) -> Result<u64, vm_allocator::Error> {
-        Ok(self
-            .system_memory
-            .allocate(size, alignment, policy)?
-            .start())
-    }
 }
 
 impl<'a> Persist<'a> for ResourceAllocator {
@@ -150,8 +129,6 @@ impl<'a> Persist<'a> for ResourceAllocator {
 
 #[cfg(test)]
 mod tests {
-    use vm_allocator::AllocPolicy;
-
     use super::ResourceAllocator;
     use crate::arch::{self, GSI_LEGACY_NUM, GSI_LEGACY_START, GSI_MSI_NUM, GSI_MSI_START};
     use crate::snapshot::Persist;
@@ -263,23 +240,11 @@ mod tests {
         assert_eq!(irq_1, GSI_LEGACY_START + 1);
         let gsi_1 = allocator1.allocate_gsi_msi(1).unwrap()[0];
         assert_eq!(gsi_1, GSI_MSI_START + 1);
-        let system_mem = allocator1
-            .allocate_system_memory(0x42, 1, AllocPolicy::FirstMatch)
-            .unwrap();
-        assert_eq!(system_mem, arch::SYSTEM_MEM_START);
 
         let mut allocator2 = clone_allocator(&allocator1);
-        allocator2
-            .allocate_system_memory(0x42, 1, AllocPolicy::ExactMatch(system_mem))
-            .unwrap_err();
-
         let irq_2 = allocator2.allocate_gsi_legacy(1).unwrap()[0];
         assert_eq!(irq_2, GSI_LEGACY_START + 2);
         let gsi_2 = allocator2.allocate_gsi_msi(1).unwrap()[0];
         assert_eq!(gsi_2, GSI_MSI_START + 2);
-        let system_mem = allocator1
-            .allocate_system_memory(0x42, 1, AllocPolicy::FirstMatch)
-            .unwrap();
-        assert_eq!(system_mem, arch::SYSTEM_MEM_START + 0x42);
     }
 }
