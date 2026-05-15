@@ -153,9 +153,6 @@ impl MmioTransport {
         // . Keep interrupt_evt and queue_evts as is. There may be pending notifications in those
         //   eventfds, but nothing will happen other than supurious wakeups.
         // . Do not reset config_generation and keep it monotonically increasing
-        for queue in self.locked_device().queues_mut() {
-            *queue = Queue::new(queue.max_size);
-        }
     }
 
     /// Update device status according to the state machine defined by VirtIO Spec 1.0.
