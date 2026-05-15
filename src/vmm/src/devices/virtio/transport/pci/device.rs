@@ -964,9 +964,6 @@ impl PciDevice for VirtioPciDevice {
             if device.reset() {
                 self.device_activated.store(false, Ordering::SeqCst);
 
-                // Reset queue readiness (changes queue_enable), queue sizes
-                // and selected_queue as per spec for reset
-                device.queues_mut().iter_mut().for_each(Queue::reset);
                 self.common_config.queue_select = 0;
                 self.common_config.device_feature_select = 0;
                 self.common_config.driver_feature_select = 0;
