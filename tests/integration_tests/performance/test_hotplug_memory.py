@@ -499,3 +499,29 @@ def test_memory_hotplug_latency(
         timed_memory_hotplug(uvm, 0, metrics, "hotunplug", "unplug_agg")
         timed_memory_hotplug(uvm, hotplug_size, metrics, "hotplug_2nd", "plug_agg")
         uvm.kill()
+
+
+def test_device_reset(uvm_plain):
+    """
+    Test that virtio-mem device reset works.
+
+    Note: the Linux virtio-mem driver does not support rebinding when memory is
+    plugged (the resource region can't be re-registered), so we reset without
+    any plugged memory and verify the device is functional afterwards.
+    """
+    config = {"total_size_mib": 1024, "slot_size_mib": 128, "block_size_mib": 2}
+    uvm = uvm_booted_memhp(uvm_plain, None, None, False, config, None, None, None)
+
+    # Reset the device via driver unbind/bind.
+    virtio_dev = uvm.ssh.check_output(
+        "ls -d /sys/bus/virtio/drivers/virtio_mem/virtio* | xargs -n1 basename"
+    ).stdout.strip()
+
+    uvm.ssh.check_output(
+        f"echo {virtio_dev} > /sys/bus/virtio/drivers/virtio_mem/unbind"
+    )
+    uvm.ssh.check_output(f"echo {virtio_dev} > /sys/bus/virtio/drivers/virtio_mem/bind")
+
+    # Verify the device is functional after reset by hotplugging memory.
+    # check_hotplug() asserts that guest mem_total reflects the new size.
+    check_hotplug(uvm, 256)
