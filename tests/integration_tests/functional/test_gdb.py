@@ -19,14 +19,13 @@ from framework.microvm import MicroVMFactory
     platform.machine() != "x86_64",
     reason="GDB requires a vmlinux but we ship a uImage for ARM in our CI",
 )
-def test_gdb_connects(guest_kernel_linux_6_1, rootfs):
+def test_gdb_connects(guest_kernel_6_1_debug, rootfs):
     """Checks that GDB works in a FC VM"""
 
     bin_dir = host_tools.cargo_build.build_gdb()
 
     vmfcty = MicroVMFactory(bin_dir)
-    kernel_dbg = guest_kernel_linux_6_1.parent / "debug" / guest_kernel_linux_6_1.name
-    uvm = vmfcty.build(kernel_dbg, rootfs)
+    uvm = vmfcty.build(guest_kernel_6_1_debug, rootfs)
     uvm.spawn(validate_api=False)
     uvm.add_net_iface()
     uvm.basic_config()
@@ -55,7 +54,7 @@ def test_gdb_connects(guest_kernel_linux_6_1, rootfs):
             echo 'waiting for {chroot_gdb_socket}';
             sleep 1;
         done;
-        gdb {kernel_dbg} -batch -x {gdb_script}
+        gdb {guest_kernel_6_1_debug} -batch -x {gdb_script}
         """,
         shell=True,
         stdout=subprocess.PIPE,
