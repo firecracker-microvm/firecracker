@@ -207,6 +207,13 @@ impl VirtioDevice for Block {
         }
     }
 
+    fn deactivate(&mut self) {
+        match self {
+            Self::Virtio(b) => b.deactivate(),
+            Self::VhostUser(b) => b.deactivate(),
+        }
+    }
+
     fn prepare_save(&mut self) {
         match self {
             Self::Virtio(b) => b.prepare_save(),
