@@ -182,12 +182,19 @@ pub trait VirtioDevice: AsAny + MutEventSubscriber + Send {
     fn deactivate(&mut self);
 
     /// Reset the device. Returns true on success, false otherwise.
+    /// It must not be overridden.
     fn reset(&mut self) -> bool {
+        self.deactivate();
+        self.set_acked_features(0);
         for queue in self.queues_mut() {
             *queue = Queue::new(queue.max_size);
         }
-        false
+        self._reset()
     }
+
+    /// Backend-specific reset logic. Returns true on success, false if the
+    /// backend does not support reset.
+    fn _reset(&mut self) -> bool;
 
     /// Mark pages used by queues as dirty.
     fn mark_queue_memory_dirty(&mut self, mem: &GuestMemoryMmap) -> Result<(), QueueError> {
@@ -317,6 +324,10 @@ pub(crate) mod tests {
         }
 
         fn deactivate(&mut self) {
+            todo!()
+        }
+
+        fn _reset(&mut self) -> bool {
             todo!()
         }
     }

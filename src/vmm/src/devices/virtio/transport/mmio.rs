@@ -589,13 +589,8 @@ pub(crate) mod tests {
             self.device_activated = false;
         }
 
-        fn reset(&mut self) -> bool {
-            if self.reset_should_fail {
-                return false;
-            }
-            self.device_activated = false;
-            self.acked_features = 0;
-            true
+        fn _reset(&mut self) -> bool {
+            !self.reset_should_fail
         }
     }
 

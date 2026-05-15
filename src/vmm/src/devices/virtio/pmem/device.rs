@@ -592,6 +592,10 @@ impl VirtioDevice for Pmem {
         self.device_state = DeviceState::Inactive;
     }
 
+    fn _reset(&mut self) -> bool {
+        false
+    }
+
     fn kick(&mut self) {
         if self.is_activated() {
             info!("kick pmem {}.", self.config.id);
