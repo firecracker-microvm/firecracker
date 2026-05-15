@@ -1088,6 +1088,10 @@ impl VirtioDevice for Net {
         self.device_state.is_activated()
     }
 
+    fn deactivate(&mut self) {
+        self.device_state = DeviceState::Inactive;
+    }
+
     /// Prepare saving state
     fn prepare_save(&mut self) {
         // We shouldn't be messing with the queue if the device is not activated.
