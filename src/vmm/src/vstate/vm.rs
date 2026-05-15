@@ -1068,6 +1068,45 @@ pub(crate) mod tests {
             assert_eq!(vector.gsi, new_vector.gsi);
             assert!(!new_vector.enabled.load(Ordering::Acquire));
         }
+
+        // Both groups own the same GSIs in this test so dropping both will result in panic. Resolve
+        // this by simply forgetting about the restored version.
+        std::mem::forget(restored_group);
+    }
+
+    #[test]
+    fn test_msi_vector_group_drop_frees_gsis() {
+        let mut vm = setup_vm_with_memory(mib_to_bytes(128));
+        enable_irqchip(&mut vm);
+        let vm = Arc::new(vm);
+
+        let gsis_before = vm.resource_allocator().allocate_gsi_msi(1).unwrap();
+        for id in gsis_before.iter() {
+            vm.resource_allocator()
+                .gsi_msi_allocator
+                .free_id(*id)
+                .unwrap();
+        }
+
+        // Allocating, configuring and dropping a group must leave the allocator and the routing
+        // table in the same state as before.
+        {
+            let group = create_msix_group(&vm);
+            let config = MsixVectorConfig {
+                high_addr: 0x42,
+                low_addr: 0x13,
+                data: 0x12,
+                devid: PciSBDF::from(0xafa),
+            };
+            for i in 0..group.num_vectors() as usize {
+                group.update(i, config, false, true).unwrap();
+            }
+            assert_eq!(vm.common.interrupts.lock().unwrap().len(), 4);
+        }
+
+        assert!(vm.common.interrupts.lock().unwrap().is_empty());
+        let gsis_after = vm.resource_allocator().allocate_gsi_msi(1).unwrap();
+        assert_eq!(gsis_before, gsis_after);
     }
 
     #[cfg(target_arch = "x86_64")]

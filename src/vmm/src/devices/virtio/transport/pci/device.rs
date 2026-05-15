@@ -1705,8 +1705,18 @@ mod tests {
         let saved_state = locked.state();
         drop(locked);
 
-        let new_entropy = Arc::new(Mutex::new(Entropy::new(RateLimiter::default()).unwrap()));
+        // Fully drop the original device before constructing the restored copy: the restored
+        // copy reuses the same MSI-X GSIs, so the two `MsixVectorGroup` instances must never
+        // exist concurrently. This is how it will happen in real scenario anyway.
         let kvm_vm = vmm.vm.as_kvm().unwrap().clone();
+        let saved_allocator = kvm_vm.resource_allocator().clone();
+        drop(device);
+        drop(vmm);
+        // Restore the allocator state so the restored group's GSIs are marked allocated and
+        // its `MsixVectorGroup::drop` will succeed when the test ends.
+        *kvm_vm.resource_allocator() = saved_allocator;
+
+        let new_entropy = Arc::new(Mutex::new(Entropy::new(RateLimiter::default()).unwrap()));
         let restored =
             VirtioPciDevice::new_from_state("rng".to_string(), &kvm_vm, new_entropy, saved_state)
                 .unwrap();

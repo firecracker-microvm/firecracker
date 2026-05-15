@@ -646,6 +646,7 @@ mod tests {
         tmp_sock_file.remove().unwrap();
 
         let serialized_data;
+        let saved_allocator;
         // Set up a vmm with one of each device, and get the serialized DeviceStates.
         {
             let mut event_manager = EventManager::new().expect("Unable to create EventManager");
@@ -727,6 +728,7 @@ mod tests {
 
             let device_state = vmm.device_manager.save();
             serialized_data = bitcode::serialize(&device_state).unwrap();
+            saved_allocator = vmm.vm.as_kvm().unwrap().resource_allocator().clone()
         }
 
         tmp_sock_file.remove().unwrap();
@@ -737,6 +739,10 @@ mod tests {
         // this to avoid restoring the whole Vmm, since what we really need from Vmm is the KvmVm
         // object and calling default_vmm() is the easiest way to create one.
         let vmm = default_vmm();
+        // Restore the source allocator's state so the restored devices' GSIs match what their
+        // `MsixVectorGroup::Drop` will try to free at end-of-test.
+        *vmm.vm.as_kvm().unwrap().resource_allocator() = saved_allocator;
+
         let device_manager_state: device_manager::DevicesState =
             bitcode::deserialize(&serialized_data).unwrap();
         let vm_resources = &mut VmResources::default();
