@@ -589,6 +589,10 @@ pub(crate) mod tests {
             self.device_activated
         }
 
+        fn deactivate(&mut self) {
+            self.device_activated = false;
+        }
+
         fn reset(&mut self) -> bool {
             if self.reset_should_fail {
                 return false;

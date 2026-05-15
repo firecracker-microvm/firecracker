@@ -396,6 +396,10 @@ where
         self.device_state.is_activated()
     }
 
+    fn deactivate(&mut self) {
+        self.device_state = DeviceState::Inactive;
+    }
+
     fn kick(&mut self) {
         if self.is_activated() {
             self.pending_event_ack = true;
