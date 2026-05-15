@@ -405,6 +405,10 @@ where
         self.device_state.is_activated()
     }
 
+    fn deactivate(&mut self) {
+        self.device_state = DeviceState::Inactive;
+    }
+
     fn kick(&mut self) {
         // Vsock has complicated protocol that isn't resilient to any packet loss,
         // so for Vsock we don't support connection persistence through snapshot.

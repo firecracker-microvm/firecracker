@@ -178,6 +178,9 @@ pub trait VirtioDevice: AsAny + MutEventSubscriber + Send {
     /// Checks if the resources of this device are activated.
     fn is_activated(&self) -> bool;
 
+    /// Set the device state to Inactive
+    fn deactivate(&mut self);
+
     /// Reset the device. Returns true on success, false otherwise.
     fn reset(&mut self) -> bool {
         false
@@ -307,6 +310,10 @@ pub(crate) mod tests {
         }
 
         fn is_activated(&self) -> bool {
+            todo!()
+        }
+
+        fn deactivate(&mut self) {
             todo!()
         }
     }

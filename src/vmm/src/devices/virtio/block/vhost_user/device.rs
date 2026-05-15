@@ -379,6 +379,10 @@ where
     fn is_activated(&self) -> bool {
         self.device_state.is_activated()
     }
+
+    fn deactivate(&mut self) {
+        self.device_state = DeviceState::Inactive;
+    }
 }
 
 #[cfg(test)]
