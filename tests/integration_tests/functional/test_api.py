@@ -1349,6 +1349,7 @@ def test_get_full_config_after_restoring_snapshot(microvm_factory, uvm_nano):
             "guest_mac": net_tools.mac_from_ip(net_iface.guest_ip),
             "iface_id": net_iface.dev_name,
             "host_dev_name": net_iface.tap_name,
+            "mtu": None,
             "rx_rate_limiter": None,
             "tx_rate_limiter": tx_rl,
         }
@@ -1480,6 +1481,7 @@ def test_get_full_config(uvm_plain):
             "iface_id": iface_id,
             "host_dev_name": tap1.name,
             "guest_mac": "06:00:00:00:00:01",
+            "mtu": None,
             "rx_rate_limiter": None,
             "tx_rate_limiter": tx_rl,
         }

@@ -36,6 +36,10 @@ and this project adheres to
 - [#5872](https://github.com/firecracker-microvm/firecracker/pull/5872): Add
   notification suppression support in the virtio-vsock device via the EVENT_IDX
   virtio feature to reduce device overhead.
+- [#5828](https://github.com/firecracker-microvm/firecracker/pull/5828):
+  Advertise MTU to the guest via `VIRTIO_NET_F_MTU` using a new optional `mtu`
+  field in the `network-interfaces` API. When set, a compatible guest driver
+  will configure the interface with the specified MTU.
 
 ### Changed
 
