@@ -5,6 +5,7 @@
 import time
 
 from framework import utils
+from framework.artifacts import GUEST_KERNEL_DEFAULT, pin_guest_kernel
 from host_tools import cpu_load
 
 # The iperf version to run this tests with
@@ -45,12 +46,14 @@ RATE_LIMITER_WITH_BURST = {
 MAX_RELATIVE_KBPS_CHANGE = 0.1
 MAX_TIME_DIFF = 25
 
+pytestmark = pin_guest_kernel(GUEST_KERNEL_DEFAULT)
 
-def test_tx_rate_limiting(uvm_plain):
+
+def test_tx_rate_limiting(uvm):
     """
     Run iperf tx with and without rate limiting; check limiting effect.
     """
-    test_microvm = uvm_plain
+    test_microvm = uvm
     test_microvm.spawn()
     test_microvm.basic_config()
 
@@ -68,11 +71,11 @@ def test_tx_rate_limiting(uvm_plain):
     _check_tx_rate_limit_patch(test_microvm)
 
 
-def test_rx_rate_limiting(uvm_plain):
+def test_rx_rate_limiting(uvm):
     """
     Run iperf rx with and without rate limiting; check limiting effect.
     """
-    test_microvm = uvm_plain
+    test_microvm = uvm
     test_microvm.spawn()
     test_microvm.basic_config()
 
@@ -91,11 +94,11 @@ def test_rx_rate_limiting(uvm_plain):
     _check_rx_rate_limit_patch(test_microvm)
 
 
-def test_rx_rate_limiting_cpu_load(uvm_plain):
+def test_rx_rate_limiting_cpu_load(uvm):
     """
     Run iperf rx with rate limiting; verify cpu load is below threshold.
     """
-    test_microvm = uvm_plain
+    test_microvm = uvm
     test_microvm.spawn()
     test_microvm.basic_config()
 

@@ -2,14 +2,16 @@
 # SPDX-License-Identifier: Apache-2.0
 """Test scenario for reseting dirty pages after making a full snapshot."""
 
+from framework.artifacts import GUEST_KERNEL_DEFAULT, pin_guest_kernel
 
-def test_dirty_pages_after_full_snapshot(uvm_plain):
+
+@pin_guest_kernel(GUEST_KERNEL_DEFAULT)
+def test_dirty_pages_after_full_snapshot(uvm):
     """
     Test if dirty pages are erased after making a full snapshot of a VM
     """
 
     vm_mem_size = 128
-    uvm = uvm_plain
     uvm.spawn()
     uvm.basic_config(mem_size_mib=vm_mem_size, track_dirty_pages=True)
     uvm.add_net_iface()

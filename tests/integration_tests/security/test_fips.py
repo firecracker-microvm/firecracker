@@ -9,6 +9,42 @@ Tests verify that:
 3. Userspace CSPRNGs are reseeded (diverge across restored VMs)
 """
 
+import pytest
+
+from framework.artifacts import (
+    GUEST_KERNEL_DEFAULT,
+    pin_guest_kernel,
+    pin_pci,
+    pin_rootfs_mode,
+)
+
+pytestmark = [
+    pin_guest_kernel(GUEST_KERNEL_DEFAULT),
+    pin_rootfs_mode("rw"),
+    pin_pci(False),
+]
+
+
+@pytest.fixture
+def uvm_with_fips(uvm):
+    """Boot a microVM with FIPS mode enabled."""
+    uvm.spawn()
+    uvm.basic_config(boot_args="console=ttyS0 reboot=k panic=1 pci=off fips=1")
+    uvm.add_net_iface()
+    uvm.start()
+    return uvm
+
+
+@pytest.fixture
+def fips_snapshot_pair(uvm_with_fips, microvm_factory):
+    """Boot a FIPS VM, snapshot it, restore two VMs from the same snapshot."""
+    snapshot = uvm_with_fips.snapshot_full()
+    uvm_with_fips.kill()
+
+    uvm_a = microvm_factory.build_from_snapshot(snapshot)
+    uvm_b = microvm_factory.build_from_snapshot(snapshot)
+    yield uvm_a, uvm_b
+
 
 def test_fips_enabled(uvm_with_fips):
     """Test that FIPS mode is enabled in the guest kernel."""

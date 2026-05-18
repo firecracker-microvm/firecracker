@@ -4,11 +4,15 @@
 
 import pytest
 
+from framework.artifacts import ACPI_GUEST_KERNELS, pin_guest_kernel
+
+pytestmark = pin_guest_kernel(ACPI_GUEST_KERNELS)
+
 
 @pytest.fixture(scope="function")
-def vm_with_vmclock(uvm_plain_acpi, bin_vmclock_path):
+def vm_with_vmclock(uvm, bin_vmclock_path):
     """Create a VM with VMclock support and the `vmclock` test binary under `/tmp/vmclock`"""
-    basevm = uvm_plain_acpi
+    basevm = uvm
     basevm.spawn()
 
     basevm.basic_config()

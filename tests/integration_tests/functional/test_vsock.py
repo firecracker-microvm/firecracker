@@ -21,6 +21,7 @@ from socket import timeout as SocketTimeout
 
 import pytest
 
+from framework.artifacts import ACPI_GUEST_KERNELS, pin_guest_kernel
 from framework.utils_vsock import (
     ECHO_SERVER_PORT,
     VSOCK_UDS_PATH,
@@ -41,12 +42,12 @@ TEST_WORKER_COUNT = 10
 
 
 @pytest.fixture
-def vsock_uvm(uvm_plain_acpi, request):
+def vsock_uvm(uvm, request):
     """Fixture to initialize a microVM with vsock device."""
     vcpus = request.param if hasattr(request, "param") else 1
 
     return boot_vsock_vm(
-        uvm_plain_acpi,
+        uvm,
         vcpu_count=vcpus,
         mem_size_mib=1024,
         log_level="Info",
@@ -56,9 +57,9 @@ def vsock_uvm(uvm_plain_acpi, request):
 
 
 @pytest.fixture
-def vsock_uvm_any(uvm_plain_any):
+def vsock_uvm_any(uvm):
     """Fixture to initialize a kernel-parametrized microVM with vsock device."""
-    return boot_vsock_vm(uvm_plain_any)
+    return boot_vsock_vm(uvm)
 
 
 def test_vsock(vsock_uvm_any, bin_vsock_path, test_fc_session_root_path):
@@ -141,6 +142,7 @@ def test_vsock_epipe(vsock_uvm_any, bin_vsock_path, test_fc_session_root_path):
     validate_fc_metrics(metrics)
 
 
+@pin_guest_kernel(ACPI_GUEST_KERNELS)
 @pytest.mark.parametrize("vsock_uvm", [1, 2], indirect=True, ids=["1vcpu", "2vcpu"])
 def test_vsock_transport_reset_h2g(
     vsock_uvm, microvm_factory, bin_vsock_path, test_fc_session_root_path
@@ -224,6 +226,7 @@ def test_vsock_transport_reset_h2g(
     validate_fc_metrics(metrics)
 
 
+@pin_guest_kernel(ACPI_GUEST_KERNELS)
 @pytest.mark.parametrize("vsock_uvm", [1, 2], indirect=True, ids=["1vcpu", "2vcpu"])
 def test_vsock_transport_reset_g2h(vsock_uvm, microvm_factory):
     """
@@ -290,7 +293,7 @@ def test_vsock_transport_reset_g2h(vsock_uvm, microvm_factory):
 
 
 def test_vsock_after_override(
-    uvm_plain_any, microvm_factory, bin_vsock_path, test_fc_session_root_path
+    uvm, microvm_factory, bin_vsock_path, test_fc_session_root_path
 ):
     """
     Test that the Vsock device works correctly after overriding the host UDS
@@ -299,7 +302,7 @@ def test_vsock_after_override(
     initial_uds_path = VSOCK_UDS_PATH
     overridden_uds_path = f"{VSOCK_UDS_PATH}2"
 
-    test_vm = uvm_plain_any
+    test_vm = uvm
     test_vm.spawn()
     test_vm.basic_config(vcpu_count=2, mem_size_mib=256)
     test_vm.add_net_iface()
@@ -342,14 +345,14 @@ def test_vsock_after_override(
     validate_fc_metrics(metrics)
 
 
-def test_vsock_override_fails_without_device(uvm_plain_any, microvm_factory):
+def test_vsock_override_fails_without_device(uvm, microvm_factory):
     """
     Providing an override should fail if there is no vsock device.
     """
 
     overridden_uds_path = f"{VSOCK_UDS_PATH}2"
 
-    test_vm = uvm_plain_any
+    test_vm = uvm
     test_vm.spawn()
     test_vm.basic_config(vcpu_count=2, mem_size_mib=256)
     test_vm.start()
