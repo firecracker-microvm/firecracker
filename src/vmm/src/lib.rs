@@ -470,6 +470,11 @@ impl Vmm {
         Ok(())
     }
 
+    /// Kicks the virtio devices.
+    pub fn kick_virtio_devices(&mut self) {
+        self.device_manager.kick_virtio_devices();
+    }
+
     /// Sends a pause command to the vCPUs.
     pub fn pause_vm(&mut self) -> Result<(), VmmError> {
         let kvm_vm = self
