@@ -97,3 +97,24 @@ def get_cpu_template_name(cpu_template, with_type=False):
     if isinstance(cpu_template, dict):
         return ("custom_" if with_type else "") + cpu_template["name"]
     return "None"
+
+
+# Catalogues for indirect parametrize values.
+STATIC_CPU_TEMPLATES = list(static_cpu_templates_params())
+CUSTOM_CPU_TEMPLATES = list(custom_cpu_templates_params())
+ALL_CPU_TEMPLATES = [
+    pytest.param(None, id="NO_CPU_TMPL"),
+    *STATIC_CPU_TEMPLATES,
+    *CUSTOM_CPU_TEMPLATES,
+]
+
+
+def pin_cpu_template(templates):
+    """Convenience marker for pinning the `cpu_template` dim.
+
+    Usage:
+        pytestmark = pin_cpu_template(ALL_CPU_TEMPLATES)
+        @pin_cpu_template(STATIC_CPU_TEMPLATES)
+        def test_foo(uvm_configured): ...
+    """
+    return pytest.mark.parametrize("cpu_template", templates, indirect=True)
