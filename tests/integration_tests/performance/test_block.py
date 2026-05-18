@@ -9,7 +9,10 @@ import pytest
 
 import framework.utils_fio as fio
 import host_tools.drive as drive_tools
+from framework.artifacts import ACPI_GUEST_KERNELS, pin_guest_kernel
 from framework.utils import check_output, track_cpu_utilization
+
+pytestmark = pin_guest_kernel(ACPI_GUEST_KERNELS)
 
 # size of the block device used in the test, in MB
 BLOCK_DEVICE_SIZE_MB = 2048
@@ -105,7 +108,7 @@ def emit_fio_metrics(logs_dir, metrics):
 @pytest.mark.parametrize("fio_block_size", [4096], ids=["bs4096"])
 @pytest.mark.parametrize("fio_engine", [fio.Engine.LIBAIO, fio.Engine.PSYNC])
 def test_block_performance(
-    uvm_plain_acpi,
+    uvm,
     vcpus,
     fio_mode,
     fio_block_size,
@@ -117,7 +120,7 @@ def test_block_performance(
     """
     Execute block device emulation benchmarking scenarios.
     """
-    vm = uvm_plain_acpi
+    vm = uvm
     vm.spawn(log_level="Info", emit_metrics=True)
     vm.basic_config(vcpu_count=vcpus, mem_size_mib=GUEST_MEM_MIB)
     vm.add_net_iface()
@@ -155,7 +158,7 @@ def test_block_performance(
 @pytest.mark.parametrize("fio_mode", [fio.Mode.RANDREAD])
 @pytest.mark.parametrize("fio_block_size", [4096], ids=["bs4096"])
 def test_block_vhost_user_performance(
-    uvm_plain_acpi,
+    uvm,
     vcpus,
     fio_mode,
     fio_block_size,
@@ -166,7 +169,7 @@ def test_block_vhost_user_performance(
     Execute block device emulation benchmarking scenarios.
     """
 
-    vm = uvm_plain_acpi
+    vm = uvm
     vm.spawn(log_level="Info", emit_metrics=True)
     vm.basic_config(vcpu_count=vcpus, mem_size_mib=GUEST_MEM_MIB)
     vm.add_net_iface()

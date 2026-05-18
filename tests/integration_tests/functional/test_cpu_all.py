@@ -11,6 +11,10 @@ are operating identically, except for the expected differences.
 
 import pytest
 
+from framework.utils_cpu_templates import ALL_CPU_TEMPLATES, pin_cpu_template
+
+pytestmark = [pin_cpu_template(ALL_CPU_TEMPLATES)]
+
 # Use the maximum number of vCPUs supported by Firecracker
 MAX_VCPUS = 32
 

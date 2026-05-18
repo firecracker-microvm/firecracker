@@ -12,6 +12,8 @@ from time import strptime
 
 import pytest
 
+from framework.artifacts import GUEST_KERNEL_DEFAULT, pin_guest_kernel
+
 # Array of supported log levels of the current logging system.
 # Do not change order of values inside this array as logic depends on this.
 LOG_LEVELS = ["ERROR", "WARN", "INFO", "DEBUG"]
@@ -71,11 +73,12 @@ def check_log_message_format(log_str, instance_id, level, show_level, show_origi
         assert tag_level_no <= configured_level_no
 
 
-def test_api_requests_logs(uvm_plain):
+@pin_guest_kernel(GUEST_KERNEL_DEFAULT)
+def test_api_requests_logs(uvm):
     """
     Test that API requests are logged.
     """
-    microvm = uvm_plain
+    microvm = uvm
     microvm.spawn(log_file=None)
     microvm.basic_config()
 
@@ -147,6 +150,7 @@ def test_api_requests_logs(uvm_plain):
     )
 
 
+@pin_guest_kernel(GUEST_KERNEL_DEFAULT)
 @pytest.mark.parametrize(
     "log_level,show_level,show_origin",
     [
@@ -158,9 +162,9 @@ def test_api_requests_logs(uvm_plain):
         ("Warning", False, False),
     ],
 )
-def test_log_config(uvm_plain, log_level, show_level, show_origin):
+def test_log_config(uvm, log_level, show_level, show_origin):
     """Exercises different scenarios for testing the logging config."""
-    microvm = uvm_plain
+    microvm = uvm
     microvm.spawn(
         log_level=log_level, log_show_level=show_level, log_show_origin=show_origin
     )

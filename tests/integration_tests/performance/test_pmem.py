@@ -11,6 +11,7 @@ import pytest
 
 import framework.utils_fio as fio
 import host_tools.drive as drive_tools
+from framework.artifacts import ACPI_GUEST_KERNELS, pin_guest_kernel
 from framework.utils import track_cpu_utilization
 
 PMEM_DEVICE_SIZE_MB = 2048
@@ -18,6 +19,8 @@ PMEM_DEVICE_SIZE_SINGLE_READ_MB = 512
 WARMUP_SEC = 10
 RUNTIME_SEC = 30
 GUEST_MEM_MIB = 1024
+
+pytestmark = pin_guest_kernel(ACPI_GUEST_KERNELS)
 
 
 def run_fio(
@@ -78,7 +81,7 @@ def emit_fio_metrics(logs_dir, metrics):
 @pytest.mark.parametrize("fio_block_size", [4096], ids=["bs4096"])
 @pytest.mark.parametrize("fio_engine", [fio.Engine.LIBAIO, fio.Engine.PSYNC])
 def test_pmem_performance(
-    uvm_plain_acpi,
+    uvm,
     vcpus,
     fio_mode,
     fio_block_size,
@@ -89,7 +92,7 @@ def test_pmem_performance(
     """
     Measure performance of pmem device
     """
-    vm = uvm_plain_acpi
+    vm = uvm
     vm.memory_monitor = None
     vm.spawn()
     vm.basic_config(vcpu_count=vcpus, mem_size_mib=GUEST_MEM_MIB)
@@ -160,7 +163,7 @@ def emit_fio_single_read_metrics(logs_dir, metrics):
 @pytest.mark.parametrize("fio_block_size", [4096], ids=["bs4096"])
 def test_pmem_first_read(
     microvm_factory,
-    guest_kernel_acpi,
+    guest_kernel,
     rootfs,
     fio_block_size,
     metrics,
@@ -174,9 +177,7 @@ def test_pmem_first_read(
     """
 
     for i in range(10):
-        vm = microvm_factory.build(
-            guest_kernel_acpi, rootfs, pci=True, monitor_memory=False
-        )
+        vm = microvm_factory.build(guest_kernel, rootfs, pci=True, monitor_memory=False)
         vm.spawn()
         vm.basic_config(mem_size_mib=GUEST_MEM_MIB)
         vm.add_net_iface()
@@ -224,9 +225,9 @@ def check_flush_limit(ssh_connection, count, min_time, max_time):
     assert runtime_ms < max_time * 1000
 
 
-def test_pmem_rate_limiter(uvm_plain_acpi):
+def test_pmem_rate_limiter(uvm):
     """Test that the pmem rate limiter throttles flush operations."""
-    vm = uvm_plain_acpi
+    vm = uvm
     vm.memory_monitor = None
     vm.spawn()
     vm.basic_config(vcpu_count=2, mem_size_mib=512)

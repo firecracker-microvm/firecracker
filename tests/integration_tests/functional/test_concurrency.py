@@ -13,12 +13,14 @@ def test_run_concurrency(microvm_factory, guest_kernel, rootfs, pci_enabled):
     """
 
     def launch1():
-        microvm = microvm_factory.build(guest_kernel, rootfs, pci=pci_enabled)
+        microvm = microvm_factory.build_booted(
+            guest_kernel,
+            rootfs,
+            pci=pci_enabled,
+            vcpu_count=1,
+            mem_size_mib=128,
+        )
         microvm.time_api_requests = False  # is flaky because of parallelism
-        microvm.spawn()
-        microvm.basic_config(vcpu_count=1, mem_size_mib=128)
-        microvm.add_net_iface()
-        microvm.start()
 
     with ThreadPoolExecutor(max_workers=NO_OF_MICROVMS) as tpe:
         for _ in range(NO_OF_MICROVMS):

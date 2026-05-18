@@ -7,45 +7,44 @@ import time
 
 import pytest
 
+from framework.artifacts import GUEST_KERNEL_DEFAULT, pin_guest_kernel
 from host_tools.cargo_build import run_seccompiler_bin
 
 ITERATIONS = 100
 
+pytestmark = pin_guest_kernel(GUEST_KERNEL_DEFAULT)
+
 
 @pytest.mark.nonci
-def test_startup_time_new_pid_ns(
-    microvm_factory, guest_kernel_default, rootfs, metrics
-):
+def test_startup_time_new_pid_ns(microvm_factory, guest_kernel, rootfs, metrics):
     """
     Check startup time when jailer is spawned in a new PID namespace.
     """
     for _ in range(ITERATIONS):
-        microvm = microvm_factory.build(guest_kernel_default, rootfs)
+        microvm = microvm_factory.build(guest_kernel, rootfs)
         microvm.jailer.new_pid_ns = True
         _test_startup_time(microvm, metrics, "new_pid_ns")
         microvm.kill()
 
 
 @pytest.mark.nonci
-def test_startup_time_daemonize(microvm_factory, guest_kernel_default, rootfs, metrics):
+def test_startup_time_daemonize(microvm_factory, guest_kernel, rootfs, metrics):
     """
     Check startup time when jailer detaches Firecracker from the controlling terminal.
     """
     for _ in range(ITERATIONS):
-        microvm = microvm_factory.build(guest_kernel_default, rootfs)
+        microvm = microvm_factory.build(guest_kernel, rootfs)
         _test_startup_time(microvm, metrics, "daemonize")
         microvm.kill()
 
 
 @pytest.mark.nonci
-def test_startup_time_custom_seccomp(
-    microvm_factory, guest_kernel_default, rootfs, metrics
-):
+def test_startup_time_custom_seccomp(microvm_factory, guest_kernel, rootfs, metrics):
     """
     Check the startup time when using custom seccomp filters.
     """
     for _ in range(ITERATIONS):
-        microvm = microvm_factory.build(guest_kernel_default, rootfs)
+        microvm = microvm_factory.build(guest_kernel, rootfs)
         _custom_filter_setup(microvm)
         _test_startup_time(microvm, metrics, "custom_seccomp")
         microvm.kill()

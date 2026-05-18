@@ -4,14 +4,14 @@
 
 import pytest
 
+from framework.artifacts import GUEST_KERNEL_DEFAULT, pin_guest_kernel
 from framework.utils import check_entropy
 from host_tools.network import SSHConnection
 
 
-def uvm_with_rng_booted(uvm_plain_any, microvm_factory, rate_limiter):
+def uvm_with_rng_booted(uvm, microvm_factory, rate_limiter):
     """Return a booted microvm with virtio-rng configured"""
     # pylint: disable=unused-argument
-    uvm = uvm_plain_any
     uvm.spawn(log_level="INFO")
     uvm.basic_config(vcpu_count=2, mem_size_mib=256)
     uvm.add_net_iface()
@@ -22,9 +22,9 @@ def uvm_with_rng_booted(uvm_plain_any, microvm_factory, rate_limiter):
     return uvm
 
 
-def uvm_with_rng_restored(uvm_plain_any, microvm_factory, rate_limiter):
+def uvm_with_rng_restored(uvm, microvm_factory, rate_limiter):
     """Return a restored uvm with virtio-rng configured"""
-    uvm = uvm_with_rng_booted(uvm_plain_any, microvm_factory, rate_limiter)
+    uvm = uvm_with_rng_booted(uvm, microvm_factory, rate_limiter)
     snapshot = uvm.snapshot_full()
     uvm.kill()
     uvm2 = microvm_factory.build_from_snapshot(snapshot)
@@ -45,9 +45,9 @@ def rate_limiter(request):
 
 
 @pytest.fixture
-def uvm_any(microvm_factory, uvm_ctor, uvm_plain_any, rate_limiter):
+def uvm_any(microvm_factory, uvm_ctor, uvm, rate_limiter):
     """Return booted and restored uvms"""
-    return uvm_ctor(uvm_plain_any, microvm_factory, rate_limiter)
+    return uvm_ctor(uvm, microvm_factory, rate_limiter)
 
 
 def list_rng_available(ssh_connection: SSHConnection) -> list[str]:
@@ -74,13 +74,14 @@ def assert_virtio_rng_is_current_hwrng_device(ssh_connection: SSHConnection):
     ), "virtio_rng device should be the current used by hwrng"
 
 
-def test_rng_not_present(uvm_nano):
+@pin_guest_kernel(GUEST_KERNEL_DEFAULT)
+def test_rng_not_present(uvm_configured):
     """
     Test a guest microVM *without* an entropy device and ensure that
     we cannot get data from /dev/hwrng
     """
 
-    vm = uvm_nano
+    vm = uvm_configured
     vm.add_net_iface()
     vm.start()
 

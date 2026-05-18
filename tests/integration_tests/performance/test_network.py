@@ -8,7 +8,10 @@ from pathlib import Path
 
 import pytest
 
+from framework.artifacts import ACPI_GUEST_KERNELS, pin_guest_kernel
 from framework.utils_iperf import IPerf3Test, emit_iperf3_metrics
+
+pytestmark = pin_guest_kernel(ACPI_GUEST_KERNELS)
 
 
 def consume_ping_output(ping_putput):
@@ -38,14 +41,14 @@ def consume_ping_output(ping_putput):
 
 
 @pytest.fixture
-def network_microvm(request, uvm_plain_acpi):
+def network_microvm(request, uvm):
     """Creates a microvm with the networking setup used by the performance tests in this file.
     This fixture receives its vcpu count via indirect parameterization"""
 
     guest_mem_mib = 1024
     guest_vcpus = request.param
 
-    vm = uvm_plain_acpi
+    vm = uvm
     vm.spawn(log_level="Info", emit_metrics=True)
     vm.basic_config(vcpu_count=guest_vcpus, mem_size_mib=guest_mem_mib)
     vm.add_net_iface()

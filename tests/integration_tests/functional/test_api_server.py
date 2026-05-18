@@ -4,10 +4,12 @@
 
 import socket
 
+from framework.artifacts import GUEST_KERNEL_DEFAULT, pin_guest_kernel
 from framework.utils import check_output
 
 
-def test_api_socket_in_use(uvm_plain):
+@pin_guest_kernel(GUEST_KERNEL_DEFAULT)
+def test_api_socket_in_use(uvm):
     """
     Test error message when api socket is already in use.
 
@@ -16,7 +18,7 @@ def test_api_socket_in_use(uvm_plain):
     Check that the error message is a fixed one and that it also
     contains the name of the path.
     """
-    microvm = uvm_plain
+    microvm = uvm
 
     cmd = "mkdir {}/run".format(microvm.chroot())
     check_output(cmd)
