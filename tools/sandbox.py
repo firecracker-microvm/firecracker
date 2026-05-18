@@ -92,6 +92,9 @@ parser.add_argument("--rootfs-size", type=parse_byte_size, default=1 * 2**30)  #
 parser.add_argument("--binary-dir", help="Path to the firecracker binaries")
 parser.add_argument("--cpu-template-path", help="CPU template to use", type=Path)
 parser.add_argument(
+    "--boot-args", help="Kernel boot arguments", type=str, default=None, nargs="+"
+)
+parser.add_argument(
     "--debug", action="store_true", default=False, help="Use debug kernel"
 )
 parser.add_argument(
@@ -137,7 +140,11 @@ uvm.help.resize_disk(uvm.rootfs_file, args.rootfs_size)
 uvm.spawn(log_show_level=True, validate_api=False)
 uvm.help.print_log()
 uvm.add_net_iface()
-uvm.basic_config(vcpu_count=args.vcpus, mem_size_mib=args.guest_mem_size // 2**20)
+uvm.basic_config(
+    vcpu_count=args.vcpus,
+    mem_size_mib=args.guest_mem_size // 2**20,
+    boot_args=" ".join(args.boot_args) if args.boot_args else None,
+)
 if cpu_template is not None:
     uvm.api.cpu_config.put(**cpu_template)
     print(cpu_template)
