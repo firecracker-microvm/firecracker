@@ -33,6 +33,7 @@ use super::{VsockBackend, defs};
 use crate::devices::virtio::ActivateError;
 use crate::devices::virtio::device::{ActiveState, DeviceState, VirtioDevice, VirtioDeviceType};
 use crate::devices::virtio::generated::virtio_config::{VIRTIO_F_IN_ORDER, VIRTIO_F_VERSION_1};
+use crate::devices::virtio::generated::virtio_ring::VIRTIO_RING_F_EVENT_IDX;
 use crate::devices::virtio::queue::{InvalidAvailIdx, Queue as VirtQueue};
 use crate::devices::virtio::transport::{VirtioInterrupt, VirtioInterruptType};
 use crate::devices::virtio::vsock::VsockError;
@@ -52,8 +53,11 @@ pub(crate) const VIRTIO_VSOCK_EVENT_TRANSPORT_RESET: u32 = 0;
 /// - VIRTIO_F_VERSION_1: the device conforms to at least version 1.0 of the VirtIO spec.
 /// - VIRTIO_F_IN_ORDER: the device returns used buffers in the same order that the driver makes
 ///   them available.
-pub(crate) const AVAIL_FEATURES: u64 =
-    (1 << VIRTIO_F_VERSION_1 as u64) | (1 << VIRTIO_F_IN_ORDER as u64);
+/// - VIRTIO_RING_F_EVENT_IDX: the device supports used_event/avail_event notification
+///   suppression.
+pub(crate) const AVAIL_FEATURES: u64 = (1 << VIRTIO_F_VERSION_1 as u64)
+    | (1 << VIRTIO_F_IN_ORDER as u64)
+    | (1 << VIRTIO_RING_F_EVENT_IDX as u64);
 
 /// Structure representing the vsock device.
 #[derive(Debug)]
@@ -154,8 +158,8 @@ where
     }
 
     /// Walk the driver-provided RX queue buffers and attempt to fill them up with any data that we
-    /// have pending. Return `true` if descriptors have been added to the used ring, and `false`
-    /// otherwise.
+    /// have pending. Return `true` if the guest needs to be notified (respecting notification
+    /// suppression).
     pub fn process_rx(&mut self) -> Result<bool, InvalidAvailIdx> {
         // This is safe since we checked in the event handler that the device is activated.
         let mem = &self.device_state.active_state().unwrap().mem;
@@ -163,7 +167,7 @@ where
         let queue = &mut self.queues[RXQ_INDEX];
         let mut have_used = false;
 
-        while let Some(head) = queue.pop()? {
+        while let Some(head) = queue.pop_or_enable_notification()? {
             let index = head.index;
             let used_len = match self.rx_packet.parse(mem, head) {
                 Ok(()) => {
@@ -203,12 +207,12 @@ where
         }
         queue.advance_used_ring_idx();
 
-        Ok(have_used)
+        Ok(have_used && queue.prepare_kick())
     }
 
     /// Walk the driver-provided TX queue buffers, package them up as vsock packets, and send them
-    /// to the backend for processing. Return `true` if descriptors have been added to the used
-    /// ring, and `false` otherwise.
+    /// to the backend for processing. Return `true` if the guest needs to be notified (respecting
+    /// notification suppression).
     pub fn process_tx(&mut self) -> Result<bool, InvalidAvailIdx> {
         // This is safe since we checked in the event handler that the device is activated.
         let mem = &self.device_state.active_state().unwrap().mem;
@@ -216,9 +220,8 @@ where
         let queue = &mut self.queues[TXQ_INDEX];
         let mut have_used = false;
 
-        while let Some(head) = queue.pop()? {
+        while let Some(head) = queue.pop_or_enable_notification()? {
             let index = head.index;
-            // let pkt = match VsockPacket::from_tx_virtq_head(mem, head) {
             match self.tx_packet.parse(mem, head) {
                 Ok(()) => (),
                 Err(err) => {
@@ -243,7 +246,7 @@ where
         }
         queue.advance_used_ring_idx();
 
-        Ok(have_used)
+        Ok(have_used && queue.prepare_kick())
     }
 
     // Send TRANSPORT_RESET_EVENT to driver. According to specs, the driver shuts down established
@@ -364,6 +367,12 @@ where
                 expected: defs::VSOCK_NUM_QUEUES,
                 got: self.queues.len(),
             });
+        }
+
+        if self.has_feature(VIRTIO_RING_F_EVENT_IDX as u64) {
+            for queue in &mut self.queues {
+                queue.enable_notif_suppression();
+            }
         }
 
         if self.activate_evt.write(1).is_err() {
