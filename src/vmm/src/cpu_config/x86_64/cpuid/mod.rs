@@ -57,6 +57,9 @@ pub const VENDOR_ID_INTEL: &[u8; 12] = b"GenuineIntel";
 /// AMD brand string.
 pub const VENDOR_ID_AMD: &[u8; 12] = b"AuthenticAMD";
 
+/// Hygon brand string.
+pub const VENDOR_ID_HYGON: &[u8; 12] = b"HygonGenuine";
+
 /// Intel brand string.
 #[allow(clippy::undocumented_unsafe_blocks)]
 pub const VENDOR_ID_INTEL_STR: &str = unsafe { std::str::from_utf8_unchecked(VENDOR_ID_INTEL) };
@@ -64,6 +67,10 @@ pub const VENDOR_ID_INTEL_STR: &str = unsafe { std::str::from_utf8_unchecked(VEN
 /// AMD brand string.
 #[allow(clippy::undocumented_unsafe_blocks)]
 pub const VENDOR_ID_AMD_STR: &str = unsafe { std::str::from_utf8_unchecked(VENDOR_ID_AMD) };
+
+/// Hygon brand string.
+#[allow(clippy::undocumented_unsafe_blocks)]
+pub const VENDOR_ID_HYGON_STR: &str = unsafe { std::str::from_utf8_unchecked(VENDOR_ID_HYGON) };
 
 /// To store the brand string we have 3 leaves, each with 4 registers, each with 4 bytes.
 pub const BRAND_STRING_LENGTH: usize = 3 * 4 * 4;
@@ -407,7 +414,9 @@ impl TryFrom<kvm_bindings::CpuId> for Cpuid {
 
         match std::str::from_utf8(&vendor_id) {
             Ok(VENDOR_ID_INTEL_STR) => Ok(Cpuid::Intel(IntelCpuid::from(kvm_cpuid))),
-            Ok(VENDOR_ID_AMD_STR) => Ok(Cpuid::Amd(AmdCpuid::from(kvm_cpuid))),
+            Ok(VENDOR_ID_AMD_STR | VENDOR_ID_HYGON_STR) => {
+                Ok(Cpuid::Amd(AmdCpuid::from(kvm_cpuid)))
+            }
             _ => Err(CpuidTryFromKvmCpuid::UnsupportedVendor(vendor_id)),
         }
     }
@@ -653,6 +662,39 @@ mod tests {
         }
     }
 
+    fn build_hygon_leaf0_for_cpuid() -> (CpuidKey, CpuidEntry) {
+        (
+            CpuidKey {
+                leaf: 0x0,
+                subleaf: 0x0,
+            },
+            CpuidEntry {
+                flags: KvmCpuidFlags::EMPTY,
+                result: CpuidRegisters {
+                    eax: 0x1,
+                    // HygonGenuine
+                    ebx: 0x6f677948,
+                    ecx: 0x656e6975,
+                    edx: 0x6e65476e,
+                },
+            },
+        )
+    }
+
+    fn build_hygon_leaf0_for_kvmcpuid() -> kvm_bindings::kvm_cpuid_entry2 {
+        kvm_bindings::kvm_cpuid_entry2 {
+            function: 0x0,
+            index: 0x0,
+            flags: 0x0,
+            eax: 0x1,
+            // HygonGenuine
+            ebx: 0x6f677948,
+            ecx: 0x656e6975,
+            edx: 0x6e65476e,
+            ..Default::default()
+        }
+    }
+
     fn build_sample_leaf_for_cpuid() -> (CpuidKey, CpuidEntry) {
         (
             CpuidKey {
@@ -714,6 +756,21 @@ mod tests {
         .unwrap()
     }
 
+    fn build_sample_hygon_cpuid() -> Cpuid {
+        Cpuid::Amd(AmdCpuid(BTreeMap::from([
+            build_hygon_leaf0_for_cpuid(),
+            build_sample_leaf_for_cpuid(),
+        ])))
+    }
+
+    fn build_sample_hygon_kvmcpuid() -> kvm_bindings::CpuId {
+        kvm_bindings::CpuId::from_entries(&[
+            build_hygon_leaf0_for_kvmcpuid(),
+            build_sample_leaf_for_kvmcpuid(),
+        ])
+        .unwrap()
+    }
+
     #[test]
     fn get() {
         let cpuid = build_sample_intel_cpuid();
@@ -763,6 +820,10 @@ mod tests {
         let kvm_cpuid = build_sample_amd_kvmcpuid();
         let cpuid = Cpuid::try_from(kvm_cpuid).unwrap();
         assert_eq!(cpuid, build_sample_amd_cpuid());
+
+        let kvm_cpuid = build_sample_hygon_kvmcpuid();
+        let cpuid = Cpuid::try_from(kvm_cpuid).unwrap();
+        assert_eq!(cpuid, build_sample_hygon_cpuid());
     }
 
     #[test]
@@ -774,6 +835,10 @@ mod tests {
         let cpuid = build_sample_amd_cpuid();
         let kvm_cpuid = kvm_bindings::CpuId::try_from(cpuid).unwrap();
         assert_eq!(kvm_cpuid, build_sample_amd_kvmcpuid());
+
+        let cpuid = build_sample_hygon_cpuid();
+        let kvm_cpuid = kvm_bindings::CpuId::try_from(cpuid).unwrap();
+        assert_eq!(kvm_cpuid, build_sample_hygon_kvmcpuid());
     }
 
     #[test]
