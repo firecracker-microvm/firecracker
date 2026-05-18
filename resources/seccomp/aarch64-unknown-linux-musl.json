@@ -606,6 +606,19 @@
             },
             {
                 "syscall": "ioctl",
+                "comment": "Needed for unregistering irqfds during device hot-unplug and VM teardown (called from MsixVectorGroup::drop)",
+                "args": [
+                    {
+                        "index": 1,
+                        "type": "dword",
+                        "op": "eq",
+                        "val": 1075883638,
+                        "comment": "KVM_IRQFD"
+                    }
+                ]
+            },
+            {
+                "syscall": "ioctl",
                 "comment": "Needed for opening tap device during net hotplug",
                 "args": [
                     {
