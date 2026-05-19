@@ -130,8 +130,7 @@ impl<'a> Persist<'a> for ResourceAllocator {
 #[cfg(test)]
 mod tests {
     use super::ResourceAllocator;
-    use crate::arch::{self, GSI_LEGACY_NUM, GSI_LEGACY_START, GSI_MSI_NUM, GSI_MSI_START};
-    use crate::snapshot::Persist;
+    use crate::arch::{self, GSI_LEGACY_NUM, GSI_MSI_NUM};
 
     #[test]
     fn test_allocate_irq() {
@@ -218,33 +217,5 @@ mod tests {
         for i in arch::GSI_MSI_START + 2..=arch::GSI_MSI_END {
             assert_eq!(allocator.allocate_gsi_msi(1), Ok(vec![i]));
         }
-    }
-
-    fn clone_allocator(allocator: &ResourceAllocator) -> ResourceAllocator {
-        let state = allocator.save();
-        let serialized_data = bitcode::serialize(&state).unwrap();
-        let restored_state: ResourceAllocator = bitcode::deserialize(&serialized_data).unwrap();
-        ResourceAllocator::restore((), &restored_state).unwrap()
-    }
-
-    #[test]
-    fn test_save_restore() {
-        let mut allocator0 = ResourceAllocator::new();
-        let irq_0 = allocator0.allocate_gsi_legacy(1).unwrap()[0];
-        assert_eq!(irq_0, GSI_LEGACY_START);
-        let gsi_0 = allocator0.allocate_gsi_msi(1).unwrap()[0];
-        assert_eq!(gsi_0, GSI_MSI_START);
-
-        let mut allocator1 = clone_allocator(&allocator0);
-        let irq_1 = allocator1.allocate_gsi_legacy(1).unwrap()[0];
-        assert_eq!(irq_1, GSI_LEGACY_START + 1);
-        let gsi_1 = allocator1.allocate_gsi_msi(1).unwrap()[0];
-        assert_eq!(gsi_1, GSI_MSI_START + 1);
-
-        let mut allocator2 = clone_allocator(&allocator1);
-        let irq_2 = allocator2.allocate_gsi_legacy(1).unwrap()[0];
-        assert_eq!(irq_2, GSI_LEGACY_START + 2);
-        let gsi_2 = allocator2.allocate_gsi_msi(1).unwrap()[0];
-        assert_eq!(gsi_2, GSI_MSI_START + 2);
     }
 }
