@@ -282,7 +282,7 @@ impl VsockEpollListener for VsockMuxer {
         EventSet::IN
     }
 
-    /// Notify the muxer about a pending event having occured under its nested epoll FD.
+    /// Notify the muxer about a pending event having occurred under its nested epoll FD.
     fn notify(&mut self, _: EventSet) {
         let mut epoll_events = vec![EpollEvent::new(EventSet::empty(), 0); 32];
         match self.epoll.wait(0, epoll_events.as_mut_slice()) {

@@ -337,30 +337,34 @@ class Microvm:
             or might_be_dead
         ), self.log_data
 
-        # pylint: disable=bare-except
-        try:
-            if self.firecracker_pid:
-                os.kill(self.firecracker_pid, signal.SIGKILL)
+        # Kill Firecracker and the screen wrapper independently so that one
+        # already being dead (ProcessLookupError) doesn't leak the other.
+        for pid_to_kill in (self.firecracker_pid, self.screen_pid):
+            if not pid_to_kill:
+                continue
+            try:
+                os.kill(pid_to_kill, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+            except OSError:
+                if not might_be_dead:
+                    msg = (
+                        "Failed to kill Firecracker Process. Did it already die (or did the UFFD handler process die and take it down)?"
+                        if self.uffd_handler
+                        else "Failed to kill Firecracker Process. Did it already die?"
+                    )
+                    self._dump_debug_information(msg)
+                    raise
 
-            if self.screen_pid:
-                os.kill(self.screen_pid, signal.SIGKILL)
-        except:
-            if not might_be_dead:
-                msg = (
-                    "Failed to kill Firecracker Process. Did it already die (or did the UFFD handler process die and take it down)?"
-                    if self.uffd_handler
-                    else "Failed to kill Firecracker Process. Did it already die?"
-                )
-
-                self._dump_debug_information(msg)
-
+        if self._spawned and self.firecracker_pid:
+            try:
+                utils.wait_process_termination(self.firecracker_pid)
+            except TimeoutError:
+                utils.dump_proc_state(self.firecracker_pid)
                 raise
 
         # if microvm was spawned then check if it gets killed
         if self._spawned:
-            # Wait until the Firecracker process is actually dead
-            utils.wait_process_termination(self.firecracker_pid)
-
             # The following logic guards us against the case where `firecracker_pid` for some
             # reason is the wrong PID, e.g. this is a regression test for
             # https://github.com/firecracker-microvm/firecracker/pull/4442/commits/d63eb7a65ffaaae0409d15ed55d99ecbd29bc572
@@ -386,6 +390,9 @@ class Microvm:
 
         if self.uffd_handler and self.uffd_handler.is_running():
             self.uffd_handler.kill()
+
+        if self.api:
+            self.api.session.close()
 
         # Mark the microVM as not spawned, so we avoid trying to kill twice.
         self._spawned = False

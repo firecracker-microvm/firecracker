@@ -181,7 +181,7 @@ paths:
           schema:
             $ref: "#/definitions/BalloonStartCmd"
       responses:
-        200:
+        204:
           description: Free page hinting run started.
         400:
           description: The balloon free hinting was not enabled when the device was configured.
@@ -215,7 +215,7 @@ paths:
       summary: Stops a free page hinting run only if enabled pre-boot.
       operationId: stopBalloonHinting
       responses:
-        200:
+        204:
           description: Free page hinting run stopped.
         400:
           description: The balloon free hinting was not enabled when the device was configured.

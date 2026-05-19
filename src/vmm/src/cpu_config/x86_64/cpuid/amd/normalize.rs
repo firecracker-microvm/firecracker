@@ -214,7 +214,7 @@ impl super::AmdCpuid {
         /// This value allows at most 64 logical threads within a package.
         const THREAD_ID_MAX_SIZE: u32 = 7;
 
-        // We don't support more then 128 threads right now.
+        // We don't support more than 128 threads right now.
         // It's safe to put them all on the same processor.
         let leaf_80000008 = self
             .get_mut(&CpuidKey::leaf(0x80000008))

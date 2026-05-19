@@ -57,7 +57,7 @@ pub enum SnapshotError {
     InvalidFormatVersion(Version),
     /// Magic value does not match arch: {0}
     InvalidMagic(u64),
-    /// An error occured during bitcode serialization: {0}
+    /// An error occurred during bitcode serialization: {0}
     Bitcode(#[from] bitcode::Error),
     /// IO Error: {0}
     Io(#[from] std::io::Error),
@@ -206,7 +206,7 @@ impl<Data: DeserializeOwned> Snapshot<Data> {
         let computed_checksum = crc64(0, buf.as_slice());
         // When we read the entire file, we also read the checksum into the buffer. The CRC has the
         // property that crc(0, buf.as_slice()) == 0 iff the last 8 bytes of buf are the checksum
-        // of all the preceeding bytes, and this is the property we are using here.
+        // of all the preceding bytes, and this is the property we are using here.
         if computed_checksum != 0 {
             return Err(SnapshotError::Crc64);
         }
@@ -250,9 +250,6 @@ mod tests {
         // Use a Vec<u8> that can grow as needed
         let mut snapshot_data = Vec::new();
         snapshot.save(&mut snapshot_data).unwrap();
-
-        // Debug: print the length to understand what's happening
-        println!("Snapshot data length: {}", snapshot_data.len());
 
         assert_eq!(
             get_format_version(&mut std::io::Cursor::new(&snapshot_data)).unwrap(),
