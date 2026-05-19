@@ -860,7 +860,7 @@ class Microvm:
         if boot_args is not None:
             self.boot_args = boot_args
         else:
-            self.boot_args = "reboot=k panic=1 nomodule swiotlb=noforce console=ttyS0"
+            self.boot_args = "reboot=k panic=1 nomodule swiotlb=noforce console=ttyS0 cryptomgr.notests"
             if not self.pci_enabled:
                 self.boot_args += " pci=off"
         boot_source_args = {

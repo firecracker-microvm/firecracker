@@ -1177,7 +1177,7 @@ cmd_sh() {
 cmd_sandbox() {
     cmd_build --release
     cmd_ensure_current_artifacts
-    cmd_sh "tmux new env PYTEST_ADDOPTS=--pdbcls=IPython.terminal.debugger:TerminalPdb PYTHONPATH=tests IPYTHONDIR=\$PWD/.ipython ipython -i ./tools/sandbox.py $@"
+    cmd_sh "tmux new env HOST_FC_ROOT_DIR=$FC_ROOT_DIR PYTEST_ADDOPTS=--pdbcls=IPython.terminal.debugger:TerminalPdb PYTHONPATH=tests IPYTHONDIR=\$PWD/.ipython ipython -i ./tools/sandbox.py $@"
     cmd_fix_perms ".ipython"
 }
 
