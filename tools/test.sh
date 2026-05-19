@@ -36,7 +36,8 @@ if [ "${FC_TEST_SKIP_ARTIFACT_COPY:-}" = "1" ]; then
   say "Skipping artifact copy (FC_TEST_SKIP_ARTIFACT_COPY=1)"
 elif [ -f build/current_artifacts ]; then
   say "Copy artifacts to /srv/test_artifacts, so hardlinks work"
-  cp -ruvfL $(cat build/current_artifacts) /srv/test_artifacts
+  rm -rf /srv/test_artifacts/*
+  cp -rvfL $(cat build/current_artifacts)/. /srv/test_artifacts/
 else
   # The directory must exist for pytest to function
   mkdir -p /srv/test_artifacts

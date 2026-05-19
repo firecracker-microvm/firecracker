@@ -10,16 +10,17 @@ Run Firecracker in an IPython REPL
 
 import argparse
 import json
+import os
 import re
 from pathlib import Path
 
 import host_tools.cargo_build as build_tools
 from framework.artifacts import disks, kernels
-from framework.defs import DEFAULT_BINARY_DIR
+from framework.defs import DEFAULT_BINARY_DIR, FC_WORKSPACE_DIR
 from framework.microvm import MicroVMFactory
 
 kernels = list(kernels("vmlinux-*"))
-rootfs = list(disks("ubuntu*ext4"))
+rootfs = list(disks("*.ext4"))
 
 
 def parse_byte_size(param):
@@ -35,20 +36,51 @@ def parse_byte_size(param):
     return int(match.group("val")) * unit[match.group("unit")]
 
 
+def translate_host_path(p):
+    """Rewrite a host path under HOST_FC_ROOT_DIR to its /firecracker/... equivalent."""
+    if p is None:
+        return None
+    host_root = os.environ.get("HOST_FC_ROOT_DIR")
+    if not host_root:
+        return Path(p)
+    p = Path(p).resolve()
+    if p.is_relative_to(host_root):
+        return FC_WORKSPACE_DIR / p.relative_to(host_root)
+    if p.exists():
+        return p
+    raise SystemExit(
+        f"{p} not found in container and not under host workspace {host_root}."
+    )
+
+
+def pick_default_rootfs(candidates):
+    """Default to AL2023, falling back to Ubuntu, then any rootfs available."""
+    if not candidates:
+        return None
+    for prefix in ("amazonlinux-", "ubuntu-"):
+        matches = [c for c in candidates if c.name.startswith(prefix)]
+        if matches:
+            return matches[-1]
+    return candidates[-1]
+
+
+default_rootfs = pick_default_rootfs(rootfs)
+default_kernel = kernels[-1] if kernels else None
+
 parser = argparse.ArgumentParser()
 parser.add_argument(
     "--kernel",
     type=Path,
-    choices=kernels,
-    default=kernels[-1],
-    help=f"Kernel to use. [{kernels[-1]}]",
+    default=default_kernel,
+    help=f"Kernel to use. Default: {default_kernel}. "
+    f"Available: {[k.name for k in kernels]}",
 )
 parser.add_argument(
     "--rootfs",
     type=Path,
-    choices=rootfs,
-    default=rootfs[-1],
-    help=f"Rootfs to use. [{rootfs[-1]}]",
+    default=default_rootfs,
+    help=f"Rootfs to use. Default: {default_rootfs}. "
+    f"Available: {[r.name for r in rootfs]}",
 )
 parser.add_argument("--vcpus", type=int, default=2)
 parser.add_argument(
@@ -66,7 +98,16 @@ parser.add_argument(
     "--gdb", action="store_true", default=False, help="Connect to Firecracker guest GDB"
 )
 args = parser.parse_args()
+args.kernel = translate_host_path(args.kernel)
+args.rootfs = translate_host_path(args.rootfs)
+args.binary_dir = translate_host_path(args.binary_dir)
+args.cpu_template_path = translate_host_path(args.cpu_template_path)
 print(args)
+
+if args.kernel is None:
+    raise SystemExit("No kernel found and --kernel was not provided.")
+if args.rootfs is None:
+    raise SystemExit("No rootfs found and --rootfs was not provided.")
 
 binary_dir = None
 if args.binary_dir:
@@ -81,7 +122,7 @@ else:
 
 cpu_template = None
 if args.cpu_template_path is not None:
-    cpu_template = json.loads(args.cpu_template_path.read_text())
+    cpu_template = json.loads(args.cpu_template_path.read_text("utf-8"))
 vmfcty = MicroVMFactory(binary_dir)
 
 if args.debug or args.gdb:

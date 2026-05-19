@@ -140,7 +140,7 @@ impl MmdsNetworkStack {
     ///
     /// # Returns
     ///
-    /// `true` if the frame was consumed by `mmds` or `false` if an error occured
+    /// `true` if the frame was consumed by `mmds` or `false` if an error occurred
     pub fn detour_frame(&mut self, src: &[u8]) -> bool {
         if let Ok(eth) = EthernetFrame::from_bytes(src) {
             match eth.ethertype() {

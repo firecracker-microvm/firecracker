@@ -10,6 +10,8 @@ import termios
 import time
 from pathlib import Path
 
+import pytest
+
 from framework import utils
 from framework.microvm import Serial
 
@@ -57,6 +59,8 @@ def test_serial_after_snapshot(uvm_plain, microvm_factory):
     assert "/root" in res
 
 
+# The VM can become unresponsive in the test due to the interrupt storm .
+@pytest.mark.flaky(reruns=2)
 def test_serial_active_tx_snapshot(uvm_plain, microvm_factory):
     """
     Snapshot a guest that is actively transmitting on the serial console and

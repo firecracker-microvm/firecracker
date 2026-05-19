@@ -3,14 +3,12 @@
 """Generic utility functions that are used in the framework."""
 
 import base64
-import errno
 import hashlib
 import json
 import logging
 import os
 import platform
 import re
-import select
 import signal
 import subprocess
 import time
@@ -377,46 +375,156 @@ def run_guest_cmd(ssh_connection, cmd, expected, use_json=False):
     assert stdout == expected
 
 
-def get_process_pidfd(pid):
-    """Get a pidfd file descriptor for the process with PID `pid`
+def dump_proc_state(pid):
+    """Log diagnostic info for a process that failed to exit after SIGKILL."""
+    log = logging.getLogger(__name__)
 
-    Will return a pid file descriptor for the process with PID `pid` if it is
-    still alive. If the process has already exited we will receive either a
-    `ProcessLookupError` exception or and an `OSError` exception with errno `EINVAL`.
-    In these cases, we will return `None`.
-
-    Any other error while calling the system call, will raise an OSError
-    exception.
-    """
+    # Confirm we can still see this PID at all (catches namespace issues).
     try:
-        pidfd = os.pidfd_open(pid)
+        os.kill(pid, 0)
+        log.error("Process %d kill -0: still visible", pid)
     except ProcessLookupError:
-        return None
+        log.error("Process %d kill -0: ESRCH (gone or invisible from sender)", pid)
+        return
     except OSError as err:
-        if err.errno == errno.EINVAL:
-            return None
+        log.error("Process %d kill -0: errno=%d (%s)", pid, err.errno, err.strerror)
 
-        raise
+    try:
+        status = Path(f"/proc/{pid}/status").read_text(encoding="utf-8")
+        log.error(
+            "Process %d did not exit after SIGKILL. /proc/%d/status:\n%s",
+            pid,
+            pid,
+            status,
+        )
+    except FileNotFoundError:
+        log.error("Process %d exited between timeout and diagnostics collection", pid)
+        return
+    try:
+        cmdline = Path(f"/proc/{pid}/cmdline").read_bytes().decode(errors="replace")
+        log.error("Process %d cmdline: %s", pid, cmdline.replace("\x00", " "))
+    except (FileNotFoundError, PermissionError):
+        pass
+    # /proc/PID/stat field 41 = exit_state (non-zero = task in exit path)
+    try:
+        stat = Path(f"/proc/{pid}/stat").read_text(encoding="utf-8").strip()
+        # comm in stat is parenthesized and may contain spaces; split after last ')'
+        rest = stat.rsplit(")", 1)[1].split()
+        # field indexing per proc(5): pid(1) comm(2) state(3) ppid(4) ...
+        # rest[0] is field 3 onwards. exit_state is field 41 → rest[38]
+        if len(rest) > 38:
+            log.error("Process %d exit_state (stat[41]): %s", pid, rest[38])
+    except (FileNotFoundError, PermissionError, IndexError, ValueError):
+        pass
+    # /proc/PID/sched scheduling stats (voluntary_ctxt_switches etc.)
+    try:
+        sched = Path(f"/proc/{pid}/sched").read_text(encoding="utf-8")
+        relevant = [
+            line
+            for line in sched.splitlines()
+            if any(
+                k in line for k in ("voluntary", "exec_runtime", "wait_sum", "switches")
+            )
+        ]
+        if relevant:
+            log.error("Process %d sched:\n%s", pid, "\n".join(relevant))
+    except (FileNotFoundError, PermissionError):
+        pass
+    # Per-thread state: identify which thread is stuck
+    try:
+        tids = sorted(int(t) for t in os.listdir(f"/proc/{pid}/task"))
+    except FileNotFoundError:
+        return
+    for tid in tids:
+        for fname in ("comm", "wchan", "syscall", "stack"):
+            try:
+                content = (
+                    Path(f"/proc/{pid}/task/{tid}/{fname}")
+                    .read_text(encoding="utf-8", errors="replace")
+                    .strip()
+                )
+                log.error("Process %d task %d %s:\n%s", pid, tid, fname, content)
+            except (FileNotFoundError, PermissionError):
+                pass
+        try:
+            tstatus = Path(f"/proc/{pid}/task/{tid}/status").read_text(encoding="utf-8")
+            for line in tstatus.splitlines():
+                if line.startswith(("State:", "SigBlk:", "SigPnd:", "ShdPnd:")):
+                    log.error("Process %d task %d %s", pid, tid, line.strip())
+        except (FileNotFoundError, PermissionError):
+            pass
 
-    return pidfd
+    # Tail of dmesg may show RCU stalls, hung_task, OOM, soft lockups.
+    try:
+        result = subprocess.run(
+            ["dmesg", "--ctime", "--time-format", "iso"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+            check=False,
+        )
+        tail = "\n".join(result.stdout.splitlines()[-50:])
+        if tail:
+            log.error("dmesg tail (last 50 lines):\n%s", tail)
+    except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
+        pass
+
+    # All processes parented to our test session (the subreaper) — reveals
+    # any sibling processes (UFFD handlers, vhost-user backends, leftover FCs)
+    # that might be keeping the stuck FC's resources alive.
+    try:
+        result = subprocess.run(
+            ["ps", "axo", "pid,ppid,pgid,sid,stat,wchan,comm"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+            check=False,
+        )
+        own_pid = os.getpid()
+        related = [result.stdout.splitlines()[0]]
+        for line in result.stdout.splitlines()[1:]:
+            fields = line.split(maxsplit=6)
+            if len(fields) < 2:
+                continue
+            try:
+                ppid = int(fields[1])
+            except ValueError:
+                continue
+            if ppid in (own_pid, pid):
+                related.append(line)
+        if len(related) > 1:
+            log.error(
+                "Processes parented to test worker %d or stuck FC %d:\n%s",
+                own_pid,
+                pid,
+                "\n".join(related),
+            )
+    except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
+        pass
 
 
-def wait_process_termination(p_pid):
-    """Wait for a process to terminate.
+def wait_process_termination(p_pid, timeout=10.0):
+    """Wait for a process to terminate via waitpid().
 
-    Will return successfully if the process
-    got indeed killed or raises an exception if the process
-    is still alive after retrying several times.
+    Requires the test session to be a subreaper (set via PR_SET_CHILD_SUBREAPER
+    in conftest.py) so orphaned descendants reparent to us. Polls with WNOHANG
+    so we can enforce a timeout.
+
+    Returns successfully if the process exits within `timeout` seconds.
+    Raises TimeoutError if it does not.
     """
-    pidfd = get_process_pidfd(p_pid)
-
-    # If pidfd is None the process has already terminated
-    if pidfd is not None:
-        epoll = select.epoll()
-        epoll.register(pidfd, select.EPOLLIN)
-        # This will return once the process exits
-        epoll.poll()
-        os.close(pidfd)
+    deadline = time.time() + timeout
+    while True:
+        try:
+            pid, _status = os.waitpid(p_pid, os.WNOHANG)
+        except ChildProcessError:
+            # Process is not our child (already reaped, or never reparented to us).
+            return
+        if pid == p_pid:
+            return
+        if time.time() >= deadline:
+            raise TimeoutError(f"Process {p_pid} did not exit within {timeout}s")
+        time.sleep(0.05)
 
 
 def get_firecracker_version_from_toml():
