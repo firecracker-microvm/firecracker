@@ -724,7 +724,7 @@ get_kvm_refcount() {
 }
 
 # Reload KVM modules with the given vendor module and kvm params.
-# Always enables avic=1 on AMD. Unloads first if already loaded.
+# Unloads first if already loaded.
 # Usage: reload_kvm_modules <vendor_mod> [kvm_param...]
 #   e.g. reload_kvm_modules kvm_intel nx_huge_pages=never
 reload_kvm_modules() {
@@ -742,16 +742,9 @@ reload_kvm_modules() {
         say_warn "Failed to load kvm module"
         return 1
     fi
-    if [[ $vendor_mod == "kvm_amd" ]]; then
-        if ! sudo modprobe kvm_amd avic=1; then
-            say_warn "Failed to load kvm_amd module"
-            return 1
-        fi
-    else
-        if ! sudo modprobe $vendor_mod; then
-            say_warn "Failed to load $vendor_mod module"
-            return 1
-        fi
+    if ! sudo modprobe $vendor_mod; then
+        say_warn "Failed to load $vendor_mod module"
+        return 1
     fi
 }
 
@@ -771,7 +764,6 @@ kvm_vendor_mod() {
 # - Loads KVM modules if not present
 # - On Linux 6.1 x86_64: applies nx_huge_pages=never for non-vulnerable CPUs,
 #   checks favordynmods for vulnerable ones
-# - On AMD: ensures AVIC is enabled
 #
 # Expected to be called while holding a shared lock on KVM_MODULE_LOCKFILE
 # (fd 9). If kvm reload is required, shared lock is temporary upgraded to
@@ -811,15 +803,6 @@ setup_kvm() {
         fi
     fi
 
-    # AMD: ensure AVIC is enabled
-    local avic_param=/sys/module/kvm_amd/parameters/avic
-    if [[ $vendor_mod == "kvm_amd" ]]; then
-        if ! grep -q "Y\|1" $avic_param; then
-            echo "AVIC not enabled, will reload kvm_amd with avic=1"
-            need_kvm_reload=1
-        fi
-    fi
-
     if [[ $need_kvm_reload -eq 1 ]]; then
         local refcount
         refcount=$(get_kvm_refcount "$vendor_mod")
@@ -836,9 +819,6 @@ setup_kvm() {
     fi
 
     tail -v $itlb_multihit $nx_huge_pages
-    if [[ $vendor_mod == "kvm_amd" ]]; then
-        tail -v $avic_param
-    fi
 
     [[ -c /dev/kvm ]] || die "/dev/kvm not found. Aborting."
 }
