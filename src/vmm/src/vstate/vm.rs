@@ -886,15 +886,11 @@ pub(crate) mod tests {
         vm.setup_irqchip(1).unwrap();
     }
 
-    fn create_msix_group(vm: &Arc<KvmVm>) -> MsixVectorGroup {
-        KvmVm::create_msix_group(vm.clone(), 4).unwrap()
-    }
-
     #[test]
     fn test_msi_vector_group_new() {
         let vm = setup_vm_with_memory(mib_to_bytes(128));
         let vm = Arc::new(vm);
-        let msix_group = create_msix_group(&vm);
+        let msix_group = KvmVm::create_msix_group(vm.clone(), 4).unwrap();
         assert_eq!(msix_group.num_vectors(), 4);
     }
 
@@ -903,7 +899,7 @@ pub(crate) mod tests {
         let mut vm = setup_vm_with_memory(mib_to_bytes(128));
         enable_irqchip(&mut vm);
         let vm = Arc::new(vm);
-        let msix_group = create_msix_group(&vm);
+        let msix_group = KvmVm::create_msix_group(vm.clone(), 4).unwrap();
 
         // Initially all vectors are disabled
         for route in &msix_group.vectors {
@@ -932,7 +928,7 @@ pub(crate) mod tests {
         enable_irqchip(&mut vm);
 
         let vm = Arc::new(vm);
-        let msix_group = create_msix_group(&vm);
+        let msix_group = KvmVm::create_msix_group(vm.clone(), 4).unwrap();
 
         // We can now trigger all vectors
         for i in 0..4 {
@@ -947,7 +943,7 @@ pub(crate) mod tests {
     fn test_msi_vector_group_notifier() {
         let vm = setup_vm_with_memory(mib_to_bytes(128));
         let vm = Arc::new(vm);
-        let msix_group = create_msix_group(&vm);
+        let msix_group = KvmVm::create_msix_group(vm.clone(), 4).unwrap();
 
         for i in 0..4 {
             assert!(msix_group.notifier(i).is_some());
@@ -961,7 +957,7 @@ pub(crate) mod tests {
         let mut vm = setup_vm_with_memory(mib_to_bytes(128));
         enable_irqchip(&mut vm);
         let vm = Arc::new(vm);
-        let msix_group = create_msix_group(&vm);
+        let msix_group = KvmVm::create_msix_group(vm.clone(), 4).unwrap();
         let config = MsixVectorConfig {
             high_addr: 0x42,
             low_addr: 0x12,
@@ -978,7 +974,7 @@ pub(crate) mod tests {
         enable_irqchip(&mut vm);
         let vm = Arc::new(vm);
         assert!(vm.common.interrupts.lock().unwrap().is_empty());
-        let msix_group = create_msix_group(&vm);
+        let msix_group = KvmVm::create_msix_group(vm.clone(), 4).unwrap();
 
         // Set some configuration for the vectors. Initially all are masked
         let mut config = MsixVectorConfig {
@@ -1053,7 +1049,7 @@ pub(crate) mod tests {
         let mut vm = setup_vm_with_memory(mib_to_bytes(128));
         enable_irqchip(&mut vm);
         let vm = Arc::new(vm);
-        let msix_group = create_msix_group(&vm);
+        let msix_group = KvmVm::create_msix_group(vm.clone(), 4).unwrap();
 
         msix_group.enable().unwrap();
         let state = msix_group.save();
@@ -1091,7 +1087,7 @@ pub(crate) mod tests {
         // Allocating, configuring and dropping a group must leave the allocator and the routing
         // table in the same state as before.
         {
-            let group = create_msix_group(&vm);
+            let group = KvmVm::create_msix_group(vm.clone(), 4).unwrap();
             let config = MsixVectorConfig {
                 high_addr: 0x42,
                 low_addr: 0x13,
