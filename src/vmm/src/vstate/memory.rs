@@ -22,7 +22,8 @@ pub use vm_memory::{
     GuestUsize, MemoryRegionAddress, MmapRegion, address,
 };
 use vm_memory::{GuestMemoryError, GuestMemoryRegionBytes, VolatileSlice, WriteVolatile};
-use vmm_sys_util::errno;
+use vmm_sys_util::fallocate::FallocateMode;
+use vmm_sys_util::{errno, fallocate};
 
 use crate::utils::{get_page_size, u64_to_usize, usize_to_u64};
 use crate::vmm_config::machine_config::HugePageConfig;
@@ -411,8 +412,7 @@ impl GuestRegionMmapExt {
 
         let phys_address = self.get_host_address(caddr)?;
         match (self.inner.file_offset(), self.inner.flags()) {
-            // If and only if we are resuming from a snapshot file, we have a file and it's mapped
-            // private
+            // If we are resuming from a snapshot file, we have a file and it's mapped private
             (Some(_), flags) if flags & libc::MAP_PRIVATE != 0 => {
                 // Mmap a new anonymous region over the present one in order to create a hole
                 // with zero pages.
@@ -440,12 +440,29 @@ impl GuestRegionMmapExt {
                     Ok(())
                 }
             }
-            // Match either the case of an anonymous mapping, or the case
-            // of a shared file mapping.
-            // TODO: madvise(MADV_DONTNEED) doesn't actually work with memfd
-            // (or in general MAP_SHARED of a fd). In those cases we should use
-            // fallocate64(FALLOC_FL_PUNCH_HOLE|FALLOC_FL_KEEP_SIZE).
-            // We keep falling to the madvise branch to keep the previous behaviour.
+            // If we back memory over memfd we have a file mapped shared.
+            (Some(file_offset), flags) if flags & libc::MAP_SHARED != 0 => {
+                let Some(offset) = file_offset.start().checked_add(caddr.raw_value()) else {
+                    return Err(GuestMemoryError::InvalidGuestAddress(GuestAddress(
+                        caddr.raw_value(),
+                    )));
+                };
+
+                fallocate::fallocate(
+                    file_offset.file(),
+                    FallocateMode::PunchHole,
+                    true,
+                    offset,
+                    usize_to_u64(len),
+                )
+                .map_err(|err| {
+                    error!("discard_range: punching hole failed: {err:?}");
+                    GuestMemoryError::IOError(err.into())
+                })?;
+
+                Ok(())
+            }
+            // Anonymous mapping.
             _ => {
                 // Madvise the region in order to mark it as not used.
                 // SAFETY: The address and length are known to be valid.
@@ -893,7 +910,7 @@ mod tests {
 
     use super::*;
     use crate::snapshot::Snapshot;
-    use crate::test_utils::single_region_mem;
+    use crate::test_utils::{multi_region_mem_memfd, single_region_mem};
     use crate::utils::{get_page_size, mib_to_bytes};
     use crate::vstate::memory::test_utils::into_region_ext;
 
@@ -1480,6 +1497,77 @@ mod tests {
                 .unwrap_err(),
             GuestMemoryError::IOError(_)
         );
+    }
+
+    fn check_mem_contents(mem: &GuestMemoryMmap, offset: usize, expected: &[u8]) {
+        let addr = GuestAddress(usize_to_u64(offset));
+        let mut actual_page = vec![0u8; expected.len()];
+        mem.read(actual_page.as_mut_slice(), addr).unwrap();
+        assert_eq!(actual_page, expected);
+    }
+
+    fn test_discard_range_on_memfd(huge_pages: HugePageConfig) {
+        // 8MiB of memory in total (multiples of both possible page sizes)
+        const REGION_SIZE: usize = 4 * 1024 * 1024;
+
+        let (mem, _file) = multi_region_mem_memfd(
+            &[
+                (GuestAddress(0), REGION_SIZE),
+                (GuestAddress(usize_to_u64(REGION_SIZE)), REGION_SIZE),
+            ],
+            huge_pages,
+        );
+
+        let page_size = huge_pages.page_size();
+
+        // Fill up memory with 1s
+        let ones = vec![1u8; 2 * REGION_SIZE];
+        mem.write(&ones, GuestAddress(0)).unwrap();
+
+        check_mem_contents(&mem, 0, &vec![1u8; 2 * REGION_SIZE]);
+
+        // Discard the entire first region
+        mem.discard_range(GuestAddress(0), REGION_SIZE).unwrap();
+        check_mem_contents(&mem, 0, &vec![0u8; REGION_SIZE]);
+        check_mem_contents(&mem, REGION_SIZE, &vec![1u8; REGION_SIZE]);
+
+        // discard_range() works on page granularity. Discard the first page of the second region.
+        mem.discard_range(GuestAddress(usize_to_u64(REGION_SIZE)), page_size)
+            .unwrap();
+        check_mem_contents(&mem, REGION_SIZE, &vec![0u8; page_size]);
+        check_mem_contents(
+            &mem,
+            REGION_SIZE + page_size,
+            &vec![1u8; REGION_SIZE - page_size],
+        );
+
+        // discard_range() won't actually work with unaligned regions
+
+        // Try to discard less than a page
+        mem.discard_range(GuestAddress(usize_to_u64(REGION_SIZE + page_size)), 1024)
+            .unwrap_err();
+        mem.discard_range(
+            GuestAddress(usize_to_u64(REGION_SIZE + page_size)),
+            page_size + 1024,
+        )
+        .unwrap_err();
+
+        // Try to discard unaligned address
+        mem.discard_range(
+            GuestAddress(usize_to_u64(REGION_SIZE + page_size + 1024)),
+            page_size,
+        )
+        .unwrap_err();
+    }
+
+    #[test]
+    fn test_discard_range_on_memfd_4k() {
+        test_discard_range_on_memfd(HugePageConfig::None)
+    }
+
+    #[test]
+    fn test_discard_range_on_memfd_2m() {
+        test_discard_range_on_memfd(HugePageConfig::Hugetlbfs2M)
     }
 
     /// Verifies that `slots_intersecting_range` returns the correct slots for

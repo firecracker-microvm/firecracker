@@ -3,6 +3,7 @@
 
 #![allow(missing_docs)]
 
+use std::fs::File;
 use std::sync::{Arc, Mutex};
 
 use vm_memory::{GuestAddress, GuestRegionCollection};
@@ -51,6 +52,22 @@ pub fn multi_region_mem(regions: &[(GuestAddress, usize)]) -> GuestMemoryMmap {
             .collect(),
     )
     .unwrap()
+}
+
+/// Creates a [`GuestMemoryMmap`] with multiple regions and without dirty page tracking.
+pub fn multi_region_mem_memfd(
+    regions: &[(GuestAddress, usize)],
+    huge_page_cfg: HugePageConfig,
+) -> (GuestMemoryMmap, Arc<File>) {
+    let (reg, file) = memory::memfd_backed(regions, false, huge_page_cfg).unwrap();
+    let mem = GuestRegionCollection::from_regions(
+        reg.into_iter()
+            .map(|region| GuestRegionMmapExt::dram_from_mmap_region(region, 0))
+            .collect(),
+    )
+    .unwrap();
+
+    (mem, file)
 }
 
 pub fn multi_region_mem_raw(regions: &[(GuestAddress, usize)]) -> Vec<GuestRegionMmap> {
