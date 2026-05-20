@@ -16,6 +16,7 @@ In order to test the vsock device connection state machine, these tests will:
 import os.path
 import subprocess
 import time
+from contextlib import ExitStack
 from pathlib import Path
 from socket import timeout as SocketTimeout
 
@@ -85,15 +86,17 @@ def negative_test_host_connections(vm, blob_path, blob_hash):
 
     uds_path = start_guest_echo_server(vm)
 
-    workers = []
-    for _ in range(NEGATIVE_TEST_CONNECTION_COUNT):
-        worker = HostEchoWorker(uds_path, blob_path)
-        workers.append(worker)
-        worker.start()
+    with ExitStack() as stack:
+        workers = [
+            stack.enter_context(HostEchoWorker(uds_path, blob_path))
+            for _ in range(NEGATIVE_TEST_CONNECTION_COUNT)
+        ]
+        for wrk in workers:
+            wrk.start()
 
-    for wrk in workers:
-        wrk.close_uds()
-        wrk.join()
+        for wrk in workers:
+            wrk.close_uds()
+            wrk.join()
 
     # Validate that guest is still up and running.
     # Should fail if Firecracker exited from SIGPIPE handler.
@@ -174,40 +177,42 @@ def test_vsock_transport_reset_h2g(
     path = start_guest_echo_server(test_vm)
 
     # Start host workers that connect to the guest server.
-    workers = []
-    for _ in range(TEST_WORKER_COUNT):
-        worker = HostEchoWorker(path, blob_path)
-        workers.append(worker)
-        worker.start()
+    with ExitStack() as stack:
+        workers = [
+            stack.enter_context(HostEchoWorker(path, blob_path))
+            for _ in range(TEST_WORKER_COUNT)
+        ]
+        for wrk in workers:
+            wrk.start()
 
-    for wrk in workers:
-        wrk.join()
+        for wrk in workers:
+            wrk.join()
 
-    # Create snapshot.
-    snapshot = test_vm.snapshot_full()
-    test_vm.resume()
+        # Create snapshot.
+        snapshot = test_vm.snapshot_full()
+        test_vm.resume()
 
-    # Check that sockets are no longer working on workers.
-    for worker in workers:
-        # Whatever we send to the server, it should return the same
-        # value.
-        buf = bytearray("TEST\n".encode("utf-8"))
-        try:
-            worker.sock.send(buf)
-            # Arbitrary timeout, we set this so the socket won't block as
-            # it shouldn't receive anything.
-            worker.sock.settimeout(0.25)
-            response = worker.sock.recv(32)
-            assert (
-                response == b""
-            ), f"Connection not closed: response received '{response.decode('utf-8')}'"
-        except (SocketTimeout, ConnectionResetError, BrokenPipeError):
-            pass
+        # Check that sockets are no longer working on workers.
+        for worker in workers:
+            # Whatever we send to the server, it should return the same
+            # value.
+            buf = bytearray("TEST\n".encode("utf-8"))
+            try:
+                worker.sock.send(buf)
+                # Arbitrary timeout, we set this so the socket won't block as
+                # it shouldn't receive anything.
+                worker.sock.settimeout(0.25)
+                response = worker.sock.recv(32)
+                assert (
+                    response == b""
+                ), f"Connection not closed: response received '{response.decode('utf-8')}'"
+            except (SocketTimeout, ConnectionResetError, BrokenPipeError):
+                pass
 
-    # Terminate VM.
-    metrics = test_vm.flush_metrics()
-    validate_fc_metrics(metrics)
-    test_vm.kill()
+        # Terminate VM.
+        metrics = test_vm.flush_metrics()
+        validate_fc_metrics(metrics)
+        test_vm.kill()
 
     # Load snapshot.
     vm2 = microvm_factory.build_from_snapshot(snapshot)
