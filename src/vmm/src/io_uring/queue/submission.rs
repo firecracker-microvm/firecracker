@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use std::fmt::Debug;
-use std::io::Error as IOError;
+use std::io::{Error as IOError, ErrorKind};
 use std::mem;
 use std::num::Wrapping;
 use std::os::unix::io::RawFd;
@@ -130,26 +130,39 @@ impl SubmissionQueue {
         if min_complete > 0 {
             flags |= generated::IORING_ENTER_GETEVENTS;
         }
-        // SAFETY: Safe because values are valid and we check the return value.
-        let submitted = SyscallReturnCode(unsafe {
-            libc::syscall(
-                libc::SYS_io_uring_enter,
-                self.io_uring_fd,
-                self.to_submit,
-                min_complete,
-                flags,
-                std::ptr::null::<libc::sigset_t>(),
-            )
-        })
-        .into_result()?;
-        // It's safe to convert to u32 since the syscall didn't return an error.
-        let submitted = u32::try_from(submitted).unwrap();
 
-        // This is safe since submitted <= self.to_submit. However we use a saturating_sub
-        // for extra safety.
-        self.to_submit = self.to_submit.saturating_sub(submitted);
-
-        Ok(submitted)
+        // The number of retries is completely arbitrary here. I assume that this
+        // will happen rarely and that if it happens subsequent retry will immediately
+        // succeed. If we fall in a storm of interrupts something else is probably wrong
+        // so let the consumer know.
+        let mut eintr_retries = 3;
+        loop {
+            // SAFETY: Safe because values are valid and we check the return value.
+            let ret = SyscallReturnCode(unsafe {
+                libc::syscall(
+                    libc::SYS_io_uring_enter,
+                    self.io_uring_fd,
+                    self.to_submit,
+                    min_complete,
+                    flags,
+                    std::ptr::null::<libc::sigset_t>(),
+                )
+            })
+            .into_result();
+            match ret {
+                Ok(num) => {
+                    // It's safe to convert to u32 since the syscall didn't return an error.
+                    let submitted = u32::try_from(num).unwrap();
+                    self.to_submit = self.to_submit.saturating_sub(submitted);
+                    return Ok(submitted);
+                }
+                Err(err) if err.kind() == ErrorKind::Interrupted && eintr_retries > 0 => {
+                    eintr_retries -= 1;
+                    continue;
+                }
+                Err(err) => return Err(SQueueError::from(err)),
+            }
+        }
     }
 
     fn mmap(
