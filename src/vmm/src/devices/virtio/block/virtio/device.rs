@@ -620,14 +620,8 @@ impl VirtioDevice for VirtioBlock {
             .deref()
     }
 
-    fn read_config(&self, offset: u64, data: &mut [u8]) {
-        if let Some(config_space_bytes) = self.config_space.as_slice().get(u64_to_usize(offset)..) {
-            let len = config_space_bytes.len().min(data.len());
-            data[..len].copy_from_slice(&config_space_bytes[..len]);
-        } else {
-            error!("Failed to read config space");
-            self.metrics.cfg_fails.inc();
-        }
+    fn config_as_bytes(&self) -> &[u8] {
+        self.config_space.as_slice()
     }
 
     fn write_config(&mut self, offset: u64, data: &[u8]) {
@@ -817,28 +811,14 @@ mod tests {
     }
 
     #[test]
-    fn test_virtio_read_config() {
+    fn test_config_as_bytes() {
         for engine in [FileEngineType::Sync, FileEngineType::Async] {
             let block = default_block(engine);
 
-            let mut actual_config_space = ConfigSpace::default();
-            block.read_config(0, actual_config_space.as_mut_slice());
-            // This will read the number of sectors.
+            let config = block.config_as_bytes();
             // The block's backing file size is 0x1000, so there are 8 (4096/512) sectors.
-            // The config space is little endian.
             let expected_config_space = ConfigSpace { capacity: 8 };
-            assert_eq!(actual_config_space, expected_config_space);
-
-            // Invalid read.
-            let expected_config_space = ConfigSpace { capacity: 696969 };
-            actual_config_space = expected_config_space;
-            block.read_config(
-                std::mem::size_of::<ConfigSpace>() as u64 + 1,
-                actual_config_space.as_mut_slice(),
-            );
-
-            // Validate read failed (the config space was not updated).
-            assert_eq!(actual_config_space, expected_config_space);
+            assert_eq!(config, expected_config_space.as_slice());
         }
     }
 

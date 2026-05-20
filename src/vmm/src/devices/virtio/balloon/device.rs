@@ -927,13 +927,8 @@ impl VirtioDevice for Balloon {
             .deref()
     }
 
-    fn read_config(&self, offset: u64, data: &mut [u8]) {
-        if let Some(config_space_bytes) = self.config_space.as_slice().get(u64_to_usize(offset)..) {
-            let len = config_space_bytes.len().min(data.len());
-            data[..len].copy_from_slice(&config_space_bytes[..len]);
-        } else {
-            error!("Failed to read config space");
-        }
+    fn config_as_bytes(&self) -> &[u8] {
+        self.config_space.as_slice()
     }
 
     fn write_config(&mut self, offset: u64, data: &[u8]) {
@@ -1183,7 +1178,7 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn test_virtio_read_config() {
+    fn test_config_as_bytes() {
         let balloon = Balloon::new(0x10, true, 0, false, false).unwrap();
 
         let cfg = BalloonConfig {
@@ -1195,29 +1190,14 @@ pub(crate) mod tests {
         };
         assert_eq!(balloon.config(), cfg);
 
-        let mut actual_config_space = [0u8; BALLOON_CONFIG_SPACE_SIZE];
-        balloon.read_config(0, &mut actual_config_space);
-        // The first 4 bytes are num_pages, the last 4 bytes are actual_pages.
-        // The config space is little endian.
-        // 0x10 MB in the constructor corresponds to 0x1000 pages in the
-        // config space.
-        let expected_config_space: [u8; BALLOON_CONFIG_SPACE_SIZE] = [
+        let config = balloon.config_as_bytes();
+        assert_eq!(config.len(), BALLOON_CONFIG_SPACE_SIZE);
+        // The first 4 bytes are num_pages (LE), the last 4 bytes are actual_pages.
+        // 0x10 MB = 0x1000 pages.
+        let expected: [u8; BALLOON_CONFIG_SPACE_SIZE] = [
             0x00, 0x10, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
         ];
-        assert_eq!(actual_config_space, expected_config_space);
-
-        // Invalid read.
-        let expected_config_space: [u8; BALLOON_CONFIG_SPACE_SIZE] = [
-            0xd, 0xe, 0xa, 0xd, 0xb, 0xe, 0xe, 0xf, 0x00, 0x00, 0x00, 0x00,
-        ];
-        actual_config_space = expected_config_space;
-        balloon.read_config(
-            BALLOON_CONFIG_SPACE_SIZE as u64 + 1,
-            &mut actual_config_space,
-        );
-
-        // Validate read failed (the config space was not updated).
-        assert_eq!(actual_config_space, expected_config_space);
+        assert_eq!(config, expected);
     }
 
     #[test]

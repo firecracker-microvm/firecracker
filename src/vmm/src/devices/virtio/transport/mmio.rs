@@ -573,8 +573,8 @@ pub(crate) mod tests {
                 .deref()
         }
 
-        fn read_config(&self, offset: u64, data: &mut [u8]) {
-            data.copy_from_slice(&self.config_bytes[u64_to_usize(offset)..]);
+        fn config_as_bytes(&self) -> &[u8] {
+            &self.config_bytes
         }
 
         fn write_config(&mut self, offset: u64, data: &[u8]) {

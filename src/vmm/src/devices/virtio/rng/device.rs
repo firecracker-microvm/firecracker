@@ -299,7 +299,9 @@ impl VirtioDevice for Entropy {
         self.acked_features = acked_features;
     }
 
-    fn read_config(&self, _offset: u64, mut _data: &mut [u8]) {}
+    fn config_as_bytes(&self) -> &[u8] {
+        &[]
+    }
 
     fn write_config(&mut self, _offset: u64, _data: &[u8]) {}
 
@@ -376,21 +378,9 @@ mod tests {
     }
 
     #[test]
-    fn test_read_config() {
+    fn test_config_as_bytes() {
         let entropy_dev = default_entropy();
-        let mut config = vec![0; 10];
-
-        entropy_dev.read_config(0, &mut config);
-        assert_eq!(config, vec![0; 10]);
-
-        entropy_dev.read_config(1, &mut config);
-        assert_eq!(config, vec![0; 10]);
-
-        entropy_dev.read_config(2, &mut config);
-        assert_eq!(config, vec![0; 10]);
-
-        entropy_dev.read_config(1024, &mut config);
-        assert_eq!(config, vec![0; 10]);
+        assert!(entropy_dev.config_as_bytes().is_empty());
     }
 
     #[test]

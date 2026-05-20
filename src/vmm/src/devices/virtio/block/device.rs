@@ -175,10 +175,10 @@ impl VirtioDevice for Block {
         }
     }
 
-    fn read_config(&self, offset: u64, data: &mut [u8]) {
+    fn config_as_bytes(&self) -> &[u8] {
         match self {
-            Self::Virtio(b) => b.read_config(offset, data),
-            Self::VhostUser(b) => b.read_config(offset, data),
+            Self::Virtio(b) => b.config_as_bytes(),
+            Self::VhostUser(b) => b.config_as_bytes(),
         }
     }
 
