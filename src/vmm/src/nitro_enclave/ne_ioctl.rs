@@ -121,6 +121,131 @@ pub struct NeAddAnyVcpuArgs {
 pub const NE_NUMA_ANY: i32 = -1;
 
 // ---------------------------------------------------------------------------
+// Device attachment structures (NE_ADD_DEVICE and notification wiring)
+// ---------------------------------------------------------------------------
+
+/// Maximum device-specific config size (matches NE_DEVICE_CONFIG_MAX_SIZE in UAPI).
+pub const NE_DEVICE_CONFIG_MAX_SIZE: usize = 256;
+
+/// Maximum virtqueues per device (matches NE_MAX_VQS in UAPI).
+pub const NE_MAX_VQS: usize = 64;
+
+/// SHM region id for Device Memory Buffer.
+pub const VIRTIO_SHMEM_ID_DMB: u8 = 2;
+
+/// Device class: standard virtio device.
+pub const NE_DEVICE_CLASS_VIRTIO: u32 = 0x0000;
+
+/// Shared memory region descriptor (userspace -> kernel).
+#[repr(C)]
+#[derive(Debug, Default, Clone, Copy)]
+pub struct NeShmRegion {
+    /// SHM region identifier.
+    pub shm_id: u8,
+    /// Reserved, must be zero.
+    pub reserved: [u8; 7],
+    /// Userspace virtual address of the mmap'd region.
+    pub userspace_addr: u64,
+    /// Size in bytes.
+    pub size: u64,
+}
+
+/// Per-VQ info returned by NE_ADD_DEVICE.
+#[repr(C)]
+#[derive(Debug, Default, Clone, Copy)]
+pub struct NeVqInfo {
+    /// MSI-X vector assigned to this VQ.
+    pub msix_vector: u16,
+    /// Notify index for this VQ.
+    pub notify_index: u16,
+    /// Opaque MSI-X table index from SM (for NE_SET_VRING_KICK).
+    pub msix_entry: u16,
+    /// Opaque BAR4 byte offset from SM (for NE_SET_VRING_CALL).
+    pub bar4_doorbell_offset: u16,
+}
+
+/// Device add request for NE_ADD_DEVICE (in/out).
+#[repr(C)]
+#[derive(Clone, Debug)]
+pub struct NeAddDevice {
+    /// Device type (class << 16 | subtype).
+    pub device_type: u32,
+    /// Number of virtqueues.
+    pub num_vqs: u32,
+    /// Size of device-specific config, in bytes.
+    pub config_size: u32,
+    /// Per-device info-event MSI-X vector (output, 0 if unsupported).
+    pub info_event_vector: u16,
+    /// Reserved field.
+    pub reserved: u16,
+    /// Virtio device feature bitmap, 512 bits.
+    pub device_features: [u8; 64],
+    /// Device-specific configuration data.
+    pub device_config: [u8; NE_DEVICE_CONFIG_MAX_SIZE],
+    /// Number of shared memory regions.
+    pub num_shm_regions: u32,
+    /// Reserved field.
+    pub reserved2: u32,
+    /// Userspace pointer to array of NeShmRegion.
+    pub shm_regions_ptr: u64,
+    /// Assigned device UID (output).
+    pub device_uid: u64,
+    /// Per-VQ info (output).
+    pub vq_info: [NeVqInfo; NE_MAX_VQS],
+}
+
+impl Default for NeAddDevice {
+    fn default() -> Self {
+        // SAFETY: NeAddDevice is #[repr(C)] and all-zero is a valid state.
+        unsafe { std::mem::zeroed() }
+    }
+}
+
+/// Wire an eventfd for parent-to-enclave (call) notifications: when the parent
+/// writes the fd, the NE driver delivers an MSI-X interrupt to the enclave guest.
+#[repr(C)]
+#[derive(Debug, Default, Clone, Copy)]
+pub struct NeVringCall {
+    /// Device UID from NE_ADD_DEVICE.
+    pub device_uid: u64,
+    /// Eventfd to signal.
+    pub fd: i32,
+    /// Opaque BAR4 byte offset (in bytes) from SM (via
+    /// `NeVqInfo::bar4_doorbell_offset`).
+    pub bar4_doorbell_offset: u16,
+    /// Reserved field.
+    pub reserved: u16,
+}
+
+/// Wire an eventfd for enclave-to-parent (kick) notifications: when the enclave
+/// guest kicks a queue, the NE driver signals the fd so the parent's device
+/// backend processes it.
+#[repr(C)]
+#[derive(Debug, Default, Clone, Copy)]
+pub struct NeVringKick {
+    /// Device UID from NE_ADD_DEVICE.
+    pub device_uid: u64,
+    /// Eventfd to signal.
+    pub fd: i32,
+    /// MSI-X vector for this VQ.
+    pub msix_vector: u16,
+    /// Reserved field.
+    pub reserved: u16,
+}
+
+/// Wire an eventfd to a per-device info-event MSI-X vector.
+#[repr(C)]
+#[derive(Debug, Default, Clone, Copy)]
+pub struct NeInfoEventFd {
+    /// Eventfd to signal on info-page change; -1 to unbind.
+    pub fd: i32,
+    /// NE device MSI-X vector index (from NeAddDevice::info_event_vector).
+    pub vector: u16,
+    /// Reserved field.
+    pub reserved: u16,
+}
+
+// ---------------------------------------------------------------------------
 // Ioctl number definitions (vmm_sys_util macros, must follow struct defs)
 // ---------------------------------------------------------------------------
 
@@ -146,8 +271,16 @@ mod ne_ioctls {
     ioctl_iowr_nr!(NE_START_ENCLAVE, NE_MAGIC, 0x24, NeEnclaveStartInfo);
     // Register a 2 MiB info page for PCIE topology mode.
     ioctl_iow_nr!(NE_SET_INFO_PAGE, NE_MAGIC, 0x25, NeInfoPage);
+    // Add a virtio device to the enclave.
+    ioctl_iowr_nr!(NE_ADD_DEVICE, NE_MAGIC, 0x26, NeAddDevice);
+    // Wire an eventfd to a BAR4 notify offset (call direction).
+    ioctl_iow_nr!(NE_SET_VRING_CALL, NE_MAGIC, 0x27, NeVringCall);
+    // Wire an NE device MSI-X vector to an eventfd (kick direction).
+    ioctl_iow_nr!(NE_SET_VRING_KICK, NE_MAGIC, 0x28, NeVringKick);
     // Read matched-flag subset the hypervisor implements (device fd, not enclave fd).
     ioctl_ior_nr!(NE_GET_SUPPORTED_FLAGS, NE_MAGIC, 0x29, u32);
+    // Wire an eventfd to a per-device info-event MSI-X vector.
+    ioctl_iow_nr!(NE_SET_INFO_EVENT_FD, NE_MAGIC, 0x2B, NeInfoEventFd);
     // Atomically pick and add a vCPU from the kernel NE CPU pool.
     ioctl_iow_nr!(NE_ADD_ANY_VCPU, NE_MAGIC, 0x2D, NeAddAnyVcpuArgs);
 }
@@ -410,6 +543,84 @@ impl EnclaveFd {
         };
         // SAFETY: NE_SET_INFO_PAGE ioctl on a valid enclave fd.
         let ret = unsafe { ioctl_with_ref(&self.fd, NE_SET_INFO_PAGE(), &page) };
+        if ret < 0 {
+            return Err(std::io::Error::last_os_error());
+        }
+        Ok(())
+    }
+
+    /// Add a virtio device to the enclave.
+    ///
+    /// Populates output fields in `req`: `device_uid`, `info_event_vector`, `vq_info`.
+    pub fn add_device(&self, req: &mut NeAddDevice) -> std::io::Result<()> {
+        // SAFETY: NE_ADD_DEVICE ioctl on a valid enclave fd.
+        let ret = unsafe { ioctl_with_mut_ref(&self.fd, NE_ADD_DEVICE(), req) };
+        if ret < 0 {
+            return Err(std::io::Error::last_os_error());
+        }
+        Ok(())
+    }
+
+    /// Wire an eventfd for parent-to-enclave (call) notifications.
+    ///
+    /// When the parent writes to this fd, the NE driver delivers a BAR4 write
+    /// that triggers an MSI-X interrupt in the enclave guest.
+    pub fn set_vring_call(
+        &self,
+        device_uid: u64,
+        bar4_doorbell_offset: u16,
+        fd: RawFd,
+    ) -> std::io::Result<()> {
+        let req = NeVringCall {
+            device_uid,
+            fd,
+            bar4_doorbell_offset,
+            reserved: 0,
+        };
+        // SAFETY: NE_SET_VRING_CALL ioctl on a valid enclave fd.
+        let ret = unsafe { ioctl_with_ref(&self.fd, NE_SET_VRING_CALL(), &req) };
+        if ret < 0 {
+            return Err(std::io::Error::last_os_error());
+        }
+        Ok(())
+    }
+
+    /// Wire an NE device MSI-X vector to an eventfd (kick direction).
+    ///
+    /// When the enclave guest kicks a virtqueue, the NE driver signals this fd
+    /// so the device backend wakes and processes the available ring.
+    pub fn set_vring_kick(
+        &self,
+        device_uid: u64,
+        msix_vector: u16,
+        fd: RawFd,
+    ) -> std::io::Result<()> {
+        let req = NeVringKick {
+            device_uid,
+            fd,
+            msix_vector,
+            reserved: 0,
+        };
+        // SAFETY: NE_SET_VRING_KICK ioctl on a valid enclave fd.
+        let ret = unsafe { ioctl_with_ref(&self.fd, NE_SET_VRING_KICK(), &req) };
+        if ret < 0 {
+            return Err(std::io::Error::last_os_error());
+        }
+        Ok(())
+    }
+
+    /// Wire an eventfd to a per-device info-event MSI-X vector.
+    ///
+    /// The kernel signals this fd when the device's info-page mirror changes
+    /// (e.g. DRIVER_OK set). Pass `fd = -1` to unbind.
+    pub fn set_info_event_fd(&self, vector: u16, fd: RawFd) -> std::io::Result<()> {
+        let req = NeInfoEventFd {
+            fd,
+            vector,
+            reserved: 0,
+        };
+        // SAFETY: NE_SET_INFO_EVENT_FD ioctl on a valid enclave fd.
+        let ret = unsafe { ioctl_with_ref(&self.fd, NE_SET_INFO_EVENT_FD(), &req) };
         if ret < 0 {
             return Err(std::io::Error::last_os_error());
         }
