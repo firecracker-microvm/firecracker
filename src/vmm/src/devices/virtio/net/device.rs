@@ -1021,14 +1021,8 @@ impl VirtioDevice for Net {
             .deref()
     }
 
-    fn read_config(&self, offset: u64, data: &mut [u8]) {
-        if let Some(config_space_bytes) = self.config_space.as_slice().get(u64_to_usize(offset)..) {
-            let len = config_space_bytes.len().min(data.len());
-            data[..len].copy_from_slice(&config_space_bytes[..len]);
-        } else {
-            error!("Failed to read config space");
-            self.metrics.cfg_fails.inc();
-        }
+    fn config_as_bytes(&self) -> &[u8] {
+        self.config_space.as_slice()
     }
 
     fn write_config(&mut self, offset: u64, data: &[u8]) {
@@ -1266,20 +1260,14 @@ pub mod tests {
     }
 
     #[test]
-    fn test_virtio_device_read_config() {
+    fn test_config_as_bytes() {
         let mut net = default_net();
         set_mac(&mut net, MacAddr::from_str("11:22:33:44:55:66").unwrap());
 
-        // Test `read_config()`. This also validates the MAC was properly configured.
+        // Validate config_as_bytes returns the MAC address.
         let mac = MacAddr::from_str("11:22:33:44:55:66").unwrap();
-        let mut config_mac = [0u8; MAC_ADDR_LEN as usize];
-        net.read_config(0, &mut config_mac);
-        assert_eq!(&config_mac, mac.get_bytes());
-
-        // Invalid read.
-        config_mac = [0u8; MAC_ADDR_LEN as usize];
-        net.read_config(u64::from(MAC_ADDR_LEN), &mut config_mac);
-        assert_eq!(config_mac, [0u8, 0u8, 0u8, 0u8, 0u8, 0u8]);
+        let config = net.config_as_bytes();
+        assert_eq!(&config[..MAC_ADDR_LEN as usize], mac.get_bytes());
     }
 
     #[test]

@@ -566,9 +566,8 @@ pub(crate) mod tests {
             let _ = value;
         }
 
-        fn read_config(&self, offset: u64, data: &mut [u8]) {
-            let _ = offset;
-            let _ = data;
+        fn config_as_bytes(&self) -> &[u8] {
+            &[]
         }
 
         fn write_config(&mut self, offset: u64, data: &[u8]) {

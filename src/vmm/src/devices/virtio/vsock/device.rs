@@ -41,7 +41,7 @@ use crate::devices::virtio::vsock::metrics::METRICS;
 use crate::impl_device_type;
 use crate::logger::{IncMetric, error, info, warn};
 use crate::utils::byte_order;
-use crate::vstate::memory::{Bytes, GuestMemoryMmap};
+use crate::vstate::memory::{ByteValued, Bytes, GuestMemoryMmap};
 
 pub(crate) const RXQ_INDEX: usize = 0;
 pub(crate) const TXQ_INDEX: usize = 1;
@@ -335,24 +335,16 @@ where
             .deref()
     }
 
-    fn read_config(&self, offset: u64, data: &mut [u8]) {
-        match offset {
-            0 if data.len() == 8 => byte_order::write_le_u64(data, self.cid()),
-            0 if data.len() == 4 => {
-                byte_order::write_le_u32(data, (self.cid() & 0xffff_ffff) as u32)
-            }
-            4 if data.len() == 4 => {
-                byte_order::write_le_u32(data, ((self.cid() >> 32) & 0xffff_ffff) as u32)
-            }
-            _ => {
-                METRICS.cfg_fails.inc();
-                warn!(
-                    "vsock: virtio-vsock received invalid read request of {} bytes at offset {}",
-                    data.len(),
-                    offset
-                )
-            }
-        }
+    fn config_as_bytes(&self) -> &[u8] {
+        // ByteValued::as_slice() gives native-endian bytes. Firecracker only
+        // targets little-endian platforms, matching virtio's LE config space;
+        // the static assert below makes a big-endian target a compile error
+        // rather than a silent mis-serialization.
+        const _: () = assert!(
+            cfg!(target_endian = "little"),
+            "virtio config requires a little-endian target"
+        );
+        self.cid.as_slice()
     }
 
     fn write_config(&mut self, offset: u64, data: &[u8]) {
@@ -511,32 +503,14 @@ mod tests {
         // as the device features.
         assert_eq!(ctx.device.acked_features, device_features & driver_features);
 
-        // Test reading 32-bit chunks.
-        let mut data = [0u8; 8];
-        ctx.device.read_config(0, &mut data[..4]);
-        assert_eq!(
-            u64::from(byte_order::read_le_u32(&data[..])),
-            ctx.cid & 0xffff_ffff
-        );
-        ctx.device.read_config(4, &mut data[4..]);
-        assert_eq!(
-            u64::from(byte_order::read_le_u32(&data[4..])),
-            (ctx.cid >> 32) & 0xffff_ffff
-        );
-
-        // Test reading 64-bit.
-        let mut data = [0u8; 8];
-        ctx.device.read_config(0, &mut data);
-        assert_eq!(byte_order::read_le_u64(&data), ctx.cid);
-
-        // Check that out-of-bounds reading doesn't mutate the destination buffer.
-        let mut data = [0u8, 1, 2, 3, 4, 5, 6, 7];
-        ctx.device.read_config(2, &mut data);
-        assert_eq!(data, [0u8, 1, 2, 3, 4, 5, 6, 7]);
+        // Validate config_as_bytes returns the CID in little-endian.
+        let config = ctx.device.config_as_bytes();
+        assert_eq!(config.len(), 8);
+        assert_eq!(byte_order::read_le_u64(config), ctx.cid);
 
         // Just covering lines here, since the vsock device has no writable config.
         // A warning is, however, logged, if the guest driver attempts to write any config data.
-        ctx.device.write_config(0, &data[..4]);
+        ctx.device.write_config(0, &[0u8; 4]);
 
         // Test a bad activation.
         // let bad_activate = ctx.device.activate(
