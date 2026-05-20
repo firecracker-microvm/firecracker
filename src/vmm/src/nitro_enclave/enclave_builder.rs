@@ -19,7 +19,9 @@ use crate::nitro_enclave::ne_ioctl::NitroEnclavesDevFd;
 use crate::nitro_enclave::serial_console::ConsoleReader;
 use crate::resources::VmResources;
 use crate::utils::mib_to_bytes;
-use crate::vmm_config::boot_source::{BootConfig, DEFAULT_ENCLAVE_KERNEL_CMDLINE, build_cmdline};
+use crate::vmm_config::boot_source::{
+    BootConfig, DEFAULT_ENCLAVE_KERNEL_CMDLINE, append_root_device_cmdline, build_cmdline,
+};
 use crate::vmm_config::enclave::EnclaveConfig;
 use crate::vmm_config::instance_info::{InstanceInfo, VmState};
 use crate::vstate::vm::Vm;
@@ -60,35 +62,58 @@ pub enum EnclaveBuilderError {
     },
     /// Failed to query hypervisor-supported flags: {0}
     GetSupportedFlags(std::io::Error),
+    /// Failed to attach enclave device: {0}
+    AttachDevice(crate::device_manager::nitro_enclave::NeDeviceError),
 }
 
 /// Resolve the kernel command line for the enclave.
 ///
 /// Uses the user-provided cmdline if set, otherwise falls back to
 /// [`DEFAULT_ENCLAVE_KERNEL_CMDLINE`]. In debug mode, appends `console=ttyS0`
-/// if no `console=` argument is already present.
+/// if no `console=` argument is already present. If no `root=` argument is
+/// present, derives one from the root block device.
 fn resolve_enclave_cmdline(
     boot_config: &BootConfig,
     enclave_config: &EnclaveConfig,
+    vm_resources: &VmResources,
 ) -> Result<String, EnclaveBuilderError> {
+    let map_err = |e: linux_loader::cmdline::Error| {
+        EnclaveBuilderError::InvalidKernelCommandLine(e.to_string())
+    };
+
     let mut cmdline = match boot_config.cmdline.clone() {
         Some(c) => c,
-        None => build_cmdline(DEFAULT_ENCLAVE_KERNEL_CMDLINE)
-            .map_err(|e| EnclaveBuilderError::InvalidKernelCommandLine(e.to_string()))?,
+        None => build_cmdline(DEFAULT_ENCLAVE_KERNEL_CMDLINE).map_err(map_err)?,
     };
+
+    // In debug mode add a serial console, but only if the user hasn't already
+    // specified one — `linux_loader::cmdline` does not deduplicate, so inserting
+    // unconditionally would emit a second `console=` token.
     if enclave_config.debug_mode {
-        let s = cmdline
+        let has_console = cmdline
             .as_cstring()
-            .map_err(|e| EnclaveBuilderError::InvalidKernelCommandLine(e.to_string()))?;
-        if !s.to_str().unwrap_or("").contains("console=") {
-            cmdline
-                .insert_str("console=ttyS0")
-                .map_err(|e| EnclaveBuilderError::InvalidKernelCommandLine(e.to_string()))?;
+            .map(|c| c.to_str().unwrap_or("").contains("console="))
+            .unwrap_or(false);
+        if !has_console {
+            cmdline.insert_str("console=ttyS0").map_err(map_err)?;
         }
     }
-    let cstring = cmdline
-        .as_cstring()
-        .map_err(|e| EnclaveBuilderError::InvalidKernelCommandLine(e.to_string()))?;
+
+    // Add root= from the root block device.
+    for block in &vm_resources.block.devices {
+        let locked = block.lock().expect("Poisoned lock");
+        if locked.root_device() {
+            append_root_device_cmdline(
+                &mut cmdline,
+                locked.partuuid().as_deref(),
+                locked.read_only(),
+            )
+            .map_err(map_err)?;
+            break;
+        }
+    }
+
+    let cstring = cmdline.as_cstring().map_err(map_err)?;
     Ok(cstring.to_str().unwrap_or("").to_owned())
 }
 
@@ -122,7 +147,7 @@ pub fn build_and_boot_enclave(
         info!("Loading pre-built EIF from {kernel_path}");
         std::fs::read(kernel_path).map_err(EnclaveBuilderError::ReadEif)?
     } else {
-        let boot_args = resolve_enclave_cmdline(boot_config, enclave_config)?;
+        let boot_args = resolve_enclave_cmdline(boot_config, enclave_config, vm_resources)?;
         let default_mem = mib_to_bytes(vm_resources.machine_config.mem_size_mib) as u64;
         let default_cpus = vm_resources.machine_config.vcpu_count as u64;
         info!(
@@ -195,6 +220,15 @@ pub fn build_and_boot_enclave(
         vm_resources.machine_config.mem_size_mib
     );
 
+    // Device attachment must happen before the VM is started.
+    let mut device_manager = DeviceManager::default();
+    attach_enclave_devices(
+        &mut device_manager,
+        &enclave_vm,
+        vm_resources,
+        event_manager,
+    )?;
+
     let mut start_flags: u64 = 0;
     if enclave_config.debug_mode {
         start_flags |= ne_ioctl::start_flags::NE_ENCLAVE_DEBUG_MODE;
@@ -226,7 +260,7 @@ pub fn build_and_boot_enclave(
         boot_source_config: vm_resources.boot_source.config.clone(),
         shutdown_exit_code: None,
         vm: Vm::Enclave(enclave_vm),
-        device_manager: DeviceManager::default(),
+        device_manager,
         enclave_config: vm_resources.enclave.clone(),
     };
     let vmm = Arc::new(Mutex::new(vmm));
@@ -236,4 +270,49 @@ pub fn build_and_boot_enclave(
     event_manager.add_subscriber(vmm.clone());
 
     Ok(vmm)
+}
+
+/// Attach enclave virtio devices to the enclave via the NE transport.
+///
+/// Each device backend is registered with the event manager and wired
+/// to the enclave via NE_ADD_DEVICE + NE_SET_VRING_KICK/CALL.
+fn attach_enclave_devices(
+    device_manager: &mut DeviceManager,
+    enclave_vm: &EnclaveVm,
+    vm_resources: &VmResources,
+    event_manager: &mut EventManager,
+) -> Result<(), EnclaveBuilderError> {
+    if let Some(entropy) = vm_resources.entropy.get() {
+        info!("Attaching enclave entropy device");
+        device_manager
+            .ne_devices
+            .attach_ne_virtio_device(entropy.clone(), enclave_vm, event_manager)
+            .map_err(EnclaveBuilderError::AttachDevice)?;
+    }
+
+    for block in &vm_resources.block.devices {
+        info!("Attaching enclave block device");
+        device_manager
+            .ne_devices
+            .attach_ne_virtio_device(block.clone(), enclave_vm, event_manager)
+            .map_err(EnclaveBuilderError::AttachDevice)?;
+    }
+
+    for net in vm_resources.net_builder.iter() {
+        info!("Attaching enclave net device");
+        device_manager
+            .ne_devices
+            .attach_ne_virtio_device(net.clone(), enclave_vm, event_manager)
+            .map_err(EnclaveBuilderError::AttachDevice)?;
+    }
+
+    if let Some(vsock) = vm_resources.vsock.get() {
+        info!("Attaching enclave vsock device");
+        device_manager
+            .ne_devices
+            .attach_ne_virtio_device(vsock.clone(), enclave_vm, event_manager)
+            .map_err(EnclaveBuilderError::AttachDevice)?;
+    }
+
+    Ok(())
 }
