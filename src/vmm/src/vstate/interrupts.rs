@@ -7,7 +7,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use kvm_ioctls::VmFd;
 use vmm_sys_util::eventfd::EventFd;
 
-use crate::logger::{IncMetric, METRICS};
+use crate::logger::{IncMetric, METRICS, error};
 use crate::pci::PciSBDF;
 use crate::snapshot::Persist;
 use crate::vstate::vm::KvmVm;
@@ -87,8 +87,8 @@ impl MsixVector {
 #[derive(Debug)]
 /// MSI interrupts created for a VirtIO device
 pub struct MsixVectorGroup {
-    /// Reference to the KvmVm object, which we'll need for interacting with the underlying KVM KvmVm
-    /// file descriptor
+    /// Reference to the KvmVm object, which we'll need for interacting with the underlying KVM
+    /// KvmVm file descriptor
     pub vm: Arc<KvmVm>,
     /// A list of all the MSI-X vectors
     pub vectors: Vec<MsixVector>,
@@ -170,6 +170,33 @@ impl MsixVectorGroup {
         }
 
         Err(InterruptError::InvalidVectorIndex(index))
+    }
+}
+
+impl Drop for MsixVectorGroup {
+    fn drop(&mut self) {
+        let vmfd = &self.vm.common.fd;
+
+        {
+            let mut interrupts = self.vm.common.interrupts.lock().expect("Poisoned lock");
+            for vector in &self.vectors {
+                if let Err(e) = vector.disable(vmfd) {
+                    error!("Failed to unregister irqfd for GSI {}: {e}", vector.gsi);
+                }
+                interrupts.remove(&vector.gsi);
+            }
+        }
+
+        let mut allocator = self
+            .vm
+            .common
+            .resource_allocator
+            .lock()
+            .expect("Poisoned lock");
+        for vector in &self.vectors {
+            // SAFETY: we allocated gsi from this allocator.
+            allocator.gsi_msi_allocator.free_id(vector.gsi).unwrap();
+        }
     }
 }
 
