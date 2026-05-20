@@ -71,6 +71,8 @@ pub mod acpi;
 pub mod legacy;
 /// Memory Mapped I/O Manager.
 pub mod mmio;
+/// Nitro Enclave device manager.
+pub mod nitro_enclave;
 /// PCIe device manager
 pub mod pci_mngr;
 /// Device managers (de)serialization support.
@@ -135,6 +137,8 @@ pub struct DeviceManager {
     pub virtio_devices: VirtioDevices,
     /// Seccomp filter installed on block worker threads
     pub blk_worker_filter: Option<Arc<BpfProgram>>,
+    /// NE devices
+    pub ne_devices: nitro_enclave::NeDevices,
 }
 
 impl DeviceManager {
@@ -266,6 +270,7 @@ impl DeviceManager {
             acpi_devices: ACPIDeviceManager::default(),
             virtio_devices: Self::create_virtio_devices(pci_enabled, vm, pcie_hotplug_ports)?,
             blk_worker_filter,
+            ne_devices: nitro_enclave::NeDevices::default(),
         })
     }
 
@@ -881,6 +886,7 @@ impl<'a> Persist<'a> for DeviceManager {
             acpi_devices,
             virtio_devices,
             blk_worker_filter: constructor_args.blk_worker_filter,
+            ne_devices: nitro_enclave::NeDevices::default(),
         })
     }
 }
@@ -931,6 +937,7 @@ pub(crate) mod tests {
             acpi_devices,
             virtio_devices,
             blk_worker_filter: None,
+            ne_devices: nitro_enclave::NeDevices::default(),
         }
     }
 
