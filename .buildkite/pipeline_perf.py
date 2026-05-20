@@ -125,6 +125,10 @@ pipeline = BKPipeline(
     # use ag=1 instances to make sure no two performance tests are scheduled on the same instance
     agents={"ag": 1},
     retry=retry,
+    # Heavy post-failure dumps (full snapshot + chroot copy) are useful
+    # for triaging performance flakes that are hard to reproduce locally.
+    # Cheap dumps are always on; this flag turns the heavy block on.
+    env={"FC_TEST_DUMP_ON_FAILURE": "1"},
 )
 
 tests = [perf_test[test] for test in pipeline.args.test or perf_test.keys()]
