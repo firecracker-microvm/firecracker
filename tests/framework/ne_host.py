@@ -90,3 +90,11 @@ def _find_initrd():
     """Find an initramfs for EIF building."""
     candidates = list(ARTIFACT_DIR.glob("initramfs.cpio"))
     return candidates[0] if candidates else None
+
+
+def _find_rootfs():
+    """Find a rootfs ext4 image for enclave boot with block device."""
+    candidates = sorted(ARTIFACT_DIR.glob("ubuntu-24.04.ext4"))
+    if not candidates:
+        candidates = sorted(ARTIFACT_DIR.glob("amazonlinux-2023.ext4"))
+    return candidates[0] if candidates else None
