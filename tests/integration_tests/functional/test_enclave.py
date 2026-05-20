@@ -12,9 +12,16 @@ from tenacity import Retrying, retry_if_exception_type, stop_after_delay, wait_f
 from framework.ne_host import (
     _find_initrd,
     _find_kernel,
+    _find_rootfs,
     _get_ne_cpus,
     _is_ne_dynamic,
     requires_enclave,
+)
+from framework.utils_vsock import (
+    ECHO_SERVER_PORT,
+    VSOCK_UDS_PATH,
+    start_guest_echo_server,
+    vsock_connect_to_guest,
 )
 
 # ---------------------------------------------------------------------------
@@ -46,8 +53,6 @@ def test_enclave_config_api(microvm_factory):
     response = vm.api.enclave.get()
     config = response.json()
     assert config["debug_mode"] is True
-
-    vm.kill()
 
 
 # ---------------------------------------------------------------------------
@@ -139,8 +144,6 @@ def test_enclave_direct_boot(microvm_factory, tmp_path):
                 + repr(serial_data[:200])
             )
 
-    vm.kill()
-
 
 # ---------------------------------------------------------------------------
 # Test: enclave boot via --config-file
@@ -215,4 +218,212 @@ def test_enclave_config_file_boot(microvm_factory):
             assert os.path.exists(f"/proc/{vm.firecracker_pid}")
             assert vm.state == "Running"
 
-    vm.kill()
+
+# ---------------------------------------------------------------------------
+# Test: enclave with block + network devices (SSH verification)
+# ---------------------------------------------------------------------------
+
+
+@requires_enclave
+def test_enclave_ssh(microvm_factory):
+    """Boot an enclave with block + net devices and verify SSH works.
+
+    This exercises the full NE transport path: NE_ADD_DEVICE for block and net,
+    info-event DRIVER_OK detection, device activation, and end-to-end I/O.
+    """
+    kernel = _find_kernel()
+    rootfs = _find_rootfs()
+    if not kernel:
+        pytest.skip("No kernel found in artifacts")
+    if not rootfs:
+        pytest.skip("No rootfs found in artifacts")
+
+    if _is_ne_dynamic():
+        cpu_ids = None
+        vcpu_count = 2
+    else:
+        ne_cpus = _get_ne_cpus()
+        if len(ne_cpus) < 2:
+            pytest.skip(f"Not enough NE CPUs: need 2, have {len(ne_cpus)}")
+        cpu_ids = ne_cpus[:2]
+        vcpu_count = len(cpu_ids)
+
+    vm = microvm_factory.build(kernel=kernel, rootfs=rootfs)
+    vm.spawn(validate_api=False)
+    vm.time_api_requests = False
+
+    vm.api.machine_config.put(
+        vcpu_count=vcpu_count,
+        mem_size_mib=512,
+    )
+
+    # Add root block device.
+    jailed_rootfs = vm.create_jailed_resource(vm.rootfs_file)
+    vm.api.drive.put(
+        drive_id="rootfs",
+        path_on_host=jailed_rootfs,
+        is_root_device=True,
+        is_read_only=False,
+    )
+
+    # Add network interface for SSH access.
+    vm.add_net_iface()
+
+    # Boot source — kernel only. The enclave builder automatically adds
+    # root=/dev/vda from the root block device and console=ttyS0 in debug mode.
+    vm.api.boot.put(
+        kernel_image_path=vm.create_jailed_resource(kernel),
+    )
+
+    # Configure enclave mode.
+    enclave_kwargs = {"debug_mode": True}
+    if cpu_ids:
+        enclave_kwargs["cpu_ids"] = cpu_ids
+    vm.api.enclave.put(**enclave_kwargs)
+
+    # Start the enclave.
+    vm.api.actions.put(action_type="InstanceStart")
+
+    # Wait for SSH — proves block + net devices are activated via info-event.
+    vm.wait_for_ssh_up()
+
+    # Verify block device is mounted.
+    assert "/dev/vda" in vm.ssh.check_output("mount").stdout
+
+    # Verify network is up.
+    assert "inet " in vm.ssh.check_output("ip addr show eth0").stdout
+
+    # Basic I/O test — write and read back.
+    vm.ssh.check_output("echo 'enclave test' > /tmp/test.txt")
+    assert "enclave test" in vm.ssh.check_output("cat /tmp/test.txt").stdout
+
+
+@requires_enclave
+def test_enclave_vsock(microvm_factory):
+    """Boot an enclave with a vsock device and verify host<->guest echo.
+
+    Exercises the NE transport for virtio-vsock: NE_ADD_DEVICE, info-event
+    DRIVER_OK activation, and an end-to-end vsock round-trip.
+    """
+    kernel = _find_kernel()
+    rootfs = _find_rootfs()
+    if not kernel:
+        pytest.skip("No kernel found in artifacts")
+    if not rootfs:
+        pytest.skip("No rootfs found in artifacts")
+
+    if _is_ne_dynamic():
+        cpu_ids = None
+        vcpu_count = 2
+    else:
+        ne_cpus = _get_ne_cpus()
+        if len(ne_cpus) < 2:
+            pytest.skip(f"Not enough NE CPUs: need 2, have {len(ne_cpus)}")
+        cpu_ids = ne_cpus[:2]
+        vcpu_count = len(cpu_ids)
+
+    vm = microvm_factory.build(kernel=kernel, rootfs=rootfs)
+    vm.spawn(validate_api=False)
+    vm.time_api_requests = False
+
+    vm.api.machine_config.put(vcpu_count=vcpu_count, mem_size_mib=512)
+
+    jailed_rootfs = vm.create_jailed_resource(vm.rootfs_file)
+    vm.api.drive.put(
+        drive_id="rootfs",
+        path_on_host=jailed_rootfs,
+        is_root_device=True,
+        is_read_only=False,
+    )
+
+    # Net iface for SSH, plus the vsock device under test.
+    vm.add_net_iface()
+    vm.api.vsock.put(vsock_id="vsock0", guest_cid=3, uds_path="/" + VSOCK_UDS_PATH)
+
+    vm.api.boot.put(kernel_image_path=vm.create_jailed_resource(kernel))
+
+    enclave_kwargs = {"debug_mode": True}
+    if cpu_ids:
+        enclave_kwargs["cpu_ids"] = cpu_ids
+    vm.api.enclave.put(**enclave_kwargs)
+
+    vm.api.actions.put(action_type="InstanceStart")
+    vm.wait_for_ssh_up()
+
+    # Run a guest-side vsock echo server and round-trip a payload from the host.
+    host_uds = start_guest_echo_server(vm)
+    sock = vsock_connect_to_guest(host_uds, ECHO_SERVER_PORT)
+    try:
+        payload = b"enclave-vsock-roundtrip"
+        sock.sendall(payload)
+        received = b""
+        while len(received) < len(payload):
+            chunk = sock.recv(len(payload) - len(received))
+            assert chunk, "vsock connection closed before echo completed"
+            received += chunk
+        assert received == payload
+    finally:
+        sock.close()
+
+
+@requires_enclave
+def test_enclave_many_devices(microvm_factory):
+    """Boot an enclave with many devices and verify they all activate.
+
+    Attaches a root block device plus 13 NICs — 14 devices total — and verifies
+    all 13 NICs activate in the guest.
+
+    TODO: 14 is the current per-enclave device ceiling. Raise it (and this test)
+    once devices beyond the limit are supported.
+    """
+    max_devices = 14
+    num_net_devices = max_devices - 1  # one slot taken by the root block device
+
+    kernel = _find_kernel()
+    rootfs = _find_rootfs()
+    if not kernel:
+        pytest.skip("No kernel found in artifacts")
+    if not rootfs:
+        pytest.skip("No rootfs found in artifacts")
+
+    if _is_ne_dynamic():
+        cpu_ids = None
+        vcpu_count = 2
+    else:
+        ne_cpus = _get_ne_cpus()
+        if len(ne_cpus) < 2:
+            pytest.skip(f"Not enough NE CPUs: need 2, have {len(ne_cpus)}")
+        cpu_ids = ne_cpus[:2]
+        vcpu_count = len(cpu_ids)
+
+    vm = microvm_factory.build(kernel=kernel, rootfs=rootfs)
+    vm.spawn(validate_api=False)
+    vm.time_api_requests = False
+
+    vm.api.machine_config.put(vcpu_count=vcpu_count, mem_size_mib=1024)
+
+    jailed_rootfs = vm.create_jailed_resource(vm.rootfs_file)
+    vm.api.drive.put(
+        drive_id="rootfs",
+        path_on_host=jailed_rootfs,
+        is_root_device=True,
+        is_read_only=False,
+    )
+
+    # First NIC is used for SSH; the rest stress the device count.
+    for _ in range(num_net_devices):
+        vm.add_net_iface()
+
+    vm.api.boot.put(kernel_image_path=vm.create_jailed_resource(kernel))
+
+    enclave_kwargs = {"debug_mode": True}
+    if cpu_ids:
+        enclave_kwargs["cpu_ids"] = cpu_ids
+    vm.api.enclave.put(**enclave_kwargs)
+
+    vm.api.actions.put(action_type="InstanceStart")
+    vm.wait_for_ssh_up()
+
+    # Count ethernet interfaces in the guest; expect one per attached NIC.
+    out = vm.ssh.check_output("ls -1 /sys/class/net | grep -c eth").stdout.strip()
+    assert int(out) == num_net_devices, f"expected {num_net_devices} NICs, found {out}"
