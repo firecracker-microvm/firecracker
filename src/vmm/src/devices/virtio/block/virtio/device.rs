@@ -722,9 +722,12 @@ impl VirtioBlock {
     }
 
     fn drain_and_flush(&mut self, discard: bool) {
-        if let Err(err) = self.disk.file_engine.drain_and_flush(discard) {
-            error!("Failed to drain ops and flush block data: {:?}", err);
-        }
+        // If draining and/or flushing failed, hard crash to avoid continuing with a potentially
+        // not consistent underlying filesystem in the disk.
+        self.disk
+            .file_engine
+            .drain_and_flush(discard)
+            .expect("virtio-block: failed to drain ops and flush block data");
     }
 
     /// Prepare device for being snapshotted.
