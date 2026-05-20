@@ -6,6 +6,7 @@ import hashlib
 import os.path
 import re
 import time
+from contextlib import ExitStack
 from pathlib import Path
 from socket import AF_UNIX, SOCK_STREAM, socket
 from subprocess import Popen
@@ -56,6 +57,14 @@ class HostEchoWorker(Thread):
     def close_uds(self):
         """Close vsock UDS connection."""
         self.sock.close()
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, tb):
+        if self.is_alive():
+            self.join()
+        self.close_uds()
 
     def _run(self):
         with open(self.blob_path, "rb") as blob_file:
@@ -152,17 +161,19 @@ def check_host_connections(uds_path, blob_path, blob_hash):
     checked against `blob_hash`.
     """
 
-    workers = []
-    for _ in range(TEST_CONNECTION_COUNT):
-        worker = HostEchoWorker(uds_path, blob_path)
-        workers.append(worker)
-        worker.start()
+    with ExitStack() as stack:
+        workers = [
+            stack.enter_context(HostEchoWorker(uds_path, blob_path))
+            for _ in range(TEST_CONNECTION_COUNT)
+        ]
+        for wrk in workers:
+            wrk.start()
 
-    for wrk in workers:
-        wrk.join()
+        for wrk in workers:
+            wrk.join()
 
-    for wrk in workers:
-        assert wrk.hash == blob_hash
+        for wrk in workers:
+            assert wrk.hash == blob_hash
 
 
 def check_guest_connections(vm, server_port_path, blob_path, blob_hash):
