@@ -57,6 +57,22 @@ or natively on your dev box:
 python3 -m pytest [<pytest argument>...]
 ```
 
+### Environment variables
+
+A handful of `FC_TEST_*` environment variables tweak runtime behaviour of the
+test framework. They are allowlisted by `tools/devtool` and forwarded into the
+dev container automatically, so setting them on the host before invoking
+`tools/devtool -y test` is enough.
+
+- `FC_TEST_SKIP_ARTIFACT_COPY=1` — skip copying CI artifacts into
+  `/srv/test_artifacts` (used by `devtool test_debug`).
+- `FC_TEST_DUMP_ON_FAILURE=1` — on test failure, also collect the heavy
+  post-failure artifacts: a full memory snapshot (`post_failure.mem` +
+  `post_failure.vmstate`), a copy of the test `id_rsa`, and every regular file
+  at the uVM chroot root. The cheap artifacts (`host-dmesg.log` and the guest
+  serial console) are always collected. Default off. The nightly performance
+  pipeline sets this.
+
 ### Output
 
 Output, including testrun results, goes to `stdout`. Errors go to `stderr`. By
