@@ -262,6 +262,11 @@ impl EnclaveVm {
         self.enclave_fd.as_raw_fd()
     }
 
+    /// Get a reference to the enclave fd for issuing device ioctls.
+    pub fn enclave_fd(&self) -> &EnclaveFd {
+        &self.enclave_fd
+    }
+
     /// Get a shared reference to the info page (available after `install_info_page`).
     pub fn info_page(&self) -> Option<Arc<InfoPage>> {
         self.info_page.clone()
