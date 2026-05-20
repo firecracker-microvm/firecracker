@@ -12,14 +12,14 @@ mod muxer_killq;
 mod muxer_rxq;
 mod seqpacket;
 use std::io::{self, Read, Write};
-use std::os::fd::AsRawFd;
-use std::os::unix::net::UnixStream;
+use std::os::fd::{AsRawFd, RawFd};
+use std::os::unix::net::{UnixListener, UnixStream};
 
 pub use muxer::VsockMuxer as VsockUnixBackend;
 use vm_memory::io::{ReadVolatile, WriteVolatile};
 
 use crate::devices::virtio::vsock::csm::VsockConnectionBackend;
-use crate::devices::virtio::vsock::unix::seqpacket::SeqpacketConn;
+use crate::devices::virtio::vsock::unix::seqpacket::{SeqpacketConn, SeqpacketListener};
 use crate::vmm_config::vsock::VsockType;
 
 mod defs {
@@ -129,6 +129,34 @@ impl Write for ConnBackend {
     }
     fn flush(&mut self) -> io::Result<()> {
         Ok(())
+    }
+}
+
+#[derive(Debug)]
+pub enum ListenerSocket {
+    Stream(UnixListener),
+    Seqpacket(SeqpacketListener),
+}
+
+impl ListenerSocket {
+    fn accept(&self) -> Result<ConnBackend, io::Error> {
+        match self {
+            Self::Stream(sock) => {
+                let (conn, _) = sock.accept()?;
+                conn.set_nonblocking(true)?;
+                Ok(ConnBackend::Stream(conn))
+            }
+            Self::Seqpacket(sock) => sock.accept(),
+        }
+    }
+}
+
+impl AsRawFd for ListenerSocket {
+    fn as_raw_fd(&self) -> RawFd {
+        match self {
+            Self::Stream(sock) => sock.as_raw_fd(),
+            Self::Seqpacket(sock) => sock.as_raw_fd(),
+        }
     }
 }
 
