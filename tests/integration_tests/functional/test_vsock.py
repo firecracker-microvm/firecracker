@@ -263,35 +263,39 @@ def test_vsock_transport_reset_g2h(vsock_uvm, microvm_factory):
             host_socat_commmand, stdout=subprocess.PIPE, stderr=subprocess.PIPE
         )
 
-        # Give some time for host socat to create socket
-        time.sleep(0.5)
-        assert Path(host_socket_path).exists()
-        new_vm.create_jailed_resource(host_socket_path)
+        try:
+            # Give some time for host socat to create socket
+            time.sleep(0.5)
+            assert Path(host_socket_path).exists()
+            new_vm.create_jailed_resource(host_socket_path)
 
-        # Create a socat process in the guest which will connect to the host socat
-        guest_socat_commmand = (
-            f"tmux new -d 'socat - vsock-connect:2:{ECHO_SERVER_PORT}'"
-        )
-        new_vm.ssh.run(guest_socat_commmand)
+            # Create a socat process in the guest which will connect to the host socat
+            guest_socat_commmand = (
+                f"tmux new -d 'socat - vsock-connect:2:{ECHO_SERVER_PORT}'"
+            )
+            new_vm.ssh.run(guest_socat_commmand)
 
-        # socat should be running in the guest now
-        code, _, _ = new_vm.ssh.run("pidof socat")
-        assert code == 0
+            # socat should be running in the guest now
+            code, _, _ = new_vm.ssh.run("pidof socat")
+            assert code == 0
 
-        # Create snapshot.
-        snapshot = new_vm.snapshot_full()
-        new_vm.resume()
+            # Create snapshot.
+            snapshot = new_vm.snapshot_full()
+            new_vm.resume()
 
-        # After `create_snapshot` + 'restore' calls, connection should be dropped
-        code, _, _ = new_vm.ssh.run("pidof socat")
-        assert code == 1
+            # After `create_snapshot` + 'restore' calls, connection should be dropped
+            code, _, _ = new_vm.ssh.run("pidof socat")
+            assert code == 1
+        finally:
+            # Kill host socat as it is not useful anymore. Done in `finally`
+            # so that an assertion failure earlier in the iteration does not
+            # leak a `socat` process into the next iteration (or the next
+            # test).
+            host_socat.kill()
+            host_socat.communicate()
 
-        # Kill host socat as it is not useful anymore
-        host_socat.kill()
-        host_socat.communicate()
-
-        # Terminate VM.
-        new_vm.kill()
+            # Terminate VM.
+            new_vm.kill()
 
 
 def test_vsock_after_override(
