@@ -78,6 +78,9 @@ pub struct Vsock<B> {
 
     pub rx_packet: VsockPacketRx,
     pub tx_packet: VsockPacketTx,
+
+    /// Gates RX delivery while a TRANSPORT_RESET is awaiting guest ack.
+    pub(crate) pending_event_ack: bool,
 }
 
 // TODO: Detect / handle queue deadlock:
@@ -112,6 +115,7 @@ where
             device_state: DeviceState::Inactive,
             rx_packet: VsockPacketRx::new()?,
             tx_packet: VsockPacketTx::default(),
+            pending_event_ack: false,
         })
     }
 
@@ -161,6 +165,10 @@ where
     /// have pending. Return `true` if the guest needs to be notified (respecting notification
     /// suppression).
     pub fn process_rx(&mut self) -> Result<bool, InvalidAvailIdx> {
+        if self.pending_event_ack {
+            return Ok(false);
+        }
+
         // This is safe since we checked in the event handler that the device is activated.
         let mem = &self.device_state.active_state().unwrap().mem;
 
@@ -275,6 +283,8 @@ where
         // Arm it so the driver's refill of the consumed head is not
         // suppressed by EVENT_IDX.
         queue.enable_notification();
+
+        self.pending_event_ack = true;
 
         // NOTE: kick() will be called on resume and it will trigger the interrupt again. As calling
         // it multiple times should not cause any harm, it would be safer to call it here as well
@@ -403,6 +413,8 @@ where
         // The only reason we still `kick` it is to make guest process
         // `TRANSPORT_RESET_EVENT` event we sent during snapshot creation.
         if self.is_activated() {
+            self.pending_event_ack = true;
+
             info!(
                 "[{:?}:{}] signaling event queue",
                 self.device_type(),
