@@ -26,6 +26,13 @@ and this project adheres to
   support for booting `bzImage` guest kernels on x86_64, in addition to the
   existing uncompressed ELF (`vmlinux`) images. The kernel image format is
   detected automatically, so no configuration change is required.
+- [#5896](https://github.com/firecracker-microvm/firecracker/pull/5896): Add
+  support for overriding virtio-pmem device backing file paths on snapshot
+  restore via the new `pmem_overrides` field on the `PUT /snapshot/load` API.
+  This mirrors the existing network and vsock override mechanisms and is useful
+  when the host file path baked into the snapshot is no longer valid (for
+  example, when restoring on a different host or under a different jailer
+  chroot).
 
 ### Changed
 
