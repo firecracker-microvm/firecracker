@@ -59,12 +59,12 @@ on the following:
    are full will be lost. Any such events will be signaled through the
    `lost-logs` and `lost-metrics` counters.
 
-[^1]: CPU ms are actual ms of a user space thread's on-CPU runtime; useful for
-    getting consistent measurements for some performance metrics.
+\[^1\]: CPU ms are actual ms of a user space thread's on-CPU runtime; useful for
+getting consistent measurements for some performance metrics.
 
-[^2]: No logs are currently produced in the span of time between the `jailer`
-    process start-up and the logging system initialization in the
-    `firecracker` process.
+\[^2\]: No logs are currently produced in the span of time between the `jailer`
+process start-up and the logging system initialization in the `firecracker`
+process.
 
 [1]: https://aws.amazon.com/ec2/instance-types/m5/
 [2]: https://aws.amazon.com/ec2/instance-types/m6/
