@@ -1726,6 +1726,26 @@ definitions:
         description:
           The new path for the backing Unix Domain Socket.
 
+  PmemOverride:
+    type: object
+    description:
+      Allows for changing the backing host file of a virtio-pmem device
+      during snapshot restore.
+    required:
+      - id
+      - path_on_host
+    properties:
+      id:
+        type: string
+        description:
+          The ID of the pmem device to modify.
+      path_on_host:
+        type: string
+        description:
+          The new host path for the pmem device's backing file. This is only
+          meant for pointing at the same backing file in a new location; the
+          file must be identical to the one used when the snapshot was taken.
+
   SnapshotLoadParams:
     type: object
     description:
@@ -1795,6 +1815,11 @@ definitions:
           memory-mapping behavior. Explicit hugetlbfs (`2M`) pages require a UFFD
           memory backend. With UFFD, the effectiveness of transparent huge pages
           may be limited.
+      pmem_overrides:
+        type: array
+        description: Pmem device backing file paths to override on snapshot restore.
+        items:
+          $ref: "#/definitions/PmemOverride"
 
 
   TokenBucket:

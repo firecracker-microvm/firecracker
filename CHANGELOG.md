@@ -20,6 +20,13 @@ and this project adheres to
 - [#6237](https://github.com/firecracker-microvm/firecracker/pull/6237): Added
   balloon and virtio-mem memory reclamation for shared memfd-backed guest
   memory, such as memory shared with vhost-user devices.
+- [#5896](https://github.com/firecracker-microvm/firecracker/pull/5896): Add
+  support for overriding virtio-pmem device backing file paths on snapshot
+  restore via the new `pmem_overrides` field on the `PUT /snapshot/load` API.
+  This mirrors the existing network and vsock override mechanisms and is useful
+  when the host file path baked into the snapshot is no longer valid (for
+  example, when restoring on a different host or under a different jailer
+  chroot).
 
 ### Changed
 
