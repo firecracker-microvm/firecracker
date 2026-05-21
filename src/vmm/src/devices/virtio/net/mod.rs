@@ -63,4 +63,6 @@ pub enum NetError {
     QueueError(#[from] QueueError),
     /// {0}
     InvalidAvailIdx(#[from] InvalidAvailIdx),
+    /// MTU {0} is out of range [68, 65535]
+    InvalidMtu(u16),
 }

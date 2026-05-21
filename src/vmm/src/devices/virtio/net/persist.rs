@@ -27,6 +27,8 @@ use crate::vstate::memory::GuestMemoryMmap;
 #[derive(Debug, Default, Clone, Serialize, Deserialize)]
 pub struct NetConfigSpaceState {
     guest_mac: Option<MacAddr>,
+    #[serde(default)]
+    mtu: Option<u16>,
 }
 
 /// Information about the network device that are saved
@@ -81,6 +83,7 @@ impl Persist<'_> for Net {
             mmds_ns: self.mmds_ns.as_ref().map(|mmds| mmds.save()),
             config_space: NetConfigSpaceState {
                 guest_mac: self.guest_mac,
+                mtu: self.mtu(),
             },
             virtio_state: VirtioDeviceState::from_device(self),
         }
@@ -99,6 +102,7 @@ impl Persist<'_> for Net {
             state.config_space.guest_mac,
             rx_rate_limiter,
             tx_rate_limiter,
+            state.config_space.mtu,
         )?;
 
         // We trust the MMIODeviceManager::restore to pass us an MMDS data store reference if

@@ -1257,12 +1257,12 @@ def check_enabled_features(test_microvm, cpu_template):
     reason="Intel AMX is only supported on Intel Sapphire Rapids and kernel v5.17+",
 )
 def test_intel_amx_reported_on_sapphire_rapids(
-    microvm_factory, guest_kernel_linux_6_1, rootfs
+    microvm_factory, guest_kernel_default, rootfs
 ):
     """
     Verifies that Intel AMX is reported on guest (v5.17+)
     """
-    uvm = microvm_factory.build(guest_kernel_linux_6_1, rootfs)
+    uvm = microvm_factory.build(guest_kernel_default, rootfs)
     uvm.spawn()
     uvm.basic_config()
     uvm.add_net_iface()

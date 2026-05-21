@@ -41,7 +41,7 @@ def get_page_fault_duration(vm):
 @pytest.mark.nonci
 def test_hinting_reporting_cpu(
     microvm_factory,
-    guest_kernel_linux_6_1,
+    guest_kernel_default,
     rootfs,
     method,
     metrics,
@@ -51,7 +51,7 @@ def test_hinting_reporting_cpu(
     Measure the CPU usage when running free page reporting and hinting
     """
     test_microvm = microvm_factory.build(
-        guest_kernel_linux_6_1,
+        guest_kernel_default,
         rootfs,
         pci=True,
         monitor_memory=False,
@@ -120,7 +120,7 @@ def test_hinting_reporting_cpu(
 @pytest.mark.nonci
 def test_hinting_fault_latency(
     microvm_factory,
-    guest_kernel_linux_6_1,
+    guest_kernel_default,
     rootfs,
     metrics,
     sleep_duration,
@@ -135,7 +135,7 @@ def test_hinting_fault_latency(
     """
     runs = 5
     test_microvm = microvm_factory.build(
-        guest_kernel_linux_6_1,
+        guest_kernel_default,
         rootfs,
         pci=True,
         monitor_memory=False,
