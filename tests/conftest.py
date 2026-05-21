@@ -410,17 +410,11 @@ def microvm_factory(request, record_property, results_dir, netns_factory):
     # if the test failed, save important files from the root of the uVM into `test_results` for troubleshooting
     report = request.node.stash[PHASE_REPORT_KEY]
     if "call" in report and report["call"].failed:
+        dump_full = os.environ.get("FC_TEST_DUMP_ON_FAILURE") == "1"
         for uvm in uvm_factory.vms:
             # This is best effort. We want to proceed even if the VM is not responding.
             try:
                 uvm.flush_metrics()
-            except:  # pylint: disable=bare-except
-                pass
-
-            try:
-                uvm.snapshot_full(
-                    mem_path="post_failure.mem", vmstate_path="post_failure.vmstate"
-                )
             except:  # pylint: disable=bare-except
                 pass
 
@@ -429,9 +423,20 @@ def microvm_factory(request, record_property, results_dir, netns_factory):
             uvm_data.joinpath("host-dmesg.log").write_text(
                 utils.run_cmd(["dmesg", "-dPx"]).stdout
             )
-            shutil.copy(ARTIFACT_DIR / "id_rsa", uvm_data)
             if Path(uvm.screen_log).exists():
                 shutil.copy(uvm.screen_log, uvm_data)
+
+            if not dump_full:
+                continue
+
+            try:
+                uvm.snapshot_full(
+                    mem_path="post_failure.mem", vmstate_path="post_failure.vmstate"
+                )
+            except:  # pylint: disable=bare-except
+                pass
+
+            shutil.copy(ARTIFACT_DIR / "id_rsa", uvm_data)
 
             uvm_root = Path(uvm.chroot())
             for item in os.listdir(uvm_root):

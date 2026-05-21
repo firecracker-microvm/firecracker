@@ -77,12 +77,14 @@ impl VmClock {
     /// Create a new [`VmClock`] device for a newly booted VM
     pub fn new(resource_allocator: &mut ResourceAllocator) -> Result<VmClock, VmClockError> {
         let addr = resource_allocator
-            .allocate_system_memory(
+            .system_memory
+            .allocate(
                 VMCLOCK_SIZE as u64,
                 VMCLOCK_SIZE as u64,
                 AllocPolicy::LastMatch,
             )
-            .map_err(VmClockError::AllocateMemory)?;
+            .map_err(VmClockError::AllocateMemory)?
+            .start();
 
         let gsi = resource_allocator
             .allocate_gsi_legacy(1)

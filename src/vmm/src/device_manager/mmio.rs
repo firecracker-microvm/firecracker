@@ -161,12 +161,13 @@ impl MMIODeviceManager {
             _ => return Err(MmioError::InvalidIrqConfig),
         };
 
+        let range = resource_allocator.mmio32_memory.allocate(
+            MMIO_LEN,
+            MMIO_LEN,
+            AllocPolicy::FirstMatch,
+        )?;
         let device_info = MMIODeviceInfo {
-            addr: resource_allocator.allocate_32bit_mmio_memory(
-                MMIO_LEN,
-                MMIO_LEN,
-                AllocPolicy::FirstMatch,
-            )?,
+            addr: range.start(),
             len: MMIO_LEN,
             gsi,
         };
