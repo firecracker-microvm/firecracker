@@ -12,11 +12,12 @@ use std::str::FromStr;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
-use crate::devices::virtio::net::Net;
+use crate::devices::virtio::net::device::NetDevBackendType;
 #[cfg(test)]
 use crate::devices::virtio::net::device::vnet_hdr_len;
 use crate::devices::virtio::net::generated::net_device_flags;
-use crate::devices::virtio::net::tap::{IfReqBuilder, Tap};
+use crate::devices::virtio::net::tap::{IfReqBuilder, NetDevBackend, PasstBackend, Tap};
+use crate::devices::virtio::net::{Net, tap};
 use crate::devices::virtio::queue::Queue;
 use crate::devices::virtio::test_utils::VirtQueue;
 use crate::mmds::data_store::Mmds;
@@ -45,13 +46,19 @@ pub fn default_net() -> Net {
         Some(guest_mac),
         RateLimiter::default(),
         RateLimiter::default(),
+        NetDevBackendType::Tap("".to_string()),
     )
     .unwrap();
     net.configure_mmds_network_stack(
         MmdsNetworkStack::default_ipv4_addr(),
         Arc::new(Mutex::new(Mmds::default())),
     );
-    enable(&net.tap);
+    let if_name = if let NetDevBackend::Tap(tap) = &net.backend {
+        tap.if_name
+    } else {
+        panic!("Expected the net device to be a TAP")
+    };
+    enable(&if_name);
 
     net
 }
@@ -68,9 +75,15 @@ pub fn default_net_no_mmds() -> Net {
         Some(guest_mac),
         RateLimiter::default(),
         RateLimiter::default(),
+        NetDevBackendType::Tap("".to_string()),
     )
     .unwrap();
-    enable(&net.tap);
+    let if_name = if let NetDevBackend::Tap(tap) = &net.backend {
+        tap.if_name
+    } else {
+        panic!("Expected the net device to be a TAP")
+    };
+    enable(&if_name);
 
     net
 }
@@ -97,12 +110,17 @@ pub struct TapTrafficSimulator {
 }
 
 impl TapTrafficSimulator {
-    pub fn new(tap_index: i32) -> Self {
+    pub fn new(netdev: &NetDevBackend) -> Self {
         // Create sockaddr_ll struct.
         // SAFETY: sockaddr_storage has no invariants and can be safely zeroed.
         let mut storage: libc::sockaddr_storage = unsafe { mem::zeroed() };
 
         let send_addr_ptr = &mut storage as *mut libc::sockaddr_storage;
+        let tap_index = if let NetDevBackend::Tap(tap) = netdev {
+            if_index(&tap)
+        } else {
+            panic!("Expected the net device to be a TAP")
+        };
 
         // SAFETY: `sock_addr` is a valid pointer and safe to dereference.
         unsafe {
@@ -222,20 +240,21 @@ pub fn if_index(tap: &Tap) -> i32 {
 }
 
 /// Enable the tap interface.
-pub fn enable(tap: &Tap) {
+pub fn enable(tap_if_name: &[u8; 16]) {
     // Disable IPv6 router advertisement requests
+    let ifname_str = String::from_utf8(tap_if_name.to_vec()).unwrap();
     Command::new("sh")
         .arg("-c")
         .arg(format!(
             "echo 0 > /proc/sys/net/ipv6/conf/{}/accept_ra",
-            tap.if_name_as_str()
+            ifname_str
         ))
         .output()
         .unwrap();
 
     let sock = create_socket();
     IfReqBuilder::new()
-        .if_name(&tap.if_name)
+        .if_name(tap_if_name)
         .flags(
             (net_device_flags::IFF_UP
                 | net_device_flags::IFF_RUNNING
@@ -255,7 +274,7 @@ pub(crate) fn inject_tap_tx_frame(net: &Net, len: usize) -> Vec<u8> {
     use std::os::unix::ffi::OsStrExt;
 
     assert!(len >= vnet_hdr_len());
-    let tap_traffic_simulator = TapTrafficSimulator::new(if_index(&net.tap));
+    let tap_traffic_simulator = TapTrafficSimulator::new(&net.backend);
     let mut frame = vmm_sys_util::rand::rand_alphanumerics(len - vnet_hdr_len())
         .as_bytes()
         .to_vec();

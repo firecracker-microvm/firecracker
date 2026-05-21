@@ -10,6 +10,7 @@ use std::time::Duration;
 
 use vmm::builder::build_and_boot_microvm;
 use vmm::devices::virtio::block::CacheType;
+use vmm::devices::virtio::net::device::NetDevBackendType;
 use vmm::persist::{MicrovmState, MicrovmStateError, VmInfo, snapshot_state_sanity_check};
 use vmm::resources::VmResources;
 use vmm::rpc_interface::{
@@ -449,6 +450,7 @@ fn test_preboot_load_snap_disallowed_after_boot_resources() {
         guest_mac: None,
         rx_rate_limiter: None,
         tx_rate_limiter: None,
+        backend_type: NetDevBackendType::Tap(String::new()),
     });
     verify_load_snap_disallowed_after_boot_resources(req, "InsertNetworkDevice");
 

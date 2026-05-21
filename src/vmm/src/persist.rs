@@ -383,7 +383,11 @@ pub fn restore_from_snapshot(
                     .map(|device| &mut device.device_state),
             )
             .find(|x| x.id == entry.iface_id)
-            .map(|device_state| device_state.tap_if_name.clone_from(&entry.host_dev_name))
+            .map(|device_state| {
+                device_state
+                    .backend_identifier
+                    .clone_from(&entry.host_dev_name)
+            })
             .ok_or(SnapshotStateFromFileError::UnknownNetworkDevice)?;
     }
 
@@ -662,6 +666,7 @@ mod tests {
     #[cfg(target_arch = "aarch64")]
     use crate::construct_kvm_mpidrs;
     use crate::devices::virtio::block::CacheType;
+    use crate::devices::virtio::net::device::NetDevBackendType;
     use crate::snapshot::Persist;
     use crate::vmm_config::balloon::BalloonDeviceConfig;
     use crate::vmm_config::net::NetworkInterfaceConfig;
@@ -701,6 +706,7 @@ mod tests {
             guest_mac: None,
             rx_rate_limiter: None,
             tx_rate_limiter: None,
+            backend_type: NetDevBackendType::Tap("hostname".to_string()),
         };
         insert_net_device(
             &mut vmm,

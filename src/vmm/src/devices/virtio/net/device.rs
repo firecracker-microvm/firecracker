@@ -13,6 +13,7 @@ use std::ops::Deref;
 use std::sync::{Arc, Mutex};
 
 use libc::{EAGAIN, iovec};
+use serde::{Deserialize, Serialize};
 use vmm_sys_util::eventfd::EventFd;
 
 use super::NET_QUEUE_MAX_SIZE;
@@ -29,7 +30,7 @@ use crate::devices::virtio::iovec::{
     IoVecBuffer, IoVecBufferMut, IoVecError, ParsedDescriptorChain,
 };
 use crate::devices::virtio::net::metrics::{NetDeviceMetrics, NetMetricsPerDevice};
-use crate::devices::virtio::net::tap::Tap;
+use crate::devices::virtio::net::tap::{NetDevBackend, PasstBackend, Tap};
 use crate::devices::virtio::net::{
     MAX_BUFFER_SIZE, NET_QUEUE_SIZES, NetError, NetQueue, RX_INDEX, TX_INDEX, generated,
 };
@@ -49,6 +50,19 @@ use crate::vstate::memory::{ByteValued, GuestMemoryMmap};
 
 const FRAME_HEADER_MAX_LEN: usize = PAYLOAD_OFFSET + ETH_IPV4_FRAME_LEN;
 
+const PASST_VIRTIO_FEATURES: u64 =
+    (1 << VIRTIO_F_VERSION_1) | (1 << VIRTIO_NET_F_MRG_RXBUF) | (1 << VIRTIO_RING_F_EVENT_IDX);
+
+const TAP_VIRTIO_FEATURES: u64 = (1 << VIRTIO_NET_F_GUEST_CSUM)
+    | (1 << VIRTIO_NET_F_CSUM)
+    | (1 << VIRTIO_NET_F_GUEST_TSO4)
+    | (1 << VIRTIO_NET_F_GUEST_TSO6)
+    | (1 << VIRTIO_NET_F_GUEST_UFO)
+    | (1 << VIRTIO_NET_F_HOST_TSO4)
+    | (1 << VIRTIO_NET_F_HOST_TSO6)
+    | (1 << VIRTIO_NET_F_HOST_UFO)
+    | (1 << VIRTIO_F_VERSION_1);
+
 pub(crate) const fn vnet_hdr_len() -> usize {
     mem::size_of::<virtio_net_hdr_v1>()
 }
@@ -58,6 +72,13 @@ pub(crate) const fn vnet_hdr_len() -> usize {
 // the header IPv4 ARP header which is 28 bytes long.
 const fn frame_hdr_len() -> usize {
     vnet_hdr_len() + FRAME_HEADER_MAX_LEN
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]
+#[serde(rename_all = "snake_case")]
+pub enum NetDevBackendType {
+    Passt(String), // The string denotes the passt socket path
+    Tap(String),   // The string denotes the tap device name
 }
 
 // Frames being sent/received through the network device model have a VNET header. This
@@ -237,7 +258,7 @@ pub struct Net {
     pub(crate) id: String,
 
     /// The backend for this device: a tap.
-    pub tap: Tap,
+    pub backend: NetDevBackend,
 
     pub(crate) avail_features: u64,
     pub(crate) acked_features: u64,
@@ -269,24 +290,17 @@ pub struct Net {
 
 impl Net {
     /// Create a new virtio network device with the given TAP interface.
-    pub fn new_with_tap(
+    pub fn new_with_backend(
         id: String,
-        tap: Tap,
+        backend: NetDevBackend,
         guest_mac: Option<MacAddr>,
         rx_rate_limiter: RateLimiter,
         tx_rate_limiter: RateLimiter,
     ) -> Result<Self, NetError> {
-        let mut avail_features = (1 << VIRTIO_NET_F_GUEST_CSUM)
-            | (1 << VIRTIO_NET_F_CSUM)
-            | (1 << VIRTIO_NET_F_GUEST_TSO4)
-            | (1 << VIRTIO_NET_F_GUEST_TSO6)
-            | (1 << VIRTIO_NET_F_GUEST_UFO)
-            | (1 << VIRTIO_NET_F_HOST_TSO4)
-            | (1 << VIRTIO_NET_F_HOST_TSO6)
-            | (1 << VIRTIO_NET_F_HOST_UFO)
-            | (1 << VIRTIO_F_VERSION_1)
-            | (1 << VIRTIO_NET_F_MRG_RXBUF)
-            | (1 << VIRTIO_RING_F_EVENT_IDX);
+        let mut avail_features = match backend {
+            NetDevBackend::Passt(_) => PASST_VIRTIO_FEATURES,
+            NetDevBackend::Tap(_) => TAP_VIRTIO_FEATURES,
+        };
 
         let mut config_space = ConfigSpace::default();
         if let Some(mac) = guest_mac {
@@ -305,7 +319,7 @@ impl Net {
 
         Ok(Net {
             id: id.clone(),
-            tap,
+            backend: backend,
             avail_features,
             acked_features: 0u64,
             queues,
@@ -328,18 +342,27 @@ impl Net {
     /// Create a new virtio network device given the interface name.
     pub fn new(
         id: String,
-        tap_if_name: &str,
+        backend_identifier: &str,
         guest_mac: Option<MacAddr>,
         rx_rate_limiter: RateLimiter,
         tx_rate_limiter: RateLimiter,
+        backend_type: NetDevBackendType,
     ) -> Result<Self, NetError> {
-        let tap = Tap::open_named(tap_if_name).map_err(NetError::TapOpen)?;
-
         let vnet_hdr_size = i32::try_from(vnet_hdr_len()).unwrap();
-        tap.set_vnet_hdr_size(vnet_hdr_size)
-            .map_err(NetError::TapSetVnetHdrSize)?;
+        let backend: NetDevBackend = match backend_type {
+            NetDevBackendType::Passt(path) => {
+                // id is passed as the socket path in the case of socket backend
+                NetDevBackend::Passt(PasstBackend::new(path).map_err(|_| NetError::SocketOpen())?)
+            }
+            NetDevBackendType::Tap(tap_if_name) => {
+                let mut tap = Tap::open_named(&tap_if_name).map_err(NetError::TapOpen)?;
+                tap.set_vnet_hdr_size(vnet_hdr_size)
+                    .map_err(NetError::TapSetVnetHdrSize)?;
+                NetDevBackend::Tap(tap)
+            }
+        };
 
-        Self::new_with_tap(id, tap, guest_mac, rx_rate_limiter, tx_rate_limiter)
+        Self::new_with_backend(id, backend, guest_mac, rx_rate_limiter, tx_rate_limiter)
     }
 
     /// Provides the MAC of this net device.
@@ -347,9 +370,9 @@ impl Net {
         self.guest_mac.as_ref()
     }
 
-    /// Provides the host IFACE name of this net device.
-    pub fn iface_name(&self) -> String {
-        self.tap.if_name_as_str().to_string()
+    /// Provides the identifier of this device.
+    pub fn identifier(&self) -> String {
+        self.backend.identifier().to_string()
     }
 
     /// Provides the MmdsNetworkStack of this net device.
@@ -499,7 +522,7 @@ impl Net {
         rate_limiter: &mut RateLimiter,
         headers: &mut [u8],
         frame_iovec: &IoVecBuffer,
-        tap: &mut Tap,
+        backend: &mut NetDevBackend,
         guest_mac: Option<MacAddr>,
         net_metrics: &NetDeviceMetrics,
     ) -> Result<bool, NetError> {
@@ -573,7 +596,7 @@ impl Net {
         }
 
         let _metric = net_metrics.tap_write_agg.record_latency_metrics();
-        match Self::write_tap(tap, frame_iovec) {
+        match Self::write_backend(backend, frame_iovec) {
             Ok(_) => {
                 let len = u64::from(frame_iovec.len());
                 net_metrics.tx_bytes_count.add(len);
@@ -751,7 +774,7 @@ impl Net {
                 &mut self.tx_rate_limiter,
                 &mut self.tx_frame_headers,
                 &self.tx_buffer,
-                &mut self.tap,
+                &mut self.backend,
                 self.guest_mac,
                 &self.metrics,
             )
@@ -844,10 +867,10 @@ impl Net {
         } else {
             self.rx_buffer.single_chain_slice_mut()
         };
-        self.tap.read_iovec(slice)
+        self.backend.read_iovec(slice)
     }
 
-    fn write_tap(tap: &mut Tap, buf: &IoVecBuffer) -> std::io::Result<usize> {
+    fn write_backend(tap: &mut NetDevBackend, buf: &IoVecBuffer) -> std::io::Result<usize> {
         tap.write_iovec(buf)
     }
 
@@ -1042,9 +1065,10 @@ impl VirtioDevice for Net {
         }
 
         let supported_flags: u32 = Net::build_tap_offload_features(self.acked_features);
-        self.tap
-            .set_offload(supported_flags)
-            .map_err(super::super::ActivateError::TapSetOffload)?;
+        if let NetDevBackend::Tap(tap) = &self.backend {
+            tap.set_offload(supported_flags)
+                .map_err(super::super::ActivateError::TapSetOffload)?;
+        }
 
         self.rx_buffer.min_buffer_size = self.minimum_rx_buffer_size();
 
@@ -1645,7 +1669,7 @@ pub mod tests {
         let mem = single_region_mem(2 * MAX_BUFFER_SIZE);
         let mut th = TestHelper::get_default(&mem);
         th.activate_net();
-        let tap_traffic_simulator = TapTrafficSimulator::new(if_index(&th.net().tap));
+        let tap_traffic_simulator = TapTrafficSimulator::new(&th.net().backend);
 
         th.add_desc_chain(NetQueue::Tx, 0, &[(0, 4096, 0)]);
         th.net().queue_evts[TX_INDEX].read().unwrap();
@@ -1666,7 +1690,7 @@ pub mod tests {
         let mem = single_region_mem(2 * MAX_BUFFER_SIZE);
         let mut th = TestHelper::get_default(&mem);
         th.activate_net();
-        let tap_traffic_simulator = TapTrafficSimulator::new(if_index(&th.net().tap));
+        let tap_traffic_simulator = TapTrafficSimulator::new(&th.net().backend);
 
         let desc_list = [(0, 100, 0), (1, 100, VIRTQ_DESC_F_WRITE), (2, 500, 0)];
         th.add_desc_chain(NetQueue::Tx, 0, &desc_list);
@@ -1690,7 +1714,7 @@ pub mod tests {
         let mem = single_region_mem(2 * MAX_BUFFER_SIZE);
         let mut th = TestHelper::get_default(&mem);
         th.activate_net();
-        let tap_traffic_simulator = TapTrafficSimulator::new(if_index(&th.net().tap));
+        let tap_traffic_simulator = TapTrafficSimulator::new(&th.net().backend);
 
         // Send an invalid frame (too small, VNET header missing).
         th.add_desc_chain(NetQueue::Tx, 0, &[(0, 1, 0)]);
@@ -1717,7 +1741,7 @@ pub mod tests {
         let mem = single_region_mem(2 * MAX_BUFFER_SIZE);
         let mut th = TestHelper::get_default(&mem);
         th.activate_net();
-        let tap_traffic_simulator = TapTrafficSimulator::new(if_index(&th.net().tap));
+        let tap_traffic_simulator = TapTrafficSimulator::new(&th.net().backend);
 
         // Send an invalid frame (too big, maximum buffer is MAX_BUFFER_SIZE).
         th.add_desc_chain(
@@ -1748,7 +1772,7 @@ pub mod tests {
         let mem = single_region_mem(2 * MAX_BUFFER_SIZE);
         let mut th = TestHelper::get_default(&mem);
         th.activate_net();
-        let tap_traffic_simulator = TapTrafficSimulator::new(if_index(&th.net().tap));
+        let tap_traffic_simulator = TapTrafficSimulator::new(&th.net().backend);
 
         // Send an invalid frame (too small, VNET header missing).
         th.add_desc_chain(NetQueue::Tx, 0, &[(0, 0, 0)]);
@@ -1775,7 +1799,7 @@ pub mod tests {
         let mem = single_region_mem(2 * MAX_BUFFER_SIZE);
         let mut th = TestHelper::get_default(&mem);
         th.activate_net();
-        let tap_traffic_simulator = TapTrafficSimulator::new(if_index(&th.net().tap));
+        let tap_traffic_simulator = TapTrafficSimulator::new(&th.net().backend);
 
         // Add invalid descriptor chain - writeable descriptor.
         th.add_desc_chain(
@@ -1822,7 +1846,7 @@ pub mod tests {
         let mem = single_region_mem(2 * MAX_BUFFER_SIZE);
         let mut th = TestHelper::get_default(&mem);
         th.activate_net();
-        let tap_traffic_simulator = TapTrafficSimulator::new(if_index(&th.net().tap));
+        let tap_traffic_simulator = TapTrafficSimulator::new(&th.net().backend);
 
         // Add gaps between the descriptor ids in order to ensure that we follow
         // the `next` field.
@@ -1857,7 +1881,7 @@ pub mod tests {
         th.activate_net();
         // force the next write to the tap to return an error by simply closing the fd
         // SAFETY: its a valid fd
-        unsafe { libc::close(th.net.lock().unwrap().tap.as_raw_fd()) };
+        unsafe { libc::close(th.net.lock().unwrap().backend.as_raw_fd()) };
 
         let desc_list = [(0, 1000, 0)];
         th.add_desc_chain(NetQueue::Tx, 0, &desc_list);
@@ -1887,7 +1911,7 @@ pub mod tests {
         let mem = single_region_mem(2 * MAX_BUFFER_SIZE);
         let mut th = TestHelper::get_default(&mem);
         th.activate_net();
-        let tap_traffic_simulator = TapTrafficSimulator::new(if_index(&th.net().tap));
+        let tap_traffic_simulator = TapTrafficSimulator::new(&th.net().backend);
 
         // Write the first frame to the Tx queue
         let desc_list = [(0, 50, 0), (1, 100, 0), (2, 150, 0)];
@@ -1998,7 +2022,7 @@ pub mod tests {
                     &mut net.tx_rate_limiter,
                     &mut headers,
                     &buffer,
-                    &mut net.tap,
+                    &mut net.backend,
                     Some(src_mac),
                     &net.metrics,
                 )
@@ -2037,7 +2061,7 @@ pub mod tests {
                 &mut net.tx_rate_limiter,
                 &mut headers,
                 &buffer,
-                &mut net.tap,
+                &mut net.backend,
                 Some(guest_mac),
                 &net.metrics,
             )
@@ -2052,7 +2076,7 @@ pub mod tests {
                 &mut net.tx_rate_limiter,
                 &mut headers,
                 &buffer,
-                &mut net.tap,
+                &mut net.backend,
                 Some(not_guest_mac),
                 &net.metrics,
             )
@@ -2092,7 +2116,7 @@ pub mod tests {
         th.activate_net();
         // force the next write to the tap to return an error by simply closing the fd
         // SAFETY: its a valid fd
-        unsafe { libc::close(th.net.lock().unwrap().tap.as_raw_fd()) };
+        unsafe { libc::close(th.net.lock().unwrap().backend.as_raw_fd()) };
 
         // The RX queue is empty and there is a deferred frame.
         th.net().rx_buffer.used_descriptors = 1;

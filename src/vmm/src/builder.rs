@@ -791,6 +791,7 @@ pub(crate) mod tests {
     use crate::device_manager::tests::default_device_manager;
     use crate::devices::virtio::block::CacheType;
     use crate::devices::virtio::device::VirtioDeviceType;
+    use crate::devices::virtio::net::device::NetDevBackendType;
     use crate::devices::virtio::rng::device::ENTROPY_DEV_ID;
     use crate::devices::virtio::vsock::VSOCK_DEV_ID;
     use crate::mmds::data_store::{Mmds, MmdsVersion};
@@ -1101,6 +1102,7 @@ pub(crate) mod tests {
             guest_mac: None,
             rx_rate_limiter: None,
             tx_rate_limiter: None,
+            backend_type: NetDevBackendType::Tap("hostname".to_string()),
         };
 
         let mut cmdline = default_kernel_cmdline();

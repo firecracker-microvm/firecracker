@@ -10,12 +10,14 @@ use serde::{Deserialize, Serialize};
 use super::RateLimiterConfig;
 use crate::VmmError;
 use crate::devices::virtio::device::VirtioDevice;
+use crate::devices::virtio::net::device::NetDevBackendType;
+use crate::devices::virtio::net::tap::NetDevBackend;
 use crate::devices::virtio::net::{Net, TapError};
 use crate::utils::net::mac::MacAddr;
 
 /// This struct represents the strongly typed equivalent of the json body from net iface
 /// related requests.
-#[derive(Debug, PartialEq, Eq, Deserialize, Serialize)]
+#[derive(Debug, PartialEq, Deserialize, Serialize, Eq)]
 #[serde(deny_unknown_fields)]
 pub struct NetworkInterfaceConfig {
     /// ID of the guest network interface.
@@ -28,18 +30,25 @@ pub struct NetworkInterfaceConfig {
     pub rx_rate_limiter: Option<RateLimiterConfig>,
     /// Rate Limiter for transmitted packages.
     pub tx_rate_limiter: Option<RateLimiterConfig>,
+    /// The backend type of the net device
+    pub backend_type: NetDevBackendType,
 }
 
 impl From<&Net> for NetworkInterfaceConfig {
     fn from(net: &Net) -> Self {
         let rx_rl: RateLimiterConfig = net.rx_rate_limiter().into();
         let tx_rl: RateLimiterConfig = net.tx_rate_limiter().into();
+        let backend_type = match &net.backend {
+            NetDevBackend::Tap(tap) => NetDevBackendType::Tap(tap.identifier()),
+            NetDevBackend::Passt(passt) => NetDevBackendType::Passt(passt.identifier()),
+        };
         NetworkInterfaceConfig {
             iface_id: net.id().to_string(),
-            host_dev_name: net.iface_name(),
+            host_dev_name: net.identifier(),
             guest_mac: net.guest_mac().copied(),
             rx_rate_limiter: rx_rl.into_option(),
             tx_rate_limiter: tx_rl.into_option(),
+            backend_type: backend_type,
         }
     }
 }
@@ -157,6 +166,7 @@ impl NetBuilder {
             cfg.guest_mac,
             rx_rate_limiter.unwrap_or_default(),
             tx_rate_limiter.unwrap_or_default(),
+            cfg.backend_type,
         )
         .map_err(NetworkInterfaceError::CreateNetworkDevice)
     }
@@ -191,6 +201,8 @@ mod tests {
             guest_mac: Some(MacAddr::from_str(mac).unwrap()),
             rx_rate_limiter: RateLimiterConfig::default().into_option(),
             tx_rate_limiter: RateLimiterConfig::default().into_option(),
+
+            backend_type: NetDevBackendType::Tap(name.to_string()),
         }
     }
 
@@ -202,6 +214,7 @@ mod tests {
                 guest_mac: self.guest_mac,
                 rx_rate_limiter: None,
                 tx_rate_limiter: None,
+                backend_type: NetDevBackendType::Tap(self.host_dev_name.clone()),
             }
         }
     }
@@ -334,6 +347,7 @@ mod tests {
             Some(MacAddr::from_str(guest_mac).unwrap()),
             RateLimiter::default(),
             RateLimiter::default(),
+            NetDevBackendType::Tap(host_dev_name.to_string()),
         )
         .unwrap();
 

@@ -790,6 +790,7 @@ pub(crate) mod tests {
     use crate::devices::acpi::vmclock::VmClock;
     use crate::devices::acpi::vmgenid::VmGenId;
     use crate::devices::virtio::block::CacheType;
+    use crate::devices::virtio::net::device::NetDevBackendType;
     use crate::rpc_interface::VmmActionError;
     use crate::vmm_config::HotplugDeviceConfig;
     use crate::vmm_config::drive::{BlockDeviceConfig, DriveError};
@@ -1062,6 +1063,7 @@ pub(crate) mod tests {
             guest_mac: Some(mac.parse().unwrap()),
             rx_rate_limiter: None,
             tx_rate_limiter: None,
+            backend_type: NetDevBackendType::Tap("hostname".to_string()),
         });
         vmm.hotplug_device(cfg, &mut evt_manager).unwrap();
         assert!(
@@ -1078,6 +1080,7 @@ pub(crate) mod tests {
             guest_mac: Some(mac.parse().unwrap()),
             rx_rate_limiter: None,
             tx_rate_limiter: None,
+            backend_type: NetDevBackendType::Tap("hostname".to_string()),
         });
         assert!(matches!(
             vmm.hotplug_device(cfg2, &mut evt_manager),
