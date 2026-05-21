@@ -609,6 +609,96 @@ def test_snapshot_rename_vsock(
     restored_vm.restore_from_snapshot(snapshot, vsock_override="/v.sock2", resume=True)
 
 
+def test_snapshot_override_pmem(uvm_plain_any, microvm_factory):
+    """
+    Test that we can restore a snapshot and point a virtio-pmem device to a
+    different host backing file.
+    """
+    vm = uvm_plain_any
+    vm.spawn()
+    vm.basic_config(add_root_device=True)
+    vm.add_net_iface()
+
+    pmem_size_mb = 2
+    pmem_fs = drive_tools.FilesystemFile(
+        os.path.join(vm.fsfiles, "pmem_scratch"), size=pmem_size_mb
+    )
+    vm.add_pmem("pmem0", pmem_fs.path, False, False)
+    vm.start()
+
+    # Write a marker to the pmem device so we can verify the overridden file
+    # is used after restore.
+    marker = "pmem_override_marker"
+    vm.ssh.check_output("mkdir -p /tmp/pmem_mnt")
+    vm.ssh.check_output("mount /dev/pmem0 -o dax=always /tmp/pmem_mnt")
+    vm.ssh.check_output(f'echo "{marker}" > /tmp/pmem_mnt/marker')
+
+    snapshot = vm.snapshot_full()
+    # Killing the VM flushes any guest writes to the backing file.
+    vm.kill()
+
+    restored_vm = microvm_factory.build()
+    restored_vm.spawn()
+
+    # Stage the override file with a basename that differs from the original
+    # snapshot's pmem backing file. Using a distinct path guarantees that the
+    # restore actually consults the override rather than falling back to the
+    # snapshot's baked-in path.
+    original_pmem = snapshot.disks["pmem0"]
+    override_src = Path(vm.fsfiles) / "pmem0_override.img"
+    shutil.copyfile(original_pmem, override_src)
+    # Hardlink the override into the restored VM's chroot and chown it to the
+    # jailer's uid:gid so Firecracker can open it.
+    override_jailed = restored_vm.create_jailed_resource(override_src)
+
+    restored_vm.restore_from_snapshot(
+        snapshot,
+        pmem_overrides=[
+            {"id": "pmem0", "path_on_host": override_jailed},
+        ],
+        resume=True,
+    )
+
+    # The override file is a byte-for-byte copy taken after the marker was
+    # written, so the marker must still be readable through the pmem device.
+    _, stdout, _ = restored_vm.ssh.check_output("cat /tmp/pmem_mnt/marker")
+    assert stdout.strip() == marker
+
+
+def test_pmem_override_fails_unknown_id(uvm_plain_any, microvm_factory):
+    """
+    Providing a pmem override with an unknown id should fail snapshot
+    restore and cause Firecracker to exit.
+    """
+    vm = uvm_plain_any
+    vm.spawn()
+    vm.basic_config(add_root_device=True)
+    vm.add_net_iface()
+
+    pmem_fs = drive_tools.FilesystemFile(
+        os.path.join(vm.fsfiles, "pmem_scratch"), size=2
+    )
+    vm.add_pmem("pmem0", pmem_fs.path, False, False)
+    vm.start()
+
+    snapshot = vm.snapshot_full()
+    vm.kill()
+
+    restored_vm = microvm_factory.build()
+    restored_vm.spawn()
+
+    with pytest.raises(RuntimeError, match="Unknown Pmem Device"):
+        restored_vm.restore_from_snapshot(
+            snapshot,
+            pmem_overrides=[
+                {"id": "nonexistent", "path_on_host": "/fake/path"},
+            ],
+            resume=True,
+        )
+
+    restored_vm.mark_killed()
+
+
 SLEEP_SECONDS = 30
 
 CLOCK_SOURCES = {"x86_64": ["tsc", "kvm-clock"], "aarch64": ["arch_sys_counter"]}[

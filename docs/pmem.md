@@ -260,6 +260,35 @@ same backing file as it was configured in the first place. This means all
 `virtio-pmem` backing files should be present in the same locations during
 restore as they were during initial `virtio-pmem` configuration.
 
+### Overriding pmem backing file paths on restore
+
+When the host file path baked into the snapshot is no longer valid - for
+example, when restoring on a different host or under a different jailer chroot -
+the `pmem_overrides` parameter of the snapshot load API can be used to point
+each `virtio-pmem` device at a different host file. The new file must be at
+least as large as the backing file used when the snapshot was taken; using a
+smaller file will result in the device failing to restore.
+
+```bash
+curl --unix-socket /tmp/firecracker.socket -i \
+    -X PUT 'http://localhost/snapshot/load' \
+    -H  'Accept: application/json' \
+    -H  'Content-Type: application/json' \
+    -d '{
+            "snapshot_path": "./snapshot_file",
+            "mem_backend": {
+                "backend_path": "./mem_file",
+                "backend_type": "File"
+            },
+            "pmem_overrides": [
+                {
+                    "id": "pmem0",
+                    "path_on_host": "/new/path/to/pmem0.img"
+                }
+            ]
+    }'
+```
+
 ## Performance
 
 Even though `virtio-pmem` allows for the direct access of host pages from the

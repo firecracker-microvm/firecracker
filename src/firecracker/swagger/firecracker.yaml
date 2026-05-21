@@ -1647,6 +1647,26 @@ definitions:
         description:
           The new path for the backing Unix Domain Socket.
 
+  PmemOverride:
+    type: object
+    description:
+      Allows for changing the backing host file of a virtio-pmem device
+      during snapshot restore.
+    required:
+      - id
+      - path_on_host
+    properties:
+      id:
+        type: string
+        description:
+          The ID of the pmem device to modify.
+      path_on_host:
+        type: string
+        description:
+          The new host path for the pmem device's backing file. The file must
+          be at least as large as the backing file used when the snapshot was
+          taken.
+
   SnapshotLoadParams:
     type: object
     description:
@@ -1702,6 +1722,11 @@ definitions:
           elapsed since the snapshot was taken. When false (default), kvmclock resumes
           from where it was at snapshot time. This option may be extended to other clock
           sources and CPU architectures in the future."
+      pmem_overrides:
+        type: array
+        description: Pmem device backing file paths to override on snapshot restore.
+        items:
+          $ref: "#/definitions/PmemOverride"
 
 
   TokenBucket:

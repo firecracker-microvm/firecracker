@@ -10,6 +10,13 @@ and this project adheres to
 
 ### Added
 
+- [#5896](https://github.com/firecracker-microvm/firecracker/pull/5896): Add
+  support for overriding virtio-pmem device backing file paths on snapshot
+  restore via the new `pmem_overrides` field on the `PUT /snapshot/load` API.
+  This mirrors the existing network and vsock override mechanisms and is useful
+  when the host file path baked into the snapshot is no longer valid (for
+  example, when restoring on a different host or under a different jailer
+  chroot).
 - [#5786](https://github.com/firecracker-microvm/firecracker/pull/5786): Added
   developer preview support for hotplugging and hot-unplugging PCI virtio
   devices (block, pmem, net) on a running microVM. The guest must manually
