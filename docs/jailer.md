@@ -106,7 +106,7 @@ Here is an example on how to set multiple resource limits using this argument:
   escapes the `pivot_root` chroot via a kernel exploit, Landlock (enforced by a
   separate LSM path) independently prevents access to files outside the jail.
   The flag operates in best-effort mode — on kernels without Landlock support
-  (< 5.13) it has no effect.
+  (\< 5.13) it has no effect.
 - The jailer adheres to the "end of command options" convention, meaning all
   parameters specified after `--` are forwarded to Firecracker. For example,
   this can be paired with the `--config-file` Firecracker argument to specify a
