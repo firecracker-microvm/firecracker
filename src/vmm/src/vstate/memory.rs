@@ -6,7 +6,7 @@
 // found in the THIRD-PARTY file.
 
 use std::fs::File;
-use std::io::SeekFrom;
+use std::io::{self, SeekFrom};
 use std::ops::Deref;
 use std::sync::{Arc, Mutex};
 
@@ -24,7 +24,7 @@ pub use vm_memory::{
 use vm_memory::{GuestMemoryError, GuestMemoryRegionBytes, VolatileSlice, WriteVolatile};
 use vmm_sys_util::errno;
 
-use crate::utils::{get_page_size, u64_to_usize};
+use crate::utils::{get_page_size, u64_to_usize, usize_to_u64};
 use crate::vmm_config::machine_config::HugePageConfig;
 use crate::vstate::vm::VmError;
 use crate::{DirtyBitmap, Vm};
@@ -388,8 +388,28 @@ impl GuestRegionMmapExt {
         caddr: MemoryRegionAddress,
         len: usize,
     ) -> Result<(), GuestMemoryError> {
-        let phys_address = self.get_host_address(caddr)?;
+        let region_page_size = if self.flags() & HugePageConfig::Hugetlbfs2M.mmap_flags() != 0 {
+            HugePageConfig::Hugetlbfs2M.page_size()
+        } else {
+            HugePageConfig::None.page_size()
+        };
 
+        let end = caddr
+            .0
+            .checked_add(usize_to_u64(len))
+            .ok_or(GuestMemoryError::GuestAddressOverflow)?;
+
+        // Both the starting address and the length of the region we want to discard needs to be
+        // page alinged, otherwise we won't be able to actually discard the memory.
+        if !caddr.0.is_multiple_of(usize_to_u64(region_page_size))
+            || !end.is_multiple_of(usize_to_u64(region_page_size))
+        {
+            return Err(GuestMemoryError::IOError(
+                io::ErrorKind::InvalidInput.into(),
+            ));
+        }
+
+        let phys_address = self.get_host_address(caddr)?;
         match (self.inner.file_offset(), self.inner.flags()) {
             // If and only if we are resuming from a snapshot file, we have a file and it's mapped
             // private
