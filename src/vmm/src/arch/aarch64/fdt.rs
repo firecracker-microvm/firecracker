@@ -549,3 +549,85 @@ fn create_pci_nodes(fdt: &mut FdtWriter, pci_devices: &PciDevices) -> Result<(),
 
     Ok(fdt.end_node(pci_node)?)
 }
+
+#[cfg(test)]
+mod tests {
+    use std::sync::{Arc, Mutex};
+
+    use linux_loader::cmdline::Cmdline;
+
+    use super::*;
+    use crate::arch::aarch64::gic::create_gic;
+    use crate::arch::{FDT_MAX_SIZE, KvmVm};
+    use crate::device_manager::mmio::tests::DummyDevice;
+    use crate::device_manager::tests::default_device_manager;
+    use crate::test_utils::arch_mem;
+    use crate::vstate::memory::GuestAddress;
+    use crate::{EventManager, Kvm};
+
+    #[test]
+    fn test_create_fdt() {
+        let mem = arch_mem(FDT_MAX_SIZE + 0x1000);
+        let mut event_manager = EventManager::new().unwrap();
+        let mut device_manager = default_device_manager();
+        let kvm = Kvm::new(vec![]).unwrap();
+        let vm = KvmVm::new(kvm).unwrap();
+        let gic = create_gic(vm.fd(), 1, None).unwrap();
+        let initrd = InitrdConfig {
+            address: GuestAddress(0x1000_0000),
+            size: 0x1000,
+        };
+
+        let mut cmdline = Cmdline::new(4096).unwrap();
+        cmdline.insert("console", "/dev/tty0").unwrap();
+
+        device_manager
+            .attach_legacy_devices_aarch64(&vm, &mut event_manager, &mut cmdline, None, None)
+            .unwrap();
+        let dummy = Arc::new(Mutex::new(DummyDevice::new()));
+        device_manager
+            .mmio_devices
+            .register_virtio_test_device(
+                &vm,
+                mem.clone(),
+                dummy,
+                &mut event_manager,
+                &mut cmdline,
+                "dummy",
+            )
+            .unwrap();
+
+        let dtb_bytes = create_fdt(
+            &mem,
+            vec![0],
+            CString::new("console=tty0").unwrap(),
+            &device_manager,
+            &gic,
+            &Some(initrd),
+        )
+        .unwrap();
+        let generated_fdt = device_tree::DeviceTree::load(&dtb_bytes).unwrap();
+
+        let expected_root_nodes = [
+            "cpus",
+            "memory@ram",
+            "chosen",
+            "intc",
+            "timer",
+            "apb-pclk",
+            "psci",
+            "rtc@40001000",
+            "uart@40002000",
+            "virtio_mmio@40003000",
+            "vmgenid",
+            "ptp@2149572608",
+        ];
+        let generated_root_names: Vec<_> = generated_fdt
+            .root
+            .children
+            .iter()
+            .map(|c| &c.name)
+            .collect();
+        assert_eq!(&generated_root_names, &expected_root_nodes);
+    }
+}
