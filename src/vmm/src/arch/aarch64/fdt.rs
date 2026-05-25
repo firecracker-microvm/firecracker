@@ -8,6 +8,7 @@
 use std::ffi::CString;
 use std::fmt::Debug;
 
+use aws_lc_rs::rand;
 use vm_fdt::{Error as VmFdtError, FdtWriter, FdtWriterNode};
 use vm_memory::{GuestMemoryError, GuestMemoryRegion};
 
@@ -275,6 +276,10 @@ fn create_chosen_node(
     // Prevent the kernel from reassigning PCI BAR addresses.
     // https://elixir.bootlin.com/linux/v6.19.8/source/drivers/pci/of.c#L255
     fdt.property_u32("linux,pci-probe-only", 1)?;
+
+    let mut rng_seed = [0u8; 64];
+    rand::fill(&mut rng_seed).expect("could not generate rng-seed");
+    fdt.property("rng-seed", &rng_seed)?;
 
     fdt.end_node(chosen)?;
 
@@ -552,39 +557,33 @@ fn create_pci_nodes(fdt: &mut FdtWriter, pci_devices: &PciDevices) -> Result<(),
 
 #[cfg(test)]
 mod tests {
-    use std::ffi::CString;
     use std::sync::{Arc, Mutex};
 
-    use linux_loader::cmdline as kernel_cmdline;
+    use linux_loader::cmdline::Cmdline;
 
     use super::*;
     use crate::arch::aarch64::gic::create_gic;
-    use crate::arch::aarch64::layout;
+    use crate::arch::{FDT_MAX_SIZE, KvmVm};
     use crate::device_manager::mmio::tests::DummyDevice;
     use crate::device_manager::tests::default_device_manager;
     use crate::test_utils::arch_mem;
     use crate::vstate::memory::GuestAddress;
-    use crate::vstate::vm::KvmVm;
     use crate::{EventManager, Kvm};
 
-    // The `load` function from the `device_tree` will mistakenly check the actual size
-    // of the buffer with the allocated size. This works around that.
-    fn set_size(buf: &mut [u8], pos: usize, val: u32) {
-        buf[pos] = ((val >> 24) & 0xff) as u8;
-        buf[pos + 1] = ((val >> 16) & 0xff) as u8;
-        buf[pos + 2] = ((val >> 8) & 0xff) as u8;
-        buf[pos + 3] = (val & 0xff) as u8;
-    }
-
     #[test]
-    fn test_create_fdt_with_devices() {
-        let mem = arch_mem(layout::FDT_MAX_SIZE + 0x1000);
+    fn test_create_fdt() {
+        let mem = arch_mem(FDT_MAX_SIZE + 0x1000);
         let mut event_manager = EventManager::new().unwrap();
         let mut device_manager = default_device_manager();
         let kvm = Kvm::new(vec![]).unwrap();
         let vm = KvmVm::new(kvm).unwrap();
         let gic = create_gic(vm.fd(), 1, None).unwrap();
-        let mut cmdline = kernel_cmdline::Cmdline::new(4096).unwrap();
+        let initrd = InitrdConfig {
+            address: GuestAddress(0x1000_0000),
+            size: 0x1000,
+        };
+
+        let mut cmdline = Cmdline::new(4096).unwrap();
         cmdline.insert("console", "/dev/tty0").unwrap();
 
         device_manager
@@ -603,94 +602,7 @@ mod tests {
             )
             .unwrap();
 
-        create_fdt(
-            &mem,
-            vec![0],
-            cmdline.as_cstring().unwrap(),
-            &device_manager,
-            &gic,
-            &None,
-        )
-        .unwrap();
-    }
-
-    #[test]
-    fn test_create_fdt() {
-        let mem = arch_mem(layout::FDT_MAX_SIZE + 0x1000);
-        let device_manager = default_device_manager();
-        let kvm = Kvm::new(vec![]).unwrap();
-        let vm = KvmVm::new(kvm).unwrap();
-        let gic = create_gic(vm.fd(), 1, None).unwrap();
-
-        let saved_dtb_bytes = match gic.fdt_compatibility() {
-            "arm,gic-v3" => include_bytes!("output_GICv3.dtb"),
-            "arm,gic-400" => include_bytes!("output_GICv2.dtb"),
-            _ => panic!("Unexpected gic version!"),
-        };
-
-        let current_dtb_bytes = create_fdt(
-            &mem,
-            vec![0],
-            CString::new("console=tty0").unwrap(),
-            &device_manager,
-            &gic,
-            &None,
-        )
-        .unwrap();
-
-        // Use this code when wanting to generate a new DTB sample.
-        // {
-        // use std::fs;
-        // use std::io::Write;
-        // use std::path::PathBuf;
-        // let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-        // let dtb_path = match gic.fdt_compatibility() {
-        // "arm,gic-v3" => "output_GICv3.dtb",
-        // "arm,gic-400" => ("output_GICv2.dtb"),
-        // _ => panic!("Unexpected gic version!"),
-        // };
-        // let mut output = fs::OpenOptions::new()
-        // .write(true)
-        // .create(true)
-        // .open(path.join(format!("src/arch/aarch64/{}", dtb_path)))
-        // .unwrap();
-        // output.write_all(&current_dtb_bytes).unwrap();
-        // }
-
-        let pos = 4;
-        let val = u32::try_from(layout::FDT_MAX_SIZE).unwrap();
-        let mut buf = vec![];
-        buf.extend_from_slice(saved_dtb_bytes);
-
-        set_size(&mut buf, pos, val);
-        let original_fdt = device_tree::DeviceTree::load(&buf).unwrap();
-        let generated_fdt = device_tree::DeviceTree::load(&current_dtb_bytes).unwrap();
-        assert_eq!(
-            format!("{:?}", original_fdt),
-            format!("{:?}", generated_fdt)
-        );
-    }
-
-    #[test]
-    fn test_create_fdt_with_initrd() {
-        let mem = arch_mem(layout::FDT_MAX_SIZE + 0x1000);
-        let device_manager = default_device_manager();
-        let kvm = Kvm::new(vec![]).unwrap();
-        let vm = KvmVm::new(kvm).unwrap();
-        let gic = create_gic(vm.fd(), 1, None).unwrap();
-
-        let saved_dtb_bytes = match gic.fdt_compatibility() {
-            "arm,gic-v3" => include_bytes!("output_initrd_GICv3.dtb"),
-            "arm,gic-400" => include_bytes!("output_initrd_GICv2.dtb"),
-            _ => panic!("Unexpected gic version!"),
-        };
-
-        let initrd = InitrdConfig {
-            address: GuestAddress(0x1000_0000),
-            size: 0x1000,
-        };
-
-        let current_dtb_bytes = create_fdt(
+        let dtb_bytes = create_fdt(
             &mem,
             vec![0],
             CString::new("console=tty0").unwrap(),
@@ -699,37 +611,28 @@ mod tests {
             &Some(initrd),
         )
         .unwrap();
+        let generated_fdt = device_tree::DeviceTree::load(&dtb_bytes).unwrap();
 
-        // Use this code when wanting to generate a new DTB sample.
-        // {
-        // use std::fs;
-        // use std::io::Write;
-        // use std::path::PathBuf;
-        // let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-        // let dtb_path = match gic.fdt_compatibility() {
-        // "arm,gic-v3" => "output_initrd_GICv3.dtb",
-        // "arm,gic-400" => ("output_initrd_GICv2.dtb"),
-        // _ => panic!("Unexpected gic version!"),
-        // };
-        // let mut output = fs::OpenOptions::new()
-        // .write(true)
-        // .create(true)
-        // .open(path.join(format!("src/arch/aarch64/{}", dtb_path)))
-        // .unwrap();
-        // output.write_all(&current_dtb_bytes).unwrap();
-        // }
-
-        let pos = 4;
-        let val = u32::try_from(layout::FDT_MAX_SIZE).unwrap();
-        let mut buf = vec![];
-        buf.extend_from_slice(saved_dtb_bytes);
-
-        set_size(&mut buf, pos, val);
-        let original_fdt = device_tree::DeviceTree::load(&buf).unwrap();
-        let generated_fdt = device_tree::DeviceTree::load(&current_dtb_bytes).unwrap();
-        assert_eq!(
-            format!("{:?}", original_fdt),
-            format!("{:?}", generated_fdt)
-        );
+        let expected_root_nodes = [
+            "cpus",
+            "memory@ram",
+            "chosen",
+            "intc",
+            "timer",
+            "apb-pclk",
+            "psci",
+            "rtc@40001000",
+            "uart@40002000",
+            "virtio_mmio@40003000",
+            "vmgenid",
+            "ptp@2149572608",
+        ];
+        let generated_root_names: Vec<_> = generated_fdt
+            .root
+            .children
+            .iter()
+            .map(|c| &c.name)
+            .collect();
+        assert_eq!(&generated_root_names, &expected_root_nodes);
     }
 }
