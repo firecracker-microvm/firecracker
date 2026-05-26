@@ -13,7 +13,7 @@ cd $1
 
 say "Generate SSH key to connect from host"
 if [ ! -s id_rsa ]; then
-    ssh-keygen -f id_rsa -N ""
+    ssh-keygen -t rsa -b 2048 -f id_rsa -N ""
 fi
 
 for SQUASHFS in *.squashfs; do
