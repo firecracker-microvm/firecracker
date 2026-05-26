@@ -49,6 +49,10 @@ and this project adheres to
   Advertise MTU to the guest via `VIRTIO_NET_F_MTU` using a new optional `mtu`
   field in the `network-interfaces` API. When set, a compatible guest driver
   will configure the interface with the specified MTU.
+- [#5906](https://github.com/firecracker-microvm/firecracker/pull/5906): Add
+  `rng-seed` FDT node for aarch64 guests which provides an initial random seed
+  for the guest to use. This helps older aarch64 machines which do not have
+  hardware random generators.
 
 ### Changed
 

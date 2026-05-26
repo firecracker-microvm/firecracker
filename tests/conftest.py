@@ -790,3 +790,25 @@ def uvm_any_without_pci(
         vcpu_count=vcpu_count,
         mem_size_mib=mem_size_mib,
     )
+
+
+@pytest.fixture
+def uvm_with_fips(microvm_factory, guest_kernel_linux_6_1, rootfs_rw):
+    """Boot a microVM with FIPS mode enabled."""
+    uvm = microvm_factory.build(guest_kernel_linux_6_1, rootfs_rw)
+    uvm.spawn()
+    uvm.basic_config(boot_args="console=ttyS0 reboot=k panic=1 pci=off fips=1")
+    uvm.add_net_iface()
+    uvm.start()
+    return uvm
+
+
+@pytest.fixture
+def fips_snapshot_pair(uvm_with_fips, microvm_factory):
+    """Boot a FIPS VM, snapshot it, restore two VMs from the same snapshot."""
+    snapshot = uvm_with_fips.snapshot_full()
+    uvm_with_fips.kill()
+
+    uvm_a = microvm_factory.build_from_snapshot(snapshot)
+    uvm_b = microvm_factory.build_from_snapshot(snapshot)
+    yield uvm_a, uvm_b
