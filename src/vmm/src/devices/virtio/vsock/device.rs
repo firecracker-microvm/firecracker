@@ -270,6 +270,12 @@ where
         });
         queue.advance_used_ring_idx();
 
+        // The evq is only popped here, not via a drain loop, so
+        // `avail_event` is not advanced by `pop_or_enable_notification`.
+        // Arm it so the driver's refill of the consumed head is not
+        // suppressed by EVENT_IDX.
+        queue.enable_notification();
+
         // NOTE: kick() will be called on resume and it will trigger the interrupt again. As calling
         // it multiple times should not cause any harm, it would be safer to call it here as well
         // as part of the sequence of actions that signal the reset event, prior to saving the
