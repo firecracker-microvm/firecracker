@@ -1469,3 +1469,23 @@ class Serial:
                 assert False
 
         return rx_str
+
+    def drain_until_idle(self, idle_seconds=1):
+        """Read and discard serial output until the console is idle.
+
+        Returns once no new output has arrived for idle_seconds.
+        Used after snapshot restore to let kernel messages (e.g. crng reseeded)
+        finish before sending input, avoiding the input being swallowed while
+        the kernel holds the console lock.
+        """
+        last_activity = time.time()
+        start = time.time()
+        while True:
+            now = time.time()
+            if (now - start) >= self.RX_TIMEOUT_S:
+                break
+            ch = self.rx_char()
+            if ch:
+                last_activity = now
+            elif now - last_activity >= idle_seconds:
+                break
