@@ -48,11 +48,10 @@ def test_serial_after_snapshot(uvm_plain, microvm_factory):
     vm.restore_from_snapshot(snapshot, resume=True)
     serial = Serial(vm)
     serial.open()
-    # We need to send a newline to signal the serial to flush
-    # the login content.
+    # After restore, the kernel may emit messages (e.g. crng reseeded on 6.1)
+    # that hold the console lock. Wait for those to finish before sending input.
+    serial.drain_until_idle()
     serial.tx("")
-
-    # looking for the # prompt at the end
     serial.rx(vm.distro.shell_prompt)
     serial.tx("pwd")
     res = serial.rx("#")
