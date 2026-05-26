@@ -22,8 +22,7 @@ pub use vm_memory::{
     GuestUsize, MemoryRegionAddress, MmapRegion, address,
 };
 use vm_memory::{GuestMemoryError, GuestMemoryRegionBytes, VolatileSlice, WriteVolatile};
-use vmm_sys_util::fallocate::FallocateMode;
-use vmm_sys_util::{errno, fallocate};
+use vmm_sys_util::errno;
 
 use crate::utils::{get_page_size, u64_to_usize, usize_to_u64};
 use crate::vmm_config::machine_config::HugePageConfig;
@@ -441,26 +440,23 @@ impl GuestRegionMmapExt {
                 }
             }
             // If we back memory over memfd we have a file mapped shared.
-            (Some(file_offset), flags) if flags & libc::MAP_SHARED != 0 => {
-                let Some(offset) = file_offset.start().checked_add(caddr.raw_value()) else {
-                    return Err(GuestMemoryError::InvalidGuestAddress(GuestAddress(
-                        caddr.raw_value(),
-                    )));
-                };
-
-                fallocate::fallocate(
-                    file_offset.file(),
-                    FallocateMode::PunchHole,
-                    true,
-                    offset,
-                    usize_to_u64(len),
-                )
-                .map_err(|err| {
-                    error!("discard_range: punching hole failed: {err:?}");
-                    GuestMemoryError::IOError(err.into())
-                })?;
-
-                Ok(())
+            (Some(_), flags) if flags & libc::MAP_SHARED != 0 => {
+                // MADV_REMOVE punches a hole in the underlying file (equivalent to
+                // fallocate PUNCH_HOLE) and simultaneously frees the physical pages from
+                // the page cache. This is the correct primitive for MAP_SHARED
+                // file-backed mappings such as memfd.
+                //
+                // SAFETY: `phys_address` points to a valid host virtual address range of
+                // `len` bytes belonging to this memory region, with `len` and the address
+                // both page-aligned (verified above).
+                let ret = unsafe { libc::madvise(phys_address.cast(), len, libc::MADV_REMOVE) };
+                if ret < 0 {
+                    let os_error = std::io::Error::last_os_error();
+                    error!("discard_range: madvise failed: {:?}", os_error);
+                    Err(GuestMemoryError::IOError(os_error))
+                } else {
+                    Ok(())
+                }
             }
             // Anonymous mapping.
             _ => {
