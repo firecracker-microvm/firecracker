@@ -645,6 +645,20 @@ impl Queue {
         self.uses_notif_suppression = true;
     }
 
+    /// Arm `avail_event` at the current `avail.idx` so the driver's next
+    /// publish produces a notification. Unlike [`Self::try_enable_notification`],
+    /// does not require the queue to be drained and does not recheck
+    /// `avail.idx`; only correct when the driver does not add to the avail
+    /// ring until it has observed our used-ring update.
+    pub fn enable_notification(&mut self) {
+        if !self.uses_notif_suppression {
+            return;
+        }
+
+        self.used_ring_avail_event_set(self.avail_ring_idx_get());
+        fence(Ordering::Release);
+    }
+
     /// Check if we need to kick the guest.
     ///
     /// Please note this method has side effects: once it returns `true`, it considers the
