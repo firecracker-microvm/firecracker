@@ -1474,6 +1474,28 @@ mod tests {
     }
 
     #[test]
+    fn test_new_env_with_landlock() {
+        let mut mock_cgroups = MockCgroupFs::new().unwrap();
+        mock_cgroups.add_v1_mounts().unwrap();
+
+        let pseudo_exec_file_path = get_pseudo_exec_file_path();
+        let arg_vals = ArgVals {
+            landlock: true,
+            ..ArgVals::new(pseudo_exec_file_path.as_str())
+        };
+
+        let args_vec = make_args(&arg_vals);
+        assert!(args_vec.contains(&"--landlock-restrict-fs".to_string()));
+
+        let arg_parser = build_arg_parser();
+        let mut args = arg_parser.arguments().clone();
+        args.parse(&args_vec).unwrap();
+        let env =
+            Env::new(&args, 0, 0, mock_cgroups.proc_mounts_path.to_str().unwrap()).unwrap();
+        assert!(env.landlock);
+    }
+
+    #[test]
     fn test_save_exec_file_pid() {
         let exec_file_name = "file";
         let pid_file_name = "file.pid";
