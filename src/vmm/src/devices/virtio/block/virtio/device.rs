@@ -674,6 +674,15 @@ impl VirtioDevice for VirtioBlock {
     fn is_activated(&self) -> bool {
         self.device_state.is_activated()
     }
+
+    fn deactivate(&mut self) {
+        self.device_state = DeviceState::Inactive;
+    }
+
+    fn _reset(&mut self) -> bool {
+        self.is_io_engine_throttled = false;
+        true
+    }
 }
 
 impl Drop for VirtioBlock {

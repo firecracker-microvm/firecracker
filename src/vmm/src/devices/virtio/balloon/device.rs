@@ -979,6 +979,17 @@ impl VirtioDevice for Balloon {
         self.device_state.is_activated()
     }
 
+    fn deactivate(&mut self) {
+        self.device_state = DeviceState::Inactive;
+    }
+
+    fn _reset(&mut self) -> bool {
+        self.stats_timer.arm(Duration::ZERO, None);
+        self.stats_desc_index = None;
+        self.hinting_state = Default::default();
+        true
+    }
+
     fn kick(&mut self) {
         if self.is_activated() {
             if self.free_page_hinting() {

@@ -178,11 +178,23 @@ pub trait VirtioDevice: AsAny + MutEventSubscriber + Send {
     /// Checks if the resources of this device are activated.
     fn is_activated(&self) -> bool;
 
-    /// Optionally deactivates this device and returns ownership of the guest memory map, interrupt
-    /// event, and queue events.
-    fn reset(&mut self) -> Option<(Arc<dyn VirtioInterrupt>, Vec<EventFd>)> {
-        None
+    /// Set the device state to Inactive
+    fn deactivate(&mut self);
+
+    /// Reset the device. Returns true on success, false otherwise.
+    /// It must not be overridden.
+    fn reset(&mut self) -> bool {
+        self.deactivate();
+        self.set_acked_features(0);
+        for queue in self.queues_mut() {
+            *queue = Queue::new(queue.max_size);
+        }
+        self._reset()
     }
+
+    /// Backend-specific reset logic. Returns true on success, false if the
+    /// backend does not support reset.
+    fn _reset(&mut self) -> bool;
 
     /// Mark pages used by queues as dirty.
     fn mark_queue_memory_dirty(&mut self, mem: &GuestMemoryMmap) -> Result<(), QueueError> {
@@ -308,6 +320,14 @@ pub(crate) mod tests {
         }
 
         fn is_activated(&self) -> bool {
+            todo!()
+        }
+
+        fn deactivate(&mut self) {
+            todo!()
+        }
+
+        fn _reset(&mut self) -> bool {
             todo!()
         }
     }
