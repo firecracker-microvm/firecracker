@@ -10,6 +10,10 @@ and this project adheres to
 
 ### Added
 
+- [#5910](https://github.com/firecracker-microvm/firecracker/pull/5910): Add
+  optional `direct_write` support for virtio-block devices. When enabled,
+  aligned guest writes use host direct I/O while reads remain buffered.
+
 ### Changed
 
 ### Deprecated

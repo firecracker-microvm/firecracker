@@ -623,6 +623,8 @@ mod tests {
                 is_read_only: Some(false),
                 path_on_host: Some(tmp_file.as_path().to_str().unwrap().to_string()),
                 rate_limiter: Some(RateLimiterConfig::default()),
+                direct_write: None,
+
                 file_engine_type: None,
 
                 socket: None,
