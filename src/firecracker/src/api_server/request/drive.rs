@@ -228,6 +228,7 @@ mod tests {
             "partuuid": "string",
             "is_read_only": true,
             "cache_type": "Unsafe",
+            "direct_write": true,
             "io_engine": "Sync",
             "rate_limiter": {
                 "bandwidth": {

@@ -1245,6 +1245,14 @@ definitions:
           This field is required for virtio-block config and should be omitted for vhost-user-block configuration.
       rate_limiter:
         $ref: "#/definitions/RateLimiter"
+      direct_write:
+        type: boolean
+        description:
+          If true, aligned guest write requests use direct I/O on the host while
+          reads remain buffered. Unaligned writes fall back to the buffered file
+          descriptor. Host direct I/O alignment requirements depend on the
+          backing filesystem and kernel.
+        default: false
       io_engine:
         type: string
         description:

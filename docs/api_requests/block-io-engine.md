@@ -42,9 +42,28 @@ curl --unix-socket ${socket} -i \
              \"path_on_host\": \"${drive_path}\",
              \"is_root_device\": true,
              \"is_read_only\": false,
+             \"direct_write\": false,
              \"io_engine\": \"Sync\"
          }"
 ```
+
+## Direct write mode
+
+The optional `direct_write` field enables direct I/O for guest write requests
+only when they satisfy direct I/O alignment requirements, while keeping reads on
+the regular buffered file descriptor. The guest write offset and length must be
+multiples of 4096 bytes (4 KiB), and the guest memory buffer address must also
+be suitably aligned for direct I/O. Writes that do not meet these requirements
+automatically fall back to the buffered path.
+
+This mode can reduce host page-cache overhead for write-heavy block devices
+whose backing storage performs better with direct writes. It is disabled by
+default to preserve existing behavior.
+
+Direct I/O support and alignment requirements are filesystem and kernel
+dependent. Validate this mode with the target backing storage before enabling it
+for production workloads, especially when the backing file is also accessed by
+host tooling through buffered I/O.
 
 ## Host requirements
 

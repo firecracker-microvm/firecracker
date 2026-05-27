@@ -57,6 +57,7 @@ pub fn default_block_with_path(path: String, file_engine_type: FileEngineType) -
                 refill_time: 10,
             }),
         }),
+        direct_write: false,
         file_engine_type,
     };
 
