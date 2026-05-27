@@ -6,10 +6,10 @@
 # pylint:disable=too-many-return-statements
 
 import json
-from pathlib import Path
 
 import pytest
 
+from framework.defs import FC_WORKSPACE_DIR
 from framework.properties import global_props
 from framework.utils_cpuid import CpuModel, CpuVendor, get_cpu_vendor
 
@@ -77,7 +77,13 @@ def get_supported_custom_cpu_templates():
 def custom_cpu_templates_params():
     """Return Custom CPU templates as pytest parameters"""
     for name in sorted(get_supported_custom_cpu_templates()):
-        tmpl = Path(f"./data/custom_cpu_templates/{name}.json")
+        tmpl = (
+            FC_WORKSPACE_DIR
+            / "tests"
+            / "data"
+            / "custom_cpu_templates"
+            / f"{name}.json"
+        )
         yield pytest.param(
             {"name": name, "template": json.loads(tmpl.read_text("utf-8"))},
             id="custom_" + name,
