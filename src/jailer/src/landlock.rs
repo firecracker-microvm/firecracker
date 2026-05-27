@@ -105,4 +105,33 @@ mod tests {
         let result = prepare_ruleset(Path::new("/nonexistent/path/for/landlock/test"));
         result.unwrap_err();
     }
+
+    #[test]
+    fn test_enforce() {
+        if !is_landlock_supported() {
+            return;
+        }
+        let tmp = TempDir::new_with_prefix("landlock_test_").unwrap();
+        let ruleset = prepare_ruleset(tmp.as_path()).unwrap();
+
+        // enforce() restricts the calling process irreversibly. Fork so the
+        // restriction is confined to the child and does not affect other tests.
+        // SAFETY: no other threads are running at this point in the unit-test
+        // harness, making fork() safe to call.
+        let pid = unsafe { libc::fork() };
+        assert!(pid >= 0, "fork failed");
+        if pid == 0 {
+            // child: enforce and exit 0 on success, 1 on error.
+            let code = i32::from(enforce(ruleset).is_err());
+            // SAFETY: exit code is a valid value.
+            unsafe { libc::exit(code) };
+        }
+
+        // parent: wait and check the child exited cleanly.
+        let mut status = 0i32;
+        // SAFETY: pid is a valid child PID returned by fork; status is a valid pointer.
+        unsafe { libc::waitpid(pid, &mut status, 0) };
+        assert!(unsafe { libc::WIFEXITED(status) });
+        assert_eq!(unsafe { libc::WEXITSTATUS(status) }, 0);
+    }
 }
