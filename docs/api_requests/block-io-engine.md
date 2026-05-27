@@ -62,7 +62,8 @@ suggestive error message.
 ## Performance considerations
 
 The performance is strictly tied to the host kernel version. The gathered data
-may not be relevant for modified/newer kernels than 5.10.
+may not be relevant for kernels other than 5.10. Newer supported host kernels
+(6.1, 6.18) may exhibit different performance characteristics.
 
 ### Device creation
 
