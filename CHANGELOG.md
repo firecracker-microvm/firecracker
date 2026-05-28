@@ -10,6 +10,18 @@ and this project adheres to
 
 ### Added
 
+### Changed
+
+### Deprecated
+
+### Removed
+
+### Fixed
+
+## [1.16.0]
+
+### Added
+
 - [#5786](https://github.com/firecracker-microvm/firecracker/pull/5786): Added
   developer preview support for hotplugging and hot-unplugging PCI virtio
   devices (block, pmem, net) on a running microVM. The guest must manually
