@@ -56,6 +56,8 @@ pub enum VirtioBlockError {
     InvalidDataLength,
     /// The requested operation would cause a seek beyond disk end.
     InvalidOffset,
+    /// Discard is not supported with the async IO engine.
+    DiscardAsyncUnsupported,
     /// Guest gave us a read only descriptor that protocol says to write to.
     UnexpectedReadOnlyDescriptor,
     /// Guest gave us a write only descriptor that protocol says to read from.

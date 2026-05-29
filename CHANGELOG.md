@@ -10,6 +10,10 @@ and this project adheres to
 
 ### Added
 
+- [#5908](https://github.com/firecracker-microvm/firecracker/pull/5908): Add
+  opt-in virtio-blk discard support for writable `Sync` IO engine drives through
+  the `discard` drive configuration field.
+
 ### Changed
 
 ### Deprecated
