@@ -23,7 +23,10 @@ use vmm_sys_util::eventfd::EventFd;
 
 use super::io::async_io;
 use super::request::*;
-use super::{BLOCK_QUEUE_SIZES, SECTOR_SHIFT, SECTOR_SIZE, VirtioBlockError, io as block_io};
+use super::{
+    BLOCK_QUEUE_SIZES, MAX_DISCARD_SECTORS, SECTOR_SHIFT, SECTOR_SIZE,
+    VirtioBlockError, io as block_io,
+};
 use crate::devices::virtio::ActivateError;
 use crate::devices::virtio::block::CacheType;
 use crate::devices::virtio::block::virtio::metrics::{BlockDeviceMetrics, BlockMetricsPerDevice};
@@ -257,6 +260,12 @@ pub struct ConfigSpace {
     pub geometry: u32,
     pub blk_size: u32,
     pub topology: VirtioBlkTopology,
+    pub wce: u8,
+    pub unused: u8,
+    pub num_queues: u16,
+    pub max_discard_sectors: u32,
+    pub max_discard_seg: u32,
+    pub discard_sector_alignment: u32,
 }
 
 impl Default for ConfigSpace {
@@ -273,6 +282,12 @@ impl Default for ConfigSpace {
                 min_io_size: 0,
                 opt_io_size: 128,
             },
+            wce: 0,
+            unused: 0,
+            num_queues: 0,
+            max_discard_sectors: MAX_DISCARD_SECTORS,
+            max_discard_seg: 1,
+            discard_sector_alignment: 1,
         }
     }
 }
