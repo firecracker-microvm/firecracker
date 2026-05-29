@@ -11,7 +11,6 @@ use std::sync::{Arc, Mutex};
 
 use event_manager::SubscriberOps;
 use linux_loader::cmdline::Cmdline as LoaderKernelCmdline;
-use userfaultfd::Uffd;
 use utils::time::TimestampUs;
 use vm_allocator::AllocPolicy;
 use vm_memory::GuestAddress;
@@ -47,6 +46,7 @@ use crate::persist::{MicrovmState, MicrovmStateError};
 use crate::resources::VmResources;
 use crate::seccomp::BpfThreadMap;
 use crate::snapshot::Persist;
+use crate::uffd_block::UffdBlock;
 use crate::utils::mib_to_bytes;
 use crate::vmm_config::instance_info::{InstanceInfo, VmState};
 use crate::vmm_config::machine_config::MachineConfigError;
@@ -440,7 +440,7 @@ pub fn build_microvm_from_snapshot(
     event_manager: &mut EventManager,
     microvm_state: MicrovmState,
     guest_memory: Vec<GuestRegionMmap>,
-    uffd: Option<Uffd>,
+    mem_uffd_block: Option<UffdBlock>,
     seccomp_filters: &BpfThreadMap,
     vm_resources: &mut VmResources,
     clock_realtime: bool,
@@ -500,7 +500,7 @@ pub fn build_microvm_from_snapshot(
     // Restore the boot source config paths.
     vm_resources.boot_source.config = microvm_state.vm_info.boot_source;
 
-    vm.set_uffd(uffd);
+    vm.set_uffd(mem_uffd_block);
 
     let kvm_vm = Arc::new(vm);
     let vm = Vm::Kvm(kvm_vm.clone());

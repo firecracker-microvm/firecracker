@@ -25,9 +25,10 @@ pub enum SnapshotType {
 /// 1) A file that contains the guest memory to be loaded,
 /// 2) An UDS where a custom page-fault handler process is listening for the UFFD set up by
 ///    Firecracker to handle its guest memory page faults.
-#[derive(Debug, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum MemBackendType {
     /// Guest memory contents will be loaded from a file.
+    #[default]
     File,
     /// Guest memory will be served through UFFD by a separate process.
     Uffd,
