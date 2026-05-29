@@ -194,8 +194,16 @@ impl Drop for MsixVectorGroup {
             .lock()
             .expect("Poisoned lock");
         for vector in &self.vectors {
-            // SAFETY: we allocated gsi from this allocator.
-            allocator.gsi_msi_allocator.free_id(vector.gsi).unwrap();
+            // Under correct operation, an error should never be returned here. GSIs are allocated
+            // by the same allocator, so freeing them should always work. This error is only
+            // reachable via a corrupted VM snapshot where either a device's serialized GSI list
+            // contains unallocated interrupts, or the allocator's state has been corrupted, and the
+            // next_id / freed_ids fields are incorrect.
+            // As part of Firecracker's threat model, snapshot files are assumed to be trusted,
+            // so the device and allocator states should always agree under compliant operation.
+            if let Err(e) = allocator.gsi_msi_allocator.free_id(vector.gsi) {
+                error!("Failed to free GSI {}: {e}", vector.gsi);
+            }
         }
     }
 }

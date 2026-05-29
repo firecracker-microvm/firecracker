@@ -1105,6 +1105,29 @@ pub(crate) mod tests {
         assert_eq!(gsis_before, gsis_after);
     }
 
+    #[test]
+    fn test_msi_vector_group_drop_does_not_panic_on_unallocated_gsi() {
+        // Regression test: A corrupted snapshot can produce a `MsixVectorGroup` holding
+        // a GSI that the allocator never handed out. Dropping such a group must not panic when it
+        // tries to free that GSI.
+        let mut vm = setup_vm_with_memory(mib_to_bytes(128));
+        enable_irqchip(&mut vm);
+        let vm = Arc::new(vm);
+
+        // `GSI_MSI_END` is in range but, against a fresh allocator whose watermark still sits at
+        // `GSI_MSI_START`, it was never allocated. Restoring a group with it mimics a corrupted
+        // snapshot.
+        let group = MsixVectorGroup::restore(vm.clone(), &vec![crate::arch::GSI_MSI_END]).unwrap();
+
+        // Dropping must not panic even though the GSI cannot be freed.
+        drop(group);
+
+        // The allocator was untouched by the rejected free, so it still hands out GSIs from the
+        // start of the range.
+        let gsi = vm.resource_allocator().allocate_gsi_msi(1).unwrap();
+        assert_eq!(gsi, vec![crate::arch::GSI_MSI_START]);
+    }
+
     #[cfg(target_arch = "x86_64")]
     #[test]
     fn test_restore_state_resource_allocator() {
