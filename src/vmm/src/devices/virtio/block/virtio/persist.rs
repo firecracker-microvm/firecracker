@@ -110,9 +110,7 @@ impl Persist<'_> for VirtioBlock {
         let avail_features = state.virtio_state.avail_features;
         let acked_features = state.virtio_state.acked_features;
 
-        let config_space = ConfigSpace {
-            capacity: disk_properties.nsectors.to_le(),
-        };
+        let config_space = ConfigSpace::new(disk_properties.nsectors);
 
         Ok(VirtioBlock {
             avail_features,

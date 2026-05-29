@@ -21,7 +21,10 @@ use vmm_sys_util::eventfd::EventFd;
 
 use super::io::async_io;
 use super::request::*;
-use super::{BLOCK_QUEUE_SIZES, SECTOR_SHIFT, SECTOR_SIZE, VirtioBlockError, io as block_io};
+use super::{
+    BLOCK_QUEUE_SIZES, DISCARD_SECTOR_ALIGNMENT, MAX_DISCARD_SECTORS, MAX_DISCARD_SEG,
+    SECTOR_SHIFT, SECTOR_SIZE, VirtioBlockError, io as block_io,
+};
 use crate::devices::virtio::ActivateError;
 use crate::devices::virtio::block::CacheType;
 use crate::devices::virtio::block::virtio::metrics::{BlockDeviceMetrics, BlockMetricsPerDevice};
@@ -162,10 +165,38 @@ impl DiskProperties {
 #[repr(C)]
 pub struct ConfigSpace {
     pub capacity: u64,
+    pub size_max: u32,
+    pub seg_max: u32,
+    pub cylinders: u16,
+    pub heads: u8,
+    pub sectors: u8,
+    pub blk_size: u32,
+    pub physical_block_exp: u8,
+    pub alignment_offset: u8,
+    pub min_io_size: u16,
+    pub opt_io_size: u32,
+    pub wce: u8,
+    pub unused: u8,
+    pub num_queues: u16,
+    pub max_discard_sectors: u32,
+    pub max_discard_seg: u32,
+    pub discard_sector_alignment: u32,
 }
 
 // SAFETY: `ConfigSpace` contains only PODs in `repr(C)` or `repr(transparent)`, without padding.
 unsafe impl ByteValued for ConfigSpace {}
+
+impl ConfigSpace {
+    pub(crate) fn new(capacity_sectors: u64) -> Self {
+        Self {
+            capacity: capacity_sectors.to_le(),
+            max_discard_sectors: MAX_DISCARD_SECTORS.to_le(),
+            max_discard_seg: MAX_DISCARD_SEG.to_le(),
+            discard_sector_alignment: DISCARD_SECTOR_ALIGNMENT.to_le(),
+            ..Default::default()
+        }
+    }
+}
 
 /// Use this structure to set up the Block Device before booting the kernel.
 #[derive(Debug, PartialEq, Eq, Deserialize, Serialize)]
@@ -308,9 +339,7 @@ impl VirtioBlock {
 
         let queues = BLOCK_QUEUE_SIZES.iter().map(|&s| Queue::new(s)).collect();
 
-        let config_space = ConfigSpace {
-            capacity: disk_properties.nsectors.to_le(),
-        };
+        let config_space = ConfigSpace::new(disk_properties.nsectors);
 
         Ok(VirtioBlock {
             avail_features,
@@ -533,7 +562,7 @@ impl VirtioBlock {
     /// Update the backing file and the config space of the block device.
     pub fn update_disk_image(&mut self, disk_image_path: String) -> Result<(), VirtioBlockError> {
         self.disk.update(disk_image_path, self.read_only)?;
-        self.config_space.capacity = self.disk.nsectors.to_le(); // virtio_block_config_space();
+        self.config_space = ConfigSpace::new(self.disk.nsectors);
 
         // Kick the driver to pick up the changes. (But only if the device is already activated).
         if self.is_activated() {
@@ -820,7 +849,7 @@ mod tests {
 
             let config = block.config_as_bytes();
             // The block's backing file size is 0x1000, so there are 8 (4096/512) sectors.
-            let expected_config_space = ConfigSpace { capacity: 8 };
+            let expected_config_space = ConfigSpace::new(8);
             assert_eq!(config, expected_config_space.as_slice());
         }
     }
@@ -840,6 +869,7 @@ mod tests {
                 0,
                 ConfigSpace {
                     capacity: 0x1122334455667788,
+                    ..Default::default()
                 }
                 .as_slice(),
             );
