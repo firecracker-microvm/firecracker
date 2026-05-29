@@ -14,8 +14,12 @@ In order to test the vsock device connection state machine, these tests will:
 """
 
 import os.path
+import socket
 import subprocess
+import threading
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from contextlib import ExitStack
 from pathlib import Path
 from socket import timeout as SocketTimeout
 
@@ -33,6 +37,7 @@ from framework.utils_vsock import (
     make_blob,
     make_host_port_path,
     start_guest_echo_server,
+    vsock_connect_to_guest,
 )
 from host_tools.fcmetrics import validate_fc_metrics
 
@@ -85,15 +90,17 @@ def negative_test_host_connections(vm, blob_path, blob_hash):
 
     uds_path = start_guest_echo_server(vm)
 
-    workers = []
-    for _ in range(NEGATIVE_TEST_CONNECTION_COUNT):
-        worker = HostEchoWorker(uds_path, blob_path)
-        workers.append(worker)
-        worker.start()
+    with ExitStack() as stack:
+        workers = [
+            stack.enter_context(HostEchoWorker(uds_path, blob_path))
+            for _ in range(NEGATIVE_TEST_CONNECTION_COUNT)
+        ]
+        for wrk in workers:
+            wrk.start()
 
-    for wrk in workers:
-        wrk.close_uds()
-        wrk.join()
+        for wrk in workers:
+            wrk.close_uds()
+            wrk.join()
 
     # Validate that guest is still up and running.
     # Should fail if Firecracker exited from SIGPIPE handler.
@@ -174,40 +181,42 @@ def test_vsock_transport_reset_h2g(
     path = start_guest_echo_server(test_vm)
 
     # Start host workers that connect to the guest server.
-    workers = []
-    for _ in range(TEST_WORKER_COUNT):
-        worker = HostEchoWorker(path, blob_path)
-        workers.append(worker)
-        worker.start()
+    with ExitStack() as stack:
+        workers = [
+            stack.enter_context(HostEchoWorker(path, blob_path))
+            for _ in range(TEST_WORKER_COUNT)
+        ]
+        for wrk in workers:
+            wrk.start()
 
-    for wrk in workers:
-        wrk.join()
+        for wrk in workers:
+            wrk.join()
 
-    # Create snapshot.
-    snapshot = test_vm.snapshot_full()
-    test_vm.resume()
+        # Create snapshot.
+        snapshot = test_vm.snapshot_full()
+        test_vm.resume()
 
-    # Check that sockets are no longer working on workers.
-    for worker in workers:
-        # Whatever we send to the server, it should return the same
-        # value.
-        buf = bytearray("TEST\n".encode("utf-8"))
-        try:
-            worker.sock.send(buf)
-            # Arbitrary timeout, we set this so the socket won't block as
-            # it shouldn't receive anything.
-            worker.sock.settimeout(0.25)
-            response = worker.sock.recv(32)
-            assert (
-                response == b""
-            ), f"Connection not closed: response received '{response.decode('utf-8')}'"
-        except (SocketTimeout, ConnectionResetError, BrokenPipeError):
-            pass
+        # Check that sockets are no longer working on workers.
+        for worker in workers:
+            # Whatever we send to the server, it should return the same
+            # value.
+            buf = bytearray("TEST\n".encode("utf-8"))
+            try:
+                worker.sock.send(buf)
+                # Arbitrary timeout, we set this so the socket won't block as
+                # it shouldn't receive anything.
+                worker.sock.settimeout(0.25)
+                response = worker.sock.recv(32)
+                assert (
+                    response == b""
+                ), f"Connection not closed: response received '{response.decode('utf-8')}'"
+            except (SocketTimeout, ConnectionResetError, BrokenPipeError):
+                pass
 
-    # Terminate VM.
-    metrics = test_vm.flush_metrics()
-    validate_fc_metrics(metrics)
-    test_vm.kill()
+        # Terminate VM.
+        metrics = test_vm.flush_metrics()
+        validate_fc_metrics(metrics)
+        test_vm.kill()
 
     # Load snapshot.
     vm2 = microvm_factory.build_from_snapshot(snapshot)
@@ -258,35 +267,39 @@ def test_vsock_transport_reset_g2h(vsock_uvm, microvm_factory):
             host_socat_commmand, stdout=subprocess.PIPE, stderr=subprocess.PIPE
         )
 
-        # Give some time for host socat to create socket
-        time.sleep(0.5)
-        assert Path(host_socket_path).exists()
-        new_vm.create_jailed_resource(host_socket_path)
+        try:
+            # Give some time for host socat to create socket
+            time.sleep(0.5)
+            assert Path(host_socket_path).exists()
+            new_vm.create_jailed_resource(host_socket_path)
 
-        # Create a socat process in the guest which will connect to the host socat
-        guest_socat_commmand = (
-            f"tmux new -d 'socat - vsock-connect:2:{ECHO_SERVER_PORT}'"
-        )
-        new_vm.ssh.run(guest_socat_commmand)
+            # Create a socat process in the guest which will connect to the host socat
+            guest_socat_commmand = (
+                f"tmux new -d 'socat - vsock-connect:2:{ECHO_SERVER_PORT}'"
+            )
+            new_vm.ssh.run(guest_socat_commmand)
 
-        # socat should be running in the guest now
-        code, _, _ = new_vm.ssh.run("pidof socat")
-        assert code == 0
+            # socat should be running in the guest now
+            code, _, _ = new_vm.ssh.run("pidof socat")
+            assert code == 0
 
-        # Create snapshot.
-        snapshot = new_vm.snapshot_full()
-        new_vm.resume()
+            # Create snapshot.
+            snapshot = new_vm.snapshot_full()
+            new_vm.resume()
 
-        # After `create_snapshot` + 'restore' calls, connection should be dropped
-        code, _, _ = new_vm.ssh.run("pidof socat")
-        assert code == 1
+            # After `create_snapshot` + 'restore' calls, connection should be dropped
+            code, _, _ = new_vm.ssh.run("pidof socat")
+            assert code == 1
+        finally:
+            # Kill host socat as it is not useful anymore. Done in `finally`
+            # so that an assertion failure earlier in the iteration does not
+            # leak a `socat` process into the next iteration (or the next
+            # test).
+            host_socat.kill()
+            host_socat.communicate()
 
-        # Kill host socat as it is not useful anymore
-        host_socat.kill()
-        host_socat.communicate()
-
-        # Terminate VM.
-        new_vm.kill()
+            # Terminate VM.
+            new_vm.kill()
 
 
 def test_vsock_after_override(
@@ -367,3 +380,97 @@ def test_vsock_override_fails_without_device(uvm_plain_any, microvm_factory):
         )
 
     vm2.mark_killed()
+
+
+@pytest.mark.nonci
+def test_vsock_post_restore_connect_storm(
+    microvm_factory,
+    guest_kernel,
+    rootfs,
+    bin_vsock_path,
+    test_fc_session_root_path,
+):
+    """Regression test for the post-snapshot-restore RX/EVQ race.
+
+    Requires PCI MSI-X and >=2 vCPUs. `storm_size` must stay <= guest
+    socat backlog (128) to avoid unrelated sk_acceptq_is_full OP_RST.
+    """
+    blob_path, _blob_hash = make_blob(test_fc_session_root_path)
+    vm_blob_path = "/tmp/vsock/test.blob"
+
+    test_vm = microvm_factory.build(guest_kernel, rootfs, pci=True)
+    test_vm.spawn()
+    test_vm.basic_config(vcpu_count=4, mem_size_mib=256)
+    test_vm.add_net_iface()
+    test_vm.api.vsock.put(vsock_id="vsock0", guest_cid=3, uds_path=f"/{VSOCK_UDS_PATH}")
+    test_vm.start()
+
+    _copy_vsock_data_to_guest(test_vm.ssh, blob_path, vm_blob_path, bin_vsock_path)
+    uds_path_pre = start_guest_echo_server(test_vm)
+
+    with ExitStack() as stack:
+        for _ in range(32):
+            stack.enter_context(vsock_connect_to_guest(uds_path_pre, ECHO_SERVER_PORT))
+
+        snapshot = test_vm.snapshot_full()
+        test_vm.kill()
+
+    storm_size = 64
+    iterations = 30
+    payload = b"vsock-race-probe-" + b"x" * 4096 + b"\n"
+
+    def worker(sock, ready):
+        sock.settimeout(5.0)
+        ready.wait()
+        try:
+            sock.send(f"CONNECT {ECHO_SERVER_PORT}\n".encode("utf-8"))
+            ack = sock.recv(32)
+            if not ack.startswith(b"OK "):
+                return f"bad ack: {ack!r}"
+            sock.send(payload)
+            received = b""
+            while len(received) < len(payload):
+                chunk = sock.recv(len(payload) - len(received))
+                if not chunk:
+                    return f"echo truncated: {received!r}"
+                received += chunk
+            if received != payload:
+                return f"echo mismatch: {received!r}"
+            return None
+        except (ConnectionResetError, BrokenPipeError, SocketTimeout) as exc:
+            return f"socket error: {type(exc).__name__}: {exc}"
+
+    for _ in range(iterations):
+        vm = microvm_factory.build()
+        try:
+            vm.spawn()
+            vm.restore_from_snapshot(snapshot, resume=False)
+
+            uds_path = os.path.join(vm.jailer.chroot_path(), VSOCK_UDS_PATH)
+
+            with ExitStack() as stack:
+                socks = []
+                for _ in range(storm_size):
+                    s = stack.enter_context(
+                        socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+                    )
+                    s.connect(uds_path)
+                    socks.append(s)
+
+                ready = threading.Barrier(storm_size + 1)
+                with ThreadPoolExecutor(max_workers=storm_size) as pool:
+                    futures = [pool.submit(worker, s, ready) for s in socks]
+                    vm.resume()
+                    ready.wait()
+                    errors = [f.result() for f in as_completed(futures)]
+
+                failed = [e for e in errors if e is not None]
+                assert not failed, (
+                    f"post-restore connect storm hit the RX/EVQ race "
+                    f"({len(failed)}/{storm_size} connections broken): {failed[:5]}"
+                )
+
+                metrics = vm.flush_metrics()
+                validate_fc_metrics(metrics)
+        finally:
+            vm.kill()
