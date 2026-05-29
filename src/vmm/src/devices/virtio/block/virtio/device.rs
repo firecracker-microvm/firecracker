@@ -30,7 +30,7 @@ use crate::devices::virtio::block::CacheType;
 use crate::devices::virtio::block::virtio::metrics::{BlockDeviceMetrics, BlockMetricsPerDevice};
 use crate::devices::virtio::device::{ActiveState, DeviceState, VirtioDevice, VirtioDeviceType};
 use crate::devices::virtio::generated::virtio_blk::{
-    VIRTIO_BLK_F_FLUSH, VIRTIO_BLK_F_RO, VIRTIO_BLK_ID_BYTES,
+    VIRTIO_BLK_F_DISCARD, VIRTIO_BLK_F_FLUSH, VIRTIO_BLK_F_RO, VIRTIO_BLK_ID_BYTES,
 };
 use crate::devices::virtio::generated::virtio_config::VIRTIO_F_VERSION_1;
 use crate::devices::virtio::generated::virtio_ring::VIRTIO_RING_F_EVENT_IDX;
@@ -220,6 +220,8 @@ pub struct VirtioBlockConfig {
     /// If set to true, the drive is opened in read-only mode. Otherwise, the
     /// drive is opened as read-write.
     pub is_read_only: bool,
+    /// If set to true, the device advertises discard support to the guest.
+    pub discard: bool,
     /// Path of the backing file on the host
     pub path_on_host: String,
     /// Rate Limiter for I/O operations.
@@ -242,6 +244,7 @@ impl TryFrom<&BlockDeviceConfig> for VirtioBlockConfig {
                 cache_type: value.cache_type,
 
                 is_read_only: value.is_read_only.unwrap_or(false),
+                discard: value.discard.unwrap_or(false),
                 path_on_host: path_on_host.clone(),
                 rate_limiter: value.rate_limiter,
                 file_engine_type: value.file_engine_type.unwrap_or_default(),
@@ -261,6 +264,7 @@ impl From<VirtioBlockConfig> for BlockDeviceConfig {
             cache_type: value.cache_type,
 
             is_read_only: Some(value.is_read_only),
+            discard: Some(value.discard),
             path_on_host: Some(value.path_on_host),
             rate_limiter: value.rate_limiter,
             file_engine_type: Some(value.file_engine_type),
@@ -315,6 +319,10 @@ impl VirtioBlock {
     ///
     /// The given file must be seekable and sizable.
     pub fn new(config: VirtioBlockConfig) -> Result<VirtioBlock, VirtioBlockError> {
+        if config.discard && config.file_engine_type == FileEngineType::Async {
+            return Err(VirtioBlockError::DiscardAsyncUnsupported);
+        }
+
         let disk_properties = DiskProperties::new(
             config.path_on_host,
             config.is_read_only,
@@ -336,6 +344,8 @@ impl VirtioBlock {
 
         if config.is_read_only {
             avail_features |= 1u64 << VIRTIO_BLK_F_RO;
+        } else if config.discard {
+            avail_features |= 1u64 << VIRTIO_BLK_F_DISCARD;
         };
 
         let queue_evts = [EventFd::new(libc::EFD_NONBLOCK).map_err(VirtioBlockError::EventFd)?];
@@ -376,6 +386,7 @@ impl VirtioBlock {
             is_root_device: self.root_device,
             partuuid: self.partuuid.clone(),
             is_read_only: self.read_only,
+            discard: self.avail_features & (1u64 << VIRTIO_BLK_F_DISCARD) != 0,
             cache_type: self.cache_type,
             rate_limiter: rl.into_option(),
             file_engine_type: self.file_engine_type(),
@@ -752,6 +763,7 @@ mod tests {
             cache_type: CacheType::Unsafe,
 
             is_read_only: Some(true),
+            discard: None,
             path_on_host: Some("path".to_string()),
             rate_limiter: None,
             file_engine_type: Default::default(),
@@ -767,6 +779,7 @@ mod tests {
             cache_type: CacheType::Unsafe,
 
             is_read_only: None,
+            discard: None,
             path_on_host: None,
             rate_limiter: None,
             file_engine_type: Default::default(),
@@ -782,6 +795,7 @@ mod tests {
             cache_type: CacheType::Unsafe,
 
             is_read_only: Some(true),
+            discard: None,
             path_on_host: Some("path".to_string()),
             rate_limiter: None,
             file_engine_type: Default::default(),
@@ -841,6 +855,46 @@ mod tests {
             }
             assert_eq!(block.acked_features, features);
         }
+    }
+
+    #[test]
+    fn test_discard_feature() {
+        let f = TempFile::new().unwrap();
+        f.as_file().set_len(0x1000).unwrap();
+        let path = f.as_path().to_str().unwrap().to_string();
+        let config = VirtioBlockConfig {
+            drive_id: "test".to_string(),
+            path_on_host: path.clone(),
+            is_root_device: false,
+            partuuid: None,
+            is_read_only: false,
+            discard: true,
+            cache_type: CacheType::Unsafe,
+            rate_limiter: None,
+            file_engine_type: FileEngineType::Sync,
+        };
+
+        let block = VirtioBlock::new(config).unwrap();
+        assert_eq!(
+            block.avail_features & (1u64 << VIRTIO_BLK_F_DISCARD),
+            1u64 << VIRTIO_BLK_F_DISCARD
+        );
+
+        let async_config = VirtioBlockConfig {
+            drive_id: "test".to_string(),
+            path_on_host: path,
+            is_root_device: false,
+            partuuid: None,
+            is_read_only: false,
+            discard: true,
+            cache_type: CacheType::Unsafe,
+            rate_limiter: None,
+            file_engine_type: FileEngineType::Async,
+        };
+        assert!(matches!(
+            VirtioBlock::new(async_config),
+            Err(VirtioBlockError::DiscardAsyncUnsupported)
+        ));
     }
 
     #[test]
