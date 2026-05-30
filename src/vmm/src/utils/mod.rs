@@ -17,6 +17,8 @@ use std::path::Path;
 
 use libc::O_NONBLOCK;
 
+use crate::arch::host_page_size;
+
 /// How many bits to left-shift by to convert MiB to bytes
 const MIB_TO_BYTES_SHIFT: usize = 20;
 
@@ -63,6 +65,25 @@ pub const fn align_up(addr: u64, align: u64) -> u64 {
 /// Align address down to the aligment.
 pub const fn align_down(addr: u64, align: u64) -> u64 {
     debug_assert!(align != 0);
+    addr & !(align - 1)
+}
+
+/// Calculate the difference between the current address
+/// and the nearest lower page boundary.
+pub fn offset_from_lower_host_page(addr: u64) -> u64 {
+    let align = usize_to_u64(host_page_size());
+    addr & (align - 1)
+}
+
+/// Align address up to the host page boundary.
+pub fn align_up_host_page(addr: u64) -> u64 {
+    let align = usize_to_u64(host_page_size());
+    (addr + align - 1) & !(align - 1)
+}
+
+/// Align address down to the host page boundary.
+pub fn align_down_host_page(addr: u64) -> u64 {
+    let align = usize_to_u64(host_page_size());
     addr & !(align - 1)
 }
 

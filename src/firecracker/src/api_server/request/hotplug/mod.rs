@@ -18,3 +18,12 @@ pub(crate) fn parse_unplug_device(
         id.to_string(),
     ))))
 }
+
+pub(crate) fn parse_unplug_vfio_device(
+    id_from_path: Option<&str>,
+) -> Result<ParsedRequest, RequestError> {
+    let id = checked_id(id_from_path.ok_or(RequestError::EmptyID)?)?;
+    Ok(ParsedRequest::new_sync(VmmAction::HotUnplugVfioDevice(
+        id.to_string(),
+    )))
+}

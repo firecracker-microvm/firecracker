@@ -44,6 +44,9 @@ and this project adheres to
   `rng-seed` FDT node for aarch64 guests which provides an initial random seed
   for the guest to use. This helps older aarch64 machines which do not have
   hardware random generators.
+- [#5870](https://github.com/firecracker-microvm/firecracker/pull/5870): Add
+  basic VFIO support allowing for PCIe device passthrough into VM. See
+  [documentation][docs/vfio.md] for instructions and current limitations.
 
 ### Changed
 
