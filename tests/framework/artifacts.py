@@ -50,3 +50,56 @@ def kernel_params(glob="vmlinux-*", select=kernels, artifact_dir=ARTIFACT_DIR) -
     return [
         pytest.param(kernel, id=kernel.name) for kernel in select(glob, artifact_dir)
     ] or [pytest.param(None, id="no-kernel-found")]
+
+
+# Catalogues of guest kernel artifacts. Each entry is a `pytest.param` so test
+# ids carry the kernel filename (e.g. "vmlinux-6.1.123") rather than "kernel0".
+ALL_GUEST_KERNELS = list(kernel_params("vmlinux-*"))
+ACPI_GUEST_KERNELS = [p for p in kernel_params("vmlinux-*") if "no-acpi" not in p.id]
+GUEST_KERNELS_5_10 = list(kernel_params("vmlinux-5.10*"))
+GUEST_KERNELS_6_1 = list(kernel_params("vmlinux-6.1*"))
+GUEST_KERNELS_6_1_DEBUG = list(
+    kernel_params("vmlinux-6.1*", artifact_dir=ARTIFACT_DIR / "debug")
+)
+# The single canonical kernel used when a test pins to one specific kernel
+# (e.g. tests of Firecracker functionality that don't depend on guest kernel).
+# Update here when the default version changes. Stored as a `pytest.param`
+# so the test id carries the kernel filename (e.g. "vmlinux-6.1.168").
+GUEST_KERNEL_DEFAULT = GUEST_KERNELS_6_1[0] if GUEST_KERNELS_6_1 else None
+GUEST_KERNEL_DEFAULT_DEBUG = (
+    GUEST_KERNELS_6_1_DEBUG[0] if GUEST_KERNELS_6_1_DEBUG else None
+)
+
+
+def pin_guest_kernel(kernels_or_path):
+    """Convenience marker for pinning the `guest_kernel` dim.
+
+    The default `guest_kernel` fixture parametrizes over ALL_GUEST_KERNELS;
+    use this helper to restrict to a single kernel or a smaller subset.
+
+    Usage at module level:
+        pytestmark = pin_guest_kernel(ACPI_GUEST_KERNELS)
+
+    Usage at test level:
+        @pin_guest_kernel(GUEST_KERNEL_DEFAULT)
+        def test_foo(uvm): ...
+
+    Accepts a kernel catalogue (e.g. ACPI_GUEST_KERNELS), a single
+    `pytest.param`, or a single Path.
+    """
+    # Wrap a single Path or pytest.param into a list. A bare ParameterSet
+    # passed to `parametrize` would be treated as a sequence of args and
+    # produce broken parameterizations.
+    if not isinstance(kernels_or_path, list):
+        kernels_or_path = [kernels_or_path]
+    return pytest.mark.parametrize("guest_kernel", kernels_or_path, indirect=True)
+
+
+def pin_rootfs_mode(mode):
+    """Convenience marker for pinning the `rootfs_mode` dim ("ro" | "rw")."""
+    return pytest.mark.parametrize("rootfs_mode", [mode], indirect=True)
+
+
+def pin_pci(enabled):
+    """Convenience marker for pinning the `pci_enabled` dim to a single value."""
+    return pytest.mark.parametrize("pci_enabled", [enabled], indirect=True)

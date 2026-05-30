@@ -20,6 +20,8 @@ from pathlib import Path
 import psutil
 import pytest
 
+from framework.artifacts import ACPI_GUEST_KERNELS, pin_guest_kernel
+
 # If guest memory is >3072MB, it is split in a 2nd region
 X86_MEMORY_GAP_START = 3072 * 2**20
 
@@ -28,10 +30,11 @@ X86_MEMORY_GAP_START = 3072 * 2**20
     "vcpu_count,mem_size_mib",
     [(1, 128), (1, 1024), (2, 2048), (4, 4096), (32, 4096)],
 )
+@pin_guest_kernel(ACPI_GUEST_KERNELS)
 @pytest.mark.nonci
 def test_memory_overhead(
     microvm_factory,
-    guest_kernel_acpi,
+    guest_kernel,
     rootfs,
     vcpu_count,
     mem_size_mib,
@@ -45,7 +48,7 @@ def test_memory_overhead(
 
     for _ in range(5):
         microvm = microvm_factory.build(
-            guest_kernel_acpi, rootfs, pci=pci_enabled, monitor_memory=False
+            guest_kernel, rootfs, pci=pci_enabled, monitor_memory=False
         )
         microvm.spawn(emit_metrics=True)
         microvm.basic_config(vcpu_count=vcpu_count, mem_size_mib=mem_size_mib)

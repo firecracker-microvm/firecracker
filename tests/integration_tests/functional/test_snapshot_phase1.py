@@ -15,7 +15,13 @@ from framework.utils import (
     generate_mmds_get_request,
     generate_mmds_session_token,
 )
-from framework.utils_cpu_templates import get_cpu_template_name
+from framework.utils_cpu_templates import (
+    ALL_CPU_TEMPLATES,
+    get_cpu_template_name,
+    pin_cpu_template,
+)
+
+pytestmark = pin_cpu_template(ALL_CPU_TEMPLATES)
 
 # Default IPv4 address to route MMDS requests.
 IPV4_ADDRESS = "169.254.169.254"
@@ -24,7 +30,7 @@ NET_IFACE_FOR_MMDS = "eth3"
 
 @pytest.mark.nonci
 def test_snapshot_phase1(
-    microvm_factory, guest_kernel, rootfs, cpu_template_any, results_dir
+    microvm_factory, guest_kernel, rootfs, cpu_template, results_dir
 ):
     """Create a snapshot and save it to disk"""
 
@@ -36,13 +42,12 @@ def test_snapshot_phase1(
         vcpu_count=2,
         mem_size_mib=512,
     )
-    vm.set_cpu_template(cpu_template_any)
+    vm.set_cpu_template(cpu_template)
 
-    guest_kernel_version = re.search("vmlinux-(.*)", vm.kernel_file.name)
-    cpu_template_name = get_cpu_template_name(cpu_template_any, with_type=True)
+    kernel_version = re.search("vmlinux-(.*)", vm.kernel_file.name)
+    cpu_template_name = get_cpu_template_name(cpu_template, with_type=True)
     snapshot_artifacts_dir = (
-        results_dir
-        / f"{guest_kernel_version.group(1)}_{cpu_template_name}_guest_snapshot"
+        results_dir / f"{kernel_version.group(1)}_{cpu_template_name}_guest_snapshot"
     )
 
     # Add 4 network devices

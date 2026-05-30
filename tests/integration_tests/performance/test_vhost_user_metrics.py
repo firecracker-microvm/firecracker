@@ -7,10 +7,13 @@ import time
 import pytest
 
 import host_tools.drive as drive_tools
+from framework.artifacts import ACPI_GUEST_KERNELS, pin_guest_kernel
+
+pytestmark = pin_guest_kernel(ACPI_GUEST_KERNELS)
 
 
 @pytest.mark.parametrize("vcpu_count", [1, 2], ids=["1vcpu", "2vcpu"])
-def test_vhost_user_block_metrics(uvm_plain_acpi, vcpu_count, metrics):
+def test_vhost_user_block_metrics(uvm, vcpu_count, metrics):
     """
     This test tries to boot a VM with vhost-user-block
     as a scratch device, resize the vhost-user scratch drive to have
@@ -26,7 +29,7 @@ def test_vhost_user_block_metrics(uvm_plain_acpi, vcpu_count, metrics):
     # low->high->low->high and so the numbers are not in monotonic sequence.
     new_sizes = [20, 10, 30]  # MB
 
-    vm = uvm_plain_acpi
+    vm = uvm
     vm.spawn(log_level="Info")
     vm.basic_config(vcpu_count=vcpu_count)
     vm.add_net_iface()

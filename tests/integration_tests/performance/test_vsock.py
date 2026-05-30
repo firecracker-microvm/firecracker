@@ -11,6 +11,7 @@ from pathlib import Path
 import pytest
 from tenacity import Retrying, stop_after_attempt, wait_fixed
 
+from framework.artifacts import ACPI_GUEST_KERNELS, pin_guest_kernel
 from framework.utils_iperf import IPerf3Test, emit_iperf3_metrics
 from framework.utils_vsock import (
     ECHO_SERVER_PORT,
@@ -20,14 +21,16 @@ from framework.utils_vsock import (
     start_guest_echo_server,
 )
 
+pytestmark = pin_guest_kernel(ACPI_GUEST_KERNELS)
+
 
 @pytest.fixture
-def vsock_uvm(uvm_plain_acpi, request):
+def vsock_uvm(uvm, request):
     """Fixture to initialize a microVM with vsock device for perf tests."""
     vcpus = request.param if hasattr(request, "param") else 1
 
     return boot_vsock_vm(
-        uvm_plain_acpi,
+        uvm,
         vcpu_count=vcpus,
         mem_size_mib=1024,
         log_level="Info",
@@ -116,7 +119,7 @@ def consume_vsock_ping_output(ping_output):
 @pytest.mark.parametrize("payload_length", ["64K", "1024K"], ids=["p64K", "p1024K"])
 @pytest.mark.parametrize("mode", ["g2h", "h2g"])
 def test_vsock_throughput(
-    uvm_plain_acpi,
+    uvm,
     vcpus,
     payload_length,
     mode,
@@ -128,7 +131,7 @@ def test_vsock_throughput(
     """
 
     mem_size_mib = 1024
-    vm = uvm_plain_acpi
+    vm = uvm
     vm.spawn(log_level="Info", emit_metrics=True)
     vm.basic_config(vcpu_count=vcpus, mem_size_mib=mem_size_mib)
     vm.add_net_iface()

@@ -5,6 +5,7 @@
 import pytest
 
 from framework.properties import global_props
+from framework.utils_cpu_templates import ALL_CPU_TEMPLATES, pin_cpu_template
 from framework.utils_cpuid import CPU_FEATURES_CMD, CpuModel
 
 pytestmark = pytest.mark.skipif(
@@ -31,6 +32,7 @@ G4_SVE_AND_PAC = set(
 )
 
 
+@pin_cpu_template(ALL_CPU_TEMPLATES)
 def test_guest_cpu_features(uvm_any):
     """Check the CPU features for a microvm with different CPU templates"""
 
