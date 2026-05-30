@@ -412,6 +412,26 @@ pub fn restore_from_snapshot(
             .clone_from(&vsock_override.uds_path);
     }
 
+    for entry in &params.pmem_overrides {
+        microvm_state
+            .device_states
+            .mmio_state
+            .pmem_devices
+            .iter_mut()
+            .map(|device| &mut device.device_state)
+            .chain(
+                microvm_state
+                    .device_states
+                    .pci_state
+                    .pmem_devices
+                    .iter_mut()
+                    .map(|device| &mut device.device_state),
+            )
+            .find(|state| state.config.id == entry.id)
+            .map(|state| state.config.path_on_host.clone_from(&entry.path_on_host))
+            .ok_or(SnapshotStateFromFileError::UnknownPmemDevice)?;
+    }
+
     let track_dirty_pages = params.track_dirty_pages;
 
     let vcpu_count = microvm_state
@@ -486,6 +506,8 @@ pub enum SnapshotStateFromFileError {
     UnknownNetworkDevice,
     /// Unknown Vsock Device.
     UnknownVsockDevice,
+    /// Unknown Pmem Device.
+    UnknownPmemDevice,
 }
 
 fn snapshot_state_from_file(
