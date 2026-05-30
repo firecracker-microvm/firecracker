@@ -15,6 +15,7 @@ tracing = ["log-instrument", "vmm/tracing"]
 [dependencies]
 clap = { version = "4.6.1", features = ["derive", "string"] }
 displaydoc = "0.2.5"
+kvm-bindings = "0.14.0"
 libc = "0.2.186"
 log-instrument = { path = "../log-instrument", optional = true }
 serde = { version = "1.0.228", features = ["derive"] }
