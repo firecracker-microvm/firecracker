@@ -1,9 +1,9 @@
 {
-  "firecracker_version": "1.14.0-dev",
-  "kernel_version": "5.10.244-240.965.amzn2.x86_64",
+  "firecracker_version": "1.16.0-dev",
+  "kernel_version": "5.10.255-253.1008.amzn2.x86_64",
   "microcode_version": "0xa0011de",
   "bios_version": "1.0",
-  "bios_revision": "0.98",
+  "bios_revision": "1.4",
   "guest_cpu_config": {
     "kvm_capabilities": [],
     "cpuid_modifiers": [
