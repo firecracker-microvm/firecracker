@@ -163,13 +163,16 @@ impl Vcpu {
         unsafe { Ok(vm.fd().create_vcpu_from_rawfd(r)?) }
     }
 
-    /// Moves the vcpu to its own thread and constructs a VcpuHandle.
-    /// The handle can be used to control the remote vcpu.
+    /// Moves the vcpu to its own thread and constructs a VcpuHandle. If
+    /// `ready` is set, the vcpu thread waits on it just before its first
+    /// KVM_RUN, gating the controller on AP readiness.
     pub fn start_threaded(
         mut self,
         vm: &KvmVm,
         seccomp_filter: Arc<BpfProgram>,
         barrier: Arc<Barrier>,
+        entry_state: VcpuEntryState,
+        ready: Option<Arc<Barrier>>,
     ) -> Result<VcpuHandle, StartThreadedError> {
         let event_sender = self.event_sender.take().expect("vCPU already started");
         let response_receiver = self.response_receiver.take().unwrap();
@@ -183,7 +186,7 @@ impl Vcpu {
                 self.register_kick_signal_handler();
                 // Synchronization to make sure thread local data is initialized.
                 barrier.wait();
-                self.run(filter);
+                self.run(filter, entry_state, ready);
             })
             .map_err(StartThreadedError::Spawn)?;
 
@@ -200,7 +203,12 @@ impl Vcpu {
     /// Runs the vCPU in KVM context in a loop. Handles KVM_EXITs then goes back in.
     /// Note that the state of the VCPU and associated VM must be setup first for this to do
     /// anything useful.
-    pub fn run(&mut self, seccomp_filter: BpfProgramRef) {
+    pub fn run(
+        &mut self,
+        seccomp_filter: BpfProgramRef,
+        entry_state: VcpuEntryState,
+        ready: Option<Arc<Barrier>>,
+    ) {
         // Load seccomp filters for this vCPU thread.
         // Execution panics if filters cannot be loaded, use --no-seccomp if skipping filters
         // altogether is the desired behaviour.
@@ -211,8 +219,15 @@ impl Vcpu {
             );
         }
 
-        // Start running the machine state in the `Paused` state.
-        StateMachine::run(self, Self::paused);
+        match entry_state {
+            VcpuEntryState::Paused => StateMachine::run(self, Self::paused),
+            VcpuEntryState::Running => {
+                if let Some(b) = ready {
+                    b.wait();
+                }
+                StateMachine::run(self, Self::running);
+            }
+        }
     }
 
     // This is the main loop of the `Running` state.
@@ -506,6 +521,15 @@ fn handle_kvm_exit(
             }
         },
     }
+}
+
+/// Initial state for a vcpu thread spun up by [`Vcpu::start_threaded`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum VcpuEntryState {
+    /// Wait for a Resume event over the mpsc channel before entering KVM_RUN.
+    Paused,
+    /// Enter KVM_RUN directly.
+    Running,
 }
 
 /// List of events that the Vcpu can receive.
@@ -917,6 +941,8 @@ pub(crate) mod tests {
                 &vm,
                 seccomp_filters.remove("vcpu").unwrap(),
                 barrier.clone(),
+                VcpuEntryState::Paused,
+                None,
             )
             .expect("failed to start vcpu");
         // Wait for vCPUs to initialize their TLS before moving forward.

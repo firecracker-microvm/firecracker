@@ -14,6 +14,7 @@ use vmm::cpu_config::templates::{CustomCpuTemplate, Numeric};
 use vmm::resources::VmResources;
 use vmm::seccomp::get_empty_filters;
 use vmm::vmm_config::instance_info::{InstanceInfo, VmState};
+use vmm::vstate::vcpu::VcpuEntryState;
 use vmm::{EventManager, HTTP_MAX_PAYLOAD_SIZE, Vmm};
 use vmm_sys_util::tempfile::TempFile;
 
@@ -135,12 +136,14 @@ pub fn build_microvm_from_config(
     let mut event_manager = EventManager::new().unwrap();
     let seccomp_filters = get_empty_filters();
 
-    // Build a microVM.
+    // Build a microVM. Use Paused entry so the helper can dump CPU config
+    // before vcpus run guest code.
     let vmm = build_microvm_for_boot(
         &instance_info,
         &vm_resources,
         &mut event_manager,
         &seccomp_filters,
+        VcpuEntryState::Paused,
     )?;
 
     Ok((vmm, vm_resources))

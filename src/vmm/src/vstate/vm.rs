@@ -38,7 +38,7 @@ use crate::vstate::memory::{
     GuestRegionMmap, GuestRegionMmapExt, MemoryError,
 };
 use crate::vstate::resources::ResourceAllocator;
-use crate::vstate::vcpu::{StartThreadedError, VcpuError, VcpuHandle};
+use crate::vstate::vcpu::{StartThreadedError, VcpuEntryState, VcpuError, VcpuHandle};
 use crate::{DirtyBitmap, Vcpu, mem_size_mib};
 
 /// Error type for [`KvmVm::start_vcpus`].
@@ -232,19 +232,17 @@ impl KvmVm {
         self.common.uffd = uffd;
     }
 
-    /// Starts the microVM vCPUs.
+    /// Starts the microVM vCPUs. On cold boot (`Running`), APs spawn first
+    /// and wait on a readiness barrier, BSP spawns last.
     ///
     /// Sets the terminal to raw/non-blocking mode, then spawns a thread per vCPU
-    /// and stores the resulting handles. The barrier is used to synchronize TLS
     /// initialization across all vCPU threads before returning.
     pub fn start_vcpus(
         self: &Arc<Self>,
-        mut vcpus: Vec<Vcpu>,
+        vcpus: Vec<Vcpu>,
         vcpu_seccomp_filter: Arc<crate::seccomp::BpfProgram>,
+        entry_state: VcpuEntryState,
     ) -> Result<(), StartVcpusError> {
-        let vcpu_count = vcpus.len();
-        let barrier = Arc::new(Barrier::new(vcpu_count + 1));
-
         let stdin = std::io::stdin().lock();
         stdin.set_raw_mode().inspect_err(|&err| {
             crate::logger::warn!("Cannot set raw mode for the terminal. {:?}", err);
@@ -253,22 +251,80 @@ impl KvmVm {
             crate::logger::warn!("Cannot set non block for the terminal. {:?}", err);
         })?;
 
+        let count = vcpus.len();
+        let mut slots: Vec<Option<VcpuHandle>> = (0..count).map(|_| None).collect();
+
+        match entry_state {
+            VcpuEntryState::Paused => {
+                self.spawn_vcpu_batch(vcpus, &vcpu_seccomp_filter, entry_state, None, &mut slots)?;
+            }
+            VcpuEntryState::Running => {
+                let mut iter = vcpus.into_iter();
+                let bsp = iter.next();
+                let aps: Vec<Vcpu> = iter.collect();
+                let ap_count = aps.len();
+
+                if ap_count > 0 {
+                    let ap_ready = Arc::new(Barrier::new(ap_count + 1));
+                    self.spawn_vcpu_batch(
+                        aps,
+                        &vcpu_seccomp_filter,
+                        entry_state,
+                        Some(ap_ready.clone()),
+                        &mut slots,
+                    )?;
+                    ap_ready.wait();
+                }
+
+                if let Some(bsp_vcpu) = bsp {
+                    self.spawn_vcpu_batch(
+                        vec![bsp_vcpu],
+                        &vcpu_seccomp_filter,
+                        entry_state,
+                        None,
+                        &mut slots,
+                    )?;
+                }
+            }
+        }
+
         let mut handles = self.vcpus_handles();
-        handles.reserve(vcpu_count);
+        handles.reserve(count);
+        for slot in slots.into_iter() {
+            handles.push(slot.expect("vcpu handle missing for index"));
+        }
+
+        Ok(())
+    }
+
+    /// Spawns a batch of vcpu threads. Each handle is placed in `slots` at
+    /// `Vcpu::index`.
+    fn spawn_vcpu_batch(
+        self: &Arc<Self>,
+        mut vcpus: Vec<Vcpu>,
+        vcpu_seccomp_filter: &Arc<crate::seccomp::BpfProgram>,
+        entry_state: VcpuEntryState,
+        ready: Option<Arc<Barrier>>,
+        slots: &mut [Option<VcpuHandle>],
+    ) -> Result<(), StartVcpusError> {
+        let count = vcpus.len();
+        let tls_barrier = Arc::new(Barrier::new(count + 1));
+
         for mut vcpu in vcpus.drain(..) {
+            let idx = vcpu.kvm_vcpu.index as usize;
             vcpu.set_mmio_bus(self.common.mmio_bus.clone());
             #[cfg(target_arch = "x86_64")]
             vcpu.kvm_vcpu.set_pio_bus(self.pio_bus.clone());
-
-            handles.push(vcpu.start_threaded(
+            let handle = vcpu.start_threaded(
                 self,
                 vcpu_seccomp_filter.clone(),
-                barrier.clone(),
-            )?);
+                tls_barrier.clone(),
+                entry_state,
+                ready.clone(),
+            )?;
+            slots[idx] = Some(handle);
         }
-        drop(handles);
-        barrier.wait();
-
+        tls_barrier.wait();
         Ok(())
     }
 
