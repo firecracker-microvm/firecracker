@@ -7,6 +7,7 @@ Firecracker is maintained by a dedicated team within Amazon:
 - Jack Thomson <jackabt@amazon.com>
 - James Curtis <jxcurtis@amazon.com>
 - Jay Chung <jaehoc@amazon.com>
+- Marco Marangoni <mamarang@amazon.com>
 - Michael Zoumboulakis <zoumboul@amazon.com>
 - Riccardo Mancini <mancio@amazon.com>
 - Takahiro Itazuri <itazur@amazon.com>
