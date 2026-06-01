@@ -43,6 +43,19 @@
                 "syscall": "fsync"
             },
             {
+                "syscall": "fallocate",
+                "comment": "Used by the VirtIO block device to punch holes for discard on regular backing files",
+                "args": [
+                    {
+                        "index": 1,
+                        "type": "dword",
+                        "op": "eq",
+                        "val": 3,
+                        "comment": "FALLOC_FL_KEEP_SIZE | FALLOC_FL_PUNCH_HOLE"
+                    }
+                ]
+            },
+            {
                 "syscall": "close"
             },
             {
@@ -488,6 +501,19 @@
                         "type": "dword",
                         "op": "eq",
                         "val": 0
+                    }
+                ]
+            },
+            {
+                "syscall": "ioctl",
+                "comment": "Used by the VirtIO block device to pass discard through to block-device backing files",
+                "args": [
+                    {
+                        "index": 1,
+                        "type": "dword",
+                        "op": "eq",
+                        "val": 4727,
+                        "comment": "BLKDISCARD"
                     }
                 ]
             },

@@ -59,6 +59,12 @@ If a block device is configured with the `Async` io_engine on a host kernel
 older than 5.10.51, the API call will return a 400 Bad Request, with a
 suggestive error message.
 
+When the `discard` block option is enabled with the `Async` IO engine,
+Firecracker uses `IORING_OP_FALLOCATE` for regular backing files. For block
+device backing stores, async discard requires the kernel block uring discard
+command (`BLOCK_URING_CMD_DISCARD`), which is available starting with Linux
+6.12. Hosts running Linux 7.x or newer satisfy this requirement.
+
 ## Performance considerations
 
 The performance is strictly tied to the host kernel version. The gathered data
