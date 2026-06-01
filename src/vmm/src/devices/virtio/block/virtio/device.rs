@@ -97,6 +97,7 @@ impl DiskProperties {
         disk_image_path: String,
         is_disk_read_only: bool,
         file_engine_type: FileEngineType,
+        discard: bool,
     ) -> Result<Self, VirtioBlockError> {
         let mut disk_image = Self::open_file(&disk_image_path, is_disk_read_only)?;
         let disk_size = Self::file_size(&disk_image_path, &mut disk_image)?;
@@ -104,7 +105,7 @@ impl DiskProperties {
 
         Ok(Self {
             file_path: disk_image_path,
-            file_engine: FileEngine::from_file(disk_image, file_engine_type)
+            file_engine: FileEngine::from_file(disk_image, file_engine_type, discard)
                 .map_err(VirtioBlockError::FileEngine)?,
             nsectors: disk_size >> SECTOR_SHIFT,
             image_id,
@@ -264,7 +265,7 @@ impl From<VirtioBlockConfig> for BlockDeviceConfig {
             cache_type: value.cache_type,
 
             is_read_only: Some(value.is_read_only),
-            discard: Some(value.discard),
+            discard: value.discard.then_some(true),
             path_on_host: Some(value.path_on_host),
             rate_limiter: value.rate_limiter,
             file_engine_type: Some(value.file_engine_type),
@@ -319,14 +320,11 @@ impl VirtioBlock {
     ///
     /// The given file must be seekable and sizable.
     pub fn new(config: VirtioBlockConfig) -> Result<VirtioBlock, VirtioBlockError> {
-        if config.discard && config.file_engine_type == FileEngineType::Async {
-            return Err(VirtioBlockError::DiscardAsyncUnsupported);
-        }
-
         let disk_properties = DiskProperties::new(
             config.path_on_host,
             config.is_read_only,
             config.file_engine_type,
+            config.discard,
         )?;
 
         let rate_limiter = config
@@ -813,16 +811,20 @@ mod tests {
         f.as_file().set_len(size).unwrap();
 
         for engine in [FileEngineType::Sync, FileEngineType::Async] {
-            let disk_properties =
-                DiskProperties::new(String::from(f.as_path().to_str().unwrap()), true, engine)
-                    .unwrap();
+            let disk_properties = DiskProperties::new(
+                String::from(f.as_path().to_str().unwrap()),
+                true,
+                engine,
+                false,
+            )
+            .unwrap();
 
             assert_eq!(size, u64::from(SECTOR_SIZE) * num_sectors);
             assert_eq!(disk_properties.nsectors, num_sectors);
             // Testing `backing_file.virtio_block_disk_image_id()` implies
             // duplicating that logic in tests, so skipping it.
 
-            let res = DiskProperties::new("invalid-disk-path".to_string(), true, engine);
+            let res = DiskProperties::new("invalid-disk-path".to_string(), true, engine, false);
             assert!(
                 matches!(res, Err(VirtioBlockError::BackingFile(_, _))),
                 "{:?}",
@@ -891,10 +893,11 @@ mod tests {
             rate_limiter: None,
             file_engine_type: FileEngineType::Async,
         };
-        assert!(matches!(
-            VirtioBlock::new(async_config),
-            Err(VirtioBlockError::DiscardAsyncUnsupported)
-        ));
+        let block = VirtioBlock::new(async_config).unwrap();
+        assert_eq!(
+            block.avail_features & (1u64 << VIRTIO_BLK_F_DISCARD),
+            1u64 << VIRTIO_BLK_F_DISCARD
+        );
     }
 
     #[test]

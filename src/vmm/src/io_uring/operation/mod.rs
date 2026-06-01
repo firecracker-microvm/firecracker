@@ -29,6 +29,10 @@ pub enum OpCode {
     Write = io_uring_op::IORING_OP_WRITE as u8,
     /// Fsync operation.
     Fsync = io_uring_op::IORING_OP_FSYNC as u8,
+    /// Fallocate operation.
+    Fallocate = io_uring_op::IORING_OP_FALLOCATE as u8,
+    /// Uring command operation.
+    UringCmd = io_uring_op::IORING_OP_URING_CMD as u8,
 }
 
 // Useful for outputting errors.
@@ -38,6 +42,8 @@ impl From<OpCode> for &'static str {
             OpCode::Read => "read",
             OpCode::Write => "write",
             OpCode::Fsync => "fsync",
+            OpCode::Fallocate => "fallocate",
+            OpCode::UringCmd => "uring_cmd",
         }
     }
 }
@@ -49,8 +55,10 @@ pub struct Operation<T> {
     pub(crate) opcode: OpCode,
     pub(crate) addr: Option<usize>,
     pub(crate) len: Option<u32>,
+    pub(crate) cmd_op: Option<u32>,
     flags: u8,
     pub(crate) offset: Option<u64>,
+    pub(crate) addr3: Option<u64>,
     pub(crate) user_data: T,
 }
 
@@ -64,10 +72,12 @@ impl<T> fmt::Debug for Operation<T> {
                 opcode: {:?},
                 addr: {:?},
                 len: {:?},
+                cmd_op: {:?},
                 offset: {:?},
+                addr3: {:?},
             }}
         ",
-            self.opcode, self.addr, self.len, self.offset
+            self.opcode, self.addr, self.len, self.cmd_op, self.offset, self.addr3
         )
     }
 }
@@ -81,8 +91,10 @@ impl<T: Debug> Operation<T> {
             opcode: OpCode::Read,
             addr: Some(addr),
             len: Some(len),
+            cmd_op: None,
             flags: 0,
             offset: Some(offset),
+            addr3: None,
             user_data,
         }
     }
@@ -94,8 +106,10 @@ impl<T: Debug> Operation<T> {
             opcode: OpCode::Write,
             addr: Some(addr),
             len: Some(len),
+            cmd_op: None,
             flags: 0,
             offset: Some(offset),
+            addr3: None,
             user_data,
         }
     }
@@ -107,8 +121,40 @@ impl<T: Debug> Operation<T> {
             opcode: OpCode::Fsync,
             addr: None,
             len: None,
+            cmd_op: None,
             flags: 0,
             offset: None,
+            addr3: None,
+            user_data,
+        }
+    }
+
+    /// Construct a fallocate operation.
+    pub fn fallocate(fd: FixedFd, mode: u32, offset: u64, len: u64, user_data: T) -> Self {
+        Self {
+            fd,
+            opcode: OpCode::Fallocate,
+            addr: Some(usize::try_from(len).unwrap()),
+            len: Some(mode),
+            cmd_op: None,
+            flags: 0,
+            offset: Some(offset),
+            addr3: None,
+            user_data,
+        }
+    }
+
+    /// Construct a block uring command operation.
+    pub fn block_discard(fd: FixedFd, cmd_op: u32, offset: u64, len: u64, user_data: T) -> Self {
+        Self {
+            fd,
+            opcode: OpCode::UringCmd,
+            addr: Some(usize::try_from(offset).unwrap()),
+            len: None,
+            cmd_op: Some(cmd_op),
+            flags: 0,
+            offset: None,
+            addr3: Some(len),
             user_data,
         }
     }
@@ -143,11 +189,76 @@ impl<T: Debug> Operation<T> {
             inner.len = len;
         }
 
+        if let Some(cmd_op) = self.cmd_op {
+            inner.__bindgen_anon_1.__bindgen_anon_1.cmd_op = cmd_op;
+        }
+
         if let Some(offset) = self.offset {
             inner.__bindgen_anon_1.off = offset;
+        }
+
+        if let Some(addr3) = self.addr3 {
+            // SAFETY: `__bindgen_anon_1` is the `addr3` view of this SQE union and
+            // we are only writing plain integer fields before the SQE is submitted.
+            unsafe {
+                inner.__bindgen_anon_6.__bindgen_anon_1.as_mut().addr3 = addr3;
+            }
         }
         inner.user_data = slab.insert(self.user_data) as u64;
 
         Sqe::new(inner)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::io_uring::generated::io_uring_op;
+
+    #[test]
+    fn test_fallocate_sqe_layout() {
+        let mut slab = slab::Slab::new();
+        let sqe = Operation::fallocate(0, 3, 4096, 8192, 7u8)
+            .into_sqe(&mut slab)
+            .0;
+
+        assert_eq!(
+            sqe.opcode,
+            u8::try_from(io_uring_op::IORING_OP_FALLOCATE).unwrap()
+        );
+        assert_eq!(sqe.fd, 0);
+        assert_eq!(sqe.len, 3);
+        // SAFETY: These are the SQE union fields populated by fallocate().
+        let offset = unsafe { sqe.__bindgen_anon_1.off };
+        // SAFETY: This is the SQE union field populated by fallocate().
+        let len = unsafe { sqe.__bindgen_anon_2.addr };
+        assert_eq!(offset, 4096);
+        assert_eq!(len, 8192);
+    }
+
+    #[test]
+    fn test_block_discard_sqe_layout() {
+        const BLOCK_URING_CMD_DISCARD: u32 = 0x1200;
+
+        let mut slab = slab::Slab::new();
+        let sqe = Operation::block_discard(0, BLOCK_URING_CMD_DISCARD, 4096, 8192, 7u8)
+            .into_sqe(&mut slab)
+            .0;
+
+        assert_eq!(
+            sqe.opcode,
+            u8::try_from(io_uring_op::IORING_OP_URING_CMD).unwrap()
+        );
+        assert_eq!(sqe.fd, 0);
+        assert_eq!(sqe.len, 0);
+        // SAFETY: These are the SQE union fields populated by block_discard().
+        let cmd_op = unsafe { sqe.__bindgen_anon_1.__bindgen_anon_1.cmd_op };
+        // SAFETY: This is the SQE union field populated by block_discard().
+        let offset = unsafe { sqe.__bindgen_anon_2.addr };
+        // SAFETY: `__bindgen_anon_1` is the `addr3` view populated by block_discard().
+        let len = unsafe { sqe.__bindgen_anon_6.__bindgen_anon_1.as_ref().addr3 };
+        assert_eq!(cmd_op, BLOCK_URING_CMD_DISCARD);
+        assert_eq!(offset, 4096);
+        assert_eq!(len, 8192);
     }
 }
