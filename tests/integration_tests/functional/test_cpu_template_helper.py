@@ -205,6 +205,10 @@ MSR_EXCEPTION_LIST = [
     # features are temporarily disabled. Guest OS disables TILEDATA by default
     # using the MSR.
     0x1C4,
+    # MSR_IA32_DEBUGCTL is a R/W MSR the guest OS modifies at runtime. On hosts
+    # that virtualize bus lock detection (6.18+), the guest enables it and sets
+    # DEBUGCTLMSR_BUS_LOCK_DETECT (bit 2), so it differs from the dumped config.
+    0x1D9,
     # IA32_PAT_MSR is R/W MSR for guest OS to control memory page attributes.
     0x277,
     # MSR_IA32_TSC_DEADLINE specifies the time at which a timer interrupt
