@@ -10,17 +10,22 @@ import termios
 import time
 from pathlib import Path
 
+import pytest
+
 from framework import utils
+from framework.artifacts import GUEST_KERNEL_DEFAULT, pin_guest_kernel
 from framework.microvm import Serial
+from framework.utils_cpu_templates import ALL_CPU_TEMPLATES, pin_cpu_template
 
 PLATFORM = platform.machine()
 
 
-def test_serial_after_snapshot(uvm_plain, microvm_factory):
+@pin_guest_kernel(GUEST_KERNEL_DEFAULT)
+def test_serial_after_snapshot(uvm, microvm_factory):
     """
     Serial I/O after restoring from a snapshot.
     """
-    microvm = uvm_plain
+    microvm = uvm
     microvm.help.enable_console()
     microvm.spawn(serial_out_path=None)
     microvm.basic_config(
@@ -46,23 +51,25 @@ def test_serial_after_snapshot(uvm_plain, microvm_factory):
     vm.restore_from_snapshot(snapshot, resume=True)
     serial = Serial(vm)
     serial.open()
-    # We need to send a newline to signal the serial to flush
-    # the login content.
+    # After restore, the kernel may emit messages (e.g. crng reseeded on 6.1)
+    # that hold the console lock. Wait for those to finish before sending input.
+    serial.drain_until_idle()
     serial.tx("")
-
-    # looking for the # prompt at the end
     serial.rx(vm.distro.shell_prompt)
     serial.tx("pwd")
     res = serial.rx("#")
     assert "/root" in res
 
 
-def test_serial_active_tx_snapshot(uvm_plain, microvm_factory):
+# The VM can become unresponsive in the test due to the interrupt storm .
+@pytest.mark.flaky(reruns=2)
+@pin_guest_kernel(GUEST_KERNEL_DEFAULT)
+def test_serial_active_tx_snapshot(uvm, microvm_factory):
     """
     Snapshot a guest that is actively transmitting on the serial console and
     test that the transmission continues after snapshot restore.
     """
-    microvm = uvm_plain
+    microvm = uvm
     microvm.help.enable_console()
     microvm.spawn(serial_out_path=None)
     microvm.basic_config(
@@ -106,11 +113,11 @@ def test_serial_active_tx_snapshot(uvm_plain, microvm_factory):
     assert "/root" in res
 
 
-def test_serial_console_login(uvm_plain_any):
+def test_serial_console_login(uvm):
     """
     Test serial console login.
     """
-    microvm = uvm_plain_any
+    microvm = uvm
     microvm.help.enable_console()
     microvm.spawn(serial_out_path=None)
 
@@ -151,11 +158,11 @@ def send_bytes(tty, bytes_count, timeout=60):
             break
 
 
-def test_serial_dos(uvm_plain_any):
+def test_serial_dos(uvm):
     """
     Test serial console behavior under DoS.
     """
-    microvm = uvm_plain_any
+    microvm = uvm
     microvm.help.enable_console()
     microvm.spawn()
 
@@ -183,11 +190,11 @@ def test_serial_dos(uvm_plain_any):
     )
 
 
-def test_serial_block(uvm_plain_any):
+def test_serial_block(uvm):
     """
     Test that writing to stdout never blocks the vCPU thread.
     """
-    test_microvm = uvm_plain_any
+    test_microvm = uvm
     test_microvm.help.enable_console()
     test_microvm.spawn(serial_out_path=None)
     # Set up the microVM with 1 vCPU so we make sure the vCPU thread
@@ -228,7 +235,8 @@ def test_serial_block(uvm_plain_any):
 REGISTER_FAILED_WARNING = "Failed to register serial input fd: event_manager: failed to manage epoll file descriptor: Operation not permitted (os error 1)"
 
 
-def test_no_serial_fd_error_when_daemonized(uvm_plain):
+@pin_guest_kernel(GUEST_KERNEL_DEFAULT)
+def test_no_serial_fd_error_when_daemonized(uvm):
     """
     Tests that when running firecracker daemonized, the serial device
     does not try to register stdin to epoll (which would fail due to stdin no
@@ -237,7 +245,7 @@ def test_no_serial_fd_error_when_daemonized(uvm_plain):
     Regression test for #4037.
     """
 
-    test_microvm = uvm_plain
+    test_microvm = uvm
     test_microvm.spawn()
     test_microvm.add_net_iface()
     test_microvm.basic_config(
@@ -249,6 +257,7 @@ def test_no_serial_fd_error_when_daemonized(uvm_plain):
     assert REGISTER_FAILED_WARNING not in test_microvm.log_data
 
 
+@pin_cpu_template(ALL_CPU_TEMPLATES)
 def test_serial_file_output(uvm_any):
     """Test that redirecting serial console output to a file works for booted and restored VMs"""
     uvm_any.ssh.check_output("echo 'hello' > /dev/ttyS0")
@@ -256,9 +265,10 @@ def test_serial_file_output(uvm_any):
     assert b"hello" in uvm_any.serial_out_path.read_bytes()
 
 
-def test_serial_rate_limiting(uvm_plain):
+@pin_guest_kernel(GUEST_KERNEL_DEFAULT)
+def test_serial_rate_limiting(uvm):
     """Test that serial output is rate-limited when a rate limiter is configured."""
-    microvm = uvm_plain
+    microvm = uvm
     microvm.spawn()
     microvm.add_net_iface()
     microvm.basic_config(vcpu_count=1, mem_size_mib=256)

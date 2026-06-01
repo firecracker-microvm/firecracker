@@ -8,6 +8,8 @@ import pytest
 
 import host_tools.drive as drive_tools
 import host_tools.network as net_tools
+from framework.artifacts import ACPI_GUEST_KERNELS, pin_guest_kernel, pin_pci
+from framework.utils_cpu_templates import ALL_CPU_TEMPLATES, pin_cpu_template
 
 VIRTIO_PCI_VENDOR_ID = 0x1AF4
 VIRTIO_PCI_DEVICE_ID_NET = 0x1041
@@ -15,14 +17,17 @@ VIRTIO_PCI_DEVICE_ID_BLOCK = 0x1042
 VIRTIO_PCI_DEVICE_ID_PMEM = 0x105B
 
 
-def test_hotplug_block(uvm_any_with_pci):
+@pin_pci(True)
+@pin_cpu_template(ALL_CPU_TEMPLATES)
+@pin_guest_kernel(ACPI_GUEST_KERNELS)
+def test_hotplug_block(uvm_any):
     """
     Test hotplugging a block device after VM start.
     Test that the device appears in lspci and is usable.
     Test that invalid hotplug request are rejected.
     Test hot-unplugging the device.
     """
-    vm = uvm_any_with_pci
+    vm = uvm_any
 
     # Snapshot lspci output before hotplug
     _, lspci_before, _ = vm.ssh.check_output("lspci -n")
@@ -120,14 +125,17 @@ def test_hotplug_block(uvm_any_with_pci):
         vm.api.drive.delete("block0")
 
 
-def test_hotplug_pmem(uvm_any_with_pci):
+@pin_guest_kernel(ACPI_GUEST_KERNELS)
+@pin_pci(True)
+@pin_cpu_template(ALL_CPU_TEMPLATES)
+def test_hotplug_pmem(uvm_any):
     """
     Test hotplugging a pmem device after VM start.
     Test that the device appears in lspci and is usable.
     Test that invalid hotplug request are rejected.
     Test hot-unplugging the device.
     """
-    vm = uvm_any_with_pci
+    vm = uvm_any
 
     # Snapshot lspci output before hotplug
     _, lspci_before, _ = vm.ssh.check_output("lspci -n")
@@ -221,14 +229,17 @@ def test_hotplug_pmem(uvm_any_with_pci):
         vm.api.pmem.delete("pmem0")
 
 
-def test_hotplug_net(uvm_any_with_pci):
+@pin_guest_kernel(ACPI_GUEST_KERNELS)
+@pin_pci(True)
+@pin_cpu_template(ALL_CPU_TEMPLATES)
+def test_hotplug_net(uvm_any):
     """
     Test hotplugging a net device after VM start.
     Test that the device appears in lspci and is usable.
     Test that invalid hotplug request are rejected.
     Test hot-unplugging the device.
     """
-    vm = uvm_any_with_pci
+    vm = uvm_any
 
     # Snapshot lspci output before hotplug
     _, lspci_before, _ = vm.ssh.check_output("lspci -n")
@@ -328,11 +339,12 @@ def test_hotplug_net(uvm_any_with_pci):
         vm.api.network.delete(iface1.dev_name)
 
 
-def test_unplug_root_pmem(microvm_factory, guest_kernel_acpi, rootfs):
+@pin_guest_kernel(ACPI_GUEST_KERNELS)
+def test_unplug_root_pmem(microvm_factory, guest_kernel, rootfs):
     """
     Unplugging the root pmem device must be rejected.
     """
-    vm = microvm_factory.build(guest_kernel_acpi, rootfs, pci=True)
+    vm = microvm_factory.build(guest_kernel, rootfs, pci=True)
     vm.memory_monitor = None
     vm.monitors = []
     vm.spawn()
@@ -345,12 +357,14 @@ def test_unplug_root_pmem(microvm_factory, guest_kernel_acpi, rootfs):
         vm.api.pmem.delete("pmem_root")
 
 
-def test_hotplug_no_pci(uvm_any_without_pci):
+@pin_pci(False)
+@pin_cpu_template(ALL_CPU_TEMPLATES)
+def test_hotplug_no_pci(uvm_any):
     """
     Hotplugging and unplugging any device type must be rejected when PCI is not
     enabled.
     """
-    vm = uvm_any_without_pci
+    vm = uvm_any
 
     host_file = drive_tools.FilesystemFile(os.path.join(vm.fsfiles, "disk"), size=4)
 
@@ -389,11 +403,14 @@ def test_hotplug_no_pci(uvm_any_without_pci):
         vm.api.network.delete("eth0")
 
 
-def test_hotplug_preserved_after_snapshot(uvm_any_with_pci, microvm_factory):
+@pin_guest_kernel(ACPI_GUEST_KERNELS)
+@pin_pci(True)
+@pin_cpu_template(ALL_CPU_TEMPLATES)
+def test_hotplug_preserved_after_snapshot(uvm_any, microvm_factory):
     """
     Test that a hotplugged device survives a full snapshot/restore cycle.
     """
-    vm = uvm_any_with_pci
+    vm = uvm_any
 
     # Snapshot lspci output before hotplug
     _, lspci_before, _ = vm.ssh.check_output("lspci -n")
@@ -438,12 +455,15 @@ def test_hotplug_preserved_after_snapshot(uvm_any_with_pci, microvm_factory):
     assert stdout.strip() == "hotplug_test"
 
 
-def test_hotplug_max_devices(uvm_any_with_pci):
+@pin_guest_kernel(ACPI_GUEST_KERNELS)
+@pin_pci(True)
+@pin_cpu_template(ALL_CPU_TEMPLATES)
+def test_hotplug_max_devices(uvm_any):
     """
     Test that hotplugging more devices than available PCI slots is rejected.
     """
     pci_max_slots = 32
-    vm = uvm_any_with_pci
+    vm = uvm_any
 
     # Count how many PCI slots are already in use
     _, lspci_initial, _ = vm.ssh.check_output("lspci -n")

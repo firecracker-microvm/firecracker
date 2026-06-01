@@ -17,7 +17,7 @@ source "$GIT_ROOT_DIR/tools/functions"
 # Make sure we have all the needed tools
 function install_dependencies {
     apt update
-    apt install -y bc flex bison gcc make libelf-dev libssl-dev squashfs-tools busybox-static tree cpio curl patch docker.io
+    apt install -y bc flex bison gcc make libelf-dev libssl-dev squashfs-tools busybox-static tree cpio curl patch docker.io dwarves
 
     # Install Go
     version=$(curl -s https://go.dev/VERSION?m=text | head -n 1)

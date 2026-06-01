@@ -5,11 +5,14 @@
 
 import pytest
 
+from framework.utils_cpu_templates import ALL_CPU_TEMPLATES, pin_cpu_template
 
-def test_kvm_ptp(uvm_any_booted):
+
+@pin_cpu_template(ALL_CPU_TEMPLATES)
+def test_kvm_ptp(uvm_booted):
     """Test kvm_ptp is usable"""
 
-    vm = uvm_any_booted
+    vm = uvm_booted
     if vm.guest_kernel_version[:2] < (6, 1):
         pytest.skip("Only supported in kernel 6.1 and after")
 

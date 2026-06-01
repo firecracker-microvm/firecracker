@@ -7,6 +7,7 @@ import json
 import os
 
 import host_tools.drive as drive_tools
+from framework.artifacts import GUEST_KERNEL_DEFAULT, pin_guest_kernel
 
 MB = 2**20
 
@@ -31,11 +32,12 @@ def check_iops_limit(ssh_connection, block_size, count, min_time, max_time):
     assert runtime_ms < max_time * 1000
 
 
-def test_patch_drive_limiter(uvm_plain):
+@pin_guest_kernel(GUEST_KERNEL_DEFAULT)
+def test_patch_drive_limiter(uvm):
     """
     Test replacing the drive rate-limiter after guest boot works.
     """
-    test_microvm = uvm_plain
+    test_microvm = uvm
     test_microvm.spawn()
     # Set up the microVM with 2 vCPUs, 512 MiB of RAM, 1 network iface, a root
     # file system, and a scratch drive.

@@ -114,7 +114,7 @@ class MicrovmHelpers:
         This may be useful for example to get a terminal
         """
         ip = self.vm.iface["eth0"]["iface"].guest_ip
-        return f"{self.vm.netns.cmd_prefix()} ssh -o StrictHostKeyChecking=no -i {self.vm.ssh_key} root@{ip}"
+        return f"{self.vm.netns.cmd_prefix()} ssh -o StrictHostKeyChecking=no -o KexAlgorithms=ecdh-sha2-nistp521 -o HostKeyAlgorithms=rsa-sha2-512 -c aes256-ctr -i {self.vm.ssh_key} root@{ip}"
 
     def tmux_ssh(self, cmd=""):
         """Open a tmux window with an SSH session to the VM"""

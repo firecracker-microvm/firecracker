@@ -253,6 +253,8 @@ pub enum VirtioPciDeviceError {
     Msi(#[from] InterruptError),
     /// Invalid PCI configuration state: {0}
     PciConfiguration(#[from] PciConfigurationError),
+    /// Invalid restore state: driver_status {0:#x} is inconsistent with device_activated (expected {1:#x})
+    InvalidRestoreState(u8, u8),
 }
 
 pub struct VirtioPciDevice {
@@ -424,6 +426,21 @@ impl VirtioPciDevice {
 
         let pci_config = PciConfiguration::type0_from_state(state.pci_configuration_state)?;
         let virtio_common_config = VirtioPciCommonConfig::new(state.pci_dev_state);
+
+        if state.device_activated {
+            let driver_ok = ACKNOWLEDGE | DRIVER | FEATURES_OK | DRIVER_OK;
+            // The reset code path leaves the backend active while setting
+            // driver_status to 0 (INIT), so INIT is also valid
+            let valid = virtio_common_config.driver_status == driver_ok
+                || virtio_common_config.driver_status == INIT;
+            if !valid {
+                return Err(VirtioPciDeviceError::InvalidRestoreState(
+                    virtio_common_config.driver_status,
+                    driver_ok,
+                ));
+            }
+        }
+
         let cap_pci_cfg_info = VirtioPciCfgCapInfo {
             offset: state.cap_pci_cfg_offset,
             cap: *VirtioPciCfgCap::from_slice(&state.cap_pci_cfg).ok_or(
@@ -1705,8 +1722,18 @@ mod tests {
         let saved_state = locked.state();
         drop(locked);
 
-        let new_entropy = Arc::new(Mutex::new(Entropy::new(RateLimiter::default()).unwrap()));
+        // Fully drop the original device before constructing the restored copy: the restored
+        // copy reuses the same MSI-X GSIs, so the two `MsixVectorGroup` instances must never
+        // exist concurrently. This is how it will happen in real scenario anyway.
         let kvm_vm = vmm.vm.as_kvm().unwrap().clone();
+        let saved_allocator = kvm_vm.resource_allocator().clone();
+        drop(device);
+        drop(vmm);
+        // Restore the allocator state so the restored group's GSIs are marked allocated and
+        // its `MsixVectorGroup::drop` will succeed when the test ends.
+        *kvm_vm.resource_allocator() = saved_allocator;
+
+        let new_entropy = Arc::new(Mutex::new(Entropy::new(RateLimiter::default()).unwrap()));
         let restored =
             VirtioPciDevice::new_from_state("rng".to_string(), &kvm_vm, new_entropy, saved_state)
                 .unwrap();

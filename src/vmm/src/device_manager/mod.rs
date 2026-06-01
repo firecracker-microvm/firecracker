@@ -1060,6 +1060,7 @@ pub(crate) mod tests {
             iface_id: "eth0".to_string(),
             host_dev_name: "hostname".to_string(),
             guest_mac: Some(mac.parse().unwrap()),
+            mtu: None,
             rx_rate_limiter: None,
             tx_rate_limiter: None,
         });
@@ -1076,6 +1077,7 @@ pub(crate) mod tests {
             iface_id: "eth1".to_string(),
             host_dev_name: "hostname2".to_string(),
             guest_mac: Some(mac.parse().unwrap()),
+            mtu: None,
             rx_rate_limiter: None,
             tx_rate_limiter: None,
         });

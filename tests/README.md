@@ -57,6 +57,22 @@ or natively on your dev box:
 python3 -m pytest [<pytest argument>...]
 ```
 
+### Environment variables
+
+A handful of `FC_TEST_*` environment variables tweak runtime behaviour of the
+test framework. They are allowlisted by `tools/devtool` and forwarded into the
+dev container automatically, so setting them on the host before invoking
+`tools/devtool -y test` is enough.
+
+- `FC_TEST_SKIP_ARTIFACT_COPY=1` — skip copying CI artifacts into
+  `/srv/test_artifacts` (used by `devtool test_debug`).
+- `FC_TEST_DUMP_ON_FAILURE=1` — on test failure, also collect the heavy
+  post-failure artifacts: a full memory snapshot (`post_failure.mem` +
+  `post_failure.vmstate`), a copy of the test `id_rsa`, and every regular file
+  at the uVM chroot root. The cheap artifacts (`host-dmesg.log` and the guest
+  serial console) are always collected. Default off. The nightly performance
+  pipeline sets this.
+
 ### Output
 
 Output, including testrun results, goes to `stdout`. Errors go to `stderr`. By
@@ -343,22 +359,94 @@ the [`pytest` documentation](https://docs.pytest.org/en/6.2.x/fixture.html) for
 details.
 
 Most integration tests use fixtures that abstract away the creation and teardown
-of Firecracker processes. The following fixtures spawn Firecracker processes
-that are pre-initialized with specific guest kernels and rootfs:
+of Firecracker processes. There are two layers:
 
-- `uvm_plain_any` is parametrized by the guest kernels
-  [supported](../docs/kernel-policy.md) by Firecracker and a read-only Ubuntu
-  24.04 squashfs as rootfs,
-- `uvm_plain` yields a Firecracker process pre-initialized with a 5.10 kernel
-  and the same Ubuntu 24.04 squashfs.
-- `uvm_any` yields started microvms, parametrized by all supported kernels, all
-  CPU templates (static, custom and none), and either booted or restored from a
-  snapshot.
-- `uvm_any_booted` works the same as `uvm_any`, but only for booted VMs.
+- **Consumer fixtures** spawn microVMs at progressively later lifecycle stages.
+  Pick one based on how much setup you want done for you:
 
-Generally, tests should use `uvm_plain_any` if you are testing some interaction
-between the guest and Firecracker, and `uvm_plain` should be used if Firecracker
-functionality unrelated to the guest is being tested.
+  - `uvm` — a built (chroot only) microVM. Caller drives
+    `spawn`/`basic_config`/`start`.
+  - `uvm_configured` — `uvm` plus `spawn` and `basic_config` (and `cpu_template`
+    if applicable). Caller adds devices and calls `start`.
+  - `uvm_booted` — `uvm_configured` plus `add_net_iface` and `start`. Ready to
+    ssh.
+  - `uvm_restored` — `uvm_booted`, snapshotted and restored from the snapshot.
+  - `uvm_any` — booted *or* restored, automatically parametrized over both via
+    `uvm_lifecycle`. Use when a test should exercise both lifecycles.
+
+- **Dimension fixtures** control the parameters of the microVM. They are
+  composed by the consumer fixtures above; tests can also request them directly.
+  The defaults are:
+
+  - `guest_kernel` — auto-parametrized over all
+    [supported](../docs/kernel-policy.md) guest kernels.
+  - `rootfs_mode` — `"ro"` (squashfs, default) or `"rw"` (ext4).
+  - `rootfs` — the rootfs disk path, composed from `guest_kernel` +
+    `rootfs_mode` (Ubuntu 24.04 for 5.10, Amazon Linux 2023 otherwise).
+  - `pci_enabled` — auto-parametrized over `True`/`False`.
+  - `cpu_template` — `None` by default.
+  - `huge_pages` — `HugePagesConfig.NONE` by default. See note below.
+  - `vcpu_count`, `mem_size_mib` — `2` and `256` by default.
+
+To restrict a dimension to a specific value or subset, use the helpers from
+`framework.artifacts` and `framework.utils_cpu_templates`:
+
+```python
+from framework.artifacts import pin_guest_kernel, GUEST_KERNEL_DEFAULT, ACPI_GUEST_KERNELS
+
+@pin_guest_kernel(GUEST_KERNEL_DEFAULT)  # single kernel, e.g. for non-guest-dependent tests
+def test_foo(uvm): ...
+
+@pin_guest_kernel(ACPI_GUEST_KERNELS)    # subset
+def test_bar(uvm): ...
+```
+
+The same pattern works at module level via `pytestmark = pin_guest_kernel(...)`,
+but use it sparingly: prefer per-test decorators by default and reserve
+`pytestmark` for files where the *subject of the file* makes the restriction
+necessary, so that any future test added to the file would be subject to the
+same restriction by construction. Examples where `pytestmark` is appropriate:
+
+- A file dedicated to a single feature whose support implies the pin (e.g.
+  `test_vmclock.py` requires ACPI; `performance/test_hotplug_memory.py` requires
+  kernel ≥ 6.1 because virtio-mem support is matured there).
+- A file dedicated to enumerating a dimension (e.g. `test_cpu_all.py` — the
+  file's purpose is to run every CPU template).
+- A performance test file: measurements need a fixed substrate so that results
+  are comparable over time.
+
+For "convenience" pins (e.g. "this test doesn't depend on the guest kernel,
+let's pin to default to keep CI fast"), prefer the per-test decorator. A
+module-level `pytestmark` on a kernel-independent file silently inherits onto
+the next test someone adds, even if that next test legitimately wants
+multi-kernel coverage.
+
+Note: pytest's `parametrize` markers do not merge — combining a module-level
+`pytestmark` with a per-test `parametrize` on the same dimension raises a
+"duplicate parametrization" error. Pick one.
+
+For tests of Firecracker functionality that don't depend on the guest kernel,
+prefer `@pin_guest_kernel(GUEST_KERNEL_DEFAULT)` to keep CI fast. Tests that
+exercise guest-Firecracker interactions should leave `guest_kernel` at the
+default so they run against every supported kernel.
+
+#### Huge pages
+
+`huge_pages` defaults to `HugePagesConfig.NONE` (anonymous memory). The
+distinction between `NONE` and `HUGETLBFS_2MB` only matters for performance
+characteristics — fault granularity, UFFD population time, EPT-violation counts
+— not functional correctness. Performance tests exercising the memory subsystem
+(memory hotplug, balloon page reporting/hinting, snapshot/UFFD restore, EPT)
+should parametrize over both variants explicitly:
+
+```python
+@pytest.mark.parametrize("huge_pages", HugePagesConfig)
+def test_my_perf_thing(uvm_booted, huge_pages):
+    ...
+```
+
+Functional tests can leave `huge_pages` at the default and don't need to declare
+it.
 
 ### Markers
 

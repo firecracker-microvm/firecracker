@@ -27,9 +27,8 @@ def parse_curl_timing(timing_line):
 
 
 @pytest.fixture
-def mmds_microvm(uvm_plain_any):
+def mmds_microvm(uvm):
     """Creates a microvm with MMDS configured for performance testing."""
-    uvm = uvm_plain_any
     uvm.spawn(log_level="Info")
     uvm.basic_config()
     uvm.add_net_iface()

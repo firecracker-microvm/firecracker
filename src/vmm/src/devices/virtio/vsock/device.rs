@@ -33,6 +33,7 @@ use super::{VsockBackend, defs};
 use crate::devices::virtio::ActivateError;
 use crate::devices::virtio::device::{ActiveState, DeviceState, VirtioDevice, VirtioDeviceType};
 use crate::devices::virtio::generated::virtio_config::{VIRTIO_F_IN_ORDER, VIRTIO_F_VERSION_1};
+use crate::devices::virtio::generated::virtio_ring::VIRTIO_RING_F_EVENT_IDX;
 use crate::devices::virtio::queue::{InvalidAvailIdx, Queue as VirtQueue};
 use crate::devices::virtio::transport::{VirtioInterrupt, VirtioInterruptType};
 use crate::devices::virtio::vsock::VsockError;
@@ -52,8 +53,11 @@ pub(crate) const VIRTIO_VSOCK_EVENT_TRANSPORT_RESET: u32 = 0;
 /// - VIRTIO_F_VERSION_1: the device conforms to at least version 1.0 of the VirtIO spec.
 /// - VIRTIO_F_IN_ORDER: the device returns used buffers in the same order that the driver makes
 ///   them available.
-pub(crate) const AVAIL_FEATURES: u64 =
-    (1 << VIRTIO_F_VERSION_1 as u64) | (1 << VIRTIO_F_IN_ORDER as u64);
+/// - VIRTIO_RING_F_EVENT_IDX: the device supports used_event/avail_event notification
+///   suppression.
+pub(crate) const AVAIL_FEATURES: u64 = (1 << VIRTIO_F_VERSION_1 as u64)
+    | (1 << VIRTIO_F_IN_ORDER as u64)
+    | (1 << VIRTIO_RING_F_EVENT_IDX as u64);
 
 /// Structure representing the vsock device.
 #[derive(Debug)]
@@ -74,6 +78,9 @@ pub struct Vsock<B> {
 
     pub rx_packet: VsockPacketRx,
     pub tx_packet: VsockPacketTx,
+
+    /// Gates RX delivery while a TRANSPORT_RESET is awaiting guest ack.
+    pub(crate) pending_event_ack: bool,
 }
 
 // TODO: Detect / handle queue deadlock:
@@ -108,6 +115,7 @@ where
             device_state: DeviceState::Inactive,
             rx_packet: VsockPacketRx::new()?,
             tx_packet: VsockPacketTx::default(),
+            pending_event_ack: false,
         })
     }
 
@@ -154,16 +162,20 @@ where
     }
 
     /// Walk the driver-provided RX queue buffers and attempt to fill them up with any data that we
-    /// have pending. Return `true` if descriptors have been added to the used ring, and `false`
-    /// otherwise.
+    /// have pending. Return `true` if the guest needs to be notified (respecting notification
+    /// suppression).
     pub fn process_rx(&mut self) -> Result<bool, InvalidAvailIdx> {
+        if self.pending_event_ack {
+            return Ok(false);
+        }
+
         // This is safe since we checked in the event handler that the device is activated.
         let mem = &self.device_state.active_state().unwrap().mem;
 
         let queue = &mut self.queues[RXQ_INDEX];
         let mut have_used = false;
 
-        while let Some(head) = queue.pop()? {
+        while let Some(head) = queue.pop_or_enable_notification()? {
             let index = head.index;
             let used_len = match self.rx_packet.parse(mem, head) {
                 Ok(()) => {
@@ -203,12 +215,12 @@ where
         }
         queue.advance_used_ring_idx();
 
-        Ok(have_used)
+        Ok(have_used && queue.prepare_kick())
     }
 
     /// Walk the driver-provided TX queue buffers, package them up as vsock packets, and send them
-    /// to the backend for processing. Return `true` if descriptors have been added to the used
-    /// ring, and `false` otherwise.
+    /// to the backend for processing. Return `true` if the guest needs to be notified (respecting
+    /// notification suppression).
     pub fn process_tx(&mut self) -> Result<bool, InvalidAvailIdx> {
         // This is safe since we checked in the event handler that the device is activated.
         let mem = &self.device_state.active_state().unwrap().mem;
@@ -216,9 +228,8 @@ where
         let queue = &mut self.queues[TXQ_INDEX];
         let mut have_used = false;
 
-        while let Some(head) = queue.pop()? {
+        while let Some(head) = queue.pop_or_enable_notification()? {
             let index = head.index;
-            // let pkt = match VsockPacket::from_tx_virtq_head(mem, head) {
             match self.tx_packet.parse(mem, head) {
                 Ok(()) => (),
                 Err(err) => {
@@ -243,7 +254,7 @@ where
         }
         queue.advance_used_ring_idx();
 
-        Ok(have_used)
+        Ok(have_used && queue.prepare_kick())
     }
 
     // Send TRANSPORT_RESET_EVENT to driver. According to specs, the driver shuts down established
@@ -266,6 +277,14 @@ where
             error!("Failed to add used descriptor {}: {}", head.index, err);
         });
         queue.advance_used_ring_idx();
+
+        // The evq is only popped here, not via a drain loop, so
+        // `avail_event` is not advanced by `pop_or_enable_notification`.
+        // Arm it so the driver's refill of the consumed head is not
+        // suppressed by EVENT_IDX.
+        queue.enable_notification();
+
+        self.pending_event_ack = true;
 
         // NOTE: kick() will be called on resume and it will trigger the interrupt again. As calling
         // it multiple times should not cause any harm, it would be safer to call it here as well
@@ -366,6 +385,12 @@ where
             });
         }
 
+        if self.has_feature(VIRTIO_RING_F_EVENT_IDX as u64) {
+            for queue in &mut self.queues {
+                queue.enable_notif_suppression();
+            }
+        }
+
         if self.activate_evt.write(1).is_err() {
             METRICS.activate_fails.inc();
             return Err(ActivateError::EventFd);
@@ -388,6 +413,8 @@ where
         // The only reason we still `kick` it is to make guest process
         // `TRANSPORT_RESET_EVENT` event we sent during snapshot creation.
         if self.is_activated() {
+            self.pending_event_ack = true;
+
             info!(
                 "[{:?}:{}] signaling event queue",
                 self.device_type(),
@@ -410,9 +437,26 @@ where
 
 #[cfg(test)]
 mod tests {
+    use vmm_sys_util::epoll::EventSet;
+
     use super::*;
+    use crate::devices::virtio::queue::VIRTQ_DESC_F_WRITE;
     use crate::devices::virtio::vsock::defs::uapi;
-    use crate::devices::virtio::vsock::test_utils::TestContext;
+    use crate::devices::virtio::vsock::test_utils::{EventHandlerContext, TestContext};
+    use crate::vstate::memory::GuestAddress;
+
+    /// Guest address used for the writable evq descriptor payload in tests.
+    const EVQ_PAYLOAD_GUEST_ADDR: u64 = 0x0040_2000;
+
+    /// Publish a single 4-byte writable descriptor on the event virtqueue and reload the
+    /// device-side queue so it sees the new avail index. Required by any test that exercises
+    /// `send_transport_reset_event` directly.
+    fn publish_evq_descriptor(ctx: &mut EventHandlerContext<'_>) {
+        ctx.guest_evvq.dtable[0].set(EVQ_PAYLOAD_GUEST_ADDR, 4, VIRTQ_DESC_F_WRITE, 0);
+        ctx.guest_evvq.avail.ring[0].set(0);
+        ctx.guest_evvq.avail.idx.set(1);
+        ctx.device.queues[EVQ_INDEX] = ctx.guest_evvq.create_queue();
+    }
 
     #[test]
     fn test_virtio_device() {
@@ -484,5 +528,148 @@ mod tests {
         ctx.device
             .activate(ctx.mem.clone(), ctx.interrupt.clone())
             .unwrap();
+    }
+
+    #[test]
+    fn test_send_transport_reset_event_sets_pending_event_ack() {
+        let test_ctx = TestContext::new();
+        let mut ctx = test_ctx.create_event_handler_context();
+        ctx.mock_activate(test_ctx.mem.clone(), test_ctx.interrupt.clone());
+        publish_evq_descriptor(&mut ctx);
+
+        assert!(!ctx.device.pending_event_ack);
+
+        ctx.device.send_transport_reset_event().unwrap();
+
+        assert!(
+            ctx.device.pending_event_ack,
+            "TRANSPORT_RESET emission must arm the RX gate"
+        );
+        assert_eq!(
+            ctx.guest_evvq.used.idx.get(),
+            1,
+            "evq used ring must advance once the event is published"
+        );
+
+        // The 4-byte payload must be VIRTIO_VSOCK_EVENT_TRANSPORT_RESET (== 0).
+        let mut buf = [0xffu8; 4];
+        test_ctx
+            .mem
+            .read_slice(&mut buf, GuestAddress(EVQ_PAYLOAD_GUEST_ADDR))
+            .unwrap();
+        assert_eq!(u32::from_le_bytes(buf), VIRTIO_VSOCK_EVENT_TRANSPORT_RESET);
+    }
+
+    #[test]
+    fn test_send_transport_reset_event_empty_queue() {
+        // No available descriptors on the evq -> the device cannot publish the event.
+        let test_ctx = TestContext::new();
+        let mut ctx = test_ctx.create_event_handler_context();
+        ctx.mock_activate(test_ctx.mem.clone(), test_ctx.interrupt.clone());
+
+        let err = ctx.device.send_transport_reset_event().unwrap_err();
+        match err {
+            DeviceError::VsockError(VsockError::EmptyQueue) => (),
+            other => panic!("unexpected error variant: {other:?}"),
+        }
+        assert!(
+            !ctx.device.pending_event_ack,
+            "flag must not be armed if the event was never published"
+        );
+    }
+
+    #[test]
+    fn test_kick_when_inactive_is_a_noop() {
+        // The fix runs `kick()` only when activated. The inactive branch must not arm
+        // the RX gate, otherwise a freshly restored-but-unactivated device would refuse
+        // RX forever.
+        let mut ctx = TestContext::new();
+        assert!(!ctx.device.is_activated());
+
+        ctx.device.kick();
+
+        assert!(
+            !ctx.device.pending_event_ack,
+            "kick() on an inactive device must remain a no-op"
+        );
+    }
+
+    #[test]
+    fn test_kick_when_active_arms_pending_event_ack() {
+        // Restore path: kick() is invoked after the snapshot is loaded to re-deliver the
+        // TRANSPORT_RESET interrupt. It must arm the RX gate so the post-restore RX/EVQ
+        // race cannot deliver data ahead of the guest ack.
+        let test_ctx = TestContext::new();
+        let mut ctx = test_ctx.create_event_handler_context();
+        ctx.mock_activate(test_ctx.mem.clone(), test_ctx.interrupt.clone());
+
+        ctx.device.pending_event_ack = false;
+        ctx.device.kick();
+
+        assert!(
+            ctx.device.pending_event_ack,
+            "kick() on an active device must arm the RX gate"
+        );
+
+        // After kick(), the gate must actually suppress RX delivery.
+        ctx.device.backend.set_pending_rx(true);
+        let progressed = ctx.device.process_rx().unwrap();
+        assert!(!progressed);
+        assert_eq!(ctx.guest_rxvq.used.idx.get(), 0);
+    }
+
+    #[test]
+    fn test_prepare_save_emits_transport_reset_when_active() {
+        // The snapshot path goes through prepare_save -> send_transport_reset_event.
+        // Both the evq publication and the RX gate must be observable afterwards.
+        let test_ctx = TestContext::new();
+        let mut ctx = test_ctx.create_event_handler_context();
+        ctx.mock_activate(test_ctx.mem.clone(), test_ctx.interrupt.clone());
+        publish_evq_descriptor(&mut ctx);
+
+        ctx.device.prepare_save();
+
+        assert!(ctx.device.pending_event_ack);
+        assert_eq!(ctx.guest_evvq.used.idx.get(), 1);
+    }
+
+    #[test]
+    fn test_prepare_save_inactive_is_a_noop() {
+        let mut ctx = TestContext::new();
+        assert!(!ctx.device.is_activated());
+
+        // Must not panic, must not arm the gate.
+        ctx.device.prepare_save();
+
+        assert!(!ctx.device.pending_event_ack);
+    }
+
+    #[test]
+    fn test_pending_event_ack_default_is_false() {
+        let ctx = TestContext::new();
+        assert!(
+            !ctx.device.pending_event_ack,
+            "freshly created device must have the RX gate disarmed"
+        );
+    }
+
+    #[test]
+    fn test_evq_event_with_non_in_evset_is_a_noop() {
+        // Spurious evset flavours must not flip the gate or drain the RX queue.
+        let test_ctx = TestContext::new();
+        let mut ctx = test_ctx.create_event_handler_context();
+        ctx.mock_activate(test_ctx.mem.clone(), test_ctx.interrupt.clone());
+
+        ctx.device.pending_event_ack = true;
+        ctx.device.backend.set_pending_rx(true);
+
+        let used = ctx.device.handle_evq_event(EventSet::OUT);
+
+        assert!(used.is_empty());
+        assert!(
+            ctx.device.pending_event_ack,
+            "non-IN evset must not clear the gate"
+        );
+        assert_eq!(ctx.guest_rxvq.used.idx.get(), 0);
     }
 }

@@ -53,8 +53,15 @@ pub enum MemoryError {
     OffsetTooLarge,
     /// Cannot retrieve snapshot file metadata: {0}
     FileMetadata(std::io::Error),
-    /// Memory region is not aligned
-    Unaligned,
+    /// Memory region has zero slots
+    ZeroSlots,
+    /// Memory region of {region_size} bytes is not evenly divisible into {slot_count} slots
+    Unaligned {
+        /// Region size in bytes.
+        region_size: u64,
+        /// Number of slots declared in the snapshot.
+        slot_count: usize,
+    },
     /// Error protecting memory slot: {0}
     Mprotect(std::io::Error),
     /// Size too large for i64 conversion
@@ -269,9 +276,16 @@ impl GuestRegionMmapExt {
         slot_from: u32,
     ) -> Result<Self, MemoryError> {
         let slot_cnt = state.plugged.len();
-        let slot_size = u64_to_usize(region.len())
+        let region_len = u64_to_usize(region.len());
+        let slot_size = region_len
             .checked_div(slot_cnt)
-            .ok_or(MemoryError::Unaligned)?;
+            .ok_or(MemoryError::ZeroSlots)?;
+        if slot_size * slot_cnt != region_len {
+            return Err(MemoryError::Unaligned {
+                region_size: region.len(),
+                slot_count: slot_cnt,
+            });
+        }
 
         Ok(GuestRegionMmapExt {
             inner: region,

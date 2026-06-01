@@ -60,11 +60,10 @@ impl AcpiTableWriter<'_> {
     where
         S: Sdt,
     {
-        let addr = resource_allocator.allocate_system_memory(
-            table.len().try_into().unwrap(),
-            1,
-            AllocPolicy::FirstMatch,
-        )?;
+        let addr = resource_allocator
+            .system_memory
+            .allocate(table.len().try_into().unwrap(), 1, AllocPolicy::FirstMatch)?
+            .start();
 
         table
             .write_to_guest(self.mem, GuestAddress(addr))

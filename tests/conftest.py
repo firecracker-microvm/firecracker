@@ -19,6 +19,7 @@ designed with the following goals in mind:
   https://docs.pytest.org/en/7.2.x/explanation/fixtures.html
 """
 
+import ctypes
 import inspect
 import json
 import os
@@ -31,15 +32,11 @@ import pytest
 
 import host_tools.cargo_build as build_tools
 from framework import defs, utils
-from framework.artifacts import disks, kernel_params
+from framework.artifacts import ALL_GUEST_KERNELS, disks
 from framework.defs import ARTIFACT_DIR, DEFAULT_BINARY_DIR
 from framework.microvm import HugePagesConfig, MicroVMFactory, SnapshotType
 from framework.properties import global_props
-from framework.utils_cpu_templates import (
-    custom_cpu_templates_params,
-    get_cpu_template_name,
-    static_cpu_templates_params,
-)
+from framework.utils_cpu_templates import get_cpu_template_name
 from host_tools.metrics import get_metrics_logger
 from host_tools.network import NetNs
 
@@ -51,6 +48,16 @@ if sys.version_info < (3, 10):
 # Some tests create system-level resources; ensure we run as root.
 if os.geteuid() != 0:
     raise PermissionError("Test session needs to be run as root.")
+
+
+# Become a child subreaper so that orphaned descendants (Firecracker, after
+# its jailer parent exits) reparent to us instead of init. This lets us
+# waitpid() on the firecracker PID directly, avoiding the pidfd notification
+# race for multi-threaded processes on kernels older than 6.15.
+_PR_SET_CHILD_SUBREAPER = 36
+_libc = ctypes.CDLL("libc.so.6", use_errno=True)
+if _libc.prctl(_PR_SET_CHILD_SUBREAPER, 1, 0, 0, 0) != 0:
+    raise OSError(ctypes.get_errno(), "prctl(PR_SET_CHILD_SUBREAPER) failed")
 
 
 METRICS = get_metrics_logger()
@@ -399,17 +406,11 @@ def microvm_factory(request, record_property, results_dir, netns_factory):
     # if the test failed, save important files from the root of the uVM into `test_results` for troubleshooting
     report = request.node.stash[PHASE_REPORT_KEY]
     if "call" in report and report["call"].failed:
+        dump_full = os.environ.get("FC_TEST_DUMP_ON_FAILURE") == "1"
         for uvm in uvm_factory.vms:
             # This is best effort. We want to proceed even if the VM is not responding.
             try:
                 uvm.flush_metrics()
-            except:  # pylint: disable=bare-except
-                pass
-
-            try:
-                uvm.snapshot_full(
-                    mem_path="post_failure.mem", vmstate_path="post_failure.vmstate"
-                )
             except:  # pylint: disable=bare-except
                 pass
 
@@ -418,9 +419,20 @@ def microvm_factory(request, record_property, results_dir, netns_factory):
             uvm_data.joinpath("host-dmesg.log").write_text(
                 utils.run_cmd(["dmesg", "-dPx"]).stdout
             )
-            shutil.copy(ARTIFACT_DIR / "id_rsa", uvm_data)
             if Path(uvm.screen_log).exists():
                 shutil.copy(uvm.screen_log, uvm_data)
+
+            if not dump_full:
+                continue
+
+            try:
+                uvm.snapshot_full(
+                    mem_path="post_failure.mem", vmstate_path="post_failure.vmstate"
+                )
+            except:  # pylint: disable=bare-except
+                pass
+
+            shutil.copy(ARTIFACT_DIR / "id_rsa", uvm_data)
 
             uvm_root = Path(uvm.chroot())
             for item in os.listdir(uvm_root):
@@ -433,26 +445,17 @@ def microvm_factory(request, record_property, results_dir, netns_factory):
     uvm_factory.kill()
 
 
-@pytest.fixture(params=custom_cpu_templates_params())
-def custom_cpu_template(request, record_property):
-    """Return all dummy custom CPU templates supported by the vendor."""
-    record_property("custom_cpu_template", request.param["name"])
-    return request.param
+@pytest.fixture
+def cpu_template(request, record_property):
+    """CPU template applied to the VM in `uvm_configured`. Default: None.
 
-
-@pytest.fixture(
-    params=[
-        pytest.param(None, id="NO_CPU_TMPL"),
-        *static_cpu_templates_params(),
-        *custom_cpu_templates_params(),
-    ],
-)
-def cpu_template_any(request, record_property):
-    """This fixture combines no template, static and custom CPU templates"""
-    record_property(
-        "cpu_template", get_cpu_template_name(request.param, with_type=True)
-    )
-    return request.param
+    Override with parametrize("cpu_template", ALL_CPU_TEMPLATES |
+    STATIC_CPU_TEMPLATES | CUSTOM_CPU_TEMPLATES | [<dict>], indirect=True),
+    or use `@pin_cpu_template(...)`.
+    """
+    template = getattr(request, "param", None)
+    record_property("cpu_template", get_cpu_template_name(template, with_type=True))
+    return template
 
 
 @pytest.fixture(params=["Sync", "Async"])
@@ -501,140 +504,22 @@ def results_dir(request, pytestconfig):
     return results_dir
 
 
-def guest_kernel_fxt(request, record_property):
-    """Return all supported guest kernels."""
-    kernel = request.param
-    if kernel is None:
-        pytest.fail(f"No kernel artifacts found in {ARTIFACT_DIR}")
-    # vmlinux-5.10.167 -> linux-5.10
-    prop = kernel.stem[2:]
-    record_property("guest_kernel", prop)
-    return kernel
-
-
-# Fixtures for all guest kernels, and specific versions
-guest_kernel = pytest.fixture(guest_kernel_fxt, params=kernel_params("vmlinux-*"))
-guest_kernel_acpi = pytest.fixture(
-    guest_kernel_fxt,
-    params=filter(
-        lambda kernel: "no-acpi" not in kernel.id, kernel_params("vmlinux-*")
-    ),
-)
-guest_kernel_linux_5_10 = pytest.fixture(
-    guest_kernel_fxt,
-    params=filter(
-        lambda kernel: "no-acpi" not in kernel.id, kernel_params("vmlinux-5.10*")
-    ),
-)
-guest_kernel_linux_6_1 = pytest.fixture(
-    guest_kernel_fxt,
-    params=kernel_params("vmlinux-6.1*"),
-)
-
-
-def match_rootfs_to_kernel(request):
-    """For 5.10, use Ubuntu as rootfs, otherwise use AL2023.
-    Reason: AL2023 does not officially support 5.10"""
-    for name in request.fixturenames:
-        if name.startswith("guest_kernel"):
-            kernel = request.getfixturevalue(name)
-            if kernel and kernel.stem[2:] == "linux-5.10":
-                return "ubuntu"
-            break
-    return "amazonlinux"
-
-
 @pytest.fixture
-def rootfs(request):
-    """Return a read-only rootfs. Ubuntu for 5.10, AL2023 for 6.1."""
-    distro = match_rootfs_to_kernel(request)
-    disk_list = disks(f"{distro}*.squashfs")
-    if not disk_list:
-        pytest.fail(f"No {distro} squashfs found in {ARTIFACT_DIR}")
-    return disk_list[0]
-
-
-@pytest.fixture
-def rootfs_rw(request):
-    """Return a writeable rootfs. Ubuntu for 5.10, AL2023 for 6.1."""
-    distro = match_rootfs_to_kernel(request)
-    disk_list = disks(f"{distro}*.ext4")
-    if not disk_list:
-        pytest.fail(f"No {distro} ext4 found in {ARTIFACT_DIR}")
-    return disk_list[0]
-
-
-@pytest.fixture
-def uvm_plain(microvm_factory, guest_kernel_linux_5_10, rootfs, pci_enabled):
-    """Create a vanilla VM, non-parametrized"""
-    return microvm_factory.build(guest_kernel_linux_5_10, rootfs, pci=pci_enabled)
-
-
-@pytest.fixture
-def uvm_plain_6_1(microvm_factory, guest_kernel_linux_6_1, rootfs, pci_enabled):
-    """Create a vanilla VM, non-parametrized"""
-    return microvm_factory.build(guest_kernel_linux_6_1, rootfs, pci=pci_enabled)
-
-
-@pytest.fixture
-def uvm_plain_acpi(microvm_factory, guest_kernel_acpi, rootfs, pci_enabled):
-    """Create a vanilla VM, non-parametrized"""
-    return microvm_factory.build(guest_kernel_acpi, rootfs, pci=pci_enabled)
-
-
-@pytest.fixture
-def uvm_plain_rw(microvm_factory, guest_kernel_linux_5_10, rootfs_rw):
-    """Create a vanilla VM, non-parametrized"""
-    return microvm_factory.build(guest_kernel_linux_5_10, rootfs_rw)
-
-
-@pytest.fixture
-def uvm_nano(uvm_plain):
-    """A preconfigured uvm with 2vCPUs and 256MiB of memory
-    ready to .start()
-    """
-    uvm_plain.spawn()
-    uvm_plain.basic_config(vcpu_count=2, mem_size_mib=256)
-    return uvm_plain
-
-
-@pytest.fixture()
 def artifact_dir():
     """Return the location of the CI artifacts"""
     return defs.ARTIFACT_DIR
 
 
 @pytest.fixture
-def uvm_plain_any(microvm_factory, guest_kernel, rootfs, pci_enabled):
-    """All guest kernels
-    kernel: all
-    rootfs: Ubuntu for 5.10, AL2023 for 6.1
-    """
-    return microvm_factory.build(guest_kernel, rootfs, pci=pci_enabled)
-
-
-guest_kernel_6_1_debug = pytest.fixture(
-    guest_kernel_fxt,
-    params=kernel_params("vmlinux-6.1*", artifact_dir=defs.ARTIFACT_DIR / "debug"),
-)
-
-
-@pytest.fixture
-def uvm_plain_debug(microvm_factory, guest_kernel_6_1_debug, rootfs_rw):
-    """VM running a kernel with debug/trace Kconfig options"""
-    return microvm_factory.build(guest_kernel_6_1_debug, rootfs_rw)
-
-
-@pytest.fixture
-def vcpu_count():
+def vcpu_count(request):
     """Return default vcpu_count. Use indirect parametrization to override."""
-    return 2
+    return getattr(request, "param", 2)
 
 
 @pytest.fixture
-def mem_size_mib():
+def mem_size_mib(request):
     """Return memory size. Use indirect parametrization to override."""
-    return 256
+    return getattr(request, "param", 256)
 
 
 @pytest.fixture(params=[True, False], ids=["PCI_ON", "PCI_OFF"])
@@ -643,138 +528,162 @@ def pci_enabled(request):
     yield request.param
 
 
-@pytest.fixture(
-    params=[HugePagesConfig.NONE, HugePagesConfig.HUGETLBFS_2MB],
-    ids=["NO_HUGE_PAGES", "2M_HUGE_PAGES"],
-)
+@pytest.fixture
 def huge_pages(request):
     """Fixture that allows configuring whether a microVM will have huge pages enabled or not"""
-    yield request.param
+    return getattr(request, "param", HugePagesConfig.NONE)
 
 
-def uvm_booted(
-    microvm_factory,
-    guest_kernel,
-    rootfs,
-    cpu_template,
-    pci_enabled,
-    vcpu_count=2,
-    mem_size_mib=256,
-):
-    """Return a booted uvm"""
-    uvm = microvm_factory.build(guest_kernel, rootfs, pci=pci_enabled)
+# =============================================================================
+# Composable uvm fixture system
+# =============================================================================
+#
+# Tests get a microVM by requesting one of:
+#
+#   uvm             — a built (chroot only) microVM
+#   uvm_configured  — spawned + basic_config + cpu_template applied
+#   uvm_booted      — uvm_configured + add_net_iface + start (ready to ssh)
+#   uvm_restored    — uvm_booted, snapshotted, restored from the snapshot
+#   uvm_any         — booted or restored, parametrized via `uvm_lifecycle`
+#
+# Each consumer fixture is composed from independent dimension fixtures with
+# defaults baked into their bodies. Override a dim with
+# `@pytest.mark.parametrize(<dim>, [...], indirect=True)` or use the helpers
+# from `framework.artifacts` (`pin_guest_kernel`, `pin_rootfs_mode`,
+# `pin_pci`, `pin_cpu_template`).
+#
+# Module-level `pytestmark` works for tests that don't override that same
+# dim per-test — pytest's parametrize markers do NOT merge: a pytestmark +
+# per-test parametrize on the same argname raises "duplicate parametrization".
+#
+# Dimensions:
+#   guest_kernel  Path to a guest kernel artifact              auto-multiplied
+#                                                              over ALL_GUEST_KERNELS
+#   rootfs_mode   "ro" | "rw"                                  default "ro"
+#   rootfs        Path to a rootfs disk, composed from         (composed)
+#                 guest_kernel + rootfs_mode (Ubuntu for 5.10, AL2023 otherwise)
+#   pci_enabled   True / False                                 auto-multiplied
+#   cpu_template  None | static name | custom dict             default None
+#   huge_pages    HugePagesConfig                              default NONE
+#   vcpu_count    int                                          default 2
+#   mem_size_mib  int                                          default 256
+
+
+@pytest.fixture(params=ALL_GUEST_KERNELS)
+def guest_kernel(request, record_property):
+    """Path to the guest kernel artifact.
+
+    Default: parametrized over every supported kernel, so every test that
+    requests this fixture (directly or via `uvm` etc.) runs once per kernel.
+
+    Override with `@pin_guest_kernel(<Path or catalogue>)` (from
+    `framework.artifacts`) to restrict to one kernel or a smaller subset —
+    e.g. for tests of Firecracker functionality that don't depend on the
+    guest kernel, use `@pin_guest_kernel(GUEST_KERNEL_DEFAULT)`.
+    """
+    kernel_path = request.param
+    if kernel_path is None:
+        pytest.fail(f"No kernel artifacts found in {ARTIFACT_DIR}")
+    record_property("guest_kernel", kernel_path.stem[2:])
+    return kernel_path
+
+
+@pytest.fixture
+def rootfs_mode(request):
+    """Rootfs access mode: "ro" (squashfs) or "rw" (ext4). Default: "ro"."""
+    mode = getattr(request, "param", "ro")
+    if mode not in ("ro", "rw"):
+        pytest.fail(f"rootfs_mode must be 'ro' or 'rw'; got {mode!r}")
+    return mode
+
+
+@pytest.fixture
+def rootfs(guest_kernel, rootfs_mode):
+    """Path to a rootfs disk matching `guest_kernel` and `rootfs_mode`.
+
+    Ubuntu for 5.10, AL2023 otherwise (AL2023 does not officially support 5.10).
+    """
+    distro = "ubuntu" if guest_kernel.stem[2:] == "linux-5.10" else "amazonlinux"
+    suffix = {"ro": "squashfs", "rw": "ext4"}[rootfs_mode]
+    disk_list = disks(f"{distro}*.{suffix}")
+    if not disk_list:
+        pytest.fail(f"No {distro} {suffix} found in {ARTIFACT_DIR}")
+    return disk_list[0]
+
+
+@pytest.fixture
+def uvm(microvm_factory, guest_kernel, rootfs, pci_enabled):
+    """Built microVM (chroot only). Caller drives spawn/basic_config/start."""
+    vm = microvm_factory.build(guest_kernel, rootfs, pci=pci_enabled)
+    return vm
+
+
+@pytest.fixture
+def uvm_configured(uvm, vcpu_count, mem_size_mib, huge_pages, cpu_template):
+    """Spawned + basic_config + cpu_template applied. Caller adds devices and starts."""
     uvm.spawn()
-    uvm.basic_config(vcpu_count=vcpu_count, mem_size_mib=mem_size_mib)
-    uvm.set_cpu_template(cpu_template)
-    uvm.add_net_iface()
-    uvm.start()
+    uvm.basic_config(
+        vcpu_count=vcpu_count,
+        mem_size_mib=mem_size_mib,
+        huge_pages=huge_pages,
+    )
+    if cpu_template is not None:
+        uvm.set_cpu_template(cpu_template)
     return uvm
 
 
-def uvm_restored(
-    microvm_factory, guest_kernel, rootfs, cpu_template, pci_enabled, **kwargs
-):
-    """Return a restored uvm"""
-    uvm = uvm_booted(
-        microvm_factory, guest_kernel, rootfs, cpu_template, pci_enabled, **kwargs
-    )
-    snapshot = uvm.snapshot_full()
-    uvm.kill()
-    uvm2 = microvm_factory.build_from_snapshot(snapshot)
-    uvm2.cpu_template_name = uvm.cpu_template_name
-    return uvm2
+@pytest.fixture
+def uvm_booted(uvm_configured):
+    """Booted microVM with a default net iface. Ready to ssh."""
+    uvm_configured.add_net_iface()
+    uvm_configured.start()
+    return uvm_configured
 
 
-@pytest.fixture(params=[uvm_booted, uvm_restored])
-def uvm_ctor(request):
-    """Fixture to return uvms with different constructors"""
+@pytest.fixture
+def uvm_restored(uvm_booted, microvm_factory):
+    """Booted microVM, snapshotted, restored from the snapshot."""
+    snapshot = uvm_booted.snapshot_full()
+    uvm_booted.kill()
+    restored = microvm_factory.build_from_snapshot(snapshot)
+    restored.cpu_template_name = uvm_booted.cpu_template_name
+    return restored
+
+
+@pytest.fixture(params=["booted", "restored"])
+def uvm_lifecycle(request):
+    """Parametrized over the two lifecycle end-states a test may want.
+
+    Tests that depend on it (directly, or transitively via `uvm_any`) run
+    once per state. Use this as the synchronisation point when a test
+    needs to build a secondary VM that matches the same lifecycle as
+    `uvm_any` (e.g. an A/B test against a different firecracker revision).
+    """
     return request.param
 
 
 @pytest.fixture
 def uvm_any(
-    microvm_factory,
-    uvm_ctor,
+    uvm_lifecycle,
+    request,
     guest_kernel,
     rootfs,
-    cpu_template_any,
     pci_enabled,
+    cpu_template,
     vcpu_count,
     mem_size_mib,
+    huge_pages,
 ):
-    """Return booted and restored uvms"""
-    return uvm_ctor(
-        microvm_factory,
-        guest_kernel,
-        rootfs,
-        cpu_template_any,
-        pci_enabled,
-        vcpu_count=vcpu_count,
-        mem_size_mib=mem_size_mib,
-    )
+    """A microVM in either the booted or restored lifecycle state.
 
+    Parametrized over both states via `uvm_lifecycle` — every test that
+    requests `uvm_any` runs twice (booted + restored). Replaces the old
+    `uvm_any` fixture which used function refs in `params=`.
 
-@pytest.fixture
-def uvm_any_booted(
-    microvm_factory,
-    guest_kernel,
-    rootfs,
-    cpu_template_any,
-    pci_enabled,
-    vcpu_count,
-    mem_size_mib,
-):
-    """Return booted uvms"""
-    return uvm_booted(
-        microvm_factory,
-        guest_kernel,
-        rootfs,
-        cpu_template_any,
-        pci_enabled,
-        vcpu_count=vcpu_count,
-        mem_size_mib=mem_size_mib,
-    )
-
-
-@pytest.fixture
-def uvm_any_with_pci(
-    uvm_ctor,
-    microvm_factory,
-    guest_kernel_acpi,
-    rootfs,
-    cpu_template_any,
-    vcpu_count,
-    mem_size_mib,
-):
-    """Return booted uvms with PCI enabled"""
-    return uvm_ctor(
-        microvm_factory,
-        guest_kernel_acpi,
-        rootfs,
-        cpu_template_any,
-        True,
-        vcpu_count=vcpu_count,
-        mem_size_mib=mem_size_mib,
-    )
-
-
-@pytest.fixture
-def uvm_any_without_pci(
-    uvm_ctor,
-    microvm_factory,
-    guest_kernel,
-    rootfs,
-    cpu_template_any,
-    vcpu_count,
-    mem_size_mib,
-):
-    """Return booted uvms with PCI disabled"""
-    return uvm_ctor(
-        microvm_factory,
-        guest_kernel,
-        rootfs,
-        cpu_template_any,
-        False,
-        vcpu_count=vcpu_count,
-        mem_size_mib=mem_size_mib,
-    )
+    Explicitly declares dependencies on every dim fixture used by the
+    underlying `uvm_booted` / `uvm_restored` fixtures so pytest puts them
+    all in the test's fixture closure (otherwise indirect parametrize on
+    those names would error with "function uses no fixture").
+    """
+    # pylint: disable=unused-argument
+    return request.getfixturevalue(f"uvm_{uvm_lifecycle}")

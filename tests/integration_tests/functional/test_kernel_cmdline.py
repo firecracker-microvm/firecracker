@@ -3,16 +3,18 @@
 
 """Test kernel commandline behavior."""
 
+from framework.artifacts import GUEST_KERNEL_DEFAULT, pin_guest_kernel
 from framework.microvm import Serial
 
 
-def test_init_params(uvm_plain):
+@pin_guest_kernel(GUEST_KERNEL_DEFAULT)
+def test_init_params(uvm):
     """Correct propagation of boot args to the kernel's command line.
 
     Test that init's parameters (the ones present after "--") do not get
     altered or misplaced.
     """
-    vm = uvm_plain
+    vm = uvm
     vm.help.enable_console()
     vm.spawn(serial_out_path=None)
     vm.memory_monitor = None

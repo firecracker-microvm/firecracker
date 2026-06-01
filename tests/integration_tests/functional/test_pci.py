@@ -2,6 +2,9 @@
 # SPDX-License-Identifier: Apache-2.0
 """Tests for the PCI devices"""
 
+from framework.artifacts import ACPI_GUEST_KERNELS, pin_guest_kernel, pin_pci
+from framework.utils_cpu_templates import ALL_CPU_TEMPLATES, pin_cpu_template
+
 # Virtio PCI common config register offsets
 # https://docs.oasis-open.org/virtio/virtio/v1.3/csd01/virtio-v1.3-csd01.html#x1-1420003
 COMMON_CFG_QUEUE_SELECT = 0x16  # u16
@@ -15,12 +18,15 @@ COMMON_CFG_QUEUE_USED_LO = 0x30  # u32
 COMMON_CFG_QUEUE_USED_HI = 0x34  # u32
 
 
-def test_pci_root_present(uvm_any_with_pci):
+@pin_pci(True)
+@pin_cpu_template(ALL_CPU_TEMPLATES)
+@pin_guest_kernel(ACPI_GUEST_KERNELS)
+def test_pci_root_present(uvm_any):
     """
     Test that a guest with PCI enabled has a PCI root device.
     """
 
-    vm = uvm_any_with_pci
+    vm = uvm_any
     devices = vm.ssh.run("lspci").stdout.strip().split("\n")
     print(devices)
     assert devices[0].startswith(
@@ -28,12 +34,14 @@ def test_pci_root_present(uvm_any_with_pci):
     ), "PCI root not found in guest"
 
 
-def test_pci_disabled(uvm_any_without_pci):
+@pin_pci(False)
+@pin_cpu_template(ALL_CPU_TEMPLATES)
+def test_pci_disabled(uvm_any):
     """
     Test that a guest with PCI disabled does not have a PCI root device but still works.
     """
 
-    vm = uvm_any_without_pci
+    vm = uvm_any
     _, stdout, _ = vm.ssh.run("lspci")
     assert (
         "00:00.0 Host bridge: Intel Corporation Device" not in stdout
@@ -89,7 +97,10 @@ def _devmem_write(vm, tool_path, addr, width, value):
     return int(stdout, 16)
 
 
-def test_queue_config_immutable(uvm_any_with_pci, devmem_bin):
+@pin_guest_kernel(ACPI_GUEST_KERNELS)
+@pin_pci(True)
+@pin_cpu_template(ALL_CPU_TEMPLATES)
+def test_queue_config_immutable(uvm_any, devmem_bin):
     """
     Test that queue configuration fields cannot be modified by the guest
     after the device has been activated (DRIVER_OK is set).
@@ -103,7 +114,7 @@ def test_queue_config_immutable(uvm_any_with_pci, devmem_bin):
     MMIO queue fields are write-only (reads return 0), so integration-level
     readback verification via /dev/mem is not possible.
     """
-    vm = uvm_any_with_pci
+    vm = uvm_any
 
     rmt_path = "/tmp/devmem"
     vm.ssh.scp_put(devmem_bin, rmt_path)

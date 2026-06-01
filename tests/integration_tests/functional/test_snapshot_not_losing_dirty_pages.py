@@ -8,6 +8,8 @@ from pathlib import Path
 import psutil
 import pytest
 
+from framework.artifacts import GUEST_KERNEL_DEFAULT, pin_guest_kernel
+
 
 @pytest.fixture
 def mount_tmpfs_small(worker_id):
@@ -24,14 +26,15 @@ def mount_tmpfs_small(worker_id):
         mnt_path.rmdir()
 
 
+@pin_guest_kernel(GUEST_KERNEL_DEFAULT)
 def test_diff_snapshot_works_after_error(
-    microvm_factory, guest_kernel_linux_5_10, rootfs, mount_tmpfs_small
+    microvm_factory, guest_kernel, rootfs, mount_tmpfs_small
 ):
     """
     Test that if a partial snapshot errors it will work after and not lose data
     """
     uvm = microvm_factory.build(
-        guest_kernel_linux_5_10,
+        guest_kernel,
         rootfs,
         jailer_kwargs={"chroot_base": mount_tmpfs_small},
     )

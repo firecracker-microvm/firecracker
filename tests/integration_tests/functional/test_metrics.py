@@ -5,14 +5,16 @@
 import os
 
 import host_tools.drive as drive_tools
+from framework.artifacts import GUEST_KERNEL_DEFAULT, pin_guest_kernel
 from host_tools.fcmetrics import FcDeviceMetrics, validate_fc_metrics
 
 
-def test_flush_metrics(uvm_plain):
+@pin_guest_kernel(GUEST_KERNEL_DEFAULT)
+def test_flush_metrics(uvm):
     """
     Check the `FlushMetrics` vmm action.
     """
-    microvm = uvm_plain
+    microvm = uvm
     microvm.spawn()
     microvm.basic_config()
     microvm.start()
@@ -21,12 +23,13 @@ def test_flush_metrics(uvm_plain):
     validate_fc_metrics(metrics)
 
 
-def test_net_metrics(uvm_plain):
+@pin_guest_kernel(GUEST_KERNEL_DEFAULT)
+def test_net_metrics(uvm):
     """
     Validate that NetDeviceMetrics doesn't have a breaking change
     and "net" is aggregate of all "net_*" in the json object.
     """
-    test_microvm = uvm_plain
+    test_microvm = uvm
     test_microvm.spawn()
 
     # Set up a basic microVM.
@@ -54,12 +57,13 @@ def test_net_metrics(uvm_plain):
         assert exit_code == 0
 
 
-def test_block_metrics(uvm_plain):
+@pin_guest_kernel(GUEST_KERNEL_DEFAULT)
+def test_block_metrics(uvm):
     """
     Validate that BlockDeviceMetrics doesn't have a breaking change
     and "block" is aggregate of all "block_*" in the json object.
     """
-    test_microvm = uvm_plain
+    test_microvm = uvm
     test_microvm.spawn()
 
     # Add first scratch block device.

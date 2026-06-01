@@ -47,7 +47,7 @@ class MemoryMonitor(Thread):
         self,
         vm,
         threshold_booted=5 << 20,
-        threshold_snapshot=6 << 20,
+        threshold_snapshot=7 << 20,
         threshold_restored=5 << 20,
         period_s=0.01,
     ):
