@@ -10,6 +10,8 @@ and this project adheres to
 
 ### Added
 
+- Add optional `direct_write` support for virtio-block devices. When enabled,
+  aligned guest writes use host direct I/O while reads remain buffered.
 - [#5786](https://github.com/firecracker-microvm/firecracker/pull/5786): Added
   developer preview support for hotplugging and hot-unplugging PCI virtio
   devices (block, pmem, net) on a running microVM. The guest must manually
