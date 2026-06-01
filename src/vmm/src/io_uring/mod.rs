@@ -109,6 +109,17 @@ impl<T: Debug> IoUring<T> {
         restrictions: Vec<Restriction>,
         eventfd: Option<RawFd>,
     ) -> Result<Self, IoUringError> {
+        Self::new_with_required_ops(num_entries, files, restrictions, eventfd, &REQUIRED_OPS)
+    }
+
+    /// Create a new instance, checking an explicit set of required operations.
+    pub fn new_with_required_ops(
+        num_entries: u32,
+        files: Vec<&File>,
+        restrictions: Vec<Restriction>,
+        eventfd: Option<RawFd>,
+        required_ops: &[OpCode],
+    ) -> Result<Self, IoUringError> {
         let mut params = io_uring_params {
             // Create the ring as disabled, so that we may register restrictions.
             flags: generated::IORING_SETUP_R_DISABLED,
@@ -148,7 +159,7 @@ impl<T: Debug> IoUring<T> {
             slab,
         };
 
-        instance.check_operations()?;
+        instance.check_operations(required_ops)?;
 
         if let Some(eventfd) = eventfd {
             instance.register_eventfd(eventfd)?;
@@ -345,7 +356,7 @@ impl<T: Debug> IoUring<T> {
         Ok(())
     }
 
-    fn check_operations(&self) -> Result<(), IoUringError> {
+    fn check_operations(&self, required_ops: &[OpCode]) -> Result<(), IoUringError> {
         let mut probes = ProbeWrapper::new(PROBE_LEN).map_err(IoUringError::Fam)?;
 
         // SAFETY: Safe because values are valid and we check the return value.
@@ -368,7 +379,7 @@ impl<T: Debug> IoUring<T> {
             .map(|op| op.op)
             .collect();
 
-        for opcode in REQUIRED_OPS.iter() {
+        for opcode in required_ops.iter() {
             if !supported_opcodes.contains(&(*opcode as u8)) {
                 return Err(IoUringError::UnsupportedOperation((*opcode).into()));
             }

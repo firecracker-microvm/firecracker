@@ -1243,7 +1243,9 @@ definitions:
         description:
           Enables virtio-blk discard support. When enabled, the guest can issue
           discard/TRIM requests for this drive. Only supported for writable
-          virtio-block devices using the Sync IO engine.
+          virtio-block devices. Async IO engine block-device backends require
+          host support for BLOCK_URING_CMD_DISCARD, available starting with
+          Linux 6.12.
           This field is optional for virtio-block config and should be omitted for vhost-user-block configuration.
         default: false
       path_on_host:

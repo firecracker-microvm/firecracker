@@ -434,6 +434,7 @@ impl Request {
         desc_idx: u16,
         mem: &GuestMemoryMmap,
         block_metrics: &BlockDeviceMetrics,
+        discard_supported: bool,
     ) -> ProcessingResult {
         let pending = self.to_pending_request(desc_idx);
         let res = match self.r#type {
@@ -447,11 +448,21 @@ impl Request {
                 disk.file_engine
                     .write(self.offset(), mem, self.data_addr, self.data_len, pending)
             }
-            RequestType::Discard => disk.file_engine.discard(
-                self.discard_range
-                    .expect("discard request missing validated range"),
-                pending,
-            ),
+            RequestType::Discard => {
+                if !discard_supported {
+                    return ProcessingResult::Executed(pending.finish(
+                        mem,
+                        Err(IoErr::UnsupportedRequest(VIRTIO_BLK_T_DISCARD)),
+                        block_metrics,
+                    ));
+                }
+
+                disk.file_engine.discard(
+                    self.discard_range
+                        .expect("discard request missing validated range"),
+                    pending,
+                )
+            }
             RequestType::Flush => disk.file_engine.flush(pending),
             RequestType::GetDeviceID => {
                 let res = mem

@@ -9,15 +9,20 @@ Discard is configured per virtio-block device through the `discard` field in the
 
 ## Supported configuration
 
-Discard is currently supported only for writable virtio-block devices using the
-`Sync` IO engine. It is not supported for:
+Discard is currently supported only for writable virtio-block devices. It is not
+supported for:
 
 - read-only drives;
-- `Async` IO engine drives;
 - vhost-user block devices.
 
 For regular backing files, Firecracker uses hole punching. For block-device
-backends, Firecracker uses `BLKDISCARD`.
+backends, Firecracker uses `BLKDISCARD` with the `Sync` IO engine and
+`BLOCK_URING_CMD_DISCARD` with the `Async` IO engine.
+
+When discard is enabled with the `Async` IO engine, regular backing files
+require host support for `IORING_OP_FALLOCATE`. Block-device backing stores
+additionally require host support for `BLOCK_URING_CMD_DISCARD`, which is
+available starting with Linux 6.12.
 
 ## Example configuration
 
@@ -31,7 +36,7 @@ curl --unix-socket ${socket} -i \
              \"path_on_host\": \"${drive_path}\",
              \"is_root_device\": true,
              \"is_read_only\": false,
-             \"io_engine\": \"Sync\",
+             \"io_engine\": \"Async\",
              \"discard\": true
          }"
 ```
