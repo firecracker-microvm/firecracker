@@ -77,8 +77,6 @@ pub enum StartMicrovmError {
     CreateNetDevice(crate::devices::virtio::net::NetError),
     /// Cannot create pmem device: {0}
     CreatePmemDevice(#[from] crate::devices::virtio::pmem::device::PmemError),
-    /// Cannot create RateLimiter: {0}
-    CreateRateLimiter(io::Error),
     /// Error creating legacy device: {0}
     #[cfg(target_arch = "x86_64")]
     CreateLegacyDevice(device_manager::legacy::LegacyDeviceError),

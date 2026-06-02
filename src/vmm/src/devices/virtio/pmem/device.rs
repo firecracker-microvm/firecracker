@@ -61,8 +61,6 @@ pub enum PmemError {
     Queue(#[from] QueueError),
     /// Error during obtaining the descriptor from the queue: {0}
     QueuePop(#[from] InvalidAvailIdx),
-    /// Error creating rate limiter: {0}
-    RateLimiter(std::io::Error),
 }
 
 const VIRTIO_PMEM_REQ_TYPE_FLUSH: u32 = 0;
@@ -330,9 +328,7 @@ impl Pmem {
 
         let rate_limiter = config
             .rate_limiter
-            .map(RateLimiterConfig::try_into)
-            .transpose()
-            .map_err(PmemError::RateLimiter)?
+            .map(RateLimiter::from)
             .unwrap_or_default();
 
         Ok(Self {
