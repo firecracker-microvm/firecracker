@@ -292,9 +292,7 @@ impl VirtioBlock {
 
         let rate_limiter = config
             .rate_limiter
-            .map(RateLimiterConfig::try_into)
-            .transpose()
-            .map_err(VirtioBlockError::RateLimiter)?
+            .map(RateLimiter::from)
             .unwrap_or_default();
 
         let mut avail_features = (1u64 << VIRTIO_F_VERSION_1) | (1u64 << VIRTIO_RING_F_EVENT_IDX);
@@ -1684,7 +1682,7 @@ mod tests {
 
             // Create bandwidth rate limiter that allows only 5120 bytes/s with bucket size of 8
             // bytes.
-            let mut rl = RateLimiter::new(512, 0, 100, 0, 0, 0).unwrap();
+            let mut rl = RateLimiter::new(512, 0, 100, 0, 0, 0);
             // Use up the budget.
             assert!(rl.consume(512, TokenType::Bytes));
 
@@ -1753,7 +1751,7 @@ mod tests {
             let status_addr = GuestAddress(vq.dtable[2].addr.get());
 
             // Create ops rate limiter that allows only 10 ops/s with bucket size of 1 ops.
-            let mut rl = RateLimiter::new(0, 0, 0, 1, 0, 100).unwrap();
+            let mut rl = RateLimiter::new(0, 0, 0, 1, 0, 100);
             // Use up the budget.
             assert!(rl.consume(1, TokenType::Ops));
 

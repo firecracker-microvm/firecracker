@@ -514,7 +514,7 @@ mod tests {
     fn test_bandwidth_rate_limiter() {
         let mem = create_virtio_mem();
         // Rate Limiter with 4000 bytes / sec allowance and no initial burst allowance
-        let device = Entropy::new(RateLimiter::new(4000, 0, 1000, 0, 0, 0).unwrap()).unwrap();
+        let device = Entropy::new(RateLimiter::new(4000, 0, 1000, 0, 0, 0)).unwrap();
         let mut th = VirtioTestHelper::<Entropy>::new(&mem, device);
 
         th.activate_device(&mem);
@@ -562,7 +562,7 @@ mod tests {
         let mem = create_virtio_mem();
         // Rate Limiter with unlimited bandwidth and allowance for 1 operation every 100 msec,
         // (10 ops/sec), without initial burst.
-        let device = Entropy::new(RateLimiter::new(0, 0, 0, 1, 0, 100).unwrap()).unwrap();
+        let device = Entropy::new(RateLimiter::new(0, 0, 0, 1, 0, 100)).unwrap();
         let mut th = VirtioTestHelper::<Entropy>::new(&mem, device);
 
         th.activate_device(&mem);
