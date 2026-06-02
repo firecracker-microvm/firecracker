@@ -93,11 +93,11 @@ def _test_rss_memory_lower(test_microvm):
 
 
 # pylint: disable=C0103
-def test_rss_memory_lower(uvm_plain_any):
+def test_rss_memory_lower(uvm):
     """
     Test that inflating the balloon makes guest use less rss memory.
     """
-    test_microvm = uvm_plain_any
+    test_microvm = uvm
     test_microvm.spawn()
     test_microvm.basic_config()
     test_microvm.add_net_iface()
@@ -114,11 +114,11 @@ def test_rss_memory_lower(uvm_plain_any):
 
 
 # pylint: disable=C0103
-def test_inflate_reduces_free(uvm_plain_any):
+def test_inflate_reduces_free(uvm):
     """
     Check that the output of free in guest changes with inflate.
     """
-    test_microvm = uvm_plain_any
+    test_microvm = uvm
     test_microvm.spawn()
     test_microvm.basic_config()
     test_microvm.add_net_iface()
@@ -150,7 +150,7 @@ def test_inflate_reduces_free(uvm_plain_any):
 
 # pylint: disable=C0103
 @pytest.mark.parametrize("deflate_on_oom", [True, False])
-def test_deflate_on_oom(uvm_plain_any, deflate_on_oom):
+def test_deflate_on_oom(uvm, deflate_on_oom):
     """
     Verify that setting the `deflate_on_oom` option works correctly.
 
@@ -165,7 +165,7 @@ def test_deflate_on_oom(uvm_plain_any, deflate_on_oom):
       should result in balloon_stats['actual_mib'] remain the same
     """
 
-    test_microvm = uvm_plain_any
+    test_microvm = uvm
     test_microvm.spawn()
     test_microvm.basic_config()
     test_microvm.add_net_iface()
@@ -215,11 +215,11 @@ def test_deflate_on_oom(uvm_plain_any, deflate_on_oom):
 
 
 # pylint: disable=C0103
-def test_reinflate_balloon(uvm_plain_any):
+def test_reinflate_balloon(uvm):
     """
     Verify that repeatedly inflating and deflating the balloon works.
     """
-    test_microvm = uvm_plain_any
+    test_microvm = uvm
     test_microvm.spawn()
     test_microvm.basic_config()
     test_microvm.add_net_iface()
@@ -280,11 +280,11 @@ def test_reinflate_balloon(uvm_plain_any):
 
 
 # pylint: disable=C0103
-def test_stats(uvm_plain_any):
+def test_stats(uvm):
     """
     Verify that balloon stats work as expected.
     """
-    test_microvm = uvm_plain_any
+    test_microvm = uvm
     test_microvm.spawn()
     test_microvm.basic_config()
     test_microvm.add_net_iface()
@@ -351,11 +351,11 @@ def test_stats(uvm_plain_any):
     check_guest_dmesg_for_stalls(test_microvm.ssh)
 
 
-def test_stats_update(uvm_plain_any):
+def test_stats_update(uvm):
     """
     Verify that balloon stats update correctly.
     """
-    test_microvm = uvm_plain_any
+    test_microvm = uvm
     test_microvm.spawn()
     test_microvm.basic_config()
     test_microvm.add_net_iface()
@@ -403,11 +403,11 @@ def test_stats_update(uvm_plain_any):
     check_guest_dmesg_for_stalls(test_microvm.ssh)
 
 
-def test_balloon_snapshot(uvm_plain_any, microvm_factory):
+def test_balloon_snapshot(uvm, microvm_factory):
     """
     Test that the balloon works after pause/resume.
     """
-    vm = uvm_plain_any
+    vm = uvm
     vm.spawn()
     # Free page reporting and hinting fragment guest memory VMAs
     # making it harder to identify them in the memory monitor.
@@ -488,11 +488,11 @@ def test_balloon_snapshot(uvm_plain_any, microvm_factory):
 
 
 @pytest.mark.parametrize("method", ["reporting", "hinting"])
-def test_hinting_reporting_snapshot(uvm_plain_any, microvm_factory, method):
+def test_hinting_reporting_snapshot(uvm, microvm_factory, method):
     """
     Test that the balloon hinting and reporting works after pause/resume.
     """
-    vm = uvm_plain_any
+    vm = uvm
     vm.spawn()
     # Free page reporting and hinting fragment guest memory VMAs
     # making it harder to identify them in the memory monitor.
@@ -575,11 +575,11 @@ def test_hinting_reporting_snapshot(uvm_plain_any, microvm_factory, method):
 
 
 @pytest.mark.parametrize("method", ["traditional", "hinting", "reporting"])
-def test_memory_scrub(uvm_plain_any, method):
+def test_memory_scrub(uvm, method):
     """
     Test that the memory is zeroed after deflate.
     """
-    microvm = uvm_plain_any
+    microvm = uvm
     microvm.spawn()
     microvm.basic_config(vcpu_count=2, mem_size_mib=256)
     microvm.add_net_iface()

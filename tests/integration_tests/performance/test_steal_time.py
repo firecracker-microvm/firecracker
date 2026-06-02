@@ -5,6 +5,10 @@
 
 import time
 
+from framework.artifacts import GUEST_KERNEL_DEFAULT, pin_guest_kernel
+
+pytestmark = pin_guest_kernel(GUEST_KERNEL_DEFAULT)
+
 
 def get_steal_time_ms(vm):
     """Returns total steal time of vCPUs in VM in milliseconds"""
@@ -14,11 +18,11 @@ def get_steal_time_ms(vm):
     return steal_time_tck / clk_tck * 1000
 
 
-def test_pvtime_steal_time_increases(uvm_plain):
+def test_pvtime_steal_time_increases(uvm):
     """
     Test that PVTime steal time increases when both vCPUs are contended on the same pCPU.
     """
-    vm = uvm_plain
+    vm = uvm
     vm.spawn()
     vm.basic_config()
     vm.add_net_iface()
@@ -44,12 +48,12 @@ def test_pvtime_steal_time_increases(uvm_plain):
     ), f"Steal time did not increase as expected. Before: {steal_before}, After: {steal_after}"
 
 
-def test_pvtime_snapshot(uvm_plain, microvm_factory):
+def test_pvtime_snapshot(uvm, microvm_factory):
     """
     Test that PVTime steal time is preserved across snapshot/restore
     and continues increasing post-resume.
     """
-    vm = uvm_plain
+    vm = uvm
     vm.spawn()
     vm.basic_config()
     vm.add_net_iface()

@@ -11,6 +11,7 @@ import pytest
 from framework import utils
 from framework.defs import SUPPORTED_HOST_KERNELS
 from framework.properties import global_props
+from framework.utils_cpu_templates import CUSTOM_CPU_TEMPLATES, pin_cpu_template
 from framework.utils_cpuid import get_guest_cpuid
 from host_tools import cargo_build
 
@@ -272,7 +273,7 @@ def get_guest_msrs(microvm, msr_index_list):
     ),
 )
 def test_cpu_config_dump_vs_actual(
-    uvm_plain_any,
+    uvm,
     cpu_template_helper,
     tmp_path,
 ):
@@ -286,7 +287,7 @@ def test_cpu_config_dump_vs_actual(
     dump_cpu_config = build_cpu_config_dict(cpu_config_path)
 
     # Retrieve actual CPU config from guest
-    microvm = uvm_plain_any
+    microvm = uvm
     microvm.spawn()
     microvm.basic_config(vcpu_count=1)
     microvm.add_net_iface()
@@ -373,13 +374,14 @@ def test_guest_cpu_config_change(results_dir, cpu_template_helper):
     )
 
 
-def test_json_static_templates(cpu_template_helper, tmp_path, custom_cpu_template):
+@pin_cpu_template(CUSTOM_CPU_TEMPLATES)
+def test_json_static_templates(cpu_template_helper, tmp_path, cpu_template):
     """
     Verify that JSON static CPU templates are applied as intended.
     """
     custom_cpu_template_path = tmp_path / "template.json"
     Path(custom_cpu_template_path).write_text(
-        json.dumps(custom_cpu_template["template"]), encoding="utf-8"
+        json.dumps(cpu_template["template"]), encoding="utf-8"
     )
 
     # Verify the JSON static CPU template.

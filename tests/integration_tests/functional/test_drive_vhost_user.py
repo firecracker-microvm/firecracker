@@ -293,7 +293,7 @@ def test_partuuid_update(uvm_vhost_user_plain_any, rootfs):
     vhost_user_block_metrics.validate(vm)
 
 
-def test_config_change(uvm_plain_any):
+def test_config_change(uvm):
     """
     Verify handling of block device resize.
     We expect that the guest will start reporting the updated size
@@ -304,7 +304,7 @@ def test_config_change(uvm_plain_any):
     new_sizes = [20, 10, 30]  # MB
     mkfs_mount_cmd = "mkfs.ext4 /dev/vdb && mkdir -p /tmp/tmp && mount /dev/vdb /tmp/tmp && umount /tmp/tmp"
 
-    vm = uvm_plain_any
+    vm = uvm
     vm.spawn(log_level="Info")
     vm.basic_config()
     vm.add_net_iface()

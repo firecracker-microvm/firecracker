@@ -8,11 +8,19 @@ import time
 
 import pytest
 
+from framework.artifacts import GUEST_KERNEL_DEFAULT, pin_guest_kernel
 from framework.microvm import HugePagesConfig
 from framework.utils import (
     get_stable_rss_mem,
     supports_hugetlbfs_discard,
     track_cpu_utilization,
+)
+
+# Every test in this module exercises both huge_pages variants.
+pytestmark = pytest.mark.parametrize(
+    "huge_pages",
+    [HugePagesConfig.NONE, HugePagesConfig.HUGETLBFS_2MB],
+    indirect=True,
 )
 
 NS_IN_MSEC = 1_000_000
@@ -37,11 +45,12 @@ def get_page_fault_duration(vm):
     return duration
 
 
+@pin_guest_kernel(GUEST_KERNEL_DEFAULT)
 @pytest.mark.parametrize("method", ["reporting", "hinting"])
 @pytest.mark.nonci
 def test_hinting_reporting_cpu(
     microvm_factory,
-    guest_kernel_default,
+    guest_kernel,
     rootfs,
     method,
     metrics,
@@ -51,7 +60,7 @@ def test_hinting_reporting_cpu(
     Measure the CPU usage when running free page reporting and hinting
     """
     test_microvm = microvm_factory.build(
-        guest_kernel_default,
+        guest_kernel,
         rootfs,
         pci=True,
         monitor_memory=False,
@@ -116,11 +125,12 @@ def test_hinting_reporting_cpu(
             metrics.put_metric(f"cpu_utilization_{thread_name}", value, "Percent")
 
 
+@pin_guest_kernel(GUEST_KERNEL_DEFAULT)
 @pytest.mark.parametrize("sleep_duration", [0, 1, 5])
 @pytest.mark.nonci
 def test_hinting_fault_latency(
     microvm_factory,
-    guest_kernel_default,
+    guest_kernel,
     rootfs,
     metrics,
     sleep_duration,
@@ -135,7 +145,7 @@ def test_hinting_fault_latency(
     """
     runs = 5
     test_microvm = microvm_factory.build(
-        guest_kernel_default,
+        guest_kernel,
         rootfs,
         pci=True,
         monitor_memory=False,
@@ -173,7 +183,7 @@ def test_hinting_fault_latency(
 
 # pylint: disable=C0103
 @pytest.mark.parametrize("method", ["traditional", "hinting", "reporting"])
-def test_size_reduction(uvm_plain_any, method, huge_pages):
+def test_size_reduction(uvm, method, huge_pages):
     """
     Verify that ballooning reduces RSS usage on a newly booted guest.
     """
@@ -188,7 +198,7 @@ def test_size_reduction(uvm_plain_any, method, huge_pages):
         if traditional_balloon:
             pytest.skip("Traditional balloon device won't reduce RSS")
 
-    test_microvm = uvm_plain_any
+    test_microvm = uvm
     test_microvm.spawn()
     test_microvm.basic_config(huge_pages=huge_pages)
     test_microvm.add_net_iface()

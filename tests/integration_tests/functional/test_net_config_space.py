@@ -13,12 +13,12 @@ import host_tools.network as net_tools  # pylint: disable=import-error
 PAYLOAD_DATA_SIZE = 20
 
 
-def test_net_change_mac_address(uvm_plain_any, change_net_config_space_bin):
+def test_net_change_mac_address(uvm, change_net_config_space_bin):
     """
     Test changing the MAC address of the network device.
     """
 
-    test_microvm = uvm_plain_any
+    test_microvm = uvm
     test_microvm.help.enable_console()
     test_microvm.spawn()
     test_microvm.basic_config(boot_args="ipv6.disable=1")

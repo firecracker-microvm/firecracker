@@ -16,7 +16,10 @@ This test is a safety-net to make the test explicit and catch cases where we
 start providing the feature by mistake.
 """
 
+from framework.utils_cpu_templates import ALL_CPU_TEMPLATES, pin_cpu_template
 
-def test_no_nested_virtualization(uvm_any_booted):
+
+@pin_cpu_template(ALL_CPU_TEMPLATES)
+def test_no_nested_virtualization(uvm_booted):
     """Validate that guests don't have Nested Virtualization enabled."""
-    uvm_any_booted.ssh.check_output("[ ! -e /dev/kvm ]")
+    uvm_booted.ssh.check_output("[ ! -e /dev/kvm ]")

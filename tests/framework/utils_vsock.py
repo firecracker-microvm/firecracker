@@ -6,6 +6,7 @@ import hashlib
 import os.path
 import re
 import time
+from contextlib import ExitStack
 from pathlib import Path
 from socket import AF_UNIX, SOCK_STREAM, socket
 from subprocess import Popen
@@ -38,7 +39,7 @@ class HostEchoWorker(Thread):
         self.blob_path = blob_path
         self.hash = None
         self.error = None
-        self.sock = _vsock_connect_to_guest(self.uds_path, ECHO_SERVER_PORT)
+        self.sock = vsock_connect_to_guest(self.uds_path, ECHO_SERVER_PORT)
 
     def run(self):
         """Thread code payload.
@@ -56,6 +57,14 @@ class HostEchoWorker(Thread):
     def close_uds(self):
         """Close vsock UDS connection."""
         self.sock.close()
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, tb):
+        if self.is_alive():
+            self.join()
+        self.close_uds()
 
     def _run(self):
         with open(self.blob_path, "rb") as blob_file:
@@ -152,17 +161,19 @@ def check_host_connections(uds_path, blob_path, blob_hash):
     checked against `blob_hash`.
     """
 
-    workers = []
-    for _ in range(TEST_CONNECTION_COUNT):
-        worker = HostEchoWorker(uds_path, blob_path)
-        workers.append(worker)
-        worker.start()
+    with ExitStack() as stack:
+        workers = [
+            stack.enter_context(HostEchoWorker(uds_path, blob_path))
+            for _ in range(TEST_CONNECTION_COUNT)
+        ]
+        for wrk in workers:
+            wrk.start()
 
-    for wrk in workers:
-        wrk.join()
+        for wrk in workers:
+            wrk.join()
 
-    for wrk in workers:
-        assert wrk.hash == blob_hash
+        for wrk in workers:
+            assert wrk.hash == blob_hash
 
 
 def check_guest_connections(vm, server_port_path, blob_path, blob_hash):
@@ -235,16 +246,27 @@ def make_host_port_path(uds_path, port):
     return "{}_{}".format(uds_path, port)
 
 
-def _vsock_connect_to_guest(uds_path, port):
-    """Return a Unix socket, connected to the guest vsock port `port`."""
+def vsock_connect_to_guest(uds_path, port):
+    """Return a Unix socket, connected to the guest vsock port `port`.
+
+    The returned socket is a regular `socket.socket`, so callers can
+    pass it to `contextlib.ExitStack.enter_context` (or wrap it in a
+    `with` block) to get deterministic cleanup. On any failure during
+    the CONNECT/ACK handshake the socket is closed before raising, so
+    the caller never receives a half-open descriptor.
+    """
     sock = socket(AF_UNIX, SOCK_STREAM)
-    sock.connect(uds_path)
+    try:
+        sock.connect(uds_path)
 
-    buf = bytearray("CONNECT {}\n".format(port).encode("utf-8"))
-    sock.send(buf)
+        buf = bytearray("CONNECT {}\n".format(port).encode("utf-8"))
+        sock.send(buf)
 
-    ack_buf = sock.recv(32)
-    assert re.match("^OK [0-9]+\n$", ack_buf.decode("utf-8")) is not None
+        ack_buf = sock.recv(32)
+        assert re.match("^OK [0-9]+\n$", ack_buf.decode("utf-8")) is not None
+    except BaseException:
+        sock.close()
+        raise
 
     return sock
 

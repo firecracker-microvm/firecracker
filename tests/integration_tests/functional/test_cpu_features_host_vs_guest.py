@@ -211,10 +211,10 @@ INTEL_ICELAKE_HOST_ONLY_FEATS_6_18 = INTEL_ICELAKE_HOST_ONLY_FEATS_6_1 - {
 } | {"la57"}
 
 
-def test_host_vs_guest_cpu_features(uvm_plain_any):
+def test_host_vs_guest_cpu_features(uvm):
     """Check CPU features host vs guest"""
 
-    vm = uvm_plain_any
+    vm = uvm
     vm.spawn()
     vm.basic_config()
     vm.add_net_iface()

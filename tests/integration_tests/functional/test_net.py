@@ -10,6 +10,7 @@ from tenacity import Retrying, stop_after_attempt, wait_fixed
 
 import host_tools.network as net_tools
 from framework import utils
+from framework.artifacts import GUEST_KERNEL_DEFAULT, pin_guest_kernel
 
 # The iperf version to run this tests with
 IPERF_BINARY = "iperf3"
@@ -18,11 +19,11 @@ IPERF_BINARY = "iperf3"
 VIRTIO_NET_F_MTU_BIT = 3
 
 
-def test_high_ingress_traffic(uvm_plain_any):
+def test_high_ingress_traffic(uvm):
     """
     Run iperf rx with high UDP traffic.
     """
-    test_microvm = uvm_plain_any
+    test_microvm = uvm
     test_microvm.spawn()
     test_microvm.basic_config()
 
@@ -57,11 +58,12 @@ def test_high_ingress_traffic(uvm_plain_any):
     test_microvm.ssh.check_output("echo success\n")
 
 
-def test_multi_queue_unsupported(uvm_plain):
+@pin_guest_kernel(GUEST_KERNEL_DEFAULT)
+def test_multi_queue_unsupported(uvm):
     """
     Creates multi-queue tap device and tries to add it to firecracker.
     """
-    microvm = uvm_plain
+    microvm = uvm
     microvm.spawn()
     microvm.basic_config()
 
@@ -86,12 +88,6 @@ def test_multi_queue_unsupported(uvm_plain):
 
     # clean TAP device
     utils.run_cmd(f"{microvm.netns.cmd_prefix()} ip link del name {tapname}")
-
-
-@pytest.fixture
-def uvm_any(microvm_factory, uvm_ctor, guest_kernel, rootfs, pci_enabled):
-    """Return booted and restored uvm with no CPU templates"""
-    return uvm_ctor(microvm_factory, guest_kernel, rootfs, None, pci_enabled)
 
 
 def test_tap_offload(uvm_any):
@@ -133,14 +129,14 @@ def test_tap_offload(uvm_any):
             assert ret.stdout == message, f"{ret.stdout=} {ret.stderr=}"
 
 
-def test_tap_mtu_advertised_to_guest(uvm_plain_any):
+def test_tap_mtu_advertised_to_guest(uvm):
     """
     Verify that VIRTIO_NET_F_MTU correctly advertises the TAP MTU to the guest.
 
     Configures multiple TAP interfaces with distinct MTU values and checks that
     each guest network interface reports the MTU matching its host TAP.
     """
-    vm = uvm_plain_any
+    vm = uvm
     vm.spawn()
     vm.basic_config()
 

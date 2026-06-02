@@ -108,6 +108,10 @@ and this project adheres to
   Corrected the OpenAPI spec for `PATCH /balloon/hinting/start` and
   `PATCH /balloon/hinting/stop` to declare `204 No Content` instead of `200`,
   matching the actual runtime response.
+- [#5882](https://github.com/firecracker-microvm/firecracker/pull/5882): Fixed a
+  race in the vsock device where, after snapshot restore, the RX queue could
+  deliver data to the guest before it had acknowledged the TRANSPORT_RESET
+  event, causing established connections to break.
 
 ## [1.15.0]
 

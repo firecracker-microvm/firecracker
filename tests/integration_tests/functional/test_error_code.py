@@ -6,13 +6,16 @@ import platform
 
 import pytest
 
+from framework.artifacts import GUEST_KERNEL_DEFAULT, pin_guest_kernel
+
 
 @pytest.mark.skipif(
     platform.machine() != "aarch64",
     reason="The error code returned on aarch64 will not be returned on x86 "
     "under the same conditions.",
 )
-def test_enosys_error_code(uvm_plain):
+@pin_guest_kernel(GUEST_KERNEL_DEFAULT)
+def test_enosys_error_code(uvm):
     """
     Test that ENOSYS error is caught and firecracker exits gracefully.
     """
@@ -20,7 +23,7 @@ def test_enosys_error_code(uvm_plain):
     # maps a file into memory and then tries to load the content from an
     # offset in the file bigger than its length into a register asm volatile
     # ("ldr %0, [%1], 4" : "=r" (ret), "+r" (buf));
-    vm = uvm_plain
+    vm = uvm
     vm.spawn()
     vm.memory_monitor = None
     vm.basic_config(

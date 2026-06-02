@@ -10,6 +10,7 @@ import pytest
 
 import host_tools.drive as drive_tools
 from framework import utils
+from framework.artifacts import ACPI_GUEST_KERNELS, pin_guest_kernel, pin_rootfs_mode
 
 ALIGNMENT = 2 << 20
 
@@ -49,11 +50,11 @@ def check_pmem_exist(vm, index, root, read_only, size, extension):
     assert False
 
 
-def test_pmem_zero_size_backing_file(uvm_plain_any):
+def test_pmem_zero_size_backing_file(uvm):
     """
     Test that a pmem device with a zero-sized backing file fails at boot time.
     """
-    vm = uvm_plain_any
+    vm = uvm
     vm.spawn()
     vm.basic_config(add_root_device=True)
 
@@ -68,13 +69,13 @@ def test_pmem_zero_size_backing_file(uvm_plain_any):
         vm.start()
 
 
-def test_pmem_add(uvm_plain_any, microvm_factory):
+def test_pmem_add(uvm, microvm_factory):
     """
     Test addition of pmem devices to the VM and
     writes persistance
     """
 
-    vm = uvm_plain_any
+    vm = uvm
     vm.spawn()
     vm.basic_config(add_root_device=True)
     vm.add_net_iface()
@@ -119,20 +120,21 @@ def test_pmem_add(uvm_plain_any, microvm_factory):
     assert stdout.strip() == test_string
 
 
-def test_pmem_add_as_root_rw(uvm_plain_any, rootfs_rw, microvm_factory):
+@pin_rootfs_mode("rw")
+def test_pmem_add_as_root_rw(uvm, rootfs, microvm_factory):
     """
     Test addition of a single root pmem device in read-write mode
     """
 
-    vm = uvm_plain_any
+    vm = uvm
     vm.memory_monitor = None
     vm.monitors = []
     vm.spawn()
     vm.basic_config(add_root_device=False)
     vm.add_net_iface()
 
-    rootfs_size = os.path.getsize(rootfs_rw)
-    vm.add_pmem("pmem", rootfs_rw, True, False)
+    rootfs_size = os.path.getsize(rootfs)
+    vm.add_pmem("pmem", rootfs, True, False)
     vm.start()
 
     check_pmem_exist(vm, 0, True, False, align(rootfs_size), "ext4")
@@ -142,12 +144,12 @@ def test_pmem_add_as_root_rw(uvm_plain_any, rootfs_rw, microvm_factory):
     check_pmem_exist(restored_vm, 0, True, False, align(rootfs_size), "ext4")
 
 
-def test_pmem_add_as_root_ro(uvm_plain_any, rootfs, microvm_factory):
+def test_pmem_add_as_root_ro(uvm, rootfs, microvm_factory):
     """
     Test addition of a single root pmem device in read-only mode
     """
 
-    vm = uvm_plain_any
+    vm = uvm
     vm.memory_monitor = None
     vm.monitors = []
     vm.spawn()
@@ -180,10 +182,12 @@ def outside_rssanon(vm) -> int:
     return int(stdout.split()[1])
 
 
+@pin_rootfs_mode("rw")
+@pin_guest_kernel(ACPI_GUEST_KERNELS)
 def test_pmem_dax_memory_saving(
     microvm_factory,
-    guest_kernel_acpi,
-    rootfs_rw,
+    guest_kernel,
+    rootfs,
 ):
     """
     Test that booting from pmem with DAX enabled indeed saves memory in the
@@ -191,9 +195,7 @@ def test_pmem_dax_memory_saving(
     """
 
     # Boot from a block device
-    vm = microvm_factory.build(
-        guest_kernel_acpi, rootfs_rw, pci=True, monitor_memory=False
-    )
+    vm = microvm_factory.build(guest_kernel, rootfs, pci=True, monitor_memory=False)
     vm.spawn()
     vm.basic_config()
     vm.add_net_iface()
@@ -203,7 +205,7 @@ def test_pmem_dax_memory_saving(
 
     # Boot from pmem with DAX enabled for root device
     vm_pmem = microvm_factory.build(
-        guest_kernel_acpi, rootfs_rw, pci=True, monitor_memory=False
+        guest_kernel, rootfs, pci=True, monitor_memory=False
     )
     vm_pmem.spawn()
     vm_pmem.basic_config(
@@ -211,7 +213,7 @@ def test_pmem_dax_memory_saving(
         boot_args="reboot=k panic=1 nomodule swiotlb=noforce console=ttyS0 rootflags=dax",
     )
     vm_pmem.add_net_iface()
-    vm_pmem.add_pmem("pmem", rootfs_rw, True, False)
+    vm_pmem.add_pmem("pmem", rootfs, True, False)
     vm_pmem.start()
     pmem_cache_usage = inside_buff_cache(vm_pmem)
     pmem_rss_usage = outside_rssanon(vm_pmem)
