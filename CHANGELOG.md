@@ -56,6 +56,9 @@ and this project adheres to
   `rng-seed` FDT node for aarch64 guests which provides an initial random seed
   for the guest to use. This helps older aarch64 machines which do not have
   hardware random generators.
+- Added support for Linux 6.18 host kernels alongside the existing 5.10 and 6.1
+  host kernels. See the [kernel support policy](docs/kernel-policy.md) for
+  details.
 
 ### Changed
 

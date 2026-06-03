@@ -1337,6 +1337,30 @@ class MicroVMFactory:
         )
         return vm
 
+    def build_booted(self, kernel, rootfs, *, pci=False, **basic_config_kwargs):
+        """Build, spawn, basic_config, add a default net iface, start.
+
+        Extra keyword arguments are forwarded to `Microvm.basic_config`.
+        """
+        vm = self.build(kernel, rootfs, pci=pci)
+        vm.spawn()
+        vm.basic_config(**basic_config_kwargs)
+        vm.add_net_iface()
+        vm.start()
+        return vm
+
+    def build_restored(self, kernel, rootfs, *, pci=False, **basic_config_kwargs):
+        """build_booted, then snapshot + kill + restore.
+
+        Extra keyword arguments are forwarded to `Microvm.basic_config`.
+        """
+        booted = self.build_booted(kernel, rootfs, pci=pci, **basic_config_kwargs)
+        snapshot = booted.snapshot_full()
+        booted.kill()
+        restored = self.build_from_snapshot(snapshot)
+        restored.cpu_template_name = booted.cpu_template_name
+        return restored
+
     def build_n_from_snapshot(
         self,
         current_snapshot,

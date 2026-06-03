@@ -8,6 +8,7 @@ import pytest
 
 import host_tools.cargo_build as host
 from framework import utils
+from framework.artifacts import GUEST_KERNEL_DEFAULT, pin_guest_kernel
 
 PLATFORM = platform.machine()
 MIDR_EL1 = hex(0x603000000013C000)
@@ -17,14 +18,15 @@ MIDR_EL1 = hex(0x603000000013C000)
     PLATFORM != "aarch64",
     reason="This is aarch64 specific test.",
 )
-def test_remove_regs(uvm_nano, microvm_factory):
+@pin_guest_kernel(GUEST_KERNEL_DEFAULT)
+def test_remove_regs(uvm_configured, microvm_factory):
     """
     This test verifies `remove-regs` method of `snapshot-editor`.
     Here we create snapshot and try to romeve MIDR_EL1 register
     from it. Then we try to restore uVM from the snapshot.
     """
 
-    vm = uvm_nano
+    vm = uvm_configured
     vm.add_net_iface()
     vm.start()
 

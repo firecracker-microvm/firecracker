@@ -5,17 +5,19 @@
 
 import pytest
 
+from framework.artifacts import GUEST_KERNEL_DEFAULT, pin_guest_kernel
 from framework.properties import global_props
 
 
 @pytest.mark.skipif(
     global_props.cpu_architecture != "aarch64", reason="Only run in aarch64"
 )
-def test_guest_has_pvtime_enabled(uvm_plain):
+@pin_guest_kernel(GUEST_KERNEL_DEFAULT)
+def test_guest_has_pvtime_enabled(uvm):
     """
     Check that the guest kernel has enabled PV steal time.
     """
-    vm = uvm_plain
+    vm = uvm
     vm.spawn()
     vm.basic_config()
     vm.add_net_iface()

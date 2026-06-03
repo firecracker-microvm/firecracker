@@ -8,6 +8,7 @@ import platform
 from pathlib import Path
 
 from framework import utils
+from framework.artifacts import GUEST_KERNEL_DEFAULT, pin_guest_kernel
 
 ARCH = platform.machine()
 
@@ -162,11 +163,12 @@ def test_advanced_seccomp(bin_seccomp_paths, seccompiler):
     assert outcome.returncode == -31
 
 
-def test_no_seccomp(uvm_plain):
+@pin_guest_kernel(GUEST_KERNEL_DEFAULT)
+def test_no_seccomp(uvm):
     """
     Test that Firecracker --no-seccomp installs no filter.
     """
-    test_microvm = uvm_plain
+    test_microvm = uvm
     test_microvm.jailer.extra_args.update({"no-seccomp": None})
     test_microvm.spawn()
     test_microvm.basic_config()
@@ -174,11 +176,12 @@ def test_no_seccomp(uvm_plain):
     utils.assert_seccomp_level(test_microvm.firecracker_pid, "0")
 
 
-def test_default_seccomp_level(uvm_plain):
+@pin_guest_kernel(GUEST_KERNEL_DEFAULT)
+def test_default_seccomp_level(uvm):
     """
     Test that Firecracker installs a seccomp filter by default.
     """
-    test_microvm = uvm_plain
+    test_microvm = uvm
     test_microvm.spawn()
     test_microvm.basic_config()
     test_microvm.start()

@@ -18,9 +18,18 @@ import pytest
 
 import framework.utils_cpuid as cpuid_utils
 from framework import utils
+from framework.artifacts import (
+    GUEST_KERNEL_DEFAULT,
+    GUEST_KERNELS_6_1,
+    pin_guest_kernel,
+)
 from framework.defs import SUPPORTED_HOST_KERNELS
 from framework.properties import global_props
-from framework.utils_cpu_templates import get_cpu_template_name
+from framework.utils_cpu_templates import (
+    ALL_CPU_TEMPLATES,
+    get_cpu_template_name,
+    pin_cpu_template,
+)
 
 PLATFORM = platform.machine()
 UNSUPPORTED_HOST_KERNEL = (
@@ -105,11 +114,11 @@ def skip_test_based_on_artifacts(snapshot_artifacts_dir):
     "htt",
     [True, False],
 )
-def test_cpuid(uvm_plain_any, num_vcpus, htt):
+def test_cpuid(uvm, num_vcpus, htt):
     """
     Check the CPUID for a microvm with the specified config.
     """
-    vm = uvm_plain_any
+    vm = uvm
     vm.spawn()
     vm.basic_config(vcpu_count=num_vcpus, smt=htt)
     vm.add_net_iface()
@@ -121,11 +130,11 @@ def test_cpuid(uvm_plain_any, num_vcpus, htt):
     cpuid_utils.get_cpu_vendor() != cpuid_utils.CpuVendor.AMD,
     reason="L3 cache info is only present in 0x80000006 for AMD",
 )
-def test_extended_cache_features(uvm_plain_any):
+def test_extended_cache_features(uvm):
     """
     Check extended cache features (leaf 0x80000006).
     """
-    vm = uvm_plain_any
+    vm = uvm
     vm.spawn()
     vm.basic_config()
     vm.add_net_iface()
@@ -133,7 +142,7 @@ def test_extended_cache_features(uvm_plain_any):
     _check_extended_cache_features(vm)
 
 
-def test_brand_string(uvm_plain_any):
+def test_brand_string(uvm):
     """
     Ensure good formatting for the guest brand string.
 
@@ -148,7 +157,7 @@ def test_brand_string(uvm_plain_any):
     * For other CPUs, the guest brand string should be:
         ""
     """
-    test_microvm = uvm_plain_any
+    test_microvm = uvm
     test_microvm.spawn()
 
     test_microvm.basic_config(vcpu_count=1)
@@ -260,10 +269,11 @@ MSR_SUPPORTED_TEMPLATES = [
 ]
 
 
+@pin_cpu_template(ALL_CPU_TEMPLATES)
 @pytest.mark.timeout(900)
 @pytest.mark.no_block_pr
 def test_cpu_rdmsr(
-    msr_reader_bin, microvm_factory, cpu_template_any, guest_kernel, rootfs, results_dir
+    msr_reader_bin, microvm_factory, cpu_template, guest_kernel, rootfs, results_dir
 ):
     """
     Test MSRs that are available to the guest.
@@ -296,7 +306,7 @@ def test_cpu_rdmsr(
     - All supported guest kernels and rootfs
     - Microvm: 1vCPU with 1024 MB RAM
     """
-    cpu_template_name = get_cpu_template_name(cpu_template_any)
+    cpu_template_name = get_cpu_template_name(cpu_template)
     if cpu_template_name not in MSR_SUPPORTED_TEMPLATES:
         pytest.skip(f"This test does not support {cpu_template_name} template.")
 
@@ -305,7 +315,7 @@ def test_cpu_rdmsr(
     vm.spawn()
     vm.add_net_iface()
     vm.basic_config(vcpu_count=vcpus, mem_size_mib=guest_mem_mib)
-    vm.set_cpu_template(cpu_template_any)
+    vm.set_cpu_template(cpu_template)
     vm.start()
     vm.ssh.scp_put(msr_reader_bin, "/tmp/msr_reader")
     _, stdout, stderr = vm.ssh.run("/tmp/msr_reader")
@@ -363,10 +373,11 @@ def dump_msr_state_to_file(msr_reader_bin, dump_fname, ssh_conn):
     UNSUPPORTED_HOST_KERNEL,
     reason=f"Supported kernels are {SUPPORTED_HOST_KERNELS}",
 )
+@pin_cpu_template(ALL_CPU_TEMPLATES)
 @pytest.mark.timeout(900)
 @pytest.mark.nonci
 def test_cpu_wrmsr_snapshot(
-    msr_reader_bin, microvm_factory, guest_kernel, rootfs, cpu_template_any
+    msr_reader_bin, microvm_factory, guest_kernel, rootfs, cpu_template
 ):
     """
     This is the first part of the test verifying
@@ -384,7 +395,7 @@ def test_cpu_wrmsr_snapshot(
     This part of the test is responsible for taking a snapshot and publishing
     its files along with the `before` MSR dump.
     """
-    cpu_template_name = get_cpu_template_name(cpu_template_any)
+    cpu_template_name = get_cpu_template_name(cpu_template)
     if cpu_template_name not in MSR_SUPPORTED_TEMPLATES:
         pytest.skip(f"This test does not support {cpu_template_name} template.")
 
@@ -400,7 +411,7 @@ def test_cpu_wrmsr_snapshot(
         track_dirty_pages=True,
         boot_args="msr.allow_writes=on",
     )
-    vm.set_cpu_template(cpu_template_any)
+    vm.set_cpu_template(cpu_template)
     vm.start()
 
     # Make MSR modifications
@@ -421,7 +432,7 @@ def test_cpu_wrmsr_snapshot(
     snapshot_artifacts_dir = (
         Path(shared_names["snapshot_artifacts_root_dir_wrmsr"])
         / guest_kernel.name
-        / get_cpu_template_name(cpu_template_any, with_type=True)
+        / get_cpu_template_name(cpu_template, with_type=True)
     )
     clean_and_mkdir(snapshot_artifacts_dir)
 
@@ -466,11 +477,10 @@ def check_msrs_are_equal(before_recs, after_recs):
     UNSUPPORTED_HOST_KERNEL,
     reason=f"Supported kernels are {SUPPORTED_HOST_KERNELS}",
 )
+@pin_cpu_template(ALL_CPU_TEMPLATES)
 @pytest.mark.timeout(900)
 @pytest.mark.nonci
-def test_cpu_wrmsr_restore(
-    msr_reader_bin, microvm_factory, cpu_template_any, guest_kernel
-):
+def test_cpu_wrmsr_restore(msr_reader_bin, microvm_factory, cpu_template, guest_kernel):
     """
     This is the second part of the test verifying
     that MSRs retain their values after restoring from a snapshot.
@@ -484,7 +494,7 @@ def test_cpu_wrmsr_restore(
     This part of the test is responsible for restoring from a snapshot and
     comparing two sets of MSR values.
     """
-    cpu_template_name = get_cpu_template_name(cpu_template_any)
+    cpu_template_name = get_cpu_template_name(cpu_template)
     if cpu_template_name not in MSR_SUPPORTED_TEMPLATES:
         pytest.skip(f"This test does not support {cpu_template_name} template.")
 
@@ -492,7 +502,7 @@ def test_cpu_wrmsr_restore(
     snapshot_artifacts_dir = (
         Path(shared_names["snapshot_artifacts_root_dir_wrmsr"])
         / guest_kernel.name
-        / get_cpu_template_name(cpu_template_any, with_type=True)
+        / get_cpu_template_name(cpu_template, with_type=True)
     )
 
     skip_test_based_on_artifacts(snapshot_artifacts_dir)
@@ -525,9 +535,10 @@ def dump_cpuid_to_file(dump_fname, ssh_conn):
     UNSUPPORTED_HOST_KERNEL,
     reason=f"Supported kernels are {SUPPORTED_HOST_KERNELS}",
 )
+@pin_cpu_template(ALL_CPU_TEMPLATES)
 @pytest.mark.timeout(900)
 @pytest.mark.nonci
-def test_cpu_cpuid_snapshot(microvm_factory, guest_kernel, rootfs, cpu_template_any):
+def test_cpu_cpuid_snapshot(microvm_factory, guest_kernel, rootfs, cpu_template):
     """
     This is the first part of the test verifying
     that CPUID remains the same after restoring from a snapshot.
@@ -539,7 +550,7 @@ def test_cpu_cpuid_snapshot(microvm_factory, guest_kernel, rootfs, cpu_template_
     This part of the test is responsible for taking a snapshot and publishing
     its files along with the `before` CPUID dump.
     """
-    cpu_template_name = get_cpu_template_name(cpu_template_any)
+    cpu_template_name = get_cpu_template_name(cpu_template)
     if cpu_template_name not in MSR_SUPPORTED_TEMPLATES:
         pytest.skip(f"This test does not support {cpu_template_name} template.")
 
@@ -556,14 +567,14 @@ def test_cpu_cpuid_snapshot(microvm_factory, guest_kernel, rootfs, cpu_template_
         mem_size_mib=1024,
         track_dirty_pages=True,
     )
-    vm.set_cpu_template(cpu_template_any)
+    vm.set_cpu_template(cpu_template)
     vm.start()
 
     # Dump CPUID to a file that will be published to S3 for the 2nd part of the test
     snapshot_artifacts_dir = (
         Path(shared_names["snapshot_artifacts_root_dir_cpuid"])
         / guest_kernel.name
-        / get_cpu_template_name(cpu_template_any, with_type=True)
+        / get_cpu_template_name(cpu_template, with_type=True)
     )
     clean_and_mkdir(snapshot_artifacts_dir)
 
@@ -595,9 +606,10 @@ def check_cpuid_is_equal(before_cpuid_fname, after_cpuid_fname):
     UNSUPPORTED_HOST_KERNEL,
     reason=f"Supported kernels are {SUPPORTED_HOST_KERNELS}",
 )
+@pin_cpu_template(ALL_CPU_TEMPLATES)
 @pytest.mark.timeout(900)
 @pytest.mark.nonci
-def test_cpu_cpuid_restore(microvm_factory, guest_kernel, cpu_template_any):
+def test_cpu_cpuid_restore(microvm_factory, guest_kernel, cpu_template):
     """
     This is the second part of the test verifying
     that CPUID remains the same after restoring from a snapshot.
@@ -609,7 +621,7 @@ def test_cpu_cpuid_restore(microvm_factory, guest_kernel, cpu_template_any):
     This part of the test is responsible for restoring from a snapshot and
     comparing two CPUIDs.
     """
-    cpu_template_name = get_cpu_template_name(cpu_template_any)
+    cpu_template_name = get_cpu_template_name(cpu_template)
     if cpu_template_name not in MSR_SUPPORTED_TEMPLATES:
         pytest.skip(f"This test does not support {cpu_template_name} template.")
 
@@ -617,7 +629,7 @@ def test_cpu_cpuid_restore(microvm_factory, guest_kernel, cpu_template_any):
     snapshot_artifacts_dir = (
         Path(shared_names["snapshot_artifacts_root_dir_cpuid"])
         / guest_kernel.name
-        / get_cpu_template_name(cpu_template_any, with_type=True)
+        / get_cpu_template_name(cpu_template, with_type=True)
     )
 
     skip_test_based_on_artifacts(snapshot_artifacts_dir)
@@ -637,7 +649,8 @@ def test_cpu_cpuid_restore(microvm_factory, guest_kernel, cpu_template_any):
     )
 
 
-def test_cpu_template(uvm_plain_any, cpu_template_any, microvm_factory):
+@pin_cpu_template(ALL_CPU_TEMPLATES)
+def test_cpu_template(uvm, cpu_template, microvm_factory):
     """
     Test masked and enabled cpu features against the expected template.
 
@@ -645,7 +658,7 @@ def test_cpu_template(uvm_plain_any, cpu_template_any, microvm_factory):
     guest and that expected enabled features are present for each of the
     supported CPU templates.
     """
-    cpu_template_name = get_cpu_template_name(cpu_template_any)
+    cpu_template_name = get_cpu_template_name(cpu_template)
     if cpu_template_name not in [
         "T2",
         "T2S",
@@ -657,14 +670,14 @@ def test_cpu_template(uvm_plain_any, cpu_template_any, microvm_factory):
     ]:
         pytest.skip(f"This test does not support {cpu_template_name} template.")
 
-    test_microvm = uvm_plain_any
+    test_microvm = uvm
     test_microvm.spawn()
     # Set template as specified in the `cpu_template` parameter.
     test_microvm.basic_config(
         vcpu_count=1,
         mem_size_mib=256,
     )
-    test_microvm.set_cpu_template(cpu_template_any)
+    test_microvm.set_cpu_template(cpu_template)
     test_microvm.add_net_iface()
 
     if cpuid_utils.get_cpu_vendor() != cpuid_utils.CpuVendor.INTEL:
@@ -1256,13 +1269,12 @@ def check_enabled_features(test_microvm, cpu_template):
     or global_props.host_linux_version_tpl < (5, 17),
     reason="Intel AMX is only supported on Intel Sapphire Rapids and kernel v5.17+",
 )
-def test_intel_amx_reported_on_sapphire_rapids(
-    microvm_factory, guest_kernel_default, rootfs
-):
+@pin_guest_kernel(GUEST_KERNELS_6_1)
+def test_intel_amx_reported_on_sapphire_rapids(microvm_factory, guest_kernel, rootfs):
     """
     Verifies that Intel AMX is reported on guest (v5.17+)
     """
-    uvm = microvm_factory.build(guest_kernel_default, rootfs)
+    uvm = microvm_factory.build(guest_kernel, rootfs)
     uvm.spawn()
     uvm.basic_config()
     uvm.add_net_iface()
@@ -1285,12 +1297,13 @@ def test_intel_amx_reported_on_sapphire_rapids(
     )
 
 
-def test_waitpkg_inaccessibility(uvm_nano, waitpkg_bin):
+@pin_guest_kernel(GUEST_KERNEL_DEFAULT)
+def test_waitpkg_inaccessibility(uvm_configured, waitpkg_bin):
     """
     Verifies that attempting to use WAITPKG (UMONITOR / UMWAIT instructions)
     generates #UD.
     """
-    vm = uvm_nano
+    vm = uvm_configured
     vm.add_net_iface()
     vm.start()
 

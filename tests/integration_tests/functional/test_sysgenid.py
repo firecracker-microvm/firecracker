@@ -9,9 +9,9 @@ SYSGENID_OUT_PATH = "/tmp/sysgenid.out"
 
 
 @pytest.fixture(scope="function")
-def vm_with_sysgenid(uvm_plain_any, bin_sysgenid_path):
+def vm_with_sysgenid(uvm, bin_sysgenid_path):
     """Create a VM with SysGenID support and the `sysgenid` test binary under `/tmp/sysgenid`"""
-    basevm = uvm_plain_any
+    basevm = uvm
     basevm.spawn()
 
     basevm.basic_config()

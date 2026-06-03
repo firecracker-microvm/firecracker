@@ -27,6 +27,7 @@ and removed in a following release, after its minimum end of support date.
 | --------: | ----------: | -----------: | ------------------: |
 |        4K |       v5.10 |       v1.0.0 |          2024-01-31 |
 |        4K |        v6.1 |       v1.5.0 |          2025-10-12 |
+|        4K |       v6.18 |      v1.16.0 |          2028-05-28 |
 
 ### Guest Kernel
 
