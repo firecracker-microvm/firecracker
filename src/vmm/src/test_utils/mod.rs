@@ -106,18 +106,19 @@ pub fn create_vmm(
         });
     }
 
+    let entry_state = if boot_microvm {
+        VcpuEntryState::Running
+    } else {
+        VcpuEntryState::Paused
+    };
     let vmm = build_microvm_for_boot(
         &InstanceInfo::default(),
         &resources,
         &mut event_manager,
         &empty_seccomp_filters,
-        VcpuEntryState::Paused,
+        entry_state,
     )
     .unwrap();
-
-    if boot_microvm {
-        vmm.lock().unwrap().resume_vm().unwrap();
-    }
 
     (vmm, event_manager)
 }
