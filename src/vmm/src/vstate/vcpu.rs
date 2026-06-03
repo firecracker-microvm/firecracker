@@ -807,6 +807,59 @@ pub(crate) mod tests {
     }
 
     #[test]
+    fn test_vcpu_run_gate_releases_waiters() {
+        let gate = VcpuRunGate::new();
+        let thread_gate = gate.clone();
+        let (tx, rx) = std::sync::mpsc::channel();
+
+        let handle = std::thread::spawn(move || {
+            tx.send(thread_gate.mark_ready_and_wait()).unwrap();
+        });
+
+        gate.wait_until_ready(1);
+        {
+            let (lock, _) = &*gate.inner;
+            let inner = lock.lock().expect("Poisoned lock");
+            assert_eq!(inner.state, VcpuRunGateState::Pending);
+            assert_eq!(inner.ready_count, 1);
+            assert_eq!(inner.released_count, 0);
+        }
+
+        gate.run_and_wait_until_released(1);
+
+        assert!(rx.recv_timeout(RECV_TIMEOUT_SEC).unwrap());
+        handle.join().unwrap();
+
+        let (lock, _) = &*gate.inner;
+        let inner = lock.lock().expect("Poisoned lock");
+        assert_eq!(inner.state, VcpuRunGateState::Run);
+        assert_eq!(inner.released_count, 1);
+    }
+
+    #[test]
+    fn test_vcpu_run_gate_abort_unblocks_waiters_without_releasing() {
+        let gate = VcpuRunGate::new();
+        let thread_gate = gate.clone();
+        let (tx, rx) = std::sync::mpsc::channel();
+
+        let handle = std::thread::spawn(move || {
+            tx.send(thread_gate.mark_ready_and_wait()).unwrap();
+        });
+
+        gate.wait_until_ready(1);
+        gate.abort();
+
+        assert!(!rx.recv_timeout(RECV_TIMEOUT_SEC).unwrap());
+        handle.join().unwrap();
+
+        let (lock, _) = &*gate.inner;
+        let inner = lock.lock().expect("Poisoned lock");
+        assert_eq!(inner.state, VcpuRunGateState::Abort);
+        assert_eq!(inner.ready_count, 1);
+        assert_eq!(inner.released_count, 0);
+    }
+
+    #[test]
     fn test_handle_kvm_exit() {
         let (_, mut vcpu) = setup_vcpu(0x1000);
         let res = handle_kvm_exit(&mut vcpu.kvm_vcpu.peripherals, Ok(VcpuExit::Hlt));
