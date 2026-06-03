@@ -38,7 +38,7 @@ use crate::vstate::memory::{
     GuestRegionMmap, GuestRegionMmapExt, MemoryError,
 };
 use crate::vstate::resources::ResourceAllocator;
-use crate::vstate::vcpu::{StartThreadedError, VcpuError, VcpuHandle};
+use crate::vstate::vcpu::{StartThreadedError, VcpuEntryState, VcpuError, VcpuHandle};
 use crate::{DirtyBitmap, Vcpu, mem_size_mib};
 
 /// Error type for [`KvmVm::start_vcpus`].
@@ -241,6 +241,7 @@ impl KvmVm {
         self: &Arc<Self>,
         mut vcpus: Vec<Vcpu>,
         vcpu_seccomp_filter: Arc<crate::seccomp::BpfProgram>,
+        entry_state: VcpuEntryState,
     ) -> Result<(), StartVcpusError> {
         let vcpu_count = vcpus.len();
         let barrier = Arc::new(Barrier::new(vcpu_count + 1));
@@ -264,6 +265,7 @@ impl KvmVm {
                 self,
                 vcpu_seccomp_filter.clone(),
                 barrier.clone(),
+                entry_state,
             )?);
         }
         drop(handles);

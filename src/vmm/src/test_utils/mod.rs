@@ -17,6 +17,7 @@ use crate::vmm_config::instance_info::InstanceInfo;
 use crate::vmm_config::machine_config::HugePageConfig;
 use crate::vmm_config::memory_hotplug::MemoryHotplugConfig;
 use crate::vstate::memory::{self, GuestMemoryMmap, GuestRegionMmap, GuestRegionMmapExt};
+use crate::vstate::vcpu::VcpuEntryState;
 use crate::{EventManager, Vmm};
 
 pub mod mock_resources;
@@ -110,6 +111,7 @@ pub fn create_vmm(
         &resources,
         &mut event_manager,
         &empty_seccomp_filters,
+        VcpuEntryState::Paused,
     )
     .unwrap();
 

@@ -56,7 +56,7 @@ use crate::vstate::kvm::{Kvm, KvmError};
 use crate::vstate::memory::GuestRegionMmap;
 #[cfg(target_arch = "aarch64")]
 use crate::vstate::resources::ResourceAllocator;
-use crate::vstate::vcpu::VcpuError;
+use crate::vstate::vcpu::{VcpuEntryState, VcpuError};
 use crate::vstate::vm::{KvmVm, Vm, VmError};
 use crate::{EventManager, Vmm, VmmError};
 
@@ -139,14 +139,16 @@ impl std::convert::From<linux_loader::cmdline::Error> for StartMicrovmError {
 
 /// Builds and starts a microVM based on the current Firecracker VmResources configuration.
 ///
-/// The built microVM and all the created vCPUs start off in the paused state.
-/// To boot the microVM and run those vCPUs, `Vmm::resume_vm()` needs to be
-/// called.
+/// `entry_state` controls whether vcpus enter KVM_RUN immediately (Running)
+/// or wait for a Resume event (Paused). Callers that need to interact with
+/// vcpus before they run guest code (e.g. cpu-template-helper) should pass
+/// Paused.
 pub fn build_microvm_for_boot(
     instance_info: &InstanceInfo,
     vm_resources: &super::resources::VmResources,
     event_manager: &mut EventManager,
     seccomp_filters: &BpfThreadMap,
+    entry_state: VcpuEntryState,
 ) -> Result<Arc<Mutex<Vmm>>, StartMicrovmError> {
     // Timestamp for measuring microVM boot duration.
     let request_ts = TimestampUs::default();
@@ -342,6 +344,7 @@ pub fn build_microvm_for_boot(
                 .get("vcpu")
                 .ok_or_else(|| StartMicrovmError::MissingSeccompFilters("vcpu".to_string()))?
                 .clone(),
+            entry_state,
         )
         .map_err(VmmError::VcpuStart)?;
     vmm.lock().unwrap().instance_info.state = VmState::Paused;
@@ -384,7 +387,13 @@ pub fn build_and_boot_microvm(
     seccomp_filters: &BpfThreadMap,
 ) -> Result<Arc<Mutex<Vmm>>, StartMicrovmError> {
     debug!("event_start: build microvm for boot");
-    let vmm = build_microvm_for_boot(instance_info, vm_resources, event_manager, seccomp_filters)?;
+    let vmm = build_microvm_for_boot(
+        instance_info,
+        vm_resources,
+        event_manager,
+        seccomp_filters,
+        VcpuEntryState::Paused,
+    )?;
     debug!("event_end: build microvm for boot");
     // The vcpus start off in the `Paused` state, let them run.
     debug!("event_start: boot microvm");
@@ -537,6 +546,7 @@ pub fn build_microvm_from_snapshot(
             .get("vcpu")
             .ok_or(BuildMicrovmFromSnapshotError::MissingVcpuSeccompFilters)?
             .clone(),
+        VcpuEntryState::Paused,
     )?;
 
     let vmm = Arc::new(Mutex::new(vmm));

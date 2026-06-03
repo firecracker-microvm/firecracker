@@ -14,6 +14,7 @@ use vmm::cpu_config::templates::{CustomCpuTemplate, Numeric};
 use vmm::resources::VmResources;
 use vmm::seccomp::get_empty_filters;
 use vmm::vmm_config::instance_info::{InstanceInfo, VmState};
+use vmm::vstate::vcpu::VcpuEntryState;
 use vmm::{EventManager, HTTP_MAX_PAYLOAD_SIZE, Vmm};
 use vmm_sys_util::tempfile::TempFile;
 
@@ -141,6 +142,7 @@ pub fn build_microvm_from_config(
         &vm_resources,
         &mut event_manager,
         &seccomp_filters,
+        VcpuEntryState::Paused,
     )?;
 
     Ok((vmm, vm_resources))
