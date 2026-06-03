@@ -12,7 +12,7 @@ bench = false
 tracing = ["log-instrument"]
 
 [dependencies]
-displaydoc = "0.2.5"
+displaydoc = "0.2.6"
 libc = "0.2.186"
 log-instrument = { path = "../log-instrument", optional = true }
 thiserror = "2.0.18"
