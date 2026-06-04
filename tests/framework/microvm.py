@@ -1,5 +1,6 @@
 # Copyright 2018 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 # SPDX-License-Identifier: Apache-2.0
+# pylint:disable=too-many-lines
 
 """Classes for working with microVMs.
 
@@ -8,8 +9,6 @@ destroy microvms.
 
 - Use the Firecracker Open API spec to populate Microvm API resource URLs.
 """
-
-# pylint:disable=too-many-lines
 
 import json
 import logging
