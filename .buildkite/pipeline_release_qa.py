@@ -8,6 +8,13 @@ Buildkite pipeline for release QA
 
 from common import BKPipeline
 
+HELPER_BINARIES = [
+    "snapshot-editor",
+    "seccompiler-bin",
+    "cpu-template-helper",
+    "rebase-snap",
+]
+
 pipeline = BKPipeline(with_build_step=False)
 
 # NOTE: we need to escape $ using $$ otherwise buildkite tries to replace it instead of the shell
@@ -38,6 +45,30 @@ pipeline.build_group_per_arch(
             "for f in $$RELEASE_DIR/*-$$(uname -m); do"
             "  mv $$f $$OUT_DIR/$$(basename $$f $$RELEASE_SUFFIX);"
             "  mv $$f.debug $$OUT_DIR/$$(basename $$f $$RELEASE_SUFFIX).debug;"
+            "done"
+        ),
+        'buildkite-agent artifact upload "release-$$VERSION/**/*"',
+    ],
+    depends_on_build=False,
+)
+
+# The S3 release contains only firecracker and jailer, but some tests resolve
+# helper binaries from the same --binary-dir. Build only those helpers on the
+# agent and stage them next to the downloaded release binaries. The dev path's
+# make_release already produces these.
+pipeline.build_group_per_arch(
+    "build-helpers",
+    **{"if": 'build.env("VERSION") != "dev"'},
+    command=[
+        "CARGO_TARGET=$$(uname -m)-unknown-linux-musl",
+        (
+            "./tools/devtool -y sh cargo build --target $$CARGO_TARGET --release "
+            + " ".join(f"--bin {binary}" for binary in HELPER_BINARIES)
+        ),
+        "mkdir -p release-$$VERSION/$$(uname -m)/",
+        (
+            "for f in " + " ".join(HELPER_BINARIES) + "; do"
+            "  cp build/cargo_target/$$CARGO_TARGET/release/$$f release-$$VERSION/$$(uname -m)/;"
             "done"
         ),
         'buildkite-agent artifact upload "release-$$VERSION/**/*"',
