@@ -57,4 +57,5 @@ disable = [
     "too-few-public-methods",
     "too-many-branches",
     "too-many-statements",
+    "too-many-lines",
 ]
