@@ -12,7 +12,6 @@
 //!  "net_eth0": {
 //!     "activate_fails": "SharedIncMetric",
 //!     "cfg_fails": "SharedIncMetric",
-//!     "mac_address_updates": "SharedIncMetric",
 //!     "no_rx_avail_buffer": "SharedIncMetric",
 //!     "no_tx_avail_buffer": "SharedIncMetric",
 //!     ...
@@ -20,7 +19,6 @@
 //!  "net_eth1": {
 //!     "activate_fails": "SharedIncMetric",
 //!     "cfg_fails": "SharedIncMetric",
-//!     "mac_address_updates": "SharedIncMetric",
 //!     "no_rx_avail_buffer": "SharedIncMetric",
 //!     "no_tx_avail_buffer": "SharedIncMetric",
 //!     ...
@@ -29,7 +27,6 @@
 //!  "net_iface_id": {
 //!     "activate_fails": "SharedIncMetric",
 //!     "cfg_fails": "SharedIncMetric",
-//!     "mac_address_updates": "SharedIncMetric",
 //!     "no_rx_avail_buffer": "SharedIncMetric",
 //!     "no_tx_avail_buffer": "SharedIncMetric",
 //!     ...
@@ -37,7 +34,6 @@
 //!  "net": {
 //!     "activate_fails": "SharedIncMetric",
 //!     "cfg_fails": "SharedIncMetric",
-//!     "mac_address_updates": "SharedIncMetric",
 //!     "no_rx_avail_buffer": "SharedIncMetric",
 //!     "no_tx_avail_buffer": "SharedIncMetric",
 //!     ...
@@ -149,8 +145,6 @@ pub struct NetDeviceMetrics {
     pub activate_fails: SharedIncMetric,
     /// Number of times when interacting with the space config of a network device failed.
     pub cfg_fails: SharedIncMetric,
-    /// Number of times the mac address was updated through the config space.
-    pub mac_address_updates: SharedIncMetric,
     /// No available buffer for the net device rx queue.
     pub no_rx_avail_buffer: SharedIncMetric,
     /// No available buffer for the net device tx queue.
@@ -218,8 +212,6 @@ impl NetDeviceMetrics {
     pub fn aggregate(&mut self, other: &Self) {
         self.activate_fails.add(other.activate_fails.fetch_diff());
         self.cfg_fails.add(other.cfg_fails.fetch_diff());
-        self.mac_address_updates
-            .add(other.mac_address_updates.fetch_diff());
         self.no_rx_avail_buffer
             .add(other.no_rx_avail_buffer.fetch_diff());
         self.no_tx_avail_buffer

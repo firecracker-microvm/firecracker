@@ -260,20 +260,6 @@ def bin_vmclock_path(test_fc_session_root_path):
 
 
 @pytest.fixture(scope="session")
-def change_net_config_space_bin(test_fc_session_root_path):
-    """Build a binary that changes the MMIO config space."""
-    change_net_config_space_bin = os.path.join(
-        test_fc_session_root_path, "change_net_config_space"
-    )
-    build_tools.gcc_compile(
-        "host_tools/change_net_config_space.c",
-        change_net_config_space_bin,
-        extra_flags="-static",
-    )
-    yield change_net_config_space_bin
-
-
-@pytest.fixture(scope="session")
 def devmem_bin(test_fc_session_root_path):
     """Build a minimal /dev/mem read/write tool."""
     bin_path = os.path.join(test_fc_session_root_path, "devmem")
