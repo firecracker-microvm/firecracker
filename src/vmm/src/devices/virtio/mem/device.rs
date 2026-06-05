@@ -29,7 +29,7 @@ use crate::devices::virtio::queue::{
 };
 use crate::devices::virtio::transport::{VirtioInterrupt, VirtioInterruptType};
 use crate::impl_device_type;
-use crate::logger::{IncMetric, debug, error, info};
+use crate::logger::{IncMetric, debug, error, info, warn};
 use crate::utils::{bytes_to_mib, mib_to_bytes, u64_to_usize, usize_to_u64};
 use crate::vstate::interrupts::InterruptError;
 use crate::vstate::memory::{
@@ -641,8 +641,12 @@ impl VirtioDevice for VirtioMem {
         self.config.as_slice()
     }
 
-    fn write_config(&mut self, offset: u64, _data: &[u8]) {
-        error!("virtio-mem: Attempted write to read-only config space at offset {offset}");
+    fn write_config(&mut self, offset: u64, data: &[u8]) {
+        warn!(
+            "virtio-mem: guest driver attempted to write device config (offset={:#x}, len={:#x})",
+            offset,
+            data.len()
+        );
     }
 
     fn is_activated(&self) -> bool {
