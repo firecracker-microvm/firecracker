@@ -623,8 +623,13 @@ impl VirtioDevice for VirtioBlock {
             let len = config_space_bytes.len().min(data.len());
             data[..len].copy_from_slice(&config_space_bytes[..len]);
         } else {
-            error!("Failed to read config space");
             self.metrics.cfg_fails.inc();
+            warn!(
+                "virtio-block: guest driver attempted to read device config out of bounds \
+                 (offset={:#x}, len={:#x})",
+                offset,
+                data.len()
+            );
         }
     }
 
@@ -636,8 +641,13 @@ impl VirtioDevice for VirtioBlock {
             .zip(end)
             .and_then(|(start, end)| config_space_bytes.get_mut(start..end))
         else {
-            error!("Failed to write config space");
             self.metrics.cfg_fails.inc();
+            warn!(
+                "virtio-block: guest driver attempted to write device config out of bounds \
+                 (offset={:#x}, len={:#x})",
+                offset,
+                data.len()
+            );
             return;
         };
 

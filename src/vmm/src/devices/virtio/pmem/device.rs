@@ -21,7 +21,7 @@ use crate::devices::virtio::pmem::metrics::{PmemMetrics, PmemMetricsPerDevice};
 use crate::devices::virtio::queue::{DescriptorChain, InvalidAvailIdx, Queue, QueueError};
 use crate::devices::virtio::transport::{VirtioInterrupt, VirtioInterruptType};
 use crate::impl_device_type;
-use crate::logger::{IncMetric, error, info};
+use crate::logger::{IncMetric, error, info, warn};
 use crate::rate_limiter::{BucketUpdate, RateLimiter, TokenType};
 use crate::utils::{align_up, u64_to_usize};
 use crate::vmm_config::RateLimiterConfig;
@@ -555,12 +555,24 @@ impl VirtioDevice for Pmem {
             let len = config_space_bytes.len().min(data.len());
             data[..len].copy_from_slice(&config_space_bytes[..len]);
         } else {
-            error!("Failed to read config space");
             self.metrics.cfg_fails.inc();
+            warn!(
+                "virtio-pmem: guest driver attempted to read device config out of bounds (offset={:#x}, \
+                 len={:#x})",
+                offset,
+                data.len()
+            );
         }
     }
 
-    fn write_config(&mut self, _offset: u64, _data: &[u8]) {}
+    fn write_config(&mut self, offset: u64, data: &[u8]) {
+        self.metrics.cfg_fails.inc();
+        warn!(
+            "virtio-pmem: guest driver attempted to write device config (offset={:#x}, len={:#x})",
+            offset,
+            data.len()
+        );
+    }
 
     fn activate(
         &mut self,
