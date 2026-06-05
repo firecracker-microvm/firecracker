@@ -180,7 +180,6 @@ impl VsockChannel for VsockMuxer {
                     });
                 }
 
-                debug!("vsock muxer: RX pkt: {:?}", pkt.hdr);
                 return Ok(());
             }
         }
@@ -201,12 +200,6 @@ impl VsockChannel for VsockMuxer {
             local_port: pkt.hdr.dst_port(),
             peer_port: pkt.hdr.src_port(),
         };
-
-        debug!(
-            "vsock: muxer.send[rxq.len={}]: {:?}",
-            self.rxq.len(),
-            pkt.hdr
-        );
 
         // If this packet has an unsupported type (!=stream), we must send back an RST.
         //
@@ -341,11 +334,6 @@ impl VsockMuxer {
 
     /// Handle/dispatch an epoll event to its listener.
     fn handle_event(&mut self, fd: RawFd, event_set: EventSet) {
-        debug!(
-            "vsock: muxer processing event: fd={}, evset={:?}",
-            fd, event_set
-        );
-
         match self.listener_map.get_mut(&fd) {
             // This event needs to be forwarded to a `MuxerConnection` that is listening for
             // it.
