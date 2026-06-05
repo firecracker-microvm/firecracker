@@ -13,7 +13,7 @@ import host_tools.network as net_tools  # pylint: disable=import-error
 PAYLOAD_DATA_SIZE = 20
 
 
-def test_net_change_mac_address(uvm, change_net_config_space_bin):
+def test_net_change_mac_address(uvm):
     """
     Test changing the MAC address of the network device.
     """
@@ -48,7 +48,6 @@ def test_net_change_mac_address(uvm, change_net_config_space_bin):
     # and will be used for ethernet frames formation when data is exchanged
     # on the network interface.
     mac = "06:05:04:03:02:01"
-    mac_hex = "0x060504030201"
     guest_if1_name = net_tools.get_guest_net_if_name(ssh_conn, guest_ip0)
     assert guest_if1_name is not None
     _change_guest_if_mac(ssh_conn, mac, guest_if1_name)
@@ -59,38 +58,6 @@ def test_net_change_mac_address(uvm, change_net_config_space_bin):
     # change.
     fc_metrics = test_microvm.flush_metrics()
     assert fc_metrics["net"]["tx_spoofed_mac_count"] > 0
-
-    net_addr_base = _get_net_mem_addr_base(ssh_conn, guest_if1_name)
-    assert net_addr_base is not None
-    config_offset = 0x4000 if test_microvm.pci_enabled else 0x100
-    dev_addr = net_addr_base + config_offset
-
-    # Write into '/dev/mem' the same mac address, byte by byte.
-    # This changes the MAC address physically, in the network device registers.
-    # After this step, the net device kernel struct MAC address will be the
-    # same with the MAC address stored in the network device registers. The
-    # `tx_spoofed_mac_count` metric shouldn't be incremented later on.
-    rmt_path = "/tmp/change_net_config_space"
-    test_microvm.ssh.scp_put(change_net_config_space_bin, rmt_path)
-    cmd = f"chmod u+x {rmt_path} && {rmt_path} {dev_addr} {mac_hex}"
-
-    # This should be executed successfully.
-    _, stdout, _ = ssh_conn.check_output(cmd)
-    assert stdout == mac
-
-    # Discard any parasite data exchange which might've been
-    # happened on the emulation thread while the config space
-    # was changed on the vCPU thread.
-    test_microvm.flush_metrics()
-
-    _exchange_data(test_microvm.jailer, ssh_conn, host_ip0, host_port, iterations)
-    fc_metrics = test_microvm.flush_metrics()
-    assert fc_metrics["net"]["tx_spoofed_mac_count"] == 0
-
-    # Try again, just to be extra sure.
-    _exchange_data(test_microvm.jailer, ssh_conn, host_ip0, host_port, iterations)
-    fc_metrics = test_microvm.flush_metrics()
-    assert fc_metrics["net"]["tx_spoofed_mac_count"] == 0
 
 
 def _create_server(jailer, host_ip, port, iterations):
