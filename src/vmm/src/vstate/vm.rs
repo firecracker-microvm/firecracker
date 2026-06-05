@@ -714,13 +714,10 @@ impl KvmVm {
     /// Set GSI routes to KVM
     pub fn set_gsi_routes(&self) -> Result<(), InterruptError> {
         let entries = self.common.interrupts.lock().expect("Poisoned lock");
-        let mut routes = KvmIrqRouting::new(0)?;
-
-        for entry in entries.values() {
-            if entry.masked {
-                continue;
-            }
-            routes.push(entry.entry)?;
+        let unmasked = entries.values().filter(|e| !e.masked).count();
+        let mut routes = KvmIrqRouting::new(unmasked)?;
+        for (slot, entry) in entries.values().filter(|e| !e.masked).enumerate() {
+            routes.as_mut_slice()[slot] = entry.entry;
         }
 
         self.common.fd.set_gsi_routing(&routes)?;
