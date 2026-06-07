@@ -43,6 +43,9 @@ pub(super) fn discard_file(file: &File, range: (u64, u64)) -> Result<u32, std::i
     if len == 0 {
         return Ok(0);
     }
+    let discarded = u32::try_from(len).map_err(|_| {
+        std::io::Error::new(std::io::ErrorKind::InvalidInput, "discard length overflow")
+    })?;
 
     if file_type.is_block_device() {
         let mut range = [offset, len];
@@ -73,7 +76,7 @@ pub(super) fn discard_file(file: &File, range: (u64, u64)) -> Result<u32, std::i
         }
     }
 
-    Ok(u32::try_from(len).unwrap_or(u32::MAX))
+    Ok(discarded)
 }
 
 impl SyncFileEngine {
