@@ -10,6 +10,9 @@ and this project adheres to
 
 ### Added
 
+- Added `ksm_mergeable` to `/machine-config` to let operators explicitly mark
+  anonymous guest memory as mergeable with Linux Kernel Samepage Merging.
+
 ### Changed
 
 ### Deprecated

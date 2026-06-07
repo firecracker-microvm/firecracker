@@ -47,6 +47,10 @@ pub enum MemoryError {
     VmMemoryError,
     /// Cannot create memfd: {0}
     Memfd(memfd::Error),
+    /// KSM mergeable memory is not supported with shared memfd-backed guest memory
+    KsmWithSharedMemory,
+    /// Cannot mark guest memory as mergeable by KSM: {0}
+    MadviseMergeable(std::io::Error),
     /// Cannot resize memfd file: {0}
     MemfdSetLen(std::io::Error),
     /// Total sum of memory regions exceeds largest possible file offset
@@ -507,6 +511,7 @@ pub fn create(
     mmap_flags: libc::c_int,
     file: Option<File>,
     track_dirty_pages: bool,
+    ksm_mergeable: bool,
 ) -> Result<Vec<GuestRegionMmap>, MemoryError> {
     let mut offset = 0;
     let file = file.map(Arc::new);
@@ -533,13 +538,31 @@ pub fn create(
                 Some(new_off) => new_off,
             };
 
-            GuestRegionMmap::new(
+            let region = GuestRegionMmap::new(
                 builder.build().map_err(MemoryError::MmapRegionError)?,
                 start,
             )
-            .ok_or(MemoryError::VmMemoryError)
+            .ok_or(MemoryError::VmMemoryError)?;
+
+            if ksm_mergeable {
+                mark_region_mergeable(&region)?;
+            }
+
+            Ok(region)
         })
         .collect::<Result<Vec<_>, _>>()
+}
+
+fn mark_region_mergeable(region: &GuestRegionMmap) -> Result<(), MemoryError> {
+    // SAFETY: the region is a valid mmap owned by `GuestRegionMmap`.
+    let ret = unsafe { libc::madvise(region.as_ptr().cast(), region.size(), libc::MADV_MERGEABLE) };
+    if ret != 0 {
+        return Err(MemoryError::MadviseMergeable(
+            std::io::Error::last_os_error(),
+        ));
+    }
+
+    Ok(())
 }
 
 /// Creates a GuestMemoryMmap with `size` in MiB backed by a memfd.
@@ -556,6 +579,7 @@ pub fn memfd_backed(
         libc::MAP_SHARED | huge_pages.mmap_flags(),
         Some(memfd_file),
         track_dirty_pages,
+        false,
     )
 }
 
@@ -564,12 +588,14 @@ pub fn anonymous(
     regions: impl Iterator<Item = (GuestAddress, usize)>,
     track_dirty_pages: bool,
     huge_pages: HugePageConfig,
+    ksm_mergeable: bool,
 ) -> Result<Vec<GuestRegionMmap>, MemoryError> {
     create(
         regions,
         libc::MAP_PRIVATE | libc::MAP_ANONYMOUS | huge_pages.mmap_flags(),
         None,
         track_dirty_pages,
+        ksm_mergeable,
     )
 }
 
@@ -598,6 +624,7 @@ pub fn snapshot_file(
         libc::MAP_PRIVATE,
         Some(file),
         track_dirty_pages,
+        false,
     )
 }
 
@@ -903,6 +930,7 @@ mod tests {
                 regions.into_iter(),
                 dirty_page_tracking,
                 HugePageConfig::None,
+                false,
             )
             .unwrap();
             guest_memory.iter().for_each(|region| {
@@ -968,8 +996,9 @@ mod tests {
             (GuestAddress(region_size as u64), region_size),     // pages 3-5
             (GuestAddress(region_size as u64 * 2), region_size), // pages 6-8
         ];
-        let guest_memory =
-            into_region_ext(anonymous(regions.into_iter(), true, HugePageConfig::None).unwrap());
+        let guest_memory = into_region_ext(
+            anonymous(regions.into_iter(), true, HugePageConfig::None, false).unwrap(),
+        );
 
         let dirty_map = [
             // page 0: not dirty
@@ -1029,6 +1058,7 @@ mod tests {
                 [(GuestAddress(0), region_size)].into_iter(),
                 false,
                 HugePageConfig::None,
+                false,
             )
             .unwrap(),
         );
@@ -1040,8 +1070,9 @@ mod tests {
             (GuestAddress(region_size as u64), region_size),     // pages 3-5
             (GuestAddress(region_size as u64 * 2), region_size), // pages 6-8
         ];
-        let guest_memory =
-            into_region_ext(anonymous(regions.into_iter(), true, HugePageConfig::None).unwrap());
+        let guest_memory = into_region_ext(
+            anonymous(regions.into_iter(), true, HugePageConfig::None, false).unwrap(),
+        );
         check_serde(&guest_memory);
     }
 
@@ -1055,7 +1086,7 @@ mod tests {
             (GuestAddress(page_size as u64 * 2), page_size),
         ];
         let guest_memory = into_region_ext(
-            anonymous(mem_regions.into_iter(), true, HugePageConfig::None).unwrap(),
+            anonymous(mem_regions.into_iter(), true, HugePageConfig::None, false).unwrap(),
         );
 
         let expected_memory_state = GuestMemoryState {
@@ -1084,7 +1115,7 @@ mod tests {
             (GuestAddress(page_size as u64 * 4), page_size * 3),
         ];
         let guest_memory = into_region_ext(
-            anonymous(mem_regions.into_iter(), true, HugePageConfig::None).unwrap(),
+            anonymous(mem_regions.into_iter(), true, HugePageConfig::None, false).unwrap(),
         );
 
         let expected_memory_state = GuestMemoryState {
@@ -1121,7 +1152,7 @@ mod tests {
             (region_2_address, region_size),
         ];
         let guest_memory = into_region_ext(
-            anonymous(mem_regions.into_iter(), true, HugePageConfig::None).unwrap(),
+            anonymous(mem_regions.into_iter(), true, HugePageConfig::None, false).unwrap(),
         );
         // Check that Firecracker bitmap is clean.
         guest_memory.iter().for_each(|r| {
@@ -1173,7 +1204,7 @@ mod tests {
             (region_2_address, region_size),
         ];
         let guest_memory = into_region_ext(
-            anonymous(mem_regions.into_iter(), true, HugePageConfig::None).unwrap(),
+            anonymous(mem_regions.into_iter(), true, HugePageConfig::None, false).unwrap(),
         );
         // Check that Firecracker bitmap is clean.
         guest_memory.iter().for_each(|r| {
@@ -1338,7 +1369,7 @@ mod tests {
             (region_2_address, region_size),
         ];
         let guest_memory = into_region_ext(
-            anonymous(mem_regions.into_iter(), true, HugePageConfig::None).unwrap(),
+            anonymous(mem_regions.into_iter(), true, HugePageConfig::None, false).unwrap(),
         );
 
         // Check that Firecracker bitmap is clean.
@@ -1489,6 +1520,7 @@ mod tests {
             std::iter::once((base, region_size)),
             false,
             HugePageConfig::None,
+            false,
         )
         .unwrap()
         .into_iter()
@@ -1674,6 +1706,7 @@ mod tests {
                     [(GuestAddress(next_addr), region_size)].into_iter(),
                     true,
                     HugePageConfig::None,
+                    false,
                 )
                 .unwrap();
 

@@ -38,6 +38,10 @@ benefits of using huge pages. This is because KVM will unconditionally establish
 guest page tables at 4K granularity if dirty page tracking is enabled, even if
 the host uses huge mappings.
 
+KSM mergeable memory cannot be enabled with hugetlbfs-backed guest memory.
+Requests that set both `huge_pages` to `2M` and `ksm_mergeable` to `true` are
+rejected.
+
 The traditional balloon device reports free pages at 4k granularity, this means
 the device is unable to reclaim the hugepage backing of the guest and drop RSS.
 However, the balloon can still be inflated and used to restrict memory usage in

@@ -75,6 +75,7 @@ specification:
 |                           | mem_size_mib       |    O     |       O        |      O       |        O         |     O      |      O       |     O      |      O      |     O      |
 |                           | track_dirty_pages  |    O     |       O        |      O       |        O         |     O      |      O       |     O      |      O      |     O      |
 |                           | vcpu_count         |    O     |       O        |      O       |        O         |     O      |      O       |     O      |      O      |     O      |
+|                           | ksm_mergeable      |    O     |       O        |      O       |        O         |     O      |      O       |     O      |      O      |     O      |
 | `Metrics`                 | metrics_path       |    O     |       O        |      O       |        O         |     O      |      O       |     O      |      O      |     O      |
 | `MmdsConfig`              | network_interfaces |    O     |       O        |      O       |        O         |   **R**    |      O       |     O      |      O      |     O      |
 |                           | version            |    O     |       O        |      O       |        O         |   **R**    |      O       |     O      |      O      |     O      |
@@ -142,6 +143,7 @@ specification:
 |                        | mem_size_mib       |    O     |       O        |      O       |        O         |     O      |      O       |     O      |
 |                        | track_dirty_pages  |    O     |       O        |      O       |        O         |     O      |      O       |     O      |
 |                        | vcpu_count         |    O     |       O        |      O       |        O         |     O      |      O       |     O      |
+|                        | ksm_mergeable      |    O     |       O        |      O       |        O         |     O      |      O       |     O      |
 |                        | vmm_version        |    O     |       O        |      O       |        O         |     O      |      O       |     O      |
 | `MemoryHotplugStatus ` | total_size_mib     |    O     |       O        |      O       |        O         |     O      |      O       |   **R**    |
 |                        | slot_size_mib      |    O     |       O        |      O       |        O         |     O      |      O       |   **R**    |

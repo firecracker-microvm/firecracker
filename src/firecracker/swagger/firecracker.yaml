@@ -452,7 +452,8 @@ paths:
         If 2M hugetlbfs pages are specified, then `mem_size_mib` must be a multiple of 2.
         If any of the parameters has an incorrect value, the whole update fails.
         All parameters that are optional and are not specified are set to their default values
-        (smt = false, track_dirty_pages = false, cpu_template = None, huge_pages = None).
+        (smt = false, track_dirty_pages = false, cpu_template = None, huge_pages = None,
+        ksm_mergeable = false).
       operationId: putMachineConfiguration
       parameters:
         - name: body
@@ -1444,6 +1445,14 @@ definitions:
           - None
           - 2M
         description: Which huge pages configuration (if any) should be used to back guest memory.
+      ksm_mergeable:
+        type: boolean
+        description:
+          Marks anonymous guest memory as mergeable with Linux Kernel Samepage Merging (KSM).
+          This can improve host memory efficiency when KSM is enabled by the host operator.
+          It is disabled by default because page deduplication can enable side channels, and it
+          cannot be used with hugetlbfs-backed guest memory.
+        default: false
 
   MemoryBackend:
     type: object

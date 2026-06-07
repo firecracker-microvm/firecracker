@@ -340,6 +340,11 @@ to mitigate [side channel issues](https://eprint.iacr.org/2013/448.pdf) that
 rely on page deduplication for revealing what memory pages are accessed by
 another process.
 
+Firecracker does not mark guest memory as mergeable by default. Operators that
+explicitly enable `ksm_mergeable` in `/machine-config` should only do so for
+deployments where the page-deduplication side channel risk is acceptable, for
+example when tenant separation is not required.
+
 ##### Use memory with Rowhammer mitigation support
 
 Rowhammer is a memory side-channel issue that can lead to unauthorized cross-

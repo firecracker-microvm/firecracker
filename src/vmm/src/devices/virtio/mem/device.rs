@@ -721,6 +721,7 @@ pub(crate) mod test_utils {
                 std::iter::once((addr, mib_to_bytes(1024))),
                 false,
                 HugePageConfig::None,
+                false,
             )
             .unwrap()
             .pop()
