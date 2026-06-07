@@ -10,7 +10,7 @@ use std::mem::size_of;
 
 use vm_memory::GuestMemoryError;
 
-use super::{MAX_DISCARD_SECTORS, SECTOR_SHIFT, SECTOR_SIZE, VirtioBlockError, io as block_io};
+use super::{io as block_io, VirtioBlockError, MAX_DISCARD_SECTORS, SECTOR_SHIFT, SECTOR_SIZE};
 use crate::devices::virtio::block::virtio::device::DiskProperties;
 use crate::devices::virtio::block::virtio::metrics::BlockDeviceMetrics;
 pub use crate::devices::virtio::generated::virtio_blk::{
@@ -19,7 +19,7 @@ pub use crate::devices::virtio::generated::virtio_blk::{
     VIRTIO_BLK_T_OUT,
 };
 use crate::devices::virtio::queue::DescriptorChain;
-use crate::logger::{IncMetric, error};
+use crate::logger::{error, IncMetric};
 use crate::rate_limiter::{RateLimiter, TokenType};
 use crate::vstate::memory::{Address, ByteValued, Bytes, GuestAddress, GuestMemoryMmap};
 
@@ -263,7 +263,6 @@ pub struct Request {
     pub status_addr: GuestAddress,
     sector: u64,
     data_addr: GuestAddress,
-    discard_range: Option<(u64, u64)>,
 }
 
 impl Request {
@@ -282,7 +281,6 @@ impl Request {
             r#type: RequestType::from(request_header.request_type),
             sector: request_header.sector,
             data_addr: GuestAddress(0),
-            discard_range: None,
             data_len: 0,
             status_addr: GuestAddress(0),
         };
@@ -390,7 +388,10 @@ impl Request {
         let byte_len = u64::from(range.num_sectors)
             .checked_mul(u64::from(SECTOR_SIZE))
             .ok_or(VirtioBlockError::InvalidDataLength)?;
-        self.discard_range = Some((byte_offset, byte_len));
+        let byte_len = u32::try_from(byte_len).map_err(|_| VirtioBlockError::InvalidDataLength)?;
+
+        self.sector = byte_offset;
+        self.data_len = byte_len;
 
         Ok(())
     }
@@ -457,11 +458,8 @@ impl Request {
                     ));
                 }
 
-                disk.file_engine.discard(
-                    self.discard_range
-                        .expect("discard request missing validated range"),
-                    pending,
-                )
+                disk.file_engine
+                    .discard((self.sector, u64::from(self.data_len)), pending)
             }
             RequestType::Flush => disk.file_engine.flush(pending),
             RequestType::GetDeviceID => {
@@ -502,7 +500,7 @@ mod tests {
 
     use super::*;
     use crate::devices::virtio::queue::{Queue, VIRTQ_DESC_F_NEXT, VIRTQ_DESC_F_WRITE};
-    use crate::devices::virtio::test_utils::{VirtQueue, default_mem};
+    use crate::devices::virtio::test_utils::{default_mem, VirtQueue};
     use crate::vstate::memory::{Address, GuestAddress, GuestMemory};
 
     const NUM_DISK_SECTORS: u64 = 1024;
@@ -586,9 +584,17 @@ mod tests {
                 request.r#type,
                 RequestType::from(expected_header.request_type)
             );
-            assert_eq!(request.sector, expected_header.sector);
+            if request.r#type == RequestType::Discard {
+                let range: DiscardWriteZeroes = memory
+                    .read_obj(GuestAddress(self.data_desc.addr.get()))
+                    .unwrap();
+                assert_eq!(request.sector, range.sector * u64::from(SECTOR_SIZE));
+                assert_eq!(request.data_len, range.num_sectors * SECTOR_SIZE);
+            } else {
+                assert_eq!(request.sector, expected_header.sector);
+            }
 
-            if check_data {
+            if check_data && request.r#type != RequestType::Discard {
                 assert_eq!(request.data_addr.raw_value(), self.data_desc.addr.get());
                 assert_eq!(request.data_len, self.data_desc.len.get());
             }
@@ -909,8 +915,8 @@ mod tests {
     }
 
     #[allow(clippy::let_with_type_underscore)]
-    fn random_request_parse()
-    -> impl Strategy<Value = (Result<Request, VirtioBlockError>, GuestMemoryMmap, Queue)> {
+    fn random_request_parse(
+    ) -> impl Strategy<Value = (Result<Request, VirtioBlockError>, GuestMemoryMmap, Queue)> {
         // In this strategy we are going to generate random Requests/Errors and map them
         // to an input descriptor chain.
         //
@@ -999,7 +1005,6 @@ mod tests {
             status_addr,
             sector: sector & (NUM_DISK_SECTORS - sectors_len),
             data_addr,
-            discard_range: None,
         };
         let mut request_header = RequestHeader::new(virtio_request_id, request.sector);
 
@@ -1031,10 +1036,8 @@ mod tests {
                     request.data_addr,
                 )
                 .unwrap();
-                request.discard_range = Some((
-                    discard_sector * u64::from(SECTOR_SIZE),
-                    u64::from(SECTOR_SIZE),
-                ));
+                request.sector = discard_sector * u64::from(SECTOR_SIZE);
+                request.data_len = SECTOR_SIZE;
             }
         }
 
