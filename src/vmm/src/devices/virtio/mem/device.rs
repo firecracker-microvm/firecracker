@@ -539,6 +539,10 @@ impl VirtioMem {
         self.config.plugged_size -= usize_to_u64(self.nb_blocks_to_len(plugged_before));
         self.config.plugged_size += usize_to_u64(self.nb_blocks_to_len(plugged_after));
 
+        // Update kvm slots before doing any discards to prevent guest from re-faulting just
+        // discarded memory.
+        self.update_kvm_slots(range)?;
+
         // If unplugging, discard the range
         if !plug {
             self.guest_memory()
@@ -550,8 +554,7 @@ impl VirtioMem {
                     error!("virtio-mem: Failed to discard memory range: {}", err);
                 });
         }
-
-        self.update_kvm_slots(range)
+        Ok(())
     }
 
     /// Updates the requested size of the virtio-mem device.
