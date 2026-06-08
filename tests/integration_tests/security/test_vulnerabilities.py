@@ -110,7 +110,7 @@ def download_spectre_meltdown_checker(tmp_path_factory):
 
 # Nothing can be sensibly tested in a PR context here
 @pytest.mark.skipif(
-    global_props.buildkite_pr,
+    global_props.buildkite_pr or global_props.is_dev_env,
     reason="Test depends solely on factors external to GitHub repository",
 )
 def test_spectre_meltdown_checker_on_host(spectre_meltdown_checker):
@@ -121,7 +121,7 @@ def test_spectre_meltdown_checker_on_host(spectre_meltdown_checker):
 
 # Nothing can be sensibly tested here in a PR context
 @pytest.mark.skipif(
-    global_props.buildkite_pr,
+    global_props.buildkite_pr or global_props.is_dev_env,
     reason="Test depends solely on factors external to GitHub repository",
 )
 def test_vulnerabilities_on_host():
