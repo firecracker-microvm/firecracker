@@ -17,10 +17,20 @@ excluding tests marked with `pytest.mark.nonci`):
 tools/devtool -y test
 ```
 
+Note: some performance tests require host performance tuning (e.g. dedicating
+some memory for `hugetlbfs`). For those tests, the `--performance` flag is also
+required:
+
+```sh
+tools/devtool -y test --performance
+```
+
 To run only tests from specific directories and/or files:
 
 ```sh
 tools/devtool -y test -- integration_tests/performance/test_boottime.py
+# Or
+tools/devtool -y test --performance -- integration_tests/performance/test_huge_pages.py
 ```
 
 To run a single specific test from a file:
