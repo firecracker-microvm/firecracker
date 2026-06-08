@@ -6,6 +6,7 @@
 // found in the THIRD-PARTY file.
 
 use std::fs::File;
+use std::io;
 use std::io::SeekFrom;
 use std::ops::Deref;
 use std::sync::{Arc, Mutex};
@@ -22,12 +23,12 @@ pub use vm_memory::{
 };
 use vm_memory::{GuestMemoryError, GuestMemoryRegionBytes, VolatileSlice, WriteVolatile};
 
-use crate::DirtyBitmap;
 use crate::arch::host_page_size;
 use crate::logger::error;
 use crate::utils::u64_to_usize;
 use crate::vmm_config::machine_config::HugePageConfig;
 use crate::vstate::vm::{KvmVm, VmError};
+use crate::{DirtyBitmap, warn_unrestricted};
 
 /// Type of GuestRegionMmap.
 pub type GuestRegionMmap = vm_memory::GuestRegionMmap<Option<AtomicBitmap>>;
@@ -528,6 +529,7 @@ pub fn create(
     mmap_flags: libc::c_int,
     file: Option<File>,
     track_dirty_pages: bool,
+    madvise_flags: libc::c_int,
 ) -> Result<Vec<GuestRegionMmap>, MemoryError> {
     let mut offset = 0;
     let file = file.map(Arc::new);
@@ -559,6 +561,18 @@ pub fn create(
                 start,
             )
             .ok_or(MemoryError::VmMemoryError)
+            .inspect(|region| {
+                if madvise_flags != libc::MADV_NORMAL {
+                    // SAFETY: The referenced memory was just mapped.
+                    let ret = unsafe {
+                        libc::madvise(region.as_ptr().cast(), region.size(), madvise_flags)
+                    };
+                    if ret != 0 {
+                        let e = io::Error::last_os_error();
+                        warn_unrestricted!("Madvise call failed for guest memory: {e}");
+                    }
+                }
+            })
         })
         .collect::<Result<Vec<_>, _>>()
 }
@@ -577,6 +591,7 @@ pub fn memfd_backed(
         libc::MAP_SHARED | huge_pages.mmap_flags(),
         Some(memfd_file),
         track_dirty_pages,
+        huge_pages.madvise_flags(),
     )
 }
 
@@ -591,6 +606,7 @@ pub fn anonymous(
         libc::MAP_PRIVATE | libc::MAP_ANONYMOUS | huge_pages.mmap_flags(),
         None,
         track_dirty_pages,
+        huge_pages.madvise_flags(),
     )
 }
 
@@ -600,6 +616,7 @@ pub fn snapshot_file(
     file: File,
     regions: impl Iterator<Item = (GuestAddress, usize)>,
     track_dirty_pages: bool,
+    huge_pages: HugePageConfig,
 ) -> Result<Vec<GuestRegionMmap>, MemoryError> {
     let regions: Vec<_> = regions.collect();
     let memory_size = regions
@@ -619,6 +636,7 @@ pub fn snapshot_file(
         libc::MAP_PRIVATE,
         Some(file),
         track_dirty_pages,
+        huge_pages.madvise_flags(),
     )
 }
 
@@ -951,8 +969,13 @@ mod tests {
             file.write_all(&vec![0x42u8; page_size]).unwrap();
 
             let regions = vec![(GuestAddress(0), page_size)];
-            let guest_regions =
-                snapshot_file(file, regions.into_iter(), dirty_page_tracking).unwrap();
+            let guest_regions = snapshot_file(
+                file,
+                regions.into_iter(),
+                dirty_page_tracking,
+                HugePageConfig::None,
+            )
+            .unwrap();
             assert_eq!(guest_regions.len(), 1);
             guest_regions.iter().for_each(|region| {
                 assert_eq!(region.bitmap().is_some(), dirty_page_tracking);
@@ -973,7 +996,8 @@ mod tests {
             (GuestAddress(0x10000), page_size),
             (GuestAddress(0x20000), page_size),
         ];
-        let guest_regions = snapshot_file(file, regions.into_iter(), false).unwrap();
+        let guest_regions =
+            snapshot_file(file, regions.into_iter(), false, HugePageConfig::None).unwrap();
         assert_eq!(guest_regions.len(), 3);
     }
 
@@ -985,7 +1009,7 @@ mod tests {
         file.write_all(&vec![0x42u8; page_size]).unwrap();
 
         let regions = vec![(GuestAddress(0), 2 * page_size)];
-        let result = snapshot_file(file, regions.into_iter(), false);
+        let result = snapshot_file(file, regions.into_iter(), false, HugePageConfig::None);
         assert!(matches!(result.unwrap_err(), MemoryError::OffsetTooLarge));
     }
 
@@ -1175,8 +1199,15 @@ mod tests {
         let mut memory_file = TempFile::new().unwrap().into_file();
         guest_memory.dump(&mut memory_file).unwrap();
 
-        let restored_guest_memory =
-            into_region_ext(snapshot_file(memory_file, memory_state.regions(), false).unwrap());
+        let restored_guest_memory = into_region_ext(
+            snapshot_file(
+                memory_file,
+                memory_state.regions(),
+                false,
+                HugePageConfig::None,
+            )
+            .unwrap(),
+        );
 
         // Check that the region contents are the same.
         let mut restored_region = vec![0u8; page_size * 2];
@@ -1240,8 +1271,9 @@ mod tests {
             .unwrap();
 
         // We can restore from this because this is the first dirty dump.
-        let restored_guest_memory =
-            into_region_ext(snapshot_file(file, memory_state.regions(), false).unwrap());
+        let restored_guest_memory = into_region_ext(
+            snapshot_file(file, memory_state.regions(), false, HugePageConfig::None).unwrap(),
+        );
 
         // Check that the region contents are the same.
         let mut restored_region = vec![0u8; region_size];
@@ -1465,6 +1497,7 @@ mod tests {
                 memory_file,
                 std::iter::once((GuestAddress(0), 2 * page_size)),
                 false,
+                HugePageConfig::None,
             )
             .unwrap(),
         );
