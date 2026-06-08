@@ -97,10 +97,12 @@ class GlobalProps:
             self.instance = imdsv2_get("/meta-data/instance-type")
             self.instance_id = imdsv2_get("/meta-data/instance-id")
             self.ami = imdsv2_get("/meta-data/ami-id")
+            self.is_ec2_virt = "metal" not in self.instance
         else:
             self.instance = "NA"
             self.instance_id = "NA"
             self.ami = "NA"
+            self.is_ec2_virt = False
 
     @property
     def host_linux_version_tpl(self):
