@@ -72,6 +72,9 @@ dev container automatically, so setting them on the host before invoking
   at the uVM chroot root. The cheap artifacts (`host-dmesg.log` and the guest
   serial console) are always collected. Default off. The nightly performance
   pipeline sets this.
+- `FC_TEST_DEVELOPMENT_ENVIRONMENT=1` — skip tests that depend on specific host
+  configurations that don't add any value when running on a development
+  environment.
 
 ### Output
 
