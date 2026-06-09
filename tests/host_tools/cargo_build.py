@@ -27,6 +27,7 @@ def cargo(
     env: dict = None,
     cwd: str = None,
     nightly: bool = False,
+    timeout: int = None,
 ):
     """Executes the specified cargo subcommand"""
     toolchain = f"+{nightly_toolchain()}" if nightly else ""
@@ -35,7 +36,7 @@ def cargo(
     cmd = (
         f"{env_string} cargo {toolchain} {subcommand} {cargo_args} -- {subcommand_args}"
     )
-    return utils.check_output(cmd, cwd=cwd)
+    return utils.check_output(cmd, cwd=cwd, timeout=timeout)
 
 
 def get_rustflags():
@@ -50,10 +51,18 @@ def cargo_test(path, extra_args=""):
     env = {
         "CARGO_TARGET_DIR": os.path.join(path, "unit-tests"),
         "RUST_TEST_THREADS": 1,
-        "RUST_BACKTRACE": 1,
+        "RUST_BACKTRACE": "1",
         "RUSTFLAGS": get_rustflags(),
     }
-    cargo("test", extra_args + " --all --no-fail-fast", env=env)
+    cargo(
+        "test",
+        extra_args + " --all --no-fail-fast",
+        subcommand_args="--nocapture",
+        env=env,
+        # Kill cargo test 60s before pytest's 600s timeout, so pytest can report
+        # the failure and upload artifacts cleanly instead of being killed itself.
+        timeout=540,
+    )
 
 
 def get_binary(name, *, binary_dir=DEFAULT_BINARY_DIR, example=None):
