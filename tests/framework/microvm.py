@@ -252,7 +252,7 @@ class Microvm:
 
         self._screen_pid = None
 
-        self.time_api_requests = global_props.host_linux_version != "6.1"
+        self.time_api_requests = True
         # disable the HTTP API timings as they cause a lot of false positives
         if int(os.environ.get("PYTEST_XDIST_WORKER_COUNT", 1)) > 1:
             self.time_api_requests = False
