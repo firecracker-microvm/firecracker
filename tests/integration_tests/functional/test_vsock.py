@@ -290,7 +290,10 @@ def test_vsock_transport_reset_g2h(vsock_uvm, microvm_factory):
             snapshot = new_vm.snapshot_full()
             new_vm.resume()
 
-            # After `create_snapshot` + 'restore' calls, connection should be dropped
+            # Give some time for guest socat to detect closed socket
+            time.sleep(0.1)
+
+            # After `create_snapshot` + 'resume' calls, connection should be dropped
             code, _, _ = new_vm.ssh.run("pidof socat")
             assert code == 1
         finally:
