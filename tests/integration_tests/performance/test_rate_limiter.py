@@ -2,8 +2,6 @@
 # SPDX-License-Identifier: Apache-2.0
 """Tests that fail if network throughput does not obey rate limits."""
 
-import time
-
 from framework import utils
 from framework.artifacts import GUEST_KERNEL_DEFAULT, pin_guest_kernel
 from host_tools import cpu_load
@@ -19,6 +17,9 @@ IPERF_TRANSMIT_TIME = 4
 
 # Use a fixed-size TCP window so we get constant flow
 IPERF_TCP_WINDOW = "256K"
+
+# The port that iperf will use
+IPERF_PORT = 5201
 
 # The rate limiting value
 RATE_LIMIT_BYTES = 10485760
@@ -39,7 +40,6 @@ RATE_LIMITER_WITH_BURST = {
         "refill_time": REFILL_TIME_MS,
     }
 }
-
 
 # Deltas that are accepted between expected values and achieved
 # values throughout the tests
@@ -114,11 +114,12 @@ def test_rx_rate_limiting_cpu_load(uvm):
     _start_iperf_server_on_guest(test_microvm)
 
     # Run iperf client sending UDP traffic.
-    iperf_cmd = "{} {} -u -c {} -b 1000000000 -t{} -f KBytes".format(
+    iperf_cmd = "{} {} -u -c {} -b 1000000000 -t{} -f KBytes -p {}".format(
         test_microvm.netns.cmd_prefix(),
         IPERF_BINARY,
         iface.guest_ip,
         IPERF_TRANSMIT_TIME * 5,
+        IPERF_PORT,
     )
 
     # Enable monitor that checks if the cpu load is over the threshold.
@@ -214,12 +215,13 @@ def _check_rx_rate_limiting(test_microvm):
     print("Run guest RX iperf for rate limiting with burst")
     # Use iperf to obtain the bandwidth when there is burst to consume from,
     # send exactly BURST_SIZE packets.
-    iperf_cmd = "{} {} -c {} -n {} -f KBytes -w {} -N".format(
+    iperf_cmd = "{} {} -c {} -n {} -f KBytes -w {} -N -p {}".format(
         test_microvm.netns.cmd_prefix(),
         IPERF_BINARY,
         eth2.guest_ip,
         BURST_SIZE,
         IPERF_TCP_WINDOW,
+        IPERF_PORT,
     )
     iperf_out = _run_iperf_on_host(iperf_cmd, test_microvm)
     _, burst_kbps = _process_iperf_output(iperf_out)
@@ -305,12 +307,13 @@ def _get_rx_bandwidth(test_microvm, guest_ip):
 
     _start_iperf_server_on_guest(test_microvm)
 
-    iperf_cmd = "{} {} -c {} -t {} -f KBytes -w {} -N".format(
+    iperf_cmd = "{} {} -c {} -t {} -f KBytes -w {} -N -p {}".format(
         test_microvm.netns.cmd_prefix(),
         IPERF_BINARY,
         guest_ip,
         IPERF_TRANSMIT_TIME,
         IPERF_TCP_WINDOW,
+        IPERF_PORT,
     )
     iperf_out = _run_iperf_on_host(iperf_cmd, test_microvm)
     _, observed_kbps = _process_iperf_output(iperf_out)
@@ -336,14 +339,13 @@ def _patch_iface_bw(test_microvm, iface_id, rx_or_tx, new_bucket_size, new_refil
 
 def _start_iperf_server_on_guest(test_microvm):
     """Start iperf in server mode through an SSH connection."""
-    kill_cmd = f"pkill {IPERF_BINARY}"
-    test_microvm.ssh.run(kill_cmd)
+    utils.kill_and_wait_on_guest(test_microvm, IPERF_BINARY)
 
     iperf_cmd = f"{IPERF_BINARY} -sD -f KBytes --logfile {GUEST_IPERF_SERVER_LOG}"
     test_microvm.ssh.run(iperf_cmd)
 
-    # Wait for the iperf to start.
-    time.sleep(1)
+    # Wait for the iperf server to start listening
+    utils.wait_for_tcp_port_on_guest(test_microvm, IPERF_PORT)
 
 
 def _run_iperf_on_guest(test_microvm, iperf_cmd):
@@ -353,14 +355,15 @@ def _run_iperf_on_guest(test_microvm, iperf_cmd):
 
 def _start_iperf_server_on_host(netns_cmd_prefix):
     """Start iperf in server mode after killing any leftover iperf daemon."""
-    kill_cmd = f"pkill {IPERF_BINARY}"
-    utils.run_cmd(kill_cmd)
+    utils.kill_and_wait_on_host(IPERF_BINARY)
 
-    iperf_cmd = "{} {} -sD -f KBytes\n".format(netns_cmd_prefix, IPERF_BINARY)
+    iperf_cmd = "{} {} -sD -f KBytes -p {}\n".format(
+        netns_cmd_prefix, IPERF_BINARY, IPERF_PORT
+    )
     utils.check_output(iperf_cmd)
 
-    # Wait for the iperf daemon to start.
-    time.sleep(1)
+    # Wait for the iperf server to start listening
+    utils.wait_for_tcp_port_on_host(netns_cmd_prefix, IPERF_PORT)
 
 
 def _run_iperf_on_host(iperf_cmd, test_microvm):
