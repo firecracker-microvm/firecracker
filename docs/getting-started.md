@@ -100,23 +100,30 @@ release.
 
 ```bash
 ARCH="$(uname -m)"
-release_url="https://github.com/firecracker-microvm/firecracker/releases"
-latest_version=$(basename $(curl -fsSLI -o /dev/null -w  %{url_effective} ${release_url}/latest))
-CI_VERSION=${latest_version%.*}
-latest_kernel_key=$(curl "http://spec.ccfc.min.s3.amazonaws.com/?prefix=firecracker-ci/$CI_VERSION/$ARCH/vmlinux-&list-type=2" \
-    | grep -oP "(?<=<Key>)(firecracker-ci/$CI_VERSION/$ARCH/vmlinux-[0-9]+\.[0-9]+\.[0-9]{1,3})(?=</Key>)" \
-    | sort -V | tail -1)
+S3="https://s3.amazonaws.com/spec.ccfc.min"
+
+# Fetch latest CI artifact build. `sort` + `tail` returns artifacts with latest YYYYMMDD.
+CI_ARTIFACTS_PREFIX=$(curl -fsSL "$S3?list-type=2&prefix=firecracker-ci/&delimiter=/" \
+    | grep -oP "(?<=<Prefix>)firecracker-ci/[0-9]{8}-[^/]+/(?=</Prefix>)" \
+    | sort \
+    | tail -1)
+
+latest_kernel_key=$(curl -fsSL "$S3?list-type=2&prefix=${CI_ARTIFACTS_PREFIX}${ARCH}/vmlinux-" \
+      | grep -oP "(?<=<Key>)(${CI_ARTIFACTS_PREFIX}${ARCH}/vmlinux-[0-9]+\.[0-9]+\.[0-9]{1,3})(?=</Key>)" \
+      | sort -V \
+      | tail -1)
 
 # Download a linux kernel binary
-wget "https://s3.amazonaws.com/spec.ccfc.min/${latest_kernel_key}"
+wget "$S3/${latest_kernel_key}"
 
-latest_ubuntu_key=$(curl "http://spec.ccfc.min.s3.amazonaws.com/?prefix=firecracker-ci/$CI_VERSION/$ARCH/ubuntu-&list-type=2" \
-    | grep -oP "(?<=<Key>)(firecracker-ci/$CI_VERSION/$ARCH/ubuntu-[0-9]+\.[0-9]+\.squashfs)(?=</Key>)" \
-    | sort -V | tail -1)
+latest_ubuntu_key=$(curl -fsSL "$S3?list-type=2&prefix=${CI_ARTIFACTS_PREFIX}${ARCH}/ubuntu-" \
+      | grep -oP "(?<=<Key>)(${CI_ARTIFACTS_PREFIX}${ARCH}/ubuntu-[0-9]+\.[0-9]+\.squashfs)(?=</Key>)" \
+      | sort -V \
+      | tail -1)
 ubuntu_version=$(basename $latest_ubuntu_key .squashfs | grep -oE '[0-9]+\.[0-9]+')
 
 # Download a rootfs from Firecracker CI
-wget -O ubuntu-$ubuntu_version.squashfs.upstream "https://s3.amazonaws.com/spec.ccfc.min/$latest_ubuntu_key"
+wget -O ubuntu-$ubuntu_version.squashfs.upstream "$S3/$latest_ubuntu_key"
 
 # The rootfs in our CI doesn't contain SSH keys to connect to the VM
 # For the purpose of this demo, let's create one and patch it in the rootfs
