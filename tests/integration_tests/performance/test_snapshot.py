@@ -239,6 +239,9 @@ def test_population_latency(
     for microvm in microvm_factory.build_n_from_snapshot(
         snapshot, ITERATIONS, uffd_handler_name="fault_all"
     ):
+        # API response times are unreliable while the uffd handler is
+        # faulting in all pages — skip the timing validation.
+        microvm.time_api_requests = False
         # do _something_ to trigger a pagefault, which will then cause the UFFD handler to fault in _everything_
         microvm.ssh.check_output("true")
 
