@@ -1,10 +1,12 @@
 // Copyright 2025 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
+use std::collections::HashSet;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use kvm_ioctls::VmFd;
+use vm_allocator::IdAllocator;
 use vmm_sys_util::eventfd::EventFd;
 
 use crate::logger::{IncMetric, METRICS, error};
@@ -25,6 +27,10 @@ pub enum InterruptError {
     Kvm(#[from] kvm_ioctls::Error),
     /// Invalid vector index: {0}
     InvalidVectorIndex(usize),
+    /// MSI-X vector GSI is duplicated: {0}
+    DuplicateMsixGsi(u32),
+    /// MSI-X vector GSI is not allocated: {0}
+    UnallocatedMsixGsi(u32),
 }
 
 /// Configuration data for an MSI-X interrupt.
@@ -200,6 +206,25 @@ impl Drop for MsixVectorGroup {
     }
 }
 
+fn validate_restored_msix_gsis(
+    gsi_msi_allocator: &IdAllocator,
+    state: &[u32],
+) -> Result<(), InterruptError> {
+    let mut seen_gsis = HashSet::with_capacity(state.len());
+
+    for gsi in state {
+        if !seen_gsis.insert(*gsi) {
+            return Err(InterruptError::DuplicateMsixGsi(*gsi));
+        }
+
+        if !gsi_msi_allocator.is_allocated(*gsi) {
+            return Err(InterruptError::UnallocatedMsixGsi(*gsi));
+        }
+    }
+
+    Ok(())
+}
+
 impl<'a> Persist<'a> for MsixVectorGroup {
     type State = Vec<u32>;
     type ConstructorArgs = Arc<KvmVm>;
@@ -216,6 +241,10 @@ impl<'a> Persist<'a> for MsixVectorGroup {
         constructor_args: Self::ConstructorArgs,
         state: &Self::State,
     ) -> Result<Self, Self::Error> {
+        let resource_allocator = constructor_args.resource_allocator();
+        validate_restored_msix_gsis(&resource_allocator.gsi_msi_allocator, state)?;
+        drop(resource_allocator);
+
         let mut vectors = Vec::with_capacity(state.len());
 
         for gsi in state {
@@ -226,5 +255,39 @@ impl<'a> Persist<'a> for MsixVectorGroup {
             vm: constructor_args,
             vectors,
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{InterruptError, validate_restored_msix_gsis};
+    use crate::arch;
+    use crate::vstate::resources::ResourceAllocator;
+
+    #[test]
+    fn test_restored_msix_gsi_validation_rejects_unallocated_gsi() {
+        let resource_allocator = ResourceAllocator::new();
+        let err = validate_restored_msix_gsis(
+            &resource_allocator.gsi_msi_allocator,
+            &[arch::GSI_MSI_START],
+        )
+        .unwrap_err();
+
+        assert!(
+            matches!(err, InterruptError::UnallocatedMsixGsi(gsi) if gsi == arch::GSI_MSI_START)
+        );
+    }
+
+    #[test]
+    fn test_restored_msix_gsi_validation_rejects_duplicate_gsi() {
+        let mut resource_allocator = ResourceAllocator::new();
+        let gsi = resource_allocator.allocate_gsi_msi(1).unwrap()[0];
+        let err = validate_restored_msix_gsis(&resource_allocator.gsi_msi_allocator, &[gsi, gsi])
+            .unwrap_err();
+
+        assert!(matches!(
+            err,
+            InterruptError::DuplicateMsixGsi(duplicate_gsi) if duplicate_gsi == gsi
+        ));
     }
 }
