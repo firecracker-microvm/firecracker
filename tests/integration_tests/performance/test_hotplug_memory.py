@@ -495,7 +495,7 @@ def test_memory_hotplug_latency(
             "block_size_mib": 2,
         }
         uvm = microvm_factory.build(guest_kernel, rootfs, pci=True)
-        uvm = uvm_booted_memhp(uvm, None, None, False, config, None, None, None)
+        uvm = uvm_booted_memhp(uvm, None, None, False, config, huge_pages, None, None)
 
         if i == 0:
             metrics.set_dimensions(
