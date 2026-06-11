@@ -1,0 +1,18 @@
+# We configure DCO (https://github.com/dcoapp) as a required approval on every PR.
+# The same requirement also apply to merge queues.
+# However, DCO doesn't run on merge queues (https://github.com/dcoapp/app/issues/199), so this is
+# a workaround to make the check pass.
+# Note: for a PR to be added on the merge queue, the real DCO check was already performed.
+name: DCO
+on:
+  merge_group:
+    types: [checks_requested]
+
+permissions:
+  contents: read
+
+jobs:
+  DCO:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "Mock DCO check that runs in the merge queue, see https://github.com/dcoapp/app/issues/199"
