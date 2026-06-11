@@ -1,19 +1,16 @@
-# All markdown files
-*.md @kalyazin @Manciukic @micz010
+# Cover all "*policy*.md" documents
+**/*policy*.md @Manciukic @micz010 @marco-marangoni
+**/*POLICY*.md @Manciukic @micz010 @marco-marangoni
 
-# But not the ones in docs/
-docs/*.md
+# Cover these files in the repository root
+CODE_OF_CONDUCT.md @Manciukic @micz010 @marco-marangoni
+DEPRECATED.md @Manciukic @micz010 @marco-marangoni
+LICENSE @Manciukic @micz010 @marco-marangoni
+NOTICE @Manciukic @micz010 @marco-marangoni
+PGP-KEY.asc @Manciukic @micz010 @marco-marangoni
+SECURITY.md @Manciukic @micz010 @marco-marangoni
+SPECIFICATION.md @Manciukic @micz010 @marco-marangoni
+THIRD-PARTY @Manciukic @micz010 @marco-marangoni
 
-# Except these specific ones
-docs/getting-started.md @kalyazin @Manciukic @micz010
-docs/prod-host-setup.md @kalyazin @Manciukic @micz010
-
-# Also cover all "*policy*.md" documents
-**/*policy*.md @kalyazin @Manciukic @micz010
-**/*POLICY*.md @kalyazin @Manciukic @micz010
-
-# Also these non-md files in the repository root
-THIRD-PARTY @kalyazin @Manciukic @micz010
-LICENSE @kalyazin @Manciukic @micz010
-NOTICE @kalyazin @Manciukic @micz010
-PGP-KEY.asc @kalyazin @Manciukic @micz010
+# Cover files related to audit/security
+.cargo/audit.toml @Manciukic @micz010 @marco-marangoni
