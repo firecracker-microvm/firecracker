@@ -80,6 +80,8 @@ class GlobalProps:
         self.buildkite_build_number = os.environ.get("BUILDKITE_BUILD_NUMBER")
         self.buildkite_pr = os.environ.get("BUILDKITE_PULL_REQUEST", "false") != "false"
         self.buildkite_revision_a = os.environ.get("BUILDKITE_PULL_REQUEST_BASE_BRANCH")
+        # Development environment detection
+        self.is_dev_env = os.environ.get("FC_TEST_DEVELOPMENT_ENVIRONMENT") == "1"
 
         if self._in_git_repo():
             self.git_commit_id = run_cmd("git rev-parse HEAD")

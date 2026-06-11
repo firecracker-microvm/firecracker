@@ -18,3 +18,4 @@ tags
 /resources/x86_64
 /resources/aarch64
 redundant_seccomp_rules_build
+test_instrumented_firecracker_build
