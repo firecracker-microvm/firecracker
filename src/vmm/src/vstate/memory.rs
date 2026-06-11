@@ -889,7 +889,7 @@ mod tests {
 
     use std::collections::HashMap;
     use std::io::{Read, Seek, Write};
-    use std::os::unix::fs::MetadataExt;
+    use std::os::unix::fs::{FileExt, MetadataExt};
 
     use vmm_sys_util::tempfile::TempFile;
 
@@ -938,6 +938,37 @@ mod tests {
             guest_regions.iter().for_each(|region| {
                 assert_eq!(region.bitmap().is_some(), dirty_page_tracking);
             });
+        }
+    }
+
+    /// `shared = true` must map the backing file `MAP_SHARED`: a write
+    /// through guest memory becomes visible to any other reader of the
+    /// same file. `shared = false` (the default) must keep `MAP_PRIVATE`
+    /// CoW semantics: guest writes never reach the backing file.
+    #[test]
+    fn test_snapshot_file_shared_mapping_visibility() {
+        let page_size = host_page_size();
+        for (shared, expect_visible) in [(true, true), (false, false)] {
+            let mut file = TempFile::new().unwrap().into_file();
+            file.set_len(page_size as u64).unwrap();
+            file.write_all(&vec![0u8; page_size]).unwrap();
+            let reader = file.try_clone().unwrap();
+
+            let regions = vec![(GuestAddress(0), page_size)];
+            let guest_regions =
+                into_region_ext(snapshot_file(file, regions.into_iter(), false, shared).unwrap());
+
+            // Write through the guest mapping...
+            guest_regions.write(&[0x42u8; 16], GuestAddress(0)).unwrap();
+
+            // ...and check whether the backing file observed it.
+            let mut observed = [0u8; 16];
+            reader.read_exact_at(&mut observed, 0).unwrap();
+            if expect_visible {
+                assert_eq!(observed, [0x42u8; 16], "MAP_SHARED write not visible");
+            } else {
+                assert_eq!(observed, [0u8; 16], "MAP_PRIVATE write leaked to file");
+            }
         }
     }
 
