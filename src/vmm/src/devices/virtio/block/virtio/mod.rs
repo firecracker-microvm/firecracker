@@ -58,6 +58,8 @@ pub enum VirtioBlockError {
     InvalidOffset,
     /// Discard is not supported with the async IO engine.
     DiscardAsyncUnsupported,
+    /// Discard is not supported with read-only drives.
+    DiscardReadOnlyUnsupported,
     /// Guest gave us a read only descriptor that protocol says to write to.
     UnexpectedReadOnlyDescriptor,
     /// Guest gave us a write only descriptor that protocol says to read from.

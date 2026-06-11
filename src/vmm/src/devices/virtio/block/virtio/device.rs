@@ -319,6 +319,10 @@ impl VirtioBlock {
     ///
     /// The given file must be seekable and sizable.
     pub fn new(config: VirtioBlockConfig) -> Result<VirtioBlock, VirtioBlockError> {
+        if config.discard && config.is_read_only {
+            return Err(VirtioBlockError::DiscardReadOnlyUnsupported);
+        }
+
         if config.discard && config.file_engine_type == FileEngineType::Async {
             return Err(VirtioBlockError::DiscardAsyncUnsupported);
         }
@@ -895,6 +899,24 @@ mod tests {
         assert!(matches!(
             VirtioBlock::new(async_config),
             Err(VirtioBlockError::DiscardAsyncUnsupported)
+        ));
+
+        let f = TempFile::new().unwrap();
+        f.as_file().set_len(0x1000).unwrap();
+        let read_only_config = VirtioBlockConfig {
+            drive_id: "test".to_string(),
+            path_on_host: f.as_path().to_str().unwrap().to_string(),
+            is_root_device: false,
+            partuuid: None,
+            is_read_only: true,
+            discard: true,
+            cache_type: CacheType::Unsafe,
+            rate_limiter: None,
+            file_engine_type: FileEngineType::Sync,
+        };
+        assert!(matches!(
+            VirtioBlock::new(read_only_config),
+            Err(VirtioBlockError::DiscardReadOnlyUnsupported)
         ));
     }
 

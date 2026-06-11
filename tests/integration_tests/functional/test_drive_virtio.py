@@ -8,7 +8,12 @@ import pytest
 
 import host_tools.drive as drive_tools
 from framework import utils
-from framework.artifacts import GUEST_KERNEL_DEFAULT, pin_guest_kernel, pin_rootfs_mode
+from framework.artifacts import (
+    GUEST_KERNEL_DEFAULT,
+    pin_guest_kernel,
+    pin_pci,
+    pin_rootfs_mode,
+)
 from framework.utils_drive import partuuid_and_disk_path
 
 MB = 1024 * 1024
@@ -322,6 +327,47 @@ def test_no_flush(uvm, io_engine):
     # dropping the caches.
     fc_metrics = test_microvm.flush_metrics()
     assert fc_metrics["block"]["flush_count"] == 0
+
+
+@pin_guest_kernel(GUEST_KERNEL_DEFAULT)
+@pin_pci(False)
+def test_discard(uvm):
+    """
+    Verify discard is advertised and punches holes in a file-backed drive.
+    """
+    test_microvm = uvm
+    test_microvm.spawn()
+
+    test_microvm.basic_config(vcpu_count=1)
+    test_microvm.add_net_iface()
+
+    fs = drive_tools.FilesystemFile(
+        os.path.join(test_microvm.fsfiles, "discard"), size=64
+    )
+    test_microvm.add_drive("discard", fs.path, io_engine="Sync", discard=True)
+
+    test_microvm.start()
+
+    _, stdout, stderr = test_microvm.ssh.run(
+        "cat /sys/block/vdb/queue/discard_granularity"
+    )
+    assert stderr == ""
+    assert int(stdout.strip()) > 0
+
+    _, _, stderr = test_microvm.ssh.run(
+        "dd if=/dev/zero of=/dev/vdb bs=1M count=32 oflag=direct conv=fsync status=none",
+        timeout=30.0,
+    )
+    assert stderr == ""
+
+    blocks_before = os.stat(fs.path).st_blocks
+    assert blocks_before > 0
+
+    _, _, stderr = test_microvm.ssh.run("blkdiscard -f /dev/vdb", timeout=30.0)
+    assert stderr in ("", "blkdiscard: Operation forced, data will be lost!\n")
+
+    blocks_after = os.stat(fs.path).st_blocks
+    assert blocks_after < blocks_before
 
 
 @pin_guest_kernel(GUEST_KERNEL_DEFAULT)
