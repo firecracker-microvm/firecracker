@@ -130,6 +130,16 @@ pub struct MemBackendConfig {
     pub backend_path: PathBuf,
     /// Specifies the guest memory backend type.
     pub backend_type: MemBackendType,
+    /// If `true` and `backend_type == File`, mmap the backing file with
+    /// `MAP_SHARED` instead of the default `MAP_PRIVATE`. Enables
+    /// cooperative-snapshot tooling: an external process that holds
+    /// the backing memfd open via `/proc/<pid>/fd/<N>` can observe
+    /// guest writes through its own mmap of the same fd.
+    ///
+    /// Defaults to `false` (unchanged behavior). Ignored for the
+    /// `Uffd` backend.
+    #[serde(default)]
+    pub shared: bool,
 }
 
 /// The microVM state options.

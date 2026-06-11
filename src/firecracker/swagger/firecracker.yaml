@@ -1463,6 +1463,16 @@ definitions:
           2) Path to the UDS where a process is listening for a UFFD initialization
           control payload and open file descriptor that it can use to serve this
           process's guest memory page faults
+      shared:
+        type: boolean
+        default: false
+        description:
+          Only used when 'backend_type' is 'File'. When true, the guest
+          memory file is mapped MAP_SHARED instead of MAP_PRIVATE, so an
+          external process holding the same backing file (e.g. a memfd
+          shared over a unix socket) can observe guest writes through its
+          own mapping. Defaults to false (copy-on-write, unchanged
+          behavior). Ignored for the 'Uffd' backend.
 
   Metrics:
     type: object

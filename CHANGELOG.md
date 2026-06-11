@@ -10,6 +10,12 @@ and this project adheres to
 
 ### Added
 
+- [#XXXX](https://github.com/firecracker-microvm/firecracker/pull/XXXX): Added
+  an optional `shared` boolean to the `mem_backend` config of `PUT
+  /snapshot/load` (default `false`). When `true` with the `File` backend, the
+  guest memory file is mapped `MAP_SHARED` instead of `MAP_PRIVATE`, letting
+  cooperative-snapshot tooling that holds the same backing file observe guest
+  writes. Existing behavior is unchanged when the field is absent.
 - [#5786](https://github.com/firecracker-microvm/firecracker/pull/5786): Added
   developer preview support for hotplugging and hot-unplugging PCI virtio
   devices (block, pmem, net) on a running microVM. The guest must manually
