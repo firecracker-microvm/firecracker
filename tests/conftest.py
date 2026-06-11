@@ -60,6 +60,23 @@ if _libc.prctl(_PR_SET_CHILD_SUBREAPER, 1, 0, 0, 0) != 0:
     raise OSError(ctypes.get_errno(), "prctl(PR_SET_CHILD_SUBREAPER) failed")
 
 
+def reap_orphaned_children():
+    """Reap descendants that have reparented to this subreaper session.
+
+    Non-blocking; safe to call repeatedly. Returns the number reaped.
+    """
+    reaped = 0
+    while True:
+        try:
+            pid, _status = os.waitpid(-1, os.WNOHANG)
+        except ChildProcessError:
+            break
+        if pid == 0:
+            break
+        reaped += 1
+    return reaped
+
+
 METRICS = get_metrics_logger()
 PHASE_REPORT_KEY = pytest.StashKey[dict[str, pytest.CollectReport]]()
 
@@ -124,6 +141,17 @@ def record_props(request, record_property):
     # Extract attributes from the docstrings
     function_docstring = inspect.getdoc(request.function)
     record_property("description", function_docstring)
+
+
+@pytest.fixture(scope="function")
+def reap_orphans():
+    """Reap orphaned descendants after each test.
+
+    Teardown runs after the microVM is killed because `microvm_factory`
+    depends on this fixture (fixtures finalize in reverse setup order).
+    """
+    yield
+    reap_orphaned_children()
 
 
 def pytest_runtest_logreport(report):
@@ -374,8 +402,14 @@ def netns_factory(worker_id):
 
 
 @pytest.fixture()
-def microvm_factory(request, record_property, results_dir, netns_factory):
-    """Fixture to create microvms simply."""
+# pylint: disable=unused-argument
+def microvm_factory(request, record_property, results_dir, netns_factory, reap_orphans):
+    """Fixture to create microvms simply.
+
+    `reap_orphans` is requested only for teardown ordering (reaping runs
+    after the VMs are killed), so it is intentionally not referenced in
+    the body.
+    """
 
     binary_dir = request.config.getoption("--binary-dir") or DEFAULT_BINARY_DIR
     if isinstance(binary_dir, str):
