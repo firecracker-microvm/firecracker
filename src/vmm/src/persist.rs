@@ -449,8 +449,13 @@ pub fn restore_from_snapshot(
                 .into());
             }
             (
-                guest_memory_from_file(mem_backend_path, mem_state, track_dirty_pages)
-                    .map_err(RestoreFromSnapshotGuestMemoryError::File)?,
+                guest_memory_from_file(
+                    mem_backend_path,
+                    mem_state,
+                    track_dirty_pages,
+                    params.mem_backend.shared,
+                )
+                .map_err(RestoreFromSnapshotGuestMemoryError::File)?,
                 None,
             )
         }
@@ -512,9 +517,11 @@ fn guest_memory_from_file(
     mem_file_path: &Path,
     mem_state: &GuestMemoryState,
     track_dirty_pages: bool,
+    shared: bool,
 ) -> Result<Vec<GuestRegionMmap>, GuestMemoryFromFileError> {
     let mem_file = File::open(mem_file_path)?;
-    let guest_mem = memory::snapshot_file(mem_file, mem_state.regions(), track_dirty_pages)?;
+    let guest_mem =
+        memory::snapshot_file(mem_file, mem_state.regions(), track_dirty_pages, shared)?;
     Ok(guest_mem)
 }
 

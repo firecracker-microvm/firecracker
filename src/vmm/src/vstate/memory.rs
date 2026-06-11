@@ -575,10 +575,17 @@ pub fn anonymous(
 
 /// Creates a GuestMemoryMmap given a `file` containing the data
 /// and a `state` containing mapping information.
+///
+/// When `shared` is `true`, the file is mapped with `MAP_SHARED`
+/// instead of the default `MAP_PRIVATE`. This is opt-in for
+/// cooperative-snapshot tooling that needs an external process
+/// (holding the same backing fd open) to observe guest writes.
+/// Existing callers pass `shared=false` and get unchanged behavior.
 pub fn snapshot_file(
     file: File,
     regions: impl Iterator<Item = (GuestAddress, usize)>,
     track_dirty_pages: bool,
+    shared: bool,
 ) -> Result<Vec<GuestRegionMmap>, MemoryError> {
     let regions: Vec<_> = regions.collect();
     let memory_size = regions
@@ -593,9 +600,14 @@ pub fn snapshot_file(
         return Err(MemoryError::OffsetTooLarge);
     }
 
+    let mmap_flags = if shared {
+        libc::MAP_SHARED
+    } else {
+        libc::MAP_PRIVATE
+    };
     create(
         regions.into_iter(),
-        libc::MAP_PRIVATE,
+        mmap_flags,
         Some(file),
         track_dirty_pages,
     )
@@ -921,7 +933,7 @@ mod tests {
 
             let regions = vec![(GuestAddress(0), page_size)];
             let guest_regions =
-                snapshot_file(file, regions.into_iter(), dirty_page_tracking).unwrap();
+                snapshot_file(file, regions.into_iter(), dirty_page_tracking, false).unwrap();
             assert_eq!(guest_regions.len(), 1);
             guest_regions.iter().for_each(|region| {
                 assert_eq!(region.bitmap().is_some(), dirty_page_tracking);
@@ -942,7 +954,7 @@ mod tests {
             (GuestAddress(0x10000), page_size),
             (GuestAddress(0x20000), page_size),
         ];
-        let guest_regions = snapshot_file(file, regions.into_iter(), false).unwrap();
+        let guest_regions = snapshot_file(file, regions.into_iter(), false, false).unwrap();
         assert_eq!(guest_regions.len(), 3);
     }
 
@@ -954,7 +966,7 @@ mod tests {
         file.write_all(&vec![0x42u8; page_size]).unwrap();
 
         let regions = vec![(GuestAddress(0), 2 * page_size)];
-        let result = snapshot_file(file, regions.into_iter(), false);
+        let result = snapshot_file(file, regions.into_iter(), false, false);
         assert!(matches!(result.unwrap_err(), MemoryError::OffsetTooLarge));
     }
 
@@ -1144,8 +1156,9 @@ mod tests {
         let mut memory_file = TempFile::new().unwrap().into_file();
         guest_memory.dump(&mut memory_file).unwrap();
 
-        let restored_guest_memory =
-            into_region_ext(snapshot_file(memory_file, memory_state.regions(), false).unwrap());
+        let restored_guest_memory = into_region_ext(
+            snapshot_file(memory_file, memory_state.regions(), false, false).unwrap(),
+        );
 
         // Check that the region contents are the same.
         let mut restored_region = vec![0u8; page_size * 2];
@@ -1210,7 +1223,7 @@ mod tests {
 
         // We can restore from this because this is the first dirty dump.
         let restored_guest_memory =
-            into_region_ext(snapshot_file(file, memory_state.regions(), false).unwrap());
+            into_region_ext(snapshot_file(file, memory_state.regions(), false, false).unwrap());
 
         // Check that the region contents are the same.
         let mut restored_region = vec![0u8; region_size];
@@ -1433,6 +1446,7 @@ mod tests {
             snapshot_file(
                 memory_file,
                 std::iter::once((GuestAddress(0), 2 * page_size)),
+                false,
                 false,
             )
             .unwrap(),
