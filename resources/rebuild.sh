@@ -132,10 +132,10 @@ function build_al_kernel {
     git checkout -B tmp-$TAG
 
     # Apply any patchset we have for our kernels
-    for patchset in ../patches/*; do
+    for patchset in ../patches/*/${KERNEL_VERSION}; do
         [ -d "$patchset" ] || continue
-        echo "Applying patchset ${patchset}/${KERNEL_VERSION}"
-        git apply ${patchset}/${KERNEL_VERSION}/*.patch
+        echo "Applying patchset ${patchset}"
+        git apply ${patchset}/*.patch
     done
 
     arch=$(uname -m)
