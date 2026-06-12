@@ -101,12 +101,7 @@ impl SyncFileEngine {
         }
     }
 
-    pub fn write_zeroes(
-        &mut self,
-        offset: u64,
-        len: u64,
-        unmap: bool,
-    ) -> Result<(), SyncIoError> {
+    pub fn write_zeroes(&mut self, offset: u64, len: u64, unmap: bool) -> Result<(), SyncIoError> {
         // UNMAP=1 reuses PUNCH_HOLE (the spec lets the device deallocate);
         // UNMAP=0 must zero in place without deallocating, so use ZERO_RANGE.
         let mode = if unmap {

@@ -335,5 +335,4 @@ mod tests {
 
         assert!(deserialized.cpu_template.is_none());
     }
-
 }

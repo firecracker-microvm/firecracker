@@ -5,16 +5,15 @@ use kvm_bindings::{kvm_mp_state, kvm_vcpu_init};
 use serde::{Deserialize, Serialize};
 
 use super::{GuestMemoryState, MMIODeviceInfo};
-
 // Types that are canonical in v1_14 and unchanged through all versions
 pub use crate::persist::v1_14::{
+    // Register vector with custom serde
+    Aarch64RegisterVec,
     // Legacy device type enum
     DeviceType,
     // GIC helper types (GicState itself changed — its_state added — so redefined in v1_14)
     GicRegState,
     GicVcpuState,
-    // Register vector with custom serde
-    Aarch64RegisterVec,
 };
 
 // ───────────────────────────────────────────────────────────────────

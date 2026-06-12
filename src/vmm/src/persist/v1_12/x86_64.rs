@@ -4,9 +4,9 @@
 use kvm_bindings::{kvm_clock_data, kvm_irqchip, kvm_pit_state2};
 use serde::{Deserialize, Serialize};
 
-use crate::{arch::VcpuState, persist::v1_14::x86_64::xsave_from_v1_10};
-
 use super::{GuestMemoryState, v1_10};
+use crate::arch::VcpuState;
+use crate::persist::v1_14::x86_64::xsave_from_v1_10;
 
 // ───────────────────────────────────────────────────────────────────
 // Changed in v1.12: memory moved into VmState; kvm_cap_modifiers → KvmState

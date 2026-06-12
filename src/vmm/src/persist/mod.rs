@@ -702,8 +702,7 @@ mod tests {
     use crate::vmm_config::balloon::BalloonDeviceConfig;
     use crate::vmm_config::net::NetworkInterfaceConfig;
     use crate::vmm_config::vsock::tests::default_config;
-    use crate::vstate::memory::create_memfd;
-    use crate::vstate::memory::{GuestMemoryRegionState, GuestRegionType};
+    use crate::vstate::memory::{GuestMemoryRegionState, GuestRegionType, create_memfd};
 
     fn default_vmm_with_devices() -> Vmm {
         let mut event_manager = EventManager::new().expect("Cannot create EventManager");

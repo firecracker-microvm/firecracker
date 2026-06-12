@@ -197,7 +197,8 @@ pub struct ConfigSpace {
     pub max_write_zeroes_seg: u32,       // offset 52
     pub write_zeroes_may_unmap: u8,      // offset 56
     pub(crate) _unused1: [u8; 3],        // offset 57 (spec field — virtio_blk_config.unused1)
-    pub(crate) _pad: [u8; 4],            // offset 60 (Rust alignment padding to 64; spec ends at 60)
+    pub(crate) _pad: [u8; 4],            /* offset 60 (Rust alignment padding to 64; spec ends
+                                          * at 60) */
 }
 const _: () = assert!(std::mem::size_of::<ConfigSpace>() == 64);
 // Compile-time guards against accidental layout drift. The byte offsets here

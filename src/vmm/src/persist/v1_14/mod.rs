@@ -18,8 +18,8 @@
 //! - aarch64 `VcpuState`: gains `pvtime_ipa`
 //! - `GuestMemoryRegionState`: gains `region_type` and `plugged`
 //! - `ACPIDeviceManagerState`: vmgenid now mandatory, adds vmclock (x86_64)
-//! - New types: `ConnectedDeviceState<T>`, `DevicesState`, `ResourceAllocator`,
-//!   `PmemState`, `VirtioMemState`, `MmdsState`, `GuestRegionType`, etc.
+//! - New types: `ConnectedDeviceState<T>`, `DevicesState`, `ResourceAllocator`, `PmemState`,
+//!   `VirtioMemState`, `MmdsState`, `GuestRegionType`, etc.
 
 use vm_allocator::{AddressAllocator, AllocPolicy, IdAllocator};
 
@@ -31,21 +31,21 @@ pub(crate) mod aarch64;
 #[cfg(target_arch = "aarch64")]
 pub use aarch64::*;
 
+#[cfg(target_arch = "x86_64")]
+use crate::arch::VmState;
 use crate::arch::{
     FIRST_ADDR_PAST_64BITS_MMIO, GSI_LEGACY_END, GSI_LEGACY_START, GSI_MSI_END, GSI_MSI_START,
     MEM_32BIT_DEVICES_SIZE, MEM_32BIT_DEVICES_START, MEM_64BIT_DEVICES_SIZE,
     MEM_64BIT_DEVICES_START, PAST_64BITS_MMIO_SIZE, SYSTEM_MEM_SIZE, SYSTEM_MEM_START,
 };
-#[cfg(target_arch = "x86_64")]
-use crate::arch::VmState;
 use crate::device_manager::DevicesState;
 use crate::device_manager::mmio::MMIODeviceInfo;
 use crate::device_manager::pci_mngr::PciDevicesState;
+#[cfg(target_arch = "aarch64")]
+use crate::device_manager::persist::ConnectedLegacyState;
 use crate::device_manager::persist::{
     ACPIDeviceManagerState, DeviceStates, MmdsState, VirtioDeviceState as ConnectedDeviceState,
 };
-#[cfg(target_arch = "aarch64")]
-use crate::device_manager::persist::ConnectedLegacyState;
 use crate::devices::acpi::vmgenid::VMGENID_MEM_SIZE;
 use crate::devices::virtio::balloon::device::HintingState;
 use crate::devices::virtio::balloon::persist::{BalloonState, BalloonStatsState};
@@ -89,16 +89,17 @@ pub(crate) fn irq_to_gsi(irq: u32) -> u32 {
 impl VirtioDeviceState {
     /// Convert v1.12 VirtioDeviceState → v1.14 VirtioDeviceState.
     ///
-    /// With v1.14, the `interrupt_status` moves from [`VirtioDeviceState`] to [`MmioTransportState`].
-    /// That's why we don't use `From<v1_12::VirtioDeviceState>` here, so we can return
-    /// `interrupt_status` separately.
+    /// With v1.14, the `interrupt_status` moves from [`VirtioDeviceState`] to
+    /// [`MmioTransportState`]. That's why we don't use `From<v1_12::VirtioDeviceState>` here,
+    /// so we can return `interrupt_status` separately.
     pub(crate) fn from(old_state: v1_12::VirtioDeviceState) -> (Self, u32) {
         let interrupt_status = old_state.interrupt_status;
         let new_state = VirtioDeviceState {
             device_type: old_state.device_type,
             avail_features: old_state.avail_features,
             acked_features: old_state.acked_features,
-            queues: old_state.queues, // QueueState is the same type (re-exported v1_10 → v1_12 → v1_14)
+            queues: old_state.queues, /* QueueState is the same type (re-exported v1_10 → v1_12 →
+                                       * v1_14) */
             activated: old_state.activated,
         };
         (new_state, interrupt_status)

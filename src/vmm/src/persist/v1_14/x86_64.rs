@@ -1,22 +1,17 @@
 // Copyright 2025 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
+pub use kvm_bindings::Xsave;
 use kvm_bindings::kvm_xsave;
 use vm_allocator::AllocPolicy;
 
-use super::v1_12;
+use super::{ACPIDeviceManagerState, GuestMemoryState, ResourceAllocator, v1_12};
+use crate::arch::VmState;
 use crate::devices::acpi::generated::vmclock_abi::{
     VMCLOCK_COUNTER_INVALID, VMCLOCK_MAGIC, VMCLOCK_STATUS_UNKNOWN, vmclock_abi,
 };
-use crate::{
-    arch::VmState,
-    devices::acpi::vmclock::{VMCLOCK_SIZE, VmClockState},
-    persist::v1_14::ConvertError,
-};
-
-use super::{ACPIDeviceManagerState, GuestMemoryState, ResourceAllocator};
-
-pub use kvm_bindings::Xsave;
+use crate::devices::acpi::vmclock::{VMCLOCK_SIZE, VmClockState};
+use crate::persist::v1_14::ConvertError;
 
 // ───────────────────────────────────────────────────────────────────
 // ACPI device state impl (x86_64: allocates vmclock)

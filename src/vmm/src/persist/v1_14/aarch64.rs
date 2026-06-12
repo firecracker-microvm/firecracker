@@ -3,20 +3,20 @@
 
 use serde::{Deserialize, Serialize};
 
-use super::{ACPIDeviceManagerState, ConvertError, GuestMemoryState, MMIODeviceInfo,
-            ResourceAllocator, irq_to_gsi};
-use crate::devices::acpi::vmgenid::VMGenIDState;
-use crate::persist::v1_12;
-
+use super::{
+    ACPIDeviceManagerState, ConvertError, GuestMemoryState, MMIODeviceInfo, ResourceAllocator,
+    irq_to_gsi,
+};
 // ───────────────────────────────────────────────────────────────────
 // Re-export runtime types — v1.14 snapshot format matches the runtime format.
 // These are used by v1.12 (and v1.10 via v1.12) as canonical type definitions.
 // ───────────────────────────────────────────────────────────────────
-
 pub use crate::arch::aarch64::gic::{GicRegState, GicState, GicVcpuState};
 pub use crate::arch::aarch64::regs::Aarch64RegisterVec;
 pub use crate::arch::aarch64::vcpu::VcpuState;
 pub use crate::arch::aarch64::vm::VmState;
+use crate::devices::acpi::vmgenid::VMGenIDState;
+use crate::persist::v1_12;
 
 // ───────────────────────────────────────────────────────────────────
 // StaticCpuTemplate — aarch64-specific snapshot enum (same in v1.10, v1.12, v1.14)

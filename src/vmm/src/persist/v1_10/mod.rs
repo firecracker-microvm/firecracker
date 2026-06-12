@@ -28,12 +28,6 @@ pub(crate) mod aarch64;
 #[cfg(target_arch = "aarch64")]
 pub use aarch64::*;
 
-// ───────────────────────────────────────────────────────────────────
-// Types identical to v1.12 — imported from that module (canonical source)
-// ───────────────────────────────────────────────────────────────────
-
-use crate::persist::VmInfo;
-
 pub use super::v1_12::{
     // ACPI device manager state (used in MicrovmState defined below)
     ACPIDeviceManagerState,
@@ -48,6 +42,10 @@ pub use super::v1_12::{
     NetState,
     VsockState,
 };
+// ───────────────────────────────────────────────────────────────────
+// Types identical to v1.12 — imported from that module (canonical source)
+// ───────────────────────────────────────────────────────────────────
+use crate::persist::VmInfo;
 
 // ───────────────────────────────────────────────────────────────────
 // MMIO device info (v1.10 uses `irqs: Vec<u32>`, changed to `irq: Option<u32>` in v1.11)

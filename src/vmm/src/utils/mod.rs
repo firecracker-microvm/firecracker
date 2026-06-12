@@ -5,12 +5,12 @@
 pub mod byte_order;
 /// Module with network related helpers
 pub mod net;
+/// Module with pagemap utilities
+pub mod pagemap;
 /// Module with external libc functions
 pub mod signal;
 /// Module with state machine
 pub mod sm;
-/// Module with pagemap utilities
-pub mod pagemap;
 
 use std::fs::{File, OpenOptions};
 use std::num::Wrapping;
