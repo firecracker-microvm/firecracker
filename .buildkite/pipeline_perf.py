@@ -108,6 +108,7 @@ REVISION_A = os.environ.get("REVISION_A")
 REVISION_B = os.environ.get("REVISION_B")
 REVISION_A_ARTIFACTS = os.environ.get("REVISION_A_ARTIFACTS")
 REVISION_B_ARTIFACTS = os.environ.get("REVISION_B_ARTIFACTS")
+A_B_TEST_MAX_ITERATIONS = 4
 
 # Either both are specified or neither. Only doing either is a bug. If you want to
 # run performance tests _on_ a specific commit, specify neither and put your commit
@@ -125,21 +126,11 @@ BKPipeline.parser.add_argument(
     action="append",
 )
 
-retry = {}
-if REVISION_A:
-    # Enable automatic retry and disable manual retries to suppress spurious issues.
-    retry["automatic"] = [
-        {"exit_status": -1, "limit": 1},
-        {"exit_status": 1, "limit": 1},
-    ]
-    retry["manual"] = False
-
 pipeline = BKPipeline(
     # Boost priority from 1 to 2 so these jobs are preferred by ag=1 agents
     priority=2,
     # use ag=1 instances to make sure no two performance tests are scheduled on the same instance
     agents={"ag": 1},
-    retry=retry,
     # Heavy post-failure dumps (full snapshot + chroot copy) are useful
     # for triaging performance flakes that are hard to reproduce locally.
     # Cheap dumps are always on; this flag turns the heavy block on.
@@ -163,7 +154,7 @@ for test in tests:
     artifacts = []
     if REVISION_A:
         devtool_opts += " --ab"
-        test_script_opts = f'{ab_opts} run --binaries-a build/{REVISION_A}/ --binaries-b build/{REVISION_B} --pytest-opts "{test_selector}"'
+        test_script_opts = f'{ab_opts} run --binaries-a build/{REVISION_A}/ --binaries-b build/{REVISION_B} --max-iterations={A_B_TEST_MAX_ITERATIONS} --pytest-opts "{test_selector}"'
         if REVISION_A_ARTIFACTS:
             artifacts.append(REVISION_A_ARTIFACTS)
             artifacts.append(REVISION_B_ARTIFACTS)

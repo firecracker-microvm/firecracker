@@ -20,11 +20,12 @@ import argparse
 import glob
 import json
 import os
+import shutil
 import subprocess
 import time
 from collections import defaultdict
 from pathlib import Path
-from typing import Callable, List, Optional, TypeVar
+from typing import List, Optional
 
 import numpy
 import scipy
@@ -254,6 +255,9 @@ def collect_data(
     test_path = f"test_results/{tag}"
     test_report_path = f"{test_path}/test-report.json"
 
+    # Cleaning the report directory, to ensure we start from a clean state.
+    shutil.rmtree(test_path, ignore_errors=True)
+
     # It is not possible to just download them here this script is usually run inside docker
     # and artifacts downloading does not work inside it.
     if artifacts:
@@ -309,7 +313,7 @@ def analyze_data(
     Analyzes the A/B-test data produced by `collect_data`, by performing regression tests
     as described this script's doc-comment.
 
-    Returns a mapping of dimensions and properties/metrics to the result of their regression test.
+    Returns the list of error messages (empty if the test passes).
     """
     assert set(data_a.keys()) == set(
         data_b.keys()
@@ -390,7 +394,7 @@ def analyze_data(
                 result.statistic / baseline_mean
             )
 
-    messages = []
+    error_messages = []
     do_not_print_list = uninteresting_dimensions(data_a)
     for dimension_set, metric, result, unit in failures:
         # Sanity check as described above
@@ -415,33 +419,21 @@ def analyze_data(
                 f"characteristics did not change across the tested commits, has a probability of {result.pvalue:.2%}. "
                 f"Tested Dimensions:\n{json.dumps({k: v for k, v in dimension_set if k not in do_not_print_list}, indent=2, sort_keys=True)}"
             )
-            messages.append(msg)
+            error_messages.append(msg)
 
-    assert not messages, "\n" + "\n".join(messages)
-    print("No regressions detected!")
-
-
-T = TypeVar("T")
-U = TypeVar("U")
+    return error_messages
 
 
-def binary_ab_test(
-    test_runner: Callable[[Path, Optional[Path], bool], T],
-    comparator: Callable[[T, T], U],
-    *,
-    a_directory: Path,
-    b_directory: Path,
-    a_artifacts: Optional[Path],
-    b_artifacts: Optional[Path],
-):
-    """
-    Similar to `git_ab_test`, but instead of locally checking out different revisions, it operates on
-    directories containing firecracker/jailer binaries
-    """
-    result_a = test_runner(a_directory, a_artifacts, True)
-    result_b = test_runner(b_directory, b_artifacts, False)
-
-    return result_a, result_b, comparator(result_a, result_b)
+def merge_data(accumulated, new_data):
+    """Merge new_data into accumulated by appending values lists for each metric."""
+    for dimension_set, metrics in new_data.items():
+        if dimension_set not in accumulated:
+            accumulated[dimension_set] = {}
+        for metric, (values, unit) in metrics.items():
+            if metric in accumulated[dimension_set]:
+                accumulated[dimension_set][metric][0].extend(values)
+            else:
+                accumulated[dimension_set][metric] = (list(values), unit)
 
 
 def ab_performance_test(
@@ -453,29 +445,52 @@ def ab_performance_test(
     p_thresh,
     strength_abs_thresh,
     noise_threshold,
+    max_iterations=1,
 ):
-    """Does an A/B-test of the specified test with the given firecracker/jailer binaries"""
+    """Does an A/B-test of the specified test with the given firecracker/jailer binaries.
 
-    return binary_ab_test(
-        lambda bin_dir, art_dir, is_a: collect_data(
-            is_a and "A" or "B", bin_dir, art_dir, pytest_opts
-        ),
-        lambda ah, be: analyze_data(
-            ah,
-            be,
+    Retries up to max_iterations times, accumulating data only for dimensions
+    that are still failing, to reduce noise-induced false positives."""
+
+    data_a = {}
+    data_b = {}
+    error_messages = []
+
+    for i in range(max_iterations):
+        print(f"\n=== Iteration {i + 1}/{max_iterations} ===")
+        # Changing the order or A and B executions across iterations, to avoid fluctuations caused by execution order
+        if i % 2 == 0:
+            new_a = collect_data("A", a_directory, a_artifacts, pytest_opts)
+            new_b = collect_data("B", b_directory, b_artifacts, pytest_opts)
+        else:
+            new_b = collect_data("B", b_directory, b_artifacts, pytest_opts)
+            new_a = collect_data("A", a_directory, a_artifacts, pytest_opts)
+        merge_data(data_a, new_a)
+        merge_data(data_b, new_b)
+
+        error_messages = analyze_data(
+            data_a,
+            data_b,
             p_thresh,
             strength_abs_thresh,
             noise_threshold,
             n_resamples=int(100 / p_thresh),
-        ),
-        a_directory=a_directory,
-        b_directory=b_directory,
-        a_artifacts=a_artifacts,
-        b_artifacts=b_artifacts,
-    )
+        )
+
+        if not error_messages:
+            print("No regressions detected!")
+            return
+
+        if i < max_iterations - 1:
+            print(
+                f"{len(error_messages)} regression(s) detected, retrying to collect more data..."
+            )
+
+    assert not error_messages, "\n" + "\n".join(error_messages)
 
 
-if __name__ == "__main__":
+def main():
+    """The main function when invoking the script"""
     parser = argparse.ArgumentParser(
         description="Executes Firecracker's A/B testsuite across the specified commits"
     )
@@ -516,6 +531,12 @@ if __name__ == "__main__":
         "--pytest-opts",
         help="Parameters to pass through to pytest, for example for test selection",
         required=True,
+    )
+    run_parser.add_argument(
+        "--max-iterations",
+        help="Maximum number of A/B iterations. Retries only if regressions are detected, accumulating more data to reduce false positives.",
+        type=int,
+        default=1,
     )
     analyze_parser = subparsers.add_parser(
         "analyze",
@@ -562,6 +583,7 @@ if __name__ == "__main__":
             args.significance,
             args.absolute_strength,
             args.noise_threshold,
+            max_iterations=args.max_iterations,
         )
         print(f"Total A/B test took {time.perf_counter() - t0:.2f}s")
     else:
@@ -572,7 +594,7 @@ if __name__ == "__main__":
         print(f"Data loading took {t_load:.2f}s")
 
         t0 = time.perf_counter()
-        analyze_data(
+        error_messages = analyze_data(
             data_a,
             data_b,
             args.significance,
@@ -581,3 +603,9 @@ if __name__ == "__main__":
         )
         t_analyze = time.perf_counter() - t0
         print(f"Analysis took {t_analyze:.2f}s")
+        assert not error_messages, "\n" + "\n".join(error_messages)
+        print("No regressions detected!")
+
+
+if __name__ == "__main__":
+    main()
