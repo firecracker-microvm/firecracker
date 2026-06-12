@@ -27,6 +27,7 @@ use super::{
     VIRTIO_BALLOON_S_OOM_KILL, VIRTIO_BALLOON_S_SWAP_IN, VIRTIO_BALLOON_S_SWAP_OUT,
 };
 use crate::devices::virtio::balloon::BalloonError;
+use crate::devices::virtio::balloon::metrics::BalloonDeviceMetrics;
 use crate::devices::virtio::device::{ActiveState, VirtioDeviceType};
 use crate::devices::virtio::generated::virtio_config::VIRTIO_F_VERSION_1;
 use crate::devices::virtio::queue::InvalidAvailIdx;
@@ -215,7 +216,7 @@ pub struct BalloonStats {
 }
 
 impl BalloonStats {
-    fn update_with_stat(&mut self, stat: &BalloonStat) {
+    fn update_with_stat(&mut self, stat: &BalloonStat, metrics: &Arc<BalloonDeviceMetrics>) {
         let val = Some(stat.val);
         match stat.tag {
             VIRTIO_BALLOON_S_SWAP_IN => self.swap_in = val,
@@ -235,7 +236,7 @@ impl BalloonStats {
             VIRTIO_BALLOON_S_ASYNC_RECLAIM => self.async_reclaim = val,
             VIRTIO_BALLOON_S_DIRECT_RECLAIM => self.direct_reclaim = val,
             tag => {
-                METRICS.stats_update_fails.inc();
+                metrics.stats_update_fails.inc();
                 debug!("balloon: unknown stats update tag: {tag}");
             }
         }
@@ -268,6 +269,8 @@ pub struct Balloon {
 
     // Holds state for free page hinting
     pub(crate) hinting_state: HintingState,
+    // Device metrics instance.
+    pub(crate) metrics: Arc<BalloonDeviceMetrics>,
 }
 
 impl Balloon {
@@ -312,6 +315,10 @@ impl Balloon {
             .collect::<Result<Vec<_>, _>>()?;
 
         let stats_timer = TimerFd::new();
+        let metrics = Arc::new(BalloonDeviceMetrics::default());
+        let _ = METRICS
+            .set(metrics.clone())
+            .inspect_err(|_| warn!("Balloon metrics are already initialized!"));
 
         Ok(Balloon {
             avail_features,
@@ -331,6 +338,7 @@ impl Balloon {
             latest_stats: BalloonStats::default(),
             pfn_buffer: [0u32; MAX_PAGE_COMPACT_BUFFER],
             hinting_state: Default::default(),
+            metrics,
         })
     }
 
@@ -381,7 +389,7 @@ impl Balloon {
             .active_state()
             .ok_or(BalloonError::DeviceNotActive)?
             .mem;
-        METRICS.inflate_count.inc();
+        self.metrics.inflate_count.inc();
 
         let queue = &mut self.queues[INFLATE_INDEX];
         // The pfn buffer index used during descriptor processing.
@@ -468,7 +476,7 @@ impl Balloon {
     }
 
     pub(crate) fn process_deflate_queue(&mut self) -> Result<(), BalloonError> {
-        METRICS.deflate_count.inc();
+        self.metrics.deflate_count.inc();
 
         let queue = &mut self.queues[DEFLATE_INDEX];
         let mut needs_interrupt = false;
@@ -489,7 +497,7 @@ impl Balloon {
     pub(crate) fn process_stats_queue(&mut self) -> Result<(), BalloonError> {
         // This is safe since we checked in the event handler that the device is activated.
         let mem = &self.device_state.active_state().unwrap().mem;
-        METRICS.stats_updates_count.inc();
+        self.metrics.stats_updates_count.inc();
 
         while let Some(head) = self.queues[STATS_INDEX].pop()? {
             if let Some(prev_stats_desc) = self.stats_desc_index {
@@ -527,7 +535,7 @@ impl Balloon {
                 let stat = mem
                     .read_obj::<BalloonStat>(addr)
                     .map_err(|_| BalloonError::MalformedDescriptor)?;
-                self.latest_stats.update_with_stat(&stat);
+                self.latest_stats.update_with_stat(&stat, &self.metrics);
             }
 
             self.stats_desc_index = Some(head.index);
@@ -592,12 +600,12 @@ impl Balloon {
                     continue;
                 }
 
-                METRICS.free_page_hint_count.inc();
+                self.metrics.free_page_hint_count.inc();
                 if let Err(err) = mem.discard_range(desc.addr, desc.len as usize) {
-                    METRICS.free_page_hint_fails.inc();
+                    self.metrics.free_page_hint_fails.inc();
                     error!("balloon hinting: failed to remove range: {err:?}");
                 } else {
-                    METRICS.free_page_hint_freed.add(desc.len as u64);
+                    self.metrics.free_page_hint_freed.add(desc.len as u64);
                 }
             }
 
@@ -634,12 +642,12 @@ impl Balloon {
 
             let mut last_desc = Some(head);
             while let Some(desc) = last_desc {
-                METRICS.free_page_report_count.inc();
+                self.metrics.free_page_report_count.inc();
                 if let Err(err) = mem.discard_range(desc.addr, desc.len as usize) {
-                    METRICS.free_page_report_fails.inc();
+                    self.metrics.free_page_report_fails.inc();
                     error!("balloon: failed to remove range: {err:?}");
                 } else {
-                    METRICS.free_page_report_freed.add(desc.len as u64);
+                    self.metrics.free_page_report_freed.add(desc.len as u64);
                 }
                 last_desc = desc.next_descriptor();
             }
@@ -664,7 +672,7 @@ impl Balloon {
                     .unwrap_or_else(|_| panic!("balloon: invalid queue id: {qidx}")),
             ))
             .map_err(|err| {
-                METRICS.event_fails.inc();
+                self.metrics.event_fails.inc();
                 BalloonError::InterruptError(err)
             })
     }
@@ -886,6 +894,14 @@ impl Balloon {
     pub(crate) fn set_stats_desc_index(&mut self, stats_desc_index: Option<u16>) {
         self.stats_desc_index = stats_desc_index;
     }
+
+    pub(crate) fn report_balloon_event_fail(&self, err: BalloonError) {
+        if let BalloonError::InvalidAvailIdx(err) = err {
+            panic!("{}", err);
+        }
+        error!("{:?}", err);
+        self.metrics.event_fails.inc();
+    }
 }
 
 impl VirtioDevice for Balloon {
@@ -963,7 +979,7 @@ impl VirtioDevice for Balloon {
 
         self.device_state = DeviceState::Activated(ActiveState { mem, interrupt });
         if self.activate_evt.write(1).is_err() {
-            METRICS.activate_fails.inc();
+            self.metrics.activate_fails.inc();
             self.device_state = DeviceState::Inactive;
             return Err(ActivateError::EventFd);
         }
@@ -1001,7 +1017,6 @@ pub(crate) mod tests {
     use super::super::BALLOON_CONFIG_SPACE_SIZE;
     use super::*;
     use crate::arch::host_page_size;
-    use crate::check_metric_after_block;
     use crate::devices::virtio::balloon::report_balloon_event_fail;
     use crate::devices::virtio::balloon::test_utils::{
         check_request_completion, invoke_handler_for_queue_event, set_request,
@@ -1092,53 +1107,54 @@ pub(crate) mod tests {
             tag: VIRTIO_BALLOON_S_SWAP_IN,
             val: 1,
         };
+        let metrics = Arc::new(BalloonDeviceMetrics::default());
 
-        stats.update_with_stat(&stat);
+        stats.update_with_stat(&stat, &metrics);
         assert_eq!(stats.swap_in, Some(1));
         stat.tag = VIRTIO_BALLOON_S_SWAP_OUT;
-        stats.update_with_stat(&stat);
+        stats.update_with_stat(&stat, &metrics);
         assert_eq!(stats.swap_out, Some(1));
         stat.tag = VIRTIO_BALLOON_S_MAJFLT;
-        stats.update_with_stat(&stat);
+        stats.update_with_stat(&stat, &metrics);
         assert_eq!(stats.major_faults, Some(1));
         stat.tag = VIRTIO_BALLOON_S_MINFLT;
-        stats.update_with_stat(&stat);
+        stats.update_with_stat(&stat, &metrics);
         assert_eq!(stats.minor_faults, Some(1));
         stat.tag = VIRTIO_BALLOON_S_MEMFREE;
-        stats.update_with_stat(&stat);
+        stats.update_with_stat(&stat, &metrics);
         assert_eq!(stats.free_memory, Some(1));
         stat.tag = VIRTIO_BALLOON_S_MEMTOT;
-        stats.update_with_stat(&stat);
+        stats.update_with_stat(&stat, &metrics);
         assert_eq!(stats.total_memory, Some(1));
         stat.tag = VIRTIO_BALLOON_S_AVAIL;
-        stats.update_with_stat(&stat);
+        stats.update_with_stat(&stat, &metrics);
         assert_eq!(stats.available_memory, Some(1));
         stat.tag = VIRTIO_BALLOON_S_CACHES;
-        stats.update_with_stat(&stat);
+        stats.update_with_stat(&stat, &metrics);
         assert_eq!(stats.disk_caches, Some(1));
         stat.tag = VIRTIO_BALLOON_S_HTLB_PGALLOC;
-        stats.update_with_stat(&stat);
+        stats.update_with_stat(&stat, &metrics);
         assert_eq!(stats.hugetlb_allocations, Some(1));
         stat.tag = VIRTIO_BALLOON_S_HTLB_PGFAIL;
-        stats.update_with_stat(&stat);
+        stats.update_with_stat(&stat, &metrics);
         assert_eq!(stats.hugetlb_failures, Some(1));
         stat.tag = VIRTIO_BALLOON_S_OOM_KILL;
-        stats.update_with_stat(&stat);
+        stats.update_with_stat(&stat, &metrics);
         assert_eq!(stats.oom_kill, Some(1));
         stat.tag = VIRTIO_BALLOON_S_ALLOC_STALL;
-        stats.update_with_stat(&stat);
+        stats.update_with_stat(&stat, &metrics);
         assert_eq!(stats.alloc_stall, Some(1));
         stat.tag = VIRTIO_BALLOON_S_ASYNC_SCAN;
-        stats.update_with_stat(&stat);
+        stats.update_with_stat(&stat, &metrics);
         assert_eq!(stats.async_scan, Some(1));
         stat.tag = VIRTIO_BALLOON_S_DIRECT_SCAN;
-        stats.update_with_stat(&stat);
+        stats.update_with_stat(&stat, &metrics);
         assert_eq!(stats.direct_scan, Some(1));
         stat.tag = VIRTIO_BALLOON_S_ASYNC_RECLAIM;
-        stats.update_with_stat(&stat);
+        stats.update_with_stat(&stat, &metrics);
         assert_eq!(stats.async_reclaim, Some(1));
         stat.tag = VIRTIO_BALLOON_S_DIRECT_RECLAIM;
-        stats.update_with_stat(&stat);
+        stats.update_with_stat(&stat, &metrics);
         assert_eq!(stats.direct_reclaim, Some(1));
     }
 
@@ -1390,13 +1406,10 @@ pub(crate) mod tests {
                 VIRTQ_DESC_F_NEXT,
             );
 
-            check_metric_after_block!(
-                METRICS.event_fails,
-                1,
-                balloon
-                    .process_inflate_queue_event()
-                    .unwrap_or_else(report_balloon_event_fail)
-            );
+            balloon
+                .process_inflate_queue_event()
+                .unwrap_or_else(|e| report_balloon_event_fail(e, balloon.metrics.clone()));
+            assert_eq!(balloon.metrics.event_fails.count(), 1);
             // Verify that nothing got processed.
             assert_eq!(infq.used.idx.get(), 0);
 
@@ -1417,11 +1430,8 @@ pub(crate) mod tests {
                 VIRTQ_DESC_F_NEXT,
             );
 
-            check_metric_after_block!(
-                METRICS.inflate_count,
-                1,
-                invoke_handler_for_queue_event(&mut balloon, INFLATE_INDEX)
-            );
+            invoke_handler_for_queue_event(&mut balloon, INFLATE_INDEX);
+            assert_eq!(balloon.metrics.inflate_count.count(), 1);
             check_request_completion(&infq, 0);
 
             // Check that the page was zeroed.
@@ -1452,13 +1462,10 @@ pub(crate) mod tests {
                 SIZE_OF_U32.try_into().unwrap(),
                 VIRTQ_DESC_F_NEXT,
             );
-            check_metric_after_block!(
-                METRICS.event_fails,
-                1,
-                balloon
-                    .process_deflate_queue_event()
-                    .unwrap_or_else(report_balloon_event_fail)
-            );
+            balloon
+                .process_deflate_queue_event()
+                .unwrap_or_else(|e| report_balloon_event_fail(e, balloon.metrics.clone()));
+            assert_eq!(balloon.metrics.event_fails.count(), 1);
             // Verify that nothing got processed.
             assert_eq!(defq.used.idx.get(), 0);
         }
@@ -1472,11 +1479,8 @@ pub(crate) mod tests {
                 SIZE_OF_U32.try_into().unwrap(),
                 VIRTQ_DESC_F_NEXT,
             );
-            check_metric_after_block!(
-                METRICS.deflate_count,
-                1,
-                invoke_handler_for_queue_event(&mut balloon, DEFLATE_INDEX)
-            );
+            invoke_handler_for_queue_event(&mut balloon, DEFLATE_INDEX);
+            assert_eq!(balloon.metrics.deflate_count.count(), 1);
             check_request_completion(&defq, 1);
         }
     }
@@ -1503,13 +1507,10 @@ pub(crate) mod tests {
                 SIZE_OF_STAT.try_into().unwrap(),
                 VIRTQ_DESC_F_NEXT,
             );
-            check_metric_after_block!(
-                METRICS.event_fails,
-                1,
-                balloon
-                    .process_stats_queue_event()
-                    .unwrap_or_else(report_balloon_event_fail)
-            );
+            balloon
+                .process_stats_queue_event()
+                .unwrap_or_else(|e| report_balloon_event_fail(e, balloon.metrics.clone()));
+            assert_eq!(balloon.metrics.event_fails.count(), 1);
             // Verify that nothing got processed.
             assert_eq!(statsq.used.idx.get(), 0);
         }
@@ -1541,12 +1542,11 @@ pub(crate) mod tests {
                 2 * u32::try_from(SIZE_OF_STAT).unwrap(),
                 VIRTQ_DESC_F_NEXT,
             );
-            check_metric_after_block!(METRICS.stats_updates_count, 1, {
-                // Trigger the queue event.
-                balloon.queue_events()[STATS_INDEX].write(1).unwrap();
-                balloon.process_stats_queue_event().unwrap();
-                // Don't check for completion yet.
-            });
+            // Trigger the queue event.
+            balloon.queue_events()[STATS_INDEX].write(1).unwrap();
+            balloon.process_stats_queue_event().unwrap();
+            assert_eq!(balloon.metrics.stats_updates_count.count(), 1);
+            // Don't check for completion yet.
 
             let stats = balloon.latest_stats().unwrap();
             let expected_stats = BalloonStats {
@@ -1560,16 +1560,20 @@ pub(crate) mod tests {
             // we could just process the timer event and it would not
             // return an error.
             std::thread::sleep(Duration::from_secs(1));
-            check_metric_after_block!(METRICS.event_fails, 0, {
-                // Trigger the timer event, which consumes the stats
-                // descriptor index and signals the used queue.
-                assert!(balloon.stats_desc_index.is_some());
-                balloon.process_stats_timer_event().unwrap();
-                assert!(balloon.stats_desc_index.is_none());
-                assert!(balloon.interrupt_trigger().has_pending_interrupt(
-                    VirtioInterruptType::Queue(STATS_INDEX.try_into().unwrap())
-                ));
-            });
+            // Trigger the timer event, which consumes the stats
+            // descriptor index and signals the used queue.
+            assert!(balloon.stats_desc_index.is_some());
+            balloon.process_stats_timer_event().unwrap();
+            assert!(balloon.stats_desc_index.is_none());
+
+            assert!(
+                balloon
+                    .interrupt_trigger()
+                    .has_pending_interrupt(VirtioInterruptType::Queue(
+                        STATS_INDEX.try_into().unwrap()
+                    ))
+            );
+            assert_eq!(balloon.metrics.event_fails.count(), 1);
         }
     }
 
@@ -1591,10 +1595,10 @@ pub(crate) mod tests {
         let safe_addr = align_up(th.data_address(), page_size);
 
         th.add_scatter_gather(reporting_idx, 0, &[(0, safe_addr, page_size_chain, 0)]);
-        check_metric_after_block!(
-            METRICS.free_page_report_freed,
-            page_size,
-            invoke_handler_for_queue_event(&mut th.device(), reporting_idx)
+        invoke_handler_for_queue_event(&mut th.device(), reporting_idx);
+        assert_eq!(
+            th.device().metrics.free_page_report_freed.count(),
+            page_size
         );
 
         // Test with multiple items
@@ -1608,20 +1612,17 @@ pub(crate) mod tests {
             ],
         );
 
-        check_metric_after_block!(
-            METRICS.free_page_report_freed,
-            page_size * 3,
-            invoke_handler_for_queue_event(&mut th.device(), reporting_idx)
+        invoke_handler_for_queue_event(&mut th.device(), reporting_idx);
+        assert_eq!(
+            th.device().metrics.free_page_report_freed.count(),
+            page_size * 4
         );
 
         // Test with unaligned length
         th.add_scatter_gather(reporting_idx, 0, &[(1, safe_addr + 1, page_size_chain, 0)]);
 
-        check_metric_after_block!(
-            METRICS.free_page_report_fails,
-            1,
-            invoke_handler_for_queue_event(&mut th.device(), reporting_idx)
-        );
+        invoke_handler_for_queue_event(&mut th.device(), reporting_idx);
+        assert_eq!(th.device().metrics.free_page_report_fails.count(), 1);
     }
 
     struct HintingTestHelper<'a> {
@@ -1677,7 +1678,7 @@ pub(crate) mod tests {
                 .ack_interrupt(VirtioInterruptType::Config);
         }
 
-        fn send_stop(&mut self, cmd: Option<u32>) {
+        fn send_stop(&mut self, cmd: Option<u32>, expected: u64) {
             let cmd = cmd.unwrap_or(FREE_PAGE_HINT_STOP);
 
             self.mem
@@ -1696,10 +1697,11 @@ pub(crate) mod tests {
                     ),
                 ],
             );
-            check_metric_after_block!(
-                METRICS.free_page_hint_freed,
-                0,
-                self.th.device().process_free_page_hinting_queue()
+            let before = self.th.device().metrics.free_page_hint_freed.count();
+            self.th.device().process_free_page_hinting_queue();
+            assert_eq!(
+                self.th.device().metrics.free_page_hint_freed.count(),
+                expected
             );
             self.th
                 .device()
@@ -1738,11 +1740,12 @@ pub(crate) mod tests {
                     )]
                 }
             };
+
             self.th.add_scatter_gather(self.hinting_idx, 0, &payload);
-            check_metric_after_block!(
-                METRICS.free_page_hint_freed,
-                expected,
-                invoke_handler_for_queue_event(&mut self.th.device(), self.hinting_idx)
+            invoke_handler_for_queue_event(&mut self.th.device(), self.hinting_idx);
+            assert_eq!(
+                self.th.device().metrics.free_page_hint_freed.count(),
+                expected
             );
         }
     }
@@ -1800,12 +1803,12 @@ pub(crate) mod tests {
         // Trigger another hinting run this will bump the cmd id
         // so we should ignore any inflight requests
         ht.start_hinting(None);
-        ht.test_hinting(None, 0);
+        ht.test_hinting(None, 4096);
 
         // Update to our new host cmd and check this now works
         host_cmd = ht.th.device().get_hinting_status().unwrap().host_cmd;
-        ht.test_hinting(Some(host_cmd), ht.page_size);
-        ht.test_hinting(None, ht.page_size);
+        ht.test_hinting(Some(host_cmd), ht.page_size * 2);
+        ht.test_hinting(None, ht.page_size * 3);
     }
 
     #[test]
@@ -1819,9 +1822,9 @@ pub(crate) mod tests {
 
         // Simulate the driver finishing a run. Any reported values after
         // should be ignored
-        ht.send_stop(None);
+        ht.send_stop(None, 0);
         // Test we handle invalid cmd from driver
-        ht.send_stop(Some(FREE_PAGE_HINT_DONE));
+        ht.send_stop(Some(FREE_PAGE_HINT_DONE), 0);
         ht.test_hinting(None, 0);
 
         // As we had auto ack on finish the host cmd should be set to done
@@ -1845,9 +1848,9 @@ pub(crate) mod tests {
 
         host_cmd = ht.th.device().get_hinting_status().unwrap().host_cmd;
         ht.test_hinting(Some(host_cmd), ht.page_size);
-        ht.test_hinting(None, ht.page_size);
+        ht.test_hinting(None, ht.page_size * 2);
 
-        ht.send_stop(None);
+        ht.send_stop(None, 8192);
         let new_host_cmd = ht.th.device().get_hinting_status().unwrap().host_cmd;
         assert_eq!(host_cmd, new_host_cmd);
     }
@@ -1862,7 +1865,7 @@ pub(crate) mod tests {
         let mut host_cmd = ht.th.device().get_hinting_status().unwrap().host_cmd;
 
         ht.test_hinting(Some(host_cmd), ht.page_size);
-        ht.test_hinting(None, ht.page_size);
+        ht.test_hinting(None, ht.page_size * 2);
 
         ht.th.add_scatter_gather(
             ht.hinting_idx,
@@ -1870,11 +1873,8 @@ pub(crate) mod tests {
             &[(0, ht.safe_addr + ht.page_size + 1, ht.page_size_chain, 0)],
         );
 
-        check_metric_after_block!(
-            METRICS.free_page_hint_fails,
-            1,
-            ht.th.device().process_free_page_hinting_queue().unwrap()
-        );
+        ht.th.device().process_free_page_hinting_queue().unwrap();
+        assert_eq!(ht.th.device().metrics.free_page_hint_fails.count(), 1);
     }
 
     #[test]
