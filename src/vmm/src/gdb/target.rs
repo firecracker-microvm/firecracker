@@ -233,6 +233,23 @@ impl FirecrackerTarget {
         Ok(())
     }
 
+    /// Pauses every vcpu that is still running so the whole VM is stopped while GDB
+    /// is in control (all-stop semantics, as QEMU does via `pause_all_vcpus`). The
+    /// vcpu that triggered the stop is already paused; this halts its still-running
+    /// siblings so they can be enumerated and inspected (`info threads`, `thread N`,
+    /// per-vCPU backtraces). `send_event` kicks a running or halted vcpu out of
+    /// `KVM_RUN`, so this completes even for idle siblings.
+    pub fn pause_all_vcpus(&mut self) -> Result<(), GdbTargetError> {
+        for cpu_id in 0..self.vcpu_state.len() {
+            if !self.vcpu_state[cpu_id].paused {
+                let tid = vcpuid_to_tid(cpu_id)?;
+                self.pause_vcpu(tid)?;
+            }
+        }
+
+        Ok(())
+    }
+
     /// Resets all Vcpus to their base state
     fn reset_all_vcpu_states(&mut self) {
         for value in self.vcpu_state.iter_mut() {
