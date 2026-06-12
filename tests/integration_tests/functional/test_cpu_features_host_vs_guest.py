@@ -210,6 +210,53 @@ INTEL_ICELAKE_HOST_ONLY_FEATS_6_18 = INTEL_ICELAKE_HOST_ONLY_FEATS_6_1 - {
     "flush_l1d",
 } | {"la57"}
 
+# CPU features not available when running in a non-metal EC2 C8i, M8i, and R8i instance
+EC2_CMR8i_VIRT_UNAVAILABLE = {
+    "acpi",
+    "arch_lbr",
+    "art",
+    "bts",
+    "cat_l2",
+    "cat_l3",
+    "cdp_l2",
+    "cdp_l3",
+    "cqm",
+    "cqm_llc",
+    "cqm_mbm_local",
+    "cqm_mbm_total",
+    "cqm_occup_llc",
+    "dca",
+    "ds_cpl",
+    "dtes64",
+    "dtherm",
+    "dts",
+    "enqcmd",
+    "epb",
+    "est",
+    "hwp",
+    "hwp_act_window",
+    "hwp_epp",
+    "hwp_pkg_req",
+    "ibpb_exit_to_user",
+    "ibt",
+    "intel_ppin",
+    "intel_pt",
+    "la57",
+    "mba",
+    "pbe",
+    "pconfig",
+    "pebs",
+    "pln",
+    "pts",
+    "rdt_a",
+    "sdbg",
+    "smx",
+    "split_lock_detect",
+    "tm",
+    "tm2",
+    "xtpr",
+}
+
 
 def test_host_vs_guest_cpu_features(uvm):
     """Check CPU features host vs guest"""
@@ -456,6 +503,12 @@ def test_host_vs_guest_cpu_features(uvm):
                     # Granite Rapids host kernel 6.18 enables split lock detection (a
                     # host-only synthesized bit; the guest can't read MSR 0x33).
                     expected_host_minus_guest |= {"split_lock_detect"}
+
+            if global_props.is_ec2_virt:
+                # These features aren't available in the host
+                expected_host_minus_guest -= EC2_CMR8i_VIRT_UNAVAILABLE
+                # Both host and guest run under an hypervisor
+                expected_guest_minus_host -= {"hypervisor"}
 
             assert host_feats - guest_feats == expected_host_minus_guest
             assert guest_feats - host_feats == expected_guest_minus_host
