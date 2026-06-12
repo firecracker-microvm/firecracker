@@ -22,6 +22,7 @@ import json
 import os
 import statistics
 import subprocess
+import time
 from collections import defaultdict
 from pathlib import Path
 from typing import Callable, List, Optional, TypeVar
@@ -49,7 +50,6 @@ UNIT_REDUCTIONS = {
     "Gigabits/Second": "Terabits/Second",
 }
 INV_UNIT_REDUCTIONS = {v: k for k, v in UNIT_REDUCTIONS.items()}
-
 
 UNIT_SHORTHANDS = {
     "Seconds": "s",
@@ -318,6 +318,7 @@ def analyze_data(
 
     results = {}
 
+    t0 = time.perf_counter()
     for dimension_set in data_a:
         metrics_a = data_a[dimension_set]
         metrics_b = data_b[dimension_set]
@@ -331,6 +332,8 @@ def analyze_data(
                 values_a, metrics_b[metric][0], n_resamples=n_resamples
             )
             results[dimension_set, metric] = (result, unit)
+
+    print(f"Regression tests took {time.perf_counter() - t0:.2f}s")
 
     # We sort our A/B-Testing results keyed by metric here. The resulting lists of values
     # will be approximately normal distributed, and we will use this property as a means of error correction.
@@ -550,6 +553,7 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     if args.command == "run":
+        t0 = time.perf_counter()
         ab_performance_test(
             args.binaries_a,
             args.binaries_b,
@@ -560,10 +564,15 @@ if __name__ == "__main__":
             args.absolute_strength,
             args.noise_threshold,
         )
+        print(f"Total A/B test took {time.perf_counter() - t0:.2f}s")
     else:
+        t0 = time.perf_counter()
         data_a = load_data_series(args.path_a)
         data_b = load_data_series(args.path_b)
+        t_load = time.perf_counter() - t0
+        print(f"Data loading took {t_load:.2f}s")
 
+        t0 = time.perf_counter()
         analyze_data(
             data_a,
             data_b,
@@ -571,3 +580,5 @@ if __name__ == "__main__":
             args.absolute_strength,
             args.noise_threshold,
         )
+        t_analyze = time.perf_counter() - t0
+        print(f"Analysis took {t_analyze:.2f}s")
