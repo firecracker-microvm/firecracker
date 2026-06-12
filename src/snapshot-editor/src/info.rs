@@ -66,6 +66,13 @@ fn info_vcpu_states(snapshot: &Snapshot<MicrovmState>) -> Result<(), InfoVmState
     for (i, state) in snapshot.data.vcpu_states.iter().enumerate() {
         println!("vcpu {i}:");
         println!("{state:#?}");
+        // The derived Debug of `saved_msrs` only shows the kvm_msrs headers, not
+        // the entries (a FAM array). Print index/data so tooling can read MSR
+        // values (e.g. LSTAR, to recover the KASLR slide from a snapshot).
+        #[cfg(target_arch = "x86_64")]
+        for entry in state.saved_msrs.iter().flat_map(|m| m.as_slice()) {
+            println!("    msr index={:#x} data={:#x}", entry.index, entry.data);
+        }
     }
     Ok(())
 }
