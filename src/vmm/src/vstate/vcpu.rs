@@ -8,7 +8,7 @@
 use std::os::fd::AsRawFd;
 use std::sync::atomic::{Ordering, fence};
 use std::sync::mpsc::{Receiver, Sender, TryRecvError, channel};
-use std::sync::{Arc, Barrier};
+use std::sync::{Arc, Barrier, Condvar, Mutex};
 use std::{fmt, io, thread};
 
 use kvm_bindings::{KVM_SYSTEM_EVENT_RESET, KVM_SYSTEM_EVENT_SHUTDOWN};
@@ -163,13 +163,16 @@ impl Vcpu {
         unsafe { Ok(vm.fd().create_vcpu_from_rawfd(r)?) }
     }
 
-    /// Moves the vcpu to its own thread and constructs a VcpuHandle.
-    /// The handle can be used to control the remote vcpu.
+    /// Moves the vcpu to its own thread and constructs a VcpuHandle. If
+    /// `run_gate` is set, the vcpu thread waits on it just before its first
+    /// KVM_RUN, gating the controller on AP readiness.
     pub fn start_threaded(
         mut self,
         vm: &KvmVm,
         seccomp_filter: Arc<BpfProgram>,
         barrier: Arc<Barrier>,
+        entry_state: VcpuEntryState,
+        run_gate: Option<VcpuRunGate>,
     ) -> Result<VcpuHandle, StartThreadedError> {
         let event_sender = self.event_sender.take().expect("vCPU already started");
         let response_receiver = self.response_receiver.take().unwrap();
@@ -183,7 +186,7 @@ impl Vcpu {
                 self.register_kick_signal_handler();
                 // Synchronization to make sure thread local data is initialized.
                 barrier.wait();
-                self.run(filter);
+                self.run(filter, entry_state, run_gate);
             })
             .map_err(StartThreadedError::Spawn)?;
 
@@ -200,7 +203,12 @@ impl Vcpu {
     /// Runs the vCPU in KVM context in a loop. Handles KVM_EXITs then goes back in.
     /// Note that the state of the VCPU and associated VM must be setup first for this to do
     /// anything useful.
-    pub fn run(&mut self, seccomp_filter: BpfProgramRef) {
+    pub fn run(
+        &mut self,
+        seccomp_filter: BpfProgramRef,
+        entry_state: VcpuEntryState,
+        run_gate: Option<VcpuRunGate>,
+    ) {
         // Load seccomp filters for this vCPU thread.
         // Execution panics if filters cannot be loaded, use --no-seccomp if skipping filters
         // altogether is the desired behaviour.
@@ -211,8 +219,18 @@ impl Vcpu {
             );
         }
 
-        // Start running the machine state in the `Paused` state.
-        StateMachine::run(self, Self::paused);
+        match entry_state {
+            VcpuEntryState::Paused => StateMachine::run(self, Self::paused),
+            VcpuEntryState::Running => {
+                if let Some(gate) = run_gate
+                    && !gate.mark_ready_and_wait()
+                {
+                    StateMachine::run(self, Self::paused);
+                    return;
+                }
+                StateMachine::run(self, Self::running);
+            }
+        }
     }
 
     // This is the main loop of the `Running` state.
@@ -508,6 +526,112 @@ fn handle_kvm_exit(
     }
 }
 
+/// Initial state for a vcpu thread spun up by [`Vcpu::start_threaded`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum VcpuEntryState {
+    /// Wait for a Resume event over the mpsc channel before entering KVM_RUN.
+    Paused,
+    /// Enter KVM_RUN directly.
+    Running,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum VcpuRunGateState {
+    Pending,
+    Run,
+    Abort,
+}
+
+#[derive(Debug)]
+struct VcpuRunGateInner {
+    state: VcpuRunGateState,
+    ready_count: usize,
+    released_count: usize,
+}
+
+/// Coordinates cold-boot AP readiness and the final transition into KVM_RUN.
+#[derive(Debug, Clone)]
+pub struct VcpuRunGate {
+    inner: Arc<(Mutex<VcpuRunGateInner>, Condvar)>,
+}
+
+impl VcpuRunGate {
+    /// Creates a new vCPU run gate.
+    pub fn new() -> Self {
+        Self {
+            inner: Arc::new((
+                Mutex::new(VcpuRunGateInner {
+                    state: VcpuRunGateState::Pending,
+                    ready_count: 0,
+                    released_count: 0,
+                }),
+                Condvar::new(),
+            )),
+        }
+    }
+
+    /// Marks a vCPU as ready to enter KVM_RUN and waits for launch.
+    ///
+    /// Returns false when startup was aborted before the vCPU was released.
+    pub fn mark_ready_and_wait(&self) -> bool {
+        let (lock, cvar) = &*self.inner;
+        let mut inner = lock.lock().expect("Poisoned lock");
+        inner.ready_count += 1;
+        cvar.notify_all();
+
+        while inner.state == VcpuRunGateState::Pending {
+            inner = cvar.wait(inner).expect("Poisoned lock");
+        }
+
+        let should_run = inner.state == VcpuRunGateState::Run;
+        if should_run {
+            inner.released_count += 1;
+            cvar.notify_all();
+        }
+
+        should_run
+    }
+
+    /// Waits until `expected` vCPUs reached the gate.
+    pub fn wait_until_ready(&self, expected: usize) {
+        let (lock, cvar) = &*self.inner;
+        let mut inner = lock.lock().expect("Poisoned lock");
+        while inner.ready_count < expected && inner.state == VcpuRunGateState::Pending {
+            inner = cvar.wait(inner).expect("Poisoned lock");
+        }
+    }
+
+    /// Releases waiting vCPUs and waits until they all pass the gate.
+    pub fn run_and_wait_until_released(&self, expected: usize) {
+        let (lock, cvar) = &*self.inner;
+        let mut inner = lock.lock().expect("Poisoned lock");
+        inner.state = VcpuRunGateState::Run;
+        cvar.notify_all();
+
+        while inner.released_count < expected {
+            inner = cvar.wait(inner).expect("Poisoned lock");
+        }
+    }
+
+    /// Moves waiting vCPUs back to the paused state.
+    pub fn abort(&self) {
+        self.set_state(VcpuRunGateState::Abort);
+    }
+
+    fn set_state(&self, state: VcpuRunGateState) {
+        let (lock, cvar) = &*self.inner;
+        let mut inner = lock.lock().expect("Poisoned lock");
+        inner.state = state;
+        cvar.notify_all();
+    }
+}
+
+impl Default for VcpuRunGate {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 /// List of events that the Vcpu can receive.
 #[derive(Debug, Clone)]
 pub enum VcpuEvent {
@@ -680,6 +804,59 @@ pub(crate) mod tests {
         fn write(&mut self, _base: u64, _offset: u64, _data: &[u8]) -> Option<Arc<Barrier>> {
             None
         }
+    }
+
+    #[test]
+    fn test_vcpu_run_gate_releases_waiters() {
+        let gate = VcpuRunGate::new();
+        let thread_gate = gate.clone();
+        let (tx, rx) = std::sync::mpsc::channel();
+
+        let handle = std::thread::spawn(move || {
+            tx.send(thread_gate.mark_ready_and_wait()).unwrap();
+        });
+
+        gate.wait_until_ready(1);
+        {
+            let (lock, _) = &*gate.inner;
+            let inner = lock.lock().expect("Poisoned lock");
+            assert_eq!(inner.state, VcpuRunGateState::Pending);
+            assert_eq!(inner.ready_count, 1);
+            assert_eq!(inner.released_count, 0);
+        }
+
+        gate.run_and_wait_until_released(1);
+
+        assert!(rx.recv_timeout(RECV_TIMEOUT_SEC).unwrap());
+        handle.join().unwrap();
+
+        let (lock, _) = &*gate.inner;
+        let inner = lock.lock().expect("Poisoned lock");
+        assert_eq!(inner.state, VcpuRunGateState::Run);
+        assert_eq!(inner.released_count, 1);
+    }
+
+    #[test]
+    fn test_vcpu_run_gate_abort_unblocks_waiters_without_releasing() {
+        let gate = VcpuRunGate::new();
+        let thread_gate = gate.clone();
+        let (tx, rx) = std::sync::mpsc::channel();
+
+        let handle = std::thread::spawn(move || {
+            tx.send(thread_gate.mark_ready_and_wait()).unwrap();
+        });
+
+        gate.wait_until_ready(1);
+        gate.abort();
+
+        assert!(!rx.recv_timeout(RECV_TIMEOUT_SEC).unwrap());
+        handle.join().unwrap();
+
+        let (lock, _) = &*gate.inner;
+        let inner = lock.lock().expect("Poisoned lock");
+        assert_eq!(inner.state, VcpuRunGateState::Abort);
+        assert_eq!(inner.ready_count, 1);
+        assert_eq!(inner.released_count, 0);
     }
 
     #[test]
@@ -917,6 +1094,8 @@ pub(crate) mod tests {
                 &vm,
                 seccomp_filters.remove("vcpu").unwrap(),
                 barrier.clone(),
+                VcpuEntryState::Paused,
+                None,
             )
             .expect("failed to start vcpu");
         // Wait for vCPUs to initialize their TLS before moving forward.

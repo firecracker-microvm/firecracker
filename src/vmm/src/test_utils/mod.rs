@@ -17,6 +17,7 @@ use crate::vmm_config::instance_info::InstanceInfo;
 use crate::vmm_config::machine_config::HugePageConfig;
 use crate::vmm_config::memory_hotplug::MemoryHotplugConfig;
 use crate::vstate::memory::{self, GuestMemoryMmap, GuestRegionMmap, GuestRegionMmapExt};
+use crate::vstate::vcpu::VcpuEntryState;
 use crate::{EventManager, Vmm};
 
 pub mod mock_resources;
@@ -105,17 +106,19 @@ pub fn create_vmm(
         });
     }
 
+    let entry_state = if boot_microvm {
+        VcpuEntryState::Running
+    } else {
+        VcpuEntryState::Paused
+    };
     let vmm = build_microvm_for_boot(
         &InstanceInfo::default(),
         &resources,
         &mut event_manager,
         &empty_seccomp_filters,
+        entry_state,
     )
     .unwrap();
-
-    if boot_microvm {
-        vmm.lock().unwrap().resume_vm().unwrap();
-    }
 
     (vmm, event_manager)
 }

@@ -10,8 +10,9 @@ use std::fmt::Debug;
 use std::sync::Arc;
 
 use kvm_bindings::{
-    CpuId, KVM_MAX_CPUID_ENTRIES, KVM_MAX_MSR_ENTRIES, Msrs, Xsave, kvm_debugregs, kvm_lapic_state,
-    kvm_mp_state, kvm_regs, kvm_sregs, kvm_vcpu_events, kvm_xcrs, kvm_xsave, kvm_xsave2,
+    CpuId, KVM_MAX_CPUID_ENTRIES, KVM_MAX_MSR_ENTRIES, KVM_MP_STATE_INIT_RECEIVED,
+    KVM_MP_STATE_RUNNABLE, Msrs, Xsave, kvm_debugregs, kvm_lapic_state, kvm_mp_state, kvm_regs,
+    kvm_sregs, kvm_vcpu_events, kvm_xcrs, kvm_xsave, kvm_xsave2,
 };
 use kvm_ioctls::{VcpuExit, VcpuFd};
 use serde::{Deserialize, Serialize};
@@ -136,6 +137,8 @@ pub enum KvmVcpuConfigureError {
     SetupSpecialRegisters(#[from] SetupSpecialRegistersError),
     /// Failed to configure LAPICs: {0}
     SetLint(#[from] interrupts::InterruptError),
+    /// Failed to set initial multiprocessor state: {0}
+    SetMpState(vmm_sys_util::errno::Error),
 }
 
 /// A wrapper around creating and using a kvm x86_64 vcpu.
@@ -263,6 +266,19 @@ impl KvmVcpu {
         crate::arch::x86_64::regs::setup_fpu(&self.fd)?;
         crate::arch::x86_64::regs::setup_sregs(guest_mem, &self.fd, kernel_entry_point.protocol)?;
         crate::arch::x86_64::interrupts::set_lint(&self.fd)?;
+
+        // BSP runnable, APs wait-for-SIPI.
+        let mp_state = kvm_mp_state {
+            mp_state: if self.index == 0 {
+                KVM_MP_STATE_RUNNABLE
+            } else {
+                KVM_MP_STATE_INIT_RECEIVED
+            },
+        };
+        self.fd
+            .set_mp_state(mp_state)
+            .map_err(KvmVcpuConfigureError::SetMpState)?;
+
         Ok(())
     }
 

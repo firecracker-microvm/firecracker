@@ -38,7 +38,7 @@ use crate::vstate::memory::{
     GuestRegionMmap, GuestRegionMmapExt, MemoryError,
 };
 use crate::vstate::resources::ResourceAllocator;
-use crate::vstate::vcpu::{StartThreadedError, VcpuError, VcpuHandle};
+use crate::vstate::vcpu::{StartThreadedError, VcpuEntryState, VcpuError, VcpuHandle, VcpuRunGate};
 use crate::{DirtyBitmap, Vcpu, mem_size_mib};
 
 /// Error type for [`KvmVm::start_vcpus`].
@@ -48,6 +48,140 @@ pub enum StartVcpusError {
     SetTerminalMode(#[from] vmm_sys_util::errno::Error),
     /// Vcpu handle error: {0}
     VcpuHandle(#[from] StartThreadedError),
+}
+
+/// Holds cold-boot vCPUs until the VMM thread has completed final setup.
+///
+/// APs are parked behind `ap_run_gate`; the BSP starts in Paused state and is
+/// resumed only after APs are released.
+#[derive(Debug)]
+#[must_use = "cold-boot vCPUs remain parked until this guard is launched; dropping it aborts startup"]
+pub struct VcpuLaunchGuard {
+    vm: Arc<KvmVm>,
+    ap_run_gate: Option<VcpuRunGate>,
+    ap_count: usize,
+    armed: bool,
+}
+
+impl VcpuLaunchGuard {
+    fn new(vm: Arc<KvmVm>, ap_run_gate: Option<VcpuRunGate>, ap_count: usize) -> Self {
+        Self {
+            vm,
+            ap_run_gate,
+            ap_count,
+            armed: true,
+        }
+    }
+
+    /// Releases APs into KVM_RUN, then resumes the BSP.
+    pub fn launch(mut self) -> Result<(), crate::VmmError> {
+        if let Some(gate) = self.ap_run_gate.take() {
+            gate.run_and_wait_until_released(self.ap_count);
+        }
+
+        self.resume_bsp()?;
+
+        self.armed = false;
+        Ok(())
+    }
+
+    fn resume_bsp(&self) -> Result<(), crate::VmmError> {
+        let mut handles = self.vm.vcpus_handles();
+        let Some(handle) = handles.first_mut() else {
+            return Ok(());
+        };
+
+        handle
+            .send_event(crate::VcpuEvent::Resume)
+            .map_err(|_| crate::VmmError::VcpuMessage)?;
+
+        if !matches!(
+            handle
+                .response_receiver()
+                .recv_timeout(crate::RECV_TIMEOUT_SEC),
+            Ok(crate::VcpuResponse::Resumed)
+        ) {
+            return Err(crate::VmmError::VcpuMessage);
+        }
+
+        Ok(())
+    }
+
+    fn abort(&mut self) {
+        if let Some(gate) = self.ap_run_gate.take() {
+            gate.abort();
+        }
+        self.vm.shutdown_vcpus();
+        self.armed = false;
+    }
+}
+
+impl Drop for VcpuLaunchGuard {
+    fn drop(&mut self) {
+        if self.armed {
+            self.abort();
+        }
+    }
+}
+
+/// Result of moving vCPUs onto their runtime threads.
+#[derive(Debug)]
+#[must_use = "cold-boot vCPUs may be waiting on a launch guard that must be launched"]
+pub enum VcpuStartState {
+    /// vCPUs were started in Paused state and are waiting for explicit Resume events.
+    Paused,
+    /// Cold-boot vCPUs are parked until the guard is launched.
+    ReadyToRun(VcpuLaunchGuard),
+}
+
+struct VcpuStartAccumulator {
+    slots: Vec<Option<VcpuHandle>>,
+    ap_run_gate: Option<VcpuRunGate>,
+    armed: bool,
+}
+
+impl VcpuStartAccumulator {
+    fn new(vcpu_count: usize, ap_run_gate: Option<VcpuRunGate>) -> Self {
+        Self {
+            slots: (0..vcpu_count).map(|_| None).collect(),
+            ap_run_gate,
+            armed: true,
+        }
+    }
+
+    fn slots_mut(&mut self) -> &mut [Option<VcpuHandle>] {
+        &mut self.slots
+    }
+
+    fn into_slots(mut self) -> Vec<Option<VcpuHandle>> {
+        self.armed = false;
+        std::mem::take(&mut self.slots)
+    }
+}
+
+impl Drop for VcpuStartAccumulator {
+    fn drop(&mut self) {
+        if self.armed {
+            if let Some(gate) = &self.ap_run_gate {
+                gate.abort();
+            }
+            shutdown_vcpu_slots(&mut self.slots);
+        }
+    }
+}
+
+fn shutdown_vcpu_slots(slots: &mut [Option<VcpuHandle>]) {
+    for (idx, slot) in slots.iter_mut().enumerate() {
+        if let Some(handle) = slot.as_mut()
+            && let Err(err) = handle.send_event(crate::VcpuEvent::Finish)
+        {
+            crate::logger::error!("Failed to send VcpuEvent::Finish to vCPU {}: {}", idx, err);
+        }
+    }
+
+    for slot in slots.iter_mut() {
+        drop(slot.take());
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -232,19 +366,18 @@ impl KvmVm {
         self.common.uffd = uffd;
     }
 
-    /// Starts the microVM vCPUs.
+    /// Starts the microVM vCPUs. On cold boot (`Running`), APs spawn into a
+    /// gated Running state and BSP spawns in Paused state. The returned launch
+    /// state releases them after the caller completes final setup.
     ///
     /// Sets the terminal to raw/non-blocking mode, then spawns a thread per vCPU
-    /// and stores the resulting handles. The barrier is used to synchronize TLS
     /// initialization across all vCPU threads before returning.
     pub fn start_vcpus(
         self: &Arc<Self>,
-        mut vcpus: Vec<Vcpu>,
+        vcpus: Vec<Vcpu>,
         vcpu_seccomp_filter: Arc<crate::seccomp::BpfProgram>,
-    ) -> Result<(), StartVcpusError> {
-        let vcpu_count = vcpus.len();
-        let barrier = Arc::new(Barrier::new(vcpu_count + 1));
-
+        entry_state: VcpuEntryState,
+    ) -> Result<VcpuStartState, StartVcpusError> {
         let stdin = std::io::stdin().lock();
         stdin.set_raw_mode().inspect_err(|&err| {
             crate::logger::warn!("Cannot set raw mode for the terminal. {:?}", err);
@@ -253,22 +386,92 @@ impl KvmVm {
             crate::logger::warn!("Cannot set non block for the terminal. {:?}", err);
         })?;
 
+        let count = vcpus.len();
+        let ap_run_gate = (entry_state == VcpuEntryState::Running).then(VcpuRunGate::new);
+        let mut started = VcpuStartAccumulator::new(count, ap_run_gate.clone());
+
+        let start_state = match entry_state {
+            VcpuEntryState::Paused => {
+                self.spawn_vcpu_batch(
+                    vcpus,
+                    &vcpu_seccomp_filter,
+                    VcpuEntryState::Paused,
+                    None,
+                    started.slots_mut(),
+                )?;
+                VcpuStartState::Paused
+            }
+            VcpuEntryState::Running => {
+                let mut iter = vcpus.into_iter();
+                let bsp = iter.next();
+                let aps: Vec<Vcpu> = iter.collect();
+                let ap_count = aps.len();
+
+                if let Some(gate) = &ap_run_gate
+                    && ap_count > 0
+                {
+                    self.spawn_vcpu_batch(
+                        aps,
+                        &vcpu_seccomp_filter,
+                        VcpuEntryState::Running,
+                        Some(gate.clone()),
+                        started.slots_mut(),
+                    )?;
+                    gate.wait_until_ready(ap_count);
+                }
+
+                if let Some(bsp_vcpu) = bsp {
+                    self.spawn_vcpu_batch(
+                        vec![bsp_vcpu],
+                        &vcpu_seccomp_filter,
+                        VcpuEntryState::Paused,
+                        None,
+                        started.slots_mut(),
+                    )?;
+                }
+                VcpuStartState::ReadyToRun(VcpuLaunchGuard::new(
+                    self.clone(),
+                    ap_run_gate.clone().filter(|_| ap_count > 0),
+                    ap_count,
+                ))
+            }
+        };
+
         let mut handles = self.vcpus_handles();
-        handles.reserve(vcpu_count);
+        handles.reserve(count);
+        for slot in started.into_slots().into_iter() {
+            handles.push(slot.expect("vcpu handle missing for index"));
+        }
+
+        Ok(start_state)
+    }
+
+    /// Spawns a batch of vcpu threads. Each handle is placed in `slots` at
+    /// `Vcpu::index`.
+    fn spawn_vcpu_batch(
+        self: &Arc<Self>,
+        mut vcpus: Vec<Vcpu>,
+        vcpu_seccomp_filter: &Arc<crate::seccomp::BpfProgram>,
+        entry_state: VcpuEntryState,
+        run_gate: Option<VcpuRunGate>,
+        slots: &mut [Option<VcpuHandle>],
+    ) -> Result<(), StartVcpusError> {
         for mut vcpu in vcpus.drain(..) {
+            let idx = vcpu.kvm_vcpu.index as usize;
             vcpu.set_mmio_bus(self.common.mmio_bus.clone());
             #[cfg(target_arch = "x86_64")]
             vcpu.kvm_vcpu.set_pio_bus(self.pio_bus.clone());
-
-            handles.push(vcpu.start_threaded(
+            let tls_barrier = Arc::new(Barrier::new(2));
+            let handle = vcpu.start_threaded(
                 self,
                 vcpu_seccomp_filter.clone(),
-                barrier.clone(),
-            )?);
+                tls_barrier.clone(),
+                entry_state,
+                run_gate.clone(),
+            )?;
+            slots[idx] = Some(handle);
+            tls_barrier.wait();
         }
-        drop(handles);
-        barrier.wait();
-
         Ok(())
     }
 
