@@ -394,8 +394,11 @@ pub fn restore_from_snapshot(
             cpu_template: Some(microvm_state.vm_info.cpu_template),
             track_dirty_pages: Some(track_dirty_pages),
             huge_pages: Some(microvm_state.vm_info.huge_pages),
+            // GDB socket is a restore-time override carried on the load request,
+            // applied here so the restore-path gdb server (which reads
+            // machine_config.gdb_socket_path) starts.
             #[cfg(feature = "gdb")]
-            gdb_socket_path: None,
+            gdb_socket_path: params.gdb_socket_path.clone(),
         })
         .map_err(BuildMicrovmFromSnapshotError::VmUpdateConfig)?;
 

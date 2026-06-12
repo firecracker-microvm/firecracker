@@ -133,6 +133,18 @@ impl std::convert::From<linux_loader::cmdline::Error> for StartMicrovmError {
     }
 }
 
+/// Resolves the GDB unix socket path. An explicit `machine-config.gdb_socket_path`
+/// takes precedence; otherwise fall back to the `FIRECRACKER_GDB_SOCKET` environment
+/// variable. The env fallback lets tooling that launches Firecracker (e.g. the e2b
+/// orchestrator / resume-build, which inherit the environment) enable GDB without
+/// setting machine-config.
+#[cfg(feature = "gdb")]
+fn resolve_gdb_socket_path(configured: &Option<String>) -> Option<String> {
+    configured
+        .clone()
+        .or_else(|| std::env::var("FIRECRACKER_GDB_SOCKET").ok())
+}
+
 /// Builds and starts a microVM based on the current Firecracker VmResources configuration.
 ///
 /// The built microVM and all the created vCPUs start off in the paused state.
@@ -343,9 +355,16 @@ pub fn build_microvm_for_boot(
         .map_err(VmmError::VcpuStart)?;
 
     #[cfg(feature = "gdb")]
-    if let Some(gdb_socket_path) = &vm_resources.machine_config.gdb_socket_path {
-        gdb::gdb_thread(vmm.clone(), gdb_rx, entry_point.entry_addr, gdb_socket_path)
-            .map_err(StartMicrovmError::GdbServer)?;
+    if let Some(gdb_socket_path) =
+        resolve_gdb_socket_path(&vm_resources.machine_config.gdb_socket_path)
+    {
+        gdb::gdb_thread(
+            vmm.clone(),
+            gdb_rx,
+            entry_point.entry_addr,
+            &gdb_socket_path,
+        )
+        .map_err(StartMicrovmError::GdbServer)?;
     } else {
         debug!("No GDB socket provided not starting gdb server.");
     }
@@ -528,6 +547,31 @@ pub fn build_microvm_from_snapshot(
         page_size: vm_resources.machine_config.huge_pages.page_size(),
     };
 
+    // GDB debug support for restored microVMs (x86_64 only). Mirror the boot
+    // path: attach the debug-event channel to every restored vCPU before they
+    // start, then start the GDB server thread once the vCPUs are running. The
+    // server arms a hardware breakpoint at the restored instruction pointer so
+    // GDB takes control at the resume point on the first continue.
+    //
+    // Only wire the channel up when a GDB socket is actually configured: with no
+    // socket, no server thread drains the receiver, so a vCPU debug event would
+    // `send` on a dropped receiver and panic. Gating the attach keeps the channel
+    // paired with its consumer (and leaves the vCPUs' gdb_event as None otherwise).
+    #[cfg(all(feature = "gdb", target_arch = "x86_64"))]
+    let gdb_socket_path =
+        resolve_gdb_socket_path(&vm_resources.machine_config.gdb_socket_path);
+
+    #[cfg(all(feature = "gdb", target_arch = "x86_64"))]
+    let gdb_rx = if gdb_socket_path.is_some() {
+        let (gdb_tx, gdb_rx) = mpsc::channel();
+        vcpus
+            .iter_mut()
+            .for_each(|vcpu| vcpu.attach_debug_info(gdb_tx.clone()));
+        Some(gdb_rx)
+    } else {
+        None
+    };
+
     // Move vcpus to their own threads and start their state machine in the 'Paused' state.
     vmm.start_vcpus(
         vcpus,
@@ -539,6 +583,17 @@ pub fn build_microvm_from_snapshot(
 
     let vmm = Arc::new(Mutex::new(vmm));
     event_manager.add_subscriber(vmm.clone());
+
+    #[cfg(all(feature = "gdb", target_arch = "x86_64"))]
+    if let Some(gdb_socket_path) = gdb_socket_path {
+        // On restore the vCPUs resume at their saved RIP; arm the entry
+        // breakpoint there so GDB stops at the resume point.
+        let entry_addr = GuestAddress(microvm_state.vcpu_states[0].regs.rip);
+        gdb::gdb_thread(vmm.clone(), gdb_rx.unwrap(), entry_addr, &gdb_socket_path)
+            .map_err(StartMicrovmError::GdbServer)?;
+    } else {
+        debug!("No GDB socket provided not starting gdb server.");
+    }
 
     // Load seccomp filters for the VMM thread.
     // Keep this as the last step of the building process.

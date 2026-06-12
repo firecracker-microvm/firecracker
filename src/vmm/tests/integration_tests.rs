@@ -304,6 +304,8 @@ fn verify_load_snapshot(snapshot_file: TempFile, memory_file: TempFile) {
             resume_vm: true,
             network_overrides: vec![],
             clock_realtime: false,
+            #[cfg(feature = "gdb")]
+            gdb_socket_path: None,
         }))
         .unwrap();
 
@@ -390,6 +392,8 @@ fn verify_load_snap_disallowed_after_boot_resources(res: VmmAction, res_name: &s
         resume_vm: false,
         network_overrides: vec![],
         clock_realtime: false,
+        #[cfg(feature = "gdb")]
+        gdb_socket_path: None,
     });
     let err = preboot_api_controller.handle_preboot_request(req);
     assert!(

@@ -76,6 +76,10 @@ pub struct LoadSnapshotParams {
     /// advancing kvmclock by the wall-clock time elapsed since the snapshot was taken. When false
     /// (default), kvmclock resumes from where it was at snapshot time.
     pub clock_realtime: bool,
+    /// [gdb] When set, start the GDB server on this unix socket for the restored
+    /// guest. A restore-time override (not configured via machine-config).
+    #[cfg(feature = "gdb")]
+    pub gdb_socket_path: Option<String>,
 }
 
 /// Stores the configuration for loading a snapshot that is provided by the user.
@@ -108,6 +112,10 @@ pub struct LoadSnapshotConfig {
     /// [x86_64 only] When set to true, passes `KVM_CLOCK_REALTIME` to `KVM_SET_CLOCK` on restore.
     #[serde(default)]
     pub clock_realtime: bool,
+    /// [gdb] Unix socket path for the GDB server (debug builds only).
+    #[cfg(feature = "gdb")]
+    #[serde(default)]
+    pub gdb_socket_path: Option<String>,
 }
 
 /// Stores the configuration used for managing snapshot memory.

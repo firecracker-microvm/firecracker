@@ -1758,6 +1758,13 @@ definitions:
           elapsed since the snapshot was taken. When false (default), kvmclock resumes
           from where it was at snapshot time. This option may be extended to other clock
           sources and CPU architectures in the future."
+      gdb_socket_path:
+        type: string
+        description:
+          "Only available when Firecracker is built with the `gdb` feature. When set,
+          start the GDB server on this unix socket for the restored guest, for
+          source-level debugging of the guest kernel. Debug builds only; not for
+          production."
 
 
   TokenBucket:

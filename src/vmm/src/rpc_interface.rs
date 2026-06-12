@@ -1443,6 +1443,8 @@ mod tests {
                 resume_vm: false,
                 network_overrides: vec![],
                 clock_realtime: false,
+                #[cfg(feature = "gdb")]
+                gdb_socket_path: None,
             },
         )));
         check_unsupported(runtime_request(VmmAction::SetEntropyDevice(

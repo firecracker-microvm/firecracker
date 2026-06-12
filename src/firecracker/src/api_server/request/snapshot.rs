@@ -119,6 +119,8 @@ fn parse_put_snapshot_load(body: &Body) -> Result<ParsedRequest, RequestError> {
         resume_vm: snapshot_config.resume_vm,
         network_overrides: snapshot_config.network_overrides,
         clock_realtime: snapshot_config.clock_realtime,
+        #[cfg(feature = "gdb")]
+        gdb_socket_path: snapshot_config.gdb_socket_path,
     };
 
     // Construct the `ParsedRequest` object.
@@ -198,6 +200,8 @@ mod tests {
             resume_vm: false,
             network_overrides: vec![],
             clock_realtime: false,
+            #[cfg(feature = "gdb")]
+            gdb_socket_path: None,
         };
         let mut parsed_request = parse_put_snapshot(&Body::new(body), Some("load")).unwrap();
         assert!(
@@ -230,6 +234,8 @@ mod tests {
             resume_vm: false,
             network_overrides: vec![],
             clock_realtime: false,
+            #[cfg(feature = "gdb")]
+            gdb_socket_path: None,
         };
         let mut parsed_request = parse_put_snapshot(&Body::new(body), Some("load")).unwrap();
         assert!(
@@ -262,6 +268,8 @@ mod tests {
             resume_vm: true,
             network_overrides: vec![],
             clock_realtime: false,
+            #[cfg(feature = "gdb")]
+            gdb_socket_path: None,
         };
         let mut parsed_request = parse_put_snapshot(&Body::new(body), Some("load")).unwrap();
         assert!(
@@ -303,6 +311,8 @@ mod tests {
                 host_dev_name: String::from("vmtap2"),
             }],
             clock_realtime: false,
+            #[cfg(feature = "gdb")]
+            gdb_socket_path: None,
         };
         let mut parsed_request = parse_put_snapshot(&Body::new(body), Some("load")).unwrap();
         assert!(
@@ -332,6 +342,8 @@ mod tests {
             resume_vm: true,
             network_overrides: vec![],
             clock_realtime: false,
+            #[cfg(feature = "gdb")]
+            gdb_socket_path: None,
         };
         let parsed_request = parse_put_snapshot(&Body::new(body), Some("load")).unwrap();
         assert_eq!(
@@ -435,6 +447,8 @@ mod tests {
             resume_vm: false,
             network_overrides: vec![],
             clock_realtime: false,
+            #[cfg(feature = "gdb")]
+            gdb_socket_path: None,
         };
         let mut parsed_request = parse_put_snapshot(&Body::new(body), Some("load")).unwrap();
         assert!(
