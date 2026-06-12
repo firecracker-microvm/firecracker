@@ -66,9 +66,9 @@ def test_fph_wait_on_ack_negotiated(uvm_plain_6_1):
     features = _read_balloon_features(vm)
 
     # Format: LSB-first '0'/'1' string.
-    assert features[VIRTIO_BALLOON_F_FREE_PAGE_HINT] == "1", (
-        f"FREE_PAGE_HINT (bit 3) not negotiated; features={features!r}"
-    )
+    assert (
+        features[VIRTIO_BALLOON_F_FREE_PAGE_HINT] == "1"
+    ), f"FREE_PAGE_HINT (bit 3) not negotiated; features={features!r}"
     assert features[VIRTIO_BALLOON_F_HINT_WAIT_ON_ACK] == "1", (
         f"HINT_WAIT_ON_ACK (bit 6) not negotiated; features={features!r}. "
         "The guest kernel likely lacks the wait-on-ACK patch — did you "

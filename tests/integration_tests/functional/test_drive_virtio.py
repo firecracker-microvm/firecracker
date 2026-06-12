@@ -419,7 +419,9 @@ def test_discard(uvm_plain_any, microvm_factory, io_engine):
     # Disk is still mounted in the restored guest; write+trim again.
     _fill_and_trim(vm.ssh)
     st = os.stat(fs.path)
-    assert st.st_blocks * 512 < st.st_size, "backing file has no holes after trim post-restore"
+    assert (
+        st.st_blocks * 512 < st.st_size
+    ), "backing file has no holes after trim post-restore"
 
     metrics = vm.flush_metrics()
     assert metrics["block"]["discard_count"] > 0
@@ -451,12 +453,10 @@ def _exercise_write_zeroes(ssh):
     """Write random data, issue blkdiscard -z, verify zeros on /dev/vdb."""
     # Sysfs check: the kernel populates write_zeroes_max_bytes from the
     # negotiated feature; a non-zero value proves the feature is advertised.
-    _, stdout, _ = ssh.check_output(
-        "cat /sys/block/vdb/queue/write_zeroes_max_bytes"
-    )
-    assert int(stdout.strip()) > 0, (
-        f"Expected non-zero write_zeroes_max_bytes, got: {stdout.strip()}"
-    )
+    _, stdout, _ = ssh.check_output("cat /sys/block/vdb/queue/write_zeroes_max_bytes")
+    assert (
+        int(stdout.strip()) > 0
+    ), f"Expected non-zero write_zeroes_max_bytes, got: {stdout.strip()}"
     # Write random non-zero data so we can tell zeroing apart from
     # "the device was already zero".
     ssh.check_output("dd if=/dev/urandom of=/dev/vdb bs=1M count=1 conv=fsync")
@@ -525,8 +525,6 @@ def test_write_zeroes_not_advertised_for_read_only(uvm_plain_any, io_engine):
     _, stdout, _ = vm.ssh.check_output(
         "cat /sys/block/vdb/queue/write_zeroes_max_bytes"
     )
-    assert stdout.strip() == "0", (
-        f"Expected write_zeroes_max_bytes=0 for read-only device, got: {stdout.strip()}"
-    )
-
-
+    assert (
+        stdout.strip() == "0"
+    ), f"Expected write_zeroes_max_bytes=0 for read-only device, got: {stdout.strip()}"
