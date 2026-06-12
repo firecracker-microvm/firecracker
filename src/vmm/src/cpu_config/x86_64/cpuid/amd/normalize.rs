@@ -7,7 +7,7 @@ use crate::cpu_config::x86_64::cpuid::normalize::{
 };
 use crate::cpu_config::x86_64::cpuid::{
     BRAND_STRING_LENGTH, CpuidEntry, CpuidKey, CpuidRegisters, CpuidTrait, KvmCpuidFlags,
-    MissingBrandStringLeaves, VENDOR_ID_AMD, cpuid, cpuid_count,
+    MissingBrandStringLeaves, VENDOR_ID_AMD, VENDOR_ID_HYGON, cpuid, cpuid_count,
 };
 
 /// Error type for [`super::AmdCpuid::normalize`].
@@ -121,11 +121,12 @@ impl super::AmdCpuid {
     ///
     /// This function passes through leaves from the host CPUID, if this does not match the AMD
     /// specification it is possible to enter an indefinite loop. To avoid this, this will return an
-    /// error when the host CPUID vendor id does not match the AMD CPUID vendor id.
+    /// error when the host CPUID vendor id does not match the AMD or Hygon CPUID vendor id.
     fn passthrough_cache_topology(&mut self) -> Result<(), PassthroughCacheTopologyError> {
-        if get_vendor_id_from_host().map_err(PassthroughCacheTopologyError::NoVendorId)?
-            != *VENDOR_ID_AMD
-        {
+        let vendor =
+            get_vendor_id_from_host().map_err(PassthroughCacheTopologyError::NoVendorId)?;
+
+        if !matches!(&vendor, VENDOR_ID_AMD | VENDOR_ID_HYGON) {
             return Err(PassthroughCacheTopologyError::BadVendorId);
         }
 
