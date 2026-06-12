@@ -1,3 +1,6 @@
+// Copyright 2026 Amazon.com, Inc. or its affiliates. All Rights Reserved.
+// SPDX-License-Identifier: Apache-2.0
+
 //! Utilities for reading /proc/self/pagemap to track dirty pages.
 
 #![allow(clippy::cast_possible_wrap)]
