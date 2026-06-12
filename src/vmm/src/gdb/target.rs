@@ -219,6 +219,15 @@ impl FirecrackerTarget {
     /// Resumes execution of all paused Vcpus, update them with current kvm debug info
     /// and resumes
     fn resume_all_vcpus(&mut self) -> Result<(), GdbTargetError> {
+        // Every vcpu is paused at this point (all-stop), so it is blocked in its
+        // emulation loop and cannot emit a debug event. Any event still queued is
+        // therefore stale: a sibling that also hit the breakpoint before we stopped
+        // the VM. Drain these now — if left queued, the next `wait_for_stop_reason`
+        // would process a stale event against a vcpu that has since resumed, marking
+        // a running vcpu as paused and desyncing the pause/resume handshake until the
+        // vcpu threads exit (surfacing as a fatal GdbQueueError).
+        while self.gdb_event.try_recv().is_ok() {}
+
         for idx in 0..self.vcpu_state.len() {
             self.update_vcpu_kvm_debug(idx, &self.hw_breakpoints)?;
         }
