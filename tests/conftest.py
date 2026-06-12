@@ -32,7 +32,7 @@ import pytest
 
 import host_tools.cargo_build as build_tools
 from framework import defs, utils
-from framework.artifacts import ALL_GUEST_KERNELS, disks
+from framework.artifacts import ALL_GUEST_KERNELS, GuestKernel, disks
 from framework.defs import ARTIFACT_DIR, DEFAULT_BINARY_DIR
 from framework.microvm import HugePagesConfig, MicroVMFactory, SnapshotType
 from framework.properties import global_props
@@ -601,11 +601,13 @@ def guest_kernel(request, record_property):
     e.g. for tests of Firecracker functionality that don't depend on the
     guest kernel, use `@pin_guest_kernel(GUEST_KERNEL_DEFAULT)`.
     """
-    kernel_path = request.param
-    if kernel_path is None:
+    kernel = request.param
+    if kernel is None:
         pytest.fail(f"No kernel artifacts found in {ARTIFACT_DIR}")
-    record_property("guest_kernel", kernel_path.stem[2:])
-    return kernel_path
+    if not isinstance(kernel, GuestKernel):
+        kernel = GuestKernel.from_vmlinux(kernel)
+    record_property("guest_kernel", kernel.metric_id)
+    return kernel.vmlinux
 
 
 @pytest.fixture
