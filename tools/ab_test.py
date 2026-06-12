@@ -20,13 +20,13 @@ import argparse
 import glob
 import json
 import os
-import statistics
 import subprocess
 import time
 from collections import defaultdict
 from pathlib import Path
 from typing import Callable, List, Optional, TypeVar
 
+import numpy
 import scipy
 
 UNIT_REDUCTIONS = {
@@ -291,8 +291,7 @@ def check_regression(
     return scipy.stats.permutation_test(
         (a_samples, b_samples),
         # Compute the difference of means, such that a positive different indicates potential for regression.
-        lambda x, y: statistics.mean(y) - statistics.mean(x),
-        vectorized=False,
+        lambda x, y, axis: numpy.mean(y, axis=axis) - numpy.mean(x, axis=axis),
         n_resamples=n_resamples,
     )
 
@@ -380,7 +379,7 @@ def analyze_data(
         print(f"Doing A/B-test for dimensions {dimension_set} and property {metric}")
 
         values_a = data_a[dimension_set][metric][0]
-        baseline_mean = statistics.mean(values_a)
+        baseline_mean = numpy.mean(values_a)
 
         relative_changes_by_metric[metric].append(result.statistic / baseline_mean)
 
@@ -395,7 +394,7 @@ def analyze_data(
     do_not_print_list = uninteresting_dimensions(data_a)
     for dimension_set, metric, result, unit in failures:
         # Sanity check as described above
-        if abs(statistics.mean(relative_changes_by_metric[metric])) <= noise_threshold:
+        if abs(numpy.mean(relative_changes_by_metric[metric])) <= noise_threshold:
             continue
 
         # No data points for this metric were deemed significant
@@ -403,9 +402,9 @@ def analyze_data(
             continue
 
         # The significant data points themselves are above the noise threshold
-        if abs(statistics.mean(relative_changes_significant[metric])) > noise_threshold:
-            old_mean = statistics.mean(data_a[dimension_set][metric][0])
-            new_mean = statistics.mean(data_b[dimension_set][metric][0])
+        if abs(numpy.mean(relative_changes_significant[metric])) > noise_threshold:
+            old_mean = numpy.mean(data_a[dimension_set][metric][0])
+            new_mean = numpy.mean(data_b[dimension_set][metric][0])
 
             msg = (
                 f"\033[0;32m[Firecracker A/B-Test Runner]\033[0m A/B-testing shows a change of "
