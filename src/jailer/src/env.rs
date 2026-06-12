@@ -133,6 +133,33 @@ pub struct Env {
     uffd_dev_minor: Option<u32>,
 }
 
+/// Writes `line` (plus a trailing newline) to `dst` and sets its ownership to
+/// `uid`:`gid`.
+///
+/// The file is created exclusively (`O_CREAT | O_EXCL`, with `O_NOFOLLOW`), so
+/// the call only ever targets a newly created regular file. Ownership is then
+/// set with `fchown` on that descriptor, so it always applies to the file we
+/// just created.
+#[cfg(target_arch = "aarch64")]
+fn writeln_and_own_nofollow(
+    dst: &Path,
+    line: String,
+    uid: u32,
+    gid: u32,
+) -> Result<(), JailerError> {
+    let mut file = OpenOptions::new()
+        .write(true)
+        // `create_new` maps to `O_CREAT | O_EXCL`: fail if `dst` already exists.
+        .create_new(true)
+        .custom_flags(libc::O_NOFOLLOW)
+        .open(dst)
+        .map_err(|err| JailerError::Write(dst.to_path_buf(), err))?;
+    file.write_all(format!("{}\n", line).as_bytes())
+        .map_err(|err| JailerError::Write(dst.to_path_buf(), err))?;
+    fchown(&file, Some(uid), Some(gid))
+        .map_err(|err| JailerError::ChangeFileOwner(dst.to_path_buf(), err))
+}
+
 impl Env {
     pub fn new(
         arguments: &arg_parser::Arguments,
@@ -551,7 +578,7 @@ impl Env {
 
     #[cfg(target_arch = "aarch64")]
     fn copy_cache_info(&self) -> Result<(), JailerError> {
-        use crate::{readln_special, to_cstring, writeln_special};
+        use crate::readln_special;
 
         const HOST_CACHE_INFO: &str = "/sys/devices/system/cpu/cpu0/cache";
         // Based on https://elixir.free-electrons.com/linux/v4.9.62/source/arch/arm64/kernel/cacheinfo.c#L29.
@@ -595,18 +622,9 @@ impl Env {
                 let jailer_cache_file = jailer_path.join(entry);
 
                 if let Ok(line) = readln_special(&host_cache_file) {
-                    writeln_special(&jailer_cache_file, line)?;
-
-                    // We now change the permissions.
-                    let dest_path_cstr = to_cstring(&jailer_cache_file)?;
-                    // SAFETY: Safe because dest_path_cstr is null-terminated.
-                    SyscallReturnCode(unsafe {
-                        libc::chown(dest_path_cstr.as_ptr(), self.uid(), self.gid())
-                    })
-                    .into_empty_result()
-                    .map_err(|err| {
-                        JailerError::ChangeFileOwner(jailer_cache_file.to_owned(), err)
-                    })?;
+                    // Create the file and set its ownership through a single
+                    // descriptor.
+                    writeln_and_own_nofollow(&jailer_cache_file, line, self.uid(), self.gid())?;
                 }
             }
         }
@@ -615,7 +633,7 @@ impl Env {
 
     #[cfg(target_arch = "aarch64")]
     fn copy_midr_el1_info(&self) -> Result<(), JailerError> {
-        use crate::{readln_special, to_cstring, writeln_special};
+        use crate::readln_special;
 
         const HOST_MIDR_EL1_INFO: &str = "/sys/devices/system/cpu/cpu0/regs/identification";
 
@@ -627,16 +645,10 @@ impl Env {
         let host_midr_el1_file = PathBuf::from(format!("{}/midr_el1", HOST_MIDR_EL1_INFO));
         let jailer_midr_el1_file = jailer_midr_el1_directory.join("midr_el1");
 
-        // Read and copy the MIDR_EL1 file to Jailer
+        // Read the host MIDR_EL1 value and write it into the jail, owned by
+        // the jailed uid:gid.
         let line = readln_special(&host_midr_el1_file)?;
-        writeln_special(&jailer_midr_el1_file, line)?;
-
-        // Change the permissions.
-        let dest_path_cstr = to_cstring(&jailer_midr_el1_file)?;
-        // SAFETY: Safe because `dest_path_cstr` is null-terminated.
-        SyscallReturnCode(unsafe { libc::chown(dest_path_cstr.as_ptr(), self.uid(), self.gid()) })
-            .into_empty_result()
-            .map_err(|err| JailerError::ChangeFileOwner(jailer_midr_el1_file.to_owned(), err))?;
+        writeln_and_own_nofollow(&jailer_midr_el1_file, line, self.uid(), self.gid())?;
 
         Ok(())
     }
@@ -1430,6 +1442,11 @@ mod tests {
         mock_cgroups.add_v1_mounts().unwrap();
 
         let env = create_env(&mock_cgroups.proc_mounts_path);
+
+        // `copy_cache_info` now creates each file exclusively (`O_CREAT |
+        // O_EXCL`), so clear any leftovers from a previous run of this test
+        // (the jail path is deterministic) before recreating the hierarchy.
+        let _ = fs::remove_dir_all(env.chroot_dir());
 
         // Create the required chroot dir hierarchy.
         fs::create_dir_all(env.chroot_dir()).expect("Could not create dir hierarchy.");
