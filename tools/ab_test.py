@@ -151,10 +151,16 @@ IGNORED = [
         {"instance": instance, "performance_test": "test_network_latency"}
         for instance in ["m8g.metal-24xl", "m8g.metal-48xl"]
     ],
-    # MMDS metrics on m8i
+    # MMDS metrics on m8i, m7g and m8g
     *[
         {"instance": instance, "performance_test": "test_mmds_performance"}
-        for instance in ["m8i.metal-48xl", "m8i.metal-96xl"]
+        for instance in [
+            "m8i.metal-48xl",
+            "m8i.metal-96xl",
+            "m7g.metal",
+            "m8g.metal-24xl",
+            "m8g.metal-48xl",
+        ]
     ],
     # block latencies if guest uses async request submission
     {"fio_engine": "libaio", "metric": "clat_read"},
