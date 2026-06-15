@@ -1,7 +1,7 @@
 // Copyright 2025 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fmt::Debug;
 use std::ops::DerefMut;
 use std::sync::{Arc, Mutex};
@@ -435,9 +435,29 @@ impl<'a> Persist<'a> for PciDevices {
             return Ok(pci_devices);
         }
 
+        // Helper to validate that GSI IDs are unique across devices.
+        let resource_allocator = constructor_args.vm.resource_allocator();
+        let mut restored_msix_gsis = HashSet::new();
+        let mut validate_msix_gsis = |vectors: &[u32]| -> Result<(), PciManagerError> {
+            for gsi in vectors {
+                if !restored_msix_gsis.insert(*gsi) {
+                    return Err(InterruptError::DuplicateMsixGsi(*gsi).into());
+                }
+
+                if !resource_allocator.gsi_msi_allocator.is_allocated(*gsi) {
+                    return Err(InterruptError::UnallocatedMsixGsi(*gsi).into());
+                }
+            }
+
+            Ok(())
+        };
+
+
         pci_devices.attach_pci_segment(constructor_args.vm)?;
 
         if let Some(balloon_state) = &state.balloon_device {
+            validate_msix_gsis(&balloon_state.transport_state.msix_state.vectors)?;
+
             let device = Arc::new(Mutex::new(Balloon::restore(
                 BalloonConstructorArgs { mem: mem.clone() },
                 &balloon_state.device_state,
@@ -458,6 +478,8 @@ impl<'a> Persist<'a> for PciDevices {
         }
 
         for block_state in &state.block_devices {
+            validate_msix_gsis(&block_state.transport_state.msix_state.vectors)?;
+
             let device = Arc::new(Mutex::new(Block::restore(
                 BlockConstructorArgs { mem: mem.clone() },
                 &block_state.device_state,
@@ -496,6 +518,8 @@ impl<'a> Persist<'a> for PciDevices {
         }
 
         for net_state in &state.net_devices {
+            validate_msix_gsis(&net_state.transport_state.msix_state.vectors)?;
+
             let device = Arc::new(Mutex::new(Net::restore(
                 NetConstructorArgs {
                     mem: mem.clone(),
@@ -524,6 +548,8 @@ impl<'a> Persist<'a> for PciDevices {
         }
 
         if let Some(vsock_state) = &state.vsock_device {
+            validate_msix_gsis(&vsock_state.transport_state.msix_state.vectors)?;
+
             let ctor_args = VsockUdsConstructorArgs {
                 cid: vsock_state.device_state.frontend.cid,
             };
@@ -551,6 +577,8 @@ impl<'a> Persist<'a> for PciDevices {
         }
 
         if let Some(entropy_state) = &state.entropy_device {
+            validate_msix_gsis(&entropy_state.transport_state.msix_state.vectors)?;
+
             let ctor_args = EntropyConstructorArgs { mem: mem.clone() };
 
             let device = Arc::new(Mutex::new(Entropy::restore(
@@ -573,6 +601,8 @@ impl<'a> Persist<'a> for PciDevices {
         }
 
         for pmem_state in &state.pmem_devices {
+            validate_msix_gsis(&pmem_state.transport_state.msix_state.vectors)?;
+
             let device = Arc::new(Mutex::new(Pmem::restore(
                 PmemConstructorArgs {
                     mem,
@@ -597,6 +627,8 @@ impl<'a> Persist<'a> for PciDevices {
         }
 
         if let Some(memory_device) = &state.memory_device {
+            validate_msix_gsis(&memory_device.transport_state.msix_state.vectors)?;
+
             let ctor_args = VirtioMemConstructorArgs::new(Arc::clone(constructor_args.vm));
             let device = VirtioMem::restore(ctor_args, &memory_device.device_state)?;
 

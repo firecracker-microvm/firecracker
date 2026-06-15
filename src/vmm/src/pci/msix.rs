@@ -63,7 +63,7 @@ pub struct MsixConfigState {
     pba_entries: Vec<u64>,
     masked: bool,
     enabled: bool,
-    vectors: Vec<u32>,
+    pub(crate) vectors: Vec<u32>,
 }
 
 /// MSI-X configuration
