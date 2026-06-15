@@ -57,10 +57,14 @@ pub enum FileEngine {
 }
 
 impl FileEngine {
-    pub fn from_file(file: File, engine_type: FileEngineType) -> Result<FileEngine, BlockIoError> {
+    pub fn from_file(
+        file: File,
+        engine_type: FileEngineType,
+        discard: bool,
+    ) -> Result<FileEngine, BlockIoError> {
         match engine_type {
             FileEngineType::Async => Ok(FileEngine::Async(
-                AsyncFileEngine::from_file(file).map_err(BlockIoError::Async)?,
+                AsyncFileEngine::from_file(file, discard).map_err(BlockIoError::Async)?,
             )),
             FileEngineType::Sync => Ok(FileEngine::Sync(SyncFileEngine::from_file(file))),
         }
@@ -149,6 +153,29 @@ impl FileEngine {
             },
             FileEngine::Sync(engine) => match engine.flush() {
                 Ok(_) => Ok(FileEngineOk::Executed(RequestOk { req, count: 0 })),
+                Err(err) => Err(RequestError {
+                    req,
+                    error: BlockIoError::Sync(err),
+                }),
+            },
+        }
+    }
+
+    pub fn discard(
+        &mut self,
+        range: (u64, u64),
+        req: PendingRequest,
+    ) -> Result<FileEngineOk, RequestError<BlockIoError>> {
+        match self {
+            FileEngine::Async(engine) => match engine.push_discard(range, req) {
+                Ok(_) => Ok(FileEngineOk::Submitted),
+                Err(err) => Err(RequestError {
+                    req: err.req,
+                    error: BlockIoError::Async(err.error),
+                }),
+            },
+            FileEngine::Sync(engine) => match engine.discard(range) {
+                Ok(count) => Ok(FileEngineOk::Executed(RequestOk { req, count })),
                 Err(err) => Err(RequestError {
                     req,
                     error: BlockIoError::Sync(err),
@@ -255,7 +282,7 @@ pub mod tests {
         let mem = create_mem();
         // Create backing file.
         let file = TempFile::new().unwrap().into_file();
-        let mut engine = FileEngine::from_file(file, FileEngineType::Sync).unwrap();
+        let mut engine = FileEngine::from_file(file, FileEngineType::Sync, false).unwrap();
 
         let data = vmm_sys_util::rand::rand_alphanumerics(FILE_LEN as usize)
             .as_bytes()
@@ -339,7 +366,7 @@ pub mod tests {
     fn test_async() {
         // Create backing file.
         let file = TempFile::new().unwrap().into_file();
-        let mut engine = FileEngine::from_file(file, FileEngineType::Async).unwrap();
+        let mut engine = FileEngine::from_file(file, FileEngineType::Async, false).unwrap();
 
         let data = vmm_sys_util::rand::rand_alphanumerics(FILE_LEN as usize)
             .as_bytes()
