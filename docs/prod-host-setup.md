@@ -461,6 +461,6 @@ sudo modprobe $KVM_VENDOR_MOD
 To validate that the change took effect, the file
 `/sys/module/kvm/parameters/nx_huge_pages` should say `never`.
 
-[^1]: Look for `GRUB_CMDLINE_LINUX` in file `/etc/default/grub` in RPM-based
-    systems, and
-    [this doc for Ubuntu](https://wiki.ubuntu.com/Kernel/KernelBootParameters).
+\[^1\]: Look for `GRUB_CMDLINE_LINUX` in file `/etc/default/grub` in RPM-based
+systems, and
+[this doc for Ubuntu](https://wiki.ubuntu.com/Kernel/KernelBootParameters).

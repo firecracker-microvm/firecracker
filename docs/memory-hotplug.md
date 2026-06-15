@@ -333,5 +333,4 @@ driver may be able to trick the backend to access unplugged memory. This is not
 possible in Firecracker itself as unplugged memory slots are `mprotect`-ed.
 
 [^uffd]: snapshotting/handling-page-faults-on-snapshot-resume.md#userfaultfd
-
 [^vhost-user]: api_requests/block-vhost-user.md
