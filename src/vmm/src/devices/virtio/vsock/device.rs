@@ -425,9 +425,16 @@ where
     }
 
     fn prepare_save(&mut self) {
-        // Send Transport event to reset connections if device
-        // is activated.
         if self.is_activated() {
+            // Drain the TX queue so the saved queue's notification state is consistent.
+            // A descriptor left in-flight leaves `avail_idx` ahead of `avail_event`; with
+            // EVENT_IDX the restored guest would then suppress all TX notifications and its
+            // connections would hang.
+            if let Err(err) = self.process_tx() {
+                error!("Failed to drain vsock tx queue before snapshot: {:?}", err);
+            }
+
+            // Send Transport event to reset connections.
             self.send_transport_reset_event().unwrap_or_else(|err| {
                 error!("Failed to send reset transport event: {:?}", err);
             });
@@ -629,6 +636,30 @@ mod tests {
 
         ctx.device.prepare_save();
 
+        assert!(ctx.device.pending_event_ack);
+        assert_eq!(ctx.guest_evvq.used.idx.get(), 1);
+    }
+
+    #[test]
+    fn test_prepare_save_drains_txq() {
+        // prepare_save must drain the TX queue before snapshotting; otherwise the saved
+        // queue has avail_idx ahead of avail_event and the restored guest suppresses all
+        // TX notifications under EVENT_IDX, wedging guest->host connections.
+        let test_ctx = TestContext::new();
+        let mut ctx = test_ctx.create_event_handler_context();
+        ctx.mock_activate(test_ctx.mem.clone(), test_ctx.interrupt.clone());
+        publish_evq_descriptor(&mut ctx);
+        ctx.device.backend.set_pending_rx(false);
+
+        // The context starts with an available, unconsumed TX descriptor.
+        assert_eq!(ctx.guest_txvq.used.idx.get(), 0);
+
+        ctx.device.prepare_save();
+
+        // The in-flight TX descriptor must have been drained on the source, so the
+        // snapshot is taken with the TX queue empty (avail_event == avail_idx).
+        assert_eq!(ctx.guest_txvq.used.idx.get(), 1);
+        // The transport reset is still emitted.
         assert!(ctx.device.pending_event_ack);
         assert_eq!(ctx.guest_evvq.used.idx.get(), 1);
     }

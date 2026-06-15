@@ -18,6 +18,11 @@ and this project adheres to
 
 ### Fixed
 
+- [#5958](https://github.com/firecracker-microvm/firecracker/pull/5958): Fixed a
+  bug that caused vsock guest-to-host connections to time out after snapshot
+  restore, triggered by taking a snapshot with a TX descriptor in-flight. The TX
+  queue is now drained during snapshot creation.
+
 ## [1.16.0]
 
 ### Added
