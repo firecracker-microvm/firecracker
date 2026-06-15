@@ -13,6 +13,16 @@ use crate::devices::virtio::block::virtio::PendingRequest;
 use crate::devices::virtio::block::virtio::device::FileEngineType;
 use crate::vstate::memory::{GuestAddress, GuestMemoryMmap};
 
+const DIRECT_IO_ALIGNMENT: u64 = 4096;
+const DIRECT_WRITE_FD: u32 = 1;
+
+fn direct_io_eligible(buf: usize, offset: u64, count: u32) -> bool {
+    count != 0
+        && (buf as u64).is_multiple_of(DIRECT_IO_ALIGNMENT)
+        && offset.is_multiple_of(DIRECT_IO_ALIGNMENT)
+        && u64::from(count) % DIRECT_IO_ALIGNMENT == 0
+}
+
 #[derive(Debug)]
 pub struct RequestOk {
     pub req: PendingRequest,
@@ -57,19 +67,32 @@ pub enum FileEngine {
 }
 
 impl FileEngine {
-    pub fn from_file(file: File, engine_type: FileEngineType) -> Result<FileEngine, BlockIoError> {
+    pub fn from_file(
+        file: File,
+        direct_file: Option<File>,
+        engine_type: FileEngineType,
+    ) -> Result<FileEngine, BlockIoError> {
         match engine_type {
             FileEngineType::Async => Ok(FileEngine::Async(
-                AsyncFileEngine::from_file(file).map_err(BlockIoError::Async)?,
+                AsyncFileEngine::from_file(file, direct_file).map_err(BlockIoError::Async)?,
             )),
-            FileEngineType::Sync => Ok(FileEngine::Sync(SyncFileEngine::from_file(file))),
+            FileEngineType::Sync => Ok(FileEngine::Sync(SyncFileEngine::from_file(
+                file,
+                direct_file,
+            ))),
         }
     }
 
-    pub fn update_file_path(&mut self, file: File) -> Result<(), BlockIoError> {
+    pub fn update_file_path(
+        &mut self,
+        file: File,
+        direct_file: Option<File>,
+    ) -> Result<(), BlockIoError> {
         match self {
-            FileEngine::Async(engine) => engine.update_file(file).map_err(BlockIoError::Async)?,
-            FileEngine::Sync(engine) => engine.update_file(file),
+            FileEngine::Async(engine) => engine
+                .update_file(file, direct_file)
+                .map_err(BlockIoError::Async)?,
+            FileEngine::Sync(engine) => engine.update_file(file, direct_file),
         };
 
         Ok(())
@@ -80,6 +103,14 @@ impl FileEngine {
         match self {
             FileEngine::Async(engine) => engine.file(),
             FileEngine::Sync(engine) => engine.file(),
+        }
+    }
+
+    #[cfg(test)]
+    pub fn direct_file(&self) -> Option<&File> {
+        match self {
+            FileEngine::Async(engine) => engine.direct_file(),
+            FileEngine::Sync(engine) => engine.direct_file(),
         }
     }
 
@@ -177,6 +208,7 @@ impl FileEngine {
 #[cfg(test)]
 pub mod tests {
     #![allow(clippy::undocumented_unsafe_blocks)]
+    use std::io::{Read, Seek, SeekFrom};
     use std::os::unix::ffi::OsStrExt;
 
     use vm_memory::GuestMemoryRegion;
@@ -236,6 +268,13 @@ pub mod tests {
         .unwrap()
     }
 
+    fn read_file_prefix(file: &mut std::fs::File, len: usize) -> Vec<u8> {
+        let mut data = vec![0; len];
+        file.seek(SeekFrom::Start(0)).unwrap();
+        file.read_exact(&mut data).unwrap();
+        data
+    }
+
     fn check_dirty_mem(mem: &GuestMemoryMmap, addr: GuestAddress, len: u32) {
         let bitmap = mem.find_region(addr).unwrap().bitmap();
         for offset in addr.0..addr.0 + u64::from(len) {
@@ -251,11 +290,81 @@ pub mod tests {
     }
 
     #[test]
+    fn test_direct_io_alignment() {
+        assert!(direct_io_eligible(0x1000, 0x2000, 0x3000));
+        assert!(!direct_io_eligible(0x1001, 0x2000, 0x3000));
+        assert!(!direct_io_eligible(0x1000, 0x2001, 0x3000));
+        assert!(!direct_io_eligible(0x1000, 0x2000, 0x3001));
+        assert!(!direct_io_eligible(0x1000, 0x2000, 0));
+    }
+
+    #[test]
+    fn test_direct_write_file_engine() {
+        for engine_type in [FileEngineType::Sync, FileEngineType::Async] {
+            let file = TempFile::new().unwrap().into_file();
+            let direct_file = file.try_clone().unwrap();
+            let engine = FileEngine::from_file(file, Some(direct_file), engine_type).unwrap();
+
+            assert!(engine.direct_file().is_some());
+        }
+    }
+
+    #[test]
+    fn test_sync_direct_write_selects_expected_file() {
+        const DIRECT_WRITE_LEN: u32 = 4096;
+
+        let mem = create_mem();
+        let addr = GuestAddress(0);
+        let first_write = vec![0x5a; DIRECT_WRITE_LEN as usize];
+        mem.write(&first_write, addr).unwrap();
+
+        let mut buffered_file = TempFile::new().unwrap().into_file();
+        let mut direct_file = TempFile::new().unwrap().into_file();
+        buffered_file.set_len(MEM_LEN as u64).unwrap();
+        direct_file.set_len(MEM_LEN as u64).unwrap();
+        let mut buffered_check = buffered_file.try_clone().unwrap();
+        let mut direct_check = direct_file.try_clone().unwrap();
+
+        let slice = mem.get_slice(addr, DIRECT_WRITE_LEN as usize).unwrap();
+        let buf = slice.ptr_guard().as_ptr() as usize;
+        assert!(direct_io_eligible(buf, 0, DIRECT_WRITE_LEN));
+
+        let mut engine = SyncFileEngine::from_file(buffered_file, Some(direct_file));
+        assert_eq!(
+            engine.write(0, &mem, addr, DIRECT_WRITE_LEN).unwrap(),
+            DIRECT_WRITE_LEN
+        );
+        assert_eq!(
+            read_file_prefix(&mut direct_check, DIRECT_WRITE_LEN as usize),
+            first_write
+        );
+        assert_eq!(
+            read_file_prefix(&mut buffered_check, DIRECT_WRITE_LEN as usize),
+            vec![0; DIRECT_WRITE_LEN as usize]
+        );
+
+        let second_write = vec![0xa5; DIRECT_WRITE_LEN as usize];
+        mem.write(&second_write, addr).unwrap();
+        assert_eq!(
+            engine.write(1, &mem, addr, DIRECT_WRITE_LEN).unwrap(),
+            DIRECT_WRITE_LEN
+        );
+
+        let buffered_data = read_file_prefix(&mut buffered_check, DIRECT_WRITE_LEN as usize + 1);
+        assert_eq!(buffered_data[0], 0);
+        assert_eq!(&buffered_data[1..], second_write.as_slice());
+        assert_eq!(
+            read_file_prefix(&mut direct_check, DIRECT_WRITE_LEN as usize),
+            first_write
+        );
+    }
+
+    #[test]
     fn test_sync() {
         let mem = create_mem();
         // Create backing file.
         let file = TempFile::new().unwrap().into_file();
-        let mut engine = FileEngine::from_file(file, FileEngineType::Sync).unwrap();
+        let mut engine = FileEngine::from_file(file, None, FileEngineType::Sync).unwrap();
 
         let data = vmm_sys_util::rand::rand_alphanumerics(FILE_LEN as usize)
             .as_bytes()
@@ -339,7 +448,7 @@ pub mod tests {
     fn test_async() {
         // Create backing file.
         let file = TempFile::new().unwrap().into_file();
-        let mut engine = FileEngine::from_file(file, FileEngineType::Async).unwrap();
+        let mut engine = FileEngine::from_file(file, None, FileEngineType::Async).unwrap();
 
         let data = vmm_sys_util::rand::rand_alphanumerics(FILE_LEN as usize)
             .as_bytes()

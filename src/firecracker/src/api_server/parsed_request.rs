@@ -807,7 +807,7 @@ pub mod tests {
         let mut connection = HttpConnection::new(receiver);
         let body = "{ \"drive_id\": \"string\", \"path_on_host\": \"string\", \"is_root_device\": \
                     true, \"partuuid\": \"string\", \"is_read_only\": true, \"cache_type\": \
-                    \"Unsafe\", \"io_engine\": \"Sync\", \"rate_limiter\": { \"bandwidth\": { \
+                    \"Unsafe\", \"direct_write\": true, \"io_engine\": \"Sync\", \"rate_limiter\": { \"bandwidth\": { \
                     \"size\": 0, \"one_time_burst\": 0, \"refill_time\": 0 }, \"ops\": { \
                     \"size\": 0, \"one_time_burst\": 0, \"refill_time\": 0 } } }";
         sender
