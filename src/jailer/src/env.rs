@@ -519,11 +519,8 @@ impl Env {
 
     fn join_netns(path: &str) -> Result<(), JailerError> {
         // The fd backing the file will be automatically dropped at the end of the scope
-        let netns = OpenOptions::new()
-            .read(true)
-            .custom_flags(libc::O_NOFOLLOW)
-            .open(path)
-            .map_err(|err| JailerError::FileOpen(PathBuf::from(path), err))?;
+        let netns =
+            File::open(path).map_err(|err| JailerError::FileOpen(PathBuf::from(path), err))?;
 
         // SAFETY: Safe because we are passing valid parameters.
         SyscallReturnCode(unsafe { libc::setns(netns.as_raw_fd(), libc::CLONE_NEWNET) })
