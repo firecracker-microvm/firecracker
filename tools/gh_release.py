@@ -14,7 +14,20 @@ import subprocess
 import tarfile
 from pathlib import Path
 
-from github import Github
+CUSTOM_CPU_TEMPLATE_DIR = (
+    Path(__file__).resolve().parent.parent / "tests/data/custom_cpu_templates"
+)
+
+
+def is_custom_cpu_template_asset(asset):
+    """Return whether an asset is a release-renamed custom CPU template."""
+    if asset.suffix != ".json":
+        return False
+
+    return any(
+        asset.stem.startswith(f"{template_path.stem}-")
+        for template_path in CUSTOM_CPU_TEMPLATE_DIR.glob("*.json")
+    )
 
 
 def build_tarball(release_dir, release_tgz, arch):
@@ -26,12 +39,11 @@ def build_tarball(release_dir, release_tgz, arch):
     exclude_files = {
         "RELEASE_NOTES",
         "SHA256SUMS.sig",
-        *[f.stem for f in Path("tests/data/custom_cpu_templates").glob("*.json")],
     }
     with tarfile.open(release_tgz, "w:gz") as tar:
         files = [x for x in release_dir.rglob("*") if x.is_file()]
         for asset in files:
-            if asset.name in exclude_files:
+            if asset.name in exclude_files or is_custom_cpu_template_asset(asset):
                 print(f"Skipping file {asset}")
                 continue
             if asset.name.endswith(arch):
@@ -43,6 +55,9 @@ def build_tarball(release_dir, release_tgz, arch):
 
 def github_release(tag_version, repo, github_token):
     """Create a draft release in GitHub"""
+    # Import lazily so tarball-building helpers can be tested without PyGithub.
+    from github import Github  # pylint: disable=import-outside-toplevel
+
     prerelease = False
     assets = []
     for arch in ["x86_64", "aarch64"]:
