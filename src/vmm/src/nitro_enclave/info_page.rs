@@ -14,6 +14,7 @@ use vm_memory::{ByteValued, Bytes, VolatileSlice, WriteVolatile};
 
 use super::ne_ioctl::EnclaveFd;
 use crate::logger::warn;
+use crate::utils::u64_to_usize;
 
 /// Info page magic number (`NISC` in little-endian).
 pub const INFO_PAGE_MAGIC: u32 = 0x5343_494E;
@@ -188,11 +189,18 @@ impl InfoPage {
                 continue;
             }
             let offset = toc.offset as usize;
-            // Safe: INFO_PAGE_SIZE is 2 MiB, so any valid size fits in usize.
-            #[allow(clippy::cast_possible_truncation)]
-            let size = toc.size as usize;
-            if offset + size > INFO_PAGE_SIZE || size < size_of::<SerialRingHeader>() {
-                warn!("info page TOC entry {i}: invalid offset={offset} size={size}");
+            let size = u64_to_usize(toc.size);
+
+            // The region must be large enough to hold the ring header.
+            if size < size_of::<SerialRingHeader>() {
+                warn!("info page TOC entry {i}: size {size} too small for a serial ring");
+                continue;
+            }
+            // `toc.offset`/`toc.size` are hypervisor-controlled; use checked
+            // arithmetic so a huge value cannot wrap `usize`, and reject a region
+            // that would run past the info page.
+            if offset.checked_add(size).is_none_or(|e| e > INFO_PAGE_SIZE) {
+                warn!("info page TOC entry {i}: serial region offset={offset} out of bounds");
                 continue;
             }
             let vs = self.as_volatile_slice();
@@ -215,6 +223,8 @@ impl InfoPage {
             let new_bytes = ring.write_idx - last_write_idx;
             let read_len = new_bytes.min(ring.capacity);
             let start_pos = last_write_idx % ring.capacity;
+            // `start_pos < capacity` and `read_len <= capacity <= INFO_PAGE_SIZE`,
+            // so the sum cannot overflow u32.
             if start_pos + read_len <= ring.capacity {
                 vs.write_all_volatile_to(data_offset + start_pos as usize, dst, read_len as usize)
                     .ok()?;
