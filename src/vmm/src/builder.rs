@@ -48,7 +48,9 @@ use crate::resources::VmResources;
 use crate::seccomp::BpfThreadMap;
 use crate::snapshot::Persist;
 use crate::utils::mib_to_bytes;
-use crate::vmm_config::boot_source::{DEFAULT_KERNEL_CMDLINE, build_cmdline};
+use crate::vmm_config::boot_source::{
+    DEFAULT_KERNEL_CMDLINE, append_root_device_cmdline, build_cmdline,
+};
 use crate::vmm_config::instance_info::{InstanceInfo, VmState};
 use crate::vmm_config::machine_config::MachineConfigError;
 use crate::vmm_config::memory_hotplug::MemoryHotplugConfig;
@@ -668,14 +670,11 @@ fn attach_block_devices<'a, I: Iterator<Item = &'a Arc<Mutex<Block>>> + Debug>(
         let (id, is_vhost_user) = {
             let locked = block.lock().expect("Poisoned lock");
             if locked.root_device() {
-                match locked.partuuid() {
-                    Some(partuuid) => cmdline.insert_str(format!("root=PARTUUID={}", partuuid))?,
-                    None => cmdline.insert_str("root=/dev/vda")?,
-                }
-                match locked.read_only() {
-                    true => cmdline.insert_str("ro")?,
-                    false => cmdline.insert_str("rw")?,
-                }
+                append_root_device_cmdline(
+                    cmdline,
+                    locked.partuuid().as_deref(),
+                    locked.read_only(),
+                )?;
             }
             (locked.id().to_string(), locked.is_vhost_user())
         };
