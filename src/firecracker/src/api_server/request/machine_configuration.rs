@@ -123,6 +123,7 @@ mod tests {
                 cpu_template: None,
                 track_dirty_pages: Some(false),
                 huge_pages: Some(expected),
+                ksm_mergeable: Some(false),
                 #[cfg(feature = "gdb")]
                 gdb_socket_path: None,
             };
@@ -144,6 +145,7 @@ mod tests {
             cpu_template: Some(StaticCpuTemplate::None),
             track_dirty_pages: Some(false),
             huge_pages: Some(HugePageConfig::None),
+            ksm_mergeable: Some(false),
             #[cfg(feature = "gdb")]
             gdb_socket_path: None,
         };
@@ -165,6 +167,7 @@ mod tests {
             cpu_template: None,
             track_dirty_pages: Some(true),
             huge_pages: Some(HugePageConfig::None),
+            ksm_mergeable: Some(false),
             #[cfg(feature = "gdb")]
             gdb_socket_path: None,
         };
@@ -190,6 +193,7 @@ mod tests {
                 cpu_template: Some(StaticCpuTemplate::T2),
                 track_dirty_pages: Some(true),
                 huge_pages: Some(HugePageConfig::None),
+                ksm_mergeable: Some(false),
                 #[cfg(feature = "gdb")]
                 gdb_socket_path: None,
             };
@@ -208,7 +212,8 @@ mod tests {
             "vcpu_count": 8,
             "mem_size_mib": 1024,
             "smt": true,
-            "track_dirty_pages": true
+            "track_dirty_pages": true,
+            "ksm_mergeable": true
         }"#;
         let expected_config = MachineConfigUpdate {
             vcpu_count: Some(8),
@@ -217,6 +222,7 @@ mod tests {
             cpu_template: None,
             track_dirty_pages: Some(true),
             huge_pages: Some(HugePageConfig::None),
+            ksm_mergeable: Some(true),
             #[cfg(feature = "gdb")]
             gdb_socket_path: None,
         };
@@ -242,6 +248,11 @@ mod tests {
         // 2. Check currently supported fields that can be patched.
         let body = r#"{
             "track_dirty_pages": true
+        }"#;
+        parse_patch_machine_config(&Body::new(body)).unwrap();
+
+        let body = r#"{
+            "ksm_mergeable": true
         }"#;
         parse_patch_machine_config(&Body::new(body)).unwrap();
 

@@ -34,6 +34,32 @@ NOT_SUPPORTED_AFTER_START = (
 )
 
 
+def smaps_has_mergeable_region(pid, min_size_kib):
+    """
+    Return whether a process has a mergeable mapping of at least min_size_kib.
+    """
+    current_size_kib = 0
+    current_flags = []
+
+    def current_region_matches():
+        return current_size_kib >= min_size_kib and "mg" in current_flags
+
+    for line in Path(f"/proc/{pid}/smaps").read_text(encoding="utf-8").splitlines():
+        if re.match(r"^[0-9a-f]+-[0-9a-f]+", line):
+            if current_region_matches():
+                return True
+            current_size_kib = 0
+            current_flags = []
+            continue
+
+        if line.startswith("Size:"):
+            current_size_kib = int(line.split()[1])
+        elif line.startswith("VmFlags:"):
+            current_flags = line.split()[1:]
+
+    return current_region_matches()
+
+
 @pin_guest_kernel(GUEST_KERNEL_DEFAULT)
 def test_api_happy_start(uvm):
     """
@@ -50,6 +76,26 @@ def test_api_happy_start(uvm):
 
     if utils.pvh_supported():
         assert "Kernel loaded using PVH boot protocol" in test_microvm.log_data
+
+
+@pin_guest_kernel(GUEST_KERNEL_DEFAULT)
+def test_ksm_mergeable_machine_config_marks_guest_memory(uvm):
+    """
+    Test that ksm_mergeable marks anonymous guest memory as mergeable.
+    """
+    test_microvm = uvm
+    mem_size_mib = 128
+
+    test_microvm.spawn()
+    test_microvm.basic_config(mem_size_mib=mem_size_mib)
+    test_microvm.api.machine_config.patch(ksm_mergeable=True)
+    test_microvm.start()
+
+    assert test_microvm.api.machine_config.get().json()["ksm_mergeable"] is True
+    assert smaps_has_mergeable_region(
+        test_microvm.firecracker_pid,
+        mem_size_mib * 1024,
+    )
 
 
 @pin_guest_kernel(GUEST_KERNEL_DEFAULT)
@@ -1285,6 +1331,7 @@ def test_get_full_config_after_restoring_snapshot(microvm_factory, uvm_configure
         "smt": True,
         "track_dirty_pages": False,
         "huge_pages": "None",
+        "ksm_mergeable": False,
     }
 
     if cpu_vendor == utils_cpuid.CpuVendor.ARM:
@@ -1430,6 +1477,7 @@ def test_get_full_config(uvm):
         "smt": False,
         "track_dirty_pages": False,
         "huge_pages": "None",
+        "ksm_mergeable": False,
     }
     expected_cfg["cpu-config"] = None
     expected_cfg["boot-source"] = {

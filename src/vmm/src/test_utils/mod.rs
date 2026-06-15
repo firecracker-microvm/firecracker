@@ -44,7 +44,7 @@ pub fn single_region_mem_at_raw(at: u64, size: usize) -> Vec<GuestRegionMmap> {
 /// Creates a [`GuestMemoryMmap`] with multiple regions and without dirty page tracking.
 pub fn multi_region_mem(regions: &[(GuestAddress, usize)]) -> GuestMemoryMmap {
     GuestRegionCollection::from_regions(
-        memory::anonymous(regions.iter().copied(), false, HugePageConfig::None)
+        memory::anonymous(regions.iter().copied(), false, HugePageConfig::None, false)
             .expect("Cannot initialize memory")
             .into_iter()
             .map(|region| GuestRegionMmapExt::dram_from_mmap_region(region, 0))
@@ -54,7 +54,7 @@ pub fn multi_region_mem(regions: &[(GuestAddress, usize)]) -> GuestMemoryMmap {
 }
 
 pub fn multi_region_mem_raw(regions: &[(GuestAddress, usize)]) -> Vec<GuestRegionMmap> {
-    memory::anonymous(regions.iter().copied(), false, HugePageConfig::None)
+    memory::anonymous(regions.iter().copied(), false, HugePageConfig::None, false)
         .expect("Cannot initialize memory")
 }
 

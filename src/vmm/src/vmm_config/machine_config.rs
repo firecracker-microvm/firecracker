@@ -29,6 +29,8 @@ pub enum MachineConfigError {
     SmtNotSupported,
     /// Could not determine host kernel version when checking hugetlbfs compatibility
     KernelVersion,
+    /// KSM mergeable memory cannot be enabled with hugetlbfs-backed guest memory.
+    KsmWithHugePages,
 }
 
 /// Describes the possible (huge)page configurations for a microVM's memory.
@@ -113,6 +115,9 @@ pub struct MachineConfig {
     /// Configures what page size Firecracker should use to back guest memory.
     #[serde(default)]
     pub huge_pages: HugePageConfig,
+    /// Marks anonymous guest memory as mergeable by KSM.
+    #[serde(default)]
+    pub ksm_mergeable: bool,
     /// GDB socket address.
     #[cfg(feature = "gdb")]
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -155,6 +160,7 @@ impl Default for MachineConfig {
             cpu_template: None,
             track_dirty_pages: false,
             huge_pages: HugePageConfig::None,
+            ksm_mergeable: false,
             #[cfg(feature = "gdb")]
             gdb_socket_path: None,
         }
@@ -188,6 +194,9 @@ pub struct MachineConfigUpdate {
     /// Configures what page size Firecracker should use to back guest memory.
     #[serde(default)]
     pub huge_pages: Option<HugePageConfig>,
+    /// Marks anonymous guest memory as mergeable by KSM.
+    #[serde(default)]
+    pub ksm_mergeable: Option<bool>,
     /// GDB socket address.
     #[cfg(feature = "gdb")]
     #[serde(default)]
@@ -212,6 +221,7 @@ impl From<MachineConfig> for MachineConfigUpdate {
             cpu_template: cfg.static_template(),
             track_dirty_pages: Some(cfg.track_dirty_pages),
             huge_pages: Some(cfg.huge_pages),
+            ksm_mergeable: Some(cfg.ksm_mergeable),
             #[cfg(feature = "gdb")]
             gdb_socket_path: cfg.gdb_socket_path,
         }
@@ -261,9 +271,14 @@ impl MachineConfig {
 
         let mem_size_mib = update.mem_size_mib.unwrap_or(self.mem_size_mib);
         let page_config = update.huge_pages.unwrap_or(self.huge_pages);
+        let ksm_mergeable = update.ksm_mergeable.unwrap_or(self.ksm_mergeable);
 
         if mem_size_mib == 0 || !page_config.is_valid_mem_size(mem_size_mib) {
             return Err(MachineConfigError::InvalidMemorySize);
+        }
+
+        if ksm_mergeable && page_config.is_hugetlbfs() {
+            return Err(MachineConfigError::KsmWithHugePages);
         }
 
         let cpu_template = match update.cpu_template {
@@ -279,6 +294,7 @@ impl MachineConfig {
             cpu_template,
             track_dirty_pages: update.track_dirty_pages.unwrap_or(self.track_dirty_pages),
             huge_pages: page_config,
+            ksm_mergeable,
             #[cfg(feature = "gdb")]
             gdb_socket_path: update.gdb_socket_path.clone(),
         })
@@ -288,7 +304,9 @@ impl MachineConfig {
 #[cfg(test)]
 mod tests {
     use crate::cpu_config::templates::{CpuTemplateType, CustomCpuTemplate, StaticCpuTemplate};
-    use crate::vmm_config::machine_config::MachineConfig;
+    use crate::vmm_config::machine_config::{
+        HugePageConfig, MachineConfig, MachineConfigError, MachineConfigUpdate,
+    };
 
     // Ensure the special (de)serialization logic for the cpu_template field works:
     // only static cpu templates can be specified via the machine-config endpoint, but
@@ -334,5 +352,19 @@ mod tests {
         let deserialized = serde_json::from_str::<MachineConfig>(&serialized).unwrap();
 
         assert!(deserialized.cpu_template.is_none());
+    }
+
+    #[test]
+    fn test_ksm_mergeable_with_huge_pages_fails() {
+        let update = MachineConfigUpdate {
+            ksm_mergeable: Some(true),
+            huge_pages: Some(HugePageConfig::Hugetlbfs2M),
+            ..Default::default()
+        };
+
+        assert_eq!(
+            MachineConfig::default().update(&update),
+            Err(MachineConfigError::KsmWithHugePages)
+        );
     }
 }
