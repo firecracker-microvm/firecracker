@@ -7,8 +7,9 @@
 
 use std::os::fd::AsRawFd;
 use std::sync::atomic::{Ordering, fence};
-use std::sync::mpsc::{Receiver, Sender, TryRecvError, channel};
+use std::sync::mpsc::{Receiver, RecvTimeoutError, Sender, TryRecvError, channel};
 use std::sync::{Arc, Barrier};
+use std::time::Duration;
 use std::{fmt, io, thread};
 
 use kvm_bindings::{KVM_SYSTEM_EVENT_RESET, KVM_SYSTEM_EVENT_SHUTDOWN};
@@ -31,6 +32,9 @@ use crate::vstate::vm::KvmVm;
 
 /// Signal number (SIGRTMIN) used to kick Vcpus.
 pub const VCPU_RTSIG_OFFSET: i32 = 0;
+
+/// Maximum time to wait for a vCPU thread to exit when dropping its handle.
+const VCPU_JOIN_TIMEOUT: Duration = Duration::from_secs(1);
 
 /// Errors associated with the wrappers over KVM ioctls.
 #[derive(Debug, thiserror::Error, displaydoc::Display)]
@@ -624,14 +628,28 @@ impl VcpuHandle {
 // Wait for the Vcpu thread to finish execution
 impl Drop for VcpuHandle {
     fn drop(&mut self) {
-        // We assume that by the time a VcpuHandle is dropped, other code has run to
-        // get the state machine loop to finish so the thread is ready to join.
-        // The strategy of avoiding more complex messaging protocols during the Drop
-        // helps avoid cycles which were preventing a truly clean shutdown.
-        //
-        // If the code hangs at this point, that means that a Finish event was not
-        // sent by Vmm.
-        self.vcpu_thread.take().unwrap().join().unwrap();
+        // The vCPU thread owns the response sender, so the channel disconnects
+        // once it exits. Wait for that disconnect (draining any stale responses)
+        // with a timeout rather than joining unconditionally, so a thread that
+        // never finished (e.g. a missed Finish event) fails fast instead of
+        // hanging teardown forever.
+        let thread = self.vcpu_thread.take().unwrap();
+        loop {
+            match self.response_receiver.recv_timeout(VCPU_JOIN_TIMEOUT) {
+                // Sender dropped: the thread has exited.
+                Err(RecvTimeoutError::Disconnected) => break,
+                Err(RecvTimeoutError::Timeout) => {
+                    let name = thread.thread().name().unwrap_or("<unnamed>");
+                    panic!("Timed out waiting for vCPU thread '{name}' to exit")
+                }
+                // Unexpected: a response was still queued at teardown. Discard
+                // it and keep waiting for the thread to exit.
+                Ok(response) => {
+                    warn!("Discarding unexpected vCPU response during teardown: {response:?}");
+                }
+            }
+        }
+        thread.join().unwrap();
     }
 }
 

@@ -102,7 +102,6 @@ def validate_fc_metrics(metrics):
     net_metrics = [
         "activate_fails",
         "cfg_fails",
-        "mac_address_updates",
         "no_rx_avail_buffer",
         "no_tx_avail_buffer",
         "event_fails",

@@ -6,6 +6,7 @@ rustflags = [
 
 [net]
 git-fetch-with-cli = true
+retry = 10
 
 [env]
 AWS_LC_SYS_NO_JITTER_ENTROPY = "1"
