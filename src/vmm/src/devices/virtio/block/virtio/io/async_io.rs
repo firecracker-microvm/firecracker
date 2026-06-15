@@ -110,6 +110,13 @@ impl AsyncFileEngine {
         Ok(())
     }
 
+    pub fn reset_ring(&mut self) -> Result<(), AsyncIoError> {
+        let ring = Self::new_ring(&self.file, self.completion_evt.as_raw_fd())
+            .map_err(AsyncIoError::IoUring)?;
+        self.ring = ring;
+        Ok(())
+    }
+
     #[cfg(test)]
     pub fn file(&self) -> &File {
         &self.file

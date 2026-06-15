@@ -587,6 +587,12 @@ pub(crate) mod tests {
         fn is_activated(&self) -> bool {
             false
         }
+
+        fn deactivate(&mut self) {}
+
+        fn _reset(&mut self) -> bool {
+            false
+        }
     }
 
     #[test]

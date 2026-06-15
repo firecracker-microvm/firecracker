@@ -305,7 +305,33 @@ impl VsockEpollListener for VsockMuxer {
     }
 }
 
-impl VsockBackend for VsockMuxer {}
+impl VsockBackend for VsockMuxer {
+    fn reset(&mut self) {
+        // Remove all connections and their epoll listeners.
+        let keys: Vec<ConnMapKey> = self.conn_map.keys().copied().collect();
+        for key in keys {
+            self.remove_connection(key);
+        }
+
+        // Remove any pending LocalStream listeners (host sockets that
+        // connected but haven't sent a CONNECT command yet). Keep only
+        // the HostSock listener.
+        let stale_fds: Vec<RawFd> = self
+            .listener_map
+            .iter()
+            .filter(|(_, listener)| !matches!(listener, EpollListener::HostSock))
+            .map(|(fd, _)| *fd)
+            .collect();
+        for fd in stale_fds {
+            self.remove_listener(fd);
+        }
+
+        self.rxq = MuxerRxQ::new();
+        self.killq = MuxerKillQ::new();
+        self.local_port_set.clear();
+        self.local_port_last = (1u32 << 30) - 1;
+    }
+}
 
 impl VsockMuxer {
     /// Muxer constructor.
