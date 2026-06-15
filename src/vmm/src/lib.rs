@@ -115,6 +115,8 @@ pub mod vstate;
 
 /// Module with initrd.
 pub mod initrd;
+/// Inline UFFD block backend for on-demand page fault handling.
+pub mod uffd_block;
 
 use std::collections::HashMap;
 use std::io;
@@ -785,7 +787,7 @@ impl Drop for Vmm {
 
 impl MutEventSubscriber for Vmm {
     /// Handle a read event (EPOLLIN).
-    fn process(&mut self, event: Events, _: &mut EventOps) {
+    fn process(&mut self, event: Events, ops: &mut EventOps) {
         let source = event.fd();
         let event_set = event.event_set();
 
@@ -817,6 +819,35 @@ impl MutEventSubscriber for Vmm {
                         FcExitCode::Ok
                     };
                     self.stop(exit_code);
+                } else if let Some(uffd_block) = &kvm_vm.common.mem_uffd_block {
+                    let sock_fd = uffd_block.sock_fd();
+                    if source == sock_fd && event_set == EventSet::IN {
+                        loop {
+                            match uffd_block.handle_response() {
+                                Ok(true) => { /* handled response, check for more */ }
+                                Ok(false) => {
+                                    // Server closed the connection.
+                                    if let Err(err) =
+                                        ops.remove(Events::new_raw(sock_fd, EventSet::IN))
+                                    {
+                                        error!(
+                                            "snapshot UFFD: Failed to deregister socket: {}",
+                                            err
+                                        );
+                                    }
+                                    break;
+                                }
+                                Err(e) => {
+                                    if e.kind() == std::io::ErrorKind::WouldBlock {
+                                        // No more data available right now
+                                        break;
+                                    }
+                                    error!("snapshot UFFD: handle response error: {}", e);
+                                    break;
+                                }
+                            }
+                        }
+                    }
                 } else {
                     error!("Spurious EventManager event for handler: Vmm");
                 }
@@ -829,6 +860,12 @@ impl MutEventSubscriber for Vmm {
             Vm::Kvm(kvm_vm) => {
                 if let Err(err) = ops.add(Events::new(kvm_vm.vcpus_exit_evt(), EventSet::IN)) {
                     error!("Failed to register vmm exit event: {}", err);
+                }
+
+                if let Some(uffd_block) = &kvm_vm.common.mem_uffd_block
+                    && let Err(err) = ops.add(Events::new_raw(uffd_block.sock_fd(), EventSet::IN))
+                {
+                    error!("snapshot UFFD: Failed to register socket: {}", err);
                 }
             }
         }
