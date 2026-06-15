@@ -18,6 +18,10 @@ and this project adheres to
 
 ### Fixed
 
+- [#5956](https://github.com/firecracker-microvm/firecracker/pull/5956): Fixed a
+  TOCTOU race in the aarch64 jailer when setting ownership of the CPU cache and
+  `MIDR_EL1` information files copied into the chroot.
+
 ## [1.16.0]
 
 ### Added
