@@ -39,7 +39,7 @@ use crate::devices::{DeviceError, report_net_event_fail};
 use crate::dumbo::pdu::arp::ETH_IPV4_FRAME_LEN;
 use crate::dumbo::pdu::ethernet::{EthernetFrame, PAYLOAD_OFFSET};
 use crate::impl_device_type;
-use crate::logger::{IncMetric, METRICS, error};
+use crate::logger::{IncMetric, METRICS, error, warn};
 use crate::mmds::data_store::Mmds;
 use crate::mmds::ns::MmdsNetworkStack;
 use crate::rate_limiter::{BucketUpdate, RateLimiter, TokenType};
@@ -1026,8 +1026,13 @@ impl VirtioDevice for Net {
             let len = config_space_bytes.len().min(data.len());
             data[..len].copy_from_slice(&config_space_bytes[..len]);
         } else {
-            error!("Failed to read config space");
             self.metrics.cfg_fails.inc();
+            warn!(
+                "virtio-net: guest driver attempted to read device config out of bounds \
+                 (offset={:#x}, len={:#x})",
+                offset,
+                data.len()
+            );
         }
     }
 
@@ -1042,8 +1047,13 @@ impl VirtioDevice for Net {
             .filter(|&(_, end)| end <= std::mem::size_of::<MacAddr>())
             .and_then(|(start, end)| config_space_bytes.get_mut(start..end))
         else {
-            error!("Failed to write config space");
             self.metrics.cfg_fails.inc();
+            warn!(
+                "virtio-net: guest driver attempted to write device config out of bounds \
+                 (offset={:#x}, len={:#x})",
+                offset,
+                data.len()
+            );
             return;
         };
 
@@ -2210,7 +2220,7 @@ pub mod tests {
         let mut th = TestHelper::get_default(&mem);
         th.activate_net();
 
-        th.net().rx_rate_limiter = RateLimiter::new(0, 0, 0, 0, 0, 0).unwrap();
+        th.net().rx_rate_limiter = RateLimiter::new(0, 0, 0, 0, 0, 0);
         // There is no actual event on the rate limiter's timerfd.
         check_metric_after_block!(
             th.net().metrics.event_fails,
@@ -2225,7 +2235,7 @@ pub mod tests {
         let mut th = TestHelper::get_default(&mem);
         th.activate_net();
 
-        th.net().tx_rate_limiter = RateLimiter::new(0, 0, 0, 0, 0, 0).unwrap();
+        th.net().tx_rate_limiter = RateLimiter::new(0, 0, 0, 0, 0, 0);
         th.simulate_event(NetEvent::TxRateLimiter);
         // There is no actual event on the rate limiter's timerfd.
         check_metric_after_block!(
@@ -2244,7 +2254,7 @@ pub mod tests {
         // Test TX bandwidth rate limiting
         {
             // create bandwidth rate limiter that allows 40960 bytes/s with bucket size 4096 bytes
-            let mut rl = RateLimiter::new(0x1000, 0, 100, 0, 0, 0).unwrap();
+            let mut rl = RateLimiter::new(0x1000, 0, 100, 0, 0, 0);
             // use up the budget
             assert!(rl.consume(0x1000, TokenType::Bytes));
 
@@ -2313,7 +2323,7 @@ pub mod tests {
         // Test RX bandwidth rate limiting
         {
             // create bandwidth rate limiter that allows 2000 bytes/s with bucket size 1000 bytes
-            let mut rl = RateLimiter::new(1000, 0, 1000, 0, 0, 0).unwrap();
+            let mut rl = RateLimiter::new(1000, 0, 1000, 0, 0, 0);
 
             // set up RX
             assert!(th.net().rx_buffer.used_descriptors == 0);
@@ -2398,7 +2408,7 @@ pub mod tests {
         // Test TX ops rate limiting
         {
             // create ops rate limiter that allows 10 ops/s with bucket size 1 ops
-            let mut rl = RateLimiter::new(0, 0, 0, 1, 0, 100).unwrap();
+            let mut rl = RateLimiter::new(0, 0, 0, 1, 0, 100);
             // use up the budget
             assert!(rl.consume(1, TokenType::Ops));
 
@@ -2444,7 +2454,7 @@ pub mod tests {
         // Test RX ops rate limiting
         {
             // create ops rate limiter that allows 2 ops/s with bucket size 1 ops
-            let mut rl = RateLimiter::new(0, 0, 0, 1, 0, 1000).unwrap();
+            let mut rl = RateLimiter::new(0, 0, 0, 1, 0, 1000);
 
             // set up RX
             assert!(th.net().rx_buffer.used_descriptors == 0);
@@ -2524,8 +2534,8 @@ pub mod tests {
         let mut th = TestHelper::get_default(&mem);
         th.activate_net();
 
-        th.net().rx_rate_limiter = RateLimiter::new(10, 0, 10, 2, 0, 2).unwrap();
-        th.net().tx_rate_limiter = RateLimiter::new(10, 0, 10, 2, 0, 2).unwrap();
+        th.net().rx_rate_limiter = RateLimiter::new(10, 0, 10, 2, 0, 2);
+        th.net().tx_rate_limiter = RateLimiter::new(10, 0, 10, 2, 0, 2);
 
         let rx_bytes = TokenBucket::new(1000, 1001, 1002).unwrap();
         let rx_ops = TokenBucket::new(1003, 1004, 1005).unwrap();

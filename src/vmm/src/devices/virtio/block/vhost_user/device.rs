@@ -25,7 +25,7 @@ use crate::devices::virtio::vhost_user::{VhostUserHandleBackend, VhostUserHandle
 use crate::devices::virtio::vhost_user_metrics::{
     VhostUserDeviceMetrics, VhostUserMetricsPerDevice,
 };
-use crate::logger::{IncMetric, StoreMetric, error, log_dev_preview_warning};
+use crate::logger::{IncMetric, StoreMetric, log_dev_preview_warning, warn};
 use crate::utils::u64_to_usize;
 use crate::vmm_config::drive::BlockDeviceConfig;
 use crate::vstate::memory::GuestMemoryMmap;
@@ -333,8 +333,13 @@ where
             let len = config_space_bytes.len().min(data.len());
             data[..len].copy_from_slice(&config_space_bytes[..len]);
         } else {
-            error!("Failed to read config space");
             self.metrics.cfg_fails.inc();
+            warn!(
+                "vhost-user-block: guest driver attempted to read device config out of bounds \
+                 (offset={:#x}, len={:#x})",
+                offset,
+                data.len()
+            );
         }
     }
 

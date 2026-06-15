@@ -23,7 +23,7 @@ use crate::pci::PciSBDF;
 #[cfg(target_arch = "x86_64")]
 use crate::pci::bus::{PCI_CONFIG_IO_PORT, PCI_CONFIG_IO_PORT_SIZE};
 use crate::pci::bus::{PciBus, PciConfigIo, PciConfigMmio, PciRoot, PciRootError};
-use crate::vstate::bus::{BusDeviceSync, BusError};
+use crate::vstate::bus::BusDeviceSync;
 use crate::vstate::resources::ResourceAllocator;
 use crate::vstate::vm::KvmVm;
 
@@ -70,7 +70,7 @@ impl std::fmt::Debug for PciSegment {
 }
 
 impl PciSegment {
-    fn build(id: u16, vm: &Arc<KvmVm>, pci_irq_slots: &[u8; 32]) -> Result<PciSegment, BusError> {
+    fn build(id: u16, vm: &Arc<KvmVm>, pci_irq_slots: &[u8; 32]) -> PciSegment {
         let pci_root = PciRoot::new(None);
         let pci_bus = Arc::new(Mutex::new(PciBus::new(pci_root)));
 
@@ -81,7 +81,7 @@ impl PciSegment {
             Arc::clone(&pci_config_mmio) as Arc<dyn BusDeviceSync>,
             mmio_config_address,
             PCI_MMIO_CONFIG_SIZE_PER_SEGMENT,
-        )?;
+        );
 
         let resource_allocator = vm.resource_allocator();
 
@@ -91,7 +91,7 @@ impl PciSegment {
         let start_of_mem64_area = resource_allocator.mmio64_memory.base();
         let end_of_mem64_area = resource_allocator.mmio64_memory.end();
 
-        let segment = PciSegment {
+        PciSegment {
             id,
             pci_bus,
             pci_config_mmio,
@@ -106,25 +106,19 @@ impl PciSegment {
             start_of_mem64_area,
             end_of_mem64_area,
             pci_irq_slots: *pci_irq_slots,
-        };
-
-        Ok(segment)
+        }
     }
 
     #[cfg(target_arch = "x86_64")]
-    pub(crate) fn new(
-        id: u16,
-        vm: &Arc<KvmVm>,
-        pci_irq_slots: &[u8; 32],
-    ) -> Result<PciSegment, BusError> {
-        let mut segment = Self::build(id, vm, pci_irq_slots)?;
+    pub(crate) fn new(id: u16, vm: &Arc<KvmVm>, pci_irq_slots: &[u8; 32]) -> PciSegment {
+        let mut segment = Self::build(id, vm, pci_irq_slots);
         let pci_config_io = Arc::new(Mutex::new(PciConfigIo::new(Arc::clone(&segment.pci_bus))));
 
         vm.pio_bus.insert(
             pci_config_io.clone(),
             PCI_CONFIG_IO_PORT,
             PCI_CONFIG_IO_PORT_SIZE,
-        )?;
+        );
 
         segment.pci_config_io = Some(pci_config_io);
 
@@ -140,16 +134,12 @@ impl PciSegment {
             PCI_CONFIG_IO_PORT + PCI_CONFIG_IO_PORT_SIZE - 1
         );
 
-        Ok(segment)
+        segment
     }
 
     #[cfg(target_arch = "aarch64")]
-    pub(crate) fn new(
-        id: u16,
-        vm: &Arc<KvmVm>,
-        pci_irq_slots: &[u8; 32],
-    ) -> Result<PciSegment, BusError> {
-        let segment = Self::build(id, vm, pci_irq_slots)?;
+    pub(crate) fn new(id: u16, vm: &Arc<KvmVm>, pci_irq_slots: &[u8; 32]) -> PciSegment {
+        let segment = Self::build(id, vm, pci_irq_slots);
         info!(
             "pci: adding PCI segment: id={:#x}, PCI MMIO config address: {:#x}, mem32 area: \
              [{:#x}-{:#x}], mem64 area: [{:#x}-{:#x}]",
@@ -161,7 +151,7 @@ impl PciSegment {
             segment.end_of_mem64_area,
         );
 
-        Ok(segment)
+        segment
     }
 
     pub(crate) fn next_device_sbdf(&self) -> Result<PciSBDF, PciRootError> {
@@ -470,7 +460,7 @@ mod tests {
         let vmm = default_vmm();
         let kvm_vm = vmm.vm.as_kvm().unwrap().clone();
         let pci_irq_slots = &[0u8; 32];
-        let pci_segment = PciSegment::new(0, &kvm_vm, pci_irq_slots).unwrap();
+        let pci_segment = PciSegment::new(0, &kvm_vm, pci_irq_slots);
 
         assert_eq!(pci_segment.id, 0);
         assert_eq!(
@@ -502,7 +492,7 @@ mod tests {
         let vmm = default_vmm();
         let kvm_vm = vmm.vm.as_kvm().unwrap().clone();
         let pci_irq_slots = &[0u8; 32];
-        let pci_segment = PciSegment::new(0, &kvm_vm, pci_irq_slots).unwrap();
+        let pci_segment = PciSegment::new(0, &kvm_vm, pci_irq_slots);
 
         let mut data = [0u8; u64_to_usize(PCI_CONFIG_IO_PORT_SIZE)];
         kvm_vm.pio_bus.read(PCI_CONFIG_IO_PORT, &mut data).unwrap();
@@ -518,7 +508,7 @@ mod tests {
         let vmm = default_vmm();
         let kvm_vm = vmm.vm.as_kvm().unwrap().clone();
         let pci_irq_slots = &[0u8; 32];
-        let pci_segment = PciSegment::new(0, &kvm_vm, pci_irq_slots).unwrap();
+        let pci_segment = PciSegment::new(0, &kvm_vm, pci_irq_slots);
 
         let mut data = [0u8; u64_to_usize(PCI_MMIO_CONFIG_SIZE_PER_SEGMENT)];
 
@@ -539,18 +529,52 @@ mod tests {
 
     #[test]
     fn test_next_device_bdf() {
+        use crate::pci::configuration::PciConfiguration;
+        use crate::pci::{PciClassCode, PciDevice, PciMassStorageSubclass};
+
+        struct PciDevMock(PciConfiguration);
+        impl PciDevice for PciDevMock {
+            fn write_config_register(
+                &mut self,
+                reg_idx: u16,
+                offset: u8,
+                data: &[u8],
+            ) -> Option<Arc<std::sync::Barrier>> {
+                self.0.write_config_register(reg_idx, offset, data);
+                None
+            }
+            fn read_config_register(&mut self, reg_idx: u16) -> u32 {
+                self.0.read_reg(reg_idx)
+            }
+        }
+        fn mock_dev() -> Arc<Mutex<dyn PciDevice>> {
+            Arc::new(Mutex::new(PciDevMock(PciConfiguration::new_type0(
+                0x42,
+                0x0,
+                0x0,
+                PciClassCode::MassStorageController,
+                PciMassStorageSubclass::SerialScsiController as u8,
+                0x13,
+                0x12,
+            ))))
+        }
+
         let vmm = default_vmm();
         let kvm_vm = vmm.vm.as_kvm().unwrap().clone();
         let pci_irq_slots = &[0u8; 32];
-        let pci_segment = PciSegment::new(0, &kvm_vm, pci_irq_slots).unwrap();
+        let pci_segment = PciSegment::new(0, &kvm_vm, pci_irq_slots);
 
         // Start checking from device id 1, since 0 is allocated to the Root port.
+        // `next_device_sbdf` only inspects the bus, so the caller must `add_device`
+        // before requesting the next id.
         for dev_id in 1..32 {
             let sbdf = pci_segment.next_device_sbdf().unwrap();
             // In our case we have a single Segment with id 0, which has
             // a single bus with id 0. Also, each device of ours has a
             // single function.
             assert_eq!(sbdf, PciSBDF::new(0, 0, dev_id, 0));
+            let mut segment = pci_segment.pci_bus.lock().unwrap();
+            segment.add_device(dev_id, mock_dev()).unwrap();
         }
 
         // We can only have 32 devices on a segment

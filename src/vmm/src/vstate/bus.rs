@@ -10,7 +10,6 @@
 use std::cmp::Ordering;
 use std::collections::btree_map::BTreeMap;
 use std::sync::{Arc, Barrier, Mutex, RwLock, Weak};
-use std::{error, fmt, result};
 
 /// Trait for devices that respond to reads or writes in an arbitrary address space.
 ///
@@ -53,28 +52,11 @@ impl<B: BusDevice> BusDeviceSync for Mutex<B> {
 }
 
 /// Error type for [`Bus`]-related operations.
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error, displaydoc::Display)]
 pub enum BusError {
-    /// The insertion failed because the new device overlapped with an old device.
-    Overlap,
-    /// Failed to operate on zero sized range.
-    ZeroSizedRange,
     /// Failed to find address range.
     MissingAddressRange,
-    /// The supplied range is invalid.
-    InvalidRange,
 }
-
-/// Result type for [`Bus`]-related operations.
-pub type Result<T> = result::Result<T, BusError>;
-
-impl fmt::Display for BusError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "bus_error: {self:?}")
-    }
-}
-
-impl error::Error for BusError {}
 
 /// Holds a base and end representing the address space occupied by a `BusDevice`.
 ///
@@ -90,12 +72,10 @@ pub struct BusRange {
 
 #[allow(missing_docs)]
 impl BusRange {
-    pub fn new(base: u64, len: u64) -> Result<Self> {
-        if len == 0 {
-            return Err(BusError::ZeroSizedRange);
-        }
-        let end = base.checked_add(len - 1).ok_or(BusError::InvalidRange)?;
-        Ok(BusRange { base, end })
+    pub fn new(base: u64, len: u64) -> Self {
+        assert!(0 < len, "BusRange: zero-sized range");
+        let end = base.checked_add(len - 1).expect("BusRange: range overflow");
+        BusRange { base, end }
     }
 
     pub fn base(&self) -> u64 {
@@ -151,7 +131,7 @@ impl Bus {
 
     fn first_before(&self, addr: u64) -> Option<(BusRange, Arc<dyn BusDeviceSync>)> {
         let devices = self.devices.read().unwrap();
-        let (range, dev) = devices.range(..=BusRange::new(addr, 1).ok()?).next_back()?;
+        let (range, dev) = devices.range(..=BusRange::new(addr, 1)).next_back()?;
         dev.upgrade().map(|d| (*range, d.clone()))
     }
 
@@ -168,48 +148,45 @@ impl Bus {
     }
 
     /// Insert a device into the [`Bus`] in the range [`addr`, `addr` + `len`].
-    pub fn insert(&self, device: Arc<dyn BusDeviceSync>, base: u64, len: u64) -> Result<()> {
-        let new_range = BusRange::new(base, len)?;
+    ///
+    /// # Panics
+    ///
+    /// Panics if `len` is zero, if the range overflows, or if the new range overlaps with an
+    /// existing device. These conditions indicate a bug in the VMM address layout.
+    pub fn insert(&self, device: Arc<dyn BusDeviceSync>, base: u64, len: u64) {
+        let new_range = BusRange::new(base, len);
 
-        // Reject all cases where the new device's range overlaps with an existing device.
-        if self
-            .devices
-            .read()
-            .unwrap()
-            .iter()
-            .any(|(range, _dev)| range.overlaps(&new_range))
-        {
-            return Err(BusError::Overlap);
-        }
+        let mut devices = self.devices.write().unwrap();
 
-        if self
-            .devices
-            .write()
-            .unwrap()
-            .insert(new_range, Arc::downgrade(&device))
-            .is_some()
-        {
-            return Err(BusError::Overlap);
-        }
+        assert!(
+            !devices
+                .iter()
+                .any(|(range, _dev)| range.overlaps(&new_range)),
+            "Bus::insert: overlapping range at base {base:#x} len {len:#x}"
+        );
 
-        Ok(())
+        devices.insert(new_range, Arc::downgrade(&device));
     }
 
     /// Removes the device at the given address space range.
-    pub fn remove(&self, base: u64, len: u64) -> Result<()> {
-        let bus_range = BusRange::new(base, len)?;
-
-        if self.devices.write().unwrap().remove(&bus_range).is_none() {
-            return Err(BusError::MissingAddressRange);
-        }
-
-        Ok(())
+    ///
+    /// # Panics
+    ///
+    /// Panics if `len` is zero, if the range overflows, or if no device is registered at the
+    /// given range. The caller is expected to remove only ranges that were previously inserted.
+    pub fn remove(&self, base: u64, len: u64) {
+        let bus_range = BusRange::new(base, len);
+        let result = self.devices.write().unwrap().remove(&bus_range);
+        assert!(
+            result.is_some(),
+            "Bus::remove: no device at base {base:#x} len {len:#x}"
+        );
     }
 
     /// Reads data from the device that owns the range containing `addr` and puts it into `data`.
     ///
     /// Returns true on success, otherwise `data` is untouched.
-    pub fn read(&self, addr: u64, data: &mut [u8]) -> Result<()> {
+    pub fn read(&self, addr: u64, data: &mut [u8]) -> Result<(), BusError> {
         if let Some((base, offset, dev)) = self.resolve(addr) {
             // OK to unwrap as lock() failing is a serious error condition and should panic.
             dev.read(base, offset, data);
@@ -222,7 +199,7 @@ impl Bus {
     /// Writes `data` to the device that owns the range containing `addr`.
     ///
     /// Returns true on success, otherwise `data` is untouched.
-    pub fn write(&self, addr: u64, data: &[u8]) -> Result<Option<Arc<Barrier>>> {
+    pub fn write(&self, addr: u64, data: &[u8]) -> Result<Option<Arc<Barrier>>, BusError> {
         if let Some((base, offset, dev)) = self.resolve(addr) {
             // OK to unwrap as lock() failing is a serious error condition and should panic.
             Ok(dev.write(base, offset, data))
@@ -260,79 +237,81 @@ mod tests {
 
     #[test]
     fn bus_range_new() {
-        // Zero length is invalid.
-        assert!(matches!(BusRange::new(0, 0), Err(BusError::ZeroSizedRange)));
-        assert!(matches!(
-            BusRange::new(u64::MAX, 0),
-            Err(BusError::ZeroSizedRange)
-        ));
-
-        // Overflow is invalid.
-        assert!(matches!(
-            BusRange::new(u64::MAX, 2),
-            Err(BusError::InvalidRange)
-        ));
-        assert!(matches!(
-            BusRange::new(2, u64::MAX),
-            Err(BusError::InvalidRange)
-        ));
-
         // Ranges that exactly reach u64::MAX are valid.
-        let r = BusRange::new(u64::MAX, 1).unwrap();
+        let r = BusRange::new(u64::MAX, 1);
         assert_eq!(r.base(), u64::MAX);
         assert_eq!(r.end(), u64::MAX);
 
-        let r = BusRange::new(1, u64::MAX).unwrap();
+        let r = BusRange::new(1, u64::MAX);
         assert_eq!(r.base(), 1);
         assert_eq!(r.end(), u64::MAX);
 
-        let r = BusRange::new(u64::MAX - 4095, 4096).unwrap();
+        let r = BusRange::new(u64::MAX - 4095, 4096);
         assert_eq!(r.base(), u64::MAX - 4095);
         assert_eq!(r.end(), u64::MAX);
 
         // One sized valid range.
-        let r = BusRange::new(0, 1).unwrap();
+        let r = BusRange::new(0, 1);
         assert_eq!(r.base(), 0);
         assert_eq!(r.end(), 0);
 
         // Normal valid range.
-        let r = BusRange::new(0x1000, 0x400).unwrap();
+        let r = BusRange::new(0x1000, 0x400);
         assert_eq!(r.base(), 0x1000);
         assert_eq!(r.end(), 0x13ff);
+    }
+
+    #[test]
+    #[should_panic(expected = "zero-sized range")]
+    fn bus_range_new_zero_len() {
+        BusRange::new(0, 0);
+    }
+
+    #[test]
+    #[should_panic(expected = "range overflow")]
+    fn bus_range_new_overflow() {
+        BusRange::new(u64::MAX, 2);
     }
 
     #[test]
     fn bus_insert() {
         let bus = Bus::new();
         let dummy = Arc::new(DummyDevice);
-        bus.insert(dummy.clone(), 0x10, 0).unwrap_err();
-        bus.insert(dummy.clone(), 0x10, 0x10).unwrap();
+        bus.insert(dummy.clone(), 0x10, 0x10);
+        bus.insert(dummy.clone(), 0x20, 0x05);
+        bus.insert(dummy.clone(), 0x25, 0x05);
+        bus.insert(dummy, 0x0, 0x10);
+    }
 
-        let result = bus.insert(dummy.clone(), 0x0f, 0x10);
-        assert_eq!(format!("{result:?}"), "Err(Overlap)");
+    #[test]
+    #[should_panic(expected = "zero-sized range")]
+    fn bus_insert_zero_len() {
+        let bus = Bus::new();
+        bus.insert(Arc::new(DummyDevice), 0x10, 0);
+    }
 
-        bus.insert(dummy.clone(), 0x10, 0x10).unwrap_err();
-        bus.insert(dummy.clone(), 0x10, 0x15).unwrap_err();
-        bus.insert(dummy.clone(), 0x12, 0x15).unwrap_err();
-        bus.insert(dummy.clone(), 0x12, 0x01).unwrap_err();
-        bus.insert(dummy.clone(), 0x0, 0x20).unwrap_err();
-        bus.insert(dummy.clone(), 0x20, 0x05).unwrap();
-        bus.insert(dummy.clone(), 0x25, 0x05).unwrap();
-        bus.insert(dummy, 0x0, 0x10).unwrap();
+    #[test]
+    #[should_panic(expected = "overlapping range")]
+    fn bus_insert_overlap() {
+        let bus = Bus::new();
+        let dummy = Arc::new(DummyDevice);
+        bus.insert(dummy.clone(), 0x10, 0x10);
+        bus.insert(dummy, 0x0f, 0x10);
+    }
+
+    #[test]
+    #[should_panic(expected = "no device at base")]
+    fn bus_remove_non_existing() {
+        let bus = Bus::new();
+        bus.remove(0x13, 0x12)
     }
 
     #[test]
     fn bus_remove() {
         let bus = Bus::new();
         let dummy: Arc<dyn BusDeviceSync> = Arc::new(DummyDevice);
-
-        bus.remove(0x42, 0x0).unwrap_err();
-
-        bus.remove(0x13, 0x12).unwrap_err();
-
-        bus.insert(dummy.clone(), 0x13, 0x12).unwrap();
-        bus.remove(0x42, 0x42).unwrap_err();
-        bus.remove(0x13, 0x12).unwrap();
+        bus.insert(dummy.clone(), 0x13, 0x12);
+        bus.remove(0x13, 0x12);
     }
 
     #[test]
@@ -340,7 +319,7 @@ mod tests {
     fn bus_read_write() {
         let bus = Bus::new();
         let dummy = Arc::new(DummyDevice);
-        bus.insert(dummy.clone(), 0x10, 0x10).unwrap();
+        bus.insert(dummy.clone(), 0x10, 0x10);
         bus.read(0x10, &mut [0, 0, 0, 0]).unwrap();
         bus.write(0x10, &[0, 0, 0, 0]).unwrap();
         bus.read(0x11, &mut [0, 0, 0, 0]).unwrap();
@@ -358,7 +337,7 @@ mod tests {
     fn bus_read_write_values() {
         let bus = Bus::new();
         let dummy = Arc::new(ConstantDevice);
-        bus.insert(dummy.clone(), 0x10, 0x10).unwrap();
+        bus.insert(dummy.clone(), 0x10, 0x10);
 
         let mut values = [0, 1, 2, 3];
         bus.read(0x10, &mut values).unwrap();
@@ -372,19 +351,19 @@ mod tests {
     #[test]
     #[allow(clippy::redundant_clone)]
     fn busrange_cmp() {
-        let range = BusRange::new(0x10, 2).unwrap();
-        assert_eq!(range, BusRange::new(0x10, 3).unwrap());
-        assert_eq!(range, BusRange::new(0x10, 2).unwrap());
+        let range = BusRange::new(0x10, 2);
+        assert_eq!(range, BusRange::new(0x10, 3));
+        assert_eq!(range, BusRange::new(0x10, 2));
 
-        assert!(range < BusRange::new(0x12, 1).unwrap());
-        assert!(range < BusRange::new(0x12, 3).unwrap());
+        assert!(range < BusRange::new(0x12, 1));
+        assert!(range < BusRange::new(0x12, 3));
 
         assert_eq!(range, range.clone());
 
         let bus = Bus::new();
         let mut data = [1, 2, 3, 4];
         let device = Arc::new(DummyDevice);
-        bus.insert(device.clone(), 0x10, 0x10).unwrap();
+        bus.insert(device.clone(), 0x10, 0x10);
         bus.write(0x10, &data).unwrap();
         bus.read(0x10, &mut data).unwrap();
         assert_eq!(data, [1, 2, 3, 4]);
@@ -392,14 +371,14 @@ mod tests {
 
     #[test]
     fn bus_range_overlap() {
-        let a = BusRange::new(0x1000, 0x400).unwrap();
-        assert!(a.overlaps(&BusRange::new(0x1000, 0x400).unwrap()));
-        assert!(a.overlaps(&BusRange::new(0xf00, 0x400).unwrap()));
-        assert!(a.overlaps(&BusRange::new(0x1000, 0x01).unwrap()));
-        assert!(a.overlaps(&BusRange::new(0xfff, 0x02).unwrap()));
-        assert!(a.overlaps(&BusRange::new(0x1100, 0x100).unwrap()));
-        assert!(a.overlaps(&BusRange::new(0x13ff, 0x100).unwrap()));
-        assert!(!a.overlaps(&BusRange::new(0x1400, 0x100).unwrap()));
-        assert!(!a.overlaps(&BusRange::new(0xf00, 0x100).unwrap()));
+        let a = BusRange::new(0x1000, 0x400);
+        assert!(a.overlaps(&BusRange::new(0x1000, 0x400)));
+        assert!(a.overlaps(&BusRange::new(0xf00, 0x400)));
+        assert!(a.overlaps(&BusRange::new(0x1000, 0x01)));
+        assert!(a.overlaps(&BusRange::new(0xfff, 0x02)));
+        assert!(a.overlaps(&BusRange::new(0x1100, 0x100)));
+        assert!(a.overlaps(&BusRange::new(0x13ff, 0x100)));
+        assert!(!a.overlaps(&BusRange::new(0x1400, 0x100)));
+        assert!(!a.overlaps(&BusRange::new(0xf00, 0x100)));
     }
 }
