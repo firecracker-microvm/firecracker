@@ -81,3 +81,5 @@ mkdir -pv $rootfs/var/lib/systemd
 
 # So apt works
 mkdir -pv $rootfs/var/lib/dpkg
+
+# noop: trigger ci-artifacts-sanity-build (DO NOT MERGE)
