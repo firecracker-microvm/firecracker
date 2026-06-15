@@ -71,6 +71,22 @@ pub fn build_cmdline(s: &str) -> Result<cmdline::Cmdline, cmdline::Error> {
     cmdline::Cmdline::try_from(s, crate::arch::CMDLINE_MAX_SIZE)
 }
 
+/// Append the `root=` (and `ro`/`rw`) arguments derived from a root block
+/// device to `cmdline`. Uses `root=PARTUUID=<uuid>` when a partuuid is
+/// available, otherwise `root=/dev/vda`.
+pub fn append_root_device_cmdline(
+    cmdline: &mut cmdline::Cmdline,
+    partuuid: Option<&str>,
+    read_only: bool,
+) -> Result<(), cmdline::Error> {
+    match partuuid {
+        Some(uuid) => cmdline.insert_str(format!("root=PARTUUID={uuid}"))?,
+        None => cmdline.insert_str("root=/dev/vda")?,
+    }
+    cmdline.insert_str(if read_only { "ro" } else { "rw" })?;
+    Ok(())
+}
+
 impl BootConfig {
     /// Creates the BootConfig based on a given configuration.
     pub fn new(cfg: &BootSourceConfig) -> Result<Self, BootSourceConfigError> {
