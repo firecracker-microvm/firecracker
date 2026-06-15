@@ -16,6 +16,12 @@ pub enum FingerprintDumpError {
     ReadSysfsFile(String, std::io::Error),
     /// Failed to get kernel version: {0}
     GetKernelVersion(std::io::Error),
+    /// Failed to read /proc/cpuinfo: {0}
+    #[cfg(target_arch = "x86_64")]
+    ReadProcCpuinfo(std::io::Error),
+    /// Failed to find microcode version in /proc/cpuinfo
+    #[cfg(target_arch = "x86_64")]
+    MicrocodeVersionNotFound,
 }
 
 pub fn dump(vmm: Arc<Mutex<Vmm>>) -> Result<Fingerprint, FingerprintDumpError> {
@@ -23,7 +29,7 @@ pub fn dump(vmm: Arc<Mutex<Vmm>>) -> Result<Fingerprint, FingerprintDumpError> {
         firecracker_version: crate::utils::CPU_TEMPLATE_HELPER_VERSION.to_string(),
         kernel_version: get_kernel_version()?,
         #[cfg(target_arch = "x86_64")]
-        microcode_version: read_sysfs_file("/sys/devices/system/cpu/cpu0/microcode/version")?,
+        microcode_version: get_microcode_version()?,
         #[cfg(target_arch = "aarch64")]
         microcode_version: read_sysfs_file(
             "/sys/devices/system/cpu/cpu0/regs/identification/revidr_el1",
@@ -59,6 +65,21 @@ fn read_sysfs_file(path: &str) -> Result<String, FingerprintDumpError> {
     Ok(s.trim_end_matches('\n').to_string())
 }
 
+#[cfg(target_arch = "x86_64")]
+fn get_microcode_version() -> Result<String, FingerprintDumpError> {
+    let cpuinfo = read_to_string("/proc/cpuinfo").map_err(FingerprintDumpError::ReadProcCpuinfo)?;
+    for line in cpuinfo.lines() {
+        let microcode = line
+            .strip_prefix("microcode")
+            .and_then(|value| value.trim_start().strip_prefix(':'))
+            .map(|microcode| microcode.trim().to_string());
+        if let Some(microcode) = microcode {
+            return Ok(microcode);
+        }
+    }
+    Err(FingerprintDumpError::MicrocodeVersionNotFound)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -82,5 +103,18 @@ mod tests {
         if read_sysfs_file(invalid_sysfs_path).is_ok() {
             panic!("Should fail with `No such file or directory`");
         }
+    }
+
+    #[cfg(target_arch = "x86_64")]
+    #[test]
+    fn test_read_microcode_version_from_cpuinfo() {
+        // /proc/cpuinfo should always have a microcode field on x86_64.
+        let version = get_microcode_version().unwrap();
+        let hex_digits = version.strip_prefix("0x").expect("should start with 0x");
+        assert!(!hex_digits.is_empty());
+        assert!(
+            hex_digits.chars().all(|c| c.is_ascii_hexdigit()),
+            "expected hex digits after 0x, got: {version}"
+        );
     }
 }
