@@ -242,7 +242,7 @@ compare boottime of microVMs between Firecracker binaries compiled from the
 ```sh
 tools/devtool -y build --rev main --release
 tools/devtool -y build --rev HEAD --release
-tools/devtool -y test --no-build --ab -- run build/main build/HEAD --pytest-opts integration_tests/performance/test_boottime.py::test_boottime
+tools/devtool -y test --no-build --ab -- run --binaries-a build/main --binaries-b build/HEAD --pytest-opts integration_tests/performance/test_boottime.py::test_boottime
 ```
 
 To download custom artifacts use
