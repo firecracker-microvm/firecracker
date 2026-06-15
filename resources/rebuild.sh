@@ -102,17 +102,17 @@ function clone_amazon_linux_repo {
 # prints the git tag corresponding to the newest and best matching the provided kernel version $1
 # this means that if a microvm kernel exists, the tag returned will be of the form
 #
-#    microvm-kernel-$1.<patch number>.amzn2[023]
+#    microvm-kernel.*$1.<patch number>.amzn2[023]
 #
 # otherwise choose the newest tag matching
 #
-#    kernel-$1.<patch number>.amzn2[023]
+#    kernel.*$1.<patch number>.amzn2[023]
 function get_tag {
     local KERNEL_VERSION=$1
 
     # list all tags from newest to oldest
-    (git --no-pager tag -l --sort=-v:refname | grep "microvm-kernel-$1\..*\.amzn2" \
-        || git --no-pager tag -l --sort=-v:refname | grep "kernel-$1\..*\.amzn2") | head -n1
+    (git --no-pager tag -l --sort=-v:refname | grep "microvm-kernel.*$KERNEL_VERSION\..*\.amzn2" \
+        || git --no-pager tag -l --sort=-v:refname | grep "kernel.*$KERNEL_VERSION\..*\.amzn2") | head -n1
 }
 
 function build_al_kernel {
