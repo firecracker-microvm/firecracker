@@ -590,8 +590,7 @@ def main():
         t0 = time.perf_counter()
         data_a = load_data_series(args.path_a)
         data_b = load_data_series(args.path_b)
-        t_load = time.perf_counter() - t0
-        print(f"Data loading took {t_load:.2f}s")
+        print(f"Data loading took {time.perf_counter() - t0:.2f}s")
 
         t0 = time.perf_counter()
         error_messages = analyze_data(
@@ -601,8 +600,7 @@ def main():
             args.absolute_strength,
             args.noise_threshold,
         )
-        t_analyze = time.perf_counter() - t0
-        print(f"Analysis took {t_analyze:.2f}s")
+        print(f"Analysis took {time.perf_counter() - t0:.2f}s")
         assert not error_messages, "\n" + "\n".join(error_messages)
         print("No regressions detected!")
 
