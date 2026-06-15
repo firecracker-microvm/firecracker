@@ -28,11 +28,12 @@ use super::request::net::{parse_patch_net, parse_put_net};
 use super::request::pmem::{parse_patch_pmem, parse_put_pmem};
 use super::request::snapshot::{parse_patch_vm_state, parse_put_snapshot};
 use super::request::version::parse_get_version;
+use super::request::vfio::parse_put_vfio;
 use super::request::vsock::parse_put_vsock;
 use crate::api_server::request::hotplug::memory::{
     parse_get_memory_hotplug, parse_patch_memory_hotplug, parse_put_memory_hotplug,
 };
-use crate::api_server::request::hotplug::parse_unplug_device;
+use crate::api_server::request::hotplug::{parse_unplug_device, parse_unplug_vfio_device};
 use crate::api_server::request::serial::parse_put_serial;
 
 #[derive(Debug)]
@@ -110,6 +111,7 @@ impl TryFrom<&Request> for ParsedRequest {
             }
             (Method::Put, "snapshot", Some(body)) => parse_put_snapshot(body, path_tokens.next()),
             (Method::Put, "vsock", Some(body)) => parse_put_vsock(body),
+            (Method::Put, "vfio", Some(body)) => parse_put_vfio(body, path_tokens.next()),
             (Method::Put, "entropy", Some(body)) => parse_put_entropy(body),
             (Method::Put, "hotplug", Some(body)) if path_tokens.next() == Some("memory") => {
                 parse_put_memory_hotplug(body)
@@ -137,6 +139,7 @@ impl TryFrom<&Request> for ParsedRequest {
             (Method::Delete, "network-interfaces", None) => {
                 parse_unplug_device(VirtioDeviceType::Net, path_tokens.next())
             }
+            (Method::Delete, "vfio", None) => parse_unplug_vfio_device(path_tokens.next()),
             (Method::Delete, _, Some(_)) => method_to_error(Method::Delete),
             (method, unknown_uri, _) => Err(RequestError::InvalidPathMethod(
                 unknown_uri.to_string(),

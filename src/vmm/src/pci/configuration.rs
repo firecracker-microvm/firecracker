@@ -72,6 +72,18 @@ pub struct Bar {
     pub about_to_be_read: bool,
 }
 
+impl Bar {
+    /// Is this BAR used
+    pub fn used(&self) -> bool {
+        !(self.encoded_addr == 0 && self.encoded_size == 0)
+    }
+    /// Is this a 64bit BAR
+    /// Must be called only on lower register of the BAR
+    pub fn is_64bit(&self) -> bool {
+        (self.encoded_addr & 0b100) == 0b100
+    }
+}
+
 /// Specifies if the BAR is prefetchable
 #[derive(Debug, Clone, Copy)]
 #[repr(u8)]
@@ -82,6 +94,14 @@ pub enum BarPrefetchable {
     Yes = 1,
 }
 
+impl From<bool> for BarPrefetchable {
+    fn from(value: bool) -> Self {
+        // SAFETY: BarPrefetchable is #[repr(u8)] with No = 0 and Yes = 1,
+        // which matches the guaranteed bool representation (false = 0, true = 1).
+        unsafe { std::mem::transmute(value) }
+    }
+}
+
 /// Type to handle basic interactions with BARs region
 #[derive(Debug, Default, Clone, Copy, Serialize, Deserialize)]
 pub struct Bars {
@@ -89,6 +109,23 @@ pub struct Bars {
     pub bars: [Bar; NUM_BAR_REGS as usize],
 }
 impl Bars {
+    /// Set 1 consecutive BAR slot as a single 32bit bar
+    pub fn set_bar_32(&mut self, bar_idx: u8, addr: u32, size: u32, prefetchable: BarPrefetchable) {
+        assert_ne!(size, 0);
+        assert!(size.is_power_of_two());
+        assert!(addr & 0b1111 == 0);
+        addr.checked_add(size - 1).unwrap();
+        assert!(bar_idx < NUM_BAR_REGS);
+
+        // Unused BARs will have address and size of 0
+        assert_eq!(self.bars[bar_idx as usize].encoded_addr, 0);
+        assert_eq!(self.bars[bar_idx as usize].encoded_size, 0);
+
+        let size = encode_32_bits_bar_size(size);
+        let prefetchable = (prefetchable as u32) << 3;
+        self.bars[bar_idx as usize].encoded_addr = addr | prefetchable;
+        self.bars[bar_idx as usize].encoded_size = size;
+    }
     /// Set 2 consecutive BAR slots as a single 64bit bar
     pub fn set_bar_64(&mut self, bar_idx: u8, addr: u64, size: u64, prefetchable: BarPrefetchable) {
         assert_ne!(size, 0);
@@ -114,12 +151,47 @@ impl Bars {
         self.bars[(bar_idx + 1) as usize].encoded_addr = addr_hi;
         self.bars[(bar_idx + 1) as usize].encoded_size = size_hi;
     }
+    /// Get the address of the 32bit or 64bit BAR
+    pub fn get_bar_addr(&self, bar_idx: u8) -> u64 {
+        assert!(bar_idx < NUM_BAR_REGS);
+        let bar = &self.bars[bar_idx as usize];
+        if bar.is_64bit() {
+            self.get_bar_addr_64(bar_idx)
+        } else {
+            if 0 < bar_idx {
+                let previous_bar = &self.bars[bar_idx as usize - 1];
+                assert!(!previous_bar.is_64bit());
+            }
+            u64::from(bar.encoded_addr & !0b1111)
+        }
+    }
+    /// Get the size of the 32bit or 64bit BAR
+    pub fn get_bar_size(&self, bar_idx: u8) -> u64 {
+        assert!(bar_idx < NUM_BAR_REGS);
+        let bar = &self.bars[bar_idx as usize];
+        if bar.is_64bit() {
+            self.get_bar_size_64(bar_idx)
+        } else {
+            if 0 < bar_idx {
+                let previous_bar = &self.bars[bar_idx as usize - 1];
+                assert!(!previous_bar.is_64bit());
+            }
+            u64::from(decode_32_bits_bar_size(bar.encoded_size))
+        }
+    }
     /// Get the address of the 64bit bar
     pub fn get_bar_addr_64(&self, bar_idx: u8) -> u64 {
         assert!(bar_idx < NUM_BAR_REGS - 1);
         let addr_hi = self.bars[(bar_idx + 1) as usize].encoded_addr;
         let addr_lo = self.bars[bar_idx as usize].encoded_addr & !0b1111;
         (addr_hi as u64) << 32 | (addr_lo as u64)
+    }
+    /// Get the size of the 64bit bar
+    pub fn get_bar_size_64(&self, bar_idx: u8) -> u64 {
+        assert!(bar_idx < NUM_BAR_REGS - 1);
+        let size_hi = self.bars[(bar_idx + 1) as usize].encoded_size;
+        let size_lo = self.bars[bar_idx as usize].encoded_size;
+        decode_64_bits_bar_size(size_hi, size_lo)
     }
     /// Writes into a given BAR register at the given offset
     pub fn write(&mut self, bar_idx: u8, offset: u8, data: &[u8]) {
@@ -169,12 +241,30 @@ pub trait PciCapability {
 
 // This encodes the BAR size as expected by the software running inside the guest.
 // It assumes that bar_size is not 0
+fn encode_32_bits_bar_size(bar_size: u32) -> u32 {
+    assert_ne!(bar_size, 0);
+    !(bar_size - 1)
+}
+
+// Decode the BAR size for 32 bit
+fn decode_32_bits_bar_size(encoded_size: u32) -> u32 {
+    (!encoded_size).wrapping_add(1)
+}
+
+// This encodes the BAR size as expected by the software running inside the guest.
+// It assumes that bar_size is not 0
 fn encode_64_bits_bar_size(bar_size: u64) -> (u32, u32) {
     assert_ne!(bar_size, 0);
     let result = !(bar_size - 1);
     let result_hi = (result >> 32) as u32;
     let result_lo = (result & 0xffff_ffff) as u32;
     (result_hi, result_lo)
+}
+
+// Decode the BAR size for 64 bit
+fn decode_64_bits_bar_size(encoded_size_hi: u32, encoded_size_lo: u32) -> u64 {
+    let result = (u64::from(encoded_size_hi) << 32) | (u64::from(encoded_size_lo));
+    (!result).wrapping_add(1)
 }
 
 /// PCI configuration space state for (de)serialization
