@@ -121,10 +121,12 @@ impl InfoPage {
     /// Allocate a 2 MiB info page via CMA (mmap on the NE device fd).
     ///
     /// PCIE mode requires physically contiguous memory from the NE driver's
-    /// CMA pool.
+    /// CMA pool. `NE_SET_INFO_PAGE` requires the userspace address to be
+    /// 2 MiB-aligned, so allocate with explicit alignment rather than relying
+    /// on the default mmap granularity.
     pub fn new(ne_dev_fd: &super::ne_ioctl::NitroEnclavesDevFd) -> Result<Self, InfoPageError> {
-        let ptr = ne_dev_fd
-            .allocate_cma(INFO_PAGE_SIZE)
+        let (ptr, _aligned_size) = ne_dev_fd
+            .allocate_cma_aligned(INFO_PAGE_SIZE, INFO_PAGE_SIZE)
             .map_err(InfoPageError::Alloc)?;
         Ok(Self { ptr })
     }
