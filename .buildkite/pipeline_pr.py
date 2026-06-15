@@ -4,7 +4,12 @@
 
 """Generate Buildkite pipelines dynamically"""
 
-from common import BKPipeline, get_changed_files, run_all_tests
+from common import (
+    BKPipeline,
+    ci_artifacts_change_mode,
+    get_changed_files,
+    run_all_tests,
+)
 
 # Buildkite default job priority is 0. Setting this to 1 prioritizes PRs over
 # scheduled jobs and other batch jobs.
@@ -37,6 +42,18 @@ if any(x.parent.name == "devctr" for x in changed_files):
     pipeline.build_group_per_arch(
         "dev-container-sanity-build",
         "./tools/devtool -y build_devctr && DEVCTR_IMAGE_TAG=latest ./tools/devtool test --no-build -- integration_tests/functional/test_api.py",
+    )
+
+# run sanity build of the CI guest artifacts (kernels/rootfs) if any of their
+# source files changed. Rebuild only the affected half when possible, pulling
+# the unchanged half from S3 so a guest can still boot.
+artifacts_mode = ci_artifacts_change_mode(changed_files)
+if artifacts_mode is not None:
+    pipeline.build_group_per_arch(
+        "ci-artifacts-sanity-build",
+        f"./tools/devtool -y build_ci_artifacts {artifacts_mode} && "
+        f"./tools/devtool -y stage_ci_artifacts {artifacts_mode} && "
+        "./tools/devtool -y test --no-build -- integration_tests/functional/test_api.py",
     )
 
 if any(
