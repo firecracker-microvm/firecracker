@@ -112,14 +112,14 @@ pub enum FindDeviceError {
     DeviceNotFound,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 /// A manager of all peripheral devices of Firecracker
 pub struct DeviceManager {
     /// MMIO devices
     pub mmio_devices: MMIODeviceManager,
     #[cfg(target_arch = "x86_64")]
-    /// Legacy devices
-    pub legacy_devices: PortIODeviceManager,
+    /// Legacy devices (`None` if not initialized)
+    pub legacy_devices: Option<PortIODeviceManager>,
     /// ACPI devices
     pub acpi_devices: ACPIDeviceManager,
     /// PCIe devices
@@ -183,15 +183,15 @@ impl DeviceManager {
 
         #[cfg(target_arch = "x86_64")]
         {
-            Some(
-                self.legacy_devices
+            self.legacy_devices.as_ref().map(|legacy| {
+                legacy
                     .stdio_serial
                     .lock()
                     .expect("Poisoned lock")
                     .serial
                     .state()
-                    .into(),
-            )
+                    .into()
+            })
         }
     }
 
@@ -247,7 +247,7 @@ impl DeviceManager {
         Ok(DeviceManager {
             mmio_devices: MMIODeviceManager::new(),
             #[cfg(target_arch = "x86_64")]
-            legacy_devices,
+            legacy_devices: Some(legacy_devices),
             acpi_devices: ACPIDeviceManager::default(),
             pci_devices: PciDevices::new(),
         })
@@ -772,7 +772,7 @@ impl<'a> Persist<'a> for DeviceManager {
         Ok(DeviceManager {
             mmio_devices,
             #[cfg(target_arch = "x86_64")]
-            legacy_devices,
+            legacy_devices: Some(legacy_devices),
             acpi_devices,
             pci_devices,
         })
@@ -819,7 +819,7 @@ pub(crate) mod tests {
         DeviceManager {
             mmio_devices,
             #[cfg(target_arch = "x86_64")]
-            legacy_devices,
+            legacy_devices: Some(legacy_devices),
             acpi_devices,
             pci_devices,
         }

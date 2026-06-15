@@ -48,6 +48,7 @@ use crate::resources::VmResources;
 use crate::seccomp::BpfThreadMap;
 use crate::snapshot::Persist;
 use crate::utils::mib_to_bytes;
+use crate::vmm_config::boot_source::{DEFAULT_KERNEL_CMDLINE, build_cmdline};
 use crate::vmm_config::instance_info::{InstanceInfo, VmState};
 use crate::vmm_config::machine_config::MachineConfigError;
 use crate::vmm_config::memory_hotplug::MemoryHotplugConfig;
@@ -162,8 +163,12 @@ pub fn build_microvm_for_boot(
         .map_err(StartMicrovmError::GuestMemory)?;
 
     // Clone the command-line so that a failed boot doesn't pollute the original.
+    // If the user didn't provide boot_args, use the KVM-specific default.
     #[allow(unused_mut)]
-    let mut boot_cmdline = boot_config.cmdline.clone();
+    let mut boot_cmdline = match boot_config.cmdline.clone() {
+        Some(cmdline) => cmdline,
+        None => build_cmdline(DEFAULT_KERNEL_CMDLINE)?,
+    };
 
     let cpu_template = vm_resources
         .machine_config
@@ -354,17 +359,6 @@ pub fn build_microvm_for_boot(
         debug!("No GDB socket provided not starting gdb server.");
     }
 
-    // Load seccomp filters for the VMM thread.
-    // Execution panics if filters cannot be loaded, use --no-seccomp if skipping filters
-    // altogether is the desired behaviour.
-    // Keep this as the last step before resuming vcpus.
-    crate::seccomp::apply_filter(
-        seccomp_filters
-            .get("vmm")
-            .ok_or_else(|| StartMicrovmError::MissingSeccompFilters("vmm".to_string()))?,
-    )
-    .map_err(VmmError::SeccompFilters)?;
-
     event_manager.add_subscriber(vmm.clone());
 
     Ok(vmm)
@@ -420,10 +414,6 @@ pub enum BuildMicrovmFromSnapshotError {
     StartVcpus(#[from] crate::StartVcpusError),
     /// Failed to restore vCPUs: {0}
     RestoreVcpus(#[from] VcpuError),
-    /// Failed to apply VMM secccomp filter as none found.
-    MissingVmmSeccompFilters,
-    /// Failed to apply VMM secccomp filter: {0}
-    SeccompFiltersInternal(#[from] crate::seccomp::InstallationError),
     /// Failed to restore devices: {0}
     RestoreDevices(#[from] DeviceManagerPersistError),
     /// clock_realtime is not supported on aarch64.
@@ -543,13 +533,6 @@ pub fn build_microvm_from_snapshot(
     vmm.lock().unwrap().instance_info.state = VmState::Paused;
     event_manager.add_subscriber(vmm.clone());
 
-    // Load seccomp filters for the VMM thread.
-    // Keep this as the last step of the building process.
-    crate::seccomp::apply_filter(
-        seccomp_filters
-            .get("vmm")
-            .ok_or(BuildMicrovmFromSnapshotError::MissingVmmSeccompFilters)?,
-    )?;
     debug!("event_end: build microvm from snapshot");
 
     Ok(vmm)
@@ -797,7 +780,7 @@ pub(crate) mod tests {
     use crate::mmds::ns::MmdsNetworkStack;
     use crate::utils::mib_to_bytes;
     use crate::vmm_config::balloon::{BALLOON_DEV_ID, BalloonBuilder, BalloonDeviceConfig};
-    use crate::vmm_config::boot_source::{BootSourceConfig, DEFAULT_KERNEL_CMDLINE};
+    use crate::vmm_config::boot_source::BootSourceConfig;
     use crate::vmm_config::drive::{BlockBuilder, BlockDeviceConfig};
     use crate::vmm_config::entropy::{EntropyDeviceBuilder, EntropyDeviceConfig};
     use crate::vmm_config::machine_config::MachineConfig;
@@ -854,11 +837,7 @@ pub(crate) mod tests {
     }
 
     pub(crate) fn default_kernel_cmdline() -> Cmdline {
-        linux_loader::cmdline::Cmdline::try_from(
-            DEFAULT_KERNEL_CMDLINE,
-            crate::arch::CMDLINE_MAX_SIZE,
-        )
-        .unwrap()
+        build_cmdline(DEFAULT_KERNEL_CMDLINE).unwrap()
     }
 
     pub(crate) fn default_vmm() -> Vmm {
