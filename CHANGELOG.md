@@ -18,6 +18,10 @@ and this project adheres to
 
 ### Fixed
 
+- [#5959](https://github.com/firecracker-microvm/firecracker/pull/5959):
+  Reverted the use of `O_NOFOLLOW` for the jailer's cgroup and network namespace
+  file operations, so symlinks are again allowed in these paths.
+
 ## [1.16.0]
 
 ### Added
