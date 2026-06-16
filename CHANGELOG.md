@@ -13,6 +13,11 @@ and this project adheres to
 - [#5959](https://github.com/firecracker-microvm/firecracker/pull/5959):
   Reverted the use of `O_NOFOLLOW` for the jailer's cgroup and network namespace
   file operations, so symlinks are again allowed in these paths.
+- [#5958](https://github.com/firecracker-microvm/firecracker/pull/5958): Fixed a
+  bug that caused vsock guest-to-host connections to time out after snapshot
+  restore, triggered by taking a snapshot with a TX descriptor in-flight. On
+  restore the device now replays the TX queue notification so in-flight TX
+  descriptors are re-processed and notification suppression is re-armed.
 
 ## [1.16.0]
 
