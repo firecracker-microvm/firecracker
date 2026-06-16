@@ -61,6 +61,7 @@
 //! If if turns out this approach is not really what we want, it's pretty easy to resort to
 //! something else, while working behind the same interface.
 
+use std::collections::BTreeMap;
 use std::fmt::Debug;
 use std::io::Write;
 use std::ops::Deref;
@@ -331,6 +332,42 @@ impl ProcessTimeReporter {
 // The following structs are used to define a certain organization for the set of metrics we
 // are interested in. Whenever the name of a field differs from its ideal textual representation
 // in the serialized form, we can use the #[serde(rename = "name")] attribute to, well, rename it.
+
+/// Operator-supplied key-value pairs emitted alongside the metrics.
+#[derive(Debug, Default)]
+pub struct MetricsProperties {
+    /// The properties, set once at metrics configuration time.
+    inner: OnceLock<BTreeMap<String, String>>,
+}
+
+impl Serialize for MetricsProperties {
+    /// Serializes as a `properties` map flattened into the parent metrics object,
+    /// or as nothing when unset.
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        use serde::ser::SerializeMap;
+        let mut map = serializer.serialize_map(None)?;
+        if let Some(props) = self.inner.get() {
+            map.serialize_entry("properties", props)?;
+        }
+        map.end()
+    }
+}
+
+impl MetricsProperties {
+    /// Const default construction.
+    pub const fn new() -> Self {
+        Self {
+            inner: OnceLock::new(),
+        }
+    }
+
+    /// Sets the properties once. Returns an error if already set.
+    pub fn set(&self, properties: BTreeMap<String, String>) -> Result<(), MetricsError> {
+        self.inner
+            .set(properties)
+            .map_err(|_| MetricsError::AlreadyInitialized)
+    }
+}
 
 /// Metrics related to the internal API server.
 #[derive(Debug, Default, Serialize)]
@@ -907,6 +944,9 @@ create_serialize_proxy!(MemoryHotplugSerializeProxy, virtio_mem_metrics);
 #[derive(Debug, Default, Serialize)]
 pub struct FirecrackerMetrics {
     utc_timestamp_ms: SerializeToUtcTimestampMs,
+    #[serde(flatten)]
+    /// Operator-supplied custom properties.
+    pub properties: MetricsProperties,
     /// API Server related metrics.
     pub api_server: ApiServerMetrics,
     #[serde(flatten)]
@@ -966,6 +1006,7 @@ impl FirecrackerMetrics {
     pub const fn new() -> Self {
         Self {
             utc_timestamp_ms: SerializeToUtcTimestampMs::new(),
+            properties: MetricsProperties::new(),
             api_server: ApiServerMetrics::new(),
             balloon_ser: BalloonMetricsSerializeProxy {},
             block_ser: BlockMetricsSerializeProxy {},
@@ -1026,6 +1067,33 @@ mod tests {
         let f = TempFile::new().expect("Failed to create temporary metrics file");
 
         m.init(LineWriter::new(f.into_file())).unwrap_err();
+    }
+
+    #[test]
+    fn test_metrics_properties_serialize_unset() {
+        let props = MetricsProperties::new();
+        assert_eq!(serde_json::to_string(&props).unwrap(), "{}");
+    }
+
+    #[test]
+    fn test_metrics_properties_serialize_set() {
+        let props = MetricsProperties::new();
+        let mut map = BTreeMap::new();
+        map.insert("customer_id".to_string(), "1234".to_string());
+        map.insert("bundle_id".to_string(), "fn-abc".to_string());
+        props.set(map).unwrap();
+
+        assert_eq!(
+            serde_json::to_string(&props).unwrap(),
+            r#"{"properties":{"bundle_id":"fn-abc","customer_id":"1234"}}"#
+        );
+    }
+
+    #[test]
+    fn test_metrics_properties_set_once() {
+        let props = MetricsProperties::new();
+        props.set(BTreeMap::new()).unwrap();
+        props.set(BTreeMap::new()).unwrap_err();
     }
 
     #[test]

@@ -1289,6 +1289,7 @@ mod tests {
         check_unsupported(runtime_request(VmmAction::ConfigureMetrics(
             MetricsConfig {
                 metrics_path: PathBuf::new(),
+                properties: None,
             },
         )));
         check_unsupported(runtime_request(VmmAction::SetVsockDevice(

@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 //! Auxiliary module for configuring the metrics system.
+use std::collections::BTreeMap;
 use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
@@ -14,6 +15,9 @@ use crate::utils::open_file_nonblock;
 pub struct MetricsConfig {
     /// Named pipe or file used as output for metrics.
     pub metrics_path: PathBuf,
+    /// Optional operator-defined key-value properties emitted on every metrics line.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub properties: Option<BTreeMap<String, String>>,
 }
 
 /// Errors associated with actions on the `MetricsConfig`.
@@ -31,7 +35,16 @@ pub fn init_metrics(metrics_cfg: MetricsConfig) -> Result<(), MetricsConfigError
     );
     METRICS
         .init(writer)
-        .map_err(|err| MetricsConfigError::InitializationFailure(err.to_string()))
+        .map_err(|err| MetricsConfigError::InitializationFailure(err.to_string()))?;
+
+    if let Some(properties) = metrics_cfg.properties {
+        METRICS
+            .properties
+            .set(properties)
+            .map_err(|err| MetricsConfigError::InitializationFailure(err.to_string()))?;
+    }
+
+    Ok(())
 }
 
 #[cfg(test)]
@@ -46,6 +59,7 @@ mod tests {
         let metrics_file = TempFile::new().unwrap();
         let desc = MetricsConfig {
             metrics_path: metrics_file.as_path().to_path_buf(),
+            properties: None,
         };
 
         init_metrics(desc.clone()).unwrap();
