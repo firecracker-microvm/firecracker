@@ -113,7 +113,7 @@ def _assert_vm_healthy(microvm):
 
 
 @pytest.fixture
-def apf_vm(microvm_factory, guest_kernel_linux_5_10, rootfs, secret_free):
+def apf_vm(microvm_factory, guest_kernel, rootfs, secret_free):
     """Provide a factory function for booting + snapshotting VMs.
 
     APF requires secret_free (KVM_MEM_USERFAULT + userfault bitmap).
@@ -124,7 +124,7 @@ def apf_vm(microvm_factory, guest_kernel_linux_5_10, rootfs, secret_free):
 
     def _make(vcpus=2, mem_mib=512):
         vm = microvm_factory.build(
-            guest_kernel_linux_5_10,
+            guest_kernel,
             rootfs,
             monitor_memory=False,
         )
