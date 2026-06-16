@@ -225,6 +225,9 @@ static SERIALIZABLE_MSR_RANGES: &[MsrRange] = &[
     MSR_RANGE!(MSR_MISC_FEATURES_ENABLES),
     MSR_RANGE!(MSR_K7_HWCR),
     MSR_RANGE!(MSR_IA32_TSX_CTRL),
+    // IA32_XSS controls which supervisor XSTATE components are enabled. Without it, the guest
+    // kernel's XRSTORS of process FPU state containing CET/PT supervisor components triggers #GP.
+    MSR_RANGE!(MSR_IA32_XSS),
     MSR_RANGE!(
         MSR_KVM_RANGE_START,
         MSR_KVM_RANGE_END - MSR_KVM_RANGE_START + 1
