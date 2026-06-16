@@ -1394,8 +1394,9 @@ cmd_build_ci_artifacts() {
         --workdir "$CTR_FC_ROOT_DIR" \
         -- \
         ./resources/rebuild.sh "$@"
-
+    local ret=$?
     cmd_fix_perms
+    return $ret
 }
 
 # Download only one "half" (rootfs or kernels) of the newest CI artifacts from
