@@ -69,12 +69,11 @@ use crate::vstate::memory::{
 use crate::vstate::resources::ResourceAllocator;
 use crate::vstate::vcpu::{SharedApfStream, VcpuError};
 use crate::vstate::vm::{
-    GUEST_MEMFD_FLAG_INIT_SHARED, GUEST_MEMFD_FLAG_MMAP, GUEST_MEMFD_FLAG_NO_DIRECT_MAP,
-    GUEST_MEMFD_FLAG_WRITE, KvmVm, Vm, VmError,
+    KVM_CAP_GUEST_MEMFD_FLAGS, KvmVm, SECRET_FREE_BOOT_GUEST_MEMFD_FLAGS,
+    SECRET_FREE_RESTORE_GUEST_MEMFD_FLAGS, Vm, VmError, ensure_guest_memfd_flags,
 };
 use crate::{EventManager, UffdMessageBroker, Vmm, VmmError};
 
-const KVM_CAP_GUEST_MEMFD_FLAGS: u32 = 244;
 const KVM_CAP_ASYNC_PF_USERFAULT: u32 = 246;
 
 pub(crate) fn pipe2(flags: libc::c_int) -> io::Result<(RawFd, RawFd)> {
@@ -204,6 +203,9 @@ pub fn build_microvm_for_boot(
     }
 
     let kvm = Kvm::new(kvm_capabilities)?;
+    if secret_free {
+        ensure_guest_memfd_flags(&kvm, SECRET_FREE_BOOT_GUEST_MEMFD_FLAGS)?;
+    }
     // Set up KVM VM and register memory regions.
     // Build custom CPU config if a custom template is provided.
     let mut vm = KvmVm::new(kvm, secret_free)?;
@@ -226,9 +228,7 @@ pub fn build_microvm_for_boot(
         true => Some(Arc::new(
             vm.create_guest_memfd(
                 vm_resources.dram_memory_size() + vm_resources.hotplug_memory_size(),
-                GUEST_MEMFD_FLAG_MMAP
-                    | GUEST_MEMFD_FLAG_INIT_SHARED
-                    | GUEST_MEMFD_FLAG_NO_DIRECT_MAP,
+                SECRET_FREE_BOOT_GUEST_MEMFD_FLAGS,
             )
             .map_err(VmmError::KvmVm)?,
         )),
@@ -639,6 +639,10 @@ pub fn build_microvm_from_snapshot(
         .ok();
 
     let kvm = Kvm::new(kvm_capabilities).map_err(StartMicrovmError::Kvm)?;
+    if secret_free {
+        ensure_guest_memfd_flags(&kvm, SECRET_FREE_RESTORE_GUEST_MEMFD_FLAGS)
+            .map_err(StartMicrovmError::KvmVm)?;
+    }
 
     // Check APF capability at runtime — don't require it
     let apf_supported = apf_stream.is_some()
@@ -677,10 +681,7 @@ pub fn build_microvm_from_snapshot(
         true => Some(
             vm.create_guest_memfd(
                 memory_size_from_mem_state(&microvm_state.vm_state.memory),
-                GUEST_MEMFD_FLAG_MMAP
-                    | GUEST_MEMFD_FLAG_INIT_SHARED
-                    | GUEST_MEMFD_FLAG_NO_DIRECT_MAP
-                    | GUEST_MEMFD_FLAG_WRITE,
+                SECRET_FREE_RESTORE_GUEST_MEMFD_FLAGS,
             )
             .map_err(VmmError::KvmVm)?,
         ),
