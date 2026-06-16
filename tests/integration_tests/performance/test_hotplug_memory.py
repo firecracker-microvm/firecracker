@@ -177,8 +177,8 @@ def uvm_any_memhp(request, uvm, rootfs, microvm_factory):
         request.param
     )
 
-    if secret_free is True and global_props.host_linux_version_metrics != "next":
-        pytest.skip("Secret Freedom isn't supported by this host kernel")
+    if secret_free is True and not global_props.secret_free_restore_supported:
+        pytest.skip("Secret Freedom restore isn't supported by this host KVM")
 
     if secret_free is True and global_props.instance == "m6g.metal":
         pytest.skip("Secret Freedom isn't supported on Graviton2")
