@@ -128,6 +128,47 @@ def run_all_tests(changed_files):
     )
 
 
+def ci_artifacts_change_mode(changed_files):
+    """
+    Determine whether a PR touches the source files that define the CI guest
+    artifacts (guest kernels and rootfs), and which half is affected.
+
+    Returns one of:
+    - "all":     resources/rebuild.sh changed (it builds both halves), or both
+                 the rootfs and the kernel sources changed
+    - "rootfs":  only rootfs sources changed
+    - "kernels": only guest-kernel sources changed (guest_configs or patches)
+    - None:      no CI-artifact source files changed
+    """
+    rootfs_changed = False
+    kernel_changed = False
+    rebuild_all = False
+    for f in changed_files:
+        parts = f.parts
+        if f.name == "rebuild.sh" and parts[0] == "resources":
+            # rebuild.sh drives both the rootfs and the kernel builds.
+            rebuild_all = True
+        elif len(parts) >= 2 and parts[0] == "resources" and parts[1] == "rootfs":
+            rootfs_changed = True
+        elif (
+            len(parts) >= 2
+            and parts[0] == "resources"
+            and parts[1] in ("guest_configs", "patches")
+        ):
+            # guest_configs holds the kernel .config and config patches;
+            # resources/patches holds downstream kernel patchsets (rebuild.sh
+            # applies them to the kernel tree). Both drive the kernel build.
+            kernel_changed = True
+
+    if rebuild_all or (rootfs_changed and kernel_changed):
+        return "all"
+    if rootfs_changed:
+        return "rootfs"
+    if kernel_changed:
+        return "kernels"
+    return None
+
+
 class DictAction(argparse.Action):
     """An argparse action that can receive a nested dictionary
 
