@@ -406,21 +406,47 @@ where
     }
 
     fn kick(&mut self) {
-        // Vsock has complicated protocol that isn't resilient to any packet loss,
-        // so for Vsock we don't support connection persistence through snapshot.
-        // Any in-flight packets or events are simply lost.
-        // Vsock is restored 'empty'.
-        // The only reason we still `kick` it is to make guest process
-        // `TRANSPORT_RESET_EVENT` event we sent during snapshot creation.
         if self.is_activated() {
             self.pending_event_ack = true;
 
+            // Vsock has a complicated protocol that isn't resilient to any packet loss,
+            // so for Vsock we don't support connection persistence through snapshot. Any
+            // in-flight packets or events are simply lost and Vsock is restored 'empty'.
+            // We signal the event queue to make the guest process the
+            // `TRANSPORT_RESET_EVENT` event we sent during snapshot creation. (We signal
+            // it host->guest rather than writing its eventfd, which would invoke the
+            // guest's reset-ack path and clear `pending_event_ack` prematurely.)
             info!(
                 "[{:?}:{}] signaling event queue",
                 self.device_type(),
                 self.id()
             );
             self.signal_used_queue(EVQ_INDEX).unwrap();
+
+            // Replay the TX queue notification, like the default `VirtioDevice::kick`
+            // does for its data queues, so the device re-processes any TX descriptor
+            // that was in-flight at snapshot time and re-arms `avail_event`.
+            //
+            // Without this, `avail_idx` stays ahead of the `avail_event` we published.
+            // Under EVENT_IDX the guest only notifies us when `avail_idx` crosses
+            // `avail_event`; since it is already past, the guest considers itself to
+            // have notified us and stays silent, so we never process the queue and
+            // guest-to-host connections hang. RX needs no replay: it is gated by
+            // `pending_event_ack` until the guest acks the reset, and the host pulls
+            // from the backend rather than waiting on a guest RX notification.
+            info!(
+                "[{:?}:{}] notifying tx queue",
+                self.device_type(),
+                self.id()
+            );
+            if let Err(err) = self.queue_events[TXQ_INDEX].write(1) {
+                error!(
+                    "[{:?}:{}] error notifying tx queue: {}",
+                    self.device_type(),
+                    self.id(),
+                    err
+                );
+            }
         }
     }
 
@@ -616,6 +642,26 @@ mod tests {
         let progressed = ctx.device.process_rx().unwrap();
         assert!(!progressed);
         assert_eq!(ctx.guest_rxvq.used.idx.get(), 0);
+    }
+
+    #[test]
+    fn test_kick_replays_tx_notification_only() {
+        // On restore, kick() must replay only the TX data queue (to re-process in-flight
+        // TX and re-arm avail_event). RX is gated by pending_event_ack so it needs no
+        // replay, and the event queue's data eventfd must not be notified -- that is the
+        // guest's TRANSPORT_RESET ack path; the event queue is signaled host->guest.
+        let test_ctx = TestContext::new();
+        let mut ctx = test_ctx.create_event_handler_context();
+        ctx.mock_activate(test_ctx.mem.clone(), test_ctx.interrupt.clone());
+
+        ctx.device.kick();
+
+        // TX queue eventfd was replayed for re-processing.
+        assert_eq!(ctx.device.queue_events[TXQ_INDEX].read().unwrap(), 1);
+        // RX and the event queue's data eventfd must not be signaled by kick()
+        // (non-blocking read returns an error when the eventfd has no pending count).
+        ctx.device.queue_events[RXQ_INDEX].read().unwrap_err();
+        ctx.device.queue_events[EVQ_INDEX].read().unwrap_err();
     }
 
     #[test]
