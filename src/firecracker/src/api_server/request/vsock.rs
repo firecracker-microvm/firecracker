@@ -34,6 +34,8 @@ pub(crate) fn parse_put_vsock(body: &Body) -> Result<ParsedRequest, RequestError
 
 #[cfg(test)]
 mod tests {
+    use vmm::vmm_config::vsock::VsockType;
+
     use super::*;
     use crate::api_server::parsed_request::tests::depr_action_from_req;
 
@@ -70,5 +72,15 @@ mod tests {
         }"#;
         let (_, mut parsing_info) = parse_put_vsock(&Body::new(body)).unwrap().into_parts();
         assert!(parsing_info.take_deprecation_message().is_none());
+    }
+
+    #[test]
+    fn test_default_vsock_type_serialization() {
+        let body = r#"{
+            "guest_cid": 42,
+            "uds_path": "vsock.sock"
+        }"#;
+        let vsock_cfg = serde_json::from_slice::<VsockDeviceConfig>(Body::new(body).raw()).unwrap();
+        assert!(vsock_cfg.vsock_type == VsockType::Stream);
     }
 }

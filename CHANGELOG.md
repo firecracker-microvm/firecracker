@@ -28,6 +28,12 @@ and this project adheres to
   rescan the PCI bus after hotplug and remove the device before unplug since no
   automatic notification mechanism is implemented yet. More information can be
   found in the [Device Hotplugging](docs/device-hotplug.md) documentation page.
+- [#5595](https://github.com/firecracker-microvm/firecracker/pull/5595): Added
+  `vsock_type` field to the vsock device API to denote the type of the
+  underlying socket. Can be `stream` or `seqpacket`
+- [#5595](https://github.com/firecracker-microvm/firecracker/pull/5595): Added
+  `conn_buffer_size` field to denote how many bytes we can internally buffer
+  during receiving large seqpacket packets from the host.
 - [#5323](https://github.com/firecracker-microvm/firecracker/pull/5323): Add
   support for Vsock Unix domain socket path overriding on snapshot restore. More
   information can be found in the
