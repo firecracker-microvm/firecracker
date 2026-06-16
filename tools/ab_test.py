@@ -115,62 +115,13 @@ def format_with_reduced_unit(value, unit):
     return f"{reduced_value:.2f}{formatted_unit}"
 
 
-# Performance tests that are known to be unstable and exhibit variances of up to 60% of the mean
+# Performance tests that we don't want to alarm on.
 IGNORED = [
-    # Network throughput on m6a.metal
-    {"instance": "m6a.metal", "performance_test": "test_network_tcp_throughput"},
-    # Network throughput on m7a.metal
-    {"instance": "m7a.metal-48xl", "performance_test": "test_network_tcp_throughput"},
-    # vsock throughput on m7a.metal
-    {
-        "instance": "m7a.metal-48xl",
-        "performance_test": "test_vsock_throughput",
-        "mode": "g2h",
-    },
-    # Network latency on m6a.metal / m7a.metal
-    *[
-        {"instance": instance, "performance_test": "test_network_latency"}
-        for instance in ["m6a.metal", "m7a.metal-48xl"]
-    ],
-    # Network latencies on m8i.metal-{48,96}xl w/ 5.10 host
-    *[
-        {
-            "instance": instance,
-            "performance_test": "test_network_latency",
-            "host_kernel": "linux-5.10",
-        }
-        for instance in ["m8i.metal-48xl", "m8i.metal-96xl"]
-    ],
-    # Network latencies on m5n.metal w/ al2 host
-    {
-        "instance": "m5n.metal",
-        "performance_test": "test_network_latency",
-        "host_kernel": "linux-5.10",
-    },
-    # Network latencies on m8g
-    *[
-        {"instance": instance, "performance_test": "test_network_latency"}
-        for instance in ["m8g.metal-24xl", "m8g.metal-48xl"]
-    ],
-    # MMDS metrics on m8i, m7g and m8g
-    *[
-        {"instance": instance, "performance_test": "test_mmds_performance"}
-        for instance in [
-            "m8i.metal-48xl",
-            "m8i.metal-96xl",
-            "m7g.metal",
-            "m8g.metal-24xl",
-            "m8g.metal-48xl",
-        ]
-    ],
     # block latencies if guest uses async request submission
     {"fio_engine": "libaio", "metric": "clat_read"},
     {"fio_engine": "libaio", "metric": "clat_write"},
     # boot time metrics
     {"performance_test": "test_boottime", "metric": "resume_time"},
-    # block throughput on m8g
-    {"fio_engine": "libaio", "vcpus": "2", "instance": "m8g.metal-24xl"},
-    {"fio_engine": "libaio", "vcpus": "2", "instance": "m8g.metal-48xl"},
     # memory hotplug metrics: ignore api_time and fc_time metrics, keeping only total_time.
     *[
         {
