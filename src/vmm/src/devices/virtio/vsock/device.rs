@@ -242,10 +242,7 @@ where
                 }
             };
 
-            if self.backend.send_pkt(&self.tx_packet).is_err() {
-                queue.undo_pop();
-                break;
-            }
+            self.backend.send_pkt(&self.tx_packet);
 
             have_used = true;
             queue.add_used(index, 0).unwrap_or_else(|err| {

@@ -27,7 +27,6 @@ use crate::vstate::memory::{GuestAddress, GuestMemoryMmap};
 pub struct TestBackend {
     pub evfd: EventFd,
     pub rx_err: Option<VsockError>,
-    pub tx_err: Option<VsockError>,
     pub pending_rx: bool,
     pub rx_ok_cnt: usize,
     pub tx_ok_cnt: usize,
@@ -39,7 +38,6 @@ impl TestBackend {
         Self {
             evfd: EventFd::new(libc::EFD_NONBLOCK).unwrap(),
             rx_err: None,
-            tx_err: None,
             pending_rx: false,
             rx_ok_cnt: 0,
             tx_ok_cnt: 0,
@@ -49,9 +47,6 @@ impl TestBackend {
 
     pub fn set_rx_err(&mut self, err: Option<VsockError>) {
         self.rx_err = err;
-    }
-    pub fn set_tx_err(&mut self, err: Option<VsockError>) {
-        self.tx_err = err;
     }
     pub fn set_pending_rx(&mut self, prx: bool) {
         self.pending_rx = prx;
@@ -84,14 +79,8 @@ impl VsockChannel for TestBackend {
         }
     }
 
-    fn send_pkt(&mut self, _pkt: &VsockPacketTx) -> Result<(), VsockError> {
-        match self.tx_err.take() {
-            None => {
-                self.tx_ok_cnt += 1;
-                Ok(())
-            }
-            Some(err) => Err(err),
-        }
+    fn send_pkt(&mut self, _pkt: &VsockPacketTx) {
+        self.tx_ok_cnt += 1;
     }
 
     fn has_pending_rx(&self) -> bool {
