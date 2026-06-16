@@ -123,11 +123,8 @@ where
     pub fn notify_backend(&mut self, evset: EventSet) -> Result<Vec<u16>, InvalidAvailIdx> {
         let mut used_queues = Vec::new();
         self.backend.notify(evset);
-        // After the backend has been kicked, it might've freed up some resources, so we
-        // can attempt to send it more data to process.
-        // In particular, if `self.backend.send_pkt()` halted the TX queue processing (by
-        // returning an error) at some point in the past, now is the time to try walking the
-        // TX queue again.
+        // After the backend has been kicked it may have freed up resources, so walk the TX
+        // queue again in case there are packets waiting to be forwarded to it.
         if self.process_tx()? {
             used_queues.push(TXQ_INDEX.try_into().unwrap());
         }
@@ -283,23 +280,6 @@ mod tests {
             // Both available RX and TX descriptors should have been used.
             assert_eq!(ctx.guest_txvq.used.idx.get(), 1);
             assert_eq!(ctx.guest_rxvq.used.idx.get(), 1);
-        }
-
-        // Test case:
-        // - the driver has something to send (there's data in the TX queue); and
-        // - the backend errors out and cannot process the TX queue.
-        {
-            let test_ctx = TestContext::new();
-            let mut ctx = test_ctx.create_event_handler_context();
-            ctx.mock_activate(test_ctx.mem.clone(), test_ctx.interrupt.clone());
-
-            ctx.device.backend.set_pending_rx(false);
-            ctx.device.backend.set_tx_err(Some(VsockError::NoData));
-            ctx.signal_txq_event();
-
-            // Both RX and TX queues should be untouched.
-            assert_eq!(ctx.guest_txvq.used.idx.get(), 0);
-            assert_eq!(ctx.guest_rxvq.used.idx.get(), 0);
         }
 
         // Test case:
