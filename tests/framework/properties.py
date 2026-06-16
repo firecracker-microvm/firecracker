@@ -11,8 +11,15 @@ import os
 import platform
 import re
 import subprocess
+from dataclasses import asdict
 from pathlib import Path
 
+from framework.kvm import (
+    KvmCapabilities,
+    get_kvm_capabilities,
+    supports_secret_free_boot,
+    supports_secret_free_restore,
+)
 from framework.utils import get_kernel_version
 from framework.utils_cpuid import get_cpu_codename, get_cpu_model_name, get_cpu_vendor
 from framework.utils_imdsv2 import imdsv2_get
@@ -82,6 +89,7 @@ class GlobalProps:
         self.buildkite_revision_a = os.environ.get("BUILDKITE_PULL_REQUEST_BASE_BRANCH")
         # Development environment detection
         self.is_dev_env = os.environ.get("FC_TEST_DEVELOPMENT_ENVIRONMENT") == "1"
+        self.kvm_capabilities = asdict(get_kvm_capabilities())
 
         if self._in_git_repo():
             self.git_commit_id = run_cmd("git rev-parse HEAD")
@@ -115,6 +123,16 @@ class GlobalProps:
         return (
             "next" if self.host_linux_version_tpl > (6, 12) else self.host_linux_version
         )
+
+    @property
+    def secret_free_boot_supported(self):
+        """Whether the host KVM supports booting secret_free microVMs."""
+        return supports_secret_free_boot(KvmCapabilities(**self.kvm_capabilities))
+
+    @property
+    def secret_free_restore_supported(self):
+        """Whether the host KVM supports restoring secret_free snapshots."""
+        return supports_secret_free_restore(KvmCapabilities(**self.kvm_capabilities))
 
     @property
     def is_ec2(self):
