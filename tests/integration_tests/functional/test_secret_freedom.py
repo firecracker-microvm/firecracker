@@ -11,8 +11,8 @@ from integration_tests.performance.test_initrd import INITRD_FILESYSTEM
 
 pytestmark = [
     pytest.mark.skipif(
-        global_props.host_linux_version_metrics != "next",
-        reason="Secret Freedom is only supported on the in-dev upstream kernels for now",
+        not global_props.secret_free_boot_supported,
+        reason="Secret Freedom boot is not supported by this host KVM",
     ),
     pytest.mark.skipif(
         global_props.instance == "m6g.metal",
