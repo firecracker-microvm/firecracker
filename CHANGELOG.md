@@ -6,6 +6,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.16.1]
+
+### Fixed
+
+- [#5959](https://github.com/firecracker-microvm/firecracker/pull/5959):
+  Reverted the use of `O_NOFOLLOW` for the jailer's cgroup and network namespace
+  file operations, so symlinks are again allowed in these paths.
+
 ## [1.16.0]
 
 ### Added
