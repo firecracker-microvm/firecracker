@@ -8,6 +8,7 @@ use std::sync::atomic::AtomicU32;
 
 use bitvec::vec::BitVec;
 use serde::{Deserialize, Serialize};
+use utils::time::{ClockType, get_time_us};
 use vm_memory::{
     Address, Bytes, GuestAddress, GuestMemory, GuestMemoryBackend, GuestMemoryError,
     GuestMemoryRegion, GuestUsize,
@@ -30,7 +31,7 @@ use crate::devices::virtio::queue::{
 };
 use crate::devices::virtio::transport::{VirtioInterrupt, VirtioInterruptType};
 use crate::impl_device_type;
-use crate::logger::{IncMetric, debug, error, info, warn};
+use crate::logger::{IncMetric, LatencyMetricsRecorder, debug, error, info, warn};
 use crate::utils::{bytes_to_mib, mib_to_bytes, u64_to_usize, usize_to_u64};
 use crate::vstate::interrupts::InterruptError;
 use crate::vstate::memory::{
@@ -355,7 +356,7 @@ impl VirtioMem {
         used_idx: u16,
     ) -> Result<(), VirtioMemError> {
         self.metrics.plug_count.inc();
-        self.metrics.plug_agg.record_latency_metrics();
+        let start = get_time_us(ClockType::Monotonic);
 
         let response = match self.process_plug_request(range) {
             Err(err) => {
@@ -370,7 +371,9 @@ impl VirtioMem {
                 Response::ack()
             }
         };
-        self.write_response(response, resp_addr, used_idx)
+        let res = self.write_response(response, resp_addr, used_idx);
+        LatencyMetricsRecorder::record_into(start, &self.metrics.plug_agg);
+        res
     }
 
     fn process_unplug_request(&mut self, range: &RequestedRange) -> Result<(), VirtioMemError> {
@@ -390,7 +393,8 @@ impl VirtioMem {
         used_idx: u16,
     ) -> Result<(), VirtioMemError> {
         self.metrics.unplug_count.inc();
-        self.metrics.unplug_agg.record_latency_metrics();
+        let start = get_time_us(ClockType::Monotonic);
+
         let response = match self.process_unplug_request(range) {
             Err(err) => {
                 self.metrics.unplug_fails.inc();
@@ -404,7 +408,9 @@ impl VirtioMem {
                 Response::ack()
             }
         };
-        self.write_response(response, resp_addr, used_idx)
+        let res = self.write_response(response, resp_addr, used_idx);
+        LatencyMetricsRecorder::record_into(start, &self.metrics.unplug_agg);
+        res
     }
 
     fn handle_unplug_all_request(
@@ -413,7 +419,8 @@ impl VirtioMem {
         used_idx: u16,
     ) -> Result<(), VirtioMemError> {
         self.metrics.unplug_all_count.inc();
-        self.metrics.unplug_all_agg.record_latency_metrics();
+        let start = get_time_us(ClockType::Monotonic);
+
         let range = RequestedRange {
             addr: self.guest_address(),
             nb_blocks: self.plugged_blocks.len(),
@@ -429,7 +436,9 @@ impl VirtioMem {
                 Response::ack()
             }
         };
-        self.write_response(response, resp_addr, used_idx)
+        let res = self.write_response(response, resp_addr, used_idx);
+        LatencyMetricsRecorder::record_into(start, &self.metrics.unplug_all_agg);
+        res
     }
 
     fn handle_state_request(
