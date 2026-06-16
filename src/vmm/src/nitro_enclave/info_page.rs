@@ -13,7 +13,7 @@ use std::mem::size_of;
 use vm_memory::{ByteValued, Bytes, VolatileSlice, WriteVolatile};
 
 use super::ne_ioctl::EnclaveFd;
-use crate::logger::error;
+use crate::logger::warn;
 
 /// Info page magic number (`NISC` in little-endian).
 pub const INFO_PAGE_MAGIC: u32 = 0x5343_494E;
@@ -190,13 +190,19 @@ impl InfoPage {
             #[allow(clippy::cast_possible_truncation)]
             let size = toc.size as usize;
             if offset + size > INFO_PAGE_SIZE || size < size_of::<SerialRingHeader>() {
-                error!("info page TOC entry {i}: invalid offset={offset} size={size}");
-                break;
+                warn!("info page TOC entry {i}: invalid offset={offset} size={size}");
+                continue;
             }
             let vs = self.as_volatile_slice();
             // TODO(enclave): handle write_idx wrapping past u32::MAX (unlikely in
             // practice — ~4 GiB of serial output would be needed).
-            let ring: SerialRingHeader = vs.read_obj(offset).ok()?;
+            let ring: SerialRingHeader = match vs.read_obj(offset) {
+                Ok(r) => r,
+                Err(e) => {
+                    warn!("info page TOC entry {i}: serial ring read failed: {e}");
+                    continue;
+                }
+            };
             let data_offset = offset + size_of::<SerialRingHeader>();
             if ring.capacity == 0
                 || ring.write_idx <= last_write_idx
