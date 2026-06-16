@@ -528,10 +528,7 @@ def snapshot_type(request):
 
 
 secret_free_test_cases = [False]
-if (
-    global_props.host_linux_version_metrics == "next"
-    and global_props.instance != "m6g.metal"
-):
+if global_props.secret_free_restore_supported and global_props.instance != "m6g.metal":
     secret_free_test_cases.append(True)
 
 
@@ -546,7 +543,7 @@ secret_free_ids = {
     ids=list(map(lambda v: secret_free_ids[v], secret_free_test_cases)),
 )
 def secret_free(request):
-    """Supported secret hiding configuration, based on hardware"""
+    """Supported secret hiding configuration, based on host KVM capabilities."""
     return request.param
 
 
