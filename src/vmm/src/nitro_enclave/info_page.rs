@@ -181,10 +181,7 @@ impl InfoPage {
         last_write_idx: u32,
         dst: &mut W,
     ) -> Option<u32> {
-        let header = self.header()?;
-        let num = (header.num_entries as usize).min(MAX_TOC_ENTRIES);
-        for i in 0..num {
-            let toc = self.toc_entry(i)?;
+        for (i, toc) in self.toc_entries() {
             if toc.entry_type != TOC_TYPE_SERIAL {
                 continue;
             }
@@ -244,6 +241,18 @@ impl InfoPage {
             return None;
         }
         Some(header)
+    }
+
+    /// Iterate the valid TOC entries of the info page.
+    ///
+    /// Reads and validates the header, clamps the entry count to
+    /// [`MAX_TOC_ENTRIES`], and yields `(index, entry)` for each readable TOC
+    /// entry. Yields nothing if the header is invalid.
+    fn toc_entries(&self) -> impl Iterator<Item = (usize, NitroTocEntry)> + '_ {
+        let num = self
+            .header()
+            .map_or(0, |h| (h.num_entries as usize).min(MAX_TOC_ENTRIES));
+        (0..num).filter_map(move |i| self.toc_entry(i).map(|toc| (i, toc)))
     }
 
     /// Read a TOC entry by index via volatile read.
