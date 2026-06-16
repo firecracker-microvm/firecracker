@@ -8,6 +8,7 @@
 //! state here; the parent VMM polls it.
 
 use std::io;
+use std::mem::size_of;
 
 use vm_memory::{ByteValued, Bytes, VolatileSlice, WriteVolatile};
 
@@ -24,8 +25,8 @@ pub const INFO_PAGE_SIZE: usize = 2 * 1024 * 1024;
 const TOC_TYPE_SERIAL: u16 = 1;
 
 /// Maximum number of TOC entries that fit in the info page.
-const MAX_TOC_ENTRIES: usize = (INFO_PAGE_SIZE - std::mem::size_of::<NitroInfoHeader>())
-    / std::mem::size_of::<NitroTocEntry>();
+const MAX_TOC_ENTRIES: usize =
+    (INFO_PAGE_SIZE - size_of::<NitroInfoHeader>()) / size_of::<NitroTocEntry>();
 
 // ---------------------------------------------------------------------------
 // ABI structures shared with the NE driver
@@ -191,7 +192,7 @@ impl InfoPage {
             // Safe: INFO_PAGE_SIZE is 2 MiB, so any valid size fits in usize.
             #[allow(clippy::cast_possible_truncation)]
             let size = toc.size as usize;
-            if offset + size > INFO_PAGE_SIZE || size < std::mem::size_of::<SerialRingHeader>() {
+            if offset + size > INFO_PAGE_SIZE || size < size_of::<SerialRingHeader>() {
                 error!("info page TOC entry {i}: invalid offset={offset} size={size}");
                 break;
             }
@@ -199,10 +200,10 @@ impl InfoPage {
             // TODO(enclave): handle write_idx wrapping past u32::MAX (unlikely in
             // practice — ~4 GiB of serial output would be needed).
             let ring: SerialRingHeader = vs.read_obj(offset).ok()?;
-            let data_offset = offset + std::mem::size_of::<SerialRingHeader>();
+            let data_offset = offset + size_of::<SerialRingHeader>();
             if ring.capacity == 0
                 || ring.write_idx <= last_write_idx
-                || ring.capacity as usize > size - std::mem::size_of::<SerialRingHeader>()
+                || ring.capacity as usize > size - size_of::<SerialRingHeader>()
             {
                 return None;
             }
@@ -249,8 +250,8 @@ impl InfoPage {
     ///
     /// Returns `None` if the entry would be out of bounds.
     fn toc_entry(&self, index: usize) -> Option<NitroTocEntry> {
-        let toc_start = std::mem::size_of::<NitroInfoHeader>();
-        let entry_offset = toc_start + index * std::mem::size_of::<NitroTocEntry>();
+        let toc_start = size_of::<NitroInfoHeader>();
+        let entry_offset = toc_start + index * size_of::<NitroTocEntry>();
         self.as_volatile_slice().read_obj(entry_offset).ok()
     }
 
@@ -305,7 +306,7 @@ pub(crate) fn make_test_page(write_idx: u32, capacity: u32, data: &[u8]) -> Info
         size: serial_region_size,
         extra: [0u8; 32],
     };
-    let toc_offset = std::mem::size_of::<NitroInfoHeader>();
+    let toc_offset = size_of::<NitroInfoHeader>();
     unsafe { ptr::write(base.add(toc_offset).cast::<NitroTocEntry>(), toc) };
     let ring_base = unsafe { base.add(serial_data_offset as usize) };
     unsafe {
