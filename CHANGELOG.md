@@ -68,6 +68,12 @@ and this project adheres to
 
 ### Fixed
 
+- Fixed guest Control-flow Enforcement Technology (CET) state being lost across
+  snapshot/restore on Linux 6.18 hosts. The CET MSRs (`IA32_U_CET`,
+  `IA32_S_CET`, `IA32_PL{0..3}_SSP`, `IA32_INT_SSP_TAB`) live in supervisor
+  XSTATE components that KVM does not include in the `KVM_GET_XSAVE2` buffer, so
+  they are now serialized explicitly as MSRs for guests exposing shadow stacks
+  (SHSTK) and/or indirect branch tracking (IBT).
 - [#5762](https://github.com/firecracker-microvm/firecracker/pull/5762): Cap
   virtio-rng per-request entropy to 64 KiB. Previously, a guest could construct
   a descriptor chain that caused Firecracker to allocate more host memory than
