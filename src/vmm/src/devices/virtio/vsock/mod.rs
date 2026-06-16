@@ -169,7 +169,11 @@ pub trait VsockChannel {
     fn recv_pkt(&mut self, pkt: &mut VsockPacketRx) -> Result<(), VsockError>;
 
     /// Write/send a packet through the channel.
-    fn send_pkt(&mut self, pkt: &VsockPacketTx) -> Result<(), VsockError>;
+    ///
+    /// The packet is always consumed (its virtio TX buffers can be returned to the guest):
+    /// host-side back-pressure is absorbed by buffering, and unrecoverable errors terminate
+    /// the offending connection rather than halting queue processing.
+    fn send_pkt(&mut self, pkt: &VsockPacketTx);
 
     /// Checks whether there is pending incoming data inside the channel, meaning that a subsequent
     /// call to `recv_pkt()` won't fail.
