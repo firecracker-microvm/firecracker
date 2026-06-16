@@ -40,7 +40,7 @@ while true; do i=$((i+1)); done
 )
 def test_apf_latency(
     microvm_factory,
-    guest_kernel_linux_5_10,
+    guest_kernel,
     rootfs,
     secret_free,
     metrics,
@@ -69,7 +69,7 @@ def test_apf_latency(
     no_exitless_env = apf_variant == "fallback"
 
     vm = microvm_factory.build(
-        guest_kernel_linux_5_10,
+        guest_kernel,
         rootfs,
         monitor_memory=False,
     )
