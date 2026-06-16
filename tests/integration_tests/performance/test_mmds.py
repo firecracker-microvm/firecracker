@@ -15,11 +15,11 @@ DEFAULT_IPV4 = "169.254.169.254"
 ITERATIONS = 500
 
 
-def parse_curl_timing(timing_line):
+def parse_curl_timing(prefix: str, timing_line: str):
     """Parse curl timing output and extract timing information in milliseconds."""
     # curl -w format outputs timing in seconds, convert to milliseconds
-    # Expected format: "time_total:0.123456"
-    match = re.search(r"time_total:([\d.]+)", timing_line)
+    # Expected format: "<prefix>:0.123456"
+    match = re.search(prefix + r":([\d.]+)", timing_line)
     if match:
         return float(match.group(1)) * 1000  # Convert to milliseconds
 
@@ -53,7 +53,8 @@ def test_mmds_token(mmds_microvm, metrics):
     Test MMDS token generation performance using curl timing from within the guest.
 
     This test measures the time it takes to generate MMDS session tokens
-    using curl's built-in timing capabilities.
+    and perform data requests using curl's built-in timing capabilities.
+    Curl invocations are batched into single SSH calls for efficiency.
     """
 
     metrics.set_dimensions(
@@ -63,44 +64,60 @@ def test_mmds_token(mmds_microvm, metrics):
         }
     )
 
-    # Measure token generation performance
-    for _ in range(ITERATIONS):
-        # Curl command to generate token with timing
-        token_cmd = (
-            f'curl -m 2 -s -w "\\ntime_total:%{{time_total}}" '
-            f'-X PUT -H "X-metadata-token-ttl-seconds: 60" '
-            f"http://{DEFAULT_IPV4}/latest/api/token"
-        )
-        _, stdout, stderr = mmds_microvm.ssh.check_output(token_cmd)
-        assert stderr == "", "Error generating token"
+    # Batch all curl invocations in a single SSH call using a shell loop.
+    # Each iteration generates a token (PUT) then uses it to fetch data (GET).
+    # We use -o /tmp/mmds_token so curl writes the token body to file and only
+    # outputs the -w timing string to stdout. Then we cat the token and run the
+    # GET request. Output per iteration (4 lines + delimiter):
+    #   token_generation_time:<gen_seconds>
+    #   <token>
+    #   <response>
+    #   request_time:<req_seconds>
+    #   ---
+    # noinspection HttpUrlsUsage
+    batch_cmd = (
+        f"for i in $(seq 1 {ITERATIONS}); do "
+        f"curl -m 2 -s -w 'token_generation_time:%{{time_total}}\\n' "
+        f"-X PUT -H 'X-metadata-token-ttl-seconds: 60' "
+        f"-o /tmp/mmds_token "
+        f"http://{DEFAULT_IPV4}/latest/api/token; "
+        f"cat /tmp/mmds_token; echo; "
+        f"curl -m 2 -s -w '\\nrequest_time:%{{time_total}}\\n' "
+        f"-X GET "
+        f'-H "X-metadata-token: $(cat /tmp/mmds_token)" '
+        f"-H 'Accept: application/json' "
+        f"http://{DEFAULT_IPV4}/latest/meta-data/instance-id; "
+        f"echo '---'; "
+        f"done"
+    )
 
-        # Parse timing and token from output
-        lines = stdout.strip().split("\n")
-        token = lines[0].strip()  # First line is the token
+    _, stdout, stderr = mmds_microvm.ssh.check_output(batch_cmd)
+    assert stderr == "", "Error calling MMDS"
 
-        # Verify token was generated successfully
-        assert len(token) > 0, f"Token generation failed. Output: {stdout}"
+    # Parse batched output (splitting by '---', and removing last empty token)
+    iterations = stdout.split("---\n")
+    assert iterations[-1] == ""
+    iterations = iterations[:-1]
+    assert len(iterations) == ITERATIONS
 
-        generation_time_ms = parse_curl_timing(lines[-1])
+    for block in iterations:
+        lines = block.strip().split("\n")
+        assert len(lines) == 4, f"Unexpected output block: {block}"
+
+        # Line 0: time_total from token generation (body went to file)
+        generation_time_ms = parse_curl_timing("token_generation_time", lines[0])
         metrics.put_metric("token_generation_time", generation_time_ms, "Milliseconds")
 
-        # Curl command to verify token with timing
-        request_cmd = (
-            f'curl -m 2 -s -w "\\ntime_total:%{{time_total}}" '
-            f'-X GET -H "X-metadata-token: {token}" -H "Accept: application/json" '
-            f"http://{DEFAULT_IPV4}/latest/meta-data/instance-id"
-        )
-        _, stdout, stderr = mmds_microvm.ssh.check_output(request_cmd)
-        assert stderr == "", "MMDS request failed"
+        # Line 1: token value (from cat)
+        token = lines[1].strip()
+        assert len(token) > 0, f"Token generation failed. Block: {block}"
 
-        # Parse response and timing
-        lines = stdout.strip().split("\n")
-        response = lines[0].strip()  # First line is the response
-
-        # Verify request was successful
+        # Line 2: response body from GET request
+        response = lines[2].strip()
         assert (
-            "i-1234567890abcdef0" in response
+            response == '"i-1234567890abcdef0"'
         ), f"MMDS request failed. Response: {response}"
 
-        request_time_ms = parse_curl_timing(lines[-1])
+        # Line 3: time_total from GET request
+        request_time_ms = parse_curl_timing("request_time", lines[3])
         metrics.put_metric("request_time", request_time_ms, "Milliseconds")

@@ -20,12 +20,14 @@ import argparse
 import glob
 import json
 import os
-import statistics
+import shutil
 import subprocess
+import time
 from collections import defaultdict
 from pathlib import Path
-from typing import Callable, List, Optional, TypeVar
+from typing import List, Optional
 
+import numpy
 import scipy
 
 UNIT_REDUCTIONS = {
@@ -49,7 +51,6 @@ UNIT_REDUCTIONS = {
     "Gigabits/Second": "Terabits/Second",
 }
 INV_UNIT_REDUCTIONS = {v: k for k, v in UNIT_REDUCTIONS.items()}
-
 
 UNIT_SHORTHANDS = {
     "Seconds": "s",
@@ -114,62 +115,13 @@ def format_with_reduced_unit(value, unit):
     return f"{reduced_value:.2f}{formatted_unit}"
 
 
-# Performance tests that are known to be unstable and exhibit variances of up to 60% of the mean
+# Performance tests that we don't want to alarm on.
 IGNORED = [
-    # Network throughput on m6a.metal
-    {"instance": "m6a.metal", "performance_test": "test_network_tcp_throughput"},
-    # Network throughput on m7a.metal
-    {"instance": "m7a.metal-48xl", "performance_test": "test_network_tcp_throughput"},
-    # vsock throughput on m7a.metal
-    {
-        "instance": "m7a.metal-48xl",
-        "performance_test": "test_vsock_throughput",
-        "mode": "g2h",
-    },
-    # Network latency on m6a.metal / m7a.metal
-    *[
-        {"instance": instance, "performance_test": "test_network_latency"}
-        for instance in ["m6a.metal", "m7a.metal-48xl"]
-    ],
-    # Network latencies on m8i.metal-{48,96}xl w/ 5.10 host
-    *[
-        {
-            "instance": instance,
-            "performance_test": "test_network_latency",
-            "host_kernel": "linux-5.10",
-        }
-        for instance in ["m8i.metal-48xl", "m8i.metal-96xl"]
-    ],
-    # Network latencies on m5n.metal w/ al2 host
-    {
-        "instance": "m5n.metal",
-        "performance_test": "test_network_latency",
-        "host_kernel": "linux-5.10",
-    },
-    # Network latencies on m8g
-    *[
-        {"instance": instance, "performance_test": "test_network_latency"}
-        for instance in ["m8g.metal-24xl", "m8g.metal-48xl"]
-    ],
-    # MMDS metrics on m8i, m7g and m8g
-    *[
-        {"instance": instance, "performance_test": "test_mmds_performance"}
-        for instance in [
-            "m8i.metal-48xl",
-            "m8i.metal-96xl",
-            "m7g.metal",
-            "m8g.metal-24xl",
-            "m8g.metal-48xl",
-        ]
-    ],
     # block latencies if guest uses async request submission
     {"fio_engine": "libaio", "metric": "clat_read"},
     {"fio_engine": "libaio", "metric": "clat_write"},
     # boot time metrics
     {"performance_test": "test_boottime", "metric": "resume_time"},
-    # block throughput on m8g
-    {"fio_engine": "libaio", "vcpus": "2", "instance": "m8g.metal-24xl"},
-    {"fio_engine": "libaio", "vcpus": "2", "instance": "m8g.metal-48xl"},
     # memory hotplug metrics: ignore api_time and fc_time metrics, keeping only total_time.
     *[
         {
@@ -254,6 +206,9 @@ def collect_data(
     test_path = f"test_results/{tag}"
     test_report_path = f"{test_path}/test-report.json"
 
+    # Cleaning the report directory, to ensure we start from a clean state.
+    shutil.rmtree(test_path, ignore_errors=True)
+
     # It is not possible to just download them here this script is usually run inside docker
     # and artifacts downloading does not work inside it.
     if artifacts:
@@ -291,8 +246,7 @@ def check_regression(
     return scipy.stats.permutation_test(
         (a_samples, b_samples),
         # Compute the difference of means, such that a positive different indicates potential for regression.
-        lambda x, y: statistics.mean(y) - statistics.mean(x),
-        vectorized=False,
+        lambda x, y, axis: numpy.mean(y, axis=axis) - numpy.mean(x, axis=axis),
         n_resamples=n_resamples,
     )
 
@@ -310,7 +264,7 @@ def analyze_data(
     Analyzes the A/B-test data produced by `collect_data`, by performing regression tests
     as described this script's doc-comment.
 
-    Returns a mapping of dimensions and properties/metrics to the result of their regression test.
+    Returns the list of error messages (empty if the test passes).
     """
     assert set(data_a.keys()) == set(
         data_b.keys()
@@ -318,6 +272,7 @@ def analyze_data(
 
     results = {}
 
+    t0 = time.perf_counter()
     for dimension_set in data_a:
         metrics_a = data_a[dimension_set]
         metrics_b = data_b[dimension_set]
@@ -331,6 +286,8 @@ def analyze_data(
                 values_a, metrics_b[metric][0], n_resamples=n_resamples
             )
             results[dimension_set, metric] = (result, unit)
+
+    print(f"Regression tests took {time.perf_counter() - t0:.2f}s")
 
     # We sort our A/B-Testing results keyed by metric here. The resulting lists of values
     # will be approximately normal distributed, and we will use this property as a means of error correction.
@@ -377,7 +334,7 @@ def analyze_data(
         print(f"Doing A/B-test for dimensions {dimension_set} and property {metric}")
 
         values_a = data_a[dimension_set][metric][0]
-        baseline_mean = statistics.mean(values_a)
+        baseline_mean = numpy.mean(values_a)
 
         relative_changes_by_metric[metric].append(result.statistic / baseline_mean)
 
@@ -388,11 +345,11 @@ def analyze_data(
                 result.statistic / baseline_mean
             )
 
-    messages = []
+    error_messages = []
     do_not_print_list = uninteresting_dimensions(data_a)
     for dimension_set, metric, result, unit in failures:
         # Sanity check as described above
-        if abs(statistics.mean(relative_changes_by_metric[metric])) <= noise_threshold:
+        if abs(numpy.mean(relative_changes_by_metric[metric])) <= noise_threshold:
             continue
 
         # No data points for this metric were deemed significant
@@ -400,9 +357,9 @@ def analyze_data(
             continue
 
         # The significant data points themselves are above the noise threshold
-        if abs(statistics.mean(relative_changes_significant[metric])) > noise_threshold:
-            old_mean = statistics.mean(data_a[dimension_set][metric][0])
-            new_mean = statistics.mean(data_b[dimension_set][metric][0])
+        if abs(numpy.mean(relative_changes_significant[metric])) > noise_threshold:
+            old_mean = numpy.mean(data_a[dimension_set][metric][0])
+            new_mean = numpy.mean(data_b[dimension_set][metric][0])
 
             msg = (
                 f"\033[0;32m[Firecracker A/B-Test Runner]\033[0m A/B-testing shows a change of "
@@ -413,33 +370,21 @@ def analyze_data(
                 f"characteristics did not change across the tested commits, has a probability of {result.pvalue:.2%}. "
                 f"Tested Dimensions:\n{json.dumps({k: v for k, v in dimension_set if k not in do_not_print_list}, indent=2, sort_keys=True)}"
             )
-            messages.append(msg)
+            error_messages.append(msg)
 
-    assert not messages, "\n" + "\n".join(messages)
-    print("No regressions detected!")
-
-
-T = TypeVar("T")
-U = TypeVar("U")
+    return error_messages
 
 
-def binary_ab_test(
-    test_runner: Callable[[Path, Optional[Path], bool], T],
-    comparator: Callable[[T, T], U],
-    *,
-    a_directory: Path,
-    b_directory: Path,
-    a_artifacts: Optional[Path],
-    b_artifacts: Optional[Path],
-):
-    """
-    Similar to `git_ab_test`, but instead of locally checking out different revisions, it operates on
-    directories containing firecracker/jailer binaries
-    """
-    result_a = test_runner(a_directory, a_artifacts, True)
-    result_b = test_runner(b_directory, b_artifacts, False)
-
-    return result_a, result_b, comparator(result_a, result_b)
+def merge_data(accumulated, new_data):
+    """Merge new_data into accumulated by appending values lists for each metric."""
+    for dimension_set, metrics in new_data.items():
+        if dimension_set not in accumulated:
+            accumulated[dimension_set] = {}
+        for metric, (values, unit) in metrics.items():
+            if metric in accumulated[dimension_set]:
+                accumulated[dimension_set][metric][0].extend(values)
+            else:
+                accumulated[dimension_set][metric] = (list(values), unit)
 
 
 def ab_performance_test(
@@ -451,29 +396,52 @@ def ab_performance_test(
     p_thresh,
     strength_abs_thresh,
     noise_threshold,
+    max_iterations=1,
 ):
-    """Does an A/B-test of the specified test with the given firecracker/jailer binaries"""
+    """Does an A/B-test of the specified test with the given firecracker/jailer binaries.
 
-    return binary_ab_test(
-        lambda bin_dir, art_dir, is_a: collect_data(
-            is_a and "A" or "B", bin_dir, art_dir, pytest_opts
-        ),
-        lambda ah, be: analyze_data(
-            ah,
-            be,
+    Retries up to max_iterations times, accumulating data only for dimensions
+    that are still failing, to reduce noise-induced false positives."""
+
+    data_a = {}
+    data_b = {}
+    error_messages = []
+
+    for i in range(max_iterations):
+        print(f"\n=== Iteration {i + 1}/{max_iterations} ===")
+        # Changing the order or A and B executions across iterations, to avoid fluctuations caused by execution order
+        if i % 2 == 0:
+            new_a = collect_data("A", a_directory, a_artifacts, pytest_opts)
+            new_b = collect_data("B", b_directory, b_artifacts, pytest_opts)
+        else:
+            new_b = collect_data("B", b_directory, b_artifacts, pytest_opts)
+            new_a = collect_data("A", a_directory, a_artifacts, pytest_opts)
+        merge_data(data_a, new_a)
+        merge_data(data_b, new_b)
+
+        error_messages = analyze_data(
+            data_a,
+            data_b,
             p_thresh,
             strength_abs_thresh,
             noise_threshold,
             n_resamples=int(100 / p_thresh),
-        ),
-        a_directory=a_directory,
-        b_directory=b_directory,
-        a_artifacts=a_artifacts,
-        b_artifacts=b_artifacts,
-    )
+        )
+
+        if not error_messages:
+            print("No regressions detected!")
+            return
+
+        if i < max_iterations - 1:
+            print(
+                f"{len(error_messages)} regression(s) detected, retrying to collect more data..."
+            )
+
+    assert not error_messages, "\n" + "\n".join(error_messages)
 
 
-if __name__ == "__main__":
+def main():
+    """The main function when invoking the script"""
     parser = argparse.ArgumentParser(
         description="Executes Firecracker's A/B testsuite across the specified commits"
     )
@@ -515,6 +483,12 @@ if __name__ == "__main__":
         help="Parameters to pass through to pytest, for example for test selection",
         required=True,
     )
+    run_parser.add_argument(
+        "--max-iterations",
+        help="Maximum number of A/B iterations. Retries only if regressions are detected, accumulating more data to reduce false positives.",
+        type=int,
+        default=1,
+    )
     analyze_parser = subparsers.add_parser(
         "analyze",
         help="Analyze the results of two manually ran tests based on their test-report.json files",
@@ -550,6 +524,7 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     if args.command == "run":
+        t0 = time.perf_counter()
         ab_performance_test(
             args.binaries_a,
             args.binaries_b,
@@ -559,15 +534,27 @@ if __name__ == "__main__":
             args.significance,
             args.absolute_strength,
             args.noise_threshold,
+            max_iterations=args.max_iterations,
         )
+        print(f"Total A/B test took {time.perf_counter() - t0:.2f}s")
     else:
+        t0 = time.perf_counter()
         data_a = load_data_series(args.path_a)
         data_b = load_data_series(args.path_b)
+        print(f"Data loading took {time.perf_counter() - t0:.2f}s")
 
-        analyze_data(
+        t0 = time.perf_counter()
+        error_messages = analyze_data(
             data_a,
             data_b,
             args.significance,
             args.absolute_strength,
             args.noise_threshold,
         )
+        print(f"Analysis took {time.perf_counter() - t0:.2f}s")
+        assert not error_messages, "\n" + "\n".join(error_messages)
+        print("No regressions detected!")
+
+
+if __name__ == "__main__":
+    main()

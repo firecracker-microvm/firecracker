@@ -1,6 +1,7 @@
 // Copyright 2024 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
+use std::cfg_select;
 use std::collections::HashMap;
 use std::sync::mpsc::{Receiver, RecvError};
 use std::sync::{Arc, Mutex, PoisonError};
@@ -19,14 +20,16 @@ use gdbstub::target::ext::breakpoints::{
 };
 use gdbstub::target::ext::thread_extra_info::{ThreadExtraInfo, ThreadExtraInfoOps};
 use gdbstub::target::{Target, TargetError, TargetResult};
-#[cfg(target_arch = "aarch64")]
-use gdbstub_arch::aarch64::AArch64 as GdbArch;
-#[cfg(target_arch = "aarch64")]
-use gdbstub_arch::aarch64::reg::AArch64CoreRegs as CoreRegs;
-#[cfg(target_arch = "x86_64")]
-use gdbstub_arch::x86::X86_64_SSE as GdbArch;
-#[cfg(target_arch = "x86_64")]
-use gdbstub_arch::x86::reg::X86_64CoreRegs as CoreRegs;
+cfg_select! {
+    target_arch = "aarch64" => {
+        use gdbstub_arch::aarch64::AArch64 as GdbArch;
+        use gdbstub_arch::aarch64::reg::AArch64CoreRegs as CoreRegs;
+    }
+    target_arch = "x86_64" => {
+        use gdbstub_arch::x86::X86_64_SSE as GdbArch;
+        use gdbstub_arch::x86::reg::X86_64CoreRegs as CoreRegs;
+    }
+}
 use vm_memory::{Bytes, GuestAddress, GuestMemoryError};
 
 use super::arch;
