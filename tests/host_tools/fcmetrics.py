@@ -376,6 +376,14 @@ def validate_fc_metrics(metrics):
 
     firecracker_metrics_schema = create_metrics_schema_objects(firecracker_metrics)
 
+    # "properties" is an optional operator-defined string map (see
+    # MetricsConfig.properties), not a metric: allow it when present, never
+    # require it, and keep every real metric strictly validated.
+    firecracker_metrics_schema["properties"]["properties"] = {
+        "type": "object",
+        "additionalProperties": {"type": "string"},
+    }
+
     jsonschema.validate(instance=metrics, schema=firecracker_metrics_schema)
 
     def validate_missing_metrics(metrics):
