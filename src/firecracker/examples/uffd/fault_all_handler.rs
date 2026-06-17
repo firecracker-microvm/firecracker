@@ -64,7 +64,7 @@ fn main() {
                 }
             }
         },
-        |_uffd_handler: &mut UffdHandler, _offset: usize| {},
+        |_uffd_handler: &mut UffdHandler, _offset: usize, _len: usize| {},
     );
 }
 

@@ -18,10 +18,11 @@ use std::ffi::c_void;
 use std::fs::File;
 use std::io::{Read, Write};
 use std::num::NonZero;
+use std::os::fd::OwnedFd;
 use std::os::unix::io::{AsRawFd, FromRawFd, IntoRawFd, RawFd};
 use std::os::unix::net::UnixStream;
 use std::ptr;
-use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicU32, AtomicU64, Ordering, fence};
 use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
@@ -31,7 +32,20 @@ use vmm_sys_util::sock_ctrl_msg::ScmSocket;
 use crate::uffd_utils::userfault_bitmap::UserfaultBitmap;
 
 // Exitless APF support — must match kernel UAPI definitions
-pub const KVM_APF_RING_SIZE: usize = 32;
+pub const KVM_APF_SHARED_VERSION: u32 = 1;
+pub const KVM_APF_RING_SIZE: usize = 64;
+pub const KVM_APF_SHARED_FLAG_NOTIFY_ARMED: u32 = 1;
+const KVM_APF_PAGE_OFFSET: libc::off_t = 3;
+const KVM_APF_RING_MASK: u32 = (KVM_APF_RING_SIZE as u32) - 1;
+
+#[repr(C)]
+pub struct KvmApfSharedHeader {
+    pub version: u32,
+    pub ring_size: u32,
+    pub entry_size: u32,
+    pub flags: AtomicU32,
+    pub reserved: [u64; 6],
+}
 
 #[repr(C)]
 #[derive(Debug, Default, Clone, Copy)]
@@ -43,29 +57,96 @@ pub struct KvmApfRingEntry {
 #[repr(C)]
 pub struct KvmApfRing {
     pub head: AtomicU32,
+    pub _pad_head: [u32; 15],
     pub tail: AtomicU32,
-    pub reserved: u32,
-    pub padding: u32,
+    pub _pad_tail: [u32; 15],
     pub entries: [KvmApfRingEntry; KVM_APF_RING_SIZE],
 }
 
 #[repr(C)]
 pub struct KvmApfSharedPage {
+    pub header: KvmApfSharedHeader,
     pub notify: KvmApfRing,
     pub complete: KvmApfRing,
 }
 
 impl KvmApfRing {
+    pub fn has_entries(&self) -> bool {
+        let head = self.head.load(Ordering::Acquire);
+        let tail = self.tail.load(Ordering::Relaxed);
+
+        head != tail
+    }
+
     pub fn pop(&self) -> Option<KvmApfRingEntry> {
         let head = self.head.load(Ordering::Acquire);
         let tail = self.tail.load(Ordering::Relaxed);
         if head == tail {
             return None;
         }
-        let entry = self.entries[tail as usize];
-        self.tail
-            .store((tail + 1) % KVM_APF_RING_SIZE as u32, Ordering::Release);
+        let entry = self.entries[(tail & KVM_APF_RING_MASK) as usize];
+        self.tail.store(tail.wrapping_add(1), Ordering::Release);
         Some(entry)
+    }
+
+    pub fn drain_into(&self, out: &mut [KvmApfRingEntry]) -> usize {
+        let head = self.head.load(Ordering::Acquire);
+        let mut tail = self.tail.load(Ordering::Relaxed);
+        let mut count = 0;
+        let limit = head
+            .wrapping_sub(tail)
+            .min(KVM_APF_RING_SIZE as u32)
+            .min(out.len() as u32);
+
+        while count < limit as usize {
+            out[count] = self.entries[(tail & KVM_APF_RING_MASK) as usize];
+            tail = tail.wrapping_add(1);
+            count += 1;
+        }
+        if count > 0 {
+            self.tail.store(tail, Ordering::Release);
+        }
+        count
+    }
+}
+
+impl KvmApfSharedPage {
+    fn validate(&self) -> std::io::Result<()> {
+        if self.header.version != KVM_APF_SHARED_VERSION
+            || self.header.ring_size != KVM_APF_RING_SIZE as u32
+            || self.header.entry_size != std::mem::size_of::<KvmApfRingEntry>() as u32
+        {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                format!(
+                    "unsupported APF shared page: version={} ring_size={} entry_size={}",
+                    self.header.version, self.header.ring_size, self.header.entry_size
+                ),
+            ));
+        }
+
+        Ok(())
+    }
+
+    fn arm_notify_if_empty(&self) -> bool {
+        if self.notify.has_entries() {
+            return false;
+        }
+
+        self.header
+            .flags
+            .fetch_or(KVM_APF_SHARED_FLAG_NOTIFY_ARMED, Ordering::Release);
+        // Paired with KVM's full barrier after publishing notify.head.
+        fence(Ordering::SeqCst);
+
+        if self.notify.has_entries() {
+            self.header
+                .flags
+                .fetch_and(!KVM_APF_SHARED_FLAG_NOTIFY_ARMED, Ordering::AcqRel);
+            return false;
+        }
+
+        true
     }
 }
 
@@ -80,26 +161,36 @@ impl ExitlessApfVcpu {
     pub fn from_fds(
         eventfd: RawFd,
         complete_eventfd: RawFd,
-        shared_page_memfd: RawFd,
+        shared_page_vcpu_fd: RawFd,
     ) -> std::io::Result<Self> {
+        // SAFETY: these fds were just received via SCM_RIGHTS and ownership is transferred here.
+        let eventfd = unsafe { OwnedFd::from_raw_fd(eventfd) };
+        // SAFETY: these fds were just received via SCM_RIGHTS and ownership is transferred here.
+        let complete_eventfd = unsafe { OwnedFd::from_raw_fd(complete_eventfd) };
+        // SAFETY: these fds were just received via SCM_RIGHTS and ownership is transferred here.
+        let shared_page_vcpu_fd = unsafe { OwnedFd::from_raw_fd(shared_page_vcpu_fd) };
         let page_size = unsafe { libc::sysconf(libc::_SC_PAGESIZE) } as usize;
+        let offset = KVM_APF_PAGE_OFFSET * page_size as libc::off_t;
         let ptr = unsafe {
             libc::mmap(
                 ptr::null_mut(),
                 page_size,
                 libc::PROT_READ | libc::PROT_WRITE,
                 libc::MAP_SHARED,
-                shared_page_memfd,
-                0,
+                shared_page_vcpu_fd.as_raw_fd(),
+                offset,
             )
         };
         if ptr == libc::MAP_FAILED {
             return Err(std::io::Error::last_os_error());
         }
-        unsafe { libc::close(shared_page_memfd) };
+        if let Err(err) = unsafe { &*(ptr as *const KvmApfSharedPage) }.validate() {
+            unsafe { libc::munmap(ptr, page_size) };
+            return Err(err);
+        }
         Ok(Self {
-            eventfd,
-            complete_eventfd,
+            eventfd: eventfd.into_raw_fd(),
+            complete_eventfd: complete_eventfd.into_raw_fd(),
             shared_page: ptr as *mut KvmApfSharedPage,
             buff: [0; 8],
         })
@@ -112,47 +203,74 @@ impl ExitlessApfVcpu {
         unsafe { &(*self.shared_page).complete }
     }
 
+    pub fn arm_notify_if_empty(&self) -> bool {
+        unsafe { &*self.shared_page }.arm_notify_if_empty()
+    }
+
     pub fn drain_eventfd(&mut self) {
         unsafe { libc::read(self.eventfd, self.buff.as_mut_ptr() as *mut c_void, 8) };
     }
 
+    fn signal_complete_eventfd(&self) {
+        let val: u64 = 1;
+        unsafe {
+            libc::write(
+                self.complete_eventfd,
+                &val as *const u64 as *const c_void,
+                8,
+            )
+        };
+    }
+
     pub fn signal_ready(&self, gpa: u64) {
-        let ring = self.complete_ring();
         let entry = KvmApfRingEntry { gpa, flags: 0 };
-        for attempt in 0u32.. {
-            let head = ring.head.load(Ordering::Relaxed);
-            let tail = ring.tail.load(Ordering::Acquire);
-            let next = (head + 1) % KVM_APF_RING_SIZE as u32;
-            if next != tail {
-                unsafe {
-                    let slot = &raw const ring.entries[head as usize] as *mut KvmApfRingEntry;
-                    ptr::write(slot, entry);
+        self.signal_ready_batch(std::slice::from_ref(&entry));
+    }
+
+    pub fn signal_ready_batch(&self, entries: &[KvmApfRingEntry]) {
+        let ring = self.complete_ring();
+        let mut needs_signal = false;
+
+        for entry in entries {
+            let entry = KvmApfRingEntry {
+                gpa: entry.gpa,
+                flags: 0,
+            };
+            let mut attempt = 0u32;
+            loop {
+                let head = ring.head.load(Ordering::Relaxed);
+                let tail = ring.tail.load(Ordering::Acquire);
+                if head.wrapping_sub(tail) < KVM_APF_RING_SIZE as u32 {
+                    unsafe {
+                        let slot = &raw const ring.entries[(head & KVM_APF_RING_MASK) as usize]
+                            as *mut KvmApfRingEntry;
+                        ptr::write(slot, entry);
+                    }
+                    ring.head.store(head.wrapping_add(1), Ordering::Release);
+                    needs_signal = true;
+                    break;
                 }
-                ring.head.store(next, Ordering::Release);
-                let val: u64 = 1;
-                unsafe {
-                    libc::write(
-                        self.complete_eventfd,
-                        &val as *const u64 as *const c_void,
-                        8,
-                    )
-                };
-                return;
+
+                // If we filled the completion ring with this batch, kick the kernel so it can
+                // drain entries.  If it was already full, keep the old behavior and kick once on
+                // the first spin in case a previous notification was lost/coalesced.
+                if needs_signal || attempt == 0 {
+                    self.signal_complete_eventfd();
+                    needs_signal = false;
+                }
+                if attempt == 10_000 {
+                    eprintln!(
+                        "WARN: APF completion ring full after {attempt} spins for gpa {:#x}",
+                        entry.gpa
+                    );
+                }
+                attempt = attempt.wrapping_add(1);
+                std::hint::spin_loop();
             }
-            if attempt == 0 {
-                let val: u64 = 1;
-                unsafe {
-                    libc::write(
-                        self.complete_eventfd,
-                        &val as *const u64 as *const c_void,
-                        8,
-                    )
-                };
-            }
-            if attempt >= 10_000 {
-                eprintln!("WARN: APF completion ring full after {attempt} spins for gpa {gpa:#x}");
-            }
-            std::hint::spin_loop();
+        }
+
+        if needs_signal {
+            self.signal_complete_eventfd();
         }
     }
 }
@@ -177,13 +295,13 @@ fn signal_apf_ready(shared_page: SendableSharedPage, complete_eventfd: RawFd, gp
     for attempt in 0u32.. {
         let head = ring.head.load(Ordering::Relaxed);
         let tail = ring.tail.load(Ordering::Acquire);
-        let next = (head + 1) % KVM_APF_RING_SIZE as u32;
-        if next != tail {
+        if head.wrapping_sub(tail) < KVM_APF_RING_SIZE as u32 {
             unsafe {
-                let slot = &raw const ring.entries[head as usize] as *mut KvmApfRingEntry;
+                let slot = &raw const ring.entries[(head & KVM_APF_RING_MASK) as usize]
+                    as *mut KvmApfRingEntry;
                 ptr::write(slot, entry);
             }
-            ring.head.store(next, Ordering::Release);
+            ring.head.store(head.wrapping_add(1), Ordering::Release);
             let val: u64 = 1;
             unsafe { libc::write(complete_eventfd, &val as *const u64 as *const c_void, 8) };
             return;
@@ -294,6 +412,7 @@ impl GuestRegionUffdMapping {
 pub struct UffdHandler {
     pub mem_regions: Vec<GuestRegionUffdMapping>,
     pub page_size: usize,
+    total_size: usize,
     backing_buffer: *const u8,
     pub uffd: Uffd,
     pub guest_memfd: Option<File>,
@@ -399,6 +518,7 @@ impl UffdHandler {
                 Self {
                     mem_regions: mappings,
                     page_size,
+                    total_size: memsize,
                     backing_buffer,
                     uffd,
                     guest_memfd,
@@ -409,6 +529,7 @@ impl UffdHandler {
             (None, None) => Self {
                 mem_regions: mappings,
                 page_size,
+                total_size: memsize,
                 backing_buffer,
                 uffd,
                 guest_memfd: None,
@@ -426,6 +547,11 @@ impl UffdHandler {
     /// Convert a guest physical address to an offset in the backing memory file.
     #[inline]
     pub fn gpa_to_offset(&self, gpa: u64) -> Option<usize> {
+        if let [region] = self.mem_regions.as_slice() {
+            return (region.gpa_start <= gpa && gpa < region.gpa_start + region.size as u64)
+                .then_some((gpa - region.gpa_start + region.offset) as usize);
+        }
+
         for region in &self.mem_regions {
             if region.gpa_start <= gpa && gpa < region.gpa_start + region.size as u64 {
                 return Some((gpa - region.gpa_start + region.offset) as usize);
@@ -453,6 +579,12 @@ impl UffdHandler {
 
     pub fn addr_to_offset(&self, addr: *mut u8) -> u64 {
         let addr = addr as u64;
+        if let [region] = self.mem_regions.as_slice()
+            && region.contains(addr)
+        {
+            return addr - region.base_host_virt_addr + region.offset;
+        }
+
         for region in &self.mem_regions {
             if region.contains(addr) {
                 return addr - region.base_host_virt_addr + region.offset;
@@ -470,6 +602,14 @@ impl UffdHandler {
         let dst = (addr as usize & !(self.page_size - 1)) as *mut libc::c_void;
         let fault_page_addr = dst as u64;
 
+        if let [region] = self.mem_regions.as_slice()
+            && region.contains(fault_page_addr)
+        {
+            let offset = (region.offset + fault_page_addr - region.base_host_virt_addr) as usize;
+            let src = unsafe { self.backing_buffer.add(offset) };
+            return self.populate_via_uffdio_copy(src, fault_page_addr, len);
+        }
+
         for region in self.mem_regions.iter() {
             if region.contains(fault_page_addr) {
                 let offset =
@@ -486,7 +626,7 @@ impl UffdHandler {
     }
 
     pub fn size(&self) -> usize {
-        self.mem_regions.iter().map(|r| r.size).sum()
+        self.total_size
     }
 
     pub fn populate_via_write(&mut self, offset: usize, len: usize) -> usize {
@@ -506,60 +646,58 @@ impl UffdHandler {
             self.size()
         );
 
+        let guest_memfd = self.guest_memfd.as_ref().unwrap().as_raw_fd();
+        let userfault_bitmap = self.userfault_bitmap.as_ref().unwrap();
         let mut total_written = 0;
         let mut pos = 0;
 
         while pos < len {
-            let src = unsafe { self.backing_buffer.add(offset + pos) };
+            let write_offset = offset + pos;
+            let src = unsafe { self.backing_buffer.add(write_offset) };
             let len_to_write = (len - pos).min(MAX_WRITE_LEN);
             let bytes_written = unsafe {
                 libc::pwrite64(
-                    self.guest_memfd.as_ref().unwrap().as_raw_fd(),
+                    guest_memfd,
                     src.cast(),
                     len_to_write,
-                    (offset + pos) as libc::off64_t,
+                    write_offset as libc::off64_t,
                 )
             };
 
-            let bytes_written = match bytes_written {
+            match bytes_written {
                 -1 if vmm_sys_util::errno::Error::last().errno() == libc::EEXIST => {
                     // write() syscall returns -1 with EEXIST when the direct map PTE for the page
                     // has already been removed, indicating the page has been populated. Reset the
                     // corresponding bit in the userfault bitmap to suppress further KVM userfaults
                     // for that page and skip the page.
-                    self.userfault_bitmap
-                        .as_mut()
-                        .unwrap()
-                        .reset_addr_range(offset + pos, self.page_size);
-                    pos += self.page_size;
-                    0
+                    let skip_len = self.page_size.min(len - pos);
+                    userfault_bitmap.reset_addr_range(write_offset, skip_len);
+                    pos += skip_len;
                 }
                 written @ 0.. => {
-                    if (written as usize) < len_to_write {
+                    let bytes_written = written as usize;
+                    assert!(bytes_written <= len_to_write);
+
+                    if bytes_written > 0 {
+                        userfault_bitmap.reset_addr_range(write_offset, bytes_written);
+                        total_written += bytes_written;
+                        pos += bytes_written;
+                    }
+
+                    if bytes_written < len_to_write {
                         // write() syscall wrote less bytes than we requested when the direct map
                         // PTE for the page has already been removed,
                         // indicating a page has been populated. Reset the
                         // corresponding bit in the userfault bitmap to
                         // suppress further KVM userfaults for that page and
                         // skip the page.
-                        self.userfault_bitmap.as_mut().unwrap().reset_addr_range(
-                            offset + pos + bytes_written as usize,
-                            self.page_size,
-                        );
-                        pos += self.page_size;
+                        let skip_len = self.page_size.min(len - pos);
+                        userfault_bitmap.reset_addr_range(offset + pos, skip_len);
+                        pos += skip_len;
                     }
-                    written as usize
                 }
                 _ => panic!("{:?}", std::io::Error::last_os_error()),
-            };
-
-            self.userfault_bitmap
-                .as_mut()
-                .unwrap()
-                .reset_addr_range(offset + pos, bytes_written);
-
-            total_written += bytes_written;
-            pos += bytes_written;
+            }
         }
 
         total_written
@@ -622,20 +760,38 @@ impl Iterator for UffdMsgIterBitcode {
     type Item = FaultRequest;
 
     fn next(&mut self) -> Option<Self::Item> {
+        if self.can_decode() {
+            return self.decode_next();
+        }
+
         match self.stream.read(&mut self.buffer[self.current_pos..]) {
             Ok(bytes_read) => self.current_pos += bytes_read,
             Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {}
             Err(e) => panic!("Failed to read from stream: {e}"),
         }
 
-        if self.current_pos < 4 {
+        if !self.can_decode() {
             return None;
         }
 
-        let size = u32::from_le_bytes(self.buffer[..4].try_into().unwrap()) as usize;
-        if self.current_pos < 4 + size {
-            return None;
+        self.decode_next()
+    }
+}
+
+impl UffdMsgIterBitcode {
+    fn can_decode(&self) -> bool {
+        if self.current_pos < 4 {
+            return false;
         }
+
+        let size = u32::from_le_bytes(self.buffer[..4].try_into().unwrap()) as usize;
+        self.current_pos >= 4 + size
+    }
+
+    fn decode_next(&mut self) -> Option<FaultRequest> {
+        debug_assert!(self.can_decode());
+
+        let size = u32::from_le_bytes(self.buffer[..4].try_into().unwrap()) as usize;
 
         let decoded: FaultRequest = bitcode::decode(&self.buffer[4..4 + size])
             .unwrap_or_else(|e| panic!("Failed to decode bitcode message: {e}"));
@@ -663,6 +819,8 @@ pub struct Runtime {
     handler: UffdHandler,
     apf_stream: UnixStream,
     exitless_vcpus: HashMap<RawFd, ExitlessApfVcpu>,
+    encode_buffer: bitcode::Buffer,
+    write_buffer: [u8; 4096],
 }
 
 impl Runtime {
@@ -697,6 +855,8 @@ impl Runtime {
             handler,
             apf_stream,
             exitless_vcpus: HashMap::new(),
+            encode_buffer: bitcode::Buffer::new(),
+            write_buffer: [0; 4096],
         }
     }
 
@@ -737,18 +897,31 @@ impl Runtime {
         }));
     }
 
+    fn encode_fault_reply(&mut self, fault_reply: &FaultReply) -> usize {
+        let encoded = self.encode_buffer.encode(fault_reply);
+        let len = encoded.len();
+        let size = u32::try_from(len).expect("encoded message exceeds u32::MAX");
+        assert!(
+            4 + len <= self.write_buffer.len(),
+            "encoded APF reply exceeds write buffer"
+        );
+        self.write_buffer[..4].copy_from_slice(&size.to_le_bytes());
+        self.write_buffer[4..4 + len].copy_from_slice(encoded);
+        4 + len
+    }
+
     pub fn send_fault_reply(&mut self, fault_reply: FaultReply) {
-        let encoded = bitcode::encode(&fault_reply);
-        let size = (encoded.len() as u32).to_le_bytes();
-        self.stream.write_all(&size).unwrap();
-        self.stream.write_all(&encoded).unwrap();
+        let frame_len = self.encode_fault_reply(&fault_reply);
+        self.stream
+            .write_all(&self.write_buffer[..frame_len])
+            .unwrap();
     }
 
     pub fn send_apf_fault_reply(&mut self, fault_reply: FaultReply) {
-        let encoded = bitcode::encode(&fault_reply);
-        let size = (encoded.len() as u32).to_le_bytes();
-        self.apf_stream.write_all(&size).unwrap();
-        self.apf_stream.write_all(&encoded).unwrap();
+        let frame_len = self.encode_fault_reply(&fault_reply);
+        self.apf_stream
+            .write_all(&self.write_buffer[..frame_len])
+            .unwrap();
     }
 
     pub fn construct_handler(
@@ -789,8 +962,11 @@ impl Runtime {
     }
 
     pub fn try_receive_exitless_apf(&mut self) -> std::io::Result<bool> {
+        const MAX_EXITLESS_APF_VCPUS: usize = 32;
+        const MAX_EXITLESS_APF_FDS: usize = MAX_EXITLESS_APF_VCPUS * 3;
+
         let mut msg_buf = [0u8; 256];
-        let mut fds = [0i32; 64];
+        let mut fds = [0i32; MAX_EXITLESS_APF_FDS];
         // Firecracker sends exitless APF fds over the UFFD socket (self.stream),
         // not the APF socket. Block until we receive the message.
         self.stream.set_nonblocking(false).expect("set nonblocking");
@@ -808,17 +984,26 @@ impl Runtime {
             }
         };
         self.stream.set_nonblocking(true).expect("set nonblocking");
-        if bytes_read > 0 && fds_read == 0 {
-            let msg = std::str::from_utf8(&msg_buf[..bytes_read]).unwrap_or("");
-            if msg.starts_with("no_exitless_apf") {
-                println!("Exitless APF: not supported by kernel, disabled");
-                return Ok(false);
-            }
+        let msg = std::str::from_utf8(&msg_buf[..bytes_read]).unwrap_or("");
+        if bytes_read > 0 && fds_read == 0 && msg.starts_with("no_exitless_apf") {
+            println!("Exitless APF: not supported by kernel, disabled");
+            return Ok(false);
         }
         if fds_read == 0 || fds_read % 3 != 0 {
             return Ok(false);
         }
+        let expected_vcpus = msg
+            .strip_prefix("exitless_apf:")
+            .and_then(|count| count.parse::<usize>().ok());
         let num_vcpus = fds_read / 3;
+        if expected_vcpus != Some(num_vcpus) {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                format!(
+                    "exitless APF fd count mismatch: message={expected_vcpus:?} fds={fds_read}"
+                ),
+            ));
+        }
         for i in 0..num_vcpus {
             let base = i * 3;
             let ctx = ExitlessApfVcpu::from_fds(fds[base], fds[base + 1], fds[base + 2])?;
@@ -829,6 +1014,61 @@ impl Runtime {
         Ok(!self.exitless_vcpus.is_empty())
     }
 
+    fn process_exitless_apf_batch(
+        handler: &mut UffdHandler,
+        ctx: &mut ExitlessApfVcpu,
+        pf_vcpu_event_dispatch: &impl Fn(&mut UffdHandler, usize, usize),
+    ) -> bool {
+        let page_size = handler.page_size;
+        let mut entries = [KvmApfRingEntry::default(); KVM_APF_RING_SIZE];
+        let mut processed = false;
+
+        loop {
+            let count = ctx.notify_ring().drain_into(&mut entries);
+            if count == 0 {
+                break;
+            }
+            processed = true;
+
+            let batch = &entries[..count];
+            let mut range_start = None;
+            let mut range_len = 0usize;
+
+            for entry in batch {
+                let Some(offset) = handler.gpa_to_offset(entry.gpa) else {
+                    if let Some(start) = range_start.take() {
+                        pf_vcpu_event_dispatch(handler, start, range_len);
+                    }
+                    continue;
+                };
+                assert!(
+                    offset < handler.size(),
+                    "received bogus offset from exitless APF ring"
+                );
+
+                if let Some(start) = range_start {
+                    if start.checked_add(range_len) == Some(offset) {
+                        range_len += page_size;
+                        continue;
+                    }
+
+                    pf_vcpu_event_dispatch(handler, start, range_len);
+                }
+
+                range_start = Some(offset);
+                range_len = page_size;
+            }
+
+            if let Some(start) = range_start {
+                pf_vcpu_event_dispatch(handler, start, range_len);
+            }
+
+            ctx.signal_ready_batch(batch);
+        }
+
+        processed
+    }
+
     /// Polls the `UnixStream` and UFFD fds in a loop.
     /// When stream is polled, new uffd is retrieved.
     /// When uffd is polled, page fault is handled by
@@ -837,7 +1077,7 @@ impl Runtime {
     pub fn run(
         &mut self,
         pf_event_dispatch: impl Fn(&mut UffdHandler),
-        pf_vcpu_event_dispatch: impl Fn(&mut UffdHandler, usize),
+        pf_vcpu_event_dispatch: impl Fn(&mut UffdHandler, usize, usize),
     ) {
         let stream_fd = self.stream.as_raw_fd();
         let apf_stream_fd = self.apf_stream.as_raw_fd();
@@ -882,6 +1122,32 @@ impl Runtime {
         );
 
         loop {
+            if !self.exitless_vcpus.is_empty() {
+                let mut made_progress = false;
+                {
+                    let handler = &mut self.handler;
+                    let exitless_vcpus = &mut self.exitless_vcpus;
+
+                    for ctx in exitless_vcpus.values_mut() {
+                        made_progress |=
+                            Self::process_exitless_apf_batch(handler, ctx, &pf_vcpu_event_dispatch);
+                    }
+                }
+                if made_progress {
+                    continue;
+                }
+
+                let mut need_immediate_drain = false;
+                for ctx in self.exitless_vcpus.values() {
+                    if !ctx.arm_notify_if_empty() {
+                        need_immediate_drain = true;
+                    }
+                }
+                if need_immediate_drain {
+                    continue;
+                }
+            }
+
             let pollfd_ptr = pollfds.as_mut_ptr();
             let pollfd_size = pollfds.len() as u64;
 
@@ -910,7 +1176,7 @@ impl Runtime {
                                 offset < self.handler.size(),
                                 "received bogus offset from firecracker"
                             );
-                            pf_vcpu_event_dispatch(&mut self.handler, offset);
+                            pf_vcpu_event_dispatch(&mut self.handler, offset, page_size);
                             self.send_fault_reply(fault_request.into_reply(page_size as u64));
                         }
                     } else if fd.fd == apf_stream_fd {
@@ -925,18 +1191,17 @@ impl Runtime {
                                 offset < self.handler.size(),
                                 "received bogus offset from APF handler"
                             );
-                            pf_vcpu_event_dispatch(&mut self.handler, offset);
+                            pf_vcpu_event_dispatch(&mut self.handler, offset, page_size);
                             self.send_apf_fault_reply(fault_request.into_reply(page_size as u64));
                         }
                     } else if let Some(ctx) = self.exitless_vcpus.get_mut(&fd.fd) {
                         // Exitless APF: drain notify ring and resolve pages
                         ctx.drain_eventfd();
-                        while let Some(entry) = ctx.notify_ring().pop() {
-                            if let Some(offset) = self.handler.gpa_to_offset(entry.gpa) {
-                                pf_vcpu_event_dispatch(&mut self.handler, offset);
-                            }
-                            ctx.signal_ready(entry.gpa);
-                        }
+                        let _ = Self::process_exitless_apf_batch(
+                            &mut self.handler,
+                            ctx,
+                            &pf_vcpu_event_dispatch,
+                        );
                     } else {
                         // Handle one of uffd page faults
                         pf_event_dispatch(&mut self.handler);
@@ -993,7 +1258,10 @@ mod tests {
                 .expect("Cannot set APF stream non-blocking");
             // Update runtime with actual runtime
             let runtime = uninit_runtime.write(Runtime::new(stream, file, apf_stream));
-            runtime.run(|_: &mut UffdHandler| {}, |_: &mut UffdHandler, _: usize| {});
+            runtime.run(
+                |_: &mut UffdHandler| {},
+                |_: &mut UffdHandler, _: usize, _: usize| {},
+            );
         });
 
         // wait for runtime thread to initialize itself
