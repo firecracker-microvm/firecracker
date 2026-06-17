@@ -99,7 +99,7 @@ impl From<vm_memory::VolatileMemoryError> for MemoryError {
 pub struct KvmAPFReq {
     /// Guest physical address of the faulting page.
     pub gpa: u64,
-    /// Operation code (ready, accept, or sync-complete).
+    /// Operation code (accept or ready).
     pub op: u32,
     /// Flags (currently unused, must be 0).
     pub flags: u32,
@@ -107,13 +107,10 @@ pub struct KvmAPFReq {
     pub reserved: [u64; 2],
 }
 
-/// Mark an async page fault as ready (page is now available).
-pub const KVM_APF_OP_READY: u32 = 0;
 /// Accept an async page fault (vCPU acknowledges the APF).
 pub const KVM_APF_OP_ACCEPT: u32 = 1;
-/// Signal synchronous completion of an async page fault.
-#[allow(dead_code)]
-pub const KVM_APF_OP_SYNC_COMPLETE: u32 = 2;
+/// Mark an async page fault as ready (page is now available).
+pub const KVM_APF_OP_READY: u32 = 2;
 
 /// `KVM_ASYNC_PF` ioctl — manages async page faults on a vCPU.
 #[allow(missing_docs)]

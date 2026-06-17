@@ -745,7 +745,19 @@
                         "type": "dword",
                         "op": "eq",
                         "val": 1075883734,
-                        "comment": "KVM_ASYNC_PF (accept/ready/sync_complete)"
+                        "comment": "KVM_ASYNC_PF (accept/ready)"
+                    }
+                ]
+            },
+            {
+                "syscall": "ioctl",
+                "args": [
+                    {
+                        "index": 1,
+                        "type": "dword",
+                        "op": "eq",
+                        "val": 1075883737,
+                        "comment": "KVM_SET_APF_EVENTFD"
                     }
                 ]
             }
@@ -1516,7 +1528,7 @@
                         "type": "dword",
                         "op": "eq",
                         "val": 1075883734,
-                        "comment": "KVM_ASYNC_PF (accept/ready/sync_complete)"
+                        "comment": "KVM_ASYNC_PF (accept/ready)"
                     }
                 ]
             }
