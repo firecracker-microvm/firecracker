@@ -1,4 +1,4 @@
-From eacc66d4eaeed8db8a87767079887b68155c5892 Mon Sep 17 00:00:00 2001
+From ae7836e9bb80a109697568c089766a407ceb9ec8 Mon Sep 17 00:00:00 2001
 From: Jack Thomson <jackabt@amazon.com>
 Date: Fri, 16 Jan 2026 15:14:32 +0000
 Subject: [PATCH 88/94] KVM: async_pf: Add userfaultfd async page fault
@@ -14,14 +14,18 @@ between teardown and concurrent ioctl callers.
 KVM_MEMORY_EXIT_FLAG_APF is added to memory fault exits so userspace can
 distinguish userfault APFs from plain userfault exits.
 
+The op values are ordered so that 0 is reserved (and rejected with
+-EINVAL), which prevents a zero-initialized kvm_async_pf_req from being
+dispatched to a state-mutating op.
+
 Signed-off-by: Jack Thomson <jackabt@amazon.com>
 ---
- include/linux/kvm_host.h | 26 +++++++++++++++++++++++---
- include/uapi/linux/kvm.h | 35 +++++++++++++++++++++++++++++++++++
- 2 files changed, 58 insertions(+), 3 deletions(-)
+ include/linux/kvm_host.h | 23 +++++++++++++++++++++--
+ include/uapi/linux/kvm.h | 33 +++++++++++++++++++++++++++++++++
+ 2 files changed, 54 insertions(+), 2 deletions(-)
 
 diff --git a/include/linux/kvm_host.h b/include/linux/kvm_host.h
-index 12274080cc32..a8d9b269ae70 100644
+index 12274080cc32..bdbf26c5c037 100644
 --- a/include/linux/kvm_host.h
 +++ b/include/linux/kvm_host.h
 @@ -234,6 +234,18 @@ struct kvm_io_device *kvm_io_bus_get_dev(struct kvm *kvm, enum kvm_bus bus_idx,
@@ -43,7 +47,7 @@ index 12274080cc32..a8d9b269ae70 100644
  struct kvm_async_pf {
  	struct work_struct work;
  	struct list_head link;
-@@ -243,13 +255,20 @@ struct kvm_async_pf {
+@@ -243,13 +255,19 @@ struct kvm_async_pf {
  	unsigned long addr;
  	struct kvm_arch_async_pf arch;
  	bool   wakeup_all;
@@ -52,11 +56,9 @@ index 12274080cc32..a8d9b269ae70 100644
 +	bool   userfault;
 +	enum kvm_apf_uf_state uf_state;
  };
--
-+bool kvm_async_pf_userfault_exists(struct kvm_vcpu *vcpu,
-+				   gfn_t gfn);
+ 
++bool kvm_async_pf_userfault_exists(struct kvm_vcpu *vcpu, gfn_t gfn);
 +int kvm_async_pf_accept(struct kvm_vcpu *vcpu, gpa_t gpa);
-+int kvm_async_pf_sync_complete(struct kvm_vcpu *vcpu, gpa_t gpa);
 +int kvm_async_pf_complete(struct kvm_vcpu *vcpu, gpa_t gpa);
  void kvm_clear_async_pf_completion_queue(struct kvm_vcpu *vcpu);
  void kvm_check_async_pf_completion(struct kvm_vcpu *vcpu);
@@ -67,7 +69,7 @@ index 12274080cc32..a8d9b269ae70 100644
  int kvm_async_pf_wakeup_all(struct kvm_vcpu *vcpu);
  #endif
  
-@@ -367,6 +386,7 @@ struct kvm_vcpu {
+@@ -367,6 +385,7 @@ struct kvm_vcpu {
  		struct list_head queue;
  		struct list_head done;
  		spinlock_t lock;
@@ -76,7 +78,7 @@ index 12274080cc32..a8d9b269ae70 100644
  #endif
  
 diff --git a/include/uapi/linux/kvm.h b/include/uapi/linux/kvm.h
-index 052c7c4876eb..7ff327522a53 100644
+index 052c7c4876eb..f11b3768f0ab 100644
 --- a/include/uapi/linux/kvm.h
 +++ b/include/uapi/linux/kvm.h
 @@ -447,6 +447,7 @@ struct kvm_run {
@@ -87,37 +89,34 @@ index 052c7c4876eb..7ff327522a53 100644
  			__u64 flags;
  			__u64 gpa;
  			__u64 size;
-@@ -1615,6 +1616,40 @@ struct kvm_create_guest_memfd {
- };
+@@ -1616,6 +1617,38 @@ struct kvm_create_guest_memfd {
  
  #define KVM_PRE_FAULT_MEMORY	_IOWR(KVMIO, 0xd5, struct kvm_pre_fault_memory)
+ 
 +/*
 + * Userfaultfd async page fault ioctl.
 + *
 + * When a vCPU exits with KVM_EXIT_MEMORY_FAULT and KVM_MEMORY_EXIT_FLAG_APF
-+ * set, an async page fault has been created. Userspace must respond with
-+ * one of ACCEPT or SYNC_COMPLETE before re-entering the vCPU:
++ * set, an async page fault has been created. Userspace may respond with
++ * one of the following operations:
 + *
 + * KVM_APF_OP_ACCEPT - Userspace will resolve the page asynchronously.
 + *   The vCPU re-enters in a halted state while the page is being resolved.
 + *   When the page is ready, userspace calls KVM_APF_OP_READY to wake
 + *   the vCPU.
 + *
-+ * KVM_APF_OP_SYNC_COMPLETE - Userspace has already resolved the page
-+ *   fault synchronously (e.g. via UFFDIO_COPY or equivalent). KVM will
-+ *   complete the APF immediately, allowing the guest to retry the faulting
-+ *   instruction. The page MUST be present when this ioctl is called.
-+ *
 + * KVM_APF_OP_READY - Signal that an async page fault previously accepted
 + *   via KVM_APF_OP_ACCEPT has been resolved. The argument is the GPA
 + *   that was faulted. This wakes the vCPU if it was halted waiting for
 + *   the page.
++ *
++ * Op value 0 is reserved and rejected with -EINVAL so that a zero-
++ * initialized request is never interpreted as a valid op.
 + */
 +#define KVM_ASYNC_PF		_IOW(KVMIO, 0xd6, struct kvm_async_pf_req)
 +
-+#define KVM_APF_OP_READY		0
 +#define KVM_APF_OP_ACCEPT		1
-+#define KVM_APF_OP_SYNC_COMPLETE	2
++#define KVM_APF_OP_READY		2
 +
 +struct kvm_async_pf_req {
 +	__u64 gpa;
@@ -125,9 +124,10 @@ index 052c7c4876eb..7ff327522a53 100644
 +	__u32 flags;
 +	__u64 reserved[2];
 +};
- 
++
  struct kvm_pre_fault_memory {
  	__u64 gpa;
+ 	__u64 size;
 -- 
-2.50.1
+2.43.0
 

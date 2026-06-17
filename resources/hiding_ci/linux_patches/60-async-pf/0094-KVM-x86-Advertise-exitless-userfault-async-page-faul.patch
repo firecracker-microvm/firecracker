@@ -1,0 +1,591 @@
+From be4e944ece7e39bab329be210201d7230d8affaf Mon Sep 17 00:00:00 2001
+From: Jack Thomson <jackabt@amazon.com>
+Date: Tue, 2 Jun 2026 16:04:31 +0000
+Subject: [PATCH 94/94] KVM: x86: Advertise exitless userfault async page
+ faults
+
+Advertise the optional eventfd/ring fast path with a separate
+capability. Kernels that support only the base KVM_ASYNC_PF path remain
+distinguishable.
+
+Document KVM_SET_APF_EVENTFD, sync the tools UAPI headers, and extend
+the selftest to cover exitless notification when
+KVM_CAP_ASYNC_PF_USERFAULT_EVENTFD is present.
+
+Signed-off-by: Jack Thomson <jackabt@amazon.com>
+---
+ Documentation/virt/kvm/api.rst                | 162 ++++++++++++
+ arch/x86/kvm/x86.c                            |   1 +
+ include/uapi/linux/kvm.h                      |   1 +
+ tools/arch/x86/include/uapi/asm/kvm.h         |   1 +
+ tools/include/uapi/linux/kvm.h                |  65 +++++
+ .../kvm/x86/async_pf_userfault_test.c         | 242 ++++++++++++++++++
+ 6 files changed, 472 insertions(+)
+
+diff --git a/Documentation/virt/kvm/api.rst b/Documentation/virt/kvm/api.rst
+index 5bf60a295b62..187a69991d3a 100644
+--- a/Documentation/virt/kvm/api.rst
++++ b/Documentation/virt/kvm/api.rst
+@@ -6604,6 +6604,151 @@ operation.
+ ``flags`` and ``reserved`` must be zero.
+ 
+ 
++4.145 KVM_SET_APF_EVENTFD
++-------------------------
++
++:Capability: KVM_CAP_ASYNC_PF_USERFAULT_EVENTFD
++:Architectures: x86
++:Type: vcpu ioctl
++:Parameters: struct kvm_apf_eventfd (in)
++:Returns: 0 on success, < 0 on error
++
++Errors:
++
++  ========== ===============================================================
++  EINVAL     Non-zero ``flags``, ``padding`` or ``reserved`` fields, ``fd``
++             is less than -1, ``fd`` equals ``complete_fd``, or both file
++             descriptors refer to the same eventfd context.
++  EBADF      Invalid file descriptor.
++  EBUSY      Async page faults are pending on the vCPU.
++  EFAULT     The parameter address was invalid.
++  ENOMEM     Kernel could not allocate the shared page.
++  ========== ===============================================================
++
++::
++
++  struct kvm_apf_eventfd {
++	__s32 fd;
++	__s32 complete_fd;
++	__u32 flags;
++	__u32 padding;
++	__u64 reserved[2];
++  };
++
++Registers eventfds for exitless async page fault notification. When
++registered, userfault async page faults write fault details to a shared
++ring buffer instead of exiting to userspace via ``KVM_EXIT_MEMORY_FAULT``.
++KVM signals ``fd`` only when userspace has armed notification via the
++shared page header. This avoids the KVM_RUN exit/re-entry overhead for
++each async page fault.
++
++The shared ring is allocated by the kernel for each successful
++registration. Userspace maps it via
++``mmap(vcpu_fd, PAGE_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED, offset =
++KVM_APF_PAGE_OFFSET * PAGE_SIZE)`` after the ioctl returns. This matches
++the mmap pattern used for ``KVM_DIRTY_LOG_PAGE_OFFSET`` /
++``KVM_COALESCED_MMIO_PAGE_OFFSET`` and avoids ``FOLL_LONGTERM``-pinning
++a userspace anon page. Userspace must mmap the shared ring again after
++replacing a registration. The layout is ``struct kvm_apf_shared_page``::
++
++  #define KVM_APF_SHARED_VERSION          1
++  #define KVM_APF_RING_SIZE               64
++  #define KVM_APF_SHARED_FLAG_NOTIFY_ARMED  _BITUL(0)
++
++  struct kvm_apf_shared_header {
++	__u32 version;
++	__u32 ring_size;
++	__u32 entry_size;
++	__u32 flags;
++	__u64 reserved[6];
++  };
++
++  struct kvm_apf_ring_entry {
++	__u64 gpa;
++	__u64 flags;
++  };
++
++  struct kvm_apf_ring {
++	__u32 head;
++	__u32 _pad_head[15];	/* cacheline isolation */
++	__u32 tail;
++	__u32 _pad_tail[15];
++	struct kvm_apf_ring_entry entries[KVM_APF_RING_SIZE];
++  };
++
++  struct kvm_apf_shared_page {
++	struct kvm_apf_shared_header header;
++	struct kvm_apf_ring notify;
++	struct kvm_apf_ring complete;
++  };
++
++The ``header`` identifies the shared page ABI and exposes the active ring
++shape. KVM initializes ``version`` to ``KVM_APF_SHARED_VERSION``,
++``ring_size`` to ``KVM_APF_RING_SIZE`` and ``entry_size`` to
++``sizeof(struct kvm_apf_ring_entry)``.  The ``reserved`` fields must be
++zero.
++
++The ring ``head`` and ``tail`` indices are placed on separate cachelines
++to avoid producer/consumer false sharing, so userspace MUST lay out the
++ring exactly as shown above.
++
++``head`` and ``tail`` are **free-running** ``__u32`` counters: the
++producer stores ``head + 1`` (unmasked), the consumer stores ``tail + 1``
++(unmasked), and both sides mask by ``KVM_APF_RING_SIZE - 1`` only when
++indexing into ``entries[]``. ``KVM_APF_RING_SIZE`` is a power of two, so
++modular arithmetic on ``__u32`` matches the masked index.
++
++The shared page contains two ring buffers:
++
++**Notification ring** (``notify``): KVM writes ``head``, userspace writes
++``tail``. When a userfault async page fault occurs, KVM writes the faulting
++GPA and flags to ``entries[head & (KVM_APF_RING_SIZE - 1)]`` and advances
++``head``. KVM signals ``fd`` only if
++``KVM_APF_SHARED_FLAG_NOTIFY_ARMED`` was set in ``header.flags``; KVM
++clears the flag before signaling. If the ring is full (``head - tail >=
++KVM_APF_RING_SIZE``), KVM falls back to a normal ``KVM_EXIT_MEMORY_FAULT``
++exit.
++
++Userspace should treat ``fd`` as a coalesced wakeup hint and the ring as
++authoritative. To wait without losing wakeups, userspace must drain the
++notification ring, atomically set ``KVM_APF_SHARED_FLAG_NOTIFY_ARMED`` in
++``header.flags``, execute a full memory barrier, re-read ``notify.head``
++with acquire semantics, and sleep on ``fd`` only if the ring is still empty.
++If the ring became non-empty after arming, userspace should clear
++``KVM_APF_SHARED_FLAG_NOTIFY_ARMED`` and process the entry instead of
++sleeping.
++
++**Completion ring** (``complete``): Userspace writes ``head``, KVM writes
++``tail``. When userspace has resolved a page fault, it writes the GPA to
++``entries[head & (KVM_APF_RING_SIZE - 1)]``, advances ``head``, and
++signals ``complete_fd``. KVM drains the ring and completes the
++corresponding async page faults. Completion entries must have a page-aligned
++``gpa`` and zero ``flags``; KVM ignores invalid completion entries. If
++userspace advances ``head`` more than ``KVM_APF_RING_SIZE`` entries ahead of
++``tail``, KVM treats the completion ring contents as ambiguous and drops the
++corrupt batch by advancing ``tail`` to ``head``.
++
++Both rings use ``smp_store_release`` / ``smp_load_acquire`` for the
++producer/consumer indices.
++
++Set ``fd`` to -1 to deregister. ``complete_fd`` is ignored when
++deregistering. Registration and deregistration fail with ``-EBUSY`` if
++async page faults are pending on the vCPU. After deregistration or
++replacement, old shared page mappings remain valid until userspace
++munmaps them, but the kernel no longer writes to them.
++
++Userfault async page faults delivered through the notification ring are
++implicitly accepted (equivalent to ``KVM_APF_OP_ACCEPT``). Userspace must
++resolve pages asynchronously and signal completion via the completion ring.
++If the notification ring is full and KVM falls back to
++``KVM_EXIT_MEMORY_FAULT``, the base ``KVM_ASYNC_PF`` rules apply.
++
++``flags``, ``padding`` and ``reserved`` must be zero. ``flags`` is
++currently unused and reserved for future extension; forwards-compatible
++userspace MUST pass 0 until kernel support is checked via
++``KVM_CHECK_EXTENSION``.
++
++
+ .. _kvm_run:
+ 
+ 5. The kvm_run structure
+@@ -9340,6 +9485,23 @@ fault and exit to userspace with ``KVM_EXIT_MEMORY_FAULT`` with
+ completes the fault before re-entering the vCPU. See the documentation
+ for ``KVM_ASYNC_PF`` (section 4.144) for details.
+ 
++8.47 KVM_CAP_ASYNC_PF_USERFAULT_EVENTFD
++----------------------------------------
++
++:Architectures: x86
++
++The presence of this capability indicates that the kernel supports
++exitless notification for userfaultfd-based async page faults via the
++``KVM_SET_APF_EVENTFD`` vcpu ioctl. ``KVM_CAP_ASYNC_PF_USERFAULT`` is
++required before userspace can use exitless async page fault notification.
++
++When exitless notification is configured, KVM writes async page fault
++notifications to a kernel-allocated shared ring page instead of exiting to
++userspace. KVM signals an eventfd only when userspace has armed notification
++via the shared page header. Userspace resolves the fault, writes completion
++entries to the completion ring, and signals the completion eventfd. See the
++documentation for ``KVM_SET_APF_EVENTFD`` (section 4.145) for details.
++
+ 9. Known KVM API problems
+ =========================
+ 
+diff --git a/arch/x86/kvm/x86.c b/arch/x86/kvm/x86.c
+index de4c52cb598e..a0f907f463f1 100644
+--- a/arch/x86/kvm/x86.c
++++ b/arch/x86/kvm/x86.c
+@@ -4897,6 +4897,7 @@ int kvm_vm_ioctl_check_extension(struct kvm *kvm, long ext)
+ 	case KVM_CAP_X86_GUEST_MODE:
+ 	case KVM_CAP_ONE_REG:
+ 	case KVM_CAP_ASYNC_PF_USERFAULT:
++	case KVM_CAP_ASYNC_PF_USERFAULT_EVENTFD:
+ 		r = 1;
+ 		break;
+ 	case KVM_CAP_PRE_FAULT_MEMORY:
+diff --git a/include/uapi/linux/kvm.h b/include/uapi/linux/kvm.h
+index b47915980fa6..4a51d48c5805 100644
+--- a/include/uapi/linux/kvm.h
++++ b/include/uapi/linux/kvm.h
+@@ -969,6 +969,7 @@ struct kvm_enable_cap {
+ #define KVM_CAP_GUEST_MEMFD_FLAGS 244
+ #define KVM_CAP_USERFAULT 245
+ #define KVM_CAP_ASYNC_PF_USERFAULT 246
++#define KVM_CAP_ASYNC_PF_USERFAULT_EVENTFD 247
+ 
+ struct kvm_irq_routing_irqchip {
+ 	__u32 irqchip;
+diff --git a/tools/arch/x86/include/uapi/asm/kvm.h b/tools/arch/x86/include/uapi/asm/kvm.h
+index d420c9c066d4..3699d47d353a 100644
+--- a/tools/arch/x86/include/uapi/asm/kvm.h
++++ b/tools/arch/x86/include/uapi/asm/kvm.h
+@@ -15,6 +15,7 @@
+ 
+ #define KVM_PIO_PAGE_OFFSET 1
+ #define KVM_COALESCED_MMIO_PAGE_OFFSET 2
++#define KVM_APF_PAGE_OFFSET 3
+ #define KVM_DIRTY_LOG_PAGE_OFFSET 64
+ 
+ #define DE_VECTOR 0
+diff --git a/tools/include/uapi/linux/kvm.h b/tools/include/uapi/linux/kvm.h
+index 6ccd393c58cd..4a51d48c5805 100644
+--- a/tools/include/uapi/linux/kvm.h
++++ b/tools/include/uapi/linux/kvm.h
+@@ -969,6 +969,7 @@ struct kvm_enable_cap {
+ #define KVM_CAP_GUEST_MEMFD_FLAGS 244
+ #define KVM_CAP_USERFAULT 245
+ #define KVM_CAP_ASYNC_PF_USERFAULT 246
++#define KVM_CAP_ASYNC_PF_USERFAULT_EVENTFD 247
+ 
+ struct kvm_irq_routing_irqchip {
+ 	__u32 irqchip;
+@@ -1655,6 +1656,70 @@ struct kvm_async_pf_req {
+ 	__u64 reserved[2];
+ };
+ 
++/*
++ * KVM_SET_APF_EVENTFD - Register eventfds for exitless async page fault
++ * notification.  When set, userfault APFs write APF details to a
++ * kernel-allocated shared page instead of exiting to userspace.  KVM
++ * signals the notification eventfd only when userspace has armed it via
++ * the shared page.  Userspace maps the shared page via mmap(vcpu_fd) at
++ * offset
++ * KVM_APF_PAGE_OFFSET * PAGE_SIZE.  Layout of the shared page is
++ * struct kvm_apf_shared_page (see below).
++ *
++ * fd = -1 to deregister.
++ *
++ * `flags` is currently unused and must be zero.  New flag bits will be
++ * allocated from the LSB; userspace must pass 0 for forwards compatibility
++ * until kernel support is checked via KVM_CHECK_EXTENSION.
++ */
++#define KVM_SET_APF_EVENTFD	_IOW(KVMIO, 0xd9, struct kvm_apf_eventfd)
++
++struct kvm_apf_eventfd {
++	__s32 fd;
++	__s32 complete_fd;
++	__u32 flags;
++	__u32 padding;
++	__u64 reserved[2];
++};
++
++/*
++ * Shared page for exitless APF, containing both notification and completion
++ * ring buffers.
++ *
++ * Notification ring (notify): kernel writes head, userspace writes tail.
++ * Completion ring (complete): userspace writes head, kernel writes tail.
++ */
++#define KVM_APF_SHARED_VERSION		1
++#define KVM_APF_RING_SIZE	64
++#define KVM_APF_SHARED_FLAG_NOTIFY_ARMED	_BITUL(0)
++
++struct kvm_apf_shared_header {
++	__u32 version;
++	__u32 ring_size;
++	__u32 entry_size;
++	__u32 flags;
++	__u64 reserved[6];
++};
++
++struct kvm_apf_ring_entry {
++	__u64 gpa;
++	__u64 flags;
++};
++
++struct kvm_apf_ring {
++	__u32 head;
++	__u32 _pad_head[15];
++	__u32 tail;
++	__u32 _pad_tail[15];
++	struct kvm_apf_ring_entry entries[KVM_APF_RING_SIZE];
++};
++
++struct kvm_apf_shared_page {
++	struct kvm_apf_shared_header header;
++	struct kvm_apf_ring notify;
++	struct kvm_apf_ring complete;
++};
++
+ struct kvm_pre_fault_memory {
+ 	__u64 gpa;
+ 	__u64 size;
+diff --git a/tools/testing/selftests/kvm/x86/async_pf_userfault_test.c b/tools/testing/selftests/kvm/x86/async_pf_userfault_test.c
+index 4d3c53734467..33c338be3625 100644
+--- a/tools/testing/selftests/kvm/x86/async_pf_userfault_test.c
++++ b/tools/testing/selftests/kvm/x86/async_pf_userfault_test.c
+@@ -26,6 +26,7 @@
+ #define TEST_NPAGES	1
+ #define TEST_SIZE	(TEST_NPAGES * PAGE_SIZE)
+ #define TEST_SLOT	10
++#define TEST_WATCHDOG_SECS	10
+ 
+ /*
+  * Helper: add a memslot and mark all its pages as userfault.
+@@ -254,6 +255,241 @@ static void test_error_cases(void)
+ 	pr_info("  PASSED\n");
+ }
+ 
++static void test_exitless_error_cases(void)
++{
++	struct kvm_apf_eventfd evtfd_args = {};
++	struct kvm_vcpu *vcpu;
++	struct kvm_run *run;
++	struct kvm_vm *vm;
++	int notify_fd, complete_fd;
++	int r;
++
++	pr_info("Testing KVM_SET_APF_EVENTFD error cases\n");
++
++	vm = create_apf_test_vm(&vcpu);
++	run = vcpu->run;
++
++	notify_fd = eventfd(0, EFD_NONBLOCK);
++	TEST_ASSERT(notify_fd >= 0, "eventfd notify");
++	complete_fd = eventfd(0, EFD_NONBLOCK);
++	TEST_ASSERT(complete_fd >= 0, "eventfd complete");
++
++	evtfd_args.fd = notify_fd;
++	evtfd_args.complete_fd = complete_fd;
++	evtfd_args.flags = 1;
++	r = __vcpu_ioctl(vcpu, KVM_SET_APF_EVENTFD, &evtfd_args);
++	TEST_ASSERT(r == -1 && errno == EINVAL,
++		    "Expected EINVAL for non-zero eventfd flags");
++
++	memset(&evtfd_args, 0, sizeof(evtfd_args));
++	evtfd_args.fd = -2;
++	evtfd_args.complete_fd = complete_fd;
++	r = __vcpu_ioctl(vcpu, KVM_SET_APF_EVENTFD, &evtfd_args);
++	TEST_ASSERT(r == -1 && errno == EINVAL,
++		    "Expected EINVAL for invalid deregister fd");
++
++	memset(&evtfd_args, 0, sizeof(evtfd_args));
++	evtfd_args.fd = notify_fd;
++	evtfd_args.complete_fd = notify_fd;
++	r = __vcpu_ioctl(vcpu, KVM_SET_APF_EVENTFD, &evtfd_args);
++	TEST_ASSERT(r == -1 && errno == EINVAL,
++		    "Expected EINVAL for duplicate eventfd");
++
++	r = _vcpu_run(vcpu);
++	TEST_ASSERT(r != 0 && errno == EFAULT,
++		    "Expected EFAULT, got r=%d errno=%d", r, errno);
++	TEST_ASSERT_EQ(run->exit_reason, KVM_EXIT_MEMORY_FAULT);
++
++	if (!(run->memory_fault.flags & KVM_MEMORY_EXIT_FLAG_APF)) {
++		pr_info("  APF not created - skip EBUSY check\n");
++		goto done;
++	}
++
++	memset(&evtfd_args, 0, sizeof(evtfd_args));
++	evtfd_args.fd = notify_fd;
++	evtfd_args.complete_fd = complete_fd;
++	r = __vcpu_ioctl(vcpu, KVM_SET_APF_EVENTFD, &evtfd_args);
++	TEST_ASSERT(r == -1 && errno == EBUSY,
++		    "Expected EBUSY with pending APF");
++
++done:
++	close(notify_fd);
++	close(complete_fd);
++	kvm_vm_free(vm);
++	pr_info("  PASSED\n");
++}
++
++/*
++ * Test: exitless APF via eventfd + shared ring buffer.
++ *
++ * With exitless APF, the vCPU doesn't exit to userspace. Instead, KVM
++ * writes to the notify ring, signals the notify eventfd, and auto-halts
++ * the vCPU. A handler thread polls the notify eventfd, resolves the page,
++ * writes to the completion ring, and signals the completion eventfd.
++ * KVM's workqueue then wakes the halted vCPU.
++ */
++struct exitless_ctx {
++	struct kvm_apf_shared_page *shared;
++	struct kvm_vm *vm;
++	int notify_fd;
++	int complete_fd;
++};
++
++static bool apf_ring_has_entry(struct kvm_apf_ring *ring,
++			       uint32_t *head, uint32_t *tail)
++{
++	/*
++	 * Indices are free-running u32; mask only when indexing entries.
++	 * Load head with acquire semantics to match the release store KVM
++	 * issued when publishing the ring entry.  Read tail with relaxed
++	 * semantics (we are the sole consumer).
++	 */
++	*head = __atomic_load_n(&ring->head, __ATOMIC_ACQUIRE);
++	*tail = __atomic_load_n(&ring->tail, __ATOMIC_RELAXED);
++
++	return *head != *tail;
++}
++
++static void *exitless_handler(void *arg)
++{
++	struct exitless_ctx *ctx = arg;
++	struct kvm_apf_ring *ring = &ctx->shared->notify;
++	struct kvm_apf_ring *comp = &ctx->shared->complete;
++	struct kvm_apf_ring_entry *entry;
++	uint32_t head, tail, comp_head;
++	uint64_t cnt;
++	ssize_t len;
++	void *mem;
++	int r;
++
++	for (;;) {
++		struct timeval tv = { .tv_sec = 5 };
++		fd_set rfds;
++
++		if (apf_ring_has_entry(ring, &head, &tail))
++			break;
++
++		__atomic_fetch_or(&ctx->shared->header.flags,
++				  KVM_APF_SHARED_FLAG_NOTIFY_ARMED,
++				  __ATOMIC_RELEASE);
++		/* Paired with KVM's full barrier before testing NOTIFY_ARMED. */
++		__atomic_thread_fence(__ATOMIC_SEQ_CST);
++
++		if (apf_ring_has_entry(ring, &head, &tail)) {
++			__atomic_fetch_and(&ctx->shared->header.flags,
++					   ~KVM_APF_SHARED_FLAG_NOTIFY_ARMED,
++					   __ATOMIC_ACQ_REL);
++			break;
++		}
++
++		FD_ZERO(&rfds);
++		FD_SET(ctx->notify_fd, &rfds);
++		r = select(ctx->notify_fd + 1, &rfds, NULL, NULL, &tv);
++		if (r <= 0)
++			return NULL;
++
++		len = read(ctx->notify_fd, &cnt, sizeof(cnt));
++		TEST_ASSERT_EQ(len, sizeof(cnt));
++	}
++
++	entry = &ring->entries[tail & (KVM_APF_RING_SIZE - 1)];
++	pr_info("  Ring entry: gpa=%#llx flags=%#llx\n",
++		entry->gpa, entry->flags);
++	TEST_ASSERT_EQ(entry->gpa, TEST_GPA);
++
++	/* Advance tail with release semantics. */
++	__atomic_store_n(&ring->tail, tail + 1, __ATOMIC_RELEASE);
++
++	mem = addr_gpa2hva(ctx->vm, TEST_GPA);
++	memset(mem, 0, PAGE_SIZE);
++	clear_userfault_memslot(ctx->vm);
++
++	comp_head = comp->head;
++	comp->entries[comp_head & (KVM_APF_RING_SIZE - 1)].gpa = TEST_GPA;
++	comp->entries[comp_head & (KVM_APF_RING_SIZE - 1)].flags = 0;
++	__atomic_store_n(&comp->head, comp_head + 1, __ATOMIC_RELEASE);
++
++	cnt = 1;
++	len = write(ctx->complete_fd, &cnt, sizeof(cnt));
++	TEST_ASSERT_EQ(len, sizeof(cnt));
++
++	return (void *)1;
++}
++
++static void test_watchdog_expired(int sig)
++{
++	TEST_FAIL("exitless test watchdog fired after %d seconds; vCPU stuck",
++		  TEST_WATCHDOG_SECS);
++}
++
++static void test_exitless_eventfd(void)
++{
++	struct kvm_apf_eventfd evtfd_args = {};
++	struct exitless_ctx ctx;
++	struct kvm_apf_shared_page *shared;
++	struct kvm_vcpu *vcpu;
++	struct kvm_vm *vm;
++	pthread_t handler;
++	void *handler_ret;
++	void *shared_mem;
++	int notify_fd, complete_fd;
++	int r;
++
++	pr_info("Testing exitless APF via eventfd\n");
++
++	vm = create_apf_test_vm(&vcpu);
++
++	notify_fd = eventfd(0, EFD_NONBLOCK);
++	TEST_ASSERT(notify_fd >= 0, "eventfd notify");
++	complete_fd = eventfd(0, EFD_NONBLOCK);
++	TEST_ASSERT(complete_fd >= 0, "eventfd complete");
++
++	evtfd_args.fd = notify_fd;
++	evtfd_args.complete_fd = complete_fd;
++	vcpu_ioctl(vcpu, KVM_SET_APF_EVENTFD, &evtfd_args);
++
++	shared_mem = mmap(NULL, PAGE_SIZE, PROT_READ | PROT_WRITE,
++			  MAP_SHARED, vcpu->fd,
++			  KVM_APF_PAGE_OFFSET * getpagesize());
++	TEST_ASSERT(shared_mem != MAP_FAILED, "mmap APF page");
++	shared = shared_mem;
++	TEST_ASSERT_EQ(shared->header.version, KVM_APF_SHARED_VERSION);
++	TEST_ASSERT_EQ(shared->header.ring_size, KVM_APF_RING_SIZE);
++	TEST_ASSERT_EQ(shared->header.entry_size,
++		       sizeof(struct kvm_apf_ring_entry));
++
++	ctx = (struct exitless_ctx) {
++		.shared = shared,
++		.vm = vm,
++		.notify_fd = notify_fd,
++		.complete_fd = complete_fd,
++	};
++	r = pthread_create(&handler, NULL, exitless_handler, &ctx);
++	TEST_ASSERT(!r, "pthread_create failed, r=%d", r);
++
++	signal(SIGALRM, test_watchdog_expired);
++	alarm(TEST_WATCHDOG_SECS);
++
++	vcpu_run(vcpu);
++	TEST_ASSERT_EQ(get_ucall(vcpu, NULL), UCALL_DONE);
++
++	alarm(0);
++	signal(SIGALRM, SIG_DFL);
++
++	pthread_join(handler, &handler_ret);
++	TEST_ASSERT(handler_ret, "Handler thread should have fired");
++
++	memset(&evtfd_args, 0, sizeof(evtfd_args));
++	evtfd_args.fd = -1;
++	vcpu_ioctl(vcpu, KVM_SET_APF_EVENTFD, &evtfd_args);
++
++	close(notify_fd);
++	close(complete_fd);
++	munmap(shared_mem, PAGE_SIZE);
++	kvm_vm_free(vm);
++	pr_info("  PASSED\n");
++}
++
+ int main(int argc, char *argv[])
+ {
+ 	TEST_REQUIRE(kvm_check_cap(KVM_CAP_ASYNC_PF_USERFAULT));
+@@ -262,4 +498,10 @@ int main(int argc, char *argv[])
+ 	test_error_cases();
+ 	test_sync_resolve();
+ 	test_accept_then_ready();
++	if (kvm_check_cap(KVM_CAP_ASYNC_PF_USERFAULT_EVENTFD)) {
++		test_exitless_error_cases();
++		test_exitless_eventfd();
++	} else {
++		print_skip("KVM_CAP_ASYNC_PF_USERFAULT_EVENTFD not available");
++	}
+ }
+-- 
+2.43.0
+
