@@ -29,7 +29,7 @@ use crate::vmm_config::balloon::{
 };
 use crate::vmm_config::boot_source::{BootSourceConfig, BootSourceConfigError};
 use crate::vmm_config::drive::{BlockDeviceConfig, BlockDeviceUpdateConfig, DriveError};
-use crate::vmm_config::enclave::EnclaveConfig;
+use crate::vmm_config::enclave::{EnclaveConfig, EnclaveConfigError};
 use crate::vmm_config::entropy::{EntropyDeviceConfig, EntropyDeviceError};
 use crate::vmm_config::instance_info::InstanceInfo;
 use crate::vmm_config::machine_config::{MachineConfig, MachineConfigError, MachineConfigUpdate};
@@ -216,6 +216,8 @@ pub enum VmmActionError {
     StartMicrovm(#[from] StartMicrovmError),
     /// Vsock config error: {0}
     VsockConfig(#[from] VsockConfigError),
+    /// Enclave config error: {0}
+    EnclaveConfig(#[from] EnclaveConfigError),
     /// Device ID in use
     DeviceIdInUse,
     /// Device not found
@@ -642,8 +644,10 @@ impl<'a> PrebootApiController<'a> {
 
     fn set_enclave_config(&mut self, cfg: EnclaveConfig) -> Result<VmmData, VmmActionError> {
         self.boot_path = true;
-        self.vm_resources.enclave = Some(cfg);
-        Ok(VmmData::Empty)
+        self.vm_resources
+            .set_enclave_config(cfg)
+            .map(|()| VmmData::Empty)
+            .map_err(VmmActionError::EnclaveConfig)
     }
 
     // On success, this command will end the pre-boot stage and this controller

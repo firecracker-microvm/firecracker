@@ -22,7 +22,7 @@ use crate::vmm_config::boot_source::{
     BootConfig, BootSource, BootSourceConfig, BootSourceConfigError,
 };
 use crate::vmm_config::drive::*;
-use crate::vmm_config::enclave::EnclaveConfig;
+use crate::vmm_config::enclave::{EnclaveConfig, EnclaveConfigError};
 use crate::vmm_config::entropy::*;
 use crate::vmm_config::instance_info::InstanceInfo;
 use crate::vmm_config::machine_config::{MachineConfig, MachineConfigError, MachineConfigUpdate};
@@ -69,6 +69,8 @@ pub enum ResourcesError {
     PmemConfig(#[from] PmemConfigError),
     /// Memory hotplug config error: {0}
     MemoryHotplugConfig(#[from] MemoryHotplugConfigError),
+    /// Enclave config error: {0}
+    EnclaveConfig(#[from] EnclaveConfigError),
 }
 
 #[derive(Serialize, Deserialize, PartialEq, Eq, Debug)]
@@ -250,7 +252,9 @@ impl VmResources {
             resources.set_memory_hotplug_config(memory_hotplug_config)?;
         }
 
-        resources.enclave = vmm_config.enclave;
+        if let Some(enclave) = vmm_config.enclave {
+            resources.set_enclave_config(enclave)?;
+        }
 
         Ok(resources)
     }
@@ -399,6 +403,13 @@ impl VmResources {
     /// Sets a vsock device to be attached when the VM starts.
     pub fn set_vsock_device(&mut self, config: VsockDeviceConfig) -> Result<(), VsockConfigError> {
         self.vsock.insert(config)
+    }
+
+    /// Sets the enclave config, validating it first.
+    pub fn set_enclave_config(&mut self, config: EnclaveConfig) -> Result<(), EnclaveConfigError> {
+        config.validate()?;
+        self.enclave = Some(config);
+        Ok(())
     }
 
     /// Builds an entropy device to be attached when the VM starts.
