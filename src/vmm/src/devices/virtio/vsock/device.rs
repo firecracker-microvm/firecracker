@@ -108,14 +108,12 @@ where
         // the metrics instance may be supplied from the vsock backend (muxer)
         // or if the vsock struct is being initialized in a test let it create its
         // own metrics instance
-        let metrics_instance = match metrics {
-            Some(m) => m,
-            None => {
-                let metrics = Arc::new(VsockDeviceMetrics::default());
-                _ = METRICS.write().unwrap().insert(cid, metrics.clone());
-                metrics
-            }
-        };
+        let metrics_instance = metrics.unwrap_or_else(|| {
+            let metrics = Arc::new(VsockDeviceMetrics::default());
+            _ = METRICS.write().unwrap().insert(cid, metrics.clone());
+            metrics
+        });
+
         Ok(Vsock {
             cid,
             queues,

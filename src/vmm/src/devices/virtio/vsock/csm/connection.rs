@@ -511,17 +511,19 @@ where
         local_port: u32,
         peer_port: u32,
         peer_buf_alloc: u32,
+        metrics: Option<Arc<VsockDeviceMetrics>>,
     ) -> Self {
-        // If a muxer already added a metrics instance to the map.
+        // If the caller has already supplied us a metrics instance, use that.
         // otherwise if this connection is being initialized separately
         // in a test let it create its own metrics instance
-        let metrics = METRICS
-            .write()
-            .unwrap()
-            .entry(peer_cid)
-            .or_insert_with(|| Arc::new(VsockDeviceMetrics::default()))
-            .clone();
-
+        let metrics = metrics.unwrap_or_else(|| {
+            METRICS
+                .write()
+                .unwrap()
+                .entry(peer_cid)
+                .or_insert_with(|| Arc::new(VsockDeviceMetrics::default()))
+                .clone()
+        });
         Self {
             local_cid,
             peer_cid,
@@ -548,14 +550,19 @@ where
         peer_cid: u64,
         local_port: u32,
         peer_port: u32,
+        metrics: Option<Arc<VsockDeviceMetrics>>,
     ) -> Self {
-        let metrics = METRICS
-            .write()
-            .unwrap()
-            .entry(peer_cid)
-            .or_insert_with(|| Arc::new(VsockDeviceMetrics::default()))
-            .clone();
-
+        // If the caller has already supplied us a metrics instance, use that.
+        // otherwise if this connection is being initialized separately
+        // in a test let it create its own metrics instance
+        let metrics = metrics.unwrap_or_else(|| {
+            METRICS
+                .write()
+                .unwrap()
+                .entry(peer_cid)
+                .or_insert_with(|| Arc::new(VsockDeviceMetrics::default()))
+                .clone()
+        });
         Self {
             local_cid,
             peer_cid,
@@ -879,6 +886,9 @@ mod tests {
 
         fn new(conn_state: ConnState) -> Self {
             let vsock_test_ctx = TestContext::new();
+            // Extract the metrics instance from the test backend to supply to connection
+            // builders
+            let metrics = vsock_test_ctx.device.backend.metrics.clone();
             let mut handler_ctx = vsock_test_ctx.create_event_handler_context();
             let stream = TestStream::new();
             let mut rx_pkt = VsockPacketRx::new().unwrap();
@@ -903,9 +913,15 @@ mod tests {
                     LOCAL_PORT,
                     PEER_PORT,
                     PEER_BUF_ALLOC,
+                    Some(metrics),
                 ),
                 ConnState::LocalInit => VsockConnection::<TestStream>::new_local_init(
-                    stream, LOCAL_CID, PEER_CID, LOCAL_PORT, PEER_PORT,
+                    stream,
+                    LOCAL_CID,
+                    PEER_CID,
+                    LOCAL_PORT,
+                    PEER_PORT,
+                    Some(metrics),
                 ),
                 ConnState::Established => {
                     let mut conn = VsockConnection::<TestStream>::new_peer_init(
@@ -915,6 +931,7 @@ mod tests {
                         LOCAL_PORT,
                         PEER_PORT,
                         PEER_BUF_ALLOC,
+                        Some(metrics),
                     );
                     assert!(conn.has_pending_rx());
                     conn.recv_pkt(&mut rx_pkt).unwrap();
