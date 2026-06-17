@@ -66,6 +66,7 @@ perf_test = {
         "label": "misc",
         "tests": "integration_tests/performance/test_memory_overhead.py integration_tests/performance/test_boottime.py::test_boottime integration_tests/performance/test_process_startup_time.py integration_tests/performance/test_jailer.py integration_tests/performance/test_mmds.py",
         "devtool_opts": "-c 1-10 -m 0",
+        "ab_opts": "--noise-threshold startup=0.1",
     },
     "memory-overhead": {
         "label": "memory-overhead",
@@ -86,6 +87,7 @@ perf_test = {
         "label": "jailer",
         "tests": "integration_tests/performance/test_jailer.py",
         "devtool_opts": "-c 1-10 -m 0",
+        "ab_opts": "--noise-threshold startup=0.1",
     },
     "mmds": {
         "label": "mmds",
