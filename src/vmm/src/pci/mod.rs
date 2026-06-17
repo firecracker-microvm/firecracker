@@ -88,6 +88,95 @@ impl PciSBDF {
                 | (function & 0x7) as u32,
         )
     }
+
+    const SYSFS_PCI_PREFIX: &str = "/sys/bus/pci/devices/";
+
+    /// Parse SBDF from string
+    /// Accepts the following formats:
+    /// - Full sysfs path: "/sys/bus/pci/devices/0000:f4:00.0"
+    /// - Full SBDF: "0000:f4:00.0"
+    /// - Short BDF: "f4:00.0"
+    /// - Hex integer: "0x0308" or "0x00f40000"
+    /// - Decimal integer: "776"
+    pub fn new_from_str(s: &str) -> Option<Self> {
+        let s = s.trim();
+        if s.is_empty() {
+            return None;
+        }
+
+        let stripped = s
+            .strip_prefix(Self::SYSFS_PCI_PREFIX)
+            .unwrap_or(s)
+            .trim_end_matches('/');
+
+        if let Some(sbdf) = Self::parse_sbdf(stripped) {
+            return Some(sbdf);
+        }
+
+        if let Some(hex_str) = stripped
+            .strip_prefix("0x")
+            .or_else(|| stripped.strip_prefix("0X"))
+        {
+            if let Ok(val) = u32::from_str_radix(hex_str, 16) {
+                return Some(val.into());
+            } else {
+                return None;
+            };
+        }
+
+        if let Ok(val) = stripped.parse::<u32>() {
+            return Some(val.into());
+        }
+
+        None
+    }
+
+    /// Parse "SSSS:BB:DD.F" or "BB:DD.F"
+    fn parse_sbdf(s: &str) -> Option<PciSBDF> {
+        let mut segment: u16 = 0;
+        let mut bdf_str = s;
+        if let Some((seg_str, rest)) = Self::split_segment_part(s) {
+            segment = u16::from_str_radix(seg_str, 16).ok()?;
+            bdf_str = rest
+        }
+
+        let (bus_str, devfn) = bdf_str.split_once(':')?;
+        let (dev_str, fn_str) = devfn.split_once('.')?;
+
+        let bus = u8::from_str_radix(bus_str, 16).ok()?;
+        let dev = u8::from_str_radix(dev_str, 16).ok()?;
+        let func = u8::from_str_radix(fn_str, 16).ok()?;
+
+        // `dev` can only occupy 5 bits
+        // `func` can only occuppy 3 bits
+        if 0x1f < dev || 0x7 < func {
+            return None;
+        }
+
+        Some(PciSBDF::new(segment, bus, dev, func))
+    }
+
+    fn split_segment_part(s: &str) -> Option<(&str, &str)> {
+        let first_colon = s.find(':')?;
+        let rest = &s[first_colon + 1..];
+        if rest.contains(':') {
+            Some((&s[..first_colon], rest))
+        } else {
+            None
+        }
+    }
+
+    /// Full sysfs path for this device (e.g. "/sys/bus/pci/devices/0000:f4:00.0")
+    pub fn sysfs_path(&self) -> String {
+        format!(
+            "{}{:04x}:{:02x}:{:02x}.{:x}",
+            Self::SYSFS_PCI_PREFIX,
+            self.segment(),
+            self.bus(),
+            self.device(),
+            self.function()
+        )
+    }
 }
 
 impl From<u32> for PciSBDF {
@@ -422,5 +511,29 @@ mod tests {
         assert_eq!(sbdf.bus(), 0x56);
         assert_eq!(sbdf.device(), 0x0f);
         assert_eq!(sbdf.function(), 0x0);
+    }
+
+    #[test]
+    fn test_pci_bdf_parse() {
+        let sbdf = PciSBDF::new_from_str("/sys/bus/pci/devices/0000:f4:00.0").unwrap();
+        assert_eq!(sbdf, PciSBDF::new(0, 0xf4, 0, 0));
+
+        let sbdf = PciSBDF::new_from_str("0000:03:01.0").unwrap();
+        assert_eq!(sbdf, PciSBDF::new(0, 3, 1, 0));
+
+        let sbdf = PciSBDF::new_from_str("03:01.0").unwrap();
+        assert_eq!(sbdf, PciSBDF::new(0, 3, 1, 0));
+
+        let sbdf = PciSBDF::new_from_str("0x0308").unwrap();
+        assert_eq!(sbdf.0, 0x0308);
+
+        let sbdf = PciSBDF::new_from_str("776").unwrap();
+        assert_eq!(sbdf.0, 776);
+
+        assert!(PciSBDF::new_from_str("").is_none());
+        // 0x1f < device
+        assert!(PciSBDF::new_from_str("00:20.0").is_none());
+        // 7 < function
+        assert!(PciSBDF::new_from_str("00:00.8").is_none());
     }
 }
