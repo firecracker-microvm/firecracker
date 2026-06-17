@@ -1,0 +1,1421 @@
+From 39049db4121a3ed51c970176d25d63bc181a492c Mon Sep 17 00:00:00 2001
+From: Jack Thomson <jackabt@amazon.com>
+Date: Thu, 30 Apr 2026 15:32:45 +0000
+Subject: [PATCH 93/94] KVM: x86: Add exitless async page fault notification
+ via eventfd
+
+When a VMM handles many userfault APFs (e.g. during snapshot restore),
+the KVM_RUN exit/re-entry overhead for each fault becomes significant.
+
+Add an exitless notification path: KVM writes APF details to a shared
+ring buffer and signals an eventfd instead of exiting. The vCPU is
+auto-halted and the APF auto-accepted, so the handler can resolve the
+page and signal completion via the completion ring and eventfd without
+any vCPU exits.
+
+Fall back to the normal KVM_EXIT_MEMORY_FAULT path if the notify ring is
+full.
+
+The shared page is allocated by the kernel and mmap'd by userspace via
+the vCPU fd at offset KVM_APF_PAGE_OFFSET * PAGE_SIZE, matching the
+pattern used by the dirty ring and coalesced MMIO. It contains notify
+and complete rings of 64 entries each.
+
+Ring indices are free-running u32 counters; producer/consumer mask by
+KVM_APF_RING_SIZE - 1 only when indexing into entries[], matching
+kvm_dirty_ring and io_uring conventions. Completion is driven by a
+workqueue kicked from an exclusive priority wait-queue entry on the
+completion eventfd, mirroring irqfd dispatch.
+
+Correctness and performance refinements folded into this patch:
+
+  * kvm_async_pf_setup_userfault() combines exists-check + enqueue +
+    exitless signal in a single lock hold.
+  * kvm_async_pf_drain_complete_ring() drains a bounded batch under one
+    lock, issues one vCPU wake, and reschedules itself if userspace raced
+    in more completions.
+  * Completion eventfd wakeups consume the eventfd counter and return the
+    proper exclusive-waiter result.
+  * Notify eventfd signaling is done for every published entry to avoid a
+    lost-wakeup race with userspace consuming the ring.
+  * KVM_SET_APF_EVENTFD rejects registration changes while APFs are
+    pending on the vCPU.
+
+Signed-off-by: Jack Thomson <jackabt@amazon.com>
+---
+ arch/s390/kvm/kvm-s390.c        |   3 +-
+ arch/x86/include/uapi/asm/kvm.h |   1 +
+ arch/x86/kvm/Kconfig            |   1 +
+ arch/x86/kvm/mmu/mmu.c          |  42 +-
+ arch/x86/kvm/x86.c              |  49 +-
+ include/linux/kvm_host.h        |  61 ++-
+ include/trace/events/kvm.h      |  18 +
+ include/uapi/linux/kvm.h        |  64 +++
+ virt/kvm/Kconfig                |   4 +
+ virt/kvm/async_pf.c             | 806 ++++++++++++++++++++++++++++++--
+ 10 files changed, 980 insertions(+), 69 deletions(-)
+
+diff --git a/arch/s390/kvm/kvm-s390.c b/arch/s390/kvm/kvm-s390.c
+index 97ee70a28620..16ba04062854 100644
+--- a/arch/s390/kvm/kvm-s390.c
++++ b/arch/s390/kvm/kvm-s390.c
+@@ -4770,8 +4770,7 @@ static bool kvm_arch_setup_async_pf(struct kvm_vcpu *vcpu)
+ 	if (read_guest_real(vcpu, vcpu->arch.pfault_token, &arch.pfault_token, 8))
+ 		return false;
+ 
+-	return kvm_setup_async_pf(vcpu, current->thread.gmap_teid.addr * PAGE_SIZE,
+-				  hva, &arch, false);
++	return kvm_setup_async_pf(vcpu, current->thread.gmap_teid.addr * PAGE_SIZE, hva, &arch);
+ }
+ 
+ static int vcpu_pre_run(struct kvm_vcpu *vcpu)
+diff --git a/arch/x86/include/uapi/asm/kvm.h b/arch/x86/include/uapi/asm/kvm.h
+index d420c9c066d4..3699d47d353a 100644
+--- a/arch/x86/include/uapi/asm/kvm.h
++++ b/arch/x86/include/uapi/asm/kvm.h
+@@ -15,6 +15,7 @@
+ 
+ #define KVM_PIO_PAGE_OFFSET 1
+ #define KVM_COALESCED_MMIO_PAGE_OFFSET 2
++#define KVM_APF_PAGE_OFFSET 3
+ #define KVM_DIRTY_LOG_PAGE_OFFSET 64
+ 
+ #define DE_VECTOR 0
+diff --git a/arch/x86/kvm/Kconfig b/arch/x86/kvm/Kconfig
+index b2c8e75c7d6f..8790e612d6a7 100644
+--- a/arch/x86/kvm/Kconfig
++++ b/arch/x86/kvm/Kconfig
+@@ -33,6 +33,7 @@ config KVM_X86
+ 	select HAVE_KVM_VCPU_ASYNC_IOCTL
+ 	select VHOST_TASK
+ 	select KVM_ASYNC_PF
++	select KVM_ASYNC_PF_USERFAULT
+ 	select USER_RETURN_NOTIFIER
+ 	select KVM_MMIO
+ 	select SCHED_INFO
+diff --git a/arch/x86/kvm/mmu/mmu.c b/arch/x86/kvm/mmu/mmu.c
+index e8479b9022f3..e40fb5fe03e6 100644
+--- a/arch/x86/kvm/mmu/mmu.c
++++ b/arch/x86/kvm/mmu/mmu.c
+@@ -4524,8 +4524,7 @@ static bool kvm_arch_setup_async_pf(struct kvm_vcpu *vcpu,
+ 	arch.cr3 = kvm_mmu_get_guest_pgd(vcpu, vcpu->arch.mmu);
+ 
+ 	return kvm_setup_async_pf(vcpu, fault->addr,
+-				  kvm_vcpu_gfn_to_hva(vcpu, fault->gfn), &arch,
+-				  false);
++				  kvm_vcpu_gfn_to_hva(vcpu, fault->gfn), &arch);
+ }
+ 
+ void kvm_arch_async_page_ready(struct kvm_vcpu *vcpu, struct kvm_async_pf *work)
+@@ -4599,36 +4598,45 @@ static int __kvm_mmu_faultin_pfn(struct kvm_vcpu *vcpu,
+ 	if (userfault < 0)
+ 		return userfault;
+ 	if (userfault) {
+-		bool report_async = false;
+-
+ 		if (vcpu->async_pf.userfault_enabled &&
+ 		    !fault->prefetch && kvm_can_do_async_pf(vcpu)) {
+ 			struct kvm_arch_async_pf arch;
++			unsigned long hva;
++			int apf_ret;
+ 
+ 			trace_kvm_try_async_get_page(fault->addr, fault->gfn);
+-			if (kvm_async_pf_userfault_exists(vcpu, fault->gfn)) {
+-				trace_kvm_async_pf_repeated_fault(fault->addr, fault->gfn);
+-				kvm_make_request(KVM_REQ_APF_HALT, vcpu);
+-				return RET_PF_RETRY;
+-			}
+ 
+ 			arch.token = alloc_apf_token(vcpu);
+ 			arch.gfn = fault->gfn;
+ 			arch.error_code = fault->error_code;
+ 			arch.direct_map = vcpu->arch.mmu->root_role.direct;
+ 			arch.cr3 = kvm_mmu_get_guest_pgd(vcpu, vcpu->arch.mmu);
++			hva = kvm_vcpu_gfn_to_hva(vcpu, fault->gfn);
++
++			apf_ret = kvm_async_pf_setup_userfault(vcpu, fault->addr,
++							       hva, &arch,
++							       KVM_MEMORY_EXIT_FLAG_USERFAULT |
++							       KVM_MEMORY_EXIT_FLAG_APF);
+ 
+-			if (kvm_setup_async_pf(vcpu, fault->addr,
+-					       kvm_vcpu_gfn_to_hva(vcpu, fault->gfn),
+-					       &arch, true))
+-				report_async = true;
++			switch (apf_ret) {
++			case KVM_ASYNC_PF_SETUP_DUPLICATE:
++				trace_kvm_async_pf_repeated_fault(fault->addr,
++								  fault->gfn);
++				kvm_make_request(KVM_REQ_APF_HALT, vcpu);
++				return RET_PF_RETRY;
++			case KVM_ASYNC_PF_SETUP_EXITLESS:
++				return RET_PF_RETRY;
++			case KVM_ASYNC_PF_SETUP_EXIT:
++				kvm_mmu_prepare_userfault_exit(vcpu, fault);
++				vcpu->run->memory_fault.flags |=
++					KVM_MEMORY_EXIT_FLAG_APF;
++				return -EFAULT;
++			case KVM_ASYNC_PF_SETUP_FAILED:
++				break;
++			}
+ 		}
+ 
+ 		kvm_mmu_prepare_userfault_exit(vcpu, fault);
+-
+-		if (report_async)
+-			vcpu->run->memory_fault.flags |= KVM_MEMORY_EXIT_FLAG_APF;
+-
+ 		return -EFAULT;
+ 	}
+ 
+diff --git a/arch/x86/kvm/x86.c b/arch/x86/kvm/x86.c
+index 6ed387567bb9..de4c52cb598e 100644
+--- a/arch/x86/kvm/x86.c
++++ b/arch/x86/kvm/x86.c
+@@ -6075,8 +6075,7 @@ static int kvm_vcpu_ioctl_enable_cap(struct kvm_vcpu *vcpu,
+ 		    cap->args[2] || cap->args[3])
+ 			return -EINVAL;
+ 
+-		vcpu->async_pf.userfault_enabled = cap->args[0];
+-		return 0;
++		return kvm_async_pf_userfault_enable(vcpu, cap->args[0]);
+ 	default:
+ 		return -EINVAL;
+ 	}
+@@ -6280,6 +6279,16 @@ long kvm_arch_vcpu_ioctl(struct file *filp,
+ 		r = kvm_async_pf_accept(vcpu, req.gpa);
+ 		break;
+ 	}
++	case KVM_SET_APF_EVENTFD: {
++		struct kvm_apf_eventfd args;
++
++		r = -EFAULT;
++		if (copy_from_user(&args, argp, sizeof(args)))
++			goto out;
++
++		r = kvm_async_pf_set_eventfd(vcpu, &args);
++		break;
++	}
+ 	case KVM_GET_LAPIC: {
+ 		r = -EINVAL;
+ 		if (!lapic_in_kernel(vcpu))
+@@ -6744,6 +6753,21 @@ long kvm_arch_vcpu_ioctl(struct file *filp,
+ 
+ vm_fault_t kvm_arch_vcpu_fault(struct kvm_vcpu *vcpu, struct vm_fault *vmf)
+ {
++#ifdef CONFIG_KVM_ASYNC_PF
++	struct page *page;
++
++	if (vmf->pgoff == KVM_APF_PAGE_OFFSET) {
++		if ((vmf->vma->vm_flags & VM_EXEC) ||
++		    !(vmf->vma->vm_flags & VM_SHARED))
++			return VM_FAULT_SIGBUS;
++
++		page = kvm_async_pf_get_shared_page(vcpu);
++		if (!page)
++			return VM_FAULT_SIGBUS;
++		vmf->page = page;
++		return 0;
++	}
++#endif
+ 	return VM_FAULT_SIGBUS;
+ }
+ 
+@@ -11172,10 +11196,21 @@ static int vcpu_enter_guest(struct kvm_vcpu *vcpu)
+ 			}
+ 		}
+ 		if (kvm_check_request(KVM_REQ_APF_HALT, vcpu)) {
+-			/* Page is swapped out. Do synthetic halt */
+-			vcpu->arch.apf.halted = true;
+-			r = 1;
+-			goto out;
++			bool apf_ready = kvm_check_request(KVM_REQ_APF_READY, vcpu);
++
++			if (!apf_ready) {
++				apf_ready = kvm_async_pf_drain_exitless(vcpu);
++				if (kvm_check_request(KVM_REQ_APF_READY, vcpu))
++					apf_ready = true;
++			}
++
++			if (!apf_ready) {
++				/* Page is swapped out. Do synthetic halt */
++				vcpu->arch.apf.halted = true;
++				r = 1;
++				goto out;
++			}
++			kvm_check_async_pf_completion(vcpu);
+ 		}
+ 		if (kvm_check_request(KVM_REQ_STEAL_UPDATE, vcpu))
+ 			record_steal_time(vcpu);
+@@ -11926,6 +11961,7 @@ int kvm_arch_vcpu_ioctl_run(struct kvm_vcpu *vcpu)
+ 	kvm_load_guest_fpu(vcpu);
+ 
+ 	kvm_vcpu_srcu_read_lock(vcpu);
++
+ 	if (unlikely(vcpu->arch.mp_state == KVM_MP_STATE_UNINITIALIZED)) {
+ 		if (!vcpu->wants_to_run) {
+ 			r = -EINTR;
+@@ -12821,6 +12857,7 @@ void kvm_arch_vcpu_destroy(struct kvm_vcpu *vcpu)
+ 	int idx, cpu;
+ 
+ 	kvm_clear_async_pf_completion_queue(vcpu);
++	kvm_async_pf_vcpu_destroy(vcpu);
+ 	kvm_mmu_unload(vcpu);
+ 
+ 	kvmclock_reset(vcpu);
+diff --git a/include/linux/kvm_host.h b/include/linux/kvm_host.h
+index f84213b10ec1..1a2f0bf6ece0 100644
+--- a/include/linux/kvm_host.h
++++ b/include/linux/kvm_host.h
+@@ -250,6 +250,7 @@ struct kvm_async_pf {
+ 	struct work_struct work;
+ 	struct list_head link;
+ 	struct list_head queue;
++	struct hlist_node userfault_node;
+ 	struct kvm_vcpu *vcpu;
+ 	gpa_t cr2_or_gpa;
+ 	unsigned long addr;
+@@ -257,20 +258,39 @@ struct kvm_async_pf {
+ 	bool   wakeup_all;
+ 	bool   notpresent_injected;
+ 	bool   userfault;
++	bool   pooled;
+ 	enum kvm_apf_uf_state uf_state;
+ };
+ 
+-bool kvm_async_pf_userfault_exists(struct kvm_vcpu *vcpu, gfn_t gfn);
+-int kvm_async_pf_accept(struct kvm_vcpu *vcpu, gpa_t gpa);
+-void kvm_async_pf_autocomplete_pending(struct kvm_vcpu *vcpu);
+-int kvm_async_pf_complete(struct kvm_vcpu *vcpu, gpa_t gpa);
+ void kvm_clear_async_pf_completion_queue(struct kvm_vcpu *vcpu);
+ void kvm_check_async_pf_completion(struct kvm_vcpu *vcpu);
+ bool kvm_setup_async_pf(struct kvm_vcpu *vcpu, gpa_t cr2_or_gpa,
+-			unsigned long hva, struct kvm_arch_async_pf *arch,
+-			bool userfault);
++			unsigned long hva, struct kvm_arch_async_pf *arch);
+ int kvm_async_pf_wakeup_all(struct kvm_vcpu *vcpu);
+-#endif
++
++#ifdef CONFIG_KVM_ASYNC_PF_USERFAULT
++int kvm_async_pf_userfault_enable(struct kvm_vcpu *vcpu, bool enable);
++int kvm_async_pf_accept(struct kvm_vcpu *vcpu, gpa_t gpa);
++int kvm_async_pf_complete(struct kvm_vcpu *vcpu, gpa_t gpa);
++void kvm_async_pf_autocomplete_pending(struct kvm_vcpu *vcpu);
++bool kvm_async_pf_drain_exitless(struct kvm_vcpu *vcpu);
++int kvm_async_pf_set_eventfd(struct kvm_vcpu *vcpu,
++			     struct kvm_apf_eventfd *args);
++struct page *kvm_async_pf_get_shared_page(struct kvm_vcpu *vcpu);
++void kvm_async_pf_vcpu_destroy(struct kvm_vcpu *vcpu);
++
++/* Return values for kvm_async_pf_setup_userfault(). */
++#define KVM_ASYNC_PF_SETUP_EXITLESS	0  /* APF created + published to ring */
++#define KVM_ASYNC_PF_SETUP_EXIT		1  /* APF created, must exit to userspace */
++#define KVM_ASYNC_PF_SETUP_DUPLICATE	2  /* APF already pending for this GFN */
++#define KVM_ASYNC_PF_SETUP_FAILED	(-1) /* alloc/limit failure */
++
++int kvm_async_pf_setup_userfault(struct kvm_vcpu *vcpu, gpa_t cr2_or_gpa,
++				 unsigned long hva,
++				 struct kvm_arch_async_pf *arch,
++				 u64 exitless_flags);
++#endif /* CONFIG_KVM_ASYNC_PF_USERFAULT */
++#endif /* CONFIG_KVM_ASYNC_PF */
+ 
+ #ifdef CONFIG_KVM_GENERIC_MMU_NOTIFIER
+ union kvm_mmu_notifier_arg {
+@@ -387,7 +407,34 @@ struct kvm_vcpu {
+ 		struct list_head done;
+ 		spinlock_t lock;
+ 		bool clearing;
++#ifdef CONFIG_KVM_ASYNC_PF_USERFAULT
+ 		bool userfault_enabled;
++		/*
++		 * GFN-keyed lookup of outstanding userfault APFs.  Allocated on
++		 * the first KVM_CAP_ASYNC_PF_USERFAULT enable, freed only at
++		 * vCPU destruction.
++		 */
++		struct hlist_head *userfault_hash;
++		struct list_head userfault_free;
++		struct kvm_async_pf *userfault_pool;
++		/*
++		 * Exitless APF shared page (notification + completion rings).
++		 * The page is allocated by the kernel; userspace mmap()s it
++		 * via the vCPU fd at offset KVM_APF_PAGE_OFFSET * PAGE_SIZE.
++		 *
++		 * notify_head is KVM's authoritative copy of the notify ring
++		 * producer index (the shared ring's head is write-only from
++		 * KVM's perspective); notify_tail_cache caches the consumer
++		 * index to avoid cacheline bouncing unless the ring looks full.
++		 */
++		u32 notify_head;
++		u32 notify_tail_cache;
++		struct eventfd_ctx *eventfd;
++		struct eventfd_ctx *complete_eventfd;
++		struct page *shared_page;
++		wait_queue_entry_t complete_wait;
++		struct work_struct complete_work;
++#endif
+ 	} async_pf;
+ #endif
+ 
+diff --git a/include/trace/events/kvm.h b/include/trace/events/kvm.h
+index b282e3a86769..73fca35250d4 100644
+--- a/include/trace/events/kvm.h
++++ b/include/trace/events/kvm.h
+@@ -262,6 +262,24 @@ TRACE_EVENT(
+ 		  __entry->address)
+ );
+ 
++TRACE_EVENT(
++	kvm_async_pf_exitless_notify,
++	TP_PROTO(int vcpu_id, u64 gpa),
++	TP_ARGS(vcpu_id, gpa),
++
++	TP_STRUCT__entry(
++		__field(int, vcpu_id)
++		__field(u64, gpa)
++		),
++
++	TP_fast_assign(
++		__entry->vcpu_id = vcpu_id;
++		__entry->gpa = gpa;
++		),
++
++	TP_printk("vcpu %d gpa %#llx", __entry->vcpu_id, __entry->gpa)
++);
++
+ #endif
+ 
+ TRACE_EVENT(kvm_halt_poll_ns,
+diff --git a/include/uapi/linux/kvm.h b/include/uapi/linux/kvm.h
+index 6ccd393c58cd..b47915980fa6 100644
+--- a/include/uapi/linux/kvm.h
++++ b/include/uapi/linux/kvm.h
+@@ -1655,6 +1655,70 @@ struct kvm_async_pf_req {
+ 	__u64 reserved[2];
+ };
+ 
++/*
++ * KVM_SET_APF_EVENTFD - Register eventfds for exitless async page fault
++ * notification.  When set, userfault APFs write APF details to a
++ * kernel-allocated shared page instead of exiting to userspace.  KVM
++ * signals the notification eventfd only when userspace has armed it via
++ * the shared page.  Userspace maps the shared page via mmap(vcpu_fd) at
++ * offset
++ * KVM_APF_PAGE_OFFSET * PAGE_SIZE.  Layout of the shared page is
++ * struct kvm_apf_shared_page (see below).
++ *
++ * fd = -1 to deregister.
++ *
++ * `flags` is currently unused and must be zero.  New flag bits will be
++ * allocated from the LSB; userspace must pass 0 for forwards compatibility
++ * until kernel support is checked via KVM_CHECK_EXTENSION.
++ */
++#define KVM_SET_APF_EVENTFD	_IOW(KVMIO, 0xd9, struct kvm_apf_eventfd)
++
++struct kvm_apf_eventfd {
++	__s32 fd;
++	__s32 complete_fd;
++	__u32 flags;
++	__u32 padding;
++	__u64 reserved[2];
++};
++
++/*
++ * Shared page for exitless APF, containing both notification and completion
++ * ring buffers.
++ *
++ * Notification ring (notify): kernel writes head, userspace writes tail.
++ * Completion ring (complete): userspace writes head, kernel writes tail.
++ */
++#define KVM_APF_SHARED_VERSION		1
++#define KVM_APF_RING_SIZE	64
++#define KVM_APF_SHARED_FLAG_NOTIFY_ARMED	_BITUL(0)
++
++struct kvm_apf_shared_header {
++	__u32 version;
++	__u32 ring_size;
++	__u32 entry_size;
++	__u32 flags;
++	__u64 reserved[6];
++};
++
++struct kvm_apf_ring_entry {
++	__u64 gpa;
++	__u64 flags;
++};
++
++struct kvm_apf_ring {
++	__u32 head;
++	__u32 _pad_head[15];
++	__u32 tail;
++	__u32 _pad_tail[15];
++	struct kvm_apf_ring_entry entries[KVM_APF_RING_SIZE];
++};
++
++struct kvm_apf_shared_page {
++	struct kvm_apf_shared_header header;
++	struct kvm_apf_ring notify;
++	struct kvm_apf_ring complete;
++};
++
+ struct kvm_pre_fault_memory {
+ 	__u64 gpa;
+ 	__u64 size;
+diff --git a/virt/kvm/Kconfig b/virt/kvm/Kconfig
+index c088df30cd92..efe18c508c72 100644
+--- a/virt/kvm/Kconfig
++++ b/virt/kvm/Kconfig
+@@ -45,6 +45,10 @@ config KVM_MMIO
+ config KVM_ASYNC_PF
+        bool
+ 
++# Userfaultfd-based async page faults, notified via ioctl or exitless ring
++config KVM_ASYNC_PF_USERFAULT
++       bool
++
+ # Toggle to switch between direct notification and batch job
+ config KVM_ASYNC_PF_SYNC
+        bool
+diff --git a/virt/kvm/async_pf.c b/virt/kvm/async_pf.c
+index 61aa29678b0f..ff0930fd9eda 100644
+--- a/virt/kvm/async_pf.c
++++ b/virt/kvm/async_pf.c
+@@ -13,12 +13,33 @@
+ #include <linux/module.h>
+ #include <linux/mmu_context.h>
+ #include <linux/sched/mm.h>
++#include <linux/eventfd.h>
++#include <linux/file.h>
++#include <linux/poll.h>
++#include <linux/mm.h>
+ 
+ #include "async_pf.h"
+ #include <trace/events/kvm.h>
+ 
+ static struct kmem_cache *async_pf_cache;
+ 
++#ifdef CONFIG_KVM_ASYNC_PF_USERFAULT
++static void kvm_async_pf_complete_work(struct work_struct *work);
++
++static unsigned int async_pf_userfault_hash(gfn_t gfn)
++{
++	BUILD_BUG_ON(!is_power_of_2(ASYNC_PF_PER_VCPU));
++
++	return hash_64(gfn, order_base_2(ASYNC_PF_PER_VCPU));
++}
++
++static struct hlist_head *
++async_pf_userfault_hash_head(struct kvm_vcpu *vcpu, gfn_t gfn)
++{
++	return &vcpu->async_pf.userfault_hash[async_pf_userfault_hash(gfn)];
++}
++#endif /* CONFIG_KVM_ASYNC_PF_USERFAULT */
++
+ int kvm_async_pf_init(void)
+ {
+ 	async_pf_cache = KMEM_CACHE(kvm_async_pf, 0);
+@@ -42,9 +63,114 @@ void kvm_async_pf_vcpu_init(struct kvm_vcpu *vcpu)
+ 	spin_lock_init(&vcpu->async_pf.lock);
+ 	atomic_set(&vcpu->async_pf.queued, 0);
+ 	vcpu->async_pf.clearing = false;
++
++#ifdef CONFIG_KVM_ASYNC_PF_USERFAULT
+ 	vcpu->async_pf.userfault_enabled = false;
++	vcpu->async_pf.userfault_hash = NULL;
++	vcpu->async_pf.userfault_pool = NULL;
++	INIT_LIST_HEAD(&vcpu->async_pf.userfault_free);
++	vcpu->async_pf.notify_head = 0;
++	vcpu->async_pf.notify_tail_cache = 0;
++	vcpu->async_pf.eventfd = NULL;
++	vcpu->async_pf.complete_eventfd = NULL;
++	vcpu->async_pf.shared_page = NULL;
++	/*
++	 * Initialize the completion work exactly once.  Re-initializing it on
++	 * each KVM_SET_APF_EVENTFD registration would race with a concurrent
++	 * schedule_work() from the previous registration's eventfd wakeup
++	 * callback and corrupt the workqueue.
++	 */
++	INIT_WORK(&vcpu->async_pf.complete_work, kvm_async_pf_complete_work);
++#endif
++}
++
++#ifdef CONFIG_KVM_ASYNC_PF_USERFAULT
++/*
++ * Called from KVM_ENABLE_CAP(KVM_CAP_ASYNC_PF_USERFAULT) under vcpu->mutex.
++ * The GFN lookup hash is allocated on first enable and freed only at vCPU
++ * destruction, so lookups never observe a transiently freed hash.
++ */
++int kvm_async_pf_userfault_enable(struct kvm_vcpu *vcpu, bool enable)
++{
++	struct hlist_head *hash;
++
++	if (enable && !vcpu->async_pf.userfault_hash) {
++		hash = kcalloc(ASYNC_PF_PER_VCPU, sizeof(*hash),
++			       GFP_KERNEL_ACCOUNT);
++		if (!hash)
++			return -ENOMEM;
++
++		/*
++		 * Publish under the lock: KVM_APF_OP_READY can perform hash
++		 * lookups from non-vCPU threads without holding vcpu->mutex.
++		 */
++		spin_lock(&vcpu->async_pf.lock);
++		vcpu->async_pf.userfault_hash = hash;
++		spin_unlock(&vcpu->async_pf.lock);
++	}
++
++	vcpu->async_pf.userfault_enabled = enable;
++	return 0;
++}
++
++static void async_pf_install_userfault_pool(struct kvm_vcpu *vcpu,
++					    struct kvm_async_pf *pool)
++{
++	lockdep_assert_held(&vcpu->async_pf.lock);
++
++	vcpu->async_pf.userfault_pool = pool;
++	INIT_LIST_HEAD(&vcpu->async_pf.userfault_free);
++
++	for (unsigned int i = 0; i < ASYNC_PF_PER_VCPU; i++) {
++		pool[i].pooled = true;
++		list_add_tail(&pool[i].queue, &vcpu->async_pf.userfault_free);
++	}
++}
++
++static struct kvm_async_pf *async_pf_detach_userfault_pool(struct kvm_vcpu *vcpu)
++{
++	struct kvm_async_pf *pool;
++
++	lockdep_assert_held(&vcpu->async_pf.lock);
++
++	pool = vcpu->async_pf.userfault_pool;
++	vcpu->async_pf.userfault_pool = NULL;
++	INIT_LIST_HEAD(&vcpu->async_pf.userfault_free);
++	return pool;
++}
++
++static struct kvm_async_pf *async_pf_alloc_userfault_work(struct kvm_vcpu *vcpu)
++{
++	struct kvm_async_pf *work;
++
++	lockdep_assert_held(&vcpu->async_pf.lock);
++
++	if (!vcpu->async_pf.userfault_pool ||
++	    list_empty(&vcpu->async_pf.userfault_free))
++		return NULL;
++
++	work = list_first_entry(&vcpu->async_pf.userfault_free, typeof(*work), queue);
++	list_del(&work->queue);
++	INIT_HLIST_NODE(&work->userfault_node);
++	work->pooled = true;
++	return work;
+ }
+ 
++static void async_pf_free_userfault_work(struct kvm_async_pf *work)
++{
++	struct kvm_vcpu *vcpu = work->vcpu;
++
++	spin_lock(&vcpu->async_pf.lock);
++	list_add(&work->queue, &vcpu->async_pf.userfault_free);
++	spin_unlock(&vcpu->async_pf.lock);
++}
++#else /* !CONFIG_KVM_ASYNC_PF_USERFAULT */
++static void async_pf_free_userfault_work(struct kvm_async_pf *work)
++{
++	WARN_ON_ONCE(1);
++}
++#endif /* CONFIG_KVM_ASYNC_PF_USERFAULT */
++
+ static void async_pf_execute(struct work_struct *work)
+ {
+ 	struct kvm_async_pf *apf =
+@@ -99,14 +225,26 @@ static void async_pf_execute(struct work_struct *work)
+ 	__kvm_vcpu_wake_up(vcpu);
+ }
+ 
+-static struct kvm_async_pf *async_pf_find_work_item_from_gfn(struct kvm_vcpu *vcpu,
++static void async_pf_del_userfault_hash(struct kvm_async_pf *apf)
++{
++	if (!hlist_unhashed(&apf->userfault_node))
++		hlist_del_init(&apf->userfault_node);
++}
++
++#ifdef CONFIG_KVM_ASYNC_PF_USERFAULT
++static struct kvm_async_pf *async_pf_find_userfault_from_gfn(struct kvm_vcpu *vcpu,
+ 							     gfn_t gfn)
+ {
++	struct hlist_head *head;
+ 	struct kvm_async_pf *apf;
+ 
+ 	lockdep_assert_held(&vcpu->async_pf.lock);
+ 
+-	list_for_each_entry(apf, &vcpu->async_pf.queue, queue) {
++	if (!vcpu->async_pf.userfault_hash)
++		return NULL;
++
++	head = async_pf_userfault_hash_head(vcpu, gfn);
++	hlist_for_each_entry(apf, head, userfault_node) {
+ 		if (apf->arch.gfn == gfn)
+ 			return apf;
+ 	}
+@@ -129,9 +267,9 @@ int kvm_async_pf_complete(struct kvm_vcpu *vcpu, gpa_t gpa)
+ 		return -EBUSY;
+ 	}
+ 
+-	apf = async_pf_find_work_item_from_gfn(vcpu, gfn);
++	apf = async_pf_find_userfault_from_gfn(vcpu, gfn);
+ 
+-	if (unlikely(!apf || !apf->userfault)) {
++	if (unlikely(!apf)) {
+ 		spin_unlock(&vcpu->async_pf.lock);
+ 		return -ENOENT;
+ 	}
+@@ -160,9 +298,15 @@ int kvm_async_pf_complete(struct kvm_vcpu *vcpu, gpa_t gpa)
+ 
+ 	return 0;
+ }
++#endif /* CONFIG_KVM_ASYNC_PF_USERFAULT */
+ 
+ static void kvm_flush_and_free_async_pf_work(struct kvm_async_pf *work)
+ {
++	if (IS_ENABLED(CONFIG_KVM_ASYNC_PF_USERFAULT) && work->pooled) {
++		async_pf_free_userfault_work(work);
++		return;
++	}
++
+ 	/*
+ 	 * The async #PF is "done", but KVM must wait for the work item itself,
+ 	 * i.e. async_pf_execute(), to run to completion.  If KVM is a module,
+@@ -184,28 +328,16 @@ static void kvm_flush_and_free_async_pf_work(struct kvm_async_pf *work)
+ 	kmem_cache_free(async_pf_cache, work);
+ }
+ 
+-bool kvm_async_pf_userfault_exists(struct kvm_vcpu *vcpu, gfn_t gfn)
+-{
+-	struct kvm_async_pf *apf;
+-	bool exists;
+-
+-	spin_lock(&vcpu->async_pf.lock);
+-	apf = async_pf_find_work_item_from_gfn(vcpu, gfn);
+-	exists = apf && apf->userfault;
+-	spin_unlock(&vcpu->async_pf.lock);
+-
+-	return exists;
+-}
+-
++#ifdef CONFIG_KVM_ASYNC_PF_USERFAULT
+ int kvm_async_pf_accept(struct kvm_vcpu *vcpu, gpa_t gpa)
+ {
+ 	struct kvm_async_pf *apf;
+ 	gfn_t gfn = gpa_to_gfn(gpa);
+ 
+ 	spin_lock(&vcpu->async_pf.lock);
+-	apf = async_pf_find_work_item_from_gfn(vcpu, gfn);
++	apf = async_pf_find_userfault_from_gfn(vcpu, gfn);
+ 
+-	if (!apf || !apf->userfault) {
++	if (!apf) {
+ 		spin_unlock(&vcpu->async_pf.lock);
+ 		return -ENOENT;
+ 	}
+@@ -224,11 +356,11 @@ int kvm_async_pf_accept(struct kvm_vcpu *vcpu, gpa_t gpa)
+  * UFFDIO_COPY) and re-enters without calling ACCEPT, auto-complete the
+  * APF so the guest retries and finds the page present.
+  *
+- * Safe to skip the ->clearing check: autocomplete only runs on the vCPU
+- * thread from kvm_arch_vcpu_ioctl_run(), while ->clearing is only set by
+- * kvm_clear_async_pf_completion_queue() during vCPU destruction, after
+- * KVM_RUN has already returned.  The two paths cannot overlap on the
+- * same vCPU.
++ * Safe to skip the ->clearing check: kvm_clear_async_pf_completion_queue()
++ * only runs on the vCPU thread (PV async-PF MSR writes, CR0.PG toggles,
++ * INIT and vCPU destruction all run there, under vcpu->mutex), and
++ * autocomplete runs on the vCPU thread from kvm_arch_vcpu_ioctl_run(),
++ * so the two can never overlap on the same vCPU.
+  */
+ void kvm_async_pf_autocomplete_pending(struct kvm_vcpu *vcpu)
+ {
+@@ -252,6 +384,107 @@ void kvm_async_pf_autocomplete_pending(struct kvm_vcpu *vcpu)
+ 		kvm_arch_async_page_present_queued(vcpu);
+ }
+ 
++/*
++ * Tear down the exitless APF resources of the current registration.
++ *
++ * Called with vcpu->async_pf.lock held; drops and re-takes the lock.  Only
++ * runs on the vCPU thread: from KVM_SET_APF_EVENTFD (under vcpu->mutex) or
++ * from kvm_async_pf_vcpu_destroy() (no vCPU ioctls can be in flight), so it
++ * cannot race with kvm_async_pf_setup_userfault().
++ */
++static void kvm_async_pf_teardown_exitless(struct kvm_vcpu *vcpu)
++{
++	struct eventfd_ctx *old_eventfd, *old_complete;
++	struct page *old_page;
++	u64 cnt;
++
++	lockdep_assert_held(&vcpu->async_pf.lock);
++
++	old_eventfd = vcpu->async_pf.eventfd;
++	old_complete = vcpu->async_pf.complete_eventfd;
++	old_page = vcpu->async_pf.shared_page;
++
++	vcpu->async_pf.eventfd = NULL;
++	vcpu->async_pf.shared_page = NULL;
++	vcpu->async_pf.notify_head = 0;
++	vcpu->async_pf.notify_tail_cache = 0;
++
++	spin_unlock(&vcpu->async_pf.lock);
++
++	if (old_complete) {
++		eventfd_ctx_remove_wait_queue(old_complete,
++					      &vcpu->async_pf.complete_wait,
++					      &cnt);
++		flush_work(&vcpu->async_pf.complete_work);
++	}
++
++	/*
++	 * Keep complete_eventfd valid until after the wait-queue entry is
++	 * removed.  The wake callback consumes the eventfd counter and can run
++	 * until eventfd_ctx_remove_wait_queue() completes.
++	 */
++	spin_lock(&vcpu->async_pf.lock);
++	WRITE_ONCE(vcpu->async_pf.complete_eventfd, NULL);
++	spin_unlock(&vcpu->async_pf.lock);
++
++	if (old_complete)
++		eventfd_ctx_put(old_complete);
++	if (old_eventfd)
++		eventfd_ctx_put(old_eventfd);
++	if (old_page)
++		__free_page(old_page);
++
++	spin_lock(&vcpu->async_pf.lock);
++}
++
++/*
++ * Return the kernel-allocated exitless-APF shared page for mmap by
++ * kvm_arch_vcpu_fault().  Returns NULL if exitless APF is not configured
++ * on this vCPU.  Returns the page with a reference held, which is consumed
++ * by the mmap fault path.
++ */
++struct page *kvm_async_pf_get_shared_page(struct kvm_vcpu *vcpu)
++{
++	struct page *page;
++
++	spin_lock(&vcpu->async_pf.lock);
++	page = vcpu->async_pf.shared_page;
++	if (page)
++		get_page(page);
++	spin_unlock(&vcpu->async_pf.lock);
++
++	return page;
++}
++
++/*
++ * Free all userfault APF resources at vCPU destruction.  Must be called
++ * after kvm_clear_async_pf_completion_queue() so that no APF work items
++ * are outstanding (in particular, all pooled items are back on the free
++ * list before the pool itself is freed).
++ *
++ * Note, this is deliberately separate from clearing the APF queue: the
++ * queue is cleared on guest-triggerable events (PV async-PF MSR disable,
++ * CR0.PG toggles, INIT), and those must not tear down host userspace's
++ * eventfd registration or the lookup hash.
++ */
++void kvm_async_pf_vcpu_destroy(struct kvm_vcpu *vcpu)
++{
++	struct kvm_async_pf *pool;
++	struct hlist_head *hash;
++
++	spin_lock(&vcpu->async_pf.lock);
++	if (vcpu->async_pf.eventfd || vcpu->async_pf.complete_eventfd)
++		kvm_async_pf_teardown_exitless(vcpu);
++	pool = async_pf_detach_userfault_pool(vcpu);
++	hash = vcpu->async_pf.userfault_hash;
++	vcpu->async_pf.userfault_hash = NULL;
++	spin_unlock(&vcpu->async_pf.lock);
++
++	kfree(pool);
++	kfree(hash);
++}
++#endif /* CONFIG_KVM_ASYNC_PF_USERFAULT */
++
+ void kvm_clear_async_pf_completion_queue(struct kvm_vcpu *vcpu)
+ {
+ 	spin_lock(&vcpu->async_pf.lock);
+@@ -263,13 +496,14 @@ void kvm_clear_async_pf_completion_queue(struct kvm_vcpu *vcpu)
+ 			list_first_entry(&vcpu->async_pf.queue,
+ 					 typeof(*work), queue);
+ 		list_del(&work->queue);
++		async_pf_del_userfault_hash(work);
+ 
+ 		if (work->userfault) {
+ 			/* Also remove from done list if completed */
+ 			if (work->uf_state == KVM_APF_UF_COMPLETED)
+ 				list_del(&work->link);
+ 			spin_unlock(&vcpu->async_pf.lock);
+-			kmem_cache_free(async_pf_cache, work);
++			kvm_flush_and_free_async_pf_work(work);
+ 		} else {
+ 			spin_unlock(&vcpu->async_pf.lock);
+ #ifdef CONFIG_KVM_ASYNC_PF_SYNC
+@@ -319,6 +553,7 @@ void kvm_check_async_pf_completion(struct kvm_vcpu *vcpu)
+ 					link);
+ 		list_del(&work->link);
+ 		list_del(&work->queue);
++		async_pf_del_userfault_hash(work);
+ 		atomic_dec(&vcpu->async_pf.queued);
+ 		spin_unlock(&vcpu->async_pf.lock);
+ 
+@@ -335,8 +570,7 @@ void kvm_check_async_pf_completion(struct kvm_vcpu *vcpu)
+  * success, 'false' on failure (page fault has to be handled synchronously).
+  */
+ bool kvm_setup_async_pf(struct kvm_vcpu *vcpu, gpa_t cr2_or_gpa,
+-			unsigned long hva, struct kvm_arch_async_pf *arch,
+-			bool userfault)
++			unsigned long hva, struct kvm_arch_async_pf *arch)
+ {
+ 	struct kvm_async_pf *work;
+ 
+@@ -360,7 +594,6 @@ bool kvm_setup_async_pf(struct kvm_vcpu *vcpu, gpa_t cr2_or_gpa,
+ 	work->cr2_or_gpa = cr2_or_gpa;
+ 	work->addr = hva;
+ 	work->arch = *arch;
+-	work->userfault = userfault;
+ 
+ 	spin_lock(&vcpu->async_pf.lock);
+ 	list_add_tail(&work->queue, &vcpu->async_pf.queue);
+@@ -368,18 +601,16 @@ bool kvm_setup_async_pf(struct kvm_vcpu *vcpu, gpa_t cr2_or_gpa,
+ 
+ 	/*
+ 	 * kvm_arch_async_page_not_present() accesses guest memory and injects
+-	 * a #PF, so it runs outside the spinlock.  The work item is only freed
+-	 * by kvm_check_async_pf_completion() on this same vCPU thread (later)
+-	 * or by kvm_clear_async_pf_completion_queue() during vCPU destruction
+-	 * (after KVM_RUN has returned), so concurrent ACCEPT/READY ioctl
+-	 * callers or exitless ring drains never free work under us.
++	 * a #PF, so it must run outside the spinlock.  This is safe: the work
++	 * item cannot be freed underneath us, as it is only freed after
++	 * async_pf_execute() completes (the work is only scheduled below), or
++	 * by kvm_clear_async_pf_completion_queue(), which always runs on this
++	 * same vCPU thread.
+ 	 */
+ 	work->notpresent_injected = kvm_arch_async_page_not_present(vcpu, work);
+ 
+-	if (!userfault) {
+-		INIT_WORK(&work->work, async_pf_execute);
+-		schedule_work(&work->work);
+-	}
++	INIT_WORK(&work->work, async_pf_execute);
++	schedule_work(&work->work);
+ 
+ 	return true;
+ 
+@@ -419,3 +650,504 @@ int kvm_async_pf_wakeup_all(struct kvm_vcpu *vcpu)
+ 
+ 	return 0;
+ }
++
++#ifdef CONFIG_KVM_ASYNC_PF_USERFAULT
++/*
++ * Exitless APF support - signal eventfd instead of exiting to userspace.
++ *
++ * The shared page is allocated by the kernel and mmap'd by userspace via
++ * the vCPU fd at offset KVM_APF_PAGE_OFFSET * PAGE_SIZE.  This avoids
++ * FOLL_LONGTERM-pinning a userspace anon page.
++ *
++ * Wakeups on the completion eventfd are delivered via an exclusive
++ * priority wait queue entry (see kvm_async_pf_complete_register()): a
++ * workqueue poll of the eventfd would also work, but the wait-queue hook
++ * is how irqfd/ioeventfd dispatch works in KVM and keeps wakeup latency
++ * to the bare minimum (schedule a kthread, no intermediate poll loop).
++ */
++bool kvm_async_pf_drain_exitless(struct kvm_vcpu *vcpu)
++{
++	struct kvm_apf_shared_page *shared;
++	struct kvm_apf_ring *ring;
++	bool first_add = false;
++	bool completed = false;
++	bool clearing;
++	bool more = false;
++	u32 head, start, tail;
++
++	/*
++	 * Cheap lockless check so that vCPUs without an exitless registration
++	 * (e.g. the legacy APF-halt path) don't take the lock for nothing.
++	 * The pointer is only published/cleared under the lock, which is
++	 * re-checked below.
++	 */
++	if (!READ_ONCE(vcpu->async_pf.shared_page))
++		return false;
++
++	spin_lock(&vcpu->async_pf.lock);
++	if (!vcpu->async_pf.shared_page) {
++		spin_unlock(&vcpu->async_pf.lock);
++		return false;
++	}
++	shared = page_address(vcpu->async_pf.shared_page);
++	ring = &shared->complete;
++
++	/*
++	 * ->clearing is constant for the duration of the critical section (it
++	 * is only written under the lock).  If the vCPU is cancelling its APF
++	 * queue (PV async-PF MSR disable, CR0.PG toggle, INIT), still consume
++	 * ring entries so userspace's producer index keeps advancing, but
++	 * don't complete anything: the APFs are being cancelled.
++	 */
++	clearing = vcpu->async_pf.clearing;
++
++	/*
++	 * Drain the whole ring under a single lock: inline the completion
++	 * logic (no drop-and-reacquire per entry) and issue a single wake at
++	 * the end.  Dropping the lock inside the loop would let the "first
++	 * entry on done list" tracking race with ACCEPT/READY on other
++	 * entries.
++	 */
++	tail = READ_ONCE(ring->tail);
++	start = tail;
++	/* Paired with userspace's release store of completion entries. */
++	head = smp_load_acquire(&ring->head);
++
++	/*
++	 * Userspace owns the completion producer index.  If it gets more than a
++	 * ring ahead, the entries are ambiguous; drop the corrupt batch and let
++	 * future eventfd signals drive fresh completions.
++	 */
++	if (head - tail > KVM_APF_RING_SIZE) {
++		tail = head;
++		goto publish_tail;
++	}
++
++	while (tail != head) {
++		struct kvm_async_pf *apf;
++		u64 flags, gpa;
++		u32 idx;
++		gfn_t gfn;
++
++		idx = tail & (KVM_APF_RING_SIZE - 1);
++		gpa = READ_ONCE(ring->entries[idx].gpa);
++		flags = READ_ONCE(ring->entries[idx].flags);
++		tail++;
++
++		/* Completion entries currently support page-aligned GPA only. */
++		if (unlikely(!IS_ALIGNED(gpa, PAGE_SIZE) || flags))
++			continue;
++
++		if (unlikely(clearing))
++			continue;
++
++		gfn = gpa_to_gfn(gpa);
++
++		apf = async_pf_find_userfault_from_gfn(vcpu, gfn);
++		if (!apf || apf->uf_state == KVM_APF_UF_COMPLETED)
++			continue;
++
++		apf->uf_state = KVM_APF_UF_COMPLETED;
++		completed = true;
++		if (list_empty(&vcpu->async_pf.done))
++			first_add = true;
++		list_add_tail(&apf->link, &vcpu->async_pf.done);
++	}
++
++publish_tail:
++	if (tail != start) {
++		/* Publish that KVM consumed completion entries. */
++		smp_store_release(&ring->tail, tail);
++	}
++
++	/*
++	 * Paired with userspace's release store of completion entries.  If the
++	 * producer moved head after our batched tail update, schedule another drain.
++	 */
++	head = smp_load_acquire(&ring->head);
++	if (head != tail)
++		more = true;
++
++	spin_unlock(&vcpu->async_pf.lock);
++
++	if (first_add) {
++		kvm_arch_async_page_present_queued(vcpu);
++		__kvm_vcpu_wake_up(vcpu);
++	}
++
++	if (more)
++		schedule_work(&vcpu->async_pf.complete_work);
++
++	return completed;
++}
++
++static void kvm_async_pf_complete_work(struct work_struct *work)
++{
++	struct kvm_vcpu *vcpu = container_of(work, struct kvm_vcpu,
++					     async_pf.complete_work);
++	kvm_async_pf_drain_exitless(vcpu);
++}
++
++static int kvm_async_pf_complete_wakeup(wait_queue_entry_t *wait,
++					unsigned int mode, int sync, void *key)
++{
++	struct kvm_vcpu *vcpu = container_of(wait, struct kvm_vcpu,
++					     async_pf.complete_wait);
++	struct eventfd_ctx *eventfd;
++	__poll_t flags = key_to_poll(key);
++	u64 cnt;
++
++	if (flags & EPOLLIN) {
++		eventfd = READ_ONCE(vcpu->async_pf.complete_eventfd);
++		if (WARN_ON_ONCE(!eventfd))
++			return 0;
++
++		eventfd_ctx_do_read(eventfd, &cnt);
++		schedule_work(&vcpu->async_pf.complete_work);
++		return 1;
++	}
++
++	return 0;
++}
++
++struct kvm_async_pf_complete_pt {
++	struct kvm_vcpu *vcpu;
++	poll_table pt;
++	int ret;
++};
++
++/*
++ * vfs_poll() callback: attach our wait-queue entry to the completion
++ * eventfd's wait queue with PRIORITY | EXCLUSIVE semantics, matching
++ * the pattern used by irqfd in virt/kvm/eventfd.c.  Returns -EBUSY if
++ * another priority-exclusive waiter is already registered (shared
++ * completion eventfd across vCPUs is not supported).
++ */
++static void kvm_async_pf_complete_register(struct file *file,
++					   wait_queue_head_t *wqh,
++					   poll_table *pt)
++{
++	struct kvm_async_pf_complete_pt *p =
++		container_of(pt, struct kvm_async_pf_complete_pt, pt);
++	struct kvm_vcpu *vcpu = p->vcpu;
++
++	init_waitqueue_func_entry(&vcpu->async_pf.complete_wait,
++				  kvm_async_pf_complete_wakeup);
++	p->ret = add_wait_queue_priority_exclusive(wqh,
++						   &vcpu->async_pf.complete_wait);
++}
++
++int kvm_async_pf_set_eventfd(struct kvm_vcpu *vcpu,
++			     struct kvm_apf_eventfd *args)
++{
++	struct eventfd_ctx *eventfd = NULL, *complete_eventfd = NULL;
++	struct kvm_async_pf *userfault_pool = NULL, *old_userfault_pool = NULL;
++	struct kvm_apf_shared_page *shared;
++	struct page *page = NULL;
++	struct kvm_async_pf_complete_pt apf_pt;
++	__poll_t events = 0;
++	int ret;
++
++	BUILD_BUG_ON(sizeof(struct kvm_apf_shared_page) > PAGE_SIZE);
++	BUILD_BUG_ON(!is_power_of_2(KVM_APF_RING_SIZE));
++
++	if (args->flags || args->padding ||
++	    args->reserved[0] || args->reserved[1])
++		return -EINVAL;
++
++	if (args->fd < -1)
++		return -EINVAL;
++
++	if (args->fd == -1) {
++		spin_lock(&vcpu->async_pf.lock);
++		if (atomic_read(&vcpu->async_pf.queued)) {
++			spin_unlock(&vcpu->async_pf.lock);
++			return -EBUSY;
++		}
++		if (vcpu->async_pf.eventfd || vcpu->async_pf.complete_eventfd)
++			kvm_async_pf_teardown_exitless(vcpu);
++		old_userfault_pool = async_pf_detach_userfault_pool(vcpu);
++		spin_unlock(&vcpu->async_pf.lock);
++		kfree(old_userfault_pool);
++		return 0;
++	}
++
++	CLASS(fd, complete_f)(args->complete_fd);
++
++	if (args->fd == args->complete_fd)
++		return -EINVAL;
++
++	eventfd = eventfd_ctx_fdget(args->fd);
++	if (IS_ERR(eventfd))
++		return PTR_ERR(eventfd);
++
++	page = alloc_page(GFP_KERNEL_ACCOUNT | __GFP_ZERO);
++	if (!page) {
++		ret = -ENOMEM;
++		goto err_eventfd;
++	}
++	shared = page_address(page);
++	shared->header.version = KVM_APF_SHARED_VERSION;
++	shared->header.ring_size = KVM_APF_RING_SIZE;
++	shared->header.entry_size = sizeof(struct kvm_apf_ring_entry);
++
++	userfault_pool = kcalloc(ASYNC_PF_PER_VCPU, sizeof(*userfault_pool),
++				 GFP_KERNEL_ACCOUNT);
++	if (!userfault_pool) {
++		ret = -ENOMEM;
++		goto err_page;
++	}
++
++	if (fd_empty(complete_f)) {
++		ret = -EBADF;
++		goto err_pool;
++	}
++
++	complete_eventfd = eventfd_ctx_fileget(fd_file(complete_f));
++	if (IS_ERR(complete_eventfd)) {
++		ret = PTR_ERR(complete_eventfd);
++		complete_eventfd = NULL;
++		goto err_pool;
++	}
++
++	if (eventfd == complete_eventfd) {
++		ret = -EINVAL;
++		goto err_complete;
++	}
++
++	apf_pt.vcpu = vcpu;
++	apf_pt.ret = 0;
++	init_poll_funcptr(&apf_pt.pt, kvm_async_pf_complete_register);
++
++	spin_lock(&vcpu->async_pf.lock);
++
++	if (atomic_read(&vcpu->async_pf.queued)) {
++		spin_unlock(&vcpu->async_pf.lock);
++		ret = -EBUSY;
++		goto err_complete;
++	}
++
++	/*
++	 * Tear down old exitless resources (drops and re-takes the lock).
++	 * This removes the old registration's wait-queue hook and flushes
++	 * complete_work, so it is safe to re-arm the (vcpu_init-initialized)
++	 * work for the new registration below.
++	 */
++	if (vcpu->async_pf.eventfd || vcpu->async_pf.complete_eventfd)
++		kvm_async_pf_teardown_exitless(vcpu);
++	old_userfault_pool = async_pf_detach_userfault_pool(vcpu);
++
++	WRITE_ONCE(vcpu->async_pf.complete_eventfd, complete_eventfd);
++
++	events = vfs_poll(fd_file(complete_f), &apf_pt.pt);
++	ret = apf_pt.ret;
++	if (ret) {
++		WRITE_ONCE(vcpu->async_pf.complete_eventfd, NULL);
++	} else {
++		async_pf_install_userfault_pool(vcpu, userfault_pool);
++		userfault_pool = NULL;
++		vcpu->async_pf.notify_head = 0;
++		vcpu->async_pf.notify_tail_cache = 0;
++		vcpu->async_pf.eventfd = eventfd;
++		vcpu->async_pf.shared_page = page;
++	}
++
++	spin_unlock(&vcpu->async_pf.lock);
++	kfree(old_userfault_pool);
++
++	if (ret)
++		goto err_complete;
++
++	if (events & EPOLLIN)
++		schedule_work(&vcpu->async_pf.complete_work);
++
++	return 0;
++
++err_complete:
++	eventfd_ctx_put(complete_eventfd);
++err_pool:
++	kfree(userfault_pool);
++err_page:
++	__free_page(page);
++err_eventfd:
++	eventfd_ctx_put(eventfd);
++	return ret;
++}
++
++static bool
++kvm_async_pf_test_and_clear_notify_armed(struct kvm_apf_shared_page *shared)
++{
++	u32 flags = READ_ONCE(shared->header.flags);
++
++	while (flags & KVM_APF_SHARED_FLAG_NOTIFY_ARMED) {
++		u32 new_flags = flags & ~KVM_APF_SHARED_FLAG_NOTIFY_ARMED;
++		u32 old_flags = cmpxchg(&shared->header.flags, flags, new_flags);
++
++		if (old_flags == flags)
++			return true;
++
++		flags = old_flags;
++	}
++
++	return false;
++}
++
++/*
++ * Create a userfault APF and, if an exitless eventfd is configured, write
++ * the fault into the notify ring and signal userspace if notification is
++ * armed.  Returns one of KVM_ASYNC_PF_SETUP_* (see kvm_host.h).
++ *
++ * Folding exists-check + enqueue + ring publish into one lock hold drops
++ * per-fault lock acquisitions from three to one, and also lets us assign
++ * uf_state on the work pointer directly (no second queue walk).
++ */
++int kvm_async_pf_setup_userfault(struct kvm_vcpu *vcpu, gpa_t cr2_or_gpa,
++				 unsigned long hva,
++				 struct kvm_arch_async_pf *arch,
++				 u64 exitless_flags)
++{
++	struct kvm_apf_shared_page *shared;
++	struct kvm_apf_ring *ring;
++	struct kvm_async_pf *work, *existing;
++	struct eventfd_ctx *eventfd;
++	u32 head, tail, idx;
++	gpa_t ring_gpa;
++	bool notify_armed;
++
++	if (unlikely(kvm_is_error_hva(hva)))
++		return KVM_ASYNC_PF_SETUP_FAILED;
++
++	if (unlikely(atomic_inc_return(&vcpu->async_pf.queued) > ASYNC_PF_PER_VCPU)) {
++		atomic_dec(&vcpu->async_pf.queued);
++		return KVM_ASYNC_PF_SETUP_FAILED;
++	}
++
++	spin_lock(&vcpu->async_pf.lock);
++
++	/*
++	 * The hash is allocated when KVM_CAP_ASYNC_PF_USERFAULT is enabled,
++	 * which is a prerequisite for reaching this point.
++	 */
++	if (WARN_ON_ONCE(!vcpu->async_pf.userfault_hash)) {
++		spin_unlock(&vcpu->async_pf.lock);
++		atomic_dec(&vcpu->async_pf.queued);
++		return KVM_ASYNC_PF_SETUP_FAILED;
++	}
++
++	existing = async_pf_find_userfault_from_gfn(vcpu, arch->gfn);
++	if (existing) {
++		spin_unlock(&vcpu->async_pf.lock);
++		atomic_dec(&vcpu->async_pf.queued);
++		return KVM_ASYNC_PF_SETUP_DUPLICATE;
++	}
++
++	work = async_pf_alloc_userfault_work(vcpu);
++	if (!work) {
++		spin_unlock(&vcpu->async_pf.lock);
++		work = kmem_cache_zalloc(async_pf_cache, GFP_NOWAIT | __GFP_NOWARN);
++		if (unlikely(!work)) {
++			atomic_dec(&vcpu->async_pf.queued);
++			return KVM_ASYNC_PF_SETUP_FAILED;
++		}
++
++		spin_lock(&vcpu->async_pf.lock);
++		existing = async_pf_find_userfault_from_gfn(vcpu, arch->gfn);
++		if (existing) {
++			spin_unlock(&vcpu->async_pf.lock);
++			kmem_cache_free(async_pf_cache, work);
++			atomic_dec(&vcpu->async_pf.queued);
++			return KVM_ASYNC_PF_SETUP_DUPLICATE;
++		}
++	}
++
++	work->wakeup_all = false;
++	work->vcpu = vcpu;
++	work->cr2_or_gpa = cr2_or_gpa;
++	work->addr = hva;
++	work->arch = *arch;
++	work->notpresent_injected = false;
++	work->userfault = true;
++	work->uf_state = KVM_APF_UF_PENDING;
++
++	list_add_tail(&work->queue, &vcpu->async_pf.queue);
++	hlist_add_head(&work->userfault_node,
++		       async_pf_userfault_hash_head(vcpu, work->arch.gfn));
++
++	eventfd = vcpu->async_pf.eventfd;
++	if (!eventfd || !vcpu->async_pf.shared_page) {
++		spin_unlock(&vcpu->async_pf.lock);
++		goto exit_to_userspace;
++	}
++
++	shared = page_address(vcpu->async_pf.shared_page);
++	ring = &shared->notify;
++
++	/*
++	 * KVM's notify_head is the authoritative producer index; the shared
++	 * ring's head is write-only from KVM's perspective so that userspace
++	 * corrupting it can only break its own consumption, never KVM's
++	 * bookkeeping.  notify_tail_cache avoids reading the consumer index
++	 * (and bouncing its cacheline) unless the ring looks full.
++	 */
++	head = vcpu->async_pf.notify_head;
++	tail = vcpu->async_pf.notify_tail_cache;
++
++	if (head - tail >= KVM_APF_RING_SIZE) {
++		/* Paired with userspace's release store after consuming entries. */
++		tail = smp_load_acquire(&ring->tail);
++		vcpu->async_pf.notify_tail_cache = tail;
++
++		if (head - tail >= KVM_APF_RING_SIZE) {
++			spin_unlock(&vcpu->async_pf.lock);
++			goto exit_to_userspace;
++		}
++	}
++
++	ring_gpa = (gpa_t)arch->gfn << PAGE_SHIFT;
++	idx = head & (KVM_APF_RING_SIZE - 1);
++	ring->entries[idx].gpa = ring_gpa;
++	ring->entries[idx].flags = exitless_flags;
++	vcpu->async_pf.notify_head = head + 1;
++	/* Publish the notification entry before advancing head. */
++	smp_store_release(&ring->head, head + 1);
++	/*
++	 * Paired with userspace's full barrier after arming notification: ensure
++	 * the head update is visible before deciding whether a wakeup is needed.
++	 */
++	smp_mb();
++	notify_armed = kvm_async_pf_test_and_clear_notify_armed(shared);
++
++	/*
++	 * Set ACCEPTED directly on the work pointer: the exitless path
++	 * auto-accepts on userspace's behalf, so there is no ACCEPT ioctl
++	 * to follow and no need for a second queue walk.
++	 */
++	work->uf_state = KVM_APF_UF_ACCEPTED;
++
++	spin_unlock(&vcpu->async_pf.lock);
++
++	/*
++	 * See kvm_setup_async_pf() for the notpresent_injected invariant:
++	 * the work item is only freed on the same vCPU thread, so running
++	 * this outside the spinlock is safe.
++	 */
++	work->notpresent_injected = kvm_arch_async_page_not_present(vcpu, work);
++
++	/*
++	 * Safe to touch the eventfd without a refcount here because the
++	 * eventfd is only released by kvm_async_pf_teardown_exitless(), which
++	 * runs on the vCPU thread (KVM_SET_APF_EVENTFD under vcpu->mutex, or
++	 * kvm_async_pf_vcpu_destroy() when no vCPU ioctls can be in flight).
++	 */
++	if (notify_armed)
++		eventfd_signal(eventfd);
++
++	trace_kvm_async_pf_exitless_notify(vcpu->vcpu_id, ring_gpa);
++
++	return KVM_ASYNC_PF_SETUP_EXITLESS;
++
++exit_to_userspace:
++	work->notpresent_injected = kvm_arch_async_page_not_present(vcpu, work);
++	return KVM_ASYNC_PF_SETUP_EXIT;
++}
++#endif /* CONFIG_KVM_ASYNC_PF_USERFAULT */
+-- 
+2.43.0
+
