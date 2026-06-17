@@ -411,6 +411,7 @@ impl VsockMuxer {
                                     self.cid,
                                     local_port,
                                     peer_port,
+                                    Some(self.metrics.clone()),
                                 ),
                             )
                         })
@@ -638,6 +639,7 @@ impl VsockMuxer {
                         pkt.hdr.dst_port(),
                         pkt.hdr.src_port(),
                         pkt.hdr.buf_alloc(),
+                        Some(self.metrics.clone()),
                     ),
                 )
             })

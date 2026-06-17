@@ -16,6 +16,7 @@ use crate::devices::virtio::queue::{VIRTQ_DESC_F_NEXT, VIRTQ_DESC_F_WRITE};
 use crate::devices::virtio::test_utils::{VirtQueue as GuestQ, default_interrupt};
 use crate::devices::virtio::transport::VirtioInterrupt;
 use crate::devices::virtio::vsock::device::{EVQ_INDEX, RXQ_INDEX, TXQ_INDEX};
+use crate::devices::virtio::vsock::metrics::VsockDeviceMetrics;
 use crate::devices::virtio::vsock::packet::VSOCK_PKT_HDR_SIZE;
 use crate::devices::virtio::vsock::{
     Vsock, VsockBackend, VsockChannel, VsockEpollListener, VsockError,
@@ -31,6 +32,7 @@ pub struct TestBackend {
     pub rx_ok_cnt: usize,
     pub tx_ok_cnt: usize,
     pub evset: Option<EventSet>,
+    pub metrics: Arc<VsockDeviceMetrics>,
 }
 
 impl TestBackend {
@@ -42,6 +44,7 @@ impl TestBackend {
             rx_ok_cnt: 0,
             tx_ok_cnt: 0,
             evset: None,
+            metrics: Arc::new(VsockDeviceMetrics::default()),
         }
     }
 
@@ -165,11 +168,13 @@ impl TestContext {
         // the memory is write-only.
 
         let queues = vec![rxvq, txvq, evvq];
+        let backend = TestBackend::new();
+        let metrics = backend.metrics.clone();
         EventHandlerContext {
             guest_rxvq,
             guest_txvq,
             guest_evvq,
-            device: Vsock::with_queues(self.cid, TestBackend::new(), queues, None).unwrap(),
+            device: Vsock::with_queues(self.cid, backend, queues, Some(metrics)).unwrap(),
         }
     }
 }
