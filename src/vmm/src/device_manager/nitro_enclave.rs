@@ -12,14 +12,19 @@ use event_manager::{MutEventSubscriber, SubscriberOps};
 
 use crate::EventManager;
 use crate::devices::virtio::device::VirtioDevice;
-use crate::devices::virtio::transport::nitro_enclave::{NeTransport, NeTransportError};
-use crate::nitro_enclave::enclave_vm::EnclaveVm;
+use crate::devices::virtio::transport::nitro_enclave::{
+    DeviceDmaMemory, NeTransport, NeTransportError,
+};
+use crate::nitro_enclave::enclave_vm::{EnclaveVm, EnclaveVmError};
+use crate::utils::{mib_to_bytes, u64_to_usize};
 
 /// Errors from NE device manager operations.
 #[derive(Debug, thiserror::Error, displaydoc::Display)]
 pub enum NeDeviceError {
     /// Failed to create NE transport: {0}
     Transport(#[from] NeTransportError),
+    /// Failed to allocate DMB: {0}
+    Dmb(#[from] EnclaveVmError),
 }
 
 /// Manages NE transport devices for enclaves.
@@ -41,6 +46,7 @@ impl NeDevices {
         &mut self,
         device: Arc<Mutex<T>>,
         enclave_vm: &EnclaveVm,
+        dmb_size_mib: Option<u64>,
         event_manager: &mut EventManager,
     ) -> Result<(), NeDeviceError> {
         let (virtio_devid, num_vqs) = {
@@ -49,18 +55,33 @@ impl NeDevices {
             (locked.device_type(), num_vqs)
         };
 
-        // Both are guaranteed present by enclave_builder: install_info_page()
-        // and load_and_add_memory() both precede device attachment.
-        let memory = enclave_vm
-            .guest_memory()
-            .expect("guest memory must be set before device attachment")
-            .clone();
+        // Installed by enclave_builder before any device is attached.
         let info_page = enclave_vm
             .info_page()
             .expect("info page must be installed before device attachment");
 
+        // A DMB size selects confidential mode: allocate a per-device DMB and
+        // use it as the device's DMA memory. No size selects direct mode: the
+        // device uses the donated enclave RAM, which is accessible to the parent
+        // only in that mode. The size is resolved and validated by the config
+        // layer (bounded to at most 256 MiB), so it converts to bytes without
+        // overflow.
+        let dma_memory = match dmb_size_mib {
+            Some(size_mib) => {
+                let dmb = enclave_vm.create_dmb(mib_to_bytes(u64_to_usize(size_mib)))?;
+                DeviceDmaMemory::Dmb(dmb)
+            }
+            None => {
+                let memory = enclave_vm
+                    .guest_memory()
+                    .expect("direct mode keeps enclave guest memory for device DMA")
+                    .clone();
+                DeviceDmaMemory::GuestMemory(memory)
+            }
+        };
+
         let mut transport =
-            NeTransport::new(device.clone(), memory, info_page, virtio_devid, num_vqs)?;
+            NeTransport::new(device.clone(), dma_memory, info_page, virtio_devid, num_vqs)?;
 
         // Wire the transport to the enclave: NE_ADD_DEVICE + eventfds.
         transport.register_device(enclave_vm.enclave_fd())?;

@@ -186,10 +186,16 @@ impl EnclaveVm {
     /// `NE_SET_USER_MEMORY_REGION`, because that ioctl donates the pages
     /// to the enclave and userspace can no longer access them (in
     /// confidential mode).
+    ///
+    /// In direct mode the donated memory is retained (via [`Self::guest_memory`])
+    /// because the parent keeps using it as the devices' DMA memory. In
+    /// confidential mode it is NOT retained: the pages are inaccessible to the
+    /// parent after donation, so keeping a handle would be misleading.
     pub fn load_and_add_memory(
         &mut self,
         size: usize,
         eif_data: &[u8],
+        direct_mode: bool,
     ) -> Result<(), EnclaveVmError> {
         let (mem_ptr, aligned_size) = self
             .dev_fd
@@ -217,12 +223,22 @@ impl EnclaveVm {
             });
         }
 
+        // Build the guest-memory wrapper to write the EIF into the CMA pages
+        // before donation (the pages are still parent-accessible at this point,
+        // in both modes).
         let guest_mem = Self::build_guest_memory(mem_ptr, aligned_size)?;
         let dest = GuestAddress(Self::ENCLAVE_RAM_BASE + offset as u64);
         guest_mem
             .write_slice(eif_data, dest)
             .map_err(|e| EnclaveVmError::CmaAlloc(std::io::Error::other(e)))?;
-        self.guest_memory = Some(guest_mem);
+
+        // Retain the wrapper only in direct mode, where the parent keeps using
+        // it as the devices' DMA memory. In confidential mode the pages become
+        // inaccessible after donation, so the wrapper is dropped here (its Drop
+        // is a no-op: owned=false, see below).
+        if direct_mode {
+            self.guest_memory = Some(guest_mem);
+        }
 
         self.enclave_fd
             .set_user_memory_region(aligned_addr as u64, aligned_size as u64)
@@ -273,7 +289,12 @@ impl EnclaveVm {
         self.info_page.clone()
     }
 
-    /// Get a reference to the guest memory, if available.
+    /// Get a reference to the parent-accessible guest memory, if any.
+    ///
+    /// `Some` only in direct mode, where the donated enclave RAM stays mapped
+    /// for the parent to use as device DMA memory. `None` in confidential mode:
+    /// the enclave RAM is isolated after donation, and devices use per-device
+    /// DMBs instead.
     pub fn guest_memory(&self) -> Option<&GuestMemoryMmap> {
         self.guest_memory.as_ref()
     }

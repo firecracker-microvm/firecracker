@@ -181,13 +181,18 @@ pub fn build_and_boot_enclave(
         supported_flags, required_matched
     );
 
+    let mut create_flags = required_matched;
+    if enclave_config.direct_mode {
+        create_flags |= ne_ioctl::start_flags::NE_ENCLAVE_DIRECT_MODE;
+    }
     #[allow(clippy::cast_possible_truncation)]
-    let create_flags = (required_matched | ne_ioctl::start_flags::NE_ENCLAVE_DIRECT_MODE) as u32;
+    let create_flags = create_flags as u32;
 
     let mut enclave_vm = EnclaveVm::new(dev_fd, create_flags)?;
     info!(
-        "Enclave VM created: slot_uid={}, create_flags=0x{:x}",
+        "Enclave VM created: slot_uid={}, direct_mode={}, create_flags=0x{:x}",
         enclave_vm.slot_uid(),
+        enclave_config.direct_mode,
         create_flags
     );
 
@@ -214,18 +219,21 @@ pub fn build_and_boot_enclave(
     info!("Info page installed");
 
     let mem_size = mib_to_bytes(vm_resources.machine_config.mem_size_mib);
-    enclave_vm.load_and_add_memory(mem_size, &eif_data)?;
+    enclave_vm.load_and_add_memory(mem_size, &eif_data, enclave_config.direct_mode)?;
     info!(
         "Allocated {} MiB, loaded EIF, and donated memory to enclave",
         vm_resources.machine_config.mem_size_mib
     );
 
     // Device attachment must happen before the VM is started.
+    // A DMB size selects confidential mode (per-device DMB); `None` selects
+    // direct mode, where devices use the donated enclave RAM directly.
     let mut device_manager = DeviceManager::default();
     attach_enclave_devices(
         &mut device_manager,
         &enclave_vm,
         vm_resources,
+        enclave_config.dmb_size_mib(),
         event_manager,
     )?;
 
@@ -280,13 +288,14 @@ fn attach_enclave_devices(
     device_manager: &mut DeviceManager,
     enclave_vm: &EnclaveVm,
     vm_resources: &VmResources,
+    dmb_size_mib: Option<u64>,
     event_manager: &mut EventManager,
 ) -> Result<(), EnclaveBuilderError> {
     if let Some(entropy) = vm_resources.entropy.get() {
         info!("Attaching enclave entropy device");
         device_manager
             .ne_devices
-            .attach_ne_virtio_device(entropy.clone(), enclave_vm, event_manager)
+            .attach_ne_virtio_device(entropy.clone(), enclave_vm, dmb_size_mib, event_manager)
             .map_err(EnclaveBuilderError::AttachDevice)?;
     }
 
@@ -294,7 +303,7 @@ fn attach_enclave_devices(
         info!("Attaching enclave block device");
         device_manager
             .ne_devices
-            .attach_ne_virtio_device(block.clone(), enclave_vm, event_manager)
+            .attach_ne_virtio_device(block.clone(), enclave_vm, dmb_size_mib, event_manager)
             .map_err(EnclaveBuilderError::AttachDevice)?;
     }
 
@@ -302,7 +311,7 @@ fn attach_enclave_devices(
         info!("Attaching enclave net device");
         device_manager
             .ne_devices
-            .attach_ne_virtio_device(net.clone(), enclave_vm, event_manager)
+            .attach_ne_virtio_device(net.clone(), enclave_vm, dmb_size_mib, event_manager)
             .map_err(EnclaveBuilderError::AttachDevice)?;
     }
 
@@ -310,7 +319,7 @@ fn attach_enclave_devices(
         info!("Attaching enclave vsock device");
         device_manager
             .ne_devices
-            .attach_ne_virtio_device(vsock.clone(), enclave_vm, event_manager)
+            .attach_ne_virtio_device(vsock.clone(), enclave_vm, dmb_size_mib, event_manager)
             .map_err(EnclaveBuilderError::AttachDevice)?;
     }
 
