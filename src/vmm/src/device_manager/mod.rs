@@ -599,6 +599,10 @@ impl DeviceManager {
         let pci_device_arc = self.pci_devices.virtio_devices.remove(&device_id).unwrap();
         let pci_device = pci_device_arc.lock().expect("Poisoned lock");
 
+        pci_device
+            .unregister_notification_ioevents(&vm)
+            .map_err(PciManagerError::Kvm)?;
+
         vm.common
             .mmio_bus
             .remove(pci_device.config_bar_addr(), CAPABILITY_BAR_SIZE)
