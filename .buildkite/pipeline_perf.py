@@ -51,6 +51,9 @@ perf_test = {
         "label": "memory-hotplug",
         "tests": "integration_tests/performance/test_hotplug_memory.py",
         "devtool_opts": "-c 1-10 -m 0",
+        # The test require polling (5 ms), so any change smaller than that is not significant.
+        # Additionally, unplugging memory is dependent on how exactly it's being used, so some volatility is expected.
+        "ab_opts": "--absolute-strength 0.005 --noise-threshold hotunplug_total_time=0.1",
     },
     "snapshot-latency": {
         "label": "snapshot-latency",
