@@ -1,4 +1,4 @@
-From a8abe61bcfc2730f052722f95e56fc016fc432ab Mon Sep 17 00:00:00 2001
+From 9cdce1736d2183c07f51f684a040f329f752688a Mon Sep 17 00:00:00 2001
 From: Jack Thomson <jackabt@amazon.com>
 Date: Fri, 16 Jan 2026 15:14:32 +0000
 Subject: [PATCH 89/94] KVM: async_pf: Implement userfaultfd async page fault
@@ -19,15 +19,30 @@ updated to handle userfault APFs that have no associated work item.
 
 Signed-off-by: Jack Thomson <jackabt@amazon.com>
 ---
+ arch/s390/kvm/kvm-s390.c |   3 +-
  include/linux/kvm_host.h |   1 +
- virt/kvm/async_pf.c      | 176 ++++++++++++++++++++++++++++++++++++---
- 2 files changed, 164 insertions(+), 13 deletions(-)
+ virt/kvm/async_pf.c      | 153 +++++++++++++++++++++++++++++++++++----
+ 3 files changed, 143 insertions(+), 14 deletions(-)
 
+diff --git a/arch/s390/kvm/kvm-s390.c b/arch/s390/kvm/kvm-s390.c
+index 16ba04062854..97ee70a28620 100644
+--- a/arch/s390/kvm/kvm-s390.c
++++ b/arch/s390/kvm/kvm-s390.c
+@@ -4770,7 +4770,8 @@ static bool kvm_arch_setup_async_pf(struct kvm_vcpu *vcpu)
+ 	if (read_guest_real(vcpu, vcpu->arch.pfault_token, &arch.pfault_token, 8))
+ 		return false;
+ 
+-	return kvm_setup_async_pf(vcpu, current->thread.gmap_teid.addr * PAGE_SIZE, hva, &arch);
++	return kvm_setup_async_pf(vcpu, current->thread.gmap_teid.addr * PAGE_SIZE,
++				  hva, &arch, false);
+ }
+ 
+ static int vcpu_pre_run(struct kvm_vcpu *vcpu)
 diff --git a/include/linux/kvm_host.h b/include/linux/kvm_host.h
-index a8d9b269ae70..624f422615ff 100644
+index bdbf26c5c037..fd273298ac80 100644
 --- a/include/linux/kvm_host.h
 +++ b/include/linux/kvm_host.h
-@@ -387,6 +387,7 @@ struct kvm_vcpu {
+@@ -386,6 +386,7 @@ struct kvm_vcpu {
  		struct list_head done;
  		spinlock_t lock;
  		bool clearing;
@@ -36,7 +51,7 @@ index a8d9b269ae70..624f422615ff 100644
  #endif
  
 diff --git a/virt/kvm/async_pf.c b/virt/kvm/async_pf.c
-index 4d553f4d1caf..14aab70ad263 100644
+index 5a46e01ea91a..f7861f150795 100644
 --- a/virt/kvm/async_pf.c
 +++ b/virt/kvm/async_pf.c
 @@ -41,6 +41,8 @@ void kvm_async_pf_vcpu_init(struct kvm_vcpu *vcpu)
@@ -117,7 +132,7 @@ index 4d553f4d1caf..14aab70ad263 100644
  static void kvm_flush_and_free_async_pf_work(struct kvm_async_pf *work)
  {
  	/*
-@@ -111,16 +175,88 @@ static void kvm_flush_and_free_async_pf_work(struct kvm_async_pf *work)
+@@ -111,16 +175,52 @@ static void kvm_flush_and_free_async_pf_work(struct kvm_async_pf *work)
  	 * Wake all events skip the queue and go straight done, i.e. don't
  	 * need to be flushed (but sanity check that the work wasn't queued).
  	 */
@@ -167,42 +182,6 @@ index 4d553f4d1caf..14aab70ad263 100644
 +	return 0;
 +}
 +
-+/*
-+ * Synchronous completion: userspace resolved the fault (e.g. UFFDIO_COPY)
-+ * before re-entering the guest. Complete the APF immediately so the guest
-+ * retries and finds the page present.
-+ */
-+int kvm_async_pf_sync_complete(struct kvm_vcpu *vcpu, gpa_t gpa)
-+{
-+	struct kvm_async_pf *apf;
-+	gfn_t gfn = gpa_to_gfn(gpa);
-+	bool first;
-+
-+	spin_lock(&vcpu->async_pf.lock);
-+	apf = async_pf_find_work_item_from_gfn(vcpu, gfn);
-+
-+	if (!apf || !apf->userfault) {
-+		spin_unlock(&vcpu->async_pf.lock);
-+		return -ENOENT;
-+	}
-+
-+	if (apf->uf_state != KVM_APF_UF_PENDING) {
-+		spin_unlock(&vcpu->async_pf.lock);
-+		return -EINVAL;
-+	}
-+
-+	apf->uf_state = KVM_APF_UF_COMPLETED;
-+	first = list_empty(&vcpu->async_pf.done);
-+	list_add_tail(&apf->link, &vcpu->async_pf.done);
-+	spin_unlock(&vcpu->async_pf.lock);
-+
-+	if (first)
-+		kvm_arch_async_page_present_queued(vcpu);
-+
-+	__kvm_vcpu_wake_up(vcpu);
-+	return 0;
-+}
-+
  void kvm_clear_async_pf_completion_queue(struct kvm_vcpu *vcpu)
  {
  	spin_lock(&vcpu->async_pf.lock);
@@ -210,7 +189,7 @@ index 4d553f4d1caf..14aab70ad263 100644
  
  	/* cancel outstanding work queue item */
  	while (!list_empty(&vcpu->async_pf.queue)) {
-@@ -129,13 +265,21 @@ void kvm_clear_async_pf_completion_queue(struct kvm_vcpu *vcpu)
+@@ -129,28 +229,43 @@ void kvm_clear_async_pf_completion_queue(struct kvm_vcpu *vcpu)
  					 typeof(*work), queue);
  		list_del(&work->queue);
  
@@ -236,7 +215,14 @@ index 4d553f4d1caf..14aab70ad263 100644
  		spin_lock(&vcpu->async_pf.lock);
  	}
  
-@@ -145,12 +289,14 @@ void kvm_clear_async_pf_completion_queue(struct kvm_vcpu *vcpu)
++	/*
++	 * Any remaining work on the done list must be non-userfault: the
++	 * queue loop above already unlinked userfault APFs from both lists
++	 * before freeing them, so the WARN guards that invariant.
++	 */
+ 	while (!list_empty(&vcpu->async_pf.done)) {
+ 		struct kvm_async_pf *work =
+ 			list_first_entry(&vcpu->async_pf.done,
  					 typeof(*work), link);
  		list_del(&work->link);
  		spin_unlock(&vcpu->async_pf.lock);
@@ -251,7 +237,7 @@ index 4d553f4d1caf..14aab70ad263 100644
  	spin_unlock(&vcpu->async_pf.lock);
  }
  
-@@ -185,7 +331,8 @@ void kvm_check_async_pf_completion(struct kvm_vcpu *vcpu)
+@@ -185,7 +300,8 @@ void kvm_check_async_pf_completion(struct kvm_vcpu *vcpu)
   * success, 'false' on failure (page fault has to be handled synchronously).
   */
  bool kvm_setup_async_pf(struct kvm_vcpu *vcpu, gpa_t cr2_or_gpa,
@@ -261,7 +247,7 @@ index 4d553f4d1caf..14aab70ad263 100644
  {
  	struct kvm_async_pf *work;
  
-@@ -209,15 +356,18 @@ bool kvm_setup_async_pf(struct kvm_vcpu *vcpu, gpa_t cr2_or_gpa,
+@@ -209,15 +325,26 @@ bool kvm_setup_async_pf(struct kvm_vcpu *vcpu, gpa_t cr2_or_gpa,
  	work->cr2_or_gpa = cr2_or_gpa;
  	work->addr = hva;
  	work->arch = *arch;
@@ -275,6 +261,14 @@ index 4d553f4d1caf..14aab70ad263 100644
  	spin_unlock(&vcpu->async_pf.lock);
  
 -	schedule_work(&work->work);
++	/*
++	 * kvm_arch_async_page_not_present() accesses guest memory and injects
++	 * a #PF, so it runs outside the spinlock.  The work item is only freed
++	 * by kvm_check_async_pf_completion() on this same vCPU thread (later)
++	 * or by kvm_clear_async_pf_completion_queue() during vCPU destruction
++	 * (after KVM_RUN has returned), so concurrent ACCEPT/READY ioctl
++	 * callers or exitless ring drains never free work under us.
++	 */
 +	work->notpresent_injected = kvm_arch_async_page_not_present(vcpu, work);
 +
 +	if (!userfault) {
@@ -285,5 +279,5 @@ index 4d553f4d1caf..14aab70ad263 100644
  	return true;
  
 -- 
-2.50.1
+2.43.0
 
