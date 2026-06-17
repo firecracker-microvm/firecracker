@@ -23,7 +23,9 @@ use vmm_sys_util::eventfd::EventFd;
 use super::pci::device_status;
 use super::{VirtioInterrupt, VirtioInterruptType};
 use crate::devices::virtio::device::{VirtioDevice, VirtioDeviceType};
+use crate::devices::virtio::generated::virtio_config::VIRTIO_F_IOMMU_PLATFORM;
 use crate::logger::{debug, error, info, warn};
+use crate::nitro_enclave::dmb::Dmb;
 use crate::nitro_enclave::info_page::InfoPage;
 use crate::nitro_enclave::ne_ioctl::{self, EnclaveFd, NeAddDevice};
 use crate::vstate::interrupts::InterruptError;
@@ -100,6 +102,31 @@ impl VirtioInterrupt for NeInterrupt {
     fn ack_interrupt(&self, _interrupt_type: VirtioInterruptType) {}
 }
 
+/// The DMA memory an enclave device reads/writes virtqueues from, and the mode
+/// that choice implies.
+///
+/// In direct mode the device DMAs straight into the donated enclave RAM, which
+/// the parent shares with the enclave. In confidential mode the enclave RAM is
+/// isolated, so the device DMAs into a per-device DMB instead; the enclave
+/// guest negotiates `VIRTIO_F_IOMMU_PLATFORM` to route its DMA there.
+#[derive(Debug)]
+pub enum DeviceDmaMemory {
+    /// Direct mode: device DMAs into the donated enclave RAM (shared with parent).
+    GuestMemory(GuestMemoryMmap),
+    /// Confidential mode: device DMAs into a per-device DMB.
+    Dmb(Dmb),
+}
+
+impl DeviceDmaMemory {
+    /// The guest memory the device reads/writes virtqueues from, in either mode.
+    fn memory(&self) -> &GuestMemoryMmap {
+        match self {
+            DeviceDmaMemory::GuestMemory(mem) => mem,
+            DeviceDmaMemory::Dmb(dmb) => dmb.guest_memory(),
+        }
+    }
+}
+
 /// Nitro Enclave transport wrapping a VirtioDevice for an enclave.
 ///
 /// Unlike MMIO/PCI transports where KVM routes guest MMIO writes directly
@@ -109,7 +136,7 @@ impl VirtioInterrupt for NeInterrupt {
 #[derive(Debug)]
 pub struct NeTransport {
     device: Arc<Mutex<dyn VirtioDevice>>,
-    memory: GuestMemoryMmap,
+    dma_memory: DeviceDmaMemory,
     interrupt: Arc<NeInterrupt>,
     device_uid: u64,
     num_vqs: u32,
@@ -122,7 +149,7 @@ impl NeTransport {
     /// Create a new NE transport for the given device.
     pub fn new(
         device: Arc<Mutex<dyn VirtioDevice>>,
-        memory: GuestMemoryMmap,
+        dma_memory: DeviceDmaMemory,
         info_page: Arc<InfoPage>,
         virtio_devid: VirtioDeviceType,
         num_vqs: u32,
@@ -148,7 +175,7 @@ impl NeTransport {
 
         Ok(Self {
             device,
-            memory,
+            dma_memory,
             interrupt,
             device_uid: 0,
             num_vqs,
@@ -181,7 +208,12 @@ impl NeTransport {
             req.config_size = u32::try_from(config.len()).expect("config_size overflow");
 
             // Populate device features (first 8 bytes of the 512-bit bitmap).
-            let avail = locked_device.avail_features();
+            // When DMA targets a DMB, advertise VIRTIO_F_IOMMU_PLATFORM so the
+            // enclave guest routes its DMA there.
+            let mut avail = locked_device.avail_features();
+            if let DeviceDmaMemory::Dmb(_) = self.dma_memory {
+                avail |= 1u64 << VIRTIO_F_IOMMU_PLATFORM;
+            }
             req.device_features[..8].copy_from_slice(&avail.to_le_bytes());
 
             (0..locked_device.num_queues())
@@ -194,6 +226,24 @@ impl NeTransport {
                 .collect()
         };
 
+        // If DMA targets a DMB, register it as a shared-memory backing range so
+        // the enclave can place queue DMA in it. `shm_region` outlives the
+        // NE_ADD_DEVICE ioctl below, since `req.shm_regions_ptr` aliases it.
+        let shm_region = match &self.dma_memory {
+            DeviceDmaMemory::Dmb(dmb) => Some(ne_ioctl::NeShmRegion {
+                shm_id: ne_ioctl::VIRTIO_SHMEM_ID_DMB,
+                reserved: [0; 7],
+                userspace_addr: dmb.host_addr(),
+                size: dmb.size(),
+            }),
+            DeviceDmaMemory::GuestMemory(_) => None,
+        };
+        if let Some(region) = &shm_region {
+            // A pointer to the single region is a valid 1-element array pointer.
+            req.num_shm_regions = 1;
+            req.shm_regions_ptr = region as *const ne_ioctl::NeShmRegion as u64;
+        }
+
         enclave_fd
             .add_device(&mut req)
             .map_err(NeTransportError::AddDevice)?;
@@ -201,11 +251,13 @@ impl NeTransport {
         self.device_uid = req.device_uid;
 
         info!(
-            "NE_ADD_DEVICE: devid={:?} uid={} num_vqs={} config_size={} info_event_vector={}",
+            "NE_ADD_DEVICE: devid={:?} uid={} num_vqs={} config_size={} \
+             shm_regions={} info_event_vector={}",
             self.virtio_devid,
             self.device_uid,
             self.num_vqs,
             req.config_size,
+            req.num_shm_regions,
             req.info_event_vector,
         );
 
@@ -317,7 +369,7 @@ impl NeTransport {
         }
 
         // Activate the device.
-        match locked_device.activate(self.memory.clone(), self.interrupt.clone()) {
+        match locked_device.activate(self.dma_memory.memory().clone(), self.interrupt.clone()) {
             Ok(()) => {
                 info!("Device uid={} activated successfully", self.device_uid);
 
@@ -381,7 +433,7 @@ mod tests {
         let memory = single_region_mem(0x1000);
         let mut transport = NeTransport::new(
             device,
-            memory,
+            DeviceDmaMemory::GuestMemory(memory),
             Arc::new(info_page),
             VirtioDeviceType::Rng,
             1,
