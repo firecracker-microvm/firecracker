@@ -154,16 +154,14 @@ fn main() {
                 }
             }
         },
-        |uffd_handler: &mut UffdHandler, offset: usize| {
-            let bytes_written = uffd_handler.populate_via_write(offset, uffd_handler.page_size);
+        |uffd_handler: &mut UffdHandler, offset: usize, len: usize| {
+            let bytes_written = uffd_handler.populate_via_write(offset, len);
 
-            if bytes_written == 0 {
+            if bytes_written != len {
                 println!(
-                    "got a vcpu fault for an already populated page at offset {}",
-                    offset
+                    "got a vcpu fault range with already populated pages at offset {}: wrote {} of {} bytes",
+                    offset, bytes_written, len
                 );
-            } else {
-                assert_eq!(bytes_written, uffd_handler.page_size);
             }
         },
     );

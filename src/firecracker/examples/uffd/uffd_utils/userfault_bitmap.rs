@@ -63,16 +63,46 @@ impl UserfaultBitmap {
             return;
         }
 
-        let first_bit = start_addr / self.page_size;
-        let last_bit = start_addr.saturating_add(len - 1) / self.page_size;
+        let first_bit = start_addr / self.page_size.get();
+        if first_bit >= self.size {
+            return;
+        }
 
-        for n in first_bit..=last_bit {
-            if n >= self.size {
-                break;
-            }
+        let last_bit =
+            (start_addr.saturating_add(len - 1) / self.page_size.get()).min(self.size - 1);
+        let first_word = first_bit >> 6;
+        let last_word = last_bit >> 6;
+
+        for word in first_word..=last_word {
+            let start = if word == first_word {
+                first_bit & 63
+            } else {
+                0
+            };
+            let end = if word == last_word { last_bit & 63 } else { 63 };
+            let width = end - start + 1;
+            let mask = if width == u64::BITS as usize {
+                u64::MAX
+            } else {
+                ((1u64 << width) - 1) << start
+            };
+
             unsafe {
-                let map_entry = &*self.map.add(n >> 6);
-                map_entry.fetch_and(!(1 << (n & 63)), Ordering::SeqCst);
+                let map_entry = &*self.map.add(word);
+                // Clearing a bit tells KVM to stop intercepting faults for this page. KVM reads
+                // the bitmap with a plain copy_from_user() (no acquire), so ordering is NOT
+                // established by an acquire/release pair on the bitmap itself. It is established
+                // by the full barriers that always bracket this clear:
+                //   * the page contents are published by the preceding populate syscall
+                //     (pwrite64 to guest_memfd / UFFDIO_COPY ioctl), and
+                //   * the clear becomes visible to KVM only after a later release store on the
+                //     completion-ring head (exitless APF) or a socket round-trip (sync fault),
+                //     each of which orders this store ahead of the kernel's re-read.
+                // Release keeps populate-before-clear self-contained without SeqCst's full
+                // barrier (which is pointless on weaker ISAs and identical on x86, where this
+                // locked RMW is already a full barrier). The real win is clearing a whole word
+                // of pages per RMW instead of one RMW per page.
+                map_entry.fetch_and(!mask, Ordering::Release);
             }
         }
     }
@@ -159,6 +189,27 @@ mod tests {
         // Check adjacent bits are still set
         assert!(bitmap.is_bit_set(62));
         assert!(bitmap.is_bit_set(65));
+    }
+
+    #[test]
+    fn test_reset_addr_range_full_word_width() {
+        // page_size = 1 byte so that bit N maps to byte N, making it easy to clear
+        // exactly 64 contiguous bits (a whole word). This exercises the `width == 64`
+        // branch in `reset_addr_range`, which must use `u64::MAX` to avoid the
+        // `1u64 << 64` shift overflow.
+        let page_size = NonZeroUsize::new(1).unwrap();
+        let (memory, bitmap) = setup_test_bitmap(128, page_size); // 128 pages, 2 words
+        memory[0].store(u64::MAX, Ordering::SeqCst);
+        memory[1].store(u64::MAX, Ordering::SeqCst);
+
+        // Clear exactly word 0 (bits 0..=63); word 1 must be untouched.
+        bitmap.reset_addr_range(0, 64);
+        assert_eq!(memory[0].load(Ordering::SeqCst), 0);
+        assert_eq!(memory[1].load(Ordering::SeqCst), u64::MAX);
+
+        // Clear the remaining full word (bits 64..=127), spanning a whole second word.
+        bitmap.reset_addr_range(64, 64);
+        assert_eq!(memory[1].load(Ordering::SeqCst), 0);
     }
 
     #[test]
