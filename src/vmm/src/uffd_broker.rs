@@ -102,6 +102,10 @@ impl Iterator for UffdMessageBroker {
     type Item = FaultReply;
 
     fn next(&mut self) -> Option<Self::Item> {
+        if self.can_decode() {
+            return self.decode_next();
+        }
+
         match self.stream.read(&mut self.read_buffer[self.current_pos..]) {
             Ok(bytes_read) => self.current_pos += bytes_read,
             Err(e) if e.kind() == io::ErrorKind::WouldBlock => {
@@ -116,6 +120,14 @@ impl Iterator for UffdMessageBroker {
         if !self.can_decode() {
             return None;
         }
+
+        self.decode_next()
+    }
+}
+
+impl UffdMessageBroker {
+    fn decode_next(&mut self) -> Option<FaultReply> {
+        debug_assert!(self.can_decode());
 
         // Safe: `can_decode()` returned true, so `expected_size()` is `Some`.
         let size = self.expected_size().unwrap() as usize;
