@@ -1,6 +1,6 @@
 # Copyright 2026 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 # SPDX-License-Identifier: Apache-2.0
-"""Tests for Nitro Enclave direct mode in Firecracker."""
+"""Tests for Nitro Enclave direct and confidential modes in Firecracker."""
 
 import json
 import os
@@ -24,12 +24,19 @@ from framework.utils_vsock import (
     vsock_connect_to_guest,
 )
 
+# Run enclave tests in both memory-isolation modes: confidential (the default,
+# per-device DMB-backed memory) and direct (enclave RAM shared with the parent).
+enclave_modes = pytest.mark.parametrize(
+    "direct_mode", [False, True], ids=["confidential", "direct"]
+)
+
 # ---------------------------------------------------------------------------
 # Test: enclave config API (no NE hardware needed)
 # ---------------------------------------------------------------------------
 
 
-def test_enclave_config_api(microvm_factory):
+@enclave_modes
+def test_enclave_config_api(microvm_factory, direct_mode):
     """Verify PUT /enclave is accepted pre-boot and returned by GET /enclave."""
     kernel_path = _find_kernel()
     if not kernel_path:
@@ -47,12 +54,14 @@ def test_enclave_config_api(microvm_factory):
     # PUT /enclave
     vm.api.enclave.put(
         debug_mode=True,
+        direct_mode=direct_mode,
     )
 
     # GET /enclave should reflect the config
     response = vm.api.enclave.get()
     config = response.json()
     assert config["debug_mode"] is True
+    assert config["direct_mode"] is direct_mode
 
 
 # ---------------------------------------------------------------------------
@@ -61,14 +70,15 @@ def test_enclave_config_api(microvm_factory):
 
 
 @requires_enclave
-def test_enclave_direct_boot(microvm_factory, tmp_path):
-    """Boot an enclave in direct PCIE mode and verify via serial console output.
+@enclave_modes
+def test_enclave_boot(microvm_factory, tmp_path, direct_mode):
+    """Boot an enclave and verify via serial console output.
 
     Configures serial_out_path to capture enclave serial output to a file,
     then checks for the Linux kernel boot marker in the serial output.
 
-    Note: This PR scope is direct mode only, without enclave device transport.
-    The enclave boots with just CPU, memory, and EIF — no virtio devices.
+    The enclave boots with just CPU, memory, and EIF — no virtio devices, so
+    no DMBs are allocated even in confidential mode.
     """
     kernel = _find_kernel()
     initrd = _find_initrd()
@@ -112,6 +122,7 @@ def test_enclave_direct_boot(microvm_factory, tmp_path):
 
     enclave_kwargs = {
         "debug_mode": True,
+        "direct_mode": direct_mode,
     }
     if cpu_ids:
         enclave_kwargs["cpu_ids"] = cpu_ids
@@ -151,7 +162,8 @@ def test_enclave_direct_boot(microvm_factory, tmp_path):
 
 
 @requires_enclave
-def test_enclave_config_file_boot(microvm_factory):
+@enclave_modes
+def test_enclave_config_file_boot(microvm_factory, direct_mode):
     """Boot an enclave via --config-file and verify it starts.
 
     Unlike the API-based test, this exercises the build_microvm_from_json
@@ -180,7 +192,7 @@ def test_enclave_config_file_boot(microvm_factory):
     jailed_kernel = vm.create_jailed_resource(kernel)
     jailed_initrd = vm.create_jailed_resource(initrd)
 
-    enclave_cfg = {"debug_mode": True}
+    enclave_cfg = {"debug_mode": True, "direct_mode": direct_mode}
     if cpu_ids:
         enclave_cfg["cpu_ids"] = cpu_ids
 
@@ -225,11 +237,13 @@ def test_enclave_config_file_boot(microvm_factory):
 
 
 @requires_enclave
-def test_enclave_ssh(microvm_factory):
+@enclave_modes
+def test_enclave_ssh(microvm_factory, direct_mode):
     """Boot an enclave with block + net devices and verify SSH works.
 
     This exercises the full NE transport path: NE_ADD_DEVICE for block and net,
-    info-event DRIVER_OK detection, device activation, and end-to-end I/O.
+    info-event DRIVER_OK detection, device activation, and end-to-end I/O. In
+    confidential mode the block and net queues run through per-device DMBs.
     """
     kernel = _find_kernel()
     rootfs = _find_rootfs()
@@ -276,7 +290,7 @@ def test_enclave_ssh(microvm_factory):
     )
 
     # Configure enclave mode.
-    enclave_kwargs = {"debug_mode": True}
+    enclave_kwargs = {"debug_mode": True, "direct_mode": direct_mode}
     if cpu_ids:
         enclave_kwargs["cpu_ids"] = cpu_ids
     vm.api.enclave.put(**enclave_kwargs)
@@ -299,7 +313,8 @@ def test_enclave_ssh(microvm_factory):
 
 
 @requires_enclave
-def test_enclave_vsock(microvm_factory):
+@enclave_modes
+def test_enclave_vsock(microvm_factory, direct_mode):
     """Boot an enclave with a vsock device and verify host<->guest echo.
 
     Exercises the NE transport for virtio-vsock: NE_ADD_DEVICE, info-event
@@ -342,7 +357,7 @@ def test_enclave_vsock(microvm_factory):
 
     vm.api.boot.put(kernel_image_path=vm.create_jailed_resource(kernel))
 
-    enclave_kwargs = {"debug_mode": True}
+    enclave_kwargs = {"debug_mode": True, "direct_mode": direct_mode}
     if cpu_ids:
         enclave_kwargs["cpu_ids"] = cpu_ids
     vm.api.enclave.put(**enclave_kwargs)
@@ -367,7 +382,8 @@ def test_enclave_vsock(microvm_factory):
 
 
 @requires_enclave
-def test_enclave_many_devices(microvm_factory):
+@enclave_modes
+def test_enclave_many_devices(microvm_factory, direct_mode):
     """Boot an enclave with many devices and verify they all activate.
 
     Attaches a root block device plus 13 NICs — 14 devices total — and verifies
@@ -416,7 +432,7 @@ def test_enclave_many_devices(microvm_factory):
 
     vm.api.boot.put(kernel_image_path=vm.create_jailed_resource(kernel))
 
-    enclave_kwargs = {"debug_mode": True}
+    enclave_kwargs = {"debug_mode": True, "direct_mode": direct_mode}
     if cpu_ids:
         enclave_kwargs["cpu_ids"] = cpu_ids
     vm.api.enclave.put(**enclave_kwargs)
