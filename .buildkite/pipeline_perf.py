@@ -30,7 +30,7 @@ perf_test = {
         "label": "vhost-user-block",
         "tests": "integration_tests/performance/test_block.py::test_block_vhost_user_performance",
         "devtool_opts": "-c 1-10 -m 0",
-        "ab_opts": "--noise-threshold 0.1",
+        "ab_opts": "--noise-threshold bw_read=0.1",
     },
     "pmem": {
         "label": "pmem",
