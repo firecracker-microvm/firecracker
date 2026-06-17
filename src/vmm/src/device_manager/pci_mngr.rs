@@ -130,7 +130,7 @@ impl PciDevices {
         Self::register_bars_with_bus(vm, &virtio_device)?;
 
         let mut device = virtio_device.lock().expect("Poisoned lock");
-        device.register_notification_ioevent(vm)?;
+        device.register_notification_ioevents(vm)?;
 
         let sub_id = event_manager.add_subscriber(device.virtio_device());
         device.sub_id = Some(sub_id);

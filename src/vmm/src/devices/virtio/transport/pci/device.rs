@@ -620,8 +620,7 @@ impl VirtioPciDevice {
         !self.device_activated.load(Ordering::SeqCst) && self.is_driver_ready()
     }
 
-    /// Register the IoEvent notification for a VirtIO device
-    pub fn register_notification_ioevent(&self, vm: &KvmVm) -> Result<(), errno::Error> {
+    fn set_notification_ioevents(&self, vm: &KvmVm, assign: bool) -> Result<(), errno::Error> {
         let bar_addr = self.config_bar_addr();
         for (i, queue_evt) in self
             .device
@@ -634,9 +633,24 @@ impl VirtioPciDevice {
             let notify_base = bar_addr + u64::from(NOTIFICATION_BAR_OFFSET);
             let io_addr =
                 IoEventAddress::Mmio(notify_base + i as u64 * u64::from(NOTIFY_OFF_MULTIPLIER));
-            vm.fd().register_ioevent(queue_evt, &io_addr, NoDatamatch)?;
+            if assign {
+                vm.fd().register_ioevent(queue_evt, &io_addr, NoDatamatch)?;
+            } else {
+                vm.fd()
+                    .unregister_ioevent(queue_evt, &io_addr, NoDatamatch)?;
+            }
         }
         Ok(())
+    }
+
+    /// Register the IoEvent notifications for a VirtIO device.
+    pub fn register_notification_ioevents(&self, vm: &KvmVm) -> Result<(), errno::Error> {
+        self.set_notification_ioevents(vm, true)
+    }
+
+    /// Unregister the IoEvent notifications for a VirtIO device.
+    pub fn unregister_notification_ioevents(&self, vm: &KvmVm) -> Result<(), errno::Error> {
+        self.set_notification_ioevents(vm, false)
     }
 
     pub fn state(&self) -> VirtioPciDeviceState {
