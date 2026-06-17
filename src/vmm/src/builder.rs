@@ -77,6 +77,7 @@ use crate::vstate::vm::{
 use crate::{EventManager, UffdMessageBroker, Vmm, VmmError};
 
 const KVM_CAP_ASYNC_PF_USERFAULT: u32 = 246;
+const KVM_CAP_ASYNC_PF_USERFAULT_EVENTFD: u32 = 247;
 
 pub(crate) fn pipe2(flags: libc::c_int) -> io::Result<(RawFd, RawFd)> {
     let mut fds = [0, 0];
@@ -639,6 +640,11 @@ pub fn build_microvm_from_snapshot(
     if apf_stream.is_some() && !apf_supported {
         warn!("KVM_CAP_ASYNC_PF_USERFAULT not supported by kernel, APF disabled");
     }
+    let exitless_apf_supported = apf_supported
+        && kvm
+            .fd
+            .check_extension_raw(u64::from(KVM_CAP_ASYNC_PF_USERFAULT_EVENTFD))
+            != 0;
 
     // Set up KVM VM and register memory regions.
     // Build custom CPU config if a custom template is provided.
@@ -759,29 +765,35 @@ pub fn build_microvm_from_snapshot(
         use vmm_sys_util::sock_ctrl_msg::ScmSocket;
         if let Some(uff_socket) = uffd_socket {
             let broker = UffdMessageBroker::new(uff_socket);
-            let apf_exitless = apf_supported
+            let apf_exitless = exitless_apf_supported
                 && std::env::var("FC_APF_NO_EXITLESS").is_err()
                 && !std::path::Path::new("/apf_no_exitless").exists();
             let (contexts, done) = if apf_exitless {
                 let mut contexts = Vec::new();
                 let mut handler_fds = Vec::new();
+                let mut setup_failed = false;
                 for &vcpu_fd in &vcpu_fds {
                     match crate::vstate::exitless_apf::ExitlessApfContext::new(vcpu_fd) {
                         Ok(ctx) => {
-                            let (n, c, m) = ctx.fds_for_handler();
-                            handler_fds.push(n);
-                            handler_fds.push(c);
-                            handler_fds.push(m);
+                            let (notify_fd, complete_fd, vcpu_mmap_fd) = ctx.fds_for_handler();
+                            handler_fds.push(notify_fd);
+                            handler_fds.push(complete_fd);
+                            handler_fds.push(vcpu_mmap_fd);
                             contexts.push(ctx);
                         }
                         Err(e) => {
                             warn!("Exitless APF context creation failed: {e}");
+                            setup_failed = true;
                             break;
                         }
                     }
                 }
-                if !contexts.is_empty() {
-                    let msg = format!("exitless_apf:{}", vcpu_fds.len());
+                if setup_failed || contexts.len() != vcpu_fds.len() {
+                    let msg = b"no_exitless_apf";
+                    let _ = broker.stream().send_with_fds(&[&msg[..]], &[]);
+                    contexts.clear();
+                } else if !contexts.is_empty() {
+                    let msg = format!("exitless_apf:{}", contexts.len());
                     match broker
                         .stream()
                         .send_with_fds(&[msg.as_bytes()], &handler_fds)
@@ -1278,9 +1290,18 @@ pub(crate) mod tests {
     }
 
     pub(crate) fn default_vmm_with_pci() -> Vmm {
+        use std::os::fd::FromRawFd;
+
         let mut vm = setup_vm_with_memory(mib_to_bytes(128));
 
-        let _ = vm.create_vcpus(1).unwrap();
+        let (reader_fd, writer_fd) = super::pipe2(libc::O_NONBLOCK).unwrap();
+        // SAFETY: reader_fd is a valid fd from pipe2() above; we take sole ownership.
+        let reader = unsafe { std::fs::File::from_raw_fd(reader_fd) };
+        let _ = {
+            // SAFETY: writer_fd is a valid fd from pipe2() above; we take sole ownership.
+            let writer = unsafe { std::fs::File::from_raw_fd(writer_fd) };
+            vm.create_vcpus(1, false, &writer, None, false).unwrap()
+        };
 
         let vm = Arc::new(vm);
         let device_manager = default_device_manager_with_pci(&vm);
@@ -1291,7 +1312,17 @@ pub(crate) mod tests {
             boot_source_config: BootSourceConfig::default(),
             shutdown_exit_code: None,
             vm: Vm::Kvm(vm),
+            uffd_socket: None,
+            vcpu_fds: Vec::new(),
+            _apf_pipe_reader: reader,
             device_manager,
+            _guest_memfd: None,
+            _eventfd: None,
+            apf_stream: None,
+            apf_stream_fd: None,
+            apf_supported: false,
+            exitless_apf: Vec::new(),
+            exitless_apf_setup_done: false,
         }
     }
 

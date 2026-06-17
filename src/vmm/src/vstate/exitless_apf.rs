@@ -3,19 +3,22 @@
 
 //! Exitless Async Page Fault context for the VMM side.
 //!
-//! Creates the memfd-backed shared page, eventfds, and issues the
-//! `KVM_SET_APF_EVENTFD` ioctl. The ring buffer types and all read/write
+//! Creates eventfds, issues the `KVM_SET_APF_EVENTFD` ioctl, and mmaps the
+//! kernel-allocated APF shared page. The ring buffer types and all read/write
 //! logic live exclusively in the UFFD handler (`uffd_utils.rs`).
 
 use std::io;
-use std::os::fd::{AsRawFd, FromRawFd, RawFd};
-use std::os::unix::io::OwnedFd;
+use std::os::fd::{AsRawFd, RawFd};
 
 use vmm_sys_util::eventfd::EventFd;
 use vmm_sys_util::ioctl::ioctl_with_ref;
 use vmm_sys_util::ioctl_iow_nr;
 
 const KVMIO: u32 = 0xAE;
+const KVM_APF_PAGE_OFFSET: libc::off_t = 3;
+const KVM_APF_SHARED_VERSION: u32 = 1;
+const KVM_APF_RING_SIZE: u32 = 64;
+const KVM_APF_RING_ENTRY_SIZE: u32 = 16;
 
 /// `KVM_SET_APF_EVENTFD` ioctl — registers eventfds for exitless APF.
 mod apf_eventfd_ioctl {
@@ -32,24 +35,22 @@ pub struct KvmApfEventfd {
     pub fd: i32,
     /// Completion eventfd: userspace signals this after resolving a page.
     pub complete_fd: i32,
-    /// Userspace address of the shared page containing notify/completion rings.
-    pub page_addr: u64,
     /// Flags (reserved, must be 0). Set `fd = -1` to deregister.
     pub flags: u32,
     /// Padding for alignment.
     pub padding: u32,
+    /// Reserved for future use.
+    pub reserved: [u64; 2],
 }
 
 /// Exitless APF context for a single vCPU.
 ///
-/// Creates a memfd-backed shared page that the kernel, VMM, and UFFD handler
-/// all mmap. The VMM treats the page as opaque — only the kernel and handler
-/// read/write the ring buffers it contains.
+/// Maps the kernel-allocated shared page for a vCPU. The VMM treats the page as
+/// opaque — only the kernel and handler read/write the ring buffers it contains.
 pub struct ExitlessApfContext {
     eventfd: EventFd,
     complete_eventfd: EventFd,
-    memfd: OwnedFd,
-    /// Opaque mmap of the shared page (ring layout managed by handler)
+    /// Opaque mmap of the shared page (ring layout managed by handler).
     shared_page: *mut libc::c_void,
     vcpu_fd: RawFd,
 }
@@ -62,13 +63,12 @@ impl std::fmt::Debug for ExitlessApfContext {
     }
 }
 
-// SAFETY: `ExitlessApfContext` holds a raw pointer (`shared_page`) to a memfd-backed mmap.
+// SAFETY: `ExitlessApfContext` holds a raw pointer (`shared_page`) to a vCPU-fd mmap.
 // Sending across threads is safe because:
-// - The mmap remains valid for the struct's lifetime: the backing `OwnedFd` (memfd) is owned
-//   by this struct, so the mapping cannot be freed while the struct exists.
+// - The mmap remains valid for the struct's lifetime and is explicitly unmapped in Drop.
 // - The VMM never reads or writes the shared page contents after setup — only the kernel
-//   and UFFD handler access the ring buffers via their own independent mmaps of the same memfd.
-// - The eventfds and memfd are plain file descriptors, which are Send.
+//   and UFFD handler access the ring buffers via independent mmaps of the vCPU fd.
+// - The eventfds and vCPU fd are plain file descriptors, which are Send.
 unsafe impl Send for ExitlessApfContext {}
 
 // SAFETY: Shared references are safe because:
@@ -78,6 +78,31 @@ unsafe impl Send for ExitlessApfContext {}
 //   and the handler writes the completion ring, synchronized by volatile head/tail indices.
 // - No `&self` method on this struct reads or writes through `shared_page`.
 unsafe impl Sync for ExitlessApfContext {}
+
+fn validate_shared_page(ptr: *mut libc::c_void) -> io::Result<()> {
+    // SAFETY: caller passes a valid shared-page mapping.
+    let header = ptr.cast::<u32>();
+    // SAFETY: the header starts with version, ring_size, entry_size.
+    let version = unsafe { std::ptr::read_volatile(header) };
+    // SAFETY: the header starts with version, ring_size, entry_size.
+    let ring_size = unsafe { std::ptr::read_volatile(header.add(1)) };
+    // SAFETY: the header starts with version, ring_size, entry_size.
+    let entry_size = unsafe { std::ptr::read_volatile(header.add(2)) };
+
+    if version != KVM_APF_SHARED_VERSION
+        || ring_size != KVM_APF_RING_SIZE
+        || entry_size != KVM_APF_RING_ENTRY_SIZE
+    {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            format!(
+                "unsupported APF shared page: version={version} ring_size={ring_size} entry_size={entry_size}"
+            ),
+        ));
+    }
+
+    Ok(())
+}
 
 impl ExitlessApfContext {
     /// Create a new exitless APF context for the given vCPU fd.
@@ -89,58 +114,66 @@ impl ExitlessApfContext {
         let page_size =
             usize::try_from(unsafe { libc::sysconf(libc::_SC_PAGESIZE) }).unwrap_or(4096);
 
-        // SAFETY: memfd_create with a valid C string and MFD_CLOEXEC is safe.
-        let raw_memfd = unsafe { libc::memfd_create(c"apf_shared".as_ptr(), libc::MFD_CLOEXEC) };
-        if raw_memfd < 0 {
+        let apf_eventfd = KvmApfEventfd {
+            fd: eventfd.as_raw_fd(),
+            complete_fd: complete_eventfd.as_raw_fd(),
+            flags: 0,
+            padding: 0,
+            reserved: [0; 2],
+        };
+
+        // SAFETY: ioctl on a valid vCPU fd with a properly initialized KvmApfEventfd struct.
+        let ret = unsafe { ioctl_with_ref(&vcpu_fd, KVM_SET_APF_EVENTFD(), &apf_eventfd) };
+        if ret < 0 {
             return Err(io::Error::last_os_error());
         }
-        // SAFETY: raw_memfd is a valid fd (checked >= 0 above) and we take sole ownership.
-        let memfd = unsafe { OwnedFd::from_raw_fd(raw_memfd) };
 
-        // SAFETY: ftruncate on a valid memfd with a small positive size is safe.
-        #[allow(clippy::cast_possible_wrap)]
-        if unsafe { libc::ftruncate(memfd.as_raw_fd(), page_size as libc::off_t) } < 0 {
-            return Err(io::Error::last_os_error());
-        }
-
-        // SAFETY: mmap with MAP_SHARED on a valid memfd, page-aligned size, is safe.
+        let page_offset = libc::off_t::try_from(page_size)
+            .map_err(|_| io::Error::from_raw_os_error(libc::EOVERFLOW))?;
+        let offset = KVM_APF_PAGE_OFFSET * page_offset;
+        // SAFETY: mmap with MAP_SHARED on a valid vCPU fd and APF page offset is safe.
         let ptr = unsafe {
             libc::mmap(
                 std::ptr::null_mut(),
                 page_size,
                 libc::PROT_READ | libc::PROT_WRITE,
                 libc::MAP_SHARED,
-                memfd.as_raw_fd(),
-                0,
+                vcpu_fd,
+                offset,
             )
         };
         if ptr == libc::MAP_FAILED {
-            return Err(io::Error::last_os_error());
-        }
-        // SAFETY: ptr is a valid mmap'd region of page_size bytes (checked != MAP_FAILED above).
-        unsafe { std::ptr::write_bytes(ptr.cast::<u8>(), 0, page_size) };
-
-        let apf_eventfd = KvmApfEventfd {
-            fd: eventfd.as_raw_fd(),
-            complete_fd: complete_eventfd.as_raw_fd(),
-            page_addr: ptr as u64,
-            flags: 0,
-            padding: 0,
-        };
-
-        // SAFETY: ioctl on a valid vCPU fd with a properly initialized KvmApfEventfd struct.
-        let ret = unsafe { ioctl_with_ref(&vcpu_fd, KVM_SET_APF_EVENTFD(), &apf_eventfd) };
-        if ret < 0 {
             let err = io::Error::last_os_error();
+            let dereg = KvmApfEventfd {
+                fd: -1,
+                complete_fd: -1,
+                flags: 0,
+                padding: 0,
+                reserved: [0; 2],
+            };
+            // SAFETY: best-effort deregistration on the vCPU fd.
+            unsafe { ioctl_with_ref(&vcpu_fd, KVM_SET_APF_EVENTFD(), &dereg) };
+            return Err(err);
+        }
+
+        if let Err(err) = validate_shared_page(ptr) {
             // SAFETY: ptr/page_size are from a successful mmap above.
             unsafe { libc::munmap(ptr, page_size) };
+            let dereg = KvmApfEventfd {
+                fd: -1,
+                complete_fd: -1,
+                flags: 0,
+                padding: 0,
+                reserved: [0; 2],
+            };
+            // SAFETY: best-effort deregistration on the vCPU fd.
+            unsafe { ioctl_with_ref(&vcpu_fd, KVM_SET_APF_EVENTFD(), &dereg) };
             return Err(err);
         }
 
         Ok(Self {
             eventfd,
             complete_eventfd,
-            memfd,
             shared_page: ptr,
             vcpu_fd,
         })
@@ -152,12 +185,12 @@ impl ExitlessApfContext {
     }
 
     /// Returns fds to send to the UFFD handler:
-    /// (notify_eventfd, complete_eventfd, shared_page_memfd)
+    /// (notify_eventfd, complete_eventfd, vcpu_fd_for_shared_page_mmap)
     pub fn fds_for_handler(&self) -> (RawFd, RawFd, RawFd) {
         (
             self.eventfd.as_raw_fd(),
             self.complete_eventfd.as_raw_fd(),
-            self.memfd.as_raw_fd(),
+            self.vcpu_fd,
         )
     }
 }
@@ -167,9 +200,9 @@ impl Drop for ExitlessApfContext {
         let dereg = KvmApfEventfd {
             fd: -1,
             complete_fd: -1,
-            page_addr: 0,
             flags: 0,
             padding: 0,
+            reserved: [0; 2],
         };
         // SAFETY: ioctl on a valid vCPU fd to deregister the eventfd (fd = -1).
         unsafe {
