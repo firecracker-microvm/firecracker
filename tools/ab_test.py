@@ -189,11 +189,15 @@ def uninteresting_dimensions(data):
 
 
 def collect_data(
-    tag: str, binary_dir: Path, artifacts: Optional[Path], pytest_opts: str
+    tag: str,
+    binary_dir: Path,
+    artifacts: Optional[Path],
+    pytest_opts: str,
+    iteration: int = 0,
 ):
     """
     Executes the specified test using the provided firecracker binaries and
-    stores results into the `test_results/tag` directory
+    stores results into the `test_results/tag/iteration` directory
     """
     binary_dir = binary_dir.resolve()
 
@@ -203,7 +207,7 @@ def collect_data(
         if artifacts
         else ""
     )
-    test_path = f"test_results/{tag}"
+    test_path = f"test_results/{tag}/{iteration}"
     test_report_path = f"{test_path}/test-report.json"
 
     # Cleaning the report directory, to ensure we start from a clean state.
@@ -411,11 +415,11 @@ def ab_performance_test(
         print(f"\n=== Iteration {i + 1}/{max_iterations} ===")
         # Changing the order or A and B executions across iterations, to avoid fluctuations caused by execution order
         if i % 2 == 0:
-            new_a = collect_data("A", a_directory, a_artifacts, pytest_opts)
-            new_b = collect_data("B", b_directory, b_artifacts, pytest_opts)
+            new_a = collect_data("A", a_directory, a_artifacts, pytest_opts, i)
+            new_b = collect_data("B", b_directory, b_artifacts, pytest_opts, i)
         else:
-            new_b = collect_data("B", b_directory, b_artifacts, pytest_opts)
-            new_a = collect_data("A", a_directory, a_artifacts, pytest_opts)
+            new_b = collect_data("B", b_directory, b_artifacts, pytest_opts, i)
+            new_a = collect_data("A", a_directory, a_artifacts, pytest_opts, i)
         merge_data(data_a, new_a)
         merge_data(data_b, new_b)
 
