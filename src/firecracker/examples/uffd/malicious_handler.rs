@@ -39,6 +39,6 @@ fn main() {
                 panic!("Fear me! I am the malicious page fault handler.")
             }
         },
-        |_uffd_handler: &mut UffdHandler, _offset: usize| {},
+        |_uffd_handler: &mut UffdHandler, _offset: usize, _len: usize| {},
     );
 }
