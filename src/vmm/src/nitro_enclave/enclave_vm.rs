@@ -11,6 +11,7 @@ use std::sync::Arc;
 use vm_memory::{Bytes, GuestAddress};
 
 use crate::logger::info;
+use crate::nitro_enclave::dmb::Dmb;
 use crate::nitro_enclave::info_page::InfoPage;
 use crate::nitro_enclave::ne_ioctl::{EnclaveFd, NitroEnclavesDevFd};
 use crate::utils::u64_to_usize;
@@ -277,13 +278,22 @@ impl EnclaveVm {
         self.guest_memory.as_ref()
     }
 
+    /// Allocate a Device Memory Buffer for a confidential-mode device.
+    ///
+    /// The DMB is a CMA-backed region from the NE driver's pool, shared with
+    /// the enclave so that virtqueue rings stay accessible to the parent while
+    /// the rest of the enclave RAM is isolated. See [`super::dmb::Dmb`].
+    pub fn create_dmb(&self, size_bytes: usize) -> Result<Dmb, EnclaveVmError> {
+        Dmb::new(&self.dev_fd, size_bytes)
+    }
+
     /// Wrap a (ptr, size, gpa) triple into a `GuestRegionMmapExt`.
     ///
     /// # Safety
     ///
     /// `ptr` must be valid for `size` bytes and must not be munmap'd for
     /// the lifetime of the returned region.
-    unsafe fn make_guest_region(
+    pub unsafe fn make_guest_region(
         ptr: *mut u8,
         size: usize,
         gpa: GuestAddress,
