@@ -217,7 +217,7 @@ def create_pdf(args, df: pd.DataFrame):
                         )
 
                         if (
-                            pvalue <= 0.1
+                            pvalue <= 0.01
                             and abs(diff_rel) >= 0.05
                             and abs(diff_abs) >= 0.0
                         ):
