@@ -178,6 +178,8 @@ pub use crate::vstate::vm::{StartVcpusError, Vm};
 /// Shorthand type for the EventManager flavour used by Firecracker.
 pub type EventManager = BaseEventManager<Arc<Mutex<dyn MutEventSubscriber>>>;
 
+const KVM_CAP_ASYNC_PF_USERFAULT_EVENTFD: u32 = 247;
+
 // Since the exit code names e.g. `SIGBUS` are most appropriate yet trigger a test error with the
 // clippy lint `upper_case_acronyms` we have disabled this lint for this enum.
 /// Vmm exit-code type.
@@ -729,7 +731,7 @@ impl Vmm {
     }
 
     /// Set up exitless APF - creates contexts in Firecracker (where the KVM ioctl works)
-    /// and sends eventfds + shared page memfds to the handler.
+    /// and sends eventfds + vCPU fds for shared-page mmap to the handler.
     pub fn setup_exitless_apf(&mut self) -> Result<(), VmmError> {
         use vmm_sys_util::sock_ctrl_msg::ScmSocket;
 
@@ -737,7 +739,16 @@ impl Vmm {
             return Ok(());
         }
 
-        if !self.apf_supported {
+        let exitless_supported = self.apf_supported
+            && self.vm.as_kvm().is_some_and(|vm| {
+                vm.common
+                    .kvm
+                    .fd
+                    .check_extension_raw(u64::from(KVM_CAP_ASYNC_PF_USERFAULT_EVENTFD))
+                    != 0
+            });
+
+        if !exitless_supported {
             // Tell the handler that exitless APF is not available
             if let Some(ref uffd_socket) = self.uffd_socket {
                 let msg = b"no_exitless_apf";
@@ -753,21 +764,29 @@ impl Vmm {
         let mut contexts = Vec::new();
         let mut handler_fds = Vec::new();
         for &vcpu_fd in &self.vcpu_fds {
-            let ctx = vstate::exitless_apf::ExitlessApfContext::new(vcpu_fd).map_err(|e| {
-                VmmError::ExitlessApfSetup(format!(
-                    "Failed to create context for vcpu fd {vcpu_fd}: {e}"
-                ))
-            })?;
-            let (notify_fd, complete_fd, memfd) = ctx.fds_for_handler();
+            let ctx = match vstate::exitless_apf::ExitlessApfContext::new(vcpu_fd) {
+                Ok(ctx) => ctx,
+                Err(e) => {
+                    if let Some(ref uffd_socket) = self.uffd_socket {
+                        let msg = b"no_exitless_apf";
+                        let _ = uffd_socket.stream().send_with_fds(&[&msg[..]], &[]);
+                    }
+                    self.exitless_apf_setup_done = true;
+                    return Err(VmmError::ExitlessApfSetup(format!(
+                        "Failed to create context for vcpu fd {vcpu_fd}: {e}"
+                    )));
+                }
+            };
+            let (notify_fd, complete_fd, vcpu_mmap_fd) = ctx.fds_for_handler();
             handler_fds.push(notify_fd);
             handler_fds.push(complete_fd);
-            handler_fds.push(memfd);
+            handler_fds.push(vcpu_mmap_fd);
             contexts.push(ctx);
         }
 
         // Send the fds to the handler: 3 fds per vCPU
         if let Some(ref uffd_socket) = self.uffd_socket {
-            let msg = format!("exitless_apf:{}", self.vcpu_fds.len());
+            let msg = format!("exitless_apf:{}", contexts.len());
             let n = uffd_socket
                 .stream()
                 .send_with_fds(&[msg.as_bytes()], &handler_fds)
@@ -791,7 +810,7 @@ impl Vmm {
             vcpu,
             offset: 0,
             flags: userfault_data.flags,
-            gpa: Some(userfault_data.gpa),
+            gpa: Some(userfault_data.page_gpa()),
         };
 
         self.uffd_socket
@@ -835,6 +854,7 @@ impl Vmm {
     }
 
     fn apf_ready_ioctl(&self, vcpu: usize, gpa: u64) {
+        let gpa = gpa & !((crate::arch::GUEST_PAGE_SIZE as u64) - 1);
         let apf_message = KvmAPFReq {
             gpa,
             op: KVM_APF_OP_READY,

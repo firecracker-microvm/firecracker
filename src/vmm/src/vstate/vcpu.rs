@@ -436,6 +436,7 @@ impl Vcpu {
         userfaultfd_data: UserfaultData,
     ) -> Result<VcpuEmulation, VcpuError> {
         let is_async_pf = userfaultfd_data.flags & KVM_MEMORY_EXIT_FLAG_APF != 0;
+        let gpa = userfaultfd_data.page_gpa();
 
         if is_async_pf {
             // Exitless ring was full — kernel fell back to a vCPU exit.
@@ -446,7 +447,7 @@ impl Vcpu {
                     vcpu: self.kvm_vcpu.index as u32,
                     offset: 0,
                     flags: userfaultfd_data.flags,
-                    gpa: Some(userfaultfd_data.gpa),
+                    gpa: Some(gpa),
                 };
                 if let Err(e) = stream
                     .lock()
@@ -458,7 +459,7 @@ impl Vcpu {
             }
 
             let req = crate::vstate::memory::KvmAPFReq {
-                gpa: userfaultfd_data.gpa,
+                gpa,
                 op: crate::vstate::memory::KVM_APF_OP_ACCEPT,
                 flags: 0,
                 reserved: [0; 2],

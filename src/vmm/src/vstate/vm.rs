@@ -27,7 +27,7 @@ use vmm_sys_util::ioctl::ioctl_with_ref;
 use vmm_sys_util::terminal::Terminal;
 use vmm_sys_util::{errno, ioctl_iow_nr};
 
-use crate::arch::{GSI_MSI_END, host_page_size};
+use crate::arch::{GSI_MSI_END, GUEST_PAGE_SIZE, host_page_size};
 pub use crate::arch::{KvmVm, KvmVmError, VmState};
 use crate::logger::{debug, info};
 use crate::persist::CreateSnapshotError;
@@ -93,6 +93,13 @@ pub struct UserfaultData {
     pub gpa: u64,
     /// Size
     pub size: u64,
+}
+
+impl UserfaultData {
+    /// Return the guest page containing the fault address.
+    pub fn page_gpa(&self) -> u64 {
+        self.gpa & !((GUEST_PAGE_SIZE as u64) - 1)
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize)]
