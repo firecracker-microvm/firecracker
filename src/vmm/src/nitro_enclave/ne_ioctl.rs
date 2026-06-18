@@ -250,6 +250,21 @@ pub struct NeInfoEventFd {
     pub reserved: u16,
 }
 
+/// NE_ACCOUNT_VCPU ioctl payload (`struct ne_account_vcpu_params`, 8 bytes).
+///
+/// Binds the calling thread (task) to an enclave vCPU so the NE driver can
+/// attribute that vCPU's KVM_RUN time to the task (Parent-PID visibility).
+#[repr(C)]
+#[derive(Debug, Default, Clone, Copy)]
+pub struct NeAccountVcpuParams {
+    /// Zero-based enclave vCPU index to bind the caller task to.
+    pub vcpu_idx: u32,
+    /// Reserved, must be zero.
+    pub reserved: u32,
+}
+
+const _: () = assert!(std::mem::size_of::<NeAccountVcpuParams>() == 8);
+
 // ---------------------------------------------------------------------------
 // Ioctl number definitions (vmm_sys_util macros, must follow struct defs)
 // ---------------------------------------------------------------------------
@@ -284,6 +299,8 @@ mod ne_ioctls {
     ioctl_iow_nr!(NE_SET_VRING_KICK, NE_MAGIC, 0x28, NeVringKick);
     // Read matched-flag subset the hypervisor implements (device fd, not enclave fd).
     ioctl_ior_nr!(NE_GET_SUPPORTED_FLAGS, NE_MAGIC, 0x29, u32);
+    // Register the calling thread as an enclave vCPU's host-side accounting target.
+    ioctl_iow_nr!(NE_ACCOUNT_VCPU, NE_MAGIC, 0x2A, NeAccountVcpuParams);
     // Wire an eventfd to a per-device info-event MSI-X vector.
     ioctl_iow_nr!(NE_SET_INFO_EVENT_FD, NE_MAGIC, 0x2B, NeInfoEventFd);
     // Atomically pick and add a vCPU from the kernel NE CPU pool.
@@ -631,6 +648,25 @@ impl EnclaveFd {
         }
         Ok(())
     }
+
+    /// Register the calling thread as the host-side accounting target for
+    /// enclave vCPU `vcpu_idx` (Parent-PID visibility).
+    ///
+    /// Only valid on an enclave created with `NE_ENCLAVE_CPU_ACCOUNTING_MODE`,
+    /// after `NE_START_ENCLAVE`. The NE driver then attributes the vCPU's guest
+    /// time to the calling thread, so it shows up as that thread's guest time.
+    pub fn account_vcpu(&self, vcpu_idx: u32) -> std::io::Result<()> {
+        let mut params = NeAccountVcpuParams {
+            vcpu_idx,
+            reserved: 0,
+        };
+        // SAFETY: NE_ACCOUNT_VCPU ioctl on a valid enclave fd.
+        let ret = unsafe { ioctl_with_mut_ref(&self.fd, NE_ACCOUNT_VCPU(), &mut params) };
+        if ret < 0 {
+            return Err(std::io::Error::last_os_error());
+        }
+        Ok(())
+    }
 }
 
 impl AsRawFd for NitroEnclavesDevFd {
@@ -642,5 +678,17 @@ impl AsRawFd for NitroEnclavesDevFd {
 impl AsRawFd for EnclaveFd {
     fn as_raw_fd(&self) -> RawFd {
         self.fd.as_raw_fd()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::ne_ioctls::NE_ACCOUNT_VCPU;
+
+    #[test]
+    fn test_ne_account_vcpu_ioctl_value() {
+        // _IOW(0xAE, 0x2A, 8) = (1<<30) | (8<<16) | (0xAE<<8) | 0x2A.
+        // One less than NE_SET_INFO_EVENT_FD (1074310699).
+        assert_eq!(NE_ACCOUNT_VCPU(), 1074310698);
     }
 }
