@@ -9,14 +9,7 @@ from pathlib import Path
 import pytest
 from tenacity import Retrying, retry_if_exception_type, stop_after_delay, wait_fixed
 
-from framework.ne_host import (
-    _find_initrd,
-    _find_kernel,
-    _find_rootfs,
-    _get_ne_cpus,
-    _is_ne_dynamic,
-    requires_enclave,
-)
+from framework.ne_host import _find_initrd, _find_kernel, _find_rootfs, requires_enclave
 from framework.utils_vsock import (
     ECHO_SERVER_PORT,
     VSOCK_UDS_PATH,
@@ -55,6 +48,7 @@ def test_enclave_config_api(microvm_factory, direct_mode):
     vm.api.enclave.put(
         debug_mode=True,
         direct_mode=direct_mode,
+        cpu_overcommit=True,
     )
 
     # GET /enclave should reflect the config
@@ -62,6 +56,7 @@ def test_enclave_config_api(microvm_factory, direct_mode):
     config = response.json()
     assert config["debug_mode"] is True
     assert config["direct_mode"] is direct_mode
+    assert config["cpu_overcommit"] is True
 
 
 # ---------------------------------------------------------------------------
@@ -87,15 +82,9 @@ def test_enclave_boot(microvm_factory, tmp_path, direct_mode):
     if not initrd:
         pytest.skip("No initramfs found in artifacts (needed for EIF build)")
 
-    # In dynamic mode the kernel auto-selects CPUs; in static mode use the pool.
+    # Enclave tests assume the NE CPU pool is in dynamic mode, so the kernel
+    # auto-selects the enclave's vCPUs (no explicit cpu_ids).
     vcpu_count = 2
-    if _is_ne_dynamic():
-        cpu_ids = None
-    else:
-        ne_cpus = _get_ne_cpus()
-        if len(ne_cpus) < vcpu_count:
-            pytest.skip(f"Not enough NE CPUs: need {vcpu_count}, have {len(ne_cpus)}")
-        cpu_ids = ne_cpus[:vcpu_count]
 
     vm = microvm_factory.build(kernel=kernel)
     vm.spawn(validate_api=False)
@@ -123,9 +112,8 @@ def test_enclave_boot(microvm_factory, tmp_path, direct_mode):
     enclave_kwargs = {
         "debug_mode": True,
         "direct_mode": direct_mode,
+        "cpu_overcommit": True,
     }
-    if cpu_ids:
-        enclave_kwargs["cpu_ids"] = cpu_ids
     vm.api.enclave.put(**enclave_kwargs)
     vm.api.actions.put(action_type="InstanceStart")
 
@@ -177,24 +165,18 @@ def test_enclave_config_file_boot(microvm_factory, direct_mode):
     if not initrd:
         pytest.skip("No initramfs found in artifacts (needed for EIF build)")
 
-    if _is_ne_dynamic():
-        cpu_ids = None
-        vcpu_count = 2
-    else:
-        ne_cpus = _get_ne_cpus()
-        if len(ne_cpus) < 2:
-            pytest.skip(f"Not enough NE CPUs: need 2, have {len(ne_cpus)}")
-        cpu_ids = ne_cpus[:2]
-        vcpu_count = len(cpu_ids)
+    vcpu_count = 2
 
     vm = microvm_factory.build(kernel=kernel)
 
     jailed_kernel = vm.create_jailed_resource(kernel)
     jailed_initrd = vm.create_jailed_resource(initrd)
 
-    enclave_cfg = {"debug_mode": True, "direct_mode": direct_mode}
-    if cpu_ids:
-        enclave_cfg["cpu_ids"] = cpu_ids
+    enclave_cfg = {
+        "debug_mode": True,
+        "direct_mode": direct_mode,
+        "cpu_overcommit": True,
+    }
 
     config = {
         "boot-source": {
@@ -238,12 +220,17 @@ def test_enclave_config_file_boot(microvm_factory, direct_mode):
 
 @requires_enclave
 @enclave_modes
-def test_enclave_ssh(microvm_factory, direct_mode):
+@pytest.mark.parametrize(
+    "cpu_overcommit", [True, False], ids=["overcommit", "dedicated"]
+)
+def test_enclave_ssh(microvm_factory, direct_mode, cpu_overcommit):
     """Boot an enclave with block + net devices and verify SSH works.
 
     This exercises the full NE transport path: NE_ADD_DEVICE for block and net,
     info-event DRIVER_OK detection, device activation, and end-to-end I/O. In
     confidential mode the block and net queues run through per-device DMBs.
+    Parametrized over both memory-isolation mode (confidential/direct) and CPU
+    overcommit (floating vCPUs) vs dedicated cores.
     """
     kernel = _find_kernel()
     rootfs = _find_rootfs()
@@ -252,15 +239,7 @@ def test_enclave_ssh(microvm_factory, direct_mode):
     if not rootfs:
         pytest.skip("No rootfs found in artifacts")
 
-    if _is_ne_dynamic():
-        cpu_ids = None
-        vcpu_count = 2
-    else:
-        ne_cpus = _get_ne_cpus()
-        if len(ne_cpus) < 2:
-            pytest.skip(f"Not enough NE CPUs: need 2, have {len(ne_cpus)}")
-        cpu_ids = ne_cpus[:2]
-        vcpu_count = len(cpu_ids)
+    vcpu_count = 2
 
     vm = microvm_factory.build(kernel=kernel, rootfs=rootfs)
     vm.spawn(validate_api=False)
@@ -290,9 +269,11 @@ def test_enclave_ssh(microvm_factory, direct_mode):
     )
 
     # Configure enclave mode.
-    enclave_kwargs = {"debug_mode": True, "direct_mode": direct_mode}
-    if cpu_ids:
-        enclave_kwargs["cpu_ids"] = cpu_ids
+    enclave_kwargs = {
+        "debug_mode": True,
+        "direct_mode": direct_mode,
+        "cpu_overcommit": cpu_overcommit,
+    }
     vm.api.enclave.put(**enclave_kwargs)
 
     # Start the enclave.
@@ -327,15 +308,7 @@ def test_enclave_vsock(microvm_factory, direct_mode):
     if not rootfs:
         pytest.skip("No rootfs found in artifacts")
 
-    if _is_ne_dynamic():
-        cpu_ids = None
-        vcpu_count = 2
-    else:
-        ne_cpus = _get_ne_cpus()
-        if len(ne_cpus) < 2:
-            pytest.skip(f"Not enough NE CPUs: need 2, have {len(ne_cpus)}")
-        cpu_ids = ne_cpus[:2]
-        vcpu_count = len(cpu_ids)
+    vcpu_count = 2
 
     vm = microvm_factory.build(kernel=kernel, rootfs=rootfs)
     vm.spawn(validate_api=False)
@@ -357,9 +330,11 @@ def test_enclave_vsock(microvm_factory, direct_mode):
 
     vm.api.boot.put(kernel_image_path=vm.create_jailed_resource(kernel))
 
-    enclave_kwargs = {"debug_mode": True, "direct_mode": direct_mode}
-    if cpu_ids:
-        enclave_kwargs["cpu_ids"] = cpu_ids
+    enclave_kwargs = {
+        "debug_mode": True,
+        "direct_mode": direct_mode,
+        "cpu_overcommit": True,
+    }
     vm.api.enclave.put(**enclave_kwargs)
 
     vm.api.actions.put(action_type="InstanceStart")
@@ -402,15 +377,7 @@ def test_enclave_many_devices(microvm_factory, direct_mode):
     if not rootfs:
         pytest.skip("No rootfs found in artifacts")
 
-    if _is_ne_dynamic():
-        cpu_ids = None
-        vcpu_count = 2
-    else:
-        ne_cpus = _get_ne_cpus()
-        if len(ne_cpus) < 2:
-            pytest.skip(f"Not enough NE CPUs: need 2, have {len(ne_cpus)}")
-        cpu_ids = ne_cpus[:2]
-        vcpu_count = len(cpu_ids)
+    vcpu_count = 2
 
     vm = microvm_factory.build(kernel=kernel, rootfs=rootfs)
     vm.spawn(validate_api=False)
@@ -432,9 +399,11 @@ def test_enclave_many_devices(microvm_factory, direct_mode):
 
     vm.api.boot.put(kernel_image_path=vm.create_jailed_resource(kernel))
 
-    enclave_kwargs = {"debug_mode": True, "direct_mode": direct_mode}
-    if cpu_ids:
-        enclave_kwargs["cpu_ids"] = cpu_ids
+    enclave_kwargs = {
+        "debug_mode": True,
+        "direct_mode": direct_mode,
+        "cpu_overcommit": True,
+    }
     vm.api.enclave.put(**enclave_kwargs)
 
     vm.api.actions.put(action_type="InstanceStart")
