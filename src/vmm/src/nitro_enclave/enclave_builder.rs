@@ -135,8 +135,11 @@ pub fn build_and_boot_enclave(
         .ok_or(EnclaveBuilderError::NoBootSource)?;
     let kernel_path = &vm_resources.boot_source.config.kernel_image_path;
 
-    let required_matched = ne_ioctl::start_flags::NE_ENCLAVE_PCIE_MODE
+    let mut required_matched = ne_ioctl::start_flags::NE_ENCLAVE_PCIE_MODE
         | ne_ioctl::start_flags::NE_ENCLAVE_PCIE_VIRTIO_MODE;
+    if enclave_config.cpu_overcommit {
+        required_matched |= ne_ioctl::start_flags::NE_ENCLAVE_CPU_OVERCOMMIT_MODE;
+    }
     // Matched flags live in bits 6-15, guaranteed to fit in u16 by the mask.
     #[allow(clippy::cast_possible_truncation)]
     let pcie_flags =
@@ -190,9 +193,11 @@ pub fn build_and_boot_enclave(
 
     let mut enclave_vm = EnclaveVm::new(dev_fd, create_flags)?;
     info!(
-        "Enclave VM created: slot_uid={}, direct_mode={}, create_flags=0x{:x}",
+        "Enclave VM created: slot_uid={}, direct_mode={}, cpu_overcommit={}, \
+         create_flags=0x{:x}",
         enclave_vm.slot_uid(),
         enclave_config.direct_mode,
+        enclave_config.cpu_overcommit,
         create_flags
     );
 

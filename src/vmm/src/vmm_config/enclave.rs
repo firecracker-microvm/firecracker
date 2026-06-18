@@ -52,6 +52,12 @@ pub struct EnclaveConfig {
     /// `None` -> use the built-in default. Ignored in direct mode.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub dmb_size_mib: Option<u64>,
+    /// Enable CPU overcommit mode.
+    ///
+    /// Host-scheduled (floating) vCPUs sharing the parent's overcommit pool,
+    /// instead of dedicated pinned cores from the NE CPU pool.
+    #[serde(default)]
+    pub cpu_overcommit: bool,
 }
 
 impl EnclaveConfig {
@@ -96,6 +102,7 @@ mod tests {
         // Confidential is the default mode.
         assert!(!config.direct_mode);
         assert_eq!(config.dmb_size_mib, None);
+        assert!(!config.cpu_overcommit);
     }
 
     #[test]
@@ -105,6 +112,7 @@ mod tests {
             debug_mode: true,
             direct_mode: true,
             dmb_size_mib: Some(8),
+            cpu_overcommit: true,
         };
         let json = serde_json::to_string(&config).unwrap();
         let deserialized: EnclaveConfig = serde_json::from_str(&json).unwrap();
@@ -120,6 +128,7 @@ mod tests {
         // Omitted fields default to confidential mode with the built-in DMB size.
         assert!(!config.direct_mode);
         assert_eq!(config.dmb_size_mib, None);
+        assert!(!config.cpu_overcommit);
     }
 
     #[test]
@@ -186,5 +195,12 @@ mod tests {
             ..Default::default()
         };
         config.validate().unwrap();
+    }
+
+    #[test]
+    fn test_enclave_config_cpu_overcommit_json() {
+        let json = r#"{"cpu_overcommit": true}"#;
+        let config: EnclaveConfig = serde_json::from_str(json).unwrap();
+        assert!(config.cpu_overcommit);
     }
 }
