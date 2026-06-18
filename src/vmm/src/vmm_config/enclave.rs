@@ -58,6 +58,12 @@ pub struct EnclaveConfig {
     /// instead of dedicated pinned cores from the NE CPU pool.
     #[serde(default)]
     pub cpu_overcommit: bool,
+    /// Enable CPU accounting mode.
+    ///
+    /// Host-side per-vCPU time accounting (Parent-PID visibility): the NE
+    /// driver attributes each vCPU's guest time to a parent-side thread.
+    #[serde(default)]
+    pub cpu_accounting: bool,
 }
 
 impl EnclaveConfig {
@@ -103,6 +109,7 @@ mod tests {
         assert!(!config.direct_mode);
         assert_eq!(config.dmb_size_mib, None);
         assert!(!config.cpu_overcommit);
+        assert!(!config.cpu_accounting);
     }
 
     #[test]
@@ -113,6 +120,7 @@ mod tests {
             direct_mode: true,
             dmb_size_mib: Some(8),
             cpu_overcommit: true,
+            cpu_accounting: true,
         };
         let json = serde_json::to_string(&config).unwrap();
         let deserialized: EnclaveConfig = serde_json::from_str(&json).unwrap();
@@ -129,6 +137,7 @@ mod tests {
         assert!(!config.direct_mode);
         assert_eq!(config.dmb_size_mib, None);
         assert!(!config.cpu_overcommit);
+        assert!(!config.cpu_accounting);
     }
 
     #[test]
@@ -202,5 +211,12 @@ mod tests {
         let json = r#"{"cpu_overcommit": true}"#;
         let config: EnclaveConfig = serde_json::from_str(json).unwrap();
         assert!(config.cpu_overcommit);
+    }
+
+    #[test]
+    fn test_enclave_config_cpu_accounting_json() {
+        let json = r#"{"cpu_accounting": true}"#;
+        let config: EnclaveConfig = serde_json::from_str(json).unwrap();
+        assert!(config.cpu_accounting);
     }
 }
