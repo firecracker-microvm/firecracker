@@ -38,6 +38,11 @@ pub mod start_flags {
     pub const NE_ENCLAVE_PCIE_HOTPLUG_MODE: u64 = 1 << 8;
     /// Permissive virtio PCIe: any virtio subtype may be attached (matched, bit 9).
     pub const NE_ENCLAVE_PCIE_VIRTIO_MODE: u64 = 1 << 9;
+    /// Host-scheduled (floating) vCPUs sharing the parent's overcommit pool,
+    /// instead of dedicated pinned cores (matched, bit 11).
+    pub const NE_ENCLAVE_CPU_OVERCOMMIT_MODE: u64 = 1 << 11;
+    /// Host-side per-vCPU time accounting / Parent-PID visibility (matched, bit 12).
+    pub const NE_ENCLAVE_CPU_ACCOUNTING_MODE: u64 = 1 << 12;
     /// Mask of unmatched flags (low 6 bits).
     pub const NE_ENCLAVE_FLAG_UNMATCHED_MASK: u64 = 0x003F;
     /// Mask of matched flags (must equal EIF header matched bits at START).
