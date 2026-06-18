@@ -1,12 +1,10 @@
 // Copyright 2023 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-use std::convert::Infallible;
-
 use bitvec::vec::BitVec;
 use serde::{Deserialize, Serialize};
+use vm_allocator::AddressAllocator;
 pub use vm_allocator::AllocPolicy;
-use vm_allocator::{AddressAllocator, IdAllocator};
 
 use crate::arch;
 use crate::snapshot::Persist;
@@ -41,7 +39,7 @@ fn allocate_many_ids(
 /// * GSIs for legacy x86_64 devices
 /// * GSIs for MMIO devicecs
 /// * Memory allocations in the MMIO address space
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone)]
 pub struct ResourceAllocator {
     /// Allocator for legacy device interrupt lines
     pub gsi_legacy_allocator: IdAllocator,
@@ -111,20 +109,57 @@ impl ResourceAllocator {
     }
 }
 
+/// Serializable state for the resource allocator.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ResourceAllocatorState {
+    /// Allocator for legacy device interrupt lines
+    pub gsi_legacy_allocator: IdAllocator,
+    /// Allocator for memory in the 32-bit MMIO address space
+    pub mmio32_memory: AddressAllocator,
+    /// Allocator for memory in the 64-bit MMIO address space
+    pub mmio64_memory: AddressAllocator,
+    /// Allocator for memory after the 64-bit MMIO address space
+    pub past_mmio64_memory: AddressAllocator,
+    /// Memory allocator for system data
+    pub system_memory: AddressAllocator,
+}
+
+impl Default for ResourceAllocatorState {
+    fn default() -> Self {
+        ResourceAllocator::new().save()
+    }
+}
+
 impl<'a> Persist<'a> for ResourceAllocator {
-    type State = ResourceAllocator;
+    type State = ResourceAllocatorState;
     type ConstructorArgs = ();
-    type Error = Infallible;
+    type Error = vm_allocator::Error;
 
     fn save(&self) -> Self::State {
-        self.clone()
+        ResourceAllocatorState {
+            gsi_legacy_allocator: self.gsi_legacy_allocator.clone(),
+            mmio32_memory: self.mmio32_memory.clone(),
+            mmio64_memory: self.mmio64_memory.clone(),
+            past_mmio64_memory: self.past_mmio64_memory.clone(),
+            system_memory: self.system_memory.clone(),
+        }
     }
 
     fn restore(
         _constructor_args: Self::ConstructorArgs,
         state: &Self::State,
     ) -> Result<Self, Self::Error> {
-        Ok(state.clone())
+        Ok(ResourceAllocator {
+            gsi_legacy_allocator: state.gsi_legacy_allocator.clone(),
+            gsi_msi_allocator: IdAllocator::new(arch::GSI_MSI_START, arch::GSI_MSI_END)?,
+            mmio32_memory: state.mmio32_memory.clone(),
+            mmio64_memory: state.mmio64_memory.clone(),
+            past_mmio64_memory: state.past_mmio64_memory.clone(),
+            system_memory: state.system_memory.clone(),
+        })
+    }
+}
+
 /// An unique ID allocator that allows management of IDs in a given interval.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct IdAllocator {
@@ -229,8 +264,9 @@ impl IdAllocator {
 #[cfg(test)]
 mod tests {
     mod resource_allocator {
-        use super::super::ResourceAllocator;
+        use super::super::{AllocPolicy, ResourceAllocator};
         use crate::arch::{self, GSI_LEGACY_NUM, GSI_MSI_NUM};
+        use crate::snapshot::Persist;
 
         #[test]
         fn test_allocate_irq() {
@@ -318,6 +354,32 @@ mod tests {
                 assert_eq!(allocator.allocate_gsi_msi(1), Ok(vec![i]));
             }
         }
+
+        #[test]
+        fn test_persist_omits_msi_gsi_allocator() {
+            let mut allocator = ResourceAllocator::new();
+
+            let legacy_gsi = allocator.allocate_gsi_legacy(1).unwrap()[0];
+            let msi_gsi = allocator.allocate_gsi_msi(1).unwrap()[0];
+            let mmio_range = allocator
+                .mmio32_memory
+                .allocate(1024, 1024, AllocPolicy::FirstMatch)
+                .unwrap();
+
+            let state = allocator.save();
+            let mut restored = ResourceAllocator::restore((), &state).unwrap();
+
+            // Legacy GSIs and MMIO ranges are serialized, so their allocations survive restore.
+            assert_eq!(restored.allocate_gsi_legacy(1).unwrap()[0], legacy_gsi + 1);
+            restored
+                .mmio32_memory
+                .allocate(1024, 1024, AllocPolicy::ExactMatch(mmio_range.start()))
+                .unwrap_err();
+
+            // MSI GSIs are intentionally omitted from ResourceAllocatorState and replayed by the
+            // restored PCI devices, so the allocator starts empty after restore.
+            assert_eq!(restored.allocate_gsi_msi(1).unwrap()[0], msi_gsi);
+        }
     }
 
     mod id_allocator {
@@ -339,7 +401,7 @@ mod tests {
             assert_eq!(legacy_irq_allocator.allocate_id().unwrap(), 6);
 
             for _ in 2..19 {
-                assert!(legacy_irq_allocator.allocate_id().is_ok());
+                legacy_irq_allocator.allocate_id().unwrap();
             }
 
             assert_eq!(
@@ -354,7 +416,6 @@ mod tests {
             assert_eq!(allocator.allocate_id().unwrap(), u32::MAX - 1);
             assert_eq!(allocator.allocate_id().unwrap(), u32::MAX);
             let res = allocator.allocate_id();
-            assert!(res.is_err());
             assert_eq!(res.unwrap_err(), Error::ResourceNotAvailable);
         }
 

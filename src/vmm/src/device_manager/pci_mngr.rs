@@ -636,6 +636,7 @@ mod tests {
     use crate::vmm_config::net::NetworkInterfaceConfig;
     use crate::vmm_config::pmem::PmemConfig;
     use crate::vmm_config::vsock::VsockDeviceConfig;
+    use crate::vstate::resources::ResourceAllocator;
 
     #[test]
     fn test_device_manager_persistence() {
@@ -729,7 +730,7 @@ mod tests {
 
             let device_state = vmm.device_manager.save();
             serialized_data = bitcode::serialize(&device_state).unwrap();
-            saved_allocator = vmm.vm.as_kvm().unwrap().resource_allocator().clone()
+            saved_allocator = vmm.vm.as_kvm().unwrap().resource_allocator().save()
         }
 
         tmp_sock_file.remove().unwrap();
@@ -742,7 +743,8 @@ mod tests {
         let vmm = default_vmm();
         // Restore the source allocator's state so the restored devices' GSIs match what their
         // `MsixVectorGroup::Drop` will try to free at end-of-test.
-        *vmm.vm.as_kvm().unwrap().resource_allocator() = saved_allocator;
+        *vmm.vm.as_kvm().unwrap().resource_allocator() =
+            ResourceAllocator::restore((), &saved_allocator).unwrap();
 
         let device_manager_state: device_manager::DevicesState =
             bitcode::deserialize(&serialized_data).unwrap();
