@@ -11,6 +11,7 @@ use std::sync::Arc;
 use vm_memory::{Bytes, GuestAddress};
 
 use crate::logger::info;
+use crate::nitro_enclave::cpu_accounting::AccountingThreads;
 use crate::nitro_enclave::dmb::Dmb;
 use crate::nitro_enclave::info_page::InfoPage;
 use crate::nitro_enclave::ne_ioctl::{EnclaveFd, NitroEnclavesDevFd};
@@ -62,6 +63,11 @@ pub enum EnclaveVmError {
 /// Provides methods to create the VM, add vCPUs, allocate CMA memory,
 /// load the EIF image, and start the enclave.
 pub struct EnclaveVm {
+    /// CPU-accounting threads (Parent-PID visibility); `Some` only when the
+    /// enclave was created with `NE_ENCLAVE_CPU_ACCOUNTING_MODE`. Declared
+    /// before `enclave_fd` so field-order drop stops and joins the threads
+    /// before the enclave fd closes.
+    accounting_threads: Option<AccountingThreads>,
     /// NE device fd (`/dev/nitro_enclaves`).
     dev_fd: NitroEnclavesDevFd,
     /// Enclave instance fd from `NE_CREATE_VM2`.
@@ -144,6 +150,7 @@ impl EnclaveVm {
             .map_err(EnclaveVmError::CreateVm)?;
 
         Ok(Self {
+            accounting_threads: None,
             dev_fd,
             enclave_fd,
             slot_uid,
@@ -155,6 +162,12 @@ impl EnclaveVm {
     /// Slot UID assigned by the hypervisor.
     pub fn slot_uid(&self) -> u64 {
         self.slot_uid
+    }
+
+    /// Retain the CPU-accounting threads so they are stopped and joined when
+    /// the enclave VM is dropped.
+    pub fn set_accounting_threads(&mut self, threads: AccountingThreads) {
+        self.accounting_threads = Some(threads);
     }
 
     /// Add a specific vCPU to the enclave by CPU ID.

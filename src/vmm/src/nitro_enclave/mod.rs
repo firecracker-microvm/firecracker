@@ -1,6 +1,7 @@
 // Copyright 2026 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
+pub mod cpu_accounting;
 pub mod dmb;
 pub mod eif;
 pub mod enclave_builder;
