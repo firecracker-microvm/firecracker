@@ -24,6 +24,7 @@ from pathlib import Path
 from socket import timeout as SocketTimeout
 
 import pytest
+from tenacity import Retrying, stop_after_delay, wait_fixed
 
 from framework.artifacts import (
     ACPI_GUEST_KERNELS,
@@ -276,9 +277,13 @@ def test_vsock_transport_reset_g2h(vsock_uvm, microvm_factory):
         )
 
         try:
-            # Give some time for host socat to create socket
-            time.sleep(0.5)
-            assert Path(host_socket_path).exists()
+            # Waiting for the host socat to create socket
+            for attempt in Retrying(
+                wait=wait_fixed(0.1), stop=stop_after_delay(1.0), reraise=True
+            ):
+                with attempt:
+                    assert Path(host_socket_path).exists()
+
             new_vm.create_jailed_resource(host_socket_path)
 
             # Create a socat process in the guest which will connect to the host socat
@@ -295,12 +300,14 @@ def test_vsock_transport_reset_g2h(vsock_uvm, microvm_factory):
             snapshot = new_vm.snapshot_full()
             new_vm.resume()
 
-            # Give some time for guest socat to detect closed socket
-            time.sleep(0.1)
-
-            # After `create_snapshot` + 'resume' calls, connection should be dropped
-            code, _, _ = new_vm.ssh.run("pidof socat")
-            assert code == 1
+            # Note: it might take some time for guest socat to detect closed socket
+            for attempt in Retrying(
+                wait=wait_fixed(0.1), stop=stop_after_delay(1.0), reraise=True
+            ):
+                with attempt:
+                    # After `create_snapshot` + 'resume' calls, connection should be dropped
+                    code, _, _ = new_vm.ssh.run("pidof socat")
+                    assert code == 1
         finally:
             # Kill host socat as it is not useful anymore. Done in `finally`
             # so that an assertion failure earlier in the iteration does not
