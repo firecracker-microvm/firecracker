@@ -12,6 +12,7 @@ use event_manager::SubscriberOps;
 
 use crate::device_manager::DeviceManager;
 use crate::logger::info;
+use crate::nitro_enclave::cpu_accounting::AccountingThreads;
 use crate::nitro_enclave::eif;
 use crate::nitro_enclave::enclave_vm::EnclaveVm;
 use crate::nitro_enclave::ne_ioctl;
@@ -64,6 +65,8 @@ pub enum EnclaveBuilderError {
     GetSupportedFlags(std::io::Error),
     /// Failed to attach enclave device: {0}
     AttachDevice(crate::device_manager::nitro_enclave::NeDeviceError),
+    /// Failed to start CPU-accounting threads: {0}
+    Accounting(#[from] crate::nitro_enclave::cpu_accounting::AccountingError),
 }
 
 /// Resolve the kernel command line for the enclave.
@@ -269,6 +272,19 @@ pub fn build_and_boot_enclave(
             .map_err(EnclaveBuilderError::Console)?;
         event_manager.add_subscriber(Arc::new(Mutex::new(console)));
         info!("Serial console reader started");
+    }
+
+    // CPU accounting (Parent-PID visibility): spawn one thread per enclave vCPU
+    // that binds itself via NE_ACCOUNT_VCPU so the NE driver attributes that
+    // vCPU's guest time to it. Gated strictly on cpu_accounting (NOT
+    // cpu_overcommit) — the ioctl is only valid on a CPU_ACCOUNTING enclave.
+    // Failures are fatal: the threads' handshake reports per-vCPU binding
+    // errors and `?` aborts the launch.
+    if enclave_config.cpu_accounting {
+        let threads = AccountingThreads::spawn(enclave_vm.enclave_fd(), vcpu_count)?;
+        info!("Spawned {vcpu_count} CPU-accounting threads");
+        // Owned by the EnclaveVm so they are stopped + joined on its drop.
+        enclave_vm.set_accounting_threads(threads);
     }
 
     let vmm = Vmm {

@@ -483,6 +483,13 @@ impl EnclaveFd {
         Self { fd }
     }
 
+    /// Duplicate the enclave fd (a new fd referring to the same open enclave).
+    pub fn try_clone(&self) -> std::io::Result<Self> {
+        Ok(Self {
+            fd: self.fd.try_clone()?,
+        })
+    }
+
     /// Add a specific vCPU to the enclave by CPU ID.
     ///
     /// Use this when explicit `cpu_ids` are configured. Returns the actual
