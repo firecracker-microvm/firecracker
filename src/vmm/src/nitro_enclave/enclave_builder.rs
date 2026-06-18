@@ -140,6 +140,9 @@ pub fn build_and_boot_enclave(
     if enclave_config.cpu_overcommit {
         required_matched |= ne_ioctl::start_flags::NE_ENCLAVE_CPU_OVERCOMMIT_MODE;
     }
+    if enclave_config.cpu_accounting {
+        required_matched |= ne_ioctl::start_flags::NE_ENCLAVE_CPU_ACCOUNTING_MODE;
+    }
     // Matched flags live in bits 6-15, guaranteed to fit in u16 by the mask.
     #[allow(clippy::cast_possible_truncation)]
     let pcie_flags =
@@ -194,10 +197,11 @@ pub fn build_and_boot_enclave(
     let mut enclave_vm = EnclaveVm::new(dev_fd, create_flags)?;
     info!(
         "Enclave VM created: slot_uid={}, direct_mode={}, cpu_overcommit={}, \
-         create_flags=0x{:x}",
+         cpu_accounting={}, create_flags=0x{:x}",
         enclave_vm.slot_uid(),
         enclave_config.direct_mode,
         enclave_config.cpu_overcommit,
+        enclave_config.cpu_accounting,
         create_flags
     );
 

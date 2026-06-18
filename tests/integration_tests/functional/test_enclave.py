@@ -49,6 +49,7 @@ def test_enclave_config_api(microvm_factory, direct_mode):
         debug_mode=True,
         direct_mode=direct_mode,
         cpu_overcommit=True,
+        cpu_accounting=True,
     )
 
     # GET /enclave should reflect the config
@@ -57,6 +58,7 @@ def test_enclave_config_api(microvm_factory, direct_mode):
     assert config["debug_mode"] is True
     assert config["direct_mode"] is direct_mode
     assert config["cpu_overcommit"] is True
+    assert config["cpu_accounting"] is True
 
 
 # ---------------------------------------------------------------------------
