@@ -652,6 +652,7 @@ impl<'a> PrebootApiController<'a> {
                 self.vm_resources,
                 &enclave_config,
                 self.event_manager,
+                self.seccomp_filters,
             )
             .map(|vmm| {
                 self.built_vmm = Some(vmm);

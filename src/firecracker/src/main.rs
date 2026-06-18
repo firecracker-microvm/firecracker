@@ -605,6 +605,7 @@ fn build_microvm_from_json(
             &vm_resources,
             enclave_config,
             event_manager,
+            seccomp_filters,
         )
         .map_err(StartMicrovmError::from)
     } else {

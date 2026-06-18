@@ -19,6 +19,7 @@ use crate::nitro_enclave::ne_ioctl;
 use crate::nitro_enclave::ne_ioctl::NitroEnclavesDevFd;
 use crate::nitro_enclave::serial_console::ConsoleReader;
 use crate::resources::VmResources;
+use crate::seccomp::BpfThreadMap;
 use crate::utils::mib_to_bytes;
 use crate::vmm_config::boot_source::{
     BootConfig, DEFAULT_ENCLAVE_KERNEL_CMDLINE, append_root_device_cmdline, build_cmdline,
@@ -67,6 +68,8 @@ pub enum EnclaveBuilderError {
     AttachDevice(crate::device_manager::nitro_enclave::NeDeviceError),
     /// Failed to start CPU-accounting threads: {0}
     Accounting(#[from] crate::nitro_enclave::cpu_accounting::AccountingError),
+    /// Required "vcpu" seccomp filter not found
+    MissingSeccompFilters,
 }
 
 /// Resolve the kernel command line for the enclave.
@@ -130,6 +133,7 @@ pub fn build_and_boot_enclave(
     vm_resources: &VmResources,
     enclave_config: &EnclaveConfig,
     event_manager: &mut EventManager,
+    seccomp_filters: &BpfThreadMap,
 ) -> Result<Arc<Mutex<Vmm>>, EnclaveBuilderError> {
     let boot_config = vm_resources
         .boot_source
@@ -281,7 +285,11 @@ pub fn build_and_boot_enclave(
     // Failures are fatal: the threads' handshake reports per-vCPU binding
     // errors and `?` aborts the launch.
     if enclave_config.cpu_accounting {
-        let threads = AccountingThreads::spawn(enclave_vm.enclave_fd(), vcpu_count)?;
+        let vcpu_filter = seccomp_filters
+            .get("vcpu")
+            .ok_or(EnclaveBuilderError::MissingSeccompFilters)?
+            .clone();
+        let threads = AccountingThreads::spawn(enclave_vm.enclave_fd(), vcpu_count, vcpu_filter)?;
         info!("Spawned {vcpu_count} CPU-accounting threads");
         // Owned by the EnclaveVm so they are stopped + joined on its drop.
         enclave_vm.set_accounting_threads(threads);

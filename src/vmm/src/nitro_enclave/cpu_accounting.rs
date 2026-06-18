@@ -25,12 +25,14 @@
 //! [`AccountingEvent::Finish`].
 
 use std::io;
+use std::sync::Arc;
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender, channel};
 use std::thread;
 use std::time::Duration;
 
 use crate::logger::error;
 use crate::nitro_enclave::ne_ioctl::EnclaveFd;
+use crate::seccomp::{BpfProgram, apply_filter};
 
 /// How long to wait for a CPU-accounting thread to bind (handshake) or exit
 /// (teardown) before giving up, mirroring `VcpuHandle`'s `VCPU_JOIN_TIMEOUT`.
@@ -78,9 +80,9 @@ pub enum AccountingEvent {
 /// (cf. [`crate::VcpuResponse`]).
 #[derive(Debug)]
 pub enum AccountingResponse {
-    /// The thread has bound its vCPU.
+    /// The thread has bound its vCPU and applied its seccomp filter.
     Ready,
-    /// The thread failed to bind; carries the cause.
+    /// The thread failed to bind or filter; carries the cause.
     Error(io::Error),
 }
 
@@ -146,11 +148,16 @@ impl AccountingThreads {
     ///
     /// `enclave_fd` must belong to an enclave created with
     /// `NE_ENCLAVE_CPU_ACCOUNTING_MODE` that has already been started. Each
-    /// thread gets its own duplicate of the fd to issue `NE_ACCOUNT_VCPU`.
+    /// thread gets its own duplicate of the fd to issue `NE_ACCOUNT_VCPU`, and
+    /// applies `vcpu_filter` (the "vcpu" seccomp filter) to itself.
     ///
     /// Fatal on any per-thread failure: already-started threads are stopped and
     /// joined, and an error is returned so the enclave launch fails cleanly.
-    pub fn spawn(enclave_fd: &EnclaveFd, vcpu_count: u32) -> Result<Self, AccountingError> {
+    pub fn spawn(
+        enclave_fd: &EnclaveFd,
+        vcpu_count: u32,
+        vcpu_filter: Arc<BpfProgram>,
+    ) -> Result<Self, AccountingError> {
         // Build the owner up front so that an early return (via `?` or the
         // handshake below) drops it, which sends Finish to every already-spawned
         // thread and joins it — no leaked or deadlocked threads on failure.
@@ -165,11 +172,17 @@ impl AccountingThreads {
             let thread_fd = enclave_fd
                 .try_clone()
                 .map_err(|source| AccountingError::DupFd { idx, source })?;
+            let filter = Arc::clone(&vcpu_filter);
 
             let thread = thread::Builder::new()
                 .name(format!("fc_vcpu {idx}"))
                 .spawn(move || {
-                    match thread_fd.account_vcpu(idx) {
+                    // Bind before applying the filter, so NE_ACCOUNT_VCPU needs
+                    // no seccomp allowlist entry.
+                    let res = thread_fd
+                        .account_vcpu(idx)
+                        .and_then(|()| apply_filter(&filter).map_err(io::Error::other));
+                    match res {
                         Ok(()) => {
                             // If the spawner is gone there is nothing to anchor.
                             if response_sender.send(AccountingResponse::Ready).is_err() {
