@@ -4,12 +4,14 @@
 
 import json
 import os
+import time
 from pathlib import Path
 
 import pytest
 from tenacity import Retrying, retry_if_exception_type, stop_after_delay, wait_fixed
 
 from framework.ne_host import _find_initrd, _find_kernel, _find_rootfs, requires_enclave
+from framework.utils import get_threads
 from framework.utils_vsock import (
     ECHO_SERVER_PORT,
     VSOCK_UDS_PATH,
@@ -293,6 +295,100 @@ def test_enclave_ssh(microvm_factory, direct_mode, cpu_overcommit):
     # Basic I/O test — write and read back.
     vm.ssh.check_output("echo 'enclave test' > /tmp/test.txt")
     assert "enclave test" in vm.ssh.check_output("cat /tmp/test.txt").stdout
+
+
+# ---------------------------------------------------------------------------
+# Test: CPU accounting (Parent-PID visibility)
+# ---------------------------------------------------------------------------
+
+
+def _thread_guest_time(pid, tid):
+    """Read guest_time (field 43) from /proc/<pid>/task/<tid>/stat in clock ticks.
+
+    Fields are 1-indexed in proc(5). Field 2 is the comm in parentheses and may
+    contain spaces, so parse after the last ')': the remainder's first token is
+    field 3, making guest_time (field 43) index 40.
+    """
+    stat = Path(f"/proc/{pid}/task/{tid}/stat").read_text(encoding="utf-8")
+    return int(stat[stat.rindex(")") + 1 :].split()[40])
+
+
+@requires_enclave
+@pytest.mark.parametrize(
+    "cpu_overcommit", [True, False], ids=["overcommit", "dedicated"]
+)
+def test_enclave_cpu_accounting(microvm_factory, cpu_overcommit):
+    """A CPU_ACCOUNTING enclave binds each vCPU to an fc_vcpu host thread.
+
+    Verifies Parent-PID visibility: the VMM has one `fc_vcpu N` thread per
+    enclave vCPU, GET /enclave reports cpu_accounting, and each thread's guest
+    time (NOT user time, which reads ~0) grows while the guest burns CPU.
+
+    Parametrized over cpu_overcommit to exercise that accounting is independent
+    of overcommit (it works both with floating and dedicated vCPUs).
+    """
+    kernel = _find_kernel()
+    rootfs = _find_rootfs()
+    if not kernel:
+        pytest.skip("No kernel found in artifacts")
+    if not rootfs:
+        pytest.skip("No rootfs found in artifacts")
+
+    vcpu_count = 2
+
+    vm = microvm_factory.build(kernel=kernel, rootfs=rootfs)
+    vm.spawn(validate_api=False)
+    vm.time_api_requests = False
+
+    vm.api.machine_config.put(vcpu_count=vcpu_count, mem_size_mib=512)
+
+    jailed_rootfs = vm.create_jailed_resource(vm.rootfs_file)
+    vm.api.drive.put(
+        drive_id="rootfs",
+        path_on_host=jailed_rootfs,
+        is_root_device=True,
+        is_read_only=False,
+    )
+    vm.add_net_iface()
+    vm.api.boot.put(kernel_image_path=vm.create_jailed_resource(kernel))
+
+    enclave_kwargs = {
+        "debug_mode": True,
+        "cpu_overcommit": cpu_overcommit,
+        "cpu_accounting": True,
+    }
+    vm.api.enclave.put(**enclave_kwargs)
+
+    vm.api.actions.put(action_type="InstanceStart")
+    vm.wait_for_ssh_up()
+
+    # GET /enclave must reflect the accounting flag.
+    config = vm.api.enclave.get().json()
+    assert config["cpu_accounting"] is True
+
+    # One `fc_vcpu N` accounting thread per vCPU must exist on the VMM process.
+    threads = get_threads(vm.firecracker_pid)
+    tids = {}
+    for i in range(vcpu_count):
+        name = f"fc_vcpu {i}"
+        assert name in threads, f"missing accounting thread {name!r}: {list(threads)}"
+        tids[name] = threads[name][0]
+
+    # Baseline guest time, then burn CPU in the guest on every vCPU.
+    before = {
+        name: _thread_guest_time(vm.firecracker_pid, tid) for name, tid in tids.items()
+    }
+    for _ in range(vcpu_count):
+        vm.ssh.run("nohup bash -c 'while true; do :; done' >/dev/null 2>&1 &")
+    time.sleep(5)
+    after = {
+        name: _thread_guest_time(vm.firecracker_pid, tid) for name, tid in tids.items()
+    }
+
+    for name in tids:
+        assert (
+            after[name] > before[name]
+        ), f"{name} guest_time did not grow: before={before[name]} after={after[name]}"
 
 
 @requires_enclave
