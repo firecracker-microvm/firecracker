@@ -335,6 +335,21 @@ run_devctr() {
         fi
     done
 
+    # Linked worktrees have a .git file that points to the common git directory,
+    # which can live outside FC_ROOT_DIR. Mount it at the same path in the
+    # container so git commands keep working after FC_ROOT_DIR is mounted at
+    # /firecracker.
+    git_common_dir=$(git -C "$FC_ROOT_DIR" rev-parse --git-common-dir 2>/dev/null || true)
+    if [[ -n "$git_common_dir" ]]; then
+        [[ "$git_common_dir" = /* ]] || git_common_dir="$FC_ROOT_DIR/$git_common_dir"
+        git_common_dir=$(cd "$git_common_dir" && pwd)
+        case "$git_common_dir/" in
+            "$FC_ROOT_DIR"/*) ;;
+            # If the common .git directory is outside FC_ROOT_DIR, bind-mount it as a separate volume
+            *) docker_args+=("--volume") && docker_args+=("$git_common_dir:$git_common_dir:ro,z") ;;
+        esac
+    fi
+
     # Finally, run the dev container
     # Use 'z' on the --volume parameter for docker to automatically relabel the
     # content and allow sharing between containers.
