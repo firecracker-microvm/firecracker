@@ -51,7 +51,10 @@ def load_data(data_path: Path):
     Recursively collects `metrics.json` files in provided path
     """
     data = []
-    for name in glob.glob(f"{data_path}/**/metrics.json", recursive=True):
+    # Track cumulative index per (test, metric, dimensions) so that
+    # subsequent iterations are plotted consecutively.
+    offsets = {}
+    for name in sorted(glob.glob(f"{data_path}/**/metrics.json", recursive=True)):
         with open(name, encoding="utf-8") as f:
             j = json.load(f)
 
@@ -78,10 +81,12 @@ def load_data(data_path: Path):
             mm = metrics[m]
             unit = mm["unit"]
             values = mm["values"]
+            key = (perf_test, m, dimensions)
+            offset = offsets.get(key, 0)
             for i, v in enumerate(values):
                 data.append(
                     {
-                        "index": i,
+                        "index": offset + i,
                         "test": perf_test,
                         "metric": m,
                         "value": v,
@@ -89,6 +94,7 @@ def load_data(data_path: Path):
                         "dimensions": dimensions,
                     }
                 )
+            offsets[key] = offset + len(values)
 
     return data
 
