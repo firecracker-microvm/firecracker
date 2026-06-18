@@ -17,7 +17,7 @@ use crate::utils::u64_to_usize;
 use crate::vstate::bus::Bus;
 use crate::vstate::kvm::Kvm;
 use crate::vstate::memory::{GuestMemoryExtension, GuestMemoryState};
-use crate::vstate::resources::ResourceAllocator;
+use crate::vstate::resources::{ResourceAllocator, ResourceAllocatorState};
 use crate::vstate::vm::{VmCommon, VmError};
 
 /// Error type for [`KvmVm::restore_state`]
@@ -51,6 +51,8 @@ pub enum KvmVmError {
     GetMsrsToSave(MsrError),
     /// Failed during KVM_SET_TSS_ADDRESS: {0}
     SetTssAddress(kvm_ioctls::Error),
+    /// Failed to restore resource allocator: {0}
+    ResourceAllocator(#[from] vm_allocator::Error),
 }
 
 /// Structure representing the current architecture's understand of what a "virtual machine" is.
@@ -160,7 +162,8 @@ impl KvmVm {
         self.fd()
             .set_irqchip(&state.ioapic)
             .map_err(KvmVmError::SetIrqChipIoAPIC)?;
-        self.common.resource_allocator = Mutex::new(state.resource_allocator.clone());
+        self.common.resource_allocator =
+            Mutex::new(ResourceAllocator::restore((), &state.resource_allocator)?);
         Ok(())
     }
 
@@ -238,7 +241,7 @@ pub struct VmState {
     /// guest memory state
     pub memory: GuestMemoryState,
     /// resource allocator
-    pub resource_allocator: ResourceAllocator,
+    pub resource_allocator: ResourceAllocatorState,
     pitstate: kvm_pit_state2,
     clock: kvm_clock_data,
     // TODO: rename this field to adopt inclusive language once Linux updates it, too.

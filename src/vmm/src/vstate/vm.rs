@@ -771,6 +771,7 @@ pub(crate) mod tests {
     use vm_memory::mmap::MmapRegionBuilder;
 
     use super::*;
+    use crate::arch;
     use crate::pci::PciSBDF;
     use crate::snapshot::Persist;
     use crate::test_utils::single_region_mem_raw;
@@ -1053,6 +1054,11 @@ pub(crate) mod tests {
 
         msix_group.enable().unwrap();
         let state = msix_group.save();
+
+        // On the real restore path the allocator state omits MSI GSIs before devices replay
+        // their allocations. Mimic that here so `restore` can re-claim the saved GSIs.
+        let allocator_state = vm.resource_allocator().save();
+        *vm.resource_allocator() = ResourceAllocator::restore((), &allocator_state).unwrap();
         let restored_group = MsixVectorGroup::restore(vm.clone(), &state).unwrap();
 
         assert_eq!(msix_group.num_vectors(), restored_group.num_vectors());
@@ -1068,6 +1074,18 @@ pub(crate) mod tests {
         // Both groups own the same GSIs in this test so dropping both will result in panic. Resolve
         // this by simply forgetting about the restored version.
         std::mem::forget(restored_group);
+    }
+
+    #[test]
+    fn test_msi_vector_group_restore_rejects_out_of_range_gsi() {
+        let mut vm = setup_vm_with_memory(mib_to_bytes(128));
+        enable_irqchip(&mut vm);
+        let vm = Arc::new(vm);
+
+        // A snapshot with a GSI outside the managed MSI range must be rejected rather than panic
+        // when the GSI is later freed on drop.
+        let tampered_state = vec![arch::GSI_MSI_END + 1];
+        MsixVectorGroup::restore(vm.clone(), &tampered_state).unwrap_err();
     }
 
     #[test]
@@ -1113,7 +1131,7 @@ pub(crate) mod tests {
         let mut vm = setup_vm_with_memory(0x1000);
         vm.setup_irqchip().unwrap();
 
-        // Allocate a GSI and some memory and make sure they are still allocated after restore
+        // Allocate a GSI and some memory.
         let (gsi, range) = {
             let mut resource_allocator = vm.resource_allocator();
 
@@ -1132,9 +1150,14 @@ pub(crate) mod tests {
         vm.restore_state(&restored_state, false).unwrap();
 
         let mut resource_allocator = vm.resource_allocator();
-        let gsi_new = resource_allocator.allocate_gsi_msi(1).unwrap()[0];
-        assert_eq!(gsi + 1, gsi_new);
 
+        // The MSI GSI allocator is reset on restore (its allocations are replayed by the devices),
+        // so the previously allocated GSI is free again and is the first one handed out.
+        let gsi_new = resource_allocator.allocate_gsi_msi(1).unwrap()[0];
+        assert_eq!(gsi, gsi_new);
+
+        // Memory allocations, on the other hand, are restored from the serialized state, so the
+        // range allocated before the snapshot is still reserved.
         resource_allocator
             .mmio32_memory
             .allocate(1024, 1024, AllocPolicy::ExactMatch(range))

@@ -45,7 +45,6 @@ use crate::snapshot::Persist;
 use crate::vstate::bus::BusDevice;
 use crate::vstate::interrupts::{InterruptError, MsixVectorGroup};
 use crate::vstate::memory::GuestMemoryMmap;
-use crate::vstate::resources::ResourceAllocator;
 use crate::vstate::vm::KvmVm;
 
 /// Vector value used to disable MSI for a queue.
@@ -1056,6 +1055,8 @@ mod tests {
     use crate::pci::msix::MsixCap;
     use crate::pci::{PciCapabilityId, PciClassCode, PciDevice};
     use crate::rate_limiter::RateLimiter;
+    use crate::snapshot::Persist;
+    use crate::vstate::resources::ResourceAllocator;
 
     fn create_vmm_with_virtio_pci_device() -> Vmm {
         let mut vmm = default_vmm();
@@ -1740,12 +1741,13 @@ mod tests {
         // copy reuses the same MSI-X GSIs, so the two `MsixVectorGroup` instances must never
         // exist concurrently. This is how it will happen in real scenario anyway.
         let kvm_vm = vmm.vm.as_kvm().unwrap().clone();
-        let saved_allocator = kvm_vm.resource_allocator().clone();
+        let saved_allocator = kvm_vm.resource_allocator().save();
         drop(device);
         drop(vmm);
-        // Restore the allocator state so the restored group's GSIs are marked allocated and
-        // its `MsixVectorGroup::drop` will succeed when the test ends.
-        *kvm_vm.resource_allocator() = saved_allocator;
+        // Restore allocator state through `ResourceAllocator::restore`, matching the VM restore
+        // path. This resets the MSI GSI allocator before the restored device replays its saved GSI
+        // allocations.
+        *kvm_vm.resource_allocator() = ResourceAllocator::restore((), &saved_allocator).unwrap();
 
         let new_entropy = Arc::new(Mutex::new(Entropy::new(RateLimiter::default()).unwrap()));
         let restored =

@@ -218,8 +218,14 @@ impl<'a> Persist<'a> for MsixVectorGroup {
     ) -> Result<Self, Self::Error> {
         let mut vectors = Vec::with_capacity(state.len());
 
-        for gsi in state {
-            vectors.push(MsixVector::new(*gsi, false)?);
+        {
+            // Replay the GSI allocations rather than trusting the serialized allocator state.
+            // This validates the snapshot is not malformed, containing doubly allocated GSI IDs
+            let mut resource_allocator = constructor_args.resource_allocator();
+            for gsi in state {
+                resource_allocator.gsi_msi_allocator.allocate_id_at(*gsi)?;
+                vectors.push(MsixVector::new(*gsi, false)?);
+            }
         }
 
         Ok(MsixVectorGroup {
