@@ -65,12 +65,6 @@ perf_test = {
         "tests": "integration_tests/performance/test_snapshot.py::test_population_latency",
         "devtool_opts": "-c 1-12 -m 0",
     },
-    "misc": {
-        "label": "misc",
-        "tests": "integration_tests/performance/test_memory_overhead.py integration_tests/performance/test_boottime.py::test_boottime integration_tests/performance/test_process_startup_time.py integration_tests/performance/test_jailer.py integration_tests/performance/test_mmds.py",
-        "devtool_opts": "-c 1-10 -m 0",
-        "ab_opts": "--noise-threshold startup=0.1",
-    },
     "memory-overhead": {
         "label": "memory-overhead",
         "tests": "integration_tests/performance/test_memory_overhead.py",
@@ -98,16 +92,6 @@ perf_test = {
         "devtool_opts": "-c 1-10 -m 0",
     },
 }
-
-# These can only be selected by manually providing `--tests` argument otherwise
-# the number of unique tasks we would create is too big for BK to handle
-only_manually_selected_tests = [
-    "memory-overhead",
-    "boottime",
-    "process-startup",
-    "jailer",
-    "mmds",
-]
 
 REVISION_A = os.environ.get("REVISION_A")
 REVISION_B = os.environ.get("REVISION_B")
@@ -145,10 +129,7 @@ pipeline = BKPipeline(
 if pipeline.args.test:
     tests = [perf_test[test] for test in pipeline.args.test]
 else:
-    tests = []
-    for test_name, test_description in perf_test.items():
-        if test_name not in only_manually_selected_tests:
-            tests.append(test_description)
+    tests = perf_test.values()
 
 for test in tests:
     devtool_opts = test.pop("devtool_opts")
