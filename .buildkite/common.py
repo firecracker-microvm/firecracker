@@ -399,16 +399,18 @@ class BKPipeline:
             if isinstance(step, dict) and "group" in step:
                 remaining_steps = step["steps"]
                 while remaining_steps:
-                    available = max_jobs - current_count
+                    # -1 to reserve a slot for the group step itself
+                    available = max_jobs - current_count - 1
                     if available <= 0:
                         chunks.append(current_chunk)
                         current_chunk = []
                         current_count = 0
-                        available = max_jobs
+                        available = max_jobs - 1
                     take = remaining_steps[:available]
                     remaining_steps = remaining_steps[available:]
                     current_chunk.append({**step, "steps": take})
-                    current_count += len(take)
+                    # +1 for the group step itself
+                    current_count += len(take) + 1
             else:
                 if current_chunk and current_count + 1 > max_jobs:
                     chunks.append(current_chunk)
