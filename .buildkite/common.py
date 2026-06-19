@@ -202,6 +202,13 @@ COMMON_PARSER.add_argument(
     default=1,
     type=int,
 )
+COMMON_PARSER.add_argument(
+    "--max-jobs",
+    help="Max leaf jobs per pipeline chunk. If set, to_json() returns a JSON array of pipelines.",
+    required=False,
+    default=None,
+    type=int,
+)
 
 
 def random_str(k: int):
@@ -376,13 +383,59 @@ class BKPipeline:
                 )
         return self.add_step(grp, depends_on_build=depends_on_build)
 
+    def _chunk_steps(self, max_jobs: int):
+        """Split steps into chunks of at most max_jobs leaf jobs each.
+
+        Groups that exceed the remaining space are split to fill each chunk.
+        """
+        chunks = []
+        current_chunk = []
+        current_count = 0
+
+        for step in self.steps:
+            if isinstance(step, dict) and "group" in step:
+                remaining_steps = step["steps"]
+                while remaining_steps:
+                    available = max_jobs - current_count
+                    if available <= 0:
+                        chunks.append(current_chunk)
+                        current_chunk = []
+                        current_count = 0
+                        available = max_jobs
+                    take = remaining_steps[:available]
+                    remaining_steps = remaining_steps[available:]
+                    current_chunk.append({**step, "steps": take})
+                    current_count += len(take)
+            else:
+                if current_chunk and current_count + 1 > max_jobs:
+                    chunks.append(current_chunk)
+                    current_chunk = []
+                    current_count = 0
+                current_chunk.append(step)
+                current_count += 1
+
+        if current_chunk:
+            chunks.append(current_chunk)
+        return chunks
+
     def to_dict(self):
         """Render the pipeline as a dictionary."""
         return {"steps": self.steps}
 
     def to_json(self):
-        """Serialize the pipeline to JSON"""
-        return json.dumps(self.to_dict(), indent=4, sort_keys=True, ensure_ascii=False)
+        """Serialize the pipeline to JSON.
+
+        If --max-jobs is set, returns a JSON array of pipeline objects,
+        each with at most max_jobs leaf jobs. Otherwise, returns a single
+        pipeline object (legacy behavior).
+        """
+        max_jobs = self.args.max_jobs
+        if max_jobs is None:
+            to_serialize = self.to_dict()
+        else:
+            chunks = self._chunk_steps(max_jobs)
+            to_serialize = [{"steps": chunk} for chunk in chunks]
+        return json.dumps(to_serialize, indent=4, sort_keys=True, ensure_ascii=False)
 
     def devtool_download_artifacts(self, artifacts):
         """Generate a `devtool download_ci_artifacts` command"""
