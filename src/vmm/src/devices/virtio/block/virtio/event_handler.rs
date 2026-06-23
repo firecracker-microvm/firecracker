@@ -95,6 +95,18 @@ impl MutEventSubscriber for VirtioBlock {
                 "Block: The device is not yet activated. Spurious event received: {:?}",
                 source
             );
+            match source {
+                Self::PROCESS_QUEUE => self.drain_queue_events(),
+                Self::PROCESS_RATE_LIMITER => {
+                    self.rate_limiter.event_handler();
+                }
+                Self::PROCESS_ASYNC_COMPLETION => {
+                    if let FileEngine::Async(ref engine) = self.disk.file_engine {
+                        engine.completion_evt().read();
+                    }
+                }
+                _ => (),
+            }
         }
     }
 

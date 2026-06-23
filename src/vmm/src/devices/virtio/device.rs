@@ -226,6 +226,15 @@ pub trait VirtioDevice: AsAny + MutEventSubscriber + Send {
         }
     }
 
+    /// Drain all queue notification eventfds, discarding any pending
+    /// notifications. This is used if a notification arrives while a device
+    /// is being reset and before it's activated again.
+    fn drain_queue_events(&self) {
+        for event in self.queue_events() {
+            event.read();
+        }
+    }
+
     /// Kick the device, as if it had received external events.
     fn kick(&mut self) {
         if self.is_activated() {
