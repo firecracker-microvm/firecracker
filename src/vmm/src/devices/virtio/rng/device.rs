@@ -59,7 +59,7 @@ pub struct Entropy {
     queue_events: Vec<EventFd>,
 
     // Device specific fields
-    rate_limiter: RateLimiter,
+    pub(crate) rate_limiter: RateLimiter,
 
     buffer: IoVecBufferMut,
 }
