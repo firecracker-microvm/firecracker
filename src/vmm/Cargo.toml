@@ -65,7 +65,7 @@ vm-fdt = "0.3.0"
 [dev-dependencies]
 criterion = { version = "0.8.2", default-features = false }
 device_tree = "1.1.0"
-itertools = "0.14.0"
+itertools = "0.15.0"
 proptest = { version = "1.11.0", default-features = false, features = ["std"] }
 
 [[bench]]
