@@ -126,7 +126,7 @@ def test_spectre_meltdown_checker_on_host(spectre_meltdown_checker):
     reason="Test depends solely on factors external to GitHub repository",
 )
 @pytest.mark.skipif(
-    cpuid_utils.get_cpu_codename() == "INTEL_SAPPHIRE_RAPIDS",
+    cpuid_utils.get_cpu_codename() in ("INTEL_SAPPHIRE_RAPIDS", "INTEL_GRANITE_RAPIDS"),
     reason="Reporting old microcode for unknown reason",
 )
 def test_vulnerabilities_on_host():
