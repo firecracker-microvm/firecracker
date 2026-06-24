@@ -116,12 +116,26 @@ check_new_config() {
 }
 
 check_override_presence() {
-  while IFS= read -r line; do
-    if ! grep -Fq "$line" .config; then
+  # Build the effective set of overrides across all override files. Later files
+  # win, so resolving the last value per CONFIG_* key avoids false failures when
+  # a variant deliberately overrides a base value (e.g. base X=y, variant X=n).
+  declare -A effective
+  local f line key
+  for f in "${CONFIG_OVERRIDE_FILES[@]}"; do
+    while IFS= read -r line; do
+      [ -z "$line" ] && continue
+      case "$line" in \#*) continue ;; esac
+      key="${line%%=*}"
+      effective["$key"]="$line"
+    done <"$f"
+  done
+
+  for line in "${effective[@]}"; do
+    if ! grep -Fxq "$line" .config; then
       echo "Missing config: $line"
       exit 1
     fi
-  done <"$KERNEL_CONFIG_OVERRIDES"
+  done
 
   echo "All overrides correctly applied.."
 }
@@ -166,17 +180,80 @@ update_boot_config() {
   esac
 }
 
+list_variants() {
+  for d in "$START_DIR"/kernels/*/; do
+    [ -d "$d" ] && basename "$d"
+  done
+}
+
+die_with_variants() {
+  echo "$1" >&2
+  echo "Available variants:" >&2
+  list_variants | sed 's/^/  - /' >&2
+  exit 1
+}
+
 check_userspace
 install_build_deps
 
-KERNEL_URL=$(cat kernel_url)
-KERNEL_COMMIT_HASH=$(cat kernel_commit_hash)
-KERNEL_PATCHES_DIR=$(pwd)/linux_patches
-KERNEL_CONFIG_OVERRIDES=$(pwd)/kernel_config_overrides
+START_DIR=$(pwd)
+
+# Separate the variant selector (first positional arg) from the --flags. The
+# flags are forwarded verbatim to `confirm`, so the variant name can never be
+# mistaken for an --install/--no-install/--tidy flag.
+VARIANT=""
+FLAGS=()
+for arg in "$@"; do
+  case "$arg" in
+  --*) FLAGS+=("$arg") ;;
+  *)
+    if [ -z "$VARIANT" ]; then
+      VARIANT="$arg"
+    else
+      echo "Unexpected extra argument: $arg" >&2
+      exit 1
+    fi
+    ;;
+  esac
+done
+
+# Default to the sole variant if exactly one exists, otherwise require a choice.
+if [ -z "$VARIANT" ]; then
+  mapfile -t _variants < <(list_variants)
+  if [ "${#_variants[@]}" -eq 1 ]; then
+    VARIANT="${_variants[0]}"
+    echo "No variant specified; defaulting to the only one: $VARIANT"
+  else
+    die_with_variants "No variant specified and multiple are available."
+  fi
+fi
+
+VARIANT_DIR="$START_DIR/kernels/$VARIANT"
+[ -d "$VARIANT_DIR" ] || die_with_variants "Unknown variant '$VARIANT'."
+
+echo "Building kernel variant: $VARIANT"
+
+# Repository URL: per-variant override falls back to the shared root default.
+if [ -f "$VARIANT_DIR/kernel_url" ]; then
+  KERNEL_URL=$(cat "$VARIANT_DIR/kernel_url")
+else
+  KERNEL_URL=$(cat "$START_DIR/kernel_url")
+fi
+
+# Commit hash and patches are per-variant.
+[ -f "$VARIANT_DIR/kernel_commit_hash" ] ||
+  die_with_variants "Variant '$VARIANT' is missing kernel_commit_hash."
+KERNEL_COMMIT_HASH=$(cat "$VARIANT_DIR/kernel_commit_hash")
+KERNEL_PATCHES_DIR="$VARIANT_DIR/linux_patches"
+
+# Config overrides: shared base first, then optional per-variant file on top.
+# Order matters: merge_config.sh -m applies later files over earlier ones.
+CONFIG_OVERRIDE_FILES=("$START_DIR/base_config")
+if [ -f "$VARIANT_DIR/config_overrides" ]; then
+  CONFIG_OVERRIDE_FILES+=("$VARIANT_DIR/config_overrides")
+fi
 
 TMP_BUILD_DIR=$(mktemp -d -t kernel-build-XXXX)
-
-START_DIR=$(pwd)
 
 cd $TMP_BUILD_DIR
 
@@ -202,8 +279,8 @@ make olddefconfig
 scripts/config --disable SYSTEM_TRUSTED_KEYS
 scripts/config --disable SYSTEM_REVOCATION_KEYS
 
-# Apply our config overrides on top of the config
-scripts/kconfig/merge_config.sh -m .config $KERNEL_CONFIG_OVERRIDES
+# Apply our config overrides on top of the config (base first, variant on top)
+scripts/kconfig/merge_config.sh -m .config "${CONFIG_OVERRIDE_FILES[@]}"
 
 check_override_presence
 
@@ -222,7 +299,8 @@ KERNEL_VERSION=$(KERNELVERSION=$(make -s kernelversion) ./scripts/setlocalversio
 echo "New kernel version:" $KERNEL_VERSION
 
 # Make sure a user really wants to install this kernel
-confirm "$@"
+# Forward only the --flags, never the variant selector.
+confirm "${FLAGS[@]}"
 
 check_root
 
