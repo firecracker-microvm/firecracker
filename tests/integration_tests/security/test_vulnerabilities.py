@@ -132,7 +132,7 @@ def test_vulnerabilities_on_host():
     assert res.returncode == 1, res.stdout
 
 
-def get_vuln_files_exception_dict(template):
+def get_vuln_files_exception_dict(template, guest_kernel_version=None):
     """
     Returns a dictionary of expected values for vulnerability files requiring special treatment.
     """
@@ -162,6 +162,29 @@ def get_vuln_files_exception_dict(template):
     if template == "T2S":
         exception_dict["mmio_stale_data"] = r"Clear CPU buffers"
 
+    # Exception for spectre_v2 (BHI)
+    # ==============================
+    #
+    # Guests on kernel v6.18+ (Intel only)
+    # --------------------------------------------
+    # On kernel >= 6.18, the new attack vector control framework only enables BHI
+    # mitigation when CPU_MITIGATE_GUEST_HOST is active (i.e., the system runs VMs).
+    # https://github.com/amazonlinux/linux/blob/65171e3dd9bd18f97f48f94d8dd0f50c82eb45d1/arch/x86/kernel/cpu/bugs.c#L2221
+    #
+    # Firecracker guests do not run nested VMs because their kernels are built
+    # with 'CONFIG_VIRTUALIZATION is not set'. As a result CONFIG_KVM=n, which causes
+    # CPU_MITIGATE_GUEST_HOST to be false, so BHI mitigation is not activated.
+    # https://github.com/amazonlinux/linux/blob/65171e3dd9bd18f97f48f94d8dd0f50c82eb45d1/kernel/cpu.c#L3192
+    # Therefore, we accept any BHI status only if the overall spectre_v2 status
+    # starts with "Mitigation:" and no other component reports "Vulnerable".
+
+    if (
+        global_props.cpu_codename.startswith("INTEL")
+        and guest_kernel_version
+        and guest_kernel_version >= (6, 18)
+    ):
+        exception_dict["spectre_v2"] = r"^Mitigation:(?!.*(?<!BHI: )Vulnerable).*$"
+
     return exception_dict
 
 
@@ -181,7 +204,7 @@ def check_vulnerabilities_files_on_guest(microvm):
 
     # Check that vulnerabilities files in the exception dictionary have the expected values and
     # the others do not contain "Vulnerable".
-    exceptions = get_vuln_files_exception_dict(template)
+    exceptions = get_vuln_files_exception_dict(template, microvm.guest_kernel_version)
     results = []
     for vuln_file in vuln_files:
         filename = Path(vuln_file).name
