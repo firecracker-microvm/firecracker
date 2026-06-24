@@ -131,7 +131,7 @@ def test_vulnerabilities_on_host():
     assert res.returncode == 1, res.stdout
 
 
-def get_vuln_files_exception_dict(template):
+def get_vuln_files_exception_dict(template, guest_kernel_version=None):
     """
     Returns a dictionary of expected values for vulnerability files requiring special treatment.
     """
@@ -161,6 +161,21 @@ def get_vuln_files_exception_dict(template):
     if template == "T2S":
         exception_dict["mmio_stale_data"] = "Clear CPU buffers"
 
+    # Exception for spectre_v2 (BHI)
+    # ==============================
+    #
+    # Guests on kernel v6.18+
+    # --------------------------------------------
+    # On kernel >= 6.18, the new attack vector control framework only enables BHI
+    # mitigation when CPU_MITIGATE_GUEST_HOST is active (i.e., the system runs VMs).
+    # Since Firecracker guests do not themselves run nested VMs, the guest kernel
+    # intentionally reports "BHI: Vulnerable" in the spectre_v2 sysfs file.
+    # The guest is still protected by the host's BHI_DIS_S mitigation.
+    # We accept this as long as the main spectre_v2 mitigation (e.g., EIBRS) is active.
+
+    if guest_kernel_version and guest_kernel_version >= (6, 18):
+        exception_dict["spectre_v2"] = "Mitigation"
+
     return exception_dict
 
 
@@ -180,7 +195,7 @@ def check_vulnerabilities_files_on_guest(microvm):
 
     # Check that vulnerabilities files in the exception dictionary have the expected values and
     # the others do not contain "Vulnerable".
-    exceptions = get_vuln_files_exception_dict(template)
+    exceptions = get_vuln_files_exception_dict(template, microvm.guest_kernel_version)
     results = []
     for vuln_file in vuln_files:
         filename = Path(vuln_file).name
