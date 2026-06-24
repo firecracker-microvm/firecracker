@@ -34,9 +34,38 @@ apply_all_patches() {
   done
 }
 
-SCRIPT_DIR="$(dirname "$0")"
-KERNEL_COMMIT_HASH=$(cat "$SCRIPT_DIR"/kernel_commit_hash)
-KERNEL_PATCHES_DIR="$SCRIPT_DIR"/linux_patches
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+
+list_variants() {
+  for d in "$SCRIPT_DIR"/kernels/*/; do
+    [ -d "$d" ] && basename "$d"
+  done
+}
+
+# The variant is the first argument. Default to the sole variant if exactly one
+# exists, otherwise require an explicit choice.
+VARIANT="${1:-}"
+if [ -z "$VARIANT" ]; then
+  mapfile -t _variants < <(list_variants)
+  if [ "${#_variants[@]}" -eq 1 ]; then
+    VARIANT="${_variants[0]}"
+  else
+    echo "Usage: $0 <variant>" >&2
+    echo "Available variants:" >&2
+    list_variants | sed 's/^/  - /' >&2
+    exit 1
+  fi
+fi
+
+VARIANT_DIR="$SCRIPT_DIR/kernels/$VARIANT"
+if [ ! -d "$VARIANT_DIR" ]; then
+  echo "Unknown variant '$VARIANT'. Available variants:" >&2
+  list_variants | sed 's/^/  - /' >&2
+  exit 1
+fi
+
+KERNEL_COMMIT_HASH=$(cat "$VARIANT_DIR"/kernel_commit_hash)
+KERNEL_PATCHES_DIR="$VARIANT_DIR"/linux_patches
 
 HEAD_HASH="$(git rev-parse HEAD)"
 if [ $? != 0 ]; then
