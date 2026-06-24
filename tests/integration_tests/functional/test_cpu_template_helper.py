@@ -206,6 +206,10 @@ MSR_EXCEPTION_LIST = [
     # features are temporarily disabled. Guest OS disables TILEDATA by default
     # using the MSR.
     0x1C4,
+    # MSR_IA32_XSS is R/W MSR for guest OS to enable supervisor state components
+    # in XSAVES/XRSTORS. Guest OS sets bits for supported supervisor states
+    # (e.g., CET) after boot.
+    0xDA0,
     # MSR_IA32_DEBUGCTL is a R/W MSR the guest OS modifies at runtime. On hosts
     # that virtualize bus lock detection (6.18+), the guest enables it and sets
     # DEBUGCTLMSR_BUS_LOCK_DETECT (bit 2), so it differs from the dumped config.
