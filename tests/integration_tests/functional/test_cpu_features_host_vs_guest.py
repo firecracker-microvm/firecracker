@@ -590,11 +590,14 @@ def test_host_vs_guest_cpu_features(uvm):
             #
             # While Amazon Linux kernels (v5.10 and v6.1) backported the above commit, our test
             # ubuntu kernel (v6.8) and our guest kernels (v5.10 and v6.1) don't pick it.
+
+            # Fix: guest kernel v6.18 does not pick it up either, despite the commit above
+            # being present in the amazonlinux repository
             host_has_ssbs = global_props.host_os not in {
                 "amzn2",
                 "amzn2023",
             } and global_props.host_linux_version_tpl < (6, 11)
-            guest_has_ssbs = vm.guest_kernel_version < (6, 11)
+            guest_has_ssbs = vm.guest_kernel_version[:2] <= (6, 18)
 
             if host_has_ssbs and not guest_has_ssbs:
                 expected_host_minus_guest |= {"ssbs"}
@@ -627,11 +630,14 @@ def test_host_vs_guest_cpu_features(uvm):
             #
             # While Amazon Linux kernels (v5.10 and v6.1) backported the above commit, our test
             # ubuntu kernel (v6.8) and our guest kernels (v5.10 and v6.1) don't pick it.
+
+            # Fix: guest kernel v6.18 does not pick it up either, despite the commit above
+            # being present in the amazonlinux repository
             host_has_ssbs = global_props.host_os not in {
                 "amzn2",
                 "amzn2023",
             } and global_props.host_linux_version_tpl < (6, 11)
-            guest_has_ssbs = vm.guest_kernel_version < (6, 11)
+            guest_has_ssbs = vm.guest_kernel_version[:2] <= (6, 18)
 
             if host_has_ssbs and not guest_has_ssbs:
                 expected_host_minus_guest |= {"ssbs"}
