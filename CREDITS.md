@@ -189,6 +189,7 @@ Contributors to the Firecracker repository:
 - Manohar Castelino <manohar.r.castelino@intel.com>
 - Marc Brooker <mbrooker@amazon.com>
 - Marco Cali <xmarcalx@amazon.co.uk>
+- Marco Marangoni <mamarang@amazon.com>
 - Marco Vedovati <mvedovati@suse.com>
 - Markus Ziller <web+github@markusziller.de>
 - Masatoshi Higuchi <matt9ucci@gmail.com>
