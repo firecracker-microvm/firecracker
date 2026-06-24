@@ -873,6 +873,7 @@ pub(crate) mod tests {
                 cache_type: custom_block_cfg.cache_type,
 
                 is_read_only: Some(custom_block_cfg.is_read_only),
+                discard: None,
                 path_on_host: Some(
                     block_files
                         .last()
