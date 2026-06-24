@@ -80,6 +80,7 @@ use std::fmt::Debug;
 use std::io::{ErrorKind, Write};
 use std::num::Wrapping;
 use std::os::unix::io::{AsRawFd, RawFd};
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use vm_memory::GuestMemoryError;
@@ -90,10 +91,11 @@ use super::super::defs::uapi;
 use super::super::{VsockChannel, VsockEpollListener, VsockError};
 use super::txbuf::TxBuf;
 use super::{ConnState, PendingRx, PendingRxSet, VsockCsmError, defs};
-use crate::devices::virtio::vsock::metrics::METRICS;
+use crate::devices::virtio::vsock::metrics::{METRICS, VsockDeviceMetrics};
 use crate::devices::virtio::vsock::packet::{VsockPacketHeader, VsockPacketRx, VsockPacketTx};
 use crate::logger::{IncMetric, debug, error, info, warn};
 use crate::utils::wrap_usize_to_u32;
+use crate::vmm_config::vsock::VsockDeviceConfig;
 
 /// Trait that vsock connection backends need to implement.
 ///
@@ -138,6 +140,8 @@ pub struct VsockConnection<S: VsockConnectionBackend> {
     /// Instant when this connection should be scheduled for immediate termination, due to some
     /// timeout condition having been fulfilled.
     expiry: Option<Instant>,
+    /// Metrics per device counter
+    metrics: Arc<VsockDeviceMetrics>,
 }
 
 impl<S> VsockChannel for VsockConnection<S>
@@ -163,7 +167,7 @@ where
         // Perform some generic initialization that is the same for any packet operation (e.g.
         // source, destination, credit, etc).
         self.init_pkt_hdr(&mut pkt.hdr);
-        METRICS.rx_packets_count.inc();
+        self.metrics.rx_packets_count.inc();
 
         // If forceful termination is pending, there's no point in checking for anything else.
         // It's dead, Jim.
@@ -238,7 +242,7 @@ where
                         // Safe to unwrap because read_cnt is no more than max_len, which is bounded
                         // by self.peer_avail_credit(), a u32 internally.
                         pkt.hdr.set_op(uapi::VSOCK_OP_RW).set_len(read_cnt);
-                        METRICS.rx_bytes_count.add(read_cnt as u64);
+                        self.metrics.rx_bytes_count.add(read_cnt as u64);
                     }
                     self.rx_cnt += Wrapping(pkt.hdr.len());
                     self.last_fwd_cnt_to_peer = self.fwd_cnt;
@@ -258,7 +262,7 @@ where
                 Err(err) => {
                     // We are not expecting any other errors when reading from the underlying
                     // stream. If any show up, we'll immediately kill this connection.
-                    METRICS.rx_read_fails.inc();
+                    self.metrics.rx_read_fails.inc();
                     error!(
                         "vsock: error reading from backing stream: lp={}, pp={}, err={:?}",
                         self.local_port, self.peer_port, err
@@ -296,7 +300,7 @@ where
         // Update the peer credit information.
         self.peer_buf_alloc = pkt.hdr.buf_alloc();
         self.peer_fwd_cnt = Wrapping(pkt.hdr.fwd_cnt());
-        METRICS.tx_packets_count.inc();
+        self.metrics.tx_packets_count.inc();
 
         match self.state {
             // Most frequent case: this is an established connection that needs to forward some
@@ -455,7 +459,7 @@ where
             // Data can be written to the host stream. Time to flush out the TX buffer.
             //
             if self.tx_buf.is_empty() {
-                METRICS.conn_event_fails.inc();
+                self.metrics.conn_event_fails.inc();
                 info!("vsock: connection received unexpected EPOLLOUT event");
                 return;
             }
@@ -463,7 +467,7 @@ where
                 .tx_buf
                 .flush_to(&mut self.stream)
                 .unwrap_or_else(|err| {
-                    METRICS.tx_flush_fails.inc();
+                    self.metrics.tx_flush_fails.inc();
                     warn!(
                         "vsock: error flushing TX buf for (lp={}, pp={}): {:?}",
                         self.local_port, self.peer_port, err
@@ -480,7 +484,7 @@ where
                     0
                 });
             self.fwd_cnt += wrap_usize_to_u32(flushed);
-            METRICS.tx_bytes_count.add(flushed as u64);
+            self.metrics.tx_bytes_count.add(flushed as u64);
 
             // If this connection was shutting down, but is waiting to drain the TX buffer
             // before forceful termination, the wait might be over.
@@ -507,7 +511,19 @@ where
         local_port: u32,
         peer_port: u32,
         peer_buf_alloc: u32,
+        metrics: Option<Arc<VsockDeviceMetrics>>,
     ) -> Self {
+        // If the caller has already supplied us a metrics instance, use that.
+        // otherwise if this connection is being initialized separately
+        // in a test let it create its own metrics instance
+        let metrics = metrics.unwrap_or_else(|| {
+            METRICS
+                .write()
+                .unwrap()
+                .entry(peer_cid)
+                .or_insert_with(|| Arc::new(VsockDeviceMetrics::default()))
+                .clone()
+        });
         Self {
             local_cid,
             peer_cid,
@@ -523,6 +539,7 @@ where
             last_fwd_cnt_to_peer: Wrapping(0),
             pending_rx: PendingRxSet::from(PendingRx::Response),
             expiry: None,
+            metrics,
         }
     }
 
@@ -533,7 +550,19 @@ where
         peer_cid: u64,
         local_port: u32,
         peer_port: u32,
+        metrics: Option<Arc<VsockDeviceMetrics>>,
     ) -> Self {
+        // If the caller has already supplied us a metrics instance, use that.
+        // otherwise if this connection is being initialized separately
+        // in a test let it create its own metrics instance
+        let metrics = metrics.unwrap_or_else(|| {
+            METRICS
+                .write()
+                .unwrap()
+                .entry(peer_cid)
+                .or_insert_with(|| Arc::new(VsockDeviceMetrics::default()))
+                .clone()
+        });
         Self {
             local_cid,
             peer_cid,
@@ -549,6 +578,7 @@ where
             last_fwd_cnt_to_peer: Wrapping(0),
             pending_rx: PendingRxSet::from(PendingRx::Request),
             expiry: None,
+            metrics,
         }
     }
 
@@ -626,14 +656,14 @@ where
             Err(err) => {
                 // We don't know how to handle any other write error, so we'll send it up
                 // the call chain.
-                METRICS.tx_write_fails.inc();
+                self.metrics.tx_write_fails.inc();
                 return Err(err);
             }
         };
         // Move the "forwarded bytes" counter ahead by how much we were able to send out.
         // Safe to unwrap because the maximum value is pkt.len(), which is a u32.
         self.fwd_cnt += written;
-        METRICS.tx_bytes_count.add(written as u64);
+        self.metrics.tx_bytes_count.add(written as u64);
 
         // If we couldn't write the whole slice, we'll need to push the remaining data to our
         // buffer.
@@ -856,6 +886,9 @@ mod tests {
 
         fn new(conn_state: ConnState) -> Self {
             let vsock_test_ctx = TestContext::new();
+            // Extract the metrics instance from the test backend to supply to connection
+            // builders
+            let metrics = vsock_test_ctx.device.backend.metrics.clone();
             let mut handler_ctx = vsock_test_ctx.create_event_handler_context();
             let stream = TestStream::new();
             let mut rx_pkt = VsockPacketRx::new().unwrap();
@@ -880,9 +913,15 @@ mod tests {
                     LOCAL_PORT,
                     PEER_PORT,
                     PEER_BUF_ALLOC,
+                    Some(metrics),
                 ),
                 ConnState::LocalInit => VsockConnection::<TestStream>::new_local_init(
-                    stream, LOCAL_CID, PEER_CID, LOCAL_PORT, PEER_PORT,
+                    stream,
+                    LOCAL_CID,
+                    PEER_CID,
+                    LOCAL_PORT,
+                    PEER_PORT,
+                    Some(metrics),
                 ),
                 ConnState::Established => {
                     let mut conn = VsockConnection::<TestStream>::new_peer_init(
@@ -892,6 +931,7 @@ mod tests {
                         LOCAL_PORT,
                         PEER_PORT,
                         PEER_BUF_ALLOC,
+                        Some(metrics),
                     );
                     assert!(conn.has_pending_rx());
                     conn.recv_pkt(&mut rx_pkt).unwrap();

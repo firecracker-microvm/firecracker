@@ -23,8 +23,8 @@ pub use logging::{
     LoggerConfig, LoggerInitError, LoggerUpdateError,
 };
 pub use metrics::{
-    IncMetric, LatencyAggregateMetrics, METRICS, MetricsError, ProcessTimeReporter,
-    SharedIncMetric, SharedStoreMetric, StoreMetric,
+    IncMetric, LatencyAggregateMetrics, LatencyMetricsRecorder, METRICS, MetricsError,
+    ProcessTimeReporter, SharedIncMetric, SharedStoreMetric, StoreMetric,
 };
 use utils::time::{ClockType, get_time_us};
 
