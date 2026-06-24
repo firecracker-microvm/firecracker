@@ -4,12 +4,26 @@
 
 """Generate Buildkite pipelines dynamically"""
 
+from pathlib import Path
+
 from common import (
     BKPipeline,
     ci_artifacts_change_mode,
     get_changed_files,
     run_all_tests,
 )
+
+# Secret hiding kernel variants live in per-variant subfolders here. The
+# generator runs from the repo root, hence the repo-relative path.
+HIDING_KERNELS_DIR = Path("resources/hiding_ci/kernels")
+
+
+def hiding_kernel_variants():
+    """Discover the secret hiding kernel variants to build."""
+    if not HIDING_KERNELS_DIR.is_dir():
+        return []
+    return sorted(p.name for p in HIDING_KERNELS_DIR.iterdir() if p.is_dir())
+
 
 # Buildkite default job priority is 0. Setting this to 1 prioritizes PRs over
 # scheduled jobs and other batch jobs.
@@ -88,13 +102,20 @@ if not pipeline.args.no_kani and (
 if not changed_files or (
     any(parent.name == "hiding_ci" for x in changed_files for parent in x.parents)
 ):
-    pipeline.build_group_per_arch(
-        "🕵️ Build Secret Hiding Kernel",
-        pipeline.devtool_test(
-            pytest_opts="-m secret_hiding integration_tests/build/test_hiding_kernel.py",
-        ),
-        depends_on_build=False,
-    )
+    # One build job per variant x arch, so each variant gets parallel
+    # wall-clock and its own pass/fail signal in the Buildkite UI.
+    for variant in hiding_kernel_variants():
+        pipeline.build_group_per_arch(
+            f"🕵️ Build Secret Hiding Kernel [{variant}]",
+            pipeline.devtool_test(
+                pytest_opts=(
+                    "-m secret_hiding "
+                    f'-k "test_build_hiding_kernel[{variant}]" '
+                    "integration_tests/build/test_hiding_kernel.py"
+                ),
+            ),
+            depends_on_build=False,
+        )
 
 if run_all_tests(changed_files):
     pipeline.build_group(
