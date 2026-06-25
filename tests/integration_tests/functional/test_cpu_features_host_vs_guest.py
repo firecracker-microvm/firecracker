@@ -273,26 +273,32 @@ def test_host_vs_guest_cpu_features(uvm):
         case CpuModel.AMD_MILAN:
             host_version = global_props.host_linux_version_tpl
             if host_version < (6, 1):
-                assert host_feats - guest_feats == AMD_MILAN_HOST_ONLY_FEATS
+                expected_host_minus_guest = AMD_MILAN_HOST_ONLY_FEATS.copy()
             elif host_version < (6, 18):
-                assert host_feats - guest_feats == AMD_MILAN_HOST_ONLY_FEATS_6_1
+                expected_host_minus_guest = AMD_MILAN_HOST_ONLY_FEATS_6_1.copy()
             else:
-                assert host_feats - guest_feats == AMD_MILAN_HOST_ONLY_FEATS_6_18
+                expected_host_minus_guest = AMD_MILAN_HOST_ONLY_FEATS_6_18.copy()
 
-            expected_guest_minus_host = AMD_GUEST_ONLY_FEATS
-            # Linux kernel v6.6+ drops the "invpcid_single" synthetic bit, but our guest
-            # kernels (< 6.6) still synthesize it, so a v6.18 host (>= 6.6) sees it as guest-only.
+            expected_guest_minus_host = AMD_GUEST_ONLY_FEATS.copy()
+
+            # Linux kernel v6.6+ drops the "invpcid_single" synthetic bit.
             # https://github.com/torvalds/linux/commit/54e3d9434ef61b97fd3263c141b928dc5635e50d
-            if host_version >= (6, 6) and vm.guest_kernel_version < (6, 6):
-                expected_guest_minus_host = AMD_GUEST_ONLY_FEATS | {"invpcid_single"}
+            host_has_invpcid_single = host_version < (6, 6)
+            guest_has_invpcid_single = vm.guest_kernel_version < (6, 6)
+            if host_has_invpcid_single and not guest_has_invpcid_single:
+                expected_host_minus_guest |= {"invpcid_single"}
+            if not host_has_invpcid_single and guest_has_invpcid_single:
+                expected_guest_minus_host |= {"invpcid_single"}
+
+            assert host_feats - guest_feats == expected_host_minus_guest
             assert guest_feats - host_feats == expected_guest_minus_host
 
         case CpuModel.AMD_GENOA:
             host_version = global_props.host_linux_version_tpl
             if host_version < (6, 1):
-                assert host_feats - guest_feats == AMD_GENOA_HOST_ONLY_FEATS
+                expected_host_minus_guest = AMD_GENOA_HOST_ONLY_FEATS.copy()
             elif host_version < (6, 18):
-                assert host_feats - guest_feats == AMD_GENOA_HOST_ONLY_FEATS_6_1
+                expected_host_minus_guest = AMD_GENOA_HOST_ONLY_FEATS_6_1.copy()
             else:
                 # KVM advertises AMD PerfMonV2 to guests since v6.5, so a v6.18 host
                 # (KVM >= 6.5) passes it through. The guest only reports "perfmon_v2" if its
@@ -302,14 +308,19 @@ def test_host_vs_guest_cpu_features(uvm):
                 expected_host_minus_guest = AMD_GENOA_HOST_ONLY_FEATS_6_18.copy()
                 if vm.guest_kernel_version >= (5, 19):
                     expected_host_minus_guest -= {"perfmon_v2"}
-                assert host_feats - guest_feats == expected_host_minus_guest
 
-            expected_guest_minus_host = AMD_GUEST_ONLY_FEATS
-            # Linux kernel v6.6+ drops the "invpcid_single" synthetic bit, but our guest
-            # kernels (< 6.6) still synthesize it, so a v6.18 host (>= 6.6) sees it as guest-only.
+            expected_guest_minus_host = AMD_GUEST_ONLY_FEATS.copy()
+
+            # Linux kernel v6.6+ drops the "invpcid_single" synthetic bit.
             # https://github.com/torvalds/linux/commit/54e3d9434ef61b97fd3263c141b928dc5635e50d
-            if host_version >= (6, 6) and vm.guest_kernel_version < (6, 6):
-                expected_guest_minus_host = AMD_GUEST_ONLY_FEATS | {"invpcid_single"}
+            host_has_invpcid_single = host_version < (6, 6)
+            guest_has_invpcid_single = vm.guest_kernel_version < (6, 6)
+            if host_has_invpcid_single and not guest_has_invpcid_single:
+                expected_host_minus_guest |= {"invpcid_single"}
+            if not host_has_invpcid_single and guest_has_invpcid_single:
+                expected_guest_minus_host |= {"invpcid_single"}
+
+            assert host_feats - guest_feats == expected_host_minus_guest
             assert guest_feats - host_feats == expected_guest_minus_host
 
         case CpuModel.INTEL_CASCADELAKE:
@@ -350,18 +361,24 @@ def test_host_vs_guest_cpu_features(uvm):
         case CpuModel.INTEL_ICELAKE:
             host_version = global_props.host_linux_version_tpl
             if host_version < (6, 1):
-                assert host_feats - guest_feats == INTEL_ICELAKE_HOST_ONLY_FEATS_5_10
+                expected_host_minus_guest = INTEL_ICELAKE_HOST_ONLY_FEATS_5_10.copy()
             elif host_version < (6, 18):
-                assert host_feats - guest_feats == INTEL_ICELAKE_HOST_ONLY_FEATS_6_1
+                expected_host_minus_guest = INTEL_ICELAKE_HOST_ONLY_FEATS_6_1.copy()
             else:
-                assert host_feats - guest_feats == INTEL_ICELAKE_HOST_ONLY_FEATS_6_18
+                expected_host_minus_guest = INTEL_ICELAKE_HOST_ONLY_FEATS_6_18.copy()
 
             expected_guest_minus_host = INTEL_GUEST_ONLY_FEATS - {"umip"}
-            # Linux kernel v6.6+ drops the "invpcid_single" synthetic bit, but our guest
-            # kernels (< 6.6) still synthesize it, so a v6.18 host (>= 6.6) sees it as guest-only.
+
+            # Linux kernel v6.6+ drops the "invpcid_single" synthetic bit.
             # https://github.com/torvalds/linux/commit/54e3d9434ef61b97fd3263c141b928dc5635e50d
-            if host_version >= (6, 6) and vm.guest_kernel_version < (6, 6):
+            host_has_invpcid_single = host_version < (6, 6)
+            guest_has_invpcid_single = vm.guest_kernel_version < (6, 6)
+            if host_has_invpcid_single and not guest_has_invpcid_single:
+                expected_host_minus_guest |= {"invpcid_single"}
+            if not host_has_invpcid_single and guest_has_invpcid_single:
                 expected_guest_minus_host |= {"invpcid_single"}
+
+            assert host_feats - guest_feats == expected_host_minus_guest
             assert guest_feats - host_feats == expected_guest_minus_host
         case CpuModel.INTEL_SAPPHIRE_RAPIDS | CpuModel.INTEL_GRANITE_RAPIDS:
             expected_host_minus_guest = INTEL_HOST_ONLY_FEATS.copy()
@@ -484,10 +501,13 @@ def test_host_vs_guest_cpu_features(uvm):
                 "tsc_known_freq",
             }
 
-            # Linux kernel v6.6+ drops the "invpcid_single" synthetic bit, but our guest
-            # kernels (< 6.6) still synthesize it, so a v6.18 host (>= 6.6) sees it as guest-only.
+            # Linux kernel v6.6+ drops the "invpcid_single" synthetic bit.
             # https://github.com/torvalds/linux/commit/54e3d9434ef61b97fd3263c141b928dc5635e50d
-            if host_version >= (6, 6) and guest_version < (6, 6):
+            host_has_invpcid_single = host_version < (6, 6)
+            guest_has_invpcid_single = guest_version < (6, 6)
+            if host_has_invpcid_single and not guest_has_invpcid_single:
+                expected_host_minus_guest |= {"invpcid_single"}
+            if not host_has_invpcid_single and guest_has_invpcid_single:
                 expected_guest_minus_host |= {"invpcid_single"}
 
             if host_version >= (6, 18):
