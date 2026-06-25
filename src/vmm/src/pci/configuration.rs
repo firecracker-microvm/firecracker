@@ -238,8 +238,8 @@ fn encode_32_bits_bar_size(bar_size: u32) -> u32 {
     !(bar_size - 1)
 }
 
-// Decode the BAR size for 32 bit
-fn decode_32_bits_bar_size(encoded_size: u32) -> u32 {
+/// Decode the BAR size for 32 bit
+pub fn decode_32_bits_bar_size(encoded_size: u32) -> u32 {
     (!encoded_size).wrapping_add(1)
 }
 
@@ -253,8 +253,8 @@ fn encode_64_bits_bar_size(bar_size: u64) -> (u32, u32) {
     (result_hi, result_lo)
 }
 
-// Decode the BAR size for 64 bit
-fn decode_64_bits_bar_size(encoded_size_hi: u32, encoded_size_lo: u32) -> u64 {
+/// Decode the BAR size for 64 bit
+pub fn decode_64_bits_bar_size(encoded_size_hi: u32, encoded_size_lo: u32) -> u64 {
     let result = (u64::from(encoded_size_hi) << 32) | (u64::from(encoded_size_lo));
     (!result).wrapping_add(1)
 }
