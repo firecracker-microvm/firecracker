@@ -313,8 +313,8 @@ def test_host_vs_guest_cpu_features(uvm):
             assert guest_feats - host_feats == expected_guest_minus_host
 
         case CpuModel.INTEL_CASCADELAKE:
-            expected_host_minus_guest = INTEL_HOST_ONLY_FEATS
-            expected_guest_minus_host = INTEL_GUEST_ONLY_FEATS
+            expected_host_minus_guest = INTEL_HOST_ONLY_FEATS.copy()
+            expected_guest_minus_host = INTEL_GUEST_ONLY_FEATS.copy()
 
             # Ubuntu hasn't backported the patch for VMScape yet.
             # This is only requried for Intel Cascade Lake since we only run
@@ -337,7 +337,7 @@ def test_host_vs_guest_cpu_features(uvm):
             # https://github.com/torvalds/linux/commit/54e3d9434ef61b97fd3263c141b928dc5635e50d
             #
             # Our test ubuntu host kernel is v6.14 and has the commit.
-            host_has_invpcid_single = global_props.host_linux_version_tpl < (6, 6)
+            host_has_invpcid_single = host_version < (6, 6)
             guest_has_invpcid_single = vm.guest_kernel_version < (6, 6)
             if host_has_invpcid_single and not guest_has_invpcid_single:
                 expected_host_minus_guest |= {"invpcid_single"}
