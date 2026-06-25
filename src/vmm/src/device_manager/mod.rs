@@ -678,6 +678,8 @@ pub enum DevicePersistError {
     VirtioMem(#[from] VirtioMemPersistError),
     /// Could not activate device: {0}
     DeviceActivation(#[from] ActivateError),
+    /// Resource allocator error: {0}
+    ResourceAllocator(#[from] vm_allocator::Error),
 }
 
 /// Errors for (de)serialization of the device manager.

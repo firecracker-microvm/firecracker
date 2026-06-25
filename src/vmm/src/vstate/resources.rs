@@ -110,10 +110,11 @@ impl ResourceAllocator {
 }
 
 /// Serializable state for the resource allocator.
+///
+/// GSI allocators are reconstructed empty and repopulated from restored device state so malformed
+/// snapshots cannot provide allocator state that disagrees with the devices.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ResourceAllocatorState {
-    /// Allocator for legacy device interrupt lines
-    pub gsi_legacy_allocator: IdAllocator,
     /// Allocator for memory in the 32-bit MMIO address space
     pub mmio32_memory: AddressAllocator,
     /// Allocator for memory in the 64-bit MMIO address space
@@ -137,7 +138,6 @@ impl<'a> Persist<'a> for ResourceAllocator {
 
     fn save(&self) -> Self::State {
         ResourceAllocatorState {
-            gsi_legacy_allocator: self.gsi_legacy_allocator.clone(),
             mmio32_memory: self.mmio32_memory.clone(),
             mmio64_memory: self.mmio64_memory.clone(),
             past_mmio64_memory: self.past_mmio64_memory.clone(),
@@ -150,7 +150,7 @@ impl<'a> Persist<'a> for ResourceAllocator {
         state: &Self::State,
     ) -> Result<Self, Self::Error> {
         Ok(ResourceAllocator {
-            gsi_legacy_allocator: state.gsi_legacy_allocator.clone(),
+            gsi_legacy_allocator: IdAllocator::new(arch::GSI_LEGACY_START, arch::GSI_LEGACY_END)?,
             gsi_msi_allocator: IdAllocator::new(arch::GSI_MSI_START, arch::GSI_MSI_END)?,
             mmio32_memory: state.mmio32_memory.clone(),
             mmio64_memory: state.mmio64_memory.clone(),
@@ -161,7 +161,7 @@ impl<'a> Persist<'a> for ResourceAllocator {
 }
 
 /// An unique ID allocator that allows management of IDs in a given interval.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct IdAllocator {
     // Beginning of the range of IDs that we want to manage.
     range_base: u32,
@@ -356,7 +356,7 @@ mod tests {
         }
 
         #[test]
-        fn test_persist_omits_msi_gsi_allocator() {
+        fn test_persist_omits_gsi_allocators() {
             let mut allocator = ResourceAllocator::new();
 
             let legacy_gsi = allocator.allocate_gsi_legacy(1).unwrap()[0];
@@ -369,16 +369,16 @@ mod tests {
             let state = allocator.save();
             let mut restored = ResourceAllocator::restore((), &state).unwrap();
 
-            // Legacy GSIs and MMIO ranges are serialized, so their allocations survive restore.
-            assert_eq!(restored.allocate_gsi_legacy(1).unwrap()[0], legacy_gsi + 1);
+            // GSI allocators are intentionally omitted from ResourceAllocatorState and replayed by
+            // the restored devices, so they start empty after restore.
+            assert_eq!(restored.allocate_gsi_legacy(1).unwrap()[0], legacy_gsi);
+            assert_eq!(restored.allocate_gsi_msi(1).unwrap()[0], msi_gsi);
+
+            // Memory allocators are still serialized directly.
             restored
                 .mmio32_memory
                 .allocate(1024, 1024, AllocPolicy::ExactMatch(mmio_range.start()))
                 .unwrap_err();
-
-            // MSI GSIs are intentionally omitted from ResourceAllocatorState and replayed by the
-            // restored PCI devices, so the allocator starts empty after restore.
-            assert_eq!(restored.allocate_gsi_msi(1).unwrap()[0], msi_gsi);
         }
     }
 
