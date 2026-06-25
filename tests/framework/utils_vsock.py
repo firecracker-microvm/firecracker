@@ -185,8 +185,19 @@ def host_echo_server(vm, server_port_path):
     service's `pids.max` so guest workers can fork freely. Yields the socket
     path and tears the server down on exit.
     """
+    # The backlog must be >= the number of concurrent guest connections
+    # (`TEST_CONNECTION_COUNT`). Firecracker's vsock muxer establishes the
+    # host-side connection with a *blocking* `connect()` on its event-loop
+    # thread; if the listener's accept backlog is saturated (e.g. the whole
+    # worker burst reconnecting at once right after a snapshot restore), that
+    # `connect()` stalls the VMM, delaying `OP_RESPONSE`s past the guest's 2s
+    # vsock connect timeout and causing spurious `connect(): timed out`.
     echo_server = Popen(
-        ["socat", f"UNIX-LISTEN:{server_port_path},fork,backlog=5", "exec:'/bin/cat'"]
+        [
+            "socat",
+            f"UNIX-LISTEN:{server_port_path},fork,backlog={SERVER_ACCEPT_BACKLOG}",
+            "exec:'/bin/cat'",
+        ]
     )
     try:
         # Give socat a bit of time to create the socket

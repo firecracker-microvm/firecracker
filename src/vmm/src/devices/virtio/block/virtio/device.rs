@@ -645,6 +645,8 @@ impl VirtioDevice for VirtioBlock {
         mem: GuestMemoryMmap,
         interrupt: Arc<dyn VirtioInterrupt>,
     ) -> Result<(), ActivateError> {
+        assert!(!self.is_activated());
+
         for q in self.queues.iter_mut() {
             q.initialize(&mem)
                 .map_err(ActivateError::QueueMemoryError)?;
@@ -1366,6 +1368,8 @@ mod tests {
 
             // Read at valid address, with an overflowing length.
             {
+                let mut block = default_block(engine);
+
                 // Default mem size is 0x10000
                 let mem = default_mem();
                 let interrupt = default_interrupt();
