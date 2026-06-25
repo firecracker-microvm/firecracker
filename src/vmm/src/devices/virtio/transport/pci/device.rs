@@ -1015,13 +1015,18 @@ impl PciDevice for VirtioPciDevice {
         if self.needs_activation() {
             debug!("Activating device");
             let interrupt = Arc::clone(self.virtio_interrupt.as_ref().unwrap());
-            match self
-                .virtio_device()
-                .lock()
-                .unwrap()
-                .activate(self.memory.clone(), interrupt.clone())
-            {
-                Ok(()) => self.device_activated.store(true, Ordering::SeqCst),
+            let device = self.virtio_device();
+            let mut locked_device = device.lock().unwrap();
+            match locked_device.activate(self.memory.clone(), interrupt.clone()) {
+                Ok(()) => {
+                    self.device_activated.store(true, Ordering::SeqCst);
+
+                    // A queue notification may have arrived after the guest set DRIVER_OK but
+                    // before the device finished activating, in which case it was discarded as
+                    // spurious. Re-notify the queues so any buffers the guest already made
+                    // available get processed.
+                    locked_device.notify_queue_events();
+                }
                 Err(err) => {
                     self.common_config.driver_status |= DEVICE_NEEDS_RESET;
                     error!("Error activating device: {err:?}");
