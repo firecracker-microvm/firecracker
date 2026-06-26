@@ -70,7 +70,7 @@ class SpectreMeltdownChecker:
         res = utils.check_output(f"sh {self.path} --batch json")
         return self._parse_output(res.stdout)
 
-    def expected_vulnerabilities(self, cpu_template_name):
+    def expected_vulnerabilities(self, cpu_template_name, guest_kernel_version=None):
         """
         There is a REPTAR exception reported on INTEL_ICELAKE when spectre-meltdown-checker.sh
         script is run inside the guest from below the tests:
@@ -94,6 +94,32 @@ class SpectreMeltdownChecker:
         ):
             return {
                 '{"NAME": "REPTAR", "CVE": "CVE-2023-23583", "VULNERABLE": true, "INFOS": "Your microcode is too old to mitigate the vulnerability"}'
+            }
+
+        # There is a SRSO / INCEPTION (CVE-2023-20569) exception reported on AMD_MILAN and
+        # AMD_GENOA when spectre-meltdown-checker.sh script is run inside the guest
+        # from below the tests:
+        #     test_spectre_meltdown_checker_on_guest and
+        #     test_check_vulnerability_files_ab
+        # This only occurs on guest kernel >= 6.18 and host kernels < 6.18 due to
+        # the "Attack Vector Controls" feature merged in Linux 6.17:
+        # https://docs.kernel.org/admin-guide/hw-vuln/attack_vector_controls.html
+        #
+        # The host is mitigated ("safe RET") but the guest cannot verify the microcode
+        # version since Firecracker does not expose it ("no microcode").
+        # On older kernels, the same sysfs file does not report the latter,
+        # so the checker does not flag it.
+        # Similarly, with a CPU template (e.g. T2A), the guest sees a Zen 2 CPU which is not
+        # affected by INCEPTION, so the checker does not flag it.
+        if (
+            global_props.cpu_codename in ["AMD_MILAN", "AMD_GENOA"]
+            and cpu_template_name == "None"
+            and guest_kernel_version
+            and guest_kernel_version >= (6, 18)
+            and global_props.host_linux_version_tpl < (6, 18)
+        ):
+            return {
+                '{"NAME": "INCEPTION", "CVE": "CVE-2023-20569", "VULNERABLE": true, "INFOS": "Vulnerable: Safe RET, no microcode"}'
             }
         return set()
 
@@ -175,6 +201,24 @@ def get_vuln_files_exception_dict(template, guest_kernel_version=None):
 
     if guest_kernel_version and guest_kernel_version >= (6, 18):
         exception_dict["spectre_v2"] = "Mitigation"
+
+    # Exception for spec_rstack_overflow (SRSO / Inception)
+    # =====================================================
+    #
+    # AMD guests on kernel v6.18+ without a CPU template
+    # --------------------------------------------
+    # On kernel >= 6.18, the SRSO mitigation is gated by CPU_MITIGATE_GUEST_HOST
+    # (Attack Vector Controls). Since Firecracker guests do not run nested VMs,
+    # the guest kernel reports "Vulnerable: Safe RET, no microcode".
+    # The guest is still protected by the host mitigation.
+
+    if (
+        global_props.cpu_codename in ["AMD_MILAN", "AMD_GENOA"]
+        and template == "None"
+        and guest_kernel_version
+        and guest_kernel_version >= (6, 18)
+    ):
+        exception_dict["spec_rstack_overflow"] = "Safe RET"
 
     return exception_dict
 
@@ -272,5 +316,5 @@ def test_spectre_meltdown_checker_on_guest(
         assert res_b <= res_a
     else:
         assert res_b == spectre_meltdown_checker.expected_vulnerabilities(
-            uvm_any.cpu_template_name
+            uvm_any.cpu_template_name, uvm_any.guest_kernel_version
         )
