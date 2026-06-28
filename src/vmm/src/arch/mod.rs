@@ -55,6 +55,9 @@ pub enum DeviceType {
     Rtc,
     /// Device Type: BootTimer.
     BootTimer,
+    /// Device Type: PL061 GPIO.
+    #[cfg(target_arch = "aarch64")]
+    GpioPl061,
 }
 
 /// Default page size for the guest OS.

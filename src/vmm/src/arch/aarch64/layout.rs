@@ -120,9 +120,11 @@ pub const BOOT_DEVICE_MEM_START: u64 = MMIO32_MEM_START;
 pub const RTC_MEM_START: u64 = BOOT_DEVICE_MEM_START + MMIO_LEN;
 /// Memory region start for Serial device.
 pub const SERIAL_MEM_START: u64 = RTC_MEM_START + MMIO_LEN;
+/// Memory region start for PL061 GPIO device.
+pub const GPIO_PL061_MEM_START: u64 = SERIAL_MEM_START + MMIO_LEN;
 
 /// Beginning of memory region for device MMIO 32-bit accesses
-pub const MEM_32BIT_DEVICES_START: u64 = SERIAL_MEM_START + MMIO_LEN;
+pub const MEM_32BIT_DEVICES_START: u64 = GPIO_PL061_MEM_START + MMIO_LEN;
 /// Size of memory region for device MMIO 32-bit accesses
 pub const MEM_32BIT_DEVICES_SIZE: u64 = PCI_MMCONFIG_START - MEM_32BIT_DEVICES_START;
 
