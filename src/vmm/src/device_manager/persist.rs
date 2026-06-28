@@ -18,7 +18,7 @@ use crate::device_manager::acpi::ACPIDeviceError;
 use crate::devices::acpi::vmclock::{VmClock, VmClockState};
 use crate::devices::acpi::vmgenid::{VMGenIDState, VmGenId};
 #[cfg(target_arch = "aarch64")]
-use crate::devices::legacy::RTCDevice;
+use crate::devices::legacy::{PL061Device, PL061State, RTCDevice};
 use crate::devices::virtio::balloon::Balloon;
 use crate::devices::virtio::balloon::persist::{BalloonConstructorArgs, BalloonState};
 use crate::devices::virtio::block::device::Block;
@@ -144,6 +144,9 @@ pub struct DeviceStates {
     pub pmem_devices: Vec<VirtioDeviceState<PmemState>>,
     /// Memory device state.
     pub memory_device: Option<VirtioDeviceState<VirtioMemState>>,
+    /// PL061 GPIO controller register state (aarch64 only).
+    #[cfg(target_arch = "aarch64")]
+    pub gpio_pl061_state: Option<PL061State>,
 }
 
 pub struct MMIODevManagerConstructorArgs<'a> {
@@ -225,6 +228,15 @@ impl<'a> Persist<'a> for MMIODeviceManager {
                     type_: DeviceType::Rtc,
                     device_info: device.resources,
                 });
+            }
+
+            if let Some(device) = &self.gpio_pl061 {
+                states.legacy_devices.push(ConnectedLegacyState {
+                    type_: DeviceType::GpioPl061,
+                    device_info: device.resources,
+                });
+                states.gpio_pl061_state =
+                    Some(device.inner.lock().expect("Poisoned lock").state());
             }
         }
 
@@ -362,6 +374,8 @@ impl<'a> Persist<'a> for MMIODeviceManager {
 
         #[cfg(target_arch = "aarch64")]
         {
+            // Captured before the loop shadows `state` with each `ConnectedLegacyState`.
+            let gpio_pl061_state = state.gpio_pl061_state.as_ref();
             for state in &state.legacy_devices {
                 if state.type_ == DeviceType::Serial {
                     let serial_state: Option<vm_superio::serial::SerialState> =
@@ -378,6 +392,17 @@ impl<'a> Persist<'a> for MMIODeviceManager {
                 if state.type_ == DeviceType::Rtc {
                     let rtc = Arc::new(Mutex::new(RTCDevice::new()));
                     dev_manager.register_mmio_rtc(vm, rtc, Some(state.device_info))?;
+                }
+                if state.type_ == DeviceType::GpioPl061 {
+                    let gpio_pl061 = Arc::new(Mutex::new(match gpio_pl061_state {
+                        Some(saved) => PL061Device::from_state(saved)?,
+                        None => PL061Device::new()?,
+                    }));
+                    dev_manager.register_mmio_gpio_pl061(
+                        vm,
+                        gpio_pl061,
+                        Some(state.device_info),
+                    )?;
                 }
             }
         }
@@ -614,19 +639,32 @@ impl<'a> Persist<'a> for MMIODeviceManager {
 
 #[cfg(test)]
 mod tests {
+    #[cfg(target_arch = "aarch64")]
+    use std::sync::Arc;
+
+    #[cfg(target_arch = "aarch64")]
+    use linux_loader::cmdline::Cmdline;
     use vmm_sys_util::tempfile::TempFile;
 
     use super::*;
+    #[cfg(target_arch = "aarch64")]
+    use crate::arch::KvmVm;
     use crate::builder::tests::*;
     use crate::device_manager;
+    #[cfg(target_arch = "aarch64")]
+    use crate::device_manager::tests::default_device_manager;
     use crate::devices::virtio::block::CacheType;
     use crate::resources::VmmConfig;
+    #[cfg(target_arch = "aarch64")]
+    use crate::test_utils::{arch_mem, arch_mem_raw};
     use crate::vmm_config::balloon::BalloonDeviceConfig;
     use crate::vmm_config::entropy::EntropyDeviceConfig;
     use crate::vmm_config::memory_hotplug::MemoryHotplugConfig;
     use crate::vmm_config::net::NetworkInterfaceConfig;
     use crate::vmm_config::pmem::PmemConfig;
     use crate::vmm_config::vsock::VsockDeviceConfig;
+    #[cfg(target_arch = "aarch64")]
+    use crate::{EventManager, Kvm};
 
     impl<T> PartialEq for VirtioDeviceState<T> {
         fn eq(&self, other: &VirtioDeviceState<T>) -> bool {
@@ -667,6 +705,98 @@ mod tests {
 
             self.boot_timer == other.boot_timer
         }
+    }
+
+    #[cfg(target_arch = "aarch64")]
+    #[test]
+    fn test_legacy_mmio_persistence() {
+        let mem_raw = arch_mem_raw(crate::arch::FDT_MAX_SIZE + 0x1000);
+        let kvm = Kvm::new(vec![]).unwrap();
+        let mut vm = KvmVm::new(kvm).unwrap();
+        vm.register_dram_memory_regions(mem_raw).unwrap();
+        vm.setup_irqchip(1).unwrap();
+        let vm = Arc::new(vm);
+
+        let mut event_manager = EventManager::new().unwrap();
+        let mut device_manager = default_device_manager();
+        let mut cmdline = Cmdline::new(4096).unwrap();
+        device_manager
+            .attach_legacy_devices_aarch64(&vm, &mut event_manager, &mut cmdline, None, None)
+            .unwrap();
+
+        // Configure some PL061 registers so we can verify they survive a snapshot round-trip.
+        let saved_gpio_state = {
+            let gpio = device_manager
+                .mmio_devices
+                .gpio_pl061
+                .as_ref()
+                .unwrap()
+                .inner
+                .clone();
+            let mut gpio = gpio.lock().unwrap();
+            gpio.bus_write(0x40c, &1u32.to_le_bytes()); // interrupt event (IEV)
+            gpio.bus_write(0x410, &1u32.to_le_bytes()); // interrupt mask (IE)
+            gpio.state()
+        };
+
+        let state = device_manager.mmio_devices.save();
+        assert_eq!(state.gpio_pl061_state.as_ref(), Some(&saved_gpio_state));
+        assert_eq!(state.legacy_devices.len(), 2);
+        assert!(
+            state
+                .legacy_devices
+                .iter()
+                .any(|device| device.type_ == DeviceType::Rtc)
+        );
+        assert!(
+            state
+                .legacy_devices
+                .iter()
+                .any(|device| device.type_ == DeviceType::GpioPl061)
+        );
+
+        let restore_mem = arch_mem(crate::arch::FDT_MAX_SIZE + 0x1000);
+        let restore_mem_raw = arch_mem_raw(crate::arch::FDT_MAX_SIZE + 0x1000);
+        let restore_kvm = Kvm::new(vec![]).unwrap();
+        let mut restore_vm = KvmVm::new(restore_kvm).unwrap();
+        restore_vm
+            .register_dram_memory_regions(restore_mem_raw)
+            .unwrap();
+        restore_vm.setup_irqchip(1).unwrap();
+        let restore_vm = Arc::new(restore_vm);
+        let mut restore_event_manager = EventManager::new().unwrap();
+        let mut vm_resources = crate::resources::VmResources::default();
+        let restored = MMIODeviceManager::restore(
+            MMIODevManagerConstructorArgs {
+                mem: &restore_mem,
+                vm: &restore_vm,
+                event_manager: &mut restore_event_manager,
+                vm_resources: &mut vm_resources,
+                instance_id: "fc-test",
+                serial_state: None,
+            },
+            &state,
+        )
+        .unwrap();
+
+        assert!(restored.serial.is_none());
+        assert_eq!(
+            restored.rtc_device_info(),
+            device_manager.mmio_devices.rtc_device_info()
+        );
+        assert_eq!(
+            restored.gpio_pl061_device_info(),
+            device_manager.mmio_devices.gpio_pl061_device_info()
+        );
+        let restored_gpio_state = restored
+            .gpio_pl061
+            .as_ref()
+            .unwrap()
+            .inner
+            .lock()
+            .unwrap()
+            .state();
+        assert_eq!(restored_gpio_state, saved_gpio_state);
     }
 
     #[test]
