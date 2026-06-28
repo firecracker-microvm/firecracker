@@ -65,6 +65,11 @@ pub fn prepare_ruleset(jail_dir: &Path) -> Result<RulesetCreated, JailerError> {
 /// The restrictions are inherited across `exec`, so calling this right before `execve` will
 /// confine the jailed Firecracker process to only the paths allowed by the ruleset.
 ///
+/// The [`landlock::RestrictionStatus`] returned by `restrict_self` is intentionally not
+/// inspected. [`Ruleset::default`] uses soft-requirement mode, so on kernels with partial
+/// or no Landlock support the ruleset is silently downgraded rather than failing — this is
+/// the intended best-effort behaviour.
+///
 /// # Errors
 ///
 /// Returns [`JailerError::Landlock`] if `restrict_self` fails.
