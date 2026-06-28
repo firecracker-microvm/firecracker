@@ -31,18 +31,28 @@ curl --unix-socket /tmp/firecracker.socket -i \
     -d '{ "action_type": "FlushMetrics" }'
 ```
 
-## [Intel and AMD only] SendCtrlAltDel
+## SendCtrlAltDel
 
-This action will send the CTRL+ALT+DEL key sequence to the microVM. By
+This action requests an orderly shutdown of the microVM from the host. Since
+Firecracker exits when the guest powers off (CPU reset), `SendCtrlAltDel` can be
+used to trigger a clean shutdown of the microVM. The mechanism differs per
+architecture, but the API request is the same on both.
+
+On **x86_64**, this action sends the CTRL+ALT+DEL key sequence to the microVM. By
 convention, this sequence has been used to trigger a soft reboot and, as such,
 most Linux distributions perform an orderly shutdown and reset upon receiving
-this keyboard input. Since Firecracker exits on CPU reset, `SendCtrlAltDel` can
-be used to trigger a clean shutdown of the microVM.
-
-For this action, Firecracker emulates a standard AT keyboard, connected via an
-i8042 controller. Driver support for both these devices needs to be present in
+this keyboard input. Firecracker emulates a standard AT keyboard, connected via
+an i8042 controller. Driver support for both these devices needs to be present in
 the guest OS. For Linux, that means the guest kernel needs `CONFIG_SERIO_I8042`
 and `CONFIG_KEYBOARD_ATKBD`.
+
+On **aarch64**, this action injects a virtual power-button press. Firecracker
+exposes a PL061 GPIO controller and describes a `gpio-keys` power button (mapped
+to `KEY_POWER`) in the device tree. Driver support needs to be present in the
+guest OS; for Linux that means `CONFIG_GPIOLIB`, `CONFIG_GPIO_PL061`,
+`CONFIG_INPUT_KEYBOARD` and `CONFIG_KEYBOARD_GPIO`, plus a userspace consumer of
+the power-key event (for example `systemd-logind` with the default
+`HandlePowerKey=poweroff`).
 
 > [!NOTE]
 >
