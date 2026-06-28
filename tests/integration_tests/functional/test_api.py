@@ -16,7 +16,12 @@ import semver
 import host_tools.drive as drive_tools
 import host_tools.network as net_tools
 from framework import utils, utils_cpuid
-from framework.artifacts import GUEST_KERNEL_DEFAULT, pin_guest_kernel
+from framework.artifacts import (
+    GUEST_KERNEL_DEFAULT,
+    GUEST_KERNELS_6_1,
+    pin_guest_kernel,
+    pin_rootfs_mode,
+)
 from framework.utils import get_firecracker_version_from_toml
 from framework.utils_cpu_templates import (
     CUSTOM_CPU_TEMPLATES,
@@ -773,15 +778,19 @@ def test_drive_patch(uvm, io_engine):
     _drive_patch(test_microvm, io_engine)
 
 
-@pytest.mark.skipif(
-    platform.machine() != "x86_64", reason="not yet implemented on aarch64"
-)
+# Pin the kernel to 6.1 so we only use AL23 for this test. This is needed for the
+# aarch64 since it relies on systemd-logind to be enabled. Also pin rootfs to be `rw` since
+# systemd-logind needs it to trigger the reboot.
+@pin_rootfs_mode("rw")
+@pin_guest_kernel(GUEST_KERNELS_6_1)
 def test_send_ctrl_alt_del(uvm):
     """
-    Test shutting down the microVM gracefully on x86, by sending CTRL+ALT+DEL.
+    Test shutting down the microVM gracefully by sending CTRL+ALT+DEL.
     """
-    # This relies on the i8042 device and AT Keyboard support being present in
-    # the guest kernel.
+    # On x86_64 this relies on the i8042 device and AT Keyboard support being
+    # present in the guest kernel. On aarch64 it relies on the PL061 GPIO
+    # power button (gpio-keys in the guest kernel) and systemd-logind handling
+    # the resulting KEY_POWER event.
     test_microvm = uvm
     test_microvm.spawn()
 
