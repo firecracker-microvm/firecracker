@@ -35,10 +35,14 @@ use crate::JailerError;
 ///
 /// # Errors
 ///
-/// Returns [`JailerError::Landlock`] if the kernel does not support Landlock,
-/// if `jail_dir` cannot be opened, or if any ruleset syscall fails.
+/// Returns [`JailerError::Landlock`] if `jail_dir` cannot be opened or if any
+/// ruleset syscall fails. On kernels with partial or no Landlock support the
+/// ruleset is silently downgraded to the highest ABI the kernel supports
+/// (best-effort, per [`Ruleset::default`] semantics).
 pub fn prepare_ruleset(jail_dir: &Path) -> Result<RulesetCreated, JailerError> {
-    let abi = ABI::V4;
+    // V7 is the highest tested ABI. The crate's default SoftRequirement mode
+    // automatically downgrades to whatever the running kernel supports.
+    let abi = ABI::V7;
 
     let path_fd = PathFd::new(jail_dir).map_err(|err| {
         JailerError::Landlock(format!(
