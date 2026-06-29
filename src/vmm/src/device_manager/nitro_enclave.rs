@@ -5,10 +5,9 @@
 //!
 //! Manages Nitro Enclave transport devices, parallel to `MMIODeviceManager` and `PciDevices`.
 
-use std::fmt::Debug;
 use std::sync::{Arc, Mutex};
 
-use event_manager::{MutEventSubscriber, SubscriberOps};
+use event_manager::SubscriberOps;
 
 use crate::EventManager;
 use crate::devices::virtio::device::VirtioDevice;
@@ -42,9 +41,9 @@ impl NeDevices {
     /// `NeTransport::register_device` (NE_ADD_DEVICE + eventfds), and registers
     /// the device backend and transport as event subscribers. The transport
     /// itself only owns the wiring primitive and post-DRIVER_OK activation.
-    pub fn attach_ne_virtio_device<T: 'static + VirtioDevice + MutEventSubscriber + Debug>(
+    pub fn attach_ne_virtio_device(
         &mut self,
-        device: Arc<Mutex<T>>,
+        device: Arc<Mutex<dyn VirtioDevice>>,
         enclave_vm: &EnclaveVm,
         dmb_size_mib: Option<u64>,
         event_manager: &mut EventManager,
