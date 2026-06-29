@@ -406,6 +406,26 @@
                 ]
             },
             {
+                "syscall": "mmap",
+                "comment": "Used to overlay NE CMA memory for a hotplugged enclave device's DMB (confidential mode)",
+                "args": [
+                    {
+                        "index": 3,
+                        "type": "dword",
+                        "op": "eq",
+                        "val": 32785,
+                        "comment": "libc::MAP_SHARED | libc::MAP_FIXED | libc::MAP_POPULATE"
+                    },
+                    {
+                        "index": 2,
+                        "type": "dword",
+                        "op": "eq",
+                        "val": 3,
+                        "comment": "libc::PROT_READ | libc::PROT_WRITE"
+                    }
+                ]
+            },
+            {
                 "syscall": "memfd_create",
                 "comment": "Used by IovDeque ring buffer for net device hotplug",
                 "args": [
@@ -555,6 +575,58 @@
                         "op": "eq",
                         "val": 21537,
                         "comment": "FIONBIO"
+                    }
+                ]
+            },
+            {
+                "syscall": "ioctl",
+                "comment": "NE_ADD_DEVICE, used to attach a virtio device to a running enclave (device hotplug)",
+                "args": [
+                    {
+                        "index": 1,
+                        "type": "dword",
+                        "op": "eq",
+                        "val": 3278417446,
+                        "comment": "NE_ADD_DEVICE"
+                    }
+                ]
+            },
+            {
+                "syscall": "ioctl",
+                "comment": "NE_SET_VRING_CALL, used to wire a hotplugged enclave device's call eventfd",
+                "args": [
+                    {
+                        "index": 1,
+                        "type": "dword",
+                        "op": "eq",
+                        "val": 1074834983,
+                        "comment": "NE_SET_VRING_CALL"
+                    }
+                ]
+            },
+            {
+                "syscall": "ioctl",
+                "comment": "NE_SET_VRING_KICK, used to wire a hotplugged enclave device's kick eventfd",
+                "args": [
+                    {
+                        "index": 1,
+                        "type": "dword",
+                        "op": "eq",
+                        "val": 1074834984,
+                        "comment": "NE_SET_VRING_KICK"
+                    }
+                ]
+            },
+            {
+                "syscall": "ioctl",
+                "comment": "NE_SET_INFO_EVENT_FD, used to wire a hotplugged enclave device's info-event eventfd",
+                "args": [
+                    {
+                        "index": 1,
+                        "type": "dword",
+                        "op": "eq",
+                        "val": 1074310699,
+                        "comment": "NE_SET_INFO_EVENT_FD"
                     }
                 ]
             },
