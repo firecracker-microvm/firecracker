@@ -31,6 +31,7 @@ mod tests {
         }"#;
         let expected_config = MetricsConfig {
             metrics_path: PathBuf::from("metrics"),
+            emit_id: false,
             properties: None,
         };
         assert_eq!(
@@ -42,6 +43,23 @@ mod tests {
             "invalid_field": "metrics"
         }"#;
         parse_put_metrics(&Body::new(invalid_body)).unwrap_err();
+    }
+
+    #[test]
+    fn test_parse_put_metrics_request_with_emit_id() {
+        let body = r#"{
+            "metrics_path": "metrics",
+            "emit_id": true
+        }"#;
+        let expected_config = MetricsConfig {
+            metrics_path: PathBuf::from("metrics"),
+            emit_id: true,
+            properties: None,
+        };
+        assert_eq!(
+            vmm_action_from_request(parse_put_metrics(&Body::new(body)).unwrap()),
+            VmmAction::ConfigureMetrics(expected_config)
+        );
     }
 
     #[test]
@@ -58,6 +76,7 @@ mod tests {
         properties.insert("bundle_id".to_string(), "fn-abc".to_string());
         let expected_config = MetricsConfig {
             metrics_path: PathBuf::from("metrics"),
+            emit_id: false,
             properties: Some(properties),
         };
         assert_eq!(
