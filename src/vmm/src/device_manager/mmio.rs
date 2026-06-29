@@ -282,6 +282,9 @@ impl MMIODeviceManager {
         // Create a new MMIODeviceInfo object on boot path or unwrap the
         // existing object on restore path.
         let device_info = if let Some(device_info) = device_info_opt {
+            vm.resource_allocator()
+                .gsi_legacy_allocator
+                .allocate_id_at(device_info.gsi.ok_or(MmioError::InvalidIrqConfig)?)?;
             device_info
         } else {
             let gsi = vm.resource_allocator().allocate_gsi_legacy(1)?;
@@ -342,6 +345,9 @@ impl MMIODeviceManager {
         // Create a new MMIODeviceInfo object on boot path or unwrap the
         // existing object on restore path.
         let device_info = if let Some(device_info) = device_info_opt {
+            vm.resource_allocator()
+                .gsi_legacy_allocator
+                .allocate_id_at(device_info.gsi.ok_or(MmioError::InvalidIrqConfig)?)?;
             device_info
         } else {
             let gsi = vm.resource_allocator().allocate_gsi_legacy(1)?;
@@ -566,9 +572,8 @@ pub(crate) mod tests {
             let _ = value;
         }
 
-        fn read_config(&self, offset: u64, data: &mut [u8]) {
-            let _ = offset;
-            let _ = data;
+        fn config_as_bytes(&self) -> &[u8] {
+            &[]
         }
 
         fn write_config(&mut self, offset: u64, data: &[u8]) {

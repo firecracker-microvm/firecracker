@@ -17,6 +17,8 @@ pub enum ACPIDeviceError {
     VmClock(#[from] VmClockError),
     /// Could not register IRQ with KVM: {0}
     RegisterIrq(#[from] kvm_ioctls::Error),
+    /// Resource allocator error: {0}
+    ResourceAllocator(#[from] vm_allocator::Error),
 }
 
 // Although both VMGenID and VMClock devices are always present, they should be instantiated when
@@ -65,6 +67,17 @@ impl ACPIDeviceManager {
     pub fn activate_vmclock(&self, vm: &KvmVm) -> Result<(), ACPIDeviceError> {
         vm.register_irq(&self.vmclock().interrupt_evt, self.vmclock().gsi)?;
         self.vmclock().activate(vm.guest_memory())?;
+        Ok(())
+    }
+
+    pub fn replay_gsi_allocations(&self, vm: &KvmVm) -> Result<(), ACPIDeviceError> {
+        let mut resource_allocator = vm.resource_allocator();
+        resource_allocator
+            .gsi_legacy_allocator
+            .allocate_id_at(self.vmgenid().gsi)?;
+        resource_allocator
+            .gsi_legacy_allocator
+            .allocate_id_at(self.vmclock().gsi)?;
         Ok(())
     }
 
