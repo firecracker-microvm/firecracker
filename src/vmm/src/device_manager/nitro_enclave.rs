@@ -30,7 +30,7 @@ pub enum NeDeviceError {
 /// Manages NE transport devices for enclaves.
 #[derive(Debug, Default)]
 pub struct NeDevices {
-    devices: HashMap<VirtioDeviceId, Arc<Mutex<NeTransport>>>,
+    pub devices: HashMap<VirtioDeviceId, Arc<Mutex<NeTransport>>>,
 }
 
 impl NeDevices {

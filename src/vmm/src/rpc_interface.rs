@@ -230,6 +230,8 @@ pub enum VmmActionError {
     PciNotEnabled,
     /// PCI manager error: {0}
     PciManager(#[from] PciManagerError),
+    /// Enclave device error: {0}
+    NeDevice(#[from] crate::device_manager::nitro_enclave::NeDeviceError),
 }
 
 /// The enum represents the response sent by the VMM in case of success. The response is either
