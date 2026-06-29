@@ -1474,6 +1474,12 @@ definitions:
       metrics_path:
         type: string
         description: Path to the named pipe or file where the JSON-formatted metrics are flushed.
+      emit_id:
+        type: boolean
+        description:
+          Whether to emit the microVM instance id (the value passed to the
+          jailer "--id") as a top-level "id" field on each metrics line.
+        default: false
       properties:
         type: object
         description:

@@ -56,6 +56,13 @@ the `metrics` block of a configuration file; the `--metrics-path` CLI option
 configures only the path. Like the rest of the metrics configuration, they are
 set once before boot and fixed for the lifetime of the microVM.
 
+### `id`
+
+Set `emit_id` to `true` to emit the microVM instance id (the value passed to
+`--id`, defaulting to `anonymous-instance`) under a top-level `id` field. This
+lets lines collected from multiple microVMs into one destination be attributed
+to their source.
+
 ### `properties`
 
 Set `properties` to a map of operator-defined key-value pairs to emit them under
@@ -72,6 +79,7 @@ curl --unix-socket /tmp/firecracker.socket -i \
     -H "Content-Type: application/json" \
     -d "{
              \"metrics_path\": \"metrics.fifo\",
+             \"emit_id\": true,
              \"properties\": {
                  \"customer_id\": \"1234\",
                  \"bundle_id\": \"fn-abc\"
@@ -86,6 +94,7 @@ passed via `--config-file`:
 {
     "metrics": {
         "metrics_path": "metrics.fifo",
+        "emit_id": true,
         "properties": {
             "customer_id": "1234",
             "bundle_id": "fn-abc"
@@ -94,16 +103,17 @@ passed via `--config-file`:
 }
 ```
 
-With no properties configured, a line carries only the default keys:
+With neither field configured, a line carries only the default keys:
 
 ```json
 {"utc_timestamp_ms": 1739000000000, "api_server": {"...": 0}}
 ```
 
-With the properties above, the same line also carries them:
+With both fields configured as above, the same line also carries the instance id
+and the properties:
 
 ```json
-{"utc_timestamp_ms": 1739000000000, "properties": {"bundle_id": "fn-abc", "customer_id": "1234"}, "api_server": {"...": 0}}
+{"utc_timestamp_ms": 1739000000000, "id": "my-instance", "properties": {"bundle_id": "fn-abc", "customer_id": "1234"}, "api_server": {"...": 0}}
 ```
 
 ## Flushing the metrics
