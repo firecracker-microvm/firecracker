@@ -48,6 +48,7 @@ use crate::devices::virtio::pmem::persist::PmemPersistError;
 use crate::devices::virtio::rng::persist::EntropyPersistError;
 use crate::devices::virtio::vsock::{VsockError, VsockUnixBackendError};
 use crate::logger::{error, info};
+use crate::nitro_enclave::enclave_vm::EnclaveVm;
 use crate::rate_limiter::TokenBucket;
 use crate::resources::VmResources;
 use crate::rpc_interface::VmmActionError;
@@ -489,6 +490,46 @@ impl DeviceManager {
                 .map_err(VmmActionError::PciManager),
             VirtioDevices::Mmio(_) => Err(VmmActionError::PciNotEnabled),
         }
+    }
+
+    /// Hotplugs a device to a running Nitro Enclave over the NE transport.
+    pub fn hotplug_ne_device(
+        &mut self,
+        enclave_vm: &EnclaveVm,
+        config: HotplugDeviceConfig,
+        event_manager: &mut EventManager,
+    ) -> Result<(), VmmActionError> {
+        if !enclave_vm.hotplug_enabled() {
+            return Err(VmmActionError::NotSupported(
+                "Device hotplug requires the enclave to be started with hotplug_mode".to_string(),
+            ));
+        }
+
+        if self
+            .ne_devices
+            .devices
+            .contains_key(&(config.device_type(), config.device_id().to_string()))
+        {
+            return Err(VmmActionError::DeviceIdInUse);
+        }
+
+        let device = match config {
+            HotplugDeviceConfig::Block(cfg) => Self::hotplug_make_block(cfg)?,
+            HotplugDeviceConfig::Net(cfg) => self.hotplug_make_net(cfg)?,
+            HotplugDeviceConfig::Pmem(_) => {
+                return Err(VmmActionError::NotSupported(
+                    "pmem hot-add is not supported for enclaves".to_string(),
+                ));
+            }
+        };
+
+        self.ne_devices.attach_ne_virtio_device(
+            device,
+            enclave_vm,
+            enclave_vm.dmb_size_mib(),
+            event_manager,
+        )?;
+        Ok(())
     }
 
     fn hotplug_make_block(

@@ -717,13 +717,16 @@ impl Vmm {
         event_manager: &mut EventManager,
     ) -> Result<(), VmmActionError> {
         log_dev_preview_warning("PCI device hotplug", None);
-        let kvm_vm = self
-            .vm
-            .as_kvm()
-            .ok_or_else(|| VmmActionError::NotSupported("Operation requires KVM".to_string()))?
-            .clone();
-        self.device_manager
-            .hotplug_device(kvm_vm, config, event_manager)
+        match &self.vm {
+            Vm::Kvm(kvm_vm) => {
+                self.device_manager
+                    .hotplug_device(kvm_vm.clone(), config, event_manager)
+            }
+            Vm::Enclave(enclave_vm) => {
+                self.device_manager
+                    .hotplug_ne_device(enclave_vm, config, event_manager)
+            }
+        }
     }
 
     /// Detaches a device after VM start
