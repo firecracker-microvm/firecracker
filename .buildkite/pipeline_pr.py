@@ -25,6 +25,35 @@ def hiding_kernel_variants():
     return sorted(p.name for p in HIDING_KERNELS_DIR.iterdir() if p.is_dir())
 
 
+def affected_hiding_kernel_variants(changed_files):
+    """Return hiding kernel variants whose inputs changed."""
+    variants = hiding_kernel_variants()
+
+    if not changed_files:
+        return variants
+
+    affected = set()
+    shared_hiding_ci_changed = False
+
+    for path in changed_files:
+        parts = path.parts
+
+        if len(parts) < 2 or parts[:2] != ("resources", "hiding_ci"):
+            continue
+
+        if len(parts) >= 4 and parts[:3] == ("resources", "hiding_ci", "kernels"):
+            variant = parts[3]
+            if variant in variants:
+                affected.add(variant)
+        else:
+            shared_hiding_ci_changed = True
+
+    if shared_hiding_ci_changed:
+        return variants
+
+    return sorted(affected)
+
+
 # Buildkite default job priority is 0. Setting this to 1 prioritizes PRs over
 # scheduled jobs and other batch jobs.
 DEFAULT_PRIORITY = 1
@@ -99,23 +128,20 @@ if not pipeline.args.no_kani and (
         depends_on_build=False,
     )
 
-if not changed_files or (
-    any(parent.name == "hiding_ci" for x in changed_files for parent in x.parents)
-):
+for variant in affected_hiding_kernel_variants(changed_files):
     # One build job per variant x arch, so each variant gets parallel
     # wall-clock and its own pass/fail signal in the Buildkite UI.
-    for variant in hiding_kernel_variants():
-        pipeline.build_group_per_arch(
-            f"🕵️ Build Secret Hiding Kernel [{variant}]",
-            pipeline.devtool_test(
-                pytest_opts=(
-                    "-m secret_hiding "
-                    f'-k "test_build_hiding_kernel[{variant}]" '
-                    "integration_tests/build/test_hiding_kernel.py"
-                ),
+    pipeline.build_group_per_arch(
+        f"🕵️ Build Secret Hiding Kernel [{variant}]",
+        pipeline.devtool_test(
+            pytest_opts=(
+                "-m secret_hiding "
+                f'-k "test_build_hiding_kernel[{variant}]" '
+                "integration_tests/build/test_hiding_kernel.py"
             ),
-            depends_on_build=False,
-        )
+        ),
+        depends_on_build=False,
+    )
 
 if run_all_tests(changed_files):
     pipeline.build_group(
