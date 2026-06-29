@@ -1474,6 +1474,13 @@ definitions:
       metrics_path:
         type: string
         description: Path to the named pipe or file where the JSON-formatted metrics are flushed.
+      properties:
+        type: object
+        description:
+          Operator-defined key-value pairs emitted under a top-level
+          "properties" field on each metrics line.
+        additionalProperties:
+          type: string
 
   MmdsConfig:
     type: object
