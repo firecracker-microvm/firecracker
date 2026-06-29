@@ -47,6 +47,65 @@ Details about this configuration can be found in the
 
 The metrics are written to the `metrics_path` in JSON format.
 
+## Optional metrics fields
+
+Firecracker can emit additional top-level fields on every metrics line. Each is
+opt-in and off by default, so the default output is unchanged. They are
+configured alongside `metrics_path`, through the `PUT /metrics` API request or
+the `metrics` block of a configuration file; the `--metrics-path` CLI option
+configures only the path. Like the rest of the metrics configuration, they are
+set once before boot and fixed for the lifetime of the microVM.
+
+### `properties`
+
+Set `properties` to a map of operator-defined key-value pairs to emit them under
+a top-level `properties` field.
+
+### Examples
+
+Configure the fields via the API by adding them to the request body:
+
+```bash
+curl --unix-socket /tmp/firecracker.socket -i \
+    -X PUT "http://localhost/metrics" \
+    -H "accept: application/json" \
+    -H "Content-Type: application/json" \
+    -d "{
+             \"metrics_path\": \"metrics.fifo\",
+             \"properties\": {
+                 \"customer_id\": \"1234\",
+                 \"bundle_id\": \"fn-abc\"
+             }
+    }"
+```
+
+The same fields can be provided in the `metrics` block of a configuration file
+passed via `--config-file`:
+
+```json
+{
+    "metrics": {
+        "metrics_path": "metrics.fifo",
+        "properties": {
+            "customer_id": "1234",
+            "bundle_id": "fn-abc"
+        }
+    }
+}
+```
+
+With no properties configured, a line carries only the default keys:
+
+```json
+{"utc_timestamp_ms": 1739000000000, "api_server": {"...": 0}}
+```
+
+With the properties above, the same line also carries them:
+
+```json
+{"utc_timestamp_ms": 1739000000000, "properties": {"bundle_id": "fn-abc", "customer_id": "1234"}, "api_server": {"...": 0}}
+```
+
 ## Flushing the metrics
 
 The metrics get flushed in two ways:
