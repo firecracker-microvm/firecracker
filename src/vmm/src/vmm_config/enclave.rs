@@ -34,8 +34,8 @@ pub enum EnclaveConfigError {
 pub struct EnclaveConfig {
     /// Specific CPU IDs from the NE CPU pool.
     ///
-    /// `None` → use NE_ADD_ANY_VCPU (kernel picks from the dynamic pool).
-    /// `Some(ids)` → use NE_ADD_VCPU per ID (explicit pinning).
+    /// `None` -> use NE_ADD_ANY_VCPU (kernel picks from the dynamic pool).
+    /// `Some(ids)` -> use NE_ADD_VCPU per ID (explicit pinning).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cpu_ids: Option<Vec<u32>>,
     /// Enable debug mode.
