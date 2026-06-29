@@ -576,7 +576,7 @@ def dump_proc_state(pid):
         # comm in stat is parenthesized and may contain spaces; split after last ')'
         rest = stat.rsplit(")", 1)[1].split()
         # field indexing per proc(5): pid(1) comm(2) state(3) ppid(4) ...
-        # rest[0] is field 3 onwards. exit_state is field 41 → rest[38]
+        # rest[0] is field 3 onwards. exit_state is field 41 -> rest[38]
         if len(rest) > 38:
             log.error("Process %d exit_state (stat[41]): %s", pid, rest[38])
     except (FileNotFoundError, PermissionError, IndexError, ValueError):

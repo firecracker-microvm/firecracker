@@ -892,12 +892,12 @@ mod tests {
 
     #[test]
     fn test_write_serial_since_rejects_zero_and_oversized_capacity() {
-        // capacity == 0 → None.
+        // capacity == 0 -> None.
         let page = TestPageBuilder::new().serial(4096, 5, 0, b"").build();
         let mut buf = Vec::new();
         assert!(page.write_serial_since(0, &mut buf).is_none());
 
-        // capacity larger than the region's data area → None. Craft a TOC entry
+        // capacity larger than the region's data area -> None. Craft a TOC entry
         // whose recorded size is smaller than the ring's declared capacity.
         let page = TestPageBuilder::new()
             .toc_entry(NitroTocEntry {

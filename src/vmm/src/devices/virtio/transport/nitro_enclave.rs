@@ -261,7 +261,7 @@ impl NeTransport {
             req.info_event_vector,
         );
 
-        // Wire eventfds: KICK (enclave → device backend) and CALL (parent → enclave MSI-X).
+        // Wire eventfds: KICK (enclave -> device backend) and CALL (parent -> enclave MSI-X).
         // `kick_fds`, `req.vq_info` and `call_fds` are all sized by `num_vqs`; an
         // index loop reads clearer here than zipping three slices.
         #[allow(clippy::needless_range_loop)]
