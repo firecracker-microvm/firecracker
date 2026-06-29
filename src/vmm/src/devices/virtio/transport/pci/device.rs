@@ -45,7 +45,6 @@ use crate::snapshot::Persist;
 use crate::vstate::bus::BusDevice;
 use crate::vstate::interrupts::{InterruptError, MsixVectorGroup};
 use crate::vstate::memory::GuestMemoryMmap;
-use crate::vstate::resources::ResourceAllocator;
 use crate::vstate::vm::KvmVm;
 
 /// Vector value used to disable MSI for a queue.
@@ -620,8 +619,7 @@ impl VirtioPciDevice {
         !self.device_activated.load(Ordering::SeqCst) && self.is_driver_ready()
     }
 
-    /// Register the IoEvent notification for a VirtIO device
-    pub fn register_notification_ioevent(&self, vm: &KvmVm) -> Result<(), errno::Error> {
+    fn set_notification_ioevents(&self, vm: &KvmVm, assign: bool) -> Result<(), errno::Error> {
         let bar_addr = self.config_bar_addr();
         for (i, queue_evt) in self
             .device
@@ -634,9 +632,24 @@ impl VirtioPciDevice {
             let notify_base = bar_addr + u64::from(NOTIFICATION_BAR_OFFSET);
             let io_addr =
                 IoEventAddress::Mmio(notify_base + i as u64 * u64::from(NOTIFY_OFF_MULTIPLIER));
-            vm.fd().register_ioevent(queue_evt, &io_addr, NoDatamatch)?;
+            if assign {
+                vm.fd().register_ioevent(queue_evt, &io_addr, NoDatamatch)?;
+            } else {
+                vm.fd()
+                    .unregister_ioevent(queue_evt, &io_addr, NoDatamatch)?;
+            }
         }
         Ok(())
+    }
+
+    /// Register the IoEvent notifications for a VirtIO device.
+    pub fn register_notification_ioevents(&self, vm: &KvmVm) -> Result<(), errno::Error> {
+        self.set_notification_ioevents(vm, true)
+    }
+
+    /// Unregister the IoEvent notifications for a VirtIO device.
+    pub fn unregister_notification_ioevents(&self, vm: &KvmVm) -> Result<(), errno::Error> {
+        self.set_notification_ioevents(vm, false)
     }
 
     pub fn state(&self) -> VirtioPciDeviceState {
@@ -1042,6 +1055,8 @@ mod tests {
     use crate::pci::msix::MsixCap;
     use crate::pci::{PciCapabilityId, PciClassCode, PciDevice};
     use crate::rate_limiter::RateLimiter;
+    use crate::snapshot::Persist;
+    use crate::vstate::resources::ResourceAllocator;
 
     fn create_vmm_with_virtio_pci_device() -> Vmm {
         let mut vmm = default_vmm();
@@ -1726,12 +1741,13 @@ mod tests {
         // copy reuses the same MSI-X GSIs, so the two `MsixVectorGroup` instances must never
         // exist concurrently. This is how it will happen in real scenario anyway.
         let kvm_vm = vmm.vm.as_kvm().unwrap().clone();
-        let saved_allocator = kvm_vm.resource_allocator().clone();
+        let saved_allocator = kvm_vm.resource_allocator().save();
         drop(device);
         drop(vmm);
-        // Restore the allocator state so the restored group's GSIs are marked allocated and
-        // its `MsixVectorGroup::drop` will succeed when the test ends.
-        *kvm_vm.resource_allocator() = saved_allocator;
+        // Restore allocator state through `ResourceAllocator::restore`, matching the VM restore
+        // path. This resets the MSI GSI allocator before the restored device replays its saved GSI
+        // allocations.
+        *kvm_vm.resource_allocator() = ResourceAllocator::restore((), &saved_allocator).unwrap();
 
         let new_entropy = Arc::new(Mutex::new(Entropy::new(RateLimiter::default()).unwrap()));
         let restored =

@@ -578,9 +578,7 @@ mod tests {
     use crate::resources::VmResources;
     use crate::utils::net::mac::MacAddr;
     use crate::vmm_config::RateLimiterConfig;
-    use crate::vmm_config::boot_source::{
-        BootConfig, BootSource, BootSourceConfig, DEFAULT_KERNEL_CMDLINE,
-    };
+    use crate::vmm_config::boot_source::{BootConfig, BootSource, BootSourceConfig};
     use crate::vmm_config::drive::{BlockBuilder, BlockDeviceConfig};
     use crate::vmm_config::machine_config::{HugePageConfig, MachineConfig, MachineConfigError};
     use crate::vmm_config::net::{NetBuilder, NetworkInterfaceConfig};
@@ -639,13 +637,11 @@ mod tests {
     }
 
     fn default_boot_cfg() -> BootSource {
-        let kernel_cmdline =
-            linux_loader::cmdline::Cmdline::try_from(DEFAULT_KERNEL_CMDLINE, 4096).unwrap();
         let tmp_file = TempFile::new().unwrap();
         BootSource {
             config: BootSourceConfig::default(),
             builder: Some(BootConfig {
-                cmdline: kernel_cmdline,
+                cmdline: None,
                 kernel_file: File::open(tmp_file.as_path()).unwrap(),
                 initrd_file: Some(File::open(tmp_file.as_path()).unwrap()),
             }),
@@ -1584,12 +1580,12 @@ mod tests {
         let tmp_ino = tmp_file.as_file().metadata().unwrap().st_ino();
 
         assert_ne!(
-            boot_builder
-                .cmdline
+            boot_builder.cmdline.as_ref().map(|c| c
                 .as_cstring()
                 .unwrap()
-                .as_bytes_with_nul(),
-            [cmdline.as_bytes(), b"\0"].concat()
+                .as_bytes_with_nul()
+                .to_vec()),
+            Some([cmdline.as_bytes(), b"\0"].concat())
         );
         assert_ne!(
             boot_builder.kernel_file.metadata().unwrap().st_ino(),
@@ -1611,6 +1607,8 @@ mod tests {
         assert_eq!(
             boot_source_builder
                 .cmdline
+                .as_ref()
+                .unwrap()
                 .as_cstring()
                 .unwrap()
                 .as_bytes_with_nul(),

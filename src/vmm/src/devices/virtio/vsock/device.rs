@@ -41,7 +41,7 @@ use crate::devices::virtio::vsock::metrics::METRICS;
 use crate::impl_device_type;
 use crate::logger::{IncMetric, error, info, warn};
 use crate::utils::byte_order;
-use crate::vstate::memory::{Bytes, GuestMemoryMmap};
+use crate::vstate::memory::{ByteValued, Bytes, GuestMemoryMmap};
 
 pub(crate) const RXQ_INDEX: usize = 0;
 pub(crate) const TXQ_INDEX: usize = 1;
@@ -242,10 +242,7 @@ where
                 }
             };
 
-            if self.backend.send_pkt(&self.tx_packet).is_err() {
-                queue.undo_pop();
-                break;
-            }
+            self.backend.send_pkt(&self.tx_packet);
 
             have_used = true;
             queue.add_used(index, 0).unwrap_or_else(|err| {
@@ -338,24 +335,16 @@ where
             .deref()
     }
 
-    fn read_config(&self, offset: u64, data: &mut [u8]) {
-        match offset {
-            0 if data.len() == 8 => byte_order::write_le_u64(data, self.cid()),
-            0 if data.len() == 4 => {
-                byte_order::write_le_u32(data, (self.cid() & 0xffff_ffff) as u32)
-            }
-            4 if data.len() == 4 => {
-                byte_order::write_le_u32(data, ((self.cid() >> 32) & 0xffff_ffff) as u32)
-            }
-            _ => {
-                METRICS.cfg_fails.inc();
-                warn!(
-                    "vsock: virtio-vsock received invalid read request of {} bytes at offset {}",
-                    data.len(),
-                    offset
-                )
-            }
-        }
+    fn config_as_bytes(&self) -> &[u8] {
+        // ByteValued::as_slice() gives native-endian bytes. Firecracker only
+        // targets little-endian platforms, matching virtio's LE config space;
+        // the static assert below makes a big-endian target a compile error
+        // rather than a silent mis-serialization.
+        const _: () = assert!(
+            cfg!(target_endian = "little"),
+            "virtio config requires a little-endian target"
+        );
+        self.cid.as_slice()
     }
 
     fn write_config(&mut self, offset: u64, data: &[u8]) {
@@ -372,6 +361,8 @@ where
         mem: GuestMemoryMmap,
         interrupt: Arc<dyn VirtioInterrupt>,
     ) -> Result<(), ActivateError> {
+        assert!(!self.is_activated());
+
         for q in self.queues.iter_mut() {
             q.initialize(&mem)
                 .map_err(ActivateError::QueueMemoryError)?;
@@ -406,21 +397,47 @@ where
     }
 
     fn kick(&mut self) {
-        // Vsock has complicated protocol that isn't resilient to any packet loss,
-        // so for Vsock we don't support connection persistence through snapshot.
-        // Any in-flight packets or events are simply lost.
-        // Vsock is restored 'empty'.
-        // The only reason we still `kick` it is to make guest process
-        // `TRANSPORT_RESET_EVENT` event we sent during snapshot creation.
         if self.is_activated() {
             self.pending_event_ack = true;
 
+            // Vsock has a complicated protocol that isn't resilient to any packet loss,
+            // so for Vsock we don't support connection persistence through snapshot. Any
+            // in-flight packets or events are simply lost and Vsock is restored 'empty'.
+            // We signal the event queue to make the guest process the
+            // `TRANSPORT_RESET_EVENT` event we sent during snapshot creation. (We signal
+            // it host->guest rather than writing its eventfd, which would invoke the
+            // guest's reset-ack path and clear `pending_event_ack` prematurely.)
             info!(
                 "[{:?}:{}] signaling event queue",
                 self.device_type(),
                 self.id()
             );
             self.signal_used_queue(EVQ_INDEX).unwrap();
+
+            // Replay the TX queue notification, like the default `VirtioDevice::kick`
+            // does for its data queues, so the device re-processes any TX descriptor
+            // that was in-flight at snapshot time and re-arms `avail_event`.
+            //
+            // Without this, `avail_idx` stays ahead of the `avail_event` we published.
+            // Under EVENT_IDX the guest only notifies us when `avail_idx` crosses
+            // `avail_event`; since it is already past, the guest considers itself to
+            // have notified us and stays silent, so we never process the queue and
+            // guest-to-host connections hang. RX needs no replay: it is gated by
+            // `pending_event_ack` until the guest acks the reset, and the host pulls
+            // from the backend rather than waiting on a guest RX notification.
+            info!(
+                "[{:?}:{}] notifying tx queue",
+                self.device_type(),
+                self.id()
+            );
+            if let Err(err) = self.queue_events[TXQ_INDEX].write(1) {
+                error!(
+                    "[{:?}:{}] error notifying tx queue: {}",
+                    self.device_type(),
+                    self.id(),
+                    err
+                );
+            }
         }
     }
 
@@ -488,32 +505,14 @@ mod tests {
         // as the device features.
         assert_eq!(ctx.device.acked_features, device_features & driver_features);
 
-        // Test reading 32-bit chunks.
-        let mut data = [0u8; 8];
-        ctx.device.read_config(0, &mut data[..4]);
-        assert_eq!(
-            u64::from(byte_order::read_le_u32(&data[..])),
-            ctx.cid & 0xffff_ffff
-        );
-        ctx.device.read_config(4, &mut data[4..]);
-        assert_eq!(
-            u64::from(byte_order::read_le_u32(&data[4..])),
-            (ctx.cid >> 32) & 0xffff_ffff
-        );
-
-        // Test reading 64-bit.
-        let mut data = [0u8; 8];
-        ctx.device.read_config(0, &mut data);
-        assert_eq!(byte_order::read_le_u64(&data), ctx.cid);
-
-        // Check that out-of-bounds reading doesn't mutate the destination buffer.
-        let mut data = [0u8, 1, 2, 3, 4, 5, 6, 7];
-        ctx.device.read_config(2, &mut data);
-        assert_eq!(data, [0u8, 1, 2, 3, 4, 5, 6, 7]);
+        // Validate config_as_bytes returns the CID in little-endian.
+        let config = ctx.device.config_as_bytes();
+        assert_eq!(config.len(), 8);
+        assert_eq!(byte_order::read_le_u64(config), ctx.cid);
 
         // Just covering lines here, since the vsock device has no writable config.
         // A warning is, however, logged, if the guest driver attempts to write any config data.
-        ctx.device.write_config(0, &data[..4]);
+        ctx.device.write_config(0, &[0u8; 4]);
 
         // Test a bad activation.
         // let bad_activate = ctx.device.activate(
@@ -616,6 +615,26 @@ mod tests {
         let progressed = ctx.device.process_rx().unwrap();
         assert!(!progressed);
         assert_eq!(ctx.guest_rxvq.used.idx.get(), 0);
+    }
+
+    #[test]
+    fn test_kick_replays_tx_notification_only() {
+        // On restore, kick() must replay only the TX data queue (to re-process in-flight
+        // TX and re-arm avail_event). RX is gated by pending_event_ack so it needs no
+        // replay, and the event queue's data eventfd must not be notified -- that is the
+        // guest's TRANSPORT_RESET ack path; the event queue is signaled host->guest.
+        let test_ctx = TestContext::new();
+        let mut ctx = test_ctx.create_event_handler_context();
+        ctx.mock_activate(test_ctx.mem.clone(), test_ctx.interrupt.clone());
+
+        ctx.device.kick();
+
+        // TX queue eventfd was replayed for re-processing.
+        assert_eq!(ctx.device.queue_events[TXQ_INDEX].read().unwrap(), 1);
+        // RX and the event queue's data eventfd must not be signaled by kick()
+        // (non-blocking read returns an error when the eventfd has no pending count).
+        ctx.device.queue_events[RXQ_INDEX].read().unwrap_err();
+        ctx.device.queue_events[EVQ_INDEX].read().unwrap_err();
     }
 
     #[test]

@@ -7,8 +7,9 @@ use serde::{Deserialize, Serialize};
 
 use crate::Kvm;
 use crate::arch::aarch64::gic::GicState;
+use crate::snapshot::Persist;
 use crate::vstate::memory::{GuestMemoryExtension, GuestMemoryState};
-use crate::vstate::resources::ResourceAllocator;
+use crate::vstate::resources::{ResourceAllocator, ResourceAllocatorState};
 use crate::vstate::vm::{VmCommon, VmError};
 
 /// Structure representing the current architecture's understand of what a "virtual machine" is.
@@ -29,6 +30,8 @@ pub enum KvmVmError {
     SaveGic(crate::arch::aarch64::gic::GicError),
     /// Failed to restore the VM's GIC state: {0}
     RestoreGic(crate::arch::aarch64::gic::GicError),
+    /// Failed to restore resource allocator: {0}
+    ResourceAllocator(#[from] vm_allocator::Error),
 }
 
 impl KvmVm {
@@ -77,7 +80,7 @@ impl KvmVm {
                 .get_irqchip()
                 .save_device(mpidrs)
                 .map_err(KvmVmError::SaveGic)?,
-            resource_allocator: self.resource_allocator().clone(),
+            resource_allocator: self.resource_allocator().save(),
         })
     }
 
@@ -90,7 +93,8 @@ impl KvmVm {
         self.get_irqchip()
             .restore_device(mpidrs, &state.gic)
             .map_err(KvmVmError::RestoreGic)?;
-        self.common.resource_allocator = Mutex::new(state.resource_allocator.clone());
+        self.common.resource_allocator =
+            Mutex::new(ResourceAllocator::restore((), &state.resource_allocator)?);
 
         Ok(())
     }
@@ -104,5 +108,5 @@ pub struct VmState {
     /// GIC state.
     pub gic: GicState,
     /// resource allocator
-    pub resource_allocator: ResourceAllocator,
+    pub resource_allocator: ResourceAllocatorState,
 }

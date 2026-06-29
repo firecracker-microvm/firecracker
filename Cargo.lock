@@ -1590,9 +1590,9 @@ dependencies = [
 
 [[package]]
 name = "vm-allocator"
-version = "0.1.3"
+version = "0.1.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "040a65b0c29f298d71ca45dd52d02b0d0ddc15b9b97d95dfeebe67d6fdd42a28"
+checksum = "a2feb549d049009150155ab6e1b0c8c0db9ea6805ba5bdc57a27a3b7466e80f5"
 dependencies = [
  "libc",
  "serde",

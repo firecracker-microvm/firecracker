@@ -12,6 +12,8 @@ from framework import utils
 from framework.jailer import DEFAULT_CHROOT_PATH, JailerContext
 from framework.properties import global_props
 
+ITERATIONS = 2_000
+
 
 def setup_bind_mounts(tmp_path, n):
     """
@@ -60,7 +62,7 @@ def test_jailer_startup(
     )
 
     cmds = []
-    for i in range(500):
+    for i in range(ITERATIONS):
         jailer = JailerContext(
             jailer_id=f"fakefc{i}",
             exec_file=jailer_time_bin,

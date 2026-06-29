@@ -234,8 +234,6 @@ pub enum VmmError {
     Metrics(MetricsError),
     /// Cannot add a device to the MMIO Bus. {0}
     RegisterMMIODevice(device_manager::mmio::MmioError),
-    /// Cannot install seccomp filters: {0}
-    SeccompFilters(seccomp::InstallationError),
     /// Error writing to the serial console: {0}
     Serial(io::Error),
     /// Error creating the vcpu: {0}
@@ -268,6 +266,8 @@ pub enum VmmError {
     Block(#[from] BlockError),
     /// Balloon: {0}
     Balloon(#[from] BalloonError),
+    /// Operation not supported on this VM type
+    NotSupported,
     /// Failed to create memory hotplug device: {0}
     VirtioMem(#[from] VirtioMemError),
 }
@@ -486,6 +486,8 @@ impl Vmm {
     pub fn send_ctrl_alt_del(&mut self) -> Result<(), VmmError> {
         self.device_manager
             .legacy_devices
+            .as_ref()
+            .ok_or(VmmError::NotSupported)?
             .i8042
             .lock()
             .expect("i8042 lock was poisoned")

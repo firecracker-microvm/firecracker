@@ -30,7 +30,7 @@ perf_test = {
         "label": "vhost-user-block",
         "tests": "integration_tests/performance/test_block.py::test_block_vhost_user_performance",
         "devtool_opts": "-c 1-10 -m 0",
-        "ab_opts": "--noise-threshold 0.1",
+        "ab_opts": "--noise-threshold bw_read=0.1",
     },
     "pmem": {
         "label": "pmem",
@@ -51,6 +51,9 @@ perf_test = {
         "label": "memory-hotplug",
         "tests": "integration_tests/performance/test_hotplug_memory.py",
         "devtool_opts": "-c 1-10 -m 0",
+        # The test require polling (5 ms), so any change smaller than that is not significant.
+        # Additionally, unplugging memory is dependent on how exactly it's being used, so some volatility is expected.
+        "ab_opts": "--absolute-strength 0.005 --noise-threshold hotunplug_total_time=0.1",
     },
     "snapshot-latency": {
         "label": "snapshot-latency",
@@ -61,11 +64,6 @@ perf_test = {
         "label": "population-latency",
         "tests": "integration_tests/performance/test_snapshot.py::test_population_latency",
         "devtool_opts": "-c 1-12 -m 0",
-    },
-    "misc": {
-        "label": "misc",
-        "tests": "integration_tests/performance/test_memory_overhead.py integration_tests/performance/test_boottime.py::test_boottime integration_tests/performance/test_process_startup_time.py integration_tests/performance/test_jailer.py integration_tests/performance/test_mmds.py",
-        "devtool_opts": "-c 1-10 -m 0",
     },
     "memory-overhead": {
         "label": "memory-overhead",
@@ -86,6 +84,7 @@ perf_test = {
         "label": "jailer",
         "tests": "integration_tests/performance/test_jailer.py",
         "devtool_opts": "-c 1-10 -m 0",
+        "ab_opts": "--noise-threshold startup=0.1",
     },
     "mmds": {
         "label": "mmds",
@@ -93,16 +92,6 @@ perf_test = {
         "devtool_opts": "-c 1-10 -m 0",
     },
 }
-
-# These can only be selected by manually providing `--tests` argument otherwise
-# the number of unique tasks we would create is too big for BK to handle
-only_manually_selected_tests = [
-    "memory-overhead",
-    "boottime",
-    "process-startup",
-    "jailer",
-    "mmds",
-]
 
 REVISION_A = os.environ.get("REVISION_A")
 REVISION_B = os.environ.get("REVISION_B")
@@ -140,10 +129,7 @@ pipeline = BKPipeline(
 if pipeline.args.test:
     tests = [perf_test[test] for test in pipeline.args.test]
 else:
-    tests = []
-    for test_name, test_description in perf_test.items():
-        if test_name not in only_manually_selected_tests:
-            tests.append(test_description)
+    tests = perf_test.values()
 
 for test in tests:
     devtool_opts = test.pop("devtool_opts")

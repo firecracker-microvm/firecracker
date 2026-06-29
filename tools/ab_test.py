@@ -24,8 +24,9 @@ import shutil
 import subprocess
 import time
 from collections import defaultdict
+from dataclasses import dataclass, field
 from pathlib import Path
-from typing import List, Optional
+from typing import Dict, List, Optional
 
 import numpy
 import scipy
@@ -189,11 +190,15 @@ def uninteresting_dimensions(data):
 
 
 def collect_data(
-    tag: str, binary_dir: Path, artifacts: Optional[Path], pytest_opts: str
+    tag: str,
+    binary_dir: Path,
+    artifacts: Optional[Path],
+    pytest_opts: str,
+    iteration: int = 0,
 ):
     """
     Executes the specified test using the provided firecracker binaries and
-    stores results into the `test_results/tag` directory
+    stores results into the `test_results/tag/iteration` directory
     """
     binary_dir = binary_dir.resolve()
 
@@ -203,7 +208,7 @@ def collect_data(
         if artifacts
         else ""
     )
-    test_path = f"test_results/{tag}"
+    test_path = f"test_results/{tag}/{iteration}"
     test_report_path = f"{test_path}/test-report.json"
 
     # Cleaning the report directory, to ensure we start from a clean state.
@@ -251,12 +256,36 @@ def check_regression(
     )
 
 
+@dataclass
+class Threshold:
+    """A threshold value with optional per-metric overrides."""
+
+    default: float
+    overrides: Dict[str, float] = field(default_factory=dict)
+
+    def get(self, metric: str) -> float:
+        """Returns the threshold to use for a specific metric"""
+        return self.overrides.get(metric, self.default)
+
+    @classmethod
+    def from_args(cls, args, default: float):
+        """Parse a list like ["0.05", "restore_latency=0.1"] into a Threshold."""
+        overrides = {}
+        for arg in args:
+            if "=" in arg:
+                name, val = arg.rsplit("=", 1)
+                overrides[name] = float(val)
+            else:
+                default = float(arg)
+        return cls(default=default, overrides=overrides)
+
+
 def analyze_data(
     data_a,
     data_b,
-    p_thresh,
-    strength_abs_thresh,
-    noise_threshold,
+    p_thresh: Threshold,
+    strength_abs_thresh: Threshold,
+    noise_threshold: Threshold,
     *,
     n_resamples: int = 9999,
 ):
@@ -288,6 +317,12 @@ def analyze_data(
             results[dimension_set, metric] = (result, unit)
 
     print(f"Regression tests took {time.perf_counter() - t0:.2f}s")
+
+    # Validate that all per-metric overrides refer to metrics that exist in the dataset
+    all_metrics = {metric for _, metric in results}
+    for thresh in (p_thresh, strength_abs_thresh, noise_threshold):
+        unknown = set(thresh.overrides) - all_metrics
+        assert not unknown, f"Per-metric overrides refer to unknown metrics: {unknown}"
 
     # We sort our A/B-Testing results keyed by metric here. The resulting lists of values
     # will be approximately normal distributed, and we will use this property as a means of error correction.
@@ -338,7 +373,9 @@ def analyze_data(
 
         relative_changes_by_metric[metric].append(result.statistic / baseline_mean)
 
-        if result.pvalue < p_thresh and abs(result.statistic) > strength_abs_thresh:
+        if result.pvalue < p_thresh.get(metric) and abs(
+            result.statistic
+        ) > strength_abs_thresh.get(metric):
             failures.append((dimension_set, metric, result, unit))
 
             relative_changes_significant[metric].append(
@@ -348,16 +385,16 @@ def analyze_data(
     error_messages = []
     do_not_print_list = uninteresting_dimensions(data_a)
     for dimension_set, metric, result, unit in failures:
-        # Sanity check as described above
-        if abs(numpy.mean(relative_changes_by_metric[metric])) <= noise_threshold:
-            continue
-
         # No data points for this metric were deemed significant
         if metric not in relative_changes_significant:
             continue
 
-        # The significant data points themselves are above the noise threshold
-        if abs(numpy.mean(relative_changes_significant[metric])) > noise_threshold:
+        relative_change = numpy.mean(relative_changes_by_metric[metric])
+        relative_change_significant = numpy.mean(relative_changes_significant[metric])
+        # Sanity check as described above
+        if abs(relative_change) > noise_threshold.get(metric) and abs(
+            relative_change_significant
+        ) > noise_threshold.get(metric):
             old_mean = numpy.mean(data_a[dimension_set][metric][0])
             new_mean = numpy.mean(data_b[dimension_set][metric][0])
 
@@ -393,9 +430,9 @@ def ab_performance_test(
     a_artifacts: Optional[Path],
     b_artifacts: Optional[Path],
     pytest_opts,
-    p_thresh,
-    strength_abs_thresh,
-    noise_threshold,
+    p_thresh: Threshold,
+    strength_abs_thresh: Threshold,
+    noise_threshold: Threshold,
     max_iterations=1,
 ):
     """Does an A/B-test of the specified test with the given firecracker/jailer binaries.
@@ -411,11 +448,11 @@ def ab_performance_test(
         print(f"\n=== Iteration {i + 1}/{max_iterations} ===")
         # Changing the order or A and B executions across iterations, to avoid fluctuations caused by execution order
         if i % 2 == 0:
-            new_a = collect_data("A", a_directory, a_artifacts, pytest_opts)
-            new_b = collect_data("B", b_directory, b_artifacts, pytest_opts)
+            new_a = collect_data("A", a_directory, a_artifacts, pytest_opts, i)
+            new_b = collect_data("B", b_directory, b_artifacts, pytest_opts, i)
         else:
-            new_b = collect_data("B", b_directory, b_artifacts, pytest_opts)
-            new_a = collect_data("A", a_directory, a_artifacts, pytest_opts)
+            new_b = collect_data("B", b_directory, b_artifacts, pytest_opts, i)
+            new_a = collect_data("A", a_directory, a_artifacts, pytest_opts, i)
         merge_data(data_a, new_a)
         merge_data(data_b, new_b)
 
@@ -425,7 +462,6 @@ def ab_performance_test(
             p_thresh,
             strength_abs_thresh,
             noise_threshold,
-            n_resamples=int(100 / p_thresh),
         )
 
         if not error_messages:
@@ -505,23 +541,27 @@ def main():
     )
     parser.add_argument(
         "--significance",
-        help="The p-value threshold that needs to be crossed for a test result to be considered significant",
-        type=float,
-        default=0.01,
+        help="The p-value threshold. Pass a float for the global default, or metric=float for a per-metric override. Repeatable.",
+        action="append",
+        default=[],
     )
     parser.add_argument(
         "--absolute-strength",
-        help="The minimum absolute delta required before a regression will be considered valid",
-        type=float,
-        default=0.0,
+        help="The minimum absolute delta. Pass a float for the global default, or metric=float for a per-metric override. Repeatable.",
+        action="append",
+        default=[],
     )
     parser.add_argument(
         "--noise-threshold",
-        help="The minimal delta which a metric has to regress on average across all tests that emit it before the regressions will be considered valid.",
-        type=float,
-        default=0.05,
+        help="The minimal average relative delta. Pass a float for the global default, or metric=float for a per-metric override. Repeatable.",
+        action="append",
+        default=[],
     )
     args = parser.parse_args()
+
+    p_thresh = Threshold.from_args(args.significance, 0.01)
+    strength_abs_thresh = Threshold.from_args(args.absolute_strength, 0.0)
+    noise_threshold = Threshold.from_args(args.noise_threshold, 0.05)
 
     if args.command == "run":
         t0 = time.perf_counter()
@@ -531,9 +571,9 @@ def main():
             args.artifacts_a,
             args.artifacts_b,
             args.pytest_opts,
-            args.significance,
-            args.absolute_strength,
-            args.noise_threshold,
+            p_thresh,
+            strength_abs_thresh,
+            noise_threshold,
             max_iterations=args.max_iterations,
         )
         print(f"Total A/B test took {time.perf_counter() - t0:.2f}s")
@@ -547,9 +587,9 @@ def main():
         error_messages = analyze_data(
             data_a,
             data_b,
-            args.significance,
-            args.absolute_strength,
-            args.noise_threshold,
+            p_thresh,
+            strength_abs_thresh,
+            noise_threshold,
         )
         print(f"Analysis took {time.perf_counter() - t0:.2f}s")
         assert not error_messages, "\n" + "\n".join(error_messages)
