@@ -64,6 +64,10 @@ pub struct EnclaveConfig {
     /// driver attributes each vCPU's guest time to a parent-side thread.
     #[serde(default)]
     pub cpu_accounting: bool,
+    /// Enable PCIe hotplug mode.
+    /// When set, devices can be attached after start.
+    #[serde(default)]
+    pub hotplug_mode: bool,
 }
 
 impl EnclaveConfig {
@@ -110,6 +114,7 @@ mod tests {
         assert_eq!(config.dmb_size_mib, None);
         assert!(!config.cpu_overcommit);
         assert!(!config.cpu_accounting);
+        assert!(!config.hotplug_mode);
     }
 
     #[test]
@@ -121,6 +126,7 @@ mod tests {
             dmb_size_mib: Some(8),
             cpu_overcommit: true,
             cpu_accounting: true,
+            hotplug_mode: true,
         };
         let json = serde_json::to_string(&config).unwrap();
         let deserialized: EnclaveConfig = serde_json::from_str(&json).unwrap();
