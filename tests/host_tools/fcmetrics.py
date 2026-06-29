@@ -376,9 +376,11 @@ def validate_fc_metrics(metrics):
 
     firecracker_metrics_schema = create_metrics_schema_objects(firecracker_metrics)
 
-    # "properties" is an optional operator-defined string map (see
-    # MetricsConfig.properties), not a metric: allow it when present, never
-    # require it, and keep every real metric strictly validated.
+    # "id" and "properties" are optional non-metric fields (see
+    # MetricsConfig.emit_id and MetricsConfig.properties): allow them when
+    # present, never require them, and keep every real metric strictly
+    # validated.
+    firecracker_metrics_schema["properties"]["id"] = {"type": "string"}
     firecracker_metrics_schema["properties"]["properties"] = {
         "type": "object",
         "additionalProperties": {"type": "string"},
