@@ -10,6 +10,7 @@ from pathlib import Path
 import pytest
 from tenacity import Retrying, retry_if_exception_type, stop_after_delay, wait_fixed
 
+import host_tools.drive as drive_tools
 from framework.ne_host import _find_initrd, _find_kernel, _find_rootfs, requires_enclave
 from framework.utils import get_threads
 from framework.utils_vsock import (
@@ -55,6 +56,7 @@ def test_enclave_config_api(microvm_factory, direct_mode):
         direct_mode=direct_mode,
         cpu_overcommit=True,
         cpu_accounting=True,
+        hotplug_mode=True,
     )
 
     # GET /enclave should reflect the config
@@ -64,6 +66,7 @@ def test_enclave_config_api(microvm_factory, direct_mode):
     assert config["direct_mode"] is direct_mode
     assert config["cpu_overcommit"] is True
     assert config["cpu_accounting"] is True
+    assert config["hotplug_mode"] is True
 
 
 # ---------------------------------------------------------------------------
@@ -392,6 +395,143 @@ def test_enclave_cpu_accounting(microvm_factory, cpu_overcommit):
         assert (
             after[name] > before[name]
         ), f"{name} guest_time did not grow: before={before[name]} after={after[name]}"
+
+
+@requires_enclave
+@enclave_modes
+def test_enclave_hotplug(microvm_factory, direct_mode):
+    """
+    Hotplug block devices to a running enclave and verify the guest sees them and are usable.
+    """
+    # Two slots are used pre-boot: the root block device and the SSH NIC.
+    num_hotplug_devices = MAX_ENCLAVE_DEVICES - 2
+
+    kernel = _find_kernel()
+    rootfs = _find_rootfs()
+    if not kernel:
+        pytest.skip("No kernel found in artifacts")
+    if not rootfs:
+        pytest.skip("No rootfs found in artifacts")
+
+    vcpu_count = 2
+
+    vm = microvm_factory.build(kernel=kernel, rootfs=rootfs)
+    vm.spawn(validate_api=False)
+    vm.time_api_requests = False
+
+    vm.api.machine_config.put(vcpu_count=vcpu_count, mem_size_mib=512)
+
+    # Root block device + net iface so we can reach the guest over SSH.
+    jailed_rootfs = vm.create_jailed_resource(vm.rootfs_file)
+    vm.api.drive.put(
+        drive_id="rootfs",
+        path_on_host=jailed_rootfs,
+        is_root_device=True,
+        is_read_only=False,
+    )
+    vm.add_net_iface()
+
+    vm.api.boot.put(kernel_image_path=vm.create_jailed_resource(kernel))
+
+    vm.api.enclave.put(
+        debug_mode=True,
+        direct_mode=direct_mode,
+        hotplug_mode=True,
+    )
+
+    vm.api.actions.put(action_type="InstanceStart")
+    vm.wait_for_ssh_up()
+
+    # Snapshot the guest's block devices before hotplugging.
+    blocks_before = set(vm.ssh.check_output("ls -1 /sys/block").stdout.split())
+
+    # Hotplug block devices up to the enclave's device ceiling
+    for i in range(num_hotplug_devices):
+        host_file = drive_tools.FilesystemFile(
+            os.path.join(vm.fsfiles, f"hotplug{i}"), size=4
+        )
+        vm.api.drive.put(
+            drive_id=f"hotplug{i}",
+            path_on_host=vm.create_jailed_resource(host_file.path),
+            is_root_device=False,
+            is_read_only=False,
+        )
+
+    # Wait for the guest kernel's pciehp driver to enumerate all new devices.
+    # No `echo 1 > /sys/bus/pci/rescan` — native PCIe hotplug must surface them.
+    new_blocks = set()
+    for attempt in Retrying(
+        wait=wait_fixed(0.5),
+        stop=stop_after_delay(30),
+        retry=retry_if_exception_type(AssertionError),
+    ):
+        with attempt:
+            blocks_after = set(vm.ssh.check_output("ls -1 /sys/block").stdout.split())
+            new_blocks = blocks_after - blocks_before
+            assert len(new_blocks) == num_hotplug_devices, (
+                f"expected {num_hotplug_devices} new block devices, "
+                f"got {len(new_blocks)}: {new_blocks}"
+            )
+
+    # Every hotplugged device must be usable: mount it, write a file, read it
+    # back. A distinct payload per device guards against mount aliasing.
+    for i, dev_name in enumerate(sorted(new_blocks)):
+        dev_path = f"/dev/{dev_name}"
+        mnt = f"/tmp/hotplug_mnt_{i}"
+        payload = f"enclave_hotplug_{i}"
+        vm.ssh.check_output(f"mkdir -p {mnt}")
+        vm.ssh.check_output(f"mount {dev_path} {mnt}")
+        vm.ssh.check_output(f"echo {payload} > {mnt}/test")
+        assert vm.ssh.check_output(f"cat {mnt}/test").stdout.strip() == payload
+
+
+@requires_enclave
+@enclave_modes
+def test_enclave_hotplug_disabled(microvm_factory, direct_mode):
+    """Runtime device hotplug must be rejected when hotplug_mode is not set."""
+    kernel = _find_kernel()
+    rootfs = _find_rootfs()
+    if not kernel:
+        pytest.skip("No kernel found in artifacts")
+    if not rootfs:
+        pytest.skip("No rootfs found in artifacts")
+
+    vcpu_count = 2
+
+    vm = microvm_factory.build(kernel=kernel, rootfs=rootfs)
+    vm.spawn(validate_api=False)
+    vm.time_api_requests = False
+
+    vm.api.machine_config.put(vcpu_count=vcpu_count, mem_size_mib=512)
+
+    jailed_rootfs = vm.create_jailed_resource(vm.rootfs_file)
+    vm.api.drive.put(
+        drive_id="rootfs",
+        path_on_host=jailed_rootfs,
+        is_root_device=True,
+        is_read_only=False,
+    )
+    vm.add_net_iface()
+
+    vm.api.boot.put(kernel_image_path=vm.create_jailed_resource(kernel))
+
+    # hotplug_mode omitted (defaults to False)
+    vm.api.enclave.put(
+        debug_mode=True,
+        direct_mode=direct_mode,
+    )
+
+    vm.api.actions.put(action_type="InstanceStart")
+    vm.wait_for_ssh_up()
+
+    host_file = drive_tools.FilesystemFile(os.path.join(vm.fsfiles, "hotplug0"), size=4)
+    with pytest.raises(RuntimeError, match="hotplug_mode"):
+        vm.api.drive.put(
+            drive_id="hotplug0",
+            path_on_host=vm.create_jailed_resource(host_file.path),
+            is_root_device=False,
+            is_read_only=False,
+        )
 
 
 @requires_enclave
