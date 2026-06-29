@@ -150,6 +150,9 @@ pub fn build_and_boot_enclave(
     if enclave_config.cpu_accounting {
         required_matched |= ne_ioctl::start_flags::NE_ENCLAVE_CPU_ACCOUNTING_MODE;
     }
+    if enclave_config.hotplug_mode {
+        required_matched |= ne_ioctl::start_flags::NE_ENCLAVE_PCIE_HOTPLUG_MODE;
+    }
     // Matched flags live in bits 6-15, guaranteed to fit in u16 by the mask.
     #[allow(clippy::cast_possible_truncation)]
     let pcie_flags =
