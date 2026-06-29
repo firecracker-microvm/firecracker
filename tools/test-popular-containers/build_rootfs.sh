@@ -22,7 +22,7 @@ IMAGES=(amazonlinux:2023 alpine:latest ubuntu:22.04 ubuntu:24.04 ubuntu:25.04 ub
 
 # Generate SSH key for access from host
 if [ ! -s id_rsa ]; then
-  ssh-keygen -f id_rsa -N ""
+  ssh-keygen -t rsa -b 2048 -f id_rsa -N ""
 fi
 
 # install rootfs dependencies

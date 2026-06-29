@@ -10,6 +10,27 @@ and this project adheres to
 
 ### Added
 
+### Changed
+
+### Deprecated
+
+### Removed
+
+### Fixed
+
+- [#5959](https://github.com/firecracker-microvm/firecracker/pull/5959):
+  Reverted the use of `O_NOFOLLOW` for the jailer's cgroup and network namespace
+  file operations, so symlinks are again allowed in these paths.
+- [#5958](https://github.com/firecracker-microvm/firecracker/pull/5958): Fixed a
+  bug that caused vsock guest-to-host connections to time out after snapshot
+  restore, triggered by taking a snapshot with a TX descriptor in-flight. On
+  restore the device now replays the TX queue notification so in-flight TX
+  descriptors are re-processed and notification suppression is re-armed.
+
+## [1.16.0]
+
+### Added
+
 - [#5786](https://github.com/firecracker-microvm/firecracker/pull/5786): Added
   developer preview support for hotplugging and hot-unplugging PCI virtio
   devices (block, pmem, net) on a running microVM. The guest must manually
@@ -44,6 +65,9 @@ and this project adheres to
   `rng-seed` FDT node for aarch64 guests which provides an initial random seed
   for the guest to use. This helps older aarch64 machines which do not have
   hardware random generators.
+- Added support for Linux 6.18 host kernels alongside the existing 5.10 and 6.1
+  host kernels. See the [kernel support policy](docs/kernel-policy.md) for
+  details.
 
 ### Changed
 

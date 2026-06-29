@@ -14,7 +14,7 @@ use vmm_sys_util::eventfd::EventFd;
 use super::super::legacy::EventFdTrigger;
 use crate::logger::debug;
 use crate::snapshot::Persist;
-use crate::vstate::memory::{Bytes, GuestMemoryMmap};
+use crate::vstate::memory::{Bytes, GuestMemoryExtension, GuestMemoryMmap};
 use crate::vstate::resources::ResourceAllocator;
 
 /// Bytes of memory we allocate for VMGenID device
@@ -117,6 +117,7 @@ impl VmGenId {
             "vmgenid: writing new generation ID to guest: {:#034x}",
             self.gen_id
         );
+        mem.check_range_plugged(self.guest_address, self.gen_id.to_le_bytes().len())?;
         mem.write_slice(&self.gen_id.to_le_bytes(), self.guest_address)
             .map_err(VmGenIdError::WriteGuestMemory)?;
 

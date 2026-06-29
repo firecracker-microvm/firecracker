@@ -24,8 +24,13 @@ from pathlib import Path
 from socket import timeout as SocketTimeout
 
 import pytest
+from tenacity import Retrying, stop_after_delay, wait_fixed
 
-from framework.artifacts import ACPI_GUEST_KERNELS, pin_guest_kernel
+from framework.artifacts import (
+    ACPI_GUEST_KERNELS,
+    GUEST_KERNEL_DEFAULT,
+    pin_guest_kernel,
+)
 from framework.utils_vsock import (
     ECHO_SERVER_PORT,
     VSOCK_UDS_PATH,
@@ -35,6 +40,7 @@ from framework.utils_vsock import (
     check_guest_connections,
     check_host_connections,
     check_vsock_device,
+    host_echo_server,
     make_blob,
     make_host_port_path,
     start_guest_echo_server,
@@ -271,9 +277,13 @@ def test_vsock_transport_reset_g2h(vsock_uvm, microvm_factory):
         )
 
         try:
-            # Give some time for host socat to create socket
-            time.sleep(0.5)
-            assert Path(host_socket_path).exists()
+            # Waiting for the host socat to create socket
+            for attempt in Retrying(
+                wait=wait_fixed(0.1), stop=stop_after_delay(1.0), reraise=True
+            ):
+                with attempt:
+                    assert Path(host_socket_path).exists()
+
             new_vm.create_jailed_resource(host_socket_path)
 
             # Create a socat process in the guest which will connect to the host socat
@@ -290,9 +300,14 @@ def test_vsock_transport_reset_g2h(vsock_uvm, microvm_factory):
             snapshot = new_vm.snapshot_full()
             new_vm.resume()
 
-            # After `create_snapshot` + 'restore' calls, connection should be dropped
-            code, _, _ = new_vm.ssh.run("pidof socat")
-            assert code == 1
+            # Note: it might take some time for guest socat to detect closed socket
+            for attempt in Retrying(
+                wait=wait_fixed(0.1), stop=stop_after_delay(1.0), reraise=True
+            ):
+                with attempt:
+                    # After `create_snapshot` + 'resume' calls, connection should be dropped
+                    code, _, _ = new_vm.ssh.run("pidof socat")
+                    assert code == 1
         finally:
             # Kill host socat as it is not useful anymore. Done in `finally`
             # so that an assertion failure earlier in the iteration does not
@@ -477,3 +492,49 @@ def test_vsock_post_restore_connect_storm(
                 validate_fc_metrics(metrics)
         finally:
             vm.kill()
+
+
+@pin_guest_kernel(GUEST_KERNEL_DEFAULT)
+def test_snapshot_restore_with_inflight_vsock_tx(
+    vsock_uvm, bin_vsock_path, tmp_path, microvm_factory
+):
+    """
+    Guest-initiated vsock connections must still work after a snapshot taken
+    while the guest is actively transmitting.
+
+    If a guest TX descriptor is un-consumed when the snapshot is created, the
+    restored TX queue has avail_idx ahead of avail_event; with EVENT_IDX the
+    guest then suppresses all TX notifications and guest-initiated connections
+    hang. Unlike test_cycled_snapshot_restore (which snapshots after traffic has
+    drained, so it only hits this by chance), this test snapshots while a guest
+    worker is streaming, making the in-flight condition reliable.
+    """
+    vm = vsock_uvm
+
+    vm_blob_path = "/tmp/vsock/test.blob"
+    blob_path, blob_hash = make_blob(tmp_path)
+    _copy_vsock_data_to_guest(vm.ssh, blob_path, vm_blob_path, bin_vsock_path)
+
+    server_port_path = os.path.join(
+        vm.path, make_host_port_path(VSOCK_UDS_PATH, ECHO_SERVER_PORT)
+    )
+    with host_echo_server(vm, server_port_path):
+        # Continuously stream guest->host so the TX queue is non-empty when the
+        # snapshot is taken.
+        vm.ssh.check_output(
+            "nohup sh -c 'while true; do "
+            f"cat {vm_blob_path} | /tmp/vsock_helper echo 2 {ECHO_SERVER_PORT} "
+            ">/dev/null 2>&1; done' >/dev/null 2>&1 &"
+        )
+        # Let the stream ramp up so traffic is genuinely in-flight.
+        time.sleep(2)
+        snapshot = vm.snapshot_full()
+    vm.kill()
+
+    # Restore and verify a *fresh* guest-initiated connection works -- this is
+    # what hangs when a TX descriptor was in-flight at snapshot time.
+    new_vm = microvm_factory.build_from_snapshot(snapshot)
+    path = os.path.join(
+        new_vm.path, make_host_port_path(VSOCK_UDS_PATH, ECHO_SERVER_PORT)
+    )
+    check_guest_connections(new_vm, path, vm_blob_path, blob_hash)

@@ -210,6 +210,53 @@ INTEL_ICELAKE_HOST_ONLY_FEATS_6_18 = INTEL_ICELAKE_HOST_ONLY_FEATS_6_1 - {
     "flush_l1d",
 } | {"la57"}
 
+# CPU features not available when running in a non-metal EC2 C8i, M8i, and R8i instance
+EC2_CMR8i_VIRT_UNAVAILABLE = {
+    "acpi",
+    "arch_lbr",
+    "art",
+    "bts",
+    "cat_l2",
+    "cat_l3",
+    "cdp_l2",
+    "cdp_l3",
+    "cqm",
+    "cqm_llc",
+    "cqm_mbm_local",
+    "cqm_mbm_total",
+    "cqm_occup_llc",
+    "dca",
+    "ds_cpl",
+    "dtes64",
+    "dtherm",
+    "dts",
+    "enqcmd",
+    "epb",
+    "est",
+    "hwp",
+    "hwp_act_window",
+    "hwp_epp",
+    "hwp_pkg_req",
+    "ibpb_exit_to_user",
+    "ibt",
+    "intel_ppin",
+    "intel_pt",
+    "la57",
+    "mba",
+    "pbe",
+    "pconfig",
+    "pebs",
+    "pln",
+    "pts",
+    "rdt_a",
+    "sdbg",
+    "smx",
+    "split_lock_detect",
+    "tm",
+    "tm2",
+    "xtpr",
+}
+
 
 def test_host_vs_guest_cpu_features(uvm):
     """Check CPU features host vs guest"""
@@ -224,24 +271,46 @@ def test_host_vs_guest_cpu_features(uvm):
 
     match CPU_MODEL:
         case CpuModel.AMD_MILAN:
-            if global_props.host_linux_version_tpl < (6, 1):
+            host_version = global_props.host_linux_version_tpl
+            if host_version < (6, 1):
                 assert host_feats - guest_feats == AMD_MILAN_HOST_ONLY_FEATS
-            elif global_props.host_linux_version_tpl < (6, 18):
+            elif host_version < (6, 18):
                 assert host_feats - guest_feats == AMD_MILAN_HOST_ONLY_FEATS_6_1
             else:
                 assert host_feats - guest_feats == AMD_MILAN_HOST_ONLY_FEATS_6_18
 
-            assert guest_feats - host_feats == AMD_GUEST_ONLY_FEATS
+            expected_guest_minus_host = AMD_GUEST_ONLY_FEATS
+            # Linux kernel v6.6+ drops the "invpcid_single" synthetic bit, but our guest
+            # kernels (< 6.6) still synthesize it, so a v6.18 host (>= 6.6) sees it as guest-only.
+            # https://github.com/torvalds/linux/commit/54e3d9434ef61b97fd3263c141b928dc5635e50d
+            if host_version >= (6, 6) and vm.guest_kernel_version < (6, 6):
+                expected_guest_minus_host = AMD_GUEST_ONLY_FEATS | {"invpcid_single"}
+            assert guest_feats - host_feats == expected_guest_minus_host
 
         case CpuModel.AMD_GENOA:
-            if global_props.host_linux_version_tpl < (6, 1):
+            host_version = global_props.host_linux_version_tpl
+            if host_version < (6, 1):
                 assert host_feats - guest_feats == AMD_GENOA_HOST_ONLY_FEATS
-            elif global_props.host_linux_version_tpl < (6, 18):
+            elif host_version < (6, 18):
                 assert host_feats - guest_feats == AMD_GENOA_HOST_ONLY_FEATS_6_1
             else:
-                assert host_feats - guest_feats == AMD_GENOA_HOST_ONLY_FEATS_6_18
+                # KVM advertises AMD PerfMonV2 to guests since v6.5, so a v6.18 host
+                # (KVM >= 6.5) passes it through. The guest only reports "perfmon_v2" if its
+                # kernel knows the flag (added in v5.19), so it stays host-only for older
+                # guests (e.g. 5.10).
+                # https://github.com/torvalds/linux/commit/4a2771895ca6 (KVM AMD PerfMonV2, v6.5)
+                expected_host_minus_guest = AMD_GENOA_HOST_ONLY_FEATS_6_18.copy()
+                if vm.guest_kernel_version >= (5, 19):
+                    expected_host_minus_guest -= {"perfmon_v2"}
+                assert host_feats - guest_feats == expected_host_minus_guest
 
-            assert guest_feats - host_feats == AMD_GUEST_ONLY_FEATS
+            expected_guest_minus_host = AMD_GUEST_ONLY_FEATS
+            # Linux kernel v6.6+ drops the "invpcid_single" synthetic bit, but our guest
+            # kernels (< 6.6) still synthesize it, so a v6.18 host (>= 6.6) sees it as guest-only.
+            # https://github.com/torvalds/linux/commit/54e3d9434ef61b97fd3263c141b928dc5635e50d
+            if host_version >= (6, 6) and vm.guest_kernel_version < (6, 6):
+                expected_guest_minus_host = AMD_GUEST_ONLY_FEATS | {"invpcid_single"}
+            assert guest_feats - host_feats == expected_guest_minus_host
 
         case CpuModel.INTEL_CASCADELAKE:
             expected_host_minus_guest = INTEL_HOST_ONLY_FEATS
@@ -286,7 +355,14 @@ def test_host_vs_guest_cpu_features(uvm):
                 assert host_feats - guest_feats == INTEL_ICELAKE_HOST_ONLY_FEATS_6_1
             else:
                 assert host_feats - guest_feats == INTEL_ICELAKE_HOST_ONLY_FEATS_6_18
-            assert guest_feats - host_feats == INTEL_GUEST_ONLY_FEATS - {"umip"}
+
+            expected_guest_minus_host = INTEL_GUEST_ONLY_FEATS - {"umip"}
+            # Linux kernel v6.6+ drops the "invpcid_single" synthetic bit, but our guest
+            # kernels (< 6.6) still synthesize it, so a v6.18 host (>= 6.6) sees it as guest-only.
+            # https://github.com/torvalds/linux/commit/54e3d9434ef61b97fd3263c141b928dc5635e50d
+            if host_version >= (6, 6) and vm.guest_kernel_version < (6, 6):
+                expected_guest_minus_host |= {"invpcid_single"}
+            assert guest_feats - host_feats == expected_guest_minus_host
         case CpuModel.INTEL_SAPPHIRE_RAPIDS | CpuModel.INTEL_GRANITE_RAPIDS:
             expected_host_minus_guest = INTEL_HOST_ONLY_FEATS.copy()
             expected_guest_minus_host = INTEL_GUEST_ONLY_FEATS.copy()
@@ -408,9 +484,31 @@ def test_host_vs_guest_cpu_features(uvm):
                 "tsc_known_freq",
             }
 
+            # Linux kernel v6.6+ drops the "invpcid_single" synthetic bit, but our guest
+            # kernels (< 6.6) still synthesize it, so a v6.18 host (>= 6.6) sees it as guest-only.
+            # https://github.com/torvalds/linux/commit/54e3d9434ef61b97fd3263c141b928dc5635e50d
+            if host_version >= (6, 6) and guest_version < (6, 6):
+                expected_guest_minus_host |= {"invpcid_single"}
+
             if host_version >= (6, 18):
                 expected_host_minus_guest -= INTEL_SPR_GNR_HOST_ONLY_FEATS_6_18_REMOVED
                 expected_host_minus_guest |= INTEL_SPR_GNR_HOST_ONLY_FEATS_6_18_ADDED
+
+                # KVM now advertises IBT to the guest, so it's no longer host-only for
+                # guests new enough to know the flag (added in v5.18).
+                if guest_version >= (5, 18):
+                    expected_host_minus_guest -= {"ibt"}
+
+                if CPU_MODEL == CpuModel.INTEL_GRANITE_RAPIDS:
+                    # Granite Rapids host kernel 6.18 enables split lock detection (a
+                    # host-only synthesized bit; the guest can't read MSR 0x33).
+                    expected_host_minus_guest |= {"split_lock_detect"}
+
+            if global_props.is_ec2_virt:
+                # These features aren't available in the host
+                expected_host_minus_guest -= EC2_CMR8i_VIRT_UNAVAILABLE
+                # Both host and guest run under an hypervisor
+                expected_guest_minus_host -= {"hypervisor"}
 
             assert host_feats - guest_feats == expected_host_minus_guest
             assert guest_feats - host_feats == expected_guest_minus_host

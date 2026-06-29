@@ -196,27 +196,9 @@ pub(crate) mod tests {
             device_features & driver_features
         );
 
-        // Test reading 32-bit chunks.
-        let mut data = [0u8; 8];
-        restored_device.read_config(0, &mut data[..4]);
-        assert_eq!(
-            u64::from(byte_order::read_le_u32(&data[..])),
-            ctx.cid & 0xffff_ffff
-        );
-        restored_device.read_config(4, &mut data[4..]);
-        assert_eq!(
-            u64::from(byte_order::read_le_u32(&data[4..])),
-            (ctx.cid >> 32) & 0xffff_ffff
-        );
-
-        // Test reading 64-bit.
-        let mut data = [0u8; 8];
-        restored_device.read_config(0, &mut data);
-        assert_eq!(byte_order::read_le_u64(&data), ctx.cid);
-
-        // Check that out-of-bounds reading doesn't mutate the destination buffer.
-        let mut data = [0u8, 1, 2, 3, 4, 5, 6, 7];
-        restored_device.read_config(2, &mut data);
-        assert_eq!(data, [0u8, 1, 2, 3, 4, 5, 6, 7]);
+        // Validate config_as_bytes returns the CID in little-endian.
+        let config = restored_device.config_as_bytes();
+        assert_eq!(config.len(), 8);
+        assert_eq!(byte_order::read_le_u64(config), ctx.cid);
     }
 }

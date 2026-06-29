@@ -68,7 +68,7 @@
 DEVCTR_IMAGE_NO_TAG="public.ecr.aws/firecracker/fcuvm"
 
 # Development container tag
-DEVCTR_IMAGE_TAG=${DEVCTR_IMAGE_TAG:-v90}
+DEVCTR_IMAGE_TAG=${DEVCTR_IMAGE_TAG:-v91}
 
 # Development container image (name:tag)
 # This should be updated whenever we upgrade the development container.
@@ -335,6 +335,21 @@ run_devctr() {
         fi
     done
 
+    # Linked worktrees have a .git file that points to the common git directory,
+    # which can live outside FC_ROOT_DIR. Mount it at the same path in the
+    # container so git commands keep working after FC_ROOT_DIR is mounted at
+    # /firecracker.
+    git_common_dir=$(git -C "$FC_ROOT_DIR" rev-parse --git-common-dir 2>/dev/null || true)
+    if [[ -n "$git_common_dir" ]]; then
+        [[ "$git_common_dir" = /* ]] || git_common_dir="$FC_ROOT_DIR/$git_common_dir"
+        git_common_dir=$(cd "$git_common_dir" && pwd)
+        case "$git_common_dir/" in
+            "$FC_ROOT_DIR"/*) ;;
+            # If the common .git directory is outside FC_ROOT_DIR, bind-mount it as a separate volume
+            *) docker_args+=("--volume") && docker_args+=("$git_common_dir:$git_common_dir:ro,z") ;;
+        esac
+    fi
+
     # Finally, run the dev container
     # Use 'z' on the --volume parameter for docker to automatically relabel the
     # content and allow sharing between containers.
@@ -452,6 +467,12 @@ cmd_help() {
     echo "    build_ci_artifacts [all|rootfs|kernels]"
     echo "        Builds the rootfs and guest kernel artifacts we use for our CI."
     echo "        Run './tools/devtool build_ci_artifacts help' for more details about the available commands."
+    echo ""
+    echo "    stage_ci_artifacts [all|rootfs|kernels]"
+    echo "        Post-processes the CI artifacts already built in resources/\$(uname -m) (inject SSH key,"
+    echo "        build ext4 images, decompress debuginfo) and points the test framework at them via"
+    echo "        $LOCAL_ARTIFACTS_CURRENT_DIR_FILE. For a partial set ('rootfs' or 'kernels') the missing"
+    echo "        half is downloaded from S3 so a guest can boot."
     echo ""
     echo "    download_ci_artifacts [--force] [s3_uri_1, s3_uri_2 ...]"
     echo "        Downloads artifacts from provided S3 URI (like s3://spec.ccfc.min/firecracker-ci/my_artifacts)"
@@ -1388,8 +1409,65 @@ cmd_build_ci_artifacts() {
         --workdir "$CTR_FC_ROOT_DIR" \
         -- \
         ./resources/rebuild.sh "$@"
-
+    local ret=$?
     cmd_fix_perms
+    return $ret
+}
+
+# Download only one "half" (rootfs or kernels) of the newest CI artifacts from
+# S3 into the local CI artifacts dir, to complement a partial local build.
+# Args: one `aws s3 sync` --include glob per argument, e.g. "vmlinux-*" "debug/*".
+download_complementary_artifacts() {
+    local s3_base=$(get_newest_s3_artifacts)
+    local s3_arch="$s3_base/$(uname -m)"
+    local dest="resources/$(uname -m)"
+
+    local include_args=()
+    local glob
+    for glob in "$@"; do
+        include_args+=(--include "$glob")
+    done
+
+    say "Fetching complementary artifacts from S3: $s3_arch -> $dest"
+    mkdir -pv "$dest"
+    aws s3 sync --no-sign-request "$s3_arch" "$dest" --exclude "*" "${include_args[@]}"
+    ok_or_die "Failed to download complementary artifacts using awscli!"
+}
+
+cmd_stage_ci_artifacts() {
+    local mode="${1:-all}"
+    local local_artifacts_path="resources/$(uname -m)"
+
+    # For a partial build, fetch the unchanged half from S3 so the artifacts
+    # directory holds both a kernel and a rootfs (a guest boot needs both).
+    case "$mode" in
+        rootfs)
+            # Fetch the matching guest kernels.
+            download_complementary_artifacts "vmlinux-*" "debug/*"
+            ;;
+        kernels)
+            # Fetch the matching rootfs.
+            download_complementary_artifacts "*.squashfs" "initramfs*"
+            ;;
+        all)
+            ;;
+        *)
+            die "Unknown mode: '$mode'. Please use one of: all|rootfs|kernels."
+            ;;
+    esac
+
+    [ -d "$local_artifacts_path" ] || \
+        die "No built artifacts at $local_artifacts_path. Run 'build_ci_artifacts $mode' first."
+
+    # Post-process the raw artifacts (inject SSH key, build ext4 images,
+    # decompress debuginfo) inside the dev container.
+    cmd_sh "./tools/setup-ci-artifacts.sh $local_artifacts_path"
+    ok_or_die "Failed to setup artifacts!"
+    cmd_fix_perms
+
+    # Point the test framework at the freshly built artifacts.
+    echo "$local_artifacts_path" > "$LOCAL_ARTIFACTS_CURRENT_DIR_FILE"
+    say "Current artifacts path: $local_artifacts_path"
 }
 
 

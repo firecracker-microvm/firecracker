@@ -1,6 +1,6 @@
 [package]
 name = "snapshot-editor"
-version = "1.16.0-dev"
+version = "1.17.0-dev"
 authors = ["Amazon Firecracker team <firecracker-devel@amazon.com>"]
 edition = "2024"
 license = "Apache-2.0"
@@ -14,7 +14,7 @@ tracing = ["log-instrument", "fc_utils/tracing", "vmm/tracing"]
 
 [dependencies]
 clap = { version = "4.6.1", features = ["derive", "string"] }
-displaydoc = "0.2.5"
+displaydoc = "0.2.6"
 
 fc_utils = { package = "utils", path = "../utils" }
 libc = "0.2.186"

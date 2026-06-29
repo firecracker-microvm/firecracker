@@ -1,5 +1,6 @@
 # Copyright 2018 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 # SPDX-License-Identifier: Apache-2.0
+# pylint:disable=too-many-lines
 
 """Classes for working with microVMs.
 
@@ -8,8 +9,6 @@ destroy microvms.
 
 - Use the Firecracker Open API spec to populate Microvm API resource URLs.
 """
-
-# pylint:disable=too-many-lines
 
 import json
 import logging
@@ -28,7 +27,7 @@ from pathlib import Path
 from typing import Optional
 
 import psutil
-from tenacity import Retrying, retry, stop_after_attempt, wait_fixed
+from tenacity import Retrying, retry, stop_after_attempt, stop_after_delay, wait_fixed
 
 import host_tools.cargo_build as build_tools
 import host_tools.network as net_tools
@@ -253,7 +252,7 @@ class Microvm:
 
         self._screen_pid = None
 
-        self.time_api_requests = global_props.host_linux_version != "6.1"
+        self.time_api_requests = True
         # disable the HTTP API timings as they cause a lot of false positives
         if int(os.environ.get("PYTEST_XDIST_WORKER_COUNT", 1)) > 1:
             self.time_api_requests = False
@@ -344,6 +343,11 @@ class Microvm:
                 continue
             try:
                 os.kill(pid_to_kill, signal.SIGKILL)
+                try:
+                    utils.wait_process_termination(pid_to_kill)
+                except TimeoutError:
+                    utils.dump_proc_state(pid_to_kill)
+                    raise
             except ProcessLookupError:
                 pass
             except OSError:
@@ -356,37 +360,32 @@ class Microvm:
                     self._dump_debug_information(msg)
                     raise
 
-        if self._spawned and self.firecracker_pid:
-            try:
-                utils.wait_process_termination(self.firecracker_pid)
-            except TimeoutError:
-                utils.dump_proc_state(self.firecracker_pid)
-                raise
-
         # if microvm was spawned then check if it gets killed
         if self._spawned:
             # The following logic guards us against the case where `firecracker_pid` for some
             # reason is the wrong PID, e.g. this is a regression test for
             # https://github.com/firecracker-microvm/firecracker/pull/4442/commits/d63eb7a65ffaaae0409d15ed55d99ecbd29bc572
+            # Note: we have to retry a bit because /proc might show killed processes for a brief amount of time.
+            for attempt in Retrying(
+                wait=wait_fixed(0.1), stop=stop_after_delay(1.0), reraise=True
+            ):
+                with attempt:
+                    # filter ps results for the jailer's unique id
+                    _, stdout, _ = utils.check_output(
+                        "ps ax --no-headers -o pid,cmd -ww"
+                    )
 
-            # filter ps results for the jailer's unique id
-            _, stdout, stderr = utils.run_cmd(
-                f"ps ax -o pid,cmd -ww | grep {self.jailer.jailer_id}"
-            )
+                    offenders = []
+                    for proc in stdout.splitlines():
+                        _, cmd = proc.lower().split(maxsplit=1)
+                        if self.jailer.jailer_id in cmd and "firecracker" in cmd:
+                            offenders.append(proc)
 
-            assert not stderr, f"error querying processes using `ps`: {stderr}"
-
-            offenders = []
-            for proc in stdout.splitlines():
-                _, cmd = proc.lower().split(maxsplit=1)
-                if "firecracker" in proc and not cmd.startswith("screen"):
-                    offenders.append(proc)
-
-            # make sure firecracker was killed
-            assert not offenders, (
-                f"Firecracker reported its pid {self.firecracker_pid}, which was killed, but there still exist processes using the supposedly dead Firecracker's jailer_id: \n"
-                + "\n".join(offenders)
-            )
+                    # make sure firecracker was killed
+                    assert not offenders, (
+                        f"Firecracker reported its pid {self.firecracker_pid}, which was killed, but there still exist processes using the supposedly dead Firecracker's jailer_id: \n"
+                        + "\n".join(offenders)
+                    )
 
         if self.uffd_handler and self.uffd_handler.is_running():
             self.uffd_handler.kill()

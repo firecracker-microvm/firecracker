@@ -328,14 +328,8 @@ where
             .deref()
     }
 
-    fn read_config(&self, offset: u64, data: &mut [u8]) {
-        if let Some(config_space_bytes) = self.config_space.as_slice().get(u64_to_usize(offset)..) {
-            let len = config_space_bytes.len().min(data.len());
-            data[..len].copy_from_slice(&config_space_bytes[..len]);
-        } else {
-            error!("Failed to read config space");
-            self.metrics.cfg_fails.inc();
-        }
+    fn config_as_bytes(&self) -> &[u8] {
+        self.config_space.as_slice()
     }
 
     fn write_config(&mut self, _offset: u64, _data: &[u8]) {
@@ -349,6 +343,8 @@ where
         mem: GuestMemoryMmap,
         interrupt: Arc<dyn VirtioInterrupt>,
     ) -> Result<(), ActivateError> {
+        assert!(!self.is_activated());
+
         for q in self.queues.iter_mut() {
             q.initialize(&mem)
                 .map_err(ActivateError::QueueMemoryError)?;

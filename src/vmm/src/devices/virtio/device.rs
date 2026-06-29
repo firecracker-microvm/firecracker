@@ -19,6 +19,7 @@ use crate::MutEventSubscriber;
 use crate::devices::virtio::AsAny;
 use crate::devices::virtio::generated::virtio_ids;
 use crate::logger::{error, info, warn};
+use crate::utils::u64_to_usize;
 use crate::vstate::memory::GuestMemoryMmap;
 
 /// State of an active VirtIO device
@@ -162,8 +163,23 @@ pub trait VirtioDevice: AsAny + MutEventSubscriber + Send {
         self.set_acked_features(self.acked_features() | v);
     }
 
+    /// Returns the full device-specific configuration as a byte slice.
+    ///
+    /// Each device returns its live config struct bytes here.
+    fn config_as_bytes(&self) -> &[u8];
+
     /// Reads this device configuration space at `offset`.
-    fn read_config(&self, offset: u64, data: &mut [u8]);
+    fn read_config(&self, offset: u64, data: &mut [u8]) {
+        let config = self.config_as_bytes();
+        let offset = u64_to_usize(offset);
+        if let Some(config_from_offset) = config.get(offset..) {
+            let len = config_from_offset.len().min(data.len());
+            data[..len].copy_from_slice(&config_from_offset[..len]);
+            data[len..].fill(0);
+        } else {
+            data.fill(0);
+        }
+    }
 
     /// Writes to this device configuration space at `offset`.
     fn write_config(&mut self, offset: u64, data: &[u8]);
@@ -249,6 +265,7 @@ pub(crate) mod tests {
     struct MockVirtioDevice {
         avail_features: u64,
         acked_features: u64,
+        config: Vec<u8>,
     }
 
     impl MutEventSubscriber for MockVirtioDevice {
@@ -291,8 +308,8 @@ pub(crate) mod tests {
             todo!()
         }
 
-        fn read_config(&self, _offset: u64, _data: &mut [u8]) {
-            todo!()
+        fn config_as_bytes(&self) -> &[u8] {
+            &self.config
         }
 
         fn write_config(&mut self, _offset: u64, _data: &[u8]) {
@@ -317,6 +334,7 @@ pub(crate) mod tests {
         let mut device = MockVirtioDevice {
             avail_features: 0,
             acked_features: 0,
+            config: vec![],
         };
 
         let mock_feature_1 = 1u64;
@@ -338,6 +356,7 @@ pub(crate) mod tests {
         let mut device = MockVirtioDevice {
             avail_features: features,
             acked_features: 0,
+            config: vec![],
         };
 
         assert_eq!(
@@ -354,5 +373,49 @@ pub(crate) mod tests {
         }
 
         assert_eq!(device.acked_features, features);
+    }
+
+    #[test]
+    fn test_read_config_default() {
+        let device = MockVirtioDevice {
+            avail_features: 0,
+            acked_features: 0,
+            config: vec![0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF, 0x11, 0x22],
+        };
+
+        // Exact read within bounds.
+        let mut buf = [0xFF; 8];
+        device.read_config(0, &mut buf);
+        assert_eq!(buf, [0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF, 0x11, 0x22]);
+
+        // Partial read at valid offset (offset+len exceeds config size).
+        let mut buf = [0xFF; 8];
+        device.read_config(4, &mut buf);
+        assert_eq!(buf, [0xEE, 0xFF, 0x11, 0x22, 0, 0, 0, 0]);
+
+        // Fully out-of-bounds (offset == config size).
+        let mut buf = [0xFF; 4];
+        device.read_config(8, &mut buf);
+        assert_eq!(buf, [0, 0, 0, 0]);
+
+        // Fully out-of-bounds (offset > config size).
+        let mut buf = [0xFF; 4];
+        device.read_config(100, &mut buf);
+        assert_eq!(buf, [0, 0, 0, 0]);
+
+        // Sub-range read within bounds.
+        let mut buf = [0xFF; 2];
+        device.read_config(2, &mut buf);
+        assert_eq!(buf, [0xCC, 0xDD]);
+
+        // Empty config: any read returns zeros.
+        let empty_device = MockVirtioDevice {
+            avail_features: 0,
+            acked_features: 0,
+            config: vec![],
+        };
+        let mut buf = [0xFF; 4];
+        empty_device.read_config(0, &mut buf);
+        assert_eq!(buf, [0, 0, 0, 0]);
     }
 }

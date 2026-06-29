@@ -17,10 +17,20 @@ excluding tests marked with `pytest.mark.nonci`):
 tools/devtool -y test
 ```
 
+Note: some performance tests require host performance tuning (e.g. dedicating
+some memory for `hugetlbfs`). For those tests, the `--performance` flag is also
+required:
+
+```sh
+tools/devtool -y test --performance
+```
+
 To run only tests from specific directories and/or files:
 
 ```sh
 tools/devtool -y test -- integration_tests/performance/test_boottime.py
+# Or
+tools/devtool -y test --performance -- integration_tests/performance/test_huge_pages.py
 ```
 
 To run a single specific test from a file:
@@ -72,6 +82,9 @@ dev container automatically, so setting them on the host before invoking
   at the uVM chroot root. The cheap artifacts (`host-dmesg.log` and the guest
   serial console) are always collected. Default off. The nightly performance
   pipeline sets this.
+- `FC_TEST_DEVELOPMENT_ENVIRONMENT=1` — skip tests that depend on specific host
+  configurations that don't add any value when running on a development
+  environment.
 
 ### Output
 
@@ -229,7 +242,7 @@ compare boottime of microVMs between Firecracker binaries compiled from the
 ```sh
 tools/devtool -y build --rev main --release
 tools/devtool -y build --rev HEAD --release
-tools/devtool -y test --no-build --ab -- run build/main build/HEAD --pytest-opts integration_tests/performance/test_boottime.py::test_boottime
+tools/devtool -y test --no-build --ab -- run --binaries-a build/main --binaries-b build/HEAD --pytest-opts integration_tests/performance/test_boottime.py::test_boottime
 ```
 
 To download custom artifacts use

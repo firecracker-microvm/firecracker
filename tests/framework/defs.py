@@ -30,7 +30,7 @@ DEFAULT_BINARY_DIR = (
     / "release"
 )
 
-SUPPORTED_HOST_KERNELS = ["5.10", "6.1"]
+SUPPORTED_HOST_KERNELS = ["5.10", "6.1", "6.18"]
 
 # When pytest is run in the devctr the test.sh scipt copies artifacts (rootfs, guest kernels, etc)
 # to the /srv/test_artifacts within the container

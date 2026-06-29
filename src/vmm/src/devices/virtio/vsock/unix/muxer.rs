@@ -193,10 +193,9 @@ impl VsockChannel for VsockMuxer {
     /// This absorbs unexpected packets, handles RSTs (by dropping connections), and forwards
     /// all the rest to their owning `MuxerConnection`.
     ///
-    /// Returns:
-    /// always `Ok(())` - the packet has been consumed, and its virtio TX buffers can be
-    /// returned to the guest vsock driver.
-    fn send_pkt(&mut self, pkt: &VsockPacketTx) -> Result<(), VsockError> {
+    /// The packet is always consumed, and its virtio TX buffers can be returned to the guest
+    /// vsock driver.
+    fn send_pkt(&mut self, pkt: &VsockPacketTx) {
         let conn_key = ConnMapKey {
             local_port: pkt.hdr.dst_port(),
             peer_port: pkt.hdr.src_port(),
@@ -212,7 +211,7 @@ impl VsockChannel for VsockMuxer {
         //
         if pkt.hdr.type_() != uapi::VSOCK_TYPE_STREAM {
             self.enq_rst(pkt.hdr.dst_port(), pkt.hdr.src_port());
-            return Ok(());
+            return;
         }
 
         // We don't know how to handle packets addressed to other CIDs. We only handle the host
@@ -222,7 +221,7 @@ impl VsockChannel for VsockMuxer {
                 "vsock: dropping guest packet for unknown CID: {:?}",
                 pkt.hdr
             );
-            return Ok(());
+            return;
         }
 
         if !self.conn_map.contains_key(&conn_key) {
@@ -236,7 +235,7 @@ impl VsockChannel for VsockMuxer {
                 // Send back an RST, to let the drive know we weren't expecting this packet.
                 self.enq_rst(pkt.hdr.dst_port(), pkt.hdr.src_port());
             }
-            return Ok(());
+            return;
         }
 
         // Right, we know where to send this packet, then (to `conn_key`).
@@ -244,16 +243,13 @@ impl VsockChannel for VsockMuxer {
         // there's no point in forwarding it the packet.
         if pkt.hdr.op() == uapi::VSOCK_OP_RST {
             self.remove_connection(conn_key);
-            return Ok(());
+            return;
         }
 
         // Alright, everything looks in order - forward this packet to its owning connection.
-        let mut res: Result<(), VsockError> = Ok(());
         self.apply_conn_mutation(conn_key, |conn| {
-            res = conn.send_pkt(pkt);
+            conn.send_pkt(pkt);
         });
-
-        res
     }
 
     /// Check if the muxer has any pending RX data, with which to fill a guest-provided RX
@@ -895,7 +891,7 @@ mod tests {
         }
 
         fn send(&mut self) {
-            self.muxer.send_pkt(&self.tx_pkt).unwrap();
+            self.muxer.send_pkt(&self.tx_pkt);
         }
 
         fn recv(&mut self) {

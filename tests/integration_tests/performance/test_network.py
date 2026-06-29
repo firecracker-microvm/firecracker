@@ -65,8 +65,7 @@ def test_network_latency(network_microvm, metrics):
     Test network latency by sending pings from the guest to the host.
     """
 
-    rounds = 15
-    request_per_round = 30
+    target_datapoints = 500
     delay = 0.0
 
     metrics.set_dimensions(
@@ -76,18 +75,18 @@ def test_network_latency(network_microvm, metrics):
         }
     )
 
-    samples = []
     host_ip = network_microvm.iface["eth0"]["iface"].host_ip
 
-    for _ in range(rounds):
+    # ping might return less than the requested datapoints, so we need to iterate multiple times.
+    # Note: we're okay with _more_ datapoints than the target
+    collected_datapoints = 0
+    while collected_datapoints < target_datapoints:
         _, ping_output, _ = network_microvm.ssh.check_output(
-            f"ping -c {request_per_round} -i {delay} {host_ip}"
+            f"ping -c {target_datapoints} -i {delay} {host_ip}"
         )
-
-        samples.extend(consume_ping_output(ping_output))
-
-    for sample in samples:
-        metrics.put_metric("ping_latency", sample, "Milliseconds")
+        for sample in consume_ping_output(ping_output):
+            collected_datapoints += 1
+            metrics.put_metric("ping_latency", sample, "Milliseconds")
 
 
 @pytest.mark.nonci

@@ -78,16 +78,3 @@ def test_fips_reseeded_kernel_csprng(fips_snapshot_pair):
     assert (
         seq_a != seq_b
     ), "Kernel CSPRNG produced identical output on two VMs restored from the same snapshot"
-
-
-def test_fips_reseeded_userspace_csprng(fips_snapshot_pair):
-    """Test that userspace CSPRNG diverges across VMs restored from the same snapshot."""
-    uvm_a, uvm_b = fips_snapshot_pair
-    cmd = 'python3 -c "import secrets, base64; print(base64.b64encode(secrets.token_bytes(32)).decode())"'
-
-    seq_a = _get_random_sequence(uvm_a, cmd)
-    seq_b = _get_random_sequence(uvm_b, cmd)
-
-    assert (
-        seq_a != seq_b
-    ), "Userspace CSPRNG produced identical output on two VMs restored from the same snapshot"

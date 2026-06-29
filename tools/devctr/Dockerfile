@@ -204,7 +204,7 @@ RUN cp /usr/lib/python3/dist-packages/seccomp.cpython-312-"$ARCH"-linux-gnu.so "
 # Base: Rust toolchain (current version)
 # ============================================================
 FROM python-deps AS rust-toolchain
-ARG RUST_TOOLCHAIN="1.95.0"
+ARG RUST_TOOLCHAIN="1.96.0"
 ENV CARGO_HOME=/usr/local/rust
 ENV RUSTUP_HOME=/usr/local/rust
 ENV PATH="$PATH:$CARGO_HOME/bin"
@@ -250,7 +250,7 @@ RUN cargo install --locked grcov cargo-sort cargo-afl \
     && NIGHTLY_TOOLCHAIN=$(rustup toolchain list | grep nightly | tr -d '\n') \
     && rustup component add rust-src --toolchain "$NIGHTLY_TOOLCHAIN" \
     && rustup target add "$ARCH"-unknown-linux-musl --toolchain "$NIGHTLY_TOOLCHAIN" \
-    && cargo +"$NIGHTLY_TOOLCHAIN" install cargo-udeps \
+    && cargo +"$NIGHTLY_TOOLCHAIN" install --locked cargo-udeps --version 0.1.60 \
     \
     && case "${ARCH}" in \
         "aarch64") rustup target add x86_64-unknown-linux-gnu ;; \

@@ -193,6 +193,8 @@ impl<'a> Persist<'a> for ACPIDeviceManager {
             VmClock::restore((), &state.vmclock).unwrap(),
         );
 
+        acpi_devices.replay_gsi_allocations(vm)?;
+
         acpi_devices.activate_vmgenid(vm)?;
         acpi_devices.do_post_restore_vmgenid()?;
 
@@ -401,6 +403,10 @@ impl<'a> Persist<'a> for MMIODeviceManager {
                 MmioTransport::restore(restore_args, state)
                     .map_err(|()| DevicePersistError::MmioTransport)?,
             ));
+
+            vm.resource_allocator()
+                .gsi_legacy_allocator
+                .allocate_id_at(device_info.gsi.ok_or(MmioError::InvalidIrqConfig)?)?;
 
             dev_manager.register_mmio_virtio(
                 vm,

@@ -21,7 +21,7 @@ arrayvec = { version = "0.7.6", optional = true }
 aws-lc-rs = "1.17.0"
 base64 = "0.22.1"
 bitcode = { version = "0.6.9", features = ["serde"] }
-bitflags = "2.11.1"
+bitflags = "2.12.1"
 bitvec = { version = "1.0.1", features = ["atomic", "serde"] }
 byteorder = "1.5.0"
 crc64 = "2.0.0"
@@ -29,7 +29,7 @@ derive_more = { version = "2.1.1", default-features = false, features = [
   "from",
   "display",
 ] }
-displaydoc = "0.2.5"
+displaydoc = "0.2.6"
 event-manager = "0.4.2"
 gdbstub = { version = "0.7.10", optional = true }
 gdbstub_arch = { version = "0.3.3", optional = true }
@@ -37,27 +37,27 @@ kvm-bindings = { version = "0.14.0", features = ["fam-wrappers", "serde"] }
 kvm-ioctls = "0.24.0"
 libc = "0.2.186"
 linux-loader = "0.13.2"
-log = { version = "0.4.29", features = ["std", "serde"] }
+log = { version = "0.4.31", features = ["std", "serde"] }
 log-instrument = { path = "../log-instrument", optional = true }
 memfd = "0.6.5"
 micro_http = { git = "https://github.com/firecracker-microvm/micro-http" }
 semver = { version = "1.0.28", features = ["serde"] }
 serde = { version = "1.0.228", features = ["derive", "rc"] }
-serde_json = "1.0.149"
+serde_json = "1.0.150"
 slab = "0.4.12"
 thiserror = "2.0.18"
 userfaultfd = "0.9.0"
 utils = { path = "../utils" }
-uuid = "1.23.1"
+uuid = "1.23.2"
 vhost = { version = "0.15.0", features = ["vhost-user-frontend"] }
-vm-allocator = { version = "0.1.3", features = ["serde"] }
+vm-allocator = { version = "0.1.4", features = ["serde"] }
 vm-memory = { version = "0.17.1", features = [
   "backend-mmap",
   "backend-bitmap",
 ] }
 vm-superio = "0.8.1"
 vmm-sys-util = { version = "0.15.0", features = ["with-serde"] }
-zerocopy = { version = "0.8.48" }
+zerocopy = { version = "0.8.50" }
 
 [target.'cfg(target_arch = "aarch64")'.dependencies]
 vm-fdt = "0.3.0"

@@ -6,7 +6,7 @@ import hashlib
 import os.path
 import re
 import time
-from contextlib import ExitStack
+from contextlib import ExitStack, contextmanager
 from pathlib import Path
 from socket import AF_UNIX, SOCK_STREAM, socket
 from subprocess import Popen
@@ -176,18 +176,29 @@ def check_host_connections(uds_path, blob_path, blob_hash):
             assert wrk.hash == blob_hash
 
 
-def check_guest_connections(vm, server_port_path, blob_path, blob_hash):
-    """Test guest-initiated connections.
+@contextmanager
+def host_echo_server(vm, server_port_path):
+    """Run a host-side echo server reachable by the guest over vsock.
 
-    This will start an echo server on the host (in its own thread), then
-    start `TEST_CONNECTION_COUNT` workers inside the guest VM, all
-    communicating with the echo server.
+    Starts `socat` listening on the Unix socket `server_port_path`, links it
+    into the VM's jail so Firecracker can reach it, and raises the ssh
+    service's `pids.max` so guest workers can fork freely. Yields the socket
+    path and tears the server down on exit.
     """
-
+    # The backlog must be >= the number of concurrent guest connections
+    # (`TEST_CONNECTION_COUNT`). Firecracker's vsock muxer establishes the
+    # host-side connection with a *blocking* `connect()` on its event-loop
+    # thread; if the listener's accept backlog is saturated (e.g. the whole
+    # worker burst reconnecting at once right after a snapshot restore), that
+    # `connect()` stalls the VMM, delaying `OP_RESPONSE`s past the guest's 2s
+    # vsock connect timeout and causing spurious `connect(): timed out`.
     echo_server = Popen(
-        ["socat", f"UNIX-LISTEN:{server_port_path},fork,backlog=5", "exec:'/bin/cat'"]
+        [
+            "socat",
+            f"UNIX-LISTEN:{server_port_path},fork,backlog={SERVER_ACCEPT_BACKLOG}",
+            "exec:'/bin/cat'",
+        ]
     )
-
     try:
         # Give socat a bit of time to create the socket
         for attempt in Retrying(
@@ -210,6 +221,23 @@ def check_guest_connections(vm, server_port_path, blob_path, blob_hash):
             f"echo 1024 > /sys/fs/cgroup/system.slice/{vm.distro.ssh_service}/pids.max"
         )
 
+        yield server_port_path
+    finally:
+        echo_server.terminate()
+        rc = echo_server.wait()
+        # socat exits with 128 + 15 (SIGTERM)
+        assert rc == 143
+
+
+def check_guest_connections(vm, server_port_path, blob_path, blob_hash):
+    """Test guest-initiated connections.
+
+    This will start an echo server on the host (in its own thread), then
+    start `TEST_CONNECTION_COUNT` workers inside the guest VM, all
+    communicating with the echo server.
+    """
+
+    with host_echo_server(vm, server_port_path):
         # Build the guest worker sub-command.
         # `vsock_helper` will read the blob file from STDIN and send the echo
         # server response to STDOUT. This response is then hashed, and the
@@ -234,11 +262,6 @@ def check_guest_connections(vm, server_port_path, blob_path, blob_hash):
         cmd += "for w in $workers; do wait $w || (wait; exit 1); done"
 
         vm.ssh.check_output(cmd)
-    finally:
-        echo_server.terminate()
-        rc = echo_server.wait()
-        # socat exits with 128 + 15 (SIGTERM)
-        assert rc == 143
 
 
 def make_host_port_path(uds_path, port):

@@ -510,7 +510,7 @@ impl VirtioMem {
                 updated_range.addr,
                 self.nb_blocks_to_len(updated_range.nb_blocks),
             )
-            .try_for_each(|slot| {
+            .try_for_each(|(slot, _)| {
                 let slot_range = RequestedRange {
                     addr: slot.guest_addr,
                     nb_blocks: slot.slice.len() / u64_to_usize(self.config.block_size),
@@ -539,6 +539,10 @@ impl VirtioMem {
         self.config.plugged_size -= usize_to_u64(self.nb_blocks_to_len(plugged_before));
         self.config.plugged_size += usize_to_u64(self.nb_blocks_to_len(plugged_after));
 
+        // Update kvm slots before doing any discards to prevent guest from re-faulting just
+        // discarded memory.
+        self.update_kvm_slots(range)?;
+
         // If unplugging, discard the range
         if !plug {
             self.guest_memory()
@@ -550,8 +554,7 @@ impl VirtioMem {
                     error!("virtio-mem: Failed to discard memory range: {}", err);
                 });
         }
-
-        self.update_kvm_slots(range)
+        Ok(())
     }
 
     /// Updates the requested size of the virtio-mem device.
@@ -634,18 +637,8 @@ impl VirtioDevice for VirtioMem {
         self.acked_features = acked_features;
     }
 
-    fn read_config(&self, offset: u64, data: &mut [u8]) {
-        let offset = u64_to_usize(offset);
-        self.config
-            .as_slice()
-            .get(offset..offset + data.len())
-            .map(|s| data.copy_from_slice(s))
-            .unwrap_or_else(|| {
-                error!(
-                    "virtio-mem: Config read offset+length {offset}+{} out of bounds",
-                    data.len()
-                )
-            })
+    fn config_as_bytes(&self) -> &[u8] {
+        self.config.as_slice()
     }
 
     fn write_config(&mut self, offset: u64, _data: &[u8]) {
@@ -661,6 +654,8 @@ impl VirtioDevice for VirtioMem {
         mem: GuestMemoryMmap,
         interrupt: Arc<dyn VirtioInterrupt>,
     ) -> Result<(), ActivateError> {
+        assert!(!self.is_activated());
+
         if (self.acked_features & (1 << VIRTIO_MEM_F_UNPLUGGED_INACCESSIBLE)) == 0 {
             error!(
                 "virtio-mem: VIRTIO_MEM_F_UNPLUGGED_INACCESSIBLE feature not acknowledged by guest"
@@ -807,38 +802,23 @@ mod tests {
     }
 
     #[test]
-    fn test_read_config() {
+    fn test_config_as_bytes() {
         let mem = default_virtio_mem();
-        let mut data = [0u8; 8];
+        let config = mem.config_as_bytes();
 
-        mem.read_config(0, &mut data);
+        assert_eq!(config.len(), std::mem::size_of::<virtio_mem_config>());
         assert_eq!(
-            u64::from_le_bytes(data),
+            u64::from_le_bytes(config[0..8].try_into().unwrap()),
             mib_to_bytes(mem.block_size_mib()) as u64
         );
-
-        mem.read_config(16, &mut data);
-        assert_eq!(u64::from_le_bytes(data), 512 << 30);
-
-        mem.read_config(24, &mut data);
         assert_eq!(
-            u64::from_le_bytes(data),
+            u64::from_le_bytes(config[16..24].try_into().unwrap()),
+            512 << 30
+        );
+        assert_eq!(
+            u64::from_le_bytes(config[24..32].try_into().unwrap()),
             mib_to_bytes(mem.total_size_mib()) as u64
         );
-    }
-
-    #[test]
-    fn test_read_config_out_of_bounds() {
-        let mem = default_virtio_mem();
-
-        let mut data = [0u8; 8];
-        let config_size = std::mem::size_of::<virtio_mem_config>();
-        mem.read_config(config_size as u64, &mut data);
-        assert_eq!(data, [0u8; 8]); // Should remain unchanged
-
-        let mut data = vec![0u8; config_size];
-        mem.read_config(8, &mut data);
-        assert_eq!(data, vec![0u8; config_size]); // Should remain unchanged
     }
 
     #[test]

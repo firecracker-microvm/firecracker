@@ -39,7 +39,7 @@ use crate::devices::{DeviceError, report_net_event_fail};
 use crate::dumbo::pdu::arp::ETH_IPV4_FRAME_LEN;
 use crate::dumbo::pdu::ethernet::{EthernetFrame, PAYLOAD_OFFSET};
 use crate::impl_device_type;
-use crate::logger::{IncMetric, METRICS, error};
+use crate::logger::{IncMetric, METRICS, error, warn};
 use crate::mmds::data_store::Mmds;
 use crate::mmds::ns::MmdsNetworkStack;
 use crate::rate_limiter::{BucketUpdate, RateLimiter, TokenType};
@@ -1021,35 +1021,17 @@ impl VirtioDevice for Net {
             .deref()
     }
 
-    fn read_config(&self, offset: u64, data: &mut [u8]) {
-        if let Some(config_space_bytes) = self.config_space.as_slice().get(u64_to_usize(offset)..) {
-            let len = config_space_bytes.len().min(data.len());
-            data[..len].copy_from_slice(&config_space_bytes[..len]);
-        } else {
-            error!("Failed to read config space");
-            self.metrics.cfg_fails.inc();
-        }
+    fn config_as_bytes(&self) -> &[u8] {
+        self.config_space.as_slice()
     }
 
     fn write_config(&mut self, offset: u64, data: &[u8]) {
-        let config_space_bytes = self.config_space.as_mut_slice();
-        let start = usize::try_from(offset).ok();
-        let end = start.and_then(|s| s.checked_add(data.len()));
-        // Only the guest_mac field (bytes 0..size_of::<MacAddr>()) is writable by the guest.
-        // All other fields (status, max_virtqueue_pairs, mtu) are read-only device fields.
-        let Some(dst) = start
-            .zip(end)
-            .filter(|&(_, end)| end <= std::mem::size_of::<MacAddr>())
-            .and_then(|(start, end)| config_space_bytes.get_mut(start..end))
-        else {
-            error!("Failed to write config space");
-            self.metrics.cfg_fails.inc();
-            return;
-        };
-
-        dst.copy_from_slice(data);
-        self.guest_mac = Some(self.config_space.guest_mac);
-        self.metrics.mac_address_updates.inc();
+        self.metrics.cfg_fails.inc();
+        warn!(
+            "virtio-net: guest driver attempted to write device config (offset={:#x}, len={:#x})",
+            offset,
+            data.len()
+        );
     }
 
     fn activate(
@@ -1057,6 +1039,8 @@ impl VirtioDevice for Net {
         mem: GuestMemoryMmap,
         interrupt: Arc<dyn VirtioInterrupt>,
     ) -> Result<(), ActivateError> {
+        assert!(!self.is_activated());
+
         for q in self.queues.iter_mut() {
             q.initialize(&mem)
                 .map_err(ActivateError::QueueMemoryError)?;
@@ -1278,59 +1262,63 @@ pub mod tests {
     }
 
     #[test]
-    fn test_virtio_device_read_config() {
+    fn test_config_as_bytes() {
         let mut net = default_net();
         set_mac(&mut net, MacAddr::from_str("11:22:33:44:55:66").unwrap());
 
-        // Test `read_config()`. This also validates the MAC was properly configured.
+        // Validate config_as_bytes returns the MAC address.
         let mac = MacAddr::from_str("11:22:33:44:55:66").unwrap();
-        let mut config_mac = [0u8; MAC_ADDR_LEN as usize];
-        net.read_config(0, &mut config_mac);
-        assert_eq!(&config_mac, mac.get_bytes());
-
-        // Invalid read.
-        config_mac = [0u8; MAC_ADDR_LEN as usize];
-        net.read_config(u64::from(MAC_ADDR_LEN), &mut config_mac);
-        assert_eq!(config_mac, [0u8, 0u8, 0u8, 0u8, 0u8, 0u8]);
+        let config = net.config_as_bytes();
+        assert_eq!(&config[..MAC_ADDR_LEN as usize], mac.get_bytes());
     }
 
     #[test]
-    fn test_virtio_device_rewrite_config() {
+    fn test_virtio_device_config_space_is_read_only() {
         let mut net = default_net();
-        set_mac(&mut net, MacAddr::from_str("11:22:33:44:55:66").unwrap());
+        let initial_mac = MacAddr::from_str("11:22:33:44:55:66").unwrap();
+        set_mac(&mut net, initial_mac);
 
-        let new_config: [u8; MAC_ADDR_LEN as usize] = [0x66, 0x55, 0x44, 0x33, 0x22, 0x11];
-        net.write_config(0, &new_config);
-        let mut new_config_read = [0u8; MAC_ADDR_LEN as usize];
-        net.read_config(0, &mut new_config_read);
-        assert_eq!(new_config, new_config_read);
+        let initial_bytes: [u8; MAC_ADDR_LEN as usize] = [0x11, 0x22, 0x33, 0x44, 0x55, 0x66];
 
-        // Check that the guest MAC was updated.
-        let expected_guest_mac = MacAddr::from_bytes_unchecked(&new_config);
-        assert_eq!(expected_guest_mac, net.guest_mac.unwrap());
-        assert_eq!(net.metrics.mac_address_updates.count(), 1);
+        // Sanity check: the configured MAC is what the guest reads back.
+        let mut config_read = [0u8; MAC_ADDR_LEN as usize];
+        net.read_config(0, &mut config_read);
+        assert_eq!(config_read, initial_bytes);
+        assert_eq!(net.guest_mac.unwrap(), initial_mac);
 
-        // Partial write (this is how the kernel sets a new mac address) - byte by byte.
-        let new_config = [0x11, 0x22, 0x33, 0x44, 0x55, 0x66];
-        for i in 0..new_config.len() {
-            net.write_config(i as u64, &new_config[i..=i]);
+        // A 6-byte write to offset 0 must be rejected and leave both the
+        // config space bytes and the device's stored guest_mac unchanged.
+        let attempted_bytes: [u8; MAC_ADDR_LEN as usize] = [0x66, 0x55, 0x44, 0x33, 0x22, 0x11];
+        let cfg_fails_before = net.metrics.cfg_fails.count();
+        net.write_config(0, &attempted_bytes);
+        net.read_config(0, &mut config_read);
+        assert_eq!(config_read, initial_bytes);
+        assert_eq!(net.guest_mac.unwrap(), initial_mac);
+        assert_eq!(net.metrics.cfg_fails.count(), cfg_fails_before + 1);
+
+        // Single-byte writes covering the MAC region must also be rejected
+        // without changing state.
+        let cfg_fails_before = net.metrics.cfg_fails.count();
+        for i in 0..attempted_bytes.len() {
+            net.write_config(i as u64, &attempted_bytes[i..=i]);
         }
-        net.read_config(0, &mut new_config_read);
-        assert_eq!(new_config, new_config_read);
+        net.read_config(0, &mut config_read);
+        assert_eq!(config_read, initial_bytes);
+        assert_eq!(net.guest_mac.unwrap(), initial_mac);
+        assert_eq!(
+            net.metrics.cfg_fails.count(),
+            cfg_fails_before + attempted_bytes.len() as u64
+        );
 
-        // Invalid write.
-        net.write_config(5, &new_config);
-        // Verify old config was untouched.
-        new_config_read = [0u8; MAC_ADDR_LEN as usize];
-        net.read_config(0, &mut new_config_read);
-        assert_eq!(new_config, new_config_read);
-
-        // Large offset that may cause an overflow.
-        net.write_config(u64::MAX, &new_config);
-        // Verify old config was untouched.
-        new_config_read = [0u8; MAC_ADDR_LEN as usize];
-        net.read_config(0, &mut new_config_read);
-        assert_eq!(new_config, new_config_read);
+        // Out-of-range and overflowing offsets must be rejected without
+        // changing state.
+        let cfg_fails_before = net.metrics.cfg_fails.count();
+        net.write_config(5, &attempted_bytes);
+        net.write_config(u64::MAX, &attempted_bytes);
+        net.read_config(0, &mut config_read);
+        assert_eq!(config_read, initial_bytes);
+        assert_eq!(net.guest_mac.unwrap(), initial_mac);
+        assert_eq!(net.metrics.cfg_fails.count(), cfg_fails_before + 2);
     }
 
     #[test]
