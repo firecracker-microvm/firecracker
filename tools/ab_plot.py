@@ -46,7 +46,7 @@ def check_regression(
     return result.pvalue, result.statistic / statistic_a, result.statistic
 
 
-def load_data(data_path: Path):
+def load_data(data_path: Path, ignore_dimensions: set[str]):
     """
     Recursively collects `metrics.json` files in provided path
     """
@@ -74,6 +74,9 @@ def load_data(data_path: Path):
         del j["dimensions"]["instance"]
         del j["dimensions"]["cpu_model"]
         del j["dimensions"]["host_kernel"]
+
+        for dim in ignore_dimensions:
+            j["dimensions"].pop(dim, None)
 
         dimensions = frozenset(j["dimensions"].items())
 
@@ -290,13 +293,20 @@ if __name__ == "__main__":
         default="pdf",
         help="Type of the output to generate",
     )
+    parser.add_argument(
+        "-i",
+        "--ignore-dimension",
+        help="Dimension key to strip before matching groups. Repeatable.",
+        action="append",
+        default=[],
+    )
     args = parser.parse_args()
 
     # Data retrieval
     start_time = time.time()
     all_data = []
     for i, path in enumerate(args.paths):
-        data = load_data(path)
+        data = load_data(path, set(args.ignore_dimension))
         print(f"getting data {i} from {path}: {len(data)}")
         df = pd.DataFrame(data)
         df["group"] = chr(65 + i)  # A, B, C, D, ...
