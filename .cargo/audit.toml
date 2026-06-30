@@ -15,4 +15,9 @@ ignore = [
     #   the `thread_rng` feature, so the affected functions are not compiled in.
     # See https://rustsec.org/advisories/RUSTSEC-2026-0097.html
     "RUSTSEC-2026-0097",
+
+    # `anyhow` is not directly used by any of our crates. It is a transitive
+    # dependency of build-time WASM tooling (wit-bindgen).
+    # See https://rustsec.org/advisories/RUSTSEC-2026-0190.html
+    "RUSTSEC-2026-0190",
 ]
