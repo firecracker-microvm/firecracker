@@ -6,11 +6,12 @@ import json
 
 import pytest
 
+from framework import utils
 from framework.ab_test import (
     git_ab_test_host_command_if_pr,
     set_did_not_grow_comparator,
 )
-from framework.utils import CommandReturn
+from framework.defs import FC_WORKSPACE_DIR
 from framework.utils_cpuid import CpuVendor, get_cpu_vendor
 
 
@@ -23,19 +24,36 @@ def test_cargo_audit():
     Run cargo audit to check for crates with security vulnerabilities.
     """
 
-    def set_of_vulnerabilities(output: CommandReturn):
-        output = json.loads(output.stdout)
+    def set_of_vulnerabilities(output: utils.CommandReturn):
+        # The `stdout` will contain one `json` payload per line
+        findings = set()
+        for line in output.stderr.splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            entry = json.loads(line)
+            # There is also `summary` type, which is of not interest for us
+            if entry["type"] != "diagnostic":
+                continue
+            fields = entry["fields"]
+            advisory = fields.get("advisory") or {}
+            # Identify a finding by its code, advisory id and affected crate;
+            # Findings without an advisory (e.g. yanked crates) fall back to
+            # the crate from the dependency graph.
+            krate = (fields.get("graphs") or [{}])[0].get("Krate", {})
+            findings.add(
+                (
+                    fields.get("code"),
+                    advisory.get("id"),
+                    advisory.get("package") or krate.get("name"),
+                )
+            )
+        return findings
 
-        return set(
-            frozenset(vulnerability)
-            for vulnerability in output["vulnerabilities"]["list"]
-        ).union(
-            frozenset(warning)
-            for warning_kind, warnings in output["warnings"].items()
-            for warning in warnings
-        )
+    utils.run_cmd("cargo install --locked cargo-deny --debug")
+    toml_file = FC_WORKSPACE_DIR / "Cargo.toml"
 
     git_ab_test_host_command_if_pr(
-        "cargo install --locked cargo-audit && cargo audit --deny warnings -q --json",
+        f"cargo deny --manifest-path {toml_file} -f json check advisories",
         comparator=set_did_not_grow_comparator(set_of_vulnerabilities),
     )
