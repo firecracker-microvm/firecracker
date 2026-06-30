@@ -26,6 +26,9 @@ and this project adheres to
   restore, triggered by taking a snapshot with a TX descriptor in-flight. On
   restore the device now replays the TX queue notification so in-flight TX
   descriptors are re-processed and notification suppression is re-armed.
+- [#5956](https://github.com/firecracker-microvm/firecracker/pull/5956): Fixed a
+  TOCTOU race in the aarch64 jailer when setting ownership of the CPU cache and
+  `MIDR_EL1` information files copied into the chroot.
 
 ## [1.16.0]
 
