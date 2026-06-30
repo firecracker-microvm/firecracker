@@ -4,8 +4,8 @@
 """
 Script for creating visualizations for A/B runs.
 
-Usage:
-ab_plot.py path_to_run_a path_to_run_b path_to_run_c ... --output_type pdf/table
+See usage:
+ab_plot.py -h
 """
 
 import argparse
@@ -54,7 +54,9 @@ def load_data(data_path: Path):
     # Track cumulative index per (test, metric, dimensions) so that
     # subsequent iterations are plotted consecutively.
     offsets = {}
-    for name in sorted(glob.glob(f"{data_path}/**/metrics.json", recursive=True)):
+    for name in sorted(
+        glob.glob(f"{glob.escape(str(data_path))}/**/metrics.json", recursive=True)
+    ):
         with open(name, encoding="utf-8") as f:
             j = json.load(f)
 
@@ -274,7 +276,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "paths",
         nargs="+",
-        help="Paths to directories with test runs",
+        help="Paths to directories with test runs' metrics.json file",
         type=Path,
     )
     parser.add_argument(
@@ -285,7 +287,7 @@ if __name__ == "__main__":
     )
     parser.add_argument(
         "--output_type",
-        default=["pdf"],
+        default="pdf",
         help="Type of the output to generate",
     )
     args = parser.parse_args()
