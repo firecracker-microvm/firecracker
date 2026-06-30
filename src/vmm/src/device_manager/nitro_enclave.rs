@@ -5,12 +5,13 @@
 //!
 //! Manages Nitro Enclave transport devices, parallel to `MMIODeviceManager` and `PciDevices`.
 
+use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
 use event_manager::SubscriberOps;
 
 use crate::EventManager;
-use crate::devices::virtio::device::VirtioDevice;
+use crate::devices::virtio::device::{VirtioDevice, VirtioDeviceId};
 use crate::devices::virtio::transport::nitro_enclave::{
     DeviceDmaMemory, NeTransport, NeTransportError,
 };
@@ -29,7 +30,7 @@ pub enum NeDeviceError {
 /// Manages NE transport devices for enclaves.
 #[derive(Debug, Default)]
 pub struct NeDevices {
-    devices: Vec<Arc<Mutex<NeTransport>>>,
+    devices: HashMap<VirtioDeviceId, Arc<Mutex<NeTransport>>>,
 }
 
 impl NeDevices {
@@ -48,10 +49,10 @@ impl NeDevices {
         dmb_size_mib: Option<u64>,
         event_manager: &mut EventManager,
     ) -> Result<(), NeDeviceError> {
-        let (virtio_devid, num_vqs) = {
+        let (device_id, num_vqs) = {
             let locked = device.lock().expect("Poisoned lock");
             let num_vqs = u32::try_from(locked.num_queues()).expect("queue count exceeds u32");
-            (locked.device_type(), num_vqs)
+            ((locked.device_type(), locked.id().to_string()), num_vqs)
         };
 
         // Installed by enclave_builder before any device is attached.
@@ -80,7 +81,7 @@ impl NeDevices {
         };
 
         let mut transport =
-            NeTransport::new(device.clone(), dma_memory, info_page, virtio_devid, num_vqs)?;
+            NeTransport::new(device.clone(), dma_memory, info_page, device_id.0, num_vqs)?;
 
         // Wire the transport to the enclave: NE_ADD_DEVICE + eventfds.
         transport.register_device(enclave_vm.enclave_fd())?;
@@ -89,7 +90,7 @@ impl NeDevices {
         event_manager.add_subscriber(device);
         let transport = Arc::new(Mutex::new(transport));
         event_manager.add_subscriber(transport.clone());
-        self.devices.push(transport);
+        self.devices.insert(device_id, transport);
         Ok(())
     }
 }
