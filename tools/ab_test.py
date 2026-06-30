@@ -146,7 +146,7 @@ def is_ignored(dimensions) -> bool:
     return False
 
 
-def load_data_series(data_path: Path):
+def load_data_series(data_path: Path, ignore_dimensions: set[str]):
     """Recursively collects `metrics.json` files in provided path"""
     data = {}
     for name in glob.glob(
@@ -156,6 +156,9 @@ def load_data_series(data_path: Path):
             j = json.load(f)
 
         metrics = j["metrics"]
+        for dim in ignore_dimensions:
+            j["dimensions"].pop(dim, None)
+
         dimensions = frozenset(j["dimensions"].items())
 
         data[dimensions] = {}
@@ -196,6 +199,7 @@ def collect_data(
     binary_dir: Path,
     artifacts: Optional[Path],
     pytest_opts: str,
+    ignore_dimensions: set[str],
     iteration: int = 0,
 ):
     """
@@ -230,7 +234,7 @@ def collect_data(
         shell=True,
     )
 
-    return load_data_series(Path(test_path))
+    return load_data_series(Path(test_path), ignore_dimensions)
 
 
 def check_regression(
@@ -435,6 +439,7 @@ def ab_performance_test(
     p_thresh: Threshold,
     strength_abs_thresh: Threshold,
     noise_threshold: Threshold,
+    ignore_dimensions: set[str],
     max_iterations=1,
 ):
     """Does an A/B-test of the specified test with the given firecracker/jailer binaries.
@@ -450,11 +455,19 @@ def ab_performance_test(
         print(f"\n=== Iteration {i + 1}/{max_iterations} ===")
         # Changing the order or A and B executions across iterations, to avoid fluctuations caused by execution order
         if i % 2 == 0:
-            new_a = collect_data("A", a_directory, a_artifacts, pytest_opts, i)
-            new_b = collect_data("B", b_directory, b_artifacts, pytest_opts, i)
+            new_a = collect_data(
+                "A", a_directory, a_artifacts, pytest_opts, ignore_dimensions, i
+            )
+            new_b = collect_data(
+                "B", b_directory, b_artifacts, pytest_opts, ignore_dimensions, i
+            )
         else:
-            new_b = collect_data("B", b_directory, b_artifacts, pytest_opts, i)
-            new_a = collect_data("A", a_directory, a_artifacts, pytest_opts, i)
+            new_b = collect_data(
+                "B", b_directory, b_artifacts, pytest_opts, ignore_dimensions, i
+            )
+            new_a = collect_data(
+                "A", a_directory, a_artifacts, pytest_opts, ignore_dimensions, i
+            )
         merge_data(data_a, new_a)
         merge_data(data_b, new_b)
 
@@ -542,6 +555,13 @@ def main():
         type=Path,
     )
     parser.add_argument(
+        "-i",
+        "--ignore-dimension",
+        help="Dimension key to strip before matching A and B entries. Repeatable.",
+        action="append",
+        default=[],
+    )
+    parser.add_argument(
         "--significance",
         help="The p-value threshold. Pass a float for the global default, or metric=float for a per-metric override. Repeatable.",
         action="append",
@@ -576,13 +596,14 @@ def main():
             p_thresh,
             strength_abs_thresh,
             noise_threshold,
+            set(args.ignore_dimension),
             max_iterations=args.max_iterations,
         )
         print(f"Total A/B test took {time.perf_counter() - t0:.2f}s")
     else:
         t0 = time.perf_counter()
-        data_a = load_data_series(args.path_a)
-        data_b = load_data_series(args.path_b)
+        data_a = load_data_series(args.path_a, set(args.ignore_dimension))
+        data_b = load_data_series(args.path_b, set(args.ignore_dimension))
         print(f"Data loading took {time.perf_counter() - t0:.2f}s")
 
         t0 = time.perf_counter()
