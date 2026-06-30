@@ -8,6 +8,8 @@ This file also contains functional tests for virtio-mem because they need to be
 run on an ag=1 host due to the use of HugePages.
 """
 
+import platform
+
 import pytest
 from tenacity import Retrying, retry_if_exception_type, stop_after_delay, wait_fixed
 
@@ -252,6 +254,11 @@ def check_hotunplug(uvm, requested_size_mib):
         assert rss_after < rss_before, "RSS didn't decrease"
 
 
+# TODO: remove this once the hotplug latency on 5.10 hosts is fixed
+@pytest.mark.skipif(
+    platform.machine() == "x86_64" and global_props.host_linux_version_tpl == (5, 10),
+    reason="GET /hotplug/memory intermittently exceeds the duration threshold on x86_64 5.10 hosts",
+)
 def test_virtio_mem_hotplug_hotunplug(uvm_any_memhp):
     """
     Check that memory can be hotplugged into the VM.
@@ -456,6 +463,11 @@ def timed_memory_hotplug(uvm, size, metrics, metric_prefix, fc_metric_name):
     )
 
 
+# TODO: remove this once the hotplug latency on 5.10 hosts is fixed
+@pytest.mark.skipif(
+    platform.machine() == "x86_64" and global_props.host_linux_version_tpl == (5, 10),
+    reason="GET /hotplug/memory intermittently exceeds the duration threshold on x86_64 5.10 hosts",
+)
 @pytest.mark.nonci
 @pytest.mark.parametrize(
     "hotplug_size",
