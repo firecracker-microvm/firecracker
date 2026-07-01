@@ -35,6 +35,8 @@ pub enum EnclaveVmError {
     },
     /// Failed to set user memory region: {0}
     SetMemoryRegion(std::io::Error),
+    /// Failed to revoke parent access to donated enclave memory: {0}
+    Mprotect(std::io::Error),
     /// Failed to get image load info: {0}
     GetImageLoadInfo(std::io::Error),
     /// Failed to start enclave: {0}
@@ -266,17 +268,30 @@ impl EnclaveVm {
             .write_slice(eif_data, dest)
             .map_err(|e| EnclaveVmError::CmaAlloc(std::io::Error::other(e)))?;
 
-        // Retain the wrapper only in direct mode, where the parent keeps using
-        // it as the devices' DMA memory. In confidential mode the pages become
-        // inaccessible after donation, so the wrapper is dropped here (its Drop
-        // is a no-op: owned=false, see below).
-        if direct_mode {
-            self.guest_memory = Some(guest_mem);
-        }
-
         self.enclave_fd
             .set_user_memory_region(aligned_addr as u64, aligned_size as u64)
             .map_err(EnclaveVmError::SetMemoryRegion)?;
+
+        if direct_mode {
+            // The parent keeps using this mapping as the devices' DMA memory.
+            self.guest_memory = Some(guest_mem);
+        } else {
+            // Donation revoked the parent's access to these pages, so drop the
+            // RW view and PROT_NONE the mapping to match.
+            drop(guest_mem);
+            // SAFETY: `aligned_addr`/`aligned_size` describe the CMA mapping just
+            // donated; mprotect only changes its protection, not its backing.
+            let ret = unsafe {
+                libc::mprotect(
+                    aligned_addr as *mut libc::c_void,
+                    aligned_size,
+                    libc::PROT_NONE,
+                )
+            };
+            if ret < 0 {
+                return Err(EnclaveVmError::Mprotect(std::io::Error::last_os_error()));
+            }
+        }
 
         // Note: The GuestMemoryMmap wrapping this CMA region uses
         // `with_raw_mmap_pointer`, which sets owned=false — so its Drop
