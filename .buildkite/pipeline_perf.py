@@ -53,7 +53,7 @@ perf_test = {
         "devtool_opts": "-c 1-10 -m 0",
         # The test require polling (5 ms), so any change smaller than that is not significant.
         # Additionally, unplugging memory is dependent on how exactly it's being used, so some volatility is expected.
-        "ab_opts": "--absolute-strength 0.005 --noise-threshold hotunplug_total_time=0.1",
+        "ab_opts": "--absolute-strength 0.005 --noise-threshold",
     },
     "snapshot-latency": {
         "label": "snapshot-latency",
