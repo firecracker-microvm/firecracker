@@ -8,6 +8,7 @@
 
 use std::fs::OpenOptions;
 use std::io::{self, Write};
+use std::num::Wrapping;
 use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
@@ -68,7 +69,7 @@ pub struct ConsoleReader {
     /// Output writer (file or stdout).
     output: SerialOutput,
     /// Last write_idx we read from the ring buffer (tracks our position).
-    last_write_idx: u32,
+    last_write_idx: Wrapping<u32>,
 }
 
 impl ConsoleReader {
@@ -91,7 +92,7 @@ impl ConsoleReader {
             timer_fd,
             info_page,
             output,
-            last_write_idx: 0,
+            last_write_idx: Wrapping(0),
         })
     }
 
@@ -102,7 +103,7 @@ impl ConsoleReader {
             timer_fd: TimerFd::new(),
             info_page,
             output,
-            last_write_idx: 0,
+            last_write_idx: Wrapping(0),
         }
     }
 
@@ -160,7 +161,7 @@ mod tests {
         let mut console = ConsoleReader::new_with_output(page, SerialOutput::Test(Vec::new()));
 
         console.flush_serial();
-        assert_eq!(console.last_write_idx, data.len() as u32);
+        assert_eq!(console.last_write_idx, Wrapping(data.len() as u32));
     }
 
     #[test]
@@ -181,6 +182,6 @@ mod tests {
         let mut console = ConsoleReader::new_with_output(page, SerialOutput::Test(Vec::new()));
 
         console.flush_serial();
-        assert_eq!(console.last_write_idx, 0);
+        assert_eq!(console.last_write_idx, Wrapping(0));
     }
 }
