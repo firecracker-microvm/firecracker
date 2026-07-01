@@ -101,6 +101,31 @@ mod tests {
             root_device: true,
             read_only: true,
             rate_limiter: Some(Default::default()),
+            ..Default::default()
+        };
+        assert_eq!(r, VmmAction::InsertPmemDevice(expected_config));
+    }
+
+    #[test]
+    fn test_parse_put_pmem_uffd_request() {
+        let body = r#"{
+            "id": "pmem0",
+            "path_on_host": "/tmp/uffd.sock",
+            "backend_type": "Uffd",
+            "size": 2097152,
+            "root_device": true,
+            "read_only": false
+        }"#;
+        let r = vmm_action_from_request(parse_put_pmem(&Body::new(body), Some("pmem0")).unwrap());
+
+        let expected_config = PmemConfig {
+            id: "pmem0".to_string(),
+            path_on_host: "/tmp/uffd.sock".to_string(),
+            backend_type: vmm::vmm_config::snapshot::MemBackendType::Uffd,
+            size: Some(2097152),
+            root_device: true,
+            read_only: false,
+            rate_limiter: None,
         };
         assert_eq!(r, VmmAction::InsertPmemDevice(expected_config));
     }
