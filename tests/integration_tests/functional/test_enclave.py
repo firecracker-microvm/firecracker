@@ -25,6 +25,9 @@ enclave_modes = pytest.mark.parametrize(
     "direct_mode", [False, True], ids=["confidential", "direct"]
 )
 
+# Maximum number of virtio devices an enclave can have attached.
+MAX_ENCLAVE_DEVICES = 32
+
 # ---------------------------------------------------------------------------
 # Test: enclave config API (no NE hardware needed)
 # ---------------------------------------------------------------------------
@@ -459,14 +462,11 @@ def test_enclave_vsock(microvm_factory, direct_mode):
 def test_enclave_many_devices(microvm_factory, direct_mode):
     """Boot an enclave with many devices and verify they all activate.
 
-    Attaches a root block device plus 13 NICs — 14 devices total — and verifies
-    all 13 NICs activate in the guest.
-
-    TODO: 14 is the current per-enclave device ceiling. Raise it (and this test)
-    once devices beyond the limit are supported.
+    Attaches a root block device plus NICs up to the per-enclave device ceiling
+    and verifies every NIC activates in the guest.
     """
-    max_devices = 14
-    num_net_devices = max_devices - 1  # one slot taken by the root block device
+    # One slot is taken by the root block device.
+    num_net_devices = MAX_ENCLAVE_DEVICES - 1
 
     kernel = _find_kernel()
     rootfs = _find_rootfs()
