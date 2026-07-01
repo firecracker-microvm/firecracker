@@ -802,7 +802,7 @@ pub(crate) mod tests {
 
         let bus = Arc::new(Bus::new());
         let dummy = Arc::new(Mutex::new(DummyDevice));
-        bus.insert(dummy, 0x10, 0x10).unwrap();
+        bus.insert(dummy, 0x10, 0x10);
         vcpu.set_mmio_bus(bus);
         let addr = 0x10;
 

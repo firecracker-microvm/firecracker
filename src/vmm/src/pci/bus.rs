@@ -5,7 +5,6 @@
 //
 // SPDX-License-Identifier: Apache-2.0 AND BSD-3-Clause
 
-use std::collections::HashMap;
 use std::fmt::Debug;
 use std::sync::{Arc, Barrier, Mutex};
 
@@ -76,17 +75,17 @@ impl PciDevice for PciRoot {
 }
 
 /// A PCI bus definition
+#[derive(Default)]
 pub struct PciBus {
-    /// Devices attached to this bus.
-    /// Device 0 is host bridge.
-    pub devices: HashMap<u8, Arc<Mutex<dyn PciDevice>>>,
-    device_ids: Vec<bool>,
+    /// Devices attached to this bus. Slot 0 is reserved for host bridge.
+    pub devices: [Option<Arc<Mutex<dyn PciDevice>>>; NUM_DEVICE_IDS],
 }
 
 impl Debug for PciBus {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let occupied: [bool; NUM_DEVICE_IDS] = std::array::from_fn(|i| self.devices[i].is_some());
         f.debug_struct("Root Firecracker PCI Bus")
-            .field("device_ids", &self.device_ids)
+            .field("device_ids", &occupied)
             .finish()
     }
 }
@@ -94,50 +93,41 @@ impl Debug for PciBus {
 impl PciBus {
     /// Create a new PCI bus
     pub fn new(pci_root: PciRoot) -> Self {
-        let mut devices: HashMap<u8, Arc<Mutex<dyn PciDevice>>> = HashMap::new();
-        let mut device_ids: Vec<bool> = vec![false; NUM_DEVICE_IDS];
-
-        devices.insert(0, Arc::new(Mutex::new(pci_root)));
-        device_ids[0] = true;
-
-        PciBus {
-            devices,
-            device_ids,
-        }
+        let mut bus: Self = Default::default();
+        bus.devices[0] = Some(Arc::new(Mutex::new(pci_root)));
+        bus
     }
 
-    /// Insert a device in the bus
+    /// Insert a device in the bus at the specified slot (`device_id`).
     pub fn add_device(
         &mut self,
         device_id: u8,
         device: Arc<Mutex<dyn PciDevice>>,
     ) -> Result<(), PciRootError> {
-        if self.devices.contains_key(&device_id) {
+        let slot = &mut self.devices[device_id as usize];
+        if slot.is_some() {
             return Err(PciRootError::DuplicateDeviceId(device_id));
         }
-        self.devices.insert(device_id, device);
-        self.device_ids[device_id as usize] = true;
+        *slot = Some(device);
         Ok(())
     }
 
-    /// Remove a device from the bus and free its device ID slot
+    /// Remove a device from the bus at the specified slot (`device_id`).
     pub fn remove_device(&mut self, device_id: u8) {
-        self.devices.remove(&device_id);
-        self.device_ids[device_id as usize] = false;
+        self.devices[device_id as usize] = None;
     }
 
-    /// Get a new device ID
-    // idx is bounded by NUM_DEVICE_IDS (32), so it always fits in u8.
+    /// Get the next unused device ID.
+    ///
+    /// Note: this is non-reserving — repeated calls without an intervening `add_device` will
+    /// return the same ID.
     #[allow(clippy::cast_possible_truncation)]
-    pub fn next_device_id(&mut self) -> Result<u8, PciRootError> {
-        for (idx, device_id) in self.device_ids.iter_mut().enumerate() {
-            if !(*device_id) {
-                *device_id = true;
-                return Ok(idx as u8);
-            }
+    pub fn next_device_id(&self) -> Result<u8, PciRootError> {
+        if let Some(position) = self.devices.iter().position(Option::is_none) {
+            Ok(position as u8)
+        } else {
+            Err(PciRootError::NoPciDeviceSlotAvailable)
         }
-
-        Err(PciRootError::NoPciDeviceSlotAvailable)
     }
 }
 
@@ -189,12 +179,8 @@ impl PciConfigIo {
         // NOTE: Potential contention among vCPU threads on this lock. This should not
         // be a problem currently, since we mainly access this when we are setting up devices.
         // We might want to do some profiling to ensure this does not become a bottleneck.
-        self.pci_bus
+        self.pci_bus.as_ref().lock().unwrap().devices[usize::from(device)]
             .as_ref()
-            .lock()
-            .unwrap()
-            .devices
-            .get(&device)
             .map_or(0xffff_ffff, |d| {
                 d.lock().unwrap().read_config_register(register)
             })
@@ -230,7 +216,7 @@ impl PciConfigIo {
         // be a problem currently, since we mainly access this when we are setting up devices.
         // We might want to do some profiling to ensure this does not become a bottleneck.
         let pci_bus = self.pci_bus.as_ref().lock().unwrap();
-        if let Some(d) = pci_bus.devices.get(&device) {
+        if let Some(d) = pci_bus.devices[usize::from(device)].as_ref() {
             let mut device = d.lock().unwrap();
 
             // offset is validated to be < 4 at the top of this function.
@@ -326,11 +312,8 @@ impl PciConfigMmio {
             return 0xffff_ffff;
         }
 
-        self.pci_bus
-            .lock()
-            .unwrap()
-            .devices
-            .get(&device)
+        self.pci_bus.lock().unwrap().devices[usize::from(device)]
+            .as_ref()
             .map_or(0xffff_ffff, |d| {
                 d.lock().unwrap().read_config_register(register)
             })
@@ -354,7 +337,7 @@ impl PciConfigMmio {
         }
 
         let pci_bus = self.pci_bus.lock().unwrap();
-        if let Some(d) = pci_bus.devices.get(&device) {
+        if let Some(d) = pci_bus.devices[usize::from(device)].as_ref() {
             let mut device = d.lock().unwrap();
 
             // offset is validated to be < 4 at the top of this function.

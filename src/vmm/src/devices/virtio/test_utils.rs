@@ -469,14 +469,15 @@ pub(crate) mod test {
             let vq = &self.virtqueues[queue];
 
             // Create the descriptor chain
-            let mut iter = desc_list.iter().peekable();
-            while let Some(&(index, addr, len, flags)) = iter.next() {
+            for window in desc_list.windows(2) {
+                let (index, addr, len, flags) = window[0];
+                let (next_index, _, _, _) = window[1];
                 let desc = &vq.dtable[index as usize];
-                desc.set(addr, len, flags, 0);
-                if let Some(&&(next_index, _, _, _)) = iter.peek() {
-                    desc.flags.set(flags | VIRTQ_DESC_F_NEXT);
-                    desc.next.set(next_index);
-                }
+                desc.set(addr, len, flags | VIRTQ_DESC_F_NEXT, next_index);
+            }
+            // Set the last descriptor without NEXT flag.
+            if let Some(&(index, addr, len, flags)) = desc_list.last() {
+                vq.dtable[index as usize].set(addr, len, flags, 0);
             }
 
             // Mark the chain as available.
@@ -520,14 +521,13 @@ pub(crate) mod test {
             let vq = &self.virtqueues[queue];
 
             // Create the descriptor chain
-            let mut iter = desc_list.iter().peekable();
             let mut addr = self.data_address() + addr_offset;
-            while let Some(&(index, len, flags)) = iter.next() {
+            for (i, &(index, len, flags)) in desc_list.iter().enumerate() {
                 let desc = &vq.dtable[index as usize];
-                desc.set(addr, len, flags, 0);
-                if let Some(&&(next_index, _, _)) = iter.peek() {
-                    desc.flags.set(flags | VIRTQ_DESC_F_NEXT);
-                    desc.next.set(next_index);
+                if let Some(&(next_index, _, _)) = desc_list.get(i + 1) {
+                    desc.set(addr, len, flags | VIRTQ_DESC_F_NEXT, next_index);
+                } else {
+                    desc.set(addr, len, flags, 0);
                 }
 
                 addr += u64::from(len);

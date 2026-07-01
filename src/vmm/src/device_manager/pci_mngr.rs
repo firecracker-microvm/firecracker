@@ -39,7 +39,6 @@ use crate::pci::bus::PciRootError;
 use crate::resources::VmResources;
 use crate::snapshot::Persist;
 use crate::vmm_config::memory_hotplug::MemoryHotplugConfig;
-use crate::vstate::bus::BusError;
 use crate::vstate::interrupts::InterruptError;
 use crate::vstate::memory::GuestMemoryMmap;
 use crate::vstate::vm::KvmVm;
@@ -56,8 +55,6 @@ pub struct PciDevices {
 pub enum PciManagerError {
     /// Resource allocation error: {0}
     ResourceAllocation(#[from] vm_allocator::Error),
-    /// Bus error: {0}
-    Bus(#[from] BusError),
     /// PCI root error: {0}
     PciRoot(#[from] PciRootError),
     /// MSI error: {0}
@@ -80,16 +77,13 @@ impl PciDevices {
 
         // Currently we don't assign any IRQs to PCI devices. We will be using MSI-X interrupts
         // only.
-        let pci_segment = PciSegment::new(0, vm, &[0u8; 32])?;
+        let pci_segment = PciSegment::new(0, vm, &[0u8; 32]);
         self.pci_segment = Some(pci_segment);
 
         Ok(())
     }
 
-    fn register_bars_with_bus(
-        vm: &KvmVm,
-        virtio_device: &Arc<Mutex<VirtioPciDevice>>,
-    ) -> Result<(), PciManagerError> {
+    fn register_bars_with_bus(vm: &KvmVm, virtio_device: &Arc<Mutex<VirtioPciDevice>>) {
         let virtio_device_locked = virtio_device.lock().expect("Poisoned lock");
 
         debug!(
@@ -101,9 +95,7 @@ impl PciDevices {
             virtio_device.clone(),
             virtio_device_locked.config_bar_addr(),
             CAPABILITY_BAR_SIZE,
-        )?;
-
-        Ok(())
+        );
     }
 
     fn attach_common(
@@ -127,7 +119,7 @@ impl PciDevices {
         self.virtio_devices
             .insert((device_type, id), virtio_device.clone());
 
-        Self::register_bars_with_bus(vm, &virtio_device)?;
+        Self::register_bars_with_bus(vm, &virtio_device);
 
         let mut device = virtio_device.lock().expect("Poisoned lock");
         device.register_notification_ioevents(vm)?;
