@@ -774,7 +774,13 @@ def test_drive_patch(uvm, io_engine):
 
 
 @pytest.mark.skipif(
-    platform.machine() != "x86_64", reason="not yet implemented on aarch64"
+    platform.machine() != "x86_64",
+    reason="On x86 CTRL+ALT+DEL triggers a kernel-level reboot via the i8042 device. The "
+    "aarch64 SendCtrlAltDel path is implemented (PL061 GPIO power button) and the required "
+    "guest kernel config (CONFIG_GPIOLIB/GPIO_PL061/INPUT_KEYBOARD/KEYBOARD_GPIO) is now in "
+    "resources/guest_configs/ci.config, with systemd-logind already present in the CI rootfs. "
+    "This can be un-skipped on aarch64 once the CI guest-kernel artifacts are rebuilt with that "
+    "config so gpio-keys is available.",
 )
 def test_send_ctrl_alt_del(uvm):
     """
