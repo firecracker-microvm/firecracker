@@ -6,7 +6,7 @@
 //! Wraps the NE kernel API to create, configure, and start an enclave.
 
 use std::os::unix::io::AsRawFd;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use vm_memory::{Bytes, GuestAddress};
 
@@ -15,6 +15,7 @@ use crate::nitro_enclave::cpu_accounting::AccountingThreads;
 use crate::nitro_enclave::dmb::Dmb;
 use crate::nitro_enclave::info_page::InfoPage;
 use crate::nitro_enclave::ne_ioctl::{EnclaveFd, NitroEnclavesDevFd};
+use crate::nitro_enclave::serial_console::ConsoleReader;
 use crate::utils::u64_to_usize;
 use crate::vstate::memory::{GuestMemoryMmap, GuestRegionMmap, GuestRegionMmapExt};
 
@@ -84,6 +85,9 @@ pub struct EnclaveVm {
     info_page: Option<Arc<InfoPage>>,
     /// Cached `GuestMemoryMmap` wrapping the CMA region.
     guest_memory: Option<GuestMemoryMmap>,
+    /// Serial console reader (debug mode only), also polled by the event
+    /// manager; kept here so [`Self::flush_console`] can drain it.
+    console: Option<Arc<Mutex<ConsoleReader>>>,
 }
 
 impl std::fmt::Debug for EnclaveVm {
@@ -169,6 +173,7 @@ impl EnclaveVm {
             dmb_size_mib,
             info_page: None,
             guest_memory: None,
+            console: None,
         })
     }
 
@@ -336,6 +341,22 @@ impl EnclaveVm {
     /// Get a shared reference to the info page (available after `install_info_page`).
     pub fn info_page(&self) -> Option<Arc<InfoPage>> {
         self.info_page.clone()
+    }
+
+    /// Retain the serial console reader for [`Self::flush_console`].
+    pub fn set_console(&mut self, console: Arc<Mutex<ConsoleReader>>) {
+        self.console = Some(console);
+    }
+
+    /// Drain any pending serial output from the info-page ring, if a console
+    /// reader is installed. No-op otherwise.
+    pub fn flush_console(&self) {
+        if let Some(console) = &self.console {
+            console
+                .lock()
+                .expect("poisoned console lock")
+                .flush_serial();
+        }
     }
 
     /// Get a reference to the parent-accessible guest memory, if any.
