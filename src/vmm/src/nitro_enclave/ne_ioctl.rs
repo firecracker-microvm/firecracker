@@ -332,35 +332,6 @@ impl NitroEnclavesDevFd {
         })
     }
 
-    /// Allocate physically contiguous (CMA) memory via `mmap(MAP_SHARED)`
-    /// on the NE device fd.
-    ///
-    /// Returns a pointer to the mapped region. The caller is responsible
-    /// for calling `munmap` when the memory is no longer needed.
-    ///
-    /// # Safety
-    ///
-    /// The returned pointer is valid for `size` bytes.
-    pub fn allocate_cma(&self, size: usize) -> Result<*mut u8, std::io::Error> {
-        // SAFETY: mmap with MAP_SHARED on the NE device fd allocates CMA
-        // memory from the hypervisor's pool. MAP_POPULATE pre-faults pages so
-        // they are physically backed before donation to the enclave.
-        let ptr = unsafe {
-            libc::mmap(
-                std::ptr::null_mut(),
-                size,
-                libc::PROT_READ | libc::PROT_WRITE,
-                libc::MAP_SHARED | libc::MAP_POPULATE,
-                self.fd.as_raw_fd(),
-                0,
-            )
-        };
-        if ptr == libc::MAP_FAILED {
-            return Err(std::io::Error::last_os_error());
-        }
-        Ok(ptr.cast::<u8>())
-    }
-
     /// Allocate CMA memory with a given alignment.
     ///
     /// Reserves virtual address space, finds an aligned address within it,
