@@ -38,22 +38,38 @@ use crate::pci::PciSBDF;
 use crate::pci::bus::PciRootError;
 use crate::resources::VmResources;
 use crate::snapshot::Persist;
+use crate::vfio::{VfioContainer, VfioDeviceBundle, VfioError, deinit_vfio_device};
 use crate::vmm_config::memory_hotplug::MemoryHotplugConfig;
+use crate::vmm_config::vfio::VfioConfig;
 use crate::vstate::bus::BusError;
 use crate::vstate::interrupts::InterruptError;
 use crate::vstate::memory::GuestMemoryMmap;
 use crate::vstate::vm::KvmVm;
 
-#[derive(Debug, Default)]
+#[derive(Default)]
 pub struct PciDevices {
     /// PCIe segment of the VMM, if PCI is enabled. We currently support a single PCIe segment.
     pub pci_segment: Option<PciSegment>,
     /// All VirtIO PCI devices of the system
     pub virtio_devices: HashMap<VirtioDeviceId, Arc<Mutex<VirtioPciDevice>>>,
+
+    pub vfio_container: Option<Arc<VfioContainer>>,
+    // All Vfio PCI devices
+    pub vfio_devices: Vec<Arc<Mutex<VfioDeviceBundle>>>,
+}
+
+impl std::fmt::Debug for PciDevices {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("PciDevices").finish()
+    }
 }
 
 #[derive(Debug, thiserror::Error, displaydoc::Display)]
 pub enum PciManagerError {
+    /// Trying to add new device with id: {0}, but device with this id is already present
+    AdddingDuplicatedDevice(String),
+    /// Device not found
+    DeviceNotFound,
     /// Resource allocation error: {0}
     ResourceAllocation(#[from] vm_allocator::Error),
     /// Bus error: {0}
@@ -66,6 +82,8 @@ pub enum PciManagerError {
     VirtioPciDevice(#[from] VirtioPciDeviceError),
     /// KVM error: {0}
     Kvm(#[from] vmm_sys_util::errno::Error),
+    /// Vfio error: {0}
+    Vfio(#[from] VfioError),
 }
 
 impl PciDevices {
@@ -172,6 +190,110 @@ impl PciDevices {
         let virtio_device = Arc::new(Mutex::new(virtio_device));
 
         self.attach_common(vm, device_type, id, sbdf, virtio_device, event_manager)
+    }
+
+    pub fn attach_vfio_device(
+        &mut self,
+        vm: &Arc<KvmVm>,
+        config: VfioConfig,
+    ) -> Result<(), PciManagerError> {
+        for device in self.vfio_devices.iter() {
+            let device = device.lock().unwrap();
+            if device.config.id == config.id {
+                return Err(PciManagerError::AdddingDuplicatedDevice(config.id));
+            }
+            if device.config.sbdf == config.sbdf {
+                return Err(PciManagerError::AdddingDuplicatedDevice(config.id));
+            }
+        }
+
+        let pci_segment = self.pci_segment.as_ref().unwrap();
+        let pci_device_bdf = pci_segment.next_device_sbdf()?;
+        debug!("VFIO: Allocating BDF: {pci_device_bdf:?} for device");
+
+        if self.vfio_container.is_none() {
+            let container = crate::vfio::init_kvm_vfio_device_and_vfio_container(vm.as_ref())?;
+            self.vfio_container = Some(container);
+        }
+        let container = self.vfio_container.as_ref().unwrap();
+        let is_first_device = self.vfio_devices.is_empty();
+
+        let device = match crate::vfio::init_vfio_device(container, vm, config, pci_device_bdf) {
+            Ok(d) => d,
+            Err(e) => {
+                if is_first_device {
+                    self.vfio_container = None;
+                }
+                return Err(e.into());
+            }
+        };
+
+        #[allow(clippy::collapsible_if)]
+        if is_first_device {
+            if let Err(e) = crate::vfio::dma_map_guest_memory(container, vm.guest_memory()) {
+                crate::vfio::deinit_vfio_device(container, vm, &device.lock().unwrap());
+                self.vfio_container = None;
+                return Err(e.into());
+            }
+        }
+
+        // This is for config space
+        pci_segment
+            .pci_bus
+            .lock()
+            .expect("Poisoned lock")
+            // SAFETY: we should never add 2 devices with same device id
+            .add_device(pci_device_bdf.device(), device.clone())
+            .unwrap();
+
+        self.vfio_devices.push(device);
+
+        Ok(())
+    }
+
+    pub fn detach_vfio_device(&mut self, vm: &KvmVm, id: String) -> Result<(), PciManagerError> {
+        if self.pci_segment.is_none() {
+            return Ok(());
+        }
+        if self.vfio_container.is_none() {
+            // SAFETY: vfio devices cannot exist without vfio_container
+            assert!(self.vfio_devices.is_empty());
+            return Ok(());
+        }
+
+        let pci_segment = self.pci_segment.as_ref().unwrap();
+        let mut pci_bus = pci_segment.pci_bus.lock().expect("Poisoned lock");
+        let container = self.vfio_container.as_ref().unwrap();
+
+        let last_vfio_device = self.vfio_devices.len() == 1;
+
+        let mut idx = None;
+        for (i, device) in self.vfio_devices.iter().enumerate() {
+            let device = device.lock().unwrap();
+            if device.config.id == id {
+                idx = Some(i);
+                pci_bus.remove_device(device.sbdf.device());
+                deinit_vfio_device(container, vm, &device);
+                break;
+            }
+        }
+        if let Some(idx) = idx {
+            let device = self.vfio_devices.swap_remove(idx);
+            assert_eq!(Arc::strong_count(&device), 1);
+            // Drop device explicitly to have a guaranteed destroy order with the vfio_container
+            drop(device);
+
+            if last_vfio_device {
+                crate::vfio::dma_unmap_guest_memory(container, vm.guest_memory());
+
+                assert_eq!(Arc::strong_count(container), 1);
+                self.vfio_container = None;
+            }
+
+            Ok(())
+        } else {
+            Err(PciManagerError::DeviceNotFound)
+        }
     }
 
     fn restore_pci_device<T: 'static + VirtioDevice + MutEventSubscriber + Debug>(
@@ -835,7 +957,8 @@ mod tests {
     "total_size_mib": 1024,
     "block_size_mib": 2,
     "slot_size_mib": 128
-  }}
+  }},
+  "vfio": []
 }}"#,
             _block_files.last().unwrap().as_path().to_str().unwrap(),
             tmp_sock_file.as_path().to_str().unwrap(),

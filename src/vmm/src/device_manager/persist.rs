@@ -859,7 +859,8 @@ mod tests {
     "total_size_mib": 1024,
     "block_size_mib": 2,
     "slot_size_mib": 128
-  }}
+  }},
+  "vfio": []
 }}"#,
             _block_files.last().unwrap().as_path().to_str().unwrap(),
             tmp_sock_file.as_path().to_str().unwrap(),

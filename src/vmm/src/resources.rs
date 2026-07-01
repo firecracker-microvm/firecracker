@@ -31,6 +31,7 @@ use crate::vmm_config::mmds::{MmdsConfig, MmdsConfigError};
 use crate::vmm_config::net::*;
 use crate::vmm_config::pmem::{PmemBuilder, PmemConfig, PmemConfigError};
 use crate::vmm_config::serial::SerialConfig;
+use crate::vmm_config::vfio::{VfioConfig, VfioConfigError, VfioConfigs};
 use crate::vmm_config::vsock::*;
 use crate::vstate::memory;
 use crate::vstate::memory::{GuestRegionMmap, MemoryError};
@@ -68,6 +69,14 @@ pub enum ResourcesError {
     PmemConfig(#[from] PmemConfigError),
     /// Memory hotplug config error: {0}
     MemoryHotplugConfig(#[from] MemoryHotplugConfigError),
+    /// VFIO config error: {0}
+    VfioConfig(#[from] VfioConfigError),
+    /// VFIO devices attached, but PCI disabled
+    VfioWithoutPci,
+    /// VFIO devices are not compatible with memory hot-plugging device
+    VfioWithMemHotplug,
+    /// VFIO devices are not compatible with memory balloon device
+    VfioWithBalloon,
 }
 
 #[derive(Serialize, Deserialize, PartialEq, Eq, Debug)]
@@ -100,6 +109,8 @@ pub struct VmmConfig {
     #[serde(skip)]
     pub serial_config: Option<SerialConfig>,
     pub memory_hotplug: Option<MemoryHotplugConfig>,
+    #[serde(default)]
+    pub vfio: Vec<VfioConfig>,
 }
 
 /// A data structure that encapsulates the device configurations
@@ -138,6 +149,8 @@ pub struct VmResources {
     pub serial_out_path: Option<PathBuf>,
     /// Optional rate limiter config for serial output.
     pub serial_rate_limiter_cfg: Option<TokenBucketConfig>,
+    /// VFIO passthrough configuration.
+    pub vfio: VfioConfigs,
 }
 
 impl VmResources {
@@ -239,7 +252,27 @@ impl VmResources {
             resources.set_memory_hotplug_config(memory_hotplug_config)?;
         }
 
+        for config in vmm_config.vfio {
+            resources.vfio.add(config)?;
+        }
+
         Ok(resources)
+    }
+
+    /// Validate the VM configuration for incompatibilities
+    pub fn validate(&self) -> Result<(), ResourcesError> {
+        if !self.vfio.configs.is_empty() {
+            if !self.pci_enabled {
+                return Err(ResourcesError::VfioWithoutPci);
+            }
+            if self.memory_hotplug.is_some() {
+                return Err(ResourcesError::VfioWithMemHotplug);
+            }
+            if self.balloon.get().is_some() {
+                return Err(ResourcesError::VfioWithBalloon);
+            }
+        }
+        Ok(())
     }
 
     /// If not initialised, create the mmds data store with the default config.
@@ -533,6 +566,11 @@ impl VmResources {
             .pop()
             .unwrap())
     }
+
+    /// Adds a VFIO passthrough device configuration.
+    pub fn set_vfio_device(&mut self, config: VfioConfig) -> Result<(), VfioConfigError> {
+        self.vfio.add(config)
+    }
 }
 
 impl From<&VmResources> for VmmConfig {
@@ -553,6 +591,7 @@ impl From<&VmResources> for VmmConfig {
             // serial_config is marked serde(skip) so that it doesnt end up in snapshots.
             serial_config: None,
             memory_hotplug: resources.memory_hotplug.clone(),
+            vfio: resources.vfio.configs.clone(),
         }
     }
 }
@@ -665,6 +704,7 @@ mod tests {
             serial_out_path: None,
             serial_rate_limiter_cfg: None,
             memory_hotplug: Default::default(),
+            vfio: Default::default(),
         }
     }
 

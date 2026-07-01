@@ -108,6 +108,8 @@ pub mod snapshot;
 pub mod test_utils;
 /// Utility functions and struct
 pub mod utils;
+/// VFIO device configuration and emulation
+pub mod vfio;
 /// Wrappers over structures used to configure the VMM.
 pub mod vmm_config;
 /// Module with virtual state structs.
@@ -158,6 +160,7 @@ use crate::vmm_config::machine_config::MachineConfig;
 use crate::vmm_config::memory_hotplug::MemoryHotplugConfig;
 use crate::vmm_config::mmds::MmdsConfig;
 use crate::vmm_config::net::NetworkInterfaceConfig;
+use crate::vmm_config::vfio::VfioConfig;
 use crate::vmm_config::vsock::VsockDeviceConfig;
 pub use crate::vstate::kvm::Kvm;
 use crate::vstate::memory::{GuestMemory, GuestMemoryMmap, GuestMemoryRegion};
@@ -353,6 +356,7 @@ impl Vmm {
         let mut memory_hotplug = None;
         let mut mmds_ipv4_address = None;
         let mut mmds_ref = None;
+        let mut vfio = Vec::new();
 
         self.device_manager
             .for_each_virtio_device(|device_type, device| match device_type {
@@ -400,6 +404,12 @@ impl Vmm {
                 }
             });
 
+        if self.device_manager.is_pci_enabled() {
+            for device in self.device_manager.pci_devices.vfio_devices.iter() {
+                vfio.push(device.lock().unwrap().config.clone());
+            }
+        }
+
         let mmds_config = mmds_ref.map(|mmds| {
             let mmds = mmds.lock().expect("Poisoned lock");
             MmdsConfig {
@@ -429,6 +439,7 @@ impl Vmm {
             // serial_config is marked serde(skip) so that it doesnt end up in snapshots
             serial_config: None,
             memory_hotplug,
+            vfio,
         }
     }
 
@@ -444,6 +455,9 @@ impl Vmm {
                     tuples.push(("vhost-user-block", b.id().to_owned()));
                 }
             });
+        for device in self.device_manager.pci_devices.vfio_devices.iter() {
+            tuples.push(("vfio", device.lock().unwrap().config.id.clone()));
+        }
         if tuples.is_empty() {
             Ok(())
         } else {
@@ -718,6 +732,17 @@ impl Vmm {
             .hotplug_device(kvm_vm, config, event_manager)
     }
 
+    /// Attaches a VFIO device after VM start
+    #[inline]
+    pub fn hotplug_device_vfio(&mut self, config: VfioConfig) -> Result<(), VmmActionError> {
+        log_dev_preview_warning("VFIO device hotplug", None);
+        let kvm_vm = self
+            .vm
+            .as_kvm()
+            .ok_or_else(|| VmmActionError::NotSupported("Operation requires KVM".to_string()))?;
+        self.device_manager.hotplug_device_vfio(kvm_vm, config)
+    }
+
     /// Detaches a device after VM start
     #[inline]
     pub fn hot_unplug_device(
@@ -733,6 +758,17 @@ impl Vmm {
             .clone();
         self.device_manager
             .hot_unplug_device(kvm_vm, device_id, event_manager)
+    }
+
+    /// Detaches a device after VM start
+    #[inline]
+    pub fn hot_unplug_vfio_device(&mut self, id: String) -> Result<(), VmmActionError> {
+        log_dev_preview_warning("VFIO device hot-unplug", None);
+        let kvm_vm = self
+            .vm
+            .as_kvm()
+            .ok_or_else(|| VmmActionError::NotSupported("Operation requires KVM".to_string()))?;
+        self.device_manager.hot_unplug_vfio_device(kvm_vm, id)
     }
 }
 
