@@ -69,7 +69,7 @@ def get_cpu_model_name():
         _, stdout, _ = check_output("cat /proc/cpuinfo | grep 'CPU part' | uniq")
     else:
         _, stdout, _ = check_output("cat /proc/cpuinfo | grep 'model name' | uniq")
-    info = stdout.strip().split(sep=":")
+    info = stdout.strip().split(sep=":", maxsplit=1)
     assert len(info) == 2
     raw_cpu_model = info[1].strip()
     if platform.machine() == "x86_64":
