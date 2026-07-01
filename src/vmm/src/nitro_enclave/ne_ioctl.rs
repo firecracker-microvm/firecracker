@@ -309,6 +309,100 @@ mod ne_ioctls {
 use ne_ioctls::*;
 
 // ---------------------------------------------------------------------------
+// NE-specific error codes
+// ---------------------------------------------------------------------------
+
+/// A Nitro Enclaves driver error code.
+///
+/// NE ioctls fail with either a standard Linux errno or an NE-specific code that
+/// libc cannot name (it would show as an opaque `os error 272`). Variant names
+/// and `#[repr(i32)]` discriminants mirror the UAPI `NE_ERR_*` symbols verbatim,
+/// so an in-range errno maps to a variant by its discriminant.
+///
+/// Each doc comment is the bare description; [`last_ioctl_error`] appends the
+/// name and code when rendering.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, displaydoc::Display)]
+#[repr(i32)]
+#[allow(non_camel_case_types)]
+// Variants are materialized by `from_code`'s transmute, which dead-code
+// analysis cannot see; they exist to give each errno a name and description.
+#[allow(dead_code)]
+enum NeError {
+    /// the provided vCPU is already used
+    NE_ERR_VCPU_ALREADY_USED = NeError::NE_ERR_MIN,
+    /// the provided vCPU is not available in the NE CPU pool
+    NE_ERR_VCPU_NOT_IN_CPU_POOL,
+    /// the core id of the provided vCPU is invalid or out of range of the NE CPU pool
+    NE_ERR_VCPU_INVALID_CPU_CORE,
+    /// the memory region size is not a multiple of 2 MiB
+    NE_ERR_INVALID_MEM_REGION_SIZE,
+    /// the memory region address range is invalid
+    NE_ERR_INVALID_MEM_REGION_ADDR,
+    /// the memory region address is not aligned
+    NE_ERR_UNALIGNED_MEM_REGION_ADDR,
+    /// the memory region is already used
+    NE_ERR_MEM_REGION_ALREADY_USED,
+    /// the memory region is not backed by contiguous physical huge page(s)
+    NE_ERR_MEM_NOT_HUGE_PAGE,
+    /// the memory region is backed by pages from a different NUMA node than the CPUs
+    NE_ERR_MEM_DIFFERENT_NUMA_NODE,
+    /// the max number of memory regions per enclave has been reached
+    NE_ERR_MEM_MAX_REGIONS,
+    /// enclave start was triggered with no memory regions added
+    NE_ERR_NO_MEM_REGIONS_ADDED,
+    /// enclave start was triggered with no vCPUs added
+    NE_ERR_NO_VCPUS_ADDED,
+    /// the enclave memory size is lower than the minimum supported
+    NE_ERR_ENCLAVE_MEM_MIN_SIZE,
+    /// enclave start was triggered without full CPU cores set
+    NE_ERR_FULL_CORES_NOT_USED,
+    /// the enclave is not in init state
+    NE_ERR_NOT_IN_INIT_STATE,
+    /// the provided vCPU is out of range of the available CPUs
+    NE_ERR_INVALID_VCPU,
+    /// no CPUs are available in the NE CPU pool
+    NE_ERR_NO_CPUS_AVAIL_IN_POOL,
+    /// the memory region is not backed by pages multiple of 2 MiB
+    NE_ERR_INVALID_PAGE_SIZE,
+    /// the provided flag value is invalid
+    NE_ERR_INVALID_FLAG_VALUE,
+    /// the provided enclave CID is invalid
+    NE_ERR_INVALID_ENCLAVE_CID,
+    /// the enclave is not in running state
+    NE_ERR_NOT_IN_RUNNING_STATE,
+    /// Exclusive upper bound; append new NE codes immediately above this line.
+    NE_ERR_MAX,
+}
+
+impl NeError {
+    /// Lowest NE-specific error code; a literal, as the first variant derives
+    /// its discriminant from it (deriving this from that variant is circular).
+    const NE_ERR_MIN: i32 = 256;
+
+    /// Decode an errno into an `NeError`, or `None` if it is not an NE code.
+    fn from_code(code: i32) -> Option<Self> {
+        if !(Self::NE_ERR_MIN..Self::NE_ERR_MAX as i32).contains(&code) {
+            return None;
+        }
+        // SAFETY: `NeError` is a field-less `#[repr(i32)]` enum whose
+        // discriminants are contiguous from NE_ERR_MIN up to (excluding)
+        // NE_ERR_MAX. The check above restricts `code` to exactly that range,
+        // so it is always a valid discriminant.
+        Some(unsafe { std::mem::transmute::<i32, NeError>(code) })
+    }
+}
+
+/// The current `errno` as a [`std::io::Error`], naming an NE-specific code and
+/// preserving a standard errno verbatim. Used at every ioctl failure site.
+fn last_ioctl_error() -> std::io::Error {
+    let err = std::io::Error::last_os_error();
+    match err.raw_os_error().and_then(NeError::from_code) {
+        Some(ne) => std::io::Error::other(format!("{ne:?} (errno={}): {ne}", ne as i32)),
+        None => err,
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Safe wrappers
 // ---------------------------------------------------------------------------
 
@@ -413,7 +507,7 @@ impl NitroEnclavesDevFd {
         // SAFETY: NE_GET_SUPPORTED_FLAGS ioctl on a valid NE device fd.
         let ret = unsafe { ioctl_with_mut_ref(&self.fd, NE_GET_SUPPORTED_FLAGS(), &mut flags) };
         if ret < 0 {
-            return Err(std::io::Error::last_os_error());
+            return Err(last_ioctl_error());
         }
         Ok(flags)
     }
@@ -433,7 +527,7 @@ impl NitroEnclavesDevFd {
         // SAFETY: NE_CREATE_VM2 ioctl on a valid NE device fd.
         let ret = unsafe { ioctl_with_mut_ref(&self.fd, NE_CREATE_VM2(), &mut args) };
         if ret < 0 {
-            return Err(std::io::Error::last_os_error());
+            return Err(last_ioctl_error());
         }
         // The ioctl returns the enclave fd as the return value.
         // SAFETY: The kernel returned a valid fd.
@@ -470,7 +564,7 @@ impl EnclaveFd {
         // SAFETY: NE_ADD_VCPU ioctl on a valid enclave fd.
         let ret = unsafe { ioctl_with_mut_ref(&self.fd, NE_ADD_VCPU(), &mut id) };
         if ret < 0 {
-            return Err(std::io::Error::last_os_error());
+            return Err(last_ioctl_error());
         }
         Ok(id)
     }
@@ -485,7 +579,7 @@ impl EnclaveFd {
         // SAFETY: NE_ADD_ANY_VCPU ioctl on a valid enclave fd.
         let ret = unsafe { ioctl_with_mut_ref(&self.fd, NE_ADD_ANY_VCPU(), &mut args) };
         if ret < 0 {
-            return Err(std::io::Error::last_os_error());
+            return Err(last_ioctl_error());
         }
         Ok(())
     }
@@ -499,7 +593,7 @@ impl EnclaveFd {
         // SAFETY: NE_GET_IMAGE_LOAD_INFO ioctl on a valid enclave fd.
         let ret = unsafe { ioctl_with_mut_ref(&self.fd, NE_GET_IMAGE_LOAD_INFO(), &mut info) };
         if ret < 0 {
-            return Err(std::io::Error::last_os_error());
+            return Err(last_ioctl_error());
         }
         Ok(info)
     }
@@ -514,7 +608,7 @@ impl EnclaveFd {
         // SAFETY: NE_SET_USER_MEMORY_REGION ioctl on a valid enclave fd.
         let ret = unsafe { ioctl_with_ref(&self.fd, NE_SET_USER_MEMORY_REGION(), &region) };
         if ret < 0 {
-            return Err(std::io::Error::last_os_error());
+            return Err(last_ioctl_error());
         }
         Ok(())
     }
@@ -530,7 +624,7 @@ impl EnclaveFd {
         // SAFETY: NE_START_ENCLAVE ioctl on a valid enclave fd.
         let ret = unsafe { ioctl_with_mut_ref(&self.fd, NE_START_ENCLAVE(), &mut info) };
         if ret < 0 {
-            return Err(std::io::Error::last_os_error());
+            return Err(last_ioctl_error());
         }
         Ok(info.enclave_cid)
     }
@@ -544,7 +638,7 @@ impl EnclaveFd {
         // SAFETY: NE_SET_INFO_PAGE ioctl on a valid enclave fd.
         let ret = unsafe { ioctl_with_ref(&self.fd, NE_SET_INFO_PAGE(), &page) };
         if ret < 0 {
-            return Err(std::io::Error::last_os_error());
+            return Err(last_ioctl_error());
         }
         Ok(())
     }
@@ -556,7 +650,7 @@ impl EnclaveFd {
         // SAFETY: NE_ADD_DEVICE ioctl on a valid enclave fd.
         let ret = unsafe { ioctl_with_mut_ref(&self.fd, NE_ADD_DEVICE(), req) };
         if ret < 0 {
-            return Err(std::io::Error::last_os_error());
+            return Err(last_ioctl_error());
         }
         Ok(())
     }
@@ -580,7 +674,7 @@ impl EnclaveFd {
         // SAFETY: NE_SET_VRING_CALL ioctl on a valid enclave fd.
         let ret = unsafe { ioctl_with_ref(&self.fd, NE_SET_VRING_CALL(), &req) };
         if ret < 0 {
-            return Err(std::io::Error::last_os_error());
+            return Err(last_ioctl_error());
         }
         Ok(())
     }
@@ -604,7 +698,7 @@ impl EnclaveFd {
         // SAFETY: NE_SET_VRING_KICK ioctl on a valid enclave fd.
         let ret = unsafe { ioctl_with_ref(&self.fd, NE_SET_VRING_KICK(), &req) };
         if ret < 0 {
-            return Err(std::io::Error::last_os_error());
+            return Err(last_ioctl_error());
         }
         Ok(())
     }
@@ -622,7 +716,7 @@ impl EnclaveFd {
         // SAFETY: NE_SET_INFO_EVENT_FD ioctl on a valid enclave fd.
         let ret = unsafe { ioctl_with_ref(&self.fd, NE_SET_INFO_EVENT_FD(), &req) };
         if ret < 0 {
-            return Err(std::io::Error::last_os_error());
+            return Err(last_ioctl_error());
         }
         Ok(())
     }
@@ -641,7 +735,7 @@ impl EnclaveFd {
         // SAFETY: NE_ACCOUNT_VCPU ioctl on a valid enclave fd.
         let ret = unsafe { ioctl_with_mut_ref(&self.fd, NE_ACCOUNT_VCPU(), &mut params) };
         if ret < 0 {
-            return Err(std::io::Error::last_os_error());
+            return Err(last_ioctl_error());
         }
         Ok(())
     }
@@ -662,11 +756,41 @@ impl AsRawFd for EnclaveFd {
 #[cfg(test)]
 mod tests {
     use super::ne_ioctls::NE_ACCOUNT_VCPU;
+    use super::*;
 
     #[test]
     fn test_ne_account_vcpu_ioctl_value() {
         // _IOW(0xAE, 0x2A, 8) = (1<<30) | (8<<16) | (0xAE<<8) | 0x2A.
         // One less than NE_SET_INFO_EVENT_FD (1074310699).
         assert_eq!(NE_ACCOUNT_VCPU(), 1074310698);
+    }
+
+    #[test]
+    fn test_ne_error_decodes_specific_codes() {
+        let ne = NeError::from_code(272).unwrap();
+        assert_eq!(ne.to_string(), "no CPUs are available in the NE CPU pool");
+        assert_eq!(format!("{ne:?}"), "NE_ERR_NO_CPUS_AVAIL_IN_POOL");
+        assert_eq!(ne as i32, 272);
+        // The rendering last_ioctl_error assembles.
+        assert_eq!(
+            format!("{ne:?} (errno={}): {ne}", ne as i32),
+            "NE_ERR_NO_CPUS_AVAIL_IN_POOL (errno=272): no CPUs are available in the NE CPU pool"
+        );
+    }
+
+    #[test]
+    fn test_ne_error_range_is_contiguous() {
+        // Guards the contiguity the transmute in from_code relies on.
+        for code in NeError::NE_ERR_MIN..NeError::NE_ERR_MAX as i32 {
+            let ne = NeError::from_code(code)
+                .unwrap_or_else(|| panic!("NE code {code} should decode to a named variant"));
+            assert_eq!(ne as i32, code, "discriminant must equal the wire code");
+        }
+    }
+
+    #[test]
+    fn test_ne_error_passes_through_standard_errno() {
+        // A standard errno is outside the NE range, so from_code rejects it.
+        assert!(NeError::from_code(libc::EINVAL).is_none());
     }
 }
