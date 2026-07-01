@@ -1094,6 +1094,7 @@ class Microvm:
         rename_interfaces: dict = None,
         vsock_override: str = None,
         clock_realtime: bool = False,
+        pmem_overrides: list = None,
         *,
         uffd_handler_name: str = None,
     ):
@@ -1111,8 +1112,17 @@ class Microvm:
         jailed_mem = Path("/") / jailed_snapshot.mem.name
         jailed_vmstate = Path("/") / jailed_snapshot.vmstate.name
 
-        snapshot_disks = [v for k, v in jailed_snapshot.disks.items()]
-        assert len(snapshot_disks) > 0, "Snapshot requires at least one disk."
+        # Skip auto-jailing pmem backing files that have an override - the caller
+        # is responsible for placing the backing file at the override path. This
+        # ensures the test exercises the override path rather than silently
+        # falling back to the snapshot's baked-in path.
+        overridden_pmem_ids = {o["id"] for o in (pmem_overrides or [])}
+        snapshot_disks = [
+            v for k, v in jailed_snapshot.disks.items() if k not in overridden_pmem_ids
+        ]
+        assert (
+            len(snapshot_disks) > 0 or overridden_pmem_ids
+        ), "Snapshot requires at least one disk."
         jailed_disks = []
         for disk in snapshot_disks:
             jailed_disks.append(self.create_jailed_resource(disk))
@@ -1158,6 +1168,9 @@ class Microvm:
 
         if clock_realtime:
             optional_kwargs["clock_realtime"] = clock_realtime
+
+        if pmem_overrides is not None:
+            optional_kwargs["pmem_overrides"] = pmem_overrides
 
         self.api.snapshot_load.put(
             mem_backend=mem_backend,
