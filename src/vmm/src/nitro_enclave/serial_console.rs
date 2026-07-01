@@ -107,8 +107,16 @@ impl ConsoleReader {
         }
     }
 
+    #[cfg(test)]
+    fn test_output(&self) -> &[u8] {
+        match &self.output {
+            SerialOutput::Test(v) => v,
+            _ => panic!("not a test output"),
+        }
+    }
+
     /// Read new bytes from the info page serial ring buffer and write to output.
-    fn flush_serial(&mut self) {
+    pub(crate) fn flush_serial(&mut self) {
         if let Some(new_idx) = self
             .info_page
             .write_serial_since(self.last_write_idx, &mut self.output)
@@ -162,6 +170,11 @@ mod tests {
 
         console.flush_serial();
         assert_eq!(console.last_write_idx, Wrapping(data.len() as u32));
+        assert_eq!(console.test_output(), data);
+
+        // A second drain is a no-op once caught up.
+        console.flush_serial();
+        assert_eq!(console.test_output(), data);
     }
 
     #[test]

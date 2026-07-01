@@ -899,6 +899,9 @@ impl MutEventSubscriber for Vmm {
                     );
                     return;
                 }
+                // Final serial drain before stopping, so a crash right after
+                // boot still reaches the log.
+                enclave_vm.flush_console();
                 if event_set.contains(EventSet::ERROR) {
                     error!("Enclave exited with error");
                     self.stop(FcExitCode::GenericError);
