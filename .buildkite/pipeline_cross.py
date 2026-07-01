@@ -31,7 +31,10 @@ if __name__ == "__main__":
     restore_only_platforms = [("al2023", "linux_6.18")]
     x86_64_platforms = DEFAULT_PLATFORMS + restore_only_platforms
     commands = [
-        "./tools/devtool -y test --no-build --no-archive -- -m nonci -n4 integration_tests/functional/test_snapshot_phase1.py",
+        *pipeline.devtool_test(
+            devtool_opts="--no-archive",
+            pytest_opts="-m nonci -n4 integration_tests/functional/test_snapshot_phase1.py",
+        ),
         # punch holes in mem snapshot tiles and tar them so they are preserved in S3
         "find test_results/test_snapshot_phase1 -type f -name mem |xargs -P4 -t -n1 fallocate -d",
         "mv -v test_results/test_snapshot_phase1 snapshot_artifacts",
