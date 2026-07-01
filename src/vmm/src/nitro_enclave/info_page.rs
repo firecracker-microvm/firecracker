@@ -9,6 +9,7 @@
 
 use std::io;
 use std::mem::size_of;
+use std::num::Wrapping;
 
 use vm_memory::{ByteValued, Bytes, VolatileSlice, WriteVolatile};
 
@@ -147,8 +148,8 @@ impl NitroTocEntry {
 #[repr(C, packed)]
 #[derive(Debug, Default, Clone, Copy)]
 struct SerialRingHeader {
-    /// Number of bytes written (monotonically increasing).
-    write_idx: u32,
+    /// Cumulative bytes written; wraps at u32::MAX.
+    write_idx: Wrapping<u32>,
     /// Ring buffer capacity in bytes (data follows immediately).
     capacity: u32,
 }
@@ -385,9 +386,9 @@ impl InfoPage {
     /// or `None` if there is no serial ring buffer or no new data.
     pub fn write_serial_since<W: WriteVolatile>(
         &self,
-        last_write_idx: u32,
+        last_write_idx: Wrapping<u32>,
         dst: &mut W,
-    ) -> Option<u32> {
+    ) -> Option<Wrapping<u32>> {
         for (i, toc) in self.toc_entries() {
             if toc.entry_type != TOC_TYPE_SERIAL {
                 continue;
@@ -408,8 +409,6 @@ impl InfoPage {
                 continue;
             }
             let vs = self.as_volatile_slice();
-            // TODO(enclave): handle write_idx wrapping past u32::MAX (unlikely in
-            // practice — ~4 GiB of serial output would be needed).
             let ring: SerialRingHeader = match vs.read_obj(offset) {
                 Ok(r) => r,
                 Err(e) => {
@@ -418,18 +417,21 @@ impl InfoPage {
                 }
             };
             let data_offset = offset + size_of::<SerialRingHeader>();
-            if ring.capacity == 0
-                || ring.write_idx <= last_write_idx
-                || ring.capacity as usize > size - size_of::<SerialRingHeader>()
-            {
+            if ring.capacity == 0 || ring.capacity as usize > size - size_of::<SerialRingHeader>() {
                 return None;
             }
-            let new_bytes = ring.write_idx - last_write_idx;
+            // `write_idx` wraps at u32::MAX, so the delta is a wrapping
+            // subtraction; a zero delta means no new data.
+            let new_bytes = (ring.write_idx - last_write_idx).0;
+            if new_bytes == 0 {
+                return None;
+            }
             let read_len = new_bytes.min(ring.capacity);
             // Anchor on the oldest surviving byte, `read_len` behind `write_idx`.
             // This is `last_write_idx` normally, but the overwritten start once
-            // the ring overflowed (`new_bytes > capacity`).
-            let start_pos = ring.write_idx.wrapping_sub(read_len) % ring.capacity;
+            // the ring overflowed (`new_bytes > capacity`). Exact across the u32
+            // counter wrap only when capacity is a power of two.
+            let start_pos = ring.write_idx.0.wrapping_sub(read_len) % ring.capacity;
             // `start_pos < capacity` and `read_len <= capacity <= INFO_PAGE_SIZE`,
             // so the sum cannot overflow u32.
             if start_pos + read_len <= ring.capacity {
@@ -788,21 +790,21 @@ mod tests {
         // Basic read from offset 0.
         let page = make_test_page(5, TEST_RING_CAPACITY, b"hello");
         let mut buf = Vec::new();
-        let new_idx = page.write_serial_since(0, &mut buf).unwrap();
-        assert_eq!(new_idx, 5);
+        let new_idx = page.write_serial_since(Wrapping(0), &mut buf).unwrap();
+        assert_eq!(new_idx, Wrapping(5));
         assert_eq!(&buf, b"hello");
 
         // Incremental read from offset 5.
         let page = make_test_page(10, TEST_RING_CAPACITY, b"helloworld");
         buf.clear();
-        let new_idx = page.write_serial_since(5, &mut buf).unwrap();
-        assert_eq!(new_idx, 10);
+        let new_idx = page.write_serial_since(Wrapping(5), &mut buf).unwrap();
+        assert_eq!(new_idx, Wrapping(10));
         assert_eq!(&buf, b"world");
 
         // No new data when already caught up.
         let page = make_test_page(5, TEST_RING_CAPACITY, b"hello");
         buf.clear();
-        assert!(page.write_serial_since(5, &mut buf).is_none());
+        assert!(page.write_serial_since(Wrapping(5), &mut buf).is_none());
     }
 
     #[test]
@@ -810,8 +812,8 @@ mod tests {
         // write_idx (20) > capacity (16): reader should get at most `capacity` bytes.
         let page = make_test_page(20, 16, b"ABCDEFGHIJKLMNOP");
         let mut buf = Vec::new();
-        let new_idx = page.write_serial_since(0, &mut buf).unwrap();
-        assert_eq!(new_idx, 20);
+        let new_idx = page.write_serial_since(Wrapping(0), &mut buf).unwrap();
+        assert_eq!(new_idx, Wrapping(20));
         assert_eq!(buf.len(), 16);
     }
 
@@ -822,9 +824,31 @@ mod tests {
         // 0..4) and must read back in write order as "ABCDEFGH", not "EFGHABCD".
         let page = make_test_page(12, 8, b"EFGHABCD");
         let mut buf = Vec::new();
-        let new_idx = page.write_serial_since(0, &mut buf).unwrap();
-        assert_eq!(new_idx, 12);
+        let new_idx = page.write_serial_since(Wrapping(0), &mut buf).unwrap();
+        assert_eq!(new_idx, Wrapping(12));
         assert_eq!(&buf, b"ABCDEFGH");
+    }
+
+    #[test]
+    fn test_read_serial_since_write_idx_u32_wrap() {
+        // Last poll saw u32::MAX, now sees 3: wrapping delta == 4 new bytes.
+        let capacity: u32 = 8;
+        let write_idx: u32 = 3;
+        let last_write_idx = Wrapping(u32::MAX);
+
+        // The read starts at `last_write_idx % capacity == 7`, so 4 bytes read
+        // pos 7 then wrap to pos 0,1,2 -> "H" + "ABC".
+        let page = make_test_page(write_idx, capacity, b"ABCDEFGH");
+        let mut buf = Vec::new();
+        let new_idx = page.write_serial_since(last_write_idx, &mut buf).unwrap();
+        assert_eq!(new_idx, Wrapping(write_idx));
+        assert_eq!(&buf, b"HABC");
+
+        buf.clear();
+        assert!(
+            page.write_serial_since(Wrapping(write_idx), &mut buf)
+                .is_none()
+        );
     }
 
     #[test]
@@ -900,8 +924,8 @@ mod tests {
             .serial(16384, 5, 1016, b"hello")
             .build();
         let mut buf = Vec::new();
-        let new_idx = page.write_serial_since(0, &mut buf).unwrap();
-        assert_eq!(new_idx, 5);
+        let new_idx = page.write_serial_since(Wrapping(0), &mut buf).unwrap();
+        assert_eq!(new_idx, Wrapping(5));
         assert_eq!(&buf, b"hello");
     }
 
@@ -910,7 +934,7 @@ mod tests {
         // capacity == 0 -> None.
         let page = TestPageBuilder::new().serial(4096, 5, 0, b"").build();
         let mut buf = Vec::new();
-        assert!(page.write_serial_since(0, &mut buf).is_none());
+        assert!(page.write_serial_since(Wrapping(0), &mut buf).is_none());
 
         // capacity larger than the region's data area -> None. Craft a TOC entry
         // whose recorded size is smaller than the ring's declared capacity.
@@ -928,6 +952,6 @@ mod tests {
             ptr::write(ring_base.cast::<u32>(), 10);
             ptr::write(ring_base.add(4).cast::<u32>(), 4096);
         }
-        assert!(page.write_serial_since(0, &mut buf).is_none());
+        assert!(page.write_serial_since(Wrapping(0), &mut buf).is_none());
     }
 }
