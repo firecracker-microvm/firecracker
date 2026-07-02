@@ -382,6 +382,11 @@ where
             }
         }
 
+        self.backend.activate().map_err(|err| {
+            METRICS.activate_fails.inc();
+            ActivateError::VsockBackend(err)
+        })?;
+
         if self.activate_evt.write(1).is_err() {
             METRICS.activate_fails.inc();
             return Err(ActivateError::EventFd);
