@@ -759,16 +759,8 @@ impl Vmm {
             self.machine_config
                 .validate_num_queues(&block_config.drive_id, block_config.num_queues)?;
         }
-        match &self.vm {
-            Vm::Kvm(kvm_vm) => {
-                self.device_manager
-                    .hotplug_device(kvm_vm.clone(), config, event_manager)
-            }
-            Vm::Enclave(enclave_vm) => {
-                self.device_manager
-                    .hotplug_ne_device(enclave_vm, config, event_manager)
-            }
-        }
+        self.device_manager
+            .hotplug_device(&self.vm, config, event_manager)
     }
 
     /// Detaches a device after VM start
