@@ -22,7 +22,8 @@
     "mem_size_mib": 1024,
     "smt": false,
     "track_dirty_pages": false,
-    "huge_pages": "None"
+    "huge_pages": "None",
+    "ksm_mergeable": false
   },
   "cpu-config": null,
   "balloon": null,

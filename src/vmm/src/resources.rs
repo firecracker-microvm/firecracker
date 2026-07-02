@@ -501,6 +501,10 @@ impl VmResources {
         // a single way of backing guest memory for vhost-user and non-vhost-user cases,
         // that would not be worth the effort.
         if vhost_user_device_used {
+            if self.machine_config.ksm_mergeable {
+                return Err(MemoryError::KsmWithSharedMemory);
+            }
+
             memory::memfd_backed(
                 regions,
                 self.machine_config.track_dirty_pages,
@@ -511,6 +515,7 @@ impl VmResources {
                 regions.iter().copied(),
                 self.machine_config.track_dirty_pages,
                 self.machine_config.huge_pages,
+                self.machine_config.ksm_mergeable,
             )
         }
     }
@@ -1424,6 +1429,7 @@ mod tests {
             cpu_template: Some(StaticCpuTemplate::V1N1),
             track_dirty_pages: Some(false),
             huge_pages: Some(HugePageConfig::None),
+            ksm_mergeable: Some(false),
             #[cfg(feature = "gdb")]
             gdb_socket_path: None,
         };
@@ -1513,6 +1519,15 @@ mod tests {
         // trigger the "ballooning incompatible with huge pages" check.
         vm_resources.balloon = BalloonBuilder::new();
         vm_resources.update_machine_config(&aux_vm_config).unwrap();
+
+        // KSM mergeable memory is incompatible with hugetlbfs-backed memory.
+        aux_vm_config.ksm_mergeable = Some(true);
+        assert_eq!(
+            vm_resources
+                .update_machine_config(&aux_vm_config)
+                .unwrap_err(),
+            MachineConfigError::KsmWithHugePages
+        );
     }
 
     #[test]

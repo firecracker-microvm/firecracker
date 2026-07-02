@@ -227,6 +227,7 @@ pub mod tests {
                 [(GuestAddress(0), MEM_LEN)].into_iter(),
                 true,
                 HugePageConfig::None,
+                false,
             )
             .unwrap()
             .into_iter()
