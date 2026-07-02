@@ -225,5 +225,5 @@ message automatically.
 
 Forgot to add DCO to a commit? Amend it with `git commit --amend -s`.
 
-[^1]: Performance improvements in non-hot paths are unlikely to be considered
-    valuable.
+\[^1\]: Performance improvements in non-hot paths are unlikely to be considered
+valuable.
