@@ -4,12 +4,17 @@
 
 import platform
 
+import pytest
 from packaging import version
 
 from framework import utils
+from framework.microvm import HugePagesConfig
 
 
-def test_reboot(uvm):
+@pytest.mark.parametrize(
+    "huge_pages", [HugePagesConfig.NONE, HugePagesConfig.TRANSPARENT]
+)
+def test_reboot(uvm, huge_pages):
     """
     Test reboot from guest.
     """
@@ -23,7 +28,7 @@ def test_reboot(uvm):
     # Set up the microVM with 4 vCPUs, 256 MiB of RAM, 0 network ifaces, and
     # a root file system with the rw permission. The network interfaces is
     # added after we get a unique MAC and IP.
-    vm.basic_config(vcpu_count=4)
+    vm.basic_config(vcpu_count=4, huge_pages=huge_pages)
     vm.add_net_iface()
     vm.start()
 

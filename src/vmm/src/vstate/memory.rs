@@ -5,9 +5,12 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the THIRD-PARTY file.
 
+use std::ffi::c_void;
 use std::fs::File;
+use std::io;
 use std::io::SeekFrom;
 use std::ops::Deref;
+use std::os::fd::AsRawFd;
 use std::sync::{Arc, Mutex};
 
 use bitvec::vec::BitVec;
@@ -22,19 +25,223 @@ pub use vm_memory::{
 };
 use vm_memory::{GuestMemoryError, GuestMemoryRegionBytes, VolatileSlice, WriteVolatile};
 
-use crate::DirtyBitmap;
 use crate::arch::host_page_size;
 use crate::logger::error;
 use crate::utils::u64_to_usize;
 use crate::vmm_config::machine_config::HugePageConfig;
 use crate::vstate::vm::{KvmVm, VmError};
+use crate::{DirtyBitmap, warn_unrestricted};
 
-/// Type of GuestRegionMmap.
-pub type GuestRegionMmap = vm_memory::GuestRegionMmap<Option<AtomicBitmap>>;
 /// Type of GuestMemoryMmap.
 pub type GuestMemoryMmap = vm_memory::GuestRegionCollection<GuestRegionMmapExt>;
-/// Type of GuestMmapRegion.
-pub type GuestMmapRegion = vm_memory::MmapRegion<Option<AtomicBitmap>>;
+
+/// The alignment used to allocate guest memory.
+/// Chosen to enable optimizations on host kernel, e.g. allow huge pages at the beginning of the memory space.
+const GUEST_MEMORY_ALIGNMENT: usize = 2 * 1024 * 1024;
+
+/// A region of guest memory. Unmapped on drop.
+/// This struct doesn't provide any facility to access the memory or read its properties, see [GuestRegionMmap].
+#[derive(Debug)]
+struct RawGuestRegionMmap {
+    addr: *mut u8,
+    size: usize,
+}
+
+impl RawGuestRegionMmap {
+    /// Allocates a region of memory of the given size, aligned with [GUEST_MEMORY_ALIGNMENT].
+    /// The returned memory region will be `PROT_NONE`, so to use it, callers either have to re-map it,
+    /// or use the [Self::allocate] function instead.
+    fn allocate_protected(size: usize) -> Result<Self, MmapRegionError> {
+        // Allocates `size + 2MB` bytes via mmap, then trims the unaligned head and tail portions,
+        // keeping only the 2MB-aligned region of the requested size:
+        //
+        //         ptr                          ptr + alloc_size
+        //          |                                  |
+        //          v                                  v
+        //          +------+------------------+--------+
+        //          | head |     aligned      |  tail  |
+        //          +------+------------------+--------+
+        //                 ^                  ^
+        //                 |                  |
+        //             aligned           aligned + size
+        //          (2MB-aligned)
+        //
+        //  1. mmap(alloc_size) returns `ptr` (page-aligned, but not necessarily 2MB-aligned)
+        //  2. Compute `aligned` = next 2MB boundary at or after `ptr`
+        //  3. munmap(head) and munmap(tail) to release the unused portions
+        //  4. Return the aligned region of exactly `size` bytes
+        let alloc_size = size + GUEST_MEMORY_ALIGNMENT;
+        // Safety: when the call is successful, the returned memory is dropped (for head and tail),
+        // or wrapped in GuestMmapRegion
+        let ptr = unsafe {
+            libc::mmap(
+                std::ptr::null_mut(),
+                alloc_size,
+                libc::PROT_NONE,
+                libc::MAP_PRIVATE | libc::MAP_ANONYMOUS | libc::MAP_NORESERVE,
+                -1,
+                0,
+            )
+        };
+        if ptr == libc::MAP_FAILED {
+            return Err(MmapRegionError::Mmap(std::io::Error::last_os_error()));
+        }
+
+        let aligned = ((ptr as usize) + GUEST_MEMORY_ALIGNMENT - 1) & !(GUEST_MEMORY_ALIGNMENT - 1);
+        assert_eq!(aligned % GUEST_MEMORY_ALIGNMENT, 0, "Address not aligned");
+        let head_size = aligned - ptr as usize;
+        let tail_size = alloc_size - head_size - size;
+
+        // Various assertion on memory bounds and indices.
+        assert_eq!(
+            head_size + size + tail_size,
+            alloc_size,
+            "Allocated memory is not fully partitioned"
+        );
+        assert_eq!(
+            ptr as usize + head_size,
+            aligned,
+            "Head and aligned portion aren't adjacent"
+        );
+        assert_eq!(
+            aligned + size,
+            ptr as usize + alloc_size - tail_size,
+            "Tail and aligned portion aren't adjacent"
+        );
+
+        if head_size > 0 {
+            // SAFETY: Unmapping the unaligned leading portion we just allocated.
+            let ret = unsafe { libc::munmap(ptr, head_size) };
+            debug_assert_eq!(ret, 0, "munmap of head region failed");
+        }
+        if tail_size > 0 {
+            // SAFETY: Unmapping the trailing portion past our aligned region.
+            let ret = unsafe { libc::munmap((aligned + size) as *mut c_void, tail_size) };
+            debug_assert_eq!(ret, 0, "munmap of tail region failed");
+        }
+
+        Ok(Self {
+            addr: aligned as *mut u8,
+            size,
+        })
+    }
+
+    /// Allocates a region of memory of the given size, aligned with [GUEST_MEMORY_ALIGNMENT].
+    fn allocate(
+        size: usize,
+        prot: libc::c_int,
+        flags: libc::c_int,
+        fd: libc::c_int,
+        offset: libc::off_t,
+    ) -> Result<Self, MmapRegionError> {
+        // This function works by doing a mmap fixed over a GuestMmapRegion allocated with PROT_NONE.
+        let ret = Self::allocate_protected(size)?;
+
+        // SAFETY: this mmap is performed over the same memory region we just allocated, so it's
+        // guarantee it's not in use elsewhere.
+        let addr = unsafe {
+            libc::mmap(
+                ret.addr.cast::<c_void>(),
+                size,
+                prot,
+                flags | libc::MAP_FIXED,
+                fd,
+                offset,
+            )
+        };
+        if addr == libc::MAP_FAILED {
+            return Err(MmapRegionError::Mmap(std::io::Error::last_os_error()));
+        }
+        assert_eq!(
+            addr.cast::<u8>(),
+            ret.addr,
+            "mmap fixed returned a different address"
+        );
+
+        Ok(ret)
+    }
+}
+
+impl Drop for RawGuestRegionMmap {
+    fn drop(&mut self) {
+        // SAFETY: All memory access is done via GuestRegionMmap, and at this point there are no references to that.
+        let ret = unsafe { libc::munmap(self.addr.cast::<c_void>(), self.size) };
+        debug_assert_eq!(ret, 0, "munmap of guest region failed");
+    }
+}
+
+/// SAFETY: Send and Sync aren't automatically inherited for the raw address pointer.
+/// RawGuestRegionMmap exclusively owns the memory region and doesn't expose the raw pointer for concurrent mutation.
+unsafe impl Send for RawGuestRegionMmap {}
+/// SAFETY: See comment above.
+unsafe impl Sync for RawGuestRegionMmap {}
+
+/// A region of guest memory. Unmapped on drop.
+/// Note: this implements automatic defer for vm_memory::GuestRegionMmap, so it can be used in its place.
+#[derive(Debug)]
+pub struct GuestRegionMmap {
+    /// Held for its `Drop` impl which unmaps the guest memory region.
+    _region: RawGuestRegionMmap,
+    proxy: vm_memory::GuestRegionMmap<Option<AtomicBitmap>>,
+}
+
+impl Deref for GuestRegionMmap {
+    type Target = vm_memory::GuestRegionMmap<Option<AtomicBitmap>>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.proxy
+    }
+}
+
+impl GuestRegionMmap {
+    /// Creates a new [GuestRegionMmap], by actually allocating the guest memory with the given properties.
+    fn allocate(
+        guest_base: GuestAddress,
+        size: usize,
+        prot: libc::c_int,
+        flags: libc::c_int,
+        file_offset: Option<FileOffset>,
+        track_dirty_pages: bool,
+    ) -> Result<Self, MemoryError> {
+        let (fd, offset) = if let Some(ref f_off) = file_offset {
+            (f_off.file().as_raw_fd(), f_off.start())
+        } else {
+            (-1, 0)
+        };
+        let offset: libc::off_t = offset.try_into().map_err(|_| MemoryError::OffsetTooLarge)?;
+        let region = RawGuestRegionMmap::allocate(size, prot, flags, fd, offset)
+            .map_err(MemoryError::MmapRegionError)?;
+
+        let mut builder = MmapRegionBuilder::new_with_bitmap(
+            size,
+            track_dirty_pages.then(|| AtomicBitmap::with_len(size)),
+        )
+        .with_mmap_prot(prot)
+        .with_mmap_flags(flags);
+
+        if let Some(file_offset) = file_offset {
+            builder = builder.with_file_offset(file_offset);
+        }
+
+        // SAFETY: the memory mapping is valid, and has the same flags passed to builder.
+        unsafe {
+            builder = builder.with_raw_mmap_pointer(region.addr);
+        }
+
+        let mmap_region = builder.build().map_err(MemoryError::MmapRegionError)?;
+        // The memory cannot be double-owned: OwnedRegionMmap should be responsible for deallocation
+        assert!(!mmap_region.owned());
+        // `region` and `mapping` need to point to the same address
+        assert_eq!(region.addr, mmap_region.as_ptr());
+        assert_eq!(region.size, mmap_region.size());
+
+        Ok(GuestRegionMmap {
+            _region: region,
+            proxy: vm_memory::GuestRegionMmap::new(mmap_region, guest_base)
+                .ok_or(MemoryError::VmMemoryError)?,
+        })
+    }
+}
 
 /// Errors associated with dumping guest memory to file.
 #[derive(Debug, thiserror::Error, displaydoc::Display)]
@@ -528,37 +735,39 @@ pub fn create(
     mmap_flags: libc::c_int,
     file: Option<File>,
     track_dirty_pages: bool,
+    madvise_flags: libc::c_int,
 ) -> Result<Vec<GuestRegionMmap>, MemoryError> {
     let mut offset = 0;
     let file = file.map(Arc::new);
     regions
         .map(|(start, size)| {
-            let mut builder = MmapRegionBuilder::new_with_bitmap(
-                size,
-                track_dirty_pages.then(|| AtomicBitmap::with_len(size)),
-            )
-            .with_mmap_prot(libc::PROT_READ | libc::PROT_WRITE)
-            .with_mmap_flags(libc::MAP_NORESERVE | mmap_flags);
-
-            if let Some(ref file) = file {
-                let file_offset = FileOffset::from_arc(Arc::clone(file), offset);
-
-                builder = builder.with_file_offset(file_offset);
-            }
-
-            offset = match offset.checked_add(size as u64) {
-                None => return Err(MemoryError::OffsetTooLarge),
-                Some(new_off) if new_off >= i64::MAX as u64 => {
-                    return Err(MemoryError::OffsetTooLarge);
-                }
-                Some(new_off) => new_off,
-            };
-
-            GuestRegionMmap::new(
-                builder.build().map_err(MemoryError::MmapRegionError)?,
+            let guest_memory = GuestRegionMmap::allocate(
                 start,
-            )
-            .ok_or(MemoryError::VmMemoryError)
+                size,
+                libc::PROT_READ | libc::PROT_WRITE,
+                libc::MAP_NORESERVE | mmap_flags,
+                file.as_ref()
+                    .map(|file| FileOffset::from_arc(Arc::clone(file), offset)),
+                track_dirty_pages,
+            )?;
+            offset = offset
+                .checked_add(size as u64)
+                .ok_or(MemoryError::OffsetTooLarge)?;
+            if madvise_flags != libc::MADV_NORMAL {
+                // SAFETY: The referenced memory was just mapped.
+                let ret = unsafe {
+                    libc::madvise(
+                        guest_memory.as_ptr().cast(),
+                        guest_memory.size(),
+                        madvise_flags,
+                    )
+                };
+                if ret != 0 {
+                    let e = io::Error::last_os_error();
+                    warn_unrestricted!("Madvise call failed for guest memory: {e}");
+                }
+            }
+            Ok(guest_memory)
         })
         .collect::<Result<Vec<_>, _>>()
 }
@@ -577,6 +786,7 @@ pub fn memfd_backed(
         libc::MAP_SHARED | huge_pages.mmap_flags(),
         Some(memfd_file),
         track_dirty_pages,
+        huge_pages.madvise_flags(),
     )
 }
 
@@ -591,6 +801,7 @@ pub fn anonymous(
         libc::MAP_PRIVATE | libc::MAP_ANONYMOUS | huge_pages.mmap_flags(),
         None,
         track_dirty_pages,
+        huge_pages.madvise_flags(),
     )
 }
 
@@ -600,6 +811,7 @@ pub fn snapshot_file(
     file: File,
     regions: impl Iterator<Item = (GuestAddress, usize)>,
     track_dirty_pages: bool,
+    huge_pages: HugePageConfig,
 ) -> Result<Vec<GuestRegionMmap>, MemoryError> {
     let regions: Vec<_> = regions.collect();
     let memory_size = regions
@@ -619,6 +831,7 @@ pub fn snapshot_file(
         libc::MAP_PRIVATE,
         Some(file),
         track_dirty_pages,
+        huge_pages.madvise_flags(),
     )
 }
 
@@ -951,8 +1164,13 @@ mod tests {
             file.write_all(&vec![0x42u8; page_size]).unwrap();
 
             let regions = vec![(GuestAddress(0), page_size)];
-            let guest_regions =
-                snapshot_file(file, regions.into_iter(), dirty_page_tracking).unwrap();
+            let guest_regions = snapshot_file(
+                file,
+                regions.into_iter(),
+                dirty_page_tracking,
+                HugePageConfig::None,
+            )
+            .unwrap();
             assert_eq!(guest_regions.len(), 1);
             guest_regions.iter().for_each(|region| {
                 assert_eq!(region.bitmap().is_some(), dirty_page_tracking);
@@ -973,7 +1191,8 @@ mod tests {
             (GuestAddress(0x10000), page_size),
             (GuestAddress(0x20000), page_size),
         ];
-        let guest_regions = snapshot_file(file, regions.into_iter(), false).unwrap();
+        let guest_regions =
+            snapshot_file(file, regions.into_iter(), false, HugePageConfig::None).unwrap();
         assert_eq!(guest_regions.len(), 3);
     }
 
@@ -985,7 +1204,7 @@ mod tests {
         file.write_all(&vec![0x42u8; page_size]).unwrap();
 
         let regions = vec![(GuestAddress(0), 2 * page_size)];
-        let result = snapshot_file(file, regions.into_iter(), false);
+        let result = snapshot_file(file, regions.into_iter(), false, HugePageConfig::None);
         assert!(matches!(result.unwrap_err(), MemoryError::OffsetTooLarge));
     }
 
@@ -1175,8 +1394,15 @@ mod tests {
         let mut memory_file = TempFile::new().unwrap().into_file();
         guest_memory.dump(&mut memory_file).unwrap();
 
-        let restored_guest_memory =
-            into_region_ext(snapshot_file(memory_file, memory_state.regions(), false).unwrap());
+        let restored_guest_memory = into_region_ext(
+            snapshot_file(
+                memory_file,
+                memory_state.regions(),
+                false,
+                HugePageConfig::None,
+            )
+            .unwrap(),
+        );
 
         // Check that the region contents are the same.
         let mut restored_region = vec![0u8; page_size * 2];
@@ -1240,8 +1466,9 @@ mod tests {
             .unwrap();
 
         // We can restore from this because this is the first dirty dump.
-        let restored_guest_memory =
-            into_region_ext(snapshot_file(file, memory_state.regions(), false).unwrap());
+        let restored_guest_memory = into_region_ext(
+            snapshot_file(file, memory_state.regions(), false, HugePageConfig::None).unwrap(),
+        );
 
         // Check that the region contents are the same.
         let mut restored_region = vec![0u8; region_size];
@@ -1465,6 +1692,7 @@ mod tests {
                 memory_file,
                 std::iter::once((GuestAddress(0), 2 * page_size)),
                 false,
+                HugePageConfig::None,
             )
             .unwrap(),
         );
@@ -1889,5 +2117,68 @@ mod tests {
         // Zero length: always ok
         ext.check_range_plugged(MemoryRegionAddress(0x2000), 0)
             .unwrap();
+    }
+
+    /// Returns the (start, end) of the VMA containing `addr` in `/proc/self/maps`, if any.
+    fn find_vma_containing(addr: usize) -> Option<(usize, usize)> {
+        use std::io::BufRead;
+        let maps = std::fs::File::open("/proc/self/maps").unwrap();
+        for line in std::io::BufReader::new(maps).lines() {
+            let line = line.unwrap();
+            let range = line.split_whitespace().next().unwrap_or("");
+            let mut parts = range.split('-');
+            let start = usize::from_str_radix(parts.next().unwrap_or("0"), 16).unwrap_or(0);
+            let end = usize::from_str_radix(parts.next().unwrap_or("0"), 16).unwrap_or(0);
+            if addr >= start && addr < end {
+                return Some((start, end));
+            }
+        }
+        None
+    }
+
+    #[test]
+    fn test_guest_region_alignment_and_size() {
+        let size = 4 * 1024 * 1024; // 4MB
+        let region = RawGuestRegionMmap::allocate_protected(size).unwrap();
+        let addr = region.addr as usize;
+
+        // Returned address is 2MB-aligned.
+        assert_eq!(
+            addr % GUEST_MEMORY_ALIGNMENT,
+            0,
+            "Returned address is not 2MB-aligned"
+        );
+        // Returned size matches the requested size.
+        assert_eq!(region.size, size);
+
+        // Find the VMA that contains our address and verify it spans exactly `size` bytes.
+        // If head/tail were not unmapped, the VMA would be larger than `size`.
+        let (vma_start, vma_end) =
+            find_vma_containing(addr).expect("Aligned region not found in /proc/self/maps");
+        assert_eq!(vma_start, addr, "VMA start does not match aligned address");
+        assert_eq!(
+            vma_end - vma_start,
+            size,
+            "VMA size does not match requested size"
+        );
+    }
+
+    #[test]
+    fn test_guest_region_drop_reclaims_memory() {
+        let size = 4 * 1024 * 1024; // 4MB
+        let region = RawGuestRegionMmap::allocate_protected(size).unwrap();
+        let addr = region.addr as usize;
+
+        // The region should be mapped before drop.
+        assert!(find_vma_containing(addr).is_some());
+
+        // Drop the region.
+        drop(region);
+
+        // After drop, the memory should no longer be mapped.
+        assert!(
+            find_vma_containing(addr).is_none(),
+            "Memory was not reclaimed after drop"
+        );
     }
 }

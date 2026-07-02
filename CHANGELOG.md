@@ -10,6 +10,12 @@ and this project adheres to
 
 ### Added
 
+- [#6003](https://github.com/firecracker-microvm/firecracker/pull/6003): Added a
+  new option `Transparent` for the `huge_pages` setting. If set, Firecracker
+  will use transparent huge pages for the guest memory via
+  `madvise(MADV_HUGEPAGE)`. Guest memory must be a multiple of 2MB when using
+  this option.
+
 ### Changed
 
 ### Deprecated

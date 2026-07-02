@@ -487,6 +487,7 @@ pub(crate) mod tests {
                 libc::MAP_PRIVATE,
                 Some(file),
                 false,
+                libc::MADV_HUGEPAGE,
             )
             .unwrap()
             .into_iter()

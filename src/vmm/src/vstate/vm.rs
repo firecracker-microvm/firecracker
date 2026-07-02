@@ -768,7 +768,6 @@ pub(crate) mod tests {
     use std::sync::atomic::Ordering;
 
     use vm_memory::GuestAddress;
-    use vm_memory::mmap::MmapRegionBuilder;
 
     use super::*;
     use crate::arch;
@@ -776,8 +775,9 @@ pub(crate) mod tests {
     use crate::snapshot::Persist;
     use crate::test_utils::single_region_mem_raw;
     use crate::utils::mib_to_bytes;
+    use crate::vmm_config::machine_config::HugePageConfig;
     use crate::vstate::kvm::Kvm;
-    use crate::vstate::memory::GuestRegionMmap;
+    use crate::vstate::memory::anonymous;
 
     // Auxiliary function being used throughout the tests.
     pub(crate) fn setup_vm() -> KvmVm {
@@ -823,33 +823,16 @@ pub(crate) mod tests {
         let mut vm = setup_vm();
         let max_nr_regions = vm.kvm().max_nr_memslots();
 
-        // SAFETY: valid mmap parameters
-        let ptr = unsafe {
-            libc::mmap(
-                std::ptr::null_mut(),
-                0x1000,
-                libc::PROT_READ | libc::PROT_WRITE,
-                libc::MAP_ANONYMOUS | libc::MAP_PRIVATE,
-                -1,
-                0,
-            )
-        };
-
-        assert_ne!(ptr, libc::MAP_FAILED);
-
         for i in 0..=max_nr_regions {
-            // SAFETY: we assert above that the ptr is valid, and the size matches what we passed to
-            // mmap
-            let region = unsafe {
-                MmapRegionBuilder::new(0x1000)
-                    .with_raw_mmap_pointer(ptr.cast())
-                    .build()
-                    .unwrap()
-            };
+            let regions = anonymous(
+                vec![(GuestAddress(i as u64 * 0x1000), 0x1000)].into_iter(),
+                false,
+                HugePageConfig::None,
+            )
+            .unwrap();
+            assert_eq!(regions.len(), 1);
 
-            let region = GuestRegionMmap::new(region, GuestAddress(i as u64 * 0x1000)).unwrap();
-
-            let res = vm.register_dram_memory_regions(vec![region]);
+            let res = vm.register_dram_memory_regions(regions);
 
             if max_nr_regions <= i {
                 assert!(
