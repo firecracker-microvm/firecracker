@@ -238,9 +238,11 @@ impl EnclaveVm {
         eif_data: &[u8],
         direct_mode: bool,
     ) -> Result<(), EnclaveVmError> {
+        // Read-write: the EIF is written here before donation, and direct mode
+        // keeps using it as device DMA memory afterwards.
         let (mem_ptr, aligned_size) = self
             .dev_fd
-            .allocate_cma_aligned(size, ALIGN_2M)
+            .allocate_cma_aligned(size, ALIGN_2M, libc::PROT_READ | libc::PROT_WRITE)
             .map_err(EnclaveVmError::CmaAlloc)?;
         let aligned_addr = mem_ptr as usize;
 

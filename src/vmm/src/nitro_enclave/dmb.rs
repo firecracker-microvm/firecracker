@@ -49,8 +49,9 @@ impl Dmb {
     /// The allocation is rounded up to a 2 MiB boundary and wrapped as a single
     /// guest memory region at `GuestAddress(0)`.
     pub fn new(dev_fd: &NitroEnclavesDevFd, size_bytes: usize) -> Result<Self, EnclaveVmError> {
+        // Read-write: the parent services queue rings in this DMA memory.
         let (ptr, aligned_size) = dev_fd
-            .allocate_cma_aligned(size_bytes, ALIGN_2M)
+            .allocate_cma_aligned(size_bytes, ALIGN_2M, libc::PROT_READ | libc::PROT_WRITE)
             .map_err(EnclaveVmError::CmaAlloc)?;
 
         // SAFETY: `ptr` is valid for `aligned_size` bytes (just mmap'd) and is
