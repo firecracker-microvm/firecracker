@@ -9,7 +9,9 @@ use std::os::unix::io::AsRawFd;
 use vm_memory::GuestMemoryError;
 use vmm_sys_util::eventfd::EventFd;
 
-use crate::devices::virtio::block::virtio::io::RequestError;
+use crate::devices::virtio::block::virtio::io::{
+    DIRECT_WRITE_FD, RequestError, direct_io_eligible,
+};
 use crate::devices::virtio::block::virtio::{IO_URING_NUM_ENTRIES, PendingRequest};
 use crate::io_uring::operation::{Cqe, OpCode, Operation};
 use crate::io_uring::restriction::Restriction;
@@ -36,6 +38,7 @@ pub enum AsyncIoError {
 #[derive(Debug)]
 pub struct AsyncFileEngine {
     file: File,
+    direct_file: Option<File>,
     ring: IoUring<WrappedRequest>,
     completion_evt: EventFd,
 }
@@ -70,11 +73,17 @@ impl WrappedRequest {
 impl AsyncFileEngine {
     fn new_ring(
         file: &File,
+        direct_file: Option<&File>,
         completion_fd: RawFd,
     ) -> Result<IoUring<WrappedRequest>, IoUringError> {
+        let mut files = vec![file];
+        if let Some(direct_file) = direct_file {
+            files.push(direct_file);
+        }
+
         IoUring::new(
             u32::from(IO_URING_NUM_ENTRIES),
-            vec![file],
+            files,
             vec![
                 // Make sure we only allow operations on pre-registered fds.
                 Restriction::RequireFixedFds,
@@ -87,32 +96,46 @@ impl AsyncFileEngine {
         )
     }
 
-    pub fn from_file(file: File) -> Result<AsyncFileEngine, AsyncIoError> {
+    pub fn from_file(
+        file: File,
+        direct_file: Option<File>,
+    ) -> Result<AsyncFileEngine, AsyncIoError> {
         log_dev_preview_warning("Async file IO", Option::None);
 
         let completion_evt = EventFd::new(libc::EFD_NONBLOCK).map_err(AsyncIoError::EventFd)?;
-        let ring =
-            Self::new_ring(&file, completion_evt.as_raw_fd()).map_err(AsyncIoError::IoUring)?;
+        let ring = Self::new_ring(&file, direct_file.as_ref(), completion_evt.as_raw_fd())
+            .map_err(AsyncIoError::IoUring)?;
 
         Ok(AsyncFileEngine {
             file,
+            direct_file,
             ring,
             completion_evt,
         })
     }
 
-    pub fn update_file(&mut self, file: File) -> Result<(), AsyncIoError> {
-        let ring = Self::new_ring(&file, self.completion_evt.as_raw_fd())
+    pub fn update_file(
+        &mut self,
+        file: File,
+        direct_file: Option<File>,
+    ) -> Result<(), AsyncIoError> {
+        let ring = Self::new_ring(&file, direct_file.as_ref(), self.completion_evt.as_raw_fd())
             .map_err(AsyncIoError::IoUring)?;
 
-        self.file = file;
         self.ring = ring;
+        self.file = file;
+        self.direct_file = direct_file;
         Ok(())
     }
 
     #[cfg(test)]
     pub fn file(&self) -> &File {
         &self.file
+    }
+
+    #[cfg(test)]
+    pub fn direct_file(&self) -> Option<&File> {
+        self.direct_file.as_ref()
     }
 
     pub fn completion_evt(&self) -> &EventFd {
@@ -173,9 +196,15 @@ impl AsyncFileEngine {
 
         let wrapped_user_data = WrappedRequest::new(req);
 
+        let fd = if self.direct_file.is_some() && direct_io_eligible(buf as usize, offset, count) {
+            DIRECT_WRITE_FD
+        } else {
+            0
+        };
+
         self.ring
             .push(Operation::write(
-                0,
+                fd,
                 buf as usize,
                 count,
                 offset,
