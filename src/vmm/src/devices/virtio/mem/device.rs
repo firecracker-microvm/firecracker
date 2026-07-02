@@ -649,6 +649,21 @@ impl VirtioDevice for VirtioMem {
         self.device_state.is_activated()
     }
 
+    fn deactivate(&mut self) {
+        self.device_state = DeviceState::Inactive;
+    }
+
+    fn _reset(&mut self) -> bool {
+        // Virtio spec, section 5.15.5.2:
+        // The device MUST NOT change the state of memory blocks during device
+        // reset. The device MUST NOT modify memory or memory properties of
+        // plugged memory blocks during device reset.
+        //
+        // Note: the Linux virtio-mem driver does not support rebinding when
+        // memory is plugged
+        true
+    }
+
     fn activate(
         &mut self,
         mem: GuestMemoryMmap,

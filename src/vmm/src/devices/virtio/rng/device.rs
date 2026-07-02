@@ -59,7 +59,7 @@ pub struct Entropy {
     queue_events: Vec<EventFd>,
 
     // Device specific fields
-    rate_limiter: RateLimiter,
+    pub(crate) rate_limiter: RateLimiter,
 
     buffer: IoVecBufferMut,
 }
@@ -307,6 +307,14 @@ impl VirtioDevice for Entropy {
 
     fn is_activated(&self) -> bool {
         self.device_state.is_activated()
+    }
+
+    fn deactivate(&mut self) {
+        self.device_state = DeviceState::Inactive;
+    }
+
+    fn _reset(&mut self) -> bool {
+        true
     }
 
     fn activate(

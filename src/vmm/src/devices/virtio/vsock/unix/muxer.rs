@@ -301,7 +301,31 @@ impl VsockEpollListener for VsockMuxer {
     }
 }
 
-impl VsockBackend for VsockMuxer {}
+impl VsockBackend for VsockMuxer {
+    fn activate(&mut self) -> Result<(), VsockError> {
+        // Listen on the host-initiated socket, for incoming connections.
+        self.add_listener(self.host_sock.as_raw_fd(), EpollListener::HostSock)
+            .map_err(VsockError::VsockUdsBackend)
+    }
+
+    fn reset(&mut self) {
+        // Remove all connections and their epoll listeners.
+        let keys: Vec<ConnMapKey> = self.conn_map.keys().copied().collect();
+        for key in keys {
+            self.remove_connection(key);
+        }
+
+        let fds: Vec<RawFd> = self.listener_map.keys().copied().collect();
+        for fd in fds {
+            self.remove_listener(fd);
+        }
+
+        self.rxq = MuxerRxQ::new();
+        self.killq = MuxerKillQ::new();
+        self.local_port_set.clear();
+        self.local_port_last = (1u32 << 30) - 1;
+    }
+}
 
 impl VsockMuxer {
     /// Muxer constructor.
@@ -312,7 +336,7 @@ impl VsockMuxer {
             .and_then(|sock| sock.set_nonblocking(true).map(|_| sock))
             .map_err(VsockUnixBackendError::UnixBind)?;
 
-        let mut muxer = Self {
+        let muxer = Self {
             cid,
             host_sock,
             host_sock_path,
@@ -325,8 +349,6 @@ impl VsockMuxer {
             local_port_set: HashSet::with_capacity(defs::MAX_CONNECTIONS),
         };
 
-        // Listen on the host initiated socket, for incoming connections.
-        muxer.add_listener(muxer.host_sock.as_raw_fd(), EpollListener::HostSock)?;
         Ok(muxer)
     }
 
@@ -851,7 +873,8 @@ mod tests {
                 )
                 .unwrap();
 
-            let muxer = VsockMuxer::new(PEER_CID, get_file(name)).unwrap();
+            let mut muxer = VsockMuxer::new(PEER_CID, get_file(name)).unwrap();
+            muxer.activate().unwrap();
             Self {
                 _vsock_test_ctx: vsock_test_ctx,
                 rx_pkt,

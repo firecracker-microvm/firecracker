@@ -10,6 +10,9 @@ and this project adheres to
 
 ### Added
 
+- [#5891](https://github.com/firecracker-microvm/firecracker/pull/5891): Added
+  support for virtio device reset.
+
 ### Changed
 
 ### Deprecated
