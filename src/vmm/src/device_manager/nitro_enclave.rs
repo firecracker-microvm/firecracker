@@ -11,7 +11,7 @@ use std::sync::{Arc, Mutex};
 use event_manager::SubscriberOps;
 
 use crate::EventManager;
-use crate::devices::virtio::device::{VirtioDevice, VirtioDeviceId};
+use crate::devices::virtio::device::{VirtioDevice, VirtioDeviceId, VirtioDeviceType};
 use crate::devices::virtio::transport::nitro_enclave::{
     DeviceDmaMemory, NeTransport, NeTransportError,
 };
@@ -30,7 +30,7 @@ pub enum NeDeviceError {
 /// Manages NE transport devices for enclaves.
 #[derive(Debug, Default)]
 pub struct NeDevices {
-    pub devices: HashMap<VirtioDeviceId, Arc<Mutex<NeTransport>>>,
+    devices: HashMap<VirtioDeviceId, Arc<Mutex<NeTransport>>>,
 }
 
 impl NeDevices {
@@ -92,5 +92,41 @@ impl NeDevices {
         event_manager.add_subscriber(transport.clone());
         self.devices.insert(device_id, transport);
         Ok(())
+    }
+
+    pub(crate) fn get_device(
+        &self,
+        device_type: VirtioDeviceType,
+        device_id: &str,
+    ) -> Option<Arc<Mutex<dyn VirtioDevice>>> {
+        self.devices
+            .get(&(device_type, device_id.to_string()))
+            .map(|transport| transport.lock().expect("Poisoned lock").device().clone())
+    }
+
+    pub(crate) fn contains_virtio_device(&self, device_id: &VirtioDeviceId) -> bool {
+        self.devices.contains_key(device_id)
+    }
+
+    pub(crate) fn for_each_virtio_device(
+        &self,
+        mut f: impl FnMut(VirtioDeviceType, &dyn VirtioDevice),
+    ) {
+        for ((device_type, _), transport) in &self.devices {
+            let device_arc = transport.lock().expect("Poisoned lock").device().clone();
+            let device = device_arc.lock().expect("Poisoned lock");
+            f(*device_type, &*device);
+        }
+    }
+
+    pub(crate) fn for_each_virtio_device_mut(
+        &self,
+        mut f: impl FnMut(VirtioDeviceType, &mut dyn VirtioDevice),
+    ) {
+        for ((device_type, _), transport) in &self.devices {
+            let device_arc = transport.lock().expect("Poisoned lock").device().clone();
+            let mut device = device_arc.lock().expect("Poisoned lock");
+            f(*device_type, &mut *device);
+        }
     }
 }

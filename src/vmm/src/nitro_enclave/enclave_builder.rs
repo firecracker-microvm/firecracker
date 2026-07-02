@@ -10,7 +10,8 @@ use std::sync::{Arc, Mutex};
 
 use event_manager::SubscriberOps;
 
-use crate::device_manager::DeviceManager;
+use crate::device_manager::nitro_enclave::NeDevices;
+use crate::device_manager::{AttachDeviceError, DeviceManager, VirtioDevices};
 use crate::logger::info;
 use crate::nitro_enclave::cpu_accounting::AccountingThreads;
 use crate::nitro_enclave::eif;
@@ -65,7 +66,7 @@ pub enum EnclaveBuilderError {
     /// Failed to query hypervisor-supported flags: {0}
     GetSupportedFlags(std::io::Error),
     /// Failed to attach enclave device: {0}
-    AttachDevice(crate::device_manager::nitro_enclave::NeDeviceError),
+    AttachDevice(AttachDeviceError),
     /// Failed to start CPU-accounting threads: {0}
     Accounting(#[from] crate::nitro_enclave::cpu_accounting::AccountingError),
     /// Required "vcpu" seccomp filter not found
@@ -249,10 +250,13 @@ pub fn build_and_boot_enclave(
         vm_resources.machine_config.mem_size_mib
     );
 
-    // Device attachment must happen before the VM is started.
     // A DMB size selects confidential mode (per-device DMB); `None` selects
     // direct mode, where devices use the donated enclave RAM directly.
-    let mut device_manager = DeviceManager::default();
+    // Device attachment must happen before the VM is started.
+    let mut device_manager = DeviceManager {
+        virtio_devices: VirtioDevices::Enclave(NeDevices::default()),
+        ..Default::default()
+    };
     attach_enclave_devices(
         &mut device_manager,
         &enclave_vm,
@@ -335,7 +339,6 @@ fn attach_enclave_devices(
     if let Some(entropy) = vm_resources.entropy.get() {
         info!("Attaching enclave entropy device");
         device_manager
-            .ne_devices
             .attach_ne_virtio_device(entropy.clone(), enclave_vm, dmb_size_mib, event_manager)
             .map_err(EnclaveBuilderError::AttachDevice)?;
     }
@@ -343,7 +346,6 @@ fn attach_enclave_devices(
     for block in &vm_resources.block.devices {
         info!("Attaching enclave block device");
         device_manager
-            .ne_devices
             .attach_ne_virtio_device(block.clone(), enclave_vm, dmb_size_mib, event_manager)
             .map_err(EnclaveBuilderError::AttachDevice)?;
     }
@@ -351,7 +353,6 @@ fn attach_enclave_devices(
     for net in vm_resources.net_builder.iter() {
         info!("Attaching enclave net device");
         device_manager
-            .ne_devices
             .attach_ne_virtio_device(net.clone(), enclave_vm, dmb_size_mib, event_manager)
             .map_err(EnclaveBuilderError::AttachDevice)?;
     }
@@ -359,7 +360,6 @@ fn attach_enclave_devices(
     if let Some(vsock) = vm_resources.vsock.get() {
         info!("Attaching enclave vsock device");
         device_manager
-            .ne_devices
             .attach_ne_virtio_device(vsock.clone(), enclave_vm, dmb_size_mib, event_manager)
             .map_err(EnclaveBuilderError::AttachDevice)?;
     }
