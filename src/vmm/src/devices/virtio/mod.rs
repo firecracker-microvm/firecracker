@@ -67,6 +67,8 @@ pub enum ActivateError {
     QueueMemoryError(QueueError),
     /// The driver didn't acknowledge a required feature: {0}
     RequiredFeatureNotAcked(&'static str),
+    /// Vsock backend: {0}
+    VsockBackend(vsock::VsockError),
 }
 
 /// Trait that helps in upcasting an object to Any
