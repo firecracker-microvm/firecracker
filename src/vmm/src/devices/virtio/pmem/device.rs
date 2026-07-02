@@ -26,7 +26,7 @@ use crate::rate_limiter::{BucketUpdate, RateLimiter, TokenType};
 use crate::utils::{align_up, u64_to_usize};
 use crate::vmm_config::RateLimiterConfig;
 use crate::vmm_config::pmem::PmemConfig;
-use crate::vstate::memory::{ByteValued, Bytes, GuestMemoryMmap, GuestMmapRegion};
+use crate::vstate::memory::{ByteValued, Bytes, GuestMemoryMmap};
 use crate::vstate::vm::{KvmVm, VmError};
 
 #[derive(Debug, thiserror::Error, displaydoc::Display)]
