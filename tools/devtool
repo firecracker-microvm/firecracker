@@ -863,6 +863,17 @@ cmd_setup_kvm() {
     setup_kvm
 }
 
+# On Nitro Enclaves hosts, bump the number of PCIe slots the NE driver exposes
+# so enclave tests can attach their devices. No-op when the sysfs knob is
+# absent (i.e. not an NE host / older driver).
+setup_nitro_enclaves() {
+    local pcie_slots=/sys/devices/virtual/misc/nitro_enclaves/pcie_slots
+    if [[ -e $pcie_slots ]]; then
+        say "Setting NE pcie_slots to 68"
+        echo 68 | sudo tee $pcie_slots &> /dev/null
+    fi
+}
+
 # Modifies the processors CPU governor and P-state configuration (x86_64 only) for consistent performance. This means
 # - Disable turbo boost (Intel only) by writing 1 to /sys/devices/system/cpu/intel_pstate/no_turbo
 # - Lock the CPUs' P-state to the highest non-turbo one (Intel only) by writing 100 to /sys/devices/system/cpu/intel_pstate/{min,max}_perf_pct
@@ -1008,6 +1019,9 @@ cmd_test() {
         acquire_shared_kvm_lock
         setup_kvm
     fi
+    # NE hosts run with --no-kvm-check (no /dev/kvm), so keep this outside the
+    # block above; it self-guards on the sysfs knob being present.
+    setup_nitro_enclaves
     ensure_devctr
     [ $do_build_dir_check != 0 ] && ensure_build_dir
     if [ $do_artifacts_check != 0 ]; then
