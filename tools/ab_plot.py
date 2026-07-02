@@ -4,8 +4,8 @@
 """
 Script for creating visualizations for A/B runs.
 
-Usage:
-ab_plot.py path_to_run_a path_to_run_b path_to_run_c ... --output_type pdf/table
+See usage:
+ab_plot.py -h
 """
 
 import argparse
@@ -46,7 +46,7 @@ def check_regression(
     return result.pvalue, result.statistic / statistic_a, result.statistic
 
 
-def load_data(data_path: Path):
+def load_data(data_path: Path, ignore_dimensions: set[str]):
     """
     Recursively collects `metrics.json` files in provided path
     """
@@ -54,7 +54,9 @@ def load_data(data_path: Path):
     # Track cumulative index per (test, metric, dimensions) so that
     # subsequent iterations are plotted consecutively.
     offsets = {}
-    for name in sorted(glob.glob(f"{data_path}/**/metrics.json", recursive=True)):
+    for name in sorted(
+        glob.glob(f"{glob.escape(str(data_path))}/**/metrics.json", recursive=True)
+    ):
         with open(name, encoding="utf-8") as f:
             j = json.load(f)
 
@@ -72,6 +74,9 @@ def load_data(data_path: Path):
         del j["dimensions"]["instance"]
         del j["dimensions"]["cpu_model"]
         del j["dimensions"]["host_kernel"]
+
+        for dim in ignore_dimensions:
+            j["dimensions"].pop(dim, None)
 
         dimensions = frozenset(j["dimensions"].items())
 
@@ -274,7 +279,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "paths",
         nargs="+",
-        help="Paths to directories with test runs",
+        help="Paths to directories with test runs' metrics.json file",
         type=Path,
     )
     parser.add_argument(
@@ -285,8 +290,15 @@ if __name__ == "__main__":
     )
     parser.add_argument(
         "--output_type",
-        default=["pdf"],
+        default="pdf",
         help="Type of the output to generate",
+    )
+    parser.add_argument(
+        "-i",
+        "--ignore-dimension",
+        help="Dimension key to strip before matching groups. Repeatable.",
+        action="append",
+        default=[],
     )
     args = parser.parse_args()
 
@@ -294,7 +306,7 @@ if __name__ == "__main__":
     start_time = time.time()
     all_data = []
     for i, path in enumerate(args.paths):
-        data = load_data(path)
+        data = load_data(path, set(args.ignore_dimension))
         print(f"getting data {i} from {path}: {len(data)}")
         df = pd.DataFrame(data)
         df["group"] = chr(65 + i)  # A, B, C, D, ...

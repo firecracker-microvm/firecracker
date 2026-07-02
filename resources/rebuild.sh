@@ -102,17 +102,17 @@ function clone_amazon_linux_repo {
 # prints the git tag corresponding to the newest and best matching the provided kernel version $1
 # this means that if a microvm kernel exists, the tag returned will be of the form
 #
-#    microvm-kernel-$1.<patch number>.amzn2[023]
+#    microvm-kernel.*$1.<patch number>.amzn2[023]
 #
 # otherwise choose the newest tag matching
 #
-#    kernel-$1.<patch number>.amzn2[023]
+#    kernel.*$1.<patch number>.amzn2[023]
 function get_tag {
     local KERNEL_VERSION=$1
 
     # list all tags from newest to oldest
-    (git --no-pager tag -l --sort=-v:refname | grep "microvm-kernel-$1\..*\.amzn2" \
-        || git --no-pager tag -l --sort=-v:refname | grep "kernel-$1\..*\.amzn2") | head -n1
+    (git --no-pager tag -l --sort=-v:refname | grep "microvm-kernel.*$KERNEL_VERSION\..*\.amzn2" \
+        || git --no-pager tag -l --sort=-v:refname | grep "kernel.*$KERNEL_VERSION\..*\.amzn2") | head -n1
 }
 
 function build_al_kernel {
@@ -132,10 +132,10 @@ function build_al_kernel {
     git checkout -B tmp-$TAG
 
     # Apply any patchset we have for our kernels
-    for patchset in ../patches/*; do
+    for patchset in ../patches/*/${KERNEL_VERSION}; do
         [ -d "$patchset" ] || continue
-        echo "Applying patchset ${patchset}/${KERNEL_VERSION}"
-        git apply ${patchset}/${KERNEL_VERSION}/*.patch
+        echo "Applying patchset ${patchset}"
+        git apply ${patchset}/*.patch
     done
 
     arch=$(uname -m)
@@ -217,7 +217,7 @@ function build_al_kernels {
         die "Too many arguments in '$(basename $0) kernels' command. Please use \`$0 help\` for help."
     else
         KERNEL_VERSION=$1
-        if [[ "$KERNEL_VERSION" != @(5.10|5.10-no-acpi|6.1) ]]; then
+        if [[ "$KERNEL_VERSION" != @(5.10|5.10-no-acpi|6.1|6.18) ]]; then
             die "Unsupported kernel version: '$KERNEL_VERSION'. Please use \`$0 help\` for help."
         fi
     fi
@@ -235,6 +235,9 @@ function build_al_kernels {
     if [[ "$KERNEL_VERSION" == @(all|6.1) ]]; then
         build_al_kernel $PWD/guest_configs/microvm-kernel-ci-$ARCH-6.1.config "$CI_CONFIG"
     fi
+    if [[ "$KERNEL_VERSION" == @(all|6.18) ]]; then
+        build_al_kernel $PWD/guest_configs/microvm-kernel-ci-$ARCH-6.18.config "$CI_CONFIG"
+    fi
 
     # Build debug kernels
     FTRACE_CONFIG="$PWD/guest_configs/ftrace.config"
@@ -248,6 +251,10 @@ function build_al_kernels {
     if [[ "$KERNEL_VERSION" == @(all|6.1) ]]; then
         build_al_kernel "$PWD/guest_configs/microvm-kernel-ci-$ARCH-6.1.config" "$CI_CONFIG" "$FTRACE_CONFIG" "$DEBUG_CONFIG"
         vmlinux_split_debuginfo $OUTPUT_DIR/vmlinux-6.1.*
+    fi
+    if [[ "$KERNEL_VERSION" == @(all|6.18) ]]; then
+        build_al_kernel "$PWD/guest_configs/microvm-kernel-ci-$ARCH-6.18.config" "$CI_CONFIG" "$FTRACE_CONFIG" "$DEBUG_CONFIG"
+        vmlinux_split_debuginfo $OUTPUT_DIR/vmlinux-6.18.*
     fi
 }
 
@@ -273,7 +280,7 @@ Available commands:
         Builds our the currently supported CI kernels.
 
         version: Optionally choose a kernel version to build. Supported
-                 versions are: 5.10, 5.10-no-acpi or 6.1.
+                 versions are: 5.10, 5.10-no-acpi, 6.1 or 6.18.
 
     help
         Displays the help message and exits.

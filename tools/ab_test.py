@@ -10,9 +10,9 @@ test using binaries compiled from each revision, and runs a regression test
 comparing resulting metrics between runs.
 
 It performs the A/B-test as follows:
-For both A and B runs, collect all `metrics.json` files and read all dimentions
-from them. Script assumes all dimentions are unique within single run and both
-A and B runs result in the same dimentions. After collection is done, perform
+For both A and B runs, collect all `metrics.json` files and read all dimensions
+from them. Script assumes all dimensions are unique within single run and both
+A and B runs result in the same dimensions. After collection is done, perform
 statistical regression test across all the list-valued properties collected.
 """
 
@@ -146,17 +146,22 @@ def is_ignored(dimensions) -> bool:
     return False
 
 
-def load_data_series(data_path: Path):
+def load_data_series(data_path: Path, ignore_dimensions: set[str]):
     """Recursively collects `metrics.json` files in provided path"""
     data = {}
-    for name in glob.glob(f"{data_path}/**/metrics.json", recursive=True):
+    for name in glob.glob(
+        f"{glob.escape(str(data_path))}/**/metrics.json", recursive=True
+    ):
         with open(name, encoding="utf-8") as f:
             j = json.load(f)
 
         metrics = j["metrics"]
-        dimentions = frozenset(j["dimensions"].items())
+        for dim in ignore_dimensions:
+            j["dimensions"].pop(dim, None)
 
-        data[dimentions] = {}
+        dimensions = frozenset(j["dimensions"].items())
+
+        data[dimensions] = {}
         for m in metrics:
             # Ignore certain metrics as we know them to be volatile
             if "cpu_utilization" in m:
@@ -164,7 +169,7 @@ def load_data_series(data_path: Path):
             mm = metrics[m]
             unit = mm["unit"]
             values = mm["values"]
-            data[dimentions][m] = (values, unit)
+            data[dimensions][m] = (values, unit)
 
     return data
 
@@ -194,6 +199,7 @@ def collect_data(
     binary_dir: Path,
     artifacts: Optional[Path],
     pytest_opts: str,
+    ignore_dimensions: set[str],
     iteration: int = 0,
 ):
     """
@@ -228,7 +234,7 @@ def collect_data(
         shell=True,
     )
 
-    return load_data_series(Path(test_path))
+    return load_data_series(Path(test_path), ignore_dimensions)
 
 
 def check_regression(
@@ -433,6 +439,7 @@ def ab_performance_test(
     p_thresh: Threshold,
     strength_abs_thresh: Threshold,
     noise_threshold: Threshold,
+    ignore_dimensions: set[str],
     max_iterations=1,
 ):
     """Does an A/B-test of the specified test with the given firecracker/jailer binaries.
@@ -448,11 +455,19 @@ def ab_performance_test(
         print(f"\n=== Iteration {i + 1}/{max_iterations} ===")
         # Changing the order or A and B executions across iterations, to avoid fluctuations caused by execution order
         if i % 2 == 0:
-            new_a = collect_data("A", a_directory, a_artifacts, pytest_opts, i)
-            new_b = collect_data("B", b_directory, b_artifacts, pytest_opts, i)
+            new_a = collect_data(
+                "A", a_directory, a_artifacts, pytest_opts, ignore_dimensions, i
+            )
+            new_b = collect_data(
+                "B", b_directory, b_artifacts, pytest_opts, ignore_dimensions, i
+            )
         else:
-            new_b = collect_data("B", b_directory, b_artifacts, pytest_opts, i)
-            new_a = collect_data("A", a_directory, a_artifacts, pytest_opts, i)
+            new_b = collect_data(
+                "B", b_directory, b_artifacts, pytest_opts, ignore_dimensions, i
+            )
+            new_a = collect_data(
+                "A", a_directory, a_artifacts, pytest_opts, ignore_dimensions, i
+            )
         merge_data(data_a, new_a)
         merge_data(data_b, new_b)
 
@@ -527,17 +542,24 @@ def main():
     )
     analyze_parser = subparsers.add_parser(
         "analyze",
-        help="Analyze the results of two manually ran tests based on their test-report.json files",
+        help="Analyze the results of two manually ran tests based on their metrics.json files",
     )
     analyze_parser.add_argument(
         "path_a",
-        help="The path to the directory with A run",
+        help="The path to the directory with run A's metrics.json file",
         type=Path,
     )
     analyze_parser.add_argument(
         "path_b",
-        help="The path to the directory with B run",
+        help="The path to the directory with run B's metrics.json file",
         type=Path,
+    )
+    parser.add_argument(
+        "-i",
+        "--ignore-dimension",
+        help="Dimension key to strip before matching A and B entries. Repeatable.",
+        action="append",
+        default=[],
     )
     parser.add_argument(
         "--significance",
@@ -574,13 +596,14 @@ def main():
             p_thresh,
             strength_abs_thresh,
             noise_threshold,
+            set(args.ignore_dimension),
             max_iterations=args.max_iterations,
         )
         print(f"Total A/B test took {time.perf_counter() - t0:.2f}s")
     else:
         t0 = time.perf_counter()
-        data_a = load_data_series(args.path_a)
-        data_b = load_data_series(args.path_b)
+        data_a = load_data_series(args.path_a, set(args.ignore_dimension))
+        data_b = load_data_series(args.path_b, set(args.ignore_dimension))
         print(f"Data loading took {time.perf_counter() - t0:.2f}s")
 
         t0 = time.perf_counter()
