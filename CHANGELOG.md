@@ -18,6 +18,14 @@ and this project adheres to
 
 ### Fixed
 
+- [#5956](https://github.com/firecracker-microvm/firecracker/pull/5956): Fixed a
+  TOCTOU race in the aarch64 jailer when setting ownership of the CPU cache and
+  `MIDR_EL1` information files copied into the chroot.
+
+## [1.16.1]
+
+### Fixed
+
 - [#5959](https://github.com/firecracker-microvm/firecracker/pull/5959):
   Reverted the use of `O_NOFOLLOW` for the jailer's cgroup and network namespace
   file operations, so symlinks are again allowed in these paths.
@@ -26,9 +34,6 @@ and this project adheres to
   restore, triggered by taking a snapshot with a TX descriptor in-flight. On
   restore the device now replays the TX queue notification so in-flight TX
   descriptors are re-processed and notification suppression is re-armed.
-- [#5956](https://github.com/firecracker-microvm/firecracker/pull/5956): Fixed a
-  TOCTOU race in the aarch64 jailer when setting ownership of the CPU cache and
-  `MIDR_EL1` information files copied into the chroot.
 
 ## [1.16.0]
 
