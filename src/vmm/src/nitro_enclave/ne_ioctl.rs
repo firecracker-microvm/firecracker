@@ -426,7 +426,7 @@ impl NitroEnclavesDevFd {
         })
     }
 
-    /// Allocate CMA memory with a given alignment.
+    /// Allocate CMA memory with a given alignment and protection.
     ///
     /// Reserves virtual address space, finds an aligned address within it,
     /// then overlays CMA memory via `MAP_FIXED`. Unused prefix/suffix of
@@ -438,6 +438,7 @@ impl NitroEnclavesDevFd {
         &self,
         size: usize,
         alignment: usize,
+        prot: libc::c_int,
     ) -> Result<(*mut u8, usize), std::io::Error> {
         let aligned_size = align_up!(size, alignment);
         let reserve_size = aligned_size
@@ -472,7 +473,7 @@ impl NitroEnclavesDevFd {
             libc::mmap(
                 aligned_ptr,
                 aligned_size,
-                libc::PROT_READ | libc::PROT_WRITE,
+                prot,
                 libc::MAP_SHARED | libc::MAP_FIXED | libc::MAP_POPULATE,
                 self.fd.as_raw_fd(),
                 0,

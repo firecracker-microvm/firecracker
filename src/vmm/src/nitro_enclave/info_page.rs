@@ -316,9 +316,9 @@ pub struct InfoPage {
     ptr: *mut u8,
 }
 
-// SAFETY: InfoPage is only accessed via VolatileSlice (volatile reads/writes),
-// never through shared references to the underlying memory. Concurrent writes
-// from the enclave VMM are observed safely through volatile operations.
+// SAFETY: InfoPage is only accessed via VolatileSlice (volatile reads), never
+// through shared references to the underlying memory. Concurrent writes from
+// the enclave VMM are observed safely through volatile operations.
 unsafe impl Send for InfoPage {}
 // SAFETY: See Send impl.
 unsafe impl Sync for InfoPage {}
@@ -330,9 +330,14 @@ impl InfoPage {
     /// CMA pool. `NE_SET_INFO_PAGE` requires the userspace address to be
     /// 2 MiB-aligned ([`INFO_PAGE_ALIGN`]), so allocate with explicit alignment
     /// rather than relying on the default mmap granularity.
+    ///
+    /// Mapped `PROT_READ`: Firecracker only consumes the info page (the enclave
+    /// produces it), so a read-only mapping turns any accidental write into a
+    /// fault here rather than silent corruption. The NE driver pins the pages,
+    /// so the enclave's writable view is unaffected by this VA protection.
     pub fn new(ne_dev_fd: &super::ne_ioctl::NitroEnclavesDevFd) -> Result<Self, InfoPageError> {
         let (ptr, _aligned_size) = ne_dev_fd
-            .allocate_cma_aligned(INFO_PAGE_SIZE, INFO_PAGE_ALIGN)
+            .allocate_cma_aligned(INFO_PAGE_SIZE, INFO_PAGE_ALIGN, libc::PROT_READ)
             .map_err(InfoPageError::Alloc)?;
         Ok(Self { ptr })
     }
