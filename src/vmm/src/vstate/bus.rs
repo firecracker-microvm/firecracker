@@ -10,7 +10,6 @@
 use std::cmp::Ordering;
 use std::collections::btree_map::BTreeMap;
 use std::sync::{Arc, Barrier, Mutex, RwLock, Weak};
-use std::{error, fmt};
 
 /// Trait for devices that respond to reads or writes in an arbitrary address space.
 ///
@@ -53,21 +52,13 @@ impl<B: BusDevice> BusDeviceSync for Mutex<B> {
 }
 
 /// Error type for [`Bus`]-related operations.
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error, displaydoc::Display)]
 pub enum BusError {
     /// The insertion failed because the new device overlapped with an old device.
     Overlap,
     /// Failed to find address range.
     MissingAddressRange,
 }
-
-impl fmt::Display for BusError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "bus_error: {self:?}")
-    }
-}
-
-impl error::Error for BusError {}
 
 /// Holds a base and end representing the address space occupied by a `BusDevice`.
 ///
