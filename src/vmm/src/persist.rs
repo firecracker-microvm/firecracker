@@ -34,7 +34,9 @@ use crate::utils::u64_to_usize;
 use crate::vmm_config::boot_source::BootSourceConfig;
 use crate::vmm_config::instance_info::InstanceInfo;
 use crate::vmm_config::machine_config::{HugePageConfig, MachineConfigError, MachineConfigUpdate};
-use crate::vmm_config::snapshot::{CreateSnapshotParams, LoadSnapshotParams, MemBackendType};
+use crate::vmm_config::snapshot::{
+    CreateSnapshotParams, LoadSnapshotParams, MemBackendType, PmemOverride,
+};
 use crate::vstate::kvm::KvmState;
 use crate::vstate::memory::{
     self, GuestMemoryState, GuestRegionMmap, GuestRegionType, MemoryError,
@@ -412,6 +414,8 @@ pub fn restore_from_snapshot(
             .clone_from(&vsock_override.uds_path);
     }
 
+    apply_pmem_overrides(&mut microvm_state, &params.pmem_overrides)?;
+
     let track_dirty_pages = params.track_dirty_pages;
 
     let vcpu_count = microvm_state
@@ -475,6 +479,38 @@ pub fn restore_from_snapshot(
     .map_err(RestoreFromSnapshotError::Build)
 }
 
+/// Applies the pmem backing file path overrides to the restored microVM state.
+///
+/// Each override identifies a pmem device by its id and replaces its
+/// `path_on_host`. Both MMIO and PCI transports are searched. An override
+/// targeting an id that does not match any pmem device returns an error.
+fn apply_pmem_overrides(
+    microvm_state: &mut MicrovmState,
+    overrides: &[PmemOverride],
+) -> Result<(), SnapshotStateFromFileError> {
+    for entry in overrides {
+        microvm_state
+            .device_states
+            .mmio_state
+            .pmem_devices
+            .iter_mut()
+            .map(|device| &mut device.device_state)
+            .chain(
+                microvm_state
+                    .device_states
+                    .pci_state
+                    .pmem_devices
+                    .iter_mut()
+                    .map(|device| &mut device.device_state),
+            )
+            .find(|state| state.config.id == entry.id)
+            .map(|state| state.config.path_on_host.clone_from(&entry.path_on_host))
+            .ok_or_else(|| SnapshotStateFromFileError::UnknownPmemDevice(entry.id.clone()))?;
+    }
+
+    Ok(())
+}
+
 /// Error type for [`snapshot_state_from_file`]
 #[derive(Debug, thiserror::Error, displaydoc::Display)]
 pub enum SnapshotStateFromFileError {
@@ -486,6 +522,8 @@ pub enum SnapshotStateFromFileError {
     UnknownNetworkDevice,
     /// Unknown Vsock Device.
     UnknownVsockDevice,
+    /// Unknown Pmem device: {0}
+    UnknownPmemDevice(String),
 }
 
 fn snapshot_state_from_file(
@@ -657,7 +695,7 @@ mod tests {
     use crate::builder::tests::insert_vmgenid_device;
     use crate::builder::tests::{
         CustomBlockConfig, default_kernel_cmdline, default_vmm, insert_balloon_device,
-        insert_block_devices, insert_net_device, insert_vsock_device,
+        insert_block_devices, insert_net_device, insert_pmem_devices, insert_vsock_device,
     };
     #[cfg(target_arch = "aarch64")]
     use crate::construct_kvm_mpidrs;
@@ -665,6 +703,7 @@ mod tests {
     use crate::snapshot::Persist;
     use crate::vmm_config::balloon::BalloonDeviceConfig;
     use crate::vmm_config::net::NetworkInterfaceConfig;
+    use crate::vmm_config::pmem::PmemConfig;
     use crate::vmm_config::vsock::tests::default_config;
     use crate::vstate::memory::{GuestMemoryRegionState, GuestRegionType};
 
@@ -717,6 +756,18 @@ mod tests {
 
         insert_vsock_device(&mut vmm, &mut cmdline, &mut event_manager, vsock_config);
 
+        // Add a pmem device. The returned temp file is dropped immediately; only
+        // the saved device state (which carries the configured id/path) is needed.
+        let pmem_config = PmemConfig {
+            id: String::from("pmem0"),
+            path_on_host: String::new(),
+            root_device: false,
+            read_only: false,
+            rate_limiter: None,
+        };
+        let _pmem_files =
+            insert_pmem_devices(&mut vmm, &mut cmdline, &mut event_manager, vec![pmem_config]);
+
         #[cfg(target_arch = "x86_64")]
         insert_vmgenid_device(&mut vmm);
         #[cfg(target_arch = "x86_64")]
@@ -763,6 +814,97 @@ mod tests {
             restored_microvm_state.device_states.mmio_state,
             microvm_state.device_states.mmio_state
         )
+    }
+
+    fn microvm_state_with_devices() -> MicrovmState {
+        let vmm = default_vmm_with_devices();
+        let device_states = vmm.device_manager.save();
+
+        let vcpu_states = vec![VcpuState::default()];
+        #[cfg(target_arch = "aarch64")]
+        let mpidrs = construct_kvm_mpidrs(&vcpu_states);
+        MicrovmState {
+            device_states,
+            vcpu_states,
+            kvm_state: Default::default(),
+            vm_info: VmInfo {
+                mem_size_mib: 1u64,
+                ..Default::default()
+            },
+            #[cfg(target_arch = "aarch64")]
+            vm_state: vmm.vm.as_kvm().unwrap().save_state(&mpidrs).unwrap(),
+            #[cfg(target_arch = "x86_64")]
+            vm_state: vmm.vm.as_kvm().unwrap().save_state().unwrap(),
+        }
+    }
+
+    fn pmem_path(state: &MicrovmState, id: &str) -> Option<String> {
+        state
+            .device_states
+            .mmio_state
+            .pmem_devices
+            .iter()
+            .map(|device| &device.device_state)
+            .chain(
+                state
+                    .device_states
+                    .pci_state
+                    .pmem_devices
+                    .iter()
+                    .map(|device| &device.device_state),
+            )
+            .find(|s| s.config.id == id)
+            .map(|s| s.config.path_on_host.clone())
+    }
+
+    #[test]
+    fn test_apply_pmem_overrides_happy_path() {
+        let mut microvm_state = microvm_state_with_devices();
+        // Sanity: the device exists and its path differs from what we override to.
+        assert!(pmem_path(&microvm_state, "pmem0").is_some());
+
+        let overrides = vec![PmemOverride {
+            id: String::from("pmem0"),
+            path_on_host: String::from("/new/backing/file"),
+        }];
+
+        apply_pmem_overrides(&mut microvm_state, &overrides).unwrap();
+
+        assert_eq!(
+            pmem_path(&microvm_state, "pmem0").as_deref(),
+            Some("/new/backing/file")
+        );
+    }
+
+    #[test]
+    fn test_apply_pmem_overrides_unknown_device() {
+        let mut microvm_state = microvm_state_with_devices();
+
+        let overrides = vec![PmemOverride {
+            id: String::from("does-not-exist"),
+            path_on_host: String::from("/new/backing/file"),
+        }];
+
+        let err = apply_pmem_overrides(&mut microvm_state, &overrides).unwrap_err();
+        assert!(
+            matches!(
+                &err,
+                SnapshotStateFromFileError::UnknownPmemDevice(id) if id == "does-not-exist"
+            ),
+            "unexpected error: {err:?}"
+        );
+        // The existing device must be left untouched.
+        assert!(pmem_path(&microvm_state, "pmem0").is_some());
+    }
+
+    #[test]
+    fn test_apply_pmem_overrides_empty_is_noop() {
+        let mut microvm_state = microvm_state_with_devices();
+        let original = pmem_path(&microvm_state, "pmem0");
+
+        apply_pmem_overrides(&mut microvm_state, &[]).unwrap();
+
+        assert_eq!(pmem_path(&microvm_state, "pmem0"), original);
     }
 
     #[test]
