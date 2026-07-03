@@ -10,11 +10,25 @@ and this project adheres to
 
 ### Added
 
+- [#5983](https://github.com/firecracker-microvm/firecracker/pull/5983): Add two
+  optional metrics fields, set via `PUT /metrics` or a config file: `emit_id`
+  emits the microVM instance id under a top-level `id` field, and `properties`
+  emits operator-defined key-value pairs under a top-level `properties` field.
+  Each is opt-in and independent. See [metrics documentation](docs/metrics.md).
+
 ### Changed
 
 ### Deprecated
 
 ### Removed
+
+### Fixed
+
+- [#5956](https://github.com/firecracker-microvm/firecracker/pull/5956): Fixed a
+  TOCTOU race in the aarch64 jailer when setting ownership of the CPU cache and
+  `MIDR_EL1` information files copied into the chroot.
+
+## [1.16.1]
 
 ### Fixed
 
