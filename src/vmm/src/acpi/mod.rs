@@ -87,7 +87,7 @@ impl AcpiTableWriter<'_> {
         let mut dsdt_data = Vec::new();
 
         // Virtio-devices DSDT data
-        dsdt_data.extend_from_slice(&device_manager.mmio_devices.dsdt_data);
+        dsdt_data.extend_from_slice(&device_manager.mmio_virtio_devices.dsdt_data);
 
         // Add GED and VMGenID AML data.
         device_manager
