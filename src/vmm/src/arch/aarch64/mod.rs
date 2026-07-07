@@ -31,12 +31,12 @@ use crate::initrd::InitrdConfig;
 use zerocopy::IntoBytes;
 
 use crate::logger::warn;
-use crate::utils::{align_up, u64_to_usize, usize_to_u64};
+use crate::utils::{u64_to_usize, usize_to_u64};
 use crate::vmm_config::machine_config::MachineConfig;
 use crate::vstate::memory::{Address, Bytes, GuestAddress, GuestMemoryMmap, GuestRegionType};
 use crate::vstate::vcpu::KvmVcpuError;
 use crate::vstate::vm::KvmVm;
-use crate::{DeviceManager, Kvm, Vcpu, VcpuConfig, logger};
+use crate::{DeviceManager, Kvm, Vcpu, VcpuConfig, align_up, logger};
 
 /// Errors thrown while configuring aarch64 system.
 #[derive(Debug, thiserror::Error, displaydoc::Display)]
@@ -222,9 +222,9 @@ pub fn get_kernel_start() -> u64 {
 
 /// Returns the memory address where the initrd could be loaded.
 pub fn initrd_load_addr(guest_mem: &GuestMemoryMmap, initrd_size: usize) -> Option<u64> {
-    let rounded_size = align_up(
+    let rounded_size = align_up!(
         usize_to_u64(initrd_size),
-        usize_to_u64(super::GUEST_PAGE_SIZE),
+        usize_to_u64(super::GUEST_PAGE_SIZE)
     );
     GuestAddress(get_fdt_addr(guest_mem))
         .checked_sub(rounded_size)
