@@ -67,13 +67,14 @@ impl TryFrom<&BlockDeviceConfig> for VhostUserBlockConfig {
     type Error = VhostUserBlockError;
 
     fn try_from(value: &BlockDeviceConfig) -> Result<Self, Self::Error> {
-        if let (Some(socket), None, None, None, None, None) = (
+        if let (Some(socket), None, None, None, None, None, None) = (
             &value.socket,
             &value.is_read_only,
             &value.path_on_host,
             &value.rate_limiter,
             &value.file_engine_type,
             &value.blk_size,
+            &value.topology,
         ) {
             Ok(Self {
                 drive_id: value.drive_id.clone(),
@@ -102,6 +103,7 @@ impl From<VhostUserBlockConfig> for BlockDeviceConfig {
             rate_limiter: None,
             file_engine_type: None,
             blk_size: None,
+            topology: None,
 
             socket: Some(value.socket),
         }
@@ -419,6 +421,7 @@ mod tests {
             rate_limiter: None,
             file_engine_type: None,
             blk_size: None,
+            topology: None,
 
             socket: Some("sock".to_string()),
         };
@@ -435,6 +438,7 @@ mod tests {
             rate_limiter: None,
             file_engine_type: Some(FileEngineType::Sync),
             blk_size: None,
+            topology: None,
 
             socket: None,
         };
@@ -451,6 +455,7 @@ mod tests {
             rate_limiter: None,
             file_engine_type: Some(FileEngineType::Sync),
             blk_size: None,
+            topology: None,
 
             socket: Some("sock".to_string()),
         };
