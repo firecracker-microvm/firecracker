@@ -59,6 +59,7 @@ pub fn default_block_with_path(path: String, file_engine_type: FileEngineType) -
         }),
         file_engine_type,
         blk_size: None,
+        topology: None,
     };
 
     // The default block device is read-write and non-root.
