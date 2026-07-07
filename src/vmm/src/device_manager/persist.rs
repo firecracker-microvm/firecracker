@@ -268,7 +268,7 @@ impl<'a> Persist<'a> for MMIOPlatformDevices {
     }
 }
 
-impl<'a> Persist<'a> for MMIODeviceManager {
+impl<'a> Persist<'a> for MMIOVirtioDevices {
     type State = DeviceStates;
     type ConstructorArgs = MMIODevManagerConstructorArgs<'a>;
     type Error = DevicePersistError;
@@ -404,7 +404,7 @@ impl<'a> Persist<'a> for MMIODeviceManager {
         constructor_args: Self::ConstructorArgs,
         state: &Self::State,
     ) -> Result<Self, Self::Error> {
-        let mut dev_manager = MMIODeviceManager::new();
+        let mut dev_manager = MMIOVirtioDevices::new();
         let mem = constructor_args.mem;
         let vm = constructor_args.vm;
 
@@ -682,8 +682,8 @@ mod tests {
         }
     }
 
-    impl PartialEq for MMIODeviceManager {
-        fn eq(&self, other: &MMIODeviceManager) -> bool {
+    impl PartialEq for MMIOVirtioDevices {
+        fn eq(&self, other: &MMIOVirtioDevices) -> bool {
             // We only care about the device hashmap.
             if self.virtio_devices.len() != other.virtio_devices.len() {
                 return false;
@@ -805,7 +805,7 @@ mod tests {
             instance_id: "microvm-id",
         };
         let _restored_dev_manager =
-            MMIODeviceManager::restore(restore_args, &device_manager_state.mmio_state).unwrap();
+            MMIOVirtioDevices::restore(restore_args, &device_manager_state.mmio_state).unwrap();
 
         let expected_vm_resources = format!(
             r#"{{

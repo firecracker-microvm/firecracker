@@ -469,7 +469,7 @@ fn create_devices_node(
         create_serial_node(fdt, serial_info)?;
     }
 
-    let mut virtio_mmio = device_manager.mmio_devices.virtio_device_info();
+    let mut virtio_mmio = device_manager.mmio_virtio_devices.virtio_device_info();
 
     // Sort out virtio devices by address from low to high and insert them into fdt table.
     virtio_mmio.sort_by_key(|a| a.addr);
@@ -591,7 +591,7 @@ mod tests {
             .unwrap();
         let dummy = Arc::new(Mutex::new(DummyDevice::new()));
         device_manager
-            .mmio_devices
+            .mmio_virtio_devices
             .register_virtio_test_device(
                 &vm,
                 mem.clone(),

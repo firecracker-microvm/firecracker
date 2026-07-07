@@ -121,7 +121,7 @@ pub struct MMIODevice<T> {
 
 /// Manages the complexities of registering a MMIO device.
 #[derive(Debug, Default)]
-pub struct MMIODeviceManager {
+pub struct MMIOVirtioDevices {
     /// VirtIO devices using an MMIO transport layer
     pub(crate) virtio_devices: HashMap<VirtioDeviceId, MMIODevice<MmioTransport>>,
     #[cfg(target_arch = "x86_64")]
@@ -135,9 +135,9 @@ pub struct MMIODeviceManager {
     pub(crate) dsdt_data: Vec<u8>,
 }
 
-impl MMIODeviceManager {
+impl MMIOVirtioDevices {
     /// Create a new manager for virtio devices using the MMIO transport.
-    pub fn new() -> MMIODeviceManager {
+    pub fn new() -> MMIOVirtioDevices {
         Default::default()
     }
 
@@ -484,7 +484,7 @@ pub(crate) mod tests {
 
     const QUEUE_SIZES: &[u16] = &[64];
 
-    impl MMIODeviceManager {
+    impl MMIOVirtioDevices {
         pub(crate) fn register_virtio_test_device(
             &mut self,
             vm: &KvmVm,
@@ -620,7 +620,7 @@ pub(crate) mod tests {
         let kvm = Kvm::new(vec![]).expect("Cannot create Kvm");
         let mut vm = KvmVm::new(kvm).unwrap();
         vm.register_dram_memory_regions(guest_mem).unwrap();
-        let mut device_manager = MMIODeviceManager::new();
+        let mut device_manager = MMIOVirtioDevices::new();
 
         let mut cmdline = kernel_cmdline::Cmdline::new(4096).unwrap();
         let dummy = Arc::new(Mutex::new(DummyDevice::new()));
@@ -674,7 +674,7 @@ pub(crate) mod tests {
         let kvm = Kvm::new(vec![]).expect("Cannot create Kvm");
         let mut vm = KvmVm::new(kvm).unwrap();
         vm.register_dram_memory_regions(guest_mem).unwrap();
-        let mut device_manager = MMIODeviceManager::new();
+        let mut device_manager = MMIOVirtioDevices::new();
 
         let mut cmdline = kernel_cmdline::Cmdline::new(4096).unwrap();
         #[cfg(target_arch = "x86_64")]
@@ -736,7 +736,7 @@ pub(crate) mod tests {
         #[cfg(target_arch = "aarch64")]
         vm.setup_irqchip(1).unwrap();
 
-        let mut device_manager = MMIODeviceManager::new();
+        let mut device_manager = MMIOVirtioDevices::new();
         let mut cmdline = kernel_cmdline::Cmdline::new(4096).unwrap();
         let dummy = Arc::new(Mutex::new(DummyDevice::new()));
 
@@ -802,7 +802,7 @@ pub(crate) mod tests {
 
     #[test]
     fn test_no_irq_allocation() {
-        let mut device_manager = MMIODeviceManager::new();
+        let mut device_manager = MMIOVirtioDevices::new();
         let mut resource_allocator = ResourceAllocator::new();
 
         let device_info = device_manager
@@ -813,7 +813,7 @@ pub(crate) mod tests {
 
     #[test]
     fn test_irq_allocation() {
-        let mut device_manager = MMIODeviceManager::new();
+        let mut device_manager = MMIOVirtioDevices::new();
         let mut resource_allocator = ResourceAllocator::new();
 
         let device_info = device_manager
@@ -824,7 +824,7 @@ pub(crate) mod tests {
 
     #[test]
     fn test_allocation_failure() {
-        let mut device_manager = MMIODeviceManager::new();
+        let mut device_manager = MMIOVirtioDevices::new();
         let mut resource_allocator = ResourceAllocator::new();
         assert_eq!(
             format!(

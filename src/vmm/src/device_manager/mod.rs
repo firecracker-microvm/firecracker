@@ -15,7 +15,7 @@ use event_manager::{MutEventSubscriber, SubscriberOps};
 #[cfg(target_arch = "x86_64")]
 use legacy::{LegacyDeviceError, PortIODeviceManager};
 use linux_loader::loader::Cmdline;
-use mmio::{MMIODeviceManager, MMIOPlatformDevices, MmioError};
+use mmio::{MMIOPlatformDevices, MMIOVirtioDevices, MmioError};
 use pci_mngr::{PciDevices, PciDevicesConstructorArgs, PciManagerError};
 use persist::{
     MMIODevManagerConstructorArgs, MMIOPlatformDevicesConstructorArgs, MMIOPlatformDevicesState,
@@ -120,7 +120,7 @@ pub struct DeviceManager {
     /// MMIO Platform devices (non-virtio)
     pub mmio_platform_devices: MMIOPlatformDevices,
     /// Virtio devices using an MMIO transport.
-    pub mmio_devices: MMIODeviceManager,
+    pub mmio_virtio_devices: MMIOVirtioDevices,
     #[cfg(target_arch = "x86_64")]
     /// Legacy devices (`None` if not initialized)
     pub legacy_devices: Option<PortIODeviceManager>,
@@ -250,7 +250,7 @@ impl DeviceManager {
 
         Ok(DeviceManager {
             mmio_platform_devices: MMIOPlatformDevices::new(),
-            mmio_devices: MMIODeviceManager::new(),
+            mmio_virtio_devices: MMIOVirtioDevices::new(),
             #[cfg(target_arch = "x86_64")]
             legacy_devices: Some(legacy_devices),
             acpi_devices: ACPIDeviceManager::default(),
@@ -274,8 +274,13 @@ impl DeviceManager {
         // The device mutex mustn't be locked here otherwise it will deadlock.
         let device =
             MmioTransport::new(vm.guest_memory().clone(), interrupt, device, is_vhost_user);
-        self.mmio_devices
-            .register_mmio_virtio_for_boot(vm, id, device, event_manager, cmdline)?;
+        self.mmio_virtio_devices.register_mmio_virtio_for_boot(
+            vm,
+            id,
+            device,
+            event_manager,
+            cmdline,
+        )?;
 
         Ok(())
     }
@@ -383,7 +388,7 @@ impl DeviceManager {
         info!("Artificially kick devices");
         // Go through MMIO VirtIO devices
         let _: Result<(), MmioError> =
-            self.mmio_devices
+            self.mmio_virtio_devices
                 .for_each_virtio_mmio_device(|_, _, device| {
                     let mmio_transport_locked = device.inner.lock().expect("Poisoned lock");
                     mmio_transport_locked
@@ -422,7 +427,7 @@ impl DeviceManager {
     pub fn mark_virtio_queue_memory_dirty(&self, mem: &GuestMemoryMmap) {
         // Go through MMIO VirtIO devices
         let _: Result<(), Infallible> =
-            self.mmio_devices
+            self.mmio_virtio_devices
                 .for_each_virtio_mmio_device(|_, _, device| {
                     let mmio_transport_locked = device.inner.lock().expect("Poisoned locked");
                     Self::do_mark_virtio_queue_memory_dirty(mmio_transport_locked.device(), mem);
@@ -453,7 +458,7 @@ impl DeviceManager {
             )
         } else {
             let mmio_device = self
-                .mmio_devices
+                .mmio_virtio_devices
                 .get_virtio_device(device_type, device_id)?;
             Some(
                 mmio_device
@@ -488,7 +493,7 @@ impl DeviceManager {
         if self.is_pci_enabled() {
             self.pci_devices.for_each_virtio_device(&mut f);
         } else {
-            self.mmio_devices.for_each_virtio_device(&mut f);
+            self.mmio_virtio_devices.for_each_virtio_device(&mut f);
         }
     }
 
@@ -734,7 +739,7 @@ impl<'a> Persist<'a> for DeviceManager {
 
     fn save(&self) -> Self::State {
         DevicesState {
-            mmio_state: self.mmio_devices.save(),
+            mmio_state: self.mmio_virtio_devices.save(),
             mmio_platform_state: self.mmio_platform_devices.save(),
             acpi_state: self.acpi_devices.save(),
             pci_state: self.pci_devices.save(),
@@ -779,7 +784,7 @@ impl<'a> Persist<'a> for DeviceManager {
             vm_resources: constructor_args.vm_resources,
             instance_id: constructor_args.instance_id,
         };
-        let mmio_devices = MMIODeviceManager::restore(mmio_ctor_args, &state.mmio_state)
+        let mmio_virtio_devices = MMIOVirtioDevices::restore(mmio_ctor_args, &state.mmio_state)
             .map_err(DeviceManagerPersistError::MmioRestore)?;
 
         // Restore ACPI devices
@@ -798,7 +803,7 @@ impl<'a> Persist<'a> for DeviceManager {
 
         Ok(DeviceManager {
             mmio_platform_devices,
-            mmio_devices,
+            mmio_virtio_devices,
             #[cfg(target_arch = "x86_64")]
             legacy_devices: Some(legacy_devices),
             acpi_devices,
@@ -828,7 +833,7 @@ pub(crate) mod tests {
     pub(crate) fn default_device_manager() -> DeviceManager {
         let mut resource_allocator = ResourceAllocator::new();
         let mmio_platform_devices = MMIOPlatformDevices::new();
-        let mmio_devices = MMIODeviceManager::new();
+        let mmio_virtio_devices = MMIOVirtioDevices::new();
         let acpi_devices = ACPIDeviceManager::new(
             VmGenId::new(&mut resource_allocator).unwrap(),
             VmClock::new(&mut resource_allocator).unwrap(),
@@ -847,7 +852,7 @@ pub(crate) mod tests {
 
         DeviceManager {
             mmio_platform_devices,
-            mmio_devices,
+            mmio_virtio_devices,
             #[cfg(target_arch = "x86_64")]
             legacy_devices: Some(legacy_devices),
             acpi_devices,
