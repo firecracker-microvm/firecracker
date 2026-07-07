@@ -461,11 +461,11 @@ fn create_devices_node(
     fdt: &mut FdtWriter,
     device_manager: &DeviceManager,
 ) -> Result<(), FdtError> {
-    if let Some(rtc_info) = device_manager.mmio_devices.rtc_device_info() {
+    if let Some(rtc_info) = device_manager.mmio_platform_devices.rtc_device_info() {
         create_rtc_node(fdt, rtc_info)?;
     }
 
-    if let Some(serial_info) = device_manager.mmio_devices.serial_device_info() {
+    if let Some(serial_info) = device_manager.mmio_platform_devices.serial_device_info() {
         create_serial_node(fdt, serial_info)?;
     }
 

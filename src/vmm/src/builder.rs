@@ -1312,7 +1312,12 @@ pub(crate) mod tests {
             .device_manager
             .attach_boot_timer_device(vmm.vm.as_kvm().unwrap(), request_ts);
         res.unwrap();
-        assert!(vmm.device_manager.mmio_devices.boot_timer.is_some());
+        assert!(
+            vmm.device_manager
+                .mmio_platform_devices
+                .boot_timer
+                .is_some()
+        );
     }
 
     #[test]
