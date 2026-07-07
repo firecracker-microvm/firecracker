@@ -11,8 +11,6 @@ use serde::{Deserialize, Serialize};
 use super::acpi::ACPIDeviceManager;
 use super::mmio::*;
 use crate::EventManager;
-#[cfg(target_arch = "aarch64")]
-use crate::arch::DeviceType;
 use crate::device_manager::DevicePersistError;
 use crate::device_manager::acpi::ACPIDeviceError;
 use crate::devices::acpi::vmclock::{VmClock, VmClockState};
@@ -106,28 +104,15 @@ pub struct VirtioDeviceState<T> {
     pub device_info: MMIODeviceInfo,
 }
 
-/// Holds the state of a legacy device connected to the MMIO space.
-#[cfg(target_arch = "aarch64")]
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ConnectedLegacyState {
-    /// Device identifier.
-    pub type_: DeviceType,
-    /// VmmResources.
-    pub device_info: MMIODeviceInfo,
-}
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MmdsState {
     pub version: MmdsVersion,
     pub imds_compat: bool,
 }
 
-/// Holds the device states.
+/// Holds the states of the virtio devices connected over the MMIO transport.
 #[derive(Debug, Default, Clone, Serialize, Deserialize)]
 pub struct DeviceStates {
-    #[cfg(target_arch = "aarch64")]
-    // State of legacy devices in MMIO space.
-    pub legacy_devices: Vec<ConnectedLegacyState>,
     /// Block device states.
     pub block_devices: Vec<VirtioDeviceState<BlockState>>,
     /// Net device states.
@@ -152,8 +137,25 @@ pub struct MMIODevManagerConstructorArgs<'a> {
     pub event_manager: &'a mut EventManager,
     pub vm_resources: &'a mut VmResources,
     pub instance_id: &'a str,
+}
+
+pub struct MMIOPlatformDevicesConstructorArgs<'a> {
+    pub vm: &'a Arc<KvmVm>,
+    pub event_manager: &'a mut EventManager,
+    pub vm_resources: &'a mut VmResources,
     pub serial_state: Option<&'a SerialState>,
 }
+
+impl fmt::Debug for MMIOPlatformDevicesConstructorArgs<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("MMIOPlatformDevicesConstructorArgs")
+            .field("vm", &self.vm)
+            .field("event_manager", &"?")
+            .field("vm_resources", &self.vm_resources)
+            .finish()
+    }
+}
+
 impl fmt::Debug for MMIODevManagerConstructorArgs<'_> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("MMIODevManagerConstructorArgs")
@@ -171,6 +173,17 @@ impl fmt::Debug for MMIODevManagerConstructorArgs<'_> {
 pub struct ACPIDeviceManagerState {
     vmgenid: VMGenIDState,
     vmclock: VmClockState,
+}
+
+/// Holds the states of the non-virtio (platform) devices connected over the MMIO transport.
+#[derive(Default, Debug, Clone, Serialize, Deserialize)]
+pub struct MMIOPlatformDevicesState {
+    #[cfg(target_arch = "aarch64")]
+    /// State of the serial device in MMIO space.
+    pub serial: Option<MMIODeviceInfo>,
+    #[cfg(target_arch = "aarch64")]
+    /// State of the RTC device in MMIO space.
+    pub rtc: Option<MMIODeviceInfo>,
 }
 
 impl<'a> Persist<'a> for ACPIDeviceManager {
@@ -205,6 +218,56 @@ impl<'a> Persist<'a> for ACPIDeviceManager {
     }
 }
 
+impl<'a> Persist<'a> for MMIOPlatformDevices {
+    type State = MMIOPlatformDevicesState;
+    type ConstructorArgs = MMIOPlatformDevicesConstructorArgs<'a>;
+    type Error = DevicePersistError;
+
+    fn save(&self) -> Self::State {
+        MMIOPlatformDevicesState {
+            #[cfg(target_arch = "aarch64")]
+            serial: self.serial.as_ref().map(|device| device.resources),
+            #[cfg(target_arch = "aarch64")]
+            rtc: self.rtc.as_ref().map(|device| device.resources),
+        }
+    }
+
+    #[allow(unused_variables)]
+    #[cfg_attr(not(target_arch = "aarch64"), allow(unused_mut))]
+    fn restore(
+        constructor_args: Self::ConstructorArgs,
+        state: &Self::State,
+    ) -> Result<Self, Self::Error> {
+        let mut platform_devices = MMIOPlatformDevices::new();
+
+        #[cfg(target_arch = "aarch64")]
+        {
+            if let Some(device_info) = state.serial {
+                let serial_state = constructor_args.serial_state.map(Into::into);
+                let serial = crate::DeviceManager::setup_serial_device(
+                    constructor_args.event_manager,
+                    constructor_args.vm_resources.serial_out_path.as_ref(),
+                    serial_state.as_ref(),
+                    constructor_args.vm_resources.serial_rate_limiter(),
+                )?;
+
+                platform_devices.register_mmio_serial(
+                    constructor_args.vm,
+                    serial,
+                    Some(device_info),
+                )?;
+            }
+
+            if let Some(device_info) = state.rtc {
+                let rtc = Arc::new(Mutex::new(RTCDevice::new()));
+                platform_devices.register_mmio_rtc(constructor_args.vm, rtc, Some(device_info))?;
+            }
+        }
+
+        Ok(platform_devices)
+    }
+}
+
 impl<'a> Persist<'a> for MMIODeviceManager {
     type State = DeviceStates;
     type ConstructorArgs = MMIODevManagerConstructorArgs<'a>;
@@ -212,23 +275,6 @@ impl<'a> Persist<'a> for MMIODeviceManager {
 
     fn save(&self) -> Self::State {
         let mut states = DeviceStates::default();
-
-        #[cfg(target_arch = "aarch64")]
-        {
-            if let Some(device) = &self.serial {
-                states.legacy_devices.push(ConnectedLegacyState {
-                    type_: DeviceType::Serial,
-                    device_info: device.resources,
-                });
-            }
-
-            if let Some(device) = &self.rtc {
-                states.legacy_devices.push(ConnectedLegacyState {
-                    type_: DeviceType::Rtc,
-                    device_info: device.resources,
-                });
-            }
-        }
 
         let _: Result<(), ()> = self.for_each_virtio_mmio_device(|_, devid, device| {
             let mmio_transport_locked = device.inner.lock().expect("Poisoned lock");
@@ -361,28 +407,6 @@ impl<'a> Persist<'a> for MMIODeviceManager {
         let mut dev_manager = MMIODeviceManager::new();
         let mem = constructor_args.mem;
         let vm = constructor_args.vm;
-
-        #[cfg(target_arch = "aarch64")]
-        {
-            for state in &state.legacy_devices {
-                if state.type_ == DeviceType::Serial {
-                    let serial_state: Option<vm_superio::serial::SerialState> =
-                        constructor_args.serial_state.map(Into::into);
-                    let serial = crate::DeviceManager::setup_serial_device(
-                        constructor_args.event_manager,
-                        constructor_args.vm_resources.serial_out_path.as_ref(),
-                        serial_state.as_ref(),
-                        constructor_args.vm_resources.serial_rate_limiter(),
-                    )?;
-
-                    dev_manager.register_mmio_serial(vm, serial, Some(state.device_info))?;
-                }
-                if state.type_ == DeviceType::Rtc {
-                    let rtc = Arc::new(Mutex::new(RTCDevice::new()));
-                    dev_manager.register_mmio_rtc(vm, rtc, Some(state.device_info))?;
-                }
-            }
-        }
 
         let mut restore_helper = |device: Arc<Mutex<dyn VirtioDevice>>,
                                   activated: bool,
@@ -671,7 +695,7 @@ mod tests {
                 }
             }
 
-            self.boot_timer == other.boot_timer
+            true
         }
     }
 
@@ -779,7 +803,6 @@ mod tests {
             event_manager: &mut event_manager,
             vm_resources,
             instance_id: "microvm-id",
-            serial_state: None,
         };
         let _restored_dev_manager =
             MMIODeviceManager::restore(restore_args, &device_manager_state.mmio_state).unwrap();

@@ -15,9 +15,11 @@ use event_manager::{MutEventSubscriber, SubscriberOps};
 #[cfg(target_arch = "x86_64")]
 use legacy::{LegacyDeviceError, PortIODeviceManager};
 use linux_loader::loader::Cmdline;
-use mmio::{MMIODeviceManager, MmioError};
+use mmio::{MMIODeviceManager, MMIOPlatformDevices, MmioError};
 use pci_mngr::{PciDevices, PciDevicesConstructorArgs, PciManagerError};
-use persist::MMIODevManagerConstructorArgs;
+use persist::{
+    MMIODevManagerConstructorArgs, MMIOPlatformDevicesConstructorArgs, MMIOPlatformDevicesState,
+};
 use serde::{Deserialize, Serialize};
 use utils::time::TimestampUs;
 use vm_superio::serial;
@@ -115,7 +117,9 @@ pub enum FindDeviceError {
 #[derive(Debug, Default)]
 /// A manager of all peripheral devices of Firecracker
 pub struct DeviceManager {
-    /// MMIO devices
+    /// MMIO Platform devices (non-virtio)
+    pub mmio_platform_devices: MMIOPlatformDevices,
+    /// Virtio devices using an MMIO transport.
     pub mmio_devices: MMIODeviceManager,
     #[cfg(target_arch = "x86_64")]
     /// Legacy devices (`None` if not initialized)
@@ -175,7 +179,7 @@ impl DeviceManager {
     fn serial_state(&self) -> Option<persist::SerialState> {
         #[cfg(target_arch = "aarch64")]
         {
-            self.mmio_devices.serial.as_ref().map(|device| {
+            self.mmio_platform_devices.serial.as_ref().map(|device| {
                 let locked = device.inner.lock().expect("Poisoned lock");
                 locked.serial.state().into()
             })
@@ -245,6 +249,7 @@ impl DeviceManager {
         )?;
 
         Ok(DeviceManager {
+            mmio_platform_devices: MMIOPlatformDevices::new(),
             mmio_devices: MMIODeviceManager::new(),
             #[cfg(target_arch = "x86_64")]
             legacy_devices: Some(legacy_devices),
@@ -314,7 +319,7 @@ impl DeviceManager {
     ) -> Result<(), AttachDeviceError> {
         let boot_timer = Arc::new(Mutex::new(BootTimer::new(request_ts)));
 
-        self.mmio_devices
+        self.mmio_platform_devices
             .register_mmio_boot_timer(&vm.common.mmio_bus, boot_timer)?;
 
         Ok(())
@@ -356,12 +361,15 @@ impl DeviceManager {
                 None,
                 serial_rate_limiter,
             )?;
-            self.mmio_devices.register_mmio_serial(vm, serial, None)?;
-            self.mmio_devices.add_mmio_serial_to_cmdline(cmdline)?;
+            self.mmio_platform_devices
+                .register_mmio_serial(vm, serial, None)?;
+            self.mmio_platform_devices
+                .add_mmio_serial_to_cmdline(cmdline)?;
         }
 
         let rtc = Arc::new(Mutex::new(RTCDevice::new()));
-        self.mmio_devices.register_mmio_rtc(vm, rtc, None)?;
+        self.mmio_platform_devices
+            .register_mmio_rtc(vm, rtc, None)?;
         Ok(())
     }
 
@@ -634,8 +642,10 @@ impl DeviceManager {
 #[derive(Debug, Default, Clone, Serialize, Deserialize)]
 /// State of devices in the system
 pub struct DevicesState {
-    /// MMIO devices state
+    /// MMIO virtio devices state
     pub mmio_state: persist::DeviceStates,
+    /// MMIO platform (non-virtio) devices state
+    pub mmio_platform_state: MMIOPlatformDevicesState,
     /// ACPI devices state
     pub acpi_state: persist::ACPIDeviceManagerState,
     /// PCI devices state
@@ -725,6 +735,7 @@ impl<'a> Persist<'a> for DeviceManager {
     fn save(&self) -> Self::State {
         DevicesState {
             mmio_state: self.mmio_devices.save(),
+            mmio_platform_state: self.mmio_platform_devices.save(),
             acpi_state: self.acpi_devices.save(),
             pci_state: self.pci_devices.save(),
             serial_state: self.serial_state(),
@@ -749,14 +760,24 @@ impl<'a> Persist<'a> for DeviceManager {
             constructor_args.vm_resources.serial_rate_limiter(),
         )?;
 
-        // Restore MMIO devices
+        // Restore MMIO platform devices
+        let platform_ctor_args = MMIOPlatformDevicesConstructorArgs {
+            vm: constructor_args.vm,
+            event_manager: constructor_args.event_manager,
+            vm_resources: constructor_args.vm_resources,
+            serial_state: state.serial_state.as_ref(),
+        };
+        let mmio_platform_devices =
+            MMIOPlatformDevices::restore(platform_ctor_args, &state.mmio_platform_state)
+                .map_err(DeviceManagerPersistError::MmioRestore)?;
+
+        // Restore Virtio-over-MMIO devices
         let mmio_ctor_args = MMIODevManagerConstructorArgs {
             mem: constructor_args.mem,
             vm: constructor_args.vm,
             event_manager: constructor_args.event_manager,
             vm_resources: constructor_args.vm_resources,
             instance_id: constructor_args.instance_id,
-            serial_state: state.serial_state.as_ref(),
         };
         let mmio_devices = MMIODeviceManager::restore(mmio_ctor_args, &state.mmio_state)
             .map_err(DeviceManagerPersistError::MmioRestore)?;
@@ -776,6 +797,7 @@ impl<'a> Persist<'a> for DeviceManager {
             .map_err(DeviceManagerPersistError::PciRestore)?;
 
         Ok(DeviceManager {
+            mmio_platform_devices,
             mmio_devices,
             #[cfg(target_arch = "x86_64")]
             legacy_devices: Some(legacy_devices),
@@ -805,6 +827,7 @@ pub(crate) mod tests {
 
     pub(crate) fn default_device_manager() -> DeviceManager {
         let mut resource_allocator = ResourceAllocator::new();
+        let mmio_platform_devices = MMIOPlatformDevices::new();
         let mmio_devices = MMIODeviceManager::new();
         let acpi_devices = ACPIDeviceManager::new(
             VmGenId::new(&mut resource_allocator).unwrap(),
@@ -823,6 +846,7 @@ pub(crate) mod tests {
         };
 
         DeviceManager {
+            mmio_platform_devices,
             mmio_devices,
             #[cfg(target_arch = "x86_64")]
             legacy_devices: Some(legacy_devices),
@@ -835,8 +859,8 @@ pub(crate) mod tests {
     #[test]
     fn test_attach_legacy_serial() {
         let mut vmm = default_vmm();
-        assert!(vmm.device_manager.mmio_devices.rtc.is_none());
-        assert!(vmm.device_manager.mmio_devices.serial.is_none());
+        assert!(vmm.device_manager.mmio_platform_devices.rtc.is_none());
+        assert!(vmm.device_manager.mmio_platform_devices.serial.is_none());
 
         let mut cmdline = Cmdline::new(4096).unwrap();
         let mut event_manager = EventManager::new().unwrap();
@@ -849,8 +873,8 @@ pub(crate) mod tests {
                 None,
             )
             .unwrap();
-        assert!(vmm.device_manager.mmio_devices.rtc.is_some());
-        assert!(vmm.device_manager.mmio_devices.serial.is_none());
+        assert!(vmm.device_manager.mmio_platform_devices.rtc.is_some());
+        assert!(vmm.device_manager.mmio_platform_devices.serial.is_none());
 
         let mut vmm = default_vmm();
         cmdline.insert("console", "/dev/blah").unwrap();
@@ -863,8 +887,8 @@ pub(crate) mod tests {
                 None,
             )
             .unwrap();
-        assert!(vmm.device_manager.mmio_devices.rtc.is_some());
-        assert!(vmm.device_manager.mmio_devices.serial.is_some());
+        assert!(vmm.device_manager.mmio_platform_devices.rtc.is_some());
+        assert!(vmm.device_manager.mmio_platform_devices.serial.is_some());
 
         assert!(
             cmdline
@@ -875,7 +899,7 @@ pub(crate) mod tests {
                 .contains(&format!(
                     "earlycon=uart,mmio,0x{:08x}",
                     vmm.device_manager
-                        .mmio_devices
+                        .mmio_platform_devices
                         .serial
                         .as_ref()
                         .unwrap()
