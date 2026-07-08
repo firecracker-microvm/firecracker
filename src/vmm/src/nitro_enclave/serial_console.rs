@@ -21,25 +21,32 @@ use vmm_sys_util::epoll::EventSet;
 use crate::devices::legacy::serial::METRICS;
 use crate::logger::{IncMetric, error};
 use crate::nitro_enclave::info_page::InfoPage;
+use crate::rate_limiter::{BucketReduction, TokenBucket};
 
 /// Polling interval for the serial ring buffer.
 const SERIAL_POLL_INTERVAL: Duration = Duration::from_millis(100);
 
-/// Output destination for serial data.
-enum SerialOutput {
+/// Sink for serial data.
+enum SerialOutInner {
     File(std::fs::File),
     Stdout(io::Stdout),
     #[cfg(test)]
     Test(Vec<u8>),
 }
 
+/// Output destination for serial data, with an optional output rate limiter.
+struct SerialOutput {
+    inner: SerialOutInner,
+    rate_limiter: Option<TokenBucket>,
+}
+
 impl SerialOutput {
     fn flush(&mut self) {
-        let result = match self {
-            Self::File(f) => f.flush(),
-            Self::Stdout(s) => s.flush(),
+        let result = match &mut self.inner {
+            SerialOutInner::File(f) => f.flush(),
+            SerialOutInner::Stdout(s) => s.flush(),
             #[cfg(test)]
-            Self::Test(_) => Ok(()),
+            SerialOutInner::Test(_) => Ok(()),
         };
         if let Err(e) = result {
             error!("Failed to flush serial output: {e}");
@@ -52,11 +59,20 @@ impl WriteVolatile for SerialOutput {
         &mut self,
         buf: &VolatileSlice<'_, B>,
     ) -> Result<usize, vm_memory::VolatileMemoryError> {
-        match self {
-            Self::File(f) => f.write_volatile(buf),
-            Self::Stdout(s) => s.write_volatile(buf),
+        if let Some(rl) = &mut self.rate_limiter {
+            match rl.reduce(buf.len() as u64) {
+                BucketReduction::Failure | BucketReduction::OverConsumption(_) => {
+                    METRICS.rate_limiter_dropped_bytes.add(buf.len() as u64);
+                    return Ok(buf.len());
+                }
+                BucketReduction::Success => {}
+            }
+        }
+        match &mut self.inner {
+            SerialOutInner::File(f) => f.write_volatile(buf),
+            SerialOutInner::Stdout(s) => s.write_volatile(buf),
             #[cfg(test)]
-            Self::Test(v) => v.write_volatile(buf),
+            SerialOutInner::Test(v) => v.write_volatile(buf),
         }
     }
 }
@@ -77,13 +93,18 @@ impl ConsoleReader {
     /// Create a new serial console reader.
     ///
     /// If `serial_out_path` is Some, output goes to that file (create/append).
-    /// If None, output goes to stdout.
-    pub fn new(info_page: Arc<InfoPage>, serial_out_path: Option<&Path>) -> io::Result<Self> {
-        let output = match serial_out_path {
+    /// If None, output goes to stdout. When `rate_limiter` is Some, output that
+    /// exceeds its budget is dropped rather than written.
+    pub fn new(
+        info_page: Arc<InfoPage>,
+        serial_out_path: Option<&Path>,
+        rate_limiter: Option<TokenBucket>,
+    ) -> io::Result<Self> {
+        let inner = match serial_out_path {
             Some(path) => {
-                SerialOutput::File(OpenOptions::new().create(true).append(true).open(path)?)
+                SerialOutInner::File(OpenOptions::new().create(true).append(true).open(path)?)
             }
-            None => SerialOutput::Stdout(io::stdout()),
+            None => SerialOutInner::Stdout(io::stdout()),
         };
 
         let mut timer_fd = TimerFd::new();
@@ -92,26 +113,33 @@ impl ConsoleReader {
         Ok(Self {
             timer_fd,
             info_page,
-            output,
+            output: SerialOutput {
+                inner,
+                rate_limiter,
+            },
             last_write_idx: Wrapping(0),
         })
     }
 
-    /// Create a serial console with a test output writer.
+    /// Create a serial console writing into an in-memory test buffer, with an
+    /// optional rate limiter.
     #[cfg(test)]
-    fn new_with_output(info_page: Arc<InfoPage>, output: SerialOutput) -> Self {
+    fn new_test(info_page: Arc<InfoPage>, rate_limiter: Option<TokenBucket>) -> Self {
         Self {
             timer_fd: TimerFd::new(),
             info_page,
-            output,
+            output: SerialOutput {
+                inner: SerialOutInner::Test(Vec::new()),
+                rate_limiter,
+            },
             last_write_idx: Wrapping(0),
         }
     }
 
     #[cfg(test)]
     fn test_output(&self) -> &[u8] {
-        match &self.output {
-            SerialOutput::Test(v) => v,
+        match &self.output.inner {
+            SerialOutInner::Test(v) => v,
             _ => panic!("not a test output"),
         }
     }
@@ -169,7 +197,7 @@ mod tests {
     fn test_flush_serial_reads_data() {
         let data = b"hello world";
         let page = Arc::new(info_page::make_test_page(data.len() as u32, 256, data));
-        let mut console = ConsoleReader::new_with_output(page, SerialOutput::Test(Vec::new()));
+        let mut console = ConsoleReader::new_test(page, None);
 
         let before = METRICS.write_count.count();
         console.flush_serial();
@@ -197,9 +225,34 @@ mod tests {
         assert_ne!(p, libc::MAP_FAILED);
         unsafe { ptr::write_bytes(p.cast::<u8>(), 0, INFO_PAGE_SIZE) };
         let page = Arc::new(InfoPage::from_raw_ptr(p.cast::<u8>()));
-        let mut console = ConsoleReader::new_with_output(page, SerialOutput::Test(Vec::new()));
+        let mut console = ConsoleReader::new_test(page, None);
 
         console.flush_serial();
         assert_eq!(console.last_write_idx, Wrapping(0));
+    }
+
+    #[test]
+    fn test_flush_serial_rate_limited_drops_but_advances() {
+        // A drain larger than the bucket is dropped whole, but the cursor still
+        // advances past it so the dropped bytes are not re-read on the next
+        // poll, and the dropped bytes are counted.
+        let cap: u32 = 64;
+        let page = Arc::new(info_page::make_test_page(
+            cap,
+            cap,
+            &vec![b'x'; cap as usize],
+        ));
+        let limiter = TokenBucket::new(8, 0, 1_000_000);
+        let mut console = ConsoleReader::new_test(page, limiter);
+
+        let dropped_before = METRICS.rate_limiter_dropped_bytes.count();
+        console.flush_serial();
+
+        assert_eq!(console.last_write_idx, Wrapping(cap));
+        assert!(console.test_output().is_empty());
+        assert_eq!(
+            METRICS.rate_limiter_dropped_bytes.count() - dropped_before,
+            cap as u64
+        );
     }
 }

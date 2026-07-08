@@ -284,8 +284,12 @@ pub fn build_and_boot_enclave(
         .ok_or(EnclaveBuilderError::NoInfoPage)?;
     // The serial ring buffer in the info page is only populated in debug mode.
     if enclave_config.debug_mode {
-        let console = ConsoleReader::new(info_page, vm_resources.serial_out_path.as_deref())
-            .map_err(EnclaveBuilderError::Console)?;
+        let console = ConsoleReader::new(
+            info_page,
+            vm_resources.serial_out_path.as_deref(),
+            vm_resources.serial_rate_limiter(),
+        )
+        .map_err(EnclaveBuilderError::Console)?;
         let console = Arc::new(Mutex::new(console));
         // Polled periodically, and retained on the EnclaveVm for a final drain.
         event_manager.add_subscriber(console.clone());
