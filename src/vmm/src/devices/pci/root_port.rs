@@ -1,0 +1,330 @@
+// Copyright 2026 Amazon.com, Inc. or its affiliates. All Rights Reserved.
+// SPDX-License-Identifier: Apache-2.0
+
+//! Emulation of a PCI Express root port with native hot-plug support.
+
+use std::sync::{Arc, Barrier, Mutex};
+
+use vm_allocator::RangeInclusive;
+use zerocopy::IntoBytes;
+
+use crate::logger::error;
+use crate::pci::configuration::{BAR0_REG_IDX, BarPrefetchable, Bars, PciConfiguration};
+use crate::pci::msix::{MsixCap, MsixConfig};
+use crate::pci::pcie_cap::{
+    PCI_EXP_LNKSTA, PCI_EXP_LNKSTA_CLS_2_5GB, PCI_EXP_LNKSTA_DLLLA, PCI_EXP_LNKSTA_NLW_X1,
+    PCI_EXP_SLTCTL, PCI_EXP_SLTCTL_ABPE, PCI_EXP_SLTCTL_DLLSCE, PCI_EXP_SLTCTL_HPIE,
+    PCI_EXP_SLTCTL_PDCE, PCI_EXP_SLTCTL_PIC, PCI_EXP_SLTCTL_PWR_IND_OFF, PCI_EXP_SLTSTA_ABP,
+    PCI_EXP_SLTSTA_DLLSC, PCI_EXP_SLTSTA_PDC, PCI_EXP_SLTSTA_PDS, PCI_EXP_SLTSTA_RW1C,
+    PciExpressCap,
+};
+use crate::pci::{PciBridgeSubclass, PciClassCode, PciDevice, PciSBDF};
+use crate::vstate::interrupts::MsixVectorGroup;
+
+const VENDOR_ID_AMAZON: u16 = 0x1d0f;
+const DEVICE_ID_AMAZON_RP: u16 = 0x0200;
+
+const ROOT_PORT_MSIX_BAR: u8 = 0;
+/// Size of the MSI-X BAR
+pub const ROOT_PORT_MSIX_BAR_SIZE: u64 = 0x1000;
+const ROOT_PORT_MSIX_TABLE_OFFSET: u32 = 0x0;
+const ROOT_PORT_MSIX_PBA_OFFSET: u32 = 0x800;
+const ROOT_PORT_MSIX_VECTORS: u16 = 1;
+
+// A Type 1 header exposes two BAR registers; our 64-bit MSI-X BAR occupies
+// both of them (BAR0 and BAR1).
+const ROOT_PORT_NUM_BARS: u16 = 2;
+const MSIX_TABLE_ENTRY_SIZE: u64 = 16;
+
+const LINK_STATUS_UP: u16 = PCI_EXP_LNKSTA_DLLLA | PCI_EXP_LNKSTA_CLS_2_5GB | PCI_EXP_LNKSTA_NLW_X1;
+
+/// A PCI Express root port with a hot-plug capable slot.
+#[derive(Debug)]
+pub struct PciRootPort {
+    configuration: PciConfiguration,
+    bars: Bars,
+    pcie_cap_offset: u16,
+    msix_cap_offset: u16,
+    msix_config: Arc<Mutex<MsixConfig>>,
+    slot_control: u16,
+    slot_status: u16,
+    link_status: u16,
+    secondary_bus: u8,
+}
+
+impl PciRootPort {
+    /// Create a new root port.
+    ///
+    /// * `sbdf` - the root port's own SBDF
+    /// * `secondary_bus` - the bus number the port starts, which it also
+    ///   advertises to the guest as its physical slot number
+    /// * `msix_vectors` - a single-vector MSI-X group
+    /// * `msix_bar_addr` - guest-physical base address of the MSI-X BAR
+    pub fn new(
+        sbdf: PciSBDF,
+        secondary_bus: u8,
+        msix_vectors: Arc<MsixVectorGroup>,
+        msix_bar_addr: u64,
+    ) -> Self {
+        assert_eq!(msix_vectors.num_vectors(), ROOT_PORT_MSIX_VECTORS);
+
+        let mut configuration = PciConfiguration::new_type1(
+            VENDOR_ID_AMAZON,
+            DEVICE_ID_AMAZON_RP,
+            0x1,
+            PciClassCode::Bridge,
+            PciBridgeSubclass::PciToPciBridge as u8,
+        );
+
+        // Add the PCIe and MSI-X capabilities
+        let pcie_cap = PciExpressCap::new_root_port(u16::from(secondary_bus));
+        let pcie_cap_offset = u16::from(configuration.add_capability(&pcie_cap));
+
+        let msix_cap = MsixCap::new(
+            ROOT_PORT_MSIX_BAR,
+            ROOT_PORT_MSIX_VECTORS,
+            ROOT_PORT_MSIX_TABLE_OFFSET,
+            ROOT_PORT_MSIX_BAR,
+            ROOT_PORT_MSIX_PBA_OFFSET,
+        );
+        let msix_cap_offset = u16::from(configuration.add_capability(&msix_cap));
+
+        let msix_config = Arc::new(Mutex::new(MsixConfig::new(msix_vectors, sbdf)));
+
+        // Register 6 is:
+        // Secondary Latency Timer | Subordinate Bus | Secondary Bus | Primary Bus
+        // Set the primary bus to 0 and the secondary and subordinate equal to
+        // the bus started by this root port
+        let bus_reg = (u32::from(secondary_bus) << 16) | (u32::from(secondary_bus) << 8);
+        configuration.write_reg(6, bus_reg);
+
+        // Set up the single 64-bit BAR hosting the MSI-x table
+        let mut bars = Bars::default();
+        bars.set_bar_64(
+            ROOT_PORT_MSIX_BAR,
+            msix_bar_addr,
+            ROOT_PORT_MSIX_BAR_SIZE,
+            BarPrefetchable::No,
+        );
+
+        PciRootPort {
+            configuration,
+            bars,
+            pcie_cap_offset,
+            msix_cap_offset,
+            msix_config,
+            slot_control: 0,
+            slot_status: 0,
+            link_status: 0,
+            secondary_bus,
+        }
+    }
+
+    pub fn secondary_bus(&self) -> u8 {
+        self.secondary_bus
+    }
+
+    /// Return the non-prefetchable memory window the guest programmed for this
+    /// port, or `None` if the window is disabled (base > limit).
+    pub fn nonpref_memory_window(&self) -> Option<RangeInclusive> {
+        const MEMORY_WINDOW_REG: u16 = 8;
+
+        let reg = self.configuration.read_reg(MEMORY_WINDOW_REG);
+        let base = u64::from(reg & 0xfff0) << 16;
+        let limit = (u64::from((reg >> 16) & 0xfff0) << 16) | 0xf_ffff;
+        RangeInclusive::new(base, limit).ok()
+    }
+
+    fn slot_reg_idx(&self) -> u16 {
+        (self.pcie_cap_offset + PCI_EXP_SLTCTL) / 4
+    }
+
+    fn link_reg_idx(&self) -> u16 {
+        (self.pcie_cap_offset + PCI_EXP_LNKSTA) / 4
+    }
+
+    /// Return true if a hot-plug event that set `changed` Slot Status bits
+    /// should raise an interrupt.
+    fn must_inject_irq(&self, changed: u16) -> bool {
+        if self.slot_control & PCI_EXP_SLTCTL_HPIE == 0 {
+            return false;
+        }
+
+        if changed & PCI_EXP_SLTSTA_PDC != 0 && self.slot_control & PCI_EXP_SLTCTL_PDCE != 0 {
+            return true;
+        }
+        if changed & PCI_EXP_SLTSTA_ABP != 0 && self.slot_control & PCI_EXP_SLTCTL_ABPE != 0 {
+            return true;
+        }
+        if changed & PCI_EXP_SLTSTA_DLLSC != 0 && self.slot_control & PCI_EXP_SLTCTL_DLLSCE != 0 {
+            return true;
+        }
+
+        false
+    }
+
+    /// Deliver the hot-plug MSI-X interrupt (vector 0). If MSI-X is masked or
+    /// the vector is masked, record it in the Pending Bit Array instead.
+    fn inject_irq(&self) {
+        let mut config = self.msix_config.lock().expect("Poisoned lock");
+        let masked = config.masked || config.table_entries[0].masked();
+        if masked {
+            config.set_pba_bit(0, false);
+            return;
+        }
+        if let Err(err) = config.vectors.trigger(0) {
+            error!("Failed to inject root port hot-plug interrupt: {err:?}");
+        }
+    }
+
+    /// Signal that a device is present in the slot. When `hotplug` is true the
+    /// device was inserted at runtime, so latch the change bits and raise the
+    /// hot-plug interrupt; a device present from boot (`hotplug` false) is
+    /// discovered by enumeration and needs no notification.
+    pub fn plug(&mut self, hotplug: bool) {
+        self.link_status |= LINK_STATUS_UP;
+        self.slot_status |= PCI_EXP_SLTSTA_PDS;
+        if hotplug {
+            self.slot_status |= PCI_EXP_SLTSTA_PDC | PCI_EXP_SLTSTA_DLLSC;
+            if self.must_inject_irq(PCI_EXP_SLTSTA_PDC | PCI_EXP_SLTSTA_DLLSC) {
+                self.inject_irq();
+            }
+        }
+    }
+
+    /// Signal to the guest that a device is about to be unplugged.
+    /// The device remains present until eject() is called (either after the
+    /// guest acknowledges the removal or due to a force detach).
+    pub fn request_unplug(&mut self) {
+        self.slot_status |= PCI_EXP_SLTSTA_ABP;
+        if self.must_inject_irq(PCI_EXP_SLTSTA_ABP) {
+            self.inject_irq();
+        }
+    }
+
+    /// Signal to the guest that slot is now empty.
+    pub fn eject(&mut self) {
+        self.link_status &= !LINK_STATUS_UP;
+        self.slot_status &= !PCI_EXP_SLTSTA_PDS;
+        self.slot_status |= PCI_EXP_SLTSTA_PDC | PCI_EXP_SLTSTA_DLLSC;
+        if self.must_inject_irq(PCI_EXP_SLTSTA_PDC | PCI_EXP_SLTSTA_DLLSC) {
+            self.inject_irq();
+        }
+    }
+
+    /// Apply a guest write to the Slot Control / Slot Status DWORD.
+    ///
+    /// Return true if the write turned the Power Indicator off, which is the
+    /// guest's acknowledgement that a managed removal may complete.
+    fn write_slot_dword(&mut self, offset: u8, data: &[u8]) -> bool {
+        // Writable bits of the Slot Control register (bits 0-12).
+        const SLOT_CONTROL_WRITABLE_MASK: u16 = 0x1fff;
+
+        let old_control = self.slot_control;
+        let mut control_bytes = old_control.to_le_bytes();
+        // A bitmap with bits to clear
+        let mut status_w1c: u16 = 0;
+
+        for (i, &byte) in data.iter().enumerate() {
+            match usize::from(offset) + i {
+                0 => control_bytes[0] = byte,
+                1 => control_bytes[1] = byte,
+                2 => status_w1c |= u16::from(byte),
+                3 => status_w1c |= u16::from(byte) << 8,
+                _ => {}
+            }
+        }
+
+        let new_control = u16::from_le_bytes(control_bytes) & SLOT_CONTROL_WRITABLE_MASK;
+        self.slot_control = new_control;
+        // Clear the bits stored in status_w1c
+        self.slot_status &= !(status_w1c & PCI_EXP_SLTSTA_RW1C);
+
+        (new_control & PCI_EXP_SLTCTL_PIC == PCI_EXP_SLTCTL_PWR_IND_OFF)
+            && (old_control & PCI_EXP_SLTCTL_PIC != PCI_EXP_SLTCTL_PWR_IND_OFF)
+    }
+}
+
+impl PciDevice for PciRootPort {
+    fn write_config_register(
+        &mut self,
+        reg_idx: u16,
+        offset: u8,
+        data: &[u8],
+    ) -> Option<Arc<Barrier>> {
+        let in_bars = (BAR0_REG_IDX..BAR0_REG_IDX + ROOT_PORT_NUM_BARS).contains(&reg_idx);
+        // Only capture writes in the first 4 bytes of the capability,
+        // everything else is served from `self.configuration`.
+        let in_msix_cap_header = reg_idx * 4 == self.msix_cap_offset;
+
+        if in_bars {
+            #[allow(clippy::cast_possible_truncation)]
+            let bar_idx = (reg_idx - BAR0_REG_IDX) as u8;
+            self.bars.write(bar_idx, offset, data);
+        } else if in_msix_cap_header {
+            self.msix_config
+                .lock()
+                .expect("Poisoned lock")
+                .write_msg_ctl_register(offset, data);
+            self.configuration
+                .write_config_register(reg_idx, offset, data);
+        } else if reg_idx == self.slot_reg_idx() {
+            self.write_slot_dword(offset, data);
+        } else {
+            self.configuration
+                .write_config_register(reg_idx, offset, data);
+        }
+        None
+    }
+
+    fn read_config_register(&mut self, reg_idx: u16) -> u32 {
+        let in_bars = (BAR0_REG_IDX..BAR0_REG_IDX + ROOT_PORT_NUM_BARS).contains(&reg_idx);
+        if in_bars {
+            #[allow(clippy::cast_possible_truncation)]
+            let bar_idx = (reg_idx - BAR0_REG_IDX) as u8;
+            let mut value: u32 = 0;
+            self.bars.read(bar_idx, 0, value.as_mut_bytes());
+            value
+        } else if reg_idx == self.slot_reg_idx() {
+            (u32::from(self.slot_status) << 16) | u32::from(self.slot_control)
+        } else if reg_idx == self.link_reg_idx() {
+            (u32::from(self.link_status) << 16)
+                | (self.configuration.read_reg(reg_idx) & 0x0000_ffff)
+        } else {
+            self.configuration.read_reg(reg_idx)
+        }
+    }
+
+    fn read_bar(&mut self, _base: u64, offset: u64, data: &mut [u8]) {
+        let table_end = u64::from(ROOT_PORT_MSIX_TABLE_OFFSET)
+            + u64::from(ROOT_PORT_MSIX_VECTORS) * MSIX_TABLE_ENTRY_SIZE;
+        if (u64::from(ROOT_PORT_MSIX_TABLE_OFFSET)..table_end).contains(&offset) {
+            self.msix_config
+                .lock()
+                .expect("Poisoned lock")
+                .read_table(offset - u64::from(ROOT_PORT_MSIX_TABLE_OFFSET), data);
+        } else if offset >= u64::from(ROOT_PORT_MSIX_PBA_OFFSET) {
+            self.msix_config
+                .lock()
+                .expect("Poisoned lock")
+                .read_pba(offset - u64::from(ROOT_PORT_MSIX_PBA_OFFSET), data);
+        }
+    }
+
+    fn write_bar(&mut self, _base: u64, offset: u64, data: &[u8]) -> Option<Arc<Barrier>> {
+        let table_end = u64::from(ROOT_PORT_MSIX_TABLE_OFFSET)
+            + u64::from(ROOT_PORT_MSIX_VECTORS) * MSIX_TABLE_ENTRY_SIZE;
+        if (u64::from(ROOT_PORT_MSIX_TABLE_OFFSET)..table_end).contains(&offset) {
+            self.msix_config
+                .lock()
+                .expect("Poisoned lock")
+                .write_table(offset - u64::from(ROOT_PORT_MSIX_TABLE_OFFSET), data);
+        } else if offset >= u64::from(ROOT_PORT_MSIX_PBA_OFFSET) {
+            self.msix_config
+                .lock()
+                .expect("Poisoned lock")
+                .write_pba(offset - u64::from(ROOT_PORT_MSIX_PBA_OFFSET), data);
+        }
+        None
+    }
+}
