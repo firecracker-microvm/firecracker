@@ -74,6 +74,10 @@ pub struct EnclaveVm {
     enclave_fd: EnclaveFd,
     /// Slot UID assigned by the hypervisor on `NE_CREATE_VM2`.
     slot_uid: u64,
+    /// Whether the enclave was started with PCIE hotplug mode.
+    hotplug_enabled: bool,
+    /// DMB size in MiB for confidential mode; `None` in direct mode.
+    dmb_size_mib: Option<u64>,
     /// Info page for PCIE topology mode.
     info_page: Option<Arc<InfoPage>>,
     /// Cached `GuestMemoryMmap` wrapping the CMA region.
@@ -144,7 +148,12 @@ impl EnclaveVm {
     /// typically open the device fd and call `get_supported_flags()` before
     /// this, so they can compose `create_flags` against what the hypervisor
     /// actually supports.
-    pub fn new(dev_fd: NitroEnclavesDevFd, create_flags: u32) -> Result<Self, EnclaveVmError> {
+    pub fn new(
+        dev_fd: NitroEnclavesDevFd,
+        create_flags: u32,
+        hotplug_enabled: bool,
+        dmb_size_mib: Option<u64>,
+    ) -> Result<Self, EnclaveVmError> {
         let (enclave_fd, slot_uid) = dev_fd
             .create_vm(create_flags)
             .map_err(EnclaveVmError::CreateVm)?;
@@ -154,6 +163,8 @@ impl EnclaveVm {
             dev_fd,
             enclave_fd,
             slot_uid,
+            hotplug_enabled,
+            dmb_size_mib,
             info_page: None,
             guest_memory: None,
         })
@@ -162,6 +173,16 @@ impl EnclaveVm {
     /// Slot UID assigned by the hypervisor.
     pub fn slot_uid(&self) -> u64 {
         self.slot_uid
+    }
+
+    /// Whether the enclave was started with PCIE hotplug mode.
+    pub fn hotplug_enabled(&self) -> bool {
+        self.hotplug_enabled
+    }
+
+    /// Per-device DMB size in MiB for confidential mode; `None` in direct mode.
+    pub fn dmb_size_mib(&self) -> Option<u64> {
+        self.dmb_size_mib
     }
 
     /// Retain the CPU-accounting threads so they are stopped and joined when
