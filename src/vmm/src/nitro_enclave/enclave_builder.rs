@@ -204,7 +204,12 @@ pub fn build_and_boot_enclave(
     #[allow(clippy::cast_possible_truncation)]
     let create_flags = create_flags as u32;
 
-    let mut enclave_vm = EnclaveVm::new(dev_fd, create_flags)?;
+    let mut enclave_vm = EnclaveVm::new(
+        dev_fd,
+        create_flags,
+        enclave_config.hotplug_mode,
+        enclave_config.dmb_size_mib(),
+    )?;
     info!(
         "Enclave VM created: slot_uid={}, direct_mode={}, cpu_overcommit={}, \
          cpu_accounting={}, create_flags=0x{:x}",
@@ -252,7 +257,7 @@ pub fn build_and_boot_enclave(
         &mut device_manager,
         &enclave_vm,
         vm_resources,
-        enclave_config.dmb_size_mib(),
+        enclave_vm.dmb_size_mib(),
         event_manager,
     )?;
 
