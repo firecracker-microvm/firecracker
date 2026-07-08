@@ -18,7 +18,8 @@ use utils::time::TimerFd;
 use vm_memory::{VolatileSlice, WriteVolatile};
 use vmm_sys_util::epoll::EventSet;
 
-use crate::logger::error;
+use crate::devices::legacy::serial::METRICS;
+use crate::logger::{IncMetric, error};
 use crate::nitro_enclave::info_page::InfoPage;
 
 /// Polling interval for the serial ring buffer.
@@ -117,12 +118,14 @@ impl ConsoleReader {
 
     /// Read new bytes from the info page serial ring buffer and write to output.
     pub(crate) fn flush_serial(&mut self) {
-        if let Some(new_idx) = self
+        if let Some((new_idx, written)) = self
             .info_page
             .write_serial_since(self.last_write_idx, &mut self.output)
         {
             self.output.flush();
             self.last_write_idx = new_idx;
+            METRICS.write_count.add(written.into());
+            METRICS.flush_count.inc();
         }
     }
 }
@@ -168,9 +171,11 @@ mod tests {
         let page = Arc::new(info_page::make_test_page(data.len() as u32, 256, data));
         let mut console = ConsoleReader::new_with_output(page, SerialOutput::Test(Vec::new()));
 
+        let before = METRICS.write_count.count();
         console.flush_serial();
         assert_eq!(console.last_write_idx, Wrapping(data.len() as u32));
         assert_eq!(console.test_output(), data);
+        assert_eq!(METRICS.write_count.count() - before, data.len() as u64);
 
         // A second drain is a no-op once caught up.
         console.flush_serial();
