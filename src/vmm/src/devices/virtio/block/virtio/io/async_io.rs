@@ -19,6 +19,8 @@ use crate::vstate::memory::{GuestAddress, GuestMemory, GuestMemoryExtension, Gue
 
 #[derive(Debug, thiserror::Error, displaydoc::Display)]
 pub enum AsyncIoError {
+    /// Not implemented
+    NotImplemented,
     /// IO: {0}
     IO(std::io::Error),
     /// IoUring: {0}
@@ -196,6 +198,10 @@ impl AsyncFileEngine {
                 req: data.req,
                 error: AsyncIoError::IoUring(io_uring_error),
             })
+    }
+
+    pub fn discard(&mut self, _range: (u64, u32)) -> Result<u32, AsyncIoError> {
+        Err(AsyncIoError::NotImplemented)
     }
 
     pub fn kick_submission_queue(&mut self) -> Result<(), AsyncIoError> {

@@ -892,6 +892,7 @@ pub(crate) mod tests {
             is_root_device: is_root,
             cache_type: CacheType::Unsafe,
             is_read_only: Some(false),
+            discard: None,
             path_on_host: Some(f.as_path().to_str().unwrap().to_string()),
             rate_limiter: None,
             file_engine_type: None,
