@@ -387,13 +387,13 @@ impl InfoPage {
 
     /// Write new serial data since `last_write_idx` directly into `dst`.
     ///
-    /// Returns the current `write_idx` if there is new data,
-    /// or `None` if there is no serial ring buffer or no new data.
+    /// Returns `(new write_idx, bytes written)` if there is new data, or `None`
+    /// if there is no serial ring buffer or no new data.
     pub fn write_serial_since<W: WriteVolatile>(
         &self,
         last_write_idx: Wrapping<u32>,
         dst: &mut W,
-    ) -> Option<Wrapping<u32>> {
+    ) -> Option<(Wrapping<u32>, u32)> {
         for (i, toc) in self.toc_entries() {
             if toc.entry_type != TOC_TYPE_SERIAL {
                 continue;
@@ -453,7 +453,7 @@ impl InfoPage {
                 vs.write_all_volatile_to(data_offset, dst, (read_len - first_chunk) as usize)
                     .ok()?;
             }
-            return Some(ring.write_idx);
+            return Some((ring.write_idx, read_len));
         }
         None
     }
@@ -795,14 +795,15 @@ mod tests {
         // Basic read from offset 0.
         let page = make_test_page(5, TEST_RING_CAPACITY, b"hello");
         let mut buf = Vec::new();
-        let new_idx = page.write_serial_since(Wrapping(0), &mut buf).unwrap();
+        let (new_idx, written) = page.write_serial_since(Wrapping(0), &mut buf).unwrap();
         assert_eq!(new_idx, Wrapping(5));
+        assert_eq!(written, 5);
         assert_eq!(&buf, b"hello");
 
         // Incremental read from offset 5.
         let page = make_test_page(10, TEST_RING_CAPACITY, b"helloworld");
         buf.clear();
-        let new_idx = page.write_serial_since(Wrapping(5), &mut buf).unwrap();
+        let (new_idx, _) = page.write_serial_since(Wrapping(5), &mut buf).unwrap();
         assert_eq!(new_idx, Wrapping(10));
         assert_eq!(&buf, b"world");
 
@@ -817,7 +818,7 @@ mod tests {
         // write_idx (20) > capacity (16): reader should get at most `capacity` bytes.
         let page = make_test_page(20, 16, b"ABCDEFGHIJKLMNOP");
         let mut buf = Vec::new();
-        let new_idx = page.write_serial_since(Wrapping(0), &mut buf).unwrap();
+        let (new_idx, _) = page.write_serial_since(Wrapping(0), &mut buf).unwrap();
         assert_eq!(new_idx, Wrapping(20));
         assert_eq!(buf.len(), 16);
     }
@@ -829,8 +830,9 @@ mod tests {
         // 0..4) and must read back in write order as "ABCDEFGH", not "EFGHABCD".
         let page = make_test_page(12, 8, b"EFGHABCD");
         let mut buf = Vec::new();
-        let new_idx = page.write_serial_since(Wrapping(0), &mut buf).unwrap();
+        let (new_idx, written) = page.write_serial_since(Wrapping(0), &mut buf).unwrap();
         assert_eq!(new_idx, Wrapping(12));
+        assert_eq!(written, 8);
         assert_eq!(&buf, b"ABCDEFGH");
     }
 
@@ -845,7 +847,7 @@ mod tests {
         // pos 7 then wrap to pos 0,1,2 -> "H" + "ABC".
         let page = make_test_page(write_idx, capacity, b"ABCDEFGH");
         let mut buf = Vec::new();
-        let new_idx = page.write_serial_since(last_write_idx, &mut buf).unwrap();
+        let (new_idx, _) = page.write_serial_since(last_write_idx, &mut buf).unwrap();
         assert_eq!(new_idx, Wrapping(write_idx));
         assert_eq!(&buf, b"HABC");
 
@@ -929,7 +931,7 @@ mod tests {
             .serial(16384, 5, 1016, b"hello")
             .build();
         let mut buf = Vec::new();
-        let new_idx = page.write_serial_since(Wrapping(0), &mut buf).unwrap();
+        let (new_idx, _) = page.write_serial_since(Wrapping(0), &mut buf).unwrap();
         assert_eq!(new_idx, Wrapping(5));
         assert_eq!(&buf, b"hello");
     }
