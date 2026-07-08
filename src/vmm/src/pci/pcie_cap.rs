@@ -153,6 +153,10 @@ pub const PCI_EXP_SLTSTA_RW1C: u16 = PCI_EXP_SLTSTA_ABP
 pub const PCI_EXP_LNKCAP_DLLLARC: u32 = 0x0010_0000;
 /// Data Link Layer Link Active (Link Status bit 13).
 pub const PCI_EXP_LNKSTA_DLLLA: u16 = 0x2000;
+/// Current Link Speed of 2.5 GT/s (Link Status bits 3:0).
+pub const PCI_EXP_LNKSTA_CLS_2_5GB: u16 = 0x0001;
+/// Negotiated Link Width of x1 (Link Status bits 9:4).
+pub const PCI_EXP_LNKSTA_NLW_X1: u16 = 0x0010;
 
 /// Capability Version 2 value for the Capability Version field.
 pub const PCI_EXP_FLAGS_VERSION_2: u16 = 0x2;
