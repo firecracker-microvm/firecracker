@@ -10,9 +10,9 @@ test using binaries compiled from each revision, and runs a regression test
 comparing resulting metrics between runs.
 
 It performs the A/B-test as follows:
-For both A and B runs, collect all `metrics.json` files and read all dimentions
-from them. Script assumes all dimentions are unique within single run and both
-A and B runs result in the same dimentions. After collection is done, perform
+For both A and B runs, collect all `metrics.json` files and read all dimensions
+from them. Script assumes all dimensions are unique within single run and both
+A and B runs result in the same dimensions. After collection is done, perform
 statistical regression test across all the list-valued properties collected.
 """
 
@@ -149,14 +149,15 @@ def is_ignored(dimensions) -> bool:
 def load_data_series(data_path: Path):
     """Recursively collects `metrics.json` files in provided path"""
     data = {}
-    for name in glob.glob(f"{data_path}/**/metrics.json", recursive=True):
+    pattern = f"{glob.escape(str(data_path))}/**/metrics.json"
+    for name in glob.glob(pattern, recursive=True):
         with open(name, encoding="utf-8") as f:
             j = json.load(f)
 
         metrics = j["metrics"]
-        dimentions = frozenset(j["dimensions"].items())
+        dimensions = frozenset(j["dimensions"].items())
 
-        data[dimentions] = {}
+        data[dimensions] = {}
         for m in metrics:
             # Ignore certain metrics as we know them to be volatile
             if "cpu_utilization" in m:
@@ -164,7 +165,7 @@ def load_data_series(data_path: Path):
             mm = metrics[m]
             unit = mm["unit"]
             values = mm["values"]
-            data[dimentions][m] = (values, unit)
+            data[dimensions][m] = (values, unit)
 
     return data
 
@@ -527,16 +528,16 @@ def main():
     )
     analyze_parser = subparsers.add_parser(
         "analyze",
-        help="Analyze the results of two manually ran tests based on their test-report.json files",
+        help="Analyze the results of two manually ran tests based on their metrics.json files",
     )
     analyze_parser.add_argument(
         "path_a",
-        help="The path to the directory with A run",
+        help="The path to the directory with run A's metrics.json file",
         type=Path,
     )
     analyze_parser.add_argument(
         "path_b",
-        help="The path to the directory with B run",
+        help="The path to the directory with run B's metrics.json file",
         type=Path,
     )
     parser.add_argument(

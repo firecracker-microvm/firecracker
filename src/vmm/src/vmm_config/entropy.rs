@@ -8,6 +8,7 @@ use serde::{Deserialize, Serialize};
 
 use super::RateLimiterConfig;
 use crate::devices::virtio::rng::{Entropy, EntropyError};
+use crate::rate_limiter::RateLimiter;
 
 /// This struct represents the strongly typed equivalent of the json body from entropy device
 /// related requests.
@@ -33,8 +34,6 @@ impl From<&Entropy> for EntropyDeviceConfig {
 pub enum EntropyDeviceError {
     /// Could not create Entropy device: {0}
     CreateDevice(#[from] EntropyError),
-    /// Could not create RateLimiter from configuration: {0}
-    CreateRateLimiter(#[from] std::io::Error),
 }
 
 /// A builder type used to construct an Entropy device
@@ -54,9 +53,9 @@ impl EntropyDeviceBuilder {
     ) -> Result<Arc<Mutex<Entropy>>, EntropyDeviceError> {
         let rate_limiter = config
             .rate_limiter
-            .map(RateLimiterConfig::try_into)
-            .transpose()?;
-        let dev = Arc::new(Mutex::new(Entropy::new(rate_limiter.unwrap_or_default())?));
+            .map(RateLimiter::from)
+            .unwrap_or_default();
+        let dev = Arc::new(Mutex::new(Entropy::new(rate_limiter)?));
         self.0 = Some(dev.clone());
 
         Ok(dev)
