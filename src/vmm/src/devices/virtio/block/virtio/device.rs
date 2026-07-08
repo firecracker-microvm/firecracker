@@ -24,16 +24,16 @@ use vmm_sys_util::eventfd::EventFd;
 use super::io::async_io;
 use super::request::*;
 use super::{
-    BLOCK_QUEUE_SIZES, MAX_DISCARD_SECTORS, SECTOR_SHIFT, SECTOR_SIZE,
-    VirtioBlockError, io as block_io,
+    BLOCK_QUEUE_SIZES, MAX_DISCARD_SECTORS, SECTOR_SHIFT, SECTOR_SIZE, VirtioBlockError,
+    io as block_io,
 };
 use crate::devices::virtio::ActivateError;
 use crate::devices::virtio::block::CacheType;
 use crate::devices::virtio::block::virtio::metrics::{BlockDeviceMetrics, BlockMetricsPerDevice};
 use crate::devices::virtio::device::{ActiveState, DeviceState, VirtioDevice, VirtioDeviceType};
 use crate::devices::virtio::generated::virtio_blk::{
-    VIRTIO_BLK_F_BLK_SIZE, VIRTIO_BLK_F_FLUSH, VIRTIO_BLK_F_RO, VIRTIO_BLK_F_TOPOLOGY,
-    VIRTIO_BLK_ID_BYTES,
+    VIRTIO_BLK_F_BLK_SIZE, VIRTIO_BLK_F_DISCARD, VIRTIO_BLK_F_FLUSH, VIRTIO_BLK_F_RO,
+    VIRTIO_BLK_F_TOPOLOGY, VIRTIO_BLK_ID_BYTES,
 };
 use crate::devices::virtio::generated::virtio_config::VIRTIO_F_VERSION_1;
 use crate::devices::virtio::generated::virtio_ring::VIRTIO_RING_F_EVENT_IDX;
@@ -316,6 +316,8 @@ pub struct VirtioBlockConfig {
     /// If set to true, the drive is opened in read-only mode. Otherwise, the
     /// drive is opened as read-write.
     pub is_read_only: bool,
+    /// If set to true, the device advertises discard support to the guest.
+    pub discard: bool,
     /// Path of the backing file on the host
     pub path_on_host: String,
     /// Rate Limiter for I/O operations.
@@ -342,6 +344,7 @@ impl TryFrom<&BlockDeviceConfig> for VirtioBlockConfig {
                 cache_type: value.cache_type,
 
                 is_read_only: value.is_read_only.unwrap_or(false),
+                discard: value.discard.unwrap_or(false),
                 path_on_host: path_on_host.clone(),
                 rate_limiter: value.rate_limiter,
                 file_engine_type: value.file_engine_type.unwrap_or_default(),
@@ -363,6 +366,7 @@ impl From<VirtioBlockConfig> for BlockDeviceConfig {
             cache_type: value.cache_type,
 
             is_read_only: Some(value.is_read_only),
+            discard: Some(value.discard),
             path_on_host: Some(value.path_on_host),
             rate_limiter: value.rate_limiter,
             file_engine_type: Some(value.file_engine_type),
@@ -419,6 +423,14 @@ impl VirtioBlock {
     ///
     /// The given file must be seekable and sizable.
     pub fn new(config: VirtioBlockConfig) -> Result<VirtioBlock, VirtioBlockError> {
+        if config.discard && config.is_read_only {
+            return Err(VirtioBlockError::DiscardReadOnlyUnsupported);
+        }
+
+        if config.discard && config.file_engine_type == FileEngineType::Async {
+            return Err(VirtioBlockError::DiscardAsyncUnsupported);
+        }
+
         let disk_properties = DiskProperties::new(
             config.path_on_host,
             config.is_read_only,
@@ -442,6 +454,9 @@ impl VirtioBlock {
         if config.is_read_only {
             avail_features |= 1u64 << VIRTIO_BLK_F_RO;
         }
+        if config.discard {
+            avail_features |= 1u64 << VIRTIO_BLK_F_DISCARD;
+        }
 
         let mut config_space = ConfigSpace {
             capacity: disk_properties.nsectors.to_le(),
@@ -449,15 +464,17 @@ impl VirtioBlock {
         };
 
         if config.blk_size.is_none() && config.topology.is_none() {
-            if let Some(attrs) = query_blk_attrs(disk_properties.file_engine.file())
-                && let Some((blk_size, topology)) = calculate_blk_size_and_topology(attrs)
+            if let Some((blk_size, topology)) = query_blk_attrs(disk_properties.file_engine.file())
+                .and_then(calculate_blk_size_and_topology)
             {
                 config_space.blk_size = blk_size;
                 config_space.topology = topology;
+                config_space.discard_sector_alignment = blk_size / SECTOR_SIZE;
             }
         } else {
             if let Some(blk_size) = config.blk_size {
                 config_space.blk_size = blk_size;
+                config_space.discard_sector_alignment = blk_size / SECTOR_SIZE;
             }
             if let Some(topology) = config.topology {
                 config_space.topology = topology;
@@ -500,6 +517,7 @@ impl VirtioBlock {
             is_root_device: self.root_device,
             partuuid: self.partuuid.clone(),
             is_read_only: self.read_only,
+            discard: self.avail_features & (1u64 << VIRTIO_BLK_F_DISCARD) != 0,
             cache_type: self.cache_type,
             rate_limiter: rl.into_option(),
             file_engine_type: self.file_engine_type(),
@@ -566,6 +584,7 @@ impl VirtioBlock {
                             head.index,
                             &active_state.mem,
                             &self.metrics,
+                            self.acked_features & (1u64 << VIRTIO_BLK_F_DISCARD) != 0,
                         )
                     }
                     Err(err) => {
@@ -862,9 +881,9 @@ mod tests {
     use crate::check_metric_after_block;
     use crate::devices::virtio::block::virtio::IO_URING_NUM_ENTRIES;
     use crate::devices::virtio::block::virtio::test_utils::{
-        default_block, read_blk_req_descriptors, set_queue, set_rate_limiter,
-        simulate_async_completion_event, simulate_queue_and_async_completion_events,
-        simulate_queue_event,
+        RequestDescriptorChain, default_block, read_blk_req_descriptors, set_queue,
+        set_rate_limiter, simulate_async_completion_event,
+        simulate_queue_and_async_completion_events, simulate_queue_event,
     };
     use crate::devices::virtio::queue::{VIRTQ_DESC_F_NEXT, VIRTQ_DESC_F_WRITE};
     use crate::devices::virtio::test_utils::{VirtQueue, default_interrupt, default_mem};
@@ -904,6 +923,7 @@ mod tests {
             cache_type: CacheType::Unsafe,
 
             is_read_only: Some(true),
+            discard: None,
             path_on_host: Some("path".to_string()),
             rate_limiter: None,
             file_engine_type: Default::default(),
@@ -921,6 +941,7 @@ mod tests {
             cache_type: CacheType::Unsafe,
 
             is_read_only: None,
+            discard: None,
             path_on_host: None,
             rate_limiter: None,
             file_engine_type: Default::default(),
@@ -938,6 +959,7 @@ mod tests {
             cache_type: CacheType::Unsafe,
 
             is_read_only: Some(true),
+            discard: None,
             path_on_host: Some("path".to_string()),
             rate_limiter: None,
             file_engine_type: Default::default(),
@@ -1002,6 +1024,125 @@ mod tests {
             }
             assert_eq!(block.acked_features, features);
         }
+    }
+
+    #[test]
+    fn test_discard_feature() {
+        let f = TempFile::new().unwrap();
+        f.as_file().set_len(0x1000).unwrap();
+        let path = f.as_path().to_str().unwrap().to_string();
+        let config = VirtioBlockConfig {
+            drive_id: "discard_feature".to_string(),
+            path_on_host: path.clone(),
+            is_root_device: false,
+            partuuid: None,
+            is_read_only: false,
+            discard: true,
+            cache_type: CacheType::Unsafe,
+            rate_limiter: None,
+            file_engine_type: FileEngineType::Sync,
+            blk_size: Some(4096),
+            topology: None,
+        };
+
+        let mut block = VirtioBlock::new(config).unwrap();
+        assert_eq!(
+            block.avail_features & (1u64 << VIRTIO_BLK_F_DISCARD),
+            1u64 << VIRTIO_BLK_F_DISCARD
+        );
+        assert_eq!(block.config_space.discard_sector_alignment, 8);
+
+        let replacement = TempFile::new().unwrap();
+        replacement.as_file().set_len(0x1000).unwrap();
+        block
+            .update_disk_image(replacement.as_path().to_str().unwrap().to_string())
+            .unwrap();
+        assert_eq!(block.config_space.discard_sector_alignment, 8);
+
+        let async_config = VirtioBlockConfig {
+            drive_id: "discard_async_unsupported".to_string(),
+            path_on_host: path,
+            is_root_device: false,
+            partuuid: None,
+            is_read_only: false,
+            discard: true,
+            cache_type: CacheType::Unsafe,
+            rate_limiter: None,
+            file_engine_type: FileEngineType::Async,
+            blk_size: None,
+            topology: None,
+        };
+        assert!(matches!(
+            VirtioBlock::new(async_config),
+            Err(VirtioBlockError::DiscardAsyncUnsupported)
+        ));
+
+        let f = TempFile::new().unwrap();
+        f.as_file().set_len(0x1000).unwrap();
+        let read_only_config = VirtioBlockConfig {
+            drive_id: "discard_read_only_unsupported".to_string(),
+            path_on_host: f.as_path().to_str().unwrap().to_string(),
+            is_root_device: false,
+            partuuid: None,
+            is_read_only: true,
+            discard: true,
+            cache_type: CacheType::Unsafe,
+            rate_limiter: None,
+            file_engine_type: FileEngineType::Sync,
+            blk_size: None,
+            topology: None,
+        };
+        assert!(matches!(
+            VirtioBlock::new(read_only_config),
+            Err(VirtioBlockError::DiscardReadOnlyUnsupported)
+        ));
+    }
+
+    #[test]
+    fn test_discard_requires_negotiated_feature() {
+        let f = TempFile::new().unwrap();
+        f.as_file().set_len(0x1000).unwrap();
+        let config = VirtioBlockConfig {
+            drive_id: "discard_negotiation".to_string(),
+            path_on_host: f.as_path().to_str().unwrap().to_string(),
+            is_root_device: false,
+            partuuid: None,
+            is_read_only: false,
+            discard: true,
+            cache_type: CacheType::Unsafe,
+            rate_limiter: None,
+            file_engine_type: FileEngineType::Sync,
+            blk_size: None,
+            topology: None,
+        };
+
+        let mut block = VirtioBlock::new(config).unwrap();
+        let mem = default_mem();
+        let interrupt = default_interrupt();
+        let vq = VirtQueue::new(GuestAddress(0), &mem, 16);
+        set_queue(&mut block, 0, vq.create_queue());
+        block.activate(mem.clone(), interrupt).unwrap();
+
+        let chain = RequestDescriptorChain::new(&vq);
+        chain.set_header(RequestHeader::new(VIRTIO_BLK_T_DISCARD, 0));
+        chain.data_desc.flags.set(VIRTQ_DESC_F_NEXT);
+        chain.data_desc.len.set(16);
+
+        let mut discard_range = [0_u8; 16];
+        discard_range[8..12].copy_from_slice(&1_u32.to_le_bytes());
+        mem.write_slice(&discard_range, GuestAddress(chain.data_desc.addr.get()))
+            .unwrap();
+
+        simulate_queue_event(&mut block, Some(true));
+
+        assert_eq!(vq.used.idx.get(), 1);
+        assert_eq!(vq.used.ring[0].get().id, 0);
+        assert_eq!(vq.used.ring[0].get().len, 1);
+        assert_eq!(
+            mem.read_obj::<u32>(GuestAddress(chain.status_desc.addr.get()))
+                .unwrap(),
+            VIRTIO_BLK_S_UNSUPP
+        );
     }
 
     #[test]
