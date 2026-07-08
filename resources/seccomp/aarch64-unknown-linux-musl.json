@@ -43,6 +43,19 @@
                 "syscall": "fsync"
             },
             {
+                "syscall": "fallocate",
+                "comment": "Used by the VirtIO block device to punch holes for discard on regular backing files",
+                "args": [
+                    {
+                        "index": 1,
+                        "type": "dword",
+                        "op": "eq",
+                        "val": 3,
+                        "comment": "FALLOC_FL_KEEP_SIZE | FALLOC_FL_PUNCH_HOLE"
+                    }
+                ]
+            },
+            {
                 "syscall": "close"
             },
             {
@@ -521,6 +534,19 @@
             },
             {
                 "syscall": "ioctl",
+                "comment": "Used by the VirtIO block device to pass discard through to block-device backing files",
+                "args": [
+                    {
+                        "index": 1,
+                        "type": "dword",
+                        "op": "eq",
+                        "val": 4727,
+                        "comment": "BLKDISCARD"
+                    }
+                ]
+            },
+            {
+                "syscall": "ioctl",
                 "comment": "Used to make vsock UDS nonblocking",
                 "args": [
                     {
@@ -686,7 +712,7 @@
             },
             {
                 "syscall": "ioctl",
-                "comment": "Needed for querying the logical sector size of a block-device backing file during virtio-block init",
+                "comment": "Needed for querying the logical sector size when opening a virtio-block backing file",
                 "args": [
                     {
                         "index": 1,
