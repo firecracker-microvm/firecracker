@@ -8,7 +8,7 @@ use std::fmt::Debug;
 use std::path::Path;
 
 use cargo_toml::{Dependency, DepsSet, Manifest};
-use regex::Regex;
+use semver::{Op, VersionReq};
 
 #[test]
 fn test_no_comparison_requirements() {
@@ -48,7 +48,7 @@ fn test_no_comparison_requirements() {
 /// The return value maps the name of violating dependencies to the specified version
 fn violating_dependencies_of_cargo_toml<T: AsRef<Path> + Debug>(
     path: T,
-) -> HashMap<String, String> {
+) -> HashMap<String, VersionReq> {
     let manifest = Manifest::from_path(path).unwrap();
 
     violating_dependencies_of_depsset(manifest.dependencies)
@@ -63,7 +63,9 @@ fn violating_dependencies_of_cargo_toml<T: AsRef<Path> + Debug>(
 /// requirements
 ///
 /// The iterator produces tuples of the form (violating dependency, specified version)
-fn violating_dependencies_of_depsset(depsset: DepsSet) -> impl Iterator<Item = (String, String)> {
+fn violating_dependencies_of_depsset(
+    depsset: DepsSet,
+) -> impl Iterator<Item = (String, VersionReq)> {
     depsset
         .into_iter()
         .filter_map(|(name, dependency)| {
@@ -75,5 +77,11 @@ fn violating_dependencies_of_depsset(depsset: DepsSet) -> impl Iterator<Item = (
                 _ => None,
             }
         })
-        .filter(|(_, version)| !Regex::new(r"^=?\d*\.\d*\.\d*$").unwrap().is_match(version))
+        .filter(|(_, version)| {
+            version.comparators.iter().any(|comparator| {
+                !matches!(comparator.op, Op::Exact | Op::Caret)
+                    || comparator.minor.is_none()
+                    || comparator.patch.is_none()
+            })
+        })
 }
