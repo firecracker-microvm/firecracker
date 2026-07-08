@@ -42,10 +42,7 @@ serde_json = "1.0.150"
 [dev-dependencies]
 cargo_toml = "1.0.0"
 libc = "0.2.186"
-regex = { version = "1.12.3", default-features = false, features = [
-  "std",
-  "unicode-perl",
-] }
+semver = "1.0.28"
 
 # Dev-Dependencies for uffd examples
 serde = { version = "1.0.228", features = ["derive"] }
