@@ -1123,7 +1123,7 @@ mod tests {
         let entropy = Arc::new(Mutex::new(Entropy::new(RateLimiter::default()).unwrap()));
         let mut event_manager = crate::EventManager::new().unwrap();
         vmm.device_manager
-            .attach_virtio_device(
+            .attach_boot_virtio_device(
                 &vmm.vm,
                 "rng".to_string(),
                 entropy.clone(),

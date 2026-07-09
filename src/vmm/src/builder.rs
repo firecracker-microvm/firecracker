@@ -596,7 +596,7 @@ fn attach_entropy_device(
         .id()
         .to_string();
 
-    device_manager.attach_virtio_device(
+    device_manager.attach_boot_virtio_device(
         vm,
         id,
         entropy_device.clone(),
@@ -646,7 +646,7 @@ fn attach_virtio_mem_device(
     ));
 
     let id = virtio_mem.lock().expect("Poisoned lock").id().to_string();
-    device_manager.attach_virtio_device(
+    device_manager.attach_boot_virtio_device(
         vm,
         id,
         virtio_mem.clone(),
@@ -677,7 +677,7 @@ fn attach_block_devices<'a, I: Iterator<Item = &'a Arc<Mutex<Block>>> + Debug>(
             (locked.id().to_string(), locked.is_vhost_user())
         };
         // The device mutex mustn't be locked here otherwise it will deadlock.
-        device_manager.attach_virtio_device(
+        device_manager.attach_boot_virtio_device(
             vm,
             id,
             block.clone(),
@@ -699,7 +699,7 @@ fn attach_net_devices<'a, I: Iterator<Item = &'a Arc<Mutex<Net>>> + Debug>(
     for net_device in net_devices {
         let id = net_device.lock().expect("Poisoned lock").id().to_string();
         // The device mutex mustn't be locked here otherwise it will deadlock.
-        device_manager.attach_virtio_device(
+        device_manager.attach_boot_virtio_device(
             vm,
             id,
             net_device.clone(),
@@ -731,7 +731,7 @@ fn attach_pmem_devices(
         let pmem = Pmem::new(kvm_vm.clone(), config.clone())?;
         let device = Arc::new(Mutex::new(pmem));
 
-        device_manager.attach_virtio_device(vm, id, device, cmdline, event_manager, false)?;
+        device_manager.attach_boot_virtio_device(vm, id, device, cmdline, event_manager, false)?;
     }
     Ok(())
 }
@@ -745,7 +745,14 @@ fn attach_unixsock_vsock_device(
 ) -> Result<(), AttachDeviceError> {
     let id = String::from(unix_vsock.lock().expect("Poisoned lock").id());
     // The device mutex mustn't be locked here otherwise it will deadlock.
-    device_manager.attach_virtio_device(vm, id, unix_vsock.clone(), cmdline, event_manager, false)
+    device_manager.attach_boot_virtio_device(
+        vm,
+        id,
+        unix_vsock.clone(),
+        cmdline,
+        event_manager,
+        false,
+    )
 }
 
 fn attach_balloon_device(
@@ -758,7 +765,7 @@ fn attach_balloon_device(
     let _kvm_vm = vm.as_kvm().ok_or(AttachDeviceError::NotSupported)?;
     let id = String::from(balloon.lock().expect("Poisoned lock").id());
     // The device mutex mustn't be locked here otherwise it will deadlock.
-    device_manager.attach_virtio_device(vm, id, balloon.clone(), cmdline, event_manager, false)
+    device_manager.attach_boot_virtio_device(vm, id, balloon.clone(), cmdline, event_manager, false)
 }
 
 #[cfg(test)]

@@ -285,8 +285,10 @@ impl DeviceManager {
         Ok(())
     }
 
-    /// Attaches a VirtioDevice device to the device manager and event manager.
-    pub(crate) fn attach_virtio_device<T: 'static + VirtioDevice + MutEventSubscriber + Debug>(
+    /// Attaches a boot-time VirtioDevice device to the device manager and event manager.
+    pub(crate) fn attach_boot_virtio_device<
+        T: 'static + VirtioDevice + MutEventSubscriber + Debug,
+    >(
         &mut self,
         vm: &Vm,
         id: String,
