@@ -25,7 +25,7 @@ use crate::arch::{RTC_MEM_START, SERIAL_MEM_START};
 use crate::devices::legacy::{RTCDevice, SerialDevice};
 use crate::devices::pseudo::BootTimer;
 use crate::devices::virtio::device::{VirtioDevice, VirtioDeviceId, VirtioDeviceType};
-use crate::devices::virtio::transport::mmio::MmioTransport;
+use crate::devices::virtio::transport::mmio::{IrqTrigger, MmioTransport};
 #[cfg(target_arch = "x86_64")]
 use crate::logger::debug;
 use crate::vstate::bus::{Bus, BusError};
@@ -139,6 +139,25 @@ impl MMIOVirtioDevices {
     /// Create a new manager for virtio devices using the MMIO transport.
     pub fn new() -> MMIOVirtioDevices {
         Default::default()
+    }
+
+    /// Attach a VirtioDevice using the MMIO transport.
+    pub(crate) fn attach_mmio_virtio_device(
+        &mut self,
+        vm: &KvmVm,
+        id: String,
+        device: Arc<Mutex<dyn VirtioDevice>>,
+        cmdline: &mut kernel_cmdline::Cmdline,
+        event_manager: &mut EventManager,
+        is_vhost_user: bool,
+    ) -> Result<(), MmioError> {
+        let interrupt = Arc::new(IrqTrigger::new());
+        // The device mutex mustn't be locked here otherwise it will deadlock.
+        let device =
+            MmioTransport::new(vm.guest_memory().clone(), interrupt, device, is_vhost_user);
+        self.register_mmio_virtio_for_boot(vm, id, device, event_manager, cmdline)?;
+
+        Ok(())
     }
 
     /// Allocates resources for a new device to be added.
@@ -272,6 +291,15 @@ impl MMIOVirtioDevices {
             .get(&(device_type, device_id.to_string()))
     }
 
+    pub(crate) fn get_device(
+        &self,
+        device_type: VirtioDeviceType,
+        device_id: &str,
+    ) -> Option<Arc<Mutex<dyn VirtioDevice>>> {
+        self.get_virtio_device(device_type, device_id)
+            .map(|device| device.inner.lock().expect("Poisoned lock").device())
+    }
+
     /// Run fn for each registered virtio device.
     pub fn for_each_virtio_mmio_device<F, E: Debug>(&self, mut f: F) -> Result<(), E>
     where
@@ -289,6 +317,23 @@ impl MMIOVirtioDevices {
             let virtio_device = device_arc.lock().expect("Poisoned lock");
             f(*device_type, &*virtio_device);
         }
+    }
+
+    pub(crate) fn for_each_virtio_device_mut(
+        &self,
+        mut f: impl FnMut(VirtioDeviceType, &mut dyn VirtioDevice),
+    ) {
+        for ((device_type, _), virtio_device) in &self.virtio_devices {
+            let device_arc = virtio_device.inner.lock().expect("Poisoned lock").device();
+            let mut virtio_device = device_arc.lock().expect("Poisoned lock");
+            f(*device_type, &mut *virtio_device);
+        }
+    }
+
+    #[cfg(target_arch = "x86_64")]
+    pub(crate) fn append_aml_bytes(&self, dsdt_data: &mut Vec<u8>) -> Result<(), aml::AmlError> {
+        dsdt_data.extend_from_slice(&self.dsdt_data);
+        Ok(())
     }
 
     #[cfg(target_arch = "aarch64")]

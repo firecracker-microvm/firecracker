@@ -100,7 +100,9 @@ pub fn create_fdt(
     create_devices_node(&mut fdt_writer, device_manager)?;
     create_vmgenid_node(&mut fdt_writer, device_manager.acpi_devices.vmgenid())?;
     create_vmclock_node(&mut fdt_writer, device_manager.acpi_devices.vmclock())?;
-    create_pci_nodes(&mut fdt_writer, &device_manager.pci_devices)?;
+    if let Some(pci_devices) = device_manager.pci_devices() {
+        create_pci_nodes(&mut fdt_writer, pci_devices)?;
+    }
 
     // End Header node.
     fdt_writer.end_node(root)?;
@@ -469,12 +471,14 @@ fn create_devices_node(
         create_serial_node(fdt, serial_info)?;
     }
 
-    let mut virtio_mmio = device_manager.mmio_virtio_devices.virtio_device_info();
+    if let Some(mmio_virtio_devices) = device_manager.mmio_virtio_devices() {
+        let mut virtio_mmio = mmio_virtio_devices.virtio_device_info();
 
-    // Sort out virtio devices by address from low to high and insert them into fdt table.
-    virtio_mmio.sort_by_key(|a| a.addr);
-    for ordered_device_info in virtio_mmio.drain(..) {
-        create_virtio_node(fdt, ordered_device_info)?;
+        // Sort out virtio devices by address from low to high and insert them into fdt table.
+        virtio_mmio.sort_by_key(|a| a.addr);
+        for device_info in virtio_mmio {
+            create_virtio_node(fdt, device_info)?;
+        }
     }
 
     Ok(())
@@ -565,7 +569,7 @@ mod tests {
     use crate::arch::aarch64::gic::create_gic;
     use crate::arch::{FDT_MAX_SIZE, KvmVm};
     use crate::device_manager::mmio::tests::DummyDevice;
-    use crate::device_manager::tests::default_device_manager;
+    use crate::device_manager::tests::{default_device_manager, mmio_devices_mut};
     use crate::test_utils::arch_mem;
     use crate::vstate::memory::GuestAddress;
     use crate::{EventManager, Kvm};
@@ -590,8 +594,7 @@ mod tests {
             .attach_legacy_devices_aarch64(&vm, &mut event_manager, &mut cmdline, None, None)
             .unwrap();
         let dummy = Arc::new(Mutex::new(DummyDevice::new()));
-        device_manager
-            .mmio_virtio_devices
+        mmio_devices_mut(&mut device_manager)
             .register_virtio_test_device(
                 &vm,
                 mem.clone(),

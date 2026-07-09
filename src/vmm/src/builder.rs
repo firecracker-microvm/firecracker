@@ -771,7 +771,7 @@ pub(crate) mod tests {
     use vmm_sys_util::tempfile::TempFile;
 
     use super::*;
-    use crate::device_manager::tests::default_device_manager;
+    use crate::device_manager::tests::{default_device_manager, default_device_manager_with_pci};
     use crate::devices::virtio::block::CacheType;
     use crate::devices::virtio::device::VirtioDeviceType;
     use crate::devices::virtio::rng::device::ENTROPY_DEV_ID;
@@ -861,8 +861,7 @@ pub(crate) mod tests {
         let _ = vm.create_vcpus(1).unwrap();
 
         let vm = Arc::new(vm);
-        let mut device_manager = default_device_manager();
-        device_manager.pci_devices.attach_pci_segment(&vm).unwrap();
+        let device_manager = default_device_manager_with_pci(&vm);
 
         Vmm {
             instance_info: InstanceInfo::default(),
