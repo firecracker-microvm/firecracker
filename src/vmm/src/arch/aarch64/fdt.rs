@@ -20,9 +20,9 @@ use crate::arch::{
 };
 use crate::device_manager::DeviceManager;
 use crate::device_manager::mmio::MMIODeviceInfo;
-use crate::device_manager::pci_mngr::PciDevices;
 use crate::devices::acpi::vmclock::{VMCLOCK_SIZE, VmClock};
 use crate::devices::acpi::vmgenid::{VMGENID_MEM_SIZE, VmGenId};
+use crate::devices::pci::PciSegment;
 use crate::initrd::InitrdConfig;
 use crate::vstate::memory::{Address, GuestMemoryMmap, GuestRegionType};
 
@@ -101,7 +101,7 @@ pub fn create_fdt(
     create_vmgenid_node(&mut fdt_writer, device_manager.acpi_devices.vmgenid())?;
     create_vmclock_node(&mut fdt_writer, device_manager.acpi_devices.vmclock())?;
     if let Some(pci_devices) = device_manager.pci_devices() {
-        create_pci_nodes(&mut fdt_writer, pci_devices)?;
+        create_pci_nodes(&mut fdt_writer, pci_devices.pci_segment())?;
     }
 
     // End Header node.
@@ -484,14 +484,7 @@ fn create_devices_node(
     Ok(())
 }
 
-fn create_pci_nodes(fdt: &mut FdtWriter, pci_devices: &PciDevices) -> Result<(), FdtError> {
-    if pci_devices.pci_segment.is_none() {
-        return Ok(());
-    }
-
-    // Fine to unwrap here, we just checked it's not `None`.
-    let segment = pci_devices.pci_segment.as_ref().unwrap();
-
+fn create_pci_nodes(fdt: &mut FdtWriter, segment: &PciSegment) -> Result<(), FdtError> {
     let pci_node_name = format!("pci@{:x}", segment.mmio_config_address);
     // Each range here is a thruple of `(PCI address, CPU address, PCI size)`.
     //

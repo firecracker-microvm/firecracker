@@ -44,10 +44,10 @@ use crate::vstate::interrupts::InterruptError;
 use crate::vstate::memory::GuestMemoryMmap;
 use crate::vstate::vm::KvmVm;
 
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct PciDevices {
-    /// PCIe segment of the VMM, if PCI is enabled. We currently support a single PCIe segment.
-    pub pci_segment: Option<PciSegment>,
+    /// PCIe segment of the VMM. We currently support a single PCIe segment.
+    pub pci_segment: PciSegment,
     /// All VirtIO PCI devices of the system
     pub virtio_devices: HashMap<VirtioDeviceId, Arc<Mutex<VirtioPciDevice>>>,
 }
@@ -69,21 +69,15 @@ pub enum PciManagerError {
 }
 
 impl PciDevices {
-    pub fn new() -> Self {
-        Default::default()
-    }
-
-    pub fn attach_pci_segment(&mut self, vm: &Arc<KvmVm>) -> Result<(), PciManagerError> {
-        // We only support a single PCIe segment. Calling this function twice is a Firecracker
-        // internal error.
-        assert!(self.pci_segment.is_none());
-
+    pub fn new(vm: &Arc<KvmVm>) -> Result<Self, PciManagerError> {
         // Currently we don't assign any IRQs to PCI devices. We will be using MSI-X interrupts
         // only.
         let pci_segment = PciSegment::new(0, vm, &[0u8; 32])?;
-        self.pci_segment = Some(pci_segment);
 
-        Ok(())
+        Ok(Self {
+            pci_segment,
+            virtio_devices: HashMap::new(),
+        })
     }
 
     fn register_bars_with_bus(
@@ -115,10 +109,7 @@ impl PciDevices {
         virtio_device: Arc<Mutex<VirtioPciDevice>>,
         event_manager: &mut EventManager,
     ) -> Result<(), PciManagerError> {
-        // We should only be reaching this point if PCI is enabled
-        let pci_segment = self.pci_segment.as_ref().unwrap();
-
-        pci_segment
+        self.pci_segment
             .pci_bus
             .lock()
             .expect("Poisoned lock")
@@ -145,9 +136,7 @@ impl PciDevices {
         device: Arc<Mutex<dyn VirtioDevice>>,
         event_manager: &mut EventManager,
     ) -> Result<(), PciManagerError> {
-        // We should only be reaching this point if PCI is enabled
-        let pci_segment = self.pci_segment.as_ref().unwrap();
-        let sbdf = pci_segment.next_device_sbdf()?;
+        let sbdf = self.pci_segment.next_device_sbdf()?;
         debug!("Allocating SBDF: {sbdf:?} for device");
         let mem = vm.guest_memory().clone();
 
@@ -174,6 +163,10 @@ impl PciDevices {
         self.attach_common(vm, device_type, id, sbdf, virtio_device, event_manager)
     }
 
+    pub(crate) fn pci_segment(&self) -> &PciSegment {
+        &self.pci_segment
+    }
+
     #[cfg(target_arch = "x86_64")]
     pub(crate) fn append_aml_bytes(
         &self,
@@ -181,10 +174,7 @@ impl PciDevices {
     ) -> Result<(), acpi_tables::aml::AmlError> {
         use acpi_tables::Aml;
 
-        if let Some(pci_segment) = &self.pci_segment {
-            pci_segment.append_aml_bytes(dsdt_data)?;
-        }
-        Ok(())
+        self.pci_segment().append_aml_bytes(dsdt_data)
     }
 
     pub(crate) fn detach_pci_virtio_device(
@@ -209,8 +199,6 @@ impl PciDevices {
             .map_err(PciManagerError::Bus)?;
 
         self.pci_segment
-            .as_ref()
-            .unwrap()
             .pci_bus
             .lock()
             .expect("Poisoned lock")
@@ -502,8 +490,7 @@ impl<'a> Persist<'a> for PciDevices {
         state: &Self::State,
     ) -> Result<Self, Self::Error> {
         let mem = constructor_args.mem;
-        let mut pci_devices = PciDevices::new();
-        pci_devices.attach_pci_segment(constructor_args.vm)?;
+        let mut pci_devices = PciDevices::new(constructor_args.vm)?;
 
         if let Some(balloon_state) = &state.balloon_device {
             let device = Arc::new(Mutex::new(Balloon::restore(

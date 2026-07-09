@@ -262,9 +262,7 @@ impl DeviceManager {
         vm: &Arc<KvmVm>,
     ) -> Result<VirtioDevices, PciManagerError> {
         if pci_enabled {
-            let mut pci_devices = PciDevices::new();
-            pci_devices.attach_pci_segment(vm)?;
-            Ok(VirtioDevices::Pci(pci_devices))
+            Ok(VirtioDevices::Pci(PciDevices::new(vm)?))
         } else {
             Ok(VirtioDevices::Mmio(MMIOVirtioDevices::new()))
         }
@@ -825,9 +823,7 @@ pub(crate) mod tests {
 
     pub(crate) fn default_device_manager_with_pci(vm: &Arc<KvmVm>) -> DeviceManager {
         let mut device_manager = default_device_manager();
-        let mut pci_devices = PciDevices::new();
-        pci_devices.attach_pci_segment(vm).unwrap();
-        device_manager.virtio_devices = VirtioDevices::Pci(pci_devices);
+        device_manager.virtio_devices = VirtioDevices::Pci(PciDevices::new(vm).unwrap());
         device_manager
     }
 
