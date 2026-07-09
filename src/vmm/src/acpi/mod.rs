@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use acpi_tables::fadt::{FADT_F_HW_REDUCED_ACPI, FADT_F_PWR_BUTTON, FADT_F_SLP_BUTTON};
-use acpi_tables::{Aml, Dsdt, Fadt, Madt, Mcfg, Rsdp, Sdt, Xsdt, aml};
+use acpi_tables::{Dsdt, Fadt, Madt, Mcfg, Rsdp, Sdt, Xsdt, aml};
 use vm_allocator::AllocPolicy;
 
 use crate::Vcpu;
@@ -86,17 +86,8 @@ impl AcpiTableWriter<'_> {
     ) -> Result<u64, AcpiError> {
         let mut dsdt_data = Vec::new();
 
-        // Virtio-devices DSDT data
-        dsdt_data.extend_from_slice(&device_manager.mmio_virtio_devices.dsdt_data);
-
-        // Add GED and VMGenID AML data.
-        device_manager
-            .acpi_devices
-            .append_aml_bytes(&mut dsdt_data)?;
-
-        if let Some(pci_segment) = &device_manager.pci_devices.pci_segment {
-            pci_segment.append_aml_bytes(&mut dsdt_data)?;
-        }
+        // Device DSDT data.
+        device_manager.append_aml_bytes(&mut dsdt_data)?;
 
         // Architecture specific DSDT data
         setup_arch_dsdt(&mut dsdt_data)?;

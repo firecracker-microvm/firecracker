@@ -1096,6 +1096,7 @@ mod tests {
     use crate::Vmm;
     use crate::arch::MEM_64BIT_DEVICES_START;
     use crate::builder::tests::default_vmm_with_pci;
+    use crate::device_manager::tests::pci_devices;
     use crate::devices::virtio::device::{VirtioDevice, VirtioDeviceType};
     use crate::devices::virtio::generated::virtio_config::VIRTIO_F_VERSION_1;
     use crate::devices::virtio::rng::Entropy;
@@ -1133,8 +1134,7 @@ mod tests {
     }
 
     fn get_virtio_device(vmm: &Vmm) -> Arc<Mutex<VirtioPciDevice>> {
-        vmm.device_manager
-            .pci_devices
+        pci_devices(&vmm.device_manager)
             .get_virtio_device(VirtioDeviceType::Rng, "rng")
             .unwrap()
             .clone()
