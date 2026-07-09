@@ -82,6 +82,8 @@ pub enum DeviceManagerCreateError {
     #[cfg(target_arch = "x86_64")]
     /// Legacy device manager error: {0}
     PortIOError(#[from] LegacyDeviceError),
+    /// PCI device manager error: {0}
+    PciDeviceManager(#[from] PciManagerError),
     /// Resource allocator error: {0}
     ResourceAllocator(#[from] vm_allocator::Error),
 }
@@ -234,9 +236,10 @@ impl DeviceManager {
     pub fn new(
         event_manager: &mut EventManager,
         vcpus_exit_evt: &EventFd,
-        vm: &KvmVm,
+        vm: &Arc<KvmVm>,
         serial_output: Option<&PathBuf>,
         serial_rate_limiter: Option<TokenBucket>,
+        pci_enabled: bool,
     ) -> Result<Self, DeviceManagerCreateError> {
         #[cfg(target_arch = "x86_64")]
         let legacy_devices = Self::create_legacy_devices(
@@ -247,6 +250,11 @@ impl DeviceManager {
             None,
             serial_rate_limiter,
         )?;
+
+        let mut pci_devices = PciDevices::new();
+        if pci_enabled {
+            pci_devices.attach_pci_segment(vm)?;
+        }
 
         Ok(DeviceManager {
             mmio_platform_devices: MMIOPlatformDevices::new(),
@@ -378,11 +386,6 @@ impl DeviceManager {
         self.mmio_platform_devices
             .register_mmio_rtc(vm, rtc, None)?;
         Ok(())
-    }
-
-    /// Enables PCIe support for Firecracker devices
-    pub fn enable_pci(&mut self, vm: &Arc<KvmVm>) -> Result<(), PciManagerError> {
-        self.pci_devices.attach_pci_segment(vm)
     }
 
     /// Artificially kick VirtIO devices as if they had external events.
@@ -820,7 +823,8 @@ pub(crate) mod tests {
     use vmm_sys_util::tempfile::TempFile;
 
     use crate::builder::tests::{
-        CustomBlockConfig, default_kernel_cmdline, default_vmm, insert_block_devices,
+        CustomBlockConfig, default_kernel_cmdline, default_vmm, default_vmm_with_pci,
+        insert_block_devices,
     };
     use crate::devices::acpi::vmclock::VmClock;
     use crate::devices::acpi::vmgenid::VmGenId;
@@ -933,10 +937,7 @@ pub(crate) mod tests {
     #[test]
     fn test_hotplug_block() {
         let mut evt_manager = EventManager::new().unwrap();
-        let mut vmm = default_vmm();
-        vmm.device_manager
-            .enable_pci(vmm.vm.as_kvm().unwrap())
-            .unwrap();
+        let mut vmm = default_vmm_with_pci();
         let f = TempFile::new().unwrap();
 
         // Successful case
@@ -1023,10 +1024,7 @@ pub(crate) mod tests {
 
     #[test]
     fn test_hotplug_pmem() {
-        let mut vmm = default_vmm();
-        vmm.device_manager
-            .enable_pci(vmm.vm.as_kvm().unwrap())
-            .unwrap();
+        let mut vmm = default_vmm_with_pci();
         let mut evt_manager = EventManager::new().unwrap();
         let f = TempFile::new().unwrap();
         f.as_file().set_len(0x1000).unwrap();
@@ -1084,10 +1082,7 @@ pub(crate) mod tests {
 
     #[test]
     fn test_hotplug_net() {
-        let mut vmm = default_vmm();
-        vmm.device_manager
-            .enable_pci(vmm.vm.as_kvm().unwrap())
-            .unwrap();
+        let mut vmm = default_vmm_with_pci();
         let mut evt_manager = EventManager::new().unwrap();
 
         let mac = "AA:FC:00:00:00:01";
@@ -1147,10 +1142,7 @@ pub(crate) mod tests {
     #[test]
     fn test_unplug_root_block() {
         let mut evt_manager = EventManager::new().unwrap();
-        let mut vmm = default_vmm();
-        vmm.device_manager
-            .enable_pci(vmm.vm.as_kvm().unwrap())
-            .unwrap();
+        let mut vmm = default_vmm_with_pci();
         let f = TempFile::new().unwrap();
 
         // Simulate a root block device added pre-boot by attaching it
@@ -1179,10 +1171,7 @@ pub(crate) mod tests {
     #[test]
     fn test_unplug_root_pmem() {
         let mut evt_manager = EventManager::new().unwrap();
-        let mut vmm = default_vmm();
-        vmm.device_manager
-            .enable_pci(vmm.vm.as_kvm().unwrap())
-            .unwrap();
+        let mut vmm = default_vmm_with_pci();
         let f = TempFile::new().unwrap();
         f.as_file().set_len(0x1000).unwrap();
 

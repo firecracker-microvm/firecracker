@@ -24,7 +24,6 @@ use crate::construct_kvm_mpidrs;
 use crate::cpu_config::templates::{GetCpuTemplate, GetCpuTemplateError, GuestConfigError};
 #[cfg(target_arch = "x86_64")]
 use crate::device_manager;
-use crate::device_manager::pci_mngr::PciManagerError;
 use crate::device_manager::{
     AttachDeviceError, DeviceManager, DeviceManagerCreateError, DeviceManagerPersistError,
     DeviceRestoreArgs,
@@ -83,8 +82,6 @@ pub enum StartMicrovmError {
     /// Error creating legacy device: {0}
     #[cfg(target_arch = "x86_64")]
     CreateLegacyDevice(device_manager::legacy::LegacyDeviceError),
-    /// Error enabling PCIe support: {0}
-    EnablePciDevices(#[from] PciManagerError),
     /// Error enabling pvtime on vcpu: {0}
     #[cfg(target_arch = "aarch64")]
     EnablePVTime(crate::arch::VcpuArchError),
@@ -207,15 +204,14 @@ pub fn build_microvm_for_boot(
         &kvm_vm,
         vm_resources.serial_out_path.as_ref(),
         vm_resources.serial_rate_limiter(),
+        vm_resources.pci_enabled,
     )?;
 
     let guest_memory = kvm_vm.guest_memory();
     let entry_point = load_kernel(&boot_config.kernel_file, guest_memory)?;
     let initrd = InitrdConfig::from_config(boot_config, guest_memory)?;
 
-    if vm_resources.pci_enabled {
-        device_manager.enable_pci(&kvm_vm)?;
-    } else {
+    if !vm_resources.pci_enabled {
         boot_cmdline.insert("pci", "off")?;
     }
 
@@ -856,6 +852,25 @@ pub(crate) mod tests {
             shutdown_exit_code: None,
             vm: Vm::Kvm(Arc::new(vm)),
             device_manager: default_device_manager(),
+        }
+    }
+
+    pub(crate) fn default_vmm_with_pci() -> Vmm {
+        let mut vm = setup_vm_with_memory(mib_to_bytes(128));
+
+        let _ = vm.create_vcpus(1).unwrap();
+
+        let vm = Arc::new(vm);
+        let mut device_manager = default_device_manager();
+        device_manager.pci_devices.attach_pci_segment(&vm).unwrap();
+
+        Vmm {
+            instance_info: InstanceInfo::default(),
+            machine_config: MachineConfig::default(),
+            boot_source_config: BootSourceConfig::default(),
+            shutdown_exit_code: None,
+            vm: Vm::Kvm(vm),
+            device_manager,
         }
     }
 
