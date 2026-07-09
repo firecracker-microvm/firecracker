@@ -1451,22 +1451,14 @@ mod tests {
             Err(MachineConfigError::InvalidVcpuCount)
         );
 
-        // Check that SMT is not supported on aarch64, and that on x86_64 enabling it requires vcpu
-        // count to be even.
+        // Check that enabling SMT requires vcpu count to be even.
         aux_vm_config.smt = Some(true);
-        #[cfg(target_arch = "aarch64")]
-        assert_eq!(
-            vm_resources.update_machine_config(&aux_vm_config),
-            Err(MachineConfigError::SmtNotSupported)
-        );
         aux_vm_config.vcpu_count = Some(3);
-        #[cfg(target_arch = "x86_64")]
         assert_eq!(
             vm_resources.update_machine_config(&aux_vm_config),
             Err(MachineConfigError::InvalidVcpuCount)
         );
         aux_vm_config.vcpu_count = Some(32);
-        #[cfg(target_arch = "x86_64")]
         vm_resources.update_machine_config(&aux_vm_config).unwrap();
         aux_vm_config.smt = Some(false);
 

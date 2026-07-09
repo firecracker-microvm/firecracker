@@ -1420,7 +1420,7 @@ definitions:
       #   description: Path to the GDB socket. Requires the gdb feature to be enabled.
       smt:
         type: boolean
-        description: Flag for enabling/disabling simultaneous multithreading. Can be enabled only on x86.
+        description: Flag for enabling/disabling simultaneous multithreading.
         default: false
       mem_size_mib:
         type: integer
