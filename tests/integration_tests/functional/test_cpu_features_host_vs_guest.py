@@ -647,6 +647,41 @@ def test_host_vs_guest_cpu_features(uvm):
             assert host_feats - guest_feats == expected_host_minus_guest
             assert guest_feats - host_feats == expected_guest_minus_host
 
+        case CpuModel.ARM_NEOVERSE_V3:
+            expected_guest_minus_host = set()
+            expected_host_minus_guest = {
+                "paca",
+                "pacg",
+                "sve",
+                "sve2",
+                "sveaes",
+                "svebf16",
+                "svebitperm",
+                "svei8mm",
+                "svepmull",
+                "svesha3",
+            }
+
+            # The "wfxt" (FEAT_WFxT) hwcap is exposed to userspace from kernel
+            # v6.1 (absent in v5.10, including Amazon Linux 5.10).
+            host_has_wfxt = global_props.host_linux_version_tpl >= (6, 1)
+            guest_has_wfxt = vm.guest_kernel_version >= (6, 1)
+
+            if host_has_wfxt and not guest_has_wfxt:
+                expected_host_minus_guest |= {"wfxt"}
+            if not host_has_wfxt and guest_has_wfxt:
+                expected_guest_minus_host |= {"wfxt"}
+
+            host_has_ssbs = global_props.host_os not in {
+                "amzn2",
+                "amzn2023",
+            } and global_props.host_linux_version_tpl < (6, 11)
+            if not host_has_ssbs:
+                expected_guest_minus_host |= {"ssbs"}
+
+            assert host_feats - guest_feats == expected_host_minus_guest
+            assert guest_feats - host_feats == expected_guest_minus_host
+
         case _:
             # only fail if running in CI
             if os.environ.get("BUILDKITE") is not None:
