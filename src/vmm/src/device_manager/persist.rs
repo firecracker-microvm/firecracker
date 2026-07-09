@@ -795,6 +795,11 @@ mod tests {
         let vmm = default_vmm();
         let device_manager_state: device_manager::DevicesState =
             bitcode::deserialize(&serialized_data).unwrap();
+        let device_manager::VirtioDevicesState::Mmio(mmio_state) =
+            &device_manager_state.virtio_state
+        else {
+            panic!("expected MMIO virtio device state");
+        };
         let vm_resources = &mut VmResources::default();
         let kvm_vm = vmm.vm.as_kvm().unwrap().clone();
         let restore_args = MMIODevManagerConstructorArgs {
@@ -804,8 +809,7 @@ mod tests {
             vm_resources,
             instance_id: "microvm-id",
         };
-        let _restored_dev_manager =
-            MMIOVirtioDevices::restore(restore_args, &device_manager_state.mmio_state).unwrap();
+        let _restored_dev_manager = MMIOVirtioDevices::restore(restore_args, mmio_state).unwrap();
 
         let expected_vm_resources = format!(
             r#"{{
@@ -899,10 +903,7 @@ mod tests {
                 .version(),
             MmdsVersion::V2
         );
-        assert_eq!(
-            device_manager_state.mmio_state.mmds.unwrap().version,
-            MmdsVersion::V2
-        );
+        assert_eq!(mmio_state.mmds.as_ref().unwrap().version, MmdsVersion::V2);
         assert_eq!(
             expected_vm_resources,
             serde_json::to_string_pretty(&VmmConfig::from(&*vm_resources)).unwrap()
