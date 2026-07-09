@@ -1095,7 +1095,7 @@ mod tests {
     use super::{PciCapabilityType, VirtioPciDevice};
     use crate::Vmm;
     use crate::arch::MEM_64BIT_DEVICES_START;
-    use crate::builder::tests::default_vmm;
+    use crate::builder::tests::default_vmm_with_pci;
     use crate::devices::virtio::device::{VirtioDevice, VirtioDeviceType};
     use crate::devices::virtio::generated::virtio_config::VIRTIO_F_VERSION_1;
     use crate::devices::virtio::rng::Entropy;
@@ -1116,10 +1116,7 @@ mod tests {
     use crate::vstate::resources::ResourceAllocator;
 
     fn create_vmm_with_virtio_pci_device() -> Vmm {
-        let mut vmm = default_vmm();
-        vmm.device_manager
-            .enable_pci(&vmm.vm.as_kvm().unwrap().clone())
-            .unwrap();
+        let mut vmm = default_vmm_with_pci();
         let entropy = Arc::new(Mutex::new(Entropy::new(RateLimiter::default()).unwrap()));
         let mut event_manager = crate::EventManager::new().unwrap();
         vmm.device_manager
