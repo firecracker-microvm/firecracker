@@ -41,6 +41,8 @@ pub enum PmemError {
     BackingFile(std::io::Error),
     /// Error backing file size is 0
     BackingFileZeroSize,
+    /// Restored pmem size {0} does not match backing file mapping size {1}
+    RestoredSizeMismatch(u64, u64),
     /// Error with EventFd: {0}
     EventFd(std::io::Error),
     /// Unexpected read-only descriptor
@@ -314,7 +316,12 @@ impl Pmem {
         let mmap = PmemMmap::new(&config.path_on_host, config.read_only)?;
 
         let guest_region = match config_space {
-            Some(cs) => GuestPmemRegion::from_state(vm.clone(), cs),
+            Some(cs) => {
+                if cs.size != mmap.mmap_len {
+                    return Err(PmemError::RestoredSizeMismatch(cs.size, mmap.mmap_len));
+                }
+                GuestPmemRegion::from_state(vm.clone(), cs)
+            }
             None => GuestPmemRegion::new(vm.clone(), mmap.mmap_len)?,
         };
 
