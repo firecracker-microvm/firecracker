@@ -582,17 +582,35 @@ impl Default for VirtioDevices {
     }
 }
 
+/// Serialised state of the virtio devices, mirroring the active [`VirtioDevices`]
+/// transport variant. Only the transport actually in use is serialised.
+///
+/// Prefer large enum over Box + heap-alloc, since snapshot restore is latency sensitive.
+#[allow(clippy::large_enum_variant)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum VirtioDevicesState {
+    /// Virtio devices attached over the MMIO transport.
+    Mmio(persist::DeviceStates),
+    /// Virtio devices attached over the PCI transport.
+    Pci(pci_mngr::PciDevicesState),
+}
+
+impl Default for VirtioDevicesState {
+    fn default() -> Self {
+        // Mirror `VirtioDevices::default()`, which uses the MMIO transport.
+        Self::Mmio(persist::DeviceStates::default())
+    }
+}
+
 #[derive(Debug, Default, Clone, Serialize, Deserialize)]
 /// State of devices in the system
 pub struct DevicesState {
-    /// MMIO virtio devices state
-    pub mmio_state: persist::DeviceStates,
+    /// Virtio devices state
+    pub virtio_state: VirtioDevicesState,
     /// MMIO platform (non-virtio) devices state
     pub mmio_platform_state: MMIOPlatformDevicesState,
     /// ACPI devices state
     pub acpi_state: persist::ACPIDeviceManagerState,
-    /// PCI devices state
-    pub pci_state: pci_mngr::PciDevicesState,
     /// Serial device state
     pub serial_state: Option<persist::SerialState>,
 }
@@ -676,24 +694,15 @@ impl<'a> Persist<'a> for DeviceManager {
     type Error = DeviceManagerPersistError;
 
     fn save(&self) -> Self::State {
-        // Save both transport slots for now; only the active variant has
-        // devices, so the inactive slot serialises its default (empty) state.
-        // The next commit changes the wire format to hold only the active
-        // transport.
-        let (mmio_state, pci_state) = match &self.virtio_devices {
-            VirtioDevices::Mmio(mmio_devices) => {
-                (mmio_devices.save(), pci_mngr::PciDevicesState::default())
-            }
-            VirtioDevices::Pci(pci_devices) => {
-                (persist::DeviceStates::default(), pci_devices.save())
-            }
+        let virtio_state = match &self.virtio_devices {
+            VirtioDevices::Mmio(mmio_devices) => VirtioDevicesState::Mmio(mmio_devices.save()),
+            VirtioDevices::Pci(pci_devices) => VirtioDevicesState::Pci(pci_devices.save()),
         };
 
         DevicesState {
-            mmio_state,
+            virtio_state,
             mmio_platform_state: self.mmio_platform_devices.save(),
             acpi_state: self.acpi_devices.save(),
-            pci_state,
             serial_state: self.serial_state(),
         }
     }
@@ -730,31 +739,31 @@ impl<'a> Persist<'a> for DeviceManager {
         // Restore ACPI devices
         let acpi_devices = ACPIDeviceManager::restore(constructor_args.vm, &state.acpi_state)?;
 
-        // The wire format carries both transport slots; the pci_enabled flag
-        // says which one was active. The next commit changes the format to
-        // hold only the active transport.
-        let virtio_devices = if state.pci_state.pci_enabled {
-            let pci_ctor_args = PciDevicesConstructorArgs {
-                vm: constructor_args.vm,
-                mem: constructor_args.mem,
-                vm_resources: constructor_args.vm_resources,
-                instance_id: constructor_args.instance_id,
-                event_manager: constructor_args.event_manager,
-            };
-            let pci_devices = PciDevices::restore(pci_ctor_args, &state.pci_state)
-                .map_err(DeviceManagerPersistError::PciRestore)?;
-            VirtioDevices::Pci(pci_devices)
-        } else {
-            let mmio_ctor_args = MMIODevManagerConstructorArgs {
-                mem: constructor_args.mem,
-                vm: constructor_args.vm,
-                event_manager: constructor_args.event_manager,
-                vm_resources: constructor_args.vm_resources,
-                instance_id: constructor_args.instance_id,
-            };
-            let mmio_virtio_devices = MMIOVirtioDevices::restore(mmio_ctor_args, &state.mmio_state)
-                .map_err(DeviceManagerPersistError::MmioRestore)?;
-            VirtioDevices::Mmio(mmio_virtio_devices)
+        let virtio_devices = match &state.virtio_state {
+            VirtioDevicesState::Pci(pci_state) => {
+                let pci_ctor_args = PciDevicesConstructorArgs {
+                    vm: constructor_args.vm,
+                    mem: constructor_args.mem,
+                    vm_resources: constructor_args.vm_resources,
+                    instance_id: constructor_args.instance_id,
+                    event_manager: constructor_args.event_manager,
+                };
+                let pci_devices = PciDevices::restore(pci_ctor_args, pci_state)
+                    .map_err(DeviceManagerPersistError::PciRestore)?;
+                VirtioDevices::Pci(pci_devices)
+            }
+            VirtioDevicesState::Mmio(mmio_state) => {
+                let mmio_ctor_args = MMIODevManagerConstructorArgs {
+                    mem: constructor_args.mem,
+                    vm: constructor_args.vm,
+                    event_manager: constructor_args.event_manager,
+                    vm_resources: constructor_args.vm_resources,
+                    instance_id: constructor_args.instance_id,
+                };
+                let mmio_virtio_devices = MMIOVirtioDevices::restore(mmio_ctor_args, mmio_state)
+                    .map_err(DeviceManagerPersistError::MmioRestore)?;
+                VirtioDevices::Mmio(mmio_virtio_devices)
+            }
         };
 
         Ok(DeviceManager {

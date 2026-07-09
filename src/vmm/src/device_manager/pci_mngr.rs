@@ -315,8 +315,6 @@ pub struct VirtioDeviceState<T> {
 
 #[derive(Default, Debug, Clone, Serialize, Deserialize)]
 pub struct PciDevicesState {
-    /// Whether PCI is enabled
-    pub pci_enabled: bool,
     /// Block device states.
     pub block_devices: Vec<VirtioDeviceState<BlockState>>,
     /// Net device states.
@@ -361,11 +359,6 @@ impl<'a> Persist<'a> for PciDevices {
 
     fn save(&self) -> Self::State {
         let mut state = PciDevicesState::default();
-        if self.pci_segment.is_some() {
-            state.pci_enabled = true;
-        } else {
-            return state;
-        }
 
         for pci_dev in self.virtio_devices.values() {
             let locked_pci_dev = pci_dev.lock().expect("Poisoned lock");
@@ -510,10 +503,6 @@ impl<'a> Persist<'a> for PciDevices {
     ) -> Result<Self, Self::Error> {
         let mem = constructor_args.mem;
         let mut pci_devices = PciDevices::new();
-        if !state.pci_enabled {
-            return Ok(pci_devices);
-        }
-
         pci_devices.attach_pci_segment(constructor_args.vm)?;
 
         if let Some(balloon_state) = &state.balloon_device {
@@ -824,7 +813,10 @@ mod tests {
 
         let device_manager_state: device_manager::DevicesState =
             bitcode::deserialize(&serialized_data).unwrap();
-        let pci_state = &device_manager_state.pci_state;
+        let device_manager::VirtioDevicesState::Pci(pci_state) = &device_manager_state.virtio_state
+        else {
+            panic!("expected PCI virtio device state");
+        };
         let vm_resources = &mut VmResources::default();
         let kvm_vm = vmm.vm.as_kvm().unwrap().clone();
         let restore_args = PciDevicesConstructorArgs {

@@ -26,6 +26,9 @@ use crate::cpu_config::x86_64::cpuid::CpuidTrait;
 #[cfg(target_arch = "x86_64")]
 use crate::cpu_config::x86_64::cpuid::common::get_vendor_id_from_host;
 use crate::device_manager::{DevicePersistError, DevicesState};
+// Re-exported so external crates inspecting a `MicrovmState` snapshot can match on the
+// serialised virtio transport variant.
+pub use crate::device_manager::VirtioDevicesState;
 use crate::logger::{info, warn};
 use crate::resources::VmResources;
 use crate::seccomp::BpfThreadMap;
@@ -368,21 +371,22 @@ pub fn restore_from_snapshot(
 ) -> Result<Arc<Mutex<Vmm>>, RestoreFromSnapshotError> {
     let mut microvm_state = snapshot_state_from_file(&params.snapshot_path)?;
     for entry in &params.network_overrides {
-        microvm_state
-            .device_states
-            .mmio_state
-            .net_devices
-            .iter_mut()
-            .map(|device| &mut device.device_state)
-            .chain(
-                microvm_state
-                    .device_states
-                    .pci_state
-                    .net_devices
-                    .iter_mut()
-                    .map(|device| &mut device.device_state),
-            )
-            .find(|x| x.id == entry.iface_id)
+        // Only the active transport carries virtio device state, so we look at whichever
+        // variant this snapshot was saved with. The MMIO and PCI transports wrap their net
+        // devices in distinct types, so we map down to the shared inner `NetState` in each arm.
+        let device_state = match &mut microvm_state.device_states.virtio_state {
+            VirtioDevicesState::Mmio(mmio_state) => mmio_state
+                .net_devices
+                .iter_mut()
+                .map(|device| &mut device.device_state)
+                .find(|x| x.id == entry.iface_id),
+            VirtioDevicesState::Pci(pci_state) => pci_state
+                .net_devices
+                .iter_mut()
+                .map(|device| &mut device.device_state)
+                .find(|x| x.id == entry.iface_id),
+        };
+        device_state
             .map(|device_state| device_state.tap_if_name.clone_from(&entry.host_dev_name))
             .ok_or(SnapshotStateFromFileError::UnknownNetworkDevice)?;
     }
@@ -390,21 +394,17 @@ pub fn restore_from_snapshot(
     if let Some(vsock_override) = &params.vsock_override {
         // There should only ever be at most one vsock device, therefore this
         // should correctly find it and modify the path if such a device exists.
-        let device_state = microvm_state
-            .device_states
-            .mmio_state
-            .vsock_device
-            .as_mut()
-            .map(|device| &mut device.device_state)
-            .or_else(|| {
-                microvm_state
-                    .device_states
-                    .pci_state
-                    .vsock_device
-                    .as_mut()
-                    .map(|device| &mut device.device_state)
-            })
-            .ok_or(SnapshotStateFromFileError::UnknownVsockDevice)?;
+        let device_state = match &mut microvm_state.device_states.virtio_state {
+            VirtioDevicesState::Mmio(mmio_state) => mmio_state
+                .vsock_device
+                .as_mut()
+                .map(|device| &mut device.device_state),
+            VirtioDevicesState::Pci(pci_state) => pci_state
+                .vsock_device
+                .as_mut()
+                .map(|device| &mut device.device_state),
+        }
+        .ok_or(SnapshotStateFromFileError::UnknownVsockDevice)?;
 
         device_state
             .backend
@@ -739,10 +739,13 @@ mod tests {
 
         // Only checking that all devices are saved, actual device state
         // is tested by that device's tests.
-        assert_eq!(states.mmio_state.block_devices.len(), 1);
-        assert_eq!(states.mmio_state.net_devices.len(), 1);
-        assert!(states.mmio_state.vsock_device.is_some());
-        assert!(states.mmio_state.balloon_device.is_some());
+        let VirtioDevicesState::Mmio(mmio_state) = &states.virtio_state else {
+            panic!("expected MMIO virtio device state");
+        };
+        assert_eq!(mmio_state.block_devices.len(), 1);
+        assert_eq!(mmio_state.net_devices.len(), 1);
+        assert!(mmio_state.vsock_device.is_some());
+        assert!(mmio_state.balloon_device.is_some());
 
         let vcpu_states = vec![VcpuState::default()];
         #[cfg(target_arch = "aarch64")]
@@ -766,10 +769,13 @@ mod tests {
         let restored_microvm_state: MicrovmState = bitcode::deserialize(&serialized_data).unwrap();
 
         assert_eq!(restored_microvm_state.vm_info, microvm_state.vm_info);
-        assert_eq!(
-            restored_microvm_state.device_states.mmio_state,
-            microvm_state.device_states.mmio_state
-        )
+        let (VirtioDevicesState::Mmio(restored_mmio), VirtioDevicesState::Mmio(mmio)) = (
+            &restored_microvm_state.device_states.virtio_state,
+            &microvm_state.device_states.virtio_state,
+        ) else {
+            panic!("expected MMIO virtio device state");
+        };
+        assert_eq!(restored_mmio, mmio)
     }
 
     #[test]
