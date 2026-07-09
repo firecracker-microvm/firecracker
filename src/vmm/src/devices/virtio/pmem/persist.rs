@@ -84,6 +84,7 @@ impl<'a> Persist<'a> for Pmem {
 
 #[cfg(test)]
 mod tests {
+    use std::assert_matches;
     use vmm_sys_util::tempfile::TempFile;
 
     use super::*;
@@ -136,5 +137,40 @@ mod tests {
         );
         assert!(!restored_pmem.is_activated());
         assert_eq!(restored_pmem.config, pmem_state.config);
+    }
+
+    #[test]
+    fn test_restore_rejects_mismatched_config_space_size() {
+        let dummy_file = TempFile::new().unwrap();
+        dummy_file.as_file().set_len(0x20_0000);
+        let dummy_path = dummy_file.as_path().to_str().unwrap().to_string();
+        let config = PmemConfig {
+            id: "1".into(),
+            path_on_host: dummy_path,
+            root_device: true,
+            read_only: false,
+            ..Default::default()
+        };
+        let guest_mem = default_mem();
+        let vm = Arc::new(setup_vm());
+        let pmem = Pmem::new(vm.clone(), config).unwrap();
+
+        let mut pmem_state = pmem.save();
+        drop(pmem);
+
+        pmem_state.config_space.size += Pmem::ALIGNMENT;
+
+        let err = Pmem::restore(
+            PmemConstructorArgs {
+                mem: &guest_mem,
+                vm: vm.clone(),
+            },
+            &pmem_state,
+        )
+        .unwrap_err();
+        assert_matches!(
+            err,
+            PmemPersistError::Pmem(PmemError::RestoredSizeMismatch(_, _))
+        );
     }
 }
