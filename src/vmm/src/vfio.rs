@@ -1501,8 +1501,6 @@ fn vfio_init_device(
 
 /// Performs device reset and removes emulated regions from the mmio_bus.
 fn vfio_deinit_device(device: &VfioDevice) {
-    device.device.reset();
-
     for hole in device.msix_state.bar_hole_infos.iter() {
         device
             .vm
@@ -1511,6 +1509,7 @@ fn vfio_deinit_device(device: &VfioDevice) {
             .remove(hole.gpa, hole.size)
             .unwrap();
     }
+    device.device.reset();
 }
 
 /// Create KVM_DEV_TYPE_VFIO device

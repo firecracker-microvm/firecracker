@@ -762,6 +762,17 @@ impl Vmm {
         self.device_manager
             .hot_unplug_device(kvm_vm, device_id, event_manager)
     }
+
+    /// Detaches a device after VM start
+    #[inline]
+    pub fn hot_unplug_vfio_device(&mut self, id: String) -> Result<(), VmmActionError> {
+        log_dev_preview_warning("VFIO device hot-unplug", None);
+        let kvm_vm = self
+            .vm
+            .as_kvm()
+            .ok_or_else(|| VmmActionError::NotSupported("Operation requires KVM".to_string()))?;
+        self.device_manager.hot_unplug_vfio_device(kvm_vm, id)
+    }
 }
 
 /// Process the content of the MPIDR_EL1 register in order to be able to pass it to KVM
