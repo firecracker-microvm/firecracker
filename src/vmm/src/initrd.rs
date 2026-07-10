@@ -4,7 +4,7 @@
 use std::fs::File;
 use std::os::unix::fs::MetadataExt;
 
-use vm_memory::{GuestAddress, GuestMemory, ReadVolatile, VolatileMemoryError};
+use vm_memory::{GuestAddress, GuestMemoryBackend, ReadVolatile, VolatileMemoryError};
 
 use crate::arch::initrd_load_addr;
 use crate::utils::u64_to_usize;
