@@ -7,10 +7,11 @@
 
 use std::num::Wrapping;
 use std::sync::atomic::{Ordering, fence};
+use vm_memory::GuestMemoryBackend;
 
 use crate::logger::error;
 use crate::utils::u64_to_usize;
-use crate::vstate::memory::{Bitmap, ByteValued, GuestAddress, GuestMemory};
+use crate::vstate::memory::{Bitmap, ByteValued, GuestAddress, GuestMemoryMmap};
 
 pub const VIRTQ_DESC_F_NEXT: u16 = 0x1;
 pub const VIRTQ_DESC_F_WRITE: u16 = 0x2;
@@ -315,7 +316,7 @@ impl Queue {
             + std::mem::size_of::<u16>()
     }
 
-    fn get_aligned_slice_ptr<T, M: GuestMemory>(
+    fn get_aligned_slice_ptr<T, M: GuestMemoryBackend>(
         &self,
         mem: &M,
         addr: GuestAddress,
@@ -339,7 +340,7 @@ impl Queue {
 
     /// Set up pointers to the queue objects in the guest memory
     /// and mark memory dirty for those objects
-    pub fn initialize<M: GuestMemory>(&mut self, mem: &M) -> Result<(), QueueError> {
+    pub fn initialize<M: GuestMemoryBackend>(&mut self, mem: &M) -> Result<(), QueueError> {
         if !self.ready {
             return Err(QueueError::NotReady);
         }
@@ -691,10 +692,10 @@ mod verification {
     use std::mem::ManuallyDrop;
     use std::num::Wrapping;
 
-    use vm_memory::{GuestMemoryRegion, MemoryRegionAddress};
+    use vm_memory::{GuestMemoryBackend, GuestMemoryRegion, MemoryRegionAddress};
 
     use super::*;
-    use crate::vstate::memory::{Bytes, FileOffset, GuestAddress, GuestMemory, MmapRegion};
+    use crate::vstate::memory::{Bytes, FileOffset, GuestAddress, MmapRegion};
 
     /// A made-for-kani version of `vm_memory::GuestMemoryMmap`. Unlike the real
     /// `GuestMemoryMmap`, which manages a list of regions and then does a binary
@@ -707,7 +708,7 @@ mod verification {
         the_region: vm_memory::GuestRegionMmap,
     }
 
-    impl GuestMemory for ProofGuestMemory {
+    impl GuestMemoryBackend for ProofGuestMemory {
         type R = vm_memory::GuestRegionMmap;
 
         fn num_regions(&self) -> usize {

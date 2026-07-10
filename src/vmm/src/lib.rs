@@ -125,6 +125,7 @@ use std::time::Duration;
 use device_manager::DeviceManager;
 use event_manager::{EventManager as BaseEventManager, EventOps, Events, MutEventSubscriber};
 use snapshot::Persist;
+use vm_memory::GuestMemoryBackend;
 use vmm_sys_util::epoll::EventSet;
 use vmm_sys_util::terminal::Terminal;
 use vstate::vcpu::{self, VcpuSendEventError};
@@ -160,7 +161,7 @@ use crate::vmm_config::mmds::MmdsConfig;
 use crate::vmm_config::net::NetworkInterfaceConfig;
 use crate::vmm_config::vsock::VsockDeviceConfig;
 pub use crate::vstate::kvm::Kvm;
-use crate::vstate::memory::{GuestMemory, GuestMemoryMmap, GuestMemoryRegion};
+use crate::vstate::memory::{GuestMemoryMmap, GuestMemoryRegion};
 #[cfg(target_arch = "aarch64")]
 use crate::vstate::vcpu::VcpuState;
 pub use crate::vstate::vcpu::{Vcpu, VcpuConfig, VcpuEvent, VcpuHandle, VcpuResponse};

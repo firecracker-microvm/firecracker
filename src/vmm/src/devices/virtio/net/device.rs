@@ -1122,7 +1122,7 @@ pub mod tests {
     use std::time::Duration;
     use std::{mem, thread};
 
-    use vm_memory::GuestAddress;
+    use vm_memory::{GuestAddress, GuestMemoryBackend};
 
     use super::*;
     use crate::check_metric_after_block;
@@ -1146,7 +1146,7 @@ pub mod tests {
     use crate::rate_limiter::{BucketUpdate, RateLimiter, TokenBucket, TokenType};
     use crate::test_utils::single_region_mem;
     use crate::utils::net::mac::{MAC_ADDR_LEN, MacAddr};
-    use crate::vstate::memory::{Address, GuestMemory};
+    use crate::vstate::memory::Address;
 
     impl Net {
         pub fn finish_frame(&mut self) {

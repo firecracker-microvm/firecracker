@@ -11,7 +11,7 @@ use std::sync::Arc;
 use vhost::vhost_user::message::*;
 use vhost::vhost_user::{Frontend, VhostUserFrontend};
 use vhost::{Error as VhostError, VhostBackend, VhostUserMemoryRegionInfo, VringConfigData};
-use vm_memory::{Address, GuestMemory, GuestMemoryError, GuestMemoryRegion};
+use vm_memory::{Address, GuestMemoryBackend, GuestMemoryError, GuestMemoryRegion};
 use vmm_sys_util::eventfd::EventFd;
 
 use crate::devices::virtio::queue::Queue;

@@ -10,7 +10,7 @@ use std::fmt::Debug;
 
 use aws_lc_rs::rand;
 use vm_fdt::{Error as VmFdtError, FdtWriter, FdtWriterNode};
-use vm_memory::{GuestMemoryError, GuestMemoryRegion};
+use vm_memory::{GuestMemoryBackend, GuestMemoryError, GuestMemoryRegion};
 
 use super::cache_info::{CacheEntry, read_cache_config};
 use super::gic::GICDevice;
@@ -24,7 +24,7 @@ use crate::device_manager::pci_mngr::PciDevices;
 use crate::devices::acpi::vmclock::{VMCLOCK_SIZE, VmClock};
 use crate::devices::acpi::vmgenid::{VMGENID_MEM_SIZE, VmGenId};
 use crate::initrd::InitrdConfig;
-use crate::vstate::memory::{Address, GuestMemory, GuestMemoryMmap, GuestRegionType};
+use crate::vstate::memory::{Address, GuestMemoryMmap, GuestRegionType};
 
 // This is a value for uniquely identifying the FDT node declaring the interrupt controller.
 const GIC_PHANDLE: u32 = 1;
