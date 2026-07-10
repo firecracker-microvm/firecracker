@@ -617,6 +617,17 @@ impl DeviceManager {
         }
     }
 
+    /// Detaches a device after VM start
+    pub fn hot_unplug_vfio_device(&mut self, vm: &KvmVm, id: String) -> Result<(), VmmActionError> {
+        match &mut self.virtio_devices {
+            VirtioDevices::Mmio(_) => Err(VmmActionError::PciNotEnabled),
+            VirtioDevices::Pci(pci_devices) => {
+                pci_devices.detach_vfio_device(vm, id)?;
+                Ok(())
+            }
+        }
+    }
+
     /// Returns true if the given virtio device is a root block or pmem device.
     fn is_root_device(device: &dyn VirtioDevice) -> bool {
         if let Some(block) = device.as_any().downcast_ref::<Block>() {

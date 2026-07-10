@@ -1505,8 +1505,6 @@ fn vfio_init_device(
 
 /// Performs cleanup of all VFIO device resources allocated by `init_vfio_device`
 fn vfio_deinit_device(device: &VfioDevice) {
-    device.device.reset();
-
     for hole in device.msix_state.bar_hole_infos.iter() {
         device
             .vm
@@ -1515,6 +1513,7 @@ fn vfio_deinit_device(device: &VfioDevice) {
             .remove(hole.gpa, hole.size)
             .unwrap();
     }
+    device.device.reset();
 }
 
 /// Create KVM_DEV_TYPE_VFIO device
