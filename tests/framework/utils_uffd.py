@@ -82,6 +82,8 @@ class UffdHandler:
         assert self.is_running()
 
         self.proc.kill()
+        self.proc.wait(timeout=5)
+        self._proc = None
 
     def mark_killed(self, timeout=10):
         """Wait for the uffd handler to exit on its own, and mark it dead.
