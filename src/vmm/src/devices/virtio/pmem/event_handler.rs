@@ -11,6 +11,7 @@ impl Pmem {
     const PROCESS_ACTIVATE: u32 = 0;
     const PROCESS_PMEM_QUEUE: u32 = 1;
     const PROCESS_RATE_LIMITER: u32 = 2;
+    const PROCESS_UFFD: u32 = 3;
 
     fn register_runtime_events(&self, ops: &mut EventOps) {
         if let Err(err) = ops.add(Events::with_data(
@@ -60,6 +61,16 @@ impl Pmem {
 
 impl MutEventSubscriber for Pmem {
     fn init(&mut self, ops: &mut EventOps) {
+        if let Some(sock_fd) = self.uffd_block_sock_fd()
+            && let Err(err) = ops.add(Events::with_data_raw(
+                sock_fd,
+                Self::PROCESS_UFFD,
+                EventSet::IN,
+            ))
+        {
+            error!("pmem: Failed to register UFFD block socket: {}", err);
+        }
+
         if self.is_activated() {
             self.register_runtime_events(ops)
         } else {
@@ -73,6 +84,38 @@ impl MutEventSubscriber for Pmem {
 
         if !event_set.contains(EventSet::IN) {
             warn!("pmem: Received unknown event: {event_set:#?} from source {source}");
+            return;
+        }
+
+        if source == Self::PROCESS_UFFD {
+            if let Some(uffd_block) = self.mmap.uffd_block() {
+                loop {
+                    match uffd_block.handle_response() {
+                        Ok(true) => { /* handled response, check for more */ }
+                        Ok(false) => {
+                            // Server closed the connection.
+                            if let Err(err) = ops.remove(Events::with_data_raw(
+                                uffd_block.sock_fd(),
+                                Self::PROCESS_UFFD,
+                                EventSet::IN,
+                            )) {
+                                error!("pmem UFFD: Failed to deregister socket: {}", err);
+                            }
+                            break;
+                        }
+                        Err(e) => {
+                            if e.kind() == std::io::ErrorKind::WouldBlock {
+                                // No more data available right now
+                                break;
+                            }
+                            error!("pmem UFFD: handle response error: {}", e);
+                            break;
+                        }
+                    }
+                }
+            } else {
+                error!("pmem UFFD: uffd_block is None on event");
+            }
             return;
         }
 

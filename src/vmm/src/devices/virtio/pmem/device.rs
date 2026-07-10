@@ -2,12 +2,15 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use std::fs::{File, OpenOptions};
-use std::ops::Deref;
+use std::io;
+use std::ops::{Deref, DerefMut};
 use std::os::fd::AsRawFd;
+use std::os::unix::io::RawFd;
 use std::sync::{Arc, Mutex};
 
 use kvm_bindings::{KVM_MEM_READONLY, kvm_userspace_memory_region};
 use serde::{Deserialize, Serialize};
+use userfaultfd::{FeatureFlags, UffdBuilder};
 use vm_allocator::{AllocPolicy, RangeInclusive};
 use vm_memory::mmap::{MmapRegionBuilder, MmapRegionError};
 use vm_memory::{GuestAddress, GuestMemoryError};
@@ -23,9 +26,11 @@ use crate::devices::virtio::transport::{VirtioInterrupt, VirtioInterruptType};
 use crate::impl_device_type;
 use crate::logger::{IncMetric, error, info, warn};
 use crate::rate_limiter::{BucketUpdate, RateLimiter, TokenType};
+use crate::uffd_block::{FaultPolicy, UffdBlock, VmaRegion};
 use crate::utils::{align_up, u64_to_usize};
 use crate::vmm_config::RateLimiterConfig;
 use crate::vmm_config::pmem::PmemConfig;
+use crate::vmm_config::snapshot::MemBackendType;
 use crate::vstate::memory::{ByteValued, Bytes, GuestMemoryMmap, GuestMmapRegion};
 use crate::vstate::vm::{KvmVm, VmError};
 
@@ -170,11 +175,16 @@ impl Drop for KvmMemSlot {
 }
 
 /// RAII wrapper for the pmem mmap region. Performs mmap on construction and munmap on drop.
+///
+/// For file-backed pmem, use `PmemMmap::new()`. For UFFD-backed pmem, use
+/// `PmemMmap::new_uffd()` which also creates and registers a userfaultfd and
+/// performs the UFFD handshake.
 #[derive(Debug)]
 pub struct PmemMmap {
     pub file_len: u64,
     pub mmap_ptr: u64,
     pub mmap_len: u64,
+    uffd_block: Option<UffdBlock>,
 }
 
 impl PmemMmap {
@@ -253,14 +263,88 @@ impl PmemMmap {
             file_len,
             mmap_ptr: mmap_ptr as u64,
             mmap_len,
+            uffd_block: None,
         })
+    }
+
+    /// Create a UFFD-backed pmem mmap region.
+    ///
+    /// Allocates a memfd, mmaps it, registers the range with userfaultfd,
+    /// and performs the UFFD handshake with the external handler at `sock_path`.
+    pub fn new_uffd(sock_path: &str, size: u64, read_only: bool) -> Result<Self, PmemError> {
+        let memfd = memfd::MemfdOptions::new()
+            .create("pmem_uffd_placeholder")
+            .map_err(|e| PmemError::BackingFile(io::Error::other(e)))?;
+        let prot = libc::PROT_READ | if read_only { 0 } else { libc::PROT_WRITE };
+        let mmap_len = align_up(size, Self::ALIGNMENT);
+        memfd
+            .as_file()
+            .set_len(mmap_len)
+            .map_err(PmemError::BackingFile)?;
+
+        // SAFETY: Valid arguments and result is checked.
+        let mmap_ptr = unsafe {
+            let ptr = libc::mmap(
+                std::ptr::null_mut(),
+                u64_to_usize(mmap_len),
+                prot,
+                libc::MAP_SHARED | libc::MAP_NORESERVE,
+                memfd.as_file().as_raw_fd(),
+                0,
+            );
+            if ptr == libc::MAP_FAILED {
+                return Err(PmemError::BackingFile(io::Error::last_os_error()));
+            }
+            ptr as u64
+        };
+
+        let uffd = UffdBuilder::new()
+            .require_features(FeatureFlags::EVENT_REMOVE)
+            .close_on_exec(true)
+            .non_blocking(true)
+            .user_mode_only(false)
+            .create()
+            .map_err(|e| PmemError::BackingFile(io::Error::other(e)))?;
+
+        uffd.register(mmap_ptr as *mut _, usize::try_from(mmap_len).unwrap())
+            .map_err(|e| PmemError::BackingFile(io::Error::other(e)))?;
+
+        let region = VmaRegion {
+            base_host_virt_addr: mmap_ptr,
+            size: usize::try_from(mmap_len).unwrap(),
+            offset: 0,
+            page_size: usize::try_from(Self::ALIGNMENT).unwrap(),
+            prot,
+            flags: libc::MAP_SHARED | libc::MAP_FIXED,
+        };
+
+        let mut block =
+            UffdBlock::new(sock_path, FaultPolicy::Zerocopy).map_err(PmemError::BackingFile)?;
+        block
+            .handshake(uffd, vec![region])
+            .map_err(PmemError::BackingFile)?;
+
+        Ok(Self {
+            file_len: size,
+            mmap_ptr,
+            mmap_len,
+            uffd_block: Some(block),
+        })
+    }
+
+    /// Returns a reference to the UFFD block, if this is a UFFD-backed mapping.
+    pub fn uffd_block(&self) -> Option<&UffdBlock> {
+        self.uffd_block.as_ref()
     }
 }
 
 impl Drop for PmemMmap {
     fn drop(&mut self) {
-        // SAFETY: `mmap_ptr` is a valid pointer since PmemMmap can only be created via `new()`.
-        //         `mmap_len` is the same value used for the original mmap call.
+        // SAFETY: `mmap_ptr` is a valid pointer since PmemMmap can only be created via `new()`
+        //         or `new_uffd()`. `mmap_len` is the same value used for the original mmap call.
+        //         The `uffd_block` field is dropped first by Rust's auto-drop (fields are dropped
+        //         before the explicit Drop body runs), which unregisters page-fault interest
+        //         before the region is unmapped.
         unsafe {
             _ = libc::munmap(
                 self.mmap_ptr as *mut libc::c_void,
@@ -313,7 +397,13 @@ impl Pmem {
         acked_features: u64,
         config_space: Option<ConfigSpace>,
     ) -> Result<Self, PmemError> {
-        let mmap = PmemMmap::new(&config.path_on_host, config.read_only)?;
+        let mmap = match config.backend_type {
+            MemBackendType::File => PmemMmap::new(&config.path_on_host, config.read_only)?,
+            MemBackendType::Uffd => {
+                let size = config.size.ok_or(PmemError::BackingFileZeroSize)?;
+                PmemMmap::new_uffd(&config.path_on_host, size, config.read_only)?
+            }
+        };
 
         let guest_region = match config_space {
             Some(cs) => {
@@ -477,6 +567,10 @@ impl Pmem {
     /// Updates the parameters for the rate limiter.
     pub fn update_rate_limiter(&mut self, bytes: BucketUpdate, ops: BucketUpdate) {
         self.rate_limiter.update_buckets(bytes, ops);
+    }
+
+    pub fn uffd_block_sock_fd(&self) -> Option<RawFd> {
+        self.mmap.uffd_block().map(|b| b.sock_fd())
     }
 
     pub fn process_queue(&mut self) {
