@@ -8,7 +8,7 @@ version = "0.1.0"
 dependencies = [
  "displaydoc",
  "thiserror 2.0.18",
- "vm-memory 0.18.0",
+ "vm-memory",
  "zerocopy",
 ]
 
@@ -943,7 +943,7 @@ version = "0.14.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d54207cb617cd75b10c57ad20235c914ab62b180ceeff2ef3111983670d3b321"
 dependencies = [
- "vm-memory 0.18.0",
+ "vm-memory",
 ]
 
 [[package]]
@@ -1616,14 +1616,14 @@ dependencies = [
 
 [[package]]
 name = "vhost"
-version = "0.16.0"
+version = "0.17.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ee90657203a8644e9a0860a0db6a7887d8ef0c7bc09fc22dfa4ae75df65bac86"
+checksum = "1c63c14485260662b4257bd929d5fd4aaf96bbecbe61d2224bad8807849f5f8f"
 dependencies = [
  "bitflags 2.13.0",
  "libc",
  "uuid",
- "vm-memory 0.17.1",
+ "vm-memory",
  "vmm-sys-util",
 ]
 
@@ -1643,17 +1643,6 @@ name = "vm-fdt"
 version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7e21282841a059bb62627ce8441c491f09603622cd5a21c43bfedc85a2952f23"
-
-[[package]]
-name = "vm-memory"
-version = "0.17.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f39348a049689cabd3377cdd9182bf526ec76a6f823b79903896452e9d7a7380"
-dependencies = [
- "libc",
- "thiserror 2.0.18",
- "winapi",
-]
 
 [[package]]
 name = "vm-memory"
@@ -1713,7 +1702,7 @@ dependencies = [
  "vhost",
  "vm-allocator",
  "vm-fdt",
- "vm-memory 0.18.0",
+ "vm-memory",
  "vm-superio",
  "vmm-sys-util",
  "zerocopy",
