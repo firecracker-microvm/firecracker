@@ -22,7 +22,7 @@ use std::fs::File;
 
 use linux_loader::loader::pe::PE as Loader;
 use linux_loader::loader::{Cmdline, KernelLoader};
-use vm_memory::{GuestMemoryError, GuestMemoryRegion};
+use vm_memory::{GuestMemoryBackend, GuestMemoryError, GuestMemoryRegion};
 
 use crate::arch::{BootProtocol, EntryPoint, arch_memory_regions_with_gap};
 use crate::cpu_config::aarch64::{CpuConfiguration, CpuConfigurationError};
@@ -33,9 +33,7 @@ use zerocopy::IntoBytes;
 use crate::logger::warn;
 use crate::utils::{align_up, u64_to_usize, usize_to_u64};
 use crate::vmm_config::machine_config::MachineConfig;
-use crate::vstate::memory::{
-    Address, Bytes, GuestAddress, GuestMemory, GuestMemoryMmap, GuestRegionType,
-};
+use crate::vstate::memory::{Address, Bytes, GuestAddress, GuestMemoryMmap, GuestRegionType};
 use crate::vstate::vcpu::KvmVcpuError;
 use crate::vstate::vm::KvmVm;
 use crate::{DeviceManager, Kvm, Vcpu, VcpuConfig, logger};

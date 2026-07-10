@@ -21,7 +21,7 @@ use crate::devices::virtio::pmem::metrics::{PmemMetrics, PmemMetricsPerDevice};
 use crate::devices::virtio::queue::{DescriptorChain, InvalidAvailIdx, Queue, QueueError};
 use crate::devices::virtio::transport::{VirtioInterrupt, VirtioInterruptType};
 use crate::impl_device_type;
-use crate::logger::{IncMetric, error, info};
+use crate::logger::{IncMetric, error, info, warn};
 use crate::rate_limiter::{BucketUpdate, RateLimiter, TokenType};
 use crate::utils::{align_up, u64_to_usize};
 use crate::vmm_config::RateLimiterConfig;
@@ -41,6 +41,8 @@ pub enum PmemError {
     BackingFile(std::io::Error),
     /// Error backing file size is 0
     BackingFileZeroSize,
+    /// Restored pmem size {0} does not match backing file mapping size {1}
+    RestoredSizeMismatch(u64, u64),
     /// Error with EventFd: {0}
     EventFd(std::io::Error),
     /// Unexpected read-only descriptor
@@ -61,8 +63,6 @@ pub enum PmemError {
     Queue(#[from] QueueError),
     /// Error during obtaining the descriptor from the queue: {0}
     QueuePop(#[from] InvalidAvailIdx),
-    /// Error creating rate limiter: {0}
-    RateLimiter(std::io::Error),
 }
 
 const VIRTIO_PMEM_REQ_TYPE_FLUSH: u32 = 0;
@@ -316,7 +316,12 @@ impl Pmem {
         let mmap = PmemMmap::new(&config.path_on_host, config.read_only)?;
 
         let guest_region = match config_space {
-            Some(cs) => GuestPmemRegion::from_state(vm.clone(), cs),
+            Some(cs) => {
+                if cs.size != mmap.mmap_len {
+                    return Err(PmemError::RestoredSizeMismatch(cs.size, mmap.mmap_len));
+                }
+                GuestPmemRegion::from_state(vm.clone(), cs)
+            }
             None => GuestPmemRegion::new(vm.clone(), mmap.mmap_len)?,
         };
 
@@ -330,9 +335,7 @@ impl Pmem {
 
         let rate_limiter = config
             .rate_limiter
-            .map(RateLimiterConfig::try_into)
-            .transpose()
-            .map_err(PmemError::RateLimiter)?
+            .map(RateLimiter::from)
             .unwrap_or_default();
 
         Ok(Self {
@@ -553,7 +556,14 @@ impl VirtioDevice for Pmem {
         self.guest_region.config_space.as_slice()
     }
 
-    fn write_config(&mut self, _offset: u64, _data: &[u8]) {}
+    fn write_config(&mut self, offset: u64, data: &[u8]) {
+        self.metrics.cfg_fails.inc();
+        warn!(
+            "virtio-pmem: guest driver attempted to write device config (offset={:#x}, len={:#x})",
+            offset,
+            data.len()
+        );
+    }
 
     fn activate(
         &mut self,
@@ -577,6 +587,14 @@ impl VirtioDevice for Pmem {
 
     fn is_activated(&self) -> bool {
         self.device_state.is_activated()
+    }
+
+    fn deactivate(&mut self) {
+        self.device_state = DeviceState::Inactive;
+    }
+
+    fn _reset(&mut self) -> bool {
+        true
     }
 
     fn kick(&mut self) {

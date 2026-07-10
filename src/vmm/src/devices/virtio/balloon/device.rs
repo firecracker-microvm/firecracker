@@ -939,7 +939,12 @@ impl VirtioDevice for Balloon {
             .zip(end)
             .and_then(|(start, end)| config_space_bytes.get_mut(start..end))
         else {
-            error!("Failed to write config space");
+            warn!(
+                "virtio-balloon: guest driver attempted to write device config out of bounds \
+                 (offset={:#x}, len={:#x})",
+                offset,
+                data.len()
+            );
             return;
         };
 
@@ -974,6 +979,20 @@ impl VirtioDevice for Balloon {
 
     fn is_activated(&self) -> bool {
         self.device_state.is_activated()
+    }
+
+    fn deactivate(&mut self) {
+        self.device_state = DeviceState::Inactive;
+    }
+
+    fn _reset(&mut self) -> bool {
+        self.config_space.actual_pages = 0;
+        self.config_space.free_page_hint_cmd_id = FREE_PAGE_HINT_STOP;
+        self.stats_timer.arm(Duration::ZERO, None);
+        self.stats_desc_index = None;
+        self.latest_stats = BalloonStats::default();
+        self.hinting_state = Default::default();
+        true
     }
 
     fn kick(&mut self) {

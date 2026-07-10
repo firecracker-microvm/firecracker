@@ -1,9 +1,9 @@
 // Copyright 2018 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
+use std::fmt;
 use std::os::unix::io::{AsRawFd, RawFd};
 use std::time::{Duration, Instant};
-use std::{fmt, io};
 
 use utils::time::TimerFd;
 
@@ -338,10 +338,6 @@ impl RateLimiter {
     ///
     /// If either bytes/ops *size* or *refill_time* are **zero**, the limiter
     /// is **disabled** for that respective token type.
-    ///
-    /// # Errors
-    ///
-    /// If the timerfd creation fails, an error is returned.
     pub fn new(
         bytes_total_capacity: u64,
         bytes_one_time_burst: u64,
@@ -349,7 +345,7 @@ impl RateLimiter {
         ops_total_capacity: u64,
         ops_one_time_burst: u64,
         ops_complete_refill_time_ms: u64,
-    ) -> io::Result<Self> {
+    ) -> Self {
         let bytes_token_bucket = TokenBucket::new(
             bytes_total_capacity,
             bytes_one_time_burst,
@@ -367,12 +363,12 @@ impl RateLimiter {
         // seccomp-blocked from creating the timer_fd at that time.
         let timer_fd = TimerFd::new();
 
-        Ok(RateLimiter {
+        RateLimiter {
             bandwidth: bytes_token_bucket,
             ops: ops_token_bucket,
             timer_fd,
             timer_active: false,
-        })
+        }
     }
 
     // Arm the timer of the rate limiter with the provided `TimerState`.
@@ -515,8 +511,7 @@ impl AsRawFd for RateLimiter {
 impl Default for RateLimiter {
     /// Default RateLimiter is a no-op limiter with infinite budget.
     fn default() -> Self {
-        // Safe to unwrap since this will not attempt to create timer_fd.
-        RateLimiter::new(0, 0, 0, 0, 0, 0).expect("Failed to build default RateLimiter")
+        RateLimiter::new(0, 0, 0, 0, 0, 0)
     }
 }
 
@@ -954,7 +949,7 @@ pub(crate) mod tests {
 
     #[test]
     fn test_rate_limiter_new() {
-        let l = RateLimiter::new(1000, 1001, 1002, 1003, 1004, 1005).unwrap();
+        let l = RateLimiter::new(1000, 1001, 1002, 1003, 1004, 1005);
 
         let bw = l.bandwidth.unwrap();
         assert_eq!(bw.capacity(), 1000);
@@ -972,7 +967,7 @@ pub(crate) mod tests {
     #[test]
     fn test_rate_limiter_manual_replenish() {
         // rate limiter with limit of 1000 bytes/s and 1000 ops/s
-        let mut l = RateLimiter::new(1000, 0, 1000, 1000, 0, 1000).unwrap();
+        let mut l = RateLimiter::new(1000, 0, 1000, 1000, 0, 1000);
 
         // consume 123 bytes
         assert!(l.consume(123, TokenType::Bytes));
@@ -993,7 +988,7 @@ pub(crate) mod tests {
     #[test]
     fn test_rate_limiter_bandwidth() {
         // rate limiter with limit of 1000 bytes/s
-        let mut l = RateLimiter::new(1000, 0, 1000, 0, 0, 0).unwrap();
+        let mut l = RateLimiter::new(1000, 0, 1000, 0, 0, 0);
 
         // limiter should not be blocked
         assert!(!l.is_blocked());
@@ -1026,7 +1021,7 @@ pub(crate) mod tests {
     #[test]
     fn test_rate_limiter_ops() {
         // rate limiter with limit of 1000 ops/s
-        let mut l = RateLimiter::new(0, 0, 0, 1000, 0, 1000).unwrap();
+        let mut l = RateLimiter::new(0, 0, 0, 1000, 0, 1000);
 
         // limiter should not be blocked
         assert!(!l.is_blocked());
@@ -1059,7 +1054,7 @@ pub(crate) mod tests {
     #[test]
     fn test_rate_limiter_full() {
         // rate limiter with limit of 1000 bytes/s and 1000 ops/s
-        let mut l = RateLimiter::new(1000, 0, 1000, 1000, 0, 1000).unwrap();
+        let mut l = RateLimiter::new(1000, 0, 1000, 1000, 0, 1000);
 
         // limiter should not be blocked
         assert!(!l.is_blocked());
@@ -1095,7 +1090,7 @@ pub(crate) mod tests {
     #[test]
     fn test_rate_limiter_overconsumption() {
         // initialize the rate limiter
-        let mut l = RateLimiter::new(1000, 0, 1000, 1000, 0, 1000).unwrap();
+        let mut l = RateLimiter::new(1000, 0, 1000, 1000, 0, 1000);
         // try to consume 2.5x the bucket size
         // we are "borrowing" 1.5x the bucket size in tokens since
         // the bucket is full
@@ -1114,7 +1109,7 @@ pub(crate) mod tests {
         assert!(!l.is_blocked());
 
         // reset the rate limiter
-        let mut l = RateLimiter::new(1000, 0, 1000, 1000, 0, 1000).unwrap();
+        let mut l = RateLimiter::new(1000, 0, 1000, 1000, 0, 1000);
         // try to consume 1.5x the bucket size
         // we are "borrowing" 1.5x the bucket size in tokens since
         // the bucket is full, should arm the timer to 0.5x replenish
@@ -1151,7 +1146,7 @@ pub(crate) mod tests {
 
     #[test]
     fn test_update_buckets() {
-        let mut x = RateLimiter::new(1000, 2000, 1000, 10, 20, 1000).unwrap();
+        let mut x = RateLimiter::new(1000, 2000, 1000, 10, 20, 1000);
 
         let initial_bw = x.bandwidth.clone();
         let initial_ops = x.ops.clone();
@@ -1183,7 +1178,7 @@ pub(crate) mod tests {
 
     #[test]
     fn test_rate_limiter_debug() {
-        let l = RateLimiter::new(1, 2, 3, 4, 5, 6).unwrap();
+        let l = RateLimiter::new(1, 2, 3, 4, 5, 6);
         assert_eq!(
             format!("{:?}", l),
             format!(

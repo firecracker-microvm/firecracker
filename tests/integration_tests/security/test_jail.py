@@ -223,6 +223,63 @@ def test_arbitrary_usocket_location(uvm):
     )
 
 
+@pin_guest_kernel(GUEST_KERNEL_DEFAULT)
+def test_jailer_bind_mount_propagation(uvm):
+    """
+    Test that host bind-mounts inside the chroot propagate into the jail.
+
+    Mounts that exist before the jailer starts, covering the recursive
+    self-bind fix (MS_BIND -> MS_BIND | MS_REC).
+
+    Regression test for #1089.
+    """
+    test_microvm = uvm
+    chroot = Path(test_microvm.chroot())
+
+    kernel_jail_name = "vmlinux.bin"
+    rootfs_jail_name = "rootfs.img"
+    kernel_mount_point = chroot / kernel_jail_name
+    rootfs_mount_point = chroot / rootfs_jail_name
+    kernel_mount_point.touch()
+    rootfs_mount_point.touch()
+    try:
+        subprocess.check_call(
+            ["mount", "--bind", str(test_microvm.kernel_file), str(kernel_mount_point)]
+        )
+        subprocess.check_call(
+            ["mount", "--bind", str(test_microvm.rootfs_file), str(rootfs_mount_point)]
+        )
+        test_microvm.spawn()
+
+        # Drive the API directly: basic_config() would hardlink over our
+        # bind-mount points and mask what we are testing.
+        test_microvm.api.machine_config.put(vcpu_count=2, mem_size_mib=256)
+        test_microvm.boot_args = (
+            "reboot=k panic=1 nomodule swiotlb=noforce console=ttyS0 cryptomgr.notests"
+        )
+        if not test_microvm.pci_enabled:
+            test_microvm.boot_args += " pci=off"
+        test_microvm.api.boot.put(
+            kernel_image_path=f"/{kernel_jail_name}",
+            boot_args=test_microvm.boot_args,
+        )
+        test_microvm.api.drive.put(
+            drive_id="rootfs",
+            path_on_host=f"/{rootfs_jail_name}",
+            is_root_device=True,
+            is_read_only=True,
+        )
+        test_microvm.add_net_iface()
+        test_microvm.start()
+        test_microvm.ssh.check_output("true")
+    finally:
+        # Unmount before the framework's chroot rmtree so it never
+        # recurses into the bind-mount sources.
+        test_microvm.kill()
+        for mp in (rootfs_mount_point, kernel_mount_point):
+            subprocess.run(["umount", str(mp)], check=False)
+
+
 class Cgroups:
     """Helper class to work with cgroups"""
 

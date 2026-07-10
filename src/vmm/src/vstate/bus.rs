@@ -10,7 +10,6 @@
 use std::cmp::Ordering;
 use std::collections::btree_map::BTreeMap;
 use std::sync::{Arc, Barrier, Mutex, RwLock, Weak};
-use std::{error, fmt, result};
 
 /// Trait for devices that respond to reads or writes in an arbitrary address space.
 ///
@@ -53,7 +52,7 @@ impl<B: BusDevice> BusDeviceSync for Mutex<B> {
 }
 
 /// Error type for [`Bus`]-related operations.
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error, displaydoc::Display)]
 pub enum BusError {
     /// The insertion failed because the new device overlapped with an old device.
     Overlap,
@@ -64,17 +63,6 @@ pub enum BusError {
     /// The supplied range is invalid.
     InvalidRange,
 }
-
-/// Result type for [`Bus`]-related operations.
-pub type Result<T> = result::Result<T, BusError>;
-
-impl fmt::Display for BusError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "bus_error: {self:?}")
-    }
-}
-
-impl error::Error for BusError {}
 
 /// Holds a base and end representing the address space occupied by a `BusDevice`.
 ///
@@ -90,7 +78,7 @@ pub struct BusRange {
 
 #[allow(missing_docs)]
 impl BusRange {
-    pub fn new(base: u64, len: u64) -> Result<Self> {
+    pub fn new(base: u64, len: u64) -> Result<Self, BusError> {
         if len == 0 {
             return Err(BusError::ZeroSizedRange);
         }
@@ -168,7 +156,12 @@ impl Bus {
     }
 
     /// Insert a device into the [`Bus`] in the range [`addr`, `addr` + `len`].
-    pub fn insert(&self, device: Arc<dyn BusDeviceSync>, base: u64, len: u64) -> Result<()> {
+    pub fn insert(
+        &self,
+        device: Arc<dyn BusDeviceSync>,
+        base: u64,
+        len: u64,
+    ) -> Result<(), BusError> {
         let new_range = BusRange::new(base, len)?;
 
         // Reject all cases where the new device's range overlaps with an existing device.
@@ -196,7 +189,7 @@ impl Bus {
     }
 
     /// Removes the device at the given address space range.
-    pub fn remove(&self, base: u64, len: u64) -> Result<()> {
+    pub fn remove(&self, base: u64, len: u64) -> Result<(), BusError> {
         let bus_range = BusRange::new(base, len)?;
 
         if self.devices.write().unwrap().remove(&bus_range).is_none() {
@@ -209,7 +202,7 @@ impl Bus {
     /// Reads data from the device that owns the range containing `addr` and puts it into `data`.
     ///
     /// Returns true on success, otherwise `data` is untouched.
-    pub fn read(&self, addr: u64, data: &mut [u8]) -> Result<()> {
+    pub fn read(&self, addr: u64, data: &mut [u8]) -> Result<(), BusError> {
         if let Some((base, offset, dev)) = self.resolve(addr) {
             // OK to unwrap as lock() failing is a serious error condition and should panic.
             dev.read(base, offset, data);
@@ -222,7 +215,7 @@ impl Bus {
     /// Writes `data` to the device that owns the range containing `addr`.
     ///
     /// Returns true on success, otherwise `data` is untouched.
-    pub fn write(&self, addr: u64, data: &[u8]) -> Result<Option<Arc<Barrier>>> {
+    pub fn write(&self, addr: u64, data: &[u8]) -> Result<Option<Arc<Barrier>>, BusError> {
         if let Some((base, offset, dev)) = self.resolve(addr) {
             // OK to unwrap as lock() failing is a serious error condition and should panic.
             Ok(dev.write(base, offset, data))

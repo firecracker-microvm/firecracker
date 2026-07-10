@@ -292,9 +292,7 @@ impl VirtioBlock {
 
         let rate_limiter = config
             .rate_limiter
-            .map(RateLimiterConfig::try_into)
-            .transpose()
-            .map_err(VirtioBlockError::RateLimiter)?
+            .map(RateLimiter::from)
             .unwrap_or_default();
 
         let mut avail_features = (1u64 << VIRTIO_F_VERSION_1) | (1u64 << VIRTIO_RING_F_EVENT_IDX);
@@ -632,8 +630,13 @@ impl VirtioDevice for VirtioBlock {
             .zip(end)
             .and_then(|(start, end)| config_space_bytes.get_mut(start..end))
         else {
-            error!("Failed to write config space");
             self.metrics.cfg_fails.inc();
+            warn!(
+                "virtio-block: guest driver attempted to write device config out of bounds \
+                 (offset={:#x}, len={:#x})",
+                offset,
+                data.len()
+            );
             return;
         };
 
@@ -669,6 +672,19 @@ impl VirtioDevice for VirtioBlock {
 
     fn is_activated(&self) -> bool {
         self.device_state.is_activated()
+    }
+
+    fn deactivate(&mut self) {
+        self.device_state = DeviceState::Inactive;
+    }
+
+    fn _reset(&mut self) -> bool {
+        if let Err(err) = self.disk.file_engine.drain(true) {
+            error!("Failed to reset block IO engine: {:?}", err);
+            return false;
+        }
+        self.is_io_engine_throttled = false;
+        true
     }
 }
 
@@ -1684,7 +1700,7 @@ mod tests {
 
             // Create bandwidth rate limiter that allows only 5120 bytes/s with bucket size of 8
             // bytes.
-            let mut rl = RateLimiter::new(512, 0, 100, 0, 0, 0).unwrap();
+            let mut rl = RateLimiter::new(512, 0, 100, 0, 0, 0);
             // Use up the budget.
             assert!(rl.consume(512, TokenType::Bytes));
 
@@ -1753,7 +1769,7 @@ mod tests {
             let status_addr = GuestAddress(vq.dtable[2].addr.get());
 
             // Create ops rate limiter that allows only 10 ops/s with bucket size of 1 ops.
-            let mut rl = RateLimiter::new(0, 0, 0, 1, 0, 100).unwrap();
+            let mut rl = RateLimiter::new(0, 0, 0, 1, 0, 100);
             // Use up the budget.
             assert!(rl.consume(1, TokenType::Ops));
 

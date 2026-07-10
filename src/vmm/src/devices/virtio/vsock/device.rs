@@ -382,6 +382,11 @@ where
             }
         }
 
+        self.backend.activate().map_err(|err| {
+            METRICS.activate_fails.inc();
+            ActivateError::VsockBackend(err)
+        })?;
+
         if self.activate_evt.write(1).is_err() {
             METRICS.activate_fails.inc();
             return Err(ActivateError::EventFd);
@@ -394,6 +399,18 @@ where
 
     fn is_activated(&self) -> bool {
         self.device_state.is_activated()
+    }
+
+    fn deactivate(&mut self) {
+        self.device_state = DeviceState::Inactive;
+    }
+
+    fn _reset(&mut self) -> bool {
+        self.backend.reset();
+        self.rx_packet.clear();
+        self.tx_packet.clear();
+        self.pending_event_ack = false;
+        true
     }
 
     fn kick(&mut self) {

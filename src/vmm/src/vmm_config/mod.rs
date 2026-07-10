@@ -1,9 +1,6 @@
 // Copyright 2018 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-use std::convert::{From, TryInto};
-use std::io;
-
 use serde::{Deserialize, Serialize};
 
 use crate::devices::virtio::device::VirtioDeviceType;
@@ -148,12 +145,10 @@ impl From<Option<RateLimiterConfig>> for RateLimiterUpdate {
     }
 }
 
-impl TryInto<RateLimiter> for RateLimiterConfig {
-    type Error = io::Error;
-
-    fn try_into(self) -> Result<RateLimiter, Self::Error> {
-        let bw = self.bandwidth.unwrap_or_default();
-        let ops = self.ops.unwrap_or_default();
+impl From<RateLimiterConfig> for RateLimiter {
+    fn from(cfg: RateLimiterConfig) -> Self {
+        let bw = cfg.bandwidth.unwrap_or_default();
+        let ops = cfg.ops.unwrap_or_default();
         RateLimiter::new(
             bw.size,
             bw.one_time_burst.unwrap_or(0),
@@ -208,7 +203,7 @@ mod tests {
                 refill_time: REFILL_TIME * 2,
             }),
         };
-        let rl: RateLimiter = rlconf.try_into().unwrap();
+        let rl: RateLimiter = rlconf.into();
         assert_eq!(rl.bandwidth().unwrap().capacity(), SIZE);
         assert_eq!(rl.bandwidth().unwrap().one_time_burst(), ONE_TIME_BURST);
         assert_eq!(rl.bandwidth().unwrap().refill_time_ms(), REFILL_TIME);
@@ -232,7 +227,7 @@ mod tests {
             bandwidth: Some(bw_tb_cfg),
             ops: None,
         };
-        let rl: RateLimiter = rl_conf.try_into().unwrap();
+        let rl: RateLimiter = rl_conf.into();
         let generated_rl_conf = RateLimiterConfig::from(&rl);
         assert_eq!(generated_rl_conf, rl_conf);
         assert_eq!(generated_rl_conf.into_option(), Some(rl_conf));

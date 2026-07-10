@@ -82,10 +82,24 @@ class UffdHandler:
         assert self.is_running()
 
         self.proc.kill()
+        self.proc.wait(timeout=5)
+        self._proc = None
 
-    def mark_killed(self):
-        """Marks the uffd handler as already dead"""
-        assert not self.is_running()
+    def mark_killed(self, timeout=10):
+        """Wait for the uffd handler to exit on its own, and mark it dead.
+
+        Used when the handler is expected to die by itself (e.g. the malicious
+        handler panics on the first page fault). Process exit after a panic is
+        not instantaneous, so wait for a given timeout duration before raising.
+        """
+        if self._proc is not None:
+            try:
+                self._proc.wait(timeout=timeout)
+            except subprocess.TimeoutExpired:
+                raise AssertionError(
+                    f"UFFD handler '{self._handler_name}' still running "
+                    f"{timeout}s after it should have died. Logs:\n{self.log_data}"
+                ) from None
 
         self._proc = None
 

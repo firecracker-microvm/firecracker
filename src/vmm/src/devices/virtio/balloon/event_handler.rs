@@ -143,6 +143,7 @@ impl MutEventSubscriber for Balloon {
                 "Balloon: The device is not yet activated. Spurious event received: {:?}",
                 source
             );
+            self.drain_queue_events();
         }
     }
 

@@ -135,6 +135,28 @@ pub struct Env {
     uffd_dev_minor: Option<u32>,
 }
 
+/// Creates a new file owned by the given uid/gid at `dst` and writes `line`
+/// into it, plus a trailing newline.
+#[cfg(target_arch = "aarch64")]
+fn create_owned_file_with_data(
+    dst: &Path,
+    line: String,
+    uid: u32,
+    gid: u32,
+) -> Result<(), JailerError> {
+    let mut file = OpenOptions::new()
+        .write(true)
+        // `create_new` maps to `O_CREAT | O_EXCL`: fail if `dst` already exists.
+        .create_new(true)
+        .custom_flags(libc::O_NOFOLLOW)
+        .open(dst)
+        .map_err(|err| JailerError::Write(dst.to_path_buf(), err))?;
+    file.write_all(format!("{}\n", line).as_bytes())
+        .map_err(|err| JailerError::Write(dst.to_path_buf(), err))?;
+    fchown(&file, Some(uid), Some(gid))
+        .map_err(|err| JailerError::ChangeFileOwner(dst.to_path_buf(), err))
+}
+
 impl Env {
     pub fn new(
         arguments: &arg_parser::Arguments,
@@ -553,7 +575,7 @@ impl Env {
 
     #[cfg(target_arch = "aarch64")]
     fn copy_cache_info(&self) -> Result<(), JailerError> {
-        use crate::{readln_special, to_cstring, writeln_special};
+        use crate::readln_special;
 
         const HOST_CACHE_INFO: &str = "/sys/devices/system/cpu/cpu0/cache";
         // Based on https://elixir.free-electrons.com/linux/v4.9.62/source/arch/arm64/kernel/cacheinfo.c#L29.
@@ -597,18 +619,7 @@ impl Env {
                 let jailer_cache_file = jailer_path.join(entry);
 
                 if let Ok(line) = readln_special(&host_cache_file) {
-                    writeln_special(&jailer_cache_file, line)?;
-
-                    // We now change the permissions.
-                    let dest_path_cstr = to_cstring(&jailer_cache_file)?;
-                    // SAFETY: Safe because dest_path_cstr is null-terminated.
-                    SyscallReturnCode(unsafe {
-                        libc::chown(dest_path_cstr.as_ptr(), self.uid(), self.gid())
-                    })
-                    .into_empty_result()
-                    .map_err(|err| {
-                        JailerError::ChangeFileOwner(jailer_cache_file.to_owned(), err)
-                    })?;
+                    create_owned_file_with_data(&jailer_cache_file, line, self.uid(), self.gid())?;
                 }
             }
         }
@@ -617,7 +628,7 @@ impl Env {
 
     #[cfg(target_arch = "aarch64")]
     fn copy_midr_el1_info(&self) -> Result<(), JailerError> {
-        use crate::{readln_special, to_cstring, writeln_special};
+        use crate::readln_special;
 
         const HOST_MIDR_EL1_INFO: &str = "/sys/devices/system/cpu/cpu0/regs/identification";
 
@@ -629,16 +640,10 @@ impl Env {
         let host_midr_el1_file = PathBuf::from(format!("{}/midr_el1", HOST_MIDR_EL1_INFO));
         let jailer_midr_el1_file = jailer_midr_el1_directory.join("midr_el1");
 
-        // Read and copy the MIDR_EL1 file to Jailer
+        // Read the host MIDR_EL1 value and write it into the jail, owned by
+        // the jailed uid:gid.
         let line = readln_special(&host_midr_el1_file)?;
-        writeln_special(&jailer_midr_el1_file, line)?;
-
-        // Change the permissions.
-        let dest_path_cstr = to_cstring(&jailer_midr_el1_file)?;
-        // SAFETY: Safe because `dest_path_cstr` is null-terminated.
-        SyscallReturnCode(unsafe { libc::chown(dest_path_cstr.as_ptr(), self.uid(), self.gid()) })
-            .into_empty_result()
-            .map_err(|err| JailerError::ChangeFileOwner(jailer_midr_el1_file.to_owned(), err))?;
+        create_owned_file_with_data(&jailer_midr_el1_file, line, self.uid(), self.gid())?;
 
         Ok(())
     }
@@ -1453,6 +1458,10 @@ mod tests {
         mock_cgroups.add_v1_mounts().unwrap();
 
         let env = create_env(&mock_cgroups.proc_mounts_path);
+
+        // Clear any leftovers from a previous run of this test, as
+        // `copy_cache_info` expects to be creating these files.
+        let _ = fs::remove_dir_all(env.chroot_dir());
 
         // Create the required chroot dir hierarchy.
         fs::create_dir_all(env.chroot_dir()).expect("Could not create dir hierarchy.");

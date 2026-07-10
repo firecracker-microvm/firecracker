@@ -135,6 +135,15 @@ impl RxBuffers {
         })
     }
 
+    /// Reset the RX buffers to their initial state.
+    fn clear(&mut self) {
+        self.iovec.clear();
+        self.parsed_descriptors.clear();
+        self.used_descriptors = 0;
+        self.used_bytes = 0;
+        self.min_buffer_size = 0;
+    }
+
     /// Add a new `DescriptorChain` that we received from the RX queue in the buffer.
     ///
     /// SAFETY: The `DescriptorChain` cannot be referencing the same memory location as any other
@@ -1072,6 +1081,16 @@ impl VirtioDevice for Net {
         self.device_state.is_activated()
     }
 
+    fn deactivate(&mut self) {
+        self.device_state = DeviceState::Inactive;
+    }
+
+    fn _reset(&mut self) -> bool {
+        self.rx_buffer.clear();
+        self.tx_buffer.clear();
+        true
+    }
+
     /// Prepare saving state
     fn prepare_save(&mut self) {
         // We shouldn't be messing with the queue if the device is not activated.
@@ -1103,7 +1122,7 @@ pub mod tests {
     use std::time::Duration;
     use std::{mem, thread};
 
-    use vm_memory::GuestAddress;
+    use vm_memory::{GuestAddress, GuestMemoryBackend};
 
     use super::*;
     use crate::check_metric_after_block;
@@ -1127,7 +1146,7 @@ pub mod tests {
     use crate::rate_limiter::{BucketUpdate, RateLimiter, TokenBucket, TokenType};
     use crate::test_utils::single_region_mem;
     use crate::utils::net::mac::{MAC_ADDR_LEN, MacAddr};
-    use crate::vstate::memory::{Address, GuestMemory};
+    use crate::vstate::memory::Address;
 
     impl Net {
         pub fn finish_frame(&mut self) {
@@ -2198,7 +2217,7 @@ pub mod tests {
         let mut th = TestHelper::get_default(&mem);
         th.activate_net();
 
-        th.net().rx_rate_limiter = RateLimiter::new(0, 0, 0, 0, 0, 0).unwrap();
+        th.net().rx_rate_limiter = RateLimiter::new(0, 0, 0, 0, 0, 0);
         // There is no actual event on the rate limiter's timerfd.
         check_metric_after_block!(
             th.net().metrics.event_fails,
@@ -2213,7 +2232,7 @@ pub mod tests {
         let mut th = TestHelper::get_default(&mem);
         th.activate_net();
 
-        th.net().tx_rate_limiter = RateLimiter::new(0, 0, 0, 0, 0, 0).unwrap();
+        th.net().tx_rate_limiter = RateLimiter::new(0, 0, 0, 0, 0, 0);
         th.simulate_event(NetEvent::TxRateLimiter);
         // There is no actual event on the rate limiter's timerfd.
         check_metric_after_block!(
@@ -2232,7 +2251,7 @@ pub mod tests {
         // Test TX bandwidth rate limiting
         {
             // create bandwidth rate limiter that allows 40960 bytes/s with bucket size 4096 bytes
-            let mut rl = RateLimiter::new(0x1000, 0, 100, 0, 0, 0).unwrap();
+            let mut rl = RateLimiter::new(0x1000, 0, 100, 0, 0, 0);
             // use up the budget
             assert!(rl.consume(0x1000, TokenType::Bytes));
 
@@ -2301,7 +2320,7 @@ pub mod tests {
         // Test RX bandwidth rate limiting
         {
             // create bandwidth rate limiter that allows 2000 bytes/s with bucket size 1000 bytes
-            let mut rl = RateLimiter::new(1000, 0, 1000, 0, 0, 0).unwrap();
+            let mut rl = RateLimiter::new(1000, 0, 1000, 0, 0, 0);
 
             // set up RX
             assert!(th.net().rx_buffer.used_descriptors == 0);
@@ -2386,7 +2405,7 @@ pub mod tests {
         // Test TX ops rate limiting
         {
             // create ops rate limiter that allows 10 ops/s with bucket size 1 ops
-            let mut rl = RateLimiter::new(0, 0, 0, 1, 0, 100).unwrap();
+            let mut rl = RateLimiter::new(0, 0, 0, 1, 0, 100);
             // use up the budget
             assert!(rl.consume(1, TokenType::Ops));
 
@@ -2432,7 +2451,7 @@ pub mod tests {
         // Test RX ops rate limiting
         {
             // create ops rate limiter that allows 2 ops/s with bucket size 1 ops
-            let mut rl = RateLimiter::new(0, 0, 0, 1, 0, 1000).unwrap();
+            let mut rl = RateLimiter::new(0, 0, 0, 1, 0, 1000);
 
             // set up RX
             assert!(th.net().rx_buffer.used_descriptors == 0);
@@ -2512,8 +2531,8 @@ pub mod tests {
         let mut th = TestHelper::get_default(&mem);
         th.activate_net();
 
-        th.net().rx_rate_limiter = RateLimiter::new(10, 0, 10, 2, 0, 2).unwrap();
-        th.net().tx_rate_limiter = RateLimiter::new(10, 0, 10, 2, 0, 2).unwrap();
+        th.net().rx_rate_limiter = RateLimiter::new(10, 0, 10, 2, 0, 2);
+        th.net().tx_rate_limiter = RateLimiter::new(10, 0, 10, 2, 0, 2);
 
         let rx_bytes = TokenBucket::new(1000, 1001, 1002).unwrap();
         let rx_ops = TokenBucket::new(1003, 1004, 1005).unwrap();
@@ -2588,5 +2607,17 @@ pub mod tests {
         let queues = net.queues();
         assert!(queues[RX_INDEX].uses_notif_suppression);
         assert!(queues[TX_INDEX].uses_notif_suppression);
+    }
+
+    #[test]
+    fn test_reset() {
+        let mem = single_region_mem(2 * MAX_BUFFER_SIZE);
+        let mut th = TestHelper::get_default(&mem);
+        th.activate_net();
+
+        assert!(th.net().is_activated());
+        assert!(th.net().reset());
+        assert!(!th.net().is_activated());
+        assert_eq!(th.net().acked_features(), 0);
     }
 }

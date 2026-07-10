@@ -76,6 +76,7 @@ impl MutEventSubscriber for VirtioMem {
 
         if !self.is_activated() {
             warn!("virtio-mem: The device is not activated yet. Spurious event received: {source}");
+            self.drain_queue_events();
             return;
         }
 

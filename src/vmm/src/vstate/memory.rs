@@ -17,10 +17,12 @@ pub use vm_memory::bitmap::{AtomicBitmap, BS, Bitmap, BitmapSlice};
 pub use vm_memory::mmap::MmapRegionBuilder;
 use vm_memory::mmap::{MmapRegionError, NewBitmap};
 pub use vm_memory::{
-    Address, ByteValued, Bytes, FileOffset, GuestAddress, GuestMemory, GuestMemoryRegion,
-    GuestUsize, MemoryRegionAddress, MmapRegion, address,
+    Address, ByteValued, Bytes, FileOffset, GuestAddress, GuestMemoryRegion, GuestUsize,
+    MemoryRegionAddress, MmapRegion, address,
 };
-use vm_memory::{GuestMemoryError, GuestMemoryRegionBytes, VolatileSlice, WriteVolatile};
+use vm_memory::{
+    GuestMemoryBackend, GuestMemoryError, GuestMemoryRegionBytes, VolatileSlice, WriteVolatile,
+};
 
 use crate::DirtyBitmap;
 use crate::arch::host_page_size;

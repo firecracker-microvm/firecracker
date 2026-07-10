@@ -11,6 +11,13 @@ from tenacity import Retrying, stop_after_attempt, wait_fixed
 import host_tools.network as net_tools
 from framework import utils
 from framework.artifacts import GUEST_KERNEL_DEFAULT, pin_guest_kernel
+from framework.utils import (
+    configure_mmds,
+    generate_mmds_get_request,
+    generate_mmds_session_token,
+)
+
+MMDS_IPV4_ADDR = "169.254.169.254"
 
 # The iperf version to run this tests with
 IPERF_BINARY = "iperf3"
@@ -171,3 +178,63 @@ def test_tap_mtu_advertised_to_guest(uvm):
             f"{iface_name} (guest: {guest_if}): VIRTIO_NET_F_MTU (bit {VIRTIO_NET_F_MTU_BIT})"
             f" not set in negotiated features: {features!r}"
         )
+
+
+def test_device_reset(uvm):
+    """
+    Test that virtio-net device reset works.
+
+    MMDS is configured on the reset interface and exercised before and after
+    the reset.
+    """
+    vm = uvm
+    vm.spawn()
+    vm.basic_config()
+    vm.add_net_iface()  # eth0 - used for SSH
+    iface2 = vm.add_net_iface()  # eth1 - will be reset
+    configure_mmds(vm, iface_ids=["eth1"], version="V2")
+    vm.api.mmds.put(**{"key": "value"})
+    vm.start()
+
+    guest_ip2 = iface2.guest_ip
+    host_ip2 = iface2.host_ip
+    virtio_dev = vm.ssh.check_output(
+        "basename $(readlink /sys/class/net/eth1/device)"
+    ).stdout.strip()
+
+    def configure_eth1():
+        vm.ssh.check_output(
+            f"ip addr flush dev eth1 && "
+            f"ip addr add {guest_ip2}/30 dev eth1 && "
+            f"ip link set eth1 up && "
+            f"ip route replace {MMDS_IPV4_ADDR} dev eth1"
+        )
+
+    def check_mmds():
+        token = generate_mmds_session_token(vm.ssh, MMDS_IPV4_ADDR, token_ttl=60)
+        cmd = (
+            generate_mmds_get_request(MMDS_IPV4_ADDR, token=token, app_json=False)
+            + "key"
+        )
+        _, stdout, _ = vm.ssh.check_output(cmd)
+        assert stdout == "value"
+
+    configure_eth1()
+    vm.ssh.check_output(f"ping -c 1 {host_ip2}")
+    check_mmds()
+
+    # Reset eth1 by unbinding and rebinding its virtio driver.
+    vm.ssh.check_output(
+        f"echo {virtio_dev} > /sys/bus/virtio/drivers/virtio_net/unbind"
+    )
+
+    # Verify that ping fails after unbind.
+    ret = vm.ssh.run(f"ping -c 1 -W 1 {host_ip2}")
+    assert ret.returncode != 0
+
+    # Re-bind and check again
+    vm.ssh.check_output(f"echo {virtio_dev} > /sys/bus/virtio/drivers/virtio_net/bind")
+
+    configure_eth1()
+    vm.ssh.check_output(f"ping -c 1 {host_ip2}")
+    check_mmds()

@@ -8,6 +8,8 @@ This file also contains functional tests for virtio-mem because they need to be
 run on an ag=1 host due to the use of HugePages.
 """
 
+import platform
+
 import pytest
 from tenacity import Retrying, retry_if_exception_type, stop_after_delay, wait_fixed
 
@@ -252,6 +254,11 @@ def check_hotunplug(uvm, requested_size_mib):
         assert rss_after < rss_before, "RSS didn't decrease"
 
 
+# TODO: remove this once the hotplug latency on 5.10 hosts is fixed
+@pytest.mark.skipif(
+    platform.machine() == "x86_64" and global_props.host_linux_version_tpl == (5, 10),
+    reason="GET /hotplug/memory intermittently exceeds the duration threshold on x86_64 5.10 hosts",
+)
 def test_virtio_mem_hotplug_hotunplug(uvm_any_memhp):
     """
     Check that memory can be hotplugged into the VM.
@@ -456,6 +463,11 @@ def timed_memory_hotplug(uvm, size, metrics, metric_prefix, fc_metric_name):
     )
 
 
+# TODO: remove this once the hotplug latency on 5.10 hosts is fixed
+@pytest.mark.skipif(
+    platform.machine() == "x86_64" and global_props.host_linux_version_tpl == (5, 10),
+    reason="GET /hotplug/memory intermittently exceeds the duration threshold on x86_64 5.10 hosts",
+)
 @pytest.mark.nonci
 @pytest.mark.parametrize(
     "hotplug_size",
@@ -483,7 +495,7 @@ def test_memory_hotplug_latency(
             "block_size_mib": 2,
         }
         uvm = microvm_factory.build(guest_kernel, rootfs, pci=True)
-        uvm = uvm_booted_memhp(uvm, None, None, False, config, None, None, None)
+        uvm = uvm_booted_memhp(uvm, None, None, False, config, huge_pages, None, None)
 
         if i == 0:
             metrics.set_dimensions(
@@ -502,3 +514,29 @@ def test_memory_hotplug_latency(
         timed_memory_hotplug(uvm, 0, metrics, "hotunplug", "unplug_agg")
         timed_memory_hotplug(uvm, hotplug_size, metrics, "hotplug_2nd", "plug_agg")
         uvm.kill()
+
+
+def test_device_reset(uvm):
+    """
+    Test that virtio-mem device reset works.
+
+    Note: the Linux virtio-mem driver does not support rebinding when memory is
+    plugged (the resource region can't be re-registered), so we reset without
+    any plugged memory and verify the device is functional afterwards.
+    """
+    config = {"total_size_mib": 1024, "slot_size_mib": 128, "block_size_mib": 2}
+    uvm = uvm_booted_memhp(uvm, None, None, False, config, None, None, None)
+
+    # Reset the device via driver unbind/bind.
+    virtio_dev = uvm.ssh.check_output(
+        "ls -d /sys/bus/virtio/drivers/virtio_mem/virtio* | xargs -n1 basename"
+    ).stdout.strip()
+
+    uvm.ssh.check_output(
+        f"echo {virtio_dev} > /sys/bus/virtio/drivers/virtio_mem/unbind"
+    )
+    uvm.ssh.check_output(f"echo {virtio_dev} > /sys/bus/virtio/drivers/virtio_mem/bind")
+
+    # Verify the device is functional after reset by hotplugging memory.
+    # check_hotplug() asserts that guest mem_total reflects the new size.
+    check_hotplug(uvm, 256)
