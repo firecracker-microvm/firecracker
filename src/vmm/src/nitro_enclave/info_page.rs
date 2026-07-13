@@ -369,9 +369,17 @@ impl InfoPage {
     /// Mapped `PROT_READ`: Firecracker only consumes the info page (the enclave
     /// produces it), so a read-only mapping faults on accidental writes. The NE
     /// driver pins the pages, so the enclave's writable view is unaffected.
+    ///
+    /// Placed on parent node 0: the info page is shared metadata, not part of the
+    /// enclave's NUMA-placed RAM.
     pub fn new(ne_dev_fd: &super::ne_ioctl::NitroEnclavesDevFd) -> Result<Self, InfoPageError> {
         let region = ne_dev_fd
-            .allocate_cma_region(vm_memory::GuestAddress(0), INFO_PAGE_SIZE, libc::PROT_READ)
+            .allocate_cma_region(
+                vm_memory::GuestAddress(0),
+                INFO_PAGE_SIZE,
+                libc::PROT_READ,
+                0,
+            )
             .map_err(InfoPageError::Alloc)?;
         Ok(Self { region })
     }

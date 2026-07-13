@@ -298,13 +298,14 @@ impl EnclaveVm {
         // Allocate one owning CMA region per RAM region and donate each.
         // Read-write: the EIF is written here before donation, and direct mode
         // keeps using the regions as device DMA memory afterwards.
+        // Node 0 for now; per-node placement wires real nodes in later commits.
         let regions = ram_regions
             .iter()
             .enumerate()
             .map(|(idx, &(gpa, region_size))| {
                 let region = self
                     .dev_fd
-                    .allocate_cma_region(gpa, region_size, libc::PROT_READ | libc::PROT_WRITE)
+                    .allocate_cma_region(gpa, region_size, libc::PROT_READ | libc::PROT_WRITE, 0)
                     .map_err(EnclaveVmError::CmaAlloc)?;
                 info!(
                     "CMA alloc: gpa={:#x} host={:#x} size={} MiB",
@@ -431,12 +432,14 @@ impl EnclaveVm {
     /// and munmaps it on drop.
     pub fn create_dmb(&self, size_bytes: usize) -> Result<GuestMemoryMmap, EnclaveVmError> {
         // Read-write: the parent services queue rings in this DMA memory.
+        // Node 0 for now; per-node placement wires real nodes in later commits.
         let region = self
             .dev_fd
             .allocate_cma_region(
                 GuestAddress(0),
                 size_bytes,
                 libc::PROT_READ | libc::PROT_WRITE,
+                0,
             )
             .map_err(EnclaveVmError::CmaAlloc)?;
         GuestMemoryMmap::from_regions(vec![GuestRegionMmapExt::dram_from_mmap_region(region, 0)])

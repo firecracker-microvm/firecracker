@@ -49,6 +49,8 @@ pub mod start_flags {
     pub const NE_ENCLAVE_CPU_OVERCOMMIT_MODE: u64 = 1 << 11;
     /// Host-side per-vCPU time accounting / Parent-PID visibility (matched, bit 12).
     pub const NE_ENCLAVE_CPU_ACCOUNTING_MODE: u64 = 1 << 12;
+    /// Request explicit multi-NUMA placement (matched, bit 13).
+    pub const NE_ENCLAVE_PCIE_NUMA_MODE: u64 = 1 << 13;
     /// Mask of unmatched flags (low 6 bits).
     pub const NE_ENCLAVE_FLAG_UNMATCHED_MASK: u64 = 0x003F;
     /// Mask of matched flags (must equal EIF header matched bits at START).
@@ -467,18 +469,24 @@ impl NitroEnclavesDevFd {
     ///
     /// The region shares the device fd via a `FileOffset` so it can outlive
     /// this handle.
+    ///
+    /// `parent_numa` pins the CMA pages to a parent NUMA node. `parent_numa << 48` is
+    /// the NE driver's node selector; the driver has no "any node" encoding here,
+    /// so offset 0 selects node 0.
     pub fn allocate_cma_region(
         &self,
         guest_base: GuestAddress,
         size: usize,
         prot: libc::c_int,
+        parent_numa: u16,
     ) -> Result<GuestRegionMmap, MemoryError> {
+        let mmap_offset = u64::from(parent_numa) << 48;
         let region = GuestRegionMmap::allocate(
             guest_base,
             size,
             prot,
             libc::MAP_SHARED | libc::MAP_POPULATE,
-            Some(FileOffset::from_arc(Arc::clone(&self.fd), 0)),
+            Some(FileOffset::from_arc(Arc::clone(&self.fd), mmap_offset)),
             false,
         )?;
         // NE requires 2 MiB-aligned regions; the allocator's alignment is a
