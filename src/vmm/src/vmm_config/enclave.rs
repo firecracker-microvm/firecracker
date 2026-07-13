@@ -27,6 +27,20 @@ pub enum EnclaveConfigError {
     DmbSizeInDirectMode,
 }
 
+/// Per-parent-NUMA-node placement of a slice of the enclave's vCPUs and memory.
+///
+/// The `vcpu_count` and `mem_size_mib` sums across all nodes must equal
+/// `MachineConfig::vcpu_count` and `MachineConfig::mem_size_mib`.
+#[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq, Eq)]
+pub struct EnclaveNumaNode {
+    /// Parent NUMA node id to place this slice of vCPUs and memory on.
+    pub parent_numa: u16,
+    /// Number of vCPUs to place on `parent_numa`.
+    pub vcpu_count: u16,
+    /// Enclave RAM (MiB) to place on `parent_numa`.
+    pub mem_size_mib: usize,
+}
+
 /// Minimal enclave-specific config. Everything else (kernel, initrd, boot_args,
 /// vcpu_count, mem_size_mib) is reused from existing `BootSourceConfig` and
 /// `MachineConfig`.
@@ -68,6 +82,14 @@ pub struct EnclaveConfig {
     /// When set, devices can be attached after start.
     #[serde(default)]
     pub hotplug_mode: bool,
+    /// Per-parent-NUMA-node placement of vCPUs and memory.
+    ///
+    /// Omitting this places all vCPUs and memory on parent NUMA node 0. Otherwise
+    /// each entry pins a slice to a parent NUMA node; the `vcpu_count` and
+    /// `mem_size_mib` sums must match `MachineConfig`. Always populated on the
+    /// reported config, so `GET /enclave` shows the placement in effect.
+    #[serde(default)]
+    pub numa_nodes: Option<Vec<EnclaveNumaNode>>,
 }
 
 impl EnclaveConfig {
@@ -115,6 +137,7 @@ mod tests {
         assert!(!config.cpu_overcommit);
         assert!(!config.cpu_accounting);
         assert!(!config.hotplug_mode);
+        assert_eq!(config.numa_nodes, None);
     }
 
     #[test]
@@ -127,6 +150,18 @@ mod tests {
             cpu_overcommit: true,
             cpu_accounting: true,
             hotplug_mode: true,
+            numa_nodes: Some(vec![
+                EnclaveNumaNode {
+                    parent_numa: 0,
+                    vcpu_count: 1,
+                    mem_size_mib: 256,
+                },
+                EnclaveNumaNode {
+                    parent_numa: 1,
+                    vcpu_count: 1,
+                    mem_size_mib: 256,
+                },
+            ]),
         };
         let json = serde_json::to_string(&config).unwrap();
         let deserialized: EnclaveConfig = serde_json::from_str(&json).unwrap();
@@ -144,6 +179,7 @@ mod tests {
         assert_eq!(config.dmb_size_mib, None);
         assert!(!config.cpu_overcommit);
         assert!(!config.cpu_accounting);
+        assert_eq!(config.numa_nodes, None);
     }
 
     #[test]
