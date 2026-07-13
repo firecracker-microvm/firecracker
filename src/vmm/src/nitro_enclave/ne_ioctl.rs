@@ -120,11 +120,11 @@ pub struct NeInfoPage {
 }
 
 /// NE_ADD_ANY_VCPU ioctl payload. Atomically picks and adds a vCPU,
-/// optionally biased toward a preferred host NUMA node.
+/// optionally biased toward a preferred parent NUMA node.
 #[repr(C)]
 #[derive(Debug, Default, Clone, Copy)]
 pub struct NeAddAnyVcpuArgs {
-    /// Preferred host NUMA node, or [`NE_NUMA_ANY`] (-1) for no preference.
+    /// Preferred parent NUMA node, or [`NE_NUMA_ANY`] (-1) for no preference.
     pub numa_hint: i32,
 }
 
