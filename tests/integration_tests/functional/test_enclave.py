@@ -13,7 +13,7 @@ from tenacity import Retrying, retry_if_exception_type, stop_after_delay, wait_f
 import host_tools.drive as drive_tools
 from framework.artifacts import GUEST_KERNEL_DEFAULT, pin_guest_kernel
 from framework.defs import ARTIFACT_DIR
-from framework.utils import CpuMap, get_threads
+from framework.utils import CpuMap, get_threads, parse_cpu_list
 from framework.utils_vsock import (
     ECHO_SERVER_PORT,
     VSOCK_UDS_PATH,
@@ -224,9 +224,32 @@ def test_enclave_max_vcpus(boot_enclave):
     # at most 64 vCPUs no matter how many the enclave is given.
     host_cpus = min(CpuMap.len(), 64)
 
+    # An enclave defaults to parent NUMA node 0, whose share of the CPU pool cannot
+    # cover every host CPU on a multi-node parent, so spread the vCPUs over all
+    # online nodes. On a single-node host this is just the node-0 default written
+    # out explicitly. Cap the node count at host_cpus so no node ends up with
+    # zero vCPUs, which the config rejects.
+    nodes = _get_online_numa_nodes()[:host_cpus]
+    per_node_cpus, extra_cpus = divmod(host_cpus, len(nodes))
+    per_node_mib = 512
+    numa_nodes = [
+        {
+            "parent_numa": n,
+            # Hand the remainder to the last node so the sum matches exactly.
+            "vcpu_count": per_node_cpus + (extra_cpus if idx == len(nodes) - 1 else 0),
+            "mem_size_mib": per_node_mib,
+        }
+        for idx, n in enumerate(nodes)
+    ]
+
     # Overcommit (floating vCPUs) is required so the count is bounded by the
     # parent instance's vCPU count rather than the dedicated NE CPU pool.
-    vm = boot_enclave(vcpu_count=host_cpus, cpu_overcommit=True)
+    vm = boot_enclave(
+        vcpu_count=host_cpus,
+        mem_size_mib=per_node_mib * len(nodes),
+        numa_nodes=numa_nodes,
+        cpu_overcommit=True,
+    )
 
     guest_cpus = int(vm.ssh.check_output("nproc").stdout.strip())
     assert guest_cpus == host_cpus, f"guest saw {guest_cpus} CPUs, expected {host_cpus}"
@@ -445,3 +468,202 @@ def test_enclave_block_config_update(uvm):
         with attempt:
             new_sectors = int(vm.ssh.check_output(blksize_cmd).stdout.strip())
             assert new_sectors == 128 * 1024 * 2, f"got {new_sectors} sectors"
+
+
+# ---------------------------------------------------------------------------
+# Test: NUMA placement
+# ---------------------------------------------------------------------------
+
+
+def _get_online_numa_nodes():
+    """Read the online parent NUMA nodes from sysfs.
+
+    Returns a sorted list of node ids (e.g. `[0, 1]`), or `[0]` if the topology
+    cannot be read (a machine with NUMA disabled still has node 0).
+    """
+    try:
+        with open("/sys/devices/system/node/online", encoding="ascii") as f:
+            content = f.read().strip()
+    except (FileNotFoundError, PermissionError):
+        return [0]
+    nodes = sorted(parse_cpu_list(content))
+    return nodes if nodes else [0]
+
+
+def _numa_maps_node_pages(pid):
+    """Return {node_id: total_pages} from /proc/<pid>/numa_maps.
+
+    Each mapping line ends with `N<node>=<pages>` fields, summed over all lines.
+    """
+    totals = {}
+    for line in Path(f"/proc/{pid}/numa_maps").read_text("utf-8").splitlines():
+        for field in line.split():
+            if field.startswith("N") and "=" in field:
+                node_str, _, pages_str = field[1:].partition("=")
+                if node_str.isdigit() and pages_str.isdigit():
+                    totals[int(node_str)] = totals.get(int(node_str), 0) + int(
+                        pages_str
+                    )
+    return totals
+
+
+def _guest_numa_topology(vm):
+    """Return {guest_node_id: {"cpus": [...], "mem_total_kb": int}} over SSH.
+
+    Reads /sys/devices/system/node/* directly so it needs no numactl in the guest.
+    """
+    online = vm.ssh.check_output("cat /sys/devices/system/node/online").stdout
+    topo = {}
+    for n in sorted(parse_cpu_list(online)):
+        cpulist = vm.ssh.check_output(
+            f"cat /sys/devices/system/node/node{n}/cpulist"
+        ).stdout.strip()
+        meminfo = vm.ssh.check_output(
+            f"cat /sys/devices/system/node/node{n}/meminfo"
+        ).stdout
+        mem_total_kb = 0
+        for line in meminfo.splitlines():
+            # Format: "Node 0 MemTotal:    262144 kB"
+            if "MemTotal:" in line:
+                mem_total_kb = int(line.split()[3])
+                break
+        topo[n] = {
+            "cpus": sorted(parse_cpu_list(cpulist)) if cpulist else [],
+            "mem_total_kb": mem_total_kb,
+        }
+    return topo
+
+
+def test_enclave_numa_defaults_to_node_zero(boot_enclave):
+    """An enclave started without numa_nodes lands entirely on parent node 0.
+
+    GET /enclave reports the placement in effect, so the synthesized default is
+    observable rather than an absent field.
+    """
+    vm = boot_enclave(vcpu_count=2, mem_size_mib=512)
+
+    config = vm.api.enclave.get().json()
+    assert config["numa_nodes"] == [
+        {"parent_numa": 0, "vcpu_count": 2, "mem_size_mib": 512}
+    ]
+
+    # The enclave's pages must actually be on node 0, not merely reported there.
+    node_pages = _numa_maps_node_pages(vm.firecracker_pid)
+    assert node_pages.get(0, 0) > 0, f"no pages on parent NUMA node 0: {node_pages}"
+
+
+@pytest.mark.parametrize(
+    "cpu_overcommit,cpu_accounting",
+    [
+        pytest.param(False, False, id="dedicated"),
+        pytest.param(True, True, id="overcommit-accounting"),
+    ],
+)
+@pytest.mark.parametrize("layout", ["node0", "node1", "all-nodes"])
+def test_enclave_numa_placement(boot_enclave, layout, cpu_overcommit, cpu_accounting):
+    """Place an enclave on requested parent NUMA node(s); verify parent placement and,
+    on dedicated cores, the guest vNUMA topology.
+
+    Layouts: a single node on parent node 0, a single node on parent node 1 (a
+    non-zero node), and a spread across every online node. The node1 and
+    all-nodes layouts are skipped on single-NUMA hosts.
+
+    A single-node config leaves PCIE_NUMA unset, so the guest gets a default
+    single-node SRAT; a multi-node config sets it and the hypervisor compacts
+    the requested parent nodes into guest nodes [0..N). Under cpu_overcommit the
+    kernel ignores NE_ADD_ANY_VCPU's numa_hint and vCPUs float onto guest node
+    0, so the guest-topology check runs only on dedicated cores; memory
+    placement is independent of vCPU scheduling and is checked in both modes.
+    """
+    online = _get_online_numa_nodes()
+    if layout == "node0":
+        parent_nodes = [0]
+    elif layout == "node1":
+        if 1 not in online:
+            pytest.skip(f"parent NUMA node 1 not online, found {online}")
+        parent_nodes = [1]
+    else:  # all-nodes
+        if len(online) < 2:
+            pytest.skip(
+                f"spread requires >= 2 online parent NUMA nodes, found {online}"
+            )
+        parent_nodes = online
+
+    vcpus_per_node = 2
+    per_node_mib = 256
+    numa_nodes = [
+        {"parent_numa": n, "vcpu_count": vcpus_per_node, "mem_size_mib": per_node_mib}
+        for n in parent_nodes
+    ]
+    vcpus = vcpus_per_node * len(parent_nodes)
+    total_mib = per_node_mib * len(parent_nodes)
+    multi = len(parent_nodes) > 1
+
+    vm = boot_enclave(
+        vcpu_count=vcpus,
+        mem_size_mib=total_mib,
+        numa_nodes=numa_nodes,
+        cpu_overcommit=cpu_overcommit,
+        cpu_accounting=cpu_accounting,
+    )
+
+    vm.ssh.check_output("echo ok")
+
+    config = vm.api.enclave.get().json()
+    assert config["numa_nodes"] == numa_nodes
+    assert config["cpu_accounting"] is cpu_accounting
+
+    node_pages = _numa_maps_node_pages(vm.firecracker_pid)
+    if multi:
+        # Enclave pages must land on every requested parent node.
+        for n in parent_nodes:
+            assert (
+                node_pages.get(n, 0) > 0
+            ), f"no pages on parent NUMA node {n}: {node_pages}"
+    else:
+        # numa_maps spans the whole VMM, so incidental runtime pages land on
+        # other nodes; require the requested node to dominate (a misplaced
+        # region flips it).
+        parent_node = parent_nodes[0]
+        req_pages = node_pages.get(parent_node, 0)
+        total_pages = sum(node_pages.values())
+        assert (
+            req_pages > 0
+        ), f"no pages on requested parent NUMA node {parent_node}: {node_pages}"
+        assert req_pages >= 0.9 * total_pages, (
+            f"only {req_pages}/{total_pages} pages on requested parent node "
+            f"{parent_node} (<90%); enclave RAM is not placed there: {node_pages}"
+        )
+        assert req_pages == max(node_pages.values()), (
+            f"parent node {parent_node} ({req_pages} pages) is not the dominant "
+            f"node: {node_pages}"
+        )
+
+    if cpu_overcommit:
+        return
+
+    # The hypervisor compacts requested parent nodes into guest nodes [0..N), so
+    # only the node COUNT and per-node vCPU/memory split are asserted, not ids.
+    guest_topo = _guest_numa_topology(vm)
+    assert len(guest_topo) == len(numa_nodes), (
+        f"guest reports {len(guest_topo)} NUMA node(s) "
+        f"({sorted(guest_topo)}), expected {len(numa_nodes)} "
+        f"(one per requested parent node {parent_nodes})"
+    )
+    total_guest_cpus = sum(len(info["cpus"]) for info in guest_topo.values())
+    assert total_guest_cpus == vcpus, (
+        f"guest NUMA nodes expose {total_guest_cpus} vCPUs total, expected "
+        f"{vcpus}: { {n: info['cpus'] for n, info in guest_topo.items()} }"
+    )
+    for gnode, info in guest_topo.items():
+        assert len(info["cpus"]) == vcpus_per_node, (
+            f"guest NUMA node {gnode} has {len(info['cpus'])} vCPUs, "
+            f"expected {vcpus_per_node}"
+        )
+        # Guest reports slightly less than requested (kernel reserves some);
+        # >= 50% distinguishes a populated node from an empty placeholder.
+        assert info["mem_total_kb"] >= per_node_mib * 1024 * 0.50, (
+            f"guest NUMA node {gnode} reports {info['mem_total_kb']} kB, "
+            f"expected >= {int(per_node_mib * 1024 * 0.50)} kB "
+            f"(50% of {per_node_mib} MiB)"
+        )

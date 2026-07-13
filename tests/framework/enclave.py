@@ -310,6 +310,7 @@ def enclave_prepare_start(
     cpu_overcommit=True,
     cpu_accounting=False,
     hotplug_mode=False,
+    numa_nodes=None,
 ):
     """Configure an enclave before starting its microVM.
 
@@ -317,6 +318,9 @@ def enclave_prepare_start(
     enclaves don't exhaust the NE CPU pool; pass ``cpu_overcommit=False`` to
     cover dedicated-core allocation specifically.
     """
+    # Omit numa_nodes unless a placement is requested, so tests that do not care
+    # exercise the parent-node-0 default.
+    other_kwargs = {} if numa_nodes is None else {"numa_nodes": numa_nodes}
     vm.api.enclave.put(
         debug_mode=debug_mode,
         direct_mode=direct_mode,
@@ -324,4 +328,5 @@ def enclave_prepare_start(
         cpu_overcommit=cpu_overcommit,
         cpu_accounting=cpu_accounting,
         hotplug_mode=hotplug_mode,
+        **other_kwargs,
     )
