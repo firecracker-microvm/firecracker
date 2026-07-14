@@ -650,3 +650,81 @@ def test_enclave_many_devices(microvm_factory, direct_mode):
     # Count ethernet interfaces in the guest; expect one per attached NIC.
     out = vm.ssh.check_output("ls -1 /sys/class/net | grep -c eth").stdout.strip()
     assert int(out) == num_net_devices, f"expected {num_net_devices} NICs, found {out}"
+
+
+# ---------------------------------------------------------------------------
+# Test: block device config update (drive resize)
+# ---------------------------------------------------------------------------
+
+
+@requires_enclave
+@enclave_modes
+def test_enclave_block_config_update(microvm_factory, direct_mode):
+    """Patch an enclave block device and verify the guest sees the new size.
+
+    An enclave guest reads its virtio config space from a copy held by the
+    VMM, so a drive patch must travel PATCH /drives ->
+    NE_UPDATE_DEVICE_CONFIG -> VMM -> config-change interrupt for the
+    guest to observe the resized disk.
+    """
+    kernel = _find_kernel()
+    rootfs = _find_rootfs()
+    if not kernel:
+        pytest.skip("No kernel found in artifacts")
+    if not rootfs:
+        pytest.skip("No rootfs found in artifacts")
+
+    vm = microvm_factory.build(kernel=kernel, rootfs=rootfs)
+    vm.spawn(validate_api=False)
+    vm.time_api_requests = False
+
+    vm.api.machine_config.put(vcpu_count=2, mem_size_mib=512)
+
+    jailed_rootfs = vm.create_jailed_resource(vm.rootfs_file)
+    vm.api.drive.put(
+        drive_id="rootfs",
+        path_on_host=jailed_rootfs,
+        is_root_device=True,
+        is_read_only=False,
+    )
+
+    # Scratch drive that will be patched to a larger backing file.
+    fs1 = drive_tools.FilesystemFile(os.path.join(vm.fsfiles, "scratch"), size=64)
+    vm.api.drive.put(
+        drive_id="scratch",
+        path_on_host=vm.create_jailed_resource(fs1.path),
+        is_root_device=False,
+        is_read_only=False,
+    )
+
+    vm.add_net_iface()
+    vm.api.boot.put(kernel_image_path=vm.create_jailed_resource(kernel))
+    vm.api.enclave.put(
+        debug_mode=True,
+        direct_mode=direct_mode,
+        cpu_overcommit=True,
+    )
+    vm.api.actions.put(action_type="InstanceStart")
+    vm.wait_for_ssh_up()
+
+    blksize_cmd = "cat /sys/block/vdb/size"
+    initial_sectors = int(vm.ssh.check_output(blksize_cmd).stdout.strip())
+    assert initial_sectors == 64 * 1024 * 2, f"got {initial_sectors} sectors"
+
+    # Patch to a larger backing file — must reach the guest through
+    # NE_UPDATE_DEVICE_CONFIG and the resulting config-change interrupt.
+    fs2 = drive_tools.FilesystemFile(os.path.join(vm.fsfiles, "otherscratch"), size=128)
+    vm.api.drive.patch(
+        drive_id="scratch", path_on_host=vm.create_jailed_resource(fs2.path)
+    )
+
+    # The guest applies the new capacity on the config-change interrupt;
+    # allow a short grace period for the revalidation to land.
+    for attempt in Retrying(
+        wait=wait_fixed(0.2),
+        stop=stop_after_delay(5),
+        retry=retry_if_exception_type(AssertionError),
+    ):
+        with attempt:
+            new_sectors = int(vm.ssh.check_output(blksize_cmd).stdout.strip())
+            assert new_sectors == 128 * 1024 * 2, f"got {new_sectors} sectors"
