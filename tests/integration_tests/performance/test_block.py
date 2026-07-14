@@ -11,6 +11,7 @@ import framework.utils_fio as fio
 import host_tools.drive as drive_tools
 from framework.artifacts import ACPI_GUEST_KERNELS, pin_guest_kernel
 from framework.utils import check_output, track_cpu_utilization
+from framework.vm_backend import VM_BACKEND_KVM, pin_vm_backend
 
 pytestmark = pin_guest_kernel(ACPI_GUEST_KERNELS)
 
@@ -103,17 +104,22 @@ def emit_fio_metrics(logs_dir, metrics):
 
 
 @pytest.mark.nonci
-@pytest.mark.parametrize("vcpus", [1, 2], ids=["1vcpu", "2vcpu"])
+@pytest.mark.parametrize(
+    "vcpu_count",
+    [1, 2],
+    ids=["1vcpu", "2vcpu"],
+    indirect=True,
+)
 @pytest.mark.parametrize("fio_mode", [fio.Mode.RANDREAD, fio.Mode.RANDWRITE])
 @pytest.mark.parametrize("fio_block_size", [4096], ids=["bs4096"])
 @pytest.mark.parametrize("fio_engine", [fio.Engine.LIBAIO, fio.Engine.PSYNC])
 def test_block_performance(
     uvm,
-    vcpus,
+    vcpu_count,
+    io_engine,
     fio_mode,
     fio_block_size,
     fio_engine,
-    io_engine,
     metrics,
     results_dir,
 ):
@@ -122,7 +128,7 @@ def test_block_performance(
     """
     vm = uvm
     vm.spawn(log_level="Info", emit_metrics=True)
-    vm.basic_config(vcpu_count=vcpus, mem_size_mib=GUEST_MEM_MIB)
+    vm.basic_config(vcpu_count=vcpu_count, mem_size_mib=GUEST_MEM_MIB)
     vm.add_net_iface()
     # Add a secondary block device for benchmark tests.
     fs = drive_tools.FilesystemFile(
@@ -154,6 +160,7 @@ def test_block_performance(
 
 
 @pytest.mark.nonci
+@pin_vm_backend(VM_BACKEND_KVM)
 @pytest.mark.parametrize("vcpus", [1, 2], ids=["1vcpu", "2vcpu"])
 @pytest.mark.parametrize("fio_mode", [fio.Mode.RANDREAD])
 @pytest.mark.parametrize("fio_block_size", [4096], ids=["bs4096"])

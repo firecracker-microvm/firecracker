@@ -41,16 +41,15 @@ def consume_ping_output(ping_putput):
 
 
 @pytest.fixture
-def network_microvm(request, uvm):
-    """Creates a microvm with the networking setup used by the performance tests in this file.
-    This fixture receives its vcpu count via indirect parameterization"""
-
+def network_microvm(uvm, vcpu_count):
+    """Creates a microVM with the networking setup used by this file.
+    This fixture receives its vCPU count from the shared vcpu_count dimension.
+    """
     guest_mem_mib = 1024
-    guest_vcpus = request.param
 
     vm = uvm
     vm.spawn(log_level="Info", emit_metrics=True)
-    vm.basic_config(vcpu_count=guest_vcpus, mem_size_mib=guest_mem_mib)
+    vm.basic_config(vcpu_count=vcpu_count, mem_size_mib=guest_mem_mib)
     vm.add_net_iface()
     vm.start()
 
@@ -58,7 +57,12 @@ def network_microvm(request, uvm):
 
 
 @pytest.mark.nonci
-@pytest.mark.parametrize("network_microvm", [1], indirect=True)
+@pytest.mark.parametrize(
+    "vcpu_count",
+    [1],
+    ids=["1vcpu"],
+    indirect=True,
+)
 def test_network_latency(network_microvm, metrics):
     """
     Test network latency by sending pings from the guest to the host.
@@ -91,7 +95,12 @@ def test_network_latency(network_microvm, metrics):
 
 @pytest.mark.nonci
 @pytest.mark.timeout(120)
-@pytest.mark.parametrize("network_microvm", [1, 2], indirect=True)
+@pytest.mark.parametrize(
+    "vcpu_count",
+    [1, 2],
+    ids=["1vcpu", "2vcpu"],
+    indirect=True,
+)
 @pytest.mark.parametrize("payload_length", ["128K", "1024K"], ids=["p128K", "p1024K"])
 @pytest.mark.parametrize("mode", ["g2h", "h2g"])
 def test_network_tcp_throughput(
