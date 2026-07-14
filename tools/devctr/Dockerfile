@@ -71,7 +71,7 @@ RUN apt-get update \
 # Builder: static libseccomp (musl)
 # ============================================================
 FROM base-image AS libseccomp-builder
-ENV LIBSECCOMP_VER="v2.6.0"
+ENV LIBSECCOMP_VER="v2.6.1"
 
 # Install static version of libseccomp
 # We need to compile from source because
