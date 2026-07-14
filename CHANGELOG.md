@@ -17,6 +17,11 @@ and this project adheres to
   emits the microVM instance id under a top-level `id` field, and `properties`
   emits operator-defined key-value pairs under a top-level `properties` field.
   Each is opt-in and independent. See [metrics documentation](docs/metrics.md).
+- [#6003](https://github.com/firecracker-microvm/firecracker/pull/6003): Added a
+  new option `Transparent` for the `huge_pages` setting. If set, Firecracker
+  will use transparent huge pages for the guest memory via
+  `madvise(MADV_HUGEPAGE)`. Guest memory must be a multiple of 2MB when using
+  this option.
 
 ### Changed
 
