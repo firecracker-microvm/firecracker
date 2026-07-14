@@ -83,11 +83,6 @@ pub struct Vsock<B> {
     pub(crate) pending_event_ack: bool,
 }
 
-// TODO: Detect / handle queue deadlock:
-// 1. If the driver halts RX queue processing, we'll need to notify `self.backend`, so that it can
-//    unregister any EPOLLIN listeners, since otherwise it will keep spinning, unable to consume its
-//    EPOLLIN events.
-
 impl<B> Vsock<B>
 where
     B: VsockBackend + Debug,
