@@ -669,6 +669,19 @@
             },
             {
                 "syscall": "ioctl",
+                "comment": "NE_UPDATE_DEVICE_CONFIG, used to push virtio config space changes to an enclave device",
+                "args": [
+                    {
+                        "index": 1,
+                        "type": "dword",
+                        "op": "eq",
+                        "val": 1079029292,
+                        "comment": "NE_UPDATE_DEVICE_CONFIG"
+                    }
+                ]
+            },
+            {
+                "syscall": "ioctl",
                 "comment": "Triggered on shutdown, to restore the initial terminal settings.",
                 "args": [
                     {
