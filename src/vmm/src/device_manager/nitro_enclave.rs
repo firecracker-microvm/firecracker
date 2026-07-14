@@ -16,6 +16,7 @@ use crate::devices::virtio::transport::nitro_enclave::{
     DeviceDmaMemory, NeTransport, NeTransportError,
 };
 use crate::nitro_enclave::enclave_vm::{EnclaveVm, EnclaveVmError};
+use crate::nitro_enclave::ne_ioctl::EnclaveFd;
 use crate::utils::{mib_to_bytes, u64_to_usize};
 
 /// Errors from NE device manager operations.
@@ -25,6 +26,8 @@ pub enum NeDeviceError {
     Transport(#[from] NeTransportError),
     /// Failed to allocate DMB: {0}
     Dmb(#[from] EnclaveVmError),
+    /// Device not found
+    DeviceNotFound,
 }
 
 /// Manages NE transport devices for enclaves.
@@ -108,6 +111,23 @@ impl NeDevices {
         self.devices.contains_key(device_id)
     }
 
+    /// Push a device's current config space to the enclave mirror.
+    pub(crate) fn update_device_config(
+        &self,
+        device_type: VirtioDeviceType,
+        device_id: &str,
+        enclave_fd: &EnclaveFd,
+    ) -> Result<(), NeDeviceError> {
+        let transport = self
+            .devices
+            .get(&(device_type, device_id.to_string()))
+            .ok_or(NeDeviceError::DeviceNotFound)?
+            .lock()
+            .expect("Poisoned lock");
+        transport.update_device_config(enclave_fd)?;
+        Ok(())
+    }
+
     pub(crate) fn for_each_virtio_device(
         &self,
         mut f: impl FnMut(VirtioDeviceType, &dyn VirtioDevice),
@@ -128,5 +148,78 @@ impl NeDevices {
             let mut device = device_arc.lock().expect("Poisoned lock");
             f(*device_type, &mut *device);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::devices::virtio::block::device::Block;
+    use crate::devices::virtio::block::virtio::device::FileEngineType;
+    use crate::devices::virtio::block::virtio::test_utils::default_block;
+    use crate::nitro_enclave::info_page::TestPageBuilder;
+    use crate::test_utils::single_region_mem;
+    use vmm_sys_util::tempfile::TempFile;
+
+    fn ne_devices_with_block() -> (NeDevices, Arc<Mutex<Block>>) {
+        let device = Arc::new(Mutex::new(Block::Virtio(default_block(
+            FileEngineType::Sync,
+        ))));
+        let transport = NeTransport::new(
+            device.clone(),
+            DeviceDmaMemory::GuestMemory(single_region_mem(0x1000)),
+            Arc::new(TestPageBuilder::new().build()),
+            VirtioDeviceType::Block,
+            1,
+        )
+        .unwrap();
+        let mut devices = NeDevices::default();
+        devices.devices.insert(
+            (VirtioDeviceType::Block, "test".to_string()),
+            Arc::new(Mutex::new(transport)),
+        );
+        (devices, device)
+    }
+
+    #[test]
+    fn test_update_device_config_unknown_device() {
+        let (devices, _) = ne_devices_with_block();
+        assert!(matches!(
+            devices
+                .update_device_config(VirtioDeviceType::Block, "nosuch", &EnclaveFd::dev_null(),),
+            Err(NeDeviceError::DeviceNotFound)
+        ));
+    }
+
+    #[test]
+    fn test_update_device_config_keeps_host_update_on_ioctl_error() {
+        let (devices, device) = ne_devices_with_block();
+        let old_config = device.lock().unwrap().config_as_bytes().to_vec();
+
+        let new_disk = TempFile::new().unwrap();
+        new_disk.as_file().set_len(0x2000).unwrap();
+        device
+            .lock()
+            .unwrap()
+            .update_disk_image(new_disk.as_path().to_str().unwrap().to_string())
+            .unwrap();
+        let updated_config = device.lock().unwrap().config_as_bytes().to_vec();
+        assert_ne!(updated_config, old_config);
+
+        let err = devices
+            .update_device_config(VirtioDeviceType::Block, "test", &EnclaveFd::dev_null())
+            .unwrap_err();
+        assert!(matches!(
+            &err,
+            NeDeviceError::Transport(NeTransportError::UpdateDeviceConfig(err))
+                if err.raw_os_error() == Some(libc::ENOTTY)
+        ));
+
+        let device = device.lock().unwrap();
+        assert_eq!(device.config_as_bytes(), updated_config);
+        let Block::Virtio(block) = &*device else {
+            panic!("expected virtio block");
+        };
+        assert_eq!(block.disk.file_path, new_disk.as_path().to_str().unwrap());
     }
 }

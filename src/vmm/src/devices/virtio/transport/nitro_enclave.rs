@@ -54,6 +54,8 @@ pub enum NeTransportError {
     TooManyQueues(usize),
     /// Device config is {0} bytes, exceeding NE_DEVICE_CONFIG_MAX_SIZE (256)
     ConfigTooLarge(usize),
+    /// NE_UPDATE_DEVICE_CONFIG ioctl failed: {0}
+    UpdateDeviceConfig(std::io::Error),
 }
 
 /// VirtioInterrupt implementation for Nitro Enclave devices.
@@ -81,8 +83,9 @@ impl VirtioInterrupt for NeInterrupt {
             VirtioInterruptType::Config => {
                 // No-op: unlike the MSI-X transport (which fires a config
                 // vector), the enclave has no config-change interrupt path.
-                // Config changes are pushed to the enclave via the
-                // NE_UPDATE_DEVICE_CONFIG ioctl, not the per-queue call fds.
+                // Config changes are pushed to the enclave via
+                // NE_UPDATE_DEVICE_CONFIG, driven synchronously from the API
+                // path (PATCH /drives).
             }
         }
         Ok(())
@@ -304,6 +307,26 @@ impl NeTransport {
     /// Returns a reference to the inner virtio device.
     pub fn device(&self) -> &Arc<Mutex<dyn VirtioDevice>> {
         &self.device
+    }
+
+    /// Push the current device config space to the enclave mirror.
+    pub(crate) fn update_device_config(
+        &self,
+        enclave_fd: &EnclaveFd,
+    ) -> Result<(), NeTransportError> {
+        let device = self.device.lock().expect("Poisoned lock");
+        let config = device.config_as_bytes();
+
+        enclave_fd
+            .update_device_config(self.device_uid, 0, config)
+            .map_err(NeTransportError::UpdateDeviceConfig)?;
+
+        debug!(
+            "pushed {}-byte config update for device uid={}",
+            config.len(),
+            self.device_uid
+        );
+        Ok(())
     }
 
     /// Activate the device if the enclave guest has signalled DRIVER_OK in the
