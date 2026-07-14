@@ -200,10 +200,8 @@ impl<'a> Persist<'a> for ACPIDeviceManager {
 
     fn restore(vm: Self::ConstructorArgs, state: &Self::State) -> Result<Self, Self::Error> {
         let mut acpi_devices = ACPIDeviceManager::new(
-            // Safe to unwrap() here, this will never return an error.
-            VmGenId::restore((), &state.vmgenid).unwrap(),
-            // Safe to unwrap() here, this will never return an error.
-            VmClock::restore((), &state.vmclock).unwrap(),
+            VmGenId::restore((), &state.vmgenid)?,
+            VmClock::restore((), &state.vmclock)?,
         );
 
         acpi_devices.replay_gsi_allocations(vm)?;
