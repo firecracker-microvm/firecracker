@@ -270,6 +270,8 @@ pub enum VmmError {
     Kvm(#[from] vstate::kvm::KvmError),
     /// Failed perform action on device: {0}
     FindDeviceError(#[from] device_manager::FindDeviceError),
+    /// Nitro Enclave device error: {0}
+    NeDevice(#[from] device_manager::nitro_enclave::NeDeviceError),
     /// Block: {0}
     Block(#[from] BlockError),
     /// Balloon: {0}
@@ -603,6 +605,14 @@ impl Vmm {
             .with_virtio_device(drive_id, |block: &mut Block| {
                 block.update_disk_image(path_on_host)
             })??;
+
+        if let Some(enclave_vm) = self.vm.as_enclave() {
+            // The host view is authoritative; an ioctl failure may leave the enclave mirror stale.
+            self.device_manager
+                .enclave_devices()
+                .expect("enclave VM requires enclave virtio transport")
+                .update_device_config(VirtioDeviceType::Block, drive_id, enclave_vm.enclave_fd())?;
+        }
         Ok(())
     }
 
