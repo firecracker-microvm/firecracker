@@ -34,6 +34,10 @@ and this project adheres to
 - [#5956](https://github.com/firecracker-microvm/firecracker/pull/5956): Fixed a
   TOCTOU race in the aarch64 jailer when setting ownership of the CPU cache and
   `MIDR_EL1` information files copied into the chroot.
+- [#6031](https://github.com/firecracker-microvm/firecracker/pull/6031): Fixed
+  the vsock device re-arming its host-stream `EPOLLIN` interest while received
+  data was still awaiting a guest RX buffer, which could busy-spin the event
+  thread until the guest posted buffers.
 
 ## [1.16.1]
 
