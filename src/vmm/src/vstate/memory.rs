@@ -2175,4 +2175,108 @@ mod tests {
         ext.check_range_plugged(MemoryRegionAddress(0x2000), 0)
             .unwrap();
     }
+
+    /// Returns the (start, end) of the VMA containing `addr` in `/proc/self/maps`, if any.
+    fn find_vma_containing(addr: usize) -> Option<(usize, usize)> {
+        use std::io::BufRead;
+        let maps = std::fs::File::open("/proc/self/maps").unwrap();
+        for line in std::io::BufReader::new(maps).lines() {
+            let line = line.unwrap();
+            let range = line.split_whitespace().next().unwrap_or("");
+            let mut parts = range.split('-');
+            let start = usize::from_str_radix(parts.next().unwrap_or("0"), 16).unwrap_or(0);
+            let end = usize::from_str_radix(parts.next().unwrap_or("0"), 16).unwrap_or(0);
+            if addr >= start && addr < end {
+                return Some((start, end));
+            }
+        }
+        None
+    }
+
+    #[test]
+    fn test_guest_region_errors_when_empty_size() {
+        assert!(matches!(
+            RawGuestRegionMmap::allocate_protected(0),
+            Err(MemoryError::ZeroSize)
+        ));
+    }
+
+    #[test]
+    fn test_guest_region_alignment_and_size() {
+        let page_size = host_page_size();
+        let huge_page_size = GUEST_MEMORY_ALIGNMENT;
+
+        // Base sizes: powers of two from 1 KiB to 16 MiB.
+        let base_sizes: Vec<usize> = (10..=24).map(|shift| 1usize << shift).collect();
+
+        // Offsets to apply to each base size.
+        // The idea is to test memory allocation for sizes that aren't necessarily page multiples.
+        let offsets: &[isize] = &[-1, 0, 1, 1023, 1024, 1025];
+
+        for base in base_sizes {
+            for offset in offsets {
+                let size = base.checked_add_signed(*offset).unwrap();
+
+                let region = RawGuestRegionMmap::allocate_protected(size).unwrap();
+                let addr = region.mmap_address as usize;
+
+                // Returned address is 2MB-aligned.
+                assert_eq!(
+                    addr % huge_page_size,
+                    0,
+                    "Address not 2MB-aligned for base={base:#x} offset={offset}"
+                );
+
+                // Returned size is the requested size rounded up to page alignment.
+                assert!(
+                    region.mmap_size >= size && region.mmap_size < size + page_size,
+                    "mmap_size {mmap_size} unexpected for size={size} (base={base:#x} \
+                     offset={offset})",
+                    mmap_size = region.mmap_size
+                );
+                assert_eq!(
+                    region.mmap_size % page_size,
+                    0,
+                    "mmap_size not page-aligned for base={base:#x} offset={offset}"
+                );
+
+                // Verify the VMA spans exactly the page-aligned size (head/tail unmapped).
+                let (vma_start, vma_end) = find_vma_containing(addr).unwrap_or_else(|| {
+                    panic!(
+                        "Aligned region not in /proc/self/maps for base={base:#x} offset={offset}"
+                    )
+                });
+                let vma_size = vma_end - vma_start;
+                // Note: the kernel might merge our VMA with a neighbor, we can only check that our region is
+                // contained within the (larger) merged VMA.
+                assert!(
+                    vma_start <= addr,
+                    "VMA start mismatch for base={base:#x} offset={offset}"
+                );
+                assert!(
+                    vma_size >= region.mmap_size,
+                    "VMA size mismatch for base={base:#x} offset={offset}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn test_guest_region_drop_reclaims_memory() {
+        let size = mib_to_bytes(4);
+        let region = RawGuestRegionMmap::allocate_protected(size).unwrap();
+        let addr = region.mmap_address as usize;
+
+        // The region should be mapped before drop.
+        assert!(find_vma_containing(addr).is_some());
+
+        // Drop the region.
+        drop(region);
+
+        // After drop, the memory should no longer be mapped.
+        assert!(
+            find_vma_containing(addr).is_none(),
+            "Memory was not reclaimed after drop"
+        );
+    }
 }

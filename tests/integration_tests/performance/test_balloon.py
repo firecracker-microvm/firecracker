@@ -16,10 +16,10 @@ from framework.utils import (
     track_cpu_utilization,
 )
 
-# Every test in this module exercises both huge_pages variants.
+# Every test in this module exercises all huge_pages variants.
 pytestmark = pytest.mark.parametrize(
     "huge_pages",
-    [HugePagesConfig.NONE, HugePagesConfig.HUGETLBFS_2MB],
+    HugePagesConfig,
     indirect=True,
 )
 
