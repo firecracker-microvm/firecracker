@@ -256,6 +256,26 @@ pub struct NeInfoEventFd {
     pub reserved: u16,
 }
 
+/// Maximum bytes NE_UPDATE_DEVICE_CONFIG can push.
+pub const NE_UPDATE_CONFIG_MAX_SIZE: usize = 64;
+
+/// NE_UPDATE_DEVICE_CONFIG ioctl payload. Pushes updated device-specific
+/// config bytes to a running enclave
+#[repr(C)]
+#[derive(Debug, Clone, Copy)]
+pub struct NeUpdateDeviceConfig {
+    /// Device UID from NE_ADD_DEVICE.
+    pub device_uid: u64,
+    /// Number of valid bytes in `config_data` (1..=64).
+    pub config_size: u32,
+    /// Byte offset into the device config space.
+    pub config_offset: u32,
+    /// Config bytes to write at `config_offset`.
+    pub config_data: [u8; NE_UPDATE_CONFIG_MAX_SIZE],
+}
+
+const _: () = assert!(std::mem::size_of::<NeUpdateDeviceConfig>() == 80);
+
 /// NE_ACCOUNT_VCPU ioctl payload (`struct ne_account_vcpu_params`, 8 bytes).
 ///
 /// Binds the calling thread (task) to an enclave vCPU so the NE driver can
@@ -309,6 +329,13 @@ mod ne_ioctls {
     ioctl_iow_nr!(NE_ACCOUNT_VCPU, NE_MAGIC, 0x2A, NeAccountVcpuParams);
     // Wire an eventfd to a per-device info-event MSI-X vector.
     ioctl_iow_nr!(NE_SET_INFO_EVENT_FD, NE_MAGIC, 0x2B, NeInfoEventFd);
+    // Push updated device config bytes to a running enclave.
+    ioctl_iow_nr!(
+        NE_UPDATE_DEVICE_CONFIG,
+        NE_MAGIC,
+        0x2C,
+        NeUpdateDeviceConfig
+    );
     // Atomically pick and add a vCPU from the kernel NE CPU pool.
     ioctl_iow_nr!(NE_ADD_ANY_VCPU, NE_MAGIC, 0x2D, NeAddAnyVcpuArgs);
 }
@@ -684,6 +711,42 @@ impl EnclaveFd {
         Ok(())
     }
 
+    /// Push updated device config bytes to the running enclave.
+    ///
+    /// The enclave VMM updates its copy of the device config space and
+    /// injects a config-change interrupt to the enclave guest.
+    pub fn update_device_config(
+        &self,
+        device_uid: u64,
+        config_offset: u32,
+        config: &[u8],
+    ) -> std::io::Result<()> {
+        if config.is_empty() || config.len() > NE_UPDATE_CONFIG_MAX_SIZE {
+            return Err(std::io::Error::from(std::io::ErrorKind::InvalidInput));
+        }
+        let config_size = u32::try_from(config.len()).unwrap();
+        if config_offset
+            .checked_add(config_size)
+            .is_none_or(|config_end| config_end > u32::try_from(NE_DEVICE_CONFIG_MAX_SIZE).unwrap())
+        {
+            return Err(std::io::Error::from(std::io::ErrorKind::InvalidInput));
+        }
+
+        let mut req = NeUpdateDeviceConfig {
+            device_uid,
+            config_size,
+            config_offset,
+            config_data: [0; NE_UPDATE_CONFIG_MAX_SIZE],
+        };
+        req.config_data[..config.len()].copy_from_slice(config);
+        // SAFETY: NE_UPDATE_DEVICE_CONFIG ioctl on a valid enclave fd.
+        let ret = unsafe { ioctl_with_ref(&self.fd, NE_UPDATE_DEVICE_CONFIG(), &req) };
+        if ret < 0 {
+            return Err(last_ioctl_error());
+        }
+        Ok(())
+    }
+
     /// Register the calling thread as the host-side accounting target for
     /// enclave vCPU `vcpu_idx` (Parent-PID visibility).
     ///
@@ -718,8 +781,17 @@ impl AsRawFd for EnclaveFd {
 
 #[cfg(test)]
 mod tests {
-    use super::ne_ioctls::NE_ACCOUNT_VCPU;
+
+    use super::ne_ioctls::{NE_ACCOUNT_VCPU, NE_UPDATE_DEVICE_CONFIG};
     use super::*;
+
+    impl EnclaveFd {
+        /// An EnclaveFd backed by /dev/null: every ioctl fails with ENOTTY, so
+        /// tests can exercise pre-ioctl paths or assert the ioctl was reached.
+        pub(crate) fn dev_null() -> Self {
+            Self::new(std::fs::File::open("/dev/null").unwrap().into())
+        }
+    }
 
     #[test]
     fn test_ne_account_vcpu_ioctl_value() {
@@ -755,5 +827,43 @@ mod tests {
     fn test_ne_error_passes_through_standard_errno() {
         // A standard errno is outside the NE range, so from_code rejects it.
         assert!(NeError::from_code(libc::EINVAL).is_none());
+    }
+
+    #[test]
+    fn test_ne_update_device_config_ioctl_value() {
+        // _IOW(0xAE, 0x2C, 80) = (1<<30) | (80<<16) | (0xAE<<8) | 0x2C.
+        // Must match the value allowed in resources/seccomp/*.json.
+        assert_eq!(NE_UPDATE_DEVICE_CONFIG(), 1079029292);
+    }
+
+    #[test]
+    fn test_update_device_config_rejects_bad_arguments() {
+        let fd = EnclaveFd::dev_null();
+        assert_eq!(
+            fd.update_device_config(1, 0, &[]).unwrap_err().kind(),
+            std::io::ErrorKind::InvalidInput
+        );
+        assert_eq!(
+            fd.update_device_config(1, 0, &[0; NE_UPDATE_CONFIG_MAX_SIZE + 1])
+                .unwrap_err()
+                .kind(),
+            std::io::ErrorKind::InvalidInput
+        );
+        assert_eq!(
+            fd.update_device_config(1, u32::MAX, &[0])
+                .unwrap_err()
+                .kind(),
+            std::io::ErrorKind::InvalidInput
+        );
+    }
+
+    #[test]
+    fn test_update_device_config_issues_ioctl() {
+        // /dev/null rejects every ioctl with ENOTTY, so reaching that error
+        // proves a valid nonzero-offset range passes validation and the ioctl is issued.
+        let err = EnclaveFd::dev_null()
+            .update_device_config(1, 1, &[0; NE_UPDATE_CONFIG_MAX_SIZE - 1])
+            .unwrap_err();
+        assert_eq!(err.raw_os_error(), Some(libc::ENOTTY));
     }
 }
