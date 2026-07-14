@@ -104,6 +104,7 @@ mod tests {
 
         let huge_pages_cases = [
             ("None", HugePageConfig::None),
+            ("Transparent", HugePageConfig::Transparent),
             ("2M", HugePageConfig::Hugetlbfs2M),
         ];
 

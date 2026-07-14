@@ -187,6 +187,7 @@ class HugePagesConfig(str, Enum):
     """Enum describing the huge pages configurations supported Firecracker"""
 
     NONE = "None"
+    TRANSPARENT = "Transparent"
     HUGETLBFS_2MB = "2M"
 
 
@@ -274,6 +275,7 @@ class Microvm:
         self.iface = {}
         self.disks = {}
         self.disks_vhost_user = {}
+        self.huge_pages = HugePagesConfig.NONE
         self.vcpus_count = None
         self.mem_size_bytes = None
         self.cpu_template_name = "None"
@@ -816,7 +818,7 @@ class Microvm:
         boot_args: str = None,
         use_initrd: bool = False,
         track_dirty_pages: bool = False,
-        huge_pages: HugePagesConfig = None,
+        huge_pages: HugePagesConfig = HugePagesConfig.NONE,
         rootfs_io_engine=None,
         cpu_template: Optional[str] = None,
         enable_entropy_device=False,
@@ -844,6 +846,7 @@ class Microvm:
             track_dirty_pages=track_dirty_pages,
             huge_pages=huge_pages,
         )
+        self.huge_pages = huge_pages
         self.vcpus_count = vcpu_count
         self.mem_size_bytes = mem_size_mib * 2**20
 

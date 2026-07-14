@@ -82,7 +82,7 @@ def uvm_resumed_memhp(
     """Restores a VM with the given memory hotplugging config after booting and snapshotting"""
     if vhost_user:
         pytest.skip("vhost-user doesn't support snapshot/restore")
-    if huge_pages and huge_pages != HugePagesConfig.NONE and not uffd_handler:
+    if huge_pages == HugePagesConfig.HUGETLBFS_2MB and not uffd_handler:
         pytest.skip("Hugepages requires a UFFD handler")
     uvm = uvm_booted_memhp(
         uvm,
@@ -104,6 +104,7 @@ def uvm_resumed_memhp(
 @pytest.fixture(
     params=[
         (uvm_booted_memhp, False, HugePagesConfig.NONE, None, None),
+        (uvm_booted_memhp, False, HugePagesConfig.TRANSPARENT, None, None),
         (uvm_booted_memhp, False, HugePagesConfig.HUGETLBFS_2MB, None, None),
         (uvm_booted_memhp, True, HugePagesConfig.NONE, None, None),
         (uvm_resumed_memhp, False, HugePagesConfig.NONE, None, SnapshotType.FULL),
@@ -114,6 +115,13 @@ def uvm_resumed_memhp(
             HugePagesConfig.NONE,
             None,
             SnapshotType.DIFF_MINCORE,
+        ),
+        (
+            uvm_resumed_memhp,
+            False,
+            HugePagesConfig.TRANSPARENT,
+            None,
+            SnapshotType.FULL,
         ),
         (
             uvm_resumed_memhp,
@@ -132,11 +140,13 @@ def uvm_resumed_memhp(
     ],
     ids=[
         "booted",
+        "booted-thp",
         "booted-huge-pages",
         "booted-vhost-user",
         "resumed",
         "resumed-diff",
         "resumed-mincore",
+        "resumed-thp",
         "resumed-uffd",
         "resumed-uffd-huge-pages",
     ],
@@ -481,7 +491,7 @@ def timed_memory_hotplug(uvm, size, metrics, metric_prefix, fc_metric_name):
 )
 @pytest.mark.parametrize(
     "huge_pages",
-    [HugePagesConfig.NONE, HugePagesConfig.HUGETLBFS_2MB],
+    HugePagesConfig,
 )
 def test_memory_hotplug_latency(
     microvm_factory, guest_kernel, rootfs, hotplug_size, huge_pages, metrics
