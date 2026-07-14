@@ -115,7 +115,7 @@ if run_all_tests(changed_files):
             pytest_opts="integration_tests/functional/test_enclave.py",
         ),
         platforms=[("al2023", "enclave")],
-        instances=["c8i.8xlarge", "m8g.8xlarge"],
+        instances=["c8i.8xlarge", "m8g.8xlarge", "c8i.48xlarge"],
     )
 
 print(pipeline.to_json())
