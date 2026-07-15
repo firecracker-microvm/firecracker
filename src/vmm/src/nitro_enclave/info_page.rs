@@ -11,21 +11,20 @@ use std::io;
 use std::mem::size_of;
 use std::num::Wrapping;
 
-use vm_memory::{ByteValued, Bytes, VolatileSlice, WriteVolatile};
+use vm_memory::{
+    ByteValued, Bytes, GuestMemoryRegion, MemoryRegionAddress, VolatileSlice, WriteVolatile,
+};
 
 use super::ne_ioctl::EnclaveFd;
 use crate::logger::warn;
 use crate::utils::u64_to_usize;
-use crate::vstate::memory::MemoryError;
+use crate::vstate::memory::{AtomicBitmap, BS, GuestRegionMmap, MemoryError};
 
 /// Info page magic number (`NISC` in little-endian).
 pub const INFO_PAGE_MAGIC: u32 = 0x5343_494E;
 
 /// Info page size (2 MiB).
 pub const INFO_PAGE_SIZE: usize = 2 * 1024 * 1024;
-
-/// Required alignment of the info page (2 MiB), as mandated by `NE_SET_INFO_PAGE`.
-const INFO_PAGE_ALIGN: usize = 2 * 1024 * 1024;
 
 /// TOC entry type for serial ring buffer.
 const TOC_TYPE_SERIAL: u16 = 1;
@@ -313,8 +312,8 @@ pub enum InfoPageError {
 /// A 2 MiB-aligned info page shared with the enclave VMM.
 #[derive(Debug)]
 pub struct InfoPage {
-    /// Pointer to the start of the mapped 2 MiB region.
-    ptr: *mut u8,
+    /// Owning CMA region backing the info page.
+    region: GuestRegionMmap,
 }
 
 // SAFETY: InfoPage is only accessed via VolatileSlice (volatile reads), never
@@ -325,63 +324,48 @@ unsafe impl Send for InfoPage {}
 unsafe impl Sync for InfoPage {}
 
 impl InfoPage {
-    /// Allocate a 2 MiB info page via CMA (mmap on the NE device fd).
-    ///
-    /// PCIE mode requires physically contiguous memory from the NE driver's
-    /// CMA pool. `NE_SET_INFO_PAGE` requires the userspace address to be
-    /// 2 MiB-aligned ([`INFO_PAGE_ALIGN`]), so allocate with explicit alignment
-    /// rather than relying on the default mmap granularity.
+    /// Allocate the 2 MiB info page via CMA on the NE device fd.
     ///
     /// Mapped `PROT_READ`: Firecracker only consumes the info page (the enclave
-    /// produces it), so a read-only mapping turns any accidental write into a
-    /// fault here rather than silent corruption. The NE driver pins the pages,
-    /// so the enclave's writable view is unaffected by this VA protection.
+    /// produces it), so a read-only mapping faults on accidental writes. The NE
+    /// driver pins the pages, so the enclave's writable view is unaffected.
     pub fn new(ne_dev_fd: &super::ne_ioctl::NitroEnclavesDevFd) -> Result<Self, InfoPageError> {
-        let (ptr, _aligned_size) = ne_dev_fd
-            .allocate_cma_aligned(INFO_PAGE_SIZE, INFO_PAGE_ALIGN, libc::PROT_READ)
+        let region = ne_dev_fd
+            .allocate_cma_region(vm_memory::GuestAddress(0), INFO_PAGE_SIZE, libc::PROT_READ)
             .map_err(InfoPageError::Alloc)?;
-        Ok(Self { ptr })
+        Ok(Self { region })
     }
 
     /// Allocate a 2 MiB-aligned info page for testing without a real NE device.
+    ///
+    /// Backs it with an owning anonymous region (same ownership model as the
+    /// CMA path, minus the device fd), so the mapping frees on drop.
     #[cfg(test)]
     pub fn allocate_anonymous() -> Result<Self, InfoPageError> {
-        use vm_memory::mmap::MmapRegionError;
-
-        // SAFETY: mmap with MAP_ANONYMOUS|MAP_HUGETLB returns a 2 MiB-aligned mapping.
-        let ptr = unsafe {
-            libc::mmap(
-                std::ptr::null_mut(),
-                INFO_PAGE_SIZE,
-                libc::PROT_READ | libc::PROT_WRITE,
-                libc::MAP_ANONYMOUS | libc::MAP_SHARED | libc::MAP_HUGETLB | libc::MAP_POPULATE,
-                -1,
-                0,
-            )
-        };
-        if ptr == libc::MAP_FAILED {
-            return Err(InfoPageError::Alloc(MemoryError::MmapRegionError(
-                MmapRegionError::Mmap(io::Error::last_os_error()),
-            )));
-        }
-        // SAFETY: ptr is valid for INFO_PAGE_SIZE bytes.
-        unsafe { std::ptr::write_bytes(ptr.cast::<u8>(), 0, INFO_PAGE_SIZE) };
-        Ok(Self {
-            ptr: ptr.cast::<u8>(),
-        })
+        // A fresh MAP_ANONYMOUS region is already zeroed, so no explicit clear.
+        let region = GuestRegionMmap::allocate(
+            vm_memory::GuestAddress(0),
+            INFO_PAGE_SIZE,
+            libc::PROT_READ | libc::PROT_WRITE,
+            libc::MAP_ANONYMOUS | libc::MAP_SHARED,
+            None,
+            false,
+        )
+        .map_err(InfoPageError::Alloc)?;
+        Ok(Self { region })
     }
 
     /// Register this info page with the NE kernel driver.
     pub fn register(&self, enclave_fd: &EnclaveFd) -> Result<(), InfoPageError> {
         enclave_fd
-            .set_info_page(self.ptr as u64, INFO_PAGE_SIZE as u64)
+            .set_info_page(self.region.as_ptr() as u64, INFO_PAGE_SIZE as u64)
             .map_err(InfoPageError::Register)
     }
 
     /// Get the userspace address of the info page.
     #[cfg(test)]
     pub fn addr(&self) -> usize {
-        self.ptr as usize
+        self.region.as_ptr() as usize
     }
 
     /// Returns `true` if the info page header has valid magic.
@@ -506,10 +490,12 @@ impl InfoPage {
         }
     }
 
-    fn as_volatile_slice(&self) -> VolatileSlice<'_> {
-        // SAFETY: ptr is valid for INFO_PAGE_SIZE bytes, and the info page
-        // lifetime is tied to &self.
-        unsafe { VolatileSlice::new(self.ptr, INFO_PAGE_SIZE) }
+    fn as_volatile_slice(&self) -> VolatileSlice<'_, BS<'_, Option<AtomicBitmap>>> {
+        // The region spans the whole INFO_PAGE_SIZE at offset 0, so this slice
+        // covers the entire info page and cannot fail.
+        self.region
+            .get_slice(MemoryRegionAddress(0), INFO_PAGE_SIZE)
+            .expect("info page region covers INFO_PAGE_SIZE at offset 0")
     }
 
     /// Read the info page header via volatile read.
@@ -545,17 +531,18 @@ impl InfoPage {
     }
 
     #[cfg(test)]
+    /// Build a test info page from a caller-prepared buffer: copy `ptr`'s
+    /// `INFO_PAGE_SIZE` bytes into a fresh owning (anonymous) region so the
+    /// resulting `InfoPage` owns and frees its mapping like production. The
+    /// caller's temporary buffer is theirs to free (it's a private mmap).
     pub(crate) fn from_raw_ptr(ptr: *mut u8) -> Self {
-        Self { ptr }
-    }
-}
-
-impl Drop for InfoPage {
-    fn drop(&mut self) {
-        // SAFETY: ptr was returned by mmap with INFO_PAGE_SIZE.
+        let page = Self::allocate_anonymous().expect("mock info-page region");
+        // SAFETY: both buffers are valid for INFO_PAGE_SIZE bytes and do not
+        // overlap (freshly, separately mmap'd).
         unsafe {
-            libc::munmap(self.ptr.cast::<libc::c_void>(), INFO_PAGE_SIZE);
+            std::ptr::copy_nonoverlapping(ptr, page.region.as_ptr(), INFO_PAGE_SIZE);
         }
+        page
     }
 }
 
@@ -759,40 +746,22 @@ mod tests {
     // 1024 bytes total serial region minus 8-byte ring header (write_idx + capacity fields).
     const TEST_RING_CAPACITY: u32 = 1016;
 
-    fn mmap_page() -> *mut libc::c_void {
-        let ptr = unsafe {
-            libc::mmap(
-                ptr::null_mut(),
-                INFO_PAGE_SIZE,
-                libc::PROT_READ | libc::PROT_WRITE,
-                libc::MAP_ANONYMOUS | libc::MAP_PRIVATE,
-                -1,
-                0,
-            )
-        };
-        assert_ne!(ptr, libc::MAP_FAILED);
-        ptr
-    }
-
     #[test]
     fn test_header_valid() {
-        let ptr = mmap_page();
-        let page = InfoPage {
-            ptr: ptr.cast::<u8>(),
-        };
+        // Zeroed page has no valid magic; writing the magic makes it valid.
+        let page = InfoPage::allocate_anonymous().unwrap();
         assert!(!page.header_valid());
 
-        unsafe { *ptr.cast::<u32>() = INFO_PAGE_MAGIC };
+        // SAFETY: page owns INFO_PAGE_SIZE bytes; write the magic at offset 0.
+        unsafe { *page.region.as_ptr().cast::<u32>() = INFO_PAGE_MAGIC };
         assert!(page.header_valid());
     }
 
     #[test]
     fn test_addr() {
-        let ptr = mmap_page();
-        let page = InfoPage {
-            ptr: ptr.cast::<u8>(),
-        };
-        assert_eq!(page.addr(), ptr as usize);
+        // addr() returns the region's host pointer.
+        let page = InfoPage::allocate_anonymous().unwrap();
+        assert_eq!(page.addr(), page.region.as_ptr() as usize);
     }
 
     #[test]
@@ -901,7 +870,7 @@ mod tests {
         let page = TestPageBuilder::new()
             .device_mirror(DEV_OFFSET, DEV_MIN_SIZE, test_device_mirror(7))
             .build();
-        unsafe { *page.ptr.cast::<u32>() = 0xDEAD_BEEF };
+        unsafe { *page.region.as_ptr().cast::<u32>() = 0xDEAD_BEEF };
         assert!(page.find_device_entry(7).is_none());
     }
 
@@ -959,7 +928,7 @@ mod tests {
                 extra: TocExtra::default(),
             })
             .build();
-        let ring_base = unsafe { page.ptr.add(4096) };
+        let ring_base = unsafe { page.region.as_ptr().add(4096) };
         unsafe {
             ptr::write(ring_base.cast::<u32>(), 10);
             ptr::write(ring_base.add(4).cast::<u32>(), 4096);
