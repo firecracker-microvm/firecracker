@@ -343,7 +343,7 @@ impl Deref for GuestRegionMmap {
 
 impl GuestRegionMmap {
     /// Creates a new [GuestRegionMmap], by actually allocating the guest memory with the given properties.
-    fn allocate(
+    pub(crate) fn allocate(
         guest_base: GuestAddress,
         size: usize,
         prot: libc::c_int,

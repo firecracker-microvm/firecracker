@@ -10,14 +10,18 @@ use std::os::unix::io::{AsRawFd, FromRawFd, OwnedFd, RawFd};
 use std::sync::Arc;
 
 use vm_memory::mmap::MmapRegionError;
+use vm_memory::{FileOffset, GuestAddress};
 use vmm_sys_util::ioctl::{ioctl_with_mut_ref, ioctl_with_ref};
 use vmm_sys_util::{ioctl_ior_nr, ioctl_iow_nr, ioctl_iowr_nr};
 
 use crate::align_up;
-use crate::vstate::memory::MemoryError;
+use crate::vstate::memory::{GuestRegionMmap, MemoryError};
 
 /// Path to the Nitro Enclaves device node.
 const NE_DEV_PATH: &str = "/dev/nitro_enclaves";
+
+/// Alignment NE requires for every donated region (RAM, DMB, info page).
+const NE_REGION_ALIGN: usize = 2 * 1024 * 1024;
 
 // NE ioctl magic number
 const NE_MAGIC: std::os::raw::c_uint = 0xAE;
@@ -506,6 +510,38 @@ impl NitroEnclavesDevFd {
         }
 
         Ok((cma_ptr.cast::<u8>(), aligned_size))
+    }
+
+    /// Allocate an owning [`GuestRegionMmap`] of `size` CMA memory on the NE
+    /// device, mapped `MAP_SHARED | MAP_POPULATE` at `guest_base`. The region
+    /// owns its mapping and `munmap`s it on drop.
+    ///
+    /// `size` must be a multiple of 2 MiB (NE donation requires it).
+    ///
+    /// The region shares the device fd via a `FileOffset` so it can outlive
+    /// this handle.
+    pub fn allocate_cma_region(
+        &self,
+        guest_base: GuestAddress,
+        size: usize,
+        prot: libc::c_int,
+    ) -> Result<GuestRegionMmap, MemoryError> {
+        let region = GuestRegionMmap::allocate(
+            guest_base,
+            size,
+            prot,
+            libc::MAP_SHARED | libc::MAP_POPULATE,
+            Some(FileOffset::from_arc(Arc::clone(&self.fd), 0)),
+            false,
+        )?;
+        // NE requires 2 MiB-aligned regions; the allocator's alignment is a
+        // KVM/THP concern that could drift, so assert rather than assume.
+        assert_eq!(
+            region.as_ptr() as usize % NE_REGION_ALIGN,
+            0,
+            "CMA region base must be 2 MiB-aligned for Nitro Enclaves"
+        );
+        Ok(region)
     }
 
     /// Read the matched-flag subset the hypervisor implements.
