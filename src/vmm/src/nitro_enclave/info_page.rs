@@ -426,7 +426,10 @@ impl InfoPage {
             }
             let new_bytes = ring.write_idx - last_write_idx;
             let read_len = new_bytes.min(ring.capacity);
-            let start_pos = last_write_idx % ring.capacity;
+            // Anchor on the oldest surviving byte, `read_len` behind `write_idx`.
+            // This is `last_write_idx` normally, but the overwritten start once
+            // the ring overflowed (`new_bytes > capacity`).
+            let start_pos = ring.write_idx.wrapping_sub(read_len) % ring.capacity;
             // `start_pos < capacity` and `read_len <= capacity <= INFO_PAGE_SIZE`,
             // so the sum cannot overflow u32.
             if start_pos + read_len <= ring.capacity {
@@ -810,6 +813,18 @@ mod tests {
         let new_idx = page.write_serial_since(0, &mut buf).unwrap();
         assert_eq!(new_idx, 20);
         assert_eq!(buf.len(), 16);
+    }
+
+    #[test]
+    fn test_serial_ring_buffer_overflow_ordering() {
+        // 12 bytes into an 8-byte ring: the oldest 4 are overwritten. The 8
+        // survivors are stored as "EFGHABCD" (newest wrapped over positions
+        // 0..4) and must read back in write order as "ABCDEFGH", not "EFGHABCD".
+        let page = make_test_page(12, 8, b"EFGHABCD");
+        let mut buf = Vec::new();
+        let new_idx = page.write_serial_since(0, &mut buf).unwrap();
+        assert_eq!(new_idx, 12);
+        assert_eq!(&buf, b"ABCDEFGH");
     }
 
     #[test]
