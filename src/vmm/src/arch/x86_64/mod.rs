@@ -42,14 +42,14 @@ use crate::cpu_config::x86_64::CpuConfiguration;
 use crate::device_manager::DeviceManager;
 use crate::initrd::InitrdConfig;
 use crate::logger::debug;
-use crate::utils::{align_down, u64_to_usize, usize_to_u64};
+use crate::utils::{u64_to_usize, usize_to_u64};
 use crate::vmm_config::machine_config::MachineConfig;
 use crate::vstate::memory::{
     Address, GuestAddress, GuestMemoryMmap, GuestMemoryRegion, GuestRegionType,
 };
 use crate::vstate::vcpu::KvmVcpuConfigureError;
 use crate::vstate::vm::KvmVm;
-use crate::{Vcpu, VcpuConfig, logger};
+use crate::{Vcpu, VcpuConfig, align_down, logger};
 use kvm::Kvm;
 use layout::{
     CMDLINE_START, MMIO32_MEM_SIZE, MMIO32_MEM_START, MMIO64_MEM_SIZE, MMIO64_MEM_START,
@@ -166,9 +166,9 @@ pub fn initrd_load_addr(guest_mem: &GuestMemoryMmap, initrd_size: usize) -> Opti
         return None;
     }
 
-    Some(align_down(
+    Some(align_down!(
         usize_to_u64(lowmem_size - initrd_size),
-        usize_to_u64(super::GUEST_PAGE_SIZE),
+        usize_to_u64(super::GUEST_PAGE_SIZE)
     ))
 }
 

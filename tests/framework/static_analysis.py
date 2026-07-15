@@ -566,7 +566,11 @@ def load_seccomp_rules(seccomp_path: Path):
     """Loads seccomp rules from the given file, and presents them as a dictionary
     mapping syscalls to a list of individual filters. Each individual filter
     describes some restriction of the arguments that are allowed to be passed
-    to the syscall."""
+    to the syscall.
+
+    Each filter is a dict mapping arg_index to (val, mask) tuples.
+    For plain 'eq' comparisons, mask is None.
+    For 'masked_eq' comparisons, mask is the bitmask value."""
     filters = json.loads(seccomp_path.read_text("utf-8"))
 
     all_filters = (
@@ -577,9 +581,21 @@ def load_seccomp_rules(seccomp_path: Path):
     for seccomp_filter in all_filters:
         syscall_name = seccomp_filter["syscall"]
 
-        allowlist[syscall_name].append(
-            {arg["index"]: arg["val"] for arg in seccomp_filter.get("args", [])}
-        )
+        arg_constraints = {}
+        for arg in seccomp_filter.get("args", []):
+            op = arg["op"]
+            if isinstance(op, dict) and "masked_eq" in op:
+                mask = op["masked_eq"]
+            elif op == "eq":
+                mask = None
+            else:
+                raise ValueError(
+                    f"Unknown seccomp op '{op}' for syscall '{syscall_name}' arg {arg['index']}. "
+                    f"Please add support for this op in load_seccomp_rules and _arg_matches."
+                )
+            arg_constraints[arg["index"]] = (arg["val"], mask)
+
+        allowlist[syscall_name].append(arg_constraints)
 
     return allowlist
 
@@ -617,8 +633,8 @@ def determine_unneeded_seccomp_rules(seccomp_rules, found_syscalls):
             rule_not_needed = all(
                 any(
                     actual_invocations[arg_index] is not None
-                    and actual_invocations[arg_index] != allowed_arg
-                    for arg_index, allowed_arg in allowed_arguments.items()
+                    and not _arg_matches(actual_invocations[arg_index], val, mask)
+                    for arg_index, (val, mask) in allowed_arguments.items()
                 )
                 for actual_invocations in found_syscalls.get(syscall, [])
             )
@@ -627,3 +643,14 @@ def determine_unneeded_seccomp_rules(seccomp_rules, found_syscalls):
                 redundant_rules.append((syscall, allowed_arguments))
 
     return redundant_rules
+
+
+def _arg_matches(actual, val, mask):
+    """Check whether an actual argument value matches a seccomp rule constraint.
+
+    For plain 'eq' (mask is None): actual == val
+    For 'masked_eq': (actual & mask) == val
+    """
+    if mask is None:
+        return actual == val
+    return (actual & mask) == val

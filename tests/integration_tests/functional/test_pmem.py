@@ -12,6 +12,11 @@ from tenacity import Retrying, stop_after_delay, wait_fixed
 import host_tools.drive as drive_tools
 from framework import utils
 from framework.artifacts import ACPI_GUEST_KERNELS, pin_guest_kernel, pin_rootfs_mode
+from framework.microvm import HugePagesConfig
+
+pytestmark = pytest.mark.parametrize(
+    "huge_pages", [HugePagesConfig.NONE, HugePagesConfig.TRANSPARENT]
+)
 
 ALIGNMENT = 2 << 20
 
@@ -51,13 +56,13 @@ def check_pmem_exist(vm, index, root, read_only, size, extension):
     assert False
 
 
-def test_pmem_zero_size_backing_file(uvm):
+def test_pmem_zero_size_backing_file(uvm, huge_pages):
     """
     Test that a pmem device with a zero-sized backing file fails at boot time.
     """
     vm = uvm
     vm.spawn()
-    vm.basic_config(add_root_device=True)
+    vm.basic_config(add_root_device=True, huge_pages=huge_pages)
 
     zero_size_path = os.path.join(vm.fsfiles, "zero_scratch")
     utils.check_output(f"touch {zero_size_path}")
@@ -70,7 +75,7 @@ def test_pmem_zero_size_backing_file(uvm):
         vm.start()
 
 
-def test_pmem_add(uvm, microvm_factory):
+def test_pmem_add(uvm, huge_pages, microvm_factory):
     """
     Test addition of pmem devices to the VM and
     writes persistance
@@ -78,7 +83,7 @@ def test_pmem_add(uvm, microvm_factory):
 
     vm = uvm
     vm.spawn()
-    vm.basic_config(add_root_device=True)
+    vm.basic_config(add_root_device=True, huge_pages=huge_pages)
     vm.add_net_iface()
 
     # Pmem should work with non 2MB aligned files as well
@@ -122,7 +127,7 @@ def test_pmem_add(uvm, microvm_factory):
 
 
 @pin_rootfs_mode("rw")
-def test_pmem_add_as_root_rw(uvm, rootfs, microvm_factory):
+def test_pmem_add_as_root_rw(uvm, huge_pages, rootfs, microvm_factory):
     """
     Test addition of a single root pmem device in read-write mode
     """
@@ -131,7 +136,7 @@ def test_pmem_add_as_root_rw(uvm, rootfs, microvm_factory):
     vm.memory_monitor = None
     vm.monitors = []
     vm.spawn()
-    vm.basic_config(add_root_device=False)
+    vm.basic_config(add_root_device=False, huge_pages=huge_pages)
     vm.add_net_iface()
 
     rootfs_size = os.path.getsize(rootfs)
@@ -145,7 +150,7 @@ def test_pmem_add_as_root_rw(uvm, rootfs, microvm_factory):
     check_pmem_exist(restored_vm, 0, True, False, align(rootfs_size), "ext4")
 
 
-def test_pmem_add_as_root_ro(uvm, rootfs, microvm_factory):
+def test_pmem_add_as_root_ro(uvm, huge_pages, rootfs, microvm_factory):
     """
     Test addition of a single root pmem device in read-only mode
     """
@@ -154,7 +159,7 @@ def test_pmem_add_as_root_ro(uvm, rootfs, microvm_factory):
     vm.memory_monitor = None
     vm.monitors = []
     vm.spawn()
-    vm.basic_config(add_root_device=False)
+    vm.basic_config(add_root_device=False, huge_pages=huge_pages)
     vm.add_net_iface()
 
     rootfs_size = os.path.getsize(rootfs)
@@ -189,6 +194,7 @@ def test_pmem_dax_memory_saving(
     microvm_factory,
     guest_kernel,
     rootfs,
+    huge_pages,
 ):
     """
     Test that booting from pmem with DAX enabled indeed saves memory in the
@@ -198,7 +204,7 @@ def test_pmem_dax_memory_saving(
     # Boot from a block device
     vm = microvm_factory.build(guest_kernel, rootfs, pci=True, monitor_memory=False)
     vm.spawn()
-    vm.basic_config()
+    vm.basic_config(huge_pages=huge_pages)
     vm.add_net_iface()
     vm.start()
     block_cache_usage = inside_buff_cache(vm)
@@ -212,6 +218,7 @@ def test_pmem_dax_memory_saving(
     vm_pmem.basic_config(
         add_root_device=False,
         boot_args="reboot=k panic=1 nomodule swiotlb=noforce console=ttyS0 rootflags=dax",
+        huge_pages=huge_pages,
     )
     vm_pmem.add_net_iface()
     vm_pmem.add_pmem("pmem", rootfs, True, False)
@@ -231,13 +238,13 @@ def test_pmem_dax_memory_saving(
     ), f"{block_cache_usage} <= {pmem_cache_usage}"
 
 
-def test_device_reset(uvm):
+def test_device_reset(uvm, huge_pages):
     """
     Test that virtio-pmem device reset works.
     """
     vm = uvm
     vm.spawn()
-    vm.basic_config(add_root_device=True)
+    vm.basic_config(add_root_device=True, huge_pages=huge_pages)
     vm.add_net_iface()
 
     fs = drive_tools.FilesystemFile(os.path.join(vm.fsfiles, "scratch"), size=2)
