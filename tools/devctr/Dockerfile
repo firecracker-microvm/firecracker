@@ -71,7 +71,7 @@ RUN apt-get update \
 # Builder: static libseccomp (musl)
 # ============================================================
 FROM base-image AS libseccomp-builder
-ENV LIBSECCOMP_VER="v2.6.0"
+ENV LIBSECCOMP_VER="v2.6.1"
 
 # Install static version of libseccomp
 # We need to compile from source because
@@ -204,7 +204,7 @@ RUN cp /usr/lib/python3/dist-packages/seccomp.cpython-312-"$ARCH"-linux-gnu.so "
 # Base: Rust toolchain (current version)
 # ============================================================
 FROM python-deps AS rust-toolchain
-ARG RUST_TOOLCHAIN="1.96.0"
+ARG RUST_TOOLCHAIN="1.97.0"
 ENV CARGO_HOME=/usr/local/rust
 ENV RUSTUP_HOME=/usr/local/rust
 ENV PATH="$PATH:$CARGO_HOME/bin"

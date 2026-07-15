@@ -434,7 +434,7 @@ impl MMIODeviceManager {
     #[cfg(target_arch = "aarch64")]
     pub fn virtio_device_info(&self) -> Vec<&MMIODeviceInfo> {
         let mut device_info = Vec::new();
-        for (_, dev) in self.virtio_devices.iter() {
+        for dev in self.virtio_devices.values() {
             device_info.push(&dev.resources);
         }
         device_info
