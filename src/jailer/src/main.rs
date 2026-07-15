@@ -382,7 +382,7 @@ mod tests {
 
         let mut fds = Vec::new();
         for i in 0..n {
-            let maybe_file = File::create(format!("{}/{}", &tmp_dir_path, i));
+            let maybe_file = File::create(format!("{}/{}", tmp_dir_path, i));
             fds.push(maybe_file.unwrap().into_raw_fd());
         }
 

@@ -392,13 +392,13 @@ impl CgroupV2 {
         let parent = match path.as_ref().parent() {
             Some(p) => p,
             None => {
-                writeln_special(&cg_subtree_ctrl, format!("+{}", &controller))?;
+                writeln_special(&cg_subtree_ctrl, format!("+{}", controller))?;
                 return Ok(());
             }
         };
 
         Self::write_all_subtree_control(parent, controller)?;
-        writeln_special(&cg_subtree_ctrl, format!("+{}", &controller))
+        writeln_special(&cg_subtree_ctrl, format!("+{}", controller))
     }
 
     // Returns controllers that can be enabled from the cgroup path specified
