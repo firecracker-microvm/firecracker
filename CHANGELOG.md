@@ -17,8 +17,16 @@ and this project adheres to
   emits the microVM instance id under a top-level `id` field, and `properties`
   emits operator-defined key-value pairs under a top-level `properties` field.
   Each is opt-in and independent. See [metrics documentation](docs/metrics.md).
+- [#2046](https://github.com/firecracker-microvm/firecracker/issues/2046): The
+  `SendCtrlAltDel` action is now supported on aarch64. It injects a virtual
+  power-button press through a new PL061 GPIO controller exposed to the guest as
+  a `gpio-keys` power button, enabling external graceful shutdown (aarch64
+  previously rejected the action with a 400).
 
 ### Changed
+
+- Bumped the snapshot version to 11.0.0 because the aarch64 PL061 GPIO device
+  adds new state to the snapshot format.
 
 ### Deprecated
 

@@ -74,6 +74,10 @@
                 "comment": "Used for metrics and logging, via the helpers in utils/src/time.rs. It's not called on some platforms, because of vdso optimisations."
             },
             {
+                "syscall": "clock_nanosleep",
+                "comment": "Used by SendCtrlAltDel to hold the PL061 power button pressed between the press and release edges (std::thread::sleep)"
+            },
+            {
                 "syscall": "connect",
                 "comment": "Needed for vsock"
             },

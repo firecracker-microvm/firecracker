@@ -144,6 +144,12 @@ KVM_MODULE_LOCKFILE="/tmp/.kvm_module_lock"
 
 # Query default S3 bucket with artifacts and return the most recient path
 get_newest_s3_artifacts() {
+  # TEMPORARY (drop before merge): pin to the custom CI artifacts rebuilt with
+  # the gpio-keys guest kernel config, so CI exercises the aarch64
+  # SendCtrlAltDel test before the main firecracker-ci artifacts are updated.
+  echo "s3://spec.ccfc.min/firecracker-ci-custom/gpio-0"
+  return
+
   local bucket="spec.ccfc.min"
   local base_prefix="firecracker-ci/"
 

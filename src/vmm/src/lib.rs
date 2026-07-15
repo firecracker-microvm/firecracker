@@ -170,6 +170,9 @@ pub use crate::vstate::vm::{StartVcpusError, Vm};
 /// Shorthand type for the EventManager flavour used by Firecracker.
 pub type EventManager = BaseEventManager<Arc<Mutex<dyn MutEventSubscriber>>>;
 
+#[cfg(target_arch = "aarch64")]
+const POWER_BUTTON_PULSE_DURATION: Duration = Duration::from_millis(50);
+
 // Since the exit code names e.g. `SIGBUS` are most appropriate yet trigger a test error with the
 // clippy lint `upper_case_acronyms` we have disabled this lint for this enum.
 /// Vmm exit-code type.
@@ -228,6 +231,9 @@ pub enum VmmError {
     DirtyBitmap(kvm_ioctls::Error),
     /// I8042 error: {0}
     I8042Error(devices::legacy::I8042DeviceError),
+    #[cfg(target_arch = "aarch64")]
+    /// PL061 GPIO error: {0}
+    PL061Error(devices::legacy::PL061Error),
     #[cfg(target_arch = "x86_64")]
     /// Cannot add devices to the legacy I/O Bus. {0}
     LegacyIOBus(device_manager::legacy::LegacyDeviceError),
@@ -482,18 +488,52 @@ impl Vmm {
         Ok(())
     }
 
-    /// Injects CTRL+ALT+DEL keystroke combo in the i8042 device.
-    #[cfg(target_arch = "x86_64")]
+    /// Injects the external graceful-shutdown event into the guest.
     pub fn send_ctrl_alt_del(&mut self) -> Result<(), VmmError> {
-        self.device_manager
-            .legacy_devices
-            .as_ref()
-            .ok_or(VmmError::NotSupported)?
-            .i8042
-            .lock()
-            .expect("i8042 lock was poisoned")
-            .trigger_ctrl_alt_del()
-            .map_err(VmmError::I8042Error)
+        #[cfg(target_arch = "x86_64")]
+        {
+            self.device_manager
+                .legacy_devices
+                .as_ref()
+                .ok_or(VmmError::NotSupported)?
+                .i8042
+                .lock()
+                .expect("i8042 lock was poisoned")
+                .trigger_ctrl_alt_del()
+                .map_err(VmmError::I8042Error)
+        }
+
+        #[cfg(target_arch = "aarch64")]
+        {
+            let gpio = self
+                .device_manager
+                .mmio_devices
+                .gpio_pl061
+                .as_ref()
+                .ok_or(device_manager::FindDeviceError::DeviceNotFound)?
+                .inner
+                .clone();
+
+            // Drive a press/release pulse on the virtual power button. The lock is dropped
+            // during the delay so the guest can take the press interrupt and read the line as
+            // asserted before it is released. This runs synchronously (rather than from a
+            // detached thread) so the two edges stay atomic with respect to other API actions:
+            // a concurrent snapshot can therefore never capture the button stuck pressed, which
+            // would otherwise make a later SendCtrlAltDel a no-op on the restored microVM.
+            gpio.lock()
+                .expect("PL061 lock was poisoned")
+                .trigger_power_button(true)
+                .map_err(VmmError::PL061Error)?;
+
+            std::thread::sleep(POWER_BUTTON_PULSE_DURATION);
+
+            gpio.lock()
+                .expect("PL061 lock was poisoned")
+                .trigger_power_button(false)
+                .map_err(VmmError::PL061Error)?;
+
+            Ok(())
+        }
     }
 
     /// Saves the state of a paused Microvm.
