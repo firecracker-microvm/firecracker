@@ -17,7 +17,7 @@ use std::sync::atomic::AtomicU32;
 use std::sync::{Arc, Mutex};
 
 use event_manager::{EventOps, Events, MutEventSubscriber};
-use vm_memory::GuestAddress;
+use vm_memory::{GuestAddress, GuestMemoryBackend, GuestMemoryRegion};
 use vmm_sys_util::eventfd::EventFd;
 
 use super::pci::device_status;
@@ -25,7 +25,6 @@ use super::{VirtioInterrupt, VirtioInterruptType};
 use crate::devices::virtio::device::{VirtioDevice, VirtioDeviceType};
 use crate::devices::virtio::generated::virtio_config::VIRTIO_F_IOMMU_PLATFORM;
 use crate::logger::{debug, error, info, warn};
-use crate::nitro_enclave::dmb::Dmb;
 use crate::nitro_enclave::info_page::InfoPage;
 use crate::nitro_enclave::ne_ioctl::{self, EnclaveFd, NeAddDevice};
 use crate::vstate::interrupts::InterruptError;
@@ -113,16 +112,16 @@ impl VirtioInterrupt for NeInterrupt {
 pub enum DeviceDmaMemory {
     /// Direct mode: device DMAs into the donated enclave RAM (shared with parent).
     GuestMemory(GuestMemoryMmap),
-    /// Confidential mode: device DMAs into a per-device DMB.
-    Dmb(Dmb),
+    /// Confidential mode: device DMAs into a per-device DMB (a single CMA region
+    /// at `GuestAddress(0)`, shared with the enclave).
+    Dmb(GuestMemoryMmap),
 }
 
 impl DeviceDmaMemory {
     /// The guest memory the device reads/writes virtqueues from, in either mode.
     fn memory(&self) -> &GuestMemoryMmap {
         match self {
-            DeviceDmaMemory::GuestMemory(mem) => mem,
-            DeviceDmaMemory::Dmb(dmb) => dmb.guest_memory(),
+            DeviceDmaMemory::GuestMemory(mem) | DeviceDmaMemory::Dmb(mem) => mem,
         }
     }
 }
@@ -230,12 +229,19 @@ impl NeTransport {
         // the enclave can place queue DMA in it. `shm_region` outlives the
         // NE_ADD_DEVICE ioctl below, since `req.shm_regions_ptr` aliases it.
         let shm_region = match &self.dma_memory {
-            DeviceDmaMemory::Dmb(dmb) => Some(ne_ioctl::NeShmRegion {
-                shm_id: ne_ioctl::VIRTIO_SHMEM_ID_DMB,
-                reserved: [0; 7],
-                userspace_addr: dmb.host_addr(),
-                size: dmb.size(),
-            }),
+            DeviceDmaMemory::Dmb(dmb) => {
+                // The DMB is a single region at GuestAddress(0); register its
+                // host mapping as the SHM backing range.
+                let region = dmb
+                    .find_region(GuestAddress(0))
+                    .expect("DMB always has a region at GuestAddress(0)");
+                Some(ne_ioctl::NeShmRegion {
+                    shm_id: ne_ioctl::VIRTIO_SHMEM_ID_DMB,
+                    reserved: [0; 7],
+                    userspace_addr: region.as_ptr() as u64,
+                    size: region.len(),
+                })
+            }
             DeviceDmaMemory::GuestMemory(_) => None,
         };
         if let Some(region) = &shm_region {

@@ -12,7 +12,6 @@ use vm_memory::{Bytes, GuestAddress, GuestMemoryError};
 
 use crate::logger::info;
 use crate::nitro_enclave::cpu_accounting::AccountingThreads;
-use crate::nitro_enclave::dmb::Dmb;
 use crate::nitro_enclave::info_page::InfoPage;
 use crate::nitro_enclave::ne_ioctl::{EnclaveFd, NitroEnclavesDevFd};
 use crate::nitro_enclave::serial_console::ConsoleReader;
@@ -373,13 +372,25 @@ impl EnclaveVm {
         self.guest_memory.as_ref()
     }
 
-    /// Allocate a Device Memory Buffer for a confidential-mode device.
+    /// Allocate a Device Memory Buffer (DMB) for a confidential-mode device.
     ///
-    /// The DMB is a CMA-backed region from the NE driver's pool, shared with
-    /// the enclave so that virtqueue rings stay accessible to the parent while
-    /// the rest of the enclave RAM is isolated. See [`super::dmb::Dmb`].
-    pub fn create_dmb(&self, size_bytes: usize) -> Result<Dmb, EnclaveVmError> {
-        Dmb::new(&self.dev_fd, size_bytes)
+    /// The DMB is a CMA-backed region from the NE driver's pool, shared with the
+    /// enclave so that virtqueue rings stay accessible to the parent while the
+    /// rest of the enclave RAM is isolated. It is returned as a single-region
+    /// `GuestMemoryMmap` at `GuestAddress(0)`; the region owns its CMA mapping
+    /// and munmaps it on drop.
+    pub fn create_dmb(&self, size_bytes: usize) -> Result<GuestMemoryMmap, EnclaveVmError> {
+        // Read-write: the parent services queue rings in this DMA memory.
+        let region = self
+            .dev_fd
+            .allocate_cma_region(
+                GuestAddress(0),
+                size_bytes,
+                libc::PROT_READ | libc::PROT_WRITE,
+            )
+            .map_err(EnclaveVmError::CmaAlloc)?;
+        GuestMemoryMmap::from_regions(vec![GuestRegionMmapExt::dram_from_mmap_region(region, 0)])
+            .map_err(|e| EnclaveVmError::BuildGuestMemory(format!("{e}")))
     }
 
     /// Wrap a (ptr, size, gpa) triple into a `GuestRegionMmapExt`.
