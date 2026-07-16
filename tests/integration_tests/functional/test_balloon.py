@@ -13,6 +13,11 @@ from tenacity import Retrying, stop_after_delay, wait_fixed
 
 from framework.guest_stats import MeminfoGuest
 from framework.utils import get_stable_rss_mem
+from framework.vm_backend import VM_BACKEND_KVM, pin_vm_backend
+
+# KVM-only: the Nitro Enclave transport does not support the
+# virtio-balloon device.
+pytestmark = pin_vm_backend(VM_BACKEND_KVM)
 
 STATS_POLLING_INTERVAL_S = 1
 RSS_TEST_BALLOON_SIZE_MIB = 128

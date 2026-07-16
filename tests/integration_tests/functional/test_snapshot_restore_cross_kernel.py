@@ -20,12 +20,13 @@ from framework.utils import (
 )
 from framework.utils_cpu_templates import get_supported_cpu_templates
 from framework.utils_vsock import check_vsock_device
+from framework.vm_backend import VM_BACKEND_KVM, pin_vm_backend
 from integration_tests.functional.test_balloon import (
     get_stable_rss_mem,
     make_guest_dirty_memory,
 )
 
-pytestmark = pytest.mark.nonci
+pytestmark = [pytest.mark.nonci, pin_vm_backend(VM_BACKEND_KVM)]
 
 
 def _check_guest_monotonic_did_not_jump(ssh_connection, max_delta_sec=10):

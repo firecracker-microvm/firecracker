@@ -3,6 +3,9 @@
 """Test scenario for reseting dirty pages after making a full snapshot."""
 
 from framework.artifacts import GUEST_KERNEL_DEFAULT, pin_guest_kernel
+from framework.vm_backend import VM_BACKEND_KVM, pin_vm_backend
+
+pytestmark = pin_vm_backend(VM_BACKEND_KVM)
 
 
 @pin_guest_kernel(GUEST_KERNEL_DEFAULT)

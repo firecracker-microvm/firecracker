@@ -801,7 +801,10 @@ def test_negative_api_patch_post_boot(uvm, io_engine):
         test_microvm.api.logger.patch(level="Error")
 
 
+# The vhost-user scratch drive this test attaches is KVM-only: vhost-user
+# devices have no Nitro Enclave transport.
 @pin_guest_kernel(GUEST_KERNEL_DEFAULT)
+@pin_vm_backend(VM_BACKEND_KVM)
 def test_drive_patch(uvm, io_engine):
     """
     Extensively test drive PATCH scenarios before and after boot.
@@ -844,6 +847,7 @@ def test_drive_patch(uvm, io_engine):
     [("kernel", 10), ("userspace", 120)],
     ids=["kernel", "userspace"],
 )
+@pin_vm_backend(VM_BACKEND_KVM)
 def test_send_ctrl_alt_del(uvm, ctrl_alt_del_mode, timeout):
     """
     Test shutting down the microVM on x86 by sending CTRL+ALT+DEL.
@@ -1112,6 +1116,7 @@ def test_api_entropy(uvm):
         test_microvm.api.entropy.put()
 
 
+@pin_vm_backend(VM_BACKEND_KVM)
 @pin_guest_kernel(GUEST_KERNEL_DEFAULT)
 def test_api_memory_hotplug(uvm):
     """
@@ -1156,6 +1161,7 @@ def test_api_memory_hotplug(uvm):
     assert status["requested_size_mib"] == 512
 
 
+@pin_vm_backend(VM_BACKEND_KVM)
 @pin_guest_kernel(GUEST_KERNEL_DEFAULT)
 def test_api_balloon(uvm_configured):
     """
@@ -1220,6 +1226,7 @@ def test_api_balloon(uvm_configured):
         test_microvm.api.balloon.patch(amount_mib=33554432)
 
 
+@pin_vm_backend(VM_BACKEND_KVM)
 def test_pmem_api(uvm, rootfs):
     """
     Test virtio-pmem API commands
@@ -1272,6 +1279,7 @@ def test_pmem_api(uvm, rootfs):
         vm.api.pmem.put(id="pmem")
 
 
+@pin_vm_backend(VM_BACKEND_KVM)
 def test_pmem_rate_limiter_api(uvm, rootfs):
     """
     Test virtio-pmem rate limiter PUT and PATCH API commands.
@@ -1367,6 +1375,7 @@ def test_pmem_rate_limiter_api(uvm, rootfs):
         )
 
 
+@pin_vm_backend(VM_BACKEND_KVM)
 @pin_guest_kernel(GUEST_KERNEL_DEFAULT)
 def test_get_full_config_after_restoring_snapshot(microvm_factory, uvm_configured):
     """
@@ -1518,6 +1527,7 @@ def test_get_full_config_after_restoring_snapshot(microvm_factory, uvm_configure
     assert response == expected_cfg
 
 
+@pin_vm_backend(VM_BACKEND_KVM)
 @pin_guest_kernel(GUEST_KERNEL_DEFAULT)
 def test_get_full_config(uvm):
     """

@@ -47,6 +47,7 @@ from framework.utils_vsock import (
     start_guest_echo_server,
     vsock_connect_to_guest,
 )
+from framework.vm_backend import VM_BACKEND_KVM, pin_vm_backend
 from host_tools.fcmetrics import validate_fc_metrics
 
 NEGATIVE_TEST_CONNECTION_COUNT = 100
@@ -156,6 +157,7 @@ def test_vsock_epipe(vsock_uvm_any, bin_vsock_path, test_fc_session_root_path):
     validate_fc_metrics(metrics)
 
 
+@pin_vm_backend(VM_BACKEND_KVM)
 def test_vsock_bare_pause_resume(
     vsock_uvm_any, bin_vsock_path, test_fc_session_root_path
 ):
@@ -198,6 +200,7 @@ def test_vsock_bare_pause_resume(
 
 
 @pin_guest_kernel(ACPI_GUEST_KERNELS)
+@pin_vm_backend(VM_BACKEND_KVM)
 @pytest.mark.parametrize("vsock_uvm", [1, 2], indirect=True, ids=["1vcpu", "2vcpu"])
 def test_vsock_transport_reset_h2g(
     vsock_uvm, microvm_factory, bin_vsock_path, test_fc_session_root_path
@@ -284,6 +287,7 @@ def test_vsock_transport_reset_h2g(
 
 
 @pin_guest_kernel(ACPI_GUEST_KERNELS)
+@pin_vm_backend(VM_BACKEND_KVM)
 @pytest.mark.parametrize("vsock_uvm", [1, 2], indirect=True, ids=["1vcpu", "2vcpu"])
 def test_vsock_transport_reset_g2h(vsock_uvm, microvm_factory):
     """
@@ -373,6 +377,7 @@ def test_vsock_transport_reset_g2h(vsock_uvm, microvm_factory):
             new_vm.kill()
 
 
+@pin_vm_backend(VM_BACKEND_KVM)
 def test_vsock_after_override(
     uvm, microvm_factory, bin_vsock_path, test_fc_session_root_path
 ):
@@ -426,6 +431,7 @@ def test_vsock_after_override(
     validate_fc_metrics(metrics)
 
 
+@pin_vm_backend(VM_BACKEND_KVM)
 def test_vsock_override_fails_without_device(uvm, microvm_factory):
     """
     Providing an override should fail if there is no vsock device.
@@ -454,8 +460,10 @@ def test_vsock_override_fails_without_device(uvm, microvm_factory):
 
 
 @pytest.mark.nonci
+@pin_vm_backend(VM_BACKEND_KVM)
 def test_vsock_post_restore_connect_storm(
     microvm_factory,
+    vm_backend,
     guest_kernel,
     rootfs,
     bin_vsock_path,
@@ -469,7 +477,7 @@ def test_vsock_post_restore_connect_storm(
     blob_path, _blob_hash = make_blob(test_fc_session_root_path)
     vm_blob_path = "/tmp/vsock/test.blob"
 
-    test_vm = microvm_factory.build(guest_kernel, rootfs, pci=True)
+    test_vm = microvm_factory.build(guest_kernel, rootfs, pci=True, backend=vm_backend)
     test_vm.spawn()
     test_vm.basic_config(vcpu_count=4, mem_size_mib=256)
     test_vm.add_net_iface()
@@ -547,6 +555,7 @@ def test_vsock_post_restore_connect_storm(
             vm.kill()
 
 
+@pin_vm_backend(VM_BACKEND_KVM)
 @pin_guest_kernel(GUEST_KERNEL_DEFAULT)
 def test_snapshot_restore_with_inflight_vsock_tx(
     vsock_uvm, bin_vsock_path, tmp_path, microvm_factory
@@ -593,6 +602,10 @@ def test_snapshot_restore_with_inflight_vsock_tx(
     check_guest_connections(new_vm, path, vm_blob_path, blob_hash)
 
 
+# The enclave transport does not handle virtio device reset: it never consumes
+# reset_count from the info-page device entry header, so a guest driver rebind
+# leaves the parent with stale queue state.
+@pin_vm_backend(VM_BACKEND_KVM)
 def test_device_reset(uvm):
     """
     Test that virtio-vsock device reset works.

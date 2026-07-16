@@ -16,7 +16,11 @@ from framework import utils
 from framework.artifacts import GUEST_KERNEL_DEFAULT, pin_guest_kernel
 from framework.utils import generate_mmds_get_request, generate_mmds_session_token
 from framework.utils_cpu_templates import SUPPORTED_CPU_TEMPLATES
-from framework.vm_backend import VM_BACKEND_ENCLAVE_DIRECT
+from framework.vm_backend import (
+    VM_BACKEND_ENCLAVE_DIRECT,
+    VM_BACKEND_KVM,
+    pin_vm_backend,
+)
 
 # Directory with metadata JSON files
 DIR = Path("./data")
@@ -182,6 +186,7 @@ def test_config_start_no_api(uvm, vm_config_file):
             )
 
 
+@pin_vm_backend(VM_BACKEND_KVM)
 @pin_guest_kernel(GUEST_KERNEL_DEFAULT)
 @pytest.mark.parametrize("vm_config_file", ["framework/vm_config_network.json"])
 def test_config_start_no_api_exit(uvm, vm_config_file):
@@ -226,6 +231,7 @@ def test_config_bad_machine_config(uvm, vm_config_file):
     test_microvm.mark_killed()
 
 
+@pin_vm_backend(VM_BACKEND_KVM)
 @pin_guest_kernel(GUEST_KERNEL_DEFAULT)
 @pytest.mark.parametrize(
     "test_config",

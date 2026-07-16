@@ -35,6 +35,10 @@ from framework.utils_vsock import (
     make_host_port_path,
     start_guest_echo_server,
 )
+from framework.vm_backend import VM_BACKEND_KVM, pin_vm_backend
+
+# KVM-only: snapshotting is not available on enclave VMs.
+pytestmark = pin_vm_backend(VM_BACKEND_KVM)
 
 # Kernel emits this message when it resumes from a snapshot with VMGenID device
 # present

@@ -7,6 +7,7 @@ import platform
 import pytest
 
 from framework.artifacts import GUEST_KERNEL_DEFAULT, pin_guest_kernel
+from framework.vm_backend import VM_BACKEND_KVM, pin_vm_backend
 
 
 def max_devices(uvm):
@@ -55,10 +56,14 @@ def test_attach_maximum_devices(uvm):
         test_microvm.ssh_iface(i).check_output("sync")
 
 
+@pin_vm_backend(VM_BACKEND_KVM)
 @pin_guest_kernel(GUEST_KERNEL_DEFAULT)
 def test_attach_too_many_devices(uvm):
     """
     Test attaching to a microVM more devices than available IRQs.
+
+    KVM-only: the over-limit failure mode on enclaves depends on the NE
+    host slot pool, which is shared host-wide and not deterministic in CI.
     """
     test_microvm = uvm
     test_microvm.memory_monitor = None

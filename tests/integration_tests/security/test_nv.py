@@ -17,6 +17,9 @@ start providing the feature by mistake.
 """
 
 from framework.utils_cpu_templates import ALL_CPU_TEMPLATES, pin_cpu_template
+from framework.vm_backend import VM_BACKEND_KVM, pin_vm_backend
+
+pytestmark = pin_vm_backend(VM_BACKEND_KVM)
 
 
 @pin_cpu_template(ALL_CPU_TEMPLATES)

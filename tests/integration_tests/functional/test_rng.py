@@ -6,6 +6,7 @@ import pytest
 
 from framework.artifacts import GUEST_KERNEL_DEFAULT, pin_guest_kernel
 from framework.utils import check_entropy
+from framework.vm_backend import VM_BACKEND_KVM, pin_vm_backend
 from host_tools.network import SSHConnection
 
 
@@ -224,6 +225,10 @@ def test_rng_bw_rate_limiter(uvm_configured, rate_limiter):
     _check_entropy_rate_limited(vm.ssh, size, expected_kbps)
 
 
+# The enclave transport does not handle virtio device reset: it never consumes
+# reset_count from the info-page device entry header, so a guest driver rebind
+# leaves the parent with stale queue state.
+@pin_vm_backend(VM_BACKEND_KVM)
 def test_device_reset(uvm):
     """
     Test that virtio-rng device reset works.

@@ -17,16 +17,21 @@ from framework.artifacts import (
     pin_pci,
     pin_rootfs_mode,
 )
+from framework.vm_backend import VM_BACKEND_KVM, pin_vm_backend
 
 # Linux 5.10 CI kernels are built without CONFIG_CRYPTO_FIPS.
 FIPS_GUEST_KERNELS = [
     kernel for kernel in ALL_GUEST_KERNELS if not kernel.id.startswith("vmlinux-5.10.")
 ]
 
+# The reseeding tests restore snapshots, which enclave backends cannot do.
+# `pin_pci(False)` already excludes enclaves as a side effect of choosing the
+# MMIO transport; the backend pin states the requirement directly.
 pytestmark = [
     pin_guest_kernel(FIPS_GUEST_KERNELS),
     pin_rootfs_mode("rw"),
     pin_pci(False),
+    pin_vm_backend(VM_BACKEND_KVM),
 ]
 
 

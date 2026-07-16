@@ -16,10 +16,12 @@ from framework import utils
 from framework.artifacts import GUEST_KERNEL_DEFAULT, pin_guest_kernel
 from framework.microvm import Serial
 from framework.utils_cpu_templates import ALL_CPU_TEMPLATES, pin_cpu_template
+from framework.vm_backend import VM_BACKEND_KVM, pin_vm_backend
 
 PLATFORM = platform.machine()
 
 
+@pin_vm_backend(VM_BACKEND_KVM)
 @pin_guest_kernel(GUEST_KERNEL_DEFAULT)
 def test_serial_after_snapshot(uvm, microvm_factory):
     """
@@ -64,6 +66,7 @@ def test_serial_after_snapshot(uvm, microvm_factory):
 # The VM can become unresponsive in the test due to the interrupt storm .
 @pytest.mark.flaky(reruns=2)
 @pin_guest_kernel(GUEST_KERNEL_DEFAULT)
+@pin_vm_backend(VM_BACKEND_KVM)
 def test_serial_active_tx_snapshot(uvm, microvm_factory):
     """
     Snapshot a guest that is actively transmitting on the serial console and
@@ -113,6 +116,7 @@ def test_serial_active_tx_snapshot(uvm, microvm_factory):
     assert "/root" in res
 
 
+@pin_vm_backend(VM_BACKEND_KVM)
 def test_serial_console_login(uvm):
     """
     Test serial console login.
@@ -158,6 +162,7 @@ def send_bytes(tty, bytes_count, timeout=60):
             break
 
 
+@pin_vm_backend(VM_BACKEND_KVM)
 def test_serial_dos(uvm):
     """
     Test serial console behavior under DoS.
@@ -190,6 +195,7 @@ def test_serial_dos(uvm):
     )
 
 
+@pin_vm_backend(VM_BACKEND_KVM)
 def test_serial_block(uvm):
     """
     Test that writing to stdout never blocks the vCPU thread.
@@ -235,6 +241,7 @@ def test_serial_block(uvm):
 REGISTER_FAILED_WARNING = "Failed to register serial input fd: event_manager: failed to manage epoll file descriptor: Operation not permitted (os error 1)"
 
 
+@pin_vm_backend(VM_BACKEND_KVM)
 @pin_guest_kernel(GUEST_KERNEL_DEFAULT)
 def test_no_serial_fd_error_when_daemonized(uvm):
     """
@@ -257,6 +264,7 @@ def test_no_serial_fd_error_when_daemonized(uvm):
     assert REGISTER_FAILED_WARNING not in test_microvm.log_data
 
 
+@pin_vm_backend(VM_BACKEND_KVM)
 @pin_cpu_template(ALL_CPU_TEMPLATES)
 def test_serial_file_output(uvm_any):
     """Test that redirecting serial console output to a file works for booted and restored VMs"""

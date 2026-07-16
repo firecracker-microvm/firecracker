@@ -10,6 +10,7 @@ import host_tools.drive as drive_tools
 import host_tools.network as net_tools
 from framework.artifacts import ACPI_GUEST_KERNELS, pin_guest_kernel, pin_pci
 from framework.utils_cpu_templates import ALL_CPU_TEMPLATES, pin_cpu_template
+from framework.vm_backend import VM_BACKEND_KVM, pin_vm_backend
 from integration_tests.functional.test_max_devices import max_devices
 
 VIRTIO_PCI_VENDOR_ID = 0x1AF4
@@ -162,6 +163,8 @@ def test_hotplug_block(uvm_any):
         vm.api.drive.delete("block0")
 
 
+# KVM-only: virtio-pmem has no Nitro Enclave transport.
+@pin_vm_backend(VM_BACKEND_KVM)
 @pin_guest_kernel(ACPI_GUEST_KERNELS)
 @pin_pci(True)
 @pin_cpu_template(ALL_CPU_TEMPLATES)
@@ -379,12 +382,14 @@ def test_hotplug_net(uvm_any):
         vm.api.network.delete(iface1.dev_name)
 
 
+# KVM-only: virtio-pmem has no Nitro Enclave transport.
+@pin_vm_backend(VM_BACKEND_KVM)
 @pin_guest_kernel(ACPI_GUEST_KERNELS)
-def test_unplug_root_pmem(microvm_factory, guest_kernel, rootfs):
+def test_unplug_root_pmem(microvm_factory, vm_backend, guest_kernel, rootfs):
     """
     Unplugging the root pmem device must be rejected.
     """
-    vm = microvm_factory.build(guest_kernel, rootfs, pci=True)
+    vm = microvm_factory.build(guest_kernel, rootfs, pci=True, backend=vm_backend)
     vm.memory_monitor = None
     vm.monitors = []
     vm.spawn()
@@ -397,6 +402,8 @@ def test_unplug_root_pmem(microvm_factory, guest_kernel, rootfs):
         vm.api.pmem.delete("pmem_root")
 
 
+# KVM-only: pinned to MMIO, and hotplugs virtio-pmem. Enclaves have neither.
+@pin_vm_backend(VM_BACKEND_KVM)
 @pin_pci(False)
 @pin_cpu_template(ALL_CPU_TEMPLATES)
 def test_hotplug_no_pci(uvm_any):
@@ -443,6 +450,8 @@ def test_hotplug_no_pci(uvm_any):
         vm.api.network.delete("eth0")
 
 
+# KVM-only: snapshot/restore is not available on enclave VMs.
+@pin_vm_backend(VM_BACKEND_KVM)
 @pin_guest_kernel(ACPI_GUEST_KERNELS)
 @pin_pci(True)
 @pin_cpu_template(ALL_CPU_TEMPLATES)

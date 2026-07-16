@@ -31,6 +31,7 @@ from framework.utils_cpu_templates import (
     get_cpu_template_name,
     pin_cpu_template,
 )
+from framework.vm_backend import VM_BACKEND_KVM, pin_vm_backend
 from host_tools import cargo_build
 
 PLATFORM = platform.machine()
@@ -39,9 +40,12 @@ UNSUPPORTED_HOST_KERNEL = (
 )
 DATA_FILES = Path("./data/msr")
 
-pytestmark = pytest.mark.skipif(
-    global_props.cpu_architecture != "x86_64", reason="Only run in x86_64"
-)
+pytestmark = [
+    pytest.mark.skipif(
+        global_props.cpu_architecture != "x86_64", reason="Only run in x86_64"
+    ),
+    pin_vm_backend(VM_BACKEND_KVM),
+]
 
 
 def read_msr_csv(fd):

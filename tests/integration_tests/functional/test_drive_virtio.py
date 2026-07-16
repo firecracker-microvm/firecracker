@@ -10,6 +10,11 @@ import host_tools.drive as drive_tools
 from framework import utils
 from framework.artifacts import GUEST_KERNEL_DEFAULT, pin_guest_kernel, pin_rootfs_mode
 from framework.utils_drive import partuuid_and_disk_path
+from framework.vm_backend import VM_BACKEND_KVM, pin_vm_backend
+
+# Most tests here run on every backend (incl. Nitro Enclave): post-boot block
+# config updates reach enclave guests via NE_UPDATE_DEVICE_CONFIG and the
+# config-change interrupt.
 
 MB = 1024 * 1024
 
@@ -428,6 +433,10 @@ def _check_mount(ssh_connection, dev_path):
     assert stderr == ""
 
 
+# The enclave transport does not handle virtio device reset: it never consumes
+# reset_count from the info-page device entry header, so a guest driver rebind
+# leaves the parent with stale queue state.
+@pin_vm_backend(VM_BACKEND_KVM)
 def test_device_reset(uvm, io_engine):
     """
     Test that virtio-block device reset works.

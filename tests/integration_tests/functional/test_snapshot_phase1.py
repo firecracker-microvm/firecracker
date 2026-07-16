@@ -20,8 +20,9 @@ from framework.utils_cpu_templates import (
     get_cpu_template_name,
     pin_cpu_template,
 )
+from framework.vm_backend import VM_BACKEND_KVM, pin_vm_backend
 
-pytestmark = pin_cpu_template(ALL_CPU_TEMPLATES)
+pytestmark = [pin_cpu_template(ALL_CPU_TEMPLATES), pin_vm_backend(VM_BACKEND_KVM)]
 
 # Default IPv4 address to route MMDS requests.
 IPV4_ADDRESS = "169.254.169.254"

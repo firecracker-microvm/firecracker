@@ -8,10 +8,14 @@ import pytest
 import framework.utils_cpuid as cpuid_utils
 from framework.properties import global_props
 from framework.utils_cpu_templates import SUPPORTED_CPU_TEMPLATES
+from framework.vm_backend import VM_BACKEND_KVM, pin_vm_backend
 
-pytestmark = pytest.mark.skipif(
-    global_props.cpu_architecture != "x86_64", reason="x86_64 specific tests"
-)
+pytestmark = [
+    pin_vm_backend(VM_BACKEND_KVM),
+    pytest.mark.skipif(
+        global_props.cpu_architecture != "x86_64", reason="x86_64 specific tests"
+    ),
+]
 
 
 # CPU templates designed to provide instruction set feature parity
