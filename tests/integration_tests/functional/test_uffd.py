@@ -10,13 +10,17 @@ import requests
 
 from framework.artifacts import GUEST_KERNEL_DEFAULT, pin_guest_kernel
 from framework.utils import Timeout, check_output
+from framework.vm_backend import VM_BACKEND_KVM, pin_vm_backend
+
+# KVM-only: snapshotting is not available on enclave VMs.
+pytestmark = pin_vm_backend(VM_BACKEND_KVM)
 
 
 @pytest.fixture(scope="function", name="snapshot")
-def snapshot_fxt(microvm_factory, guest_kernel, rootfs):
+def snapshot_fxt(microvm_factory, vm_backend, guest_kernel, rootfs):
     """Create a snapshot of a microVM."""
 
-    basevm = microvm_factory.build(guest_kernel, rootfs)
+    basevm = microvm_factory.build(guest_kernel, rootfs, backend=vm_backend)
     basevm.spawn()
     basevm.basic_config(vcpu_count=2, mem_size_mib=256)
     basevm.add_net_iface()

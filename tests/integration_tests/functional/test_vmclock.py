@@ -5,8 +5,13 @@
 import pytest
 
 from framework.artifacts import ACPI_GUEST_KERNELS, pin_guest_kernel
+from framework.vm_backend import VM_BACKEND_KVM, pin_vm_backend
 
-pytestmark = pin_guest_kernel(ACPI_GUEST_KERNELS)
+# KVM-only: snapshotting is not supported on enclave VMs.
+pytestmark = [
+    pin_vm_backend(VM_BACKEND_KVM),
+    pin_guest_kernel(ACPI_GUEST_KERNELS),
+]
 
 
 # Decorates the shared `uvm_booted` stage via same-name chaining: every booted

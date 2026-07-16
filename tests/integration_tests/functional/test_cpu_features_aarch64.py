@@ -7,10 +7,14 @@ import pytest
 from framework.properties import global_props
 from framework.utils_cpu_templates import ALL_CPU_TEMPLATES, pin_cpu_template
 from framework.utils_cpuid import CPU_FEATURES_CMD, CpuModel
+from framework.vm_backend import VM_BACKEND_KVM, pin_vm_backend
 
-pytestmark = pytest.mark.skipif(
-    global_props.cpu_architecture != "aarch64", reason="Only run in aarch64"
-)
+pytestmark = [
+    pin_vm_backend(VM_BACKEND_KVM),
+    pytest.mark.skipif(
+        global_props.cpu_architecture != "aarch64", reason="Only run in aarch64"
+    ),
+]
 
 G2_FEATS = set(
     (

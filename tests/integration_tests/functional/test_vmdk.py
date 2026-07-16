@@ -9,6 +9,7 @@ import pytest
 
 import host_tools.drive as drive_tools
 from framework.utils import get_threads
+from framework.vm_backend import VM_BACKEND_KVM, pin_vm_backend
 
 
 @pytest.mark.parametrize(
@@ -78,6 +79,8 @@ def test_vmdk_readonly_read(uvm, num_queues):
     assert "Operation not permitted" in stderr
 
 
+# KVM-only: snapshotting is not available on enclave VMs.
+@pin_vm_backend(VM_BACKEND_KVM)
 def test_vmdk_diff_snapshot_restore(uvm, microvm_factory, num_queues):
     """VMDK reads and read errors survive dirty-tracked snapshot restoration."""
     uvm.spawn()

@@ -10,14 +10,18 @@ import pytest
 
 import host_tools.drive as drive_tools
 from framework.utils_drive import partuuid_and_disk_path
+from framework.vm_backend import VM_BACKEND_KVM, pin_vm_backend
 from host_tools.fcmetrics import FcDeviceMetrics
+
+# KVM-only: vhost-user devices are not supported on enclave VMs.
+pytestmark = pin_vm_backend(VM_BACKEND_KVM)
 
 
 @pytest.fixture
-def uvm_vhost_user_plain_any(microvm_factory, guest_kernel, pci_enabled):
+def uvm_vhost_user_plain_any(microvm_factory, vm_backend, guest_kernel, pci_enabled):
     """Builds a plain VM with no root volume"""
     return microvm_factory.build(
-        guest_kernel, None, pci=pci_enabled, monitor_memory=False
+        guest_kernel, None, pci=pci_enabled, backend=vm_backend, monitor_memory=False
     )
 
 

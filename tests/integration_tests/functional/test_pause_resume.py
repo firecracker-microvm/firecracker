@@ -9,6 +9,11 @@ from subprocess import TimeoutExpired
 import pytest
 
 from framework.artifacts import GUEST_KERNEL_DEFAULT, pin_guest_kernel, pin_pci
+from framework.vm_backend import VM_BACKEND_KVM, pin_vm_backend
+
+# KVM-only: enclaves have no paused/resume lifecycle - the NE start ioctl
+# leaves the VM Running (see nitro_enclave/enclave_builder.rs).
+pytestmark = pin_vm_backend(VM_BACKEND_KVM)
 
 
 def verify_net_emulation_paused(metrics):
@@ -116,7 +121,6 @@ def test_describe_instance(uvm_configured):
     microvm.kill()
 
 
-@pin_guest_kernel(GUEST_KERNEL_DEFAULT)
 def test_pause_resume_preboot(uvm_configured):
     """
     Test pause/resume operations are not allowed pre-boot.

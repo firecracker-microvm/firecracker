@@ -13,12 +13,16 @@ import host_tools.drive as drive_tools
 from framework import utils
 from framework.artifacts import ACPI_GUEST_KERNELS, pin_guest_kernel, pin_rootfs_mode
 from framework.utils_hugepages import HugePagesConfig
-
-pytestmark = pytest.mark.parametrize(
-    "huge_pages", [HugePagesConfig.NONE, HugePagesConfig.TRANSPARENT]
-)
+from framework.vm_backend import VM_BACKEND_KVM, pin_vm_backend
 
 ALIGNMENT = 2 << 20
+
+pytestmark = [
+    pytest.mark.parametrize(
+        "huge_pages", [HugePagesConfig.NONE, HugePagesConfig.TRANSPARENT]
+    ),
+    pin_vm_backend(VM_BACKEND_KVM),
+]
 
 
 def align(size: int) -> int:
@@ -192,6 +196,7 @@ def outside_rssanon(vm) -> int:
 @pin_guest_kernel(ACPI_GUEST_KERNELS)
 def test_pmem_dax_memory_saving(
     microvm_factory,
+    vm_backend,
     guest_kernel,
     rootfs,
     huge_pages,
@@ -202,7 +207,9 @@ def test_pmem_dax_memory_saving(
     """
 
     # Boot from a block device
-    vm = microvm_factory.build(guest_kernel, rootfs, pci=True, monitor_memory=False)
+    vm = microvm_factory.build(
+        guest_kernel, rootfs, pci=True, backend=vm_backend, monitor_memory=False
+    )
     vm.spawn()
     vm.basic_config(huge_pages=huge_pages)
     vm.add_net_iface()
@@ -212,7 +219,7 @@ def test_pmem_dax_memory_saving(
 
     # Boot from pmem with DAX enabled for root device
     vm_pmem = microvm_factory.build(
-        guest_kernel, rootfs, pci=True, monitor_memory=False
+        guest_kernel, rootfs, pci=True, backend=vm_backend, monitor_memory=False
     )
     vm_pmem.spawn()
     vm_pmem.basic_config(

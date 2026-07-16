@@ -10,6 +10,7 @@ from framework.artifacts import (
     pin_pci,
 )
 from framework.utils_cpu_templates import ALL_CPU_TEMPLATES, pin_cpu_template
+from framework.vm_backend import VM_BACKEND_KVM, pin_vm_backend
 
 # Virtio PCI common config register offsets
 # https://docs.oasis-open.org/virtio/virtio/v1.3/csd01/virtio-v1.3-csd01.html#x1-1420003
@@ -32,6 +33,9 @@ NOTIFICATION_BAR_OFFSET = 0x6000
 
 # Guest path the devmem tool is copied to
 DEVMEM_PATH = "/tmp/devmem"
+
+# KVM-only: Enclave VMs use separate Nitro Enclave transport
+pytestmark = pin_vm_backend(VM_BACKEND_KVM)
 
 
 @pin_pci(True)

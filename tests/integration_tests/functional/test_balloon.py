@@ -16,6 +16,11 @@ from framework.utils import (
     start_fast_page_fault_helper,
     wait_for_balloon_actual,
 )
+from framework.vm_backend import VM_BACKEND_KVM, pin_vm_backend
+
+# KVM-only: the Nitro Enclave transport does not support the
+# virtio-balloon device.
+pytestmark = pin_vm_backend(VM_BACKEND_KVM)
 
 STATS_POLLING_INTERVAL_S = 1
 RSS_TEST_BALLOON_SIZE_MIB = 128

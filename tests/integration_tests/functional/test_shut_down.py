@@ -9,11 +9,15 @@ from packaging import version
 
 from framework import utils
 from framework.utils_hugepages import HugePagesConfig
+from framework.vm_backend import VM_BACKEND_KVM, pin_vm_backend
 
 
+# KVM-only: a guest reboot surfaces as a KVM_SYSTEM_EVENT exit, which enclave
+# vCPUs never produce. `test_enclave_poweroff` covers them instead.
 @pytest.mark.parametrize(
     "huge_pages", [HugePagesConfig.NONE, HugePagesConfig.TRANSPARENT]
 )
+@pin_vm_backend(VM_BACKEND_KVM)
 def test_reboot(uvm, huge_pages):
     """
     Test reboot from guest.

@@ -6,10 +6,17 @@ import platform
 
 import pytest
 
-pytestmark = pytest.mark.skipif(
-    platform.machine() != "x86_64",
-    reason="bzImage direct boot is only supported on x86_64",
-)
+from framework.vm_backend import VM_BACKEND_KVM, pin_vm_backend
+
+# Asserts Firecracker took the x86 direct-boot path. Enclave backends boot an
+# EFI image out of an EIF, so that path never runs there.
+pytestmark = [
+    pytest.mark.skipif(
+        platform.machine() != "x86_64",
+        reason="bzImage direct boot is only supported on x86_64",
+    ),
+    pin_vm_backend(VM_BACKEND_KVM),
+]
 
 
 def test_bzimage_boots_to_userspace(uvm):

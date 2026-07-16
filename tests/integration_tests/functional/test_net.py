@@ -16,6 +16,7 @@ from framework.utils import (
     generate_mmds_get_request,
     generate_mmds_session_token,
 )
+from framework.vm_backend import VM_BACKEND_KVM, pin_vm_backend
 
 MMDS_IPV4_ADDR = "169.254.169.254"
 
@@ -180,6 +181,10 @@ def test_tap_mtu_advertised_to_guest(uvm):
         )
 
 
+# The enclave transport does not handle virtio device reset: it never consumes
+# reset_count from the info-page device entry header, so a guest driver rebind
+# leaves the parent with stale queue state.
+@pin_vm_backend(VM_BACKEND_KVM)
 def test_device_reset(uvm):
     """
     Test that virtio-net device reset works.

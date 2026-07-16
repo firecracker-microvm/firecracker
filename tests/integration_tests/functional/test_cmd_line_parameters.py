@@ -10,9 +10,11 @@ import pytest
 from framework.artifacts import GUEST_KERNEL_DEFAULT, pin_guest_kernel
 from framework.defs import DEFAULT_BINARY_DIR
 from framework.utils import check_output
+from framework.vm_backend import VM_BACKEND_KVM, pin_vm_backend
 from host_tools.fcmetrics import validate_fc_metrics
 
 
+@pin_vm_backend(VM_BACKEND_KVM)
 @pin_guest_kernel(GUEST_KERNEL_DEFAULT)
 def test_describe_snapshot(uvm):
     """
@@ -80,6 +82,7 @@ def test_cli_metrics_path_if_metrics_initialized_twice_fail(uvm):
         )
 
 
+@pin_vm_backend(VM_BACKEND_KVM)
 @pin_guest_kernel(GUEST_KERNEL_DEFAULT)
 def test_cli_metrics_if_resume_no_metrics(uvm, microvm_factory):
     """

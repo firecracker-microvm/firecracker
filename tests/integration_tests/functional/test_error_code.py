@@ -7,6 +7,7 @@ import platform
 import pytest
 
 from framework.artifacts import GUEST_KERNEL_DEFAULT, pin_guest_kernel
+from framework.vm_backend import VM_BACKEND_KVM, pin_vm_backend
 
 
 @pytest.mark.skipif(
@@ -15,6 +16,7 @@ from framework.artifacts import GUEST_KERNEL_DEFAULT, pin_guest_kernel
     "under the same conditions.",
 )
 @pin_guest_kernel(GUEST_KERNEL_DEFAULT)
+@pin_vm_backend(VM_BACKEND_KVM)
 def test_enosys_error_code(uvm):
     """
     Test that ENOSYS error is caught and firecracker exits gracefully.

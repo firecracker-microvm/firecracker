@@ -18,6 +18,7 @@ from framework.artifacts import (
     pin_pci,
 )
 from framework.utils_cpu_templates import ALL_CPU_TEMPLATES, pin_cpu_template
+from framework.vm_backend import VM_BACKEND_KVM, pin_vm_backend
 from integration_tests.functional.test_max_devices import max_devices
 
 # The guest's pciehp driver sleeps for 120ms after a hot-plug (add some buffer)
@@ -188,6 +189,8 @@ def test_hotplug_block(uvm_any):
         vm.api.drive.delete("block0")
 
 
+# KVM-only: virtio-pmem has no Nitro Enclave transport.
+@pin_vm_backend(VM_BACKEND_KVM)
 @pin_guest_kernel(ACPI_GUEST_KERNELS)
 @pin_pci(True)
 @pin_cpu_template(ALL_CPU_TEMPLATES)
@@ -397,12 +400,14 @@ def test_hotplug_net(uvm_any):
         vm.api.network.delete(iface1.dev_name)
 
 
+# KVM-only: virtio-pmem has no Nitro Enclave transport.
+@pin_vm_backend(VM_BACKEND_KVM)
 @pin_guest_kernel(ACPI_GUEST_KERNELS)
-def test_unplug_root_pmem(microvm_factory, guest_kernel, rootfs):
+def test_unplug_root_pmem(microvm_factory, vm_backend, guest_kernel, rootfs):
     """
     Unplugging the root pmem device must be rejected.
     """
-    vm = microvm_factory.build(guest_kernel, rootfs, pci=True)
+    vm = microvm_factory.build(guest_kernel, rootfs, pci=True, backend=vm_backend)
     vm.memory_monitor = None
     vm.monitors = []
     vm.spawn()
@@ -415,6 +420,8 @@ def test_unplug_root_pmem(microvm_factory, guest_kernel, rootfs):
         vm.api.pmem.delete("pmem_root")
 
 
+# KVM-only: pinned to MMIO, and hotplugs virtio-pmem. Enclaves have neither.
+@pin_vm_backend(VM_BACKEND_KVM)
 @pin_pci(False)
 @pin_cpu_template(ALL_CPU_TEMPLATES)
 def test_hotplug_no_pci(uvm_any):
@@ -461,6 +468,8 @@ def test_hotplug_no_pci(uvm_any):
         vm.api.network.delete("eth0")
 
 
+# KVM-only: snapshot/restore is not available on enclave VMs.
+@pin_vm_backend(VM_BACKEND_KVM)
 @pin_guest_kernel(ACPI_GUEST_KERNELS)
 @pin_pci(True)
 @pin_cpu_template(ALL_CPU_TEMPLATES)
@@ -514,6 +523,8 @@ def test_hotplug_preserved_after_snapshot(uvm_any, microvm_factory):
     assert stdout.strip() == "hotplug_test"
 
 
+# KVM-only: snapshotting is not available on enclave VMs.
+@pin_vm_backend(VM_BACKEND_KVM)
 @pin_guest_kernel(ACPI_GUEST_KERNELS)
 @pin_pci(True)
 @pin_hotplug_ports(2)
@@ -555,6 +566,8 @@ def test_unplug_after_snapshot(uvm_any, microvm_factory):
     assert set(lspci_final.splitlines()) == before
 
 
+# KVM-only: snapshotting is not available on enclave VMs.
+@pin_vm_backend(VM_BACKEND_KVM)
 @pin_guest_kernel(ACPI_GUEST_KERNELS)
 @pin_pci(True)
 @pin_hotplug_ports(2)
@@ -585,6 +598,8 @@ def test_pending_plug_completes_after_restore(uvm_any, microvm_factory):
     assert f"{VIRTIO_PCI_VENDOR_ID:04x}:{VIRTIO_PCI_DEVICE_ID_BLOCK:04x}" in entry
 
 
+# KVM-only: snapshotting is not available on enclave VMs.
+@pin_vm_backend(VM_BACKEND_KVM)
 @pin_guest_kernel(ACPI_GUEST_KERNELS)
 @pin_pci(True)
 @pin_hotplug_ports(2)
@@ -695,6 +710,8 @@ def test_hotplug_max_devices(uvm_any):
     assert len(set(lspci.strip().splitlines()) - initial) == free_slots
 
 
+# KVM-only: vhost-user devices are not supported on enclave VMs.
+@pin_vm_backend(VM_BACKEND_KVM)
 @pin_guest_kernel(ACPI_GUEST_KERNELS)
 @pin_pci(True)
 def test_hotplug_vhost_user(microvm_factory, guest_kernel, rootfs, pci_enabled):
@@ -737,6 +754,8 @@ def test_hotplug_vhost_user(microvm_factory, guest_kernel, rootfs, pci_enabled):
     vm.ssh.check_output("umount /tmp/scratch")
 
 
+# KVM-only: vhost-user devices are not supported on enclave VMs.
+@pin_vm_backend(VM_BACKEND_KVM)
 @pin_guest_kernel(GUEST_KERNEL_DEFAULT)
 @pin_pci(True)
 def test_hotplug_vhost_user_rejected(uvm_any):
@@ -761,6 +780,8 @@ def test_hotplug_vhost_user_rejected(uvm_any):
     assert "guest memory that a backend can map shared" in str(exc.value)
 
 
+# KVM-only: hot-unplug is not available on enclave VMs.
+@pin_vm_backend(VM_BACKEND_KVM)
 @pin_guest_kernel(ACPI_GUEST_KERNELS)
 @pin_pci(True)
 @pin_hotplug_ports(2)
@@ -820,6 +841,8 @@ def test_hotplug_force_unplug(uvm_any):
     assert set(lspci_forced.splitlines()) == before
 
 
+# KVM-only: hot-unplug is not available on enclave VMs.
+@pin_vm_backend(VM_BACKEND_KVM)
 @pin_guest_kernel(ACPI_GUEST_KERNELS)
 @pin_pci(True)
 @pin_hotplug_ports(2)
@@ -851,6 +874,8 @@ def test_double_unplug_request(uvm_any):
         vm.api.drive.delete("block0")
 
 
+# KVM-only: enclaves have no pause/resume lifecycle.
+@pin_vm_backend(VM_BACKEND_KVM)
 @pin_guest_kernel(ACPI_GUEST_KERNELS)
 @pin_pci(True)
 @pin_hotplug_ports(2)
@@ -889,6 +914,9 @@ def test_hotplug_while_paused(uvm_any):
     assert set(lspci_unplugged.splitlines()) == before
 
 
+# KVM-only: exercises KVM's reserved PCIe root ports; the NE hypervisor
+# provides an enclave's.
+@pin_vm_backend(VM_BACKEND_KVM)
 @pin_guest_kernel(ACPI_GUEST_KERNELS)
 @pin_pci(True)
 def test_hotplug_without_ports(uvm_any):
