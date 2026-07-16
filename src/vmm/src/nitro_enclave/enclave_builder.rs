@@ -35,6 +35,8 @@ use crate::{EventManager, Vmm};
 pub enum EnclaveBuilderError {
     /// Boot source not configured (kernel_image_path required)
     NoBootSource,
+    /// mem_size_mib ({0}) must be a multiple of 2 for an enclave
+    MemSizeNotAligned(usize),
     /// Failed to open /dev/nitro_enclaves: {0}
     OpenDevice(std::io::Error),
     /// Failed to read EIF image: {0}
@@ -142,6 +144,13 @@ pub fn build_and_boot_enclave(
         .as_ref()
         .ok_or(EnclaveBuilderError::NoBootSource)?;
     let kernel_path = &vm_resources.boot_source.config.kernel_image_path;
+
+    // Enclave RAM is donated in 2 MiB-aligned regions, so the total must be a
+    // multiple of 2 MiB.
+    let mem_size_mib = vm_resources.machine_config.mem_size_mib;
+    if !mem_size_mib.is_multiple_of(2) {
+        return Err(EnclaveBuilderError::MemSizeNotAligned(mem_size_mib));
+    }
 
     let mut required_matched = ne_ioctl::start_flags::NE_ENCLAVE_PCIE_MODE
         | ne_ioctl::start_flags::NE_ENCLAVE_PCIE_VIRTIO_MODE;
