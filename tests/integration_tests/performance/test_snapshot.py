@@ -19,13 +19,17 @@ from framework.utils import (
     wait_for_fast_page_fault_helper_output,
 )
 from framework.utils_hugepages import HugePagesConfig
+from framework.vm_backend import VM_BACKEND_KVM, pin_vm_backend
 
 USEC_IN_MSEC = 1000
 NS_IN_MSEC = 1_000_000
 ITERATIONS = 30
 POPULATION_ITERATIONS = 15
 
-pytestmark = pin_guest_kernel(GUEST_KERNEL_DEFAULT)
+pytestmark = [
+    pin_guest_kernel(GUEST_KERNEL_DEFAULT),
+    pin_vm_backend(VM_BACKEND_KVM),
+]
 
 
 @lru_cache

@@ -17,13 +17,17 @@ from framework.utils import (
     wait_for_fast_page_fault_helper_output,
 )
 from framework.utils_hugepages import HugePagesConfig, supports_hugetlbfs_discard
+from framework.vm_backend import VM_BACKEND_KVM, pin_vm_backend
 
 # Every test in this module exercises all huge_pages variants.
-pytestmark = pytest.mark.parametrize(
-    "huge_pages",
-    HugePagesConfig,
-    indirect=True,
-)
+pytestmark = [
+    pytest.mark.parametrize(
+        "huge_pages",
+        HugePagesConfig,
+        indirect=True,
+    ),
+    pin_vm_backend(VM_BACKEND_KVM),
+]
 
 NS_IN_MSEC = 1_000_000
 

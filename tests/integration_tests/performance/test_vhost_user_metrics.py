@@ -8,8 +8,12 @@ import pytest
 
 import host_tools.drive as drive_tools
 from framework.artifacts import ACPI_GUEST_KERNELS, pin_guest_kernel
+from framework.vm_backend import VM_BACKEND_KVM, pin_vm_backend
 
-pytestmark = pin_guest_kernel(ACPI_GUEST_KERNELS)
+pytestmark = [
+    pin_guest_kernel(ACPI_GUEST_KERNELS),
+    pin_vm_backend(VM_BACKEND_KVM),
+]
 
 
 @pytest.mark.parametrize("vcpu_count", [1, 2], ids=["1vcpu", "2vcpu"])
