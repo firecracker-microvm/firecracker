@@ -106,14 +106,19 @@ class ProcessRss:
         """Release the pagemap file descriptor."""
         os.close(self._pagemap)
 
-    def sample(self, skip=None):
-        """Return the resident bytes of the mappings for which `skip(start, end)` is false."""
+    def sample(self, skip=None, skip_path=None):
+        """Return the resident bytes of the mappings for which `skip(start, end)` is false.
+
+        Mappings whose maps line contains `skip_path` (bytes) are skipped too.
+        """
         entries = []
         for line in self._maps.read_bytes().splitlines():
             fields = line.split()
             start, end = (int(addr, 16) for addr in fields[0].split(b"-"))
             # [vsyscall] lies above the address range pagemap covers
             if fields[-1] == b"[vsyscall]" or (skip and skip(start, end)):
+                continue
+            if skip_path and skip_path in line:
                 continue
             offset = start // PAGE_SIZE * 8
             length = (end - start) // PAGE_SIZE * 8

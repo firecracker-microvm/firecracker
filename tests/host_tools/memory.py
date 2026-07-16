@@ -106,9 +106,17 @@ class MemoryMonitor(Thread):
         try:
             while not self._should_stop:
                 try:
-                    mem_total = rss.sample(skip)
+                    # Nitro Enclave device mappings (donated guest RAM, device
+                    # memory buffers, info page) are enclave memory, not VMM
+                    # overhead.
+                    mem_total = rss.sample(skip, skip_path=b"nitro_enclaves")
                 except (FileNotFoundError, ProcessLookupError):
                     return
+                if mem_total > self.threshold:
+                    # A region mapped over its PROT_NONE reservation between the
+                    # maps and pagemap reads is counted against the reservation.
+                    # A genuine excess survives a fresh sample.
+                    mem_total = rss.sample(skip, skip_path=b"nitro_enclaves")
                 self._current_rss = mem_total
                 if mem_total > self.threshold:
                     self._exceeded = ps
