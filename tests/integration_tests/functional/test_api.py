@@ -29,6 +29,7 @@ from framework.utils_cpu_templates import (
     SUPPORTED_CPU_TEMPLATES,
     pin_cpu_template,
 )
+from framework.vm_backend import VM_BACKEND_KVM, pin_vm_backend
 
 MEM_LIMIT = 1000000000
 
@@ -344,6 +345,9 @@ def test_api_mmds_config(uvm):
 
 # pylint: disable=too-many-statements
 @pin_guest_kernel(GUEST_KERNEL_DEFAULT)
+# Boots and exercises KVM-only semantics; the pre-boot validation half is
+# backend-independent (enclave setup only happens at start()).
+@pin_vm_backend(VM_BACKEND_KVM)
 def test_api_machine_config(uvm):
     """
     Test /machine_config PUT/PATCH scenarios that unit tests can't cover.
