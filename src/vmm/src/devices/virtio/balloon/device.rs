@@ -1017,7 +1017,6 @@ pub(crate) mod tests {
     use super::super::BALLOON_CONFIG_SPACE_SIZE;
     use super::*;
     use crate::arch::host_page_size;
-    use crate::check_metric_after_block;
     use crate::devices::virtio::balloon::report_balloon_event_fail;
     use crate::devices::virtio::balloon::test_utils::{
         check_request_completion, invoke_handler_for_queue_event, set_request,
@@ -1028,8 +1027,8 @@ pub(crate) mod tests {
     };
     use crate::devices::virtio::test_utils::{VirtQueue, default_interrupt, default_mem};
     use crate::test_utils::single_region_mem;
-    use crate::utils::align_up;
     use crate::vstate::memory::GuestAddress;
+    use crate::{align_up, check_metric_after_block};
 
     impl VirtioTestDevice for Balloon {
         fn set_queues(&mut self, queues: Vec<Queue>) {
@@ -1589,7 +1588,7 @@ pub(crate) mod tests {
         let page_size_chain = page_size as u32;
         let reporting_idx = th.device().free_page_reporting_idx();
 
-        let safe_addr = align_up(th.data_address(), page_size);
+        let safe_addr = align_up!(th.data_address(), page_size);
 
         th.add_scatter_gather(reporting_idx, 0, &[(0, safe_addr, page_size_chain, 0)]);
         check_metric_after_block!(
@@ -1644,7 +1643,7 @@ pub(crate) mod tests {
 
             let page_size = host_page_size() as u64;
             let hinting_idx = th.device().free_page_hinting_idx();
-            let safe_addr = align_up(th.data_address(), page_size);
+            let safe_addr = align_up!(th.data_address(), page_size);
 
             // Ack the config set on start
             th.device()

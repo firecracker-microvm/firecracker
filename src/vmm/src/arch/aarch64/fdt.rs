@@ -20,9 +20,9 @@ use crate::arch::{
 };
 use crate::device_manager::DeviceManager;
 use crate::device_manager::mmio::MMIODeviceInfo;
-use crate::device_manager::pci_mngr::PciDevices;
 use crate::devices::acpi::vmclock::{VMCLOCK_SIZE, VmClock};
 use crate::devices::acpi::vmgenid::{VMGENID_MEM_SIZE, VmGenId};
+use crate::devices::pci::PciSegment;
 use crate::initrd::InitrdConfig;
 use crate::vstate::memory::{Address, GuestMemoryMmap, GuestRegionType};
 
@@ -100,7 +100,9 @@ pub fn create_fdt(
     create_devices_node(&mut fdt_writer, device_manager)?;
     create_vmgenid_node(&mut fdt_writer, device_manager.acpi_devices.vmgenid())?;
     create_vmclock_node(&mut fdt_writer, device_manager.acpi_devices.vmclock())?;
-    create_pci_nodes(&mut fdt_writer, &device_manager.pci_devices)?;
+    if let Some(pci_devices) = device_manager.pci_devices() {
+        create_pci_nodes(&mut fdt_writer, pci_devices.pci_segment())?;
+    }
 
     // End Header node.
     fdt_writer.end_node(root)?;
@@ -461,33 +463,28 @@ fn create_devices_node(
     fdt: &mut FdtWriter,
     device_manager: &DeviceManager,
 ) -> Result<(), FdtError> {
-    if let Some(rtc_info) = device_manager.mmio_devices.rtc_device_info() {
+    if let Some(rtc_info) = device_manager.mmio_platform_devices.rtc_device_info() {
         create_rtc_node(fdt, rtc_info)?;
     }
 
-    if let Some(serial_info) = device_manager.mmio_devices.serial_device_info() {
+    if let Some(serial_info) = device_manager.mmio_platform_devices.serial_device_info() {
         create_serial_node(fdt, serial_info)?;
     }
 
-    let mut virtio_mmio = device_manager.mmio_devices.virtio_device_info();
+    if let Some(mmio_virtio_devices) = device_manager.mmio_virtio_devices() {
+        let mut virtio_mmio = mmio_virtio_devices.virtio_device_info();
 
-    // Sort out virtio devices by address from low to high and insert them into fdt table.
-    virtio_mmio.sort_by_key(|a| a.addr);
-    for ordered_device_info in virtio_mmio.drain(..) {
-        create_virtio_node(fdt, ordered_device_info)?;
+        // Sort out virtio devices by address from low to high and insert them into fdt table.
+        virtio_mmio.sort_by_key(|a| a.addr);
+        for device_info in virtio_mmio {
+            create_virtio_node(fdt, device_info)?;
+        }
     }
 
     Ok(())
 }
 
-fn create_pci_nodes(fdt: &mut FdtWriter, pci_devices: &PciDevices) -> Result<(), FdtError> {
-    if pci_devices.pci_segment.is_none() {
-        return Ok(());
-    }
-
-    // Fine to unwrap here, we just checked it's not `None`.
-    let segment = pci_devices.pci_segment.as_ref().unwrap();
-
+fn create_pci_nodes(fdt: &mut FdtWriter, segment: &PciSegment) -> Result<(), FdtError> {
     let pci_node_name = format!("pci@{:x}", segment.mmio_config_address);
     // Each range here is a thruple of `(PCI address, CPU address, PCI size)`.
     //
@@ -565,7 +562,7 @@ mod tests {
     use crate::arch::aarch64::gic::create_gic;
     use crate::arch::{FDT_MAX_SIZE, KvmVm};
     use crate::device_manager::mmio::tests::DummyDevice;
-    use crate::device_manager::tests::default_device_manager;
+    use crate::device_manager::tests::{default_device_manager, mmio_devices_mut};
     use crate::test_utils::arch_mem;
     use crate::vstate::memory::GuestAddress;
     use crate::{EventManager, Kvm};
@@ -590,8 +587,7 @@ mod tests {
             .attach_legacy_devices_aarch64(&vm, &mut event_manager, &mut cmdline, None, None)
             .unwrap();
         let dummy = Arc::new(Mutex::new(DummyDevice::new()));
-        device_manager
-            .mmio_devices
+        mmio_devices_mut(&mut device_manager)
             .register_virtio_test_device(
                 &vm,
                 mem.clone(),

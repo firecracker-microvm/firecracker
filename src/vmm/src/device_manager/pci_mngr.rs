@@ -44,10 +44,10 @@ use crate::vstate::interrupts::InterruptError;
 use crate::vstate::memory::GuestMemoryMmap;
 use crate::vstate::vm::KvmVm;
 
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct PciDevices {
-    /// PCIe segment of the VMM, if PCI is enabled. We currently support a single PCIe segment.
-    pub pci_segment: Option<PciSegment>,
+    /// PCIe segment of the VMM. We currently support a single PCIe segment.
+    pub pci_segment: PciSegment,
     /// All VirtIO PCI devices of the system
     pub virtio_devices: HashMap<VirtioDeviceId, Arc<Mutex<VirtioPciDevice>>>,
 }
@@ -69,21 +69,15 @@ pub enum PciManagerError {
 }
 
 impl PciDevices {
-    pub fn new() -> Self {
-        Default::default()
-    }
-
-    pub fn attach_pci_segment(&mut self, vm: &Arc<KvmVm>) -> Result<(), PciManagerError> {
-        // We only support a single PCIe segment. Calling this function twice is a Firecracker
-        // internal error.
-        assert!(self.pci_segment.is_none());
-
+    pub fn new(vm: &Arc<KvmVm>) -> Result<Self, PciManagerError> {
         // Currently we don't assign any IRQs to PCI devices. We will be using MSI-X interrupts
         // only.
         let pci_segment = PciSegment::new(0, vm, &[0u8; 32])?;
-        self.pci_segment = Some(pci_segment);
 
-        Ok(())
+        Ok(Self {
+            pci_segment,
+            virtio_devices: HashMap::new(),
+        })
     }
 
     fn register_bars_with_bus(
@@ -115,10 +109,7 @@ impl PciDevices {
         virtio_device: Arc<Mutex<VirtioPciDevice>>,
         event_manager: &mut EventManager,
     ) -> Result<(), PciManagerError> {
-        // We should only be reaching this point if PCI is enabled
-        let pci_segment = self.pci_segment.as_ref().unwrap();
-
-        pci_segment
+        self.pci_segment
             .pci_bus
             .lock()
             .expect("Poisoned lock")
@@ -145,9 +136,7 @@ impl PciDevices {
         device: Arc<Mutex<dyn VirtioDevice>>,
         event_manager: &mut EventManager,
     ) -> Result<(), PciManagerError> {
-        // We should only be reaching this point if PCI is enabled
-        let pci_segment = self.pci_segment.as_ref().unwrap();
-        let sbdf = pci_segment.next_device_sbdf()?;
+        let sbdf = self.pci_segment.next_device_sbdf()?;
         debug!("Allocating SBDF: {sbdf:?} for device");
         let mem = vm.guest_memory().clone();
 
@@ -172,6 +161,60 @@ impl PciDevices {
         let virtio_device = Arc::new(Mutex::new(virtio_device));
 
         self.attach_common(vm, device_type, id, sbdf, virtio_device, event_manager)
+    }
+
+    pub(crate) fn pci_segment(&self) -> &PciSegment {
+        &self.pci_segment
+    }
+
+    #[cfg(target_arch = "x86_64")]
+    pub(crate) fn append_aml_bytes(
+        &self,
+        dsdt_data: &mut Vec<u8>,
+    ) -> Result<(), acpi_tables::aml::AmlError> {
+        use acpi_tables::Aml;
+
+        self.pci_segment().append_aml_bytes(dsdt_data)
+    }
+
+    pub(crate) fn detach_pci_virtio_device(
+        &mut self,
+        vm: &KvmVm,
+        device_id: VirtioDeviceId,
+        event_manager: &mut EventManager,
+    ) -> Result<(), PciManagerError> {
+        let pci_device_arc = self
+            .virtio_devices
+            .remove(&device_id)
+            .expect("device presence should be checked before detach");
+        let pci_device = pci_device_arc.lock().expect("Poisoned lock");
+
+        pci_device
+            .unregister_notification_ioevents(vm)
+            .map_err(PciManagerError::Kvm)?;
+
+        vm.common
+            .mmio_bus
+            .remove(pci_device.config_bar_addr(), CAPABILITY_BAR_SIZE)
+            .map_err(PciManagerError::Bus)?;
+
+        self.pci_segment
+            .pci_bus
+            .lock()
+            .expect("Poisoned lock")
+            .remove_device(pci_device.sbdf.device());
+
+        if let Some(sub_id) = pci_device.sub_id
+            && event_manager.remove_subscriber(sub_id).is_err()
+        {
+            warn!("Failed to remove event subscriber for device {device_id:?}");
+        }
+
+        // Ensure no other references to the device remain, so it is freed when
+        // this function returns.
+        assert_eq!(Arc::strong_count(&pci_device_arc), 1);
+
+        Ok(())
     }
 
     fn restore_pci_device<T: 'static + VirtioDevice + MutEventSubscriber + Debug>(
@@ -213,11 +256,35 @@ impl PciDevices {
             .get(&(device_type, device_id.to_string()))
     }
 
+    pub(crate) fn get_device(
+        &self,
+        device_type: VirtioDeviceType,
+        device_id: &str,
+    ) -> Option<Arc<Mutex<dyn VirtioDevice>>> {
+        self.get_virtio_device(device_type, device_id)
+            .map(|device| device.lock().expect("Poisoned lock").virtio_device())
+    }
+
+    pub(crate) fn contains_virtio_device(&self, device_id: &VirtioDeviceId) -> bool {
+        self.virtio_devices.contains_key(device_id)
+    }
+
     pub fn for_each_virtio_device(&self, mut f: impl FnMut(VirtioDeviceType, &dyn VirtioDevice)) {
         for ((device_type, _), pci_device) in &self.virtio_devices {
             let device_arc = pci_device.lock().expect("Poisoned lock").virtio_device();
             let device = device_arc.lock().expect("Poisoned lock");
             f(*device_type, &*device);
+        }
+    }
+
+    pub(crate) fn for_each_virtio_device_mut(
+        &self,
+        mut f: impl FnMut(VirtioDeviceType, &mut dyn VirtioDevice),
+    ) {
+        for ((device_type, _), pci_device) in &self.virtio_devices {
+            let device_arc = pci_device.lock().expect("Poisoned lock").virtio_device();
+            let mut device = device_arc.lock().expect("Poisoned lock");
+            f(*device_type, &mut *device);
         }
     }
 }
@@ -236,8 +303,6 @@ pub struct VirtioDeviceState<T> {
 
 #[derive(Default, Debug, Clone, Serialize, Deserialize)]
 pub struct PciDevicesState {
-    /// Whether PCI is enabled
-    pub pci_enabled: bool,
     /// Block device states.
     pub block_devices: Vec<VirtioDeviceState<BlockState>>,
     /// Net device states.
@@ -282,11 +347,6 @@ impl<'a> Persist<'a> for PciDevices {
 
     fn save(&self) -> Self::State {
         let mut state = PciDevicesState::default();
-        if self.pci_segment.is_some() {
-            state.pci_enabled = true;
-        } else {
-            return state;
-        }
 
         for pci_dev in self.virtio_devices.values() {
             let locked_pci_dev = pci_dev.lock().expect("Poisoned lock");
@@ -430,12 +490,7 @@ impl<'a> Persist<'a> for PciDevices {
         state: &Self::State,
     ) -> Result<Self, Self::Error> {
         let mem = constructor_args.mem;
-        let mut pci_devices = PciDevices::new();
-        if !state.pci_enabled {
-            return Ok(pci_devices);
-        }
-
-        pci_devices.attach_pci_segment(constructor_args.vm)?;
+        let mut pci_devices = PciDevices::new(constructor_args.vm)?;
 
         if let Some(balloon_state) = &state.balloon_device {
             let device = Arc::new(Mutex::new(Balloon::restore(
@@ -651,10 +706,7 @@ mod tests {
         // Set up a vmm with one of each device, and get the serialized DeviceStates.
         {
             let mut event_manager = EventManager::new().expect("Unable to create EventManager");
-            let mut vmm = default_vmm();
-            vmm.device_manager
-                .enable_pci(&vmm.vm.as_kvm().unwrap().clone())
-                .unwrap();
+            let mut vmm = default_vmm_with_pci();
             let mut cmdline = default_kernel_cmdline();
 
             // Add a balloon device.
@@ -737,9 +789,9 @@ mod tests {
 
         let mut event_manager = EventManager::new().expect("Unable to create EventManager");
         // Keep in mind we are re-creating here an empty DeviceManager. Restoring later on
-        // will create a new PciDevices manager different than vmm.pci_devices. We're doing
-        // this to avoid restoring the whole Vmm, since what we really need from Vmm is the KvmVm
-        // object and calling default_vmm() is the easiest way to create one.
+        // will create a new PciDevices manager different from vmm's virtio devices. We're
+        // doing this to avoid restoring the whole Vmm, since what we really need from Vmm is the
+        // KvmVm object and calling default_vmm() is the easiest way to create one.
         let vmm = default_vmm();
         // Restore the source allocator's state so the restored devices' GSIs match what their
         // `MsixVectorGroup::Drop` will try to free at end-of-test.
@@ -748,6 +800,10 @@ mod tests {
 
         let device_manager_state: device_manager::DevicesState =
             bitcode::deserialize(&serialized_data).unwrap();
+        let device_manager::VirtioDevicesState::Pci(pci_state) = &device_manager_state.virtio_state
+        else {
+            panic!("expected PCI virtio device state");
+        };
         let vm_resources = &mut VmResources::default();
         let kvm_vm = vmm.vm.as_kvm().unwrap().clone();
         let restore_args = PciDevicesConstructorArgs {
@@ -757,8 +813,7 @@ mod tests {
             instance_id: "microvm-id",
             event_manager: &mut event_manager,
         };
-        let _restored_dev_manager =
-            PciDevices::restore(restore_args, &device_manager_state.pci_state).unwrap();
+        let _restored_dev_manager = PciDevices::restore(restore_args, pci_state).unwrap();
 
         let expected_vm_resources = format!(
             r#"{{
@@ -852,10 +907,7 @@ mod tests {
                 .version(),
             MmdsVersion::V2
         );
-        assert_eq!(
-            device_manager_state.pci_state.mmds.unwrap().version,
-            MmdsVersion::V2
-        );
+        assert_eq!(pci_state.mmds.as_ref().unwrap().version, MmdsVersion::V2);
         assert_eq!(
             expected_vm_resources,
             serde_json::to_string_pretty(&VmmConfig::from(&*vm_resources)).unwrap()

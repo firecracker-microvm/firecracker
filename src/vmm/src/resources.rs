@@ -580,6 +580,7 @@ mod tests {
     use crate::vmm_config::RateLimiterConfig;
     use crate::vmm_config::boot_source::{BootConfig, BootSource, BootSourceConfig};
     use crate::vmm_config::drive::{BlockBuilder, BlockDeviceConfig};
+    use crate::vmm_config::machine_config::HugePageConfig::{Hugetlbfs2M, Transparent};
     use crate::vmm_config::machine_config::{HugePageConfig, MachineConfig, MachineConfigError};
     use crate::vmm_config::net::{NetBuilder, NetworkInterfaceConfig};
     use crate::vmm_config::vsock::tests::default_config;
@@ -1474,6 +1475,26 @@ mod tests {
         assert_eq!(
             vm_resources.update_machine_config(&aux_vm_config),
             Err(MachineConfigError::InvalidMemorySize)
+        );
+
+        // Odd memory size - not supported by THP/Hugetlbfs
+        aux_vm_config.mem_size_mib = Some(1025);
+        aux_vm_config.huge_pages = Some(Transparent);
+        assert_eq!(
+            vm_resources.update_machine_config(&aux_vm_config),
+            Err(MachineConfigError::InvalidMemorySize)
+        );
+        aux_vm_config.huge_pages = Some(Hugetlbfs2M);
+        assert_eq!(
+            vm_resources.update_machine_config(&aux_vm_config),
+            Err(MachineConfigError::InvalidMemorySize)
+        );
+        // Odd size supported by HugePageConfig::None
+        aux_vm_config.huge_pages = Some(HugePageConfig::None);
+        vm_resources.update_machine_config(&aux_vm_config).unwrap();
+        assert_eq!(
+            MachineConfigUpdate::from(vm_resources.machine_config.clone()),
+            aux_vm_config
         );
 
         // Incompatible mem_size_mib with balloon size.
