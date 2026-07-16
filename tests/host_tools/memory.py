@@ -102,6 +102,12 @@ class MemoryMonitor(Thread):
                 return
             mem_total = 0
             for mmap in mmaps:
+                # Nitro Enclave device mappings (donated guest RAM, device
+                # memory buffers, info page) are enclave memory, not VMM
+                # overhead.
+                if "nitro_enclaves" in mmap.path:
+                    continue
+
                 if self.is_guest_mem(mmap.size, guest_mem_bytes):
                     continue
 
