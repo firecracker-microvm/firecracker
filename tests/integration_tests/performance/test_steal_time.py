@@ -6,8 +6,12 @@
 import time
 
 from framework.artifacts import GUEST_KERNEL_DEFAULT, pin_guest_kernel
+from framework.vm_backend import VM_BACKEND_KVM, pin_vm_backend
 
-pytestmark = pin_guest_kernel(GUEST_KERNEL_DEFAULT)
+pytestmark = [
+    pin_guest_kernel(GUEST_KERNEL_DEFAULT),
+    pin_vm_backend(VM_BACKEND_KVM),
+]
 
 
 def get_steal_time_ms(vm):

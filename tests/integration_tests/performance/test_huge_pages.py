@@ -12,8 +12,12 @@ from framework.artifacts import GUEST_KERNEL_DEFAULT, pin_guest_kernel
 from framework.properties import global_props
 from framework.utils_ftrace import ftrace_events
 from framework.utils_hugepages import HugePagesConfig
+from framework.vm_backend import VM_BACKEND_KVM, pin_vm_backend
 
-pytestmark = pin_guest_kernel(GUEST_KERNEL_DEFAULT)
+pytestmark = [
+    pin_vm_backend(VM_BACKEND_KVM),
+    pin_guest_kernel(GUEST_KERNEL_DEFAULT),
+]
 
 
 def check_hugetlbfs_in_use(pid: int, allocation_name: str):

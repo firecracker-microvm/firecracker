@@ -6,6 +6,7 @@ import pytest
 
 from framework.microvm import Serial
 from framework.utils_hugepages import HugePagesConfig
+from framework.vm_backend import VM_BACKEND_KVM, pin_vm_backend
 
 INITRD_FILESYSTEM = "rootfs"
 
@@ -24,6 +25,9 @@ def uvm_with_initrd(
     yield uvm
 
 
+# KVM-only: drives the guest interactively over the serial console; the
+# enclave serial console is an output-only ring buffer with no input path.
+@pin_vm_backend(VM_BACKEND_KVM)
 @pytest.mark.parametrize("huge_pages", HugePagesConfig)
 def test_microvm_initrd_with_serial(uvm_with_initrd, huge_pages):
     """

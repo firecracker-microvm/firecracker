@@ -15,13 +15,17 @@ from framework.utils import (
     track_cpu_utilization,
 )
 from framework.utils_hugepages import HugePagesConfig
+from framework.vm_backend import VM_BACKEND_KVM, pin_vm_backend
 
 # Every test in this module exercises all huge_pages variants.
-pytestmark = pytest.mark.parametrize(
-    "huge_pages",
-    HugePagesConfig,
-    indirect=True,
-)
+pytestmark = [
+    pytest.mark.parametrize(
+        "huge_pages",
+        HugePagesConfig,
+        indirect=True,
+    ),
+    pin_vm_backend(VM_BACKEND_KVM),
+]
 
 NS_IN_MSEC = 1_000_000
 

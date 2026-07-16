@@ -17,6 +17,7 @@ from framework.microvm import SnapshotType
 from framework.properties import global_props
 from framework.utils import get_resident_memory, supports_hugetlbfs_discard
 from framework.utils_hugepages import HugePagesConfig
+from framework.vm_backend import VM_BACKEND_KVM, pin_vm_backend
 
 MEMHP_BOOTARGS = "console=ttyS0 reboot=k panic=1 memhp_default_state=online_movable"
 DEFAULT_CONFIG = {"total_size_mib": 1024, "slot_size_mib": 128, "block_size_mib": 2}
@@ -277,6 +278,7 @@ def writable_anon_vmas(uvm, min_size):
     return ranges
 
 
+@pin_vm_backend(VM_BACKEND_KVM)
 def test_virtio_mem_hotplug_hotunplug(uvm_any_memhp):
     """
     Check that memory can be hotplugged into the VM.
@@ -297,6 +299,7 @@ def test_virtio_mem_hotplug_hotunplug(uvm_any_memhp):
     validate_metrics(uvm)
 
 
+@pin_vm_backend(VM_BACKEND_KVM)
 def test_unplug_keeps_region_protected(uvm_any_memhp):
     """
     Check that a plug/unplug cycle leaves unplugged memory PROT_NONE, not writable anonymous.
@@ -318,6 +321,7 @@ def test_unplug_keeps_region_protected(uvm_any_memhp):
     validate_metrics(uvm)
 
 
+@pin_vm_backend(VM_BACKEND_KVM)
 @pytest.mark.parametrize(
     "memhp_config",
     [
@@ -358,6 +362,7 @@ def test_virtio_mem_configs(uvm, memhp_config):
     validate_metrics(uvm)
 
 
+@pin_vm_backend(VM_BACKEND_KVM)
 def test_snapshot_restore_persistence(uvm, microvm_factory, snapshot_type):
     """
     Check that hotplugged memory is persisted across snapshot/restore.
@@ -398,6 +403,7 @@ def test_snapshot_restore_persistence(uvm, microvm_factory, snapshot_type):
     validate_metrics(restored_vm)
 
 
+@pin_vm_backend(VM_BACKEND_KVM)
 def test_snapshot_restore_incremental(uvm, microvm_factory, snapshot_type):
     """
     Check that hotplugged memory is persisted across snapshot/restore.
@@ -505,6 +511,7 @@ def timed_memory_hotplug(uvm, size, metrics, metric_prefix, fc_metric_name):
 
 
 @pytest.mark.nonci
+@pin_vm_backend(VM_BACKEND_KVM)
 @pytest.mark.parametrize(
     "hotplug_size",
     [
@@ -552,6 +559,10 @@ def test_memory_hotplug_latency(
         uvm.kill()
 
 
+# The enclave transport does not handle virtio device reset: it never consumes
+# reset_count from the info-page device entry header, so a guest driver rebind
+# leaves the parent with stale queue state.
+@pin_vm_backend(VM_BACKEND_KVM)
 def test_device_reset(uvm):
     """
     Test that virtio-mem device reset works.

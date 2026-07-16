@@ -10,6 +10,7 @@ import pytest
 
 from framework.artifacts import ACPI_GUEST_KERNELS, pin_guest_kernel, pin_rootfs_mode
 from framework.utils_hugepages import HugePagesConfig
+from framework.vm_backend import VM_BACKEND_KVM, pin_vm_backend
 
 # Regex for obtaining boot time from some string.
 
@@ -18,7 +19,15 @@ DEFAULT_BOOT_ARGS = (
     " i8042.noaux i8042.nomux i8042.nopnp i8042.dumbkbd swiotlb=noforce cryptomgr.notests"
 )
 
-pytestmark = pin_guest_kernel(ACPI_GUEST_KERNELS)
+# KVM-only: every test here reads the boot timer device, an MMIO pseudo-device
+# only attached on the KVM build path, and `find_events` parses the
+# `event_{start,end}` build/boot log lines the enclave builder does not emit.
+# The PmemBoot variants additionally need virtio-pmem, which has no enclave
+# transport.
+pytestmark = [
+    pin_guest_kernel(ACPI_GUEST_KERNELS),
+    pin_vm_backend(VM_BACKEND_KVM),
+]
 
 
 def get_boottime_device_info(vm):

@@ -13,6 +13,7 @@ import framework.utils_fio as fio
 import host_tools.drive as drive_tools
 from framework.artifacts import ACPI_GUEST_KERNELS, pin_guest_kernel
 from framework.utils import track_cpu_utilization
+from framework.vm_backend import VM_BACKEND_KVM, pin_vm_backend
 
 PMEM_DEVICE_SIZE_MB = 2048
 PMEM_DEVICE_SIZE_SINGLE_READ_MB = 512
@@ -20,7 +21,10 @@ WARMUP_SEC = 10
 RUNTIME_SEC = 30
 GUEST_MEM_MIB = 1024
 
-pytestmark = pin_guest_kernel(ACPI_GUEST_KERNELS)
+pytestmark = [
+    pin_guest_kernel(ACPI_GUEST_KERNELS),
+    pin_vm_backend(VM_BACKEND_KVM),
+]
 
 
 def run_fio(
