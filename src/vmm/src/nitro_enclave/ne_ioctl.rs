@@ -5,7 +5,9 @@
 //!
 //! These structures and constants match the Nitro Enclaves kernel UAPI.
 
+use std::fs::File;
 use std::os::unix::io::{AsRawFd, FromRawFd, OwnedFd, RawFd};
+use std::sync::Arc;
 
 use vmm_sys_util::ioctl::{ioctl_with_mut_ref, ioctl_with_ref};
 use vmm_sys_util::{ioctl_ior_nr, ioctl_iow_nr, ioctl_iowr_nr};
@@ -407,9 +409,11 @@ fn last_ioctl_error() -> std::io::Error {
 // ---------------------------------------------------------------------------
 
 /// Safe wrapper around the `/dev/nitro_enclaves` device fd.
+///
+/// `Arc<File>` so CMA regions can share the fd via a `FileOffset`.
 #[derive(Debug)]
 pub struct NitroEnclavesDevFd {
-    fd: OwnedFd,
+    fd: Arc<File>,
 }
 
 impl NitroEnclavesDevFd {
@@ -421,9 +425,7 @@ impl NitroEnclavesDevFd {
             .read(true)
             .write(true)
             .open(NE_DEV_PATH)?;
-        Ok(Self {
-            fd: OwnedFd::from(file),
-        })
+        Ok(Self { fd: Arc::new(file) })
     }
 
     /// Allocate CMA memory with a given alignment and protection.
