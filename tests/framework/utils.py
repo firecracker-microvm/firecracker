@@ -169,6 +169,21 @@ def chroot(path):
         os.chdir(working_dir)
 
 
+def parse_cpu_list(cpu_list: str) -> list[int]:
+    """Parse Linux CPU list syntax, e.g. ``0-2,5``."""
+    cpus = []
+    for part in cpu_list.strip().split(","):
+        part = part.strip()
+        if not part:
+            continue
+        if "-" in part:
+            start, end = part.split("-", 1)
+            cpus.extend(range(int(start), int(end) + 1))
+        else:
+            cpus.append(int(part))
+    return cpus
+
+
 class CpuMap:
     """Cpu map from real cpu cores to containers visible cores.
 
