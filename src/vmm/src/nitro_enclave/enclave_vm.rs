@@ -8,7 +8,7 @@
 use std::os::unix::io::AsRawFd;
 use std::sync::{Arc, Mutex};
 
-use vm_memory::{Bytes, GuestAddress, GuestMemoryError};
+use vm_memory::{Bytes, GuestAddress, GuestMemoryBackend, GuestMemoryError, GuestMemoryRegion};
 
 use crate::logger::info;
 use crate::nitro_enclave::cpu_accounting::AccountingThreads;
@@ -16,10 +16,7 @@ use crate::nitro_enclave::info_page::InfoPage;
 use crate::nitro_enclave::ne_ioctl::{EnclaveFd, NitroEnclavesDevFd};
 use crate::nitro_enclave::serial_console::ConsoleReader;
 use crate::utils::u64_to_usize;
-use crate::vstate::memory::{GuestMemoryMmap, GuestRegionMmap, GuestRegionMmapExt, MemoryError};
-
-/// CMA alignment required by the NE hypervisor (2 MiB).
-const ALIGN_2M: usize = 2 * 1024 * 1024;
+use crate::vstate::memory::{GuestMemoryMmap, GuestRegionMmapExt, MemoryError};
 
 /// Errors from enclave VM operations.
 #[derive(Debug, thiserror::Error, displaydoc::Display)]
@@ -36,7 +33,7 @@ pub enum EnclaveVmError {
     /// Failed to set user memory region: {0}
     SetMemoryRegion(std::io::Error),
     /// Failed to revoke parent access to donated enclave memory: {0}
-    Mprotect(std::io::Error),
+    Mprotect(MemoryError),
     /// Failed to get image load info: {0}
     GetImageLoadInfo(std::io::Error),
     /// Failed to start enclave: {0}
@@ -59,7 +56,23 @@ pub enum EnclaveVmError {
     /// Failed to write the EIF image into guest memory: {0}
     WriteImage(GuestMemoryError),
     /// Failed to build guest memory mapping: {0}
+    // FIXME: temporary String; retyped to GuestRegionCollectionError in the
+    // following commit.
     BuildGuestMemory(String),
+}
+
+/// The donated enclave RAM, retained for the `EnclaveVm`'s lifetime so its
+/// owning regions stay mapped until teardown (dropping would `munmap` them).
+#[derive(Debug)]
+enum EnclaveRam {
+    /// Direct mode: shared with the parent, used as device DMA memory.
+    Direct(GuestMemoryMmap),
+    /// Confidential mode: PROT_NONE after donation, isolated from the parent.
+    /// Held only to keep the mapping reserved until drop; never accessed.
+    Confidential {
+        /// Retained for its `Drop` (unmaps the region); not read otherwise.
+        _region: GuestMemoryMmap,
+    },
 }
 
 /// Manages the lifecycle of a Nitro Enclave VM.
@@ -84,8 +97,8 @@ pub struct EnclaveVm {
     dmb_size_mib: Option<u64>,
     /// Info page for PCIE topology mode.
     info_page: Option<Arc<InfoPage>>,
-    /// Cached `GuestMemoryMmap` wrapping the CMA region.
-    guest_memory: Option<GuestMemoryMmap>,
+    /// Donated enclave RAM; `None` until `load_and_add_memory` runs.
+    enclave_ram: Option<EnclaveRam>,
     /// Serial console reader (debug mode only), also polled by the event
     /// manager; kept here so [`Self::flush_console`] can drain it.
     console: Option<Arc<Mutex<ConsoleReader>>>,
@@ -95,7 +108,7 @@ impl std::fmt::Debug for EnclaveVm {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("EnclaveVm")
             .field("info_page", &self.info_page.is_some())
-            .field("guest_memory", &self.guest_memory.is_some())
+            .field("enclave_ram", &self.enclave_ram.is_some())
             .finish()
     }
 }
@@ -147,6 +160,24 @@ impl EnclaveVm {
     #[cfg(target_arch = "x86_64")]
     const HIGH_RAM_BASE: u64 = 0x1_0000_0000;
 
+    /// Split `size` bytes of enclave RAM into `(gpa, size)` regions around the
+    /// PCI MMIO hole: one below `LOW_RAM_MAX_SIZE`, and (if RAM exceeds that) a
+    /// second at `HIGH_RAM_BASE` above the hole. Each region is donated as its
+    /// own owning CMA region; the hypervisor concatenates them in donation order.
+    fn split_ram_regions(size: usize) -> Vec<(GuestAddress, usize)> {
+        if size > Self::LOW_RAM_MAX_SIZE {
+            vec![
+                (GuestAddress(Self::ENCLAVE_RAM_BASE), Self::LOW_RAM_MAX_SIZE),
+                (
+                    GuestAddress(Self::HIGH_RAM_BASE),
+                    size - Self::LOW_RAM_MAX_SIZE,
+                ),
+            ]
+        } else {
+            vec![(GuestAddress(Self::ENCLAVE_RAM_BASE), size)]
+        }
+    }
+
     /// Create a new enclave VM from a pre-opened device fd, issuing
     /// `NE_CREATE_VM2` with `create_flags`.
     ///
@@ -173,7 +204,7 @@ impl EnclaveVm {
             hotplug_enabled,
             dmb_size_mib,
             info_page: None,
-            guest_memory: None,
+            enclave_ram: None,
             console: None,
         })
     }
@@ -229,29 +260,44 @@ impl EnclaveVm {
     /// to the enclave and userspace can no longer access them (in
     /// confidential mode).
     ///
-    /// In direct mode the donated memory is retained (via [`Self::guest_memory`])
-    /// because the parent keeps using it as the devices' DMA memory. In
-    /// confidential mode it is NOT retained: the pages are inaccessible to the
-    /// parent after donation, so keeping a handle would be misleading.
+    /// The donated memory is retained in both modes so its owning mapping stays
+    /// reserved for the enclave's lifetime. Direct mode exposes it via
+    /// [`Self::guest_memory`] as device DMA memory; confidential mode keeps it
+    /// PROT_NONE and inaccessible to the parent.
     pub fn load_and_add_memory(
         &mut self,
         size: usize,
         eif_data: &[u8],
         direct_mode: bool,
     ) -> Result<(), EnclaveVmError> {
-        // Read-write: the EIF is written here before donation, and direct mode
-        // keeps using it as device DMA memory afterwards.
-        let (mem_ptr, aligned_size) = self
-            .dev_fd
-            .allocate_cma_aligned(size, ALIGN_2M, libc::PROT_READ | libc::PROT_WRITE)
-            .map_err(EnclaveVmError::CmaAlloc)?;
-        let aligned_addr = mem_ptr as usize;
+        let ram_regions = Self::split_ram_regions(size);
 
-        info!(
-            "CMA alloc: aligned={:#x} size={} MiB",
-            aligned_addr,
-            aligned_size / (1024 * 1024)
-        );
+        // Allocate one owning CMA region per RAM region and donate each.
+        // Read-write: the EIF is written here before donation, and direct mode
+        // keeps using the regions as device DMA memory afterwards.
+        let regions = ram_regions
+            .iter()
+            .enumerate()
+            .map(|(idx, &(gpa, region_size))| {
+                let region = self
+                    .dev_fd
+                    .allocate_cma_region(gpa, region_size, libc::PROT_READ | libc::PROT_WRITE)
+                    .map_err(EnclaveVmError::CmaAlloc)?;
+                info!(
+                    "CMA alloc: gpa={:#x} host={:#x} size={} MiB",
+                    gpa.0,
+                    region.as_ptr() as usize,
+                    region.len() / (1024 * 1024),
+                );
+                Ok(GuestRegionMmapExt::dram_from_mmap_region(
+                    region,
+                    u32::try_from(idx).expect("region count fits in u32"),
+                ))
+            })
+            .collect::<Result<Vec<_>, EnclaveVmError>>()?;
+
+        let guest_mem = GuestMemoryMmap::from_regions(regions)
+            .map_err(|e| EnclaveVmError::BuildGuestMemory(format!("{e}")))?;
 
         let load_info = self
             .enclave_fd
@@ -259,52 +305,44 @@ impl EnclaveVm {
             .map_err(EnclaveVmError::GetImageLoadInfo)?;
         let offset = u64_to_usize(load_info.memory_offset);
 
-        if offset + eif_data.len() > aligned_size {
+        // The EIF is written into low RAM (guest node 0), which must hold it.
+        let low_size = ram_regions[0].1;
+        if offset + eif_data.len() > low_size {
             return Err(EnclaveVmError::ImageTooLarge {
                 offset: offset as u64,
                 image_size: eif_data.len() as u64,
-                mem_size: aligned_size as u64,
+                mem_size: low_size as u64,
             });
         }
-
-        // Build the guest-memory wrapper to write the EIF into the CMA pages
-        // before donation (the pages are still parent-accessible at this point,
-        // in both modes).
-        let guest_mem = Self::build_guest_memory(mem_ptr, aligned_size)?;
         let dest = GuestAddress(Self::ENCLAVE_RAM_BASE + offset as u64);
         guest_mem
             .write_slice(eif_data, dest)
             .map_err(EnclaveVmError::WriteImage)?;
 
-        self.enclave_fd
-            .set_user_memory_region(aligned_addr as u64, aligned_size as u64)
-            .map_err(EnclaveVmError::SetMemoryRegion)?;
-
-        if direct_mode {
-            // The parent keeps using this mapping as the devices' DMA memory.
-            self.guest_memory = Some(guest_mem);
-        } else {
-            // Donation revoked the parent's access to these pages, so drop the
-            // RW view and PROT_NONE the mapping to match.
-            drop(guest_mem);
-            // SAFETY: `aligned_addr`/`aligned_size` describe the CMA mapping just
-            // donated; mprotect only changes its protection, not its backing.
-            let ret = unsafe {
-                libc::mprotect(
-                    aligned_addr as *mut libc::c_void,
-                    aligned_size,
-                    libc::PROT_NONE,
-                )
-            };
-            if ret < 0 {
-                return Err(EnclaveVmError::Mprotect(std::io::Error::last_os_error()));
-            }
+        // Donate each region separately; the hypervisor concatenates them into
+        // its fixed GPA layout in donation order.
+        for region in guest_mem.iter() {
+            self.enclave_fd
+                .set_user_memory_region(region.as_ptr() as u64, region.len())
+                .map_err(EnclaveVmError::SetMemoryRegion)?;
         }
 
-        // Note: The GuestMemoryMmap wrapping this CMA region uses
-        // `with_raw_mmap_pointer`, which sets owned=false — so its Drop
-        // won't munmap. The NE driver takes ownership of the physical pages
-        // after donation; the VA mapping is cleaned up on process exit.
+        self.enclave_ram = Some(if direct_mode {
+            // Direct mode keeps the regions as the devices' DMA memory.
+            EnclaveRam::Direct(guest_mem)
+        } else {
+            // Donation revoked the parent's access, so PROT_NONE each region to
+            // match. The region is retained (not dropped): its owning mapping
+            // must stay reserved for the enclave's lifetime, since dropping
+            // would munmap and free the VA back to the parent.
+            for region in guest_mem.iter() {
+                for slot in region.plugged_slots() {
+                    slot.protect(true).map_err(EnclaveVmError::Mprotect)?;
+                }
+            }
+            EnclaveRam::Confidential { _region: guest_mem }
+        });
+
         Ok(())
     }
 
@@ -369,7 +407,10 @@ impl EnclaveVm {
     /// the enclave RAM is isolated after donation, and devices use per-device
     /// DMBs instead.
     pub fn guest_memory(&self) -> Option<&GuestMemoryMmap> {
-        self.guest_memory.as_ref()
+        match &self.enclave_ram {
+            Some(EnclaveRam::Direct(mem)) => Some(mem),
+            Some(EnclaveRam::Confidential { .. }) | None => None,
+        }
     }
 
     /// Allocate a Device Memory Buffer (DMB) for a confidential-mode device.
@@ -392,112 +433,35 @@ impl EnclaveVm {
         GuestMemoryMmap::from_regions(vec![GuestRegionMmapExt::dram_from_mmap_region(region, 0)])
             .map_err(|e| EnclaveVmError::BuildGuestMemory(format!("{e}")))
     }
-
-    /// Wrap a (ptr, size, gpa) triple into a `GuestRegionMmapExt`.
-    ///
-    /// # Safety
-    ///
-    /// `ptr` must be valid for `size` bytes and must not be munmap'd for
-    /// the lifetime of the returned region.
-    pub unsafe fn make_guest_region(
-        ptr: *mut u8,
-        size: usize,
-        gpa: GuestAddress,
-        idx: u32,
-    ) -> Result<GuestRegionMmapExt, EnclaveVmError> {
-        // Wrap the externally-owned CMA mapping WITHOUT taking ownership: the NE
-        // driver (donated RAM) or the caller (Dmb/InfoPage) owns the mapping and
-        // unmaps it, so `from_raw_ptr` builds an owned=false region whose Drop
-        // does not munmap.
-        // SAFETY: caller guarantees ptr is valid for size bytes and stays mapped.
-        let guest_region = unsafe {
-            GuestRegionMmap::from_raw_ptr(
-                ptr,
-                size,
-                gpa,
-                libc::PROT_READ | libc::PROT_WRITE,
-                libc::MAP_SHARED,
-            )
-            .map_err(|e| EnclaveVmError::BuildGuestMemory(format!("{e}")))?
-        };
-        Ok(GuestRegionMmapExt::dram_from_mmap_region(guest_region, idx))
-    }
-
-    /// Build a `GuestMemoryMmap` wrapping a raw CMA pointer.
-    ///
-    /// The guest physical address must match where the NE hypervisor maps
-    /// enclave RAM, so that virtio queue addresses from the enclave guest
-    /// resolve correctly against this memory region.
-    ///
-    /// When RAM exceeds `LOW_RAM_MAX_SIZE`, splits it into two regions
-    /// around the PCI MMIO hole (see layout comment above).
-    pub(crate) fn build_guest_memory(
-        mem_ptr: *mut u8,
-        size: usize,
-    ) -> Result<GuestMemoryMmap, EnclaveVmError> {
-        let ram_base = GuestAddress(Self::ENCLAVE_RAM_BASE);
-        let regions = if size > Self::LOW_RAM_MAX_SIZE {
-            let low_size = Self::LOW_RAM_MAX_SIZE;
-            let high_size = size - low_size;
-            // SAFETY: mem_ptr is valid for `size` bytes (mmap'd in
-            // load_and_add_memory, not munmap'd). ptr.add(low_size) is
-            // within the same allocation since low_size < size.
-            unsafe {
-                vec![
-                    Self::make_guest_region(mem_ptr, low_size, ram_base, 0)?,
-                    Self::make_guest_region(
-                        mem_ptr.add(low_size),
-                        high_size,
-                        GuestAddress(Self::HIGH_RAM_BASE),
-                        1,
-                    )?,
-                ]
-            }
-        } else {
-            // SAFETY: mem_ptr is valid for `size` bytes (see above).
-            unsafe { vec![Self::make_guest_region(mem_ptr, size, ram_base, 0)?] }
-        };
-
-        GuestMemoryMmap::from_regions(regions)
-            .map_err(|e| EnclaveVmError::BuildGuestMemory(format!("{e}")))
-    }
 }
 
 #[cfg(test)]
 mod tests {
+    use proptest::prelude::*;
+
     use super::*;
 
-    use vm_memory::GuestMemoryBackend;
+    proptest! {
+        // Span sizes below, at, and well above the MMIO hole so both the
+        // single-region and split cases (incl. the boundary) are exercised.
+        #[test]
+        fn test_split_ram_regions(size in 1usize..=(EnclaveVm::LOW_RAM_MAX_SIZE * 2)) {
+            let ram_regions = EnclaveVm::split_ram_regions(size);
 
-    fn alloc_test_memory(size: usize) -> *mut u8 {
-        // SAFETY: MAP_ANONYMOUS mmap always returns a valid mapping on success.
-        let ptr = unsafe {
-            libc::mmap(
-                std::ptr::null_mut(),
-                size,
-                libc::PROT_READ | libc::PROT_WRITE,
-                libc::MAP_ANONYMOUS | libc::MAP_PRIVATE,
-                -1,
-                0,
-            )
-        };
-        assert_ne!(ptr, libc::MAP_FAILED);
-        ptr.cast::<u8>()
-    }
+            // The regions exactly cover `size`, low region first at the RAM base.
+            let total: usize = ram_regions.iter().map(|&(_, s)| s).sum();
+            prop_assert_eq!(total, size);
+            prop_assert_eq!(ram_regions[0].0, GuestAddress(EnclaveVm::ENCLAVE_RAM_BASE));
+            prop_assert!(ram_regions[0].1 <= EnclaveVm::LOW_RAM_MAX_SIZE);
 
-    #[test]
-    fn test_build_guest_memory_single_region() {
-        let size = 512 * 1024 * 1024; // 512 MiB, below LOW_RAM_MAX_SIZE
-        let ptr = alloc_test_memory(size);
-        let mem = EnclaveVm::build_guest_memory(ptr, size).unwrap();
-        assert_eq!(mem.num_regions(), 1);
-    }
-
-    #[test]
-    fn test_build_guest_memory_split_regions() {
-        let size = EnclaveVm::LOW_RAM_MAX_SIZE + 2 * 1024 * 1024;
-        let ptr = alloc_test_memory(size);
-        let mem = EnclaveVm::build_guest_memory(ptr, size).unwrap();
-        assert_eq!(mem.num_regions(), 2);
+            if size > EnclaveVm::LOW_RAM_MAX_SIZE {
+                // Split around the hole: low region fills it, overflow lands high.
+                prop_assert_eq!(ram_regions.len(), 2);
+                prop_assert_eq!(ram_regions[0].1, EnclaveVm::LOW_RAM_MAX_SIZE);
+                prop_assert_eq!(ram_regions[1].0, GuestAddress(EnclaveVm::HIGH_RAM_BASE));
+            } else {
+                prop_assert_eq!(ram_regions.len(), 1);
+            }
+        }
     }
 }
