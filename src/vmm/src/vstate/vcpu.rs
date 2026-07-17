@@ -893,6 +893,9 @@ pub(crate) mod tests {
         let entry_point = EntryPoint {
             entry_addr: load_good_kernel(vm.guest_memory()),
             protocol: BootProtocol::LinuxBoot,
+            // `setup_header` is only a field of `EntryPoint` on x86_64.
+            #[cfg(target_arch = "x86_64")]
+            setup_header: None,
         };
 
         #[cfg(target_arch = "x86_64")]
