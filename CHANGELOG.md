@@ -22,6 +22,10 @@ and this project adheres to
   will use transparent huge pages for the guest memory via
   `madvise(MADV_HUGEPAGE)`. Guest memory must be a multiple of 2MB when using
   this option.
+- [#6037](https://github.com/firecracker-microvm/firecracker/pull/6037): Added
+  support for booting `bzImage` guest kernels on x86_64, in addition to the
+  existing uncompressed ELF (`vmlinux`) images. The kernel image format is
+  detected automatically, so no configuration change is required.
 
 ### Changed
 
