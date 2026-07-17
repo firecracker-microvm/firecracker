@@ -273,6 +273,22 @@ impl EnclaveVm {
     ) -> Result<(), EnclaveVmError> {
         let ram_regions = Self::split_ram_regions(size);
 
+        // Verify the EIF fits in low RAM (guest node 0) before allocating any
+        // CMA, so an oversized image fails cheaply.
+        let load_info = self
+            .enclave_fd
+            .get_image_load_info()
+            .map_err(EnclaveVmError::GetImageLoadInfo)?;
+        let offset = u64_to_usize(load_info.memory_offset);
+        let low_size = ram_regions[0].1;
+        if offset + eif_data.len() > low_size {
+            return Err(EnclaveVmError::ImageTooLarge {
+                offset: offset as u64,
+                image_size: eif_data.len() as u64,
+                mem_size: low_size as u64,
+            });
+        }
+
         // Allocate one owning CMA region per RAM region and donate each.
         // Read-write: the EIF is written here before donation, and direct mode
         // keeps using the regions as device DMA memory afterwards.
@@ -300,21 +316,6 @@ impl EnclaveVm {
         let guest_mem =
             GuestMemoryMmap::from_regions(regions).map_err(EnclaveVmError::BuildGuestMemory)?;
 
-        let load_info = self
-            .enclave_fd
-            .get_image_load_info()
-            .map_err(EnclaveVmError::GetImageLoadInfo)?;
-        let offset = u64_to_usize(load_info.memory_offset);
-
-        // The EIF is written into low RAM (guest node 0), which must hold it.
-        let low_size = ram_regions[0].1;
-        if offset + eif_data.len() > low_size {
-            return Err(EnclaveVmError::ImageTooLarge {
-                offset: offset as u64,
-                image_size: eif_data.len() as u64,
-                mem_size: low_size as u64,
-            });
-        }
         let dest = GuestAddress(Self::ENCLAVE_RAM_BASE + offset as u64);
         guest_mem
             .write_slice(eif_data, dest)
