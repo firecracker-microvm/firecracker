@@ -9,10 +9,12 @@ use std::fs::File;
 use std::os::unix::io::{AsRawFd, FromRawFd, OwnedFd, RawFd};
 use std::sync::Arc;
 
+use vm_memory::mmap::MmapRegionError;
 use vmm_sys_util::ioctl::{ioctl_with_mut_ref, ioctl_with_ref};
 use vmm_sys_util::{ioctl_ior_nr, ioctl_iow_nr, ioctl_iowr_nr};
 
 use crate::align_up;
+use crate::vstate::memory::MemoryError;
 
 /// Path to the Nitro Enclaves device node.
 const NE_DEV_PATH: &str = "/dev/nitro_enclaves";
@@ -441,11 +443,11 @@ impl NitroEnclavesDevFd {
         size: usize,
         alignment: usize,
         prot: libc::c_int,
-    ) -> Result<(*mut u8, usize), std::io::Error> {
+    ) -> Result<(*mut u8, usize), MemoryError> {
         let aligned_size = align_up!(size, alignment);
         let reserve_size = aligned_size
             .checked_add(alignment)
-            .ok_or_else(|| std::io::Error::other("CMA reservation size overflow"))?;
+            .ok_or(MemoryError::OffsetTooLarge)?;
 
         // Step 1: Reserve VA space for alignment.
         // SAFETY: MAP_ANONYMOUS mmap with PROT_NONE; reserves VA space only.
@@ -460,7 +462,9 @@ impl NitroEnclavesDevFd {
             )
         };
         if reserve_ptr == libc::MAP_FAILED {
-            return Err(std::io::Error::last_os_error());
+            return Err(MemoryError::MmapRegionError(MmapRegionError::Mmap(
+                std::io::Error::last_os_error(),
+            )));
         }
 
         // Step 2: Find aligned address within the reservation.
@@ -485,7 +489,7 @@ impl NitroEnclavesDevFd {
             let err = std::io::Error::last_os_error();
             // SAFETY: reserve_ptr/reserve_size are from our earlier mmap.
             unsafe { libc::munmap(reserve_ptr, reserve_size) };
-            return Err(err);
+            return Err(MemoryError::MmapRegionError(MmapRegionError::Mmap(err)));
         }
 
         // Unmap the unused prefix and suffix of the reservation.
