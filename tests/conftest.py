@@ -118,12 +118,49 @@ def pytest_report_header():
 
 
 @pytest.hookimpl(trylast=True)
-def pytest_collection_modifyitems(items):
-    """Fail only when the selected tests require an unavailable VM backend."""
-    if not available_vm_backends() and any(
+def pytest_collection_modifyitems(config, items):
+    """Remove unsupported VM parameterisations from collection.
+
+    Fail cleanly when selected tests require a VM backend but this host has
+    none. Otherwise deselect what cannot run here: availability is a host
+    fact decided below, and each backend answers for the parametrisations it
+    cannot express.
+    """
+    available_backends = set(available_vm_backends())
+    if not available_backends and any(
         "vm_backend" in getattr(item, "fixturenames", ()) for item in items
     ):
         pytest.exit("No VM backends are available on this host", returncode=5)
+
+    selected = []
+    deselected = []
+
+    for item in items:
+        callspec = getattr(item, "callspec", None)
+        params = callspec.params if callspec is not None else {}
+        backend = params.get("vm_backend")
+
+        # Tests that don't require a VM to run (e.g. style tests) should always be collected.
+        if backend is None:
+            selected.append(item)
+            continue
+
+        backend = get_vm_backend(backend)
+        if backend not in available_backends:
+            deselected.append(item)
+        elif backend.deselect_reason(
+            kernel=params.get("guest_kernel"),
+            pci_enabled=params.get("pci_enabled"),
+            huge_pages=params.get("huge_pages"),
+            lifecycle=params.get("uvm_lifecycle"),
+        ):
+            deselected.append(item)
+        else:
+            selected.append(item)
+
+    if deselected:
+        config.hook.pytest_deselected(items=deselected)
+        items[:] = selected
 
 
 @pytest.hookimpl(wrapper=True, tryfirst=True)
@@ -594,7 +631,8 @@ def vm_backend(request, record_property):
     By default a test is auto-multiplied only over the backends this host can
     actually run (`available_vm_backends`), so e.g. a KVM-only host generates no
     enclave variants. A test pinned with `pin_vm_backend` to a backend the host
-    lacks fails at fixture setup.
+    lacks is deselected during collection, so an unavailable backend reaching
+    fixture setup means that filtering failed: fail loudly rather than skip.
     """
     if request.param not in available_vm_backends():
         pytest.fail(f"Backend {request.param!r} not available on this host")

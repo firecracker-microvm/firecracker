@@ -12,6 +12,7 @@ import pytest
 
 from framework.utils import parse_cpu_list
 from framework.utils_hugepages import HugePagesConfig
+from framework.vm_lifecycle import VmLifecycle
 
 NE_DEV_PATH = Path("/dev/nitro_enclaves")
 NE_CPUS_PATH = Path("/sys/module/nitro_enclaves/parameters/ne_cpus")
@@ -104,11 +105,31 @@ def get_enclave_info():
 def enclave_host_available():
     """Whether this host can run Nitro Enclave microVMs.
 
-    Requires the NE device, a configured CPU pool, and the NE matched
-    flags that Firecracker requests when creating enclaves.
+    Return ``False`` when the NE device is absent. If the device is present,
+    fail loudly when its driver state cannot support enclave tests.
     """
     info = get_enclave_info()
-    return info is not None and info.has_cpu_pool and info.has_required_flags
+    if info is None:
+        if NE_DEV_PATH.exists():
+            raise EnclaveConfigError(
+                f"Nitro Enclaves device {NE_DEV_PATH} could not be probed"
+            )
+        return False
+
+    errors = []
+    if not info.has_required_flags:
+        missing_flags = NE_REQUIRED_FLAGS & ~info.supported_flags
+        errors.append(
+            "Nitro Enclaves driver is missing required flags: "
+            f"missing=0x{missing_flags:04x}, "
+            f"supported=0x{info.supported_flags:04x}, "
+            f"required=0x{NE_REQUIRED_FLAGS:04x}"
+        )
+    if not info.has_cpu_pool:
+        errors.append("Nitro Enclaves CPU pool is not configured")
+    if errors:
+        raise EnclaveConfigError("; ".join(errors))
+    return True
 
 
 # The functions below implement the basic_config / start verbs for the enclave
@@ -120,11 +141,34 @@ def enclave_host_available():
 
 
 class EnclaveConfigError(AssertionError):
-    """A test asked an enclave backend for a config it cannot express.
+    """An enclave backend or host configuration cannot support an operation.
 
-    Raised (not skipped) so a missing ``@pin_vm_backend(VM_BACKEND_KVM)`` on a
-    KVM-only test surfaces as a failure rather than a silently dropped variant.
+    Raised (not skipped) so a KVM-only test missing
+    ``@pin_vm_backend(VM_BACKEND_KVM)`` and a misconfigured enclave host both
+    surface as failures rather than silently dropping enclave variants.
     """
+
+
+def enclave_deselect_reason(*, kernel, pci_enabled, huge_pages, lifecycle):
+    """Why an enclave backend cannot run a parametrisation, or ``None``.
+
+    An enclave cannot restore snapshots, boots an EIF image over PCI, and
+    donates its guest memory to the NE driver. It therefore cannot express
+    MMIO or huge-page modes and needs an ACPI guest kernel. A kernel whose EFI
+    boot image is merely absent from the artifact set is not deselected: that
+    artifact gap stays visible as a runtime skip (see
+    ``VmBackend.kernel_image_for``).
+    """
+    if lifecycle is VmLifecycle.RESTORED:
+        return "Enclave backend does not support snapshot restore"
+
+    if pci_enabled is False:
+        return "enclave backends boot EIF images over PCI only"
+    if huge_pages is not None and huge_pages != HugePagesConfig.NONE:
+        return "NE donated memory cannot express huge-page modes"
+    if kernel is not None and not kernel.acpi:
+        return "enclave backends require an ACPI guest kernel"
+    return None
 
 
 def enclave_basic_config(
