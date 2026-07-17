@@ -429,26 +429,6 @@ def test_enclave_vsock(uvm_configured):
         sock.close()
 
 
-@pytest.mark.parametrize("mem_size_mib", [1024], ids=["1024mb"], indirect=True)
-def test_enclave_many_devices(uvm_configured):
-    """Boot an enclave with many devices and verify they all activate.
-
-    Attaches a root block device plus NICs up to the per-enclave device ceiling
-    and verifies every NIC activates in the guest.
-    """
-    # One slot is taken by the root block device. First NIC is used for SSH;
-    # the rest stress the device count.
-    num_net_devices = MAX_ENCLAVE_DEVICES - 1
-
-    vm = uvm_configured
-    for _ in range(num_net_devices):
-        vm.add_net_iface()
-    vm.start(debug_mode=True)
-
-    out = vm.ssh.check_output("ls -1 /sys/class/net | grep -c eth").stdout.strip()
-    assert int(out) == num_net_devices, f"expected {num_net_devices} NICs, found {out}"
-
-
 # ---------------------------------------------------------------------------
 # Test: block device config update (drive resize)
 # ---------------------------------------------------------------------------

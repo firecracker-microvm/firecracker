@@ -14,6 +14,10 @@ def max_devices(uvm):
     """
     Returns the maximum number of devices supported by the platform.
     """
+    if uvm.backend.is_enclave:
+        # Nitro Enclaves support up to 32 devices.
+        return 32
+
     if uvm.pci_enabled:
         # On PCI, we only have one bus, so 32 minus the bus itself
         return 31
@@ -40,8 +44,8 @@ def test_attach_maximum_devices(uvm):
     test_microvm.memory_monitor = None
     test_microvm.spawn()
 
-    # The default 256mib is not enough for 94 ssh connections on aarch64.
-    test_microvm.basic_config(mem_size_mib=512)
+    mem_size_mib = 1024
+    test_microvm.basic_config(mem_size_mib=mem_size_mib)
 
     max_devices_attached = max_devices(test_microvm)
     # Add (`MAX_DEVICES_ATTACHED` - 1) devices because the rootfs
