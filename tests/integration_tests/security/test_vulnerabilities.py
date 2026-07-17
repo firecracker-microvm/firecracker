@@ -7,6 +7,7 @@
 """Tests vulnerabilities mitigations."""
 
 import json
+import re
 from pathlib import Path
 
 import pytest
@@ -159,7 +160,7 @@ def get_vuln_files_exception_dict(template):
     # correctly. Here we expect the common string "Clear CPU buffers" to cover both cases.
 
     if template == "T2S":
-        exception_dict["mmio_stale_data"] = "Clear CPU buffers"
+        exception_dict["mmio_stale_data"] = r"Clear CPU buffers"
 
     return exception_dict
 
@@ -186,7 +187,10 @@ def check_vulnerabilities_files_on_guest(microvm):
         filename = Path(vuln_file).name
         if filename in exceptions:
             _, stdout, _ = microvm.ssh.check_output(f"cat {vuln_file}")
-            assert exceptions[filename] in stdout
+            assert re.search(exceptions[filename], stdout), (
+                f"{vuln_file}: content '{stdout.strip()}' does not match "
+                f"expected pattern r'{exceptions[filename]}'"
+            )
         else:
             cmd = f"grep Vulnerable {vuln_file}"
             _ecode, stdout, _stderr = microvm.ssh.run(cmd)
