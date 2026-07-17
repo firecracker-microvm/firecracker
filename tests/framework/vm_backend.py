@@ -15,6 +15,7 @@ from framework.artifacts import GuestKernel
 from framework.enclave import (
     EnclaveConfigError,
     enclave_basic_config,
+    enclave_deselect_reason,
     enclave_host_available,
     enclave_prepare_start,
 )
@@ -75,6 +76,25 @@ class VmBackend(str, Enum):
                 return kvm_probe_details()
             case VmBackend.ENCLAVE_DIRECT | VmBackend.ENCLAVE_CONFIDENTIAL:
                 return {}
+            case _:
+                raise AssertionError(f"Unhandled VM backend: {self!r}")
+
+    def deselect_reason(self, *, kernel, pci_enabled, huge_pages, lifecycle):
+        """Why this backend cannot run a parametrisation, or ``None``.
+
+        Consulted at collection time so impossible variants are deselected
+        instead of skipped during fixture setup.
+        """
+        match self:
+            case VmBackend.KVM:
+                return None
+            case VmBackend.ENCLAVE_DIRECT | VmBackend.ENCLAVE_CONFIDENTIAL:
+                return enclave_deselect_reason(
+                    kernel=kernel,
+                    pci_enabled=pci_enabled,
+                    huge_pages=huge_pages,
+                    lifecycle=lifecycle,
+                )
             case _:
                 raise AssertionError(f"Unhandled VM backend: {self!r}")
 
