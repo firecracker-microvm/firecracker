@@ -8,7 +8,7 @@
 use std::os::unix::io::AsRawFd;
 use std::sync::{Arc, Mutex};
 
-use vm_memory::{Bytes, GuestAddress};
+use vm_memory::{Bytes, GuestAddress, GuestMemoryError};
 
 use crate::logger::info;
 use crate::nitro_enclave::cpu_accounting::AccountingThreads;
@@ -17,7 +17,7 @@ use crate::nitro_enclave::info_page::InfoPage;
 use crate::nitro_enclave::ne_ioctl::{EnclaveFd, NitroEnclavesDevFd};
 use crate::nitro_enclave::serial_console::ConsoleReader;
 use crate::utils::u64_to_usize;
-use crate::vstate::memory::{GuestMemoryMmap, GuestRegionMmap, GuestRegionMmapExt};
+use crate::vstate::memory::{GuestMemoryMmap, GuestRegionMmap, GuestRegionMmapExt, MemoryError};
 
 /// CMA alignment required by the NE hypervisor (2 MiB).
 const ALIGN_2M: usize = 2 * 1024 * 1024;
@@ -56,7 +56,9 @@ pub enum EnclaveVmError {
     /// Failed to register info page: {0}
     InfoPageRegister(crate::nitro_enclave::info_page::InfoPageError),
     /// Failed to allocate CMA memory: {0}
-    CmaAlloc(std::io::Error),
+    CmaAlloc(MemoryError),
+    /// Failed to write the EIF image into guest memory: {0}
+    WriteImage(GuestMemoryError),
     /// Failed to build guest memory mapping: {0}
     BuildGuestMemory(String),
 }
@@ -273,7 +275,7 @@ impl EnclaveVm {
         let dest = GuestAddress(Self::ENCLAVE_RAM_BASE + offset as u64);
         guest_mem
             .write_slice(eif_data, dest)
-            .map_err(|e| EnclaveVmError::CmaAlloc(std::io::Error::other(e)))?;
+            .map_err(EnclaveVmError::WriteImage)?;
 
         self.enclave_fd
             .set_user_memory_region(aligned_addr as u64, aligned_size as u64)

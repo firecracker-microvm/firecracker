@@ -16,6 +16,7 @@ use vm_memory::{ByteValued, Bytes, VolatileSlice, WriteVolatile};
 use super::ne_ioctl::EnclaveFd;
 use crate::logger::warn;
 use crate::utils::u64_to_usize;
+use crate::vstate::memory::MemoryError;
 
 /// Info page magic number (`NISC` in little-endian).
 pub const INFO_PAGE_MAGIC: u32 = 0x5343_494E;
@@ -298,7 +299,7 @@ const _: () = assert!(
 #[derive(Debug, thiserror::Error, displaydoc::Display)]
 pub enum InfoPageError {
     /// mmap allocation failed: {0}
-    Alloc(io::Error),
+    Alloc(MemoryError),
     /// NE_SET_INFO_PAGE ioctl failed: {0}
     Register(io::Error),
     /// invalid info page header magic
@@ -345,6 +346,8 @@ impl InfoPage {
     /// Allocate a 2 MiB-aligned info page for testing without a real NE device.
     #[cfg(test)]
     pub fn allocate_anonymous() -> Result<Self, InfoPageError> {
+        use vm_memory::mmap::MmapRegionError;
+
         // SAFETY: mmap with MAP_ANONYMOUS|MAP_HUGETLB returns a 2 MiB-aligned mapping.
         let ptr = unsafe {
             libc::mmap(
@@ -357,7 +360,9 @@ impl InfoPage {
             )
         };
         if ptr == libc::MAP_FAILED {
-            return Err(InfoPageError::Alloc(io::Error::last_os_error()));
+            return Err(InfoPageError::Alloc(MemoryError::MmapRegionError(
+                MmapRegionError::Mmap(io::Error::last_os_error()),
+            )));
         }
         // SAFETY: ptr is valid for INFO_PAGE_SIZE bytes.
         unsafe { std::ptr::write_bytes(ptr.cast::<u8>(), 0, INFO_PAGE_SIZE) };
