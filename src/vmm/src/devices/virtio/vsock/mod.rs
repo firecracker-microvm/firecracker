@@ -22,7 +22,7 @@ mod unix;
 
 use std::os::unix::io::AsRawFd;
 
-use vm_memory::GuestMemoryError;
+use vm_memory::{GuestMemoryError, VolatileMemoryError};
 use vmm_sys_util::epoll::EventSet;
 
 pub use self::defs::VSOCK_DEV_ID;
@@ -32,6 +32,8 @@ pub use self::unix::{VsockUnixBackend, VsockUnixBackendError};
 use super::iov_deque::IovDequeError;
 use crate::devices::virtio::iovec::IoVecError;
 use crate::devices::virtio::persist::PersistError as VirtioStateError;
+use crate::devices::virtio::vsock::unix::ReadResult;
+use crate::vmm_config::vsock::VsockType;
 
 mod defs {
     use crate::devices::virtio::queue::FIRECRACKER_MAX_QUEUE_SIZE;
@@ -84,8 +86,10 @@ mod defs {
         /// Vsock packet type.
         /// Defined in `/include/uapi/linux/virtio_vsock.h`.
         ///
-        /// Stream / connection-oriented packet (the only currently valid type).
+        /// Stream / connection-oriented packet.
         pub const VSOCK_TYPE_STREAM: u16 = 1;
+        /// Seqpacket based connection
+        pub const VSOCK_TYPE_SEQPACKET: u16 = 2;
 
         pub const VSOCK_HOST_CID: u64 = 2;
     }
@@ -128,6 +132,8 @@ pub enum VsockError {
     IovDeque(IovDequeError),
     /// Tried to push to full IovDeque.
     IovDequeOverflow,
+    /// Message too big for the intermediate connection buffer. buffer length {0}, incoming size {1}
+    MessageTooLong(usize, usize),
 }
 
 impl From<IoVecError> for VsockError {
@@ -155,6 +161,11 @@ pub trait VsockEpollListener: AsRawFd {
     fn notify(&mut self, evset: EventSet);
 }
 
+/// An object that can inform its callers on its underlying vsock protocol.
+pub trait Save {
+    fn save(&self) -> &VsockType;
+}
+
 /// Any channel that handles vsock packet traffic: sending and receiving packets. Since we're
 /// implementing the device model here, our responsibility is to always process the sending of
 /// packets (i.e. the TX queue). So, any locally generated data, addressed to the driver (e.g.
@@ -166,7 +177,7 @@ pub trait VsockEpollListener: AsRawFd {
 ///       - `send_pkt(&pkt)` will fetch data from `pkt`, and place it into the channel.
 pub trait VsockChannel {
     /// Read/receive an incoming packet from the channel.
-    fn recv_pkt(&mut self, pkt: &mut VsockPacketRx) -> Result<(), VsockError>;
+    fn recv_pkt(&mut self, pkt: &mut VsockPacketRx) -> Result<ReadResult, VsockError>;
 
     /// Write/send a packet through the channel.
     ///
@@ -183,7 +194,7 @@ pub trait VsockChannel {
 /// The vsock backend, which is basically an epoll-event-driven vsock channel.
 /// Currently, the only implementation we have is `crate::devices::virtio::unix::muxer::VsockMuxer`,
 /// which translates guest-side vsock connections to host-side Unix domain socket connections.
-pub trait VsockBackend: VsockChannel + VsockEpollListener + Send {
+pub trait VsockBackend: VsockChannel + VsockEpollListener + Send + Save {
     /// Activate the backend, adding its listeners to the poll set.
     fn activate(&mut self) -> Result<(), VsockError>;
 

@@ -6,6 +6,7 @@
 use std::fmt::Debug;
 use std::sync::Arc;
 
+use crate::vmm_config::vsock::deserialize_conn_buffer_size;
 use serde::{Deserialize, Serialize};
 
 use super::*;
@@ -14,6 +15,7 @@ use crate::devices::virtio::persist::VirtioDeviceState;
 use crate::devices::virtio::queue::FIRECRACKER_MAX_QUEUE_SIZE;
 use crate::devices::virtio::transport::VirtioInterrupt;
 use crate::snapshot::Persist;
+use crate::vmm_config::vsock::VsockType;
 use crate::vstate::memory::GuestMemoryMmap;
 
 /// The Vsock serializable state.
@@ -40,6 +42,12 @@ pub struct VsockBackendState {
     pub uds_path: String,
     /// The last used host-side port.
     pub local_port_last: u32,
+    #[serde(default)]
+    pub vsock_type: VsockType,
+    #[serde(default)]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(deserialize_with = "deserialize_conn_buffer_size")]
+    pub conn_buffer_size: Option<usize>,
 }
 
 /// A helper structure that holds the constructor arguments for VsockUnixBackend
@@ -67,6 +75,8 @@ impl Persist<'_> for VsockUnixBackend {
         VsockBackendState {
             uds_path: self.host_sock_path.clone(),
             local_port_last: self.local_port_last,
+            vsock_type: self.vsock_type.clone(),
+            conn_buffer_size: self.conn_buffer_size,
         }
     }
 
@@ -74,7 +84,12 @@ impl Persist<'_> for VsockUnixBackend {
         constructor_args: Self::ConstructorArgs,
         state: &Self::State,
     ) -> Result<Self, Self::Error> {
-        let mut backend = Self::new(constructor_args.cid, state.uds_path.clone())?;
+        let mut backend = Self::new(
+            constructor_args.cid,
+            state.uds_path.clone(),
+            state.vsock_type.clone(),
+            state.conn_buffer_size,
+        )?;
         backend.local_port_last = state.local_port_last;
         Ok(backend)
     }
@@ -109,7 +124,9 @@ where
                 FIRECRACKER_MAX_QUEUE_SIZE,
             )
             .map_err(VsockError::VirtioState)?;
-        let mut vsock = Self::with_queues(state.cid, constructor_args.backend, queues)?;
+        let backend_type = constructor_args.backend.save().clone();
+        let mut vsock =
+            Self::with_queues(state.cid, constructor_args.backend, &backend_type, queues)?;
 
         vsock.acked_features = state.virtio_state.acked_features;
         vsock.avail_features = state.virtio_state.avail_features;
@@ -122,6 +139,7 @@ where
 pub(crate) mod tests {
     use super::device::AVAIL_FEATURES;
     use super::*;
+    use crate::Persist;
     use crate::devices::virtio::device::VirtioDevice;
     use crate::devices::virtio::test_utils::default_interrupt;
     use crate::devices::virtio::vsock::defs::uapi;
@@ -137,6 +155,8 @@ pub(crate) mod tests {
             VsockBackendState {
                 uds_path: "test".to_owned(),
                 local_port_last: 0xdeadbeef,
+                vsock_type: VsockType::Stream,
+                conn_buffer_size: None,
             }
         }
 
@@ -162,7 +182,7 @@ pub(crate) mod tests {
         // Test serialization
         // Save backend and device state separately.
         let state = VsockState {
-            backend: ctx.device.backend().save(),
+            backend: Persist::save(ctx.device.backend()),
             frontend: ctx.device.save(),
         };
 
