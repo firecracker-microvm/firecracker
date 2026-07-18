@@ -761,6 +761,21 @@ impl<'a> LatencyMetricsRecorder<'a> {
             metric,
         }
     }
+    /// A latency recorder that isn't bound to a particular metrics instance
+    /// through a reference. Its the caller's responsibility to provide the
+    /// instance they wanna record into
+    pub fn record_into(start_time: u64, metric: &LatencyAggregateMetrics) {
+        let delta_us = get_time_us(ClockType::Monotonic) - start_time;
+        metric.sum_us.add(delta_us);
+        let min_us = metric.min_us.fetch();
+        let max_us = metric.max_us.fetch();
+        if (0 == min_us) || (min_us > delta_us) {
+            metric.min_us.store(delta_us);
+        }
+        if (0 == max_us) || (max_us < delta_us) {
+            metric.max_us.store(delta_us);
+        }
+    }
 }
 impl Drop for LatencyMetricsRecorder<'_> {
     /// records aggregate (min/max/sum) for the given metric
@@ -807,6 +822,7 @@ impl LatencyAggregateMetrics {
     /// 1st for start_time_us = get_time_us()
     /// 2nd for delta_time_us = get_time_us() - start_time; and metrics.store(delta_time_us)
     /// we have just `_m = metrics.record_latency_metrics()`
+    #[must_use]
     pub fn record_latency_metrics(&self) -> LatencyMetricsRecorder<'_> {
         LatencyMetricsRecorder::new(self)
     }
