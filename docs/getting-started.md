@@ -322,12 +322,8 @@ ssh -i $KEY_NAME root@172.16.0.2  "ip route add default via 172.16.0.1 dev eth0"
 # Setup DNS resolution in the guest
 ssh -i $KEY_NAME root@172.16.0.2  "echo 'nameserver 8.8.8.8' > /etc/resolv.conf"
 
-# This guide only configures IPv4 networking for the guest. If the host has
-# IPv6 connectivity, glibc's resolver will attempt parallel A/AAAA lookups by
-# default, and the IPv6 attempt will stall until it times out before falling
-# back to IPv4, adding several seconds of delay to every DNS lookup. Setting
-# `single-request-reopen` makes the resolver perform the A and AAAA queries
-# sequentially over separate sockets instead, avoiding the stall.
+# glibc resolves A/AAAA in parallel; on an IPv6-connected host the AAAA query
+# can stall on host NAT, adding seconds per lookup.
 ssh -i $KEY_NAME root@172.16.0.2  "echo 'options single-request-reopen' >> /etc/resolv.conf"
 
 # SSH into the microVM
