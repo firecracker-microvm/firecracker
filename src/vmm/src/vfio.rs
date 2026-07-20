@@ -8,7 +8,9 @@ use std::sync::{Arc, Barrier, Mutex};
 
 use arrayvec::ArrayVec;
 use bitflags::bitflags;
-use kvm_bindings::kvm_userspace_memory_region;
+use kvm_bindings::{
+    kvm_create_device, kvm_device_type_KVM_DEV_TYPE_VFIO, kvm_userspace_memory_region,
+};
 use vfio_bindings::bindings::vfio::*;
 pub use vfio_ioctls::{
     VfioContainer, VfioDevice as InternalVfioDevice, VfioDeviceFd, VfioRegionInfoCap,
@@ -65,6 +67,8 @@ pub enum VfioError {
     MsixConfig(#[from] InterruptError),
     /// Device does not provide MSIx irq
     NoMsixIrq,
+    /// KVM failed to create KVM_DEV_TYPE_VFIO device: {0}
+    KVMCreateVfioDevice(kvm_ioctls::Error),
     /// vfio-ioctls crate error: {0}
     VfioIoctls(#[from] vfio_ioctls::VfioError),
     /// BAR{0} MSI-X table at offset {1:#x} size {2:#x} does not fit in region of size {3:#x}
@@ -1507,6 +1511,28 @@ fn vfio_deinit_device(device: &VfioDevice) {
             .remove(hole.gpa, hole.size)
             .unwrap();
     }
+}
+
+/// Create KVM_DEV_TYPE_VFIO device
+fn vfio_create_kvm_vfio_device(vm: &KvmVm) -> Result<kvm_ioctls::DeviceFd, VfioError> {
+    let mut vfio_dev = kvm_create_device {
+        type_: kvm_device_type_KVM_DEV_TYPE_VFIO,
+        fd: 0,
+        flags: 0,
+    };
+    vm.fd()
+        .create_device(&mut vfio_dev)
+        .map_err(VfioError::KVMCreateVfioDevice)
+}
+
+/// Create a VfioContainer wrapper around both KVM vfio device and VFIO container
+pub fn vfio_create_kvm_vfio_device_and_vfio_container(
+    vm: &KvmVm,
+) -> Result<Arc<VfioContainer>, VfioError> {
+    let kvm_device_fd = vfio_create_kvm_vfio_device(vm)?;
+    let device_fd = VfioDeviceFd::new_from_kvm(kvm_device_fd);
+    let container = VfioContainer::new(Some(Arc::new(device_fd)))?;
+    Ok(Arc::new(container))
 }
 
 #[cfg(test)]
