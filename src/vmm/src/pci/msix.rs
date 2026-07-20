@@ -161,6 +161,19 @@ impl MsixConfig {
         }
     }
 
+    /// Create a u16 value represeting msg_ctl register
+    pub fn as_msg_ctl(&self) -> u16 {
+        assert!(!self.table_entries.is_empty());
+        assert!(self.table_entries.len() <= MAX_MSIX_VECTORS_PER_DEVICE as usize);
+        #[allow(clippy::cast_possible_truncation)]
+        let table_size: u16 = self.table_entries.len() as u16 - 1;
+        let function_mask = u16::from(self.masked);
+        let msix_enable = u16::from(self.enabled);
+        (msix_enable << u16::from(MSIX_ENABLE_BIT))
+            | (function_mask << u16::from(FUNCTION_MASK_BIT))
+            | table_size
+    }
+
     /// Set the MSI-X control message (enable/disable, (un)mask)
     pub fn set_msg_ctl(&mut self, reg: u16) {
         let old_masked = self.masked;
