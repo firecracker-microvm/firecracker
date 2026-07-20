@@ -1,21 +1,80 @@
 // Copyright 2026 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
+use std::ops::DerefMut;
+use std::sync::Arc;
+
 use vfio_bindings::bindings::vfio::*;
 pub use vfio_ioctls::{
     VfioContainer, VfioDevice as InternalVfioDevice, VfioDeviceFd, VfioRegionInfoCap,
     VfioRegionInfoCapSparseMmap, VfioRegionSparseMmapArea,
 };
+use vm_allocator::{AllocPolicy, RangeInclusive};
 use zerocopy::IntoBytes;
 
-use crate::logger::debug;
+use crate::arch::host_page_size;
+use crate::logger::{debug, warn};
+use crate::pci::configuration::{
+    Bars, NUM_BAR_REGS, decode_32_bits_bar_size, decode_64_bits_bar_size,
+};
 use crate::pci::msix::MsixCap;
 use crate::pci::{PciCapabilityId, PciExpressCapabilityId};
+use crate::utils::usize_to_u64;
+use crate::vstate::resources::ResourceAllocator;
+use crate::vstate::vm::KvmVm;
 
+// First BAR offset in the PCI config space.
+const PCI_CONFIG_BAR_OFFSET: u32 = 0x10;
 // Capability register offset in the PCI config space.
 const PCI_CONFIG_CAPABILITY_OFFSET: u32 = 0x34;
 // Extended capabilities register offset in the PCI config space.
 const PCI_CONFIG_EXTENDED_CAPABILITY_OFFSET: u16 = 0x100;
+// IO BAR when first BAR bit is 1.
+const PCI_CONFIG_IO_BAR: u32 = 1 << 0;
+// 64-bit memory bar flag.
+const PCI_CONFIG_MEMORY_BAR_64BIT: u32 = 1 << 2;
+// Prefetchable BAR bit
+const PCI_CONFIG_BAR_PREFETCHABLE: u32 = 1 << 3;
+
+/// VfioError
+#[derive(Debug, thiserror::Error, displaydoc::Display)]
+pub enum VfioError {
+    /// Failed to allocate guest address for BAR
+    BarAllocation,
+}
+
+/// Wrapper around `Bars` type to automate dropping
+#[derive(Debug)]
+pub struct VfioBars {
+    /// bars
+    pub bars: Bars,
+    /// vm
+    pub vm: Arc<KvmVm>,
+}
+
+impl VfioBars {
+    /// New VfioBars
+    fn new(device: &InternalVfioDevice, vm: Arc<KvmVm>) -> Result<Self, VfioError> {
+        let bar_infos: [VfioBarInfo; NUM_BAR_REGS as usize] = std::array::from_fn(|i| {
+            #[allow(clippy::cast_possible_truncation)]
+            vfio_device_get_single_bar_info(device, i as u8)
+        });
+        let bars = {
+            let mut resource_allocator_lock = vm.resource_allocator();
+            let resource_allocator = resource_allocator_lock.deref_mut();
+            vfio_device_allocate_bars(resource_allocator, &bar_infos)?
+        };
+        Ok(Self { bars, vm })
+    }
+}
+
+impl Drop for VfioBars {
+    fn drop(&mut self) {
+        let mut resource_allocator_lock = self.vm.resource_allocator();
+        let resource_allocator = resource_allocator_lock.deref_mut();
+        vfio_deallocate_bars(resource_allocator, &self.bars);
+    }
+}
 
 /// Mask for specific register in the configuration space
 #[derive(Debug)]
@@ -270,9 +329,169 @@ fn vfio_device_get_pci_capabilities(
     (msix_cap_and_register, masks)
 }
 
+/// Internal type storing BAR value and size obtained from the device
+#[derive(Debug)]
+struct VfioBarInfo {
+    /// value
+    value: u32,
+    /// size
+    size: u32,
+}
+
+fn vfio_device_get_single_bar_info(device: &InternalVfioDevice, bar_idx: u8) -> VfioBarInfo {
+    // PCIe spec revision 6.0: 7.5.1.2.1 Base Address Registers
+    // IMPLEMENTATION NOTE: SIZING A 32-BIT BASE ADDRESS REGISTER
+    let bar_offset = u64::from(PCI_CONFIG_BAR_OFFSET) + u64::from(bar_idx) * 4;
+    let mut value: u32 = 0;
+    let mut size: u32 = 0;
+    device.region_read(
+        VFIO_PCI_CONFIG_REGION_INDEX,
+        value.as_mut_bytes(),
+        bar_offset,
+    );
+    device.region_write(
+        VFIO_PCI_CONFIG_REGION_INDEX,
+        0xffff_ffff_u32.as_bytes(),
+        bar_offset,
+    );
+    device.region_read(
+        VFIO_PCI_CONFIG_REGION_INDEX,
+        size.as_mut_bytes(),
+        bar_offset,
+    );
+    device.region_write(VFIO_PCI_CONFIG_REGION_INDEX, value.as_bytes(), bar_offset);
+    VfioBarInfo { value, size }
+}
+
+fn vfio_device_allocate_bars(
+    resource_allocator: &mut ResourceAllocator,
+    bar_infos: &[VfioBarInfo; 6],
+) -> Result<Bars, VfioError> {
+    let mut bars = Bars::default();
+    let mut bar_idx = 0;
+    while bar_idx < NUM_BAR_REGS {
+        let VfioBarInfo {
+            value: bar_value,
+            size: mut bar_size_lower,
+        } = bar_infos[bar_idx as usize];
+
+        let is_io_bar = bar_value & PCI_CONFIG_IO_BAR != 0;
+        let is_64_bits = bar_value & PCI_CONFIG_MEMORY_BAR_64BIT != 0;
+        let is_prefetchable = bar_value & PCI_CONFIG_BAR_PREFETCHABLE != 0;
+
+        if is_64_bits && bar_idx == NUM_BAR_REGS - 1 {
+            warn!("BAR{bar_idx} is last BAR but marked as 64bit. Skipping");
+            break;
+        }
+
+        let size = if is_io_bar {
+            bar_size_lower &= !0b11;
+            u64::from(decode_32_bits_bar_size(bar_size_lower))
+        } else if !is_64_bits {
+            bar_size_lower &= !0b1111;
+            u64::from(decode_32_bits_bar_size(bar_size_lower))
+        } else {
+            bar_size_lower &= !0b1111;
+            let VfioBarInfo {
+                value: _,
+                size: bar_size_upper,
+            } = bar_infos[(bar_idx + 1) as usize];
+            decode_64_bits_bar_size(bar_size_upper, bar_size_lower)
+        };
+
+        if size.is_power_of_two() {
+            if size != 0 {
+                fn calculate_alignment(size: u64) -> u64 {
+                    // PCIe spec revision 6.0: 7.5.1.2.1 Base Address Registers
+                    // This design implies that all address spaces used are a power of two
+                    // in size and are naturally aligned.
+                    let alignment = std::cmp::max(host_page_size(), 1 << size.trailing_zeros());
+                    usize_to_u64(alignment)
+                }
+
+                let idx = bar_idx;
+                let gpa;
+                if is_io_bar {
+                    warn!(
+                        "BAR{bar_idx} size: {size:>#10x} io_bar: {is_io_bar} 64bits: {is_64_bits} \
+                         prefetchable: {is_prefetchable} Skipping IO BAR"
+                    );
+                    bar_idx += 1;
+                    continue;
+                } else if is_64_bits {
+                    let alignment = calculate_alignment(size);
+                    let range = resource_allocator
+                        .mmio64_memory
+                        .allocate(size, alignment, AllocPolicy::FirstMatch)
+                        .map_err(|_| VfioError::BarAllocation)?;
+                    gpa = range.start();
+                    if gpa.checked_add(size - 1).is_some() {
+                        bars.set_bar_64(idx, gpa, size, is_prefetchable.into());
+                    } else {
+                        resource_allocator.mmio64_memory.free(&range).unwrap();
+                        return Err(VfioError::BarAllocation);
+                    }
+                } else {
+                    let alignment = calculate_alignment(size);
+                    let range = resource_allocator
+                        .mmio32_memory
+                        .allocate(size, alignment, AllocPolicy::FirstMatch)
+                        .map_err(|_| VfioError::BarAllocation)?;
+                    gpa = range.start();
+                    let gpa = u32::try_from(gpa).unwrap();
+                    let size = u32::try_from(size).unwrap();
+                    if gpa.checked_add(size - 1).is_some() {
+                        bars.set_bar_32(idx, gpa, size, is_prefetchable.into());
+                    } else {
+                        resource_allocator.mmio32_memory.free(&range).unwrap();
+                        return Err(VfioError::BarAllocation);
+                    }
+                }
+                debug!(
+                    "BAR{bar_idx} gpa: [{:#x}..{:#x}] size: {size:>#10x} io_bar: {is_io_bar} \
+                     64bits: {is_64_bits} prefetchable: {is_prefetchable}",
+                    gpa,
+                    gpa + size
+                );
+            } else {
+                debug!("BAR{bar_idx} has 0 size. Skipping");
+            }
+        } else {
+            warn!("BAR{bar_idx} has non power of 2 size: {size}. Skipping");
+        }
+        if is_64_bits {
+            bar_idx += 1;
+        }
+        bar_idx += 1;
+    }
+    Ok(bars)
+}
+
+fn vfio_deallocate_bars(resource_allocator: &mut ResourceAllocator, bars: &Bars) {
+    let mut bar_idx = 0;
+    while bar_idx < NUM_BAR_REGS {
+        if bars.bars[bar_idx as usize].used() {
+            let start = bars.get_bar_addr(bar_idx);
+            let size = bars.get_bar_size(bar_idx);
+            // SAFETY: these values were provided by the allocator in the first place
+            let range = RangeInclusive::new(start, start + size - 1).unwrap();
+            if bars.bars[bar_idx as usize].is_64bit() {
+                resource_allocator.mmio64_memory.free(&range).unwrap();
+                bar_idx += 2;
+            } else {
+                resource_allocator.mmio32_memory.free(&range).unwrap();
+                bar_idx += 1;
+            }
+        } else {
+            bar_idx += 1;
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::pci::configuration::{encode_32_bits_bar_size, encode_64_bits_bar_size};
 
     fn config_space_write_u8(config_space: &mut [u32; 1024], offset: u32, val: u8) {
         let reg = &mut config_space[(offset / 4) as usize];
@@ -505,5 +724,165 @@ mod tests {
         let (msix, masks) = vfio_device_get_pci_capabilities(&config_space);
         assert!(msix.is_none());
         assert!(masks.is_empty());
+    }
+
+    #[test]
+    fn test_vfio_device_allocate_bars_valid_64bit_bars() {
+        let mut bar_infos: [VfioBarInfo; NUM_BAR_REGS as usize] =
+            std::array::from_fn(|_| VfioBarInfo { value: 0, size: 0 });
+
+        let (size_hi, size_lo) = encode_64_bits_bar_size(8 << 30);
+        for i in (0..NUM_BAR_REGS).step_by(2) {
+            bar_infos[i as usize] = VfioBarInfo {
+                value: PCI_CONFIG_MEMORY_BAR_64BIT | PCI_CONFIG_BAR_PREFETCHABLE,
+                size: size_lo,
+            };
+            bar_infos[(i + 1) as usize] = VfioBarInfo {
+                value: 0,
+                size: size_hi,
+            };
+        }
+
+        let mut resource_allocator = ResourceAllocator::new();
+        let bars = vfio_device_allocate_bars(&mut resource_allocator, &bar_infos).unwrap();
+        for i in (0..NUM_BAR_REGS).step_by(2) {
+            assert!(bars.bars[i as usize].used());
+            assert!(bars.bars[i as usize].is_64bit());
+            assert!(bars.bars[0].is_prefetchable());
+            assert_eq!(bars.get_bar_size_64(i), 8 << 30);
+        }
+    }
+
+    #[test]
+    fn test_vfio_device_allocate_bars_valid_32bit_bars() {
+        let bar_infos: [VfioBarInfo; NUM_BAR_REGS as usize] =
+            std::array::from_fn(|_| VfioBarInfo {
+                value: PCI_CONFIG_BAR_PREFETCHABLE,
+                size: encode_32_bits_bar_size(64 << 20),
+            });
+
+        let mut resource_allocator = ResourceAllocator::new();
+        let bars = vfio_device_allocate_bars(&mut resource_allocator, &bar_infos).unwrap();
+        for i in 0..NUM_BAR_REGS {
+            assert_eq!(bars.get_bar_size_32(i), 64 << 20);
+            assert!(bars.bars[i as usize].used());
+            assert!(!bars.bars[i as usize].is_64bit());
+            assert!(bars.bars[i as usize].is_prefetchable());
+        }
+
+        // We just allocated 6 * 64MB = 386MB of 32bit mmio space. On both x86 and aarch64 the 32
+        // bit space is ~750MB, so additional allocation must fail
+        vfio_device_allocate_bars(&mut resource_allocator, &bar_infos).unwrap_err();
+    }
+
+    #[test]
+    fn test_vfio_device_allocate_bars_invalid_32bit_bars() {
+        // zero size
+        {
+            let bar_infos: [VfioBarInfo; NUM_BAR_REGS as usize] =
+                std::array::from_fn(|_| VfioBarInfo { value: 0, size: 0 });
+
+            let mut resource_allocator = ResourceAllocator::new();
+            let bars = vfio_device_allocate_bars(&mut resource_allocator, &bar_infos).unwrap();
+            for i in 0..NUM_BAR_REGS {
+                assert!(!bars.bars[i as usize].used());
+            }
+        }
+
+        // non power of 2 size
+        {
+            let bar_infos: [VfioBarInfo; NUM_BAR_REGS as usize] =
+                std::array::from_fn(|_| VfioBarInfo {
+                    value: 0,
+                    size: encode_32_bits_bar_size(0x69),
+                });
+
+            let mut resource_allocator = ResourceAllocator::new();
+            let bars = vfio_device_allocate_bars(&mut resource_allocator, &bar_infos).unwrap();
+            for i in 0..NUM_BAR_REGS {
+                assert!(!bars.bars[i as usize].used());
+            }
+        }
+    }
+
+    #[test]
+    fn test_vfio_device_allocate_bars_io_bar_skipped() {
+        let bar_infos: [VfioBarInfo; NUM_BAR_REGS as usize] =
+            std::array::from_fn(|_| VfioBarInfo {
+                value: PCI_CONFIG_IO_BAR,
+                size: encode_32_bits_bar_size(1 << 29),
+            });
+
+        let mut resource_allocator = ResourceAllocator::new();
+        let bars = vfio_device_allocate_bars(&mut resource_allocator, &bar_infos).unwrap();
+        for i in 0..NUM_BAR_REGS {
+            assert!(!bars.bars[i as usize].used());
+        }
+    }
+
+    #[test]
+    fn test_vfio_device_allocate_bars_last_bar_64bit_skipped() {
+        let mut bar_infos: [VfioBarInfo; NUM_BAR_REGS as usize] =
+            std::array::from_fn(|_| VfioBarInfo { value: 0, size: 0 });
+
+        let (size_hi, size_lo) = encode_64_bits_bar_size(8 << 30);
+        bar_infos[5] = VfioBarInfo {
+            value: PCI_CONFIG_MEMORY_BAR_64BIT,
+            size: size_lo,
+        };
+        let _ = size_hi;
+
+        let mut resource_allocator = ResourceAllocator::new();
+        let bars = vfio_device_allocate_bars(&mut resource_allocator, &bar_infos).unwrap();
+        assert!(!bars.bars[5].used());
+    }
+
+    #[test]
+    fn test_vfio_deallocate_bars_32bit() {
+        let bar_infos: [VfioBarInfo; NUM_BAR_REGS as usize] =
+            std::array::from_fn(|_| VfioBarInfo {
+                value: 0,
+                size: encode_32_bits_bar_size(64 << 20),
+            });
+
+        let mut resource_allocator = ResourceAllocator::new();
+        let bars = vfio_device_allocate_bars(&mut resource_allocator, &bar_infos).unwrap();
+        let first_bar_addr = bars.get_bar_addr_32(0);
+
+        vfio_deallocate_bars(&mut resource_allocator, &bars);
+
+        let bars2 = vfio_device_allocate_bars(&mut resource_allocator, &bar_infos).unwrap();
+        let first_bar_addr2 = bars2.get_bar_addr_32(0);
+        assert_eq!(first_bar_addr, first_bar_addr2);
+        for i in 0..NUM_BAR_REGS {
+            assert!(bars2.bars[i as usize].used());
+        }
+    }
+
+    #[test]
+    fn test_vfio_deallocate_bars_64bit() {
+        let mut bar_infos: [VfioBarInfo; NUM_BAR_REGS as usize] =
+            std::array::from_fn(|_| VfioBarInfo { value: 0, size: 0 });
+
+        let (size_hi, size_lo) = encode_64_bits_bar_size(0x10000);
+        bar_infos[0] = VfioBarInfo {
+            value: PCI_CONFIG_MEMORY_BAR_64BIT,
+            size: size_lo,
+        };
+        bar_infos[1] = VfioBarInfo {
+            value: 0,
+            size: size_hi,
+        };
+
+        let mut resource_allocator = ResourceAllocator::new();
+        let bars = vfio_device_allocate_bars(&mut resource_allocator, &bar_infos).unwrap();
+        let first_bar_addr = bars.get_bar_addr_64(0);
+
+        vfio_deallocate_bars(&mut resource_allocator, &bars);
+
+        let bars2 = vfio_device_allocate_bars(&mut resource_allocator, &bar_infos).unwrap();
+        let first_bar_addr2 = bars2.get_bar_addr_64(0);
+        assert_eq!(first_bar_addr, first_bar_addr2);
+        assert!(bars2.bars[0].used());
     }
 }
