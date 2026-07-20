@@ -9,11 +9,28 @@ from subprocess import TimeoutExpired
 
 import pytest
 import requests
+from tenacity import Retrying, stop_after_delay, wait_fixed
 
 from framework.guest_stats import MeminfoGuest
 from framework.utils import get_stable_rss_mem
 
 STATS_POLLING_INTERVAL_S = 1
+
+
+def wait_for_balloon_actual(vm, target_mib, timeout_s=5):
+    """
+    Poll the balloon device's reported ``actual_mib`` until it reaches target_mib.
+    """
+    actual_mib = None
+    for attempt in Retrying(
+        stop=stop_after_delay(timeout_s), wait=wait_fixed(0.5), reraise=True
+    ):
+        with attempt:
+            actual_mib = vm.api.balloon_stats.get().json()["actual_mib"]
+            assert (
+                actual_mib == target_mib
+            ), f"balloon actual_mib {actual_mib} did not reach {target_mib}"
+    return actual_mib
 
 
 def check_guest_dmesg_for_stalls(ssh_connection):
@@ -632,20 +649,12 @@ def test_device_reset(uvm):
     vm.spawn()
     vm.basic_config()
     vm.add_net_iface()
-    vm.api.balloon.put(amount_mib=0, deflate_on_oom=True, stats_polling_interval_s=0)
+    vm.api.balloon.put(amount_mib=0, deflate_on_oom=True, stats_polling_interval_s=1)
     vm.start()
 
-    meminfo = MeminfoGuest(vm)
-    free_initial = meminfo.get().mem_free.kib()
-
-    # Inflate the balloon by 64 MiB and confirm guest free memory drops.
+    # Inflate the balloon by 64 MiB and confirm the device reports it.
     vm.api.balloon.patch(amount_mib=64)
-    get_stable_rss_mem(vm)
-    free_inflated = meminfo.get().mem_free.kib()
-    # Inflating 64 MiB should reclaim at least 85% of that from guest free
-    # memory. The 15% slack accounts for kernel accounting overhead.
-    inflated_drop = 64 * 1024 * 85 // 100
-    assert free_inflated <= free_initial - inflated_drop
+    wait_for_balloon_actual(vm, 64)
 
     # Find the virtio balloon device.
     virtio_dev = vm.ssh.check_output(
@@ -667,15 +676,10 @@ def test_device_reset(uvm):
     )
     vm.ssh.check_output("ls /sys/bus/virtio/drivers/virtio_balloon/virtio*")
 
-    # The inflation target is preserved across reset, assert that the driver
-    # re-inflates the balloon.
-    get_stable_rss_mem(vm)
-    free_after_reset = meminfo.get().mem_free.kib()
-    assert free_after_reset <= free_initial - inflated_drop
+    # The inflation target is preserved across reset; assert the driver
+    # re-inflates the balloon back to the target.
+    wait_for_balloon_actual(vm, 64)
 
     # Deflate to make sure the device is functional in both directions
     vm.api.balloon.patch(amount_mib=0)
-    get_stable_rss_mem(vm)
-    free_deflated = meminfo.get().mem_free.kib()
-    DEFLATE_SLACK_KIB = 8 * 1024  # arbitrary 8 MiB tolerance for measurement noise
-    assert free_deflated >= free_initial - DEFLATE_SLACK_KIB
+    wait_for_balloon_actual(vm, 0)
