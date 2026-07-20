@@ -16,6 +16,7 @@ pub use vfio_ioctls::{
     VfioRegionInfoCapSparseMmap, VfioRegionSparseMmapArea,
 };
 use vm_allocator::{AllocPolicy, RangeInclusive};
+use vm_memory::{GuestMemoryBackend, GuestMemoryRegion};
 use vmm_sys_util::eventfd::EventFd;
 use zerocopy::IntoBytes;
 
@@ -33,6 +34,7 @@ use crate::utils::{
 use crate::vmm_config::device_passthrough::DevicePassthroughConfig;
 use crate::vstate::bus::BusDevice;
 use crate::vstate::interrupts::InterruptError;
+use crate::vstate::memory::{GuestMemoryMmap, GuestRegionType};
 use crate::vstate::resources::ResourceAllocator;
 use crate::vstate::vm::{KvmVm, VmError};
 
@@ -1217,6 +1219,34 @@ fn vfio_deinit_device(device: &VfioDevice) {
     for mapping in device.bar_mappings.iter() {
         vfio_unmap_bar_mapping(device.vm.as_ref(), mapping);
     }
+}
+
+/// Establish DMA mapping of the DRAM regions of the guest memory with the VFIO container
+/// This should be only called once after the `VfioContainer` is created.
+/// If this function returns an error, the container should be destroyed.
+pub fn vfio_dma_map_guest_memory(
+    container: &VfioContainer,
+    guest_memory: &GuestMemoryMmap,
+) -> Result<(), VfioError> {
+    for region in guest_memory.iter() {
+        if region.region_type == GuestRegionType::Dram {
+            let region = &region.inner;
+            let hva = region.as_ptr();
+            let iova = region.start_addr().0;
+            let size = region.size();
+            debug!(
+                "DMA map guest memory: [{:#x}..{:#x}]",
+                iova,
+                iova + size as u64
+            );
+            // SAFETY: all arguments are from the existing guest memory region
+            // After this operation, virtual memory will have pinned physical pages backing it
+            if let Err(e) = unsafe { container.vfio_dma_map(iova, size, hva) } {
+                return Err(VfioError::VfioIoctls(e));
+            }
+        }
+    }
+    Ok(())
 }
 
 #[cfg(test)]
