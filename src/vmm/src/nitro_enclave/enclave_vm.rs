@@ -19,6 +19,7 @@ use crate::nitro_enclave::info_page::InfoPage;
 use crate::nitro_enclave::ne_ioctl::{EnclaveFd, NitroEnclavesDevFd};
 use crate::nitro_enclave::serial_console::ConsoleReader;
 use crate::utils::u64_to_usize;
+use crate::vmm_config::enclave::EnclaveConfig;
 use crate::vstate::memory::{GuestMemoryMmap, GuestRegionMmapExt, MemoryError};
 
 /// Errors from enclave VM operations.
@@ -92,10 +93,9 @@ pub struct EnclaveVm {
     enclave_fd: EnclaveFd,
     /// Slot UID assigned by the hypervisor on `NE_CREATE_VM2`.
     slot_uid: u64,
-    /// Whether the enclave was started with PCIE hotplug mode.
-    hotplug_enabled: bool,
-    /// DMB size in MiB for confidential mode; `None` in direct mode.
-    dmb_size_mib: Option<u64>,
+    /// Normalized running config (numa_nodes sorted); source of truth for
+    /// `GET /enclave`.
+    config: EnclaveConfig,
     /// Info page for PCIE topology mode.
     info_page: Option<Arc<InfoPage>>,
     /// Donated enclave RAM; `None` until `load_and_add_memory` runs.
@@ -183,15 +183,11 @@ impl EnclaveVm {
     /// `NE_CREATE_VM2` with `create_flags`.
     ///
     /// `create_flags` carries every NE_ENCLAVE_*_MODE bit EXCEPT DEBUG
-    /// (DEBUG is per-launch and travels with NE_START_ENCLAVE). Callers
-    /// typically open the device fd and call `get_supported_flags()` before
-    /// this, so they can compose `create_flags` against what the hypervisor
-    /// actually supports.
+    /// (DEBUG is per-launch and travels with NE_START_ENCLAVE).
     pub fn new(
         dev_fd: NitroEnclavesDevFd,
         create_flags: u32,
-        hotplug_enabled: bool,
-        dmb_size_mib: Option<u64>,
+        config: EnclaveConfig,
     ) -> Result<Self, EnclaveVmError> {
         let (enclave_fd, slot_uid) = dev_fd
             .create_vm(create_flags)
@@ -202,8 +198,7 @@ impl EnclaveVm {
             dev_fd,
             enclave_fd,
             slot_uid,
-            hotplug_enabled,
-            dmb_size_mib,
+            config,
             info_page: None,
             enclave_ram: None,
             console: None,
@@ -215,14 +210,19 @@ impl EnclaveVm {
         self.slot_uid
     }
 
+    /// The config the enclave is running with.
+    pub fn config(&self) -> EnclaveConfig {
+        self.config.clone()
+    }
+
     /// Whether the enclave was started with PCIE hotplug mode.
     pub fn hotplug_enabled(&self) -> bool {
-        self.hotplug_enabled
+        self.config.hotplug_mode
     }
 
     /// Per-device DMB size in MiB for confidential mode; `None` in direct mode.
     pub fn dmb_size_mib(&self) -> Option<u64> {
-        self.dmb_size_mib
+        self.config.dmb_size_mib()
     }
 
     /// Retain the CPU-accounting threads so they are stopped and joined when

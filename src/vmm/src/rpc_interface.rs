@@ -884,8 +884,7 @@ impl RuntimeApiController {
                 self.vmm
                     .lock()
                     .expect("Poisoned lock")
-                    .enclave_config
-                    .clone()
+                    .enclave_config()
                     .unwrap_or_default(),
             )),
             UpdateNetworkInterface(netif_update) => self.update_net_rate_limiters(netif_update),

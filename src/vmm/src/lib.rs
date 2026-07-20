@@ -149,6 +149,7 @@ use crate::devices::virtio::rng::Entropy;
 use crate::devices::virtio::vsock::{Vsock, VsockUnixBackend};
 use crate::logger::{METRICS, MetricsError, log_dev_preview_warning};
 use crate::mmds::data_store::Mmds;
+use crate::nitro_enclave::enclave_vm::EnclaveVm;
 use crate::persist::{MicrovmState, MicrovmStateError, VmInfo};
 use crate::rate_limiter::BucketUpdate;
 use crate::resources::VmmConfig;
@@ -317,8 +318,6 @@ pub struct Vmm {
     pub vm: Vm,
     // Device manager
     device_manager: DeviceManager,
-    /// Enclave configuration (if running in enclave mode).
-    pub enclave_config: Option<EnclaveConfig>,
 }
 
 impl Vmm {
@@ -441,8 +440,15 @@ impl Vmm {
             // serial_config is marked serde(skip) so that it doesnt end up in snapshots
             serial_config: None,
             memory_hotplug,
-            enclave: self.enclave_config.clone(),
+            enclave: self.enclave_config(),
         }
+    }
+
+    /// The config of the running enclave, reconstructed from the `EnclaveVm`, or
+    /// `None` for a non-enclave (KVM) VM. The single source of truth for the
+    /// enclave config after boot.
+    pub fn enclave_config(&self) -> Option<EnclaveConfig> {
+        self.vm.as_enclave().map(EnclaveVm::config)
     }
 
     /// Check if the VM has any devices without snapshot support
