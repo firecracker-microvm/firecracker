@@ -108,6 +108,8 @@ pub mod snapshot;
 pub mod test_utils;
 /// Utility functions and struct
 pub mod utils;
+/// VFIO device configuration and emulation
+pub mod vfio;
 /// Wrappers over structures used to configure the VMM.
 pub mod vmm_config;
 /// Module with virtual state structs.
