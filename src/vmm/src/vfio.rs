@@ -15,6 +15,7 @@ pub use vfio_ioctls::{
     VfioRegionInfoCapSparseMmap, VfioRegionSparseMmapArea,
 };
 use vm_allocator::{AllocPolicy, RangeInclusive};
+use vm_memory::{GuestMemoryBackend, GuestMemoryRegion};
 use vmm_sys_util::eventfd::EventFd;
 use zerocopy::IntoBytes;
 
@@ -32,6 +33,7 @@ use crate::utils::{
 use crate::vmm_config::vfio::VfioConfig;
 use crate::vstate::bus::BusDevice;
 use crate::vstate::interrupts::InterruptError;
+use crate::vstate::memory::{GuestMemoryMmap, GuestRegionType};
 use crate::vstate::resources::ResourceAllocator;
 use crate::vstate::vm::KvmVm;
 
@@ -59,12 +61,12 @@ pub enum VfioError {
     KvmSlot,
     /// Failed to set KVM user memory region: {0}
     SetUserMemoryRegion(String),
-    /// vfio-ioctls crate error: {0}
-    VfioIoctls(#[from] vfio_ioctls::VfioError),
     /// Cannot create Msix vector group: {0}
     MsixConfig(#[from] InterruptError),
     /// Device does not provide MSIx irq
     NoMsixIrq,
+    /// vfio-ioctls crate error: {0}
+    VfioIoctls(#[from] vfio_ioctls::VfioError),
     /// BAR{0} MSI-X table at offset {1:#x} size {2:#x} does not fit in region of size {3:#x}
     MsixTableOutOfRange(u8, u64, u64, u64),
     /// BAR{0} MSI-X PBA at offset {1:#x} size {2:#x} does not fit in region of size {3:#x}
@@ -1179,6 +1181,57 @@ fn vfio_calculate_bar_areas(
         bar_idx += 1;
     }
     Ok((areas, bar_hole_infos))
+}
+
+/// Establish DMA mapping of the Dram region of the guest memory with the vfio container
+pub fn vfio_dma_map_guest_memory(
+    container: &VfioContainer,
+    guest_memory: &GuestMemoryMmap,
+) -> Result<(), VfioError> {
+    for (i, region) in guest_memory.iter().enumerate() {
+        if region.region_type == GuestRegionType::Dram {
+            let region = &region.inner;
+            let hva = region.as_ptr();
+            let iova = region.start_addr().0;
+            let size = region.size();
+            debug!(
+                "DMA map guest memory: [{:#x}..{:#x}]",
+                iova,
+                iova + size as u64
+            );
+            // SAFETY: all arguments are from the existing guest memory region
+            // After this operation, virtual memory will have a pinned physical pages backing it
+            if let Err(e) = unsafe { container.vfio_dma_map(iova, size, hva) } {
+                // Try to remove DMA mapping if anything fails. If unmap also fails, just log it
+                // since there is nothing we can do about it.
+                // Since the failed region is at index 'i', we only care about [0..i) regions
+                for region in guest_memory.iter().take(i) {
+                    if region.region_type == GuestRegionType::Dram {
+                        let iova = region.start_addr().0;
+                        let size = region.size();
+                        if let Err(ee) = container.vfio_dma_unmap(iova, size) {
+                            error!("Failed to unmap DMA from guest memory: {ee}");
+                        }
+                    }
+                }
+                return Err(VfioError::VfioIoctls(e));
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Tear down DMA mapping of the Dram guest memory from the vfio container
+pub fn vfio_dma_unmap_guest_memory(container: &VfioContainer, guest_memory: &GuestMemoryMmap) {
+    for region in guest_memory.iter() {
+        if region.region_type == GuestRegionType::Dram {
+            let iova = region.start_addr().0;
+            let size = region.size();
+            if let Err(ee) = container.vfio_dma_unmap(iova, size) {
+                error!("Failed to unmap DMA from guest memory: {ee}");
+            }
+        }
+    }
 }
 
 fn vfio_map_bar_mapping(
