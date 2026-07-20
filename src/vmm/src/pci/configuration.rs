@@ -77,10 +77,17 @@ impl Bar {
     pub fn used(&self) -> bool {
         !(self.encoded_addr == 0 && self.encoded_size == 0)
     }
+
     /// Is this a 64bit BAR
     /// Must be called only on lower register of the BAR
     pub fn is_64bit(&self) -> bool {
         (self.encoded_addr & 0b100) == 0b100
+    }
+
+    /// Is this a Prefetchable BAR
+    /// Must be called only on lower register of the BAR
+    pub fn is_prefetchable(&self) -> bool {
+        (self.encoded_addr & 0b1000) == 0b1000
     }
 }
 
@@ -92,6 +99,16 @@ pub enum BarPrefetchable {
     No = 0,
     /// Yes
     Yes = 1,
+}
+
+impl From<bool> for BarPrefetchable {
+    fn from(value: bool) -> Self {
+        if value {
+            BarPrefetchable::Yes
+        } else {
+            BarPrefetchable::No
+        }
+    }
 }
 
 /// Type to handle basic interactions with BARs region
@@ -252,9 +269,9 @@ pub trait PciCapability {
     fn id(&self) -> PciCapabilityId;
 }
 
-// Encode 32bit BAR size
-// It assumes that bar_size is not 0
-fn encode_32_bits_bar_size(bar_size: u32) -> u32 {
+/// Encode 32bit BAR size
+/// It assumes that bar_size is not 0
+pub fn encode_32_bits_bar_size(bar_size: u32) -> u32 {
     assert_ne!(bar_size, 0);
     !(bar_size - 1)
 }
@@ -264,9 +281,9 @@ pub fn decode_32_bits_bar_size(encoded_size: u32) -> u32 {
     (!encoded_size).wrapping_add(1)
 }
 
-// Encode 64bit BAR size
-// It assumes that bar_size is not 0
-fn encode_64_bits_bar_size(bar_size: u64) -> (u32, u32) {
+/// Encode 64bit BAR size
+/// It assumes that bar_size is not 0
+pub fn encode_64_bits_bar_size(bar_size: u64) -> (u32, u32) {
     assert_ne!(bar_size, 0);
     let result = !(bar_size - 1);
     let result_hi = (result >> 32) as u32;
