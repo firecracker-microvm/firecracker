@@ -190,10 +190,121 @@ impl Drop for VfioDevice {
     }
 }
 
-// TODO this is a placeholder for now just to make addition to mmio_bus possible.
+// Internal type for distributing the emulated area accesses
+// between different components
+#[derive(Debug)]
+enum HandleBarAccessResult {
+    // Access partially overlaps MSIx table
+    PartialOverlap,
+    // Need to access MSIx table at some offset
+    MsixTable(u64),
+    // Need to pass access to the device to the specific BAR at specific offset
+    Device { bar_idx: u8, in_bar_offset: u64 },
+}
+
+// Distribute BAR access aiming at the emulated area
+fn vfio_distribute_bar_access(
+    msix_table_area: &VfioBarEmulatedArea,
+    msix_cap: &MsixCap,
+    base: u64,
+    offset: u64,
+    data_len: u64,
+) -> HandleBarAccessResult {
+    // SAFETY: if this is ever hit it would mean we have a bug in the code which adds
+    // VfioBarEmulatedArea into the MmioBus.
+    assert_eq!(msix_table_area.gpa, base);
+
+    let data_start = offset;
+    let data_end = offset + data_len;
+
+    // Layers above must ensure this
+    assert!(data_end <= msix_table_area.size);
+
+    let (t_off, t_size) = msix_cap.table_bar_offset_and_size();
+    let (t_off, t_size) = (t_off as u64, t_size as u64);
+    assert!(msix_table_area.in_bar_offset <= t_off);
+    let t_start = t_off - msix_table_area.in_bar_offset;
+    let t_end = t_start + t_size;
+    if t_start <= data_start && data_end <= t_end {
+        return HandleBarAccessResult::MsixTable(offset - t_start);
+    }
+    // Reject partial overlap with table.
+    // This should not happen in normal operations, but malicious
+    // driver can try this.
+    // In this case it should be fine to ignore the access altogether
+    if data_start < t_end && t_start < data_end {
+        return HandleBarAccessResult::PartialOverlap;
+    }
+
+    HandleBarAccessResult::Device {
+        bar_idx: msix_table_area.bar_idx,
+        in_bar_offset: msix_table_area.in_bar_offset + offset,
+    }
+}
+
 impl BusDevice for VfioDevice {
-    fn read(&mut self, _base: u64, _offset: u64, _data: &mut [u8]) {}
-    fn write(&mut self, _base: u64, _offset: u64, _data: &[u8]) -> Option<Arc<Barrier>> {
+    fn read(&mut self, base: u64, offset: u64, data: &mut [u8]) {
+        match vfio_distribute_bar_access(
+            &self.msix_state.emulated_area,
+            &self.msix_state.cap,
+            base,
+            offset,
+            usize_to_u64(data.len()),
+        ) {
+            HandleBarAccessResult::PartialOverlap => {
+                warn!(
+                    "[{}] BusDevice::read ignoring read with partial overlap: base: {base:#x} \
+                     offset: {offset:#x}",
+                    self.config.id
+                );
+                data.fill(0);
+            }
+            HandleBarAccessResult::MsixTable(offset) => {
+                self.msix_state.config.read_table(offset, data);
+            }
+            HandleBarAccessResult::Device {
+                bar_idx,
+                in_bar_offset,
+            } => {
+                let region_size = self.device.get_region_size(bar_idx as u32);
+                // If this ever fires, we have a bug in emulated area calculation code since
+                // the area expands past the region end
+                assert!(in_bar_offset + usize_to_u64(data.len()) <= region_size);
+                self.device.region_read(bar_idx as u32, data, in_bar_offset);
+            }
+        }
+    }
+
+    fn write(&mut self, base: u64, offset: u64, data: &[u8]) -> Option<Arc<Barrier>> {
+        match vfio_distribute_bar_access(
+            &self.msix_state.emulated_area,
+            &self.msix_state.cap,
+            base,
+            offset,
+            usize_to_u64(data.len()),
+        ) {
+            HandleBarAccessResult::PartialOverlap => {
+                warn!(
+                    "[{}] BusDevice::write ignoring write with partial overlap: base: {base:#x} \
+                     offset: {offset:#x}",
+                    self.config.id
+                );
+            }
+            HandleBarAccessResult::MsixTable(offset) => {
+                self.msix_state.config.write_table(offset, data);
+            }
+            HandleBarAccessResult::Device {
+                bar_idx,
+                in_bar_offset,
+            } => {
+                let region_size = self.device.get_region_size(bar_idx as u32);
+                // If this ever fires, we have a bug in emulated area calculation code since
+                // the area expands past the region end
+                assert!(in_bar_offset + usize_to_u64(data.len()) <= region_size);
+                self.device
+                    .region_write(bar_idx as u32, data, in_bar_offset);
+            }
+        }
         None
     }
 }
@@ -1873,5 +1984,62 @@ mod tests {
             err,
             VfioError::MsixTableOutOfRange(0, 0xff8, 16, 0x1000)
         ));
+    }
+
+    const BAR_GPA: u64 = 0x1000;
+
+    fn emulated_area_table_only() -> VfioBarEmulatedArea {
+        VfioBarEmulatedArea {
+            bar_idx: 0,
+            in_bar_offset: 0,
+            gpa: BAR_GPA,
+            size: 0x1000,
+        }
+    }
+
+    #[test]
+    fn test_distribute_bar_access_table_inside_table_range() {
+        let area = emulated_area_table_only();
+        let cap = MsixCap::new(0, 4, 0, 0, 0x800);
+        let result = vfio_distribute_bar_access(&area, &cap, BAR_GPA, 0x10, 4);
+        assert!(matches!(result, HandleBarAccessResult::MsixTable(0x10)));
+    }
+
+    #[test]
+    fn test_distribute_bar_access_table_outside_table_range_forwards_to_device() {
+        let area = emulated_area_table_only();
+        let cap = MsixCap::new(0, 4, 0, 0, 0x800);
+        let result = vfio_distribute_bar_access(&area, &cap, BAR_GPA, 0x100, 4);
+        assert!(matches!(
+            result,
+            HandleBarAccessResult::Device {
+                bar_idx: 0,
+                in_bar_offset: 0x100
+            }
+        ));
+    }
+
+    #[test]
+    fn test_distribute_bar_access_partial_overlap_table_start() {
+        let area = emulated_area_table_only();
+        let cap = MsixCap::new(0, 4, 0x100, 0, 0x800);
+        let result = vfio_distribute_bar_access(&area, &cap, BAR_GPA, 0xfe, 4);
+        assert!(matches!(result, HandleBarAccessResult::PartialOverlap));
+    }
+
+    #[test]
+    fn test_distribute_bar_access_partial_overlap_table_end() {
+        let area = emulated_area_table_only();
+        let cap = MsixCap::new(0, 4, 0, 0, 0x800);
+        let result = vfio_distribute_bar_access(&area, &cap, BAR_GPA, 0x3e, 4);
+        assert!(matches!(result, HandleBarAccessResult::PartialOverlap));
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_distribute_bar_access_unrelated_base_panics() {
+        let area = emulated_area_table_only();
+        let cap = MsixCap::new(0, 4, 0, 0, 0x800);
+        let _ = vfio_distribute_bar_access(&area, &cap, BAR_GPA + 0x1000, 0, 4);
     }
 }
