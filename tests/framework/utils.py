@@ -30,6 +30,7 @@ from tenacity import (
 )
 
 FLUSH_CMD = 'screen -S {session} -X colon "logfile flush 0^M"'
+ONLINE_CPUS_PATH = Path("/sys/devices/system/cpu/online")
 CommandReturn = namedtuple("CommandReturn", "returncode stdout stderr")
 CMDLOG = logging.getLogger("commands")
 
@@ -217,23 +218,23 @@ class CpuMap:
     of the machine instead of showing only the container assigned cores.
     This class maps the real assigned host cpu cores to virtual cpu cores,
     starting from 0.
-    """
 
-    arr = []
+    On enclave hosts, CPUs donated to Nitro Enclaves can remain in the
+    container affinity mask while being offline in the parent scheduler. Filter
+    offline CPUs out and recompute the map on each access because the online set
+    changes as enclaves start and stop.
+    """
 
     def __new__(cls, cpu):
         """Instantiate the class field."""
-        assert CpuMap.len() > cpu
-        if not CpuMap.arr:
-            CpuMap.arr = CpuMap._cpus()
-        return CpuMap.arr[cpu]
+        cpus = CpuMap._cpus()
+        assert len(cpus) > cpu
+        return cpus[cpu]
 
     @staticmethod
     def len():
         """Get the host cpus count."""
-        if not CpuMap.arr:
-            CpuMap.arr = CpuMap._cpus()
-        return len(CpuMap.arr)
+        return len(CpuMap._cpus())
 
     @classmethod
     def _cpus(cls):
@@ -242,13 +243,15 @@ class CpuMap:
         See this issue for details:
         https://github.com/moby/moby/issues/20770.
 
-        Note that this method is called only once when `CpuMap.arr` is
-        initialized.
+        This method is intentionally called on each access, because the online
+        CPU set changes as enclaves start and stop.
         """
         # https://psutil.readthedocs.io/en/latest/#psutil.Process.cpu_affinity
         # > If no argument is passed it returns the current CPU affinity as a
-        # > list of intergers.
-        return psutil.Process().cpu_affinity()
+        # > list of integers.
+        affinity = set(psutil.Process().cpu_affinity())
+        online = set(parse_cpu_list(ONLINE_CPUS_PATH.read_text("ascii").strip()))
+        return sorted(affinity & online)
 
 
 class CmdBuilder:
